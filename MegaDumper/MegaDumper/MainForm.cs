@@ -2116,18 +2116,11 @@ namespace Mega_Dumper
                                         }
                                         File.Move(fi.FullName, newFilename);
                                     }
-                                    else
-                                    {
-                                        // NO NAME FOUND: Do NOT move to Unknown. 
-                                        // Keep the rawdump_ADDRESS name.
-                                        // But DO move to appropriate folder (Native/System) if applicable.
-
-                                        if (finalDir != sourceDir) // If we decided it belongs in Native/System
-                                        {
-                                            string newFilename = Path.Combine(finalDir, fi.Name);
-                                            if (File.Exists(newFilename)) File.Delete(newFilename);
-                                            File.Move(fi.FullName, newFilename);
-                                        }
+                                    else {
+                                        // Force move all unnamed files (vdump/rawdump) to UnknownName folder
+                                        string newFilename = Path.Combine(ddirs.unknowndirname, fi.Name);
+                                        if (File.Exists(newFilename)) File.Delete(newFilename);
+                                        File.Move(fi.FullName, newFilename);
                                     }
                                 }
                                 catch
