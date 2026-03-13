@@ -38,7 +38,7 @@ impl Param {
         match param {
             Param::ConfigPath => "CONFIG_PATH", // incidents reports, exclusions list
             Param::NumVersion => "NUM_VERSION",
-            Param::RealTimeLearningPath => "REAL_TIME_ACTIVITY_PATH",
+            Param::RealTimeLearningPath => "REALTIME_LEARNING_PATH",
             Param::UtilsPath => "UTILS_PATH", // toast.exe
             Param::AppId => "APP_ID",         // AppUserModelID for toast notifications
             Param::KillPolicy => "KILL_POLICY", // SUSPEND / KILL
@@ -57,7 +57,7 @@ impl Param {
         match param {
             Param::ConfigPath => "config_path", // incidents reports, exclusions list
             Param::NumVersion => "num_version",
-            Param::RealTimeLearningPath => "real_time_activity_path",
+            Param::RealTimeLearningPath => "realtime_learning_path",
             Param::UtilsPath => "utils_path", // toast.exe
             Param::AppId => "app_id",         // AppUserModelID for toast notifications
             Param::KillPolicy => "kill_policy", // SUSPEND / KILL
@@ -110,7 +110,7 @@ impl Param {
         match param.as_str() {
             "CONFIG_PATH" => Param::ConfigPath, // incidents reports, exclusions list
             "NUM_VERSION" => Param::NumVersion,
-            "REAL_TIME_ACTIVITY_PATH" => Param::RealTimeLearningPath,
+            "REALTIME_LEARNING_PATH" => Param::RealTimeLearningPath,
             "UTILS_PATH" => Param::UtilsPath, // toast.exe
             "APP_ID" => Param::AppId,         // AppUserModelID for toast notifications
             "KILL_POLICY" => Param::KillPolicy, // SUSPEND / KILL
@@ -129,7 +129,7 @@ impl Param {
         match param.as_str() {
             "config_path" => Param::ConfigPath, // incidents reports, exclusions list
             "num_version" => Param::NumVersion,
-            "real_time_learning_path" => Param::RealTimeLearningPath,
+            "realtime_learning_path" => Param::RealTimeLearningPath,
             "utils_path" => Param::UtilsPath, // toast.exe
             "app_id" => Param::AppId,         // AppUserModelID for toast notifications
             "kill_policy" => Param::KillPolicy, // SUSPEND / KILL
