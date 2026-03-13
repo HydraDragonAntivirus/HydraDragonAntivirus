@@ -9,7 +9,7 @@ use std::time::SystemTime;
 use chrono::{DateTime, Local};
 use log::{warn};
 
-use crate::config::{Config, Param};
+use crate::config::Config;
 use crate::connectors::register::Connectors;
 use crate::predictions::prediction::input_tensors::VecvecCappedF32;
 use crate::process::{ProcessRecord, ProcessState};
@@ -137,7 +137,7 @@ impl ActionsOnKill {
 impl ActionOnKill for WriteReportFile {
     fn run(
         &self,
-        config: &Config,
+        _config: &Config,
         proc: &ProcessRecord,
         _pred_mtrx: &VecvecCappedF32,
         // MODIFIED: Use ThreatInfo
@@ -148,9 +148,10 @@ impl ActionOnKill for WriteReportFile {
             return Ok(());
         }
 
-        std::fs::create_dir_all(&report_dir)?;
+        let report_dir = crate::globals::report_dir();
+        std::fs::create_dir_all(report_dir)?;
             let basename = Path::new(&proc.appname).file_name().unwrap().to_str().unwrap();
-            let temp = Param::report_dir.join(Path::new(&format!(
+            let temp = report_dir.join(Path::new(&format!(
                 "{}_{}_report_{}.log",
                 &basename,
                 now,
@@ -196,7 +197,7 @@ impl ActionOnKill for WriteReportFile {
 impl ActionOnKill for WriteReportHtmlFile {
     fn run(
         &self,
-        config: &Config,
+        _config: &Config,
         proc: &ProcessRecord,
         _pred_mtrx: &VecvecCappedF32,
         // MODIFIED: Use ThreatInfo
@@ -207,7 +208,8 @@ impl ActionOnKill for WriteReportHtmlFile {
             return Ok(());
         }
 
-        std::fs::create_dir_all(&report_dir)?;
+        let report_dir = crate::globals::report_dir();
+        std::fs::create_dir_all(report_dir)?;
             let basename = Path::new(&proc.appname).file_name().unwrap().to_str().unwrap();
             let temp = match proc.process_state {
                 ProcessState::Suspended => report_dir.join(Path::new(&format!(

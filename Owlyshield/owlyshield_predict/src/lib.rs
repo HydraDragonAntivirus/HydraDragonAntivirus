@@ -2,7 +2,6 @@
 //! Re-exports and module structure aligned with main.rs and existing submodule requirements.
 
 extern crate num;
-#[macro_use]
 extern crate num_derive;
 
 #[cfg(all(target_os = "windows", feature = "hydradragon"))]
@@ -12,6 +11,7 @@ use std::{env, path::Path, sync::OnceLock};
 
 pub mod actions_on_kill;
 pub mod config;
+pub mod globals;
 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
 pub mod behavioral;
 pub mod connectors;

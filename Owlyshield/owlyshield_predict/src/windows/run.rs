@@ -118,6 +118,7 @@ pub fn run() {
 
     // Load config and app settings once and reuse
     let config = config::Config::new();
+    crate::globals::init_globals(&config);
     let _current_exe_path = std::env::current_exe().unwrap();
     let rules_dir = PathBuf::from(&config[Param::RulesPath]);
     #[cfg(all(target_os = "windows", feature = "behavior_engine"))]

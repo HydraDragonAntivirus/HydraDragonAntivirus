@@ -152,7 +152,8 @@ impl Connector for Community {
         proc: &ProcessRecord,
         _prediction: f32,
     ) -> Result<(), ConnectorError> {
-        if let Err(e) = std::fs::create_dir_all(&report_dir) {
+        let report_dir = crate::globals::report_dir();
+        if let Err(e) = std::fs::create_dir_all(report_dir) {
             error!("Cannot create report directory: {}", e);
             Logging::error(format!("Cannot create report directory: {}", e).as_str());
             // even if we can't create the dir, we can still send a notification without a path
