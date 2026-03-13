@@ -635,31 +635,12 @@ static BOOLEAN IsRegisteredOwlyshieldAppProcess(_In_ ULONG ProcessId)
 
 static BOOLEAN IsAlwaysSkippedProcessForHooking(_In_ ULONG ProcessId, _In_ PCUNICODE_STRING ProcessImagePath)
 {
-    static const PCWSTR kAlwaysSkippedProcessNames[] = {
-        L"explorer.exe",
-        L"runtimebroker.exe",
-        L"searchhost.exe",
-        L"searchapp.exe",
-        L"shellexperiencehost.exe",
-        L"startmenuexperiencehost.exe",
-        L"textinputhost.exe",
-        L"owlyshield_ransom.exe",
-    };
-
     // Explorer is a fragile shell host with many third-party extensions loaded.
     // Do not inject the user-mode hook trampolines into it. Also never hook
     // the registered Owlyshield service process itself.
     if (IsRegisteredOwlyshieldAppProcess(ProcessId))
     {
         return TRUE;
-    }
-
-    for (ULONG i = 0; i < RTL_NUMBER_OF(kAlwaysSkippedProcessNames); ++i)
-    {
-        if (ProcessImagePathEndsWithName(ProcessImagePath, kAlwaysSkippedProcessNames[i]))
-        {
-            return TRUE;
-        }
     }
 
     return FALSE;
