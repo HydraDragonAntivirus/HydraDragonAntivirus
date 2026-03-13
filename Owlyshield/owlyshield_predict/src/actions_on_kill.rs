@@ -148,7 +148,7 @@ impl ActionOnKill for WriteReportFile {
             return Ok(());
         }
 
-        std::fs::create_dir_all(&Param::report_dir)?;
+        std::fs::create_dir_all(&report_dir)?;
             let basename = Path::new(&proc.appname).file_name().unwrap().to_str().unwrap();
             let temp = Param::report_dir.join(Path::new(&format!(
                 "{}_{}_report_{}.log",
