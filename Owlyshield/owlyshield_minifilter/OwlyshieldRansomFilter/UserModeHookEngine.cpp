@@ -587,42 +587,6 @@ static BOOLEAN IsNormalizedPathExcludedByHookRules(_In_ PCUNICODE_STRING Normali
     return matched;
 }
 
-static BOOLEAN ProcessImagePathEndsWithName(_In_ PCUNICODE_STRING ProcessImagePath, _In_ PCWSTR ImageName)
-{
-    SIZE_T pathChars;
-    SIZE_T imageNameChars;
-    PCWSTR imageNameStart;
-
-    if (ProcessImagePath == NULL || ProcessImagePath->Buffer == NULL || ImageName == NULL || ImageName[0] == L'\0')
-    {
-        return FALSE;
-    }
-
-    pathChars = ProcessImagePath->Length / sizeof(WCHAR);
-    imageNameChars = wcslen(ImageName);
-    if (pathChars < imageNameChars)
-    {
-        return FALSE;
-    }
-
-    imageNameStart = ProcessImagePath->Buffer + (pathChars - imageNameChars);
-    if (_wcsicmp(imageNameStart, ImageName) != 0)
-    {
-        return FALSE;
-    }
-
-    if (imageNameStart != ProcessImagePath->Buffer)
-    {
-        WCHAR separator = imageNameStart[-1];
-        if (separator != L'\\' && separator != L'/')
-        {
-            return FALSE;
-        }
-    }
-
-    return TRUE;
-}
-
 static BOOLEAN IsRegisteredOwlyshieldAppProcess(_In_ ULONG ProcessId)
 {
     if (ProcessId == 0 || driverData == NULL)
@@ -633,11 +597,8 @@ static BOOLEAN IsRegisteredOwlyshieldAppProcess(_In_ ULONG ProcessId)
     return (ProcessId == driverData->getPID());
 }
 
-static BOOLEAN IsAlwaysSkippedProcessForHooking(_In_ ULONG ProcessId, _In_ PCUNICODE_STRING ProcessImagePath)
+static BOOLEAN IsAlwaysSkippedProcessForHooking(_In_ ULONG ProcessId)
 {
-    // Explorer is a fragile shell host with many third-party extensions loaded.
-    // Do not inject the user-mode hook trampolines into it. Also never hook
-    // the registered Owlyshield service process itself.
     if (IsRegisteredOwlyshieldAppProcess(ProcessId))
     {
         return TRUE;
@@ -669,7 +630,7 @@ static BOOLEAN IsSensitiveSystemPathForHookingProcess(_In_ PEPROCESS Process, _I
         return FALSE;
     }
 
-    if (IsAlwaysSkippedProcessForHooking(ProcessId, processImagePath))
+    if (IsAlwaysSkippedProcessForHooking(ProcessId))
     {
         ExFreePool(processImagePath);
         return TRUE;
