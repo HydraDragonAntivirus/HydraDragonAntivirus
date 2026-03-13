@@ -2643,23 +2643,35 @@ static VOID AddRemProcessRoutineCore(HANDLE ParentId, HANDLE ProcessId, BOOLEAN 
 
         InitializeObjectAttributes(&objAttribs, NULL, OBJ_KERNEL_HANDLE, NULL, NULL);
 
-        hr = ZwOpenProcess(&procHandleParent, PROCESS_ALL_ACCESS, &objAttribs, &clientIdParent);
-        if (!NT_SUCCESS(hr))
-        {
-            DbgPrint("!!! FSFilter: Failed to open parent process: %#010x.\n", hr);
-            return;
-        }
-        hr = ZwOpenProcess(&procHandleProcess, PROCESS_ALL_ACCESS, &objAttribs, &clientIdProcess);
-        if (!NT_SUCCESS(hr))
-        {
-            DbgPrint("!!! FSFilter: Failed to open process: %#010x.\n", hr);
-            ZwClose(procHandleParent);
-            return;
+        // Declare all locals up-front so they are in scope for both the normal
+        // path and the early-fallback goto path below.
+        PUNICODE_STRING procName      = NULL;
+        PUNICODE_STRING parentName    = NULL;
+        PUNICODE_STRING procCmdLine   = NULL;
+        BOOLEAN         mustFreeProcName = TRUE;  // FALSE when procName is a borrowed pointer
+
+        // Use minimal rights; on failure, still record using CreateInfo data
+        ULONG openRights = PROCESS_QUERY_LIMITED_INFORMATION;
+
+        hr = ZwOpenProcess(&procHandleParent, openRights, &objAttribs, &clientIdParent);
+        if (!NT_SUCCESS(hr)) {
+            DbgPrint("!!! FSFilter: Failed to open parent process (non-fatal): %#010x.\n", hr);
+            procHandleParent = NULL;  // continue without parent name
         }
 
-        PUNICODE_STRING procName = NULL;
-        PUNICODE_STRING parentName = NULL;
-        PUNICODE_STRING procCmdLine = NULL;
+        hr = ZwOpenProcess(&procHandleProcess, openRights, &objAttribs, &clientIdProcess);
+        if (!NT_SUCCESS(hr)) {
+            DbgPrint("!!! FSFilter: Failed to open process (non-fatal): %#010x.\n", hr);
+            if (procHandleParent) ZwClose(procHandleParent);
+            // Still record using name from CreateInfo->ImageFileName if available
+            if (CreateInfo && CreateInfo->ImageFileName) {
+                procName = const_cast<PUNICODE_STRING>(CreateInfo->ImageFileName);  // borrowed pointer, don't free
+                mustFreeProcName = FALSE;
+            } else {
+                return;  // truly nothing to record
+            }
+            goto record_process;  // skip the GetProcessNameByHandle calls
+        }
 
         hr = GetProcessNameByHandle(procHandleParent, &parentName);
         if (!NT_SUCCESS(hr))
@@ -2692,6 +2704,7 @@ static VOID AddRemProcessRoutineCore(HANDLE ParentId, HANDLE ProcessId, BOOLEAN 
         ZwClose(procHandleParent);
         ZwClose(procHandleProcess);
 
+        record_process:
         DbgPrint("!!! FSFilter: New Process, process: %wZ , pid: %d.\n", procName, (ULONG)(ULONG_PTR)ProcessId);
 
         // ALWAYS record the process and send message to usermode
@@ -2750,22 +2763,22 @@ static VOID AddRemProcessRoutineCore(HANDLE ParentId, HANDLE ProcessId, BOOLEAN 
         DbgPrint("!!! FSFilter: Terminate Process, Process: %d pid\n", (ULONG)(ULONG_PTR)ProcessId);
 
         (VOID)UserModeUnhookProcess((ULONG)(ULONG_PTR)ProcessId);
-
+        // Always notifies usermode, Gid=0 signals "untracked process died"
         BOOLEAN found = FALSE;
         ULONGLONG gid = driverData->GetProcessGid((ULONG)(ULONG_PTR)ProcessId, &found);
-        if (found) {
-            PIRP_ENTRY newEntry = new IRP_ENTRY();
-            if (newEntry != NULL) {
-                PDRIVER_MESSAGE newItem = &newEntry->data;
-                newItem->PID = (ULONG)(ULONG_PTR)ProcessId;
-                newItem->Gid = gid;
-                newItem->IRP_OP = IRP_PROCESS_TERMINATE;
-                if (!driverData->AddIrpMessage(newEntry)) {
-                    delete newEntry;
-                }
+
+        // Always send terminate — even if we didn't track this PID, usermode must
+        // be able to clear any stale state it may have for this PID.
+        PIRP_ENTRY newEntry = new IRP_ENTRY();
+        if (newEntry != NULL) {
+            PDRIVER_MESSAGE newItem = &newEntry->data;
+            newItem->PID  = (ULONG)(ULONG_PTR)ProcessId;
+            newItem->Gid  = found ? gid : 0ULL;   // 0 = sentinel "not in our table"
+            newItem->IRP_OP = IRP_PROCESS_TERMINATE;
+            if (!driverData->AddIrpMessage(newEntry)) {
+                delete newEntry;
             }
         }
-
         driverData->RemoveProcess((ULONG)(ULONG_PTR)ProcessId);
     }
 }

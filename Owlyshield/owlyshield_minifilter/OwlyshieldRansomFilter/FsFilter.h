@@ -31,6 +31,13 @@ Environment:
 
 extern "C" UCHAR* PsGetProcessImageFileName(PEPROCESS Process);
 
+// PROCESS_QUERY_LIMITED_INFORMATION is not exposed by kernel-mode WDK headers
+// (ntddk.h / wdm.h). Define it manually using its well-known value from the
+// Windows SDK so that ZwOpenProcess calls can request minimal access rights.
+#ifndef PROCESS_QUERY_LIMITED_INFORMATION
+#define PROCESS_QUERY_LIMITED_INFORMATION (0x1000)
+#endif
+
 NTSTATUS
 FSUnloadDriver(_In_ FLT_FILTER_UNLOAD_FLAGS Flags);
 
