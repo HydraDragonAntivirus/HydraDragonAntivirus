@@ -110,32 +110,28 @@ static PYAS_WHITELIST_RULE_SET g_PyasWhitelistRules = {0};
 
 static VOID FSEnsurePyasRuleMutex(VOID)
 {
-    // FIX Bug4: The old code did a plain read of MutexInitialized and then
-    // called ExInitializeFastMutex without any atomics.  Two threads could
-    // both observe FALSE simultaneously and both reinitialize a live mutex,
-    // corrupting its state.  Use the same three-state CAS protocol that
-    // ProcessProtection.cpp uses:
-    //   0 = uninitialized
-    //   1 = one thread owns initialization (others must spin)
-    //   2 = initialized and ready
     volatile LONG *pState = (volatile LONG *)&g_PyasWhitelistRules.MutexInitialized;
 
+    // Fast path: already ready.
     if (InterlockedCompareExchange(pState, 0, 0) == 2)
     {
         KeMemoryBarrier();
         return;
     }
 
+    // Race to become the initializing thread (0 -> 1).
     if (InterlockedCompareExchange(pState, 1, 0) == 0)
     {
-        FAST_MUTEX tempMutex;
-        ExInitializeFastMutex(&tempMutex);
-        RtlCopyMemory(&g_PyasWhitelistRules.Mutex, &tempMutex, sizeof(FAST_MUTEX));
-        KeMemoryBarrier();
-        InterlockedExchange(pState, 2);
+        // WINNER: We have exclusive rights to initialize.
+        // Initialize the global mutex directly in-place. No memcpy!
+        ExInitializeFastMutex(&g_PyasWhitelistRules.Mutex);
+        
+        KeMemoryBarrier(); // Ensure all FAST_MUTEX bytes are visible globally
+        InterlockedExchange(pState, 2); // Publish ready state
         return;
     }
 
+    // LOSER: spin until winner publishes 2.
     while (InterlockedCompareExchange(pState, 0, 0) != 2)
     {
         YieldProcessor();

@@ -192,55 +192,28 @@ static volatile LONG g_HookExcludeLoadState = 0;
 
 static VOID EnsureHookExcludeRuleMutex(VOID)
 {
-    //
-    // FIX 6 (original) + FIX #4 (this pass):
-    //
-    // The original code had a race where two threads could both read
-    // MutexInitialized==FALSE and both call ExInitializeFastMutex.
-    // InterlockedCompareExchange was added to let only one winner publish.
-    //
-    // FIX Bug3: Three-state protocol so the ready flag is only published
-    // AFTER all FAST_MUTEX bytes are globally visible.
-    //
-    // States stored in g_HookExcludeRules.MutexInitialized (cast to LONG):
-    //   0 = uninitialized
-    //   1 = one thread owns initialization (others must spin)
-    //   2 = initialized and ready
-    //
-    // The old code used a single CAS that published TRUE before
-    // RtlCopyMemory completed, so a losing thread could call
-    // ExAcquireFastMutex on a partially-written FAST_MUTEX.
-    //
     volatile LONG *pState = (volatile LONG *)&g_HookExcludeRules.MutexInitialized;
 
-    // Fast path: already ready.
     if (InterlockedCompareExchange(pState, 0, 0) == 2)
     {
         KeMemoryBarrier();
         return;
     }
 
-    // Race to become the initializing thread (0 -> 1).
     if (InterlockedCompareExchange(pState, 1, 0) == 0)
     {
-        // Winner: initialize locally, copy, barrier, then publish 2.
-        FAST_MUTEX tempMutex;
-        ExInitializeFastMutex(&tempMutex);
-        RtlCopyMemory(&g_HookExcludeRules.Mutex, &tempMutex, sizeof(FAST_MUTEX));
-        // Full store-store barrier: all 32 FAST_MUTEX bytes must be visible
-        // before any waiter observes state == 2 (ARM64 requires this;
-        // it is a no-op on x86/x64 TSO).
+        // WINNER: Initialize directly in-place.
+        ExInitializeFastMutex(&g_HookExcludeRules.Mutex);
+        
         KeMemoryBarrier();
         InterlockedExchange(pState, 2);
         return;
     }
 
-    // Loser: spin until winner publishes 2.
     while (InterlockedCompareExchange(pState, 0, 0) != 2)
     {
         YieldProcessor();
     }
-    // Acquire-barrier: ensure all FAST_MUTEX bytes are visible to us.
     KeMemoryBarrier();
 }
 
