@@ -61,7 +61,7 @@ Source: "C:\Users\victim\Documents\hydratempinstall\clamav-1.5.2.win.x64.msi"; D
 Source: "C:\Users\victim\Documents\hydratempinstall\npcap-1.85.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\victim\Documents\hydratempinstall\Suricata-7.0.14-1-64bit.msi"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\victim\Documents\hydratempinstall\mitmproxy-12.2.1-windows-x86_64-installer.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
-Source: "C:\Users\victim\Documents\hydratempinstall\jre-8u471-windows-x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
+Source: "C:\Users\victim\Documents\hydratempinstall\jre-8u481-windows-x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\victim\Documents\hydratempinstall\jdk-21_windows-x64_bin.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\victim\Documents\hydratempinstall\windowsdesktop-runtime-8.0.25-win-x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\victim\Documents\hydratempinstall\windowsdesktop-runtime-9.0.14-win-x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
@@ -126,8 +126,8 @@ Filename: "{tmp}\windowsdesktop-runtime-8.0.25-win-x64.exe"; Parameters: "/insta
 ; Visual C++ Redistributable 2022 (silent, auto-install)
 Filename: "{tmp}\VC_redist.x64.exe"; Parameters: "/install /quiet /norestart"; Flags: shellexec waituntilterminated
 
-; JRE 8u471 (silent, updates enabled)
-Filename: "{tmp}\jre-8u471-windows-x64.exe"; Parameters: "/s INSTALL_SILENT=Enable AUTO_UPDATE=Enable WEB_JAVA=Disable SPONSORS=Disable"; Flags: shellexec waituntilterminated
+; JRE 8u481 (silent, updates enabled)
+Filename: "{tmp}\jre-8u481-windows-x64.exe"; Parameters: "/s INSTALL_SILENT=Enable AUTO_UPDATE=Enable WEB_JAVA=Disable SPONSORS=Disable"; Flags: shellexec waituntilterminated
 
 ; JDK 21 (silent, environment variables)
 Filename: "{tmp}\jdk-21_windows-x64_bin.exe"; Parameters: "/s"; Flags: shellexec waituntilterminated
