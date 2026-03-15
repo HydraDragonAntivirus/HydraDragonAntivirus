@@ -1229,7 +1229,6 @@ pub struct BehaviorEngine {
     regex_cache: RefCell<HashMap<String, Regex>>,
     pub process_terminated: HashSet<String>,
     default_extension_whitelist: HashSet<String>,
-    system: RefCell<System>,
     /// PIDs for which the firewall observed real outbound network I/O (NET_EVENT).
     pub firewall_net_pids: Arc<std::sync::RwLock<HashSet<u32>>>,
     /// Exe paths for which the firewall confirmed malicious traffic (BLOCK_EXE).
@@ -1862,6 +1861,19 @@ impl BehaviorEngine {
         // update it on every subsequent event until the values are concrete.
         // Also update precord itself so ransomware detection and all other paths get
         // the correct values — process_record_handler.handle_io runs before this function.
+        // Resolve parent name before the mutable borrow below (borrow checker).
+        let parent_pid = msg.parent_pid;
+        let resolved_parent_name: Option<String> = if parent_pid != 0 {
+            self.process_states.values()
+                .find(|s| s.pid == parent_pid
+                      && !s.app_name.is_empty()
+                      && !s.app_name.starts_with("PROC_")
+                      && s.app_name != "UNKNOWN")
+                .map(|s| s.app_name.clone())
+        } else {
+            None
+        };
+
         if let Some(state) = self.process_states.get_mut(&gid) {
             let name_is_stale = state.app_name.is_empty()
                 || state.app_name.starts_with("PROC_")
@@ -1910,16 +1922,10 @@ impl BehaviorEngine {
                 precord.exepath = state.exe_path.clone();
             }
 
-            // Also heal parent name if it is still unknown and the parent is now tracked.
-            if state.parent_name == "unknown" || state.parent_name.is_empty() {
-                let parent_pid = msg.parent_pid;
-                if parent_pid != 0 {
-                    if let Some(parent_state) = self.process_states.values()
-                        .find(|s| s.pid == parent_pid && !s.app_name.is_empty()
-                              && !s.app_name.starts_with("PROC_"))
-                    {
-                        state.parent_name = parent_state.app_name.clone();
-                    }
+            // Heal parent name using the value resolved before the mutable borrow.
+            if (state.parent_name == "unknown" || state.parent_name.is_empty()) {
+                if let Some(ref name) = resolved_parent_name {
+                    state.parent_name = name.clone();
                 }
             }
         }
