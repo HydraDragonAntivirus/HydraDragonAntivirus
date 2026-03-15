@@ -87,7 +87,7 @@ VOID EnableObType(POBJECT_TYPE ObjectType)
         // Now set the SupportsObjectCallbacks bit in TypeInfo.
         // The union with bitfield exists in OBJECT_TYPE_INITIALIZER in your header.
         // Set the bit safely:
-        pTemp->TypeInfo.SupportsObjectCallbacks = 1;
+        pTemp->TypeInfo.Flags.SupportsObjectCallbacks = 1;
 
         DbgPrint("[Self-Defense] EnableObType: Set SupportsObjectCallbacks=1 for object type at %p\n", ObjectType);
     }
@@ -210,7 +210,7 @@ OB_PREOP_CALLBACK_STATUS PreCallBack(
         if (desiredAccess & (DELETE | FILE_WRITE_DATA | GENERIC_WRITE)) {
             HANDLE currentPid = PsGetCurrentProcessId();
             PUNICODE_STRING attackerPath = NULL;
-            NTSTATUS st = SeLocateProcessImageName(PsGetCurrentProcess(), &attackerPath);
+            (VOID)SeLocateProcessImageName(PsGetCurrentProcess(), &attackerPath);
 
             // Strip dangerous access rights
             if (OperationInformation->Operation == OB_OPERATION_HANDLE_CREATE) {
@@ -245,16 +245,15 @@ NTSTATUS QueueAlertToUserMode(
     PCWSTR AttackType
 )
 {
-    PALERT_WORK_ITEM workItem = (PALERT_WORK_ITEM)ExAllocatePoolWithTag(NonPagedPool, sizeof(ALERT_WORK_ITEM), ALERT_POOL_TAG);
+    PALERT_WORK_ITEM workItem = (PALERT_WORK_ITEM)ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeof(ALERT_WORK_ITEM), ALERT_POOL_TAG);
     if (!workItem) {
         DbgPrint("[SELF-DEFENSE] QueueAlert: allocation failed\n");
         return STATUS_INSUFFICIENT_RESOURCES;
     }
-    RtlZeroMemory(workItem, sizeof(ALERT_WORK_ITEM));
 
     if (ProtectedFile && ProtectedFile->Buffer && ProtectedFile->Length > 0) {
         USHORT needed = (USHORT)(ProtectedFile->Length + sizeof(WCHAR));
-        workItem->ProtectedFile.Buffer = (PWCHAR)ExAllocatePoolWithTag(NonPagedPool, needed, ALERT_POOL_TAG);
+        workItem->ProtectedFile.Buffer = (PWCHAR)ExAllocatePool2(POOL_FLAG_NON_PAGED, needed, ALERT_POOL_TAG);
         if (workItem->ProtectedFile.Buffer) {
             workItem->ProtectedFile.Length = 0;
             workItem->ProtectedFile.MaximumLength = needed;
@@ -264,7 +263,7 @@ NTSTATUS QueueAlertToUserMode(
 
     if (AttackingProcessPath && AttackingProcessPath->Buffer && AttackingProcessPath->Length > 0) {
         USHORT needed = (USHORT)(AttackingProcessPath->Length + sizeof(WCHAR));
-        workItem->AttackingProcessPath.Buffer = (PWCHAR)ExAllocatePoolWithTag(NonPagedPool, needed, ALERT_POOL_TAG);
+        workItem->AttackingProcessPath.Buffer = (PWCHAR)ExAllocatePool2(POOL_FLAG_NON_PAGED, needed, ALERT_POOL_TAG);
         if (workItem->AttackingProcessPath.Buffer) {
             workItem->AttackingProcessPath.Length = 0;
             workItem->AttackingProcessPath.MaximumLength = needed;
@@ -278,7 +277,9 @@ NTSTATUS QueueAlertToUserMode(
     workItem->AttackingPid = AttackingPid;
     RtlStringCbCopyW(workItem->AttackType, sizeof(workItem->AttackType), AttackType ? AttackType : L"UNKNOWN");
 
+#pragma warning(suppress: 4996)
     ExInitializeWorkItem(&workItem->WorkItem, SendAlertWorker, workItem);
+#pragma warning(suppress: 4996)
     ExQueueWorkItem(&workItem->WorkItem, DelayedWorkQueue);
 
     return STATUS_SUCCESS;

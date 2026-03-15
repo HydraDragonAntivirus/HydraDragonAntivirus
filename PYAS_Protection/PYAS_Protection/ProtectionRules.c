@@ -23,7 +23,7 @@ static const PCWSTR kRuleSubDirs[RuleTypeMax] = {
 // ---------------------------------------------------------------------------
 // Registry hive prefix table
 // Maps user-friendly names (as seen in regedit) to kernel NT path prefixes.
-// Note: HKCU maps to \REGISTRY\USER\ - the SID segment is absent from the
+// Note: HKCU maps to \REGISTRY\USER\  -  the SID segment is absent from the
 // stored rule, so ContainsSubstringInsensitive will still match correctly
 // because the kernel path contains \REGISTRY\USER\<SID>\<subpath> and the
 // rule will be matched as a substring from the subpath onwards.
@@ -62,6 +62,7 @@ static const HIVE_MAP_ENTRY kHiveMap[] =
 //
 // Returns FALSE and logs a warning for any other format.
 // ---------------------------------------------------------------------------
+_Success_(return != FALSE)
 static BOOLEAN ValidateAndNormalizeRegistryRule(
     _In_  PCWSTR  RuleText,
     _Out_writes_(OutBufferChars) PWCHAR OutBuffer,
@@ -97,7 +98,7 @@ static BOOLEAN ValidateAndNormalizeRegistryRule(
         }
     }
 
-    DbgPrint("[ProtectionRules] Rejected registry rule — must start with HKLM\\, HKCU\\, "
+    DbgPrint("[ProtectionRules] Rejected registry rule  -  must start with HKLM\\, HKCU\\, "
              "HKCR\\, HKCC\\, HKU\\ or \\REGISTRY\\: %ws\n", RuleText);
     return FALSE;
 }
@@ -106,9 +107,9 @@ static BOOLEAN ValidateAndNormalizeRegistryRule(
 // ValidateFileProcessRule
 //
 // A file or process rule is valid when it starts with:
-//   X:\         — standard DOS drive-letter path (most common)
-//   \??\        — NT device namespace path
-//   \           — relative/suffix path (accepted for user-profile paths whose
+//   X:\          -  standard DOS drive-letter path (most common)
+//   \??\         -  NT device namespace path
+//   \            -  relative/suffix path (accepted for user-profile paths whose
 //                 full absolute path is unknown at rule-authoring time, e.g.
 //                 \AppData\Roaming\Sanctum\).  Matching still uses
 //                 ContainsSubstringInsensitive so these work correctly.
@@ -121,7 +122,7 @@ static BOOLEAN ValidateFileProcessRule(_In_ PCWSTR RuleText)
     SIZE_T len = wcslen(RuleText);
     if (len == 0) return FALSE;
 
-    // Drive-letter path: C:\ or c:\
+    /* Drive-letter path: e.g. C:\ or c:\ */
     if (len >= 3
         && ((RuleText[0] >= L'A' && RuleText[0] <= L'Z') ||
             (RuleText[0] >= L'a' && RuleText[0] <= L'z'))
@@ -131,7 +132,7 @@ static BOOLEAN ValidateFileProcessRule(_In_ PCWSTR RuleText)
         return TRUE;
     }
 
-    // NT device namespace: \??\
+    /* NT device namespace prefix: \??\ */
     if (len >= 4 && _wcsnicmp(RuleText, L"\\??\\", 4) == 0)
     {
         return TRUE;
@@ -140,17 +141,17 @@ static BOOLEAN ValidateFileProcessRule(_In_ PCWSTR RuleText)
     // Suffix / relative path (user-profile, driver subpaths, etc.)
     if (RuleText[0] == L'\\')
     {
-        // Reject if it starts with \REGISTRY\ — that belongs in the Registry ruleset
+        // Reject if it starts with \REGISTRY\  -  that belongs in the Registry ruleset
         if (_wcsnicmp(RuleText, L"\\REGISTRY\\", 10) == 0)
         {
-            DbgPrint("[ProtectionRules] Rejected file/process rule — "
+            DbgPrint("[ProtectionRules] Rejected file/process rule  -  "
                      "\\REGISTRY\\ paths belong in the Registry ruleset: %ws\n", RuleText);
             return FALSE;
         }
         return TRUE;
     }
 
-    DbgPrint("[ProtectionRules] Rejected file/process rule — must start with a drive letter "
+    DbgPrint("[ProtectionRules] Rejected file/process rule  -  must start with a drive letter "
              "(C:\\), \\??\\ or \\ : %ws\n", RuleText);
     return FALSE;
 }
@@ -173,7 +174,7 @@ static NTSTATUS EnsureRuleCapacity(PPROTECTION_RULE_SET RuleSet, ULONG RequiredC
     }
 
     SIZE_T allocSize = sizeof(PWSTR) * newCapacity;
-    PWSTR* newArray  = (PWSTR*)ExAllocatePoolWithTag(NonPagedPoolNx, allocSize, RULE_POOL_TAG);
+    PWSTR* newArray  = (PWSTR*)ExAllocatePool2(POOL_FLAG_NON_PAGED, allocSize, RULE_POOL_TAG);
     if (!newArray)
     {
         return STATUS_INSUFFICIENT_RESOURCES;
@@ -270,7 +271,7 @@ static NTSTATUS AddRuleString(
     SIZE_T rawLen  = end - start;
     // For registry rules, leave room for potential prefix expansion
     SIZE_T tmpSize = (rawLen + REGISTRY_PREFIX_EXPANSION_MAX + 1) * sizeof(WCHAR);
-    PWCHAR tempBuf = (PWCHAR)ExAllocatePoolWithTag(NonPagedPoolNx, tmpSize, RULE_POOL_TAG);
+    PWCHAR tempBuf = (PWCHAR)ExAllocatePool2(POOL_FLAG_NON_PAGED, tmpSize, RULE_POOL_TAG);
     if (!tempBuf)
     {
         return STATUS_INSUFFICIENT_RESOURCES;
@@ -295,7 +296,7 @@ static NTSTATUS AddRuleString(
     {
         // Allocate output buffer big enough for the expanded kernel path
         SIZE_T outChars = rawLen + REGISTRY_PREFIX_EXPANSION_MAX + 1;
-        finalBuf = (PWCHAR)ExAllocatePoolWithTag(NonPagedPoolNx, outChars * sizeof(WCHAR), RULE_POOL_TAG);
+        finalBuf = (PWCHAR)ExAllocatePool2(POOL_FLAG_NON_PAGED, outChars * sizeof(WCHAR), RULE_POOL_TAG);
         if (!finalBuf)
         {
             ExFreePoolWithTag(tempBuf, RULE_POOL_TAG);
@@ -306,7 +307,7 @@ static NTSTATUS AddRuleString(
 
         if (!ValidateAndNormalizeRegistryRule(tempBuf, finalBuf, outChars))
         {
-            // Invalid format — skip rule silently (warning already printed inside helper)
+            // Invalid format  -  skip rule silently (warning already printed inside helper)
             ExFreePoolWithTag(finalBuf, RULE_POOL_TAG);
             ExFreePoolWithTag(tempBuf,  RULE_POOL_TAG);
             return STATUS_SUCCESS;
@@ -315,8 +316,8 @@ static NTSTATUS AddRuleString(
         finalChars = wcslen(finalBuf);
 
         // Shrink the allocation to the actual length (optional, avoids waste)
-        PWCHAR shrunk = (PWCHAR)ExAllocatePoolWithTag(
-            NonPagedPoolNx, (finalChars + 1) * sizeof(WCHAR), RULE_POOL_TAG);
+        PWCHAR shrunk = (PWCHAR)ExAllocatePool2(
+            POOL_FLAG_NON_PAGED, (finalChars + 1) * sizeof(WCHAR), RULE_POOL_TAG);
         if (shrunk)
         {
             RtlCopyMemory(shrunk, finalBuf, (finalChars + 1) * sizeof(WCHAR));
@@ -329,14 +330,14 @@ static NTSTATUS AddRuleString(
         // File or Process rule
         if (!ValidateFileProcessRule(tempBuf))
         {
-            // Invalid format — skip rule silently (warning already printed inside helper)
+            // Invalid format  -  skip rule silently (warning already printed inside helper)
             ExFreePoolWithTag(tempBuf, RULE_POOL_TAG);
             return STATUS_SUCCESS;
         }
 
         finalChars = wcslen(tempBuf);
-        finalBuf   = (PWCHAR)ExAllocatePoolWithTag(
-            NonPagedPoolNx, (finalChars + 1) * sizeof(WCHAR), RULE_POOL_TAG);
+        finalBuf   = (PWCHAR)ExAllocatePool2(
+            POOL_FLAG_NON_PAGED, (finalChars + 1) * sizeof(WCHAR), RULE_POOL_TAG);
         if (!finalBuf)
         {
             ExFreePoolWithTag(tempBuf, RULE_POOL_TAG);
@@ -380,15 +381,20 @@ static VOID FreeRuleSet(PPROTECTION_RULE_SET RuleSet)
         return;
     }
 
-    if (RuleSet->Rules)
+    if (RuleSet->Rules && RuleSet->Count > 0)
     {
         for (ULONG i = 0; i < RuleSet->Count; i++)
         {
             if (RuleSet->Rules[i])
             {
                 ExFreePoolWithTag(RuleSet->Rules[i], RULE_POOL_TAG);
+                RuleSet->Rules[i] = NULL;
             }
         }
+    }
+
+    if (RuleSet->Rules)
+    {
         ExFreePoolWithTag(RuleSet->Rules, RULE_POOL_TAG);
     }
 
@@ -414,7 +420,7 @@ static BOOLEAN IsDotDirectory(PUNICODE_STRING FileName)
 }
 
 // ---------------------------------------------------------------------------
-// AppendRulesFromBuffer — parse a raw byte buffer (UTF-8 or UTF-16 LE/BE)
+// AppendRulesFromBuffer  -  parse a raw byte buffer (UTF-8 or UTF-16 LE/BE)
 // into individual lines and call AddRuleString for each.
 // RuleType is forwarded to AddRuleString so validation is applied per type.
 // ---------------------------------------------------------------------------
@@ -521,8 +527,8 @@ static NTSTATUS AppendRulesFromBuffer(
                 {
                     lineLen -= leading;
                     // Widen from ASCII to WCHAR
-                    PWCHAR ruleBuffer = (PWCHAR)ExAllocatePoolWithTag(
-                        NonPagedPoolNx, (lineLen + 1) * sizeof(WCHAR), RULE_POOL_TAG);
+                    PWCHAR ruleBuffer = (PWCHAR)ExAllocatePool2(
+                        POOL_FLAG_NON_PAGED, (lineLen + 1) * sizeof(WCHAR), RULE_POOL_TAG);
                     if (ruleBuffer)
                     {
                         for (ULONG j = 0; j < lineLen; j++)
@@ -585,7 +591,7 @@ VOID NormalizeDevicePathToDos(PUNICODE_STRING Path)
 }
 
 // ---------------------------------------------------------------------------
-// LoadRulesFromFilePath — read a single rule file and append its contents.
+// LoadRulesFromFilePath  -  read a single rule file and append its contents.
 // ---------------------------------------------------------------------------
 static NTSTATUS LoadRulesFromFilePath(
     _In_ PUNICODE_STRING      FilePath,
@@ -644,7 +650,7 @@ static NTSTATUS LoadRulesFromFilePath(
     }
 
     ULONG bufferSize = (ULONG)fileInfo.EndOfFile.QuadPart;
-    PUCHAR buffer    = (PUCHAR)ExAllocatePoolWithTag(NonPagedPoolNx, bufferSize, RULE_POOL_TAG);
+    PUCHAR buffer    = (PUCHAR)ExAllocatePool2(POOL_FLAG_NON_PAGED, bufferSize, RULE_POOL_TAG);
     if (!buffer)
     {
         ZwClose(fileHandle);
@@ -672,7 +678,7 @@ static NTSTATUS LoadRulesFromFilePath(
 }
 
 // ---------------------------------------------------------------------------
-// LoadRulesFromDirectorySpecific — enumerate all files in a subdirectory and
+// LoadRulesFromDirectorySpecific  -  enumerate all files in a subdirectory and
 // load each as a rule file.  RuleType is derived from the loop index in
 // InitializeProtectionRules and forwarded through the call chain.
 // ---------------------------------------------------------------------------
@@ -718,7 +724,7 @@ static NTSTATUS LoadRulesFromDirectorySpecific(
 
     ULONG bufferSize = 4096;
     PFILE_DIRECTORY_INFORMATION dirInfo =
-        (PFILE_DIRECTORY_INFORMATION)ExAllocatePoolWithTag(NonPagedPoolNx, bufferSize, RULE_POOL_TAG);
+        (PFILE_DIRECTORY_INFORMATION)ExAllocatePool2(POOL_FLAG_NON_PAGED, bufferSize, RULE_POOL_TAG);
     if (!dirInfo)
     {
         ZwClose(dirHandle);
@@ -764,15 +770,14 @@ static NTSTATUS LoadRulesFromDirectorySpecific(
                 !(current->FileAttributes & FILE_ATTRIBUTE_DIRECTORY))
             {
                 USHORT fullLength     = directoryPath.Length + fileName.Length + sizeof(WCHAR);
-                PWCHAR fullPathBuffer = (PWCHAR)ExAllocatePoolWithTag(
-                    NonPagedPoolNx, fullLength, RULE_POOL_TAG);
+                PWCHAR fullPathBuffer = (PWCHAR)ExAllocatePool2(
+                    POOL_FLAG_NON_PAGED, fullLength, RULE_POOL_TAG);
                 if (!fullPathBuffer)
                 {
                     status = STATUS_INSUFFICIENT_RESOURCES;
                     goto Cleanup;
                 }
 
-                RtlZeroMemory(fullPathBuffer, fullLength);
                 RtlCopyMemory(fullPathBuffer, directoryPath.Buffer, directoryPath.Length);
                 RtlCopyMemory((PUCHAR)fullPathBuffer + directoryPath.Length,
                               fileName.Buffer, fileName.Length);
@@ -855,12 +860,12 @@ VOID CleanupProtectionRules()
 
 BOOLEAN IsPathProtectedByType(_In_ PCWSTR Path, _In_ RULE_TYPE RuleType)
 {
-    if (!Path || RuleType >= RuleTypeMax)
+    if (!Path || (LONG)RuleType < 0 || RuleType >= RuleTypeMax)
     {
         return FALSE;
     }
 
-    // Kernel-enforced base paths — protect the HydraDragonAntivirus install
+    // Kernel-enforced base paths  -  protect the HydraDragonAntivirus install
     // directory regardless of what rule files say.
     static const PCWSTR kHardcodedRoots[] = {
         L"\\Program Files\\HydraDragonAntivirus",

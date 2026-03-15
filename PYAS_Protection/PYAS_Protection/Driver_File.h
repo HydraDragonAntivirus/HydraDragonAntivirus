@@ -22,7 +22,7 @@ typedef struct _OBJECT_TYPE_INITIALIZER
             UINT8        MaintainHandleCount : 1;
             UINT8        MaintainTypeList : 1;
             UINT8        SupportsObjectCallbacks : 1;
-        };
+        } Flags;
     };
     ULONG32      ObjectTypeCode;
     ULONG32      InvalidAttributes;

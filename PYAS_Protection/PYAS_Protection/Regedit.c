@@ -143,8 +143,8 @@ NTSTATUS QueueRegistryAlertToUserMode(
     NTSTATUS status;
 
     // Allocate work item
-    workItem = (PREGISTRY_ALERT_WORK_ITEM)ExAllocatePoolWithTag(
-        NonPagedPool,
+    workItem = (PREGISTRY_ALERT_WORK_ITEM)ExAllocatePool2(
+        POOL_FLAG_NON_PAGED,
         sizeof(REGISTRY_ALERT_WORK_ITEM),
         REG_TAG
     );
@@ -152,15 +152,13 @@ NTSTATUS QueueRegistryAlertToUserMode(
     if (!workItem)
         return STATUS_INSUFFICIENT_RESOURCES;
 
-    RtlZeroMemory(workItem, sizeof(REGISTRY_ALERT_WORK_ITEM));
-
     // Copy registry path
     if (RegPath && RegPath->Buffer && RegPath->Length > 0)
     {
         workItem->RegPath.Length = RegPath->Length;
         workItem->RegPath.MaximumLength = RegPath->Length + sizeof(WCHAR);
-        workItem->RegPath.Buffer = (PWCHAR)ExAllocatePoolWithTag(
-            NonPagedPool,
+        workItem->RegPath.Buffer = (PWCHAR)ExAllocatePool2(
+            POOL_FLAG_NON_PAGED,
             workItem->RegPath.MaximumLength,
             REG_TAG
         );
@@ -178,8 +176,8 @@ NTSTATUS QueueRegistryAlertToUserMode(
     {
         workItem->AttackerPath.Length = attackerPath->Length;
         workItem->AttackerPath.MaximumLength = attackerPath->Length + sizeof(WCHAR);
-        workItem->AttackerPath.Buffer = (PWCHAR)ExAllocatePoolWithTag(
-            NonPagedPool,
+        workItem->AttackerPath.Buffer = (PWCHAR)ExAllocatePool2(
+            POOL_FLAG_NON_PAGED,
             workItem->AttackerPath.MaximumLength,
             REG_TAG
         );
@@ -200,7 +198,9 @@ NTSTATUS QueueRegistryAlertToUserMode(
     RtlStringCbCopyW(workItem->Operation, sizeof(workItem->Operation), Operation);
 
     // Queue work item
+#pragma warning(suppress: 4996)
     ExInitializeWorkItem(&workItem->WorkItem, RegistryAlertWorker, workItem);
+#pragma warning(suppress: 4996)
     ExQueueWorkItem(&workItem->WorkItem, DelayedWorkQueue);
 
     return STATUS_SUCCESS;
@@ -232,7 +232,7 @@ BOOLEAN GetNameForRegistryObject(
     if (Status != STATUS_INFO_LENGTH_MISMATCH || ReturnLen == 0)
         return FALSE;
 
-    NameInfo = (POBJECT_NAME_INFORMATION)ExAllocatePoolWithTag(NonPagedPool, ReturnLen, REG_TAG);
+    NameInfo = (POBJECT_NAME_INFORMATION)ExAllocatePool2(POOL_FLAG_NON_PAGED, ReturnLen, REG_TAG);
     if (!NameInfo)
         return FALSE;
 
@@ -308,7 +308,7 @@ NTSTATUS RegistryCallback(_In_ PVOID CallbackContext, _In_ PVOID Argument1, _In_
     UNICODE_STRING RegPath;
     RtlZeroMemory(&RegPath, sizeof(RegPath));
     RegPath.MaximumLength = sizeof(WCHAR) * 0x800;
-    RegPath.Buffer = (PWCH)ExAllocatePoolWithTag(NonPagedPool, RegPath.MaximumLength, REG_TAG);
+    RegPath.Buffer = (PWCH)ExAllocatePool2(POOL_FLAG_NON_PAGED, RegPath.MaximumLength, REG_TAG);
     if (!RegPath.Buffer)
         return Status;
 

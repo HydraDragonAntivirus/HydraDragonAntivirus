@@ -105,17 +105,16 @@ NTSTATUS ProtectProcess(void)
     }
 
     // Allocate heap registrations
-    g_OpReg = (POB_OPERATION_REGISTRATION)ExAllocatePoolWithTag(
-        NonPagedPoolNx, sizeof(OB_OPERATION_REGISTRATION) * 2, 'gOpR');
+    g_OpReg = (POB_OPERATION_REGISTRATION)ExAllocatePool2(
+        POOL_FLAG_NON_PAGED, sizeof(OB_OPERATION_REGISTRATION) * 2, 'gOpR');
     if (!g_OpReg) {
         // Cleanup on failure
         PsSetCreateProcessNotifyRoutineEx(CreateProcessNotifyRoutine, TRUE);
         return STATUS_INSUFFICIENT_RESOURCES;
     }
-    RtlZeroMemory(g_OpReg, sizeof(OB_OPERATION_REGISTRATION) * 2);
 
-    g_ObReg = (POB_CALLBACK_REGISTRATION)ExAllocatePoolWithTag(
-        NonPagedPoolNx, sizeof(OB_CALLBACK_REGISTRATION), 'gObR');
+    g_ObReg = (POB_CALLBACK_REGISTRATION)ExAllocatePool2(
+        POOL_FLAG_NON_PAGED, sizeof(OB_CALLBACK_REGISTRATION), 'gObR');
     if (!g_ObReg) {
         // Cleanup on failure
         ExFreePoolWithTag(g_OpReg, 'gOpR');
@@ -123,7 +122,6 @@ NTSTATUS ProtectProcess(void)
         PsSetCreateProcessNotifyRoutineEx(CreateProcessNotifyRoutine, TRUE);
         return STATUS_INSUFFICIENT_RESOURCES;
     }
-    RtlZeroMemory(g_ObReg, sizeof(OB_CALLBACK_REGISTRATION));
 
     // Fill g_OpReg: Operation 0 - Process Handle Operations
     g_OpReg[0].ObjectType = PsProcessType;
@@ -173,8 +171,8 @@ VOID CreateProcessNotifyRoutine(
 ) {
     if (CreateInfo) { // Process is starting
         if (IsProtectedProcessByPath(Process)) {
-            PPROTECTED_PID_ENTRY pNewEntry = ExAllocatePoolWithTag(
-                NonPagedPool, sizeof(PROTECTED_PID_ENTRY), PID_LIST_TAG
+            PPROTECTED_PID_ENTRY pNewEntry = ExAllocatePool2(
+                POOL_FLAG_NON_PAGED, sizeof(PROTECTED_PID_ENTRY), PID_LIST_TAG
             );
 
             if (pNewEntry) {
@@ -451,8 +449,8 @@ NTSTATUS QueueProcessAlertToUserMode(
     NTSTATUS status;
 
     // Allocate work item
-    workItem = (PPROCESS_ALERT_WORK_ITEM)ExAllocatePoolWithTag(
-        NonPagedPool,
+    workItem = (PPROCESS_ALERT_WORK_ITEM)ExAllocatePool2(
+        POOL_FLAG_NON_PAGED,
         sizeof(PROCESS_ALERT_WORK_ITEM),
         'crpA'
     );
@@ -460,7 +458,6 @@ NTSTATUS QueueProcessAlertToUserMode(
     if (!workItem)
         return STATUS_INSUFFICIENT_RESOURCES;
 
-    RtlZeroMemory(workItem, sizeof(PROCESS_ALERT_WORK_ITEM));
 
     // Get process paths
     status = SeLocateProcessImageName(TargetProcess, &targetPath);
@@ -468,8 +465,8 @@ NTSTATUS QueueProcessAlertToUserMode(
     {
         workItem->TargetPath.Length = targetPath->Length;
         workItem->TargetPath.MaximumLength = targetPath->Length + sizeof(WCHAR);
-        workItem->TargetPath.Buffer = (PWCHAR)ExAllocatePoolWithTag(
-            NonPagedPool,
+        workItem->TargetPath.Buffer = (PWCHAR)ExAllocatePool2(
+            POOL_FLAG_NON_PAGED,
             workItem->TargetPath.MaximumLength,
             'crpA'
         );
@@ -494,8 +491,8 @@ NTSTATUS QueueProcessAlertToUserMode(
     {
         workItem->AttackerPath.Length = attackerPath->Length;
         workItem->AttackerPath.MaximumLength = attackerPath->Length + sizeof(WCHAR);
-        workItem->AttackerPath.Buffer = (PWCHAR)ExAllocatePoolWithTag(
-            NonPagedPool,
+        workItem->AttackerPath.Buffer = (PWCHAR)ExAllocatePool2(
+            POOL_FLAG_NON_PAGED,
             workItem->AttackerPath.MaximumLength,
             'crpA'
         );
@@ -528,7 +525,9 @@ NTSTATUS QueueProcessAlertToUserMode(
     RtlStringCbCopyW(workItem->AttackType, sizeof(workItem->AttackType), AttackType);
 
     // Queue work item
+#pragma warning(suppress: 4996)
     ExInitializeWorkItem(&workItem->WorkItem, ProcessAlertWorker, workItem);
+#pragma warning(suppress: 4996)
     ExQueueWorkItem(&workItem->WorkItem, DelayedWorkQueue);
 
     return STATUS_SUCCESS;
