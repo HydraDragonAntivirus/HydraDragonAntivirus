@@ -9,7 +9,7 @@
         "c:\\windows\\system32\\svchost.exe": "Allow",
         "c:\\windows\\syswow64\\svchost.exe": "Allow",
         "c:\\windows\\explorer.exe": "Allow",
-        "hydradragonfirewall.exe": "Allow"
+        "c:\\program files\\hydradragonantivirus\\hydradragonfirewall\\hydradragonfirewall.exe": "Allow"
     },
     "website_path": "website",
     "rules": [],
@@ -21,12 +21,12 @@
         "block_quic_udp_443": true,
         "enforce_proxy_routing": true,
         "proxy_process_allowlist": [
-            "hydradragonfirewall.exe",
-            "mitmproxy.exe",
-            "mitmdump.exe"
+            "c:\\program files\\hydradragonantivirus\\hydradragonfirewall\\hydradragonfirewall.exe",
+            "c:\\program files\\hydradragonantivirus\\mitmproxy\\mitmproxy.exe",
+            "c:\\program files\\hydradragonantivirus\\mitmproxy\\mitmdump.exe"
         ],
         "auto_start_backend": true,
-        "backend_command": "mitmdump",
+        "backend_command": "c:\\program files\\hydradragonantivirus\\mitmproxy\\mitmdump.exe",
         "backend_args": [],
         "local_capture_spec": null
     },

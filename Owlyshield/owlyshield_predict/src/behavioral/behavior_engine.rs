@@ -22,6 +22,43 @@ use sysinfo::{System, ProcessRefreshKind, ProcessesToUpdate};
 use num::FromPrimitive;
 
 // =============================================================================
+// FIREWALL DETECTION — details received from the firewall via HydraNetEvent pipe
+// =============================================================================
+
+/// All detection context sent by the firewall when it confirms malicious traffic.
+/// Populated from BLOCK_EXE messages and used to build rich ThreatInfo for reports.
+#[derive(Debug, Clone)]
+pub struct FirewallDetection {
+    pub dst_ip: String,
+    pub dst_port: u16,
+    pub hostname: String,
+    /// Full reason string from the firewall (e.g. "SDK Rule [MalwareDomain]: ...")
+    pub reason: String,
+}
+
+impl FirewallDetection {
+    /// Derive a threat type label from the reason string.
+    pub fn threat_type_label(&self) -> &'static str {
+        let r = self.reason.to_lowercase();
+        if r.contains("ransomware") { "Ransomware" }
+        else if r.contains("c2") || r.contains("command") || r.contains("botnet") { "C2 Communication" }
+        else if r.contains("exploit") { "Exploit" }
+        else if r.contains("intelligence") || r.contains("malware") { "Malware" }
+        else if r.contains("sdk rule") { "Policy Violation" }
+        else { "Malicious Network Activity" }
+    }
+
+    /// Build a human-readable match_details string for reports.
+    pub fn match_details(&self) -> String {
+        if self.hostname.is_empty() {
+            format!("{}:{} — {}", self.dst_ip, self.dst_port, self.reason)
+        } else {
+            format!("{}:{} ({}) — {}", self.dst_ip, self.dst_port, self.hostname, self.reason)
+        }
+    }
+}
+
+// =============================================================================
 // PART 1: IRP OPERATION TRACKING STRUCTURES
 // =============================================================================
 
@@ -482,16 +519,6 @@ fn normalize_extension_token(extension: &str) -> String {
         .trim_matches(char::from(0))
         .trim_start_matches('.')
         .to_lowercase()
-}
-
-const NETWORK_API_MARKERS: &[&str] = &[
-    "ws2_32", "winhttp", "wininet", "mswsock", "wsock32",
-    "urlmon", "dnsapi", "rasapi32", "iphlpapi",
-];
-
-fn is_network_api_label(label: &str) -> bool {
-    let lower = label.to_lowercase();
-    NETWORK_API_MARKERS.iter().any(|m| lower.contains(m))
 }
 
 fn build_default_extension_whitelist() -> HashSet<String> {
@@ -1054,7 +1081,6 @@ pub struct ProcessBehaviorState {
     pub high_entropy_detected: bool,
     pub file_action_detected: bool,
     pub extension_match_detected: bool,
-    pub network_activity_detected: bool,
     pub parent_name: String,
     pub command_line: String,
     
@@ -1074,7 +1100,6 @@ pub struct ProcessBehaviorState {
     // Comprehensive IRP tracking
     pub irp_operations: Vec<IrpOperationRecord>,
     pub irp_stats: IrpStatistics,
-    pub network_apis_called: HashSet<String>,
     pub all_apis_called: HashSet<String>,
     
     // Normalized hypervisor event tracking
@@ -1100,7 +1125,6 @@ impl ProcessBehaviorState {
         state.condition_last_seen = HashMap::new();
         state.irp_operations = Vec::new();
         state.irp_stats = IrpStatistics::default();
-        state.network_apis_called = HashSet::new();
         state.all_apis_called = HashSet::new();
         
         // Initialize normalized hypervisor event counters
@@ -1152,15 +1176,9 @@ impl ProcessBehaviorState {
             };
             self.detected_apis.insert(event_name.clone());
             self.all_apis_called.insert(event_name.clone());
-            if is_network_api_label(&event_name) {
-                self.network_apis_called.insert(event_name.clone());
-            }
             if let Some(alias) = api_function_alias(&event_name) {
                 self.detected_apis.insert(alias.clone());
                 self.all_apis_called.insert(alias.clone());
-                if is_network_api_label(&alias) {
-                    self.network_apis_called.insert(alias);
-                }
             }
 
             Logging::info(&format!(
@@ -1199,29 +1217,6 @@ impl ProcessBehaviorState {
         
         self.irp_operations.push(rec);
     }
-
-    //// TODO: Use Firewall instead of guessing DLL loads for better accuracy and coverage.
-    /// DLL-load heuristic used only for network-activity inference (not API usage).
-    pub fn detect_network_apis_from_io(&mut self, msg: &IOMessage) {
-        let ext_lower = msg.extension.to_lowercase();
-        if ext_lower != "dll" {
-            return;
-        }
-
-        let path = std::path::Path::new(&msg.filepathstr);
-        let stem = path
-            .file_stem()
-            .map(|s| s.to_string_lossy().to_lowercase())
-            .unwrap_or_default();
-        if stem.is_empty() {
-            return;
-        }
-
-        if NETWORK_API_MARKERS.contains(&stem.as_str()) {
-            // Fallback-only marker when only a DLL load is seen and no concrete API call is available.
-            self.network_apis_called.insert(format!("{stem}.dll"));
-        }
-    }
 }
 
 // =============================================================================
@@ -1234,7 +1229,13 @@ pub struct BehaviorEngine {
     regex_cache: RefCell<HashMap<String, Regex>>,
     pub process_terminated: HashSet<String>,
     default_extension_whitelist: HashSet<String>,
-    system: RefCell<System>,
+    system: RefCell<s>,
+    /// PIDs for which the firewall observed real outbound network I/O (NET_EVENT).
+    pub firewall_net_pids: Arc<std::sync::RwLock<HashSet<u32>>>,
+    /// Exe paths for which the firewall confirmed malicious traffic (BLOCK_EXE).
+    /// Value holds full detection details for report generation.
+    /// scan_all_processes marks matching processes as malicious and acts on them.
+    pub firewall_blocked_exes: Arc<std::sync::RwLock<HashMap<String, FirewallDetection>>>,
 }
 
 impl Default for BehaviorEngine {
@@ -1252,8 +1253,127 @@ impl BehaviorEngine {
             process_terminated: HashSet::new(),
             default_extension_whitelist: build_default_extension_whitelist(),
             system: RefCell::new(System::new()),
+            firewall_net_pids: Arc::new(std::sync::RwLock::new(HashSet::new())),
+            firewall_blocked_exes: Arc::new(std::sync::RwLock::new(HashMap::new())),
         }
     }
+
+    /// Spawn the \\.\pipe\HydraNetEvent named pipe server thread.
+    /// Firewall sends: NET_EVENT:<pid>:<dst_ip>:<dst_port> and BLOCK_EXE:<exe_path>.
+    /// Call once after constructing BehaviorEngine, before the scan loop starts.
+    #[cfg(target_os = "windows")]
+    pub fn start_firewall_pipe(&self) {
+        use std::ffi::OsStr;
+        use std::os::windows::ffi::OsStrExt;
+        use windows::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
+        use windows::Win32::System::Pipes::{
+            ConnectNamedPipe, CreateNamedPipeW,
+            PIPE_ACCESS_INBOUND, PIPE_READMODE_BYTE,
+            PIPE_TYPE_BYTE, PIPE_UNLIMITED_INSTANCES, PIPE_WAIT,
+        };
+        use windows::Win32::Storage::FileSystem::ReadFile;
+        use windows::core::PWSTR;
+
+        let net_pids     = Arc::clone(&self.firewall_net_pids);
+        let blocked_exes = Arc::clone(&self.firewall_blocked_exes);
+
+        std::thread::Builder::new()
+            .name("hydra_net_event_pipe".to_string())
+            .spawn(move || {
+                let pipe_name = r"\.\pipe\HydraNetEvent";
+                let wide: Vec<u16> = OsStr::new(pipe_name)
+                    .encode_wide()
+                    .chain(std::iter::once(0u16))
+                    .collect();
+
+                loop {
+                    let handle = unsafe {
+                        CreateNamedPipeW(
+                            PWSTR(wide.as_ptr() as *mut u16),
+                            PIPE_ACCESS_INBOUND,
+                            PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,
+                            PIPE_UNLIMITED_INSTANCES,
+                            0,
+                            4096,
+                            0,
+                            None,
+                        )
+                    };
+
+                    if handle == INVALID_HANDLE_VALUE {
+                        std::thread::sleep(std::time::Duration::from_secs(2));
+                        continue;
+                    }
+
+                    if unsafe { ConnectNamedPipe(handle, None) }.is_err() {
+                        unsafe { let _ = CloseHandle(handle); }
+                        continue;
+                    }
+
+                    let mut buf = vec![0u8; 4096];
+                    let mut leftover = String::new();
+
+                    loop {
+                        let mut bytes_read: u32 = 0;
+                        let ok = unsafe {
+                            ReadFile(handle, Some(buf.as_mut_slice()), Some(&mut bytes_read), None)
+                        };
+                        if ok.is_err() || bytes_read == 0 {
+                            break;
+                        }
+                        leftover.push_str(&String::from_utf8_lossy(&buf[..bytes_read as usize]));
+
+                        while let Some(pos) = leftover.find('
+') {
+                            let line = leftover[..pos].trim().to_string();
+                            leftover = leftover[pos + 1..].to_string();
+
+                            if let Some(rest) = line.strip_prefix("NET_EVENT:") {
+                                if let Some(pid_str) = rest.splitn(3, ':').next() {
+                                    if let Ok(pid) = pid_str.parse::<u32>() {
+                                        net_pids.write().unwrap().insert(pid);
+                                    }
+                                }
+                            } else if let Some(rest) = line.strip_prefix("BLOCK_EXE:") {
+                                // Protocol: BLOCK_EXE:<exe>|<dst_ip>|<dst_port>|<hostname>|<reason>
+                                let mut parts = rest.splitn(5, '|');
+                                let exe      = parts.next().unwrap_or("").trim().to_string();
+                                let dst_ip   = parts.next().unwrap_or("").trim().to_string();
+                                let dst_port = parts.next().unwrap_or("0").trim()
+                                    .parse::<u16>().unwrap_or(0);
+                                let hostname = parts.next().unwrap_or("").trim().to_string();
+                                let reason   = parts.next().unwrap_or("Firewall block").trim().to_string();
+
+                                if !exe.is_empty() {
+                                    let detection = FirewallDetection {
+                                        dst_ip,
+                                        dst_port,
+                                        hostname: hostname.clone(),
+                                        reason: reason.clone(),
+                                    };
+                                    Logging::warning(&format!(
+                                        "[FirewallPipe] Malicious network confirmed: {} → {}:{}{} — {}",
+                                        exe,
+                                        detection.dst_ip,
+                                        detection.dst_port,
+                                        if hostname.is_empty() { String::new() } else { format!(" ({})", hostname) },
+                                        reason
+                                    ));
+                                    blocked_exes.write().unwrap().insert(exe, detection);
+                                }
+                            }
+                        }
+                    }
+
+                    unsafe { let _ = CloseHandle(handle); }
+                }
+            })
+            .expect("failed to spawn hydra_net_event_pipe thread");
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    pub fn start_firewall_pipe(&self) {}
+
 
     fn safe_pattern_match(text: &str, pattern: &str) -> bool {
         let text_lc = text.to_lowercase();
@@ -1769,11 +1889,6 @@ impl BehaviorEngine {
             state.record_irp_operation(msg, irp_op_byte);
         }
         
-        // === STEP 2: DETECT NETWORK APIs ===
-        if let Some(state) = self.process_states.get_mut(&gid) {
-            state.detect_network_apis_from_io(msg);
-        }
-        
         let dev_norm = normalize_device_prefix(&msg.filepathstr);
         let filepath = dev_norm.to_lowercase().replace("\\", "/");
         let norm_filepath = filepath.trim_end_matches('/');
@@ -2033,11 +2148,11 @@ impl BehaviorEngine {
                     }
 
                 if !matched && cond_group.has_network_activity
-                    && !state.network_apis_called.is_empty() {
+                    && self.firewall_net_pids.read().unwrap().contains(&state.pid) {
                         matched = true;
                         Logging::info(&format!(
-                            "[BehaviorEngine] Condition '{}' - Network activity detected for PID {}: {} APIs (legacy DLL tracking)",
-                            cond_name, state.pid, state.network_apis_called.len()
+                            "[BehaviorEngine] Condition '{}' - Network activity confirmed by firewall for PID {}",
+                            cond_name, state.pid
                         ));
                     }
 
@@ -2995,49 +3110,19 @@ impl BehaviorEngine {
         }
     }
     
-    /// NT-BASED network activity detection
-    /// Detects network activity through Nt-observed indicators:
-    /// - DLL loads of network modules (ws2_32.dll, winhttp.dll, wininet.dll)
-    /// - File operations on URL cache, cookies, network config
-    /// - network_apis_called flag from DLL monitoring
-    /// - network_activity_detected flag from file system operations
+    /// Network activity detection — delegates entirely to the firewall.
+    /// Returns true if the firewall has observed real outbound I/O for this PID.
     fn has_network_activity(&self, state: &ProcessBehaviorState) -> bool {
-        if !state.network_apis_called.is_empty() {
-            return true;
-        }
-        
-        if state.network_activity_detected {
-            return true;
-        }
-        
-        let network_modules = ["ws2_32.dll", "winhttp.dll", "wininet.dll", "mswsock.dll", "wsock32.dll"];
-        for api in &state.all_apis_called {
-            let api_lower = api.to_lowercase();
-            if network_modules.iter().any(|m| api_lower.contains(m)) {
-                return true;
-            }
-        }
-        
-        for path in &state.irp_stats.unique_paths_accessed {
-            let path_lower = path.to_lowercase();
-            // URL cache, cookies, network config files
-            if path_lower.contains("cache") && (path_lower.contains("url") || path_lower.contains("inet") || path_lower.contains("http")) {
-                return true;
-            }
-            if path_lower.contains("cookies") || path_lower.contains("cookie") {
-                return true;
-            }
-            if path_lower.contains("winsock") || path_lower.contains("tcp") || path_lower.contains("dns") {
-                return true;
-            }
-        }
-        
-        false
+        // Authoritative: firewall observed real outbound network I/O for this PID.
+        self.firewall_net_pids.read().unwrap().contains(&state.pid)
     }
         
     pub fn scan_all_processes(&mut self, _config: &Config, _threat_handler: &dyn ThreatHandler) -> Vec<ProcessRecord> {
         let mut detected_processes = Vec::new();
         let gids: Vec<u64> = self.process_states.keys().cloned().collect();
+
+        // Snapshot firewall-confirmed malicious exe paths once per scan cycle
+        let fw_blocked = self.firewall_blocked_exes.read().unwrap().clone();
 
         for gid in gids {
             let state = match self.process_states.get(&gid) {
@@ -3049,6 +3134,36 @@ impl BehaviorEngine {
             let app_name = state.app_name.clone();
             let exe_path_buf = state.exe_path.clone();
             let exe_path_str = exe_path_buf.to_string_lossy().to_string();
+
+            // Firewall-confirmed malicious network traffic: act immediately,
+            // bypass the normal rule evaluation loop entirely.
+            if !exe_path_str.is_empty() && exe_path_str.to_lowercase() != "unknown" {
+                if let Some(detection) = fw_blocked.get(&exe_path_str.to_lowercase()) {
+                    let mut p = ProcessRecord::new(
+                        gid,
+                        app_name.clone(),
+                        exe_path_buf.clone(),
+                    );
+                    p.is_malicious = true;
+                    p.pids.insert(pid);
+                    p.termination_requested = true;
+                    p.notify_user_requested = true;
+                    // Encode detection details into triggered_rule_name so the caller
+                    // can build a rich ThreatInfo for WriteReportFile / WriteReportHtmlFile.
+                    // Format: "FirewallNetworkBlock|<threat_label>|<match_details>"
+                    p.triggered_rule_name = Some(format!(
+                        "FirewallNetworkBlock|{}|{}",
+                        detection.threat_type_label(),
+                        detection.match_details(),
+                    ));
+                    Logging::warning(&format!(
+                        "[FirewallPipe] Acting on firewall-confirmed malicious exe: {} (PID {}) — {}",
+                        exe_path_str, pid, detection.match_details()
+                    ));
+                    detected_processes.push(p);
+                    continue;
+                }
+            }
 
             // Log Nt API activity summary if any events detected
             if state.hypervisor_events_total > 0 {

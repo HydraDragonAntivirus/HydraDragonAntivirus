@@ -142,7 +142,7 @@ Filename: "{tmp}\clamav-1.5.2.win.x64.msi"; Parameters: "/quiet /norestart"; Fla
 Filename: "{tmp}\Suricata-7.0.14-1-64bit.msi"; Parameters: "/quiet /norestart"; Flags: shellexec waituntilterminated
 
 ; Mitmproxy 12.2.1 installer (BitRock unattended)
-Filename: "{tmp}\mitmproxy-12.2.1-windows-x86_64-installer.exe"; Parameters: "--mode unattended --unattendedmodeui none --installer-language en --prefix ""{pf64}\mitmproxy"""; Flags: shellexec waituntilterminated
+Filename: "{tmp}\mitmproxy-12.2.1-windows-x86_64-installer.exe"; Parameters: "--mode unattended --unattendedmodeui none --installer-language en --prefix ""{app}\mitmproxy"""; Flags: shellexec waituntilterminated
 
 ; Node.js 22.22.0 (silent)
 Filename: "{tmp}\node-v22.22.1-x64.msi"; Parameters: "/quiet /norestart"; Flags: shellexec waituntilterminated

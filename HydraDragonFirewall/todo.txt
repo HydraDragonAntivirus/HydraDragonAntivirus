@@ -1,2 +1,0 @@
-Hardcoded firewall exclusion path instead of short name
-Owlyshield should use Firewall instead of api

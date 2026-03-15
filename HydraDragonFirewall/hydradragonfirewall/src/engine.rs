@@ -174,7 +174,7 @@ impl Default for TlsProxyConfig {
             listen_port: 8877,
             block_quic_udp_443: true,
             enforce_proxy_routing: false,
-            proxy_process_allowlist: vec!["hydradragonfirewall.exe".to_string()],
+            proxy_process_allowlist: Vec::new(), // Populated from settings.json only — no hardcoded paths.
             auto_start_backend: false,
             backend_command: "mitmdump".to_string(),
             backend_args: Vec::new(),
@@ -534,9 +534,9 @@ pub struct AppManager {
     pub known_apps: RwLock<HashSet<String>>,
     pub port_map: RwLock<HashMap<u16, u32>>,
     pub info_cache: AppInfoCache,
-    pub url_cache: RwLock<HashMap<u32, String>>, // PID -> URL
+    pub url_cache: RwLock<HashMap<u32, String>>,
     pub active_alert: RwLock<Option<PendingApp>>,
-    pub suspicious_pids: RwLock<HashSet<u32>>,    // PIDs flagged by behavior engine
+    pub suspicious_pids: RwLock<HashSet<u32>>,
 }
 
 impl AppManager {
@@ -586,23 +586,25 @@ impl AppManager {
         let app_path = info.path;
         let app_name_lower = app_name.to_lowercase();
 
-        // Self-bypass
+        // Hard-code only the immutable OS-level identifiers.
+        // Everything else — firewall, AV, proxy processes — is driven exclusively
+        // by app_decisions entries in settings.json (full paths).
         if pid == std::process::id()
-            || app_name_lower == "hydradragonfirewall.exe"
             || app_name_lower == "system"
-            || app_name_lower.contains("owlyshield")
-            || app_name_lower.contains("mitmdump")
-            || app_name_lower.contains("mitmproxy")
             || pid == 0
             || pid == 4
         {
             return (AppDecision::Allow, app_name, app_path);
         }
 
-        // Check decision cache
+        // Check decision cache: full image path takes priority, short name as fallback.
         {
             let decisions = self.decisions.read().unwrap();
-            if let Some(decision) = decisions.get(&app_name_lower) {
+            let app_path_lower = app_path.to_lowercase();
+            if let Some(decision) = decisions
+                .get(&app_path_lower)
+                .or_else(|| decisions.get(&app_name_lower))
+            {
                 return (decision.clone(), app_name, app_path);
             }
         }
@@ -775,11 +777,19 @@ impl FirewallEngine {
         }
     }
 
-    fn is_tls_proxy_process(process_name: &str, tls_proxy: &TlsProxyConfig) -> bool {
-        let process_name_lower = process_name.to_lowercase();
+    fn is_tls_proxy_process(process_path: &str, tls_proxy: &TlsProxyConfig) -> bool {
+        // Normalize once: lowercase and unify separators.
+        let path_norm = process_path.trim().to_lowercase().replace('\\', "/");
+        if path_norm.is_empty() || path_norm == "unknown" {
+            return false;
+        }
         tls_proxy.proxy_process_allowlist.iter().any(|entry| {
             let entry = entry.trim();
-            !entry.is_empty() && process_name_lower == entry.to_lowercase()
+            if entry.is_empty() {
+                return false;
+            }
+            let entry_norm = entry.to_lowercase().replace('\\', "/");
+            path_norm == entry_norm
         })
     }
 
@@ -805,7 +815,7 @@ impl FirewallEngine {
     fn enforce_tls_proxy_mode(
         info: &PacketInfo,
         outbound: bool,
-        app_name: &str,
+        app_path: &str,
         tls_proxy: &TlsProxyConfig,
         use_internal_redirect: bool,
         redirected_to_proxy: bool,
@@ -834,7 +844,7 @@ impl FirewallEngine {
             || info.dst_port != 443
             || redirected_to_proxy
             || Self::is_proxy_destination(info, tls_proxy)
-            || Self::is_tls_proxy_process(app_name, tls_proxy)
+            || Self::is_tls_proxy_process(app_path, tls_proxy)
         {
             return;
         }
@@ -916,7 +926,7 @@ impl FirewallEngine {
         packet_data: &mut Vec<u8>,
         info: &PacketInfo,
         outbound: bool,
-        app_name: &str,
+        app_path: &str,
         tls_proxy: &TlsProxyConfig,
         reason: &mut Option<String>,
     ) -> bool {
@@ -926,7 +936,7 @@ impl FirewallEngine {
             || !matches!(info.protocol, Protocol::TCP)
             || info.dst_port != 443
             || Self::is_proxy_destination(info, tls_proxy)
-            || Self::is_tls_proxy_process(app_name, tls_proxy)
+            || Self::is_tls_proxy_process(app_path, tls_proxy)
         {
             return false;
         }
@@ -1345,6 +1355,52 @@ impl FirewallEngine {
             .expect("failed to spawn pending_monitor thread");
 
 
+        // ── NETWORK EVENT PIPE WRITER ────────────────────────────────────────────
+        // Sends real network I/O events to the AV behavior engine so it can track
+        // actual network activity per process instead of guessing from DLL loads.
+        //
+        // Protocol (UTF-8, newline-delimited):
+        //   NET_EVENT:<pid>:<dst_ip>:<dst_port>
+        //
+        // Behavior engine owns the pipe server (\\.\pipe\HydraNetEvent).
+        // This thread is the persistent client; packet workers feed it via a channel.
+        // One message is sent per new PID per session to avoid flooding the pipe.
+        let (net_event_tx, net_event_rx) = std::sync::mpsc::channel::<String>();
+        {
+            let stop_pipe = Arc::clone(&stop);
+            std::thread::Builder::new()
+                .name("net_event_pipe_writer".to_string())
+                .spawn(move || {
+                    use std::io::Write;
+                    const PIPE: &str = r"\\.\pipe\HydraNetEvent";
+                    let mut pipe_opt: Option<std::fs::File> = None;
+
+                    while !stop_pipe.load(Ordering::Relaxed) {
+                        loop {
+                            match net_event_rx.try_recv() {
+                                Ok(msg) => {
+                                    if pipe_opt.is_none() {
+                                        pipe_opt = std::fs::OpenOptions::new()
+                                            .write(true)
+                                            .open(PIPE)
+                                            .ok();
+                                    }
+                                    if let Some(ref mut pipe) = pipe_opt {
+                                        if pipe.write_all(msg.as_bytes()).is_err() {
+                                            pipe_opt = None; // reconnect next time
+                                        }
+                                    }
+                                }
+                                Err(std::sync::mpsc::TryRecvError::Empty) => break,
+                                Err(std::sync::mpsc::TryRecvError::Disconnected) => return,
+                            }
+                        }
+                        std::thread::sleep(Duration::from_millis(10));
+                    }
+                })
+                .expect("failed to spawn net_event_pipe_writer thread");
+        }
+
         // Worker Pool - RADICAL REFACTOR: Each worker is a fully independent capture loop
         let num_workers = 8; // Increased workers for parallel processing
         for worker_id in 0..num_workers {
@@ -1359,12 +1415,17 @@ impl FirewallEngine {
             let fcheck_w = Arc::clone(&self.file_checker);
             let tx_log = app_handle.clone();
             let divert_w = divert.clone();
+            let net_ev_tx = net_event_tx.clone();
 
             std::thread::Builder::new()
                 .name(format!("packet_worker_{}", worker_id))
                 .spawn(move || {
                     let mut buffer = vec![0u8; 65535];
                     let mut packet_count = 0u64;
+                    // Per-worker dedup: only send one NET_EVENT per PID per session
+                    let mut notified_pids: HashSet<u32> = HashSet::new();
+                    // Per-worker dedup: only send one BLOCK_EXE per exe path per session
+                    let mut notified_blocked_exes: HashSet<String> = HashSet::new();
                     while !stop_w.load(Ordering::Relaxed) {
                         // Each thread competition for packets on the shared handle
                         match divert_w.recv(Some(&mut buffer)) {
@@ -1443,6 +1504,64 @@ impl FirewallEngine {
                                     pid,
                                     pre_parsed,
                                 );
+
+                                // ── NET EVENT + BLOCK_EXE → BEHAVIOR ENGINE ─────────
+                                // Both messages go to \\.\pipe\HydraNetEvent.
+                                //
+                                // NET_EVENT  — real outbound I/O observed (once per PID).
+                                // BLOCK_EXE  — firewall confirmed malicious traffic from
+                                //              this executable via rules/intelligence;
+                                //              behavior engine should act on it immediately.
+                                if outbound && pid != 0 {
+                                    if let Some((ref parsed_info, _)) = Self::parse_packet(
+                                        &decision.packet_data,
+                                        outbound,
+                                        pid,
+                                        &am_w.info_cache,
+                                    ) {
+                                        let exe_path = am_w.info_cache.get_info(pid).path;
+                                        let exe_path_lc = exe_path.to_lowercase();
+                                        let is_system = exe_path_lc.is_empty()
+                                            || exe_path_lc == "unknown"
+                                            || exe_path_lc == "system";
+
+                                        // NET_EVENT — once per new PID
+                                        if !notified_pids.contains(&pid) {
+                                            let msg = format!(
+                                                "NET_EVENT:{}:{}:{}\n",
+                                                pid,
+                                                parsed_info.dst_ip,
+                                                parsed_info.dst_port
+                                            );
+                                            let _ = net_ev_tx.send(msg);
+                                            notified_pids.insert(pid);
+                                        }
+
+                                        // BLOCK_EXE — once per exe path when firewall blocks
+                                        // Protocol: BLOCK_EXE:<exe>|<dst_ip>|<dst_port>|<hostname>|<reason>
+                                        if !decision.should_forward
+                                            && !is_system
+                                            && !notified_blocked_exes.contains(&exe_path_lc)
+                                        {
+                                            let hostname = parsed_info.hostname
+                                                .as_deref()
+                                                .unwrap_or("")
+                                                .replace('|', "/");
+                                            let reason = decision._reason
+                                                .replace('|', "/");
+                                            let msg = format!(
+                                                "BLOCK_EXE:{}|{}|{}|{}|{}\n",
+                                                exe_path_lc,
+                                                parsed_info.dst_ip,
+                                                parsed_info.dst_port,
+                                                hostname,
+                                                reason,
+                                            );
+                                            let _ = net_ev_tx.send(msg);
+                                            notified_blocked_exes.insert(exe_path_lc);
+                                        }
+                                    }
+                                }
 
                                 // EMIT RAW PACKET FOR UI (Wireshark-like view)
                                 if let Some((info, _)) = Self::parse_packet(
@@ -1804,19 +1923,6 @@ impl FirewallEngine {
         }
 
     
-        // 10b. EXFILTRATION DETECTION (Shared from OwlyShield)
-        if should_forward && outbound {
-            let suspicious = am.suspicious_pids.read().unwrap();
-            if suspicious.contains(&pid) {
-                if let Some(entropy) = info.payload_entropy {
-                    if entropy > 7.5 {
-                        should_forward = false;
-                        reason = Some("High Entropy Upload from Suspicious Process (OwlyShield Alert)".to_string());
-                    }
-                }
-            }
-        }
-
         // 10c. TLS PROXY REDIRECT + ENFORCEMENT
         let use_internal_redirect = tls_proxy_cfg.backend == TlsProxyBackend::InternalRedirect;
         let redirected_to_proxy = if should_forward && use_internal_redirect {
@@ -1824,7 +1930,7 @@ impl FirewallEngine {
                 &mut data_vec,
                 &info,
                 outbound,
-                &app_name,
+                &app_info.path,
                 &tls_proxy_cfg,
                 &mut reason,
             )
@@ -1834,7 +1940,7 @@ impl FirewallEngine {
         Self::enforce_tls_proxy_mode(
             &info,
             outbound,
-            &app_name,
+            &app_info.path,
             &tls_proxy_cfg,
             use_internal_redirect,
             redirected_to_proxy,
