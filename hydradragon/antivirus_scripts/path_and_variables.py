@@ -87,6 +87,7 @@ decompilers_dir = os.path.join(script_dir, "decompilers")
 bypass_pyarmor7_path = os.path.join(decompilers_dir, "bypass_pyarmor7.py")
 
 # Define the paths for runtime-generated/extracted files (moved to ProgramData)
+python_dumps_dir = os.path.join(data_dir, "python_dumps")
 jadx_decompiled_dir = os.path.join(data_dir, "jadx_decompiled")
 nexe_javascript_unpacked_dir = os.path.join(data_dir, "nexe_unpacked")
 webcrack_javascript_deobfuscated_dir = os.path.join(data_dir, "webcrack_javascript_deobfuscated")
