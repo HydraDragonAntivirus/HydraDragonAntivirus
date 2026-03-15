@@ -143,6 +143,9 @@ namespace Mega_Dumper
         [DllImport("kernel32.dll")]
         private static extern IntPtr OpenProcess(uint dwDesiredAccess, int bInheritHandle, uint dwProcessId);
 
+        [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Auto)]
+        private static extern bool QueryFullProcessImageName(IntPtr hProcess, uint dwFlags, System.Text.StringBuilder lpExeName, ref uint lpdwSize);
+
         [DllImport("kernel32.dll", SetLastError = true)]
         [return: MarshalAs(UnmanagedType.Bool)]
         private static extern bool CloseHandle(IntPtr hObject);
@@ -202,6 +205,55 @@ namespace Mega_Dumper
 
         [DllImport("kernel32", SetLastError = true, CharSet = CharSet.Auto)]
         private static extern bool Process32Next([In] IntPtr hSnapshot, ref PROCESSENTRY32 lppe);
+
+        // ---- Module enumeration via Toolhelp (works for both 32-bit and 64-bit targets) ----
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
+        private struct MODULEENTRY32
+        {
+            internal uint  dwSize;
+            internal uint  th32ModuleID;
+            internal uint  th32ProcessID;
+            internal uint  GlblcntUsage;
+            internal uint  ProccntUsage;
+            internal IntPtr modBaseAddr;
+            internal uint  modBaseSize;
+            internal IntPtr hModule;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 256)]
+            internal string szModule;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 260)]
+            internal string szExePath;
+        }
+
+        [DllImport("kernel32", SetLastError = true, CharSet = CharSet.Auto)]
+        private static extern bool Module32First([In] IntPtr hSnapshot, ref MODULEENTRY32 lpme);
+
+        [DllImport("kernel32", SetLastError = true, CharSet = CharSet.Auto)]
+        private static extern bool Module32Next([In] IntPtr hSnapshot, ref MODULEENTRY32 lpme);
+
+        // ---- EnumProcessModulesEx: LIST_MODULES_ALL enumerates both 32 and 64 bit modules ----
+        private const uint LIST_MODULES_ALL = 0x03;
+
+        [DllImport("psapi.dll", SetLastError = true)]
+        private static extern bool EnumProcessModulesEx(
+            IntPtr hProcess, [Out] IntPtr[] lphModule, uint cb,
+            out uint lpcbNeeded, uint dwFilterFlag);
+
+        [DllImport("psapi.dll", SetLastError = true, CharSet = CharSet.Auto)]
+        private static extern uint GetModuleBaseName(
+            IntPtr hProcess, IntPtr hModule,
+            System.Text.StringBuilder lpBaseName, uint nSize);
+
+        // ---- WOW64 detection (32-bit process running on 64-bit OS) ----
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool IsWow64Process(IntPtr hProcess, out bool Wow64Process);
+
+        // ---- NtQueryInformationProcess overload for class 26 (ProcessWow64Information)
+        //      which returns the 32-bit PEB address of a WOW64 process as a single pointer ----
+        [DllImport("ntdll.dll", SetLastError = true)]
+        private static extern int NtQueryInformationProcess(
+            IntPtr processHandle, int processInformationClass,
+            ref IntPtr processInformation, uint processInformationLength,
+            out int returnLength);
 
         [DllImport("ntdll.dll", SetLastError = true)]
         private static extern int NtQueryInformationProcess(IntPtr processHandle,
@@ -762,58 +814,351 @@ namespace Mega_Dumper
 
         public string GetProcessType(int processid)
         {
+            // ── Step 1: verify the process still exists ──────────────────────────────
             try
             {
-                // Verify access rights first
-                using (var p = Process.GetProcessById(processid))
-                {
-                    if (p == null) return "Unchecked";
-                }
+                using var p = Process.GetProcessById(processid);
+                if (p == null) return "Unchecked";
+                try { if (p.HasExited) return "Unchecked"; } catch { }
             }
-            catch
-            {
-                return "Unchecked";
-            }
+            catch { return "Unchecked"; }
 
+            // ── Step 2: CLI header on disk ────────────────────────────────────────────
+            // This is the single most reliable check for non-single-file assemblies.
+            // It reads the on-disk PE, which is fully written before the process ever
+            // starts, so it is immune to race conditions and cross-arch issues.
+            bool? diskResult = IsNetByCliHeaderFromDisk(processid);
+            if (diskResult == true)  return ".NET";
+            if (diskResult == false) goto checkModules;   // disk says native → still verify modules
+            // diskResult == null means we could not open/read the file → continue
+
+        checkModules:
+            // ── Step 3: Toolhelp module scan ─────────────────────────────────────────
+            // TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32 enumerates BOTH 32-bit and 64-bit
+            // modules regardless of the host bitness.  This is the only module API that
+            // is reliably cross-arch and does not depend on ProcModule.
+            bool? toolhelpResult = TryGetNetStatusViaToolhelp(processid);
+            if (toolhelpResult == true)  return ".NET";
+            if (toolhelpResult == false && diskResult == false) return "Native";
+
+            // ── Step 4: EnumProcessModulesEx(LIST_MODULES_ALL) ───────────────────────
+            // Belt-and-suspenders: use psapi directly with the ALL flag as a second
+            // cross-arch module enumeration path.
+            bool? enumExResult = TryGetNetStatusViaEnumModulesEx(processid);
+            if (enumExResult == true)  return ".NET";
+            if (enumExResult == false && diskResult == false) return "Native";
+
+            // ── Step 5: ProcModule (original path, kept as final fallback) ───────────
             try
             {
-                bool isNet = false;
-                bool isPe = false;
-
-                // check modules
-                try
+                ProcModule.ModuleInfo[] modules = ProcModule.GetModuleInfos(processid);
+                if (modules != null && modules.Length > 0)
                 {
-                    ProcModule.ModuleInfo[] modules = ProcModule.GetModuleInfos(processid);
-                    if (modules != null)
+                    bool hasPeModules = false;
+                    foreach (var m in modules)
                     {
-                        foreach (var m in modules)
-                        {
-                            if (string.IsNullOrEmpty(m.baseName)) continue;
-                            string lower = m.baseName.ToLower();
-
-                            if (lower.Contains("mscorlib.dll") || lower.Contains("clr.dll") || lower.Contains("coreclr.dll"))
-                            {
-                                isNet = true;
-                                break;
-                            }
-
-                            if (lower.EndsWith(".exe") || lower.EndsWith(".dll") || lower.EndsWith(".sys"))
-                                isPe = true;
-                        }
+                        if (string.IsNullOrEmpty(m.baseName)) continue;
+                        string lower = m.baseName.ToLower();
+                        if (IsClrModuleName(lower)) return ".NET";
+                        if (lower.EndsWith(".exe") || lower.EndsWith(".dll") || lower.EndsWith(".sys"))
+                            hasPeModules = true;
                     }
+                    if (hasPeModules && diskResult == false) return "Native";
                 }
-                catch { }
-
-                if (isNet) return ".NET";
-
-                // If not .NET, check if it's Native PE
-                if (isPe || IsPEProcess(processid)) return "Native";
-
-                return "Unchecked";
             }
-            catch
+            catch { }
+
+            // ── Step 6: In-memory CLI header ─────────────────────────────────────────
+            // Cross-arch-aware: detects WOW64 and reads from the correct (32-bit) PEB.
+            if (IsNetByCliHeaderFromMemory(processid)) return ".NET";
+
+            // ── Step 7: All methods exhausted ────────────────────────────────────────
+            // NEVER return "Native" when we are unsure — that was the original bug.
+            // Return "Unchecked" so the timer retries on the next tick.
+            return diskResult == false ? "Native" : "Unchecked";
+        }
+
+        // ─────────────────────────────────────────────────────────────────────────────
+        //  Internal helpers
+        // ─────────────────────────────────────────────────────────────────────────────
+
+        /// <summary>
+        /// Returns true/.NET, false/Native, or null/inconclusive.
+        /// Reads the on-disk PE and checks data directory 14 (CLI header).
+        /// A non-zero RVA is the definitive sign of a .NET assembly.
+        /// Returns false (not .NET) for native PEs, null if the file is inaccessible.
+        /// </summary>
+        private bool? IsNetByCliHeaderFromDisk(int processId)
+        {
+            try
             {
-                return "Unchecked";
+                string exePath = GetProcessImagePath(processId);
+                if (string.IsNullOrEmpty(exePath) || !File.Exists(exePath))
+                    return null;   // cannot determine
+
+                using var fs = new FileStream(exePath, FileMode.Open, FileAccess.Read,
+                                              FileShare.ReadWrite | FileShare.Delete);
+                byte[] header = new byte[0x400];
+                int read = fs.Read(header, 0, header.Length);
+                if (read < 0x100) return null;
+
+                bool? result = HasCliHeader(header);
+                return result;     // true = .NET, false = native, null = malformed
+            }
+            catch { return null; }
+        }
+
+        /// <summary>
+        /// Enumerates process modules via CreateToolhelp32Snapshot with
+        /// TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32.
+        /// This is the ONLY cross-arch-safe module enumeration API — it lists both
+        /// 32-bit and 64-bit modules regardless of the host process bitness.
+        /// Returns true = CLR found (.NET), false = modules found but no CLR (Native),
+        /// null = snapshot failed (inconclusive).
+        /// </summary>
+        private bool? TryGetNetStatusViaToolhelp(int processId)
+        {
+            const uint TH32CS_SNAPMODULE   = 0x00000008;
+            const uint TH32CS_SNAPMODULE32 = 0x00000010;
+            IntPtr hSnap = new IntPtr(-1);
+            try
+            {
+                hSnap = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, (uint)processId);
+                if (hSnap == IntPtr.Zero || hSnap == new IntPtr(-1)) return null;
+
+                var me = new MODULEENTRY32 { dwSize = (uint)Marshal.SizeOf(typeof(MODULEENTRY32)) };
+                if (!Module32First(hSnap, ref me)) return null;
+
+                bool hasPeModules = false;
+                do
+                {
+                    if (string.IsNullOrEmpty(me.szModule)) continue;
+                    string lower = me.szModule.ToLower();
+                    if (IsClrModuleName(lower)) return true;
+                    if (lower.EndsWith(".exe") || lower.EndsWith(".dll") || lower.EndsWith(".sys"))
+                        hasPeModules = true;
+                } while (Module32Next(hSnap, ref me));
+
+                return hasPeModules ? (bool?)false : null;
+            }
+            catch { return null; }
+            finally
+            {
+                if (hSnap != IntPtr.Zero && hSnap != new IntPtr(-1))
+                    try { CloseHandle(hSnap); } catch { }
+            }
+        }
+
+        /// <summary>
+        /// Enumerates modules via EnumProcessModulesEx(LIST_MODULES_ALL = 0x03).
+        /// The ALL flag ensures both 32-bit and 64-bit modules are returned even in
+        /// cross-arch scenarios where the plain EnumProcessModules API fails.
+        /// Returns true/.NET, false/Native, null/inconclusive.
+        /// </summary>
+        private bool? TryGetNetStatusViaEnumModulesEx(int processId)
+        {
+            const uint PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;
+            IntPtr hProcess = IntPtr.Zero;
+            try
+            {
+                hProcess = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, 0, (uint)processId);
+                if (hProcess == IntPtr.Zero)
+                    hProcess = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ, 0, (uint)processId);
+                if (hProcess == IntPtr.Zero) return null;
+
+                // First call to get required buffer size
+                EnumProcessModulesEx(hProcess, null, 0, out uint needed, LIST_MODULES_ALL);
+                if (needed == 0) return null;
+
+                int count = (int)(needed / (uint)IntPtr.Size);
+                IntPtr[] handles = new IntPtr[count];
+                if (!EnumProcessModulesEx(hProcess, handles, needed, out _, LIST_MODULES_ALL))
+                    return null;
+
+                bool hasPeModules = false;
+                var sb = new System.Text.StringBuilder(256);
+                foreach (IntPtr hMod in handles)
+                {
+                    if (hMod == IntPtr.Zero) continue;
+                    sb.Clear();
+                    if (GetModuleBaseName(hProcess, hMod, sb, (uint)sb.Capacity) == 0) continue;
+                    string lower = sb.ToString().ToLower();
+                    if (IsClrModuleName(lower)) return true;
+                    if (lower.EndsWith(".exe") || lower.EndsWith(".dll") || lower.EndsWith(".sys"))
+                        hasPeModules = true;
+                }
+                return hasPeModules ? (bool?)false : null;
+            }
+            catch { return null; }
+            finally
+            {
+                if (hProcess != IntPtr.Zero)
+                    try { CloseHandle(hProcess); } catch { }
+            }
+        }
+
+        /// <summary>
+        /// Reads the PE header from the process's virtual memory and checks the CLI header.
+        /// Correctly handles WOW64 (32-bit process on 64-bit OS) by reading from the 32-bit
+        /// PEB via NtQueryInformationProcess(class 26 = ProcessWow64Information) instead of
+        /// the 64-bit PEB, which does not contain the actual EXE image base for WOW64.
+        /// </summary>
+        private bool IsNetByCliHeaderFromMemory(int processId)
+        {
+            IntPtr hProcess = IntPtr.Zero;
+            try
+            {
+                hProcess = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, 0, (uint)processId);
+                if (hProcess == IntPtr.Zero) return false;
+
+                ulong imageBase = 0;
+
+                // Detect WOW64: a 32-bit process running on a 64-bit OS.
+                // For WOW64, NtQueryInformationProcess(class 0) returns the 64-bit PEB,
+                // whose ImageBaseAddress points at the WOW64 bridge, not the actual EXE.
+                // We must use class 26 (ProcessWow64Information) to get the 32-bit PEB.
+                bool isWow64 = false;
+                try { IsWow64Process(hProcess, out isWow64); } catch { }
+
+                uint bytesRead = 0;
+
+                if (isWow64)
+                {
+                    // class 26 = ProcessWow64Information → returns address of 32-bit PEB as IntPtr
+                    IntPtr wow64PebAddr = IntPtr.Zero;
+                    int status26 = NtQueryInformationProcess(hProcess, 26, ref wow64PebAddr,
+                                                              (uint)IntPtr.Size, out _);
+                    if (status26 != 0 || wow64PebAddr == IntPtr.Zero) return false;
+
+                    // 32-bit PEB: ImageBaseAddress is a ULONG at offset 0x08
+                    byte[] peb32 = new byte[0x0C];
+                    if (!ReadProcessMemory(hProcess, (ulong)wow64PebAddr, peb32, (uint)peb32.Length, ref bytesRead))
+                        return false;
+                    imageBase = BitConverter.ToUInt32(peb32, 0x08);
+                }
+                else
+                {
+                    // Native (same arch as host) — use class 0 (ProcessBasicInformation)
+                    PROCESS_BASIC_INFORMATION pbi = new();
+                    int status = NtQueryInformationProcess(hProcess, 0, ref pbi,
+                                                           (uint)Marshal.SizeOf(pbi), out _);
+                    if (status != 0 || pbi.PebBaseAddress == IntPtr.Zero) return false;
+
+                    // Native PEB: ImageBaseAddress offset depends on pointer size of target
+                    //   x86 (host=x86): offset 0x08, 4-byte pointer
+                    //   x64 (host=x64): offset 0x10, 8-byte pointer
+                    int imageBaseOff = IntPtr.Size == 8 ? 0x10 : 0x08;
+                    byte[] peb = new byte[imageBaseOff + IntPtr.Size];
+                    if (!ReadProcessMemory(hProcess, (ulong)pbi.PebBaseAddress, peb,
+                                           (uint)peb.Length, ref bytesRead))
+                        return false;
+
+                    imageBase = IntPtr.Size == 8
+                        ? BitConverter.ToUInt64(peb, imageBaseOff)
+                        : BitConverter.ToUInt32(peb, imageBaseOff);
+                }
+
+                if (imageBase == 0) return false;
+
+                byte[] header = new byte[0x400];
+                if (!ReadProcessMemory(hProcess, imageBase, header, (uint)header.Length, ref bytesRead)
+                    || bytesRead < 0x100)
+                    return false;
+
+                return HasCliHeader(header) == true;
+            }
+            catch { return false; }
+            finally
+            {
+                if (hProcess != IntPtr.Zero)
+                    try { CloseHandle(hProcess); } catch { }
+            }
+        }
+
+        /// <summary>
+        /// Parses a PE header buffer and returns:
+        ///   true  — CLI data directory (index 14) has a non-zero RVA → definite .NET assembly
+        ///   false — valid PE header with zero CLI RVA → native binary
+        ///   null  — buffer is malformed or too small to conclude
+        /// </summary>
+        private static bool? HasCliHeader(byte[] header)
+        {
+            try
+            {
+                if (header == null || header.Length < 0x80) return null;
+
+                // DOS stub → e_lfanew at 0x3C
+                if (header[0] != 0x4D || header[1] != 0x5A) return null;   // not MZ
+                int peOffset = BitConverter.ToInt32(header, 0x3C);
+                if (peOffset <= 0 || peOffset + 0x18 > header.Length) return null;
+
+                // PE\0\0 signature
+                if (header[peOffset]     != 0x50 || header[peOffset + 1] != 0x45 ||
+                    header[peOffset + 2] != 0x00 || header[peOffset + 3] != 0x00)
+                    return null;
+
+                // Optional Header Magic at PE+24: 0x10B = PE32, 0x20B = PE32+
+                if (peOffset + 26 > header.Length) return null;
+                ushort magic = BitConverter.ToUInt16(header, peOffset + 24);
+                if (magic != 0x10B && magic != 0x20B) return null;  // unknown format
+                bool is64 = (magic == 0x20B);
+
+                // Data directories base:
+                //   PE32:  PE sig(4) + COFF(20) + optional fixed fields(96)  = PE+120 = PE+0x78
+                //   PE32+: PE sig(4) + COFF(20) + optional fixed fields(112) = PE+136 = PE+0x88
+                int dataDirBase = peOffset + 4 + 20 + (is64 ? 112 : 96);
+
+                // Entry 14 (COM descriptor / CLI header), 8 bytes each
+                int cliOffset = dataDirBase + (14 * 8);
+                if (cliOffset + 4 > header.Length) return null;   // header too small, not conclusive
+
+                uint cliRva = BitConverter.ToUInt32(header, cliOffset);
+                return cliRva != 0;   // true = .NET, false = native
+            }
+            catch { return null; }
+        }
+
+        /// <summary>
+        /// Centralised list of CLR module names across all .NET generations.
+        /// </summary>
+        private static bool IsClrModuleName(string lowerName)
+        {
+            // .NET Framework 2.0 – 3.5
+            if (lowerName.Contains("mscorwks.dll"))   return true;
+            // .NET Framework 4.x
+            if (lowerName.Contains("clr.dll"))        return true;
+            if (lowerName.Contains("mscorlib.dll"))   return true;
+            // .NET Core / .NET 5+
+            if (lowerName.Contains("coreclr.dll"))    return true;
+            if (lowerName.Contains("clrjit.dll"))     return true;
+            // Native AOT does not load a CLR, but it is not "managed" in the traditional sense.
+            return false;
+        }
+
+        /// <summary>
+        /// Gets the full on-disk path of a process using QueryFullProcessImageName.
+        /// Works correctly regardless of host/target bitness mismatch.
+        /// </summary>
+        private string GetProcessImagePath(int processId)
+        {
+            const uint PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;
+            IntPtr hProcess = IntPtr.Zero;
+            try
+            {
+                hProcess = OpenProcess(PROCESS_QUERY_INFORMATION, 0, (uint)processId);
+                if (hProcess == IntPtr.Zero)
+                    hProcess = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, (uint)processId);
+                if (hProcess == IntPtr.Zero) return null;
+
+                var sb = new System.Text.StringBuilder(1024);
+                uint size = (uint)sb.Capacity;
+                return QueryFullProcessImageName(hProcess, 0, sb, ref size) ? sb.ToString() : null;
+            }
+            catch { return null; }
+            finally
+            {
+                if (hProcess != IntPtr.Zero)
+                    try { CloseHandle(hProcess); } catch { }
             }
         }
 
