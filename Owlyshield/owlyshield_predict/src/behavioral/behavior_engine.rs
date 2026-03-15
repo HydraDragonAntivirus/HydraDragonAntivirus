@@ -19,7 +19,6 @@ use crate::threat_handler::ThreatHandler;
 use crate::signature_verification::verify_signature;
 use crate::utils::format_process_descriptor_with_fallback;
 
-use sysinfo::{System, ProcessRefreshKind, ProcessesToUpdate};
 use num::FromPrimitive;
 
 // =============================================================================
@@ -1253,7 +1252,6 @@ impl BehaviorEngine {
             regex_cache: RefCell::new(HashMap::new()),
             process_terminated: HashSet::new(),
             default_extension_whitelist: build_default_extension_whitelist(),
-            system: RefCell::new(System::new()),
             firewall_net_pids: Arc::new(std::sync::RwLock::new(HashSet::new())),
             firewall_blocked_exes: Arc::new(std::sync::RwLock::new(HashMap::new())),
         }
@@ -1783,9 +1781,24 @@ impl BehaviorEngine {
     }
 
     pub fn register_process(&mut self, gid: u64, pid: u32, exe_path: PathBuf, app_name: String) {
-        self.process_states.entry(gid).or_insert_with(|| {
-            ProcessBehaviorState::new(pid, exe_path, app_name)
-        });
+        let state = self.process_states
+            .entry(gid)
+            .or_insert_with(|| ProcessBehaviorState::new(pid, exe_path.clone(), app_name.clone()));
+
+        // Heal stale placeholder values that may have been set before worker.rs
+        // resolved the real process name/path.
+        let name_is_stale = state.app_name.is_empty()
+            || state.app_name.starts_with("PROC_")
+            || state.app_name == "UNKNOWN";
+        let path_is_stale = state.exe_path.to_string_lossy() == "UNKNOWN"
+            || state.exe_path.as_os_str().is_empty();
+
+        if name_is_stale && !app_name.is_empty() && !app_name.starts_with("PROC_") && app_name != "UNKNOWN" {
+            state.app_name = app_name;
+        }
+        if path_is_stale && !exe_path.as_os_str().is_empty() && exe_path.to_string_lossy() != "UNKNOWN" {
+            state.exe_path = exe_path;
+        }
     }
 
     pub fn load_additional_rules(&mut self, path: &Path) -> Result<(), Box<dyn std::error::Error>> {
@@ -1816,36 +1829,8 @@ impl BehaviorEngine {
         let mut actions = ActionsOnKill::with_handler(threat_handler.clone_box());
         
         if !self.process_states.contains_key(&gid) {
-            let mut resolved_appname = precord.appname.clone();
-            let mut resolved_exepath = precord.exepath.clone();
-            let mut sys_refreshed = false;
-
-            if resolved_appname == "UNKNOWN" || resolved_appname.is_empty() || resolved_appname.starts_with("PROC_") {
-                let mut sys = self.system.borrow_mut();
-                sys.refresh_processes_specifics(
-                    ProcessesToUpdate::Some(&[sysinfo::Pid::from_u32(msg.pid)]), 
-                    false,
-                    ProcessRefreshKind::everything()
-                );
-                sys_refreshed = true;
-                
-                let _proc_opt: Option<&sysinfo::Process> = sys.process(sysinfo::Pid::from_u32(msg.pid));
-                if let Some(proc) = _proc_opt {
-                   resolved_appname = proc.name().to_string_lossy().to_string();
-                   let _exe_opt: Option<&std::path::Path> = proc.exe();
-                   if let Some(exe_path) = _exe_opt {
-                       resolved_exepath = exe_path.to_path_buf();
-                   }
-                   precord.appname = resolved_appname.clone();
-                   precord.exepath = resolved_exepath.clone();
-                   
-                   if self.rules.iter().any(|r| r.debug) {
-                        Logging::debug(&format!("[BehaviorEngine] Resolved SELF via sysinfo fallback: PID {} -> {}", msg.pid, resolved_appname));
-                   }
-                }
-            }
-
-            let mut s = ProcessBehaviorState::new(msg.pid, resolved_exepath, resolved_appname);
+            // appname and exepath are resolved by worker.rs (register_precord) before reaching here.
+            let mut s = ProcessBehaviorState::new(msg.pid, precord.exepath.clone(), precord.appname.clone());
             if !msg.runtime_features.command_line.trim().is_empty() {
                 s.command_line = msg.runtime_features.command_line.to_lowercase();
             }
@@ -1863,25 +1848,7 @@ impl BehaviorEngine {
                 }
             }
 
-            if !parent_found && parent_pid != 0 {
-                let mut sys = self.system.borrow_mut();
-                if !sys_refreshed {
-                    sys.refresh_processes_specifics(
-                        ProcessesToUpdate::Some(&[sysinfo::Pid::from_u32(parent_pid)]),
-                        false,
-                        ProcessRefreshKind::everything()
-                    );
-                }
-                
-                let _parent_opt: Option<&sysinfo::Process> = sys.process(sysinfo::Pid::from_u32(parent_pid));
-                if let Some(parent_proc) = _parent_opt {
-                    let parent_name_str = parent_proc.name().to_string_lossy().to_string();
-                    if !parent_name_str.is_empty() {
-                        s.parent_name = parent_name_str;
-                        parent_found = true;
-                    }
-                }
-            }
+            // Parent name resolution is done by worker.rs; fall back to "unknown" if not tracked.
 
             if !parent_found {
                 s.parent_name = "unknown".to_string();
@@ -1889,8 +1856,73 @@ impl BehaviorEngine {
             
             self.process_states.insert(gid, s);
         }
-        
-        // === STEP 1: RECORD IRP OPERATION ===
+
+        // Self-heal: if the state was created with placeholder values before worker.rs
+        // resolved the real appname/exepath (race between event arrival and IrpProcessCreate),
+        // update it on every subsequent event until the values are concrete.
+        // Also update precord itself so ransomware detection and all other paths get
+        // the correct values — process_record_handler.handle_io runs before this function.
+        if let Some(state) = self.process_states.get_mut(&gid) {
+            let name_is_stale = state.app_name.is_empty()
+                || state.app_name.starts_with("PROC_")
+                || state.app_name == "UNKNOWN";
+            let path_is_stale = state.exe_path.to_string_lossy() == "UNKNOWN"
+                || state.exe_path.as_os_str().is_empty();
+
+            if name_is_stale
+                && !precord.appname.is_empty()
+                && !precord.appname.starts_with("PROC_")
+                && precord.appname != "UNKNOWN"
+            {
+                if self.rules.iter().any(|r| r.debug) {
+                    Logging::debug(&format!(
+                        "[BehaviorEngine] Resolved stale appname for GID {}: '{}' -> '{}'",
+                        gid, state.app_name, precord.appname
+                    ));
+                }
+                state.app_name = precord.appname.clone();
+            }
+
+            if path_is_stale
+                && !precord.exepath.as_os_str().is_empty()
+                && precord.exepath.to_string_lossy() != "UNKNOWN"
+            {
+                state.exe_path = precord.exepath.clone();
+            }
+
+            // Heal precord too — ransomware detection and report generation read
+            // directly from ProcessRecord, not from ProcessBehaviorState.
+            let precord_name_stale = precord.appname.is_empty()
+                || precord.appname.starts_with("PROC_")
+                || precord.appname == "UNKNOWN";
+            let precord_path_stale = precord.exepath.to_string_lossy() == "UNKNOWN"
+                || precord.exepath.as_os_str().is_empty();
+
+            if precord_name_stale && !state.app_name.is_empty()
+                && !state.app_name.starts_with("PROC_")
+                && state.app_name != "UNKNOWN"
+            {
+                precord.appname = state.app_name.clone();
+            }
+            if precord_path_stale && !state.exe_path.as_os_str().is_empty()
+                && state.exe_path.to_string_lossy() != "UNKNOWN"
+            {
+                precord.exepath = state.exe_path.clone();
+            }
+
+            // Also heal parent name if it is still unknown and the parent is now tracked.
+            if state.parent_name == "unknown" || state.parent_name.is_empty() {
+                let parent_pid = msg.parent_pid;
+                if parent_pid != 0 {
+                    if let Some(parent_state) = self.process_states.values()
+                        .find(|s| s.pid == parent_pid && !s.app_name.is_empty()
+                              && !s.app_name.starts_with("PROC_"))
+                    {
+                        state.parent_name = parent_state.app_name.clone();
+                    }
+                }
+            }
+        }
         let irp_op_byte = msg.irp_op;
         let irp_op = IrpMajorOp::from_byte(irp_op_byte);
         if let Some(state) = self.process_states.get_mut(&gid) {
@@ -1937,15 +1969,9 @@ impl BehaviorEngine {
         if irp_op == IrpMajorOp::IrpProcessTerminateAttempt {
             let mut victim_path = msg.filepathstr.to_lowercase();
             if victim_path.is_empty() {
-                let mut sys = self.system.borrow_mut();
-                sys.refresh_processes_specifics(
-                    ProcessesToUpdate::Some(&[sysinfo::Pid::from_u32(msg.pid)]),
-                    false,
-                    ProcessRefreshKind::everything()
-                );
-                let _victim_opt: Option<&sysinfo::Process> = sys.process(sysinfo::Pid::from_u32(msg.pid));
-                if let Some(proc) = _victim_opt {
-                    victim_path = proc.name().to_string_lossy().to_string().to_lowercase();
+                // Fall back to the tracked state name (worker.rs already resolved this).
+                if let Some(state) = self.process_states.values().find(|s| s.pid == msg.pid) {
+                    victim_path = state.app_name.to_lowercase();
                 }
             }
             
