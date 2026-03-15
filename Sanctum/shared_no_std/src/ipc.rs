@@ -18,14 +18,14 @@ use serde_json::Value;
 ///
 /// ## No data to send:
 ///
-/// ```
+/// ```ignore
 /// // where IPC is of type IpcClient as implemented in the GUI.
 /// ipc.send_ipc::<(), Option<Value>>("scanner_cancel_scan", None).await
 /// ```
 ///
 /// ## Data of type A to send:
 ///
-/// ```
+/// ```ignore
 /// let path = to_value(vec![PathBuf::from(file_path)]).unwrap();
 /// ipc.send_ipc::<FileScannerState, _>("scanner_start_folder_scan", Some(path)).await
 /// ```

@@ -1,12 +1,15 @@
 use std::ptr::null_mut;
 
 use windows::{
-    core::{s, Error, PCWSTR, PWSTR}, Win32::{
+    Win32::{
         Foundation::ERROR_SUCCESS,
         System::Registry::{
-            RegCloseKey, RegCreateKeyExW, RegSetValueExW, HKEY, HKEY_LOCAL_MACHINE, KEY_READ, KEY_WRITE, REG_DWORD, REG_OPENED_EXISTING_KEY, REG_OPTION_NON_VOLATILE, REG_SZ
-        }, UI::WindowsAndMessaging::{MessageBoxA, MB_ICONWARNING, MB_OK, MESSAGEBOX_STYLE},
-    }
+            HKEY, HKEY_LOCAL_MACHINE, KEY_READ, KEY_WRITE, REG_DWORD, REG_OPENED_EXISTING_KEY,
+            REG_OPTION_NON_VOLATILE, REG_SZ, RegCloseKey, RegCreateKeyExW, RegSetValueExW,
+        },
+        UI::WindowsAndMessaging::{MB_ICONWARNING, MB_OK, MESSAGEBOX_STYLE, MessageBoxA},
+    },
+    core::{Error, PCWSTR, PWSTR, s},
 };
 
 fn to_wstring(s: &str) -> Vec<u16> {

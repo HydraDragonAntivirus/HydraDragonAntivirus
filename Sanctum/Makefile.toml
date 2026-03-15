@@ -1,6 +1,11 @@
 [env]
 CARGO_MAKE_EXTEND_WORKSPACE_MAKEFILE = true
 
+[tasks.release]
+description = "Build release version"
+command = "cargo"
+args = ["build", "--release"]
+
 [tasks.build-client]
 description = "Build the usermode client for Sanctum."
 command = "cargo"

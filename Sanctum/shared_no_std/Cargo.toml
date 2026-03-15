@@ -4,6 +4,6 @@ version = "0.0.2"
 edition = "2024"
 
 [dependencies]
-serde = { version = "1.0", default-features = false }
-serde_json = {version = "1.0", default-features = false }
+serde = { version = "1.0", default-features = false, features = ["derive", "alloc"] }
+serde_json = {version = "1.0", default-features = false,  features = ["alloc"]  }
 strum = { version = "0.27", default-features = false, features = ["derive"] }

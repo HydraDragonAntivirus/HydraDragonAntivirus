@@ -1,7 +1,7 @@
 use std::{process::exit, ptr::null_mut};
 
 use windows::{
-    core::{s, Error, PCWSTR, PWSTR}, Win32::{
+    Win32::{
         Foundation::ERROR_SUCCESS,
         Storage::FileSystem::{
             CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_READ_DATA, FILE_SHARE_READ, OPEN_EXISTING,
@@ -9,17 +9,20 @@ use windows::{
         System::{
             Antimalware::InstallELAMCertificateInfo,
             Registry::{
-                RegCloseKey, RegCreateKeyExW, RegSetValueExW, HKEY, HKEY_LOCAL_MACHINE, KEY_READ, KEY_WRITE, REG_DWORD, REG_OPENED_EXISTING_KEY, REG_OPTION_NON_VOLATILE, REG_SZ
+                HKEY, HKEY_LOCAL_MACHINE, KEY_READ, KEY_WRITE, REG_DWORD, REG_OPENED_EXISTING_KEY,
+                REG_OPTION_NON_VOLATILE, REG_SZ, RegCloseKey, RegCreateKeyExW, RegSetValueExW,
             },
             Services::{
                 ChangeServiceConfig2W, CreateServiceW, OpenSCManagerW, SC_MANAGER_ALL_ACCESS,
                 SERVICE_CONFIG_LAUNCH_PROTECTED, SERVICE_DEMAND_START, SERVICE_ERROR_NORMAL,
                 SERVICE_LAUNCH_PROTECTED_ANTIMALWARE_LIGHT, SERVICE_LAUNCH_PROTECTED_INFO,
                 SERVICE_WIN32_OWN_PROCESS,
-            }, WindowsProgramming::GetUserNameW,
+            },
+            WindowsProgramming::GetUserNameW,
         },
-        UI::WindowsAndMessaging::{MessageBoxA, MB_ICONWARNING},
-    }
+        UI::WindowsAndMessaging::{MB_ICONWARNING, MessageBoxA},
+    },
+    core::{Error, PCWSTR, PWSTR, s},
 };
 
 fn main() {
@@ -37,9 +40,7 @@ fn main() {
     let path_with_username = format!(r"C:\Users\{}\AppData\Roaming\Sanctum\sanctum.sys", username);
 
     // Encode the formatted string as utf16, into the path buffer
-    path_with_username
-        .encode_utf16()
-        .for_each(|c| path.push(c));
+    path_with_username.encode_utf16().for_each(|c| path.push(c));
 
     path.push(0);
 
@@ -107,7 +108,7 @@ fn main() {
                 exit(0)
             }
             panic!("[!] Failed to create service. {e}")
-        },
+        }
     };
 
     let mut info = SERVICE_LAUNCH_PROTECTED_INFO::default();
@@ -151,12 +152,13 @@ fn svc_bin_path() -> Vec<u16> {
     // The resulting buffer for a wide string conversion
     let mut path: Vec<u16> = vec![];
     // The formatted path including the users username
-    let path_with_username = format!("C:\\Users\\{}\\AppData\\Roaming\\Sanctum\\sanctum_ppl_runner.exe", username);
+    let path_with_username = format!(
+        "C:\\Users\\{}\\AppData\\Roaming\\Sanctum\\sanctum_ppl_runner.exe",
+        username
+    );
 
     // Encode the formatted string as utf16, into the path buffer
-    path_with_username
-        .encode_utf16()
-        .for_each(|c| path.push(c));
+    path_with_username.encode_utf16().for_each(|c| path.push(c));
 
     path.push(0);
     path
@@ -192,7 +194,10 @@ fn create_event_source_key() -> windows::core::Result<()> {
 
         let value_name = to_wstring("EventMessageFile");
         let username = get_logged_on_user_or_panic();
-        let exe_path = to_wstring(&format!("C:\\Users\\{}\\AppData\\Roaming\\Sanctum\\sanctum_ppl_runner.exe", username));
+        let exe_path = to_wstring(&format!(
+            "C:\\Users\\{}\\AppData\\Roaming\\Sanctum\\sanctum_ppl_runner.exe",
+            username
+        ));
 
         let exe_bytes: &[u8] = std::slice::from_raw_parts(
             exe_path.as_ptr() as *const u8,
@@ -252,12 +257,12 @@ fn to_wstring(s: &str) -> Vec<u16> {
 }
 
 /// Gets the username of the logged on user.
-/// 
+///
 /// The function will obtain a wide string of the users logged in name and convert this to a string via
 /// [`String::from_utf16_lossy`] - it is possible for data loss during the conversion, but all characters Msft
 /// will accept should be valid. If not, then the program will panic at a later stage, but I do not anticipate this
 /// being an issue for the previously mentioned reason.
-/// 
+///
 /// # Panics
 /// If this function cannot find the username of the currently logged on user, it will panic.
 fn get_logged_on_user_or_panic() -> String {
@@ -265,18 +270,14 @@ fn get_logged_on_user_or_panic() -> String {
     let logged_on_user = [0u16; 256 + 1];
     let mut pcb_buf = logged_on_user.len() as u32;
 
-    let result = unsafe {
-        GetUserNameW(
-            Some(PWSTR(logged_on_user.as_ptr() as *mut _)), 
-            &mut pcb_buf,
-        )
-    };
+    let result =
+        unsafe { GetUserNameW(Some(PWSTR(logged_on_user.as_ptr() as *mut _)), &mut pcb_buf) };
 
     if let Err(e) = result {
         panic!("[-] Could not get logged on user. {e}. Error code: {pcb_buf}");
     }
 
-    // Use the returned count of TCHARS (num chars not bytes) -1 for the null to get a String of the 
+    // Use the returned count of TCHARS (num chars not bytes) -1 for the null to get a String of the
     // username
     let snip = &logged_on_user[..(pcb_buf - 1) as usize];
     String::from_utf16_lossy(&snip)
