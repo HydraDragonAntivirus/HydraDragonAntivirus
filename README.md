@@ -168,7 +168,7 @@ See the [LICENSE](./LICENSE) file for more information.
 
 **Note 3:**
 
-- https://github.com/icsharpcode/ILSpy
+- https://github.com/icsharpcode/ILSpy/tree/master/ICSharpCode.ILSpyCmd
 - https://github.com/extremecoders-re/nuitka-extractor
 - https://github.com/horsicq/Detect-It-Easy
 - https://github.com/extremecoders-re/decompyle-builds
