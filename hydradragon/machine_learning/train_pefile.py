@@ -1089,7 +1089,14 @@ class DataProcessor:
     # --------------------------
     def process_dir(self, directory: Path, is_malicious: bool):
         label = 'malicious' if is_malicious else 'benign'
-        
+
+        if not directory.exists():
+            logger.error(f"[{label}] Input directory does not exist, skipping: {directory}")
+            return 0
+        if not directory.is_dir():
+            logger.error(f"[{label}] Input path is not a directory, skipping: {directory}")
+            return 0
+
         # Stage 1: Discover files (parallel directory walk)
         logger.info(f"[{label}] Stage 1/3: Discovering files in {directory}...")
         files = [f for f in directory.rglob('*') if f.is_file()]

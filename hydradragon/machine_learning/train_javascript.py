@@ -768,6 +768,13 @@ class DataProcessor:
 
     def process_dir(self, directory: Path, is_malicious: bool):
         """Process all JavaScript files in a directory."""
+        if not directory.exists():
+            logger.error(f"Input directory does not exist, skipping: {directory}")
+            return 0
+        if not directory.is_dir():
+            logger.error(f"Input path is not a directory, skipping: {directory}")
+            return 0
+
         # Collect all .js files
         files = [f for f in directory.rglob('*.js') if f.is_file()]
         
