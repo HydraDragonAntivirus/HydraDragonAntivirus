@@ -1331,11 +1331,10 @@ impl BehaviorEngine {
                             leftover = leftover[pos + 1..].to_string();
 
                             if let Some(rest) = line.strip_prefix("NET_EVENT:") {
-                                if let Some(pid_str) = rest.splitn(3, ':').next() {
-                                    if let Ok(pid) = pid_str.parse::<u32>() {
+                                if let Some(pid_str) = rest.split(':').next()
+                                    && let Ok(pid) = pid_str.parse::<u32>() {
                                         net_pids.write().unwrap().insert(pid);
                                     }
-                                }
                             } else if let Some(rest) = line.strip_prefix("BLOCK_EXE:") {
                                 // BLOCK_EXE:<exe>|<dst_ip>|<dst_port>|<hostname>|<reason>
                                 let mut parts = rest.splitn(5, '|');
@@ -1923,11 +1922,10 @@ impl BehaviorEngine {
             }
 
             // Heal parent name using the value resolved before the mutable borrow.
-            if (state.parent_name == "unknown" || state.parent_name.is_empty()) {
-                if let Some(ref name) = resolved_parent_name {
+            if (state.parent_name == "unknown" || state.parent_name.is_empty() )
+                && let Some(ref name) = resolved_parent_name {
                     state.parent_name = name.clone();
                 }
-            }
         }
         let irp_op_byte = msg.irp_op;
         let irp_op = IrpMajorOp::from_byte(irp_op_byte);
@@ -3178,8 +3176,8 @@ impl BehaviorEngine {
 
             // Firewall-confirmed malicious network traffic: act immediately,
             // bypass the normal rule evaluation loop entirely.
-            if !exe_path_str.is_empty() && exe_path_str.to_lowercase() != "unknown" {
-                if let Some(detection) = fw_blocked.get(&exe_path_str.to_lowercase()) {
+            if !exe_path_str.is_empty() && exe_path_str.to_lowercase() != "unknown"
+                && let Some(detection) = fw_blocked.get(&exe_path_str.to_lowercase()) {
                     let mut p = ProcessRecord::new(
                         gid,
                         app_name.clone(),
@@ -3204,7 +3202,6 @@ impl BehaviorEngine {
                     detected_processes.push(p);
                     continue;
                 }
-            }
 
             // Log Nt API activity summary if any events detected
             if state.hypervisor_events_total > 0 {

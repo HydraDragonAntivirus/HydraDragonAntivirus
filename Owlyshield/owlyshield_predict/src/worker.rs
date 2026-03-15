@@ -1656,9 +1656,9 @@ pub mod worker_instance {
                     let precord_path_stale = precord.exepath.to_string_lossy() == "UNKNOWN"
                         || precord.exepath.as_os_str().is_empty();
 
-                    if precord_name_stale || precord_path_stale {
-                        if let Some(resolved_path) = self.exepath_handler.exepath(iomsg) {
-                            if resolved_path.to_string_lossy() != "UNKNOWN"
+                    if (precord_name_stale || precord_path_stale)
+                        && let Some(resolved_path) = self.exepath_handler.exepath(iomsg)
+                            && resolved_path.to_string_lossy() != "UNKNOWN"
                                 && !resolved_path.as_os_str().is_empty()
                             {
                                 let resolved_name = Self::appname_from_exepath_static(&resolved_path)
@@ -1672,20 +1672,17 @@ pub mod worker_instance {
                                 // Propagate to behavior engine state so rule matching
                                 // and allowlists are also correct immediately.
                                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-                                if let Some(state) = self.behavior_engine.process_states.get_mut(&tracking_key) {
-                                    if state.app_name.is_empty()
+                                if let Some(state) = self.behavior_engine.process_states.get_mut(&tracking_key)
+                                    && (state.app_name.is_empty()
                                         || state.app_name.starts_with("PROC_")
-                                        || state.app_name == "UNKNOWN"
+                                        || state.app_name == "UNKNOWN")
                                     {
                                         if !resolved_name.is_empty() {
                                             state.app_name = resolved_name;
                                         }
                                         state.exe_path = resolved_path;
                                     }
-                                }
                             }
-                        }
-                    }
 
                     // Process behavioral event
                     #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
