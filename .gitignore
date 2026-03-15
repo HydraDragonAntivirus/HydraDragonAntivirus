@@ -67,6 +67,8 @@ hydradragon/website/cleaned
 hydradragon/yara/clean_rules.yar
 hydradragon/yara/veryoldcompiled_rule.yar
 hydradragon/yara/nocomments.yar
+# Yara Compiled Files
+*.yrc
 # Yara Rule Executables
 hydradragon/yara/yara64.exe
 hydradragon/yara/yarac64.exe
