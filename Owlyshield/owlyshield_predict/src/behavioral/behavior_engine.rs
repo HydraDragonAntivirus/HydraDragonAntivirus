@@ -6,6 +6,7 @@ use serde_yaml;
 use serde_yaml::Value as YamlValue;
 use regex::Regex;
 use std::cell::RefCell;
+use std::sync::Arc;
 
 use crate::shared_def::{FileChangeInfo, IOMessage, IrpMajorOp, known_raw_event_name};
 use crate::process::ProcessRecord;
@@ -1229,7 +1230,7 @@ pub struct BehaviorEngine {
     regex_cache: RefCell<HashMap<String, Regex>>,
     pub process_terminated: HashSet<String>,
     default_extension_whitelist: HashSet<String>,
-    system: RefCell<s>,
+    system: RefCell<System>,
     /// PIDs for which the firewall observed real outbound network I/O (NET_EVENT).
     pub firewall_net_pids: Arc<std::sync::RwLock<HashSet<u32>>>,
     /// Exe paths for which the firewall confirmed malicious traffic (BLOCK_EXE).
@@ -1265,14 +1266,13 @@ impl BehaviorEngine {
     pub fn start_firewall_pipe(&self) {
         use std::ffi::OsStr;
         use std::os::windows::ffi::OsStrExt;
-        use windows::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
+        use windows::Win32::Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE};
+        use windows::Win32::Storage::FileSystem::{ReadFile, PIPE_ACCESS_INBOUND};
         use windows::Win32::System::Pipes::{
             ConnectNamedPipe, CreateNamedPipeW,
-            PIPE_ACCESS_INBOUND, PIPE_READMODE_BYTE,
-            PIPE_TYPE_BYTE, PIPE_UNLIMITED_INSTANCES, PIPE_WAIT,
+            NAMED_PIPE_MODE, PIPE_UNLIMITED_INSTANCES,
         };
-        use windows::Win32::Storage::FileSystem::ReadFile;
-        use windows::core::PWSTR;
+        use windows::core::PCWSTR;
 
         let net_pids     = Arc::clone(&self.firewall_net_pids);
         let blocked_exes = Arc::clone(&self.firewall_blocked_exes);
@@ -1280,18 +1280,18 @@ impl BehaviorEngine {
         std::thread::Builder::new()
             .name("hydra_net_event_pipe".to_string())
             .spawn(move || {
-                let pipe_name = r"\.\pipe\HydraNetEvent";
-                let wide: Vec<u16> = OsStr::new(pipe_name)
+                let pipe_name_str = r"\\.\pipe\HydraNetEvent";
+                let wide: Vec<u16> = OsStr::new(pipe_name_str)
                     .encode_wide()
                     .chain(std::iter::once(0u16))
                     .collect();
 
                 loop {
-                    let handle = unsafe {
+                    let handle: HANDLE = unsafe {
                         CreateNamedPipeW(
-                            PWSTR(wide.as_ptr() as *mut u16),
+                            PCWSTR(wide.as_ptr()),
                             PIPE_ACCESS_INBOUND,
-                            PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,
+                            NAMED_PIPE_MODE(0), // PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT
                             PIPE_UNLIMITED_INSTANCES,
                             0,
                             4096,
@@ -1305,7 +1305,7 @@ impl BehaviorEngine {
                         continue;
                     }
 
-                    if unsafe { ConnectNamedPipe(handle, None) }.is_err() {
+                    if !unsafe { ConnectNamedPipe(handle, None) }.as_bool() {
                         unsafe { let _ = CloseHandle(handle); }
                         continue;
                     }
@@ -1316,15 +1316,20 @@ impl BehaviorEngine {
                     loop {
                         let mut bytes_read: u32 = 0;
                         let ok = unsafe {
-                            ReadFile(handle, Some(buf.as_mut_slice()), Some(&mut bytes_read), None)
+                            ReadFile(
+                                handle,
+                                Some(buf.as_mut_ptr() as *mut core::ffi::c_void),
+                                buf.len() as u32,
+                                Some(&mut bytes_read),
+                                None,
+                            )
                         };
-                        if ok.is_err() || bytes_read == 0 {
+                        if !ok.as_bool() || bytes_read == 0 {
                             break;
                         }
                         leftover.push_str(&String::from_utf8_lossy(&buf[..bytes_read as usize]));
 
-                        while let Some(pos) = leftover.find('
-') {
+                        while let Some(pos) = leftover.find('\n') {
                             let line = leftover[..pos].trim().to_string();
                             leftover = leftover[pos + 1..].to_string();
 
@@ -1335,7 +1340,7 @@ impl BehaviorEngine {
                                     }
                                 }
                             } else if let Some(rest) = line.strip_prefix("BLOCK_EXE:") {
-                                // Protocol: BLOCK_EXE:<exe>|<dst_ip>|<dst_port>|<hostname>|<reason>
+                                // BLOCK_EXE:<exe>|<dst_ip>|<dst_port>|<hostname>|<reason>
                                 let mut parts = rest.splitn(5, '|');
                                 let exe      = parts.next().unwrap_or("").trim().to_string();
                                 let dst_ip   = parts.next().unwrap_or("").trim().to_string();
@@ -1352,11 +1357,11 @@ impl BehaviorEngine {
                                         reason: reason.clone(),
                                     };
                                     Logging::warning(&format!(
-                                        "[FirewallPipe] Malicious network confirmed: {} → {}:{}{} — {}",
+                                        "[FirewallPipe] Confirmed malicious: {} -> {}:{} ({}) - {}",
                                         exe,
                                         detection.dst_ip,
                                         detection.dst_port,
-                                        if hostname.is_empty() { String::new() } else { format!(" ({})", hostname) },
+                                        hostname,
                                         reason
                                     ));
                                     blocked_exes.write().unwrap().insert(exe, detection);
@@ -1824,10 +1829,12 @@ impl BehaviorEngine {
                 );
                 sys_refreshed = true;
                 
-                if let Some(proc) = sys.process(sysinfo::Pid::from_u32(msg.pid)) {
+                let _proc_opt: Option<&sysinfo::Process> = sys.process(sysinfo::Pid::from_u32(msg.pid));
+                if let Some(proc) = _proc_opt {
                    resolved_appname = proc.name().to_string_lossy().to_string();
-                   if let Some(path) = proc.exe() {
-                       resolved_exepath = path.to_path_buf();
+                   let _exe_opt: Option<&std::path::Path> = proc.exe();
+                   if let Some(exe_path) = _exe_opt {
+                       resolved_exepath = exe_path.to_path_buf();
                    }
                    precord.appname = resolved_appname.clone();
                    precord.exepath = resolved_exepath.clone();
@@ -1866,7 +1873,8 @@ impl BehaviorEngine {
                     );
                 }
                 
-                if let Some(parent_proc) = sys.process(sysinfo::Pid::from_u32(parent_pid)) {
+                let _parent_opt: Option<&sysinfo::Process> = sys.process(sysinfo::Pid::from_u32(parent_pid));
+                if let Some(parent_proc) = _parent_opt {
                     let parent_name_str = parent_proc.name().to_string_lossy().to_string();
                     if !parent_name_str.is_empty() {
                         s.parent_name = parent_name_str;
@@ -1935,7 +1943,8 @@ impl BehaviorEngine {
                     false,
                     ProcessRefreshKind::everything()
                 );
-                if let Some(proc) = sys.process(sysinfo::Pid::from_u32(msg.pid)) {
+                let _victim_opt: Option<&sysinfo::Process> = sys.process(sysinfo::Pid::from_u32(msg.pid));
+                if let Some(proc) = _victim_opt {
                     victim_path = proc.name().to_string_lossy().to_string().to_lowercase();
                 }
             }
@@ -3122,7 +3131,7 @@ impl BehaviorEngine {
         let gids: Vec<u64> = self.process_states.keys().cloned().collect();
 
         // Snapshot firewall-confirmed malicious exe paths once per scan cycle
-        let fw_blocked = self.firewall_blocked_exes.read().unwrap().clone();
+        let fw_blocked: HashMap<String, FirewallDetection> = self.firewall_blocked_exes.read().unwrap().clone();
 
         for gid in gids {
             let state = match self.process_states.get(&gid) {
