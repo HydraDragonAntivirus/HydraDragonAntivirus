@@ -632,6 +632,41 @@ namespace Mega_Dumper
                         {
                             proccount++;
                             processIds[proccount] = procEntry.th32ProcessID;
+
+                            // Retry .NET type detection for processes that were "Unchecked"
+                            // on a previous tick (e.g. process was too new to identify then).
+                            // Rules:
+                            //   • Only retry if the current type is still "Unchecked".
+                            //   • Never retry a "Killed" process — GetProcessType on a dead
+                            //     PID returns "Unchecked" and would overwrite any prior good value.
+                            //   • Only commit the result if it is conclusive (.NET / Native).
+                            //     If it comes back "Unchecked" again, leave the column alone
+                            //     so we keep retrying on the next tick.
+                            try
+                            {
+                                ListViewItem existingItem = null;
+                                string pidStr = procEntry.th32ProcessID.ToString();
+                                for (int idx = 0; idx < lvprocesslist.Items.Count; idx++)
+                                {
+                                    if (lvprocesslist.Items[idx].SubItems.Count > 1 &&
+                                        lvprocesslist.Items[idx].SubItems[1].Text == pidStr)
+                                    {
+                                        existingItem = lvprocesslist.Items[idx];
+                                        break;
+                                    }
+                                }
+
+                                if (existingItem != null &&
+                                    existingItem.SubItems.Count > 3 &&
+                                    existingItem.SubItems[3].Text == "Unchecked" &&
+                                    existingItem.SubItems[2].Text != "Killed")
+                                {
+                                    string retried = GetProcessType((int)procEntry.th32ProcessID);
+                                    if (retried != "Unchecked")
+                                        existingItem.SubItems[3].Text = retried;
+                                }
+                            }
+                            catch { }
                         }
 
                     } while (Process32Next(handleToSnapshot, ref procEntry));
