@@ -751,8 +751,8 @@ class DataProcessor:
                 p.parent.mkdir(parents=True, exist_ok=True)
                 p.write_bytes(b'')
 
-    def _load_seen_md5s(self) -> set:
-        seen = set()
+    def _load_seen_md5s(self) -> dict:
+        seen = {}  # md5 -> label ("malicious" | "benign")
         try:
             with open(self.index_path, 'r', encoding='utf-8') as idxf:
                 for line in idxf:
@@ -761,8 +761,9 @@ class DataProcessor:
                     try:
                         obj = json.loads(line)
                         md5 = obj.get('md5')
+                        label = obj.get('label')
                         if md5:
-                            seen.add(md5)
+                            seen[md5] = label
                     except Exception:
                         continue
         except FileNotFoundError:
@@ -936,47 +937,44 @@ class DataProcessor:
     # File move helper (unchanged)
     # --------------------------
     def _move(self, file_path: Path, dest_root: Path) -> None:
-        """
-        Move a file to dest_root robustly on Windows:
-        - Try shutil.move first (fast).
-        - On PermissionError (file locked), attempt copy2 + remove with retries/backoff.
-        """
+        """Copy file to destination, then try to remove the original.
+        If the original is locked or removal fails, the copy is kept and the
+        original is left in place — it is never forcibly deleted."""
         dest_root = Path(dest_root)
         dest_root.mkdir(parents=True, exist_ok=True)
         dest = dest_root / file_path.name
 
+        # Step 1: always copy first
         try:
-            shutil.move(str(file_path), str(dest))
-            logger.info(f"Moved {file_path} -> {dest}")
-            return
+            shutil.copy2(str(file_path), str(dest))
+            logger.info(f"Copied {file_path} -> {dest}")
         except FileNotFoundError:
-            logger.warning(f"File not found for move: {file_path}")
-            return
-        except PermissionError:
-            # File might be locked by another process (common on Windows). Try copy+delete with retries.
-            max_retries = 6
-            for attempt in range(1, max_retries + 1):
-                try:
-                    shutil.copy2(str(file_path), str(dest))
-                    os.remove(str(file_path))
-                    logger.info(f"Copied and removed locked file {file_path} -> {dest} on attempt {attempt}")
-                    return
-                except FileNotFoundError:
-                    logger.warning(f"File disappeared during move attempt: {file_path}")
-                    return
-                except PermissionError:
-                    logger.warning(f"PermissionError moving {file_path}, attempt {attempt}/{max_retries}")
-                    time.sleep(0.5 * attempt)  # backoff
-                    continue
-                except Exception as e:
-                    logger.error(f"Unexpected error moving {file_path} on attempt {attempt}: {e}", exc_info=True)
-                    break
-
-            logger.error(f"Failed to move {file_path} after {max_retries} retries due to persistent lock.")
+            logger.warning(f"File not found for copy: {file_path}")
             return
         except Exception as ex:
-            logger.error(f"Unhandled error moving {file_path} -> {dest}: {ex}", exc_info=True)
+            logger.error(f"Error copying {file_path} -> {dest}: {ex}", exc_info=True)
             return
+
+        # Step 2: try to remove original — leave it if locked, never force-delete
+        max_retries = 6
+        for attempt in range(1, max_retries + 1):
+            try:
+                Path(file_path).unlink()
+                logger.info(f"Removed original {file_path} after copy")
+                return
+            except FileNotFoundError:
+                return
+            except PermissionError:
+                logger.warning(f"Original locked, cannot remove {file_path} (attempt {attempt}/{max_retries})")
+                if attempt < max_retries:
+                    time.sleep(0.5 * attempt)
+                else:
+                    logger.warning(f"Leaving original in place (locked): {file_path} — copy is at {dest}")
+                    return
+            except Exception as e:
+                logger.error(f"Error removing original {file_path}: {e}", exc_info=True)
+                logger.warning(f"Leaving original in place: {file_path} — copy is at {dest}")
+                return
 
     # --------------------------
     # Worker wrapper (unchanged)
@@ -1087,6 +1085,43 @@ class DataProcessor:
     # --------------------------
     # process_dir: uses ProcessPoolExecutor; writes binary store + pickle stream
     # --------------------------
+    def _prefilter_duplicates(self, files: list, label: str) -> list:
+        """MD5 pre-pass: filter out already-seen and intra-batch duplicates before
+        dispatching to the worker pool, so no wasted feature extraction occurs.
+        Files with conflicting labels (seen as malicious but now benign, or vice versa)
+        are moved to problematic_dir and flagged loudly."""
+        seen_local = dict(self.seen)  # md5 -> label
+        unique_files = []
+        duplicates = 0
+        conflicts = 0
+        for f in tqdm(files, desc=f"[{label}] Pre-filtering duplicates (MD5)"):
+            try:
+                with open(f, 'rb') as fh:
+                    md5 = hashlib.md5(fh.read()).hexdigest()
+                if md5 in seen_local:
+                    existing_label = seen_local[md5]
+                    if existing_label != label:
+                        logger.warning(
+                            f"[{label}] Label conflict: {f.name} is '{label}' but MD5 already seen as "
+                            f"'{existing_label}' — moving to problematic_files"
+                        )
+                        self._move(f, self.problematic_dir)
+                        conflicts += 1
+                    else:
+                        self._move(f, self.duplicates_dir)
+                    duplicates += 1
+                else:
+                    seen_local[md5] = label
+                    unique_files.append(f)
+            except Exception as e:
+                logger.warning(f"[{label}] Could not MD5 {f} during pre-filter, including anyway: {e}")
+                unique_files.append(f)
+        logger.info(
+            f"[{label}] Pre-filter complete: {len(unique_files):,} unique, "
+            f"{duplicates:,} duplicates removed ({conflicts:,} label conflicts → problematic_files)"
+        )
+        return unique_files
+
     def process_dir(self, directory: Path, is_malicious: bool):
         label = 'malicious' if is_malicious else 'benign'
 
@@ -1097,14 +1132,21 @@ class DataProcessor:
             logger.error(f"[{label}] Input path is not a directory, skipping: {directory}")
             return 0
 
-        # Stage 1: Discover files (parallel directory walk)
-        logger.info(f"[{label}] Stage 1/3: Discovering files in {directory}...")
+        # Stage 1: Discover files
+        logger.info(f"[{label}] Stage 1/4: Discovering files in {directory}...")
         files = [f for f in directory.rglob('*') if f.is_file()]
+        logger.info(f"[{label}] Found {len(files):,} files")
+
+        # Stage 2: MD5 pre-filter — discard duplicates before heavy processing
+        logger.info(f"[{label}] Stage 2/4: Running MD5 pre-filter...")
+        files = self._prefilter_duplicates(files, label)
+        if not files:
+            logger.warning(f"[{label}] No unique files remaining after pre-filter in {directory}")
+            return 0
+
+        # Stage 3: Prepare tasks
         total_files = len(files)
-        logger.info(f"[{label}] Found {total_files:,} files")
-        
-        # Stage 2: Prepare tasks
-        logger.info(f"[{label}] Stage 2/3: Preparing {total_files:,} tasks...")
+        logger.info(f"[{label}] Stage 3/4: Preparing {total_files:,} tasks...")
         tasks = [(f, i, is_malicious) for i, f in enumerate(files, 1)]
         logger.info(f"[{label}] Tasks ready. Already seen: {len(self.seen):,} MD5s")
 
@@ -1112,8 +1154,8 @@ class DataProcessor:
         skipped = 0
         failed = 0
         
-        # Stage 3: Process with ProcessPoolExecutor (no max_workers = auto CPU count)
-        logger.info(f"[{label}] Stage 3/3: Processing with ProcessPoolExecutor (workers=auto, CPU count={os.cpu_count()})...")
+        # Stage 4: Process with ProcessPoolExecutor
+        logger.info(f"[{label}] Stage 4/4: Processing with ProcessPoolExecutor (workers=auto, CPU count={os.cpu_count()})...")
         with ProcessPoolExecutor() as exe:
             for feats in tqdm(exe.map(self._process_one, tasks), total=total_files,
                               desc=f"Processing {label}"):
@@ -1123,15 +1165,27 @@ class DataProcessor:
 
                 md5 = feats['file_info']['md5']
                 if md5 in self.seen:
-                    try:
-                        self._move(Path(feats['file_info']['path']), self.duplicates_dir)
-                    except Exception as e:
-                        logger.error(f"Error moving duplicate file {feats['file_info']['path']}: {e}", exc_info=True)
+                    # Shouldn't happen after pre-filter, but guard anyway
+                    existing_label = self.seen[md5]
+                    if existing_label != label:
+                        logger.warning(
+                            f"[{label}] Late label conflict: {feats['file_info'].get('path')} is '{label}' "
+                            f"but MD5 already seen as '{existing_label}' — moving to problematic_files"
+                        )
+                        try:
+                            self._move(Path(feats['file_info']['path']), self.problematic_dir)
+                        except Exception as e:
+                            logger.error(f"Error moving conflict file {feats['file_info']['path']}: {e}", exc_info=True)
+                    else:
+                        try:
+                            self._move(Path(feats['file_info']['path']), self.duplicates_dir)
+                        except Exception as e:
+                            logger.error(f"Error moving duplicate file {feats['file_info']['path']}: {e}", exc_info=True)
                     skipped += 1
                     continue
 
                 # mark as seen
-                self.seen.add(md5)
+                self.seen[md5] = label
 
                 # write numeric vector + index + pickle
                 try:

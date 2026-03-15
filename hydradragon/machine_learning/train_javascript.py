@@ -515,8 +515,8 @@ class DataProcessor:
                 p.parent.mkdir(parents=True, exist_ok=True)
                 p.write_bytes(b'')
 
-    def _load_seen_md5s(self) -> set:
-        seen = set()
+    def _load_seen_md5s(self) -> dict:
+        seen = {}  # md5 -> label ("malicious" | "benign")
         try:
             with open(self.index_path, 'r', encoding='utf-8') as idxf:
                 for line in idxf:
@@ -525,8 +525,9 @@ class DataProcessor:
                     try:
                         obj = json.loads(line)
                         md5 = obj.get('md5')
+                        label = obj.get('label')
                         if md5:
-                            seen.add(md5)
+                            seen[md5] = label
                     except Exception:
                         continue
         except FileNotFoundError:
@@ -766,6 +767,43 @@ class DataProcessor:
 
         return index_entry
 
+    def _prefilter_duplicates(self, files: list, label: str) -> list:
+        """MD5 pre-pass: filter out already-seen and intra-batch duplicates before
+        dispatching to the worker pool, so no wasted feature extraction occurs.
+        Files with conflicting labels (seen as malicious but now benign, or vice versa)
+        are moved to problematic_dir and flagged loudly."""
+        seen_local = dict(self.seen)  # md5 -> label
+        unique_files = []
+        duplicates = 0
+        conflicts = 0
+        for f in tqdm(files, desc="Pre-filtering duplicates (MD5)"):
+            try:
+                with open(f, 'rb') as fh:
+                    md5 = hashlib.md5(fh.read()).hexdigest()
+                if md5 in seen_local:
+                    existing_label = seen_local[md5]
+                    if existing_label != label:
+                        logger.warning(
+                            f"Label conflict: {f.name} is '{label}' but MD5 already seen as "
+                            f"'{existing_label}' — moving to problematic_files"
+                        )
+                        self._move(f, self.problematic_dir)
+                        conflicts += 1
+                    else:
+                        self._move(f, self.duplicates_dir)
+                    duplicates += 1
+                else:
+                    seen_local[md5] = label
+                    unique_files.append(f)
+            except Exception as e:
+                logger.warning(f"Could not MD5 {f} during pre-filter, including anyway: {e}")
+                unique_files.append(f)
+        logger.info(
+            f"Pre-filter complete: {len(unique_files)} unique, "
+            f"{duplicates} duplicates removed ({conflicts} label conflicts → problematic_files)"
+        )
+        return unique_files
+
     def process_dir(self, directory: Path, is_malicious: bool):
         """Process all JavaScript files in a directory."""
         if not directory.exists():
@@ -781,7 +819,15 @@ class DataProcessor:
         if not files:
             logger.warning(f"No .js files found in {directory}")
             return 0
-        
+
+        # Pre-pass: remove duplicates before dispatching to the worker pool
+        label = 'malicious' if is_malicious else 'benign'
+        logger.info(f"Found {len(files)} .js files. Running MD5 pre-filter...")
+        files = self._prefilter_duplicates(files, label)
+        if not files:
+            logger.warning(f"No unique .js files remaining after pre-filter in {directory}")
+            return 0
+
         tasks = [(f, i, is_malicious) for i, f in enumerate(files, 1)]
 
         inserted = 0
@@ -793,13 +839,25 @@ class DataProcessor:
 
                 md5 = feats['file_info']['md5']
                 if md5 in self.seen:
-                    try:
-                        self._move(Path(feats['file_info']['path']), self.duplicates_dir)
-                    except Exception as e:
-                        logger.error(f"Error moving duplicate: {e}", exc_info=True)
+                    # Shouldn't happen after pre-filter, but guard anyway
+                    existing_label = self.seen[md5]
+                    if existing_label != label:
+                        logger.warning(
+                            f"Late label conflict: {feats['file_info'].get('path')} is '{label}' "
+                            f"but MD5 already seen as '{existing_label}' — moving to problematic_files"
+                        )
+                        try:
+                            self._move(Path(feats['file_info']['path']), self.problematic_dir)
+                        except Exception as e:
+                            logger.error(f"Error moving conflict file: {e}", exc_info=True)
+                    else:
+                        try:
+                            self._move(Path(feats['file_info']['path']), self.duplicates_dir)
+                        except Exception as e:
+                            logger.error(f"Error moving duplicate: {e}", exc_info=True)
                     continue
 
-                self.seen.add(md5)
+                self.seen[md5] = label
 
                 try:
                     self._append_vector_and_index(feats)
