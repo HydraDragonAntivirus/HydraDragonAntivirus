@@ -2,6 +2,10 @@
 User visible changes for UPX
 ==================================================================
 
+Changes in 5.1.1 (05 Mar 2026):
+  * ELF: MIPS r3000 (32-bit) shared libraries are supported
+  * bug fixes - see https://github.com/upx/upx/milestone/22
+
 Changes in 5.1.0 (07 Jan 2026):
   * ELF: new format linux/riscv64
   * bug fixes - see https://github.com/upx/upx/milestone/21
