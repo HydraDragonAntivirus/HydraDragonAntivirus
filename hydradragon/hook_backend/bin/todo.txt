@@ -1,2 +1,1 @@
 ignore C:/Program Files/HydraDragonAntivirus directory when analyzing it
-
