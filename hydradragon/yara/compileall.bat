@@ -1,5 +1,5 @@
-py -3.12 valhalla-rulescompile.py
-py -3.12 compileityrc.py
-py -3.12 machinelearningcompile.py
-py -3.12 icewatercompile.py
-py -3.12 compileryarax.py
+py -3.12 compile_valhalla-rules.py
+py -3.12 compile_yrc.py
+py -3.12 compile_machine_learning.py
+py -3.12 compile_icewater.py
+py -3.12 compile_yarax.py
