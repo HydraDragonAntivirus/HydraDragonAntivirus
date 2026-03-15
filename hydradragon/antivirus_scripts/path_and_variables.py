@@ -37,7 +37,7 @@ script_dir = os.path.join(hydra_dragon_antivirus_dir, "hydradragon")
 data_dir = os.path.join(hydra_dragon_data_dir, "hydradragon")
 
 # Define the paths for read-only tools (remain in Program Files)
-jadx_decompiler_dir = os.path.join(script_dir, "jadx-1.5.3")
+jadx_decompiler_dir = os.path.join(script_dir, "jadx-1.5.5")
 jadx_decompiler_path = os.path.join(jadx_decompiler_dir, "jadx.bat")
 unlicense_dir = os.path.join(script_dir, "unlicense")
 unlicense_path  = os.path.join(unlicense_dir, "unlicense.exe")
