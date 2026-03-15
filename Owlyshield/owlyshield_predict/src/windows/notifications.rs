@@ -37,7 +37,7 @@ fn str_to_pwstr(str: &str) -> U16String {
 }
 
 #[cfg(feature = "service")]
-unsafe fn get_active_user_token() -> Option<HANDLE> {
+unsafe fn get_active_user_token() -> Option<HANDLE> { unsafe {
     // Try the standard active console session first
     let session_id = WTSGetActiveConsoleSessionId();
     if session_id != u32::MAX {
@@ -65,7 +65,7 @@ unsafe fn get_active_user_token() -> Option<HANDLE> {
     }
 
     None
-}
+}}
 
 #[cfg(feature = "service")]
 pub fn notify(config: &Config, message: &str, report_path: &str) -> Result<(), String> {
@@ -89,7 +89,7 @@ pub fn notify(config: &Config, message: &str, report_path: &str) -> Result<(), S
     );
 
     let mut error_msg = String::new();
-    let mut si: STARTUPINFOW = unsafe { std::mem::zeroed() };
+    let si: STARTUPINFOW = unsafe { std::mem::zeroed() };
     let mut pi: PROCESS_INFORMATION = unsafe { std::mem::zeroed() };
 
     unsafe {
@@ -111,7 +111,7 @@ pub fn notify(config: &Config, message: &str, report_path: &str) -> Result<(), S
             
             if attempt == 0 {
                 Logging::warning("Toast(): no active user session found, waiting for user login...");
-            } else if attempt % 10 == 0 {
+            } else if attempt.is_multiple_of(10) {
                 // Log every 10th attempt (every 30 seconds) to avoid log spam
                 Logging::debug(&format!(
                     "Toast(): Still waiting for user session (attempt {}, {} seconds elapsed)",
@@ -159,7 +159,7 @@ pub fn notify(config: &Config, message: &str, report_path: &str) -> Result<(), S
             PROCESS_CREATION_FLAGS(CREATE_NEW_CONSOLE.0),
             Some(null_mut()),
             PCWSTR(str_to_pcwstr(toastapp_dir.to_str().unwrap()).as_ptr()),
-            &mut si,
+            &si,
             &mut pi,
         )
         .as_bool()

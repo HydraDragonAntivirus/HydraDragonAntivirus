@@ -176,7 +176,7 @@ impl RealtimeLearningEngine {
 
     /// Track a process (called when first seen)
     pub fn track_process(&mut self, gid: u64, process_name: String) {
-        if !self.process_states.contains_key(&gid) {
+        if let std::collections::hash_map::Entry::Vacant(e) = self.process_states.entry(gid) {
             let state = ProcessLearningState {
                 gid,
                 process_name,
@@ -188,7 +188,7 @@ impl RealtimeLearningEngine {
                 collected: false,
             };
 
-            self.process_states.insert(gid, state);
+            e.insert(state);
             self.stats.total_processes_tracked += 1;
         }
     }
@@ -295,9 +295,9 @@ impl RealtimeLearningEngine {
                 success = true;
             }
 
-            if success {
-                if let Some(api_tracker) = api_trackers.get(&gid) {
-                    if let Some(precord) = process_records.get(&gid) {
+            if success
+                && let Some(api_tracker) = api_trackers.get(&gid)
+                    && let Some(precord) = process_records.get(&gid) {
                         self.collector.collect_sample(api_tracker, precord, false);
                         self.stats.benign_collected += 1;
                         self.stats.auto_labeled_benign += 1;
@@ -305,8 +305,6 @@ impl RealtimeLearningEngine {
                         println!("[Real-Time Learning] Auto-labeled BENIGN: {} (GID: {})",
                                  pname, gid);
                     }
-                }
-            }
         }
     }
     
@@ -463,8 +461,8 @@ impl RealtimeLearningEngine {
             return rules;
         }
 
-        if let Ok(content) = fs::read_to_string(log_path) {
-            if let Ok(entries) = serde_json::from_str::<Vec<QuarantineEntry>>(&content) {
+        if let Ok(content) = fs::read_to_string(log_path)
+            && let Ok(entries) = serde_json::from_str::<Vec<QuarantineEntry>>(&content) {
                 for entry in entries {
                     let path = Path::new(&entry.filepath);
                     if let Some(filename) = path.file_name().and_then(|n| n.to_str()) {
@@ -506,7 +504,6 @@ impl RealtimeLearningEngine {
                     }
                 }
             }
-        }
         
         rules
     }
@@ -540,9 +537,9 @@ impl RealtimeLearningEngine {
     #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
     pub fn save_rules_to_yaml(&self, rules: &[BehaviorRule], path: &Path) -> std::io::Result<()> {
         if let Ok(file) = std::fs::File::create(path) {
-            serde_yaml::to_writer(file, rules).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
+            serde_yaml::to_writer(file, rules).map_err(std::io::Error::other)
         } else {
-            Err(std::io::Error::new(std::io::ErrorKind::Other, "Failed to create rule file"))
+            Err(std::io::Error::other("Failed to create rule file"))
         }
     }
 }

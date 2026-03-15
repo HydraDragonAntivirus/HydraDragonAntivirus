@@ -94,7 +94,7 @@ impl SecurityEvent {
         let start: DateTime<Utc> = proc.time_started.into();
         let kill: DateTime<Utc> = proc.time_killed.unwrap_or_else(SystemTime::now).into();
 
-        return SecurityEvent {
+        SecurityEvent {
             appName: proc.appname.clone(),
             clientId: SitinCloud::client(),
             hostname: hostname::get()
@@ -121,7 +121,7 @@ impl SecurityEvent {
             sumWeightReadEntropy: proc.entropy_read,
             sumWeightWriteEntropy: proc.entropy_written,
             filesExtensionChangedCount: proc.extensions_read.count_all(), // duplicate
-        };
+        }
     }
 
     /// Converts [`SecurityEvent`] to JSON.
@@ -144,7 +144,7 @@ struct Telemetry {
 
 impl Telemetry {
     fn from(config: &Config) -> Telemetry {
-        return Telemetry {
+        Telemetry {
             clientId: SitinCloud::client(),
             username: SitinCloud::username(),
             hostname: hostname::get()
@@ -156,7 +156,7 @@ impl Telemetry {
             licenseKey: SitinCloud::license_key(),
             killPolicy: config[Param::KillPolicy].clone(),
             language: config[Param::Language].clone(),
-        };
+        }
     }
 
     fn to_json(&self) -> String {

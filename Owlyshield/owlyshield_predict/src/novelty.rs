@@ -98,12 +98,11 @@ impl Rule {
     /// Replace subclusters (with jaccard distance 0) by old ones
     pub fn replace_subclusters(&mut self, oldrule: &Rule, distances: &[ClusterDistance]) {
         for distance in distances {
-            if distance.distance == 0.0 {
-                if let Some(old_cluster) = oldrule.get_cluster(&distance.dir1) {
+            if distance.distance == 0.0
+                && let Some(old_cluster) = oldrule.get_cluster(&distance.dir1) {
                     let new_cluster = old_cluster.clone();
                     self.replace_cluster(&distance.dir2, new_cluster);
                 }
-            }
         }
     }
 
@@ -191,6 +190,12 @@ pub struct DirectoriesContent {
     dirs_fileids: HashMap<PathBuf, HashSet<FileId>>,
     dirs_optypes: HashMap<PathBuf, HashSet<IrpMajorOp>>,
     // dirs_filetypes: HashMap<PathBuf, HashSet<ExtensionCategory>>,
+}
+
+impl Default for DirectoriesContent {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl DirectoriesContent {

@@ -411,7 +411,7 @@ impl Driver {
     }
 
     fn string_to_commessage_buffer(bufstr: &str) -> BufPath {
-        let temp = U16CString::from_str(&bufstr).unwrap();
+        let temp = U16CString::from_str(bufstr).unwrap();
         let mut buf: BufPath = [0; 520];
         for (i, c) in temp.as_slice_with_nul().iter().enumerate() {
             buf[i] = *c as wchar_t;
@@ -537,7 +537,7 @@ impl UnicodeString {
         let num_elements = self.length as usize / 2;
         
         // Safety check: ensure the pointer is aligned for wchar_t (2 bytes)
-        if (self.buffer as usize) % 2 != 0 {
+        if !(self.buffer as usize).is_multiple_of(2) {
             return String::new();
         }
 
@@ -653,7 +653,7 @@ impl IOMessage {
             file_location_info: c_drivermsg.file_location_info,
             filepathstr: c_drivermsg.filepath.as_string_ext(c_drivermsg.extension),
             gid: c_drivermsg.gid,
-            parent_pid: c_drivermsg.parent_pid as u32,
+            parent_pid: c_drivermsg.parent_pid,
             #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
             attacker_pid: c_drivermsg.attacker_pid,
             #[cfg(all(target_os = "windows", feature = "behavior_engine"))]

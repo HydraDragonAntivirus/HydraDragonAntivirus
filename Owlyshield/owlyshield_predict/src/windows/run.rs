@@ -141,7 +141,7 @@ pub fn run() {
 
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
         let mut worker = Worker::new_replay(&config, &whitelist, app_settings_replay)
-            .driver(driver.clone());
+            .driver(driver);
         #[cfg(not(all(target_os = "windows", feature = "behavior_engine")))]
         let mut worker = Worker::new_replay(&config, &whitelist);
 
@@ -151,8 +151,7 @@ pub fn run() {
         let file_len = file.metadata().unwrap().len() as usize;
 
         let buf_size = 1000;
-        let mut buf: Vec<u8> = Vec::new();
-        buf.resize(buf_size, 0);
+        let mut buf: Vec<u8> = vec![0; buf_size];
         let mut cursor_index = 0;
 
         while cursor_index < file_len {
@@ -227,7 +226,7 @@ pub fn run() {
             whitelist.refresh_periodically();
 
             #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-            let mut worker = Worker::new(&thread_config, thread_app_settings).driver(driver.clone());
+            let mut worker = Worker::new(&thread_config, thread_app_settings).driver(driver);
             #[cfg(not(all(target_os = "windows", feature = "behavior_engine")))]
             let mut worker = Worker::new(&thread_config).driver(driver.clone());
 
@@ -241,7 +240,7 @@ pub fn run() {
                 worker = worker.av_integration(hydra_dragon_integration);
             }
 
-            worker = worker.exepath_handler(Box::new(ExepathLive::default()));
+            worker = worker.exepath_handler(Box::new(ExepathLive));
 
             if cfg!(feature = "malware") {
                 worker = worker

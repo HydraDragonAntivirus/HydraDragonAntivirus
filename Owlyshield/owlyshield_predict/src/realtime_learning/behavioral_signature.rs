@@ -393,28 +393,26 @@ impl SignatureEngine {
         }
 
         // Check behavioral requirements
-        if let Some(requires_mass) = signature.requires_mass_file_ops {
-            if requires_mass {
+        if let Some(requires_mass) = signature.requires_mass_file_ops
+            && requires_mass {
                 total_checks += 1.0;
                 if api_tracker.file_operations.mass_file_operations {
                     confidence_score += 1.0;
                     matched_behaviors.push("Mass file operations detected".to_string());
                 }
             }
-        }
 
-        if let Some(requires_network) = signature.requires_network_activity {
-            if requires_network {
+        if let Some(requires_network) = signature.requires_network_activity
+            && requires_network {
                 total_checks += 1.0;
-                if api_tracker.internet_apis.len() > 0 {
+                if !api_tracker.internet_apis.is_empty() {
                     confidence_score += 1.0;
                     matched_behaviors.push("Network activity detected".to_string());
                 }
             }
-        }
 
-        if let Some(requires_injection) = signature.requires_process_injection {
-            if requires_injection {
+        if let Some(requires_injection) = signature.requires_process_injection
+            && requires_injection {
                 total_checks += 1.0;
                 if api_tracker.process_operations.processes_injected > 0
                     || self.has_injection_pattern(api_tracker) {
@@ -422,7 +420,6 @@ impl SignatureEngine {
                     matched_behaviors.push("Process injection detected".to_string());
                 }
             }
-        }
 
         // Check API sequences
         if !signature.required_api_sequences.is_empty() {
@@ -508,10 +505,8 @@ impl SignatureEngine {
     }
 
     fn has_injection_pattern(&self, api_tracker: &ApiTracker) -> bool {
-        let injection_apis = vec![
-            "VirtualAllocEx", "WriteProcessMemory", "CreateRemoteThread",
-            "NtCreateThreadEx", "QueueUserAPC", "SetThreadContext"
-        ];
+        let injection_apis = ["VirtualAllocEx", "WriteProcessMemory", "CreateRemoteThread",
+            "NtCreateThreadEx", "QueueUserAPC", "SetThreadContext"];
 
         let matched = injection_apis.iter()
             .filter(|api| api_tracker.injection_apis.contains(&api.to_string()))

@@ -46,7 +46,7 @@ impl Logging {
         std::fs::create_dir_all(dir)?;
         OpenOptions::new()
             .create(true)
-            .write(true)
+            
             .append(true)
             .share_mode(FILE_SHARE_READ.0 | FILE_SHARE_WRITE.0 | FILE_SHARE_DELETE.0)
             .open(dir.join("owlyshield.log"))

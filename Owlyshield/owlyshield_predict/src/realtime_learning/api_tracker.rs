@@ -476,9 +476,7 @@ impl ApiTracker {
         }
 
         trimmed
-            .replace('\r', " ")
-            .replace('\n', " ")
-            .replace('\t', " ")
+            .replace(['\r', '\n', '\t'], " ")
     }
 
     #[cfg(all(target_os = "windows", feature = "behavior_engine"))]

@@ -79,7 +79,7 @@ struct Telemetry {
 
 impl Telemetry {
     fn from(config: &Config) -> Telemetry {
-        return Telemetry {
+        Telemetry {
             clientId: Community::client(),
             username: Community::username(),
             company: Community::company(),
@@ -93,7 +93,7 @@ impl Telemetry {
             numVersion: config[Param::NumVersion].clone(),
             language: config[Param::Language].clone(),
             killPolicy: config[Param::KillPolicy].clone(),
-        };
+        }
     }
 
     fn to_json(&self) -> String {
@@ -128,7 +128,7 @@ impl Connector for Community {
 
             return match transfer.perform() {
                 Ok(()) => {
-                    if toast == "" {
+                    if toast.is_empty() {
                         Ok(())
                     } else {
                         Err(ConnectorError::new(

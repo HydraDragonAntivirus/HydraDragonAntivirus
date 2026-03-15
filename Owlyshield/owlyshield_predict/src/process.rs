@@ -467,28 +467,23 @@ impl ProcessRecord {
     }
 
     pub fn previous_extension_for_event(&self, iomsg: &IOMessage) -> Option<String> {
-        if iomsg.file_id_id.0 != 0 {
-            if let Some(ext) = self.extension_by_file_id.get(&iomsg.file_id_id) {
-                if !ext.is_empty() {
+        if iomsg.file_id_id.0 != 0
+            && let Some(ext) = self.extension_by_file_id.get(&iomsg.file_id_id)
+                && !ext.is_empty() {
                     return Some(ext.clone());
                 }
-            }
-        }
 
         let normalized_path = normalize_path_for_extension_tracking(&iomsg.filepathstr);
-        if let Some(ext) = self.extension_by_path.get(&normalized_path) {
-            if !ext.is_empty() {
+        if let Some(ext) = self.extension_by_path.get(&normalized_path)
+            && !ext.is_empty() {
                 return Some(ext.clone());
             }
-        }
 
-        if let Some(stem_key) = filepath_stem_key(&normalized_path) {
-            if let Some(ext) = self.extension_by_stem_path.get(&stem_key) {
-                if !ext.is_empty() {
+        if let Some(stem_key) = filepath_stem_key(&normalized_path)
+            && let Some(ext) = self.extension_by_stem_path.get(&stem_key)
+                && !ext.is_empty() {
                     return Some(ext.clone());
                 }
-            }
-        }
 
         None
     }
@@ -542,7 +537,7 @@ impl ProcessRecord {
     }
 
     fn update_clusters(&mut self) {
-        if self.driver_msg_count % 100 == 0 {
+        if self.driver_msg_count.is_multiple_of(100) {
             if self.is_to_cluster() {
                 self.launch_thread_clustering();
                 self.is_thread_clustering_running = true;
@@ -581,16 +576,15 @@ impl ProcessRecord {
     /// Private function containing the common logic for processing an IRP record.
     fn add_irp_record_common(&mut self, iomsg: &IOMessage) {
         self.driver_msg_count += 1;
-        self.pids.insert(iomsg.pid.into());
+        self.pids.insert(iomsg.pid);
         self.exe_exists = iomsg.runtime_features.exe_still_exists;
         if !iomsg.runtime_features.command_line.trim().is_empty() {
             self.command_line = iomsg.runtime_features.command_line.clone();
         }
-        if let Some(parent) = Path::new(&iomsg.filepathstr).parent() {
-            if parent.is_dir() {
-                self.dirs_content.insert(parent.to_path_buf(), &iomsg);
+        if let Some(parent) = Path::new(&iomsg.filepathstr).parent()
+            && parent.is_dir() {
+                self.dirs_content.insert(parent.to_path_buf(), iomsg);
             }
-        }
         match IrpMajorOp::from_byte(iomsg.irp_op) {
             IrpMajorOp::IrpNone => {}
             IrpMajorOp::IrpRead => self.update_read(iomsg),

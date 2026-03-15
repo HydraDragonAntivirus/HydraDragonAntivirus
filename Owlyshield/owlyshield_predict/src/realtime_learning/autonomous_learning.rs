@@ -322,7 +322,7 @@ impl AutonomousLearningEngine {
         }
 
         // Calculate anomaly score (compare to baseline)
-        let anomaly_score = self.calculate_anomaly_score(&mut profile);
+        let anomaly_score = self.calculate_anomaly_score(&profile);
         profile.anomaly_score = anomaly_score;
 
         // Calculate novelty score (how different from known patterns)
@@ -337,7 +337,7 @@ impl AutonomousLearningEngine {
         self.behavioral_profiles.insert(gid, profile.clone());
 
         // Update clusters periodically
-        if self.stats.total_processes_observed % self.config.clustering_update_frequency == 0 {
+        if self.stats.total_processes_observed.is_multiple_of(self.config.clustering_update_frequency) {
             self.update_behavior_clusters();
         }
 
@@ -356,7 +356,7 @@ impl AutonomousLearningEngine {
         }
 
         // Auto-export if needed
-        if self.stats.profiles_collected % self.config.auto_export_interval == 0 {
+        if self.stats.profiles_collected.is_multiple_of(self.config.auto_export_interval) {
             let _ = self.export_learned_rules_to_yaml();
         }
 
@@ -998,7 +998,7 @@ impl AutonomousLearningEngine {
         }
 
         // Write all rules back to the file
-        let yaml_data = serde_yaml::to_string(&all_rules).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+        let yaml_data = serde_yaml::to_string(&all_rules).map_err(std::io::Error::other)?;
         std::fs::write(FILENAME, yaml_data)?;
 
         println!("[Autonomous Learning] 💾 Exported {} total learned rules to: {}",

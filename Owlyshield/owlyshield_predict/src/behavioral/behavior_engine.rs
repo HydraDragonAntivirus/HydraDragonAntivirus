@@ -277,25 +277,23 @@ impl ProtectedPaths {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
+#[derive(Default)]
 pub enum Comparison {
-    Gt, Gte, Lt, Lte, Eq, Ne,
+    Gt, #[default]
+    Gte, Lt, Lte, Eq, Ne,
 }
 
-impl Default for Comparison {
-    fn default() -> Self { Comparison::Gte }
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+#[derive(Default)]
 pub enum MatchMode {
-    All, Any, Count(usize),
+    All, #[default]
+    Any, Count(usize),
     #[serde(rename = "at_least")]
     AtLeast(usize),
 }
 
-impl Default for MatchMode {
-    fn default() -> Self { MatchMode::Any }
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
@@ -425,14 +423,13 @@ fn normalize_device_prefix(path: &str) -> String {
     }
 
     // Defensive: HarddiskVolumeX\Users\... -> Users\...
-    if p_trim_lc.starts_with("harddiskvolume") {
-        if let Some(idx) = p_trim.find('/') {
+    if p_trim_lc.starts_with("harddiskvolume")
+        && let Some(idx) = p_trim.find('/') {
             let remainder = &p_trim[idx + 1..];
             if !remainder.is_empty() {
                 return remainder.to_string();
             }
         }
-    }
 
     p
 }
@@ -915,7 +912,7 @@ impl BehaviorRule {
             }
         }
 
-        for (_, cond_group) in &mut self.named_conditions {
+        for cond_group in self.named_conditions.values_mut() {
             expand_vec(&mut cond_group.apis);
             expand_vec(&mut cond_group.file_paths);
             expand_vec(&mut cond_group.registry_keys);
@@ -989,7 +986,7 @@ impl BehaviorRule {
             }
         }
         
-        for (_, cond_group) in &mut self.named_conditions {
+        for cond_group in self.named_conditions.values_mut() {
             // Keep API names case-preserved so exported symbol hooks resolve correctly in user-mode hook engine.
             cond_group.file_paths = cond_group.file_paths.iter().map(|s| s.to_lowercase()).collect();
             cond_group.registry_keys = cond_group.registry_keys.iter().map(|s| s.to_lowercase()).collect();
@@ -1240,6 +1237,12 @@ pub struct BehaviorEngine {
     system: RefCell<System>,
 }
 
+impl Default for BehaviorEngine {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl BehaviorEngine {
     pub fn new() -> Self {
         BehaviorEngine {
@@ -1272,27 +1275,27 @@ impl BehaviorEngine {
         let f = Self::normalize_registry_text(filepath);
 
         if p.starts_with("hkcu/") || p.starts_with("hkey_current_user/") {
-            let remainder = p.splitn(2, '/').nth(1).unwrap_or("");
+            let remainder = p.split_once('/').map(|x| x.1).unwrap_or("");
             if f.contains("/registry/user/") {
                 return f.contains(remainder);
             }
         } else if p.starts_with("hku/") || p.starts_with("hkey_users/") {
-            let remainder = p.splitn(2, '/').nth(1).unwrap_or("");
+            let remainder = p.split_once('/').map(|x| x.1).unwrap_or("");
             if f.contains("/registry/user/") {
                 return f.contains(remainder);
             }
         } else if p.starts_with("hklm/") || p.starts_with("hkey_local_machine/") {
-            let remainder = p.splitn(2, '/').nth(1).unwrap_or("");
+            let remainder = p.split_once('/').map(|x| x.1).unwrap_or("");
             if f.contains("/registry/machine/") {
                 return f.contains(remainder);
             }
         } else if p.starts_with("hkcc/") || p.starts_with("hkey_current_config/") {
-            let remainder = p.splitn(2, '/').nth(1).unwrap_or("");
+            let remainder = p.split_once('/').map(|x| x.1).unwrap_or("");
             if f.contains("/registry/machine/system/currentcontrolset/hardware profiles/current") {
                 return f.contains(remainder);
             }
         } else if p.starts_with("hkcr/") || p.starts_with("hkey_classes_root/") {
-            let remainder = p.splitn(2, '/').nth(1).unwrap_or("");
+            let remainder = p.split_once('/').map(|x| x.1).unwrap_or("");
             if f.contains("/registry/machine/software/classes/") || f.contains("/registry/user/") {
                 return f.contains(remainder);
             }
@@ -1388,7 +1391,7 @@ impl BehaviorEngine {
             }
 
             // 2. Named conditions
-            for (_, cond_group) in &rule.named_conditions {
+            for cond_group in rule.named_conditions.values() {
                 for api in &cond_group.apis {
                     all_apis.insert(api.clone());
                 }
@@ -1467,11 +1470,10 @@ impl BehaviorEngine {
                 .collect::<Vec<_>>()
                 .join("\n");
             
-            if !filtered_content.trim().is_empty() && filtered_content.trim() != "---" {
-                if let Ok(main_rules) = serde_yaml::from_str::<Vec<BehaviorRule>>(&filtered_content) {
+            if !filtered_content.trim().is_empty() && filtered_content.trim() != "---"
+                && let Ok(main_rules) = serde_yaml::from_str::<Vec<BehaviorRule>>(&filtered_content) {
                     rules.extend(self.finalize_rules(main_rules));
                 }
-            }
         } else {
             let r: Vec<BehaviorRule> = serde_yaml::from_str(&content)?;
             rules.extend(self.finalize_rules(r));
@@ -1514,16 +1516,14 @@ impl BehaviorEngine {
     }
 
     fn matches_u64_range(value: u64, min: Option<u64>, max: Option<u64>) -> bool {
-        if let Some(min_v) = min {
-            if value < min_v {
+        if let Some(min_v) = min
+            && value < min_v {
                 return false;
             }
-        }
-        if let Some(max_v) = max {
-            if value > max_v {
+        if let Some(max_v) = max
+            && value > max_v {
                 return false;
             }
-        }
         true
     }
 
@@ -1628,7 +1628,7 @@ impl BehaviorEngine {
             && Self::matches_u32_list(&cond_group.hypervisor_memory_protections, memory_protection)
             && cond_group
                 .hypervisor_is_executable_memory
-                .map_or(true, |required| required == is_executable_memory)
+                .is_none_or(|required| required == is_executable_memory)
             && Self::matches_u64_list(&cond_group.hypervisor_thread_handles, thread_handle)
             && Self::matches_u64_list(
                 &cond_group.hypervisor_thread_start_routines,
@@ -1644,15 +1644,14 @@ impl BehaviorEngine {
         for mut rule in raw_rules {
             rule.finalize_rich_fields();
             
-            if let Some(yaml_private) = rule.private_rules.take() {
-                if let Ok(private_rules) = serde_yaml::from_value::<Vec<BehaviorRule>>(yaml_private) {
+            if let Some(yaml_private) = rule.private_rules.take()
+                && let Ok(private_rules) = serde_yaml::from_value::<Vec<BehaviorRule>>(yaml_private) {
                     let mut processed_private = self.finalize_rules(private_rules);
                     for pr in &mut processed_private {
                         pr.is_private = true;
                     }
                     final_rules.extend(processed_private);
                 }
-            }
             final_rules.push(rule);
         }
         final_rules
@@ -1699,13 +1698,13 @@ impl BehaviorEngine {
             if resolved_appname == "UNKNOWN" || resolved_appname.is_empty() || resolved_appname.starts_with("PROC_") {
                 let mut sys = self.system.borrow_mut();
                 sys.refresh_processes_specifics(
-                    ProcessesToUpdate::Some(&[sysinfo::Pid::from_u32(msg.pid as u32)]), 
+                    ProcessesToUpdate::Some(&[sysinfo::Pid::from_u32(msg.pid)]), 
                     false,
                     ProcessRefreshKind::everything()
                 );
                 sys_refreshed = true;
                 
-                if let Some(proc) = sys.process(sysinfo::Pid::from_u32(msg.pid as u32)) {
+                if let Some(proc) = sys.process(sysinfo::Pid::from_u32(msg.pid)) {
                    resolved_appname = proc.name().to_string_lossy().to_string();
                    if let Some(path) = proc.exe() {
                        resolved_exepath = path.to_path_buf();
@@ -1719,12 +1718,12 @@ impl BehaviorEngine {
                 }
             }
 
-            let mut s = ProcessBehaviorState::new(msg.pid as u32, resolved_exepath, resolved_appname);
+            let mut s = ProcessBehaviorState::new(msg.pid, resolved_exepath, resolved_appname);
             if !msg.runtime_features.command_line.trim().is_empty() {
                 s.command_line = msg.runtime_features.command_line.to_lowercase();
             }
                         
-            let parent_pid = msg.parent_pid as u32;
+            let parent_pid = msg.parent_pid;
             let mut parent_found = false;
 
             for existing_state in self.process_states.values() {
@@ -1817,11 +1816,11 @@ impl BehaviorEngine {
             if victim_path.is_empty() {
                 let mut sys = self.system.borrow_mut();
                 sys.refresh_processes_specifics(
-                    ProcessesToUpdate::Some(&[sysinfo::Pid::from_u32(msg.pid as u32)]),
+                    ProcessesToUpdate::Some(&[sysinfo::Pid::from_u32(msg.pid)]),
                     false,
                     ProcessRefreshKind::everything()
                 );
-                if let Some(proc) = sys.process(sysinfo::Pid::from_u32(msg.pid as u32)) {
+                if let Some(proc) = sys.process(sysinfo::Pid::from_u32(msg.pid)) {
                     victim_path = proc.name().to_string_lossy().to_string().to_lowercase();
                 }
             }
@@ -1830,8 +1829,8 @@ impl BehaviorEngine {
                 let is_self = msg.attacker_pid == msg.pid;
                 let mut attacker_found = false;
                 
-                if msg.attacker_gid != 0 {
-                    if let Some(attacker_state) = self.process_states.get_mut(&msg.attacker_gid) {
+                if msg.attacker_gid != 0
+                    && let Some(attacker_state) = self.process_states.get_mut(&msg.attacker_gid) {
                         attacker_found = true;
                         if !victim_path.is_empty() {
                             if is_self {
@@ -1841,24 +1840,21 @@ impl BehaviorEngine {
                             }
                         }
                     }
-                }
 
                 if !attacker_found && !is_self {
                     let mut resolved_attacker_gid = None;
                     for (gid, state) in &self.process_states {
-                        if state.pid == msg.attacker_pid as u32 {
+                        if state.pid == msg.attacker_pid {
                             resolved_attacker_gid = Some(*gid);
                             break;
                         }
                     }
                     
-                    if let Some(agid) = resolved_attacker_gid {
-                        if let Some(attacker_state) = self.process_states.get_mut(&agid) {
-                            if !victim_path.is_empty() {
+                    if let Some(agid) = resolved_attacker_gid
+                        && let Some(attacker_state) = self.process_states.get_mut(&agid)
+                            && !victim_path.is_empty() {
                                 attacker_state.terminated_processes.insert(victim_path.clone());
                             }
-                        }
-                    }
                 }
                 
                 if !victim_path.is_empty() {
@@ -1876,12 +1872,12 @@ impl BehaviorEngine {
                 continue;
             }
             
-            for (_, cond_group) in &rule.named_conditions {
+            for cond_group in rule.named_conditions.values() {
                 if let Some(state) = self.process_states.get_mut(&gid) {
                     for path_pattern in &cond_group.file_paths {
                         let norm_pattern = path_pattern.to_lowercase().replace("\\", "/");
                         let norm_pattern = norm_pattern.trim_end_matches('/');
-                        if norm_filepath.contains(&norm_pattern) {
+                        if norm_filepath.contains(norm_pattern) {
                             state.browsed_paths_tracker.insert(path_pattern.clone(), SystemTime::now());
                         }
                     }
@@ -1890,7 +1886,7 @@ impl BehaviorEngine {
                         let norm_pattern = staging_pattern.to_lowercase().replace("\\", "/");
                         let norm_pattern = norm_pattern.trim_end_matches('/');
                         let is_staging_op = matches!(irp_op, IrpMajorOp::IrpWrite | IrpMajorOp::IrpCreate | IrpMajorOp::IrpSetInfo);
-                        if norm_filepath.contains(&norm_pattern) && is_staging_op {
+                        if norm_filepath.contains(norm_pattern) && is_staging_op {
                             state.staged_files_written.insert(PathBuf::from(&filepath), SystemTime::now());
                         }
                     }
@@ -1898,7 +1894,7 @@ impl BehaviorEngine {
                     for browsed_pattern in &cond_group.browsed_paths {
                         let norm_pattern = browsed_pattern.to_lowercase().replace("\\", "/");
                         let norm_pattern = norm_pattern.trim_end_matches('/');
-                        if norm_filepath.contains(&norm_pattern) {
+                        if norm_filepath.contains(norm_pattern) {
                             state.browsed_paths_tracker.insert(browsed_pattern.clone(), SystemTime::now());
                         }
                     }
@@ -1906,7 +1902,7 @@ impl BehaviorEngine {
                     for sensitive_pattern in &cond_group.sensitive_paths {
                         let norm_pattern = sensitive_pattern.to_lowercase().replace("\\", "/");
                         let norm_pattern = norm_pattern.trim_end_matches('/');
-                        if norm_filepath.contains(&norm_pattern) {
+                        if norm_filepath.contains(norm_pattern) {
                             state.accessed_paths_tracker.insert(sensitive_pattern.clone());
                         }
                     }
@@ -2014,8 +2010,8 @@ impl BehaviorEngine {
                     }
                 }
 
-                if !matched && Self::has_hypervisor_payload_conditions(cond_group) {
-                    if Self::matches_hypervisor_payload_conditions(cond_group, msg, irp_op) {
+                if !matched && Self::has_hypervisor_payload_conditions(cond_group)
+                    && Self::matches_hypervisor_payload_conditions(cond_group, msg, irp_op) {
                         let raw_event_type = if msg.kernel_event_info.event_type != 0 {
                             msg.kernel_event_info.event_type
                         } else {
@@ -2035,17 +2031,15 @@ impl BehaviorEngine {
                             msg.kernel_event_info.raw_argument4
                         ));
                     }
-                }
 
-                if !matched && cond_group.has_network_activity {
-                    if !state.network_apis_called.is_empty() {
+                if !matched && cond_group.has_network_activity
+                    && !state.network_apis_called.is_empty() {
                         matched = true;
                         Logging::info(&format!(
                             "[BehaviorEngine] Condition '{}' - Network activity detected for PID {}: {} APIs (legacy DLL tracking)",
                             cond_name, state.pid, state.network_apis_called.len()
                         ));
                     }
-                }
 
                 let file_change = event_file_change;
                 let is_directory_event = matches!(file_change, Some(FileChangeInfo::OpenDirectory));
@@ -2181,8 +2175,8 @@ impl BehaviorEngine {
                         if !ext.is_empty() {
                             let ext_with_dot = format!(".{}", ext);
 
-                            if !cond_group.file_extensions.is_empty() {
-                                if let Some(matched_ext) = cond_group.file_extensions.iter().find(|p| {
+                            if !cond_group.file_extensions.is_empty()
+                                && let Some(matched_ext) = cond_group.file_extensions.iter().find(|p| {
                                     Self::extension_pattern_matches(&self.regex_cache, p, &ext, &ext_with_dot)
                                 }) {
                                     matched = true;
@@ -2191,7 +2185,6 @@ impl BehaviorEngine {
                                         cond_name, state.pid, matched_ext
                                     ));
                                 }
-                            }
 
                             if !matched && cond_group.detect_non_whitelisted_extensions {
                                 let whitelisted = Self::is_extension_whitelisted(
@@ -2264,8 +2257,8 @@ impl BehaviorEngine {
                                          !cond_group.autorun_keys.is_empty() ||
                                          !cond_group.registry_values.is_empty();
 
-                if !matched && has_reg_conditions && *irp_op == IrpMajorOp::IrpRegistry {
-                    if Self::registry_op_matches(cond_group, msg, irp_op) {
+                if !matched && has_reg_conditions && *irp_op == IrpMajorOp::IrpRegistry
+                    && Self::registry_op_matches(cond_group, msg, irp_op) {
                         let reg_iter = cond_group.registry_keys.iter()
                             .chain(cond_group.autorun_keys.iter());
 
@@ -2280,12 +2273,11 @@ impl BehaviorEngine {
                             }
                         }
                     }
-                }
 
                 if !matched && !cond_group.parent_names.is_empty() {
                     let parent_lc = state.parent_name.to_lowercase();
-                    if !parent_lc.is_empty() && parent_lc != "unknown" {
-                        if cond_group.parent_names.iter().any(|p| {
+                    if !parent_lc.is_empty() && parent_lc != "unknown"
+                        && cond_group.parent_names.iter().any(|p| {
                             Self::matches_pattern_internal(&self.regex_cache, p, &parent_lc)
                         }) {
                             matched = true;
@@ -2294,7 +2286,6 @@ impl BehaviorEngine {
                                 cond_name, state.pid, parent_lc
                             ));
                         }
-                    }
                 }
 
                 if !matched && (!cond_group.cmdline_keywords.is_empty() || !cond_group.cmdline_patterns.is_empty()) {
@@ -2319,16 +2310,15 @@ impl BehaviorEngine {
                 if !matched && !cond_group.terminated_processes.is_empty() {
                     let mut term_match = false;
                     let mut matched_victim = String::new();
-                    if *irp_op == IrpMajorOp::IrpProcessTerminateAttempt {
-                        if let Some(victim) = cond_group.terminated_processes.iter().find(|victim_pattern| {
+                    if *irp_op == IrpMajorOp::IrpProcessTerminateAttempt
+                        && let Some(victim) = cond_group.terminated_processes.iter().find(|victim_pattern| {
                             Self::matches_pattern_internal(&self.regex_cache, victim_pattern, filepath)
                         }) {
                             term_match = true;
                             matched_victim = victim.to_string();
                         }
-                    }
-                    if !term_match {
-                        if let Some(victim) = state.terminated_processes.iter().find(|victim| {
+                    if !term_match
+                        && let Some(victim) = state.terminated_processes.iter().find(|victim| {
                             cond_group.terminated_processes.iter().any(|victim_pattern| {
                                 Self::matches_pattern_internal(&self.regex_cache, victim_pattern, victim)
                             })
@@ -2336,7 +2326,6 @@ impl BehaviorEngine {
                             term_match = true;
                             matched_victim = victim.to_string();
                         }
-                    }
                     if term_match {
                         matched = true;
                         Logging::info(&format!(
@@ -2348,8 +2337,8 @@ impl BehaviorEngine {
 
                 if !matched && !cond_group.process_names.is_empty() {
                     let app_lc = state.app_name.to_lowercase();
-                    if !app_lc.is_empty() {
-                        if cond_group.process_names.iter().any(|p| {
+                    if !app_lc.is_empty()
+                        && cond_group.process_names.iter().any(|p| {
                             Self::matches_pattern_internal(&self.regex_cache, p, &app_lc)
                         }) {
                             matched = true;
@@ -2358,7 +2347,6 @@ impl BehaviorEngine {
                                 cond_name, state.pid, app_lc
                             ));
                         }
-                    }
                 }
                 
                 if !matched && cond_group.is_signed.is_some() {
@@ -2445,14 +2433,13 @@ impl BehaviorEngine {
                                 cond_name, state.pid, *count, required, match_key
                             ));
                         }
-                    } else if is_new {
-                        if rule.debug || self.rules.iter().any(|r| r.debug) {
+                    } else if is_new
+                        && (rule.debug || self.rules.iter().any(|r| r.debug)) {
                             Logging::debug(&format!(
                                 "[BehaviorEngine] Condition '{}' match #{}/{} for PID {} ({})",
                                 cond_name, *count, required, state.pid, match_key
                             ));
                         }
-                    }
                 }
             }
         }
@@ -2975,11 +2962,10 @@ impl BehaviorEngine {
         }
 
         {
-            if let Ok(cache_map) = cache.try_borrow() {
-                if let Some(re) = cache_map.get(pattern) {
+            if let Ok(cache_map) = cache.try_borrow()
+                && let Some(re) = cache_map.get(pattern) {
                     return re.is_match(text);
                 }
-            }
         }
 
         let mut cache_map = cache.borrow_mut();

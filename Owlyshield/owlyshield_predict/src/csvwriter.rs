@@ -53,7 +53,7 @@ impl CsvWriter {
         }
         let mut file = fs::OpenOptions::new()
             .create(true)
-            .write(true)
+            
             .append(true)
             .open(&self.path)?;
 
@@ -69,7 +69,7 @@ impl CsvWriter {
         }
         let mut file = fs::OpenOptions::new()
             .create(true)
-            .write(true)
+            
             .append(true)
             .open(&self.path)?;
 

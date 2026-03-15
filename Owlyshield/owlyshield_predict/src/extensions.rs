@@ -31,6 +31,12 @@ pub struct ExtensionList {
     pub categories: HashMap<ExtensionCategory, Vec<&'static str>>,
 }
 
+impl Default for ExtensionList {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ExtensionList {
     pub fn new() -> ExtensionList {
         let documents_media = vec![
@@ -194,6 +200,12 @@ impl ExtensionList {
             }
         }
         Others
+    }
+}
+
+impl Default for ExtensionsCount {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

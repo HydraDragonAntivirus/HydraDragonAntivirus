@@ -71,7 +71,7 @@ pub fn is_hydra_dragon_enabled() -> bool {
 /// * `Some(AVIntegration)` if HydraDragon is available
 /// * `None` if HydraDragon is not installed
 #[cfg(all(target_os = "windows", feature = "hydradragon"))]
-pub fn init_hydra_dragon(config: &crate::config::Config) -> Option<av_integration::AVIntegration> {
+pub fn init_hydra_dragon(config: &crate::config::Config) -> Option<av_integration::AVIntegration<'_>> {
     if is_hydra_dragon_enabled() {
         use crate::worker::predictor::PredictorMalware;
         

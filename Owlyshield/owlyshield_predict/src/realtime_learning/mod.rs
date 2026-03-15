@@ -166,8 +166,8 @@ impl OwlyShieldSDK {
         }
 
         // AUTONOMOUS MODE: Pure ML detection from memory
-        if self.autonomous_mode_enabled {
-            if let Some(ref mut autonomous) = self.autonomous_engine {
+        if self.autonomous_mode_enabled
+            && let Some(ref mut autonomous) = self.autonomous_engine {
                 let assessment = autonomous.observe_process(gid, api_tracker, precord);
 
                 if assessment.is_threat {
@@ -177,7 +177,6 @@ impl OwlyShieldSDK {
 
                 return assessment.is_threat;
             }
-        }
 
         // TRADITIONAL MODE: Signature + Pattern based detection
         let signature_match = if let Some(ref engine) = self.signature_engine {
@@ -195,11 +194,10 @@ impl OwlyShieldSDK {
         let is_malicious = signature_match.is_some() || pattern_match.is_some();
 
         // Real-time learning: If malicious detected, mark it
-        if is_malicious {
-            if let Some(ref mut rt_learning) = self.realtime_learning {
+        if is_malicious
+            && let Some(ref mut rt_learning) = self.realtime_learning {
                 rt_learning.mark_detected_malicious(gid, api_tracker, precord);
             }
-        }
 
         // Collect data for ML if enabled
         if let Some(ref mut collector) = self.ml_collector {
@@ -213,12 +211,11 @@ impl OwlyShieldSDK {
 
     /// Process terminated - final chance to auto-label if benign
     pub fn process_terminated(&mut self, gid: u64) {
-        if let Some(ref mut rt_learning) = self.realtime_learning {
-            if let Some(api_tracker) = self.api_trackers.get(&gid) {
+        if let Some(ref mut rt_learning) = self.realtime_learning
+            && let Some(api_tracker) = self.api_trackers.get(&gid) {
                 let precord = ProcessRecord::new(gid, String::new(), std::path::PathBuf::new());
                 rt_learning.process_terminated(gid, api_tracker, &precord);
             }
-        }
     }
 
     /// Periodic check for benign processes (call this every few minutes)
@@ -239,8 +236,7 @@ impl OwlyShieldSDK {
         if let Some(ref mut rt_learning) = self.realtime_learning {
             rt_learning.export_samples()
         } else {
-            Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
+            Err(std::io::Error::other(
                 "Real-time learning is not enabled",
             ))
         }
@@ -293,8 +289,7 @@ impl OwlyShieldSDK {
         if let Some(ref mut autonomous) = self.autonomous_engine {
             autonomous.export_learned_rules_to_yaml()
         } else {
-            Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
+            Err(std::io::Error::other(
                 "Autonomous mode is not enabled",
             ))
         }
@@ -330,8 +325,7 @@ impl OwlyShieldSDK {
         if let Some(ref collector) = self.ml_collector {
             collector.export_to_json(output_path)
         } else {
-            Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
+            Err(std::io::Error::other(
                 "ML collection mode is not enabled",
             ))
         }

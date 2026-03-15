@@ -166,6 +166,12 @@ struct AdaptiveThresholdState {
     sample_count: usize,
 }
 
+impl Default for Config {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Config {
     pub fn new() -> Config {
         let mut config = Config {
@@ -204,7 +210,7 @@ impl Config {
         self.adaptive_state.sample_count += 1;
         
         // Adapt every 100 samples or when we have enough data
-        if self.adaptive_state.sample_count % 100 == 0 || self.adaptive_state.sample_count == 50 {
+        if self.adaptive_state.sample_count.is_multiple_of(100) || self.adaptive_state.sample_count == 50 {
             self.update_adaptive_thresholds();
         }
     }

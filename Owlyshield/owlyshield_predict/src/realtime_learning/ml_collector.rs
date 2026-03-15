@@ -277,7 +277,7 @@ impl MLCollector {
         }
 
         // Auto-save if threshold reached
-        if self.auto_save_threshold > 0 && self.total_samples() % self.auto_save_threshold == 0 && self.total_samples() > 0 {
+        if self.auto_save_threshold > 0 && self.total_samples().is_multiple_of(self.auto_save_threshold) && self.total_samples() > 0 {
             self.auto_save();
         }
     }
@@ -875,7 +875,7 @@ impl MLCollector {
 
         let file = File::create(output_path)?;
         serde_yaml::to_writer(file, &dataset)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
+            .map_err(std::io::Error::other)
     }
 
     #[cfg(feature = "behavior_engine")]
@@ -903,7 +903,7 @@ impl MLCollector {
         let rules = self.collected_rule_snapshots();
         let file = File::create(output_path)?;
         serde_yaml::to_writer(file, &rules)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
+            .map_err(std::io::Error::other)
     }
 
     #[cfg(feature = "behavior_engine")]
@@ -1058,6 +1058,12 @@ impl MLCollector {
         std::fs::write(benign_path, json)?;
 
         Ok(())
+    }
+}
+
+impl Default for FeatureExtractor {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

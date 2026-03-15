@@ -91,7 +91,7 @@ pub fn verify_signature(path: &Path) -> SignatureInfo {
     }
 }
 
-unsafe fn get_signer_name_from_file(path_wide: &[u16]) -> Result<String, ()> {
+unsafe fn get_signer_name_from_file(path_wide: &[u16]) -> Result<String, ()> { unsafe {
     // HCRYPTMSG is *mut c_void in older windows-rs
     let mut msg_handle: *mut std::ffi::c_void = std::ptr::null_mut();
     let mut store_handle: HCERTSTORE = HCERTSTORE::default();
@@ -113,10 +113,10 @@ unsafe fn get_signer_name_from_file(path_wide: &[u16]) -> Result<String, ()> {
     );
 
     if query_res.as_bool() {
-        let p_cert_context;
+        
         
         // Get the first certificate: Start with None.
-        p_cert_context = CertEnumCertificatesInStore(store_handle, None);
+        let p_cert_context = CertEnumCertificatesInStore(store_handle, None);
         
         if !p_cert_context.is_null() {
             // Extract Name
@@ -153,7 +153,7 @@ unsafe fn get_signer_name_from_file(path_wide: &[u16]) -> Result<String, ()> {
     }
     
     Err(())
-}
+}}
 
 #[cfg(test)]
 mod tests {

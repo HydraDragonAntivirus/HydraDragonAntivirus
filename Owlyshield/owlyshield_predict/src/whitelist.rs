@@ -16,14 +16,12 @@ impl WhiteList {
     pub fn from(path: &Path) -> Result<WhiteList, std::io::Error> {
         let mut whitelist = HashMap::new();
         let lines = Self::load(path)?;
-        for l in lines {
-            if let Ok(line) = l {
-                let parts: Vec<&str> = line.split('|').collect();
-                if parts.len() > 1 {
-                    whitelist.insert(parts[0].to_string(), Some(parts[1].trim().to_string()));
-                } else {
-                    whitelist.insert(line.trim().to_string(), None);
-                }
+        for line in lines.flatten() {
+            let parts: Vec<&str> = line.split('|').collect();
+            if parts.len() > 1 {
+                whitelist.insert(parts[0].to_string(), Some(parts[1].trim().to_string()));
+            } else {
+                whitelist.insert(line.trim().to_string(), None);
             }
         }
         let res = WhiteList {
@@ -50,14 +48,12 @@ impl WhiteList {
                 let mut set_whitelist = whitelist_bis.lock().unwrap();
                 if let Ok(lines) = res_lines {
                     set_whitelist.clear();
-                    for l in lines {
-                        if let Ok(line) = l {
-                            let parts: Vec<&str> = line.split('|').collect();
-                            if parts.len() > 1 {
-                                set_whitelist.insert(parts[0].to_string(), Some(parts[1].trim().to_string()));
-                            } else {
-                                set_whitelist.insert(line.trim().to_string(), None);
-                            }
+                    for line in lines.flatten() {
+                        let parts: Vec<&str> = line.split('|').collect();
+                        if parts.len() > 1 {
+                            set_whitelist.insert(parts[0].to_string(), Some(parts[1].trim().to_string()));
+                        } else {
+                            set_whitelist.insert(line.trim().to_string(), None);
                         }
                     }
                 }

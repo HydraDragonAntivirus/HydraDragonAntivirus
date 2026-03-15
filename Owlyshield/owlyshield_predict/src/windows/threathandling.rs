@@ -138,21 +138,18 @@ impl ThreatHandler for WindowsThreatHandler {
             
             // Read existing or create new
             let mut entries: Vec<QuarantineLogEntry> = Vec::new();
-            if log_path.exists() {
-                if let Ok(content) = std::fs::read_to_string(&log_path) {
-                    if let Ok(existing) = serde_json::from_str(&content) {
+            if log_path.exists()
+                && let Ok(content) = std::fs::read_to_string(&log_path)
+                    && let Ok(existing) = serde_json::from_str(&content) {
                         entries = existing;
                     }
-                }
-            }
             
             entries.push(log_entry);
             
-            if let Ok(json) = serde_json::to_string_pretty(&entries) {
-                if let Ok(mut file) = std::fs::File::create(&log_path) {
+            if let Ok(json) = serde_json::to_string_pretty(&entries)
+                && let Ok(mut file) = std::fs::File::create(&log_path) {
                     let _ = file.write_all(json.as_bytes());
                 }
-            }
         }
 
 
@@ -160,7 +157,7 @@ impl ThreatHandler for WindowsThreatHandler {
         for pid in &proc.pids {
             unsafe {
                 DebugSetProcessKillOnExit(kill_proc_on_exit);
-                DebugActiveProcessStop(*pid as u32);
+                DebugActiveProcessStop(*pid );
             }
         }
         proc.process_state = ProcessState::Running;
@@ -178,6 +175,6 @@ impl ThreatHandler for WindowsThreatHandler {
     }
 
     fn clone_box(&self) -> Box<dyn ThreatHandler> {
-        Box::new(WindowsThreatHandler { driver: self.driver.clone() })
+        Box::new(WindowsThreatHandler { driver: self.driver })
     }
 }

@@ -48,10 +48,12 @@ const CONNECT_TIMEOUT_MS: u32 = 900_000; // 900s - adjust as needed
 
 /// Action to take when a threat is detected
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+#[derive(Default)]
 pub enum ThreatAction {
     #[serde(rename = "monitor")]
     Monitor,
     #[serde(rename = "kill_and_quarantine")]
+    #[default]
     KillAndQuarantine,
     #[serde(rename = "kill_and_remove")]
     KillAndRemove,
@@ -59,11 +61,6 @@ pub enum ThreatAction {
     Kill,
 }
 
-impl Default for ThreatAction {
-    fn default() -> Self {
-        ThreatAction::KillAndQuarantine
-    }
-}
 
 impl ThreatAction {
     pub fn from_raw(raw: Option<&str>) -> Self {

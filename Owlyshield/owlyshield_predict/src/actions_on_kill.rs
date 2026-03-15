@@ -87,6 +87,12 @@ pub trait ActionOnKill {
     ) -> Result<(), Box<dyn Error>>;
 }
 
+impl Default for ActionsOnKill {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ActionsOnKill {
     pub fn new() -> ActionsOnKill {
         ActionsOnKill {

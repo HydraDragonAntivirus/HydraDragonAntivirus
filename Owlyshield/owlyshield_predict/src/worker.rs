@@ -232,8 +232,8 @@ pub mod process_record_handling {
             let pid = iomsg.pid;
             unsafe {
                 let r_handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid);
-                if let Ok(handle) = r_handle {
-                    if !(handle.is_invalid() || handle.0 == 0) {
+                if let Ok(handle) = r_handle
+                    && !(handle.is_invalid() || handle.0 == 0) {
                         let mut buffer = vec![0u16; 1024];
                         let mut size = buffer.len() as u32;
                         let res = QueryFullProcessImageNameW(handle, PROCESS_NAME_WIN32, windows::core::PWSTR(buffer.as_mut_ptr()), &mut size);
@@ -244,7 +244,6 @@ pub mod process_record_handling {
                             return Some(PathBuf::from(path));
                         }
                     }
-                }
                 None
             }
         }
@@ -281,9 +280,9 @@ pub mod process_record_handling {
                 return;
             }
 
-            if let Some(prediction_behavioral) = self.predictor_malware.predict(precord) {
-                if prediction_behavioral > self.config.threshold_prediction
-                    || precord.appname.contains("TEST-OLRANSOM")
+            if let Some(prediction_behavioral) = self.predictor_malware.predict(precord)
+                && (prediction_behavioral > self.config.threshold_prediction
+                    || precord.appname.contains("TEST-OLRANSOM"))
                 {
                     Logging::debug(&format!(
                         "MALWARE DETECTED - {} (gid: {}) | Prediction: {:.4} | Threshold: {:.4} | Files opened: {} | Files written: {} | Driver msgs: {}",
@@ -340,7 +339,6 @@ pub mod process_record_handling {
                         &threat_info,
                     );
                 }
-            }
         }
 
         #[cfg(target_os = "linux")]
@@ -417,7 +415,7 @@ pub mod process_record_handling {
     impl ProcessRecordIOHandler for ProcessRecordHandlerReplay {
         fn handle_io(&mut self, precord: &mut ProcessRecord) {
             let timestep = Timestep::from(precord);
-            if precord.driver_msg_count % self.timesteps_stride == 0 {
+            if precord.driver_msg_count.is_multiple_of(self.timesteps_stride) {
                 thread::sleep(Duration::from_millis(2));
                 self.csvwriter
                     .write_debug_csv_files(&precord.appname, precord.gid, &timestep, precord.time)
@@ -443,8 +441,8 @@ pub mod process_record_handling {
 
     impl ProcessRecordIOHandler for ProcessRecordHandlerNovelty<'_> {
         fn handle_io(&mut self, precord: &mut ProcessRecord) {
-            if precord.driver_msg_count % 5 == 0 {
-                if self.watchlist.is_app_watchlisted(precord.appname.as_str()) {
+            if precord.driver_msg_count.is_multiple_of(5)
+                && self.watchlist.is_app_watchlisted(precord.appname.as_str()) {
                     let novelty_path = self.config[Param::NoveltyPath].as_str();
                     let app_file = &precord.appname.replace(".", "_");
                     let now = Local::now();
@@ -469,24 +467,23 @@ pub mod process_record_handling {
                         },
                     }
                     
-                    if precord.driver_msg_count % 50 == 0 {
+                    if precord.driver_msg_count.is_multiple_of(50) {
                         let mut newrule = rule.learn(precord);
                         if !newrule.is_clusters_empty() {
                             let dis = rule.distance(&newrule, precord);
                             let opt_clusterdistance_min = dis.iter().min_by(|cd1, cd2| cd1.distance.partial_cmp(&cd2.distance).unwrap_or(std::cmp::Ordering::Equal));
 
                             newrule.replace_subclusters(&rule, &dis);
-                            if let Some(clusterdistance_min) = opt_clusterdistance_min {
-                                if clusterdistance_min.distance > 0f32 {
+                            if let Some(clusterdistance_min) = opt_clusterdistance_min
+                                && clusterdistance_min.distance > 0f32 {
                                     if clusterdistance_min.distance == 1f32 {
                                         Logging::novelty(&format!("[{}] New Cluster: {}", &precord.appname, clusterdistance_min.dir2.display()));
                                     } else {
                                         Logging::novelty(&format!("[{}] Expanding Cluster: {} => {}", &precord.appname, clusterdistance_min.dir1.display(), clusterdistance_min.dir2.display()));
                                     }
                                 }
-                            }
 
-                            if now > (rule.update_time.unwrap_or_else(|| Local::now()) + chrono::Duration::minutes(20)) {
+                            if now > (rule.update_time.unwrap_or_else(Local::now) + chrono::Duration::minutes(20)) {
                                 newrule.update_time = Some(now);
                                 Rule::serialize_yml_file(PathBuf::from(novelty_path).join(app_file.to_string() + ".yml"), newrule.clone());
                                 let savestate = StateSave::new(precord);
@@ -497,7 +494,6 @@ pub mod process_record_handling {
                         }
                     }
                 }
-            }
         }
     }
 
@@ -552,24 +548,23 @@ mod process_records {
         pub fn process_suspended_procs(&mut self, config: &Config, threat_handler: Box<dyn ThreatHandler>) {
             let now = SystemTime::now();
             for (gid, proc) in self.process_records.iter_mut() {
-                if proc.process_state == ProcessState::Suspended {
-                    if now.duration_since(proc.time_suspended.unwrap_or(now)).unwrap_or(Duration::from_secs(0)) > Duration::from_secs(120) {
+                if proc.process_state == ProcessState::Suspended
+                    && now.duration_since(proc.time_suspended.unwrap_or(now)).unwrap_or(Duration::from_secs(0)) > Duration::from_secs(120) {
                         threat_handler.awake(proc, true);
                         threat_handler.kill(*gid);
                     }
-                }
             }
 
             let command_files_path = Path::new(&config[Param::ConfigPath]).join("tmp");
             if command_files_path.exists() {
                 for command_file_dir_entry in fs::read_dir(command_files_path).unwrap() {
                     let pbuf_command_file = command_file_dir_entry.unwrap().path();
-                    if pbuf_command_file.is_file() {
-                        if let Some(ostr_fname) = pbuf_command_file.file_name() {
-                            if let Some(fname) = ostr_fname.to_str() {
-                                if let Some( (command, str_gid) ) = fname.split_once("_") {
-                                    if let Ok(gid) = str_gid.parse::<u64>() {
-                                        if let Some(proc) = self.process_records.get_mut(&gid) {
+                    if pbuf_command_file.is_file()
+                        && let Some(ostr_fname) = pbuf_command_file.file_name()
+                            && let Some(fname) = ostr_fname.to_str()
+                                && let Some( (command, str_gid) ) = fname.split_once("_")
+                                    && let Ok(gid) = str_gid.parse::<u64>()
+                                        && let Some(proc) = self.process_records.get_mut(&gid) {
                                             match command {
                                                 "A" => {
                                                     threat_handler.awake(proc, false);
@@ -580,16 +575,11 @@ mod process_records {
                                                 }
                                                 &_ => {}
                                             }
-                                            if !fs::remove_file(pbuf_command_file.as_path()).is_ok() {
+                                            if fs::remove_file(pbuf_command_file.as_path()).is_err() {
                                                 println!("cannot remove");
                                                 eprintln!("pbuf_command_file = {:?}", pbuf_command_file);
                                             }
                                         }
-                                    }
-                                }
-                            }
-                        }
-                    }
                 }
             }
         }
@@ -695,7 +685,7 @@ pub mod worker_instance {
 
     impl IOMsgPostProcessor for IOMsgPostProcessorMqtt {
         fn postprocess(&mut self, iomsg: &mut IOMessage, precord: &ProcessRecord) {
-            if self.client.is_some() && precord.driver_msg_count % 250 == 0 {
+            if self.client.is_some() && precord.driver_msg_count.is_multiple_of(250) {
                 let mut c2 = self.client.as_ref().unwrap().clone();
                 let channel = self.channel.clone();
                 let vec = Timestep::from(precord).to_vec_f32();
@@ -721,6 +711,12 @@ pub mod worker_instance {
             let timestep = Timestep::from(precord);
             let rpcmsg = RPCMessage::from(precord.appname.clone(), timestep);
             self.tx.send(rpcmsg).unwrap();
+        }
+    }
+
+    impl Default for IOMsgPostProcessorRPC {
+        fn default() -> Self {
+            Self::new()
         }
     }
 
@@ -895,11 +891,10 @@ pub mod worker_instance {
             let now = std::time::Instant::now();
             let refresh_interval = std::time::Duration::from_secs(2);
 
-            if let Some(last) = self.dynamic_hook_last_refresh.get(&pid) {
-                if now.duration_since(*last) < refresh_interval {
+            if let Some(last) = self.dynamic_hook_last_refresh.get(&pid)
+                && now.duration_since(*last) < refresh_interval {
                     return false;
                 }
-            }
 
             self.dynamic_hook_last_refresh.insert(pid, now);
             true
@@ -1049,7 +1044,7 @@ pub mod worker_instance {
                     continue;
                 }
                 
-                let exepath = process.exe().map(|p| PathBuf::from(p)).unwrap_or_default();
+                let exepath = process.exe().map(PathBuf::from).unwrap_or_default();
                 let appname = process.name().to_string_lossy().to_string();
                 
                 // Skip invalid paths
@@ -1202,11 +1197,10 @@ pub mod worker_instance {
                         match OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) {
                             Ok(handle) => {
                                 let mut exit_code: u32 = 0;
-                                if GetExitCodeProcess(handle, &mut exit_code).as_bool() {
-                                    if exit_code != STILL_ACTIVE.0 as u32 {
+                                if GetExitCodeProcess(handle, &mut exit_code).as_bool()
+                                    && exit_code != STILL_ACTIVE.0 as u32 {
                                         is_dead = true;
                                     }
-                                }
                                 let _ = CloseHandle(handle);
                             }
                             Err(_) => {
@@ -1264,15 +1258,14 @@ pub mod worker_instance {
             // Handle learning engine cleanup
             #[cfg(feature = "realtime_learning")]
             {
-                if let Some(tracker) = self.api_trackers.remove(&gid) {
-                    if let Some(precord) = precord_opt {
+                if let Some(tracker) = self.api_trackers.remove(&gid)
+                    && let Some(precord) = precord_opt {
                         if precord.is_malicious {
                             self.learning_engine
                                 .mark_detected_malicious(gid, &tracker, &precord);
                         }
                         self.learning_engine.process_terminated(gid, &tracker, &precord);
                     }
-                }
             }
             
             // Log cleanup
@@ -1308,11 +1301,10 @@ pub mod worker_instance {
                         match handle_res {
                             Ok(handle) => {
                                 let mut exit_code: u32 = 0;
-                                if GetExitCodeProcess(handle, &mut exit_code).as_bool() {
-                                    if exit_code != STILL_ACTIVE.0 as u32 {
+                                if GetExitCodeProcess(handle, &mut exit_code).as_bool()
+                                    && exit_code != STILL_ACTIVE.0 as u32 {
                                         dead_gids.push(*gid);
                                     }
-                                }
                                 let _ = CloseHandle(handle);
                             }
                             Err(_) => {
@@ -1339,7 +1331,7 @@ pub mod worker_instance {
                         continue;
                     }
                     
-                    let exepath = process.exe().map(|p| PathBuf::from(p)).unwrap_or_default();
+                    let exepath = process.exe().map(PathBuf::from).unwrap_or_default();
                     let appname = process.name().to_string_lossy().to_string();
                     
                     if exepath.to_string_lossy().is_empty() || appname.is_empty() {
@@ -1348,7 +1340,7 @@ pub mod worker_instance {
                     
                     // FIX: Check if we're ALREADY tracking this PID
                     // This prevents duplicate entries when GID generation is non-deterministic
-                    if let Some(_) = self.find_gid_by_pid(pid_u32) {
+                    if self.find_gid_by_pid(pid_u32).is_some() {
                         self.refresh_dynamic_hooks_for_pid_if_due(pid_u32);
                         // Already tracking this PID - skip to avoid duplicates
                         continue;
@@ -1537,11 +1529,10 @@ pub mod worker_instance {
                             && !object_name.ends_with('!');
                         object_name.is_empty() || !has_qualified_name
                     };
-                    if needs_name_resolution {
-                        if let Some(mapped_api) = self.dynamic_hook_event_map.get(&raw_event_type) {
+                    if needs_name_resolution
+                        && let Some(mapped_api) = self.dynamic_hook_event_map.get(&raw_event_type) {
                             iomsg.kernel_event_info.object_name = mapped_api.clone();
                         }
-                    }
 
                     if iomsg.kernel_event_info.source_process_id == 0 {
                         iomsg.kernel_event_info.source_process_id = if iomsg.attacker_pid != 0 {
@@ -1570,13 +1561,11 @@ pub mod worker_instance {
             }
 
             // Backfill command line for events that don't carry it (e.g., kernel API hook events).
-            if iomsg.runtime_features.command_line.trim().is_empty() {
-                if let Some(precord) = self.process_records.get_precord_by_gid(tracking_key) {
-                    if !precord.command_line.trim().is_empty() {
+            if iomsg.runtime_features.command_line.trim().is_empty()
+                && let Some(precord) = self.process_records.get_precord_by_gid(tracking_key)
+                    && !precord.command_line.trim().is_empty() {
                         iomsg.runtime_features.command_line = precord.command_line.clone();
                     }
-                }
-            }
 
             #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
             if is_process_create {
@@ -1591,8 +1580,8 @@ pub mod worker_instance {
             if let Some(precord) = self.process_records.get_precord_mut_by_gid(tracking_key) {
                 // For new processes, run static scan immediately
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-                if is_process_create {
-                    if let Some(ref th) = self.threat_handler {
+                if is_process_create
+                    && let Some(ref th) = self.threat_handler {
                         let detections = self.behavior_engine.scan_all_processes(config, &**th);
                         for det in detections {
                             if det.gid == tracking_key {
@@ -1615,7 +1604,6 @@ pub mod worker_instance {
                             }
                         }
                     }
-                }
 
                 // Add IRP record to process
                 #[cfg(all(target_os = "windows", feature = "hydradragon"))]
@@ -1726,7 +1714,7 @@ pub mod worker_instance {
             let gid = iomsg.gid;
             let pid = iomsg.pid;
 
-            if Self::is_internal_service_pid(pid as u32) {
+            if Self::is_internal_service_pid(pid) {
                 return;
             }
             
@@ -1799,7 +1787,7 @@ pub mod worker_instance {
                     {
                         self.behavior_engine.register_process(
                             gid,
-                            pid as u32,
+                            pid,
                             exepath.clone(),
                             appname.clone()
                         );
@@ -2077,7 +2065,7 @@ pub mod worker_instance {
                     } else {
                         let failures = self.dynamic_hook_apply_failures.entry(pid).or_insert(0);
                         *failures = failures.saturating_add(1);
-                        if *failures >= Self::DYNAMIC_HOOK_MAX_FAILURES && (*failures % Self::DYNAMIC_HOOK_MAX_FAILURES == 0) {
+                        if *failures >= Self::DYNAMIC_HOOK_MAX_FAILURES && (*failures).is_multiple_of(Self::DYNAMIC_HOOK_MAX_FAILURES) {
                             Logging::warning(&format!(
                                 "[DYNAMIC HOOK] PID {} still failing to apply hooks (count={}, hr=0x{:08X})",
                                 pid, failures, hr
