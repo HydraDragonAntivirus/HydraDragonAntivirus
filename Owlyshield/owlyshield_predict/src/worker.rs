@@ -1645,6 +1645,48 @@ pub mod worker_instance {
                 }
 
                 if !cleanup_after_creation_detection {
+                    // Heal stale appname/exepath before ANY detection runs.
+                    // register_precord may have left "PROC_<pid>" / "UNKNOWN" if the
+                    // IrpProcessCreate event hasn't arrived yet.  Try the exepath handler
+                    // one more time so ransomware detection, reports, and all other paths
+                    // get correct values from the very first event.
+                    let precord_name_stale = precord.appname.is_empty()
+                        || precord.appname.starts_with("PROC_")
+                        || precord.appname == "UNKNOWN";
+                    let precord_path_stale = precord.exepath.to_string_lossy() == "UNKNOWN"
+                        || precord.exepath.as_os_str().is_empty();
+
+                    if precord_name_stale || precord_path_stale {
+                        if let Some(resolved_path) = self.exepath_handler.exepath(iomsg) {
+                            if resolved_path.to_string_lossy() != "UNKNOWN"
+                                && !resolved_path.as_os_str().is_empty()
+                            {
+                                let resolved_name = Self::appname_from_exepath_static(&resolved_path)
+                                    .unwrap_or_default();
+                                if precord_path_stale {
+                                    precord.exepath = resolved_path.clone();
+                                }
+                                if precord_name_stale && !resolved_name.is_empty() {
+                                    precord.appname = resolved_name.clone();
+                                }
+                                // Propagate to behavior engine state so rule matching
+                                // and allowlists are also correct immediately.
+                                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                                if let Some(state) = self.behavior_engine.process_states.get_mut(&tracking_key) {
+                                    if state.app_name.is_empty()
+                                        || state.app_name.starts_with("PROC_")
+                                        || state.app_name == "UNKNOWN"
+                                    {
+                                        if !resolved_name.is_empty() {
+                                            state.app_name = resolved_name;
+                                        }
+                                        state.exe_path = resolved_path;
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     // Process behavioral event
                     #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
                     if let Some(ref th) = self.threat_handler {
