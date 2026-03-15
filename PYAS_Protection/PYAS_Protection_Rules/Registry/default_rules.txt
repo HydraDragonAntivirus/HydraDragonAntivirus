@@ -1,0 +1,44 @@
+# =============================================================================
+# HydraDragon Antivirus - Registry Protection Rules
+# =============================================================================
+#
+# REQUIRED FORMAT: every rule must start with a recognised registry hive.
+# Rules that do not match one of the accepted formats are silently rejected
+# and a DbgPrint warning is emitted to the kernel debugger.
+#
+# Accepted prefixes (case-insensitive):
+#   HKLM\       -> \REGISTRY\MACHINE\...
+#   HKCU\       -> \REGISTRY\USER\...   (NOTE: HKCU is per-SID in the kernel;
+#                  the rule will match any user's copy of the key because the
+#                  matching engine uses a substring search under \REGISTRY\USER\)
+#   HKU\        -> \REGISTRY\USER\...
+#   HKCR\       -> \REGISTRY\MACHINE\SOFTWARE\CLASSES\...
+#   HKCC\       -> \REGISTRY\MACHINE\SYSTEM\CURRENTCONTROLSET\HARDWARE PROFILES\CURRENT\...
+#   \REGISTRY\  -> raw NT kernel path (used verbatim, no conversion)
+#
+# One rule per line.  Blank lines and lines starting with # or // are ignored.
+# Inline comments are also supported:  HKLM\Some\Key  # this is a comment
+# =============================================================================
+
+# ---------------------------------------------------------------------------
+# OwlyShield antivirus service keys
+# ---------------------------------------------------------------------------
+HKLM\SOFTWARE\OwlyShield
+HKLM\SYSTEM\CurrentControlSet\Services\owlyshield_ransom
+HKLM\SYSTEM\CurrentControlSet\Services\SimplePYASProtection
+
+# ---------------------------------------------------------------------------
+# Sanctum / PPL runner service keys
+# ---------------------------------------------------------------------------
+HKLM\SYSTEM\CurrentControlSet\Services\sanctum_ppl_runner
+
+# ---------------------------------------------------------------------------
+# MBRFilter driver service key
+# ---------------------------------------------------------------------------
+HKLM\SYSTEM\CurrentControlSet\Services\MBRFilter
+
+# ---------------------------------------------------------------------------
+# Winlogon Shell value - tampering here enables persistence via shell hijack.
+# The driver enforces that the Shell value may only be set to explorer.exe.
+# ---------------------------------------------------------------------------
+HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon

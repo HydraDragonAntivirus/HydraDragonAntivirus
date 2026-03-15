@@ -1,0 +1,47 @@
+# =============================================================================
+# HydraDragon Antivirus - File Protection Rules
+# =============================================================================
+#
+# REQUIRED FORMAT: every rule must start with one of:
+#   C:\          drive-letter path  (any drive letter A-Z is valid)
+#   \??\         NT device namespace path
+#   \            relative/suffix path - use only when the absolute path cannot
+#                be known statically (e.g. per-user AppData paths).
+#                Rules using the \ prefix are matched as substrings of the
+#                full normalised file path, so they work across all user accounts.
+#                Bare names without a leading separator are rejected.
+#
+# Matching is case-insensitive substring search: a rule fires if the full
+# kernel file path CONTAINS the rule string.  Full drive-letter paths give
+# the tightest match and should be preferred wherever possible.
+#
+# One rule per line.  Blank lines and # / // comments are ignored.
+# =============================================================================
+
+# ---------------------------------------------------------------------------
+# HydraDragon Antivirus install directory (entire tree)
+# ---------------------------------------------------------------------------
+c:\program files\hydradragonantivirus
+
+# ---------------------------------------------------------------------------
+# Sanctum in-box DLL
+# ---------------------------------------------------------------------------
+c:\windows\system32\sanctum.dll
+
+# ---------------------------------------------------------------------------
+# Sanctum user-profile data (per-user AppData - matched as a suffix rule
+# because the username segment of the path is not known at authoring time)
+# ---------------------------------------------------------------------------
+\appdata\roaming\sanctum\
+
+# ---------------------------------------------------------------------------
+# Scheduled task entry
+# ---------------------------------------------------------------------------
+c:\windows\system32\tasks\hydradragonantivirus
+
+# ---------------------------------------------------------------------------
+# Kernel-mode driver binaries
+# ---------------------------------------------------------------------------
+c:\windows\system32\drivers\owlyshieldransomfilter.sys
+c:\windows\system32\drivers\simplepyasprotection.sys
+c:\windows\system32\drivers\mbrfilter.sys

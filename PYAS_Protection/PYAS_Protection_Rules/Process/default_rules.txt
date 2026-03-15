@@ -1,0 +1,32 @@
+# =============================================================================
+# HydraDragon Antivirus - Process Protection Rules
+# =============================================================================
+#
+# REQUIRED FORMAT: every rule must start with one of:
+#   C:\          drive-letter path  (most common; any drive letter A-Z is valid)
+#   \??\         NT device namespace path
+#   \            relative/suffix path - use only when the absolute path is
+#                unknown at rule-authoring time (e.g. user-profile executables).
+#                Bare filenames without any leading separator are rejected.
+#
+# Matching is case-insensitive substring search: a rule matches if the full
+# image path of the process CONTAINS the rule string.  Full drive-letter paths
+# are therefore the most precise and least error-prone choice.
+#
+# One rule per line.  Blank lines and # / // comments are ignored.
+# =============================================================================
+
+# ---------------------------------------------------------------------------
+# Windows Shell - protect explorer.exe against termination / injection
+# ---------------------------------------------------------------------------
+c:\windows\explorer.exe
+
+# ---------------------------------------------------------------------------
+# Sanctum agent executables (installed under Program Files)
+# ---------------------------------------------------------------------------
+c:\program files\hydradragonantivirus\sanctum\app.exe
+c:\program files\hydradragonantivirus\sanctum\elam_installer.exe
+c:\program files\hydradragonantivirus\sanctum\server.exe
+c:\program files\hydradragonantivirus\sanctum\um_engine.exe
+c:\program files\hydradragonantivirus\service\hydradragonantivirustaskscheduler.exe
+c:\program files\hydradragonantivirus\hydradragonantiviruslauncher.exe
