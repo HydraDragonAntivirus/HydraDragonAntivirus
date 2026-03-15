@@ -72,7 +72,7 @@ Owlyshield provides a powerful solution for detecting and responding to threats 
 
 ## :arrow_forward: 2 minutes install
 
-Installation instructions for Owlyshield can be found in the Releases section of the project's GitHub repository. For usage instructions, please refer to the project's Wiki or see the Contributing section if you prefer to build Owlyshield yourself. Don't forget to build with "cargo build --release --features service,novelty,malware,hydradragon,behivor_engine" for novelty, hydradragon, realtime-learning, behavior-engine  and more functionality.
+Installation instructions for Owlyshield can be found in the Releases section of the project's GitHub repository. For usage instructions, please refer to the project's Wiki or see the Contributing section if you prefer to build Owlyshield yourself. Don't forget to build with "cargo build --release --features service,novelty,malware,hydradragon,behavior_engine" for novelty, hydradragon, realtime-learning, behavior-engine  and more functionality.
  
  ## TensorFlow Lite C/C++ source
 
