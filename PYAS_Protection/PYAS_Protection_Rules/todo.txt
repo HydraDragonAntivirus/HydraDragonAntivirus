@@ -1,15 +1,20 @@
-\??\C:\Windows\explorer.exe
+c:\windows\explorer.exe
 \\SOFTWARE\\OwlyShield
 \\Services\\SimplePYASProtection
 \\Services\\owlyshield_ransom
-\\Services\\sanctum_ppl_runner"
+\\Services\\sanctum_ppl_runner
 \\Services\\MBRFilter
 \SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon
 
 # HydraDragonAntivirus-specific examples
 c:\program files\hydradragonantivirus
-desktop\sanctum\
-appdata\roaming\sanctum\
+\sanctum\app.exe
+\sanctum\elam_installer.exe
+\sanctum\server.exe
+\sanctum\um_engine.exe
+c:\windows\system32\sanctum.dll
+\appdata\roaming\sanctum\
 c:\windows\system32\tasks\hydradragonantivirus
-
-# TODO add specific paths come from System32 drivers eg: C:\Windows\System32\drivers\owlyshieldransomfilter.sys
+c:\windows\system32\drivers\owlyshieldransomfilter.sys
+c:\windows\system32\drivers\simplepyasprotection.sys
+c:\windows\system32\drivers\mbrfilter.sys
