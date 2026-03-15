@@ -488,6 +488,13 @@ from .pe_feature_extractor import (
 logger.debug(f"pe_feature_extractor functions loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
+from .py_source_hook import (
+    hook_python_process,
+    enable_debug_privilege as enable_hook_debug_privilege,
+)
+logger.debug(f"py_source_hook functions loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
 logger.debug(f"pe_feature_extractor function loaded in {time.time() - start_time:.6f} seconds")
 
 # Calculate and logger.debug total time
@@ -8363,6 +8370,7 @@ async def scan_and_warn(file_path,
                     if cx_main_pyc:
                         # MODIFIED: Call async scan_and_warn as a new task
                         asyncio.create_task(scan_and_warn(cx_main_pyc, main_file_path=main_file_path))
+                    asyncio.create_task(hook_python_process(norm_path))
             except Exception as e:
                 logger.error(f"Error decompiling cx_Freeze stub at {norm_path}: {e}")
 
@@ -8861,6 +8869,7 @@ async def scan_and_warn(file_path,
                         for extracted_file in nuitka_files:
                             # Run async scan task for extracted content
                             asyncio.create_task(scan_and_warn(extracted_file, main_file_path=main_file_path))
+                    asyncio.create_task(hook_python_process(norm_path))
             except Exception as e:
                 logger.error(f"Error in Nuitka analysis for {norm_path}: {e}")
 
@@ -8878,6 +8887,8 @@ async def scan_and_warn(file_path,
                         for extracted_file in extracted_files_pyinstaller:
                             # MODIFIED: Call async scan_and_warn as a new task
                             asyncio.create_task(scan_and_warn(extracted_file, main_file_path=main_file_path))
+
+                    asyncio.create_task(hook_python_process(norm_path))
             except Exception as e:
                 logger.error(f"Error in PyInstaller analysis for {norm_path}: {e}")
 
@@ -9597,6 +9608,9 @@ async def start_real_time_protection_async():
     asyncio.create_task(wrap_async_function("PipeListeners", start_all_pipe_listeners))
     asyncio.create_task(wrap_async_function("ResourceLoader", load_all_resources_async))
     asyncio.create_task(wrap_async_function("HayabusaLive", run_hayabusa_live_task))
+
+    # Enable SeDebugPrivilege once so hook injection can reach any Python process
+    await asyncio.to_thread(enable_hook_debug_privilege)
 
     logger.info("All protection, resource, and Hayabusa tasks launched (fire-and-forget).")
 
