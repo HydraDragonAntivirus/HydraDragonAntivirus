@@ -234,7 +234,7 @@ See the [LICENSE](./LICENSE) file for more information.
 - I have collected every malicious IP, domain from the Internet. So there must be big false positives, but I handle them.
 
 **Note 7:**
-- Inno Setup version 6.6.1
+- Inno Setup version 6.7.1
 
 ## Tips
 
