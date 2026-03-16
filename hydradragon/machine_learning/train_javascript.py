@@ -648,21 +648,29 @@ class DataProcessor:
         
         return np.asarray(numeric, dtype=np.float32)
 
-    def _get_file_md5(self, file_path: Path) -> Optional[str]:
-        """Calculate MD5 with 6 retries and 0.1s delay for locked files."""
+    def _get_file_md5(self, file_path: Path) -> Tuple[Optional[str], bool]:
+        """Calculate MD5 and check if it's a valid text file (no null bytes).
+        Returns (md5, is_text)."""
         max_retries = 6
         for attempt in range(1, max_retries + 1):
             try:
                 with open(file_path, 'rb') as f:
-                    return hashlib.md5(f.read()).hexdigest()
+                    chunk = f.read(8192)
+                    if b'\x00' in chunk:
+                        return None, False
+                    
+                    # Back to start for MD5
+                    f.seek(0)
+                    content = f.read()
+                    return hashlib.md5(content).hexdigest(), True
             except (PermissionError, OSError):
                 if attempt < max_retries:
                     time.sleep(0.1)
                 else:
-                    return None
+                    return None, True # Treat as text but failed to read
             except Exception:
-                return None
-        return None
+                return None, True
+        return None, True
 
     def _process_one(self, args: Tuple) -> Optional[Dict[str, Any]]:
         """Worker function to process a single JavaScript file. Args: (file_path, rank, is_malicious, md5)"""
@@ -776,7 +784,13 @@ class DataProcessor:
         
         logger.info(f"[JS] Pre-filtering {len(malicious_raw):,} Malicious files...")
         for f in tqdm(malicious_raw, desc="Prefilter [JS Malicious]"):
-            md5 = self._get_file_md5(f)
+            md5, is_text = self._get_file_md5(f)
+            
+            if not is_text:
+                logger.warning(f"[JS] File {f.name} appears to be binary (contains null bytes). Moving to problematic_files_js.")
+                self._move(f, self.problematic_dir)
+                continue
+                
             if not md5: continue
             
             # Intra-class duplicate check
@@ -791,7 +805,13 @@ class DataProcessor:
         
         logger.info(f"[JS] Pre-filtering {len(benign_raw):,} Benign files...")
         for f in tqdm(benign_raw, desc="Prefilter [JS Benign]"):
-            md5 = self._get_file_md5(f)
+            md5, is_text = self._get_file_md5(f)
+            
+            if not is_text:
+                logger.warning(f"[JS] File {f.name} appears to be binary (contains null bytes). Moving to problematic_files_js.")
+                self._move(f, self.problematic_dir)
+                continue
+                
             if not md5: continue
             
             # Check for conflict with Malicious (Database or current batch)
