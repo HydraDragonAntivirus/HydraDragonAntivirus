@@ -306,7 +306,7 @@ pub fn App() -> impl IntoView {
         });
     };
 
-    let (_show_rule_modal, _set_show_rule_modal) = create_signal(false);
+    let (confirm_quit, set_confirm_quit) = create_signal(false);
     let (_new_rule_name, _set_new_rule_name) = create_signal(String::new());
     let (_new_rule_desc, _set_new_rule_desc) = create_signal(String::new());
     let (_new_rule_ips, _set_new_rule_ips) = create_signal(String::new());
@@ -435,6 +435,37 @@ pub fn App() -> impl IntoView {
                                on:click=move |ev| { ev.prevent_default(); set_current_view.set(AppView::Settings); }>
                                "Settings"
                             </a>
+                            <a href="#" class="nav-item nav-item-quit"
+                               on:click=move |ev| {
+                                   ev.prevent_default();
+                                   set_confirm_quit.set(true);
+                               }>
+                               "Quit"
+                            </a>
+
+                            {move || if confirm_quit.get() {
+                                view! {
+                                    <div class="quit-confirm">
+                                        <span>"Are you sure?"</span>
+                                        <div style="display: flex; gap: 6px; margin-top: 8px">
+                                            <button class="btn-primary" style="background: var(--accent-red); flex: 1; padding: 5px"
+                                                on:click=move |_| {
+                                                    spawn_local(async move {
+                                                        let _ = invoke("quit_app", JsValue::NULL).await;
+                                                    });
+                                                }>
+                                                "Yes, Quit"
+                                            </button>
+                                            <button class="btn-secondary" style="flex: 1; padding: 5px"
+                                                on:click=move |_| set_confirm_quit.set(false)>
+                                                "Cancel"
+                                            </button>
+                                        </div>
+                                    </div>
+                                }.into_view()
+                            } else {
+                                view! {}.into_view()
+                            }}
                         </nav>
                     </aside>
 

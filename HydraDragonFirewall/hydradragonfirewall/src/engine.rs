@@ -639,7 +639,7 @@ impl AppManager {
     }
 
     // OPTIMIZED: Now uses cache
-    pub fn check_app(&self, packet: &PacketInfo) -> (AppDecision, String, String) {
+    pub fn check_app(&self, packet: &PacketInfo, tls_proxy: &TlsProxyConfig) -> (AppDecision, String, String) {
         let mut pid = packet.process_id;
 
         if pid == 0 {
@@ -667,6 +667,12 @@ impl AppManager {
             || pid == 0
             || pid == 4
         {
+            return (AppDecision::Allow, app_name, app_path);
+        }
+
+        // Auto-allow the configured TLS proxy backend so its own upstream
+        // connections are never prompted or blocked by app-decision logic.
+        if FirewallEngine::is_tls_proxy_process(&app_path, tls_proxy) {
             return (AppDecision::Allow, app_name, app_path);
         }
 
@@ -736,6 +742,8 @@ pub struct FirewallEngine {
     pub sdk: Arc<RwLock<crate::sdk::SdkRegistry>>,
     pub file_checker: Arc<FileMagicChecker>,
     pub tls_proxy_backend_child: Arc<Mutex<Option<Child>>>,
+    /// Retained so stop() can call shutdown() and unblock all recv() threads.
+    pub divert_handle: Arc<Mutex<Option<WinDivert<windivert::prelude::NetworkLayer>>>>,
 }
 
 // RADICAL REFACTOR: Wrapper to make WinDivert Send + Sync (Safe for WinDivert handles)
@@ -775,6 +783,7 @@ impl FirewallEngine {
         let settings = Arc::new(RwLock::new(settings_data));
         let sdk = Arc::new(RwLock::new(crate::sdk::SdkRegistry::with_defaults()));
         let tls_proxy_backend_child = Arc::new(Mutex::new(None));
+        let divert_handle = Arc::new(Mutex::new(None));
 
         Self {
             stats,
@@ -787,6 +796,7 @@ impl FirewallEngine {
             sdk,
             file_checker,
             tls_proxy_backend_child,
+            divert_handle,
         }
     }
 
@@ -862,7 +872,11 @@ impl FirewallEngine {
                 return false;
             }
             let entry_norm = entry.to_lowercase().replace('\\', "/");
+            // Exact full-path match OR filename-only match (e.g. "mitmdump.exe" matches
+            // "c:/users/x/.../mitmdump.exe"). The trailing-slash guard prevents a short
+            // entry like "dump.exe" from matching "mitmdump.exe".
             path_norm == entry_norm
+                || path_norm.ends_with(&format!("/{}", entry_norm))
         })
     }
 
@@ -899,7 +913,11 @@ impl FirewallEngine {
             return;
         }
 
-        if matches!(info.protocol, Protocol::UDP) && info.dst_port == 443 && tls_proxy.block_quic_udp_443 {
+        if matches!(info.protocol, Protocol::UDP)
+            && info.dst_port == 443
+            && tls_proxy.block_quic_udp_443
+            && !Self::is_tls_proxy_process(app_path, tls_proxy)
+        {
             *should_forward = false;
             reason.get_or_insert_with(|| {
                 "TLS Proxy Mode: blocked QUIC (UDP/443); use TCP through the configured proxy"
@@ -1529,6 +1547,18 @@ impl FirewallEngine {
             }
         };
 
+        // Open a second handle on the same filter exclusively for shutdown.
+        // Calling shutdown() on it will unblock all recv() calls on the worker handle.
+        // We need a separate owned WinDivert (not Arc) because shutdown() takes &mut self.
+        match WinDivert::network("true", 0, WinDivertFlags::new()) {
+            Ok(shutdown_handle) => {
+                *self.divert_handle.lock().unwrap() = Some(shutdown_handle);
+            }
+            Err(_) => {
+                // Non-fatal: workers will still exit via stop_signal when the process ends.
+            }
+        }
+
 
 
         let ts = Self::now_ts();
@@ -1903,6 +1933,9 @@ impl FirewallEngine {
                                 if err_str.contains("timeout") {
                                     // Ignore timeouts as they are expected
                                     std::thread::sleep(Duration::from_millis(1));
+                                } else if stop_w.load(Ordering::Relaxed) {
+                                    // shutdown() was called — exit the worker cleanly.
+                                    break;
                                 } else {
                                     let ts = Self::now_ts();
                                     let _ = tx_log.emit("log", LogEntry {
@@ -2055,7 +2088,7 @@ impl FirewallEngine {
         let dns_domain = info.dns_query.clone();
 
         // 6. Resolve App Identity
-        let (app_decision, app_name, _) = am.check_app(&info);
+        let (app_decision, app_name, _) = am.check_app(&info, &tls_proxy_cfg);
 
         // 7. Custom Firewall Rules (PRIORITY #1)
         let current_rules = rules.read().unwrap();
@@ -2825,10 +2858,33 @@ impl FirewallEngine {
             .map(|ip| (ip, String::new()))
             .collect()
     }
+    /// Cleanly shuts down the firewall engine.
+    ///
+    /// 1. Sets stop_signal so all worker loops know to exit.
+    /// 2. Calls WinDivertShutdown(Both) which immediately unblocks every
+    ///    thread that is blocked in recv() — they will return an error,
+    ///    see stop_signal == true, and break out of their loops.
+    /// 3. Kills the mitmproxy/mitmdump backend process if running.
+    ///
+    /// Safe to call more than once; subsequent calls are no-ops.
+    pub fn stop(&self) {
+        // Signal all worker loops to exit after their current recv() returns.
+        self.stop_signal.store(true, Ordering::SeqCst);
+
+        // Take the stored handle (replace with None so this is idempotent).
+        // Calling shutdown() unblocks all recv() calls immediately with an
+        // error, rather than waiting for the next packet to arrive.
+        if let Some(ref mut d) = *self.divert_handle.lock().unwrap() {
+            let _ = d.shutdown(WinDivertShutdownMode::Both);
+        }
+        *self.divert_handle.lock().unwrap() = None;
+
+        self.stop_mitmproxy_rs_backend();
+    }
 }
 
 impl Drop for FirewallEngine {
     fn drop(&mut self) {
-        self.stop_mitmproxy_rs_backend();
+        self.stop();
     }
 }

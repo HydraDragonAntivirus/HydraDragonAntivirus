@@ -138,6 +138,14 @@ async fn close_window(window: tauri::Window) {
     let _ = window.close();
 }
 
+#[tauri::command]
+async fn quit_app(handle: AppHandle) {
+    if let Some(engine) = handle.try_state::<Arc<FirewallEngine>>() {
+        engine.stop();
+    }
+    handle.exit(0);
+}
+
 pub fn run() {
     println!("DEBUG: hydradragonfirewall::run() entered");
     println!("--- HydraDragon Firewall Booting (Tauri 2.0) ---");
@@ -162,7 +170,12 @@ pub fn run() {
                 .menu(&menu)
                 .show_menu_on_left_click(false)
                 .on_menu_event(|app, event| match event.id.as_ref() {
-                    "quit" => app.exit(0),
+                    "quit" => {
+                        if let Some(engine) = app.try_state::<Arc<FirewallEngine>>() {
+                            engine.stop();
+                        }
+                        app.exit(0);
+                    }
                     "show" => {
                         if let Some(win) = app.get_webview_window("main") {
                             let _ = win.show();
@@ -249,7 +262,8 @@ pub fn run() {
             clear_app_decisions,
             get_active_alert,
             get_window_label,
-            close_window
+            close_window,
+            quit_app
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
