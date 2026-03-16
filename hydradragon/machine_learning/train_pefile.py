@@ -1122,6 +1122,8 @@ class DataProcessor:
         # Stage 1: Discover files
         logger.info(f"[{label}] Stage 1/4: Discovering files in {directory}...")
         files = [f for f in directory.rglob('*') if f.is_file()]
+        # Sort Z-A so descriptive names (Setup.exe) are processed before numeric/temp names (001.exe)
+        files.sort(key=lambda x: x.name, reverse=True)
         logger.info(f"[{label}] Found {len(files):,} files")
 
         # Stage 2: MD5 pre-filter — discard duplicates before heavy processing

@@ -814,6 +814,8 @@ class DataProcessor:
 
         # Collect all .js files
         files = [f for f in directory.rglob('*.js') if f.is_file()]
+        # Sort Z-A to favor descriptive filenames over numbers/hashes
+        files.sort(key=lambda x: x.name, reverse=True)
         
         if not files:
             logger.warning(f"No .js files found in {directory}")
