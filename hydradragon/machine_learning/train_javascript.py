@@ -13,14 +13,15 @@ from tqdm import tqdm
 import time
 import shutil
 from collections import Counter
-import ast as python_ast # noqa: F401
+import ast as python_ast  # noqa: F401
 import esprima  # JavaScript AST parser
 from hydra_logger import logger
+
 
 class JSFeatureExtractor:
     def __init__(self):
         self.features_cache = {}
-        
+
         # Suspicious patterns for malware detection
         self.suspicious_apis = [
             'eval', 'Function', 'setTimeout', 'setInterval',
@@ -30,7 +31,7 @@ class JSFeatureExtractor:
             'document.write', 'innerHTML', 'outerHTML',
             'execCommand', 'createTextRange'
         ]
-        
+
         self.obfuscation_patterns = [
             r'\\x[0-9a-fA-F]{2}',  # Hex encoding
             r'\\u[0-9a-fA-F]{4}',  # Unicode encoding
@@ -40,31 +41,31 @@ class JSFeatureExtractor:
             r'charCodeAt',  # Character code extraction
             r'\[[\"\'].*?[\"]\]\s*\(',  # Bracket notation calls
         ]
-        
+
         self.crypto_patterns = [
             r'crypto', r'CryptoJS', r'aes', r'des', r'rsa',
             r'md5', r'sha1', r'sha256', r'sha512',
             r'encrypt', r'decrypt', r'cipher'
         ]
-        
+
         self.network_patterns = [
             r'http[s]?://', r'ws[s]?://', r'ftp://',
             r'fetch\s*\(', r'XMLHttpRequest',
             r'\.send\s*\(', r'\.open\s*\(',
             r'WebSocket', r'EventSource'
         ]
-        
+
         self.file_system_patterns = [
             r'FileSystemObject', r'readFile', r'writeFile',
             r'createTextFile', r'OpenTextFile',
             r'DeleteFile', r'CopyFile', r'MoveFile'
         ]
-        
+
         self.registry_patterns = [
             r'RegRead', r'RegWrite', r'RegDelete',
             r'HKEY_', r'HKLM', r'HKCU', r'HKCR'
         ]
-        
+
         self.process_patterns = [
             r'Run\s*\(', r'Exec\s*\(', r'ShellExecute',
             r'CreateObject\s*\(', r'GetObject\s*\(',
@@ -75,13 +76,13 @@ class JSFeatureExtractor:
         """Calculate Shannon entropy of string data."""
         if not data:
             return 0.0
-        
+
         char_counts = Counter(data)
         total_chars = len(data)
-        
+
         probs = np.array([count / total_chars for count in char_counts.values()])
         entropy = -np.sum(probs * np.log2(probs))
-        
+
         return float(entropy)
 
     def extract_ast_features(self, code: str) -> Dict[str, Any]:
@@ -104,22 +105,22 @@ class JSFeatureExtractor:
             'eval_usage': 0,
             'error': None
         }
-        
+
         try:
             # Parse JavaScript code
             tree = esprima.parseScript(code, {'tolerant': True, 'loc': True})
             ast_features['parse_success'] = True
-            
+
             # Traverse AST and collect features
             def traverse(node, depth=0):
                 if node is None or not isinstance(node, esprima.nodes.Node):
                     return depth
-                
+
                 node_type = node.type
                 ast_features['node_counts'][node_type] = ast_features['node_counts'].get(node_type, 0) + 1
-                
+
                 max_depth = depth
-                
+
                 # Count specific node types
                 if node_type in ['FunctionDeclaration', 'FunctionExpression', 'ArrowFunctionExpression']:
                     ast_features['function_count'] += 1
@@ -148,7 +149,7 @@ class JSFeatureExtractor:
                     ast_features['array_literals'] += 1
                 elif node_type == 'ObjectExpression':
                     ast_features['object_literals'] += 1
-                
+
                 # Recursively traverse child nodes
                 for key, value in node.__dict__.items():
                     if isinstance(value, esprima.nodes.Node):
@@ -159,15 +160,15 @@ class JSFeatureExtractor:
                             if isinstance(item, esprima.nodes.Node):
                                 child_depth = traverse(item, depth + 1)
                                 max_depth = max(max_depth, child_depth)
-                
+
                 return max_depth
-            
+
             ast_features['max_nesting_depth'] = traverse(tree)
-            
+
         except Exception as e:
             logger.error(f"AST parsing failed: {e}")
             ast_features['error'] = str(e)
-        
+
         return ast_features
 
     def _get_callee_name(self, callee) -> str:
@@ -194,7 +195,7 @@ class JSFeatureExtractor:
             'total_obfuscation_score': 0,
             'is_likely_obfuscated': False
         }
-        
+
         for pattern_name, pattern in [
             ('hex_encoded_strings', self.obfuscation_patterns[0]),
             ('unicode_encoded_strings', self.obfuscation_patterns[1]),
@@ -207,10 +208,10 @@ class JSFeatureExtractor:
             count = len(matches)
             obfuscation[pattern_name] = count
             obfuscation['total_obfuscation_score'] += count
-        
+
         # Heuristic: if obfuscation score is high, likely obfuscated
         obfuscation['is_likely_obfuscated'] = obfuscation['total_obfuscation_score'] > 10
-        
+
         return obfuscation
 
     def analyze_suspicious_patterns(self, code: str) -> Dict[str, Any]:
@@ -225,47 +226,47 @@ class JSFeatureExtractor:
             'suspicious_score': 0,
             'detected_patterns': []
         }
-        
+
         # Check crypto patterns
         for pattern in self.crypto_patterns:
             matches = re.findall(pattern, code, re.IGNORECASE)
             if matches:
                 patterns['crypto_references'] += len(matches)
                 patterns['detected_patterns'].append(f"crypto:{pattern}")
-        
+
         # Check network patterns
         for pattern in self.network_patterns:
             matches = re.findall(pattern, code, re.IGNORECASE)
             if matches:
                 patterns['network_operations'] += len(matches)
                 patterns['detected_patterns'].append(f"network:{pattern}")
-        
+
         # Check file system patterns
         for pattern in self.file_system_patterns:
             matches = re.findall(pattern, code, re.IGNORECASE)
             if matches:
                 patterns['file_system_operations'] += len(matches)
                 patterns['detected_patterns'].append(f"filesystem:{pattern}")
-        
+
         # Check registry patterns
         for pattern in self.registry_patterns:
             matches = re.findall(pattern, code, re.IGNORECASE)
             if matches:
                 patterns['registry_operations'] += len(matches)
                 patterns['detected_patterns'].append(f"registry:{pattern}")
-        
+
         # Check process patterns
         for pattern in self.process_patterns:
             matches = re.findall(pattern, code, re.IGNORECASE)
             if matches:
                 patterns['process_operations'] += len(matches)
                 patterns['detected_patterns'].append(f"process:{pattern}")
-        
+
         # Count suspicious API calls
         for api in self.suspicious_apis:
             if api in code:
                 patterns['suspicious_api_calls'] += code.count(api)
-        
+
         # Calculate overall suspicious score
         patterns['suspicious_score'] = (
             patterns['crypto_references'] * 2 +
@@ -275,7 +276,7 @@ class JSFeatureExtractor:
             patterns['process_operations'] * 5 +
             patterns['suspicious_api_calls'] * 2
         )
-        
+
         return patterns
 
     def analyze_string_features(self, code: str) -> Dict[str, Any]:
@@ -290,35 +291,35 @@ class JSFeatureExtractor:
             'url_strings': 0,
             'hex_strings': 0
         }
-        
+
         # Extract strings (both single and double quoted)
         string_pattern = r'["\']([^"\']*)["\']'
         found_strings = re.findall(string_pattern, code)
-        
+
         if found_strings:
             strings['total_strings'] = len(found_strings)
             string_lengths = [len(s) for s in found_strings]
             strings['avg_string_length'] = float(np.mean(string_lengths))
             strings['max_string_length'] = max(string_lengths)
             strings['long_strings_count'] = sum(1 for s in found_strings if len(s) > 100)
-            
+
             # Check for base64-like strings (alphanumeric + / + =)
             base64_pattern = r'^[A-Za-z0-9+/]+=*$'
             strings['base64_like_strings'] = sum(1 for s in found_strings if len(s) > 20 and re.match(base64_pattern, s))
-            
+
             # Check for URLs
             url_pattern = r'https?://|ftp://|ws[s]?://'
             strings['url_strings'] = sum(1 for s in found_strings if re.search(url_pattern, s, re.IGNORECASE))
-            
+
             # Check for hex strings
             hex_pattern = r'^[0-9a-fA-F]+$'
             strings['hex_strings'] = sum(1 for s in found_strings if len(s) > 10 and re.match(hex_pattern, s))
-            
+
             # Collect suspicious strings
             for s in found_strings:
                 if len(s) > 100 or re.match(base64_pattern, s) or re.search(url_pattern, s, re.IGNORECASE):
                     strings['suspicious_strings'].append(s[:100])  # Truncate for storage
-        
+
         return strings
 
     def analyze_code_complexity(self, code: str) -> Dict[str, Any]:
@@ -332,19 +333,19 @@ class JSFeatureExtractor:
             'max_line_length': 0,
             'cyclomatic_complexity_estimate': 0
         }
-        
+
         lines = code.split('\n')
         complexity['total_lines'] = len(lines)
-        
+
         code_lines = []
         comment_lines = 0
         blank_lines = 0
-        
+
         in_multiline_comment = False
-        
+
         for line in lines:
             stripped = line.strip()
-            
+
             # Handle multi-line comments
             if '/*' in stripped:
                 in_multiline_comment = True
@@ -352,11 +353,11 @@ class JSFeatureExtractor:
                 in_multiline_comment = False
                 comment_lines += 1
                 continue
-            
+
             if in_multiline_comment:
                 comment_lines += 1
                 continue
-            
+
             # Check for single-line comments
             if stripped.startswith('//'):
                 comment_lines += 1
@@ -364,21 +365,21 @@ class JSFeatureExtractor:
                 blank_lines += 1
             else:
                 code_lines.append(line)
-        
+
         complexity['code_lines'] = len(code_lines)
         complexity['comment_lines'] = comment_lines
         complexity['blank_lines'] = blank_lines
-        
+
         if code_lines:
             line_lengths = [len(line) for line in code_lines]
             complexity['avg_line_length'] = float(np.mean(line_lengths))
             complexity['max_line_length'] = max(line_lengths)
-        
+
         # Estimate cyclomatic complexity (count decision points)
         decision_keywords = ['if', 'else', 'for', 'while', 'case', 'catch', '&&', '||', '?']
         for keyword in decision_keywords:
             complexity['cyclomatic_complexity_estimate'] += code.count(keyword)
-        
+
         return complexity
 
     def analyze_identifiers(self, code: str) -> Dict[str, Any]:
@@ -391,80 +392,93 @@ class JSFeatureExtractor:
             'suspicious_naming': False,
             'random_like_identifiers': 0
         }
-        
+
         # Extract identifiers (variable names, function names)
         identifier_pattern = r'\b[a-zA-Z_$][a-zA-Z0-9_$]*\b'
         found_identifiers = re.findall(identifier_pattern, code)
-        
+
         # Filter out JavaScript keywords
-        js_keywords = {'var', 'let', 'const', 'function', 'return', 'if', 'else', 
+        js_keywords = {'var', 'let', 'const', 'function', 'return', 'if', 'else',
                        'for', 'while', 'do', 'switch', 'case', 'break', 'continue',
                        'try', 'catch', 'finally', 'throw', 'new', 'this', 'typeof',
                        'instanceof', 'in', 'of', 'delete', 'void', 'null', 'undefined',
                        'true', 'false', 'class', 'extends', 'super', 'static',
                        'import', 'export', 'from', 'default', 'async', 'await'}
-        
+
         valid_identifiers = [i for i in found_identifiers if i not in js_keywords]
-        
+
         if valid_identifiers:
             identifiers['total_identifiers'] = len(valid_identifiers)
-            
+
             id_lengths = [len(i) for i in valid_identifiers]
             identifiers['avg_identifier_length'] = float(np.mean(id_lengths))
             identifiers['short_identifiers'] = sum(1 for i in valid_identifiers if len(i) <= 2)
             identifiers['long_identifiers'] = sum(1 for i in valid_identifiers if len(i) > 20)
-            
+
             # Check for random-like identifiers (high entropy, alphanumeric mix)
             for identifier in valid_identifiers:
                 if len(identifier) > 5 and self._calculate_entropy(identifier) > 3.5:
                     identifiers['random_like_identifiers'] += 1
-            
+
             # Suspicious if lots of short or random identifiers
             short_ratio = identifiers['short_identifiers'] / identifiers['total_identifiers']
             random_ratio = identifiers['random_like_identifiers'] / identifiers['total_identifiers']
             identifiers['suspicious_naming'] = short_ratio > 0.5 or random_ratio > 0.3
-        
+
         return identifiers
 
-    def extract_all_features(self, file_path: str) -> Optional[Dict[str, Any]]:
-        """Extract all features from a JavaScript file."""
+    def extract_all_features(self, file_path: str, problematic_path: Optional[Path] = None) -> Optional[Dict[str, Any]]:
+        """Extract all features from a JavaScript file. Moves to problematic_path if it fails."""
+        def _move_failed():
+            if problematic_path:
+                try:
+                    import shutil
+                    dest = Path(problematic_path)
+                    dest.mkdir(parents=True, exist_ok=True)
+                    shutil.move(file_path, str(dest / Path(file_path).name))
+                except Exception:
+                    pass
+
         try:
             with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
                 code = f.read()
-            
+
             if not code.strip():
                 logger.warning(f"{file_path} is empty")
+                _move_failed()
                 return None
-            
+
             features = {
                 # Basic file info
                 'file_size': len(code),
                 'entropy': self._calculate_entropy(code),
-                
+
                 # AST-based features
                 'ast_features': self.extract_ast_features(code),
-                
+
                 # Obfuscation analysis
                 'obfuscation': self.analyze_obfuscation(code),
-                
+
                 # Suspicious patterns
                 'suspicious_patterns': self.analyze_suspicious_patterns(code),
-                
+
                 # String analysis
                 'string_features': self.analyze_string_features(code),
-                
+
                 # Code complexity
                 'complexity': self.analyze_code_complexity(code),
-                
+
                 # Identifier analysis
                 'identifiers': self.analyze_identifiers(code)
             }
-            
+
             return features
-            
+
         except Exception as e:
             logger.error(f"Error extracting features from {file_path}: {e}", exc_info=True)
+            _move_failed()
             return None
+
 
 class DataProcessor:
     def __init__(self,
@@ -482,7 +496,7 @@ class DataProcessor:
         self.problematic_dir = Path('problematic_files_js')
         self.duplicates_dir = Path('duplicate_files_js')
         self.output_dir = Path(f"{out_dir_prefix}_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
-        self.output_dir.mkdir(exist_ok=True, parents=True) # Ensure it exists before setting paths
+        self.output_dir.mkdir(exist_ok=True, parents=True)  # Ensure it exists before setting paths
         self.bin_path = self.output_dir / bin_path
         self.index_path = self.output_dir / index_path
         self.malicious_pickle_path = self.output_dir / malicious_pickle_path
@@ -501,11 +515,11 @@ class DataProcessor:
                         logger.error(f"Error deleting {p}: {e}")
 
         for directory in [
-            self.problematic_dir / 'malicious', 
-            self.problematic_dir / 'benign', 
-            self.duplicates_dir / 'malicious', 
-            self.duplicates_dir / 'benign', 
-            self.duplicate_malware_dir, 
+            self.problematic_dir / 'malicious',
+            self.problematic_dir / 'benign',
+            self.duplicates_dir / 'malicious',
+            self.duplicates_dir / 'benign',
+            self.duplicate_malware_dir,
             self.output_dir
         ]:
             directory.mkdir(exist_ok=True, parents=True)
@@ -653,7 +667,7 @@ class DataProcessor:
             total_idents, short_idents, long_idents,
             avg_ident_len, suspicious_naming, random_idents
         ]
-        
+
         return np.asarray(numeric, dtype=np.float32)
 
     def _get_file_md5(self, file_path: Path) -> Tuple[Optional[str], bool]:
@@ -666,7 +680,7 @@ class DataProcessor:
                     chunk = f.read(8192)
                     if b'\x00' in chunk:
                         return None, False
-                    
+
                     # Back to start for MD5
                     f.seek(0)
                     content = f.read()
@@ -675,41 +689,44 @@ class DataProcessor:
                 if attempt < max_retries:
                     time.sleep(0.1)
                 else:
-                    return None, True # Treat as text but failed to read
+                    return None, True  # Treat as text but failed to read
             except Exception:
                 return None, True
         return None, True
 
     def _process_one(self, args: Tuple) -> Optional[Dict[str, Any]]:
-        """Worker function to process a single JavaScript file. Args: (file_path, rank, is_malicious, md5)"""
+        """Worker function. args = (file_path, rank, is_malicious, md5)."""
         file_path, rank, is_malicious, md5 = args
-        
+        label = 'malicious' if is_malicious else 'benign'
+
         MAX_RETRIES = 6
         for attempt in range(1, MAX_RETRIES + 1):
             try:
-                # Stage 2: Feature extraction (MD5 already provided)
-                features = self.js_extractor.extract_all_features(str(file_path))
+                # Stage 2: Feature extraction
+                problematic_dest = self.problematic_dir / label
+                features = self.js_extractor.extract_all_features(str(file_path), problematic_dest)
                 if features:
                     features['file_info'] = {
                         'filename': Path(file_path).name,
                         'path': str(file_path),
                         'md5': md5,
                         'size': os.path.getsize(file_path),
-                        'is_malicious': bool(is_malicious),
-                        'rank': rank
+                        'is_malicious': bool(is_malicious)
                     }
                     return features
-                
-                return None # No features extracted, resume
-                
-            except (PermissionError, OSError) as e:
+                else:
+                    # Extractor already handled the move to problematic
+                    return None
+
+            except (PermissionError, OSError):
                 if attempt < MAX_RETRIES:
                     time.sleep(0.1)
                 else:
                     logger.error(f"Failed to access locked file after {MAX_RETRIES} attempts: {file_path}. Resuming scan.")
-                    return None # Failed after 6 attempts, resume scan
+                    return None  # Failed after 6 attempts, resume scan
             except Exception as e:
                 logger.error(f"Error processing {file_path}: {e}", exc_info=True)
+                self._move(Path(file_path), self.problematic_dir / label)
                 return None
 
     def _move(self, file_path: Path, dest_root: Path) -> None:
@@ -779,62 +796,64 @@ class DataProcessor:
         """Discover and MD5 all files first. Handle cross-class conflicts and intra-class duplicates.
         PRIORITY: Malicious set is 100% correct. If a benign file matches a malicious one, move the BENIGN file."""
         logger.info("[JS] Initializing Global MD5 Pre-filter Stage (Malicious Priority)...")
-        
+
         malicious_raw = [f for f in Path(self.malicious_dir).rglob('*.js') if f.is_file()]
         benign_raw = [f for f in Path(self.benign_dir).rglob('*.js') if f.is_file()]
-        
+
         # Sort Z-A to favor descriptive names
         malicious_raw.sort(key=lambda x: x.name, reverse=True)
         benign_raw.sort(key=lambda x: x.name, reverse=True)
-        
-        batch_malicious_md5s = {} # md5 -> Path
+
+        batch_malicious_md5s = {}  # md5 -> Path
         final_malicious = []
-        
+
         logger.info(f"[JS] Pre-filtering {len(malicious_raw):,} Malicious files...")
         for f in tqdm(malicious_raw, desc="Prefilter [JS Malicious]"):
             md5, is_text = self._get_file_md5(f)
-            
+
             if not is_text:
                 logger.warning(f"[JS] File {f.name} appears to be binary (contains null bytes). Moving to problematic_files_js/malicious.")
                 self._move(f, self.problematic_dir / 'malicious')
                 continue
-                
-            if not md5: continue
-            
+
+            if not md5:
+                continue
+
             # Intra-class duplicate check
             if md5 in self.seen or md5 in batch_malicious_md5s:
                 self._move(f, self.duplicates_dir / 'malicious')
             else:
                 batch_malicious_md5s[md5] = f
                 final_malicious.append((f, md5))
-                
-        batch_benign_md5s = {} # md5 -> Path
+
+        batch_benign_md5s = {}  # md5 -> Path
         final_benign = []
-        
+
         logger.info(f"[JS] Pre-filtering {len(benign_raw):,} Benign files...")
         for f in tqdm(benign_raw, desc="Prefilter [JS Benign]"):
             md5, is_text = self._get_file_md5(f)
-            
+
             if not is_text:
                 logger.warning(f"[JS] File {f.name} appears to be binary (contains null bytes). Moving to problematic_files_js/benign.")
                 self._move(f, self.problematic_dir / 'benign')
                 continue
-                
-            if not md5: continue
-            
+
+            if not md5:
+                continue
+
             # Check for conflict with Malicious (Database or current batch)
             # If it's malicious, we move the BENIGN file to duplicate_malware_js
             if (md5 in self.seen and self.seen[md5] == 'malicious') or (md5 in batch_malicious_md5s):
                 logger.warning(f"[JS] Conflict: Benign {f.name} exists in Malicious set. Moving to duplicate_malware_js.")
                 self._move(f, self.duplicate_malware_dir)
                 continue
-                
+
             if md5 in self.seen or md5 in batch_benign_md5s:
                 self._move(f, self.duplicates_dir / 'benign')
             else:
                 batch_benign_md5s[md5] = f
                 final_benign.append((f, md5))
-                
+
         return final_malicious, final_benign
 
     def process_dir(self, is_malicious: bool, prefiltered_tasks: List[Tuple[Path, str]]):
@@ -847,42 +866,40 @@ class DataProcessor:
         total_files = len(prefiltered_tasks)
         logger.info(f"[{label}] Stage 3/4: Preparing {total_files:,} tasks...")
         tasks = [(f, i, is_malicious, md5) for i, (f, md5) in enumerate(prefiltered_tasks, 1)]
-        
+
         inserted = 0
         skipped = 0
         failed = 0
-        
+
         # Stage 4: Process with ProcessPoolExecutor
         logger.info(f"[{label}] Stage 4/4: Processing with ProcessPoolExecutor (workers=auto)...")
         with ProcessPoolExecutor() as exe:
-            for feats in tqdm(exe.map(self._process_one, tasks), total=total_files,
-                              desc=f"Processing JS {label}"):
+            for i, feats in enumerate(tqdm(
+                    exe.map(self._process_one, tasks),
+                    total=total_files,
+                    desc=f"Processing JS {label}")):
+                f_path = tasks[i][0]
+
                 if not feats:
                     failed += 1
-                    # Move to problematic if it failed (likely not a valid JS or other issue)
-                    try:
-                        # Find the path from the task args
-                        f_path = tasks[failed + inserted + skipped - 1][0]
-                        logger.warning(f"[{label}] Feature extraction failed for {f_path}. Moving to problematic/{label}.")
-                        self._move(f_path, self.problematic_dir / label)
-                    except Exception:
-                        pass
+                    logger.warning(f"[{label}] Feature extraction failed for {f_path}. Moving to problematic/{label}.")
+                    self._move(f_path, self.problematic_dir / label)
                     continue
 
                 md5 = feats['file_info']['md5']
                 if md5 in self.seen:
                     existing_label = self.seen[md5]
                     if existing_label != label:
-                        logger.warning(f"[JS] Late conflict: {feats['file_info'].get('path')} is '{label}' but MD5 seen as '{existing_label}'")
+                        logger.warning(f"[JS] Late conflict: {f_path} is '{label}' but MD5 seen as '{existing_label}'")
                         if existing_label == 'malicious':
-                            # Benign file actually exists as malicious
-                            self._move(Path(feats['file_info']['path']), self.duplicate_malware_dir)
+                            # Virus priority: Current benign is actually malicious MD5
+                            self._move(f_path, self.duplicate_malware_dir)
                         else:
-                            # Malicious file actually exists as benign (swap/move to problematic)
-                            self._move(Path(feats['file_info']['path']), self.problematic_dir / label)
+                            # Current malicious matches existing benign
+                            self._move(f_path, self.problematic_dir / label)
                     else:
-                        self._move(Path(feats['file_info']['path']), self.duplicates_dir / label)
-                        skipped += 1
+                        self._move(f_path, self.duplicates_dir / label)
+                    skipped += 1
                     continue
 
                 # mark as seen
@@ -893,8 +910,9 @@ class DataProcessor:
                     self._append_vector_and_index(feats)
                     inserted += 1
                 except Exception as e:
-                    logger.exception(f"Failed to append vector for {feats['file_info'].get('path')}: {e}")
+                    logger.exception(f"Failed to append vector for {f_path}: {e}")
                     failed += 1
+                    self._move(f_path, self.problematic_dir / label)
 
         logger.info(f"[{label}] Finished: {inserted:,} inserted, {skipped:,} duplicates, {failed:,} failed (total: {total_files:,})")
         return inserted
@@ -930,18 +948,20 @@ class DataProcessor:
         logger.info(f"Malicious pickle: {self.malicious_pickle_path}")
         logger.info(f"Benign pickle: {self.benign_pickle_path}")
 
+
 def main():
     parser = argparse.ArgumentParser(description='JavaScript Malware Feature Extractor')
-    parser.add_argument('--malicious-dir', default='datamaliciousorder', 
+    parser.add_argument('--malicious-dir', default='datamaliciousorder',
                         help='Directory containing malicious JS files')
-    parser.add_argument('--benign-dir', default='data2', 
+    parser.add_argument('--benign-dir', default='data2',
                         help='Directory containing benign JS files')
-    parser.add_argument('--reset', action='store_true', 
+    parser.add_argument('--reset', action='store_true',
                         help='Reset the binary store and index files before processing')
     args = parser.parse_args()
 
     processor = DataProcessor(args.malicious_dir, args.benign_dir, reset=args.reset)
     processor.process_dataset()
+
 
 if __name__ == "__main__":
     main()

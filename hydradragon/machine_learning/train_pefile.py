@@ -11,10 +11,10 @@ from concurrent.futures import ProcessPoolExecutor
 import numpy as np
 import argparse
 from tqdm import tqdm
-import mmap
 import capstone
 import time
 from hydra_logger import logger
+
 
 class PEFeatureExtractor:
     def __init__(self):
@@ -76,7 +76,7 @@ class PEFeatureExtractor:
 
                 if not code:
                     analysis['sections'][section_name] = {
-                      # 'instruction_counts': {}, # too heavy to train
+                        # 'instruction_counts': {}, # too heavy to train
                         'total_instructions': 0,
                         'add_count': 0,
                         'mov_count': 0,
@@ -244,8 +244,18 @@ class PEFeatureExtractor:
                     cert_info['fixed_file_info'] = {
                         'signature': pe.VS_FIXEDFILEINFO.Signature,
                         'struct_version': pe.VS_FIXEDFILEINFO.StrucVersion,
-                        'file_version': f"{pe.VS_FIXEDFILEINFO.FileVersionMS >> 16}.{pe.VS_FIXEDFILEINFO.FileVersionMS & 0xFFFF}.{pe.VS_FIXEDFILEINFO.FileVersionLS >> 16}.{pe.VS_FIXEDFILEINFO.FileVersionLS & 0xFFFF}",
-                        'product_version': f"{pe.VS_FIXEDFILEINFO.ProductVersionMS >> 16}.{pe.VS_FIXEDFILEINFO.ProductVersionMS & 0xFFFF}.{pe.VS_FIXEDFILEINFO.ProductVersionLS >> 16}.{pe.VS_FIXEDFILEINFO.ProductVersionLS & 0xFFFF}",
+                        'file_version': (
+                            f"{pe.VS_FIXEDFILEINFO.FileVersionMS >> 16}"
+                            f".{pe.VS_FIXEDFILEINFO.FileVersionMS & 0xFFFF}"
+                            f".{pe.VS_FIXEDFILEINFO.FileVersionLS >> 16}"
+                            f".{pe.VS_FIXEDFILEINFO.FileVersionLS & 0xFFFF}"
+                        ),
+                        'product_version': (
+                            f"{pe.VS_FIXEDFILEINFO.ProductVersionMS >> 16}"
+                            f".{pe.VS_FIXEDFILEINFO.ProductVersionMS & 0xFFFF}"
+                            f".{pe.VS_FIXEDFILEINFO.ProductVersionLS >> 16}"
+                            f".{pe.VS_FIXEDFILEINFO.ProductVersionLS & 0xFFFF}"
+                        ),
                         'file_flags': pe.VS_FIXEDFILEINFO.FileFlags,
                         'file_os': pe.VS_FIXEDFILEINFO.FileOS,
                         'file_type': pe.VS_FIXEDFILEINFO.FileType,
@@ -507,7 +517,7 @@ class PEFeatureExtractor:
 
             # Calculate the end of the PE structure
             if not pe.sections:
-                 return overlay_info
+                return overlay_info
 
             last_section = max(pe.sections, key=lambda s: s.PointerToRawData + s.SizeOfRawData)
             end_of_pe = last_section.PointerToRawData + last_section.SizeOfRawData
@@ -531,22 +541,38 @@ class PEFeatureExtractor:
             logger.error(f"Error analyzing overlay: {e}")
             return {}
 
-    def extract_numeric_features(self, file_path: str, rank: Optional[int] = None) -> Optional[Dict[str, Any]]:
+    def extract_numeric_features(
+        self, file_path: str,
+        rank: Optional[int] = None,
+        problematic_path: Optional[Path] = None
+    ) -> Optional[Dict[str, Any]]:
         """
         Extract numeric features of a file using pefile.
         Ensures pefile.PE is closed even on exceptions to avoid leaking file handles on Windows.
+        If extraction fails and problematic_path is provided, moves the file there.
         """
+        def _move_failed():
+            if problematic_path:
+                try:
+                    import shutil
+                    dest = Path(problematic_path)
+                    dest.mkdir(parents=True, exist_ok=True)
+                    shutil.move(file_path, str(dest / Path(file_path).name))
+                except Exception:
+                    pass
+
         pe = None
         try:
-
             try:
                 # Attempt to load PE file directly
                 pe = pefile.PE(file_path, fast_load=True)
             except pefile.PEFormatError:
-                logger.error(f"{file_path} is not a valid PE file.")
+                logger.error(f"{file_path} is not a valid PE file. Moving to problematic folder.")
+                _move_failed()
                 return None
             except Exception as ex:
                 logger.error(f"Error loading {file_path} as PE: {str(ex)}", exc_info=True)
+                _move_failed()
                 return None
             try:
                 pe.parse_data_directories()
@@ -624,8 +650,12 @@ class PEFeatureExtractor:
                         'size': getattr(getattr(resource_lang, 'data', None), 'Size', None),
                         'codepage': getattr(getattr(resource_lang, 'data', None), 'CodePage', None),
                     }
-                    for resource_type in
-                    (pe.DIRECTORY_ENTRY_RESOURCE.entries if hasattr(pe, 'DIRECTORY_ENTRY_RESOURCE') and hasattr(pe.DIRECTORY_ENTRY_RESOURCE, 'entries') else [])
+                    for resource_type in (
+                        pe.DIRECTORY_ENTRY_RESOURCE.entries
+                        if hasattr(pe, 'DIRECTORY_ENTRY_RESOURCE')
+                        and hasattr(pe.DIRECTORY_ENTRY_RESOURCE, 'entries')
+                        else []
+                    )
                     for resource_id in (resource_type.directory.entries if hasattr(resource_type, 'directory') else [])
                     for resource_lang in (resource_id.directory.entries if hasattr(resource_id, 'directory') else [])
                     if hasattr(resource_lang, 'data')
@@ -673,8 +703,8 @@ class PEFeatureExtractor:
                 # Overlay
                 'overlay': self.analyze_overlay(pe, file_path),  # Overlay analysis here
 
-                #Relocations
-                'relocations': self.analyze_relocations(pe) #Relocations analysis here
+                # Relocations
+                'relocations': self.analyze_relocations(pe)  # Relocations analysis here
             }
 
             # Add numeric tag if provided
@@ -685,6 +715,7 @@ class PEFeatureExtractor:
 
         except Exception as ex:
             logger.error(f"Error extracting numeric features from {file_path}: {str(ex)}", exc_info=True)
+            _move_failed()
             return None
         finally:
             # ensure PE handle is closed to release underlying file descriptor
@@ -693,6 +724,7 @@ class PEFeatureExtractor:
                     pe.close()
             except Exception:
                 logger.debug(f"Failed to close pe for {file_path}", exc_info=True)
+
 
 class DataProcessor:
     def __init__(self,
@@ -711,12 +743,12 @@ class DataProcessor:
         self.duplicates_dir = Path('duplicate_files')
         self.duplicate_malware_dir = Path('duplicate_malware')
         self.output_dir = Path(f"{out_dir_prefix}_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
-        self.output_dir.mkdir(exist_ok=True, parents=True) # Ensure it exists before setting paths
+        self.output_dir.mkdir(exist_ok=True, parents=True)  # Ensure it exists before setting paths
         self.bin_path = self.output_dir / bin_path
         self.index_path = self.output_dir / index_path
         self.malicious_pickle_path = self.output_dir / malicious_pickle_path
         self.benign_pickle_path = self.output_dir / benign_pickle_path
-        self.reset = reset # Store the reset flag
+        self.reset = reset  # Store the reset flag
 
         # If reset is true, remove existing files before processing
         if self.reset:
@@ -730,11 +762,11 @@ class DataProcessor:
                         logger.error(f"Error deleting {p}: {e}")
 
         for directory in [
-            self.problematic_dir / 'malicious', 
-            self.problematic_dir / 'benign', 
-            self.duplicates_dir / 'malicious', 
-            self.duplicates_dir / 'benign', 
-            self.duplicate_malware_dir, 
+            self.problematic_dir / 'malicious',
+            self.problematic_dir / 'benign',
+            self.duplicates_dir / 'malicious',
+            self.duplicates_dir / 'benign',
+            self.duplicate_malware_dir,
             self.output_dir
         ]:
             directory.mkdir(exist_ok=True, parents=True)
@@ -975,7 +1007,7 @@ class DataProcessor:
                     header = f.read(2)
                     if header != b'MZ':
                         return None, False
-                    
+
                     # Back to start to read whole file for MD5
                     f.seek(0)
                     content = f.read()
@@ -984,7 +1016,7 @@ class DataProcessor:
                 if attempt < max_retries:
                     time.sleep(0.1)
                 else:
-                    return None, True # Treat as PE but failed to read
+                    return None, True  # Treat as PE but failed to read
             except Exception:
                 return None, True
         return None, True
@@ -994,12 +1026,14 @@ class DataProcessor:
         Worker function to process a single file. `args` expected to be (file_path, rank, is_malicious, md5).
         """
         file_path, rank, is_malicious, md5 = args
-        
+        label = 'malicious' if is_malicious else 'benign'
+
         MAX_RETRIES = 6
         for attempt in range(1, MAX_RETRIES + 1):
             try:
                 # Stage 2: Feature extraction (MD5 already provided)
-                features = self.pe_extractor.extract_numeric_features(str(file_path), rank)
+                problematic_dest = self.problematic_dir / label
+                features = self.pe_extractor.extract_numeric_features(str(file_path), rank, problematic_dest)
                 if features:
                     features['file_info'] = {
                         'filename': Path(file_path).name,
@@ -1008,22 +1042,27 @@ class DataProcessor:
                         'size': os.path.getsize(file_path),
                         'is_malicious': bool(is_malicious)
                     }
-                return features # Success
+                    return features  # Success
+                else:
+                    # Worker doesn't need to move here anymore, extractor did it.
+                    return None
 
-            except (PermissionError, OSError) as e:
+            except (PermissionError, OSError):
                 if attempt < MAX_RETRIES:
                     time.sleep(0.1)
                 else:
                     logger.error(f"Failed to access locked file after {MAX_RETRIES} attempts: {file_path}. Resuming scan.")
-                    return None # Failed after 6 attempts, resume next
+                    return None  # Failed after 6 attempts, resume next
             except Exception as e:
                 logger.error(f"Error processing {file_path}: {e}")
+                # Move to problematic on unexpected exception
+                self._move(Path(file_path), self.problematic_dir / label)
                 return None
-
 
     # --------------------------
     # Append vector bytes + index line + pickle the full features dict
     # --------------------------
+
     def _append_vector_and_index(self, features: dict) -> dict:
         """
         Append numeric vector (float32) to bin file, add one JSONL index entry,
@@ -1083,62 +1122,64 @@ class DataProcessor:
         """Discover and MD5 all files first. Handle cross-class conflicts and intra-class duplicates.
         PRIORITY: Malicious set is 100% correct. If a benign file matches a malicious one, move the BENIGN file."""
         logger.info("Initializing Global MD5 Pre-filter Stage (Malicious Priority)...")
-        
+
         malicious_raw = [f for f in Path(self.malicious_dir).rglob('*') if f.is_file()]
         benign_raw = [f for f in Path(self.benign_dir).rglob('*') if f.is_file()]
-        
+
         # Sort Z-A to favor descriptive names
         malicious_raw.sort(key=lambda x: x.name, reverse=True)
         benign_raw.sort(key=lambda x: x.name, reverse=True)
-        
-        batch_malicious_md5s = {} # md5 -> Path
+
+        batch_malicious_md5s = {}  # md5 -> Path
         final_malicious = []
-        
+
         logger.info(f"Pre-filtering {len(malicious_raw):,} Malicious files...")
         for f in tqdm(malicious_raw, desc="Prefilter [Malicious]"):
             md5, is_pe = self._get_file_md5(f)
-            
+
             if not is_pe:
                 logger.warning(f"File {f.name} is not a valid PE (no MZ header). Moving to problematic_files/malicious.")
                 self._move(f, self.problematic_dir / 'malicious')
                 continue
-                
-            if not md5: continue
-            
+
+            if not md5:
+                continue
+
             # Intra-class duplicate check
             if md5 in self.seen or md5 in batch_malicious_md5s:
                 self._move(f, self.duplicates_dir / 'malicious')
             else:
                 batch_malicious_md5s[md5] = f
                 final_malicious.append((f, md5))
-                
-        batch_benign_md5s = {} # md5 -> Path
+
+        batch_benign_md5s = {}  # md5 -> Path
         final_benign = []
-        
+
         logger.info(f"Pre-filtering {len(benign_raw):,} Benign files...")
         for f in tqdm(benign_raw, desc="Prefilter [Benign]"):
             md5, is_pe = self._get_file_md5(f)
-            
+
             if not is_pe:
                 logger.warning(f"File {f.name} is not a valid PE (no MZ header). Moving to problematic_files/benign.")
                 self._move(f, self.problematic_dir / 'benign')
                 continue
-                
-            if not md5: continue
-            
+
+            if not md5:
+                continue
+
             # Check for conflict with Malicious (Database or current batch)
             # If it's malicious, we move the BENIGN file to duplicate_malware
             if (md5 in self.seen and self.seen[md5] == 'malicious') or (md5 in batch_malicious_md5s):
                 logger.warning(f"Conflict: Benign {f.name} exists in Malicious set. Moving to duplicate_malware.")
                 self._move(f, self.duplicate_malware_dir)
                 continue
-                
+
             if md5 in self.seen or md5 in batch_benign_md5s:
                 self._move(f, self.duplicates_dir / 'benign')
             else:
                 batch_benign_md5s[md5] = f
                 final_benign.append((f, md5))
-                
+
         return final_malicious, final_benign
 
     def process_dir(self, is_malicious: bool, prefiltered_tasks: List[Tuple[Path, str]]):
@@ -1151,50 +1192,43 @@ class DataProcessor:
         total_files = len(prefiltered_tasks)
         logger.info(f"[{label}] Stage 3/4: Preparing {total_files:,} tasks...")
         tasks = [(f, i, is_malicious, md5) for i, (f, md5) in enumerate(prefiltered_tasks, 1)]
-        
+
         inserted = 0
         skipped = 0
         failed = 0
-        
+
         # Stage 4: Process with ProcessPoolExecutor
         logger.info(f"[{label}] Stage 4/4: Processing with ProcessPoolExecutor (workers=auto)...")
         with ProcessPoolExecutor() as exe:
-            for feats in tqdm(exe.map(self._process_one, tasks), total=total_files,
-                              desc=f"Processing {label}"):
+            for i, feats in enumerate(tqdm(
+                    exe.map(self._process_one, tasks),
+                    total=total_files,
+                    desc=f"Processing {label}")):
+                f_path = tasks[i][0]
+
                 if not feats:
                     failed += 1
-                    # Move to problematic if it failed (likely not a valid PE or other issue)
-                    try:
-                        # Find the path from the task args
-                        f_path = tasks[failed + inserted + skipped - 1][0]
-                        logger.warning(f"[{label}] Feature extraction failed for {f_path}. Moving to problematic.")
-                        self._move(f_path, self.problematic_dir)
-                    except Exception:
-                        pass
+                    # Note: worker already moved f_path to problematic_dir / label
                     continue
 
                 md5 = feats['file_info']['md5']
                 if md5 in self.seen:
-                    # Late conflict handling (if two different tasks had same MD5 but different files somehow)
+                    # Late conflict handling
                     existing_label = self.seen[md5]
                     if existing_label != label:
                         logger.warning(
-                            f"[{label}] Late label conflict: {feats['file_info'].get('path')} is '{label}' "
+                            f"[{label}] Late label conflict: {f_path} is '{label}' "
                             f"but MD5 already seen as '{existing_label}'"
                         )
-                        # If current is benign and existing is malicious, or vice versa
-                        # We always move the virus (either current malicious OR if current is benign but existing is malicious)
                         if existing_label == 'malicious':
-                            # Current is benign, so move current to duplicate_malware
-                            self._move(Path(feats['file_info']['path']), self.duplicate_malware_dir)
+                            # Virus priority: move current benign to duplicate_malware
+                            self._move(f_path, self.duplicate_malware_dir)
                         else:
-                            # Current is malicious, existing was benign.
-                            self._move(Path(feats['file_info']['path']), self.problematic_dir / label)
+                            # Current is malicious, existing was benign. Move to problematic/malicious.
+                            self._move(f_path, self.problematic_dir / label)
                     else:
-                        try:
-                            self._move(Path(feats['file_info']['path']), self.duplicates_dir / label)
-                        except Exception as e:
-                            logger.error(f"Error moving duplicate file {feats['file_info']['path']}: {e}", exc_info=True)
+                        # Existing is same label, move to duplicates/label
+                        self._move(f_path, self.duplicates_dir / label)
                     skipped += 1
                     continue
 
@@ -1206,12 +1240,9 @@ class DataProcessor:
                     self._append_vector_and_index(feats)
                     inserted += 1
                 except Exception as e:
-                    logger.exception(f"Failed to append vector for {feats['file_info'].get('path')}: {e}")
+                    logger.exception(f"Failed to append vector for {f_path}: {e}")
                     failed += 1
-                    try:
-                        self._move(Path(feats['file_info']['path']), self.problematic_dir)
-                    except Exception:
-                        pass
+                    self._move(f_path, self.problematic_dir / label)
 
         logger.info(f"[{label}] Finished: {inserted:,} inserted, {skipped:,} duplicates, {failed:,} failed (total: {total_files:,})")
         return inserted
@@ -1222,7 +1253,7 @@ class DataProcessor:
     def process_dataset(self):
         # Global Pre-filter
         malicious_tasks, benign_tasks = self._run_global_prefilter()
-        
+
         logger.info("Processing malicious files...")
         malicious_count = self.process_dir(True, malicious_tasks)
 
@@ -1243,7 +1274,13 @@ class DataProcessor:
         with open(output_file, 'w', encoding='utf-8') as f:
             json.dump(summary, f, indent=2, ensure_ascii=False)
 
-        logger.info(f"Saved summary to {output_file}. Binary store at {self.bin_path}, index at {self.index_path}, malicious pickle at {self.malicious_pickle_path}, benign pickle at {self.benign_pickle_path}")
+        logger.info(
+            f"Saved summary to {output_file}. "
+            f"Binary store at {self.bin_path}, index at {self.index_path}, "
+            f"malicious pickle at {self.malicious_pickle_path}, "
+            f"benign pickle at {self.benign_pickle_path}"
+        )
+
 
 def main():
     parser = argparse.ArgumentParser(description='PE File Feature Extractor')
@@ -1254,6 +1291,7 @@ def main():
 
     processor = DataProcessor(args.malicious_dir, args.benign_dir, reset=args.reset)
     processor.process_dataset()
+
 
 if __name__ == "__main__":
     main()
