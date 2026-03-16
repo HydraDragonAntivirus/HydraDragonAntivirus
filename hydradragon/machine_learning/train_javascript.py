@@ -482,10 +482,11 @@ class DataProcessor:
         self.problematic_dir = Path('problematic_files_js')
         self.duplicates_dir = Path('duplicate_files_js')
         self.output_dir = Path(f"{out_dir_prefix}_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
-        self.bin_path = Path(bin_path)
-        self.index_path = Path(index_path)
-        self.malicious_pickle_path = Path(malicious_pickle_path)
-        self.benign_pickle_path = Path(benign_pickle_path)
+        self.output_dir.mkdir(exist_ok=True, parents=True) # Ensure it exists before setting paths
+        self.bin_path = self.output_dir / bin_path
+        self.index_path = self.output_dir / index_path
+        self.malicious_pickle_path = self.output_dir / malicious_pickle_path
+        self.benign_pickle_path = self.output_dir / benign_pickle_path
         self.reset = reset
         self.duplicate_malware_dir = Path('duplicate_malware_js')
 
@@ -499,7 +500,14 @@ class DataProcessor:
                     except OSError as e:
                         logger.error(f"Error deleting {p}: {e}")
 
-        for directory in [self.problematic_dir, self.duplicates_dir, self.duplicate_malware_dir, self.output_dir]:
+        for directory in [
+            self.problematic_dir / 'malicious', 
+            self.problematic_dir / 'benign', 
+            self.duplicates_dir / 'malicious', 
+            self.duplicates_dir / 'benign', 
+            self.duplicate_malware_dir, 
+            self.output_dir
+        ]:
             directory.mkdir(exist_ok=True, parents=True)
 
         self._init_store()
@@ -787,15 +795,15 @@ class DataProcessor:
             md5, is_text = self._get_file_md5(f)
             
             if not is_text:
-                logger.warning(f"[JS] File {f.name} appears to be binary (contains null bytes). Moving to problematic_files_js.")
-                self._move(f, self.problematic_dir)
+                logger.warning(f"[JS] File {f.name} appears to be binary (contains null bytes). Moving to problematic_files_js/malicious.")
+                self._move(f, self.problematic_dir / 'malicious')
                 continue
                 
             if not md5: continue
             
             # Intra-class duplicate check
             if md5 in self.seen or md5 in batch_malicious_md5s:
-                self._move(f, self.duplicates_dir)
+                self._move(f, self.duplicates_dir / 'malicious')
             else:
                 batch_malicious_md5s[md5] = f
                 final_malicious.append((f, md5))
@@ -808,8 +816,8 @@ class DataProcessor:
             md5, is_text = self._get_file_md5(f)
             
             if not is_text:
-                logger.warning(f"[JS] File {f.name} appears to be binary (contains null bytes). Moving to problematic_files_js.")
-                self._move(f, self.problematic_dir)
+                logger.warning(f"[JS] File {f.name} appears to be binary (contains null bytes). Moving to problematic_files_js/benign.")
+                self._move(f, self.problematic_dir / 'benign')
                 continue
                 
             if not md5: continue
@@ -822,7 +830,7 @@ class DataProcessor:
                 continue
                 
             if md5 in self.seen or md5 in batch_benign_md5s:
-                self._move(f, self.duplicates_dir)
+                self._move(f, self.duplicates_dir / 'benign')
             else:
                 batch_benign_md5s[md5] = f
                 final_benign.append((f, md5))
@@ -851,6 +859,14 @@ class DataProcessor:
                               desc=f"Processing JS {label}"):
                 if not feats:
                     failed += 1
+                    # Move to problematic if it failed (likely not a valid JS or other issue)
+                    try:
+                        # Find the path from the task args
+                        f_path = tasks[failed + inserted + skipped - 1][0]
+                        logger.warning(f"[{label}] Feature extraction failed for {f_path}. Moving to problematic/{label}.")
+                        self._move(f_path, self.problematic_dir / label)
+                    except Exception:
+                        pass
                     continue
 
                 md5 = feats['file_info']['md5']
@@ -859,10 +875,13 @@ class DataProcessor:
                     if existing_label != label:
                         logger.warning(f"[JS] Late conflict: {feats['file_info'].get('path')} is '{label}' but MD5 seen as '{existing_label}'")
                         if existing_label == 'malicious':
+                            # Benign file actually exists as malicious
                             self._move(Path(feats['file_info']['path']), self.duplicate_malware_dir)
                         else:
-                            self._move(Path(feats['file_info']['path']), self.problematic_dir)
+                            # Malicious file actually exists as benign (swap/move to problematic)
+                            self._move(Path(feats['file_info']['path']), self.problematic_dir / label)
                     else:
+                        self._move(Path(feats['file_info']['path']), self.duplicates_dir / label)
                         skipped += 1
                     continue
 

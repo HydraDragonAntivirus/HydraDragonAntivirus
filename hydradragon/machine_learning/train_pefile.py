@@ -711,10 +711,11 @@ class DataProcessor:
         self.duplicates_dir = Path('duplicate_files')
         self.duplicate_malware_dir = Path('duplicate_malware')
         self.output_dir = Path(f"{out_dir_prefix}_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
-        self.bin_path = Path(bin_path)
-        self.index_path = Path(index_path)
-        self.malicious_pickle_path = Path(malicious_pickle_path)
-        self.benign_pickle_path = Path(benign_pickle_path)
+        self.output_dir.mkdir(exist_ok=True, parents=True) # Ensure it exists before setting paths
+        self.bin_path = self.output_dir / bin_path
+        self.index_path = self.output_dir / index_path
+        self.malicious_pickle_path = self.output_dir / malicious_pickle_path
+        self.benign_pickle_path = self.output_dir / benign_pickle_path
         self.reset = reset # Store the reset flag
 
         # If reset is true, remove existing files before processing
@@ -728,7 +729,14 @@ class DataProcessor:
                     except OSError as e:
                         logger.error(f"Error deleting {p}: {e}")
 
-        for directory in [self.problematic_dir, self.duplicates_dir, self.duplicate_malware_dir, self.output_dir]:
+        for directory in [
+            self.problematic_dir / 'malicious', 
+            self.problematic_dir / 'benign', 
+            self.duplicates_dir / 'malicious', 
+            self.duplicates_dir / 'benign', 
+            self.duplicate_malware_dir, 
+            self.output_dir
+        ]:
             directory.mkdir(exist_ok=True, parents=True)
 
         # Ensure store exists and preload seen md5s (resume support)
@@ -1091,15 +1099,15 @@ class DataProcessor:
             md5, is_pe = self._get_file_md5(f)
             
             if not is_pe:
-                logger.warning(f"File {f.name} is not a valid PE (no MZ header). Moving to problematic_files.")
-                self._move(f, self.problematic_dir)
+                logger.warning(f"File {f.name} is not a valid PE (no MZ header). Moving to problematic_files/malicious.")
+                self._move(f, self.problematic_dir / 'malicious')
                 continue
                 
             if not md5: continue
             
             # Intra-class duplicate check
             if md5 in self.seen or md5 in batch_malicious_md5s:
-                self._move(f, self.duplicates_dir)
+                self._move(f, self.duplicates_dir / 'malicious')
             else:
                 batch_malicious_md5s[md5] = f
                 final_malicious.append((f, md5))
@@ -1112,8 +1120,8 @@ class DataProcessor:
             md5, is_pe = self._get_file_md5(f)
             
             if not is_pe:
-                logger.warning(f"File {f.name} is not a valid PE (no MZ header). Moving to problematic_files.")
-                self._move(f, self.problematic_dir)
+                logger.warning(f"File {f.name} is not a valid PE (no MZ header). Moving to problematic_files/benign.")
+                self._move(f, self.problematic_dir / 'benign')
                 continue
                 
             if not md5: continue
@@ -1126,7 +1134,7 @@ class DataProcessor:
                 continue
                 
             if md5 in self.seen or md5 in batch_benign_md5s:
-                self._move(f, self.duplicates_dir)
+                self._move(f, self.duplicates_dir / 'benign')
             else:
                 batch_benign_md5s[md5] = f
                 final_benign.append((f, md5))
@@ -1155,6 +1163,14 @@ class DataProcessor:
                               desc=f"Processing {label}"):
                 if not feats:
                     failed += 1
+                    # Move to problematic if it failed (likely not a valid PE or other issue)
+                    try:
+                        # Find the path from the task args
+                        f_path = tasks[failed + inserted + skipped - 1][0]
+                        logger.warning(f"[{label}] Feature extraction failed for {f_path}. Moving to problematic.")
+                        self._move(f_path, self.problematic_dir)
+                    except Exception:
+                        pass
                     continue
 
                 md5 = feats['file_info']['md5']
@@ -1172,13 +1188,11 @@ class DataProcessor:
                             # Current is benign, so move current to duplicate_malware
                             self._move(Path(feats['file_info']['path']), self.duplicate_malware_dir)
                         else:
-                            # Current is malicious, existing was benign. Since we trust malicious,
-                            # this shouldn't happen after pre-filter, but if it does, 
-                            # we'd usually want to swap. For now, keep it simple: move malicious to problematic.
-                            self._move(Path(feats['file_info']['path']), self.problematic_dir)
+                            # Current is malicious, existing was benign.
+                            self._move(Path(feats['file_info']['path']), self.problematic_dir / label)
                     else:
                         try:
-                            self._move(Path(feats['file_info']['path']), self.duplicates_dir)
+                            self._move(Path(feats['file_info']['path']), self.duplicates_dir / label)
                         except Exception as e:
                             logger.error(f"Error moving duplicate file {feats['file_info']['path']}: {e}", exc_info=True)
                     skipped += 1
