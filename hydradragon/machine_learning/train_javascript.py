@@ -4,13 +4,14 @@ import pickle
 import os
 import re
 from datetime import datetime
-from typing import Dict, Optional, Any, Tuple
+from typing import Dict, Optional, Any, Tuple, List
 from pathlib import Path
 from concurrent.futures import ProcessPoolExecutor
 import numpy as np
 import argparse
 from tqdm import tqdm
 import time
+import shutil
 from collections import Counter
 import ast as python_ast # noqa: F401
 import esprima  # JavaScript AST parser
@@ -486,6 +487,7 @@ class DataProcessor:
         self.malicious_pickle_path = Path(malicious_pickle_path)
         self.benign_pickle_path = Path(benign_pickle_path)
         self.reset = reset
+        self.duplicate_malware_dir = Path('duplicate_malware_js')
 
         if self.reset:
             logger.info("Reset flag is True. Deleting existing files.")
@@ -497,7 +499,7 @@ class DataProcessor:
                     except OSError as e:
                         logger.error(f"Error deleting {p}: {e}")
 
-        for directory in [self.problematic_dir, self.duplicates_dir, self.output_dir]:
+        for directory in [self.problematic_dir, self.duplicates_dir, self.duplicate_malware_dir, self.output_dir]:
             directory.mkdir(exist_ok=True, parents=True)
 
         self._init_store()
@@ -646,26 +648,37 @@ class DataProcessor:
         
         return np.asarray(numeric, dtype=np.float32)
 
+    def _get_file_md5(self, file_path: Path) -> Optional[str]:
+        """Calculate MD5 with 6 retries and 0.1s delay for locked files."""
+        max_retries = 6
+        for attempt in range(1, max_retries + 1):
+            try:
+                with open(file_path, 'rb') as f:
+                    return hashlib.md5(f.read()).hexdigest()
+            except (PermissionError, OSError):
+                if attempt < max_retries:
+                    time.sleep(0.1)
+                else:
+                    return None
+            except Exception:
+                return None
+        return None
+
     def _process_one(self, args: Tuple) -> Optional[Dict[str, Any]]:
-        """Worker function to process a single JavaScript file."""
-        file_path, rank, is_malicious = args
+        """Worker function to process a single JavaScript file. Args: (file_path, rank, is_malicious, md5)"""
+        file_path, rank, is_malicious, md5 = args
         
         MAX_RETRIES = 6
         for attempt in range(1, MAX_RETRIES + 1):
             try:
-                # Stage 1: MD5 calculation (Absolute first step)
-                with open(file_path, 'rb') as f:
-                    content = f.read()
-                    md5 = hashlib.md5(content).hexdigest()
-                
-                # Stage 2: Feature extraction
+                # Stage 2: Feature extraction (MD5 already provided)
                 features = self.js_extractor.extract_all_features(str(file_path))
                 if features:
                     features['file_info'] = {
                         'filename': Path(file_path).name,
                         'path': str(file_path),
                         'md5': md5,
-                        'size': len(content),
+                        'size': os.path.getsize(file_path),
                         'is_malicious': bool(is_malicious),
                         'rank': rank
                     }
@@ -681,11 +694,7 @@ class DataProcessor:
                     return None # Failed after 6 attempts, resume scan
             except Exception as e:
                 logger.error(f"Error processing {file_path}: {e}", exc_info=True)
-                try:
-                    self._move(Path(file_path), self.problematic_dir)
-                except Exception as ex_move:
-                    logger.error(f"Error moving problematic file {file_path}: {ex_move}", exc_info=True)
-                return None # Other errors, resume scan
+                return None
 
     def _move(self, file_path: Path, dest_root: Path) -> None:
         """Move file to destination. If locked, skip immediately to avoid hangups or partial copies. NO RETRIES."""
@@ -695,7 +704,6 @@ class DataProcessor:
         if dest.exists():
             return
 
-        import shutil
         try:
             shutil.move(str(file_path), str(dest))
         except (PermissionError, OSError):
@@ -751,135 +759,116 @@ class DataProcessor:
 
         return index_entry
 
-    def _prefilter_duplicates(self, files: list, label: str) -> list:
-        """MD5 pre-pass: filter out already-seen and intra-batch duplicates before
-        dispatching to the worker pool, so no wasted feature extraction occurs.
-        Files with conflicting labels (seen as malicious but now benign, or vice versa)
-        are moved to problematic_dir and flagged loudly."""
-        seen_local = dict(self.seen)  # md5 -> label
-        unique_files = []
-        duplicates = 0
-        conflicts = 0
-        for f in tqdm(files, desc="Pre-filtering duplicates (MD5)"):
-            md5 = None
-            max_retries = 6
-            for attempt in range(1, max_retries + 1):
-                try:
-                    with open(f, 'rb') as fh:
-                        md5 = hashlib.md5(fh.read()).hexdigest()
-                    break # Success
-                except (PermissionError, OSError) as e:
-                    if attempt < max_retries:
-                        time.sleep(0.1)
-                    else:
-                        logger.error(f"File still locked after {max_retries} attempts: {f}. Resuming scan.")
-                        break # Give up and resume
-                except Exception as e:
-                    logger.warning(f"Could not MD5 {f} during pre-filter: {e}. Resuming scan.")
-                    break
-
-            if not md5:
-                # Could not get MD5 after retries or other error, resume with next file
-                continue
-
-            if md5 in seen_local:
-                existing_label = seen_local[md5]
-                if existing_label != label:
-                    logger.warning(
-                        f"Label conflict: {f.name} is '{label}' but MD5 already seen as "
-                        f"'{existing_label}' — moving to problematic_files"
-                    )
-                    self._move(f, self.problematic_dir)
-                    conflicts += 1
-                else:
-                    self._move(f, self.duplicates_dir)
-                duplicates += 1
-            else:
-                seen_local[md5] = label
-                unique_files.append(f)
-        logger.info(
-            f"Pre-filter complete: {len(unique_files)} unique, "
-            f"{duplicates} duplicates removed ({conflicts} label conflicts → problematic_files)"
-        )
-        return unique_files
-
-    def process_dir(self, directory: Path, is_malicious: bool):
-        """Process all JavaScript files in a directory."""
-        if not directory.exists():
-            logger.error(f"Input directory does not exist, skipping: {directory}")
-            return 0
-        if not directory.is_dir():
-            logger.error(f"Input path is not a directory, skipping: {directory}")
-            return 0
-
-        # Collect all .js files
-        files = [f for f in directory.rglob('*.js') if f.is_file()]
-        # Sort Z-A to favor descriptive filenames over numbers/hashes
-        files.sort(key=lambda x: x.name, reverse=True)
+    def _run_global_prefilter(self) -> Tuple[List[Tuple[Path, str]], List[Tuple[Path, str]]]:
+        """Discover and MD5 all files first. Handle cross-class conflicts and intra-class duplicates.
+        PRIORITY: Malicious set is 100% correct. If a benign file matches a malicious one, move the BENIGN file."""
+        logger.info("[JS] Initializing Global MD5 Pre-filter Stage (Malicious Priority)...")
         
-        if not files:
-            logger.warning(f"No .js files found in {directory}")
-            return 0
+        malicious_raw = [f for f in Path(self.malicious_dir).rglob('*.js') if f.is_file()]
+        benign_raw = [f for f in Path(self.benign_dir).rglob('*.js') if f.is_file()]
+        
+        # Sort Z-A to favor descriptive names
+        malicious_raw.sort(key=lambda x: x.name, reverse=True)
+        benign_raw.sort(key=lambda x: x.name, reverse=True)
+        
+        batch_malicious_md5s = {} # md5 -> Path
+        final_malicious = []
+        
+        logger.info(f"[JS] Pre-filtering {len(malicious_raw):,} Malicious files...")
+        for f in tqdm(malicious_raw, desc="Prefilter [JS Malicious]"):
+            md5 = self._get_file_md5(f)
+            if not md5: continue
+            
+            # Intra-class duplicate check
+            if md5 in self.seen or md5 in batch_malicious_md5s:
+                self._move(f, self.duplicates_dir)
+            else:
+                batch_malicious_md5s[md5] = f
+                final_malicious.append((f, md5))
+                
+        batch_benign_md5s = {} # md5 -> Path
+        final_benign = []
+        
+        logger.info(f"[JS] Pre-filtering {len(benign_raw):,} Benign files...")
+        for f in tqdm(benign_raw, desc="Prefilter [JS Benign]"):
+            md5 = self._get_file_md5(f)
+            if not md5: continue
+            
+            # Check for conflict with Malicious (Database or current batch)
+            # If it's malicious, we move the BENIGN file to duplicate_malware_js
+            if (md5 in self.seen and self.seen[md5] == 'malicious') or (md5 in batch_malicious_md5s):
+                logger.warning(f"[JS] Conflict: Benign {f.name} exists in Malicious set. Moving to duplicate_malware_js.")
+                self._move(f, self.duplicate_malware_dir)
+                continue
+                
+            if md5 in self.seen or md5 in batch_benign_md5s:
+                self._move(f, self.duplicates_dir)
+            else:
+                batch_benign_md5s[md5] = f
+                final_benign.append((f, md5))
+                
+        return final_malicious, final_benign
 
-        # Pre-pass: remove duplicates before dispatching to the worker pool
+    def process_dir(self, is_malicious: bool, prefiltered_tasks: List[Tuple[Path, str]]):
         label = 'malicious' if is_malicious else 'benign'
-        logger.info(f"Found {len(files)} .js files. Running MD5 pre-filter...")
-        files = self._prefilter_duplicates(files, label)
-        if not files:
-            logger.warning(f"No unique .js files remaining after pre-filter in {directory}")
+        if not prefiltered_tasks:
+            logger.warning(f"[{label}] No files to process.")
             return 0
 
-        tasks = [(f, i, is_malicious) for i, f in enumerate(files, 1)]
-
+        # Stage 3: Prepare tasks
+        total_files = len(prefiltered_tasks)
+        logger.info(f"[{label}] Stage 3/4: Preparing {total_files:,} tasks...")
+        tasks = [(f, i, is_malicious, md5) for i, (f, md5) in enumerate(prefiltered_tasks, 1)]
+        
         inserted = 0
+        skipped = 0
+        failed = 0
+        
+        # Stage 4: Process with ProcessPoolExecutor
+        logger.info(f"[{label}] Stage 4/4: Processing with ProcessPoolExecutor (workers=auto)...")
         with ProcessPoolExecutor() as exe:
-            for feats in tqdm(exe.map(self._process_one, tasks), total=len(tasks),
-                              desc=f"Processing {'malicious' if is_malicious else 'benign'} JS files"):
+            for feats in tqdm(exe.map(self._process_one, tasks), total=total_files,
+                              desc=f"Processing JS {label}"):
                 if not feats:
+                    failed += 1
                     continue
 
                 md5 = feats['file_info']['md5']
                 if md5 in self.seen:
-                    # Shouldn't happen after pre-filter, but guard anyway
                     existing_label = self.seen[md5]
                     if existing_label != label:
-                        logger.warning(
-                            f"Late label conflict: {feats['file_info'].get('path')} is '{label}' "
-                            f"but MD5 already seen as '{existing_label}' — moving to problematic_files"
-                        )
-                        try:
+                        logger.warning(f"[JS] Late conflict: {feats['file_info'].get('path')} is '{label}' but MD5 seen as '{existing_label}'")
+                        if existing_label == 'malicious':
+                            self._move(Path(feats['file_info']['path']), self.duplicate_malware_dir)
+                        else:
                             self._move(Path(feats['file_info']['path']), self.problematic_dir)
-                        except Exception as e:
-                            logger.error(f"Error moving conflict file: {e}", exc_info=True)
                     else:
-                        try:
-                            self._move(Path(feats['file_info']['path']), self.duplicates_dir)
-                        except Exception as e:
-                            logger.error(f"Error moving duplicate: {e}", exc_info=True)
+                        skipped += 1
                     continue
 
+                # mark as seen
                 self.seen[md5] = label
 
+                # write numeric vector + index + pickle
                 try:
                     self._append_vector_and_index(feats)
                     inserted += 1
                 except Exception as e:
                     logger.exception(f"Failed to append vector for {feats['file_info'].get('path')}: {e}")
-                    try:
-                        self._move(Path(feats['file_info']['path']), self.problematic_dir)
-                    except Exception:
-                        pass
+                    failed += 1
 
-        logger.info(f"Finished processing {directory}: inserted {inserted} unique records")
+        logger.info(f"[{label}] Finished: {inserted:,} inserted, {skipped:,} duplicates, {failed:,} failed (total: {total_files:,})")
         return inserted
 
     def process_dataset(self):
-        """Process both malicious and benign datasets."""
-        logger.info("Processing malicious JavaScript files...")
-        malicious_count = self.process_dir(Path(self.malicious_dir), True)
+        # Global Pre-filter
+        malicious_tasks, benign_tasks = self._run_global_prefilter()
 
-        logger.info("Processing benign JavaScript files...")
-        benign_count = self.process_dir(Path(self.benign_dir), False)
+        logger.info("Processing malicious files...")
+        malicious_count = self.process_dir(True, malicious_tasks)
+
+        logger.info("Processing benign files...")
+        benign_count = self.process_dir(False, benign_tasks)
 
         summary = {
             'timestamp': datetime.now().isoformat(),
