@@ -1,2 +1,2 @@
-python train_pefile.py --reset --benign-dir=C:\Users\semae\OneDrive\Belgeler\usbdosyalar\data2 --malicious-dir=C:\Users\semae\OneDrive\Belgeler\usbdosyalar\data2
-python train_javascript.py --reset --benign-dir=C:\Users\semae\OneDrive\Belgeler\usbdosyalar\data2 --malicious-dir=C:\Users\semae\OneDrive\Belgeler\usbdosyalar\data2
+python train_pefile.py --reset --benign-dir=C:\Users\semae\OneDrive\Belgeler\usbdosyalar\data2 --malicious-dir=C:\Users\semae\OneDrive\Belgeler\usbdosyalar\datamaliciousorder
+python train_javascript.py --reset --benign-dir=C:\Users\semae\OneDrive\Belgeler\usbdosyalar\data2 --malicious-dir=C:\Users\semae\OneDrive\Belgeler\usbdosyalar\datamaliciousorder
