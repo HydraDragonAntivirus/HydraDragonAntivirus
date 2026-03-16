@@ -13,10 +13,7 @@ using System.Diagnostics;
 using System.Drawing;
 using System.IO;
 using System.Linq;
-using System.Net;
 using System.Runtime.InteropServices;
-using System.Security.Cryptography;
-using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using WinEnumerator;
@@ -449,6 +446,32 @@ namespace Mega_Dumper
         }
         #endregion
 
+        private async void CheckProcessTypeAsync(ListViewItem item, int processId)
+        {
+            try
+            {
+                // Run the heavy evaluation on a background thread pool
+                string result = await Task.Run(() => GetProcessType(processId));
+
+                // Marshal back to the UI thread to update the ListView
+                if (!this.IsDisposed && !this.Disposing && item != null && item.ListView != null)
+                {
+                    this.Invoke(new Action(() =>
+                    {
+                        // Ensure the item still exists and has enough subitems
+                        if (item.SubItems.Count > 3)
+                        {
+                            item.SubItems[3].Text = result;
+                        }
+                    }));
+                }
+            }
+            catch
+            {
+                // Ignore errors if the process dies mid-check or the form closes
+            }
+        }
+
         private void Button1Click(object sender, EventArgs e)
         {
             Application.Exit();
@@ -500,15 +523,11 @@ namespace Mega_Dumper
                             Process theProc = null;
                             string directoryName = "";
                             string processname = procEntry.szExeFile;
-                            string isnet = "Unchecked";
+                            string isnet = "Checking..."; // Initialize as checking for background task
 
                             try
                             {
                                 theProc = Process.GetProcessById((int)procEntry.th32ProcessID);
-                                if (theProc != null)  // Add null check here
-                                {
-                                    isnet = GetProcessType((int)procEntry.th32ProcessID);
-                                }
                             }
                             catch
                             {
@@ -627,6 +646,9 @@ namespace Mega_Dumper
                             string[] prcdetails = new string[] { processname, procEntry.th32ProcessID.ToString(), "", isnet, directoryName };
                             ListViewItem proc = new(prcdetails);
                             lvprocesslist.Items.Add(proc);
+
+                            // Start the background check for the new process
+                            CheckProcessTypeAsync(proc, (int)procEntry.th32ProcessID);
                         }
                         else
                         {
@@ -635,13 +657,6 @@ namespace Mega_Dumper
 
                             // Retry .NET type detection for processes that were "Unchecked"
                             // on a previous tick (e.g. process was too new to identify then).
-                            // Rules:
-                            //   • Only retry if the current type is still "Unchecked".
-                            //   • Never retry a "Killed" process — GetProcessType on a dead
-                            //     PID returns "Unchecked" and would overwrite any prior good value.
-                            //   • Only commit the result if it is conclusive (.NET / Native).
-                            //     If it comes back "Unchecked" again, leave the column alone
-                            //     so we keep retrying on the next tick.
                             try
                             {
                                 ListViewItem existingItem = null;
@@ -661,9 +676,9 @@ namespace Mega_Dumper
                                     existingItem.SubItems[3].Text == "Unchecked" &&
                                     existingItem.SubItems[2].Text != "Killed")
                                 {
-                                    string retried = GetProcessType((int)procEntry.th32ProcessID);
-                                    if (retried != "Unchecked")
-                                        existingItem.SubItems[3].Text = retried;
+                                    // Mark as Checking to prevent duplicate tasks on next tick
+                                    existingItem.SubItems[3].Text = "Checking...";
+                                    CheckProcessTypeAsync(existingItem, (int)procEntry.th32ProcessID);
                                 }
                             }
                             catch { }
@@ -1306,7 +1321,7 @@ namespace Mega_Dumper
 
             string directoryName = "";
             string processname = "";
-            string isnet = "Unchecked";
+            string isnet = "Checking..."; // Initialize as checking for background task
 
             /*
             IMO the key difference is in priviledges requirements.
@@ -1328,11 +1343,10 @@ namespace Mega_Dumper
                         directoryName = "";
                         processname = procEntry.szExeFile;
                         const string statut = "";//exited
+                        isnet = "Checking...";
                         try
                         {
                             theProc = Process.GetProcessById((int)procEntry.th32ProcessID);
-
-                            isnet = GetProcessType((int)procEntry.th32ProcessID);
                         }
                         catch
                         {
@@ -1484,6 +1498,9 @@ namespace Mega_Dumper
                         string[] prcdetails = new string[] { processname, procEntry.th32ProcessID.ToString(), statut, isnet, directoryName };
                         ListViewItem proc = new(prcdetails);
                         lvprocesslist.Items.Add(proc);
+
+                        // Start the background check for the initial list
+                        CheckProcessTypeAsync(proc, (int)procEntry.th32ProcessID);
 
                     } while (Process32Next(handleToSnapshot, ref procEntry));
                 }
