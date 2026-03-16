@@ -743,11 +743,11 @@ pub struct FirewallEngine {
     pub file_checker: Arc<FileMagicChecker>,
     pub tls_proxy_backend_child: Arc<Mutex<Option<Child>>>,
     /// Retained so stop() can call shutdown() and unblock all recv() threads.
-    pub divert_handle: Arc<Mutex<Option<WinDivert<windivert::prelude::NetworkLayer>>>>,
+    pub divert_handle: Arc<Mutex<Option<WinDivertArc<windivert::prelude::NetworkLayer>>>>,
 }
 
 // RADICAL REFACTOR: Wrapper to make WinDivert Send + Sync (Safe for WinDivert handles)
-struct WinDivertArc<L: windivert::layer::WinDivertLayerTrait>(Arc<WinDivert<L>>);
+pub struct WinDivertArc<L: windivert::layer::WinDivertLayerTrait>(pub Arc<WinDivert<L>>);
 unsafe impl<L: windivert::layer::WinDivertLayerTrait> Send for WinDivertArc<L> {}
 unsafe impl<L: windivert::layer::WinDivertLayerTrait> Sync for WinDivertArc<L> {}
 impl<L: windivert::layer::WinDivertLayerTrait> Clone for WinDivertArc<L> {
@@ -1547,17 +1547,8 @@ impl FirewallEngine {
             }
         };
 
-        // Open a second handle on the same filter exclusively for shutdown.
-        // Calling shutdown() on it will unblock all recv() calls on the worker handle.
-        // We need a separate owned WinDivert (not Arc) because shutdown() takes &mut self.
-        match WinDivert::network("true", 0, WinDivertFlags::new()) {
-            Ok(shutdown_handle) => {
-                *self.divert_handle.lock().unwrap() = Some(shutdown_handle);
-            }
-            Err(_) => {
-                // Non-fatal: workers will still exit via stop_signal when the process ends.
-            }
-        }
+        // Store a clone so stop() can call shutdown() and unblock all recv() threads.
+        *self.divert_handle.lock().unwrap() = Some(divert.clone());
 
 
 
@@ -2871,13 +2862,18 @@ impl FirewallEngine {
         // Signal all worker loops to exit after their current recv() returns.
         self.stop_signal.store(true, Ordering::SeqCst);
 
-        // Take the stored handle (replace with None so this is idempotent).
-        // Calling shutdown() unblocks all recv() calls immediately with an
-        // error, rather than waiting for the next packet to arrive.
-        if let Some(ref mut d) = *self.divert_handle.lock().unwrap() {
-            let _ = d.shutdown(WinDivertShutdownMode::Both);
+        // Calling shutdown() unblocks all recv() calls immediately with an error.
+        // shutdown() takes &mut self but Arc only yields &T via Deref.
+        // Safety: stop_signal is already true so workers will exit on their next
+        // loop check. WinDivert shutdown() is explicitly designed to be called
+        // concurrently from a different thread — that is its entire purpose.
+        if let Some(d) = self.divert_handle.lock().unwrap().take() {
+            let ptr = Arc::as_ptr(&d.0)
+                as *mut windivert::WinDivert<windivert::prelude::NetworkLayer>;
+            unsafe {
+                let _ = (*ptr).shutdown(WinDivertShutdownMode::Both);
+            }
         }
-        *self.divert_handle.lock().unwrap() = None;
 
         self.stop_mitmproxy_rs_backend();
     }

@@ -1,0 +1,36 @@
+{
+    "whitelisted_ips": [],
+    "whitelisted_domains": [],
+    "whitelisted_ports": [],
+    "app_decisions": {
+        "system": "Allow",
+        "c:\\windows\\system32\\svchost.exe": "Allow",
+        "c:\\windows\\syswow64\\svchost.exe": "Allow",
+        "c:\\windows\\explorer.exe": "Allow",
+        "c:\\program files\\hydradragonantivirus\\hydradragonfirewall\\hydradragonfirewall.exe": "Allow"
+    },
+    "website_path": "website",
+    "rules": [],
+    "tls_proxy": {
+        "mode": "tls_proxy",
+        "backend": "mitmproxy_rs_local",
+        "listen_host": "127.0.0.1",
+        "listen_port": 8877,
+        "block_quic_udp_443": true,
+        "enforce_proxy_routing": true,
+        "proxy_process_allowlist": [
+            "c:\\program files\\hydradragonantivirus\\hydradragonfirewall\\hydradragonfirewall.exe",
+            "c:\\program files\\hydradragonantivirus\\mitmproxy\\bin\\mitmproxy.exe",
+            "c:\\program files\\hydradragonantivirus\\mitmproxy\\bin\\mitmdump.exe"
+        ],
+        "auto_start_backend": true,
+        "backend_command": "c:\\program files\\hydradragonantivirus\\mitmproxy\\bin\\mitmdump.exe",
+        "backend_args": [],
+        "local_capture_spec": null
+    },
+    "metadata": {
+        "version": "0.1.0",
+        "description": "HydraDragon Next-Gen Firewall Configuration",
+        "theme": "cyberpunk"
+    }
+}

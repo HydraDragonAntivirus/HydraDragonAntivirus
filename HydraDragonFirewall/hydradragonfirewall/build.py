@@ -132,6 +132,12 @@ def build_ui(script_dir: Path):
 def build_rust(script_dir: Path, release: bool, windivert_path: Path):
     flag = "release" if release else "debug"
     step("2/4", f"Building Rust backend ({flag})...")
+
+    # windivert-sys 0.10.x reads exactly these two vars:
+    #   WINDIVERT_PATH      — directory containing WinDivert.lib / WinDivert.dll
+    #   WINDIVERT_DLL_OUTPUT — where to copy the compiled DLL/sys (optional)
+    # WINDIVERT_LIB_DIR is NOT read by windivert-sys and was silently ignored.
+    target_dir = script_dir / "target" / ("release" if release else "debug")
     cmd = ["cargo", "build"]
     if release:
         cmd.append("--release")
@@ -139,8 +145,8 @@ def build_rust(script_dir: Path, release: bool, windivert_path: Path):
         cmd,
         cwd=script_dir,
         env={
-            "WINDIVERT_PATH":    str(windivert_path),
-            "WINDIVERT_LIB_DIR": str(windivert_path),
+            "WINDIVERT_PATH":       str(windivert_path),
+            "WINDIVERT_DLL_OUTPUT": str(target_dir),
         }
     )
     ok("Rust build complete!")
@@ -172,6 +178,26 @@ def main():
     script_dir    = Path(__file__).resolve().parent
     windivert_path = (script_dir / ".." / "everything").resolve()
 
+    if not windivert_path.exists():
+        fail(
+            f"WinDivert folder not found: {windivert_path}\n"
+            "  Expected layout:\n"
+            "    HydraDragonPlatform/\n"
+            "      everything/          ← WinDivert.dll, WinDivert.lib, WinDivert64.sys\n"
+            "      HydraDragonFirewall/ ← this script\n"
+            "  Download WinDivert from https://reqrypt.org/windivert.html and place\n"
+            "  the x64 files in the `everything` folder, then re-run."
+        )
+
+    lib_file = windivert_path / "WinDivert.lib"
+    if not lib_file.exists():
+        fail(
+            f"WinDivert.lib not found in: {windivert_path}\n"
+            "  The folder exists but is missing the import library.\n"
+            "  Download the WinDivert x64 package and copy WinDivert.lib,\n"
+            "  WinDivert.dll and WinDivert64.sys into that folder."
+        )
+
     check_dependencies()
     build_ui(script_dir)
     build_rust(script_dir, args.release, windivert_path)
@@ -194,3 +220,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+    
