@@ -650,75 +650,59 @@ class DataProcessor:
         """Worker function to process a single JavaScript file."""
         file_path, rank, is_malicious = args
         
-        try:
-            # Read file and calculate MD5
-            with open(file_path, 'rb') as f:
-                content = f.read()
-                md5 = hashlib.md5(content).hexdigest()
-            
-            # Extract features
-            features = self.js_extractor.extract_all_features(str(file_path))
-            if features:
-                features['file_info'] = {
-                    'filename': Path(file_path).name,
-                    'path': str(file_path),
-                    'md5': md5,
-                    'size': len(content),
-                    'is_malicious': bool(is_malicious),
-                    'rank': rank
-                }
-                return features
-            
-            return None
-            
-        except Exception as e:
-            logger.error(f"Error processing {file_path}: {e}", exc_info=True)
+        MAX_RETRIES = 6
+        for attempt in range(1, MAX_RETRIES + 1):
             try:
-                self._move(Path(file_path), self.problematic_dir)
-            except Exception as ex_move:
-                logger.error(f"Error moving problematic file {file_path}: {ex_move}", exc_info=True)
-            return None
+                # Stage 1: MD5 calculation (Absolute first step)
+                with open(file_path, 'rb') as f:
+                    content = f.read()
+                    md5 = hashlib.md5(content).hexdigest()
+                
+                # Stage 2: Feature extraction
+                features = self.js_extractor.extract_all_features(str(file_path))
+                if features:
+                    features['file_info'] = {
+                        'filename': Path(file_path).name,
+                        'path': str(file_path),
+                        'md5': md5,
+                        'size': len(content),
+                        'is_malicious': bool(is_malicious),
+                        'rank': rank
+                    }
+                    return features
+                
+                return None # No features extracted, resume
+                
+            except (PermissionError, OSError) as e:
+                if attempt < MAX_RETRIES:
+                    time.sleep(0.1)
+                else:
+                    logger.error(f"Failed to access locked file after {MAX_RETRIES} attempts: {file_path}. Resuming scan.")
+                    return None # Failed after 6 attempts, resume scan
+            except Exception as e:
+                logger.error(f"Error processing {file_path}: {e}", exc_info=True)
+                try:
+                    self._move(Path(file_path), self.problematic_dir)
+                except Exception as ex_move:
+                    logger.error(f"Error moving problematic file {file_path}: {ex_move}", exc_info=True)
+                return None # Other errors, resume scan
 
     def _move(self, file_path: Path, dest_root: Path) -> None:
-        """Move a file to destination directory."""
+        """Move file to destination. If locked, skip immediately to avoid hangups or partial copies. NO RETRIES."""
         dest_root = Path(dest_root)
         dest_root.mkdir(parents=True, exist_ok=True)
         dest = dest_root / file_path.name
+        if dest.exists():
+            return
 
+        import shutil
         try:
-            import shutil
             shutil.move(str(file_path), str(dest))
-            logger.info(f"Moved {file_path} -> {dest}")
-            return
-        except FileNotFoundError:
-            logger.warning(f"File not found for move: {file_path}")
-            return
-        except PermissionError:
-            # Try copy + delete with retries
-            max_retries = 6
-            for attempt in range(1, max_retries + 1):
-                try:
-                    import shutil
-                    shutil.copy2(str(file_path), str(dest))
-                    os.remove(str(file_path))
-                    logger.info(f"Copied and removed locked file {file_path} -> {dest}")
-                    return
-                except FileNotFoundError:
-                    logger.warning(f"File disappeared during move: {file_path}")
-                    return
-                except PermissionError:
-                    logger.warning(f"PermissionError moving {file_path}, attempt {attempt}/{max_retries}")
-                    time.sleep(0.5 * attempt)
-                    continue
-                except Exception as e:
-                    logger.error(f"Error moving {file_path} on attempt {attempt}: {e}", exc_info=True)
-                    break
-            
-            logger.error(f"Failed to move {file_path} after {max_retries} retries")
-            return
-        except Exception as ex:
-            logger.error(f"Error moving {file_path} -> {dest}: {ex}", exc_info=True)
-            return
+        except (PermissionError, OSError):
+            # Locked! Skipping move immediately.
+            pass
+        except Exception:
+            pass
 
     def _append_vector_and_index(self, features: dict) -> dict:
         """Append numeric vector to bin file and index entry to JSONL."""
@@ -777,26 +761,41 @@ class DataProcessor:
         duplicates = 0
         conflicts = 0
         for f in tqdm(files, desc="Pre-filtering duplicates (MD5)"):
-            try:
-                with open(f, 'rb') as fh:
-                    md5 = hashlib.md5(fh.read()).hexdigest()
-                if md5 in seen_local:
-                    existing_label = seen_local[md5]
-                    if existing_label != label:
-                        logger.warning(
-                            f"Label conflict: {f.name} is '{label}' but MD5 already seen as "
-                            f"'{existing_label}' — moving to problematic_files"
-                        )
-                        self._move(f, self.problematic_dir)
-                        conflicts += 1
+            md5 = None
+            max_retries = 6
+            for attempt in range(1, max_retries + 1):
+                try:
+                    with open(f, 'rb') as fh:
+                        md5 = hashlib.md5(fh.read()).hexdigest()
+                    break # Success
+                except (PermissionError, OSError) as e:
+                    if attempt < max_retries:
+                        time.sleep(0.1)
                     else:
-                        self._move(f, self.duplicates_dir)
-                    duplicates += 1
+                        logger.error(f"File still locked after {max_retries} attempts: {f}. Resuming scan.")
+                        break # Give up and resume
+                except Exception as e:
+                    logger.warning(f"Could not MD5 {f} during pre-filter: {e}. Resuming scan.")
+                    break
+
+            if not md5:
+                # Could not get MD5 after retries or other error, resume with next file
+                continue
+
+            if md5 in seen_local:
+                existing_label = seen_local[md5]
+                if existing_label != label:
+                    logger.warning(
+                        f"Label conflict: {f.name} is '{label}' but MD5 already seen as "
+                        f"'{existing_label}' — moving to problematic_files"
+                    )
+                    self._move(f, self.problematic_dir)
+                    conflicts += 1
                 else:
-                    seen_local[md5] = label
-                    unique_files.append(f)
-            except Exception as e:
-                logger.warning(f"Could not MD5 {f} during pre-filter, including anyway: {e}")
+                    self._move(f, self.duplicates_dir)
+                duplicates += 1
+            else:
+                seen_local[md5] = label
                 unique_files.append(f)
         logger.info(
             f"Pre-filter complete: {len(unique_files)} unique, "
