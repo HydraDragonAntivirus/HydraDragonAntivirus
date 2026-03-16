@@ -8,11 +8,11 @@ use std::collections::{HashMap, VecDeque, HashSet};
 use std::fs;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
+use tokio::sync::oneshot;
 use windivert::prelude::*;
 
 lazy_static! {
@@ -136,49 +136,26 @@ impl Default for TlsInspectionMode {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum TlsProxyBackend {
-    InternalRedirect,
-    MitmproxyRsLocal,
-}
-
-impl Default for TlsProxyBackend {
-    fn default() -> Self {
-        TlsProxyBackend::InternalRedirect
-    }
-}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
 pub struct TlsProxyConfig {
     pub mode: TlsInspectionMode,
-    pub backend: TlsProxyBackend,
     pub listen_host: String,
     pub listen_port: u16,
     pub block_quic_udp_443: bool,
-    pub enforce_proxy_routing: bool,
-    pub proxy_process_allowlist: Vec<String>,
-    pub auto_start_backend: bool,
-    pub backend_command: String,
-    pub backend_args: Vec<String>,
-    pub local_capture_spec: Option<String>,
+    /// Whether to auto-start the embedded proxy when the firewall starts.
+    pub auto_start: bool,
 }
 
 impl Default for TlsProxyConfig {
     fn default() -> Self {
         Self {
-            mode: TlsInspectionMode::MetadataOnly,
-            backend: TlsProxyBackend::InternalRedirect,
+            mode: TlsInspectionMode::TlsProxy,
             listen_host: "127.0.0.1".to_string(),
             listen_port: 8877,
             block_quic_udp_443: true,
-            enforce_proxy_routing: false,
-            proxy_process_allowlist: Vec::new(), // Populated from settings.json only — no hardcoded paths.
-            auto_start_backend: false,
-            backend_command: "mitmdump".to_string(),
-            backend_args: Vec::new(),
-            local_capture_spec: None,
+            auto_start: true,
         }
     }
 }
@@ -476,6 +453,9 @@ impl Default for Statistics {
 pub struct DnsHandler {
     queries: RwLock<VecDeque<DnsQuery>>,
     ip_map: RwLock<HashMap<String, (String, SystemTime)>>,
+    /// Maps domain → (pid, app_name) so proxy-attributed packets can be
+    /// re-attributed to the original app that queried the domain.
+    domain_pid_map: RwLock<HashMap<String, (u32, String)>>,
 }
 
 impl DnsHandler {
@@ -483,6 +463,7 @@ impl DnsHandler {
         Self {
             queries: RwLock::new(VecDeque::new()),
             ip_map: RwLock::new(HashMap::new()),
+            domain_pid_map: RwLock::new(HashMap::new()),
         }
     }
 
@@ -519,6 +500,23 @@ impl DnsHandler {
     pub fn resolve_ip(&self, ip: &str) -> Option<String> {
         let map = self.ip_map.read().unwrap();
         map.get(ip).map(|(domain, _)| domain.clone())
+    }
+
+    /// Record which app (pid + name) made an outbound DNS query for a domain.
+    /// Only call this for non-proxy processes so the original requester is preserved.
+    pub fn record_domain_pid(&self, domain: String, pid: u32, app_name: String) {
+        let mut map = self.domain_pid_map.write().unwrap();
+        map.insert(domain.to_lowercase(), (pid, app_name));
+        if map.len() > 2000 {
+            map.clear();
+        }
+    }
+
+    /// Given a hostname, return the (pid, app_name) of the app that originally
+    /// queried for it — used to re-attribute proxy upstream connections.
+    pub fn resolve_domain_pid(&self, domain: &str) -> Option<(u32, String)> {
+        let map = self.domain_pid_map.read().unwrap();
+        map.get(&domain.to_lowercase()).cloned()
     }
 }
 
@@ -639,7 +637,7 @@ impl AppManager {
     }
 
     // OPTIMIZED: Now uses cache
-    pub fn check_app(&self, packet: &PacketInfo, tls_proxy: &TlsProxyConfig) -> (AppDecision, String, String) {
+    pub fn check_app(&self, packet: &PacketInfo) -> (AppDecision, String, String) {
         let mut pid = packet.process_id;
 
         if pid == 0 {
@@ -667,12 +665,6 @@ impl AppManager {
             || pid == 0
             || pid == 4
         {
-            return (AppDecision::Allow, app_name, app_path);
-        }
-
-        // Auto-allow the configured TLS proxy backend so its own upstream
-        // connections are never prompted or blocked by app-decision logic.
-        if FirewallEngine::is_tls_proxy_process(&app_path, tls_proxy) {
             return (AppDecision::Allow, app_name, app_path);
         }
 
@@ -741,7 +733,7 @@ pub struct FirewallEngine {
     pub stop_signal: Arc<AtomicBool>,
     pub sdk: Arc<RwLock<crate::sdk::SdkRegistry>>,
     pub file_checker: Arc<FileMagicChecker>,
-    pub tls_proxy_backend_child: Arc<Mutex<Option<Child>>>,
+    pub tls_proxy_backend_child: Arc<Mutex<Option<oneshot::Sender<()>>>>,
     /// Retained so stop() can call shutdown() and unblock all recv() threads.
     pub divert_handle: Arc<Mutex<Option<WinDivertArc<windivert::prelude::NetworkLayer>>>>,
 }
@@ -860,26 +852,6 @@ impl FirewallEngine {
         }
     }
 
-    fn is_tls_proxy_process(process_path: &str, tls_proxy: &TlsProxyConfig) -> bool {
-        // Normalize once: lowercase and unify separators.
-        let path_norm = process_path.trim().to_lowercase().replace('\\', "/");
-        if path_norm.is_empty() || path_norm == "unknown" {
-            return false;
-        }
-        tls_proxy.proxy_process_allowlist.iter().any(|entry| {
-            let entry = entry.trim();
-            if entry.is_empty() {
-                return false;
-            }
-            let entry_norm = entry.to_lowercase().replace('\\', "/");
-            // Exact full-path match OR filename-only match (e.g. "mitmdump.exe" matches
-            // "c:/users/x/.../mitmdump.exe"). The trailing-slash guard prevents a short
-            // entry like "dump.exe" from matching "mitmdump.exe".
-            path_norm == entry_norm
-                || path_norm.ends_with(&format!("/{}", entry_norm))
-        })
-    }
-
     fn is_proxy_destination(info: &PacketInfo, tls_proxy: &TlsProxyConfig) -> bool {
         if !matches!(info.protocol, Protocol::TCP) {
             return false;
@@ -902,10 +874,7 @@ impl FirewallEngine {
     fn enforce_tls_proxy_mode(
         info: &PacketInfo,
         outbound: bool,
-        app_path: &str,
         tls_proxy: &TlsProxyConfig,
-        use_internal_redirect: bool,
-        redirected_to_proxy: bool,
         should_forward: &mut bool,
         reason: &mut Option<String>,
     ) {
@@ -913,263 +882,127 @@ impl FirewallEngine {
             return;
         }
 
+        // Block QUIC/UDP:443 — the embedded http-mitm-proxy handles TCP only.
         if matches!(info.protocol, Protocol::UDP)
             && info.dst_port == 443
             && tls_proxy.block_quic_udp_443
-            && !Self::is_tls_proxy_process(app_path, tls_proxy)
         {
             *should_forward = false;
             reason.get_or_insert_with(|| {
-                "TLS Proxy Mode: blocked QUIC (UDP/443); use TCP through the configured proxy"
+                "TLS Proxy Mode: blocked QUIC (UDP/443); embedded proxy handles TCP only"
                     .to_string()
             });
-            return;
         }
-
-        if !use_internal_redirect {
-            return;
-        }
-
-        if !tls_proxy.enforce_proxy_routing
-            || !matches!(info.protocol, Protocol::TCP)
-            || info.dst_port != 443
-            || redirected_to_proxy
-            || Self::is_proxy_destination(info, tls_proxy)
-            || Self::is_tls_proxy_process(app_path, tls_proxy)
-        {
-            return;
-        }
-
-        *should_forward = false;
-        reason.get_or_insert_with(|| {
-            format!(
-                "TLS Proxy Mode: direct TCP/443 blocked (expected proxy {}:{})",
-                tls_proxy.listen_host, tls_proxy.listen_port
-            )
-        });
     }
 
-    fn resolve_proxy_ip_for_destination(dst_ip: IpAddr, tls_proxy: &TlsProxyConfig) -> Option<IpAddr> {
-        if tls_proxy.listen_host.eq_ignore_ascii_case("localhost") {
-            return Some(match dst_ip {
-                IpAddr::V4(_) => IpAddr::V4(Ipv4Addr::LOCALHOST),
-                IpAddr::V6(_) => IpAddr::V6(Ipv6Addr::LOCALHOST),
+    fn start_embedded_proxy(&self, tls_proxy: &TlsProxyConfig, tx: &AppHandle) {
+        if tls_proxy.mode != TlsInspectionMode::TlsProxy || !tls_proxy.auto_start {
+            return;
+        }
+
+        // Already running?
+        if self.tls_proxy_backend_child.lock().unwrap().is_some() {
+            return;
+        }
+
+        let addr: std::net::SocketAddr = format!(
+            "{}:{}",
+            tls_proxy.listen_host, tls_proxy.listen_port
+        )
+        .parse()
+        .unwrap_or_else(|_| "127.0.0.1:8877".parse().unwrap());
+
+        let ca = crate::proxy::generate_ca();
+
+        // Install the generated CA into Windows Trusted Root so browsers accept it.
+        let cert_der = crate::proxy::ca_cert_der(&ca);
+        if let Err(e) = Self::install_ca_der(&cert_der) {
+            let now = Self::now_ts();
+            let _ = tx.emit("log", LogEntry {
+                id: format!("{}-ca-install-warn", now),
+                timestamp: now,
+                level: LogLevel::Warning,
+                message: format!("CA install skipped (run as admin to trust proxy cert): {}", e),
             });
         }
 
-        match tls_proxy.listen_host.parse::<IpAddr>() {
-            Ok(proxy_ip) => match (dst_ip, proxy_ip) {
-                (IpAddr::V4(_), IpAddr::V4(v4)) => Some(IpAddr::V4(v4)),
-                (IpAddr::V6(_), IpAddr::V6(v6)) => Some(IpAddr::V6(v6)),
-                _ => None,
-            },
-            Err(_) => Some(match dst_ip {
-                IpAddr::V4(_) => IpAddr::V4(Ipv4Addr::LOCALHOST),
-                IpAddr::V6(_) => IpAddr::V6(Ipv6Addr::LOCALHOST),
-            }),
-        }
+        // Set Windows system proxy so all apps route through us.
+        let _ = Self::set_windows_proxy(&addr.to_string());
+
+        let (stop_tx, stop_rx) = oneshot::channel::<()>();
+        *self.tls_proxy_backend_child.lock().unwrap() = Some(stop_tx);
+
+        let app = tx.clone();
+        tauri::async_runtime::spawn(crate::proxy::run_proxy(addr, ca, app, stop_rx));
     }
 
-    fn rewrite_tcp_destination(
-        packet_data: &mut [u8],
-        new_dst_ip: IpAddr,
-        new_dst_port: u16,
-    ) -> Result<(), String> {
-        if packet_data.len() < 20 {
-            return Err("packet too short".to_string());
+    fn stop_embedded_proxy(&self) {
+        if let Some(tx) = self.tls_proxy_backend_child.lock().unwrap().take() {
+            let _ = tx.send(());
         }
-
-        let ip_version = (packet_data[0] >> 4) & 0x0F;
-        match ip_version {
-            4 => {
-                let ihl = ((packet_data[0] & 0x0F) as usize) * 4;
-                if ihl < 20 || packet_data.len() < ihl + 4 {
-                    return Err("invalid IPv4/TCP header length".to_string());
-                }
-                let IpAddr::V4(v4) = new_dst_ip else {
-                    return Err("IPv4 packet cannot be redirected to IPv6 proxy".to_string());
-                };
-                packet_data[16..20].copy_from_slice(&v4.octets());
-                let port = new_dst_port.to_be_bytes();
-                packet_data[ihl + 2] = port[0];
-                packet_data[ihl + 3] = port[1];
-                Ok(())
-            }
-            6 => {
-                let base = 40usize;
-                if packet_data.len() < base + 4 {
-                    return Err("invalid IPv6/TCP header length".to_string());
-                }
-                let IpAddr::V6(v6) = new_dst_ip else {
-                    return Err("IPv6 packet cannot be redirected to IPv4 proxy".to_string());
-                };
-                packet_data[24..40].copy_from_slice(&v6.octets());
-                let port = new_dst_port.to_be_bytes();
-                packet_data[base + 2] = port[0];
-                packet_data[base + 3] = port[1];
-                Ok(())
-            }
-            _ => Err("unsupported IP version".to_string()),
-        }
+        // Clear Windows system proxy on shutdown.
+        let _ = Self::clear_windows_proxy();
     }
 
-    fn try_apply_tls_proxy_redirect(
-        packet_data: &mut Vec<u8>,
-        info: &PacketInfo,
-        outbound: bool,
-        app_path: &str,
-        tls_proxy: &TlsProxyConfig,
-        reason: &mut Option<String>,
-    ) -> bool {
-        if tls_proxy.mode != TlsInspectionMode::TlsProxy
-            || tls_proxy.backend != TlsProxyBackend::InternalRedirect
-            || !outbound
-            || !matches!(info.protocol, Protocol::TCP)
-            || info.dst_port != 443
-            || Self::is_proxy_destination(info, tls_proxy)
-            || Self::is_tls_proxy_process(app_path, tls_proxy)
-        {
-            return false;
-        }
+    /// Point the Windows system HTTPS proxy to our embedded listener.
+    fn set_windows_proxy(addr: &str) -> Result<(), String> {
+        use winreg::enums::*;
+        use winreg::RegKey;
+        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+        let path = r"Software\Microsoft\Windows\CurrentVersion\Internet Settings";
+        let (key, _) = hkcu
+            .create_subkey(path)
+            .map_err(|e| e.to_string())?;
+        key.set_value("ProxyServer", &format!("https={}:8877", addr))
+            .map_err(|e| e.to_string())?;
+        key.set_value("ProxyEnable", &1u32)
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
 
-        let Some(proxy_ip) = Self::resolve_proxy_ip_for_destination(info.dst_ip, tls_proxy) else {
-            reason.get_or_insert_with(|| {
-                "TLS Proxy Mode: proxy host IP family mismatch with traffic".to_string()
-            });
-            return false;
+    /// Remove the system proxy settings we set on startup.
+    fn clear_windows_proxy() -> Result<(), String> {
+        use winreg::enums::*;
+        use winreg::RegKey;
+        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+        let path = r"Software\Microsoft\Windows\CurrentVersion\Internet Settings";
+        let (key, _) = hkcu
+            .create_subkey(path)
+            .map_err(|e| e.to_string())?;
+        key.set_value("ProxyEnable", &0u32)
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    /// Install a raw DER certificate into the Windows LocalMachine\Root trust store.
+    fn install_ca_der(der: &[u8]) -> Result<(), String> {
+        use windows::Win32::Security::Cryptography::{
+            CertAddEncodedCertificateToStore, CertCloseStore, CertOpenSystemStoreA,
+            CERT_STORE_ADD_NEW, X509_ASN_ENCODING,
         };
-
-        match Self::rewrite_tcp_destination(packet_data.as_mut_slice(), proxy_ip, tls_proxy.listen_port) {
-            Ok(()) => {
-                reason.get_or_insert_with(|| {
-                    format!(
-                        "TLS Proxy redirect: {}:443 -> {}:{}",
-                        info.dst_ip, proxy_ip, tls_proxy.listen_port
-                    )
-                });
-                true
+        use windows::core::PCSTR;
+        unsafe {
+            let store = CertOpenSystemStoreA(None, PCSTR(b"ROOT\0".as_ptr()))
+                .map_err(|e| format!("CertOpenSystemStoreA: {:?}", e))?;
+            let result = CertAddEncodedCertificateToStore(
+                Some(store),
+                X509_ASN_ENCODING,
+                der,
+                CERT_STORE_ADD_NEW,
+                None,
+            );
+            let _ = CertCloseStore(Some(store), 0);
+            match result {
+                Ok(_) => Ok(()),
+                Err(e) if e.code().0 as u32 == 0x8009_2005 => Ok(()), // already present
+                Err(e) => Err(format!("CertAddEncodedCertificateToStore: {:?}", e)),
             }
-            Err(e) => {
-                reason.get_or_insert_with(|| format!("TLS Proxy redirect failed: {}", e));
-                false
-            }
-        }
-    }
-
-    fn build_mitmproxy_local_mode(mode_spec: Option<&str>) -> String {
-        if let Some(spec) = mode_spec.map(str::trim).filter(|s| !s.is_empty()) {
-            format!("local:{}", spec)
-        } else {
-            "local".to_string()
-        }
-    }
-
-    fn start_mitmproxy_rs_backend(&self, tls_proxy: &TlsProxyConfig, tx: &AppHandle) {
-        if tls_proxy.mode != TlsInspectionMode::TlsProxy
-            || tls_proxy.backend != TlsProxyBackend::MitmproxyRsLocal
-            || !tls_proxy.auto_start_backend
-        {
-            return;
-        }
-
-        let mut child_lock = self.tls_proxy_backend_child.lock().unwrap();
-        if let Some(child) = child_lock.as_mut() {
-            match child.try_wait() {
-                Ok(Some(_)) => {
-                    *child_lock = None;
-                }
-                Ok(None) => {
-                    let now = Self::now_ts();
-                    let _ = tx.emit(
-                        "log",
-                        LogEntry {
-                            id: format!("{}-mitmproxy-backend-running", now),
-                            timestamp: now,
-                            level: LogLevel::Info,
-                            message: "mitmproxy_rs backend already running".to_string(),
-                        },
-                    );
-                    return;
-                }
-                Err(_) => {
-                    *child_lock = None;
-                }
-            }
-        }
-
-        let mut cmd = Command::new(&tls_proxy.backend_command);
-        let mut args = tls_proxy.backend_args.clone();
-
-        let has_mode_arg = args.iter().any(|a| a == "--mode" || a == "-m");
-        if !has_mode_arg {
-            args.push("--mode".to_string());
-            args.push(Self::build_mitmproxy_local_mode(
-                tls_proxy.local_capture_spec.as_deref(),
-            ));
-        }
-
-        cmd.args(args)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null());
-
-        let now = Self::now_ts();
-        match cmd.spawn() {
-            Ok(child) => {
-                *child_lock = Some(child);
-                let mode_arg = Self::build_mitmproxy_local_mode(
-                    tls_proxy.local_capture_spec.as_deref(),
-                );
-                let _ = tx.emit(
-                    "log",
-                    LogEntry {
-                        id: format!("{}-mitmproxy-backend-started", now),
-                        timestamp: now,
-                        level: LogLevel::Success,
-                        message: format!(
-                            "Started mitmproxy_rs backend: {} --mode {}",
-                            tls_proxy.backend_command, mode_arg
-                        ),
-                    },
-                );
-            }
-            Err(e) => {
-                let _ = tx.emit(
-                    "log",
-                    LogEntry {
-                        id: format!("{}-mitmproxy-backend-failed", now),
-                        timestamp: now,
-                        level: LogLevel::Error,
-                        message: format!(
-                            "Failed to start mitmproxy_rs backend ({}): {}",
-                            tls_proxy.backend_command, e
-                        ),
-                    },
-                );
-            }
-        }
-    }
-
-    fn stop_mitmproxy_rs_backend(&self) {
-        let mut child_lock = self.tls_proxy_backend_child.lock().unwrap();
-        if let Some(mut child) = child_lock.take() {
-            let _ = child.kill();
-            let _ = child.wait();
         }
     }
 
     // ============================================================================
-    // TLS PROXY CA AUTO-TRUST
-    // Automatically installs the mitmproxy root CA into the Windows Trusted Root
-    // store so browsers and apps accept TLS proxy certificates without errors.
-    //
-    // Required Cargo.toml feature (add to your windows dependency):
-    //   "Win32_Security_Cryptography"
-    // The process must be running as Administrator to write to LocalMachine\Root.
+    // TLS PROXY CA AUTO-TRUST (legacy file-based path — kept for manual cert flows)
     // ============================================================================
-
-    /// Checks whether TLS proxy mode is active, locates the mitmproxy root CA,
-    /// and installs it into Windows Trusted Root if not already trusted.
     pub fn ensure_proxy_ca_trusted(&self, app_handle: &AppHandle) {
         let tls_proxy = {
             let s = self.settings.read().unwrap();
@@ -1529,8 +1362,11 @@ impl FirewallEngine {
             .expect("failed to spawn web_filter_loader thread");
 
         // OPEN WINDIVERT HANDLE ONCE
-        // Use the network layer so packets can be reinjected after allow decisions.
-        let divert = match WinDivert::network("true", 0, WinDivertFlags::new()) {
+        // The embedded proxy uses http-mitm-proxy which operates at the TCP/HTTP layer,
+        // not via WinDivert, so we don't need to compete with another WinDivert handle.
+        // Priority 0 is fine.
+        let divert_priority: i16 = 0;
+        let divert = match WinDivert::network("true", divert_priority, WinDivertFlags::new()) {
             Ok(d) => WinDivertArc(Arc::new(d)),
             Err(e) => {
                 let ts = Self::now_ts();
@@ -1576,17 +1412,15 @@ impl FirewallEngine {
                     timestamp: ts,
                     level: LogLevel::Info,
                     message: format!(
-                        "TLS Proxy mode enabled: backend={:?}, proxy={}:{}, block_quic_udp_443={}, enforce_proxy_routing={}",
-                        tls_proxy_cfg.backend,
+                        "TLS Proxy mode enabled (embedded): proxy={}:{}, block_quic_udp_443={}",
                         tls_proxy_cfg.listen_host,
                         tls_proxy_cfg.listen_port,
                         tls_proxy_cfg.block_quic_udp_443,
-                        tls_proxy_cfg.enforce_proxy_routing
                     ),
                 },
             );
 
-            self.start_mitmproxy_rs_backend(&tls_proxy_cfg, &tx);
+            self.start_embedded_proxy(&tls_proxy_cfg, &tx);
         }
 
         // PENDING APP MONITOR THREAD
@@ -1716,6 +1550,18 @@ impl FirewallEngine {
                                 // println!("DEBUG: Worker Recv Packet len={}", packet.data.len());
                                 let outbound = packet.address.outbound();
 
+                                // Skip packets reinjected by mitmproxy-rs (or any other
+                                // WinDivert handle). Impostor packets have wrong PID/port
+                                // context and would cause double-processing and noise.
+                                if packet.address.impostor() {
+                                    let reinject = windivert::packet::WinDivertPacket {
+                                        address: packet.address,
+                                        data: std::borrow::Cow::Owned(packet.data.to_vec()),
+                                    };
+                                    let _ = divert_w.send(&reinject);
+                                    continue;
+                                }
+
                                 // Serialize Address for Decision Logic
                                 // (Still keep some structure from previous for compatibility)
                                 let addr_bytes = unsafe {
@@ -1727,8 +1573,10 @@ impl FirewallEngine {
                                 };
 
                                 // PID RESOLUTION:
-                                // 1. Try native Windows TCP/UDP table lookup (most reliable)
-                                let mut pid = 0u32;
+                                // 1. WinDivert native PID — most reliable, direct from kernel
+                                // 2. Native Windows TCP/UDP table lookup
+                                // 3. Hook DLL mapping fallback
+                                let mut pid = packet.address.process_id();
                                 let data_vec = packet.data.to_vec();
                                 let mut pre_parsed =
                                     Self::parse_packet(&data_vec, outbound, 0, &am_w.info_cache);
@@ -1742,8 +1590,11 @@ impl FirewallEngine {
                                     let is_tcp =
                                         matches!(p_info.protocol, crate::engine::Protocol::TCP);
 
-                                    // Primary: Native Windows API lookup
-                                    pid = Self::resolve_pid_from_port(lookup_port, is_tcp);
+                                    // WinDivert native PID already set above (step 1).
+                                    // Fall through to TCP/UDP table if it returned 0.
+                                    if pid == 0 {
+                                        pid = Self::resolve_pid_from_port(lookup_port, is_tcp);
+                                    }
 
                                     // Fallback: Hook DLL mapping (if native lookup failed)
                                     if pid == 0 {
@@ -2037,13 +1888,40 @@ impl FirewallEngine {
 
         // 5. Core Firewall Logic
         // Loopback traffic MUST be allowed unconditionally and exit early.
-        // Continuing into rules/SDK/TLS-proxy-enforcement for 127.x traffic
-        // breaks Tauri's WebView2 IPC, the mitmproxy backend listener, and any
-        // local API calls the UI makes — producing an empty screen and
-        // ERR_CONNECTION_REFUSED even when enforce_proxy_routing is enabled.
+        // However, connections TO the TLS proxy listener are meaningful events
+        // (they tell us which app is being proxied) so we emit a log entry before
+        // returning rather than discarding them silently.
         if Self::is_loopback(info.src_ip) || Self::is_loopback(info.dst_ip) {
             stats.packets_total.fetch_add(1, Ordering::Relaxed);
             stats.packets_allowed.fetch_add(1, Ordering::Relaxed);
+
+            // Emit a dedicated event when an app connects to the proxy listener so
+            // the user can see which apps are being intercepted by mitmdump-rs.
+            if outbound
+                && tls_proxy_cfg.mode == TlsInspectionMode::TlsProxy
+                && Self::is_proxy_destination(&info, &tls_proxy_cfg)
+            {
+                let app_info_loopback = am.info_cache.get_info(pid);
+                let host_label = info
+                    .hostname
+                    .clone()
+                    .or_else(|| dns_handler.resolve_ip(&info.dst_ip.to_string()))
+                    .unwrap_or_else(|| info.dst_ip.to_string());
+                let now = Self::now_ts();
+                let _ = tx.emit(
+                    "log",
+                    LogEntry {
+                        id: format!("{}-proxy-intercept-{}", now, pid),
+                        timestamp: now,
+                        level: LogLevel::Info,
+                        message: format!(
+                            "Proxy Intercept: {} (pid={}) → {} via mitmdump-rs",
+                            app_info_loopback.name, pid, host_label
+                        ),
+                    },
+                );
+            }
+
             return PacketDecision {
                 packet_data: data_vec,
                 address_data: address_data.to_vec(),
@@ -2079,7 +1957,7 @@ impl FirewallEngine {
         let dns_domain = info.dns_query.clone();
 
         // 6. Resolve App Identity
-        let (app_decision, app_name, _) = am.check_app(&info, &tls_proxy_cfg);
+        let (app_decision, app_name, _) = am.check_app(&info);
 
         // 7. Custom Firewall Rules (PRIORITY #1)
         let current_rules = rules.read().unwrap();
@@ -2175,27 +2053,12 @@ impl FirewallEngine {
         }
 
     
-        // 10c. TLS PROXY REDIRECT + ENFORCEMENT
-        let use_internal_redirect = tls_proxy_cfg.backend == TlsProxyBackend::InternalRedirect;
-        let redirected_to_proxy = if should_forward && use_internal_redirect {
-            Self::try_apply_tls_proxy_redirect(
-                &mut data_vec,
-                &info,
-                outbound,
-                &app_info.path,
-                &tls_proxy_cfg,
-                &mut reason,
-            )
-        } else {
-            false
-        };
+        // 10c. TLS PROXY ENFORCEMENT (QUIC blocking)
+        // mitmproxy-rs handles its own packet capture — no redirection needed here.
         Self::enforce_tls_proxy_mode(
             &info,
             outbound,
-            &app_info.path,
             &tls_proxy_cfg,
-            use_internal_redirect,
-            redirected_to_proxy,
             &mut should_forward,
             &mut reason,
         );
@@ -2225,6 +2088,16 @@ impl FirewallEngine {
             if let Some(domain) = dns_domain.clone().or_else(|| info.hostname.clone()) {
                 dns_handler.log_query(domain.clone(), !should_forward);
 
+                // Record which app queried this domain — skip proxy-originated DNS
+                // (src_port == listen_port) so we preserve the original requester.
+                if outbound && pid != 0 {
+                    let is_proxy_dns = tls_proxy_cfg.mode == TlsInspectionMode::TlsProxy
+                        && info.src_port == tls_proxy_cfg.listen_port;
+                    if !is_proxy_dns {
+                        dns_handler.record_domain_pid(domain.clone(), pid, app_info.name.clone());
+                    }
+                }
+
                 // DNS Snooping: extract IP addresses from the answer if this is a response
                 if info.src_port == 53 && payload_offset < data_vec.len() {
                     let dns_payload = &data_vec[payload_offset..];
@@ -2239,43 +2112,70 @@ impl FirewallEngine {
         if should_forward {
             stats.packets_allowed.fetch_add(1, Ordering::Relaxed);
 
-            // ALLOWED TRAFFIC LOGGING (Rate Limited)
+            // The embedded proxy makes outbound connections from the listen port.
+            // Detect them by src_port so we can attribute them to the original app.
+            let is_proxy_traffic = outbound
+                && tls_proxy_cfg.mode == TlsInspectionMode::TlsProxy
+                && info.src_port == tls_proxy_cfg.listen_port;
+
+            // Proxy-originated upstream connections bypass the rate limiter so every
+            // intercepted flow is visible. All other traffic stays rate-limited to 500ms.
             let now = Self::now_ts();
             let last = stats.last_allowed_log_time.load(Ordering::Relaxed);
 
-            if now > last + 500 {
-                if stats
-                    .last_allowed_log_time
-                    .compare_exchange(last, now, Ordering::Relaxed, Ordering::Relaxed)
-                    .is_ok()
-                {
-                    let mut context = Self::format_packet_context(&info);
+            let should_log = is_proxy_traffic || {
+                now > last + 500
+                    && stats
+                        .last_allowed_log_time
+                        .compare_exchange(last, now, Ordering::Relaxed, Ordering::Relaxed)
+                        .is_ok()
+            };
 
-                    // DNS Snooping context enrichment
-                    if let Some(domain) = dns_handler.resolve_ip(&info.dst_ip.to_string()) {
-                        if !context.contains(&domain) {
-                            context = format!("host={} | {}", domain, context);
-                        }
-                    } else if let Some(domain) = dns_handler.resolve_ip(&info.src_ip.to_string()) {
-                        if !context.contains(&domain) {
-                            context = format!("host={} | {}", domain, context);
-                        }
+            if should_log {
+                let mut context = Self::format_packet_context(&info);
+
+                // DNS Snooping context enrichment
+                if let Some(domain) = dns_handler.resolve_ip(&info.dst_ip.to_string()) {
+                    if !context.contains(&domain) {
+                        context = format!("host={} | {}", domain, context);
                     }
-
-                    let allow_reason = reason
-                        .clone()
-                        .unwrap_or_else(|| "Allowed (no matching rule)".to_string());
-
-                    let _ = tx.emit(
-                        "log",
-                        LogEntry {
-                            id: format!("{}-allow", now),
-                            timestamp: now,
-                            level: LogLevel::Success,
-                            message: format!("{} | {}", allow_reason, context),
-                        },
-                    );
+                } else if let Some(domain) = dns_handler.resolve_ip(&info.src_ip.to_string()) {
+                    if !context.contains(&domain) {
+                        context = format!("host={} | {}", domain, context);
+                    }
                 }
+
+                // For proxy-originated traffic, look up which app originally queried
+                // this hostname so the log shows the real requester, not the engine PID.
+                let allow_reason = if is_proxy_traffic {
+                    let attributed = info.hostname.as_deref()
+                        .and_then(|h| dns_handler.resolve_domain_pid(h))
+                        .or_else(|| {
+                            dns_handler.resolve_ip(&info.dst_ip.to_string())
+                                .and_then(|h| dns_handler.resolve_domain_pid(&h))
+                        });
+                    match attributed {
+                        Some((orig_pid, orig_name)) => format!(
+                            "App Allowed: {} (pid={}, via embedded proxy)",
+                            orig_name, orig_pid
+                        ),
+                        None => "App Allowed: (via embedded proxy)".to_string(),
+                    }
+                } else {
+                    reason
+                        .clone()
+                        .unwrap_or_else(|| "Allowed (no matching rule)".to_string())
+                };
+
+                let _ = tx.emit(
+                    "log",
+                    LogEntry {
+                        id: format!("{}-allow", now),
+                        timestamp: now,
+                        level: LogLevel::Success,
+                        message: format!("{} | {}", allow_reason, context),
+                    },
+                );
             }
         } else {
             stats.packets_blocked.fetch_add(1, Ordering::Relaxed);
@@ -2323,7 +2223,7 @@ impl FirewallEngine {
             packet_data: data_vec,
             address_data: address_data.to_vec(),
             should_forward,
-            recalc_checksums: redirected_to_proxy,
+            recalc_checksums: false,
             _reason: reason_text,
         }
     }
@@ -2875,7 +2775,7 @@ impl FirewallEngine {
             }
         }
 
-        self.stop_mitmproxy_rs_backend();
+        self.stop_embedded_proxy();
     }
 }
 

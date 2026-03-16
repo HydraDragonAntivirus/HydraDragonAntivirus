@@ -60,7 +60,6 @@ Source: "C:\Users\victim\Documents\hydratempinstall\VC_redist.x64.exe"; DestDir:
 Source: "C:\Users\victim\Documents\hydratempinstall\clamav-1.5.2.win.x64.msi"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\victim\Documents\hydratempinstall\npcap-1.85.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\victim\Documents\hydratempinstall\Suricata-7.0.14-1-64bit.msi"; DestDir: "{tmp}"; Flags: deleteafterinstall
-Source: "C:\Users\victim\Documents\hydratempinstall\mitmproxy-12.2.1-windows-x86_64-installer.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\victim\Documents\hydratempinstall\jre-8u481-windows-x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\victim\Documents\hydratempinstall\jdk-21_windows-x64_bin.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\victim\Documents\hydratempinstall\windowsdesktop-runtime-8.0.25-win-x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
@@ -140,9 +139,6 @@ Filename: "{tmp}\clamav-1.5.2.win.x64.msi"; Parameters: "/quiet /norestart"; Fla
 
 ; Suricata Installer (MSI - Silent Install)
 Filename: "{tmp}\Suricata-7.0.14-1-64bit.msi"; Parameters: "/quiet /norestart"; Flags: shellexec waituntilterminated
-
-; Mitmproxy 12.2.1 installer (BitRock unattended)
-Filename: "{tmp}\mitmproxy-12.2.1-windows-x86_64-installer.exe"; Parameters: "--mode unattended --unattendedmodeui none --installer-language en --prefix ""{app}\mitmproxy"""; Flags: shellexec waituntilterminated
 
 ; Node.js 22.22.0 (silent)
 Filename: "{tmp}\node-v22.22.1-x64.msi"; Parameters: "/quiet /norestart"; Flags: shellexec waituntilterminated

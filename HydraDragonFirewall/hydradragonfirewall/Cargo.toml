@@ -21,7 +21,11 @@ regex = "1.12"
 lazy_static = "1.4"
 glob = "0.3"
 crossbeam-channel = "0.5"
-mitmproxy = { git = "https://github.com/mitmproxy/mitmproxy_rs", package = "mitmproxy", tag = "v0.12.9" }
+http-mitm-proxy = "0.18.0"
+rcgen = "0.14.7"
+moka = { version = "0.12", features = ["sync"] }
+tokio = { version = "1", features = ["full"] }
+winreg = "0.56.0"
 windows = { version = "0.62.2", features = [
     "Win32_Foundation",
     "Win32_System_Threading",
@@ -36,7 +40,6 @@ windows = { version = "0.62.2", features = [
     "Win32_System_IO",
     "Win32_NetworkManagement_IpHelper",
     "Win32_Networking_WinSock",
-    "Win32_Security_Cryptography",
 ] }
 url = "2.5.8"
 
