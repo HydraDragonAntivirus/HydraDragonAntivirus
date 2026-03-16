@@ -242,9 +242,23 @@ impl FirewallRule {
             let mut matched_ip = false;
             let remote_ip_str = remote_ip.to_string();
             for pattern in &self.remote_ips {
-                if pattern == "any" || pattern == "*" || pattern == &remote_ip_str {
+                if pattern == "any" || pattern == "*" {
                     matched_ip = true;
                     break;
+                }
+                // Support inline port notation: "1.2.3.4:443" or "[::1]:443"
+                let (ip_part, inline_port) = Self::split_ip_port(pattern);
+                if ip_part == remote_ip_str || ip_part == "any" || ip_part == "*" {
+                    if let Some(p) = inline_port {
+                        if p == remote_port {
+                            matched_ip = true;
+                            break;
+                        }
+                        // IP matched but port didn't — keep looking
+                    } else {
+                        matched_ip = true;
+                        break;
+                    }
                 }
             }
             if !matched_ip {
@@ -265,16 +279,20 @@ impl FirewallRule {
         }
 
         // Hostname pattern matching (for HTTPS SNI and HTTP Host)
+        // Supports inline port: "example.com:443" or "*.example.com:8443"
         if let Some(ref pattern) = self.hostname_pattern {
             if let Some(ref hostname) = packet.hostname {
-                if !Self::wildcard_match(pattern, hostname) {
+                let (host_part, inline_port) = Self::split_host_port(pattern);
+                let host_matched = Self::wildcard_match(&host_part, hostname);
+                let port_matched = inline_port.map_or(true, |p| p == remote_port);
+                if !host_matched || !port_matched {
                     return false;
                 }
             } else {
-                // No hostname in packet but rule requires it
                 return false;
             }
         }
+
 
         // URL pattern matching (for HTTP only)
         if let Some(ref pattern) = self.url_pattern {
@@ -337,6 +355,61 @@ impl FirewallRule {
 
         // Exact match
         text_lower == pattern_lower
+    }
+
+    /// Split an IP entry that may carry an inline port.
+    ///
+    /// Handles:
+    ///   "1.2.3.4"        → ("1.2.3.4", None)
+    ///   "1.2.3.4:443"    → ("1.2.3.4", Some(443))
+    ///   "[::1]"          → ("::1",     None)
+    ///   "[::1]:443"      → ("::1",     Some(443))
+    ///   "any" / "*"      → ("any"/"*", None)
+    fn split_ip_port(s: &str) -> (String, Option<u16>) {
+        let s = s.trim();
+        // IPv6 bracketed form: [addr]:port or [addr]
+        if s.starts_with('[') {
+            if let Some(close) = s.find(']') {
+                let addr = s[1..close].to_string();
+                let rest = &s[close + 1..];
+                if let Some(port_str) = rest.strip_prefix(':') {
+                    if let Ok(p) = port_str.parse::<u16>() {
+                        return (addr, Some(p));
+                    }
+                }
+                return (addr, None);
+            }
+        }
+        // IPv4 or plain string: split on the last ':'
+        if let Some(colon) = s.rfind(':') {
+            let maybe_port = &s[colon + 1..];
+            if let Ok(p) = maybe_port.parse::<u16>() {
+                // Make sure the left side isn't itself an IPv6 address
+                // (bare IPv6 without brackets would have multiple colons).
+                let left = &s[..colon];
+                if !left.contains(':') {
+                    return (left.to_string(), Some(p));
+                }
+            }
+        }
+        (s.to_string(), None)
+    }
+
+    /// Split a hostname pattern that may carry an inline port.
+    ///
+    /// Handles:
+    ///   "example.com"         → ("example.com", None)
+    ///   "example.com:443"     → ("example.com", Some(443))
+    ///   "*.example.com:8443"  → ("*.example.com", Some(8443))
+    fn split_host_port(s: &str) -> (String, Option<u16>) {
+        let s = s.trim();
+        if let Some(colon) = s.rfind(':') {
+            let maybe_port = &s[colon + 1..];
+            if let Ok(p) = maybe_port.parse::<u16>() {
+                return (s[..colon].to_string(), Some(p));
+            }
+        }
+        (s.to_string(), None)
     }
 }
 
@@ -1067,6 +1140,181 @@ impl FirewallEngine {
         }
     }
 
+    // ============================================================================
+    // TLS PROXY CA AUTO-TRUST
+    // Automatically installs the mitmproxy root CA into the Windows Trusted Root
+    // store so browsers and apps accept TLS proxy certificates without errors.
+    //
+    // Required Cargo.toml feature (add to your windows dependency):
+    //   "Win32_Security_Cryptography"
+    // The process must be running as Administrator to write to LocalMachine\Root.
+    // ============================================================================
+
+    /// Checks whether TLS proxy mode is active, locates the mitmproxy root CA,
+    /// and installs it into Windows Trusted Root if not already trusted.
+    pub fn ensure_proxy_ca_trusted(&self, app_handle: &AppHandle) {
+        let tls_proxy = {
+            let s = self.settings.read().unwrap();
+            s.tls_proxy.clone()
+        };
+
+        if tls_proxy.mode != TlsInspectionMode::TlsProxy {
+            return;
+        }
+
+        let emit = |level: LogLevel, message: String| {
+            let ts = Self::now_ts();
+            let _ = app_handle.emit(
+                "log",
+                LogEntry {
+                    id: format!("{}-ca-trust", ts),
+                    timestamp: ts,
+                    level,
+                    message,
+                },
+            );
+        };
+
+        match Self::find_proxy_ca_cert() {
+            Some(cert_path) => {
+                match Self::install_ca_cert_to_root_store(&cert_path) {
+                    Ok(true) => emit(
+                        LogLevel::Info,
+                        "TLS proxy CA certificate is already trusted — no action needed."
+                            .to_string(),
+                    ),
+                    Ok(false) => emit(
+                        LogLevel::Success,
+                        format!(
+                            "TLS proxy CA certificate installed into Windows Trusted Root: {}",
+                            cert_path.display()
+                        ),
+                    ),
+                    Err(e) => emit(
+                        LogLevel::Error,
+                        format!(
+                            "Failed to install TLS proxy CA certificate \
+                             (is the app running as Administrator?): {}",
+                            e
+                        ),
+                    ),
+                }
+            }
+            None => emit(
+                LogLevel::Warning,
+                "TLS proxy CA certificate not found. \
+                 Run mitmproxy once to generate ~/.mitmproxy/mitmproxy-ca-cert.cer, \
+                 or place mitmproxy-ca-cert.cer next to the application executable."
+                    .to_string(),
+            ),
+        }
+    }
+
+    /// Search well-known locations for a mitmproxy root CA certificate.
+    /// Checks next to the executable first, then the default mitmproxy directory.
+    fn find_proxy_ca_cert() -> Option<PathBuf> {
+        let mut candidates = vec![
+            PathBuf::from("mitmproxy-ca-cert.cer"),
+            PathBuf::from("mitmproxy-ca-cert.pem"),
+        ];
+        if let Ok(profile) = std::env::var("USERPROFILE") {
+            let base = PathBuf::from(&profile).join(".mitmproxy");
+            candidates.push(base.join("mitmproxy-ca-cert.cer"));
+            candidates.push(base.join("mitmproxy-ca-cert.pem"));
+            candidates.push(base.join("mitmproxy-ca.pem"));
+        }
+        candidates.into_iter().find(|p| p.exists())
+    }
+
+    /// Install a PEM or DER certificate file into the Windows "ROOT"
+    /// (Trusted Root Certification Authorities) store for the Local Machine.
+    ///
+    /// Returns:
+    ///   `Ok(true)`  — certificate was already present, nothing changed.
+    ///   `Ok(false)` — certificate was newly installed.
+    ///   `Err(_)`    — installation failed (e.g. not running as Administrator).
+    fn install_ca_cert_to_root_store(cert_path: &Path) -> Result<bool, String> {
+        use windows::Win32::Security::Cryptography::{
+            CertAddEncodedCertificateToStore, CertCloseStore, CertOpenSystemStoreA,
+            CryptStringToBinaryA, CERT_STORE_ADD_NEW, CRYPT_STRING_BASE64HEADER,
+            X509_ASN_ENCODING,
+        };
+        use windows::core::PCSTR;
+
+        let raw = fs::read(cert_path)
+            .map_err(|e| format!("Cannot read '{}': {}", cert_path.display(), e))?;
+
+        // Convert PEM → DER via the Windows CryptStringToBinaryA API if needed.
+        // windows-0.62 signature: CryptStringToBinaryA(pszstring: &[u8], dwflags, pbbinary, pcbbin, pdwskip, pdwflags)
+        let der: Vec<u8> = if raw.starts_with(b"-----BEGIN") {
+            unsafe {
+                // First call: pass None for pbbinary to query the required output size.
+                let mut cb: u32 = 0;
+                CryptStringToBinaryA(
+                    &raw,
+                    CRYPT_STRING_BASE64HEADER,
+                    None,
+                    &mut cb,
+                    None,
+                    None,
+                )
+                .map_err(|e| format!("CryptStringToBinaryA size query failed: {:?}", e))?;
+
+                // Second call: decode into the allocated buffer.
+                let mut buf = vec![0u8; cb as usize];
+                CryptStringToBinaryA(
+                    &raw,
+                    CRYPT_STRING_BASE64HEADER,
+                    Some(buf.as_mut_ptr()),
+                    &mut cb,
+                    None,
+                    None,
+                )
+                .map_err(|e| format!("CryptStringToBinaryA decode failed: {:?}", e))?;
+
+                buf.truncate(cb as usize);
+                buf
+            }
+        } else {
+            // Already DER-encoded.
+            raw
+        };
+
+        unsafe {
+            // Open the machine-wide Trusted Root store. Requires elevation.
+            // windows-0.62 signature: CertOpenSystemStoreA(hprov: Option<HCRYPTPROV_LEGACY>, szsubsystemprotocol)
+            let store = CertOpenSystemStoreA(None, PCSTR(b"ROOT\0".as_ptr()))
+                .map_err(|e| format!(
+                    "CertOpenSystemStoreA failed (run as Administrator): {:?}", e
+                ))?;
+
+            // CERT_STORE_ADD_NEW returns Err with CRYPT_E_EXISTS (0x80092005) when the
+            // identical certificate is already present — we use that to distinguish
+            // "newly added" from "already trusted" without a separate lookup pass.
+            // windows-0.62 signature: CertAddEncodedCertificateToStore(hcertstore: Option<HCERTSTORE>, dwcertencodingtype, pbcertencoded: &[u8], dwadddisp, ppcertcontext)
+            let result = CertAddEncodedCertificateToStore(
+                Some(store),
+                X509_ASN_ENCODING,
+                &der,
+                CERT_STORE_ADD_NEW,
+                None,
+            );
+            let _ = CertCloseStore(Some(store), 0);
+
+            match result {
+                Ok(_) => Ok(false), // certificate was newly installed
+                Err(e) => {
+                    if e.code().0 as u32 == 0x8009_2005 {
+                        // CRYPT_E_EXISTS — cert was already in the store
+                        Ok(true)
+                    } else {
+                        Err(format!("CertAddEncodedCertificateToStore: {:?}", e))
+                    }
+                }
+            }
+        }
+    }
+
     pub fn resolve_app_decision(&self, name: String, decision: String) {
         let app_decision = match decision.as_str() {
             "allow_always" => AppDecision::Allow,
@@ -1191,6 +1439,10 @@ impl FirewallEngine {
 
 impl FirewallEngine {
     pub fn start(&self, app_handle: AppHandle) {
+        // Auto-install the proxy CA into Windows Trusted Root so browsers
+        // don't show certificate errors when TLS proxy mode is active.
+        self.ensure_proxy_ca_trusted(&app_handle);
+
         let stats = Arc::clone(&self.stats);
         let rules = Arc::clone(&self.rules);
         let dns = Arc::clone(&self.dns_handler);
@@ -1676,7 +1928,7 @@ impl FirewallEngine {
         stats: &Arc<Statistics>,
         rules: &Arc<RwLock<Vec<FirewallRule>>>,
         am: &Arc<AppManager>,
-        wf: &Arc<WebFilter>,
+        _wf: &Arc<WebFilter>,
         settings: &Arc<RwLock<FirewallSettings>>,
         dns_handler: &Arc<DnsHandler>,
         sdk: &Arc<RwLock<crate::sdk::SdkRegistry>>,
@@ -1760,8 +2012,21 @@ impl FirewallEngine {
         }
 
         // 5. Core Firewall Logic
-        if info.src_ip.is_loopback() || info.dst_ip.is_loopback() {
-            reason.get_or_insert_with(|| "Localhost".to_string());
+        // Loopback traffic MUST be allowed unconditionally and exit early.
+        // Continuing into rules/SDK/TLS-proxy-enforcement for 127.x traffic
+        // breaks Tauri's WebView2 IPC, the mitmproxy backend listener, and any
+        // local API calls the UI makes — producing an empty screen and
+        // ERR_CONNECTION_REFUSED even when enforce_proxy_routing is enabled.
+        if Self::is_loopback(info.src_ip) || Self::is_loopback(info.dst_ip) {
+            stats.packets_total.fetch_add(1, Ordering::Relaxed);
+            stats.packets_allowed.fetch_add(1, Ordering::Relaxed);
+            return PacketDecision {
+                packet_data: data_vec,
+                address_data: address_data.to_vec(),
+                should_forward: true,
+                recalc_checksums: false,
+                _reason: "Localhost (always allowed)".to_string(),
+            };
         }
 
         // Cache URLs by PID for subsequent packets in the same flow.
@@ -1829,57 +2094,21 @@ impl FirewallEngine {
                 }
                 AppDecision::Pending => {
                     should_forward = true;
+                    reason = Some(format!("App pending decision: {}", app_name));
                 }
             }
         }
 
-        // 9. Intelligence & Malware Checks (Features 12, 13, 31)
-        // CRITICAL: Move this BEFORE SDK rules so whitelisting takes full priority!
-        let mut skip_malware_domain = false;
-        // Check domain blocklist (dns snooping / SNI / Host)
-        if let Some(domain) = info.hostname.as_deref() {
-            if let Some(reason_msg) = wf.check_hostname(domain) {
-                if reason_msg == "WHITELISTED" {
-                    skip_malware_domain = true;
-                    reason = Some(format!("Whitelisted Domain: {}", domain));
-                } else {
-                    should_forward = false;
-                    reason = Some(reason_msg);
-                }
-            }
-        }
-        
-        // Check URL blocklist (HTTP parsing / Hooking)
-        if should_forward {
-            if let Some(url) = info.full_url.as_deref() {
-                if let Some(reason_msg) = wf.check_url(url) {
-                    should_forward = false;
-                    reason = Some(reason_msg);
-                }
-            }
-        }
-
-        // Check IP blocklist (IPv4/v6 Malware lists)
-        if should_forward && !skip_malware_domain {
-            if wf.is_blocked_ip(info.dst_ip) {
-                should_forward = false;
-                reason = Some(format!("Blocked IP (Intelligence): {}", info.dst_ip));
-            }
-        }
-
-        // 10. SDK SECURITY RULES
-        if should_forward && !skip_malware_domain {
-            let sdk_read = sdk.read().unwrap();
-            let s_lock = settings.read().unwrap();
-
-            // Evaluate rules against the PAYLOAD for efficiency and correctness
+        // 9. SDK Rule Evaluation
+        {
             let payload = if payload_offset < data_vec.len() {
                 &data_vec[payload_offset..]
             } else {
-                &[]
+                &[][..]
             };
-
-            let findings = sdk_read.evaluate_all(&info, payload, &*s_lock, &sdk_context);
+            let s_lock = sdk.read().unwrap();
+            let settings_snap = settings.read().unwrap();
+            let findings = s_lock.evaluate_all(&info, payload, &*settings_snap, &sdk_context);
 
             if let Some(finding) = findings.first() {
                 match finding.action {
@@ -1910,7 +2139,6 @@ impl FirewallEngine {
                         );
                     }
                     crate::sdk::RuleAction::Ask => {
-                        // Set pending for user decision
                         should_forward = false; // Block until user decides
                         reason = Some(format!(
                             "SDK Rule [{}]: Pending user decision",

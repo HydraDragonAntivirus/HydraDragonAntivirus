@@ -84,4 +84,4 @@ rules:
     enabled: true
     protocol: any
     action: block
-    entropy_threshold: 7.8
+    entropy_threshold: 7.95,

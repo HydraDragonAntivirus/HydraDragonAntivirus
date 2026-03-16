@@ -6,7 +6,7 @@
     "build": {
         "beforeDevCommand": "",
         "beforeBuildCommand": "",
-        "frontendDist": "ui"
+        "frontendDist": "dist"
     },
     "app": {
         "withGlobalTauri": true,
@@ -23,7 +23,7 @@
             "capabilities": [
                 "app-default"
             ],
-            "csp": "default-src 'self' tauri: http://localhost:8080; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' tauri: ipc: http://localhost:8080 ws://localhost:8080;"
+            "csp": "default-src 'self' tauri: ipc:; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' tauri: ipc:;"
         }
     },
     "bundle": {

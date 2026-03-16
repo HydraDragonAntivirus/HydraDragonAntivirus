@@ -1,3 +1,7 @@
+# Machine Learning Folder
+hydradragon/machine_learning/pe_features_*
+/hydradragon/machine_learning/problematic_files
+
 # Owlyshield CMake
 /Owlyshield/build
 

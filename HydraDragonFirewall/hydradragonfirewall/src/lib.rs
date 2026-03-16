@@ -214,8 +214,13 @@ pub fn run() {
                     let engine = Arc::new(FirewallEngine::new());
                     println!("DEBUG: FirewallEngine::new() finished.");
 
+                    // manage() MUST come before start(). The worker threads spawned
+                    // by start() immediately call handle.try_state::<Arc<FirewallEngine>>()
+                    // for every Tauri command. If manage() hasn't been called yet,
+                    // try_state() returns None and every command returns
+                    // Err("Engine not initialized") -- causing a blank UI.
+                    handle.manage(Arc::clone(&engine));
                     engine.start(handle.clone());
-                    handle.manage(engine);
                     println!("DEBUG: FirewallEngine managed and started.");
                 })
                 .expect("Failed to spawn engine_init thread");

@@ -16,7 +16,8 @@
 This project is not production-ready.
 Breaking changes, bugs, and incomplete features should be expected.
 </p>
- ## Important Notes & Limitations
+
+## Important Notes & Limitations
 
 ### Project Scope
 
@@ -142,12 +143,13 @@ See the [LICENSE](./LICENSE) file for more information.
  - https://github.com/Yamato-Security/hayabusa/releases/tag/v3.8.1 (hayabusa-3.8.1-win-x64.zip)
 
  ## IMPORTANT
+- Accept the certificate trust dialog that Windows shows while the firewall is running.
 - Any logs will be removed when you restart the programme. So be careful!
 - You have to restart the program after the analysis.
 - Please don't share your IP in the logs.
 - Make sure that the ClamAV database is installed without problems.
 - We strongly recommend that you take a snapshot and then go back when you have finished your work.
-- Make your username hydradragonav (for example and for avoid anti analysis).
+- Make your username random (for example and for avoid anti analysis).
 - The installer also includes daily.cvd, main.cvd, bytecode.cvd due to download issues with the ClamAV database.
 
  ## Discord Community Server
