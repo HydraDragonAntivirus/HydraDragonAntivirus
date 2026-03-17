@@ -921,7 +921,7 @@ RWFConnect(_In_ PFLT_PORT ClientPort, _In_opt_ PVOID ServerPortCookie,
                     }
                     
                     UNICODE_STRING expectedRemaining;
-                    RtlInitUnicodeString(&expectedRemaining, L"\\Program Files\\HydraDragonAntivirus\\owlyshield_ransom.exe");
+                    RtlInitUnicodeString(&expectedRemaining, L"\\Program Files\\HydraDragonAntivirus\\hydradragon\\Owlyshield\\Owlyshield Service\\owlyshield_ransom.exe");
                     
                     if (RtlCompareUnicodeString(&remainingPart, &expectedRemaining, TRUE) == 0)
                     {
