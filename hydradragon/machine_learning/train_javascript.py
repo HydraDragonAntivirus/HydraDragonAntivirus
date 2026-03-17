@@ -1,3 +1,6 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
 import hashlib
 import json
 import pickle
@@ -533,7 +536,7 @@ class DataProcessor:
             self.bin_path.write_bytes(b'')
         if not self.index_path.exists():
             self.index_path.parent.mkdir(parents=True, exist_ok=True)
-            self.index_path.write_text('', encoding='utf-8')
+            self.index_path.write_text('', encoding='utf-8', errors='replace')
         for p in [self.malicious_pickle_path, self.benign_pickle_path]:
             if not p.exists():
                 p.parent.mkdir(parents=True, exist_ok=True)
@@ -542,7 +545,7 @@ class DataProcessor:
     def _load_seen_md5s(self) -> dict:
         seen = {}  # md5 -> label ("malicious" | "benign")
         try:
-            with open(self.index_path, 'r', encoding='utf-8') as idxf:
+            with open(self.index_path, 'r', encoding='utf-8', errors='replace') as idxf:
                 for line in idxf:
                     if not line.strip():
                         continue
@@ -779,7 +782,7 @@ class DataProcessor:
         }
 
         # Append index line
-        with open(self.index_path, 'a', encoding='utf-8') as idxf:
+        with open(self.index_path, 'a', encoding='utf-8', errors='replace') as idxf:
             idxf.write(json.dumps(index_entry, ensure_ascii=False) + '\n')
 
         # Append full features to pickle
@@ -788,7 +791,8 @@ class DataProcessor:
             with open(pickle_path, 'ab') as pf:
                 pickle.dump(features, pf, protocol=pickle.HIGHEST_PROTOCOL)
         except Exception as e:
-            logger.exception(f"Failed to append pickled features for {path}: {e}")
+            safe_path = str(path).encode('utf-8', 'replace').decode('utf-8')
+            logger.exception(f"Failed to append pickled features for {safe_path}: {e}")
 
         return index_entry
 
@@ -910,7 +914,8 @@ class DataProcessor:
                     self._append_vector_and_index(feats)
                     inserted += 1
                 except Exception as e:
-                    logger.exception(f"Failed to append vector for {f_path}: {e}")
+                    safe_path = str(f_path).encode('utf-8', 'replace').decode('utf-8')
+                    logger.exception(f"Failed to append vector for {safe_path}: {e}")
                     failed += 1
                     self._move(f_path, self.problematic_dir / label)
 
@@ -939,7 +944,7 @@ class DataProcessor:
         }
 
         output_file = self.output_dir / 'summary.json'
-        with open(output_file, 'w', encoding='utf-8') as f:
+        with open(output_file, 'w', encoding='utf-8', errors='replace') as f:
             json.dump(summary, f, indent=2, ensure_ascii=False)
 
         logger.info(f"Saved summary to {output_file}")
