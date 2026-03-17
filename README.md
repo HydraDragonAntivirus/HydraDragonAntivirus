@@ -143,7 +143,6 @@ See the [LICENSE](./LICENSE) file for more information.
  - https://github.com/Yamato-Security/hayabusa/releases/tag/v3.8.1 (hayabusa-3.8.1-win-x64.zip)
 
  ## IMPORTANT
-- Accept the certificate trust dialog that Windows shows while the firewall is running.
 - Any logs will be removed when you restart the programme. So be careful!
 - You have to restart the program after the analysis.
 - Please don't share your IP in the logs.

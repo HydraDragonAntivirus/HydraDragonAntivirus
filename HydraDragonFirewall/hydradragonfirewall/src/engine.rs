@@ -912,11 +912,10 @@ impl FirewallEngine {
         .parse()
         .unwrap_or_else(|_| "127.0.0.1:8877".parse().unwrap());
 
-        let ca = crate::proxy::generate_ca();
+        let ca_bundle = crate::proxy::generate_ca();
 
         // Install the generated CA into Windows Trusted Root so browsers accept it.
-        let cert_der = crate::proxy::ca_cert_der(&ca);
-        if let Err(e) = Self::install_ca_der(&cert_der) {
+        if let Err(e) = Self::install_ca_der(&ca_bundle.cert_der) {
             let now = Self::now_ts();
             let _ = tx.emit("log", LogEntry {
                 id: format!("{}-ca-install-warn", now),
@@ -933,7 +932,7 @@ impl FirewallEngine {
         *self.tls_proxy_backend_child.lock().unwrap() = Some(stop_tx);
 
         let app = tx.clone();
-        tauri::async_runtime::spawn(crate::proxy::run_proxy(addr, ca, app, stop_rx));
+        tauri::async_runtime::spawn(crate::proxy::run_proxy(addr, ca_bundle.issuer, app, stop_rx));
     }
 
     fn stop_embedded_proxy(&self) {
@@ -994,177 +993,13 @@ impl FirewallEngine {
             let _ = CertCloseStore(Some(store), 0);
             match result {
                 Ok(_) => Ok(()),
-                Err(e) if e.code().0 as u32 == 0x8009_2005 => Ok(()), // already present
+                Err(ref e) if e.code().0 as u32 == 0x8009_2005 => Ok(()), // already present
                 Err(e) => Err(format!("CertAddEncodedCertificateToStore: {:?}", e)),
             }
         }
     }
 
-    // ============================================================================
-    // TLS PROXY CA AUTO-TRUST (legacy file-based path — kept for manual cert flows)
-    // ============================================================================
-    pub fn ensure_proxy_ca_trusted(&self, app_handle: &AppHandle) {
-        let tls_proxy = {
-            let s = self.settings.read().unwrap();
-            s.tls_proxy.clone()
-        };
-
-        if tls_proxy.mode != TlsInspectionMode::TlsProxy {
-            return;
-        }
-
-        let emit = |level: LogLevel, message: String| {
-            let ts = Self::now_ts();
-            let _ = app_handle.emit(
-                "log",
-                LogEntry {
-                    id: format!("{}-ca-trust", ts),
-                    timestamp: ts,
-                    level,
-                    message,
-                },
-            );
-        };
-
-        match Self::find_proxy_ca_cert() {
-            Some(cert_path) => {
-                match Self::install_ca_cert_to_root_store(&cert_path) {
-                    Ok(true) => emit(
-                        LogLevel::Info,
-                        "TLS proxy CA certificate is already trusted — no action needed."
-                            .to_string(),
-                    ),
-                    Ok(false) => emit(
-                        LogLevel::Success,
-                        format!(
-                            "TLS proxy CA certificate installed into Windows Trusted Root: {}",
-                            cert_path.display()
-                        ),
-                    ),
-                    Err(e) => emit(
-                        LogLevel::Error,
-                        format!(
-                            "Failed to install TLS proxy CA certificate \
-                             (is the app running as Administrator?): {}",
-                            e
-                        ),
-                    ),
-                }
-            }
-            None => emit(
-                LogLevel::Warning,
-                "TLS proxy CA certificate not found. \
-                 Run mitmproxy once to generate ~/.mitmproxy/mitmproxy-ca-cert.cer, \
-                 or place mitmproxy-ca-cert.cer next to the application executable."
-                    .to_string(),
-            ),
-        }
-    }
-
-    /// Search well-known locations for a mitmproxy root CA certificate.
-    /// Checks next to the executable first, then the default mitmproxy directory.
-    fn find_proxy_ca_cert() -> Option<PathBuf> {
-        let mut candidates = vec![
-            PathBuf::from("mitmproxy-ca-cert.cer"),
-            PathBuf::from("mitmproxy-ca-cert.pem"),
-        ];
-        if let Ok(profile) = std::env::var("USERPROFILE") {
-            let base = PathBuf::from(&profile).join(".mitmproxy");
-            candidates.push(base.join("mitmproxy-ca-cert.cer"));
-            candidates.push(base.join("mitmproxy-ca-cert.pem"));
-            candidates.push(base.join("mitmproxy-ca.pem"));
-        }
-        candidates.into_iter().find(|p| p.exists())
-    }
-
-    /// Install a PEM or DER certificate file into the Windows "ROOT"
-    /// (Trusted Root Certification Authorities) store for the Local Machine.
-    ///
-    /// Returns:
-    ///   `Ok(true)`  — certificate was already present, nothing changed.
-    ///   `Ok(false)` — certificate was newly installed.
-    ///   `Err(_)`    — installation failed (e.g. not running as Administrator).
-    fn install_ca_cert_to_root_store(cert_path: &Path) -> Result<bool, String> {
-        use windows::Win32::Security::Cryptography::{
-            CertAddEncodedCertificateToStore, CertCloseStore, CertOpenSystemStoreA,
-            CryptStringToBinaryA, CERT_STORE_ADD_NEW, CRYPT_STRING_BASE64HEADER,
-            X509_ASN_ENCODING,
-        };
-        use windows::core::PCSTR;
-
-        let raw = fs::read(cert_path)
-            .map_err(|e| format!("Cannot read '{}': {}", cert_path.display(), e))?;
-
-        // Convert PEM → DER via the Windows CryptStringToBinaryA API if needed.
-        // windows-0.62 signature: CryptStringToBinaryA(pszstring: &[u8], dwflags, pbbinary, pcbbin, pdwskip, pdwflags)
-        let der: Vec<u8> = if raw.starts_with(b"-----BEGIN") {
-            unsafe {
-                // First call: pass None for pbbinary to query the required output size.
-                let mut cb: u32 = 0;
-                CryptStringToBinaryA(
-                    &raw,
-                    CRYPT_STRING_BASE64HEADER,
-                    None,
-                    &mut cb,
-                    None,
-                    None,
-                )
-                .map_err(|e| format!("CryptStringToBinaryA size query failed: {:?}", e))?;
-
-                // Second call: decode into the allocated buffer.
-                let mut buf = vec![0u8; cb as usize];
-                CryptStringToBinaryA(
-                    &raw,
-                    CRYPT_STRING_BASE64HEADER,
-                    Some(buf.as_mut_ptr()),
-                    &mut cb,
-                    None,
-                    None,
-                )
-                .map_err(|e| format!("CryptStringToBinaryA decode failed: {:?}", e))?;
-
-                buf.truncate(cb as usize);
-                buf
-            }
-        } else {
-            // Already DER-encoded.
-            raw
-        };
-
-        unsafe {
-            // Open the machine-wide Trusted Root store. Requires elevation.
-            // windows-0.62 signature: CertOpenSystemStoreA(hprov: Option<HCRYPTPROV_LEGACY>, szsubsystemprotocol)
-            let store = CertOpenSystemStoreA(None, PCSTR(b"ROOT\0".as_ptr()))
-                .map_err(|e| format!(
-                    "CertOpenSystemStoreA failed (run as Administrator): {:?}", e
-                ))?;
-
-            // CERT_STORE_ADD_NEW returns Err with CRYPT_E_EXISTS (0x80092005) when the
-            // identical certificate is already present — we use that to distinguish
-            // "newly added" from "already trusted" without a separate lookup pass.
-            // windows-0.62 signature: CertAddEncodedCertificateToStore(hcertstore: Option<HCERTSTORE>, dwcertencodingtype, pbcertencoded: &[u8], dwadddisp, ppcertcontext)
-            let result = CertAddEncodedCertificateToStore(
-                Some(store),
-                X509_ASN_ENCODING,
-                &der,
-                CERT_STORE_ADD_NEW,
-                None,
-            );
-            let _ = CertCloseStore(Some(store), 0);
-
-            match result {
-                Ok(_) => Ok(false), // certificate was newly installed
-                Err(e) => {
-                    if e.code().0 as u32 == 0x8009_2005 {
-                        // CRYPT_E_EXISTS — cert was already in the store
-                        Ok(true)
-                    } else {
-                        Err(format!("CertAddEncodedCertificateToStore: {:?}", e))
-                    }
-                }
-            }
-        }
-    }
+    // CA auto-trust is handled natively via `install_ca_der` during proxy startup.
 
     pub fn resolve_app_decision(&self, name: String, decision: String) {
         let app_decision = match decision.as_str() {
@@ -1291,8 +1126,7 @@ impl FirewallEngine {
 impl FirewallEngine {
     pub fn start(&self, app_handle: AppHandle) {
         // Auto-install the proxy CA into Windows Trusted Root so browsers
-        // don't show certificate errors when TLS proxy mode is active.
-        self.ensure_proxy_ca_trusted(&app_handle);
+        // CA generation and installation is now handled by start_embedded_proxy() on demand.
 
         let stats = Arc::clone(&self.stats);
         let rules = Arc::clone(&self.rules);
@@ -1550,7 +1384,7 @@ impl FirewallEngine {
                                 // println!("DEBUG: Worker Recv Packet len={}", packet.data.len());
                                 let outbound = packet.address.outbound();
 
-                                // Skip packets reinjected by mitmproxy-rs (or any other
+                                // Skip packets reinjected by the embedded proxy (or any other
                                 // WinDivert handle). Impostor packets have wrong PID/port
                                 // context and would cause double-processing and noise.
                                 if packet.address.impostor() {
@@ -1576,7 +1410,9 @@ impl FirewallEngine {
                                 // 1. WinDivert native PID — most reliable, direct from kernel
                                 // 2. Native Windows TCP/UDP table lookup
                                 // 3. Hook DLL mapping fallback
-                                let mut pid = packet.address.process_id();
+                                // NetworkLayer addresses do NOT carry process_id;
+                                // start at 0 and resolve via TCP/UDP table below.
+                                let mut pid: u32 = 0;
                                 let data_vec = packet.data.to_vec();
                                 let mut pre_parsed =
                                     Self::parse_packet(&data_vec, outbound, 0, &am_w.info_cache);
@@ -1896,7 +1732,7 @@ impl FirewallEngine {
             stats.packets_allowed.fetch_add(1, Ordering::Relaxed);
 
             // Emit a dedicated event when an app connects to the proxy listener so
-            // the user can see which apps are being intercepted by mitmdump-rs.
+            // the user can see which apps are being intercepted by the embedded proxy.
             if outbound
                 && tls_proxy_cfg.mode == TlsInspectionMode::TlsProxy
                 && Self::is_proxy_destination(&info, &tls_proxy_cfg)
@@ -1915,7 +1751,7 @@ impl FirewallEngine {
                         timestamp: now,
                         level: LogLevel::Info,
                         message: format!(
-                            "Proxy Intercept: {} (pid={}) → {} via mitmdump-rs",
+                            "Proxy Intercept: {} (pid={}) → {} via embedded proxy",
                             app_info_loopback.name, pid, host_label
                         ),
                     },
@@ -2054,7 +1890,7 @@ impl FirewallEngine {
 
     
         // 10c. TLS PROXY ENFORCEMENT (QUIC blocking)
-        // mitmproxy-rs handles its own packet capture — no redirection needed here.
+        // The embedded proxy handles its own packet capture — no redirection needed here.
         Self::enforce_tls_proxy_mode(
             &info,
             outbound,
@@ -2755,7 +2591,7 @@ impl FirewallEngine {
     /// 2. Calls WinDivertShutdown(Both) which immediately unblocks every
     ///    thread that is blocked in recv() — they will return an error,
     ///    see stop_signal == true, and break out of their loops.
-    /// 3. Kills the mitmproxy/mitmdump backend process if running.
+    /// 3. Kills the embedded proxy backend process if running.
     ///
     /// Safe to call more than once; subsequent calls are no-ops.
     pub fn stop(&self) {
