@@ -10,8 +10,20 @@ pub mod windivert_api;
 use crate::engine::FirewallEngine;
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Manager, Runtime};
+use tokio::time::{sleep, Duration};
 
 // FirewallState was redundant as we manage Arc<FirewallEngine> directly in modern Tauri 2
+
+async fn wait_for_engine<R: Runtime>(handle: &AppHandle<R>) -> Option<Arc<FirewallEngine>> {
+    for _ in 0..100 {
+        if let Some(engine) = handle.try_state::<Arc<FirewallEngine>>() {
+            return Some(Arc::clone(&*engine));
+        }
+        sleep(Duration::from_millis(50)).await;
+    }
+
+    None
+}
 
 #[tauri::command]
 async fn resolve_app_decision(
@@ -19,7 +31,7 @@ async fn resolve_app_decision(
     decision: String,
     handle: AppHandle,
 ) -> Result<(), String> {
-    if let Some(engine) = handle.try_state::<Arc<FirewallEngine>>() {
+    if let Some(engine) = wait_for_engine(&handle).await {
         engine.resolve_app_decision(name, decision);
         Ok(())
     } else {
@@ -31,7 +43,7 @@ async fn resolve_app_decision(
 async fn get_settings<R: Runtime>(
     handle: AppHandle<R>,
 ) -> Result<crate::engine::FirewallSettings, String> {
-    if let Some(engine) = handle.try_state::<Arc<FirewallEngine>>() {
+    if let Some(engine) = wait_for_engine(&handle).await {
         Ok(engine.get_settings())
     } else {
         Err("Engine not initialized".to_string())
@@ -43,7 +55,7 @@ async fn save_settings(
     settings: crate::engine::FirewallSettings,
     handle: AppHandle,
 ) -> Result<(), String> {
-    if let Some(engine) = handle.try_state::<Arc<FirewallEngine>>() {
+    if let Some(engine) = wait_for_engine(&handle).await {
         engine.apply_settings(settings);
         engine.save_settings();
         Ok(())
@@ -56,7 +68,7 @@ async fn save_settings(
 async fn get_sdk_rules<R: Runtime>(
     handle: AppHandle<R>,
 ) -> Result<Vec<crate::sdk::SdkRule>, String> {
-    if let Some(engine) = handle.try_state::<Arc<FirewallEngine>>() {
+    if let Some(engine) = wait_for_engine(&handle).await {
         Ok(engine.get_sdk_rules())
     } else {
         Err("Engine not initialized".to_string())
@@ -65,7 +77,7 @@ async fn get_sdk_rules<R: Runtime>(
 
 #[tauri::command]
 async fn get_rules_content(handle: AppHandle) -> String {
-    if let Some(engine) = handle.try_state::<Arc<FirewallEngine>>() {
+    if let Some(engine) = wait_for_engine(&handle).await {
         engine.get_rules_raw()
     } else {
         String::new()
@@ -74,7 +86,7 @@ async fn get_rules_content(handle: AppHandle) -> String {
 
 #[tauri::command]
 async fn save_rules_content(content: String, handle: AppHandle) -> Result<(), String> {
-    if let Some(engine) = handle.try_state::<Arc<FirewallEngine>>() {
+    if let Some(engine) = wait_for_engine(&handle).await {
         engine.save_rules_raw(content)
     } else {
         Err("Engine not initialized".to_string())
@@ -83,7 +95,7 @@ async fn save_rules_content(content: String, handle: AppHandle) -> Result<(), St
 
 #[tauri::command]
 async fn validate_rules_content(content: String, handle: AppHandle) -> Result<String, String> {
-    if let Some(engine) = handle.try_state::<Arc<FirewallEngine>>() {
+    if let Some(engine) = wait_for_engine(&handle).await {
         engine.validate_rules_raw(content)
     } else {
         Err("Engine not initialized".to_string())
@@ -92,7 +104,7 @@ async fn validate_rules_content(content: String, handle: AppHandle) -> Result<St
 
 #[tauri::command]
 async fn get_app_decisions(handle: AppHandle) -> Result<std::collections::HashMap<String, crate::engine::AppDecision>, String> {
-    if let Some(engine) = handle.try_state::<Arc<FirewallEngine>>() {
+    if let Some(engine) = wait_for_engine(&handle).await {
         Ok(engine.get_app_decisions())
     } else {
         Err("Engine not initialized".to_string())
@@ -101,7 +113,7 @@ async fn get_app_decisions(handle: AppHandle) -> Result<std::collections::HashMa
 
 #[tauri::command]
 async fn remove_app_decision(name_lower: String, handle: AppHandle) -> Result<(), String> {
-    if let Some(engine) = handle.try_state::<Arc<FirewallEngine>>() {
+    if let Some(engine) = wait_for_engine(&handle).await {
         engine.remove_app_decision(name_lower);
         Ok(())
     } else {
@@ -111,7 +123,7 @@ async fn remove_app_decision(name_lower: String, handle: AppHandle) -> Result<()
 
 #[tauri::command]
 async fn clear_app_decisions(handle: AppHandle) -> Result<(), String> {
-    if let Some(engine) = handle.try_state::<Arc<FirewallEngine>>() {
+    if let Some(engine) = wait_for_engine(&handle).await {
         engine.clear_app_decisions();
         Ok(())
     } else {
@@ -121,7 +133,7 @@ async fn clear_app_decisions(handle: AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 async fn get_active_alert(handle: AppHandle) -> Result<Option<crate::engine::PendingApp>, String> {
-    if let Some(engine) = handle.try_state::<Arc<FirewallEngine>>() {
+    if let Some(engine) = wait_for_engine(&handle).await {
         Ok(engine.get_active_alert())
     } else {
         Err("Engine not initialized".to_string())
@@ -140,7 +152,7 @@ async fn close_window(window: tauri::Window) {
 
 #[tauri::command]
 async fn quit_app(handle: AppHandle) {
-    if let Some(engine) = handle.try_state::<Arc<FirewallEngine>>() {
+    if let Some(engine) = wait_for_engine(&handle).await {
         engine.stop();
     }
     handle.exit(0);

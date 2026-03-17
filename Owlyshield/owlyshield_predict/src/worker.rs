@@ -789,6 +789,17 @@ pub mod worker_instance {
         }
 
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+        fn build_behavior_engine() -> BehaviorEngine {
+            static FIREWALL_PIPE_START: std::sync::Once = std::sync::Once::new();
+
+            let engine = BehaviorEngine::new();
+            FIREWALL_PIPE_START.call_once(|| {
+                engine.start_firewall_pipe();
+            });
+            engine
+        }
+
+        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
         fn apply_behavior_detection_state(record: &mut ProcessRecord, det: &ProcessRecord) {
             record.is_malicious = true;
             record.termination_requested = det.termination_requested;
@@ -984,11 +995,7 @@ pub mod worker_instance {
                 #[cfg(all(target_os = "windows", feature = "hydradragon"))]
                 av_integration: None,
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-                behavior_engine: {
-                    let engine = BehaviorEngine::new();
-                    engine.start_firewall_pipe();
-                    engine
-                },
+                behavior_engine: Self::build_behavior_engine(),
                 #[cfg(feature = "realtime_learning")]
                 learning_engine: {
                     #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
@@ -1470,11 +1477,7 @@ pub mod worker_instance {
                 #[cfg(all(target_os = "windows", feature = "hydradragon"))]
                 av_integration: None,
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-                behavior_engine: {
-                    let engine = BehaviorEngine::new();
-                    engine.start_firewall_pipe();
-                    engine
-                },
+                behavior_engine: Self::build_behavior_engine(),
                 #[cfg(feature = "realtime_learning")]
                 learning_engine: {
                     #[cfg(all(target_os = "windows", feature = "behavior_engine"))]

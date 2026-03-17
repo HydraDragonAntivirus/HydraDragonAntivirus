@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
 import json
@@ -15,7 +15,9 @@ from .hydra_logger import logger
 from .path_and_variables import (
     PIPE_AV_TO_EDR,
     READ_BUFFER_SIZE,
+    python_path,
 )
+from .utils_and_helpers import validate_pipe_peer
 
 # ============================================================================#
 # NT Path Normalization
@@ -251,6 +253,16 @@ async def monitor_threat_events_from_av(pipe_name: str = PIPE_AV_TO_EDR) -> None
                 if not connected:
                     win32pipe.DisconnectNamedPipe(pipe)
                     win32file.CloseHandle(pipe)
+                    continue
+
+                # Validation: Only allow AV (Python) client
+                if not validate_pipe_peer(pipe, python_path, is_server=True, logger=logger):
+                    logger.warning("[EDR] Rejected unauthorized client connection to AV->EDR pipe")
+                    try:
+                        win32pipe.DisconnectNamedPipe(pipe)
+                        win32file.CloseHandle(pipe)
+                    except Exception:
+                        pass
                     continue
 
                 logger.info("[EDR] AV client connected to AV->EDR pipe")

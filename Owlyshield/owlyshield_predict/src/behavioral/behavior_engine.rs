@@ -17,7 +17,8 @@ use crate::extensions::ExtensionList;
 use crate::predictions::prediction::input_tensors::VecvecCappedF32;
 use crate::threat_handler::ThreatHandler;
 use crate::signature_verification::verify_signature;
-use crate::utils::format_process_descriptor_with_fallback;
+use crate::utils::{format_process_descriptor_with_fallback, validate_pipe_client};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use num::FromPrimitive;
 
@@ -1235,6 +1236,7 @@ pub struct BehaviorEngine {
     /// Value holds full detection details for report generation.
     /// scan_all_processes marks matching processes as malicious and acts on them.
     pub firewall_blocked_exes: Arc<std::sync::RwLock<HashMap<String, FirewallDetection>>>,
+    firewall_pipe_started: Arc<AtomicBool>,
 }
 
 impl Default for BehaviorEngine {
@@ -1253,6 +1255,7 @@ impl BehaviorEngine {
             default_extension_whitelist: build_default_extension_whitelist(),
             firewall_net_pids: Arc::new(std::sync::RwLock::new(HashSet::new())),
             firewall_blocked_exes: Arc::new(std::sync::RwLock::new(HashMap::new())),
+            firewall_pipe_started: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -1263,16 +1266,24 @@ impl BehaviorEngine {
     pub fn start_firewall_pipe(&self) {
         use std::ffi::OsStr;
         use std::os::windows::ffi::OsStrExt;
-        use windows::Win32::Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE};
+        use windows::Win32::Foundation::{
+            CloseHandle, GetLastError, HANDLE, INVALID_HANDLE_VALUE, ERROR_PIPE_CONNECTED,
+        };
         use windows::Win32::Storage::FileSystem::{ReadFile, PIPE_ACCESS_INBOUND};
         use windows::Win32::System::Pipes::{
-            ConnectNamedPipe, CreateNamedPipeW,
+            ConnectNamedPipe, CreateNamedPipeW, DisconnectNamedPipe,
             NAMED_PIPE_MODE, PIPE_UNLIMITED_INSTANCES,
         };
         use windows::core::PCWSTR;
 
+        if self.firewall_pipe_started.swap(true, Ordering::SeqCst) {
+            Logging::info("[HydraNetPipe] Firewall pipe server already active");
+            return;
+        }
+
         let net_pids     = Arc::clone(&self.firewall_net_pids);
         let blocked_exes = Arc::clone(&self.firewall_blocked_exes);
+        let pipe_started = Arc::clone(&self.firewall_pipe_started);
 
         std::thread::Builder::new()
             .name("hydra_net_event_pipe".to_string())
@@ -1298,14 +1309,36 @@ impl BehaviorEngine {
                     };
 
                     if handle == INVALID_HANDLE_VALUE {
+                        Logging::error("[HydraNetPipe] CreateNamedPipeW failed; retrying");
                         std::thread::sleep(std::time::Duration::from_secs(2));
                         continue;
                     }
 
-                    if !unsafe { ConnectNamedPipe(handle, None) }.as_bool() {
-                        unsafe { let _ = CloseHandle(handle); }
+                    let connected = unsafe { ConnectNamedPipe(handle, None) }.as_bool()
+                        || unsafe { GetLastError() } == ERROR_PIPE_CONNECTED;
+
+                    if !connected {
+                        Logging::warning("[HydraNetPipe] ConnectNamedPipe failed; recreating pipe");
+                        unsafe {
+                            let _ = DisconnectNamedPipe(handle);
+                            let _ = CloseHandle(handle);
+                        }
+                        std::thread::sleep(std::time::Duration::from_millis(250));
                         continue;
                     }
+
+                    // Validation: Only allow HydraDragon Firewall
+                    if !unsafe { validate_pipe_client(handle, Some("hydradragonfirewall.exe"), false) } {
+                        Logging::error("[HydraNetPipe] Rejected unauthorized client connection");
+                        unsafe {
+                            use windows::Win32::System::Pipes::DisconnectNamedPipe;
+                            let _ = DisconnectNamedPipe(handle);
+                            let _ = CloseHandle(handle);
+                        }
+                        continue;
+                    }
+
+                    Logging::info("[HydraNetPipe] Client connected to HydraNetEvent pipe");
 
                     let mut buf = vec![0u8; 4096];
                     let mut leftover = String::new();
@@ -1366,15 +1399,20 @@ impl BehaviorEngine {
                         }
                     }
 
-                    unsafe { let _ = CloseHandle(handle); }
+                    Logging::info("[HydraNetPipe] Client disconnected; waiting for next firewall connection");
+                    unsafe {
+                        let _ = DisconnectNamedPipe(handle);
+                        let _ = CloseHandle(handle);
+                    }
+                }
+
+                #[allow(unreachable_code)]
+                {
+                    pipe_started.store(false, Ordering::SeqCst);
                 }
             })
             .expect("failed to spawn hydra_net_event_pipe thread");
     }
-
-    #[cfg(not(target_os = "windows"))]
-    pub fn start_firewall_pipe(&self) {}
-
 
     fn safe_pattern_match(text: &str, pattern: &str) -> bool {
         let text_lc = text.to_lowercase();

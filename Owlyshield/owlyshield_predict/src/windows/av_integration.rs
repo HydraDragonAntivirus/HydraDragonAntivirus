@@ -20,8 +20,12 @@ use windows::Win32::Storage::FileSystem::{
 use windows::Win32::System::Pipes::{
     ConnectNamedPipe, CreateNamedPipeA, DisconnectNamedPipe, PIPE_TYPE_BYTE,
     PIPE_UNLIMITED_INSTANCES, PIPE_WAIT, WaitNamedPipeA, PIPE_READMODE_BYTE, PIPE_READMODE_MESSAGE,
-    PIPE_TYPE_MESSAGE,
+    PIPE_TYPE_MESSAGE, GetNamedPipeClientProcessId,
 };
+use windows::Win32::System::Threading::{
+    OpenProcess, PROCESS_QUERY_INFORMATION, PROCESS_VM_READ,
+};
+use windows::Win32::System::ProcessStatus::GetModuleFileNameExA;
 
 use crate::process::ProcessRecord;
 use crate::logging::Logging;
@@ -33,6 +37,7 @@ use chrono::Utc;
 use crate::shared_def::IOMessage;
 use crate::signature_verification::verify_signature;
 use crate::driver_com::Driver;
+use crate::utils::validate_pipe_client;
 
 // --- Pipe names (single source of truth) ---
 #[allow(dead_code)] // Silencing warning, this pipe may be used by the external AV client
@@ -335,6 +340,8 @@ fn apply_fast_driver_action(event: &AVThreatEvent) {
     }
 }
 
+/// Helper to validate pipe client PID or executable path.
+
 fn spawn_av_to_edr_listener() -> thread::JoinHandle<()> {
     thread::spawn(move || unsafe {
         let pipe_name_c = match CString::new(PIPE_AV_TO_EDR) {
@@ -377,6 +384,15 @@ fn spawn_av_to_edr_listener() -> thread::JoinHandle<()> {
             let connect_ok: BOOL = ConnectNamedPipe(pipe_handle, None);
             let connect_err = GetLastError();
             if connect_ok.as_bool() || connect_err == ERROR_PIPE_CONNECTED {
+                // Validation: Only allow Python 3.12 path
+                if !validate_pipe_client(pipe_handle, Some(r"python312\python.exe"), false) {
+                    Logging::error("[AV->EDR] Rejected unauthorized client connection");
+                    let _ = DisconnectNamedPipe(pipe_handle);
+                    let _ = CloseHandle(pipe_handle);
+                    continue;
+                }
+                Logging::info("[AV->EDR] Authorized Python 3.12 client connected");
+
                 let mut buffer = vec![0u8; PIPE_READ_BUFFER_SIZE as usize];
                 let mut bytes_read = 0u32;
                 let read_ok = ReadFile(
@@ -467,6 +483,15 @@ fn spawn_mbr_alert_listener() -> thread::JoinHandle<()> {
             let connect_ok: BOOL = ConnectNamedPipe(pipe_handle, None);
             let connect_err = GetLastError();
             if connect_ok.as_bool() || connect_err == ERROR_PIPE_CONNECTED {
+                // Validation: Only allow PID 4 (Kernel/System)
+                if !validate_pipe_client(pipe_handle, None, true) {
+                    Logging::error("[MBR] Rejected unauthorized client connection");
+                    let _ = DisconnectNamedPipe(pipe_handle);
+                    let _ = CloseHandle(pipe_handle);
+                    continue;
+                }
+                Logging::info("[MBR] Authorized client (Kernel) connected");
+
                 let mut buffer = vec![0u8; PIPE_READ_BUFFER_SIZE as usize];
                 let mut bytes_read = 0u32;
                 let read_ok = ReadFile(
@@ -540,6 +565,15 @@ fn spawn_self_defense_listener() -> thread::JoinHandle<()> {
             let connect_ok: BOOL = ConnectNamedPipe(pipe_handle, None);
             let connect_err = GetLastError();
             if connect_ok.as_bool() || connect_err == ERROR_PIPE_CONNECTED {
+                // Validation: Only allow PID 4 (Kernel/System)
+                if !validate_pipe_client(pipe_handle, None, true) {
+                    Logging::error("[SelfDefense] Rejected unauthorized client connection");
+                    let _ = DisconnectNamedPipe(pipe_handle);
+                    let _ = CloseHandle(pipe_handle);
+                    continue;
+                }
+                Logging::info("[SelfDefense] Authorized client (Kernel) connected");
+
                 let mut buffer = vec![0u8; PIPE_READ_BUFFER_SIZE as usize];
                 let mut bytes_read = 0u32;
                 let read_ok = ReadFile(
@@ -915,6 +949,16 @@ fn scan_request_server_loop(rx: Receiver<EDRScanRequest>) {
             let err = GetLastError();
 
             if connect_ok.as_bool() || err == ERROR_PIPE_CONNECTED {
+                // Validation: Only allow Python 3.12 path
+                if !validate_pipe_client(pipe_handle, Some(r"python312\python.exe"), false) {
+                    Logging::error("[EDR->AV] Rejected unauthorized scan request client");
+                    let _ = DisconnectNamedPipe(pipe_handle);
+                    let _ = CloseHandle(pipe_handle);
+                    continue;
+                }
+                
+                Logging::info("PIPE: EDR scan request client (Python) connected");
+
                 let request = match rx.recv() {
                     Ok(r) => r,
                     Err(_) => {

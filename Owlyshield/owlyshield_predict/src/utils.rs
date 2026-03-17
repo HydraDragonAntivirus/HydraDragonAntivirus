@@ -95,3 +95,38 @@ pub fn is_process_alive(pid: u32) -> bool {
         Path::new(&format!("/proc/{}", pid)).exists()
     }
 }
+
+/// Validate the client connecting to a named pipe by its process path or PID.
+#[cfg(target_os = "windows")]
+pub unsafe fn validate_pipe_client(pipe_handle: ::windows::Win32::Foundation::HANDLE, expected_path: Option<&str>, allow_kernel: bool) -> bool {
+    use ::windows::Win32::Foundation::CloseHandle;
+    use ::windows::Win32::System::Pipes::GetNamedPipeClientProcessId;
+    use ::windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_INFORMATION, PROCESS_VM_READ};
+    use ::windows::Win32::System::ProcessStatus::GetModuleFileNameExA;
+
+    let mut client_pid: u32 = 0;
+    if !GetNamedPipeClientProcessId(pipe_handle, &mut client_pid).as_bool() {
+        return false;
+    }
+
+    if allow_kernel && client_pid == 4 {
+        return true;
+    }
+
+    if let Some(expected) = expected_path {
+        if let Ok(h_proc) = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, false, client_pid) {
+            let mut buffer = [0u8; 1024];
+            let len = GetModuleFileNameExA(h_proc, None, &mut buffer);
+            let _ = CloseHandle(h_proc);
+            if len > 0 {
+                let path = String::from_utf8_lossy(&buffer[..len as usize]).to_ascii_lowercase();
+                if path.contains(&expected.to_ascii_lowercase()) {
+                    return true;
+                }
+            }
+        }
+    }
+
+    false
+}
+

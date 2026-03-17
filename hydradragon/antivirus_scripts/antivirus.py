@@ -13,12 +13,17 @@ from .hydra_logger import (
 
 from .path_and_variables import (
     script_dir,
+    PIPE_AV_TO_EDR,
     PIPE_EDR_TO_AV,
     PIPE_AV_TO_FIREWALL,
+    FIREWALL_EXE_PATH,
+    OWLYSHIELD_RANSOM_EXE,
     _WAIT_TIMEOUT_MS,
     _OPEN_RETRIES,
     _RETRY_DELAY,
     _SCAN_REQUEST_SEND_QUEUE,
+)
+from .utils_and_helpers import validate_pipe_peer
     hayabusa_path,
     python_path,
     jadx_decompiled_dir,
@@ -1392,28 +1397,79 @@ web_protection_observer = None
 
 # --- Firewall web-scan delegation helpers ---
 
-def _sync_write_firewall_pipe(message: str) -> None:
-    """Synchronous writer that pushes a UTF-8 message to the firewall pipe."""
-    handle = None
+def _validate_pipe_server(handle, expected_path: str) -> bool:
+    """Verify that the pipe server is the expected executable."""
     try:
-        win32pipe.WaitNamedPipe(PIPE_AV_TO_FIREWALL, int(_WAIT_TIMEOUT_MS))
-        handle = win32file.CreateFile(
-            PIPE_AV_TO_FIREWALL,
-            win32file.GENERIC_WRITE,
-            0,
-            None,
-            win32file.OPEN_EXISTING,
-            0,
-            None,
-        )
-        win32file.WriteFile(handle, message.encode("utf-8"))
-        win32file.FlushFileBuffers(handle)
-    finally:
-        if handle:
+        import win32pipe
+        server_pid = win32pipe.GetNamedPipeServerProcessId(handle)
+        if server_pid == 0:
+            return False
+            
+        h_proc = win32api.OpenProcess(win32con.PROCESS_QUERY_INFORMATION | win32con.PROCESS_VM_READ, False, server_pid)
+        try:
+            exe_path = win32process.GetModuleFileNameEx(h_proc, 0)
+            return exe_path.lower() == expected_path.lower()
+        finally:
+            win32api.CloseHandle(h_proc)
+    except Exception as e:
+        logger.debug(f"Pipe server validation failed: {e}")
+        return False
+
+def _sync_write_firewall_pipe(message: str) -> None:
+    """
+    Synchronous writer that pushes a UTF-8 message to the firewall pipe.
+    Includes retries and peer validation.
+    """
+    _OPEN_RETRIES = 5
+    _RETRY_DELAY = 1.0
+    _WAIT_TIMEOUT_MS = 5000
+    
+    handle = None
+    for attempt in range(_OPEN_RETRIES):
+        try:
+            # Wait for pipe to be available if busy
             try:
-                win32file.CloseHandle(handle)
-            except Exception:
+                import win32pipe
+                win32pipe.WaitNamedPipe(PIPE_AV_TO_FIREWALL, _WAIT_TIMEOUT_MS)
+            except pywintypes.error:
                 pass
+
+            handle = win32file.CreateFile(
+                PIPE_AV_TO_FIREWALL,
+                win32file.GENERIC_WRITE,
+                0,
+                None,
+                win32file.OPEN_EXISTING,
+                0,
+                None,
+            )
+            
+            # Validate server
+            if not _validate_pipe_server(handle, FIREWALL_EXE_PATH):
+                logger.error(f"Rejected unauthorized Firewall pipe server for {PIPE_AV_TO_FIREWALL}")
+                win32file.CloseHandle(handle)
+                handle = None
+                return
+                
+            win32file.WriteFile(handle, message.encode("utf-8"))
+            win32file.FlushFileBuffers(handle)
+            return
+        except pywintypes.error as e:
+            if e.winerror in [2, 231]: # Not found or busy
+                if attempt < _OPEN_RETRIES - 1:
+                    time.sleep(_RETRY_DELAY)
+                    continue
+                else:
+                    raise
+            else:
+                raise
+        finally:
+            if handle:
+                try:
+                    win32file.CloseHandle(handle)
+                    handle = None
+                except Exception:
+                    pass
 
 
 async def _send_firewall_web_payload(paths: List[str], origin: str) -> None:
@@ -9169,6 +9225,13 @@ def _sync_open_pipe_for_write(timeout_ms: int = _WAIT_TIMEOUT_MS):
             0,
             None,
         )
+        
+        # Validation: Only allow EDR (owlyshield_ransom.exe) server
+        if not validate_pipe_peer(handle, OWLYSHIELD_RANSOM_EXE, is_server=False, logger=logger):
+            logger.warning("[AV] Rejected unauthorized EDR server in EDR-to-AV pipe")
+            win32file.CloseHandle(handle)
+            return None
+            
         return handle
     except Exception:
         # return None so async caller can retry; optionally log in caller

@@ -18,37 +18,81 @@ from .hydra_logger import logger
 from .path_and_variables import (
     malicious_hashes,
     malicious_hashes_lock,
-    PIPE_AV_TO_EDR
+    PIPE_AV_TO_EDR,
+    owlyshield_ransom_exe
 )
-from .utils_and_helpers import compute_md5
+import win32process
+import os
+import time
+from .utils_and_helpers import compute_md5, validate_pipe_peer
 
 # ============================================================================
 # PIPE 1: Sending Threat Events TO Owlyshield EDR (async)
 # ============================================================================
 
+
 def _sync_write_pipe(message_bytes: bytes) -> None:
     """
     Synchronous helper to open the named pipe, write bytes, and close the handle.
     Run this inside a thread with asyncio.to_thread to avoid blocking the event loop.
+    Includes retries and peer validation.
     """
+    _OPEN_RETRIES = 5
+    _RETRY_DELAY = 1.0
+    _WAIT_TIMEOUT_MS = 5000
+    
     handle = None
-    try:
-        handle = win32file.CreateFile(
-            PIPE_AV_TO_EDR,
-            win32file.GENERIC_WRITE,
-            0,
-            None,
-            win32file.OPEN_EXISTING,
-            0,
-            None
-        )
-        win32file.WriteFile(handle, message_bytes)
-    finally:
+    for attempt in range(_OPEN_RETRIES):
         try:
-            if handle:
+            # Wait for pipe to be available if busy
+            try:
+                import win32pipe
+                win32pipe.WaitNamedPipe(PIPE_AV_TO_EDR, _WAIT_TIMEOUT_MS)
+            except pywintypes.error:
+                pass # Continue to CreateFile which might fail with 2 (not found) or 231 (busy)
+
+            handle = win32file.CreateFile(
+                PIPE_AV_TO_EDR,
+                win32file.GENERIC_WRITE,
+                0,
+                None,
+                win32file.OPEN_EXISTING,
+                0,
+                None
+            )
+            
+            # Validate server
+            if not validate_pipe_peer(handle, owlyshield_ransom_exe, is_server=False, logger=logger):
+                logger.error(f"Rejected unauthorized EDR pipe server for {PIPE_AV_TO_EDR}")
                 win32file.CloseHandle(handle)
-        except Exception:
-            pass
+                handle = None
+                return # Security rejection, don't retry
+
+            win32file.WriteFile(handle, message_bytes)
+            return # Success
+            
+        except pywintypes.error as e:
+            if e.winerror == 2: # File not found (server not running)
+                if attempt < _OPEN_RETRIES - 1:
+                    time.sleep(_RETRY_DELAY)
+                    continue
+                else:
+                    raise
+            elif e.winerror == 231: # Pipe is busy
+                if attempt < _OPEN_RETRIES - 1:
+                    time.sleep(_RETRY_DELAY)
+                    continue
+                else:
+                    raise
+            else:
+                raise
+        finally:
+            try:
+                if handle:
+                    win32file.CloseHandle(handle)
+                    handle = None
+            except Exception:
+                pass
 
 
 async def _send_av_event_to_edr(file_path: str,

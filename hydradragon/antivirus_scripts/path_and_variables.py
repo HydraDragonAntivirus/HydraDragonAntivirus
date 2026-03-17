@@ -68,6 +68,7 @@ known_extensions_dir = os.path.join(script_dir, "known_extensions")
 owlyshield_dir = os.path.join(script_dir, "Owlyshield")
 owlyshield_service_dir = os.path.join(owlyshield_dir, "Owlyshield Service")
 owlyshield_rules_dir = os.path.join(owlyshield_service_dir, "rules")
+owlyshield_ransom_exe = os.path.join(owlyshield_service_dir, "owlyshield_ransom.exe")
 vineflower_path = os.path.join(jar_decompiler_dir, "vineflower-1.11.2.jar")
 system_file_names_path = os.path.join(known_extensions_dir, "system_filenames.txt")
 extensions_path = os.path.join(owlyshield_rules_dir, "extensions.txt")
@@ -216,6 +217,7 @@ suricata_log_dir = os.path.join(suricata_dir, "log")
 eve_log_path = os.path.join(suricata_log_dir, "eve.json")
 suricata_config_path = os.path.join(suricata_dir, "suricata.yaml")
 suricata_exe_path = os.path.join(suricata_dir, "suricata.exe")
+firewall_exe_path = os.path.join(program_files, "HydraDragonAntivirus", "HydraDragonFirewall", "hydradragonfirewall.exe")
 
 # ClamAV base folder path
 clamav_folder = os.path.join(program_files, "ClamAV")
@@ -304,3 +306,7 @@ def get_startup_paths():
     ctypes.windll.shell32.SHGetSpecialFolderPathW(None, buf_common, CSIDL_COMMON_STARTUP, False)
 
     return buf_user.value, buf_common.value
+
+# Explicit hardcoded paths for peer validation
+OWLYSHIELD_RANSOM_EXE = owlyshield_ransom_exe
+FIREWALL_EXE_PATH = firewall_exe_path
