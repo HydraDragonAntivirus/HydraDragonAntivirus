@@ -71,7 +71,8 @@ FSShouldIgnorePyasWhitelistPath(_In_ PCUNICODE_STRING Path);
 // Use InitHookNotifyDevice() / CleanupHookNotifyDevice() instead.
 
 // g_HookDeviceObject removed: hook device owned by Communication.cpp
-static PDRIVER_OBJECT g_DriverObject = NULL;   // set in DriverEntry; used by IoAllocateWorkItem
+static PDRIVER_OBJECT g_DriverObject = NULL;   // set in DriverEntry
+static PDEVICE_OBJECT g_WorkItemDeviceObject = NULL; // dedicated CDO for IoAllocateWorkItem
 static BOOLEAN g_UseLegacyProcessNotify = FALSE;
 static BOOLEAN g_ProcessNotifyRegistered = FALSE;
 static BOOLEAN g_ThreadNotifyRegistered = FALSE;
@@ -572,6 +573,26 @@ Return Value:
 
     status = FltRegisterFilter(DriverObject, &FilterRegistration, FilterAdd);
 
+    // Create a dedicated unnamed CDO on this DriverObject for IoAllocateWorkItem.
+    // FltRegisterFilter does NOT create a device on the minifilter's device chain,
+    // so DriverObject->DeviceObject stays NULL. We need a valid DeviceObject to
+    // pass to IoAllocateWorkItem (which references it to pin the driver).
+    if (NT_SUCCESS(status))
+    {
+        NTSTATUS cdoStatus = IoCreateDevice(DriverObject, 0, NULL,
+                                             FILE_DEVICE_UNKNOWN, 0, FALSE,
+                                             &g_WorkItemDeviceObject);
+        if (!NT_SUCCESS(cdoStatus))
+        {
+            DbgPrint("!!! FSFilter: IoCreateDevice for work-item CDO failed 0x%X (non-fatal)\n", cdoStatus);
+            g_WorkItemDeviceObject = NULL; // ImageLoadCallback will skip hook deferral
+        }
+        else
+        {
+            g_WorkItemDeviceObject->Flags &= ~DO_DEVICE_INITIALIZING;
+        }
+    }
+
     if (!NT_SUCCESS(status))
     {
         delete driverData;
@@ -892,18 +913,21 @@ VOID ImageLoadCallback(_In_opt_ PUNICODE_STRING FullImageName, _In_ HANDLE Proce
             // at PASSIVE_LEVEL with no loader lock held.
             //
             // In ImageLoadCallback only — loader lock path genuinely requires deferral
-            PHOOK_PROCESS_WORK_ITEM ctx = (PHOOK_PROCESS_WORK_ITEM)ExAllocatePool2(
-                POOL_FLAG_NON_PAGED, sizeof(HOOK_PROCESS_WORK_ITEM), 'wHuM');
-            if (ctx != NULL)
+            if (g_WorkItemDeviceObject != NULL)
             {
-                // IoAllocateWorkItem pins the driver via DeviceObject reference count
-                ctx->WorkItem = IoAllocateWorkItem(g_DriverObject->DeviceObject);
-                if (ctx->WorkItem == NULL) {
-                    ExFreePoolWithTag(ctx, 'wHuM');
-                } else {
-                    ctx->ProcessId = (ULONG)(ULONG_PTR)ProcessId;
-                    IoQueueWorkItem(ctx->WorkItem, HookProcessWorkItemRoutine,
-                                    DelayedWorkQueue, ctx);
+                PHOOK_PROCESS_WORK_ITEM ctx = (PHOOK_PROCESS_WORK_ITEM)ExAllocatePool2(
+                    POOL_FLAG_NON_PAGED, sizeof(HOOK_PROCESS_WORK_ITEM), 'wHuM');
+                if (ctx != NULL)
+                {
+                    // IoAllocateWorkItem pins the driver via DeviceObject reference count
+                    ctx->WorkItem = IoAllocateWorkItem(g_WorkItemDeviceObject);
+                    if (ctx->WorkItem == NULL) {
+                        ExFreePoolWithTag(ctx, 'wHuM');
+                    } else {
+                        ctx->ProcessId = (ULONG)(ULONG_PTR)ProcessId;
+                        IoQueueWorkItem(ctx->WorkItem, HookProcessWorkItemRoutine,
+                                        DelayedWorkQueue, ctx);
+                    }
                 }
             }
         }
@@ -1107,6 +1131,12 @@ Return Value:
         driverData = NULL;
     }
     
+    // Delete the dedicated work-item CDO before hook device teardown
+    if (g_WorkItemDeviceObject != NULL) {
+        IoDeleteDevice(g_WorkItemDeviceObject);
+        g_WorkItemDeviceObject = NULL;
+    }
+
     // Tear down independent hook device BEFORE FltUnregisterFilter so the
     // saved FltMgr dispatch pointers stay valid for teardown IRPs.
     CleanupHookNotifyDevice();

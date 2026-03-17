@@ -1,6 +1,21 @@
 #pragma once
 #include <ntifs.h>
 
+#ifndef PROCESS_QUERY_INFORMATION
+#define PROCESS_QUERY_INFORMATION 0x0400
+#endif
+
+// Define ZwQueryInformationProcess if missing
+NTSYSAPI
+NTSTATUS
+NTAPI
+ZwQueryInformationProcess(
+    _In_ HANDLE ProcessHandle,
+    _In_ ULONG ProcessInformationClass,
+    _Out_writes_bytes_(ProcessInformationLength) PVOID ProcessInformation,
+    _In_ ULONG ProcessInformationLength,
+    _Out_opt_ PULONG ReturnLength
+);
 #if _WIN64
 // 64-bit LDR_DATA_TABLE_ENTRY structure
 typedef struct _LDR_DATA_TABLE_ENTRY64

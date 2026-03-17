@@ -3,7 +3,7 @@
 #include <ntstrsafe.h>
 
 // Native directory path for loading rule files
-#define RULE_DIRECTORY L"\\??\\C:\\Program Files\\HydraDragonAntivirus\\PYAS_Protection_Rules\\"
+#define RULE_DIRECTORY L"\\??\\C:\\Program Files\\HydraDragonAntivirus\\hydradragon\\HydraDragon_Protection_Rules\\PYAS\\"
 #define MAX_RULE_FILE_SIZE (64 * 1024) // 64KB safety cap for a single rule file
 
 // Maximum extra chars added when expanding a hive prefix (HKCR\ -> \REGISTRY\MACHINE\SOFTWARE\CLASSES\)

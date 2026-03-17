@@ -59,6 +59,29 @@
 
 #include "Guid.h"
 
+#include <wdm.h>
+
+#ifndef PROCESS_QUERY_INFORMATION
+#define PROCESS_QUERY_INFORMATION 0x0400
+#endif
+
+// Define ZwQueryInformationProcess if missing
+NTSYSAPI
+NTSTATUS
+NTAPI
+ZwQueryInformationProcess(
+    _In_ HANDLE ProcessHandle,
+    _In_ ULONG ProcessInformationClass,
+    _Out_writes_bytes_(ProcessInformationLength) PVOID ProcessInformation,
+    _In_ ULONG ProcessInformationLength,
+    _Out_opt_ PULONG ReturnLength
+);
+
+// Define ProcessImageFileName as 27 if not present in headers
+#ifndef ProcessImageFileName
+#define ProcessImageFileName 27
+#endif
+
 // Define the name for our new pipe for sending MBR alerts
 #define MBR_ALERT_PIPE_NAME L"\\Device\\NamedPipe\\Global\\mbr_filter_alerts"
 
@@ -379,6 +402,136 @@ NTSTATUS GetProcessImagePath(PEPROCESS eProcess, PUNICODE_STRING* ProcessImagePa
 static BOOLEAN g_PipeAvailable = FALSE;
 static BOOLEAN g_PipeUnavailableLogged = FALSE;
 
+// --- Helper: Validate Pipe Server Process ---
+static BOOLEAN IsValidPipeServerProcess(HANDLE PipeHandle)
+{
+    NTSTATUS status;
+    IO_STATUS_BLOCK ioStatus;
+    FILE_PROCESS_IDS_USING_FILE_INFORMATION procIds = { 0 };
+    BOOLEAN isValid = FALSE;
+    HANDLE serverProcHandle = NULL;
+    ULONG returnLength = 0;
+    PUNICODE_STRING imagePath = NULL;
+    
+    // 1. Get process IDs using the pipe (should just be the server and us)
+    status = ZwQueryInformationFile(
+        PipeHandle,
+        &ioStatus,
+        &procIds,
+        sizeof(procIds),
+        FileProcessIdsUsingFileInformation
+    );
+    
+    // Only proceed if exactly one other process (the server) has it open, or we can get list
+    if (!NT_SUCCESS(status) && status != STATUS_INFO_LENGTH_MISMATCH) {
+        return FALSE; // Can't verify, deny by default
+    }
+    
+    // Allocate space for the process IDs list (it's dynamic)
+    ULONG listSize = sizeof(FILE_PROCESS_IDS_USING_FILE_INFORMATION) + 
+                     (sizeof(ULONG_PTR) * 16); // Up to 16 PIDs is plenty
+    PFILE_PROCESS_IDS_USING_FILE_INFORMATION pProcIds = 
+        (PFILE_PROCESS_IDS_USING_FILE_INFORMATION)ExAllocatePool2(POOL_FLAG_PAGED, listSize, 'pPiM');
+        
+    if (!pProcIds) return FALSE;
+        
+    status = ZwQueryInformationFile(PipeHandle, &ioStatus, pProcIds, listSize, FileProcessIdsUsingFileInformation);
+    if (!NT_SUCCESS(status)) {
+        ExFreePoolWithTag(pProcIds, 'pPiM');
+        return FALSE;
+    }
+    
+    // Find a PID that is not our own (the system process)
+    ULONG_PTR serverPid = 0;
+    ULONG_PTR currentPid = (ULONG_PTR)PsGetCurrentProcessId();
+    for (ULONG i = 0; i < pProcIds->NumberOfProcessIdsInList; i++) {
+        if (pProcIds->ProcessIdList[i] != currentPid && pProcIds->ProcessIdList[i] != 0) {
+            serverPid = pProcIds->ProcessIdList[i];
+            break;
+        }
+    }
+    
+    ExFreePoolWithTag(pProcIds, 'pPiM');
+    
+    if (serverPid == 0) return FALSE; // Server not found
+    
+    // 2. Open the server process
+    OBJECT_ATTRIBUTES objAttr;
+    CLIENT_ID clientId;
+    InitializeObjectAttributes(&objAttr, NULL, OBJ_KERNEL_HANDLE, NULL, NULL);
+    clientId.UniqueProcess = (HANDLE)serverPid;
+    clientId.UniqueThread = NULL;
+    
+    status = ZwOpenProcess(&serverProcHandle, PROCESS_QUERY_INFORMATION, &objAttr, &clientId);
+    if (!NT_SUCCESS(status)) return FALSE;
+    
+    // 3. Query the image path
+    status = ZwQueryInformationProcess(serverProcHandle, ProcessImageFileName, NULL, 0, &returnLength);
+    if (status != STATUS_INFO_LENGTH_MISMATCH || returnLength == 0) {
+        ZwClose(serverProcHandle);
+        return FALSE;
+    }
+    
+    imagePath = (PUNICODE_STRING)ExAllocatePool2(POOL_FLAG_PAGED, returnLength, 'pPiM');
+    if (!imagePath) {
+        ZwClose(serverProcHandle);
+        return FALSE;
+    }
+    
+    status = ZwQueryInformationProcess(serverProcHandle, ProcessImageFileName, imagePath, returnLength, &returnLength);
+    ZwClose(serverProcHandle);
+    
+    if (NT_SUCCESS(status) && imagePath->Buffer != NULL && imagePath->Length > 0) {
+        // 4. Validate the path matches exactly C:\Program Files\HydraDragonAntivirus\owlyshield_ransom.exe
+        UNICODE_STRING dosName;
+        OBJECT_ATTRIBUTES linkObjAttr;
+        HANDLE linkHandle;
+        UNICODE_STRING driveCDeviceName = {0};
+
+        RtlInitUnicodeString(&dosName, L"\\??\\C:");
+        InitializeObjectAttributes(&linkObjAttr, &dosName, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
+
+        if (NT_SUCCESS(ZwOpenSymbolicLinkObject(&linkHandle, SYMBOLIC_LINK_QUERY, &linkObjAttr)))
+        {
+            driveCDeviceName.MaximumLength = 256 * sizeof(WCHAR);
+            driveCDeviceName.Buffer = (PWCH)ExAllocatePool2(POOL_FLAG_PAGED, driveCDeviceName.MaximumLength, 'pPiM');
+            
+            if (driveCDeviceName.Buffer)
+            {
+                if (NT_SUCCESS(ZwQuerySymbolicLinkObject(linkHandle, &driveCDeviceName, NULL)))
+                {
+                    if (RtlPrefixUnicodeString(&driveCDeviceName, imagePath, TRUE))
+                    {
+                        UNICODE_STRING remainingPart;
+                        remainingPart.Buffer = (PWCH)((PUCHAR)imagePath->Buffer + driveCDeviceName.Length);
+                        remainingPart.Length = imagePath->Length - driveCDeviceName.Length;
+                        remainingPart.MaximumLength = remainingPart.Length;
+                        
+                        // Normalize by trimming trailing spaces
+                        while (remainingPart.Length >= sizeof(WCHAR) && 
+                               remainingPart.Buffer[(remainingPart.Length / sizeof(WCHAR)) - 1] == L' ') {
+                            remainingPart.Length -= sizeof(WCHAR);
+                        }
+                        
+                        UNICODE_STRING expectedRemaining;
+                        RtlInitUnicodeString(&expectedRemaining, L"\\Program Files\\HydraDragonAntivirus\\owlyshield_ransom.exe");
+                        
+                        if (RtlCompareUnicodeString(&remainingPart, &expectedRemaining, TRUE) == 0)
+                        {
+                            isValid = TRUE;
+                        }
+                    }
+                }
+                ExFreePoolWithTag(driveCDeviceName.Buffer, 'pPiM');
+            }
+            ZwClose(linkHandle);
+        }
+    }
+    
+    ExFreePoolWithTag(imagePath, 'pPiM');
+    return isValid;
+}
+
 // --- NEW FUNCTION: Send alert message to user-mode via named pipe ---
 // Updated with retry logic and STATUS_PENDING handling to prevent driver load failures
 VOID SendAlertOverPipe(PUNICODE_STRING message)
@@ -412,15 +565,22 @@ VOID SendAlertOverPipe(PUNICODE_STRING message)
 
         if (NT_SUCCESS(status))
         {
+            // Validate the pipe server process before writing
+            if (!IsValidPipeServerProcess(pipeHandle)) {
+                DbgPrintEx(DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL, "MBRF: Pipe connected but server process validation failed! Alert dropped to prevent interception.\n");
+                ZwClose(pipeHandle);
+                return; // Security failure: DO NOT send alert
+            }
+        
             // Log once when pipe becomes available
             if (!g_PipeAvailable)
             {
-                DbgPrintEx(DPFLTR_IHVDRIVER_ID, DPFLTR_INFO_LEVEL, "MBRF: Pipe connection established to user-mode listener\n");
+                DbgPrintEx(DPFLTR_IHVDRIVER_ID, DPFLTR_INFO_LEVEL, "MBRF: Pipe connection established and verified to legitimate user-mode listener\n");
                 g_PipeAvailable = TRUE;
                 g_PipeUnavailableLogged = FALSE;
             }
 
-            // Successfully opened pipe, now write the alert
+            // Successfully opened pipe and validated server, now write the alert
             status = ZwWriteFile(pipeHandle, NULL, NULL, NULL, &ioStatusBlock, message->Buffer, message->Length, NULL, NULL);
             if (!NT_SUCCESS(status))
             {

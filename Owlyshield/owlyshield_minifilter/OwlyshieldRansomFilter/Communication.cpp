@@ -836,12 +836,116 @@ RWFConnect(_In_ PFLT_PORT ClientPort, _In_opt_ PVOID ServerPortCookie,
     FLT_ASSERT(commHandle->ClientPort == NULL);
 
     //
-    //  Set the user process and port. In a production filter it may
-    //  be necessary to synchronize access to such fields with port
-    //  lifetime. For instance, while filter manager will synchronize
-    //  FltCloseClientPort with FltSendMessage's reading of the port
-    //  handle, synchronizing access to the UserProcess would be up to
-    //  the filter.
+    // --- Connection hardening: only allow owlyshield_ransom.exe from the
+    //     HydraDragonAntivirus installation directory to connect. ---
+    //
+    // The kernel sees NT-format paths. We resolve \??\C: to its device name
+    // and ensure the path is exactly on the C: drive as requested.
+    //
+
+    NTSTATUS status;
+    HANDLE procHandle = NULL;
+    ULONG returnLength = 0;
+    PUNICODE_STRING imagePath = NULL;
+    BOOLEAN allowed = FALSE;
+
+    // Open a kernel handle to the calling process
+    status = ObOpenObjectByPointer(
+        PsGetCurrentProcess(), OBJ_KERNEL_HANDLE, NULL,
+        0, *PsProcessType, KernelMode, &procHandle);
+    if (!NT_SUCCESS(status))
+    {
+        DbgPrint("!!! FSFilter: RWFConnect - ObOpenObjectByPointer failed 0x%X, rejecting connection\n", status);
+        return STATUS_ACCESS_DENIED;
+    }
+
+    // Query the image path length first
+    status = ZwQueryInformationProcess(
+        procHandle, ProcessImageFileName, NULL, 0, &returnLength);
+    if (status != STATUS_INFO_LENGTH_MISMATCH || returnLength == 0)
+    {
+        ZwClose(procHandle);
+        DbgPrint("!!! FSFilter: RWFConnect - cannot query process image path, rejecting connection\n");
+        return STATUS_ACCESS_DENIED;
+    }
+
+    imagePath = (PUNICODE_STRING)ExAllocatePool2(
+        POOL_FLAG_NON_PAGED, returnLength, 'cRwO');
+    if (imagePath == NULL)
+    {
+        ZwClose(procHandle);
+        DbgPrint("!!! FSFilter: RWFConnect - allocation failed, rejecting connection\n");
+        return STATUS_ACCESS_DENIED;
+    }
+
+    status = ZwQueryInformationProcess(
+        procHandle, ProcessImageFileName, imagePath, returnLength, &returnLength);
+    ZwClose(procHandle);
+
+    if (!NT_SUCCESS(status) || imagePath->Buffer == NULL || imagePath->Length == 0)
+    {
+        ExFreePoolWithTag(imagePath, 'cRwO');
+        DbgPrint("!!! FSFilter: RWFConnect - ZwQueryInformationProcess failed 0x%X, rejecting connection\n", status);
+        return STATUS_ACCESS_DENIED;
+    }
+
+    // Use a helper to check if the path is strictly on the C: drive and matches exactly
+    UNICODE_STRING dosName;
+    OBJECT_ATTRIBUTES linkObjAttr;
+    HANDLE linkHandle;
+    UNICODE_STRING driveCDeviceName = {0};
+
+    RtlInitUnicodeString(&dosName, L"\\??\\C:");
+    InitializeObjectAttributes(&linkObjAttr, &dosName, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
+
+    if (NT_SUCCESS(ZwOpenSymbolicLinkObject(&linkHandle, SYMBOLIC_LINK_QUERY, &linkObjAttr)))
+    {
+        driveCDeviceName.MaximumLength = 256 * sizeof(WCHAR);
+        driveCDeviceName.Buffer = (PWCH)ExAllocatePool2(POOL_FLAG_PAGED, driveCDeviceName.MaximumLength, 'cRwO');
+        
+        if (driveCDeviceName.Buffer)
+        {
+            if (NT_SUCCESS(ZwQuerySymbolicLinkObject(linkHandle, &driveCDeviceName, NULL)))
+            {
+                if (RtlPrefixUnicodeString(&driveCDeviceName, imagePath, TRUE))
+                {
+                    UNICODE_STRING remainingPart;
+                    remainingPart.Buffer = (PWCH)((PUCHAR)imagePath->Buffer + driveCDeviceName.Length);
+                    remainingPart.Length = imagePath->Length - driveCDeviceName.Length;
+                    remainingPart.MaximumLength = remainingPart.Length;
+                    
+                    // Normalize by trimming trailing spaces
+                    while (remainingPart.Length >= sizeof(WCHAR) && 
+                           remainingPart.Buffer[(remainingPart.Length / sizeof(WCHAR)) - 1] == L' ') {
+                        remainingPart.Length -= sizeof(WCHAR);
+                    }
+                    
+                    UNICODE_STRING expectedRemaining;
+                    RtlInitUnicodeString(&expectedRemaining, L"\\Program Files\\HydraDragonAntivirus\\owlyshield_ransom.exe");
+                    
+                    if (RtlCompareUnicodeString(&remainingPart, &expectedRemaining, TRUE) == 0)
+                    {
+                        allowed = TRUE;
+                    }
+                }
+            }
+            ExFreePoolWithTag(driveCDeviceName.Buffer, 'cRwO');
+        }
+        ZwClose(linkHandle);
+    }
+
+    if (!allowed)
+    {
+        DbgPrint("!!! FSFilter: RWFConnect - REJECTED connection from: %wZ\n", imagePath);
+        ExFreePoolWithTag(imagePath, 'cRwO');
+        return STATUS_ACCESS_DENIED;
+    }
+
+    DbgPrint("!!! FSFilter: RWFConnect - ACCEPTED connection from: %wZ\n", imagePath);
+    ExFreePoolWithTag(imagePath, 'cRwO');
+
+    //
+    //  Set the user process and port.
     //
 
     commHandle->ClientPort = ClientPort;
