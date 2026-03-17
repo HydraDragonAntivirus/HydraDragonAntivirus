@@ -89,7 +89,8 @@ from .path_and_variables import (
     hydra_dragon_dumper_path,
     hydra_dragon_dumper_extracted_dir,
     deobfuscar_path,
-    machine_learning_pickle_path,
+    machine_learning_pickle_benign_path,
+    machine_learning_pickle_malicious_path,
     resource_extractor_dir,
     ungarbler_dir,
     ungarbler_string_dir,
@@ -3371,15 +3372,15 @@ def entry_to_numeric(entry: dict) -> Tuple[List[float], str]:
     filename = (entry.get("file_info", {}) or {}).get("filename", "unknown")
     return numeric, filename
 
-def load_ml_definitions_pickle(base_filepath: str) -> bool:
+def load_ml_definitions_pickle(malicious_path: str, benign_path: str) -> bool:
     """
     Load ML definitions from separate malicious and benign pickle files.
     Each file contains a stream of pickled feature dictionaries.
     """
     global malicious_numeric_features, malicious_file_names, benign_numeric_features, benign_file_names
 
-    malicious_path = Path(base_filepath).parent / f"{Path(base_filepath).stem}_malicious.pkl"
-    benign_path = Path(base_filepath).parent / f"{Path(base_filepath).stem}_benign.pkl"
+    malicious_path_obj = Path(malicious_path)
+    benign_path_obj = Path(benign_path)
 
     malicious_numeric_features = []
     malicious_file_names = []
@@ -3409,11 +3410,11 @@ def load_ml_definitions_pickle(base_filepath: str) -> bool:
                     continue
 
     try:
-        logger.info(f"Loading malicious ML definitions from: {malicious_path}")
-        _load_stream(malicious_path, True)
+        logger.info(f"Loading malicious ML definitions from: {malicious_path_obj}")
+        _load_stream(malicious_path_obj, True)
 
-        logger.info(f"Loading benign ML definitions from: {benign_path}")
-        _load_stream(benign_path, False)
+        logger.info(f"Loading benign ML definitions from: {benign_path_obj}")
+        _load_stream(benign_path_obj, False)
 
         if malicious_numeric_features:
             vec_len = len(malicious_numeric_features[0])
@@ -9455,7 +9456,7 @@ async def load_all_resources_async():
         # load_ml_definitions_pickle is sync, so run in a thread
         ml_definitions = await load_resource_safe(
             "ML Definitions",
-            functools.partial(load_ml_definitions_pickle, machine_learning_pickle_path),
+            functools.partial(load_ml_definitions_pickle, machine_learning_pickle_malicious_path, machine_learning_pickle_benign_path),
             run_in_thread_for_sync=True,
             timeout=30,
         )
