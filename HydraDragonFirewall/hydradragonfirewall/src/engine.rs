@@ -1237,6 +1237,17 @@ impl FirewallEngine {
 
 
         let ts = Self::now_ts();
+        let sdk_count = self.sdk.read().unwrap().rules.len();
+        let _ = tx.emit(
+            "log",
+            LogEntry {
+                id: format!("{}-sdk-init", ts),
+                timestamp: ts,
+                level: LogLevel::Info,
+                message: format!("SDK Registry: {} rules active.", sdk_count),
+            },
+        );
+
         let _ = tx.emit(
             "log",
             LogEntry {
@@ -1476,7 +1487,7 @@ impl FirewallEngine {
                                     &fcheck_w,
                                     &tx_log,
                                     pid,
-                                    pre_parsed,
+                                    &pre_parsed,
                                 );
 
                                 // ── NET EVENT + BLOCK_EXE → BEHAVIOR ENGINE ─────────
@@ -1484,15 +1495,13 @@ impl FirewallEngine {
                                 //
                                 // NET_EVENT  — real outbound I/O observed (once per PID).
                                 // BLOCK_EXE  — firewall confirmed malicious traffic from
-                                //              this executable via rules/intelligence;
-                                //              behavior engine should act on it immediately.
+                                let mut decision_info: Option<PacketInfo> = None;
+                                if let Some((ref p_info, _)) = pre_parsed {
+                                    decision_info = Some(p_info.clone());
+                                }
+
                                 if outbound && pid != 0 {
-                                    if let Some((ref parsed_info, _)) = Self::parse_packet(
-                                        &decision.packet_data,
-                                        outbound,
-                                        pid,
-                                        &am_w.info_cache,
-                                    ) {
+                                    if let Some(ref parsed_info) = decision_info {
                                         let exe_path = am_w.info_cache.get_info(pid).path;
                                         let exe_path_lc = exe_path.to_lowercase();
                                         let is_system = exe_path_lc.is_empty()
@@ -1512,7 +1521,6 @@ impl FirewallEngine {
                                         }
 
                                         // BLOCK_EXE — once per exe path when firewall blocks
-                                        // Protocol: BLOCK_EXE:<exe>|<dst_ip>|<dst_port>|<hostname>|<reason>
                                         if !decision.should_forward
                                             && !is_system
                                             && !notified_blocked_exes.contains(&exe_path_lc)
@@ -1538,12 +1546,8 @@ impl FirewallEngine {
                                 }
 
                                 // EMIT RAW PACKET FOR UI (Wireshark-like view)
-                                if let Some((info, _)) = Self::parse_packet(
-                                    &decision.packet_data,
-                                    outbound,
-                                    pid,
-                                    &am_w.info_cache,
-                                ) {
+                                // Use the info already parsed from the decision logic to avoid re-parsing
+                                if let Some(info) = decision_info {
                                     let ts = Self::now_ts();
                                     let app_info = am_w.info_cache.get_info(pid);
 
@@ -1660,10 +1664,10 @@ impl FirewallEngine {
         file_checker: &Arc<FileMagicChecker>,
         tx: &AppHandle,
         process_id: u32,
-        pre_parsed: Option<(PacketInfo, usize)>,
+        pre_parsed: &Option<(PacketInfo, usize)>,
     ) -> PacketDecision {
         let (mut info, payload_offset) = match pre_parsed {
-            Some(p) => p,
+            Some(p) => (p.0.clone(), p.1),
             None => {
                 if let Some((p_info, offset)) =
                     Self::parse_packet(data, outbound, process_id, &am.info_cache)
@@ -2340,6 +2344,9 @@ impl FirewallEngine {
 
         if let Some(bytes) = payload_bytes {
             if !bytes.is_empty() {
+                // Entropy is now calculated only if a rule actually requests it, 
+                // but we can still sample it here once if we want it in every packet info.
+                // Re-calculating it 3 times per packet was the performance bottleneck.
                 payload_entropy = Some(Self::shannon_entropy(bytes));
                 let preview: Vec<String> = bytes
                     .iter()

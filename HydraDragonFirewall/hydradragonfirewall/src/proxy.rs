@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::oneshot;
 
 use crate::engine::{FirewallSettings, LogEntry, LogLevel, PacketInfo, Protocol};
@@ -238,6 +238,15 @@ pub async fn run_proxy(
                     let ts = now_ts();
 
                     if blocked {
+                        let ts = now_ts();
+                        
+                        // Increment global stats if the engine is available
+                        if let Some(engine) = app.try_state::<Arc<crate::engine::FirewallEngine>>() {
+                            engine.stats.packets_blocked.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                            engine.stats.packets_total.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        }
+
+                        // Emit log for the console/log view
                         let _ = app.emit(
                             "log",
                             LogEntry {
@@ -247,12 +256,23 @@ pub async fn run_proxy(
                                 message: format!("Proxy Intercept Blocked: HTTP {} {} \u{2192} {}", method, full_url, block_reason),
                             },
                         );
+
+                        // Emit raw_packet for the Blocked list and traffic view
+                        let raw_packet = crate::sdk::RawPacket::from_parts(
+                            format!("{}-proxy-block", ts),
+                            &[], // No decrypted payload passed here yet
+                            &mock_packet,
+                            &mock_context,
+                            "Block",
+                            block_reason.clone(),
+                        );
+                        let _ = app.emit("raw_packet", raw_packet);
+
                         // We drop the connection by returning an IO error, which is supported by http_mitm_proxy.
-                        // We cannot construct an empty Incoming body easily in hyper 1.0, so this is the cleanest way.
                         return Err(http_mitm_proxy::default_client::Error::IoError(
                             std::io::Error::new(
                                 std::io::ErrorKind::ConnectionAborted,
-                                "Blocked by HydraDragon Firewall SDK Rules",
+                                block_reason, // Use the block_reason string from the evaluation loop
                             )
                         ));
                     }
