@@ -132,7 +132,7 @@ pub async fn run_proxy(
     ca: rcgen::Issuer<'static, KeyPair>,
     app_handle: AppHandle,
     sdk: Arc<RwLock<SdkRegistry>>,
-    settings: Arc<RwLock<FirewallSettings>>,
+    _settings: Arc<RwLock<FirewallSettings>>,
     mut stop_rx: oneshot::Receiver<()>,
 ) {
     let proxy = MitmProxy::new(
@@ -149,9 +149,8 @@ pub async fn run_proxy(
             addr,
             service_fn(move |req: http_mitm_proxy::hyper::Request<http_mitm_proxy::hyper::body::Incoming>| {
                 let client = client.clone();
-                let app = app_handle_cloned.clone(); // Clone app_handle_cloned again inside the closure for the async block
+                let app = app_handle_cloned.clone();
                 let sdk = sdk.clone();
-                let settings = settings.clone();
 
                 async move {
                     // ── Capture request metadata before consuming ──────────
@@ -218,18 +217,15 @@ pub async fn run_proxy(
                     let (blocked, block_reason) = {
                         // Evaluate rules and store findings
                         let sdk_guard = sdk.read().unwrap();
-                        let settings_guard = settings.read().unwrap();
-                        let findings = sdk_guard.evaluate_all(&mock_packet, &[], &*settings_guard, &mock_context);
+                        let first_match = sdk_guard.evaluate_first_match(&mock_packet, &[]);
                         
                         let mut b = false;
                         let mut reason = String::new();
 
-
-                        for finding in findings {
+                        if let Some(finding) = first_match {
                             if finding.action == RuleAction::Block {
                                 b = true;
                                 reason = format!("Blocked by SDK Rule [{}]: {}", finding.rule_name, finding.description);
-                                break;
                             }
                         }
                         (b, reason)
@@ -253,7 +249,7 @@ pub async fn run_proxy(
                                 id: format!("{}-intercept-block-{}-{}", ts, host, port),
                                 timestamp: ts,
                                 level: LogLevel::Warning,
-                                message: format!("Proxy Intercept Blocked: HTTP {} {} \u{2192} {}", method, full_url, block_reason),
+                                message: format!("Proxy Intercept Blocked: HTTP {} {} -> {}", method, full_url, block_reason),
                             },
                         );
 

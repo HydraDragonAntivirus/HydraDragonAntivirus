@@ -117,14 +117,13 @@ nav {
 /* Main Content */
 main {
     flex: 1;
-    padding: 40px;
+    padding: 30px 40px;
     display: flex;
     flex-direction: column;
-    gap: 30px;
-    overflow-y: auto;
+    gap: 20px;
+    overflow-y: hidden; /* Grid will handle internal overflow if needed */
     position: relative;
     z-index: 1;
-    /* Lower than aside but has context */
 }
 
 /* Glass Cards */
@@ -142,7 +141,8 @@ main {
 .dashboard-grid {
     display: flex;
     gap: 30px;
-    height: 100%;
+    flex: 1;
+    min-height: 0; /* Important for flex child overflow */
 }
 
 .dash-col-main {

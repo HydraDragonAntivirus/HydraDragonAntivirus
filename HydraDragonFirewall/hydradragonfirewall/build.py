@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
 """
 HydraDragon Firewall Build Script
 Run as Administrator for WinDivert driver
@@ -111,9 +113,9 @@ def robust_copy(src: Path, dst: Path):
     if src.exists():
         try:
             shutil.copy2(src, dst)
-            print(gray(f"      Copied {src.name} → {dst}"))
+            print(gray(f"      Copied {src.name} -> {dst}"))
         except Exception as e:
-            warn(f"Failed to copy {src} → {dst}: {e}")
+            warn(f"Failed to copy {src} -> {dst}: {e}")
             warn("Hint: Make sure the application is not running.")
     else:
         warn(f"Source not found: {src}")

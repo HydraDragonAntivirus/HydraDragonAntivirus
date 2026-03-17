@@ -1863,10 +1863,9 @@ impl FirewallEngine {
                 &[][..]
             };
             let s_lock = sdk.read().unwrap();
-            let settings_snap = settings.read().unwrap();
-            let findings = s_lock.evaluate_all(&info, payload, &*settings_snap, &sdk_context);
+            let first_match = s_lock.evaluate_first_match(&info, payload);
 
-            if let Some(finding) = findings.first() {
+            if let Some(finding) = first_match {
                 match finding.action {
                     crate::sdk::RuleAction::Block => {
                         should_forward = false;

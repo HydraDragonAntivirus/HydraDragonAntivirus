@@ -165,7 +165,7 @@ pub fn App() -> impl IntoView {
     let (logs, set_logs) = create_signal(Vec::<LogEntry>::new());
     let (blocked_count, set_blocked_count) = create_signal(0);
     let (_threats_count, set_threats_count) = create_signal(0);
-    let (_allowed_count, set_allowed_count) = create_signal(0);
+    let (allowed_count, set_allowed_count) = create_signal(0);
     let (total_count, set_total_count) = create_signal(0);
 
     // Navigation State
@@ -561,6 +561,10 @@ pub fn App() -> impl IntoView {
                                         <div class="glass-card stat-item-compact">
                                             <h4>"Blocked"</h4>
                                             <div class="stat-value" style="color: var(--accent-red)">{move || blocked_count.get()}</div>
+                                        </div>
+                                        <div class="glass-card stat-item-compact">
+                                            <h4>"Allowed"</h4>
+                                            <div class="stat-value" style="color: var(--accent-green)">{move || allowed_count.get()}</div>
                                         </div>
                                     </div>
                                 </div>

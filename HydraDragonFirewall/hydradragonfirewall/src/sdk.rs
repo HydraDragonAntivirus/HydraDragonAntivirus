@@ -746,91 +746,145 @@ impl SdkRule {
             return false;
         }
 
-        let mut matches: Vec<bool> = Vec::new();
+        // We use a closure or a macro if we wanted to be extreme,
+        // but a simple helper or inline checks are fine for Rust's optimizer.
+        let mut check_results = std::iter::from_fn({
+            let mut step = 0;
+            let mut conditions_idx = 0;
+            let mut decoded_payload: Option<Vec<u8>> = None;
 
-        // Protocol check
-        if !self.protocol.matches(packet) {
-            matches.push(false);
-        } else {
-            matches.push(true);
-        }
-
-        // Source IP check
-        if let Some(ref matcher) = self.src_ip {
-            matches.push(matcher.matches(packet.src_ip));
-        }
-
-        // Destination IP check
-        if let Some(ref matcher) = self.dst_ip {
-            matches.push(matcher.matches(packet.dst_ip));
-        }
-
-        // Source port check
-        if let Some(ref matcher) = self.src_port {
-            matches.push(matcher.matches(packet.src_port));
-        }
-
-        // Destination port check
-        if let Some(ref matcher) = self.dst_port {
-            matches.push(matcher.matches(packet.dst_port));
-        }
-
-        // Domain check
-        if let Some(ref matcher) = self.domain {
-            matches.push(matcher.matches(packet.hostname.as_deref()));
-        }
-
-        // URL check
-        if let Some(ref matcher) = self.url {
-            matches.push(matcher.matches(packet.full_url.as_deref()));
-        }
-
-        // File type check
-        if let Some(ref matcher) = self.file_type {
-            matches.push(matcher.matches(packet.detected_file_type.as_deref()));
-        }
-
-        // Regex check
-        if let Some(ref matcher) = self.regex {
-            // Apply encoding before regex match
-            let check_data = self.encoding.decode(payload).unwrap_or_else(|| payload.to_vec());
-            matches.push(matcher.matches(&check_data));
-        }
-
-        // Localhost check (directional: outbound checks dst, inbound checks src)
-        if let Some(ref localhost_type) = self.localhost_type {
-            let matches_localhost = if packet.outbound {
-                localhost_type.matches(packet.dst_ip)
-            } else {
-                localhost_type.matches(packet.src_ip)
-            };
-            matches.push(matches_localhost);
-        }
-
-        // Routine check
-        if let Some(ref routine) = self.routine {
-            matches.push(routine.matches(packet));
-        }
-
-        // Additional conditions
-        for condition in &self.conditions {
-            let check_data = self.encoding.decode(payload).unwrap_or_else(|| payload.to_vec());
-            matches.push(condition.matches(packet, &check_data));
-        }
-
-        // Entropy check
-        if let Some(threshold) = self.entropy_threshold {
-            matches.push(packet.payload_entropy.unwrap_or(0.0) >= threshold);
-        }
-
-        // Apply condition logic
-        if matches.is_empty() {
-            return true; // Empty rule matches everything
-        }
+            move || {
+                loop {
+                    match step {
+                        0 => {
+                            step += 1;
+                            return Some(self.protocol.matches(packet));
+                        }
+                        1 => {
+                            step += 1;
+                            if let Some(ref matcher) = self.src_ip {
+                                return Some(matcher.matches(packet.src_ip));
+                            }
+                        }
+                        2 => {
+                            step += 1;
+                            if let Some(ref matcher) = self.dst_ip {
+                                return Some(matcher.matches(packet.dst_ip));
+                            }
+                        }
+                        3 => {
+                            step += 1;
+                            if let Some(ref matcher) = self.src_port {
+                                return Some(matcher.matches(packet.src_port));
+                            }
+                        }
+                        4 => {
+                            step += 1;
+                            if let Some(ref matcher) = self.dst_port {
+                                return Some(matcher.matches(packet.dst_port));
+                            }
+                        }
+                        5 => {
+                            step += 1;
+                            if let Some(ref matcher) = self.domain {
+                                return Some(matcher.matches(packet.hostname.as_deref()));
+                            }
+                        }
+                        6 => {
+                            step += 1;
+                            if let Some(ref matcher) = self.url {
+                                return Some(matcher.matches(packet.full_url.as_deref()));
+                            }
+                        }
+                        7 => {
+                            step += 1;
+                            if let Some(ref matcher) = self.file_type {
+                                return Some(matcher.matches(packet.detected_file_type.as_deref()));
+                            }
+                        }
+                        8 => {
+                            step += 1;
+                            if let Some(ref matcher) = self.regex {
+                                if decoded_payload.is_none() {
+                                    decoded_payload = Some(
+                                        self.encoding
+                                            .decode(payload)
+                                            .unwrap_or_else(|| payload.to_vec()),
+                                    );
+                                }
+                                return Some(matcher.matches(decoded_payload.as_ref().unwrap()));
+                            }
+                        }
+                        9 => {
+                            step += 1;
+                            if let Some(ref localhost_type) = self.localhost_type {
+                                return Some(if packet.outbound {
+                                    localhost_type.matches(packet.dst_ip)
+                                } else {
+                                    localhost_type.matches(packet.src_ip)
+                                });
+                            }
+                        }
+                        10 => {
+                            step += 1;
+                            if let Some(ref routine) = self.routine {
+                                return Some(routine.matches(packet));
+                            }
+                        }
+                        11 => {
+                            if conditions_idx < self.conditions.len() {
+                                if decoded_payload.is_none() {
+                                    decoded_payload = Some(
+                                        self.encoding
+                                            .decode(payload)
+                                            .unwrap_or_else(|| payload.to_vec()),
+                                    );
+                                }
+                                let res = self.conditions[conditions_idx]
+                                    .matches(packet, decoded_payload.as_ref().unwrap());
+                                conditions_idx += 1;
+                                return Some(res);
+                            }
+                            step += 1;
+                        }
+                        12 => {
+                            step += 1;
+                            if let Some(threshold) = self.entropy_threshold {
+                                return Some(packet.payload_entropy.unwrap_or(0.0) >= threshold);
+                            }
+                        }
+                        _ => return None,
+                    }
+                }
+            }
+        });
 
         match self.condition_logic {
-            ConditionLogic::And => matches.iter().all(|&m| m),
-            ConditionLogic::Or => matches.iter().any(|&m| m),
+            ConditionLogic::And => check_results.all(|m| m),
+            ConditionLogic::Or => {
+                // For OR logic, we need to know if we even had any checks
+                // because an empty rule matches everything by default in original logic.
+                // However, AND of empty is true, OR of empty would be false?
+                // The original code:
+                // if matches.is_empty() { return true; }
+                // match self.condition_logic { AND => all, OR => any }
+                // So OR of empty was true?? That seems wrong but I should preserve it if so.
+
+                let mut any_checked = false;
+                let mut found_match = false;
+                for m in check_results {
+                    any_checked = true;
+                    if m {
+                        found_match = true;
+                        break;
+                    }
+                }
+                if !any_checked {
+                    true
+                } else {
+                    found_match
+                }
+            }
         }
     }
 }
@@ -959,7 +1013,6 @@ impl SdkRegistry {
         None
     }
 
-    /// Get all matching rules (not just first)
     pub fn evaluate_all(
         &self,
         packet: &PacketInfo,
@@ -977,6 +1030,24 @@ impl SdkRegistry {
                 change_data: rule.change_data.clone(),
             })
             .collect()
+    }
+
+    /// Optimized evaluation that returns the first match found.
+    /// Useful for "Block" scenarios where we don't need to see other matches.
+    pub fn evaluate_first_match(
+        &self,
+        packet: &PacketInfo,
+        payload: &[u8],
+    ) -> Option<RuleMatchResult> {
+        self.rules
+            .iter()
+            .find(|rule| rule.matches(packet, payload))
+            .map(|rule| RuleMatchResult {
+                rule_name: rule.name.clone(),
+                action: rule.action.clone(),
+                description: rule.description.clone(),
+                change_data: rule.change_data.clone(),
+            })
     }
 
     pub fn list_rules(&self) -> Vec<&SdkRule> {

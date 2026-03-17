@@ -93,10 +93,10 @@ rules:
         encoding: hex
 
 
-  # Block High Entropy Exfiltration (Feature 32)
-  - name: "Block Encrypted Exfiltration"
-    description: "Blocks high-entropy outbound traffic which often indicates encrypted stealing/C2 activity"
+  # Ask To Block High Entropy Exfiltration (Feature 32)
+  - name: "Ask To Block Encrypted Exfiltration"
+    description: "Ask to block high-entropy outbound traffic which often indicates encrypted stealing/C2 activity"
     enabled: true
     protocol: any
-    action: block
+    action: ask
     entropy_threshold: 7.95
