@@ -5,12 +5,14 @@ use rcgen::{
 };
 use serde::Serialize;
 use std::collections::HashMap;
-use std::net::SocketAddr;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
+use std::sync::{Arc, RwLock};
 use tauri::{AppHandle, Emitter};
 use tokio::sync::oneshot;
 
-use crate::engine::{LogEntry, LogLevel};
+use crate::engine::{FirewallSettings, LogEntry, LogLevel, PacketInfo, Protocol};
+use crate::sdk::{PacketContext, RuleAction, SdkRegistry};
 
 // ── Rich HTTP event emitted by the MITM proxy ─────────────────────────────────
 
@@ -129,6 +131,8 @@ pub async fn run_proxy(
     addr: SocketAddr,
     ca: rcgen::Issuer<'static, KeyPair>,
     app_handle: AppHandle,
+    sdk: Arc<RwLock<SdkRegistry>>,
+    settings: Arc<RwLock<FirewallSettings>>,
     mut stop_rx: oneshot::Receiver<()>,
 ) {
     let proxy = MitmProxy::new(
@@ -138,15 +142,17 @@ pub async fn run_proxy(
     );
 
     let client = DefaultClient::new();
-
-    let app = app_handle.clone();
+    let app_handle_cloned = app_handle.clone(); // Clone app_handle before the service_fn closure
 
     let bind_result = proxy
         .bind(
             addr,
             service_fn(move |req: http_mitm_proxy::hyper::Request<http_mitm_proxy::hyper::body::Incoming>| {
                 let client = client.clone();
-                let app = app.clone();
+                let app = app_handle_cloned.clone(); // Clone app_handle_cloned again inside the closure for the async block
+                let sdk = sdk.clone();
+                let settings = settings.clone();
+
                 async move {
                     // ── Capture request metadata before consuming ──────────
                     let method = req.method().to_string();
@@ -174,6 +180,83 @@ pub async fn run_proxy(
                     let content_type = request_headers.get("content-type").cloned();
                     let referer = request_headers.get("referer").cloned();
 
+                    // ── SDK Rule Evaluation ────────────────────────────────
+                    // We mock a PacketInfo to evaluate against HTTP-specific SDK rules.
+                    let mock_packet = PacketInfo {
+                        timestamp: now_ts(),
+                        protocol: Protocol::TCP,
+                        src_ip: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
+                        dst_ip: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
+                        src_port: 0,
+                        dst_port: port,
+                        size: 0,
+                        outbound: true,
+                        process_id: 0, // In proxy context, we don't know the PID here
+                        dns_query: None,
+                        hostname: Some(host.clone()),
+                        full_url: Some(full_url.clone()),
+                        tls_handshake: false,
+                        http_method: Some(method.clone()),
+                        http_path: Some(path.clone()),
+                        http_user_agent: user_agent.clone(),
+                        http_content_type: content_type.clone(),
+                        http_referer: referer.clone(),
+                        payload_entropy: None,
+                        payload_sample: None,
+                        payload_urls: vec![],
+                        payload_domains: vec![],
+                        image_path: String::new(),
+                        detected_file_type: None,
+                    };
+
+                    let mock_context = PacketContext {
+                        process_id: 0,
+                        process_name: "hydradragonfirewall_proxy".to_string(),
+                        process_path: String::new(),
+                    };
+
+                    let (blocked, block_reason) = {
+                        // Evaluate rules and store findings
+                        let sdk_guard = sdk.read().unwrap();
+                        let settings_guard = settings.read().unwrap();
+                        let findings = sdk_guard.evaluate_all(&mock_packet, &[], &*settings_guard, &mock_context);
+                        
+                        let mut b = false;
+                        let mut reason = String::new();
+
+
+                        for finding in findings {
+                            if finding.action == RuleAction::Block {
+                                b = true;
+                                reason = format!("Blocked by SDK Rule [{}]: {}", finding.rule_name, finding.description);
+                                break;
+                            }
+                        }
+                        (b, reason)
+                    };
+
+                    let ts = now_ts();
+
+                    if blocked {
+                        let _ = app.emit(
+                            "log",
+                            LogEntry {
+                                id: format!("{}-intercept-block-{}-{}", ts, host, port),
+                                timestamp: ts,
+                                level: LogLevel::Warning,
+                                message: format!("Proxy Intercept Blocked: HTTP {} {} \u{2192} {}", method, full_url, block_reason),
+                            },
+                        );
+                        // We drop the connection by returning an IO error, which is supported by http_mitm_proxy.
+                        // We cannot construct an empty Incoming body easily in hyper 1.0, so this is the cleanest way.
+                        return Err(http_mitm_proxy::default_client::Error::IoError(
+                            std::io::Error::new(
+                                std::io::ErrorKind::ConnectionAborted,
+                                "Blocked by HydraDragon Firewall SDK Rules",
+                            )
+                        ));
+                    }
+
                     // ── Forward to upstream ────────────────────────────────
                     let (res, _upgrade): (
                         http_mitm_proxy::hyper::Response<http_mitm_proxy::hyper::body::Incoming>,
@@ -193,8 +276,6 @@ pub async fn run_proxy(
                     let response_content_length = response_headers.get("content-length").cloned();
 
                     // ── Emit events ───────────────────────────────────────
-                    let ts = now_ts();
-
                     // 1. Legacy one-line log (keeps existing UI working)
                     let _ = app.emit(
                         "log",
@@ -242,6 +323,7 @@ pub async fn run_proxy(
             }),
         )
         .await;
+
 
     match bind_result {
         Ok(server) => {

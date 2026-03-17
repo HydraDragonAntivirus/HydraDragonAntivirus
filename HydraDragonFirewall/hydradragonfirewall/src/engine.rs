@@ -932,7 +932,16 @@ impl FirewallEngine {
         *self.tls_proxy_backend_child.lock().unwrap() = Some(stop_tx);
 
         let app = tx.clone();
-        tauri::async_runtime::spawn(crate::proxy::run_proxy(addr, ca_bundle.issuer, app, stop_rx));
+        let sdk = self.sdk.clone();
+        let settings = self.settings.clone();
+        tauri::async_runtime::spawn(crate::proxy::run_proxy(
+            addr,
+            ca_bundle.issuer,
+            app,
+            sdk,
+            settings,
+            stop_rx,
+        ));
     }
 
     fn stop_embedded_proxy(&self) {

@@ -2,6 +2,21 @@
 # This file uses YAML format with # comments allowed (Feature 17)
 
 rules:
+  # Block Telegram Bot Exfiltration
+  - name: "Block Telegram Bots"
+    description: "Prevents data exfiltration via Telegram bots"
+    enabled: true
+    protocol: https
+    action: block
+    condition_logic: and
+    domain:
+      domains:
+        - "api.telegram.org"
+      case_insensitive: true
+    url:
+      patterns:
+        - "*/bot*"
+
   # Block Discord Webhook Exfiltration (Features 12, 13, 19, 29, 30)
   - name: "Block Discord Webhooks"
     description: "Prevents data exfiltration via Discord webhooks"
@@ -84,4 +99,4 @@ rules:
     enabled: true
     protocol: any
     action: block
-    entropy_threshold: 7.95,
+    entropy_threshold: 7.95

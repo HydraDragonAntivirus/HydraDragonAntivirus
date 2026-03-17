@@ -244,8 +244,19 @@ pub fn run() {
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 if window.label() == "main" {
-                    window.minimize().unwrap();
+                    window.hide().unwrap();
                     api.prevent_close();
+
+                    // Optional: notify the frontend/log that the app is still running.
+                    let _ = window.emit(
+                        "log",
+                        crate::engine::LogEntry {
+                            id: format!("hide-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs()),
+                            timestamp: std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64,
+                            level: crate::engine::LogLevel::Info,
+                            message: "Firewall window hidden. Still running in system tray.".to_string(),
+                        },
+                    );
                 }
             }
         })
