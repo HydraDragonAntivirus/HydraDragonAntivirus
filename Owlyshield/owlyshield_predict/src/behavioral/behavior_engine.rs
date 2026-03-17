@@ -1262,7 +1262,6 @@ impl BehaviorEngine {
     /// Spawn the \\.\pipe\HydraNetEvent named pipe server thread.
     /// Firewall sends: NET_EVENT:<pid>:<dst_ip>:<dst_port> and BLOCK_EXE:<exe_path>.
     /// Call once after constructing BehaviorEngine, before the scan loop starts.
-    #[cfg(target_os = "windows")]
     pub fn start_firewall_pipe(&self) {
         use std::ffi::OsStr;
         use std::os::windows::ffi::OsStrExt;
