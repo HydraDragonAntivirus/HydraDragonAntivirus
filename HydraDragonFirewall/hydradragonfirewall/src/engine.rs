@@ -1334,6 +1334,7 @@ impl FirewallEngine {
         let (net_event_tx, net_event_rx) = std::sync::mpsc::channel::<String>();
         {
             let stop_pipe = Arc::clone(&stop);
+            let am_pipe = Arc::clone(&am);
             std::thread::Builder::new()
                 .name("net_event_pipe_writer".to_string())
                 .spawn(move || {
@@ -1346,10 +1347,28 @@ impl FirewallEngine {
                             match net_event_rx.try_recv() {
                                 Ok(msg) => {
                                     if pipe_opt.is_none() {
-                                        pipe_opt = std::fs::OpenOptions::new()
+                                        if let Ok(file) = std::fs::OpenOptions::new()
                                             .write(true)
                                             .open(PIPE)
-                                            .ok();
+                                        {
+                                            use std::os::windows::io::AsRawHandle;
+                                            use windows::Win32::Foundation::HANDLE;
+                                            use windows::Win32::System::Pipes::GetNamedPipeServerProcessId;
+
+                                            let mut server_pid: u32 = 0;
+                                            let handle = HANDLE(file.as_raw_handle() as *mut _);
+                                            let ok = unsafe { GetNamedPipeServerProcessId(handle, &mut server_pid) };
+
+                                            if ok.is_ok() && server_pid != 0 {
+                                                let server_app = am_pipe.info_cache.get_info(server_pid);
+                                                let expected_path = r"c:\program files\hydradragonantivirus\hydradragon\owlyshield\owlyshield service\owlyshield_ransom.exe";
+                                                if server_app.path.to_lowercase() == expected_path {
+                                                    pipe_opt = Some(file);
+                                                } else {
+                                                    println!("WARNING: Rejected unauthorized HydraNetEvent server: {}", server_app.path);
+                                                }
+                                            }
+                                        }
                                     }
                                     if let Some(ref mut pipe) = pipe_opt {
                                         if pipe.write_all(msg.as_bytes()).is_err() {
@@ -1811,7 +1830,7 @@ impl FirewallEngine {
         let dns_domain = info.dns_query.clone();
 
         // 6. Resolve App Identity
-        let (app_decision, app_name, _) = am.check_app(&info);
+        let (mut app_decision, app_name, _) = am.check_app(&info);
 
         // 7. Custom Firewall Rules (PRIORITY #1)
         let current_rules = rules.read().unwrap();
@@ -1895,6 +1914,7 @@ impl FirewallEngine {
                     }
                     crate::sdk::RuleAction::Ask => {
                         should_forward = false; // Block until user decides
+                        app_decision = AppDecision::Pending;
                         reason = Some(format!(
                             "SDK Rule [{}]: Pending user decision",
                             finding.rule_name

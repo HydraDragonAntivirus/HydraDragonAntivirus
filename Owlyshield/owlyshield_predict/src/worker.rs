@@ -984,7 +984,11 @@ pub mod worker_instance {
                 #[cfg(all(target_os = "windows", feature = "hydradragon"))]
                 av_integration: None,
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-                behavior_engine: BehaviorEngine::new(),
+                behavior_engine: {
+                    let engine = BehaviorEngine::new();
+                    engine.start_firewall_pipe();
+                    engine
+                },
                 #[cfg(feature = "realtime_learning")]
                 learning_engine: {
                     #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
@@ -1466,7 +1470,11 @@ pub mod worker_instance {
                 #[cfg(all(target_os = "windows", feature = "hydradragon"))]
                 av_integration: None,
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-                behavior_engine: BehaviorEngine::new(),
+                behavior_engine: {
+                    let engine = BehaviorEngine::new();
+                    engine.start_firewall_pipe();
+                    engine
+                },
                 #[cfg(feature = "realtime_learning")]
                 learning_engine: {
                     #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
