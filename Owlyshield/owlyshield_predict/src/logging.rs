@@ -10,6 +10,11 @@ use crate::config::ConfigReader;
 use std::os::windows::fs::OpenOptionsExt;
 #[cfg(target_os = "windows")]
 use windows::Win32::Storage::FileSystem::{FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE};
+#[cfg(target_os = "windows")]
+use std::sync::atomic::{AtomicBool, Ordering};
+
+#[cfg(target_os = "windows")]
+static VERBOSE_LOGGING: AtomicBool = AtomicBool::new(false);
 
 #[derive(Copy, Clone)]
 enum Status {
@@ -98,15 +103,17 @@ impl Logging {
 
     #[cfg(target_os = "windows")]
     fn should_write_to_file(status: Status, message: &str) -> bool {
-        if matches!(status, Status::Debug) {
-            return false;
-        }
+        if !VERBOSE_LOGGING.load(Ordering::Relaxed) {
+            if matches!(status, Status::Debug) {
+                return false;
+            }
 
-        if matches!(status, Status::Info) {
-            return !message.starts_with("[DIAG] API HOOKING EVENT")
-                && !message.starts_with("[DIAG] KERNEL EVENT")
-                && !message.starts_with("[DIAG] EVENT RECEIVED")
-                && !message.starts_with("[API HOOKING EVENT]");
+            if matches!(status, Status::Info) {
+                return !message.starts_with("[DIAG] API HOOKING EVENT")
+                    && !message.starts_with("[DIAG] KERNEL EVENT")
+                    && !message.starts_with("[DIAG] EVENT RECEIVED")
+                    && !message.starts_with("[API HOOKING EVENT]");
+            }
         }
 
         true
@@ -119,6 +126,14 @@ impl Logging {
 
     #[cfg(target_os = "windows")]
     pub fn init() {
+        use registry::{Hive, Security};
+        if let Ok(regkey) = Hive::LocalMachine.open(r"SOFTWARE\Owlyshield", Security::Read) {
+            if let Ok(val) = regkey.value("VERBOSE_LOGGING") {
+                let is_verbose = val.to_string() == "1" || val.to_string().to_lowercase() == "true";
+                VERBOSE_LOGGING.store(is_verbose, Ordering::Relaxed);
+            }
+        }
+
         let log_source = "Owlyshield Ransom Rust";
         winlog::register(log_source);
         winlog::init(log_source).unwrap_or(());

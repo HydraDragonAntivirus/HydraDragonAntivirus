@@ -143,6 +143,7 @@ See the [LICENSE](./LICENSE) file for more information.
  - https://github.com/Yamato-Security/hayabusa/releases/tag/v3.8.1 (hayabusa-3.8.1-win-x64.zip)
 
  ## IMPORTANT
+- For debugging, remember to set HKEY_LOCAL_MACHINE\SOFTWARE\Owlyshield\VERBOSE_LOGGING to 1.
 - Some kernel-level paths are hardcoded for extra protection, so do not modify them.
 - Accept the certificate trust dialog that Windows shows while the firewall is running.
 - Any logs will be removed when you restart the programme. So be careful!
