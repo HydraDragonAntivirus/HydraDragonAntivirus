@@ -2,6 +2,20 @@
 #include "DriverData.h"
 #include <ntstrsafe.h>
 
+typedef struct _REGISTRY_HIVE_MAP_ENTRY {
+    PCWSTR UserPrefix;
+    SIZE_T UserPrefixLen;
+    PCWSTR KernelPrefix;
+} REGISTRY_HIVE_MAP_ENTRY;
+
+static const REGISTRY_HIVE_MAP_ENTRY kRegistryHiveMap[] = {
+    { L"HKLM\\", 5, L"\\REGISTRY\\MACHINE\\" },
+    { L"HKCU\\", 5, L"\\REGISTRY\\USER\\" },
+    { L"HKCR\\", 5, L"\\REGISTRY\\MACHINE\\SOFTWARE\\CLASSES\\" },
+    { L"HKCC\\", 5, L"\\REGISTRY\\MACHINE\\SYSTEM\\CURRENTCONTROLSET\\HARDWARE PROFILES\\CURRENT\\" },
+    { L"HKU\\", 4, L"\\REGISTRY\\USER\\" },
+};
+
 // Global
 LARGE_INTEGER Cookie;
 
@@ -93,6 +107,73 @@ BOOLEAN UnicodeContainsInsensitive(_In_ PUNICODE_STRING Source, _In_ PCWSTR Patt
     return found;
 }
 
+static BOOLEAN NormalizeRegistryAlertPath(_In_ PUNICODE_STRING SourcePath,
+                                          _Out_writes_(OutBufferChars) PWCHAR OutBuffer,
+                                          _In_ SIZE_T OutBufferChars,
+                                          _Out_ PUSHORT OutLength)
+{
+    if (OutBuffer == NULL || OutBufferChars == 0 || OutLength == NULL)
+    {
+        return FALSE;
+    }
+
+    OutBuffer[0] = L'\0';
+    *OutLength = 0;
+
+    if (SourcePath == NULL || SourcePath->Buffer == NULL || SourcePath->Length == 0)
+    {
+        return FALSE;
+    }
+
+    SIZE_T charsToCopy = SourcePath->Length / sizeof(WCHAR);
+    if (charsToCopy >= OutBufferChars)
+    {
+        charsToCopy = OutBufferChars - 1;
+    }
+
+    for (SIZE_T i = 0; i < charsToCopy; ++i)
+    {
+        WCHAR ch = SourcePath->Buffer[i];
+        if (ch == L'/')
+        {
+            ch = L'\\';
+        }
+        OutBuffer[i] = ch;
+    }
+    OutBuffer[charsToCopy] = L'\0';
+
+    for (ULONG i = 0; i < RTL_NUMBER_OF(kRegistryHiveMap); ++i)
+    {
+        if (_wcsnicmp(OutBuffer, kRegistryHiveMap[i].UserPrefix, kRegistryHiveMap[i].UserPrefixLen) == 0)
+        {
+            WCHAR expandedBuffer[MAX_FILE_NAME_LENGTH] = {0};
+            PCWSTR subpath = OutBuffer + kRegistryHiveMap[i].UserPrefixLen;
+            NTSTATUS status = RtlStringCchCopyW(expandedBuffer, RTL_NUMBER_OF(expandedBuffer),
+                                                kRegistryHiveMap[i].KernelPrefix);
+            if (!NT_SUCCESS(status))
+            {
+                return FALSE;
+            }
+
+            status = RtlStringCchCatW(expandedBuffer, RTL_NUMBER_OF(expandedBuffer), subpath);
+            if (!NT_SUCCESS(status))
+            {
+                return FALSE;
+            }
+
+            status = RtlStringCchCopyW(OutBuffer, OutBufferChars, expandedBuffer);
+            if (!NT_SUCCESS(status))
+            {
+                return FALSE;
+            }
+            break;
+        }
+    }
+
+    *OutLength = (USHORT)(wcsnlen(OutBuffer, OutBufferChars) * sizeof(WCHAR));
+    return TRUE;
+}
+
 VOID SendRegistryAlert(PUNICODE_STRING RegPath, PCWSTR Operation, HANDLE Pid, UCHAR RegOp)
 {
     if (!driverData) return;
@@ -116,10 +197,11 @@ VOID SendRegistryAlert(PUNICODE_STRING RegPath, PCWSTR Operation, HANDLE Pid, UC
 
     // Copy Path
     if (RegPath && RegPath->Buffer) {
-        USHORT copyLen = min(RegPath->Length, MAX_FILE_NAME_SIZE - sizeof(WCHAR));
-        RtlCopyMemory(newEntry->Buffer, RegPath->Buffer, copyLen);
-        newEntry->Buffer[copyLen / sizeof(WCHAR)] = L'\0';
-        newEntry->filePath.Length = copyLen;
+        if (NormalizeRegistryAlertPath(RegPath, newEntry->Buffer, RTL_NUMBER_OF(newEntry->Buffer),
+                                       &newEntry->filePath.Length))
+        {
+            newEntry->filePath.MaximumLength = MAX_FILE_NAME_SIZE;
+        }
     }
 
     // Copy Operation to Extension

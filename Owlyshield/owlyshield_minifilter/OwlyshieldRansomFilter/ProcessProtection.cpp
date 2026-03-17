@@ -69,6 +69,7 @@ static VOID AppendProcessPathSuffix(_Inout_updates_z_(OutCch) PWCHAR OutBuffer, 
                                     _In_ ULONG ProcessId);
 static BOOLEAN CopyProcessPathByPidBestEffort(_In_ ULONG ProcessId, _Out_writes_z_(OutCch) PWCHAR OutBuffer,
                                               _In_ SIZE_T OutCch, _In_ BOOLEAN AllowSlowLookup);
+static VOID PopulateIrpProcessPath(_Inout_ PIRP_ENTRY Entry, _In_ ULONG ProcessId, _In_ BOOLEAN AllowSlowLookup);
 static BOOLEAN ShouldSkipProcessProtectionPid(_In_ ULONG ProcessId, _In_ BOOLEAN AllowSlowLookup);
 static BOOLEAN ShouldSkipProcessProtectionPair(_In_ ULONG SourcePid, _In_ ULONG TargetPid,
                                                _In_ BOOLEAN AllowSlowLookup);
@@ -508,6 +509,29 @@ static BOOLEAN CopyProcessPathByPidBestEffort(_In_ ULONG ProcessId, _Out_writes_
     return TRUE;
 }
 
+static VOID PopulateIrpProcessPath(_Inout_ PIRP_ENTRY Entry, _In_ ULONG ProcessId, _In_ BOOLEAN AllowSlowLookup)
+{
+    if (Entry == NULL)
+    {
+        return;
+    }
+
+    Entry->Buffer[0] = L'\0';
+    Entry->filePath.Buffer = Entry->Buffer;
+    Entry->filePath.Length = 0;
+    Entry->filePath.MaximumLength = MAX_FILE_NAME_SIZE;
+
+    if (ProcessId == 0)
+    {
+        return;
+    }
+
+    if (CopyProcessPathByPidBestEffort(ProcessId, Entry->Buffer, RTL_NUMBER_OF(Entry->Buffer), AllowSlowLookup))
+    {
+        Entry->filePath.Length = (USHORT)(wcslen(Entry->Buffer) * sizeof(WCHAR));
+    }
+}
+
 static VOID AppendProcessPathSuffix(_Inout_updates_z_(OutCch) PWCHAR OutBuffer, _In_ SIZE_T OutCch,
                                     _In_ ULONG ProcessId)
 {
@@ -895,14 +919,9 @@ NTSTATUS QueueTerminationAttemptToUserMode(PEPROCESS AttackerProcess, PEPROCESS 
     newItem->AttackerPID = (ULONG)(ULONG_PTR)attackerPid;
     newItem->AttackerGid = attackerGid;
 
-    // NOTE: SeLocateProcessImageName is NOT called here.
-    // It acquires the process image-section/token lock inside an ObCallback,
-    // which deadlocks when the target process is initializing or tearing down.
-    // User-mode can look up the path from the PID.
-    newEntry->Buffer[0] = L'\0';
-    newEntry->filePath.Length = 0;
-    newEntry->filePath.MaximumLength = MAX_FILE_NAME_SIZE;
-    newEntry->filePath.Buffer = newEntry->Buffer;
+    // OB callback path: use the cached kernel path only here and let user-mode
+    // fall back to PID-based resolution if the cache has no entry yet.
+    PopulateIrpProcessPath(newEntry, (ULONG)(ULONG_PTR)targetPid, FALSE);
 
     DbgPrint("!!! ProcessProtection: Termination attempt detected - Attacker PID %d (GID %llu) -> Target PID %d (GID "
              "%llu)\n",
@@ -945,6 +964,7 @@ NTSTATUS OnProcessCreate(_In_ HANDLE ProcessId, _In_ HANDLE ParentProcessId)
 
     BOOLEAN found = FALSE;
     newItem->Gid = driverData->GetProcessGid(pid, &found);
+    PopulateIrpProcessPath(newEntry, pid, TRUE);
 
     DbgPrint("!!! ProcessProtection: Process created - PID %lu (Parent: %lu, GID: %llu)\n", pid, parentPid,
              newItem->Gid);
@@ -980,6 +1000,7 @@ NTSTATUS OnProcessExit(_In_ HANDLE ProcessId)
 
     BOOLEAN found = FALSE;
     newItem->Gid = driverData->GetProcessGid(pid, &found);
+    PopulateIrpProcessPath(newEntry, pid, FALSE);
 
     DbgPrint("!!! ProcessProtection: Process exited - PID %lu (GID: %llu)\n", pid, newItem->Gid);
 
@@ -1031,6 +1052,7 @@ NTSTATUS OnProcessHandleOperation(_In_ HANDLE CallerProcessId, _In_ HANDLE Targe
     newItem->KernelEventInfo.AccessMask = DesiredAccess;
     newItem->KernelEventInfo.SourceProcessId = callerPid;
     newItem->KernelEventInfo.TargetProcessId = targetPid;
+    PopulateIrpProcessPath(newEntry, targetPid, FALSE);
 
     DbgPrint("!!! ProcessProtection: Process handle opened - Caller PID %lu -> Target PID %lu (Access: 0x%X, Op: %u)\n",
              callerPid, targetPid, DesiredAccess, OperationType);

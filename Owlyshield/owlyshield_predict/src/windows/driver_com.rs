@@ -26,10 +26,12 @@ use crate::shared_def::{
     DriverComMessageType,
     FileId,
     IOMessage,
+    IrpMajorOp,
     RuntimeFeatures,
     known_raw_event_name,
     KernelEventInfo, // AMENDED: Fix typo
 };
+use crate::utils::resolve_process_path;
 
 pub type BufPath = [wchar_t; 520];
 
@@ -641,6 +643,24 @@ impl IOMessage {
             String::new()
         };
 
+        let mut filepathstr = c_drivermsg.filepath.as_string_ext(c_drivermsg.extension);
+        let irp_op = IrpMajorOp::from_byte(c_drivermsg.irp_op);
+
+        if filepathstr.trim().is_empty()
+            && matches!(
+                irp_op,
+                IrpMajorOp::IrpProcessCreate
+                    | IrpMajorOp::IrpProcessTerminate
+                    | IrpMajorOp::IrpProcessTerminateAttempt
+                    | IrpMajorOp::IrpProcessExit
+                    | IrpMajorOp::IrpProcessHandleOpen
+            )
+        {
+            if let Some(path) = resolve_process_path(c_drivermsg.pid) {
+                filepathstr = path.display().to_string();
+            }
+        }
+
         IOMessage {
             extension: std::ffi::OsString::from_wide(c_drivermsg.extension.split(|&v| v == 0).next().unwrap()).to_string_lossy().into() ,//String::from_utf16_lossy(&c_drivermsg.extension),
             file_id_id: FileId::from(c_drivermsg.file_id.FileId.Identifier),
@@ -651,7 +671,7 @@ impl IOMessage {
             is_entropy_calc: c_drivermsg.is_entropy_calc,
             file_change: c_drivermsg.file_change,
             file_location_info: c_drivermsg.file_location_info,
-            filepathstr: c_drivermsg.filepath.as_string_ext(c_drivermsg.extension),
+            filepathstr: filepathstr.clone(),
             gid: c_drivermsg.gid,
             parent_pid: c_drivermsg.parent_pid,
             #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
@@ -665,9 +685,7 @@ impl IOMessage {
                 exe_still_exists: true,
                 command_line,
             },
-            file_size: match PathBuf::from(
-                &c_drivermsg.filepath.as_string_ext(c_drivermsg.extension),
-            )
+            file_size: match PathBuf::from(&filepathstr)
                 .metadata()
             {
                 Ok(f) => f.len() as i64,

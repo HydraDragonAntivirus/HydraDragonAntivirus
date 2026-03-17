@@ -6,7 +6,7 @@ use serde_yaml;
 use serde_yaml::Value as YamlValue;
 use regex::Regex;
 use std::cell::RefCell;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use crate::shared_def::{FileChangeInfo, IOMessage, IrpMajorOp, known_raw_event_name};
 use crate::process::ProcessRecord;
@@ -21,6 +21,31 @@ use crate::utils::{format_process_descriptor_with_fallback, validate_pipe_client
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use num::FromPrimitive;
+
+type FirewallNetPids = Arc<std::sync::RwLock<HashSet<u32>>>;
+type FirewallBlockedExes = Arc<std::sync::RwLock<HashMap<String, FirewallDetection>>>;
+type FirewallPipeStarted = Arc<AtomicBool>;
+
+fn shared_firewall_net_pids() -> FirewallNetPids {
+    static FIREWALL_NET_PIDS: OnceLock<FirewallNetPids> = OnceLock::new();
+    FIREWALL_NET_PIDS
+        .get_or_init(|| Arc::new(std::sync::RwLock::new(HashSet::new())))
+        .clone()
+}
+
+fn shared_firewall_blocked_exes() -> FirewallBlockedExes {
+    static FIREWALL_BLOCKED_EXES: OnceLock<FirewallBlockedExes> = OnceLock::new();
+    FIREWALL_BLOCKED_EXES
+        .get_or_init(|| Arc::new(std::sync::RwLock::new(HashMap::new())))
+        .clone()
+}
+
+fn shared_firewall_pipe_started() -> FirewallPipeStarted {
+    static FIREWALL_PIPE_STARTED: OnceLock<FirewallPipeStarted> = OnceLock::new();
+    FIREWALL_PIPE_STARTED
+        .get_or_init(|| Arc::new(AtomicBool::new(false)))
+        .clone()
+}
 
 // =============================================================================
 // FIREWALL DETECTION — details received from the firewall via HydraNetEvent pipe
@@ -180,7 +205,14 @@ impl IrpStatistics {
             IrpMajorOp::IrpProcessHandleOpen => self.process_handle_open_count += 1,
             
             // Hypervisor/kernel events are tracked as one fallback class.
-            IrpMajorOp::IrpHypervisorEvent => {
+            IrpMajorOp::IrpHypervisorEvent
+            | IrpMajorOp::IrpKernelRemoteThread
+            | IrpMajorOp::IrpKernelWriteMemory
+            | IrpMajorOp::IrpKernelProtectMemory
+            | IrpMajorOp::IrpKernelCreateThread
+            | IrpMajorOp::IrpKernelQueueApc
+            | IrpMajorOp::IrpKernelCreateSection
+            | IrpMajorOp::IrpKernelMapSection => {
                 self.hypervisor_event_count += 1;
                 let event_name = if rec.function_name.is_empty() {
                     known_raw_event_name(rec.irp_type as u32)
@@ -196,7 +228,7 @@ impl IrpStatistics {
                 };
                 self.record_hypervisor_event_operation(
                     rec,
-                    IrpMajorOp::IrpHypervisorEvent,
+                    op,
                     &details,
                 );
                 self.all_apis_called.insert(event_name);
@@ -499,6 +531,20 @@ fn normalize_hypervisor_api_label(raw: &str) -> String {
         value.truncate(idx);
     }
     value.trim().to_string()
+}
+
+fn is_kernel_api_event(irp_op: &IrpMajorOp) -> bool {
+    matches!(
+        irp_op,
+        IrpMajorOp::IrpHypervisorEvent
+            | IrpMajorOp::IrpKernelRemoteThread
+            | IrpMajorOp::IrpKernelWriteMemory
+            | IrpMajorOp::IrpKernelProtectMemory
+            | IrpMajorOp::IrpKernelCreateThread
+            | IrpMajorOp::IrpKernelQueueApc
+            | IrpMajorOp::IrpKernelCreateSection
+            | IrpMajorOp::IrpKernelMapSection
+    )
 }
 
 fn api_function_alias(raw: &str) -> Option<String> {
@@ -1151,9 +1197,10 @@ impl ProcessBehaviorState {
         };
         
         self.irp_stats.record_operation(&rec);
-        let normalized_irp_op = if irp_op == 12 { 12 } else { irp_op };
+        let irp_kind = IrpMajorOp::from_byte(irp_op);
+        let is_api_event = is_kernel_api_event(&irp_kind);
         
-        if normalized_irp_op == 12 {
+        if is_api_event {
             self.hypervisor_event_count += 1;
             let raw_event_type = if msg.kernel_event_info.event_type != 0 {
                 msg.kernel_event_info.event_type
@@ -1183,7 +1230,8 @@ impl ProcessBehaviorState {
             }
 
             Logging::info(&format!(
-                "[API HOOKING EVENT] opcode=12 raw_event_type={} src_pid_path={} target_pid_path={} arg1=0x{:X} arg2=0x{:X} arg3=0x{:X} arg4=0x{:X} api=\"{}\" count={}",
+                "[API HOOKING EVENT] opcode={} raw_event_type={} src_pid_path={} target_pid_path={} arg1=0x{:X} arg2=0x{:X} arg3=0x{:X} arg4=0x{:X} api=\"{}\" count={}",
+                irp_op,
                 raw_event_type,
                 source_process,
                 target_process,
@@ -1197,7 +1245,7 @@ impl ProcessBehaviorState {
         }
 
         // Increment total hypervisor events counter and emit activity signal
-        if normalized_irp_op == 12 {
+        if is_api_event {
             self.hypervisor_events_total += 1;
             
             // Check for hypervisor event activity after each normalized event
@@ -1231,12 +1279,12 @@ pub struct BehaviorEngine {
     pub process_terminated: HashSet<String>,
     default_extension_whitelist: HashSet<String>,
     /// PIDs for which the firewall observed real outbound network I/O (NET_EVENT).
-    pub firewall_net_pids: Arc<std::sync::RwLock<HashSet<u32>>>,
+    pub firewall_net_pids: FirewallNetPids,
     /// Exe paths for which the firewall confirmed malicious traffic (BLOCK_EXE).
     /// Value holds full detection details for report generation.
     /// scan_all_processes marks matching processes as malicious and acts on them.
-    pub firewall_blocked_exes: Arc<std::sync::RwLock<HashMap<String, FirewallDetection>>>,
-    firewall_pipe_started: Arc<AtomicBool>,
+    pub firewall_blocked_exes: FirewallBlockedExes,
+    firewall_pipe_started: FirewallPipeStarted,
 }
 
 impl Default for BehaviorEngine {
@@ -1253,9 +1301,9 @@ impl BehaviorEngine {
             regex_cache: RefCell::new(HashMap::new()),
             process_terminated: HashSet::new(),
             default_extension_whitelist: build_default_extension_whitelist(),
-            firewall_net_pids: Arc::new(std::sync::RwLock::new(HashSet::new())),
-            firewall_blocked_exes: Arc::new(std::sync::RwLock::new(HashMap::new())),
-            firewall_pipe_started: Arc::new(AtomicBool::new(false)),
+            firewall_net_pids: shared_firewall_net_pids(),
+            firewall_blocked_exes: shared_firewall_blocked_exes(),
+            firewall_pipe_started: shared_firewall_pipe_started(),
         }
     }
 
@@ -1553,6 +1601,12 @@ impl BehaviorEngine {
                 for api in &cond_group.apis {
                     all_apis.insert(api.clone());
                 }
+                for api in &cond_group.hypervisor_event_labels {
+                    let normalized = normalize_hypervisor_api_label(api);
+                    if !normalized.is_empty() {
+                        all_apis.insert(normalized);
+                    }
+                }
                 for api in &cond_group.scheduled_task_apis {
                     all_apis.insert(api.clone());
                 }
@@ -1720,7 +1774,7 @@ impl BehaviorEngine {
         msg: &IOMessage,
         irp_op: &IrpMajorOp,
     ) -> bool {
-        if *irp_op != IrpMajorOp::IrpHypervisorEvent {
+        if !is_kernel_api_event(irp_op) {
             return false;
         }
 
