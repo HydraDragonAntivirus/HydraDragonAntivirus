@@ -943,7 +943,7 @@ impl FirewallEngine {
         let _ = Self::clear_windows_proxy();
     }
 
-    /// Point the Windows system HTTPS proxy to our embedded listener.
+    /// Point the Windows system HTTP+HTTPS proxy to our embedded listener.
     fn set_windows_proxy(addr: &str) -> Result<(), String> {
         use winreg::enums::*;
         use winreg::RegKey;
@@ -952,9 +952,15 @@ impl FirewallEngine {
         let (key, _) = hkcu
             .create_subkey(path)
             .map_err(|e| e.to_string())?;
-        key.set_value("ProxyServer", &format!("https={}:8877", addr))
+        // `addr` is already "host:port" (e.g. "127.0.0.1:8877").
+        // Route both HTTP and HTTPS through the embedded MITM proxy so we can
+        // inspect both plaintext and TLS-intercepted traffic.
+        key.set_value("ProxyServer", &format!("http={};https={}", addr, addr))
             .map_err(|e| e.to_string())?;
         key.set_value("ProxyEnable", &1u32)
+            .map_err(|e| e.to_string())?;
+        // Bypass the proxy for localhost to prevent infinite loops.
+        key.set_value("ProxyOverride", &"localhost;127.0.0.1;<local>")
             .map_err(|e| e.to_string())?;
         Ok(())
     }
@@ -977,7 +983,7 @@ impl FirewallEngine {
     fn install_ca_der(der: &[u8]) -> Result<(), String> {
         use windows::Win32::Security::Cryptography::{
             CertAddEncodedCertificateToStore, CertCloseStore, CertOpenSystemStoreA,
-            CERT_STORE_ADD_NEW, X509_ASN_ENCODING,
+            CERT_STORE_ADD_REPLACE_EXISTING_INHERIT_PROPERTIES, X509_ASN_ENCODING,
         };
         use windows::core::PCSTR;
         unsafe {
@@ -987,13 +993,12 @@ impl FirewallEngine {
                 Some(store),
                 X509_ASN_ENCODING,
                 der,
-                CERT_STORE_ADD_NEW,
+                CERT_STORE_ADD_REPLACE_EXISTING_INHERIT_PROPERTIES,
                 None,
             );
             let _ = CertCloseStore(Some(store), 0);
             match result {
                 Ok(_) => Ok(()),
-                Err(ref e) if e.code().0 as u32 == 0x8009_2005 => Ok(()), // already present
                 Err(e) => Err(format!("CertAddEncodedCertificateToStore: {:?}", e)),
             }
         }
