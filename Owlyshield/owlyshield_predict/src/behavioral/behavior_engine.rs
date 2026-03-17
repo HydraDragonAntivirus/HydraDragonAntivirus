@@ -228,7 +228,7 @@ impl IrpStatistics {
                 };
                 self.record_hypervisor_event_operation(
                     rec,
-                    op,
+                    IrpMajorOp::from_byte(rec.irp_type),
                     &details,
                 );
                 self.all_apis_called.insert(event_name);
