@@ -669,6 +669,7 @@ textarea.glass-card:focus {
     border: 1px solid rgba(255, 255, 255, 0.1);
     border-radius: 8px;
     /* Slightly rounded for toast feel */
+    box-sizing: border-box;
 }
 
 .alert-window-header {
@@ -714,6 +715,7 @@ textarea.glass-card:focus {
     padding: 12px 16px;
     display: flex;
     flex-direction: column;
+    min-height: 0;
 }
 
 .alert-title {
@@ -721,9 +723,9 @@ textarea.glass-card:focus {
     font-size: 14px;
     font-weight: 700;
     color: #fff;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    line-height: 1.2;
 }
 
 .alert-desc {
@@ -740,25 +742,34 @@ textarea.glass-card:focus {
     border: 1px solid rgba(255, 255, 255, 0.03);
     display: flex;
     flex-direction: column;
-    gap: 3px;
+    gap: 6px;
 }
 
 .detail-row {
-    display: flex;
+    display: grid;
+    grid-template-columns: 58px minmax(0, 1fr);
+    align-items: start;
+    column-gap: 10px;
     font-size: 11px;
 }
 
 .detail-label {
-    width: 70px;
     color: #777;
     font-weight: 600;
 }
 
 .detail-value {
-    flex: 1;
+    min-width: 0;
     color: #ddd;
-    word-break: break-all;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    line-height: 1.35;
     font-family: 'Fira Code', monospace;
+}
+
+.detail-value.path {
+    font-size: 10px;
+    opacity: 0.72;
 }
 
 .alert-footer-actions {

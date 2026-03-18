@@ -217,7 +217,7 @@ pub async fn run_proxy(
                     let (blocked, block_reason) = {
                         // Evaluate rules and store findings
                         let sdk_guard = sdk.read().unwrap();
-                        let first_match = sdk_guard.evaluate_first_match(&mock_packet, &[]);
+                        let first_match = sdk_guard.evaluate_first_match(&mock_packet, &[], false);
                         
                         let mut b = false;
                         let mut reason = String::new();

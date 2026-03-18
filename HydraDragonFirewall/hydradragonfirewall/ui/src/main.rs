@@ -782,9 +782,9 @@ fn AlertWindow(
                                   <div class="alert-desc" style="margin-bottom: 8px">
                                       {if app.hostname.is_some() { app.name.clone() } else { "System intercept".to_string() }} " is attempting network access."
                                   </div>
-                                  <div class="alert-details-box" style="font-size: 11px">
-                                      <div class="detail-row"> <span class="detail-label" style="width: 80px">"Target:"</span> <span class="detail-value">{format!("{}:{}", app.dst_ip, app.dst_port)}</span> </div>
-                                      <div class="detail-row"> <span class="detail-label" style="width: 80px">"Path:"</span> <span class="detail-value" style="font-size: 10px; opacity: 0.6">{app.path.clone()}</span> </div>
+                                  <div class="alert-details-box">
+                                      <div class="detail-row"> <span class="detail-label">"Target:"</span> <span class="detail-value">{format!("{}:{} ({})", app.dst_ip, app.dst_port, match app.protocol { Protocol::TCP => "TCP", Protocol::UDP => "UDP", Protocol::ICMP => "ICMP", Protocol::Raw(_) => "RAW" })}</span> </div>
+                                      <div class="detail-row"> <span class="detail-label">"Path:"</span> <span class="detail-value path" title=app.path.clone()>{app.path.clone()}</span> </div>
                                   </div>
                              </div>
                          </div>

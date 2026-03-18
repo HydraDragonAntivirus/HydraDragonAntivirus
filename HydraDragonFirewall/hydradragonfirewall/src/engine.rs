@@ -592,7 +592,7 @@ impl AppInfoCache {
                     PWSTR(wide_buffer.as_mut_ptr()),
                     &mut wide_len,
                 )
-                .as_bool();
+                .is_ok();
 
                 if wide_ok && wide_len > 0 {
                     let full_path = String::from_utf16_lossy(&wide_buffer[..wide_len as usize]);
@@ -2281,8 +2281,8 @@ impl FirewallEngine {
             return;
         }
 
-        let width = 400.0;
-        let height = 200.0;
+        let width = 520.0;
+        let height = 236.0;
 
         let builder = WebviewWindowBuilder::new(app, "firewall-alert", WebviewUrl::App("index.html?mode=alert".into()))
             .title("HydraDragon Firewall Alert")
@@ -2450,7 +2450,7 @@ impl FirewallEngine {
         let mut http_user_agent = None;
         let mut http_content_type = None;
         let mut http_referer = None;
-        let mut payload_entropy = None;
+        let payload_entropy = None;
         let mut payload_sample = None;
         let mut payload_bytes: Option<&[u8]> = None;
         let mut payload_urls: Vec<String> = Vec::new();
