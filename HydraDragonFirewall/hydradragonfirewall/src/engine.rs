@@ -1228,9 +1228,27 @@ impl FirewallEngine {
         }
     }
 
-    pub fn resolve_app_decision(&self, name: String, decision: String) {
+    pub fn resolve_app_decision(&self, name: String, decision: String, tx: &AppHandle) {
         let active_alert = self.app_manager.active_alert.read().unwrap().clone();
         let mut persist_settings = true;
+        let decision_label = active_alert
+            .as_ref()
+            .map(|alert| {
+                let target = alert
+                    .target
+                    .as_ref()
+                    .filter(|target| !target.trim().is_empty())
+                    .cloned();
+                let path = if !alert.path.trim().is_empty() && !alert.path.eq_ignore_ascii_case("unknown") {
+                    Some(alert.path.clone())
+                } else {
+                    None
+                };
+                target
+                    .or(path)
+                    .unwrap_or_else(|| alert.name.clone())
+            })
+            .unwrap_or_else(|| name.clone());
 
         let routed_to_owlyshield = active_alert
             .as_ref()
@@ -1257,6 +1275,38 @@ impl FirewallEngine {
                 _ => AppDecision::Pending,
             };
             self.app_manager.resolve_decision(&name, app_decision);
+        }
+
+        let now = Self::now_ts();
+        match decision.as_str() {
+            "block" => emit_log_event(
+                tx,
+                LogEntry {
+                    id: format!("{}-user-block", now),
+                    timestamp: now,
+                    level: LogLevel::Warning,
+                    message: format!("Blocked: User decision for {}", decision_label),
+                },
+            ),
+            "allow_always" => emit_log_event(
+                tx,
+                LogEntry {
+                    id: format!("{}-user-allow", now),
+                    timestamp: now,
+                    level: LogLevel::Success,
+                    message: format!("Allowed: User decision for {}", decision_label),
+                },
+            ),
+            "allow_once" => emit_log_event(
+                tx,
+                LogEntry {
+                    id: format!("{}-user-allow-once", now),
+                    timestamp: now,
+                    level: LogLevel::Success,
+                    message: format!("Allowed Once: User decision for {}", decision_label),
+                },
+            ),
+            _ => {}
         }
 
         // Clear the active alert so it doesn't linger
@@ -2562,7 +2612,7 @@ impl FirewallEngine {
                             id: format!("{}-blocked", now),
                             timestamp: now,
                             level: LogLevel::Warning,
-                            message: format!("{} | {}", log_reason, context),
+                            message: format!("Blocked: {} | {}", log_reason, context),
                         },
                     );
                 }

@@ -488,7 +488,12 @@ pub fn App() -> impl IntoView {
                         }
                         match entry.level {
                             LogLevel::Warning | LogLevel::Error => {
-                                if entry.message.contains("Blocking") { set_blocked_count.update(|n| *n += 1); }
+                                let message_lower = entry.message.to_lowercase();
+                                if message_lower.starts_with("blocked:")
+                                    || message_lower.contains("proxy intercept blocked")
+                                {
+                                    set_blocked_count.update(|n| *n += 1);
+                                }
                                 if entry.message.contains("Malicious") { set_threats_count.update(|n| *n += 1); }
                             }
                             LogLevel::Success => { set_allowed_count.update(|n| *n += 1); }

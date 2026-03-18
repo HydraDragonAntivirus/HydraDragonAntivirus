@@ -39,7 +39,7 @@ async fn resolve_app_decision(
     handle: AppHandle,
 ) -> Result<(), String> {
     if let Some(engine) = wait_for_engine(&handle).await {
-        engine.resolve_app_decision(name, decision);
+        engine.resolve_app_decision(name, decision, &handle);
         Ok(())
     } else {
         Err("Engine not initialized".to_string())
