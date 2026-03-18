@@ -529,6 +529,7 @@ class DataProcessor:
 
         self._init_store()
         self.seen = self._load_seen_md5s()
+        self.stats = self._new_stats()
 
     def _init_store(self):
         if not self.bin_path.exists():
@@ -561,6 +562,56 @@ class DataProcessor:
             pass
         logger.info(f"Resuming: {len(seen)} md5s preloaded from index.")
         return seen
+
+    def _new_label_stats(self) -> Dict[str, int]:
+        return {
+            'discovered': 0,
+            'queued': 0,
+            'inserted': 0,
+            'duplicates': 0,
+            'failed': 0,
+            'prefilter_duplicates': 0,
+            'prefilter_failed': 0,
+            'processing_duplicates': 0,
+            'processing_failed': 0,
+            'cross_label_duplicates': 0
+        }
+
+    def _new_stats(self) -> Dict[str, Dict[str, int]]:
+        return {
+            'malicious': self._new_label_stats(),
+            'benign': self._new_label_stats()
+        }
+
+    def _record_duplicate(self, label: str, stage: str, cross_label: bool = False) -> None:
+        stats = self.stats[label]
+        stats['duplicates'] += 1
+        stats[f'{stage}_duplicates'] += 1
+        if cross_label:
+            stats['cross_label_duplicates'] += 1
+
+    def _record_failure(self, label: str, stage: str) -> None:
+        stats = self.stats[label]
+        stats['failed'] += 1
+        stats[f'{stage}_failed'] += 1
+
+    def _build_totals(self) -> Dict[str, int]:
+        keys = (
+            'discovered',
+            'queued',
+            'inserted',
+            'duplicates',
+            'failed',
+            'prefilter_duplicates',
+            'prefilter_failed',
+            'processing_duplicates',
+            'processing_failed',
+            'cross_label_duplicates'
+        )
+        return {
+            key: sum(label_stats[key] for label_stats in self.stats.values())
+            for key in keys
+        }
 
     def features_to_numeric(self, entry: dict) -> np.ndarray:
         """Convert features dict to numpy float32 vector."""
@@ -803,6 +854,8 @@ class DataProcessor:
 
         malicious_raw = [f for f in Path(self.malicious_dir).rglob('*.js') if f.is_file()]
         benign_raw = [f for f in Path(self.benign_dir).rglob('*.js') if f.is_file()]
+        self.stats['malicious']['discovered'] = len(malicious_raw)
+        self.stats['benign']['discovered'] = len(benign_raw)
 
         # Sort Z-A to favor descriptive names
         malicious_raw.sort(key=lambda x: x.name, reverse=True)
@@ -817,14 +870,19 @@ class DataProcessor:
 
             if not is_text:
                 logger.warning(f"[JS] File {f.name} appears to be binary (contains null bytes). Moving to problematic_files_js/malicious.")
+                self._record_failure('malicious', 'prefilter')
                 self._move(f, self.problematic_dir / 'malicious')
                 continue
 
             if not md5:
+                logger.warning(f"[JS] Failed to hash malicious file {f}. Moving to problematic_files_js/malicious.")
+                self._record_failure('malicious', 'prefilter')
+                self._move(f, self.problematic_dir / 'malicious')
                 continue
 
             # Intra-class duplicate check
             if md5 in self.seen or md5 in batch_malicious_md5s:
+                self._record_duplicate('malicious', 'prefilter')
                 self._move(f, self.duplicates_dir / 'malicious')
             else:
                 batch_malicious_md5s[md5] = f
@@ -839,32 +897,44 @@ class DataProcessor:
 
             if not is_text:
                 logger.warning(f"[JS] File {f.name} appears to be binary (contains null bytes). Moving to problematic_files_js/benign.")
+                self._record_failure('benign', 'prefilter')
                 self._move(f, self.problematic_dir / 'benign')
                 continue
 
             if not md5:
+                logger.warning(f"[JS] Failed to hash benign file {f}. Moving to problematic_files_js/benign.")
+                self._record_failure('benign', 'prefilter')
+                self._move(f, self.problematic_dir / 'benign')
                 continue
 
             # Check for conflict with Malicious (Database or current batch)
             # If it's malicious, we move the BENIGN file to duplicate_malware_js
             if (md5 in self.seen and self.seen[md5] == 'malicious') or (md5 in batch_malicious_md5s):
                 logger.warning(f"[JS] Conflict: Benign {f.name} exists in Malicious set. Moving to duplicate_malware_js.")
+                self._record_duplicate('benign', 'prefilter', cross_label=True)
                 self._move(f, self.duplicate_malware_dir)
                 continue
 
             if md5 in self.seen or md5 in batch_benign_md5s:
+                self._record_duplicate('benign', 'prefilter')
                 self._move(f, self.duplicates_dir / 'benign')
             else:
                 batch_benign_md5s[md5] = f
                 final_benign.append((f, md5))
 
+        self.stats['malicious']['queued'] = len(final_malicious)
+        self.stats['benign']['queued'] = len(final_benign)
         return final_malicious, final_benign
 
     def process_dir(self, is_malicious: bool, prefiltered_tasks: List[Tuple[Path, str]]):
         label = 'malicious' if is_malicious else 'benign'
+        stats = self.stats[label]
         if not prefiltered_tasks:
-            logger.warning(f"[{label}] No files to process.")
-            return 0
+            logger.warning(
+                f"[{label}] No files to process. "
+                f"Current totals: {stats['duplicates']:,} duplicates, {stats['failed']:,} failed."
+            )
+            return stats
 
         # Stage 3: Prepare tasks
         total_files = len(prefiltered_tasks)
@@ -872,8 +942,8 @@ class DataProcessor:
         tasks = [(f, i, is_malicious, md5) for i, (f, md5) in enumerate(prefiltered_tasks, 1)]
 
         inserted = 0
-        skipped = 0
-        failed = 0
+        processing_duplicates = 0
+        processing_failed = 0
 
         # Stage 4: Process with ProcessPoolExecutor
         logger.info(f"[{label}] Stage 4/4: Processing with ProcessPoolExecutor (workers=auto)...")
@@ -885,7 +955,8 @@ class DataProcessor:
                 f_path = tasks[i][0]
 
                 if not feats:
-                    failed += 1
+                    processing_failed += 1
+                    self._record_failure(label, 'processing')
                     logger.warning(f"[{label}] Feature extraction failed for {f_path}. Moving to problematic/{label}.")
                     self._move(f_path, self.problematic_dir / label)
                     continue
@@ -901,9 +972,11 @@ class DataProcessor:
                         else:
                             # Current malicious matches existing benign
                             self._move(f_path, self.problematic_dir / label)
+                        self._record_duplicate(label, 'processing', cross_label=True)
                     else:
+                        self._record_duplicate(label, 'processing')
                         self._move(f_path, self.duplicates_dir / label)
-                    skipped += 1
+                    processing_duplicates += 1
                     continue
 
                 # mark as seen
@@ -913,29 +986,39 @@ class DataProcessor:
                 try:
                     self._append_vector_and_index(feats)
                     inserted += 1
+                    stats['inserted'] += 1
                 except Exception as e:
                     safe_path = str(f_path).encode('utf-8', 'replace').decode('utf-8')
                     logger.exception(f"Failed to append vector for {safe_path}: {e}")
-                    failed += 1
+                    processing_failed += 1
+                    self._record_failure(label, 'processing')
                     self._move(f_path, self.problematic_dir / label)
 
-        logger.info(f"[{label}] Finished: {inserted:,} inserted, {skipped:,} duplicates, {failed:,} failed (total: {total_files:,})")
-        return inserted
+        logger.info(
+            f"[{label}] Finished: {stats['inserted']:,} inserted, {stats['duplicates']:,} duplicates, "
+            f"{stats['failed']:,} failed (queued: {total_files:,}, discovered: {stats['discovered']:,})"
+        )
+        return stats
 
     def process_dataset(self):
+        self.stats = self._new_stats()
         # Global Pre-filter
         malicious_tasks, benign_tasks = self._run_global_prefilter()
 
         logger.info("Processing malicious files...")
-        malicious_count = self.process_dir(True, malicious_tasks)
+        malicious_stats = self.process_dir(True, malicious_tasks)
 
         logger.info("Processing benign files...")
-        benign_count = self.process_dir(False, benign_tasks)
+        benign_stats = self.process_dir(False, benign_tasks)
+        totals = self._build_totals()
 
         summary = {
             'timestamp': datetime.now().isoformat(),
-            'malicious_count': malicious_count,
-            'benign_count': benign_count,
+            'malicious_count': malicious_stats['inserted'],
+            'benign_count': benign_stats['inserted'],
+            'malicious_stats': dict(malicious_stats),
+            'benign_stats': dict(benign_stats),
+            'totals': totals,
             'bin_path': str(self.bin_path),
             'index_path': str(self.index_path),
             'malicious_pickle_path': str(self.malicious_pickle_path),
@@ -947,7 +1030,10 @@ class DataProcessor:
         with open(output_file, 'w', encoding='utf-8', errors='replace') as f:
             json.dump(summary, f, indent=2, ensure_ascii=False)
 
-        logger.info(f"Saved summary to {output_file}")
+        logger.info(
+            f"Saved summary to {output_file} "
+            f"({totals['inserted']:,} inserted, {totals['duplicates']:,} duplicates, {totals['failed']:,} failed)"
+        )
         logger.info(f"Binary store: {self.bin_path}")
         logger.info(f"Index: {self.index_path}")
         logger.info(f"Malicious pickle: {self.malicious_pickle_path}")
