@@ -45,6 +45,17 @@ rules:
     dst_port:
       ports: [80, 443, 8080, 22, 3389]
 
+  # Ask About Local Traffic Interception
+  - name: "Ask About Local Traffic Interception"
+    description: "Prompts when traffic appears to be redirected through a local inspection or interception proxy. This can be intentional security software or another local interceptor."
+    enabled: true
+    protocol: tcp
+    action: ask
+    condition_logic: and
+    localhost_type: loopback
+    dst_port:
+      ports: [8080, 8081, 8118, 8443, 8888, 8889, 8899, 3128, 8000, 8001, 8090, 9090]
+
   # Detect Base64 Encoded PowerShell (Features 2, 6, 15, 18)
   - name: "Detect Encoded PowerShell"
     description: "Detects base64-encoded PowerShell commands in traffic"

@@ -235,7 +235,6 @@
     browser_extensions:
       registry_keys:
         - "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Explorer/Browser Helper Objects*"
-        - "HKCR/*"
       registry_operations: [create, set, delete, rename]
     browser_profiles:
       registry_keys:

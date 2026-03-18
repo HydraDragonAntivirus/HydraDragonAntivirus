@@ -11,7 +11,7 @@ use std::sync::{Arc, RwLock};
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::oneshot;
 
-use crate::engine::{FirewallSettings, LogEntry, LogLevel, PacketInfo, Protocol};
+use crate::engine::{emit_log_event, FirewallSettings, LogEntry, LogLevel, PacketInfo, Protocol};
 use crate::sdk::{PacketContext, RuleAction, SdkRegistry};
 
 // ── Rich HTTP event emitted by the MITM proxy ─────────────────────────────────
@@ -243,8 +243,8 @@ pub async fn run_proxy(
                         }
 
                         // Emit log for the console/log view
-                        let _ = app.emit(
-                            "log",
+                        emit_log_event(
+                            &app,
                             LogEntry {
                                 id: format!("{}-intercept-block-{}-{}", ts, host, port),
                                 timestamp: ts,
@@ -293,8 +293,8 @@ pub async fn run_proxy(
 
                     // ── Emit events ───────────────────────────────────────
                     // 1. Legacy one-line log (keeps existing UI working)
-                    let _ = app.emit(
-                        "log",
+                    emit_log_event(
+                        &app,
                         LogEntry {
                             id: format!("{}-intercept-{}-{}", ts, host, port),
                             timestamp: ts,
@@ -344,8 +344,8 @@ pub async fn run_proxy(
     match bind_result {
         Ok(server) => {
             let ts = now_ts();
-            let _ = app_handle.emit(
-                "log",
+            emit_log_event(
+                &app_handle,
                 LogEntry {
                     id: format!("{}-proxy-ready", ts),
                     timestamp: ts,
@@ -360,7 +360,7 @@ pub async fn run_proxy(
             tokio::select! {
                 _ = server => {
                     let ts = now_ts();
-                    let _ = app_handle.emit("log", LogEntry {
+                    emit_log_event(&app_handle, LogEntry {
                         id: format!("{}-proxy-exit", ts),
                         timestamp: ts,
                         level: LogLevel::Warning,
@@ -374,8 +374,8 @@ pub async fn run_proxy(
         }
         Err(e) => {
             let ts = now_ts();
-            let _ = app_handle.emit(
-                "log",
+            emit_log_event(
+                &app_handle,
                 LogEntry {
                     id: format!("{}-proxy-bind-err", ts),
                     timestamp: ts,

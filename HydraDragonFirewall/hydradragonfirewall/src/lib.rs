@@ -7,10 +7,10 @@ pub mod tls_parser;
 pub mod web_filter;
 pub mod windivert_api;
 
-use crate::engine::FirewallEngine;
+use crate::engine::{emit_log_event, FirewallEngine};
 use serde::Serialize;
 use std::sync::Arc;
-use tauri::{AppHandle, Emitter, Manager, Runtime};
+use tauri::{AppHandle, Manager, Runtime};
 use tokio::time::{sleep, Duration};
 
 // FirewallState was redundant as we manage Arc<FirewallEngine> directly in modern Tauri 2
@@ -52,6 +52,17 @@ async fn get_settings<R: Runtime>(
 ) -> Result<crate::engine::FirewallSettings, String> {
     if let Some(engine) = wait_for_engine(&handle).await {
         Ok(engine.get_settings())
+    } else {
+        Err("Engine not initialized".to_string())
+    }
+}
+
+#[tauri::command]
+async fn get_saved_logs<R: Runtime>(
+    handle: AppHandle<R>,
+) -> Result<Vec<crate::engine::LogEntry>, String> {
+    if let Some(engine) = wait_for_engine(&handle).await {
+        Ok(engine.get_saved_logs())
     } else {
         Err("Engine not initialized".to_string())
     }
@@ -244,8 +255,8 @@ pub fn run() {
                     std::thread::sleep(std::time::Duration::from_millis(500));
 
                     // Emit startup message
-                    let _ = handle.emit(
-                        "log",
+                    emit_log_event(
+                        &handle,
                         crate::engine::LogEntry {
                             id: "startup-0".to_string(),
                             timestamp: std::time::SystemTime::now()
@@ -282,8 +293,8 @@ pub fn run() {
                     api.prevent_close();
 
                     // Optional: notify the frontend/log that the app is still running.
-                    let _ = window.emit(
-                        "log",
+                    emit_log_event(
+                        &window.app_handle(),
                         crate::engine::LogEntry {
                             id: format!("hide-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs()),
                             timestamp: std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64,
@@ -297,6 +308,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             resolve_app_decision,
             get_settings,
+            get_saved_logs,
             save_settings,
             get_sdk_rules,
             get_rules_content,

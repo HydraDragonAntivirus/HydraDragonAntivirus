@@ -6,12 +6,13 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque, HashSet};
 use std::fs;
+use std::io::{BufRead, BufReader, Write};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
+use tauri::{AppHandle, Emitter, Manager, Runtime, WebviewUrl, WebviewWindowBuilder};
 use tokio::sync::oneshot;
 use windivert::prelude::*;
 
@@ -112,6 +113,94 @@ pub struct LogEntry {
     pub timestamp: u64,
     pub level: LogLevel,
     pub message: String,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+fn default_max_visible_logs() -> usize {
+    2000
+}
+
+fn firewall_data_dir() -> PathBuf {
+    if let Ok(program_data) = std::env::var("PROGRAMDATA") {
+        return PathBuf::from(program_data)
+            .join("HydraDragonAntivirus")
+            .join("HydraDragonFirewall");
+    }
+
+    std::env::current_exe()
+        .ok()
+        .and_then(|path| path.parent().map(|parent| parent.to_path_buf()))
+        .unwrap_or_else(|| PathBuf::from("."))
+}
+
+fn firewall_log_file_path() -> PathBuf {
+    firewall_data_dir().join("logs").join("firewall_activity.jsonl")
+}
+
+fn persist_log_entry(entry: &LogEntry, settings: Option<&FirewallSettings>) {
+    if settings.is_some_and(|current| !current.save_all_logs) {
+        return;
+    }
+
+    let log_path = firewall_log_file_path();
+    if let Some(parent) = log_path.parent() {
+        if fs::create_dir_all(parent).is_err() {
+            return;
+        }
+    }
+
+    let Ok(mut file) = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_path)
+    else {
+        return;
+    };
+
+    let Ok(line) = serde_json::to_string(entry) else {
+        return;
+    };
+
+    let _ = writeln!(file, "{line}");
+}
+
+pub fn load_saved_logs(limit: Option<usize>) -> Vec<LogEntry> {
+    let log_path = firewall_log_file_path();
+    let Ok(file) = fs::File::open(log_path) else {
+        return Vec::new();
+    };
+
+    let reader = BufReader::new(file);
+    if let Some(limit) = limit {
+        let keep = limit.max(1);
+        let mut tail = VecDeque::with_capacity(keep);
+        for line in reader.lines().map_while(Result::ok) {
+            if let Ok(entry) = serde_json::from_str::<LogEntry>(&line) {
+                if tail.len() == keep {
+                    tail.pop_front();
+                }
+                tail.push_back(entry);
+            }
+        }
+        return tail.into_iter().collect();
+    }
+
+    reader
+        .lines()
+        .map_while(Result::ok)
+        .filter_map(|line| serde_json::from_str::<LogEntry>(&line).ok())
+        .collect()
+}
+
+pub fn emit_log_event<R: Runtime>(app: &AppHandle<R>, entry: LogEntry) {
+    let settings_snapshot = app
+        .try_state::<Arc<FirewallEngine>>()
+        .map(|engine| engine.settings.read().unwrap().clone());
+    persist_log_entry(&entry, settings_snapshot.as_ref());
+    let _ = app.emit("log", entry);
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -405,6 +494,12 @@ pub struct FirewallSettings {
     pub website_path: String,
     pub rules: Vec<FirewallRule>,
     pub late_blocking_mode: bool,
+    #[serde(default = "default_true")]
+    pub save_all_logs: bool,
+    #[serde(default = "default_true")]
+    pub prune_old_logs: bool,
+    #[serde(default = "default_max_visible_logs")]
+    pub max_visible_logs: usize,
     pub tls_proxy: TlsProxyConfig,
     pub metadata: HashMap<String, String>,
 }
@@ -426,6 +521,9 @@ impl Default for FirewallSettings {
             website_path: String::new(),
             rules: Vec::new(),
             late_blocking_mode: false,
+            save_all_logs: true,
+            prune_old_logs: true,
+            max_visible_logs: default_max_visible_logs(),
             tls_proxy: TlsProxyConfig::default(),
             metadata,
         }
@@ -925,6 +1023,9 @@ impl FirewallEngine {
             website_path: current_settings.website_path.clone(),
             rules: self.rules.read().unwrap().clone(),
             late_blocking_mode: current_settings.late_blocking_mode,
+            save_all_logs: current_settings.save_all_logs,
+            prune_old_logs: current_settings.prune_old_logs,
+            max_visible_logs: current_settings.max_visible_logs,
             tls_proxy: current_settings.tls_proxy.clone(),
             metadata: current_settings.metadata.clone(),
         };
@@ -936,12 +1037,19 @@ impl FirewallEngine {
 
     pub fn is_loopback(ip: IpAddr) -> bool {
         match ip {
-            IpAddr::V4(v4) => {
-                v4.is_loopback()
-                    || v4 == Ipv4Addr::new(127, 0, 0, 1)
-                    || v4 == Ipv4Addr::new(0, 0, 0, 0)
-            }
-            IpAddr::V6(v6) => v6.is_loopback() || v6.is_unspecified(),
+            IpAddr::V4(v4) => v4.is_loopback(),
+            IpAddr::V6(v6) => v6.is_loopback(),
+        }
+    }
+
+    fn is_proxy_host(ip: IpAddr, tls_proxy: &TlsProxyConfig) -> bool {
+        if tls_proxy.listen_host.eq_ignore_ascii_case("localhost") {
+            return Self::is_loopback(ip);
+        }
+
+        match tls_proxy.listen_host.parse::<IpAddr>() {
+            Ok(proxy_ip) => ip == proxy_ip,
+            Err(_) => Self::is_loopback(ip),
         }
     }
 
@@ -954,14 +1062,17 @@ impl FirewallEngine {
             return false;
         }
 
-        if tls_proxy.listen_host.eq_ignore_ascii_case("localhost") {
-            return info.dst_ip.is_loopback();
+        Self::is_proxy_host(info.dst_ip, tls_proxy)
+    }
+
+    fn is_proxy_listener_flow(info: &PacketInfo, tls_proxy: &TlsProxyConfig) -> bool {
+        if !matches!(info.protocol, Protocol::TCP) {
+            return false;
         }
 
-        match tls_proxy.listen_host.parse::<IpAddr>() {
-            Ok(proxy_ip) => info.dst_ip == proxy_ip,
-            Err(_) => info.dst_ip.is_loopback(),
-        }
+        (info.dst_port == tls_proxy.listen_port && Self::is_proxy_host(info.dst_ip, tls_proxy))
+            || (info.src_port == tls_proxy.listen_port
+                && Self::is_proxy_host(info.src_ip, tls_proxy))
     }
 
     fn enforce_tls_proxy_mode(
@@ -1010,7 +1121,7 @@ impl FirewallEngine {
         // Install the generated CA into Windows Trusted Root so browsers accept it.
         if let Err(e) = Self::install_ca_der(&ca_bundle.cert_der) {
             let now = Self::now_ts();
-            let _ = tx.emit("log", LogEntry {
+            emit_log_event(&tx, LogEntry {
                 id: format!("{}-ca-install-warn", now),
                 timestamp: now,
                 level: LogLevel::Warning,
@@ -1181,6 +1292,21 @@ impl FirewallEngine {
         self.settings.read().unwrap().clone()
     }
 
+    pub fn get_saved_logs(&self) -> Vec<LogEntry> {
+        let settings = self.settings.read().unwrap().clone();
+        if !settings.save_all_logs {
+            return Vec::new();
+        }
+
+        let limit = if settings.prune_old_logs {
+            Some(settings.max_visible_logs.max(1))
+        } else {
+            None
+        };
+
+        load_saved_logs(limit)
+    }
+
     /// Resolve PID from port using Windows TCP/UDP extended tables
     pub fn resolve_pid_from_port(port: u16, is_tcp: bool) -> u32 {
         unsafe {
@@ -1297,8 +1423,8 @@ impl FirewallEngine {
                     }
                 };
 
-                let _ = tx_loader.emit(
-                    "log",
+                emit_log_event(
+                    &tx_loader,
                     LogEntry {
                         id: format!("{}-web-load-start", ts),
                         timestamp: ts,
@@ -1310,8 +1436,8 @@ impl FirewallEngine {
                 // Execute the load
                 match wf_loader.load_from_website_folder(&path_str) {
                     Ok(count) => {
-                        let _ = tx_loader.emit(
-                            "log",
+                        emit_log_event(
+                            &tx_loader,
                             LogEntry {
                                 id: format!("{}-web-load-success", Self::now_ts()),
                                 timestamp: Self::now_ts(),
@@ -1321,8 +1447,8 @@ impl FirewallEngine {
                         );
                     }
                     Err(e) => {
-                        let _ = tx_loader.emit(
-                            "log",
+                        emit_log_event(
+                            &tx_loader,
                             LogEntry {
                                 id: format!("{}-web-load-error", Self::now_ts()),
                                 timestamp: Self::now_ts(),
@@ -1344,8 +1470,8 @@ impl FirewallEngine {
             Ok(d) => WinDivertArc(Arc::new(d)),
             Err(e) => {
                 let ts = Self::now_ts();
-                let _ = tx.emit(
-                    "log",
+                emit_log_event(
+                    &tx,
                     LogEntry {
                         id: format!("{}-divert-fail", ts),
                         timestamp: ts,
@@ -1364,8 +1490,8 @@ impl FirewallEngine {
 
         let ts = Self::now_ts();
         let sdk_count = self.sdk.read().unwrap().rules.len();
-        let _ = tx.emit(
-            "log",
+        emit_log_event(
+            &tx,
             LogEntry {
                 id: format!("{}-sdk-init", ts),
                 timestamp: ts,
@@ -1374,8 +1500,8 @@ impl FirewallEngine {
             },
         );
 
-        let _ = tx.emit(
-            "log",
+        emit_log_event(
+            &tx,
             LogEntry {
                 id: format!("{}-divert-active", ts),
                 timestamp: ts,
@@ -1390,8 +1516,8 @@ impl FirewallEngine {
         };
         if tls_proxy_cfg.mode == TlsInspectionMode::TlsProxy {
             let ts = Self::now_ts();
-            let _ = tx.emit(
-                "log",
+            emit_log_event(
+                &tx,
                 LogEntry {
                     id: format!("{}-tls-proxy-mode", ts),
                     timestamp: ts,
@@ -1747,7 +1873,7 @@ impl FirewallEngine {
                                 packet_count += 1;
                                 if packet_count % 100 == 0 {
                                     let ts = Self::now_ts();
-                                    let _ = tx_log.emit("log", LogEntry {
+                                    emit_log_event(&tx_log, LogEntry {
                                         id: format!("{}-worker-{}-count", ts, worker_id),
                                         timestamp: ts,
                                         level: LogLevel::Info,
@@ -1982,7 +2108,7 @@ impl FirewallEngine {
                                     break;
                                 } else {
                                     let ts = Self::now_ts();
-                                    let _ = tx_log.emit("log", LogEntry {
+                                    emit_log_event(&tx_log, LogEntry {
                                         id: format!("{}-worker-{}-err-{}", ts, worker_id, packet_count),
                                         timestamp: ts,
                                         level: LogLevel::Error,
@@ -2091,18 +2217,19 @@ impl FirewallEngine {
         }
 
         // 5. Core Firewall Logic
-        // Loopback traffic MUST be allowed unconditionally and exit early.
-        // However, connections TO the TLS proxy listener are meaningful events
-        // (they tell us which app is being proxied) so we emit a log entry before
-        // returning rather than discarding them silently.
-        if Self::is_loopback(info.src_ip) || Self::is_loopback(info.dst_ip) {
+        // Only the firewall's own embedded proxy listener is fast-allowed on
+        // loopback so we do not interfere with the interception path itself.
+        // All other localhost traffic must continue through normal rule and
+        // app-decision evaluation.
+        if tls_proxy_cfg.mode == TlsInspectionMode::TlsProxy
+            && Self::is_proxy_listener_flow(&info, &tls_proxy_cfg)
+        {
             stats.packets_total.fetch_add(1, Ordering::Relaxed);
             stats.packets_allowed.fetch_add(1, Ordering::Relaxed);
 
             // Emit a dedicated event when an app connects to the proxy listener so
             // the user can see which apps are being intercepted by the embedded proxy.
             if outbound
-                && tls_proxy_cfg.mode == TlsInspectionMode::TlsProxy
                 && Self::is_proxy_destination(&info, &tls_proxy_cfg)
             {
                 let app_info_loopback = am.info_cache.get_info(pid);
@@ -2112,8 +2239,8 @@ impl FirewallEngine {
                     .or_else(|| dns_handler.resolve_ip(&info.dst_ip.to_string()))
                     .unwrap_or_else(|| info.dst_ip.to_string());
                 let now = Self::now_ts();
-                let _ = tx.emit(
-                    "log",
+                emit_log_event(
+                    &tx,
                     LogEntry {
                         id: format!("{}-proxy-intercept-{}", now, pid),
                         timestamp: now,
@@ -2131,7 +2258,7 @@ impl FirewallEngine {
                 address_data: address_data.to_vec(),
                 should_forward: true,
                 recalc_checksums: false,
-                _reason: "Localhost (always allowed)".to_string(),
+                _reason: "Embedded proxy listener".to_string(),
             };
         }
 
@@ -2249,8 +2376,8 @@ impl FirewallEngine {
                     }
                     crate::sdk::RuleAction::TrafficAttack => {
                         // Log as attack but still forward (monitoring)
-                        let _ = tx.emit(
-                            "log",
+                        emit_log_event(
+                            &tx,
                             LogEntry {
                                 id: format!("{}-attack", Self::now_ts()),
                                 timestamp: Self::now_ts(),
@@ -2392,8 +2519,8 @@ impl FirewallEngine {
                         .unwrap_or_else(|| "Allowed (no matching rule)".to_string())
                 };
 
-                let _ = tx.emit(
-                    "log",
+                emit_log_event(
+                    &tx,
                     LogEntry {
                         id: format!("{}-allow", now),
                         timestamp: now,
@@ -2429,8 +2556,8 @@ impl FirewallEngine {
                     let log_reason = reason
                         .clone()
                         .unwrap_or_else(|| "Blocked".to_string());
-                    let _ = tx.emit(
-                        "log",
+                    emit_log_event(
+                        &tx,
                         LogEntry {
                             id: format!("{}-blocked", now),
                             timestamp: now,

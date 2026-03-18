@@ -2,6 +2,7 @@ use js_sys::Reflect;
 use leptos::*;
 // Assuming imports work.
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::time::Duration;
 use wasm_bindgen::prelude::*;
 
@@ -124,6 +125,45 @@ pub enum AppDecision {
     AllowOnce,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum TlsInspectionMode {
+    MetadataOnly,
+    TlsProxy,
+}
+
+impl Default for TlsInspectionMode {
+    fn default() -> Self {
+        Self::TlsProxy
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TlsProxyConfig {
+    #[serde(default)]
+    pub mode: TlsInspectionMode,
+    #[serde(default)]
+    pub listen_host: String,
+    #[serde(default)]
+    pub listen_port: u16,
+    #[serde(default)]
+    pub block_quic_udp_443: bool,
+    #[serde(default)]
+    pub auto_start: bool,
+}
+
+impl Default for TlsProxyConfig {
+    fn default() -> Self {
+        Self {
+            mode: TlsInspectionMode::TlsProxy,
+            listen_host: "127.0.0.1".to_string(),
+            listen_port: 8877,
+            block_quic_udp_443: true,
+            auto_start: true,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct FirewallRule {
     pub name: String,
@@ -143,6 +183,8 @@ pub struct FirewallRule {
     pub hostname_pattern: Option<String>,
     #[serde(default)]
     pub url_pattern: Option<String>,
+    #[serde(default)]
+    pub file_types: Vec<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -166,12 +208,58 @@ pub struct SdkRuleView {
     pub action: RuleActionView,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct FirewallSettings {
+    #[serde(default)]
+    pub app_decisions: HashMap<String, AppDecision>,
     #[serde(default)]
     pub website_path: String,
     #[serde(default)]
     pub rules: Vec<FirewallRule>,
+    #[serde(default)]
+    pub late_blocking_mode: bool,
+    #[serde(default = "default_true")]
+    pub save_all_logs: bool,
+    #[serde(default = "default_true")]
+    pub prune_old_logs: bool,
+    #[serde(default = "default_max_visible_logs")]
+    pub max_visible_logs: usize,
+    #[serde(default)]
+    pub tls_proxy: TlsProxyConfig,
+    #[serde(default)]
+    pub metadata: HashMap<String, String>,
+}
+
+impl Default for FirewallSettings {
+    fn default() -> Self {
+        let mut metadata = HashMap::new();
+        metadata.insert("version".to_string(), "2.0.0".to_string());
+        metadata.insert(
+            "description".to_string(),
+            "HydraDragon Next-Gen Firewall Configuration".to_string(),
+        );
+        metadata.insert("theme".to_string(), "cyberpunk".to_string());
+
+        Self {
+            app_decisions: HashMap::new(),
+            website_path: String::new(),
+            rules: Vec::new(),
+            late_blocking_mode: false,
+            save_all_logs: true,
+            prune_old_logs: true,
+            max_visible_logs: default_max_visible_logs(),
+            tls_proxy: TlsProxyConfig::default(),
+            metadata,
+        }
+    }
+}
+
+fn default_true() -> bool {
+    true
+}
+
+fn default_max_visible_logs() -> usize {
+    2000
 }
 
 #[component]
@@ -189,7 +277,7 @@ pub fn App() -> impl IntoView {
     let (_sdk_rules, set_sdk_rules) = create_signal(Vec::<SdkRuleView>::new());
     
     let (pending_app, set_pending_app) = create_signal(Option::<PendingApp>::None);
-    let (app_decisions, set_app_decisions) = create_signal(std::collections::HashMap::<String, AppDecision>::new());
+    let (app_decisions, set_app_decisions) = create_signal(HashMap::<String, AppDecision>::new());
 
     // Window Mode Detection
     let (is_alert, set_is_alert) = create_signal({
@@ -248,6 +336,8 @@ pub fn App() -> impl IntoView {
             set_pending_app.set(None);
         });
     };
+
+    let (settings, set_settings) = create_signal(FirewallSettings::default());
     
     let (show_editor, set_show_editor) = create_signal(false);
     let (rules_raw_content, set_rules_raw_content) = create_signal(String::new());
@@ -275,8 +365,28 @@ pub fn App() -> impl IntoView {
     let fetch_app_decisions = move || {
         spawn_local(async move {
             let res = invoke("get_app_decisions", JsValue::NULL).await;
-            if let Ok(decisions) = serde_wasm_bindgen::from_value::<std::collections::HashMap<String, AppDecision>>(res) {
+            if let Ok(decisions) = serde_wasm_bindgen::from_value::<HashMap<String, AppDecision>>(res) {
                 set_app_decisions.set(decisions);
+            }
+        });
+    };
+
+    let fetch_settings = move || {
+        spawn_local(async move {
+            let res = invoke("get_settings", JsValue::NULL).await;
+            if let Ok(current_settings) = serde_wasm_bindgen::from_value::<FirewallSettings>(res) {
+                set_settings.set(current_settings);
+            }
+        });
+    };
+
+    let fetch_saved_logs = move || {
+        spawn_local(async move {
+            let res = invoke("get_saved_logs", JsValue::NULL).await;
+            if let Ok(saved_logs) = serde_wasm_bindgen::from_value::<Vec<LogEntry>>(res) {
+                if !saved_logs.is_empty() {
+                    set_logs.set(saved_logs);
+                }
             }
         });
     };
@@ -334,13 +444,15 @@ pub fn App() -> impl IntoView {
     let (saved_status, set_saved_status) = create_signal(false);
     let (engine_status, set_engine_status) = create_signal("Initializing Engine...".to_string());
     let (engine_active, set_engine_active) = create_signal(false);
+    let (settings_loaded, set_settings_loaded) = create_signal(false);
     let (_graph_data, set_graph_data) = create_signal(vec![180, 160, 170, 150, 140, 130, 110, 120, 100]);
-    let (settings, set_settings) = create_signal(FirewallSettings::default());
 
     create_effect(move |_| {
         match current_view.get() {
             AppView::Rules => { fetch_sdk_rules(); fetch_rules_raw(); }
+            AppView::Logs => { fetch_saved_logs(); }
             AppView::Exclusions => { fetch_app_decisions(); }
+            AppView::Settings => { fetch_settings(); }
             _ => {}
         }
     });
@@ -358,7 +470,17 @@ pub fn App() -> impl IntoView {
             if let Ok(payload) = serde_wasm_bindgen::from_value::<serde_json::Value>(event) {
                 if let Some(payload_obj) = payload.get("payload") {
                     if let Ok(entry) = serde_json::from_value::<LogEntry>(payload_obj.clone()) {
-                        set_logs.update(|l| { l.push(entry.clone()); if l.len() > 200 { l.remove(0); } });
+                        set_logs.update(|l| {
+                            l.push(entry.clone());
+                            let current_settings = settings.get_untracked();
+                            if current_settings.prune_old_logs {
+                                let keep = current_settings.max_visible_logs.max(1);
+                                if l.len() > keep {
+                                    let remove_count = l.len() - keep;
+                                    l.drain(0..remove_count);
+                                }
+                            }
+                        });
                         set_total_count.update(|n| *n += 1);
                         if entry.message.contains("ACTIVE") || entry.message.contains("Engine") {
                             set_engine_status.set(entry.message.clone());
@@ -408,6 +530,11 @@ pub fn App() -> impl IntoView {
                 if let Ok(status) = serde_wasm_bindgen::from_value::<EngineRuntimeStatus>(res) {
                     set_engine_active.set(status.active);
                     set_engine_status.set(status.status);
+                    if status.active && !settings_loaded.get_untracked() {
+                        fetch_settings();
+                        fetch_saved_logs();
+                        set_settings_loaded.set(true);
+                    }
                 }
             });
         };
@@ -421,6 +548,8 @@ pub fn App() -> impl IntoView {
             let s = settings.get();
             let args = serde_wasm_bindgen::to_value(&s).unwrap();
             let _ = invoke("save_settings", args).await;
+            fetch_settings();
+            fetch_saved_logs();
             set_saved_status.set(true);
             set_timeout(move || set_saved_status.set(false), Duration::from_secs(2));
         });
@@ -654,7 +783,7 @@ pub fn App() -> impl IntoView {
                                 <div class="glass-card logs-section" style="height: calc(100vh - 120px)">
                                     <div class="section-header">
                                         <h3 style="margin: 0; font-size: 16px; font-weight: 700">"Network Activity Log"</h3>
-                                        <button class="btn-primary" style="padding: 5px 15px; font-size: 11px" on:click=move |_| set_logs.set(Vec::new())> "Clear Logs" </button>
+                                        <button class="btn-primary" style="padding: 5px 15px; font-size: 11px" on:click=move |_| set_logs.set(Vec::new())> "Clear Screen" </button>
                                     </div>
                                     <div class="logs-viewport">
                                         <For
@@ -739,6 +868,58 @@ pub fn App() -> impl IntoView {
                                             <label>"Custom Filter Path"</label>
                                             <input type="text" prop:value=move || settings.get().website_path on:input=move |ev| update_path(event_target_value(&ev)) />
                                         </div>
+                                        <div class="input-group">
+                                            <label style="display: flex; align-items: center; gap: 10px">
+                                                <input
+                                                    type="checkbox"
+                                                    prop:checked=move || settings.get().save_all_logs
+                                                    on:change=move |ev| {
+                                                        set_settings.update(|s| s.save_all_logs = event_target_checked(&ev));
+                                                    }
+                                                />
+                                                "Save all logs to disk"
+                                            </label>
+                                        </div>
+                                        <div class="input-group">
+                                            <label style="display: flex; align-items: center; gap: 10px">
+                                                <input
+                                                    type="checkbox"
+                                                    prop:checked=move || settings.get().prune_old_logs
+                                                    on:change=move |ev| {
+                                                        set_settings.update(|s| s.prune_old_logs = event_target_checked(&ev));
+                                                    }
+                                                />
+                                                "Remove old logs from the GUI when the list gets too large"
+                                            </label>
+                                        </div>
+                                        <div class="input-group">
+                                            <label>"Maximum visible logs"</label>
+                                            <input
+                                                type="number"
+                                                min="1"
+                                                prop:value=move || settings.get().max_visible_logs.to_string()
+                                                on:input=move |ev| {
+                                                    if let Ok(value) = event_target_value(&ev).parse::<usize>() {
+                                                        set_settings.update(|s| s.max_visible_logs = value.max(1));
+                                                    }
+                                                }
+                                            />
+                                        </div>
+                                        <div class="input-group">
+                                            <label style="display: flex; align-items: center; gap: 10px">
+                                                <input
+                                                    type="checkbox"
+                                                    prop:checked=move || settings.get().late_blocking_mode
+                                                    on:change=move |ev| {
+                                                        set_settings.update(|s| s.late_blocking_mode = event_target_checked(&ev));
+                                                    }
+                                                />
+                                                "Late blocking mode"
+                                            </label>
+                                        </div>
+                                        <p style="margin: 8px 0 18px 0; color: var(--text-muted); font-size: 12px; line-height: 1.5">
+                                            "Saved logs stay on disk. GUI pruning only controls how many entries remain visible in the on-screen log list."
+                                        </p>
                                         <button class="btn-primary" on:click=move |_| save_settings_action()> "Save Changes" </button>
                                         {move || if saved_status.get() { view! { <span style="margin-left: 10px; color: var(--accent-green)">"Saved!"</span> }.into_view() } else { view! {}.into_view() }}
                                     </div>

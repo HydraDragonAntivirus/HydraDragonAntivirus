@@ -1939,10 +1939,10 @@ impl BehaviorEngine {
                 FirewallHipsPromptOutcome::Pending
             } else {
                 Logging::warning(&format!(
-                    "[Owlyshield HIPS] Falling back to block path for '{}' because the firewall GUI prompt could not be delivered",
+                    "[Owlyshield HIPS] Keeping '{}' pending because the firewall GUI prompt could not be delivered yet",
                     rule.name
                 ));
-                FirewallHipsPromptOutcome::Block
+                FirewallHipsPromptOutcome::Pending
             }
         }
     }
@@ -1959,41 +1959,147 @@ impl BehaviorEngine {
     }
 
     fn normalize_registry_text(text: &str) -> String {
-        normalize_path_separators(&text.to_lowercase())
+        let normalized = normalize_path_separators(
+            &text
+                .trim()
+                .trim_matches(char::from(0))
+                .to_ascii_lowercase(),
+        );
+
+        normalized
+            .split('/')
+            .filter(|segment| !segment.is_empty())
+            .map(|segment| {
+                if segment.starts_with("controlset")
+                    && segment["controlset".len()..]
+                        .chars()
+                        .all(|ch| ch.is_ascii_digit())
+                {
+                    "currentcontrolset".to_string()
+                } else {
+                    segment.to_string()
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("/")
     }
 
-    fn registry_pattern_matches(cache: &RefCell<HashMap<String, Regex>>, pattern: &str, filepath: &str) -> bool {
-        let p = Self::normalize_registry_text(pattern);
-        let f = Self::normalize_registry_text(filepath);
+    fn push_registry_alias(aliases: &mut HashSet<String>, prefix: &str, remainder: &str) {
+        let normalized_prefix = prefix.trim_matches('/').to_string();
+        let normalized_remainder = remainder.trim_matches('/');
 
-        if p.starts_with("hkcu/") || p.starts_with("hkey_current_user/") {
-            let remainder = p.split_once('/').map(|x| x.1).unwrap_or("");
-            if f.contains("/registry/user/") {
-                return f.contains(remainder);
+        if normalized_remainder.is_empty() {
+            aliases.insert(normalized_prefix);
+        } else {
+            aliases.insert(format!("{}/{}", normalized_prefix, normalized_remainder));
+        }
+    }
+
+    fn registry_match_aliases(text: &str) -> Vec<String> {
+        let normalized = Self::normalize_registry_text(text);
+        let trimmed = normalized.trim_matches('/').to_string();
+        let mut aliases = HashSet::new();
+
+        if !trimmed.is_empty() {
+            aliases.insert(trimmed.clone());
+        }
+
+        let add_classes_root_alias = |aliases: &mut HashSet<String>, remainder: &str| {
+            Self::push_registry_alias(aliases, "hkcr", remainder);
+        };
+
+        if let Some(remainder) = trimmed.strip_prefix("hkey_local_machine/") {
+            Self::push_registry_alias(&mut aliases, "hklm", remainder);
+        } else if trimmed == "hkey_local_machine" {
+            aliases.insert("hklm".to_string());
+        }
+
+        if let Some(remainder) = trimmed.strip_prefix("hkey_current_user/") {
+            Self::push_registry_alias(&mut aliases, "hkcu", remainder);
+        } else if trimmed == "hkey_current_user" {
+            aliases.insert("hkcu".to_string());
+        }
+
+        if let Some(remainder) = trimmed.strip_prefix("hkey_users/") {
+            Self::push_registry_alias(&mut aliases, "hku", remainder);
+        } else if trimmed == "hkey_users" {
+            aliases.insert("hku".to_string());
+        }
+
+        if let Some(remainder) = trimmed.strip_prefix("hkey_classes_root/") {
+            add_classes_root_alias(&mut aliases, remainder);
+        } else if trimmed == "hkey_classes_root" {
+            aliases.insert("hkcr".to_string());
+        }
+
+        if let Some(remainder) = trimmed.strip_prefix("hkey_current_config/") {
+            Self::push_registry_alias(&mut aliases, "hkcc", remainder);
+        } else if trimmed == "hkey_current_config" {
+            aliases.insert("hkcc".to_string());
+        }
+
+        if let Some(remainder) = trimmed.strip_prefix("registry/machine/") {
+            Self::push_registry_alias(&mut aliases, "hklm", remainder);
+
+            if let Some(classes_remainder) = remainder.strip_prefix("software/classes/") {
+                add_classes_root_alias(&mut aliases, classes_remainder);
+            } else if remainder == "software/classes" {
+                aliases.insert("hkcr".to_string());
             }
-        } else if p.starts_with("hku/") || p.starts_with("hkey_users/") {
-            let remainder = p.split_once('/').map(|x| x.1).unwrap_or("");
-            if f.contains("/registry/user/") {
-                return f.contains(remainder);
-            }
-        } else if p.starts_with("hklm/") || p.starts_with("hkey_local_machine/") {
-            let remainder = p.split_once('/').map(|x| x.1).unwrap_or("");
-            if f.contains("/registry/machine/") {
-                return f.contains(remainder);
-            }
-        } else if p.starts_with("hkcc/") || p.starts_with("hkey_current_config/") {
-            let remainder = p.split_once('/').map(|x| x.1).unwrap_or("");
-            if f.contains("/registry/machine/system/currentcontrolset/hardware profiles/current") {
-                return f.contains(remainder);
-            }
-        } else if p.starts_with("hkcr/") || p.starts_with("hkey_classes_root/") {
-            let remainder = p.split_once('/').map(|x| x.1).unwrap_or("");
-            if f.contains("/registry/machine/software/classes/") || f.contains("/registry/user/") {
-                return f.contains(remainder);
+
+            if let Some(config_remainder) =
+                remainder.strip_prefix("system/currentcontrolset/hardware profiles/current/")
+            {
+                Self::push_registry_alias(&mut aliases, "hkcc", config_remainder);
+            } else if remainder == "system/currentcontrolset/hardware profiles/current" {
+                aliases.insert("hkcc".to_string());
             }
         }
 
-        Self::matches_pattern_internal(cache, &p, &f)
+        if let Some(remainder) = trimmed.strip_prefix("registry/user/") {
+            if let Some((sid, rest)) = remainder.split_once('/') {
+                Self::push_registry_alias(&mut aliases, "hku", &format!("{}/{}", sid, rest));
+
+                if sid.ends_with("_classes") {
+                    add_classes_root_alias(&mut aliases, rest);
+                } else {
+                    Self::push_registry_alias(&mut aliases, "hkcu", rest);
+                }
+            } else {
+                Self::push_registry_alias(&mut aliases, "hku", remainder);
+            }
+        }
+
+        if let Some(remainder) = trimmed.strip_prefix("hklm/software/classes/") {
+            add_classes_root_alias(&mut aliases, remainder);
+        } else if trimmed == "hklm/software/classes" {
+            aliases.insert("hkcr".to_string());
+        }
+
+        if let Some(remainder) = trimmed.strip_prefix("hkcu/software/classes/") {
+            add_classes_root_alias(&mut aliases, remainder);
+        } else if trimmed == "hkcu/software/classes" {
+            aliases.insert("hkcr".to_string());
+        }
+
+        let mut sorted_aliases: Vec<String> = aliases.into_iter().collect();
+        sorted_aliases.sort();
+        sorted_aliases
+    }
+
+    fn registry_pattern_matches(cache: &RefCell<HashMap<String, Regex>>, pattern: &str, filepath: &str) -> bool {
+        let pattern_aliases = Self::registry_match_aliases(pattern);
+        let filepath_aliases = Self::registry_match_aliases(filepath);
+
+        for pattern_alias in &pattern_aliases {
+            for filepath_alias in &filepath_aliases {
+                if Self::matches_pattern_internal(cache, pattern_alias, filepath_alias) {
+                    return true;
+                }
+            }
+        }
+
+        false
     }
 
     fn registry_op_matches(cond_group: &NamedConditionGroup, msg: &IOMessage, irp_op: &IrpMajorOp) -> bool {
@@ -2010,9 +2116,7 @@ impl BehaviorEngine {
             Some(FileChangeInfo::RegSetValue) => "set",
             Some(FileChangeInfo::RegDeleteValue) => "delete",
             Some(FileChangeInfo::RegRenameKey) => "rename",
-            _ => {
-                return true;
-            }
+            _ => return false,
         };
         cond_group.registry_operations.iter().any(|v| v == op)
     }

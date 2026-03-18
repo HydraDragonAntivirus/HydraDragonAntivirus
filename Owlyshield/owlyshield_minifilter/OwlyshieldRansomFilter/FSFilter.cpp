@@ -1377,7 +1377,10 @@ FSProcessPreOperation(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECT
     BOOLEAN isDir;
     hr = FltIsDirectory(Data->Iopb->TargetFileObject, Data->Iopb->TargetInstance, &isDir);
     if (!NT_SUCCESS(hr))
+    {
+        FltReleaseFileNameInformation(nameInfo);
         return hr;
+    }
     if (isDir)
     {
         FltReleaseFileNameInformation(nameInfo);
@@ -1395,17 +1398,13 @@ FSProcessPreOperation(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECT
     PDRIVER_MESSAGE newItem = &newEntry->data;
     PUNICODE_STRING FilePath = &(newEntry->filePath);
 
-    // FltReferenceFileNameInformation is not needed here as FltGetFileNameInformation returns a referenced pointer.
-    // The previous code had a bug where it called FltReferenceFileNameInformation(nameInfo) on entry failure,
-    // which is wrong; it should only release it. Since this path is only taken on newEntry failure,
-    // we must release nameInfo. We've fixed this above and below.
+    // FltGetFileNameInformation returns a referenced pointer.
+    // Ownership stays with this caller and must be released exactly once on every exit path.
 
     hr = GetFileNameInfo(FltObjects, FilePath, nameInfo);
-
     if (!NT_SUCCESS(hr))
     {
-        // GetFileNameInfo already releases nameInfo on failure,
-        // so do NOT call FltReleaseFileNameInformation(nameInfo) here.
+        FltReleaseFileNameInformation(nameInfo);
         delete newEntry;
         return hr;
     }
@@ -1924,7 +1923,7 @@ FSProcessCreateIrp(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECTS F
 
         if (!isGidFound) {
             // DbgPrint("!!! FSFilter: Item does not have a gid, skipping\n");
-            FltReferenceFileNameInformation(nameInfo);
+            FltReleaseFileNameInformation(nameInfo);
             delete newEntry;
             return FLT_POSTOP_FINISHED_PROCESSING;
         }
@@ -2332,15 +2331,10 @@ NTSTATUS GetFileNameInfo(_In_ PCFLT_RELATED_OBJECTS FltObjects, PUNICODE_STRING 
     hr = FltParseFileNameInformation(nameInfo);
     if (!NT_SUCCESS(hr))
     {
-        FltReleaseFileNameInformation(nameInfo);
         return hr;
     }
     hr = FSEntrySetFileName(FltObjects->Volume, nameInfo, FilePath);
-    // DbgPrint("!!!FSFILTER DEBUG EntryFileName %d \n", NT_SUCCESS(hr));
-    if (!NT_SUCCESS(hr))
-    {
-        FltReleaseFileNameInformation(nameInfo);
-    } //*/
+    // Caller owns nameInfo lifetime and must release it exactly once.
     return hr;
 }
 
