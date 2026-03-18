@@ -1010,21 +1010,23 @@ fn AlertWindow(
                          )
                      };
                      view! {
-                         <div class="alert-content-grid" style="margin-top: 0">
-                             <div class="alert-info-container">
-                                  <h2 class="alert-title" style="margin-bottom: 5px">
-                                      {title}
-                                  </h2>
-                                  <div class="alert-desc" style="margin-bottom: 8px">
-                                      {description}
-                                  </div>
-                                  <div class="alert-details-box">
-                                      <div class="detail-row"> <span class="detail-label">{target_label}</span> <span class="detail-value" title=target_value.clone()>{target_value}</span> </div>
-                                      <div class="detail-row"> <span class="detail-label">"Path:"</span> <span class="detail-value path" title=app.path.clone()>{app.path.clone()}</span> </div>
-                                  </div>
+                         <div class="alert-window-scroll">
+                             <div class="alert-content-grid" style="margin-top: 0">
+                                 <div class="alert-info-container">
+                                      <h2 class="alert-title" style="margin-bottom: 5px">
+                                          {title}
+                                      </h2>
+                                      <div class="alert-desc" style="margin-bottom: 8px">
+                                          {description}
+                                      </div>
+                                      <div class="alert-details-box">
+                                          <div class="detail-row"> <span class="detail-label">{target_label}</span> <span class="detail-value" title=target_value.clone()>{target_value}</span> </div>
+                                          <div class="detail-row"> <span class="detail-label">"Path:"</span> <span class="detail-value path" title=app.path.clone()>{app.path.clone()}</span> </div>
+                                      </div>
+                                 </div>
                              </div>
                          </div>
-                         <div class="alert-footer-actions" style="margin-top: 10px; padding-top: 10px">
+                         <div class="alert-footer-actions">
                              <button class="alert-btn block" on:click=move |_| res3(n3.clone(), "block".to_string())> "BLOCK" </button>
                              <button class="alert-btn session" on:click=move |_| res1(n1.clone(), "allow_once".to_string())> "ONCE" </button>
                              <button class="alert-btn always" on:click=move |_| res2(n2.clone(), "allow_always".to_string())> "TRUST" </button>

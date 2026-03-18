@@ -2661,8 +2661,31 @@ impl FirewallEngine {
             return;
         }
 
-        let width = 520.0;
-        let height = 236.0;
+        let (width, height) = if let Some(engine) = app.try_state::<Arc<FirewallEngine>>() {
+            if let Some(alert) = engine.get_active_alert() {
+                let text_load = alert.name.len()
+                    + alert.path.len()
+                    + alert.reason.as_ref().map(|value| value.len()).unwrap_or(0)
+                    + alert.target.as_ref().map(|value| value.len()).unwrap_or(0)
+                    + alert.hostname.as_ref().map(|value| value.len()).unwrap_or(0);
+                let is_registry_alert = alert.alert_kind.as_deref() == Some("registry");
+                let width = if is_registry_alert {
+                    680.0
+                } else if text_load > 220 {
+                    620.0
+                } else {
+                    560.0
+                };
+                let base_height = if is_registry_alert { 320.0 } else { 280.0 };
+                let extra_lines = (text_load / 80) as f64;
+                let height = (base_height + extra_lines * 16.0).clamp(base_height, 460.0);
+                (width, height)
+            } else {
+                (560.0, 280.0)
+            }
+        } else {
+            (560.0, 280.0)
+        };
 
         let builder = WebviewWindowBuilder::new(app, "firewall-alert", WebviewUrl::App("index.html?mode=alert".into()))
             .title("HydraDragon Firewall Alert")
