@@ -693,6 +693,12 @@ textarea.glass-card:focus {
     letter-spacing: 0.5px;
 }
 
+.alert-window-meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
 .dragon-icon {
     width: 14px;
     height: 14px;
@@ -709,6 +715,17 @@ textarea.glass-card:focus {
     border-radius: 4px;
     font-weight: 800;
     text-transform: uppercase;
+}
+
+.alert-window-count {
+    font-size: 10px;
+    font-weight: 800;
+    color: #ffd38a;
+    border: 1px solid rgba(255, 211, 138, 0.35);
+    background: rgba(255, 211, 138, 0.08);
+    border-radius: 999px;
+    padding: 2px 8px;
+    line-height: 1.2;
 }
 
 .alert-window-body {
@@ -845,6 +862,17 @@ textarea.glass-card:focus {
 .alert-btn.block:hover {
     background: var(--accent-red);
     color: #fff;
+}
+
+.alert-btn.quarantine {
+    background: rgba(255, 152, 0, 0.14);
+    border-color: rgba(255, 152, 0, 0.32);
+    color: #ffb347;
+}
+
+.alert-btn.quarantine:hover {
+    background: #ff9800;
+    color: #161616;
 }
 
 /* EXCLUSIONS UI */

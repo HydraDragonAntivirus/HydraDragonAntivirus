@@ -62,6 +62,10 @@ pub struct PendingApp {
     pub alert_kind: Option<String>,
     #[serde(default)]
     pub target: Option<String>,
+    #[serde(default = "default_queue_position")]
+    pub queue_position: usize,
+    #[serde(default = "default_queue_total")]
+    pub queue_total: usize,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -260,6 +264,14 @@ fn default_true() -> bool {
 
 fn default_max_visible_logs() -> usize {
     2000
+}
+
+fn default_queue_position() -> usize {
+    1
+}
+
+fn default_queue_total() -> usize {
+    1
 }
 
 #[component]
@@ -961,13 +973,27 @@ fn AlertWindow(
         <div class="alert-window-root">
              <div class="alert-window-header">
                  <div class="alert-window-brand"> <div class="dragon-icon"></div> "HYDRADRAGON" </div>
-                 <div class="alert-window-tag">"THREAT INTERCEPTED"</div>
+                 <div class="alert-window-meta">
+                     {move || pending_app.get().and_then(|app| {
+                         if app.queue_total > 1 {
+                             Some(view! {
+                                 <div class="alert-window-count">
+                                     {format!("{}/{}", app.queue_position.max(1), app.queue_total)}
+                                 </div>
+                             }.into_view())
+                         } else {
+                             None
+                         }
+                     })}
+                     <div class="alert-window-tag">"THREAT INTERCEPTED"</div>
+                 </div>
              </div>
              <div class="alert-window-body">
                  {move || pending_app.get().map(|app| {
-                     let n1 = app.name.clone(); let n2 = app.name.clone(); let n3 = app.name.clone();
-                     let res1 = resolve_decision_internal.clone(); let res2 = resolve_decision_internal.clone(); let res3 = resolve_decision_internal.clone();
+                     let n1 = app.name.clone(); let n2 = app.name.clone(); let n3 = app.name.clone(); let n4 = app.name.clone();
+                     let res1 = resolve_decision_internal.clone(); let res2 = resolve_decision_internal.clone(); let res3 = resolve_decision_internal.clone(); let res4 = resolve_decision_internal.clone();
                      let is_registry_alert = app.alert_kind.as_deref() == Some("registry");
+                     let is_owlyshield_alert = app.alert_source.as_deref() == Some("owlyshield");
                      let title = if is_registry_alert {
                          "Registry protection triggered".to_string()
                      } else if let Some(ref h) = app.hostname {
@@ -1028,6 +1054,13 @@ fn AlertWindow(
                          </div>
                          <div class="alert-footer-actions">
                              <button class="alert-btn block" on:click=move |_| res3(n3.clone(), "block".to_string())> "BLOCK" </button>
+                             {if is_owlyshield_alert {
+                                 view! {
+                                     <button class="alert-btn quarantine" on:click=move |_| res4(n4.clone(), "quarantine".to_string())> "QUARANTINE" </button>
+                                 }.into_view()
+                             } else {
+                                 view! {}.into_view()
+                             }}
                              <button class="alert-btn session" on:click=move |_| res1(n1.clone(), "allow_once".to_string())> "ONCE" </button>
                              <button class="alert-btn always" on:click=move |_| res2(n2.clone(), "allow_always".to_string())> "TRUST" </button>
                          </div>

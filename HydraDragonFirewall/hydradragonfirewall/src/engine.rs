@@ -123,6 +123,14 @@ fn default_max_visible_logs() -> usize {
     2000
 }
 
+fn default_queue_position() -> usize {
+    1
+}
+
+fn default_queue_total() -> usize {
+    1
+}
+
 fn firewall_data_dir() -> PathBuf {
     if let Ok(program_data) = std::env::var("PROGRAMDATA") {
         return PathBuf::from(program_data)
@@ -267,6 +275,10 @@ pub struct PendingApp {
     pub alert_kind: Option<String>,
     #[serde(default)]
     pub target: Option<String>,
+    #[serde(default = "default_queue_position")]
+    pub queue_position: usize,
+    #[serde(default = "default_queue_total")]
+    pub queue_total: usize,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -893,8 +905,16 @@ impl AppManager {
         true
     }
 
+    fn with_queue_state(&self, mut app: PendingApp) -> PendingApp {
+        let queued_after_active = self.pending.read().unwrap().len();
+        app.queue_position = 1;
+        app.queue_total = queued_after_active.saturating_add(1);
+        app
+    }
+
     pub fn get_active_alert(&self) -> Option<PendingApp> {
-        self.active_alert.read().unwrap().clone()
+        let active = self.active_alert.read().unwrap().clone();
+        active.map(|app| self.with_queue_state(app))
     }
 }
 
@@ -1228,6 +1248,13 @@ impl FirewallEngine {
         }
     }
 
+    fn refresh_active_alert_ui(&self, tx: &AppHandle) {
+        if let Some(alert) = self.app_manager.get_active_alert() {
+            Self::spawn_alert_window(tx);
+            let _ = tx.emit("ask_app_decision", alert);
+        }
+    }
+
     pub fn resolve_app_decision(&self, name: String, decision: String, tx: &AppHandle) {
         let active_alert = self.app_manager.active_alert.read().unwrap().clone();
         let mut persist_settings = true;
@@ -1271,6 +1298,7 @@ impl FirewallEngine {
             let app_decision = match decision.as_str() {
                 "allow_always" => AppDecision::Allow,
                 "allow_once" => AppDecision::AllowOnce,
+                "quarantine" => AppDecision::Block,
                 "block" => AppDecision::Block,
                 _ => AppDecision::Pending,
             };
@@ -1286,6 +1314,15 @@ impl FirewallEngine {
                     timestamp: now,
                     level: LogLevel::Warning,
                     message: format!("Blocked: User decision for {}", decision_label),
+                },
+            ),
+            "quarantine" => emit_log_event(
+                tx,
+                LogEntry {
+                    id: format!("{}-user-quarantine", now),
+                    timestamp: now,
+                    level: LogLevel::Warning,
+                    message: format!("Blocked: User decision for {} (quarantine requested)", decision_label),
                 },
             ),
             "allow_always" => emit_log_event(
@@ -1593,11 +1630,15 @@ impl FirewallEngine {
             .name("pending_monitor".to_string())
             .spawn(move || {
                 loop {
+                    let has_active_alert = am_monitor.active_alert.read().unwrap().is_some();
+                    if has_active_alert {
+                        std::thread::sleep(Duration::from_millis(120));
+                        continue;
+                    }
+
                     let mut app_opt = None;
-                    {
-                        if let Ok(mut pending) = am_monitor.pending.write() {
-                            app_opt = pending.pop_front();
-                        }
+                    if let Ok(mut pending) = am_monitor.pending.write() {
+                        app_opt = pending.pop_front();
                     }
 
                     if let Some(app) = app_opt {
@@ -1611,12 +1652,14 @@ impl FirewallEngine {
                         Self::spawn_alert_window(&tx_monitor);
                         
                         // 2. Emit data to all windows (Main + Alert)
-                        let _ = tx_monitor.emit("ask_app_decision", app);
+                        if let Some(alert) = am_monitor.get_active_alert() {
+                            let _ = tx_monitor.emit("ask_app_decision", alert);
+                        }
 
                         // Don't spam the UI
-                        std::thread::sleep(Duration::from_millis(500));
+                        std::thread::sleep(Duration::from_millis(150));
                     } else {
-                        std::thread::sleep(Duration::from_millis(200));
+                        std::thread::sleep(Duration::from_millis(120));
                     }
                 }
             })
@@ -1628,6 +1671,7 @@ impl FirewallEngine {
         {
             let am_hips = Arc::clone(&am);
             let stop_hips = Arc::clone(&stop);
+            let tx_hips = app_handle.clone();
             std::thread::Builder::new()
                 .name("owlyshield_hips_pipe".to_string())
                 .spawn(move || {
@@ -1741,7 +1785,7 @@ impl FirewallEngine {
                                     let reason = parts.next().unwrap_or("Owlyshield HIPS detection").trim().to_string();
 
                                     if !request_id.is_empty() {
-                                        let _ = am_hips.enqueue_pending_app(
+                                        let enqueued = am_hips.enqueue_pending_app(
                                             PendingApp {
                                                 process_id,
                                                 name,
@@ -1755,9 +1799,16 @@ impl FirewallEngine {
                                                 alert_source: Some("owlyshield".to_string()),
                                                 alert_kind: Some(alert_kind),
                                                 target: Some(target),
+                                                queue_position: 1,
+                                                queue_total: 1,
                                             },
                                             false,
                                         );
+                                        if enqueued {
+                                            if let Some(active_alert) = am_hips.get_active_alert() {
+                                                let _ = tx_hips.emit("ask_app_decision", active_alert);
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -2466,7 +2517,7 @@ impl FirewallEngine {
 
         // 11. Finalize Pending Decision (Trigger prompt if still unknown)
         if app_decision == AppDecision::Pending {
-            let _ = am.enqueue_pending_app(
+            let enqueued = am.enqueue_pending_app(
                 PendingApp {
                     process_id: pid,
                     name: app_name.clone(),
@@ -2480,9 +2531,14 @@ impl FirewallEngine {
                     alert_source: None,
                     alert_kind: None,
                     target: None,
+                    queue_position: 1,
+                    queue_total: 1,
                 },
                 remember_pending_as_unknown_app,
             );
+            if enqueued {
+                self.refresh_active_alert_ui(tx);
+            }
         }
 
         stats.packets_total.fetch_add(1, Ordering::Relaxed);

@@ -17,7 +17,7 @@ use crate::extensions::ExtensionList;
 use crate::predictions::prediction::input_tensors::VecvecCappedF32;
 use crate::threat_handler::ThreatHandler;
 use crate::signature_verification::verify_signature;
-use crate::utils::{format_process_descriptor_with_fallback, validate_pipe_client};
+use crate::utils::{format_process_descriptor_with_fallback, resolve_process_path, validate_pipe_client};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use num::FromPrimitive;
@@ -126,6 +126,7 @@ struct FirewallHipsPromptState {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum FirewallHipsDecision {
     Block,
+    Quarantine,
     AllowOnce,
     AllowAlways,
 }
@@ -134,6 +135,7 @@ impl FirewallHipsDecision {
     fn from_wire(value: &str) -> Option<Self> {
         match value.trim().to_ascii_lowercase().as_str() {
             "block" => Some(Self::Block),
+            "quarantine" => Some(Self::Quarantine),
             "allow_once" => Some(Self::AllowOnce),
             "allow_always" => Some(Self::AllowAlways),
             _ => None,
@@ -146,6 +148,7 @@ enum FirewallHipsPromptOutcome {
     Pending,
     Allowed,
     Block,
+    Quarantine,
 }
 
 // =============================================================================
@@ -589,6 +592,45 @@ fn build_path_variants(norm_path: &str, raw_path: &str) -> Vec<String> {
     variants.into_iter().filter(|v| !v.is_empty()).collect()
 }
 
+fn canonical_behavior_path(path: &str) -> String {
+    let normalized = normalize_device_prefix(path);
+    let normalized = normalize_path_separators(&normalized.to_lowercase());
+    strip_drive_prefix(&normalized)
+}
+
+fn target_matches_process_image(process_path: &Path, observed_norm: &str, observed_raw: &str) -> bool {
+    if process_path.as_os_str().is_empty() {
+        return false;
+    }
+
+    let process_path_str = process_path.to_string_lossy();
+    let expected = canonical_behavior_path(&process_path_str);
+    if expected.is_empty() {
+        return false;
+    }
+
+    build_path_variants(observed_norm, observed_raw)
+        .into_iter()
+        .map(|variant| canonical_behavior_path(&variant))
+        .any(|candidate| !candidate.is_empty() && candidate == expected)
+}
+
+fn is_delete_like_file_operation(irp_op: &IrpMajorOp, file_change: Option<FileChangeInfo>) -> bool {
+    matches!(
+        (irp_op, file_change),
+        (IrpMajorOp::IrpSetInfo, Some(FileChangeInfo::ChangeDeleteFile))
+            | (IrpMajorOp::IrpSetInfo, Some(FileChangeInfo::ChangeDeleteNewFile))
+    )
+}
+
+fn is_rename_like_file_operation(irp_op: &IrpMajorOp, file_change: Option<FileChangeInfo>) -> bool {
+    matches!(
+        (irp_op, file_change),
+        (IrpMajorOp::IrpSetInfo, Some(FileChangeInfo::ChangeRenameFile))
+            | (IrpMajorOp::IrpSetInfo, Some(FileChangeInfo::ChangeExtensionChanged))
+    )
+}
+
 fn normalize_hypervisor_api_label(raw: &str) -> String {
     let mut value = raw.trim().to_string();
     if let Some(idx) = value.find(" (syscall=0x") {
@@ -694,6 +736,10 @@ pub struct NamedConditionGroup {
     pub created_processes: Vec<String>,
     #[serde(default)]
     pub detect_self_termination: bool,
+    #[serde(default)]
+    pub detect_parent_image_delete: bool,
+    #[serde(default)]
+    pub detect_parent_image_rename: bool,
     
     #[serde(default)]
     pub file_extensions: Vec<String>,
@@ -1194,6 +1240,7 @@ pub struct ProcessBehaviorState {
     pub file_action_detected: bool,
     pub extension_match_detected: bool,
     pub parent_name: String,
+    pub parent_path: PathBuf,
     pub command_line: String,
     
     pub pid: u32,
@@ -1226,6 +1273,7 @@ impl ProcessBehaviorState {
         state.exe_path = exe_path;
         state.app_name = app_name;
         state.parent_name = "unknown".to_string();
+        state.parent_path = PathBuf::new();
         state.command_line = String::new();
         state.self_terminated_processes = HashSet::new();
         state.terminated_processes = HashSet::new();
@@ -1902,6 +1950,7 @@ impl BehaviorEngine {
                             .insert(prompt.request_signature);
                         FirewallHipsPromptOutcome::Allowed
                     }
+                    FirewallHipsDecision::Quarantine => FirewallHipsPromptOutcome::Quarantine,
                     FirewallHipsDecision::Block => FirewallHipsPromptOutcome::Block,
                 }
             } else {
@@ -2519,22 +2568,37 @@ impl BehaviorEngine {
             }
                         
             let parent_pid = msg.parent_pid;
-            let mut parent_found = false;
+            let mut resolved_parent_name: Option<String> = None;
+            let mut resolved_parent_path: Option<PathBuf> = None;
 
             for existing_state in self.process_states.values() {
                 if existing_state.pid == parent_pid {
                     if !existing_state.app_name.is_empty() {
-                        s.parent_name = existing_state.app_name.clone();
-                        parent_found = true;
+                        resolved_parent_name = Some(existing_state.app_name.clone());
+                    }
+                    if !existing_state.exe_path.as_os_str().is_empty() {
+                        resolved_parent_path = Some(existing_state.exe_path.clone());
                     }
                     break;
                 }
             }
 
-            // Parent name resolution is done by worker.rs; fall back to "unknown" if not tracked.
+            if resolved_parent_path.is_none() && parent_pid != 0 {
+                resolved_parent_path = resolve_process_path(parent_pid);
+            }
 
-            if !parent_found {
+            if let Some(parent_name) = resolved_parent_name {
+                s.parent_name = parent_name;
+            } else if let Some(parent_path) = resolved_parent_path.as_ref() {
+                if let Some(parent_name) = parent_path.file_name().and_then(|value| value.to_str()) {
+                    s.parent_name = parent_name.to_lowercase();
+                }
+            } else {
                 s.parent_name = "unknown".to_string();
+            }
+
+            if let Some(parent_path) = resolved_parent_path {
+                s.parent_path = parent_path;
             }
             
             self.process_states.insert(gid, s);
@@ -2547,15 +2611,39 @@ impl BehaviorEngine {
         // the correct values — process_record_handler.handle_io runs before this function.
         // Resolve parent name before the mutable borrow below (borrow checker).
         let parent_pid = msg.parent_pid;
-        let resolved_parent_name: Option<String> = if parent_pid != 0 {
-            self.process_states.values()
-                .find(|s| s.pid == parent_pid
-                      && !s.app_name.is_empty()
-                      && !s.app_name.starts_with("PROC_")
-                      && s.app_name != "UNKNOWN")
-                .map(|s| s.app_name.clone())
+        let (resolved_parent_name, resolved_parent_path): (Option<String>, Option<PathBuf>) = if parent_pid != 0 {
+            if let Some(parent_state) = self.process_states.values().find(|s| {
+                s.pid == parent_pid
+                    && ((!s.app_name.is_empty()
+                        && !s.app_name.starts_with("PROC_")
+                        && s.app_name != "UNKNOWN")
+                        || !s.exe_path.as_os_str().is_empty())
+            }) {
+                (
+                    if !parent_state.app_name.is_empty()
+                        && !parent_state.app_name.starts_with("PROC_")
+                        && parent_state.app_name != "UNKNOWN"
+                    {
+                        Some(parent_state.app_name.clone())
+                    } else {
+                        None
+                    },
+                    if !parent_state.exe_path.as_os_str().is_empty() {
+                        Some(parent_state.exe_path.clone())
+                    } else {
+                        None
+                    },
+                )
+            } else {
+                let fallback_path = resolve_process_path(parent_pid);
+                let fallback_name = fallback_path
+                    .as_ref()
+                    .and_then(|path| path.file_name().and_then(|value| value.to_str()))
+                    .map(|value| value.to_lowercase());
+                (fallback_name, fallback_path)
+            }
         } else {
-            None
+            (None, None)
         };
 
         if let Some(state) = self.process_states.get_mut(&gid) {
@@ -2610,6 +2698,10 @@ impl BehaviorEngine {
             if (state.parent_name == "unknown" || state.parent_name.is_empty() )
                 && let Some(ref name) = resolved_parent_name {
                     state.parent_name = name.clone();
+                }
+            if state.parent_path.as_os_str().is_empty()
+                && let Some(ref path) = resolved_parent_path {
+                    state.parent_path = path.clone();
                 }
         }
         let irp_op_byte = msg.irp_op;
@@ -2930,6 +3022,37 @@ impl BehaviorEngine {
                     (!cond_group.require_same_file_read || precord.has_read_file_id(&msg.file_id_id))
                         && (!cond_group.require_same_file_write || precord.has_written_file_id(&msg.file_id_id))
                         && (!cond_group.require_same_file_rename || precord.has_renamed_file_id(&msg.file_id_id));
+
+                let parent_image_touched = !state.parent_path.as_os_str().is_empty()
+                    && target_matches_process_image(&state.parent_path, filepath, &msg.filepathstr);
+
+                if !matched
+                    && cond_group.detect_parent_image_delete
+                    && parent_image_touched
+                    && is_delete_like_file_operation(irp_op, file_change)
+                {
+                    matched = true;
+                    Logging::info(&format!(
+                        "[BehaviorEngine] Condition '{}' - Child process PID {} attempted to delete parent image {}",
+                        cond_name,
+                        state.pid,
+                        state.parent_path.to_string_lossy()
+                    ));
+                }
+
+                if !matched
+                    && cond_group.detect_parent_image_rename
+                    && parent_image_touched
+                    && is_rename_like_file_operation(irp_op, file_change)
+                {
+                    matched = true;
+                    Logging::info(&format!(
+                        "[BehaviorEngine] Condition '{}' - Child process PID {} attempted to rename parent image {}",
+                        cond_name,
+                        state.pid,
+                        state.parent_path.to_string_lossy()
+                    ));
+                }
 
                 // Path-only conditions: match on path filters when no extension-specific matcher is requested.
                 if !matched && has_path_filters && !has_extension_conditions && file_op_allowed {
@@ -3602,12 +3725,20 @@ impl BehaviorEngine {
             }
 
             if legacy_triggered || rich_triggered || stages_triggered {
+                let mut prompted_block = false;
+                let mut prompted_quarantine = false;
                 if rule.response.ask_user {
                     match self.resolve_firewall_hips_prompt(gid, &state_ref, rule) {
                         FirewallHipsPromptOutcome::Pending | FirewallHipsPromptOutcome::Allowed => {
                             continue;
                         }
-                        FirewallHipsPromptOutcome::Block => {}
+                        FirewallHipsPromptOutcome::Block => {
+                            prompted_block = true;
+                        }
+                        FirewallHipsPromptOutcome::Quarantine => {
+                            prompted_block = true;
+                            prompted_quarantine = true;
+                        }
                     }
                 }
 
@@ -3633,9 +3764,17 @@ impl BehaviorEngine {
                         "Trigger: {}, Ratio: {:.1}%",
                         trigger_type, indicator_ratio * 100.0
                     )),
-                    terminate: rule.response.terminate_process,
-                    quarantine: rule.response.quarantine,
-                    kill_and_remove: rule.response.kill_and_remove,
+                    terminate: if rule.response.ask_user {
+                        prompted_block || prompted_quarantine || rule.response.terminate_process
+                    } else {
+                        rule.response.terminate_process
+                    },
+                    quarantine: if rule.response.ask_user {
+                        prompted_quarantine
+                    } else {
+                        rule.response.quarantine
+                    },
+                    kill_and_remove: if rule.response.ask_user { false } else { rule.response.kill_and_remove },
                     notify_user: rule.response.notify_user,
                     revert: rule.response.auto_revert,
                 };
@@ -3644,7 +3783,7 @@ impl BehaviorEngine {
                 actions.run_actions_with_info(config, precord, &dummy_pred_mtrx, &threat_info);
                 self.process_terminated.insert(precord.appname.to_lowercase());
                 
-                if rule.response.terminate_process {
+                if threat_info.terminate {
                     break;
                 }
             }
@@ -3939,12 +4078,20 @@ impl BehaviorEngine {
                 }
 
                 if legacy_triggered || rich_triggered || stages_triggered {
+                    let mut prompted_block = false;
+                    let mut prompted_quarantine = false;
                     if rule.response.ask_user {
                         match self.resolve_firewall_hips_prompt(gid, &state, rule) {
                             FirewallHipsPromptOutcome::Pending | FirewallHipsPromptOutcome::Allowed => {
                                 continue;
                             }
-                            FirewallHipsPromptOutcome::Block => {}
+                            FirewallHipsPromptOutcome::Block => {
+                                prompted_block = true;
+                            }
+                            FirewallHipsPromptOutcome::Quarantine => {
+                                prompted_block = true;
+                                prompted_quarantine = true;
+                            }
                         }
                     }
 
@@ -3955,9 +4102,17 @@ impl BehaviorEngine {
                     );
                     p.is_malicious = true;
                     p.pids.insert(pid);
-                    p.termination_requested = rule.response.terminate_process;
-                    p.quarantine_requested = rule.response.quarantine;
-                    p.kill_and_remove_requested = rule.response.kill_and_remove;
+                    p.termination_requested = if rule.response.ask_user {
+                        prompted_block || prompted_quarantine || rule.response.terminate_process
+                    } else {
+                        rule.response.terminate_process
+                    };
+                    p.quarantine_requested = if rule.response.ask_user {
+                        prompted_quarantine
+                    } else {
+                        rule.response.quarantine
+                    };
+                    p.kill_and_remove_requested = if rule.response.ask_user { false } else { rule.response.kill_and_remove };
                     p.notify_user_requested = rule.response.notify_user;
                     p.revert_requested = rule.response.auto_revert;
                     p.triggered_rule_name = Some(rule.name.clone());
