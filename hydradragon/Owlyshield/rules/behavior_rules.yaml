@@ -3,3 +3,4 @@
 !include regseek_registry_hips_default.yaml
 !include taskmgr_disable_worm_rule.yaml
 !include process_hollowing_rule.yaml
+!include process_self_delete_rule.yaml
