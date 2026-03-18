@@ -1341,46 +1341,70 @@ impl FirewallEngine {
                     use std::io::Write;
                     const PIPE: &str = r"\\.\pipe\HydraNetEvent";
                     let mut pipe_opt: Option<std::fs::File> = None;
+                    let mut pending_msgs: VecDeque<String> = VecDeque::new();
 
                     while !stop_pipe.load(Ordering::Relaxed) {
                         loop {
                             match net_event_rx.try_recv() {
                                 Ok(msg) => {
-                                    if pipe_opt.is_none() {
-                                        if let Ok(file) = std::fs::OpenOptions::new()
-                                            .write(true)
-                                            .open(PIPE)
-                                        {
-                                            use std::os::windows::io::AsRawHandle;
-                                            use windows::Win32::Foundation::HANDLE;
-                                            use windows::Win32::System::Pipes::GetNamedPipeServerProcessId;
-
-                                            let mut server_pid: u32 = 0;
-                                            let handle = HANDLE(file.as_raw_handle() as *mut _);
-                                            let ok = unsafe { GetNamedPipeServerProcessId(handle, &mut server_pid) };
-
-                                            if ok.is_ok() && server_pid != 0 {
-                                                let server_app = am_pipe.info_cache.get_info(server_pid);
-                                                let expected_path = r"c:\program files\hydradragonantivirus\hydradragon\owlyshield\owlyshield service\owlyshield_ransom.exe";
-                                                if server_app.path.to_lowercase() == expected_path {
-                                                    pipe_opt = Some(file);
-                                                } else {
-                                                    println!("WARNING: Rejected unauthorized HydraNetEvent server: {}", server_app.path);
-                                                }
-                                            }
-                                        }
-                                    }
-                                    if let Some(ref mut pipe) = pipe_opt {
-                                        if pipe.write_all(msg.as_bytes()).is_err() {
-                                            pipe_opt = None; // reconnect next time
-                                        }
-                                    }
+                                    pending_msgs.push_back(msg);
                                 }
                                 Err(std::sync::mpsc::TryRecvError::Empty) => break,
                                 Err(std::sync::mpsc::TryRecvError::Disconnected) => return,
                             }
                         }
-                        std::thread::sleep(Duration::from_millis(10));
+
+                        if pipe_opt.is_none() && !pending_msgs.is_empty() {
+                            if let Ok(file) = std::fs::OpenOptions::new()
+                                .write(true)
+                                .open(PIPE)
+                            {
+                                use std::os::windows::io::AsRawHandle;
+                                use windows::Win32::Foundation::HANDLE;
+                                use windows::Win32::System::Pipes::GetNamedPipeServerProcessId;
+
+                                let mut server_pid: u32 = 0;
+                                let handle = HANDLE(file.as_raw_handle() as *mut _);
+                                let ok = unsafe { GetNamedPipeServerProcessId(handle, &mut server_pid) };
+
+                                if ok.is_ok() && server_pid != 0 {
+                                    let server_app = am_pipe.info_cache.get_info(server_pid);
+                                    let expected_path = r"c:\program files\hydradragonantivirus\hydradragon\owlyshield\owlyshield service\owlyshield_ransom.exe";
+                                    if server_app.path.to_lowercase() == expected_path {
+                                        pipe_opt = Some(file);
+                                    } else {
+                                        println!("WARNING: Rejected unauthorized HydraNetEvent server: {}", server_app.path);
+                                    }
+                                }
+                            }
+                        }
+
+                        while pipe_opt.is_some() {
+                            let Some(msg) = pending_msgs.front() else {
+                                break;
+                            };
+
+                            let write_res = {
+                                let pipe = pipe_opt.as_mut().unwrap();
+                                pipe.write_all(msg.as_bytes())
+                            };
+
+                            if write_res.is_ok() {
+                                pending_msgs.pop_front();
+                            } else {
+                                pipe_opt = None;
+                                break;
+                            }
+                        }
+
+                        let sleep_ms = if pending_msgs.is_empty() {
+                            10
+                        } else if pipe_opt.is_some() {
+                            5
+                        } else {
+                            250
+                        };
+                        std::thread::sleep(Duration::from_millis(sleep_ms));
                     }
                 })
                 .expect("failed to spawn net_event_pipe_writer thread");

@@ -114,6 +114,13 @@ pub unsafe fn validate_pipe_client(pipe_handle: ::windows::Win32::Foundation::HA
     }
 
     if let Some(expected) = expected_path {
+        if let Some(path) = resolve_process_path(client_pid) {
+            let resolved = path.to_string_lossy().to_ascii_lowercase();
+            if resolved.contains(&expected.to_ascii_lowercase()) {
+                return true;
+            }
+        }
+
         if let Ok(h_proc) = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, false, client_pid) {
             let mut buffer = [0u8; 1024];
             let len = GetModuleFileNameExA(h_proc, None, &mut buffer);

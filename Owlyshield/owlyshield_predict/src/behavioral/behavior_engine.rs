@@ -1874,6 +1874,10 @@ impl BehaviorEngine {
             .entry(gid)
             .or_insert_with(|| ProcessBehaviorState::new(pid, exe_path.clone(), app_name.clone()));
 
+        if state.pid == 0 && pid != 0 {
+            state.pid = pid;
+        }
+
         // Heal stale placeholder values that may have been set before worker.rs
         // resolved the real process name/path.
         let name_is_stale = state.app_name.is_empty()

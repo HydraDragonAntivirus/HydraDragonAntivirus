@@ -1140,6 +1140,87 @@ pub mod worker_instance {
             None
         }
 
+        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+        fn sync_firewall_process_contexts(&mut self) {
+            let firewall_pids: Vec<u32> = self
+                .behavior_engine
+                .firewall_net_pids
+                .read()
+                .unwrap()
+                .iter()
+                .copied()
+                .collect();
+            let mut stale_pids = Vec::new();
+
+            for pid in firewall_pids {
+                if pid == 0 || Self::is_internal_service_pid(pid) {
+                    continue;
+                }
+
+                let Some(exepath) = crate::utils::resolve_process_path(pid) else {
+                    if !crate::utils::is_process_alive(pid) {
+                        stale_pids.push(pid);
+                    }
+                    continue;
+                };
+
+                let appname = Self::appname_from_exepath_static(&exepath)
+                    .unwrap_or_else(|| format!("PROC_{}", pid));
+                let gid = self
+                    .find_gid_by_pid(pid)
+                    .unwrap_or(Self::PID_FALLBACK_GID_MASK | (pid as u64));
+                let is_new_record = self.process_records.get_precord_by_gid(gid).is_none();
+
+                self.behavior_engine
+                    .register_process(gid, pid, exepath.clone(), appname.clone());
+
+                if let Some(precord) = self.process_records.get_precord_mut_by_gid(gid) {
+                    precord.pids.insert(pid);
+                    if precord.exepath.as_os_str().is_empty()
+                        || precord.exepath.to_string_lossy() == "UNKNOWN"
+                    {
+                        precord.exepath = exepath.clone();
+                    }
+                    if precord.appname.is_empty()
+                        || precord.appname.starts_with("PROC_")
+                        || precord.appname == "UNKNOWN"
+                    {
+                        precord.appname = appname.clone();
+                    }
+                } else {
+                    let mut precord = ProcessRecord::new(gid, appname.clone(), exepath.clone());
+                    precord.pids.insert(pid);
+                    self.process_records.insert_precord(gid, precord);
+
+                    #[cfg(feature = "realtime_learning")]
+                    {
+                        self.learning_engine.track_process(gid, appname.clone());
+                        self.api_trackers
+                            .entry(gid)
+                            .or_insert_with(|| ApiTracker::new(gid, appname.clone()));
+                    }
+                }
+
+                self.refresh_dynamic_hooks_for_pid_if_due(pid);
+
+                if is_new_record {
+                    Logging::info(&format!(
+                        "[HydraNetPipe] Registered firewall-observed PID {} as tracked worker process {} (GID: {})",
+                        pid,
+                        exepath.display(),
+                        gid
+                    ));
+                }
+            }
+
+            if !stale_pids.is_empty() {
+                let mut firewall_pids = self.behavior_engine.firewall_net_pids.write().unwrap();
+                for pid in stale_pids {
+                    firewall_pids.remove(&pid);
+                }
+            }
+        }
+
         pub fn whitelist(mut self, whitelist: &'a WhiteList) -> Worker<'a> {
             self.whitelist = Some(whitelist);
             self
@@ -1258,7 +1339,9 @@ pub mod worker_instance {
             {
                 self.behavior_engine.process_states.remove(&gid);
                 if let Some(precord) = precord_opt.as_ref() {
+                    let mut firewall_pids = self.behavior_engine.firewall_net_pids.write().unwrap();
                     for pid in &precord.pids {
+                        firewall_pids.remove(pid);
                         self.dynamic_hook_last_refresh.remove(pid);
                         self.dynamic_hook_applied_generation.remove(pid);
                         self.dynamic_hook_apply_failures.remove(pid);
@@ -1387,9 +1470,11 @@ pub mod worker_instance {
                 }
 
                 // --- THIRD: Sync behavior engine state to process_records ---
+                self.sync_firewall_process_contexts();
                 for (gid, state) in self.behavior_engine.process_states.iter() {
                     if self.process_records.get_precord_by_gid(*gid).is_none() {
-                        let precord = ProcessRecord::new(*gid, state.app_name.clone(), state.exe_path.clone());
+                        let mut precord = ProcessRecord::new(*gid, state.app_name.clone(), state.exe_path.clone());
+                        precord.pids.insert(state.pid);
                         self.process_records.insert_precord(*gid, precord);
                         Logging::debug(&format!("[PROCESS SYNC] Registered GID: {} from behavior_engine", gid));
                     }
@@ -1587,6 +1672,11 @@ pub mod worker_instance {
             let mut cleanup_after_creation_detection = false;
             #[allow(unused_mut, unused_variables)]
             let mut creation_detected_malicious = false;
+
+            #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+            if is_process_create && self.threat_handler.is_some() {
+                self.sync_firewall_process_contexts();
+            }
             
             if let Some(precord) = self.process_records.get_precord_mut_by_gid(tracking_key) {
                 // For new processes, run static scan immediately
