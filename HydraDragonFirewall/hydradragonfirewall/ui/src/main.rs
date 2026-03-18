@@ -53,6 +53,14 @@ pub struct PendingApp {
     pub protocol: Protocol,
     pub hostname: Option<String>,
     pub reason: Option<String>,
+    #[serde(default)]
+    pub request_id: Option<String>,
+    #[serde(default)]
+    pub alert_source: Option<String>,
+    #[serde(default)]
+    pub alert_kind: Option<String>,
+    #[serde(default)]
+    pub target: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -773,17 +781,59 @@ fn AlertWindow(
                  {move || pending_app.get().map(|app| {
                      let n1 = app.name.clone(); let n2 = app.name.clone(); let n3 = app.name.clone();
                      let res1 = resolve_decision_internal.clone(); let res2 = resolve_decision_internal.clone(); let res3 = resolve_decision_internal.clone();
+                     let is_registry_alert = app.alert_kind.as_deref() == Some("registry");
+                     let title = if is_registry_alert {
+                         "Registry protection triggered".to_string()
+                     } else if let Some(ref h) = app.hostname {
+                         format!("{} wants connection", h)
+                     } else {
+                         app.name.clone()
+                     };
+                     let description = if is_registry_alert {
+                         app.reason
+                             .clone()
+                             .filter(|value| !value.trim().is_empty())
+                             .unwrap_or_else(|| format!("{} is attempting a protected registry modification.", app.name))
+                     } else {
+                         format!(
+                             "{} is attempting network access.",
+                             if app.hostname.is_some() {
+                                 app.name.clone()
+                             } else {
+                                 "System intercept".to_string()
+                             }
+                         )
+                     };
+                     let target_label = if is_registry_alert { "Registry:" } else { "Target:" };
+                     let target_value = if is_registry_alert {
+                         app.target
+                             .clone()
+                             .filter(|value| !value.trim().is_empty())
+                             .unwrap_or_else(|| "Protected registry target".to_string())
+                     } else {
+                         format!(
+                             "{}:{} ({})",
+                             app.dst_ip,
+                             app.dst_port,
+                             match app.protocol {
+                                 Protocol::TCP => "TCP",
+                                 Protocol::UDP => "UDP",
+                                 Protocol::ICMP => "ICMP",
+                                 Protocol::Raw(_) => "RAW",
+                             }
+                         )
+                     };
                      view! {
                          <div class="alert-content-grid" style="margin-top: 0">
                              <div class="alert-info-container">
                                   <h2 class="alert-title" style="margin-bottom: 5px">
-                                      {if let Some(ref h) = app.hostname { format!("{} wants connection", h) } else { app.name.clone() }}
+                                      {title}
                                   </h2>
                                   <div class="alert-desc" style="margin-bottom: 8px">
-                                      {if app.hostname.is_some() { app.name.clone() } else { "System intercept".to_string() }} " is attempting network access."
+                                      {description}
                                   </div>
                                   <div class="alert-details-box">
-                                      <div class="detail-row"> <span class="detail-label">"Target:"</span> <span class="detail-value">{format!("{}:{} ({})", app.dst_ip, app.dst_port, match app.protocol { Protocol::TCP => "TCP", Protocol::UDP => "UDP", Protocol::ICMP => "ICMP", Protocol::Raw(_) => "RAW" })}</span> </div>
+                                      <div class="detail-row"> <span class="detail-label">{target_label}</span> <span class="detail-value" title=target_value.clone()>{target_value}</span> </div>
                                       <div class="detail-row"> <span class="detail-label">"Path:"</span> <span class="detail-value path" title=app.path.clone()>{app.path.clone()}</span> </div>
                                   </div>
                              </div>

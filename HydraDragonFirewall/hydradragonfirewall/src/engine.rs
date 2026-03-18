@@ -170,6 +170,14 @@ pub struct PendingApp {
     pub protocol: Protocol,
     pub hostname: Option<String>,
     pub reason: Option<String>,
+    #[serde(default)]
+    pub request_id: Option<String>,
+    #[serde(default)]
+    pub alert_source: Option<String>,
+    #[serde(default)]
+    pub alert_kind: Option<String>,
+    #[serde(default)]
+    pub target: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -733,6 +741,10 @@ impl AppManager {
     }
 
     fn pending_identity(app: &PendingApp) -> String {
+        if let Some(request_id) = app.request_id.as_ref() {
+            return format!("request:{}", request_id.to_lowercase());
+        }
+
         let path = app.path.trim();
         if !path.is_empty() && !path.eq_ignore_ascii_case("unknown") {
             format!("path:{}", path.to_lowercase())
@@ -813,6 +825,7 @@ pub struct FirewallEngine {
     pub tls_proxy_backend_child: Arc<Mutex<Option<oneshot::Sender<()>>>>,
     /// Retained so stop() can call shutdown() and unblock all recv() threads.
     pub divert_handle: Arc<Mutex<Option<WinDivertArc<windivert::prelude::NetworkLayer>>>>,
+    pub hydranet_tx: Arc<Mutex<Option<std::sync::mpsc::Sender<String>>>>,
 }
 
 // RADICAL REFACTOR: Wrapper to make WinDivert Send + Sync (Safe for WinDivert handles)
@@ -853,6 +866,7 @@ impl FirewallEngine {
         let sdk = Arc::new(RwLock::new(crate::sdk::SdkRegistry::with_defaults()));
         let tls_proxy_backend_child = Arc::new(Mutex::new(None));
         let divert_handle = Arc::new(Mutex::new(None));
+        let hydranet_tx = Arc::new(Mutex::new(None));
 
         Self {
             stats,
@@ -866,6 +880,7 @@ impl FirewallEngine {
             file_checker,
             tls_proxy_backend_child,
             divert_handle,
+            hydranet_tx,
         }
     }
 
@@ -1093,14 +1108,45 @@ impl FirewallEngine {
 
     // CA auto-trust is handled natively via `install_ca_der` during proxy startup.
 
+    fn send_hydranet_message(&self, message: String) {
+        let tx_opt = self.hydranet_tx.lock().unwrap().clone();
+        if let Some(tx) = tx_opt {
+            let _ = tx.send(message);
+        } else {
+            eprintln!("[HydraNet] No active pipe writer available for outbound message");
+        }
+    }
+
     pub fn resolve_app_decision(&self, name: String, decision: String) {
-        let app_decision = match decision.as_str() {
-            "allow_always" => AppDecision::Allow,
-            "allow_once" => AppDecision::AllowOnce,
-            "block" => AppDecision::Block,
-            _ => AppDecision::Pending,
-        };
-        self.app_manager.resolve_decision(&name, app_decision);
+        let active_alert = self.app_manager.active_alert.read().unwrap().clone();
+        let mut persist_settings = true;
+
+        let routed_to_owlyshield = active_alert
+            .as_ref()
+            .and_then(|alert| {
+                if alert.alert_source.as_deref() == Some("owlyshield") {
+                    alert.request_id.as_ref()
+                } else {
+                    None
+                }
+            })
+            .map(|request_id| {
+                let msg = format!("HIPS_DECISION:{}|{}\n", request_id, decision.as_str());
+                self.send_hydranet_message(msg);
+            })
+            .is_some();
+
+        if routed_to_owlyshield {
+            persist_settings = false;
+        } else {
+            let app_decision = match decision.as_str() {
+                "allow_always" => AppDecision::Allow,
+                "allow_once" => AppDecision::AllowOnce,
+                "block" => AppDecision::Block,
+                _ => AppDecision::Pending,
+            };
+            self.app_manager.resolve_decision(&name, app_decision);
+        }
 
         // Clear the active alert so it doesn't linger
         {
@@ -1108,7 +1154,9 @@ impl FirewallEngine {
             *active = None;
         }
 
-        self.save_settings();
+        if persist_settings {
+            self.save_settings();
+        }
     }
 
     pub fn remove_app_decision(&self, name_lower: String) {
@@ -1398,6 +1446,156 @@ impl FirewallEngine {
             })
             .expect("failed to spawn pending_monitor thread");
 
+        // OWLYSHIELD HIPS PIPE READER
+        // Receives registry/HIPS prompts from Owlyshield and feeds them into the
+        // same pending alert queue used by firewall network prompts.
+        {
+            let am_hips = Arc::clone(&am);
+            let stop_hips = Arc::clone(&stop);
+            std::thread::Builder::new()
+                .name("owlyshield_hips_pipe".to_string())
+                .spawn(move || {
+                    use std::ffi::OsStr;
+                    use std::net::{IpAddr, Ipv4Addr};
+                    use std::os::windows::ffi::OsStrExt;
+                    use windows::core::PCWSTR;
+                    use windows::Win32::Foundation::{
+                        CloseHandle, GetLastError, HANDLE, INVALID_HANDLE_VALUE, ERROR_PIPE_CONNECTED,
+                    };
+                    use windows::Win32::Storage::FileSystem::{ReadFile, PIPE_ACCESS_INBOUND};
+                    use windows::Win32::System::Pipes::{
+                        ConnectNamedPipe, CreateNamedPipeW, DisconnectNamedPipe,
+                        GetNamedPipeClientProcessId, NAMED_PIPE_MODE, PIPE_UNLIMITED_INSTANCES,
+                    };
+
+                    let pipe_name = r"\\.\pipe\HydraHipEvent";
+                    let wide_name: Vec<u16> = OsStr::new(pipe_name)
+                        .encode_wide()
+                        .chain(std::iter::once(0u16))
+                        .collect();
+                    let expected_client =
+                        r"c:\program files\hydradragonantivirus\hydradragon\owlyshield\owlyshield service\owlyshield_ransom.exe";
+
+                    while !stop_hips.load(Ordering::Relaxed) {
+                        let handle: HANDLE = unsafe {
+                            CreateNamedPipeW(
+                                PCWSTR(wide_name.as_ptr()),
+                                PIPE_ACCESS_INBOUND,
+                                NAMED_PIPE_MODE(0),
+                                PIPE_UNLIMITED_INSTANCES,
+                                0,
+                                4096,
+                                0,
+                                None,
+                            )
+                        };
+
+                        if handle == INVALID_HANDLE_VALUE {
+                            std::thread::sleep(Duration::from_secs(2));
+                            continue;
+                        }
+
+                        let connected = unsafe { ConnectNamedPipe(handle, None) }.is_ok()
+                            || unsafe { GetLastError() } == ERROR_PIPE_CONNECTED;
+
+                        if !connected {
+                            unsafe {
+                                let _ = DisconnectNamedPipe(handle);
+                                let _ = CloseHandle(handle);
+                            }
+                            std::thread::sleep(Duration::from_millis(250));
+                            continue;
+                        }
+
+                        let mut client_pid: u32 = 0;
+                        let client_ok = unsafe { GetNamedPipeClientProcessId(handle, &mut client_pid) }.is_ok()
+                            && client_pid != 0
+                            && am_hips
+                                .info_cache
+                                .get_info(client_pid)
+                                .path
+                                .to_lowercase()
+                                == expected_client;
+
+                        if !client_ok {
+                            unsafe {
+                                let _ = DisconnectNamedPipe(handle);
+                                let _ = CloseHandle(handle);
+                            }
+                            continue;
+                        }
+
+                        let mut buf = vec![0u8; 4096];
+                        let mut leftover = String::new();
+
+                        loop {
+                            let mut bytes_read: u32 = 0;
+                            let ok = unsafe {
+                                ReadFile(
+                                    handle,
+                                    Some(buf.as_mut_slice()),
+                                    Some(&mut bytes_read as *mut u32),
+                                    None,
+                                )
+                            };
+
+                            if ok.is_err() || bytes_read == 0 {
+                                break;
+                            }
+
+                            leftover.push_str(&String::from_utf8_lossy(&buf[..bytes_read as usize]));
+
+                            while let Some(pos) = leftover.find('\n') {
+                                let line = leftover[..pos].trim().to_string();
+                                leftover = leftover[pos + 1..].to_string();
+
+                                if let Some(rest) = line.strip_prefix("HIPS_ASK:") {
+                                    let mut parts = rest.splitn(7, '|');
+                                    let request_id = parts.next().unwrap_or("").trim().to_string();
+                                    let process_id = parts
+                                        .next()
+                                        .unwrap_or("0")
+                                        .trim()
+                                        .parse::<u32>()
+                                        .unwrap_or(0);
+                                    let name = parts.next().unwrap_or("Owlyshield").trim().to_string();
+                                    let path = parts.next().unwrap_or("").trim().to_string();
+                                    let alert_kind = parts.next().unwrap_or("behavior").trim().to_string();
+                                    let target = parts.next().unwrap_or("").trim().to_string();
+                                    let reason = parts.next().unwrap_or("Owlyshield HIPS detection").trim().to_string();
+
+                                    if !request_id.is_empty() {
+                                        let _ = am_hips.enqueue_pending_app(
+                                            PendingApp {
+                                                process_id,
+                                                name,
+                                                path,
+                                                dst_ip: IpAddr::V4(Ipv4Addr::UNSPECIFIED),
+                                                dst_port: 0,
+                                                protocol: Protocol::Raw(0),
+                                                hostname: None,
+                                                reason: Some(reason),
+                                                request_id: Some(request_id),
+                                                alert_source: Some("owlyshield".to_string()),
+                                                alert_kind: Some(alert_kind),
+                                                target: Some(target),
+                                            },
+                                            false,
+                                        );
+                                    }
+                                }
+                            }
+                        }
+
+                        unsafe {
+                            let _ = DisconnectNamedPipe(handle);
+                            let _ = CloseHandle(handle);
+                        }
+                    }
+                })
+                .expect("failed to spawn owlyshield_hips_pipe thread");
+        }
+
         // RAW PACKET UI EMITTER
         // Keep frontend traffic off the packet workers by using a bounded queue.
         let (raw_packet_tx, raw_packet_rx) =
@@ -1437,6 +1635,7 @@ impl FirewallEngine {
         // This thread is the persistent client; packet workers feed it via a channel.
         // One message is sent per new PID per session to avoid flooding the pipe.
         let (net_event_tx, net_event_rx) = std::sync::mpsc::channel::<String>();
+        *self.hydranet_tx.lock().unwrap() = Some(net_event_tx.clone());
         {
             let stop_pipe = Arc::clone(&stop);
             let am_pipe = Arc::clone(&am);
@@ -2100,6 +2299,10 @@ impl FirewallEngine {
                     protocol: info.protocol.clone(),
                     hostname: info.hostname.clone(),
                     reason: reason.clone(),
+                    request_id: None,
+                    alert_source: None,
+                    alert_kind: None,
+                    target: None,
                 },
                 remember_pending_as_unknown_app,
             );
@@ -2782,6 +2985,7 @@ impl FirewallEngine {
     pub fn stop(&self) {
         // Signal all worker loops to exit after their current recv() returns.
         self.stop_signal.store(true, Ordering::SeqCst);
+        *self.hydranet_tx.lock().unwrap() = None;
 
         // Calling shutdown() unblocks all recv() calls immediately with an error.
         // shutdown() takes &mut self but Arc only yields &T via Deref.

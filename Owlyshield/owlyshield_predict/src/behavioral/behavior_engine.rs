@@ -25,6 +25,10 @@ use num::FromPrimitive;
 type FirewallNetPids = Arc<std::sync::RwLock<HashSet<u32>>>;
 type FirewallBlockedExes = Arc<std::sync::RwLock<HashMap<String, FirewallDetection>>>;
 type FirewallPipeStarted = Arc<AtomicBool>;
+type FirewallHipsPendingPrompts = Arc<std::sync::RwLock<HashMap<String, FirewallHipsPromptState>>>;
+type FirewallHipsDecisions = Arc<std::sync::RwLock<HashMap<String, FirewallHipsDecision>>>;
+type FirewallHipsAllowOnce = Arc<std::sync::RwLock<HashSet<String>>>;
+type FirewallHipsAllowAlways = Arc<std::sync::RwLock<HashSet<String>>>;
 
 fn shared_firewall_net_pids() -> FirewallNetPids {
     static FIREWALL_NET_PIDS: OnceLock<FirewallNetPids> = OnceLock::new();
@@ -44,6 +48,34 @@ fn shared_firewall_pipe_started() -> FirewallPipeStarted {
     static FIREWALL_PIPE_STARTED: OnceLock<FirewallPipeStarted> = OnceLock::new();
     FIREWALL_PIPE_STARTED
         .get_or_init(|| Arc::new(AtomicBool::new(false)))
+        .clone()
+}
+
+fn shared_firewall_hips_pending_prompts() -> FirewallHipsPendingPrompts {
+    static FIREWALL_HIPS_PENDING_PROMPTS: OnceLock<FirewallHipsPendingPrompts> = OnceLock::new();
+    FIREWALL_HIPS_PENDING_PROMPTS
+        .get_or_init(|| Arc::new(std::sync::RwLock::new(HashMap::new())))
+        .clone()
+}
+
+fn shared_firewall_hips_decisions() -> FirewallHipsDecisions {
+    static FIREWALL_HIPS_DECISIONS: OnceLock<FirewallHipsDecisions> = OnceLock::new();
+    FIREWALL_HIPS_DECISIONS
+        .get_or_init(|| Arc::new(std::sync::RwLock::new(HashMap::new())))
+        .clone()
+}
+
+fn shared_firewall_hips_allow_once() -> FirewallHipsAllowOnce {
+    static FIREWALL_HIPS_ALLOW_ONCE: OnceLock<FirewallHipsAllowOnce> = OnceLock::new();
+    FIREWALL_HIPS_ALLOW_ONCE
+        .get_or_init(|| Arc::new(std::sync::RwLock::new(HashSet::new())))
+        .clone()
+}
+
+fn shared_firewall_hips_allow_always() -> FirewallHipsAllowAlways {
+    static FIREWALL_HIPS_ALLOW_ALWAYS: OnceLock<FirewallHipsAllowAlways> = OnceLock::new();
+    FIREWALL_HIPS_ALLOW_ALWAYS
+        .get_or_init(|| Arc::new(std::sync::RwLock::new(HashSet::new())))
         .clone()
 }
 
@@ -82,6 +114,38 @@ impl FirewallDetection {
             format!("{}:{} ({}) — {}", self.dst_ip, self.dst_port, self.hostname, self.reason)
         }
     }
+}
+
+#[derive(Debug, Clone)]
+struct FirewallHipsPromptState {
+    request_id: String,
+    request_signature: String,
+    allow_signature: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FirewallHipsDecision {
+    Block,
+    AllowOnce,
+    AllowAlways,
+}
+
+impl FirewallHipsDecision {
+    fn from_wire(value: &str) -> Option<Self> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "block" => Some(Self::Block),
+            "allow_once" => Some(Self::AllowOnce),
+            "allow_always" => Some(Self::AllowAlways),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FirewallHipsPromptOutcome {
+    Pending,
+    Allowed,
+    Block,
 }
 
 // =============================================================================
@@ -1106,6 +1170,7 @@ pub struct ResponseAction {
     #[serde(default)] pub suspend_process: bool,
     #[serde(default)] pub quarantine: bool,
     #[serde(default)] pub kill_and_remove: bool,
+    #[serde(default)] pub ask_user: bool,
     #[serde(default)] pub notify_user: bool,
     #[serde(default)] pub auto_revert: bool,
     #[serde(default)] pub record: bool,
@@ -1285,6 +1350,10 @@ pub struct BehaviorEngine {
     /// scan_all_processes marks matching processes as malicious and acts on them.
     pub firewall_blocked_exes: FirewallBlockedExes,
     firewall_pipe_started: FirewallPipeStarted,
+    firewall_hips_pending_prompts: FirewallHipsPendingPrompts,
+    firewall_hips_decisions: FirewallHipsDecisions,
+    firewall_hips_allow_once: FirewallHipsAllowOnce,
+    firewall_hips_allow_always: FirewallHipsAllowAlways,
 }
 
 impl Default for BehaviorEngine {
@@ -1304,6 +1373,10 @@ impl BehaviorEngine {
             firewall_net_pids: shared_firewall_net_pids(),
             firewall_blocked_exes: shared_firewall_blocked_exes(),
             firewall_pipe_started: shared_firewall_pipe_started(),
+            firewall_hips_pending_prompts: shared_firewall_hips_pending_prompts(),
+            firewall_hips_decisions: shared_firewall_hips_decisions(),
+            firewall_hips_allow_once: shared_firewall_hips_allow_once(),
+            firewall_hips_allow_always: shared_firewall_hips_allow_always(),
         }
     }
 
@@ -1330,6 +1403,7 @@ impl BehaviorEngine {
 
         let net_pids     = Arc::clone(&self.firewall_net_pids);
         let blocked_exes = Arc::clone(&self.firewall_blocked_exes);
+        let hips_decisions = Arc::clone(&self.firewall_hips_decisions);
         let pipe_started = Arc::clone(&self.firewall_pipe_started);
 
         std::thread::Builder::new()
@@ -1442,6 +1516,26 @@ impl BehaviorEngine {
                                     ));
                                     blocked_exes.write().unwrap().insert(exe, detection);
                                 }
+                            } else if let Some(rest) = line.strip_prefix("HIPS_DECISION:") {
+                                let mut parts = rest.splitn(2, '|');
+                                let request_id = parts.next().unwrap_or("").trim().to_string();
+                                let decision_raw = parts.next().unwrap_or("").trim();
+
+                                if !request_id.is_empty() {
+                                    if let Some(decision) = FirewallHipsDecision::from_wire(decision_raw) {
+                                        hips_decisions.write().unwrap().insert(request_id.clone(), decision);
+                                        Logging::info(&format!(
+                                            "[HydraNetPipe] Received Owlyshield HIPS decision for request {}: {}",
+                                            request_id,
+                                            decision_raw
+                                        ));
+                                    } else {
+                                        Logging::warning(&format!(
+                                            "[HydraNetPipe] Ignored unknown Owlyshield HIPS decision '{}'",
+                                            decision_raw
+                                        ));
+                                    }
+                                }
                             }
                         }
                     }
@@ -1459,6 +1553,398 @@ impl BehaviorEngine {
                 }
             })
             .expect("failed to spawn hydra_net_event_pipe thread");
+    }
+
+    fn sanitize_firewall_hips_field(value: &str) -> String {
+        value
+            .replace('\r', " ")
+            .replace('\n', " ")
+            .replace('|', "/")
+            .trim()
+            .to_string()
+    }
+
+    fn is_registry_condition_group(cond_group: &NamedConditionGroup) -> bool {
+        !cond_group.registry_keys.is_empty()
+            || !cond_group.autorun_keys.is_empty()
+            || !cond_group.registry_values.is_empty()
+    }
+
+    fn detect_firewall_hips_alert_kind(rule: &BehaviorRule, state: &ProcessBehaviorState) -> &'static str {
+        if rule.named_conditions.iter().any(|(cond_name, cond_group)| {
+            state.satisfied_named_conditions.contains(cond_name.as_str())
+                && Self::is_registry_condition_group(cond_group)
+        }) {
+            "registry"
+        } else if rule
+            .named_conditions
+            .values()
+            .any(Self::is_registry_condition_group)
+        {
+            "registry"
+        } else {
+            "behavior"
+        }
+    }
+
+    fn first_real_match_value(values: &HashSet<String>) -> Option<String> {
+        let mut candidates: Vec<String> = values
+            .iter()
+            .filter_map(|value| {
+                let trimmed = value.trim();
+                if trimmed.is_empty()
+                    || trimmed.starts_with("event:")
+                    || trimmed.starts_with("fileid:")
+                {
+                    None
+                } else {
+                    Some(trimmed.to_string())
+                }
+            })
+            .collect();
+        candidates.sort();
+        candidates.into_iter().next()
+    }
+
+    fn build_firewall_hips_target(&self, rule: &BehaviorRule, state: &ProcessBehaviorState) -> String {
+        let alert_kind = Self::detect_firewall_hips_alert_kind(rule, state);
+
+        if alert_kind == "registry" {
+            for (cond_name, cond_group) in &rule.named_conditions {
+                if !state.satisfied_named_conditions.contains(cond_name.as_str())
+                    || !Self::is_registry_condition_group(cond_group)
+                {
+                    continue;
+                }
+
+                if let Some(values) = state.condition_match_values.get(cond_name)
+                    && let Some(value) = Self::first_real_match_value(values)
+                {
+                    return value;
+                }
+
+                if let Some(pattern) = cond_group
+                    .registry_keys
+                    .first()
+                    .or_else(|| cond_group.autorun_keys.first())
+                    .or_else(|| cond_group.registry_values.first())
+                {
+                    return pattern.clone();
+                }
+            }
+        }
+
+        for (cond_name, values) in &state.condition_match_values {
+            if rule.named_conditions.contains_key(cond_name)
+                && let Some(value) = Self::first_real_match_value(values)
+            {
+                return value;
+            }
+        }
+
+        if !state.command_line.trim().is_empty() {
+            return state.command_line.clone();
+        }
+
+        let exe_path = state.exe_path.to_string_lossy().to_string();
+        if !exe_path.trim().is_empty() && exe_path != "UNKNOWN" {
+            exe_path
+        } else {
+            rule.name.clone()
+        }
+    }
+
+    fn build_firewall_hips_reason(rule: &BehaviorRule) -> String {
+        let description = rule.description.trim();
+        if description.is_empty() {
+            format!("Owlyshield rule '{}' matched.", rule.name)
+        } else {
+            format!("Owlyshield rule '{}' matched: {}", rule.name, description)
+        }
+    }
+
+    fn build_firewall_hips_request_signature(
+        gid: u64,
+        pid: u32,
+        rule_name: &str,
+        alert_kind: &str,
+        exe_path: &str,
+        target: &str,
+    ) -> String {
+        format!(
+            "gid:{}|pid:{}|rule:{}|kind:{}|exe:{}|target:{}",
+            gid,
+            pid,
+            rule_name.to_ascii_lowercase(),
+            alert_kind.to_ascii_lowercase(),
+            exe_path.to_ascii_lowercase(),
+            target.to_ascii_lowercase()
+        )
+    }
+
+    fn build_firewall_hips_allow_signature(
+        rule_name: &str,
+        alert_kind: &str,
+        exe_path: &str,
+        target: &str,
+    ) -> String {
+        format!(
+            "rule:{}|kind:{}|exe:{}|target:{}",
+            rule_name.to_ascii_lowercase(),
+            alert_kind.to_ascii_lowercase(),
+            exe_path.to_ascii_lowercase(),
+            target.to_ascii_lowercase()
+        )
+    }
+
+    fn build_firewall_hips_request_id(gid: u64, pid: u32, rule_name: &str) -> String {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|duration| duration.as_nanos())
+            .unwrap_or(0);
+        format!(
+            "{}-{}-{}-{}",
+            gid,
+            pid,
+            now,
+            rule_name
+                .chars()
+                .filter(|ch| ch.is_ascii_alphanumeric())
+                .take(24)
+                .collect::<String>()
+        )
+    }
+
+    fn send_firewall_hips_prompt(
+        &self,
+        request_id: &str,
+        pid: u32,
+        app_name: &str,
+        exe_path: &str,
+        alert_kind: &str,
+        target: &str,
+        reason: &str,
+    ) -> bool {
+        use std::ffi::CString;
+        use windows::core::PCSTR;
+        use windows::Win32::Foundation::{BOOL, CloseHandle, GetLastError, HANDLE};
+        use windows::Win32::Storage::FileSystem::{
+            CreateFileA, FlushFileBuffers, WriteFile, FILE_ATTRIBUTE_NORMAL, FILE_GENERIC_WRITE,
+            FILE_SHARE_NONE, OPEN_EXISTING,
+        };
+        use windows::Win32::System::Pipes::WaitNamedPipeA;
+
+        const PIPE: &str = r"\\.\pipe\HydraHipEvent";
+        const CONNECT_TIMEOUT_MS: u32 = 750;
+
+        let pipe_name = match CString::new(PIPE) {
+            Ok(value) => value,
+            Err(_) => {
+                Logging::error("[Owlyshield HIPS] Invalid HydraHipEvent pipe name");
+                return false;
+            }
+        };
+        let pcstr = PCSTR(pipe_name.as_ptr() as *const u8);
+
+        let wait_ok: BOOL = unsafe { WaitNamedPipeA(pcstr, CONNECT_TIMEOUT_MS) };
+        if !wait_ok.as_bool() {
+            Logging::warning(&format!(
+                "[Owlyshield HIPS] Firewall GUI pipe not ready for request {} (GetLastError={:?})",
+                request_id,
+                unsafe { GetLastError() }
+            ));
+            return false;
+        }
+
+        let pipe_handle = unsafe {
+            CreateFileA(
+                pcstr,
+                FILE_GENERIC_WRITE.0,
+                FILE_SHARE_NONE,
+                None,
+                OPEN_EXISTING,
+                FILE_ATTRIBUTE_NORMAL,
+                HANDLE::default(),
+            )
+        };
+
+        let pipe_handle = match pipe_handle {
+            Ok(handle) if !handle.is_invalid() => handle,
+            Ok(_) => {
+                Logging::error("[Owlyshield HIPS] CreateFileA returned an invalid HydraHipEvent handle");
+                return false;
+            }
+            Err(err) => {
+                Logging::warning(&format!(
+                    "[Owlyshield HIPS] Failed to connect to HydraHipEvent pipe for request {}: {:?}",
+                    request_id, err
+                ));
+                return false;
+            }
+        };
+
+        let message = format!(
+            "HIPS_ASK:{}|{}|{}|{}|{}|{}|{}\n",
+            Self::sanitize_firewall_hips_field(request_id),
+            pid,
+            Self::sanitize_firewall_hips_field(app_name),
+            Self::sanitize_firewall_hips_field(exe_path),
+            Self::sanitize_firewall_hips_field(alert_kind),
+            Self::sanitize_firewall_hips_field(target),
+            Self::sanitize_firewall_hips_field(reason),
+        );
+        let message_bytes = message.as_bytes();
+
+        let mut bytes_written: u32 = 0;
+        let ok: BOOL = unsafe {
+            WriteFile(
+                pipe_handle,
+                Some(message_bytes),
+                Some(&mut bytes_written as *mut u32),
+                None,
+            )
+        };
+
+        unsafe {
+            let _ = FlushFileBuffers(pipe_handle);
+            let _ = CloseHandle(pipe_handle);
+        }
+
+        if !ok.as_bool() {
+            Logging::error(&format!(
+                "[Owlyshield HIPS] Failed to write HydraHipEvent prompt for request {}",
+                request_id
+            ));
+            return false;
+        }
+
+        Logging::info(&format!(
+            "[Owlyshield HIPS] Prompted firewall GUI for request {} (PID {}, {} bytes)",
+            request_id, pid, bytes_written
+        ));
+        true
+    }
+
+    fn resolve_firewall_hips_prompt(
+        &self,
+        gid: u64,
+        state: &ProcessBehaviorState,
+        rule: &BehaviorRule,
+    ) -> FirewallHipsPromptOutcome {
+        let exe_path = state.exe_path.to_string_lossy().to_string();
+        let alert_kind = Self::detect_firewall_hips_alert_kind(rule, state);
+        let target = self.build_firewall_hips_target(rule, state);
+        let request_signature = Self::build_firewall_hips_request_signature(
+            gid,
+            state.pid,
+            &rule.name,
+            alert_kind,
+            &exe_path,
+            &target,
+        );
+        let allow_signature = Self::build_firewall_hips_allow_signature(
+            &rule.name,
+            alert_kind,
+            &exe_path,
+            &target,
+        );
+
+        if self
+            .firewall_hips_allow_always
+            .read()
+            .unwrap()
+            .contains(&allow_signature)
+        {
+            return FirewallHipsPromptOutcome::Allowed;
+        }
+
+        if self
+            .firewall_hips_allow_once
+            .write()
+            .unwrap()
+            .remove(&request_signature)
+        {
+            return FirewallHipsPromptOutcome::Allowed;
+        }
+
+        let existing_prompt = self
+            .firewall_hips_pending_prompts
+            .read()
+            .unwrap()
+            .get(&request_signature)
+            .cloned();
+
+        if let Some(prompt) = existing_prompt {
+            let decision = self
+                .firewall_hips_decisions
+                .write()
+                .unwrap()
+                .remove(&prompt.request_id);
+
+            if let Some(decision) = decision {
+                self.firewall_hips_pending_prompts
+                    .write()
+                    .unwrap()
+                    .remove(&request_signature);
+
+                match decision {
+                    FirewallHipsDecision::AllowAlways => {
+                        self.firewall_hips_allow_always
+                            .write()
+                            .unwrap()
+                            .insert(prompt.allow_signature);
+                        FirewallHipsPromptOutcome::Allowed
+                    }
+                    FirewallHipsDecision::AllowOnce => {
+                        self.firewall_hips_allow_once
+                            .write()
+                            .unwrap()
+                            .insert(prompt.request_signature);
+                        FirewallHipsPromptOutcome::Allowed
+                    }
+                    FirewallHipsDecision::Block => FirewallHipsPromptOutcome::Block,
+                }
+            } else {
+                FirewallHipsPromptOutcome::Pending
+            }
+        } else {
+            let request_id = Self::build_firewall_hips_request_id(gid, state.pid, &rule.name);
+            let app_name = if !state.app_name.trim().is_empty() {
+                state.app_name.clone()
+            } else {
+                "unknown".to_string()
+            };
+            let reason = Self::build_firewall_hips_reason(rule);
+
+            if self.send_firewall_hips_prompt(
+                &request_id,
+                state.pid,
+                &app_name,
+                &exe_path,
+                alert_kind,
+                &target,
+                &reason,
+            ) {
+                self.firewall_hips_pending_prompts
+                    .write()
+                    .unwrap()
+                    .insert(
+                        request_signature.clone(),
+                        FirewallHipsPromptState {
+                            request_id,
+                            request_signature,
+                            allow_signature,
+                        },
+                    );
+                FirewallHipsPromptOutcome::Pending
+            } else {
+                Logging::warning(&format!(
+                    "[Owlyshield HIPS] Falling back to block path for '{}' because the firewall GUI prompt could not be delivered",
+                    rule.name
+                ));
+                FirewallHipsPromptOutcome::Block
+            }
+        }
     }
 
     fn safe_pattern_match(text: &str, pattern: &str) -> bool {
@@ -2509,7 +2995,8 @@ impl BehaviorEngine {
                 if !matched && has_reg_conditions && *irp_op == IrpMajorOp::IrpRegistry
                     && Self::registry_op_matches(cond_group, msg, irp_op) {
                         let reg_iter = cond_group.registry_keys.iter()
-                            .chain(cond_group.autorun_keys.iter());
+                            .chain(cond_group.autorun_keys.iter())
+                            .chain(cond_group.registry_values.iter());
 
                         for reg_pattern in reg_iter {
                             if Self::registry_pattern_matches(&self.regex_cache, reg_pattern, filepath) {
@@ -3011,6 +3498,15 @@ impl BehaviorEngine {
             }
 
             if legacy_triggered || rich_triggered || stages_triggered {
+                if rule.response.ask_user {
+                    match self.resolve_firewall_hips_prompt(gid, &state_ref, rule) {
+                        FirewallHipsPromptOutcome::Pending | FirewallHipsPromptOutcome::Allowed => {
+                            continue;
+                        }
+                        FirewallHipsPromptOutcome::Block => {}
+                    }
+                }
+
                 let trigger_type = if stages_triggered { "Stage-based" } 
                                   else if rich_triggered { "Rich-logic" } 
                                   else { "Legacy" };
@@ -3339,6 +3835,15 @@ impl BehaviorEngine {
                 }
 
                 if legacy_triggered || rich_triggered || stages_triggered {
+                    if rule.response.ask_user {
+                        match self.resolve_firewall_hips_prompt(gid, &state, rule) {
+                            FirewallHipsPromptOutcome::Pending | FirewallHipsPromptOutcome::Allowed => {
+                                continue;
+                            }
+                            FirewallHipsPromptOutcome::Block => {}
+                        }
+                    }
+
                     let mut p = ProcessRecord::new(
                         gid,
                         app_name.clone(),
