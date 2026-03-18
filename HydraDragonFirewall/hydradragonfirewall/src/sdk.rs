@@ -667,6 +667,39 @@ impl RuleCondition {
             RuleCondition::Entropy(matcher) => matcher.matches(packet.payload_entropy),
         }
     }
+
+    pub fn requires_entropy(&self) -> bool {
+        matches!(self, RuleCondition::Entropy(_))
+    }
+
+    pub fn requires_file_type(&self) -> bool {
+        matches!(self, RuleCondition::FileType(_))
+    }
+
+    fn is_meaningful_non_entropy(&self) -> bool {
+        match self {
+            RuleCondition::Protocol(proto) => *proto != RuleProtocol::Any,
+            RuleCondition::SrcIp(matcher) => {
+                !matcher.addresses.is_empty() || !matcher.cidr_ranges.is_empty()
+            }
+            RuleCondition::DstIp(matcher) => {
+                !matcher.addresses.is_empty() || !matcher.cidr_ranges.is_empty()
+            }
+            RuleCondition::SrcPort(matcher) => {
+                !matcher.ports.is_empty() || !matcher.ranges.is_empty()
+            }
+            RuleCondition::DstPort(matcher) => {
+                !matcher.ports.is_empty() || !matcher.ranges.is_empty()
+            }
+            RuleCondition::Domain(matcher) => !matcher.domains.is_empty(),
+            RuleCondition::Url(matcher) => !matcher.patterns.is_empty(),
+            RuleCondition::FileType(matcher) => !matcher.file_types.is_empty(),
+            RuleCondition::Regex(matcher) => !matcher.pattern.is_empty(),
+            RuleCondition::Localhost(_) => true,
+            RuleCondition::ContentMatch(data) => !data.pattern.is_empty(),
+            RuleCondition::Entropy(_) => false,
+        }
+    }
 }
 
 // ============================================================================
@@ -887,6 +920,118 @@ impl SdkRule {
             }
         }
     }
+
+    pub fn requires_entropy(&self) -> bool {
+        self.entropy_threshold.is_some()
+            || self.conditions.iter().any(RuleCondition::requires_entropy)
+    }
+
+    pub fn requires_file_type(&self) -> bool {
+        self.file_type.is_some() || self.conditions.iter().any(RuleCondition::requires_file_type)
+    }
+
+    pub fn requires_deferred_inspection(&self) -> bool {
+        self.requires_entropy() || self.requires_file_type()
+    }
+
+    fn has_meaningful_non_entropy_matchers(&self) -> bool {
+        if self.protocol != RuleProtocol::Any {
+            return true;
+        }
+
+        if self
+            .src_ip
+            .as_ref()
+            .is_some_and(|matcher| !matcher.addresses.is_empty() || !matcher.cidr_ranges.is_empty())
+        {
+            return true;
+        }
+
+        if self
+            .dst_ip
+            .as_ref()
+            .is_some_and(|matcher| !matcher.addresses.is_empty() || !matcher.cidr_ranges.is_empty())
+        {
+            return true;
+        }
+
+        if self
+            .src_port
+            .as_ref()
+            .is_some_and(|matcher| !matcher.ports.is_empty() || !matcher.ranges.is_empty())
+        {
+            return true;
+        }
+
+        if self
+            .dst_port
+            .as_ref()
+            .is_some_and(|matcher| !matcher.ports.is_empty() || !matcher.ranges.is_empty())
+        {
+            return true;
+        }
+
+        if self
+            .domain
+            .as_ref()
+            .is_some_and(|matcher| !matcher.domains.is_empty())
+        {
+            return true;
+        }
+
+        if self
+            .url
+            .as_ref()
+            .is_some_and(|matcher| !matcher.patterns.is_empty())
+        {
+            return true;
+        }
+
+        if self
+            .file_type
+            .as_ref()
+            .is_some_and(|matcher| !matcher.file_types.is_empty())
+        {
+            return true;
+        }
+
+        if self
+            .regex
+            .as_ref()
+            .is_some_and(|matcher| !matcher.pattern.is_empty())
+        {
+            return true;
+        }
+
+        if self.localhost_type.is_some() {
+            return true;
+        }
+
+        if self.routine.as_ref().is_some_and(|routine| {
+            routine.from_ip.is_some()
+                || routine.from_port.is_some()
+                || routine.to_ip.is_some()
+                || routine.to_port.is_some()
+        }) {
+            return true;
+        }
+
+        if self
+            .conditions
+            .iter()
+            .any(RuleCondition::is_meaningful_non_entropy)
+        {
+            return true;
+        }
+
+        false
+    }
+
+    pub fn is_entropy_only_ask_rule(&self) -> bool {
+        self.action == RuleAction::Ask
+            && self.requires_entropy()
+            && !self.has_meaningful_non_entropy_matchers()
+    }
 }
 
 // ============================================================================
@@ -965,8 +1110,9 @@ impl SdkRegistry {
         // Load from rules.yaml if it exists
         match SdkRuleFile::load_from_file("rules.yaml") {
             Ok(rule_file) => {
-                println!("[SDK] Loaded {} rules from rules.yaml", rule_file.rules.len());
-                self.rules = rule_file.rules;
+                let rule_count = rule_file.rules.len();
+                self.rules = Self::sanitize_rules(rule_file.rules);
+                println!("[SDK] Loaded {} rules from rules.yaml", rule_count);
             }
             Err(e) => {
                 eprintln!("[SDK] Failed to load rules.yaml: {}", e);
@@ -976,12 +1122,12 @@ impl SdkRegistry {
 
     pub fn load_rules_from_file<P: AsRef<Path>>(&mut self, path: P) -> Result<(), String> {
         let rule_file = SdkRuleFile::load_from_file(path)?;
-        self.rules = rule_file.rules;
+        self.rules = Self::sanitize_rules(rule_file.rules);
         Ok(())
     }
 
     pub fn add_rule(&mut self, rule: SdkRule) {
-        self.rules.push(rule);
+        self.rules.extend(Self::sanitize_rules(vec![rule]));
     }
 
     pub fn register_listener(&mut self, listener: Arc<dyn PacketListener>) {
@@ -1038,9 +1184,11 @@ impl SdkRegistry {
         &self,
         packet: &PacketInfo,
         payload: &[u8],
+        defer_heavy_rules: bool,
     ) -> Option<RuleMatchResult> {
         self.rules
             .iter()
+            .filter(|rule| !defer_heavy_rules || !rule.requires_deferred_inspection())
             .find(|rule| rule.matches(packet, payload))
             .map(|rule| RuleMatchResult {
                 rule_name: rule.name.clone(),
@@ -1050,12 +1198,51 @@ impl SdkRegistry {
             })
     }
 
+    pub fn needs_entropy(&self) -> bool {
+        self.rules
+            .iter()
+            .any(|rule| rule.enabled && rule.requires_entropy())
+    }
+
+    pub fn needs_file_type(&self) -> bool {
+        self.rules
+            .iter()
+            .any(|rule| rule.enabled && rule.requires_file_type())
+    }
+
+    fn sanitize_rules(mut rules: Vec<SdkRule>) -> Vec<SdkRule> {
+        for rule in &mut rules {
+            let is_named_entropy_prompt = rule.name.eq_ignore_ascii_case(
+                "Ask To Block Encrypted Exfiltration",
+            ) && rule.entropy_threshold == Some(7.95);
+
+            if rule.enabled && (is_named_entropy_prompt || rule.is_entropy_only_ask_rule()) {
+                println!(
+                    "[SDK] Disabling entropy-only ask rule [{}] to keep network decisions off the hot path",
+                    rule.name
+                );
+                rule.enabled = false;
+            }
+        }
+
+        rules
+    }
+
     pub fn list_rules(&self) -> Vec<&SdkRule> {
         self.rules.iter().collect()
     }
 
     pub fn toggle_rule(&mut self, name: &str, enabled: bool) -> bool {
         if let Some(rule) = self.rules.iter_mut().find(|r| r.name == name) {
+            if enabled && rule.is_entropy_only_ask_rule() {
+                println!(
+                    "[SDK] Refusing to enable entropy-only ask rule [{}] because it harms the hot path",
+                    rule.name
+                );
+                rule.enabled = false;
+                return false;
+            }
+
             rule.enabled = enabled;
             return true;
         }

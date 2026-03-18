@@ -11,6 +11,7 @@
     },
     "website_path": "website",
     "rules": [],
+    "late_blocking_mode": false,
     "tls_proxy": {
         "mode": "tls_proxy",
         "backend": "mitmproxy_rs_local",

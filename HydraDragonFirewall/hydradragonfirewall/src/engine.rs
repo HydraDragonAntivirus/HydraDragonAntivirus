@@ -396,6 +396,7 @@ pub struct FirewallSettings {
     pub app_decisions: HashMap<String, AppDecision>,
     pub website_path: String,
     pub rules: Vec<FirewallRule>,
+    pub late_blocking_mode: bool,
     pub tls_proxy: TlsProxyConfig,
     pub metadata: HashMap<String, String>,
 }
@@ -416,6 +417,7 @@ impl Default for FirewallSettings {
             app_decisions: apps,
             website_path: String::new(),
             rules: Vec::new(),
+            late_blocking_mode: false,
             tls_proxy: TlsProxyConfig::default(),
             metadata,
         }
@@ -573,18 +575,42 @@ impl AppInfoCache {
         }
 
         use windows::Win32::Foundation::CloseHandle;
-        use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
+        use windows::Win32::System::Threading::{
+            OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
+        };
         use windows::Win32::System::ProcessStatus::GetModuleFileNameExA;
+        use windows::core::PWSTR;
 
         unsafe {
             let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid);
             if let Ok(handle) = handle {
-                let mut buffer = [0u8; 1024];
-                let len = GetModuleFileNameExA(Some(handle), None, &mut buffer);
+                let mut wide_buffer = vec![0u16; 1024];
+                let mut wide_len = wide_buffer.len() as u32;
+                let wide_ok = QueryFullProcessImageNameW(
+                    handle,
+                    PROCESS_NAME_WIN32,
+                    PWSTR(wide_buffer.as_mut_ptr()),
+                    &mut wide_len,
+                )
+                .as_bool();
+
+                if wide_ok && wide_len > 0 {
+                    let full_path = String::from_utf16_lossy(&wide_buffer[..wide_len as usize]);
+                    let _ = CloseHandle(handle);
+                    let name = Path::new(&full_path)
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .unwrap_or("Unknown")
+                        .to_string();
+                    return (name, full_path);
+                }
+
+                let mut ansi_buffer = [0u8; 1024];
+                let ansi_len = GetModuleFileNameExA(Some(handle), None, &mut ansi_buffer);
                 let _ = CloseHandle(handle);
 
-                if len > 0 {
-                    let full_path = String::from_utf8_lossy(&buffer[..len as usize]).to_string();
+                if ansi_len > 0 {
+                    let full_path = String::from_utf8_lossy(&ansi_buffer[..ansi_len as usize]).to_string();
                     let name = Path::new(&full_path)
                         .file_name()
                         .and_then(|n| n.to_str())
@@ -704,6 +730,57 @@ impl AppManager {
     pub fn clear_decisions(&self) {
         let mut decisions = self.decisions.write().unwrap();
         decisions.clear();
+    }
+
+    fn pending_identity(app: &PendingApp) -> String {
+        let path = app.path.trim();
+        if !path.is_empty() && !path.eq_ignore_ascii_case("unknown") {
+            format!("path:{}", path.to_lowercase())
+        } else {
+            format!("name:{}", app.name.to_lowercase())
+        }
+    }
+
+    pub fn enqueue_pending_app(&self, app: PendingApp, remember_unknown_app: bool) -> bool {
+        let app_name_lower = app.name.to_lowercase();
+
+        if remember_unknown_app {
+            let mut known = self.known_apps.write().unwrap();
+            if known.contains(&app_name_lower) {
+                return false;
+            }
+            known.insert(app_name_lower);
+        }
+
+        let app_identity = Self::pending_identity(&app);
+
+        {
+            let active = self.active_alert.read().unwrap();
+            if let Some(current) = active.as_ref() {
+                if Self::pending_identity(current) == app_identity
+                    && current.dst_ip == app.dst_ip
+                    && current.dst_port == app.dst_port
+                    && current.protocol == app.protocol
+                    && current.reason == app.reason
+                {
+                    return false;
+                }
+            }
+        }
+
+        let mut pending = self.pending.write().unwrap();
+        if pending.iter().any(|existing| {
+            Self::pending_identity(existing) == app_identity
+                && existing.dst_ip == app.dst_ip
+                && existing.dst_port == app.dst_port
+                && existing.protocol == app.protocol
+                && existing.reason == app.reason
+        }) {
+            return false;
+        }
+
+        pending.push_back(app);
+        true
     }
 
     pub fn get_active_alert(&self) -> Option<PendingApp> {
@@ -832,6 +909,7 @@ impl FirewallEngine {
             app_decisions: decisions,
             website_path: current_settings.website_path.clone(),
             rules: self.rules.read().unwrap().clone(),
+            late_blocking_mode: current_settings.late_blocking_mode,
             tls_proxy: current_settings.tls_proxy.clone(),
             metadata: current_settings.metadata.clone(),
         };
@@ -1320,6 +1398,33 @@ impl FirewallEngine {
             })
             .expect("failed to spawn pending_monitor thread");
 
+        // RAW PACKET UI EMITTER
+        // Keep frontend traffic off the packet workers by using a bounded queue.
+        let (raw_packet_tx, raw_packet_rx) =
+            std::sync::mpsc::sync_channel::<crate::sdk::RawPacket>(512);
+        {
+            let stop_raw = Arc::clone(&stop);
+            let tx_raw = app_handle.clone();
+            std::thread::Builder::new()
+                .name("raw_packet_emitter".to_string())
+                .spawn(move || {
+                    while !stop_raw.load(Ordering::Relaxed) {
+                        match raw_packet_rx.recv_timeout(Duration::from_millis(250)) {
+                            Ok(raw_packet) => {
+                                let _ = tx_raw.emit("raw_packet", raw_packet);
+                            }
+                            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+                            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+                        }
+                    }
+
+                    while let Ok(raw_packet) = raw_packet_rx.try_recv() {
+                        let _ = tx_raw.emit("raw_packet", raw_packet);
+                    }
+                })
+                .expect("failed to spawn raw_packet_emitter thread");
+        }
+
 
         // ── NETWORK EVENT PIPE WRITER ────────────────────────────────────────────
         // Sends real network I/O events to the AV behavior engine so it can track
@@ -1425,6 +1530,7 @@ impl FirewallEngine {
             let tx_log = app_handle.clone();
             let divert_w = divert.clone();
             let net_ev_tx = net_event_tx.clone();
+            let raw_packet_tx_w = raw_packet_tx.clone();
 
             std::thread::Builder::new()
                 .name(format!("packet_worker_{}", worker_id))
@@ -1647,7 +1753,7 @@ impl FirewallEngine {
                                             raw_packet.summary = format!("{} ({})", raw_packet.summary, domain);
                                         }
                                     }
-                                    let _ = tx_log.emit("raw_packet", raw_packet);
+                                    let _ = raw_packet_tx_w.try_send(raw_packet);
                                 }
 
                                 if decision.should_forward {
@@ -1709,7 +1815,7 @@ impl FirewallEngine {
         process_id: u32,
         pre_parsed: &Option<(PacketInfo, usize)>,
     ) -> PacketDecision {
-        let (mut info, payload_offset) = match pre_parsed {
+        let (mut info, mut payload_offset) = match pre_parsed {
             Some(p) => (p.0.clone(), p.1),
             None => {
                 if let Some((p_info, offset)) =
@@ -1744,9 +1850,10 @@ impl FirewallEngine {
         // Initialize decision state
         let mut should_forward = true;
         let mut reason: Option<String> = None;
-        let tls_proxy_cfg = {
+        let mut remember_pending_as_unknown_app = true;
+        let (late_blocking_mode, tls_proxy_cfg) = {
             let s = settings.read().unwrap();
-            s.tls_proxy.clone()
+            (s.late_blocking_mode, s.tls_proxy.clone())
         };
 
         // 3. DNS Snooping Enrichment (CRITICAL: Do this before rules!)
@@ -1763,10 +1870,11 @@ impl FirewallEngine {
             let sdk_read = sdk.read().unwrap();
             for changer in &sdk_read.changers {
                 if changer.modify(&mut data_vec, &info, &sdk_context) {
-                    if let Some((new_info, _)) =
+                    if let Some((new_info, new_offset)) =
                         Self::parse_packet(&data_vec, outbound, pid, &am.info_cache)
                     {
                         info = new_info;
+                        payload_offset = new_offset;
                         // RE-ENRICH after change (Feature 12/Context)
                         if info.hostname.is_none() {
                             if outbound {
@@ -1837,15 +1945,15 @@ impl FirewallEngine {
             }
         }
 
-        // File Magic Detection
-        let detected_type = file_checker.check(&data_vec);
-        if let Some(ref dtype) = detected_type {
-            am.url_cache
-                .write()
-                .unwrap()
-                .insert(pid, format!("FILESIG:{}", dtype));
-            info.detected_file_type = Some(dtype.clone());
-        }
+        let payload = if payload_offset < data_vec.len() {
+            &data_vec[payload_offset..]
+        } else {
+            &[][..]
+        };
+        let (sdk_needs_entropy, sdk_needs_file_type) = {
+            let sdk_lock = sdk.read().unwrap();
+            (sdk_lock.needs_entropy(), sdk_lock.needs_file_type())
+        };
 
         // URL telemetry is derived from packet parsing and in-engine caching only.
 
@@ -1858,6 +1966,30 @@ impl FirewallEngine {
 
         // 7. Custom Firewall Rules (PRIORITY #1)
         let current_rules = rules.read().unwrap();
+        let rules_need_file_type = current_rules
+            .iter()
+            .any(|rule| rule.enabled && !rule.file_types.is_empty());
+
+        let should_detect_file_type =
+            rules_need_file_type || (!late_blocking_mode && sdk_needs_file_type);
+        if should_detect_file_type && !payload.is_empty() {
+            if let Some(dtype) = file_checker.check(payload) {
+                am.url_cache
+                    .write()
+                    .unwrap()
+                    .insert(pid, format!("FILESIG:{}", dtype));
+                info.detected_file_type = Some(dtype);
+            }
+        }
+
+        if !late_blocking_mode
+            && sdk_needs_entropy
+            && info.payload_entropy.is_none()
+            && !payload.is_empty()
+        {
+            info.payload_entropy = Some(Self::shannon_entropy(payload));
+        }
+
         for rule in current_rules.iter() {
             if rule.matches(&info, &app_name) {
                 if rule.block {
@@ -1900,13 +2032,8 @@ impl FirewallEngine {
 
         // 9. SDK Rule Evaluation
         {
-            let payload = if payload_offset < data_vec.len() {
-                &data_vec[payload_offset..]
-            } else {
-                &[][..]
-            };
             let s_lock = sdk.read().unwrap();
-            let first_match = s_lock.evaluate_first_match(&info, payload);
+            let first_match = s_lock.evaluate_first_match(&info, payload, late_blocking_mode);
 
             if let Some(finding) = first_match {
                 match finding.action {
@@ -1939,6 +2066,7 @@ impl FirewallEngine {
                     crate::sdk::RuleAction::Ask => {
                         should_forward = false; // Block until user decides
                         app_decision = AppDecision::Pending;
+                        remember_pending_as_unknown_app = false;
                         reason = Some(format!(
                             "SDK Rule [{}]: Pending user decision",
                             finding.rule_name
@@ -1962,12 +2090,8 @@ impl FirewallEngine {
 
         // 11. Finalize Pending Decision (Trigger prompt if still unknown)
         if app_decision == AppDecision::Pending {
-            let app_name_lower = app_name.to_lowercase();
-            let mut known = am.known_apps.write().unwrap();
-            if !known.contains(&app_name_lower) {
-                known.insert(app_name_lower.clone());
-                let mut pending = am.pending.write().unwrap();
-                pending.push_back(PendingApp {
+            let _ = am.enqueue_pending_app(
+                PendingApp {
                     process_id: pid,
                     name: app_name.clone(),
                     path: app_info.path.clone(),
@@ -1976,8 +2100,9 @@ impl FirewallEngine {
                     protocol: info.protocol.clone(),
                     hostname: info.hostname.clone(),
                     reason: reason.clone(),
-                });
-            }
+                },
+                remember_pending_as_unknown_app,
+            );
         }
 
         stats.packets_total.fetch_add(1, Ordering::Relaxed);
@@ -2387,10 +2512,6 @@ impl FirewallEngine {
 
         if let Some(bytes) = payload_bytes {
             if !bytes.is_empty() {
-                // Entropy is now calculated only if a rule actually requests it, 
-                // but we can still sample it here once if we want it in every packet info.
-                // Re-calculating it 3 times per packet was the performance bottleneck.
-                payload_entropy = Some(Self::shannon_entropy(bytes));
                 let preview: Vec<String> = bytes
                     .iter()
                     .take(32)

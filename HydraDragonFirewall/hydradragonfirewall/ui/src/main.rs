@@ -79,6 +79,12 @@ pub struct RawPacket {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct EngineRuntimeStatus {
+    pub active: bool,
+    pub status: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 struct ResolveArgs {
     name: String,
     decision: String,
@@ -387,6 +393,21 @@ pub fn App() -> impl IntoView {
         spawn_local(async move { let _ = listen("raw_packet", &raw_closure).await; raw_closure.forget(); });
     });
 
+    {
+        let refresh_engine_state = move || {
+            spawn_local(async move {
+                let res = invoke("get_engine_runtime_status", JsValue::NULL).await;
+                if let Ok(status) = serde_wasm_bindgen::from_value::<EngineRuntimeStatus>(res) {
+                    set_engine_active.set(status.active);
+                    set_engine_status.set(status.status);
+                }
+            });
+        };
+
+        refresh_engine_state();
+        set_interval(refresh_engine_state, Duration::from_millis(1000));
+    }
+
     let save_settings_action = move || {
         spawn_local(async move {
             let s = settings.get();
@@ -494,7 +515,9 @@ pub fn App() -> impl IntoView {
                                             <div class="status-header">
                                                 <div>
                                                     <h3>"System Status"</h3>
-                                                    <span class="status-badge secure">"SECURE"</span>
+                                                    <span class={move || if engine_active.get() { "status-badge secure" } else { "status-badge" }}>
+                                                        {move || if engine_active.get() { "SECURE" } else { "INITIALIZING" }}
+                                                    </span>
                                                 </div>
                                                 <div class="pulse-indicator"></div>
                                             </div>
@@ -686,7 +709,8 @@ pub fn App() -> impl IntoView {
                                                 <div style="font-size: 12px; display: flex; flex-direction: column; gap: 10px">
                                                     <div><strong>"Time:"</strong> {p.timestamp}</div>
                                                     <div><strong>"Direction:"</strong> {format!("{:?} -> {:?}", p.src_ip, p.dst_ip)}</div>
-                                                    <div><strong>"Process:"</strong> {p.process_name} " (" {p.process_id} ")"</div>
+                                                    <div><strong>"Process:"</strong> {if !p.process_path.trim().is_empty() && p.process_path != "Unknown" { p.process_path.clone() } else { p.process_name.clone() }}</div>
+                                                    <div><strong>"PID:"</strong> {p.process_id}</div>
                                                     <div style="margin-top: 10px"><strong>"Payload (Hex):"</strong></div>
                                                     <div style="background: #000; padding: 10px; border-radius: 4px; font-family: monospace; word-break: break-all">
                                                         {p.payload_hex}

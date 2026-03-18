@@ -8,6 +8,7 @@ pub mod web_filter;
 pub mod windivert_api;
 
 use crate::engine::FirewallEngine;
+use serde::Serialize;
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Manager, Runtime};
 use tokio::time::{sleep, Duration};
@@ -23,6 +24,12 @@ async fn wait_for_engine<R: Runtime>(handle: &AppHandle<R>) -> Option<Arc<Firewa
     }
 
     None
+}
+
+#[derive(Debug, Serialize)]
+struct EngineRuntimeStatus {
+    active: bool,
+    status: String,
 }
 
 #[tauri::command]
@@ -137,6 +144,21 @@ async fn get_active_alert(handle: AppHandle) -> Result<Option<crate::engine::Pen
         Ok(engine.get_active_alert())
     } else {
         Err("Engine not initialized".to_string())
+    }
+}
+
+#[tauri::command]
+async fn get_engine_runtime_status<R: Runtime>(handle: AppHandle<R>) -> EngineRuntimeStatus {
+    if handle.try_state::<Arc<FirewallEngine>>().is_some() {
+        EngineRuntimeStatus {
+            active: true,
+            status: "Firewall Engine ACTIVE".to_string(),
+        }
+    } else {
+        EngineRuntimeStatus {
+            active: false,
+            status: "Initializing Engine...".to_string(),
+        }
     }
 }
 
@@ -284,6 +306,7 @@ pub fn run() {
             remove_app_decision,
             clear_app_decisions,
             get_active_alert,
+            get_engine_runtime_status,
             get_window_label,
             close_window,
             quit_app
