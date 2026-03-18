@@ -16,6 +16,10 @@
 This project is not production-ready.
 Breaking changes, bugs, and incomplete features should be expected.
 </p>
+h1 align="center" style="color: red;">
+    Notice: A VDS will soon be procured for the Hydra Dragon platform. The system will be hosted on a server, operate as a cloud-based solution, and include a separate client      application. Its effectiveness will also be evaluated against other antivirus solutions.
+</h1>
+
 
 ## Important Notes & Limitations
 
