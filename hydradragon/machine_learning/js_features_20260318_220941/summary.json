@@ -1,0 +1,10 @@
+{
+  "timestamp": "2026-03-19T01:03:13.647034",
+  "malicious_count": 39450,
+  "benign_count": 53961,
+  "bin_path": "js_features_20260318_220941\\ml_vectors_js.bin",
+  "index_path": "js_features_20260318_220941\\ml_index_js.jsonl",
+  "malicious_pickle_path": "js_features_20260318_220941\\ml_definitions_malicious_js.pkl",
+  "benign_pickle_path": "js_features_20260318_220941\\ml_definitions_benign_js.pkl",
+  "feature_vector_size": 52
+}

@@ -11,7 +11,7 @@
 #define MyAppAssocKey StringChange(MyAppAssocName, " ", "") + MyAppAssocExt
 
 ; Owlyshield definitions
-#define OwlyshieldVersion "1.1.1"
+#define OwlyshieldVersion "1.2.0"
 #define AgentName "Owlyshield Service"
 #define FsFilter "OwlyshieldRansomFilter"
 
