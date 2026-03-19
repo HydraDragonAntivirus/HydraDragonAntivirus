@@ -377,11 +377,11 @@ static void AutoSetPythonHome() {
   char pythonHome[MAX_PATH] = {0};
   bool found = false;
 
-  // Method 0: Prefer HydraDragonAntivirus's Python 3.12 install.
-  if (FindPreferredPython312Home(pythonHome, MAX_PATH))
+  // PRIORITY 1: Prefer the Python runtime already loaded in this process.
+  if (FindLoadedPythonHome(pythonHome, MAX_PATH))
     found = true;
 
-  // Method 1: Use the current executable's Python home when available.
+  // PRIORITY 2: Use the current executable's Python home when available.
   if (!found) {
     char currentExe[MAX_PATH] = {0};
     DWORD currentExeLen = GetModuleFileNameA(NULL, currentExe, MAX_PATH);
@@ -405,11 +405,7 @@ static void AutoSetPythonHome() {
     }
   }
 
-  // Method 2: Prefer the Python runtime already loaded in this process.
-  if (!found && FindLoadedPythonHome(pythonHome, MAX_PATH))
-    found = true;
-
-  // Method 3: Use PYTHONHOME only when it still points to a valid install.
+  // PRIORITY 3: Use existing PYTHONHOME only when it still points to a valid install.
   if (!found) {
     char existing[MAX_PATH] = {0};
     DWORD existingLen = GetEnvironmentVariableA("PYTHONHOME", existing, MAX_PATH);
@@ -427,7 +423,13 @@ static void AutoSetPythonHome() {
     }
   }
 
-  // Method 4: Find python.exe in other processes.
+  // PRIORITY 4: Prefer HydraDragonAntivirus's Python 3.12 install.
+  if (!found) {
+    if (FindPreferredPython312Home(pythonHome, MAX_PATH))
+      found = true;
+  }
+
+  // PRIORITY 5: Find python.exe in other processes.
   if (!found) {
     char pythonExe[MAX_PATH] = {0};
     if (FindPythonExePath(pythonExe, MAX_PATH)) {
@@ -624,7 +626,7 @@ static unsigned __stdcall hookImpl(void *lpParam) {
         _TRUNCATE,
         "import sys, os\n"
         "try:\n"
-        "    f = open(r'%s', 'a', buffering=1, encoding='utf-8')\n"
+        "    f = open(r'%s.py.log', 'a', buffering=1, encoding='utf-8')\n"
         "    sys.stdout = f\n"
         "    sys.stderr = f\n"
         "    print('Python stdout/stderr redirected')\n"
