@@ -1248,8 +1248,8 @@ impl FirewallEngine {
         }
     }
 
-    fn refresh_active_alert_ui(&self, tx: &AppHandle) {
-        if let Some(alert) = self.app_manager.get_active_alert() {
+    fn refresh_active_alert_ui(am: &Arc<AppManager>, tx: &AppHandle) {
+        if let Some(alert) = am.get_active_alert() {
             Self::spawn_alert_window(tx);
             let _ = tx.emit("ask_app_decision", alert);
         }
@@ -2537,7 +2537,7 @@ impl FirewallEngine {
                 remember_pending_as_unknown_app,
             );
             if enqueued {
-                self.refresh_active_alert_ui(tx);
+                Self::refresh_active_alert_ui(am, tx);
             }
         }
 
@@ -2661,6 +2661,13 @@ impl FirewallEngine {
 
                     let log_reason = reason
                         .clone()
+                        .map(|r| {
+                            if r.starts_with("App Allowed") {
+                                r.replacen("App Allowed", "App Blocked", 1)
+                            } else {
+                                r
+                            }
+                        })
                         .unwrap_or_else(|| "Blocked".to_string());
                     emit_log_event(
                         &tx,

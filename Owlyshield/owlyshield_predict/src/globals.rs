@@ -13,6 +13,9 @@ pub fn init_globals(config: &Config) {
     let report_dir = config.get_param(Param::ReportDir)
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("reports"));
+    if let Err(e) = std::fs::create_dir_all(&report_dir) {
+        eprintln!("[globals] Failed to create report dir {:?}: {}", &report_dir, e);
+    }
     REPORT_DIR.set(report_dir).ok();
 
     let config_path = config.get_param(Param::ConfigPath)

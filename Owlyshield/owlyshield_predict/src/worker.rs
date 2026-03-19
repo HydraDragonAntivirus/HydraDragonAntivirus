@@ -311,8 +311,15 @@ pub mod process_record_handling {
                             }
                         }
                         KillPolicy::Kill => {
-                            // Use kill_and_quarantine for Owlyshield's own detections
+                            self.threat_handler.kill(precord.gid);
+                            precord.process_state = ProcessState::Killed;
+                        }
+                        KillPolicy::KillAndQuarantine => {
                             self.threat_handler.kill_and_quarantine(precord.gid, &precord.exepath);
+                            precord.process_state = ProcessState::Killed;
+                        }
+                        KillPolicy::KillAndRemove => {
+                            self.threat_handler.kill_and_remove(precord.gid, &precord.exepath);
                             precord.process_state = ProcessState::Killed;
                         }
                         KillPolicy::DoNothing => {}

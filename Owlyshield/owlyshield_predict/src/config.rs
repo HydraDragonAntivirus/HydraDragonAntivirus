@@ -29,6 +29,8 @@ pub enum Param {
 pub enum KillPolicy {
     Suspend,
     Kill,
+    KillAndQuarantine,
+    KillAndRemove,
     DoNothing,
 }
 
@@ -96,6 +98,7 @@ impl Param {
         }
 
         params.push(Param::RulesPath);
+        params.push(Param::ReportDir);
 
         let mut ret = Vec::new();
         for param in params {
@@ -261,6 +264,8 @@ impl Config {
     pub fn get_kill_policy(&self) -> KillPolicy {
         match self[Param::KillPolicy].as_str() {
             "KILL" => KillPolicy::Kill,
+            "KILL_AND_QUARANTINE" => KillPolicy::KillAndQuarantine,
+            "KILL_AND_REMOVE" => KillPolicy::KillAndRemove,
             "SUSPEND" => KillPolicy::Suspend,
             &_ => KillPolicy::DoNothing,
         }
