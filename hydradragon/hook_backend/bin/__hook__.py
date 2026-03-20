@@ -101,19 +101,19 @@ class BytecodeDecompiler:
                 consts = [c for c in code_obj.co_consts if c is not None and not callable(c)]
                 if consts:
                     lines.append("    # Constants found:")
-                    for const in consts[:10]:  # Limit to first 10
+                    for const in consts:
                         lines.append(f"    #   {repr(const)}")
             
             # Extract variable names
             if hasattr(code_obj, 'co_names') and code_obj.co_names:
                 lines.append("    # Names referenced:")
-                for name in code_obj.co_names[:15]:  # Limit to first 15
+                for name in code_obj.co_names:
                     lines.append(f"    #   {name}")
             
             # Extract local variables
             if hasattr(code_obj, 'co_varnames') and code_obj.co_varnames:
                 lines.append("    # Local variables:")
-                for var in code_obj.co_varnames[:15]:
+                for var in code_obj.co_varnames:
                     lines.append(f"    #   {var}")
             
             # Extract free variables (closures)
@@ -314,7 +314,7 @@ class ModuleReconstructor:
                     for key, val in mod.__dict__.items():
                         # Look for non-standard attributes
                         if not key.startswith('_') and key not in dir(mod):
-                            hidden_items.append(f"# Hidden: {key} = {repr(val)[:100]}")
+                            hidden_items.append(f"# Hidden: {key} = {repr(val)}")
                     if hidden_items:
                         extra_info.append("\n# ===== ADDITIONAL MODULE ATTRIBUTES =====")
                         extra_info.extend(hidden_items)
@@ -325,9 +325,21 @@ class ModuleReconstructor:
             if extra_info:
                 content.extend(extra_info)
         
+        # Hook-injected infrastructure variable names — these are leaked into __main__'s
+        # namespace by the injection mechanism and must never appear in the output.
+        _HOOK_INJECTED_VARS = frozenset({
+            'hook_globals', 'env_hook', 'exe_dir', 'dlls_dir',
+            'lib_dir', 'pythonhome', 'site_packages', 'path',
+        })
+
         # Hunt for every callable in the module
         for attr_name in sorted(dir(mod)):
-            if attr_name.startswith('__') and attr_name != '__init__': 
+            if attr_name.startswith('__') and attr_name != '__init__':
+                continue
+
+            # Strip hook-injected runtime vars from __main__ — they are not part
+            # of the original application source and would corrupt the merged output.
+            if name == '__main__' and attr_name in _HOOK_INJECTED_VARS:
                 continue
             
             try:
@@ -411,8 +423,6 @@ class ModuleReconstructor:
                                 # Method 0: Show docstring again in metadata comments if available
                                 if m_doc:
                                     doc_preview = m_doc.replace('\n', ' ').replace('    """', '').replace('"""', '').strip()
-                                    if len(doc_preview) > 100:
-                                        doc_preview = doc_preview[:100] + "..."
                                     metadata.append(f"        # Docstring: {doc_preview}")
                                 
                                 # Method 1: Try inspect.signature
@@ -454,8 +464,6 @@ class ModuleReconstructor:
                                 try:
                                     if hasattr(m_attr, '__doc__') and m_attr.__doc__ and not m_doc:
                                         doc_raw = str(m_attr.__doc__).strip()
-                                        if len(doc_raw) > 100:
-                                            doc_raw = doc_raw[:100] + "..."
                                         metadata.append(f"        # Raw __doc__: {doc_raw}")
                                 except:
                                     pass
@@ -520,8 +528,6 @@ class ModuleReconstructor:
                         # Method 0: Show docstring again in metadata comments if available
                         if func_doc:
                             doc_preview = func_doc.replace('\n', ' ').replace('    """', '').replace('"""', '').strip()
-                            if len(doc_preview) > 100:
-                                doc_preview = doc_preview[:100] + "..."
                             metadata.append(f"    # Docstring: {doc_preview}")
                         
                         # Method 1: Try inspect.signature
@@ -563,8 +569,6 @@ class ModuleReconstructor:
                         try:
                             if hasattr(attr, '__doc__') and attr.__doc__ and not func_doc:
                                 doc_raw = str(attr.__doc__).strip()
-                                if len(doc_raw) > 100:
-                                    doc_raw = doc_raw[:100] + "..."
                                 metadata.append(f"    # Raw __doc__: {doc_raw}")
                         except:
                             pass
@@ -581,10 +585,7 @@ class ModuleReconstructor:
                     if isinstance(attr, (str, int, float, bool, type(None))):
                         content.append(f"{attr_name} = {repr(attr)}")
                     elif isinstance(attr, (dict, list, tuple, set)):
-                        # Truncate large collections
                         repr_str = repr(attr)
-                        if len(repr_str) > 200:
-                            repr_str = repr_str[:200] + "... # Truncated"
                         content.append(f"{attr_name} = {repr_str}")
                     
             except Exception as e:

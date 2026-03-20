@@ -119,7 +119,7 @@ See the [LICENSE](./LICENSE) file for more information.
 - **PE Malware Database (53k+):** [Download Link](https://drive.google.com/file/d/1QwdxdwX_nH-oF-5hVTkbTuFkrwUfR0-h)
 - **PE Benign Database (204k+):** [Download Link](https://drive.google.com/file/d/1dbi9F8c05TaQZFBztZUixt5chlKbKtsd)
 - **JS Benign Database (53k+):** [Download Link](https://drive.google.com/file/d/1QwdxdwX_nH-oF-5hVTkbTuFkrwUfR0-h)
-- **JS Malware Database (39k+):** [Download Link](https://drive.google.com/file/d/1dbi9F8c05TaQZFBztZUixt5chlKbKtsd)
+- **JS Malware Database (39k+):** [Download Link](https://drive.google.com/file/d/1amgH0iI_icFT_7F7Tqt9l36ewkLv_E_5)
 
 - **Note:** The collection only contains PE files smaller than 10MB. Due to my USB stick being broken and no longer recoverable, approximately 6,000 benign samples were lost forever. Some of these samples were even not available on VirusTotal. 
 - **Password:** infected
