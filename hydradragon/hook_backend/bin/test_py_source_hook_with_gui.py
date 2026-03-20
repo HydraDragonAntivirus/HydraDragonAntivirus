@@ -1,13 +1,44 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-import ctypes, os, sys, time, threading, psutil, platform
+import os
+import sys
+import threading
+import time
+import io
+import struct
+import re
+import platform
+import ctypes
+from typing import Any
+from typing import List
+from typing import Dict
+from typing import Set
+from typing import Tuple
+from collections import deque
+from concurrent.futures import ProcessPoolExecutor
+import pefile
 import tkinter as tk
-from tkinter import ttk, filedialog, scrolledtext
+from tkinter import ttk
+from tkinter import messagebox
+from tkinter import filedialog
+from tkinter import scrolledtext
 from ctypes import wintypes
 
-# --- Windows API Setup ---
+
+# -- Constants & Win32 APIs --
+TH32CS_SNAPPROCESS = 0x00000002
+TH32CS_SNAPMODULE  = 0x00000008
+TH32CS_SNAPMODULE32 = 0x00000010
+PROCESS_QUERY_INFORMATION = 0x0400
+PROCESS_VM_READ = 0x0010
+INVALID_HANDLE_VALUE = -1
+WAIT_OBJECT_0 = 0x00000000
+WAIT_TIMEOUT = 0x00000102
+
+# Standard WinAPI Loading
 k32 = ctypes.WinDLL('kernel32', use_last_error=True)
 ntdll = ctypes.WinDLL('ntdll', use_last_error=True)
+psapi = ctypes.WinDLL('psapi', use_last_error=True)
 
 def _def(f, r, *a): 
     f.restype, f.argtypes = r, a
@@ -25,493 +56,892 @@ _def(k32.WaitForSingleObject, wintypes.DWORD, wintypes.HANDLE, wintypes.DWORD)
 _def(k32.GetExitCodeThread, wintypes.BOOL, wintypes.HANDLE, wintypes.LPDWORD)
 _def(k32.LoadLibraryW, wintypes.HMODULE, wintypes.LPCWSTR)
 _def(k32.FreeLibrary, wintypes.BOOL, wintypes.HMODULE)
+_def(ntdll.NtCreateThreadEx, wintypes.DWORD, ctypes.POINTER(wintypes.HANDLE), wintypes.DWORD, wintypes.LPVOID, wintypes.HANDLE, wintypes.LPVOID, wintypes.LPVOID, wintypes.DWORD, ctypes.c_size_t, ctypes.c_size_t, ctypes.c_size_t, wintypes.LPVOID)
+_def(psapi.EnumProcessModulesEx, wintypes.BOOL, wintypes.HANDLE, wintypes.LPVOID, wintypes.DWORD, wintypes.LPDWORD, wintypes.DWORD)
+_def(psapi.GetModuleFileNameExW, wintypes.DWORD, wintypes.HANDLE, wintypes.HMODULE, wintypes.LPWSTR, wintypes.DWORD)
+_def(k32.LoadLibraryExW, wintypes.HMODULE, wintypes.LPCWSTR, wintypes.HANDLE, wintypes.DWORD)
+_def(k32.FindResourceW, wintypes.HANDLE, wintypes.HMODULE, wintypes.LPCWSTR, wintypes.LPCWSTR)
+_def(k32.LoadResource, wintypes.HANDLE, wintypes.HMODULE, wintypes.HANDLE)
+_def(k32.LockResource, wintypes.LPVOID, wintypes.HANDLE)
+_def(k32.SizeofResource, wintypes.DWORD, wintypes.HMODULE, wintypes.HANDLE)
 _def(k32.CreateToolhelp32Snapshot, wintypes.HANDLE, wintypes.DWORD, wintypes.DWORD)
-
-MAX_MODULE_NAME32 = 255
-TH32CS_SNAPMODULE = 0x00000008
-TH32CS_SNAPMODULE32 = 0x00000010
-WAIT_OBJECT_0 = 0x00000000
-WAIT_TIMEOUT = 0x00000102
-INVALID_HANDLE_VALUE = ctypes.c_void_p(-1).value
+_def(k32.QueryFullProcessImageNameW, wintypes.BOOL, wintypes.HANDLE, wintypes.DWORD, wintypes.LPWSTR, ctypes.POINTER(wintypes.DWORD))
 
 class MODULEENTRY32W(ctypes.Structure):
     _fields_ = [
-        ("dwSize", wintypes.DWORD),
-        ("th32ModuleID", wintypes.DWORD),
-        ("th32ProcessID", wintypes.DWORD),
-        ("GlblcntUsage", wintypes.DWORD),
-        ("ProccntUsage", wintypes.DWORD),
-        ("modBaseAddr", ctypes.c_void_p),
-        ("modBaseSize", wintypes.DWORD),
-        ("hModule", wintypes.HMODULE),
-        ("szModule", wintypes.WCHAR * (MAX_MODULE_NAME32 + 1)),
-        ("szExePath", wintypes.WCHAR * wintypes.MAX_PATH),
+        ("dwSize", wintypes.DWORD), ("th32ModuleID", wintypes.DWORD), ("th32ProcessID", wintypes.DWORD),
+        ("GlblcntUsage", wintypes.DWORD), ("ProccntUsage", wintypes.DWORD), ("modBaseAddr", ctypes.c_void_p),
+        ("modBaseSize", wintypes.DWORD), ("hModule", wintypes.HMODULE), ("szModule", wintypes.WCHAR * 256),
+        ("szExePath", wintypes.WCHAR * 260)
     ]
 
-_def(k32.Module32FirstW, wintypes.BOOL, wintypes.HANDLE, ctypes.POINTER(MODULEENTRY32W))
-_def(k32.Module32NextW, wintypes.BOOL, wintypes.HANDLE, ctypes.POINTER(MODULEENTRY32W))
-
-# NtCreateThreadEx for fallback
-class CLIENT_ID(ctypes.Structure):
-    _fields_ = [("UniqueProcess", wintypes.HANDLE), ("UniqueThread", wintypes.HANDLE)]
-
-_def(ntdll.NtCreateThreadEx, ctypes.c_long,
-     ctypes.POINTER(wintypes.HANDLE), wintypes.DWORD, wintypes.LPVOID,
-     wintypes.HANDLE, wintypes.LPVOID, wintypes.LPVOID, wintypes.ULONG,
-     ctypes.c_size_t, ctypes.c_size_t, ctypes.c_size_t, wintypes.LPVOID)
+class PROCESSENTRY32W(ctypes.Structure):
+    _fields_ = [
+        ("dwSize", wintypes.DWORD), ("cntUsage", wintypes.DWORD), ("th32ProcessID", wintypes.DWORD),
+        ("th32DefaultHeapID", ctypes.c_void_p), ("th32ModuleID", wintypes.DWORD),
+        ("cntThreads", wintypes.DWORD), ("th32ParentProcessID", wintypes.DWORD),
+        ("pcPriClassBase", wintypes.LONG), ("dwFlags", wintypes.DWORD), ("szExeFile", wintypes.WCHAR * 260)
+    ]
+_def(k32.Process32FirstW, wintypes.BOOL, wintypes.HANDLE, ctypes.POINTER(PROCESSENTRY32W))
+_def(k32.Process32NextW, wintypes.BOOL, wintypes.HANDLE, ctypes.POINTER(PROCESSENTRY32W))
 
 def enable_debug_privilege():
-    """Enable SeDebugPrivilege so OpenProcess works on protected targets."""
+    h_token = wintypes.HANDLE()
+    if not k32.OpenProcessToken(k32.GetCurrentProcess(), 0x0020 | 0x0008, ctypes.byref(h_token)):
+        return False
     try:
+        luid = wintypes.LARGE_INTEGER()
+        # LookupPrivilageValueW is in advapi32
         advapi32 = ctypes.WinDLL('advapi32', use_last_error=True)
-        TOKEN_ADJUST_PRIVILEGES = 0x0020
-        TOKEN_QUERY             = 0x0008
-        SE_PRIVILEGE_ENABLED    = 0x00000002
-
-        class LUID(ctypes.Structure):
-            _fields_ = [("LowPart", wintypes.DWORD), ("HighPart", wintypes.LONG)]
-
-        class LUID_AND_ATTRIBUTES(ctypes.Structure):
-            _fields_ = [("Luid", LUID), ("Attributes", wintypes.DWORD)]
-
+        if not advapi32.LookupPrivilegeValueW(None, "SeDebugPrivilege", ctypes.byref(luid)):
+            return False
         class TOKEN_PRIVILEGES(ctypes.Structure):
-            _fields_ = [("PrivilegeCount", wintypes.DWORD),
-                        ("Privileges", LUID_AND_ATTRIBUTES * 1)]
-
-        h_token = wintypes.HANDLE()
-        advapi32.OpenProcessToken(
-            k32.GetCurrentProcess(),
-            TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY,
-            ctypes.byref(h_token)
-        )
-        luid = LUID()
-        advapi32.LookupPrivilegeValueW(None, "SeDebugPrivilege", ctypes.byref(luid))
-        tp = TOKEN_PRIVILEGES()
-        tp.PrivilegeCount = 1
-        tp.Privileges[0].Luid = luid
-        tp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED
-        advapi32.AdjustTokenPrivileges(h_token, False, ctypes.byref(tp), ctypes.sizeof(tp), None, None)
+            _fields_ = [("PrivilegeCount", wintypes.DWORD), ("Privileges", (wintypes.DWORD*3)*1)]
+        tp = TOKEN_PRIVILEGES(1, ((luid.LowPart, luid.HighPart, 0x00000002),))
+        advapi32.AdjustTokenPrivileges(h_token, False, ctypes.byref(tp), 0, None, None)
+    finally:
         k32.CloseHandle(h_token)
+    return True
+
+def _normalize_func_name(name: str) -> str:
+    # Nuitka "a" prefix normalization (aparseConfig → parseConfig)
+    if name.startswith('a') and len(name) > 1 and name[1].islower():
+        return name[1:]
+    return name
+
+def _sanitize_identifier(name: str) -> str:
+    # Remove ALL non-printable / non-ascii chars
+    name = re.sub(r'[^\x20-\x7E]', '', name)
+
+    # Remove leading garbage before valid identifier
+    m = re.search(r'[a-zA-Z_]\w*', name)
+    if m:
+        name = name[m.start():]
+    else:
+        return ""
+
+    return name
+
+# -- Nuitka Extraction Logic --
+class ResourceScanner:
+    UPYTHON_MARKER = b"upython.exe"
+    
+    def __init__(self, filepath, logger=None):
+        self.filepath = filepath
+        self.logger = logger or print
+
+    def _read_resource_id27(self) -> bytes:
+        """Read the Nuitka blob from RT_RCDATA (type=10), ID=3, language=0 — i.e. 10_3_0.bin."""
+        LOAD_LIBRARY_AS_DATAFILE = 0x00000002
+        try:
+            h_mod = k32.LoadLibraryExW(self.filepath, None, LOAD_LIBRARY_AS_DATAFILE)
+            if not h_mod:
+                self.logger(f"[!] LoadLibraryExW failed for {self.filepath}"); return b""
+            try:
+                res_type = ctypes.cast(10, wintypes.LPCWSTR)  # RT_RCDATA
+                res_id   = ctypes.cast(3,  wintypes.LPCWSTR)  # ID 3
+                h_res = k32.FindResourceW(h_mod, res_id, res_type)
+                if not h_res:
+                    self.logger(f"[!] FindResourceW: RCDATA ID 3 not found in {self.filepath}"); return b""
+                h_glob = k32.LoadResource(h_mod, h_res)
+                if not h_glob:
+                    self.logger(f"[!] LoadResource failed"); return b""
+                size = k32.SizeofResource(h_mod, h_res)
+                ptr  = k32.LockResource(h_glob)
+                if not ptr:
+                    self.logger(f"[!] LockResource failed"); return b""
+                data = ctypes.string_at(ptr, size)
+                self.logger(f"[*] Found Nuitka blob (RCDATA ID 3): {size} bytes. First 4: {data[:4].hex()}")
+                return data
+            finally:
+                k32.FreeLibrary(h_mod)
+        except Exception as e:
+            self.logger(f"[!] WinAPI resource error: {e}"); return b""
+
+    def _parse_stream(self, raw: bytes) -> Dict[str, bytes]:
+        stream, files = io.BytesIO(raw), {}
+        last_pos = -1
+        try:
+            while True:
+                curr_pos = stream.tell()
+                if curr_pos == last_pos: break
+                last_pos = curr_pos
+                # Skip leading nulls/whitespace (Padding)
+                while True:
+                    curr = stream.read(1)
+                    if not curr: return files
+                    if curr != b'\x00' and not curr.isspace():
+                        stream.seek(-1, io.SEEK_CUR); break
+                
+                # Filename: Standard null-terminated or basic ASCII
+                name_buf = bytearray()
+                while True:
+                    ch = stream.read(1)
+                    if not ch or ch == b'\x00': break
+                    name_buf.append(ch[0])
+                if not name_buf: break
+                
+                try: filename = name_buf.decode('utf-8', errors='ignore').strip()
+                except: filename = f"file_{len(files)}"
+                
+                size_bytes = stream.read(8)
+                if len(size_bytes) < 8: break
+                file_size = struct.unpack('<Q', size_bytes)[0]
+                
+                # Safety checks for corrupted headers
+                if file_size > len(raw) or file_size < 0: break
+                files[filename] = stream.read(file_size)
+        except Exception: pass
+        return files
+
+    @staticmethod
+    def detect_python_marker(text: str, filename: str = "") -> str | None:
+        markers = ("python3", "python3.dll", "python", "upython", ".py", ".pyc")
+        n, t = filename.lower(), text.lower()
+        for m in markers:
+            if m in n or m in t: return m
+        return None
+
+    def extract(self) -> Dict[str, bytes]:
+            raw = self._read_resource_id27()
+            if not raw: return {}
+
+            dec = raw # No decompression.
+            
+            # NORMALIZATION: Replace nulls with newlines immediately.
+            # This allows the worker to receive a LIST of lines, which is much faster.
+            normalized = dec.replace(b'\x00', b'\n')
+            
+            # We search for the Nuitka marker to slice the noise.
+            slice_pos = -1
+            for marker in (b'upython.exe', b'\\python.exe', b'python'):
+                idx = normalized.find(marker)
+                if idx != -1 and (slice_pos == -1 or idx < slice_pos):
+                    slice_pos = idx
+            
+            if slice_pos != -1:
+                nl = normalized.find(b'\n', slice_pos)
+                if nl != -1: slice_pos = nl + 1
+            
+            final_blob = normalized[slice_pos:] if slice_pos != -1 else normalized
+            
+            # Return as a dict so the worker knows it's the integrated source.
+            return {"integrated_blob.py": final_blob}
+
+class StaticSourceMerger:
+    @staticmethod
+    def split_source_by_u_delimiter(source: str) -> str:
+        # Nuitka blob encoding rules:
+        #   u              = next line (newline delimiter between tokens)
+        #   a <n>       = def <n>  (function definition marker)
+        #   <x> a__module__ = module boundary sentinel
+        #                    also dot-prefixed: .vxauth_module a__module__
+
+        # Step 1: u = next line — replace standalone 'u' tokens with newlines
+        # Must run BEFORE a→def so we don't break identifiers containing 'u'
+        source = re.sub(r'(?<![.\w])u(?![.\w])', '\n', source)
+
+        # Step 2: Ensure every module boundary (including dot-prefixed .name a__module__)
+        # gets its own line so extract_modules can index them cleanly
+        source = re.sub(r'(\.?[\w\d\._]+\s+a__module__)', r'\n\1', source)
+
+        # Step 3: Standalone 'a' before an identifier = def
+        source = re.sub(r'^([ \t]*)\ba\b(\s+)(?=[a-zA-Z_]\w*)', r'\1def\2', source, flags=re.MULTILINE)
+
+        return source
+
+    @staticmethod
+    def extract_modules(static_src: str) -> Tuple[Dict[str, str], Set[str]]:
+        # --- sanitize blob ---
+        static_src = re.sub(r'[^\x09\x0A\x0D\x20-\x7E]', ' ', static_src)
+
+        try:
+            imports = set(re.findall(
+                r'(?:import\s+[\w\d\._]+|from\s+[\w\d\._]+\s+import\s+[\w\d\._, ]+)',
+                static_src
+            ))
+        except:
+            imports = set()
+
+        modules: Dict[str, str] = {}
+
+        marker_re = re.compile(r'\b([a-zA-Z0-9_\.]+)[ \t\n]+a__module__\b')
+        matches = list(marker_re.finditer(static_src))
+
+        if not matches:
+            content = StaticSourceMerger.split_source_by_u_delimiter(static_src)
+            content = StaticSourceMerger.decode_a_module_names(content)
+            content = StaticSourceMerger.decode_alias_assignments(content)
+            return {"__main__": content}, imports
+
+        def _sanitize(name: str) -> str:
+            return re.sub(r'[^\w\.]', '_', name)
+
+        # CRITICAL: iterate markers as START points
+        for i, m in enumerate(matches):
+            name = _sanitize(m.group(1))
+
+            start = m.end()  # AFTER marker
+            end = matches[i + 1].start() if i + 1 < len(matches) else len(static_src)
+
+            content = static_src[start:end].strip()
+
+            if not content:
+                continue
+
+            content = StaticSourceMerger.split_source_by_u_delimiter(content)
+            content = StaticSourceMerger.decode_a_module_names(content)
+            content = StaticSourceMerger.decode_alias_assignments(content)
+
+            modules[name] = content
+
+        return modules, imports
+
+    @staticmethod
+    def decode_a_module_names(source: str) -> str:
+        # <n>_a__module__ → <n>_def
+        source = re.sub(r'\b([\w\d\_]+)_a__module__\b', r'\1_def', source)
+        # .vxauth_module a__module__ or plain name a__module__ → name_def
+        # The leading dot (from dot-prefixed blob tokens like .vxauth) must be stripped
+        source = re.sub(r'\.?([\w\d\_]+(?:\.[\w\d\_]+)*)\s+a__module__', r'\1_def', source)
+        return source
+
+    @staticmethod
+    def decode_alias_assignments(source: str) -> str:
+        for builtin in ["open", "print", "exec", "eval", "getattr", "setattr"]:
+            pat = r'^([ \t]*)([a-zA-Z0-9_]+)\s*=\s*' + re.escape(builtin) + r'\b'
+            source = re.sub(pat, r'\1' + builtin + ' = ' + builtin, source, flags=re.MULTILINE)
+        return source
+
+    @staticmethod
+    def find_incomplete_functions(source: str) -> List[str]:
+        # Fast line-based stub identification (O(N) vs greedy regex)
+        # Lookback is 30 lines — stubs can have 10-20 metadata comment lines
+        # between the def signature and the pass # AG: STUB_IDENTIFIED line.
+        stubs = []
+        lines = source.splitlines()
+        for i, line in enumerate(lines):
+            if "# AG: STUB_IDENTIFIED" in line:
+                for j in range(i-1, max(-1, i-30), -1):
+                    m = re.search(r'def\s+([a-zA-Z_]\w*)\s*\(', lines[j])
+                    if m: stubs.append(m.group(1)); break
+        return stubs
+
+    @staticmethod
+    def _extract_func_from_src(src: str, name: str) -> str | None:
+        """Extract a named function's full body from a raw source string.
+        Returns None if the extracted body is itself a stub — replacing a dynamic
+        stub with a static stub gains nothing."""
+        pat = re.compile(
+            r'^([ \t]*)def\s+' + re.escape(name) + r'\s*\([^)]*\)'
+            r'(?:\s*->\s*[^\n:]+?)?\s*:[ \t]*\n'
+            r'(?:(?:\1[ \t]+[^\n]*|\s*)\n)*',
+            re.MULTILINE
+        )
+        m = pat.search(src)
+        if not m:
+            return None
+        body = m.group(0).rstrip()
+        # Reject stubs — only return real implementations
+        if 'AG: STUB_IDENTIFIED' in body:
+            return None
+        return body
+
+    @staticmethod
+    def merge_dynamic_static(dynamic_src, static_src, stubs, global_cache=None, mod_key=None):
+        """
+        Merge dynamic source code with static implementations.
+
+        Parameters:
+        - dynamic_src: str, the dynamically generated source code.
+        - static_src: str | dict[str, str], raw module source string or mapping of
+          stub names to bodies. When global_cache is empty, raw string is searched
+          directly via _extract_func_from_src.
+        - stubs: list[str], names of stub functions to replace.
+        - global_cache: dict[str, str], optional, pre-indexed function bodies from blob.
+        - mod_key: str, optional, module key for scoped cache lookup.
+
+        Returns:
+        - merged_src: str, dynamic source with stubs replaced.
+        """
+        if not stubs:
+            return dynamic_src
+
+        global_cache = global_cache or {}
+
+        # static_src may arrive as a raw string (module source) or a dict {name: body}.
+        # Normalise both cases so the rest of the logic is uniform.
+        static_src_dict = static_src if isinstance(static_src, dict) else {}
+        static_src_str  = static_src if isinstance(static_src, str)  else ""
+
+        merged_src = dynamic_src
+
+        for name in stubs:
+            scoped_key = f"{mod_key}.{name}" if mod_key else None
+
+            res = (
+                (scoped_key and global_cache.get(scoped_key))
+                or global_cache.get(name)
+                or static_src_dict.get(name)
+                or (static_src_str and StaticSourceMerger._extract_func_from_src(static_src_str, name))
+            )
+
+            if res is None:
+                continue
+
+            pat = re.compile(
+                r'([ \t]*)def\s+' + re.escape(name) + r'\s*\([^)]*\)'
+                r'(?:\s*->\s*[^\n:]+?)?'
+                r'\s*:.*?'
+                r'[ \t]*pass[^\n]*# AG: STUB_IDENTIFIED[^\n]*',
+                re.DOTALL
+            )
+
+            def _replace(m, body=res):
+                indent = m.group(1)
+                lines = body.splitlines()
+                if not lines:
+                    return m.group(0)
+                base = len(lines[0]) - len(lines[0].lstrip())
+                reindented = []
+                for line in lines:
+                    stripped = line[base:] if line.startswith(' ' * base) else line.lstrip()
+                    reindented.append(indent + stripped if stripped else '')
+                return '\n'.join(reindented)
+
+            merged_src = pat.sub(_replace, merged_src, count=1)
+
+        return merged_src
+
+def _blob_analysis_worker(
+    file_path: str,
+    dynamic_sources: Dict[str, str],
+) -> Tuple[Dict[str, str], int, int, int, List[str], List[str], List[str]]:
+    """
+    This worker is now 'Nuitka-aware'. It looks for aparseConfig 
+    when parseConfig is missing, treating the 'a' prefix as the Nuitka standard.
+    """
+
+    # ------------------------------------------------------------------
+    # Constants & Dictionaries
+    # ------------------------------------------------------------------
+    _REAL_A_MODS = frozenset({
+        'abc','ast','asyncio','asynchat','asyncore','atexit','audioop',
+        'array','argparse','annotated_types','aiohttp','attrs','attr',
+    })
+    _PY_KEYWORDS = frozenset({
+        'and','as','assert','async','await','break','class','continue',
+        'def','del','elif','else','except','finally','for','from',
+        'global','if','import','in','is','lambda','nonlocal','not',
+        'or','pass','raise','return','try','while','with','yield',
+    })
+    _STDLIB = frozenset({
+        'os','sys','re','io','math','time','json','functools','operator',
+        'itertools','collections','pathlib','random','socket','struct',
+        'threading','dataclasses','warnings',
+    })
+
+    # ------------------------------------------------------------------
+    # Helper Functions
+    # ------------------------------------------------------------------
+    def _norm(name: str) -> str:
+        """Removes the Nuitka 'a' prefix to find the 'human' name."""
+        if name.startswith('a') and len(name) > 1 and name[1].islower():
+            if name not in _REAL_A_MODS:
+                return name[1:]
+        return name
+
+    def _is_valid_import(imp: str) -> bool:
+        imp = ' '.join(imp.split())
+        if not imp or len(imp) < 5: return False
+        try:
+            mod_part = imp.split(' import ')[0][5:].strip() if imp.startswith('from ') else imp[7:].strip()
+            for component in mod_part.replace('.', ' ').split():
+                if len(component) < 1: return False
+                cl = component.lower()
+                if cl in _PY_KEYWORDS: return False
+                if not re.match(r'^[a-zA-Z_]\w*$', component): return False
+            return True
+        except: return False
+
+    def _is_real_body(body: str) -> bool:
+        code_lines = []
+        for line in body.splitlines():
+            s = line.strip()
+            if not s or s.startswith(('#', '"""', "'''")): continue
+            if re.match(r'(async\s+)?def\s+\w+', s) and not code_lines: continue
+            code_lines.append(s)
+        if not code_lines: return False
+        if len(code_lines) == 1 and 'pass' in code_lines[0] and 'STUB' in code_lines[0]: return False
+        return True
+
+    def _cache_put(cache: Dict[str, str], mod_key: str, f_name: str, body: str) -> None:
+        norm_name = _norm(f_name)
+        # We store BOTH the raw 'a' name and the normalized name.
+        for key in (norm_name, f"{mod_key}.{norm_name}", f_name, f"{mod_key}.{f_name}"):
+            if not cache.get(key) or len(body) > len(cache[key]):
+                cache[key] = body
+
+    # ------------------------------------------------------------------
+    # Patterns
+    # ------------------------------------------------------------------
+    _def_pat = re.compile(r'^[ \t]*def\s+([a-zA-Z_]\w*)\s*(?:\([^)]*\))?\s*:?', re.MULTILINE)
+    _imp_pat = re.compile(r'(?:import\s+[\w\d\._]+|from\s+[\w\d\._]+\s+import\s+[\w\d\._, ]+)')
+
+    # ------------------------------------------------------------------
+    # PHASE 1 — Optimized Linear Scan (The Nuitka Range Fix)
+    # ------------------------------------------------------------------
+    scan_logs: List[str] = []
+    global_cache: Dict[str, str] = {}
+    static_modules: Dict[str, str] = {}
+
+    try:
+        from __main__ import ResourceScanner, StaticSourceMerger
+        scanner = ResourceScanner(file_path, lambda msg: scan_logs.append(msg))
+        files_dict = scanner.extract()
+        raw_text = files_dict.get("integrated_blob.py", b"").decode('utf-8', errors='replace')
+        
+        if raw_text:
+            lines = raw_text.split('\n')
+            current_mod = "__main__"
+            mod_chunks = {current_mod: []}
+            
+            for line in lines:
+                if 'a__module__' in line:
+                    parts = line.split()
+                    for p in parts:
+                        if p != 'a__module__':
+                            current_mod = re.sub(r'[^\w\.]', '_', p.strip('.'))
+                            break
+                    if current_mod not in mod_chunks: mod_chunks[current_mod] = []
+                else:
+                    mod_chunks[current_mod].append(line)
+
+            for mod, chunk_lines in mod_chunks.items():
+                if not chunk_lines: continue
+                chunk_src = '\n'.join(chunk_lines)
+                
+                # Before we decode, we check for 'a' prefixed versions 
+                # of our desired functions within this module's range.
+                decoded = StaticSourceMerger.split_source_by_u_delimiter(chunk_src)
+                decoded = StaticSourceMerger.decode_a_module_names(decoded)
+                decoded = StaticSourceMerger.decode_alias_assignments(decoded)
+                
+                if decoded.strip():
+                    static_modules[mod] = decoded
+                    def_matches = list(_def_pat.finditer(decoded))
+                    for i, m in enumerate(def_matches):
+                        f_name = m.group(1)
+                        # If we found 'aparseConfig', we map it to 'parseConfig'
+                        end_pos = def_matches[i+1].start() if i+1 < len(def_matches) else len(decoded)
+                        body = decoded[m.start():end_pos].strip()
+                        
+                        if len(body) > 10 and _is_real_body(body):
+                            _cache_put(global_cache, mod, f_name, body)
+
     except Exception as e:
-        print(f"[WARN] Could not enable SeDebugPrivilege: {e}")
+        scan_logs.append(f"[!] Worker Phase 1 Error: {e}")
+
+    # ------------------------------------------------------------------
+    # PHASE 2 & 3 — Aggregation & Reconstruction
+    # ------------------------------------------------------------------
+    all_blob_imports = set()
+    extracted_module_names = set(static_modules.keys())
+    for src in static_modules.values():
+        for imp in _imp_pat.findall(src):
+            if _is_valid_import(imp): all_blob_imports.add(imp)
+
+    merged_outputs = {}
+    stub_hits, stub_misses = [], []
+    
+    for f_name, d_src in dynamic_sources.items():
+        mod_key = f_name.replace('.py', '')
+        s_content = static_modules.get(mod_key, '')
+        stubs = StaticSourceMerger.find_incomplete_functions(d_src)
+
+        for sn in stubs:
+            # Look for 'parseConfig' BUT ALSO 'aparseConfig'
+            nuitka_name = f"a{sn}" if not sn.startswith('a') else sn
+            if any(global_cache.get(k) for k in [f"{mod_key}.{sn}", sn, nuitka_name, f"{mod_key}.{nuitka_name}"]):
+                stub_hits.append(f"{mod_key}.{sn}")
+            else:
+                stub_misses.append(f"{mod_key}.{sn}")
+
+        merged_src = StaticSourceMerger.merge_dynamic_static(d_src, s_content, stubs, global_cache, mod_key)
+
+        existing_imps = set(_imp_pat.findall(merged_src))
+        new_imps = {i for i in all_blob_imports if i not in existing_imps 
+                    and not any(m in i for m in extracted_module_names)}
+
+        if mod_key == '__main__':
+            header = ('\n'.join(sorted(new_imps)) + '\n\n' if new_imps else '') + \
+                     '#'*15 + ' NUITKA MAIN RECONSTRUCTION ' + '#'*15 + '\n\n'
+        else:
+            header = '#'*15 + f' MODULE: {mod_key} ' + '#'*15 + '\n\n'
+
+        merged_outputs[f_name] = header + merged_src
+
+    return merged_outputs, len(global_cache), len(static_modules), len(static_modules), stub_hits, stub_misses, scan_logs
+
+class DynamicDumpReader:
+    DEFAULT_BASE = r"C:\ProgramData\HydraDragonAntivirus\python_dumps"
+    @staticmethod
+    def get_latest_dump_dir(base: str | None = None) -> tuple[str | None, int]:
+        base = base or DynamicDumpReader.DEFAULT_BASE
+        if not os.path.isdir(base): return None, -1
+        candidates = []
+        for d in os.listdir(base):
+            if d.startswith("dump_"):
+                try: candidates.append((int(d.split("_", 1)[1]), os.path.join(base, d)))
+                except ValueError: pass
+        if not candidates: return None, -1
+        best = max(candidates, key=lambda x: x[0]); return best[1], best[0]
+    @staticmethod
+    def wait_for_dump(timeout, old_idx):
+        start = time.time()
+        while time.time() - start < timeout:
+            d, idx = DynamicDumpReader.get_latest_dump_dir()
+            if d and idx > old_idx and os.path.exists(os.path.join(d, "finished.txt")): return d
+            time.sleep(1)
+        return None
 
 class LiteInjector:
-    def __init__(self, root):
-        self.root = root
-        self.root.title("Python Arch-Aware Injector - FIXED")
-        self.root.geometry("750x650")
-        
-        enable_debug_privilege()
-        self.ninja_on, self.processed = False, set()
+    btn_ninja: tk.Button
+    tree: ttk.Treeview
+    search: tk.Entry
+    log_box: scrolledtext.ScrolledText
+    search_timer: Any = ""
+    scan_lock: threading.Lock
+    last_tree_data: List = []
+    log_queue: deque = deque(maxlen=500)
+    _hb_count: int = 0
+    _log_pending: bool = False
+
+    def __init__(self, root: tk.Tk):
+        self.root = root; self.root.geometry("750x650")
+        enable_debug_privilege(); self.ninja_on, self.processed = False, set()
+        self.scan_lock = threading.Lock(); self.search_timer = ""; self.last_tree_data = []
+        self.log_queue = deque(maxlen=500); self._hb_count = 0
         self.hook_var = tk.StringVar(value=self._path("__hook__.py"))
-        
-        is_os_64 = platform.machine().endswith("64")
-        # Store the BASE path (directory containing both DLLs)
-        dll_dir = os.path.dirname(os.path.abspath(__file__))
-        default_dll = os.path.join(dll_dir, "hook64.dll" if is_os_64 else "hook32.dll")
-        self.dll_var = tk.StringVar(value=default_dll)
-        self.hide_std = tk.BooleanVar(value=True)
-
-        self._build_ui()
-        self.refresh()
-
-    def _path(self, name):
-        p = os.path.join(os.path.dirname(os.path.abspath(__file__)), name)
-        return p if os.path.exists(p) else name
-
-    def _build_ui(self):
-        # 1. Filters
-        top = tk.Frame(self.root, pady=5)
-        top.pack(fill=tk.X, padx=10)
-        self.btn_refresh = tk.Button(top, text="Refresh List", command=self.refresh)
-        self.btn_refresh.pack(side=tk.LEFT)
-        self.search = tk.Entry(top)
-        self.search.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=10)
-        self.search.bind("<KeyRelease>", lambda e: self.update_view())
-        tk.Checkbutton(top, text="Hide System Pythons", variable=self.hide_std, command=self.update_view).pack(side=tk.RIGHT)
-
-        # 2. Process Tree
-        cols = ("PID", "Name", "Arch", "Path")
-        self.tree = ttk.Treeview(self.root, columns=cols, show="headings", height=12)
-        for c, w in zip(cols, (70, 150, 70, 450)): 
-            self.tree.heading(c, text=c); self.tree.column(c, width=w)
-        self.tree.pack(fill=tk.BOTH, expand=True, padx=10)
-        self.tree.bind("<Double-1>", lambda e: self.run_inject())
-
-        # 3. Settings
-        cfg = tk.LabelFrame(self.root, text="Injection Settings", padx=10, pady=5)
-        cfg.pack(fill=tk.X, padx=10, pady=10)
-        
-        h_row = tk.Frame(cfg); h_row.pack(fill=tk.X, pady=2)
-        tk.Label(h_row, text="Hook Script:").pack(side=tk.LEFT)
-        tk.Entry(h_row, textvariable=self.hook_var).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
-        tk.Button(h_row, text="Browse", command=lambda: self.hook_var.set(filedialog.askopenfilename() or self.hook_var.get())).pack(side=tk.RIGHT)
-
-        d_row = tk.Frame(cfg); d_row.pack(fill=tk.X, pady=2)
-        tk.Label(d_row, text="DLL Path (auto-swaps 32/64):").pack(side=tk.LEFT)
-        self.dll_ent = tk.Entry(d_row, textvariable=self.dll_var)
-        self.dll_ent.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
-        tk.Button(d_row, text="Browse", command=self._browse_dll).pack(side=tk.RIGHT)
-
-        btns = tk.Frame(self.root, pady=5); btns.pack(fill=tk.X, padx=10)
-        self.btn_ninja = tk.Button(btns, text="Ninja Mode: OFF", command=self.toggle_ninja, width=15)
-        self.btn_ninja.pack(side=tk.LEFT)
-        tk.Button(btns, text="INJECT NOW", bg="#d32f2f", fg="white", font=("Arial", 9, "bold"), command=self.run_inject).pack(side=tk.RIGHT)
-
-        self.log_box = scrolledtext.ScrolledText(self.root, height=6, state='disabled', bg="#1e1e1e", fg="#00ff00", font=("Consolas", 8))
-        self.log_box.pack(fill=tk.X, padx=10, pady=5)
-
-    def _browse_dll(self):
-        f = filedialog.askopenfilename(filetypes=[("DLL Files", "*.dll"), ("All Files", "*.*")])
-        if f:
-            self.dll_var.set(f)
-
-    def log(self, m):
-        if threading.current_thread() is not threading.main_thread():
-            self.root.after(0, self.log, m)
-            return
-        self.log_box.config(state='normal')
-        self.log_box.insert(tk.END, f"[{time.strftime('%H:%M:%S')}] {m}\n")
-        self.log_box.see(tk.END)
-        self.log_box.config(state='disabled')
-
-    def is_target(self, p):
-        try:
-            exe = (p.info['exe'] or "").lower()
-            if self.hide_std.get() and any(x in exe for x in ["program files", "windows", "appdata\\local\\programs\\python"]):
-                return False
-            # Check for python3.dll in modules
+        d_dir = os.path.dirname(os.path.abspath(__file__))
+        self.dll_var = tk.StringVar(value=os.path.join(d_dir, "hook64.dll" if platform.machine().endswith("64") else "hook32.dll"))
+        self.hide_std = tk.BooleanVar(value=True); self._build_ui(); self.refresh(); self._heartbeat()
+    def _heartbeat(self):
+        self._hb_count += 1; self.root.title(f"Hydra Injector [HB:{self._hb_count}] [NINJA:{'ON' if self.ninja_on else 'OFF'}]")
+        self.root.after(250, self._heartbeat)
+    def _path(self, n): p = os.path.join(os.path.dirname(os.path.abspath(__file__)), n); return p if os.path.exists(p) else n
+    def log(self, msg):
+        t_msg = f"[{time.strftime('%H:%M:%S')}] {msg}"
+        self.log_queue.append(t_msg)
+        # Throttled UI dispatch to prevent event flooding (Critical for stability)
+        if not self._log_pending:
+            self._log_pending = True; self.root.after(150, self._flush_logs)
+        # Asynchronous disk logging (Prevents main thread I/O block)
+        def _bg_log(m):
             try:
-                for m in p.memory_maps():
-                    if "python3" in os.path.basename(m.path).lower():
-                        return True
-            except (psutil.AccessDenied, psutil.NoSuchProcess):
-                pass
-        except:
-            pass
-        return False
+                p = r"C:\ProgramData\HydraDragonAntivirus\injector_debug.txt"; os.makedirs(os.path.dirname(p), exist_ok=True)
+                with open(p, "a", encoding='utf-8') as f: f.write(m + "\n")
+            except: pass
+        threading.Thread(target=_bg_log, args=(t_msg,)).start()
+    def _flush_logs(self):
+        self._log_pending = False
+        if not self.log_queue: return
+        self.log_box.config(state='normal')
+        self.log_box.insert(tk.END, "\n".join(self.log_queue) + "\n")
+        self.log_box.see(tk.END); self.log_box.config(state='disabled')
+        self.log_queue.clear()
+    def _build_ui(self):
+        top = tk.Frame(self.root, pady=5); top.pack(fill=tk.X, padx=10)
+        tk.Button(top, text="Refresh List", command=self.refresh).pack(side=tk.LEFT)
+        self.search = tk.Entry(top); self.search.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=10); self.search.bind("<KeyRelease>", self._trigger_refresh)
+        tk.Checkbutton(self.root, text="Hide System Pythons", variable=self.hide_std, command=self.refresh).pack(anchor='w', padx=10)
+        cols = ("PID", "Name", "Arch", "Path"); self.tree = ttk.Treeview(self.root, columns=cols, show="headings", height=12)
+        for c, w in zip(cols, (70, 150, 70, 450)): self.tree.heading(c, text=c); self.tree.column(c, width=w)
+        self.tree.pack(fill=tk.BOTH, expand=True, padx=10); self.tree.bind("<Double-1>", lambda e: self.run_inject())
+        cfg = tk.LabelFrame(self.root, text="Settings", padx=10, pady=5); cfg.pack(fill=tk.X, padx=10, pady=5)
+        tk.Label(cfg, text="Hook Script:").pack(anchor='w'); tk.Entry(cfg, textvariable=self.hook_var).pack(fill=tk.X, pady=2)
+        tk.Label(cfg, text="DLL Path:").pack(anchor='w'); tk.Entry(cfg, textvariable=self.dll_var).pack(fill=tk.X, pady=2)
+        btns = tk.Frame(self.root, pady=5); btns.pack(fill=tk.X, padx=10)
+        self.btn_ninja = tk.Button(btns, text="Ninja Mode: OFF", command=self.toggle_ninja, width=15); self.btn_ninja.pack(side=tk.LEFT)
+        tk.Button(btns, text="INJECT NOW", bg="#d32f2f", fg="white", font=("Arial", 9, "bold"), command=self.run_inject).pack(side=tk.RIGHT)
+        self.log_box = scrolledtext.ScrolledText(self.root, height=10, state='disabled', bg="#1e1e1e", fg="#00ff00", font=("Consolas", 8)); self.log_box.pack(fill=tk.X, padx=10, pady=5)
 
-    def _log_threadsafe(self, m):
-        """Schedule a log write on the main thread; safe to call from any thread."""
-        self.root.after(0, self.log, m)
+    def post_injection_analysis(self, file_path, old_idx=-1):
+        try:
+            self.log("[ANALYSIS] Waiting for dynamic hook dump...")
+            dump_dir = DynamicDumpReader.wait_for_dump(60, old_idx)
+            if not dump_dir: self.log("[ANALYSIS] ERROR: Timeout waiting for dump."); return
+            self.log(f"[ANALYSIS] Dynamic dump ready at: {dump_dir}"); src_dir = os.path.join(dump_dir, "RECONSTRUCTED_SOURCE")
+            dynamic_sources: Dict[str, str] = {}
+            if os.path.isdir(src_dir):
+                for f in os.listdir(src_dir):
+                    if f.endswith(".py") and f != "__hook__.py":
+                        with open(os.path.join(src_dir, f), "r", encoding='utf-8', errors='replace') as fh:
+                            content: str = fh.read()
+                            dynamic_sources[f] = content
+            self.log(f"[*] Submitting blob to worker process (GIL-free)...")
+            with ProcessPoolExecutor(max_workers=1) as pool:
+                future = pool.submit(_blob_analysis_worker, file_path, dynamic_sources)
+                merged_outputs, cache_size, matched, total, stub_hits, stub_misses, scan_logs = future.result(timeout=180)
 
-    def _create_remote_thread(self, h_proc, start_addr, param, pid, label):
-        thread_id = wintypes.DWORD(0)
-        h_thread = k32.CreateRemoteThread(
-            h_proc,
-            None,
-            0,
-            start_addr,
-            param,
-            0,
-            ctypes.byref(thread_id),
-        )
-        if h_thread:
-            self.log(f"{label}: remote thread created (TID: {thread_id.value})")
-            return h_thread
+            for msg in scan_logs:
+                self.log(f"[SCANNER] {msg}")
 
-        if not psutil.pid_exists(pid):
-            self.log(f"SKIP: PID {pid} terminated before {label.lower()} thread creation")
-            return None
-
-        self.log(f"{label}: CreateRemoteThread failed, trying NtCreateThreadEx...")
-        h_thread_nt = wintypes.HANDLE()
-        status = ntdll.NtCreateThreadEx(
-            ctypes.byref(h_thread_nt),
-            0x1FFFFF,
-            None,
-            h_proc,
-            start_addr,
-            param,
-            0,
-            0,
-            0,
-            0,
-            None,
-        )
-        status_u = status & 0xFFFFFFFF
-        if status_u == 0:
-            h_thread = h_thread_nt.value
-            get_thread_id = ctypes.windll.kernel32.GetThreadId
-            get_thread_id.restype = wintypes.DWORD
-            get_thread_id.argtypes = [wintypes.HANDLE]
-            thread_id.value = get_thread_id(h_thread)
-            self.log(f"{label}: NtCreateThreadEx succeeded (TID: {thread_id.value})")
-            return h_thread
-        if status_u == 0xC000010A:
-            self.log(f"SKIP: PID {pid} is already terminating during {label.lower()}")
-            return None
-
-        self.log(f"ERROR: {label} thread creation failed (NTSTATUS: 0x{status_u:08X})")
-        return None
-
-    def _wait_thread_exit(self, h_thread, timeout_ms, label):
-        wait_result = k32.WaitForSingleObject(h_thread, timeout_ms)
-        if wait_result == WAIT_OBJECT_0:
-            exit_code = wintypes.DWORD()
-            if k32.GetExitCodeThread(h_thread, ctypes.byref(exit_code)):
-                return True, exit_code.value
-            self.log(f"WARNING: {label} completed but GetExitCodeThread failed ({ctypes.get_last_error()})")
-            return True, None
-        if wait_result == WAIT_TIMEOUT:
-            self.log(f"ERROR: {label} timed out after {timeout_ms}ms")
-            return False, None
-
-        self.log(f"ERROR: {label} wait failed: 0x{wait_result:X}")
-        return False, None
-
-    def _find_remote_module_base(self, pid, module_name, retries=20, delay=0.1):
-        target_name = module_name.lower()
-        for _ in range(retries):
-            snapshot = k32.CreateToolhelp32Snapshot(
-                TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32,
-                pid,
-            )
-            if snapshot and snapshot != INVALID_HANDLE_VALUE:
+            self.log(f"[*] global_cache: {cache_size} bodies | matched: {matched}/{total}")
+            if not cache_size:
+                self.log("[!] global_cache is EMPTY — blob produced no recoverable bodies. Falling back to static string extraction only.")
+            if stub_hits: self.log(f"[*] Stubs merged: {', '.join(stub_hits)}")
+            if stub_misses: self.log(f"[!] Stubs NOT in cache (blob missing bodies): {', '.join(stub_misses)}")
+            merged_count = 0
+            for f_name, content in merged_outputs.items():
                 try:
-                    entry = MODULEENTRY32W()
-                    entry.dwSize = ctypes.sizeof(MODULEENTRY32W)
-                    ok = k32.Module32FirstW(snapshot, ctypes.byref(entry))
-                    while ok:
-                        module_basename = entry.szModule.lower()
-                        exe_basename = os.path.basename(entry.szExePath).lower()
-                        if module_basename == target_name or exe_basename == target_name:
-                            return int(entry.modBaseAddr or entry.hModule or 0)
-                        ok = k32.Module32NextW(snapshot, ctypes.byref(entry))
-                finally:
-                    k32.CloseHandle(snapshot)
-            time.sleep(delay)
-        return None
+                    p = os.path.join(src_dir, f_name)
+                    os.makedirs(os.path.dirname(p), exist_ok=True)
+                    with open(p, "w", encoding='utf-8') as fh: fh.write(content)
+                    merged_count += 1
+                except Exception as e: self.log(f"[!] Write failed for {f_name}: {e}")
+            self.log(f"[ANALYSIS] Nuitka Global Union complete. Restored {merged_count} module(s).")
+        except Exception as e: self.log(f"[ANALYSIS] CRITICAL ERROR: {e}"); import traceback; self.log(traceback.format_exc())
 
-    def get_target_arch_64(self, pid):
-        # Called from background refresh thread AND main thread during inject.
-        # Must NEVER call self.log() directly; Tkinter is not thread-safe.
+    def update_view(self, s_term, hide):
+        if not self.scan_lock.acquire(blocking=False): return
         try:
-            h = k32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_INFORMATION
-            if h:
-                is_wow64 = wintypes.BOOL()
-                k32.IsWow64Process(h, ctypes.byref(is_wow64))
-                k32.CloseHandle(h)
-                is_os_64 = platform.machine().endswith("64")
-                # Not WoW64 on a 64-bit OS -> native 64-bit process
-                return (not is_wow64.value) if is_os_64 else False
-        except Exception:
-            pass
-        return True  # Default to 64-bit
-
-    def refresh(self):
-        """Scan processes in a background thread so the UI never freezes."""
-        self._set_refresh_btn('disabled')
-        threading.Thread(target=self._refresh_worker, daemon=True).start()
-
-    def _set_refresh_btn(self, state):
+            results = []
+            h_snap = k32.CreateToolhelp32Snapshot(0x00000002, 0)
+            if h_snap == -1: return
+            try:
+                pe = PROCESSENTRY32W(); pe.dwSize = ctypes.sizeof(pe)
+                own_pid = os.getpid()
+                if k32.Process32FirstW(h_snap, ctypes.byref(pe)):
+                    while True:
+                        pid, name = pe.th32ProcessID, pe.szExeFile
+                        # Never show our own process — injecting into self causes
+                        # loader lock deadlock → LoadLibraryW remote thread exits with code 1
+                        if pid == own_pid:
+                            if not k32.Process32NextW(h_snap, ctypes.byref(pe)): break
+                            continue
+                        match = (not s_term) or (s_term in name.lower())
+                        exe = self._get_proc_path(pid) if (match or "python" in name.lower()) else ""
+                        if (match or (exe and "python" in exe.lower())):
+                            if hide and exe and any(x in exe.lower() for x in ["program files", "windows", "appdata\\local\\programs\\python"]): pass
+                            else:
+                                arch = "x64" if self.get_target_arch_64(pid) else "x86"
+                                results.append((pid, name, arch, exe))
+                        if not k32.Process32NextW(h_snap, ctypes.byref(pe)): break
+            finally: k32.CloseHandle(h_snap)
+            self.root.after(0, self._render_tree, results)
+        finally: self.scan_lock.release()
+    def _get_proc_path(self, pid):
+        h = k32.OpenProcess(0x1000, False, pid)
+        if not h: return ""
         try:
-            self.btn_refresh.config(state=state)
-        except Exception:
-            pass
-
-    def _refresh_worker(self):
-        rows = []
-        try:
-            for p in psutil.process_iter(['pid', 'name', 'exe']):
-                try:
-                    if self.is_target(p):
-                        pid  = p.info['pid']
-                        name = p.info['name'] or ""
-                        exe  = p.info['exe']  or ""
-                        arch = "x64" if self.get_target_arch_64(pid) else "x86"
-                        rows.append((pid, name, arch, exe))
-                except (psutil.NoSuchProcess, psutil.AccessDenied):
-                    pass
-        except Exception:
-            pass
-        self.root.after(0, self._refresh_done, rows)
-
-    def _refresh_done(self, rows):
-        self._proc_rows = rows
-        self.update_view()
-        self._set_refresh_btn('normal')
-
-    def update_view(self):
+            buf = (wintypes.WCHAR * 1024)(); sz = wintypes.DWORD(1024)
+            if k32.QueryFullProcessImageNameW(h, 0, buf, ctypes.byref(sz)): return buf.value
+        finally: k32.CloseHandle(h)
+        return ""
+    def _render_tree(self, data):
+        # Fingerprint check to avoid redundant UI mutations (O(N) vs O(N) UI ops)
+        if self.last_tree_data == data: return
+        self.last_tree_data = data
         self.tree.delete(*self.tree.get_children())
-        q = self.search.get().lower()
-        for (pid, name, arch, exe) in getattr(self, '_proc_rows', []):
-            if q in name.lower() or q in str(pid):
-                self.tree.insert("", tk.END, values=(pid, name, arch, exe))
+        for row in data: self.tree.insert("", tk.END, values=row)
+    def _trigger_refresh(self, event=None):
+        if self.search_timer:
+            try: self.root.after_cancel(self.search_timer)
+            except: pass
+        # Standardize typing for the timer ID
+        self.search_timer = str(self.root.after(450, self.refresh))
+    def refresh(self):
+        try:
+            s_term = self.search.get().lower(); hide = self.hide_std.get()
+            threading.Thread(target=self.update_view, args=(s_term, hide)).start()
+        except: pass
+    def toggle_ninja(self):
+        self.ninja_on = not self.ninja_on
+        self.btn_ninja.config(text="Ninja Mode: ON" if self.ninja_on else "Ninja Mode: OFF", bg="#4caf50" if self.ninja_on else "grey")
+        # Recursively schedule instead of while-looping (Event-Driven)
+        if self.ninja_on: self.root.after(100, self.ninja_loop)
+    def ninja_loop(self):
+        if not self.ninja_on: return
+        threading.Thread(target=self._ninja_scan_worker).start()
+        self.root.after(5000, self.ninja_loop)
+    def _ninja_scan_worker(self):
+        self.processed = {p for p in self.processed if self._pid_exists_native(p)}
+        h_snap = k32.CreateToolhelp32Snapshot(0x00000002, 0)
+        if h_snap != -1:
+            try:
+                pe = PROCESSENTRY32W(); pe.dwSize = ctypes.sizeof(pe)
+                if k32.Process32FirstW(h_snap, ctypes.byref(pe)):
+                    while True:
+                        pid, name = pe.th32ProcessID, pe.szExeFile
+                        if pid not in self.processed and pid != os.getpid():
+                            exe = self._get_proc_path(pid)
+                            if self.is_target_native(pid, name, exe):
+                                self.processed.add(pid); threading.Thread(target=self.inject, args=(pid, name, exe)).start()
+                                self.root.after(0, self.refresh)
+                        if not k32.Process32NextW(h_snap, ctypes.byref(pe)): break
+            finally: k32.CloseHandle(h_snap)
+    def _find_python_dll_loaded(self, pid: int) -> str | None:
+        """Return the full path of python3.dll or python3XX.dll loaded in the target process,
+        or None if Python is not actually loaded. This is the only reliable check —
+        file-on-disk checks are meaningless, only what's in the live module list matters."""
+        h_proc = k32.OpenProcess(0x0410, False, pid)
+        if not h_proc: return None
+        try:
+            h_mods = (wintypes.HMODULE * 2048)(); cb = wintypes.DWORD()
+            if not psapi.EnumProcessModulesEx(h_proc, ctypes.byref(h_mods), ctypes.sizeof(h_mods), ctypes.byref(cb), 0x03):
+                return None
+            count = cb.value // ctypes.sizeof(wintypes.HMODULE)
+            pat = re.compile(r'python3\d*\.dll', re.IGNORECASE)
+            for i in range(count):
+                m_path = (wintypes.WCHAR * 1024)()
+                if psapi.GetModuleFileNameExW(h_proc, h_mods[i], m_path, 1024):
+                    basename = os.path.basename(m_path.value)
+                    if pat.match(basename):
+                        return m_path.value
+        except: pass
+        finally: k32.CloseHandle(h_proc)
+        return None
+
+    def is_target_native(self, pid, name, exe):
+        n = name.lower(); e = exe.lower()
+        if any(x in n for x in ["csrss", "lsass", "services", "wininit", "winlogon", "smss", "fontdrvhost", "svchost", "explorer", "taskhost"]): return False
+        if self.hide_std.get() and any(x in e for x in ["program files", "windows", "appdata\\local\\programs\\python"]): return False
+        # Only inject if Python is actually loaded in the process — not just if the
+        # exe name contains "python" or python3.dll sits on disk next to it.
+        return self._find_python_dll_loaded(pid) is not None
+    def get_target_arch_64(self, pid):
+        try:
+            h = k32.OpenProcess(0x0400, False, pid)
+            if h:
+                is_wow64 = wintypes.BOOL(); k32.IsWow64Process(h, ctypes.byref(is_wow64)); k32.CloseHandle(h)
+                is_os_64 = platform.machine().endswith("64"); return (not is_wow64.value) if is_os_64 else False
+        except: pass
+        return True
+    def _create_remote_thread(self, h_proc, start, param, pid, label):
+        tid = wintypes.DWORD(0); h = k32.CreateRemoteThread(h_proc, None, 0, start, param, 0, ctypes.byref(tid))
+        if h: return h
+        h_nt = wintypes.HANDLE(); status = ntdll.NtCreateThreadEx(ctypes.byref(h_nt), 0x1FFFFF, None, h_proc, start, param, 0, 0, 0, 0, None)
+        return h_nt.value if (status & 0xFFFFFFFF) == 0 else None
+    def _wait_thread_exit(self, h, timeout, label):
+        if k32.WaitForSingleObject(h, timeout) == 0:
+            ec = wintypes.DWORD(); k32.GetExitCodeThread(h, ctypes.byref(ec)); return True, ec.value
+        return False, None
+    def _find_remote_module_base(self, pid: int, name: str) -> int | None:
+        if not psapi: return None
+        name = name.lower()
+        for i in range(25):
+            h_proc = k32.OpenProcess(0x0410, False, pid)
+            if h_proc:
+                try:
+                    h_mods = (wintypes.HMODULE * 1024)(); cb = wintypes.DWORD()
+                    if psapi.EnumProcessModulesEx(h_proc, ctypes.byref(h_mods), ctypes.sizeof(h_mods), ctypes.byref(cb), 0x03):
+                        for j in range(cb.value // ctypes.sizeof(wintypes.HMODULE)):
+                            m_path = (wintypes.WCHAR * 1024)()
+                            if psapi.GetModuleFileNameExW(h_proc, h_mods[j], m_path, 1024):
+                                if os.path.basename(m_path.value).lower() == name:
+                                    base = h_mods[j]; k32.CloseHandle(h_proc); return base
+                finally: k32.CloseHandle(h_proc)
+            time.sleep(0.5)
+        return None
 
     def run_inject(self):
         sel = self.tree.selection()
-        if sel:
-            pid, name = self.tree.item(sel[0])['values'][:2]
-            threading.Thread(target=self.inject, args=(int(pid), name), daemon=True).start()
+        if not sel: return
+        pid, name, arch, exe = self.tree.item(sel[0], "values")
+        self.log(f"[*] Starting injection into {name} (PID: {pid})..."); threading.Thread(target=self.inject, args=(int(pid), name, exe)).start()
 
-    def inject(self, pid, name):
+    def inject(self, pid, name, exe):
         try:
-            is_target_64 = self.get_target_arch_64(pid)
+            # Hard guard — injecting into our own process causes loader lock deadlock:
+            # LoadLibraryW remote thread exits with code 1, HydraStartHook never runs.
+            if pid == os.getpid():
+                self.log(f"ERROR: Refusing to inject into own process (PID {pid})."); return
 
-            dll_path = self.dll_var.get()
-            dll_dir = os.path.dirname(os.path.abspath(dll_path))
-            target_dll_name = "hook64.dll" if is_target_64 else "hook32.dll"
-            target_dll_path = os.path.join(dll_dir, target_dll_name)
+            # Select DLL based on TARGET process bitness, not host OS arch.
+            # Loading hook64.dll into a 32-bit target (or vice-versa) makes
+            # LoadLibraryW succeed but all Python C API calls inside HydraStartHook
+            # will fault → thread exits with code 1.
+            target_is_64 = self.get_target_arch_64(pid)
+            d_dir = os.path.dirname(os.path.abspath(__file__))
 
-            if not os.path.exists(target_dll_path):
-                self.log(f"ERROR: {target_dll_name} not found at {dll_dir}")
-                return
+            # Verify Python is actually loaded in the target before touching it.
+            py_dll = self._find_python_dll_loaded(pid)
+            if not py_dll:
+                self.log(f"ERROR: No python3.dll / python3XX.dll loaded in PID {pid} ({name}). Not a Python process."); return
+            self.log(f"[*] Found Python in target: {py_dll}")
+            dll_path = os.path.join(d_dir, "hook64.dll" if target_is_64 else "hook32.dll")
+            # Allow manual override from the UI field only if the user explicitly changed it
+            ui_dll = self.dll_var.get()
+            if ui_dll and os.path.exists(ui_dll) and ui_dll != os.path.join(d_dir, "hook64.dll") and ui_dll != os.path.join(d_dir, "hook32.dll"):
+                dll_path = ui_dll
+            self.log(f"[*] Target arch: {'x64' if target_is_64 else 'x86'} → using {os.path.basename(dll_path)}")
 
-            hook_path = os.path.abspath(self.hook_var.get())
-            if not os.path.exists(hook_path):
-                self.log(f"ERROR: Hook script not found: {hook_path}")
-                return
-
-            self.log(f"Target: {name} (PID: {pid}, Arch: {'x64' if is_target_64 else 'x86'})")
-            self.log(f"Using DLL: {target_dll_path}")
-
-            config_dir = "C:\\ProgramData\\HydraDragonAntivirus\\python_dumps"
-            os.makedirs(config_dir, exist_ok=True)
-            config_path = os.path.join(config_dir, "hook_config.ini")
-            hook_dir = os.path.dirname(hook_path)
-            with open(config_path, "w") as f:
-                f.write(f"[General]\nHookPath={hook_dir}\n")
-
-            self.log(f"Config written to: {config_path}")
-
-            PROCESS_ALL_ACCESS = 0x1F0FFF
-            h_proc = k32.OpenProcess(PROCESS_ALL_ACCESS, False, pid)
-            if not h_proc:
-                error = ctypes.get_last_error()
-                self.log(f"ERROR: OpenProcess failed (error {error}). Try running as admin!")
-                return
-
+            hook_path = self.hook_var.get()
+            if not os.path.exists(dll_path): self.log(f"ERROR: DLL not found: {dll_path}"); return
+            if not os.path.exists(hook_path): self.log(f"ERROR: Hook script not found: {hook_path}"); return
             try:
-                path_bytes = os.path.abspath(target_dll_path).encode("utf-16le") + b"\0\0"
-                path_size = len(path_bytes)
-                mem = k32.VirtualAllocEx(h_proc, None, path_size, 0x3000, 0x04)
-                if not mem:
-                    error = ctypes.get_last_error()
-                    self.log(f"ERROR: VirtualAllocEx failed (error {error})")
-                    return
+                config_dir = r"C:\ProgramData\HydraDragonAntivirus\python_dumps"
+                os.makedirs(config_dir, exist_ok=True)
+                with open(os.path.join(config_dir, "hook_config.ini"), "w", encoding='utf-8') as f: 
+                    f.write(f"HookPath={os.path.abspath(hook_path)}\n")
+            except Exception as e: self.log(f"ERROR: FAILED TO WRITE CONFIG: {e}"); return
+            # Check if our hook DLL is already loaded in the target — error 183
+            # (ERROR_ALREADY_EXISTS) means a previous inject is still running.
+            if self._find_remote_module_base(pid, os.path.basename(dll_path)):
+                self.log(f"[*] {os.path.basename(dll_path)} already loaded in PID {pid} — skipping re-inject."); return
 
-                self.log(f"Allocated {path_size} bytes at 0x{mem:X}")
-
-                bytes_written = ctypes.c_size_t(0)
-                if not k32.WriteProcessMemory(h_proc, mem, path_bytes, path_size, ctypes.byref(bytes_written)):
-                    error = ctypes.get_last_error()
-                    self.log(f"ERROR: WriteProcessMemory failed (error {error})")
-                    return
-
-                self.log(f"Wrote {bytes_written.value} bytes to target process")
-
-                k32_mod = k32.GetModuleHandleW("kernel32.dll")
-                load_lib = k32.GetProcAddress(k32_mod, b"LoadLibraryW")
-                if not load_lib:
-                    self.log("ERROR: Could not find LoadLibraryW")
-                    return
-
-                self.log(f"LoadLibraryW at 0x{load_lib:X}")
-
-                h_load_thread = self._create_remote_thread(h_proc, load_lib, mem, pid, "LoadLibraryW")
-                if not h_load_thread:
-                    return
-
+            h_proc = k32.OpenProcess(0x1F0FFF, False, pid)
+            if not h_proc: self.log(f"ERROR: OpenProcess FAILED: {k32.GetLastError()}"); return
+            try:
+                p_bytes = (dll_path + "\0").encode('utf-16le'); mem = k32.VirtualAllocEx(h_proc, 0, len(p_bytes), 0x3000, 0x40)
+                if not mem: self.log(f"ERROR: VirtualAllocEx FAILED: {k32.GetLastError()}"); return
+                k32.WriteProcessMemory(h_proc, mem, p_bytes, len(p_bytes), None)
+                lload = k32.GetProcAddress(k32.GetModuleHandleW("kernel32.dll"), b"LoadLibraryW")
+                h_load = self._create_remote_thread(h_proc, lload, mem, pid, "Load")
+                ok, l_res = self._wait_thread_exit(h_load, 5000, "Load"); k32.CloseHandle(h_load)
+                if not ok or not l_res: self.log(f"ERROR: LoadLibraryW FAILED. Res: {l_res}, Error: {k32.GetLastError()}"); return
+                rem_mod = self._find_remote_module_base(pid, os.path.basename(dll_path))
+                if not rem_mod:
+                    if l_res and l_res != 0: rem_mod = l_res; self.log(f"[*] Module base from thread code: 0x{rem_mod:X}")
+                    else: self.log(f"ERROR: Module not found in remote process: {os.path.basename(dll_path)}"); return
                 try:
-                    load_ok, load_exit = self._wait_thread_exit(h_load_thread, 5000, "LoadLibraryW")
-                finally:
-                    k32.CloseHandle(h_load_thread)
-
-                if not load_ok:
-                    return
-                if load_exit == 0:
-                    self.log("ERROR: LoadLibraryW returned NULL; DLL load failed")
-                    return
-
-                remote_mod = self._find_remote_module_base(pid, target_dll_name)
-                if not remote_mod:
-                    self.log(f"ERROR: Could not locate {target_dll_name} in target process after injection")
-                    return
-
-                self.log(f"SUCCESS: {target_dll_name} injected into {name} (module @ 0x{remote_mod:X})")
-
-                local_mod = k32.LoadLibraryW(target_dll_path)
-                if not local_mod:
-                    self.log("ERROR: Could not load DLL locally to resolve HydraStartHook RVA")
-                    return
-
-                try:
-                    local_fn = k32.GetProcAddress(local_mod, b"HydraStartHook")
-                    if not local_fn:
-                        self.log("ERROR: Export HydraStartHook not found in DLL")
-                        return
-
-                    rva = local_fn - local_mod
-                    remote_fn = remote_mod + rva
-                    self.log(f"HydraStartHook RVA: 0x{rva:X}")
-                    self.log(f"Remote HydraStartHook: 0x{remote_fn:X}")
-
-                    h_start_thread = self._create_remote_thread(
-                        h_proc,
-                        remote_fn,
-                        None,
-                        pid,
-                        "HydraStartHook",
-                    )
-                    if not h_start_thread:
-                        return
-
-                    try:
-                        start_ok, start_exit = self._wait_thread_exit(h_start_thread, 5000, "HydraStartHook")
-                    finally:
-                        k32.CloseHandle(h_start_thread)
-
-                    if not start_ok:
-                        return
-
-                    if start_exit is None:
-                        self.log("SUCCESS: HydraStartHook completed")
-                    elif start_exit == 0:
-                        self.log("SUCCESS: DLL loaded and hook started")
+                    if not pefile: self.log("ERROR: pefile MISSING. Using fallback export."); fn_rva = 0x1000
                     else:
-                        self.log(f"WARNING: HydraStartHook returned error {start_exit}")
-                finally:
-                    k32.FreeLibrary(local_mod)
-            finally:
-                k32.CloseHandle(h_proc)
-        except Exception as e:
-            self.log(f"EXCEPTION: {type(e).__name__}: {e}")
-            import traceback
-            self.log(traceback.format_exc())
-
-    def toggle_ninja(self):
-        self.ninja_on = not self.ninja_on
-        self.btn_ninja.config(
-            text="Ninja: ON" if self.ninja_on else "Ninja: OFF",
-            bg="#4caf50" if self.ninja_on else "SystemButtonFace"
-        )
-        if self.ninja_on:
-            threading.Thread(target=self.ninja_loop, daemon=True).start()
-
-    def ninja_loop(self):
-        while self.ninja_on:
-            try:
-                # Prune stale PIDs so recycled PIDs are not permanently skipped
-                self.processed = {pid for pid in self.processed if psutil.pid_exists(pid)}
-                for p in psutil.process_iter(['pid', 'name', 'exe']):
-                    if p.pid not in self.processed and p.pid != os.getpid() and self.is_target(p):
-                        self.processed.add(p.pid)
-                        threading.Thread(target=self.inject, args=(p.pid, p.name()), daemon=True).start()
-            except Exception as e:
-                self._log_threadsafe(f"Ninja error: {e}")
+                        pe = pefile.PE(dll_path); fn_rva = None
+                        for export in pe.DIRECTORY_ENTRY_EXPORT.symbols:
+                            if export.name == b"HydraStartHook": fn_rva = export.address; break
+                        if not fn_rva: self.log("ERROR: HydraStartHook EXPORT NOT FOUND."); return
+                except Exception as pe_err: self.log(f"ERROR: pefile failed: {pe_err}"); return
+                rem_fn = int(rem_mod) + fn_rva; h_st = self._create_remote_thread(h_proc, rem_fn, None, pid, "Start")
+                if not h_st: self.log("ERROR: CreateRemoteThread Start FAILED."); return
+                ok, exit_code = self._wait_thread_exit(h_st, 5000, "Start"); k32.CloseHandle(h_st)
+                if ok and exit_code == 0:
+                    self.log(f"SUCCESS: {name} hooked and running."); _, old_idx = DynamicDumpReader.get_latest_dump_dir()
+                    if exe: threading.Thread(target=self.post_injection_analysis, args=(exe, old_idx)).start()
+                elif not ok:
+                    self.log(f"ERROR: HydraStartHook thread timed out (possible deadlock in target).")
+                else:
+                    self.log(f"ERROR: HydraStartHook returned {exit_code} — "
+                             f"hook init failed inside target. Most likely: Python version mismatch "
+                             f"between {os.path.basename(dll_path)} and the target's python3xx.dll, ")
+            finally: k32.CloseHandle(h_proc)
+        except Exception as e: self.log(f"EXC: {e}")
+    def _pid_exists_native(self, pid):
+        # O(1) existence check (Process Query rights)
+        h = k32.OpenProcess(0x1000, False, pid)
+        if h: k32.CloseHandle(h); return True
+        return False
 
 if __name__ == "__main__":
-    # Check admin privileges
-    if not ctypes.windll.shell32.IsUserAnAdmin():
-        exe_path = sys.executable
-        params = "" if getattr(sys, 'frozen', False) else f'"{os.path.abspath(__file__)}"'
-        ctypes.windll.shell32.ShellExecuteW(
-            None, "runas", exe_path,
-            params, None, 1
-        )
-        sys.exit()
-
-    root = tk.Tk()
-    LiteInjector(root)
-    root.mainloop()
+    import multiprocessing
+    multiprocessing.freeze_support()  # required for ProcessPoolExecutor on Windows frozen/spawned processes
+    try:
+        shell32 = ctypes.WinDLL('shell32')
+        if not shell32.IsUserAnAdmin():
+            shell32.ShellExecuteW(None, "runas", sys.executable, f'"{os.path.abspath(__file__)}"', None, 1); sys.exit()
+        root = tk.Tk(); app = LiteInjector(root); root.mainloop()
+    except Exception as e:
+        import tkinter.messagebox as mbox
+        try: mbox.showerror("Fatal Error", f"Failed to launch: {e}")
+        except: print(f"CRITICAL ERROR: {e}"); sys.exit(1)
