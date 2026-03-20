@@ -136,11 +136,10 @@ class BytecodeDecompiler:
             if hasattr(code_obj, 'co_nlocals'):
                 lines.append(f"    # Local variables count: {code_obj.co_nlocals}")
             
-            lines.append("    pass  # Compiled code - no Python bytecode available")
-            
+            lines.append("    pass  # AG: STUB_IDENTIFIED - Compiled code - no Python bytecode available")
         except Exception as e:
             lines.append(f"    # Metadata extraction error: {str(e)}")
-            lines.append("    pass")
+            lines.append("    pass  # AG: STUB_IDENTIFIED")
         
         return "\n".join(lines)
 
@@ -464,7 +463,7 @@ class ModuleReconstructor:
                                 if metadata:
                                     content.extend(metadata)
                                 
-                                content.append("        pass  # No bytecode accessible")
+                                content.append("        pass  # AG: STUB_IDENTIFIED - No bytecode accessible")
                                 self.compiled_modules.append((name, attr_name, m_name))
                             
                             content.append("")
@@ -573,7 +572,7 @@ class ModuleReconstructor:
                         if metadata:
                             content.extend(metadata)
                         
-                        content.append("    pass  # No bytecode accessible")
+                        content.append("    pass  # AG: STUB_IDENTIFIED - No bytecode accessible")
                         self.compiled_modules.append((name, attr_name, None))
                     content.append("")
                 
@@ -604,14 +603,23 @@ def get_next_dump_path(base_dir):
     
     if not base_path.exists():
         base_path.mkdir(parents=True, exist_ok=True)
+        return base_path / "dump_1"
     
-    # Find the next available number
-    counter = 1
-    while True:
-        dump_path = base_path / f"dump_{counter}"
-        if not dump_path.exists():
-            return dump_path
-        counter += 1
+    # Always pick Max + 1 so we never fill old gaps and confuse the GUI
+    max_num = 0
+    try:
+        for d in base_path.iterdir():
+            if d.is_dir() and d.name.startswith("dump_"):
+                try:
+                    num = int(d.name.split("_", 1)[1])
+                    if num > max_num:
+                        max_num = num
+                except ValueError:
+                    pass
+    except Exception:
+        pass
+        
+    return base_path / f"dump_{max_num + 1}"
 
 # =============================================================================
 # MAIN EXECUTION
@@ -626,18 +634,29 @@ def run_decompiler():
     # All output goes to a log file — never print() to stdout/stderr because
     # those belong to the host process (could be a pipe, GUI widget, etc.).
     log_path = os.path.join(os.environ.get('TEMP', 'C:\\Temp'), "decompiler_debug.txt")
-    log_file = open(log_path, "w", encoding='utf-8', errors='replace')
-    log_file.write(f"Starting decompilation\n")
-    log_file.write(f"Target Dir: {backup_dir}\n")
+    
+    # Clear the log on startup
+    with open(log_path, "w", encoding='utf-8', errors='replace') as f:
+        f.write("")
+        
+    def hook_log(msg):
+        # Open, Write, and Close instantly to prevent Windows file locking
+        try:
+            with open(log_path, "a", encoding='utf-8', errors='replace') as log_f:
+                log_f.write(msg)
+        except Exception:
+            pass
+
+    hook_log(f"Starting decompilation\nTarget Dir: {backup_dir}\n")
 
     # Create output directories
     (backup_dir / "RECONSTRUCTED_SOURCE").mkdir(parents=True, exist_ok=True)
-    log_file.write(f"Created: {backup_dir / 'RECONSTRUCTED_SOURCE'}\n")
+    hook_log(f"Created: {backup_dir / 'RECONSTRUCTED_SOURCE'}\n")
 
     recon = ModuleReconstructor(backup_dir)
     # Snapshot sys.modules immediately — the set changes as imports happen.
     targets = list(sys.modules.items())
-    log_file.write(f"Found {len(targets)} modules\n")
+    hook_log(f"Found {len(targets)} modules\n")
 
     # Identify the application entry point(s) for the report header —
     # __main__ that isn't the hook itself, or any non-hook module.
@@ -651,10 +670,10 @@ def run_decompiler():
         potential_mains.append((name, file_path))
 
     if potential_mains:
-        log_file.write(f"\n[INFO] Modules found in process:\n")
+        hook_log(f"\n[INFO] Modules found in process:\n")
         for name, path in potential_mains:
-            log_file.write(f"  - {name}: {path}\n")
-        log_file.write("\n")
+            hook_log(f"  - {name}: {path}\n")
+        hook_log("\n")
 
     processed_count = 0
     error_count = 0
@@ -673,7 +692,7 @@ def run_decompiler():
             try:
                 if hasattr(mod, '__file__') and mod.__file__:
                     if '__hook__' in mod.__file__ or 'hook_backend' in mod.__file__:
-                        log_file.write(f"[SKIP] __main__ is the hook script: {mod.__file__}\n")
+                        hook_log(f"[SKIP] __main__ is the hook script: {mod.__file__}\n")
                         continue
             except Exception:
                 pass
@@ -688,19 +707,20 @@ def run_decompiler():
         try:
             recon.process_module(name, mod, is_potential_main)
             processed_count += 1
-            log_file.write(f"[OK] Processed: {name}\n")
-            log_file.flush()
+            hook_log(f"[OK] Processed: {name}\n")
         except Exception as e:
             error_count += 1
-            log_file.write(f"[ERR] Error processing {name}: {str(e)}\n")
+            hook_log(f"[ERR] Error processing {name}: {str(e)}\n")
 
-    log_file.write("\n" + "=" * 60 + "\n")
-    log_file.write("--- FINISHED ---\n")
-    log_file.write(f"Output location: {backup_dir}\n")
-    log_file.write(f"Processed: {processed_count} modules\n")
-    log_file.write(f"Errors: {error_count}\n")
-    log_file.write(f"Compiled code blocks: {len(recon.compiled_modules)}\n")
-    log_file.close()
+    hook_log("\n" + "=" * 60 + "\n--- FINISHED ---\n")
+    hook_log(f"Output location: {backup_dir}\n")
+    hook_log(f"Processed: {processed_count} modules\nErrors: {error_count}\n")
+    hook_log(f"Compiled code blocks: {len(recon.compiled_modules)}\n")
+    
+    try:
+        (backup_dir / "finished.txt").write_text("DONE", encoding='utf-8')
+    except Exception:
+        pass
 
 
 # =============================================================================
@@ -710,6 +730,12 @@ def run_decompiler():
 #   3. If the host exits normally the thread dies with it (daemon=True).
 # =============================================================================
 def _hook_worker():
+    # Make absolutely sure old crashes don't pollute new runs
+    crash_path = os.path.join(os.environ.get('TEMP', 'C:\\Temp'), "hook_crash.txt")
+    if os.path.exists(crash_path):
+        try: os.remove(crash_path)
+        except: pass
+
     try:
         run_decompiler()
     except Exception:
@@ -717,8 +743,6 @@ def _hook_worker():
         # the host process's thread.
         try:
             import traceback
-            crash_path = os.path.join(
-                os.environ.get('TEMP', 'C:\\Temp'), "hook_crash.txt")
             with open(crash_path, "w", encoding='utf-8', errors='replace') as f:
                 traceback.print_exc(file=f)
         except Exception:

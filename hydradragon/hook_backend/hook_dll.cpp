@@ -28,6 +28,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <tlhelp32.h>
+#include <share.h>
 
 
 #ifndef strcasecmp
@@ -525,10 +526,10 @@ static bool SetupStdoutStderrToLog(char *outLogPath) {
     g_logFile = NULL;
   }
 
-  errno_t openErr = fopen_s(&g_logFile, logPath, "a");
-  if (openErr != 0 || !g_logFile) {
-    dbgPrintf("[HOOK] ERROR: fopen_s failed for %s (errno=%d)\n", logPath,
-              (int)openErr);
+  // Use _fsopen with _SH_DENYNO to prevent file locking, allowing other processes to read/move the log.
+  g_logFile = _fsopen(logPath, "a", _SH_DENYNO);
+  if (!g_logFile) {
+    dbgPrintf("[HOOK] ERROR: _fsopen failed for %s (errno=%d)\n", logPath, errno);
     return false;
   }
 
