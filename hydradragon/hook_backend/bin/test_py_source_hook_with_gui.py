@@ -417,10 +417,6 @@ def _blob_analysis_worker(
     file_path: str,
     dynamic_sources: Dict[str, str],
 ) -> Tuple[Dict[str, str], int, int, int, List[str], List[str], List[str]]:
-    """
-    This worker is now 'Nuitka-aware'. It looks for aparseConfig 
-    when parseConfig is missing, treating the 'a' prefix as the Nuitka standard.
-    """
 
     # ------------------------------------------------------------------
     # Constants & Dictionaries
@@ -441,11 +437,7 @@ def _blob_analysis_worker(
         'threading','dataclasses','warnings',
     })
 
-    # ------------------------------------------------------------------
-    # Helper Functions
-    # ------------------------------------------------------------------
     def _norm(name: str) -> str:
-        """Removes the Nuitka 'a' prefix to find the 'human' name."""
         if name.startswith('a') and len(name) > 1 and name[1].islower():
             if name not in _REAL_A_MODS:
                 return name[1:]
@@ -477,23 +469,19 @@ def _blob_analysis_worker(
 
     def _cache_put(cache: Dict[str, str], mod_key: str, f_name: str, body: str) -> None:
         norm_name = _norm(f_name)
-        # We store BOTH the raw 'a' name and the normalized name.
+        # We map BOTH names. If stub asks for getLatestProgramVersion, 
+        # it finds what was stored as agetLatestProgramVersion.
         for key in (norm_name, f"{mod_key}.{norm_name}", f_name, f"{mod_key}.{f_name}"):
             if not cache.get(key) or len(body) > len(cache[key]):
                 cache[key] = body
 
-    # ------------------------------------------------------------------
-    # Patterns
-    # ------------------------------------------------------------------
-    _def_pat = re.compile(r'^[ \t]*def\s+([a-zA-Z_]\w*)\s*(?:\([^)]*\))?\s*:?', re.MULTILINE)
-    _imp_pat = re.compile(r'(?:import\s+[\w\d\._]+|from\s+[\w\d\._]+\s+import\s+[\w\d\._, ]+)')
+    # THE FIX: Updated regex to handle multiline arguments, type hints, and Nuitka's 'a' prefix.
+    # Pattern: finds 'def', then the name, then handles anything inside parentheses until the colon.
 
-    # ------------------------------------------------------------------
-    # PHASE 1 — Optimized Linear Scan (The Nuitka Range Fix)
-    # ------------------------------------------------------------------
-    scan_logs: List[str] = []
-    global_cache: Dict[str, str] = {}
-    static_modules: Dict[str, str] = {}
+    # IMPROVED REGEX: Captures name and signature more greedily to handle complex types
+    _def_pat = re.compile(r'^[ \t]*(?:async\s+)?def\s+([a-zA-Z_]\w*)\s*(\(.*\))\s*(?:\s*->\s*[^:]+)?\s*:', re.MULTILINE | re.DOTALL)
+
+    scan_logs, global_cache, static_modules = [], {}, {}
 
     try:
         from __main__ import ResourceScanner, StaticSourceMerger
@@ -502,6 +490,7 @@ def _blob_analysis_worker(
         raw_text = files_dict.get("integrated_blob.py", b"").decode('utf-8', errors='replace')
         
         if raw_text:
+            # PHASE 1: Linear Range Detection
             lines = raw_text.split('\n')
             current_mod = "__main__"
             mod_chunks = {current_mod: []}
@@ -517,12 +506,12 @@ def _blob_analysis_worker(
                 else:
                     mod_chunks[current_mod].append(line)
 
+            # PHASE 2: Range-Aware Extraction
             for mod, chunk_lines in mod_chunks.items():
                 if not chunk_lines: continue
                 chunk_src = '\n'.join(chunk_lines)
                 
-                # Before we decode, we check for 'a' prefixed versions 
-                # of our desired functions within this module's range.
+                # Apply Nuitka Decoders
                 decoded = StaticSourceMerger.split_source_by_u_delimiter(chunk_src)
                 decoded = StaticSourceMerger.decode_a_module_names(decoded)
                 decoded = StaticSourceMerger.decode_alias_assignments(decoded)
@@ -530,27 +519,53 @@ def _blob_analysis_worker(
                 if decoded.strip():
                     static_modules[mod] = decoded
                     def_matches = list(_def_pat.finditer(decoded))
+                    
                     for i, m in enumerate(def_matches):
                         f_name = m.group(1)
-                        # If we found 'aparseConfig', we map it to 'parseConfig'
-                        end_pos = def_matches[i+1].start() if i+1 < len(def_matches) else len(decoded)
-                        body = decoded[m.start():end_pos].strip()
+                        start_pos = m.start()
+                        
+                        # Calculate maximum possible range
+                        max_end = def_matches[i+1].start() if i+1 < len(def_matches) else len(decoded)
+                        raw_chunk = decoded[start_pos:max_end]
+                        
+                        # SMART RANGE FIX: Indentation Analysis
+                        # We only take lines that are indented relative to the 'def' line.
+                        lines = raw_chunk.splitlines()
+                        if not lines: continue
+                        
+                        valid_lines = [lines[0]] # The 'def' line itself
+                        for line in lines[1:]:
+                            # If a line has content but NO leading whitespace, 
+                            # we have exited the function and hit global code or the next module.
+                            if line.strip() and not line.startswith((' ', '\t')):
+                                break
+                            valid_lines.append(line)
+                        
+                        body = '\n'.join(valid_lines).strip()
                         
                         if len(body) > 10 and _is_real_body(body):
-                            _cache_put(global_cache, mod, f_name, body)
+                            _cache_put(global_cache, mod, f_name, body)    
 
     except Exception as e:
-        scan_logs.append(f"[!] Worker Phase 1 Error: {e}")
+        scan_logs.append(f"[!] Worker Error: {e}")
 
     # ------------------------------------------------------------------
-    # PHASE 2 & 3 — Aggregation & Reconstruction
+    # PHASE 2 — Import Separation (Internal Modules vs External)
     # ------------------------------------------------------------------
+    dynamic_mod_keys = {f.replace('.py', '') for f in dynamic_sources.keys()}
+    extracted_module_names = set(static_modules.keys()) | set(files_dict.keys())
+    
+    _imp_pat = re.compile(r'(?:import\s+[\w\d\._]+|from\s+[\w\d\._]+\s+import\s+[\w\d\._, ]+)')
+
     all_blob_imports = set()
-    extracted_module_names = set(static_modules.keys())
     for src in static_modules.values():
         for imp in _imp_pat.findall(src):
-            if _is_valid_import(imp): all_blob_imports.add(imp)
-
+            imp_clean = ' '.join(imp.split())
+            if _is_valid_import(imp_clean):
+                all_blob_imports.add(imp_clean)
+    # ------------------------------------------------------------------
+    # PHASE 3 — Smart Reconstruction
+    # ------------------------------------------------------------------
     merged_outputs = {}
     stub_hits, stub_misses = [], []
     
@@ -560,15 +575,18 @@ def _blob_analysis_worker(
         stubs = StaticSourceMerger.find_incomplete_functions(d_src)
 
         for sn in stubs:
-            # Look for 'parseConfig' BUT ALSO 'aparseConfig'
+            # THE SMART MOVE: Look for both the clean name AND the Nuitka prefixed name
             nuitka_name = f"a{sn}" if not sn.startswith('a') else sn
-            if any(global_cache.get(k) for k in [f"{mod_key}.{sn}", sn, nuitka_name, f"{mod_key}.{nuitka_name}"]):
+            keys_to_check = [f"{mod_key}.{sn}", sn, nuitka_name, f"{mod_key}.{nuitka_name}"]
+            
+            if any(global_cache.get(k) for k in keys_to_check):
                 stub_hits.append(f"{mod_key}.{sn}")
             else:
                 stub_misses.append(f"{mod_key}.{sn}")
 
         merged_src = StaticSourceMerger.merge_dynamic_static(d_src, s_content, stubs, global_cache, mod_key)
 
+        # Header logic to separate reconstructed code from original stubs
         existing_imps = set(_imp_pat.findall(merged_src))
         new_imps = {i for i in all_blob_imports if i not in existing_imps 
                     and not any(m in i for m in extracted_module_names)}
