@@ -15,12 +15,9 @@ from typing import Dict
 from typing import Set
 from typing import Tuple
 from collections import deque
-from concurrent.futures import ProcessPoolExecutor
 import pefile
 import tkinter as tk
 from tkinter import ttk
-from tkinter import messagebox
-from tkinter import filedialog
 from tkinter import scrolledtext
 from ctypes import wintypes
 
@@ -206,11 +203,9 @@ class ResourceScanner:
             raw = self._read_resource_id27()
             if not raw: return {}
 
-            dec = raw # No decompression.
-            
             # NORMALIZATION: Replace nulls with newlines immediately.
             # This allows the worker to receive a LIST of lines, which is much faster.
-            normalized = dec.replace(b'\x00', b'\n')
+            normalized = raw.replace(b'\x00', b'\n')
             
             # We search for the Nuitka marker to slice the noise.
             slice_pos = -1
@@ -414,8 +409,10 @@ class StaticSourceMerger:
         return merged_src
 
 def _blob_analysis_worker(
-    file_path: str,
+    blob_text: str,
     dynamic_sources: Dict[str, str],
+    shared_logs: list = None,
+    ui_log=None,
 ) -> Tuple[Dict[str, str], int, int, int, List[str], List[str], List[str]]:
 
     # ------------------------------------------------------------------
@@ -475,85 +472,326 @@ def _blob_analysis_worker(
             if not cache.get(key) or len(body) > len(cache[key]):
                 cache[key] = body
 
-    # THE FIX: Updated regex to handle multiline arguments, type hints, and Nuitka's 'a' prefix.
-    # Pattern: finds 'def', then the name, then handles anything inside parentheses until the colon.
+    _def_pat = re.compile(
+        r'^[ \t]*(?:async\s+)?def\s+([a-zA-Z_]\w*)\s*\([^)]*\)\s*(?:->.*?)?\s*:',
+        re.MULTILINE
+    )
 
-    # IMPROVED REGEX: Captures name and signature more greedily to handle complex types
-    _def_pat = re.compile(r'^[ \t]*(?:async\s+)?def\s+([a-zA-Z_]\w*)\s*(\(.*\))\s*(?:\s*->\s*[^:]+)?\s*:', re.MULTILINE | re.DOTALL)
+    # Inline the three StaticSourceMerger helpers the worker needs.
+    # These are pure-Python / re-only so they are safe in a spawned subprocess
+    # (no tkinter, no Win32 — the original from __main__ import caused the hang
+    # because reimporting __main__ initialises tkinter in the child process).
+    def _split_source_by_u_delimiter(source: str) -> str:
+        source = re.sub(r'(?<![.\w])u(?![.\w])', '\n', source)
+        source = re.sub(r'(\.?[\w\d\._]+\s+a__module__)', r'\n\1', source)
+        source = re.sub(r'^([ \t]*)\ba\b(\s+)(?=[a-zA-Z_]\w*)', r'\1def\2', source, flags=re.MULTILINE)
+        return source
+
+    def _decode_a_module_names(source: str) -> str:
+        source = re.sub(r'\b([\w\d\_]+)_a__module__\b', r'\1_def', source)
+        source = re.sub(r'\.?([\w\d\_]+(?:\.[\w\d\_]+)*)\s+a__module__', r'\1_def', source)
+        return source
+
+    def _decode_alias_assignments(source: str) -> str:
+        for builtin in ["open", "print", "exec", "eval", "getattr", "setattr"]:
+            pat = r'^([ \t]*)([a-zA-Z0-9_]+)\s*=\s*' + re.escape(builtin) + r'\b'
+            source = re.sub(pat, r'\1' + builtin + ' = ' + builtin, source, flags=re.MULTILINE)
+        return source
+
+    def _merge_dynamic_static(dynamic_src, static_src_str, stubs, global_cache, mod_key, token_map=None):
+        if not stubs:
+            return dynamic_src
+        merged_src = dynamic_src
+        for name in stubs:
+            scoped_key = f"{mod_key}.{name}" if mod_key else None
+            nuitka_name = f"a{name}" if not name.startswith('a') else name
+            keys_to_check = [scoped_key, name, nuitka_name,
+                             f"{mod_key}.{nuitka_name}" if mod_key else None]
+            res = None
+            for k in keys_to_check:
+                if k and global_cache.get(k):
+                    res = global_cache[k]; break
+            if res is None and static_src_str:
+                pat = re.compile(
+                    r'^([ \t]*)def\s+' + re.escape(name) + r'\s*\([^)]*\)'
+                    r'(?:\s*->\s*[^\n:]+?)?\s*:[ \t]*\n'
+                    r'(?:(?:\1[ \t]+[^\n]*|\s*)\n)*',
+                    re.MULTILINE)
+                m = pat.search(static_src_str)
+                if m and 'AG: STUB_IDENTIFIED' not in m.group(0):
+                    res = m.group(0).rstrip()
+
+            if res is None and token_map:
+                # token_map[mod] = list of tokens, token_map[bare_name] = mod string
+                def _get_tokens(key):
+                    v = token_map.get(key)
+                    if isinstance(v, str): v = token_map.get(v)  # resolve mod pointer
+                    return v if isinstance(v, list) else None
+
+                tokens = (_get_tokens(f"{mod_key}.{name}")
+                          or _get_tokens(name)
+                          or _get_tokens(f"{mod_key}.{nuitka_name}")
+                          or _get_tokens(nuitka_name)
+                          or _get_tokens(mod_key))
+                # Last resort: search all module chunks for this function name
+                if not tokens:
+                    for k, v in token_map.items():
+                        if isinstance(v, list) and any(name in t or nuitka_name in t for t in v[:50]):
+                            tokens = v
+                            break
+                if tokens:
+                    res = tokens
+
+            if res is None:
+                continue
+
+            if isinstance(res, list):
+                # No Python source — only replace the pass line with token comments
+                stub_line_pat = re.compile(
+                    r'^([ \t]*)pass[^\n]*# AG: STUB_IDENTIFIED[^\n]*',
+                    re.MULTILINE)
+                def _replace_stub_line(m, toks=res):
+                    indent = m.group(1)
+                    return '\n'.join(f"{indent}# {t}" for t in toks)
+                def _replace_for_func(src, func_name, replacer):
+                    lines = src.split('\n')
+                    for i, line in enumerate(lines):
+                        if re.search(r'\bdef\s+' + re.escape(func_name) + r'\s*\(', line):
+                            end = min(i + 50, len(lines))
+                            chunk = '\n'.join(lines[i:end])
+                            new_chunk, n = stub_line_pat.subn(replacer, chunk, count=1)
+                            if n:
+                                lines[i:end] = new_chunk.split('\n')
+                                return '\n'.join(lines)
+                            break
+                    return src
+                merged_src = _replace_for_func(merged_src, name, _replace_stub_line)
+            else:
+                # Full Python source body — replace entire stub function
+                stub_pat = re.compile(
+                    r'([ \t]*)def\s+' + re.escape(name) + r'\s*\([^)]*\)'
+                    r'(?:\s*->\s*[^\n:]+?)?'
+                    r'\s*:.*?'
+                    r'[ \t]*pass[^\n]*# AG: STUB_IDENTIFIED[^\n]*',
+                    re.DOTALL)
+                def _replace(m, body=res):
+                    indent = m.group(1)
+                    lines = body.splitlines()
+                    if not lines: return m.group(0)
+                    base = len(lines[0]) - len(lines[0].lstrip())
+                    reindented = []
+                    for line in lines:
+                        stripped = line[base:] if line.startswith(' ' * base) else line.lstrip()
+                        reindented.append(indent + stripped if stripped else '')
+                    return '\n'.join(reindented)
+                merged_src = stub_pat.sub(_replace, merged_src, count=1)
+        return merged_src
+
+    def _find_incomplete_functions(source: str):
+        stubs = []
+        lines = source.splitlines()
+        for i, line in enumerate(lines):
+            if "# AG: STUB_IDENTIFIED" in line:
+                for j in range(i-1, max(-1, i-30), -1):
+                    m = re.search(r'def\s+([a-zA-Z_]\w*)\s*\(', lines[j])
+                    if m: stubs.append(m.group(1)); break
+        return stubs
+
+    _REAL_A_MODS_SET = frozenset({
+        'abc','ast','asyncio','asynchat','asyncore','atexit','audioop',
+        'array','argparse','annotated_types','aiohttp','attrs','attr',
+        'all','any','abs','ascii','aiter','anext',
+    })
+
+    # Build a one-pass a-prefix decode table for all tokens in the blob.
+    # Using re.sub with a Python callable per chunk is O(matches * chunks) — too slow.
+    # Instead: scan the whole blob once to collect every distinct 'a'-prefixed token,
+    # build a static replacement dict, then do a single re.sub with a dict lookup.
+    def _build_aprefix_table(text: str) -> dict:
+        table = {}
+        for line in text.split('\n'):
+            token = line.strip()
+            if token and token not in table and token not in _REAL_A_MODS_SET:
+                if len(token) > 1 and token[0] == 'a' and token[1].islower():
+                    table[token] = token[1:]
+        return table
+
+    def _apply_aprefix_table(text: str, table: dict) -> str:
+        if not table:
+            return text
+        # Each token is on its own line — no regex needed, just replace whole lines
+        lines = text.split('\n')
+        for i, line in enumerate(lines):
+            stripped = line.strip()
+            if stripped in table:
+                lines[i] = line.replace(stripped, table[stripped], 1)
+        return '\n'.join(lines)
 
     scan_logs, global_cache, static_modules = [], {}, {}
+    token_map: Dict[str, list] = {}
+
+    def _log(msg):
+        scan_logs.append(msg)
+        if shared_logs is not None:
+            shared_logs.append(msg)
+        if ui_log is not None:
+            try: ui_log(f"[SCANNER] {msg}")
+            except: pass
 
     try:
-        from __main__ import ResourceScanner, StaticSourceMerger
-        scanner = ResourceScanner(file_path, lambda msg: scan_logs.append(msg))
-        files_dict = scanner.extract()
-        raw_text = files_dict.get("integrated_blob.py", b"").decode('utf-8', errors='replace')
-        
-        if raw_text:
-            # PHASE 1: Linear Range Detection
-            lines = raw_text.split('\n')
+        import time as _time
+
+        if blob_text:
+            _log(f"[*] Worker: {len(blob_text)} char blob")
+            _t = _time.time()
+
+            # Split once, reuse the list for both passes
+            blob_lines = blob_text.split('\n')
+
+            # Build a-prefix table
+            aprefix_table = {}
+            for line in blob_lines:
+                t = line.strip()
+                if t and t not in aprefix_table and t not in _REAL_A_MODS_SET:
+                    if len(t) > 1 and t[0] == 'a' and t[1].islower():
+                        aprefix_table[t] = t[1:]
+
+            # Single pass: decode + module split
             current_mod = "__main__"
             mod_chunks = {current_mod: []}
-            
-            for line in lines:
-                if 'a__module__' in line:
-                    parts = line.split()
-                    for p in parts:
-                        if p != 'a__module__':
-                            current_mod = re.sub(r'[^\w\.]', '_', p.strip('.'))
-                            break
-                    if current_mod not in mod_chunks: mod_chunks[current_mod] = []
-                else:
-                    mod_chunks[current_mod].append(line)
+            prev_token = ""
+            prev_was_a = False
 
-            # PHASE 2: Range-Aware Extraction
+            for line in blob_lines:
+                stripped = line.strip()
+                if not stripped or stripped == 'u':
+                    prev_was_a = False
+                    continue
+
+                decoded = aprefix_table.get(stripped, stripped)
+
+                if decoded == 'a__module__' or stripped == 'a__module__':
+                    mod_name = ''.join(c if (c.isalnum() or c == '_') else '_' for c in prev_token.strip('.'))
+                    if mod_name:
+                        current_mod = mod_name
+                    if current_mod not in mod_chunks:
+                        mod_chunks[current_mod] = []
+                    prev_token = ""
+                    prev_was_a = False
+                    continue
+
+                if prev_was_a and decoded and decoded[0].isalpha():
+                    decoded = 'def ' + decoded
+                    if mod_chunks[current_mod] and mod_chunks[current_mod][-1] == 'a':
+                        mod_chunks[current_mod].pop()
+
+                prev_was_a = (decoded == 'a')
+
+                if prev_token:
+                    mod_chunks[current_mod].append(prev_token)
+                prev_token = decoded
+
+            if prev_token:
+                mod_chunks[current_mod].append(prev_token)
+
+            _log(f"[*] T1 single-pass: {_time.time()-_t:.2f}s, {len(mod_chunks)} modules")
+
+            # Detect the real entry-point module name.
+            # Nuitka stores the actual main script as "__parents_main__" in the blob.
+            # The token just before its a__module__ marker is the real filename/module name
+            # e.g. "main.py" → real_main_name = "main"
+            real_main_name: str = "__main__"
+            if '__parents_main__' in mod_chunks:
+                # The chunk for __parents_main__ contains the actual script tokens
+                real_main_name = '__parents_main__'
+            # Also check if a module whose name matches a .py file in dynamic_sources
+            # is called something other than __main__
+            for mod in mod_chunks:
+                if mod not in ('__main__', '__parents_main__') and mod.replace('_', '') == 'main':
+                    real_main_name = mod
+                    break
+
+            _log(f"[*] Worker: real main module detected as '{real_main_name}'")
+
+            # Collect ALL imports from __main__ and __parents_main__ tokens.
+            # These are added only to the __main__ dynamic source output.
+            main_imports: set = set()
+            _imp_scan = re.compile(r'(?:import\s+[\w\d\._]+|from\s+[\w\d\._]+\s+import\s+[\w\d\._, ]+)')
+            for main_mod in ('__main__', '__parents_main__', real_main_name):
+                if main_mod in mod_chunks:
+                    main_text = '\n'.join(mod_chunks[main_mod])
+                    for imp in _imp_scan.findall(main_text):
+                        imp_clean = ' '.join(imp.split())
+                        if _is_valid_import(imp_clean):
+                            main_imports.add(imp_clean)
+
+            # --- PHASE 2: Per-module def extraction (no heavy regex here) ---
+            _t = _time.time()
             for mod, chunk_lines in mod_chunks.items():
-                if not chunk_lines: continue
+                if not chunk_lines:
+                    continue
+
+                if mod == '__main__':
+                    continue
+
+                # Fast check without joining: does any token look like 'def ...'
+                if not any(t.startswith('def ') for t in chunk_lines):
+                    # Still need token_map even for non-def modules
+                    token_map[mod] = chunk_lines
+                    for tok in chunk_lines[:200]:
+                        if tok.isidentifier() and tok not in token_map:
+                            token_map[tok] = mod
+                    continue
+
                 chunk_src = '\n'.join(chunk_lines)
-                
-                # Apply Nuitka Decoders
-                decoded = StaticSourceMerger.split_source_by_u_delimiter(chunk_src)
-                decoded = StaticSourceMerger.decode_a_module_names(decoded)
-                decoded = StaticSourceMerger.decode_alias_assignments(decoded)
-                
-                if decoded.strip():
-                    static_modules[mod] = decoded
-                    def_matches = list(_def_pat.finditer(decoded))
-                    
-                    for i, m in enumerate(def_matches):
-                        f_name = m.group(1)
-                        start_pos = m.start()
-                        
-                        # Calculate maximum possible range
-                        max_end = def_matches[i+1].start() if i+1 < len(def_matches) else len(decoded)
-                        raw_chunk = decoded[start_pos:max_end]
-                        
-                        # SMART RANGE FIX: Indentation Analysis
-                        # We only take lines that are indented relative to the 'def' line.
-                        lines = raw_chunk.splitlines()
-                        if not lines: continue
-                        
-                        valid_lines = [lines[0]] # The 'def' line itself
-                        for line in lines[1:]:
-                            # If a line has content but NO leading whitespace, 
-                            # we have exited the function and hit global code or the next module.
-                            if line.strip() and not line.startswith((' ', '\t')):
-                                break
-                            valid_lines.append(line)
-                        
-                        body = '\n'.join(valid_lines).strip()
-                        
-                        if len(body) > 10 and _is_real_body(body):
-                            _cache_put(global_cache, mod, f_name, body)    
+
+                # Store entire module chunk once. Build lightweight func->mod index.
+                token_map[mod] = chunk_lines
+                for tok in chunk_lines[:200]:
+                    if tok.isidentifier() and tok not in token_map:
+                        token_map[tok] = mod
+
+                # Only run fixups on chunks that actually have Python source defs
+                chunk_src = re.sub(r'\b([\w\d\_]+)_a__module__\b', r'\1_def', chunk_src)
+                chunk_src = re.sub(r'\.?([\w\d\_]+(?:\.[\w\d\_]+)*)\s+a__module__', r'\1_def', chunk_src)
+
+                static_modules[mod] = chunk_src
+                def_matches = list(_def_pat.finditer(chunk_src))
+
+                if not def_matches:
+                    continue
+
+                for i, m in enumerate(def_matches):
+                    f_name = m.group(1)
+                    start_pos = m.start()
+                    max_end = def_matches[i+1].start() if i+1 < len(def_matches) else len(chunk_src)
+                    raw_chunk = chunk_src[start_pos:max_end]
+
+                    body_lines = raw_chunk.splitlines()
+                    if not body_lines:
+                        continue
+                    valid_lines = [body_lines[0]]
+                    for bl in body_lines[1:]:
+                        if bl.strip() and not bl.startswith((' ', '\t')):
+                            break
+                        valid_lines.append(bl)
+
+                    body = '\n'.join(valid_lines).strip()
+                    if len(body) > 10 and _is_real_body(body):
+                        _cache_put(global_cache, mod, f_name, body)
+            _log(f"[*] T5 phase2 total: {_time.time()-_t:.2f}s, cache={len(global_cache)}, token_map={len(token_map)}")
 
     except Exception as e:
-        scan_logs.append(f"[!] Worker Error: {e}")
+        import traceback as _tb
+        _log(f"[!] Worker Error: {e}")
+        _log(_tb.format_exc())
 
     # ------------------------------------------------------------------
     # PHASE 2 — Import Separation (Internal Modules vs External)
     # ------------------------------------------------------------------
+    _t2 = time.time()
     dynamic_mod_keys = {f.replace('.py', '') for f in dynamic_sources.keys()}
-    extracted_module_names = set(static_modules.keys()) | set(files_dict.keys())
+    extracted_module_names = set(static_modules.keys())
     
     _imp_pat = re.compile(r'(?:import\s+[\w\d\._]+|from\s+[\w\d\._]+\s+import\s+[\w\d\._, ]+)')
 
@@ -563,19 +801,20 @@ def _blob_analysis_worker(
             imp_clean = ' '.join(imp.split())
             if _is_valid_import(imp_clean):
                 all_blob_imports.add(imp_clean)
+    _log(f"[*] T6 import scan: {time.time()-_t2:.2f}s")
     # ------------------------------------------------------------------
     # PHASE 3 — Smart Reconstruction
     # ------------------------------------------------------------------
+    _t3 = time.time()
     merged_outputs = {}
     stub_hits, stub_misses = [], []
     
     for f_name, d_src in dynamic_sources.items():
         mod_key = f_name.replace('.py', '')
         s_content = static_modules.get(mod_key, '')
-        stubs = StaticSourceMerger.find_incomplete_functions(d_src)
+        stubs = _find_incomplete_functions(d_src)
 
         for sn in stubs:
-            # THE SMART MOVE: Look for both the clean name AND the Nuitka prefixed name
             nuitka_name = f"a{sn}" if not sn.startswith('a') else sn
             keys_to_check = [f"{mod_key}.{sn}", sn, nuitka_name, f"{mod_key}.{nuitka_name}"]
             
@@ -584,18 +823,26 @@ def _blob_analysis_worker(
             else:
                 stub_misses.append(f"{mod_key}.{sn}")
 
-        merged_src = StaticSourceMerger.merge_dynamic_static(d_src, s_content, stubs, global_cache, mod_key)
+        _log(f"[*] T7 merging {mod_key} ({len(stubs)} stubs)...")
+        merged_src = _merge_dynamic_static(d_src, s_content, stubs, global_cache, mod_key, token_map)
+        _log(f"[*] T7 merged {mod_key}: {time.time()-_t3:.2f}s")
 
         # Header logic to separate reconstructed code from original stubs
         existing_imps = set(_imp_pat.findall(merged_src))
-        new_imps = {i for i in all_blob_imports if i not in existing_imps 
-                    and not any(m in i for m in extracted_module_names)}
 
         if mod_key == '__main__':
+            # Only __main__ gets the collected entry-point imports injected
+            new_imps = {i for i in all_blob_imports | main_imports if i not in existing_imps
+                        and not any(m in i for m in extracted_module_names)}
+            real_main_note = (f'\n# NOTE: Real entry-point module detected as: {real_main_name}\n'
+                              if real_main_name not in ('__main__', '') else '')
             header = ('\n'.join(sorted(new_imps)) + '\n\n' if new_imps else '') + \
-                     '#'*15 + ' NUITKA MAIN RECONSTRUCTION ' + '#'*15 + '\n\n'
+                     '#'*15 + ' NUITKA MAIN RECONSTRUCTION ' + '#'*15 + real_main_note + '\n\n'
         else:
-            header = '#'*15 + f' MODULE: {mod_key} ' + '#'*15 + '\n\n'
+            new_imps = {i for i in all_blob_imports if i not in existing_imps
+                        and not any(m in i for m in extracted_module_names)}
+            header = ('\n'.join(sorted(new_imps)) + '\n\n' if new_imps else '') + \
+                     '#'*15 + f' MODULE: {mod_key} ' + '#'*15 + '\n\n'
 
         merged_outputs[f_name] = header + merged_src
 
@@ -697,10 +944,27 @@ class LiteInjector:
                         with open(os.path.join(src_dir, f), "r", encoding='utf-8', errors='replace') as fh:
                             content: str = fh.read()
                             dynamic_sources[f] = content
-            self.log(f"[*] Submitting blob to worker process (GIL-free)...")
-            with ProcessPoolExecutor(max_workers=1) as pool:
-                future = pool.submit(_blob_analysis_worker, file_path, dynamic_sources)
-                merged_outputs, cache_size, matched, total, stub_hits, stub_misses, scan_logs = future.result(timeout=180)
+            self.log(f"[*] Scanning blob from {file_path}...")
+            try:
+                scanner = ResourceScanner(file_path, self.log)
+                files_dict = scanner.extract()
+                blob_text = files_dict.get("integrated_blob.py", b"").decode('utf-8', errors='replace')
+            except Exception as e:
+                self.log(f"[ANALYSIS] ERROR: Blob extraction failed: {e}"); return
+            if not blob_text:
+                self.log("[ANALYSIS] ERROR: Empty blob — nothing to reconstruct."); return
+            self.log(f"[*] Blob extracted ({len(blob_text)} chars). Running analysis...")
+            _shared_logs: list = []
+            try:
+                merged_outputs, cache_size, matched, total, stub_hits, stub_misses, scan_logs = \
+                    _blob_analysis_worker(blob_text, dynamic_sources, _shared_logs, self.log)
+            except Exception as ex:
+                import traceback
+                self.log(f"[ANALYSIS] ERROR: Worker raised: {ex}")
+                self.log(traceback.format_exc())
+                for msg in _shared_logs:
+                    self.log(f"[SCANNER] {msg}")
+                return
 
             for msg in scan_logs:
                 self.log(f"[SCANNER] {msg}")
