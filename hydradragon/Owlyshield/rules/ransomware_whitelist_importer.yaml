@@ -40,6 +40,13 @@
         - "advapi32!CryptImportKey"
         # WinCrypt (CryptoAPI) — encryption
         - "advapi32!CryptEncrypt"
+        # BCrypt / CNG — algorithm provider + key setup
+        - "bcrypt!BCryptOpenAlgorithmProvider"
+        - "bcrypt!BCryptGenerateSymmetricKey"
+        - "bcrypt!BCryptGenerateKeyPair"
+        - "bcrypt!BCryptImportKey"
+        - "bcrypt!BCryptImportKeyPair"
+        # BCrypt / CNG — encryption
         - "bcrypt!BCryptEncrypt"
         # NCrypt / CNG key storage — key setup + encryption
         - "ncrypt!NCryptCreatePersistedKey"
