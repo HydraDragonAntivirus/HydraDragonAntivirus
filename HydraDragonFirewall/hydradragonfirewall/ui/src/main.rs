@@ -286,6 +286,8 @@ pub fn App() -> impl IntoView {
     let (current_view, set_current_view) = create_signal(AppView::Dashboard);
     let (raw_packets, set_raw_packets) = create_signal(Vec::<RawPacket>::new());
     let (selected_packet, set_selected_packet) = create_signal(Option::<RawPacket>::None);
+
+
     let (_sdk_rules, set_sdk_rules) = create_signal(Vec::<SdkRuleView>::new());
     
     let (pending_app, set_pending_app) = create_signal(Option::<PendingApp>::None);
@@ -317,44 +319,7 @@ pub fn App() -> impl IntoView {
                      }
                  }
             }
-        };
-        
-        // Fallback or secondary confirmation via Label
-        let win = getCurrentWindow().await;
-        if !win.is_undefined() && !win.is_null() {
-             if let Ok(label) = Reflect::get(&win, &"label".into()) {
-                 if let Some(l) = label.as_string() {
-                     if l == "firewall-alert" {
-                         set_is_alert.set(true);
-                     }
-
-    // Window Mode Detection
-    let (is_alert, set_is_alert) = create_signal({
-        if let Some(win) = web_sys::window() {
-            if let Ok(search) = win.location().search() {
-                search.contains("mode=alert")
-            } else {
-                false
-            }
-        } else {
-            false
         }
-    });
-    
-    spawn_local(async move {
-        // If in alert mode, try to fetch the active alert immediately
-        if let Some(win) = web_sys::window() {
-            if let Ok(search) = win.location().search() {
-                 if search.contains("mode=alert") {
-                     let res = invoke("get_active_alert", JsValue::NULL).await;
-                     if let Ok(app_opt) = serde_wasm_bindgen::from_value::<Option<PendingApp>>(res) {
-                         if let Some(app) = app_opt {
-                             set_pending_app.set(Some(app));
-                         }
-                     }
-                 }
-            }
-        };
         
         // Fallback or secondary confirmation via Label
         let win = getCurrentWindow().await;
