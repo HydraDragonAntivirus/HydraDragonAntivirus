@@ -105,7 +105,7 @@ pub unsafe fn validate_pipe_client(pipe_handle: ::windows::Win32::Foundation::HA
     use ::windows::Win32::System::ProcessStatus::GetModuleFileNameExA;
 
     let mut client_pid: u32 = 0;
-    if !GetNamedPipeClientProcessId(pipe_handle, &mut client_pid).as_bool() {
+    if !unsafe { GetNamedPipeClientProcessId(pipe_handle, &mut client_pid) }.as_bool() {
         return false;
     }
 
@@ -121,10 +121,10 @@ pub unsafe fn validate_pipe_client(pipe_handle: ::windows::Win32::Foundation::HA
             }
         }
 
-        if let Ok(h_proc) = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, false, client_pid) {
+        if let Ok(h_proc) = unsafe { OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, false, client_pid) } {
             let mut buffer = [0u8; 1024];
-            let len = GetModuleFileNameExA(h_proc, None, &mut buffer);
-            let _ = CloseHandle(h_proc);
+            let len = unsafe { GetModuleFileNameExA(h_proc, None, &mut buffer) };
+            let _ = unsafe { CloseHandle(h_proc) };
             if len > 0 {
                 let path = String::from_utf8_lossy(&buffer[..len as usize]).to_ascii_lowercase();
                 if path.contains(&expected.to_ascii_lowercase()) {

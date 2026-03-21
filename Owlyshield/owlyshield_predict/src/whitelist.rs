@@ -35,6 +35,7 @@ impl WhiteList {
     /// Returns None if the app is not in the whitelist.
     /// Returns Some(None) if whitelisted with NO specific signer requirement (Any Trusted).
     /// Returns Some(Some("Name")) if whitelisted with a specific signer requirement.
+    #[allow(dead_code)]
     pub fn get_required_signer(&self, appname: &str) -> Option<Option<String>> {
         self.whitelist.lock().unwrap().get(appname).cloned()
     }

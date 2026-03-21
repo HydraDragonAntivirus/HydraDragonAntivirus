@@ -184,7 +184,7 @@ impl<'a> Interpreter<'a> {
         unsafe { TfLiteInterpreterInvoke(self.interpreter.as_ptr()) }.to_result()
     }
 
-    pub fn inputs(&mut self) -> InputTensors {
+    pub fn inputs(&mut self) -> InputTensors<'_> {
         let len = usize::try_from(unsafe {
             TfLiteInterpreterGetInputTensorCount(self.interpreter.as_ptr())
         })
@@ -195,7 +195,7 @@ impl<'a> Interpreter<'a> {
         }
     }
 
-    pub fn outputs(&self) -> OutputTensors {
+    pub fn outputs(&self) -> OutputTensors<'_> {
         let len = usize::try_from(unsafe {
             TfLiteInterpreterGetOutputTensorCount(self.interpreter.as_ptr())
         })

@@ -171,6 +171,7 @@ pub struct IrpOperationRecord {
 
 /// Hypervisor event operation details for detailed tracking and forensics
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct HypervisorEventOperation {
     pub timestamp: SystemTime,
     pub api_type: IrpMajorOp,
@@ -213,6 +214,7 @@ pub struct IrpStatistics {
     
     // File type statistics
     pub files_by_extension: HashMap<String, u64>,
+    #[allow(dead_code)]
     pub directories_accessed: HashSet<String>,
     pub unique_paths_accessed: HashSet<String>,
     
@@ -441,6 +443,7 @@ pub enum StringModifier {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
+#[allow(dead_code)]
 pub enum PatternSpec {
     Simple(String),
     Complex {
@@ -450,6 +453,7 @@ pub enum PatternSpec {
     },
 }
 
+#[allow(dead_code)]
 impl PatternSpec {
     pub fn pattern(&self) -> &str {
         match self {
@@ -1237,6 +1241,7 @@ pub struct ProcessBehaviorState {
     pub self_terminated_processes: HashSet<String>,
     pub detected_apis: HashSet<String>,
 
+    #[allow(dead_code)]
     pub monitored_api_count: usize,
     pub high_entropy_detected: bool,
     pub file_action_detected: bool,
@@ -1454,7 +1459,6 @@ impl BehaviorEngine {
         let net_pids     = Arc::clone(&self.firewall_net_pids);
         let blocked_exes = Arc::clone(&self.firewall_blocked_exes);
         let hips_decisions = Arc::clone(&self.firewall_hips_decisions);
-        let pipe_started = Arc::clone(&self.firewall_pipe_started);
 
         std::thread::Builder::new()
             .name("hydra_net_event_pipe".to_string())
@@ -1597,10 +1601,6 @@ impl BehaviorEngine {
                     }
                 }
 
-                #[allow(unreachable_code)]
-                {
-                    pipe_started.store(false, Ordering::SeqCst);
-                }
             })
             .expect("failed to spawn hydra_net_event_pipe thread");
     }
@@ -1998,6 +1998,7 @@ impl BehaviorEngine {
         }
     }
 
+    #[allow(dead_code)]
     fn safe_pattern_match(text: &str, pattern: &str) -> bool {
         let text_lc = text.to_lowercase();
         let pattern_lc = pattern.to_lowercase();
@@ -2535,6 +2536,7 @@ impl BehaviorEngine {
         }
     }
 
+    #[allow(dead_code)]
     pub fn load_additional_rules(&mut self, path: &Path) -> Result<(), Box<dyn std::error::Error>> {
         if !path.exists() {
             return Ok(());
@@ -2550,6 +2552,7 @@ impl BehaviorEngine {
     // ==========================================================================
     
     /// Get actual detected labels from HIM events
+    #[allow(dead_code)]
     fn get_detected_apis_from_state(state: &ProcessBehaviorState) -> HashSet<String> {
         state.all_apis_called.clone()
     }

@@ -45,11 +45,13 @@ pub fn report_dir() -> &'static Path {
 }
 
 /// Shorthand to get config directory/path
+#[allow(dead_code)]
 pub fn config_path() -> &'static Path {
     CONFIG_PATH.get().map(|p| p.as_path()).expect("Globals not initialized")
 }
 
 /// Shorthand to get rules directory
+#[allow(dead_code)]
 pub fn rules_path() -> &'static Path {
     RULES_PATH.get().map(|p| p.as_path()).expect("Globals not initialized")
 }

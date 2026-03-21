@@ -20,12 +20,8 @@ use windows::Win32::Storage::FileSystem::{
 use windows::Win32::System::Pipes::{
     ConnectNamedPipe, CreateNamedPipeA, DisconnectNamedPipe, PIPE_TYPE_BYTE,
     PIPE_UNLIMITED_INSTANCES, PIPE_WAIT, WaitNamedPipeA, PIPE_READMODE_BYTE, PIPE_READMODE_MESSAGE,
-    PIPE_TYPE_MESSAGE, GetNamedPipeClientProcessId,
+    PIPE_TYPE_MESSAGE,
 };
-use windows::Win32::System::Threading::{
-    OpenProcess, PROCESS_QUERY_INFORMATION, PROCESS_VM_READ,
-};
-use windows::Win32::System::ProcessStatus::GetModuleFileNameExA;
 
 use crate::process::ProcessRecord;
 use crate::logging::Logging;

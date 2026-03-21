@@ -42,6 +42,7 @@ pub enum FileLocationInfo {
 }
 
 /// Messages types to send directives to the minifilter, by using te [`DriverComMessage`] struct.
+#[allow(dead_code)]
 pub enum DriverComMessageType {
     /// Not used yet. The minifilter has the ability to monitor a specific part of the fs.
     _MessageAddScanDirectory,
@@ -174,6 +175,7 @@ pub fn known_raw_event_name(raw_event_type: u32) -> Option<&'static str> {
 
 /// See [`shared_def::IOMessage`] struct and [this doc](https://docs.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-getdrivetypea).
 #[derive(Debug)]
+#[allow(dead_code)]
 pub enum DriveType {
     /// The drive type cannot be determined.
     Unknown,
