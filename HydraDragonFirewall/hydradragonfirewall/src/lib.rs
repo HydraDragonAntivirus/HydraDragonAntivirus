@@ -161,7 +161,9 @@ async fn get_active_alert(handle: AppHandle) -> Result<Option<crate::engine::Pen
 #[tauri::command]
 async fn next_alert(handle: AppHandle) -> Result<(), String> {
     if let Some(engine) = wait_for_engine(&handle).await {
-        engine.next_alert();
+        if let Some(new_alert) = engine.next_alert() {
+            let _ = handle.emit("ask_app_decision", new_alert);
+        }
         Ok(())
     } else {
         Err("Engine not initialized".to_string())
@@ -171,7 +173,9 @@ async fn next_alert(handle: AppHandle) -> Result<(), String> {
 #[tauri::command]
 async fn previous_alert(handle: AppHandle) -> Result<(), String> {
     if let Some(engine) = wait_for_engine(&handle).await {
-        engine.previous_alert();
+        if let Some(new_alert) = engine.previous_alert() {
+            let _ = handle.emit("ask_app_decision", new_alert);
+        }
         Ok(())
     } else {
         Err("Engine not initialized".to_string())

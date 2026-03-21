@@ -917,7 +917,12 @@ impl AppManager {
         active.map(|app| self.with_queue_state(app))
     }
 
-    pub fn rotate_alerts(&self, forward: bool) {
+    /// Rotate to the next or previous queued alert and immediately promote it
+    /// to active so the caller can emit the event without waiting for the
+    /// monitor thread's next polling cycle.  Returns the new active alert (with
+    /// queue position/total filled in) or None when there is nothing to rotate
+    /// (e.g. only one alert in the queue).
+    pub fn rotate_alerts(&self, forward: bool) -> Option<PendingApp> {
         let mut active_lock = self.active_alert.write().unwrap();
         if let Some(current) = active_lock.take() {
             let mut pending_lock = self.pending.write().unwrap();
@@ -931,7 +936,21 @@ impl AppManager {
                     pending_lock.push_front(last);
                 }
             }
+            // Immediately promote the new front item so active_alert is never
+            // None for longer than this critical section.  This prevents the
+            // monitor thread from racing on an empty active slot and ensures
+            // rapid repeated clicks still rotate correctly.
+            if let Some(next) = pending_lock.pop_front() {
+                let queue_total = pending_lock.len().saturating_add(1);
+                *active_lock = Some(next.clone());
+                drop(pending_lock);
+                let mut result = next;
+                result.queue_position = 1;
+                result.queue_total = queue_total;
+                return Some(result);
+            }
         }
+        None
     }
 }
 
@@ -1394,12 +1413,12 @@ impl FirewallEngine {
         self.app_manager.get_active_alert()
     }
 
-    pub fn next_alert(&self) {
-        self.app_manager.rotate_alerts(true);
+    pub fn next_alert(&self) -> Option<PendingApp> {
+        self.app_manager.rotate_alerts(true)
     }
 
-    pub fn previous_alert(&self) {
-        self.app_manager.rotate_alerts(false);
+    pub fn previous_alert(&self) -> Option<PendingApp> {
+        self.app_manager.rotate_alerts(false)
     }
 
     pub fn get_app_decisions(&self) -> HashMap<String, AppDecision> {
