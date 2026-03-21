@@ -72,8 +72,12 @@ NTSTATUS OnProcessTerminationAttempt(
 // Kernel API Hook Integration Functions
 // ===================================================================
 
-// Log kernel-level API hooking events
+// Log kernel-level or user-mode API hooking events.
+// IrpOp selects the opcode stamped on the outgoing message:
+//   IRP_HYPERVISOR_EVENT     - VMM/HyperDbg-origin events
+//   IRP_USERMODE_HOOK_EVENT  - shellcode callbacks from UserModeHookEngine
 NTSTATUS OnKernelApiEvent(
+    _In_ ULONG IrpOp,
     _In_ ULONG EventType,
     _In_ ULONG SourcePid,
     _In_ ULONG TargetPid,

@@ -2968,7 +2968,7 @@ NTSTATUS FSFilter_HookDeviceControl_UNUSED(PDEVICE_OBJECT DeviceObject, PIRP Irp
                          (PVOID)rawArg4);
                 
                 // Preserve raw event type and hook arguments; classification is normalized in ProcessProtection.
-                OnKernelApiEvent(eventType, processId, processId, functionName, rawArg1, rawArg2, rawArg3, rawArg4);
+                OnKernelApiEvent(IRP_USERMODE_HOOK_EVENT, eventType, processId, processId, functionName, rawArg1, rawArg2, rawArg3, rawArg4);
             }
         }
         else {

@@ -110,6 +110,8 @@ impl Logging {
 
             if matches!(status, Status::Info) {
                 return !message.starts_with("[DIAG] API HOOKING EVENT")
+                    && !message.starts_with("[DIAG] VMM HOOK EVENT")
+                    && !message.starts_with("[DIAG] USERMODE HOOK EVENT")
                     && !message.starts_with("[DIAG] KERNEL EVENT")
                     && !message.starts_with("[DIAG] EVENT RECEIVED")
                     && !message.starts_with("[API HOOKING EVENT]");

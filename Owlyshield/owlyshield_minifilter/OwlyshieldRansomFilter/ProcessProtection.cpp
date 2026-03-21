@@ -1098,7 +1098,7 @@ NTSTATUS OnProcessTerminationAttempt(_In_ HANDLE AttackerPid, _In_ HANDLE Target
 // --- Kernel API Hook Integration Functions ---
 //
 
-NTSTATUS OnKernelApiEvent(_In_ ULONG EventType, _In_ ULONG SourcePid, _In_ ULONG TargetPid,
+NTSTATUS OnKernelApiEvent(_In_ ULONG IrpOp, _In_ ULONG EventType, _In_ ULONG SourcePid, _In_ ULONG TargetPid,
                           _In_opt_ PCWSTR FunctionName, _In_opt_ ULONG_PTR EventArg1, _In_opt_ ULONG_PTR EventArg2,
                           _In_opt_ ULONG_PTR EventArg3, _In_opt_ ULONG_PTR EventArg4)
 {
@@ -1131,7 +1131,7 @@ NTSTATUS OnKernelApiEvent(_In_ ULONG EventType, _In_ ULONG SourcePid, _In_ ULONG
     newItem->Gid = ownerGid;
     newItem->AttackerPID = SourcePid;
     newItem->AttackerGid = sourceGid;
-    newItem->IRP_OP = IRP_HYPERVISOR_EVENT;
+    newItem->IRP_OP = (UCHAR)IrpOp;
 
     // Preserve full HIM/API-hook metadata while emitting one generic opcode.
     PopulateKernelEventCommon(newItem, EventType, SourcePid, TargetPid);
@@ -1150,9 +1150,9 @@ NTSTATUS OnKernelApiEvent(_In_ ULONG EventType, _In_ ULONG SourcePid, _In_ ULONG
     FormatProcessDescriptorByPid(SourcePid, sourceProcessDescriptor, RTL_NUMBER_OF(sourceProcessDescriptor));
     FormatProcessDescriptorByPid(TargetPid, targetProcessDescriptor, RTL_NUMBER_OF(targetProcessDescriptor));
 
-    DbgPrint("!!! ProcessProtection: API HOOKING EVENT forwarded - RawType: %lu, GenericOp: %u, Name: %ls, "
+    DbgPrint("!!! ProcessProtection: API HOOKING EVENT forwarded - RawType: %lu, IrpOp: %u, Name: %ls, "
              "src_pid_path=%ws, target_pid_path=%ws, Arg1: 0x%p, Arg2: 0x%p, Arg3: 0x%p, Arg4: 0x%p\n",
-             EventType, IRP_HYPERVISOR_EVENT, effectiveName, sourceProcessDescriptor, targetProcessDescriptor,
+             EventType, IrpOp, effectiveName, sourceProcessDescriptor, targetProcessDescriptor,
              (PVOID)EventArg1, (PVOID)EventArg2, (PVOID)EventArg3, (PVOID)EventArg4);
 
     if (!driverData->AddIrpMessage(newEntry))

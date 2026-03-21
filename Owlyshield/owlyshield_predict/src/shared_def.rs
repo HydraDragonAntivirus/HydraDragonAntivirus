@@ -94,6 +94,8 @@ pub enum IrpMajorOp {
     IrpProcessHandleOpen,
     /// Single normalized event for all hypervisor-origin activity
     IrpHypervisorEvent,
+    /// User-mode API hook callback from UserModeHookEngine shellcode (via IOCTL_REPORT_HOOK_EVENT)
+    IrpUserModeHookEvent,
     /// Kernel process-protection signal: remote thread creation
     IrpKernelRemoteThread,
     /// Kernel process-protection signal: write memory
@@ -126,8 +128,10 @@ impl IrpMajorOp {
             10 => IrpMajorOp::IrpProcessExit,
             11 => IrpMajorOp::IrpProcessHandleOpen,
             
-            // Hypervisor origin stream opcode.
+            // Hypervisor origin stream opcode (VMM/HyperDbg events).
             12 => IrpMajorOp::IrpHypervisorEvent,
+            // User-mode hook callbacks from UserModeHookEngine shellcode.
+            20 => IrpMajorOp::IrpUserModeHookEvent,
             // Process-protection kernel telemetry (keep distinct from hypervisor stream).
             13 => IrpMajorOp::IrpKernelRemoteThread,
             14 => IrpMajorOp::IrpKernelWriteMemory,
@@ -137,7 +141,7 @@ impl IrpMajorOp {
             18 => IrpMajorOp::IrpKernelCreateSection,
             19 => IrpMajorOp::IrpKernelMapSection,
             // Forward compatibility for any future opcodes.
-            20..=u8::MAX => IrpMajorOp::IrpHypervisorEvent,
+            21..=u8::MAX => IrpMajorOp::IrpHypervisorEvent,
         }
     }
 }

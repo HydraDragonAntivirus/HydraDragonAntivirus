@@ -348,7 +348,7 @@ impl ApiTracker {
                     });
                 }
             }
-            IrpMajorOp::IrpHypervisorEvent => {
+            IrpMajorOp::IrpHypervisorEvent | IrpMajorOp::IrpUserModeHookEvent => {
                 self.record_kernel_api_event(msg, irp_op);
             }
             _ => {}
@@ -372,7 +372,7 @@ impl ApiTracker {
     fn record_kernel_api_event(&mut self, msg: &IOMessage, op: IrpMajorOp) {
         self.kernel_operations.total_kernel_events += 1;
 
-        let op_name = "IrpHypervisorEvent".to_string();
+        let op_name = format!("{:?}", op);
         let event_name = self.resolve_api_name(msg, "");
         let category = self.api_category_from_kernel_op(&op, &event_name);
         self.track_api_call(event_name.clone(), category, Some(msg.filepathstr.clone()));
@@ -455,7 +455,7 @@ impl ApiTracker {
             return ApiCategory::Internet;
         }
         match op {
-            IrpMajorOp::IrpHypervisorEvent => ApiCategory::Helper,
+            IrpMajorOp::IrpHypervisorEvent | IrpMajorOp::IrpUserModeHookEvent => ApiCategory::Helper,
             IrpMajorOp::IrpProcessHandleOpen | IrpMajorOp::IrpProcessTerminateAttempt => ApiCategory::Enumeration,
             _ => ApiCategory::Unknown,
         }

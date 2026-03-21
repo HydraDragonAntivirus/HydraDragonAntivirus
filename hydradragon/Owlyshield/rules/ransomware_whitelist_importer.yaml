@@ -24,12 +24,30 @@
       min_matches: 8
 
     suspicious_encryption_apis:
+      # Threshold is intentionally 2, not 1.
+      # A single BCryptEncrypt / NCryptEncrypt call is normal for browsers (TLS),
+      # .NET runtimes, DPAPI, and system services.  Ransomware must set up a key
+      # first (acquire context → generate/import/derive key → encrypt), so it
+      # always produces at least 2 distinct crypto API calls.  Raising the
+      # threshold to 2 eliminates those single-call false alarms while keeping
+      # detection effective against all common ransomware crypto stacks.
       apis:
+        # WinCrypt (CryptoAPI) — key setup
+        - "advapi32!CryptAcquireContextA"
+        - "advapi32!CryptAcquireContextW"
+        - "advapi32!CryptGenKey"
+        - "advapi32!CryptDeriveKey"
+        - "advapi32!CryptImportKey"
+        # WinCrypt (CryptoAPI) — encryption
         - "advapi32!CryptEncrypt"
         - "bcrypt!BCryptEncrypt"
+        # NCrypt / CNG key storage — key setup + encryption
+        - "ncrypt!NCryptCreatePersistedKey"
+        - "ncrypt!NCryptImportKey"
         - "ncrypt!NCryptEncrypt"
+        # In-memory key protection (ransomware hides DEK/KEK in process memory)
         - "ntdll!RtlEncryptMemory"
-      api_threshold: 1
+      api_threshold: 2
 
     ransomware_write_activity:
       file_operations: ["write"]
@@ -56,18 +74,21 @@
   detection_logic:
     and:
       - or:
-          # Branch A: read + write + rename (same-file prerequisites in condition fields).
+          # Branch A: read + write + rename with extension change (same-file prerequisites).
+          # Encryption APIs are corroborating evidence but NOT required: ransomware that
+          # uses custom crypto (XOR, RC4, ChaCha20, .NET AES, etc.) must still be caught.
           - and:
               - condition: "ransomware_read_activity"
               - condition: "ransomware_write_activity"
               - condition: "ransomware_rename_activity"
-              - condition: "suspicious_encryption_apis"
-          # Branch B: read + create + delete (read/delete same-file prerequisite in delete condition).
+          # Branch B: read + create + delete pattern (shadow-copy / replace style).
           - and:
               - condition: "ransomware_read_activity"
               - condition: "ransomware_create_activity"
               - condition: "ransomware_delete_activity"
-              - condition: "suspicious_encryption_apis"
+      # At least one of mass-disk-writes or known encryption APIs must corroborate.
+      # This keeps the outer gate strict enough to avoid false positives while
+      # allowing detection regardless of which crypto primitive the sample uses.
       - any_of:
           - "mass_disk_writes"
           - "suspicious_encryption_apis"
@@ -79,7 +100,12 @@
     record: true
 
   allowlisted_apps:
+    # Archivers / compression tools
     - pattern: "7z.exe"
+      must_be_signed: true
+      signers:
+        - "igor pavlov"
+    - pattern: "7zg.exe"
       must_be_signed: true
       signers:
         - "igor pavlov"
@@ -87,11 +113,37 @@
       must_be_signed: true
       signers:
         - "rarlab"
+    # Microsoft bulk-file tools
     - pattern: "robocopy.exe"
       must_be_signed: true
       signers:
         - "microsoft"
     - pattern: "onedrive.exe"
+      must_be_signed: true
+      signers:
+        - "microsoft"
+    - pattern: "msmpeng.exe"
+      must_be_signed: true
+      signers:
+        - "microsoft"
+    - pattern: "mssense.exe"
+      must_be_signed: true
+      signers:
+        - "microsoft"
+    - pattern: "searchindexer.exe"
+      must_be_signed: true
+      signers:
+        - "microsoft"
+    - pattern: "srtasks.exe"
+      must_be_signed: true
+      signers:
+        - "microsoft"
+    # Backup / imaging tools
+    - pattern: "backup*.exe"
+      must_be_signed: true
+      signers:
+        - "microsoft"
+    - pattern: "wbengine.exe"
       must_be_signed: true
       signers:
         - "microsoft"
@@ -103,5 +155,6 @@
     - "poc-detection"
 
   false_positives:
-    - "Bulk backup/archiver jobs with custom extensions"
-    - "Mass file migration tools"
+    - "Third-party backup suites (Acronis, Veeam, Macrium) — add signed binary to allowlisted_apps"
+    - "Mass file migration / conversion tools writing many files rapidly"
+    - "Encryption-at-rest agents that rename files after encrypting in-place"

@@ -364,7 +364,8 @@ pub fn run() {
                                     from_payload.to_string()
                                 };
                                 let is_hypervisor_event = matches!(irp, IrpMajorOp::IrpHypervisorEvent);
-                                let is_kernel_telemetry_event = iomsg.irp_op >= 13;
+                                let is_usermode_hook_event = matches!(irp, IrpMajorOp::IrpUserModeHookEvent);
+                                let is_kernel_telemetry_event = iomsg.irp_op >= 13 && !is_usermode_hook_event;
                                 let source_process = format_process_descriptor_with_fallback(
                                     iomsg.kernel_event_info.source_process_id,
                                     None,
@@ -374,11 +375,30 @@ pub fn run() {
                                     None,
                                 );
 
-                                if is_hypervisor_event {
+                                if is_usermode_hook_event {
+                                    Logging::info(&format!(
+                                        "[DIAG] USERMODE HOOK EVENT: op={:?} opcode={} raw_event_type={} gid={} src_pid_path={} target_pid_path={} arg1=0x{:X} arg2=0x{:X} arg3=0x{:X} arg4=0x{:X} addr=0x{:X} size={} status=0x{:08X} api=\"{}\" cmd=\"{}\"",
+                                        irp,
+                                        op,
+                                        raw_ty,
+                                        iomsg.gid,
+                                        source_process,
+                                        target_process,
+                                        iomsg.kernel_event_info.raw_argument1,
+                                        iomsg.kernel_event_info.raw_argument2,
+                                        iomsg.kernel_event_info.raw_argument3,
+                                        iomsg.kernel_event_info.raw_argument4,
+                                        iomsg.kernel_event_info.memory_address,
+                                        iomsg.kernel_event_info.memory_size,
+                                        iomsg.kernel_event_info.operation_status as u32,
+                                        api_name,
+                                        iomsg.runtime_features.command_line
+                                    ));
+                                } else if is_hypervisor_event {
                                     *hyper_api_counts.entry(api_name.clone()).or_insert(0) += 1;
                                     *hyper_raw_counts.entry(raw_ty).or_insert(0) += 1;
                                     Logging::info(&format!(
-                                        "[DIAG] API HOOKING EVENT: op={:?} opcode={} raw_event_type={} gid={} src_pid_path={} target_pid_path={} arg1=0x{:X} arg2=0x{:X} arg3=0x{:X} arg4=0x{:X} addr=0x{:X} size={} status=0x{:08X} api=\"{}\" cmd=\"{}\"",
+                                        "[DIAG] VMM HOOK EVENT: op={:?} opcode={} raw_event_type={} gid={} src_pid_path={} target_pid_path={} arg1=0x{:X} arg2=0x{:X} arg3=0x{:X} arg4=0x{:X} addr=0x{:X} size={} status=0x{:08X} api=\"{}\" cmd=\"{}\"",
                                         irp,
                                         op,
                                         raw_ty,

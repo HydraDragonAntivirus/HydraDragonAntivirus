@@ -271,8 +271,9 @@ impl IrpStatistics {
             IrpMajorOp::IrpProcessExit => self.process_exit_count += 1,
             IrpMajorOp::IrpProcessHandleOpen => self.process_handle_open_count += 1,
             
-            // Hypervisor/kernel events are tracked as one fallback class.
-            IrpMajorOp::IrpHypervisorEvent
+            // Hypervisor/VMM and user-mode hook events are tracked together.
+            IrpMajorOp::IrpUserModeHookEvent
+            | IrpMajorOp::IrpHypervisorEvent
             | IrpMajorOp::IrpKernelRemoteThread
             | IrpMajorOp::IrpKernelWriteMemory
             | IrpMajorOp::IrpKernelProtectMemory
@@ -643,6 +644,7 @@ fn is_kernel_api_event(irp_op: &IrpMajorOp) -> bool {
     matches!(
         irp_op,
         IrpMajorOp::IrpHypervisorEvent
+            | IrpMajorOp::IrpUserModeHookEvent
             | IrpMajorOp::IrpKernelRemoteThread
             | IrpMajorOp::IrpKernelWriteMemory
             | IrpMajorOp::IrpKernelProtectMemory
@@ -3522,7 +3524,9 @@ impl BehaviorEngine {
                 break;
             }
 
-            // NOTE: Allowlist filtering is intentionally disabled so rules evaluate all processes.
+            if self.check_allowlist(&precord.appname, rule, Some(&precord.exepath)) {
+                continue;
+            }
 
             let browsed_access_count = state_ref.browsed_paths_tracker.len();
             let has_staged_data = !state_ref.staged_files_written.is_empty();
@@ -4054,6 +4058,10 @@ impl BehaviorEngine {
             }
 
             for rule in &self.rules {
+                if self.check_allowlist(&app_name, rule, Some(&exe_path_buf)) {
+                    continue;
+                }
+
                 let mut legacy_triggered = false;
                 let mut rich_triggered = false;
                 let mut stages_triggered = false;
