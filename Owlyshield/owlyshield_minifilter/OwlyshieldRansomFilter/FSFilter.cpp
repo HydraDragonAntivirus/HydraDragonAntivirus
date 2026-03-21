@@ -1428,12 +1428,21 @@ FSProcessPreOperation(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECT
             return FLT_PREOP_SUCCESS_NO_CALLBACK; // Allow and don't send to post-op
         }
     }
-
     if (FSShouldIgnorePyasWhitelistPath(FilePath))
     {
         FltReleaseFileNameInformation(nameInfo);
         delete newEntry;
         return FLT_PREOP_SUCCESS_NO_CALLBACK;
+    }
+
+    // --- KERNEL-MODE PATH BLOCKING ---
+    if (driverData->IsPathBlocked(FilePath)) {
+        DbgPrint("!!! FSFilter: BLOCKING access to path: %wZ (Kernel-Mode Block)\n", FilePath);
+        FltReleaseFileNameInformation(nameInfo);
+        delete newEntry;
+        Data->IoStatus.Status = STATUS_ACCESS_DENIED;
+        Data->IoStatus.Information = 0;
+        return FLT_PREOP_COMPLETE;
     }
 
     const BOOLEAN isProtectedPath = driverData->IsContainingDirectory(FilePath);
@@ -1479,9 +1488,6 @@ FSProcessPreOperation(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECT
                         delete discoveryEntry;
                     }
                 }
-                // Note: procPath is now owned by RecordNewProcess if it returned a GID?
-                // Actually, driverData::RecordNewProcess stores the pointer. 
-                // Let's check DriverData.cpp again.
             }
             ObDereferenceObject(process);
         }
@@ -1490,9 +1496,14 @@ FSProcessPreOperation(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECT
             if (IS_DEBUG_IRP)
                 DbgPrint("!!! FSFilter: Item does not have a gid, skipping after discovery attempt\n");
             FltReleaseFileNameInformation(nameInfo);
-    // Keeping user's DbgPrint here
+            delete newEntry;
+            return FLT_PREOP_SUCCESS_NO_CALLBACK;
+        }
+    }
+
     if (IS_DEBUG_IRP)
         DbgPrint("!!! FSFilter: Registring new irp for Gid: %d with pid: %d\n", (ULONG)gid, newItem->PID);
+    newItem->Gid = gid;
 
     // get file id
     hr = CopyFileIdInfo(Data, newItem);
@@ -1551,7 +1562,7 @@ FSProcessPreOperation(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECT
         break;
     case IRP_MJ_WRITE: {
         newItem->IRP_OP = IRP_WRITE;
-        newItem->FileChange = FILE_CHANGE_WRITE;
+
 
         if (Data->Iopb->Parameters.Write.Length == 0) // no data to write
         {
