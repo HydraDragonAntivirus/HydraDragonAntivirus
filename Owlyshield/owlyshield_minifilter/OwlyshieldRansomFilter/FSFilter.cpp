@@ -2696,13 +2696,16 @@ static VOID AddRemProcessRoutineCore(HANDLE ParentId, HANDLE ProcessId, BOOLEAN 
             goto record_process;  // skip the GetProcessNameByHandle calls
         }
 
-        hr = GetProcessNameByHandle(procHandleParent, &parentName);
-        if (!NT_SUCCESS(hr))
+        if (procHandleParent != NULL)
         {
-            DbgPrint("!!! FSFilter: Failed to get parent name: %#010x\n", hr);
-            ZwClose(procHandleParent);
-            ZwClose(procHandleProcess);
-            return;
+            hr = GetProcessNameByHandle(procHandleParent, &parentName);
+            if (!NT_SUCCESS(hr))
+            {
+                DbgPrint("!!! FSFilter: Failed to get parent name: %#010x\n", hr);
+                ZwClose(procHandleParent);
+                ZwClose(procHandleProcess);
+                return;
+            }
         }
 
         hr = GetProcessNameByHandle(procHandleProcess, &procName);

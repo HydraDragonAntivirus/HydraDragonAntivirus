@@ -87,6 +87,7 @@ static __forceinline VOID OwlyCollapsePathRootForMatch(_Inout_updates_z_(MAX_FIL
     }
 }
 
+_Success_(return != FALSE)
 static __forceinline BOOLEAN OwlyNormalizePathForMatch(_In_ PCUNICODE_STRING InputPath,
                                                          _Out_writes_(MAX_FILE_NAME_LENGTH) PWCHAR OutputBuffer,
                                                          _Out_ PUNICODE_STRING NormalizedPath)
@@ -146,6 +147,7 @@ static __forceinline BOOLEAN OwlyNormalizePathForMatch(_In_ PCUNICODE_STRING Inp
     return TRUE;
 }
 
+_Success_(return != FALSE)
 static __forceinline BOOLEAN OwlyNormalizeRuleLineForMatch(_In_reads_(RuleChars) PCWSTR RuleText,
                                                            _In_ SIZE_T RuleChars,
                                                            _Out_writes_(OutputCch) PWCHAR OutputBuffer,
@@ -163,7 +165,7 @@ static __forceinline BOOLEAN OwlyNormalizeRuleLineForMatch(_In_reads_(RuleChars)
         *NormalizedChars = 0;
     }
 
-    if (RuleText == NULL || OutputBuffer == NULL || OutputCch == 0)
+    if (RuleText == NULL || OutputBuffer == NULL || OutputCch < MAX_FILE_NAME_LENGTH)
     {
         return FALSE;
     }
