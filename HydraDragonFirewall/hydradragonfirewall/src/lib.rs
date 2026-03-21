@@ -10,7 +10,7 @@ pub mod windivert_api;
 use crate::engine::{emit_log_event, FirewallEngine};
 use serde::Serialize;
 use std::sync::Arc;
-use tauri::{AppHandle, Manager, Runtime};
+use tauri::{AppHandle, Emitter, Manager, Runtime};
 use tokio::time::{sleep, Duration};
 
 // FirewallState was redundant as we manage Arc<FirewallEngine> directly in modern Tauri 2

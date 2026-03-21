@@ -752,6 +752,8 @@ pub struct AppManager {
     pub url_cache: RwLock<HashMap<u32, String>>,
     pub active_alert: RwLock<Option<PendingApp>>,
     pub suspicious_pids: RwLock<HashSet<u32>>,
+    /// Tracks which slot (0-based) the user is currently viewing, for the position counter.
+    pub view_index: AtomicU64,
 }
 
 impl AppManager {
@@ -765,6 +767,7 @@ impl AppManager {
             url_cache: RwLock::new(HashMap::new()),
             active_alert: RwLock::new(None),
             suspicious_pids: RwLock::new(HashSet::new()),
+            view_index: AtomicU64::new(0),
         }
     }
 
@@ -907,9 +910,15 @@ impl AppManager {
 
     fn with_queue_state(&self, mut app: PendingApp) -> PendingApp {
         let queued_after_active = self.pending.read().unwrap().len();
-        app.queue_position = 1;
-        app.queue_total = queued_after_active.saturating_add(1);
+        let total = queued_after_active.saturating_add(1);
+        let idx = self.view_index.load(Ordering::Relaxed) as usize;
+        app.queue_position = (idx % total) + 1;
+        app.queue_total = total;
         app
+    }
+
+    fn reset_view_index(&self) {
+        self.view_index.store(0, Ordering::Relaxed);
     }
 
     pub fn get_active_alert(&self) -> Option<PendingApp> {
@@ -942,10 +951,20 @@ impl AppManager {
             // rapid repeated clicks still rotate correctly.
             if let Some(next) = pending_lock.pop_front() {
                 let queue_total = pending_lock.len().saturating_add(1);
+                // Update the view index so the position counter advances correctly.
+                // Uses modular arithmetic that works for both directions.
+                let old_idx = self.view_index.load(Ordering::Relaxed) as usize;
+                let new_idx = if forward {
+                    (old_idx + 1) % queue_total
+                } else {
+                    (old_idx + queue_total - 1) % queue_total
+                };
+                self.view_index.store(new_idx as u64, Ordering::Relaxed);
+                let position = new_idx + 1;
                 *active_lock = Some(next.clone());
                 drop(pending_lock);
                 let mut result = next;
-                result.queue_position = 1;
+                result.queue_position = position;
                 result.queue_total = queue_total;
                 return Some(result);
             }
@@ -1695,6 +1714,7 @@ impl FirewallEngine {
                         // 1. Store it as the active alert for windows to fetch if they miss the emit
                         {
                             let mut active = am_monitor.active_alert.write().unwrap();
+                            am_monitor.reset_view_index();
                             *active = Some(app.clone());
                         }
 

@@ -1025,8 +1025,11 @@ fn AlertWindow(
                      let res1 = resolve_decision_internal.clone(); let res2 = resolve_decision_internal.clone(); let res3 = resolve_decision_internal.clone(); let res4 = resolve_decision_internal.clone();
                      let is_registry_alert = app.alert_kind.as_deref() == Some("registry");
                      let is_owlyshield_alert = app.alert_source.as_deref() == Some("owlyshield");
+                     let is_behavior_alert = is_owlyshield_alert && !is_registry_alert;
                      let title = if is_registry_alert {
                          "Registry protection triggered".to_string()
+                     } else if is_behavior_alert {
+                         format!("Behavioral threat detected in {}", app.name)
                      } else if let Some(ref h) = app.hostname {
                          format!("{} wants connection", h)
                      } else {
@@ -1037,6 +1040,11 @@ fn AlertWindow(
                              .clone()
                              .filter(|value| !value.trim().is_empty())
                              .unwrap_or_else(|| format!("{} is attempting a protected registry modification.", app.name))
+                     } else if is_behavior_alert {
+                         app.reason
+                             .clone()
+                             .filter(|value| !value.trim().is_empty())
+                             .unwrap_or_else(|| format!("{} triggered a behavioral detection.", app.name))
                      } else {
                          format!(
                              "{} is attempting network access.",
@@ -1047,12 +1055,17 @@ fn AlertWindow(
                              }
                          )
                      };
-                     let target_label = if is_registry_alert { "Registry:" } else { "Target:" };
+                     let target_label = if is_registry_alert { "Registry:" } else if is_behavior_alert { "Detection:" } else { "Target:" };
                      let target_value = if is_registry_alert {
                          app.target
                              .clone()
                              .filter(|value| !value.trim().is_empty())
                              .unwrap_or_else(|| "Protected registry target".to_string())
+                     } else if is_behavior_alert {
+                         app.target
+                             .clone()
+                             .filter(|value| !value.trim().is_empty())
+                             .unwrap_or_else(|| app.alert_kind.clone().unwrap_or_else(|| "Behavioral Threat".to_string()))
                      } else {
                          format!(
                              "{}:{} ({})",
