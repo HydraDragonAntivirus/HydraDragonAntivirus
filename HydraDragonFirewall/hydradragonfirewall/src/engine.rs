@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use tauri::{AppHandle, Emitter, Manager, Runtime, WebviewUrl, WebviewWindowBuilder};
+use tauri::{AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, Position, Runtime, Size, WebviewUrl, WebviewWindowBuilder};
 use tokio::sync::oneshot;
 use windivert::prelude::*;
 
@@ -1167,10 +1167,14 @@ impl FirewallEngine {
             && tls_proxy.block_quic_udp_443
         {
             *should_forward = false;
-            reason.get_or_insert_with(|| {
+            // Always override reason — get_or_insert_with would silently retain a
+            // stale "App Allowed: <name>" reason from the app-decision step, causing
+            // BLOCK_EXE to be sent to owlyshield with a misleading reason and
+            // resulting in the process being killed even though it was user-allowed.
+            *reason = Some(
                 "TLS Proxy Mode: blocked QUIC (UDP/443); embedded proxy handles TCP only"
-                    .to_string()
-            });
+                    .to_string(),
+            );
         }
     }
 
@@ -2166,8 +2170,22 @@ impl FirewallEngine {
                                         }
 
                                         // BLOCK_EXE — once per exe path when firewall blocks
+                                        // for a genuine security reason. Skip for:
+                                        //  • "App Allowed: X" — user-trusted app whose packet
+                                        //    was blocked by a later technical step (e.g. TLS
+                                        //    proxy QUIC enforcement); escalating to owlyshield
+                                        //    would wrongly kill a process the user approved.
+                                        //  • "TLS Proxy Mode" — infrastructure block, not a
+                                        //    security threat.
+                                        //  • "Embedded proxy listener" / "Unparsed packet" —
+                                        //    internal engine traffic, never security-relevant.
+                                        let reason_lc = decision._reason.to_lowercase();
+                                        let is_technical_block = reason_lc.contains("tls proxy")
+                                            || reason_lc.contains("embedded proxy")
+                                            || reason_lc.contains("unparsed packet");
                                         if !decision.should_forward
                                             && !is_system
+                                            && !is_technical_block
                                             && !notified_blocked_exes.contains(&exe_path_lc)
                                         {
                                             let hostname = parsed_info.hostname
@@ -2786,21 +2804,14 @@ impl FirewallEngine {
         }
     }
 
-    pub fn spawn_alert_window(app: &AppHandle) {
-        // If window already exists, just return or show it
-        if let Some(win) = app.get_webview_window("firewall-alert") {
-            let _ = win.show();
-            let _ = win.set_focus();
-            return;
-        }
-
-        let (width, height) = if let Some(engine) = app.try_state::<Arc<FirewallEngine>>() {
+    fn alert_window_size(app: &AppHandle) -> (f64, f64) {
+        if let Some(engine) = app.try_state::<Arc<FirewallEngine>>() {
             if let Some(alert) = engine.get_active_alert() {
                 let text_load = alert.name.len()
                     + alert.path.len()
-                    + alert.reason.as_ref().map(|value| value.len()).unwrap_or(0)
-                    + alert.target.as_ref().map(|value| value.len()).unwrap_or(0)
-                    + alert.hostname.as_ref().map(|value| value.len()).unwrap_or(0);
+                    + alert.reason.as_ref().map(|v| v.len()).unwrap_or(0)
+                    + alert.target.as_ref().map(|v| v.len()).unwrap_or(0)
+                    + alert.hostname.as_ref().map(|v| v.len()).unwrap_or(0);
                 let is_registry_alert = alert.alert_kind.as_deref() == Some("registry");
                 let width = if is_registry_alert {
                     680.0
@@ -2812,14 +2823,33 @@ impl FirewallEngine {
                 let base_height = if is_registry_alert { 320.0 } else { 280.0 };
                 let extra_lines = (text_load / 80) as f64;
                 let height = (base_height + extra_lines * 16.0).clamp(base_height, 460.0);
-                (width, height)
-            } else {
-                (560.0, 280.0)
+                return (width, height);
             }
-        } else {
-            (560.0, 280.0)
-        };
+        }
+        (560.0, 280.0)
+    }
 
+    pub fn spawn_alert_window(app: &AppHandle) {
+        let (width, height) = Self::alert_window_size(app);
+
+        // Window already exists (pre-warmed or reused): resize, reposition, show.
+        if let Some(win) = app.get_webview_window("firewall-alert") {
+            let _ = win.set_size(Size::Logical(LogicalSize::new(width, height)));
+            if let Ok(Some(monitor)) = app.primary_monitor() {
+                let size = monitor.size();
+                let scale = monitor.scale_factor();
+                let monitor_w = (size.width as f64) / scale;
+                let monitor_h = (size.height as f64) / scale;
+                let x = monitor_w - width - 20.0;
+                let y = monitor_h - height - 60.0;
+                let _ = win.set_position(Position::Logical(LogicalPosition::new(x, y)));
+            }
+            let _ = win.show();
+            let _ = win.set_focus();
+            return;
+        }
+
+        // Fallback: create window from scratch (should not normally be reached after prewarm).
         let builder = WebviewWindowBuilder::new(app, "firewall-alert", WebviewUrl::App("index.html?mode=alert".into()))
             .title("HydraDragon Firewall Alert")
             .inner_size(width, height)
@@ -2829,24 +2859,48 @@ impl FirewallEngine {
             .transparent(true)
             .shadow(true);
 
-        // Position in bottom-right corner
         if let Ok(Some(monitor)) = app.primary_monitor() {
             let size = monitor.size();
             let scale = monitor.scale_factor();
             let monitor_w = (size.width as f64) / scale;
             let monitor_h = (size.height as f64) / scale;
-            
-            // 20px margin from edges
             let x = monitor_w - width - 20.0;
-            let y = monitor_h - height - 60.0; // Clear taskbar
-            
+            let y = monitor_h - height - 60.0;
             if let Ok(win) = builder.position(x, y).build() {
                 let _ = win.show();
             }
+        } else if let Ok(win) = builder.build() {
+            let _ = win.show();
+        }
+    }
+
+    /// Create the alert window hidden at startup so it is fully loaded and its
+    /// event listener is already registered when the first alert arrives.
+    /// This eliminates WebView2 init + Wasm startup latency from alert display.
+    pub fn prewarm_alert_window(app: &AppHandle) {
+        if app.get_webview_window("firewall-alert").is_some() {
+            return;
+        }
+        let builder = WebviewWindowBuilder::new(app, "firewall-alert", WebviewUrl::App("index.html?mode=alert".into()))
+            .title("HydraDragon Firewall Alert")
+            .inner_size(560.0, 280.0)
+            .resizable(false)
+            .always_on_top(true)
+            .decorations(false)
+            .transparent(true)
+            .shadow(true)
+            .visible(false);
+
+        if let Ok(Some(monitor)) = app.primary_monitor() {
+            let size = monitor.size();
+            let scale = monitor.scale_factor();
+            let monitor_w = (size.width as f64) / scale;
+            let monitor_h = (size.height as f64) / scale;
+            let x = monitor_w - 560.0 - 20.0;
+            let y = monitor_h - 280.0 - 60.0;
+            let _ = builder.position(x, y).build();
         } else {
-            if let Ok(win) = builder.build() {
-                let _ = win.show();
-            }
+            let _ = builder.build();
         }
     }
 

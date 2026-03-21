@@ -24,13 +24,11 @@
       min_matches: 8
 
     suspicious_encryption_apis:
-      # Threshold is intentionally 2, not 1.
-      # A single BCryptEncrypt / NCryptEncrypt call is normal for browsers (TLS),
-      # .NET runtimes, DPAPI, and system services.  Ransomware must set up a key
-      # first (acquire context → generate/import/derive key → encrypt), so it
-      # always produces at least 2 distinct crypto API calls.  Raising the
-      # threshold to 2 eliminates those single-call false alarms while keeping
-      # detection effective against all common ransomware crypto stacks.
+      # Threshold is 1: any single encryption API call from this list is
+      # considered suspicious when combined with the required file operation
+      # branch (read+write+rename or read+create+delete).  The outer AND gate
+      # already provides the context needed to distinguish ransomware from
+      # legitimate software.
       apis:
         # WinCrypt (CryptoAPI) — key setup
         - "advapi32!CryptAcquireContextA"
@@ -54,7 +52,7 @@
         - "ncrypt!NCryptEncrypt"
         # In-memory key protection (ransomware hides DEK/KEK in process memory)
         - "ntdll!RtlEncryptMemory"
-      api_threshold: 2
+      api_threshold: 1
 
     ransomware_write_activity:
       file_operations: ["write"]

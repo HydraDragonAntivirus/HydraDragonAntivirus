@@ -1000,16 +1000,10 @@ fn AlertWindow(
                          let p = prev_alert_action.clone();
                          Some(view! {
                              <div style="display: flex; align-items: center; gap: 8px">
-                                 {if app.queue_total > 1 {
-                                     view! {
-                                         <div class="alert-nav-controls" style="display: flex; gap: 4px; margin-right: 4px">
-                                             <button class="nav-arrow" title="Previous Alert" on:click=move |_| p() style="background: rgba(255,255,255,0.1); border: none; color: #fff; cursor: pointer; padding: 2px 6px; border-radius: 4px; font-size: 10px"> "❮" </button>
-                                             <button class="nav-arrow" title="Next Alert" on:click=move |_| n() style="background: rgba(255,255,255,0.1); border: none; color: #fff; cursor: pointer; padding: 2px 6px; border-radius: 4px; font-size: 10px"> "❯" </button>
-                                         </div>
-                                     }.into_view()
-                                 } else {
-                                     view! {}.into_view()
-                                 }}
+                                 <div class="alert-nav-controls" style="display: flex; gap: 4px; margin-right: 4px">
+                                     <button class="nav-arrow" title="Previous Alert" on:click=move |_| p() style="background: rgba(255,255,255,0.1); border: none; color: #fff; cursor: pointer; padding: 2px 6px; border-radius: 4px; font-size: 10px"> "❮" </button>
+                                     <button class="nav-arrow" title="Next Alert" on:click=move |_| n() style="background: rgba(255,255,255,0.1); border: none; color: #fff; cursor: pointer; padding: 2px 6px; border-radius: 4px; font-size: 10px"> "❯" </button>
+                                 </div>
                                  <div class="alert-window-count">
                                      {format!("{}/{}", app.queue_position.max(1), app.queue_total)}
                                  </div>

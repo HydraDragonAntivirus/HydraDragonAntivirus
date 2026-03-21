@@ -204,7 +204,13 @@ async fn get_window_label(window: tauri::Window) -> String {
 
 #[tauri::command]
 async fn close_window(window: tauri::Window) {
-    let _ = window.close();
+    // Hide the alert window instead of destroying it so it stays pre-loaded
+    // for the next alert (eliminates WebView2/Wasm init latency).
+    if window.label() == "firewall-alert" {
+        let _ = window.hide();
+    } else {
+        let _ = window.close();
+    }
 }
 
 #[tauri::command]
@@ -304,6 +310,14 @@ pub fn run() {
                     handle.manage(Arc::clone(&engine));
                     engine.start(handle.clone());
                     println!("DEBUG: FirewallEngine managed and started.");
+
+                    // Pre-warm the alert window while no threat is active so the
+                    // WebView2 instance and Wasm bundle are already loaded when the
+                    // first alert arrives. A short delay lets the main window finish
+                    // rendering before we create the hidden secondary window.
+                    std::thread::sleep(std::time::Duration::from_millis(800));
+                    FirewallEngine::prewarm_alert_window(&handle);
+                    println!("DEBUG: Alert window pre-warmed.");
                 })
                 .expect("Failed to spawn engine_init thread");
 
