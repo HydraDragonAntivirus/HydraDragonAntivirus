@@ -327,6 +327,43 @@ pub fn App() -> impl IntoView {
                      if l == "firewall-alert" {
                          set_is_alert.set(true);
                      }
+
+    // Window Mode Detection
+    let (is_alert, set_is_alert) = create_signal({
+        if let Some(win) = web_sys::window() {
+            if let Ok(search) = win.location().search() {
+                search.contains("mode=alert")
+            } else {
+                false
+            }
+        } else {
+            false
+        }
+    });
+    
+    spawn_local(async move {
+        // If in alert mode, try to fetch the active alert immediately
+        if let Some(win) = web_sys::window() {
+            if let Ok(search) = win.location().search() {
+                 if search.contains("mode=alert") {
+                     let res = invoke("get_active_alert", JsValue::NULL).await;
+                     if let Ok(app_opt) = serde_wasm_bindgen::from_value::<Option<PendingApp>>(res) {
+                         if let Some(app) = app_opt {
+                             set_pending_app.set(Some(app));
+                         }
+                     }
+                 }
+            }
+        };
+        
+        // Fallback or secondary confirmation via Label
+        let win = getCurrentWindow().await;
+        if !win.is_undefined() && !win.is_null() {
+             if let Ok(label) = Reflect::get(&win, &"label".into()) {
+                 if let Some(l) = label.as_string() {
+                     if l == "firewall-alert" {
+                         set_is_alert.set(true);
+                     }
                  }
              }
         }
@@ -959,9 +996,28 @@ pub fn main() {
 fn AlertWindow(
     pending_app: ReadSignal<Option<PendingApp>>,
 ) -> impl IntoView {
-    let resolve_decision_internal = move |name: String, decision: String| {
+    let next_alert_action = move || {
         spawn_local(async move {
-            let args = serde_wasm_bindgen::to_value(&ResolveArgs { name, decision }).unwrap();
+            let _ = invoke("next_alert", JsValue::NULL).await;
+        });
+    };
+
+    let prev_alert_action = move || {
+        spawn_local(async move {
+            let _ = invoke("previous_alert", JsValue::NULL).await;
+        });
+    };
+
+    let resolve_decision_internal = move |name: String, path: String, decision: String| {
+        spawn_local(async move {
+            // Prioritize path for "Always Allow" (TRUST)
+            let identifier = if (decision == "allow_always" || decision == "block") && !path.trim().is_empty() && !path.eq_ignore_ascii_case("unknown") {
+                path
+            } else {
+                name
+            };
+
+            let args = serde_wasm_bindgen::to_value(&ResolveArgs { name: identifier, decision }).unwrap();
             let _ = invoke("resolve_app_decision", args).await;
             
             // Close via backend command for reliability
@@ -975,15 +1031,25 @@ fn AlertWindow(
                  <div class="alert-window-brand"> <div class="dragon-icon"></div> "HYDRADRAGON" </div>
                  <div class="alert-window-meta">
                      {move || pending_app.get().and_then(|app| {
-                         if app.queue_total > 1 {
-                             Some(view! {
+                         let n = next_alert_action.clone();
+                         let p = prev_alert_action.clone();
+                         Some(view! {
+                             <div style="display: flex; align-items: center; gap: 8px">
+                                 {if app.queue_total > 1 {
+                                     view! {
+                                         <div class="alert-nav-controls" style="display: flex; gap: 4px; margin-right: 4px">
+                                             <button class="nav-arrow" title="Previous Alert" on:click=move |_| p() style="background: rgba(255,255,255,0.1); border: none; color: #fff; cursor: pointer; padding: 2px 6px; border-radius: 4px; font-size: 10px"> "❮" </button>
+                                             <button class="nav-arrow" title="Next Alert" on:click=move |_| n() style="background: rgba(255,255,255,0.1); border: none; color: #fff; cursor: pointer; padding: 2px 6px; border-radius: 4px; font-size: 10px"> "❯" </button>
+                                         </div>
+                                     }.into_view()
+                                 } else {
+                                     view! {}.into_view()
+                                 }}
                                  <div class="alert-window-count">
                                      {format!("{}/{}", app.queue_position.max(1), app.queue_total)}
                                  </div>
-                             }.into_view())
-                         } else {
-                             None
-                         }
+                             </div>
+                         })
                      })}
                      <div class="alert-window-tag">"THREAT INTERCEPTED"</div>
                  </div>
@@ -1053,16 +1119,16 @@ fn AlertWindow(
                              </div>
                          </div>
                          <div class="alert-footer-actions">
-                             <button class="alert-btn block" on:click=move |_| res3(n3.clone(), "block".to_string())> "BLOCK" </button>
+                             <button class="alert-btn block" on:click=move |_| res3(n3.clone(), app.path.clone(), "block".to_string())> "BLOCK" </button>
                              {if is_owlyshield_alert {
                                  view! {
-                                     <button class="alert-btn quarantine" on:click=move |_| res4(n4.clone(), "quarantine".to_string())> "QUARANTINE" </button>
+                                     <button class="alert-btn quarantine" on:click=move |_| res4(n4.clone(), app.path.clone(), "quarantine".to_string())> "QUARANTINE" </button>
                                  }.into_view()
                              } else {
                                  view! {}.into_view()
                              }}
-                             <button class="alert-btn session" on:click=move |_| res1(n1.clone(), "allow_once".to_string())> "ONCE" </button>
-                             <button class="alert-btn always" on:click=move |_| res2(n2.clone(), "allow_always".to_string())> "TRUST" </button>
+                             <button class="alert-btn session" on:click=move |_| res1(n1.clone(), app.path.clone(), "allow_once".to_string())> "ONCE" </button>
+                             <button class="alert-btn always" on:click=move |_| res2(n2.clone(), app.path.clone(), "allow_always".to_string())> "TRUST" </button>
                          </div>
                      }
                  })}

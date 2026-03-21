@@ -25,6 +25,10 @@ class DriverData {
     LIST_ENTRY rootDirectories;  // list entry bdirectional of protected dirs
     KSPIN_LOCK directoriesSpinLock;  // lock for directory list
 
+    ULONG blockedPathsSize;    // number of blocked paths
+    LIST_ENTRY blockedPaths;   // list of blocked paths
+    KSPIN_LOCK blockedPathsLock; // lock for blocked paths
+
     /* GID system data members */
     ULONGLONG
         GidCounter;  // interal counter for gid, every new application recieves a new gid
@@ -179,9 +183,18 @@ class DriverData {
 
     VOID ClearDirectories();
 
+    BOOLEAN AddBlockedPath(PDIRECTORY_ENTRY newEntry);
+
+    BOOLEAN IsPathBlocked(CONST PUNICODE_STRING path);
+
+    VOID ClearBlockedPaths();
+
     VOID Clear() {
         // clear directories
         ClearDirectories();
+
+        // clear blocked paths
+        ClearBlockedPaths();
 
         // clear irps
         ClearIrps();

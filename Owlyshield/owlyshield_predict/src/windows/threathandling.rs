@@ -77,6 +77,12 @@ impl ThreatHandler for WindowsThreatHandler {
                 Logging::error(&format!("[ThreatHandler] Failed to communicate with driver for GID: {} during removal. Error: {}", gid, e));
             }
         }
+
+        // Add to kernel block list for permanent protection
+        if let Some(p) = path.to_str() {
+            let _ = self.driver.add_block_path(p);
+            Logging::info(&format!("[ThreatHandler] Added path to KERNEL BLOCK list: {}", p));
+        }
     }
 
     fn kill_and_quarantine(&self, gid: u64, path: &std::path::Path) {
@@ -123,6 +129,12 @@ impl ThreatHandler for WindowsThreatHandler {
                         }
                     }
                 }
+            }
+            
+            // Add to kernel block list for permanent protection
+            if let Some(p) = path.to_str() {
+                let _ = self.driver.add_block_path(p);
+                Logging::info(&format!("[ThreatHandler] Added path to KERNEL BLOCK list: {}", p));
             }
         }
 

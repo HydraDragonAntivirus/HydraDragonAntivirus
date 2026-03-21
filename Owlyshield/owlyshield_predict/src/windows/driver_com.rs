@@ -412,6 +412,32 @@ impl Driver {
         Ok(())
     }
 
+    pub fn add_block_path(&self, path: &str) -> Result<windows::core::HRESULT, Error> {
+        let mut msg = DriverComMessage {
+            r#type: DriverComMessageType::MessageAddBlockPath as c_ulong,
+            pid: 0,
+            gid: 0,
+            path: Driver::string_to_commessage_buffer(path),
+            quarantine_path: [0; 520],
+        };
+        let mut res: u32 = 0;
+        let mut res_size: u32 = 0;
+
+        unsafe {
+            FilterSendMessage(
+                self.handle,
+                ptr::addr_of_mut!(msg) as *mut c_void,
+                mem::size_of::<DriverComMessage>() as c_ulong,
+                Some(ptr::addr_of_mut!(res) as *mut c_void),
+                4,
+                ptr::addr_of_mut!(res_size) as *mut u32,
+            )?;
+        }
+        let hres = windows::core::HRESULT(res as i32);
+        Ok(hres)
+    }
+
+
     fn string_to_commessage_buffer(bufstr: &str) -> BufPath {
         let temp = U16CString::from_str(bufstr).unwrap();
         let mut buf: BufPath = [0; 520];

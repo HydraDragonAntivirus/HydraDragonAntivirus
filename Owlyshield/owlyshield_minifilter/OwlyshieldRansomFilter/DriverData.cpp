@@ -18,10 +18,13 @@ DriverData::DriverData(PDRIVER_OBJECT DriverObject) :
     systemRootPath[0] = L'\0';
     InitializeListHead(&irpOps);
     InitializeListHead(&rootDirectories);
+    InitializeListHead(&blockedPaths);
     KeInitializeSpinLock(&irpOpsLock);  //init spin lock
     KeInitializeSpinLock(&directoriesSpinLock);  //init spin lock
+    KeInitializeSpinLock(&blockedPathsLock);  //init spin lock
 
     GidCounter = 0;
+    blockedPathsSize = 0;
     KeInitializeSpinLock(&GIDSystemLock);  //init spin lock
     gidsSize = 0;
     InitializeListHead(&GidsList);
@@ -775,6 +778,97 @@ VOID DriverData::ClearDirectories() {
     directoryRootsSize = 0;
     InitializeListHead(&rootDirectories);
     KeReleaseSpinLock(&directoriesSpinLock, oldIrql);
+}
+
+//#######################################################################################
+//# Blocked Path handling
+//#######################################################################################
+
+BOOLEAN DriverData::AddBlockedPath(PDIRECTORY_ENTRY newEntry) {
+    BOOLEAN ret = FALSE;
+    BOOLEAN foundMatch = FALSE;
+    KIRQL oldIrql;
+    KeAcquireSpinLock(&blockedPathsLock, &oldIrql);
+
+    PLIST_ENTRY pEntry = blockedPaths.Flink;
+    while (pEntry != &blockedPaths) {
+        PDIRECTORY_ENTRY pStrct = (PDIRECTORY_ENTRY)CONTAINING_RECORD(pEntry, DIRECTORY_ENTRY, entry);
+
+        if (!wcsncmp(newEntry->path, pStrct->path, MAX_FILE_NAME_LENGTH)) {
+            foundMatch = TRUE;
+            break;
+        }
+        pEntry = pEntry->Flink;
+    }
+    if (foundMatch == FALSE) {
+        InsertHeadList(&blockedPaths, &newEntry->entry);
+        blockedPathsSize++;
+        ret = TRUE;
+        DbgPrint("!!! FSFilter: Path added to KERNEL BLOCK LIST: %ws\n", newEntry->path);
+    }
+    KeReleaseSpinLock(&blockedPathsLock, oldIrql);
+    return ret;
+}
+
+BOOLEAN DriverData::IsPathBlocked(CONST PUNICODE_STRING path) {
+    if (path == NULL || path->Buffer == NULL)
+        return FALSE;
+    BOOLEAN ret = FALSE;
+    KIRQL oldIrql;
+    
+    KeAcquireSpinLock(&blockedPathsLock, &oldIrql);
+    if (blockedPathsSize != 0) {
+        PLIST_ENTRY pEntry = blockedPaths.Flink;
+        while (pEntry != &blockedPaths) {
+            PDIRECTORY_ENTRY pStrct = (PDIRECTORY_ENTRY)CONTAINING_RECORD(pEntry, DIRECTORY_ENTRY, entry);
+            
+            ULONG pathChars = path->Length / sizeof(WCHAR);
+            BOOLEAN match = TRUE;
+
+            for (ULONG i = 0; i < MAX_FILE_NAME_LENGTH; i++) {
+                if (pStrct->path[i] == L'\0') {
+                    ret = TRUE;
+                    break;
+                }
+                if (i >= pathChars) {
+                    match = FALSE;
+                    break;
+                }
+                if (RtlUpcaseUnicodeChar(pStrct->path[i]) != RtlUpcaseUnicodeChar(path->Buffer[i])) {
+                    match = FALSE;
+                    break;
+                }
+            }
+
+            if (ret || match) {
+                ULONG pStrctLen = (ULONG)wcsnlen(pStrct->path, MAX_FILE_NAME_LENGTH);
+                if (pathChars > pStrctLen && path->Buffer[pStrctLen] != L'\\') {
+                    ret = FALSE; 
+                }
+            }
+
+            if (ret) break;
+            pEntry = pEntry->Flink;
+        }
+    }
+    KeReleaseSpinLock(&blockedPathsLock, oldIrql);
+    return ret;
+}
+
+VOID DriverData::ClearBlockedPaths() {
+    KIRQL oldIrql;
+    KeAcquireSpinLock(&blockedPathsLock, &oldIrql);
+    PLIST_ENTRY pEntryPaths = blockedPaths.Flink;
+    while (pEntryPaths != &blockedPaths) {
+        LIST_ENTRY temp = *pEntryPaths;
+        PDIRECTORY_ENTRY pStrct = (PDIRECTORY_ENTRY)
+            CONTAINING_RECORD(pEntryPaths, DIRECTORY_ENTRY, entry);
+        delete pStrct;
+        pEntryPaths = temp.Flink;
+    }
+    blockedPathsSize = 0;
+    InitializeListHead(&blockedPaths);
+    KeReleaseSpinLock(&blockedPathsLock, oldIrql);
 }
 
 //#######################################################################################

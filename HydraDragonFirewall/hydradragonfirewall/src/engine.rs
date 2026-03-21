@@ -916,6 +916,23 @@ impl AppManager {
         let active = self.active_alert.read().unwrap().clone();
         active.map(|app| self.with_queue_state(app))
     }
+
+    pub fn rotate_alerts(&self, forward: bool) {
+        let mut active_lock = self.active_alert.write().unwrap();
+        if let Some(current) = active_lock.take() {
+            let mut pending_lock = self.pending.write().unwrap();
+            if forward {
+                // Next: Current goes to the back
+                pending_lock.push_back(current);
+            } else {
+                // Prev: Current goes to the front, and the one from the back comes to the front
+                pending_lock.push_front(current);
+                if let Some(last) = pending_lock.pop_back() {
+                    pending_lock.push_front(last);
+                }
+            }
+        }
+    }
 }
 
 // ============================================================================
@@ -1292,16 +1309,22 @@ impl FirewallEngine {
             })
             .is_some();
 
+        let app_decision = match decision.as_str() {
+            "allow_always" => AppDecision::Allow,
+            "allow_once" => AppDecision::AllowOnce,
+            "quarantine" => AppDecision::Block,
+            "block" => AppDecision::Block,
+            _ => AppDecision::Pending,
+        };
+
         if routed_to_owlyshield {
+            // Mirror quarantine/block decisions to firewall for "predict block" security
+            if app_decision == AppDecision::Block {
+                self.app_manager.resolve_decision(&name, app_decision);
+                self.save_settings();
+            }
             persist_settings = false;
         } else {
-            let app_decision = match decision.as_str() {
-                "allow_always" => AppDecision::Allow,
-                "allow_once" => AppDecision::AllowOnce,
-                "quarantine" => AppDecision::Block,
-                "block" => AppDecision::Block,
-                _ => AppDecision::Pending,
-            };
             self.app_manager.resolve_decision(&name, app_decision);
         }
 
@@ -1369,6 +1392,14 @@ impl FirewallEngine {
 
     pub fn get_active_alert(&self) -> Option<PendingApp> {
         self.app_manager.get_active_alert()
+    }
+
+    pub fn next_alert(&self) {
+        self.app_manager.rotate_alerts(true);
+    }
+
+    pub fn previous_alert(&self) {
+        self.app_manager.rotate_alerts(false);
     }
 
     pub fn get_app_decisions(&self) -> HashMap<String, AppDecision> {

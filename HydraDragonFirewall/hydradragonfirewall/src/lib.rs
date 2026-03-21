@@ -159,6 +159,26 @@ async fn get_active_alert(handle: AppHandle) -> Result<Option<crate::engine::Pen
 }
 
 #[tauri::command]
+async fn next_alert(handle: AppHandle) -> Result<(), String> {
+    if let Some(engine) = wait_for_engine(&handle).await {
+        engine.next_alert();
+        Ok(())
+    } else {
+        Err("Engine not initialized".to_string())
+    }
+}
+
+#[tauri::command]
+async fn previous_alert(handle: AppHandle) -> Result<(), String> {
+    if let Some(engine) = wait_for_engine(&handle).await {
+        engine.previous_alert();
+        Ok(())
+    } else {
+        Err("Engine not initialized".to_string())
+    }
+}
+
+#[tauri::command]
 async fn get_engine_runtime_status<R: Runtime>(handle: AppHandle<R>) -> EngineRuntimeStatus {
     if handle.try_state::<Arc<FirewallEngine>>().is_some() {
         EngineRuntimeStatus {
@@ -318,10 +338,12 @@ pub fn run() {
             remove_app_decision,
             clear_app_decisions,
             get_active_alert,
+            next_alert,
+            previous_alert,
             get_engine_runtime_status,
             get_window_label,
             close_window,
-            quit_app
+            quit_app,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -1490,22 +1490,6 @@ FSProcessPreOperation(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECT
             if (IS_DEBUG_IRP)
                 DbgPrint("!!! FSFilter: Item does not have a gid, skipping after discovery attempt\n");
             FltReleaseFileNameInformation(nameInfo);
-            delete newEntry;
-            return FLT_PREOP_SUCCESS_NO_CALLBACK;
-        }
-    }
-    newItem->Gid = gid;
-
-    // NEW: Block after predict (if Gid is marked malicious by user-mode)
-    if (isProtectedPath && driverData->IsGidMalicious(gid)) {
-        DbgPrint("!!! FSFilter: BLOCKING operation from malicious Gid: %llu\n", gid);
-        Data->IoStatus.Status = STATUS_ACCESS_DENIED;
-        Data->IoStatus.Information = 0;
-        FltReleaseFileNameInformation(nameInfo);
-        delete newEntry;
-        return FLT_PREOP_COMPLETE;
-    }
-
     // Keeping user's DbgPrint here
     if (IS_DEBUG_IRP)
         DbgPrint("!!! FSFilter: Registring new irp for Gid: %d with pid: %d\n", (ULONG)gid, newItem->PID);

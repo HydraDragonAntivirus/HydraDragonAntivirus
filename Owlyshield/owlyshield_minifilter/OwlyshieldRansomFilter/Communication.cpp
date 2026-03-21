@@ -1170,6 +1170,33 @@ RWFNewMessage(IN PVOID PortCookie, IN PVOID InputBuffer, IN ULONG InputBufferLen
         DbgPrint("Removed scan directory successfully\n");
         return STATUS_SUCCESS;
     }
+    else if (message->type == MESSAGE_ADD_BLOCK_PATH)
+    {
+        DbgPrint("!!! FSFilter: Received add block path message\n");
+        PDIRECTORY_ENTRY newEntry = new DIRECTORY_ENTRY();
+        if (newEntry == NULL)
+        {
+            return STATUS_INSUFFICIENT_RESOURCES;
+        }
+        NTSTATUS hr = CopyWString(newEntry->path, message->path, MAX_FILE_NAME_LENGTH);
+        if (!NT_SUCCESS(hr))
+        {
+            delete newEntry;
+            return STATUS_INTERNAL_ERROR;
+        }
+        *ReturnOutputBufferLength = 1;
+        if (driverData->AddBlockedPath(newEntry))
+        {
+            *((PBOOLEAN)OutputBuffer) = TRUE;
+            return STATUS_SUCCESS;
+        }
+        else
+        {
+            delete newEntry;
+            *((PBOOLEAN)OutputBuffer) = FALSE;
+            return STATUS_SUCCESS;
+        }
+    }
     else if (message->type == MESSAGE_GET_OPS)
     {
         if (OutputBuffer == NULL || OutputBufferLength != MAX_COMM_BUFFER_SIZE)
