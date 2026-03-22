@@ -3258,10 +3258,30 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
     ExAcquireFastMutex(&g_UserHookEngine->EngineMutex);
 
     // Re-use existing process slot to avoid duplicate infrastructure/handle creation.
+    // Also check the stored EPROCESS pointer: if it differs from the current process
+    // object the OS reused this PID for a new process.  Discard the stale slot so the
+    // new process gets a fresh one (PID-reuse defence).
     for (ULONG i = 0; i < MAX_HOOKED_PROCESSES; i++)
     {
         if (g_UserHookEngine->Processes[i].ProcessId == ProcessId)
         {
+            if (g_UserHookEngine->Processes[i].ProcessObject != process)
+            {
+                // PID reused by a new process: release resources held for the old
+                // one and zero the slot so the free-slot search below can claim it.
+                if (g_UserHookEngine->Processes[i].ProcessObject != NULL)
+                    ObDereferenceObject(g_UserHookEngine->Processes[i].ProcessObject);
+                if (g_UserHookEngine->Processes[i].CustomHooks != NULL)
+                {
+                    ExFreePoolWithTag(g_UserHookEngine->Processes[i].CustomHooks, 'cHuM');
+                }
+                if (g_UserHookEngine->Processes[i].IsHooked &&
+                    g_UserHookEngine->HookedProcessCount > 0)
+                    g_UserHookEngine->HookedProcessCount--;
+                RtlZeroMemory(&g_UserHookEngine->Processes[i], sizeof(PROCESS_HOOK_ENTRY));
+                DbgPrint("UserModeHook: PID %lu reuse detected; stale slot cleared\n", ProcessId);
+                break; // stale slot cleared; fall through to free-slot search
+            }
             hookEntry = &g_UserHookEngine->Processes[i];
             existingHookEntry = TRUE;
             break;
@@ -3711,7 +3731,12 @@ NTSTATUS UserModeUnhookProcess(_In_ ULONG ProcessId)
     ExAcquireFastMutex(&g_UserHookEngine->EngineMutex);
     for (ULONG i = 0; i < MAX_HOOKED_PROCESSES; i++)
     {
-        if (g_UserHookEngine->Processes[i].IsHooked && g_UserHookEngine->Processes[i].ProcessId == ProcessId)
+        // Match on PID for both fully-hooked and mid-hook (IsInProgress only) slots.
+        // An IsInProgress-only slot can arise when the process exits before hooking
+        // completes; without this check the slot stays live and blocks any new
+        // process that receives the same PID from the OS (PID reuse).
+        if (g_UserHookEngine->Processes[i].ProcessId == ProcessId &&
+            (g_UserHookEngine->Processes[i].IsHooked || g_UserHookEngine->Processes[i].IsInProgress))
         {
             hookEntry = &g_UserHookEngine->Processes[i];
             break;

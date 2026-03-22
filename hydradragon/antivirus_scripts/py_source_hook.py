@@ -25,8 +25,10 @@ from .path_and_variables import (
 # Processes whose exe lives under the antivirus install dir are never hooked
 _EXCLUDED_DIR_NORM = os.path.normcase(os.path.normpath(hydra_dragon_antivirus_dir))
 
-# Per-session set of PIDs we already successfully injected
-_hooked_pids: set[int] = set()
+# Per-session map of PID -> normalized exe path for already-injected processes.
+# Keyed by path (not just PID) so that PID reuse by a different executable is
+# detected and the new process receives a fresh injection.
+_hooked_pids: dict[int, str] = {}
 _hooked_pids_lock = threading.Lock()
 
 # ---------------------------------------------------------------------------
@@ -376,17 +378,19 @@ async def hook_python_process(file_path: str) -> None:
 
         for pid, name in candidates:
             with _hooked_pids_lock:
-                if pid in _hooked_pids:
+                if _hooked_pids.get(pid) == norm_path:
                     logger.debug(f"[Hook] PID {pid} ({name}) already hooked, skipping")
                     continue
-                # Reserve slot before awaiting to prevent duplicate injection
-                _hooked_pids.add(pid)
+                # Reserve slot before awaiting to prevent duplicate injection.
+                # Overwrite any stale entry from a previously-hooked process that
+                # happened to share this PID (OS PID reuse).
+                _hooked_pids[pid] = norm_path
 
             success = await asyncio.to_thread(inject, pid, name)
             if not success:
                 # Allow retry on the next scan_and_warn invocation
                 with _hooked_pids_lock:
-                    _hooked_pids.discard(pid)
+                    _hooked_pids.pop(pid, None)
                 logger.warning(f"[Hook] Injection failed for {name} (PID: {pid})")
 
     except Exception:
