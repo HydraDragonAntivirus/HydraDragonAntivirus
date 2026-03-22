@@ -24,6 +24,8 @@ use num::FromPrimitive;
 
 type FirewallNetPids = Arc<std::sync::RwLock<HashSet<u32>>>;
 type FirewallBlockedExes = Arc<std::sync::RwLock<HashMap<String, FirewallDetection>>>;
+/// Per-PID list of (dst_ip, dst_port) pairs observed by the firewall (NET_EVENT).
+type FirewallNetDetails = Arc<std::sync::RwLock<HashMap<u32, Vec<(String, u16)>>>>;
 type FirewallPipeStarted = Arc<AtomicBool>;
 type FirewallHipsPendingPrompts = Arc<std::sync::RwLock<HashMap<String, FirewallHipsPromptState>>>;
 type FirewallHipsDecisions = Arc<std::sync::RwLock<HashMap<String, FirewallHipsDecision>>>;
@@ -40,6 +42,13 @@ fn shared_firewall_net_pids() -> FirewallNetPids {
 fn shared_firewall_blocked_exes() -> FirewallBlockedExes {
     static FIREWALL_BLOCKED_EXES: OnceLock<FirewallBlockedExes> = OnceLock::new();
     FIREWALL_BLOCKED_EXES
+        .get_or_init(|| Arc::new(std::sync::RwLock::new(HashMap::new())))
+        .clone()
+}
+
+fn shared_firewall_net_details() -> FirewallNetDetails {
+    static FIREWALL_NET_DETAILS: OnceLock<FirewallNetDetails> = OnceLock::new();
+    FIREWALL_NET_DETAILS
         .get_or_init(|| Arc::new(std::sync::RwLock::new(HashMap::new())))
         .clone()
 }
@@ -731,6 +740,25 @@ pub struct NamedConditionGroup {
     pub network_ips: Vec<String>,
     #[serde(default)]
     pub has_network_activity: bool,
+
+    // Firewall-content conditions — matched against data from the HydraDragon Firewall pipe.
+    /// true  = condition requires process to have been blocked by the firewall.
+    /// false = condition requires process to NOT have been blocked.
+    /// absent (None) = firewall-block status is not checked.
+    #[serde(default)]
+    pub firewall_blocked: Option<bool>,
+    /// Destination IPs the process must have connected to (substring match, any).
+    #[serde(default)]
+    pub firewall_dst_ips: Vec<String>,
+    /// Destination ports the process must have connected to (exact match, any).
+    #[serde(default)]
+    pub firewall_dst_ports: Vec<u16>,
+    /// Hostnames the firewall observed for this process (substring match, any).
+    #[serde(default)]
+    pub firewall_hostnames: Vec<String>,
+    /// Keywords that must appear in the firewall block-reason string (substring, any).
+    #[serde(default)]
+    pub firewall_block_reasons: Vec<String>,
     
     #[serde(default)]
     pub process_names: Vec<String>,
@@ -1400,6 +1428,9 @@ pub struct BehaviorEngine {
     default_extension_whitelist: HashSet<String>,
     /// PIDs for which the firewall observed real outbound network I/O (NET_EVENT).
     pub firewall_net_pids: FirewallNetPids,
+    /// Per-PID list of (dst_ip, dst_port) connection records from NET_EVENT messages.
+    /// Used by named-condition rules to match specific IPs or ports.
+    pub firewall_net_details: FirewallNetDetails,
     /// Exe paths for which the firewall confirmed malicious traffic (BLOCK_EXE).
     /// Value holds full detection details for report generation.
     /// scan_all_processes marks matching processes as malicious and acts on them.
@@ -1426,6 +1457,7 @@ impl BehaviorEngine {
             process_terminated: HashSet::new(),
             default_extension_whitelist: build_default_extension_whitelist(),
             firewall_net_pids: shared_firewall_net_pids(),
+            firewall_net_details: shared_firewall_net_details(),
             firewall_blocked_exes: shared_firewall_blocked_exes(),
             firewall_pipe_started: shared_firewall_pipe_started(),
             firewall_hips_pending_prompts: shared_firewall_hips_pending_prompts(),
@@ -1457,6 +1489,7 @@ impl BehaviorEngine {
         }
 
         let net_pids     = Arc::clone(&self.firewall_net_pids);
+        let net_details  = Arc::clone(&self.firewall_net_details);
         let blocked_exes = Arc::clone(&self.firewall_blocked_exes);
         let hips_decisions = Arc::clone(&self.firewall_hips_decisions);
 
@@ -1539,9 +1572,19 @@ impl BehaviorEngine {
                             leftover = leftover[pos + 1..].to_string();
 
                             if let Some(rest) = line.strip_prefix("NET_EVENT:") {
-                                if let Some(pid_str) = rest.split(':').next()
+                                let mut parts = rest.splitn(3, ':');
+                                if let Some(pid_str) = parts.next()
                                     && let Ok(pid) = pid_str.parse::<u32>() {
                                         net_pids.write().unwrap().insert(pid);
+                                        let dst_ip   = parts.next().unwrap_or("").trim().to_string();
+                                        let dst_port = parts.next().unwrap_or("0").trim()
+                                            .parse::<u16>().unwrap_or(0);
+                                        if !dst_ip.is_empty() {
+                                            net_details.write().unwrap()
+                                                .entry(pid)
+                                                .or_default()
+                                                .push((dst_ip, dst_port));
+                                        }
                                     }
                             } else if let Some(rest) = line.strip_prefix("BLOCK_EXE:") {
                                 // BLOCK_EXE:<exe>|<dst_ip>|<dst_port>|<hostname>|<reason>
@@ -2976,6 +3019,94 @@ impl BehaviorEngine {
                             cond_name, state.pid
                         ));
                     }
+
+                // ── Firewall-content conditions ──────────────────────────────────
+                if !matched {
+                    let exe_path_lc = state.exe_path.to_string_lossy().to_lowercase();
+                    let fw_blocked_map = self.firewall_blocked_exes.read().unwrap();
+                    let fw_net_details = self.firewall_net_details.read().unwrap();
+                    let detection = fw_blocked_map.get(&exe_path_lc);
+
+                    // firewall_blocked
+                    if !matched {
+                        if let Some(require_blocked) = cond_group.firewall_blocked {
+                            let is_blocked = detection.is_some();
+                            if require_blocked == is_blocked {
+                                matched = true;
+                                Logging::info(&format!(
+                                    "[BehaviorEngine] Condition '{}' - firewall_blocked={} matched for {}",
+                                    cond_name, require_blocked, exe_path_lc
+                                ));
+                            }
+                        }
+                    }
+
+                    // firewall_dst_ips
+                    if !matched && !cond_group.firewall_dst_ips.is_empty() {
+                        let ip_match = detection.map_or(false, |d| {
+                            cond_group.firewall_dst_ips.iter().any(|ip| {
+                                d.dst_ip.to_lowercase().contains(&ip.to_lowercase())
+                            })
+                        }) || fw_net_details.get(&state.pid).map_or(false, |conns| {
+                            cond_group.firewall_dst_ips.iter().any(|ip| {
+                                conns.iter().any(|(c_ip, _)| c_ip.to_lowercase().contains(&ip.to_lowercase()))
+                            })
+                        });
+                        if ip_match {
+                            matched = true;
+                            Logging::info(&format!(
+                                "[BehaviorEngine] Condition '{}' - firewall_dst_ips matched for PID {}",
+                                cond_name, state.pid
+                            ));
+                        }
+                    }
+
+                    // firewall_dst_ports
+                    if !matched && !cond_group.firewall_dst_ports.is_empty() {
+                        let port_match = detection.map_or(false, |d| {
+                            cond_group.firewall_dst_ports.contains(&d.dst_port)
+                        }) || fw_net_details.get(&state.pid).map_or(false, |conns| {
+                            conns.iter().any(|(_, port)| cond_group.firewall_dst_ports.contains(port))
+                        });
+                        if port_match {
+                            matched = true;
+                            Logging::info(&format!(
+                                "[BehaviorEngine] Condition '{}' - firewall_dst_ports matched for PID {}",
+                                cond_name, state.pid
+                            ));
+                        }
+                    }
+
+                    // firewall_hostnames
+                    if !matched && !cond_group.firewall_hostnames.is_empty() {
+                        if detection.map_or(false, |d| {
+                            cond_group.firewall_hostnames.iter().any(|h| {
+                                d.hostname.to_lowercase().contains(&h.to_lowercase())
+                            })
+                        }) {
+                            matched = true;
+                            Logging::info(&format!(
+                                "[BehaviorEngine] Condition '{}' - firewall_hostnames matched for PID {}",
+                                cond_name, state.pid
+                            ));
+                        }
+                    }
+
+                    // firewall_block_reasons
+                    if !matched && !cond_group.firewall_block_reasons.is_empty() {
+                        if detection.map_or(false, |d| {
+                            cond_group.firewall_block_reasons.iter().any(|r| {
+                                d.reason.to_lowercase().contains(&r.to_lowercase())
+                            })
+                        }) {
+                            matched = true;
+                            Logging::info(&format!(
+                                "[BehaviorEngine] Condition '{}' - firewall_block_reasons matched for PID {}",
+                                cond_name, state.pid
+                            ));
+                        }
+                    }
+                }
 
                 let file_change = event_file_change;
                 let is_directory_event = matches!(file_change, Some(FileChangeInfo::OpenDirectory));
