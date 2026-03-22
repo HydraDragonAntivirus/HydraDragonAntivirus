@@ -68,67 +68,80 @@ NtPathToDosPath(
     if (!NtPath || !OutBuffer || OutCch == 0)
         return FALSE;
 
-    // Must be at PASSIVE_LEVEL for IoGetDeviceObjectPointer / IoVolumeDeviceToDosName
+    // Zw* symbolic-link APIs require PASSIVE_LEVEL.
     if (KeGetCurrentIrql() != PASSIVE_LEVEL)
         return FALSE;
 
-    // Only handle paths that start with \Device\ (NT namespace).
-    // Skip paths that are already in DOS form (start with a drive letter like "C:\").
+    // Already a DOS path (e.g. "C:\...") — nothing to do.
     if (NtPath[0] != L'\\')
         return FALSE;
 
-    // Find the 3rd backslash to delimit the volume component.
-    // \Device\HarddiskVolume3\path\to\file.exe
-    //  ^1     ^2              ^3
     SIZE_T pathLen = wcsnlen(NtPath, 32767);
-    SIZE_T volumeEnd = 0;
-    int slashCount = 0;
-    for (SIZE_T i = 0; i < pathLen; i++) {
-        if (NtPath[i] == L'\\') {
-            slashCount++;
-            if (slashCount == 3) {
-                volumeEnd = i;
-                break;
-            }
-        }
+    if (pathLen == 0)
+        return FALSE;
+
+    // Enumerate \DosDevices\A: .. \DosDevices\Z:.
+    // Each symlink points to the NT volume device name, e.g. \Device\HarddiskVolume3.
+    // We pick the drive letter whose target is a prefix of NtPath, then
+    // substitute that prefix with "X:".  This avoids IoGetDeviceObjectPointer
+    // which requires the device to be ready for I/O and can fail transiently.
+
+    WCHAR linkNameBuf[] = L"\\DosDevices\\A:";
+    // Index 12 is the drive-letter position in the string above.
+
+    WCHAR targetBuf[512] = {0};
+
+    for (WCHAR letter = L'A'; letter <= L'Z'; letter++)
+    {
+        linkNameBuf[12] = letter;
+
+        UNICODE_STRING linkStr;
+        RtlInitUnicodeString(&linkStr, linkNameBuf);
+
+        OBJECT_ATTRIBUTES objAttr;
+        InitializeObjectAttributes(&objAttr, &linkStr,
+                                   OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE,
+                                   NULL, NULL);
+
+        HANDLE hLink;
+        NTSTATUS status = ZwOpenSymbolicLinkObject(&hLink, GENERIC_READ, &objAttr);
+        if (!NT_SUCCESS(status))
+            continue;
+
+        UNICODE_STRING target;
+        target.Buffer        = targetBuf;
+        target.Length        = 0;
+        target.MaximumLength = sizeof(targetBuf) - sizeof(WCHAR);
+        RtlZeroMemory(targetBuf, sizeof(targetBuf));
+
+        status = ZwQuerySymbolicLinkObject(hLink, &target, NULL);
+        ZwClose(hLink);
+
+        if (!NT_SUCCESS(status) || target.Length == 0)
+            continue;
+
+        SIZE_T targetChars = target.Length / sizeof(WCHAR);
+        targetBuf[targetChars] = L'\0';
+
+        // NtPath must start with this target, followed by '\' or end-of-string.
+        if (_wcsnicmp(NtPath, targetBuf, targetChars) != 0)
+            continue;
+        if (NtPath[targetChars] != L'\\' && NtPath[targetChars] != L'\0')
+            continue;
+
+        // Compose "X:" + NtPath[targetChars..]
+        SIZE_T suffixChars = pathLen - targetChars;  // includes the leading '\'
+        SIZE_T totalChars  = 2 + suffixChars;        // "X:" + suffix
+
+        if (totalChars + 1 > OutCch)
+            return FALSE;
+
+        OutBuffer[0] = letter;
+        OutBuffer[1] = L':';
+        RtlCopyMemory(OutBuffer + 2, NtPath + targetChars, suffixChars * sizeof(WCHAR));
+        OutBuffer[totalChars] = L'\0';
+        return TRUE;
     }
-    if (slashCount < 3)
-        return FALSE;   // not a \Device\X\... path (e.g. just \Device\HarddiskVolume3)
 
-    // Build a UNICODE_STRING for the volume-only portion: \Device\HarddiskVolume3
-    UNICODE_STRING volumePart;
-    volumePart.Buffer       = const_cast<PWCHAR>(NtPath);
-    volumePart.Length       = (USHORT)(volumeEnd * sizeof(WCHAR));
-    volumePart.MaximumLength = volumePart.Length;
-
-    // Open the volume device object by its NT namespace name.
-    PFILE_OBJECT  fileObj = NULL;
-    PDEVICE_OBJECT devObj = NULL;
-    NTSTATUS status = IoGetDeviceObjectPointer(&volumePart, FILE_READ_ATTRIBUTES, &fileObj, &devObj);
-    if (!NT_SUCCESS(status))
-        return FALSE;
-
-    // Map device object → DOS drive letter (e.g., "C:")
-    UNICODE_STRING dosName;
-    status = IoVolumeDeviceToDosName(devObj, &dosName);
-    ObDereferenceObject(fileObj);   // release ref obtained by IoGetDeviceObjectPointer
-    if (!NT_SUCCESS(status))
-        return FALSE;
-
-    // Compose: dosName + &NtPath[volumeEnd]  (suffix includes the leading backslash)
-    SIZE_T dosChars    = dosName.Length / sizeof(WCHAR);
-    SIZE_T suffixChars = pathLen - volumeEnd;
-    SIZE_T totalChars  = dosChars + suffixChars;
-
-    if (totalChars + 1 > OutCch) {
-        ExFreePool(dosName.Buffer);
-        return FALSE;
-    }
-
-    RtlCopyMemory(OutBuffer,            dosName.Buffer,          dosName.Length);
-    RtlCopyMemory(OutBuffer + dosChars, NtPath + volumeEnd, suffixChars * sizeof(WCHAR));
-    OutBuffer[totalChars] = L'\0';
-
-    ExFreePool(dosName.Buffer);
-    return TRUE;
+    return FALSE;
 }

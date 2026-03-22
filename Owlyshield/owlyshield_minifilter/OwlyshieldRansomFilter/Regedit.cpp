@@ -142,26 +142,32 @@ static BOOLEAN NormalizeRegistryAlertPath(_In_ PUNICODE_STRING SourcePath,
     }
     OutBuffer[charsToCopy] = L'\0';
 
+    // ObQueryNameString returns kernel-namespace paths (\REGISTRY\MACHINE\...).
+    // Convert to user-friendly form (HKLM\...) so the usermode consumer can
+    // display and match them without knowing kernel prefixes.
+    // Walk the map longest-KernelPrefix first to prefer the more specific
+    // HKCR / HKCC entries over the bare HKLM match.
     for (ULONG i = 0; i < RTL_NUMBER_OF(kRegistryHiveMap); ++i)
     {
-        if (_wcsnicmp(OutBuffer, kRegistryHiveMap[i].UserPrefix, kRegistryHiveMap[i].UserPrefixLen) == 0)
+        SIZE_T kernelPrefixLen = wcslen(kRegistryHiveMap[i].KernelPrefix);
+        if (_wcsnicmp(OutBuffer, kRegistryHiveMap[i].KernelPrefix, kernelPrefixLen) == 0)
         {
-            WCHAR expandedBuffer[MAX_FILE_NAME_LENGTH] = {0};
-            PCWSTR subpath = OutBuffer + kRegistryHiveMap[i].UserPrefixLen;
-            NTSTATUS status = RtlStringCchCopyW(expandedBuffer, RTL_NUMBER_OF(expandedBuffer),
-                                                kRegistryHiveMap[i].KernelPrefix);
+            WCHAR friendlyBuffer[MAX_FILE_NAME_LENGTH] = {0};
+            PCWSTR subpath = OutBuffer + kernelPrefixLen;
+            NTSTATUS status = RtlStringCchCopyW(friendlyBuffer, RTL_NUMBER_OF(friendlyBuffer),
+                                                kRegistryHiveMap[i].UserPrefix);
             if (!NT_SUCCESS(status))
             {
                 return FALSE;
             }
 
-            status = RtlStringCchCatW(expandedBuffer, RTL_NUMBER_OF(expandedBuffer), subpath);
+            status = RtlStringCchCatW(friendlyBuffer, RTL_NUMBER_OF(friendlyBuffer), subpath);
             if (!NT_SUCCESS(status))
             {
                 return FALSE;
             }
 
-            status = RtlStringCchCopyW(OutBuffer, OutBufferChars, expandedBuffer);
+            status = RtlStringCchCopyW(OutBuffer, OutBufferChars, friendlyBuffer);
             if (!NT_SUCCESS(status))
             {
                 return FALSE;
@@ -207,8 +213,12 @@ VOID SendRegistryAlert(PUNICODE_STRING RegPath, PCWSTR Operation, HANDLE Pid, UC
     // Copy Operation to Extension
     RtlStringCbCopyW(newEntry->data.Extension, sizeof(newEntry->data.Extension), Operation);
 
-    // Add to Driver Queue
-    driverData->AddIrpMessage(newEntry);
+    // Add to Driver Queue; free entry if queue is full to avoid leak.
+    if (!driverData->AddIrpMessage(newEntry)) {
+        DbgPrint("!!! Regedit: IRP queue full, dropping registry event for PID %lu\n",
+                 newEntry->data.PID);
+        delete newEntry;
+    }
 }
 
 NTSTATUS RegistryCallback(_In_ PVOID CallbackContext, _In_ PVOID Argument1, _In_ PVOID Argument2)
@@ -252,17 +262,19 @@ NTSTATUS RegistryCallback(_In_ PVOID CallbackContext, _In_ PVOID Argument1, _In_
             {
                 if (GetNameForRegistryObject(&RegPath, pInfo->Object))
                 {
-                    // Backup the value before it's deleted
+                    // Backup the value before it's deleted.
+                    // ZwOpenKey/ZwQueryValueKey require PASSIVE_LEVEL; skip backup
+                    // if called at elevated IRQL to avoid a system crash.
                     BOOLEAN isGidFound = FALSE;
                     ULONGLONG gid = driverData->GetProcessGid((ULONG)(ULONG_PTR)hPid, &isGidFound);
-                    if (isGidFound) {
+                    if (isGidFound && KeGetCurrentIrql() == PASSIVE_LEVEL) {
                         HANDLE hKey;
                         OBJECT_ATTRIBUTES objAttr;
                         InitializeObjectAttributes(&objAttr, &RegPath, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
                         NTSTATUS openStatus = ZwOpenKey(&hKey, KEY_QUERY_VALUE, &objAttr);
                         if (NT_SUCCESS(openStatus)) {
                             ULONG resultLength;
-                            PKEY_VALUE_PARTIAL_INFORMATION pValueInfo = (PKEY_VALUE_PARTIAL_INFORMATION)ExAllocatePool2(POOL_FLAG_PAGED, sizeof(KEY_VALUE_PARTIAL_INFORMATION) + 1024, REG_TAG);
+                            PKEY_VALUE_PARTIAL_INFORMATION pValueInfo = (PKEY_VALUE_PARTIAL_INFORMATION)ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeof(KEY_VALUE_PARTIAL_INFORMATION) + 1024, REG_TAG);
                             if (pValueInfo) {
                                 NTSTATUS queryStatus = ZwQueryValueKey(hKey, pInfo->ValueName, KeyValuePartialInformation, pValueInfo, sizeof(KEY_VALUE_PARTIAL_INFORMATION) + 1024, &resultLength);
                                 if (NT_SUCCESS(queryStatus) && pValueInfo->DataLength <= 1024) {
@@ -336,17 +348,19 @@ NTSTATUS RegistryCallback(_In_ PVOID CallbackContext, _In_ PVOID Argument1, _In_
             {
                 if (GetNameForRegistryObject(&RegPath, pInfo->Object))
                 {
-                    // Backup the value before it's set
+                    // Backup the value before it's set.
+                    // ZwOpenKey/ZwQueryValueKey require PASSIVE_LEVEL; skip backup
+                    // if called at elevated IRQL to avoid a system crash.
                     BOOLEAN isGidFound = FALSE;
                     ULONGLONG gid = driverData->GetProcessGid((ULONG)(ULONG_PTR)hPid, &isGidFound);
-                    if (isGidFound) {
+                    if (isGidFound && KeGetCurrentIrql() == PASSIVE_LEVEL) {
                         HANDLE hKey;
                         OBJECT_ATTRIBUTES objAttr;
                         InitializeObjectAttributes(&objAttr, &RegPath, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
                         NTSTATUS openStatus = ZwOpenKey(&hKey, KEY_QUERY_VALUE, &objAttr);
                         if (NT_SUCCESS(openStatus)) {
                             ULONG resultLength;
-                            PKEY_VALUE_PARTIAL_INFORMATION pValueInfo = (PKEY_VALUE_PARTIAL_INFORMATION)ExAllocatePool2(POOL_FLAG_PAGED, sizeof(KEY_VALUE_PARTIAL_INFORMATION) + 1024, REG_TAG);
+                            PKEY_VALUE_PARTIAL_INFORMATION pValueInfo = (PKEY_VALUE_PARTIAL_INFORMATION)ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeof(KEY_VALUE_PARTIAL_INFORMATION) + 1024, REG_TAG);
                             if (pValueInfo) {
                                 NTSTATUS queryStatus = ZwQueryValueKey(hKey, pInfo->ValueName, KeyValuePartialInformation, pValueInfo, sizeof(KEY_VALUE_PARTIAL_INFORMATION) + 1024, &resultLength);
                                 if (NT_SUCCESS(queryStatus) && pValueInfo->DataLength <= 1024) {
@@ -432,6 +446,8 @@ NTSTATUS RegistryCallback(_In_ PVOID CallbackContext, _In_ PVOID Argument1, _In_
     }
     __except (EXCEPTION_EXECUTE_HANDLER)
     {
+        DbgPrint("!!! Regedit: exception in RegistryCallback (class=%d, PID=%lu)\n",
+                 (int)(ULONG_PTR)Argument1, (ULONG)(ULONG_PTR)hPid);
     }
 
     if (RegPath.Buffer) ExFreePoolWithTag(RegPath.Buffer, REG_TAG);
