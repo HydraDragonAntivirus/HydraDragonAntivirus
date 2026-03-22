@@ -1092,13 +1092,7 @@ fn AlertWindow(
                          </div>
                          <div class="alert-footer-actions">
                                                            <button class="alert-btn block" on:click={let p = app.path.clone(); move |_| res3(n3.clone(), p.clone(), "block".to_string())}> "BLOCK" </button>
-                             {if is_owlyshield_alert {
-                                 view! {
-                                                                           <button class="alert-btn quarantine" on:click={let p = app.path.clone(); move |_| res4(n4.clone(), p.clone(), "quarantine".to_string())}> "QUARANTINE" </button>
-                                 }.into_view()
-                             } else {
-                                 view! {}.into_view()
-                             }}
+                                                           <button class="alert-btn quarantine" on:click={let p = app.path.clone(); move |_| res4(n4.clone(), p.clone(), "quarantine".to_string())}> "QUARANTINE" </button>
                                                            <button class="alert-btn session" on:click={let p = app.path.clone(); move |_| res1(n1.clone(), p.clone(), "allow_once".to_string())}> "ONCE" </button>
                                                            <button class="alert-btn always" on:click={let p = app.path.clone(); move |_| res2(n2.clone(), p.clone(), "allow_always".to_string())}> "TRUST" </button>
                          </div>
