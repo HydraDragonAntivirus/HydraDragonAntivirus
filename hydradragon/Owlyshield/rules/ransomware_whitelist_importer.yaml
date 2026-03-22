@@ -25,33 +25,51 @@
 
     suspicious_encryption_apis:
       # Threshold is intentionally 2, not 1.
-      # A single BCryptEncrypt / NCryptEncrypt call is normal for browsers (TLS),
-      # .NET runtimes, DPAPI, and system services.  Ransomware must set up a key
-      # first (acquire context → generate/import/derive key → encrypt), so it
-      # always produces at least 2 distinct crypto API calls.  Raising the
-      # threshold to 2 eliminates those single-call false alarms while keeping
-      # detection effective against all common ransomware crypto stacks.
+      # A single crypto API call is normal for browsers (TLS), .NET runtimes,
+      # DPAPI, and system services.  Ransomware must assemble a full encryption
+      # pipeline (acquire/open + key-setup + encrypt/export), so it always
+      # produces at least 2 distinct API types from this list.
       apis:
-        # WinCrypt (CryptoAPI) — key setup
+        # WinCrypt (CryptoAPI) — context + key setup
         - "advapi32!CryptAcquireContextA"
         - "advapi32!CryptAcquireContextW"
         - "advapi32!CryptGenKey"
         - "advapi32!CryptDeriveKey"
         - "advapi32!CryptImportKey"
+        - "advapi32!CryptExportKey"
+        - "advapi32!CryptSetKeyParam"
+        - "advapi32!CryptGetKeyParam"
+        # WinCrypt (CryptoAPI) — hashing (used for password-based key derivation)
+        - "advapi32!CryptCreateHash"
+        - "advapi32!CryptHashData"
+        - "advapi32!CryptGetHashParam"
         # WinCrypt (CryptoAPI) — encryption
         - "advapi32!CryptEncrypt"
         # BCrypt / CNG — algorithm provider + key setup
         - "bcrypt!BCryptOpenAlgorithmProvider"
+        - "bcrypt!BCryptCloseAlgorithmProvider"
         - "bcrypt!BCryptGenerateSymmetricKey"
         - "bcrypt!BCryptGenerateKeyPair"
+        - "bcrypt!BCryptFinalizeKeyPair"
         - "bcrypt!BCryptImportKey"
         - "bcrypt!BCryptImportKeyPair"
-        # BCrypt / CNG — encryption
+        - "bcrypt!BCryptExportKey"
+        - "bcrypt!BCryptSetProperty"
+        # BCrypt / CNG — encryption + key agreement
         - "bcrypt!BCryptEncrypt"
-        # NCrypt / CNG key storage — key setup + encryption
+        - "bcrypt!BCryptSecretAgreement"
+        - "bcrypt!BCryptDeriveKey"
+        # NCrypt / CNG key storage — key setup, export, encryption
         - "ncrypt!NCryptCreatePersistedKey"
+        - "ncrypt!NCryptFinalizeKey"
         - "ncrypt!NCryptImportKey"
+        - "ncrypt!NCryptExportKey"
         - "ncrypt!NCryptEncrypt"
+        - "ncrypt!NCryptSignHash"
+        - "ncrypt!NCryptSecretAgreement"
+        - "ncrypt!NCryptDeriveKey"
+        # Random number generation (key/IV material)
+        - "advapi32!SystemFunction036"
         # In-memory key protection (ransomware hides DEK/KEK in process memory)
         - "ntdll!RtlEncryptMemory"
       api_threshold: 2
@@ -70,7 +88,11 @@
 
     ransomware_create_activity:
       # Evaluated with read and delete branch.
+      # Requires the created file to have an unknown (non-whitelisted) extension so
+      # that ordinary file creation (e.g. temp files, documents) does not satisfy
+      # this condition — only the encrypted output file (.winball, .encrypted, etc.)
       file_operations: ["create"]
+      detect_non_whitelisted_extensions: true
       min_matches: 1
 
     ransomware_delete_activity:
@@ -79,21 +101,27 @@
       min_matches: 1
 
   detection_logic:
-    and:
-      - or:
-          # Branch A: read + write + rename with extension change (same-file prerequisites).
-          - and:
-              - condition: "ransomware_read_activity"
-              - condition: "ransomware_write_activity"
-              - condition: "ransomware_rename_activity"
-          # Branch B: read + create + delete (shadow-copy / replace style).
-          - and:
-              - condition: "ransomware_read_activity"
-              - condition: "ransomware_create_activity"
-              - condition: "ransomware_delete_activity"
-          # Branch C: mass disk writes (bulk file modification).
-          - condition: "mass_disk_writes"
-      # Encryption APIs required across all branches.
+    or:
+      # Branches A / B / C — file-operation evidence AND encryption APIs (both required).
+      - and:
+          - or:
+              # Branch A: read + write + rename with extension change (same-file prerequisites).
+              - and:
+                  - condition: "ransomware_read_activity"
+                  - condition: "ransomware_write_activity"
+                  - condition: "ransomware_rename_activity"
+              # Branch B: read + create + delete (shadow-copy / replace style).
+              - and:
+                  - condition: "ransomware_read_activity"
+                  - condition: "ransomware_create_activity"
+                  - condition: "ransomware_delete_activity"
+              # Branch C: mass disk writes (bulk file modification).
+              - condition: "mass_disk_writes"
+          # Encryption APIs required for A / B / C.
+          - condition: "suspicious_encryption_apis"
+      # Branch D: 3+ distinct crypto API types alone (no file-op evidence needed).
+      # Same condition as above, standalone — catches MapViewOfFile-based ransomware
+      # where no IRP_MJ_READ / IRP_MJ_WRITE reaches the minifilter.
       - condition: "suspicious_encryption_apis"
 
   response:
