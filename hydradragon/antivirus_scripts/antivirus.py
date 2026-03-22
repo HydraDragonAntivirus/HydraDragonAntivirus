@@ -1793,30 +1793,55 @@ def scan_yara(file_path):
             except Exception as e:
                 logger.error(f"Error scanning with clean_rules: {e}")
 
-        # Thread worker for yarGen_rule scanning
+        # Thread worker for yarGen PE rule scanning
         def yargen_rule_worker():
             try:
                 if yarGen_pe_rules:
-                    matches = yarGen_rules.match(data=data_content)
+                    matches = yarGen_pe_rules.match(data=data_content)
                     local_matched_rules = []
                     local_matched_results = []
 
                     for match in matches or []:
                         if match.rule not in excluded_rules:
                             local_matched_rules.append(match.rule)
-                            match_details = extract_match_details(match, 'yarGen_rule')
+                            match_details = extract_match_details(match, 'yarGen_pe_rule')
                             local_matched_results.append(match_details)
                         else:
-                            logger.info(f"Rule {match.rule} is excluded from yarGen_rule.")
+                            logger.info(f"Rule {match.rule} is excluded from yarGen_pe_rule.")
 
                     # Update shared results
                     with thread_lock_yara:
                         results['matched_rules'].extend(local_matched_rules)
                         results['matched_results'].extend(local_matched_results)
                 else:
-                    logger.error("yarGen_rule is not defined.")
+                    logger.error("yarGen_pe_rules is not defined.")
             except Exception as e:
-                logger.error(f"Error scanning with yarGen_rule: {e}")
+                logger.error(f"Error scanning with yarGen_pe_rule: {e}")
+
+        # Thread worker for yarGen JS rule scanning
+        def yargen_js_rule_worker():
+            try:
+                if yarGen_js_rules:
+                    matches = yarGen_js_rules.match(data=data_content)
+                    local_matched_rules = []
+                    local_matched_results = []
+
+                    for match in matches or []:
+                        if match.rule not in excluded_rules:
+                            local_matched_rules.append(match.rule)
+                            match_details = extract_match_details(match, 'yarGen_js_rule')
+                            local_matched_results.append(match_details)
+                        else:
+                            logger.info(f"Rule {match.rule} is excluded from yarGen_js_rule.")
+
+                    # Update shared results
+                    with thread_lock_yara:
+                        results['matched_rules'].extend(local_matched_rules)
+                        results['matched_results'].extend(local_matched_results)
+                else:
+                    logger.error("yarGen_js_rules is not defined.")
+            except Exception as e:
+                logger.error(f"Error scanning with yarGen_js_rule: {e}")
 
         # Thread worker for icewater_rule scanning
         def icewater_rule_worker():
@@ -1873,6 +1898,7 @@ def scan_yara(file_path):
         workers = [
             clean_rules_worker,
             yargen_rule_worker,
+            yargen_js_rule_worker,
             icewater_rule_worker,
             valhalla_rule_worker
         ]
@@ -9479,8 +9505,14 @@ async def load_all_resources_async():
 
     async def load_yargen():
         global yarGen_pe_rules
-        yarGen_pe_rules = await load_resource_safe("yarGen Rules",
-                                                functools.partial(load_yara_safe, yarGen_rule_path, "yarGen Rules", False),
+        yarGen_pe_rules = await load_resource_safe("yarGen PE Rules",
+                                                functools.partial(load_yara_safe, yarGen_pe_rule_path, "yarGen PE Rules", False),
+                                                timeout=30)
+
+    async def load_yargen_js():
+        global yarGen_js_rules
+        yarGen_js_rules = await load_resource_safe("yarGen JS Rules",
+                                                functools.partial(load_yara_safe, yarGen_js_rule_path, "yarGen JS Rules", False),
                                                 timeout=30)
 
     async def load_icewater():
@@ -9534,6 +9566,7 @@ async def load_all_resources_async():
     asyncio.create_task(load_suricata(), name="load_suricata")
     asyncio.create_task(load_antivirus_list(), name="load_antivirus_list")
     asyncio.create_task(load_yargen(), name="load_yargen")
+    asyncio.create_task(load_yargen_js(), name="load_yargen_js")
     asyncio.create_task(load_icewater(), name="load_icewater")
     asyncio.create_task(load_valhalla(), name="load_valhalla")
     asyncio.create_task(load_clean(), name="load_clean")
