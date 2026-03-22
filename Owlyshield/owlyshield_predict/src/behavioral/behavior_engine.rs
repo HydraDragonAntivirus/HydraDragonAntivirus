@@ -909,6 +909,14 @@ pub struct NamedConditionGroup {
     pub min_files_accessed: Option<usize>,
     #[serde(default)]
     pub min_directories_accessed: Option<usize>,
+
+    /// When true, the items in this condition (apis, file_operations, etc.) are
+    /// evaluated as an unordered set — the engine checks that the required count
+    /// is reached regardless of the sequence in which events arrived.
+    /// Mark any condition whose items have no meaningful call-order dependency.
+    /// This also signals rule authors that reordering the list in the YAML is safe.
+    #[serde(default)]
+    pub orderless: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
