@@ -82,23 +82,19 @@
     and:
       - or:
           # Branch A: read + write + rename with extension change (same-file prerequisites).
-          # Encryption APIs are corroborating evidence but NOT required: ransomware that
-          # uses custom crypto (XOR, RC4, ChaCha20, .NET AES, etc.) must still be caught.
           - and:
               - condition: "ransomware_read_activity"
               - condition: "ransomware_write_activity"
               - condition: "ransomware_rename_activity"
-          # Branch B: read + create + delete pattern (shadow-copy / replace style).
+          # Branch B: read + create + delete (shadow-copy / replace style).
           - and:
               - condition: "ransomware_read_activity"
               - condition: "ransomware_create_activity"
               - condition: "ransomware_delete_activity"
-      # At least one of mass-disk-writes or known encryption APIs must corroborate.
-      # This keeps the outer gate strict enough to avoid false positives while
-      # allowing detection regardless of which crypto primitive the sample uses.
-      - any_of:
-          - "mass_disk_writes"
-          - "suspicious_encryption_apis"
+          # Branch C: mass disk writes (bulk file modification).
+          - condition: "mass_disk_writes"
+      # Encryption APIs required across all branches.
+      - condition: "suspicious_encryption_apis"
 
   response:
     terminate_process: true
