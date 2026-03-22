@@ -10,6 +10,39 @@ use crate::{
 
 use super::ipc_injected_dll::run_ipc_for_injected_dll;
 
+/// Pipe name of the Owlyshield behavior engine's Sanctum telemetry receiver.
+const OWLYSHIELD_SANCTUM_PIPE: &str = r"\\.\pipe\HydraSanctumTelemetry";
+
+/// Forward a Syscall event to the Owlyshield behavior engine over the
+/// HydraSanctumTelemetry named pipe as a JSON line.
+/// The function is fire-and-forget: if the pipe is unavailable (Owlyshield
+/// not running) it silently drops the event — Sanctum continues normally.
+fn forward_to_owlyshield(syscall: &shared_no_std::ghost_hunting::Syscall) {
+    use std::io::Write;
+
+    // Build a simplified JSON payload: {pid, source, function, args}
+    let function_name = match &syscall.data {
+        shared_no_std::ghost_hunting::NtFunction::NtOpenProcess(_)          => "NtOpenProcess",
+        shared_no_std::ghost_hunting::NtFunction::NtWriteVirtualMemory(_)   => "NtWriteVirtualMemory",
+        shared_no_std::ghost_hunting::NtFunction::NtAllocateVirtualMemory(_)=> "NtAllocateVirtualMemory",
+        shared_no_std::ghost_hunting::NtFunction::NtCreateThreadEx(_)       => "NtCreateThreadEx",
+        shared_no_std::ghost_hunting::NtFunction::None                      => return, // skip empty
+    };
+    let source_str = match syscall.source {
+        shared_no_std::ghost_hunting::SyscallEventSource::EventSourceKernel      => "kernel",
+        shared_no_std::ghost_hunting::SyscallEventSource::EventSourceSyscallHook => "syscall_hook",
+    };
+    let args_json = serde_json::to_string(&syscall.data).unwrap_or_else(|_| "{}".to_string());
+    let line = format!(
+        "{{\"pid\":{},\"source\":\"{}\",\"function\":\"{}\",\"args\":{}}}\n",
+        syscall.pid, source_str, function_name, args_json
+    );
+
+    if let Ok(mut pipe) = std::fs::OpenOptions::new().write(true).open(OWLYSHIELD_SANCTUM_PIPE) {
+        let _ = pipe.write_all(line.as_bytes());
+    }
+}
+
 /// The core struct contains information on the core of the usermode engine where decisions are being made, and directly communicates
 /// with the kernel.
 ///
@@ -71,9 +104,11 @@ impl Core {
         //
         loop {
             // See if there is a message from the injected DLL
-            if let Ok(rx) = rx.try_recv() {
+            if let Ok(syscall) = rx.try_recv() {
+                // Forward to Owlyshield behavior engine before local processing.
+                forward_to_owlyshield(&syscall);
                 let mut mtx = driver_manager.lock().await;
-                mtx.ioctl_syscall_event(rx);
+                mtx.ioctl_syscall_event(syscall);
             }
 
             // contact the driver and get any messages from the kernel

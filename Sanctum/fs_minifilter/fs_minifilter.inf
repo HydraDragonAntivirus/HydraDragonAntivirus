@@ -5,7 +5,7 @@ Signature   = "$WINDOWS NT$"
 Class       = "ActivityMonitor"
 ClassGuid   = {b86dff51-a31e-4bac-b3cf-e8cfe75c9fc2}
 Provider    = %ManufacturerName%
-DriverVer   = 02/08/2026,1.0.0.0
+DriverVer   = 03/23/2026,1.0.0.0
 CatalogFile = fs_minifilter.cat
 PnpLockdown = 1
 

@@ -740,6 +740,15 @@ pub struct NamedConditionGroup {
     /// deleting "document.docx" then satisfies this prerequisite.
     #[serde(default)]
     pub require_same_stem_created_unknown_extension: bool,
+
+    /// True when the condition requires that a *write* to a file with the same stem
+    /// but an unknown (non-whitelisted) extension was observed for the same process.
+    /// e.g., writing "document.docx.winball" stores stem "document.docx";
+    /// renaming "document.docx" then satisfies this prerequisite.
+    /// Catches ransomware that writes encrypted output to a new file then
+    /// renames/deletes the original — evading require_same_file_write.
+    #[serde(default)]
+    pub require_same_stem_written_unknown_extension: bool,
     
     #[serde(default)]
     pub registry_keys: Vec<String>,
@@ -814,6 +823,12 @@ pub struct NamedConditionGroup {
     pub cmdline_patterns: Vec<CommandLinePattern>,
     #[serde(default)]
     pub cmdline_keywords: Vec<String>,
+    /// Match against the script file extracted from an interpreter's command line.
+    /// e.g. for `powershell.exe -File evil.ps1`, matches against "evil.ps1".
+    /// Supports glob patterns. Works for powershell, cmd, wscript, cscript,
+    /// mshta, rundll32, regsvr32, msiexec, python, node, ruby, perl.
+    #[serde(default)]
+    pub script_file_patterns: Vec<String>,
     
     #[serde(default)]
     pub staging_paths: Vec<String>,
@@ -1329,6 +1344,19 @@ pub struct ProcessBehaviorState {
     // e.g., creating "c:/users/foo/document.docx.winball" stores "c:/users/foo/document.docx".
     // Used by `require_same_stem_created_unknown_extension` on delete conditions.
     pub created_unknown_ext_stems: HashSet<String>,
+
+    // Stems collected from write events where the file had an unknown (non-whitelisted) extension.
+    // Key: lowercase full path with the last extension stripped.
+    // e.g., writing "c:/users/foo/document.docx.winball" stores "c:/users/foo/document.docx".
+    // Used by `require_same_stem_written_unknown_extension` on rename conditions.
+    pub written_unknown_ext_stems: HashSet<String>,
+
+    // Script file extracted from the interpreter's command line.
+    // e.g. for `powershell.exe -File C:\foo\evil.ps1`:
+    //   script_file      = "evil.ps1"
+    //   script_file_path = "c:/foo/evil.ps1"
+    pub script_file: String,
+    pub script_file_path: String,
 }
 
 impl ProcessBehaviorState {
@@ -1356,6 +1384,9 @@ impl ProcessBehaviorState {
         state.hypervisor_event_count = 0;
         state.hypervisor_events_total = 0;
         state.created_unknown_ext_stems = HashSet::new();
+        state.written_unknown_ext_stems = HashSet::new();
+        state.script_file = String::new();
+        state.script_file_path = String::new();
 
         state
     }
@@ -1664,6 +1695,44 @@ impl BehaviorEngine {
                                         ));
                                     }
                                 }
+                            } else if let Some(json) = line.strip_prefix("FULL_PACKET:") {
+                                // Full PacketInfo JSON from the firewall — log every field.
+                                // Sent for every blocked packet so the behavior engine has
+                                // complete forensic context for rule matching and reports.
+                                match serde_json::from_str::<serde_json::Value>(json) {
+                                    Ok(pkt) => {
+                                        Logging::info(&format!(
+                                            "[FirewallEvent] proto={} src={}:{} dst={}:{} pid={} process={} \
+                                             outbound={} hostname={} url={} method={} path={} ua={} \
+                                             content_type={} referer={} dns={} entropy={} \
+                                             file_type={} payload_sample={} urls=[{}] domains=[{}]",
+                                            pkt["protocol"].as_str().unwrap_or("-"),
+                                            pkt["src_ip"].as_str().unwrap_or("-"),
+                                            pkt["src_port"].as_u64().unwrap_or(0),
+                                            pkt["dst_ip"].as_str().unwrap_or("-"),
+                                            pkt["dst_port"].as_u64().unwrap_or(0),
+                                            pkt["process_id"].as_u64().unwrap_or(0),
+                                            pkt["image_path"].as_str().unwrap_or("-"),
+                                            pkt["outbound"].as_bool().unwrap_or(false),
+                                            pkt["hostname"].as_str().unwrap_or("-"),
+                                            pkt["full_url"].as_str().unwrap_or("-"),
+                                            pkt["http_method"].as_str().unwrap_or("-"),
+                                            pkt["http_path"].as_str().unwrap_or("-"),
+                                            pkt["http_user_agent"].as_str().unwrap_or("-"),
+                                            pkt["http_content_type"].as_str().unwrap_or("-"),
+                                            pkt["http_referer"].as_str().unwrap_or("-"),
+                                            pkt["dns_query"].as_str().unwrap_or("-"),
+                                            pkt["payload_entropy"].as_f64().map(|e| format!("{:.3}", e)).unwrap_or("-".to_string()),
+                                            pkt["detected_file_type"].as_str().unwrap_or("-"),
+                                            pkt["payload_sample"].as_str().unwrap_or("-"),
+                                            pkt["payload_urls"].as_array().map(|a| a.iter().filter_map(|v| v.as_str()).collect::<Vec<_>>().join(",")).unwrap_or_default(),
+                                            pkt["payload_domains"].as_array().map(|a| a.iter().filter_map(|v| v.as_str()).collect::<Vec<_>>().join(",")).unwrap_or_default(),
+                                        ));
+                                    }
+                                    Err(e) => {
+                                        Logging::warning(&format!("[FirewallEvent] Failed to parse FULL_PACKET JSON: {}", e));
+                                    }
+                                }
                             }
                         }
                     }
@@ -1677,6 +1746,159 @@ impl BehaviorEngine {
 
             })
             .expect("failed to spawn hydra_net_event_pipe thread");
+    }
+
+    /// Spawn the \\.\pipe\HydraSanctumTelemetry named pipe server thread.
+    /// Sanctum EDR sends JSON-serialised Syscall events:
+    ///   {"pid":<u32>,"source":"<str>","function":"<str>","args":{...}}
+    /// Each event is newline-delimited. The pipe validates the client is
+    /// sanctum's um_engine (um_engine.exe) before accepting data.
+    /// Received events are logged and fed into the per-process behavior state
+    /// so that rules can react to process injection APIs observed by Sanctum.
+    pub fn start_sanctum_telemetry_pipe(&self) {
+        use std::ffi::OsStr;
+        use std::os::windows::ffi::OsStrExt;
+        use windows::Win32::Foundation::{
+            CloseHandle, GetLastError, HANDLE, INVALID_HANDLE_VALUE, ERROR_PIPE_CONNECTED,
+        };
+        use windows::Win32::Storage::FileSystem::{ReadFile, PIPE_ACCESS_INBOUND};
+        use windows::Win32::System::Pipes::{
+            ConnectNamedPipe, CreateNamedPipeW, DisconnectNamedPipe,
+            NAMED_PIPE_MODE, PIPE_UNLIMITED_INSTANCES,
+        };
+        use windows::core::PCWSTR;
+
+        let net_pids    = Arc::clone(&self.firewall_net_pids);
+        let net_details = Arc::clone(&self.firewall_net_details);
+
+        std::thread::Builder::new()
+            .name("sanctum_telemetry_pipe".to_string())
+            .spawn(move || {
+                let pipe_name_str = r"\\.\pipe\HydraSanctumTelemetry";
+                let wide: Vec<u16> = OsStr::new(pipe_name_str)
+                    .encode_wide()
+                    .chain(std::iter::once(0u16))
+                    .collect();
+
+                Logging::info("[SanctumPipe] Starting Sanctum telemetry pipe server");
+
+                loop {
+                    let handle: HANDLE = unsafe {
+                        CreateNamedPipeW(
+                            PCWSTR(wide.as_ptr()),
+                            PIPE_ACCESS_INBOUND,
+                            NAMED_PIPE_MODE(0),
+                            PIPE_UNLIMITED_INSTANCES,
+                            0,
+                            65536,
+                            0,
+                            None,
+                        )
+                    };
+
+                    if handle == INVALID_HANDLE_VALUE {
+                        Logging::error("[SanctumPipe] CreateNamedPipeW failed; retrying in 2s");
+                        std::thread::sleep(std::time::Duration::from_secs(2));
+                        continue;
+                    }
+
+                    let connected = unsafe { ConnectNamedPipe(handle, None) }.as_bool()
+                        || unsafe { GetLastError() } == ERROR_PIPE_CONNECTED;
+
+                    if !connected {
+                        Logging::warning("[SanctumPipe] ConnectNamedPipe failed; recreating pipe");
+                        unsafe {
+                            let _ = DisconnectNamedPipe(handle);
+                            let _ = CloseHandle(handle);
+                        }
+                        std::thread::sleep(std::time::Duration::from_millis(250));
+                        continue;
+                    }
+
+                    // Validate: only accept Sanctum's um_engine
+                    if !unsafe { validate_pipe_client(handle, Some("um_engine.exe"), false) } {
+                        Logging::error("[SanctumPipe] Rejected unauthorized client");
+                        unsafe {
+                            let _ = DisconnectNamedPipe(handle);
+                            let _ = CloseHandle(handle);
+                        }
+                        continue;
+                    }
+
+                    Logging::info("[SanctumPipe] Sanctum um_engine connected");
+
+                    let mut buf = vec![0u8; 65536];
+                    let mut leftover = String::new();
+
+                    loop {
+                        let mut bytes_read: u32 = 0;
+                        let ok = unsafe {
+                            ReadFile(
+                                handle,
+                                Some(buf.as_mut_ptr() as *mut core::ffi::c_void),
+                                buf.len() as u32,
+                                Some(&mut bytes_read),
+                                None,
+                            )
+                        };
+                        if !ok.as_bool() || bytes_read == 0 {
+                            break;
+                        }
+                        leftover.push_str(&String::from_utf8_lossy(&buf[..bytes_read as usize]));
+
+                        while let Some(pos) = leftover.find('\n') {
+                            let line = leftover[..pos].trim().to_string();
+                            leftover = leftover[pos + 1..].to_string();
+
+                            if line.is_empty() {
+                                continue;
+                            }
+
+                            match serde_json::from_str::<serde_json::Value>(&line) {
+                                Ok(event) => {
+                                    let pid = event["pid"].as_u64().unwrap_or(0) as u32;
+                                    let source = event["source"].as_str().unwrap_or("-");
+                                    let function = event["function"].as_str().unwrap_or("-");
+                                    let args = &event["args"];
+
+                                    Logging::info(&format!(
+                                        "[SanctumTelemetry] pid={} source={} function={} args={}",
+                                        pid, source, function,
+                                        serde_json::to_string(args).unwrap_or_default()
+                                    ));
+
+                                    // Register the PID as network-active if Sanctum observes
+                                    // suspicious cross-process operations (NtOpenProcess etc.)
+                                    // so firewall and behavior rules can correlate.
+                                    if pid != 0 && matches!(function,
+                                        "NtOpenProcess" | "NtWriteVirtualMemory" |
+                                        "NtAllocateVirtualMemory" | "NtCreateThreadEx"
+                                    ) {
+                                        net_pids.write().unwrap().insert(pid);
+                                        Logging::warning(&format!(
+                                            "[SanctumTelemetry] Suspicious syscall from PID {}: {}",
+                                            pid, function
+                                        ));
+                                    }
+                                }
+                                Err(e) => {
+                                    Logging::warning(&format!(
+                                        "[SanctumPipe] Failed to parse event JSON: {} — raw: {}",
+                                        e, &line[..line.len().min(120)]
+                                    ));
+                                }
+                            }
+                        }
+                    }
+
+                    Logging::info("[SanctumPipe] Sanctum um_engine disconnected; waiting for reconnect");
+                    unsafe {
+                        let _ = DisconnectNamedPipe(handle);
+                        let _ = CloseHandle(handle);
+                    }
+                }
+            })
+            .expect("failed to spawn sanctum_telemetry_pipe thread");
     }
 
     fn sanitize_firewall_hips_field(value: &str) -> String {
@@ -2644,6 +2866,13 @@ impl BehaviorEngine {
             let mut s = ProcessBehaviorState::new(msg.pid, precord.exepath.clone(), precord.appname.clone());
             if !msg.runtime_features.command_line.trim().is_empty() {
                 s.command_line = msg.runtime_features.command_line.to_lowercase();
+                if let Some((fname, fpath)) = Self::extract_script_from_cmdline(
+                    &precord.appname,
+                    &msg.runtime_features.command_line,
+                ) {
+                    s.script_file = fname;
+                    s.script_file_path = fpath;
+                }
             }
                         
             let parent_pid = msg.parent_pid;
@@ -2797,6 +3026,15 @@ impl BehaviorEngine {
         let pid = state.pid;
         if state.command_line.is_empty() && !msg.runtime_features.command_line.trim().is_empty() {
             state.command_line = msg.runtime_features.command_line.to_lowercase();
+            if state.script_file.is_empty() {
+                if let Some((fname, fpath)) = Self::extract_script_from_cmdline(
+                    &state.app_name,
+                    &msg.runtime_features.command_line,
+                ) {
+                    state.script_file = fname;
+                    state.script_file_path = fpath;
+                }
+            }
         }
 
         if self.rules.iter().any(|r| r.debug) {
@@ -3195,7 +3433,9 @@ impl BehaviorEngine {
                         && (!cond_group.require_same_file_write || precord.has_written_file_id(&msg.file_id_id))
                         && (!cond_group.require_same_file_rename || precord.has_renamed_file_id(&msg.file_id_id))
                         && (!cond_group.require_same_stem_created_unknown_extension
-                            || state.created_unknown_ext_stems.contains(filepath));
+                            || state.created_unknown_ext_stems.contains(filepath))
+                        && (!cond_group.require_same_stem_written_unknown_extension
+                            || state.written_unknown_ext_stems.contains(filepath));
 
                 let parent_image_touched = !state.parent_path.as_os_str().is_empty()
                     && target_matches_process_image(&state.parent_path, filepath, &msg.filepathstr);
@@ -3332,10 +3572,11 @@ impl BehaviorEngine {
                                 );
                                 if !whitelisted {
                                     matched = true;
-                                    // Record the stem so that a later delete of the original
-                                    // file can satisfy `require_same_stem_created_unknown_extension`.
+                                    // Record the stem so that a later delete/rename of the original
+                                    // file can satisfy `require_same_stem_created_unknown_extension`
+                                    // or `require_same_stem_written_unknown_extension`.
                                     // e.g., "c:/users/foo/document.docx.winball" → stem "c:/users/foo/document.docx"
-                                    if current_file_op == Some("create") && !filepath.is_empty() {
+                                    if !filepath.is_empty() && matches!(current_file_op, Some("create") | Some("write")) {
                                         let last_sep = filepath.rfind('/').unwrap_or(0);
                                         let stem = if let Some(dot_pos) = filepath.rfind('.') {
                                             if dot_pos > last_sep {
@@ -3347,11 +3588,19 @@ impl BehaviorEngine {
                                             filepath.to_string()
                                         };
                                         if stem != *filepath {
-                                            Logging::debug(&format!(
-                                                "[BehaviorEngine] Stored create stem for delete correlation (PID {}): {}",
-                                                state.pid, stem
-                                            ));
-                                            state.created_unknown_ext_stems.insert(stem);
+                                            if current_file_op == Some("create") {
+                                                Logging::debug(&format!(
+                                                    "[BehaviorEngine] Stored create stem for delete correlation (PID {}): {}",
+                                                    state.pid, stem
+                                                ));
+                                                state.created_unknown_ext_stems.insert(stem);
+                                            } else {
+                                                Logging::debug(&format!(
+                                                    "[BehaviorEngine] Stored write stem for rename correlation (PID {}): {}",
+                                                    state.pid, stem
+                                                ));
+                                                state.written_unknown_ext_stems.insert(stem);
+                                            }
                                         }
                                     }
                                     Logging::info(&format!(
@@ -3463,6 +3712,26 @@ impl BehaviorEngine {
                                 cond_name, state.pid, cmdline_lc
                             ));
                         }
+                    }
+                }
+
+                // script_file_patterns: match against the script file extracted
+                // from the interpreter's command line (e.g. "evil.ps1" from
+                // `powershell.exe -File evil.ps1`). Matches both the filename
+                // and the full normalized path so rules can be as broad or
+                // narrow as needed.
+                if !matched && !cond_group.script_file_patterns.is_empty() && !state.script_file.is_empty() {
+                    let hit = cond_group.script_file_patterns.iter().any(|pat| {
+                        let p = pat.to_lowercase();
+                        Self::matches_pattern_internal(&self.regex_cache, &p, &state.script_file)
+                            || Self::matches_pattern_internal(&self.regex_cache, &p, &state.script_file_path)
+                    });
+                    if hit {
+                        matched = true;
+                        Logging::info(&format!(
+                            "[BehaviorEngine] Condition '{}' - Script file match for PID {}: {}",
+                            cond_name, state.pid, state.script_file
+                        ));
                     }
                 }
 
@@ -3760,7 +4029,12 @@ impl BehaviorEngine {
                 break;
             }
 
-            if self.check_allowlist(&precord.appname, rule, Some(&precord.exepath)) {
+            let script_file_opt = if state_ref.script_file.is_empty() {
+                None
+            } else {
+                Some(state_ref.script_file.as_str())
+            };
+            if self.check_allowlist(&precord.appname, rule, Some(&precord.exepath), script_file_opt) {
                 continue;
             }
 
@@ -4145,9 +4419,187 @@ impl BehaviorEngine {
         (detected, stage_confidence)
     }
     
-    fn check_allowlist(&self, proc_name: &str, rule: &BehaviorRule, process_path: Option<&Path>) -> bool {
-        let proc_lc = proc_name.to_lowercase();
-        rule.allowlisted_apps.iter().any(|entry| {
+    /// Parse the command line of a known script interpreter and return
+    /// `(script_filename, script_full_path_normalized)`.
+    /// Returns `None` when the process is not a known interpreter or no script
+    /// argument can be identified.
+    fn extract_script_from_cmdline(interpreter: &str, cmdline: &str) -> Option<(String, String)> {
+        let interp = interpreter.to_lowercase();
+        let interp_name = interp
+            .split(['\\', '/'])
+            .filter(|s| !s.is_empty())
+            .last()
+            .unwrap_or(&interp);
+
+        // Tokenise: respect double-quoted tokens, strip surrounding quotes.
+        let tokens: Vec<String> = {
+            let mut result = Vec::new();
+            let mut current = String::new();
+            let mut in_quotes = false;
+            for ch in cmdline.chars() {
+                match ch {
+                    '"' => in_quotes = !in_quotes,
+                    ' ' | '\t' if !in_quotes => {
+                        if !current.is_empty() {
+                            result.push(current.clone());
+                            current.clear();
+                        }
+                    }
+                    _ => current.push(ch),
+                }
+            }
+            if !current.is_empty() {
+                result.push(current);
+            }
+            result
+        };
+
+        // Skip token[0] — that is the interpreter itself.
+        let args: &[String] = if tokens.len() > 1 { &tokens[1..] } else { return None; };
+
+        let script_path: Option<String> = match interp_name {
+            // ── PowerShell / pwsh ──────────────────────────────────────────
+            n if n == "powershell.exe" || n == "pwsh.exe" => {
+                let mut i = 0;
+                let mut found: Option<String> = None;
+                while i < args.len() {
+                    let a = args[i].to_lowercase();
+                    if a == "-file" || a == "-f" {
+                        found = args.get(i + 1).cloned();
+                        break;
+                    }
+                    // Bare argument that is not a flag and ends with .ps1/.psm1/.psd1
+                    if !a.starts_with('-') {
+                        let ext = a.rsplit('.').next().unwrap_or("");
+                        if matches!(ext, "ps1" | "psm1" | "psd1") {
+                            found = Some(args[i].clone());
+                            break;
+                        }
+                    }
+                    i += 1;
+                }
+                found
+            }
+
+            // ── cmd.exe ───────────────────────────────────────────────────
+            n if n == "cmd.exe" => {
+                let mut i = 0;
+                while i < args.len() {
+                    let a = args[i].to_lowercase();
+                    if a == "/c" || a == "/k" || a == "/r" {
+                        // Everything after /c is the command; grab the first token.
+                        if let Some(next) = args.get(i + 1) {
+                            // Only report it if it looks like a file (has an extension).
+                            if next.contains('.') && !next.starts_with('/') {
+                                return Some(next.clone());
+                            }
+                        }
+                        break;
+                    }
+                    i += 1;
+                }
+                None
+            }
+
+            // ── wscript.exe / cscript.exe ─────────────────────────────────
+            n if n == "wscript.exe" || n == "cscript.exe" => {
+                // First non-flag argument is the script file.
+                args.iter()
+                    .find(|a| !a.starts_with('/') && !a.starts_with('-') && a.contains('.'))
+                    .cloned()
+            }
+
+            // ── mshta.exe ─────────────────────────────────────────────────
+            n if n == "mshta.exe" => {
+                args.first()
+                    .filter(|a| !a.starts_with('/') && a.contains('.'))
+                    .cloned()
+            }
+
+            // ── rundll32.exe ──────────────────────────────────────────────
+            // Format: rundll32.exe path\script.dll,EntryPoint
+            n if n == "rundll32.exe" => {
+                args.first().map(|a| {
+                    // Strip the ,EntryPoint suffix if present.
+                    if let Some(comma) = a.find(',') {
+                        a[..comma].to_string()
+                    } else {
+                        a.clone()
+                    }
+                })
+            }
+
+            // ── regsvr32.exe ──────────────────────────────────────────────
+            n if n == "regsvr32.exe" => {
+                args.iter()
+                    .find(|a| {
+                        let l = a.to_lowercase();
+                        !l.starts_with('/') && (l.ends_with(".dll") || l.ends_with(".ocx"))
+                    })
+                    .cloned()
+            }
+
+            // ── msiexec.exe ───────────────────────────────────────────────
+            n if n == "msiexec.exe" => {
+                let mut i = 0;
+                while i < args.len() {
+                    let a = args[i].to_lowercase();
+                    if a == "/i" || a == "/x" || a == "/a" || a == "/p" {
+                        return args.get(i + 1).cloned();
+                    }
+                    i += 1;
+                }
+                None
+            }
+
+            // ── Generic script interpreters ───────────────────────────────
+            // python.exe, python3.exe, node.exe, ruby.exe, perl.exe, php.exe,
+            // bash.exe, sh.exe, lua.exe, Rscript.exe …
+            n if matches!(n,
+                "python.exe" | "python3.exe" | "node.exe" | "node" |
+                "ruby.exe" | "perl.exe" | "php.exe" | "bash.exe" |
+                "sh.exe" | "lua.exe" | "rscript.exe" | "julia.exe"
+            ) => {
+                // Skip interpreter flags (-c, --version, etc.) and take the
+                // first argument that looks like a file path.
+                args.iter()
+                    .find(|a| !a.starts_with('-') && a.contains('.'))
+                    .cloned()
+            }
+
+            _ => None,
+        };
+
+        script_path.map(|raw| {
+            let norm = raw.replace('\\', "/").to_lowercase();
+            let filename = norm
+                .split('/')
+                .filter(|s| !s.is_empty())
+                .last()
+                .unwrap_or(&norm)
+                .to_string();
+            (filename, norm)
+        })
+    }
+
+    fn check_allowlist(
+        &self,
+        proc_name: &str,
+        rule: &BehaviorRule,
+        process_path: Option<&Path>,
+        script_file: Option<&str>,
+    ) -> bool {
+        // Check interpreter name first, then fall back to script filename.
+        // This lets allowlist entries like `pattern: "benign_deploy.ps1"` work
+        // even when the tracked process is `powershell.exe`.
+        let names_to_check: &[&str] = &[
+            proc_name,
+            script_file.unwrap_or(""),
+        ];
+        names_to_check.iter().any(|name| {
+            if name.is_empty() { return false; }
+            let proc_lc = name.to_lowercase();
+            rule.allowlisted_apps.iter().any(|entry| {
             match entry {
                 AllowlistEntry::Simple(pattern) => proc_lc.contains(&pattern.to_lowercase()),
                 AllowlistEntry::Complex { pattern, signers, must_be_signed } => {
@@ -4182,8 +4634,9 @@ impl BehaviorEngine {
                 }
             }
         })
+        }) // end names_to_check.iter().any()
     }
-    
+
     fn matches_pattern_internal(cache: &RefCell<HashMap<String, Regex>>, pattern: &str, text: &str) -> bool {
         if !pattern.contains(['*', '?', '[', '\\', '.', '^', '$']) {
             return text.to_lowercase().contains(&pattern.to_lowercase());
@@ -4294,7 +4747,12 @@ impl BehaviorEngine {
             }
 
             for rule in &self.rules {
-                if self.check_allowlist(&app_name, rule, Some(&exe_path_buf)) {
+                let script_file_opt = if state.script_file.is_empty() {
+                    None
+                } else {
+                    Some(state.script_file.as_str())
+                };
+                if self.check_allowlist(&app_name, rule, Some(&exe_path_buf), script_file_opt) {
                     continue;
                 }
 

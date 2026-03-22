@@ -2203,6 +2203,14 @@ impl FirewallEngine {
                                                 reason,
                                             );
                                             let _ = net_ev_tx.send(msg);
+
+                                            // FULL_PACKET — send complete PacketInfo as JSON so
+                                            // Owlyshield can log every field for forensic visibility.
+                                            if let Ok(json) = serde_json::to_string(parsed_info) {
+                                                let full_msg = format!("FULL_PACKET:{}\n", json);
+                                                let _ = net_ev_tx.send(full_msg);
+                                            }
+
                                             notified_blocked_exes.insert(exe_path_lc);
                                         }
                                     }

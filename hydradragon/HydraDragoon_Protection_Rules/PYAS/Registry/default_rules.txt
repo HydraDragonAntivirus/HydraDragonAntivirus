@@ -38,6 +38,11 @@ HKLM\SYSTEM\CurrentControlSet\Services\sanctum_ppl_runner
 HKLM\SYSTEM\CurrentControlSet\Services\MBRFilter
 
 # ---------------------------------------------------------------------------
+# Sanctum fs_minifilter driver service key
+# ---------------------------------------------------------------------------
+HKLM\SYSTEM\CurrentControlSet\Services\fs_minifilter
+
+# ---------------------------------------------------------------------------
 # Winlogon Shell value - tampering here enables persistence via shell hijack.
 # The driver enforces that the Shell value may only be set to explorer.exe.
 # ---------------------------------------------------------------------------

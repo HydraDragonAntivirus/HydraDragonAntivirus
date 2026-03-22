@@ -28,7 +28,7 @@ const FLT_REGISTRATION g_filter_registration = {
     0,
     NULL,
     g_callbacks,
-    InstanceFilterUnloadCallback,
+    NULL, // FilterUnloadCallback = NULL to prevent malware from unloading the minifilter via fltMC or FltUnloadFilter()
     InstanceSetupCallback,
     InstanceQueryTeardownCallback,
     NULL,

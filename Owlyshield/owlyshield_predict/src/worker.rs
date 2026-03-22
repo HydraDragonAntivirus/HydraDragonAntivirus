@@ -743,6 +743,11 @@ pub mod worker_instance {
     pub struct Worker<'a> {
         whitelist: Option<&'a WhiteList>,
         process_records: ProcessRecords,
+        /// Set to true after discover_existing_processes() completes.
+        /// Prevents scan_all_processes() from being called on every
+        /// IrpProcessCreate during the startup kernel-flood, which would
+        /// create a multi-minute backlog that delays real-time detection.
+        startup_complete: bool,
         process_record_handler: Option<Box<dyn ProcessRecordIOHandler + 'a>>,
         exepath_handler: Box<dyn Exepath>,
         iomsg_postprocessors: Vec<Box<dyn IOMsgPostProcessor>>,
@@ -798,10 +803,14 @@ pub mod worker_instance {
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
         fn build_behavior_engine() -> BehaviorEngine {
             static FIREWALL_PIPE_START: std::sync::Once = std::sync::Once::new();
+            static SANCTUM_PIPE_START: std::sync::Once = std::sync::Once::new();
 
             let engine = BehaviorEngine::new();
             FIREWALL_PIPE_START.call_once(|| {
                 engine.start_firewall_pipe();
+            });
+            SANCTUM_PIPE_START.call_once(|| {
+                engine.start_sanctum_telemetry_pipe();
             });
             engine
         }
@@ -996,6 +1005,7 @@ pub mod worker_instance {
             Worker {
                 whitelist: None,
                 process_records: ProcessRecords::new(),
+                startup_complete: false,
                 process_record_handler: None,
                 exepath_handler: Box::<ExepathLive>::default(),
                 iomsg_postprocessors: vec![],
@@ -1107,6 +1117,10 @@ pub mod worker_instance {
                 "[STARTUP] Discovery complete: {} processes registered, {} skipped",
                 discovered_count, skipped_count
             ));
+
+            // Mark startup as complete so process_io() can resume
+            // scan_all_processes() on new process creation events.
+            self.startup_complete = true;
         }
         
         /// Generate GID for discovered processes
@@ -1564,6 +1578,7 @@ pub mod worker_instance {
             Worker {
                 whitelist: Some(whitelist),
                 process_records: ProcessRecords::new(),
+                startup_complete: true, // replay mode has no startup flood
                 process_record_handler: Some(Box::new(ProcessRecordHandlerReplay::new(config))),
                 exepath_handler: Box::<ExePathReplay>::default(),
                 iomsg_postprocessors: vec![],
@@ -1687,9 +1702,13 @@ pub mod worker_instance {
             }
             
             if let Some(precord) = self.process_records.get_precord_mut_by_gid(tracking_key) {
-                // For new processes, run static scan immediately
+                // For new processes (after startup flood), run static scan
+                // immediately so pre-loaded malware state is caught on creation.
+                // Skipped during startup_complete=false to avoid the O(n²)
+                // per-IrpProcessCreate scan backlog; the periodic 750ms scan covers it.
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
                 if is_process_create
+                    && self.startup_complete
                     && let Some(ref th) = self.threat_handler {
                         let detections = self.behavior_engine.scan_all_processes(config, &**th);
                         for det in detections {

@@ -28,7 +28,7 @@
       # write/create/setinfo/rename events counts toward min_matches.
       orderless: true
       file_operations: ["write", "create", "setinfo", "rename"]
-      min_matches: 8
+      min_matches: 4
 
     suspicious_encryption_apis:
       # orderless: the API list below is evaluated as an unordered set.
@@ -87,10 +87,15 @@
     ransomware_rename_activity:
       # orderless: rename events are counted as a set; same-file prerequisites
       # are enforced by the engine independently of arrival order.
+      # require_same_file_write is commented out to avoid anti-detection evasion:
+      # ransomware writes encrypted output to a NEW file (same stem, unknown ext)
+      # then renames the original — the renamed file was never written directly.
+      # require_same_stem_written_unknown_extension catches this pattern instead.
       orderless: true
       file_operations: ["rename"]
       require_same_file_read: true
-      require_same_file_write: true
+      # require_same_file_write: true  # commented out to avoid anti-detection evasion
+      require_same_stem_written_unknown_extension: true
       detect_extension_changes: true
       detect_known_to_unknown_extension_change: true
       min_matches: 1
