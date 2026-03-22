@@ -596,12 +596,22 @@ fn build_path_variants(norm_path: &str, raw_path: &str) -> Vec<String> {
     let mut variants = HashSet::new();
     if !norm_path.is_empty() {
         variants.insert(norm_path.to_string());
-        variants.insert(strip_drive_prefix(norm_path));
+        let stripped = strip_drive_prefix(norm_path);
+        // Add with a leading "/" so patterns like ":/explorer.exe" (from ":\\explorer.exe")
+        // can match paths that came through normalize_device_prefix and lost their drive letter.
+        if !stripped.starts_with('/') {
+            variants.insert(format!("/{}", stripped));
+        }
+        variants.insert(stripped);
     }
     if !raw_path.is_empty() {
         let raw_norm = raw_path.to_lowercase().replace("\\", "/");
         variants.insert(raw_norm.clone());
-        variants.insert(strip_drive_prefix(&raw_norm));
+        let raw_stripped = strip_drive_prefix(&raw_norm);
+        if !raw_stripped.starts_with('/') {
+            variants.insert(format!("/{}", raw_stripped));
+        }
+        variants.insert(raw_stripped);
     }
     variants.into_iter().filter(|v| !v.is_empty()).collect()
 }
@@ -2938,7 +2948,12 @@ impl BehaviorEngine {
         let event_file_change = FromPrimitive::from_u8(msg.file_change);
         let should_lookup_previous_extension = matches!(
             event_file_change,
-            Some(FileChangeInfo::ChangeExtensionChanged)
+            // ChangeRenameFile must be included so that detect_known_to_unknown_extension_change
+            // can compare the pre-rename extension against the post-rename extension.
+            // Without this, previous_extension is always None for renames and the
+            // known→unknown check can never fire (Branch A of ransomware detection was dead).
+            Some(FileChangeInfo::ChangeRenameFile)
+                | Some(FileChangeInfo::ChangeExtensionChanged)
                 | Some(FileChangeInfo::ChangeNewFile)
                 | Some(FileChangeInfo::ChangeDeleteFile)
         );
@@ -3476,6 +3491,48 @@ impl BehaviorEngine {
                             "[BehaviorEngine] Condition '{}' - Process termination match for PID {}: {}",
                             cond_name, state.pid, matched_victim
                         ));
+                    }
+                }
+
+                // created_processes: fires on IrpProcessCreate events for child processes
+                // that share this GID (i.e. were spawned by the tracked parent process).
+                // Also checks cmdline_keywords against the CHILD's cmdline (msg.runtime_features),
+                // not the parent's stored state.command_line.
+                if !matched
+                    && *irp_op == IrpMajorOp::IrpProcessCreate
+                    && !cond_group.created_processes.is_empty()
+                {
+                    // Extract just the filename from device or drive-letter paths.
+                    // split on both \ and / to handle \Device\HarddiskVolume3\...\bcdedit.exe
+                    let child_name = msg.filepathstr
+                        .split(['\\', '/'])
+                        .filter(|s| !s.is_empty())
+                        .last()
+                        .unwrap_or("")
+                        .to_lowercase();
+                    let child_path_norm = canonical_behavior_path(&msg.filepathstr);
+
+                    let name_match = cond_group.created_processes.iter().any(|pattern| {
+                        let p_lc = pattern.to_lowercase();
+                        (!child_name.is_empty() && Self::matches_pattern_internal(&self.regex_cache, &p_lc, &child_name))
+                        || (!child_path_norm.is_empty() && Self::matches_pattern_internal(&self.regex_cache, &p_lc, &child_path_norm))
+                    });
+
+                    if name_match {
+                        // If cmdline_keywords are also specified, ALL must appear in the child's cmdline.
+                        let child_cmdline = msg.runtime_features.command_line.to_lowercase();
+                        let cmdline_ok = cond_group.cmdline_keywords.is_empty()
+                            || cond_group.cmdline_keywords.iter().all(|kw| {
+                                Self::matches_pattern_internal(&self.regex_cache, kw, &child_cmdline)
+                            });
+
+                        if cmdline_ok {
+                            matched = true;
+                            Logging::info(&format!(
+                                "[BehaviorEngine] Condition '{}' - Process name match for PID {}: {}",
+                                cond_name, state.pid, child_name
+                            ));
+                        }
                     }
                 }
 

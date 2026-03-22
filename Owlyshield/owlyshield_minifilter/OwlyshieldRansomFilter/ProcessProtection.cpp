@@ -466,6 +466,16 @@ static BOOLEAN CopyProcessPathByPidBestEffort(_In_ ULONG ProcessId, _Out_writes_
 
     if (driverData != NULL && driverData->CopyProcessPathByPid(ProcessId, OutBuffer, OutCch))
     {
+        // Fast path: CopyProcessPathByPid may return an NT device path.
+        // Attempt conversion to DOS path at PASSIVE_LEVEL.
+        if (KeGetCurrentIrql() == PASSIVE_LEVEL)
+        {
+            WCHAR dosPathBuf[MAX_FILE_NAME_LENGTH] = {0};
+            if (NtPathToDosPath(OutBuffer, dosPathBuf, RTL_NUMBER_OF(dosPathBuf)))
+            {
+                (VOID)RtlStringCchCopyW(OutBuffer, OutCch, dosPathBuf);
+            }
+        }
         return TRUE;
     }
 
@@ -506,6 +516,16 @@ static BOOLEAN CopyProcessPathByPidBestEffort(_In_ ULONG ProcessId, _Out_writes_
     }
     OutBuffer[charsToCopy] = L'\0';
     ExFreePool(processImagePath);
+
+    // Slow path: SeLocateProcessImageName returns an NT device path. Convert to DOS.
+    {
+        WCHAR dosPathBuf[MAX_FILE_NAME_LENGTH] = {0};
+        if (NtPathToDosPath(OutBuffer, dosPathBuf, RTL_NUMBER_OF(dosPathBuf)))
+        {
+            (VOID)RtlStringCchCopyW(OutBuffer, OutCch, dosPathBuf);
+        }
+    }
+
     return TRUE;
 }
 

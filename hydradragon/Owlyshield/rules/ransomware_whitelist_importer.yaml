@@ -114,7 +114,7 @@
 
   detection_logic:
     or:
-      # Branches A / B / C — file-operation evidence AND encryption APIs (both required).
+      # Branches A / B — file-operation evidence AND encryption APIs (both required).
       - and:
           - or:
               # Branch A: read + write + rename with extension change (same-file prerequisites).
@@ -127,14 +127,16 @@
                   - condition: "ransomware_read_activity"
                   - condition: "ransomware_create_activity"
                   - condition: "ransomware_delete_activity"
-              # Branch C: mass disk writes (bulk file modification).
-              - condition: "mass_disk_writes"
-          # Encryption APIs required for A / B / C.
+          # Encryption APIs required for A / B.
           - condition: "suspicious_encryption_apis"
-      # Branch D: 3+ distinct crypto API types alone (no file-op evidence needed).
-      # Same condition as above, standalone — catches MapViewOfFile-based ransomware
-      # where no IRP_MJ_READ / IRP_MJ_WRITE reaches the minifilter.
-      - condition: "suspicious_encryption_apis"
+      # Branch C+D: mass disk writes AND crypto APIs — two independent signals
+      # required so neither alone can trigger a false positive.
+      # mass_disk_writes catches bulk file modification visible in the minifilter
+      # even when API hooking misses ctypes / custom loaders.
+      # suspicious_encryption_apis confirms the crypto intent.
+      - and:
+          - condition: "mass_disk_writes"
+          - condition: "suspicious_encryption_apis"
 
   response:
     terminate_process: true

@@ -1017,11 +1017,19 @@ VOID EnumerateExistingProcesses(VOID)
                     newEntry->data.ParentPid = parentPid;
                     newEntry->data.IRP_OP = IRP_PROCESS_CREATE;
 
-                    USHORT copyLen = (procName->Length < MAX_FILE_NAME_SIZE)
-                                         ? procName->Length
+                    PCWSTR srcPath2 = procName->Buffer;
+                    USHORT srcLen2  = procName->Length;
+                    WCHAR  dosPathBuf2[MAX_FILE_NAME_LENGTH] = {0};
+                    if (srcPath2 != NULL &&
+                        NtPathToDosPath(srcPath2, dosPathBuf2, RTL_NUMBER_OF(dosPathBuf2))) {
+                        srcPath2 = dosPathBuf2;
+                        srcLen2  = (USHORT)(wcslen(dosPathBuf2) * sizeof(WCHAR));
+                    }
+                    USHORT copyLen = (srcLen2 < MAX_FILE_NAME_SIZE - sizeof(WCHAR))
+                                         ? srcLen2
                                          : (MAX_FILE_NAME_SIZE - sizeof(WCHAR));
 
-                    RtlCopyMemory(newEntry->Buffer, procName->Buffer, copyLen);
+                    RtlCopyMemory(newEntry->Buffer, srcPath2, copyLen);
                     newEntry->Buffer[copyLen / sizeof(WCHAR)] = L'\0';
                     newEntry->filePath.Length = copyLen;
                     newEntry->filePath.MaximumLength = MAX_FILE_NAME_SIZE;
@@ -2748,9 +2756,21 @@ static VOID AddRemProcessRoutineCore(HANDLE ParentId, HANDLE ProcessId, BOOLEAN 
             newItem->IRP_OP = IRP_PROCESS_CREATE;
 
             if (procName != NULL) {
-                USHORT copyLen = (procName->Length < MAX_FILE_NAME_SIZE) ? procName->Length : (MAX_FILE_NAME_SIZE - sizeof(WCHAR));
-                RtlCopyMemory(newEntry->Buffer, procName->Buffer, copyLen);
-                newEntry->Buffer[copyLen / 2] = L'\0';
+                // Try to convert NT device path (\Device\HarddiskVolumeX\...) to DOS
+                // drive-letter path (C:\...) so usermode sees a consistent format.
+                PCWSTR srcPath = procName->Buffer;
+                USHORT srcLen  = procName->Length;
+                WCHAR  dosPathBuf[MAX_FILE_NAME_LENGTH] = {0};
+                if (srcPath != NULL &&
+                    NtPathToDosPath(srcPath, dosPathBuf, RTL_NUMBER_OF(dosPathBuf))) {
+                    srcPath = dosPathBuf;
+                    srcLen  = (USHORT)(wcslen(dosPathBuf) * sizeof(WCHAR));
+                }
+                USHORT copyLen = (srcLen < MAX_FILE_NAME_SIZE - sizeof(WCHAR))
+                                     ? srcLen
+                                     : (MAX_FILE_NAME_SIZE - sizeof(WCHAR));
+                RtlCopyMemory(newEntry->Buffer, srcPath, copyLen);
+                newEntry->Buffer[copyLen / sizeof(WCHAR)] = L'\0';
                 newEntry->filePath.Length = copyLen;
                 newEntry->filePath.MaximumLength = MAX_FILE_NAME_SIZE;
                 newEntry->filePath.Buffer = newEntry->Buffer;
