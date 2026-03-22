@@ -189,11 +189,10 @@ BOOLEAN DriverData::RemoveProcess(ULONG ProcessId) {
 }
 
 _Use_decl_annotations_
-BOOLEAN DriverData::RecordNewProcess(
+ULONGLONG DriverData::RecordNewProcess(
     PUNICODE_STRING ProcessName,
     ULONG ProcessId,
     ULONG ParentPid) {
-    BOOLEAN ret = FALSE;
     KIRQL oldIrql;
     KeAcquireSpinLock(&GIDSystemLock, &oldIrql);
 
@@ -208,14 +207,14 @@ BOOLEAN DriverData::RecordNewProcess(
         if (ProcessName != NULL) {
             ExFreePoolWithTag(ProcessName, 'RW');
         }
-        return FALSE;
+        return 0ULL;
     }
 
     ULONGLONG gid = (ULONGLONG)PidToGids.get(ParentPid);
     PPID_ENTRY pStrct = new PID_ENTRY;
     pStrct->Pid = ProcessId;
     pStrct->Path = ProcessName;
-    if (gid) {  // there is Gid
+    if (gid) {  // there is Gid — child inherits parent's GID
         ULONGLONG retInsert;
         if ((retInsert =
                  (ULONGLONG)PidToGids.insertNode(ProcessId, (HANDLE)gid))
@@ -227,16 +226,18 @@ BOOLEAN DriverData::RecordNewProcess(
         gidRecord->pidsSize++;
         PidToGids.insertNode(ProcessId, (HANDLE)gid);
     } else {
-        PGID_ENTRY newGidRecord = new GID_ENTRY(++GidCounter);
+        // Parent not tracked — assign a fresh GID for this process
+        gid = ++GidCounter;
+        PGID_ENTRY newGidRecord = new GID_ENTRY(gid);
         InsertHeadList(&(newGidRecord->HeadListPids), &(pStrct->entry));
         InsertTailList(&GidsList, &(newGidRecord->GidListEntry));
-        GidToPids.insertNode(GidCounter, newGidRecord);
-        PidToGids.insertNode(ProcessId, (HANDLE)GidCounter);
+        GidToPids.insertNode(gid, newGidRecord);
+        PidToGids.insertNode(ProcessId, (HANDLE)gid);
         newGidRecord->pidsSize++;
         gidsSize++;
     }
     KeReleaseSpinLock(&GIDSystemLock, oldIrql);
-    return ret;
+    return gid;  // return the assigned GID so callers can populate IRP_ENTRY.Gid
 }
 
 BOOLEAN DriverData::RemoveGid(ULONGLONG gid) {

@@ -81,7 +81,8 @@ class DriverData {
     BOOLEAN RemoveProcess(ULONG ProcessId);
 
     // record a process which was created to the GID system, function raise IRQL
-    _IRQL_raises_(DISPATCH_LEVEL) BOOLEAN RecordNewProcess(
+    // Returns the assigned GID on success, 0 on failure (e.g. process already terminated).
+    _IRQL_raises_(DISPATCH_LEVEL) ULONGLONG RecordNewProcess(
         PUNICODE_STRING ProcessName,
         ULONG ProcessId,
         ULONG ParentPid);
