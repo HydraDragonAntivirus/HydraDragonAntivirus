@@ -2701,11 +2701,13 @@ static VOID AddRemProcessRoutineCore(HANDLE ParentId, HANDLE ProcessId, BOOLEAN 
             hr = GetProcessNameByHandle(procHandleParent, &parentName);
             if (!NT_SUCCESS(hr))
             {
-                DbgPrint("!!! FSFilter: Failed to get parent name: %#010x\n", hr);
-                ZwClose(procHandleParent);
-                ZwClose(procHandleProcess);
-                return;
+                // Parent name lookup failed (e.g. UAC-elevated process whose parent is AppInfo/AIS svchost).
+                // parentName is only used for debug logging — don't drop the child event just because
+                // we can't name the parent. GID inheritance uses ParentId (raw PID), not parentName.
+                DbgPrint("!!! FSFilter: Failed to get parent name (non-fatal, continuing): %#010x\n", hr);
+                parentName = NULL;
             }
+            ZwClose(procHandleParent);
         }
 
         hr = GetProcessNameByHandle(procHandleProcess, &procName);
@@ -2727,7 +2729,7 @@ static VOID AddRemProcessRoutineCore(HANDLE ParentId, HANDLE ProcessId, BOOLEAN 
             (VOID)GetProcessCommandLineByHandle(procHandleProcess, &procCmdLine);
         }
 
-        ZwClose(procHandleParent);
+        // procHandleParent was already closed inside the if-block above
         ZwClose(procHandleProcess);
 
         record_process:
