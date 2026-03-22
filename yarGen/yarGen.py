@@ -11,6 +11,15 @@ __version__ = "0.24.0"
 
 import os
 import sys
+import io
+
+# Re-wrap stdout/stderr so that file paths with surrogate characters (e.g.
+# from os.walk on Windows with malformed filenames) are replaced with '?'
+# instead of raising UnicodeEncodeError on every print statement.
+if hasattr(sys.stdout, 'buffer'):
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace', line_buffering=True)
+if hasattr(sys.stderr, 'buffer'):
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace', line_buffering=True)
 
 import argparse
 import re

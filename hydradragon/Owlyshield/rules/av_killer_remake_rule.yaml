@@ -48,8 +48,8 @@
       # orderless: true — the two DACL APIs can appear in any order.
       orderless: true
       apis:
-        - "advapi32!SetNamedSecurityInfoW"
-        - "advapi32!SetEntriesInAclW"
+        - "advapi32.dll!SetNamedSecurityInfoW"
+        - "advapi32.dll!SetEntriesInAclW"
       api_threshold: 2
 
     hosts_file_write:
@@ -67,8 +67,8 @@
       # orderless: false — SCM must be opened before services can be deleted.
       orderless: false
       apis:
-        - "advapi32!OpenSCManagerW"
-        - "advapi32!DeleteService"
+        - "advapi32.dll!OpenSCManagerW"
+        - "advapi32.dll!DeleteService"
       api_threshold: 2
 
     av_process_kill:
@@ -114,9 +114,9 @@
       # orderless: true — COM init and create can arrive in any order.
       orderless: true
       apis:
-        - "ole32!CoCreateInstance"
-        - "ole32!CoInitializeEx"
-        - "crypt32!CryptQueryObject"
+        - "ole32.dll!CoCreateInstance"
+        - "ole32.dll!CoInitializeEx"
+        - "crypt32.dll!CryptQueryObject"
       api_threshold: 2
 
     wsc_av_folder_delete:
@@ -147,9 +147,9 @@
       # orderless: true — crypto cert APIs appear as a set, not in fixed order.
       orderless: true
       apis:
-        - "crypt32!CryptQueryObject"
-        - "crypt32!CertEnumCertificatesInStore"
-        - "crypt32!CertGetNameStringW"
+        - "crypt32.dll!CryptQueryObject"
+        - "crypt32.dll!CertEnumCertificatesInStore"
+        - "crypt32.dll!CertGetNameStringW"
       api_threshold: 3
 
     av_registry_key_wipe:
