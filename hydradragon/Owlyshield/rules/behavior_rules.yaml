@@ -1,3 +1,5 @@
+!include safemode_abuse_loader_rule.yaml
+!include av_killer_remake_rule.yaml
 !include ransomware_whitelist_importer.yaml
 !include malware_rules.yaml
 !include regseek_registry_hips_default.yaml

@@ -1,0 +1,240 @@
+- name: "HEUR:Win64.AVKiller.BehavesLike.AntivirusBypassRemake.gen"
+  author: "Emirhan Ucan"
+  date: "2026-03-22"
+  status: test
+  level: critical
+  severity: 100
+  description: |
+    Detects AntivirusBypassRemake-style AV killer behavior.
+    This malware:
+      - Uses WSC COM (IWSCProductList) to enumerate AV install paths and delete them
+      - Enumerates and deletes ELAM kernel drivers via SCM
+      - Kills AV processes (MsMpEng, AvastSvc, MBAMService, VSSERV...)
+      - Disables UAC (EnableLUA=0) and locks the UAC policy DACL read-only
+      - Hijacks Winlogon Shell for persistence (cmd.exe at login)
+      - Blocks AV/sandbox domains by writing to the hosts file
+      - Disables Windows Recovery (reagentc.exe /disable)
+      - Drops an embedded ransomware payload into %ProgramFiles%\utkudrk2\
+      - Uses takeown/icacls/rd.exe to force-delete protected AV folders
+  debug: true
+
+  named_conditions:
+
+    winlogon_shell_hijack:
+      # Writes to Winlogon\Shell to inject cmd.exe into the login shell.
+      # No legitimate software touches this key at runtime.
+      orderless: false
+      registry_keys:
+        - "SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon"
+      registry_values:
+        - "Shell"
+      registry_operations: ["set", "create"]
+      min_matches: 1
+
+    uac_disable_registry:
+      # Sets EnableLUA=0 — the standard UAC bypass via registry write.
+      # orderless: false because the key must be opened before the value is written.
+      orderless: false
+      registry_keys:
+        - "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System"
+      registry_values:
+        - "EnableLUA"
+      registry_operations: ["set", "create"]
+      min_matches: 1
+
+    uac_dacl_lockdown:
+      # SetNamedSecurityInfoW called on the UAC policy registry key to set a
+      # read-only DACL for Everyone — prevents re-enabling UAC after disabling it.
+      # orderless: true — the two DACL APIs can appear in any order.
+      orderless: true
+      apis:
+        - "advapi32!SetNamedSecurityInfoW"
+        - "advapi32!SetEntriesInAclW"
+      api_threshold: 2
+
+    hosts_file_write:
+      # Modifies System32\drivers\etc\hosts to block AV/sandbox domains.
+      # orderless: true — file open and write events are counted as a set.
+      orderless: true
+      file_paths:
+        - "System32\\drivers\\etc\\hosts"
+      file_operations: ["write", "setinfo"]
+      min_matches: 1
+
+    elam_service_removal:
+      # Calls OpenSCManagerW + EnumServicesStatusExW + DeleteService to remove
+      # ELAM (Early Launch Anti-Malware) kernel drivers.
+      # orderless: false — SCM must be opened before services can be deleted.
+      orderless: false
+      apis:
+        - "advapi32!OpenSCManagerW"
+        - "advapi32!DeleteService"
+      api_threshold: 2
+
+    av_process_kill:
+      # Spawns taskkill targeting AV processes.
+      # orderless: true — each kill command is independent.
+      orderless: true
+      created_processes:
+        - "taskkill.exe"
+      terminated_processes:
+        - "MsMpEng.exe"
+        - "AvastSvc.exe"
+        - "AvastUI.exe"
+        - "MBAMService.exe"
+        - "VSSERV.exe"
+        - "aswVmm.exe"
+      min_matches: 1
+
+    recovery_disable:
+      # Spawns reagentc.exe /disable to kill Windows Recovery Environment.
+      # orderless: true — process creation event is a single event.
+      orderless: true
+      created_processes:
+        - "reagentc.exe"
+      cmdline_keywords:
+        - "/disable"
+      min_matches: 1
+
+    force_delete_tools:
+      # Spawns takeown + icacls + rd.exe in sequence to force-delete protected
+      # AV folders. All three must appear — legitimate apps do not chain these.
+      # orderless: false — takeown must precede icacls which must precede rd.
+      orderless: false
+      created_processes:
+        - "takeown.exe"
+        - "icacls.exe"
+        - "rd.exe"
+      min_matches: 3
+
+    wsc_com_av_enum:
+      # Calls CoCreateInstance + IWSCProductList.Initialize(WSC_SECURITY_PROVIDER_ANTIVIRUS)
+      # to enumerate registered AV products and retrieve their remediation paths.
+      # No legitimate user-mode app needs to enumerate the AV product list this way.
+      # orderless: true — COM init and create can arrive in any order.
+      orderless: true
+      apis:
+        - "ole32!CoCreateInstance"
+        - "ole32!CoInitializeEx"
+        - "crypt32!CryptQueryObject"
+      api_threshold: 2
+
+    wsc_av_folder_delete:
+      # After WSC COM enumeration the malware calls remove_dir_all on the
+      # remediation path's parent — bulk delete of AV install folders.
+      # orderless: true — multiple folder deletions are counted as a set.
+      orderless: true
+      file_operations: ["delete"]
+      file_paths:
+        - "Program Files"
+        - "ProgramData"
+      min_matches: 5
+
+    payload_drop:
+      # Drops destructive.exe (embedded ransomware) into %ProgramFiles%\utkudrk2\.
+      # The directory name "utkudrk2" is unique to this malware family.
+      # orderless: true — create then write are counted as a set.
+      orderless: true
+      file_paths:
+        - "utkudrk2"
+      file_operations: ["create", "write"]
+      min_matches: 1
+
+    cert_scanning_apis:
+      # Uses CryptQueryObject + CertEnumCertificatesInStore + CertGetNameStringW
+      # to read certificate subjects of every .exe on the system drive.
+      # Legitimate scanners don't combine all three without a trust validation call.
+      # orderless: true — crypto cert APIs appear as a set, not in fixed order.
+      orderless: true
+      apis:
+        - "crypt32!CryptQueryObject"
+        - "crypt32!CertEnumCertificatesInStore"
+        - "crypt32!CertGetNameStringW"
+      api_threshold: 3
+
+    av_registry_key_wipe:
+      # Deletes known AV service registry keys (WinDefend, MBAMService, VSSERV,
+      # ekrn, AVP21.3, WRSVC, aswRdr, AR_Service, etc.) via RegDeleteKeyW.
+      # orderless: true — each deletion is independent.
+      orderless: true
+      registry_keys:
+        - "SYSTEM\\CurrentControlSet\\Services\\WinDefend"
+        - "SYSTEM\\CurrentControlSet\\Services\\MBAMService"
+        - "SYSTEM\\CurrentControlSet\\Services\\VSSERV"
+        - "SYSTEM\\CurrentControlSet\\Services\\ekrn"
+        - "SYSTEM\\CurrentControlSet\\Services\\WRSVC"
+        - "SYSTEM\\CurrentControlSet\\Services\\AVP21.3"
+        - "SYSTEM\\CurrentControlSet\\Services\\aswRdr"
+      registry_operations: ["delete"]
+      min_matches: 2
+
+  detection_logic:
+    or:
+      # Branch A: payload drop alone — conclusive, unique directory name.
+      - condition: "payload_drop"
+
+      # Branch B: UAC disable + Winlogon hijack — persistence + privilege erasure.
+      - and:
+          - condition: "uac_disable_registry"
+          - condition: "winlogon_shell_hijack"
+
+      # Branch C: WSC COM AV enumeration + AV folder bulk delete.
+      - and:
+          - condition: "wsc_com_av_enum"
+          - condition: "wsc_av_folder_delete"
+
+      # Branch D: ELAM removal + AV registry wipe — kernel-level AV evasion.
+      - and:
+          - condition: "elam_service_removal"
+          - condition: "av_registry_key_wipe"
+
+      # Branch E: force-delete tools + hosts file — the full AV-kill + domain-block combo.
+      - and:
+          - condition: "force_delete_tools"
+          - condition: "hosts_file_write"
+
+      # Branch F: cert-scanning API combo — malware scanning the whole C:\ for AV exes.
+      - and:
+          - condition: "cert_scanning_apis"
+          - any_of:
+              - "av_process_kill"
+              - "wsc_av_folder_delete"
+              - "av_registry_key_wipe"
+
+      # Branch G: UAC DACL lockdown + recovery disable — full hardening against re-defence.
+      - and:
+          - condition: "uac_dacl_lockdown"
+          - condition: "recovery_disable"
+
+  response:
+    terminate_process: true
+    quarantine: true
+    auto_revert: true
+    record: true
+
+  allowlisted_apps: []
+
+  tags:
+    - "av-killer"
+    - "elam-removal"
+    - "uac-bypass"
+    - "hosts-tampering"
+    - "ransomware-dropper"
+    - "winlogon-hijack"
+    - "dacl-abuse"
+
+  mitre_attack:
+    - "T1562.001"   # Impair Defenses: Disable or Modify Tools
+    - "T1562.004"   # Impair Defenses: Disable or Modify System Firewall (hosts)
+    - "T1547.004"   # Boot or Logon Autostart: Winlogon Helper DLL
+    - "T1112"       # Modify Registry (EnableLUA, Shell)
+    - "T1070.006"   # Indicator Removal: Timestomp (recovery wipe)
+    - "T1548.002"   # Abuse Elevation Control Mechanism: Bypass UAC
+    - "T1036"       # Masquerading (explorer.exe rename)
+    - "T1055"       # Process Injection (embedded payload)
+    - "T1489"       # Service Stop (AV services)
+    - "T1485"       # Data Destruction (AV folder removal)
+
+  false_positives:
+    - "No known legitimate software combines WSC COM AV enumeration + ELAM removal + Winlogon Shell write"
+    - "Antivirus uninstallers may match force_delete_tools in isolation — require combination with other branches"
