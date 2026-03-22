@@ -127,7 +127,8 @@ from .utils_and_helpers import validate_pipe_peer
     clamav_database_directory_path,
     icewater_rule_path,
     valhalla_rule_path,
-    yarGen_rule_path,
+    yarGen_js_rule_path,
+    yarGen_pe_rule_path,
     antivirus_list_path,
     clean_rules_path,
     yaraxtr_yrc_path
@@ -1539,7 +1540,8 @@ def dispatch_firewall_web_scan(paths: List[str], origin: str) -> None:
     loop.create_task(_forward_web_candidates_to_firewall(paths, origin))
 
 # Global variables for rules
-yarGen_rules = None
+yarGen_pe_rules = None
+yarGen_js_rules = None
 icewater_rules = None
 valhalla_rules = None
 clean_rules = None
@@ -1794,7 +1796,7 @@ def scan_yara(file_path):
         # Thread worker for yarGen_rule scanning
         def yargen_rule_worker():
             try:
-                if yarGen_rules:
+                if yarGen_pe_rules:
                     matches = yarGen_rules.match(data=data_content)
                     local_matched_rules = []
                     local_matched_results = []
@@ -9476,8 +9478,8 @@ async def load_all_resources_async():
             logger.exception(f"Error loading Antivirus List: {ex}")
 
     async def load_yargen():
-        global yarGen_rules
-        yarGen_rules = await load_resource_safe("yarGen Rules",
+        global yarGen_pe_rules
+        yarGen_pe_rules = await load_resource_safe("yarGen Rules",
                                                 functools.partial(load_yara_safe, yarGen_rule_path, "yarGen Rules", False),
                                                 timeout=30)
 
