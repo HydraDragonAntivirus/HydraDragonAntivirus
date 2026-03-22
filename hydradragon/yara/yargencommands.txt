@@ -1,4 +1,25 @@
-python yarGen.py -g D:\datas2\data2 -c -i benign_db --opcodes
 // Don't use AI --ai at yargen because it cause too many false positive rules
+// Use -e flag to export strings per file as *_strings.txt, then merge into examples.txt
+
+// --- Update DB from online repository ---
 python yarGen.py --update
-python yarGen.py -m D:\datas2\datamaliciousorder -u -o D:\datas2\machinelearning.yar --opcodes --excludegood -r "VirusShare, VirusSign, ClamAV, Dr.Web, Emsisoft, Avast, VirusTotal" -a "Emirhan Ucan & Hacimurad" --nofilesize --meaningful-words-only --nosimple
+
+// --- data2: Create malware reference DB ---
+python yarGen.py -g "C:\Users\semae\OneDrive\Belgeler\usbdosyalar\data2" -c -i malware_data2 --opcodes
+
+// --- data2: Generate YARA rules + export strings (examples.txt source) ---
+python yarGen.py -m "C:\Users\semae\OneDrive\Belgeler\usbdosyalar\data2" --opcodes --excludegood --meaningful-words-only --nofilesize --nosimple -r "https://github.com/HydraDragonAntivirus" -l "AGPLv3" -a "HydraDragonAntivirus" -e "C:\Users\semae\OneDrive\Belgeler\usbdosyalar\data2_strings" -o "C:\Users\semae\OneDrive\Belgeler\usbdosyalar\data2_rules.yar"
+
+// --- datamaliciousorder: Create malware reference DB ---
+python yarGen.py -g "C:\Users\semae\OneDrive\Belgeler\usbdosyalar\datamaliciousorder" -c -i malware_order --opcodes
+
+// --- datamaliciousorder: Generate YARA rules + export strings ---
+python yarGen.py -m "C:\Users\semae\OneDrive\Belgeler\usbdosyalar\datamaliciousorder" --opcodes --excludegood --meaningful-words-only --nofilesize --nosimple -r "https://github.com/HydraDragonAntivirus" -l "AGPLv3" -a "HydraDragonAntivirus" -e "C:\Users\semae\OneDrive\Belgeler\usbdosyalar\datamaliciousorder_strings" -o "C:\Users\semae\OneDrive\Belgeler\usbdosyalar\datamaliciousorder_rules.yar"
+
+// --- javascript/data2: Generate YARA rules + export strings ---
+python yarGen.py -m "C:\Users\semae\OneDrive\Belgeler\usbdosyalar\javascript\data2" --opcodes --excludegood --meaningful-words-only --nofilesize --nosimple -r "https://github.com/HydraDragonAntivirus" -l "AGPLv3" -a "HydraDragonAntivirus" -e "C:\Users\semae\OneDrive\Belgeler\usbdosyalar\javascript_data2_strings" -o "C:\Users\semae\OneDrive\Belgeler\usbdosyalar\javascript_data2_rules.yar"
+
+// --- Merge exported strings into examples.txt ---
+cat "C:\Users\semae\OneDrive\Belgeler\usbdosyalar\data2_strings\*_strings.txt" > "C:\Users\semae\OneDrive\Belgeler\usbdosyalar\examples_data2.txt"
+cat "C:\Users\semae\OneDrive\Belgeler\usbdosyalar\datamaliciousorder_strings\*_strings.txt" > "C:\Users\semae\OneDrive\Belgeler\usbdosyalar\examples_datamaliciousorder.txt"
+cat "C:\Users\semae\OneDrive\Belgeler\usbdosyalar\javascript_data2_strings\*_strings.txt" > "C:\Users\semae\OneDrive\Belgeler\usbdosyalar\examples_javascript_data2.txt"
