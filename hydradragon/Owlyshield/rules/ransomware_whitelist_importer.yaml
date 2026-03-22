@@ -97,7 +97,7 @@
 
     ransomware_delete_activity:
       file_operations: ["delete"]
-      require_same_file_read: true
+      require_same_stem_created_unknown_extension: true
       min_matches: 1
 
   detection_logic:

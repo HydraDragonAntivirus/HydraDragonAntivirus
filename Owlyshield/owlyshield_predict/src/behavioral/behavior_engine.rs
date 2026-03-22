@@ -724,6 +724,12 @@ pub struct NamedConditionGroup {
     pub require_same_file_write: bool,
     #[serde(default)]
     pub require_same_file_rename: bool,
+    /// For delete conditions: require that the deleted file's path matches a stem
+    /// recorded when a create event with an unknown extension fired for the same process.
+    /// e.g., creating "document.docx.winball" stores stem "document.docx";
+    /// deleting "document.docx" then satisfies this prerequisite.
+    #[serde(default)]
+    pub require_same_stem_created_unknown_extension: bool,
     
     #[serde(default)]
     pub registry_keys: Vec<String>,
@@ -1299,6 +1305,12 @@ pub struct ProcessBehaviorState {
     // Normalized hypervisor event tracking
     pub hypervisor_event_count: u32,
     pub hypervisor_events_total: u32,
+
+    // Stems collected from create events where the file had an unknown (non-whitelisted) extension.
+    // Key: lowercase full path with the last extension stripped.
+    // e.g., creating "c:/users/foo/document.docx.winball" stores "c:/users/foo/document.docx".
+    // Used by `require_same_stem_created_unknown_extension` on delete conditions.
+    pub created_unknown_ext_stems: HashSet<String>,
 }
 
 impl ProcessBehaviorState {
@@ -1325,7 +1337,8 @@ impl ProcessBehaviorState {
         // Initialize normalized hypervisor event counters
         state.hypervisor_event_count = 0;
         state.hypervisor_events_total = 0;
-        
+        state.created_unknown_ext_stems = HashSet::new();
+
         state
     }
     
@@ -3157,7 +3170,9 @@ impl BehaviorEngine {
                 let same_file_requirements_ok =
                     (!cond_group.require_same_file_read || precord.has_read_file_id(&msg.file_id_id))
                         && (!cond_group.require_same_file_write || precord.has_written_file_id(&msg.file_id_id))
-                        && (!cond_group.require_same_file_rename || precord.has_renamed_file_id(&msg.file_id_id));
+                        && (!cond_group.require_same_file_rename || precord.has_renamed_file_id(&msg.file_id_id))
+                        && (!cond_group.require_same_stem_created_unknown_extension
+                            || state.created_unknown_ext_stems.contains(filepath));
 
                 let parent_image_touched = !state.parent_path.as_os_str().is_empty()
                     && target_matches_process_image(&state.parent_path, filepath, &msg.filepathstr);
@@ -3294,6 +3309,28 @@ impl BehaviorEngine {
                                 );
                                 if !whitelisted {
                                     matched = true;
+                                    // Record the stem so that a later delete of the original
+                                    // file can satisfy `require_same_stem_created_unknown_extension`.
+                                    // e.g., "c:/users/foo/document.docx.winball" → stem "c:/users/foo/document.docx"
+                                    if current_file_op == Some("create") && !filepath.is_empty() {
+                                        let last_sep = filepath.rfind('/').unwrap_or(0);
+                                        let stem = if let Some(dot_pos) = filepath.rfind('.') {
+                                            if dot_pos > last_sep {
+                                                filepath[..dot_pos].to_string()
+                                            } else {
+                                                filepath.to_string()
+                                            }
+                                        } else {
+                                            filepath.to_string()
+                                        };
+                                        if stem != *filepath {
+                                            Logging::debug(&format!(
+                                                "[BehaviorEngine] Stored create stem for delete correlation (PID {}): {}",
+                                                state.pid, stem
+                                            ));
+                                            state.created_unknown_ext_stems.insert(stem);
+                                        }
+                                    }
                                     Logging::info(&format!(
                                         "[BehaviorEngine] Condition '{}' - Non-whitelisted extension for PID {}: {}",
                                         cond_name, state.pid, ext_with_dot
