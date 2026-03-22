@@ -4,11 +4,8 @@
 // --- Update DB from online repository ---
 python yarGen.py --update
 
-// --- data2: Create malware reference DB ---
-python yarGen.py -g "C:\Users\semae\OneDrive\Belgeler\usbdosyalar\data2" -c -i malware_data2 --opcodes
-
-// --- data2: Generate YARA rules + export strings (examples.txt source) ---
-python yarGen.py -m "C:\Users\semae\OneDrive\Belgeler\usbdosyalar\data2" --opcodes --excludegood --meaningful-words-only --nofilesize --nosimple -r "https://github.com/HydraDragonAntivirus" -l "AGPLv3" -a "HydraDragonAntivirus" -e "C:\Users\semae\OneDrive\Belgeler\usbdosyalar\data2_strings" -o "C:\Users\semae\OneDrive\Belgeler\usbdosyalar\data2_rules.yar"
+// --- data2: Create benign/goodware reference DB (data2 is clean, not malware) ---
+python yarGen.py -g "C:\Users\semae\OneDrive\Belgeler\usbdosyalar\data2" -c -i benign_data2 --opcodes
 
 // --- datamaliciousorder: Create malware reference DB ---
 python yarGen.py -g "C:\Users\semae\OneDrive\Belgeler\usbdosyalar\datamaliciousorder" -c -i malware_order --opcodes
@@ -20,6 +17,5 @@ python yarGen.py -m "C:\Users\semae\OneDrive\Belgeler\usbdosyalar\datamaliciouso
 python yarGen.py -m "C:\Users\semae\OneDrive\Belgeler\usbdosyalar\javascript\data2" --opcodes --excludegood --meaningful-words-only --nofilesize --nosimple -r "https://github.com/HydraDragonAntivirus" -l "AGPLv3" -a "HydraDragonAntivirus" -e "C:\Users\semae\OneDrive\Belgeler\usbdosyalar\javascript_data2_strings" -o "C:\Users\semae\OneDrive\Belgeler\usbdosyalar\javascript_data2_rules.yar"
 
 // --- Merge exported strings into examples.txt ---
-cat "C:\Users\semae\OneDrive\Belgeler\usbdosyalar\data2_strings\*_strings.txt" > "C:\Users\semae\OneDrive\Belgeler\usbdosyalar\examples_data2.txt"
 cat "C:\Users\semae\OneDrive\Belgeler\usbdosyalar\datamaliciousorder_strings\*_strings.txt" > "C:\Users\semae\OneDrive\Belgeler\usbdosyalar\examples_datamaliciousorder.txt"
 cat "C:\Users\semae\OneDrive\Belgeler\usbdosyalar\javascript_data2_strings\*_strings.txt" > "C:\Users\semae\OneDrive\Belgeler\usbdosyalar\examples_javascript_data2.txt"
