@@ -1,0 +1,217 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Rule 1: Driver from TEMP — auto-block, no prompt.
+# Temp directories have no business hosting kernel drivers; this is conclusive.
+# ─────────────────────────────────────────────────────────────────────────────
+- name: "HEUR:Win.Driver.Load.TempDirectory.gen"
+  author: "Emirhan Ucan"
+  date: "2026-03-22"
+  status: test
+  level: critical
+  severity: 100
+  description: |
+    Detects a kernel driver (.sys) being loaded or registered from a temporary
+    directory (%TEMP%, %APPDATA%\Local\Temp, Windows\Temp, etc.).
+    No legitimate driver installer leaves a driver permanently in Temp;
+    signed installers extract there momentarily then copy to System32\drivers.
+    A .sys file created and registered as a service from Temp is conclusive
+    malicious behavior — auto-block without user prompt.
+    Equivalent to Sigma: Driver Load From A Temporary Directory (id: 2c4523d5).
+  debug: true
+
+  named_conditions:
+
+    sys_file_in_temp:
+      orderless: true
+      file_paths:
+        - "\\Temp\\"
+        - "\\AppData\\Local\\Temp\\"
+        - "\\Windows\\Temp\\"
+        - "\\SystemRoot\\Temp\\"
+      file_operations: ["create", "write"]
+      file_extensions:
+        - ".sys"
+      min_matches: 1
+
+    driver_service_registry:
+      orderless: true
+      registry_keys:
+        - "HKLM\\SYSTEM\\CurrentControlSet\\Services"
+      registry_values:
+        - "ImagePath"
+      registry_operations: ["set", "create"]
+      min_matches: 1
+
+    ntloaddriver_api:
+      orderless: true
+      apis:
+        - "ntdll.dll!NtLoadDriver"
+        - "ntdll.dll!ZwLoadDriver"
+      api_threshold: 1
+
+    sc_kernel_driver_from_temp:
+      orderless: false
+      created_processes:
+        - "sc.exe"
+      cmdline_keywords:
+        - "type="
+        - "kernel"
+        - "Temp"
+      min_matches: 1
+
+  detection_logic:
+    or:
+      - and:
+          - condition: "sys_file_in_temp"
+          - condition: "driver_service_registry"
+      - and:
+          - condition: "ntloaddriver_api"
+          - condition: "sys_file_in_temp"
+      - condition: "sc_kernel_driver_from_temp"
+
+  response:
+    terminate_process: true
+    quarantine: true
+    auto_revert: true
+    record: true
+
+  allowlisted_apps:
+    - pattern: "msiexec.exe"
+      must_be_signed: true
+      signers:
+        - "microsoft"
+    - pattern: "drvinst.exe"
+      must_be_signed: true
+      signers:
+        - "microsoft"
+
+  tags:
+    - "driver-load"
+    - "temp-directory"
+    - "privilege-escalation"
+    - "persistence"
+    - "kernel-driver"
+
+  mitre_attack:
+    - "T1543.003"
+    - "T1068"
+    - "T1014"
+
+  false_positives:
+    - "Signed Microsoft driver packages momentarily staging in Temp — covered by msiexec/drvinst allowlist"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Rule 2: Driver from user-writable folders — prompt user to decide.
+# These locations are suspicious but signed vendor installers sometimes use them.
+# ─────────────────────────────────────────────────────────────────────────────
+- name: "HEUR:Win.Driver.Load.UserLocation.gen"
+  author: "Emirhan Ucan"
+  date: "2026-03-22"
+  status: test
+  level: high
+  severity: 88
+  description: |
+    Detects a kernel driver (.sys) being loaded or registered from a user-writable
+    location outside of Temp (Desktop, Downloads, AppData\Roaming, AppData\Local,
+    ProgramData root, Public, Recycle Bin).
+    Legitimate vendor installers occasionally use these paths; prompt the user
+    to allow or block rather than auto-terminating.
+  debug: true
+
+  named_conditions:
+
+    sys_file_in_user_location:
+      orderless: true
+      file_paths:
+        - "\\AppData\\Roaming\\"
+        - "\\AppData\\Local\\"
+        - "\\Desktop\\"
+        - "\\Downloads\\"
+        - ":\\Users\\Public\\"
+        - "\\$Recycle.Bin\\"
+        - ":\\ProgramData\\"
+      file_operations: ["create", "write"]
+      file_extensions:
+        - ".sys"
+      min_matches: 1
+
+    driver_service_registry:
+      orderless: true
+      registry_keys:
+        - "HKLM\\SYSTEM\\CurrentControlSet\\Services"
+      registry_values:
+        - "ImagePath"
+      registry_operations: ["set", "create"]
+      min_matches: 1
+
+    ntloaddriver_api:
+      orderless: true
+      apis:
+        - "ntdll.dll!NtLoadDriver"
+        - "ntdll.dll!ZwLoadDriver"
+      api_threshold: 1
+
+    sc_kernel_driver_install:
+      orderless: false
+      created_processes:
+        - "sc.exe"
+      cmdline_keywords:
+        - "type="
+        - "kernel"
+        - "binPath="
+      min_matches: 1
+
+    powershell_new_service_kernel:
+      orderless: false
+      created_processes:
+        - "powershell.exe"
+        - "pwsh.exe"
+      cmdline_keywords:
+        - "New-Service"
+        - "BinaryPathName"
+      min_matches: 1
+
+  detection_logic:
+    or:
+      - and:
+          - condition: "sys_file_in_user_location"
+          - condition: "driver_service_registry"
+      - and:
+          - condition: "ntloaddriver_api"
+          - condition: "sys_file_in_user_location"
+      - condition: "sc_kernel_driver_install"
+      - condition: "powershell_new_service_kernel"
+
+  response:
+    ask_user: true
+    terminate_process: false
+    notify_user: true
+    auto_revert: true
+    record: true
+
+  allowlisted_apps:
+    - pattern: "setup.exe"
+      must_be_signed: true
+    - pattern: "install*.exe"
+      must_be_signed: true
+    - pattern: "msiexec.exe"
+      must_be_signed: true
+      signers:
+        - "microsoft"
+
+  tags:
+    - "driver-load"
+    - "user-location"
+    - "privilege-escalation"
+    - "persistence"
+    - "kernel-driver"
+
+  mitre_attack:
+    - "T1543.003"
+    - "T1068"
+    - "T1014"
+
+  false_positives:
+    - "Vendor driver installers (GPU, NIC, peripherals) that stage drivers in AppData or ProgramData"
+    - "Security tools (EDR, AV) that drop signed kernel components to non-system paths during update"
+    - "IT deployment scripts using sc.exe to register legitimate drivers from network shares mapped to user paths"

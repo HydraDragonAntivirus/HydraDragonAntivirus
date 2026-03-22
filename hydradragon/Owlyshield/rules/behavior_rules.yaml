@@ -1,3 +1,4 @@
+!include driver_load_suspicious_location_rule.yaml
 !include safemode_abuse_loader_rule.yaml
 !include av_killer_remake_rule.yaml
 !include ransomware_whitelist_importer.yaml
@@ -6,3 +7,8 @@
 !include taskmgr_disable_worm_rule.yaml
 !include process_hollowing_rule.yaml
 !include process_self_delete_rule.yaml
+!include info_lolbin_recon_rules.yaml
+!include defense_evasion_rules.yaml
+!include credential_access_rules.yaml
+!include persistence_extended_rules.yaml
+!include lateral_movement_execution_rules.yaml

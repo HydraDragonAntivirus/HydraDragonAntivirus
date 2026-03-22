@@ -1,0 +1,333 @@
+# ─── INFO / LOW — LOLBIN & RECONNAISSANCE ────────────────────────────────────
+# These rules never block. They post an informational event to the firewall
+# so analysts can see the activity without interrupting the user.
+# ─────────────────────────────────────────────────────────────────────────────
+
+- name: "INFO:Win.Exec.LOLBINUsage.gen"
+  author: "Emirhan Ucan"
+  date: "2026-03-22"
+  status: test
+  level: low
+  severity: 30
+  description: |
+    Informational: a known Living-Off-The-Land Binary (LOLBIN) was executed.
+    LOLBINs are legitimate Windows binaries that adversaries abuse for execution,
+    defense evasion, and download. Logged for baseline and anomaly tracking.
+    Equivalent to Sigma: Possible LOLBIN Abuse (Sec_4688_Low_ProcExec).
+  debug: false
+
+  named_conditions:
+    lolbin_execution:
+      orderless: true
+      created_processes:
+        - "certutil.exe"
+        - "mshta.exe"
+        - "regsvr32.exe"
+        - "rundll32.exe"
+        - "cmstp.exe"
+        - "odbcconf.exe"
+        - "pcalua.exe"
+        - "regasm.exe"
+        - "regsvcs.exe"
+        - "msbuild.exe"
+        - "installutil.exe"
+        - "csc.exe"
+        - "vbc.exe"
+        - "jsc.exe"
+        - "ieexec.exe"
+        - "xwizard.exe"
+        - "syncappvpublishingserver.exe"
+        - "appsyncpublishingserver.exe"
+        - "presentationhost.exe"
+        - "cmstp.exe"
+        - "msdeploy.exe"
+        - "msconfig.exe"
+        - "eudcedit.exe"
+        - "hh.exe"
+        - "infdefaultinstall.exe"
+        - "replace.exe"
+        - "rpcping.exe"
+        - "ftp.exe"
+        - "makecab.exe"
+      min_matches: 1
+
+  detection_logic:
+    condition: "lolbin_execution"
+
+  response:
+    notify_user: true
+    ask_user: false
+    terminate_process: false
+    record: true
+
+  tags: ["lolbin", "execution", "info"]
+  mitre_attack: ["T1218"]
+  false_positives:
+    - "Legitimate administrative usage of these binaries"
+
+
+- name: "INFO:Win.Recon.NetworkDiscovery.gen"
+  author: "Emirhan Ucan"
+  date: "2026-03-22"
+  status: test
+  level: low
+  severity: 25
+  description: |
+    Informational: network discovery commands observed (net.exe, arp, netstat,
+    nslookup, ipconfig). Common in post-exploitation reconnaissance phases
+    to map the network before lateral movement. Logged for correlation.
+    Equivalent to Sigma: System Network Discovery (T1049).
+  debug: false
+
+  named_conditions:
+    net_discovery:
+      orderless: true
+      created_processes:
+        - "net.exe"
+        - "net1.exe"
+      cmdline_keywords:
+        - "view"
+      min_matches: 1
+
+    net_sessions:
+      orderless: true
+      created_processes:
+        - "net.exe"
+        - "net1.exe"
+      cmdline_keywords:
+        - "session"
+      min_matches: 1
+
+    arp_scan:
+      orderless: true
+      created_processes:
+        - "arp.exe"
+      cmdline_keywords:
+        - "-a"
+      min_matches: 1
+
+    nslookup_recon:
+      orderless: true
+      created_processes:
+        - "nslookup.exe"
+      min_matches: 1
+
+  detection_logic:
+    or:
+      - condition: "net_discovery"
+      - condition: "net_sessions"
+      - condition: "arp_scan"
+      - condition: "nslookup_recon"
+
+  response:
+    notify_user: true
+    ask_user: false
+    terminate_process: false
+    record: true
+
+  tags: ["discovery", "network", "info"]
+  mitre_attack: ["T1049", "T1016"]
+  false_positives: ["Normal IT admin activity"]
+
+
+- name: "INFO:Win.Recon.SystemEnumeration.gen"
+  author: "Emirhan Ucan"
+  date: "2026-03-22"
+  status: test
+  level: low
+  severity: 20
+  description: |
+    Informational: system enumeration commands observed — whoami, systeminfo,
+    hostname, tasklist, quser, Get-LocalGroup. Typical attacker reconnaissance
+    after initial access to understand the environment. Logged for correlation.
+  debug: false
+
+  named_conditions:
+    whoami_run:
+      orderless: true
+      created_processes:
+        - "whoami.exe"
+      min_matches: 1
+
+    systeminfo_run:
+      orderless: true
+      created_processes:
+        - "systeminfo.exe"
+      min_matches: 1
+
+    tasklist_run:
+      orderless: true
+      created_processes:
+        - "tasklist.exe"
+      min_matches: 1
+
+    quser_run:
+      orderless: true
+      created_processes:
+        - "quser.exe"
+        - "query.exe"
+      min_matches: 1
+
+    ipconfig_run:
+      orderless: true
+      created_processes:
+        - "ipconfig.exe"
+      min_matches: 1
+
+  detection_logic:
+    or:
+      - condition: "whoami_run"
+      - condition: "systeminfo_run"
+      - condition: "tasklist_run"
+      - condition: "quser_run"
+      - condition: "ipconfig_run"
+
+  response:
+    notify_user: true
+    ask_user: false
+    terminate_process: false
+    record: true
+
+  tags: ["discovery", "recon", "info"]
+  mitre_attack: ["T1082", "T1033", "T1057"]
+  false_positives: ["Normal IT admin activity"]
+
+
+- name: "INFO:Win.Exec.ScriptInterpreter.gen"
+  author: "Emirhan Ucan"
+  date: "2026-03-22"
+  status: test
+  level: low
+  severity: 28
+  description: |
+    Informational: a Windows script interpreter (wscript.exe, cscript.exe,
+    mshta.exe) was executed. Scripts are commonly used for malware delivery
+    and execution. Logged for anomaly detection and correlation.
+    Equivalent to Sigma: Script Execution via WScript/CScript.
+  debug: false
+
+  named_conditions:
+    script_interpreter:
+      orderless: true
+      created_processes:
+        - "wscript.exe"
+        - "cscript.exe"
+      file_extensions:
+        - ".js"
+        - ".vbs"
+        - ".wsf"
+        - ".jse"
+        - ".vbe"
+      min_matches: 1
+
+    mshta_execution:
+      orderless: true
+      created_processes:
+        - "mshta.exe"
+      min_matches: 1
+
+  detection_logic:
+    or:
+      - condition: "script_interpreter"
+      - condition: "mshta_execution"
+
+  response:
+    notify_user: true
+    ask_user: false
+    terminate_process: false
+    record: true
+
+  tags: ["execution", "script", "info"]
+  mitre_attack: ["T1059.005", "T1059.007", "T1218.005"]
+  false_positives: ["Legitimate VBScript/JScript automation"]
+
+
+- name: "INFO:Win.Exec.PowerShellBaseline.gen"
+  author: "Emirhan Ucan"
+  date: "2026-03-22"
+  status: test
+  level: low
+  severity: 22
+  description: |
+    Informational: PowerShell was executed with parameters commonly used
+    for scripted/automated tasks. Not inherently malicious; logged to
+    establish baseline and detect anomalous PowerShell invocations.
+  debug: false
+
+  named_conditions:
+    powershell_exec:
+      orderless: true
+      created_processes:
+        - "powershell.exe"
+        - "pwsh.exe"
+      cmdline_keywords:
+        - "-ExecutionPolicy"
+      min_matches: 1
+
+    powershell_bypass:
+      orderless: true
+      created_processes:
+        - "powershell.exe"
+        - "pwsh.exe"
+      cmdline_keywords:
+        - "Bypass"
+      min_matches: 1
+
+  detection_logic:
+    or:
+      - condition: "powershell_exec"
+      - condition: "powershell_bypass"
+
+  response:
+    notify_user: true
+    ask_user: false
+    terminate_process: false
+    record: true
+
+  tags: ["execution", "powershell", "info"]
+  mitre_attack: ["T1059.001"]
+  false_positives: ["Legitimate PowerShell automation and admin scripts"]
+
+
+- name: "INFO:Win.Net.LOLBINNetworkActivity.gen"
+  author: "Emirhan Ucan"
+  date: "2026-03-22"
+  status: test
+  level: medium
+  severity: 55
+  description: |
+    Informational: a LOLBIN (regsvr32, mshta, certutil, rundll32, wmic)
+    initiated a network connection. These processes have no legitimate reason
+    to connect to the internet and are commonly abused for download and C2.
+    Equivalent to Sigma: Regsvr32 Network Activity (T1218.010).
+  debug: false
+
+  named_conditions:
+    lolbin_with_network:
+      orderless: true
+      created_processes:
+        - "regsvr32.exe"
+        - "mshta.exe"
+        - "certutil.exe"
+        - "rundll32.exe"
+        - "wmic.exe"
+        - "cmstp.exe"
+        - "installutil.exe"
+        - "odbcconf.exe"
+      has_network_activity: true
+      min_matches: 1
+
+  detection_logic:
+    condition: "lolbin_with_network"
+
+  response:
+    notify_user: true
+    ask_user: true
+    terminate_process: false
+    record: true
+
+  tags: ["lolbin", "network", "c2", "execution"]
+  mitre_attack: ["T1218.010", "T1218.011", "T1218.005"]
+  false_positives:
+    - "certutil.exe downloading CRL (Certificate Revocation Lists) — legitimate"
+    - "rundll32 used by some software update mechanisms"

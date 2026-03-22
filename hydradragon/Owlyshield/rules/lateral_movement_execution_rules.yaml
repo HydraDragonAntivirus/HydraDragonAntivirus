@@ -1,0 +1,604 @@
+# ─── LATERAL MOVEMENT & EXECUTION ────────────────────────────────────────────
+# Rules detecting network lateral movement, remote execution frameworks,
+# and privilege escalation techniques.
+# ─────────────────────────────────────────────────────────────────────────────
+
+- name: "HEUR:Win.LateralMov.WMIRemoteExecution.gen"
+  author: "Emirhan Ucan"
+  date: "2026-03-22"
+  status: test
+  level: high
+  severity: 82
+  description: |
+    Detects remote WMI command execution via wmic /node: or PowerShell
+    Invoke-WmiMethod/Invoke-CimMethod targeting remote hosts.
+    Impacket wmiexec.py and similar tools use this for fileless lateral
+    movement without dropping files on the target.
+    Equivalent to Sigma: Remote WMI ActiveScriptEventConsumer (T1047).
+  debug: false
+
+  named_conditions:
+    wmic_remote_node:
+      orderless: false
+      created_processes:
+        - "wmic.exe"
+      cmdline_keywords:
+        - "/node:"
+        - "process"
+        - "call"
+      min_matches: 1
+
+    powershell_invoke_wmi:
+      orderless: true
+      created_processes:
+        - "powershell.exe"
+        - "pwsh.exe"
+      cmdline_keywords:
+        - "Invoke-WmiMethod"
+        - "Invoke-CimMethod"
+        - "Win32_Process"
+        - "ComputerName"
+      min_matches: 1
+
+    wmic_remote_process_create:
+      orderless: false
+      created_processes:
+        - "wmic.exe"
+      cmdline_keywords:
+        - "/node:"
+        - "create"
+      min_matches: 1
+
+  detection_logic:
+    or:
+      - condition: "wmic_remote_node"
+      - condition: "powershell_invoke_wmi"
+      - condition: "wmic_remote_process_create"
+
+  response:
+    notify_user: true
+    ask_user: false
+    terminate_process: false
+    record: true
+
+  tags: ["lateral-movement", "wmi", "remote-execution", "info"]
+  mitre_attack: ["T1047", "T1021"]
+  false_positives:
+    - "IT administrators managing systems via WMI remotely"
+    - "SCCM and other management tools using WMI for software deployment"
+
+
+- name: "HEUR:Win.LateralMov.PsExecStyleExecution.gen"
+  author: "Emirhan Ucan"
+  date: "2026-03-22"
+  status: test
+  level: high
+  severity: 80
+  description: |
+    Detects PsExec-style lateral movement: admin share (ADMIN$) access
+    combined with service creation, or known PsExec binary patterns.
+    Impacket psexec.py, CobaltStrike jump psexec, and similar tools
+    follow this pattern for remote execution.
+    Equivalent to Sigma: PsExec Tool Execution (T1570, T1021.002).
+  debug: false
+
+  named_conditions:
+    psexec_binary:
+      orderless: true
+      created_processes:
+        - "psexec.exe"
+        - "psexec64.exe"
+        - "PsExec.exe"
+      min_matches: 1
+
+    admin_share_service:
+      orderless: false
+      created_processes:
+        - "sc.exe"
+      cmdline_keywords:
+        - "\\\\ADMIN$"
+        - "\\\\C$"
+        - "\\\\IPC$"
+      min_matches: 1
+
+    named_pipe_exec:
+      orderless: true
+      file_paths:
+        - "\\\\pipe\\psexecsvc"
+        - "\\\\pipe\\PSEXESVC"
+      file_operations: ["create", "write", "read"]
+      min_matches: 1
+
+  detection_logic:
+    or:
+      - condition: "psexec_binary"
+      - condition: "admin_share_service"
+      - condition: "named_pipe_exec"
+
+  response:
+    notify_user: true
+    ask_user: false
+    terminate_process: false
+    record: true
+
+  tags: ["lateral-movement", "psexec", "remote-execution", "info"]
+  mitre_attack: ["T1570", "T1021.002", "T1543.003"]
+  false_positives:
+    - "Authorized use of PsExec for IT administration"
+    - "Software deployment tools using admin shares"
+
+
+- name: "HEUR:Win.Exec.CobaltStrikeIndicators.gen"
+  author: "Emirhan Ucan"
+  date: "2026-03-22"
+  status: test
+  level: critical
+  severity: 96
+  description: |
+    Detects CobaltStrike beacon indicators: named pipe staging patterns,
+    PowerShell download cradles, Beacon reflective DLL memory artifacts,
+    and common CS default configuration values.
+    Equivalent to Sigma: CobaltStrike Indicators (T1055, T1059.001).
+  debug: false
+
+  named_conditions:
+    cs_named_pipe:
+      orderless: true
+      file_paths:
+        - "\\pipe\\msagent_"
+        - "\\pipe\\mojo."
+        - "\\pipe\\postex_"
+        - "\\pipe\\status_"
+        - "\\pipe\\mypipe-"
+        - "\\pipe\\ntsvcs"
+        - "\\pipe\\scerpc"
+        - "\\pipe\\win_svc"
+      file_operations: ["create", "read", "write"]
+      min_matches: 1
+
+    cs_powershell_cradle:
+      orderless: true
+      created_processes:
+        - "powershell.exe"
+        - "pwsh.exe"
+      cmdline_keywords:
+        - "IEX"
+        - "DownloadString"
+        - "Net.WebClient"
+        - "FromBase64String"
+      min_matches: 1
+
+    cs_spawn_to:
+      orderless: true
+      created_processes:
+        - "rundll32.exe"
+        - "dllhost.exe"
+        - "svchost.exe"
+        - "werfault.exe"
+      parent_names:
+        - "powershell.exe"
+        - "cmd.exe"
+        - "wscript.exe"
+        - "mshta.exe"
+      min_matches: 1
+
+    cs_reflective_load:
+      orderless: true
+      apis:
+        - "kernel32.dll!VirtualAllocEx"
+        - "kernel32.dll!WriteProcessMemory"
+        - "kernel32.dll!CreateRemoteThread"
+        - "ntdll.dll!NtCreateThreadEx"
+      api_threshold: 3
+
+  detection_logic:
+    or:
+      - condition: "cs_named_pipe"
+      - and:
+          - condition: "cs_powershell_cradle"
+          - condition: "cs_spawn_to"
+      - and:
+          - condition: "cs_reflective_load"
+          - condition: "cs_spawn_to"
+
+  response:
+    notify_user: true
+    ask_user: true
+    terminate_process: false
+    record: true
+
+  tags: ["execution", "c2", "cobalt-strike", "lateral-movement"]
+  mitre_attack: ["T1055", "T1059.001", "T1071.001", "T1021"]
+  false_positives:
+    - "Authorized red team engagements"
+    - "Security research environments"
+
+
+- name: "HEUR:Win.Exec.PowerShellEmpireIndicators.gen"
+  author: "Emirhan Ucan"
+  date: "2026-03-22"
+  status: test
+  level: critical
+  severity: 94
+  description: |
+    Detects PowerShell Empire/Metasploit PowerShell payload indicators:
+    reflective loading, AMSI bypass strings, and known agent communication
+    patterns. Empire agents use PowerShell for command-and-control.
+    Equivalent to Sigma: PowerShell Empire Indicators (T1059.001).
+  debug: false
+
+  named_conditions:
+    empire_ps_pattern:
+      orderless: true
+      created_processes:
+        - "powershell.exe"
+        - "pwsh.exe"
+      cmdline_keywords:
+        - "System.Reflection.Assembly"
+        - "Load([Convert]"
+        - "FromBase64String"
+        - "GZipStream"
+        - "Decompress"
+      min_matches: 1
+
+    empire_amsi_bypass:
+      orderless: true
+      created_processes:
+        - "powershell.exe"
+        - "pwsh.exe"
+      cmdline_keywords:
+        - "amsiInitFailed"
+        - "[Ref].Assembly.GetType"
+        - "SetValue($null,!$true)"
+      min_matches: 1
+
+    msf_ps_payload:
+      orderless: true
+      created_processes:
+        - "powershell.exe"
+        - "pwsh.exe"
+      cmdline_keywords:
+        - "msf"
+        - "meterpreter"
+        - "shellcode"
+        - "payload"
+        - "stager"
+      min_matches: 1
+
+  detection_logic:
+    or:
+      - condition: "empire_ps_pattern"
+      - condition: "empire_amsi_bypass"
+      - condition: "msf_ps_payload"
+
+  response:
+    notify_user: true
+    ask_user: true
+    terminate_process: false
+    record: true
+
+  tags: ["execution", "c2", "empire", "metasploit", "powershell"]
+  mitre_attack: ["T1059.001", "T1562.001", "T1055"]
+  false_positives:
+    - "Authorized penetration testing activities"
+    - "Security training environments"
+
+
+- name: "HEUR:Win.PrivEsc.LocalGroupMembership.gen"
+  author: "Emirhan Ucan"
+  date: "2026-03-22"
+  status: test
+  level: high
+  severity: 85
+  description: |
+    Detects adding a user account to privileged local groups (Administrators,
+    Remote Desktop Users, Remote Management Users) via net.exe or PowerShell.
+    Attackers create new accounts or add existing accounts to gain persistent
+    elevated access.
+    Equivalent to Sigma: User Added to Local Administrator Group (T1136.001).
+  debug: false
+
+  named_conditions:
+    net_localgroup_admin_add:
+      orderless: false
+      created_processes:
+        - "net.exe"
+        - "net1.exe"
+      cmdline_keywords:
+        - "localgroup"
+        - "Administrators"
+        - "/add"
+      min_matches: 1
+
+    net_localgroup_rdp_add:
+      orderless: false
+      created_processes:
+        - "net.exe"
+        - "net1.exe"
+      cmdline_keywords:
+        - "localgroup"
+        - "Remote Desktop Users"
+        - "/add"
+      min_matches: 1
+
+    powershell_add_local_member:
+      orderless: true
+      created_processes:
+        - "powershell.exe"
+        - "pwsh.exe"
+      cmdline_keywords:
+        - "Add-LocalGroupMember"
+        - "Administrators"
+      min_matches: 1
+
+    new_admin_account:
+      orderless: false
+      created_processes:
+        - "net.exe"
+        - "net1.exe"
+      cmdline_keywords:
+        - "user"
+        - "/add"
+      min_matches: 1
+
+  detection_logic:
+    or:
+      - condition: "net_localgroup_admin_add"
+      - condition: "net_localgroup_rdp_add"
+      - condition: "powershell_add_local_member"
+      - condition: "new_admin_account"
+
+  response:
+    notify_user: true
+    ask_user: true
+    terminate_process: false
+    record: true
+
+  tags: ["privilege-escalation", "persistence", "account-manipulation"]
+  mitre_attack: ["T1136.001", "T1098"]
+  false_positives:
+    - "IT administrators legitimately adding users to groups"
+    - "Software that creates service accounts during installation"
+
+
+- name: "HEUR:Win.LateralMov.PassTheHashPTT.gen"
+  author: "Emirhan Ucan"
+  date: "2026-03-22"
+  status: test
+  level: critical
+  severity: 92
+  description: |
+    Detects Pass-the-Hash and Pass-the-Ticket indicators: logon with
+    NTLM hash injection (sekurlsa::pth pattern), Kerberos ticket injection
+    (rubeus.exe, kekeo.exe), or logon type 9 (NewCredentials) anomalies.
+    Equivalent to Sigma: Mimikatz Pass-The-Hash Command (T1550.002).
+  debug: false
+
+  named_conditions:
+    mimikatz_pth:
+      orderless: true
+      created_processes:
+        - "mimikatz.exe"
+      cmdline_keywords:
+        - "sekurlsa::pth"
+        - "sekurlsa::logonpasswords"
+        - "lsadump::sam"
+        - "lsadump::dcsync"
+        - "kerberos::ptt"
+      min_matches: 1
+
+    rubeus_ticket:
+      orderless: true
+      created_processes:
+        - "rubeus.exe"
+        - "Rubeus.exe"
+      min_matches: 1
+
+    kekeo_ticket:
+      orderless: true
+      created_processes:
+        - "kekeo.exe"
+        - "kekeo_old.exe"
+      min_matches: 1
+
+    dcsync_powershell:
+      orderless: true
+      created_processes:
+        - "powershell.exe"
+        - "pwsh.exe"
+      cmdline_keywords:
+        - "DCSync"
+        - "Invoke-DCSync"
+        - "Get-DomainController"
+        - "DS-Replication-Get-Changes"
+      min_matches: 1
+
+  detection_logic:
+    or:
+      - condition: "mimikatz_pth"
+      - condition: "rubeus_ticket"
+      - condition: "kekeo_ticket"
+      - condition: "dcsync_powershell"
+
+  response:
+    terminate_process: true
+    notify_user: true
+    record: true
+
+  tags: ["lateral-movement", "credential-access", "kerberos", "pass-the-hash"]
+  mitre_attack: ["T1550.002", "T1550.003", "T1003.006"]
+  false_positives:
+    - "Authorized red team operations"
+    - "Security research environments"
+
+
+- name: "INFO:Win.LateralMov.SMBFileCopy.gen"
+  author: "Emirhan Ucan"
+  date: "2026-03-22"
+  status: test
+  level: low
+  severity: 30
+  description: |
+    Informational: files copied to or from network shares (ADMIN$, C$, IPC$).
+    Common in lateral movement for dropping tools or exfiltrating data.
+    Also heavily used in legitimate IT operations. Logged for correlation.
+    Equivalent to Sigma: Lateral Movement via Admin Shares (T1021.002).
+  debug: false
+
+  named_conditions:
+    copy_to_admin_share:
+      orderless: false
+      created_processes:
+        - "cmd.exe"
+        - "powershell.exe"
+        - "robocopy.exe"
+        - "xcopy.exe"
+      cmdline_keywords:
+        - "\\\\ADMIN$"
+        - "\\\\C$"
+      min_matches: 1
+
+    net_use_admin_share:
+      orderless: false
+      created_processes:
+        - "net.exe"
+        - "net1.exe"
+      cmdline_keywords:
+        - "use"
+        - "ADMIN$"
+      min_matches: 1
+
+  detection_logic:
+    or:
+      - condition: "copy_to_admin_share"
+      - condition: "net_use_admin_share"
+
+  response:
+    notify_user: true
+    ask_user: false
+    terminate_process: false
+    record: true
+
+  tags: ["lateral-movement", "smb", "info"]
+  mitre_attack: ["T1021.002", "T1570"]
+  false_positives:
+    - "IT administrators using admin shares for deployment"
+    - "Backup software accessing shares"
+    - "File server management"
+
+
+- name: "HEUR:Win.Exec.DComExecution.gen"
+  author: "Emirhan Ucan"
+  date: "2026-03-22"
+  status: test
+  level: high
+  severity: 78
+  description: |
+    Detects DCOM lateral movement: MMC20.Application, ShellWindows,
+    ShellBrowserWindow object instantiation on remote hosts.
+    Impacket dcomexec.py and manual DCOM execution use these objects
+    to execute code without touching disk on remote hosts.
+    Equivalent to Sigma: DCOM Lateral Movement (T1021.003).
+  debug: false
+
+  named_conditions:
+    dcom_mmc20:
+      orderless: true
+      created_processes:
+        - "powershell.exe"
+        - "pwsh.exe"
+      cmdline_keywords:
+        - "MMC20.Application"
+        - "ShellWindows"
+        - "ShellBrowserWindow"
+        - "ExecuteShellCommand"
+      min_matches: 1
+
+    dcom_activator:
+      orderless: true
+      apis:
+        - "ole32.dll!CoCreateInstanceEx"
+        - "ole32.dll!CoGetInstanceFromFile"
+      api_threshold: 1
+
+    mmc_spawned_from_non_mmc:
+      orderless: true
+      created_processes:
+        - "mmc.exe"
+      parent_names:
+        - "powershell.exe"
+        - "cmd.exe"
+        - "wscript.exe"
+        - "cscript.exe"
+      min_matches: 1
+
+  detection_logic:
+    or:
+      - condition: "dcom_mmc20"
+      - condition: "mmc_spawned_from_non_mmc"
+      - and:
+          - condition: "dcom_activator"
+          - condition: "mmc_spawned_from_non_mmc"
+
+  response:
+    notify_user: true
+    ask_user: false
+    terminate_process: false
+    record: true
+
+  tags: ["lateral-movement", "dcom", "info"]
+  mitre_attack: ["T1021.003"]
+  false_positives:
+    - "Legitimate DCOM-based administration tools"
+    - "Microsoft Management Console normal usage"
+
+
+- name: "HEUR:Win.PrivEsc.TokenImpersonation.gen"
+  author: "Emirhan Ucan"
+  date: "2026-03-22"
+  status: test
+  level: high
+  severity: 83
+  description: |
+    Detects token impersonation and privilege escalation via token manipulation
+    APIs. Attackers duplicate SYSTEM tokens from privileged processes to
+    escalate from user to SYSTEM without exploiting a vulnerability.
+    Equivalent to Sigma: Token Impersonation or Theft (T1134).
+  debug: false
+
+  named_conditions:
+    token_impersonation_apis:
+      orderless: true
+      apis:
+        - "advapi32.dll!DuplicateTokenEx"
+        - "advapi32.dll!ImpersonateLoggedOnUser"
+        - "advapi32.dll!SetThreadToken"
+        - "ntdll.dll!NtImpersonateThread"
+        - "advapi32.dll!CreateProcessWithTokenW"
+        - "advapi32.dll!CreateProcessAsUserW"
+      api_threshold: 2
+
+    token_privilege_adjust:
+      orderless: true
+      apis:
+        - "advapi32.dll!AdjustTokenPrivileges"
+        - "advapi32.dll!LookupPrivilegeValueW"
+      api_threshold: 2
+
+  detection_logic:
+    or:
+      - condition: "token_impersonation_apis"
+      - condition: "token_privilege_adjust"
+
+  response:
+    notify_user: true
+    ask_user: false
+    terminate_process: false
+    record: true
+
+  tags: ["privilege-escalation", "token-impersonation", "info"]
+  mitre_attack: ["T1134", "T1134.001", "T1134.002"]
+  false_positives:
+    - "Legitimate security software performing access checks"
+    - "Service applications that need to impersonate users"
+    - "Remote assistance tools"
