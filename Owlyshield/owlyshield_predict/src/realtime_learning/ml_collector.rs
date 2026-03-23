@@ -380,6 +380,10 @@ impl MLCollector {
                     )
                 }
                 OperationType::DriverLoad(path) => format!("DRIVER_LOAD:{path}"),
+                OperationType::ProcessInjected(pid) => format!("PROC_INJECTED:{pid}"),
+                OperationType::MemoryModify(addr, size) => format!("MEM_MODIFY:0x{addr:X}:{size}"),
+                OperationType::MemoryProtect(addr, prot) => format!("MEM_PROTECT:0x{addr:X}:0x{prot:X}"),
+                OperationType::Generic(desc) => format!("GENERIC:{desc}"),
             };
             operation_sequence.push(rendered);
         }
@@ -560,9 +564,12 @@ impl MLCollector {
                     }
                     hypervisor_operation_statuses.insert(*status);
                 }
-                OperationType::ProcessHandleOpen { .. }
-                | OperationType::MemoryAllocate(_)
-                | OperationType::DriverLoad(_) => {}
+                OperationType::MemoryAllocate(_)
+                | OperationType::DriverLoad(_)
+                | OperationType::ProcessInjected(_)
+                | OperationType::MemoryModify(_, _)
+                | OperationType::MemoryProtect(_, _)
+                | OperationType::Generic(_) => {}
             }
         }
 

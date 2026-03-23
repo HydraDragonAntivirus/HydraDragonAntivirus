@@ -210,8 +210,8 @@ pub mod process_record_handling {
     use crate::actions_on_kill::{ActionsOnKill, ThreatInfo};
     use crate::config::{Config, KillPolicy, Param};
     use crate::csvwriter::CsvWriter;
-    use crate::predictions::prediction::input_tensors::Timestep;
-    use crate::process::{ProcessRecord, ProcessState};
+    use crate::shared_def::IrpMajorOp;
+    use crate::process::ProcessState;
     use crate::worker::predictor::{PredictorHandler, PredictorMalware};
     use crate::IOMessage;
     use crate::watchlist::WatchList;
@@ -638,8 +638,9 @@ pub mod worker_instance {
     use crate::predictions::prediction::input_tensors::Timestep;
     use crate::threat_handler::ThreatHandler;
     use sysinfo::{System, ProcessesToUpdate};
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash, Hasher};
+    use std::collections::{HashMap, HashSet, VecDeque};
+    use base64::Engine;
+    use std::path::{Path, PathBuf};
     #[cfg(feature = "realtime_learning")]
     use std::collections::HashMap;
     #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
@@ -766,6 +767,7 @@ pub mod worker_instance {
     }
 
     pub struct Worker<'a> {
+        pub config: &'a Config,
         whitelist: Option<&'a WhiteList>,
         process_records: ProcessRecords,
         /// Set to true after discover_existing_processes() completes.
@@ -786,6 +788,7 @@ pub mod worker_instance {
         pub api_trackers: HashMap<u64, ApiTracker>,
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
         pub app_settings: AppSettings,
+        pub rules_path: String,
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
         dynamic_hooks_registered: bool,
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
@@ -806,9 +809,47 @@ pub mod worker_instance {
         dynamic_hook_apply_failures: std::collections::HashMap<u32, u32>,
         pub threat_handler: Option<Box<dyn ThreatHandler>>,
         pub driver: Option<crate::Driver>,
+        pub last_report_time: Option<std::time::Instant>,
     }
 
     impl<'a> Worker<'a> {
+        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+        pub fn generate_system_report(&mut self, config: &crate::config::Config) {
+            let mut report = crate::report::SystemReport::collect(config);
+            
+            // Collect process snapshots from behavior engine
+            for (gid, state) in &self.behavior_engine.process_states {
+                let mut snapshot = crate::report::ProcessSnapshot {
+                    pid: state.pid,
+                    gid: *gid as u32,
+                    path: state.exe_path.to_string_lossy().into_owned(),
+                    total_ops: state.irp_stats.get_total_operations(),
+                    high_entropy_files: state.irp_stats.get_high_entropy_count(),
+                    is_malicious: false,
+                    detections: Vec::new(),
+                };
+                
+                if let Some(precord) = self.process_records.get_precord_by_gid(*gid) {
+                    snapshot.is_malicious = precord.is_malicious;
+                    if let Some(ref rule) = precord.triggered_rule_name {
+                        snapshot.detections.push(rule.clone());
+                    }
+                }
+                
+                for cond in &state.satisfied_named_conditions {
+                    snapshot.detections.push(format!("Condition: {}", cond));
+                }
+                
+                report.monitored_processes.push(snapshot);
+            }
+            
+            match report.save_to_file() {
+                Ok(path) => Logging::info(&format!("[REPORT] HijackThis-style system diagnostic report generated: {}", path.display())),
+                Err(e) => Logging::error(&format!("[REPORT] Failed to save system report: {}", e)),
+            }
+            self.last_report_time = Some(std::time::Instant::now());
+        }
+
         const PID_FALLBACK_GID_MASK: u64 = 0x8000_0000_0000_0000;
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
         const DYNAMIC_HOOK_EVENT_ID_START: u32 = 0x6000;
@@ -1219,6 +1260,7 @@ pub mod worker_instance {
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
                 dynamic_hook_apply_failures: std::collections::HashMap::new(),
                 driver: None,
+                last_report_time: None,
             }
         }
 
@@ -1800,7 +1842,7 @@ pub mod worker_instance {
                 }
 
                 for gid in terminated_gids {
-                    if self.process_records.process_records.contains_key(&gid) {
+                    if self.process_records.process_records.contains(&gid) {
                         self.cleanup_process(gid, "Killed (Sanctum/Behavior Detection)");
                     }
                 }
@@ -1808,7 +1850,9 @@ pub mod worker_instance {
                 // --- SEVENTH: Real-time learning periodic checks ---
                 #[cfg(feature = "realtime_learning")]
                 {
-                    self.learning_engine.check_benign_processes(&self.api_trackers, &self.process_records.process_records);
+                    // Convert LruCache to temporary HashMap for check_benign_processes
+                    let temp_records: HashMap<u64, ProcessRecord> = self.process_records.process_records.iter().map(|(k, v)| (*k, v.clone())).collect();
+                    self.learning_engine.check_benign_processes(&self.api_trackers, &temp_records);
                     if self.learning_engine.should_export() {
                         let _ = self.learning_engine.export_samples();
                     }
@@ -1818,6 +1862,8 @@ pub mod worker_instance {
 
         pub fn new_replay(config: &'a Config, whitelist: &'a WhiteList, #[cfg(all(target_os = "windows", feature = "behavior_engine"))] app_settings: AppSettings) -> Worker<'a> {
             Worker {
+                config,
+                rules_path: config[Param::BehaviorRulesPath].clone(),
                 whitelist: Some(whitelist),
                 process_records: ProcessRecords::new(),
                 startup_complete: true, // replay mode has no startup flood
@@ -1864,6 +1910,7 @@ pub mod worker_instance {
                 dynamic_hook_apply_failures: std::collections::HashMap::new(),
                 threat_handler: None,
                 driver: None,
+                last_report_time: None,
             }
         }
 
@@ -1877,13 +1924,26 @@ pub mod worker_instance {
 
             #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
             {
+                let now = std::time::Instant::now();
+                let report_interval = std::time::Duration::from_secs(3600); // 1 hour
+                use std::sync::atomic::Ordering; // Import Ordering
+                let force_report = self.behavior_engine.generate_report_flag.swap(false, Ordering::SeqCst);
+                if force_report || self.last_report_time.map_or(true, |t| now.duration_since(t) > report_interval) {
+                    if force_report {
+                        Logging::info("[REPORT] Triggering on-demand report requested via pipe");
+                    }
+                    self.generate_system_report(config);
+                }
+            }
+
+            #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+            {
                 // Only opcode 12 is the hypervisor/user-hook stream.
                 let raw_event_type = if iomsg.kernel_event_info.event_type != 0 {
                     iomsg.kernel_event_info.event_type
                 } else {
                     iomsg.irp_op as u32
                 };
-
                 if iomsg.irp_op == 12 {
                     iomsg.kernel_event_info.event_type = raw_event_type;
 
@@ -1963,7 +2023,7 @@ pub mod worker_instance {
                                 let threat_info = Self::build_behavior_threat_info(&det, "creation-time behavior scan");
 
                                 Self::apply_behavior_detection_state(precord, &det);
-                                ActionsOnKill::with_handler(th.clone_box())
+                                ActionsOnKill::with_handler(threat_handler.clone_box())
                                     .run_actions_with_info(config, precord, &dummy_pred_mtrx, &threat_info);
                                 creation_detected_malicious = true;
                                 Logging::info(&format!(
@@ -1978,6 +2038,7 @@ pub mod worker_instance {
                             }
                         }
                     }
+                }
 
                 // Add IRP record to process
                 #[cfg(all(target_os = "windows", feature = "hydradragon"))]

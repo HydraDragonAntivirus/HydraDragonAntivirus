@@ -28,6 +28,7 @@ pub mod utils;
 pub mod watchlist;
 pub mod whitelist;
 pub mod whitelist_loader;
+pub mod report;
 pub mod worker;
 
 #[cfg(feature = "realtime_learning")]

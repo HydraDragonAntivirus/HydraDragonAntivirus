@@ -384,7 +384,7 @@ impl ApiTracker {
             }
             IrpMajorOp::IrpKernelWriteMemory => {
                 self.process_operations.memory_allocated += msg.kernel_event_info.memory_size as u64;
-                self.operation_sequence.push(OperationType::MemoryModify(msg.kernel_event_info.memory_address, msg.kernel_event_info.memory_size));
+                self.operation_sequence.push(OperationType::MemoryModify(msg.kernel_event_info.memory_address, msg.kernel_event_info.memory_size as u32));
             }
             IrpMajorOp::IrpKernelProtectMemory => {
                 self.operation_sequence.push(OperationType::MemoryProtect(msg.kernel_event_info.memory_address, msg.kernel_event_info.memory_protection));

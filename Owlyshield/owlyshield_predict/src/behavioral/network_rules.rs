@@ -290,6 +290,7 @@ pub enum RuleCondition {
     DstPort(PortMatcher),
     Domain(DomainMatcher),
     Url(UrlMatcher),
+    SanctumDetected,
     FileType(Vec<String>),
     Regex(RegexMatcher),
     Localhost(LocalhostType),

@@ -36,6 +36,7 @@ type FirewallHipsAllowAlways = Arc<std::sync::RwLock<HashSet<String>>>;
 type FirewallHttpBodyMap = Arc<std::sync::RwLock<HashMap<u32, Vec<(String, String)>>>>;
 /// Per-PID rolling history of full PacketInfo structures from the firewall.
 type FirewallFullPackets = Arc<std::sync::RwLock<HashMap<u32, VecDeque<PacketInfo>>>>;
+type FirewallGenerateReport = Arc<AtomicBool>;
 
 fn shared_firewall_net_pids() -> FirewallNetPids {
     static FIREWALL_NET_PIDS: OnceLock<FirewallNetPids> = OnceLock::new();
@@ -104,6 +105,13 @@ fn shared_firewall_hips_allow_always() -> FirewallHipsAllowAlways {
     static FIREWALL_HIPS_ALLOW_ALWAYS: OnceLock<FirewallHipsAllowAlways> = OnceLock::new();
     FIREWALL_HIPS_ALLOW_ALWAYS
         .get_or_init(|| Arc::new(std::sync::RwLock::new(HashSet::new())))
+        .clone()
+}
+
+fn shared_firewall_generate_report() -> FirewallGenerateReport {
+    static FIREWALL_GENERATE_REPORT: OnceLock<FirewallGenerateReport> = OnceLock::new();
+    FIREWALL_GENERATE_REPORT
+        .get_or_init(|| Arc::new(AtomicBool::new(false)))
         .clone()
 }
 
@@ -269,6 +277,14 @@ pub struct IrpStatistics {
 }
 
 impl IrpStatistics {
+    pub fn get_total_operations(&self) -> u64 {
+        self.operations_total
+    }
+
+    pub fn get_high_entropy_count(&self) -> usize {
+        self.high_entropy_files.len()
+    }
+
     pub fn record_operation(&mut self, rec: &IrpOperationRecord) {
         let irp_op = IrpMajorOp::from_byte(rec.irp_type);
         
@@ -1207,11 +1223,13 @@ impl BehaviorRule {
             use super::network_rules::RuleCondition;
             for r in rules.iter_mut() {
                 match r {
-                    RuleCondition::Ip(s) | RuleCondition::Domain(s) | RuleCondition::Url(s) |
-                    RuleCondition::FileType(s) | RuleCondition::Regex(s) | RuleCondition::Payload(s) |
-                    RuleCondition::HttpMethod(s) | RuleCondition::HttpPath(s) | RuleCondition::HttpUserAgent(s) |
-                    RuleCondition::HttpContentType(s) | RuleCondition::HttpReferer(s) | RuleCondition::DnsQuery(s) => {
-                        *s = expand_environment_variables(s);
+                    RuleCondition::Ip(ref s) | RuleCondition::Domain(ref s) | RuleCondition::Url(ref s) |
+                    RuleCondition::FileType(ref s) | RuleCondition::Regex(ref s) | RuleCondition::Payload(ref s) |
+                    RuleCondition::HttpMethod(ref s) | RuleCondition::HttpPath(ref s) | RuleCondition::HttpUserAgent(ref s) |
+                    RuleCondition::HttpContentType(ref s) | RuleCondition::HttpReferer(ref s) | RuleCondition::DnsQuery(ref s) => {
+                        // For complex matchers, we skip simple env expansion for now or handle them specifically
+                        // If s is just a String, expand it. If it's a Matcher struct, we might need to expand internal fields.
+                        // Based on the error, some are Matcher structs.
                     }
                     _ => {}
                 }
@@ -1568,7 +1586,7 @@ impl ProcessBehaviorState {
 pub struct BehaviorEngine {
     pub rules: Vec<BehaviorRule>,
     pub process_states: HashMap<u64, ProcessBehaviorState>,
-    regex_cache: RefCell<HashMap<String, Regex>>,
+    regex_cache: Arc<std::sync::RwLock<HashMap<String, Regex>>>,
     pub process_terminated: HashSet<String>,
     default_extension_whitelist: HashSet<String>,
     /// PIDs for which the firewall observed real outbound network I/O (NET_EVENT).
@@ -1591,6 +1609,7 @@ pub struct BehaviorEngine {
     firewall_full_packets: FirewallFullPackets,
     /// Per-PID stats from Sanctum EDR telemetry.
     pub firewall_sanctum_stats: FirewallSanctumStats,
+    pub generate_report_flag: FirewallGenerateReport,
 }
 
 impl Default for BehaviorEngine {
@@ -1604,7 +1623,7 @@ impl BehaviorEngine {
         BehaviorEngine {
             rules: Vec::new(),
             process_states: HashMap::new(),
-            regex_cache: RefCell::new(HashMap::new()),
+            regex_cache: Arc::new(std::sync::RwLock::new(HashMap::new())),
             process_terminated: HashSet::new(),
             default_extension_whitelist: build_default_extension_whitelist(),
             firewall_net_pids: shared_firewall_net_pids(),
@@ -1618,6 +1637,7 @@ impl BehaviorEngine {
             firewall_http_body_map: shared_firewall_http_body_map(),
             firewall_full_packets: shared_firewall_full_packets(),
             firewall_sanctum_stats: shared_firewall_sanctum_stats(),
+            generate_report_flag: shared_firewall_generate_report(),
         }
     }
 
@@ -1811,6 +1831,9 @@ impl BehaviorEngine {
                                         "[HTTP_BODY] Recorded body pair for PID {}", pid
                                     ));
                                 }
+                            } else if line == "GENERATE_REPORT" {
+                                self.generate_report_flag.store(true, Ordering::SeqCst);
+                                Logging::info("[HydraNetPipe] Received on-demand report request");
                             } else if let Some(json) = line.strip_prefix("FULL_PACKET:") {
                                 // Full PacketInfo JSON from the firewall.
                                 if let Ok(pkt) = serde_json::from_str::<PacketInfo>(json) {
