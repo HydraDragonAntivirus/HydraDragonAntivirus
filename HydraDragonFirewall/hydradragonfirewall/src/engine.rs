@@ -510,6 +510,12 @@ pub struct FirewallSettings {
     pub website_path: String,
     pub rules: Vec<FirewallRule>,
     pub late_blocking_mode: bool,
+    #[serde(default)]
+    pub headless_mode: bool,
+    #[serde(default)]
+    pub log_mode: bool,
+    #[serde(default)]
+    pub no_alert_mode: bool,
     #[serde(default = "default_true")]
     pub save_all_logs: bool,
     #[serde(default = "default_true")]
@@ -537,6 +543,9 @@ impl Default for FirewallSettings {
             website_path: String::new(),
             rules: Vec::new(),
             late_blocking_mode: false,
+            headless_mode: false,
+            log_mode: false,
+            no_alert_mode: false,
             save_all_logs: true,
             prune_old_logs: true,
             max_visible_logs: default_max_visible_logs(),
@@ -2383,9 +2392,9 @@ impl FirewallEngine {
         let mut should_forward = true;
         let mut reason: Option<String> = None;
         let mut remember_pending_as_unknown_app = true;
-        let (late_blocking_mode, tls_proxy_cfg) = {
+        let (late_blocking_mode, tls_proxy_cfg, log_mode, no_alert_mode) = {
             let s = settings.read().unwrap();
-            (s.late_blocking_mode, s.tls_proxy.clone())
+            (s.late_blocking_mode, s.tls_proxy.clone(), s.log_mode, s.no_alert_mode)
         };
 
         // 3. DNS Snooping Enrichment (CRITICAL: Do this before rules!)
@@ -2622,7 +2631,7 @@ impl FirewallEngine {
         );
 
         // 11. Finalize Pending Decision (Trigger prompt if still unknown)
-        if app_decision == AppDecision::Pending {
+        if app_decision == AppDecision::Pending && !no_alert_mode {
             let enqueued = am.enqueue_pending_app(
                 PendingApp {
                     process_id: pid,
@@ -2788,14 +2797,20 @@ impl FirewallEngine {
             }
         }
 
-        let reason_text = reason.unwrap_or_else(|| "Allowed (no matching rule)".to_string());
+        let mut final_forward = should_forward;
+        let mut final_reason = reason.unwrap_or_else(|| "Allowed (no matching rule)".to_string());
+
+        if log_mode && !final_forward {
+            final_forward = true;
+            final_reason = format!("[LOG-ONLY] {}", final_reason);
+        }
 
         PacketDecision {
             packet_data: data_vec,
             address_data: address_data.to_vec(),
-            should_forward,
+            should_forward: final_forward,
             recalc_checksums: false,
-            _reason: reason_text,
+            _reason: final_reason,
         }
     }
 

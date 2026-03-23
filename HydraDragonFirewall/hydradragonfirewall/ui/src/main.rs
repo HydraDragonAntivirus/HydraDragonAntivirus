@@ -1,5 +1,6 @@
 use js_sys::Reflect;
 use leptos::*;
+use leptos::{event_target_checked, event_target_value};
 // Assuming imports work.
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -108,6 +109,28 @@ pub struct ProxyHttpEvent {
     pub response_content_length: Option<String>,
     pub request_body: Option<String>,
     pub request_body_truncated: bool,
+    #[serde(default)]
+    pub response_body: Option<String>,
+    #[serde(default)]
+    pub response_body_truncated: bool,
+}
+
+/// A body changer rule managed through the GUI.
+/// Serialised into rules.yaml as an SDK rule with action change_request_body
+/// or change_response_body.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct BodyChangerRule {
+    pub id: String,           // client-side UUID for keying
+    pub name: String,
+    pub enabled: bool,
+    /// "request" or "response"
+    pub target: String,
+    /// URL substring to match (goes into url matcher)
+    pub url_pattern: String,
+    /// HTTP method to match, empty = any
+    pub method_pattern: String,
+    /// The replacement body text
+    pub replacement: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -220,6 +243,8 @@ pub enum RuleActionView {
     Ask,
     ChangePacket,
     SolvePacket,
+    ChangeRequestBody,
+    ChangeResponseBody,
     Unknown,
 }
 
@@ -311,6 +336,16 @@ pub fn App() -> impl IntoView {
 
 
     let (_sdk_rules, set_sdk_rules) = create_signal(Vec::<SdkRuleView>::new());
+    let (body_changers, set_body_changers) = create_signal(Vec::<BodyChangerRule>::new());
+    // Fields for the body changer editor form
+    let (bc_edit_id, set_bc_edit_id) = create_signal(Option::<String>::None);
+    let (bc_name, set_bc_name) = create_signal(String::new());
+    let (bc_target, set_bc_target) = create_signal("request".to_string());
+    let (bc_url_pattern, set_bc_url_pattern) = create_signal(String::new());
+    let (bc_method_pattern, set_bc_method_pattern) = create_signal(String::new());
+    let (bc_replacement, set_bc_replacement) = create_signal(String::new());
+    let (bc_enabled, set_bc_enabled) = create_signal(true);
+    let (show_bc_form, set_show_bc_form) = create_signal(false);
     
     let (pending_app, set_pending_app) = create_signal(Option::<PendingApp>::None);
     let (app_decisions, set_app_decisions) = create_signal(HashMap::<String, AppDecision>::new());
@@ -385,6 +420,24 @@ pub fn App() -> impl IntoView {
             let val = invoke("get_sdk_rules", args.into()).await;
             let rules: Vec<SdkRuleView> = serde_wasm_bindgen::from_value(val).unwrap_or_default();
             set_sdk_rules.set(rules);
+        });
+    };
+
+    let fetch_body_changers = move || {
+        spawn_local(async move {
+            let val = invoke("get_body_changers", JsValue::NULL).await;
+            let rules: Vec<BodyChangerRule> = serde_wasm_bindgen::from_value(val).unwrap_or_default();
+            set_body_changers.set(rules);
+        });
+    };
+
+    let save_body_changers_fn = move |rules: Vec<BodyChangerRule>| {
+        spawn_local(async move {
+            let args = serde_wasm_bindgen::to_value(&serde_json::json!({ "rules": rules })).unwrap();
+            let _ = invoke("save_body_changers", args).await;
+            let val = invoke("get_body_changers", JsValue::NULL).await;
+            let updated: Vec<BodyChangerRule> = serde_wasm_bindgen::from_value(val).unwrap_or_default();
+            set_body_changers.set(updated);
         });
     };
 
@@ -485,7 +538,7 @@ pub fn App() -> impl IntoView {
 
     create_effect(move |_| {
         match current_view.get() {
-            AppView::Rules => { fetch_sdk_rules(); fetch_rules_raw(); }
+            AppView::Rules => { fetch_sdk_rules(); fetch_rules_raw(); fetch_body_changers(); }
             AppView::Logs => { fetch_saved_logs(); }
             AppView::Exclusions => { fetch_app_decisions(); }
             AppView::Settings => { fetch_settings(); }
@@ -788,29 +841,209 @@ pub fn App() -> impl IntoView {
                             }.into_view(),
 
                             AppView::Rules => view! {
-                                <div style="height: calc(100vh - 120px); display: flex; flex-direction: column; gap: 15px">
-                                    <div style="display: flex; justify-content: flex-end; gap: 10px">
-                                        <button class="btn-primary" on:click=move |_| set_show_editor.set(!show_editor.get())>
-                                            {move || if show_editor.get() { "Cancel" } else { "Edit YAML" }}
+                                <div style="height: calc(100vh - 120px); display: flex; flex-direction: column; gap: 0">
+                                    // ── Tab Bar ──────────────────────────────────────────────
+                                    <div style="display: flex; border-bottom: 1px solid #333; margin-bottom: 12px">
+                                        <button
+                                            class={move || if !show_editor.get() && !show_bc_form.get() { "nav-item active" } else { "nav-item" }}
+                                            style="padding: 8px 18px; border-radius: 4px 4px 0 0"
+                                            on:click=move |_| { set_show_editor.set(false); set_show_bc_form.set(false); }>
+                                            "Rules Wiki"
                                         </button>
+                                        <button
+                                            class={move || if show_editor.get() { "nav-item active" } else { "nav-item" }}
+                                            style="padding: 8px 18px; border-radius: 4px 4px 0 0"
+                                            on:click=move |_| { set_show_editor.set(true); set_show_bc_form.set(false); fetch_rules_raw(); }>
+                                            "Edit YAML"
+                                        </button>
+                                        <button
+                                            class={move || if show_bc_form.get() { "nav-item active" } else { "nav-item" }}
+                                            style="padding: 8px 18px; border-radius: 4px 4px 0 0"
+                                            on:click=move |_| { set_show_bc_form.set(true); set_show_editor.set(false); fetch_body_changers(); }>
+                                            "Body Changer"
+                                        </button>
+                                        // save/validate buttons only for YAML tab
                                         {move || if show_editor.get() {
                                             view! {
-                                                <div style="display: flex; gap: 10px">
+                                                <div style="margin-left: auto; display: flex; gap: 10px; align-items: center">
                                                     <button class="btn-secondary" on:click=move |_| validate_rules_raw()> "Validate" </button>
                                                     <button class="btn-primary" on:click=move |_| save_rules_raw()> "Save" </button>
                                                 </div>
                                             }.into_view()
-                                        } else { view! {}.into_view() }}
+                                        } else { view!{}.into_view() }}
                                     </div>
+
+                                    // ── Tab Content ──────────────────────────────────────────
+                                    <div style="flex: 1; overflow: hidden">
                                     {move || if show_editor.get() {
                                         view! {
-                                            <textarea class="glass-card" style="flex: 1; padding: 20px; font-family: monospace"
+                                            <textarea class="glass-card" style="width: 100%; height: 100%; box-sizing: border-box; padding: 20px; font-family: monospace; resize: none"
                                                 prop:value=move || rules_raw_content.get()
                                                 on:input=move |ev| set_rules_raw_content.set(event_target_value(&ev)) />
+                                        }.into_view()
+                                    } else if show_bc_form.get() {
+                                        // ── Body Changer Panel ────────────────────────────────
+                                        view! {
+                                            <div style="display: flex; gap: 15px; height: 100%; overflow: hidden">
+                                                // Left: list
+                                                <div class="glass-card" style="flex: 1; overflow-y: auto; display: flex; flex-direction: column">
+                                                    <div class="section-header">
+                                                        <h3 style="margin: 0">"Body Changer Rules"</h3>
+                                                        <button class="btn-primary" style="padding: 5px 14px; font-size: 12px"
+                                                            on:click=move |_| {
+                                                                // Clear the form for a new rule
+                                                                set_bc_edit_id.set(None);
+                                                                set_bc_name.set(String::new());
+                                                                set_bc_target.set("request".to_string());
+                                                                set_bc_url_pattern.set(String::new());
+                                                                set_bc_method_pattern.set(String::new());
+                                                                set_bc_replacement.set(String::new());
+                                                                set_bc_enabled.set(true);
+                                                            }>"+ New Rule"</button>
+                                                    </div>
+                                                    <div style="flex: 1; overflow-y: auto">
+                                                        <For
+                                                            each={move || body_changers.get()}
+                                                            key={|r| r.id.clone()}
+                                                            children={move |rule| {
+                                                                let r2 = rule.clone();
+                                                                let r3 = rule.clone();
+                                                                let target_label = if rule.target == "response" { "Response" } else { "Request" };
+                                                                let target_color = if rule.target == "response" { "#a78bfa" } else { "#60a5fa" };
+                                                                view! {
+                                                                    <div class="log-row lvl-info"
+                                                                        style="display: flex; justify-content: space-between; align-items: center; cursor: pointer"
+                                                                        on:click=move |_| {
+                                                                            set_bc_edit_id.set(Some(r2.id.clone()));
+                                                                            set_bc_name.set(r2.name.clone());
+                                                                            set_bc_target.set(r2.target.clone());
+                                                                            set_bc_url_pattern.set(r2.url_pattern.clone());
+                                                                            set_bc_method_pattern.set(r2.method_pattern.clone());
+                                                                            set_bc_replacement.set(r2.replacement.clone());
+                                                                            set_bc_enabled.set(r2.enabled);
+                                                                        }>
+                                                                        <div style="display: flex; align-items: center; gap: 8px; flex: 1; overflow: hidden">
+                                                                            <span style={format!("color: {}; font-size: 11px; font-weight: 700; min-width: 60px", target_color)}>{target_label}</span>
+                                                                            <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{rule.name.clone()}</span>
+                                                                            {if !rule.url_pattern.is_empty() {
+                                                                                view! { <span style="color: var(--text-muted); font-size: 10px; margin-left: 4px">{rule.url_pattern.clone()}</span> }.into_view()
+                                                                            } else { view!{}.into_view() }}
+                                                                        </div>
+                                                                        <div style="display: flex; align-items: center; gap: 6px">
+                                                                            {if !rule.enabled { view! { <span style="color: #888; font-size: 10px">"disabled"</span> }.into_view() } else { view!{}.into_view() }}
+                                                                            <button
+                                                                                style="background: var(--accent-red); border: none; border-radius: 3px; color: white; padding: 2px 8px; font-size: 11px; cursor: pointer"
+                                                                                on:click=move |ev| {
+                                                                                    ev.stop_propagation();
+                                                                                    let id = r3.id.clone();
+                                                                                    let mut updated = body_changers.get();
+                                                                                    updated.retain(|r| r.id != id);
+                                                                                    save_body_changers_fn(updated);
+                                                                                }>"Delete"</button>
+                                                                        </div>
+                                                                    </div>
+                                                                }
+                                                            }}
+                                                        />
+                                                    </div>
+                                                </div>
+
+                                                // Right: edit form
+                                                <div class="glass-card" style="flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; padding: 20px">
+                                                    <h3 style="margin: 0">
+                                                        {move || if bc_edit_id.get().is_some() { "Edit Rule" } else { "New Rule" }}
+                                                    </h3>
+                                                    <div class="input-group">
+                                                        <label>"Rule Name"</label>
+                                                        <input type="text" placeholder="My Body Changer"
+                                                            prop:value=move || bc_name.get()
+                                                            on:input=move |ev| set_bc_name.set(event_target_value(&ev)) />
+                                                    </div>
+                                                    <div class="input-group">
+                                                        <label>"Target"</label>
+                                                        <select
+                                                            on:change=move |ev| set_bc_target.set(event_target_value(&ev))>
+                                                            <option value="request" selected={move || bc_target.get() == "request"}>"Request Body"</option>
+                                                            <option value="response" selected={move || bc_target.get() == "response"}>"Response Body"</option>
+                                                        </select>
+                                                    </div>
+                                                    <div class="input-group">
+                                                        <label>"URL Pattern (substring match, empty = all)"</label>
+                                                        <input type="text" placeholder="example.com/api"
+                                                            prop:value=move || bc_url_pattern.get()
+                                                            on:input=move |ev| set_bc_url_pattern.set(event_target_value(&ev)) />
+                                                    </div>
+                                                    <div class="input-group">
+                                                        <label>"HTTP Method (e.g. POST, empty = any)"</label>
+                                                        <input type="text" placeholder="POST"
+                                                            prop:value=move || bc_method_pattern.get()
+                                                            on:input=move |ev| set_bc_method_pattern.set(event_target_value(&ev)) />
+                                                    </div>
+                                                    <div class="input-group">
+                                                        <label>"Replacement Body"</label>
+                                                        <textarea
+                                                            style="font-family: monospace; min-height: 120px; resize: vertical; padding: 8px"
+                                                            placeholder=r#"{"key":"value"}"#
+                                                            prop:value=move || bc_replacement.get()
+                                                            on:input=move |ev| set_bc_replacement.set(event_target_value(&ev)) />
+                                                    </div>
+                                                    <div class="input-group">
+                                                        <label style="display: flex; align-items: center; gap: 8px">
+                                                            <input type="checkbox"
+                                                                prop:checked=move || bc_enabled.get()
+                                                                on:change=move |ev| set_bc_enabled.set(event_target_checked(&ev)) />
+                                                            "Enabled"
+                                                        </label>
+                                                    </div>
+                                                    <div style="display: flex; gap: 10px; margin-top: 8px">
+                                                        <button class="btn-primary" on:click=move |_| {
+                                                            let name = bc_name.get();
+                                                            if name.trim().is_empty() { return; }
+                                                            let id = bc_edit_id.get()
+                                                                .unwrap_or_else(|| {
+                                                                    // simple unique id: timestamp millis
+                                                                    js_sys::Date::now().to_bits().to_string()
+                                                                });
+                                                            let new_rule = BodyChangerRule {
+                                                                id: id.clone(),
+                                                                name,
+                                                                enabled: bc_enabled.get(),
+                                                                target: bc_target.get(),
+                                                                url_pattern: bc_url_pattern.get(),
+                                                                method_pattern: bc_method_pattern.get(),
+                                                                replacement: bc_replacement.get(),
+                                                            };
+                                                            let mut updated = body_changers.get();
+                                                            if let Some(pos) = updated.iter().position(|r| r.id == id) {
+                                                                updated[pos] = new_rule;
+                                                            } else {
+                                                                updated.push(new_rule);
+                                                            }
+                                                            save_body_changers_fn(updated);
+                                                            // Reset form
+                                                            set_bc_edit_id.set(None);
+                                                            set_bc_name.set(String::new());
+                                                            set_bc_url_pattern.set(String::new());
+                                                            set_bc_method_pattern.set(String::new());
+                                                            set_bc_replacement.set(String::new());
+                                                            set_bc_enabled.set(true);
+                                                        }>"Save Rule"</button>
+                                                        <button class="btn-secondary" on:click=move |_| {
+                                                            set_bc_edit_id.set(None);
+                                                            set_bc_name.set(String::new());
+                                                            set_bc_url_pattern.set(String::new());
+                                                            set_bc_method_pattern.set(String::new());
+                                                            set_bc_replacement.set(String::new());
+                                                            set_bc_enabled.set(true);
+                                                        }>"Clear"</button>
+                                                    </div>
+                                                </div>
+                                            </div>
                                         }.into_view()
                                     } else {
                                         view! { <RulesWiki /> }.into_view()
                                     }}
+                                    </div>
                                 </div>
                             }.into_view(),
 
@@ -967,7 +1200,19 @@ pub fn App() -> impl IntoView {
                                                                 {if ev.request_body_truncated { " (truncated at 64 KB)" } else { "" }}
                                                                 ":"
                                                             </div>
-                                                            <div style="background: #000; padding: 10px; border-radius: 4px; font-family: monospace; font-size: 11px; word-break: break-all; white-space: pre-wrap; max-height: 300px; overflow-y: auto">
+                                                            <div style="background: #000; padding: 10px; border-radius: 4px; font-family: monospace; font-size: 11px; word-break: break-all; white-space: pre-wrap; max-height: 200px; overflow-y: auto">
+                                                                {body}
+                                                            </div>
+                                                        </div>
+                                                    })}
+                                                    {ev.response_body.clone().map(|body| view! {
+                                                        <div>
+                                                            <div style="margin-top: 8px">
+                                                                <strong>"Response Body"</strong>
+                                                                {if ev.response_body_truncated { " (truncated at 64 KB)" } else { "" }}
+                                                                ":"
+                                                            </div>
+                                                            <div style="background: #000; padding: 10px; border-radius: 4px; font-family: monospace; font-size: 11px; word-break: break-all; white-space: pre-wrap; max-height: 200px; overflow-y: auto">
                                                                 {body}
                                                             </div>
                                                         </div>

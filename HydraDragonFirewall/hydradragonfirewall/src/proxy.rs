@@ -258,21 +258,42 @@ pub async fn run_proxy(
                         process_path: String::new(),
                     };
 
-                    let (blocked, block_reason) = {
-                        // Evaluate rules and store findings
+                    // ── SDK Rule Evaluation (request) ─────────────────────
+                    let (blocked, block_reason, req_body_override) = {
                         let sdk_guard = sdk.read().unwrap();
                         let first_match = sdk_guard.evaluate_first_match(&mock_packet, &[], false);
-                        
                         let mut b = false;
                         let mut reason = String::new();
+                        let mut override_body: Option<String> = None;
 
                         if let Some(finding) = first_match {
-                            if finding.action == RuleAction::Block {
-                                b = true;
-                                reason = format!("Blocked by SDK Rule [{}]: {}", finding.rule_name, finding.description);
+                            match finding.action {
+                                RuleAction::Block => {
+                                    b = true;
+                                    reason = format!("Blocked by SDK Rule [{}]: {}", finding.rule_name, finding.description);
+                                }
+                                RuleAction::ChangeRequestBody => {
+                                    if let Some(new_body) = finding.change_request_body {
+                                        override_body = Some(new_body);
+                                    }
+                                }
+                                _ => {}
                             }
                         }
-                        (b, reason)
+                        (b, reason, override_body)
+                    };
+
+                    // Apply request body override before forwarding.
+                    let (req, request_body) = if let Some(new_body) = req_body_override {
+                        let new_bytes = Bytes::from(new_body.clone().into_bytes());
+                        let (req_parts, _) = req.into_parts();
+                        let new_req = http_mitm_proxy::hyper::Request::from_parts(
+                            req_parts,
+                            Full::new(new_bytes),
+                        );
+                        (new_req, Some(new_body))
+                    } else {
+                        (req, request_body)
                     };
 
                     let ts = now_ts();
@@ -368,22 +389,45 @@ pub async fn run_proxy(
 
                     // ── SDK Rule Evaluation (response body) ───────────────
                     // Re-evaluate rules now that we have the response body.
-                    let (resp_blocked, resp_block_reason) = if response_body.is_some() {
+                    let (resp_blocked, resp_block_reason, resp_body_override, res) =
+                    if response_body.is_some() {
                         let mut resp_packet = mock_packet.clone();
                         resp_packet.http_response_body = response_body.clone();
                         let sdk_guard = sdk.read().unwrap();
                         let first_match = sdk_guard.evaluate_first_match(&resp_packet, &[], false);
                         let mut b = false;
                         let mut reason = String::new();
+                        let mut override_body: Option<String> = None;
                         if let Some(finding) = first_match {
-                            if finding.action == crate::sdk::RuleAction::Block {
-                                b = true;
-                                reason = format!("Blocked by SDK Rule [{}]: {}", finding.rule_name, finding.description);
+                            match finding.action {
+                                RuleAction::Block => {
+                                    b = true;
+                                    reason = format!("Blocked by SDK Rule [{}]: {}", finding.rule_name, finding.description);
+                                }
+                                RuleAction::ChangeResponseBody => {
+                                    if let Some(new_body) = finding.change_response_body {
+                                        override_body = Some(new_body);
+                                    }
+                                }
+                                _ => {}
                             }
                         }
-                        (b, reason)
+                        (b, reason, override_body, res)
                     } else {
-                        (false, String::new())
+                        (false, String::new(), None, res)
+                    };
+
+                    // Apply response body override.
+                    let (res, response_body) = if let Some(new_body) = resp_body_override {
+                        let new_bytes = Bytes::from(new_body.clone().into_bytes());
+                        let (r_parts, _) = res.into_parts();
+                        let new_res = http_mitm_proxy::hyper::Response::from_parts(
+                            r_parts,
+                            Full::new(new_bytes),
+                        );
+                        (new_res, Some(new_body))
+                    } else {
+                        (res, response_body)
                     };
 
                     if resp_blocked {

@@ -590,13 +590,15 @@ impl TrafficRoutine {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum RuleAction {
-    TrafficAttack,  // Feature 18: Detect/log attack patterns
-    Block,          // Feature 19
+    TrafficAttack,      // Feature 18: Detect/log attack patterns
+    Block,              // Feature 19
     #[default]
-    Allow,          // Feature 20
-    Ask,            // Feature 21: Prompt user
-    ChangePacket,   // Feature 22: Modify packet
-    SolvePacket,    // Feature 23: Fix/normalize packet
+    Allow,              // Feature 20
+    Ask,                // Feature 21: Prompt user
+    ChangePacket,       // Feature 22: Modify packet payload
+    SolvePacket,        // Feature 23: Fix/normalize packet
+    ChangeRequestBody,  // Replace the HTTP request body with change_request_body
+    ChangeResponseBody, // Replace the HTTP response body with change_response_body
 }
 
 // ============================================================================
@@ -766,6 +768,12 @@ pub struct SdkRule {
     // Packet modification data (for ChangePacket action)
     #[serde(default)]
     pub change_data: Option<String>,
+    /// Replacement body text for the ChangeRequestBody action
+    #[serde(default)]
+    pub change_request_body: Option<String>,
+    /// Replacement body text for the ChangeResponseBody action
+    #[serde(default)]
+    pub change_response_body: Option<String>,
     /// Patterns to match against the HTTP request body (substring match, any pattern is sufficient)
     #[serde(default)]
     pub http_request_body: Option<Vec<String>>,
@@ -1103,6 +1111,8 @@ pub struct RuleMatchResult {
     pub action: RuleAction,
     pub description: String,
     pub change_data: Option<String>,
+    pub change_request_body: Option<String>,
+    pub change_response_body: Option<String>,
 }
 
 // ============================================================================
@@ -1177,6 +1187,8 @@ impl SdkRegistry {
                     action: rule.action.clone(),
                     description: rule.description.clone(),
                     change_data: rule.change_data.clone(),
+                    change_request_body: rule.change_request_body.clone(),
+                    change_response_body: rule.change_response_body.clone(),
                 });
             }
         }

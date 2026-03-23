@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
@@ -10,6 +10,7 @@ use std::sync::{Arc, OnceLock};
 
 use crate::shared_def::{FileChangeInfo, IOMessage, IrpMajorOp, known_raw_event_name};
 use crate::process::ProcessRecord;
+use super::network_rules::{PacketInfo, Protocol};
 use crate::logging::Logging;
 use crate::config::Config;
 use crate::actions_on_kill::{ActionsOnKill, ThreatInfo};
@@ -33,6 +34,8 @@ type FirewallHipsAllowOnce = Arc<std::sync::RwLock<HashSet<String>>>;
 type FirewallHipsAllowAlways = Arc<std::sync::RwLock<HashSet<String>>>;
 /// Per-PID list of (request_body, response_body) pairs received via HTTP_BODY pipe messages.
 type FirewallHttpBodyMap = Arc<std::sync::RwLock<HashMap<u32, Vec<(String, String)>>>>;
+/// Per-PID rolling history of full PacketInfo structures from the firewall.
+type FirewallFullPackets = Arc<std::sync::RwLock<HashMap<u32, VecDeque<PacketInfo>>>>;
 
 fn shared_firewall_net_pids() -> FirewallNetPids {
     static FIREWALL_NET_PIDS: OnceLock<FirewallNetPids> = OnceLock::new();
@@ -58,6 +61,13 @@ fn shared_firewall_net_details() -> FirewallNetDetails {
 fn shared_firewall_http_body_map() -> FirewallHttpBodyMap {
     static FIREWALL_HTTP_BODY_MAP: OnceLock<FirewallHttpBodyMap> = OnceLock::new();
     FIREWALL_HTTP_BODY_MAP
+        .get_or_init(|| Arc::new(std::sync::RwLock::new(HashMap::new())))
+        .clone()
+}
+
+fn shared_firewall_full_packets() -> FirewallFullPackets {
+    static FIREWALL_FULL_PACKETS: OnceLock<FirewallFullPackets> = OnceLock::new();
+    FIREWALL_FULL_PACKETS
         .get_or_init(|| Arc::new(std::sync::RwLock::new(HashMap::new())))
         .clone()
 }
@@ -769,11 +779,12 @@ pub struct NamedConditionGroup {
     #[serde(default)]
     pub network_indicators: Vec<String>,
     #[serde(default)]
-    pub network_domains: Vec<String>,
-    #[serde(default)]
-    pub network_ips: Vec<String>,
-    #[serde(default)]
     pub has_network_activity: bool,
+
+    /// Powerful network conditions using the ported firewall SDK matcher.
+    /// Supports matching on Protocol, IP, Domain, URL, FileType, Port, Entropy, Payload, etc.
+    #[serde(default)]
+    pub network_rules: Vec<super::network_rules::RuleCondition>,
 
     // Firewall-content conditions — matched against data from the HydraDragon Firewall pipe.
     /// true  = condition requires process to have been blocked by the firewall.
@@ -1166,6 +1177,20 @@ impl BehaviorRule {
                 p.pattern = expand_environment_variables(&p.pattern);
             }
         };
+        let expand_network_rules = |rules: &mut Vec<super::network_rules::RuleCondition>| {
+            use super::network_rules::RuleCondition;
+            for r in rules.iter_mut() {
+                match r {
+                    RuleCondition::Ip(s) | RuleCondition::Domain(s) | RuleCondition::Url(s) |
+                    RuleCondition::FileType(s) | RuleCondition::Regex(s) | RuleCondition::Payload(s) |
+                    RuleCondition::HttpMethod(s) | RuleCondition::HttpPath(s) | RuleCondition::HttpUserAgent(s) |
+                    RuleCondition::HttpContentType(s) | RuleCondition::HttpReferer(s) | RuleCondition::DnsQuery(s) => {
+                        *s = expand_environment_variables(s);
+                    }
+                    _ => {}
+                }
+            }
+        };
 
         expand_vec(&mut self.browsed_paths);
         expand_vec(&mut self.accessed_paths);
@@ -1218,6 +1243,7 @@ impl BehaviorRule {
             
             // Expand normalized hypervisor event labels
             expand_vec(&mut cond_group.hypervisor_event_labels);
+            expand_network_rules(&mut cond_group.network_rules);
         }
 
         for stage in &mut self.stages {
@@ -1378,6 +1404,9 @@ pub struct ProcessBehaviorState {
 
     /// HTTP body pairs (request_body, response_body) received via the HTTP_BODY pipe message.
     pub http_body_entries: Vec<(String, String)>,
+    
+    /// Rolling history of network packets captured for this process (FULL_PACKET).
+    pub net_packets: VecDeque<PacketInfo>,
 }
 
 impl ProcessBehaviorState {
@@ -1408,6 +1437,7 @@ impl ProcessBehaviorState {
         state.written_unknown_ext_stems = HashSet::new();
         state.script_file = String::new();
         state.script_file_path = String::new();
+        state.net_packets = VecDeque::with_capacity(500);
 
         state
     }
@@ -1525,6 +1555,8 @@ pub struct BehaviorEngine {
     firewall_hips_allow_always: FirewallHipsAllowAlways,
     /// Per-PID HTTP body pairs captured by the MITM proxy (received via HTTP_BODY pipe messages).
     firewall_http_body_map: FirewallHttpBodyMap,
+    /// Per-PID rolling history of full network packets from the firewall.
+    firewall_full_packets: FirewallFullPackets,
 }
 
 impl Default for BehaviorEngine {
@@ -1550,6 +1582,7 @@ impl BehaviorEngine {
             firewall_hips_allow_once: shared_firewall_hips_allow_once(),
             firewall_hips_allow_always: shared_firewall_hips_allow_always(),
             firewall_http_body_map: shared_firewall_http_body_map(),
+            firewall_full_packets: shared_firewall_full_packets(),
         }
     }
 
@@ -1579,6 +1612,7 @@ impl BehaviorEngine {
         let blocked_exes  = Arc::clone(&self.firewall_blocked_exes);
         let hips_decisions = Arc::clone(&self.firewall_hips_decisions);
         let http_body_map = Arc::clone(&self.firewall_http_body_map);
+        let full_packets  = Arc::clone(&self.firewall_full_packets);
 
         std::thread::Builder::new()
             .name("hydra_net_event_pipe".to_string())
@@ -1739,42 +1773,23 @@ impl BehaviorEngine {
                                     ));
                                 }
                             } else if let Some(json) = line.strip_prefix("FULL_PACKET:") {
-                                // Full PacketInfo JSON from the firewall — log every field.
-                                // Sent for every blocked packet so the behavior engine has
-                                // complete forensic context for rule matching and reports.
-                                match serde_json::from_str::<serde_json::Value>(json) {
-                                    Ok(pkt) => {
-                                        Logging::info(&format!(
-                                            "[FirewallEvent] proto={} src={}:{} dst={}:{} pid={} process={} \
-                                             outbound={} hostname={} url={} method={} path={} ua={} \
-                                             content_type={} referer={} dns={} entropy={} \
-                                             file_type={} payload_sample={} urls=[{}] domains=[{}]",
-                                            pkt["protocol"].as_str().unwrap_or("-"),
-                                            pkt["src_ip"].as_str().unwrap_or("-"),
-                                            pkt["src_port"].as_u64().unwrap_or(0),
-                                            pkt["dst_ip"].as_str().unwrap_or("-"),
-                                            pkt["dst_port"].as_u64().unwrap_or(0),
-                                            pkt["process_id"].as_u64().unwrap_or(0),
-                                            pkt["image_path"].as_str().unwrap_or("-"),
-                                            pkt["outbound"].as_bool().unwrap_or(false),
-                                            pkt["hostname"].as_str().unwrap_or("-"),
-                                            pkt["full_url"].as_str().unwrap_or("-"),
-                                            pkt["http_method"].as_str().unwrap_or("-"),
-                                            pkt["http_path"].as_str().unwrap_or("-"),
-                                            pkt["http_user_agent"].as_str().unwrap_or("-"),
-                                            pkt["http_content_type"].as_str().unwrap_or("-"),
-                                            pkt["http_referer"].as_str().unwrap_or("-"),
-                                            pkt["dns_query"].as_str().unwrap_or("-"),
-                                            pkt["payload_entropy"].as_f64().map(|e| format!("{:.3}", e)).unwrap_or("-".to_string()),
-                                            pkt["detected_file_type"].as_str().unwrap_or("-"),
-                                            pkt["payload_sample"].as_str().unwrap_or("-"),
-                                            pkt["payload_urls"].as_array().map(|a| a.iter().filter_map(|v| v.as_str()).collect::<Vec<_>>().join(",")).unwrap_or_default(),
-                                            pkt["payload_domains"].as_array().map(|a| a.iter().filter_map(|v| v.as_str()).collect::<Vec<_>>().join(",")).unwrap_or_default(),
-                                        ));
+                                // Full PacketInfo JSON from the firewall.
+                                if let Ok(pkt) = serde_json::from_str::<PacketInfo>(json) {
+                                    let pid = pkt.process_id;
+                                    net_pids.write().unwrap().insert(pid);
+                                    let mut pkt_map = full_packets.write().unwrap();
+                                    let history = pkt_map.entry(pid).or_insert_with(|| VecDeque::with_capacity(500));
+                                    if history.len() >= 500 {
+                                        history.pop_front();
                                     }
-                                    Err(e) => {
-                                        Logging::warning(&format!("[FirewallEvent] Failed to parse FULL_PACKET JSON: {}", e));
-                                    }
+                                    history.push_back(pkt.clone());
+
+                                    Logging::info(&format!(
+                                        "[FirewallEvent] Full packet recorded for PID {}: {} -> {} ({})",
+                                        pid, pkt.src_ip, pkt.dst_ip, pkt.protocol
+                                    ));
+                                } else {
+                                    Logging::warning("[FirewallEvent] Failed to parse FULL_PACKET JSON");
                                 }
                             }
                         }
@@ -3423,6 +3438,21 @@ impl BehaviorEngine {
                             ));
                         }
                     }
+
+                    // network_rules (Rich matching using PacketInfo history)
+                    if !matched && !cond_group.network_rules.is_empty() {
+                        if state.net_packets.iter().any(|pkt| {
+                            cond_group.network_rules.iter().all(|rule_cond| {
+                                rule_cond.matches_packet(&self.regex_cache, pkt)
+                            })
+                        }) {
+                            matched = true;
+                            Logging::info(&format!(
+                                "[BehaviorEngine] Condition '{}' - network_rules matched for PID {}",
+                                cond_name, state.pid
+                            ));
+                        }
+                    }
                 }
 
                 let file_change = event_file_change;
@@ -4065,6 +4095,17 @@ impl BehaviorEngine {
                 if let Ok(mut body_map) = self.firewall_http_body_map.write() {
                     if let Some(entries) = body_map.remove(&pid) {
                         s.http_body_entries.extend(entries);
+                    }
+                }
+                // Sync detailed PacketInfo objects.
+                if let Ok(mut pkt_map) = self.firewall_full_packets.write() {
+                    if let Some(packets) = pkt_map.remove(&pid) {
+                        for p in packets {
+                            if s.net_packets.len() >= 500 {
+                                s.net_packets.pop_front();
+                            }
+                            s.net_packets.push_back(p);
+                        }
                     }
                 }
                 s.clone()
