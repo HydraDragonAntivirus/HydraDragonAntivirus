@@ -982,6 +982,8 @@ pub struct NamedConditionGroup {
     pub sanctum_shellcode_detected: Option<bool>,
     #[serde(default)]
     pub sanctum_suspicious_hits: Vec<String>,
+    #[serde(default)]
+    pub sanctum_detected: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1841,176 +1843,55 @@ impl BehaviorEngine {
     /// Each event is newline-delimited. The pipe validates the client is
     /// sanctum's um_engine (um_engine.exe) before accepting data.
     /// Received events are logged and fed into the per-process behavior state
-    /// so that rules can react to process injection APIs observed by Sanctum.
-    pub fn start_sanctum_telemetry_pipe(&self) {
-        use std::ffi::OsStr;
-        use std::os::windows::ffi::OsStrExt;
-        use windows::Win32::Foundation::{
-            CloseHandle, GetLastError, HANDLE, INVALID_HANDLE_VALUE, ERROR_PIPE_CONNECTED,
-        };
-        use windows::Win32::Storage::FileSystem::{ReadFile, PIPE_ACCESS_INBOUND};
-        use windows::Win32::System::Pipes::{
-            ConnectNamedPipe, CreateNamedPipeW, DisconnectNamedPipe,
-            NAMED_PIPE_MODE, PIPE_UNLIMITED_INSTANCES,
-        };
-        use windows::core::PCWSTR;
+    /// Ingest a telemetry event from Sanctum EDR.
+    pub fn ingest_sanctum_event(&self, event: &serde_json::Value) {
+        let pid = event["pid"].as_u64().unwrap_or(0) as u32;
+        let source = event["source"].as_str().unwrap_or("-");
+        let function = event["function"].as_str().unwrap_or("-");
+        let args = &event["args"];
+        let is_detection = event["is_detection"].as_bool().unwrap_or(false)
+            || event["type"] == "DETECTION"
+            || event["function"] == "DETECTION"
+            || source == "DETECTION";
 
-        let net_pids    = Arc::clone(&self.firewall_net_pids);
-        let net_details = Arc::clone(&self.firewall_net_details);
-        let sanctum_stats_map = Arc::clone(&self.firewall_sanctum_stats);
+        // Register the PID as network-active if Sanctum observes
+        // suspicious cross-process operations (NtOpenProcess etc.)
+        // so firewall and behavior rules can correlate.
+        if pid != 0 && matches!(function,
+            "NtOpenProcess" | "NtWriteVirtualMemory" |
+            "NtAllocateVirtualMemory" | "NtCreateThreadEx"
+        ) {
+            self.firewall_net_pids.write().unwrap().insert(pid);
+            Logging::warning(&format!(
+                "[SanctumTelemetry] Suspicious syscall from PID {}: {}",
+                pid, function
+            ));
+        }
 
-        std::thread::Builder::new()
-            .name("sanctum_telemetry_pipe".to_string())
-            .spawn(move || {
-                let pipe_name_str = r"\\.\pipe\HydraSanctumTelemetry";
-                let wide: Vec<u16> = OsStr::new(pipe_name_str)
-                    .encode_wide()
-                    .chain(std::iter::once(0u16))
-                    .collect();
-
-                Logging::info("[SanctumPipe] Starting Sanctum telemetry pipe server");
-
-                loop {
-                    let handle: HANDLE = unsafe {
-                        CreateNamedPipeW(
-                            PCWSTR(wide.as_ptr()),
-                            PIPE_ACCESS_INBOUND,
-                            NAMED_PIPE_MODE(0),
-                            PIPE_UNLIMITED_INSTANCES,
-                            0,
-                            65536,
-                            0,
-                            None,
-                        )
-                    };
-
-                    if handle == INVALID_HANDLE_VALUE {
-                        Logging::error("[SanctumPipe] CreateNamedPipeW failed; retrying in 2s");
-                        std::thread::sleep(std::time::Duration::from_secs(2));
-                        continue;
-                    }
-
-                    let connected = unsafe { ConnectNamedPipe(handle, None) }.as_bool()
-                        || unsafe { GetLastError() } == ERROR_PIPE_CONNECTED;
-
-                    if !connected {
-                        Logging::warning("[SanctumPipe] ConnectNamedPipe failed; recreating pipe");
-                        unsafe {
-                            let _ = DisconnectNamedPipe(handle);
-                            let _ = CloseHandle(handle);
-                        }
-                        std::thread::sleep(std::time::Duration::from_millis(250));
-                        continue;
-                    }
-
-                    // Validate: only accept Sanctum's um_engine
-                    if !unsafe { validate_pipe_client(handle, Some("um_engine.exe"), false) } {
-                        Logging::error("[SanctumPipe] Rejected unauthorized client");
-                        unsafe {
-                            let _ = DisconnectNamedPipe(handle);
-                            let _ = CloseHandle(handle);
-                        }
-                        continue;
-                    }
-
-                    Logging::info("[SanctumPipe] Sanctum um_engine connected");
-
-                    let mut buf = vec![0u8; 65536];
-                    let mut leftover = String::new();
-
-                    loop {
-                        let mut bytes_read: u32 = 0;
-                        let ok = unsafe {
-                            ReadFile(
-                                handle,
-                                Some(buf.as_mut_ptr() as *mut core::ffi::c_void),
-                                buf.len() as u32,
-                                Some(&mut bytes_read),
-                                None,
-                            )
-                        };
-                        if !ok.as_bool() || bytes_read == 0 {
-                            break;
-                        }
-                        leftover.push_str(&String::from_utf8_lossy(&buf[..bytes_read as usize]));
-
-                        while let Some(pos) = leftover.find('\n') {
-                            let line = leftover[..pos].trim().to_string();
-                            leftover = leftover[pos + 1..].to_string();
-
-                            if line.is_empty() {
-                                continue;
-                            }
-
-                            match serde_json::from_str::<serde_json::Value>(&line) {
-                                Ok(event) => {
-                                    let pid = event["pid"].as_u64().unwrap_or(0) as u32;
-                                    let source = event["source"].as_str().unwrap_or("-");
-                                    let function = event["function"].as_str().unwrap_or("-");
-                                    let args = &event["args"];
-
-                                    Logging::info(&format!(
-                                        "[SanctumTelemetry] pid={} source={} function={} args={}",
-                                        pid, source, function,
-                                        serde_json::to_string(args).unwrap_or_default()
-                                    ));
-
-                                    // Register the PID as network-active if Sanctum observes
-                                    // suspicious cross-process operations (NtOpenProcess etc.)
-                                    // so firewall and behavior rules can correlate.
-                                    if pid != 0 && matches!(function,
-                                        "NtOpenProcess" | "NtWriteVirtualMemory" |
-                                        "NtAllocateVirtualMemory" | "NtCreateThreadEx"
-                                    ) {
-                                        net_pids.write().unwrap().insert(pid);
-                                        Logging::warning(&format!(
-                                            "[SanctumTelemetry] Suspicious syscall from PID {}: {}",
-                                            pid, function
-                                        ));
-                                    }
-
-                                    // Update shared Sanctum stats for real-time learning.
-                                    if pid != 0 {
-                                        let mut sanctum_lock = sanctum_stats_map.write().unwrap();
-                                        let stats = sanctum_lock.entry(pid).or_insert_with(crate::realtime_learning::api_tracker::SanctumOperationStats::default);
-                                        stats.syscall_count += 1;
-                                        stats.last_event = Some(format!("{} - {}", function, serde_json::to_string(args).unwrap_or_default()));
-                                        
-                                        if let Some(target_pid) = args["target_pid"].as_u64() {
-                                            if target_pid as u32 != pid {
-                                                stats.cross_process_handle_count += 1;
-                                            }
-                                        }
-
-                                        if matches!(function, "NtWriteVirtualMemory" | "NtAllocateVirtualMemory" | "NtCreateThreadEx") {
-                                            stats.injection_score += 0.1;
-                                            stats.suspicious_syscall_hits.push(function.to_string());
-                                            if stats.suspicious_syscall_hits.len() > 20 {
-                                                stats.suspicious_syscall_hits.remove(0);
-                                            }
-                                        }
-                                        
-                                        if stats.injection_score > 1.0 { stats.injection_score = 1.0; }
-                                    }
-                                }
-                                Err(e) => {
-                                    Logging::warning(&format!(
-                                        "[SanctumPipe] Failed to parse event JSON: {} — raw: {}",
-                                        e, &line[..line.len().min(120)]
-                                    ));
-                                }
-                            }
-                        }
-                    }
-
-                    Logging::info("[SanctumPipe] Sanctum um_engine disconnected; waiting for reconnect");
-                    unsafe {
-                        let _ = DisconnectNamedPipe(handle);
-                        let _ = CloseHandle(handle);
-                    }
+        // Update shared Sanctum stats for real-time learning.
+        if pid != 0 {
+            let mut sanctum_lock = self.firewall_sanctum_stats.write().unwrap();
+            let stats = sanctum_lock.entry(pid).or_insert_with(crate::realtime_learning::api_tracker::SanctumOperationStats::default);
+            stats.syscall_count += 1;
+            stats.is_detection |= is_detection;
+            stats.last_event = Some(format!("{} - {}", function, serde_json::to_string(args).unwrap_or_default()));
+            
+            if let Some(target_pid) = args["target_pid"].as_u64() {
+                if target_pid as u32 != pid {
+                    stats.cross_process_handle_count += 1;
                 }
-            })
-            .expect("failed to spawn sanctum_telemetry_pipe thread");
+            }
+
+            if matches!(function, "NtWriteVirtualMemory" | "NtAllocateVirtualMemory" | "NtCreateThreadEx") {
+                stats.injection_score += 0.1;
+                stats.suspicious_syscall_hits.push(function.to_string());
+                if stats.suspicious_syscall_hits.len() > 20 {
+                    stats.suspicious_syscall_hits.remove(0);
+                }
+            }
+            
+            if stats.injection_score > 1.0 { stats.injection_score = 1.0; }
+        }
     }
 
     fn sanitize_firewall_hips_field(value: &str) -> String {
@@ -3551,6 +3432,17 @@ impl BehaviorEngine {
                             ));
                         }
                     }
+                    if !matched {
+                        if let Some(require_detected) = cond_group.sanctum_detected {
+                            if require_detected == state.sanctum_stats.is_detection {
+                                matched = true;
+                                Logging::info(&format!(
+                                    "[BehaviorEngine] Condition '{}' - sanctum_detected matched: {} for PID {}",
+                                    cond_name, require_detected, state.pid
+                                ));
+                            }
+                        }
+                    }
                 }
 
                 let file_change = event_file_change;
@@ -4210,6 +4102,7 @@ impl BehaviorEngine {
                 if let Ok(mut sanctum_lock) = self.firewall_sanctum_stats.write() {
                     if let Some(stats) = sanctum_lock.remove(&pid) {
                         s.sanctum_stats.syscall_count += stats.syscall_count;
+                        s.sanctum_stats.is_detection |= stats.is_detection;
                         s.sanctum_stats.injection_score = (s.sanctum_stats.injection_score + stats.injection_score).min(1.0);
                         s.sanctum_stats.cross_process_handle_count += stats.cross_process_handle_count;
                         s.sanctum_stats.shellcode_patterns_found |= stats.shellcode_patterns_found;

@@ -70,6 +70,7 @@ pub struct SanctumOperationStats {
     pub cross_process_handle_count: usize,
     pub shellcode_patterns_found: bool,
     pub last_event: Option<String>,
+    pub is_detection: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -98,6 +98,18 @@ pub mod predictor {
     // Import LruCache for tracking
     use lru::LruCache;
     use std::num::NonZeroUsize;
+    use std::ffi::OsStr;
+    use std::os::windows::ffi::OsStrExt;
+    use windows::Win32::Foundation::{
+        CloseHandle, GetLastError, HANDLE, INVALID_HANDLE_VALUE, ERROR_PIPE_CONNECTED,
+    };
+    use windows::Win32::Storage::FileSystem::{ReadFile, PIPE_ACCESS_INBOUND};
+    use windows::Win32::System::Pipes::{
+        ConnectNamedPipe, CreateNamedPipeW, DisconnectNamedPipe,
+        NAMED_PIPE_MODE, PIPE_UNLIMITED_INSTANCES,
+    };
+    use windows::core::PCWSTR;
+    use crate::utils::validate_pipe_client;
     use std::path::PathBuf;
 
     pub struct PredictorHandlerStatic {
@@ -810,9 +822,142 @@ pub mod worker_instance {
                 engine.start_firewall_pipe();
             });
             SANCTUM_PIPE_START.call_once(|| {
-                engine.start_sanctum_telemetry_pipe();
+                Self::start_sanctum_telemetry_pipe(&engine);
             });
             engine
+        }
+
+        /// Spawn the \\.\pipe\HydraSanctumTelemetry named pipe server thread.
+        /// Moved to Worker.rs as requested (Starting + Detection handling).
+        /// Other ingestion codes remain in BehaviorEngine::ingest_sanctum_event.
+        pub fn start_sanctum_telemetry_pipe(behavior_engine: &BehaviorEngine) {
+            let engine_clone = behavior_engine.clone();
+
+            std::thread::Builder::new()
+                .name("sanctum_telemetry_pipe".to_string())
+                .spawn(move || {
+                    let pipe_name_str = r"\\.\pipe\HydraSanctumTelemetry";
+                    let wide: Vec<u16> = OsStr::new(pipe_name_str)
+                        .encode_wide()
+                        .chain(std::iter::once(0u16))
+                        .collect();
+
+                    Logging::info("[SanctumPipe] Starting Sanctum telemetry pipe server (Worker Managed)");
+
+                    loop {
+                        let handle: HANDLE = unsafe {
+                            CreateNamedPipeW(
+                                PCWSTR(wide.as_ptr()),
+                                PIPE_ACCESS_INBOUND,
+                                NAMED_PIPE_MODE(0),
+                                PIPE_UNLIMITED_INSTANCES,
+                                0,
+                                65536,
+                                0,
+                                None,
+                            )
+                        };
+
+                        if handle == INVALID_HANDLE_VALUE {
+                            Logging::error("[SanctumPipe] CreateNamedPipeW failed; retrying in 2s");
+                            std::thread::sleep(std::time::Duration::from_secs(2));
+                            continue;
+                        }
+
+                        let connected = unsafe { ConnectNamedPipe(handle, None) }.as_bool()
+                            || unsafe { GetLastError() } == ERROR_PIPE_CONNECTED;
+
+                        if !connected {
+                            Logging::warning("[SanctumPipe] ConnectNamedPipe failed; recreating pipe");
+                            unsafe {
+                                let _ = DisconnectNamedPipe(handle);
+                                let _ = CloseHandle(handle);
+                            }
+                            std::thread::sleep(std::time::Duration::from_millis(250));
+                            continue;
+                        }
+
+                        // Validate: only accept Sanctum's um_engine
+                        if !unsafe { validate_pipe_client(handle, Some("um_engine.exe"), false) } {
+                            Logging::error("[SanctumPipe] Rejected unauthorized client");
+                            unsafe {
+                                let _ = DisconnectNamedPipe(handle);
+                                let _ = CloseHandle(handle);
+                            }
+                            continue;
+                        }
+
+                        Logging::info("[SanctumPipe] Sanctum um_engine connected");
+
+                        let mut buf = vec![0u8; 65536];
+                        let mut leftover = String::new();
+
+                        loop {
+                            let mut bytes_read: u32 = 0;
+                            let ok = unsafe {
+                                ReadFile(
+                                    handle,
+                                    Some(buf.as_mut_ptr() as *mut core::ffi::c_void),
+                                    buf.len() as u32,
+                                    Some(&mut bytes_read),
+                                    None,
+                                )
+                            };
+                            if !ok.as_bool() || bytes_read == 0 {
+                                break;
+                            }
+                            leftover.push_str(&String::from_utf8_lossy(&buf[..bytes_read as usize]));
+
+                            while let Some(pos) = leftover.find('\n') {
+                                let line = leftover[..pos].trim().to_string();
+                                leftover = leftover[pos + 1..].to_string();
+
+                                if line.is_empty() {
+                                    continue;
+                                }
+
+                                match serde_json::from_str::<serde_json::Value>(&line) {
+                                    Ok(event) => {
+                                        let pid = event["pid"].as_u64().unwrap_or(0) as u32;
+                                        let source = event["source"].as_str().unwrap_or("-");
+                                        let function = event["function"].as_str().unwrap_or("-");
+                                        
+                                        let is_detection = event["is_detection"].as_bool().unwrap_or(false)
+                                            || event["type"] == "DETECTION"
+                                            || event["function"] == "DETECTION"
+                                            || source == "DETECTION";
+
+                                        // 1. Telemetry Ingestion (Other codes) - handled by behavior engine
+                                        engine_clone.ingest_sanctum_event(&event);
+
+                                        // 2. Detection Handling - moved to Worker level
+                                        if is_detection {
+                                            Logging::alert(&format!("[SanctumDetection] 🚨 ALERT: Sanctum EDR flagged PID {} for malicious activity ({}/{})", pid, source, function));
+                                        }
+
+                                        Logging::info(&format!(
+                                            "[SanctumTele] pid={} src={} fn={}",
+                                            pid, source, function
+                                        ));
+                                    }
+                                    Err(e) => {
+                                        Logging::warning(&format!(
+                                            "[SanctumPipe] Failed to parse event JSON: {}",
+                                            e
+                                        ));
+                                    }
+                                }
+                            }
+                        }
+
+                        Logging::info("[SanctumPipe] Sanctum um_engine disconnected; waiting for reconnect");
+                        unsafe {
+                            let _ = DisconnectNamedPipe(handle);
+                            let _ = CloseHandle(handle);
+                        }
+                    }
+                })
+                .expect("failed to spawn sanctum_telemetry_pipe thread");
         }
 
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
@@ -1578,11 +1723,63 @@ pub mod worker_instance {
                     }
                 }
 
-                for gid in terminated_gids {
+                for gid in terminated_gids.clone() {
                     self.cleanup_process(gid, "Killed (behavior detection)");
                 }
 
-                // --- SIXTH: Real-time learning periodic checks ---
+                // --- SIXTH: Check for Sanctum Detections (Worker-level Handling) ---
+                let sanctum_stats = self.behavior_engine.firewall_sanctum_stats.read().unwrap().clone();
+                for (pid, stats) in sanctum_stats {
+                    if stats.is_detection {
+                        if let Some(gid) = self.find_gid_by_pid(pid) {
+                            if !terminated_gids.contains(&gid) {
+                                let matching_record = self.process_records.process_records.get_mut(&gid);
+                                if let Some(record) = matching_record {
+                                    if !record.is_malicious {
+                                        Logging::alert(&format!("[SanctumDetection] 🚨 ENFORCING: Marking PID {} Malicious based on Sanctum telemetry", pid));
+                                        record.is_malicious = true;
+                                        record.termination_requested = true;
+                                        record.notify_user_requested = true;
+                                        record.triggered_rule_name = Some("SanctumEDR_Detection".to_string());
+                                        
+                                        #[cfg(feature = "realtime_learning")]
+                                        Self::mark_realtime_process_malicious(
+                                            &mut self.learning_engine,
+                                            &self.api_trackers,
+                                            gid,
+                                            record,
+                                        );
+
+                                        let dummy_pred_mtrx = VecvecCappedF32::new(0, 0);
+                                        let threat_info = ThreatInfo {
+                                            threat_type_label: "Sanctum EDR Detection",
+                                            virus_name: "Sanctum.Malware.Gen",
+                                            prediction: 1.0,
+                                            match_details: Some(format!("Sanctum Detection: {}", stats.last_event.clone().unwrap_or_default())),
+                                            terminate: true,
+                                            quarantine: false,
+                                            kill_and_remove: false,
+                                            notify_user: true,
+                                            revert: false,
+                                        };
+                                        ActionsOnKill::with_handler(threat_handler.clone_box())
+                                            .run_actions_with_info(config, record, &dummy_pred_mtrx, &threat_info);
+                                        
+                                        terminated_gids.insert(gid);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                for gid in terminated_gids {
+                    if self.process_records.process_records.contains_key(&gid) {
+                        self.cleanup_process(gid, "Killed (Sanctum/Behavior Detection)");
+                    }
+                }
+
+                // --- SEVENTH: Real-time learning periodic checks ---
                 #[cfg(feature = "realtime_learning")]
                 {
                     self.learning_engine.check_benign_processes(&self.api_trackers, &self.process_records.process_records);

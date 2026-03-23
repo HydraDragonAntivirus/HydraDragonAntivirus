@@ -153,6 +153,7 @@ pub struct MLFeatures {
     pub kernel_telemetry_density: f32,
     pub sanctum_shellcode_detected: f32,
     pub sanctum_suspicious_hits_count: f32,
+    pub sanctum_detected: f32,
 }
 
 /// Raw behavioral data for detailed analysis
@@ -1231,6 +1232,7 @@ impl FeatureExtractor {
             },
             sanctum_shellcode_detected: if api_tracker.sanctum_operations.shellcode_patterns_found { 1.0 } else { 0.0 },
             sanctum_suspicious_hits_count: api_tracker.sanctum_operations.suspicious_syscall_hits.len() as f32,
+            sanctum_detected: if api_tracker.sanctum_operations.is_detection { 1.0 } else { 0.0 },
         }
     }
 
