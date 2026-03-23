@@ -98,18 +98,6 @@ pub mod predictor {
     // Import LruCache for tracking
     use lru::LruCache;
     use std::num::NonZeroUsize;
-    use std::ffi::OsStr;
-    use std::os::windows::ffi::OsStrExt;
-    use windows::Win32::Foundation::{
-        CloseHandle, GetLastError, HANDLE, INVALID_HANDLE_VALUE, ERROR_PIPE_CONNECTED,
-    };
-    use windows::Win32::Storage::FileSystem::{ReadFile, PIPE_ACCESS_INBOUND};
-    use windows::Win32::System::Pipes::{
-        ConnectNamedPipe, CreateNamedPipeW, DisconnectNamedPipe,
-        NAMED_PIPE_MODE, PIPE_UNLIMITED_INSTANCES,
-    };
-    use windows::core::PCWSTR;
-    use crate::utils::validate_pipe_client;
     use std::path::PathBuf;
 
     pub struct PredictorHandlerStatic {
@@ -612,11 +600,7 @@ pub mod worker_instance {
     use chrono::{DateTime, Utc};
     use log::error;
     use rumqtt::{MqttClient, MqttOptions, QoS};
-    use crate::actions_on_kill::{ActionsOnKill, ThreatInfo};
-    use crate::config::{Config, Param};
-    use crate::csvwriter::CsvWriter;
     use crate::ExepathLive;
-    use crate::predictions::prediction::input_tensors::VecvecCappedF32;
     use crate::process::ProcessRecord;
     use crate::whitelist::WhiteList;
     use crate::worker::process_record_handling::{
@@ -723,8 +707,13 @@ pub mod worker_instance {
 
     impl IOMsgPostProcessor for IOMsgPostProcessorMqtt {
         fn postprocess(&mut self, iomsg: &mut IOMessage, precord: &ProcessRecord) {
-            if self.client.is_some() && precord.driver_msg_count.is_multiple_of(250) {
-                let mut c2 = self.client.as_ref().unwrap().clone();
+            if let Some(client) = &self.client {
+                if precord.driver_msg_count.is_multiple_of(250) {
+                    let mut c2 = client.clone();
+                    thread::spawn(move || {
+                        let _ = c2.publish("owlyshield/heartbeat", QoS::AtMostOnce, false, "{}");
+                    });
+                }
                 let channel = self.channel.clone();
                 let vec = Timestep::from(precord).to_vec_f32();
 

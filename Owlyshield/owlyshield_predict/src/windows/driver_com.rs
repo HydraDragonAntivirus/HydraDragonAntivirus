@@ -175,7 +175,7 @@ impl Driver {
     /// Ask the driver for a [`ReplyIrp`], if any. This is a low-level function and the returned object
     /// uses C pointers. Managing C pointers requires a special care, because of the Rust timelines.
     /// [`ReplyIrp`] is optional since the minifilter returns null if there is no new activity.
-    pub fn get_irp(&self, vecnew: &mut Vec<u8>) -> Result<Option<ReplyIrp>, Error> {
+    pub fn get_irp(&self, vecnew: &mut [u8]) -> Result<Option<ReplyIrp>, Error> {
         let mut get_irp_msg = Driver::build_irp_msg(
             DriverComMessageType::MessageGetOps,
             std::process::id(),
@@ -188,9 +188,9 @@ impl Driver {
                 self.handle,
                 ptr::addr_of_mut!(get_irp_msg) as *mut c_void,
                 mem::size_of::<DriverComMessage>() as c_ulong,
-                Some(vecnew.as_ptr() as *mut c_void),
+                Some(vecnew.as_mut_ptr() as *mut c_void),
                 65536,
-                ptr::addr_of_mut!(tmp) as *mut u32,
+                &mut tmp,
             );
             
             if let Err(e) = status {
@@ -237,7 +237,7 @@ impl Driver {
                 mem::size_of::<DriverComMessage>() as c_ulong,
                 Some(ptr::addr_of_mut!(res) as *mut c_void),
                 4,
-                ptr::addr_of_mut!(res_size) as *mut u32,
+                &mut res_size,
             )?;
         }
         let hres = windows::core::HRESULT(res as i32);
@@ -267,7 +267,7 @@ impl Driver {
                 mem::size_of::<DriverComMessage>() as c_ulong,
                 None,
                 0,
-                ptr::addr_of_mut!(res_size) as *mut u32,
+                &mut res_size,
             )?;
         }
         Ok(())
@@ -297,7 +297,7 @@ impl Driver {
                 mem::size_of::<DriverComMessage>() as c_ulong,
                 Some(ptr::addr_of_mut!(res) as *mut c_void),
                 4,
-                ptr::addr_of_mut!(res_size) as *mut u32,
+                &mut res_size,
             )?;
         }
         let hres = windows::core::HRESULT(res as i32);
@@ -328,7 +328,7 @@ impl Driver {
                 mem::size_of::<DriverComMessage>() as c_ulong,
                 Some(ptr::addr_of_mut!(res) as *mut c_void),
                 4,
-                ptr::addr_of_mut!(res_size) as *mut u32,
+                &mut res_size,
             )?;
         }
         let hres = windows::core::HRESULT(res as i32);
@@ -360,7 +360,7 @@ impl Driver {
                 mem::size_of::<DriverComMessage>() as c_ulong,
                 None,
                 0,
-                ptr::addr_of_mut!(res_size) as *mut u32,
+                &mut res_size,
             )?;
         }
         Ok(())
@@ -383,7 +383,7 @@ impl Driver {
                 mem::size_of::<DriverComMessage>() as c_ulong,
                 None,
                 0,
-                ptr::addr_of_mut!(res_size) as *mut u32,
+                &mut res_size,
             )?;
         }
         Ok(())
@@ -406,7 +406,7 @@ impl Driver {
                 mem::size_of::<DriverComMessage>() as c_ulong,
                 None,
                 0,
-                ptr::addr_of_mut!(res_size) as *mut u32,
+                &mut res_size,
             )?;
         }
         Ok(())
@@ -430,7 +430,7 @@ impl Driver {
                 mem::size_of::<DriverComMessage>() as c_ulong,
                 Some(ptr::addr_of_mut!(res) as *mut c_void),
                 4,
-                ptr::addr_of_mut!(res_size) as *mut u32,
+                &mut res_size,
             )?;
         }
         let hres = windows::core::HRESULT(res as i32);
@@ -681,10 +681,9 @@ impl IOMessage {
                     | IrpMajorOp::IrpProcessExit
                     | IrpMajorOp::IrpProcessHandleOpen
             )
+            && let Some(path) = resolve_process_path(c_drivermsg.pid)
         {
-            if let Some(path) = resolve_process_path(c_drivermsg.pid) {
-                filepathstr = path.display().to_string();
-            }
+            filepathstr = path.display().to_string();
         }
 
         IOMessage {

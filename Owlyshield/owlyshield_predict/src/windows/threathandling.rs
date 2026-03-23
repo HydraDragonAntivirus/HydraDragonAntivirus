@@ -23,6 +23,12 @@ pub struct WindowsThreatHandler {
     driver: Driver,
 }
 
+impl Default for WindowsThreatHandler {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl WindowsThreatHandler {
     pub fn from(driver: Driver) -> WindowsThreatHandler {
         WindowsThreatHandler { driver }

@@ -97,6 +97,10 @@ pub fn is_process_alive(pid: u32) -> bool {
 }
 
 /// Validate the client connecting to a named pipe by its process path or PID.
+///
+/// # Safety
+/// This function is unsafe because it interacts with raw handles and Windows API calls.
+/// The caller must ensure that `pipe_handle` is a valid, open handle to a named pipe.
 #[cfg(target_os = "windows")]
 pub unsafe fn validate_pipe_client(pipe_handle: ::windows::Win32::Foundation::HANDLE, expected_path: Option<&str>, allow_kernel: bool) -> bool {
     use ::windows::Win32::Foundation::CloseHandle;

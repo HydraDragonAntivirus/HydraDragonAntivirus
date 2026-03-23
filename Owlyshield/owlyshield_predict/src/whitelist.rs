@@ -16,7 +16,7 @@ impl WhiteList {
     pub fn from(path: &Path) -> Result<WhiteList, std::io::Error> {
         let mut whitelist = HashMap::new();
         let lines = Self::load(path)?;
-        for line in lines.flatten() {
+        for line in lines.map_while(Result::ok) {
             let parts: Vec<&str> = line.split('|').collect();
             if parts.len() > 1 {
                 whitelist.insert(parts[0].to_string(), Some(parts[1].trim().to_string()));
@@ -49,7 +49,7 @@ impl WhiteList {
                 let mut set_whitelist = whitelist_bis.lock().unwrap();
                 if let Ok(lines) = res_lines {
                     set_whitelist.clear();
-                    for line in lines.flatten() {
+                    for line in lines.map_while(Result::ok) {
                         let parts: Vec<&str> = line.split('|').collect();
                         if parts.len() > 1 {
                             set_whitelist.insert(parts[0].to_string(), Some(parts[1].trim().to_string()));

@@ -232,7 +232,7 @@ pub fn run() {
             #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
             let mut worker = Worker::new(&thread_config, thread_app_settings).driver(driver);
             #[cfg(not(all(target_os = "windows", feature = "behavior_engine")))]
-            let mut worker = Worker::new(&thread_config).driver(driver.clone());
+            let mut worker = Worker::new(&thread_config).driver(driver);
 
             // Initialize threat handler early to reuse the driver connection
             let win_threat_handler = WindowsThreatHandler::from(driver);
@@ -304,11 +304,7 @@ pub fn run() {
             let mut last_scan = std::time::Instant::now();
             let scan_interval = std::time::Duration::from_millis(750);
             let mut msgs_since_scan: usize = 0;
-            loop {
-                let mut iomsg = match rx_iomsgs.recv() {
-                    Ok(msg) => msg,
-                    Err(_) => break, // channel disconnected
-                };
+            while let Ok(mut iomsg) = rx_iomsgs.recv() {
 
                 // Process the incoming IO message immediately
                 worker.process_io(&mut iomsg, &thread_config);
@@ -338,7 +334,7 @@ pub fn run() {
         let mut hyper_raw_counts: std::collections::HashMap<u32, u64> = std::collections::HashMap::new();
         
         loop {
-            match driver.get_irp(&mut vecnew) {
+            match driver.get_irp(&mut vecnew[..]) {
                 Ok(Some(reply_irp)) => {
                     if reply_irp.num_ops > 0 {
                         let drivermsgs = CDriverMsgs::new(&reply_irp);
