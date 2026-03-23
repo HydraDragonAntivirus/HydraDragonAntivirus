@@ -595,6 +595,9 @@ pub enum RuleAction {
     #[default]
     Allow,              // Feature 20
     Ask,                // Feature 21: Prompt user
+    Terminate,          // Terminate the process associated with the packet
+    Quarantine,         // Quarantine the file associated with the process
+    KillAndRemove,      // Terminate and remove the file
     ChangePacket,       // Feature 22: Modify packet payload
     SolvePacket,        // Feature 23: Fix/normalize packet
     ChangeRequestBody,  // Replace the HTTP request body with change_request_body
@@ -636,6 +639,25 @@ pub enum RuleCondition {
     Localhost(LocalhostType),
     ContentMatch(ContentMatchData),
     Entropy(EntropyMatcher),
+    SanctumDetected,
+    JsonMatch(JsonMatcher),
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+pub struct JsonMatcher {
+    pub key: String,
+    pub value: String,
+}
+
+impl JsonMatcher {
+    pub fn matches(&self, payload: &[u8]) -> bool {
+        let text = String::from_utf8_lossy(payload);
+        if !text.trim().starts_with('{') && !text.trim().starts_with('[') {
+            return false;
+        }
+        // Simple heuristic: key and value appear in the JSON
+        text.contains(&format!("\"{}\"", self.key)) && text.contains(&self.value)
+    }
 }
 
 impl RuleCondition {
@@ -671,6 +693,12 @@ impl RuleCondition {
                 }
             }
             RuleCondition::Entropy(matcher) => matcher.matches(packet.payload_entropy),
+            RuleCondition::SanctumDetected => {
+                // This condition is typically evaluated by the behavior engine
+                // which has access to Sanctum telemetry.
+                true 
+            }
+            RuleCondition::JsonMatch(matcher) => matcher.matches(payload),
         }
     }
 
@@ -790,6 +818,9 @@ pub struct SdkRule {
     /// Regex pattern to search for in the body
     #[serde(default)]
     pub search_pattern: Option<String>,
+    // JSON matching
+    #[serde(default)]
+    pub json_match: Option<JsonMatcher>,
 }
 
 fn default_true() -> bool {
@@ -952,6 +983,12 @@ impl SdkRule {
                                 }
                             }
                         }
+                        15 => {
+                            step += 1;
+                            if let Some(ref matcher) = self.json_match {
+                                return Some(matcher.matches(payload));
+                            }
+                        }
                         _ => return None,
                     }
                 }
@@ -1111,19 +1148,46 @@ pub struct SdkRuleFile {
 }
 
 impl SdkRuleFile {
-    /// Load rules from YAML file (supports # comments - Feature 17)
+    /// Load rules from YAML file (supports # comments and !include - Feature 17 extension)
     pub fn load_from_file<P: AsRef<Path>>(path: P) -> Result<Self, String> {
-        let content = fs::read_to_string(&path)
-            .map_err(|e| format!("Failed to read rules file: {}", e))?;
+        let path_ref = path.as_ref();
+        let content = fs::read_to_string(path_ref)
+            .map_err(|e| format!("Failed to read rules file {}: {}", path_ref.display(), e))?;
 
-        Self::load_from_string(&content)
+        let mut final_rules = Vec::new();
+        let base_dir = path_ref.parent().unwrap_or(Path::new("."));
+
+        // Pre-process: Filter out !include lines to parse the rest as valid YAML
+        let sanitized_content: String = content.lines()
+            .filter(|line| !line.trim().starts_with("!include "))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        if !sanitized_content.trim().is_empty() {
+            let current_file: SdkRuleFile = serde_yaml::from_str(&sanitized_content)
+                .map_err(|e| format!("Failed to parse rules YAML {}: {}", path_ref.display(), e))?;
+            final_rules.extend(current_file.rules);
+        }
+
+        // Process includes
+        for line in content.lines() {
+            let trimmed = line.trim();
+            if trimmed.starts_with("!include ") {
+                let include_path_str = trimmed["!include ".len()..].trim().trim_matches('"').trim_matches('\'');
+                let include_path = base_dir.join(include_path_str);
+                
+                let included_file = Self::load_from_file(&include_path)?;
+                final_rules.extend(included_file.rules);
+            }
+        }
+
+        Ok(Self { rules: final_rules })
     }
 
-    /// Load rules from YAML string
+    /// Load rules from YAML string (legacy support)
     pub fn load_from_string(content: &str) -> Result<Self, String> {
-        // YAML natively supports # comments (Feature 17)
         serde_yaml::from_str(content)
-            .map_err(|e| format!("Failed to parse rules YAML: {}", e))
+            .map_err(|e| format!("Failed to parse rules YAML string: {}", e))
     }
 
     /// Save rules to YAML file

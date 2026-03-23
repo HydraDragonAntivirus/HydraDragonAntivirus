@@ -4,10 +4,10 @@
 rules:
   # Block Telegram Bot Exfiltration
   - name: "Block Telegram Bots"
-    description: "Prevents data exfiltration via Telegram bots"
+    description: "Prevents data exfiltration via Telegram bots when JSON is sent"
     enabled: true
     protocol: https
-    action: block
+    action: ask
     condition_logic: and
     domain:
       domains:
@@ -15,14 +15,18 @@ rules:
       case_insensitive: true
     url:
       patterns:
-        - "*/bot*"
+        - "*/bot*/sendMessage*"
+        - "*/bot*/sendDocument*"
+    json_match:
+      key: "chat_id"
+      value: ""
 
   # Block Discord Webhook Exfiltration (Features 12, 13, 19, 29, 30)
   - name: "Block Discord Webhooks"
-    description: "Prevents data exfiltration via Discord webhooks"
+    description: "Prevents data exfiltration via Discord webhooks when JSON is sent"
     enabled: true
     protocol: https
-    action: block
+    action: ask
     condition_logic: and
     domain:
       domains:
@@ -32,6 +36,9 @@ rules:
     url:
       patterns:
         - "*/api/webhooks/*"
+    json_match:
+      key: "content"
+      value: ""
 
 
 

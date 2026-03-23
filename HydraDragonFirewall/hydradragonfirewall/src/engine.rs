@@ -302,6 +302,14 @@ pub struct FirewallRule {
     /// File types to match (e.g. "exe", "zip") based on magic bytes
     #[serde(default)]
     pub file_types: Vec<String>,
+    #[serde(default)]
+    pub terminate: bool,
+    #[serde(default)]
+    pub quarantine: bool,
+    #[serde(default)]
+    pub kill_and_remove: bool,
+    #[serde(default)]
+    pub ask_user: bool,
 }
 
 impl FirewallRule {
@@ -2537,14 +2545,23 @@ impl FirewallEngine {
 
         for rule in current_rules.iter() {
             if rule.matches(&info, &app_name) {
-                if rule.block {
-                    // Block rules are final and take absolute precedence
+                if rule.block || rule.terminate || rule.quarantine || rule.kill_and_remove {
                     should_forward = false;
                     reason = Some(format!("Rule [{}]: {}", rule.name, rule.description));
+                    
+                    if rule.terminate || rule.kill_and_remove {
+                        Self::terminate_process(pid);
+                    }
+                    if rule.quarantine || rule.kill_and_remove {
+                        Self::quarantine_file(&app_info.path);
+                    }
+                    break;
+                } else if rule.ask_user {
+                    should_forward = false;
+                    app_decision = AppDecision::Pending;
+                    reason = Some(format!("Rule [{}]: User decision requested", rule.name));
                     break;
                 } else {
-                    // Allow rules set the tentative decision, but we continue 
-                    // searching to see if a more specific Block rule exists.
                     should_forward = true;
                     reason = Some(format!("Rule Allowed: {}", rule.name));
                 }
@@ -2609,7 +2626,7 @@ impl FirewallEngine {
                         );
                     }
                     crate::sdk::RuleAction::Ask => {
-                        should_forward = false; // Block until user decides
+                        should_forward = false;
                         app_decision = AppDecision::Pending;
                         remember_pending_as_unknown_app = false;
                         reason = Some(format!(
@@ -2617,7 +2634,23 @@ impl FirewallEngine {
                             finding.rule_name
                         ));
                     }
-                    _ => {} // ChangePacket, SolvePacket handled elsewhere
+                    crate::sdk::RuleAction::Terminate => {
+                        should_forward = false;
+                        Self::terminate_process(pid);
+                        reason = Some(format!("SDK Rule [{}]: Terminated", finding.rule_name));
+                    }
+                    crate::sdk::RuleAction::Quarantine => {
+                        should_forward = false;
+                        Self::quarantine_file(&app_info.path);
+                        reason = Some(format!("SDK Rule [{}]: Quarantined", finding.rule_name));
+                    }
+                    crate::sdk::RuleAction::KillAndRemove => {
+                        should_forward = false;
+                        Self::terminate_process(pid);
+                        Self::quarantine_file(&app_info.path);
+                        reason = Some(format!("SDK Rule [{}]: Killed and Removed", finding.rule_name));
+                    }
+                    _ => {} 
                 }
             }
         }
@@ -2966,6 +2999,35 @@ impl FirewallEngine {
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_millis() as u64
+    }
+
+    fn terminate_process(pid: u32) {
+        if pid == 0 || pid == 4 { return; }
+        use windows::Win32::System::Threading::{OpenProcess, TerminateProcess, PROCESS_TERMINATE};
+        use windows::Win32::Foundation::CloseHandle;
+        unsafe {
+            if let Ok(handle) = OpenProcess(PROCESS_TERMINATE, false, pid) {
+                let _ = TerminateProcess(handle, 1);
+                let _ = CloseHandle(handle);
+            }
+        }
+    }
+
+    fn quarantine_file(path: &str) {
+        if path.is_empty() || path.to_lowercase() == "unknown" || path.to_lowercase() == "system" {
+            return;
+        }
+        let src = Path::new(path);
+        if !src.exists() { return; }
+
+        let qdir = firewall_data_dir().join("quarantine");
+        let _ = fs::create_dir_all(&qdir);
+        
+        let fname = src.file_name().and_then(|n| n.to_str()).unwrap_or("quarantined_file");
+        let ts = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
+        let dst = qdir.join(format!("{}_{}", ts, fname));
+
+        let _ = fs::rename(src, dst);
     }
 
     fn extract_payload_text(bytes: &[u8]) -> Option<String> {

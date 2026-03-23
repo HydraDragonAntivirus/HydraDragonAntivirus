@@ -133,6 +133,9 @@ pub enum RuleAction {
     Block,
     Allow,
     Ask,
+    Terminate,
+    Quarantine,
+    KillAndRemove,
     ChangePacket,
     SolvePacket,
     ChangeRequestBody,
@@ -157,9 +160,10 @@ pub struct SdkRule {
     /// If true, use regex replacement for the body changer.
     #[serde(default)]
     pub use_regex_replacement: bool,
-    /// Regex pattern to search for in the body.
     #[serde(default)]
     pub search_pattern: Option<String>,
+    #[serde(default)]
+    pub json_match: Option<JsonMatcher>,
 }
 
 fn default_true() -> bool { true }
@@ -189,10 +193,15 @@ impl SdkRule {
         }
     }
 
-    pub fn matches_packet(&self, cache: &RefCell<HashMap<String, Regex>>, packet: &PacketInfo) -> bool {
+    pub fn matches_packet(&self, cache: &RefCell<HashMap<String, Regex>>, packet: &PacketInfo, payload: &[u8]) -> bool {
         if !self.enabled { return false; }
+        if let Some(ref matcher) = self.json_match {
+            if !matcher.matches(payload) {
+                return false;
+            }
+        }
         if let Some(cond) = &self.condition {
-            cond.matches_packet(cache, packet)
+            cond.matches_packet(cache, packet, payload)
         } else {
             true // Enabled rule with no condition matches everything
         }
@@ -286,13 +295,31 @@ pub enum RuleCondition {
     HttpContentType(String),
     HttpReferer(String),
     DnsQuery(String),
+    SanctumDetected,
+    JsonMatch(JsonMatcher),
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+pub struct JsonMatcher {
+    pub key: String,
+    pub value: String,
+}
+
+impl JsonMatcher {
+    pub fn matches(&self, payload: &[u8]) -> bool {
+        let text = String::from_utf8_lossy(payload);
+        if !text.trim().starts_with('{') && !text.trim().starts_with('[') {
+            return false;
+        }
+        text.contains(&format!("\"{}\"", self.key)) && text.contains(&self.value)
+    }
 }
 
 impl RuleCondition {
-    pub fn matches_packet(&self, cache: &RefCell<HashMap<String, Regex>>, packet: &PacketInfo) -> bool {
+    pub fn matches_packet(&self, cache: &RefCell<HashMap<String, Regex>>, packet: &PacketInfo, payload: &[u8]) -> bool {
         match self {
-            RuleCondition::And(conds) => conds.iter().all(|c| c.matches_packet(cache, packet)),
-            RuleCondition::Or(conds) => conds.iter().any(|c| c.matches_packet(cache, packet)),
+            RuleCondition::And(conds) => conds.iter().all(|c| c.matches_packet(cache, packet, payload)),
+            RuleCondition::Or(conds) => conds.iter().any(|c| c.matches_packet(cache, packet, payload)),
             RuleCondition::Protocol(proto) => match proto {
                 RuleProtocol::TCP => packet.protocol == Protocol::TCP,
                 RuleProtocol::UDP => packet.protocol == Protocol::UDP,
@@ -347,6 +374,8 @@ impl RuleCondition {
             RuleCondition::HttpContentType(p) => packet.http_content_type.as_ref().map_or(false, |m| matches_pattern(cache, p, m)),
             RuleCondition::HttpReferer(p) => packet.http_referer.as_ref().map_or(false, |m| matches_pattern(cache, p, m)),
             RuleCondition::DnsQuery(p) => packet.dns_query.as_ref().map_or(false, |m| matches_pattern(cache, p, m)),
+            RuleCondition::SanctumDetected => true,
+            RuleCondition::JsonMatch(matcher) => matcher.matches(payload),
         }
     }
 }

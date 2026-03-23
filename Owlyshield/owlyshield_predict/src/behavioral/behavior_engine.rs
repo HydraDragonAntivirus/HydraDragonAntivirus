@@ -3378,7 +3378,10 @@ impl BehaviorEngine {
                     if !matched && !cond_group.network_rules.is_empty() {
                         if state.net_packets.iter().any(|pkt| {
                             cond_group.network_rules.iter().all(|rule_cond| {
-                                rule_cond.matches_packet(&self.regex_cache, pkt)
+                                let payload = pkt.http_request_body.as_deref()
+                                    .unwrap_or(pkt.payload_sample.as_deref().unwrap_or(""))
+                                    .as_bytes();
+                                rule_cond.matches_packet(&self.regex_cache, pkt, payload)
                             })
                         }) {
                             matched = true;
