@@ -3,7 +3,7 @@ use std::collections::BTreeSet;
 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
 use std::fs;
 use std::fs::File;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::thread;
 use std::sync::mpsc::channel;
 use std::io::{Read, Seek, SeekFrom};

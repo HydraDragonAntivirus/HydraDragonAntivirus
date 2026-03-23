@@ -600,6 +600,8 @@ pub mod worker_instance {
     use chrono::{DateTime, Utc};
     use log::error;
     use rumqtt::{MqttClient, MqttOptions, QoS};
+    use crate::config::{Config, Param};
+    use crate::csvwriter::CsvWriter;
     use crate::ExepathLive;
     use crate::process::ProcessRecord;
     use crate::whitelist::WhiteList;
@@ -627,25 +629,6 @@ pub mod worker_instance {
     use crate::behavioral::app_settings::AppSettings;
     #[cfg(feature = "realtime_learning")]
     use crate::realtime_learning::ApiTracker;
-    #[cfg(target_os = "windows")]
-    use std::ffi::OsStr;
-    #[cfg(target_os = "windows")]
-    use std::os::windows::ffi::OsStrExt;
-    #[cfg(target_os = "windows")]
-    use windows::Win32::Foundation::{
-        CloseHandle, GetLastError, HANDLE, INVALID_HANDLE_VALUE, ERROR_PIPE_CONNECTED,
-    };
-    #[cfg(target_os = "windows")]
-    use windows::Win32::Storage::FileSystem::{ReadFile, PIPE_ACCESS_INBOUND};
-    #[cfg(target_os = "windows")]
-    use windows::Win32::System::Pipes::{
-        ConnectNamedPipe, CreateNamedPipeW, DisconnectNamedPipe,
-        NAMED_PIPE_MODE, PIPE_UNLIMITED_INSTANCES,
-    };
-    #[cfg(target_os = "windows")]
-    use windows::core::PCWSTR;
-    #[cfg(target_os = "windows")]
-    use crate::utils::validate_pipe_client;
 
     pub trait IOMsgPostProcessor {
         fn postprocess(&mut self, iomsg: &mut IOMessage, precord: &ProcessRecord);
@@ -720,10 +703,11 @@ pub mod worker_instance {
                 let datetime: DateTime<Utc> = iomsg.time.into();
                 let mut process_vec = vec![String::from(&precord.appname), precord.gid.to_string(), datetime.timestamp_millis().to_string()];
 
+                let client_clone = client.clone();
                 thread::spawn(move || {
                     process_vec.append(&mut vec.iter().map(|f| f.to_string()).collect::<Vec<String>>());
                     let csv = process_vec.join(",");
-                    c2.publish(channel, QoS::ExactlyOnce, false, csv).unwrap();
+                    let _ = client_clone.publish(channel, QoS::ExactlyOnce, false, csv);
                 });
             }
         }

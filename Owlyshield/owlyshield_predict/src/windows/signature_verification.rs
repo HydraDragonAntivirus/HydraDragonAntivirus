@@ -64,7 +64,7 @@ pub fn verify_signature(path: &Path) -> SignatureInfo {
         let result = WinVerifyTrust(
             windows::Win32::Foundation::HWND(0), 
             &mut action_guid, 
-            &mut win_trust_data as *mut _
+            &mut win_trust_data as *mut _ as *mut std::ffi::c_void
         );
 
         is_trusted = result == ERROR_SUCCESS.0 as i32;
@@ -73,7 +73,7 @@ pub fn verify_signature(path: &Path) -> SignatureInfo {
         let _ = WinVerifyTrust(
             windows::Win32::Foundation::HWND(0), 
             &mut action_guid, 
-            &mut win_trust_data as *mut _
+            &mut win_trust_data as *mut _ as *mut std::ffi::c_void
         );
 
         // --- 2. Check if file has ANY signature (even if not trusted) ---
