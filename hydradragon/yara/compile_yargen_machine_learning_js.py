@@ -9,8 +9,8 @@ def compile_yara_rule(input_file, output_file):
         rules.save(file=f)
 
 # Usage
-input_yara_file = 'machine_learning.yar'
-output_yrc_file = 'machine_learning.yrc'
+input_yara_file = 'machine_learning_js.yar'
+output_yrc_file = 'machine_learning_js.yrc'
 compile_yara_rule(input_yara_file, output_yrc_file)
 
 print(f"{input_yara_file} has been successfully compiled to {output_yrc_file}.")
