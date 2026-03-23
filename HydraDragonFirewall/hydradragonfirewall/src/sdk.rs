@@ -732,6 +732,10 @@ impl RuleCondition {
             RuleCondition::Localhost(_) => true,
             RuleCondition::ContentMatch(data) => !data.pattern.is_empty(),
             RuleCondition::Entropy(_) => false,
+            RuleCondition::And(conds) => conds.iter().any(|c| c.is_meaningful_non_entropy()),
+            RuleCondition::Or(conds) => conds.iter().any(|c| c.is_meaningful_non_entropy()),
+            RuleCondition::SanctumDetected => true,
+            RuleCondition::JsonMatch(_) => true,
         }
     }
 }
@@ -1324,6 +1328,8 @@ impl SdkRegistry {
                 action: rule.action.clone(),
                 description: rule.description.clone(),
                 change_data: rule.change_data.clone(),
+                change_request_body: rule.change_request_body.clone(),
+                change_response_body: rule.change_response_body.clone(),
             })
             .collect()
     }
@@ -1345,6 +1351,8 @@ impl SdkRegistry {
                 action: rule.action.clone(),
                 description: rule.description.clone(),
                 change_data: rule.change_data.clone(),
+                change_request_body: rule.change_request_body.clone(),
+                change_response_body: rule.change_response_body.clone(),
             })
     }
 

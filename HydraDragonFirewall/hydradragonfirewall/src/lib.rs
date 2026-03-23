@@ -502,7 +502,7 @@ pub fn run() {
                     );
 
                     println!("DEBUG: FirewallEngine::new() starting...");
-                    let mut engine_obj = FirewallEngine::new();
+                    let engine_obj = FirewallEngine::new();
                     
                     // Apply CLI flags to engine settings
                     {
