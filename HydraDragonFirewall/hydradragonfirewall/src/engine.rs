@@ -1724,7 +1724,7 @@ impl FirewallEngine {
 
                         // 1. Trigger Alert Window Spawning logic
                         Self::spawn_alert_window(&tx_monitor);
-                        
+
                         // 2. Emit data to all windows (Main + Alert)
                         if let Some(alert) = am_monitor.get_active_alert() {
                             let _ = tx_monitor.emit("ask_app_decision", alert);
@@ -1732,6 +1732,12 @@ impl FirewallEngine {
 
                         // Don't spam the UI
                         std::thread::sleep(Duration::from_millis(150));
+
+                        // 3. Re-emit after delay so queue_total reflects any items
+                        //    that were enqueued while the window was opening.
+                        if let Some(alert) = am_monitor.get_active_alert() {
+                            let _ = tx_monitor.emit("ask_app_decision", alert);
+                        }
                     } else {
                         std::thread::sleep(Duration::from_millis(120));
                     }

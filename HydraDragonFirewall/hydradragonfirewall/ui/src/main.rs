@@ -578,7 +578,7 @@ pub fn App() -> impl IntoView {
 
     view! {
         {move || if is_alert.get() {
-            view! { <AlertWindow pending_app=pending_app /> }.into_view()
+            view! { <AlertWindow pending_app=pending_app set_pending_app=set_pending_app /> }.into_view()
         } else {
             view! {
                 <div class="app-container">
@@ -960,7 +960,20 @@ pub fn main() {
 #[component]
 fn AlertWindow(
     pending_app: ReadSignal<Option<PendingApp>>,
+    set_pending_app: WriteSignal<Option<PendingApp>>,
 ) -> impl IntoView {
+    // Poll the backend every second to keep queue_position/queue_total accurate.
+    create_effect(move |_| {
+        set_interval(move || {
+            spawn_local(async move {
+                let res = invoke("get_active_alert", JsValue::NULL).await;
+                if let Ok(app_opt) = serde_wasm_bindgen::from_value::<Option<PendingApp>>(res) {
+                    set_pending_app.set(app_opt);
+                }
+            });
+        }, Duration::from_millis(1000));
+    });
+
     let next_alert_action = move || {
         spawn_local(async move {
             let _ = invoke("next_alert", JsValue::NULL).await;
