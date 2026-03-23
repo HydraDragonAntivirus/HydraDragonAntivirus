@@ -4,6 +4,8 @@
 
 use crate::process::ProcessRecord;
 use crate::shared_def::{FileChangeInfo, IOMessage, IrpMajorOp, known_raw_event_name};
+#[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+use crate::behavioral::network_rules::PacketInfo;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
@@ -49,9 +51,25 @@ pub struct ApiTracker {
     pub kernel_event_log: Vec<String>,
     pub raw_event_log: Vec<String>,
 
+    #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+    pub net_packets: Vec<PacketInfo>,
+
+    // Sanctum EDR telemetry
+    pub sanctum_operations: SanctumOperationStats,
+
     // Timing information
     pub first_seen: std::time::SystemTime,
     pub last_activity: std::time::SystemTime,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct SanctumOperationStats {
+    pub syscall_count: usize,
+    pub suspicious_syscall_hits: Vec<String>,
+    pub injection_score: f32,
+    pub cross_process_handle_count: usize,
+    pub shellcode_patterns_found: bool,
+    pub last_event: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -224,10 +242,13 @@ impl ApiTracker {
                 privileges_escalated: false,
             },
             kernel_operations: KernelOperationStats::default(),
+            sanctum_operations: SanctumOperationStats::default(),
             api_sequence: Vec::new(),
             operation_sequence: Vec::new(),
             kernel_event_log: Vec::new(),
             raw_event_log: Vec::new(),
+            #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+            net_packets: Vec::new(),
             first_seen: now,
             last_activity: now,
         }
@@ -351,7 +372,27 @@ impl ApiTracker {
             IrpMajorOp::IrpHypervisorEvent | IrpMajorOp::IrpUserModeHookEvent => {
                 self.record_kernel_api_event(msg, irp_op);
             }
-            _ => {}
+            IrpMajorOp::IrpKernelRemoteThread => {
+                self.process_operations.threads_created += 1;
+                self.process_operations.processes_injected += 1;
+                self.operation_sequence.push(OperationType::ProcessInjected(msg.kernel_event_info.target_process_id));
+            }
+            IrpMajorOp::IrpKernelWriteMemory => {
+                self.process_operations.memory_allocated += msg.kernel_event_info.memory_size as u64;
+                self.operation_sequence.push(OperationType::MemoryModify(msg.kernel_event_info.memory_address, msg.kernel_event_info.memory_size));
+            }
+            IrpMajorOp::IrpKernelProtectMemory => {
+                self.operation_sequence.push(OperationType::MemoryProtect(msg.kernel_event_info.memory_address, msg.kernel_event_info.memory_protection));
+            }
+            IrpMajorOp::IrpKernelCreateThread => {
+                self.process_operations.threads_created += 1;
+            }
+            _ => {
+                // Track any other kernel ops as generic kernel operations
+                if msg.irp_op >= 13 {
+                    self.kernel_operations.total_kernel_events += 1;
+                }
+            }
         }
 
         if self.file_operations.files_written + self.file_operations.files_deleted > 100 {
@@ -751,5 +792,29 @@ impl ApiTracker {
             ),
             ("TotalKernelEvents".to_string(), self.kernel_operations.total_kernel_events),
         ])
+    }
+
+    /// Track a Sanctum telemetry event
+    pub fn track_sanctum_event(&mut self, source: &str, function: &str, args: &serde_json::Value) {
+        self.sanctum_operations.syscall_count += 1;
+        self.sanctum_operations.last_event = Some(function.to_string());
+        
+        // Update injection score based on suspicious functions
+        match function {
+            "NtWriteVirtualMemory" | "NtAllocateVirtualMemory" => {
+                self.sanctum_operations.injection_score += 1.0;
+                self.sanctum_operations.suspicious_syscall_hits.push(function.to_string());
+            }
+            "NtCreateThreadEx" | "NtQueueApcThread" => {
+                self.sanctum_operations.injection_score += 2.0;
+                self.sanctum_operations.suspicious_syscall_hits.push(function.to_string());
+            }
+            "NtOpenProcess" | "NtOpenThread" => {
+                self.sanctum_operations.cross_process_handle_count += 1;
+            }
+            _ => {}
+        }
+
+        self.operation_sequence.push(OperationType::Generic(format!("SANCTUM:{}:{}", source, function)));
     }
 }

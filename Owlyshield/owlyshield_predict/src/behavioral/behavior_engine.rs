@@ -107,6 +107,16 @@ fn shared_firewall_hips_allow_always() -> FirewallHipsAllowAlways {
         .clone()
 }
 
+/// Per-PID stats from Sanctum EDR telemetry (received via HydraSanctumTelemetry pipe).
+type FirewallSanctumStats = Arc<std::sync::RwLock<HashMap<u32, crate::realtime_learning::api_tracker::SanctumOperationStats>>>;
+
+fn shared_firewall_sanctum_stats() -> FirewallSanctumStats {
+    static FIREWALL_SANCTUM_STATS: OnceLock<FirewallSanctumStats> = OnceLock::new();
+    FIREWALL_SANCTUM_STATS
+        .get_or_init(|| Arc::new(std::sync::RwLock::new(HashMap::new())))
+        .clone()
+}
+
 // =============================================================================
 // FIREWALL DETECTION — details received from the firewall via HydraNetEvent pipe
 // =============================================================================
@@ -962,6 +972,16 @@ pub struct NamedConditionGroup {
     /// This also signals rule authors that reordering the list in the YAML is safe.
     #[serde(default)]
     pub orderless: bool,
+
+    // Sanctum EDR conditions
+    #[serde(default)]
+    pub sanctum_injection_score_min: Option<f32>,
+    #[serde(default)]
+    pub sanctum_syscall_count_min: Option<usize>,
+    #[serde(default)]
+    pub sanctum_shellcode_detected: Option<bool>,
+    #[serde(default)]
+    pub sanctum_suspicious_hits: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1407,6 +1427,11 @@ pub struct ProcessBehaviorState {
     
     /// Rolling history of network packets captured for this process (FULL_PACKET).
     pub net_packets: VecDeque<PacketInfo>,
+
+    /// Sanctum EDR telemetry stats for real-time learning.
+    pub sanctum_stats: crate::realtime_learning::api_tracker::SanctumOperationStats,
+    /// Historical hits for Sanctum suspicious syscalls throughout the process lifetime.
+    pub sanctum_suspicious_hits: HashSet<String>,
 }
 
 impl ProcessBehaviorState {
@@ -1438,6 +1463,7 @@ impl ProcessBehaviorState {
         state.script_file = String::new();
         state.script_file_path = String::new();
         state.net_packets = VecDeque::with_capacity(500);
+        state.sanctum_stats = crate::realtime_learning::api_tracker::SanctumOperationStats::default();
 
         state
     }
@@ -1557,6 +1583,8 @@ pub struct BehaviorEngine {
     firewall_http_body_map: FirewallHttpBodyMap,
     /// Per-PID rolling history of full network packets from the firewall.
     firewall_full_packets: FirewallFullPackets,
+    /// Per-PID stats from Sanctum EDR telemetry.
+    firewall_sanctum_stats: FirewallSanctumStats,
 }
 
 impl Default for BehaviorEngine {
@@ -1583,6 +1611,7 @@ impl BehaviorEngine {
             firewall_hips_allow_always: shared_firewall_hips_allow_always(),
             firewall_http_body_map: shared_firewall_http_body_map(),
             firewall_full_packets: shared_firewall_full_packets(),
+            firewall_sanctum_stats: shared_firewall_sanctum_stats(),
         }
     }
 
@@ -1828,6 +1857,7 @@ impl BehaviorEngine {
 
         let net_pids    = Arc::clone(&self.firewall_net_pids);
         let net_details = Arc::clone(&self.firewall_net_details);
+        let sanctum_stats_map = Arc::clone(&self.firewall_sanctum_stats);
 
         std::thread::Builder::new()
             .name("sanctum_telemetry_pipe".to_string())
@@ -1937,6 +1967,30 @@ impl BehaviorEngine {
                                             "[SanctumTelemetry] Suspicious syscall from PID {}: {}",
                                             pid, function
                                         ));
+                                    }
+
+                                    // Update shared Sanctum stats for real-time learning.
+                                    if pid != 0 {
+                                        let mut sanctum_lock = sanctum_stats_map.write().unwrap();
+                                        let stats = sanctum_lock.entry(pid).or_insert_with(crate::realtime_learning::api_tracker::SanctumOperationStats::default);
+                                        stats.syscall_count += 1;
+                                        stats.last_event = Some(format!("{} - {}", function, serde_json::to_string(args).unwrap_or_default()));
+                                        
+                                        if let Some(target_pid) = args["target_pid"].as_u64() {
+                                            if target_pid as u32 != pid {
+                                                stats.cross_process_handle_count += 1;
+                                            }
+                                        }
+
+                                        if matches!(function, "NtWriteVirtualMemory" | "NtAllocateVirtualMemory" | "NtCreateThreadEx") {
+                                            stats.injection_score += 0.1;
+                                            stats.suspicious_syscall_hits.push(function.to_string());
+                                            if stats.suspicious_syscall_hits.len() > 20 {
+                                                stats.suspicious_syscall_hits.remove(0);
+                                            }
+                                        }
+                                        
+                                        if stats.injection_score > 1.0 { stats.injection_score = 1.0; }
                                     }
                                 }
                                 Err(e) => {
@@ -3455,6 +3509,50 @@ impl BehaviorEngine {
                     }
                 }
 
+                // ── Sanctum-content conditions ──────────────────────────────────
+                if !matched {
+                    if let Some(min_score) = cond_group.sanctum_injection_score_min {
+                        if state.sanctum_stats.injection_score >= min_score {
+                            matched = true;
+                            Logging::info(&format!(
+                                "[BehaviorEngine] Condition '{}' - sanctum_injection_score_min matched: {} >= {} for PID {}",
+                                cond_name, state.sanctum_stats.injection_score, min_score, state.pid
+                            ));
+                        }
+                    }
+                    if !matched {
+                        if let Some(min_syscalls) = cond_group.sanctum_syscall_count_min {
+                            if state.sanctum_stats.syscall_count >= min_syscalls {
+                                matched = true;
+                                Logging::info(&format!(
+                                    "[BehaviorEngine] Condition '{}' - sanctum_syscall_count_min matched: {} >= {} for PID {}",
+                                    cond_name, state.sanctum_stats.syscall_count, min_syscalls, state.pid
+                                ));
+                            }
+                        }
+                    }
+                    if !matched {
+                        if let Some(require_shellcode) = cond_group.sanctum_shellcode_detected {
+                            if require_shellcode == state.sanctum_stats.shellcode_patterns_found {
+                                matched = true;
+                                Logging::info(&format!(
+                                    "[BehaviorEngine] Condition '{}' - sanctum_shellcode_detected matched: {} for PID {}",
+                                    cond_name, require_shellcode, state.pid
+                                ));
+                            }
+                        }
+                    }
+                    if !matched && !cond_group.sanctum_suspicious_hits.is_empty() {
+                        if cond_group.sanctum_suspicious_hits.iter().any(|hit| state.sanctum_suspicious_hits.contains(hit)) {
+                            matched = true;
+                            Logging::info(&format!(
+                                "[BehaviorEngine] Condition '{}' - sanctum_suspicious_hits matched for PID {}",
+                                cond_name, state.pid
+                            ));
+                        }
+                    }
+                }
+
                 let file_change = event_file_change;
                 let is_directory_event = matches!(file_change, Some(FileChangeInfo::OpenDirectory));
 
@@ -4105,6 +4203,24 @@ impl BehaviorEngine {
                                 s.net_packets.pop_front();
                             }
                             s.net_packets.push_back(p);
+                        }
+                    }
+                }
+                // Sync Sanctum telemetry stats.
+                if let Ok(mut sanctum_lock) = self.firewall_sanctum_stats.write() {
+                    if let Some(stats) = sanctum_lock.remove(&pid) {
+                        s.sanctum_stats.syscall_count += stats.syscall_count;
+                        s.sanctum_stats.injection_score = (s.sanctum_stats.injection_score + stats.injection_score).min(1.0);
+                        s.sanctum_stats.cross_process_handle_count += stats.cross_process_handle_count;
+                        s.sanctum_stats.shellcode_patterns_found |= stats.shellcode_patterns_found;
+                        s.sanctum_stats.last_event = stats.last_event;
+                        for hit in stats.suspicious_syscall_hits {
+                            if !s.sanctum_stats.suspicious_syscall_hits.contains(&hit) {
+                                s.sanctum_stats.suspicious_syscall_hits.push(hit);
+                            }
+                        }
+                        if s.sanctum_stats.suspicious_syscall_hits.len() > 50 {
+                            s.sanctum_stats.suspicious_syscall_hits.remove(0);
                         }
                     }
                 }

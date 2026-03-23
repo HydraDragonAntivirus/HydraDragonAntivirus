@@ -868,6 +868,8 @@ pub mod worker_instance {
         fn record_realtime_event(
             learning_engine: &mut crate::realtime_learning::RealtimeLearningEngine,
             api_trackers: &mut HashMap<u64, ApiTracker>,
+            #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+            behavior_engine: &crate::behavioral::behavior_engine::BehaviorEngine,
             gid: u64,
             iomsg: &IOMessage,
             precord: &ProcessRecord,
@@ -880,6 +882,14 @@ pub mod worker_instance {
 
             if !precord.appname.is_empty() && tracker.process_name != precord.appname {
                 tracker.process_name = precord.appname.clone();
+            }
+
+            #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+            {
+                if let Some(state) = behavior_engine.process_states.get(&gid) {
+                    tracker.net_packets = state.net_packets.clone();
+                    tracker.sanctum_operations = state.sanctum_stats.clone();
+                }
             }
 
             tracker.track_io_operation(iomsg, precord);
@@ -1571,6 +1581,15 @@ pub mod worker_instance {
                 for gid in terminated_gids {
                     self.cleanup_process(gid, "Killed (behavior detection)");
                 }
+
+                // --- SIXTH: Real-time learning periodic checks ---
+                #[cfg(feature = "realtime_learning")]
+                {
+                    self.learning_engine.check_benign_processes(&self.api_trackers, &self.process_records.process_records);
+                    if self.learning_engine.should_export() {
+                        let _ = self.learning_engine.export_samples();
+                    }
+                }
             }
         }
 
@@ -1755,6 +1774,8 @@ pub mod worker_instance {
                     Self::record_realtime_event(
                         &mut self.learning_engine,
                         &mut self.api_trackers,
+                        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                        &self.behavior_engine,
                         tracking_key,
                         iomsg,
                         precord,
@@ -1964,7 +1985,15 @@ pub mod worker_instance {
                     #[cfg(feature = "realtime_learning")]
                     {
                         self.learning_engine.track_process(gid, appname.clone());
-                        self.api_trackers.insert(gid, ApiTracker::new(gid, appname));
+                        Self::record_realtime_event(
+                            &mut self.learning_engine,
+                            &mut self.api_trackers,
+                            #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                            &self.behavior_engine,
+                            gid,
+                            iomsg,
+                            &precord,
+                        );
                     }
                 }
                 Some(false) => {

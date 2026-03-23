@@ -622,6 +622,8 @@ pub struct ContentMatchData {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", untagged)]
 pub enum RuleCondition {
+    And(Vec<RuleCondition>),
+    Or(Vec<RuleCondition>),
     Protocol(RuleProtocol),
     SrcIp(IpMatcher),
     DstIp(IpMatcher),
@@ -639,6 +641,8 @@ pub enum RuleCondition {
 impl RuleCondition {
     pub fn matches(&self, packet: &PacketInfo, payload: &[u8]) -> bool {
         match self {
+            RuleCondition::And(conds) => conds.iter().all(|c| c.matches(packet, payload)),
+            RuleCondition::Or(conds) => conds.iter().any(|c| c.matches(packet, payload)),
             RuleCondition::Protocol(proto) => proto.matches(packet),
             RuleCondition::SrcIp(matcher) => matcher.matches(packet.src_ip),
             RuleCondition::DstIp(matcher) => matcher.matches(packet.dst_ip),
@@ -780,6 +784,12 @@ pub struct SdkRule {
     /// Patterns to match against the HTTP response body (substring match, any pattern is sufficient)
     #[serde(default)]
     pub http_response_body: Option<Vec<String>>,
+    /// If true, use regex replacement for the body changer
+    #[serde(default)]
+    pub use_regex_replacement: bool,
+    /// Regex pattern to search for in the body
+    #[serde(default)]
+    pub search_pattern: Option<String>,
 }
 
 fn default_true() -> bool {
@@ -787,6 +797,30 @@ fn default_true() -> bool {
 }
 
 impl SdkRule {
+    pub fn apply_replacement(&self, body: &str) -> String {
+        if !self.use_regex_replacement {
+            if self.action == RuleAction::ChangeRequestBody {
+                return self.change_request_body.clone().unwrap_or_else(|| body.to_string());
+            } else if self.action == RuleAction::ChangeResponseBody {
+                return self.change_response_body.clone().unwrap_or_else(|| body.to_string());
+            }
+            return body.to_string();
+        }
+
+        let Some(search) = &self.search_pattern else { return body.to_string(); };
+        let replace_with = match self.action {
+            RuleAction::ChangeRequestBody => self.change_request_body.as_deref().unwrap_or(""),
+            RuleAction::ChangeResponseBody => self.change_response_body.as_deref().unwrap_or(""),
+            _ => return body.to_string(),
+        };
+
+        if let Ok(re) = Regex::new(search) {
+            re.replace_all(body, replace_with).into_owned()
+        } else {
+            body.to_string()
+        }
+    }
+
     /// Evaluate if this rule matches the packet
     pub fn matches(&self, packet: &PacketInfo, payload: &[u8]) -> bool {
         if !self.enabled {
@@ -1141,6 +1175,22 @@ impl SdkRegistry {
     }
 
     pub fn load_default_rules(&mut self) {
+        #[cfg(target_os = "windows")]
+        {
+            use winreg::enums::HKEY_LOCAL_MACHINE;
+            use winreg::RegKey;
+            let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
+            if let Ok(key) = hklm.open_subkey(r"SOFTWARE\Owlyshield\SDK") {
+                if let Ok(path_str) = key.get_value::<String, _>("RULES_PATH") {
+                    println!("[SDK] Found registry override for rules: {}", path_str);
+                    if self.load_rules_from_file(&path_str).is_ok() {
+                        println!("[SDK] Loaded {} rules from registry-defined path", self.rules.len());
+                        return;
+                    }
+                }
+            }
+        }
+
         // Load from rules.yaml if it exists
         match SdkRuleFile::load_from_file("rules.yaml") {
             Ok(rule_file) => {

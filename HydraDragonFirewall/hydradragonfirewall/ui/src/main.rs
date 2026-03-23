@@ -255,6 +255,16 @@ pub struct SdkRuleView {
     pub description: String,
     pub enabled: bool,
     pub action: RuleActionView,
+    #[serde(default)]
+    pub protocol: String,
+    #[serde(default)]
+    pub encoding: String,
+    #[serde(default)]
+    pub condition_logic: String,
+    #[serde(default)]
+    pub change_request_body: Option<String>,
+    #[serde(default)]
+    pub change_response_body: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -267,6 +277,12 @@ pub struct FirewallSettings {
     pub rules: Vec<FirewallRule>,
     #[serde(default)]
     pub late_blocking_mode: bool,
+    #[serde(default)]
+    pub headless_mode: bool,
+    #[serde(default)]
+    pub log_mode: bool,
+    #[serde(default)]
+    pub no_alert_mode: bool,
     #[serde(default = "default_true")]
     pub save_all_logs: bool,
     #[serde(default = "default_true")]
@@ -294,6 +310,9 @@ impl Default for FirewallSettings {
             website_path: String::new(),
             rules: Vec::new(),
             late_blocking_mode: false,
+            headless_mode: false,
+            log_mode: false,
+            no_alert_mode: false,
             save_all_logs: true,
             prune_old_logs: true,
             max_visible_logs: default_max_visible_logs(),
@@ -335,7 +354,7 @@ pub fn App() -> impl IntoView {
     let (selected_proxy_event, set_selected_proxy_event) = create_signal(Option::<ProxyHttpEvent>::None);
 
 
-    let (_sdk_rules, set_sdk_rules) = create_signal(Vec::<SdkRuleView>::new());
+    let (sdk_rules, set_sdk_rules) = create_signal(Vec::<SdkRuleView>::new());
     let (body_changers, set_body_changers) = create_signal(Vec::<BodyChangerRule>::new());
     // Fields for the body changer editor form
     let (bc_edit_id, set_bc_edit_id) = create_signal(Option::<String>::None);
@@ -413,6 +432,8 @@ pub fn App() -> impl IntoView {
     let (show_editor, set_show_editor) = create_signal(false);
     let (rules_raw_content, set_rules_raw_content) = create_signal(String::new());
     let (_validation_result, set_validation_result) = create_signal(String::from("Ready to validate."));
+    let (show_owlyshield_editor, set_show_owlyshield_editor) = create_signal(false);
+    let (owlyshield_rules_content, set_owlyshield_rules_content) = create_signal(String::new());
 
     let fetch_sdk_rules = move || {
         spawn_local(async move {
@@ -448,6 +469,24 @@ pub fn App() -> impl IntoView {
              if let Ok(s) = serde_wasm_bindgen::from_value::<String>(val) {
                  set_rules_raw_content.set(s);
              }
+        });
+    };
+
+    let fetch_owlyshield_rules = move || {
+        spawn_local(async move {
+            let val = invoke("get_owlyshield_rules_raw", JsValue::NULL).await;
+            if let Ok(s) = serde_wasm_bindgen::from_value::<String>(val) {
+                set_owlyshield_rules_content.set(s);
+            }
+        });
+    };
+
+    let save_owlyshield_rules = move || {
+        let content = owlyshield_rules_content.get();
+        spawn_local(async move {
+            let args = js_sys::Object::new();
+            js_sys::Reflect::set(&args, &"content".into(), &content.into()).unwrap();
+            let _ = invoke("save_owlyshield_rules_raw", args.into()).await;
         });
     };
 
@@ -538,7 +577,7 @@ pub fn App() -> impl IntoView {
 
     create_effect(move |_| {
         match current_view.get() {
-            AppView::Rules => { fetch_sdk_rules(); fetch_rules_raw(); fetch_body_changers(); }
+            AppView::Rules => { fetch_sdk_rules(); fetch_rules_raw(); fetch_body_changers(); fetch_owlyshield_rules(); }
             AppView::Logs => { fetch_saved_logs(); }
             AppView::Exclusions => { fetch_app_decisions(); }
             AppView::Settings => { fetch_settings(); }
@@ -845,29 +884,41 @@ pub fn App() -> impl IntoView {
                                     // ── Tab Bar ──────────────────────────────────────────────
                                     <div style="display: flex; border-bottom: 1px solid #333; margin-bottom: 12px">
                                         <button
-                                            class={move || if !show_editor.get() && !show_bc_form.get() { "nav-item active" } else { "nav-item" }}
+                                            class={move || if !show_editor.get() && !show_bc_form.get() && !show_owlyshield_editor.get() { "nav-item active" } else { "nav-item" }}
                                             style="padding: 8px 18px; border-radius: 4px 4px 0 0"
-                                            on:click=move |_| { set_show_editor.set(false); set_show_bc_form.set(false); }>
+                                            on:click=move |_| { set_show_editor.set(false); set_show_bc_form.set(false); set_show_owlyshield_editor.set(false); }>
                                             "Rules Wiki"
                                         </button>
                                         <button
                                             class={move || if show_editor.get() { "nav-item active" } else { "nav-item" }}
                                             style="padding: 8px 18px; border-radius: 4px 4px 0 0"
-                                            on:click=move |_| { set_show_editor.set(true); set_show_bc_form.set(false); fetch_rules_raw(); }>
+                                            on:click=move |_| { set_show_editor.set(true); set_show_bc_form.set(false); set_show_owlyshield_editor.set(false); fetch_rules_raw(); }>
                                             "Edit YAML"
                                         </button>
                                         <button
                                             class={move || if show_bc_form.get() { "nav-item active" } else { "nav-item" }}
                                             style="padding: 8px 18px; border-radius: 4px 4px 0 0"
-                                            on:click=move |_| { set_show_bc_form.set(true); set_show_editor.set(false); fetch_body_changers(); }>
+                                            on:click=move |_| { set_show_bc_form.set(true); set_show_editor.set(false); set_show_owlyshield_editor.set(false); fetch_body_changers(); }>
                                             "Body Changer"
                                         </button>
-                                        // save/validate buttons only for YAML tab
+                                        <button
+                                            class={move || if show_owlyshield_editor.get() { "nav-item active" } else { "nav-item" }}
+                                            style="padding: 8px 18px; border-radius: 4px 4px 0 0"
+                                            on:click=move |_| { set_show_owlyshield_editor.set(true); set_show_editor.set(false); set_show_bc_form.set(false); fetch_owlyshield_rules(); }>
+                                            "OwlyShield Rules"
+                                        </button>
+                                        // save/validate buttons for YAML tabs
                                         {move || if show_editor.get() {
                                             view! {
                                                 <div style="margin-left: auto; display: flex; gap: 10px; align-items: center">
                                                     <button class="btn-secondary" on:click=move |_| validate_rules_raw()> "Validate" </button>
                                                     <button class="btn-primary" on:click=move |_| save_rules_raw()> "Save" </button>
+                                                </div>
+                                            }.into_view()
+                                        } else if show_owlyshield_editor.get() {
+                                            view! {
+                                                <div style="margin-left: auto; display: flex; gap: 10px; align-items: center">
+                                                    <button class="btn-primary" on:click=move |_| save_owlyshield_rules()> "Save" </button>
                                                 </div>
                                             }.into_view()
                                         } else { view!{}.into_view() }}
@@ -880,6 +931,18 @@ pub fn App() -> impl IntoView {
                                             <textarea class="glass-card" style="width: 100%; height: 100%; box-sizing: border-box; padding: 20px; font-family: monospace; resize: none"
                                                 prop:value=move || rules_raw_content.get()
                                                 on:input=move |ev| set_rules_raw_content.set(event_target_value(&ev)) />
+                                        }.into_view()
+                                    } else if show_owlyshield_editor.get() {
+                                        view! {
+                                            <div style="display: flex; flex-direction: column; height: 100%; gap: 8px">
+                                                <div class="glass-card" style="padding: 10px 16px; font-size: 12px; color: var(--text-muted)">
+                                                    "Editing OwlyShield behavioral rules — path resolved from "
+                                                    <code style="color: var(--accent-blue)">"SOFTWARE\\Owlyshield → RULES_PATH"</code>
+                                                </div>
+                                                <textarea class="glass-card" style="flex: 1; width: 100%; box-sizing: border-box; padding: 20px; font-family: monospace; resize: none"
+                                                    prop:value=move || owlyshield_rules_content.get()
+                                                    on:input=move |ev| set_owlyshield_rules_content.set(event_target_value(&ev)) />
+                                            </div>
                                         }.into_view()
                                     } else if show_bc_form.get() {
                                         // ── Body Changer Panel ────────────────────────────────
@@ -1041,7 +1104,57 @@ pub fn App() -> impl IntoView {
                                             </div>
                                         }.into_view()
                                     } else {
-                                        view! { <RulesWiki /> }.into_view()
+                                        view! {
+                                            <div style="display: flex; flex-direction: column; gap: 15px; height: 100%; overflow: hidden">
+                                                <div class="glass-card" style="flex: 1; overflow-y: auto; display: flex; flex-direction: column">
+                                                    <div class="section-header">
+                                                        <h3 style="margin: 0">"Active SDK Rules"</h3>
+                                                        <span style="font-size: 11px; opacity: 0.6">"Real-time Behavioral Enforcement"</span>
+                                                    </div>
+                                                    <div style="padding: 15px; flex: 1; overflow-y: auto">
+                                                        <For
+                                                            each={move || sdk_rules.get()}
+                                                            key={|r| r.name.clone()}
+                                                            children={move |rule| {
+                                                                let bg = if rule.enabled { "rgba(96, 165, 250, 0.05)" } else { "rgba(0,0,0,0.2)" };
+                                                                let border = if rule.enabled { "1px solid rgba(96, 165, 250, 0.2)" } else { "1px solid rgba(255,255,255,0.05)" };
+                                                                view! {
+                                                                    <div style={format!("background: {}; border: {}; border-radius: 8px; padding: 15px; margin-bottom: 12px; display: flex; flex-direction: column; gap: 8px", bg, border)}>
+                                                                        <div style="display: flex; justify-content: space-between; align-items: flex-start">
+                                                                            <div>
+                                                                                <h4 style="margin: 0; color: var(--text-bright); font-size: 14px">{rule.name.clone()}</h4>
+                                                                                <p style="margin: 4px 0 0 0; font-size: 12px; color: var(--text-muted)">{rule.description.clone()}</p>
+                                                                            </div>
+                                                                            <div style="display: flex; gap: 8px">
+                                                                                <span class={format!("badge {}", if rule.enabled { "badge-success" } else { "badge-secondary" })}>
+                                                                                    {if rule.enabled { "ENABLED" } else { "DISABLED" }}
+                                                                                </span>
+                                                                                <span class="badge" style="background: var(--accent-blue); color: white">
+                                                                                    {format!("{:?}", rule.action)}
+                                                                                </span>
+                                                                            </div>
+                                                                        </div>
+                                                                        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 5px; font-size: 11px; opacity: 0.8">
+                                                                            <div>"Protocol: " <span style="color: var(--accent-orange)">{rule.protocol.clone()}</span></div>
+                                                                            <div>"Logic: " <span style="color: var(--accent-blue)">{rule.condition_logic.clone()}</span></div>
+                                                                            <div>"Encoding: " <span style="color: #a78bfa">{rule.encoding.clone()}</span></div>
+                                                                        </div>
+                                                                        {if rule.change_request_body.is_some() || rule.change_response_body.is_some() {
+                                                                            view! {
+                                                                                <div style="margin-top: 5px; padding: 8px; background: rgba(0,0,0,0.3); border-radius: 4px; font-size: 10px; font-family: monospace">
+                                                                                    <div style="color: #60a5fa">"⚡ BODY MODIFICATION ACTIVE"</div>
+                                                                                </div>
+                                                                            }.into_view()
+                                                                        } else { view!{}.into_view() }}
+                                                                    </div>
+                                                                }
+                                                            }}
+                                                        />
+                                                    </div>
+                                                </div>
+                                                <RulesWiki />
+                                            </div>
+                                        }.into_view()
                                     }}
                                     </div>
                                 </div>
@@ -1279,6 +1392,45 @@ pub fn App() -> impl IntoView {
                                                     }
                                                 />
                                                 "Late blocking mode"
+                                            </label>
+                                        </div>
+                                        <div class="input-group">
+                                            <label style="display: flex; align-items: center; gap: 10px">
+                                                <input
+                                                    type="checkbox"
+                                                    prop:checked=move || settings.get().headless_mode
+                                                    on:change=move |ev| {
+                                                        set_settings.update(|s| s.headless_mode = event_target_checked(&ev));
+                                                    }
+                                                />
+                                                "Headless mode (hide main window on start)"
+                                            </label>
+                                        </div>
+                                        <div class="input-group">
+                                            <label style="display: flex; align-items: center; gap: 10px">
+                                                <input
+                                                    type="checkbox"
+                                                    prop:checked=move || settings.get().log_mode
+                                                    on:change=move |ev| {
+                                                        set_settings.update(|s| s.log_mode = event_target_checked(&ev));
+                                                    }
+                                                />
+                                                "Log mode (log all packets, including forwarded)"
+                                            </label>
+                                        </div>
+                                        <div class="input-group">
+                                            <label style="display: flex; align-items: center; gap: 10px">
+                                                <input
+                                                    type="checkbox"
+                                                    prop:checked=move || settings.get().no_alert_mode
+                                                    on:change=move |ev| {
+                                                        set_settings.update(|s| s.no_alert_mode = event_target_checked(&ev));
+                                                    }
+                                                />
+                                                <span>
+                                                    "No-alert mode "
+                                                    <span style="color: var(--accent-orange); font-size: 11px; font-weight: 700">"[not recommended — skips firewall decision prompts for testing]"</span>
+                                                </span>
                                             </label>
                                         </div>
                                         <p style="margin: 8px 0 18px 0; color: var(--text-muted); font-size: 12px; line-height: 1.5">

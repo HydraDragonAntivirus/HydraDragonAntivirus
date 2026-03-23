@@ -145,6 +145,14 @@ pub struct MLFeatures {
     pub api_sequence_complexity: f32,
     pub dll_diversity: f32,
     pub network_diversity: f32,
+
+    // Sanctum & Injection features
+    pub injection_score: f32,
+    pub sanctum_syscall_count: f32,
+    pub sanctum_cross_process_handles: f32,
+    pub kernel_telemetry_density: f32,
+    pub sanctum_shellcode_detected: f32,
+    pub sanctum_suspicious_hits_count: f32,
 }
 
 /// Raw behavioral data for detailed analysis
@@ -162,8 +170,15 @@ pub struct RawBehaviorData {
     pub irp_opcode_counts: HashMap<String, usize>,
     pub loaded_kernel_drivers: Vec<String>,
     pub executable_telemetry: ExecutableTelemetry,
+    #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+    pub net_packets: Vec<crate::behavioral::network_rules::PacketInfo>,
     #[cfg(feature = "behavior_engine")]
     pub rule_format_rule: BehaviorRule,
+
+    // Sanctum telemetry
+    pub sanctum_syscall_count: usize,
+    pub sanctum_injection_score: f32,
+    pub sanctum_suspicious_hits: Vec<String>,
 }
 
 /// Static executable telemetry captured from on-disk binary
@@ -412,8 +427,15 @@ impl MLCollector {
             irp_opcode_counts: api_tracker.kernel_opcode_counts(),
             loaded_kernel_drivers: api_tracker.kernel_operations.loaded_kernel_drivers.iter().cloned().collect(),
             executable_telemetry,
+            #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+            net_packets: api_tracker.net_packets.clone(),
             #[cfg(feature = "behavior_engine")]
             rule_format_rule,
+
+            // Sanctum telemetry
+            sanctum_syscall_count: api_tracker.sanctum_operations.syscall_count,
+            sanctum_injection_score: api_tracker.sanctum_operations.injection_score,
+            sanctum_suspicious_hits: api_tracker.sanctum_operations.suspicious_syscall_hits.clone(),
         }
     }
 
@@ -543,6 +565,22 @@ impl MLCollector {
             }
         }
 
+        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+        let mut network_rules = Vec::new();
+        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+        {
+            use crate::behavioral::network_rules::RuleCondition as NetCondition;
+            use crate::behavioral::network_rules::{DomainMatcher, UrlMatcher};
+            for pkt in &api_tracker.net_packets {
+                if !pkt.domain.is_empty() {
+                    network_rules.push(NetCondition::Domain(DomainMatcher::Exact(pkt.domain.clone())));
+                }
+                if !pkt.url.is_empty() {
+                    network_rules.push(NetCondition::Url(UrlMatcher::Contains(pkt.url.clone())));
+                }
+            }
+        }
+
         let has_network_activity =
             api_tracker.has_significant_internet_activity() || !network_indicators.is_empty();
 
@@ -559,6 +597,10 @@ impl MLCollector {
         observed_condition.has_network_activity = has_network_activity;
         if !precord.appname.trim().is_empty() {
             observed_condition.process_names = vec![precord.appname.clone()];
+        }
+        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+        {
+            observed_condition.network_rules = network_rules;
         }
         observed_condition.created_processes = Self::sorted_strings(created_processes);
         observed_condition.terminated_processes = Self::sorted_strings(terminated_processes);
@@ -1177,6 +1219,18 @@ impl FeatureExtractor {
             api_sequence_complexity: api_tracker.api_sequence.len() as f32,
             dll_diversity: api_tracker.dlls_loaded.len() as f32,
             network_diversity: api_tracker.internet_apis.len() as f32,
+
+            // Sanctum & Injection features
+            injection_score: api_tracker.sanctum_operations.injection_score,
+            sanctum_syscall_count: api_tracker.sanctum_operations.syscall_count as f32,
+            sanctum_cross_process_handles: api_tracker.sanctum_operations.cross_process_handle_count as f32,
+            kernel_telemetry_density: if api_tracker.total_api_calls() > 0 {
+                api_tracker.kernel_operations.total_kernel_events as f32 / api_tracker.total_api_calls() as f32
+            } else {
+                0.0
+            },
+            sanctum_shellcode_detected: if api_tracker.sanctum_operations.shellcode_patterns_found { 1.0 } else { 0.0 },
+            sanctum_suspicious_hits_count: api_tracker.sanctum_operations.suspicious_syscall_hits.len() as f32,
         }
     }
 
@@ -1238,9 +1292,3 @@ struct YAMLSampleArtifact {
     pub artifact_type: String,
     pub sample: MLSample,
 }
-
-
-
-
-
-

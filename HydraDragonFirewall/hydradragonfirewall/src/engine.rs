@@ -1111,6 +1111,9 @@ impl FirewallEngine {
             website_path: current_settings.website_path.clone(),
             rules: self.rules.read().unwrap().clone(),
             late_blocking_mode: current_settings.late_blocking_mode,
+            headless_mode: current_settings.headless_mode,
+            log_mode: current_settings.log_mode,
+            no_alert_mode: current_settings.no_alert_mode,
             save_all_logs: current_settings.save_all_logs,
             prune_old_logs: current_settings.prune_old_logs,
             max_visible_logs: current_settings.max_visible_logs,
@@ -2820,6 +2823,12 @@ impl FirewallEngine {
     }
 
     pub fn get_rules_raw(&self) -> String {
+        #[cfg(target_os = "windows")]
+        if let Some(path) = self.get_sdk_rules_path_from_registry() {
+            if let Ok(content) = std::fs::read_to_string(&path) {
+                return content;
+            }
+        }
         std::fs::read_to_string("rules.yaml").unwrap_or_default()
     }
 
@@ -2827,7 +2836,22 @@ impl FirewallEngine {
         if let Err(e) = serde_yaml::from_str::<crate::sdk::SdkRuleFile>(&content) {
             return Err(format!("Invalid YAML: {}", e));
         }
+        #[cfg(target_os = "windows")]
+        if let Some(path) = self.get_sdk_rules_path_from_registry() {
+            return std::fs::write(&path, content).map_err(|e| e.to_string());
+        }
         std::fs::write("rules.yaml", content).map_err(|e| e.to_string())
+    }
+
+    #[cfg(target_os = "windows")]
+    fn get_sdk_rules_path_from_registry(&self) -> Option<PathBuf> {
+        use winreg::enums::HKEY_LOCAL_MACHINE;
+        use winreg::RegKey;
+        let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
+        hklm.open_subkey(r"SOFTWARE\Owlyshield\SDK")
+            .ok()
+            .and_then(|key| key.get_value::<String, _>("RULES_PATH").ok())
+            .map(PathBuf::from)
     }
 
     pub fn validate_rules_raw(&self, content: String) -> Result<String, String> {

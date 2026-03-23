@@ -156,6 +156,55 @@ async fn validate_rules_content(content: String, handle: AppHandle) -> Result<St
     }
 }
 
+#[cfg(target_os = "windows")]
+fn get_owlyshield_rules_path() -> Option<std::path::PathBuf> {
+    use winreg::enums::HKEY_LOCAL_MACHINE;
+    use winreg::RegKey;
+    let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
+    hklm.open_subkey(r"SOFTWARE\Owlyshield")
+        .ok()
+        .and_then(|key| key.get_value::<String, _>("RULES_PATH").ok())
+        .map(std::path::PathBuf::from)
+}
+
+/// Read the Firewall SDK rules folder/file path from the Windows Registry.
+/// Falls back to None if the key is absent or the OS is not Windows.
+#[cfg(target_os = "windows")]
+fn get_firewall_sdk_rules_path() -> Option<std::path::PathBuf> {
+    use winreg::enums::HKEY_LOCAL_MACHINE;
+    use winreg::RegKey;
+    let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
+    hklm.open_subkey(r"SOFTWARE\Owlyshield\SDK")
+        .ok()
+        .and_then(|key| key.get_value::<String, _>("RULES_PATH").ok())
+        .map(std::path::PathBuf::from)
+}
+
+#[tauri::command]
+async fn get_owlyshield_rules_raw() -> String {
+    // Prefer the registry-configured path (Windows).
+    #[cfg(target_os = "windows")]
+    if let Some(path) = get_owlyshield_rules_path() {
+        if let Ok(content) = std::fs::read_to_string(&path) {
+            return content;
+        }
+    }
+    // Fall back to a local override file next to the executable.
+    let local_path = "owlyshield_rules.yaml";
+    std::fs::read_to_string(local_path).unwrap_or_default()
+}
+
+#[tauri::command]
+async fn save_owlyshield_rules_raw(content: String) -> Result<(), String> {
+    // Prefer the registry-configured path (Windows).
+    #[cfg(target_os = "windows")]
+    if let Some(path) = get_owlyshield_rules_path() {
+        return std::fs::write(&path, content).map_err(|e| e.to_string());
+    }
+    let local_path = "owlyshield_rules.yaml";
+    std::fs::write(local_path, content).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 async fn get_app_decisions(handle: AppHandle) -> Result<std::collections::HashMap<String, crate::engine::AppDecision>, String> {
     if let Some(engine) = wait_for_engine(&handle).await {
@@ -344,6 +393,25 @@ pub fn run() {
     println!("DEBUG: hydradragonfirewall::run() entered");
     println!("--- HydraDragon Firewall Booting (Tauri 2.0) ---");
 
+    #[cfg(target_os = "windows")]
+    {
+        use winreg::enums::HKEY_LOCAL_MACHINE;
+        use winreg::RegKey;
+        let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
+        // Create SOFTWARE\Owlyshield\SDK and ensure RULES_PATH exists
+        if let Ok((key, _)) = hklm.create_subkey(r"SOFTWARE\Owlyshield\SDK") {
+            if key.get_value::<String, _>("RULES_PATH").is_err() {
+                let _ = key.set_value("RULES_PATH", &"rules.yaml");
+            }
+        }
+        // Ensure SOFTWARE\Owlyshield exists and has its own RULES_PATH
+        if let Ok((key, _)) = hklm.create_subkey(r"SOFTWARE\Owlyshield") {
+            if key.get_value::<String, _>("RULES_PATH").is_err() {
+                let _ = key.set_value("RULES_PATH", &"owlyshield_rules.yaml");
+            }
+        }
+    }
+
     println!("DEBUG: Initializing tauri::Builder...");
     let builder = tauri::Builder::default();
     println!("DEBUG: tauri::Builder created.");
@@ -395,9 +463,14 @@ pub fn run() {
                 .build(app)?;
 
             let args: Vec<String> = std::env::args().collect();
-            let headless = args.iter().any(|a| a == "--headless");
-            let log_mode = args.iter().any(|a| a == "--log-mode");
-            let no_alert = args.iter().any(|a| a == "--no-alert");
+            // CLI flags take priority; also check persisted settings for each mode.
+            let saved = crate::engine::FirewallEngine::load_settings();
+            let headless = args.iter().any(|a| a == "--headless")
+                || saved.as_ref().map_or(false, |s| s.headless_mode);
+            let log_mode = args.iter().any(|a| a == "--log-mode")
+                || saved.as_ref().map_or(false, |s| s.log_mode);
+            let no_alert = args.iter().any(|a| a == "--no-alert")
+                || saved.as_ref().map_or(false, |s| s.no_alert_mode);
 
             if headless {
                 if let Some(win) = app.get_webview_window("main") {
@@ -504,6 +577,8 @@ pub fn run() {
             quit_app,
             get_body_changers,
             save_body_changers,
+            get_owlyshield_rules_raw,
+            save_owlyshield_rules_raw,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

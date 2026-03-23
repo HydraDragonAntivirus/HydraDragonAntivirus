@@ -22,6 +22,7 @@ pub enum Param {
     NoveltyPath,
     RulesPath,
     ReportDir,
+    SdkPath,
     Unknown,
 }
 
@@ -50,6 +51,7 @@ impl Param {
             Param::NoveltyPath => "NOVELTY_PATH",
             Param::RulesPath => "RULES_PATH",
             Param::ReportDir => "REPORT_DIR",
+            Param::SdkPath => "SDK_PATH",
             _ => "UNKNOWN"
         }
     }
@@ -69,6 +71,7 @@ impl Param {
             Param::NoveltyPath => "novelty_path",
             Param::RulesPath => "rules_path",
             Param::ReportDir => "report_dir",
+            Param::SdkPath => "sdk_path",
             _ => "unknown"
         }
     }
@@ -123,6 +126,7 @@ impl Param {
             "NOVELTY_PATH" => Param::NoveltyPath,
             "RULES_PATH" => Param::RulesPath,
             "REPORT_DIR" => Param::ReportDir,
+            "SDK_PATH" => Param::SdkPath,
             _ => Param::Unknown,
         }
     }
@@ -142,6 +146,7 @@ impl Param {
             "novelty_path" => Param::NoveltyPath,
             "rules_path" => Param::RulesPath,
             "report_dir" => Param::ReportDir,
+            "sdk_path" => Param::SdkPath,
             _ => Param::Unknown,
         }
     }
