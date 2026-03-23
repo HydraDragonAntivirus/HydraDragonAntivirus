@@ -2,10 +2,10 @@ name: Firewall
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "**" ]
     tags: [ "v*" ]
   pull_request:
-    branches: [ "main" ]
+    branches: [ "**" ]
   workflow_dispatch:
     inputs:
       update_lockfiles:
@@ -46,8 +46,8 @@ jobs:
           echo "WINDIVERT_PATH=$path" >> $env:GITHUB_ENV
           echo "WINDIVERT_LIB_DIR=$path" >> $env:GITHUB_ENV
 
-      - name: Cargo check (firewall)
-        run: cargo check
+      - name: Cargo clippy (firewall)
+        run: cargo clippy -- -D warnings
 
       - name: Cargo build release (firewall)
         run: cargo build --release --locked

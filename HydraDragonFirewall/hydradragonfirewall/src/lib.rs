@@ -170,7 +170,7 @@ fn get_owlyshield_rules_path() -> Option<std::path::PathBuf> {
 /// Read the Firewall SDK rules folder/file path from the Windows Registry.
 /// Falls back to None if the key is absent or the OS is not Windows.
 #[cfg(target_os = "windows")]
-fn get_firewall_sdk_rules_path() -> Option<std::path::PathBuf> {
+pub(crate) fn get_firewall_sdk_rules_path() -> Option<std::path::PathBuf> {
     use winreg::enums::HKEY_LOCAL_MACHINE;
     use winreg::RegKey;
     let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);

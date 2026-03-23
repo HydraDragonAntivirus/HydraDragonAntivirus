@@ -9,9 +9,9 @@ on:
     - cron: "0 6 * * 1"   # Weekly refresh to keep the lockfile current
   push:
     branches:
-      - main
+      - "**"
     paths:
-      - "pyproject.toml"  # Automatically triggers when pyproject.toml changes
+      - "pyproject.toml"
 
 jobs:
   rebuild-lock:

@@ -2,17 +2,10 @@ name: Python Lint
 
 on:
   push:
-    branches: ["main"]
-    paths:
-      - "hydradragon/antivirus_scripts/**/*.py"
-      - "hydradragon/engine.py"
-      - ".github/workflows/python-lint.yml"
+    branches: ["**"]
   pull_request:
-    branches: ["main"]
-    paths:
-      - "hydradragon/antivirus_scripts/**/*.py"
-      - "hydradragon/engine.py"
-      - ".github/workflows/python-lint.yml"
+    branches: ["**"]
+  workflow_dispatch:
 
 jobs:
   flake8:
@@ -29,11 +22,10 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install lint dependencies
-        run: pip install -r hydradragon/antivirus_scripts/requirementsflake8.txt
+      - name: Install flake8
+        run: pip install flake8
 
-      - name: Run flake8 on antivirus scripts and engine
+      - name: Run flake8 at root
         run: |
-          flake8 --statistics --count \
-            hydradragon/antivirus_scripts \
-            hydradragon/engine.py
+          flake8 . --count --statistics --max-line-length=240 \
+            --exclude=.git,.tox,.venv,venv,node_modules,build,dist,site-packages,__pycache__

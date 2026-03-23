@@ -2,9 +2,9 @@ name: Owlyshiled Rust Windows
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "**" ]
   pull_request:
-    branches: [ "main" ]
+    branches: [ "**" ]
   workflow_dispatch:
     inputs:
       update_lockfile:
@@ -27,7 +27,15 @@ jobs:
     runs-on: windows-latest
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
+    - name: Set up Rust
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        components: clippy
+    - name: Cache Cargo
+      uses: Swatinem/rust-cache@v2
+    - name: Cargo clippy
+      run: cargo clippy -- -D warnings
     - name: Build
       run: cargo build --verbose
     - name: Run tests

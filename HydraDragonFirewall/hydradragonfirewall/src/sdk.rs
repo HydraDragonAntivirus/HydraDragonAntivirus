@@ -1245,16 +1245,11 @@ impl SdkRegistry {
     pub fn load_default_rules(&mut self) {
         #[cfg(target_os = "windows")]
         {
-            use winreg::enums::HKEY_LOCAL_MACHINE;
-            use winreg::RegKey;
-            let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
-            if let Ok(key) = hklm.open_subkey(r"SOFTWARE\Owlyshield\SDK") {
-                if let Ok(path_str) = key.get_value::<String, _>("RULES_PATH") {
-                    println!("[SDK] Found registry override for rules: {}", path_str);
-                    if self.load_rules_from_file(&path_str).is_ok() {
-                        println!("[SDK] Loaded {} rules from registry-defined path", self.rules.len());
-                        return;
-                    }
+            if let Some(path) = crate::get_firewall_sdk_rules_path() {
+                let path_str = path.to_string_lossy().to_string();
+                if self.load_rules_from_file(&path_str).is_ok() {
+                    println!("[SDK] Loaded {} rules from registry-defined path", self.rules.len());
+                    return;
                 }
             }
         }
