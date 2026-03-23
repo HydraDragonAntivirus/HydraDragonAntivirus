@@ -795,6 +795,10 @@ pub struct NamedConditionGroup {
     /// Supports matching on Protocol, IP, Domain, URL, FileType, Port, Entropy, Payload, etc.
     #[serde(default)]
     pub network_rules: Vec<super::network_rules::RuleCondition>,
+    #[serde(default)]
+    pub network_domains: Vec<String>,
+    #[serde(default)]
+    pub network_ips: Vec<String>,
 
     // Firewall-content conditions — matched against data from the HydraDragon Firewall pipe.
     /// true  = condition requires process to have been blocked by the firewall.
@@ -1586,7 +1590,7 @@ pub struct BehaviorEngine {
     /// Per-PID rolling history of full network packets from the firewall.
     firewall_full_packets: FirewallFullPackets,
     /// Per-PID stats from Sanctum EDR telemetry.
-    firewall_sanctum_stats: FirewallSanctumStats,
+    pub firewall_sanctum_stats: FirewallSanctumStats,
 }
 
 impl Default for BehaviorEngine {
@@ -1615,6 +1619,10 @@ impl BehaviorEngine {
             firewall_full_packets: shared_firewall_full_packets(),
             firewall_sanctum_stats: shared_firewall_sanctum_stats(),
         }
+    }
+
+    pub fn dummy() -> Self {
+        Self::new()
     }
 
     /// Spawn the \\.\pipe\HydraNetEvent named pipe server thread.
@@ -4627,7 +4635,7 @@ impl BehaviorEngine {
                         if let Some(next) = args.get(i + 1) {
                             // Only report it if it looks like a file (has an extension).
                             if next.contains('.') && !next.starts_with('/') {
-                                return Some(next.clone());
+                                return Some((interp_name.to_string(), next.clone()));
                             }
                         }
                         break;
@@ -4681,7 +4689,9 @@ impl BehaviorEngine {
                 while i < args.len() {
                     let a = args[i].to_lowercase();
                     if a == "/i" || a == "/x" || a == "/a" || a == "/p" {
-                        return args.get(i + 1).cloned();
+                        if let Some(next) = args.get(i + 1) {
+                            return Some((interp_name.to_string(), next.clone()));
+                        }
                     }
                     i += 1;
                 }
@@ -4714,7 +4724,7 @@ impl BehaviorEngine {
                 .last()
                 .unwrap_or(&norm)
                 .to_string();
-            (filename, norm)
+            (filename, raw)
         })
     }
 

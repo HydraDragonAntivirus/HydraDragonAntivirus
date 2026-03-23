@@ -3,7 +3,7 @@ use std::collections::BTreeSet;
 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
 use std::fs;
 use std::fs::File;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::thread;
 use std::sync::mpsc::channel;
 use std::io::{Read, Seek, SeekFrom};
@@ -117,7 +117,7 @@ pub fn run() {
         .expect("Cannot set driver app pid");
     Logging::info("[VMM MODE] Dynamic MESSAGE_ADD_HOOK registration is enabled");
 
-    let mut vecnew: Vec<u8> = Vec::with_capacity(65536);
+    let mut vecnew: Vec<u8> = vec![0u8; 65536];
 
     // Load config and app settings once and reuse
     let config = config::Config::new();
@@ -491,10 +491,8 @@ pub fn run() {
                 let hypervisor_total = opcode_counts[12];
                 let kernel_telemetry_total: u64 = opcode_counts
                     .iter()
-                    .enumerate()
                     .skip(13)
-                    .map(|(_, c)| *c)
-                    .sum();
+                    .sum::<u64>();
                 if hypervisor_total > 0 {
                     summary.push_str(&format!("ApiHooking={} ", hypervisor_total));
                 }

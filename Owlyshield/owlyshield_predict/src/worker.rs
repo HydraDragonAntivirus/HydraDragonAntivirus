@@ -602,9 +602,30 @@ pub mod worker_instance {
     use rumqtt::{MqttClient, MqttOptions, QoS};
     use crate::config::{Config, Param};
     use crate::csvwriter::CsvWriter;
+    use crate::actions_on_kill::{ActionsOnKill, ThreatInfo};
+    use crate::predictions::prediction::input_tensors::{Timestep, VecvecCappedF32};
     use crate::ExepathLive;
     use crate::process::ProcessRecord;
     use crate::whitelist::WhiteList;
+    #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+    use std::ffi::OsStr;
+    #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+    use std::os::windows::ffi::OsStrExt;
+    #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+    use windows::Win32::Foundation::{
+        CloseHandle, GetLastError, HANDLE, INVALID_HANDLE_VALUE, ERROR_PIPE_CONNECTED,
+    };
+    #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+    use windows::Win32::Storage::FileSystem::{ReadFile, PIPE_ACCESS_INBOUND};
+    #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+    use windows::Win32::System::Pipes::{
+        ConnectNamedPipe, CreateNamedPipeW, DisconnectNamedPipe,
+        NAMED_PIPE_MODE, PIPE_UNLIMITED_INSTANCES,
+    };
+    #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+    use windows::core::PCWSTR;
+    #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+    use crate::utils::validate_pipe_client;
     use crate::worker::process_record_handling::{
         ExePathReplay, Exepath, ProcessRecordHandlerReplay, ProcessRecordIOHandler,
     };
@@ -703,7 +724,7 @@ pub mod worker_instance {
                 let datetime: DateTime<Utc> = iomsg.time.into();
                 let mut process_vec = vec![String::from(&precord.appname), precord.gid.to_string(), datetime.timestamp_millis().to_string()];
 
-                let client_clone = client.clone();
+                let mut client_clone = client.clone();
                 thread::spawn(move || {
                     process_vec.append(&mut vec.iter().map(|f| f.to_string()).collect::<Vec<String>>());
                     let csv = process_vec.join(",");
@@ -1025,7 +1046,7 @@ pub mod worker_instance {
             #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
             {
                 if let Some(state) = behavior_engine.process_states.get(&gid) {
-                    tracker.net_packets = state.net_packets.clone();
+                    tracker.net_packets = state.net_packets.clone().into();
                     tracker.sanctum_operations = state.sanctum_stats.clone();
                 }
             }
@@ -1148,19 +1169,25 @@ pub mod worker_instance {
                 iomsg.gid = remapped;
             }
         }
-
-        pub fn new(_config: &'a Config, #[cfg(all(target_os = "windows", feature = "behavior_engine"))] app_settings: AppSettings) -> Self {
+        pub fn new(config: &'a Config, #[cfg(all(target_os = "windows", feature = "behavior_engine"))] app_settings: AppSettings) -> Self {
             Worker {
+                config,
                 whitelist: None,
                 process_records: ProcessRecords::new(),
                 startup_complete: false,
                 process_record_handler: None,
                 exepath_handler: Box::<ExepathLive>::default(),
-                iomsg_postprocessors: vec![],
-                #[cfg(all(target_os = "windows", feature = "hydradragon"))]
+                threat_handler: None,
                 av_integration: None,
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-                behavior_engine: Self::build_behavior_engine(),
+                app_settings,
+                iomsg_postprocessors: vec![],
+                api_trackers: std::collections::HashMap::new(),
+                rules_path: config[Param::BehaviorRulesPath].clone(),
+                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                behavior_engine: BehaviorEngine::new(Self::realtime_learning_output_dir(config)),
+                #[cfg(not(all(target_os = "windows", feature = "behavior_engine")))]
+                behavior_engine: BehaviorEngine::dummy(),
                 #[cfg(feature = "realtime_learning")]
                 learning_engine: {
                     #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
@@ -1173,10 +1200,6 @@ pub mod worker_instance {
                         trust_path
                     )
                 },
-                #[cfg(feature = "realtime_learning")]
-                api_trackers: std::collections::HashMap::new(),
-                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-                app_settings,
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
                 dynamic_hooks_registered: false,
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
@@ -1195,7 +1218,6 @@ pub mod worker_instance {
                 dynamic_hook_applied_generation: std::collections::HashMap::new(),
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
                 dynamic_hook_apply_failures: std::collections::HashMap::new(),
-                threat_handler: None,
                 driver: None,
             }
         }
@@ -1502,13 +1524,22 @@ pub mod worker_instance {
                 .map(|p| (p.appname.clone(), p.exepath.clone()));
             
             // Remove from process_records
-            let _precord_opt = self.process_records.process_records.pop(&gid);
+            let precord_opt = self.process_records.process_records.pop(&gid);
             
-            // Remove from behavior engine
-            #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-            {
-                self.behavior_engine.process_states.remove(&gid);
-                if let Some(precord) = precord_opt.as_ref() {
+            if let Some(mut precord) = precord_opt {
+                precord.process_state = ProcessState::Terminated;
+
+                #[cfg(feature = "realtime_learning")]
+                {
+                    let mut tracker = self.api_trackers.entry(gid).or_insert_with(|| ApiTracker::new(gid, precord.appname.clone()));
+                    tracker.is_terminated = true;
+                    tracker.termination_time = Some(std::time::SystemTime::now());
+                }
+
+                // Remove from behavior engine
+                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                {
+                    self.behavior_engine.process_states.remove(&gid);
                     let mut firewall_pids = self.behavior_engine.firewall_net_pids.write().unwrap();
                     for pid in &precord.pids {
                         firewall_pids.remove(pid);
@@ -1517,19 +1548,21 @@ pub mod worker_instance {
                         self.dynamic_hook_apply_failures.remove(pid);
                     }
                 }
-            }
-            
-            // Handle learning engine cleanup
-            #[cfg(feature = "realtime_learning")]
-            {
-                if let Some(tracker) = self.api_trackers.remove(&gid)
-                    && let Some(precord) = precord_opt {
-                        if precord.is_malicious {
-                            self.learning_engine
-                                .mark_detected_malicious(gid, &tracker, &precord);
-                        }
+                
+                // Handle learning engine cleanup
+                #[cfg(feature = "realtime_learning")]
+                {
+                    if precord.is_malicious {
+                        self.learning_engine
+                            .mark_detected_malicious(gid, self.api_trackers.get(&gid).unwrap(), &precord);
+                    }
+                    if let Some(tracker) = self.api_trackers.remove(&gid) {
                         self.learning_engine.process_terminated(gid, &tracker, &precord);
                     }
+                }
+
+                // Put the terminated record back for history (it's non-cloneable and moved here)
+                self.process_records.process_records.put(gid, precord);
             }
             
             // Log cleanup
@@ -1544,7 +1577,7 @@ pub mod worker_instance {
         }
 
         /// Scan all tracked processes for behavioral detections
-        pub fn scan_processes(&mut self, _config: &Config, _threat_handler: Box<dyn ThreatHandler>) {
+        pub fn scan_processes(&mut self, config: &Config, threat_handler: Box<dyn ThreatHandler>) {
             #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
             {
                 // Import necessary Win32 modules for the Kernel Check
@@ -1835,7 +1868,11 @@ pub mod worker_instance {
         }
 
         /// Process kernel I/O event - this is the main event handler
-        pub fn process_io(&mut self, iomsg: &mut IOMessage, _config: &crate::config::Config) {
+        pub fn process_io(&mut self, iomsg: &mut IOMessage, config: &crate::config::Config) {
+            let irp_op = iomsg.irp_op;
+            let is_process_create = irp_op == IrpMajorOp::IrpProcessCreate as u8;
+            let is_process_terminate = irp_op == IrpMajorOp::IrpProcessTerminate as u8;
+            
             self.normalize_tracking_gid(iomsg);
 
             #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
@@ -1917,9 +1954,9 @@ pub mod worker_instance {
                 // per-IrpProcessCreate scan backlog; the periodic 750ms scan covers it.
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
                 if is_process_create
-                    && self.startup_complete
-                    && let Some(ref th) = self.threat_handler {
-                        let detections = self.behavior_engine.scan_all_processes(config, &**th);
+                    && self.startup_complete {
+                    if let Some(threat_handler) = self.threat_handler.as_ref() {
+                        let detections = self.behavior_engine.scan_all_processes(config, &**threat_handler);
                         for det in detections {
                             if det.gid == tracking_key {
                                 let dummy_pred_mtrx = VecvecCappedF32::new(0, 0);
@@ -2158,7 +2195,6 @@ pub mod worker_instance {
 
                     // Create process record
                     let precord = ProcessRecord::from(iomsg, appname.clone(), exepath.clone());
-                    self.process_records.insert_precord(gid, precord);
                     
                     // Register in behavior engine
                     #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
@@ -2185,6 +2221,9 @@ pub mod worker_instance {
                             &precord,
                         );
                     }
+
+                    // Store process record (moves precord)
+                    self.process_records.insert_precord(gid, precord);
                 }
                 Some(false) => {
                     // Existing process - upgrade UNKNOWN info

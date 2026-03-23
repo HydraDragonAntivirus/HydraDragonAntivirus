@@ -12,6 +12,12 @@ pub enum Protocol {
     Raw(u8),
 }
 
+impl std::fmt::Display for Protocol {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.label())
+    }
+}
+
 impl Protocol {
     pub fn label(&self) -> &'static str {
         match self {
@@ -60,6 +66,8 @@ pub struct PacketInfo {
     pub detected_file_type: Option<String>,
     pub http_request_body: Option<String>,
     pub http_response_body: Option<String>,
+    pub domain: String,
+    pub url: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Default)]
@@ -295,8 +303,9 @@ pub enum RuleCondition {
     HttpContentType(String),
     HttpReferer(String),
     DnsQuery(String),
-    SanctumDetected,
     JsonMatch(JsonMatcher),
+    Ip(String),
+    Payload(String),
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
@@ -376,6 +385,14 @@ impl RuleCondition {
             RuleCondition::DnsQuery(p) => packet.dns_query.as_ref().map_or(false, |m| matches_pattern(cache, p, m)),
             RuleCondition::SanctumDetected => true,
             RuleCondition::JsonMatch(matcher) => matcher.matches(payload),
+            RuleCondition::Ip(s) | RuleCondition::Payload(s) => {
+                let bytes = s.as_bytes();
+                if let Some(sample) = &packet.payload_sample {
+                    sample.contains(s) || bytes.iter().all(|&b| sample.as_bytes().contains(&b)) 
+                } else {
+                    false
+                }
+            }
         }
     }
 }
@@ -399,6 +416,13 @@ impl DomainMatcher {
             wildcard_match(&d_check, &host_check)
         })
     }
+    
+    pub fn Exact(domain: String) -> Self {
+        Self {
+            domains: vec![domain],
+            case_insensitive: true,
+        }
+    }
 }
 
 impl UrlMatcher {
@@ -407,6 +431,12 @@ impl UrlMatcher {
         if self.patterns.is_empty() { return true; }
         let u_lower = u.to_lowercase();
         self.patterns.iter().any(|p| wildcard_match(&p.to_lowercase(), &u_lower))
+    }
+    
+    pub fn Contains(pattern: String) -> Self {
+        Self {
+            patterns: vec![format!("*{}*", pattern)],
+        }
     }
 }
 

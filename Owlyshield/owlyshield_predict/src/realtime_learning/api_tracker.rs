@@ -182,6 +182,10 @@ pub enum OperationType {
         status: i32,
     },
     DriverLoad(String),
+    ProcessInjected(u32),
+    MemoryModify(u64, u32),
+    MemoryProtect(u64, u32),
+    Generic(String),
 }
 
 #[derive(Debug, Clone)]

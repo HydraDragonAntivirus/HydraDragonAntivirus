@@ -64,7 +64,7 @@ pub fn verify_signature(path: &Path) -> SignatureInfo {
         let result = WinVerifyTrust(
             windows::Win32::Foundation::HWND(0), 
             &mut action_guid, 
-            &mut win_trust_data as *mut _ as *mut std::ffi::c_void
+            &mut win_trust_data as *mut _ as _
         );
 
         is_trusted = result == ERROR_SUCCESS.0 as i32;
@@ -73,7 +73,7 @@ pub fn verify_signature(path: &Path) -> SignatureInfo {
         let _ = WinVerifyTrust(
             windows::Win32::Foundation::HWND(0), 
             &mut action_guid, 
-            &mut win_trust_data as *mut _ as *mut std::ffi::c_void
+            &mut win_trust_data as *mut _ as _
         );
 
         // --- 2. Check if file has ANY signature (even if not trusted) ---
@@ -109,7 +109,7 @@ unsafe fn get_signer_name_from_file(path_wide: &[u16]) -> Result<String, ()> { u
         None, // pdwFormatType
         Some(&mut store_handle),
         Some(&mut msg_handle),
-        Some(&mut context_ptr as *mut _ as *mut *mut std::ffi::c_void),
+        Some(&mut context_ptr as *mut _ as _),
     );
 
     if query_res.as_bool() {
