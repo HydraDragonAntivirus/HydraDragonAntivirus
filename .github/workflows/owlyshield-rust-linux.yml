@@ -3,8 +3,6 @@ name: Owlyshiled Rust Linux
 on:
   push:
     branches: [ "**" ]
-    paths:
-      - "pyproject.toml"
   pull_request:
     branches: [ "**" ]
   workflow_dispatch:

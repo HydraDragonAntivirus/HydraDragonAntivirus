@@ -182,6 +182,7 @@ impl Default for Config {
 
 impl Config {
     pub fn new() -> Config {
+        #[cfg(feature = "realtime_learning")]
         let mut config = Config {
             params: Self::get_params(),
             current_exe: std::env::current_exe().unwrap(),
@@ -189,8 +190,16 @@ impl Config {
             threshold_drivermsgs: 70,
             threshold_prediction: 0.55,
             timesteps_stride: 20,
-            #[cfg(feature = "realtime_learning")]
             adaptive_state: AdaptiveThresholdState::default(),
+        };
+        #[cfg(not(feature = "realtime_learning"))]
+        let config = Config {
+            params: Self::get_params(),
+            current_exe: std::env::current_exe().unwrap(),
+            extensions_list: ExtensionList::new(),
+            threshold_drivermsgs: 70,
+            threshold_prediction: 0.55,
+            timesteps_stride: 20,
         };
         // Initialize with minimal values that will adapt quickly (realtime_learning feature)
         #[cfg(feature = "realtime_learning")]

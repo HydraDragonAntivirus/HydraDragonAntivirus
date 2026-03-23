@@ -20,7 +20,10 @@ use crate::behavioral::app_settings::AppSettings;
 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
 use crate::behavioral::behavior_engine::BehaviorRule;
 use crate::threathandling::WindowsThreatHandler;
-use crate::shared_def::{IrpMajorOp, known_raw_event_name};
+use crate::shared_def::IrpMajorOp;
+#[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+use crate::shared_def::known_raw_event_name;
+#[cfg(all(target_os = "windows", feature = "behavior_engine"))]
 use crate::utils::format_process_descriptor_with_fallback;
 
 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
@@ -120,6 +123,7 @@ pub fn run() {
     let config = config::Config::new();
     crate::globals::init_globals(&config);
     let _current_exe_path = std::env::current_exe().unwrap();
+    #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
     let rules_dir = PathBuf::from(&config[Param::RulesPath]);
     #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
     let app_settings = AppSettings::load(&rules_dir)

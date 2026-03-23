@@ -643,6 +643,25 @@ pub mod worker_instance {
     use crate::behavioral::app_settings::AppSettings;
     #[cfg(feature = "realtime_learning")]
     use crate::realtime_learning::ApiTracker;
+    #[cfg(target_os = "windows")]
+    use std::ffi::OsStr;
+    #[cfg(target_os = "windows")]
+    use std::os::windows::ffi::OsStrExt;
+    #[cfg(target_os = "windows")]
+    use windows::Win32::Foundation::{
+        CloseHandle, GetLastError, HANDLE, INVALID_HANDLE_VALUE, ERROR_PIPE_CONNECTED,
+    };
+    #[cfg(target_os = "windows")]
+    use windows::Win32::Storage::FileSystem::{ReadFile, PIPE_ACCESS_INBOUND};
+    #[cfg(target_os = "windows")]
+    use windows::Win32::System::Pipes::{
+        ConnectNamedPipe, CreateNamedPipeW, DisconnectNamedPipe,
+        NAMED_PIPE_MODE, PIPE_UNLIMITED_INSTANCES,
+    };
+    #[cfg(target_os = "windows")]
+    use windows::core::PCWSTR;
+    #[cfg(target_os = "windows")]
+    use crate::utils::validate_pipe_client;
 
     pub trait IOMsgPostProcessor {
         fn postprocess(&mut self, iomsg: &mut IOMessage, precord: &ProcessRecord);
@@ -830,6 +849,7 @@ pub mod worker_instance {
         /// Spawn the \\.\pipe\HydraSanctumTelemetry named pipe server thread.
         /// Moved to Worker.rs as requested (Starting + Detection handling).
         /// Other ingestion codes remain in BehaviorEngine::ingest_sanctum_event.
+        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
         pub fn start_sanctum_telemetry_pipe(behavior_engine: &BehaviorEngine) {
             let engine_clone = behavior_engine.clone();
 
@@ -1156,7 +1176,7 @@ pub mod worker_instance {
             }
         }
 
-        pub fn new(config: &'a Config, #[cfg(all(target_os = "windows", feature = "behavior_engine"))] app_settings: AppSettings) -> Worker<'a> {
+        pub fn new(_config: &'a Config, #[cfg(all(target_os = "windows", feature = "behavior_engine"))] app_settings: AppSettings) -> Self {
             Worker {
                 whitelist: None,
                 process_records: ProcessRecords::new(),
@@ -1509,7 +1529,7 @@ pub mod worker_instance {
                 .map(|p| (p.appname.clone(), p.exepath.clone()));
             
             // Remove from process_records
-            let precord_opt = self.process_records.process_records.pop(&gid);
+            let _precord_opt = self.process_records.process_records.pop(&gid);
             
             // Remove from behavior engine
             #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
@@ -1551,7 +1571,7 @@ pub mod worker_instance {
         }
 
         /// Scan all tracked processes for behavioral detections
-        pub fn scan_processes(&mut self, config: &Config, threat_handler: Box<dyn ThreatHandler>) {
+        pub fn scan_processes(&mut self, _config: &Config, _threat_handler: Box<dyn ThreatHandler>) {
             #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
             {
                 // Import necessary Win32 modules for the Kernel Check
@@ -1842,7 +1862,7 @@ pub mod worker_instance {
         }
 
         /// Process kernel I/O event - this is the main event handler
-        pub fn process_io(&mut self, iomsg: &mut IOMessage, config: &crate::config::Config) {
+        pub fn process_io(&mut self, iomsg: &mut IOMessage, _config: &crate::config::Config) {
             self.normalize_tracking_gid(iomsg);
 
             #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
@@ -1883,7 +1903,7 @@ pub mod worker_instance {
             }
 
             let irp_op = IrpMajorOp::from_byte(iomsg.irp_op);
-            let is_process_create = irp_op == IrpMajorOp::IrpProcessCreate;
+            let _is_process_create = irp_op == IrpMajorOp::IrpProcessCreate;
             let is_process_terminate = irp_op == IrpMajorOp::IrpProcessTerminate;
             
             // Register or update process record based on kernel event
