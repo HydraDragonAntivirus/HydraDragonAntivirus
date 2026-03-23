@@ -31,6 +31,8 @@ type FirewallHipsPendingPrompts = Arc<std::sync::RwLock<HashMap<String, Firewall
 type FirewallHipsDecisions = Arc<std::sync::RwLock<HashMap<String, FirewallHipsDecision>>>;
 type FirewallHipsAllowOnce = Arc<std::sync::RwLock<HashSet<String>>>;
 type FirewallHipsAllowAlways = Arc<std::sync::RwLock<HashSet<String>>>;
+/// Per-PID list of (request_body, response_body) pairs received via HTTP_BODY pipe messages.
+type FirewallHttpBodyMap = Arc<std::sync::RwLock<HashMap<u32, Vec<(String, String)>>>>;
 
 fn shared_firewall_net_pids() -> FirewallNetPids {
     static FIREWALL_NET_PIDS: OnceLock<FirewallNetPids> = OnceLock::new();
@@ -49,6 +51,13 @@ fn shared_firewall_blocked_exes() -> FirewallBlockedExes {
 fn shared_firewall_net_details() -> FirewallNetDetails {
     static FIREWALL_NET_DETAILS: OnceLock<FirewallNetDetails> = OnceLock::new();
     FIREWALL_NET_DETAILS
+        .get_or_init(|| Arc::new(std::sync::RwLock::new(HashMap::new())))
+        .clone()
+}
+
+fn shared_firewall_http_body_map() -> FirewallHttpBodyMap {
+    static FIREWALL_HTTP_BODY_MAP: OnceLock<FirewallHttpBodyMap> = OnceLock::new();
+    FIREWALL_HTTP_BODY_MAP
         .get_or_init(|| Arc::new(std::sync::RwLock::new(HashMap::new())))
         .clone()
 }
@@ -1112,6 +1121,15 @@ pub struct BehaviorRule {
     // Global protected/excluded paths
     #[serde(default)]
     pub protected_paths: ProtectedPaths,
+
+    /// Substring patterns to match against HTTP request bodies captured by the MITM proxy.
+    /// If any pattern matches any recorded request body for this PID, the condition is satisfied.
+    #[serde(default)]
+    pub http_request_body_patterns: Vec<String>,
+    /// Substring patterns to match against HTTP response bodies captured by the MITM proxy.
+    /// If any pattern matches any recorded response body for this PID, the condition is satisfied.
+    #[serde(default)]
+    pub http_response_body_patterns: Vec<String>,
 }
 
 fn expand_environment_variables(text: &str) -> String {
@@ -1357,6 +1375,9 @@ pub struct ProcessBehaviorState {
     //   script_file_path = "c:/foo/evil.ps1"
     pub script_file: String,
     pub script_file_path: String,
+
+    /// HTTP body pairs (request_body, response_body) received via the HTTP_BODY pipe message.
+    pub http_body_entries: Vec<(String, String)>,
 }
 
 impl ProcessBehaviorState {
@@ -1502,6 +1523,8 @@ pub struct BehaviorEngine {
     firewall_hips_decisions: FirewallHipsDecisions,
     firewall_hips_allow_once: FirewallHipsAllowOnce,
     firewall_hips_allow_always: FirewallHipsAllowAlways,
+    /// Per-PID HTTP body pairs captured by the MITM proxy (received via HTTP_BODY pipe messages).
+    firewall_http_body_map: FirewallHttpBodyMap,
 }
 
 impl Default for BehaviorEngine {
@@ -1526,6 +1549,7 @@ impl BehaviorEngine {
             firewall_hips_decisions: shared_firewall_hips_decisions(),
             firewall_hips_allow_once: shared_firewall_hips_allow_once(),
             firewall_hips_allow_always: shared_firewall_hips_allow_always(),
+            firewall_http_body_map: shared_firewall_http_body_map(),
         }
     }
 
@@ -1550,10 +1574,11 @@ impl BehaviorEngine {
             return;
         }
 
-        let net_pids     = Arc::clone(&self.firewall_net_pids);
-        let net_details  = Arc::clone(&self.firewall_net_details);
-        let blocked_exes = Arc::clone(&self.firewall_blocked_exes);
+        let net_pids      = Arc::clone(&self.firewall_net_pids);
+        let net_details   = Arc::clone(&self.firewall_net_details);
+        let blocked_exes  = Arc::clone(&self.firewall_blocked_exes);
         let hips_decisions = Arc::clone(&self.firewall_hips_decisions);
+        let http_body_map = Arc::clone(&self.firewall_http_body_map);
 
         std::thread::Builder::new()
             .name("hydra_net_event_pipe".to_string())
@@ -1694,6 +1719,24 @@ impl BehaviorEngine {
                                             decision_raw
                                         ));
                                     }
+                                }
+                            } else if let Some(rest) = line.strip_prefix("HTTP_BODY:") {
+                                // HTTP_BODY:<pid>|<method>|<url>|<request_body>|<response_body>
+                                let mut parts = rest.splitn(5, '|');
+                                let pid_str      = parts.next().unwrap_or("").trim();
+                                let _method      = parts.next().unwrap_or("").trim().to_string();
+                                let _url         = parts.next().unwrap_or("").trim().to_string();
+                                let req_body     = parts.next().unwrap_or("").trim().to_string();
+                                let resp_body    = parts.next().unwrap_or("").trim().to_string();
+                                if let Ok(pid) = pid_str.parse::<u32>() {
+                                    net_pids.write().unwrap().insert(pid);
+                                    http_body_map.write().unwrap()
+                                        .entry(pid)
+                                        .or_default()
+                                        .push((req_body, resp_body));
+                                    Logging::info(&format!(
+                                        "[HTTP_BODY] Recorded body pair for PID {}", pid
+                                    ));
                                 }
                             } else if let Some(json) = line.strip_prefix("FULL_PACKET:") {
                                 // Full PacketInfo JSON from the firewall — log every field.
@@ -4015,8 +4058,17 @@ impl BehaviorEngine {
         config: &Config,
         actions: &mut ActionsOnKill
     ) {
-        let state_ref = match self.process_states.get(&gid) {
-            Some(s) => s.clone(),
+        let state_ref = match self.process_states.get_mut(&gid) {
+            Some(s) => {
+                // Sync HTTP body entries from the shared map into the per-process state.
+                let pid = s.pid;
+                if let Ok(mut body_map) = self.firewall_http_body_map.write() {
+                    if let Some(entries) = body_map.remove(&pid) {
+                        s.http_body_entries.extend(entries);
+                    }
+                }
+                s.clone()
+            }
             None => return,
         };
 
@@ -4206,10 +4258,41 @@ impl BehaviorEngine {
                 }
             }
 
-            let legacy_ratio = if legacy_total > 0 { 
-                legacy_satisfied as f32 / legacy_total as f32 
-            } else { 
-                0.0 
+            if !rule.http_request_body_patterns.is_empty() {
+                legacy_total += 1;
+                let matched = state_ref.http_body_entries.iter().any(|(req_body, _)| {
+                    rule.http_request_body_patterns.iter().any(|pat| req_body.contains(pat.as_str()))
+                });
+                if matched {
+                    legacy_satisfied += 1;
+                    if rule.debug || self.rules.iter().any(|r| r.debug) {
+                        Logging::debug(&format!(
+                            "[BehaviorEngine] Condition 'http_request_body_patterns' matched for PID {}",
+                            state_ref.pid
+                        ));
+                    }
+                }
+            }
+            if !rule.http_response_body_patterns.is_empty() {
+                legacy_total += 1;
+                let matched = state_ref.http_body_entries.iter().any(|(_, resp_body)| {
+                    rule.http_response_body_patterns.iter().any(|pat| resp_body.contains(pat.as_str()))
+                });
+                if matched {
+                    legacy_satisfied += 1;
+                    if rule.debug || self.rules.iter().any(|r| r.debug) {
+                        Logging::debug(&format!(
+                            "[BehaviorEngine] Condition 'http_response_body_patterns' matched for PID {}",
+                            state_ref.pid
+                        ));
+                    }
+                }
+            }
+
+            let legacy_ratio = if legacy_total > 0 {
+                legacy_satisfied as f32 / legacy_total as f32
+            } else {
+                0.0
             };
             let legacy_threshold = if rule.conditions_percentage > 0.0 { 
                 rule.conditions_percentage 

@@ -1447,10 +1447,12 @@ version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
  "bs58",
+ "bytes",
  "crossbeam-channel",
  "csv",
  "embed-resource",
  "glob",
+ "http-body-util",
  "http-mitm-proxy",
  "lazy_static",
  "moka",

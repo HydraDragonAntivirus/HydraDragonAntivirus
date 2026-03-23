@@ -90,6 +90,10 @@ pub struct PacketInfo {
     pub image_path: String,
     /// Detected file type from magic bytes (e.g. "exe", "zip", "pdf")
     pub detected_file_type: Option<String>,
+    /// Decrypted HTTP request body captured by the MITM proxy (UTF-8 text or hex)
+    pub http_request_body: Option<String>,
+    /// Decrypted HTTP response body captured by the MITM proxy (UTF-8 text or hex)
+    pub http_response_body: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -1298,7 +1302,7 @@ impl FirewallEngine {
 
     // CA auto-trust is handled natively via `install_ca_der` during proxy startup.
 
-    fn send_hydranet_message(&self, message: String) {
+    pub fn send_hydranet_message(&self, message: String) {
         let tx_opt = self.hydranet_tx.lock().unwrap().clone();
         if let Some(tx) = tx_opt {
             let _ = tx.send(message);
@@ -3164,6 +3168,8 @@ impl FirewallEngine {
             payload_domains,
             image_path: cache.get_info(process_id).path,
             detected_file_type: None,
+            http_request_body: None,
+            http_response_body: None,
         }, payload_start))
     }
 

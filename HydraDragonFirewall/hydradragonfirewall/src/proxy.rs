@@ -1,3 +1,5 @@
+use bytes::Bytes;
+use http_body_util::{BodyExt, Full};
 use http_mitm_proxy::{DefaultClient, MitmProxy, hyper::service::service_fn, moka::sync::Cache};
 use rcgen::{
     BasicConstraints, Certificate, CertificateParams, DnType, DnValue, IsCa, KeyPair,
@@ -38,6 +40,14 @@ pub struct ProxyHttpEvent {
     pub response_content_type: Option<String>,
     /// Response content-length (if advertised)
     pub response_content_length: Option<String>,
+    /// Raw request body — UTF-8 text if decodable, hex otherwise. Capped at 64 KB.
+    pub request_body: Option<String>,
+    /// True if the request body was truncated to the 64 KB cap.
+    pub request_body_truncated: bool,
+    /// Raw response body — UTF-8 text if decodable, hex otherwise. Capped at 64 KB.
+    pub response_body: Option<String>,
+    /// True if the response body was truncated to the 64 KB cap.
+    pub response_body_truncated: bool,
 }
 
 // ── CA persistence paths ───────────────────────────────────────────────────────
@@ -179,6 +189,38 @@ pub async fn run_proxy(
                     let content_type = request_headers.get("content-type").cloned();
                     let referer = request_headers.get("referer").cloned();
 
+                    // ── Collect request body (cap at 64 KB) ───────────────
+                    const MAX_BODY: usize = 64 * 1024;
+                    let (parts, body) = req.into_parts();
+                    let raw_body: Bytes = body
+                        .collect()
+                        .await
+                        .map(|c| c.to_bytes())
+                        .unwrap_or_default();
+                    let body_truncated = raw_body.len() > MAX_BODY;
+                    let body_bytes = if body_truncated {
+                        raw_body.slice(..MAX_BODY)
+                    } else {
+                        raw_body
+                    };
+                    let request_body = if body_bytes.is_empty() {
+                        None
+                    } else {
+                        Some(match String::from_utf8(body_bytes.to_vec()) {
+                            Ok(s) => s,
+                            Err(_) => body_bytes
+                                .iter()
+                                .map(|b| format!("{:02X}", b))
+                                .collect::<Vec<_>>()
+                                .join(" "),
+                        })
+                    };
+                    // Reconstruct request with collected body so it can be forwarded.
+                    let req = http_mitm_proxy::hyper::Request::from_parts(
+                        parts,
+                        Full::new(body_bytes),
+                    );
+
                     // ── SDK Rule Evaluation ────────────────────────────────
                     // We mock a PacketInfo to evaluate against HTTP-specific SDK rules.
                     let mock_packet = PacketInfo {
@@ -206,6 +248,8 @@ pub async fn run_proxy(
                         payload_domains: vec![],
                         image_path: String::new(),
                         detected_file_type: None,
+                        http_request_body: request_body.clone(),
+                        http_response_body: None, // filled after response is received
                     };
 
                     let mock_context = PacketContext {
@@ -291,6 +335,90 @@ pub async fn run_proxy(
                     let response_content_type = response_headers.get("content-type").cloned();
                     let response_content_length = response_headers.get("content-length").cloned();
 
+                    // ── Collect response body (cap at 64 KB) ──────────────
+                    let (res_parts, res_body) = res.into_parts();
+                    let raw_res_body: Bytes = res_body
+                        .collect()
+                        .await
+                        .map(|c| c.to_bytes())
+                        .unwrap_or_default();
+                    let res_body_truncated = raw_res_body.len() > MAX_BODY;
+                    let res_body_bytes = if res_body_truncated {
+                        raw_res_body.slice(..MAX_BODY)
+                    } else {
+                        raw_res_body
+                    };
+                    let response_body = if res_body_bytes.is_empty() {
+                        None
+                    } else {
+                        Some(match String::from_utf8(res_body_bytes.to_vec()) {
+                            Ok(s) => s,
+                            Err(_) => res_body_bytes
+                                .iter()
+                                .map(|b| format!("{:02X}", b))
+                                .collect::<Vec<_>>()
+                                .join(" "),
+                        })
+                    };
+                    // Reconstruct the response so it can be forwarded.
+                    let res = http_mitm_proxy::hyper::Response::from_parts(
+                        res_parts,
+                        Full::new(res_body_bytes),
+                    );
+
+                    // ── SDK Rule Evaluation (response body) ───────────────
+                    // Re-evaluate rules now that we have the response body.
+                    let (resp_blocked, resp_block_reason) = if response_body.is_some() {
+                        let mut resp_packet = mock_packet.clone();
+                        resp_packet.http_response_body = response_body.clone();
+                        let sdk_guard = sdk.read().unwrap();
+                        let first_match = sdk_guard.evaluate_first_match(&resp_packet, &[], false);
+                        let mut b = false;
+                        let mut reason = String::new();
+                        if let Some(finding) = first_match {
+                            if finding.action == crate::sdk::RuleAction::Block {
+                                b = true;
+                                reason = format!("Blocked by SDK Rule [{}]: {}", finding.rule_name, finding.description);
+                            }
+                        }
+                        (b, reason)
+                    } else {
+                        (false, String::new())
+                    };
+
+                    if resp_blocked {
+                        if let Some(engine) = app.try_state::<Arc<crate::engine::FirewallEngine>>() {
+                            engine.stats.packets_blocked.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                            engine.stats.packets_total.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        }
+                        emit_log_event(
+                            &app,
+                            LogEntry {
+                                id: format!("{}-intercept-resp-block-{}-{}", ts, host, port),
+                                timestamp: ts,
+                                level: LogLevel::Warning,
+                                message: format!("Proxy Response Blocked: HTTP {} {} -> {}", method, full_url, resp_block_reason),
+                            },
+                        );
+                        let mut resp_packet = mock_packet.clone();
+                        resp_packet.http_response_body = response_body.clone();
+                        let raw_packet = crate::sdk::RawPacket::from_parts(
+                            format!("{}-proxy-resp-block", ts),
+                            &[],
+                            &resp_packet,
+                            &mock_context,
+                            "Block",
+                            resp_block_reason.clone(),
+                        );
+                        let _ = app.emit("raw_packet", raw_packet);
+                        return Err(http_mitm_proxy::default_client::Error::IoError(
+                            std::io::Error::new(
+                                std::io::ErrorKind::ConnectionAborted,
+                                resp_block_reason,
+                            )
+                        ));
+                    }
+
                     // ── Emit events ───────────────────────────────────────
                     // 1. Legacy one-line log (keeps existing UI working)
                     emit_log_event(
@@ -312,7 +440,27 @@ pub async fn run_proxy(
                         },
                     );
 
-                    // 2. Rich HTTP event with full headers
+                    // ── Send HTTP_BODY to Owlyshield behavior engine ──────
+                    // Only send if there is at least one body so we don't flood the pipe.
+                    if request_body.is_some() || response_body.is_some() {
+                        if let Some(engine) = app.try_state::<Arc<crate::engine::FirewallEngine>>() {
+                            let req_b = request_body.as_deref().unwrap_or("").replace('|', " ");
+                            let resp_b = response_body.as_deref().unwrap_or("").replace('|', " ");
+                            // HTTP_BODY:<pid>|<method>|<url>|<request_body>|<response_body>
+                            // PID is 0 in proxy context — behavior engine maps by PID,
+                            // bodies contribute when the process is identified later.
+                            let msg = format!(
+                                "HTTP_BODY:0|{}|{}|{}|{}\n",
+                                method.replace('|', " "),
+                                full_url.replace('|', " "),
+                                req_b,
+                                resp_b,
+                            );
+                            engine.send_hydranet_message(msg);
+                        }
+                    }
+
+                    // 2. Rich HTTP event with full headers + body
                     let _ = app.emit(
                         "proxy_http",
                         ProxyHttpEvent {
@@ -331,6 +479,10 @@ pub async fn run_proxy(
                             referer,
                             response_content_type,
                             response_content_length,
+                            request_body,
+                            request_body_truncated: body_truncated,
+                            response_body,
+                            response_body_truncated: res_body_truncated,
                         },
                     );
 

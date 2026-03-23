@@ -92,6 +92,25 @@ pub struct RawPacket {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ProxyHttpEvent {
+    pub id: String,
+    pub timestamp: u64,
+    pub method: String,
+    pub host: String,
+    pub port: u16,
+    pub path: String,
+    pub full_url: String,
+    pub status: u16,
+    pub user_agent: Option<String>,
+    pub content_type: Option<String>,
+    pub referer: Option<String>,
+    pub response_content_type: Option<String>,
+    pub response_content_length: Option<String>,
+    pub request_body: Option<String>,
+    pub request_body_truncated: bool,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct EngineRuntimeStatus {
     pub active: bool,
     pub status: String,
@@ -109,6 +128,7 @@ enum AppView {
     Rules,
     Logs,
     PacketReader,
+    HttpInspector,
     Settings,
     Exclusions,
 }
@@ -286,6 +306,8 @@ pub fn App() -> impl IntoView {
     let (current_view, set_current_view) = create_signal(AppView::Dashboard);
     let (raw_packets, set_raw_packets) = create_signal(Vec::<RawPacket>::new());
     let (selected_packet, set_selected_packet) = create_signal(Option::<RawPacket>::None);
+    let (proxy_events, set_proxy_events) = create_signal(Vec::<ProxyHttpEvent>::new());
+    let (selected_proxy_event, set_selected_proxy_event) = create_signal(Option::<ProxyHttpEvent>::None);
 
 
     let (_sdk_rules, set_sdk_rules) = create_signal(Vec::<SdkRuleView>::new());
@@ -540,6 +562,17 @@ pub fn App() -> impl IntoView {
             }
         }) as Box<dyn FnMut(JsValue)>);
         spawn_local(async move { let _ = listen("raw_packet", &raw_closure).await; raw_closure.forget(); });
+
+        let proxy_closure = Closure::wrap(Box::new(move |event: JsValue| {
+            if let Ok(payload) = serde_wasm_bindgen::from_value::<serde_json::Value>(event) {
+                if let Some(payload_obj) = payload.get("payload") {
+                    if let Ok(ev) = serde_json::from_value::<ProxyHttpEvent>(payload_obj.clone()) {
+                        set_proxy_events.update(|p| { p.push(ev); if p.len() > 200 { p.remove(0); } });
+                    }
+                }
+            }
+        }) as Box<dyn FnMut(JsValue)>);
+        spawn_local(async move { let _ = listen("proxy_http", &proxy_closure).await; proxy_closure.forget(); });
     });
 
     {
@@ -604,6 +637,10 @@ pub fn App() -> impl IntoView {
                                on:click=move |ev| { ev.prevent_default(); set_current_view.set(AppView::PacketReader); }>
                                "Packet Reader"
                             </a>
+                            <a href="#" class={move || if current_view.get() == AppView::HttpInspector { "nav-item active" } else { "nav-item" }}
+                               on:click=move |ev| { ev.prevent_default(); set_current_view.set(AppView::HttpInspector); }>
+                               "HTTP Inspector"
+                            </a>
                             <a href="#" class={move || if current_view.get() == AppView::Exclusions { "nav-item active" } else { "nav-item" }}
                                on:click=move |ev| { ev.prevent_default(); set_current_view.set(AppView::Exclusions); }>
                                "Exclusions"
@@ -654,6 +691,7 @@ pub fn App() -> impl IntoView {
                                     AppView::Rules => "Protection Rules",
                                     AppView::Logs => "Network Activity",
                                     AppView::PacketReader => "Packet Inspection",
+                                    AppView::HttpInspector => "HTTP Inspector",
                                     AppView::Exclusions => "Exclusions Management",
                                     AppView::Settings => "System Settings",
                                 }}
@@ -874,6 +912,68 @@ pub fn App() -> impl IntoView {
                                                 </div>
                                             }.into_view(),
                                             None => view! { <div style="color: var(--text-muted)">"Select a packet to inspect"</div> }.into_view(),
+                                        }}
+                                    </div>
+                                </div>
+                            }.into_view(),
+
+                            AppView::HttpInspector => view! {
+                                <div class="dashboard-grid" style="height: calc(100vh - 120px)">
+                                    <div class="glass-card dash-col-main" style="flex: 2; overflow-y: auto">
+                                        <div class="section-header">
+                                            <h3>"HTTP Traffic (TLS Proxy)"</h3>
+                                            <button class="btn-primary" style="padding: 5px 15px; font-size: 11px"
+                                                on:click=move |_| { set_proxy_events.set(Vec::new()); set_selected_proxy_event.set(None); }>
+                                                "Clear"
+                                            </button>
+                                        </div>
+                                        <div class="logs-viewport">
+                                            <For
+                                                each={move || proxy_events.get().into_iter().rev().collect::<Vec<_>>()}
+                                                key={|e| e.id.clone()}
+                                                children={move |ev| {
+                                                    let ev_sel = ev.clone();
+                                                    let badge_color = if ev.status < 300 { "#22c55e" } else if ev.status < 400 { "#f59e0b" } else { "#ef4444" };
+                                                    let method_color = match ev.method.as_str() { "POST" | "PUT" | "PATCH" => "#f59e0b", "DELETE" => "#ef4444", _ => "#60a5fa" };
+                                                    view! {
+                                                        <div class="log-row lvl-info" style="cursor: pointer"
+                                                            on:click=move |_| set_selected_proxy_event.set(Some(ev_sel.clone()))>
+                                                            <span class="log-time" style={format!("color: {}; font-weight: 700; min-width: 50px", method_color)}>{ev.method.clone()}</span>
+                                                            <span class="log-msg" style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{ev.full_url.clone()}</span>
+                                                            <span style={format!("color: {}; font-size: 11px; margin-left: 8px", badge_color)}>{ev.status}</span>
+                                                        </div>
+                                                    }
+                                                }}
+                                            />
+                                        </div>
+                                    </div>
+                                    <div class="glass-card dash-col-side" style="flex: 1; overflow-y: auto">
+                                        <h3>"Request Detail"</h3>
+                                        {move || match selected_proxy_event.get() {
+                                            None => view! { <div style="color: var(--text-muted)">"Select a request to inspect"</div> }.into_view(),
+                                            Some(ev) => view! {
+                                                <div style="font-size: 12px; display: flex; flex-direction: column; gap: 8px">
+                                                    <div><strong>"URL: "</strong>{ev.full_url.clone()}</div>
+                                                    <div><strong>"Status: "</strong>{ev.status}</div>
+                                                    {ev.content_type.clone().map(|ct| view! { <div><strong>"Content-Type: "</strong>{ct}</div> })}
+                                                    {ev.user_agent.clone().map(|ua| view! { <div><strong>"User-Agent: "</strong>{ua}</div> })}
+                                                    {ev.referer.clone().map(|r| view! { <div><strong>"Referer: "</strong>{r}</div> })}
+                                                    {ev.response_content_type.clone().map(|ct| view! { <div><strong>"Response Content-Type: "</strong>{ct}</div> })}
+                                                    {ev.response_content_length.clone().map(|cl| view! { <div><strong>"Response Content-Length: "</strong>{cl}</div> })}
+                                                    {ev.request_body.clone().map(|body| view! {
+                                                        <div>
+                                                            <div style="margin-top: 8px">
+                                                                <strong>"Request Body"</strong>
+                                                                {if ev.request_body_truncated { " (truncated at 64 KB)" } else { "" }}
+                                                                ":"
+                                                            </div>
+                                                            <div style="background: #000; padding: 10px; border-radius: 4px; font-family: monospace; font-size: 11px; word-break: break-all; white-space: pre-wrap; max-height: 300px; overflow-y: auto">
+                                                                {body}
+                                                            </div>
+                                                        </div>
+                                                    })}
+                                                </div>
+                                            }.into_view(),
                                         }}
                                     </div>
                                 </div>

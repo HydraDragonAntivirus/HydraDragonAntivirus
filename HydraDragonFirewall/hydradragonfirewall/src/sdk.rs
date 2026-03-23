@@ -766,6 +766,12 @@ pub struct SdkRule {
     // Packet modification data (for ChangePacket action)
     #[serde(default)]
     pub change_data: Option<String>,
+    /// Patterns to match against the HTTP request body (substring match, any pattern is sufficient)
+    #[serde(default)]
+    pub http_request_body: Option<Vec<String>>,
+    /// Patterns to match against the HTTP response body (substring match, any pattern is sufficient)
+    #[serde(default)]
+    pub http_response_body: Option<Vec<String>>,
 }
 
 fn default_true() -> bool {
@@ -884,6 +890,24 @@ impl SdkRule {
                             step += 1;
                             if let Some(threshold) = self.entropy_threshold {
                                 return Some(packet.payload_entropy.unwrap_or(0.0) >= threshold);
+                            }
+                        }
+                        13 => {
+                            step += 1;
+                            if let Some(ref patterns) = self.http_request_body {
+                                if !patterns.is_empty() {
+                                    let body = packet.http_request_body.as_deref().unwrap_or("");
+                                    return Some(patterns.iter().any(|p| body.contains(p.as_str())));
+                                }
+                            }
+                        }
+                        14 => {
+                            step += 1;
+                            if let Some(ref patterns) = self.http_response_body {
+                                if !patterns.is_empty() {
+                                    let body = packet.http_response_body.as_deref().unwrap_or("");
+                                    return Some(patterns.iter().any(|p| body.contains(p.as_str())));
+                                }
                             }
                         }
                         _ => return None,
