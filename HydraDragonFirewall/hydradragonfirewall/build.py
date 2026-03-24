@@ -122,13 +122,18 @@ def robust_copy(src: Path, dst: Path):
 
 # ── Build steps ────────────────────────────────────────────────────────────────
 
-def build_ui(script_dir: Path):
-    step("1/4", "Building UI with Trunk...")
+def build_ui(script_dir: Path, release: bool):
+    step("1/4", f"Building UI with Trunk ({ 'release' if release else 'debug' })...")
     ui_dir = script_dir / "ui"
     dist_dir = script_dir / "dist"
     if not ui_dir.exists():
         fail(f"UI directory not found: {ui_dir}")
-    run(["trunk", "build", "--dist", str(dist_dir)], cwd=ui_dir)
+    
+    cmd = ["trunk", "build", "--dist", str(dist_dir)]
+    if release:
+        cmd.append("--release")
+    
+    run(cmd, cwd=ui_dir)
     ok("UI build complete!")
 
 def build_rust(script_dir: Path, release: bool, windivert_path: Path):
@@ -201,7 +206,7 @@ def main():
         )
 
     check_dependencies()
-    build_ui(script_dir)
+    build_ui(script_dir, args.release)
     build_rust(script_dir, args.release, windivert_path)
     copy_windivert(script_dir, args.release, windivert_path)
 
