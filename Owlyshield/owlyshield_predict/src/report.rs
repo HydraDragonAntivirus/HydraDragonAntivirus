@@ -245,7 +245,10 @@ impl SystemReport {
         s.push_str(&format!("OS: {}\n\n", self.os_version));
 
         s.push_str("-- HydraDragon Integration (O24) --\n");
+        #[cfg(feature = "firewall")]
         s.push_str(&format!("O24 - Firewall Status: Enabled\n"));
+        #[cfg(not(feature = "firewall"))]
+        s.push_str(&format!("O24 - Firewall Status: Disabled (Feature-Gated)\n"));
         s.push_str(&format!("O24 - AV Integration: {}\n", if self.av_status.is_enabled { "ACTIVE" } else { "NOT_ENABLED" }));
         s.push_str(&format!("O24 - AV Config Found: {}\n\n", self.av_status.config_exists));
 

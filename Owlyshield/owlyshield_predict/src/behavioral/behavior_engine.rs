@@ -23,21 +23,33 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use num::FromPrimitive;
 
+#[cfg(feature = "firewall")]
 type FirewallNetPids = Arc<std::sync::RwLock<HashSet<u32>>>;
+#[cfg(feature = "firewall")]
 type FirewallBlockedExes = Arc<std::sync::RwLock<HashMap<String, FirewallDetection>>>;
 /// Per-PID list of (dst_ip, dst_port) pairs observed by the firewall (NET_EVENT).
+#[cfg(feature = "firewall")]
 type FirewallNetDetails = Arc<std::sync::RwLock<HashMap<u32, Vec<(String, u16)>>>>;
+#[cfg(feature = "firewall")]
 type FirewallPipeStarted = Arc<AtomicBool>;
+#[cfg(feature = "firewall")]
 type FirewallHipsPendingPrompts = Arc<std::sync::RwLock<HashMap<String, FirewallHipsPromptState>>>;
+#[cfg(feature = "firewall")]
 type FirewallHipsDecisions = Arc<std::sync::RwLock<HashMap<String, FirewallHipsDecision>>>;
+#[cfg(feature = "firewall")]
 type FirewallHipsAllowOnce = Arc<std::sync::RwLock<HashSet<String>>>;
+#[cfg(feature = "firewall")]
 type FirewallHipsAllowAlways = Arc<std::sync::RwLock<HashSet<String>>>;
 /// Per-PID list of (request_body, response_body) pairs received via HTTP_BODY pipe messages.
+#[cfg(feature = "firewall")]
 type FirewallHttpBodyMap = Arc<std::sync::RwLock<HashMap<u32, Vec<(String, String)>>>>;
 /// Per-PID rolling history of full PacketInfo structures from the firewall.
+#[cfg(feature = "firewall")]
 type FirewallFullPackets = Arc<std::sync::RwLock<HashMap<u32, VecDeque<PacketInfo>>>>;
+#[cfg(feature = "firewall")]
 type FirewallGenerateReport = Arc<AtomicBool>;
 
+#[cfg(feature = "firewall")]
 fn shared_firewall_net_pids() -> FirewallNetPids {
     static FIREWALL_NET_PIDS: OnceLock<FirewallNetPids> = OnceLock::new();
     FIREWALL_NET_PIDS
@@ -45,6 +57,7 @@ fn shared_firewall_net_pids() -> FirewallNetPids {
         .clone()
 }
 
+#[cfg(feature = "firewall")]
 fn shared_firewall_blocked_exes() -> FirewallBlockedExes {
     static FIREWALL_BLOCKED_EXES: OnceLock<FirewallBlockedExes> = OnceLock::new();
     FIREWALL_BLOCKED_EXES
@@ -52,6 +65,7 @@ fn shared_firewall_blocked_exes() -> FirewallBlockedExes {
         .clone()
 }
 
+#[cfg(feature = "firewall")]
 fn shared_firewall_net_details() -> FirewallNetDetails {
     static FIREWALL_NET_DETAILS: OnceLock<FirewallNetDetails> = OnceLock::new();
     FIREWALL_NET_DETAILS
@@ -59,6 +73,7 @@ fn shared_firewall_net_details() -> FirewallNetDetails {
         .clone()
 }
 
+#[cfg(feature = "firewall")]
 fn shared_firewall_http_body_map() -> FirewallHttpBodyMap {
     static FIREWALL_HTTP_BODY_MAP: OnceLock<FirewallHttpBodyMap> = OnceLock::new();
     FIREWALL_HTTP_BODY_MAP
@@ -66,6 +81,7 @@ fn shared_firewall_http_body_map() -> FirewallHttpBodyMap {
         .clone()
 }
 
+#[cfg(feature = "firewall")]
 fn shared_firewall_full_packets() -> FirewallFullPackets {
     static FIREWALL_FULL_PACKETS: OnceLock<FirewallFullPackets> = OnceLock::new();
     FIREWALL_FULL_PACKETS
@@ -73,6 +89,7 @@ fn shared_firewall_full_packets() -> FirewallFullPackets {
         .clone()
 }
 
+#[cfg(feature = "firewall")]
 fn shared_firewall_pipe_started() -> FirewallPipeStarted {
     static FIREWALL_PIPE_STARTED: OnceLock<FirewallPipeStarted> = OnceLock::new();
     FIREWALL_PIPE_STARTED
@@ -80,6 +97,7 @@ fn shared_firewall_pipe_started() -> FirewallPipeStarted {
         .clone()
 }
 
+#[cfg(feature = "firewall")]
 fn shared_firewall_hips_pending_prompts() -> FirewallHipsPendingPrompts {
     static FIREWALL_HIPS_PENDING_PROMPTS: OnceLock<FirewallHipsPendingPrompts> = OnceLock::new();
     FIREWALL_HIPS_PENDING_PROMPTS
@@ -87,6 +105,7 @@ fn shared_firewall_hips_pending_prompts() -> FirewallHipsPendingPrompts {
         .clone()
 }
 
+#[cfg(feature = "firewall")]
 fn shared_firewall_hips_decisions() -> FirewallHipsDecisions {
     static FIREWALL_HIPS_DECISIONS: OnceLock<FirewallHipsDecisions> = OnceLock::new();
     FIREWALL_HIPS_DECISIONS
@@ -94,6 +113,7 @@ fn shared_firewall_hips_decisions() -> FirewallHipsDecisions {
         .clone()
 }
 
+#[cfg(feature = "firewall")]
 fn shared_firewall_hips_allow_once() -> FirewallHipsAllowOnce {
     static FIREWALL_HIPS_ALLOW_ONCE: OnceLock<FirewallHipsAllowOnce> = OnceLock::new();
     FIREWALL_HIPS_ALLOW_ONCE
@@ -101,6 +121,7 @@ fn shared_firewall_hips_allow_once() -> FirewallHipsAllowOnce {
         .clone()
 }
 
+#[cfg(feature = "firewall")]
 fn shared_firewall_hips_allow_always() -> FirewallHipsAllowAlways {
     static FIREWALL_HIPS_ALLOW_ALWAYS: OnceLock<FirewallHipsAllowAlways> = OnceLock::new();
     FIREWALL_HIPS_ALLOW_ALWAYS
@@ -108,6 +129,7 @@ fn shared_firewall_hips_allow_always() -> FirewallHipsAllowAlways {
         .clone()
 }
 
+#[cfg(feature = "firewall")]
 fn shared_firewall_generate_report() -> FirewallGenerateReport {
     static FIREWALL_GENERATE_REPORT: OnceLock<FirewallGenerateReport> = OnceLock::new();
     FIREWALL_GENERATE_REPORT
@@ -132,6 +154,7 @@ fn shared_firewall_sanctum_stats() -> FirewallSanctumStats {
 /// All detection context sent by the firewall when it confirms malicious traffic.
 /// Populated from BLOCK_EXE messages and used to build rich ThreatInfo for reports.
 #[derive(Debug, Clone)]
+#[cfg(feature = "firewall")]
 pub struct FirewallDetection {
     pub dst_ip: String,
     pub dst_port: u16,
@@ -140,6 +163,7 @@ pub struct FirewallDetection {
     pub reason: String,
 }
 
+#[cfg(feature = "firewall")]
 impl FirewallDetection {
     /// Derive a threat type label from the reason string.
     pub fn threat_type_label(&self) -> &'static str {
@@ -162,6 +186,7 @@ impl FirewallDetection {
     }
 }
 
+#[cfg(feature = "firewall")]
 #[derive(Debug, Clone)]
 struct FirewallHipsPromptState {
     request_id: String,
@@ -169,6 +194,7 @@ struct FirewallHipsPromptState {
     allow_signature: String,
 }
 
+#[cfg(feature = "firewall")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum FirewallHipsDecision {
     Block,
@@ -177,6 +203,7 @@ enum FirewallHipsDecision {
     AllowAlways,
 }
 
+#[cfg(feature = "firewall")]
 impl FirewallHipsDecision {
     fn from_wire(value: &str) -> Option<Self> {
         match value.trim().to_ascii_lowercase().as_str() {
@@ -189,6 +216,7 @@ impl FirewallHipsDecision {
     }
 }
 
+#[cfg(feature = "firewall")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum FirewallHipsPromptOutcome {
     Pending,
@@ -810,6 +838,7 @@ pub struct NamedConditionGroup {
     /// Powerful network conditions using the ported firewall SDK matcher.
     /// Supports matching on Protocol, IP, Domain, URL, FileType, Port, Entropy, Payload, etc.
     #[serde(default)]
+    #[cfg(feature = "firewall")]
     pub network_rules: Vec<super::network_rules::RuleCondition>,
     #[serde(default)]
     pub network_domains: Vec<String>,
@@ -821,18 +850,23 @@ pub struct NamedConditionGroup {
     /// false = condition requires process to NOT have been blocked.
     /// absent (None) = firewall-block status is not checked.
     #[serde(default)]
+    #[cfg(feature = "firewall")]
     pub firewall_blocked: Option<bool>,
     /// Destination IPs the process must have connected to (substring match, any).
     #[serde(default)]
+    #[cfg(feature = "firewall")]
     pub firewall_dst_ips: Vec<String>,
     /// Destination ports the process must have connected to (exact match, any).
     #[serde(default)]
+    #[cfg(feature = "firewall")]
     pub firewall_dst_ports: Vec<u16>,
     /// Hostnames the firewall observed for this process (substring match, any).
     #[serde(default)]
+    #[cfg(feature = "firewall")]
     pub firewall_hostnames: Vec<String>,
     /// Keywords that must appear in the firewall block-reason string (substring, any).
     #[serde(default)]
+    #[cfg(feature = "firewall")]
     pub firewall_block_reasons: Vec<String>,
     
     #[serde(default)]
@@ -1177,10 +1211,12 @@ pub struct BehaviorRule {
 
     /// Substring patterns to match against HTTP request bodies captured by the MITM proxy.
     /// If any pattern matches any recorded request body for this PID, the condition is satisfied.
+    #[cfg(feature = "firewall")]
     #[serde(default)]
     pub http_request_body_patterns: Vec<String>,
     /// Substring patterns to match against HTTP response bodies captured by the MITM proxy.
     /// If any pattern matches any recorded response body for this PID, the condition is satisfied.
+    #[cfg(feature = "firewall")]
     #[serde(default)]
     pub http_response_body_patterns: Vec<String>,
 }
@@ -1447,9 +1483,11 @@ pub struct ProcessBehaviorState {
     pub script_file_path: String,
 
     /// HTTP body pairs (request_body, response_body) received via the HTTP_BODY pipe message.
+    #[cfg(feature = "firewall")]
     pub http_body_entries: Vec<(String, String)>,
     
     /// Rolling history of network packets captured for this process (FULL_PACKET).
+    #[cfg(feature = "firewall")]
     pub net_packets: VecDeque<PacketInfo>,
 
     /// Sanctum EDR telemetry stats for real-time learning.
@@ -1486,7 +1524,11 @@ impl ProcessBehaviorState {
         state.written_unknown_ext_stems = HashSet::new();
         state.script_file = String::new();
         state.script_file_path = String::new();
-        state.net_packets = VecDeque::with_capacity(500);
+        #[cfg(feature = "firewall")]
+        {
+            state.net_packets = VecDeque::with_capacity(500);
+            state.http_body_entries = Vec::new();
+        }
         state.sanctum_stats = crate::realtime_learning::api_tracker::SanctumOperationStats::default();
 
         state
@@ -1590,25 +1632,37 @@ pub struct BehaviorEngine {
     pub process_terminated: HashSet<String>,
     default_extension_whitelist: HashSet<String>,
     /// PIDs for which the firewall observed real outbound network I/O (NET_EVENT).
+    #[cfg(feature = "firewall")]
     pub firewall_net_pids: FirewallNetPids,
     /// Per-PID list of (dst_ip, dst_port) connection records from NET_EVENT messages.
     /// Used by named-condition rules to match specific IPs or ports.
+    #[cfg(feature = "firewall")]
     pub firewall_net_details: FirewallNetDetails,
     /// Exe paths for which the firewall confirmed malicious traffic (BLOCK_EXE).
     /// Value holds full detection details for report generation.
     /// scan_all_processes marks matching processes as malicious and acts on them.
+    #[cfg(feature = "firewall")]
     pub firewall_blocked_exes: FirewallBlockedExes,
+    #[cfg(feature = "firewall")]
     firewall_pipe_started: FirewallPipeStarted,
+    #[cfg(feature = "firewall")]
     firewall_hips_pending_prompts: FirewallHipsPendingPrompts,
+    #[cfg(feature = "firewall")]
     firewall_hips_decisions: FirewallHipsDecisions,
+    #[cfg(feature = "firewall")]
     firewall_hips_allow_once: FirewallHipsAllowOnce,
+    #[cfg(feature = "firewall")]
     firewall_hips_allow_always: FirewallHipsAllowAlways,
     /// Per-PID HTTP body pairs captured by the MITM proxy (received via HTTP_BODY pipe messages).
+    #[cfg(feature = "firewall")]
     firewall_http_body_map: FirewallHttpBodyMap,
     /// Per-PID rolling history of full network packets from the firewall.
+    #[cfg(feature = "firewall")]
     firewall_full_packets: FirewallFullPackets,
     /// Per-PID stats from Sanctum EDR telemetry.
+    #[cfg(feature = "firewall")]
     pub firewall_sanctum_stats: FirewallSanctumStats,
+    #[cfg(feature = "firewall")]
     pub generate_report_flag: FirewallGenerateReport,
 }
 
@@ -1626,17 +1680,29 @@ impl BehaviorEngine {
             regex_cache: Arc::new(std::sync::RwLock::new(HashMap::new())),
             process_terminated: HashSet::new(),
             default_extension_whitelist: build_default_extension_whitelist(),
+            #[cfg(feature = "firewall")]
             firewall_net_pids: shared_firewall_net_pids(),
+            #[cfg(feature = "firewall")]
             firewall_net_details: shared_firewall_net_details(),
+            #[cfg(feature = "firewall")]
             firewall_blocked_exes: shared_firewall_blocked_exes(),
+            #[cfg(feature = "firewall")]
             firewall_pipe_started: shared_firewall_pipe_started(),
+            #[cfg(feature = "firewall")]
             firewall_hips_pending_prompts: shared_firewall_hips_pending_prompts(),
+            #[cfg(feature = "firewall")]
             firewall_hips_decisions: shared_firewall_hips_decisions(),
+            #[cfg(feature = "firewall")]
             firewall_hips_allow_once: shared_firewall_hips_allow_once(),
+            #[cfg(feature = "firewall")]
             firewall_hips_allow_always: shared_firewall_hips_allow_always(),
+            #[cfg(feature = "firewall")]
             firewall_http_body_map: shared_firewall_http_body_map(),
+            #[cfg(feature = "firewall")]
             firewall_full_packets: shared_firewall_full_packets(),
+            #[cfg(feature = "firewall")]
             firewall_sanctum_stats: shared_firewall_sanctum_stats(),
+            #[cfg(feature = "firewall")]
             generate_report_flag: shared_firewall_generate_report(),
         }
     }
@@ -1648,6 +1714,7 @@ impl BehaviorEngine {
     /// Spawn the \\.\pipe\HydraNetEvent named pipe server thread.
     /// Firewall sends: NET_EVENT:<pid>:<dst_ip>:<dst_port> and BLOCK_EXE:<exe_path>.
     /// Call once after constructing BehaviorEngine, before the scan loop starts.
+    #[cfg(feature = "firewall")]
     pub fn start_firewall_pipe(&self) {
         use std::ffi::OsStr;
         use std::os::windows::ffi::OsStrExt;
@@ -1875,6 +1942,7 @@ impl BehaviorEngine {
     /// sanctum's um_engine (um_engine.exe) before accepting data.
     /// Received events are logged and fed into the per-process behavior state
     /// Ingest a telemetry event from Sanctum EDR.
+    #[cfg(feature = "firewall")]
     pub fn ingest_sanctum_event(&self, event: &serde_json::Value) {
         let pid = event["pid"].as_u64().unwrap_or(0) as u32;
         let source = event["source"].as_str().unwrap_or("-");
@@ -1925,6 +1993,7 @@ impl BehaviorEngine {
         }
     }
 
+    #[cfg(feature = "firewall")]
     fn sanitize_firewall_hips_field(value: &str) -> String {
         value
             .replace('\r', " ")
@@ -1934,12 +2003,14 @@ impl BehaviorEngine {
             .to_string()
     }
 
+    #[cfg(feature = "firewall")]
     fn is_registry_condition_group(cond_group: &NamedConditionGroup) -> bool {
         !cond_group.registry_keys.is_empty()
             || !cond_group.autorun_keys.is_empty()
             || !cond_group.registry_values.is_empty()
     }
 
+    #[cfg(feature = "firewall")]
     fn detect_firewall_hips_alert_kind(rule: &BehaviorRule, state: &ProcessBehaviorState) -> &'static str {
         if rule.named_conditions.iter().any(|(cond_name, cond_group)| {
             state.satisfied_named_conditions.contains(cond_name.as_str())
@@ -1976,6 +2047,7 @@ impl BehaviorEngine {
         candidates.into_iter().next()
     }
 
+    #[cfg(feature = "firewall")]
     fn build_firewall_hips_target(&self, rule: &BehaviorRule, state: &ProcessBehaviorState) -> String {
         let alert_kind = Self::detect_firewall_hips_alert_kind(rule, state);
 
@@ -2024,6 +2096,7 @@ impl BehaviorEngine {
         }
     }
 
+    #[cfg(feature = "firewall")]
     fn build_firewall_hips_reason(rule: &BehaviorRule) -> String {
         let description = rule.description.trim();
         if description.is_empty() {
@@ -2033,6 +2106,7 @@ impl BehaviorEngine {
         }
     }
 
+    #[cfg(feature = "firewall")]
     fn build_firewall_hips_request_signature(
         gid: u64,
         pid: u32,
@@ -2052,6 +2126,7 @@ impl BehaviorEngine {
         )
     }
 
+    #[cfg(feature = "firewall")]
     fn build_firewall_hips_allow_signature(
         rule_name: &str,
         alert_kind: &str,
@@ -2067,6 +2142,7 @@ impl BehaviorEngine {
         )
     }
 
+    #[cfg(feature = "firewall")]
     fn build_firewall_hips_request_id(gid: u64, pid: u32, rule_name: &str) -> String {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -2085,6 +2161,7 @@ impl BehaviorEngine {
         )
     }
 
+    #[cfg(feature = "firewall")]
     fn send_firewall_hips_prompt(
         &self,
         request_id: &str,
@@ -2195,6 +2272,7 @@ impl BehaviorEngine {
         true
     }
 
+    #[cfg(feature = "firewall")]
     fn resolve_firewall_hips_prompt(
         &self,
         gid: u64,

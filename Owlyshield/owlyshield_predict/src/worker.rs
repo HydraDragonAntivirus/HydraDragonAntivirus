@@ -868,10 +868,12 @@ pub mod worker_instance {
 
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
         fn build_behavior_engine() -> BehaviorEngine {
+            #[cfg(feature = "firewall")]
             static FIREWALL_PIPE_START: std::sync::Once = std::sync::Once::new();
             static SANCTUM_PIPE_START: std::sync::Once = std::sync::Once::new();
 
             let engine = BehaviorEngine::new();
+            #[cfg(feature = "firewall")]
             FIREWALL_PIPE_START.call_once(|| {
                 engine.start_firewall_pipe();
             });
@@ -1373,7 +1375,7 @@ pub mod worker_instance {
             None
         }
 
-        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+        #[cfg(all(target_os = "windows", feature = "behavior_engine", feature = "firewall"))]
         fn sync_firewall_process_contexts(&mut self) {
             let firewall_pids: Vec<u32> = self
                 .behavior_engine
@@ -1582,9 +1584,14 @@ pub mod worker_instance {
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
                 {
                     self.behavior_engine.process_states.remove(&gid);
-                    let mut firewall_pids = self.behavior_engine.firewall_net_pids.write().unwrap();
+                    #[cfg(feature = "firewall")]
+                    {
+                        let mut firewall_pids = self.behavior_engine.firewall_net_pids.write().unwrap();
+                        for pid in &precord.pids {
+                            firewall_pids.remove(pid);
+                        }
+                    }
                     for pid in &precord.pids {
-                        firewall_pids.remove(pid);
                         self.dynamic_hook_last_refresh.remove(pid);
                         self.dynamic_hook_applied_generation.remove(pid);
                         self.dynamic_hook_apply_failures.remove(pid);
@@ -1715,6 +1722,7 @@ pub mod worker_instance {
                 }
 
                 // --- THIRD: Sync behavior engine state to process_records ---
+                #[cfg(feature = "firewall")]
                 self.sync_firewall_process_contexts();
                 for (gid, state) in self.behavior_engine.process_states.iter() {
                     if self.process_records.get_precord_by_gid(*gid).is_none() {
@@ -1796,7 +1804,10 @@ pub mod worker_instance {
                 }
 
                 // --- SIXTH: Check for Sanctum Detections (Worker-level Handling) ---
+                #[cfg(feature = "firewall")]
                 let sanctum_stats = self.behavior_engine.firewall_sanctum_stats.read().unwrap().clone();
+                #[cfg(not(feature = "firewall"))]
+                let sanctum_stats = std::collections::HashMap::<u32, crate::realtime_learning::api_tracker::SanctumOperationStats>::new();
                 for (pid, stats) in sanctum_stats {
                     if stats.is_detection {
                         if let Some(gid) = self.find_gid_by_pid(pid) {
@@ -2002,7 +2013,7 @@ pub mod worker_instance {
             #[allow(unused_mut, unused_variables)]
             let mut creation_detected_malicious = false;
 
-            #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+            #[cfg(all(target_os = "windows", feature = "behavior_engine", feature = "firewall"))]
             if is_process_create && self.threat_handler.is_some() {
                 self.sync_firewall_process_contexts();
             }
