@@ -35,6 +35,9 @@ use tokio::{
 /// An interface for the usermode IPC server
 pub struct UmIpc {}
 
+// The path to the only authorized process that can talk to the Sanctum IPC server.
+const ALLOWED_CLIENT_PATH: &str = r"C:\Program Files\HydraDragonAntivirus\hydradragon\Owlyshield\Owlyshield Service\owlyshield_service.exe";
+
 impl UmIpc {
     pub async fn listen(
         settings: Arc<Mutex<SanctumSettings>>,
@@ -66,6 +69,20 @@ impl UmIpc {
             let next_server = ServerOptions::new().create(PIPE_NAME)?;
 
             server.connect().await?;
+
+            //
+            // VALIDATION: Ensure the client process is the authorized Owlyshield service.
+            //
+            if !crate::utils::env::validate_pipe_client(&server, ALLOWED_CLIENT_PATH) {
+                logger.log(
+                    LogLevel::Warning,
+                    "Unauthorized IPC connection attempt blocked. Client process path was not recognized.",
+                );
+                // Disconnect and continue the loop to wait for the next connection.
+                // Re-using the next_server and resetting the state.
+                server = next_server;
+                continue;
+            }
 
             // move the current server instance to a client handler
             let mut client = server;
