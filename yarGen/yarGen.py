@@ -110,6 +110,10 @@ REPO_URLS = {
 
 PE_STRINGS_FILE = "./3rdparty/strings.xml"
 
+# Maximum length of a YARA rule identifier. Long names cause parse errors in
+# some YARA builds; 64 characters is a safe, widely-compatible limit.
+MAX_RULE_NAME_LEN = 64
+
 KNOWN_IMPHASHES = {'a04dd9f5ee88d7774203e0a0cfa1b941': 'PsExec',
                    '2b8c9d9ab6fefc247adaf927e83dcea6': 'RAR SFX variant'}
 
@@ -1189,6 +1193,8 @@ def generate_rules(file_strings, file_opcodes, super_rules, file_info, inverse_s
                     cleanedName = "sig_" + cleanedName
                 # clean name from all characters that would cause errors
                 cleanedName = re.sub(r'[^\w]', '_', cleanedName)
+                # Enforce maximum rule name length (long names cause YARA parse errors)
+                cleanedName = cleanedName[:MAX_RULE_NAME_LEN]
                 # Check if already printed
                 if cleanedName in printed_rules:
                     printed_rules[cleanedName] += 1
@@ -1376,8 +1382,8 @@ def generate_rules(file_strings, file_opcodes, super_rules, file_info, inverse_s
                     if unique_imphash in good_imphashes_db:
                         unique_imphash = ""
 
-                # Shorten rule name
-                rule_name = rule_name[:124]
+                # Shorten rule name (enforce maximum identifier length)
+                rule_name = rule_name[:MAX_RULE_NAME_LEN]
                 # Add count if rule name already taken
                 if rule_name not in super_rule_names:
                     rule_name = "%s_%s" % (rule_name, super_rule_count)
@@ -1531,6 +1537,8 @@ def generate_rules(file_strings, file_opcodes, super_rules, file_info, inverse_s
                     cleanedName = "sig_" + cleanedName
                 # clean name from all characters that would cause errors
                 cleanedName = re.sub(r'[^\w]', '_', cleanedName)
+                # Enforce maximum rule name length (long names cause YARA parse errors)
+                cleanedName = cleanedName[:MAX_RULE_NAME_LEN]
                 # Check if already printed
                 if cleanedName in printed_rules:
                     printed_rules[cleanedName] += 1

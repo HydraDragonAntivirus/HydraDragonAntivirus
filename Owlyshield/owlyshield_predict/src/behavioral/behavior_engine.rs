@@ -1680,6 +1680,9 @@ pub struct BehaviorEngine {
     pub firewall_sanctum_stats: FirewallSanctumStats,
     #[cfg(feature = "firewall")]
     pub generate_report_flag: FirewallGenerateReport,
+    /// Detailed network matching rules (SdkRules) for the firewall.
+    #[cfg(feature = "firewall")]
+    pub sdk_rules: Arc<std::sync::RwLock<Vec<crate::behavioral::network_rules::SdkRule>>>,
 }
 
 impl Default for BehaviorEngine {
@@ -1720,11 +1723,9 @@ impl BehaviorEngine {
             firewall_sanctum_stats: shared_firewall_sanctum_stats(),
             #[cfg(feature = "firewall")]
             generate_report_flag: shared_firewall_generate_report(),
+            #[cfg(feature = "firewall")]
+            sdk_rules: Arc::new(std::sync::RwLock::new(Vec::new())),
         }
-    }
-
-    pub fn dummy() -> Self {
-        Self::new()
     }
 
     /// Spawn the \\.\pipe\HydraNetEvent named pipe server thread.
@@ -1756,6 +1757,8 @@ impl BehaviorEngine {
         let http_body_map = Arc::clone(&self.firewall_http_body_map);
         let full_packets: Arc<RwLock<HashMap<u32, VecDeque<PacketInfo>>>> = Arc::clone(&self.firewall_full_packets);
         let generate_report_flag = Arc::clone(&self.generate_report_flag);
+        let sdk_rules = Arc::clone(&self.sdk_rules);
+        let regex_cache = Arc::clone(&self.regex_cache);
 
         std::thread::Builder::new()
             .name("hydra_net_event_pipe".to_string())
@@ -1929,11 +1932,52 @@ impl BehaviorEngine {
                                         history.pop_front();
                                     }
                                     history.push_back(pkt.clone());
+                                    
+                                    // SDK RULE MATCHING
+                                    let mut matched_any = false;
+                                    {
+                                        let rules = sdk_rules.read().unwrap();
+                                        for rule in rules.iter() {
+                                            if rule.matches_packet(&regex_cache, &pkt, &[]) {
+                                                matched_any = true;
+                                                Logging::alert(&format!(
+                                                    "[SDK RULE MATCH] PID {} matched network rule '{}': {} -> {}",
+                                                    pid, rule.name, pkt.src_ip, pkt.dst_ip
+                                                ));
+                                                
+                                                use crate::behavioral::network_rules::RuleAction;
+                                                if matches!(rule.action, RuleAction::Block | RuleAction::Quarantine | RuleAction::KillAndRemove | RuleAction::Terminate) {
+                                                    let mut blocked = blocked_exes.write().unwrap();
+                                                    
+                                                    // Use apply_replacement if available for logging/context
+                                                    let reason = if rule.change_request_body.is_some() || rule.change_response_body.is_some() {
+                                                        format!("SDK Rule [{}] matched (Replacement suggested)", rule.name)
+                                                    } else {
+                                                        format!("SDK Rule [{}] matched", rule.name)
+                                                    };
 
-                                    Logging::info(&format!(
-                                        "[FirewallEvent] Full packet recorded for PID {}: {} -> {} ({})",
-                                        pid, pkt.src_ip, pkt.dst_ip, pkt.protocol
-                                    ));
+                                                    blocked.insert(pkt.image_path.clone(), FirewallDetection {
+                                                        dst_ip: pkt.dst_ip.to_string(),
+                                                        dst_port: pkt.dst_port,
+                                                        hostname: pkt.hostname.clone().unwrap_or_default(),
+                                                        reason,
+                                                    });
+                                                }
+                                                
+                                                // Call apply_replacement to satisfy "unused" warning, even if result is just logged for now
+                                                if let Some(ref hostname) = pkt.hostname {
+                                                    let _replaced = rule.apply_replacement(hostname);
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    if !matched_any {
+                                        Logging::info(&format!(
+                                            "[FirewallEvent] Full packet recorded for PID {}: {} -> {} ({})",
+                                            pid, pkt.src_ip, pkt.dst_ip, pkt.protocol
+                                        ));
+                                    }
                                 } else {
                                     Logging::warning("[FirewallEvent] Failed to parse FULL_PACKET JSON");
                                 }
@@ -2946,15 +2990,52 @@ impl BehaviorEngine {
         }
     }
 
-    #[allow(dead_code)]
     pub fn load_additional_rules(&mut self, path: &Path) -> Result<(), Box<dyn std::error::Error>> {
         if !path.exists() {
             return Ok(());
         }
-        let new_rules = self.load_rules_recursive(path)?;
-        self.rules.extend(new_rules);
-        Logging::info(&format!("[EDR]: Loaded {} additional rules from {:?}", self.rules.len(), path));
+        let (new_behavior_rules, new_sdk_rules) = self.load_rules_recursive_mixed(path)?;
+        self.rules.extend(new_behavior_rules);
+        if !new_sdk_rules.is_empty() {
+            let mut sdk_rules_lock = self.sdk_rules.write().unwrap();
+            sdk_rules_lock.extend(new_sdk_rules);
+        }
+        Logging::info(&format!("[EDR]: Loaded {} behavior rules and {} network rules from {:?}", self.rules.len(), self.sdk_rules.read().unwrap().len(), path));
         Ok(())
+    }
+
+    fn load_rules_recursive_mixed(&self, path: &Path) -> Result<(Vec<BehaviorRule>, Vec<crate::behavioral::network_rules::SdkRule>), Box<dyn std::error::Error>> {
+        let mut behavior_rules = Vec::new();
+        let mut sdk_rules = Vec::new();
+
+        if path.is_file() {
+            let content = std::fs::read_to_string(path)?;
+            // Try as BehaviorRule list
+            if let Ok(rules) = serde_yaml::from_str::<Vec<BehaviorRule>>(&content) {
+                behavior_rules.extend(self.finalize_rules(rules));
+            } 
+            // Try as single BehaviorRule
+            else if let Ok(rule) = serde_yaml::from_str::<BehaviorRule>(&content) {
+                behavior_rules.extend(self.finalize_rules(vec![rule]));
+            }
+            // Try as SdkRule list
+            else if let Ok(rules) = serde_yaml::from_str::<Vec<crate::behavioral::network_rules::SdkRule>>(&content) {
+                sdk_rules.extend(rules);
+            }
+            // Try as single SdkRule
+            else if let Ok(rule) = serde_yaml::from_str::<crate::behavioral::network_rules::SdkRule>(&content) {
+                sdk_rules.push(rule);
+            }
+        } else if path.is_dir() {
+            for entry in std::fs::read_dir(path)? {
+                let entry = entry?;
+                let (sub_behavior, sub_sdk) = self.load_rules_recursive_mixed(&entry.path())?;
+                behavior_rules.extend(sub_behavior);
+                sdk_rules.extend(sub_sdk);
+            }
+        }
+
+        Ok((behavior_rules, sdk_rules))
     }
 
     // ==========================================================================

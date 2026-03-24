@@ -74,8 +74,9 @@ pub struct ExtensionEntry {
 }
 
 impl SystemReport {
-    pub fn collect(_config: &Config, firewall_pids: Option<&std::collections::HashSet<u32>>) -> Self {
+    pub fn collect(_config: &Config, firewall_pids: Option<&std::collections::HashSet<u32>>, signatures_count: usize) -> Self {
         let mut report = SystemReport::default();
+        report.av_status.signatures_count = signatures_count;
         report.timestamp = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
         report.hostname = hostname::get().map(|h| h.to_string_lossy().into_owned()).unwrap_or_else(|_| "Unknown".into());
         
@@ -165,6 +166,17 @@ impl SystemReport {
             let base_path = Path::new(&pf).join("HydraDragonAntivirus");
             self.av_status.config_exists = base_path.join("config.json").exists();
         }
+
+        // Check if our service is running
+        #[cfg(target_os = "windows")]
+        {
+            use std::process::Command;
+            let output = Command::new("sc").args(["query", "HydraDragonPredict"]).output();
+            if let Ok(out) = output {
+                let status_str = String::from_utf8_lossy(&out.stdout);
+                self.av_status.service_running = status_str.contains("RUNNING");
+            }
+        }
     }
 
     #[cfg(target_os = "windows")]
@@ -244,7 +256,9 @@ impl SystemReport {
         #[cfg(not(feature = "firewall"))]
         s.push_str(&format!("O24 - Firewall Status: Disabled (Feature-Gated)\n"));
         s.push_str(&format!("O24 - AV Integration: {}\n", if self.av_status.is_enabled { "ACTIVE" } else { "NOT_ENABLED" }));
-        s.push_str(&format!("O24 - AV Config Found: {}\n\n", self.av_status.config_exists));
+        s.push_str(&format!("O24 - AV Service Running: {}\n", self.av_status.service_running));
+        s.push_str(&format!("O24 - AV Config Found: {}\n", self.av_status.config_exists));
+        s.push_str(&format!("O24 - AV Signatures Loaded: {}\n\n", self.av_status.signatures_count));
 
         s.push_str("-- Hosts File (O1) --\n");
         for entry in &self.hosts_entries {
@@ -278,7 +292,7 @@ impl SystemReport {
 
         s.push_str("-- Browser Extensions (O23) --\n");
         for e in &self.browser_extensions {
-            s.push_str(&format!("O23 - {}: {} [ID: {}]\n", e.browser, e.name, e.id));
+            s.push_str(&format!("O23 - {}: {} [ID: {}] ({})\n", e.browser, e.name, e.id, e.path));
         }
         s.push_str("\n");
 

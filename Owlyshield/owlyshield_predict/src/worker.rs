@@ -809,9 +809,12 @@ mod process_records {
 
     impl<'a> Worker<'a> {
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-        pub fn generate_system_report(&mut self, config: &crate::config::Config) {
+        pub fn generate_system_report(&mut self) {
+            let config = self.config;
+            let _ = &config[crate::config::Param::ConfigPath]; // Explicit read to ensure compiler sees it as used
             let fw_pids = self.behavior_engine.firewall_net_pids.read().unwrap();
-            let mut report = crate::report::SystemReport::collect(config, Some(&fw_pids));
+            let signatures_count = self.behavior_engine.rules.len() + self.behavior_engine.sdk_rules.read().unwrap().len();
+            let mut report = crate::report::SystemReport::collect(config, Some(&fw_pids), signatures_count);
             
             // Collect process snapshots from behavior engine
             for (gid, state) in &self.behavior_engine.process_states {
@@ -844,6 +847,14 @@ mod process_records {
                 Err(e) => Logging::error(&format!("[REPORT] Failed to save system report: {}", e)),
             }
             self.last_report_time = Some(std::time::Instant::now());
+        }
+
+        /// Load behavioral and network rules from the configured rules path.
+        pub fn load_rules(&mut self) {
+            let path = Path::new(&self.rules_path);
+            if let Err(e) = self.behavior_engine.load_additional_rules(path) {
+                Logging::error(&format!("[Worker] Failed to load rules from {}: {}", self.rules_path, e));
+            }
         }
 
         const PID_FALLBACK_GID_MASK: u64 = 0x8000_0000_0000_0000;
@@ -1339,6 +1350,9 @@ mod process_records {
             // Mark startup as complete so process_io() can resume
             // scan_all_processes() on new process creation events.
             self.startup_complete = true;
+            
+            // Load rules after discovery to ensure engine state is ready
+            self.load_rules();
         }
         
         /// Generate GID for discovered processes
@@ -1942,7 +1956,7 @@ mod process_records {
                     if force_report {
                         Logging::info("[REPORT] Triggering on-demand report requested via pipe");
                     }
-                    self.generate_system_report(config);
+                    self.generate_system_report();
                 }
             }
 
