@@ -15,7 +15,10 @@ class ControlFlowEdgeType(Enum):
     META = "meta"  # used exclusively for the START and END meta-nodes that are added to the cfg
 
 
-from typing import Any
+from typing import Any, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .EditableBytecode import EditableBytecode
 
 
 def inst_to_node_attributes(inst: "Inst") -> dict:

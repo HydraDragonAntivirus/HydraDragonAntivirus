@@ -17,9 +17,9 @@
 import lief
 import logging as logger
 import datetime
-import GoStringUngarbler.ungarblers
-import GoStringUngarbler.patterns
-import GoStringUngarbler.patchers
+from GoStringUngarbler import ungarblers
+from GoStringUngarbler import patterns
+from GoStringUngarbler import patchers
 from typing import Optional, Dict, Any
 
 def get_binary_architecture(lief_binary: lief.Binary) -> str:

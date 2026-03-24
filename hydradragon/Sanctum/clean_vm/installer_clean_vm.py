@@ -188,9 +188,6 @@ def main():
         print(f"\nCreated directories:")
         print(f"  - {appdata_sanctum}")
         print(f"  - {desktop_sanctum}")
-        print(f"\nDownloaded files to {appdata_sanctum}:")
-        for _, local_name in FILES_TO_DOWNLOAD:
-            print(f"  - {local_name}")
         print("\nPlease follow the remaining instructions to complete installation.")
         print("=" * 70)
         sys.exit(0)

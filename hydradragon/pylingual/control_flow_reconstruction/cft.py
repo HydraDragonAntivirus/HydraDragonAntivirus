@@ -18,7 +18,7 @@ if TYPE_CHECKING:
     from pylingual.control_flow_reconstruction.cfg import CFG
 
     CFT: TypeAlias = "ControlFlowTemplate"
-    C = TypeVar("C", bound=ControlFlowTemplate)
+    C = TypeVar("C", bound="ControlFlowTemplate")
 
 
 def indent_str(string: str, tabs: int = 1) -> str:

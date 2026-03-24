@@ -6,7 +6,7 @@ import textwrap
 import pdb
 import sys
 
-from typing import TYPE_CHECKING, Callable, TypeVar, override
+from typing import TYPE_CHECKING, Callable, TypeVar, override, Any
 
 from pylingual.utils.version import supported_versions
 from .cft import (

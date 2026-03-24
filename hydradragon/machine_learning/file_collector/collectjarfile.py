@@ -49,6 +49,18 @@ def compute_md5(file_path, chunk_size=65536):
         return None
 
 
+def get_file_batches(root_dir, batch_size=1000):
+    batch = []
+    for dirpath, dirs, files in os.walk(root_dir, onerror=lambda e: None):
+        for fname in files:
+            batch.append(os.path.join(dirpath, fname))
+            if len(batch) >= batch_size:
+                yield batch
+                batch = []
+    if batch:
+        yield batch
+
+
 def process_batch_for_hash(file_paths):
     """Process batch for hashing."""
     results = []

@@ -70,15 +70,15 @@ def visiualizeStats(byteStats, fileCount, heatMapMode, byteFiller, bytesPerLine)
 	for byteStat in byteStats:
 		
 		if args.d:
-			print "------------------------"
-			print byteStats[byteStat]
+			print("------------------------")
+			print(byteStats[byteStat])
 		
 		byteToPrint = ".."
 		countOfByte = 0
 		highestValue = 0
 		
 		# Evaluate the most often occured byte value at this position
-		for ( key, val ) in byteStats[byteStat].iteritems():
+		for ( key, val ) in byteStats[byteStat].items():
 			if val > highestValue:
 				highestValue = val
 				byteToPrint = key
@@ -106,8 +106,8 @@ def visiualizeStats(byteStats, fileCount, heatMapMode, byteFiller, bytesPerLine)
 				
 def printHeatMapValue(byteToPrint, countOfByte, fileCount, byteFiller):
 	if args.d:
-		print "Count of byte: %s" % countOfByte
-		print "File Count: %s" % fileCount	
+		print("Count of byte: %s" % countOfByte)
+		print("File Count: %s" % fileCount)	
 	if countOfByte == fileCount:
 		sys.stdout.write(Fore.GREEN + '%s' % byteToPrint.encode('hex') + Fore.WHITE + '%s' % byteFiller)
 	elif countOfByte == fileCount - 1:
@@ -124,20 +124,20 @@ def printHeatMapValue(byteToPrint, countOfByte, fileCount, byteFiller):
 		sys.stdout.write(Fore.WHITE + Style.DIM + '..' + Fore.WHITE + Style.RESET_ALL + '%s' % byteFiller)
 		
 def printHeatLegend(fileCount):
-	print ""
-	print Fore.GREEN + 'GREEN\tContent of all %s files' % str(fileCount) + Fore.WHITE
+	print("")
+	print(Fore.GREEN + 'GREEN\tContent of all %s files' % str(fileCount) + Fore.WHITE)
 	if fileCount > 1:
-		print Fore.CYAN + 'CYAN\tContent of %s files' % str(fileCount-1) + Fore.WHITE
+		print(Fore.CYAN + 'CYAN\tContent of %s files' % str(fileCount-1) + Fore.WHITE)
 	if fileCount > 2:
-		print Fore.YELLOW + 'YELLOW\tContent of %s files' % str(fileCount-2) + Fore.WHITE
+		print(Fore.YELLOW + 'YELLOW\tContent of %s files' % str(fileCount-2) + Fore.WHITE)
 	if fileCount > 3:
-		print Fore.RED + 'RED\tContent of %s files' % str(fileCount-3) + Fore.WHITE
+		print(Fore.RED + 'RED\tContent of %s files' % str(fileCount-3) + Fore.WHITE)
 	if fileCount > 4:
-		print Fore.MAGENTA + 'MAGENTA\tContent of %s files' % str(fileCount-4) + Fore.WHITE
+		print(Fore.MAGENTA + 'MAGENTA\tContent of %s files' % str(fileCount-4) + Fore.WHITE)
 	if fileCount > 5:		
-		print Fore.WHITE + 'WHITE\tContent of %s files' % str(fileCount-5) + Fore.WHITE
+		print(Fore.WHITE + 'WHITE\tContent of %s files' % str(fileCount-5) + Fore.WHITE)
 	if fileCount > 6:		
-		print Fore.WHITE + Style.DIM +'..\tNo identical bytes in more than %s files' % str(fileCount-6) + Fore.WHITE + Style.RESET_ALL	
+		print(Fore.WHITE + Style.DIM +'..\tNo identical bytes in more than %s files' % str(fileCount-6) + Fore.WHITE + Style.RESET_ALL)	
 		
 # MAIN ################################################################
 if __name__ == '__main__':

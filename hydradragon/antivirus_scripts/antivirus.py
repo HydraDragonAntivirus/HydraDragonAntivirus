@@ -22,8 +22,6 @@ from .path_and_variables import (
     _OPEN_RETRIES,
     _RETRY_DELAY,
     _SCAN_REQUEST_SEND_QUEUE,
-)
-from .utils_and_helpers import validate_pipe_peer
     hayabusa_path,
     python_path,
     jadx_decompiled_dir,
@@ -134,6 +132,8 @@ from .utils_and_helpers import validate_pipe_peer
     yaraxtr_yrc_path
 )
 
+from .utils_and_helpers import validate_pipe_peer
+
 # Separate log files for different purposes
 stdout_console_log_file = os.path.join(
     log_directory, "antivirusconsolestdout.log"
@@ -235,6 +235,9 @@ logger.debug(f"psutil module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import win32service
+import win32api
+import win32con
+import win32process
 logger.debug(f"win32service module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()

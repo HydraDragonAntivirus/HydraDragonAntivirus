@@ -3,6 +3,7 @@
 
 import struct
 import os
+import logging as logger
 
 #inspired by https://aluigi.altervista.org/bms/advanced_installer.bms
 #with some additionaly reverse engeneering, quite heursitic (footer search, xor guessing etc)
