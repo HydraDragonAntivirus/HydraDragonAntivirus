@@ -34,7 +34,6 @@ rumqtt = "0.31.0"
 lru = "^0.11"
 md-5 = "0.10.6"
 regex = "1.12.2"
-winreg = "0.55.0"
 sha2 = "0.10.9"
 hex = "0.4.3"
 sysinfo = "0.38.0"
@@ -46,6 +45,7 @@ bs58 = "0.4.0"
 winlog = { version = "0.2.6", features=["env_logger"] }
 windows-service = "0.6"
 widestring = "1.0.2"
+winreg = "0.55.0"
 
 [target.'cfg(target_os = "windows")'.dependencies.windows]
 version = "0.48.0"
