@@ -118,10 +118,20 @@ pub unsafe fn validate_pipe_client(pipe_handle: ::windows::Win32::Foundation::HA
     }
 
     if let Some(expected) = expected_path {
+        let expected_lc = expected.to_ascii_lowercase();
+        // Check if expected is a full path (contains '\' or '/')
+        let is_full_path = expected.contains('\\') || expected.contains('/');
+
         if let Some(path) = resolve_process_path(client_pid) {
             let resolved = path.to_string_lossy().to_ascii_lowercase();
-            if resolved.contains(&expected.to_ascii_lowercase()) {
-                return true;
+            if is_full_path {
+                if resolved == expected_lc {
+                    return true;
+                }
+            } else {
+                if resolved.contains(&expected_lc) {
+                    return true;
+                }
             }
         }
 
@@ -131,8 +141,14 @@ pub unsafe fn validate_pipe_client(pipe_handle: ::windows::Win32::Foundation::HA
             let _ = unsafe { CloseHandle(h_proc) };
             if len > 0 {
                 let path = String::from_utf8_lossy(&buffer[..len as usize]).to_ascii_lowercase();
-                if path.contains(&expected.to_ascii_lowercase()) {
-                    return true;
+                if is_full_path {
+                    if path == expected_lc {
+                        return true;
+                    }
+                } else {
+                    if path.contains(&expected_lc) {
+                        return true;
+                    }
                 }
             }
         }

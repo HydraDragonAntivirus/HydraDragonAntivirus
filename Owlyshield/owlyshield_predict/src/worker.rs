@@ -934,9 +934,9 @@ pub mod worker_instance {
                             continue;
                         }
 
-                        // Validate: only accept Sanctum's um_engine
-                        if !unsafe { validate_pipe_client(handle, Some("um_engine.exe"), false) } {
-                            Logging::error("[SanctumPipe] Rejected unauthorized client");
+                        // Validate: only accept Sanctum's um_engine with strict full-path validation
+                        if !unsafe { validate_pipe_client(handle, Some(r"C:\Program Files\HydraDragonAntivirus\hydradragon\Sanctum\um_engine.exe"), false) } {
+                            Logging::error("[SanctumPipe] Rejected unauthorized client (Strict Path Validation Failed)");
                             unsafe {
                                 let _ = DisconnectNamedPipe(handle);
                                 let _ = CloseHandle(handle);
@@ -1089,7 +1089,10 @@ pub mod worker_instance {
             #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
             {
                 if let Some(state) = behavior_engine.process_states.get(&gid) {
-                    tracker.net_packets = state.net_packets.clone().into();
+                    #[cfg(feature = "firewall")]
+                    {
+                        tracker.net_packets = state.net_packets.clone().into();
+                    }
                     tracker.sanctum_operations = state.sanctum_stats.clone();
                 }
             }

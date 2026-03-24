@@ -1660,7 +1660,6 @@ pub struct BehaviorEngine {
     #[cfg(feature = "firewall")]
     firewall_full_packets: FirewallFullPackets,
     /// Per-PID stats from Sanctum EDR telemetry.
-    #[cfg(feature = "firewall")]
     pub firewall_sanctum_stats: FirewallSanctumStats,
     #[cfg(feature = "firewall")]
     pub generate_report_flag: FirewallGenerateReport,
@@ -1700,7 +1699,6 @@ impl BehaviorEngine {
             firewall_http_body_map: shared_firewall_http_body_map(),
             #[cfg(feature = "firewall")]
             firewall_full_packets: shared_firewall_full_packets(),
-            #[cfg(feature = "firewall")]
             firewall_sanctum_stats: shared_firewall_sanctum_stats(),
             #[cfg(feature = "firewall")]
             generate_report_flag: shared_firewall_generate_report(),
@@ -1942,7 +1940,6 @@ impl BehaviorEngine {
     /// sanctum's um_engine (um_engine.exe) before accepting data.
     /// Received events are logged and fed into the per-process behavior state
     /// Ingest a telemetry event from Sanctum EDR.
-    #[cfg(feature = "firewall")]
     pub fn ingest_sanctum_event(&self, event: &serde_json::Value) {
         let pid = event["pid"].as_u64().unwrap_or(0) as u32;
         let source = event["source"].as_str().unwrap_or("-");
@@ -4192,21 +4189,24 @@ impl BehaviorEngine {
     ) {
         let state_ref = match self.process_states.get_mut(&gid) {
             Some(s) => {
-                // Sync HTTP body entries from the shared map into the per-process state.
                 let pid = s.pid;
-                if let Ok(mut body_map) = self.firewall_http_body_map.write() {
-                    if let Some(entries) = body_map.remove(&pid) {
-                        s.http_body_entries.extend(entries);
+                #[cfg(feature = "firewall")]
+                {
+                    // Sync HTTP body entries from the shared map into the per-process state.
+                    if let Ok(mut body_map) = self.firewall_http_body_map.write() {
+                        if let Some(entries) = body_map.remove(&pid) {
+                            s.http_body_entries.extend(entries);
+                        }
                     }
-                }
-                // Sync detailed PacketInfo objects.
-                if let Ok(mut pkt_map) = self.firewall_full_packets.write() {
-                    if let Some(packets) = pkt_map.remove(&pid) {
-                        for p in packets {
-                            if s.net_packets.len() >= 500 {
-                                s.net_packets.pop_front();
+                    // Sync detailed PacketInfo objects.
+                    if let Ok(mut pkt_map) = self.firewall_full_packets.write() {
+                        if let Some(packets) = pkt_map.remove(&pid) {
+                            for p in packets {
+                                if s.net_packets.len() >= 500 {
+                                    s.net_packets.pop_front();
+                                }
+                                s.net_packets.push_back(p);
                             }
-                            s.net_packets.push_back(p);
                         }
                     }
                 }
@@ -4420,33 +4420,36 @@ impl BehaviorEngine {
                 }
             }
 
-            if !rule.http_request_body_patterns.is_empty() {
-                legacy_total += 1;
-                let matched = state_ref.http_body_entries.iter().any(|(req_body, _)| {
-                    rule.http_request_body_patterns.iter().any(|pat| req_body.contains(pat.as_str()))
-                });
-                if matched {
-                    legacy_satisfied += 1;
-                    if rule.debug || self.rules.iter().any(|r| r.debug) {
-                        Logging::debug(&format!(
-                            "[BehaviorEngine] Condition 'http_request_body_patterns' matched for PID {}",
-                            state_ref.pid
-                        ));
+            #[cfg(feature = "firewall")]
+            {
+                if !rule.http_request_body_patterns.is_empty() {
+                    legacy_total += 1;
+                    let matched = state_ref.http_body_entries.iter().any(|(req_body, _)| {
+                        rule.http_request_body_patterns.iter().any(|pat| req_body.contains(pat.as_str()))
+                    });
+                    if matched {
+                        legacy_satisfied += 1;
+                        if rule.debug || self.rules.iter().any(|r| r.debug) {
+                            Logging::debug(&format!(
+                                "[BehaviorEngine] Condition 'http_request_body_patterns' matched for PID {}",
+                                state_ref.pid
+                            ));
+                        }
                     }
                 }
-            }
-            if !rule.http_response_body_patterns.is_empty() {
-                legacy_total += 1;
-                let matched = state_ref.http_body_entries.iter().any(|(_, resp_body)| {
-                    rule.http_response_body_patterns.iter().any(|pat| resp_body.contains(pat.as_str()))
-                });
-                if matched {
-                    legacy_satisfied += 1;
-                    if rule.debug || self.rules.iter().any(|r| r.debug) {
-                        Logging::debug(&format!(
-                            "[BehaviorEngine] Condition 'http_response_body_patterns' matched for PID {}",
-                            state_ref.pid
-                        ));
+                if !rule.http_response_body_patterns.is_empty() {
+                    legacy_total += 1;
+                    let matched = state_ref.http_body_entries.iter().any(|(_, resp_body)| {
+                        rule.http_response_body_patterns.iter().any(|pat| resp_body.contains(pat.as_str()))
+                    });
+                    if matched {
+                        legacy_satisfied += 1;
+                        if rule.debug || self.rules.iter().any(|r| r.debug) {
+                            Logging::debug(&format!(
+                                "[BehaviorEngine] Condition 'http_response_body_patterns' matched for PID {}",
+                                state_ref.pid
+                            ));
+                        }
                     }
                 }
             }
@@ -4486,6 +4489,7 @@ impl BehaviorEngine {
             if legacy_triggered || rich_triggered || stages_triggered {
                 let mut prompted_block = false;
                 let mut prompted_quarantine = false;
+                #[cfg(feature = "firewall")]
                 if rule.response.ask_user {
                     match self.resolve_firewall_hips_prompt(gid, &state_ref, rule) {
                         FirewallHipsPromptOutcome::Pending | FirewallHipsPromptOutcome::Allowed => {
@@ -4926,8 +4930,15 @@ impl BehaviorEngine {
     /// Network activity detection — delegates entirely to the firewall.
     /// Returns true if the firewall has observed real outbound I/O for this PID.
     fn has_network_activity(&self, state: &ProcessBehaviorState) -> bool {
-        // Authoritative: firewall observed real outbound network I/O for this PID.
-        self.firewall_net_pids.read().unwrap().contains(&state.pid)
+        #[cfg(feature = "firewall")]
+        {
+            // Authoritative: firewall observed real outbound network I/O for this PID.
+            self.firewall_net_pids.read().unwrap().contains(&state.pid)
+        }
+        #[cfg(not(feature = "firewall"))]
+        {
+            false
+        }
     }
         
     pub fn scan_all_processes(&mut self, _config: &Config, _threat_handler: &dyn ThreatHandler) -> Vec<ProcessRecord> {
@@ -4935,6 +4946,7 @@ impl BehaviorEngine {
         let gids: Vec<u64> = self.process_states.keys().cloned().collect();
 
         // Snapshot firewall-confirmed malicious exe paths once per scan cycle
+        #[cfg(feature = "firewall")]
         let fw_blocked: HashMap<String, FirewallDetection> = self.firewall_blocked_exes.read().unwrap().clone();
 
         for gid in gids {
@@ -4950,6 +4962,7 @@ impl BehaviorEngine {
 
             // Firewall-confirmed malicious network traffic: act immediately,
             // bypass the normal rule evaluation loop entirely.
+            #[cfg(feature = "firewall")]
             if !exe_path_str.is_empty() && exe_path_str.to_lowercase() != "unknown"
                 && let Some(detection) = fw_blocked.get(&exe_path_str.to_lowercase()) {
                     let mut p = ProcessRecord::new(
