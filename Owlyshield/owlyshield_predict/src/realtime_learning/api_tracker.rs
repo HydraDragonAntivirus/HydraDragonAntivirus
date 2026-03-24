@@ -61,6 +61,8 @@ pub struct ApiTracker {
     // Timing information
     pub first_seen: std::time::SystemTime,
     pub last_activity: std::time::SystemTime,
+    pub is_terminated: bool,
+    pub termination_time: Option<std::time::SystemTime>,
 }
 
 #[cfg(feature = "sanctum")]
@@ -259,6 +261,8 @@ impl ApiTracker {
             net_packets: Vec::new(),
             first_seen: now,
             last_activity: now,
+            is_terminated: false,
+            termination_time: None,
         }
     }
 

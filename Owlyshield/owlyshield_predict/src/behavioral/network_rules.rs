@@ -3,6 +3,8 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use regex::Regex;
 use std::collections::HashMap;
 use std::cell::RefCell;
+use std::sync::{Arc, RwLock};
+use base64::Engine;
 
 #[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Protocol {
@@ -326,7 +328,7 @@ impl JsonMatcher {
 }
 
 impl RuleCondition {
-    pub fn matches_packet(&self, cache: &RefCell<HashMap<String, Regex>>, packet: &PacketInfo, payload: &[u8]) -> bool {
+    pub fn matches_packet(&self, cache: &Arc<RwLock<HashMap<String, Regex>>>, packet: &PacketInfo, payload: &[u8]) -> bool {
         match self {
             RuleCondition::And(conds) => conds.iter().all(|c| c.matches_packet(cache, packet, payload)),
             RuleCondition::Or(conds) => conds.iter().any(|c| c.matches_packet(cache, packet, payload)),
@@ -378,22 +380,17 @@ impl RuleCondition {
             }
             RuleCondition::Entropy(matcher) => packet.payload_entropy.map_or(false, |e| e >= matcher.threshold),
             RuleCondition::Routine(routine) => routine.matches(packet),
-            RuleCondition::HttpMethod(p) => packet.http_method.as_ref().map_or(false, |m| matches_pattern(cache, p, m)),
-            RuleCondition::HttpPath(p) => packet.http_path.as_ref().map_or(false, |m| matches_pattern(cache, p, m)),
-            RuleCondition::HttpUserAgent(p) => packet.http_user_agent.as_ref().map_or(false, |m| matches_pattern(cache, p, m)),
-            RuleCondition::HttpContentType(p) => packet.http_content_type.as_ref().map_or(false, |m| matches_pattern(cache, p, m)),
-            RuleCondition::HttpReferer(p) => packet.http_referer.as_ref().map_or(false, |m| matches_pattern(cache, p, m)),
-            RuleCondition::DnsQuery(p) => packet.dns_query.as_ref().map_or(false, |m| matches_pattern(cache, p, m)),
+            RuleCondition::HttpMethod(ref p) => packet.http_method.as_ref().map_or(false, |m| matches_pattern(cache, p, m)),
+            RuleCondition::HttpPath(ref p) => packet.http_path.as_ref().map_or(false, |m| matches_pattern(cache, p, m)),
+            RuleCondition::HttpUserAgent(ref p) => packet.http_user_agent.as_ref().map_or(false, |m| matches_pattern(cache, p, m)),
+            RuleCondition::HttpContentType(ref p) => packet.http_content_type.as_ref().map_or(false, |m| matches_pattern(cache, p, m)),
+            RuleCondition::HttpReferer(ref p) => packet.http_referer.as_ref().map_or(false, |m| matches_pattern(cache, p, m)),
+            RuleCondition::DnsQuery(ref p) => packet.dns_query.as_ref().map_or(false, |m| matches_pattern(cache, p, m)),
             RuleCondition::SanctumDetected => true,
             RuleCondition::JsonMatch(matcher) => matcher.matches(payload),
-            RuleCondition::Ip(s) | RuleCondition::Payload(s) => {
-                let bytes = s.as_bytes();
-                if let Some(sample) = &packet.payload_sample {
-                    sample.contains(s) || bytes.iter().all(|&b| sample.as_bytes().contains(&b)) 
-                } else {
-                    false
-                }
-            }
+            RuleCondition::Ip(ref p) => matches_pattern(cache, p, &packet.src_ip.to_string()) || matches_pattern(cache, p, &packet.dst_ip.to_string()),
+            RuleCondition::Payload(ref p) => matches_pattern(cache, p, &String::from_utf8_lossy(payload)),
+            _ => false,
         }
     }
 }

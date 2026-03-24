@@ -5,9 +5,7 @@ use serde::{Deserialize, Serialize};
 use serde_yaml;
 use serde_yaml::Value as YamlValue;
 use regex::Regex;
-use std::cell::RefCell;
-use std::sync::{Arc, OnceLock};
-
+use std::sync::{Arc, OnceLock, RwLock};
 use crate::shared_def::{FileChangeInfo, IOMessage, IrpMajorOp, known_raw_event_name};
 use crate::process::ProcessRecord;
 use super::network_rules::{PacketInfo, Protocol};
@@ -15,7 +13,7 @@ use crate::logging::Logging;
 use crate::config::Config;
 use crate::actions_on_kill::{ActionsOnKill, ThreatInfo};
 use crate::extensions::ExtensionList;
-use crate::predictions::prediction::input_tensors::VecvecCappedF32;
+use crate::predictions::prediction::input_tensors::{VecvecCappedF32, Timestep};
 use crate::threat_handler::ThreatHandler;
 use crate::signature_verification::verify_signature;
 use crate::utils::{format_process_descriptor_with_fallback, resolve_process_path, validate_pipe_client};
@@ -308,7 +306,7 @@ pub struct IrpStatistics {
 
 impl IrpStatistics {
     pub fn get_total_operations(&self) -> u64 {
-        self.operations_total
+        self.read_count + self.write_count + self.create_count + self.delete_count + self.rename_count + self.setinfo_count + self.registry_read_count + self.registry_write_count + self.registry_delete_count + self.registry_create_count + self.process_create_count + self.process_terminate_count + self.process_exit_count + self.process_handle_open_count + self.process_terminate_attempt_count + self.hypervisor_event_count
     }
 
     pub fn get_high_entropy_count(&self) -> usize {
@@ -1261,13 +1259,23 @@ impl BehaviorRule {
             use super::network_rules::RuleCondition;
             for r in rules.iter_mut() {
                 match r {
-                    RuleCondition::Ip(ref s) | RuleCondition::Domain(ref s) | RuleCondition::Url(ref s) |
-                    RuleCondition::FileType(ref s) | RuleCondition::Regex(ref s) | RuleCondition::Payload(ref s) |
-                    RuleCondition::HttpMethod(ref s) | RuleCondition::HttpPath(ref s) | RuleCondition::HttpUserAgent(ref s) |
-                    RuleCondition::HttpContentType(ref s) | RuleCondition::HttpReferer(ref s) | RuleCondition::DnsQuery(ref s) => {
-                        // For complex matchers, we skip simple env expansion for now or handle them specifically
-                        // If s is just a String, expand it. If it's a Matcher struct, we might need to expand internal fields.
-                        // Based on the error, some are Matcher structs.
+                    RuleCondition::Ip(ref mut s) | RuleCondition::Payload(ref mut s) |
+                    RuleCondition::HttpMethod(ref mut s) | RuleCondition::HttpPath(ref mut s) | 
+                    RuleCondition::HttpUserAgent(ref mut s) | RuleCondition::HttpContentType(ref mut s) | 
+                    RuleCondition::HttpReferer(ref mut s) | RuleCondition::DnsQuery(ref mut s) => {
+                        *s = expand_environment_variables(s);
+                    }
+                    RuleCondition::Domain(ref mut m) => {
+                        for p in m.patterns.iter_mut() { *p = expand_environment_variables(p); }
+                    }
+                    RuleCondition::Url(ref mut m) => {
+                        for p in m.patterns.iter_mut() { *p = expand_environment_variables(p); }
+                    }
+                    RuleCondition::FileType(ref mut v) => {
+                        for p in v.iter_mut() { *p = expand_environment_variables(p); }
+                    }
+                    RuleCondition::Regex(ref mut m) => {
+                        m.pattern = expand_environment_variables(&m.pattern);
                     }
                     _ => {}
                 }
@@ -1745,7 +1753,7 @@ impl BehaviorEngine {
         let blocked_exes  = Arc::clone(&self.firewall_blocked_exes);
         let hips_decisions = Arc::clone(&self.firewall_hips_decisions);
         let http_body_map = Arc::clone(&self.firewall_http_body_map);
-        let full_packets  = Arc::clone(&self.firewall_full_packets);
+        let full_packets: Arc<RwLock<HashMap<u32, VecDeque<PacketInfo>>>> = Arc::clone(&self.firewall_full_packets);
 
         std::thread::Builder::new()
             .name("hydra_net_event_pipe".to_string())
@@ -1906,7 +1914,7 @@ impl BehaviorEngine {
                                     ));
                                 }
                             } else if line == "GENERATE_REPORT" {
-                                self.generate_report_flag.store(true, Ordering::SeqCst);
+                                generate_report_flag.store(true, Ordering::SeqCst);
                                 Logging::info("[HydraNetPipe] Received on-demand report request");
                             } else if let Some(json) = line.strip_prefix("FULL_PACKET:") {
                                 // Full PacketInfo JSON from the firewall.
@@ -2539,7 +2547,7 @@ impl BehaviorEngine {
         sorted_aliases
     }
 
-    fn registry_pattern_matches(cache: &RefCell<HashMap<String, Regex>>, pattern: &str, filepath: &str) -> bool {
+    fn registry_pattern_matches(cache: &Arc<RwLock<HashMap<String, Regex>>>, pattern: &str, filepath: &str) -> bool {
         let pattern_aliases = Self::registry_match_aliases(pattern);
         let filepath_aliases = Self::registry_match_aliases(filepath);
 
@@ -2574,7 +2582,7 @@ impl BehaviorEngine {
     }
 
     fn extension_pattern_matches(
-        cache: &RefCell<HashMap<String, Regex>>,
+        cache: &Arc<RwLock<HashMap<String, Regex>>>,
         pattern: &str,
         ext_without_dot: &str,
         ext_with_dot: &str,
@@ -2602,7 +2610,7 @@ impl BehaviorEngine {
     }
 
     fn is_extension_whitelisted(
-        cache: &RefCell<HashMap<String, Regex>>,
+        cache: &Arc<RwLock<HashMap<String, Regex>>>,
         default_whitelist: &HashSet<String>,
         cond_group: &NamedConditionGroup,
         ext_without_dot: &str,
@@ -3489,9 +3497,7 @@ impl BehaviorEngine {
                     if !matched && !cond_group.network_rules.is_empty() {
                         if state.net_packets.iter().any(|pkt| {
                             cond_group.network_rules.iter().all(|rule_cond| {
-                                let payload = pkt.http_request_body.as_deref()
-                                    .unwrap_or(pkt.payload_sample.as_deref().unwrap_or(""))
-                                    .as_bytes();
+                                let payload = &msg.irp_op_info.irp_packet_info.as_ref().map(|p| p.payload.as_slice()).unwrap_or(&[]);
                                 rule_cond.matches_packet(&self.regex_cache, pkt, payload)
                             })
                         }) {
@@ -4895,19 +4901,20 @@ impl BehaviorEngine {
         }) // end names_to_check.iter().any()
     }
 
-    fn matches_pattern_internal(cache: &RefCell<HashMap<String, Regex>>, pattern: &str, text: &str) -> bool {
+    fn matches_pattern_internal(cache: &Arc<RwLock<HashMap<String, Regex>>>, pattern: &str, text: &str) -> bool {
         if !pattern.contains(['*', '?', '[', '\\', '.', '^', '$']) {
             return text.to_lowercase().contains(&pattern.to_lowercase());
         }
 
         {
-            if let Ok(cache_map) = cache.try_borrow()
-                && let Some(re) = cache_map.get(pattern) {
+            if let Ok(cache_map) = cache.read() {
+                if let Some(re) = cache_map.get(pattern) {
                     return re.is_match(text);
                 }
+            }
         }
 
-        let mut cache_map = cache.borrow_mut();
+        let mut cache_map = cache.write().unwrap();
         
         if let Some(re) = cache_map.get(pattern) {
             return re.is_match(text);

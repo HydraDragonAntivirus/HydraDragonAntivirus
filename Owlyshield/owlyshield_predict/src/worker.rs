@@ -217,7 +217,9 @@ pub mod process_record_handling {
     use crate::watchlist::WatchList;
     use crate::novelty::{Rule, StateSave};
     use crate::threat_handler::ThreatHandler;
-    use crate::Logging;
+    use crate::logging::Logging;
+    use crate::process::ProcessRecord;
+    use crate::predictions::prediction::input_tensors::Timestep;
 
     pub trait Exepath {
         fn exepath(&self, iomsg: &IOMessage) -> Option<PathBuf>;
@@ -593,7 +595,7 @@ mod process_records {
     }
 }
 
-pub mod worker_instance {
+    pub mod worker_instance {
     use std::path::{Path, PathBuf};
     use std::sync::mpsc::{channel, Sender};
     use std::thread;
@@ -635,16 +637,13 @@ pub mod worker_instance {
     use crate::process::ProcessState;
     use crate::logging::Logging;
     use crate::jsonrpc::{Jsonrpc, RPCMessage};
-    use crate::predictions::prediction::input_tensors::Timestep;
     use crate::threat_handler::ThreatHandler;
     use sysinfo::{System, ProcessesToUpdate};
     use std::collections::{HashMap, HashSet, VecDeque};
+    use std::hash::{Hash, Hasher, DefaultHasher};
     use base64::Engine;
-    use std::path::{Path, PathBuf};
-    #[cfg(feature = "realtime_learning")]
-    use std::collections::HashMap;
-    #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-    use std::collections::HashSet;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Once;
     #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
     use crate::behavioral::behavior_engine::BehaviorEngine;
     #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
@@ -880,7 +879,7 @@ pub mod worker_instance {
             });
             #[cfg(feature = "sanctum")]
             SANCTUM_PIPE_START.call_once(|| {
-                Self::start_sanctum_telemetry_pipe(&engine);
+                Self::start_sanctum_telemetry_pipe(engine.clone());
             });
             engine
         }
@@ -889,8 +888,8 @@ pub mod worker_instance {
         /// Moved to Worker.rs as requested (Starting + Detection handling).
         /// Other ingestion codes remain in BehaviorEngine::ingest_sanctum_event.
         #[cfg(all(target_os = "windows", feature = "behavior_engine", feature = "sanctum"))]
-        pub fn start_sanctum_telemetry_pipe(behavior_engine: &BehaviorEngine) {
-            let engine_clone = behavior_engine.clone();
+        pub fn start_sanctum_telemetry_pipe(behavior_engine: BehaviorEngine) {
+            let engine_clone = behavior_engine;
 
             std::thread::Builder::new()
                 .name("sanctum_telemetry_pipe".to_string())
@@ -1231,12 +1230,12 @@ pub mod worker_instance {
                 threat_handler: None,
                 av_integration: None,
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-                app_settings,
+                app_settings: app_settings.clone(),
                 iomsg_postprocessors: vec![],
                 api_trackers: std::collections::HashMap::new(),
                 rules_path: config[Param::BehaviorRulesPath].clone(),
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-                behavior_engine: BehaviorEngine::new(Self::realtime_learning_output_dir(config)),
+                behavior_engine: Self::build_behavior_engine(),
                 #[cfg(not(all(target_os = "windows", feature = "behavior_engine")))]
                 behavior_engine: BehaviorEngine::dummy(),
                 #[cfg(feature = "realtime_learning")]
@@ -1870,8 +1869,8 @@ pub mod worker_instance {
                 #[cfg(feature = "realtime_learning")]
                 {
                     // Convert LruCache to temporary HashMap for check_benign_processes
-                    let temp_records: HashMap<u64, ProcessRecord> = self.process_records.process_records.iter().map(|(k, v)| (*k, v.clone())).collect();
-                    self.learning_engine.check_benign_processes(&self.api_trackers, &temp_records);
+                    let records: HashMap<u64, ProcessRecord> = self.process_records.process_records.iter().map(|(&k, v)| (k, v.clone())).collect();
+                    self.learning_engine.check_benign_processes(&self.api_trackers, &records);
                     if self.learning_engine.should_export() {
                         let _ = self.learning_engine.export_samples();
                     }

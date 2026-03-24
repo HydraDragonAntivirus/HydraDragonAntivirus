@@ -1919,7 +1919,7 @@ def removeNonAsciiDrop(string):
 
 def save(object, filename):
     file = gzip.GzipFile(filename, 'wb')
-    file.write(bytes(json.dumps(object), 'utf-8'))
+    json.dump(object, file, indent=4)
     file.close()
 
 

@@ -179,7 +179,8 @@ impl SystemReport {
         for (pid, process) in sys.processes() {
              // In a real advanced EDR, we'd query the TCP table here.
              // For this implementation, we report active processes with potential network capabilities
-             if process.name().to_lowercase().contains("http") || process.name().to_lowercase().contains("server") {
+             let pname = process.name().to_string_lossy();
+             if pname.to_lowercase().contains("http") || pname.to_lowercase().contains("server") {
                  self.network_listeners.push(NetworkListener {
                      protocol: "TCP/UDP (Potential)".to_string(),
                      local_addr: "0.0.0.0:*".to_string(),

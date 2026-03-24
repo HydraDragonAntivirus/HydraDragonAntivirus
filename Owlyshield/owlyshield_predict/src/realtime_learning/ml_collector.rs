@@ -581,6 +581,7 @@ impl MLCollector {
                 | OperationType::MemoryModify(_, _)
                 | OperationType::MemoryProtect(_, _)
                 | OperationType::Generic(_) => {}
+                OperationType::ProcessHandleOpen { .. } => {}
             }
         }
 
