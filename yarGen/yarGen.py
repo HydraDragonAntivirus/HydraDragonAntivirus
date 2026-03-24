@@ -1098,7 +1098,7 @@ def generate_rules(file_strings, file_opcodes, super_rules, file_info, inverse_s
     # Write to file ---------------------------------------------------
     if args.o:
         try:
-            fh = open(args.o, 'w')
+            fh = open(args.o, 'w', encoding='utf-8', errors='replace')
         except Exception as e:
             traceback.print_exc()
 
@@ -1761,7 +1761,7 @@ def write_strings(filePath, strings, output_dir, scores):
                 output_string.append(string)
         # Empty line between sections
         output_string.append("\n")
-    with open(strings_filename, "w") as fh:
+    with open(strings_filename, "w", encoding='utf-8', errors='replace') as fh:
         fh.write("\n".join(output_string))
 
 
@@ -2068,7 +2068,7 @@ def getFileContent(file):
     :return:
     """
     try:
-        with open(file) as f:
+        with open(file, encoding='utf-8', errors='replace') as f:
             return f.read(1024)
     except Exception as e:
         return "not found"
