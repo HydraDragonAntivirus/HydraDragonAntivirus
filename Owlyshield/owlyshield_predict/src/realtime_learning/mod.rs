@@ -220,9 +220,10 @@ impl OwlyShieldSDK {
 
     /// Periodic check for benign processes (call this every few minutes)
     /// Automatically labels long-running, non-malicious processes as benign
-    pub fn check_benign_processes(&mut self, process_records: &HashMap<u64, ProcessRecord>) {
+    pub fn check_benign_processes<'a, F>(&mut self, get_record: F)
+    where F: Fn(u64) -> Option<&'a ProcessRecord> {
         if let Some(ref mut rt_learning) = self.realtime_learning {
-            rt_learning.check_benign_processes(&self.api_trackers, process_records);
+            rt_learning.check_benign_processes(&self.api_trackers, get_record);
 
             // Auto-export if buffer is full
             if rt_learning.should_export() {

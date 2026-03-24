@@ -808,7 +808,7 @@ impl ApiTracker {
 
     /// Track a Sanctum telemetry event
     #[cfg(feature = "sanctum")]
-    pub fn track_sanctum_event(&mut self, source: &str, function: &str, args: &serde_json::Value) {
+    pub fn track_sanctum_event(&mut self, source: &str, function: &str, _args: &serde_json::Value) {
         self.sanctum_operations.syscall_count += 1;
         self.sanctum_operations.last_event = Some(function.to_string());
         

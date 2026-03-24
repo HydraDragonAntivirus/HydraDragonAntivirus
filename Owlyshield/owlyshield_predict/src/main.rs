@@ -145,6 +145,7 @@ mod watchlist;
 mod whitelist;
 pub(crate) mod worker;
 mod novelty;
+mod report;
 mod globals;
 #[cfg(target_os = "windows")]
 pub mod services;

@@ -74,7 +74,7 @@ pub struct ExtensionEntry {
 }
 
 impl SystemReport {
-    pub fn collect(_config: &Config) -> Self {
+    pub fn collect(_config: &Config, firewall_pids: Option<&std::collections::HashSet<u32>>) -> Self {
         let mut report = SystemReport::default();
         report.timestamp = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
         report.hostname = hostname::get().map(|h| h.to_string_lossy().into_owned()).unwrap_or_else(|_| "Unknown".into());
@@ -85,7 +85,7 @@ impl SystemReport {
             report.collect_windows_startups();
             report.collect_hosts_file();
             report.collect_av_status();
-            report.collect_network_listeners();
+            report.collect_network_listeners(firewall_pids);
             report.collect_kernel_drivers();
             report.collect_browser_extensions();
         }
@@ -168,28 +168,21 @@ impl SystemReport {
     }
 
     #[cfg(target_os = "windows")]
-    fn collect_network_listeners(&mut self) {
-        use sysinfo::{System, Networks};
-        let mut sys = System::new_all();
-        sys.refresh_all();
-        
-        // Note: sysinfo 0.38+ has better network collection but listeners might need netstat-like logic
-        // For advanced report, we'll use a placeholder or system-specific command integration if possible
-        // Let's stick to process-based network info available in sysinfo
-        for (pid, process) in sys.processes() {
-             // In a real advanced EDR, we'd query the TCP table here.
-             // For this implementation, we report active processes with potential network capabilities
-             let pname = process.name().to_string_lossy();
-             if pname.to_lowercase().contains("http") || pname.to_lowercase().contains("server") {
-                 self.network_listeners.push(NetworkListener {
-                     protocol: "TCP/UDP (Potential)".to_string(),
-                     local_addr: "0.0.0.0:*".to_string(),
-                     process_name: process.name().to_string_lossy().into_owned(),
-                     pid: pid.as_u32(),
-                 });
-             }
+    fn collect_network_listeners(&mut self, firewall_pids: Option<&std::collections::HashSet<u32>>) {
+        if let Some(pids) = firewall_pids {
+            for &pid in pids {
+                self.network_listeners.push(NetworkListener {
+                    protocol: "TCP/UDP (Firewall)".to_string(),
+                    local_addr: "0.0.0.0:*".to_string(),
+                    process_name: format!("Firewall-Observed Process"),
+                    pid: pid,
+                });
+            }
         }
+        
+        // Use firewall-observed PIDs for the report
     }
+
 
     #[cfg(target_os = "windows")]
     fn collect_kernel_drivers(&mut self) {

@@ -29,6 +29,7 @@ import datetime
 import time
 import lief
 import json
+import codecs
 import gzip
 import urllib.request
 import binascii
@@ -1919,7 +1920,8 @@ def removeNonAsciiDrop(string):
 
 def save(object, filename):
     file = gzip.GzipFile(filename, 'wb')
-    json.dump(object, file, indent=4)
+    with codecs.getwriter('utf-8')(file) as writer:
+        json.dump(object, writer, indent=4)
     file.close()
 
 

@@ -8,12 +8,12 @@ use regex::Regex;
 use std::sync::{Arc, OnceLock, RwLock};
 use crate::shared_def::{FileChangeInfo, IOMessage, IrpMajorOp, known_raw_event_name};
 use crate::process::ProcessRecord;
-use super::network_rules::{PacketInfo, Protocol};
+use super::network_rules::PacketInfo;
 use crate::logging::Logging;
 use crate::config::Config;
 use crate::actions_on_kill::{ActionsOnKill, ThreatInfo};
 use crate::extensions::ExtensionList;
-use crate::predictions::prediction::input_tensors::{VecvecCappedF32, Timestep};
+use crate::predictions::prediction::input_tensors::VecvecCappedF32;
 use crate::threat_handler::ThreatHandler;
 use crate::signature_verification::verify_signature;
 use crate::utils::{format_process_descriptor_with_fallback, resolve_process_path, validate_pipe_client};
@@ -1259,22 +1259,22 @@ impl BehaviorRule {
             use super::network_rules::RuleCondition;
             for r in rules.iter_mut() {
                 match r {
-                    RuleCondition::Ip(ref mut s) | RuleCondition::Payload(ref mut s) |
-                    RuleCondition::HttpMethod(ref mut s) | RuleCondition::HttpPath(ref mut s) | 
-                    RuleCondition::HttpUserAgent(ref mut s) | RuleCondition::HttpContentType(ref mut s) | 
-                    RuleCondition::HttpReferer(ref mut s) | RuleCondition::DnsQuery(ref mut s) => {
+                    RuleCondition::Ip(s) | RuleCondition::Payload(s) |
+                    RuleCondition::HttpMethod(s) | RuleCondition::HttpPath(s) | 
+                    RuleCondition::HttpUserAgent(s) | RuleCondition::HttpContentType(s) | 
+                    RuleCondition::HttpReferer(s) | RuleCondition::DnsQuery(s) => {
                         *s = expand_environment_variables(s);
                     }
-                    RuleCondition::Domain(ref mut m) => {
+                    RuleCondition::Domain(m) => {
+                        for p in m.domains.iter_mut() { *p = expand_environment_variables(p); }
+                    }
+                    RuleCondition::Url(m) => {
                         for p in m.patterns.iter_mut() { *p = expand_environment_variables(p); }
                     }
-                    RuleCondition::Url(ref mut m) => {
-                        for p in m.patterns.iter_mut() { *p = expand_environment_variables(p); }
-                    }
-                    RuleCondition::FileType(ref mut v) => {
+                    RuleCondition::FileType(v) => {
                         for p in v.iter_mut() { *p = expand_environment_variables(p); }
                     }
-                    RuleCondition::Regex(ref mut m) => {
+                    RuleCondition::Regex(m) => {
                         m.pattern = expand_environment_variables(&m.pattern);
                     }
                     _ => {}
@@ -1640,6 +1640,7 @@ impl ProcessBehaviorState {
 // BEHAVIOR ENGINE
 // =============================================================================
 
+#[derive(Clone)]
 pub struct BehaviorEngine {
     pub rules: Vec<BehaviorRule>,
     pub process_states: HashMap<u64, ProcessBehaviorState>,
@@ -1754,6 +1755,7 @@ impl BehaviorEngine {
         let hips_decisions = Arc::clone(&self.firewall_hips_decisions);
         let http_body_map = Arc::clone(&self.firewall_http_body_map);
         let full_packets: Arc<RwLock<HashMap<u32, VecDeque<PacketInfo>>>> = Arc::clone(&self.firewall_full_packets);
+        let generate_report_flag = Arc::clone(&self.generate_report_flag);
 
         std::thread::Builder::new()
             .name("hydra_net_event_pipe".to_string())
@@ -3497,7 +3499,7 @@ impl BehaviorEngine {
                     if !matched && !cond_group.network_rules.is_empty() {
                         if state.net_packets.iter().any(|pkt| {
                             cond_group.network_rules.iter().all(|rule_cond| {
-                                let payload = &msg.irp_op_info.irp_packet_info.as_ref().map(|p| p.payload.as_slice()).unwrap_or(&[]);
+                                let payload = &[];
                                 rule_cond.matches_packet(&self.regex_cache, pkt, payload)
                             })
                         }) {

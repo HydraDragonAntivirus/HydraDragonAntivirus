@@ -210,15 +210,14 @@ pub mod process_record_handling {
     use crate::actions_on_kill::{ActionsOnKill, ThreatInfo};
     use crate::config::{Config, KillPolicy, Param};
     use crate::csvwriter::CsvWriter;
-    use crate::shared_def::IrpMajorOp;
-    use crate::process::ProcessState;
-    use crate::worker::predictor::{PredictorHandler, PredictorMalware};
-    use crate::IOMessage;
     use crate::watchlist::WatchList;
+    use crate::worker::predictor::PredictorHandler;
     use crate::novelty::{Rule, StateSave};
     use crate::threat_handler::ThreatHandler;
     use crate::logging::Logging;
-    use crate::process::ProcessRecord;
+    use crate::process::{ProcessRecord, ProcessState};
+    use crate::IOMessage;
+    use super::predictor::PredictorMalware;
     use crate::predictions::prediction::input_tensors::Timestep;
 
     pub trait Exepath {
@@ -639,11 +638,8 @@ mod process_records {
     use crate::jsonrpc::{Jsonrpc, RPCMessage};
     use crate::threat_handler::ThreatHandler;
     use sysinfo::{System, ProcessesToUpdate};
-    use std::collections::{HashMap, HashSet, VecDeque};
+    use std::collections::{HashMap, HashSet};
     use std::hash::{Hash, Hasher, DefaultHasher};
-    use base64::Engine;
-    use std::sync::atomic::{AtomicBool, Ordering};
-    use std::sync::Once;
     #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
     use crate::behavioral::behavior_engine::BehaviorEngine;
     #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
@@ -814,7 +810,8 @@ mod process_records {
     impl<'a> Worker<'a> {
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
         pub fn generate_system_report(&mut self, config: &crate::config::Config) {
-            let mut report = crate::report::SystemReport::collect(config);
+            let fw_pids = self.behavior_engine.firewall_net_pids.read().unwrap();
+            let mut report = crate::report::SystemReport::collect(config, Some(&fw_pids));
             
             // Collect process snapshots from behavior engine
             for (gid, state) in &self.behavior_engine.process_states {
@@ -1582,7 +1579,7 @@ mod process_records {
 
                 #[cfg(feature = "realtime_learning")]
                 {
-                    let mut tracker = self.api_trackers.entry(gid).or_insert_with(|| ApiTracker::new(gid, precord.appname.clone()));
+                    let tracker = self.api_trackers.entry(gid).or_insert_with(|| ApiTracker::new(gid, precord.appname.clone()));
                     tracker.is_terminated = true;
                     tracker.termination_time = Some(std::time::SystemTime::now());
                 }
@@ -1868,12 +1865,7 @@ mod process_records {
                 // --- SEVENTH: Real-time learning periodic checks ---
                 #[cfg(feature = "realtime_learning")]
                 {
-                    // Convert LruCache to temporary HashMap for check_benign_processes
-                    let records: HashMap<u64, ProcessRecord> = self.process_records.process_records.iter().map(|(&k, v)| (k, v.clone())).collect();
-                    self.learning_engine.check_benign_processes(&self.api_trackers, &records);
-                    if self.learning_engine.should_export() {
-                        let _ = self.learning_engine.export_samples();
-                    }
+                    self.learning_engine.check_benign_processes(&self.api_trackers, |gid| self.process_records.process_records.peek(&gid));
                 }
             }
         }
@@ -1936,7 +1928,7 @@ mod process_records {
         pub fn process_io(&mut self, iomsg: &mut IOMessage, config: &crate::config::Config) {
             let irp_op = iomsg.irp_op;
             let is_process_create = irp_op == IrpMajorOp::IrpProcessCreate as u8;
-            let is_process_terminate = irp_op == IrpMajorOp::IrpProcessTerminate as u8;
+            let _is_process_terminate = irp_op == IrpMajorOp::IrpProcessTerminate as u8;
             
             self.normalize_tracking_gid(iomsg);
 

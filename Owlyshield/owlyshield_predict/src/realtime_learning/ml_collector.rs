@@ -593,10 +593,10 @@ impl MLCollector {
             use crate::behavioral::network_rules::{DomainMatcher, UrlMatcher};
             for pkt in &api_tracker.net_packets {
                 if !pkt.domain.is_empty() {
-                    network_rules.push(NetCondition::Domain(DomainMatcher::Exact(pkt.domain.clone())));
+                    network_rules.push(NetCondition::Domain(DomainMatcher::exact(pkt.domain.clone())));
                 }
                 if !pkt.url.is_empty() {
-                    network_rules.push(NetCondition::Url(UrlMatcher::Contains(pkt.url.clone())));
+                    network_rules.push(NetCondition::Url(UrlMatcher::contains(pkt.url.clone())));
                 }
             }
         }

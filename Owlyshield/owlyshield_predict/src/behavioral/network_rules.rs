@@ -2,7 +2,6 @@ use serde::{Deserialize, Serialize};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use regex::Regex;
 use std::collections::HashMap;
-use std::cell::RefCell;
 use std::sync::{Arc, RwLock};
 use base64::Engine;
 
@@ -203,7 +202,7 @@ impl SdkRule {
         }
     }
 
-    pub fn matches_packet(&self, cache: &RefCell<HashMap<String, Regex>>, packet: &PacketInfo, payload: &[u8]) -> bool {
+    pub fn matches_packet(&self, cache: &Arc<RwLock<HashMap<String, Regex>>>, packet: &PacketInfo, payload: &[u8]) -> bool {
         if !self.enabled { return false; }
         if let Some(ref matcher) = self.json_match {
             if !matcher.matches(payload) {
@@ -380,17 +379,16 @@ impl RuleCondition {
             }
             RuleCondition::Entropy(matcher) => packet.payload_entropy.map_or(false, |e| e >= matcher.threshold),
             RuleCondition::Routine(routine) => routine.matches(packet),
-            RuleCondition::HttpMethod(ref p) => packet.http_method.as_ref().map_or(false, |m| matches_pattern(cache, p, m)),
-            RuleCondition::HttpPath(ref p) => packet.http_path.as_ref().map_or(false, |m| matches_pattern(cache, p, m)),
-            RuleCondition::HttpUserAgent(ref p) => packet.http_user_agent.as_ref().map_or(false, |m| matches_pattern(cache, p, m)),
-            RuleCondition::HttpContentType(ref p) => packet.http_content_type.as_ref().map_or(false, |m| matches_pattern(cache, p, m)),
-            RuleCondition::HttpReferer(ref p) => packet.http_referer.as_ref().map_or(false, |m| matches_pattern(cache, p, m)),
-            RuleCondition::DnsQuery(ref p) => packet.dns_query.as_ref().map_or(false, |m| matches_pattern(cache, p, m)),
+            RuleCondition::HttpMethod(p) => packet.http_method.as_ref().map_or(false, |m| matches_pattern(cache, p, m)),
+            RuleCondition::HttpPath(p) => packet.http_path.as_ref().map_or(false, |m| matches_pattern(cache, p, m)),
+            RuleCondition::HttpUserAgent(p) => packet.http_user_agent.as_ref().map_or(false, |m| matches_pattern(cache, p, m)),
+            RuleCondition::HttpContentType(p) => packet.http_content_type.as_ref().map_or(false, |m| matches_pattern(cache, p, m)),
+            RuleCondition::HttpReferer(p) => packet.http_referer.as_ref().map_or(false, |m| matches_pattern(cache, p, m)),
+            RuleCondition::DnsQuery(p) => packet.dns_query.as_ref().map_or(false, |m| matches_pattern(cache, p, m)),
             RuleCondition::SanctumDetected => true,
             RuleCondition::JsonMatch(matcher) => matcher.matches(payload),
-            RuleCondition::Ip(ref p) => matches_pattern(cache, p, &packet.src_ip.to_string()) || matches_pattern(cache, p, &packet.dst_ip.to_string()),
-            RuleCondition::Payload(ref p) => matches_pattern(cache, p, &String::from_utf8_lossy(payload)),
-            _ => false,
+            RuleCondition::Ip(p) => matches_pattern(cache, p, &packet.src_ip.to_string()) || matches_pattern(cache, p, &packet.dst_ip.to_string()),
+            RuleCondition::Payload(p) => matches_pattern(cache, p, &String::from_utf8_lossy(payload)),
         }
     }
 }
@@ -415,7 +413,7 @@ impl DomainMatcher {
         })
     }
     
-    pub fn Exact(domain: String) -> Self {
+    pub fn exact(domain: String) -> Self {
         Self {
             domains: vec![domain],
             case_insensitive: true,
@@ -431,7 +429,7 @@ impl UrlMatcher {
         self.patterns.iter().any(|p| wildcard_match(&p.to_lowercase(), &u_lower))
     }
     
-    pub fn Contains(pattern: String) -> Self {
+    pub fn contains(pattern: String) -> Self {
         Self {
             patterns: vec![format!("*{}*", pattern)],
         }
@@ -485,13 +483,23 @@ impl RegexMatcher {
     }
 }
 
-pub fn matches_pattern(cache: &RefCell<HashMap<String, Regex>>, pattern: &str, text: &str) -> bool {
+pub fn matches_pattern(cache: &Arc<RwLock<HashMap<String, Regex>>>, pattern: &str, text: &str) -> bool {
     let p = pattern.to_lowercase();
     let t = text.to_lowercase();
     if p == "*" || p == "*.*" || p.is_empty() { return true; }
     if !p.contains('*') && !p.contains('?') { return t == p || t.contains(&p); }
     let rp = format!("^{}$", regex::escape(&p).replace("\\*", ".*").replace("\\?", "."));
-    cache.borrow_mut().entry(rp.clone()).or_insert_with(|| Regex::new(&rp).unwrap_or_else(|_| Regex::new(".*").unwrap())).is_match(&t)
+    
+    {
+        if let Ok(cache_map) = cache.read() {
+            if let Some(re) = cache_map.get(&rp) {
+                return re.is_match(&t);
+            }
+        }
+    }
+
+    let mut cache_map = cache.write().unwrap();
+    cache_map.entry(rp.clone()).or_insert_with(|| Regex::new(&rp).unwrap_or_else(|_| Regex::new(".*").unwrap())).is_match(&t)
 }
 
 fn ip_in_cidr(ip: IpAddr, cidr: &str) -> bool {
