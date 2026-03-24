@@ -138,8 +138,10 @@ fn shared_firewall_generate_report() -> FirewallGenerateReport {
 }
 
 /// Per-PID stats from Sanctum EDR telemetry (received via HydraSanctumTelemetry pipe).
+#[cfg(feature = "sanctum")]
 type FirewallSanctumStats = Arc<std::sync::RwLock<HashMap<u32, crate::realtime_learning::api_tracker::SanctumOperationStats>>>;
 
+#[cfg(feature = "sanctum")]
 fn shared_firewall_sanctum_stats() -> FirewallSanctumStats {
     static FIREWALL_SANCTUM_STATS: OnceLock<FirewallSanctumStats> = OnceLock::new();
     FIREWALL_SANCTUM_STATS
@@ -1491,8 +1493,10 @@ pub struct ProcessBehaviorState {
     pub net_packets: VecDeque<PacketInfo>,
 
     /// Sanctum EDR telemetry stats for real-time learning.
+    #[cfg(feature = "sanctum")]
     pub sanctum_stats: crate::realtime_learning::api_tracker::SanctumOperationStats,
     /// Historical hits for Sanctum suspicious syscalls throughout the process lifetime.
+    #[cfg(feature = "sanctum")]
     pub sanctum_suspicious_hits: HashSet<String>,
 }
 
@@ -1529,7 +1533,10 @@ impl ProcessBehaviorState {
             state.net_packets = VecDeque::with_capacity(500);
             state.http_body_entries = Vec::new();
         }
-        state.sanctum_stats = crate::realtime_learning::api_tracker::SanctumOperationStats::default();
+        #[cfg(feature = "sanctum")]
+        {
+            state.sanctum_stats = crate::realtime_learning::api_tracker::SanctumOperationStats::default();
+        }
 
         state
     }
@@ -1660,6 +1667,7 @@ pub struct BehaviorEngine {
     #[cfg(feature = "firewall")]
     firewall_full_packets: FirewallFullPackets,
     /// Per-PID stats from Sanctum EDR telemetry.
+    #[cfg(feature = "sanctum")]
     pub firewall_sanctum_stats: FirewallSanctumStats,
     #[cfg(feature = "firewall")]
     pub generate_report_flag: FirewallGenerateReport,
@@ -1699,6 +1707,7 @@ impl BehaviorEngine {
             firewall_http_body_map: shared_firewall_http_body_map(),
             #[cfg(feature = "firewall")]
             firewall_full_packets: shared_firewall_full_packets(),
+            #[cfg(feature = "sanctum")]
             firewall_sanctum_stats: shared_firewall_sanctum_stats(),
             #[cfg(feature = "firewall")]
             generate_report_flag: shared_firewall_generate_report(),
@@ -1933,13 +1942,8 @@ impl BehaviorEngine {
             .expect("failed to spawn hydra_net_event_pipe thread");
     }
 
-    /// Spawn the \\.\pipe\HydraSanctumTelemetry named pipe server thread.
-    /// Sanctum EDR sends JSON-serialised Syscall events:
-    ///   {"pid":<u32>,"source":"<str>","function":"<str>","args":{...}}
-    /// Each event is newline-delimited. The pipe validates the client is
-    /// sanctum's um_engine (um_engine.exe) before accepting data.
-    /// Received events are logged and fed into the per-process behavior state
     /// Ingest a telemetry event from Sanctum EDR.
+    #[cfg(feature = "sanctum")]
     pub fn ingest_sanctum_event(&self, event: &serde_json::Value) {
         let pid = event["pid"].as_u64().unwrap_or(0) as u32;
         let source = event["source"].as_str().unwrap_or("-");
@@ -1953,6 +1957,7 @@ impl BehaviorEngine {
         // Register the PID as network-active if Sanctum observes
         // suspicious cross-process operations (NtOpenProcess etc.)
         // so firewall and behavior rules can correlate.
+        #[cfg(feature = "firewall")]
         if pid != 0 && matches!(function,
             "NtOpenProcess" | "NtWriteVirtualMemory" |
             "NtAllocateVirtualMemory" | "NtCreateThreadEx"
@@ -3500,6 +3505,7 @@ impl BehaviorEngine {
                 }
 
                 // ── Sanctum-content conditions ──────────────────────────────────
+                #[cfg(feature = "sanctum")]
                 if !matched {
                     if let Some(min_score) = cond_group.sanctum_injection_score_min {
                         if state.sanctum_stats.injection_score >= min_score {
@@ -4211,6 +4217,7 @@ impl BehaviorEngine {
                     }
                 }
                 // Sync Sanctum telemetry stats.
+                #[cfg(feature = "sanctum")]
                 if let Ok(mut sanctum_lock) = self.firewall_sanctum_stats.write() {
                     if let Some(stats) = sanctum_lock.remove(&pid) {
                         s.sanctum_stats.syscall_count += stats.syscall_count;

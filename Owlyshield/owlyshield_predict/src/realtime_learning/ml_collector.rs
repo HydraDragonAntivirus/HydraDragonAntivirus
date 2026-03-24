@@ -148,11 +148,16 @@ pub struct MLFeatures {
 
     // Sanctum & Injection features
     pub injection_score: f32,
+    #[cfg(feature = "sanctum")]
     pub sanctum_syscall_count: f32,
+    #[cfg(feature = "sanctum")]
     pub sanctum_cross_process_handles: f32,
     pub kernel_telemetry_density: f32,
+    #[cfg(feature = "sanctum")]
     pub sanctum_shellcode_detected: f32,
+    #[cfg(feature = "sanctum")]
     pub sanctum_suspicious_hits_count: f32,
+    #[cfg(feature = "sanctum")]
     pub sanctum_detected: f32,
 }
 
@@ -177,8 +182,11 @@ pub struct RawBehaviorData {
     pub rule_format_rule: BehaviorRule,
 
     // Sanctum telemetry
+    #[cfg(feature = "sanctum")]
     pub sanctum_syscall_count: usize,
+    #[cfg(feature = "sanctum")]
     pub sanctum_injection_score: f32,
+    #[cfg(feature = "sanctum")]
     pub sanctum_suspicious_hits: Vec<String>,
 }
 
@@ -438,8 +446,11 @@ impl MLCollector {
             rule_format_rule,
 
             // Sanctum telemetry
+            #[cfg(feature = "sanctum")]
             sanctum_syscall_count: api_tracker.sanctum_operations.syscall_count,
+            #[cfg(feature = "sanctum")]
             sanctum_injection_score: api_tracker.sanctum_operations.injection_score,
+            #[cfg(feature = "sanctum")]
             sanctum_suspicious_hits: api_tracker.sanctum_operations.suspicious_syscall_hits.clone(),
         }
     }
@@ -1229,16 +1240,24 @@ impl FeatureExtractor {
             network_diversity: api_tracker.internet_apis.len() as f32,
 
             // Sanctum & Injection features
+            #[cfg(feature = "sanctum")]
             injection_score: api_tracker.sanctum_operations.injection_score,
+            #[cfg(not(feature = "sanctum"))]
+            injection_score: 0.0,
+            #[cfg(feature = "sanctum")]
             sanctum_syscall_count: api_tracker.sanctum_operations.syscall_count as f32,
+            #[cfg(feature = "sanctum")]
             sanctum_cross_process_handles: api_tracker.sanctum_operations.cross_process_handle_count as f32,
             kernel_telemetry_density: if api_tracker.total_api_calls() > 0 {
                 api_tracker.kernel_operations.total_kernel_events as f32 / api_tracker.total_api_calls() as f32
             } else {
                 0.0
             },
+            #[cfg(feature = "sanctum")]
             sanctum_shellcode_detected: if api_tracker.sanctum_operations.shellcode_patterns_found { 1.0 } else { 0.0 },
+            #[cfg(feature = "sanctum")]
             sanctum_suspicious_hits_count: api_tracker.sanctum_operations.suspicious_syscall_hits.len() as f32,
+            #[cfg(feature = "sanctum")]
             sanctum_detected: if api_tracker.sanctum_operations.is_detection { 1.0 } else { 0.0 },
         }
     }

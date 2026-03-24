@@ -870,6 +870,7 @@ pub mod worker_instance {
         fn build_behavior_engine() -> BehaviorEngine {
             #[cfg(feature = "firewall")]
             static FIREWALL_PIPE_START: std::sync::Once = std::sync::Once::new();
+            #[cfg(feature = "sanctum")]
             static SANCTUM_PIPE_START: std::sync::Once = std::sync::Once::new();
 
             let engine = BehaviorEngine::new();
@@ -877,6 +878,7 @@ pub mod worker_instance {
             FIREWALL_PIPE_START.call_once(|| {
                 engine.start_firewall_pipe();
             });
+            #[cfg(feature = "sanctum")]
             SANCTUM_PIPE_START.call_once(|| {
                 Self::start_sanctum_telemetry_pipe(&engine);
             });
@@ -886,7 +888,7 @@ pub mod worker_instance {
         /// Spawn the \\.\pipe\HydraSanctumTelemetry named pipe server thread.
         /// Moved to Worker.rs as requested (Starting + Detection handling).
         /// Other ingestion codes remain in BehaviorEngine::ingest_sanctum_event.
-        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+        #[cfg(all(target_os = "windows", feature = "behavior_engine", feature = "sanctum"))]
         pub fn start_sanctum_telemetry_pipe(behavior_engine: &BehaviorEngine) {
             let engine_clone = behavior_engine.clone();
 
@@ -1093,7 +1095,10 @@ pub mod worker_instance {
                     {
                         tracker.net_packets = state.net_packets.clone().into();
                     }
-                    tracker.sanctum_operations = state.sanctum_stats.clone();
+                    #[cfg(feature = "sanctum")]
+                    {
+                        tracker.sanctum_operations = state.sanctum_stats.clone();
+                    }
                 }
             }
 
@@ -1807,47 +1812,47 @@ pub mod worker_instance {
                 }
 
                 // --- SIXTH: Check for Sanctum Detections (Worker-level Handling) ---
-                #[cfg(feature = "firewall")]
-                let sanctum_stats = self.behavior_engine.firewall_sanctum_stats.read().unwrap().clone();
-                #[cfg(not(feature = "firewall"))]
-                let sanctum_stats = std::collections::HashMap::<u32, crate::realtime_learning::api_tracker::SanctumOperationStats>::new();
-                for (pid, stats) in sanctum_stats {
-                    if stats.is_detection {
-                        if let Some(gid) = self.find_gid_by_pid(pid) {
-                            if !terminated_gids.contains(&gid) {
-                                let matching_record = self.process_records.process_records.get_mut(&gid);
-                                if let Some(record) = matching_record {
-                                    if !record.is_malicious {
-                                        Logging::alert(&format!("[SanctumDetection] 🚨 ENFORCING: Marking PID {} Malicious based on Sanctum telemetry", pid));
-                                        record.is_malicious = true;
-                                        record.termination_requested = true;
-                                        record.notify_user_requested = true;
-                                        record.triggered_rule_name = Some("SanctumEDR_Detection".to_string());
-                                        
-                                        #[cfg(feature = "realtime_learning")]
-                                        Self::mark_realtime_process_malicious(
-                                            &mut self.learning_engine,
-                                            &self.api_trackers,
-                                            gid,
-                                            record,
-                                        );
+                #[cfg(feature = "sanctum")]
+                {
+                    let sanctum_stats = self.behavior_engine.firewall_sanctum_stats.read().unwrap().clone();
+                    for (pid, stats) in sanctum_stats {
+                        if stats.is_detection {
+                            if let Some(gid) = self.find_gid_by_pid(pid) {
+                                if !terminated_gids.contains(&gid) {
+                                    let matching_record = self.process_records.process_records.get_mut(&gid);
+                                    if let Some(record) = matching_record {
+                                        if !record.is_malicious {
+                                            Logging::alert(&format!("[SanctumDetection] 🚨 ENFORCING: Marking PID {} Malicious based on Sanctum telemetry", pid));
+                                            record.is_malicious = true;
+                                            record.termination_requested = true;
+                                            record.notify_user_requested = true;
+                                            record.triggered_rule_name = Some("SanctumEDR_Detection".to_string());
+                                            
+                                            #[cfg(feature = "realtime_learning")]
+                                            Self::mark_realtime_process_malicious(
+                                                &mut self.learning_engine,
+                                                &self.api_trackers,
+                                                gid,
+                                                record,
+                                            );
 
-                                        let dummy_pred_mtrx = VecvecCappedF32::new(0, 0);
-                                        let threat_info = ThreatInfo {
-                                            threat_type_label: "Sanctum EDR Detection",
-                                            virus_name: "Sanctum.Malware.Gen",
-                                            prediction: 1.0,
-                                            match_details: Some(format!("Sanctum Detection: {}", stats.last_event.clone().unwrap_or_default())),
-                                            terminate: true,
-                                            quarantine: false,
-                                            kill_and_remove: false,
-                                            notify_user: true,
-                                            revert: false,
-                                        };
-                                        ActionsOnKill::with_handler(threat_handler.clone_box())
-                                            .run_actions_with_info(config, record, &dummy_pred_mtrx, &threat_info);
-                                        
-                                        terminated_gids.insert(gid);
+                                            let dummy_pred_mtrx = VecvecCappedF32::new(0, 0);
+                                            let threat_info = ThreatInfo {
+                                                threat_type_label: "Sanctum EDR Detection",
+                                                virus_name: "Sanctum.Malware.Gen",
+                                                prediction: 1.0,
+                                                match_details: Some(format!("Sanctum Detection: {}", stats.last_event.clone().unwrap_or_default())),
+                                                terminate: true,
+                                                quarantine: false,
+                                                kill_and_remove: false,
+                                                notify_user: true,
+                                                revert: false,
+                                            };
+                                            ActionsOnKill::with_handler(threat_handler.clone_box())
+                                                .run_actions_with_info(config, record, &dummy_pred_mtrx, &threat_info);
+                                            
+                                            terminated_gids.insert(gid);
+                                        }
                                     }
                                 }
                             }

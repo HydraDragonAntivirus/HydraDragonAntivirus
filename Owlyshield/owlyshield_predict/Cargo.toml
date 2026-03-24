@@ -95,5 +95,6 @@ mqtt = []
 novelty = []
 hydradragon = []
 firewall = []
+sanctum = []
 behavior_engine = ["realtime_learning"]
 realtime_learning = []  # Enable OwlyShield realtime-learning for behavioral analysis and ML data collection
