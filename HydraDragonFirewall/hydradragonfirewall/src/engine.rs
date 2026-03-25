@@ -101,6 +101,14 @@ fn browser_family(name: &str) -> &'static str {
     }
 }
 
+fn browser_mitm_prompt_decision_key(browser_name: &str, target: &str) -> String {
+    format!(
+        "browser-mitm:{}:{}",
+        browser_name.trim().to_ascii_lowercase(),
+        target.trim().to_ascii_lowercase()
+    )
+}
+
 fn is_unresolved_identity(value: &str) -> bool {
     let trimmed = value.trim();
     trimmed.is_empty() || trimmed.eq_ignore_ascii_case("unknown")
@@ -1463,8 +1471,11 @@ impl FirewallEngine {
 
     fn maybe_emit_browser_mitm_warning<R: Runtime>(
         tx: &AppHandle<R>,
+        am: &Arc<AppManager>,
+        no_alert_mode: bool,
         tls_proxy: &TlsProxyConfig,
         browser_name: &str,
+        browser_path: &str,
         pid: u32,
         hostname: Option<&str>,
         full_url: Option<&str>,
@@ -1497,6 +1508,17 @@ impl FirewallEngine {
 
         let target = Self::select_proxy_bypass_target(hostname, full_url, Some(fallback_target))
             .unwrap_or_else(|| fallback_target.to_string());
+        let decision_key = browser_mitm_prompt_decision_key(browser_name, &target);
+
+        match am.get_decision(&decision_key) {
+            Some(AppDecision::Allow) => return,
+            Some(AppDecision::AllowOnce) => {
+                am.remove_decision(&decision_key.to_lowercase());
+                return;
+            }
+            _ => {}
+        }
+
         let cache_key = format!(
             "{}|{}|{}|{}",
             browser_name.to_ascii_lowercase(),
@@ -1534,6 +1556,48 @@ impl FirewallEngine {
                 ),
             },
         );
+
+        if family == "firefox" && !no_alert_mode {
+            let enqueued = am.enqueue_pending_app(
+                PendingApp {
+                    process_id: pid,
+                    name: browser_name.to_string(),
+                    path: browser_path.to_string(),
+                    dst_ip: IpAddr::V4(Ipv4Addr::LOCALHOST),
+                    dst_port: tls_proxy.listen_port,
+                    protocol: Protocol::TCP,
+                    hostname: hostname.map(|value| value.to_string()),
+                    reason: Some(format!(
+                        "{} is rejecting or warning on HTTPS interception for {} because {}. This can be benign browser trust behavior or explicit anti-MITM logic. Choose ALLOW MITM to keep interception enabled, ALLOW MITM ONCE for a one-time retry, or NO MITM to bypass interception for this target.",
+                        browser_name,
+                        target,
+                        trust_text
+                    )),
+                    request_id: None,
+                    alert_source: Some("browser_mitm".to_string()),
+                    alert_kind: Some("browser_mitm_prompt".to_string()),
+                    target: Some(target.clone()),
+                    decision_key: Some(decision_key),
+                    full_url: full_url.map(|value| value.to_string()),
+                    http_method: None,
+                    http_path: None,
+                    http_user_agent: None,
+                    http_content_type: None,
+                    http_referer: None,
+                    http_request_body: None,
+                    http_response_body: None,
+                    payload_sample: None,
+                    detected_file_type: None,
+                    packet_json: None,
+                    queue_position: 1,
+                    queue_total: 1,
+                },
+                false,
+            );
+            if enqueued {
+                Self::refresh_active_alert_ui(am, tx);
+            }
+        }
     }
 
     pub fn sync_proxy_runtime<R: Runtime>(&self, tx: &AppHandle<R>) {
@@ -1936,7 +2000,7 @@ impl FirewallEngine {
         settings.kernel_block_paths.push(path.to_string());
     }
 
-    fn refresh_active_alert_ui(am: &Arc<AppManager>, tx: &AppHandle) {
+    fn refresh_active_alert_ui<R: Runtime>(am: &Arc<AppManager>, tx: &AppHandle<R>) {
         if let Some(alert) = am.get_active_alert() {
             Self::spawn_alert_window(tx);
             let _ = tx.emit("ask_app_decision", alert);
@@ -3240,8 +3304,11 @@ impl FirewallEngine {
                 let now = Self::now_ts();
                 Self::maybe_emit_browser_mitm_warning(
                     &tx,
+                    am,
+                    no_alert_mode,
                     &tls_proxy_cfg,
                     &app_info_loopback.name,
+                    &app_info_loopback.path,
                     pid,
                     info.hostname.as_deref(),
                     info.full_url.as_deref(),
@@ -3760,7 +3827,7 @@ impl FirewallEngine {
         }
     }
 
-    fn alert_window_size(app: &AppHandle) -> (f64, f64) {
+    fn alert_window_size<R: Runtime>(app: &AppHandle<R>) -> (f64, f64) {
         if let Some(engine) = app.try_state::<Arc<FirewallEngine>>() {
             if let Some(alert) = engine.get_active_alert() {
                 let text_load = alert.name.len()
@@ -3785,7 +3852,7 @@ impl FirewallEngine {
         (560.0, 280.0)
     }
 
-    pub fn spawn_alert_window(app: &AppHandle) {
+    pub fn spawn_alert_window<R: Runtime>(app: &AppHandle<R>) {
         let (width, height) = Self::alert_window_size(app);
 
         // Window already exists (pre-warmed or reused): resize, reposition, show.
@@ -3833,7 +3900,7 @@ impl FirewallEngine {
     /// Create the alert window hidden at startup so it is fully loaded and its
     /// event listener is already registered when the first alert arrives.
     /// This eliminates WebView2 init + Wasm startup latency from alert display.
-    pub fn prewarm_alert_window(app: &AppHandle) {
+    pub fn prewarm_alert_window<R: Runtime>(app: &AppHandle<R>) {
         if app.get_webview_window("firewall-alert").is_some() {
             return;
         }

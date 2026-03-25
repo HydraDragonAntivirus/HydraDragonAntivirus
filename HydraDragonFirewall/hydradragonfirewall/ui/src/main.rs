@@ -1907,6 +1907,8 @@ fn AlertWindow(
                      let res1 = resolve_decision_internal.clone(); let res2 = resolve_decision_internal.clone(); let res3 = resolve_decision_internal.clone(); let res4 = resolve_decision_internal.clone();
                      let is_registry_alert = app.alert_kind.as_deref() == Some("registry");
                      let is_owlyshield_alert = app.alert_source.as_deref() == Some("owlyshield");
+                     let is_browser_mitm_prompt = app.alert_source.as_deref() == Some("browser_mitm")
+                         || app.alert_kind.as_deref() == Some("browser_mitm_prompt");
                      let is_website_alert = app.alert_source.as_deref() == Some("website")
                          || app.alert_kind.as_deref() == Some("malicious_website")
                          || app.decision_key.as_deref().map(|value| value.starts_with("website:")).unwrap_or(false);
@@ -1921,7 +1923,14 @@ fn AlertWindow(
                      } else {
                          "TRUST"
                      };
-                     let title = if is_registry_alert {
+                     let title = if is_browser_mitm_prompt {
+                         app.full_url
+                             .clone()
+                             .or_else(|| app.target.clone())
+                             .or_else(|| app.hostname.clone())
+                             .map(|value| format!("{} reported an HTTPS interception warning for {}", app.name, value))
+                             .unwrap_or_else(|| format!("{} reported an HTTPS interception warning", app.name))
+                     } else if is_registry_alert {
                          "Registry protection triggered".to_string()
                      } else if is_website_alert {
                          app.full_url
@@ -1937,7 +1946,15 @@ fn AlertWindow(
                      } else {
                          app.name.clone()
                      };
-                     let description = if is_registry_alert {
+                     let description = if is_browser_mitm_prompt {
+                         app.reason
+                             .clone()
+                             .filter(|value| !value.trim().is_empty())
+                             .unwrap_or_else(|| format!(
+                                 "{} reported browser-side anti-MITM behavior. This can be a legitimate trust mismatch or explicit anti-interception logic. Choose ALLOW MITM to keep interception enabled, ALLOW MITM ONCE for a one-time retry, or NO MITM to bypass interception for this target.",
+                                 app.name
+                             ))
+                     } else if is_registry_alert {
                          app.reason
                              .clone()
                              .filter(|value| !value.trim().is_empty())
@@ -1966,7 +1983,9 @@ fn AlertWindow(
                              }
                          )
                      };
-                     let target_label = if is_registry_alert {
+                     let target_label = if is_browser_mitm_prompt {
+                         "Website:"
+                     } else if is_registry_alert {
                          "Registry:"
                      } else if is_website_alert {
                          "URL:"
@@ -1975,7 +1994,14 @@ fn AlertWindow(
                      } else {
                          "Target:"
                      };
-                     let target_value = if is_registry_alert {
+                     let target_value = if is_browser_mitm_prompt {
+                         app.full_url
+                             .clone()
+                             .filter(|value| !value.trim().is_empty())
+                             .or_else(|| app.target.clone().filter(|value| !value.trim().is_empty()))
+                             .or_else(|| app.hostname.clone().filter(|value| !value.trim().is_empty()))
+                             .unwrap_or_else(|| format!("127.0.0.1:{} (TCP)", app.dst_port))
+                     } else if is_registry_alert {
                          app.target
                              .clone()
                              .filter(|value| !value.trim().is_empty())
@@ -2067,10 +2093,24 @@ fn AlertWindow(
                              </div>
                          </div>
                          <div class="alert-footer-actions">
-                                                           <button class="alert-btn block" on:click={let p = app.path.clone(); move |_| res3(n3.clone(), p.clone(), "block".to_string())}> "BLOCK" </button>
-                                                           <button class="alert-btn quarantine" on:click={let p = app.path.clone(); move |_| res4(n4.clone(), p.clone(), "quarantine".to_string())}> "QUARANTINE" </button>
-                                                           <button class="alert-btn session" on:click={let p = app.path.clone(); move |_| res1(n1.clone(), p.clone(), "allow_once".to_string())}> "ONCE" </button>
-                                                           <button class="alert-btn always" on:click={let p = app.path.clone(); let decision = always_decision.clone(); move |_| res2(n2.clone(), p.clone(), decision.clone())}> {always_label} </button>
+                             {if is_browser_mitm_prompt {
+                                 view! {
+                                     <>
+                                         <button class="alert-btn session" on:click={let p = app.path.clone(); move |_| res1(n1.clone(), p.clone(), "allow_once".to_string())}> "ALLOW MITM ONCE" </button>
+                                         <button class="alert-btn quarantine" on:click={let p = app.path.clone(); move |_| res4(n4.clone(), p.clone(), "allow_always_no_mitm".to_string())}> "NO MITM" </button>
+                                         <button class="alert-btn always" on:click={let p = app.path.clone(); move |_| res2(n2.clone(), p.clone(), "allow_always".to_string())}> "ALLOW MITM" </button>
+                                     </>
+                                 }.into_view()
+                             } else {
+                                 view! {
+                                     <>
+                                         <button class="alert-btn block" on:click={let p = app.path.clone(); move |_| res3(n3.clone(), p.clone(), "block".to_string())}> "BLOCK" </button>
+                                         <button class="alert-btn quarantine" on:click={let p = app.path.clone(); move |_| res4(n4.clone(), p.clone(), "quarantine".to_string())}> "QUARANTINE" </button>
+                                         <button class="alert-btn session" on:click={let p = app.path.clone(); move |_| res1(n1.clone(), p.clone(), "allow_once".to_string())}> "ONCE" </button>
+                                         <button class="alert-btn always" on:click={let p = app.path.clone(); let decision = always_decision.clone(); move |_| res2(n2.clone(), p.clone(), decision.clone())}> {always_label} </button>
+                                     </>
+                                 }.into_view()
+                             }}
                          </div>
                      }
                  })}
