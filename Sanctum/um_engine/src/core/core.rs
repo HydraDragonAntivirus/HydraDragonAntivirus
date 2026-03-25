@@ -8,7 +8,13 @@ use crate::{
     utils::log::{Log, LogLevel},
 };
 
+use super::ipc_etw_consumer::run_ipc_for_etw;
 use super::ipc_injected_dll::run_ipc_for_injected_dll;
+use serde_json::to_vec;
+use shared_no_std::ghost_hunting::NtFunction;
+use shared_std::constants::PIPE_FIREWALL_TELEMETRY;
+use tokio::io::AsyncWriteExt;
+use tokio::net::windows::named_pipe::ServerOptions;
 
 /// Pipe name of the Owlyshield behavior engine's Sanctum telemetry receiver.
 const OWLYSHIELD_SANCTUM_PIPE: &str = r"\\.\pipe\HydraSanctumTelemetry";
@@ -26,6 +32,7 @@ fn forward_to_owlyshield(syscall: &shared_no_std::ghost_hunting::Syscall) {
         shared_no_std::ghost_hunting::NtFunction::NtWriteVirtualMemory(_)   => "NtWriteVirtualMemory",
         shared_no_std::ghost_hunting::NtFunction::NtAllocateVirtualMemory(_)=> "NtAllocateVirtualMemory",
         shared_no_std::ghost_hunting::NtFunction::NtCreateThreadEx(_)       => "NtCreateThreadEx",
+        shared_no_std::ghost_hunting::NtFunction::NetworkActivity(_)        => "NetworkActivity",
         shared_no_std::ghost_hunting::NtFunction::None                      => return, // skip empty
     };
     let source_str = match syscall.source {
@@ -98,11 +105,55 @@ impl Core {
             run_ipc_for_injected_dll(tx).await;
         });
 
+        let (etw_tx, mut etw_rx) = mpsc::channel(1000);
+        tokio::spawn(async {
+            run_ipc_for_etw(etw_tx).await;
+        });
+
+        let (fw_tx, mut fw_rx) = mpsc::channel(100);
+        tokio::spawn(async move {
+            loop {
+                let mut server = match ServerOptions::new()
+                    .first_pipe_instance(false)
+                    .max_instances(10)
+                    .create(PIPE_FIREWALL_TELEMETRY)
+                {
+                    Ok(server) => server,
+                    Err(_) => {
+                        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+                        continue;
+                    }
+                };
+
+                if server.connect().await.is_ok() {
+                    while let Some(msg) = fw_rx.recv().await {
+                        let mut data = match to_vec(&msg) {
+                            Ok(data) => data,
+                            Err(_) => continue,
+                        };
+                        data.push(b'\n');
+                        if server.write_all(&data).await.is_err() {
+                            break;
+                        }
+                    }
+                }
+            }
+        });
+
         //
         // Enter the polling & decision making loop, this here is the core / engine of the usermode engine.
         // todo: we need to actually inspect what these params are doing and if they are malicious.
         //
         loop {
+            if let Ok(syscall) = etw_rx.try_recv() {
+                if let NtFunction::NetworkActivity(_) = &syscall.data {
+                    let _ = fw_tx.try_send(syscall.clone());
+                }
+
+                let mut mtx = driver_manager.lock().await;
+                mtx.ioctl_syscall_event(syscall);
+            }
+
             // See if there is a message from the injected DLL
             if let Ok(syscall) = rx.try_recv() {
                 // Forward to Owlyshield behavior engine before local processing.

@@ -26,6 +26,7 @@ rcgen = "0.14.7"
 moka = { version = "0.12", features = ["sync"] }
 tokio = { version = "1", features = ["full"] }
 url = "2.5.8"
+shared_no_std = { path = "../../Sanctum/shared_no_std" }
 
 [target.'cfg(windows)'.dependencies]
 windivert = { path = "../windivert-rust-master/windivert", features = ["vendored"] }

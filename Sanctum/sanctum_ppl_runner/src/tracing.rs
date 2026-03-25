@@ -6,18 +6,20 @@ use crate::{
     ipc::send_etw_info_ipc,
     logging::{EventID, event_log},
 };
-use shared_no_std::ghost_hunting::{NtFunction, Syscall};
+use shared_no_std::ghost_hunting::{
+    HttpActivity, NetworkActivityData, NtFunction, Syscall, WinINetActivity,
+};
 use windows::{
     Win32::{
-        Foundation::{ERROR_SUCCESS, GetLastError, MAX_PATH, STATUS_SUCCESS},
+        Foundation::{ERROR_SUCCESS, GetLastError, MAX_PATH},
         System::{
             Diagnostics::Etw::{
                 CONTROLTRACE_HANDLE, CloseTrace, EVENT_CONTROL_CODE_ENABLE_PROVIDER, EVENT_HEADER,
                 EVENT_RECORD, EVENT_TRACE_LOGFILEW, EVENT_TRACE_PROPERTIES,
                 EVENT_TRACE_REAL_TIME_MODE, EnableTraceEx2, OpenTraceW,
-                PROCESS_TRACE_MODE_EVENT_RECORD, PROCESS_TRACE_MODE_REAL_TIME, ProcessTrace,
-                StartTraceW, StopTraceW, TRACE_EVENT_INFO, TRACE_LEVEL_VERBOSE,
-                TdhGetEventInformation,
+                PROCESS_TRACE_MODE_EVENT_RECORD, PROCESS_TRACE_MODE_REAL_TIME,
+                PROPERTY_DATA_DESCRIPTOR, ProcessTrace, StartTraceW, StopTraceW,
+                TRACE_EVENT_INFO, TRACE_LEVEL_VERBOSE, TdhGetEventInformation, TdhGetProperty,
             },
             EventLog::{EVENTLOG_ERROR_TYPE, EVENTLOG_INFORMATION_TYPE, EVENTLOG_SUCCESS},
             ProcessStatus::GetProcessImageFileNameW,
@@ -35,6 +37,14 @@ use windows::{
 /// The GUID for Event Tracing for Windows: Threat Intelligence. f4e1897c-bb5d-5668-f1d8-040f4d8dd344
 const ETW_TI_GUID: windows::core::GUID =
     windows::core::GUID::from_u128(0xf4e1897c_bb5d_5668_f1d8_040f4d8dd344);
+
+/// The GUID for Microsoft-Windows-HttpService. dd5ef90a-6398-47a4-ad34-4d35d2e7171b
+const HTTP_SERVICE_GUID: windows::core::GUID =
+    windows::core::GUID::from_u128(0xdd5ef90a_6398_47a4_ad34_4d35d2e7171b);
+
+/// The GUID for Microsoft-Windows-WinINet. 43d1a55c-76d6-4f7e-995c-97171f3603f8
+const WININET_GUID: windows::core::GUID =
+    windows::core::GUID::from_u128(0x43d1a55c_76d6_4f7e_995c_97171f3603f8);
 
 // Task ID's from ETW:TI (wevtutil gp Microsoft-Windows-Threat-Intelligence)
 const KERNEL_THREATINT_TASK_ALLOCVM: u16 = 1;
@@ -190,6 +200,32 @@ fn register_ti_session() {
         std::process::exit(1);
     }
 
+    let _ = unsafe {
+        EnableTraceEx2(
+            handle,
+            &HTTP_SERVICE_GUID,
+            EVENT_CONTROL_CODE_ENABLE_PROVIDER.0,
+            TRACE_LEVEL_VERBOSE as _,
+            u64::MAX,
+            0,
+            0,
+            None,
+        )
+    };
+
+    let _ = unsafe {
+        EnableTraceEx2(
+            handle,
+            &WININET_GUID,
+            EVENT_CONTROL_CODE_ENABLE_PROVIDER.0,
+            TRACE_LEVEL_VERBOSE as _,
+            u64::MAX,
+            0,
+            0,
+            None,
+        )
+    };
+
     event_log(
         "Successfully started trace for ETW:TI.",
         EVENTLOG_INFORMATION_TYPE,
@@ -282,9 +318,9 @@ unsafe extern "system" fn trace_callback(record: *mut EVENT_RECORD) {
     // SAFETY: Null pointer dereference checked above
     let event_header = unsafe { &(*record).EventHeader };
     let descriptor_id = event_header.EventDescriptor.Id;
-    let task = event_header.EventDescriptor.Task;
+    let _task = event_header.EventDescriptor.Task;
     let keyword = event_header.EventDescriptor.Keyword;
-    let level = event_header.EventDescriptor.Level;
+    let _level = event_header.EventDescriptor.Level;
     let pid = event_header.ProcessId;
 
     // lookup the process image name
@@ -399,6 +435,91 @@ unsafe extern "system" fn trace_callback(record: *mut EVENT_RECORD) {
             );
         }
     }
+
+    if event_header.ProviderId == HTTP_SERVICE_GUID {
+        if descriptor_id == 1 && let Some(url) = unsafe { extract_string_property(record, "Url") } {
+            let method = unsafe { extract_string_property(record, "Method") }
+                .unwrap_or_else(|| "GET".to_string());
+
+            send_etw_info_ipc(Syscall {
+                pid,
+                source: shared_no_std::ghost_hunting::SyscallEventSource::EventSourceSyscallHook,
+                data: NtFunction::NetworkActivity(NetworkActivityData::Http(HttpActivity {
+                    url,
+                    method,
+                    user_agent: "SanctumETW".to_string(),
+                })),
+            });
+        }
+    } else if event_header.ProviderId == WININET_GUID
+        && let Some(url) = unsafe { extract_string_property(record, "Url") }
+    {
+        send_etw_info_ipc(Syscall {
+            pid,
+            source: shared_no_std::ghost_hunting::SyscallEventSource::EventSourceSyscallHook,
+            data: NtFunction::NetworkActivity(NetworkActivityData::WinINet(
+                WinINetActivity {
+                    url,
+                    server: "Unknown".to_string(),
+                },
+            )),
+        });
+    }
+}
+
+unsafe fn extract_string_property(record: *mut EVENT_RECORD, name: &str) -> Option<String> {
+    let mut buffer_size: u32 = 0;
+
+    let _ = unsafe { TdhGetEventInformation(record, None, None, &mut buffer_size) };
+    if buffer_size == 0 {
+        return None;
+    }
+
+    let mut buffer = vec![0u8; buffer_size as usize];
+    let info = buffer.as_mut_ptr() as *mut TRACE_EVENT_INFO;
+
+    if unsafe { TdhGetEventInformation(record, None, Some(info), &mut buffer_size) } != 0 {
+        return None;
+    }
+
+    let info_ref = unsafe { &*info };
+    let property_count = info_ref.TopLevelPropertyCount;
+    let property_array_ptr = info_ref.EventPropertyInfoArray.as_ptr();
+    let property_array =
+        unsafe { std::slice::from_raw_parts(property_array_ptr, property_count as usize) };
+
+    for prop in property_array {
+        let prop_name_ptr = (info as usize + prop.NameOffset as usize) as *const u16;
+        let prop_name = unsafe { PWSTR(prop_name_ptr as *mut _).to_string() }.ok()?;
+
+        if prop_name == name {
+            let mut data_buffer = vec![0u8; 4096];
+            let descriptor = PROPERTY_DATA_DESCRIPTOR {
+                PropertyName: (info as usize + prop.NameOffset as usize) as u64,
+                ArrayIndex: u32::MAX,
+                ..Default::default()
+            };
+
+            let status =
+                unsafe { TdhGetProperty(record, None, &[descriptor], data_buffer.as_mut_slice()) };
+
+            if status == 0 {
+                let u16_data = unsafe {
+                    std::slice::from_raw_parts(
+                        data_buffer.as_ptr() as *const u16,
+                        data_buffer.len() / 2,
+                    )
+                };
+                let s = String::from_utf16_lossy(u16_data);
+                let trimmed = s.split('\0').next().unwrap_or("").to_string();
+                if !trimmed.is_empty() {
+                    return Some(trimmed);
+                }
+            }
+        }
+    }
+
+    None
 }
 
 /// Get the process image as a string for a given pid

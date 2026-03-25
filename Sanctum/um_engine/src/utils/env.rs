@@ -1,4 +1,3 @@
-use std::path::PathBuf;
 use tokio::net::windows::named_pipe::NamedPipeServer;
 use windows::Win32::Foundation::{CloseHandle, HANDLE};
 use windows::Win32::System::Pipes::GetNamedPipeClientProcessId;
@@ -30,7 +29,7 @@ pub fn resolve_process_path(pid: u32) -> Option<String> {
     unsafe {
         let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid);
         if let Ok(h) = handle {
-            if h.is_invalid() || h.0 == 0 {
+            if h.is_invalid() || h.0.is_null() {
                 return None;
             }
 
@@ -44,7 +43,7 @@ pub fn resolve_process_path(pid: u32) -> Option<String> {
             );
             let _ = CloseHandle(h);
 
-            if res.as_bool() && size > 0 {
+            if res.is_ok() && size > 0 {
                 let path = String::from_utf16_lossy(&buffer[..size as usize]);
                 if !path.trim().is_empty() {
                     return Some(path);

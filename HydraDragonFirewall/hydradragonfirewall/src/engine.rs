@@ -4,6 +4,7 @@ use crate::web_filter::WebFilter;
 use lazy_static::lazy_static;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
+use shared_no_std::ghost_hunting::{NetworkActivityData, NtFunction, Syscall};
 use std::collections::{HashMap, VecDeque, HashSet};
 use std::fs;
 use std::io::{BufRead, BufReader, Write};
@@ -13,6 +14,8 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, Position, Runtime, Size, WebviewUrl, WebviewWindowBuilder};
+use tokio::io::AsyncReadExt;
+use tokio::net::windows::named_pipe::ClientOptions;
 use tokio::sync::oneshot;
 use windivert::prelude::*;
 
@@ -102,6 +105,8 @@ fn is_unresolved_identity(value: &str) -> bool {
     let trimmed = value.trim();
     trimmed.is_empty() || trimmed.eq_ignore_ascii_case("unknown")
 }
+
+const SANCTUM_FIREWALL_TELEMETRY_PIPE: &str = r"\\.\pipe\hydradragon_firewall_telemetry";
 
 // ============================================================================
 // DATA STRUCTURES
@@ -892,6 +897,7 @@ pub struct AppManager {
     pub port_map: RwLock<HashMap<u16, u32>>,
     pub info_cache: AppInfoCache,
     pub url_cache: RwLock<HashMap<u32, String>>,
+    pub ghost_urls: RwLock<HashMap<u32, String>>,
     pub active_alert: RwLock<Option<PendingApp>>,
     pub suspicious_pids: RwLock<HashSet<u32>>,
     /// Tracks which slot (0-based) the user is currently viewing, for the position counter.
@@ -907,6 +913,7 @@ impl AppManager {
             port_map: RwLock::new(HashMap::new()),
             info_cache: AppInfoCache::new(),
             url_cache: RwLock::new(HashMap::new()),
+            ghost_urls: RwLock::new(HashMap::new()),
             active_alert: RwLock::new(None),
             suspicious_pids: RwLock::new(HashSet::new()),
             view_index: AtomicU64::new(0),
@@ -2393,6 +2400,70 @@ impl FirewallEngine {
         }
         self.sync_proxy_runtime(&tx);
 
+        {
+            let am_telemetry = Arc::clone(&am);
+            let tx_telemetry = tx.clone();
+            tauri::async_runtime::spawn(async move {
+                let mut carry = String::new();
+                loop {
+                    match ClientOptions::new().open(SANCTUM_FIREWALL_TELEMETRY_PIPE) {
+                        Ok(mut client) => {
+                            let now = Self::now_ts();
+                            emit_log_event(
+                                &tx_telemetry,
+                                LogEntry {
+                                    id: format!("{}-sanctum-telemetry-connected", now),
+                                    timestamp: now,
+                                    level: LogLevel::Success,
+                                    message:
+                                        "Connected to Sanctum ETW URL telemetry relay".to_string(),
+                                },
+                            );
+
+                            let mut buffer = vec![0u8; 8192];
+                            loop {
+                                match client.read(&mut buffer).await {
+                                    Ok(0) => break,
+                                    Ok(n) => {
+                                        carry.push_str(&String::from_utf8_lossy(&buffer[..n]));
+                                        while let Some(pos) = carry.find('\n') {
+                                            let line = carry[..pos].trim().to_string();
+                                            carry = carry[pos + 1..].to_string();
+                                            if line.is_empty() {
+                                                continue;
+                                            }
+
+                                            if let Ok(syscall) = serde_json::from_str::<Syscall>(&line)
+                                                && let NtFunction::NetworkActivity(data) = syscall.data
+                                            {
+                                                let url = match data {
+                                                    NetworkActivityData::Http(http) => http.url,
+                                                    NetworkActivityData::WinINet(wininet) => {
+                                                        wininet.url
+                                                    }
+                                                };
+                                                if !url.trim().is_empty() {
+                                                    am_telemetry
+                                                        .ghost_urls
+                                                        .write()
+                                                        .unwrap()
+                                                        .insert(syscall.pid, url);
+                                                }
+                                            }
+                                        }
+                                    }
+                                    Err(_) => break,
+                                }
+                            }
+                        }
+                        Err(_) => {
+                            tokio::time::sleep(Duration::from_secs(1)).await;
+                        }
+                    }
+                }
+            });
+        }
+
         // PENDING APP MONITOR THREAD
         // Checks for new unknown apps and asks the UI
         let am_monitor = Arc::clone(&am);
@@ -3208,6 +3279,15 @@ impl FirewallEngine {
         } else {
             if let Some(url) = am.url_cache.read().unwrap().get(&pid) {
                 info.full_url = Some(url.clone());
+            } else if let Some(url) = am.ghost_urls.read().unwrap().get(&pid) {
+                info.full_url = Some(url.clone());
+                am.url_cache.write().unwrap().insert(pid, url.clone());
+                if info.hostname.is_none()
+                    && let Ok(parsed_url) = url::Url::parse(url)
+                    && let Some(host) = parsed_url.host_str()
+                {
+                    info.hostname = Some(host.to_string());
+                }
             }
         }
 
