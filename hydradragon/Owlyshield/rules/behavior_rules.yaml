@@ -8,6 +8,7 @@
 !include process_hollowing_rule.yaml
 !include process_self_delete_rule.yaml
 !include info_lolbin_recon_rules.yaml
+!include signature_artifact_detection_rules.yaml
 !include defense_evasion_rules.yaml
 !include bootkit_detection_rules.yaml
 !include credential_access_rules.yaml

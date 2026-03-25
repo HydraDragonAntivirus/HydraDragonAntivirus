@@ -28,6 +28,7 @@ pub enum FileChangeInfo {
     RegSetValue = 10,
     RegDeleteValue = 11,
     RegRenameKey = 12,
+    RegQueryValue = 13,
 }
 
 /// See [`IOMessage`] struct.

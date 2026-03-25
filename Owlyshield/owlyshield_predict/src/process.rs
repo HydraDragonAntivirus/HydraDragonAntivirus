@@ -182,6 +182,8 @@ pub struct ProcessRecord {
     pub revert_requested: bool,
     /// Name of the rule that was triggered
     pub triggered_rule_name: Option<String>,
+    /// Rich detail string describing why the rule matched.
+    pub triggered_rule_details: Option<String>,
     /// File artifact selected for direct remediation when it differs from the process image.
     pub remediation_target_path: Option<PathBuf>,
     /// Time of the main process start
@@ -324,6 +326,7 @@ impl ProcessRecord {
             notify_user_requested: false,
             revert_requested: false,
             triggered_rule_name: None,
+            triggered_rule_details: None,
             remediation_target_path: None,
             time_started: SystemTime::now(),
             time_killed: None,
@@ -418,6 +421,7 @@ impl ProcessRecord {
             notify_user_requested: false,
             revert_requested: false,
             triggered_rule_name: None,
+            triggered_rule_details: None,
             remediation_target_path: None,
             time_started: SystemTime::now(),
             time_killed: None,

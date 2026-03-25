@@ -1,0 +1,412 @@
+- name: "HEUR:Win.AntiAnalysis.SignatureArtifactPathProbe.gen"
+  author: "Emirhan Ucan"
+  date: "2026-03-25"
+  status: test
+  level: high
+  severity: 78
+  description: |
+    Detects filesystem probes against analysis, sandbox, debugger, and virtualization
+    artifacts mirrored from signatures.yaml. This catches malware that checks for
+    local analyst tools or sandbox footprints by touching their on-disk paths.
+  debug: false
+
+  named_conditions:
+    signature_artifact_path_probe:
+      orderless: true
+      file_paths:
+        - "C:\\Program Files\\Sandboxie\\*"
+        - "C:\\Program Files (x86)\\Sandboxie\\*"
+        - "*\\vmtoolsd.exe"
+        - "*\\vmacthlp.exe"
+        - "*\\vgauthservice.exe"
+        - "*\\vboxservice.exe"
+        - "*\\vboxtray.exe"
+        - "*\\qemu-ga.exe"
+        - "*\\prl_cc.exe"
+        - "*\\prl_tools.exe"
+        - "*\\xenservice.exe"
+        - "*\\dfserv.exe"
+        - "*\\x64dbg.exe"
+        - "*\\x32dbg.exe"
+        - "*\\ollydbg.exe"
+        - "*\\ida64.exe"
+        - "*\\ida.exe"
+        - "*\\windbg.exe"
+        - "*\\dnspy.exe"
+        - "*\\ilspy.exe"
+        - "*\\ghidra.exe"
+        - "*\\pestudio.exe"
+        - "*\\wireshark.exe"
+        - "*\\fiddler.exe"
+        - "*\\httpdebuggerui.exe"
+        - "*\\HTTP Toolkit.exe"
+        - "*\\procmon.exe"
+        - "*\\procmon64.exe"
+        - "*\\processhacker.exe"
+        - "*\\megadumper.exe"
+        - "*\\extremedumper.exe"
+        - "*\\ksdumper.exe"
+        - "*\\ksdumperclient.exe"
+        - "*\\joeboxcontrol.exe"
+        - "*\\joeboxserver.exe"
+        - "*\\petools.exe"
+        - "*\\hxd.exe"
+        - "*\\protection_id.exe"
+        - "*\\scyllahide.exe"
+        - "*\\de4dot.exe"
+      min_matches: 1
+
+  detection_logic:
+    condition: "signature_artifact_path_probe"
+
+  response:
+    notify_user: true
+    status_access_denied: true
+    record: true
+
+  tags: ["anti-analysis", "anti-debug", "anti-vm", "signature-artifacts", "path-probe"]
+  mitre_attack: ["T1497", "T1497.001", "T1497.003"]
+  false_positives:
+    - "Legitimate inventory or security software enumerating installed analysis tools"
+    - "Administrator scripts checking whether VMware, VirtualBox, or Sandboxie is installed"
+
+
+- name: "HEUR:Win.AntiAnalysis.SignatureArtifactRegistryRead.gen"
+  author: "Emirhan Ucan"
+  date: "2026-03-25"
+  status: test
+  level: high
+  severity: 76
+  description: |
+    Detects registry read and enumeration probes against sandbox, virtualization,
+    and analysis artifacts mirrored from signatures.yaml. This catches reg query,
+    PowerShell registry providers, and native registry APIs used to fingerprint
+    the host before payload execution.
+  debug: false
+
+  named_conditions:
+    signature_artifact_registry_read:
+      orderless: true
+      registry_keys:
+        - "HKLM\\SOFTWARE\\VMware, Inc.\\VMware Tools*"
+        - "HKLM\\SOFTWARE\\Oracle\\VirtualBox Guest Additions*"
+        - "HKLM\\HARDWARE\\DESCRIPTION\\System\\BIOS*"
+        - "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Sandboxie*"
+        - "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run\\SandboxiePlus_AutoRun"
+        - "HKLM\\SOFTWARE\\ShadowDefender*"
+        - "HKLM\\SYSTEM\\CurrentControlSet\\Services\\VMTools*"
+        - "HKLM\\SYSTEM\\CurrentControlSet\\Services\\VBoxService*"
+        - "HKLM\\SYSTEM\\CurrentControlSet\\Services\\SbieSvc*"
+        - "HKLM\\SYSTEM\\CurrentControlSet\\Services\\DFServ*"
+        - "HKLM\\SYSTEM\\CurrentControlSet\\Services\\cmdGuard*"
+        - "HKLM\\SYSTEM\\CurrentControlSet\\Services\\ShadowDefenderService*"
+      registry_operations: ["read"]
+      min_matches: 1
+
+  detection_logic:
+    condition: "signature_artifact_registry_read"
+
+  response:
+    notify_user: true
+    record: true
+
+  tags: ["anti-analysis", "anti-debug", "anti-vm", "signature-artifacts", "registry-read"]
+  mitre_attack: ["T1497", "T1497.001"]
+  false_positives:
+    - "System inventory, EDR, and IT management software reading virtualization software keys"
+    - "Administrators using reg.exe or PowerShell to audit installed VM tools or sandbox products"
+
+
+- name: "HEUR:Win.AntiAnalysis.SignatureArtifactCommandProbe.gen"
+  author: "Emirhan Ucan"
+  date: "2026-03-25"
+  status: test
+  level: high
+  severity: 74
+  description: |
+    Detects command-line driven probes for artifact names mirrored from signatures.yaml.
+    This covers reg.exe, sc.exe, tasklist.exe, wmic.exe, and PowerShell style checks
+    that enumerate sandbox, virtualization, or debugger markers before payload execution.
+  debug: false
+
+  named_conditions:
+    vmware_probe_cli:
+      orderless: false
+      created_processes:
+        - "reg.exe"
+        - "sc.exe"
+        - "tasklist.exe"
+        - "wmic.exe"
+        - "powershell.exe"
+        - "pwsh.exe"
+        - "cmd.exe"
+      cmdline_keywords:
+        - "vmware"
+      min_matches: 1
+
+    virtualbox_probe_cli:
+      orderless: false
+      created_processes:
+        - "reg.exe"
+        - "sc.exe"
+        - "tasklist.exe"
+        - "wmic.exe"
+        - "powershell.exe"
+        - "pwsh.exe"
+        - "cmd.exe"
+      cmdline_keywords:
+        - "vbox"
+      min_matches: 1
+
+    sandboxie_probe_cli:
+      orderless: false
+      created_processes:
+        - "reg.exe"
+        - "sc.exe"
+        - "tasklist.exe"
+        - "wmic.exe"
+        - "powershell.exe"
+        - "pwsh.exe"
+        - "cmd.exe"
+      cmdline_keywords:
+        - "sandboxie"
+      min_matches: 1
+
+    joebox_probe_cli:
+      orderless: false
+      created_processes:
+        - "tasklist.exe"
+        - "wmic.exe"
+        - "powershell.exe"
+        - "pwsh.exe"
+        - "cmd.exe"
+      cmdline_keywords:
+        - "joebox"
+      min_matches: 1
+
+    hyperv_probe_cli:
+      orderless: false
+      created_processes:
+        - "reg.exe"
+        - "sc.exe"
+        - "wmic.exe"
+        - "powershell.exe"
+        - "pwsh.exe"
+        - "cmd.exe"
+      cmdline_keywords:
+        - "hyper-v"
+      min_matches: 1
+
+    qemu_probe_cli:
+      orderless: false
+      created_processes:
+        - "reg.exe"
+        - "tasklist.exe"
+        - "wmic.exe"
+        - "powershell.exe"
+        - "pwsh.exe"
+        - "cmd.exe"
+      cmdline_keywords:
+        - "qemu"
+      min_matches: 1
+
+    parallels_probe_cli:
+      orderless: false
+      created_processes:
+        - "reg.exe"
+        - "tasklist.exe"
+        - "wmic.exe"
+        - "powershell.exe"
+        - "pwsh.exe"
+        - "cmd.exe"
+      cmdline_keywords:
+        - "parallels"
+      min_matches: 1
+
+    xen_probe_cli:
+      orderless: false
+      created_processes:
+        - "reg.exe"
+        - "tasklist.exe"
+        - "wmic.exe"
+        - "powershell.exe"
+        - "pwsh.exe"
+        - "cmd.exe"
+      cmdline_keywords:
+        - "xen"
+      min_matches: 1
+
+    shadowdefender_probe_cli:
+      orderless: false
+      created_processes:
+        - "reg.exe"
+        - "sc.exe"
+        - "wmic.exe"
+        - "powershell.exe"
+        - "pwsh.exe"
+        - "cmd.exe"
+      cmdline_keywords:
+        - "shadowdefender"
+      min_matches: 1
+
+    cmdguard_probe_cli:
+      orderless: false
+      created_processes:
+        - "reg.exe"
+        - "sc.exe"
+        - "wmic.exe"
+        - "powershell.exe"
+        - "pwsh.exe"
+        - "cmd.exe"
+      cmdline_keywords:
+        - "cmdguard"
+      min_matches: 1
+
+    anyrun_probe_cli:
+      orderless: false
+      created_processes:
+        - "tasklist.exe"
+        - "wmic.exe"
+        - "powershell.exe"
+        - "pwsh.exe"
+        - "cmd.exe"
+      cmdline_keywords:
+        - "anyrun"
+      min_matches: 1
+
+    wdag_probe_cli:
+      orderless: false
+      created_processes:
+        - "tasklist.exe"
+        - "wmic.exe"
+        - "powershell.exe"
+        - "pwsh.exe"
+        - "cmd.exe"
+      cmdline_keywords:
+        - "wdagutilityaccount"
+      min_matches: 1
+
+    debugger_probe_cli:
+      orderless: false
+      created_processes:
+        - "tasklist.exe"
+        - "wmic.exe"
+        - "powershell.exe"
+        - "pwsh.exe"
+        - "cmd.exe"
+      cmdline_keywords:
+        - "x64dbg"
+      min_matches: 1
+
+    procmon_probe_cli:
+      orderless: false
+      created_processes:
+        - "tasklist.exe"
+        - "wmic.exe"
+        - "powershell.exe"
+        - "pwsh.exe"
+        - "cmd.exe"
+      cmdline_keywords:
+        - "procmon"
+      min_matches: 1
+
+    wireshark_probe_cli:
+      orderless: false
+      created_processes:
+        - "tasklist.exe"
+        - "wmic.exe"
+        - "powershell.exe"
+        - "pwsh.exe"
+        - "cmd.exe"
+      cmdline_keywords:
+        - "wireshark"
+      min_matches: 1
+
+  detection_logic:
+    any_of:
+      - "vmware_probe_cli"
+      - "virtualbox_probe_cli"
+      - "sandboxie_probe_cli"
+      - "joebox_probe_cli"
+      - "hyperv_probe_cli"
+      - "qemu_probe_cli"
+      - "parallels_probe_cli"
+      - "xen_probe_cli"
+      - "shadowdefender_probe_cli"
+      - "cmdguard_probe_cli"
+      - "anyrun_probe_cli"
+      - "wdag_probe_cli"
+      - "debugger_probe_cli"
+      - "procmon_probe_cli"
+      - "wireshark_probe_cli"
+
+  response:
+    notify_user: true
+    record: true
+
+  tags: ["anti-analysis", "anti-debug", "anti-vm", "signature-artifacts", "command-probe"]
+  mitre_attack: ["T1497", "T1497.001"]
+  false_positives:
+    - "Administrators or support scripts querying virtualization state"
+    - "Inventory scripts looking for debugger or sandbox products"
+
+
+- name: "HEUR:Win.AntiAnalysis.AnalysisToolTermination.gen"
+  author: "Emirhan Ucan"
+  date: "2026-03-25"
+  status: test
+  level: critical
+  severity: 96
+  description: |
+    Detects attempts to terminate analysis and debugger processes listed in
+    signatures.yaml. This is a strong anti-analysis signal and usually indicates
+    malware actively trying to blind local investigation tooling.
+  debug: false
+
+  named_conditions:
+    terminate_analysis_tools:
+      orderless: true
+      terminated_processes:
+        - "x64dbg.exe"
+        - "x32dbg.exe"
+        - "ollydbg.exe"
+        - "ida64.exe"
+        - "ida.exe"
+        - "windbg.exe"
+        - "dnspy.exe"
+        - "ilspy.exe"
+        - "ghidra.exe"
+        - "pestudio.exe"
+        - "wireshark.exe"
+        - "fiddler.exe"
+        - "httpdebuggerui.exe"
+        - "HTTP Toolkit.exe"
+        - "procmon.exe"
+        - "procmon64.exe"
+        - "processhacker.exe"
+        - "megadumper.exe"
+        - "extremedumper.exe"
+        - "ksdumper.exe"
+        - "ksdumperclient.exe"
+        - "joeboxcontrol.exe"
+        - "joeboxserver.exe"
+        - "petools.exe"
+        - "hxd.exe"
+        - "protection_id.exe"
+        - "scyllahide.exe"
+        - "de4dot.exe"
+      min_matches: 1
+
+  detection_logic:
+    condition: "terminate_analysis_tools"
+
+  response:
+    notify_user: true
+    terminate_process: true
+    quarantine: true
+    record: true
+
+  tags: ["anti-analysis", "anti-debug", "analysis-tool-kill", "signature-artifacts"]
+  mitre_attack: ["T1497", "T1562.001"]
+  false_positives:
+    - "Security test harnesses that intentionally close analysis tools"

@@ -2276,6 +2276,218 @@ impl BehaviorEngine {
         candidates.into_iter().next()
     }
 
+    fn truncate_detail_value(value: &str, max_chars: usize) -> String {
+        let normalized = value
+            .replace('\r', " ")
+            .replace('\n', " ")
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ");
+
+        let count = normalized.chars().count();
+        if count <= max_chars {
+            normalized
+        } else {
+            let truncated: String = normalized.chars().take(max_chars).collect();
+            format!("{}...", truncated.trim_end())
+        }
+    }
+
+    fn file_change_label(file_change: Option<FileChangeInfo>) -> Option<&'static str> {
+        match file_change {
+            Some(FileChangeInfo::OpenDirectory) => Some("open_directory"),
+            Some(FileChangeInfo::ChangeWrite) => Some("write"),
+            Some(FileChangeInfo::ChangeNewFile) => Some("create"),
+            Some(FileChangeInfo::ChangeRenameFile) => Some("rename"),
+            Some(FileChangeInfo::ChangeExtensionChanged) => Some("extension_change"),
+            Some(FileChangeInfo::ChangeDeleteFile) => Some("delete"),
+            Some(FileChangeInfo::ChangeDeleteNewFile) => Some("delete_on_close"),
+            Some(FileChangeInfo::ChangeOverwriteFile) => Some("overwrite"),
+            Some(FileChangeInfo::RegCreateKey) => Some("reg_create"),
+            Some(FileChangeInfo::RegSetValue) => Some("reg_set"),
+            Some(FileChangeInfo::RegDeleteValue) => Some("reg_delete"),
+            Some(FileChangeInfo::RegRenameKey) => Some("reg_rename"),
+            Some(FileChangeInfo::RegQueryValue) => Some("reg_read"),
+            _ => None,
+        }
+    }
+
+    fn operation_label(msg: &IOMessage) -> String {
+        let file_change = FromPrimitive::from_u8(msg.file_change);
+        let irp_op = IrpMajorOp::from_byte(msg.irp_op);
+
+        match irp_op {
+            IrpMajorOp::IrpRegistry => Self::file_change_label(file_change)
+                .unwrap_or("registry")
+                .to_string(),
+            IrpMajorOp::IrpSetInfo => Self::file_change_label(file_change)
+                .unwrap_or("setinfo")
+                .to_string(),
+            IrpMajorOp::IrpCreate => {
+                if matches!(file_change, Some(FileChangeInfo::OpenDirectory)) {
+                    "open_directory".to_string()
+                } else {
+                    "create".to_string()
+                }
+            }
+            IrpMajorOp::IrpRead => "read".to_string(),
+            IrpMajorOp::IrpWrite => "write".to_string(),
+            IrpMajorOp::IrpProcessCreate => "process_create".to_string(),
+            IrpMajorOp::IrpProcessTerminate => "process_terminate".to_string(),
+            IrpMajorOp::IrpProcessTerminateAttempt => "process_terminate_attempt".to_string(),
+            IrpMajorOp::IrpProcessExit => "process_exit".to_string(),
+            IrpMajorOp::IrpProcessHandleOpen => "process_handle_open".to_string(),
+            IrpMajorOp::IrpHypervisorEvent => "hypervisor_event".to_string(),
+            IrpMajorOp::IrpUserModeHookEvent => "user_mode_hook_event".to_string(),
+            IrpMajorOp::IrpKernelRemoteThread => "kernel_remote_thread".to_string(),
+            IrpMajorOp::IrpKernelWriteMemory => "kernel_write_memory".to_string(),
+            IrpMajorOp::IrpKernelProtectMemory => "kernel_protect_memory".to_string(),
+            IrpMajorOp::IrpKernelCreateThread => "kernel_create_thread".to_string(),
+            IrpMajorOp::IrpKernelQueueApc => "kernel_queue_apc".to_string(),
+            IrpMajorOp::IrpKernelCreateSection => "kernel_create_section".to_string(),
+            IrpMajorOp::IrpKernelMapSection => "kernel_map_section".to_string(),
+            _ => {
+                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                if msg.kernel_event_info.event_type != 0
+                    && let Some(name) = known_raw_event_name(msg.kernel_event_info.event_type) {
+                        return name.to_string();
+                    }
+
+                format!("op{}", msg.irp_op)
+            }
+        }
+    }
+
+    fn build_rule_match_details(
+        rule: &BehaviorRule,
+        state: &ProcessBehaviorState,
+        msg: Option<&IOMessage>,
+        trigger_type: Option<&str>,
+        confidence: Option<f32>,
+    ) -> String {
+        let mut parts = Vec::new();
+
+        if let Some(kind) = trigger_type {
+            if let Some(score) = confidence {
+                parts.push(format!("Trigger={} ({:.1}%)", kind, score * 100.0));
+            } else {
+                parts.push(format!("Trigger={}", kind));
+            }
+        }
+
+        if !rule.description.trim().is_empty() {
+            parts.push(format!(
+                "Description={}",
+                Self::truncate_detail_value(rule.description.trim(), 220)
+            ));
+        }
+
+        if let Some(msg) = msg {
+            parts.push(format!("Operation={}", Self::operation_label(msg)));
+
+            if !msg.filepathstr.trim().is_empty() {
+                parts.push(format!(
+                    "Path={}",
+                    Self::truncate_detail_value(&msg.filepathstr, 260)
+                ));
+            } else {
+                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                if !msg.kernel_event_info.object_name.trim().is_empty() {
+                    parts.push(format!(
+                        "Object={}",
+                        Self::truncate_detail_value(&msg.kernel_event_info.object_name, 260)
+                    ));
+                }
+            }
+
+            if !msg.extension.trim().is_empty() {
+                parts.push(format!(
+                    "Extension={}",
+                    Self::truncate_detail_value(&msg.extension, 64)
+                ));
+            }
+
+            if msg.mem_sized_used > 0 {
+                parts.push(format!("Bytes={}", msg.mem_sized_used));
+            }
+
+            if msg.file_size > 0 {
+                parts.push(format!("FileSize={}", msg.file_size));
+            }
+
+            if !msg.runtime_features.command_line.trim().is_empty() {
+                parts.push(format!(
+                    "CommandLine={}",
+                    Self::truncate_detail_value(&msg.runtime_features.command_line, 320)
+                ));
+            }
+        } else if !state.command_line.trim().is_empty() {
+            parts.push(format!(
+                "CommandLine={}",
+                Self::truncate_detail_value(&state.command_line, 320)
+            ));
+        }
+
+        let mut condition_names: Vec<&String> = state
+            .satisfied_named_conditions
+            .iter()
+            .filter(|name| rule.named_conditions.contains_key(*name))
+            .collect();
+        condition_names.sort();
+
+        let mut condition_summaries = Vec::new();
+        for cond_name in condition_names.into_iter().take(6) {
+            let mut rendered = cond_name.clone();
+            if let Some(values) = state.condition_match_values.get(cond_name) {
+                let mut sorted_values: Vec<String> = values
+                    .iter()
+                    .filter_map(|value| {
+                        let trimmed = value.trim();
+                        if trimmed.is_empty() {
+                            None
+                        } else {
+                            Some(Self::truncate_detail_value(trimmed, 120))
+                        }
+                    })
+                    .collect();
+                sorted_values.sort();
+
+                if !sorted_values.is_empty() {
+                    if sorted_values.len() > 3 {
+                        sorted_values.truncate(3);
+                        rendered = format!("{}=[{}; ...]", cond_name, sorted_values.join("; "));
+                    } else {
+                        rendered = format!("{}=[{}]", cond_name, sorted_values.join("; "));
+                    }
+                }
+            }
+            condition_summaries.push(rendered);
+        }
+
+        if !condition_summaries.is_empty() {
+            parts.push(format!("MatchedConditions={}", condition_summaries.join(" | ")));
+        }
+
+        if let Some(target) = Self::build_rule_remediation_target_path(rule, state) {
+            parts.push(format!("RemediationTarget={}", target.display()));
+        }
+
+        if !state.rootkit_findings.is_empty() {
+            let summary = state
+                .rootkit_findings
+                .iter()
+                .take(2)
+                .map(|finding| Self::truncate_detail_value(&finding.description, 140))
+                .collect::<Vec<_>>()
+                .join(" | ");
+            if !summary.is_empty() {
+                parts.push(format!("RootkitTelemetry={}", summary));
+            }
+        }
+
+        parts.join(" | ")
+    }
+
     fn is_file_condition_group(cond_group: &NamedConditionGroup) -> bool {
         !cond_group.file_paths.is_empty()
             || !cond_group.file_extensions.is_empty()
@@ -2952,6 +3164,7 @@ impl BehaviorEngine {
             Some(FileChangeInfo::RegSetValue) => "set",
             Some(FileChangeInfo::RegDeleteValue) => "delete",
             Some(FileChangeInfo::RegRenameKey) => "rename",
+            Some(FileChangeInfo::RegQueryValue) => "read",
             _ => return false,
         };
         cond_group.registry_operations.iter().any(|v| v == op)
@@ -5029,9 +5242,12 @@ impl BehaviorEngine {
                     threat_type_label: "Behavioral Detection",
                     virus_name: &rule.name,
                     prediction: indicator_ratio,
-                    match_details: Some(format!(
-                        "Trigger: {}, Ratio: {:.1}%",
-                        trigger_type, indicator_ratio * 100.0
+                    match_details: Some(Self::build_rule_match_details(
+                        rule,
+                        &state_ref,
+                        Some(msg),
+                        Some(trigger_type),
+                        Some(indicator_ratio),
                     )),
                     deny_access: rule.response.status_access_denied,
                     terminate: if rule.response.ask_user {
@@ -5553,14 +5769,8 @@ impl BehaviorEngine {
                     p.pids.insert(pid);
                     p.termination_requested = true;
                     p.notify_user_requested = true;
-                    // Encode detection details into triggered_rule_name so the caller
-                    // can build a rich ThreatInfo for WriteReportFile / WriteReportHtmlFile.
-                    // Format: "FirewallNetworkBlock|<threat_label>|<match_details>"
-                    p.triggered_rule_name = Some(format!(
-                        "FirewallNetworkBlock|{}|{}",
-                        detection.threat_type_label(),
-                        detection.match_details(),
-                    ));
+                    p.triggered_rule_name = Some(detection.threat_type_label().to_string());
+                    p.triggered_rule_details = Some(detection.match_details());
                     Logging::warning(&format!(
                         "[FirewallPipe] Acting on firewall-confirmed malicious exe: {} (PID {}) — {}",
                         exe_path_str, pid, detection.match_details()
@@ -5593,6 +5803,10 @@ impl BehaviorEngine {
                 p.termination_requested = true;
                 p.notify_user_requested = true;
                 p.triggered_rule_name = Some("RootkitHiddenProcess".to_string());
+                p.triggered_rule_details = Some(
+                    "Kernel rootkit telemetry implicated this process as hidden or tampered."
+                        .to_string(),
+                );
                 Logging::warning(&format!(
                     "[ROOTKIT] Terminating rootkit-implicated process PID {} ({})",
                     pid, app_name
@@ -5674,6 +5888,19 @@ impl BehaviorEngine {
                     p.notify_user_requested = rule.response.notify_user;
                     p.revert_requested = rule.response.auto_revert;
                     p.triggered_rule_name = Some(rule.name.clone());
+                    p.triggered_rule_details = Some(Self::build_rule_match_details(
+                        rule,
+                        &state,
+                        None,
+                        Some(if stages_triggered {
+                            "Stage-based scan"
+                        } else if rich_triggered {
+                            "Rich-logic scan"
+                        } else {
+                            "Legacy scan"
+                        }),
+                        None,
+                    ));
                     p.remediation_target_path = Self::build_rule_remediation_target_path(rule, &state);
                     detected_processes.push(p);
                 }

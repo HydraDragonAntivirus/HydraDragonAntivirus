@@ -1041,6 +1041,7 @@ mod process_records {
             record.notify_user_requested = det.notify_user_requested;
             record.revert_requested = det.revert_requested;
             record.triggered_rule_name = det.triggered_rule_name.clone();
+            record.triggered_rule_details = det.triggered_rule_details.clone();
             record.remediation_target_path = det.remediation_target_path.clone();
 
             if det.termination_requested {
@@ -1051,29 +1052,48 @@ mod process_records {
 
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
         fn build_behavior_threat_info<'b>(det: &'b ProcessRecord, context: &str) -> ThreatInfo<'b> {
-            let virus_name = det
+            let mut virus_name = det
                 .triggered_rule_name
                 .as_deref()
                 .unwrap_or("Behavioral Detection");
-            let match_details = match &det.triggered_rule_name {
-                Some(rule_name) => match det.remediation_target_path.as_ref() {
-                    Some(path) => Some(format!(
-                        "Rule '{}' matched during {}. Target: {}",
-                        rule_name,
-                        context,
-                        path.display()
-                    )),
-                    None => Some(format!("Rule '{}' matched during {}", rule_name, context)),
-                },
-                None => match det.remediation_target_path.as_ref() {
-                    Some(path) => Some(format!(
-                        "Behavioral detection matched during {}. Target: {}",
-                        context,
-                        path.display()
-                    )),
-                    None => Some(format!("Behavioral detection matched during {}", context)),
-                },
-            };
+            let mut legacy_details = None;
+
+            if let Some(encoded) = det.triggered_rule_name.as_deref()
+                && let Some(rest) = encoded.strip_prefix("FirewallNetworkBlock|") {
+                    let mut parts = rest.splitn(2, '|');
+                    if let Some(label) = parts.next()
+                        && !label.trim().is_empty() {
+                            virus_name = label;
+                        }
+                    if let Some(details) = parts.next()
+                        && !details.trim().is_empty() {
+                            legacy_details = Some(details.to_string());
+                        }
+                }
+
+            let match_details = det
+                .triggered_rule_details
+                .clone()
+                .or(legacy_details)
+                .or_else(|| match &det.triggered_rule_name {
+                    Some(rule_name) => match det.remediation_target_path.as_ref() {
+                        Some(path) => Some(format!(
+                            "Rule '{}' matched during {}. Target: {}",
+                            rule_name,
+                            context,
+                            path.display()
+                        )),
+                        None => Some(format!("Rule '{}' matched during {}", rule_name, context)),
+                    },
+                    None => match det.remediation_target_path.as_ref() {
+                        Some(path) => Some(format!(
+                            "Behavioral detection matched during {}. Target: {}",
+                            context,
+                            path.display()
+                        )),
+                        None => Some(format!("Behavioral detection matched during {}", context)),
+                    },
+                });
 
             ThreatInfo {
                 threat_type_label: "Behavioral Detection",

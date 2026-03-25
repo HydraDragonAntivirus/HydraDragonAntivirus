@@ -180,6 +180,58 @@ static BOOLEAN NormalizeRegistryAlertPath(_In_ PUNICODE_STRING SourcePath,
     return TRUE;
 }
 
+static BOOLEAN BuildRegistryOpenPath(_Inout_ PUNICODE_STRING RegistryPath,
+                                     _In_opt_ PVOID RootObject,
+                                     _In_opt_ PUNICODE_STRING CompleteName)
+{
+    if (RegistryPath == NULL || RegistryPath->Buffer == NULL || RegistryPath->MaximumLength == 0)
+    {
+        return FALSE;
+    }
+
+    RegistryPath->Length = 0;
+
+    if (CompleteName == NULL || CompleteName->Buffer == NULL || CompleteName->Length == 0)
+    {
+        return FALSE;
+    }
+
+    BOOLEAN hasRootPath = FALSE;
+    if (RootObject != NULL && MmIsAddressValid(RootObject))
+    {
+        hasRootPath = GetNameForRegistryObject(RegistryPath, RootObject);
+    }
+
+    if (!hasRootPath || CompleteName->Buffer[0] == L'\\')
+    {
+        if (CompleteName->Length > RegistryPath->MaximumLength)
+        {
+            return FALSE;
+        }
+
+        RtlCopyUnicodeString(RegistryPath, CompleteName);
+        return TRUE;
+    }
+
+    if (RegistryPath->Length > 0 &&
+        RegistryPath->Buffer[(RegistryPath->Length / sizeof(WCHAR)) - 1] != L'\\')
+    {
+        if (RegistryPath->Length + sizeof(WCHAR) > RegistryPath->MaximumLength)
+        {
+            return FALSE;
+        }
+
+        RtlAppendUnicodeToString(RegistryPath, L"\\");
+    }
+
+    if (RegistryPath->Length + CompleteName->Length > RegistryPath->MaximumLength)
+    {
+        return FALSE;
+    }
+
+    return NT_SUCCESS(RtlAppendUnicodeStringToString(RegistryPath, CompleteName));
+}
+
 VOID SendRegistryAlert(PUNICODE_STRING RegPath, PCWSTR Operation, HANDLE Pid, UCHAR RegOp)
 {
     if (!driverData) return;
@@ -419,6 +471,108 @@ NTSTATUS RegistryCallback(_In_ PVOID CallbackContext, _In_ PVOID Argument1, _In_
                         } else {
                              Status = STATUS_SUCCESS;
                         }
+                    }
+                }
+            }
+            break;
+        }
+        case RegNtPreOpenKey:
+        {
+            PREG_OPEN_KEY_INFORMATION pInfo = (PREG_OPEN_KEY_INFORMATION)Argument2;
+            if (pInfo && BuildRegistryOpenPath(&RegPath, pInfo->RootObject, pInfo->CompleteName))
+            {
+                SendRegistryAlert(&RegPath, L"OPEN_KEY", hPid, REG_QUERY_VALUE);
+                if (driverData->IsProcessMalicious((ULONG)(ULONG_PTR)hPid)) {
+                     Status = STATUS_ACCESS_DENIED;
+                } else {
+                     Status = STATUS_SUCCESS;
+                }
+            }
+            break;
+        }
+        case RegNtPreOpenKeyEx:
+        {
+            PREG_OPEN_KEY_INFORMATION_V1 pInfo = (PREG_OPEN_KEY_INFORMATION_V1)Argument2;
+            if (pInfo && BuildRegistryOpenPath(&RegPath, pInfo->RootObject, pInfo->CompleteName))
+            {
+                SendRegistryAlert(&RegPath, L"OPEN_KEY_EX", hPid, REG_QUERY_VALUE);
+                if (driverData->IsProcessMalicious((ULONG)(ULONG_PTR)hPid)) {
+                     Status = STATUS_ACCESS_DENIED;
+                } else {
+                     Status = STATUS_SUCCESS;
+                }
+            }
+            break;
+        }
+        case RegNtPreQueryValueKey:
+        {
+            PREG_QUERY_VALUE_KEY_INFORMATION pInfo = (PREG_QUERY_VALUE_KEY_INFORMATION)Argument2;
+            if (pInfo && pInfo->Object)
+            {
+                if (GetNameForRegistryObject(&RegPath, pInfo->Object))
+                {
+                    if (pInfo->ValueName && pInfo->ValueName->Length > 0)
+                    {
+                        RtlAppendUnicodeToString(&RegPath, L"\\");
+                        RtlAppendUnicodeStringToString(&RegPath, pInfo->ValueName);
+                    }
+
+                    SendRegistryAlert(&RegPath, L"QUERY_VALUE", hPid, REG_QUERY_VALUE);
+                    if (driverData->IsProcessMalicious((ULONG)(ULONG_PTR)hPid)) {
+                         Status = STATUS_ACCESS_DENIED;
+                    } else {
+                         Status = STATUS_SUCCESS;
+                    }
+                }
+            }
+            break;
+        }
+        case RegNtPreQueryKey:
+        {
+            PREG_QUERY_KEY_INFORMATION pInfo = (PREG_QUERY_KEY_INFORMATION)Argument2;
+            if (pInfo && pInfo->Object)
+            {
+                if (GetNameForRegistryObject(&RegPath, pInfo->Object))
+                {
+                    SendRegistryAlert(&RegPath, L"QUERY_KEY", hPid, REG_QUERY_VALUE);
+                    if (driverData->IsProcessMalicious((ULONG)(ULONG_PTR)hPid)) {
+                         Status = STATUS_ACCESS_DENIED;
+                    } else {
+                         Status = STATUS_SUCCESS;
+                    }
+                }
+            }
+            break;
+        }
+        case RegNtPreEnumerateKey:
+        {
+            PREG_ENUMERATE_KEY_INFORMATION pInfo = (PREG_ENUMERATE_KEY_INFORMATION)Argument2;
+            if (pInfo && pInfo->Object)
+            {
+                if (GetNameForRegistryObject(&RegPath, pInfo->Object))
+                {
+                    SendRegistryAlert(&RegPath, L"ENUM_KEY", hPid, REG_QUERY_VALUE);
+                    if (driverData->IsProcessMalicious((ULONG)(ULONG_PTR)hPid)) {
+                         Status = STATUS_ACCESS_DENIED;
+                    } else {
+                         Status = STATUS_SUCCESS;
+                    }
+                }
+            }
+            break;
+        }
+        case RegNtPreEnumerateValueKey:
+        {
+            PREG_ENUMERATE_VALUE_KEY_INFORMATION pInfo = (PREG_ENUMERATE_VALUE_KEY_INFORMATION)Argument2;
+            if (pInfo && pInfo->Object)
+            {
+                if (GetNameForRegistryObject(&RegPath, pInfo->Object))
+                {
+                    SendRegistryAlert(&RegPath, L"ENUM_VALUE", hPid, REG_QUERY_VALUE);
+                    if (driverData->IsProcessMalicious((ULONG)(ULONG_PTR)hPid)) {
+                         Status = STATUS_ACCESS_DENIED;
+                    } else {
+                         Status = STATUS_SUCCESS;
                     }
                 }
             }
