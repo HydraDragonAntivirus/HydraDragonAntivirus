@@ -11,7 +11,7 @@
 # Rule 1: SSDT Hook — any SSDT entry redirected outside ntoskrnl
 # Severity: critical. Terminate immediately, no quarantine needed.
 # ---------------------------------------------------------------------------
-- name: "Rootkit.SsdtHook"
+- name: "HEUR:Win64.Rootkit.SsdtHook"
   description: >
     SSDT service table entry points outside ntoskrnl address range.
     Classic rootkit technique to intercept system calls at kernel level.
@@ -41,9 +41,49 @@
 ---
 
 # ---------------------------------------------------------------------------
+# Rule 8: Unsupported file-object callback filtering
+# Detects object-manager tampering used to intercept or deny file-handle opens.
+# This can be used to shield malicious files or block security tooling.
+# ---------------------------------------------------------------------------
+- name: "HEUR:Win64.Rootkit.FileObjectCallbackTamper"
+  description: >
+    File-object callback support or active callback registrations were detected
+    on a kernel object type that normally does not expose file-handle callback
+    filtering. This requires undocumented object-manager tampering and can be
+    used to protect malicious files or deny antivirus access.
+  author: "HydraDragon"
+  severity: 5
+  tags:
+    - rootkit
+    - object_type
+    - callback_tamper
+    - file_protection
+    - kernel
+  mitre_attack:
+    - "T1014"
+    - "T1562"
+
+  named_conditions:
+    file_object_callback_tamper:
+      rootkit_event_types: ["generic"]
+      rootkit_description_contains:
+        - "file object callbacks enabled"
+        - "file object callback list populated"
+
+  detection_logic:
+    condition: "file_object_callback_tamper"
+
+  response:
+    terminate_process: false
+    notify_user: true
+    record: true
+
+---
+
+# ---------------------------------------------------------------------------
 # Rule 2: Hidden Process (DKOM) — process in PspCidTable but not EPROCESS list
 # ---------------------------------------------------------------------------
-- name: "Rootkit.HiddenProcess.DKOM"
+- name: "HEUR:Win64.Rootkit.HiddenProcess.DKOM"
   description: >
     Process found in PspCidTable but absent from EPROCESS ActiveProcessLinks.
     Direct Kernel Object Manipulation (DKOM) used to hide a running process.
@@ -76,7 +116,7 @@
 # ---------------------------------------------------------------------------
 # Rule 3: Hidden Driver — driver present in memory but not in module list
 # ---------------------------------------------------------------------------
-- name: "Rootkit.HiddenDriver"
+- name: "HEUR:Win64.Rootkit.HiddenDriver"
   description: >
     A driver object exists in the \Driver directory but its base address is
     absent from PsLoadedModuleList / ZwQuerySystemInformation module list.
@@ -109,7 +149,7 @@
 # ---------------------------------------------------------------------------
 # Rule 4: Kernel Inline Hook — JMP patch on monitored ntoskrnl export
 # ---------------------------------------------------------------------------
-- name: "Rootkit.KernelInlineHook"
+- name: "HEUR:Win64.Rootkit.KernelInlineHook"
   description: >
     A monitored ntoskrnl export (NtCreateFile, NtAllocateVirtualMemory, etc.)
     has been patched with a JMP instruction redirecting execution outside
@@ -145,7 +185,7 @@
 # A process that both performs kernel-level injection AND triggers a rootkit
 # finding is almost certainly malware. Terminate + quarantine.
 # ---------------------------------------------------------------------------
-- name: "Rootkit.PlusInjection"
+- name: "HEUR:Win64.Rootkit.PlusInjection"
   description: >
     Process triggered both a kernel rootkit finding (SSDT hook or inline hook)
     AND performed memory injection (WriteVirtualMemory / CreateRemoteThread).
@@ -196,7 +236,7 @@
 # Fires when more than one finding category is triggered (e.g., hidden driver
 # AND SSDT hook). Strong indicator of a sophisticated rootkit.
 # ---------------------------------------------------------------------------
-- name: "Rootkit.MultiVector"
+- name: "HEUR:Win64.Rootkit.MultiVector"
   description: >
     Multiple distinct rootkit detection categories triggered for the same
     process context. Indicative of a sophisticated, multi-component rootkit.
@@ -245,7 +285,7 @@
 # Low-false-positive: hooking NtCreateFile outside ntoskrnl is almost always
 # malicious (legitimate products use minifilters instead).
 # ---------------------------------------------------------------------------
-- name: "Rootkit.NtCreateFileHook"
+- name: "HEUR:Win64.Rootkit.NtCreateFileHook"
   description: >
     NtCreateFile has been inline-hooked by code outside ntoskrnl.
     Legitimate security products use minifilters; direct SSDT/inline hooks

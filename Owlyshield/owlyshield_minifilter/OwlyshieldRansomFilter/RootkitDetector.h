@@ -19,6 +19,7 @@ Abstract:
       3. Hidden driver          - object directory entry missing from module list
       4. Driver object integrity - DriverInit/AddDevice/MajorFunction mismatch
       5. Kernel inline hook     - FF25 / E9 / mov-rax-jmp-rax on ntoskrnl exports
+      6. Object type tampering  - unsupported file-object callbacks enabled
 
     IRP opcodes (defined in SharedDefs.h):
       IRP_ROOTKIT_SSDT_HOOK       21

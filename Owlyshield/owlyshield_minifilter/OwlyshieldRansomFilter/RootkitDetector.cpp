@@ -75,6 +75,7 @@ static PPS_LOOKUP_PROCESS_BY_PROCESS_ID fnPsLookupProcessByProcessId  = NULL;
 static PPS_GET_PROCESS_IMAGE_FILE_NAME  fnPsGetProcessImageFileName   = NULL;
 static PZW_QUERY_DIRECTORY_OBJECT       fnZwQueryDirectoryObject      = NULL;
 static POB_REFERENCE_OBJECT_BY_NAME     fnObReferenceObjectByName     = NULL;
+static POBJECT_TYPE                    *g_IoFileObjectType            = NULL;
 
 // ---------------------------------------------------------------------------
 // SystemModuleInformation structures (not in public WDK headers)
@@ -98,6 +99,50 @@ typedef struct _RTL_PROCESS_MODULES {
     RTL_PROCESS_MODULE_INFORMATION Modules[ANYSIZE_ARRAY];
 } RTL_PROCESS_MODULES, *PRTL_PROCESS_MODULES;
 #pragma pack(pop)
+
+typedef struct _RK_OBJECT_TYPE_INITIALIZER {
+    USHORT          Length;
+    UCHAR           ObjectTypeFlags;
+    UCHAR           Reserved0;
+    ULONG           ObjectTypeCode;
+    ULONG           InvalidAttributes;
+    GENERIC_MAPPING GenericMapping;
+    ULONG           ValidAccessMask;
+    ULONG           RetainAccess;
+    POOL_TYPE       PoolType;
+    ULONG           DefaultPagedPoolCharge;
+    ULONG           DefaultNonPagedPoolCharge;
+    PVOID           DumpProcedure;
+    PVOID           OpenProcedure;
+    PVOID           CloseProcedure;
+    PVOID           DeleteProcedure;
+    PVOID           ParseProcedure;
+    PVOID           SecurityProcedure;
+    PVOID           QueryNameProcedure;
+    PVOID           OkayToCloseProcedure;
+} RK_OBJECT_TYPE_INITIALIZER, *PRK_OBJECT_TYPE_INITIALIZER;
+
+typedef struct _RK_OBJECT_TYPE_LAYOUT {
+    LIST_ENTRY                 TypeList;
+    UNICODE_STRING             Name;
+    PVOID                      DefaultObject;
+    UCHAR                      Index;
+    UCHAR                      Reserved0[3];
+    ULONG                      TotalNumberOfObjects;
+    ULONG                      TotalNumberOfHandles;
+    ULONG                      HighWaterNumberOfObjects;
+    ULONG                      HighWaterNumberOfHandles;
+    UCHAR                      Reserved1[4];
+    RK_OBJECT_TYPE_INITIALIZER TypeInfo;
+    ULONGLONG                  TypeLock;
+    ULONG                      Key;
+    UCHAR                      Reserved2[4];
+    LIST_ENTRY                 CallbackList;
+} RK_OBJECT_TYPE_LAYOUT, *PRK_OBJECT_TYPE_LAYOUT;
+
+#define RK_OBJECT_TYPE_FLAG_SUPPORTS_CALLBACKS 0x40U
+#define RK_OBJECT_CALLBACK_STATE_ENABLED       0x1UL
+#define RK_OBJECT_CALLBACK_STATE_ACTIVE        0x2UL
 
 #define SystemModuleInformation   11UL
 #define SystemProcessInformation   5UL
@@ -170,6 +215,7 @@ static ULONG RkCheckSsdtIntegrity(VOID);
 static ULONG RkCheckHiddenProcesses(VOID);
 static ULONG RkCheckHiddenDrivers(VOID);
 static ULONG RkCheckDriverObjectIntegrity(VOID);
+static ULONG RkCheckObjectTypeCallbackTampering(VOID);
 static ULONG RkCheckKernelInlineHooks(VOID);
 static VOID  RkEmitFinding(_In_ ULONG IrpOpCode, _In_ ULONG SourcePid,
                             _In_opt_ PCWSTR ObjectName,
@@ -244,6 +290,13 @@ RootkitDetectorInitialize(VOID)
         (POB_REFERENCE_OBJECT_BY_NAME)MmGetSystemRoutineAddress(&name);
     if (!fnObReferenceObjectByName) {
         DbgPrint("RootkitDetector: ObReferenceObjectByName not found, hidden-driver and driver-object scans will be limited\n");
+    }
+
+    RtlInitUnicodeString(&name, L"IoFileObjectType");
+    g_IoFileObjectType =
+        (POBJECT_TYPE *)MmGetSystemRoutineAddress(&name);
+    if (!g_IoFileObjectType) {
+        DbgPrint("RootkitDetector: IoFileObjectType not found, object-type tamper scan will be limited\n");
     }
 
     RtlInitUnicodeString(&name, L"KeServiceDescriptorTable");
@@ -351,6 +404,7 @@ RkWorkItemRoutine(_In_ PDEVICE_OBJECT DevObj, _In_opt_ PVOID Ctx)
         case RK_TRIGGER_DRIVER:
             RkCheckHiddenDrivers();
             RkCheckDriverObjectIntegrity();
+            RkCheckObjectTypeCallbackTampering();
             RkCheckHiddenProcesses();
             break;
         case RK_TRIGGER_LIGHT:
@@ -377,6 +431,7 @@ RootkitDetectorRunScan(VOID)
     total += RkCheckHiddenProcesses();
     total += RkCheckHiddenDrivers();
     total += RkCheckDriverObjectIntegrity();
+    total += RkCheckObjectTypeCallbackTampering();
     if (total > 0) {
         DbgPrint("RootkitDetector: scan complete - %lu anomalies\n", total);
     }
@@ -845,6 +900,80 @@ RkCheckDriverObjectIntegrity(VOID)
 
     RkFreeSystemModules(mods);
     return findings;
+}
+
+static ULONG
+RkCheckObjectTypeCallbackTampering(VOID)
+{
+    PRK_OBJECT_TYPE_LAYOUT typeLayout;
+    POBJECT_TYPE fileObjectType = NULL;
+    WCHAR desc[128] = {0};
+    ULONG stateFlags = 0;
+    BOOLEAN callbacksEnabled = FALSE;
+    BOOLEAN callbacksActive = FALSE;
+
+    if (!g_IoFileObjectType || !*g_IoFileObjectType) {
+        return 0;
+    }
+
+    fileObjectType = *g_IoFileObjectType;
+
+    __try {
+        typeLayout = (PRK_OBJECT_TYPE_LAYOUT)fileObjectType;
+        callbacksEnabled =
+            (typeLayout->TypeInfo.ObjectTypeFlags & RK_OBJECT_TYPE_FLAG_SUPPORTS_CALLBACKS) != 0;
+
+        if (typeLayout->CallbackList.Flink != NULL &&
+            typeLayout->CallbackList.Blink != NULL &&
+            (typeLayout->CallbackList.Flink != &typeLayout->CallbackList ||
+             typeLayout->CallbackList.Blink != &typeLayout->CallbackList))
+        {
+            callbacksActive = TRUE;
+        }
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER) {
+        DbgPrint("RootkitDetector: exception while checking object-type callback state (0x%X)\n",
+                 GetExceptionCode());
+        return 0;
+    }
+
+    if (!callbacksEnabled && !callbacksActive) {
+        return 0;
+    }
+
+    if (callbacksEnabled) {
+        stateFlags |= RK_OBJECT_CALLBACK_STATE_ENABLED;
+    }
+    if (callbacksActive) {
+        stateFlags |= RK_OBJECT_CALLBACK_STATE_ACTIVE;
+    }
+
+    if (callbacksEnabled && callbacksActive) {
+        (VOID)RtlStringCchCopyW(desc,
+                                RTL_NUMBER_OF(desc),
+                                L"Object type tampering: file object callbacks enabled with active registrations");
+    } else if (callbacksEnabled) {
+        (VOID)RtlStringCchCopyW(desc,
+                                RTL_NUMBER_OF(desc),
+                                L"Object type tampering: file object callbacks enabled");
+    } else {
+        (VOID)RtlStringCchCopyW(desc,
+                                RTL_NUMBER_OF(desc),
+                                L"Object type tampering: file object callback list populated");
+    }
+
+    DbgPrint("RootkitDetector: object-type callback tamper state=0x%lx type=%p\n",
+             stateFlags,
+             fileObjectType);
+
+    RkEmitFinding(IRP_ROOTKIT_GENERIC,
+                  0,
+                  desc,
+                  fileObjectType,
+                  sizeof(RK_OBJECT_TYPE_LAYOUT),
+                  stateFlags,
+                  0);
+    return 1;
 }
 
 // ===========================================================================
