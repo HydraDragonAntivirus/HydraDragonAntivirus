@@ -325,6 +325,14 @@ pub struct FirewallRule {
     pub url_pattern: Option<String>,
     #[serde(default)]
     pub file_types: Vec<String>,
+    #[serde(default)]
+    pub terminate: bool,
+    #[serde(default)]
+    pub quarantine: bool,
+    #[serde(default)]
+    pub kill_and_remove: bool,
+    #[serde(default)]
+    pub ask_user: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -365,6 +373,8 @@ pub struct FirewallSettings {
     #[serde(default)]
     pub app_decisions: HashMap<String, AppDecision>,
     #[serde(default)]
+    pub kernel_block_paths: Vec<String>,
+    #[serde(default)]
     pub website_path: String,
     #[serde(default)]
     pub rules: Vec<FirewallRule>,
@@ -400,6 +410,7 @@ impl Default for FirewallSettings {
 
         Self {
             app_decisions: HashMap::new(),
+            kernel_block_paths: Vec::new(),
             website_path: String::new(),
             rules: Vec::new(),
             late_blocking_mode: false,
@@ -1553,9 +1564,12 @@ pub fn App() -> impl IntoView {
                             }.into_view(),
 
                             AppView::Settings => view! {
-                                <div class="dashboard-grid">
-                                    <div class="glass-card" style="width: 100%">
+                                <div class="dashboard-grid" style="height: calc(100vh - 120px)">
+                                    <div class="glass-card" style="width: 100%; overflow-y: auto; min-height: 0">
                                         <h3>"System Settings"</h3>
+                                        <p style="margin: 0 0 18px 0; color: var(--text-muted); font-size: 12px; line-height: 1.5">
+                                            "The normal GUI stays active. Raw JSON is available below, and saving from this page now preserves the extra settings fields instead of dropping them."
+                                        </p>
                                         <div class="input-group" style="padding: 14px; border: 1px solid rgba(96, 165, 250, 0.18); border-radius: 10px; background: rgba(96, 165, 250, 0.05)">
                                             <label style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px">
                                                 <input
@@ -1607,6 +1621,34 @@ pub fn App() -> impl IntoView {
                                                     <option value="metadata_only">"Metadata only"</option>
                                                     <option value="tls_proxy">"Embedded MITM proxy"</option>
                                                 </select>
+                                            </div>
+                                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-top: 10px;">
+                                                <div class="input-group" style="margin: 0">
+                                                    <label>"MITM listen host"</label>
+                                                    <input
+                                                        type="text"
+                                                        prop:value=move || settings.get().tls_proxy.listen_host.clone()
+                                                        on:input=move |ev| {
+                                                            set_settings.update(|s| {
+                                                                s.tls_proxy.listen_host = event_target_value(&ev);
+                                                            });
+                                                        }
+                                                    />
+                                                </div>
+                                                <div class="input-group" style="margin: 0">
+                                                    <label>"MITM listen port"</label>
+                                                    <input
+                                                        type="number"
+                                                        min="1"
+                                                        max="65535"
+                                                        prop:value=move || settings.get().tls_proxy.listen_port.to_string()
+                                                        on:input=move |ev| {
+                                                            if let Ok(value) = event_target_value(&ev).parse::<u16>() {
+                                                                set_settings.update(|s| s.tls_proxy.listen_port = value.max(1));
+                                                            }
+                                                        }
+                                                    />
+                                                </div>
                                             </div>
                                             <div class="input-group">
                                                 <label style="display: flex; align-items: center; gap: 10px">
@@ -1685,9 +1727,40 @@ pub fn App() -> impl IntoView {
                                                 </p>
                                             </div>
                                         </div>
+                                        <div class="input-group" style="margin-top: 18px">
+                                            <label>"Kernel blocked paths"</label>
+                                            <textarea
+                                                style="min-height: 110px; width: 100%; box-sizing: border-box; padding: 10px; resize: vertical"
+                                                prop:value=move || settings.get().kernel_block_paths.join("\n")
+                                                on:input=move |ev| {
+                                                    let value = event_target_value(&ev);
+                                                    let entries = value
+                                                        .split(['\n', '\r', ';'])
+                                                        .filter_map(|item| {
+                                                            let trimmed = item.trim();
+                                                            if trimmed.is_empty() {
+                                                                None
+                                                            } else {
+                                                                Some(trimmed.to_string())
+                                                            }
+                                                        })
+                                                        .collect::<Vec<_>>();
+                                                    set_settings.update(|s| s.kernel_block_paths = entries);
+                                                }
+                                            />
+                                            <p style="margin: 8px 0 0 0; color: var(--text-muted); font-size: 12px; line-height: 1.5">
+                                                "These paths are sent to the kernel deny list. One full path per line."
+                                            </p>
+                                        </div>
                                         <div class="input-group">
                                             <label>"Custom Filter Path"</label>
                                             <input type="text" prop:value=move || settings.get().website_path on:input=move |ev| update_path(event_target_value(&ev)) />
+                                        </div>
+                                        <div style="margin: 12px 0 18px 0; padding: 12px; border-radius: 8px; background: rgba(15, 23, 42, 0.4); border: 1px solid rgba(148, 163, 184, 0.12); display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px; font-size: 12px;">
+                                            <div><strong>"Rules loaded: "</strong>{move || settings.get().rules.len().to_string()}</div>
+                                            <div><strong>"Trusted entries: "</strong>{move || settings.get().app_decisions.len().to_string()}</div>
+                                            <div><strong>"Kernel blocks: "</strong>{move || settings.get().kernel_block_paths.len().to_string()}</div>
+                                            <div><strong>"Metadata keys: "</strong>{move || settings.get().metadata.len().to_string()}</div>
                                         </div>
                                         <div class="input-group">
                                             <label style="display: flex; align-items: center; gap: 10px">
@@ -1785,7 +1858,7 @@ pub fn App() -> impl IntoView {
                                         <div class="input-group" style="margin-top: 20px">
                                             <label>"Raw Settings JSON"</label>
                                             <textarea
-                                                style="min-height: 260px; width: 100%; box-sizing: border-box; padding: 10px; resize: vertical; font-family: Consolas, monospace; font-size: 12px"
+                                                style="min-height: 360px; width: 100%; box-sizing: border-box; padding: 10px; resize: vertical; font-family: Consolas, monospace; font-size: 12px"
                                                 prop:value=move || settings_raw.get()
                                                 on:input=move |ev| {
                                                     set_settings_raw.set(event_target_value(&ev));
