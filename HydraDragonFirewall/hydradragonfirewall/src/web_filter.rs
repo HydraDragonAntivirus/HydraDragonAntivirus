@@ -1,4 +1,5 @@
 use glob::glob;
+use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::BufReader;
@@ -25,6 +26,8 @@ pub struct WebFilter {
     blocked_hostnames: Arc<RwLock<Vec<String>>>,
     /// Blocked URL patterns (supports wildcards)
     blocked_url_patterns: Arc<RwLock<Vec<String>>>,
+    /// Exact malicious URLs loaded from feeds such as phishing_links.txt.
+    exact_url_blocklist: Arc<RwLock<HashSet<String>>>,
 
     // --- New Advanced Filtering Fields ---
     email_blocklist: Arc<RwLock<HashSet<String>>>,
@@ -57,6 +60,7 @@ impl WebFilter {
 
             blocked_hostnames: Arc::new(RwLock::new(Vec::new())),
             blocked_url_patterns: Arc::new(RwLock::new(Vec::new())),
+            exact_url_blocklist: Arc::new(RwLock::new(HashSet::new())),
 
             email_blocklist: Arc::new(RwLock::new(HashSet::new())),
             urlhaus_urls: Arc::new(RwLock::new(HashSet::new())),
@@ -81,7 +85,7 @@ impl WebFilter {
 
         // 0. Check whitelist (whitelist prevents hostname/domain blocking, but individual URLs can still be blocked)
         if self.domain_whitelist.read().unwrap().contains(&hostname_lower) {
-            return Some("WHITELISTED".to_string());
+            return None;
         }
 
         // 1. Check domain blocklist (exact match)
@@ -106,7 +110,31 @@ impl WebFilter {
 
     /// Check if a URL matches any blocked patterns
     pub fn check_url(&self, url: &str) -> Option<String> {
-        let url_lower = url.to_lowercase();
+        let url_lower = Self::normalize_url(url);
+        if url_lower.is_empty() {
+            return None;
+        }
+
+        {
+            let exact_urls = self.exact_url_blocklist.read().unwrap();
+            if exact_urls.contains(&url_lower) {
+                return Some(format!("Blocked URL: {}", url));
+            }
+
+            let url_without_scheme = Self::strip_url_scheme(&url_lower);
+            if exact_urls.contains(url_without_scheme) {
+                return Some(format!("Blocked URL: {}", url));
+            }
+        }
+
+        {
+            let urlhaus_urls = self.urlhaus_urls.read().unwrap();
+            if urlhaus_urls.contains(&url_lower)
+                || urlhaus_urls.contains(Self::strip_url_scheme(&url_lower))
+            {
+                return Some(format!("Blocked URL: {}", url));
+            }
+        }
 
         for pattern in self.blocked_url_patterns.read().unwrap().iter() {
             if Self::wildcard_match(pattern, &url_lower) {
@@ -115,6 +143,21 @@ impl WebFilter {
         }
 
         None
+    }
+
+    fn normalize_url(url: &str) -> String {
+        url.trim()
+            .trim_matches('"')
+            .trim_matches('\'')
+            .trim_end_matches('/')
+            .to_lowercase()
+    }
+
+    fn strip_url_scheme(url: &str) -> &str {
+        url.strip_prefix("https://")
+            .or_else(|| url.strip_prefix("http://"))
+            .or_else(|| url.strip_prefix("ftp://"))
+            .unwrap_or(url)
     }
 
     /// Simple wildcard matching (supports * for any characters)
@@ -200,6 +243,7 @@ impl WebFilter {
         // We'll iterate lines manually to avoid strict CSV errors
         use std::io::BufRead;
         let mut urls = self.urlhaus_urls.write().unwrap();
+        let mut exact_urls = self.exact_url_blocklist.write().unwrap();
 
         for line in reader.lines() {
             if let Ok(l) = line {
@@ -210,20 +254,116 @@ impl WebFilter {
                 // Try to extract URL column (index 2 usually)
                 let parts: Vec<&str> = l.split(',').collect();
                 if parts.len() > 3 {
-                    let url = parts[2].trim().replace("\"", ""); // Simple unquote
+                    let url = Self::normalize_url(&parts[2].trim().replace("\"", "")); // Simple unquote
                     if !url.is_empty() {
-                        urls.insert(url.to_lowercase());
+                        urls.insert(url.clone());
+                        exact_urls.insert(url);
                         // Parse domain from URL for domain blocking?
                         // Left as future optimization to avoid over-blocking
                     }
                 } else if !l.is_empty() {
                     // Fallback: Treat whole line as URL
-                    urls.insert(l.trim().to_lowercase());
+                    let url = Self::normalize_url(l.trim());
+                    if !url.is_empty() {
+                        urls.insert(url.clone());
+                        exact_urls.insert(url);
+                    }
                 }
                 count += 1;
             }
         }
         Ok(count)
+    }
+
+    pub fn load_plain_url_list(&self, path: &str) -> std::io::Result<usize> {
+        use std::io::BufRead;
+
+        let file = File::open(path)?;
+        let reader = BufReader::new(file);
+        let mut count = 0usize;
+        let mut exact_urls = self.exact_url_blocklist.write().unwrap();
+
+        for line in reader.lines() {
+            let line = line?;
+            let url = Self::normalize_url(&line);
+            if url.is_empty() || url.starts_with('#') {
+                continue;
+            }
+            if exact_urls.insert(url) {
+                count += 1;
+            }
+        }
+
+        Ok(count)
+    }
+
+    pub fn load_json_url_list(&self, path: &str) -> std::io::Result<usize> {
+        #[derive(Deserialize)]
+        struct JsonUrlFeed {
+            #[serde(default)]
+            data: Vec<String>,
+        }
+
+        let file = File::open(path)?;
+        let reader = BufReader::new(file);
+        let feed: JsonUrlFeed = serde_json::from_reader(reader)
+            .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidData, err.to_string()))?;
+
+        let mut count = 0usize;
+        let mut exact_urls = self.exact_url_blocklist.write().unwrap();
+        for url in feed.data {
+            let normalized = Self::normalize_url(&url);
+            if normalized.is_empty() {
+                continue;
+            }
+            if exact_urls.insert(normalized) {
+                count += 1;
+            }
+        }
+
+        Ok(count)
+    }
+
+    pub fn find_match(
+        &self,
+        remote_ip: IpAddr,
+        hostname: Option<&str>,
+        full_url: Option<&str>,
+        payload_urls: &[String],
+        payload_domains: &[String],
+    ) -> Option<WebThreatMatch> {
+        if let Some(url) = full_url {
+            if let Some(reason) = self.check_url(url) {
+                return Some(WebThreatMatch::url(url.to_string(), reason));
+            }
+        }
+
+        for url in payload_urls {
+            if let Some(reason) = self.check_url(url) {
+                return Some(WebThreatMatch::url(url.clone(), reason));
+            }
+        }
+
+        if let Some(host) = hostname {
+            if let Some(reason) = self.check_hostname(host) {
+                return Some(WebThreatMatch::hostname(host.to_string(), reason));
+            }
+        }
+
+        for domain in payload_domains {
+            if let Some(reason) = self.check_hostname(domain) {
+                return Some(WebThreatMatch::hostname(domain.clone(), reason));
+            }
+        }
+
+        if self.is_blocked_ip(remote_ip) {
+            return Some(WebThreatMatch::ip(
+                remote_ip.to_string(),
+                format!("Blocked IP: {}", remote_ip),
+            ));
+        }
+
+        None
     }
 
     pub fn load_from_website_folder(&self, base_path: &str) -> std::io::Result<usize> {
@@ -249,7 +389,28 @@ impl WebFilter {
         let urlhaus_path = format!("{}\\urlhaus.txt", base_path);
         if Path::new(&urlhaus_path).exists() {
             if let Ok(c) = self.load_urlhaus(&urlhaus_path) {
+                count += c;
                 println!("Loaded {} URLHaus entries.", c);
+            }
+        }
+
+        // `phishing_links.txt` is expected to contain the JSON feed format used by
+        // the Exerra blacklist project: https://github.com/Exerra/blacklist
+        let phishing_links_path = format!("{}\\phishing_links.txt", base_path);
+        if Path::new(&phishing_links_path).exists() {
+            if let Ok(c) = self.load_json_url_list(&phishing_links_path) {
+                count += c;
+                println!("Loaded {} phishing JSON URLs from Exerra/blacklist.", c);
+            }
+        }
+
+        for filename in ["MaliciousLinks.txt", "Links.txt"] {
+            let path = format!("{}\\{}", base_path, filename);
+            if Path::new(&path).exists() {
+                if let Ok(c) = self.load_plain_url_list(&path) {
+                    count += c;
+                    println!("Loaded {} plain malicious URLs from {}.", c, filename);
+                }
             }
         }
 
@@ -392,6 +553,56 @@ impl WebFilter {
                 }
                 self.ipv6_blocklist.read().unwrap().contains(&ipv6)
             }
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub enum WebThreatTargetKind {
+    Url,
+    Hostname,
+    Ip,
+}
+
+#[derive(Clone, Debug)]
+pub struct WebThreatMatch {
+    pub kind: WebThreatTargetKind,
+    pub target: String,
+    pub reason: String,
+}
+
+impl WebThreatMatch {
+    pub fn url(target: String, reason: String) -> Self {
+        Self {
+            kind: WebThreatTargetKind::Url,
+            target,
+            reason,
+        }
+    }
+
+    pub fn hostname(target: String, reason: String) -> Self {
+        Self {
+            kind: WebThreatTargetKind::Hostname,
+            target,
+            reason,
+        }
+    }
+
+    pub fn ip(target: String, reason: String) -> Self {
+        Self {
+            kind: WebThreatTargetKind::Ip,
+            target,
+            reason,
+        }
+    }
+
+    pub fn decision_key(&self) -> String {
+        match self.kind {
+            WebThreatTargetKind::Url => format!("website:url:{}", WebFilter::normalize_url(&self.target)),
+            WebThreatTargetKind::Hostname => {
+                format!("website:host:{}", self.target.trim().to_lowercase())
+            }
+            WebThreatTargetKind::Ip => format!("website:ip:{}", self.target.trim().to_lowercase()),
         }
     }
 }

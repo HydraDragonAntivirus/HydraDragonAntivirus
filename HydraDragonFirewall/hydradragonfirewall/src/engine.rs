@@ -152,6 +152,20 @@ fn firewall_log_file_path() -> PathBuf {
     firewall_data_dir().join("logs").join("firewall_activity.jsonl")
 }
 
+fn default_website_path() -> String {
+    let repo_path = PathBuf::from("hydradragon").join("website");
+    if repo_path.exists() {
+        return repo_path.to_string_lossy().to_string();
+    }
+
+    let local_path = PathBuf::from("website");
+    if local_path.exists() {
+        return local_path.to_string_lossy().to_string();
+    }
+
+    "hydradragon\\website".to_string()
+}
+
 fn persist_log_entry(entry: &LogEntry, settings: Option<&FirewallSettings>) {
     if settings.is_some_and(|current| !current.save_all_logs) {
         return;
@@ -279,6 +293,30 @@ pub struct PendingApp {
     pub alert_kind: Option<String>,
     #[serde(default)]
     pub target: Option<String>,
+    #[serde(default)]
+    pub decision_key: Option<String>,
+    #[serde(default)]
+    pub full_url: Option<String>,
+    #[serde(default)]
+    pub http_method: Option<String>,
+    #[serde(default)]
+    pub http_path: Option<String>,
+    #[serde(default)]
+    pub http_user_agent: Option<String>,
+    #[serde(default)]
+    pub http_content_type: Option<String>,
+    #[serde(default)]
+    pub http_referer: Option<String>,
+    #[serde(default)]
+    pub http_request_body: Option<String>,
+    #[serde(default)]
+    pub http_response_body: Option<String>,
+    #[serde(default)]
+    pub payload_sample: Option<String>,
+    #[serde(default)]
+    pub detected_file_type: Option<String>,
+    #[serde(default)]
+    pub packet_json: Option<String>,
     #[serde(default = "default_queue_position")]
     pub queue_position: usize,
     #[serde(default = "default_queue_total")]
@@ -864,6 +902,14 @@ impl AppManager {
         decisions.insert(name_lower, decision);
     }
 
+    pub fn get_decision(&self, key: &str) -> Option<AppDecision> {
+        self.decisions
+            .read()
+            .unwrap()
+            .get(&key.to_lowercase())
+            .cloned()
+    }
+
     pub fn remove_decision(&self, name_lower: &str) {
         let mut decisions = self.decisions.write().unwrap();
         decisions.remove(name_lower);
@@ -877,6 +923,10 @@ impl AppManager {
     fn pending_identity(app: &PendingApp) -> String {
         if let Some(request_id) = app.request_id.as_ref() {
             return format!("request:{}", request_id.to_lowercase());
+        }
+
+        if let Some(decision_key) = app.decision_key.as_ref() {
+            return format!("decision:{}", decision_key.to_lowercase());
         }
 
         let path = app.path.trim();
@@ -1341,6 +1391,10 @@ impl FirewallEngine {
     pub fn resolve_app_decision(&self, name: String, decision: String, tx: &AppHandle) {
         let active_alert = self.app_manager.active_alert.read().unwrap().clone();
         let mut persist_settings = true;
+        let decision_identifier = active_alert
+            .as_ref()
+            .and_then(|alert| alert.decision_key.clone())
+            .unwrap_or_else(|| name.clone());
         let decision_label = active_alert
             .as_ref()
             .map(|alert| {
@@ -1386,12 +1440,13 @@ impl FirewallEngine {
         if routed_to_owlyshield {
             // Mirror quarantine/block decisions to firewall for "predict block" security
             if app_decision == AppDecision::Block {
-                self.app_manager.resolve_decision(&name, app_decision);
+                self.app_manager.resolve_decision(&decision_identifier, app_decision);
                 self.save_settings();
             }
             persist_settings = false;
         } else {
-            self.app_manager.resolve_decision(&name, app_decision);
+            self.app_manager
+                .resolve_decision(&decision_identifier, app_decision);
         }
 
         let now = Self::now_ts();
@@ -1601,7 +1656,7 @@ impl FirewallEngine {
                 let path_str = {
                     let s = settings_arc_loader.read().unwrap();
                     if s.website_path.is_empty() {
-                        "website".to_string()
+                        default_website_path()
                     } else {
                         s.website_path.clone()
                     }
@@ -1903,6 +1958,18 @@ impl FirewallEngine {
                                                 alert_source: Some("owlyshield".to_string()),
                                                 alert_kind: Some(alert_kind),
                                                 target: Some(target),
+                                                decision_key: None,
+                                                full_url: None,
+                                                http_method: None,
+                                                http_path: None,
+                                                http_user_agent: None,
+                                                http_content_type: None,
+                                                http_referer: None,
+                                                http_request_body: None,
+                                                http_response_body: None,
+                                                payload_sample: None,
+                                                detected_file_type: None,
+                                                packet_json: None,
                                                 queue_position: 1,
                                                 queue_total: 1,
                                             },
@@ -2358,7 +2425,7 @@ impl FirewallEngine {
         stats: &Arc<Statistics>,
         rules: &Arc<RwLock<Vec<FirewallRule>>>,
         am: &Arc<AppManager>,
-        _wf: &Arc<WebFilter>,
+        wf: &Arc<WebFilter>,
         settings: &Arc<RwLock<FirewallSettings>>,
         dns_handler: &Arc<DnsHandler>,
         sdk: &Arc<RwLock<crate::sdk::SdkRegistry>>,
@@ -2403,6 +2470,8 @@ impl FirewallEngine {
         let mut should_forward = true;
         let mut reason: Option<String> = None;
         let mut remember_pending_as_unknown_app = true;
+        let mut website_decision_key: Option<String> = None;
+        let mut website_target: Option<String> = None;
         let (late_blocking_mode, tls_proxy_cfg, log_mode, no_alert_mode) = {
             let s = settings.read().unwrap();
             (s.late_blocking_mode, s.tls_proxy.clone(), s.log_mode, s.no_alert_mode)
@@ -2569,6 +2638,49 @@ impl FirewallEngine {
         }
         drop(current_rules);
 
+        let remote_ip = if info.outbound { info.dst_ip } else { info.src_ip };
+        if let Some(web_match) = wf.find_match(
+            remote_ip,
+            info.hostname.as_deref(),
+            info.full_url.as_deref(),
+            &info.payload_urls,
+            &info.payload_domains,
+        ) {
+            let decision_key = web_match.decision_key();
+            website_target = Some(web_match.target.clone());
+            website_decision_key = Some(decision_key.clone());
+
+            match am.get_decision(&decision_key) {
+                Some(AppDecision::Allow) => {
+                    should_forward = true;
+                    reason = Some(format!("Website trusted: {}", web_match.target));
+                }
+                Some(AppDecision::AllowOnce) => {
+                    should_forward = true;
+                    reason = Some(format!("Website allowed once: {}", web_match.target));
+                    am.remove_decision(&decision_key.to_lowercase());
+                }
+                Some(AppDecision::Block) => {
+                    should_forward = false;
+                    app_decision = AppDecision::Block;
+                    remember_pending_as_unknown_app = false;
+                    reason = Some(format!(
+                        "Website blocked [{}]: {}",
+                        web_match.target, web_match.reason
+                    ));
+                }
+                Some(AppDecision::Pending) | None => {
+                    should_forward = false;
+                    app_decision = AppDecision::Pending;
+                    remember_pending_as_unknown_app = false;
+                    reason = Some(format!(
+                        "Website intelligence match [{}]: {}",
+                        web_match.target, web_match.reason
+                    ));
+                }
+            }
+        }
+
         // 8. App Decision Check
         if should_forward {
             match app_decision {
@@ -2679,9 +2791,29 @@ impl FirewallEngine {
                     hostname: info.hostname.clone(),
                     reason: reason.clone(),
                     request_id: None,
-                    alert_source: None,
-                    alert_kind: None,
-                    target: None,
+                    alert_source: website_decision_key
+                        .as_ref()
+                        .map(|_| "website".to_string()),
+                    alert_kind: website_decision_key
+                        .as_ref()
+                        .map(|_| "malicious_website".to_string()),
+                    target: website_target
+                        .clone()
+                        .or_else(|| info.full_url.clone())
+                        .or_else(|| info.hostname.clone())
+                        .or_else(|| Some(format!("{}:{}", info.dst_ip, info.dst_port))),
+                    decision_key: website_decision_key.clone(),
+                    full_url: info.full_url.clone(),
+                    http_method: info.http_method.clone(),
+                    http_path: info.http_path.clone(),
+                    http_user_agent: info.http_user_agent.clone(),
+                    http_content_type: info.http_content_type.clone(),
+                    http_referer: info.http_referer.clone(),
+                    http_request_body: info.http_request_body.clone(),
+                    http_response_body: info.http_response_body.clone(),
+                    payload_sample: info.payload_sample.clone(),
+                    detected_file_type: info.detected_file_type.clone(),
+                    packet_json: serde_json::to_string_pretty(&info).ok(),
                     queue_position: 1,
                     queue_total: 1,
                 },

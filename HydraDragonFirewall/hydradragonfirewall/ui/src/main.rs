@@ -63,6 +63,30 @@ pub struct PendingApp {
     pub alert_kind: Option<String>,
     #[serde(default)]
     pub target: Option<String>,
+    #[serde(default)]
+    pub decision_key: Option<String>,
+    #[serde(default)]
+    pub full_url: Option<String>,
+    #[serde(default)]
+    pub http_method: Option<String>,
+    #[serde(default)]
+    pub http_path: Option<String>,
+    #[serde(default)]
+    pub http_user_agent: Option<String>,
+    #[serde(default)]
+    pub http_content_type: Option<String>,
+    #[serde(default)]
+    pub http_referer: Option<String>,
+    #[serde(default)]
+    pub http_request_body: Option<String>,
+    #[serde(default)]
+    pub http_response_body: Option<String>,
+    #[serde(default)]
+    pub payload_sample: Option<String>,
+    #[serde(default)]
+    pub detected_file_type: Option<String>,
+    #[serde(default)]
+    pub packet_json: Option<String>,
     #[serde(default = "default_queue_position")]
     pub queue_position: usize,
     #[serde(default = "default_queue_total")]
@@ -1529,9 +1553,19 @@ fn AlertWindow(
                      let res1 = resolve_decision_internal.clone(); let res2 = resolve_decision_internal.clone(); let res3 = resolve_decision_internal.clone(); let res4 = resolve_decision_internal.clone();
                      let is_registry_alert = app.alert_kind.as_deref() == Some("registry");
                      let is_owlyshield_alert = app.alert_source.as_deref() == Some("owlyshield");
+                     let is_website_alert = app.alert_source.as_deref() == Some("website")
+                         || app.alert_kind.as_deref() == Some("malicious_website")
+                         || app.decision_key.as_deref().map(|value| value.starts_with("website:")).unwrap_or(false);
                      let is_behavior_alert = is_owlyshield_alert && !is_registry_alert;
                      let title = if is_registry_alert {
                          "Registry protection triggered".to_string()
+                     } else if is_website_alert {
+                         app.full_url
+                             .clone()
+                             .or_else(|| app.target.clone())
+                             .or_else(|| app.hostname.clone())
+                             .map(|value| format!("Malicious website detected: {}", value))
+                             .unwrap_or_else(|| format!("Malicious website detected in {}", app.name))
                      } else if is_behavior_alert {
                          format!("Behavioral threat detected in {}", app.name)
                      } else if let Some(ref h) = app.hostname {
@@ -1544,6 +1578,11 @@ fn AlertWindow(
                              .clone()
                              .filter(|value| !value.trim().is_empty())
                              .unwrap_or_else(|| format!("{} is attempting a protected registry modification.", app.name))
+                     } else if is_website_alert {
+                         app.reason
+                             .clone()
+                             .filter(|value| !value.trim().is_empty())
+                             .unwrap_or_else(|| "The request matched the website intelligence feeds and is waiting for your decision.".to_string())
                      } else if is_behavior_alert {
                          app.reason
                              .clone()
@@ -1559,12 +1598,32 @@ fn AlertWindow(
                              }
                          )
                      };
-                     let target_label = if is_registry_alert { "Registry:" } else if is_behavior_alert { "Detection:" } else { "Target:" };
+                     let target_label = if is_registry_alert {
+                         "Registry:"
+                     } else if is_website_alert {
+                         "URL:"
+                     } else if is_behavior_alert {
+                         "Detection:"
+                     } else {
+                         "Target:"
+                     };
                      let target_value = if is_registry_alert {
                          app.target
                              .clone()
                              .filter(|value| !value.trim().is_empty())
                              .unwrap_or_else(|| "Protected registry target".to_string())
+                     } else if is_website_alert {
+                         app.full_url
+                             .clone()
+                             .filter(|value| !value.trim().is_empty())
+                             .or_else(|| app.target.clone().filter(|value| !value.trim().is_empty()))
+                             .or_else(|| app.hostname.clone().filter(|value| !value.trim().is_empty()))
+                             .unwrap_or_else(|| format!("{}:{} ({})", app.dst_ip, app.dst_port, match app.protocol {
+                                 Protocol::TCP => "TCP",
+                                 Protocol::UDP => "UDP",
+                                 Protocol::ICMP => "ICMP",
+                                 Protocol::Raw(_) => "RAW",
+                             }))
                      } else if is_behavior_alert {
                          app.target
                              .clone()
@@ -1596,7 +1655,46 @@ fn AlertWindow(
                                       <div class="alert-details-box">
                                           <div class="detail-row"> <span class="detail-label">{target_label}</span> <span class="detail-value" title=target_value.clone()>{target_value}</span> </div>
                                           <div class="detail-row"> <span class="detail-label">"Path:"</span> <span class="detail-value path" title=app.path.clone()>{app.path.clone()}</span> </div>
+                                          {app.http_method.clone().filter(|value| !value.trim().is_empty()).map(|value| view! {
+                                              <div class="detail-row"> <span class="detail-label">"Method:"</span> <span class="detail-value">{value}</span> </div>
+                                          })}
+                                          {app.hostname.clone().filter(|value| !value.trim().is_empty()).map(|value| view! {
+                                              <div class="detail-row"> <span class="detail-label">"Host:"</span> <span class="detail-value" title=value.clone()>{value}</span> </div>
+                                          })}
+                                          {app.http_referer.clone().filter(|value| !value.trim().is_empty()).map(|value| view! {
+                                              <div class="detail-row"> <span class="detail-label">"Referer:"</span> <span class="detail-value path" title=value.clone()>{value}</span> </div>
+                                          })}
+                                          {app.http_content_type.clone().filter(|value| !value.trim().is_empty()).map(|value| view! {
+                                              <div class="detail-row"> <span class="detail-label">"Content-Type:"</span> <span class="detail-value" title=value.clone()>{value}</span> </div>
+                                          })}
+                                          {app.detected_file_type.clone().filter(|value| !value.trim().is_empty()).map(|value| view! {
+                                              <div class="detail-row"> <span class="detail-label">"File Type:"</span> <span class="detail-value">{value}</span> </div>
+                                          })}
                                       </div>
+                                      {app.http_request_body.clone().filter(|value| !value.trim().is_empty()).map(|value| view! {
+                                          <div class="alert-details-box" style="margin-top: 12px;">
+                                              <div class="detail-row" style="display: block;">
+                                                  <span class="detail-label">"Request Body:"</span>
+                                                  <pre class="detail-value path" style="display: block; white-space: pre-wrap; max-height: 140px; overflow: auto; margin-top: 6px;">{value}</pre>
+                                              </div>
+                                          </div>
+                                      })}
+                                      {app.http_response_body.clone().filter(|value| !value.trim().is_empty()).map(|value| view! {
+                                          <div class="alert-details-box" style="margin-top: 12px;">
+                                              <div class="detail-row" style="display: block;">
+                                                  <span class="detail-label">"Response Body:"</span>
+                                                  <pre class="detail-value path" style="display: block; white-space: pre-wrap; max-height: 140px; overflow: auto; margin-top: 6px;">{value}</pre>
+                                              </div>
+                                          </div>
+                                      })}
+                                      {app.packet_json.clone().filter(|value| !value.trim().is_empty()).map(|value| view! {
+                                          <div class="alert-details-box" style="margin-top: 12px;">
+                                              <div class="detail-row" style="display: block;">
+                                                  <span class="detail-label">"Packet JSON:"</span>
+                                                  <pre class="detail-value path" style="display: block; white-space: pre-wrap; max-height: 180px; overflow: auto; margin-top: 6px;">{value}</pre>
+                                              </div>
+                                          </div>
+                                      })}
                                  </div>
                              </div>
                          </div>
