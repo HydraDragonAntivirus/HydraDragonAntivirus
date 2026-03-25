@@ -1625,9 +1625,11 @@ impl FirewallEngine {
     pub fn save_settings(&self) {
         let current_settings = self.settings.read().unwrap();
         
-        // Filter out AllowOnce decisions so they don't persist
+        // Filter out one-time and unresolved identities so only stable trusts persist.
         let mut decisions = self.app_manager.decisions.read().unwrap().clone();
-        decisions.retain(|_, v| *v != AppDecision::AllowOnce);
+        decisions.retain(|key, value| {
+            *value != AppDecision::AllowOnce && !is_unresolved_identity(key.as_str())
+        });
 
         let settings = FirewallSettings {
             app_decisions: decisions,
@@ -2205,7 +2207,16 @@ impl FirewallEngine {
     }
 
     pub fn get_app_decisions(&self) -> HashMap<String, AppDecision> {
-        self.app_manager.decisions.read().unwrap().clone()
+        self.app_manager
+            .decisions
+            .read()
+            .unwrap()
+            .iter()
+            .filter(|(key, value)| {
+                **value != AppDecision::AllowOnce && !is_unresolved_identity(key.as_str())
+            })
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect()
     }
 
     pub fn get_settings(&self) -> FirewallSettings {

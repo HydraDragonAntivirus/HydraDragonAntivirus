@@ -743,6 +743,7 @@ textarea.glass-card:focus {
     min-height: 0;
     overflow-y: auto;
     padding-right: 4px;
+    padding-bottom: 10px;
 }
 
 .alert-content-grid,
@@ -880,6 +881,10 @@ textarea.glass-card:focus {
     display: flex;
     flex-direction: column;
     gap: 10px;
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding-right: 4px;
 }
 
 .exclusion-item {

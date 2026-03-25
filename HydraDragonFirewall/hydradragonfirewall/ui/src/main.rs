@@ -1327,8 +1327,8 @@ pub fn App() -> impl IntoView {
                             }.into_view(),
 
                             AppView::Exclusions => view! {
-                                <div class="dashboard-grid">
-                                    <div class="glass-card" style="width: 100%">
+                                <div class="dashboard-grid" style="height: calc(100vh - 120px)">
+                                    <div class="glass-card" style="width: 100%; display: flex; flex-direction: column; min-height: 0; overflow: hidden">
                                         <div class="section-header">
                                             <h3>"Allowed Applications"</h3>
                                             <button class="btn-primary" style="background: var(--accent-red)" on:click=move |_| clear_all_decisions()> "REMOVE ALL" </button>
@@ -2069,7 +2069,7 @@ fn AlertWindow(
                                           <div class="alert-details-box" style="margin-top: 12px;">
                                               <div class="detail-row" style="display: block;">
                                                   <span class="detail-label">"Request Body:"</span>
-                                                  <pre class="detail-value path" style="display: block; white-space: pre-wrap; max-height: 140px; overflow: auto; margin-top: 6px;">{value}</pre>
+                                                  <pre class="detail-value path" style="display: block; white-space: pre-wrap; overflow-wrap: anywhere; max-height: none; overflow-x: auto; overflow-y: visible; margin-top: 6px;">{value}</pre>
                                               </div>
                                           </div>
                                       })}
@@ -2077,7 +2077,7 @@ fn AlertWindow(
                                           <div class="alert-details-box" style="margin-top: 12px;">
                                               <div class="detail-row" style="display: block;">
                                                   <span class="detail-label">"Response Body:"</span>
-                                                  <pre class="detail-value path" style="display: block; white-space: pre-wrap; max-height: 140px; overflow: auto; margin-top: 6px;">{value}</pre>
+                                                  <pre class="detail-value path" style="display: block; white-space: pre-wrap; overflow-wrap: anywhere; max-height: none; overflow-x: auto; overflow-y: visible; margin-top: 6px;">{value}</pre>
                                               </div>
                                           </div>
                                       })}
@@ -2085,7 +2085,7 @@ fn AlertWindow(
                                           <div class="alert-details-box" style="margin-top: 12px;">
                                               <div class="detail-row" style="display: block;">
                                                   <span class="detail-label">"Packet JSON:"</span>
-                                                  <pre class="detail-value path" style="display: block; white-space: pre-wrap; max-height: 180px; overflow: auto; margin-top: 6px;">{value}</pre>
+                                                  <pre class="detail-value path" style="display: block; white-space: pre-wrap; overflow-wrap: anywhere; max-height: none; overflow-x: auto; overflow-y: visible; margin-top: 6px;">{value}</pre>
                                               </div>
                                           </div>
                                       })}
