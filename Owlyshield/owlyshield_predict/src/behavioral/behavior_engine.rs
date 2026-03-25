@@ -1528,6 +1528,8 @@ pub struct ResponseAction {
     #[serde(default)] pub terminate_process: bool,
     #[serde(default)] pub suspend_process: bool,
     #[serde(default)] pub quarantine: bool,
+    #[serde(default, alias = "deny_access", alias = "kernel_block")]
+    pub status_access_denied: bool,
     #[serde(default)] pub kill_and_remove: bool,
     #[serde(default)] pub ask_user: bool,
     #[serde(default)] pub notify_user: bool,
@@ -5031,6 +5033,7 @@ impl BehaviorEngine {
                         "Trigger: {}, Ratio: {:.1}%",
                         trigger_type, indicator_ratio * 100.0
                     )),
+                    deny_access: rule.response.status_access_denied,
                     terminate: if rule.response.ask_user {
                         prompted_block || prompted_quarantine || rule.response.terminate_process
                     } else {
@@ -5666,6 +5669,7 @@ impl BehaviorEngine {
                     } else {
                         rule.response.quarantine
                     };
+                    p.deny_access_requested = rule.response.status_access_denied;
                     p.kill_and_remove_requested = if rule.response.ask_user { false } else { rule.response.kill_and_remove };
                     p.notify_user_requested = rule.response.notify_user;
                     p.revert_requested = rule.response.auto_revert;

@@ -172,6 +172,8 @@ pub struct ProcessRecord {
     pub quarantine_requested: bool,
     /// Termination requested by behavior engine
     pub termination_requested: bool,
+    /// Kernel path deny requested by behavior engine
+    pub deny_access_requested: bool,
     /// Remove-on-kill requested by behavior engine
     pub kill_and_remove_requested: bool,
     /// User notification requested by behavior engine
@@ -317,6 +319,7 @@ impl ProcessRecord {
             is_malicious: false,
             termination_requested: false,
             quarantine_requested: false,
+            deny_access_requested: false,
             kill_and_remove_requested: false,
             notify_user_requested: false,
             revert_requested: false,
@@ -410,6 +413,7 @@ impl ProcessRecord {
             is_malicious: false,
             termination_requested: false,
             quarantine_requested: false,
+            deny_access_requested: false,
             kill_and_remove_requested: false,
             notify_user_requested: false,
             revert_requested: false,

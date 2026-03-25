@@ -22,6 +22,7 @@ pub struct ThreatInfo<'a> {
     pub virus_name: &'a str,      // e.g., "Behavioral Detection", "Trojan.Generic"
     pub prediction: f32,
     pub match_details: Option<String>,
+    pub deny_access: bool,
     pub terminate: bool,
     pub quarantine: bool,
     pub kill_and_remove: bool,    // Added field to match usage in behavior_engine.rs
@@ -32,6 +33,7 @@ pub struct ThreatInfo<'a> {
 impl ThreatInfo<'_> {
     fn should_notify(&self) -> bool {
         self.notify_user
+            || self.deny_access
             || self.terminate
             || self.quarantine
             || self.kill_and_remove
@@ -45,6 +47,8 @@ impl ThreatInfo<'_> {
             "Kill and quarantine"
         } else if self.terminate {
             "Kill"
+        } else if self.deny_access {
+            "Access denied"
         } else if self.revert {
             "Auto-revert"
         } else if self.notify_user {
@@ -56,6 +60,7 @@ impl ThreatInfo<'_> {
 
     fn response_time_label(&self) -> &'static str {
         if self.notify_user
+            && !self.deny_access
             && !self.terminate
             && !self.quarantine
             && !self.kill_and_remove
@@ -340,6 +345,14 @@ impl ActionOnKill for KillAction {
         threat_info: &ThreatInfo,
         _now: &str,
     ) -> Result<(), Box<dyn Error>> {
+        if threat_info.deny_access {
+            Logging::info(&format!(
+                "[ActionOnKill] Denying future access to: {}",
+                proc.primary_remediation_path().display()
+            ));
+            self.handler.deny_path_access(proc.primary_remediation_path());
+        }
+
         if threat_info.terminate {
             if threat_info.quarantine {
                 Logging::info(&format!("[ActionOnKill] Terminating and Quarantining: {}", proc.appname));

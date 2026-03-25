@@ -14,6 +14,13 @@ impl ThreatHandler for LinuxThreatHandler {
         todo!()
     }
 
+    fn deny_path_access(&self, path: &std::path::Path) {
+        warn!(
+            "deny_path_access not supported on Linux; requested kernel deny for {}",
+            path.display()
+        );
+    }
+
     fn awake(&self, proc: &mut ProcessRecord, kill_proc_on_exit: bool) {
         todo!()
     }

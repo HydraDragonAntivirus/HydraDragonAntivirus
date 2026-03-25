@@ -183,6 +183,10 @@ impl ThreatHandler for WindowsThreatHandler {
         }
     }
 
+    fn deny_path_access(&self, path: &std::path::Path) {
+        self.add_kernel_block_path(path);
+    }
+
     fn kill_and_remove(&self, gid: u64, path: &std::path::Path) {
         let driver_path = Self::normalize_driver_path(path);
 

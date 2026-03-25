@@ -808,6 +808,7 @@ impl<'a> AVIntegration<'a> {
             },
             prediction: prediction_behavioral,
             match_details: None,
+            deny_access: false,
             terminate: true,
             quarantine: event.action_required == ThreatAction::KillAndQuarantine,
             kill_and_remove: event.action_required == ThreatAction::KillAndRemove,

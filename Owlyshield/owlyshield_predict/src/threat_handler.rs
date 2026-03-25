@@ -5,6 +5,7 @@ use crate::process::ProcessRecord;
     pub trait ThreatHandler: Send + Sync {
         fn suspend(&self, proc: &mut ProcessRecord);
         fn kill(&self, gid: u64);
+        fn deny_path_access(&self, path: &Path);
         fn kill_and_quarantine(&self, gid: u64, path: &Path);
         fn kill_and_remove(&self, gid: u64, path: &Path);
         fn awake(&self, proc: &mut ProcessRecord, kill_proc_on_exit: bool);

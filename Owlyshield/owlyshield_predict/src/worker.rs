@@ -334,6 +334,7 @@ pub mod process_record_handling {
                         virus_name: "Behavioral Detection",     
                         prediction: prediction_behavioral,
                         match_details: None,
+                        deny_access: false,
                         terminate: true,
                         kill_and_remove: true,
                         quarantine: true,
@@ -386,6 +387,7 @@ pub mod process_record_handling {
                         virus_name: "Behavioral Detection",
                         prediction: prediction_behavioral,
                         match_details: None,
+                        deny_access: false,
                         terminate: true,
                         quarantine: true,
                         kill_and_remove: false,
@@ -1034,6 +1036,7 @@ mod process_records {
             record.is_malicious = true;
             record.termination_requested = det.termination_requested;
             record.quarantine_requested = det.quarantine_requested;
+            record.deny_access_requested = det.deny_access_requested;
             record.kill_and_remove_requested = det.kill_and_remove_requested;
             record.notify_user_requested = det.notify_user_requested;
             record.revert_requested = det.revert_requested;
@@ -1077,6 +1080,7 @@ mod process_records {
                 virus_name,
                 prediction: 1.0,
                 match_details,
+                deny_access: det.deny_access_requested,
                 terminate: det.termination_requested,
                 quarantine: det.quarantine_requested,
                 kill_and_remove: det.kill_and_remove_requested,
@@ -1873,6 +1877,7 @@ mod process_records {
                                                 virus_name: "Sanctum.Malware.Gen",
                                                 prediction: 1.0,
                                                 match_details: Some(format!("Sanctum Detection: {}", stats.last_event.clone().unwrap_or_default())),
+                                                deny_access: false,
                                                 terminate: true,
                                                 quarantine: false,
                                                 kill_and_remove: false,
