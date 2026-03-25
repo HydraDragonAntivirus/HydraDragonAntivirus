@@ -447,8 +447,15 @@ impl IrpStatistics {
             _ => 0,
         }
     }
-    
-    /// Get total count of normalized hypervisor events.
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HypervisorStats {
+    pub hyp_event_count: u64,
+    pub hypervisor_event_count: u64,
+}
+
+impl HypervisorStats {
     pub fn get_injection_api_count(&self) -> u64 {
         self.hypervisor_event_count
     }
@@ -456,6 +463,66 @@ impl IrpStatistics {
     /// Check if process has any hypervisor event activity.
     pub fn has_injection_indicators(&self) -> bool {
         self.hypervisor_event_count > 0
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ROOTKIT DETECTION STRUCTURES
+// ---------------------------------------------------------------------------
+
+/// A single rootkit detection finding forwarded from the kernel.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RootkitFinding {
+    pub kind: RootkitFindingKind,
+    pub description: String,
+    /// Memory address involved (hook target, hidden driver base, etc.)
+    pub address: u64,
+    /// PID for hidden-process findings, 0 otherwise.
+    pub pid: u32,
+    /// Auxiliary value (SSDT index, hook redirect address, …)
+    pub extra: u64,
+    pub timestamp_ms: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum RootkitFindingKind {
+    SsdtHook,
+    HiddenProcess,
+    HiddenDriver,
+    KernelInlineHook,
+    Unknown(u8),
+}
+
+impl RootkitFindingKind {
+    pub fn from_irp_op(op: IrpMajorOp) -> Self {
+        match op {
+            IrpMajorOp::IrpRootkitSsdtHook => RootkitFindingKind::SsdtHook,
+            IrpMajorOp::IrpRootkitHiddenProcess => RootkitFindingKind::HiddenProcess,
+            IrpMajorOp::IrpRootkitHiddenDriver => RootkitFindingKind::HiddenDriver,
+            IrpMajorOp::IrpRootkitKernelHook => RootkitFindingKind::KernelInlineHook,
+            _ => RootkitFindingKind::Unknown(0),
+        }
+    }
+
+    pub fn threat_label(&self) -> &'static str {
+        match self {
+            RootkitFindingKind::SsdtHook        => "SSDT Hook",
+            RootkitFindingKind::HiddenProcess   => "Hidden Process (DKOM)",
+            RootkitFindingKind::HiddenDriver    => "Hidden Driver",
+            RootkitFindingKind::KernelInlineHook => "Kernel Inline Hook",
+            RootkitFindingKind::Unknown(_)      => "Unknown Rootkit Event",
+        }
+    }
+
+    pub fn severity(&self) -> u8 {
+        // 0 = low, 1 = medium, 2 = high, 3 = critical
+        match self {
+            RootkitFindingKind::SsdtHook        => 3,
+            RootkitFindingKind::HiddenProcess   => 3,
+            RootkitFindingKind::HiddenDriver    => 3,
+            RootkitFindingKind::KernelInlineHook => 2,
+            RootkitFindingKind::Unknown(_)      => 1,
+        }
     }
 }
 
@@ -612,7 +679,10 @@ pub enum DetectionLevel {
 pub struct LogSource {
     pub category: String,
     #[serde(default)]
-    pub product: Option<String>,
+    pub report_sender: Option<std::sync::mpsc::Sender<String>>,
+
+    /// List of recent rootkit detection findings.
+    pub rootkit_findings: Vec<RootkitFinding>,
 }
 
 fn default_severity() -> u8 { 50 }
@@ -1506,6 +1576,9 @@ pub struct ProcessBehaviorState {
     /// Historical hits for Sanctum suspicious syscalls throughout the process lifetime.
     #[cfg(feature = "sanctum")]
     pub sanctum_suspicious_hits: HashSet<String>,
+
+    /// True if this process has been implicated in a rootkit finding.
+    pub rootkit_implicated: bool,
 }
 
 impl ProcessBehaviorState {
@@ -1545,6 +1618,7 @@ impl ProcessBehaviorState {
         {
             state.sanctum_stats = crate::realtime_learning::api_tracker::SanctumOperationStats::default();
         }
+        state.rootkit_implicated = false;
 
         state
     }
@@ -3355,6 +3429,30 @@ impl BehaviorEngine {
 
         // === STEP 7: EVALUATE RULES ===
         self.check_rules(precord, gid, msg, irp_op, config, &mut actions);
+
+        // === STEP 8: HANDLE SPECIAL IRP OPERATIONS ===
+        match irp_op {
+            IrpMajorOp::IrpHypervisorEvent
+            | IrpMajorOp::IrpUserModeHookEvent
+            | IrpMajorOp::IrpKernelRemoteThread
+            | IrpMajorOp::IrpKernelWriteMemory
+            | IrpMajorOp::IrpKernelProtectMemory
+            | IrpMajorOp::IrpKernelCreateThread
+            | IrpMajorOp::IrpKernelQueueApc
+            | IrpMajorOp::IrpKernelCreateSection
+            | IrpMajorOp::IrpKernelMapSection => {
+                self.handle_hypervisor_event(msg);
+            }
+
+            IrpMajorOp::IrpRootkitSsdtHook
+            | IrpMajorOp::IrpRootkitHiddenProcess
+            | IrpMajorOp::IrpRootkitHiddenDriver
+            | IrpMajorOp::IrpRootkitKernelHook => {
+                self.handle_rootkit_event(&msg);
+            }
+
+            _ => {}
+        }
     }
 
     fn update_named_conditions_state(&mut self, precord: &mut ProcessRecord, gid: u64, msg: &IOMessage, irp_op: &IrpMajorOp, filepath: &str) {
@@ -5038,6 +5136,76 @@ impl BehaviorEngine {
         }
     }
         
+    /// Returns a snapshot of all rootkit findings since last clear.
+    pub fn get_rootkit_findings(&self) -> &[RootkitFinding] {
+        &self.rootkit_findings
+    }
+
+    /// Clears the rootkit findings list (e.g. after writing a report).
+    pub fn clear_rootkit_findings(&mut self) {
+        self.rootkit_findings.clear();
+    }
+
+    /// Called from the main IRP dispatch loop when irp_op is 21–24.
+    pub fn handle_rootkit_event(&mut self, msg: &IOMessage) {
+        let op = IrpMajorOp::from_byte(msg.irp_op);
+        let kind = RootkitFindingKind::from_irp_op(op);
+
+        let description = msg.kernel_event_info.object_name.clone();
+
+        let finding = RootkitFinding {
+            kind: kind.clone(),
+            description: description.clone(),
+            address: msg.kernel_event_info.memory_address,
+            pid: msg.kernel_event_info.target_process_id, // target_pid is where the rootkit was found (e.g. hidden process PID)
+            extra: msg.kernel_event_info.raw_argument1,
+            timestamp_ms: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as u64,
+        };
+
+        Logging::warning(&format!(
+            "[ROOTKIT] {} — {} (addr=0x{:X} pid={} extra=0x{:X})",
+            kind.threat_label(),
+            description,
+            finding.address,
+            finding.pid,
+            finding.extra,
+        ));
+
+        // Emit to findings list (used by report generation).
+        self.rootkit_findings.push(finding.clone());
+
+        // Immediately act if severity is critical.
+        if kind.severity() >= 3 {
+            self.on_critical_rootkit_finding(&finding);
+        }
+    }
+
+    /// Respond to a critical rootkit finding.
+    fn on_critical_rootkit_finding(&mut self, finding: &RootkitFinding) {
+        Logging::warning(&format!(
+            "[ROOTKIT CRITICAL] {} detected: '{}' at 0x{:X}",
+            finding.kind.threat_label(),
+            finding.description,
+            finding.address
+        ));
+
+        // If a specific PID is implicated (hidden process), mark it.
+        if finding.pid != 0 {
+            if let Some(state) = self.process_states.values_mut()
+                .find(|s| s.pid == finding.pid)
+            {
+                state.rootkit_implicated = true;
+                Logging::warning(&format!(
+                    "[ROOTKIT] PID {} ({}) is rootkit-implicated",
+                    finding.pid, state.app_name
+                ));
+            }
+        }
+    }
+
     pub fn scan_all_processes(&mut self, _config: &Config, _threat_handler: &dyn ThreatHandler) -> Vec<ProcessRecord> {
         let mut detected_processes = Vec::new();
         let gids: Vec<u64> = self.process_states.keys().cloned().collect();
@@ -5101,6 +5269,22 @@ impl BehaviorEngine {
                         pid, app_name, state.irp_stats.get_injection_api_count()
                     ));
                 }
+            }
+
+            // Rootkit-implicated processes are immediately marked malicious.
+            if state.rootkit_implicated {
+                let mut p = ProcessRecord::new(gid, app_name.clone(), exe_path_buf.clone());
+                p.is_malicious = true;
+                p.pids.insert(pid);
+                p.termination_requested = true;
+                p.notify_user_requested = true;
+                p.triggered_rule_name = Some("RootkitHiddenProcess".to_string());
+                Logging::warning(&format!(
+                    "[ROOTKIT] Terminating rootkit-implicated process PID {} ({})",
+                    pid, app_name
+                ));
+                detected_processes.push(p);
+                continue;
             }
 
             for rule in &self.rules {

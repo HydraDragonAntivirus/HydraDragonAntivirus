@@ -111,6 +111,12 @@ pub enum IrpMajorOp {
     IrpKernelCreateSection,
     /// Kernel process-protection signal: map section
     IrpKernelMapSection,
+    
+    // Rootkit-related operations
+    IrpRootkitSsdtHook,
+    IrpRootkitHiddenProcess,
+    IrpRootkitHiddenDriver,
+    IrpRootkitKernelHook,
 }
 
 impl IrpMajorOp {
@@ -121,19 +127,15 @@ impl IrpMajorOp {
             2 => IrpMajorOp::IrpWrite,
             3 => IrpMajorOp::IrpSetInfo,
             4 => IrpMajorOp::IrpCreate,
-            5 => IrpMajorOp::IrpCreate, // Mapping IRP_CLEANUP to Create logic or ignore in old code, keeping for consistency
+            5 => IrpMajorOp::IrpCreate,
             6 => IrpMajorOp::IrpRegistry,
             7 => IrpMajorOp::IrpProcessCreate,
             8 => IrpMajorOp::IrpProcessTerminate,
             9 => IrpMajorOp::IrpProcessTerminateAttempt,
             10 => IrpMajorOp::IrpProcessExit,
             11 => IrpMajorOp::IrpProcessHandleOpen,
-            
-            // Hypervisor origin stream opcode (VMM/HyperDbg events).
             12 => IrpMajorOp::IrpHypervisorEvent,
-            // User-mode hook callbacks from UserModeHookEngine shellcode.
             20 => IrpMajorOp::IrpUserModeHookEvent,
-            // Process-protection kernel telemetry (keep distinct from hypervisor stream).
             13 => IrpMajorOp::IrpKernelRemoteThread,
             14 => IrpMajorOp::IrpKernelWriteMemory,
             15 => IrpMajorOp::IrpKernelProtectMemory,
@@ -141,8 +143,13 @@ impl IrpMajorOp {
             17 => IrpMajorOp::IrpKernelQueueApc,
             18 => IrpMajorOp::IrpKernelCreateSection,
             19 => IrpMajorOp::IrpKernelMapSection,
-            // Forward compatibility for any future opcodes.
-            21..=u8::MAX => IrpMajorOp::IrpHypervisorEvent,
+            
+            21 => IrpMajorOp::IrpRootkitSsdtHook,
+            22 => IrpMajorOp::IrpRootkitHiddenProcess,
+            23 => IrpMajorOp::IrpRootkitHiddenDriver,
+            24 => IrpMajorOp::IrpRootkitKernelHook,
+
+            25..=u8::MAX => IrpMajorOp::IrpHypervisorEvent,
         }
     }
 }

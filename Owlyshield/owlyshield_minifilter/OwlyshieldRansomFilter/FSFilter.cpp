@@ -22,6 +22,7 @@ Environment:
 #include "ProcessProtection.h"
 #include "UserModeHookEngine.h"
 #include "OwlyVmmBridge.h"
+#include "RootkitDetector.h"
 
 #pragma prefast(disable : __WARNING_ENCODE_MEMBER_FUNCTION_POINTER, "Not valid for kernel mode drivers")
 
@@ -778,6 +779,13 @@ Return Value:
     // End of monitoring initialization
     // ====================================================================
     
+    // Initialize Rootkit Detector
+    RootkitDetectorInitialize();
+    if (g_WorkItemDeviceObject != NULL) {
+        RootkitDetectorSetDeviceObject(g_WorkItemDeviceObject);
+    }
+    DbgPrint("!!! FSFilter: Rootkit detection engine initialized\n");
+
     return STATUS_SUCCESS;
 }
 
