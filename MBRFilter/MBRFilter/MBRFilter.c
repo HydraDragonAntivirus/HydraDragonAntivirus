@@ -61,27 +61,6 @@
 
 #include <wdm.h>
 
-#ifndef PROCESS_QUERY_INFORMATION
-#define PROCESS_QUERY_INFORMATION 0x0400
-#endif
-
-// Define ZwQueryInformationProcess if missing
-NTSYSAPI
-NTSTATUS
-NTAPI
-ZwQueryInformationProcess(
-    _In_ HANDLE ProcessHandle,
-    _In_ ULONG ProcessInformationClass,
-    _Out_writes_bytes_(ProcessInformationLength) PVOID ProcessInformation,
-    _In_ ULONG ProcessInformationLength,
-    _Out_opt_ PULONG ReturnLength
-);
-
-// Define ProcessImageFileName as 27 if not present in headers
-#ifndef ProcessImageFileName
-#define ProcessImageFileName 27
-#endif
-
 // Define the name for our new pipe for sending MBR alerts
 #define MBR_ALERT_PIPE_NAME L"\\Device\\NamedPipe\\Global\\mbr_filter_alerts"
 
@@ -157,7 +136,7 @@ VOID MbrAlertWorker(PDEVICE_OBJECT DeviceObject, PVOID Context)
 
     PUNICODE_STRING imageName = NULL;
     if (ctx->Process) {
-        NTSTATUS st = SeLocateProcessImageName(ctx->Process, &imageName); // PASSIVE_LEVEL
+        NTSTATUS st = GetProcessImagePath(ctx->Process, &imageName);
         if (NT_SUCCESS(st) && imageName) {
             // Build enriched message: "DISK:<number>|<process_path>"
             WCHAR enrichedBuf[1024];
@@ -166,7 +145,6 @@ VOID MbrAlertWorker(PDEVICE_OBJECT DeviceObject, PVOID Context)
                 L"DISK:%d|%wZ", ctx->DiskNumber, imageName);
             RtlInitUnicodeString(&enrichedMsg, enrichedBuf);
             SendAlertOverPipe(&enrichedMsg);
-            if (imageName->Buffer) ExFreePool(imageName->Buffer);
             ExFreePool(imageName);
         }
         ObDereferenceObject(ctx->Process);
@@ -413,8 +391,7 @@ static BOOLEAN IsValidPipeServerProcess(HANDLE PipeHandle)
     IO_STATUS_BLOCK ioStatus;
     FILE_PROCESS_IDS_USING_FILE_INFORMATION procIds = { 0 };
     BOOLEAN isValid = FALSE;
-    HANDLE serverProcHandle = NULL;
-    ULONG returnLength = 0;
+    PEPROCESS serverProcess = NULL;
     PUNICODE_STRING imagePath = NULL;
     
     // 1. Get process IDs using the pipe (should just be the server and us)
@@ -459,33 +436,15 @@ static BOOLEAN IsValidPipeServerProcess(HANDLE PipeHandle)
     
     if (serverPid == 0) return FALSE; // Server not found
     
-    // 2. Open the server process
-    OBJECT_ATTRIBUTES objAttr;
-    CLIENT_ID clientId;
-    InitializeObjectAttributes(&objAttr, NULL, OBJ_KERNEL_HANDLE, NULL, NULL);
-    clientId.UniqueProcess = (HANDLE)serverPid;
-    clientId.UniqueThread = NULL;
-    
-    status = ZwOpenProcess(&serverProcHandle, PROCESS_QUERY_INFORMATION, &objAttr, &clientId);
+    // 2. Resolve the server PID to a process object.
+    status = PsLookupProcessByProcessId((HANDLE)serverPid, &serverProcess);
     if (!NT_SUCCESS(status)) return FALSE;
-    
-    // 3. Query the image path
-    status = ZwQueryInformationProcess(serverProcHandle, ProcessImageFileName, NULL, 0, &returnLength);
-    if (status != STATUS_INFO_LENGTH_MISMATCH || returnLength == 0) {
-        ZwClose(serverProcHandle);
-        return FALSE;
-    }
-    
-    imagePath = (PUNICODE_STRING)ExAllocatePool2(POOL_FLAG_PAGED, returnLength, 'pPiM');
-    if (!imagePath) {
-        ZwClose(serverProcHandle);
-        return FALSE;
-    }
-    
-    status = ZwQueryInformationProcess(serverProcHandle, ProcessImageFileName, imagePath, returnLength, &returnLength);
-    ZwClose(serverProcHandle);
-    
-    if (NT_SUCCESS(status) && imagePath->Buffer != NULL && imagePath->Length > 0) {
+
+    // 3. Query the image path using the same helper we use for MBR alert attribution.
+    status = GetProcessImagePath(serverProcess, &imagePath);
+    ObDereferenceObject(serverProcess);
+
+    if (NT_SUCCESS(status) && imagePath != NULL && imagePath->Buffer != NULL && imagePath->Length > 0) {
         // 4. Validate the path matches exactly C:\Program Files\HydraDragonAntivirus\owlyshield_ransom.exe
         UNICODE_STRING dosName;
         OBJECT_ATTRIBUTES linkObjAttr;
@@ -532,7 +491,9 @@ static BOOLEAN IsValidPipeServerProcess(HANDLE PipeHandle)
         }
     }
     
-    ExFreePoolWithTag(imagePath, 'pPiM');
+    if (imagePath) {
+        ExFreePool(imagePath);
+    }
     return isValid;
 }
 
