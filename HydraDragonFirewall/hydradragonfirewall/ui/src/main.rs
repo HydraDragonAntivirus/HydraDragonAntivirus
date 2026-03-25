@@ -43,6 +43,10 @@ pub struct LogEntry {
     pub timestamp: u64,
     pub level: LogLevel,
     pub message: String,
+    #[serde(default)]
+    pub source: Option<String>,
+    #[serde(default)]
+    pub details_json: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -126,6 +130,10 @@ pub struct ProxyHttpEvent {
     pub path: String,
     pub full_url: String,
     pub status: u16,
+    #[serde(default)]
+    pub request_headers: HashMap<String, String>,
+    #[serde(default)]
+    pub response_headers: HashMap<String, String>,
     pub user_agent: Option<String>,
     pub content_type: Option<String>,
     pub referer: Option<String>,
@@ -137,6 +145,60 @@ pub struct ProxyHttpEvent {
     pub response_body: Option<String>,
     #[serde(default)]
     pub response_body_truncated: bool,
+}
+
+fn build_raw_packet_log_entry(pkt: &RawPacket) -> LogEntry {
+    let action_lower = pkt.action.to_ascii_lowercase();
+    let level = if action_lower.contains("block")
+        || action_lower.contains("quarantine")
+        || action_lower.contains("terminate")
+        || action_lower.contains("kill")
+    {
+        LogLevel::Warning
+    } else {
+        LogLevel::Info
+    };
+
+    LogEntry {
+        id: format!("packet-log-{}", pkt.id),
+        timestamp: pkt.timestamp,
+        level,
+        message: format!(
+            "PACKET {}:{} -> {}:{} [{}] pid={} action={} rule={}",
+            pkt.src_ip,
+            pkt.src_port,
+            pkt.dst_ip,
+            pkt.dst_port,
+            match pkt.protocol {
+                Protocol::TCP => "TCP",
+                Protocol::UDP => "UDP",
+                Protocol::ICMP => "ICMP",
+                Protocol::Raw(_) => "RAW",
+            },
+            pkt.process_id,
+            pkt.action,
+            if pkt.rule.trim().is_empty() { "-" } else { &pkt.rule }
+        ),
+        source: Some("packet".to_string()),
+        details_json: serde_json::to_string_pretty(pkt).ok(),
+    }
+}
+
+fn build_proxy_log_entry(ev: &ProxyHttpEvent) -> LogEntry {
+    let level = if ev.status >= 400 {
+        LogLevel::Warning
+    } else {
+        LogLevel::Info
+    };
+
+    LogEntry {
+        id: format!("http-log-{}", ev.id),
+        timestamp: ev.timestamp,
+        level,
+        message: format!("HTTP {} {} -> {}", ev.method, ev.full_url, ev.status),
+        source: Some("http".to_string()),
+        details_json: serde_json::to_string_pretty(ev).ok(),
+    }
 }
 
 /// A body changer rule managed through the GUI.
@@ -161,6 +223,10 @@ pub struct BodyChangerRule {
 pub struct EngineRuntimeStatus {
     pub active: bool,
     pub status: String,
+    pub mitm_enabled: bool,
+    pub windows_root_trust_ready: bool,
+    pub firefox_policy_ready: bool,
+    pub mitm_bypass_count: usize,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -221,6 +287,8 @@ pub struct TlsProxyConfig {
     pub block_quic_udp_443: bool,
     #[serde(default)]
     pub auto_start: bool,
+    #[serde(default)]
+    pub bypass_hosts: Vec<String>,
 }
 
 impl Default for TlsProxyConfig {
@@ -231,6 +299,7 @@ impl Default for TlsProxyConfig {
             listen_port: 8877,
             block_quic_udp_443: true,
             auto_start: true,
+            bypass_hosts: Vec::new(),
         }
     }
 }
@@ -365,6 +434,7 @@ fn default_queue_total() -> usize {
 #[component]
 pub fn App() -> impl IntoView {
     let (logs, set_logs) = create_signal(Vec::<LogEntry>::new());
+    let (selected_log, set_selected_log) = create_signal(Option::<LogEntry>::None);
     let (blocked_count, set_blocked_count) = create_signal(0);
     let (_threats_count, set_threats_count) = create_signal(0);
     let (allowed_count, set_allowed_count) = create_signal(0);
@@ -452,6 +522,8 @@ pub fn App() -> impl IntoView {
     };
 
     let (settings, set_settings) = create_signal(FirewallSettings::default());
+    let (settings_raw, set_settings_raw) = create_signal(String::new());
+    let (settings_raw_status, set_settings_raw_status) = create_signal(String::new());
     
     let (show_editor, set_show_editor) = create_signal(false);
     let (rules_raw_content, set_rules_raw_content) = create_signal(String::new());
@@ -527,7 +599,10 @@ pub fn App() -> impl IntoView {
         spawn_local(async move {
             let res = invoke("get_settings", JsValue::NULL).await;
             if let Ok(current_settings) = serde_wasm_bindgen::from_value::<FirewallSettings>(res) {
+                let raw = serde_json::to_string_pretty(&current_settings).unwrap_or_default();
                 set_settings.set(current_settings);
+                set_settings_raw.set(raw);
+                set_settings_raw_status.set(String::new());
             }
         });
     };
@@ -596,6 +671,10 @@ pub fn App() -> impl IntoView {
     let (saved_status, set_saved_status) = create_signal(false);
     let (engine_status, set_engine_status) = create_signal("Initializing Engine...".to_string());
     let (engine_active, set_engine_active) = create_signal(false);
+    let (mitm_enabled, set_mitm_enabled) = create_signal(false);
+    let (windows_root_trust_ready, set_windows_root_trust_ready) = create_signal(false);
+    let (firefox_policy_ready, set_firefox_policy_ready) = create_signal(false);
+    let (mitm_bypass_count, set_mitm_bypass_count) = create_signal(0usize);
     let (settings_loaded, set_settings_loaded) = create_signal(false);
     let (_graph_data, set_graph_data) = create_signal(vec![180, 160, 170, 150, 140, 130, 110, 120, 100]);
 
@@ -672,7 +751,24 @@ pub fn App() -> impl IntoView {
             if let Ok(payload) = serde_wasm_bindgen::from_value::<serde_json::Value>(event) {
                 if let Some(payload_obj) = payload.get("payload") {
                     if let Ok(pkt) = serde_json::from_value::<RawPacket>(payload_obj.clone()) {
-                        set_raw_packets.update(|p| { p.push(pkt); if p.len() > 100 { p.remove(0); } });
+                        let pkt_log = build_raw_packet_log_entry(&pkt);
+                        set_raw_packets.update(|p| {
+                            p.push(pkt);
+                            if p.len() > 100 {
+                                p.remove(0);
+                            }
+                        });
+                        set_logs.update(|l| {
+                            l.push(pkt_log);
+                            let current_settings = settings.get_untracked();
+                            if current_settings.prune_old_logs {
+                                let keep = current_settings.max_visible_logs.max(1);
+                                if l.len() > keep {
+                                    let remove_count = l.len() - keep;
+                                    l.drain(0..remove_count);
+                                }
+                            }
+                        });
                     }
                 }
             }
@@ -683,7 +779,24 @@ pub fn App() -> impl IntoView {
             if let Ok(payload) = serde_wasm_bindgen::from_value::<serde_json::Value>(event) {
                 if let Some(payload_obj) = payload.get("payload") {
                     if let Ok(ev) = serde_json::from_value::<ProxyHttpEvent>(payload_obj.clone()) {
-                        set_proxy_events.update(|p| { p.push(ev); if p.len() > 200 { p.remove(0); } });
+                        let http_log = build_proxy_log_entry(&ev);
+                        set_proxy_events.update(|p| {
+                            p.push(ev);
+                            if p.len() > 200 {
+                                p.remove(0);
+                            }
+                        });
+                        set_logs.update(|l| {
+                            l.push(http_log);
+                            let current_settings = settings.get_untracked();
+                            if current_settings.prune_old_logs {
+                                let keep = current_settings.max_visible_logs.max(1);
+                                if l.len() > keep {
+                                    let remove_count = l.len() - keep;
+                                    l.drain(0..remove_count);
+                                }
+                            }
+                        });
                     }
                 }
             }
@@ -698,6 +811,10 @@ pub fn App() -> impl IntoView {
                 if let Ok(status) = serde_wasm_bindgen::from_value::<EngineRuntimeStatus>(res) {
                     set_engine_active.set(status.active);
                     set_engine_status.set(status.status);
+                    set_mitm_enabled.set(status.mitm_enabled);
+                    set_windows_root_trust_ready.set(status.windows_root_trust_ready);
+                    set_firefox_policy_ready.set(status.firefox_policy_ready);
+                    set_mitm_bypass_count.set(status.mitm_bypass_count);
                     if status.active && !settings_loaded.get_untracked() {
                         fetch_settings();
                         fetch_saved_logs();
@@ -716,11 +833,36 @@ pub fn App() -> impl IntoView {
             let s = settings.get();
             let args = serde_wasm_bindgen::to_value(&s).unwrap();
             let _ = invoke("save_settings", args).await;
+            set_settings_raw.set(serde_json::to_string_pretty(&s).unwrap_or_default());
+            set_settings_raw_status.set("Saved GUI settings".to_string());
             fetch_settings();
             fetch_saved_logs();
             set_saved_status.set(true);
             set_timeout(move || set_saved_status.set(false), Duration::from_secs(2));
         });
+    };
+
+    let apply_raw_settings_action = move || {
+        let raw = settings_raw.get();
+        match serde_json::from_str::<FirewallSettings>(&raw) {
+            Ok(parsed) => {
+                set_settings.set(parsed.clone());
+                set_settings_raw_status.set("Applying raw settings...".to_string());
+                spawn_local(async move {
+                    let args = serde_wasm_bindgen::to_value(&parsed).unwrap();
+                    let _ = invoke("save_settings", args).await;
+                    set_settings_raw.set(serde_json::to_string_pretty(&parsed).unwrap_or_default());
+                    set_settings_raw_status.set("Raw settings applied".to_string());
+                    fetch_settings();
+                    fetch_saved_logs();
+                    set_saved_status.set(true);
+                    set_timeout(move || set_saved_status.set(false), Duration::from_secs(2));
+                });
+            }
+            Err(error) => {
+                set_settings_raw_status.set(format!("Invalid JSON: {}", error));
+            }
+        }
     };
 
     let update_path = move |path: String| { set_settings.update(|s| s.website_path = path); };
@@ -1207,33 +1349,82 @@ pub fn App() -> impl IntoView {
                             }.into_view(),
 
                             AppView::Logs => view! {
-                                <div class="glass-card logs-section" style="height: calc(100vh - 120px)">
-                                    <div class="section-header">
-                                        <h3 style="margin: 0; font-size: 16px; font-weight: 700">"Network Activity Log"</h3>
-                                        <button class="btn-primary" style="padding: 5px 15px; font-size: 11px" on:click=move |_| set_logs.set(Vec::new())> "Clear Screen" </button>
-                                    </div>
-                                    <div class="logs-viewport">
-                                        <For
-                                            each={move || logs.get().into_iter().rev().collect::<Vec<_>>()}
-                                            key={|log_entry| log_entry.id.clone()}
-                                            children={move |log_entry| {
-                                                let ts = log_entry.timestamp % 100000;
-                                                let msg = log_entry.message.clone();
-                                                let level_class = match log_entry.level {
-                                                    LogLevel::Info => "lvl-info",
-                                                    LogLevel::Success => "lvl-success",
-                                                    LogLevel::Warning => "lvl-warning",
-                                                    LogLevel::Error => "lvl-error",
-                                                    _ => "lvl-info",
-                                                };
-                                                view! {
-                                                    <div class={format!("log-row {}", level_class)}>
-                                                        <span class="log-time">"[" {ts} "]"</span>
-                                                        <span class="log-msg">{msg}</span>
-                                                    </div>
+                                <div class="dashboard-grid" style="height: calc(100vh - 120px)">
+                                    <div class="glass-card dash-col-main" style="flex: 2; overflow-y: auto">
+                                        <div class="section-header">
+                                            <h3 style="margin: 0; font-size: 16px; font-weight: 700">"Network Activity Log"</h3>
+                                            <button
+                                                class="btn-primary"
+                                                style="padding: 5px 15px; font-size: 11px"
+                                                on:click=move |_| {
+                                                    set_logs.set(Vec::new());
+                                                    set_selected_log.set(None);
                                                 }
-                                            }}
-                                        />
+                                            >
+                                                "Clear Screen"
+                                            </button>
+                                        </div>
+                                        <div class="logs-viewport">
+                                            <For
+                                                each={move || logs.get().into_iter().rev().collect::<Vec<_>>()}
+                                                key={|log_entry| log_entry.id.clone()}
+                                                children={move |log_entry| {
+                                                    let ts = log_entry.timestamp % 100000;
+                                                    let msg = log_entry.message.clone();
+                                                    let log_selected = log_entry.clone();
+                                                    let source_badge = log_entry.source.clone().unwrap_or_else(|| "log".to_string());
+                                                    let level_class = match log_entry.level {
+                                                        LogLevel::Info => "lvl-info",
+                                                        LogLevel::Success => "lvl-success",
+                                                        LogLevel::Warning => "lvl-warning",
+                                                        LogLevel::Error => "lvl-error",
+                                                        _ => "lvl-info",
+                                                    };
+                                                    view! {
+                                                        <div
+                                                            class={format!("log-row {}", level_class)}
+                                                            style="cursor: pointer"
+                                                            on:click=move |_| set_selected_log.set(Some(log_selected.clone()))
+                                                        >
+                                                            <span class="log-time">"[" {ts} "]"</span>
+                                                            <span
+                                                                style="font-size: 10px; font-weight: 700; color: var(--accent-blue); min-width: 58px; text-transform: uppercase; margin-right: 8px;"
+                                                            >
+                                                                {source_badge}
+                                                            </span>
+                                                            <span class="log-msg">{msg}</span>
+                                                        </div>
+                                                    }
+                                                }}
+                                            />
+                                        </div>
+                                    </div>
+                                    <div class="glass-card dash-col-side" style="flex: 1; overflow-y: auto">
+                                        <h3>"Log Details"</h3>
+                                        {move || match selected_log.get() {
+                                            Some(entry) => view! {
+                                                <div style="font-size: 12px; display: flex; flex-direction: column; gap: 10px">
+                                                    <div><strong>"Source: "</strong>{entry.source.clone().unwrap_or_else(|| "log".to_string())}</div>
+                                                    <div><strong>"Timestamp: "</strong>{entry.timestamp}</div>
+                                                    <div><strong>"Message: "</strong>{entry.message.clone()}</div>
+                                                    {entry.details_json.clone().map(|json| view! {
+                                                        <div>
+                                                            <div style="margin-top: 8px"><strong>"JSON Details"</strong></div>
+                                                            <div style="background: #000; padding: 10px; border-radius: 4px; font-family: monospace; font-size: 11px; word-break: break-all; white-space: pre-wrap; max-height: 520px; overflow-y: auto">
+                                                                {json}
+                                                            </div>
+                                                        </div>
+                                                    }).unwrap_or_else(|| view! {
+                                                        <div style="color: var(--text-muted)">"No structured JSON details for this entry."</div>
+                                                    })}
+                                                </div>
+                                            }.into_view(),
+                                            None => view! {
+                                                <div style="color: var(--text-muted)">
+                                                    "Select a log entry to inspect full packet or HTTP JSON details, including request and response bodies when available."
+                                                </div>
+                                            }.into_view(),
+                                        }}
                                     </div>
                                 </div>
                             }.into_view(),
@@ -1365,6 +1556,135 @@ pub fn App() -> impl IntoView {
                                 <div class="dashboard-grid">
                                     <div class="glass-card" style="width: 100%">
                                         <h3>"System Settings"</h3>
+                                        <div class="input-group" style="padding: 14px; border: 1px solid rgba(96, 165, 250, 0.18); border-radius: 10px; background: rgba(96, 165, 250, 0.05)">
+                                            <label style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px">
+                                                <input
+                                                    type="checkbox"
+                                                    prop:checked=move || {
+                                                        let cfg = settings.get().tls_proxy;
+                                                        cfg.mode == TlsInspectionMode::TlsProxy && cfg.auto_start
+                                                    }
+                                                    on:change=move |ev| {
+                                                        let enabled = event_target_checked(&ev);
+                                                        set_settings.update(|s| {
+                                                            if enabled {
+                                                                s.tls_proxy.mode = TlsInspectionMode::TlsProxy;
+                                                                s.tls_proxy.auto_start = true;
+                                                            } else {
+                                                                s.tls_proxy.mode = TlsInspectionMode::MetadataOnly;
+                                                                s.tls_proxy.auto_start = false;
+                                                            }
+                                                        });
+                                                    }
+                                                />
+                                                "Enable embedded MITM/TLS proxy interception"
+                                            </label>
+                                            <p style="margin: 0 0 10px 0; color: var(--text-muted); font-size: 12px; line-height: 1.5">
+                                                "Turning this off keeps the firewall running but clears the Windows proxy and stops HTTPS interception."
+                                            </p>
+                                            <div class="input-group" style="margin-bottom: 10px">
+                                                <label>"TLS visibility mode"</label>
+                                                <select
+                                                    prop:value=move || match settings.get().tls_proxy.mode {
+                                                        TlsInspectionMode::MetadataOnly => "metadata_only".to_string(),
+                                                        TlsInspectionMode::TlsProxy => "tls_proxy".to_string(),
+                                                    }
+                                                    on:change=move |ev| {
+                                                        let mode = event_target_value(&ev);
+                                                        set_settings.update(|s| {
+                                                            if mode == "tls_proxy" {
+                                                                s.tls_proxy.mode = TlsInspectionMode::TlsProxy;
+                                                                if !s.tls_proxy.auto_start {
+                                                                    s.tls_proxy.auto_start = true;
+                                                                }
+                                                            } else {
+                                                                s.tls_proxy.mode = TlsInspectionMode::MetadataOnly;
+                                                                s.tls_proxy.auto_start = false;
+                                                            }
+                                                        });
+                                                    }
+                                                >
+                                                    <option value="metadata_only">"Metadata only"</option>
+                                                    <option value="tls_proxy">"Embedded MITM proxy"</option>
+                                                </select>
+                                            </div>
+                                            <div class="input-group">
+                                                <label style="display: flex; align-items: center; gap: 10px">
+                                                    <input
+                                                        type="checkbox"
+                                                        prop:checked=move || settings.get().tls_proxy.block_quic_udp_443
+                                                        on:change=move |ev| {
+                                                            let enabled = event_target_checked(&ev);
+                                                            set_settings.update(|s| s.tls_proxy.block_quic_udp_443 = enabled);
+                                                        }
+                                                        disabled=move || settings.get().tls_proxy.mode != TlsInspectionMode::TlsProxy
+                                                    />
+                                                    "Block QUIC/UDP 443 while MITM proxy mode is active"
+                                                </label>
+                                            </div>
+                                            <div class="input-group" style="margin-top: 10px">
+                                                <label>"MITM bypass hosts/domains"</label>
+                                                <textarea
+                                                    style="min-height: 110px; width: 100%; box-sizing: border-box; padding: 10px; resize: vertical"
+                                                    prop:value=move || settings.get().tls_proxy.bypass_hosts.join("\n")
+                                                    on:input=move |ev| {
+                                                        let value = event_target_value(&ev);
+                                                        let entries = value
+                                                            .split(['\n', '\r', ',', ';'])
+                                                            .filter_map(|item| {
+                                                                let trimmed = item.trim();
+                                                                if trimmed.is_empty() {
+                                                                    None
+                                                                } else {
+                                                                    Some(trimmed.to_string())
+                                                                }
+                                                            })
+                                                            .collect::<Vec<_>>();
+                                                        set_settings.update(|s| s.tls_proxy.bypass_hosts = entries);
+                                                    }
+                                                />
+                                                <p style="margin: 8px 0 0 0; color: var(--text-muted); font-size: 12px; line-height: 1.5">
+                                                    "One host, domain, or pattern per line. Matching targets bypass the embedded MITM proxy through Windows proxy override rules."
+                                                </p>
+                                            </div>
+                                            <div style="margin-top: 12px; padding: 12px; border-radius: 8px; background: rgba(15, 23, 42, 0.55); border: 1px solid rgba(148, 163, 184, 0.18);">
+                                                <div style="font-size: 12px; font-weight: 700; margin-bottom: 8px;">"MITM Trust Status"</div>
+                                                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px; font-size: 12px;">
+                                                    <div>
+                                                        <strong>"Mode: "</strong>
+                                                        {move || if mitm_enabled.get() { "Embedded MITM active" } else { "MITM disabled / metadata only" }}
+                                                    </div>
+                                                    <div>
+                                                        <strong>"Windows trust: "</strong>
+                                                        {move || if windows_root_trust_ready.get() { "Ready" } else { "Not ready" }}
+                                                    </div>
+                                                    <div>
+                                                        <strong>"Firefox trust: "</strong>
+                                                        {move || if firefox_policy_ready.get() { "Ready" } else { "Not ready" }}
+                                                    </div>
+                                                    <div>
+                                                        <strong>"Bypass entries: "</strong>
+                                                        {move || mitm_bypass_count.get().to_string()}
+                                                    </div>
+                                                </div>
+                                                <p style="margin: 10px 0 0 0; color: var(--text-muted); font-size: 12px; line-height: 1.5">
+                                                    {move || {
+                                                        let cfg = settings.get().tls_proxy;
+                                                        if cfg.mode == TlsInspectionMode::TlsProxy && cfg.auto_start {
+                                                            format!(
+                                                                "Current MITM listener: {}:{} . Firefox may need a restart after trust changes. Website alerts can now be trusted without MITM, which adds that host to this bypass list.",
+                                                                cfg.listen_host, cfg.listen_port
+                                                            )
+                                                        } else {
+                                                            "MITM proxy is currently disabled; packet and metadata logging remain available.".to_string()
+                                                        }
+                                                    }}
+                                                </p>
+                                                <p style="margin: 8px 0 0 0; color: var(--accent-orange); font-size: 12px; line-height: 1.5">
+                                                    "Even when interception is hidden, some browsers and other antivirus/security products can still flag it as a MITM-style attack if trust is not accepted."
+                                                </p>
+                                            </div>
+                                        </div>
                                         <div class="input-group">
                                             <label>"Custom Filter Path"</label>
                                             <input type="text" prop:value=move || settings.get().website_path on:input=move |ev| update_path(event_target_value(&ev)) />
@@ -1462,6 +1782,37 @@ pub fn App() -> impl IntoView {
                                         </p>
                                         <button class="btn-primary" on:click=move |_| save_settings_action()> "Save Changes" </button>
                                         {move || if saved_status.get() { view! { <span style="margin-left: 10px; color: var(--accent-green)">"Saved!"</span> }.into_view() } else { view! {}.into_view() }}
+                                        <div class="input-group" style="margin-top: 20px">
+                                            <label>"Raw Settings JSON"</label>
+                                            <textarea
+                                                style="min-height: 260px; width: 100%; box-sizing: border-box; padding: 10px; resize: vertical; font-family: Consolas, monospace; font-size: 12px"
+                                                prop:value=move || settings_raw.get()
+                                                on:input=move |ev| {
+                                                    set_settings_raw.set(event_target_value(&ev));
+                                                    set_settings_raw_status.set(String::new());
+                                                }
+                                            />
+                                            <p style="margin: 8px 0 0 0; color: var(--text-muted); font-size: 12px; line-height: 1.5">
+                                                "The GUI remains the normal path. This raw editor is for direct JSON edits when you need full control."
+                                            </p>
+                                            <div style="display: flex; gap: 10px; margin-top: 10px; flex-wrap: wrap;">
+                                                <button class="btn-secondary" on:click=move |_| set_settings_raw.set(serde_json::to_string_pretty(&settings.get()).unwrap_or_default())>
+                                                    "Refresh Raw From GUI"
+                                                </button>
+                                                <button class="btn-primary" on:click=move |_| apply_raw_settings_action()>
+                                                    "Apply Raw JSON"
+                                                </button>
+                                            </div>
+                                            {move || if !settings_raw_status.get().is_empty() {
+                                                view! {
+                                                    <p style="margin: 8px 0 0 0; color: var(--text-muted); font-size: 12px; line-height: 1.5">
+                                                        {settings_raw_status.get()}
+                                                    </p>
+                                                }.into_view()
+                                            } else {
+                                                view! {}.into_view()
+                                            }}
+                                        </div>
                                     </div>
                                 </div>
                             }.into_view(),
@@ -1510,7 +1861,10 @@ fn AlertWindow(
     let resolve_decision_internal = move |name: String, path: String, decision: String| {
         spawn_local(async move {
             // Prioritize path for "Always Allow" (TRUST)
-            let identifier = if decision == "allow_always" && !path.trim().is_empty() && !path.eq_ignore_ascii_case("unknown") {
+            let identifier = if (decision == "allow_always" || decision == "allow_always_no_mitm")
+                && !path.trim().is_empty()
+                && !path.eq_ignore_ascii_case("unknown")
+            {
                 path
             } else {
                 name
@@ -1557,6 +1911,16 @@ fn AlertWindow(
                          || app.alert_kind.as_deref() == Some("malicious_website")
                          || app.decision_key.as_deref().map(|value| value.starts_with("website:")).unwrap_or(false);
                      let is_behavior_alert = is_owlyshield_alert && !is_registry_alert;
+                     let always_decision = if is_website_alert {
+                         "allow_always_no_mitm".to_string()
+                     } else {
+                         "allow_always".to_string()
+                     };
+                     let always_label = if is_website_alert {
+                         "TRUST (NO MITM)"
+                     } else {
+                         "TRUST"
+                     };
                      let title = if is_registry_alert {
                          "Registry protection triggered".to_string()
                      } else if is_website_alert {
@@ -1579,10 +1943,14 @@ fn AlertWindow(
                              .filter(|value| !value.trim().is_empty())
                              .unwrap_or_else(|| format!("{} is attempting a protected registry modification.", app.name))
                      } else if is_website_alert {
-                         app.reason
+                         let base = app.reason
                              .clone()
                              .filter(|value| !value.trim().is_empty())
-                             .unwrap_or_else(|| "The request matched the website intelligence feeds and is waiting for your decision.".to_string())
+                             .unwrap_or_else(|| "The request matched the website intelligence feeds and is waiting for your decision.".to_string());
+                         format!(
+                             "{} Choosing TRUST (NO MITM) keeps the site allowed while adding it to the MITM bypass list.",
+                             base
+                         )
                      } else if is_behavior_alert {
                          app.reason
                              .clone()
@@ -1702,7 +2070,7 @@ fn AlertWindow(
                                                            <button class="alert-btn block" on:click={let p = app.path.clone(); move |_| res3(n3.clone(), p.clone(), "block".to_string())}> "BLOCK" </button>
                                                            <button class="alert-btn quarantine" on:click={let p = app.path.clone(); move |_| res4(n4.clone(), p.clone(), "quarantine".to_string())}> "QUARANTINE" </button>
                                                            <button class="alert-btn session" on:click={let p = app.path.clone(); move |_| res1(n1.clone(), p.clone(), "allow_once".to_string())}> "ONCE" </button>
-                                                           <button class="alert-btn always" on:click={let p = app.path.clone(); move |_| res2(n2.clone(), p.clone(), "allow_always".to_string())}> "TRUST" </button>
+                                                           <button class="alert-btn always" on:click={let p = app.path.clone(); let decision = always_decision.clone(); move |_| res2(n2.clone(), p.clone(), decision.clone())}> {always_label} </button>
                          </div>
                      }
                  })}

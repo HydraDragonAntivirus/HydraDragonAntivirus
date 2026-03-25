@@ -63,6 +63,46 @@ fn kernel_block_message(path: &str) -> String {
     format!("KERNEL_BLOCK_PATH:{}\n", path)
 }
 
+fn is_known_browser_process(name: &str) -> bool {
+    let lower = name.trim().to_ascii_lowercase();
+    matches!(
+        lower.as_str(),
+        "firefox.exe"
+            | "chrome.exe"
+            | "msedge.exe"
+            | "brave.exe"
+            | "opera.exe"
+            | "launcher.exe"
+            | "vivaldi.exe"
+            | "librewolf.exe"
+            | "waterfox.exe"
+            | "iexplore.exe"
+    )
+}
+
+fn browser_mitm_error_hint(name: &str) -> &'static str {
+    let lower = name.trim().to_ascii_lowercase();
+    if matches!(lower.as_str(), "firefox.exe" | "librewolf.exe" | "waterfox.exe") {
+        "SEC_ERROR_UNKNOWN_ISSUER"
+    } else {
+        "NET::ERR_CERT_AUTHORITY_INVALID"
+    }
+}
+
+fn browser_family(name: &str) -> &'static str {
+    let lower = name.trim().to_ascii_lowercase();
+    if matches!(lower.as_str(), "firefox.exe" | "librewolf.exe" | "waterfox.exe") {
+        "firefox"
+    } else {
+        "chromium"
+    }
+}
+
+fn is_unresolved_identity(value: &str) -> bool {
+    let trimmed = value.trim();
+    trimmed.is_empty() || trimmed.eq_ignore_ascii_case("unknown")
+}
+
 // ============================================================================
 // DATA STRUCTURES
 // ============================================================================
@@ -298,6 +338,8 @@ pub struct TlsProxyConfig {
     pub block_quic_udp_443: bool,
     /// Whether to auto-start the embedded proxy when the firewall starts.
     pub auto_start: bool,
+    #[serde(default)]
+    pub bypass_hosts: Vec<String>,
 }
 
 impl Default for TlsProxyConfig {
@@ -308,6 +350,7 @@ impl Default for TlsProxyConfig {
             listen_port: 8877,
             block_quic_udp_443: true,
             auto_start: true,
+            bypass_hosts: Vec::new(),
         }
     }
 }
@@ -918,9 +961,16 @@ impl AppManager {
         {
             let decisions = self.decisions.read().unwrap();
             let app_path_lower = app_path.to_lowercase();
+            let allow_name_fallback = !is_unresolved_identity(&app_name_lower);
             if let Some(decision) = decisions
                 .get(&app_path_lower)
-                .or_else(|| decisions.get(&app_name_lower))
+                .or_else(|| {
+                    if allow_name_fallback {
+                        decisions.get(&app_name_lower)
+                    } else {
+                        None
+                    }
+                })
             {
                 return (decision.clone(), app_name, app_path);
             }
@@ -1107,6 +1157,9 @@ pub struct FirewallEngine {
     pub sdk: Arc<RwLock<crate::sdk::SdkRegistry>>,
     pub file_checker: Arc<FileMagicChecker>,
     pub tls_proxy_backend_child: Arc<Mutex<Option<oneshot::Sender<()>>>>,
+    pub windows_root_trust_ready: Arc<AtomicBool>,
+    pub firefox_policy_ready: Arc<AtomicBool>,
+    pub browser_mitm_warning_cache: Arc<Mutex<HashSet<String>>>,
     /// Retained so stop() can call shutdown() and unblock all recv() threads.
     pub divert_handle: Arc<Mutex<Option<WinDivertArc<windivert::prelude::NetworkLayer>>>>,
     pub hydranet_tx: Arc<Mutex<Option<std::sync::mpsc::Sender<String>>>>,
@@ -1149,6 +1202,9 @@ impl FirewallEngine {
         let settings = Arc::new(RwLock::new(settings_data));
         let sdk = Arc::new(RwLock::new(crate::sdk::SdkRegistry::with_defaults()));
         let tls_proxy_backend_child = Arc::new(Mutex::new(None));
+        let windows_root_trust_ready = Arc::new(AtomicBool::new(false));
+        let firefox_policy_ready = Arc::new(AtomicBool::new(false));
+        let browser_mitm_warning_cache = Arc::new(Mutex::new(HashSet::new()));
         let divert_handle = Arc::new(Mutex::new(None));
         let hydranet_tx = Arc::new(Mutex::new(None));
 
@@ -1163,6 +1219,9 @@ impl FirewallEngine {
             sdk,
             file_checker,
             tls_proxy_backend_child,
+            windows_root_trust_ready,
+            firefox_policy_ready,
+            browser_mitm_warning_cache,
             divert_handle,
             hydranet_tx,
         }
@@ -1194,6 +1253,301 @@ impl FirewallEngine {
         {
             let mut settings = self.settings.write().unwrap();
             *settings = new_settings;
+        }
+    }
+
+    fn proxy_addr_string(tls_proxy: &TlsProxyConfig) -> String {
+        format!("{}:{}", tls_proxy.listen_host, tls_proxy.listen_port)
+    }
+
+    fn normalize_proxy_bypass_entry(entry: &str) -> Option<String> {
+        let trimmed = entry.trim().trim_matches('"').trim_matches('\'');
+        if trimmed.is_empty() {
+            return None;
+        }
+
+        let without_scheme = trimmed
+            .split_once("://")
+            .map(|(_, remainder)| remainder)
+            .unwrap_or(trimmed);
+        let host_port = without_scheme
+            .split(['/', '\\', '?', '#'])
+            .next()
+            .unwrap_or(without_scheme)
+            .trim();
+        let cleaned = host_port.trim_start_matches('.');
+
+        if cleaned.is_empty() {
+            None
+        } else {
+            Some(cleaned.to_string())
+        }
+    }
+
+    fn proxy_bypass_entry_matches_target(entry: &str, target: &str) -> bool {
+        let entry_lower = entry.to_ascii_lowercase();
+        let target_lower = target.to_ascii_lowercase();
+
+        if entry_lower == target_lower {
+            return true;
+        }
+
+        if let Some(suffix) = entry_lower.strip_prefix("*.") {
+            return target_lower == suffix || target_lower.ends_with(&format!(".{}", suffix));
+        }
+
+        if let Some(suffix) = entry_lower.strip_prefix('*') {
+            return target_lower.ends_with(suffix);
+        }
+
+        !entry_lower.contains(':') && target_lower.ends_with(&format!(".{}", entry_lower))
+    }
+
+    fn select_proxy_bypass_target(
+        hostname: Option<&str>,
+        full_url: Option<&str>,
+        explicit_target: Option<&str>,
+    ) -> Option<String> {
+        hostname
+            .and_then(Self::normalize_proxy_bypass_entry)
+            .or_else(|| full_url.and_then(Self::normalize_proxy_bypass_entry))
+            .or_else(|| explicit_target.and_then(Self::normalize_proxy_bypass_entry))
+    }
+
+    fn proxy_bypass_matches_target(
+        tls_proxy: &TlsProxyConfig,
+        hostname: Option<&str>,
+        full_url: Option<&str>,
+        explicit_target: Option<&str>,
+    ) -> bool {
+        let Some(target) = Self::select_proxy_bypass_target(hostname, full_url, explicit_target)
+        else {
+            return false;
+        };
+
+        tls_proxy.bypass_hosts.iter().any(|entry| {
+            Self::normalize_proxy_bypass_entry(entry).is_some_and(|normalized| {
+                Self::proxy_bypass_entry_matches_target(&normalized, &target)
+            })
+        })
+    }
+
+    fn select_proxy_bypass_host(alert: &PendingApp) -> Option<String> {
+        Self::select_proxy_bypass_target(
+            alert.hostname.as_deref(),
+            alert.full_url.as_deref(),
+            alert.target.as_deref(),
+        )
+    }
+
+    fn proxy_override_string(tls_proxy: &TlsProxyConfig) -> String {
+        let mut overrides = vec![
+            "localhost".to_string(),
+            "127.0.0.1".to_string(),
+            "<local>".to_string(),
+        ];
+
+        for host in &tls_proxy.bypass_hosts {
+            if let Some(normalized) = Self::normalize_proxy_bypass_entry(host)
+                && !overrides.iter().any(|existing| existing.eq_ignore_ascii_case(&normalized))
+            {
+                overrides.push(normalized);
+            }
+        }
+
+        overrides.join(";")
+    }
+
+    fn clear_owned_windows_proxy(addr: &str) -> Result<bool, String> {
+        #[cfg(target_os = "windows")]
+        {
+            use winreg::enums::*;
+            use winreg::RegKey;
+
+            let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+            let path = r"Software\Microsoft\Windows\CurrentVersion\Internet Settings";
+            let (key, _) = hkcu
+                .create_subkey(path)
+                .map_err(|e| e.to_string())?;
+
+            let proxy_enabled = key.get_value::<u32, _>("ProxyEnable").unwrap_or(0);
+            let proxy_server = key.get_value::<String, _>("ProxyServer").unwrap_or_default();
+            let addr_lc = addr.to_ascii_lowercase();
+            let server_lc = proxy_server.to_ascii_lowercase();
+            let owned = proxy_enabled != 0
+                && (server_lc.contains(&format!("http={}", addr_lc))
+                    || server_lc.contains(&format!("https={}", addr_lc))
+                    || server_lc == addr_lc);
+
+            if owned {
+                Self::clear_windows_proxy()?;
+                return Ok(true);
+            }
+
+            return Ok(false);
+        }
+
+        #[allow(unreachable_code)]
+        Ok(false)
+    }
+
+    fn wait_for_proxy_listener(addr: std::net::SocketAddr, timeout: Duration) -> bool {
+        let deadline = std::time::Instant::now() + timeout;
+        while std::time::Instant::now() < deadline {
+            if std::net::TcpStream::connect_timeout(&addr, Duration::from_millis(250)).is_ok() {
+                return true;
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        false
+    }
+
+    fn add_proxy_bypass_host<R: Runtime>(&self, tx: &AppHandle<R>, host: &str) -> bool {
+        let Some(normalized) = Self::normalize_proxy_bypass_entry(host) else {
+            return false;
+        };
+
+        let tls_proxy_cfg = {
+            let mut settings = self.settings.write().unwrap();
+            if settings.tls_proxy.bypass_hosts.iter().any(|existing| {
+                Self::normalize_proxy_bypass_entry(existing).is_some_and(|normalized_existing| {
+                    normalized_existing.eq_ignore_ascii_case(&normalized)
+                })
+            }) {
+                return false;
+            }
+
+            settings.tls_proxy.bypass_hosts.push(normalized.clone());
+            settings.tls_proxy.clone()
+        };
+
+        if tls_proxy_cfg.mode == TlsInspectionMode::TlsProxy && tls_proxy_cfg.auto_start {
+            let now = Self::now_ts();
+            match Self::set_windows_proxy(&tls_proxy_cfg) {
+                Ok(()) => emit_log_event(
+                    tx,
+                    LogEntry {
+                        id: format!("{}-proxy-bypass-added", now),
+                        timestamp: now,
+                        level: LogLevel::Info,
+                        message: format!(
+                            "MITM bypass added: {} will stay trusted without interception",
+                            normalized
+                        ),
+                    },
+                ),
+                Err(error) => emit_log_event(
+                    tx,
+                    LogEntry {
+                        id: format!("{}-proxy-bypass-add-failed", now),
+                        timestamp: now,
+                        level: LogLevel::Warning,
+                        message: format!(
+                            "MITM bypass saved for {} but Windows proxy override refresh failed: {}",
+                            normalized, error
+                        ),
+                    },
+                ),
+            }
+        }
+
+        true
+    }
+
+    fn maybe_emit_browser_mitm_warning<R: Runtime>(
+        tx: &AppHandle<R>,
+        tls_proxy: &TlsProxyConfig,
+        browser_name: &str,
+        pid: u32,
+        hostname: Option<&str>,
+        full_url: Option<&str>,
+        fallback_target: &str,
+        windows_root_trust_ready: &Arc<AtomicBool>,
+        firefox_policy_ready: &Arc<AtomicBool>,
+        browser_mitm_warning_cache: &Arc<Mutex<HashSet<String>>>,
+    ) {
+        if !is_known_browser_process(browser_name)
+            || Self::proxy_bypass_matches_target(
+                tls_proxy,
+                hostname,
+                full_url,
+                Some(fallback_target),
+            )
+        {
+            return;
+        }
+
+        let family = browser_family(browser_name);
+        let trust_ready = if family == "firefox" {
+            firefox_policy_ready.load(Ordering::SeqCst)
+        } else {
+            windows_root_trust_ready.load(Ordering::SeqCst)
+        };
+
+        if trust_ready {
+            return;
+        }
+
+        let target = Self::select_proxy_bypass_target(hostname, full_url, Some(fallback_target))
+            .unwrap_or_else(|| fallback_target.to_string());
+        let cache_key = format!(
+            "{}|{}|{}|{}",
+            browser_name.to_ascii_lowercase(),
+            pid,
+            family,
+            target.to_ascii_lowercase()
+        );
+
+        {
+            let mut cache = browser_mitm_warning_cache.lock().unwrap();
+            if !cache.insert(cache_key) {
+                return;
+            }
+        }
+
+        let trust_text = if family == "firefox" {
+            "Firefox enterprise trust policy is not ready"
+        } else {
+            "Windows root trust is not ready"
+        };
+
+        let now = Self::now_ts();
+        emit_log_event(
+            tx,
+            LogEntry {
+                id: format!("{}-browser-mitm-warning-{}", now, pid),
+                timestamp: now,
+                level: LogLevel::Warning,
+                message: format!(
+                    "Browser MITM warning likely for {} on {}: {}. The browser may show {} or a visible MITM/certificate attack warning until the proxy trust is accepted or the site is trusted without MITM. This may also trigger other antivirus or security products even if the interception is hidden.",
+                    browser_name,
+                    target,
+                    trust_text,
+                    browser_mitm_error_hint(browser_name),
+                ),
+            },
+        );
+    }
+
+    pub fn sync_proxy_runtime<R: Runtime>(&self, tx: &AppHandle<R>) {
+        let tls_proxy_cfg = {
+            let settings = self.settings.read().unwrap();
+            settings.tls_proxy.clone()
+        };
+
+        let addr = Self::proxy_addr_string(&tls_proxy_cfg);
+
+        if self.stop_signal.load(Ordering::SeqCst) {
+            let _ = Self::clear_owned_windows_proxy(&addr);
+            self.stop_embedded_proxy();
+            return;
+        }
+
+        if tls_proxy_cfg.mode == TlsInspectionMode::TlsProxy && tls_proxy_cfg.auto_start {
+            self.start_embedded_proxy(&tls_proxy_cfg, tx);
+        } else {
+            let _ = Self::clear_owned_windows_proxy(&addr);
+            self.stop_embedded_proxy();
         }
     }
 
@@ -1293,7 +1647,7 @@ impl FirewallEngine {
         }
     }
 
-    fn start_embedded_proxy(&self, tls_proxy: &TlsProxyConfig, tx: &AppHandle) {
+    fn start_embedded_proxy<R: Runtime>(&self, tls_proxy: &TlsProxyConfig, tx: &AppHandle<R>) {
         if tls_proxy.mode != TlsInspectionMode::TlsProxy || !tls_proxy.auto_start {
             return;
         }
@@ -1309,29 +1663,59 @@ impl FirewallEngine {
         )
         .parse()
         .unwrap_or_else(|_| "127.0.0.1:8877".parse().unwrap());
+        let addr_string = addr.to_string();
 
         let ca_bundle = crate::proxy::generate_ca();
 
         // Install the generated CA into Windows Trusted Root so browsers accept it.
-        if let Err(e) = Self::install_ca_der(&ca_bundle.cert_der) {
-            let now = Self::now_ts();
-            emit_log_event(&tx, LogEntry {
-                id: format!("{}-ca-install-warn", now),
-                timestamp: now,
-                level: LogLevel::Warning,
-                message: format!("CA install skipped (run as admin to trust proxy cert): {}", e),
-            });
+        match Self::install_ca_der(&ca_bundle.cert_der) {
+            Ok(()) => {
+                self.windows_root_trust_ready.store(true, Ordering::SeqCst);
+            }
+            Err(e) => {
+                self.windows_root_trust_ready.store(false, Ordering::SeqCst);
+                let now = Self::now_ts();
+                emit_log_event(&tx, LogEntry {
+                    id: format!("{}-ca-install-warn", now),
+                    timestamp: now,
+                    level: LogLevel::Warning,
+                    message: format!("CA install skipped (run as admin to trust proxy cert): {}. Browsers may report a MITM/certificate attack and other antivirus or security products may also flag the interception even if it is hidden.", e),
+                });
+            }
         }
 
-        // Set Windows system proxy so all apps route through us.
-        let _ = Self::set_windows_proxy(&addr.to_string());
+        let firefox_ca_path = Self::proxy_ca_cert_path();
+        match Self::install_firefox_ca_policy(&firefox_ca_path) {
+            Ok(()) => {
+                self.firefox_policy_ready.store(true, Ordering::SeqCst);
+            }
+            Err(e) => {
+                self.firefox_policy_ready.store(false, Ordering::SeqCst);
+                let now = Self::now_ts();
+                emit_log_event(&tx, LogEntry {
+                    id: format!("{}-firefox-ca-policy-warn", now),
+                    timestamp: now,
+                    level: LogLevel::Warning,
+                    message: format!(
+                        "Firefox CA policy setup failed; Firefox may still show SEC_ERROR_UNKNOWN_ISSUER or a visible MITM attack warning until trust is configured: {}. Other antivirus or security tools may also flag the interception.",
+                        e
+                    ),
+                });
+            }
+        }
+
+        // Clear any stale proxy setting for the same listener before we start.
+        let _ = Self::clear_owned_windows_proxy(&addr_string);
 
         let (stop_tx, stop_rx) = oneshot::channel::<()>();
         *self.tls_proxy_backend_child.lock().unwrap() = Some(stop_tx);
+        self.browser_mitm_warning_cache.lock().unwrap().clear();
 
         let app = tx.clone();
         let sdk = self.sdk.clone();
         let settings = self.settings.clone();
+        let proxy_runtime = Arc::clone(&self.tls_proxy_backend_child);
+        let tls_proxy_cfg = tls_proxy.clone();
         tauri::async_runtime::spawn(crate::proxy::run_proxy(
             addr,
             ca_bundle.issuer,
@@ -1340,18 +1724,84 @@ impl FirewallEngine {
             settings,
             stop_rx,
         ));
+
+        let tx_ready = tx.clone();
+        std::thread::Builder::new()
+            .name("proxy_ready_waiter".to_string())
+            .spawn(move || {
+                let listener_ready = Self::wait_for_proxy_listener(addr, Duration::from_secs(5));
+                let still_running = proxy_runtime.lock().unwrap().is_some();
+                if !still_running {
+                    return;
+                }
+
+                let now = Self::now_ts();
+                if listener_ready {
+                    match Self::set_windows_proxy(&tls_proxy_cfg) {
+                        Ok(()) => emit_log_event(
+                            &tx_ready,
+                            LogEntry {
+                                id: format!("{}-proxy-ready", now),
+                                timestamp: now,
+                                level: LogLevel::Success,
+                                message: format!(
+                                    "Embedded MITM proxy ready on {} - Windows proxy enabled",
+                                    addr_string
+                                ),
+                            },
+                        ),
+                        Err(e) => emit_log_event(
+                            &tx_ready,
+                            LogEntry {
+                                id: format!("{}-proxy-enable-failed", now),
+                                timestamp: now,
+                                level: LogLevel::Error,
+                                message: format!(
+                                    "Embedded MITM proxy listener started but Windows proxy could not be enabled: {}",
+                                    e
+                                ),
+                            },
+                        ),
+                    }
+                    emit_log_event(
+                        &tx_ready,
+                        LogEntry {
+                            id: format!("{}-proxy-stealth-warning", now),
+                            timestamp: now,
+                            level: LogLevel::Warning,
+                            message: "Embedded MITM interception is active. Browsers may still surface a MITM/certificate attack warning, and other antivirus or security products may flag the interception even if it is hidden.".to_string(),
+                        },
+                    );
+                } else {
+                    let _ = Self::clear_owned_windows_proxy(&addr_string);
+                    emit_log_event(
+                        &tx_ready,
+                        LogEntry {
+                            id: format!("{}-proxy-not-ready", now),
+                            timestamp: now,
+                            level: LogLevel::Warning,
+                            message: format!(
+                                "Embedded MITM proxy did not become ready on {} - Windows proxy was left disabled to avoid breaking internet access",
+                                addr_string
+                            ),
+                        },
+                    );
+                }
+            })
+            .expect("failed to spawn proxy_ready_waiter");
     }
 
     fn stop_embedded_proxy(&self) {
         if let Some(tx) = self.tls_proxy_backend_child.lock().unwrap().take() {
             let _ = tx.send(());
         }
+        self.browser_mitm_warning_cache.lock().unwrap().clear();
         // Clear Windows system proxy on shutdown.
         let _ = Self::clear_windows_proxy();
     }
 
     /// Point the Windows system HTTP+HTTPS proxy to our embedded listener.
-    fn set_windows_proxy(addr: &str) -> Result<(), String> {
+    fn set_windows_proxy(tls_proxy: &TlsProxyConfig) -> Result<(), String> {
         use winreg::enums::*;
         use winreg::RegKey;
         let hkcu = RegKey::predef(HKEY_CURRENT_USER);
@@ -1359,6 +1809,7 @@ impl FirewallEngine {
         let (key, _) = hkcu
             .create_subkey(path)
             .map_err(|e| e.to_string())?;
+        let addr = Self::proxy_addr_string(tls_proxy);
         // `addr` is already "host:port" (e.g. "127.0.0.1:8877").
         // Route both HTTP and HTTPS through the embedded MITM proxy so we can
         // inspect both plaintext and TLS-intercepted traffic.
@@ -1366,8 +1817,7 @@ impl FirewallEngine {
             .map_err(|e| e.to_string())?;
         key.set_value("ProxyEnable", &1u32)
             .map_err(|e| e.to_string())?;
-        // Bypass the proxy for localhost to prevent infinite loops.
-        key.set_value("ProxyOverride", &"localhost;127.0.0.1;<local>")
+        key.set_value("ProxyOverride", &Self::proxy_override_string(tls_proxy))
             .map_err(|e| e.to_string())?;
         Ok(())
     }
@@ -1383,6 +1833,51 @@ impl FirewallEngine {
             .map_err(|e| e.to_string())?;
         key.set_value("ProxyEnable", &0u32)
             .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    fn proxy_ca_cert_path() -> PathBuf {
+        std::env::current_exe()
+            .ok()
+            .and_then(|path| path.parent().map(|parent| parent.to_path_buf()))
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join("hydradragon_ca.der")
+    }
+
+    fn install_firefox_ca_policy(cert_path: &Path) -> Result<(), String> {
+        #[cfg(target_os = "windows")]
+        {
+            use winreg::enums::*;
+            use winreg::RegKey;
+
+            let cert_path_string = cert_path.to_string_lossy().to_string();
+            let write_policy = |root: RegKey| -> Result<(), String> {
+                let (certs_key, _) = root
+                    .create_subkey(r"Software\Policies\Mozilla\Firefox\Certificates")
+                    .map_err(|e| e.to_string())?;
+                certs_key
+                    .set_value("ImportEnterpriseRoots", &1u32)
+                    .map_err(|e| e.to_string())?;
+
+                let (install_key, _) = root
+                    .create_subkey(r"Software\Policies\Mozilla\Firefox\Certificates\Install")
+                    .map_err(|e| e.to_string())?;
+                install_key
+                    .set_value("1", &cert_path_string)
+                    .map_err(|e| e.to_string())?;
+                Ok(())
+            };
+
+            let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+            write_policy(hkcu)?;
+
+            let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
+            let _ = write_policy(hklm);
+
+            return Ok(());
+        }
+
+        #[allow(unreachable_code)]
         Ok(())
     }
 
@@ -1444,6 +1939,7 @@ impl FirewallEngine {
     pub fn resolve_app_decision(&self, name: String, decision: String, tx: &AppHandle) {
         let active_alert = self.app_manager.active_alert.read().unwrap().clone();
         let mut persist_settings = true;
+        let mut effective_decision = decision;
         let kernel_block_path = active_alert
             .as_ref()
             .and_then(select_kernel_block_path);
@@ -1470,6 +1966,20 @@ impl FirewallEngine {
             })
             .unwrap_or_else(|| name.clone());
 
+        let missing_stable_path = active_alert
+            .as_ref()
+            .is_some_and(|alert| is_unresolved_identity(&alert.path));
+        let has_explicit_decision_key = active_alert
+            .as_ref()
+            .and_then(|alert| alert.decision_key.as_ref())
+            .is_some();
+
+        if effective_decision == "allow_always" && missing_stable_path && !has_explicit_decision_key
+        {
+            effective_decision = "allow_once".to_string();
+            persist_settings = false;
+        }
+
         let routed_to_owlyshield = active_alert
             .as_ref()
             .and_then(|alert| {
@@ -1480,13 +1990,18 @@ impl FirewallEngine {
                 }
             })
             .map(|request_id| {
-                let msg = format!("HIPS_DECISION:{}|{}\n", request_id, decision.as_str());
+                let msg = format!(
+                    "HIPS_DECISION:{}|{}\n",
+                    request_id,
+                    effective_decision.as_str()
+                );
                 self.send_hydranet_message(msg);
             })
             .is_some();
 
-        let app_decision = match decision.as_str() {
+        let app_decision = match effective_decision.as_str() {
             "allow_always" => AppDecision::Allow,
+            "allow_always_no_mitm" => AppDecision::Allow,
             "allow_once" => AppDecision::AllowOnce,
             "quarantine" => AppDecision::Block,
             "block" => AppDecision::Block,
@@ -1505,13 +2020,20 @@ impl FirewallEngine {
                 .resolve_decision(&decision_identifier, app_decision);
         }
 
-        if decision == "block" && let Some(path) = kernel_block_path.as_deref() {
+        if effective_decision == "block" && let Some(path) = kernel_block_path.as_deref() {
             self.remember_kernel_block_path(path);
             self.send_hydranet_message(kernel_block_message(path));
         }
 
+        if effective_decision == "allow_always_no_mitm"
+            && let Some(alert) = active_alert.as_ref()
+            && let Some(host) = Self::select_proxy_bypass_host(alert)
+        {
+            let _ = self.add_proxy_bypass_host(tx, &host);
+        }
+
         let now = Self::now_ts();
-        match decision.as_str() {
+        match effective_decision.as_str() {
             "block" => emit_log_event(
                 tx,
                 LogEntry {
@@ -1539,6 +2061,15 @@ impl FirewallEngine {
                     message: format!("Allowed: User decision for {}", decision_label),
                 },
             ),
+            "allow_always_no_mitm" => emit_log_event(
+                tx,
+                LogEntry {
+                    id: format!("{}-user-allow-no-mitm", now),
+                    timestamp: now,
+                    level: LogLevel::Success,
+                    message: format!("Trusted Without MITM: User decision for {}", decision_label),
+                },
+            ),
             "allow_once" => emit_log_event(
                 tx,
                 LogEntry {
@@ -1549,6 +2080,24 @@ impl FirewallEngine {
                 },
             ),
             _ => {}
+        }
+
+        if effective_decision == "allow_once"
+            && missing_stable_path
+            && !has_explicit_decision_key
+        {
+            emit_log_event(
+                tx,
+                LogEntry {
+                    id: format!("{}-allow-once-unresolved-path", now),
+                    timestamp: now,
+                    level: LogLevel::Warning,
+                    message: format!(
+                        "Persistent trust was not saved for {} because the executable path could not be resolved. Only a one-time allow was applied to avoid broadly trusting other unknown files.",
+                        decision_label
+                    ),
+                },
+            );
         }
 
         // Clear the active alert so it doesn't linger
@@ -1814,7 +2363,7 @@ impl FirewallEngine {
             let settings = settings_arc.read().unwrap();
             settings.tls_proxy.clone()
         };
-        if tls_proxy_cfg.mode == TlsInspectionMode::TlsProxy {
+        if tls_proxy_cfg.mode == TlsInspectionMode::TlsProxy && tls_proxy_cfg.auto_start {
             let ts = Self::now_ts();
             emit_log_event(
                 &tx,
@@ -1830,9 +2379,19 @@ impl FirewallEngine {
                     ),
                 },
             );
-
-            self.start_embedded_proxy(&tls_proxy_cfg, &tx);
+        } else {
+            let ts = Self::now_ts();
+            emit_log_event(
+                &tx,
+                LogEntry {
+                    id: format!("{}-tls-proxy-disabled", ts),
+                    timestamp: ts,
+                    level: LogLevel::Info,
+                    message: "TLS Proxy mode disabled or not auto-started - Windows proxy cleanup enforced".into(),
+                },
+            );
         }
+        self.sync_proxy_runtime(&tx);
 
         // PENDING APP MONITOR THREAD
         // Checks for new unknown apps and asks the UI
@@ -2188,6 +2747,9 @@ impl FirewallEngine {
             let dns_w = Arc::clone(&dns);
             let sdk_w = Arc::clone(&self.sdk);
             let fcheck_w = Arc::clone(&self.file_checker);
+            let windows_root_trust_ready_w = Arc::clone(&self.windows_root_trust_ready);
+            let firefox_policy_ready_w = Arc::clone(&self.firefox_policy_ready);
+            let browser_mitm_warning_cache_w = Arc::clone(&self.browser_mitm_warning_cache);
             let tx_log = app_handle.clone();
             let divert_w = divert.clone();
             let net_ev_tx = net_event_tx.clone();
@@ -2298,6 +2860,9 @@ impl FirewallEngine {
                                     &tx_log,
                                     pid,
                                     &pre_parsed,
+                                    &windows_root_trust_ready_w,
+                                    &firefox_policy_ready_w,
+                                    &browser_mitm_warning_cache_w,
                                 );
 
                                 // ── NET EVENT + BLOCK_EXE → BEHAVIOR ENGINE ─────────
@@ -2497,6 +3062,9 @@ impl FirewallEngine {
         tx: &AppHandle,
         process_id: u32,
         pre_parsed: &Option<(PacketInfo, usize)>,
+        windows_root_trust_ready: &Arc<AtomicBool>,
+        firefox_policy_ready: &Arc<AtomicBool>,
+        browser_mitm_warning_cache: &Arc<Mutex<HashSet<String>>>,
     ) -> PacketDecision {
         let (mut info, mut payload_offset) = match pre_parsed {
             Some(p) => (p.0.clone(), p.1),
@@ -2599,6 +3167,18 @@ impl FirewallEngine {
                     .or_else(|| dns_handler.resolve_ip(&info.dst_ip.to_string()))
                     .unwrap_or_else(|| info.dst_ip.to_string());
                 let now = Self::now_ts();
+                Self::maybe_emit_browser_mitm_warning(
+                    &tx,
+                    &tls_proxy_cfg,
+                    &app_info_loopback.name,
+                    pid,
+                    info.hostname.as_deref(),
+                    info.full_url.as_deref(),
+                    &host_label,
+                    windows_root_trust_ready,
+                    firefox_policy_ready,
+                    browser_mitm_warning_cache,
+                );
                 emit_log_event(
                     &tx,
                     LogEntry {
@@ -2717,7 +3297,17 @@ impl FirewallEngine {
             match am.get_decision(&decision_key) {
                 Some(AppDecision::Allow) => {
                     should_forward = true;
-                    reason = Some(format!("Website trusted: {}", web_match.target));
+                    let reason_prefix = if Self::proxy_bypass_matches_target(
+                        &tls_proxy_cfg,
+                        info.hostname.as_deref(),
+                        info.full_url.as_deref(),
+                        Some(&web_match.target),
+                    ) {
+                        "Website trusted without MITM"
+                    } else {
+                        "Website trusted"
+                    };
+                    reason = Some(format!("{}: {}", reason_prefix, web_match.target));
                 }
                 Some(AppDecision::AllowOnce) => {
                     should_forward = true;

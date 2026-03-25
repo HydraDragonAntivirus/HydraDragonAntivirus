@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter, Manager, Runtime};
 use tokio::sync::oneshot;
 
 use crate::engine::{emit_log_event, FirewallSettings, LogEntry, LogLevel, PacketInfo, Protocol};
@@ -137,10 +137,10 @@ fn now_ts() -> u64 {
 ///
 /// Every intercepted HTTP/HTTPS flow emits a `"log"` Tauri event so the UI
 /// shows intercept activity attributed to the originating application.
-pub async fn run_proxy(
+pub async fn run_proxy<R: Runtime>(
     addr: SocketAddr,
     ca: rcgen::Issuer<'static, KeyPair>,
-    app_handle: AppHandle,
+    app_handle: AppHandle<R>,
     sdk: Arc<RwLock<SdkRegistry>>,
     _settings: Arc<RwLock<FirewallSettings>>,
     mut stop_rx: oneshot::Receiver<()>,

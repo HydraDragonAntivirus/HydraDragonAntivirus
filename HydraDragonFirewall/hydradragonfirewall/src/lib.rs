@@ -66,6 +66,10 @@ async fn wait_for_engine<R: Runtime>(handle: &AppHandle<R>) -> Option<Arc<Firewa
 struct EngineRuntimeStatus {
     active: bool,
     status: String,
+    mitm_enabled: bool,
+    windows_root_trust_ready: bool,
+    firefox_policy_ready: bool,
+    mitm_bypass_count: usize,
 }
 
 #[tauri::command]
@@ -111,6 +115,7 @@ async fn save_settings(
 ) -> Result<(), String> {
     if let Some(engine) = wait_for_engine(&handle).await {
         engine.apply_settings(settings);
+        engine.sync_proxy_runtime(&handle);
         engine.save_settings();
         Ok(())
     } else {
@@ -269,15 +274,47 @@ async fn previous_alert(handle: AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 async fn get_engine_runtime_status<R: Runtime>(handle: AppHandle<R>) -> EngineRuntimeStatus {
-    if handle.try_state::<Arc<FirewallEngine>>().is_some() {
+    if let Some(engine) = handle.try_state::<Arc<FirewallEngine>>() {
+        let active = !engine.stop_signal.load(std::sync::atomic::Ordering::SeqCst);
+        let status = if active {
+            let settings = engine.settings.read().unwrap();
+            if settings.tls_proxy.mode == crate::engine::TlsInspectionMode::TlsProxy
+                && settings.tls_proxy.auto_start {
+                    "Firewall Engine ACTIVE (MITM proxy managed)".to_string()
+                } else if settings.tls_proxy.mode == crate::engine::TlsInspectionMode::MetadataOnly {
+                    "Firewall Engine ACTIVE (metadata-only TLS visibility)".to_string()
+                } else {
+                    "Firewall Engine ACTIVE (MITM proxy disabled)".to_string()
+                }
+        } else {
+            "Firewall Engine INACTIVE".to_string()
+        };
+
+        let settings = engine.settings.read().unwrap();
+        let mitm_enabled = settings.tls_proxy.mode == crate::engine::TlsInspectionMode::TlsProxy
+            && settings.tls_proxy.auto_start;
+        let mitm_bypass_count = settings.tls_proxy.bypass_hosts.len();
+
         EngineRuntimeStatus {
-            active: true,
-            status: "Firewall Engine ACTIVE".to_string(),
+            active,
+            status,
+            mitm_enabled,
+            windows_root_trust_ready: engine
+                .windows_root_trust_ready
+                .load(std::sync::atomic::Ordering::SeqCst),
+            firefox_policy_ready: engine
+                .firefox_policy_ready
+                .load(std::sync::atomic::Ordering::SeqCst),
+            mitm_bypass_count,
         }
     } else {
         EngineRuntimeStatus {
             active: false,
             status: "Initializing Engine...".to_string(),
+            mitm_enabled: false,
+            windows_root_trust_ready: false,
+            firefox_policy_ready: false,
+            mitm_bypass_count: 0,
         }
     }
 }
