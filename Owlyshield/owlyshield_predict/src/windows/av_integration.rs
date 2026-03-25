@@ -500,11 +500,38 @@ fn spawn_mbr_alert_listener() -> thread::JoinHandle<()> {
 
                 if read_ok.as_bool() && bytes_read > 0 {
                     let raw = decode_utf16le_message(&buffer[..bytes_read as usize]);
-                    let normalized = normalize_nt_path(&raw);
-                    Logging::error(&format!(
-                        "[MBR ALERT] Offending process path: {}",
-                        normalized
-                    ));
+                    
+                    // Parse enriched format: "DISK:<number>|<process_path>"
+                    let (disk_number, process_path) = if raw.starts_with("DISK:") {
+                        if let Some(pipe_pos) = raw.find('|') {
+                            let disk_str = &raw[5..pipe_pos];
+                            let path = &raw[pipe_pos + 1..];
+                            let disk_num: i32 = disk_str.parse().unwrap_or(-1);
+                            (disk_num, normalize_nt_path(path))
+                        } else {
+                            (-1, normalize_nt_path(&raw))
+                        }
+                    } else {
+                        // Legacy format: just the process path
+                        (0, normalize_nt_path(&raw))
+                    };
+
+                    if disk_number == 0 {
+                        // System disk MBR write — always blocked, just log
+                        Logging::error(&format!(
+                            "[MBR ALERT] System disk (PhysicalDrive0) MBR write blocked — Offending process: {}",
+                            process_path
+                        ));
+                    } else {
+                        // Non-system disk (USB/external) MBR write — blocked and notify firewall GUI
+                        Logging::error(&format!(
+                            "[MBR ALERT] USB/External disk {} MBR write blocked — Offending process: {}",
+                            disk_number, process_path
+                        ));
+                        
+                        // Forward to firewall GUI HIPS pipe for user notification
+                        send_mbr_hips_notification(disk_number, &process_path);
+                    }
                 }
 
                 let _ = DisconnectNamedPipe(pipe_handle);
@@ -514,6 +541,108 @@ fn spawn_mbr_alert_listener() -> thread::JoinHandle<()> {
             thread::sleep(Duration::from_millis(50));
         }
     })
+}
+
+/// Send a HIPS-style notification to the firewall GUI about a blocked USB MBR write.
+fn send_mbr_hips_notification(disk_number: i32, process_path: &str) {
+    use std::ffi::CString;
+    use windows::core::PCSTR;
+    use windows::Win32::Foundation::{BOOL, CloseHandle, GetLastError, HANDLE};
+    use windows::Win32::Storage::FileSystem::{
+        CreateFileA, FlushFileBuffers, WriteFile, FILE_ATTRIBUTE_NORMAL, FILE_GENERIC_WRITE,
+        FILE_SHARE_NONE, OPEN_EXISTING,
+    };
+    use windows::Win32::System::Pipes::WaitNamedPipeA;
+
+    const HIPS_PIPE: &str = r"\\.\pipe\HydraHipEvent";
+    const CONNECT_TIMEOUT_MS: u32 = 750;
+
+    let pipe_name = match CString::new(HIPS_PIPE) {
+        Ok(value) => value,
+        Err(_) => {
+            Logging::error("[MBR HIPS] Invalid HydraHipEvent pipe name");
+            return;
+        }
+    };
+    let pcstr = PCSTR(pipe_name.as_ptr() as *const u8);
+
+    let wait_ok: BOOL = unsafe { WaitNamedPipeA(pcstr, CONNECT_TIMEOUT_MS) };
+    if !wait_ok.as_bool() {
+        Logging::warning(&format!(
+            "[MBR HIPS] Firewall GUI pipe not ready for USB MBR alert (disk {}, GetLastError={:?})",
+            disk_number,
+            unsafe { GetLastError() }
+        ));
+        return;
+    }
+
+    let pipe_handle = unsafe {
+        CreateFileA(
+            pcstr,
+            FILE_GENERIC_WRITE.0,
+            FILE_SHARE_NONE,
+            None,
+            OPEN_EXISTING,
+            FILE_ATTRIBUTE_NORMAL,
+            HANDLE::default(),
+        )
+    };
+
+    let pipe_handle = match pipe_handle {
+        Ok(handle) if !handle.is_invalid() => handle,
+        Ok(_) => {
+            Logging::error("[MBR HIPS] CreateFileA returned invalid HydraHipEvent handle");
+            return;
+        }
+        Err(err) => {
+            Logging::warning(&format!(
+                "[MBR HIPS] Failed to connect to HydraHipEvent pipe: {:?}",
+                err
+            ));
+            return;
+        }
+    };
+
+    // Build the HIPS notification JSON
+    let hips_json = format!(
+        r#"{{"request_id":"mbr_usb_{}_{}", "alert_kind":"MBR_USB_WRITE", "pid":0, "app_name":"MBRFilter", "exe_path":"{}", "target":"PhysicalDrive{}", "reason":"Blocked MBR write to removable/external disk {} by process: {}. This may indicate USB MBR malware."}}"#,
+        disk_number,
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis(),
+        process_path.replace('\\', "\\\\").replace('"', "\\\""),
+        disk_number,
+        disk_number,
+        process_path.replace('\\', "\\\\").replace('"', "\\\""),
+    );
+
+    let message_bytes = hips_json.as_bytes();
+    let mut bytes_written: u32 = 0;
+
+    let ok: BOOL = unsafe {
+        WriteFile(
+            pipe_handle,
+            Some(message_bytes),
+            Some(&mut bytes_written as *mut u32),
+            None,
+        )
+    };
+
+    let _ = unsafe { FlushFileBuffers(pipe_handle) };
+    let _ = unsafe { CloseHandle(pipe_handle) };
+
+    if ok.as_bool() {
+        Logging::info(&format!(
+            "[MBR HIPS] Sent USB MBR alert to firewall GUI for disk {} ({} bytes)",
+            disk_number, bytes_written
+        ));
+    } else {
+        Logging::error(&format!(
+            "[MBR HIPS] Failed to write USB MBR alert to HydraHipEvent pipe (GetLastError={:?})",
+            unsafe { GetLastError() }
+        ));
+    }
 }
 
 fn spawn_self_defense_listener() -> thread::JoinHandle<()> {

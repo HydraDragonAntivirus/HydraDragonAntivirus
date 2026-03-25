@@ -313,6 +313,14 @@ impl IrpStatistics {
         self.high_entropy_files.len()
     }
 
+    pub fn get_injection_api_count(&self) -> u64 {
+        self.hypervisor_event_count
+    }
+    
+    pub fn has_injection_indicators(&self) -> bool {
+        self.hypervisor_event_count > 0
+    }
+
     pub fn record_operation(&mut self, rec: &IrpOperationRecord) {
         let irp_op = IrpMajorOp::from_byte(rec.irp_type);
         
@@ -449,12 +457,14 @@ impl IrpStatistics {
     }
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HypervisorStats {
     pub hyp_event_count: u64,
     pub hypervisor_event_count: u64,
 }
 
+#[allow(dead_code)]
 impl HypervisorStats {
     pub fn get_injection_api_count(&self) -> u64 {
         self.hypervisor_event_count
@@ -490,6 +500,10 @@ pub enum RootkitFindingKind {
     HiddenProcess,
     HiddenDriver,
     KernelInlineHook,
+    TerminateProcess,
+    FileMove,
+    /// Catch-all for any rootkit event opcode not covered by the specific variants above.
+    Generic,
     Unknown(u8),
 }
 
@@ -500,6 +514,9 @@ impl RootkitFindingKind {
             IrpMajorOp::IrpRootkitHiddenProcess => RootkitFindingKind::HiddenProcess,
             IrpMajorOp::IrpRootkitHiddenDriver => RootkitFindingKind::HiddenDriver,
             IrpMajorOp::IrpRootkitKernelHook => RootkitFindingKind::KernelInlineHook,
+            IrpMajorOp::IrpRootkitTerminateProcess => RootkitFindingKind::TerminateProcess,
+            IrpMajorOp::IrpRootkitFileMove => RootkitFindingKind::FileMove,
+            IrpMajorOp::IrpRootkitGeneric => RootkitFindingKind::Generic,
             _ => RootkitFindingKind::Unknown(0),
         }
     }
@@ -510,6 +527,9 @@ impl RootkitFindingKind {
             RootkitFindingKind::HiddenProcess   => "Hidden Process (DKOM)",
             RootkitFindingKind::HiddenDriver    => "Hidden Driver",
             RootkitFindingKind::KernelInlineHook => "Kernel Inline Hook",
+            RootkitFindingKind::TerminateProcess => "Rootkit Terminate Process",
+            RootkitFindingKind::FileMove         => "Rootkit File Move",
+            RootkitFindingKind::Generic          => "Generic Rootkit Event",
             RootkitFindingKind::Unknown(_)      => "Unknown Rootkit Event",
         }
     }
@@ -521,6 +541,9 @@ impl RootkitFindingKind {
             RootkitFindingKind::HiddenProcess   => 3,
             RootkitFindingKind::HiddenDriver    => 3,
             RootkitFindingKind::KernelInlineHook => 2,
+            RootkitFindingKind::TerminateProcess => 3,
+            RootkitFindingKind::FileMove         => 2,
+            RootkitFindingKind::Generic          => 2,
             RootkitFindingKind::Unknown(_)      => 1,
         }
     }
@@ -678,10 +701,11 @@ pub enum DetectionLevel {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LogSource {
     pub category: String,
-    #[serde(default)]
+    #[serde(skip)]
     pub report_sender: Option<std::sync::mpsc::Sender<String>>,
 
     /// List of recent rootkit detection findings.
+    #[serde(skip)]
     pub rootkit_findings: Vec<RootkitFinding>,
 }
 
@@ -1108,6 +1132,16 @@ pub struct NamedConditionGroup {
     pub sanctum_suspicious_hits: Vec<String>,
     #[serde(default)]
     pub sanctum_detected: Option<bool>,
+
+    // Rootkit generic condition tracking
+    #[serde(default)]
+    pub rootkit_event_types: Vec<String>,
+    #[serde(default)]
+    pub rootkit_event_min_count: Option<usize>,
+    #[serde(default)]
+    pub rootkit_total_min: Option<usize>,
+    #[serde(default)]
+    pub rootkit_description_contains: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1579,6 +1613,8 @@ pub struct ProcessBehaviorState {
 
     /// True if this process has been implicated in a rootkit finding.
     pub rootkit_implicated: bool,
+    /// All rootkit events detected for this process.
+    pub rootkit_findings: Vec<RootkitFinding>,
 }
 
 impl ProcessBehaviorState {
@@ -1619,6 +1655,7 @@ impl ProcessBehaviorState {
             state.sanctum_stats = crate::realtime_learning::api_tracker::SanctumOperationStats::default();
         }
         state.rootkit_implicated = false;
+        state.rootkit_findings = Vec::new();
 
         state
     }
@@ -1699,6 +1736,35 @@ impl ProcessBehaviorState {
                 ));
             }
         }
+
+        // NEW: Rootkit Event Tracking
+        match irp_kind {
+            IrpMajorOp::IrpRootkitSsdtHook
+            | IrpMajorOp::IrpRootkitHiddenProcess
+            | IrpMajorOp::IrpRootkitHiddenDriver
+            | IrpMajorOp::IrpRootkitKernelHook
+            | IrpMajorOp::IrpRootkitTerminateProcess
+            | IrpMajorOp::IrpRootkitFileMove
+            | IrpMajorOp::IrpRootkitGeneric => {
+                let kind = RootkitFindingKind::from_irp_op(irp_kind);
+                let finding = RootkitFinding {
+                    kind: kind.clone(),
+                    description: msg.kernel_event_info.object_name.trim_matches('\0').to_string(),
+                    address: msg.kernel_event_info.memory_address,
+                    pid: msg.kernel_event_info.source_process_id,
+                    extra: msg.kernel_event_info.raw_argument1,
+                    timestamp_ms: SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64,
+                };
+                self.rootkit_findings.push(finding);
+                self.rootkit_implicated = true;
+                
+                Logging::warning(&format!(
+                    "[ROOTKIT DETECTED] PID {} - Type: {:?} - {}",
+                    msg.pid, kind, msg.kernel_event_info.object_name.trim_matches('\0')
+                ));
+            },
+            _ => {},
+        }
         
         // Use incremental drain to prevent blocking: remove 10% when hitting 10k
         if self.irp_operations.len() >= 10000 {
@@ -1757,6 +1823,7 @@ pub struct BehaviorEngine {
     /// Detailed network matching rules (SdkRules) for the firewall.
     #[cfg(feature = "firewall")]
     pub sdk_rules: Arc<std::sync::RwLock<Vec<crate::behavioral::network_rules::SdkRule>>>,
+    pub rootkit_findings: Vec<RootkitFinding>,
 }
 
 impl Default for BehaviorEngine {
@@ -1799,6 +1866,7 @@ impl BehaviorEngine {
             generate_report_flag: shared_firewall_generate_report(),
             #[cfg(feature = "firewall")]
             sdk_rules: Arc::new(std::sync::RwLock::new(Vec::new())),
+            rootkit_findings: Vec::new(),
         }
     }
 
@@ -3428,7 +3496,7 @@ impl BehaviorEngine {
         }
 
         // === STEP 7: EVALUATE RULES ===
-        self.check_rules(precord, gid, msg, irp_op, config, &mut actions);
+        self.check_rules(precord, gid, msg, irp_op.clone(), config, &mut actions);
 
         // === STEP 8: HANDLE SPECIAL IRP OPERATIONS ===
         match irp_op {
@@ -3441,13 +3509,16 @@ impl BehaviorEngine {
             | IrpMajorOp::IrpKernelQueueApc
             | IrpMajorOp::IrpKernelCreateSection
             | IrpMajorOp::IrpKernelMapSection => {
-                self.handle_hypervisor_event(msg);
+                // handle_hypervisor_event logic is natively merged into record_irp_operation and scan_all_processes.
             }
 
             IrpMajorOp::IrpRootkitSsdtHook
             | IrpMajorOp::IrpRootkitHiddenProcess
             | IrpMajorOp::IrpRootkitHiddenDriver
-            | IrpMajorOp::IrpRootkitKernelHook => {
+            | IrpMajorOp::IrpRootkitKernelHook
+            | IrpMajorOp::IrpRootkitTerminateProcess
+            | IrpMajorOp::IrpRootkitFileMove
+            | IrpMajorOp::IrpRootkitGeneric => {
                 self.handle_rootkit_event(&msg);
             }
 
@@ -3743,6 +3814,59 @@ impl BehaviorEngine {
                                     cond_name, require_detected, state.pid
                                 ));
                             }
+                        }
+                    }
+                }
+
+                // ── Rootkit generic conditions ──────────────────────────────────
+                if !matched {
+                    if !cond_group.rootkit_event_types.is_empty() {
+                        let matches_type = state.rootkit_findings.iter().filter(|f| {
+                            let type_str = match f.kind {
+                                RootkitFindingKind::SsdtHook => "ssdt_hook",
+                                RootkitFindingKind::HiddenProcess => "hidden_process",
+                                RootkitFindingKind::HiddenDriver => "hidden_driver",
+                                RootkitFindingKind::KernelInlineHook => "kernel_hook",
+                                RootkitFindingKind::TerminateProcess => "terminate_process",
+                                RootkitFindingKind::FileMove => "file_move",
+                                RootkitFindingKind::Generic => "generic",
+                                RootkitFindingKind::Unknown(_) => "unknown",
+                            };
+                            cond_group.rootkit_event_types.iter().any(|rt| rt.to_lowercase() == type_str)
+                        }).count();
+                        
+                        let min_count = cond_group.rootkit_event_min_count.unwrap_or(1);
+                        if matches_type >= min_count {
+                            matched = true;
+                            Logging::info(&format!(
+                                "[BehaviorEngine] Condition '{}' - rootkit_event_types matched for PID {} ({} >= {})",
+                                cond_name, state.pid, matches_type, min_count
+                            ));
+                        }
+                    }
+
+                    if !matched && cond_group.rootkit_total_min.is_some() {
+                        let total_min = cond_group.rootkit_total_min.unwrap();
+                        if state.rootkit_findings.len() >= total_min {
+                            matched = true;
+                            Logging::info(&format!(
+                                "[BehaviorEngine] Condition '{}' - rootkit_total_min matched for PID {} ({} >= {})",
+                                cond_name, state.pid, state.rootkit_findings.len(), total_min
+                            ));
+                        }
+                    }
+
+                    if !matched && !cond_group.rootkit_description_contains.is_empty() {
+                        let has_desc = state.rootkit_findings.iter().any(|f| {
+                            let desc_lc = f.description.to_lowercase();
+                            cond_group.rootkit_description_contains.iter().any(|d| desc_lc.contains(&d.to_lowercase()))
+                        });
+                        if has_desc {
+                            matched = true;
+                            Logging::info(&format!(
+                                "[BehaviorEngine] Condition '{}' - rootkit_description_contains matched for PID {}",
+                                cond_name, state.pid
+                            ));
                         }
                     }
                 }
@@ -5142,6 +5266,7 @@ impl BehaviorEngine {
     }
 
     /// Clears the rootkit findings list (e.g. after writing a report).
+    #[allow(dead_code)]
     pub fn clear_rootkit_findings(&mut self) {
         self.rootkit_findings.clear();
     }

@@ -147,6 +147,7 @@ WMIGUIDREGINFO MBRFGuidList[] =
 typedef struct _ALERT_CTX {
     PIO_WORKITEM WorkItem;
     PEPROCESS    Process;
+    LONG         DiskNumber;
 } ALERT_CTX, * PALERT_CTX;
 
 VOID MbrAlertWorker(PDEVICE_OBJECT DeviceObject, PVOID Context)
@@ -158,7 +159,13 @@ VOID MbrAlertWorker(PDEVICE_OBJECT DeviceObject, PVOID Context)
     if (ctx->Process) {
         NTSTATUS st = SeLocateProcessImageName(ctx->Process, &imageName); // PASSIVE_LEVEL
         if (NT_SUCCESS(st) && imageName) {
-            SendAlertOverPipe(imageName);
+            // Build enriched message: "DISK:<number>|<process_path>"
+            WCHAR enrichedBuf[1024];
+            UNICODE_STRING enrichedMsg;
+            RtlStringCbPrintfW(enrichedBuf, sizeof(enrichedBuf),
+                L"DISK:%d|%wZ", ctx->DiskNumber, imageName);
+            RtlInitUnicodeString(&enrichedMsg, enrichedBuf);
+            SendAlertOverPipe(&enrichedMsg);
             if (imageName->Buffer) ExFreePool(imageName->Buffer);
             ExFreePool(imageName);
         }
@@ -322,19 +329,12 @@ NTSTATUS MBRFReadWrite(IN PDEVICE_OBJECT DeviceObject, IN PIRP Irp) {
         return status;
     }
 
-    // Only protect disk 0 (physicaldrive0). Forward all others.
-    if (deviceExtension->DiskNumber != PROTECT_DISK_NUMBER) {
-        status = MBRFNextDrv(DeviceObject, Irp);
-        IoReleaseRemoveLock(&deviceExtension->RemoveLock, Irp);
-        return status;
-    }
-
     IoCopyCurrentIrpStackLocationToNext(Irp);
     if ((currentIrpStack->MajorFunction == IRP_MJ_WRITE) && currentIrpStack->Parameters.Write.Length) {
         if (currentIrpStack->Parameters.Write.ByteOffset.QuadPart / 512 == 0) {
             DbgPrintEx(DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL, "MBRF: write sector 0 (disk %d, partition %d)\n", deviceExtension->DiskNumber, deviceExtension->PartitionNumber);
 
-            // --- NEW: Identify process and send alert over pipe ---
+            // --- Identify process and send alert over pipe (with disk number) ---
             PEPROCESS eProc = IoGetRequestorProcess(Irp);
             if (eProc) {
                 PALERT_CTX ctx = ExAllocatePoolWithTag(NonPagedPoolNx, sizeof(*ctx), 'rMbR');
@@ -342,6 +342,7 @@ NTSTATUS MBRFReadWrite(IN PDEVICE_OBJECT DeviceObject, IN PIRP Irp) {
                     RtlZeroMemory(ctx, sizeof(*ctx));
                     ctx->WorkItem = IoAllocateWorkItem(deviceExtension->DeviceObject);
                     ctx->Process = eProc;
+                    ctx->DiskNumber = deviceExtension->DiskNumber;
                     ObReferenceObject(ctx->Process);
                     if (ctx->WorkItem) {
                         IoQueueWorkItem(ctx->WorkItem, MbrAlertWorker, DelayedWorkQueue, ctx);
@@ -352,11 +353,15 @@ NTSTATUS MBRFReadWrite(IN PDEVICE_OBJECT DeviceObject, IN PIRP Irp) {
                     }
                 }
             }
-            // --- END NEW ---
 
-            // --- ORIGINAL: User notification popup ---
-            RtlInitUnicodeString(&title, L"Cisco Talos MBRFilter");
-            RtlInitUnicodeString(&text, L"Cannot write to sector 0 on this disk. Please reboot in Safe Mode if you wish to do this.\nIf you are attempting to initialize a new disk in the 'Disk Management' application, please exit and restart the application");
+            // --- User notification popup ---
+            if (deviceExtension->DiskNumber == PROTECT_DISK_NUMBER) {
+                RtlInitUnicodeString(&title, L"HydraDragon MBRFilter");
+                RtlInitUnicodeString(&text, L"Cannot write to sector 0 on the system disk. Please reboot in Safe Mode if you wish to do this.");
+            } else {
+                RtlInitUnicodeString(&title, L"HydraDragon MBRFilter - USB/External");
+                RtlInitUnicodeString(&text, L"Blocked MBR write to a removable/external disk. This may indicate USB MBR malware.");
+            }
             param[0] = (ULONG_PTR)&text;
             param[1] = (ULONG_PTR)&title;
             param[2] = 0x40;
@@ -366,7 +371,6 @@ NTSTATUS MBRFReadWrite(IN PDEVICE_OBJECT DeviceObject, IN PIRP Irp) {
             else {
                 DbgPrintEx(DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL, "MBRF: ExRaiseHardError not available\n");
             }
-            // --- END ORIGINAL ---
 
             Irp->IoStatus.Status = STATUS_ACCESS_DENIED;
             IoReleaseRemoveLock(&deviceExtension->RemoveLock, Irp);

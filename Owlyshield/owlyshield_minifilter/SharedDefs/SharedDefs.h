@@ -384,6 +384,16 @@ enum IRP_MAJOR_OP
 // User-mode API hook event (shellcode via UserModeHookEngine -> IOCTL_REPORT_HOOK_EVENT).
 // Distinct from IRP_HYPERVISOR_EVENT which is reserved for VMM/HyperDbg-origin events.
 #define IRP_USERMODE_HOOK_EVENT 20
+
+#define IRP_ROOTKIT_SSDT_HOOK       21U
+#define IRP_ROOTKIT_HIDDEN_PROCESS  22U
+#define IRP_ROOTKIT_HIDDEN_DRIVER   23U
+#define IRP_ROOTKIT_KERNEL_HOOK     24U
+#define IRP_ROOTKIT_TERMINATE_PROCESS 25U
+#define IRP_ROOTKIT_FILE_MOVE       26U
+#define IRP_ROOTKIT_GENERIC         27U
+
+
 // Define IOCTL for Dynamic Hook Configuration
 #define IOCTL_ADD_HOOK_TARGET CTL_CODE(FILE_DEVICE_OWLYSHIELD, 0x802, METHOD_BUFFERED, FILE_ANY_ACCESS)
 

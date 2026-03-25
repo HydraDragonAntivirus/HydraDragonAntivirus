@@ -117,6 +117,9 @@ pub enum IrpMajorOp {
     IrpRootkitHiddenProcess,
     IrpRootkitHiddenDriver,
     IrpRootkitKernelHook,
+    IrpRootkitTerminateProcess,
+    IrpRootkitFileMove,
+    IrpRootkitGeneric,
 }
 
 impl IrpMajorOp {
@@ -148,8 +151,11 @@ impl IrpMajorOp {
             22 => IrpMajorOp::IrpRootkitHiddenProcess,
             23 => IrpMajorOp::IrpRootkitHiddenDriver,
             24 => IrpMajorOp::IrpRootkitKernelHook,
+            25 => IrpMajorOp::IrpRootkitTerminateProcess,
+            26 => IrpMajorOp::IrpRootkitFileMove,
+            27 => IrpMajorOp::IrpRootkitGeneric,
 
-            25..=u8::MAX => IrpMajorOp::IrpHypervisorEvent,
+            28..=u8::MAX => IrpMajorOp::IrpHypervisorEvent,
         }
     }
 }

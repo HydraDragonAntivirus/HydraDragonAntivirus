@@ -72,6 +72,8 @@ pub struct ExtensionEntry {
     pub name: String,
     pub id: String,
     pub path: String,
+}
+
 #[derive(Debug, Clone)]
 pub struct RootkitEntry {
     pub label: String,
