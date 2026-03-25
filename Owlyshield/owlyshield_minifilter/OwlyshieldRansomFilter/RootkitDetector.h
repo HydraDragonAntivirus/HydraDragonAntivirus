@@ -32,7 +32,7 @@ Environment:
 --*/
 
 #include <fltKernel.h>
-#include "SharedDefs.h"
+#include "../SharedDefs/SharedDefs.h"
 
 #ifdef __cplusplus
 extern "C" {
