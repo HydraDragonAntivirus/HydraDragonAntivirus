@@ -12,3 +12,4 @@
 !include credential_access_rules.yaml
 !include persistence_extended_rules.yaml
 !include lateral_movement_execution_rules.yaml
+!include rootkit_rule.yaml
