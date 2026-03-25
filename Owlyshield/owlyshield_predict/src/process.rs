@@ -180,6 +180,8 @@ pub struct ProcessRecord {
     pub revert_requested: bool,
     /// Name of the rule that was triggered
     pub triggered_rule_name: Option<String>,
+    /// File artifact selected for direct remediation when it differs from the process image.
+    pub remediation_target_path: Option<PathBuf>,
     /// Time of the main process start
     pub time_started: SystemTime,
     /// Time of the main process kill (if malicious)
@@ -319,6 +321,7 @@ impl ProcessRecord {
             notify_user_requested: false,
             revert_requested: false,
             triggered_rule_name: None,
+            remediation_target_path: None,
             time_started: SystemTime::now(),
             time_killed: None,
             driver_msg_count: 0,
@@ -411,6 +414,7 @@ impl ProcessRecord {
             notify_user_requested: false,
             revert_requested: false,
             triggered_rule_name: None,
+            remediation_target_path: None,
             time_started: SystemTime::now(),
             time_killed: None,
             driver_msg_count: 0,
@@ -460,6 +464,12 @@ impl ProcessRecord {
             
             time: iomsg.time,
         }
+    }
+
+    pub fn primary_remediation_path(&self) -> &Path {
+        self.remediation_target_path
+            .as_deref()
+            .unwrap_or(self.exepath.as_path())
     }
 
     pub fn effective_extension_for_event(iomsg: &IOMessage) -> String {

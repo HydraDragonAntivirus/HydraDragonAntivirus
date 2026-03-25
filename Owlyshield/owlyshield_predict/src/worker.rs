@@ -316,11 +316,13 @@ pub mod process_record_handling {
                             precord.process_state = ProcessState::Killed;
                         }
                         KillPolicy::KillAndQuarantine => {
-                            self.threat_handler.kill_and_quarantine(precord.gid, &precord.exepath);
+                            self.threat_handler
+                                .kill_and_quarantine(precord.gid, precord.primary_remediation_path());
                             precord.process_state = ProcessState::Killed;
                         }
                         KillPolicy::KillAndRemove => {
-                            self.threat_handler.kill_and_remove(precord.gid, &precord.exepath);
+                            self.threat_handler
+                                .kill_and_remove(precord.gid, precord.primary_remediation_path());
                             precord.process_state = ProcessState::Killed;
                         }
                         KillPolicy::DoNothing => {}
@@ -1036,6 +1038,7 @@ mod process_records {
             record.notify_user_requested = det.notify_user_requested;
             record.revert_requested = det.revert_requested;
             record.triggered_rule_name = det.triggered_rule_name.clone();
+            record.remediation_target_path = det.remediation_target_path.clone();
 
             if det.termination_requested {
                 record.process_state = ProcessState::Killed;
@@ -1050,8 +1053,23 @@ mod process_records {
                 .as_deref()
                 .unwrap_or("Behavioral Detection");
             let match_details = match &det.triggered_rule_name {
-                Some(rule_name) => Some(format!("Rule '{}' matched during {}", rule_name, context)),
-                None => Some(format!("Behavioral detection matched during {}", context)),
+                Some(rule_name) => match det.remediation_target_path.as_ref() {
+                    Some(path) => Some(format!(
+                        "Rule '{}' matched during {}. Target: {}",
+                        rule_name,
+                        context,
+                        path.display()
+                    )),
+                    None => Some(format!("Rule '{}' matched during {}", rule_name, context)),
+                },
+                None => match det.remediation_target_path.as_ref() {
+                    Some(path) => Some(format!(
+                        "Behavioral detection matched during {}. Target: {}",
+                        context,
+                        path.display()
+                    )),
+                    None => Some(format!("Behavioral detection matched during {}", context)),
+                },
             };
 
             ThreatInfo {

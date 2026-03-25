@@ -1756,7 +1756,9 @@ impl ProcessBehaviorState {
                     timestamp_ms: SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64,
                 };
                 self.rootkit_findings.push(finding);
-                self.rootkit_implicated = true;
+                if kind.severity() >= 3 {
+                    self.rootkit_implicated = true;
+                }
                 
                 Logging::warning(&format!(
                     "[ROOTKIT DETECTED] PID {} - Type: {:?} - {}",
@@ -2243,6 +2245,163 @@ impl BehaviorEngine {
             .collect();
         candidates.sort();
         candidates.into_iter().next()
+    }
+
+    fn is_file_condition_group(cond_group: &NamedConditionGroup) -> bool {
+        !cond_group.file_paths.is_empty()
+            || !cond_group.file_extensions.is_empty()
+            || !cond_group.file_operations.is_empty()
+            || !cond_group.staging_paths.is_empty()
+            || !cond_group.browsed_paths.is_empty()
+            || !cond_group.sensitive_paths.is_empty()
+            || !cond_group.persistence_locations.is_empty()
+            || cond_group.detect_extension_changes
+            || cond_group.detect_non_whitelisted_extensions
+            || cond_group.detect_known_to_unknown_extension_change
+    }
+
+    fn is_probable_artifact_path(value: &str) -> bool {
+        let trimmed = value.trim();
+        !trimmed.is_empty()
+            && !trimmed.starts_with("event:")
+            && !trimmed.starts_with("fileid:")
+            && (trimmed.contains('/') || trimmed.contains('\\'))
+    }
+
+    fn extract_probable_artifact_path(value: &str) -> Option<String> {
+        let trimmed = value.trim().trim_matches('"');
+        if Self::is_probable_artifact_path(trimmed) {
+            return Some(trimmed.to_string());
+        }
+
+        let lower = trimmed.to_ascii_lowercase();
+        for marker in [r"\device\", r"\\?\", r"\??\", r"\efi\", r"\boot\bcd"] {
+            if let Some(idx) = lower.find(marker) {
+                let candidate = trimmed[idx..].trim().trim_matches('"');
+                if Self::is_probable_artifact_path(candidate) {
+                    return Some(candidate.to_string());
+                }
+            }
+        }
+
+        let chars: Vec<(usize, char)> = trimmed.char_indices().collect();
+        for window in chars.windows(3) {
+            let (idx0, c0) = window[0];
+            let (_, c1) = window[1];
+            let (_, c2) = window[2];
+            if c0.is_ascii_alphabetic() && c1 == ':' && (c2 == '\\' || c2 == '/') {
+                let candidate = trimmed[idx0..].trim().trim_matches('"');
+                if Self::is_probable_artifact_path(candidate) {
+                    return Some(candidate.to_string());
+                }
+            }
+        }
+
+        None
+    }
+
+    fn build_rule_remediation_target_path(
+        rule: &BehaviorRule,
+        state: &ProcessBehaviorState,
+    ) -> Option<PathBuf> {
+        let exe_path = state
+            .exe_path
+            .to_string_lossy()
+            .to_ascii_lowercase()
+            .replace('\\', "/");
+        let mut best_match: Option<(i32, String)> = None;
+
+        for (cond_name, cond_group) in &rule.named_conditions {
+            if !state.satisfied_named_conditions.contains(cond_name.as_str())
+                || !Self::is_file_condition_group(cond_group)
+            {
+                continue;
+            }
+
+            let Some(values) = state.condition_match_values.get(cond_name) else {
+                continue;
+            };
+
+            let mut sorted_values: Vec<String> = values.iter().cloned().collect();
+            sorted_values.sort();
+
+            for value in sorted_values {
+                if !Self::is_probable_artifact_path(&value) {
+                    continue;
+                }
+
+                let extracted = match Self::extract_probable_artifact_path(&value) {
+                    Some(path) => path,
+                    None => continue,
+                };
+                let normalized = extracted.to_ascii_lowercase().replace('\\', "/");
+                let mut score = 0i32;
+
+                if normalized.ends_with(".efi") {
+                    score += 60;
+                }
+                if normalized.ends_with(".sys") {
+                    score += 40;
+                }
+                if normalized.contains("/efi/") {
+                    score += 30;
+                }
+                if normalized.contains("/windows/system32/drivers/") {
+                    score += 20;
+                }
+                if normalized != exe_path {
+                    score += 5;
+                }
+
+                let should_replace = match &best_match {
+                    Some((best_score, best_value)) => {
+                        score > *best_score || (score == *best_score && extracted < *best_value)
+                    }
+                    None => true,
+                };
+
+                if should_replace {
+                    best_match = Some((score, extracted));
+                }
+            }
+        }
+
+        if best_match.is_none() {
+            for finding in &state.rootkit_findings {
+                let Some(extracted) = Self::extract_probable_artifact_path(&finding.description) else {
+                    continue;
+                };
+
+                let normalized = extracted.to_ascii_lowercase().replace('\\', "/");
+                let mut score = 10i32;
+
+                if normalized.ends_with(".efi") {
+                    score += 60;
+                }
+                if normalized.ends_with("bcd") {
+                    score += 45;
+                }
+                if normalized.contains("/efi/") {
+                    score += 30;
+                }
+                if normalized.contains("/microsoft/boot/") || normalized.contains("/efi/boot/") {
+                    score += 20;
+                }
+
+                let should_replace = match &best_match {
+                    Some((best_score, best_value)) => {
+                        score > *best_score || (score == *best_score && extracted < *best_value)
+                    }
+                    None => true,
+                };
+
+                if should_replace {
+                    best_match = Some((score, extracted));
+                }
+            }
+        }
+
+        best_match.map(|(_, value)| PathBuf::from(value.replace('/', "\\")))
     }
 
     #[cfg(feature = "firewall")]
@@ -5484,6 +5643,7 @@ impl BehaviorEngine {
                     p.notify_user_requested = rule.response.notify_user;
                     p.revert_requested = rule.response.auto_revert;
                     p.triggered_rule_name = Some(rule.name.clone());
+                    p.remediation_target_path = Self::build_rule_remediation_target_path(rule, &state);
                     detected_processes.push(p);
                 }
             }

@@ -4,10 +4,14 @@ use crate::threat_handler::ThreatHandler;
 use windows::Win32::System::Diagnostics::Debug::{
     DebugActiveProcess, DebugActiveProcessStop, DebugSetProcessKillOnExit,
 };
+use windows::Win32::Storage::FileSystem::{MoveFileExW, MOVEFILE_DELAY_UNTIL_REBOOT};
+use windows::core::PCWSTR;
 use crate::driver_com::Driver;
 use serde::{Serialize, Deserialize};
 
 use std::io::Write;
+use std::os::windows::ffi::OsStrExt;
+use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -44,6 +48,114 @@ impl WindowsThreatHandler {
             .expect("Cannot open driver communication for WindowsThreatHandler (driver connection limit reached?)");
         WindowsThreatHandler { driver }
     }
+
+    fn normalize_driver_path(path: &Path) -> PathBuf {
+        PathBuf::from(path.to_string_lossy().replace('/', "\\"))
+    }
+
+    fn normalize_usermode_path(path: &Path) -> PathBuf {
+        let normalized = path.to_string_lossy().replace('/', "\\");
+        let lowered = normalized.to_ascii_lowercase();
+
+        if lowered.starts_with(r"\\?\") || lowered.starts_with(r"\??\") {
+            PathBuf::from(normalized)
+        } else if lowered.starts_with(r"\device\") {
+            PathBuf::from(format!(r"\\?\GLOBALROOT{}", normalized))
+        } else {
+            PathBuf::from(normalized)
+        }
+    }
+
+    fn add_kernel_block_path(&self, path: &Path) {
+        let driver_path = Self::normalize_driver_path(path);
+        if let Some(path_str) = driver_path.to_str() {
+            let _ = self.driver.add_block_path(path_str);
+            Logging::info(&format!(
+                "[ThreatHandler] Added path to KERNEL BLOCK list: {}",
+                path_str
+            ));
+        }
+    }
+
+    fn try_delete_file_now(path: &Path) -> std::io::Result<()> {
+        if let Ok(metadata) = std::fs::metadata(path) {
+            let mut permissions = metadata.permissions();
+            if permissions.readonly() {
+                permissions.set_readonly(false);
+                let _ = std::fs::set_permissions(path, permissions);
+            }
+        }
+
+        std::fs::remove_file(path)
+    }
+
+    fn schedule_delete_on_reboot(path: &Path) -> std::io::Result<()> {
+        let wide_path: Vec<u16> = path
+            .as_os_str()
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect();
+
+        unsafe {
+            if MoveFileExW(
+                PCWSTR(wide_path.as_ptr()),
+                PCWSTR::null(),
+                MOVEFILE_DELAY_UNTIL_REBOOT,
+            )
+            .as_bool()
+            {
+                Ok(())
+            } else {
+                Err(std::io::Error::last_os_error())
+            }
+        }
+    }
+
+    fn delete_with_reboot_fallback(&self, path: &Path) -> bool {
+        let usermode_path = Self::normalize_usermode_path(path);
+
+        match Self::try_delete_file_now(&usermode_path) {
+            Ok(_) => {
+                Logging::alert(&format!(
+                    "[ThreatHandler] Removed malicious artifact: {}",
+                    usermode_path.display()
+                ));
+                true
+            }
+            Err(delete_error) if delete_error.kind() == std::io::ErrorKind::NotFound => {
+                Logging::info(&format!(
+                    "[ThreatHandler] Artifact already absent after kill: {}",
+                    usermode_path.display()
+                ));
+                true
+            }
+            Err(delete_error) => {
+                Logging::warning(&format!(
+                    "[ThreatHandler] Immediate delete failed for {}: {}",
+                    usermode_path.display(),
+                    delete_error
+                ));
+
+                match Self::schedule_delete_on_reboot(&usermode_path) {
+                    Ok(_) => {
+                        Logging::alert(&format!(
+                            "[ThreatHandler] Removal scheduled for reboot: {}",
+                            usermode_path.display()
+                        ));
+                        true
+                    }
+                    Err(schedule_error) => {
+                        Logging::error(&format!(
+                            "[ThreatHandler] Failed to schedule reboot removal for {}: {}",
+                            usermode_path.display(),
+                            schedule_error
+                        ));
+                        false
+                    }
+                }
+            }
+        }
+    }
 }
 
 impl ThreatHandler for WindowsThreatHandler {
@@ -72,7 +184,9 @@ impl ThreatHandler for WindowsThreatHandler {
     }
 
     fn kill_and_remove(&self, gid: u64, path: &std::path::Path) {
-        match self.driver.kill_and_remove_driver(gid, path) {
+        let driver_path = Self::normalize_driver_path(path);
+
+        match self.driver.kill_and_remove_driver(gid, &driver_path) {
             Ok(hres) => {
                 if hres.is_ok() {
                     Logging::info(&format!("[ThreatHandler] Successfully killed and removed process group GID: {}", gid));
@@ -85,11 +199,9 @@ impl ThreatHandler for WindowsThreatHandler {
             }
         }
 
-        // Add to kernel block list for permanent protection
-        if let Some(p) = path.to_str() {
-            let _ = self.driver.add_block_path(p);
-            Logging::info(&format!("[ThreatHandler] Added path to KERNEL BLOCK list: {}", p));
-        }
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        let _ = self.delete_with_reboot_fallback(path);
+        self.add_kernel_block_path(path);
     }
 
     fn kill_and_quarantine(&self, gid: u64, path: &std::path::Path) {
@@ -116,33 +228,31 @@ impl ThreatHandler for WindowsThreatHandler {
             let _ = std::fs::create_dir_all(quarantine_dir);
         }
 
-        if let Some(filename) = path.file_name() {
+        let source_path = Self::normalize_usermode_path(path);
+
+        if let Some(filename) = source_path.file_name() {
             let dest_path = quarantine_dir.join(filename);
             
             // 4. Move the file
-            match std::fs::rename(path, &dest_path) {
+            match std::fs::rename(&source_path, &dest_path) {
                 Ok(_) => {
                     Logging::alert(&format!("Quarantined malicious file to: {}", dest_path.display()));
                 }
                 Err(e) => {
                     // If rename fails (e.g. across drives), try copy + delete
-                    match std::fs::copy(path, &dest_path) {
+                    match std::fs::copy(&source_path, &dest_path) {
                         Ok(_) => {
-                            let _ = std::fs::remove_file(path);
+                            let _ = self.delete_with_reboot_fallback(&source_path);
                             Logging::alert(&format!("Quarantined malicious file (copy/delete) to: {}", dest_path.display()));
                         }
                         Err(e2) => {
-                            Logging::alert(&format!("Failed to quarantine file {}: {} (Copy error: {})", path.display(), e, e2));
+                            Logging::alert(&format!("Failed to quarantine file {}: {} (Copy error: {})", source_path.display(), e, e2));
                         }
                     }
                 }
             }
             
-            // Add to kernel block list for permanent protection
-            if let Some(p) = path.to_str() {
-                let _ = self.driver.add_block_path(p);
-                Logging::info(&format!("[ThreatHandler] Added path to KERNEL BLOCK list: {}", p));
-            }
+            self.add_kernel_block_path(path);
         }
 
             

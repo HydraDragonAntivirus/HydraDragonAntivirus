@@ -81,6 +81,193 @@
 ---
 
 # ---------------------------------------------------------------------------
+# Kernel-origin UEFI and boot tamper signals
+# ---------------------------------------------------------------------------
+- name: "HEUR:Win64.Rootkit.UefiRawDeviceWrite"
+  description: >
+    A process opened a raw disk or volume device with write or delete intent.
+    This is a common precursor to low-level UEFI or bootloader tampering and is
+    recorded for rule-driven response.
+  author: "HydraDragon"
+  severity: 4
+  tags:
+    - rootkit
+    - bootkit
+    - uefi
+    - raw_device
+    - kernel
+  mitre_attack:
+    - "T1014"
+    - "T1542.001"
+
+  named_conditions:
+    raw_device_write:
+      rootkit_event_types: ["generic"]
+      rootkit_description_contains:
+        - "uefi raw device write access:"
+
+  detection_logic:
+    condition: "raw_device_write"
+
+  response:
+    terminate_process: false
+    notify_user: true
+    record: true
+
+  allowlisted_apps:
+    - pattern: "diskpart.exe"
+      must_be_signed: true
+      signers:
+        - "microsoft"
+    - pattern: "setuphost.exe"
+      must_be_signed: true
+      signers:
+        - "microsoft"
+    - pattern: "tiworker.exe"
+      must_be_signed: true
+      signers:
+        - "microsoft"
+    - pattern: "trustedinstaller.exe"
+      must_be_signed: true
+      signers:
+        - "microsoft"
+    - pattern: "dism.exe"
+      must_be_signed: true
+      signers:
+        - "microsoft"
+    - pattern: "reagentc.exe"
+      must_be_signed: true
+      signers:
+        - "microsoft"
+    - pattern: "bcdboot.exe"
+      must_be_signed: true
+      signers:
+        - "microsoft"
+
+---
+
+- name: "HEUR:Win64.Rootkit.UefiBootArtifactTamper"
+  description: >
+    A process attempted to create, overwrite, rename, or delete a UEFI boot
+    artifact inside EFI paths. This is a strong bootkit signal and the matched
+    artifact is selected for direct cleanup.
+  author: "HydraDragon"
+  severity: 5
+  tags:
+    - rootkit
+    - bootkit
+    - uefi
+    - esp
+    - remediation
+    - kernel
+  mitre_attack:
+    - "T1014"
+    - "T1542.001"
+
+  named_conditions:
+    uefi_boot_file_tamper:
+      rootkit_event_types: ["generic"]
+      rootkit_description_contains:
+        - "uefi boot file tamper:"
+
+  detection_logic:
+    condition: "uefi_boot_file_tamper"
+
+  response:
+    terminate_process: true
+    kill_and_remove: true
+    notify_user: true
+    record: true
+
+  allowlisted_apps:
+    - pattern: "setuphost.exe"
+      must_be_signed: true
+      signers:
+        - "microsoft"
+    - pattern: "tiworker.exe"
+      must_be_signed: true
+      signers:
+        - "microsoft"
+    - pattern: "trustedinstaller.exe"
+      must_be_signed: true
+      signers:
+        - "microsoft"
+    - pattern: "dism.exe"
+      must_be_signed: true
+      signers:
+        - "microsoft"
+    - pattern: "reagentc.exe"
+      must_be_signed: true
+      signers:
+        - "microsoft"
+    - pattern: "bcdboot.exe"
+      must_be_signed: true
+      signers:
+        - "microsoft"
+
+---
+
+- name: "HEUR:Win64.Rootkit.UefiBootConfigTamper"
+  description: >
+    A process attempted to modify or delete UEFI boot configuration data such
+    as BCD paths. This is a strong persistence signal, but automated removal is
+    withheld because boot configuration rollback is more delicate than deleting
+    a dropped EFI payload.
+  author: "HydraDragon"
+  severity: 5
+  tags:
+    - rootkit
+    - bootkit
+    - uefi
+    - bcd
+    - kernel
+  mitre_attack:
+    - "T1014"
+    - "T1542.001"
+
+  named_conditions:
+    uefi_boot_config_tamper:
+      rootkit_event_types: ["generic"]
+      rootkit_description_contains:
+        - "uefi boot configuration tamper:"
+
+  detection_logic:
+    condition: "uefi_boot_config_tamper"
+
+  response:
+    terminate_process: true
+    notify_user: true
+    record: true
+
+  allowlisted_apps:
+    - pattern: "setuphost.exe"
+      must_be_signed: true
+      signers:
+        - "microsoft"
+    - pattern: "tiworker.exe"
+      must_be_signed: true
+      signers:
+        - "microsoft"
+    - pattern: "trustedinstaller.exe"
+      must_be_signed: true
+      signers:
+        - "microsoft"
+    - pattern: "dism.exe"
+      must_be_signed: true
+      signers:
+        - "microsoft"
+    - pattern: "reagentc.exe"
+      must_be_signed: true
+      signers:
+        - "microsoft"
+    - pattern: "bcdboot.exe"
+      must_be_signed: true
+      signers:
+        - "microsoft"
+
+---
+
+# ---------------------------------------------------------------------------
 # Rule 2: Hidden Process (DKOM) — process in PspCidTable but not EPROCESS list
 # ---------------------------------------------------------------------------
 - name: "HEUR:Win64.Rootkit.HiddenProcess.DKOM"

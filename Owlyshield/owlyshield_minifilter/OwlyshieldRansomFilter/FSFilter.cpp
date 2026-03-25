@@ -1672,6 +1672,19 @@ FSProcessPreOperation(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECT
             (((PFILE_DISPOSITION_INFORMATION)(Data->Iopb->Parameters.SetFileInformation.InfoBuffer))->DeleteFile))
         {
             newItem->FileChange = FILE_CHANGE_DELETE_FILE;
+            PCWSTR findingPrefix = FSGetUefiPathFindingPrefix(FilePath);
+            if (findingPrefix != NULL)
+            {
+                FSEmitGenericKernelPathFinding(newItem->PID,
+                                               gid,
+                                               FilePath,
+                                               findingPrefix,
+                                               DELETE,
+                                               STATUS_SUCCESS,
+                                               newItem->FileChange,
+                                               (ULONG_PTR)fileInfo,
+                                               0);
+            }
 
         } // end delete 1
 
@@ -1681,6 +1694,22 @@ FSProcessPreOperation(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECT
                      FILE_DISPOSITION_DELETE))
         {
             newItem->FileChange = FILE_CHANGE_DELETE_FILE;
+            PCWSTR findingPrefix = FSGetUefiPathFindingPrefix(FilePath);
+            if (findingPrefix != NULL)
+            {
+                ULONG dispositionFlags =
+                    ((PFILE_DISPOSITION_INFORMATION_EX)(Data->Iopb->Parameters.SetFileInformation.InfoBuffer))->Flags;
+
+                FSEmitGenericKernelPathFinding(newItem->PID,
+                                               gid,
+                                               FilePath,
+                                               findingPrefix,
+                                               DELETE,
+                                               STATUS_SUCCESS,
+                                               newItem->FileChange,
+                                               (ULONG_PTR)fileInfo,
+                                               (ULONG_PTR)dispositionFlags);
+            }
 
         } // end delete 2
 
@@ -1717,6 +1746,36 @@ FSProcessPreOperation(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECT
                 FltReleaseFileNameInformation(nameInfo);
                 FltReleaseFileNameInformation(newNameInfo);
                 return FLT_PREOP_SUCCESS_NO_CALLBACK;
+            }
+
+            {
+                PCWSTR newFindingPrefix = FSGetUefiPathFindingPrefix(&NewFilePath);
+                PCWSTR oldFindingPrefix = FSGetUefiPathFindingPrefix(FilePath);
+
+                if (newFindingPrefix != NULL)
+                {
+                    FSEmitGenericKernelPathFinding(newItem->PID,
+                                                   gid,
+                                                   &NewFilePath,
+                                                   newFindingPrefix,
+                                                   DELETE,
+                                                   STATUS_SUCCESS,
+                                                   FILE_CHANGE_RENAME_FILE,
+                                                   (ULONG_PTR)fileInfo,
+                                                   0);
+                }
+                else if (oldFindingPrefix != NULL)
+                {
+                    FSEmitGenericKernelPathFinding(newItem->PID,
+                                                   gid,
+                                                   FilePath,
+                                                   oldFindingPrefix,
+                                                   DELETE,
+                                                   STATUS_SUCCESS,
+                                                   FILE_CHANGE_RENAME_FILE,
+                                                   (ULONG_PTR)fileInfo,
+                                                   0);
+                }
             }
 
             RtlCopyBytes(newEntry->Buffer, Buffer,
@@ -1959,6 +2018,62 @@ FSProcessCreateIrp(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECTS F
         FltReleaseFileNameInformation(nameInfo);
         delete newEntry;
         return FLT_POSTOP_FINISHED_PROCESSING;
+    }
+
+    if (NT_SUCCESS(Data->IoStatus.Status))
+    {
+        ACCESS_MASK desiredAccess = 0;
+        PCWSTR uefiFindingPrefix = NULL;
+
+        if (Data->Iopb->Parameters.Create.SecurityContext != NULL)
+        {
+            desiredAccess = Data->Iopb->Parameters.Create.SecurityContext->DesiredAccess;
+        }
+
+        if (FSHasCreateWriteIntent(desiredAccess, Data->Iopb->Parameters.Create.Options))
+        {
+            uefiFindingPrefix = FSGetUefiPathFindingPrefix(FilePath);
+            if (uefiFindingPrefix != NULL)
+            {
+                UCHAR fileChange = FILE_CHANGE_NOT_SET;
+
+                if (FlagOn(Data->Iopb->Parameters.Create.Options, FILE_DELETE_ON_CLOSE))
+                {
+                    fileChange = FILE_CHANGE_DELETE_FILE;
+                }
+                else if ((Data->IoStatus.Information) == FILE_CREATED)
+                {
+                    fileChange = FILE_CHANGE_NEW_FILE;
+                }
+                else if ((Data->IoStatus.Information) == FILE_OVERWRITTEN ||
+                         (Data->IoStatus.Information) == FILE_SUPERSEDED)
+                {
+                    fileChange = FILE_CHANGE_OVERWRITE_FILE;
+                }
+
+                FSEmitGenericKernelPathFinding(newItem->PID,
+                                               gid,
+                                               FilePath,
+                                               uefiFindingPrefix,
+                                               desiredAccess,
+                                               Data->IoStatus.Status,
+                                               fileChange,
+                                               (ULONG_PTR)Data->IoStatus.Information,
+                                               (ULONG_PTR)Data->Iopb->Parameters.Create.Options);
+            }
+            else if (FSIsRawBootDevicePath(FilePath))
+            {
+                FSEmitGenericKernelPathFinding(newItem->PID,
+                                               gid,
+                                               FilePath,
+                                               L"uefi raw device write access: ",
+                                               desiredAccess,
+                                               Data->IoStatus.Status,
+                                               FILE_CHANGE_NOT_SET,
+                                               (ULONG_PTR)Data->IoStatus.Information,
+                                               (ULONG_PTR)Data->Iopb->Parameters.Create.Options);
+            }
+        }
     }
 
     CopyExtension(newItem->Extension, nameInfo);
@@ -2233,11 +2348,198 @@ FSIsFileNameInScanDirs(CONST PUNICODE_STRING path)
     return driverData->IsContainingDirectory(path);
 }
 
+static BOOLEAN
+FSWideStringEndsWithInsensitive(_In_z_ PCWSTR Text, _In_z_ PCWSTR Suffix)
+{
+    SIZE_T textLen;
+    SIZE_T suffixLen;
+
+    if (Text == NULL || Suffix == NULL)
+    {
+        return FALSE;
+    }
+
+    textLen = wcslen(Text);
+    suffixLen = wcslen(Suffix);
+    if (textLen < suffixLen)
+    {
+        return FALSE;
+    }
+
+    return (_wcsicmp(Text + (textLen - suffixLen), Suffix) == 0);
+}
+
+static PCWSTR
+FSGetUefiPathFindingPrefix(_In_ PCUNICODE_STRING Path)
+{
+    WCHAR normalizedPathBuffer[MAX_FILE_NAME_LENGTH] = {0};
+    UNICODE_STRING normalizedPath;
+
+    if (!OwlyNormalizePathForMatch(Path, normalizedPathBuffer, &normalizedPath))
+    {
+        return NULL;
+    }
+
+    if (wcsstr(normalizedPath.Buffer, L"\\efi\\microsoft\\boot\\bcd") != NULL ||
+        wcsstr(normalizedPath.Buffer, L"\\boot\\bcd") != NULL)
+    {
+        return L"uefi boot configuration tamper: ";
+    }
+
+    if (wcsstr(normalizedPath.Buffer, L"\\efi\\") != NULL &&
+        FSWideStringEndsWithInsensitive(normalizedPath.Buffer, L".efi"))
+    {
+        return L"uefi boot file tamper: ";
+    }
+
+    return NULL;
+}
+
+static BOOLEAN
+FSIsRawBootDevicePath(_In_ PCUNICODE_STRING Path)
+{
+    static const WCHAR volumePrefix[] = L"\\device\\harddiskvolume";
+    static const WCHAR diskPrefix[] = L"\\device\\harddisk";
+    WCHAR normalizedPathBuffer[MAX_FILE_NAME_LENGTH] = {0};
+    UNICODE_STRING normalizedPath;
+    PCWSTR cursor;
+
+    if (!OwlyNormalizePathForMatch(Path, normalizedPathBuffer, &normalizedPath))
+    {
+        return FALSE;
+    }
+
+    cursor = normalizedPath.Buffer;
+    if (wcsncmp(cursor, volumePrefix, RTL_NUMBER_OF(volumePrefix) - 1) == 0)
+    {
+        cursor += RTL_NUMBER_OF(volumePrefix) - 1;
+        while (*cursor >= L'0' && *cursor <= L'9')
+        {
+            ++cursor;
+        }
+
+        return (*cursor == L'\0' || (*cursor == L'\\' && cursor[1] == L'\0'));
+    }
+
+    if (wcsncmp(cursor, diskPrefix, RTL_NUMBER_OF(diskPrefix) - 1) == 0)
+    {
+        cursor += RTL_NUMBER_OF(diskPrefix) - 1;
+        while (*cursor >= L'0' && *cursor <= L'9')
+        {
+            ++cursor;
+        }
+
+        if (cursor[0] == L'\\' && cursor[1] == L'd' && cursor[2] == L'r')
+        {
+            cursor += 3;
+            while (*cursor >= L'0' && *cursor <= L'9')
+            {
+                ++cursor;
+            }
+
+            return (*cursor == L'\0' || (*cursor == L'\\' && cursor[1] == L'\0'));
+        }
+    }
+
+    return FALSE;
+}
+
+static BOOLEAN
+FSHasCreateWriteIntent(_In_ ACCESS_MASK DesiredAccess, _In_ ULONG CreateOptions)
+{
+    const ACCESS_MASK dangerousAccess =
+        FILE_WRITE_DATA |
+        FILE_APPEND_DATA |
+        FILE_WRITE_ATTRIBUTES |
+        FILE_WRITE_EA |
+        DELETE |
+        WRITE_DAC |
+        WRITE_OWNER |
+        GENERIC_WRITE |
+        GENERIC_ALL;
+
+    if (FlagOn(CreateOptions, FILE_DELETE_ON_CLOSE))
+    {
+        return TRUE;
+    }
+
+    return ((DesiredAccess & dangerousAccess) != 0);
+}
+
+static VOID
+FSEmitGenericKernelPathFinding(_In_ ULONG SourcePid,
+                               _In_ ULONGLONG Gid,
+                               _In_opt_ PCUNICODE_STRING Path,
+                               _In_z_ PCWSTR Prefix,
+                               _In_ ACCESS_MASK AccessMask,
+                               _In_ NTSTATUS OperationStatus,
+                               _In_ UCHAR FileChange,
+                               _In_ ULONG_PTR Extra1,
+                               _In_ ULONG_PTR Extra2)
+{
+    PIRP_ENTRY entry;
+    PDRIVER_MESSAGE msg;
+
+    if (driverData == NULL || Prefix == NULL)
+    {
+        return;
+    }
+
+    entry = new IRP_ENTRY();
+    if (entry == NULL)
+    {
+        return;
+    }
+
+    msg = &entry->data;
+    RtlZeroMemory(msg, sizeof(*msg));
+
+    msg->IRP_OP = IRP_ROOTKIT_GENERIC;
+    msg->PID = SourcePid;
+    msg->Gid = Gid;
+    msg->FileChange = FileChange;
+    msg->KernelEventInfo.EventType = IRP_ROOTKIT_GENERIC;
+    msg->KernelEventInfo.SourceProcessId = SourcePid;
+    msg->KernelEventInfo.AccessMask = AccessMask;
+    msg->KernelEventInfo.OperationStatus = OperationStatus;
+    msg->KernelEventInfo.RawArgument1 = Extra1;
+    msg->KernelEventInfo.RawArgument2 = Extra2;
+    KeQuerySystemTimePrecise((PLARGE_INTEGER)&msg->KernelEventInfo.Timestamp);
+
+    (VOID)RtlStringCchCopyW(msg->KernelEventInfo.ObjectName,
+                            RTL_NUMBER_OF(msg->KernelEventInfo.ObjectName),
+                            Prefix);
+
+    if (Path != NULL && Path->Buffer != NULL && Path->Length > 0)
+    {
+        USHORT copyLen = Path->Length;
+        if (copyLen > (MAX_FILE_NAME_SIZE - sizeof(WCHAR)))
+        {
+            copyLen = (MAX_FILE_NAME_SIZE - sizeof(WCHAR));
+        }
+
+        RtlCopyMemory(entry->Buffer, Path->Buffer, copyLen);
+        entry->Buffer[copyLen / sizeof(WCHAR)] = L'\0';
+        entry->filePath.Length = copyLen;
+        entry->filePath.MaximumLength = MAX_FILE_NAME_SIZE;
+        entry->filePath.Buffer = entry->Buffer;
+
+        (VOID)RtlStringCchCatW(msg->KernelEventInfo.ObjectName,
+                               RTL_NUMBER_OF(msg->KernelEventInfo.ObjectName),
+                               entry->Buffer);
+    }
+
+    if (!driverData->AddIrpMessage(entry))
+    {
+        delete entry;
+    }
+}
+
 NTSTATUS
 FSEntrySetFileName(CONST PFLT_VOLUME Volume, PFLT_FILE_NAME_INFORMATION nameInfo, PUNICODE_STRING uString)
 {
     NTSTATUS hr = STATUS_SUCCESS;
-    PDEVICE_OBJECT devObject;
+    PDEVICE_OBJECT devObject = NULL;
     USHORT volumeDosNameSize;
     USHORT finalNameSize;
     USHORT volumeNameSize = nameInfo->Volume.Length; // in bytes
@@ -2252,35 +2554,26 @@ FSEntrySetFileName(CONST PFLT_VOLUME Volume, PFLT_FILE_NAME_INFORMATION nameInfo
     volumeData.Buffer = volumeBuffer;
     volumeData.Length = 0;
 
+    if (uString == NULL)
+    {
+        return STATUS_INVALID_ADDRESS;
+    }
+
     hr = FltGetDiskDeviceObject(Volume, &devObject);
-    if (!NT_SUCCESS(hr))
-    {
-        // Not a disk device - return error to skip
-        return hr;
-    }
-
-    // BUGFIX: Validate device object exists
-    if (!devObject)
-    {
-        return STATUS_INVALID_PARAMETER;
-    }
-
-    // This check is important to avoid making a kernel call that can't succeed at high IRQL
-    if (!KeAreAllApcsDisabled())
+    if (NT_SUCCESS(hr) && devObject != NULL && !KeAreAllApcsDisabled())
     {
         hr = IoVolumeDeviceToDosName(devObject, &volumeData);
     }
     else
     {
-        // Handle the case where the call cannot be made, perhaps by failing
-        // or using a fallback. For now, we'll assume failure.
         hr = STATUS_UNSUCCESSFUL;
     }
 
     if (!NT_SUCCESS(hr))
     {
-        // FIX: For non-disk volumes (pipes, network shares), this will fail with
-        // STATUS_OBJECT_NAME_NOT_FOUND - this is expected, just return the error
+        // Preserve device/provider paths when there is no DOS mount point. This
+        // keeps ESP and raw-device activity visible to the user-mode engine.
+        hr = RtlUnicodeStringCopy(uString, &nameInfo->Name);
         goto cleanup;
     }
 
@@ -2289,12 +2582,6 @@ FSEntrySetFileName(CONST PFLT_VOLUME Volume, PFLT_FILE_NAME_INFORMATION nameInfo
     // --- END: MODIFICATION ---
 
     finalNameSize = origNameSize - volumeNameSize + volumeDosNameSize;
-
-    if (uString == NULL)
-    {
-        hr = STATUS_INVALID_ADDRESS;
-        goto cleanup;
-    }
 
     if (volumeNameSize == origNameSize)
     { // file is the volume, don't need to do anything
