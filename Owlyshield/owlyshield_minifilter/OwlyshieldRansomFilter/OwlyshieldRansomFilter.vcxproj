@@ -70,6 +70,7 @@
     <ClCompile Include="KernelCommon.cpp" />
     <ClCompile Include="KernelString.cpp" />
     <ClCompile Include="OwlyVmmBridge.c" />
+    <ClCompile Include="RootkitDetector.cpp" />
     <ClCompile Include="ShanonEntropy.cpp" />
     <ClCompile Include="UserModeHookEngine.cpp" />
     <ResourceCompile Include="FsFilter.rc" />
@@ -354,7 +355,7 @@
     </Link>
     <ClCompile>
       <AdditionalIncludeDirectories>$(ProjectDir)..\HyperDbg\hyperdbg\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-      <PreprocessorDefinitions>__DATE__=&quot;Jan 01 1970&quot;;__TIME__=&quot;00:00:00&quot;;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>__DATE__="Jan 01 1970";__TIME__="00:00:00";%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <LanguageStandard_C>stdc11</LanguageStandard_C>
       <Optimization>MaxSpeed</Optimization>
@@ -420,6 +421,7 @@
     <ClInclude Include="KernelHookEngine.h" />
     <ClInclude Include="KernelString.h" />
     <ClInclude Include="OwlyVmmBridge.h" />
+    <ClInclude Include="RootkitDetector.h" />
     <ClInclude Include="ShanonEntropy.h" />
     <ClInclude Include="Regedit.h" />
     <ClInclude Include="ProcessProtection.h" />

@@ -47,8 +47,34 @@ typedef NTSTATUS (NTAPI *PPS_LOOKUP_PROCESS_BY_PROCESS_ID)(
     _In_  HANDLE     ProcessId,
     _Out_ PEPROCESS *Process);
 
+typedef UCHAR *(NTAPI *PPS_GET_PROCESS_IMAGE_FILE_NAME)(
+    _In_ PEPROCESS Process);
+
+typedef NTSTATUS (NTAPI *PZW_QUERY_DIRECTORY_OBJECT)(
+    _In_ HANDLE DirectoryHandle,
+    _Out_writes_bytes_opt_(Length) PVOID Buffer,
+    _In_ ULONG Length,
+    _In_ BOOLEAN ReturnSingleEntry,
+    _In_ BOOLEAN RestartScan,
+    _Inout_opt_ PULONG Context,
+    _Out_opt_ PULONG ReturnLength);
+
+typedef NTSTATUS (NTAPI *POB_REFERENCE_OBJECT_BY_NAME)(
+    _In_ PUNICODE_STRING ObjectPath,
+    _In_ ULONG Attributes,
+    _In_opt_ PACCESS_STATE PassedAccessState,
+    _In_opt_ ACCESS_MASK DesiredAccess,
+    _In_opt_ POBJECT_TYPE ObjectType,
+    _In_ KPROCESSOR_MODE AccessMode,
+    _Inout_opt_ PVOID ParseContext,
+    _Out_ PVOID *Object
+    );
+
 static PZW_QUERY_SYSTEM_INFORMATION     fnZwQuerySystemInformation    = NULL;
 static PPS_LOOKUP_PROCESS_BY_PROCESS_ID fnPsLookupProcessByProcessId  = NULL;
+static PPS_GET_PROCESS_IMAGE_FILE_NAME  fnPsGetProcessImageFileName   = NULL;
+static PZW_QUERY_DIRECTORY_OBJECT       fnZwQueryDirectoryObject      = NULL;
+static POB_REFERENCE_OBJECT_BY_NAME     fnObReferenceObjectByName     = NULL;
 
 // ---------------------------------------------------------------------------
 // SystemModuleInformation structures (not in public WDK headers)
@@ -84,9 +110,9 @@ typedef struct _SYSTEM_SERVICE_DESCRIPTOR_TABLE {
     PULONG     CounterTable;
     ULONG_PTR  NumberOfServices;
     PUCHAR     ParamTable;
-} SYSTEM_SERVICE_DESCRIPTOR_TABLE;
+} SYSTEM_SERVICE_DESCRIPTOR_TABLE, *PSYSTEM_SERVICE_DESCRIPTOR_TABLE;
 
-EXTERN_C SYSTEM_SERVICE_DESCRIPTOR_TABLE KeServiceDescriptorTable;
+static PSYSTEM_SERVICE_DESCRIPTOR_TABLE fnKeServiceDescriptorTable = NULL;
 
 // ---------------------------------------------------------------------------
 // State
@@ -141,6 +167,34 @@ RootkitDetectorInitialize(VOID)
     if (!fnPsLookupProcessByProcessId) {
         DbgPrint("RootkitDetector: PsLookupProcessByProcessId not found\n");
         return STATUS_NOT_FOUND;
+    }
+
+    RtlInitUnicodeString(&name, L"PsGetProcessImageFileName");
+    fnPsGetProcessImageFileName =
+        (PPS_GET_PROCESS_IMAGE_FILE_NAME)MmGetSystemRoutineAddress(&name);
+    if (!fnPsGetProcessImageFileName) {
+        DbgPrint("RootkitDetector: PsGetProcessImageFileName not found, process names will be generic\n");
+    }
+
+    RtlInitUnicodeString(&name, L"ZwQueryDirectoryObject");
+    fnZwQueryDirectoryObject =
+        (PZW_QUERY_DIRECTORY_OBJECT)MmGetSystemRoutineAddress(&name);
+    if (!fnZwQueryDirectoryObject) {
+        DbgPrint("RootkitDetector: ZwQueryDirectoryObject not found, hidden-driver scan will be limited\n");
+    }
+
+    RtlInitUnicodeString(&name, L"ObReferenceObjectByName");
+    fnObReferenceObjectByName =
+        (POB_REFERENCE_OBJECT_BY_NAME)MmGetSystemRoutineAddress(&name);
+    if (!fnObReferenceObjectByName) {
+        DbgPrint("RootkitDetector: ObReferenceObjectByName not found, hidden-driver scan will be limited\n");
+    }
+
+    RtlInitUnicodeString(&name, L"KeServiceDescriptorTable");
+    fnKeServiceDescriptorTable =
+        (PSYSTEM_SERVICE_DESCRIPTOR_TABLE)MmGetSystemRoutineAddress(&name);
+    if (!fnKeServiceDescriptorTable) {
+        DbgPrint("RootkitDetector: KeServiceDescriptorTable not found, SSDT scan will be skipped on this build\n");
     }
 
     DbgPrint("RootkitDetector: Initialized (event-driven, debounce=%lu ms)\n",
@@ -282,7 +336,7 @@ RkEmitFinding(_In_ ULONG IrpOpCode, _In_ ULONG SourcePid,
 {
     if (!driverData) return;
 
-    IRP_ENTRY *entry = new (NonPagedPool, 'kRhO') IRP_ENTRY();
+    IRP_ENTRY *entry = new IRP_ENTRY();
     if (!entry) return;
 
     PDRIVER_MESSAGE msg = &entry->data;
@@ -299,10 +353,9 @@ RkEmitFinding(_In_ ULONG IrpOpCode, _In_ ULONG SourcePid,
     msg->KernelEventInfo.RawArgument2        = Extra2;
 
     if (ObjectName) {
-        HRESULT hr = StringCchCopyW(msg->KernelEventInfo.ObjectName,
-                                    RTL_NUMBER_OF(msg->KernelEventInfo.ObjectName),
-                                    ObjectName);
-        UNREFERENCED_PARAMETER(hr);
+        (VOID)RtlStringCchCopyW(msg->KernelEventInfo.ObjectName,
+                                RTL_NUMBER_OF(msg->KernelEventInfo.ObjectName),
+                                ObjectName);
     }
 
     if (!driverData->AddIrpMessage(entry)) {
@@ -355,11 +408,12 @@ RkCheckSsdtIntegrity(VOID)
     PVOID  ntoBase  = NULL;
     ULONG  ntoSize  = 0;
 
+    if (!fnKeServiceDescriptorTable) return 0;
     if (!RkGetNtoskrnlRange(&ntoBase, &ntoSize)) return 0;
 
     __try {
-        PULONG   table = (PULONG)KeServiceDescriptorTable.ServiceTable;
-        ULONG_PTR count = KeServiceDescriptorTable.NumberOfServices;
+        PULONG   table = (PULONG)fnKeServiceDescriptorTable->ServiceTable;
+        ULONG_PTR count = fnKeServiceDescriptorTable->NumberOfServices;
 
         if (!table || count == 0 || count > 0x1000) return 0;
 
@@ -373,9 +427,9 @@ RkCheckSsdtIntegrity(VOID)
 
                 if (!RkAddressInModule(resolved, ntoBase, ntoSize)) {
                     WCHAR desc[128];
-                    StringCchPrintfW(desc, RTL_NUMBER_OF(desc),
-                        L"SSDT[%llu]=0x%p outside ntoskrnl",
-                        (ULONGLONG)i, resolved);
+                    (VOID)RtlStringCchPrintfW(desc, RTL_NUMBER_OF(desc),
+                                              L"SSDT[%llu]=0x%p outside ntoskrnl",
+                                              (ULONGLONG)i, resolved);
 
                     DbgPrint("RootkitDetector: SSDT hook index=%llu -> %p\n",
                              (ULONGLONG)i, resolved);
@@ -460,7 +514,8 @@ RkCheckHiddenProcesses(VOID)
             && proc != NULL)
         {
             WCHAR name[32] = {0};
-            PUCHAR imgName = (PUCHAR)PsGetProcessImageFileName(proc);
+            PUCHAR imgName = fnPsGetProcessImageFileName ?
+                                fnPsGetProcessImageFileName(proc) : NULL;
             if (imgName) {
                 ANSI_STRING   as = { (USHORT)strnlen((PCHAR)imgName, 15), 15,
                                      (PCHAR)imgName };
@@ -492,7 +547,11 @@ RkCheckHiddenDrivers(VOID)
     NTSTATUS status;
     ULONG    need     = 0;
 
-    if (!fnZwQuerySystemInformation) return 0;
+    if (!fnZwQuerySystemInformation ||
+        !fnZwQueryDirectoryObject ||
+        !fnObReferenceObjectByName) {
+        return 0;
+    }
 
     status = fnZwQuerySystemInformation(SystemModuleInformation, NULL, 0, &need);
     if (status != STATUS_INFO_LENGTH_MISMATCH || need == 0) return 0;
@@ -534,8 +593,8 @@ RkCheckHiddenDrivers(VOID)
 
     while (findings < ROOTKIT_MAX_FINDINGS_PER_PASS) {
         ULONG ret = 0;
-        status = ZwQueryDirectoryObject(hDir, qbuf, QBUF,
-                                        FALSE, firstCall, &ctx, &ret);
+        status = fnZwQueryDirectoryObject(hDir, qbuf, QBUF,
+                                          FALSE, firstCall, &ctx, &ret);
         firstCall = FALSE;
         if (!NT_SUCCESS(status) && status != STATUS_MORE_ENTRIES) break;
 
@@ -544,16 +603,16 @@ RkCheckHiddenDrivers(VOID)
                findings < ROOTKIT_MAX_FINDINGS_PER_PASS)
         {
             WCHAR path[256] = {0};
-            StringCchPrintfW(path, RTL_NUMBER_OF(path),
-                             L"\\Driver\\%wZ", &info->Name);
+            (VOID)RtlStringCchPrintfW(path, RTL_NUMBER_OF(path),
+                                      L"\\Driver\\%wZ", &info->Name);
 
             UNICODE_STRING pathUs;
             RtlInitUnicodeString(&pathUs, path);
 
             PDRIVER_OBJECT drv = NULL;
-            if (NT_SUCCESS(ObReferenceObjectByName(
+            if (NT_SUCCESS(fnObReferenceObjectByName(
                     &pathUs, OBJ_CASE_INSENSITIVE, NULL, 0,
-                    *IoDriverObjectType, KernelMode, NULL,
+                    NULL, KernelMode, NULL,
                     (PVOID *)&drv)) && drv)
             {
                 PVOID base  = drv->DriverStart;
@@ -584,7 +643,7 @@ RkCheckHiddenDrivers(VOID)
 // ===========================================================================
 // 4. Kernel Inline Hook Detection
 // ===========================================================================
-static CONST PCHAR g_MonitoredExports[] = {
+static CONST PCSTR g_MonitoredExports[] = {
     "NtCreateFile",        "NtOpenFile",           "NtReadFile",
     "NtWriteFile",         "NtDeleteFile",          "NtCreateProcess",
     "NtCreateProcessEx",   "NtTerminateProcess",    "NtAllocateVirtualMemory",
