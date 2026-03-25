@@ -39,7 +39,7 @@ extern DriverData *driverData;
 // ---------------------------------------------------------------------------
 typedef NTSTATUS (NTAPI *PZW_QUERY_SYSTEM_INFORMATION)(
     _In_      ULONG  SystemInformationClass,
-    _Inout_   PVOID  SystemInformation,
+    _Out_writes_bytes_opt_(SystemInformationLength) PVOID SystemInformation,
     _In_      ULONG  SystemInformationLength,
     _Out_opt_ PULONG ReturnLength);
 
@@ -91,7 +91,7 @@ typedef struct _RTL_PROCESS_MODULE_INFORMATION {
     USHORT  LoadCount;
     USHORT  OffsetToFileName;
     UCHAR   FullPathName[256];
-} RTL_PROCESS_MODULE_INFORMATION;
+} RTL_PROCESS_MODULE_INFORMATION, *PRTL_PROCESS_MODULE_INFORMATION;
 
 typedef struct _RTL_PROCESS_MODULES {
     ULONG NumberOfModules;
@@ -129,6 +129,39 @@ static volatile LONG     g_ScanInProgress     = 0;
 // Pending trigger level for queued work item (highest wins).
 static volatile LONG     g_PendingTrigger     = (LONG)RK_TRIGGER_LIGHT;
 
+static CONST PCWSTR g_CoreDriverObjectPaths[] = {
+    L"\\Driver\\Disk",
+    L"\\Driver\\PartMgr",
+    L"\\Driver\\MountMgr",
+    L"\\Driver\\Classpnp",
+    L"\\Driver\\ataport",
+    L"\\Driver\\storport",
+    L"\\Driver\\scsiport",
+    L"\\FileSystem\\Ntfs",
+    L"\\FileSystem\\Fastfat",
+    NULL
+};
+
+static CONST UCHAR g_MonitoredMajorFunctions[] = {
+    IRP_MJ_CREATE,
+    IRP_MJ_CLOSE,
+    IRP_MJ_READ,
+    IRP_MJ_WRITE,
+    IRP_MJ_QUERY_INFORMATION,
+    IRP_MJ_SET_INFORMATION,
+    IRP_MJ_FLUSH_BUFFERS,
+    IRP_MJ_DIRECTORY_CONTROL,
+    IRP_MJ_FILE_SYSTEM_CONTROL,
+    IRP_MJ_DEVICE_CONTROL,
+    IRP_MJ_INTERNAL_DEVICE_CONTROL,
+    IRP_MJ_CLEANUP,
+    IRP_MJ_SHUTDOWN,
+    IRP_MJ_SYSTEM_CONTROL,
+    IRP_MJ_PNP,
+    IRP_MJ_POWER,
+    0xFF
+};
+
 // ---------------------------------------------------------------------------
 // Forward declarations
 // ---------------------------------------------------------------------------
@@ -136,6 +169,7 @@ static VOID  RkWorkItemRoutine(_In_ PDEVICE_OBJECT DevObj, _In_opt_ PVOID Ctx);
 static ULONG RkCheckSsdtIntegrity(VOID);
 static ULONG RkCheckHiddenProcesses(VOID);
 static ULONG RkCheckHiddenDrivers(VOID);
+static ULONG RkCheckDriverObjectIntegrity(VOID);
 static ULONG RkCheckKernelInlineHooks(VOID);
 static VOID  RkEmitFinding(_In_ ULONG IrpOpCode, _In_ ULONG SourcePid,
                             _In_opt_ PCWSTR ObjectName,
@@ -143,7 +177,29 @@ static VOID  RkEmitFinding(_In_ ULONG IrpOpCode, _In_ ULONG SourcePid,
                             _In_ ULONG_PTR Extra1, _In_ ULONG_PTR Extra2);
 static BOOLEAN RkAddressInModule(_In_ PVOID Address,
                                  _In_ PVOID Base, _In_ ULONG Size);
+_Success_(return != FALSE)
 static BOOLEAN RkGetNtoskrnlRange(_Out_ PVOID *Base, _Out_ ULONG *Size);
+_Success_(return != FALSE)
+static BOOLEAN RkQuerySystemModules(_Outptr_ PRTL_PROCESS_MODULES *Modules);
+static VOID RkFreeSystemModules(_In_opt_ PRTL_PROCESS_MODULES Modules);
+static PRTL_PROCESS_MODULE_INFORMATION RkFindModuleForAddress(
+    _In_opt_ PRTL_PROCESS_MODULES Modules,
+    _In_ PVOID Address);
+static VOID RkAnsiToUnicodeBuffer(_In_opt_ PCSTR Source,
+                                  _Out_writes_z_(OutCch) PWCHAR Out,
+                                  _In_ SIZE_T OutCch);
+_Success_(return != FALSE)
+static BOOLEAN RkReferenceDriverObjectByPath(_In_ PCWSTR Path,
+                                             _Out_ PDRIVER_OBJECT *DriverObject);
+static PCWSTR RkIrpMajorToName(_In_ UCHAR MajorFunction);
+static ULONG RkCheckDriverObjectPathIntegrity(_In_ PCWSTR Path,
+                                              _In_opt_ PRTL_PROCESS_MODULES Modules,
+                                              _In_ PVOID NtoBase,
+                                              _In_ ULONG NtoSize,
+                                              _In_ ULONG MaxFindings);
+static ULONG RkScanDriverObjectDirectory(_In_ PCWSTR DirectoryPath,
+                                         _In_ PRTL_PROCESS_MODULES Modules,
+                                         _In_ ULONG MaxFindings);
 
 // ---------------------------------------------------------------------------
 // RootkitDetectorInitialize
@@ -187,7 +243,7 @@ RootkitDetectorInitialize(VOID)
     fnObReferenceObjectByName =
         (POB_REFERENCE_OBJECT_BY_NAME)MmGetSystemRoutineAddress(&name);
     if (!fnObReferenceObjectByName) {
-        DbgPrint("RootkitDetector: ObReferenceObjectByName not found, hidden-driver scan will be limited\n");
+        DbgPrint("RootkitDetector: ObReferenceObjectByName not found, hidden-driver and driver-object scans will be limited\n");
     }
 
     RtlInitUnicodeString(&name, L"KeServiceDescriptorTable");
@@ -251,7 +307,7 @@ RootkitDetectorOnDriverEvent(_In_ RK_TRIGGER Trigger, _In_ ULONG EventIrp)
         LONGLONG last = InterlockedCompareExchange64(&g_LastFullScanTick, 0, 0);
 
         if (last != 0 && (now.QuadPart - last) < debounce100ns) {
-            // Too soon — upgrade a pending light scan to full but don't queue new item.
+            // Too soon - upgrade a pending light scan to full but don't queue new item.
             InterlockedCompareExchange(&g_PendingTrigger,
                                        (LONG)RK_TRIGGER_FULL,
                                        (LONG)RK_TRIGGER_LIGHT);
@@ -294,6 +350,7 @@ RkWorkItemRoutine(_In_ PDEVICE_OBJECT DevObj, _In_opt_ PVOID Ctx)
             break;
         case RK_TRIGGER_DRIVER:
             RkCheckHiddenDrivers();
+            RkCheckDriverObjectIntegrity();
             RkCheckHiddenProcesses();
             break;
         case RK_TRIGGER_LIGHT:
@@ -319,8 +376,9 @@ RootkitDetectorRunScan(VOID)
     total += RkCheckKernelInlineHooks();
     total += RkCheckHiddenProcesses();
     total += RkCheckHiddenDrivers();
+    total += RkCheckDriverObjectIntegrity();
     if (total > 0) {
-        DbgPrint("RootkitDetector: scan complete — %lu anomalies\n", total);
+        DbgPrint("RootkitDetector: scan complete - %lu anomalies\n", total);
     }
     return total;
 }
@@ -371,31 +429,422 @@ RkAddressInModule(_In_ PVOID Address, _In_ PVOID Base, _In_ ULONG Size)
     return (addr >= base && addr < (base + (ULONG_PTR)Size));
 }
 
+_Success_(return != FALSE)
 static BOOLEAN
-RkGetNtoskrnlRange(_Out_ PVOID *Base, _Out_ ULONG *Size)
+RkQuerySystemModules(_Outptr_ PRTL_PROCESS_MODULES *Modules)
 {
-    if (!fnZwQuerySystemInformation) return FALSE;
-
     ULONG    need   = 0;
-    NTSTATUS status = fnZwQuerySystemInformation(SystemModuleInformation,
-                                                 NULL, 0, &need);
+    NTSTATUS status;
+    PRTL_PROCESS_MODULES mods;
+
+    if (!Modules || !fnZwQuerySystemInformation) return FALSE;
+    *Modules = NULL;
+
+    status = fnZwQuerySystemInformation(SystemModuleInformation, NULL, 0, &need);
     if (status != STATUS_INFO_LENGTH_MISMATCH || need == 0) return FALSE;
 
     need += 4096;
-    PRTL_PROCESS_MODULES mods =
-        (PRTL_PROCESS_MODULES)ExAllocatePool2(POOL_FLAG_NON_PAGED, need, 'kMhO');
+    mods = (PRTL_PROCESS_MODULES)ExAllocatePool2(POOL_FLAG_NON_PAGED,
+                                                 need,
+                                                 'kMhO');
     if (!mods) return FALSE;
 
     status = fnZwQuerySystemInformation(SystemModuleInformation, mods, need, NULL);
-    if (!NT_SUCCESS(status) || mods->NumberOfModules == 0) {
+    if (!NT_SUCCESS(status) || mods->NumberOfModules == 0)
+    {
         ExFreePoolWithTag(mods, 'kMhO');
         return FALSE;
     }
 
+    *Modules = mods;
+    return TRUE;
+}
+
+static VOID
+RkFreeSystemModules(_In_opt_ PRTL_PROCESS_MODULES Modules)
+{
+    if (Modules) {
+        ExFreePoolWithTag(Modules, 'kMhO');
+    }
+}
+
+static PRTL_PROCESS_MODULE_INFORMATION
+RkFindModuleForAddress(_In_opt_ PRTL_PROCESS_MODULES Modules, _In_ PVOID Address)
+{
+    if (!Modules || !Address) return NULL;
+
+    for (ULONG i = 0; i < Modules->NumberOfModules; ++i) {
+        if (RkAddressInModule(Address,
+                              Modules->Modules[i].ImageBase,
+                              Modules->Modules[i].ImageSize)) {
+            return &Modules->Modules[i];
+        }
+    }
+
+    return NULL;
+}
+
+static VOID
+RkAnsiToUnicodeBuffer(_In_opt_ PCSTR Source,
+                      _Out_writes_z_(OutCch) PWCHAR Out,
+                      _In_ SIZE_T OutCch)
+{
+    ANSI_STRING as;
+    UNICODE_STRING us;
+
+    if (!Out || OutCch == 0) return;
+
+    RtlZeroMemory(Out, OutCch * sizeof(WCHAR));
+    if (!Source) return;
+
+    RtlInitAnsiString(&as, Source);
+    us.Buffer = Out;
+    us.Length = 0;
+    us.MaximumLength = (USHORT)(OutCch * sizeof(WCHAR));
+    if (!NT_SUCCESS(RtlAnsiStringToUnicodeString(&us, &as, FALSE))) {
+        Out[0] = L'\0';
+        return;
+    }
+
+    SIZE_T terminatorIndex = (SIZE_T)(us.Length / sizeof(WCHAR));
+    if (terminatorIndex >= OutCch) {
+        terminatorIndex = OutCch - 1;
+    }
+    Out[terminatorIndex] = L'\0';
+}
+
+_Success_(return != FALSE)
+static BOOLEAN
+RkReferenceDriverObjectByPath(_In_ PCWSTR Path, _Out_ PDRIVER_OBJECT *DriverObject)
+{
+    UNICODE_STRING pathUs;
+
+    if (!DriverObject || !Path || !fnObReferenceObjectByName) return FALSE;
+
+    *DriverObject = NULL;
+    RtlInitUnicodeString(&pathUs, Path);
+    return NT_SUCCESS(fnObReferenceObjectByName(&pathUs,
+                                                OBJ_CASE_INSENSITIVE,
+                                                NULL,
+                                                0,
+                                                NULL,
+                                                KernelMode,
+                                                NULL,
+                                                (PVOID *)DriverObject)) &&
+           (*DriverObject != NULL);
+}
+
+static PCWSTR
+RkIrpMajorToName(_In_ UCHAR MajorFunction)
+{
+    switch (MajorFunction) {
+    case IRP_MJ_CREATE: return L"IRP_MJ_CREATE";
+    case IRP_MJ_CLOSE: return L"IRP_MJ_CLOSE";
+    case IRP_MJ_READ: return L"IRP_MJ_READ";
+    case IRP_MJ_WRITE: return L"IRP_MJ_WRITE";
+    case IRP_MJ_QUERY_INFORMATION: return L"IRP_MJ_QUERY_INFORMATION";
+    case IRP_MJ_SET_INFORMATION: return L"IRP_MJ_SET_INFORMATION";
+    case IRP_MJ_FLUSH_BUFFERS: return L"IRP_MJ_FLUSH_BUFFERS";
+    case IRP_MJ_DIRECTORY_CONTROL: return L"IRP_MJ_DIRECTORY_CONTROL";
+    case IRP_MJ_FILE_SYSTEM_CONTROL: return L"IRP_MJ_FILE_SYSTEM_CONTROL";
+    case IRP_MJ_DEVICE_CONTROL: return L"IRP_MJ_DEVICE_CONTROL";
+    case IRP_MJ_INTERNAL_DEVICE_CONTROL: return L"IRP_MJ_INTERNAL_DEVICE_CONTROL";
+    case IRP_MJ_CLEANUP: return L"IRP_MJ_CLEANUP";
+    case IRP_MJ_SHUTDOWN: return L"IRP_MJ_SHUTDOWN";
+    case IRP_MJ_SYSTEM_CONTROL: return L"IRP_MJ_SYSTEM_CONTROL";
+    case IRP_MJ_PNP: return L"IRP_MJ_PNP";
+    case IRP_MJ_POWER: return L"IRP_MJ_POWER";
+    default: return L"IRP_MJ_UNKNOWN";
+    }
+}
+
+_Success_(return != FALSE)
+static BOOLEAN
+RkGetNtoskrnlRange(_Out_ PVOID *Base, _Out_ ULONG *Size)
+{
+    PRTL_PROCESS_MODULES mods = NULL;
+
+    if (!Base || !Size) return FALSE;
+    *Base = NULL;
+    *Size = 0;
+
+    if (!RkQuerySystemModules(&mods)) return FALSE;
+
     *Base = mods->Modules[0].ImageBase;
     *Size = mods->Modules[0].ImageSize;
-    ExFreePoolWithTag(mods, 'kMhO');
+    RkFreeSystemModules(mods);
     return TRUE;
+}
+
+static ULONG
+RkCheckDriverPointerField(_In_ PCWSTR DriverPath,
+                          _In_ PCWSTR FieldName,
+                          _In_opt_ PVOID Pointer,
+                          _In_ ULONG_PTR FieldCode,
+                          _In_ PDRIVER_OBJECT DriverObject,
+                          _In_opt_ PRTL_PROCESS_MODULES Modules,
+                          _In_ PVOID NtoBase,
+                          _In_ ULONG NtoSize)
+{
+    WCHAR desc[MAX_FILE_NAME_LENGTH] = {0};
+    WCHAR ownerName[64] = {0};
+    PRTL_PROCESS_MODULE_INFORMATION ownerModule;
+
+    if (!Pointer || !DriverObject || !DriverObject->DriverStart || DriverObject->DriverSize == 0) {
+        return 0;
+    }
+
+    if (RkAddressInModule(Pointer, DriverObject->DriverStart, DriverObject->DriverSize) ||
+        RkAddressInModule(Pointer, NtoBase, NtoSize)) {
+        return 0;
+    }
+
+    ownerModule = RkFindModuleForAddress(Modules, Pointer);
+    if (ownerModule) {
+        RkAnsiToUnicodeBuffer((PCSTR)(ownerModule->FullPathName + ownerModule->OffsetToFileName),
+                              ownerName,
+                              RTL_NUMBER_OF(ownerName));
+    }
+
+    if (ownerName[0]) {
+        (VOID)RtlStringCchPrintfW(desc,
+                                  RTL_NUMBER_OF(desc),
+                                  L"%ws:%ws -> %ws",
+                                  DriverPath,
+                                  FieldName,
+                                  ownerName);
+    } else {
+        (VOID)RtlStringCchPrintfW(desc,
+                                  RTL_NUMBER_OF(desc),
+                                  L"%ws:%ws -> unknown",
+                                  DriverPath,
+                                  FieldName);
+    }
+
+    DbgPrint("RootkitDetector: driver object hook %ws field=%ws ptr=%p\n",
+             DriverPath,
+             FieldName,
+             Pointer);
+
+    RkEmitFinding(IRP_ROOTKIT_KERNEL_HOOK,
+                  0,
+                  desc,
+                  Pointer,
+                  0,
+                  FieldCode,
+                  ownerModule ? (ULONG_PTR)ownerModule->ImageBase : 0);
+    return 1;
+}
+
+static ULONG
+RkCheckDriverObjectPathIntegrity(_In_ PCWSTR Path,
+                                 _In_opt_ PRTL_PROCESS_MODULES Modules,
+                                 _In_ PVOID NtoBase,
+                                 _In_ ULONG NtoSize,
+                                 _In_ ULONG MaxFindings)
+{
+    PDRIVER_OBJECT drv = NULL;
+    ULONG findings = 0;
+
+    if (!Path || MaxFindings == 0) return 0;
+    if (!RkReferenceDriverObjectByPath(Path, &drv) || !drv) return 0;
+
+    __try {
+        if (!drv->DriverStart || drv->DriverSize == 0) {
+            RkEmitFinding(IRP_ROOTKIT_GENERIC, 0, Path, NULL, 0, 0x10, 0);
+            findings = 1;
+            __leave;
+        }
+
+        if (findings < MaxFindings) {
+            findings += RkCheckDriverPointerField(Path,
+                                                  L"DriverInit",
+                                                  (PVOID)drv->DriverInit,
+                                                  0x1000,
+                                                  drv,
+                                                  Modules,
+                                                  NtoBase,
+                                                  NtoSize);
+        }
+        if (findings < MaxFindings) {
+            findings += RkCheckDriverPointerField(Path,
+                                                  L"DriverStartIo",
+                                                  (PVOID)drv->DriverStartIo,
+                                                  0x1001,
+                                                  drv,
+                                                  Modules,
+                                                  NtoBase,
+                                                  NtoSize);
+        }
+        if (findings < MaxFindings) {
+            findings += RkCheckDriverPointerField(Path,
+                                                  L"DriverUnload",
+                                                  (PVOID)drv->DriverUnload,
+                                                  0x1002,
+                                                  drv,
+                                                  Modules,
+                                                  NtoBase,
+                                                  NtoSize);
+        }
+        if (findings < MaxFindings && drv->DriverExtension) {
+            findings += RkCheckDriverPointerField(Path,
+                                                  L"AddDevice",
+                                                  (PVOID)drv->DriverExtension->AddDevice,
+                                                  0x1003,
+                                                  drv,
+                                                  Modules,
+                                                  NtoBase,
+                                                  NtoSize);
+        }
+
+        for (ULONG i = 0;
+             g_MonitoredMajorFunctions[i] != 0xFF && findings < MaxFindings;
+             ++i)
+        {
+            UCHAR major = g_MonitoredMajorFunctions[i];
+            findings += RkCheckDriverPointerField(Path,
+                                                  RkIrpMajorToName(major),
+                                                  (PVOID)drv->MajorFunction[major],
+                                                  0x2000 + major,
+                                                  drv,
+                                                  Modules,
+                                                  NtoBase,
+                                                  NtoSize);
+        }
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER) {
+        DbgPrint("RootkitDetector: exception while checking driver object %ws (0x%X)\n",
+                 Path,
+                 GetExceptionCode());
+    }
+
+    ObDereferenceObject(drv);
+    return findings;
+}
+
+static ULONG
+RkScanDriverObjectDirectory(_In_ PCWSTR DirectoryPath,
+                            _In_ PRTL_PROCESS_MODULES Modules,
+                            _In_ ULONG MaxFindings)
+{
+    typedef struct _OBJECT_DIR_INFO {
+        UNICODE_STRING Name;
+        UNICODE_STRING TypeName;
+    } OBJECT_DIR_INFO, *POBJECT_DIR_INFO;
+
+    HANDLE hDir = NULL;
+    UNICODE_STRING dirName;
+    UNICODE_STRING driverTypeName;
+    OBJECT_ATTRIBUTES oa;
+    PUCHAR qbuf = NULL;
+    ULONG findings = 0;
+    ULONG ctx = 0;
+    BOOLEAN firstCall = TRUE;
+    NTSTATUS status;
+    const ULONG qbufSize = 16384;
+
+    if (!DirectoryPath || !Modules || MaxFindings == 0 || !fnZwQueryDirectoryObject) {
+        return 0;
+    }
+
+    RtlInitUnicodeString(&dirName, DirectoryPath);
+    RtlInitUnicodeString(&driverTypeName, L"Driver");
+    InitializeObjectAttributes(&oa,
+                               &dirName,
+                               OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE,
+                               NULL,
+                               NULL);
+
+    status = ZwOpenDirectoryObject(&hDir, DIRECTORY_QUERY, &oa);
+    if (!NT_SUCCESS(status)) return 0;
+
+    qbuf = (PUCHAR)ExAllocatePool2(POOL_FLAG_PAGED, qbufSize, 'qRhO');
+    if (!qbuf) {
+        ZwClose(hDir);
+        return 0;
+    }
+
+    while (findings < MaxFindings) {
+        ULONG ret = 0;
+        status = fnZwQueryDirectoryObject(hDir,
+                                          qbuf,
+                                          qbufSize,
+                                          FALSE,
+                                          firstCall,
+                                          &ctx,
+                                          &ret);
+        firstCall = FALSE;
+        if (!NT_SUCCESS(status) && status != STATUS_MORE_ENTRIES) break;
+
+        POBJECT_DIR_INFO info = (POBJECT_DIR_INFO)(PVOID)qbuf;
+        while (info->Name.Length != 0 && findings < MaxFindings) {
+            if (info->TypeName.Length != 0 &&
+                !RtlEqualUnicodeString(&info->TypeName, &driverTypeName, TRUE)) {
+                info++;
+                continue;
+            }
+
+            WCHAR path[MAX_FILE_NAME_LENGTH] = {0};
+            (VOID)RtlStringCchPrintfW(path,
+                                      RTL_NUMBER_OF(path),
+                                      L"%ws\\%wZ",
+                                      DirectoryPath,
+                                      &info->Name);
+
+            PDRIVER_OBJECT drv = NULL;
+            if (RkReferenceDriverObjectByPath(path, &drv) && drv) {
+                if (drv->DriverStart &&
+                    RkFindModuleForAddress(Modules, drv->DriverStart) == NULL) {
+                    DbgPrint("RootkitDetector: hidden driver object %ws base=%p\n",
+                             path,
+                             drv->DriverStart);
+                    RkEmitFinding(IRP_ROOTKIT_HIDDEN_DRIVER,
+                                  0,
+                                  path,
+                                  drv->DriverStart,
+                                  (SIZE_T)drv->Size,
+                                  0,
+                                  0);
+                    ++findings;
+                }
+                ObDereferenceObject(drv);
+            }
+            info++;
+        }
+
+        if (status != STATUS_MORE_ENTRIES) break;
+    }
+
+    ExFreePoolWithTag(qbuf, 'qRhO');
+    ZwClose(hDir);
+    return findings;
+}
+
+static ULONG
+RkCheckDriverObjectIntegrity(VOID)
+{
+    PRTL_PROCESS_MODULES mods = NULL;
+    PVOID ntoBase = NULL;
+    ULONG ntoSize = 0;
+    ULONG findings = 0;
+
+    if (!fnObReferenceObjectByName) return 0;
+    if (!RkGetNtoskrnlRange(&ntoBase, &ntoSize)) return 0;
+    if (!RkQuerySystemModules(&mods)) return 0;
+
+    for (ULONG i = 0;
+         g_CoreDriverObjectPaths[i] != NULL && findings < ROOTKIT_MAX_FINDINGS_PER_PASS;
+         ++i)
+    {
+        findings += RkCheckDriverObjectPathIntegrity(g_CoreDriverObjectPaths[i],
+                                                     mods,
+                                                     ntoBase,
+                                                     ntoSize,
+                                                     ROOTKIT_MAX_FINDINGS_PER_PASS - findings);
+    }
+
+    RkFreeSystemModules(mods);
+    return findings;
 }
 
 // ===========================================================================
@@ -507,10 +956,12 @@ RkCheckHiddenProcesses(VOID)
          pid < 65536 && findings < ROOTKIT_MAX_FINDINGS_PER_PASS;
          pid += 4)
     {
+        if (pid == 0) continue;
         if (bitmap[pid / 8] & (1 << (pid % 8))) continue; // visible, skip
 
         PEPROCESS proc = NULL;
-        if (NT_SUCCESS(fnPsLookupProcessByProcessId((HANDLE)(ULONG_PTR)pid, &proc))
+        HANDLE pidHandle = (HANDLE)(ULONG_PTR)pid;
+        if (NT_SUCCESS(fnPsLookupProcessByProcessId(pidHandle, &proc))
             && proc != NULL)
         {
             WCHAR name[32] = {0};
@@ -543,100 +994,25 @@ RkCheckHiddenProcesses(VOID)
 static ULONG
 RkCheckHiddenDrivers(VOID)
 {
-    ULONG    findings = 0;
-    NTSTATUS status;
-    ULONG    need     = 0;
+    PRTL_PROCESS_MODULES mods = NULL;
+    ULONG findings = 0;
 
-    if (!fnZwQuerySystemInformation ||
-        !fnZwQueryDirectoryObject ||
-        !fnObReferenceObjectByName) {
+    if (!fnZwQueryDirectoryObject || !fnObReferenceObjectByName) {
         return 0;
     }
 
-    status = fnZwQuerySystemInformation(SystemModuleInformation, NULL, 0, &need);
-    if (status != STATUS_INFO_LENGTH_MISMATCH || need == 0) return 0;
+    if (!RkQuerySystemModules(&mods)) return 0;
 
-    need += 4096;
-    PRTL_PROCESS_MODULES mods =
-        (PRTL_PROCESS_MODULES)ExAllocatePool2(POOL_FLAG_NON_PAGED,
-                                              need, 'dRhO');
-    if (!mods) return 0;
-
-    status = fnZwQuerySystemInformation(SystemModuleInformation, mods, need, NULL);
-    if (!NT_SUCCESS(status)) { ExFreePoolWithTag(mods, 'dRhO'); return 0; }
-
-    UNICODE_STRING   dirName;
-    OBJECT_ATTRIBUTES oa;
-    HANDLE            hDir = NULL;
-
-    RtlInitUnicodeString(&dirName, L"\\Driver");
-    InitializeObjectAttributes(&oa, &dirName,
-                                OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE,
-                                NULL, NULL);
-    if (!NT_SUCCESS(ZwOpenDirectoryObject(&hDir, DIRECTORY_QUERY, &oa))) {
-        ExFreePoolWithTag(mods, 'dRhO');
-        return 0;
+    findings += RkScanDriverObjectDirectory(L"\\Driver",
+                                            mods,
+                                            ROOTKIT_MAX_FINDINGS_PER_PASS - findings);
+    if (findings < ROOTKIT_MAX_FINDINGS_PER_PASS) {
+        findings += RkScanDriverObjectDirectory(L"\\FileSystem",
+                                                mods,
+                                                ROOTKIT_MAX_FINDINGS_PER_PASS - findings);
     }
 
-    const ULONG QBUF = 16384;
-    PUCHAR qbuf = (PUCHAR)ExAllocatePool2(POOL_FLAG_PAGED, QBUF, 'qRhO');
-    if (!qbuf) {
-        ZwClose(hDir);
-        ExFreePoolWithTag(mods, 'dRhO');
-        return 0;
-    }
-
-    typedef struct { UNICODE_STRING Name; UNICODE_STRING TypeName; } OBJ_DIR_INFO;
-
-    ULONG   ctx       = 0;
-    BOOLEAN firstCall = TRUE;
-
-    while (findings < ROOTKIT_MAX_FINDINGS_PER_PASS) {
-        ULONG ret = 0;
-        status = fnZwQueryDirectoryObject(hDir, qbuf, QBUF,
-                                          FALSE, firstCall, &ctx, &ret);
-        firstCall = FALSE;
-        if (!NT_SUCCESS(status) && status != STATUS_MORE_ENTRIES) break;
-
-        OBJ_DIR_INFO *info = (OBJ_DIR_INFO *)(PVOID)qbuf;
-        while (info->Name.Length != 0 &&
-               findings < ROOTKIT_MAX_FINDINGS_PER_PASS)
-        {
-            WCHAR path[256] = {0};
-            (VOID)RtlStringCchPrintfW(path, RTL_NUMBER_OF(path),
-                                      L"\\Driver\\%wZ", &info->Name);
-
-            UNICODE_STRING pathUs;
-            RtlInitUnicodeString(&pathUs, path);
-
-            PDRIVER_OBJECT drv = NULL;
-            if (NT_SUCCESS(fnObReferenceObjectByName(
-                    &pathUs, OBJ_CASE_INSENSITIVE, NULL, 0,
-                    NULL, KernelMode, NULL,
-                    (PVOID *)&drv)) && drv)
-            {
-                PVOID base  = drv->DriverStart;
-                BOOLEAN hit = TRUE;
-                for (ULONG m = 0; m < mods->NumberOfModules; ++m) {
-                    if (mods->Modules[m].ImageBase == base) { hit = FALSE; break; }
-                }
-                if (hit && base) {
-                    DbgPrint("RootkitDetector: hidden driver '%wZ' base=%p\n",
-                             &info->Name, base);
-                    RkEmitFinding(IRP_ROOTKIT_HIDDEN_DRIVER, 0, path,
-                                  base, (SIZE_T)drv->Size, 0, 0);
-                    ++findings;
-                }
-                ObDereferenceObject(drv);
-            }
-            info++;
-        }
-        if (status != STATUS_MORE_ENTRIES) break;
-    }
-
-    ExFreePoolWithTag(qbuf, 'qRhO');
-    ZwClose(hDir);
-    ExFreePoolWithTag(mods, 'dRhO');
+    RkFreeSystemModules(mods);
     return findings;
 }
 
@@ -650,7 +1026,10 @@ static CONST PCSTR g_MonitoredExports[] = {
     "NtProtectVirtualMemory","NtWriteVirtualMemory","NtCreateThread",
     "NtCreateThreadEx",    "NtQuerySystemInformation","NtLoadDriver",
     "NtSetSystemInformation","NtOpenProcess",       "NtOpenThread",
-    "NtCreateSection",     "NtMapViewOfSection",
+    "NtCreateSection",     "NtMapViewOfSection",    "NtOpenDirectoryObject",
+    "NtQueryDirectoryObject", "IofCallDriver",      "IofCompleteRequest",
+    "PsLookupProcessByProcessId", "PsGetProcessImageFileName",
+    "ObReferenceObjectByName",
     NULL
 };
 
@@ -682,7 +1061,7 @@ RkCheckKernelInlineHooks(VOID)
             BOOLEAN hooked = FALSE;
             PVOID   target = NULL;
 
-            // FF 25 rel32 — indirect JMP (x64 14-byte hook)
+            // FF 25 rel32 - indirect JMP (x64 14-byte hook)
             if (p[0] == 0xFF && p[1] == 0x25) {
                 LONG rel = *(LONG *)(p + 2);
                 PVOID *ptr = (PVOID *)((ULONG_PTR)(p + 6) + rel);
@@ -693,7 +1072,7 @@ RkCheckKernelInlineHooks(VOID)
                 } __except (EXCEPTION_EXECUTE_HANDLER) {}
             }
 
-            // E9 rel32 — relative JMP (5-byte hook)
+            // E9 rel32 - relative JMP (5-byte hook)
             if (!hooked && p[0] == 0xE9) {
                 LONG rel = *(LONG *)(p + 1);
                 target = (PVOID)((ULONG_PTR)(p + 5) + rel);
@@ -701,7 +1080,7 @@ RkCheckKernelInlineHooks(VOID)
                     hooked = TRUE;
             }
 
-            // 48 B8 imm64 / FF E0 — mov rax, imm64; jmp rax (12-byte)
+            // 48 B8 imm64 / FF E0 - mov rax, imm64; jmp rax (12-byte)
             if (!hooked &&
                 p[0] == 0x48 && p[1] == 0xB8 &&
                 p[10] == 0xFF && p[11] == 0xE0)

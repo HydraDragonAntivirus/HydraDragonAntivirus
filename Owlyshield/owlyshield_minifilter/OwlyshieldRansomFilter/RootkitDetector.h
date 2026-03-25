@@ -14,10 +14,11 @@ Abstract:
     on hot event paths.
 
     Detection capabilities:
-      1. SSDT integrity     - entries pointing outside ntoskrnl
-      2. Hidden process     - PspCidTable vs EPROCESS list mismatch (DKOM)
-      3. Hidden driver      - PsLoadedModuleList vs ZwQuerySystemInformation
-      4. Kernel inline hook - FF25 / E9 / mov-rax-jmp-rax on ntoskrnl exports
+      1. SSDT integrity         - entries pointing outside ntoskrnl
+      2. Hidden process         - PspCidTable vs EPROCESS list mismatch (DKOM)
+      3. Hidden driver          - object directory entry missing from module list
+      4. Driver object integrity - DriverInit/AddDevice/MajorFunction mismatch
+      5. Kernel inline hook     - FF25 / E9 / mov-rax-jmp-rax on ntoskrnl exports
 
     IRP opcodes (defined in SharedDefs.h):
       IRP_ROOTKIT_SSDT_HOOK       21
@@ -46,10 +47,10 @@ typedef enum _RK_TRIGGER
     // SSDT + inline-hook only. Cheap, no process enumeration.
     RK_TRIGGER_LIGHT   = 0,
 
-    // Full scan: SSDT + inline-hook + hidden-process + hidden-driver.
+    // Full scan: SSDT + driver-object + inline-hook + hidden-process + hidden-driver.
     RK_TRIGGER_FULL    = 1,
 
-    // Hidden-driver + hidden-process only. Used on image-load events.
+    // Hidden-driver + driver-object + hidden-process. Used on image-load events.
     RK_TRIGGER_DRIVER  = 2,
 
 } RK_TRIGGER;
