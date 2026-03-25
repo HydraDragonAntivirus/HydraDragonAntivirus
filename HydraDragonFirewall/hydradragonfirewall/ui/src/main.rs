@@ -1510,7 +1510,7 @@ fn AlertWindow(
     let resolve_decision_internal = move |name: String, path: String, decision: String| {
         spawn_local(async move {
             // Prioritize path for "Always Allow" (TRUST)
-            let identifier = if (decision == "allow_always" || decision == "block") && !path.trim().is_empty() && !path.eq_ignore_ascii_case("unknown") {
+            let identifier = if decision == "allow_always" && !path.trim().is_empty() && !path.eq_ignore_ascii_case("unknown") {
                 path
             } else {
                 name

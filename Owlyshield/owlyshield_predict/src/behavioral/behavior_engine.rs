@@ -7,6 +7,8 @@ use serde_yaml::Value as YamlValue;
 use regex::Regex;
 use std::sync::{Arc, OnceLock, RwLock};
 use crate::shared_def::{FileChangeInfo, IOMessage, IrpMajorOp, known_raw_event_name};
+#[cfg(feature = "firewall")]
+use crate::driver_com::with_shared_driver;
 use crate::process::ProcessRecord;
 use super::network_rules::PacketInfo;
 use crate::logging::Logging;
@@ -2042,6 +2044,31 @@ impl BehaviorEngine {
                                             "[HydraNetPipe] Ignored unknown Owlyshield HIPS decision '{}'",
                                             decision_raw
                                         ));
+                                    }
+                                }
+                            } else if let Some(rest) = line.strip_prefix("KERNEL_BLOCK_PATH:") {
+                                let block_path = rest.trim().trim_matches('"').replace('/', "\\");
+                                if !block_path.is_empty() && !block_path.eq_ignore_ascii_case("unknown") {
+                                    let applied = with_shared_driver(|driver| driver.add_block_path(&block_path));
+                                    match applied {
+                                        Some(Ok(hr)) if hr.is_ok() => Logging::warning(&format!(
+                                            "[HydraNetPipe] Installed kernel block path: {}",
+                                            block_path
+                                        )),
+                                        Some(Ok(hr)) => Logging::warning(&format!(
+                                            "[HydraNetPipe] Kernel block path returned non-success HRESULT 0x{:08X} for {}",
+                                            hr.0 as u32,
+                                            block_path
+                                        )),
+                                        Some(Err(err)) => Logging::error(&format!(
+                                            "[HydraNetPipe] Failed to install kernel block path {}: {:?}",
+                                            block_path,
+                                            err
+                                        )),
+                                        None => Logging::warning(&format!(
+                                            "[HydraNetPipe] No shared driver handle available for kernel block path {}",
+                                            block_path
+                                        )),
                                     }
                                 }
                             } else if let Some(rest) = line.strip_prefix("HTTP_BODY:") {

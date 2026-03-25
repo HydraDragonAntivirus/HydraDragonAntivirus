@@ -26,6 +26,43 @@ lazy_static! {
 }
 // Imports updated below
 
+fn normalize_kernel_block_path_candidate(value: &str) -> Option<String> {
+    let trimmed = value.trim().trim_matches('"');
+    if trimmed.is_empty() || trimmed.eq_ignore_ascii_case("unknown") {
+        return None;
+    }
+
+    let normalized = trimmed.replace('/', "\\");
+    let lower = normalized.to_ascii_lowercase();
+
+    if lower.contains("://") {
+        return None;
+    }
+
+    let chars: Vec<char> = normalized.chars().collect();
+    let is_drive_path = chars.len() >= 3 && chars[1] == ':' && (chars[2] == '\\' || chars[2] == '/');
+    let is_unc_path = normalized.starts_with("\\\\");
+    let is_nt_path = lower.starts_with("\\device\\") || lower.starts_with("\\??\\") || lower.starts_with("\\\\?\\");
+
+    if is_drive_path || is_unc_path || is_nt_path {
+        Some(normalized)
+    } else {
+        None
+    }
+}
+
+fn select_kernel_block_path(alert: &PendingApp) -> Option<String> {
+    alert
+        .target
+        .as_deref()
+        .and_then(normalize_kernel_block_path_candidate)
+        .or_else(|| normalize_kernel_block_path_candidate(&alert.path))
+}
+
+fn kernel_block_message(path: &str) -> String {
+    format!("KERNEL_BLOCK_PATH:{}\n", path)
+}
+
 // ============================================================================
 // DATA STRUCTURES
 // ============================================================================
@@ -553,6 +590,8 @@ impl FirewallRule {
 #[serde(default)]
 pub struct FirewallSettings {
     pub app_decisions: HashMap<String, AppDecision>,
+    #[serde(default)]
+    pub kernel_block_paths: Vec<String>,
     pub website_path: String,
     pub rules: Vec<FirewallRule>,
     pub late_blocking_mode: bool,
@@ -586,6 +625,7 @@ impl Default for FirewallSettings {
 
         Self {
             app_decisions: apps,
+            kernel_block_paths: Vec::new(),
             website_path: String::new(),
             rules: Vec::new(),
             late_blocking_mode: false,
@@ -1166,6 +1206,7 @@ impl FirewallEngine {
 
         let settings = FirewallSettings {
             app_decisions: decisions,
+            kernel_block_paths: current_settings.kernel_block_paths.clone(),
             website_path: current_settings.website_path.clone(),
             rules: self.rules.read().unwrap().clone(),
             late_blocking_mode: current_settings.late_blocking_mode,
@@ -1381,6 +1422,18 @@ impl FirewallEngine {
         }
     }
 
+    fn remember_kernel_block_path(&self, path: &str) {
+        let mut settings = self.settings.write().unwrap();
+        if settings
+            .kernel_block_paths
+            .iter()
+            .any(|existing| existing.eq_ignore_ascii_case(path))
+        {
+            return;
+        }
+        settings.kernel_block_paths.push(path.to_string());
+    }
+
     fn refresh_active_alert_ui(am: &Arc<AppManager>, tx: &AppHandle) {
         if let Some(alert) = am.get_active_alert() {
             Self::spawn_alert_window(tx);
@@ -1391,6 +1444,9 @@ impl FirewallEngine {
     pub fn resolve_app_decision(&self, name: String, decision: String, tx: &AppHandle) {
         let active_alert = self.app_manager.active_alert.read().unwrap().clone();
         let mut persist_settings = true;
+        let kernel_block_path = active_alert
+            .as_ref()
+            .and_then(select_kernel_block_path);
         let decision_identifier = active_alert
             .as_ref()
             .and_then(|alert| alert.decision_key.clone())
@@ -1447,6 +1503,11 @@ impl FirewallEngine {
         } else {
             self.app_manager
                 .resolve_decision(&decision_identifier, app_decision);
+        }
+
+        if decision == "block" && let Some(path) = kernel_block_path.as_deref() {
+            self.remember_kernel_block_path(path);
+            self.send_hydranet_message(kernel_block_message(path));
         }
 
         let now = Self::now_ts();
@@ -2034,6 +2095,9 @@ impl FirewallEngine {
         // One message is sent per new PID per session to avoid flooding the pipe.
         let (net_event_tx, net_event_rx) = std::sync::mpsc::channel::<String>();
         *self.hydranet_tx.lock().unwrap() = Some(net_event_tx.clone());
+        for blocked_path in self.settings.read().unwrap().kernel_block_paths.clone() {
+            let _ = net_event_tx.send(kernel_block_message(&blocked_path));
+        }
         {
             let stop_pipe = Arc::clone(&stop);
             let am_pipe = Arc::clone(&am);

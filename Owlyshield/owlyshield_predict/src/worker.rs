@@ -1517,6 +1517,8 @@ mod process_records {
         }
 
         pub fn driver(mut self, driver: crate::Driver) -> Worker<'a> {
+            #[cfg(target_os = "windows")]
+            crate::driver_com::register_shared_driver(driver);
             self.driver = Some(driver);
             self
         }

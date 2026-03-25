@@ -15,7 +15,7 @@ use windows::Win32::Storage::InstallableFileSystems::{
 use std::os::raw::{c_uchar, c_ulong, c_ulonglong, c_ushort};
 use std::path::{Path, PathBuf};
 use std::collections::HashMap;
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
 use std::time::SystemTime;
 
 use windows::Win32::Storage::FileSystem::FILE_ID_INFO;
@@ -36,6 +36,20 @@ use crate::utils::resolve_process_path;
 pub type BufPath = [wchar_t; 520];
 
 static SYSCALL_MAP: OnceLock<HashMap<u32, String>> = OnceLock::new();
+static SHARED_DRIVER: OnceLock<Mutex<Option<Driver>>> = OnceLock::new();
+
+fn shared_driver_slot() -> &'static Mutex<Option<Driver>> {
+    SHARED_DRIVER.get_or_init(|| Mutex::new(None))
+}
+
+pub fn register_shared_driver(driver: Driver) {
+    *shared_driver_slot().lock().unwrap() = Some(driver);
+}
+
+pub fn with_shared_driver<T>(f: impl FnOnce(&Driver) -> T) -> Option<T> {
+    let guard = shared_driver_slot().lock().unwrap();
+    guard.as_ref().map(f)
+}
 
 fn is_syscall_number_label(label: &str) -> bool {
     let up = label.to_ascii_uppercase();
