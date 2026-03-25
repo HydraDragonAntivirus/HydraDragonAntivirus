@@ -6,22 +6,17 @@ Module Name:
 
 Abstract:
 
-    Rootkit detection engine for HydraDragon / Owlyshield.
+    Event-driven rootkit detection engine.
+    No timer - detection triggered via RootkitDetectorOnDriverEvent().
 
-    Inspired by GMER's detection approach:
-      - SSDT integrity: walk KeServiceDescriptorTable, flag entries that fall
-        outside the ntoskrnl .text section.
-      - Hidden processes: compare EPROCESS ActiveProcessLinks walk against
-        PsLookupProcessByProcessId (PspCidTable-backed).
-      - Hidden drivers: compare PsLoadedModuleList against
-        ZwQuerySystemInformation(SystemModuleInformation).
-      - Kernel inline hooks: inspect the first 16 bytes of a curated list of
-        ntoskrnl exports for FF25 (indirect JMP) or E9 (relative JMP) patterns
-        whose target lies outside the originating module.
+    Called by FSFilter.cpp on relevant IRP events:
+        IRP_PROCESS_CREATE   -> RK_TRIGGER_FULL   (new process, full scan)
+        IRP_KERNEL_* events  -> RK_TRIGGER_FULL   (injection activity, full scan)
+        ImageLoadCallback    -> RK_TRIGGER_DRIVER  (new image/driver loaded)
+        All others           -> RK_TRIGGER_LIGHT   (cheap SSDT+hook scan only)
 
-    All findings emit DRIVER_MESSAGE records with IRP_OP codes defined in
-    SharedDefs.h and are forwarded via driverData->AddIrpMessage() so they
-    reach behavior_engine.rs through the normal IRP pipe.
+    Debounce: FULL scans are gated by ROOTKIT_DEBOUNCE_MS to prevent overhead
+    on hot event paths. LIGHT and DRIVER scans are not debounced.
 
 Environment:
 
@@ -30,17 +25,17 @@ Environment:
 --*/
 
 #include "RootkitDetector.h"
-#include "DriverData.h"      // driverData global, IRP_ENTRY, PDRIVER_MESSAGE
-#include <ntimage.h>         // IMAGE_DOS_HEADER, IMAGE_NT_HEADERS
+#include "DriverData.h"
+#include <ntimage.h>
 #include <ntstrsafe.h>
 
 // ---------------------------------------------------------------------------
-// External globals (defined in FsFilter.cpp / DriverData.cpp)
+// External
 // ---------------------------------------------------------------------------
-extern DriverData *driverData;   // IRP queue sink
+extern DriverData *driverData;
 
 // ---------------------------------------------------------------------------
-// Dynamic imports resolved at init time
+// Dynamic imports
 // ---------------------------------------------------------------------------
 typedef NTSTATUS (NTAPI *PZW_QUERY_SYSTEM_INFORMATION)(
     _In_      ULONG  SystemInformationClass,
@@ -52,8 +47,8 @@ typedef NTSTATUS (NTAPI *PPS_LOOKUP_PROCESS_BY_PROCESS_ID)(
     _In_  HANDLE     ProcessId,
     _Out_ PEPROCESS *Process);
 
-static PZW_QUERY_SYSTEM_INFORMATION  fnZwQuerySystemInformation  = NULL;
-static PPS_LOOKUP_PROCESS_BY_PROCESS_ID fnPsLookupProcessByProcessId = NULL;
+static PZW_QUERY_SYSTEM_INFORMATION     fnZwQuerySystemInformation    = NULL;
+static PPS_LOOKUP_PROCESS_BY_PROCESS_ID fnPsLookupProcessByProcessId  = NULL;
 
 // ---------------------------------------------------------------------------
 // SystemModuleInformation structures (not in public WDK headers)
@@ -70,7 +65,7 @@ typedef struct _RTL_PROCESS_MODULE_INFORMATION {
     USHORT  LoadCount;
     USHORT  OffsetToFileName;
     UCHAR   FullPathName[256];
-} RTL_PROCESS_MODULE_INFORMATION, *PRTL_PROCESS_MODULE_INFORMATION;
+} RTL_PROCESS_MODULE_INFORMATION;
 
 typedef struct _RTL_PROCESS_MODULES {
     ULONG NumberOfModules;
@@ -78,51 +73,50 @@ typedef struct _RTL_PROCESS_MODULES {
 } RTL_PROCESS_MODULES, *PRTL_PROCESS_MODULES;
 #pragma pack(pop)
 
-#define SystemModuleInformation 11UL
+#define SystemModuleInformation   11UL
+#define SystemProcessInformation   5UL
 
 // ---------------------------------------------------------------------------
-// SSDT structures (x64 only)
+// SSDT (x64)
 // ---------------------------------------------------------------------------
 typedef struct _SYSTEM_SERVICE_DESCRIPTOR_TABLE {
     PULONG_PTR ServiceTable;
     PULONG     CounterTable;
     ULONG_PTR  NumberOfServices;
     PUCHAR     ParamTable;
-} SYSTEM_SERVICE_DESCRIPTOR_TABLE, *PSYSTEM_SERVICE_DESCRIPTOR_TABLE;
+} SYSTEM_SERVICE_DESCRIPTOR_TABLE;
 
-// KeServiceDescriptorTable is exported by ntoskrnl on checked/free builds.
-// Declare it as an import so the linker resolves it.
 EXTERN_C SYSTEM_SERVICE_DESCRIPTOR_TABLE KeServiceDescriptorTable;
 
 // ---------------------------------------------------------------------------
-// Periodic scan timer
+// State
 // ---------------------------------------------------------------------------
-static KTIMER      g_ScanTimer      = {0};
-static KDPC        g_ScanDpc        = {0};
-static BOOLEAN     g_TimerInitialized = FALSE;
-static volatile LONG g_ScanInProgress = 0; // re-entrancy guard
+static PDEVICE_OBJECT    g_ScanDeviceObject   = NULL;
+static PIO_WORKITEM      g_ScanWorkItem       = NULL;
+
+// Debounce: track last full-scan tick (100ns units via KeQuerySystemTime).
+static volatile LONGLONG g_LastFullScanTick   = 0;
+
+// Re-entrancy guard (work item may fire concurrently from two queues).
+static volatile LONG     g_ScanInProgress     = 0;
+
+// Pending trigger level for queued work item (highest wins).
+static volatile LONG     g_PendingTrigger     = (LONG)RK_TRIGGER_LIGHT;
 
 // ---------------------------------------------------------------------------
 // Forward declarations
 // ---------------------------------------------------------------------------
-static VOID  RkDpcRoutine(_In_ PKDPC Dpc, _In_opt_ PVOID DeferredCtx,
-                          _In_opt_ PVOID Arg1, _In_opt_ PVOID Arg2);
+static VOID  RkWorkItemRoutine(_In_ PDEVICE_OBJECT DevObj, _In_opt_ PVOID Ctx);
 static ULONG RkCheckSsdtIntegrity(VOID);
 static ULONG RkCheckHiddenProcesses(VOID);
 static ULONG RkCheckHiddenDrivers(VOID);
 static ULONG RkCheckKernelInlineHooks(VOID);
-
-static VOID  RkEmitFinding(_In_ ULONG IrpOpCode,
-                           _In_ ULONG SourcePid,
-                           _In_opt_ PCWSTR ObjectName,
-                           _In_opt_ PVOID MemoryAddress,
-                           _In_opt_ SIZE_T MemorySize,
-                           _In_ ULONG_PTR Extra1,
-                           _In_ ULONG_PTR Extra2);
-
+static VOID  RkEmitFinding(_In_ ULONG IrpOpCode, _In_ ULONG SourcePid,
+                            _In_opt_ PCWSTR ObjectName,
+                            _In_opt_ PVOID  MemoryAddress, _In_ SIZE_T MemSize,
+                            _In_ ULONG_PTR Extra1, _In_ ULONG_PTR Extra2);
 static BOOLEAN RkAddressInModule(_In_ PVOID Address,
-                                 _In_ PVOID ModuleBase,
-                                 _In_ ULONG ModuleSize);
+                                 _In_ PVOID Base, _In_ ULONG Size);
 static BOOLEAN RkGetNtoskrnlRange(_Out_ PVOID *Base, _Out_ ULONG *Size);
 
 // ---------------------------------------------------------------------------
@@ -131,41 +125,40 @@ static BOOLEAN RkGetNtoskrnlRange(_Out_ PVOID *Base, _Out_ ULONG *Size);
 NTSTATUS
 RootkitDetectorInitialize(VOID)
 {
-    UNICODE_STRING routineName;
-    LARGE_INTEGER  dueTime;
+    UNICODE_STRING name;
 
-    // -- Resolve ZwQuerySystemInformation -----------------------------------
-    RtlInitUnicodeString(&routineName, L"ZwQuerySystemInformation");
+    RtlInitUnicodeString(&name, L"ZwQuerySystemInformation");
     fnZwQuerySystemInformation =
-        (PZW_QUERY_SYSTEM_INFORMATION)MmGetSystemRoutineAddress(&routineName);
+        (PZW_QUERY_SYSTEM_INFORMATION)MmGetSystemRoutineAddress(&name);
     if (!fnZwQuerySystemInformation) {
         DbgPrint("RootkitDetector: ZwQuerySystemInformation not found\n");
         return STATUS_NOT_FOUND;
     }
 
-    // -- Resolve PsLookupProcessByProcessId ----------------------------------
-    RtlInitUnicodeString(&routineName, L"PsLookupProcessByProcessId");
+    RtlInitUnicodeString(&name, L"PsLookupProcessByProcessId");
     fnPsLookupProcessByProcessId =
-        (PPS_LOOKUP_PROCESS_BY_PROCESS_ID)MmGetSystemRoutineAddress(&routineName);
+        (PPS_LOOKUP_PROCESS_BY_PROCESS_ID)MmGetSystemRoutineAddress(&name);
     if (!fnPsLookupProcessByProcessId) {
         DbgPrint("RootkitDetector: PsLookupProcessByProcessId not found\n");
         return STATUS_NOT_FOUND;
     }
 
-    // -- Set up periodic DPC timer ------------------------------------------
-    KeInitializeTimer(&g_ScanTimer);
-    KeInitializeDpc(&g_ScanDpc, RkDpcRoutine, NULL);
-
-    // First fire: ROOTKIT_SCAN_INTERVAL_SEC after driver load.
-    dueTime.QuadPart = -(LONGLONG)ROOTKIT_SCAN_INTERVAL_SEC * 10000000LL;
-    KeSetTimerEx(&g_ScanTimer, dueTime,
-                 ROOTKIT_SCAN_INTERVAL_SEC * 1000, // period in ms
-                 &g_ScanDpc);
-    g_TimerInitialized = TRUE;
-
-    DbgPrint("RootkitDetector: Initialized, scan interval %lu s\n",
-             (ULONG)ROOTKIT_SCAN_INTERVAL_SEC);
+    DbgPrint("RootkitDetector: Initialized (event-driven, debounce=%lu ms)\n",
+             (ULONG)ROOTKIT_DEBOUNCE_MS);
     return STATUS_SUCCESS;
+}
+
+// ---------------------------------------------------------------------------
+// RootkitDetectorSetDeviceObject
+// ---------------------------------------------------------------------------
+VOID
+RootkitDetectorSetDeviceObject(_In_ PDEVICE_OBJECT DeviceObject)
+{
+    if (g_ScanWorkItem) {
+        IoFreeWorkItem(g_ScanWorkItem);
+    }
+    g_ScanDeviceObject = DeviceObject;
+    g_ScanWorkItem     = IoAllocateWorkItem(DeviceObject);
 }
 
 // ---------------------------------------------------------------------------
@@ -174,93 +167,118 @@ RootkitDetectorInitialize(VOID)
 VOID
 RootkitDetectorCleanup(VOID)
 {
-    if (g_TimerInitialized) {
-        KeCancelTimer(&g_ScanTimer);
-        KeFlushQueuedDpcs();
-        g_TimerInitialized = FALSE;
+    if (g_ScanWorkItem) {
+        IoFreeWorkItem(g_ScanWorkItem);
+        g_ScanWorkItem = NULL;
     }
     DbgPrint("RootkitDetector: Cleanup done\n");
 }
 
 // ---------------------------------------------------------------------------
-// DPC routine — offloads actual scan to PASSIVE_LEVEL via work item so we
-// can call ZwQuerySystemInformation and paged pool allocations safely.
+// RootkitDetectorOnDriverEvent
+// Called on every relevant driver event (IRP dispatch path or callbacks).
+// Debounces FULL scans; queues a passive-level work item.
 // ---------------------------------------------------------------------------
-static VOID
-RkDpcWorkItemRoutine(_In_ PDEVICE_OBJECT DeviceObject, _In_opt_ PVOID Ctx)
+VOID
+RootkitDetectorOnDriverEvent(_In_ RK_TRIGGER Trigger, _In_ ULONG EventIrp)
 {
-    UNREFERENCED_PARAMETER(DeviceObject);
-    UNREFERENCED_PARAMETER(Ctx);
+    UNREFERENCED_PARAMETER(EventIrp);
 
-    if (InterlockedCompareExchange(&g_ScanInProgress, 1, 0) != 0) {
-        DbgPrint("RootkitDetector: scan already running, skipping\n");
+    if (!g_ScanWorkItem || !g_ScanDeviceObject) {
         return;
     }
+
+    // For FULL scans: enforce minimum interval between scans.
+    if (Trigger == RK_TRIGGER_FULL) {
+        LARGE_INTEGER now;
+        KeQuerySystemTime(&now);
+
+        LONGLONG debounce100ns = (LONGLONG)ROOTKIT_DEBOUNCE_MS * 10000LL;
+        LONGLONG last = InterlockedCompareExchange64(&g_LastFullScanTick, 0, 0);
+
+        if (last != 0 && (now.QuadPart - last) < debounce100ns) {
+            // Too soon — upgrade a pending light scan to full but don't queue new item.
+            InterlockedCompareExchange(&g_PendingTrigger,
+                                       (LONG)RK_TRIGGER_FULL,
+                                       (LONG)RK_TRIGGER_LIGHT);
+            return;
+        }
+        InterlockedExchange64(&g_LastFullScanTick, now.QuadPart);
+    }
+
+    // Raise pending trigger level if the new trigger is heavier.
+    LONG current, desired;
+    do {
+        current = InterlockedCompareExchange(&g_PendingTrigger, 0, 0);
+        desired = ((LONG)Trigger > current) ? (LONG)Trigger : current;
+    } while (InterlockedCompareExchange(&g_PendingTrigger, desired, current) != current);
+
+    // Only one work item in flight at a time.
+    if (InterlockedCompareExchange(&g_ScanInProgress, 1, 0) != 0) {
+        return;
+    }
+
+    IoQueueWorkItem(g_ScanWorkItem, RkWorkItemRoutine, DelayedWorkQueue, NULL);
+}
+
+// ---------------------------------------------------------------------------
+// Work item (PASSIVE_LEVEL)
+// ---------------------------------------------------------------------------
+static VOID
+RkWorkItemRoutine(_In_ PDEVICE_OBJECT DevObj, _In_opt_ PVOID Ctx)
+{
+    UNREFERENCED_PARAMETER(DevObj);
+    UNREFERENCED_PARAMETER(Ctx);
+
+    // Drain the pending trigger atomically.
+    RK_TRIGGER trigger = (RK_TRIGGER)InterlockedExchange(&g_PendingTrigger,
+                                                          (LONG)RK_TRIGGER_LIGHT);
     __try {
-        RootkitDetectorRunScan();
+        switch (trigger) {
+        case RK_TRIGGER_FULL:
+            RootkitDetectorRunScan();
+            break;
+        case RK_TRIGGER_DRIVER:
+            RkCheckHiddenDrivers();
+            RkCheckHiddenProcesses();
+            break;
+        case RK_TRIGGER_LIGHT:
+        default:
+            RkCheckSsdtIntegrity();
+            RkCheckKernelInlineHooks();
+            break;
+        }
     }
     __finally {
         InterlockedExchange(&g_ScanInProgress, 0);
     }
 }
 
-static PIO_WORKITEM g_ScanWorkItem = NULL;
-static PDEVICE_OBJECT g_ScanDeviceObject = NULL; // set by FSFilter
-
-// Allow FSFilter.cpp to register the device object for work-item dispatch.
-EXTERN_C VOID
-RootkitDetectorSetDeviceObject(_In_ PDEVICE_OBJECT DeviceObject)
-{
-    if (g_ScanWorkItem != NULL) {
-        IoFreeWorkItem(g_ScanWorkItem);
-    }
-    g_ScanDeviceObject = DeviceObject;
-    g_ScanWorkItem = IoAllocateWorkItem(DeviceObject);
-}
-
-static VOID
-RkDpcRoutine(_In_ PKDPC Dpc, _In_opt_ PVOID DeferredCtx,
-             _In_opt_ PVOID Arg1, _In_opt_ PVOID Arg2)
-{
-    UNREFERENCED_PARAMETER(Dpc);
-    UNREFERENCED_PARAMETER(DeferredCtx);
-    UNREFERENCED_PARAMETER(Arg1);
-    UNREFERENCED_PARAMETER(Arg2);
-
-    if (g_ScanWorkItem && g_ScanDeviceObject) {
-        IoQueueWorkItem(g_ScanWorkItem, RkDpcWorkItemRoutine,
-                        DelayedWorkQueue, NULL);
-    }
-}
-
 // ---------------------------------------------------------------------------
-// RootkitDetectorRunScan  (PASSIVE_LEVEL)
+// RootkitDetectorRunScan (PASSIVE_LEVEL)
 // ---------------------------------------------------------------------------
 ULONG
 RootkitDetectorRunScan(VOID)
 {
     ULONG total = 0;
     total += RkCheckSsdtIntegrity();
+    total += RkCheckKernelInlineHooks();
     total += RkCheckHiddenProcesses();
     total += RkCheckHiddenDrivers();
-    total += RkCheckKernelInlineHooks();
     if (total > 0) {
-        DbgPrint("RootkitDetector: scan complete — %lu anomalies found\n", total);
+        DbgPrint("RootkitDetector: scan complete — %lu anomalies\n", total);
     }
     return total;
 }
 
 // ===========================================================================
-// Helper: emit a DRIVER_MESSAGE to the IRP queue
+// Helpers
 // ===========================================================================
 static VOID
-RkEmitFinding(_In_ ULONG IrpOpCode,
-              _In_ ULONG SourcePid,
+RkEmitFinding(_In_ ULONG IrpOpCode, _In_ ULONG SourcePid,
               _In_opt_ PCWSTR ObjectName,
-              _In_opt_ PVOID MemoryAddress,
-              _In_opt_ SIZE_T MemorySize,
-              _In_ ULONG_PTR Extra1,
-              _In_ ULONG_PTR Extra2)
+              _In_opt_ PVOID  MemoryAddress, _In_ SIZE_T MemSize,
+              _In_ ULONG_PTR Extra1, _In_ ULONG_PTR Extra2)
 {
     if (!driverData) return;
 
@@ -270,16 +288,15 @@ RkEmitFinding(_In_ ULONG IrpOpCode,
     PDRIVER_MESSAGE msg = &entry->data;
     RtlZeroMemory(msg, sizeof(*msg));
 
-    msg->IRP_OP          = (UCHAR)IrpOpCode;
-    msg->PID             = SourcePid;
-    msg->Gid             = 0; // rootkit events are not per-gid
-
-    msg->KernelEventInfo.EventType       = IrpOpCode;
-    msg->KernelEventInfo.SourceProcessId = SourcePid;
-    msg->KernelEventInfo.MemoryAddress   = MemoryAddress;
-    msg->KernelEventInfo.MemorySize      = MemorySize;
-    msg->KernelEventInfo.RawArgument1    = Extra1;
-    msg->KernelEventInfo.RawArgument2    = Extra2;
+    msg->IRP_OP                              = (UCHAR)IrpOpCode;
+    msg->PID                                 = SourcePid;
+    msg->Gid                                 = 0;
+    msg->KernelEventInfo.EventType           = IrpOpCode;
+    msg->KernelEventInfo.SourceProcessId     = SourcePid;
+    msg->KernelEventInfo.MemoryAddress       = MemoryAddress;
+    msg->KernelEventInfo.MemorySize          = MemSize;
+    msg->KernelEventInfo.RawArgument1        = Extra1;
+    msg->KernelEventInfo.RawArgument2        = Extra2;
 
     if (ObjectName) {
         HRESULT hr = StringCchCopyW(msg->KernelEventInfo.ObjectName,
@@ -293,118 +310,85 @@ RkEmitFinding(_In_ ULONG IrpOpCode,
     }
 }
 
-// ===========================================================================
-// Helper: check if Address is within [ModuleBase, ModuleBase+ModuleSize)
-// ===========================================================================
 static BOOLEAN
-RkAddressInModule(_In_ PVOID Address,
-                  _In_ PVOID ModuleBase,
-                  _In_ ULONG ModuleSize)
+RkAddressInModule(_In_ PVOID Address, _In_ PVOID Base, _In_ ULONG Size)
 {
     ULONG_PTR addr = (ULONG_PTR)Address;
-    ULONG_PTR base = (ULONG_PTR)ModuleBase;
-    return (addr >= base && addr < (base + ModuleSize));
+    ULONG_PTR base = (ULONG_PTR)Base;
+    return (addr >= base && addr < (base + (ULONG_PTR)Size));
 }
 
-// ===========================================================================
-// Helper: walk PsLoadedModuleList to find ntoskrnl base + size.
-// Returns FALSE if ntoskrnl cannot be located.
-// ===========================================================================
 static BOOLEAN
 RkGetNtoskrnlRange(_Out_ PVOID *Base, _Out_ ULONG *Size)
 {
-    // We use ZwQuerySystemInformation to find ntoskrnl reliably.
     if (!fnZwQuerySystemInformation) return FALSE;
 
-    ULONG     bufSize  = 0;
-    NTSTATUS  status   = fnZwQuerySystemInformation(SystemModuleInformation,
-                                                    NULL, 0, &bufSize);
-    if (status != STATUS_INFO_LENGTH_MISMATCH || bufSize == 0) return FALSE;
+    ULONG    need   = 0;
+    NTSTATUS status = fnZwQuerySystemInformation(SystemModuleInformation,
+                                                 NULL, 0, &need);
+    if (status != STATUS_INFO_LENGTH_MISMATCH || need == 0) return FALSE;
 
-    bufSize += 4096; // headroom
-    PRTL_PROCESS_MODULES modules =
-        (PRTL_PROCESS_MODULES)ExAllocatePool2(POOL_FLAG_NON_PAGED,
-                                              bufSize, 'kMhO');
-    if (!modules) return FALSE;
+    need += 4096;
+    PRTL_PROCESS_MODULES mods =
+        (PRTL_PROCESS_MODULES)ExAllocatePool2(POOL_FLAG_NON_PAGED, need, 'kMhO');
+    if (!mods) return FALSE;
 
-    status = fnZwQuerySystemInformation(SystemModuleInformation,
-                                        modules, bufSize, NULL);
-    if (!NT_SUCCESS(status)) {
-        ExFreePoolWithTag(modules, 'kMhO');
+    status = fnZwQuerySystemInformation(SystemModuleInformation, mods, need, NULL);
+    if (!NT_SUCCESS(status) || mods->NumberOfModules == 0) {
+        ExFreePoolWithTag(mods, 'kMhO');
         return FALSE;
     }
 
-    // Module[0] is always ntoskrnl.exe on Windows.
-    if (modules->NumberOfModules == 0) {
-        ExFreePoolWithTag(modules, 'kMhO');
-        return FALSE;
-    }
-
-    *Base = modules->Modules[0].ImageBase;
-    *Size = modules->Modules[0].ImageSize;
-    ExFreePoolWithTag(modules, 'kMhO');
+    *Base = mods->Modules[0].ImageBase;
+    *Size = mods->Modules[0].ImageSize;
+    ExFreePoolWithTag(mods, 'kMhO');
     return TRUE;
 }
 
 // ===========================================================================
-// 1. SSDT Integrity Check
-//    Walk KeServiceDescriptorTable entries; any entry whose resolved address
-//    falls outside ntoskrnl is flagged as a hook.
+// 1. SSDT Integrity
 // ===========================================================================
 static ULONG
 RkCheckSsdtIntegrity(VOID)
 {
-    ULONG  findings  = 0;
-    PVOID  ntoBase   = NULL;
-    ULONG  ntoSize   = 0;
+    ULONG  findings = 0;
+    PVOID  ntoBase  = NULL;
+    ULONG  ntoSize  = 0;
 
-    if (!RkGetNtoskrnlRange(&ntoBase, &ntoSize)) {
-        DbgPrint("RootkitDetector: SSDT check — cannot locate ntoskrnl\n");
-        return 0;
-    }
+    if (!RkGetNtoskrnlRange(&ntoBase, &ntoSize)) return 0;
 
-    // On x64 Windows, SSDT entries are encoded as relative offsets:
-    //   RealAddress = (ULONG_PTR)&ServiceTable[i] + (ServiceTable[i] >> 4)
     __try {
-        PULONG  serviceTable   = (PULONG)KeServiceDescriptorTable.ServiceTable;
-        ULONG_PTR tableCount   = KeServiceDescriptorTable.NumberOfServices;
+        PULONG   table = (PULONG)KeServiceDescriptorTable.ServiceTable;
+        ULONG_PTR count = KeServiceDescriptorTable.NumberOfServices;
 
-        if (!serviceTable || tableCount == 0 || tableCount > 0x1000) {
-            return 0; // sanity
-        }
+        if (!table || count == 0 || count > 0x1000) return 0;
 
-        for (ULONG_PTR i = 0; i < tableCount && findings < ROOTKIT_MAX_FINDINGS_PER_PASS; ++i) {
+        for (ULONG_PTR i = 0;
+             i < count && findings < ROOTKIT_MAX_FINDINGS_PER_PASS;
+             ++i)
+        {
             __try {
-                // Decode the encoded entry (x64 relative offset encoding).
-                LONG_PTR encoded = (LONG_PTR)(LONG)serviceTable[i];
-                PVOID resolved   = (PVOID)((ULONG_PTR)&serviceTable[i] + (encoded >> 4));
+                LONG_PTR enc      = (LONG_PTR)(LONG)table[i];
+                PVOID    resolved = (PVOID)((ULONG_PTR)&table[i] + (enc >> 4));
 
                 if (!RkAddressInModule(resolved, ntoBase, ntoSize)) {
-                    WCHAR msg[128];
-                    HRESULT hr = StringCchPrintfW(msg, RTL_NUMBER_OF(msg),
-                        L"SSDT[%llu]=0x%p outside ntoskrnl", (ULONGLONG)i, resolved);
-                    UNREFERENCED_PARAMETER(hr);
+                    WCHAR desc[128];
+                    StringCchPrintfW(desc, RTL_NUMBER_OF(desc),
+                        L"SSDT[%llu]=0x%p outside ntoskrnl",
+                        (ULONGLONG)i, resolved);
 
-                    DbgPrint("RootkitDetector: SSDT hook at index %llu -> %p\n",
+                    DbgPrint("RootkitDetector: SSDT hook index=%llu -> %p\n",
                              (ULONGLONG)i, resolved);
 
-                    RkEmitFinding(IRP_ROOTKIT_SSDT_HOOK,
-                                  0,
-                                  msg,
-                                  resolved,
-                                  0,
-                                  (ULONG_PTR)i,
-                                  (ULONG_PTR)encoded);
+                    RkEmitFinding(IRP_ROOTKIT_SSDT_HOOK, 0, desc,
+                                  resolved, 0,
+                                  (ULONG_PTR)i, (ULONG_PTR)enc);
                     ++findings;
                 }
-            }
-            __except (EXCEPTION_EXECUTE_HANDLER) {
-                // Unreadable entry — skip silently.
-            }
+            } __except (EXCEPTION_EXECUTE_HANDLER) {}
         }
-    }
-    __except (EXCEPTION_EXECUTE_HANDLER) {
-        DbgPrint("RootkitDetector: Exception in SSDT check (0x%X)\n",
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        DbgPrint("RootkitDetector: SSDT check exception 0x%X\n",
                  GetExceptionCode());
     }
 
@@ -412,307 +396,202 @@ RkCheckSsdtIntegrity(VOID)
 }
 
 // ===========================================================================
-// 2. Hidden Process Detection
-//    Walk EPROCESS ActiveProcessLinks; for each PID verify it exists via
-//    PsLookupProcessByProcessId (which uses PspCidTable).
-//    A process unlinked from the EPROCESS list but still in PspCidTable is
-//    the classic DKOM hiding technique.
-//    We detect both directions:
-//      (a) In active list but PsLookup fails  → unreachable process (rare)
-//      (b) PID range scan finds process that isn't in active list → DKOM
+// 2. Hidden Process (DKOM detection)
 // ===========================================================================
-
-// PsActiveProcessHead is exported on checked builds; on free builds we use
-// PsInitialSystemProcess + EPROCESS.ActiveProcessLinks offsets.
-// We use ZwQuerySystemInformation(SystemProcessInformation) as the "trusted"
-// list and compare it against the EPROCESS walk via PsGetProcessId.
-
-#define SystemProcessInformation 5UL
-
 typedef struct _SYSTEM_PROCESS_INFORMATION {
     ULONG  NextEntryOffset;
     ULONG  NumberOfThreads;
-    LARGE_INTEGER SpareLi1;
-    LARGE_INTEGER SpareLi2;
-    LARGE_INTEGER SpareLi3;
+    LARGE_INTEGER SpareLi[3];
     LARGE_INTEGER CreateTime;
     LARGE_INTEGER UserTime;
     LARGE_INTEGER KernelTime;
     UNICODE_STRING ImageName;
     LONG   BasePriority;
     HANDLE UniqueProcessId;
-    HANDLE InheritedFromUniqueProcessId;
-    ULONG  HandleCount;
-    // ... more fields, we only need UniqueProcessId
-} SYSTEM_PROCESS_INFORMATION, *PSYSTEM_PROCESS_INFORMATION;
+    // rest unused
+} SYSTEM_PROCESS_INFORMATION;
 
 static ULONG
 RkCheckHiddenProcesses(VOID)
 {
     ULONG    findings = 0;
     NTSTATUS status;
-    ULONG    bufSize  = 0;
+    ULONG    need     = 0;
 
     if (!fnZwQuerySystemInformation || !fnPsLookupProcessByProcessId) return 0;
 
-    // --- Step 1: build a set of PIDs from ZwQuerySystemInformation ----------
-    // (This walks the same EPROCESS list under the hood, but rootkits that
-    //  patch ZwQuerySystemInformation's output would be caught by SSDT check.)
-    status = fnZwQuerySystemInformation(SystemProcessInformation,
-                                        NULL, 0, &bufSize);
-    if (status != STATUS_INFO_LENGTH_MISMATCH || bufSize == 0) return 0;
+    status = fnZwQuerySystemInformation(SystemProcessInformation, NULL, 0, &need);
+    if (status != STATUS_INFO_LENGTH_MISMATCH || need == 0) return 0;
 
-    bufSize += 65536;
-    PUCHAR buf = (PUCHAR)ExAllocatePool2(POOL_FLAG_PAGED, bufSize, 'pRhO');
+    need += 65536;
+    PUCHAR buf = (PUCHAR)ExAllocatePool2(POOL_FLAG_PAGED, need, 'pRhO');
     if (!buf) return 0;
 
-    status = fnZwQuerySystemInformation(SystemProcessInformation,
-                                        buf, bufSize, NULL);
-    if (!NT_SUCCESS(status)) {
-        ExFreePoolWithTag(buf, 'pRhO');
-        return 0;
-    }
+    status = fnZwQuerySystemInformation(SystemProcessInformation, buf, need, NULL);
+    if (!NT_SUCCESS(status)) { ExFreePoolWithTag(buf, 'pRhO'); return 0; }
 
-    // Build a hash-set of known PIDs (simple bitmap up to PID 65536).
-    // Windows PIDs are multiples of 4 and fit in 16 bits for most systems.
-    const ULONG PID_BITMAP_SIZE = 65536 / 8; // 8KB
-    PUCHAR pidBitmap = (PUCHAR)ExAllocatePool2(POOL_FLAG_NON_PAGED,
-                                               PID_BITMAP_SIZE, 'bRhO');
-    if (!pidBitmap) {
-        ExFreePoolWithTag(buf, 'pRhO');
-        return 0;
-    }
-    RtlZeroMemory(pidBitmap, PID_BITMAP_SIZE);
+    // Build a 64KB bitmap of known PIDs.
+    const ULONG BITMAP_BYTES = 65536 / 8;
+    PUCHAR bitmap = (PUCHAR)ExAllocatePool2(POOL_FLAG_NON_PAGED,
+                                            BITMAP_BYTES, 'bRhO');
+    if (!bitmap) { ExFreePoolWithTag(buf, 'pRhO'); return 0; }
+    RtlZeroMemory(bitmap, BITMAP_BYTES);
 
-    PSYSTEM_PROCESS_INFORMATION entry =
-        (PSYSTEM_PROCESS_INFORMATION)(PVOID)buf;
+    SYSTEM_PROCESS_INFORMATION *entry =
+        (SYSTEM_PROCESS_INFORMATION *)(PVOID)buf;
     while (TRUE) {
         ULONG pid = (ULONG)(ULONG_PTR)entry->UniqueProcessId;
-        if (pid < 65536) {
-            pidBitmap[pid / 8] |= (UCHAR)(1 << (pid % 8));
-        }
-        if (entry->NextEntryOffset == 0) break;
-        entry = (PSYSTEM_PROCESS_INFORMATION)((PUCHAR)entry +
-                                               entry->NextEntryOffset);
+        if (pid < 65536) bitmap[pid / 8] |= (UCHAR)(1 << (pid % 8));
+        if (!entry->NextEntryOffset) break;
+        entry = (SYSTEM_PROCESS_INFORMATION *)((PUCHAR)entry +
+                                                entry->NextEntryOffset);
     }
     ExFreePoolWithTag(buf, 'pRhO');
 
-    // --- Step 2: scan PID range; processes found via PsLookup but NOT in
-    //             the ZwQuerySystemInformation list are DKOM-hidden. ----------
-    for (ULONG pid = 4; pid < 65536 && findings < ROOTKIT_MAX_FINDINGS_PER_PASS;
+    // Scan PID space: PIDs in PspCidTable but absent from the list are DKOM-hidden.
+    for (ULONG pid = 4;
+         pid < 65536 && findings < ROOTKIT_MAX_FINDINGS_PER_PASS;
          pid += 4)
     {
-        BOOLEAN inSystemList = (pidBitmap[pid / 8] & (1 << (pid % 8))) != 0;
-        if (inSystemList) continue; // normal process
+        if (bitmap[pid / 8] & (1 << (pid % 8))) continue; // visible, skip
 
-        PEPROCESS process = NULL;
-        status = fnPsLookupProcessByProcessId((HANDLE)(ULONG_PTR)pid, &process);
-        if (NT_SUCCESS(status) && process != NULL) {
-            // PID exists in PspCidTable but is NOT in the system process list.
-            // Classic DKOM hidden process.
-            WCHAR procName[32] = {0};
-            PUCHAR imageFileName = (PUCHAR)PsGetProcessImageFileName(process);
-            if (imageFileName) {
-                // ImageFileName is 15-char ANSI inside EPROCESS.
-                ANSI_STRING  as  = {0};
-                UNICODE_STRING us = {0};
-                as.Buffer        = (PCHAR)imageFileName;
-                as.Length        = (USHORT)strnlen((PCHAR)imageFileName, 15);
-                as.MaximumLength = 15;
-                us.Buffer        = procName;
-                us.MaximumLength = sizeof(procName);
+        PEPROCESS proc = NULL;
+        if (NT_SUCCESS(fnPsLookupProcessByProcessId((HANDLE)(ULONG_PTR)pid, &proc))
+            && proc != NULL)
+        {
+            WCHAR name[32] = {0};
+            PUCHAR imgName = (PUCHAR)PsGetProcessImageFileName(proc);
+            if (imgName) {
+                ANSI_STRING   as = { (USHORT)strnlen((PCHAR)imgName, 15), 15,
+                                     (PCHAR)imgName };
+                UNICODE_STRING us = { 0, sizeof(name), name };
                 RtlAnsiStringToUnicodeString(&us, &as, FALSE);
             }
 
             DbgPrint("RootkitDetector: DKOM hidden process PID=%lu name=%S\n",
-                     pid, procName);
-
-            RkEmitFinding(IRP_ROOTKIT_HIDDEN_PROCESS,
-                          pid,
-                          procName[0] ? procName : L"<hidden>",
-                          NULL, 0,
-                          (ULONG_PTR)pid,
-                          0);
+                     pid, name);
+            RkEmitFinding(IRP_ROOTKIT_HIDDEN_PROCESS, pid,
+                          name[0] ? name : L"<hidden>",
+                          NULL, 0, (ULONG_PTR)pid, 0);
             ++findings;
-            ObDereferenceObject(process);
+            ObDereferenceObject(proc);
         }
     }
 
-    ExFreePoolWithTag(pidBitmap, 'bRhO');
+    ExFreePoolWithTag(bitmap, 'bRhO');
     return findings;
 }
 
 // ===========================================================================
-// 3. Hidden Driver Detection
-//    ZwQuerySystemInformation(SystemModuleInformation) returns the list
-//    built from PsLoadedModuleList. A driver that unlinks itself from
-//    PsLoadedModuleList will disappear from this list.
-//    We cross-check by scanning kernel VA space for PE headers that are
-//    NOT in the module list.
-//
-//    Practical implementation: scan DRIVER_OBJECT nodes in the I/O manager's
-//    driver directory (\Driver) via ZwOpenDirectoryObject and compare each
-//    driver's DriverStart against the module list. Drivers with a DriverStart
-//    not present in the module list are flagged.
+// 3. Hidden Driver
 // ===========================================================================
 static ULONG
 RkCheckHiddenDrivers(VOID)
 {
     ULONG    findings = 0;
     NTSTATUS status;
-    ULONG    bufSize  = 0;
+    ULONG    need     = 0;
 
     if (!fnZwQuerySystemInformation) return 0;
 
-    // Build module list from ZwQuerySystemInformation.
-    status = fnZwQuerySystemInformation(SystemModuleInformation,
-                                        NULL, 0, &bufSize);
-    if (status != STATUS_INFO_LENGTH_MISMATCH || bufSize == 0) return 0;
+    status = fnZwQuerySystemInformation(SystemModuleInformation, NULL, 0, &need);
+    if (status != STATUS_INFO_LENGTH_MISMATCH || need == 0) return 0;
 
-    bufSize += 4096;
-    PRTL_PROCESS_MODULES modules =
+    need += 4096;
+    PRTL_PROCESS_MODULES mods =
         (PRTL_PROCESS_MODULES)ExAllocatePool2(POOL_FLAG_NON_PAGED,
-                                              bufSize, 'dRhO');
-    if (!modules) return 0;
+                                              need, 'dRhO');
+    if (!mods) return 0;
 
-    status = fnZwQuerySystemInformation(SystemModuleInformation,
-                                        modules, bufSize, NULL);
-    if (!NT_SUCCESS(status)) {
-        ExFreePoolWithTag(modules, 'dRhO');
-        return 0;
-    }
+    status = fnZwQuerySystemInformation(SystemModuleInformation, mods, need, NULL);
+    if (!NT_SUCCESS(status)) { ExFreePoolWithTag(mods, 'dRhO'); return 0; }
 
-    // Iterate \Driver directory via ZwOpenDirectoryObject.
-    UNICODE_STRING  driverDirName;
+    UNICODE_STRING   dirName;
     OBJECT_ATTRIBUTES oa;
-    HANDLE  hDir = NULL;
+    HANDLE            hDir = NULL;
 
-    RtlInitUnicodeString(&driverDirName, L"\\Driver");
-    InitializeObjectAttributes(&oa, &driverDirName,
+    RtlInitUnicodeString(&dirName, L"\\Driver");
+    InitializeObjectAttributes(&oa, &dirName,
                                 OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE,
                                 NULL, NULL);
-    status = ZwOpenDirectoryObject(&hDir, DIRECTORY_QUERY, &oa);
-    if (!NT_SUCCESS(status)) {
-        ExFreePoolWithTag(modules, 'dRhO');
+    if (!NT_SUCCESS(ZwOpenDirectoryObject(&hDir, DIRECTORY_QUERY, &oa))) {
+        ExFreePoolWithTag(mods, 'dRhO');
         return 0;
     }
 
-    // Query directory objects in batches.
-    ULONG  context    = 0;
-    BOOLEAN firstQuery = TRUE;
-    const  ULONG QUERY_BUF = 16384;
-    PUCHAR qBuf = (PUCHAR)ExAllocatePool2(POOL_FLAG_PAGED, QUERY_BUF, 'qRhO');
-    if (!qBuf) {
+    const ULONG QBUF = 16384;
+    PUCHAR qbuf = (PUCHAR)ExAllocatePool2(POOL_FLAG_PAGED, QBUF, 'qRhO');
+    if (!qbuf) {
         ZwClose(hDir);
-        ExFreePoolWithTag(modules, 'dRhO');
+        ExFreePoolWithTag(mods, 'dRhO');
         return 0;
     }
+
+    typedef struct { UNICODE_STRING Name; UNICODE_STRING TypeName; } OBJ_DIR_INFO;
+
+    ULONG   ctx       = 0;
+    BOOLEAN firstCall = TRUE;
 
     while (findings < ROOTKIT_MAX_FINDINGS_PER_PASS) {
-        ULONG retLen = 0;
-        status = ZwQueryDirectoryObject(hDir, qBuf, QUERY_BUF,
-                                        FALSE, firstQuery,
-                                        &context, &retLen);
-        firstQuery = FALSE;
+        ULONG ret = 0;
+        status = ZwQueryDirectoryObject(hDir, qbuf, QBUF,
+                                        FALSE, firstCall, &ctx, &ret);
+        firstCall = FALSE;
         if (!NT_SUCCESS(status) && status != STATUS_MORE_ENTRIES) break;
 
-        // Each entry is OBJECT_DIRECTORY_INFORMATION: two UNICODE_STRINGs
-        // (Name, TypeName), terminated by two zero-length strings.
-        typedef struct { UNICODE_STRING Name; UNICODE_STRING TypeName; }
-            OBJ_DIR_INFO;
+        OBJ_DIR_INFO *info = (OBJ_DIR_INFO *)(PVOID)qbuf;
+        while (info->Name.Length != 0 &&
+               findings < ROOTKIT_MAX_FINDINGS_PER_PASS)
+        {
+            WCHAR path[256] = {0};
+            StringCchPrintfW(path, RTL_NUMBER_OF(path),
+                             L"\\Driver\\%wZ", &info->Name);
 
-        OBJ_DIR_INFO *info = (OBJ_DIR_INFO *)(PVOID)qBuf;
-        while (info->Name.Length != 0) {
-            // Build full driver object path: \Driver\<Name>
-            WCHAR  fullPath[256] = {0};
-            HRESULT hr = StringCchPrintfW(fullPath, RTL_NUMBER_OF(fullPath),
-                                          L"\\Driver\\%wZ", &info->Name);
-            UNREFERENCED_PARAMETER(hr);
+            UNICODE_STRING pathUs;
+            RtlInitUnicodeString(&pathUs, path);
 
-            UNICODE_STRING  fullUs;
-            OBJECT_ATTRIBUTES drvOa;
-            RtlInitUnicodeString(&fullUs, fullPath);
-            InitializeObjectAttributes(&drvOa, &fullUs,
-                                        OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE,
-                                        NULL, NULL);
-
-            PDRIVER_OBJECT drvObj = NULL;
-            status = ObReferenceObjectByName(&fullUs,
-                                             OBJ_CASE_INSENSITIVE,
-                                             NULL,
-                                             0,
-                                             *IoDriverObjectType,
-                                             KernelMode,
-                                             NULL,
-                                             (PVOID *)&drvObj);
-            if (NT_SUCCESS(status) && drvObj) {
-                PVOID drvBase = drvObj->DriverStart;
-                BOOLEAN found = FALSE;
-
-                for (ULONG m = 0; m < modules->NumberOfModules; ++m) {
-                    if (modules->Modules[m].ImageBase == drvBase) {
-                        found = TRUE;
-                        break;
-                    }
+            PDRIVER_OBJECT drv = NULL;
+            if (NT_SUCCESS(ObReferenceObjectByName(
+                    &pathUs, OBJ_CASE_INSENSITIVE, NULL, 0,
+                    *IoDriverObjectType, KernelMode, NULL,
+                    (PVOID *)&drv)) && drv)
+            {
+                PVOID base  = drv->DriverStart;
+                BOOLEAN hit = TRUE;
+                for (ULONG m = 0; m < mods->NumberOfModules; ++m) {
+                    if (mods->Modules[m].ImageBase == base) { hit = FALSE; break; }
                 }
-
-                if (!found && drvBase != NULL) {
+                if (hit && base) {
                     DbgPrint("RootkitDetector: hidden driver '%wZ' base=%p\n",
-                             &info->Name, drvBase);
-                    RkEmitFinding(IRP_ROOTKIT_HIDDEN_DRIVER,
-                                  0,
-                                  fullPath,
-                                  drvBase,
-                                  drvObj->Size,
-                                  0, 0);
+                             &info->Name, base);
+                    RkEmitFinding(IRP_ROOTKIT_HIDDEN_DRIVER, 0, path,
+                                  base, (SIZE_T)drv->Size, 0, 0);
                     ++findings;
                 }
-                ObDereferenceObject(drvObj);
+                ObDereferenceObject(drv);
             }
-
             info++;
-            if (findings >= ROOTKIT_MAX_FINDINGS_PER_PASS) break;
         }
-
         if (status != STATUS_MORE_ENTRIES) break;
     }
 
-    ExFreePoolWithTag(qBuf, 'qRhO');
+    ExFreePoolWithTag(qbuf, 'qRhO');
     ZwClose(hDir);
-    ExFreePoolWithTag(modules, 'dRhO');
+    ExFreePoolWithTag(mods, 'dRhO');
     return findings;
 }
 
 // ===========================================================================
 // 4. Kernel Inline Hook Detection
-//    Check the first 16 bytes of a curated list of ntoskrnl exports for
-//    well-known JMP patterns:
-//      FF 25 xx xx xx xx   — indirect absolute JMP (x64 14-byte hook prefix)
-//      E9 xx xx xx xx      — relative JMP (5-byte hook)
-//    If the target lands outside ntoskrnl, flag it.
 // ===========================================================================
-
 static CONST PCHAR g_MonitoredExports[] = {
-    "NtCreateFile",
-    "NtOpenFile",
-    "NtReadFile",
-    "NtWriteFile",
-    "NtDeleteFile",
-    "NtCreateProcess",
-    "NtCreateProcessEx",
-    "NtTerminateProcess",
-    "NtAllocateVirtualMemory",
-    "NtProtectVirtualMemory",
-    "NtWriteVirtualMemory",
-    "NtCreateThread",
-    "NtCreateThreadEx",
-    "NtQuerySystemInformation",
-    "NtLoadDriver",
-    "NtSetSystemInformation",
-    "NtOpenProcess",
-    "NtOpenThread",
-    "NtCreateSection",
-    "NtMapViewOfSection",
+    "NtCreateFile",        "NtOpenFile",           "NtReadFile",
+    "NtWriteFile",         "NtDeleteFile",          "NtCreateProcess",
+    "NtCreateProcessEx",   "NtTerminateProcess",    "NtAllocateVirtualMemory",
+    "NtProtectVirtualMemory","NtWriteVirtualMemory","NtCreateThread",
+    "NtCreateThreadEx",    "NtQuerySystemInformation","NtLoadDriver",
+    "NtSetSystemInformation","NtOpenProcess",       "NtOpenThread",
+    "NtCreateSection",     "NtMapViewOfSection",
     NULL
 };
 
@@ -729,80 +608,66 @@ RkCheckKernelInlineHooks(VOID)
          g_MonitoredExports[i] != NULL && findings < ROOTKIT_MAX_FINDINGS_PER_PASS;
          ++i)
     {
-        UNICODE_STRING  exportUs;
-        ANSI_STRING     exportAs;
-        RtlInitAnsiString(&exportAs, g_MonitoredExports[i]);
+        ANSI_STRING    as;
+        UNICODE_STRING us;
+        RtlInitAnsiString(&as, g_MonitoredExports[i]);
+        if (!NT_SUCCESS(RtlAnsiStringToUnicodeString(&us, &as, TRUE))) continue;
 
-        NTSTATUS convStatus = RtlAnsiStringToUnicodeString(&exportUs, &exportAs, TRUE);
-        if (!NT_SUCCESS(convStatus)) continue;
+        PVOID fn = MmGetSystemRoutineAddress(&us);
+        RtlFreeUnicodeString(&us);
 
-        PVOID fnAddr = MmGetSystemRoutineAddress(&exportUs);
-        RtlFreeUnicodeString(&exportUs);
-
-        if (!fnAddr) continue;
-        // Function must be inside ntoskrnl to be a valid check target.
-        if (!RkAddressInModule(fnAddr, ntoBase, ntoSize)) continue;
+        if (!fn || !RkAddressInModule(fn, ntoBase, ntoSize)) continue;
 
         __try {
-            PUCHAR p = (PUCHAR)fnAddr;
+            PUCHAR p       = (PUCHAR)fn;
             BOOLEAN hooked = FALSE;
-            PVOID   hookTarget = NULL;
+            PVOID   target = NULL;
 
-            // Pattern 1: FF 25 xx xx xx xx  (indirect JMP via RIP-relative ptr)
+            // FF 25 rel32 — indirect JMP (x64 14-byte hook)
             if (p[0] == 0xFF && p[1] == 0x25) {
-                LONG rel32 = *(LONG *)(p + 2);
-                PVOID *ptr = (PVOID *)((ULONG_PTR)(p + 6) + rel32);
+                LONG rel = *(LONG *)(p + 2);
+                PVOID *ptr = (PVOID *)((ULONG_PTR)(p + 6) + rel);
                 __try {
-                    hookTarget = *ptr;
-                    if (!RkAddressInModule(hookTarget, ntoBase, ntoSize)) {
+                    target = *ptr;
+                    if (!RkAddressInModule(target, ntoBase, ntoSize))
                         hooked = TRUE;
-                    }
-                } __except (EXCEPTION_EXECUTE_HANDLER) { }
+                } __except (EXCEPTION_EXECUTE_HANDLER) {}
             }
 
-            // Pattern 2: E9 xx xx xx xx  (relative JMP)
+            // E9 rel32 — relative JMP (5-byte hook)
             if (!hooked && p[0] == 0xE9) {
-                LONG rel32 = *(LONG *)(p + 1);
-                hookTarget = (PVOID)((ULONG_PTR)(p + 5) + rel32);
-                if (!RkAddressInModule(hookTarget, ntoBase, ntoSize)) {
+                LONG rel = *(LONG *)(p + 1);
+                target = (PVOID)((ULONG_PTR)(p + 5) + rel);
+                if (!RkAddressInModule(target, ntoBase, ntoSize))
                     hooked = TRUE;
-                }
             }
 
-            // Pattern 3: 48 B8 xx..xx / FF E0  (mov rax, abs64; jmp rax — 12-byte)
-            if (!hooked && p[0] == 0x48 && p[1] == 0xB8 &&
+            // 48 B8 imm64 / FF E0 — mov rax, imm64; jmp rax (12-byte)
+            if (!hooked &&
+                p[0] == 0x48 && p[1] == 0xB8 &&
                 p[10] == 0xFF && p[11] == 0xE0)
             {
-                hookTarget = *(PVOID *)(p + 2);
-                if (!RkAddressInModule(hookTarget, ntoBase, ntoSize)) {
+                target = *(PVOID *)(p + 2);
+                if (!RkAddressInModule(target, ntoBase, ntoSize))
                     hooked = TRUE;
-                }
             }
 
             if (hooked) {
-                WCHAR wideName[128] = {0};
-                ANSI_STRING  ansiN;
-                UNICODE_STRING uniN;
-                RtlInitAnsiString(&ansiN, g_MonitoredExports[i]);
-                uniN.Buffer = wideName;
-                uniN.MaximumLength = sizeof(wideName);
-                uniN.Length = 0;
-                RtlAnsiStringToUnicodeString(&uniN, &ansiN, FALSE);
+                ANSI_STRING    an2;
+                UNICODE_STRING wn;
+                WCHAR          wnBuf[128] = {0};
+                RtlInitAnsiString(&an2, g_MonitoredExports[i]);
+                wn.Buffer = wnBuf; wn.Length = 0;
+                wn.MaximumLength = sizeof(wnBuf);
+                RtlAnsiStringToUnicodeString(&wn, &an2, FALSE);
 
-                DbgPrint("RootkitDetector: inline hook on %s -> %p\n",
-                         g_MonitoredExports[i], hookTarget);
-
-                RkEmitFinding(IRP_ROOTKIT_KERNEL_HOOK,
-                              0,
-                              wideName,
-                              fnAddr,
-                              0,
-                              (ULONG_PTR)hookTarget,
-                              0);
+                DbgPrint("RootkitDetector: inline hook %s -> %p\n",
+                         g_MonitoredExports[i], target);
+                RkEmitFinding(IRP_ROOTKIT_KERNEL_HOOK, 0, wnBuf,
+                              fn, 0, (ULONG_PTR)target, 0);
                 ++findings;
             }
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER) {
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
             DbgPrint("RootkitDetector: exception inspecting %s\n",
                      g_MonitoredExports[i]);
         }

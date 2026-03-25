@@ -8,18 +8,22 @@ Module Name:
 
 Abstract:
 
-    Kernel-mode rootkit detection engine inspired by GMER's detection methods.
+    Event-driven rootkit detection engine for HydraDragon / Owlyshield.
+    No timer. Detection fires on every new driver event via
+    RootkitDetectorOnDriverEvent(), internally debounced to avoid overhead
+    on hot event paths.
 
     Detection capabilities:
-      1. SSDT integrity check  - entries pointing outside ntoskrnl are flagged
-      2. Hidden process        - EPROCESS ActiveProcessLinks vs PspCidTable mismatch
-      3. Hidden driver         - PsLoadedModuleList vs ZwQuerySystemInformation mismatch
-      4. Kernel inline hooks   - first 16 bytes of critical ntoskrnl exports checked
-                                 for FF25/E9 redirect patterns
+      1. SSDT integrity     - entries pointing outside ntoskrnl
+      2. Hidden process     - PspCidTable vs EPROCESS list mismatch (DKOM)
+      3. Hidden driver      - PsLoadedModuleList vs ZwQuerySystemInformation
+      4. Kernel inline hook - FF25 / E9 / mov-rax-jmp-rax on ntoskrnl exports
 
-    All findings are forwarded to the IRP queue via the same DRIVER_MESSAGE
-    / IRP_ROOTKIT_* opcodes defined in SharedDefs.h so that behavior_engine.rs
-    can handle them uniformly.
+    IRP opcodes (defined in SharedDefs.h):
+      IRP_ROOTKIT_SSDT_HOOK       21
+      IRP_ROOTKIT_HIDDEN_PROCESS  22
+      IRP_ROOTKIT_HIDDEN_DRIVER   23
+      IRP_ROOTKIT_KERNEL_HOOK     24
 
 Environment:
 
@@ -35,41 +39,53 @@ extern "C" {
 #endif
 
 // -------------------------------------------------------------------------
+// Trigger hint passed to RootkitDetectorOnDriverEvent().
+// -------------------------------------------------------------------------
+typedef enum _RK_TRIGGER
+{
+    // SSDT + inline-hook only. Cheap, no process enumeration.
+    RK_TRIGGER_LIGHT   = 0,
+
+    // Full scan: SSDT + inline-hook + hidden-process + hidden-driver.
+    RK_TRIGGER_FULL    = 1,
+
+    // Hidden-driver + hidden-process only. Used on image-load events.
+    RK_TRIGGER_DRIVER  = 2,
+
+} RK_TRIGGER;
+
+// -------------------------------------------------------------------------
 // Public API
 // -------------------------------------------------------------------------
 
-//
 // Call once from DriverEntry after driverData is initialised.
-// Resolves dynamic imports and starts the periodic scan timer.
-//
-NTSTATUS
-RootkitDetectorInitialize(VOID);
+NTSTATUS  RootkitDetectorInitialize(VOID);
 
-//
-// Call from DriverUnload / cleanup path.
-// Cancels the timer and frees all resources.
-//
-VOID
-RootkitDetectorCleanup(VOID);
+// Register the device object used to queue passive-level work items.
+// Must be called before the first RootkitDetectorOnDriverEvent().
+VOID      RootkitDetectorSetDeviceObject(_In_ PDEVICE_OBJECT DeviceObject);
 
-//
-// Run all checks synchronously. Normally driven by the internal timer,
-// but can also be called on-demand from user-mode via a COM_MESSAGE.
-// Returns the number of anomalies found.
-//
-ULONG
-RootkitDetectorRunScan(VOID);
+// Called by FSFilter on every relevant driver event.
+// Debounced internally; safe to call on every IRP.
+VOID      RootkitDetectorOnDriverEvent(_In_ RK_TRIGGER Trigger,
+                                       _In_ ULONG      EventIrp);
+
+// Run all checks synchronously at PASSIVE_LEVEL. Returns anomaly count.
+ULONG     RootkitDetectorRunScan(VOID);
+
+// Call from DriverUnload.
+VOID      RootkitDetectorCleanup(VOID);
 
 // -------------------------------------------------------------------------
-// Scan interval (configurable at compile time)
+// Tunables
 // -------------------------------------------------------------------------
 
-//  How often the periodic scan fires, in seconds.
-#ifndef ROOTKIT_SCAN_INTERVAL_SEC
-#define ROOTKIT_SCAN_INTERVAL_SEC 60
+// Minimum ms between consecutive FULL scans (light/driver scans skip debounce).
+#ifndef ROOTKIT_DEBOUNCE_MS
+#define ROOTKIT_DEBOUNCE_MS 500
 #endif
 
-// Maximum number of hidden processes / drivers we report per scan pass.
+// Max anomalies per pass (prevents IRP queue flooding).
 #define ROOTKIT_MAX_FINDINGS_PER_PASS 32
 
 #ifdef __cplusplus

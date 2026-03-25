@@ -1,0 +1,272 @@
+# =============================================================================
+# HydraDragon Rootkit Detection Rules
+# File: rootkit_detection.yml
+# Place in: C:\Program Files\HydraDragonAntivirus\hydradragon\
+#           HydraDragon_Protection_Rules\Owlyshield\BehaviorRules\
+# =============================================================================
+
+---
+
+# ---------------------------------------------------------------------------
+# Rule 1: SSDT Hook — any SSDT entry redirected outside ntoskrnl
+# Severity: critical. Terminate immediately, no quarantine needed.
+# ---------------------------------------------------------------------------
+- name: "Rootkit.SsdtHook"
+  description: >
+    SSDT service table entry points outside ntoskrnl address range.
+    Classic rootkit technique to intercept system calls at kernel level.
+  author: "HydraDragon"
+  severity: 5
+  tags:
+    - rootkit
+    - ssdt
+    - kernel
+  mitre_attack:
+    - "T1014"   # Rootkit
+    - "T1562"   # Impair Defenses
+
+  named_conditions:
+    ssdt_hooked:
+      rootkit_event_types: ["ssdt_hook"]
+      rootkit_event_min_count: 1
+
+  detection_logic:
+    condition: "ssdt_hooked"
+
+  response:
+    terminate_process: true
+    notify_user: true
+    record: true
+
+---
+
+# ---------------------------------------------------------------------------
+# Rule 2: Hidden Process (DKOM) — process in PspCidTable but not EPROCESS list
+# ---------------------------------------------------------------------------
+- name: "Rootkit.HiddenProcess.DKOM"
+  description: >
+    Process found in PspCidTable but absent from EPROCESS ActiveProcessLinks.
+    Direct Kernel Object Manipulation (DKOM) used to hide a running process.
+  author: "HydraDragon"
+  severity: 5
+  tags:
+    - rootkit
+    - dkom
+    - hidden_process
+    - kernel
+  mitre_attack:
+    - "T1014"   # Rootkit
+    - "T1564"   # Hide Artifacts
+
+  named_conditions:
+    hidden_proc:
+      rootkit_event_types: ["hidden_process"]
+      rootkit_event_min_count: 1
+
+  detection_logic:
+    condition: "hidden_proc"
+
+  response:
+    terminate_process: true
+    notify_user: true
+    record: true
+
+---
+
+# ---------------------------------------------------------------------------
+# Rule 3: Hidden Driver — driver present in memory but not in module list
+# ---------------------------------------------------------------------------
+- name: "Rootkit.HiddenDriver"
+  description: >
+    A driver object exists in the \Driver directory but its base address is
+    absent from PsLoadedModuleList / ZwQuerySystemInformation module list.
+    Indicates the driver unlinked itself to avoid detection.
+  author: "HydraDragon"
+  severity: 5
+  tags:
+    - rootkit
+    - hidden_driver
+    - kernel
+  mitre_attack:
+    - "T1014"   # Rootkit
+    - "T1547"   # Boot or Logon Autostart Execution
+
+  named_conditions:
+    hidden_drv:
+      rootkit_event_types: ["hidden_driver"]
+      rootkit_event_min_count: 1
+
+  detection_logic:
+    condition: "hidden_drv"
+
+  response:
+    terminate_process: true
+    notify_user: true
+    record: true
+
+---
+
+# ---------------------------------------------------------------------------
+# Rule 4: Kernel Inline Hook — JMP patch on monitored ntoskrnl export
+# ---------------------------------------------------------------------------
+- name: "Rootkit.KernelInlineHook"
+  description: >
+    A monitored ntoskrnl export (NtCreateFile, NtAllocateVirtualMemory, etc.)
+    has been patched with a JMP instruction redirecting execution outside
+    ntoskrnl. Classic ring-0 inline hook used by rootkits and some malware.
+  author: "HydraDragon"
+  severity: 4
+  tags:
+    - rootkit
+    - kernel_hook
+    - inline_hook
+    - kernel
+  mitre_attack:
+    - "T1014"   # Rootkit
+    - "T1055"   # Process Injection
+
+  named_conditions:
+    kernel_hook:
+      rootkit_event_types: ["kernel_hook"]
+      rootkit_event_min_count: 1
+
+  detection_logic:
+    condition: "kernel_hook"
+
+  response:
+    terminate_process: true
+    notify_user: true
+    record: true
+
+---
+
+# ---------------------------------------------------------------------------
+# Rule 5: Rootkit + Process Injection combo
+# A process that both performs kernel-level injection AND triggers a rootkit
+# finding is almost certainly malware. Terminate + quarantine.
+# ---------------------------------------------------------------------------
+- name: "Rootkit.PlusInjection"
+  description: >
+    Process triggered both a kernel rootkit finding (SSDT hook or inline hook)
+    AND performed memory injection (WriteVirtualMemory / CreateRemoteThread).
+    High-confidence rootkit dropper / loader.
+  author: "HydraDragon"
+  severity: 5
+  tags:
+    - rootkit
+    - injection
+    - kernel
+  mitre_attack:
+    - "T1014"
+    - "T1055"
+
+  named_conditions:
+    any_rootkit:
+      rootkit_total_min: 1
+
+    injection_apis:
+      apis:
+        - "ntdll!NtWriteVirtualMemory"
+        - "ntdll!NtCreateThreadEx"
+        - "ntdll!NtQueueApcThread"
+      api_threshold: 1
+      # Also catch raw kernel-path events
+      detect_hypervisor_event: true
+      hypervisor_event_labels:
+        - "IrpKernelWriteMemory"
+        - "IrpKernelRemoteThread"
+        - "IrpKernelQueueApc"
+      hypervisor_event_threshold: 1
+
+  detection_logic:
+    and:
+      - condition: "any_rootkit"
+      - condition: "injection_apis"
+
+  response:
+    terminate_process: true
+    quarantine: true
+    notify_user: true
+    record: true
+
+---
+
+# ---------------------------------------------------------------------------
+# Rule 6: Multiple rootkit finding types — full rootkit toolkit
+# Fires when more than one finding category is triggered (e.g., hidden driver
+# AND SSDT hook). Strong indicator of a sophisticated rootkit.
+# ---------------------------------------------------------------------------
+- name: "Rootkit.MultiVector"
+  description: >
+    Multiple distinct rootkit detection categories triggered for the same
+    process context. Indicative of a sophisticated, multi-component rootkit.
+  author: "HydraDragon"
+  severity: 5
+  tags:
+    - rootkit
+    - multi_vector
+    - kernel
+  mitre_attack:
+    - "T1014"
+
+  named_conditions:
+    ssdt_finding:
+      rootkit_event_types: ["ssdt_hook"]
+
+    driver_finding:
+      rootkit_event_types: ["hidden_driver"]
+
+    hook_finding:
+      rootkit_event_types: ["kernel_hook"]
+
+    proc_finding:
+      rootkit_event_types: ["hidden_process"]
+
+  detection_logic:
+    # At least two distinct rootkit categories.
+    count:
+      - "ssdt_finding"
+      - "driver_finding"
+      - "hook_finding"
+      - "proc_finding"
+    comparison: gte
+    threshold: 2
+
+  response:
+    terminate_process: true
+    quarantine: true
+    notify_user: true
+    record: true
+
+---
+
+# ---------------------------------------------------------------------------
+# Rule 7: Rootkit on NtCreateFile hook specifically
+# Low-false-positive: hooking NtCreateFile outside ntoskrnl is almost always
+# malicious (legitimate products use minifilters instead).
+# ---------------------------------------------------------------------------
+- name: "Rootkit.NtCreateFileHook"
+  description: >
+    NtCreateFile has been inline-hooked by code outside ntoskrnl.
+    Legitimate security products use minifilters; direct SSDT/inline hooks
+    on file I/O functions are characteristic of rootkits.
+  author: "HydraDragon"
+  severity: 5
+  tags:
+    - rootkit
+    - kernel_hook
+    - file_hook
+
+  named_conditions:
+    createfile_hook:
+      rootkit_event_types: ["kernel_hook"]
+      rootkit_description_contains:
+        - "NtCreateFile"
+
+  detection_logic:
+    condition: "createfile_hook"
+
+  response:
+    terminate_process: true
+    notify_user: true
+    record: true
