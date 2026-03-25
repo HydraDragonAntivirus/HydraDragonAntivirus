@@ -217,6 +217,14 @@ fn default_max_visible_logs() -> usize {
     2000
 }
 
+fn default_prune_http_history() -> bool {
+    true
+}
+
+fn default_max_visible_http_history() -> usize {
+    5000
+}
+
 fn default_queue_position() -> usize {
     1
 }
@@ -663,6 +671,10 @@ pub struct FirewallSettings {
     pub prune_old_logs: bool,
     #[serde(default = "default_max_visible_logs")]
     pub max_visible_logs: usize,
+    #[serde(default = "default_prune_http_history")]
+    pub prune_http_history: bool,
+    #[serde(default = "default_max_visible_http_history")]
+    pub max_visible_http_events: usize,
     pub tls_proxy: TlsProxyConfig,
     pub metadata: HashMap<String, String>,
 }
@@ -691,6 +703,8 @@ impl Default for FirewallSettings {
             save_all_logs: true,
             prune_old_logs: true,
             max_visible_logs: default_max_visible_logs(),
+            prune_http_history: default_prune_http_history(),
+            max_visible_http_events: default_max_visible_http_history(),
             tls_proxy: TlsProxyConfig::default(),
             metadata,
         }
@@ -1643,6 +1657,8 @@ impl FirewallEngine {
             save_all_logs: current_settings.save_all_logs,
             prune_old_logs: current_settings.prune_old_logs,
             max_visible_logs: current_settings.max_visible_logs,
+            prune_http_history: current_settings.prune_http_history,
+            max_visible_http_events: current_settings.max_visible_http_events,
             tls_proxy: current_settings.tls_proxy.clone(),
             metadata: current_settings.metadata.clone(),
         };

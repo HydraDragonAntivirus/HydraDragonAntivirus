@@ -392,6 +392,10 @@ pub struct FirewallSettings {
     pub prune_old_logs: bool,
     #[serde(default = "default_max_visible_logs")]
     pub max_visible_logs: usize,
+    #[serde(default = "default_prune_http_history")]
+    pub prune_http_history: bool,
+    #[serde(default = "default_max_visible_http_history")]
+    pub max_visible_http_events: usize,
     #[serde(default)]
     pub tls_proxy: TlsProxyConfig,
     #[serde(default)]
@@ -420,6 +424,8 @@ impl Default for FirewallSettings {
             save_all_logs: true,
             prune_old_logs: true,
             max_visible_logs: default_max_visible_logs(),
+            prune_http_history: default_prune_http_history(),
+            max_visible_http_events: default_max_visible_http_history(),
             tls_proxy: TlsProxyConfig::default(),
             metadata,
         }
@@ -432,6 +438,42 @@ fn default_true() -> bool {
 
 fn default_max_visible_logs() -> usize {
     2000
+}
+
+fn default_prune_http_history() -> bool {
+    true
+}
+
+fn default_max_visible_http_history() -> usize {
+    5000
+}
+
+fn metadata_to_editor_string(metadata: &HashMap<String, String>) -> String {
+    let mut entries = metadata.iter().collect::<Vec<_>>();
+    entries.sort_by(|a, b| a.0.cmp(b.0));
+    entries
+        .into_iter()
+        .map(|(key, value)| format!("{key}={value}"))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn parse_metadata_editor_string(value: &str) -> HashMap<String, String> {
+    let mut metadata = HashMap::new();
+    for line in value.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        if let Some((key, entry_value)) = trimmed.split_once('=') {
+            let key = key.trim();
+            if !key.is_empty() {
+                metadata.insert(key.to_string(), entry_value.trim().to_string());
+            }
+        }
+    }
+    metadata
 }
 
 fn default_queue_position() -> usize {
@@ -793,8 +835,13 @@ pub fn App() -> impl IntoView {
                         let http_log = build_proxy_log_entry(&ev);
                         set_proxy_events.update(|p| {
                             p.push(ev);
-                            if p.len() > 200 {
-                                p.remove(0);
+                            let current_settings = settings.get_untracked();
+                            if current_settings.prune_http_history {
+                                let keep = current_settings.max_visible_http_events.max(1);
+                                if p.len() > keep {
+                                    let remove_count = p.len() - keep;
+                                    p.drain(0..remove_count);
+                                }
                             }
                         });
                         set_logs.update(|l| {
@@ -1762,6 +1809,28 @@ pub fn App() -> impl IntoView {
                                             <div><strong>"Kernel blocks: "</strong>{move || settings.get().kernel_block_paths.len().to_string()}</div>
                                             <div><strong>"Metadata keys: "</strong>{move || settings.get().metadata.len().to_string()}</div>
                                         </div>
+                                        <div style="margin: 0 0 18px 0; padding: 12px; border-radius: 8px; background: rgba(15, 23, 42, 0.32); border: 1px solid rgba(148, 163, 184, 0.12);">
+                                            <div style="font-size: 12px; font-weight: 700; margin-bottom: 6px;">"Managed Settings Coverage"</div>
+                                            <p style="margin: 0; color: var(--text-muted); font-size: 12px; line-height: 1.5">
+                                                "Protection rules are managed in the Protection Rules tab, trusted applications are managed in Exclusions, and the raw JSON editor below still includes every available setting."
+                                            </p>
+                                        </div>
+                                        <div class="input-group">
+                                            <label>"Metadata entries"</label>
+                                            <textarea
+                                                style="min-height: 110px; width: 100%; box-sizing: border-box; padding: 10px; resize: vertical; font-family: Consolas, monospace; font-size: 12px"
+                                                prop:value=move || metadata_to_editor_string(&settings.get().metadata)
+                                                on:input=move |ev| {
+                                                    let value = event_target_value(&ev);
+                                                    set_settings.update(|s| {
+                                                        s.metadata = parse_metadata_editor_string(&value);
+                                                    });
+                                                }
+                                            />
+                                            <p style="margin: 8px 0 0 0; color: var(--text-muted); font-size: 12px; line-height: 1.5">
+                                                "Format: one `key=value` entry per line. This updates the normal metadata map without needing raw JSON."
+                                            </p>
+                                        </div>
                                         <div class="input-group">
                                             <label style="display: flex; align-items: center; gap: 10px">
                                                 <input
@@ -1798,6 +1867,40 @@ pub fn App() -> impl IntoView {
                                                     }
                                                 }
                                             />
+                                        </div>
+                                        <div style="margin: 14px 0 12px 0; padding: 12px; border-radius: 8px; background: rgba(59, 130, 246, 0.08); border: 1px solid rgba(59, 130, 246, 0.16);">
+                                            <div style="font-size: 12px; font-weight: 700; margin-bottom: 6px;">"HTTP Inspector History"</div>
+                                            <p style="margin: 0; color: var(--text-muted); font-size: 12px; line-height: 1.5">
+                                                "These options control only the HTTP Inspector request history. They do not change the normal log list limit above."
+                                            </p>
+                                        </div>
+                                        <div class="input-group">
+                                            <label style="display: flex; align-items: center; gap: 10px">
+                                                <input
+                                                    type="checkbox"
+                                                    prop:checked=move || settings.get().prune_http_history
+                                                    on:change=move |ev| {
+                                                        set_settings.update(|s| s.prune_http_history = event_target_checked(&ev));
+                                                    }
+                                                />
+                                                "Prune HTTP inspector history in the GUI"
+                                            </label>
+                                        </div>
+                                        <div class="input-group">
+                                            <label>"HTTP inspector history limit"</label>
+                                            <input
+                                                type="number"
+                                                min="1"
+                                                prop:value=move || settings.get().max_visible_http_events.to_string()
+                                                on:input=move |ev| {
+                                                    if let Ok(value) = event_target_value(&ev).parse::<usize>() {
+                                                        set_settings.update(|s| s.max_visible_http_events = value.max(1));
+                                                    }
+                                                }
+                                            />
+                                            <p style="margin: 8px 0 0 0; color: var(--text-muted); font-size: 12px; line-height: 1.5">
+                                                "Turn pruning off if you want the inspector to keep growing during the current session."
+                                            </p>
                                         </div>
                                         <div class="input-group">
                                             <label style="display: flex; align-items: center; gap: 10px">
