@@ -45,6 +45,10 @@
     notify_user: true
     auto_revert: true
     record: true
+  allowlisted_apps:
+    - pattern: "*\\svchost.exe"
+      must_be_signed: true
+      signers: ["*Microsoft*"]
 
 - name: "RegSeek Registry HIPS - User Behaviour And Cloud"
   description: "Prompts before tampering with user-behaviour, recent-item, search-history, and consumer cloud-sync registry locations from RegSeek."
@@ -87,6 +91,10 @@
     notify_user: true
     auto_revert: true
     record: true
+  allowlisted_apps:
+    - pattern: "*\\svchost.exe"
+      must_be_signed: true
+      signers: ["*Microsoft*"]
 
 - name: "RegSeek Registry HIPS - Authentication And Accounts"
   description: "Prompts before modifying credential, LSA, user-account, and authentication-provider registry surfaces covered by RegSeek."
@@ -118,6 +126,10 @@
     notify_user: true
     auto_revert: true
     record: true
+  allowlisted_apps:
+    - pattern: "*\\svchost.exe"
+      must_be_signed: true
+      signers: ["*Microsoft*"]
 
 - name: "RegSeek Registry HIPS - Virtualization And Containers"
   description: "Prompts before changing Hyper-V, container, WSL, Android subsystem, and workstation virtualization registry settings from RegSeek."
@@ -149,6 +161,10 @@
     notify_user: true
     auto_revert: true
     record: true
+  allowlisted_apps:
+    - pattern: "*\\svchost.exe"
+      must_be_signed: true
+      signers: ["*Microsoft*"]
 
 - name: "RegSeek Registry HIPS - Remote Access"
   description: "Prompts before remote-access and lateral-movement registry tampering involving RDP, RAS, remote-desktop tools, and proxy-related settings."
@@ -184,6 +200,10 @@
     notify_user: true
     auto_revert: true
     record: true
+  allowlisted_apps:
+    - pattern: "*\\svchost.exe"
+      must_be_signed: true
+      signers: ["*Microsoft*"]
 
 - name: "RegSeek Registry HIPS - AI And Privacy"
   description: "Prompts before AI feature, privacy-consent, and capability-access registry changes such as Copilot, Recall, microphone, and location."
@@ -213,6 +233,10 @@
     notify_user: true
     auto_revert: true
     record: true
+  allowlisted_apps:
+    - pattern: "*\\svchost.exe"
+      must_be_signed: true
+      signers: ["*Microsoft*"]
 
 - name: "RegSeek Registry HIPS - Browser Activity"
   description: "Prompts before browser-control, extension, security-zone, ActiveX, and typed-URL registry tampering from the RegSeek browser set."
@@ -248,6 +272,10 @@
     notify_user: true
     auto_revert: true
     record: true
+  allowlisted_apps:
+    - pattern: "*\\svchost.exe"
+      must_be_signed: true
+      signers: ["*Microsoft*"]
 
 - name: "RegSeek Registry HIPS - File Operations"
   description: "Prompts before tampering with archive-tool, MRU, recent-document, print, and explorer-navigation registry data documented by RegSeek."
@@ -287,6 +315,10 @@
     notify_user: true
     auto_revert: true
     record: true
+  allowlisted_apps:
+    - pattern: "*\\svchost.exe"
+      must_be_signed: true
+      signers: ["*Microsoft*"]
 
 - name: "RegSeek Registry HIPS - Persistence Methods"
   description: "Prompts before core persistence tampering across Winlogon, Run keys, IFEO, LSA packages, COM, services, AppCertDLLs, WMI, scheduled tasks, and related autostart surfaces."
@@ -333,6 +365,10 @@
     notify_user: true
     auto_revert: true
     record: true
+  allowlisted_apps:
+    - pattern: "*\\svchost.exe"
+      must_be_signed: true
+      signers: ["*Microsoft*"]
 
 - name: "RegSeek Registry HIPS - Program Execution"
   description: "Prompts before modifying registry execution and telemetry surfaces like UserAssist, App Paths, AppCompat, PowerShell policy, WSH, RunMRU, and related execution state."
@@ -369,6 +405,10 @@
     notify_user: true
     auto_revert: true
     record: true
+  allowlisted_apps:
+    - pattern: "*\\svchost.exe"
+      must_be_signed: true
+      signers: ["*Microsoft*"]
 
 - name: "RegSeek Registry HIPS - Network Infrastructure"
   description: "Prompts before DNS, TCP/IP, sharing, proxy, VPN, Wi-Fi, and network-discovery registry reconfiguration from the RegSeek network set."
@@ -407,6 +447,10 @@
     notify_user: true
     auto_revert: true
     record: true
+  allowlisted_apps:
+    - pattern: "*\\svchost.exe"
+      must_be_signed: true
+      signers: ["*Microsoft*"]
 
 - name: "RegSeek Registry HIPS - Communication Apps"
   description: "Prompts before mail, collaboration, chat, VoIP, and conferencing registry changes covered by RegSeek."
@@ -439,6 +483,10 @@
     notify_user: true
     auto_revert: true
     record: true
+  allowlisted_apps:
+    - pattern: "*\\svchost.exe"
+      must_be_signed: true
+      signers: ["*Microsoft*"]
 
 - name: "RegSeek Registry HIPS - External Storage"
   description: "Prompts before tampering with USB history, mounted-device, and portable-device registry surfaces from RegSeek."
@@ -467,6 +515,10 @@
     notify_user: true
     auto_revert: true
     record: true
+  allowlisted_apps:
+    - pattern: "*\\svchost.exe"
+      must_be_signed: true
+      signers: ["*Microsoft*"]
 
 - name: "RegSeek Registry HIPS - Security Monitoring"
   description: "Prompts before disabling or weakening Defender, firewall, UAC, BitLocker, certificates, logging, explorer restrictions, or related security-monitoring surfaces."
@@ -512,3 +564,7 @@
     notify_user: true
     auto_revert: true
     record: true
+  allowlisted_apps:
+    - pattern: "*\\svchost.exe"
+      must_be_signed: true
+      signers: ["*Microsoft*"]

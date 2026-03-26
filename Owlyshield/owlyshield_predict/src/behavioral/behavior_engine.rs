@@ -3219,9 +3219,14 @@ impl BehaviorEngine {
     }
 
     pub fn load_rules(&mut self, path: &Path) -> Result<(), Box<dyn std::error::Error>> {
-        let rules = self.load_rules_recursive(path)?;
+        let (rules, sdk_rules) = self.load_rules_recursive(path)?;
         self.rules = rules;
-        Logging::info(&format!("[EDR]: {} behavior rules loaded from {:?}", self.rules.len(), path));
+        {
+            let mut sdk_lock = self.sdk_rules.write().unwrap();
+            sdk_lock.clear();
+            sdk_lock.extend(sdk_rules);
+        }
+        Logging::info(&format!("[EDR]: {} behavior rules and {} network rules loaded from {:?}", self.rules.len(), self.sdk_rules.read().unwrap().len(), path));
         Ok(())
     }
 
@@ -3285,9 +3290,10 @@ impl BehaviorEngine {
         all_apis
     }
 
-    fn load_rules_recursive(&self, path: &Path) -> Result<Vec<BehaviorRule>, Box<dyn std::error::Error>> {
+    fn load_rules_recursive(&self, path: &Path) -> Result<(Vec<BehaviorRule>, Vec<crate::behavioral::network_rules::SdkRule>), Box<dyn std::error::Error>> {
         let content = std::fs::read_to_string(path)?;
         let mut rules = Vec::new();
+        let mut sdk_rules = Vec::new();
 
         if content.contains("!include") {
             let parent = path.parent().unwrap_or_else(|| Path::new("."));
@@ -3307,7 +3313,10 @@ impl BehaviorEngine {
                         
                         if include_path.exists() {
                             match self.load_rules_recursive(&include_path) {
-                                Ok(sub_rules) => rules.extend(sub_rules),
+                                Ok((sub_rules, sub_sdk_rules)) => {
+                                    rules.extend(sub_rules);
+                                    sdk_rules.extend(sub_sdk_rules);
+                                },
                                 Err(e) => Logging::warning(&format!("[EDR] Failed to load include {}: {}", include_path.display(), e)),
                             }
                         }
@@ -3321,16 +3330,26 @@ impl BehaviorEngine {
                 .collect::<Vec<_>>()
                 .join("\n");
             
-            if !filtered_content.trim().is_empty() && filtered_content.trim() != "---"
-                && let Ok(main_rules) = serde_yaml::from_str::<Vec<BehaviorRule>>(&filtered_content) {
+            if !filtered_content.trim().is_empty() && filtered_content.trim() != "---" {
+                if let Ok(main_rules) = serde_yaml::from_str::<Vec<BehaviorRule>>(&filtered_content) {
                     rules.extend(self.finalize_rules(main_rules));
+                } else if let Ok(main_sdk_rules) = serde_yaml::from_str::<Vec<crate::behavioral::network_rules::SdkRule>>(&filtered_content) {
+                    sdk_rules.extend(main_sdk_rules);
                 }
+            }
         } else {
-            let r: Vec<BehaviorRule> = serde_yaml::from_str(&content)?;
-            rules.extend(self.finalize_rules(r));
+            if let Ok(r) = serde_yaml::from_str::<Vec<BehaviorRule>>(&content) {
+                rules.extend(self.finalize_rules(r));
+            } else if let Ok(r) = serde_yaml::from_str::<Vec<crate::behavioral::network_rules::SdkRule>>(&content) {
+                sdk_rules.extend(r);
+            } else if let Ok(r) = serde_yaml::from_str::<BehaviorRule>(&content) {
+                rules.extend(self.finalize_rules(vec![r]));
+            } else if let Ok(r) = serde_yaml::from_str::<crate::behavioral::network_rules::SdkRule>(&content) {
+                sdk_rules.push(r);
+            }
         }
 
-        Ok(rules)
+        Ok((rules, sdk_rules))
     }
 
     fn normalize_api_signature(raw: &str) -> (String, bool) {
@@ -3533,53 +3552,7 @@ impl BehaviorEngine {
         }
     }
 
-    pub fn load_additional_rules(&mut self, path: &Path) -> Result<(), Box<dyn std::error::Error>> {
-        if !path.exists() {
-            return Ok(());
-        }
-        let (new_behavior_rules, new_sdk_rules) = self.load_rules_recursive_mixed(path)?;
-        self.rules.extend(new_behavior_rules);
-        if !new_sdk_rules.is_empty() {
-            let mut sdk_rules_lock = self.sdk_rules.write().unwrap();
-            sdk_rules_lock.extend(new_sdk_rules);
-        }
-        Logging::info(&format!("[EDR]: Loaded {} behavior rules and {} network rules from {:?}", self.rules.len(), self.sdk_rules.read().unwrap().len(), path));
-        Ok(())
-    }
 
-    fn load_rules_recursive_mixed(&self, path: &Path) -> Result<(Vec<BehaviorRule>, Vec<crate::behavioral::network_rules::SdkRule>), Box<dyn std::error::Error>> {
-        let mut behavior_rules = Vec::new();
-        let mut sdk_rules = Vec::new();
-
-        if path.is_file() {
-            let content = std::fs::read_to_string(path)?;
-            // Try as BehaviorRule list
-            if let Ok(rules) = serde_yaml::from_str::<Vec<BehaviorRule>>(&content) {
-                behavior_rules.extend(self.finalize_rules(rules));
-            } 
-            // Try as single BehaviorRule
-            else if let Ok(rule) = serde_yaml::from_str::<BehaviorRule>(&content) {
-                behavior_rules.extend(self.finalize_rules(vec![rule]));
-            }
-            // Try as SdkRule list
-            else if let Ok(rules) = serde_yaml::from_str::<Vec<crate::behavioral::network_rules::SdkRule>>(&content) {
-                sdk_rules.extend(rules);
-            }
-            // Try as single SdkRule
-            else if let Ok(rule) = serde_yaml::from_str::<crate::behavioral::network_rules::SdkRule>(&content) {
-                sdk_rules.push(rule);
-            }
-        } else if path.is_dir() {
-            for entry in std::fs::read_dir(path)? {
-                let entry = entry?;
-                let (sub_behavior, sub_sdk) = self.load_rules_recursive_mixed(&entry.path())?;
-                behavior_rules.extend(sub_behavior);
-                sdk_rules.extend(sub_sdk);
-            }
-        }
-
-        Ok((behavior_rules, sdk_rules))
-    }
 
     // ==========================================================================
     // EVENT DETECTION FROM HIM EVENTS

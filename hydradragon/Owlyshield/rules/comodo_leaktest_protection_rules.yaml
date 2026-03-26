@@ -25,10 +25,13 @@
   allowlisted_apps:
     - pattern: "msiexec.exe"
       must_be_signed: true
+      signers: ["*Microsoft*"]
     - pattern: "svchost.exe"
       must_be_signed: true
+      signers: ["*Microsoft*"]
     - pattern: "services.exe"
       must_be_signed: true
+      signers: ["*Microsoft*"]
 
   named_conditions:
     driver_path_modification:
@@ -197,6 +200,7 @@
       must_be_signed: true
     - pattern: "svchost.exe"
       must_be_signed: true
+      signers: ["*Microsoft*"]
     - pattern: "csrss.exe"
       must_be_signed: true
     - pattern: "explorer.exe"
@@ -361,10 +365,13 @@
   allowlisted_apps:
     - pattern: "msiexec.exe"
       must_be_signed: true
+      signers: ["*Microsoft*"]
     - pattern: "svchost.exe"
       must_be_signed: true
+      signers: ["*Microsoft*"]
     - pattern: "services.exe"
       must_be_signed: true
+      signers: ["*Microsoft*"]
 
   named_conditions:
     service_registry_create:
@@ -440,6 +447,7 @@
       must_be_signed: true
     - pattern: "svchost.exe"
       must_be_signed: true
+      signers: ["*Microsoft*"]
 
   named_conditions:
     dns_activity:
@@ -535,10 +543,13 @@
   allowlisted_apps:
     - pattern: "msiexec.exe"
       must_be_signed: true
+      signers: ["*Microsoft*"]
     - pattern: "svchost.exe"
       must_be_signed: true
+      signers: ["*Microsoft*"]
     - pattern: "services.exe"
       must_be_signed: true
+      signers: ["*Microsoft*"]
 
   named_conditions:
     service_dll_modification:
