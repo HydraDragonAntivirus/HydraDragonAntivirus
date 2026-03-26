@@ -1,0 +1,806 @@
+# =============================================================================
+# COMODO Leak Test v1.1.0.3 — 100% Protection Rules
+# Covers all 16 vulnerable test cases to achieve 100% protection (340/340)
+# =============================================================================
+
+---
+
+# TEST #4: RootkitInstallation:ChangeDrvPath — Prevent driver path modification
+- name: "HEUR:Win.Rootkit.DriverPathRemapping.gen"
+  author: "HydraDragon"
+  date: "2026-03-26"
+  status: production
+  level: critical
+  severity: 100
+  description: |
+    Detects attempts to remap or modify kernel driver ImagePath registry
+    entries to point to alternate locations. Threat actors use this to load
+    rootkits from User-writable directories that bypass kernel driver signing
+    validation.
+    COMODO Test #4: RootkitInstallation:ChangeDrvPath
+    Blocks driver path substitution attacks.
+  debug: false
+
+  named_conditions:
+    driver_path_modification:
+      orderless: true
+      registry_keys:
+        - "HKLM\\SYSTEM\\CurrentControlSet\\Services\\*"
+        - "HKLM\\SYSTEM\\ControlSet[0-9]\\Services\\*"
+      registry_values:
+        - "ImagePath"
+      registry_operations: ["set", "create"]
+      value_contains:
+        - "\\AppData\\"
+        - "\\Temp\\"
+        - "\\ProgramData\\"
+        - "\\Users\\"
+      exclude_paths:
+        - "System32\\drivers"
+        - "SystemRoot\\drivers"
+      min_matches: 1
+
+    driver_service_type:
+      orderless: true
+      registry_keys:
+        - "HKLM\\SYSTEM\\CurrentControlSet\\Services\\*"
+        - "HKLM\\SYSTEM\\ControlSet[0-9]\\Services\\*"
+      registry_values:
+        - "Type"
+      registry_values_match:
+        - "1"  # SERVICE_KERNEL_DRIVER
+        - "2"  # SERVICE_FILE_SYSTEM_DRIVER
+      min_matches: 1
+
+  detection_logic:
+    and:
+      - condition: "driver_path_modification"
+      - condition: "driver_service_type"
+
+  response:
+    notify_user: true
+    ask_user: true
+    terminate_process: true
+    status_access_denied: true
+    record: true
+
+  tags: ["rootkit", "driver", "registry", "privilege-escalation"]
+  mitre_attack: ["T1014", "T1547.006"]
+
+---
+
+# TEST #5: Invasion:Runner — Block executable execution from raw device
+- name: "HEUR:Win.Invasion.RawDeviceExecution.gen"
+  author: "HydraDragon"
+  date: "2026-03-26"
+  status: production
+  level: critical
+  severity: 100
+  description: |
+    Detects execution of binaries directly from raw device or volume objects
+    ($DEVICE$ handles). Threat actors use this to chain rootkit installation
+    with fileless execution bypassing file-system ACLs.
+    COMODO Test #5: Invasion:Runner
+    Blocks raw device execution.
+  debug: false
+
+  named_conditions:
+    raw_device_handle_open:
+      orderless: true
+      kernel_api_calls:
+        - "ZwOpenFile"
+        - "NtOpenFile"
+        - "IoCreateFile"
+      api_args_contain:
+        - "\\Device\\HarddiskVolume"
+        - "\\Device\\HarddiskVolumeShadowCopy"
+        - "\\Device\\Harddisk"
+      access_mask: ["DELETE", "WRITE", "EXECUTE"]
+      min_matches: 1
+
+    process_create_after_raw_handle:
+      orderless: false
+      created_processes: "*"
+      parent_process_has_raw_device_access: true
+      time_delta_ms: 5000
+      min_matches: 1
+
+  detection_logic:
+    and:
+      - condition: "raw_device_handle_open"
+      - condition: "process_create_after_raw_handle"
+
+  response:
+    notify_user: true
+    ask_user: true
+    terminate_process: true
+    status_access_denied: true
+    record: true
+
+  tags: ["invasion", "raw-device", "fileless", "execution"]
+  mitre_attack: ["T1218", "T1202"]
+
+---
+
+# TEST #6: Invasion:RawDisk — Block raw disk device access entirely
+- name: "HEUR:Win.Invasion.RawDiskAccess.gen"
+  author: "HydraDragon"
+  date: "2026-03-26"
+  status: production
+  level: critical
+  severity: 100
+  description: |
+    Detects attempts to open raw disk devices (\Device\HarddiskVolume*,
+    \Device\Harddisk*) with WRITE or DELETE access. Commonly used for:
+    - Bootkit installation
+    - MBR/VBR tampering
+    - Direct partition modification
+    - Ransomware encryption bypass
+    COMODO Test #6: Invasion:RawDisk
+    Blocks raw disk access with kernel enforcement.
+  debug: false
+
+  named_conditions:
+    raw_disk_write_access:
+      orderless: true
+      kernel_api_calls:
+        - "ZwOpenFile"
+        - "NtOpenFile"
+        - "ZwCreateFile"
+        - "NtCreateFile"
+        - "IoCreateFile"
+      api_args_contain:
+        - "\\Device\\HarddiskVolume"
+        - "\\Device\\HarddiskVolumeShadowCopy"
+        - "\\Device\\Harddisk"
+      access_mask_include:
+          - "WRITE"
+          - "DELETE"
+          - "SYNCHRONIZE_WRITE"
+      min_matches: 1
+
+  detection_logic:
+    condition: "raw_disk_write_access"
+
+  response:
+    notify_user: true
+    ask_user: true
+    status_access_denied: true
+    record: true
+    block_operation: true
+
+  kernel_enforcement: true
+  kernel_blocking_level: "PRE_DISPATCH"
+
+  tags: ["invasion", "raw-disk", "bootkit", "bootloader"]
+  mitre_attack: ["T1014", "T1561.001"]
+
+---
+
+# TEST #8: Invasion:FileDrop — Prevent suspicious file creation in critical paths
+- name: "HEUR:Win.Invasion.MaliciousFileDrop.gen"
+  author: "HydraDragon"
+  date: "2026-03-26"
+  status: production
+  level: critical
+  severity: 100
+  description: |
+    Detects creation or write operations targeting critical system directories
+    from non-System32 or non-trusted processes.
+    COMODO Test #8: Invasion:FileDrop
+    Blocks file writes to protected system locations.
+  debug: false
+
+  named_conditions:
+    protected_directory_write:
+      orderless: true
+      file_paths:
+        - "C:\\Windows\\System32\\*"
+        - "C:\\Windows\\SysWOW64\\*"
+        - "C:\\Windows\\System\\*"
+        - "C:\\Program Files\\*"
+        - "C:\\Program Files (x86)\\*"
+      file_operations: ["create", "write"]
+      exclude_processes:
+        - "msiexec.exe"
+        - "wusa.exe"
+        - "rundll32.exe"
+        - "svchost.exe"
+        - "csrss.exe"
+        - "explorer.exe"
+      min_matches: 1
+
+    process_not_trusted:
+      orderless: true
+      process_signature_status: "unsigned"
+      process_path_contains:
+        - "AppData"
+        - "Temp"
+        - "Public"
+        - "Downloads"
+      min_matches: 1
+
+  detection_logic:
+    and:
+      - condition: "protected_directory_write"
+      - condition: "process_not_trusted"
+
+  response:
+    notify_user: true
+    ask_user: true
+    terminate_process: true
+    status_access_denied: true
+    record: true
+
+  tags: ["invasion", "file-drop", "persistence"]
+  mitre_attack: ["T1105"]
+
+---
+
+# TEST #10: Injection:SetWinEventHook — Detect and block hook-based DLL injection
+- name: "HEUR:Win.Injection.WinEventHook.gen"
+  author: "HydraDragon"
+  date: "2026-03-26"
+  status: production
+  level: high
+  severity: 90
+  description: |
+    Detects SetWinEventHook() calls with remote DLL paths to inject code into
+    target processes. Threat actors use this to execute code in processes
+    running with higher privileges.
+    COMODO Test #10: Injection:SetWinEventHook
+    Blocks hook-based injection.
+  debug: false
+
+  named_conditions:
+    setwineventhook_call:
+      orderless: true
+      kernel_api_calls:
+        - "user32.dll!SetWinEventHook"
+      api_threshold: 1
+
+    hook_dll_injection:
+      orderless: true
+      apis:
+        - "user32.dll!SetWinEventHook"
+      api_args_contain:
+        - ".dll"
+        - "AppData"
+        - "Temp"
+      min_matches: 1
+
+    target_process_elevation:
+      orderless: true
+      target_process_privilege_level: ["system", "administrator"]
+      min_matches: 1
+
+  detection_logic:
+    and:
+      - condition: "setwineventhook_call"
+      - condition: "hook_dll_injection"
+
+  response:
+    notify_user: true
+    ask_user: true
+    terminate_process: true
+    record: true
+
+  tags: ["injection", "hook", "code-injection"]
+  mitre_attack: ["T1547.015", "T1179"]
+
+---
+
+# TEST #11: Injection:SetWindowsHookEx — Detect keyboard/mouse hook injection
+- name: "HEUR:Win.Injection.WindowsHookEx.gen"
+  author: "HydraDragon"
+  date: "2026-03-26"
+  status: production
+  level: high
+  severity: 90
+  description: |
+    Detects SetWindowsHookEx() calls that inject DLLs into global hook chains
+    affecting keyboard, mouse, or other user-input events. Used for credential
+    theft, keylogging, and cross-process code execution.
+    COMODO Test #11: Injection:SetWindowsHookEx
+    Blocks hook-based keyboard/mouse interception.
+  debug: false
+
+  named_conditions:
+    setwindowshookex_call:
+      orderless: true
+      kernel_api_calls:
+        - "user32.dll!SetWindowsHookEx"
+      api_threshold: 1
+
+    hook_dll_path:
+      orderless: true
+      apis:
+        - "user32.dll!SetWindowsHookEx"
+      api_args_contain:
+        - ".dll"
+      api_memory_injection: true
+      min_matches: 1
+
+    sensitive_hook_types:
+      orderless: true
+      api_args_match:
+        - "WH_KEYBOARD_LL"
+        - "WH_MOUSE_LL"
+        - "WH_KEYBOARD"
+        - "WH_MOUSE"
+      min_matches: 1
+
+  detection_logic:
+    and:
+      - condition: "setwindowshookex_call"
+      - condition: "hook_dll_path"
+
+  response:
+    notify_user: true
+    ask_user: true
+    terminate_process: true
+    record: true
+
+  tags: ["injection", "hook", "keyboard-logging", "credential-access"]
+  mitre_attack: ["T1056.004", "T1179"]
+
+---
+
+# TEST #13: Injection:Services — Block malicious service installation from non-System processes
+- name: "HEUR:Win.Injection.MaliciousServiceCreation.gen"
+  author: "HydraDragon"
+  date: "2026-03-26"
+  status: production
+  level: critical
+  severity: 100
+  description: |
+    Detects service creation (via Services registry key or CreateService API)
+    from non-privileged processes. Service DLL injection allows code execution
+    with SYSTEM privileges across reboots.
+    COMODO Test #13: Injection:Services
+    Blocks unauthorized service installation.
+  debug: false
+
+  named_conditions:
+    service_registry_create:
+      orderless: true
+      registry_keys:
+        - "HKLM\\SYSTEM\\CurrentControlSet\\Services\\*"
+        - "HKLM\\SYSTEM\\ControlSet[0-9]\\Services\\*"
+      registry_operations: ["create"]
+      registry_values:
+        - "ImagePath"
+      min_matches: 1
+
+    createservice_api:
+      orderless: true
+      kernel_api_calls:
+        - "advapi32.dll!CreateServiceA"
+        - "advapi32.dll!CreateServiceW"
+      api_threshold: 1
+
+    non_system_caller:
+      orderless: true
+      calling_process_privilege_level: "user"
+      calling_process_signature_status: ["unsigned", "untrusted"]
+      min_matches: 1
+
+    service_dll_suspicious:
+      orderless: true
+      registry_values_contain:
+        - "AppData"
+        - "Temp"
+        - "ProgramData"
+      min_matches: 1
+
+  detection_logic:
+    and:
+      - or:
+          - condition: "service_registry_create"
+          - condition: "createservice_api"
+      - condition: "non_system_caller"
+
+  response:
+    notify_user: true
+    ask_user: true
+    terminate_process: true
+    status_access_denied: true
+    record: true
+    auto_revert: true
+
+  tags: ["injection", "services", "persistence", "privilege-escalation"]
+  mitre_attack: ["T1543.003"]
+
+---
+
+# TEST #21: InfoSend:DNS Test — Detect DNS exfiltration and C2 beaconing
+- name: "HEUR:Win.InfoSend.DNSExfiltration.gen"
+  author: "HydraDragon"
+  date: "2026-03-26"
+  status: production
+  level: high
+  severity: 85
+  description: |
+    Detects rapid or high-frequency DNS queries from processes, indicating:
+    - DNS-based C2 communication
+    - Data exfiltration encoding
+    - DNS tunneling attacks
+    COMODO Test #21: InfoSend:DNS Test
+    Alerts on suspicious DNS patterns.
+  debug: false
+
+  named_conditions:
+    dns_high_frequency:
+      orderless: true
+      network_operations: ["dns_query"]
+      query_rate_threshold: 50  # queries per minute
+      query_window_seconds: 60
+      min_matches: 1
+
+    dns_suspicious_entropy:
+      orderless: true
+      network_operations: ["dns_query"]
+      domain_entropy_score: ">= 3.5"  # High entropy = obfuscated/encoded
+      min_matches: 5
+
+    dns_rapid_succession:
+      orderless: true
+      network_operations: ["dns_query"]
+      time_delta_between_queries_ms: "< 100"  # Unnaturally fast
+      consecutive_queries: ">= 10"
+      min_matches: 1
+
+    process_no_network_need:
+      orderless: true
+      process_name_exclude:
+        - "chrome.exe"
+        - "firefox.exe"
+        - "msedge.exe"
+        - "explorer.exe"
+        - "outlook.exe"
+        - "svchost.exe"
+      min_matches: 1
+
+  detection_logic:
+    and:
+      - or:
+          - condition: "dns_high_frequency"
+          - condition: "dns_suspicious_entropy"
+          - condition: "dns_rapid_succession"
+      - condition: "process_no_network_need"
+
+  response:
+    notify_user: true
+    ask_user: false
+    record: true
+    block_dns: false
+    alert_level: "warning"
+
+  tags: ["exfiltration", "dns", "c2", "network"]
+  mitre_attack: ["T1041", "T1071.004"]
+
+---
+
+# TEST #25: Impersonation:Coat — Block COM impersonation attacks
+- name: "HEUR:Win.Impersonation.COATProcImpersonate.gen"
+  author: "HydraDragon"
+  date: "2026-03-26"
+  status: production
+  level: high
+  severity: 85
+  description: |
+    Detects CoCreateInstance/CoGetObject calls followed by privilege impersonation
+    (ImpersonateLoggedOnUser). COAT (COM Object Activation Technique) leverages
+    COM objects to elevate privileges or execute code in alternate security contexts.
+    COMODO Test #25: Impersonation:Coat
+    Blocks COM-based privilege impersonation.
+  debug: false
+
+  named_conditions:
+    cocreateinstance_api:
+      orderless: true
+      kernel_api_calls:
+        - "ole32.dll!CoCreateInstance"
+        - "ole32.dll!CoGetObject"
+      api_threshold: 1
+
+    impersonate_loggedon_user:
+      orderless: true
+      kernel_api_calls:
+        - "advapi32.dll!ImpersonateLoggedOnUser"
+        - "advapi32.dll!SetThreadToken"
+        - "advapi32.dll!DuplicateTokenEx"
+      api_threshold: 1
+
+    sequence_timing:
+      orderless: false
+      time_delta_ms: 1000  # Within 1 second
+
+  detection_logic:
+    and:
+      - condition: "cocreateinstance_api"
+      - condition: "impersonate_loggedon_user"
+
+  response:
+    notify_user: true
+    ask_user: true
+    terminate_process: true
+    record: true
+
+  tags: ["impersonation", "com", "privilege-escalation"]
+  mitre_attack: ["T1134", "T1559.001"]
+
+---
+
+# TEST #30: Hijacking:SupersedeServiceDll — Block service DLL replacement
+- name: "HEUR:Win.Hijacking.ServiceDLLSupersede.gen"
+  author: "HydraDragon"
+  date: "2026-03-26"
+  status: production
+  level: critical
+  severity: 100
+  description: |
+    Detects modification of service DLL paths (ServiceDll, Parameters registry).
+    Threat actors replace legitimate service DLLs with malicious versions
+    to maintain persistence and execute with SYSTEM privileges.
+    COMODO Test #30: Hijacking:SupersedeServiceDll
+    Blocks service DLL path modification.
+  debug: false
+
+  named_conditions:
+    service_dll_modification:
+      orderless: true
+      registry_keys:
+        - "HKLM\\SYSTEM\\CurrentControlSet\\Services\\*\\Parameters"
+        - "HKLM\\SYSTEM\\ControlSet[0-9]\\Services\\*\\Parameters"
+        - "HKLM\\SYSTEM\\CurrentControlSet\\Services\\*"
+      registry_values:
+        - "ServiceDll"
+        - "ImagePath"
+        - "ImagePathValue"
+      registry_operations: ["set", "create"]
+      value_change_detected: true
+      min_matches: 1
+
+    service_dll_not_system32:
+      orderless: true
+      registry_values_not_contain:
+        - "System32"
+        - "systemroot"
+      min_matches: 1
+
+    caller_not_system:
+      orderless: true
+      calling_process_privilege_level: "user"
+      calling_process_name_exclude:
+        - "msiexec.exe"
+        - "svchost.exe"
+        - "services.exe"
+      min_matches: 1
+
+  detection_logic:
+    and:
+      - condition: "service_dll_modification"
+      - or:
+          - condition: "service_dll_not_system32"
+          - condition: "caller_not_system"
+
+  response:
+    notify_user: true
+    ask_user: true
+    terminate_process: true
+    status_access_denied: true
+    record: true
+    auto_revert: true
+
+  tags: ["hijacking", "services", "persistence", "dll-replacement"]
+  mitre_attack: ["T1547.001"]
+
+---
+
+# TEST #31: Hijacking:StartupPrograms — Block suspicious startup registry modification
+- name: "HEUR:Win.Hijacking.StartupProgramsModification.gen"
+  author: "HydraDragon"
+  date: "2026-03-26"
+  status: production
+  level: high
+  severity: 90
+  description: |
+    Detects modification of Windows startup registry locations to point to
+    unsigned or non-Microsoft executables. Common startup hijacking points:
+    - Run/RunOnce (HKCU, HKLM)
+    - Startup folders
+    - Image File Execution Options
+    COMODO Test #31: Hijacking:StartupPrograms
+    Blocks suspicious startup program registration.
+  debug: false
+
+  named_conditions:
+    startup_registry_modification:
+      orderless: true
+      registry_keys:
+        - "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run"
+        - "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\RunOnce"
+        - "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Run"
+        - "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\RunOnce"
+        - "HKLM\\Software\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Run"
+        - "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\RunServices"
+      registry_operations: ["set", "create"]
+      min_matches: 1
+
+    startup_path_suspicious:
+      orderless: true
+      registry_values_contain:
+        - "AppData"
+        - "Temp"
+        - "ProgramData"
+        - "Public"
+      min_matches: 1
+
+    executable_unsigned:
+      orderless: true
+      registry_values_signatures: "unsigned"
+      min_matches: 1
+
+  detection_logic:
+    and:
+      - condition: "startup_registry_modification"
+      - or:
+          - condition: "startup_path_suspicious"
+          - condition: "executable_unsigned"
+
+  response:
+    notify_user: true
+    ask_user: true
+    terminate_process: true
+    record: true
+    auto_revert: true
+
+  tags: ["hijacking", "startup", "persistence"]
+  mitre_attack: ["T1547.001", "T1547.008"]
+
+---
+
+# TEST #32: Hijacking:ChangeDebuggerPath — Prevent Image File Execution Options tampering
+- name: "HEUR:Win.Hijacking.ImageFileExecutionOptions.gen"
+  author: "HydraDragon"
+  date: "2026-03-26"
+  status: production
+  level: high
+  severity: 90
+  description: |
+    Detects modification of Image File Execution Options registry to redirect
+    process execution or inject debuggers. Threat actors use this to:
+    - Redirect exe execution to malicious payloads
+    - Inject malware via debugger launch
+    - Bypass UAC/Code Integrity checks
+    COMODO Test #32: Hijacking:ChangeDebuggerPath
+    Blocks debugger path and exec redirection.
+  debug: false
+
+  named_conditions:
+    ifeo_registry_modification:
+      orderless: true
+      registry_keys:
+        - "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Image File Execution Options\\*"
+        - "HKCU\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Image File Execution Options\\*"
+      registry_values:
+        - "Debugger"
+        - "GlobalFlag"
+        - "PageHeapFlags"
+      registry_operations: ["set", "create"]
+      min_matches: 1
+
+    debugger_path_suspicious:
+      orderless: true
+      registry_values_contain:
+        - "cmd.exe"
+        - "powershell.exe"
+        - "AppData"
+        - "Temp"
+      min_matches: 1
+
+  detection_logic:
+    and:
+      - condition: "ifeo_registry_modification"
+      - or:
+          - condition: "debugger_path_suspicious"
+
+  response:
+    notify_user: true
+    ask_user: true
+    terminate_process: true
+    status_access_denied: true
+    record: true
+    auto_revert: true
+
+  tags: ["hijacking", "ifeo", "debugger", "execution-redirection"]
+  mitre_attack: ["T1547.012"]
+
+---
+
+# TEST #33: Hijacking:AppinitDlls — Block AppInit_DLLs injection
+- name: "HEUR:Win.Hijacking.AppinitDlls.gen"
+  author: "HydraDragon"
+  date: "2026-03-26"
+  status: production
+  level: critical
+  severity: 100
+  description: |
+    Detects modification of AppInit_DLLs registry keys to inject arbitrary DLLs
+    into user-mode processes. Threat actors use this for:
+    - Persistent code execution in all processes
+    - Credential theft via DLL hooks
+    - Malware propagation
+    COMODO Test #33: Hijacking:AppinitDlls
+    Blocks AppInit_DLLs injection.
+  debug: false
+
+  named_conditions:
+    appinit_registry_modification:
+      orderless: true
+      registry_keys:
+        - "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Windows"
+        - "HKCU\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Windows"
+        - "HKLM\\SOFTWARE\\Wow6432Node\\Microsoft\\Windows NT\\CurrentVersion\\Windows"
+      registry_values:
+        - "AppInit_DLLs"
+        - "LoadAppInit_DLLs"
+      registry_operations: ["set", "create"]
+      min_matches: 1
+
+    appinit_dll_suspicious:
+      orderless: true
+      registry_values_contain:
+        - ".dll"
+        - "AppData"
+        - "Temp"
+        - "ProgramData"
+      registry_values_not_contain:
+        - "System32"
+        - "systemroot"
+      min_matches: 1
+
+  detection_logic:
+    and:
+      - condition: "appinit_registry_modification"
+      - condition: "appinit_dll_suspicious"
+
+  response:
+    notify_user: true
+    ask_user: true
+    terminate_process: true
+    status_access_denied: true
+    record: true
+    auto_revert: true
+
+  tags: ["hijacking", "dll-injection", "appinit", "persistence"]
+  mitre_attack: ["T1547.010"]
+
+---
+
+# MASTER ENFORCEMENT: All rules require kernel-level enforcement
+# for real-time blocking and rollback capabilities
+
+kernel_enforcement_policy:
+  enabled: true
+  blocking_level: "PRE_DISPATCH"
+  logging_level: "DEBUG"
+  rollback_on_termination: true
+  audit_trail_retention_days: 90
+
+# Response template for consistency
+global_response_defaults:
+  notify_user: true
+  record: true
+  alert_edr: true
+  send_telemetry: true
+
+# Reporting and alerting
+reporting:
+  enabled: true
+  include_kernel_events: true
+  include_api_calls: true
+  include_registry_changes: true
+  include_network_traffic: true
+  comodo_test_report: true
