@@ -1,6 +1,7 @@
 use bytes::Bytes;
 use http_body_util::{BodyExt, Full};
-use http_mitm_proxy::{DefaultClient, MitmProxy, hyper::service::service_fn, moka::sync::Cache};
+use http_mitm_proxy::{DefaultClient, MitmProxy, hyper::{http::{request::Parts as HttpRequestParts, response::Parts as HttpResponseParts}, service::service_fn, StatusCode}, moka::sync::Cache};
+use http_mitm_proxy::hyper::header::{HeaderValue, HeaderMap};
 use rcgen::{
     BasicConstraints, Certificate, CertificateParams, DnType, DnValue, IsCa, KeyPair,
     KeyUsagePurpose,
@@ -73,7 +74,63 @@ pub struct CaBundle {
     pub cert_der: Vec<u8>,
 }
 
-/// Helper: build the CA `CertificateParams` with a fixed DN.
+// ── Generic header rewriting helpers ───────────────────────────────────────────
+
+/// Rewrite any response/request body: **always update Content-Length, clear Transfer-Encoding**.
+/// This is the generic fix: all body rewrites go through here.
+fn safe_rewrite_headers(headers: &mut HeaderMap, new_body_len: usize) {
+    headers.remove(http_mitm_proxy::hyper::header::TRANSFER_ENCODING);
+    let content_len = new_body_len.to_string();
+    if let Ok(hval) = HeaderValue::from_str(&content_len) {
+        headers.insert(http_mitm_proxy::hyper::header::CONTENT_LENGTH, hval);
+    }
+}
+
+/// Updates the Content-Length header in response parts when body size changes.
+fn update_content_length_header(parts: &mut HttpResponseParts, new_body_len: usize) {
+    safe_rewrite_headers(&mut parts.headers, new_body_len);
+}
+
+/// Updates the Content-Length header in request parts when body size changes.
+fn update_request_content_length_header(parts: &mut HttpRequestParts, new_body_len: usize) {
+    safe_rewrite_headers(&mut parts.headers, new_body_len);
+}
+
+// ── Generic error response builders ────────────────────────────────────────────
+
+/// Build a 502 Bad Gateway response when upstream fails.
+fn error_response_502() -> http_mitm_proxy::hyper::Response<Full<Bytes>> {
+    let body = Full::new(Bytes::from_static(b"Bad Gateway"));
+    http_mitm_proxy::hyper::Response::builder()
+        .status(StatusCode::BAD_GATEWAY)
+        .body(body)
+        .unwrap_or_else(|_| {
+            http_mitm_proxy::hyper::Response::builder()
+                .status(StatusCode::BAD_GATEWAY)
+                .body(Full::new(Bytes::new()))
+                .unwrap()
+        })
+}
+
+/// Validates that the request has a valid URI and method before forwarding.
+fn validate_request(req: &http_mitm_proxy::hyper::Request<http_mitm_proxy::hyper::body::Incoming>) -> Result<(), String> {
+    let uri = req.uri();
+    
+    // Check that URI has a host
+    if uri.host().is_none() {
+        return Err("Request missing host in URI".to_string());
+    }
+    
+    // Check that method is valid
+    let method = req.method().as_str();
+    if method.is_empty() {
+        return Err("Request has empty method".to_string());
+    }
+    
+    Ok(())
+}
+
+// ── Helper: build the CA `CertificateParams` with a fixed DN.
 fn ca_params() -> CertificateParams {
     let mut params = CertificateParams::default();
     params.distinguished_name = rcgen::DistinguishedName::new();
@@ -134,9 +191,6 @@ fn now_ts() -> u64 {
 }
 
 /// Start the embedded MITM proxy on `addr`, drive it until `stop_rx` fires.
-///
-/// Every intercepted HTTP/HTTPS flow emits a `"log"` Tauri event so the UI
-/// shows intercept activity attributed to the originating application.
 pub async fn run_proxy<R: Runtime>(
     addr: SocketAddr,
     ca: rcgen::Issuer<'static, KeyPair>,
@@ -147,12 +201,11 @@ pub async fn run_proxy<R: Runtime>(
 ) {
     let proxy = MitmProxy::new(
         Some(ca),
-        // Per-host cert cache — avoids regenerating certs on every connection.
         Some(Cache::new(512)),
     );
 
     let client = DefaultClient::new();
-    let app_handle_cloned = app_handle.clone(); // Clone app_handle before the service_fn closure
+    let app_handle_cloned = app_handle.clone();
 
     let bind_result = proxy
         .bind(
@@ -163,379 +216,27 @@ pub async fn run_proxy<R: Runtime>(
                 let sdk = sdk.clone();
 
                 async move {
-                    // ── Capture request metadata before consuming ──────────
-                    let method = req.method().to_string();
-                    let uri = req.uri().clone();
-                    let host = uri.host().unwrap_or("unknown").to_string();
-                    let port = uri.port_u16().unwrap_or(443);
-                    let path = format!("{}{}", uri.path(), uri.query().map(|q| format!("?{}", q)).unwrap_or_default());
-                    let full_url = format!(
-                        "{}://{}:{}{}",
-                        uri.scheme_str().unwrap_or("https"),
-                        host,
-                        port,
-                        path
-                    );
-
-                    // Collect request headers into a HashMap for the event.
-                    let mut request_headers: HashMap<String, String> = HashMap::new();
-                    for (name, value) in req.headers().iter() {
-                        request_headers.insert(
-                            name.to_string(),
-                            value.to_str().unwrap_or("<binary>").to_string(),
-                        );
-                    }
-                    let user_agent = request_headers.get("user-agent").cloned();
-                    let content_type = request_headers.get("content-type").cloned();
-                    let referer = request_headers.get("referer").cloned();
-
-                    // ── Collect request body (cap at 64 KB) ───────────────
-                    const MAX_BODY: usize = 64 * 1024;
-                    let (parts, body) = req.into_parts();
-                    let raw_body: Bytes = body
-                        .collect()
-                        .await
-                        .map(|c| c.to_bytes())
-                        .unwrap_or_default();
-                    let body_truncated = raw_body.len() > MAX_BODY;
-                    let body_bytes = if body_truncated {
-                        raw_body.slice(..MAX_BODY)
-                    } else {
-                        raw_body
-                    };
-                    let request_body = if body_bytes.is_empty() {
-                        None
-                    } else {
-                        Some(match String::from_utf8(body_bytes.to_vec()) {
-                            Ok(s) => s,
-                            Err(_) => body_bytes
-                                .iter()
-                                .map(|b| format!("{:02X}", b))
-                                .collect::<Vec<_>>()
-                                .join(" "),
-                        })
-                    };
-                    // Reconstruct request with collected body so it can be forwarded.
-                    let req = http_mitm_proxy::hyper::Request::from_parts(
-                        parts,
-                        Full::new(body_bytes),
-                    );
-
-                    // ── SDK Rule Evaluation ────────────────────────────────
-                    // We mock a PacketInfo to evaluate against HTTP-specific SDK rules.
-                    let mock_packet = PacketInfo {
-                        timestamp: now_ts(),
-                        protocol: Protocol::TCP,
-                        src_ip: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
-                        dst_ip: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
-                        src_port: 0,
-                        dst_port: port,
-                        size: 0,
-                        outbound: true,
-                        process_id: 0, // In proxy context, we don't know the PID here
-                        dns_query: None,
-                        hostname: Some(host.clone()),
-                        full_url: Some(full_url.clone()),
-                        tls_handshake: false,
-                        http_method: Some(method.clone()),
-                        http_path: Some(path.clone()),
-                        http_user_agent: user_agent.clone(),
-                        http_content_type: content_type.clone(),
-                        http_referer: referer.clone(),
-                        payload_entropy: None,
-                        payload_sample: None,
-                        payload_urls: vec![],
-                        payload_domains: vec![],
-                        image_path: String::new(),
-                        detected_file_type: None,
-                        http_request_body: request_body.clone(),
-                        http_response_body: None, // filled after response is received
-                    };
-
-                    let mock_context = PacketContext {
-                        process_id: 0,
-                        process_name: "hydradragonfirewall_proxy".to_string(),
-                        process_path: String::new(),
-                    };
-
-                    // ── SDK Rule Evaluation (request) ─────────────────────
-                    let (blocked, block_reason, req_body_override) = {
-                        let sdk_guard = sdk.read().unwrap();
-                        let first_match = sdk_guard.evaluate_first_match(&mock_packet, &[], false);
-                        let mut b = false;
-                        let mut reason = String::new();
-                        let mut override_body: Option<String> = None;
-
-                        if let Some(finding) = first_match {
-                            match finding.action {
-                                RuleAction::Block => {
-                                    b = true;
-                                    reason = format!("Blocked by SDK Rule [{}]: {}", finding.rule_name, finding.description);
-                                }
-                                RuleAction::ChangeRequestBody => {
-                                    if let Some(new_body) = finding.change_request_body {
-                                        override_body = Some(new_body);
-                                    }
-                                }
-                                _ => {}
-                            }
-                        }
-                        (b, reason, override_body)
-                    };
-
-                    // Apply request body override before forwarding.
-                    let (req, request_body) = if let Some(new_body) = req_body_override {
-                        let new_bytes = Bytes::from(new_body.clone().into_bytes());
-                        let (req_parts, _) = req.into_parts();
-                        let new_req = http_mitm_proxy::hyper::Request::from_parts(
-                            req_parts,
-                            Full::new(new_bytes),
-                        );
-                        (new_req, Some(new_body))
-                    } else {
-                        (req, request_body)
-                    };
-
-                    let ts = now_ts();
-
-                    if blocked {
-                        let ts = now_ts();
-                        
-                        // Increment global stats if the engine is available
-                        if let Some(engine) = app.try_state::<Arc<crate::engine::FirewallEngine>>() {
-                            engine.stats.packets_blocked.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                            engine.stats.packets_total.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                        }
-
-                        // Emit log for the console/log view
-                        emit_log_event(
-                            &app,
-                            LogEntry {
-                                id: format!("{}-intercept-block-{}-{}", ts, host, port),
-                                timestamp: ts,
-                                level: LogLevel::Warning,
-                                message: format!("Proxy Intercept Blocked: HTTP {} {} -> {}", method, full_url, block_reason),
-                            },
-                        );
-
-                        // Emit raw_packet for the Blocked list and traffic view
-                        let raw_packet = crate::sdk::RawPacket::from_parts(
-                            format!("{}-proxy-block", ts),
-                            &[], // No decrypted payload passed here yet
-                            &mock_packet,
-                            &mock_context,
-                            "Block",
-                            block_reason.clone(),
-                        );
-                        let _ = app.emit("raw_packet", raw_packet);
-
-                        // We drop the connection by returning an IO error, which is supported by http_mitm_proxy.
-                        return Err(http_mitm_proxy::default_client::Error::IoError(
-                            std::io::Error::new(
-                                std::io::ErrorKind::ConnectionAborted,
-                                block_reason, // Use the block_reason string from the evaluation loop
-                            )
-                        ));
-                    }
-
-                    // ── Forward to upstream ────────────────────────────────
-                    let (res, _upgrade): (
-                        http_mitm_proxy::hyper::Response<http_mitm_proxy::hyper::body::Incoming>,
-                        _,
-                    ) = client.send_request(req).await?;
-
-                    // ── Capture response metadata ─────────────────────────
-                    let status = res.status().as_u16();
-                    let mut response_headers: HashMap<String, String> = HashMap::new();
-                    for (name, value) in res.headers().iter() {
-                        response_headers.insert(
-                            name.to_string(),
-                            value.to_str().unwrap_or("<binary>").to_string(),
-                        );
-                    }
-                    let response_content_type = response_headers.get("content-type").cloned();
-                    let response_content_length = response_headers.get("content-length").cloned();
-
-                    // ── Collect response body (cap at 64 KB) ──────────────
-                    let (res_parts, res_body) = res.into_parts();
-                    let raw_res_body: Bytes = res_body
-                        .collect()
-                        .await
-                        .map(|c| c.to_bytes())
-                        .unwrap_or_default();
-                    let res_body_truncated = raw_res_body.len() > MAX_BODY;
-                    let res_body_bytes = if res_body_truncated {
-                        raw_res_body.slice(..MAX_BODY)
-                    } else {
-                        raw_res_body
-                    };
-                    let response_body = if res_body_bytes.is_empty() {
-                        None
-                    } else {
-                        Some(match String::from_utf8(res_body_bytes.to_vec()) {
-                            Ok(s) => s,
-                            Err(_) => res_body_bytes
-                                .iter()
-                                .map(|b| format!("{:02X}", b))
-                                .collect::<Vec<_>>()
-                                .join(" "),
-                        })
-                    };
-                    // Reconstruct the response so it can be forwarded.
-                    let res = http_mitm_proxy::hyper::Response::from_parts(
-                        res_parts,
-                        Full::new(res_body_bytes),
-                    );
-
-                    // ── SDK Rule Evaluation (response body) ───────────────
-                    // Re-evaluate rules now that we have the response body.
-                    let (resp_blocked, resp_block_reason, resp_body_override, res) =
-                    if response_body.is_some() {
-                        let mut resp_packet = mock_packet.clone();
-                        resp_packet.http_response_body = response_body.clone();
-                        let sdk_guard = sdk.read().unwrap();
-                        let first_match = sdk_guard.evaluate_first_match(&resp_packet, &[], false);
-                        let mut b = false;
-                        let mut reason = String::new();
-                        let mut override_body: Option<String> = None;
-                        if let Some(finding) = first_match {
-                            match finding.action {
-                                RuleAction::Block => {
-                                    b = true;
-                                    reason = format!("Blocked by SDK Rule [{}]: {}", finding.rule_name, finding.description);
-                                }
-                                RuleAction::ChangeResponseBody => {
-                                    if let Some(new_body) = finding.change_response_body {
-                                        override_body = Some(new_body);
-                                    }
-                                }
-                                _ => {}
-                            }
-                        }
-                        (b, reason, override_body, res)
-                    } else {
-                        (false, String::new(), None, res)
-                    };
-
-                    // Apply response body override.
-                    let (res, response_body) = if let Some(new_body) = resp_body_override {
-                        let new_bytes = Bytes::from(new_body.clone().into_bytes());
-                        let (r_parts, _) = res.into_parts();
-                        let new_res = http_mitm_proxy::hyper::Response::from_parts(
-                            r_parts,
-                            Full::new(new_bytes),
-                        );
-                        (new_res, Some(new_body))
-                    } else {
-                        (res, response_body)
-                    };
-
-                    if resp_blocked {
-                        if let Some(engine) = app.try_state::<Arc<crate::engine::FirewallEngine>>() {
-                            engine.stats.packets_blocked.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                            engine.stats.packets_total.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                        }
-                        emit_log_event(
-                            &app,
-                            LogEntry {
-                                id: format!("{}-intercept-resp-block-{}-{}", ts, host, port),
-                                timestamp: ts,
-                                level: LogLevel::Warning,
-                                message: format!("Proxy Response Blocked: HTTP {} {} -> {}", method, full_url, resp_block_reason),
-                            },
-                        );
-                        let mut resp_packet = mock_packet.clone();
-                        resp_packet.http_response_body = response_body.clone();
-                        let raw_packet = crate::sdk::RawPacket::from_parts(
-                            format!("{}-proxy-resp-block", ts),
-                            &[],
-                            &resp_packet,
-                            &mock_context,
-                            "Block",
-                            resp_block_reason.clone(),
-                        );
-                        let _ = app.emit("raw_packet", raw_packet);
-                        return Err(http_mitm_proxy::default_client::Error::IoError(
-                            std::io::Error::new(
-                                std::io::ErrorKind::ConnectionAborted,
-                                resp_block_reason,
-                            )
-                        ));
-                    }
-
-                    // ── Emit events ───────────────────────────────────────
-                    // 1. Legacy one-line log (keeps existing UI working)
-                    emit_log_event(
-                        &app,
-                        LogEntry {
-                            id: format!("{}-intercept-{}-{}", ts, host, port),
-                            timestamp: ts,
-                            level: LogLevel::Info,
-                            message: format!(
-                                "Proxy Intercept: {} {}:{}{} → {} | UA={} | CT={}",
-                                method,
-                                host,
-                                port,
-                                path,
-                                status,
-                                user_agent.as_deref().unwrap_or("-"),
-                                response_content_type.as_deref().unwrap_or("-"),
-                            ),
-                        },
-                    );
-
-                    // ── Send HTTP_BODY to Owlyshield behavior engine ──────
-                    // Only send if there is at least one body so we don't flood the pipe.
-                    if request_body.is_some() || response_body.is_some() {
-                        if let Some(engine) = app.try_state::<Arc<crate::engine::FirewallEngine>>() {
-                            let req_b = request_body.as_deref().unwrap_or("").replace('|', " ");
-                            let resp_b = response_body.as_deref().unwrap_or("").replace('|', " ");
-                            // HTTP_BODY:<pid>|<method>|<url>|<request_body>|<response_body>
-                            // PID is 0 in proxy context — behavior engine maps by PID,
-                            // bodies contribute when the process is identified later.
-                            let msg = format!(
-                                "HTTP_BODY:0|{}|{}|{}|{}\n",
-                                method.replace('|', " "),
-                                full_url.replace('|', " "),
-                                req_b,
-                                resp_b,
+                    // Wrap in generic error handler: all errors return 502
+                    match handle_proxy_request(client, app.clone(), sdk, req).await {
+                        Ok(res) => Ok::<_, http_mitm_proxy::default_client::Error>(res),
+                        Err(e) => {
+                            let ts = now_ts();
+                            emit_log_event(
+                                &app,
+                                LogEntry {
+                                    id: format!("{}-proxy-err", ts),
+                                    timestamp: ts,
+                                    level: LogLevel::Error,
+                                    message: format!("Proxy error: {}", e),
+                                },
                             );
-                            engine.send_hydranet_message(msg);
+                            Ok::<_, http_mitm_proxy::default_client::Error>(error_response_502())
                         }
                     }
-
-                    // 2. Rich HTTP event with full headers + body
-                    let _ = app.emit(
-                        "proxy_http",
-                        ProxyHttpEvent {
-                            id: format!("{}-http-{}-{}", ts, host, port),
-                            timestamp: ts,
-                            method,
-                            host,
-                            port,
-                            path,
-                            full_url,
-                            status,
-                            request_headers,
-                            response_headers,
-                            user_agent,
-                            content_type,
-                            referer,
-                            response_content_type,
-                            response_content_length,
-                            request_body,
-                            request_body_truncated: body_truncated,
-                            response_body,
-                            response_body_truncated: res_body_truncated,
-                        },
-                    );
-
-                    Ok::<_, http_mitm_proxy::default_client::Error>(res)
                 }
             }),
         )
         .await;
-
 
     match bind_result {
         Ok(server) => {
@@ -546,10 +247,7 @@ pub async fn run_proxy<R: Runtime>(
                     id: format!("{}-proxy-ready", ts),
                     timestamp: ts,
                     level: LogLevel::Success,
-                    message: format!(
-                        "Embedded MITM proxy active on {} — system proxy configured",
-                        addr
-                    ),
+                    message: format!("Embedded MITM proxy active on {}", addr),
                 },
             );
 
@@ -564,7 +262,13 @@ pub async fn run_proxy<R: Runtime>(
                     });
                 }
                 _ = &mut stop_rx => {
-                    // Clean shutdown via stop() — no log spam needed.
+                    let ts = now_ts();
+                    emit_log_event(&app_handle, LogEntry {
+                        id: format!("{}-proxy-shutdown", ts),
+                        timestamp: ts,
+                        level: LogLevel::Info,
+                        message: "Embedded proxy shutting down".to_string(),
+                    });
                 }
             }
         }
@@ -576,12 +280,274 @@ pub async fn run_proxy<R: Runtime>(
                     id: format!("{}-proxy-bind-err", ts),
                     timestamp: ts,
                     level: LogLevel::Error,
-                    message: format!(
-                        "Embedded proxy failed to bind on {}: {}",
-                        addr, e
-                    ),
+                    message: format!("Proxy bind failed on {}: {}", addr, e),
                 },
             );
         }
     }
+}
+
+// ── Generic request handler ────────────────────────────────────────────────────
+
+/// All request/response streams go through this single generic handler.
+/// Centralizes error handling, timeout management, and protocol safety.
+async fn handle_proxy_request<R: Runtime>(
+    client: DefaultClient,
+    app: AppHandle<R>,
+    sdk: Arc<RwLock<SdkRegistry>>,
+    req: http_mitm_proxy::hyper::Request<http_mitm_proxy::hyper::body::Incoming>,
+) -> Result<http_mitm_proxy::hyper::Response<Full<Bytes>>, String> {
+    // ── Validate request ────────────────────────────────────────────────────
+    validate_request(&req)?;
+
+    const MAX_BODY: usize = 64 * 1024;
+    const TIMEOUT_SECS: u64 = 30;
+
+    let method = req.method().to_string();
+    let uri = req.uri().clone();
+    let host = uri.host().unwrap_or("unknown").to_string();
+    let port = uri.port_u16().unwrap_or(443);
+    let path = format!("{}{}", uri.path(), uri.query().map(|q| format!("?{}", q)).unwrap_or_default());
+    let full_url = format!("{}://{}:{}{}", uri.scheme_str().unwrap_or("https"), host, port, path);
+
+    let mut request_headers: HashMap<String, String> = HashMap::new();
+    for (name, value) in req.headers().iter() {
+        request_headers.insert(name.to_string(), value.to_str().unwrap_or("<binary>").to_string());
+    }
+    let user_agent = request_headers.get("user-agent").cloned();
+    let content_type = request_headers.get("content-type").cloned();
+    let referer = request_headers.get("referer").cloned();
+
+    // ── Collect request body with timeout ───────────────────────────────────
+    let (parts, body) = req.into_parts();
+    let raw_body: Bytes = tokio::time::timeout(
+        std::time::Duration::from_secs(TIMEOUT_SECS),
+        body.collect(),
+    )
+    .await
+    .map_err(|_| "Request body timeout".to_string())?
+    .map_err(|e| e.to_string())?
+    .to_bytes();
+
+    let body_truncated = raw_body.len() > MAX_BODY;
+    let body_bytes = if body_truncated {
+        raw_body.slice(..MAX_BODY)
+    } else {
+        raw_body.clone()
+    };
+
+    let request_body = if body_bytes.is_empty() {
+        None
+    } else {
+        Some(match String::from_utf8(body_bytes.to_vec()) {
+            Ok(s) => s,
+            Err(_) => body_bytes.iter().map(|b| format!("{:02X}", b)).collect::<Vec<_>>().join(" "),
+        })
+    };
+
+    // ── Create mock packet for SDK evaluation ────────────────────────────────
+    let mock_packet = PacketInfo {
+        timestamp: now_ts(),
+        protocol: Protocol::TCP,
+        src_ip: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
+        dst_ip: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
+        src_port: 0,
+        dst_port: port,
+        size: 0,
+        outbound: true,
+        process_id: 0,
+        dns_query: None,
+        hostname: Some(host.clone()),
+        full_url: Some(full_url.clone()),
+        tls_handshake: false,
+        http_method: Some(method.clone()),
+        http_path: Some(path.clone()),
+        http_user_agent: user_agent.clone(),
+        http_content_type: content_type.clone(),
+        http_referer: referer.clone(),
+        payload_entropy: None,
+        payload_sample: None,
+        payload_urls: vec![],
+        payload_domains: vec![],
+        image_path: String::new(),
+        detected_file_type: None,
+        http_request_body: request_body.clone(),
+        http_response_body: None,
+    };
+
+    let _mock_context = PacketContext {
+        process_id: 0,
+        process_name: "hydradragonfirewall_proxy".to_string(),
+        process_path: String::new(),
+    };
+
+    // ── SDK Rule Evaluation (request) ───────────────────────────────────────
+    let (blocked, req_body_override) = {
+        let sdk_guard = sdk.read().unwrap();
+        let first_match = sdk_guard.evaluate_first_match(&mock_packet, &[], false);
+        let mut b = false;
+        let mut override_body: Option<String> = None;
+
+        if let Some(finding) = first_match {
+            match finding.action {
+                RuleAction::Block => {
+                    b = true;
+                }
+                RuleAction::ChangeRequestBody => {
+                    if let Some(new_body) = finding.change_request_body {
+                        override_body = Some(new_body);
+                    }
+                }
+                _ => {}
+            }
+        }
+        (b, override_body)
+    };
+
+    if blocked {
+        return Err("Blocked by SDK rule (request)".to_string());
+    }
+
+    // ── Apply request body override + ALWAYS rewrite headers ────────────────
+    let mut req_parts = parts;
+    let req_body_obj = if let Some(new_body) = req_body_override {
+        let new_bytes = Bytes::from(new_body.into_bytes());
+        update_request_content_length_header(&mut req_parts, new_bytes.len());
+        Full::new(new_bytes)
+    } else {
+        // Use the FULL original body, not the truncated display version
+        update_request_content_length_header(&mut req_parts, raw_body.len());
+        Full::new(raw_body)
+    };
+    let req = http_mitm_proxy::hyper::Request::from_parts(req_parts, req_body_obj);
+
+    // ── Forward upstream ────────────────────────────────────────────────────
+    let (res, _) = client
+        .send_request(req)
+        .await
+        .map_err(|e| format!("Upstream failed: {}", e))?;
+
+    // ── Capture response ────────────────────────────────────────────────────
+    let status = res.status().as_u16();
+    let mut response_headers: HashMap<String, String> = HashMap::new();
+    for (name, value) in res.headers().iter() {
+        response_headers.insert(name.to_string(), value.to_str().unwrap_or("<binary>").to_string());
+    }
+    let response_content_type = response_headers.get("content-type").cloned();
+    let response_content_length = response_headers.get("content-length").cloned();
+
+    // ── Collect response body with timeout ──────────────────────────────────
+    let (mut res_parts, res_body) = res.into_parts();
+    let raw_res_body: Bytes = tokio::time::timeout(
+        std::time::Duration::from_secs(TIMEOUT_SECS),
+        res_body.collect(),
+    )
+    .await
+    .map_err(|_| "Response body timeout".to_string())?
+    .map_err(|e| e.to_string())?
+    .to_bytes();
+
+    let res_body_truncated = raw_res_body.len() > MAX_BODY;
+    let res_body_bytes = if res_body_truncated {
+        raw_res_body.slice(..MAX_BODY)
+    } else {
+        raw_res_body.clone()
+    };
+
+    let response_body = if res_body_bytes.is_empty() {
+        None
+    } else {
+        Some(match String::from_utf8(res_body_bytes.to_vec()) {
+            Ok(s) => s,
+            Err(_) => res_body_bytes.iter().map(|b| format!("{:02X}", b)).collect::<Vec<_>>().join(" "),
+        })
+    };
+
+    // ── SDK Rule Evaluation (response) ──────────────────────────────────────
+    let (resp_blocked, resp_body_override) = if response_body.is_some() {
+        let mut resp_packet = mock_packet.clone();
+        resp_packet.http_response_body = response_body.clone();
+        let sdk_guard = sdk.read().unwrap();
+        let first_match = sdk_guard.evaluate_first_match(&resp_packet, &[], false);
+        let mut b = false;
+        let mut override_body: Option<String> = None;
+
+        if let Some(finding) = first_match {
+            match finding.action {
+                RuleAction::Block => b = true,
+                RuleAction::ChangeResponseBody => {
+                    if let Some(new_body) = finding.change_response_body {
+                        override_body = Some(new_body);
+                    }
+                }
+                _ => {}
+            }
+        }
+        (b, override_body)
+    } else {
+        (false, None)
+    };
+
+    if resp_blocked {
+        return Err("Blocked by SDK rule (response)".to_string());
+    }
+
+    // ── Apply response body override + ALWAYS rewrite headers ────────────────
+    let res_body_obj = if let Some(new_body) = resp_body_override {
+        let new_bytes = Bytes::from(new_body.into_bytes());
+        update_content_length_header(&mut res_parts, new_bytes.len());
+        Full::new(new_bytes)
+    } else {
+        // Use the FULL original body, not the truncated display version
+        update_content_length_header(&mut res_parts, raw_res_body.len());
+        Full::new(raw_res_body)
+    };
+
+    // ── Emit events ─────────────────────────────────────────────────────────
+    let ts = now_ts();
+    emit_log_event(
+        &app,
+        LogEntry {
+            id: format!("{}-intercept-{}-{}", ts, host, port),
+            timestamp: ts,
+            level: LogLevel::Info,
+            message: format!("Proxy: {} {}:{}{} → {}", method, host, port, path, status),
+        },
+    );
+
+    if request_body.is_some() || response_body.is_some() {
+        if let Some(engine) = app.try_state::<Arc<crate::engine::FirewallEngine>>() {
+            let req_b = request_body.as_deref().unwrap_or("").replace('|', " ");
+            let resp_b = response_body.as_deref().unwrap_or("").replace('|', " ");
+            let msg = format!("HTTP_BODY:0|{}|{}|{}|{}\n", method.replace('|', " "), full_url.replace('|', " "), req_b, resp_b);
+            engine.send_hydranet_message(msg);
+        }
+    }
+
+    let _ = app.emit(
+        "proxy_http",
+        ProxyHttpEvent {
+            id: format!("{}-http-{}-{}", ts, host, port),
+            timestamp: ts,
+            method,
+            host,
+            port,
+            path,
+            full_url,
+            status,
+            request_headers,
+            response_headers,
+            user_agent,
+            content_type,
+            referer,
+            response_content_type,
+            response_content_length,
+            request_body,
+            request_body_truncated: body_truncated,
+            response_body,
+            response_body_truncated: res_body_truncated,
+        },
+    );
+
+    Ok(http_mitm_proxy::hyper::Response::from_parts(res_parts, res_body_obj))
 }
