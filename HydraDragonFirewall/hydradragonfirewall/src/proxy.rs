@@ -168,7 +168,7 @@ pub async fn run_proxy<R: Runtime>(
                     let uri = req.uri().clone();
                     let host = uri.host().unwrap_or("unknown").to_string();
                     let port = uri.port_u16().unwrap_or(443);
-                    let path = uri.path().to_string();
+                    let path = format!("{}{}", uri.path(), uri.query().map(|q| format!("?{}", q)).unwrap_or_default());
                     let full_url = format!(
                         "{}://{}:{}{}",
                         uri.scheme_str().unwrap_or("https"),
