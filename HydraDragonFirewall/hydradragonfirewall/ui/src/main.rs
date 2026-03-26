@@ -397,8 +397,9 @@ pub struct FirewallSettings {
     #[serde(default = "default_max_visible_http_history")]
     pub max_visible_http_events: usize,
     #[serde(default)]
-    pub tls_proxy: TlsProxyConfig,
+    pub log_full_bodies: bool,
     #[serde(default)]
+    pub tls_proxy: TlsProxyConfig,
     pub metadata: HashMap<String, String>,
 }
 
@@ -426,6 +427,7 @@ impl Default for FirewallSettings {
             max_visible_logs: default_max_visible_logs(),
             prune_http_history: default_prune_http_history(),
             max_visible_http_events: default_max_visible_http_history(),
+            log_full_bodies: false,
             tls_proxy: TlsProxyConfig::default(),
             metadata,
         }

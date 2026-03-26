@@ -18,6 +18,10 @@
     "save_all_logs": false,
     "prune_old_logs": true,
     "max_visible_logs": 2000,
+    "prune_http_history": true,
+    "max_visible_http_events": 1000,
+    "log_full_bodies": false,
+    "kernel_block_paths": [],
     "tls_proxy": {
         "mode": "tls_proxy",
         "backend": "mitmproxy_rs_local",

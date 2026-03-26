@@ -196,7 +196,7 @@ pub async fn run_proxy<R: Runtime>(
     ca: rcgen::Issuer<'static, KeyPair>,
     app_handle: AppHandle<R>,
     sdk: Arc<RwLock<SdkRegistry>>,
-    _settings: Arc<RwLock<FirewallSettings>>,
+    settings: Arc<RwLock<FirewallSettings>>,
     mut stop_rx: oneshot::Receiver<()>,
 ) {
     let proxy = MitmProxy::new(
@@ -214,10 +214,11 @@ pub async fn run_proxy<R: Runtime>(
                 let client = client.clone();
                 let app = app_handle_cloned.clone();
                 let sdk = sdk.clone();
+                let settings = settings.clone();
 
                 async move {
                     // Wrap in generic error handler: all errors return 502
-                    match handle_proxy_request(client, app.clone(), sdk, req).await {
+                    match handle_proxy_request(client, app.clone(), sdk, settings, req).await {
                         Ok(res) => Ok::<_, http_mitm_proxy::default_client::Error>(res),
                         Err(e) => {
                             let ts = now_ts();
@@ -295,12 +296,21 @@ async fn handle_proxy_request<R: Runtime>(
     client: DefaultClient,
     app: AppHandle<R>,
     sdk: Arc<RwLock<SdkRegistry>>,
+    settings: Arc<RwLock<FirewallSettings>>,
     req: http_mitm_proxy::hyper::Request<http_mitm_proxy::hyper::body::Incoming>,
 ) -> Result<http_mitm_proxy::hyper::Response<Full<Bytes>>, String> {
     // ── Validate request ────────────────────────────────────────────────────
     validate_request(&req)?;
 
-    const MAX_BODY: usize = 64 * 1024;
+    // Determine MAX_BODY based on settings
+    let max_body = {
+        let settings_guard = settings.read().unwrap();
+        if settings_guard.log_full_bodies {
+            usize::MAX
+        } else {
+            64 * 1024
+        }
+    };
     const TIMEOUT_SECS: u64 = 30;
 
     let method = req.method().to_string();
@@ -329,9 +339,9 @@ async fn handle_proxy_request<R: Runtime>(
     .map_err(|e| e.to_string())?
     .to_bytes();
 
-    let body_truncated = raw_body.len() > MAX_BODY;
+    let body_truncated = raw_body.len() > max_body;
     let body_bytes = if body_truncated {
-        raw_body.slice(..MAX_BODY)
+        raw_body.slice(..max_body)
     } else {
         raw_body.clone()
     };
@@ -447,9 +457,9 @@ async fn handle_proxy_request<R: Runtime>(
     .map_err(|e| e.to_string())?
     .to_bytes();
 
-    let res_body_truncated = raw_res_body.len() > MAX_BODY;
+    let res_body_truncated = raw_res_body.len() > max_body;
     let res_body_bytes = if res_body_truncated {
-        raw_res_body.slice(..MAX_BODY)
+        raw_res_body.slice(..max_body)
     } else {
         raw_res_body.clone()
     };
