@@ -23,7 +23,6 @@ pub enum Param {
     RulesPath,
     ReportDir,
     SdkPath,
-    BehaviorRulesPath,
     Unknown,
 }
 
@@ -53,7 +52,6 @@ impl Param {
             Param::RulesPath => "RULES_PATH",
             Param::ReportDir => "REPORT_DIR",
             Param::SdkPath => "SDK_PATH",
-            Param::BehaviorRulesPath => "BEHAVIOR_RULES_PATH",
             _ => "UNKNOWN"
         }
     }
@@ -74,7 +72,6 @@ impl Param {
             Param::RulesPath => "rules_path",
             Param::ReportDir => "report_dir",
             Param::SdkPath => "sdk_path",
-            Param::BehaviorRulesPath => "behavior_rules_path",
             _ => "unknown"
         }
     }
@@ -104,7 +101,6 @@ impl Param {
         }
 
         params.push(Param::ReportDir);
-        params.push(Param::BehaviorRulesPath);
 
         let mut ret = Vec::new();
         for param in params {
@@ -130,7 +126,6 @@ impl Param {
             "RULES_PATH" => Param::RulesPath,
             "REPORT_DIR" => Param::ReportDir,
             "SDK_PATH" => Param::SdkPath,
-            "BEHAVIOR_RULES_PATH" => Param::BehaviorRulesPath,
             _ => Param::Unknown,
         }
     }
@@ -151,7 +146,6 @@ impl Param {
             "rules_path" => Param::RulesPath,
             "report_dir" => Param::ReportDir,
             "sdk_path" => Param::SdkPath,
-            "behavior_rules_path" => Param::BehaviorRulesPath,
             _ => Param::Unknown,
         }
     }

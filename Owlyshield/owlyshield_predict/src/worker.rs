@@ -787,7 +787,6 @@ mod process_records {
         pub api_trackers: HashMap<u64, ApiTracker>,
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
         pub app_settings: AppSettings,
-        pub rules_path: String,
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
         dynamic_hooks_registered: bool,
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
@@ -852,14 +851,6 @@ mod process_records {
                 Err(e) => Logging::error(&format!("[REPORT] Failed to save system report: {}", e)),
             }
             self.last_report_time = Some(std::time::Instant::now());
-        }
-
-        /// Load behavioral and network rules from the configured rules path.
-        pub fn load_rules(&mut self) {
-            let path = Path::new(&self.rules_path);
-            if let Err(e) = self.behavior_engine.load_additional_rules(path) {
-                Logging::error(&format!("[Worker] Failed to load rules from {}: {}", self.rules_path, e));
-            }
         }
 
         const PID_FALLBACK_GID_MASK: u64 = 0x8000_0000_0000_0000;
@@ -1284,7 +1275,6 @@ mod process_records {
                 app_settings: app_settings.clone(),
                 iomsg_postprocessors: vec![],
                 api_trackers: std::collections::HashMap::new(),
-                rules_path: config[Param::BehaviorRulesPath].clone(),
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
                 behavior_engine: Self::build_behavior_engine(),
                 #[cfg(not(all(target_os = "windows", feature = "behavior_engine")))]
@@ -1393,9 +1383,6 @@ mod process_records {
             // Mark startup as complete so process_io() can resume
             // scan_all_processes() on new process creation events.
             self.startup_complete = true;
-            
-            // Load rules after discovery to ensure engine state is ready
-            self.load_rules();
         }
         
         /// Generate GID for discovered processes
@@ -1933,7 +1920,6 @@ mod process_records {
         pub fn new_replay(config: &'a Config, whitelist: &'a WhiteList, #[cfg(all(target_os = "windows", feature = "behavior_engine"))] app_settings: AppSettings) -> Worker<'a> {
             Worker {
                 config,
-                rules_path: config[Param::BehaviorRulesPath].clone(),
                 whitelist: Some(whitelist),
                 process_records: ProcessRecords::new(),
                 startup_complete: true, // replay mode has no startup flood
