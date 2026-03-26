@@ -1,0 +1,40 @@
+- name: "BLOCK:HydraDragonFirewall.CaKeyFileAccessDeny.gen"
+  author: "Security Team"
+  date: "2026-03-26"
+  status: stable
+  level: critical
+  severity: 95
+  description: |
+    Blocks all processes from reading the HydraDragonFirewall CA private key file
+    (hydradragon_ca.key.der). This prevents unauthorized access to the MITM proxy
+    certificate authority private key, which could be used to decrypt or forge HTTPS
+    traffic. The key should only be read by the legitimate HydraDragonFirewall process
+    during initialization.
+  debug: false
+
+  named_conditions:
+    ca_key_file_read:
+      orderless: true
+      file_paths:
+        - "C:\\Program Files\\HydraDragonAntivirus\\HydraDragonFirewall\\hydradragon_ca.key.der"
+      file_operations:
+        - read
+      min_matches: 1
+
+  detection_logic:
+    condition: "ca_key_file_read"
+
+  response:
+    status_access_denied: true
+    terminate_process: false
+    notify_user: true
+    record: true
+
+  tags: ["ca-key-protection", "mitm-proxy-security", "critical-asset", "hydradragon-firewall"]
+  mitre_attack: ["T1005", "T1552.001"]
+  false_positives:
+    - "None expected - only HydraDragonFirewall should read this file during startup"
+  recommendations:
+    - "CA key file should be readable only by SYSTEM and HydraDragonFirewall service account"
+    - "Consider storing the key in DPAPI or Windows CNG key storage for additional protection"
+    - "Monitor for repeated access denial events which may indicate attack attempts"
