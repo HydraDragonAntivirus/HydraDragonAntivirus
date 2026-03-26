@@ -1,6 +1,7 @@
 # =============================================================================
 # COMODO Leak Test v1.1.0.3 — 100% Protection Rules
-# Covers all 16 vulnerable test cases to achieve 100% protection (340/340)
+# Rewritten to use valid BehaviorRule / NamedConditionGroup schema fields
+# All exclude_processes now require must_be_signed: true to prevent evasion
 # =============================================================================
 
 ---
@@ -21,35 +22,40 @@
     Blocks driver path substitution attacks.
   debug: false
 
+  allowlisted_apps:
+    - pattern: "msiexec.exe"
+      must_be_signed: true
+    - pattern: "svchost.exe"
+      must_be_signed: true
+    - pattern: "services.exe"
+      must_be_signed: true
+
   named_conditions:
     driver_path_modification:
       orderless: true
       registry_keys:
-        - "HKLM\\SYSTEM\\CurrentControlSet\\Services\\*"
-        - "HKLM\\SYSTEM\\ControlSet[0-9]\\Services\\*"
+        - "HKLM\\SYSTEM\\CurrentControlSet\\Services"
+        - "HKLM\\SYSTEM\\ControlSet001\\Services"
+        - "HKLM\\SYSTEM\\ControlSet002\\Services"
       registry_values:
         - "ImagePath"
       registry_operations: ["set", "create"]
-      value_contains:
+      file_paths:
         - "\\AppData\\"
         - "\\Temp\\"
         - "\\ProgramData\\"
         - "\\Users\\"
-      exclude_paths:
-        - "System32\\drivers"
-        - "SystemRoot\\drivers"
       min_matches: 1
 
     driver_service_type:
       orderless: true
       registry_keys:
-        - "HKLM\\SYSTEM\\CurrentControlSet\\Services\\*"
-        - "HKLM\\SYSTEM\\ControlSet[0-9]\\Services\\*"
+        - "HKLM\\SYSTEM\\CurrentControlSet\\Services"
+        - "HKLM\\SYSTEM\\ControlSet001\\Services"
+        - "HKLM\\SYSTEM\\ControlSet002\\Services"
       registry_values:
         - "Type"
-      registry_values_match:
-        - "1"  # SERVICE_KERNEL_DRIVER
-        - "2"  # SERVICE_FILE_SYSTEM_DRIVER
+      registry_operations: ["set", "create"]
       min_matches: 1
 
   detection_logic:
@@ -87,22 +93,21 @@
   named_conditions:
     raw_device_handle_open:
       orderless: true
-      kernel_api_calls:
+      apis:
         - "ZwOpenFile"
         - "NtOpenFile"
         - "IoCreateFile"
-      api_args_contain:
+      file_paths:
         - "\\Device\\HarddiskVolume"
         - "\\Device\\HarddiskVolumeShadowCopy"
         - "\\Device\\Harddisk"
-      access_mask: ["DELETE", "WRITE", "EXECUTE"]
+      api_threshold: 1
       min_matches: 1
 
     process_create_after_raw_handle:
-      orderless: false
-      created_processes: "*"
-      parent_process_has_raw_device_access: true
-      time_delta_ms: 5000
+      orderless: true
+      created_processes:
+        - "*"
       min_matches: 1
 
   detection_logic:
@@ -137,26 +142,24 @@
     - Direct partition modification
     - Ransomware encryption bypass
     COMODO Test #6: Invasion:RawDisk
-    Blocks raw disk access with kernel enforcement.
+    Blocks raw disk access.
   debug: false
 
   named_conditions:
     raw_disk_write_access:
       orderless: true
-      kernel_api_calls:
+      apis:
         - "ZwOpenFile"
         - "NtOpenFile"
         - "ZwCreateFile"
         - "NtCreateFile"
         - "IoCreateFile"
-      api_args_contain:
+      file_paths:
         - "\\Device\\HarddiskVolume"
         - "\\Device\\HarddiskVolumeShadowCopy"
         - "\\Device\\Harddisk"
-      access_mask_include:
-          - "WRITE"
-          - "DELETE"
-          - "SYNCHRONIZE_WRITE"
+      file_operations: ["write", "create"]
+      api_threshold: 1
       min_matches: 1
 
   detection_logic:
@@ -167,10 +170,6 @@
     ask_user: true
     status_access_denied: true
     record: true
-    block_operation: true
-
-  kernel_enforcement: true
-  kernel_blocking_level: "PRE_DISPATCH"
 
   tags: ["invasion", "raw-disk", "bootkit", "bootloader"]
   mitre_attack: ["T1014", "T1561.001"]
@@ -191,29 +190,36 @@
     Blocks file writes to protected system locations.
   debug: false
 
+  allowlisted_apps:
+    - pattern: "msiexec.exe"
+      must_be_signed: true
+    - pattern: "wusa.exe"
+      must_be_signed: true
+    - pattern: "svchost.exe"
+      must_be_signed: true
+    - pattern: "csrss.exe"
+      must_be_signed: true
+    - pattern: "explorer.exe"
+      must_be_signed: true
+    - pattern: "rundll32.exe"
+      must_be_signed: true
+
   named_conditions:
     protected_directory_write:
       orderless: true
       file_paths:
-        - "C:\\Windows\\System32\\*"
-        - "C:\\Windows\\SysWOW64\\*"
-        - "C:\\Windows\\System\\*"
-        - "C:\\Program Files\\*"
-        - "C:\\Program Files (x86)\\*"
+        - "C:\\Windows\\System32"
+        - "C:\\Windows\\SysWOW64"
+        - "C:\\Windows\\System"
+        - "C:\\Program Files"
+        - "C:\\Program Files (x86)"
       file_operations: ["create", "write"]
-      exclude_processes:
-        - "msiexec.exe"
-        - "wusa.exe"
-        - "rundll32.exe"
-        - "svchost.exe"
-        - "csrss.exe"
-        - "explorer.exe"
       min_matches: 1
 
     process_not_trusted:
       orderless: true
-      process_signature_status: "unsigned"
-      process_path_contains:
+      is_signed: false
+      file_paths:
         - "AppData"
         - "Temp"
         - "Public"
@@ -255,23 +261,19 @@
   named_conditions:
     setwineventhook_call:
       orderless: true
-      kernel_api_calls:
+      apis:
         - "user32.dll!SetWinEventHook"
       api_threshold: 1
+      min_matches: 1
 
     hook_dll_injection:
       orderless: true
       apis:
         - "user32.dll!SetWinEventHook"
-      api_args_contain:
+      file_paths:
         - ".dll"
         - "AppData"
         - "Temp"
-      min_matches: 1
-
-    target_process_elevation:
-      orderless: true
-      target_process_privilege_level: ["system", "administrator"]
       min_matches: 1
 
   detection_logic:
@@ -308,26 +310,21 @@
   named_conditions:
     setwindowshookex_call:
       orderless: true
-      kernel_api_calls:
+      apis:
         - "user32.dll!SetWindowsHookEx"
+        - "user32.dll!SetWindowsHookExA"
+        - "user32.dll!SetWindowsHookExW"
       api_threshold: 1
+      min_matches: 1
 
     hook_dll_path:
       orderless: true
       apis:
         - "user32.dll!SetWindowsHookEx"
-      api_args_contain:
+        - "user32.dll!SetWindowsHookExA"
+        - "user32.dll!SetWindowsHookExW"
+      file_paths:
         - ".dll"
-      api_memory_injection: true
-      min_matches: 1
-
-    sensitive_hook_types:
-      orderless: true
-      api_args_match:
-        - "WH_KEYBOARD_LL"
-        - "WH_MOUSE_LL"
-        - "WH_KEYBOARD"
-        - "WH_MOUSE"
       min_matches: 1
 
   detection_logic:
@@ -361,12 +358,21 @@
     Blocks unauthorized service installation.
   debug: false
 
+  allowlisted_apps:
+    - pattern: "msiexec.exe"
+      must_be_signed: true
+    - pattern: "svchost.exe"
+      must_be_signed: true
+    - pattern: "services.exe"
+      must_be_signed: true
+
   named_conditions:
     service_registry_create:
       orderless: true
       registry_keys:
-        - "HKLM\\SYSTEM\\CurrentControlSet\\Services\\*"
-        - "HKLM\\SYSTEM\\ControlSet[0-9]\\Services\\*"
+        - "HKLM\\SYSTEM\\CurrentControlSet\\Services"
+        - "HKLM\\SYSTEM\\ControlSet001\\Services"
+        - "HKLM\\SYSTEM\\ControlSet002\\Services"
       registry_operations: ["create"]
       registry_values:
         - "ImagePath"
@@ -374,23 +380,15 @@
 
     createservice_api:
       orderless: true
-      kernel_api_calls:
+      apis:
         - "advapi32.dll!CreateServiceA"
         - "advapi32.dll!CreateServiceW"
       api_threshold: 1
+      min_matches: 1
 
     non_system_caller:
       orderless: true
-      calling_process_privilege_level: "user"
-      calling_process_signature_status: ["unsigned", "untrusted"]
-      min_matches: 1
-
-    service_dll_suspicious:
-      orderless: true
-      registry_values_contain:
-        - "AppData"
-        - "Temp"
-        - "ProgramData"
+      is_signed: false
       min_matches: 1
 
   detection_logic:
@@ -429,52 +427,41 @@
     Alerts on suspicious DNS patterns.
   debug: false
 
+  allowlisted_apps:
+    - pattern: "chrome.exe"
+      must_be_signed: true
+    - pattern: "firefox.exe"
+      must_be_signed: true
+    - pattern: "msedge.exe"
+      must_be_signed: true
+    - pattern: "explorer.exe"
+      must_be_signed: true
+    - pattern: "outlook.exe"
+      must_be_signed: true
+    - pattern: "svchost.exe"
+      must_be_signed: true
+
   named_conditions:
-    dns_high_frequency:
+    dns_activity:
       orderless: true
-      network_operations: ["dns_query"]
-      query_rate_threshold: 50  # queries per minute
-      query_window_seconds: 60
+      has_network_activity: true
+      network_indicators:
+        - "dns"
       min_matches: 1
 
-    dns_suspicious_entropy:
+    process_unsigned:
       orderless: true
-      network_operations: ["dns_query"]
-      domain_entropy_score: ">= 3.5"  # High entropy = obfuscated/encoded
-      min_matches: 5
-
-    dns_rapid_succession:
-      orderless: true
-      network_operations: ["dns_query"]
-      time_delta_between_queries_ms: "< 100"  # Unnaturally fast
-      consecutive_queries: ">= 10"
-      min_matches: 1
-
-    process_no_network_need:
-      orderless: true
-      process_name_exclude:
-        - "chrome.exe"
-        - "firefox.exe"
-        - "msedge.exe"
-        - "explorer.exe"
-        - "outlook.exe"
-        - "svchost.exe"
+      is_signed: false
       min_matches: 1
 
   detection_logic:
     and:
-      - or:
-          - condition: "dns_high_frequency"
-          - condition: "dns_suspicious_entropy"
-          - condition: "dns_rapid_succession"
-      - condition: "process_no_network_need"
+      - condition: "dns_activity"
+      - condition: "process_unsigned"
 
   response:
     notify_user: true
-    ask_user: false
     record: true
-    block_dns: false
-    alert_level: "warning"
 
   tags: ["exfiltration", "dns", "c2", "network"]
   mitre_attack: ["T1041", "T1071.004"]
@@ -499,22 +486,20 @@
   named_conditions:
     cocreateinstance_api:
       orderless: true
-      kernel_api_calls:
+      apis:
         - "ole32.dll!CoCreateInstance"
         - "ole32.dll!CoGetObject"
       api_threshold: 1
+      min_matches: 1
 
     impersonate_loggedon_user:
       orderless: true
-      kernel_api_calls:
+      apis:
         - "advapi32.dll!ImpersonateLoggedOnUser"
         - "advapi32.dll!SetThreadToken"
         - "advapi32.dll!DuplicateTokenEx"
       api_threshold: 1
-
-    sequence_timing:
-      orderless: false
-      time_delta_ms: 1000  # Within 1 second
+      min_matches: 1
 
   detection_logic:
     and:
@@ -547,43 +532,37 @@
     Blocks service DLL path modification.
   debug: false
 
+  allowlisted_apps:
+    - pattern: "msiexec.exe"
+      must_be_signed: true
+    - pattern: "svchost.exe"
+      must_be_signed: true
+    - pattern: "services.exe"
+      must_be_signed: true
+
   named_conditions:
     service_dll_modification:
       orderless: true
       registry_keys:
-        - "HKLM\\SYSTEM\\CurrentControlSet\\Services\\*\\Parameters"
-        - "HKLM\\SYSTEM\\ControlSet[0-9]\\Services\\*\\Parameters"
-        - "HKLM\\SYSTEM\\CurrentControlSet\\Services\\*"
+        - "HKLM\\SYSTEM\\CurrentControlSet\\Services"
+        - "HKLM\\SYSTEM\\ControlSet001\\Services"
+        - "HKLM\\SYSTEM\\ControlSet002\\Services"
       registry_values:
         - "ServiceDll"
         - "ImagePath"
         - "ImagePathValue"
       registry_operations: ["set", "create"]
-      value_change_detected: true
       min_matches: 1
 
-    service_dll_not_system32:
+    caller_unsigned:
       orderless: true
-      registry_values_not_contain:
-        - "System32"
-        - "systemroot"
-      min_matches: 1
-
-    caller_not_system:
-      orderless: true
-      calling_process_privilege_level: "user"
-      calling_process_name_exclude:
-        - "msiexec.exe"
-        - "svchost.exe"
-        - "services.exe"
+      is_signed: false
       min_matches: 1
 
   detection_logic:
     and:
       - condition: "service_dll_modification"
-      - or:
-          - condition: "service_dll_not_system32"
-          - condition: "caller_not_system"
+      - condition: "caller_unsigned"
 
   response:
     notify_user: true
@@ -628,26 +607,15 @@
       registry_operations: ["set", "create"]
       min_matches: 1
 
-    startup_path_suspicious:
+    caller_unsigned:
       orderless: true
-      registry_values_contain:
-        - "AppData"
-        - "Temp"
-        - "ProgramData"
-        - "Public"
-      min_matches: 1
-
-    executable_unsigned:
-      orderless: true
-      registry_values_signatures: "unsigned"
+      is_signed: false
       min_matches: 1
 
   detection_logic:
     and:
       - condition: "startup_registry_modification"
-      - or:
-          - condition: "startup_path_suspicious"
-          - condition: "executable_unsigned"
+      - condition: "caller_unsigned"
 
   response:
     notify_user: true
@@ -682,8 +650,8 @@
     ifeo_registry_modification:
       orderless: true
       registry_keys:
-        - "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Image File Execution Options\\*"
-        - "HKCU\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Image File Execution Options\\*"
+        - "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Image File Execution Options"
+        - "HKCU\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Image File Execution Options"
       registry_values:
         - "Debugger"
         - "GlobalFlag"
@@ -693,7 +661,7 @@
 
     debugger_path_suspicious:
       orderless: true
-      registry_values_contain:
+      cmdline_keywords:
         - "cmd.exe"
         - "powershell.exe"
         - "AppData"
@@ -751,14 +719,11 @@
 
     appinit_dll_suspicious:
       orderless: true
-      registry_values_contain:
+      file_paths:
         - ".dll"
         - "AppData"
         - "Temp"
         - "ProgramData"
-      registry_values_not_contain:
-        - "System32"
-        - "systemroot"
       min_matches: 1
 
   detection_logic:
@@ -776,31 +741,3 @@
 
   tags: ["hijacking", "dll-injection", "appinit", "persistence"]
   mitre_attack: ["T1547.010"]
-
----
-
-# MASTER ENFORCEMENT: All rules require kernel-level enforcement
-# for real-time blocking and rollback capabilities
-
-kernel_enforcement_policy:
-  enabled: true
-  blocking_level: "PRE_DISPATCH"
-  logging_level: "DEBUG"
-  rollback_on_termination: true
-  audit_trail_retention_days: 90
-
-# Response template for consistency
-global_response_defaults:
-  notify_user: true
-  record: true
-  alert_edr: true
-  send_telemetry: true
-
-# Reporting and alerting
-reporting:
-  enabled: true
-  include_kernel_events: true
-  include_api_calls: true
-  include_registry_changes: true
-  include_network_traffic: true
-  comodo_test_report: true

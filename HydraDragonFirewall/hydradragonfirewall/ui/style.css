@@ -734,7 +734,6 @@ textarea.glass-card:focus {
     display: flex;
     flex-direction: column;
     min-height: 0;
-    overflow: hidden;
     gap: 10px;
 }
 
@@ -742,6 +741,7 @@ textarea.glass-card:focus {
     flex: 1;
     min-height: 0;
     overflow-y: auto;
+    overscroll-behavior: contain;
     padding-right: 4px;
     padding-bottom: 10px;
 }
