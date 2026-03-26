@@ -100,6 +100,7 @@ impl Param {
             params.push(Param::NoveltyPath);
         }
 
+        params.push(Param::RulesPath);
         params.push(Param::ReportDir);
 
         let mut ret = Vec::new();
