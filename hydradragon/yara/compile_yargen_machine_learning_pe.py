@@ -1,16 +1,14 @@
-import yara
-
-def compile_yara_rule(input_file, output_file):
-    # Compile the YARA rule
-    rules = yara.compile(filepath=input_file)
-    
-    # Save the compiled rule to a .yrc file
-    with open(output_file, 'wb') as f:
-        rules.save(file=f)
+from yara_compile_utils import compile_yara_rule_safely
 
 # Usage
 input_yara_file = 'machine_learning_pe.yar'
 output_yrc_file = 'machine_learning_pe.yrc'
-compile_yara_rule(input_yara_file, output_yrc_file)
+rewritten_rules, skipped_rules, skipped_report = compile_yara_rule_safely(input_yara_file, output_yrc_file)
 
 print(f"{input_yara_file} has been successfully compiled to {output_yrc_file}.")
+if rewritten_rules:
+    print(f"Normalized {rewritten_rules} invalid or duplicate rule identifiers before compilation.")
+if skipped_rules:
+    print(f"Skipped {skipped_rules} malformed rules while building {output_yrc_file}.")
+    if skipped_report is not None:
+        print(f"Skipped-rule report written to {skipped_report}.")

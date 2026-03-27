@@ -320,9 +320,19 @@
   detection_logic:
     condition: "lolbin_with_network"
 
+  allowlisted_apps:
+    - pattern: "C:/Windows/System32/svchost.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/services.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+
   response:
-    notify_user: true
-    ask_user: true
+    notify_user: false
+    ask_user: false
     terminate_process: false
     record: true
 

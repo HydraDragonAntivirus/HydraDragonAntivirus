@@ -4496,7 +4496,6 @@ impl BehaviorEngine {
             if let Some(logic) = &rule.detection_logic {
                 rich_triggered = self.evaluate_detection_condition(logic, &state_ref, rule);
             }
-
             let mut stages_triggered = false;
             let mut stage_conf = 0.0;
             if !rule.stages.is_empty() {
@@ -4528,12 +4527,12 @@ impl BehaviorEngine {
                     }
                 }
 
-                let trigger_type = if stages_triggered { "Stage-based" } 
-                                  else if rich_triggered { "Rich-logic" } 
+                let trigger_type = if stages_triggered { "Stage-based" }
+                                  else if rich_triggered { "Rich-logic" }
                                   else { "Legacy" };
 
-                let indicator_ratio = if stages_triggered { stage_conf } 
-                                     else if rich_triggered { 1.0 } 
+                let indicator_ratio = if stages_triggered { stage_conf }
+                                     else if rich_triggered { 1.0 }
                                      else { legacy_ratio };
 
                 Logging::warning(&format!(
@@ -4542,8 +4541,14 @@ impl BehaviorEngine {
                 ));
 
                 precord.is_malicious = true;
-                let threat_info = ThreatInfo {
-                    threat_type_label: "Behavioral Detection",
+                let mut threat_info = ThreatInfo {
+                    threat_type_label: match rule.level {
+                        DetectionLevel::Informational => "Informational",
+                        DetectionLevel::Low => "Low Severity",
+                        DetectionLevel::Medium => "Behavioral Detection",
+                        DetectionLevel::High => "High Severity Threat",
+                        DetectionLevel::Critical => "Critical Threat",
+                    },
                     virus_name: &rule.name,
                     prediction: indicator_ratio,
                     match_details: Some(Self::build_rule_match_details(
@@ -4578,10 +4583,22 @@ impl BehaviorEngine {
                     revert: rule.response.auto_revert,
                 };
 
+                // FAIL-FAST SAFETY GUARD: Prevent rule-based termination of critical system processes
+                if (threat_info.terminate || threat_info.quarantine || threat_info.kill_and_remove)
+                    && let Some(reason) = crate::utils::protected_process_record_reason(precord) {
+                    Logging::warning(&format!(
+                        "[BehaviorEngine] Rule '{}' triggered termination for protected process {} (GID: {}), but it was BLOCKED: {}",
+                        rule.name, precord.appname, precord.gid, reason
+                    ));
+                    threat_info.terminate = false;
+                    threat_info.quarantine = false;
+                    threat_info.kill_and_remove = false;
+                }
+
                 let dummy_pred_mtrx = VecvecCappedF32::new(0, 0);
                 actions.run_actions_with_info(config, precord, &dummy_pred_mtrx, &threat_info);
                 self.process_terminated.insert(precord.appname.to_lowercase());
-                
+
                 if threat_info.terminate {
                     break;
                 }

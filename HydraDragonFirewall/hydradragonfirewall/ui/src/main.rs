@@ -3482,26 +3482,11 @@ fn AlertWindow(
                              } else {
                                  view! {
                                      <>
-                                         {if is_owlyshield_alert {
-                                             view! {
-                                                 <>
-                                                     <button class="alert-btn block" on:click={let p = app.path.clone(); move |_| res5(n5.clone(), p.clone(), "deny".to_string())}> "DENY" </button>
-                                                     <button class="alert-btn block" on:click={let p = app.path.clone(); move |_| res3(n3.clone(), p.clone(), "block".to_string())}> "TERMINATE" </button>
-                                                     <button class="alert-btn quarantine" on:click={let p = app.path.clone(); move |_| res4(n4.clone(), p.clone(), "quarantine".to_string())}> "QUARANTINE" </button>
-                                                     <button class="alert-btn session" on:click={let p = app.path.clone(); move |_| res1(n1.clone(), p.clone(), "allow_once".to_string())}> "ONCE" </button>
-                                                     <button class="alert-btn always" on:click={let p = app.path.clone(); let decision = always_decision.clone(); move |_| res2(n2.clone(), p.clone(), decision.clone())}> {always_label} </button>
-                                                 </>
-                                             }.into_view()
-                                         } else {
-                                             view! {
-                                                 <>
-                                                     <button class="alert-btn block" on:click={let p = app.path.clone(); move |_| res3(n3.clone(), p.clone(), "block".to_string())}> "BLOCK" </button>
-                                                     <button class="alert-btn quarantine" on:click={let p = app.path.clone(); move |_| res4(n4.clone(), p.clone(), "quarantine".to_string())}> "QUARANTINE" </button>
-                                                     <button class="alert-btn session" on:click={let p = app.path.clone(); move |_| res1(n1.clone(), p.clone(), "allow_once".to_string())}> "ONCE" </button>
-                                                     <button class="alert-btn always" on:click={let p = app.path.clone(); let decision = always_decision.clone(); move |_| res2(n2.clone(), p.clone(), decision.clone())}> {always_label} </button>
-                                                 </>
-                                             }.into_view()
-                                         }}
+                                         <button class="alert-btn block" on:click={let p = app.path.clone(); move |_| res5(n5.clone(), p.clone(), "deny".to_string())}> "DENY" </button>
+                                         <button class="alert-btn block" on:click={let p = app.path.clone(); move |_| res3(n3.clone(), p.clone(), "block".to_string())}> "TERMINATE" </button>
+                                         <button class="alert-btn quarantine" on:click={let p = app.path.clone(); move |_| res4(n4.clone(), p.clone(), "quarantine".to_string())}> "QUARANTINE" </button>
+                                         <button class="alert-btn session" on:click={let p = app.path.clone(); move |_| res1(n1.clone(), p.clone(), "allow_once".to_string())}> "ONCE" </button>
+                                         <button class="alert-btn always" on:click={let p = app.path.clone(); let decision = always_decision.clone(); move |_| res2(n2.clone(), p.clone(), decision.clone())}> {always_label} </button>
                                      </>
                                  }.into_view()
                              }}

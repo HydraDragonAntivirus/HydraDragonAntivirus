@@ -39,6 +39,40 @@
     notify_user: true
     record: true
 
+  allowlisted_apps:
+    - pattern: "C:/Windows/System32/svchost.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/services.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/lsass.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/wininit.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/smss.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/csrss.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/winlogon.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/explorer.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+
 ---
 
 # ---------------------------------------------------------------------------
@@ -116,34 +150,34 @@
     record: true
 
   allowlisted_apps:
-    - pattern: "diskpart.exe"
+    - pattern: "C:/Windows/System32/diskpart.exe"
       must_be_signed: true
-      signers:
-        - "microsoft"
-    - pattern: "setuphost.exe"
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/SetupHost.exe"
       must_be_signed: true
-      signers:
-        - "microsoft"
-    - pattern: "tiworker.exe"
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/WinSxS/*/TiWorker.exe"
       must_be_signed: true
-      signers:
-        - "microsoft"
-    - pattern: "trustedinstaller.exe"
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/servicing/TrustedInstaller.exe"
       must_be_signed: true
-      signers:
-        - "microsoft"
-    - pattern: "dism.exe"
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/Dism.exe"
       must_be_signed: true
-      signers:
-        - "microsoft"
-    - pattern: "reagentc.exe"
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/reagentc.exe"
       must_be_signed: true
-      signers:
-        - "microsoft"
-    - pattern: "bcdboot.exe"
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/bcdboot.exe"
       must_be_signed: true
-      signers:
-        - "microsoft"
+      is_absolute: true
+      signers: ["*Microsoft*"]
 
 ---
 
@@ -182,30 +216,30 @@
     record: true
 
   allowlisted_apps:
-    - pattern: "setuphost.exe"
+    - pattern: "C:/Windows/System32/SetupHost.exe"
       must_be_signed: true
-      signers:
-        - "microsoft"
-    - pattern: "tiworker.exe"
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/WinSxS/*/TiWorker.exe"
       must_be_signed: true
-      signers:
-        - "microsoft"
-    - pattern: "trustedinstaller.exe"
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/servicing/TrustedInstaller.exe"
       must_be_signed: true
-      signers:
-        - "microsoft"
-    - pattern: "dism.exe"
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/Dism.exe"
       must_be_signed: true
-      signers:
-        - "microsoft"
-    - pattern: "reagentc.exe"
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/reagentc.exe"
       must_be_signed: true
-      signers:
-        - "microsoft"
-    - pattern: "bcdboot.exe"
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/bcdboot.exe"
       must_be_signed: true
-      signers:
-        - "microsoft"
+      is_absolute: true
+      signers: ["*Microsoft*"]
 
 ---
 
@@ -243,30 +277,30 @@
     record: true
 
   allowlisted_apps:
-    - pattern: "setuphost.exe"
+    - pattern: "C:/Windows/System32/SetupHost.exe"
       must_be_signed: true
-      signers:
-        - "microsoft"
-    - pattern: "tiworker.exe"
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/WinSxS/*/TiWorker.exe"
       must_be_signed: true
-      signers:
-        - "microsoft"
-    - pattern: "trustedinstaller.exe"
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/servicing/TrustedInstaller.exe"
       must_be_signed: true
-      signers:
-        - "microsoft"
-    - pattern: "dism.exe"
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/Dism.exe"
       must_be_signed: true
-      signers:
-        - "microsoft"
-    - pattern: "reagentc.exe"
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/reagentc.exe"
       must_be_signed: true
-      signers:
-        - "microsoft"
-    - pattern: "bcdboot.exe"
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/bcdboot.exe"
       must_be_signed: true
-      signers:
-        - "microsoft"
+      is_absolute: true
+      signers: ["*Microsoft*"]
 
 ---
 
@@ -302,6 +336,40 @@
     notify_user: true
     record: true
 
+  allowlisted_apps:
+    - pattern: "C:/Windows/System32/svchost.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/services.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/lsass.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/wininit.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/smss.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/csrss.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/winlogon.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/explorer.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+
 ---
 
 # ---------------------------------------------------------------------------
@@ -335,6 +403,40 @@
     terminate_process: true
     notify_user: true
     record: true
+
+  allowlisted_apps:
+    - pattern: "C:/Windows/System32/svchost.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/services.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/lsass.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/wininit.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/smss.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/csrss.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/winlogon.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/explorer.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
 
 ---
 
@@ -370,6 +472,40 @@
     terminate_process: true
     notify_user: true
     record: true
+
+  allowlisted_apps:
+    - pattern: "C:/Windows/System32/svchost.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/services.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/lsass.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/wininit.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/smss.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/csrss.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/winlogon.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/explorer.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
 
 ---
 
@@ -423,6 +559,40 @@
     notify_user: true
     record: true
 
+  allowlisted_apps:
+    - pattern: "C:/Windows/System32/svchost.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/services.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/lsass.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/wininit.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/smss.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/csrss.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/winlogon.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/explorer.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+
 ---
 
 # ---------------------------------------------------------------------------
@@ -473,6 +643,40 @@
     notify_user: true
     record: true
 
+  allowlisted_apps:
+    - pattern: "C:/Windows/System32/svchost.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/services.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/lsass.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/wininit.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/smss.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/csrss.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/winlogon.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/explorer.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+
 ---
 
 # ---------------------------------------------------------------------------
@@ -506,3 +710,37 @@
     terminate_process: true
     notify_user: true
     record: true
+
+  allowlisted_apps:
+    - pattern: "C:/Windows/System32/svchost.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/services.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/lsass.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/wininit.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/smss.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/csrss.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/winlogon.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/explorer.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]

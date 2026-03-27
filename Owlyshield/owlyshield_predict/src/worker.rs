@@ -1359,13 +1359,22 @@ mod process_records {
 
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
         fn refresh_dynamic_hooks_for_pid_if_due(&mut self, pid: u32) {
-            if Self::is_internal_service_pid(pid) {
+            if Self::should_skip_dynamic_hooks_for_pid(pid) {
                 return;
             }
 
             if self.should_refresh_dynamic_hooks_for_pid(pid) {
                 self.register_dynamic_hooks_for_process(pid);
             }
+        }
+
+        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+        fn should_skip_dynamic_hooks_for_pid(pid: u32) -> bool {
+            if pid == 0 || Self::is_internal_service_pid(pid) {
+                return true;
+            }
+
+            crate::utils::protected_process_reason(pid, None).is_some()
         }
 
         /// Normalize unstable kernel GIDs to keep per-process tracking coherent.
@@ -3027,7 +3036,7 @@ mod process_records {
         /// disabled because broad hook sets are too unstable.
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
         fn register_dynamic_hooks_for_process(&mut self, pid: u32) {
-            if pid == 0 || Self::is_internal_service_pid(pid) {
+            if Self::should_skip_dynamic_hooks_for_pid(pid) {
                 return;
             }
 
