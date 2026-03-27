@@ -15,7 +15,7 @@ use windows::Win32::Storage::InstallableFileSystems::{
 use std::os::raw::{c_uchar, c_ulong, c_ulonglong, c_ushort};
 use std::path::{Path, PathBuf};
 use std::collections::HashMap;
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::SystemTime;
 
 use windows::Win32::Storage::FileSystem::FILE_ID_INFO;
@@ -128,9 +128,9 @@ struct DriverComMessage {
 
 /// A minifilter is identified by a port (know in advance), like a named pipe used for communication,
 /// and a handle, retrieved by [`Self::open_kernel_driver_com`].
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Clone)]
 pub struct Driver {
-    handle: HANDLE, //Full type name because Intellij raises an error...
+    handle: Arc<Mutex<HANDLE>>, // Full type name because Intellij raises an error...
 }
 
 impl Driver {
@@ -138,7 +138,7 @@ impl Driver {
     /// If this fn is not used and the program has stopped, the handle is automatically closed,
     /// seemingly without any side-effects.
     pub fn _close_kernel_communication(&self) -> bool {
-        unsafe { CloseHandle(self.handle).as_bool() }
+        unsafe { CloseHandle(self.current_handle()).as_bool() }
     }
 
     /// The usermode running app (this one) has to register itself to the driver.
@@ -155,7 +155,7 @@ impl Driver {
         let mut tmp: u32 = 0;
         unsafe {
             FilterSendMessage(
-                self.handle,
+                self.current_handle(),
                 ptr::addr_of_mut!(get_irp_msg) as *mut c_void,
                 mem::size_of::<DriverComMessage>() as c_ulong,
                 Some(ptr::null_mut()),
@@ -182,36 +182,85 @@ impl Driver {
                 Some(ptr::null_mut()),
             )?;
         }
-        let res = Driver { handle };
+        let res = Driver { handle: Arc::new(Mutex::new(handle)) };
         Ok(res)
+    }
+
+    fn current_handle(&self) -> HANDLE {
+        *self.handle.lock().unwrap()
+    }
+
+    fn should_reconnect(err: &Error) -> bool {
+        matches!(err.code().0 as u32, 0xC0000008 | 0x80070006 | 0xC0000037)
+    }
+
+    fn install_reconnected_handle(&self, handle: HANDLE) {
+        let mut guard = self.handle.lock().unwrap();
+        let old = *guard;
+        *guard = handle;
+        if old != handle {
+            unsafe {
+                let _ = CloseHandle(old);
+            }
+        }
+    }
+
+    fn reconnect_port(&self, op_name: &str) -> Result<(), Error> {
+        crate::logging::Logging::warning(&format!(
+            "[DriverCom] {} hit a stale RWFilter handle; reconnecting",
+            op_name
+        ));
+        let driver = Driver::open_kernel_driver_com()?;
+        driver.driver_set_app_pid()?;
+        self.install_reconnected_handle(driver.current_handle());
+        register_shared_driver(self.clone());
+        Ok(())
+    }
+
+    fn with_reconnect_retry<T>(
+        &self,
+        op_name: &str,
+        mut op: impl FnMut(HANDLE) -> Result<T, Error>,
+    ) -> Result<T, Error> {
+        match op(self.current_handle()) {
+            Ok(value) => Ok(value),
+            Err(err) if Self::should_reconnect(&err) => {
+                self.reconnect_port(op_name)?;
+                op(self.current_handle())
+            }
+            Err(err) => Err(err),
+        }
     }
 
     /// Ask the driver for a [`ReplyIrp`], if any. This is a low-level function and the returned object
     /// uses C pointers. Managing C pointers requires a special care, because of the Rust timelines.
     /// [`ReplyIrp`] is optional since the minifilter returns null if there is no new activity.
     pub fn get_irp(&self, vecnew: &mut [u8]) -> Result<Option<ReplyIrp>, Error> {
-        let mut get_irp_msg = Driver::build_irp_msg(
-            DriverComMessageType::MessageGetOps,
-            std::process::id(),
-            0,
-            "",
-        );
-        let mut tmp: u32 = 0;
-        unsafe {
-            let status = FilterSendMessage(
-                self.handle,
-                ptr::addr_of_mut!(get_irp_msg) as *mut c_void,
-                mem::size_of::<DriverComMessage>() as c_ulong,
-                Some(vecnew.as_mut_ptr() as *mut c_void),
-                65536,
-                &mut tmp,
+        let tmp = self.with_reconnect_retry("get_irp", |handle| {
+            let mut get_irp_msg = Driver::build_irp_msg(
+                DriverComMessageType::MessageGetOps,
+                std::process::id(),
+                0,
+                "",
             );
-            
-            if let Err(e) = status {
-                crate::logging::Logging::error(&format!("FilterSendMessage failed: 0x{:X}", e.code().0));
-                return Err(e);
+            let mut tmp: u32 = 0;
+            unsafe {
+                let status = FilterSendMessage(
+                    handle,
+                    ptr::addr_of_mut!(get_irp_msg) as *mut c_void,
+                    mem::size_of::<DriverComMessage>() as c_ulong,
+                    Some(vecnew.as_mut_ptr() as *mut c_void),
+                    65536,
+                    &mut tmp,
+                );
+
+                if let Err(e) = status {
+                    crate::logging::Logging::error(&format!("FilterSendMessage failed: 0x{:X}", e.code().0));
+                    return Err(e);
+                }
             }
-        }
+            Ok(tmp)
+        })?;
         if tmp != 0 {
             let mut reply_irp: ReplyIrp;
             unsafe {
@@ -234,26 +283,29 @@ impl Driver {
             (gid, 0)
         };
 
-        let mut killmsg = DriverComMessage {
-            r#type: DriverComMessageType::MessageKillGid as c_ulong,
-            pid: real_pid,
-            gid: real_gid,
-            path: [0; 520],
-            quarantine_path: [0; 520],
-        };
-        let mut res: u32 = 0;
-        let mut res_size: u32 = 0;
+        let res = self.with_reconnect_retry("try_kill", |handle| {
+            let mut killmsg = DriverComMessage {
+                r#type: DriverComMessageType::MessageKillGid as c_ulong,
+                pid: real_pid,
+                gid: real_gid,
+                path: [0; 520],
+                quarantine_path: [0; 520],
+            };
+            let mut res: u32 = 0;
+            let mut res_size: u32 = 0;
 
-        unsafe {
-            FilterSendMessage(
-                self.handle,
-                ptr::addr_of_mut!(killmsg) as *mut c_void,
-                mem::size_of::<DriverComMessage>() as c_ulong,
-                Some(ptr::addr_of_mut!(res) as *mut c_void),
-                4,
-                &mut res_size,
-            )?;
-        }
+            unsafe {
+                FilterSendMessage(
+                    handle,
+                    ptr::addr_of_mut!(killmsg) as *mut c_void,
+                    mem::size_of::<DriverComMessage>() as c_ulong,
+                    Some(ptr::addr_of_mut!(res) as *mut c_void),
+                    4,
+                    &mut res_size,
+                )?;
+            }
+            Ok(res)
+        })?;
         let hres = windows::core::HRESULT(res as i32);
         Ok(hres)
     }
@@ -265,25 +317,28 @@ impl Driver {
             (gid, 0)
         };
 
-        let mut revert_msg = DriverComMessage {
-            r#type: DriverComMessageType::MessageRevertRegistryChanges as c_ulong,
-            pid: real_pid,
-            gid: real_gid,
-            path: [0; 520],
-            quarantine_path: [0; 520],
-        };
-        let mut res_size: u32 = 0;
+        self.with_reconnect_retry("revert_registry_changes", |handle| {
+            let mut revert_msg = DriverComMessage {
+                r#type: DriverComMessageType::MessageRevertRegistryChanges as c_ulong,
+                pid: real_pid,
+                gid: real_gid,
+                path: [0; 520],
+                quarantine_path: [0; 520],
+            };
+            let mut res_size: u32 = 0;
 
-        unsafe {
-            FilterSendMessage(
-                self.handle,
-                ptr::addr_of_mut!(revert_msg) as *mut c_void,
-                mem::size_of::<DriverComMessage>() as c_ulong,
-                None,
-                0,
-                &mut res_size,
-            )?;
-        }
+            unsafe {
+                FilterSendMessage(
+                    handle,
+                    ptr::addr_of_mut!(revert_msg) as *mut c_void,
+                    mem::size_of::<DriverComMessage>() as c_ulong,
+                    None,
+                    0,
+                    &mut res_size,
+                )?;
+            }
+            Ok(())
+        })?;
         Ok(())
     }
 
@@ -294,26 +349,30 @@ impl Driver {
             (gid, 0)
         };
 
-        let mut kill_quarantine_msg = DriverComMessage {
-            r#type: DriverComMessageType::MessageKillAndQuarantineGid as c_ulong,
-            pid: real_pid,
-            gid: real_gid,
-            path: [0; 520],
-            quarantine_path: Driver::string_to_commessage_buffer(path.to_str().unwrap_or("")),
-        };
-        let mut res: u32 = 0;
-        let mut res_size: u32 = 0;
+        let quarantine_path = Driver::string_to_commessage_buffer(path.to_str().unwrap_or(""));
+        let res = self.with_reconnect_retry("kill_and_quarantine_driver", |handle| {
+            let mut kill_quarantine_msg = DriverComMessage {
+                r#type: DriverComMessageType::MessageKillAndQuarantineGid as c_ulong,
+                pid: real_pid,
+                gid: real_gid,
+                path: [0; 520],
+                quarantine_path,
+            };
+            let mut res: u32 = 0;
+            let mut res_size: u32 = 0;
 
-        unsafe {
-            FilterSendMessage(
-                self.handle,
-                ptr::addr_of_mut!(kill_quarantine_msg) as *mut c_void,
-                mem::size_of::<DriverComMessage>() as c_ulong,
-                Some(ptr::addr_of_mut!(res) as *mut c_void),
-                4,
-                &mut res_size,
-            )?;
-        }
+            unsafe {
+                FilterSendMessage(
+                    handle,
+                    ptr::addr_of_mut!(kill_quarantine_msg) as *mut c_void,
+                    mem::size_of::<DriverComMessage>() as c_ulong,
+                    Some(ptr::addr_of_mut!(res) as *mut c_void),
+                    4,
+                    &mut res_size,
+                )?;
+            }
+            Ok(res)
+        })?;
         let hres = windows::core::HRESULT(res as i32);
         Ok(hres)
     }
@@ -325,26 +384,30 @@ impl Driver {
             (gid, 0)
         };
 
-        let mut kill_remove_msg = DriverComMessage {
-            r#type: DriverComMessageType::MessageKillAndRemoveGid as c_ulong,
-            pid: real_pid,
-            gid: real_gid,
-            path: [0; 520],
-            quarantine_path: Driver::string_to_commessage_buffer(path.to_str().unwrap_or("")),
-        };
-        let mut res: u32 = 0;
-        let mut res_size: u32 = 0;
+        let quarantine_path = Driver::string_to_commessage_buffer(path.to_str().unwrap_or(""));
+        let res = self.with_reconnect_retry("kill_and_remove_driver", |handle| {
+            let mut kill_remove_msg = DriverComMessage {
+                r#type: DriverComMessageType::MessageKillAndRemoveGid as c_ulong,
+                pid: real_pid,
+                gid: real_gid,
+                path: [0; 520],
+                quarantine_path,
+            };
+            let mut res: u32 = 0;
+            let mut res_size: u32 = 0;
 
-        unsafe {
-            FilterSendMessage(
-                self.handle,
-                ptr::addr_of_mut!(kill_remove_msg) as *mut c_void,
-                mem::size_of::<DriverComMessage>() as c_ulong,
-                Some(ptr::addr_of_mut!(res) as *mut c_void),
-                4,
-                &mut res_size,
-            )?;
-        }
+            unsafe {
+                FilterSendMessage(
+                    handle,
+                    ptr::addr_of_mut!(kill_remove_msg) as *mut c_void,
+                    mem::size_of::<DriverComMessage>() as c_ulong,
+                    Some(ptr::addr_of_mut!(res) as *mut c_void),
+                    4,
+                    &mut res_size,
+                )?;
+            }
+            Ok(res)
+        })?;
         let hres = windows::core::HRESULT(res as i32);
         Ok(hres)
     }
@@ -358,95 +421,110 @@ impl Driver {
     }
 
     pub fn add_hook_target_for_pid(&self, pid: u32, module: &str, function: &str, event_id: u32) -> Result<(), Error> {
-        let mut msg = DriverComMessage {
-            r#type: DriverComMessageType::MessageAddHook as c_ulong,
-            pid: pid as c_ulong,
-            gid: event_id as u64,
-            path: Driver::string_to_commessage_buffer(module),
-            quarantine_path: Driver::string_to_commessage_buffer(function),
-        };
-        let mut res_size: u32 = 0;
+        let path = Driver::string_to_commessage_buffer(module);
+        let quarantine_path = Driver::string_to_commessage_buffer(function);
+        self.with_reconnect_retry("add_hook_target_for_pid", |handle| {
+            let mut msg = DriverComMessage {
+                r#type: DriverComMessageType::MessageAddHook as c_ulong,
+                pid: pid as c_ulong,
+                gid: event_id as u64,
+                path,
+                quarantine_path,
+            };
+            let mut res_size: u32 = 0;
 
-        unsafe {
-            FilterSendMessage(
-                self.handle,
-                ptr::addr_of_mut!(msg) as *mut c_void,
-                mem::size_of::<DriverComMessage>() as c_ulong,
-                None,
-                0,
-                &mut res_size,
-            )?;
-        }
+            unsafe {
+                FilterSendMessage(
+                    handle,
+                    ptr::addr_of_mut!(msg) as *mut c_void,
+                    mem::size_of::<DriverComMessage>() as c_ulong,
+                    None,
+                    0,
+                    &mut res_size,
+                )?;
+            }
+            Ok(())
+        })?;
         Ok(())
     }
 
     pub fn hook_process(&self, pid: u32) -> Result<(), Error> {
-        let mut msg = DriverComMessage {
-            r#type: DriverComMessageType::MessageHookProcess as c_ulong,
-            pid: pid as c_ulong,
-            gid: 0,
-            path: [0; 520],
-            quarantine_path: [0; 520],
-        };
-        let mut res_size: u32 = 0;
+        self.with_reconnect_retry("hook_process", |handle| {
+            let mut msg = DriverComMessage {
+                r#type: DriverComMessageType::MessageHookProcess as c_ulong,
+                pid: pid as c_ulong,
+                gid: 0,
+                path: [0; 520],
+                quarantine_path: [0; 520],
+            };
+            let mut res_size: u32 = 0;
 
-        unsafe {
-            FilterSendMessage(
-                self.handle,
-                ptr::addr_of_mut!(msg) as *mut c_void,
-                mem::size_of::<DriverComMessage>() as c_ulong,
-                None,
-                0,
-                &mut res_size,
-            )?;
-        }
+            unsafe {
+                FilterSendMessage(
+                    handle,
+                    ptr::addr_of_mut!(msg) as *mut c_void,
+                    mem::size_of::<DriverComMessage>() as c_ulong,
+                    None,
+                    0,
+                    &mut res_size,
+                )?;
+            }
+            Ok(())
+        })?;
         Ok(())
     }
 
     pub fn reload_exclude_rules(&self) -> Result<(), Error> {
-        let mut msg = DriverComMessage {
-            r#type: DriverComMessageType::MessageReloadExcludeRules as c_ulong,
-            pid: 0,
-            gid: 0,
-            path: [0; 520],
-            quarantine_path: [0; 520],
-        };
-        let mut res_size: u32 = 0;
+        self.with_reconnect_retry("reload_exclude_rules", |handle| {
+            let mut msg = DriverComMessage {
+                r#type: DriverComMessageType::MessageReloadExcludeRules as c_ulong,
+                pid: 0,
+                gid: 0,
+                path: [0; 520],
+                quarantine_path: [0; 520],
+            };
+            let mut res_size: u32 = 0;
 
-        unsafe {
-            FilterSendMessage(
-                self.handle,
-                ptr::addr_of_mut!(msg) as *mut c_void,
-                mem::size_of::<DriverComMessage>() as c_ulong,
-                None,
-                0,
-                &mut res_size,
-            )?;
-        }
+            unsafe {
+                FilterSendMessage(
+                    handle,
+                    ptr::addr_of_mut!(msg) as *mut c_void,
+                    mem::size_of::<DriverComMessage>() as c_ulong,
+                    None,
+                    0,
+                    &mut res_size,
+                )?;
+            }
+            Ok(())
+        })?;
         Ok(())
     }
 
     pub fn add_block_path(&self, path: &str) -> Result<windows::core::HRESULT, Error> {
-        let mut msg = DriverComMessage {
-            r#type: DriverComMessageType::MessageAddBlockPath as c_ulong,
-            pid: 0,
-            gid: 0,
-            path: Driver::string_to_commessage_buffer(path),
-            quarantine_path: [0; 520],
-        };
-        let mut res: u32 = 0;
-        let mut res_size: u32 = 0;
+        let path = Driver::string_to_commessage_buffer(path);
+        let res = self.with_reconnect_retry("add_block_path", |handle| {
+            let mut msg = DriverComMessage {
+                r#type: DriverComMessageType::MessageAddBlockPath as c_ulong,
+                pid: 0,
+                gid: 0,
+                path,
+                quarantine_path: [0; 520],
+            };
+            let mut res: u32 = 0;
+            let mut res_size: u32 = 0;
 
-        unsafe {
-            FilterSendMessage(
-                self.handle,
-                ptr::addr_of_mut!(msg) as *mut c_void,
-                mem::size_of::<DriverComMessage>() as c_ulong,
-                Some(ptr::addr_of_mut!(res) as *mut c_void),
-                4,
-                &mut res_size,
-            )?;
-        }
+            unsafe {
+                FilterSendMessage(
+                    handle,
+                    ptr::addr_of_mut!(msg) as *mut c_void,
+                    mem::size_of::<DriverComMessage>() as c_ulong,
+                    Some(ptr::addr_of_mut!(res) as *mut c_void),
+                    4,
+                    &mut res_size,
+                )?;
+            }
+            Ok(res)
+        })?;
         let hres = windows::core::HRESULT(res as i32);
         Ok(hres)
     }

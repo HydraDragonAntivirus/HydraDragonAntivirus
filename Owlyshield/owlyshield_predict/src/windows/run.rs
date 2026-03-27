@@ -145,7 +145,7 @@ pub fn run() {
 
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
         let mut worker = Worker::new_replay(&config, &whitelist, app_settings_replay)
-            .driver(driver);
+            .driver(driver.clone());
         #[cfg(not(all(target_os = "windows", feature = "behavior_engine")))]
         let mut worker = Worker::new_replay(&config, &whitelist);
 
@@ -221,6 +221,7 @@ pub fn run() {
         let thread_config = config; // moved into thread
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
         let thread_app_settings = app_settings; // moved into thread
+        let thread_driver = driver.clone();
         thread::spawn(move || {
             let whitelist = whitelist::WhiteList::from(
                 &Path::new(&thread_config[Param::ConfigPath]).join(Path::new("exclusions.txt")),
@@ -230,12 +231,12 @@ pub fn run() {
             whitelist.refresh_periodically();
 
             #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-            let mut worker = Worker::new(&thread_config, thread_app_settings).driver(driver);
+            let mut worker = Worker::new(&thread_config, thread_app_settings).driver(thread_driver.clone());
             #[cfg(not(all(target_os = "windows", feature = "behavior_engine")))]
-            let mut worker = Worker::new(&thread_config).driver(driver);
+            let mut worker = Worker::new(&thread_config).driver(thread_driver.clone());
 
             // Initialize threat handler early to reuse the driver connection
-            let win_threat_handler = WindowsThreatHandler::from(driver);
+            let win_threat_handler = WindowsThreatHandler::from(thread_driver.clone());
             worker = worker.threat_handler(Box::new(win_threat_handler.clone()));
 
             #[cfg(all(target_os = "windows", feature = "hydradragon"))]
@@ -291,7 +292,7 @@ pub fn run() {
                 let rules_path = worker.app_settings.behavior_rules_path.clone();
                 if let Err(e) = worker.behavior_engine.load_rules(&rules_path) {
                     Logging::error(&format!("Failed to load behavior rules from {:?}: {}", rules_path, e));
-                } else if let Err(e) = sync_kernel_exclude_rules(&worker.behavior_engine.rules, &driver) {
+                } else if let Err(e) = sync_kernel_exclude_rules(&worker.behavior_engine.rules, &thread_driver) {
                     Logging::error(&format!("Failed to sync kernel exclude rules: {}", e));
                 }
             }

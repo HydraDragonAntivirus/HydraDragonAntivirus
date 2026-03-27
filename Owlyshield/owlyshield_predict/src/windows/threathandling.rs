@@ -308,6 +308,6 @@ impl ThreatHandler for WindowsThreatHandler {
     }
 
     fn clone_box(&self) -> Box<dyn ThreatHandler> {
-        Box::new(WindowsThreatHandler { driver: self.driver })
+        Box::new(WindowsThreatHandler { driver: self.driver.clone() })
     }
 }

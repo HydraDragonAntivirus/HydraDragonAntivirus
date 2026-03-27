@@ -1529,7 +1529,7 @@ mod process_records {
 
         pub fn driver(mut self, driver: crate::Driver) -> Worker<'a> {
             #[cfg(target_os = "windows")]
-            crate::driver_com::register_shared_driver(driver);
+            crate::driver_com::register_shared_driver(driver.clone());
             self.driver = Some(driver);
             self
         }
@@ -2470,7 +2470,7 @@ mod process_records {
                 return;
             }
 
-            let Some(driver) = self.driver else {
+            let Some(driver) = self.driver.clone() else {
                 Logging::warning(&format!("[DYNAMIC HOOK] Driver not available, cannot hook PID {}", pid));
                 return;
             };
