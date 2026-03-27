@@ -230,10 +230,40 @@
     - pattern: "C:/Windows/System32/msiexec.exe"
       must_be_signed: true
       is_absolute: true
+      signers: ["*Microsoft*"]
     - pattern: "C:/Windows/System32/wusa.exe"
       must_be_signed: true
       is_absolute: true
+      signers: ["*Microsoft*"]
     - pattern: "C:/Windows/System32/svchost.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/services.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "%SystemRoot%/servicing/TrustedInstaller.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "%SystemRoot%/WinSxS/*/TiWorker.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "%SystemRoot%/UUS/*/MoUsoCoreWorker.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "%SystemRoot%/WinSxS/*/MoUsoCoreWorker.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "%SystemRoot%/System32/poqexec.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "%SystemRoot%/System32/Dism/DismHost.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
@@ -511,6 +541,46 @@
   debug: false
 
   allowlisted_apps:
+    - pattern: "C:/Windows/System32/msiexec.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/svchost.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/services.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "%SystemRoot%/servicing/TrustedInstaller.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "%SystemRoot%/WinSxS/*/TiWorker.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "%SystemRoot%/UUS/*/MoUsoCoreWorker.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "%SystemRoot%/WinSxS/*/MoUsoCoreWorker.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "%SystemRoot%/System32/poqexec.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "%SystemRoot%/System32/wusa.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "%SystemRoot%/System32/Dism/DismHost.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
     - pattern: "C:/Windows/System32/chrome.exe"
       must_be_signed: true
     - pattern: "C:/Program Files/Mozilla Firefox/firefox.exe"
@@ -522,10 +592,6 @@
       is_absolute: true
     - pattern: "C:/Program Files/Microsoft Office/root/Office16/outlook.exe"
       must_be_signed: true
-    - pattern: "C:/Windows/System32/svchost.exe"
-      must_be_signed: true
-      is_absolute: true
-      signers: ["*Microsoft*"]
 
   named_conditions:
     dns_activity:

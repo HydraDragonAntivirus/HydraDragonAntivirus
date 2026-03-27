@@ -1,4 +1,4 @@
-- name: "BLOCK:HydraDragonFirewall.CaKeyFileAccessDeny.gen"
+- name: "HEUR:HydraDragonFirewall.CaKeyFileAccessDeny.gen"
   author: "Security Team"
   date: "2026-03-26"
   status: stable
@@ -11,6 +11,11 @@
     traffic. The key should only be read by the legitimate HydraDragonFirewall process
     during initialization.
   debug: false
+
+  allowlisted_apps:
+    - pattern: "C:/Program Files/HydraDragonAntivirus/HydraDragonFirewall/hydradragonfirewall.exe"
+      must_be_signed: false
+      is_absolute: true
 
   named_conditions:
     ca_key_file_read:
