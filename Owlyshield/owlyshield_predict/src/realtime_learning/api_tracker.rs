@@ -5,7 +5,7 @@
 use crate::process::ProcessRecord;
 use crate::shared_def::{FileChangeInfo, IOMessage, IrpMajorOp, known_raw_event_name};
 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-use crate::behavioral::network_rules::PacketInfo;
+use crate::behavioral::rule_types::PacketInfo;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 

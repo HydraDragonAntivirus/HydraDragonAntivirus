@@ -23,14 +23,17 @@
   debug: false
 
   allowlisted_apps:
-    - pattern: "msiexec.exe"
+    - pattern: "C:/Windows/System32/msiexec.exe"
       must_be_signed: true
+      is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "svchost.exe"
+    - pattern: "C:/Windows/System32/svchost.exe"
       must_be_signed: true
+      is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "services.exe"
+    - pattern: "C:/Windows/System32/services.exe"
       must_be_signed: true
+      is_absolute: true
       signers: ["*Microsoft*"]
 
   named_conditions:
@@ -194,19 +197,25 @@
   debug: false
 
   allowlisted_apps:
-    - pattern: "msiexec.exe"
+    - pattern: "C:/Windows/System32/msiexec.exe"
       must_be_signed: true
-    - pattern: "wusa.exe"
+      is_absolute: true
+    - pattern: "C:/Windows/System32/wusa.exe"
       must_be_signed: true
-    - pattern: "svchost.exe"
+      is_absolute: true
+    - pattern: "C:/Windows/System32/svchost.exe"
       must_be_signed: true
+      is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "csrss.exe"
+    - pattern: "C:/Windows/System32/csrss.exe"
       must_be_signed: true
-    - pattern: "explorer.exe"
+      is_absolute: true
+    - pattern: "C:/Windows/explorer.exe"
       must_be_signed: true
-    - pattern: "rundll32.exe"
+      is_absolute: true
+    - pattern: "C:/Windows/System32/rundll32.exe"
       must_be_signed: true
+      is_absolute: true
 
   named_conditions:
     protected_directory_write:
@@ -363,14 +372,17 @@
   debug: false
 
   allowlisted_apps:
-    - pattern: "msiexec.exe"
+    - pattern: "C:/Windows/System32/msiexec.exe"
       must_be_signed: true
+      is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "svchost.exe"
+    - pattern: "C:/Windows/System32/svchost.exe"
       must_be_signed: true
+      is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "services.exe"
+    - pattern: "C:/Windows/System32/services.exe"
       must_be_signed: true
+      is_absolute: true
       signers: ["*Microsoft*"]
 
   named_conditions:
@@ -435,18 +447,20 @@
   debug: false
 
   allowlisted_apps:
-    - pattern: "chrome.exe"
+    - pattern: "C:/Windows/System32/chrome.exe"
       must_be_signed: true
-    - pattern: "firefox.exe"
+    - pattern: "C:/Program Files/Mozilla Firefox/firefox.exe"
       must_be_signed: true
-    - pattern: "msedge.exe"
+    - pattern: "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe"
       must_be_signed: true
-    - pattern: "explorer.exe"
+    - pattern: "C:/Windows/explorer.exe"
       must_be_signed: true
-    - pattern: "outlook.exe"
+      is_absolute: true
+    - pattern: "C:/Program Files/Microsoft Office/root/Office16/outlook.exe"
       must_be_signed: true
-    - pattern: "svchost.exe"
+    - pattern: "C:/Windows/System32/svchost.exe"
       must_be_signed: true
+      is_absolute: true
       signers: ["*Microsoft*"]
 
   named_conditions:
@@ -541,14 +555,17 @@
   debug: false
 
   allowlisted_apps:
-    - pattern: "msiexec.exe"
+    - pattern: "C:/Windows/System32/msiexec.exe"
       must_be_signed: true
+      is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "svchost.exe"
+    - pattern: "C:/Windows/System32/svchost.exe"
       must_be_signed: true
+      is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "services.exe"
+    - pattern: "C:/Windows/System32/services.exe"
       must_be_signed: true
+      is_absolute: true
       signers: ["*Microsoft*"]
 
   named_conditions:

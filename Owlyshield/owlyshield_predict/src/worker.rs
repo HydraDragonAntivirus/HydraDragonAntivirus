@@ -816,7 +816,7 @@ mod process_records {
             let config = self.config;
             let _ = &config[crate::config::Param::ConfigPath]; // Explicit read to ensure compiler sees it as used
             let fw_pids = self.behavior_engine.firewall_net_pids.read().unwrap();
-            let signatures_count = self.behavior_engine.rules.len() + self.behavior_engine.sdk_rules.read().unwrap().len();
+            let signatures_count = self.behavior_engine.rules.len();
             let rootkit_findings = self.behavior_engine.get_rootkit_findings();
             let mut report = crate::report::SystemReport::collect(config, Some(&fw_pids), signatures_count, rootkit_findings);
             

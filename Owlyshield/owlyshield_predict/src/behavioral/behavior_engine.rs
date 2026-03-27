@@ -3,16 +3,15 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 use serde_yaml;
-use serde_yaml::Value as YamlValue;
 use regex::Regex;
 use std::sync::{Arc, OnceLock, RwLock};
 use crate::shared_def::{FileChangeInfo, IOMessage, IrpMajorOp, known_raw_event_name};
 #[cfg(feature = "firewall")]
 use crate::driver_com::with_shared_driver;
 use crate::process::ProcessRecord;
-use super::network_rules::PacketInfo;
 use crate::logging::Logging;
 use crate::config::Config;
+pub use super::rule_types::*;
 use crate::actions_on_kill::{ActionsOnKill, ThreatInfo};
 use crate::extensions::ExtensionList;
 use crate::predictions::prediction::input_tensors::VecvecCappedF32;
@@ -554,165 +553,7 @@ impl RootkitFindingKind {
 // GLOBAL PROTECTED/EXCLUDED PATHS
 // =============================================================================
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct ProtectedPaths {
-    /// File system paths to exclude
-    #[serde(default)]
-    pub file_paths: Vec<String>,
-    
-    /// Registry paths to exclude
-    #[serde(default)]
-    pub registry_paths: Vec<String>,
-}
 
-impl ProtectedPaths {
-    /// Check if a file path is protected
-    pub fn is_file_path_protected(&self, path: &str) -> bool {
-        let path_lower = path.to_lowercase();
-        self.file_paths.iter().any(|p| {
-            let p_lower = p.to_lowercase();
-            path_lower.contains(&p_lower)
-        })
-    }
-    
-    /// Check if a registry path is protected
-    pub fn is_registry_path_protected(&self, path: &str) -> bool {
-        let path_lower = path.to_lowercase();
-        self.registry_paths.iter().any(|p| {
-            let p_lower = p.to_lowercase();
-            path_lower.contains(&p_lower)
-        })
-    }
-}
-
-// =============================================================================
-// ENUMS AND BASIC TYPES
-// =============================================================================
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "lowercase")]
-#[derive(Default)]
-pub enum Comparison {
-    Gt, #[default]
-    Gte, Lt, Lte, Eq, Ne,
-}
-
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-#[derive(Default)]
-pub enum MatchMode {
-    All, #[default]
-    Any, Count(usize),
-    #[serde(rename = "at_least")]
-    AtLeast(usize),
-}
-
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "lowercase")]
-pub enum StringModifier {
-    Nocase, Contains, Startswith, Endswith, Re, Base64, Not,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(untagged)]
-#[allow(dead_code)]
-pub enum PatternSpec {
-    Simple(String),
-    Complex {
-        pattern: String,
-        #[serde(default)]
-        modifiers: Vec<StringModifier>,
-    },
-}
-
-#[allow(dead_code)]
-impl PatternSpec {
-    pub fn pattern(&self) -> &str {
-        match self {
-            PatternSpec::Simple(p) => p,
-            PatternSpec::Complex { pattern, .. } => pattern,
-        }
-    }
-    
-    pub fn modifiers(&self) -> &[StringModifier] {
-        match self {
-            PatternSpec::Simple(_) => &[],
-            PatternSpec::Complex { modifiers, .. } => modifiers,
-        }
-    }
-    
-    pub fn has_modifier(&self, modifier: &StringModifier) -> bool {
-        self.modifiers().iter().any(|m| std::mem::discriminant(m) == std::mem::discriminant(modifier))
-    }
-    
-    pub fn is_case_insensitive(&self) -> bool {
-        self.has_modifier(&StringModifier::Nocase)
-    }
-    
-    pub fn is_regex(&self) -> bool {
-        self.has_modifier(&StringModifier::Re)
-    }
-    
-    pub fn is_contains(&self) -> bool {
-        self.has_modifier(&StringModifier::Contains)
-    }
-    
-    pub fn is_startswith(&self) -> bool {
-        self.has_modifier(&StringModifier::Startswith)
-    }
-    
-    pub fn is_endswith(&self) -> bool {
-        self.has_modifier(&StringModifier::Endswith)
-    }
-    
-    pub fn is_negated(&self) -> bool {
-        self.has_modifier(&StringModifier::Not)
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CommandLinePattern {
-    pub pattern: String,
-    #[serde(default)]
-    pub modifiers: Vec<StringModifier>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(rename_all = "lowercase")]
-pub enum RuleStatus {
-    #[default]
-    Stable,
-    Experimental,
-    Test,
-    Deprecated,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(rename_all = "lowercase")]
-pub enum DetectionLevel {
-    Informational,
-    Low,
-    Medium,
-    #[default]
-    High,
-    Critical,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct LogSource {
-    pub category: String,
-    #[serde(skip)]
-    pub report_sender: Option<std::sync::mpsc::Sender<String>>,
-
-    /// List of recent rootkit detection findings.
-    #[serde(skip)]
-    pub rootkit_findings: Vec<RootkitFinding>,
-}
-
-fn default_severity() -> u8 { 50 }
-fn default_zero() -> usize { 0 }
 
 fn normalize_path_separators(path: &str) -> String {
     path.replace("\\", "/").trim_end_matches('/').to_string()
@@ -882,660 +723,9 @@ fn build_default_extension_whitelist() -> HashSet<String> {
     whitelist
 }
 
-// =============================================================================
-// RICH CONDITION SYSTEM
-// =============================================================================
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct NamedConditionGroup {
-    #[serde(default)]
-    pub apis: Vec<String>,
-    #[serde(default = "default_zero")]
-    pub api_threshold: usize,
-    
-    #[serde(default)]
-    pub file_paths: Vec<String>,
-    #[serde(default)]
-    pub file_operations: Vec<String>,
-    #[serde(default)]
-    pub require_same_file_read: bool,
-    #[serde(default)]
-    pub require_same_file_write: bool,
-    #[serde(default)]
-    pub require_same_file_rename: bool,
-    /// For delete conditions: require that the deleted file's path matches a stem
-    /// recorded when a create event with an unknown extension fired for the same process.
-    /// e.g., creating "document.docx.winball" stores stem "document.docx";
-    /// deleting "document.docx" then satisfies this prerequisite.
-    #[serde(default)]
-    pub require_same_stem_created_unknown_extension: bool,
 
-    /// True when the condition requires that a *write* to a file with the same stem
-    /// but an unknown (non-whitelisted) extension was observed for the same process.
-    /// e.g., writing "document.docx.winball" stores stem "document.docx";
-    /// renaming "document.docx" then satisfies this prerequisite.
-    /// Catches ransomware that writes encrypted output to a new file then
-    /// renames/deletes the original — evading require_same_file_write.
-    #[serde(default)]
-    pub require_same_stem_written_unknown_extension: bool,
-    
-    #[serde(default)]
-    pub registry_keys: Vec<String>,
-    #[serde(default)]
-    pub registry_values: Vec<String>,
-    #[serde(default)]
-    pub registry_operations: Vec<String>,
-    
-    #[serde(default)]
-    pub network_indicators: Vec<String>,
-    #[serde(default)]
-    pub has_network_activity: bool,
 
-    /// Powerful network conditions using the ported firewall SDK matcher.
-    /// Supports matching on Protocol, IP, Domain, URL, FileType, Port, Entropy, Payload, etc.
-    #[serde(default)]
-    #[cfg(feature = "firewall")]
-    pub network_rules: Vec<super::network_rules::RuleCondition>,
-    #[serde(default)]
-    pub network_domains: Vec<String>,
-    #[serde(default)]
-    pub network_ips: Vec<String>,
-
-    // Firewall-content conditions — matched against data from the HydraDragon Firewall pipe.
-    /// true  = condition requires process to have been blocked by the firewall.
-    /// false = condition requires process to NOT have been blocked.
-    /// absent (None) = firewall-block status is not checked.
-    #[serde(default)]
-    #[cfg(feature = "firewall")]
-    pub firewall_blocked: Option<bool>,
-    /// Destination IPs the process must have connected to (substring match, any).
-    #[serde(default)]
-    #[cfg(feature = "firewall")]
-    pub firewall_dst_ips: Vec<String>,
-    /// Destination ports the process must have connected to (exact match, any).
-    #[serde(default)]
-    #[cfg(feature = "firewall")]
-    pub firewall_dst_ports: Vec<u16>,
-    /// Hostnames the firewall observed for this process (substring match, any).
-    #[serde(default)]
-    #[cfg(feature = "firewall")]
-    pub firewall_hostnames: Vec<String>,
-    /// Keywords that must appear in the firewall block-reason string (substring, any).
-    #[serde(default)]
-    #[cfg(feature = "firewall")]
-    pub firewall_block_reasons: Vec<String>,
-    
-    #[serde(default)]
-    pub process_names: Vec<String>,
-    #[serde(default)]
-    pub parent_names: Vec<String>,
-    #[serde(default)]
-    pub terminated_processes: Vec<String>,
-    #[serde(default)]
-    pub created_processes: Vec<String>,
-    #[serde(default)]
-    pub detect_self_termination: bool,
-    #[serde(default)]
-    pub detect_parent_image_delete: bool,
-    #[serde(default)]
-    pub detect_parent_image_rename: bool,
-    
-    #[serde(default)]
-    pub file_extensions: Vec<String>,
-    #[serde(default)]
-    pub detect_extension_changes: bool,
-    #[serde(default)]
-    pub detect_known_to_unknown_extension_change: bool,
-    #[serde(default, alias = "extension_allowlist")]
-    pub extension_whitelist: Vec<String>,
-    #[serde(default, alias = "detect_non_allowlisted_extensions")]
-    pub detect_non_whitelisted_extensions: bool,
-    #[serde(default)]
-    pub file_actions: Vec<String>,
-    #[serde(default)]
-    pub entropy_threshold: f64,
-    #[serde(default)]
-    pub file_size_min: Option<u64>,
-    #[serde(default)]
-    pub file_size_max: Option<u64>,
-    
-    #[serde(default)]
-    pub cmdline_patterns: Vec<CommandLinePattern>,
-    #[serde(default)]
-    pub cmdline_keywords: Vec<String>,
-    /// Match against the script file extracted from an interpreter's command line.
-    /// e.g. for `powershell.exe -File evil.ps1`, matches against "evil.ps1".
-    /// Supports glob patterns. Works for powershell, cmd, wscript, cscript,
-    /// mshta, rundll32, regsvr32, msiexec, python, node, ruby, perl.
-    #[serde(default)]
-    pub script_file_patterns: Vec<String>,
-    
-    #[serde(default)]
-    pub staging_paths: Vec<String>,
-    #[serde(default)]
-    pub browsed_paths: Vec<String>,
-    #[serde(default)]
-    pub sensitive_paths: Vec<String>,
-    #[serde(default)]
-    pub temp_writes: bool,
-
-    #[serde(default)]
-    pub persistence_locations: Vec<String>,
-    #[serde(default)]
-    pub autorun_keys: Vec<String>,
-    #[serde(default)]
-    pub scheduled_task_apis: Vec<String>,
-    
-    #[serde(default)]
-    pub obfuscation_indicators: Vec<String>,
-    #[serde(default)]
-    pub anti_debug_apis: Vec<String>,
-    #[serde(default)]
-    pub anti_vm_apis: Vec<String>,
-    
-    #[serde(default)]
-    pub requires_signed: Option<bool>,
-    #[serde(default)]
-    pub is_signed: Option<bool>,        
-    #[serde(default)]
-    pub is_valid_signed: Option<bool>,  
-    #[serde(default)]
-    pub trusted_signers: Vec<String>,
-    #[serde(default)]
-    pub untrusted_signers: Vec<String>,
-    
-    // Hypervisor event tracking (single normalized opcode path)
-    #[serde(default)]
-    pub hypervisor_event_labels: Vec<String>,
-    #[serde(default)]
-    pub detect_hypervisor_event: bool,
-    #[serde(default)]
-    pub hypervisor_event_threshold: usize,
-
-    // Detailed HIM/API-hook payload filtering
-    #[serde(default)]
-    pub hypervisor_raw_event_types: Vec<u32>,
-    #[serde(default)]
-    pub hypervisor_source_pids: Vec<u32>,
-    #[serde(default)]
-    pub hypervisor_target_pids: Vec<u32>,
-    #[serde(default)]
-    pub hypervisor_raw_arg1_values: Vec<u64>,
-    #[serde(default)]
-    pub hypervisor_raw_arg2_values: Vec<u64>,
-    #[serde(default)]
-    pub hypervisor_raw_arg3_values: Vec<u64>,
-    #[serde(default)]
-    pub hypervisor_raw_arg4_values: Vec<u64>,
-    #[serde(default)]
-    pub hypervisor_raw_arg1_min: Option<u64>,
-    #[serde(default)]
-    pub hypervisor_raw_arg1_max: Option<u64>,
-    #[serde(default)]
-    pub hypervisor_raw_arg2_min: Option<u64>,
-    #[serde(default)]
-    pub hypervisor_raw_arg2_max: Option<u64>,
-    #[serde(default)]
-    pub hypervisor_raw_arg3_min: Option<u64>,
-    #[serde(default)]
-    pub hypervisor_raw_arg3_max: Option<u64>,
-    #[serde(default)]
-    pub hypervisor_raw_arg4_min: Option<u64>,
-    #[serde(default)]
-    pub hypervisor_raw_arg4_max: Option<u64>,
-    #[serde(default)]
-    pub hypervisor_memory_addresses: Vec<u64>,
-    #[serde(default)]
-    pub hypervisor_memory_address_min: Option<u64>,
-    #[serde(default)]
-    pub hypervisor_memory_address_max: Option<u64>,
-    #[serde(default)]
-    pub hypervisor_memory_sizes: Vec<u64>,
-    #[serde(default)]
-    pub hypervisor_memory_size_min: Option<u64>,
-    #[serde(default)]
-    pub hypervisor_memory_size_max: Option<u64>,
-    #[serde(default)]
-    pub hypervisor_memory_protections: Vec<u32>,
-    #[serde(default)]
-    pub hypervisor_is_executable_memory: Option<bool>,
-    #[serde(default)]
-    pub hypervisor_thread_handles: Vec<u64>,
-    #[serde(default)]
-    pub hypervisor_thread_start_routines: Vec<u64>,
-    #[serde(default)]
-    pub hypervisor_access_masks: Vec<u32>,
-    #[serde(default)]
-    pub hypervisor_operation_statuses: Vec<i32>,
-    
-    #[serde(default = "default_zero")]
-    pub min_matches: usize,
-    #[serde(default)]
-    pub min_files_accessed: Option<usize>,
-    #[serde(default)]
-    pub min_directories_accessed: Option<usize>,
-
-    /// When true, the items in this condition (apis, file_operations, etc.) are
-    /// evaluated as an unordered set — the engine checks that the required count
-    /// is reached regardless of the sequence in which events arrived.
-    /// Mark any condition whose items have no meaningful call-order dependency.
-    /// This also signals rule authors that reordering the list in the YAML is safe.
-    #[serde(default)]
-    pub orderless: bool,
-
-    // Sanctum EDR conditions
-    #[serde(default)]
-    pub sanctum_injection_score_min: Option<f32>,
-    #[serde(default)]
-    pub sanctum_syscall_count_min: Option<usize>,
-    #[serde(default)]
-    pub sanctum_shellcode_detected: Option<bool>,
-    #[serde(default)]
-    pub sanctum_suspicious_hits: Vec<String>,
-    #[serde(default)]
-    pub sanctum_detected: Option<bool>,
-
-    // Rootkit generic condition tracking
-    #[serde(default)]
-    pub rootkit_event_types: Vec<String>,
-    #[serde(default)]
-    pub rootkit_event_min_count: Option<usize>,
-    #[serde(default)]
-    pub rootkit_total_min: Option<usize>,
-    #[serde(default)]
-    pub rootkit_description_contains: Vec<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum DetectionCondition {
-    And { and: Vec<DetectionCondition> },
-    Or { or: Vec<DetectionCondition> },
-    Not { not: Box<DetectionCondition> },
-    Named { condition: String },
-    AllOf { all_of: Vec<String> },
-    AnyOf { any_of: Vec<String> },
-    NOf { n_of: usize, conditions: Vec<String> },
-    AtLeast { at_least: usize, conditions: Vec<String> },
-    AllOfPattern { all_of_pattern: String },
-    AnyOfPattern { any_of_pattern: String },
-    Count { count: Vec<String>, #[serde(default)] comparison: Comparison, threshold: usize },
-    Percentage { percentage: Vec<String>, #[serde(default)] comparison: Comparison, threshold: f32 },
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type")]
-pub enum RuleCondition {
-    File { op: String, path_pattern: String },
-    Registry { op: String, key_pattern: String, value_name: Option<String>, expected_data: Option<String> },
-    Process { op: String, pattern: String },
-    Service { op: String, name_pattern: String },
-    Network { op: String, dest_pattern: Option<String> },
-    Api { name_pattern: String, module_pattern: String },
-    Heuristic { metric: String, threshold: f64 },
-    OperationCount { op_type: String, #[serde(default)] path_pattern: Option<String>, #[serde(default)] comparison: Comparison, threshold: u64 },
-    ExtensionPattern { patterns: Vec<String>, #[serde(default)] match_mode: MatchMode, op_type: String },
-    ByteThreshold { direction: String, #[serde(default)] comparison: Comparison, threshold: u64 },
-    EntropyThreshold { metric: String, #[serde(default)] comparison: Comparison, threshold: f64 },
-    FileCount { category: String, #[serde(default)] comparison: Comparison, threshold: u64 },
-    Signature { 
-        #[serde(default)]
-        is_trusted: Option<bool>,  
-        #[serde(default)]
-        is_signed: Option<bool>,   
-        #[serde(default)]
-        signer_pattern: Option<String> 
-    },
-    DirectorySpread { category: String, #[serde(default)] comparison: Comparison, threshold: u64 },
-    DriveActivity { drive_type: String, op_type: String, #[serde(default)] comparison: Comparison, threshold: u32 },
-    ProcessAncestry { ancestor_pattern: String, #[serde(default)] max_depth: Option<u32> },
-    ExtensionRatio { extensions: Vec<String>, #[serde(default)] comparison: Comparison, threshold: f32 },
-    RateOfChange { metric: String, #[serde(default)] comparison: Comparison, threshold: f64 },
-    SelfModification { modification_type: String },
-    CommandLineMatch { patterns: Vec<CommandLinePattern>, #[serde(default)] match_mode: MatchMode },
-    SensitivePathAccess { patterns: Vec<String>, op_type: String, #[serde(default)] min_unique_paths: Option<u32> },
-    ClusterPattern { #[serde(default)] min_clusters: Option<usize>, #[serde(default)] max_clusters: Option<usize> },
-    TempDirectoryWrite { #[serde(default)] min_bytes: Option<u64>, #[serde(default)] min_files: Option<u32> },
-    ArchiveCreation { #[serde(default)] extensions: Vec<String>, #[serde(default)] min_size: Option<u64>, #[serde(default)] in_temp: bool },
-    DataExfiltrationPattern { source_patterns: Vec<String>, #[serde(default)] min_source_reads: Option<u32>, #[serde(default)] detect_temp_staging: bool, #[serde(default)] detect_archive: bool },
-    MemoryScan { #[serde(default)] patterns: Vec<String>, #[serde(default)] detect_pe_headers: bool, #[serde(default)] private_only: bool },
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AttackStage {
-    pub name: String,
-    pub conditions: Vec<RuleCondition>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum RuleMapping {
-    And { and: Vec<RuleMapping> },
-    Or { or: Vec<RuleMapping> },
-    Not { not: Box<RuleMapping> },
-    Stage { stage: String },
-}
-
-// =============================================================================
-// BEHAVIOR RULE
-// =============================================================================
-
-#[derive(Default, Debug, Clone, Serialize, Deserialize)]
-pub struct BehaviorRule {
-    pub name: String,
-    #[serde(default)]
-    pub description: String,
-    
-    #[serde(default)]
-    pub browsed_paths: Vec<String>,
-    #[serde(default)]
-    pub accessed_paths: Vec<String>,
-    #[serde(default)]
-    pub staging_paths: Vec<String>,
-    #[serde(default = "default_zero")]
-    pub multi_access_threshold: usize,
-    #[serde(default)]
-    pub require_internet: bool,
-    #[serde(default)]
-    pub monitored_apis: Vec<String>,
-    #[serde(default)]
-    pub file_actions: Vec<String>,
-    #[serde(default)]
-    pub file_extensions: Vec<String>,
-    #[serde(default)]
-    pub suspicious_parents: Vec<String>,
-    #[serde(default)]
-    pub terminated_processes: Vec<String>,
-    #[serde(default)]
-    pub detect_self_termination: bool,
-    #[serde(default)]
-    pub entropy_threshold: f64,
-    #[serde(default)]
-    pub conditions_percentage: f32,
-    
-    #[serde(default)]
-    pub named_conditions: HashMap<String, NamedConditionGroup>,
-    #[serde(default)]
-    pub detection_logic: Option<DetectionCondition>,
-    
-    #[serde(default)]
-    pub stages: Vec<AttackStage>,
-    #[serde(default)]
-    pub mapping: Option<RuleMapping>,
-    #[serde(default)]
-    pub min_stages_satisfied: usize,
-    
-    #[serde(default)]
-    pub conditions: Option<YamlValue>,
-    #[serde(default)]
-    pub private_rules: Option<YamlValue>,
-    #[serde(default = "default_severity")]
-    pub severity: u8,
-    #[serde(default)]
-    pub author: Option<String>,
-    #[serde(default)]
-    pub date: Option<String>,
-    #[serde(default)]
-    pub modified: Option<String>,
-    #[serde(default)]
-    pub status: RuleStatus,
-    #[serde(default)]
-    pub tags: Vec<String>,
-    #[serde(default)]
-    pub references: Vec<String>,
-    #[serde(default)]
-    pub false_positives: Vec<String>,
-    #[serde(default)]
-    pub level: DetectionLevel,
-    #[serde(default)]
-    pub mitre_attack: Vec<String>,
-    #[serde(default)]
-    pub logsource: Option<LogSource>,
-    
-    #[serde(default)]
-    pub response: ResponseAction,
-    #[serde(default)]
-    pub is_private: bool,
-    
-    #[serde(default)]
-    pub allowlisted_apps: Vec<AllowlistEntry>,
-    
-    #[serde(default)]
-    pub proximity_log_threshold: f32,
-    #[serde(default)]
-    pub record_on_start: Vec<String>,
-    #[serde(default)]
-    pub debug: bool,
-    #[serde(default)]
-    pub memory_scan_config: Option<MemoryScanConfig>,
-    #[serde(default)]
-    pub min_indicator_count: Option<usize>,
-    
-    // Global protected/excluded paths
-    #[serde(default)]
-    pub protected_paths: ProtectedPaths,
-
-    /// Substring patterns to match against HTTP request bodies captured by the MITM proxy.
-    /// If any pattern matches any recorded request body for this PID, the condition is satisfied.
-    #[cfg(feature = "firewall")]
-    #[serde(default)]
-    pub http_request_body_patterns: Vec<String>,
-    /// Substring patterns to match against HTTP response bodies captured by the MITM proxy.
-    /// If any pattern matches any recorded response body for this PID, the condition is satisfied.
-    #[cfg(feature = "firewall")]
-    #[serde(default)]
-    pub http_response_body_patterns: Vec<String>,
-}
-
-fn expand_environment_variables(text: &str) -> String {
-    if !text.contains('%') {
-        return text.to_string();
-    }
-    let re = match Regex::new(r"%([^%]+)%") {
-        Ok(r) => r,
-        Err(_) => return text.to_string(),
-    };
-    re.replace_all(text, |caps: &regex::Captures| {
-        let var_name = &caps[1].to_uppercase();
-        match std::env::var(var_name) {
-            Ok(val) => val,
-            Err(_) => caps[0].to_string()
-        }
-    }).to_string()
-}
-
-impl BehaviorRule {
-    pub fn finalize_rich_fields(&mut self) {
-        let expand_vec = |vec: &mut Vec<String>| {
-            for item in vec.iter_mut() {
-                *item = expand_environment_variables(item);
-            }
-        };
-        let expand_opt_string = |opt: &mut Option<String>| {
-            if let Some(s) = opt {
-                *s = expand_environment_variables(s);
-            }
-        };
-        let expand_cmd_patterns = |patterns: &mut Vec<CommandLinePattern>| {
-            for p in patterns.iter_mut() {
-                p.pattern = expand_environment_variables(&p.pattern);
-            }
-        };
-        let expand_network_rules = |rules: &mut Vec<super::network_rules::RuleCondition>| {
-            use super::network_rules::RuleCondition;
-            for r in rules.iter_mut() {
-                match r {
-                    RuleCondition::Ip(s) | RuleCondition::Payload(s) |
-                    RuleCondition::HttpMethod(s) | RuleCondition::HttpPath(s) | 
-                    RuleCondition::HttpUserAgent(s) | RuleCondition::HttpContentType(s) | 
-                    RuleCondition::HttpReferer(s) | RuleCondition::DnsQuery(s) => {
-                        *s = expand_environment_variables(s);
-                    }
-                    RuleCondition::Domain(m) => {
-                        for p in m.domains.iter_mut() { *p = expand_environment_variables(p); }
-                    }
-                    RuleCondition::Url(m) => {
-                        for p in m.patterns.iter_mut() { *p = expand_environment_variables(p); }
-                    }
-                    RuleCondition::FileType(v) => {
-                        for p in v.iter_mut() { *p = expand_environment_variables(p); }
-                    }
-                    RuleCondition::Regex(m) => {
-                        m.pattern = expand_environment_variables(&m.pattern);
-                    }
-                    _ => {}
-                }
-            }
-        };
-
-        expand_vec(&mut self.browsed_paths);
-        expand_vec(&mut self.accessed_paths);
-        expand_vec(&mut self.staging_paths);
-        expand_vec(&mut self.monitored_apis);
-        expand_vec(&mut self.file_actions);
-        expand_vec(&mut self.file_extensions);
-        expand_vec(&mut self.suspicious_parents);
-        expand_vec(&mut self.terminated_processes);
-        expand_vec(&mut self.false_positives);
-
-        for entry in &mut self.allowlisted_apps {
-            match entry {
-                AllowlistEntry::Simple(s) => *s = expand_environment_variables(s),
-                AllowlistEntry::Complex { pattern, signers, .. } => {
-                    *pattern = expand_environment_variables(pattern);
-                    expand_vec(signers);
-                }
-            }
-        }
-
-        for cond_group in self.named_conditions.values_mut() {
-            expand_vec(&mut cond_group.apis);
-            expand_vec(&mut cond_group.file_paths);
-            expand_vec(&mut cond_group.registry_keys);
-            expand_vec(&mut cond_group.registry_values);
-            expand_vec(&mut cond_group.network_indicators);
-            expand_vec(&mut cond_group.network_domains);
-            expand_vec(&mut cond_group.network_ips);
-            expand_vec(&mut cond_group.process_names);
-            expand_vec(&mut cond_group.parent_names);
-            expand_vec(&mut cond_group.terminated_processes);
-            expand_vec(&mut cond_group.created_processes);
-            expand_vec(&mut cond_group.file_extensions);
-            expand_vec(&mut cond_group.extension_whitelist);
-            expand_vec(&mut cond_group.file_actions);
-            expand_cmd_patterns(&mut cond_group.cmdline_patterns);
-            expand_vec(&mut cond_group.cmdline_keywords);
-            expand_vec(&mut cond_group.staging_paths);
-            expand_vec(&mut cond_group.browsed_paths);
-            expand_vec(&mut cond_group.sensitive_paths);
-            expand_vec(&mut cond_group.persistence_locations);
-            expand_vec(&mut cond_group.autorun_keys);
-            expand_vec(&mut cond_group.scheduled_task_apis);
-            expand_vec(&mut cond_group.obfuscation_indicators);
-            expand_vec(&mut cond_group.anti_debug_apis);
-            expand_vec(&mut cond_group.anti_vm_apis);
-            expand_vec(&mut cond_group.trusted_signers);
-            expand_vec(&mut cond_group.untrusted_signers);
-            
-            // Expand normalized hypervisor event labels
-            expand_vec(&mut cond_group.hypervisor_event_labels);
-            expand_network_rules(&mut cond_group.network_rules);
-        }
-
-        for stage in &mut self.stages {
-            for condition in &mut stage.conditions {
-                match condition {
-                    RuleCondition::File { path_pattern, .. } => *path_pattern = expand_environment_variables(path_pattern),
-                    RuleCondition::Registry { key_pattern, value_name, expected_data, .. } => {
-                        *key_pattern = expand_environment_variables(key_pattern);
-                        expand_opt_string(value_name);
-                        expand_opt_string(expected_data);
-                    },
-                    RuleCondition::Process { pattern, .. } => *pattern = expand_environment_variables(pattern),
-                    RuleCondition::Service { name_pattern, .. } => *name_pattern = expand_environment_variables(name_pattern),
-                    RuleCondition::Network { dest_pattern, .. } => expand_opt_string(dest_pattern),
-                    RuleCondition::Api { name_pattern, module_pattern } => {
-                        *name_pattern = expand_environment_variables(name_pattern);
-                        *module_pattern = expand_environment_variables(module_pattern);
-                    },
-                    RuleCondition::OperationCount { path_pattern, .. } => expand_opt_string(path_pattern),
-                    RuleCondition::ExtensionPattern { patterns, .. } => expand_vec(patterns),
-                    RuleCondition::Signature { signer_pattern, .. } => expand_opt_string(signer_pattern),
-                    RuleCondition::ProcessAncestry { ancestor_pattern, .. } => *ancestor_pattern = expand_environment_variables(ancestor_pattern),
-                    RuleCondition::CommandLineMatch { patterns, .. } => expand_cmd_patterns(patterns),
-                    RuleCondition::SensitivePathAccess { patterns, .. } => expand_vec(patterns),
-                    RuleCondition::ArchiveCreation { extensions, .. } => expand_vec(extensions),
-                    RuleCondition::DataExfiltrationPattern { source_patterns, .. } => expand_vec(source_patterns),
-                    RuleCondition::MemoryScan { patterns, .. } => expand_vec(patterns),
-                    _ => {}
-                }
-            }
-        }
-
-        if let Some(msc) = &mut self.memory_scan_config {
-            expand_vec(&mut msc.target_processes);
-        }
-
-        for entry in &mut self.allowlisted_apps {
-            match entry {
-                AllowlistEntry::Simple(s) => *s = s.to_lowercase(),
-                AllowlistEntry::Complex { pattern, .. } => *pattern = pattern.to_lowercase(),
-            }
-        }
-        
-        for cond_group in self.named_conditions.values_mut() {
-            // Keep API names case-preserved so exported symbol hooks resolve correctly in user-mode hook engine.
-            cond_group.file_paths = cond_group.file_paths.iter().map(|s| s.to_lowercase()).collect();
-            cond_group.registry_keys = cond_group.registry_keys.iter().map(|s| s.to_lowercase()).collect();
-            cond_group.process_names = cond_group.process_names.iter().map(|s| s.to_lowercase()).collect();
-            cond_group.parent_names = cond_group.parent_names.iter().map(|s| s.to_lowercase()).collect();
-            cond_group.file_actions = cond_group.file_actions.iter().map(|s| s.to_lowercase()).collect();
-            cond_group.file_operations = cond_group.file_operations.iter().map(|s| s.to_lowercase()).collect();
-            cond_group.registry_operations = cond_group.registry_operations.iter().map(|s| s.to_lowercase()).collect();
-            cond_group.file_extensions = cond_group.file_extensions.iter().map(|s| s.to_lowercase()).collect();
-            cond_group.extension_whitelist = cond_group.extension_whitelist.iter().map(|s| s.to_lowercase()).collect();
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MemoryScanConfig {
-    #[serde(default)]
-    pub target_processes: Vec<String>,
-    #[serde(default)]
-    pub scan_on_io_event: bool,
-    #[serde(default)]
-    pub scan_every_n_ops: u64,
-    #[serde(default)]
-    pub min_scan_interval_secs: u64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum AllowlistEntry {
-    Simple(String),
-    Complex {
-        pattern: String,
-        #[serde(default)]
-        signers: Vec<String>,
-        #[serde(default)]
-        must_be_signed: bool,
-    },
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct ResponseAction {
-    #[serde(default)] pub terminate_process: bool,
-    #[serde(default)] pub suspend_process: bool,
-    #[serde(default)] pub quarantine: bool,
-    #[serde(default, alias = "deny_access", alias = "kernel_block")]
-    pub status_access_denied: bool,
-    #[serde(default)] pub kill_and_remove: bool,
-    #[serde(default)] pub ask_user: bool,
-    #[serde(default)] pub notify_user: bool,
-    #[serde(default)] pub auto_revert: bool,
-    #[serde(default)] pub record: bool,
-}
 
 // =============================================================================
 // PART 2: ENHANCED PROCESS STATE WITH IRP TRACKING
@@ -1826,9 +1016,6 @@ pub struct BehaviorEngine {
     pub firewall_sanctum_stats: FirewallSanctumStats,
     #[cfg(feature = "firewall")]
     pub generate_report_flag: FirewallGenerateReport,
-    /// Detailed network matching rules (SdkRules) for the firewall.
-    #[cfg(feature = "firewall")]
-    pub sdk_rules: Arc<std::sync::RwLock<Vec<crate::behavioral::network_rules::SdkRule>>>,
     pub rootkit_findings: Vec<RootkitFinding>,
 }
 
@@ -1870,8 +1057,6 @@ impl BehaviorEngine {
             firewall_sanctum_stats: shared_firewall_sanctum_stats(),
             #[cfg(feature = "firewall")]
             generate_report_flag: shared_firewall_generate_report(),
-            #[cfg(feature = "firewall")]
-            sdk_rules: Arc::new(std::sync::RwLock::new(Vec::new())),
             rootkit_findings: Vec::new(),
         }
     }
@@ -1905,8 +1090,8 @@ impl BehaviorEngine {
         let http_body_map = Arc::clone(&self.firewall_http_body_map);
         let full_packets: Arc<RwLock<HashMap<u32, VecDeque<PacketInfo>>>> = Arc::clone(&self.firewall_full_packets);
         let generate_report_flag = Arc::clone(&self.generate_report_flag);
-        let sdk_rules = Arc::clone(&self.sdk_rules);
         let regex_cache = Arc::clone(&self.regex_cache);
+        let rules_clone = self.rules.clone();
 
         std::thread::Builder::new()
             .name("hydra_net_event_pipe".to_string())
@@ -2106,27 +1291,24 @@ impl BehaviorEngine {
                                     }
                                     history.push_back(pkt.clone());
                                     
-                                    // SDK RULE MATCHING
+                                    // UNIFIED RULE MATCHING
                                     let mut matched_any = false;
                                     {
-                                        let rules = sdk_rules.read().unwrap();
-                                        for rule in rules.iter() {
+                                        for rule in rules_clone.iter() {
                                             if rule.matches_packet(&regex_cache, &pkt, &[]) {
                                                 matched_any = true;
                                                 Logging::alert(&format!(
-                                                    "[SDK RULE MATCH] PID {} matched network rule '{}': {} -> {}",
+                                                    "[UNIFIED RULE MATCH] PID {} matched network condition in rule '{}': {} -> {}",
                                                     pid, rule.name, pkt.src_ip, pkt.dst_ip
                                                 ));
                                                 
-                                                use crate::behavioral::network_rules::RuleAction;
-                                                if matches!(rule.action, RuleAction::Block | RuleAction::Quarantine | RuleAction::KillAndRemove | RuleAction::Terminate) {
+                                                if rule.response.status_access_denied || rule.response.quarantine || rule.response.kill_and_remove || rule.response.terminate_process {
                                                     let mut blocked = blocked_exes.write().unwrap();
                                                     
-                                                    // Use apply_replacement if available for logging/context
-                                                    let reason = if rule.change_request_body.is_some() || rule.change_response_body.is_some() {
-                                                        format!("SDK Rule [{}] matched (Replacement suggested)", rule.name)
+                                                    let reason = if rule.response.change_request_body.is_some() || rule.response.change_response_body.is_some() {
+                                                        format!("Rule [{}] matched (Replacement suggested)", rule.name)
                                                     } else {
-                                                        format!("SDK Rule [{}] matched", rule.name)
+                                                        format!("Rule [{}] matched", rule.name)
                                                     };
 
                                                     blocked.insert(pkt.image_path.clone(), FirewallDetection {
@@ -2137,7 +1319,6 @@ impl BehaviorEngine {
                                                     });
                                                 }
                                                 
-                                                // Call apply_replacement to satisfy "unused" warning, even if result is just logged for now
                                                 if let Some(ref hostname) = pkt.hostname {
                                                     let _replaced = rule.apply_replacement(hostname);
                                                 }
@@ -3219,14 +2400,9 @@ impl BehaviorEngine {
     }
 
     pub fn load_rules(&mut self, path: &Path) -> Result<(), Box<dyn std::error::Error>> {
-        let (rules, sdk_rules) = self.load_rules_recursive(path)?;
+        let rules = self.load_rules_recursive(path)?;
         self.rules = rules;
-        {
-            let mut sdk_lock = self.sdk_rules.write().unwrap();
-            sdk_lock.clear();
-            sdk_lock.extend(sdk_rules);
-        }
-        Logging::info(&format!("[EDR]: {} behavior rules and {} network rules loaded from {:?}", self.rules.len(), self.sdk_rules.read().unwrap().len(), path));
+        Logging::info(&format!("[EDR]: {} unified behavior rules loaded from {:?}", self.rules.len(), path));
         Ok(())
     }
 
@@ -3290,10 +2466,9 @@ impl BehaviorEngine {
         all_apis
     }
 
-    fn load_rules_recursive(&self, path: &Path) -> Result<(Vec<BehaviorRule>, Vec<crate::behavioral::network_rules::SdkRule>), Box<dyn std::error::Error>> {
+    fn load_rules_recursive(&self, path: &Path) -> Result<Vec<BehaviorRule>, Box<dyn std::error::Error>> {
         let content = std::fs::read_to_string(path)?;
         let mut rules = Vec::new();
-        let mut sdk_rules = Vec::new();
 
         if content.contains("!include") {
             let parent = path.parent().unwrap_or_else(|| Path::new("."));
@@ -3313,9 +2488,8 @@ impl BehaviorEngine {
                         
                         if include_path.exists() {
                             match self.load_rules_recursive(&include_path) {
-                                Ok((sub_rules, sub_sdk_rules)) => {
+                                Ok(sub_rules) => {
                                     rules.extend(sub_rules);
-                                    sdk_rules.extend(sub_sdk_rules);
                                 },
                                 Err(e) => Logging::warning(&format!("[EDR] Failed to load include {}: {}", include_path.display(), e)),
                             }
@@ -3333,23 +2507,17 @@ impl BehaviorEngine {
             if !filtered_content.trim().is_empty() && filtered_content.trim() != "---" {
                 if let Ok(main_rules) = serde_yaml::from_str::<Vec<BehaviorRule>>(&filtered_content) {
                     rules.extend(self.finalize_rules(main_rules));
-                } else if let Ok(main_sdk_rules) = serde_yaml::from_str::<Vec<crate::behavioral::network_rules::SdkRule>>(&filtered_content) {
-                    sdk_rules.extend(main_sdk_rules);
                 }
             }
         } else {
             if let Ok(r) = serde_yaml::from_str::<Vec<BehaviorRule>>(&content) {
                 rules.extend(self.finalize_rules(r));
-            } else if let Ok(r) = serde_yaml::from_str::<Vec<crate::behavioral::network_rules::SdkRule>>(&content) {
-                sdk_rules.extend(r);
             } else if let Ok(r) = serde_yaml::from_str::<BehaviorRule>(&content) {
                 rules.extend(self.finalize_rules(vec![r]));
-            } else if let Ok(r) = serde_yaml::from_str::<crate::behavioral::network_rules::SdkRule>(&content) {
-                sdk_rules.push(r);
             }
         }
 
-        Ok((rules, sdk_rules))
+        Ok(rules)
     }
 
     fn normalize_api_signature(raw: &str) -> (String, bool) {
@@ -5325,6 +4493,17 @@ impl BehaviorEngine {
                         }
                     },
                     
+                    RuleCondition::NetworkCondition(net_rule) => {
+                        if let Some(_m) = msg {
+                            // We don't have the full packet buffer here, only what's in IOMessage.
+                            // However, we can construct a temporary PacketInfo if needed, or check
+                            // if there's a recent packet in state.net_packets that matches.
+                            condition_matched = state.net_packets.iter().any(|pkt| {
+                                net_rule.matches_packet(&self.regex_cache, pkt, &[])
+                            });
+                        }
+                    },
+                    
                     _ => condition_matched = false,
                 }
                 
@@ -5547,40 +4726,55 @@ impl BehaviorEngine {
             if name.is_empty() { return false; }
             let proc_lc = name.to_lowercase();
             rule.allowlisted_apps.iter().any(|entry| {
-            match entry {
-                AllowlistEntry::Simple(pattern) => proc_lc.contains(&pattern.to_lowercase()),
-                AllowlistEntry::Complex { pattern, signers, must_be_signed } => {
-                    if !proc_lc.contains(&pattern.to_lowercase()) { 
-                        return false; 
-                    }
-                    if !must_be_signed && signers.is_empty() { 
-                        return true; 
-                    }
-                    if let Some(path) = process_path {
-                        if !path.exists() { 
-                            return false; 
+                match entry {
+                    AllowlistEntry::Simple(pattern) => proc_lc.contains(&pattern.to_lowercase()),
+                    AllowlistEntry::Complex { pattern, signers, must_be_signed, is_absolute } => {
+                        let pat_lc = pattern.to_lowercase();
+                        let mut name_matched = proc_lc.contains(&pat_lc) || pat_lc.contains(&proc_lc);
+                        
+                        if *is_absolute {
+                            if let Some(path) = process_path {
+                                let path_str = path.to_string_lossy().to_lowercase().replace("\\", "/");
+                                let pat_norm = pat_lc.replace("\\", "/");
+                                if path_str != pat_norm && !path_str.ends_with(&format!("/{}", pat_norm)) {
+                                    name_matched = false;
+                                }
+                            } else {
+                                name_matched = false;
+                            }
                         }
-                        let info = verify_signature(path);
-                        if *must_be_signed && !info.is_trusted { 
-                            return false; 
+
+                        if !name_matched { return false; }
+
+                        if !must_be_signed && signers.is_empty() { 
+                            return true; 
                         }
-                        if !signers.is_empty() {
-                            if let Some(signer) = &info.signer_name {
-                                signers.iter().any(|s_pattern| 
-                                    Self::matches_pattern_internal(&self.regex_cache, s_pattern, signer)
-                                )
+                        if let Some(path) = process_path {
+                            if !path.exists() { return false; }
+                            let info = verify_signature(path);
+
+                            // Strict requirement: must be signed by one of the specified signers
+                            // if the rule engine says it's a mandatory vendor check.
+                            if *must_be_signed && !info.is_trusted { 
+                                return false; 
+                            }
+                            if !signers.is_empty() {
+                                if let Some(signer) = &info.signer_name {
+                                    signers.iter().any(|s_pattern| 
+                                        Self::matches_pattern_internal(&self.regex_cache, s_pattern, signer)
+                                    )
+                                } else { 
+                                    false 
+                                }
                             } else { 
-                                false 
+                                true 
                             }
                         } else { 
-                            true 
+                            false 
                         }
-                    } else { 
-                        false 
                     }
                 }
-            }
-        })
+            })
         }) // end names_to_check.iter().any()
     }
 

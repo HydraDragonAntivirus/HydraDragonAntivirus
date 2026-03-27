@@ -177,7 +177,7 @@ pub struct RawBehaviorData {
     pub loaded_kernel_drivers: Vec<String>,
     pub executable_telemetry: ExecutableTelemetry,
     #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-    pub net_packets: Vec<crate::behavioral::network_rules::PacketInfo>,
+    pub net_packets: Vec<crate::behavioral::rule_types::PacketInfo>,
     #[cfg(feature = "behavior_engine")]
     pub rule_format_rule: BehaviorRule,
 
@@ -589,8 +589,8 @@ impl MLCollector {
         let mut network_rules = Vec::new();
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
         {
-            use crate::behavioral::network_rules::RuleCondition as NetCondition;
-            use crate::behavioral::network_rules::{DomainMatcher, UrlMatcher};
+            use crate::behavioral::rule_types::NetworkRuleCondition as NetCondition;
+            use crate::behavioral::rule_types::{DomainMatcher, UrlMatcher};
             for pkt in &api_tracker.net_packets {
                 if !pkt.domain.is_empty() {
                     network_rules.push(NetCondition::Domain(DomainMatcher::exact(pkt.domain.clone())));

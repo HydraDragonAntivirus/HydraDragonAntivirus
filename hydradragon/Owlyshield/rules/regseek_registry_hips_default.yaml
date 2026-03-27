@@ -46,8 +46,9 @@
     auto_revert: true
     record: true
   allowlisted_apps:
-    - pattern: "*\\svchost.exe"
+    - pattern: "C:/Windows/System32/svchost.exe"
       must_be_signed: true
+      is_absolute: true
       signers: ["*Microsoft*"]
 
 - name: "RegSeek Registry HIPS - User Behaviour And Cloud"
