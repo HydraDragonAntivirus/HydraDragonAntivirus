@@ -8,6 +8,7 @@ use crate::process::ProcessRecord;
         fn deny_path_access(&self, path: &Path);
         fn kill_and_quarantine(&self, gid: u64, path: &Path);
         fn kill_and_remove(&self, gid: u64, path: &Path);
+        fn schedule_cleanup_on_reboot(&self, path: &Path);
         fn awake(&self, proc: &mut ProcessRecord, kill_proc_on_exit: bool);
         fn revert_registry(&self, gid: u64);
         fn clone_box(&self) -> Box<dyn ThreatHandler>;

@@ -11,6 +11,7 @@ use log::{warn};
 
 use crate::config::Config;
 use crate::connectors::register::Connectors;
+use crate::notifications::notify;
 use crate::predictions::prediction::input_tensors::VecvecCappedF32;
 use crate::process::{ProcessRecord, ProcessState};
 use crate::logging::Logging;
@@ -35,6 +36,8 @@ pub struct ThreatInfo<'a> {
     pub revert: bool,
 }
 
+pub const RESTART_CLEANUP_PREDICTION_THRESHOLD: f32 = 0.999;
+
 impl ThreatInfo<'_> {
     fn should_notify(&self) -> bool {
         self.notify_user
@@ -45,8 +48,10 @@ impl ThreatInfo<'_> {
             || self.revert
     }
 
-    fn response_label(&self) -> &'static str {
-        if self.kill_and_remove {
+    fn response_label_for(&self, proc: &ProcessRecord) -> &'static str {
+        if restart_cleanup_reason(proc, self).is_some() {
+            "Restart to clean"
+        } else if self.kill_and_remove {
             "Kill and remove"
         } else if self.terminate && self.quarantine {
             "Kill and quarantine"
@@ -63,8 +68,10 @@ impl ThreatInfo<'_> {
         }
     }
 
-    fn response_time_label(&self) -> &'static str {
-        if self.notify_user
+    fn response_time_label_for(&self, proc: &ProcessRecord) -> &'static str {
+        if restart_cleanup_reason(proc, self).is_some() {
+            "Queued at"
+        } else if self.notify_user
             && !self.deny_access
             && !self.terminate
             && !self.quarantine
@@ -89,7 +96,7 @@ pub trait ActionOnKill {
     fn run(
         &self,
         config: &Config,
-        proc: &ProcessRecord,
+        proc: &mut ProcessRecord,
         pred_mtrx: &VecvecCappedF32,
         // MODIFIED: Use ThreatInfo struct
         threat_info: &ThreatInfo,
@@ -101,6 +108,30 @@ impl Default for ActionsOnKill {
     fn default() -> Self {
         Self::new()
     }
+}
+
+pub fn restart_cleanup_reason(proc: &ProcessRecord, threat_info: &ThreatInfo<'_>) -> Option<String> {
+    if !(threat_info.terminate || threat_info.quarantine || threat_info.kill_and_remove) {
+        return None;
+    }
+
+    if threat_info.prediction < RESTART_CLEANUP_PREDICTION_THRESHOLD {
+        return None;
+    }
+
+    if let Some(reason) = suspicious_critical_process_record_reason(proc) {
+        return Some(format!(
+            "{}. Cleanup should run during the next restart instead of a live terminate",
+            reason
+        ));
+    }
+
+    termination_block_reason(proc).map(|reason| {
+        format!(
+            "{}. Cleanup should run during the next restart instead of a live terminate",
+            reason
+        )
+    })
 }
 
 impl ActionsOnKill {
@@ -132,10 +163,15 @@ impl ActionsOnKill {
     pub fn run_actions_with_info(
         &self,
         config: &Config,
-        proc: &ProcessRecord,
+        proc: &mut ProcessRecord,
         pred_mtrx: &VecvecCappedF32,
         threat_info: &ThreatInfo, // Takes the new struct
     ) {
+        if restart_cleanup_reason(proc, threat_info).is_some() {
+            proc.restart_cleanup_requested = true;
+            proc.process_state = ProcessState::RestartCleanupPending;
+        }
+
         let now = (DateTime::from(SystemTime::now()) as DateTime<Local>)
             .format(FILE_TIME_FORMAT)
             .to_string();
@@ -154,7 +190,7 @@ impl ActionOnKill for WriteReportFile {
     fn run(
         &self,
         _config: &Config,
-        proc: &ProcessRecord,
+        proc: &mut ProcessRecord,
         _pred_mtrx: &VecvecCappedF32,
         // MODIFIED: Use ThreatInfo
         threat_info: &ThreatInfo,
@@ -188,8 +224,8 @@ impl ActionOnKill for WriteReportFile {
             file.write_all(
                 format!(
                     "Response: {}\n{} {}\n\n",
-                    threat_info.response_label(),
-                    threat_info.response_time_label(),
+                    threat_info.response_label_for(proc),
+                    threat_info.response_time_label_for(proc),
                     DateTime::<Local>::from(proc.time_killed.unwrap_or_else(SystemTime::now))
                         .format(LONG_TIME_FORMAT)
                 )
@@ -214,7 +250,7 @@ impl ActionOnKill for WriteReportHtmlFile {
     fn run(
         &self,
         _config: &Config,
-        proc: &ProcessRecord,
+        proc: &mut ProcessRecord,
         _pred_mtrx: &VecvecCappedF32,
         // MODIFIED: Use ThreatInfo
         threat_info: &ThreatInfo,
@@ -262,8 +298,8 @@ impl ActionOnKill for WriteReportHtmlFile {
                 proc.exepath.to_string_lossy(), // 2. Path
                 proc.process_state, // 3. State
                 stime_started.format(LONG_TIME_FORMAT), // 4. Start time
-                threat_info.response_label(), // 5. Response action
-                threat_info.response_time_label(), // 6. Response time label
+                threat_info.response_label_for(proc), // 5. Response action
+                threat_info.response_time_label_for(proc), // 6. Response time label
                 DateTime::<Local>::from(proc.time_killed.unwrap_or_else(SystemTime::now)).format(LONG_TIME_FORMAT), // 7. Response time
                 proc.gid, // 8. GID
                 threat_info.virus_name, // 9. Virus Name
@@ -294,7 +330,7 @@ impl ActionOnKill for Connectors {
     fn run(
         &self,
         config: &Config,
-        proc: &ProcessRecord,
+        proc: &mut ProcessRecord,
         _pred_mtrx: &VecvecCappedF32,
         // MODIFIED: Use ThreatInfo
         threat_info: &ThreatInfo,
@@ -314,20 +350,22 @@ impl ActionOnKill for Logging {
     fn run(
         &self,
         _config: &Config,
-        proc: &ProcessRecord,
+        proc: &mut ProcessRecord,
         _pred_mtrx: &VecvecCappedF32,
         // MODIFIED: Use ThreatInfo
         threat_info: &ThreatInfo,
         _now: &str
     ) -> Result<(), Box<dyn Error>> {
         let stime_started: DateTime<Local> = proc.time_started.into();
+        let response_label = threat_info.response_label_for(proc);
         // MODIFIED: Use details from threat_info
-        let msg = format!("{} detected running from: {}[{}] with certainty {} (detection: {}) (details: {}) (started at {})", 
+        let msg = format!("{} detected running from: {}[{}] with certainty {} (detection: {}) (response: {}) (details: {}) (started at {})", 
             threat_info.threat_type_label, 
             proc.appname, 
             proc.gid, 
             threat_info.prediction, 
             threat_info.virus_name, 
+            response_label,
             threat_info.match_details.as_deref().unwrap_or("None"),
             stime_started.format(LONG_TIME_FORMAT)
         );
@@ -348,8 +386,8 @@ fn termination_block_reason(proc: &ProcessRecord) -> Option<String> {
 impl ActionOnKill for KillAction {
     fn run(
         &self,
-        _config: &Config,
-        proc: &ProcessRecord,
+        config: &Config,
+        proc: &mut ProcessRecord,
         _pred_mtrx: &VecvecCappedF32,
         threat_info: &ThreatInfo,
         _now: &str,
@@ -360,6 +398,45 @@ impl ActionOnKill for KillAction {
                 proc.primary_remediation_path().display()
             ));
             self.handler.deny_path_access(proc.primary_remediation_path());
+        }
+
+        if let Some(reason) = restart_cleanup_reason(proc, threat_info) {
+            let remediation_path = proc.primary_remediation_path();
+            Logging::alert(&format!(
+                "[RestartCleanup] {} (GID: {}) queued for restart cleanup: {}",
+                proc.appname, proc.gid, reason
+            ));
+
+            if remediation_path.as_os_str().is_empty() {
+                Logging::warning(&format!(
+                    "[ActionOnKill] Cannot queue restart cleanup for {} (GID: {}) because no remediation path is known",
+                    proc.appname, proc.gid
+                ));
+            } else {
+                if !threat_info.deny_access {
+                    Logging::info(&format!(
+                        "[ActionOnKill] Denying future access to: {}",
+                        remediation_path.display()
+                    ));
+                    self.handler.deny_path_access(remediation_path);
+                }
+
+                Logging::info(&format!(
+                    "[ActionOnKill] Scheduling cleanup on restart for: {}",
+                    remediation_path.display()
+                ));
+                self.handler.schedule_cleanup_on_reboot(remediation_path);
+            }
+
+            let _ = notify(
+                config,
+                &format!(
+                    "Malware cleanup for {} was queued for the next restart.",
+                    proc.appname
+                ),
+                "",
+            );
+            return Ok(());
         }
 
         if threat_info.terminate {
@@ -414,7 +491,7 @@ impl ActionOnKill for RevertAction {
     fn run(
         &self,
         _config: &Config,
-        proc: &ProcessRecord,
+        proc: &mut ProcessRecord,
         _pred_mtrx: &VecvecCappedF32,
         threat_info: &ThreatInfo,
         _now: &str,

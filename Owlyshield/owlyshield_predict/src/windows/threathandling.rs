@@ -398,10 +398,41 @@ impl ThreatHandler for WindowsThreatHandler {
             
             if let Ok(json) = serde_json::to_string_pretty(&entries)
                 && let Ok(mut file) = std::fs::File::create(&log_path) {
-                    let _ = file.write_all(json.as_bytes());
-                }
+                let _ = file.write_all(json.as_bytes());
+            }
         }
 
+    fn schedule_cleanup_on_reboot(&self, path: &Path) {
+        let usermode_path = Self::normalize_usermode_path(path);
+        if usermode_path.as_os_str().is_empty() {
+            Logging::warning("[ThreatHandler] Cannot schedule reboot cleanup for an empty path");
+            return;
+        }
+
+        match Self::schedule_delete_on_reboot(&usermode_path) {
+            Ok(_) => {
+                Logging::alert(&format!(
+                    "[ThreatHandler] Cleanup scheduled for next restart: {}",
+                    usermode_path.display()
+                ));
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                Logging::info(&format!(
+                    "[ThreatHandler] Reboot cleanup skipped because artifact is already absent: {}",
+                    usermode_path.display()
+                ));
+            }
+            Err(e) => {
+                Logging::error(&format!(
+                    "[ThreatHandler] Failed to schedule reboot cleanup for {}: {}",
+                    usermode_path.display(),
+                    e
+                ));
+            }
+        }
+
+        self.add_kernel_block_path(path);
+    }
 
     fn awake(&self, proc: &mut ProcessRecord, kill_proc_on_exit: bool) {
         for pid in &proc.pids {

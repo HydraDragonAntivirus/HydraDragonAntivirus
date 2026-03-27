@@ -646,7 +646,7 @@ mod process_records {
     use rumqtt::{MqttClient, MqttOptions, QoS};
     use crate::config::{Config, Param};
     use crate::csvwriter::CsvWriter;
-    use crate::actions_on_kill::{ActionsOnKill, ThreatInfo};
+    use crate::actions_on_kill::{restart_cleanup_reason, ActionsOnKill, ThreatInfo};
     use crate::predictions::prediction::input_tensors::{Timestep, VecvecCappedF32};
     use crate::ExepathLive;
     use crate::process::ProcessRecord;
@@ -916,6 +916,7 @@ mod process_records {
                     },
                     sample_created_paths: Vec::new(),
                     sample_updated_paths: Vec::new(),
+                    restart_cleanup_requested: false,
                 };
                 
                 if let Some(precord) = self.process_records.get_precord_by_gid(*gid) {
@@ -957,6 +958,7 @@ mod process_records {
                     sample_updated_paths.sort();
                     sample_updated_paths.truncate(6);
                     snapshot.sample_updated_paths = sample_updated_paths;
+                    snapshot.restart_cleanup_requested = precord.restart_cleanup_requested;
                 }
 
                 if snapshot.command_line.is_none() && !state.command_line.trim().is_empty() {
@@ -1200,14 +1202,11 @@ mod process_records {
             record.kill_and_remove_requested = det.kill_and_remove_requested;
             record.notify_user_requested = det.notify_user_requested;
             record.revert_requested = det.revert_requested;
+            record.restart_cleanup_requested = det.restart_cleanup_requested;
             record.triggered_rule_name = det.triggered_rule_name.clone();
             record.triggered_rule_details = det.triggered_rule_details.clone();
             record.remediation_target_path = det.remediation_target_path.clone();
 
-            if det.termination_requested {
-                record.process_state = ProcessState::Killed;
-                record.time_killed = Some(std::time::SystemTime::now());
-            }
         }
 
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
@@ -1989,7 +1988,9 @@ mod process_records {
                         ActionsOnKill::with_handler(threat_handler.clone_box())
                             .run_actions_with_info(config, record, &dummy_pred_mtrx, &threat_info);
 
-                        if det.termination_requested {
+                        if det.termination_requested
+                            && restart_cleanup_reason(record, &threat_info).is_none()
+                        {
                             terminated_gids.insert(det.gid);
                         }
                     } else if let Some(state) = self.behavior_engine.process_states.get(&det.gid) {
@@ -2004,9 +2005,11 @@ mod process_records {
                             &precord,
                         );
                         ActionsOnKill::with_handler(threat_handler.clone_box())
-                            .run_actions_with_info(config, &precord, &dummy_pred_mtrx, &threat_info);
+                            .run_actions_with_info(config, &mut precord, &dummy_pred_mtrx, &threat_info);
 
-                        if det.termination_requested {
+                        if det.termination_requested
+                            && restart_cleanup_reason(&precord, &threat_info).is_none()
+                        {
                             terminated_gids.insert(det.gid);
                         } else {
                             self.process_records.insert_precord(det.gid, precord);
@@ -2059,7 +2062,9 @@ mod process_records {
                                             ActionsOnKill::with_handler(threat_handler.clone_box())
                                                 .run_actions_with_info(config, record, &dummy_pred_mtrx, &threat_info);
                                             
-                                            terminated_gids.insert(gid);
+                                            if restart_cleanup_reason(record, &threat_info).is_none() {
+                                                terminated_gids.insert(gid);
+                                            }
                                         }
                                     }
                                 }
@@ -2563,6 +2568,441 @@ mod process_records {
         }
 
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+        fn push_unique_hook_target(
+            seen_lower: &mut HashSet<String>,
+            targets: &mut Vec<String>,
+            api_spec: impl Into<String>,
+        ) {
+            let api_spec = api_spec.into();
+            let trimmed = api_spec.trim();
+            if trimmed.is_empty() {
+                return;
+            }
+
+            let key = trimmed.to_ascii_lowercase();
+            if seen_lower.insert(key) {
+                targets.push(trimmed.to_string());
+            }
+        }
+
+        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+        fn known_hook_function_variants(function_pattern: &str) -> Vec<&'static str> {
+            let lowered = function_pattern.trim().to_ascii_lowercase();
+            let mut variants = Vec::new();
+            let mut push = |name: &'static str| {
+                if !variants.contains(&name) {
+                    variants.push(name);
+                }
+            };
+
+            if lowered.contains("setwineventhook") {
+                push("SetWinEventHook");
+                push("SetWinEventHookA");
+                push("SetWinEventHookW");
+                push("NtUserSetWinEventHook");
+            }
+            if lowered.contains("setwindowshookex") {
+                push("SetWindowsHookExA");
+                push("SetWindowsHookExW");
+                push("NtUserSetWindowsHookEx");
+            }
+            if lowered.contains("setwindowshook") {
+                push("SetWindowsHookA");
+                push("SetWindowsHookW");
+            }
+            if lowered.contains("dnsqueryex") {
+                push("DnsQueryEx");
+            }
+            if lowered.contains("dnsquery_a") {
+                push("DnsQuery_A");
+            }
+            if lowered.contains("dnsquery_w") {
+                push("DnsQuery_W");
+            }
+            if lowered.contains("dnsquery") {
+                push("DnsQuery_A");
+                push("DnsQuery_W");
+                push("DnsQuery_UTF8");
+                push("DnsQueryEx");
+            }
+            if lowered.contains("querydnsconfig") {
+                push("QueryDnsConfig");
+            }
+            if lowered.contains("getaddrinfo") {
+                push("getaddrinfo");
+                push("GetAddrInfoW");
+                push("GetAddrInfoExW");
+            }
+            if lowered.contains("createserviceex") {
+                push("CreateServiceExA");
+                push("CreateServiceExW");
+            }
+            if lowered.contains("createservice") {
+                push("CreateServiceA");
+                push("CreateServiceW");
+                push("CreateServiceExA");
+                push("CreateServiceExW");
+            }
+            if lowered.contains("changeserviceconfig2") {
+                push("ChangeServiceConfig2A");
+                push("ChangeServiceConfig2W");
+            }
+            if lowered.contains("changeserviceconfig") {
+                push("ChangeServiceConfigA");
+                push("ChangeServiceConfigW");
+                push("ChangeServiceConfig2A");
+                push("ChangeServiceConfig2W");
+            }
+            if lowered.contains("openscmanager") {
+                push("OpenSCManagerA");
+                push("OpenSCManagerW");
+            }
+            if lowered.contains("openservice") {
+                push("OpenServiceA");
+                push("OpenServiceW");
+            }
+            if lowered.contains("startservice") {
+                push("StartServiceA");
+                push("StartServiceW");
+            }
+            if lowered.contains("regcreatekeyex") {
+                push("RegCreateKeyExA");
+                push("RegCreateKeyExW");
+            }
+            if lowered.contains("regcreatekey") {
+                push("RegCreateKeyA");
+                push("RegCreateKeyW");
+                push("RegCreateKeyExA");
+                push("RegCreateKeyExW");
+            }
+            if lowered.contains("regsetkeyvalue") {
+                push("RegSetKeyValueA");
+                push("RegSetKeyValueW");
+            }
+            if lowered.contains("regsetvalueex") {
+                push("RegSetValueExA");
+                push("RegSetValueExW");
+            }
+            if lowered.contains("regsetvalue") {
+                push("RegSetValueA");
+                push("RegSetValueW");
+                push("RegSetValueExA");
+                push("RegSetValueExW");
+                push("RegSetKeyValueA");
+                push("RegSetKeyValueW");
+            }
+            if lowered.contains("ntloaddriver") {
+                push("NtLoadDriver");
+            }
+            if lowered.contains("zwloaddriver") {
+                push("ZwLoadDriver");
+            }
+            if lowered.contains("ntcreatekey") {
+                push("NtCreateKey");
+            }
+            if lowered.contains("zwcreatekey") {
+                push("ZwCreateKey");
+            }
+            if lowered.contains("ntsetvaluekey") {
+                push("NtSetValueKey");
+            }
+            if lowered.contains("zwsetvaluekey") {
+                push("ZwSetValueKey");
+            }
+            if lowered.contains("ntcreatefile") {
+                push("NtCreateFile");
+            }
+            if lowered.contains("zwcreatefile") {
+                push("ZwCreateFile");
+            }
+            if lowered.contains("ntwritefile") {
+                push("NtWriteFile");
+            }
+            if lowered.contains("zwwritefile") {
+                push("ZwWriteFile");
+            }
+            if lowered.contains("ntsetinformationfile") {
+                push("NtSetInformationFile");
+            }
+            if lowered.contains("zwsetinformationfile") {
+                push("ZwSetInformationFile");
+            }
+            if lowered.contains("ntfscontrolfile") {
+                push("NtFsControlFile");
+            }
+            if lowered.contains("zwfscontrolfile") {
+                push("ZwFsControlFile");
+            }
+            if lowered.contains("createfile") {
+                push("CreateFileA");
+                push("CreateFileW");
+            }
+            if lowered.contains("readfile") {
+                push("ReadFile");
+            }
+            if lowered.contains("writefile") {
+                push("WriteFile");
+            }
+            if lowered.contains("copyfileex") {
+                push("CopyFileExA");
+                push("CopyFileExW");
+            }
+            if lowered.contains("copyfile") {
+                push("CopyFileA");
+                push("CopyFileW");
+                push("CopyFileExA");
+                push("CopyFileExW");
+            }
+            if lowered.contains("movefileex") {
+                push("MoveFileExA");
+                push("MoveFileExW");
+            }
+            if lowered.contains("movefile") {
+                push("MoveFileA");
+                push("MoveFileW");
+                push("MoveFileExA");
+                push("MoveFileExW");
+            }
+            if lowered.contains("replacefile") {
+                push("ReplaceFileA");
+                push("ReplaceFileW");
+            }
+            if lowered.contains("deviceiocontrol") {
+                push("DeviceIoControl");
+            }
+            if lowered.contains("cocreateinstance") {
+                push("CoCreateInstance");
+                push("CoCreateInstanceEx");
+            }
+            if lowered.contains("cogetobject") {
+                push("CoGetObject");
+            }
+            if lowered.contains("cogetclassobject") {
+                push("CoGetClassObject");
+            }
+            if lowered.contains("coinitializesecurity") {
+                push("CoInitializeSecurity");
+            }
+            if lowered.contains("cosetproxyblanket") {
+                push("CoSetProxyBlanket");
+            }
+            if lowered.contains("impersonateloggedonuser") {
+                push("ImpersonateLoggedOnUser");
+            }
+            if lowered.contains("setthreadtoken") {
+                push("SetThreadToken");
+            }
+            if lowered.contains("duplicatetokenex") {
+                push("DuplicateTokenEx");
+            }
+            if lowered.contains("openthreadtoken") {
+                push("OpenThreadToken");
+            }
+            if lowered.contains("openprocesstoken") {
+                push("OpenProcessToken");
+            }
+            if lowered.contains("adjusttokenprivileges") {
+                push("AdjustTokenPrivileges");
+            }
+            if lowered.contains("impersonatenamedpipeclient") {
+                push("ImpersonateNamedPipeClient");
+            }
+            if lowered.contains("createprocesswithtokenw") {
+                push("CreateProcessWithTokenW");
+            }
+            if lowered.contains("createprocessasuserw") {
+                push("CreateProcessAsUserW");
+            }
+            if lowered.contains("ntimpersonatethread") {
+                push("NtImpersonateThread");
+            }
+            if lowered.contains("ntsetinformationthread") {
+                push("NtSetInformationThread");
+            }
+
+            variants
+        }
+
+        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+        fn expand_dynamic_hook_api_target(api_spec: &str) -> Vec<String> {
+            let trimmed = api_spec.trim();
+            if trimmed.is_empty() {
+                return Vec::new();
+            }
+
+            let mut expanded = Vec::new();
+            let mut seen_lower = HashSet::new();
+
+            if let Some((module_raw, function_raw)) = trimmed.split_once('!') {
+                let module = Self::normalize_hook_module_name(module_raw);
+                let function_variants = Self::known_hook_function_variants(function_raw);
+                if function_variants.is_empty() {
+                    Self::push_unique_hook_target(
+                        &mut seen_lower,
+                        &mut expanded,
+                        format!("{module}!{}", function_raw.trim()),
+                    );
+                } else {
+                    for function in function_variants {
+                        Self::push_unique_hook_target(
+                            &mut seen_lower,
+                            &mut expanded,
+                            format!("{module}!{function}"),
+                        );
+                    }
+                }
+                return expanded;
+            }
+
+            let lowered = trimmed.to_ascii_lowercase();
+            let normalized_name = trimmed.trim_matches(|c| c == '*' || c == '?').trim();
+            let mut add_many = |module: &str, functions: &[&str]| {
+                let normalized_module = Self::normalize_hook_module_name(module);
+                for function in functions {
+                    Self::push_unique_hook_target(
+                        &mut seen_lower,
+                        &mut expanded,
+                        format!("{normalized_module}!{function}"),
+                    );
+                }
+            };
+
+            match lowered.as_str() {
+                value if value.contains("setwineventhook") => {
+                    add_many("user32.dll", &["SetWinEventHook", "SetWinEventHookA", "SetWinEventHookW"]);
+                    add_many("win32u.dll", &["NtUserSetWinEventHook"]);
+                }
+                value if value.contains("setwindowshookex") => {
+                    add_many("user32.dll", &["SetWindowsHookExA", "SetWindowsHookExW"]);
+                    add_many("win32u.dll", &["NtUserSetWindowsHookEx"]);
+                }
+                value if value.contains("setwindowshook") => {
+                    add_many("user32.dll", &["SetWindowsHookA", "SetWindowsHookW", "SetWindowsHookExA", "SetWindowsHookExW"]);
+                }
+                value if value.contains("dnsquery") => {
+                    add_many("dnsapi.dll", &["DnsQuery_A", "DnsQuery_W", "DnsQuery_UTF8", "DnsQueryEx"]);
+                }
+                value if value.contains("querydnsconfig") => {
+                    add_many("dnsapi.dll", &["QueryDnsConfig"]);
+                }
+                value if value.contains("getaddrinfo") => {
+                    add_many("ws2_32.dll", &["getaddrinfo", "GetAddrInfoW", "GetAddrInfoExW"]);
+                }
+                value if value.contains("createservice")
+                    || value.contains("changeserviceconfig")
+                    || value.contains("openscmanager")
+                    || value.contains("openservice")
+                    || value.contains("startservice")
+                    || value.contains("regcreatekey")
+                    || value.contains("regsetvalue")
+                    || value.contains("regsetkeyvalue")
+                    || value.contains("impersonateloggedonuser")
+                    || value.contains("setthreadtoken")
+                    || value.contains("duplicatetokenex")
+                    || value.contains("openthreadtoken")
+                    || value.contains("openprocesstoken")
+                    || value.contains("adjusttokenprivileges")
+                    || value.contains("impersonatenamedpipeclient")
+                    || value.contains("createprocesswithtokenw")
+                    || value.contains("createprocessasuserw") =>
+                {
+                    let variants = Self::known_hook_function_variants(trimmed);
+                    if variants.is_empty() {
+                        if !normalized_name.is_empty() {
+                            add_many("advapi32.dll", &[normalized_name]);
+                        }
+                    } else {
+                        add_many("advapi32.dll", &variants);
+                    }
+                }
+                value if value.contains("nt")
+                    || value.contains("zw") =>
+                {
+                    let variants = Self::known_hook_function_variants(trimmed);
+                    if variants.is_empty() {
+                        if !normalized_name.is_empty() {
+                            add_many("ntdll.dll", &[normalized_name]);
+                        }
+                    } else {
+                        add_many("ntdll.dll", &variants);
+                    }
+                }
+                value if value.contains("cocreateinstance")
+                    || value.contains("cogetobject")
+                    || value.contains("cogetclassobject")
+                    || value.contains("coinitializesecurity")
+                    || value.contains("cosetproxyblanket") =>
+                {
+                    let variants = Self::known_hook_function_variants(trimmed);
+                    if variants.is_empty() {
+                        if !normalized_name.is_empty() {
+                            add_many("ole32.dll", &[normalized_name]);
+                        }
+                    } else {
+                        add_many("ole32.dll", &variants);
+                    }
+                }
+                value if value.contains("createfile")
+                    || value.contains("readfile")
+                    || value.contains("writefile")
+                    || value.contains("copyfile")
+                    || value.contains("movefile")
+                    || value.contains("replacefile")
+                    || value.contains("deviceiocontrol") =>
+                {
+                    let variants = Self::known_hook_function_variants(trimmed);
+                    if variants.is_empty() {
+                        if !normalized_name.is_empty() {
+                            add_many("kernel32.dll", &[normalized_name]);
+                            add_many("kernelbase.dll", &[normalized_name]);
+                        }
+                    } else {
+                        add_many("kernel32.dll", &variants);
+                        add_many("kernelbase.dll", &variants);
+                    }
+                }
+                _ => {
+                    let variants = Self::known_hook_function_variants(trimmed);
+                    if !variants.is_empty() {
+                        for function in variants {
+                            let function_lower = function.to_ascii_lowercase();
+                            if function_lower.starts_with("ntuser") {
+                                add_many("win32u.dll", &[function]);
+                            } else if function_lower.starts_with("nt") || function_lower.starts_with("zw") {
+                                add_many("ntdll.dll", &[function]);
+                            } else if function_lower.starts_with("co") {
+                                add_many("ole32.dll", &[function]);
+                            } else if function_lower.contains("dns") {
+                                add_many("dnsapi.dll", &[function]);
+                            } else if function_lower.contains("addrinfo") {
+                                add_many("ws2_32.dll", &[function]);
+                            } else if function_lower.contains("service")
+                                || function_lower.starts_with("reg")
+                                || function_lower.contains("token")
+                                || function_lower.contains("impersonate")
+                            {
+                                add_many("advapi32.dll", &[function]);
+                            } else if function_lower.contains("file")
+                                || function_lower.contains("deviceiocontrol")
+                            {
+                                add_many("kernel32.dll", &[function]);
+                                add_many("kernelbase.dll", &[function]);
+                            } else if function_lower.contains("hook") {
+                                add_many("user32.dll", &[function]);
+                            }
+                        }
+                    }
+                }
+            }
+
+            if expanded.is_empty() {
+                Self::push_unique_hook_target(&mut seen_lower, &mut expanded, trimmed.to_string());
+            }
+
+            expanded
+        }
+
+        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
         fn collect_dynamic_hook_api_targets(&mut self, _pid: u32) -> Vec<String> {
             let mut seen_lower = HashSet::new();
             let mut merged = Vec::new();
@@ -2574,9 +3014,8 @@ mod process_records {
                 if trimmed.is_empty() {
                     continue;
                 }
-                let key = trimmed.to_ascii_lowercase();
-                if seen_lower.insert(key) {
-                    merged.push(trimmed.to_string());
+                for expanded_api in Self::expand_dynamic_hook_api_target(trimmed) {
+                    Self::push_unique_hook_target(&mut seen_lower, &mut merged, expanded_api);
                 }
             }
 

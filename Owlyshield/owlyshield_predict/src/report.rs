@@ -65,6 +65,7 @@ pub struct ProcessSnapshot {
     pub signature_summary: String,
     pub sample_created_paths: Vec<String>,
     pub sample_updated_paths: Vec<String>,
+    pub restart_cleanup_requested: bool,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -505,6 +506,9 @@ impl SystemReport {
             }
             if let Some(remediation_target) = &m.remediation_target {
                 s.push_str(&format!("    Remediation Target: {}\n", remediation_target));
+            }
+            if m.restart_cleanup_requested {
+                s.push_str("    Restart Cleanup: QUEUED\n");
             }
             if !m.network_targets.is_empty() {
                 s.push_str(&format!(

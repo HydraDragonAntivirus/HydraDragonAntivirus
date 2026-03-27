@@ -782,7 +782,7 @@ impl<'a> AVIntegration<'a> {
     pub fn process_threat_action(
         &self,
         event: &AVThreatEvent,
-        precord: &ProcessRecord,
+        precord: &mut ProcessRecord,
         prediction_behavioral: f32,
         threat_handler: &dyn ThreatHandler,
     ) {

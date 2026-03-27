@@ -180,6 +180,8 @@ pub struct ProcessRecord {
     pub notify_user_requested: bool,
     /// Registry revert requested by behavior engine
     pub revert_requested: bool,
+    /// Removal has been queued for the next restart instead of live cleanup.
+    pub restart_cleanup_requested: bool,
     /// Name of the rule that was triggered
     pub triggered_rule_name: Option<String>,
     /// Rich detail string describing why the rule matched.
@@ -325,6 +327,7 @@ impl ProcessRecord {
             kill_and_remove_requested: false,
             notify_user_requested: false,
             revert_requested: false,
+            restart_cleanup_requested: false,
             triggered_rule_name: None,
             triggered_rule_details: None,
             remediation_target_path: None,
@@ -420,6 +423,7 @@ impl ProcessRecord {
             kill_and_remove_requested: false,
             notify_user_requested: false,
             revert_requested: false,
+            restart_cleanup_requested: false,
             triggered_rule_name: None,
             triggered_rule_details: None,
             remediation_target_path: None,
@@ -852,6 +856,7 @@ pub enum ProcessState {
     Suspended,
     Killed,
     Terminated,
+    RestartCleanupPending,
 }
 
 impl fmt::Display for ProcessState {
@@ -861,6 +866,7 @@ impl fmt::Display for ProcessState {
             ProcessState::Suspended => write!(f, "SUSPENDED"),
             ProcessState::Killed => write!(f, "KILLED"),
             ProcessState::Terminated => write!(f, "TERMINATED"),
+            ProcessState::RestartCleanupPending => write!(f, "RESTART_CLEANUP_PENDING"),
         }
     }
 }

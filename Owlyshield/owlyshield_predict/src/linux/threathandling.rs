@@ -37,6 +37,13 @@ impl ThreatHandler for LinuxThreatHandler {
         );
     }
 
+    fn schedule_cleanup_on_reboot(&self, path: &std::path::Path) {
+        warn!(
+            "schedule_cleanup_on_reboot not supported on Linux; requested reboot cleanup for {}, ignoring",
+            path.display()
+        );
+    }
+
     fn clone_box(&self) -> Box<dyn ThreatHandler> {
         Box::new(LinuxThreatHandler {})
     }
