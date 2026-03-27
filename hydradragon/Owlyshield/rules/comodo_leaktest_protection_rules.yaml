@@ -35,6 +35,34 @@
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
+    - pattern: "%SystemRoot%/servicing/TrustedInstaller.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "%SystemRoot%/WinSxS/*/TiWorker.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "%SystemRoot%/UUS/*/MoUsoCoreWorker.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "%SystemRoot%/WinSxS/*/MoUsoCoreWorker.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "%SystemRoot%/System32/poqexec.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "%SystemRoot%/System32/wusa.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "%SystemRoot%/System32/Dism/DismHost.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
 
   named_conditions:
     driver_path_modification:
@@ -386,6 +414,34 @@
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
+    - pattern: "%SystemRoot%/servicing/TrustedInstaller.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "%SystemRoot%/WinSxS/*/TiWorker.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "%SystemRoot%/UUS/*/MoUsoCoreWorker.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "%SystemRoot%/WinSxS/*/MoUsoCoreWorker.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "%SystemRoot%/System32/poqexec.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "%SystemRoot%/System32/wusa.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "%SystemRoot%/System32/Dism/DismHost.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
 
   named_conditions:
     service_registry_create:
@@ -576,6 +632,34 @@
       is_absolute: true
       signers: ["*Microsoft*"]
     - pattern: "C:/Windows/System32/services.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "%SystemRoot%/servicing/TrustedInstaller.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "%SystemRoot%/WinSxS/*/TiWorker.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "%SystemRoot%/UUS/*/MoUsoCoreWorker.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "%SystemRoot%/WinSxS/*/MoUsoCoreWorker.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "%SystemRoot%/System32/poqexec.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "%SystemRoot%/System32/wusa.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "%SystemRoot%/System32/Dism/DismHost.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
