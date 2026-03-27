@@ -7,36 +7,8 @@ pub static FILE_TIME_FORMAT: &str = "%Y%m%d_%H%M%S";
 pub static LOG_TIME_FORMAT: &str = "%b %d %H:%M:%S";
 
 #[cfg(target_os = "windows")]
-fn normalized_windows_process_path(path: &Path) -> String {
-    path.to_string_lossy().replace('/', "\\").to_ascii_lowercase()
-}
-
-#[cfg(target_os = "windows")]
-pub fn protected_process_path_reason(path: &Path) -> Option<String> {
-    if path.as_os_str().is_empty() {
-        return None;
-    }
-
-    let normalized = normalized_windows_process_path(path);
-    
-    // Robust matching for core Windows system processes.
-    // Handles both Dos paths (c:\windows\...) and NT paths (\device\harddiskvolume...\windows\...)
-    // by checking if the path ends with the expected system32 suffix.
-    let reason = match normalized.as_str() {
-        p if p.ends_with(r"\windows\system32\smss.exe") || p.ends_with(r"\systemroot\system32\smss.exe") => Some("Session Manager is protected"),
-        p if p.ends_with(r"\windows\system32\csrss.exe") || p.ends_with(r"\systemroot\system32\csrss.exe") => Some("Client Server Runtime is protected"),
-        p if p.ends_with(r"\windows\system32\wininit.exe") || p.ends_with(r"\systemroot\system32\wininit.exe") => Some("Windows initialization process is protected"),
-        p if p.ends_with(r"\windows\system32\winlogon.exe") || p.ends_with(r"\systemroot\system32\winlogon.exe") => Some("Winlogon is protected"),
-        p if p.ends_with(r"\windows\system32\lsass.exe") || p.ends_with(r"\systemroot\system32\lsass.exe") => Some("LSASS is protected"),
-        p if p.ends_with(r"\windows\system32\services.exe") || p.ends_with(r"\systemroot\system32\services.exe") => Some("Service Control Manager is protected"),
-        p if p.ends_with(r"\windows\system32\svchost.exe") || p.ends_with(r"\systemroot\system32\svchost.exe") => Some("System service host is protected"),
-        p if p.ends_with(r"\windows\system32\fontdrvhost.exe") || p.ends_with(r"\systemroot\system32\fontdrvhost.exe") => Some("Font Driver Host is protected"),
-        p if p.ends_with(r"\windows\system32\dwm.exe") || p.ends_with(r"\systemroot\system32\dwm.exe") => Some("Desktop Window Manager is protected"),
-        p if p.ends_with(r"\windows\explorer.exe") => Some("Windows Explorer is protected from automated termination"),
-        _ => None,
-    };
-
-    reason.map(|s| s.to_string())
+pub fn protected_process_path_reason(_path: &Path) -> Option<String> {
+    None
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -45,29 +17,13 @@ pub fn protected_process_path_reason(_path: &Path) -> Option<String> {
 }
 
 #[cfg(target_os = "windows")]
-pub fn protected_process_reason(pid: u32, fallback_path: Option<&Path>) -> Option<String> {
+pub fn protected_process_reason(pid: u32, _fallback_path: Option<&Path>) -> Option<String> {
     if pid == 0 {
         return Some("PID 0 is not a terminable user process".to_string());
     }
 
     if pid == 4 {
         return Some("PID 4 is the Windows System process".to_string());
-    }
-
-    if let Some(path) = fallback_path.and_then(|path| {
-        if path.as_os_str().is_empty() {
-            None
-        } else {
-            Some(path)
-        }
-    }) && let Some(reason) = protected_process_path_reason(path) {
-        return Some(reason);
-    }
-
-    if let Some(path) = resolve_process_path(pid)
-        && let Some(reason) = protected_process_path_reason(&path)
-    {
-        return Some(reason);
     }
 
     if is_process_marked_critical(pid) {
@@ -110,30 +66,33 @@ fn is_process_marked_critical(_pid: u32) -> bool {
 
 pub fn protected_process_record_reason(proc: &ProcessRecord) -> Option<String> {
     for pid in &proc.pids {
-        if let Some(reason) = protected_process_reason(*pid, Some(proc.exepath.as_path())) {
+        if let Some(reason) = protected_process_reason(*pid, None) {
             return Some(format!("PID {}: {}", pid, reason));
         }
     }
-
-    protected_process_path_reason(proc.exepath.as_path())
+    None
 }
 
 pub fn suspicious_critical_process_record_reason(proc: &ProcessRecord) -> Option<String> {
-    let path_is_core_windows = protected_process_path_reason(proc.exepath.as_path()).is_some();
-    if path_is_core_windows {
-        return None;
-    }
-
     for pid in &proc.pids {
         if is_process_marked_critical(*pid) {
+            if proc.has_valid_signature {
+                return None;
+            }
+
             let image = if proc.exepath.as_os_str().is_empty() {
                 proc.appname.clone()
             } else {
                 proc.exepath.display().to_string()
             };
+            let signature_state = if proc.is_signed {
+                "signed but not trusted"
+            } else {
+                "unsigned"
+            };
             return Some(format!(
-                "PID {} ({}) is marked critical but is not a core Windows protected image",
-                pid, image
+                "PID {} ({}) is marked critical and the image is {}",
+                pid, image, signature_state
             ));
         }
     }
@@ -300,26 +259,17 @@ mod tests {
     use std::path::Path;
 
     #[test]
-    fn test_protected_process_path_reason() {
-        // Standard Dos paths
-        assert!(protected_process_path_reason(Path::new(r"C:\Windows\System32\svchost.exe")).is_some());
-        assert!(protected_process_path_reason(Path::new(r"c:\windows\system32\LSASS.EXE")).is_some());
-        assert!(protected_process_path_reason(Path::new(r"C:\Windows\explorer.exe")).is_some());
-
-        // NT paths
-        assert!(protected_process_path_reason(Path::new(r"\Device\HarddiskVolume3\Windows\System32\services.exe")).is_some());
-        assert!(protected_process_path_reason(Path::new(r"\??\C:\Windows\System32\csrss.exe")).is_some());
-
-        // SystemRoot paths
-        assert!(protected_process_path_reason(Path::new(r"\SystemRoot\System32\smss.exe")).is_some());
-        assert!(protected_process_path_reason(Path::new(r"\SystemRoot\System32\wininit.exe")).is_some());
-
-        // Non-protected paths
+    fn test_protected_process_path_reason_is_disabled() {
+        assert!(protected_process_path_reason(Path::new(r"C:\Windows\System32\svchost.exe")).is_none());
+        assert!(protected_process_path_reason(Path::new(r"c:\windows\system32\LSASS.EXE")).is_none());
+        assert!(protected_process_path_reason(Path::new(r"C:\Windows\explorer.exe")).is_none());
+        assert!(protected_process_path_reason(Path::new(r"\Device\HarddiskVolume3\Windows\System32\services.exe")).is_none());
+        assert!(protected_process_path_reason(Path::new(r"\??\C:\Windows\System32\csrss.exe")).is_none());
+        assert!(protected_process_path_reason(Path::new(r"\SystemRoot\System32\smss.exe")).is_none());
+        assert!(protected_process_path_reason(Path::new(r"\SystemRoot\System32\wininit.exe")).is_none());
         assert!(protected_process_path_reason(Path::new(r"C:\Users\Admin\Downloads\malware.exe")).is_none());
         assert!(protected_process_path_reason(Path::new(r"C:\Windows\System32\notepad.exe")).is_none());
         assert!(protected_process_path_reason(Path::new(r"C:\Program Files\Google\Chrome\Application\chrome.exe")).is_none());
-
-        // Empty path
         assert!(protected_process_path_reason(Path::new("")).is_none());
     }
 }
