@@ -2031,6 +2031,8 @@ impl BehaviorEngine {
         reason: &str,
     ) -> bool {
         use std::ffi::CString;
+        use std::thread::sleep;
+        use std::time::Duration;
         use windows::core::PCSTR;
         use windows::Win32::Foundation::{BOOL, CloseHandle, GetLastError, HANDLE};
         use windows::Win32::Storage::FileSystem::{
@@ -2041,6 +2043,8 @@ impl BehaviorEngine {
 
         const PIPE: &str = r"\\.\pipe\HydraHipEvent";
         const CONNECT_TIMEOUT_MS: u32 = 750;
+        const CONNECT_ATTEMPTS: usize = 4;
+        const RETRY_DELAY_MS: u64 = 125;
 
         let pipe_name = match CString::new(PIPE) {
             Ok(value) => value,
@@ -2051,41 +2055,50 @@ impl BehaviorEngine {
         };
         let pcstr = PCSTR(pipe_name.as_ptr() as *const u8);
 
-        let wait_ok: BOOL = unsafe { WaitNamedPipeA(pcstr, CONNECT_TIMEOUT_MS) };
-        if !wait_ok.as_bool() {
-            Logging::warning(&format!(
-                "[Owlyshield HIPS] Firewall GUI pipe not ready for request {} (GetLastError={:?})",
-                request_id,
-                unsafe { GetLastError() }
-            ));
-            return false;
+        let mut last_error = String::new();
+        let mut pipe_handle: Option<HANDLE> = None;
+        for attempt in 0..CONNECT_ATTEMPTS {
+            let wait_ok: BOOL = unsafe { WaitNamedPipeA(pcstr, CONNECT_TIMEOUT_MS) };
+            if !wait_ok.as_bool() {
+                last_error = format!("WaitNamedPipeA(GetLastError={:?})", unsafe { GetLastError() });
+            } else {
+                match unsafe {
+                    CreateFileA(
+                        pcstr,
+                        FILE_GENERIC_WRITE.0,
+                        FILE_SHARE_NONE,
+                        None,
+                        OPEN_EXISTING,
+                        FILE_ATTRIBUTE_NORMAL,
+                        HANDLE::default(),
+                    )
+                } {
+                    Ok(handle) if !handle.is_invalid() => {
+                        pipe_handle = Some(handle);
+                        break;
+                    }
+                    Ok(_) => {
+                        last_error = "CreateFileA returned an invalid HydraHipEvent handle".to_string();
+                    }
+                    Err(err) => {
+                        last_error = format!("CreateFileA failed: {:?}", err);
+                    }
+                }
+            }
+
+            if attempt + 1 < CONNECT_ATTEMPTS {
+                sleep(Duration::from_millis(RETRY_DELAY_MS));
+            }
         }
 
-        let pipe_handle = unsafe {
-            CreateFileA(
-                pcstr,
-                FILE_GENERIC_WRITE.0,
-                FILE_SHARE_NONE,
-                None,
-                OPEN_EXISTING,
-                FILE_ATTRIBUTE_NORMAL,
-                HANDLE::default(),
-            )
-        };
-
-        let pipe_handle = match pipe_handle {
-            Ok(handle) if !handle.is_invalid() => handle,
-            Ok(_) => {
-                Logging::error("[Owlyshield HIPS] CreateFileA returned an invalid HydraHipEvent handle");
-                return false;
-            }
-            Err(err) => {
-                Logging::warning(&format!(
-                    "[Owlyshield HIPS] Failed to connect to HydraHipEvent pipe for request {}: {:?}",
-                    request_id, err
-                ));
-                return false;
-            }
+        let Some(pipe_handle) = pipe_handle else {
+            Logging::warning(&format!(
+                "[Owlyshield HIPS] Failed to connect to HydraHipEvent pipe for request {} after {} attempts: {}",
+                request_id,
+                CONNECT_ATTEMPTS,
+                last_error
+            ));
+            return false;
         };
 
         let message = format!(
