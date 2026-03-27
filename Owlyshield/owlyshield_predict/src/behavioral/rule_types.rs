@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use serde_yaml::Value as YamlValue;
+use base64::{Engine as _, engine::general_purpose::STANDARD};
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::sync::{Arc, RwLock};
@@ -58,7 +59,7 @@ pub enum MatchMode {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CommandLinePattern {
-    pub pattern: String,
+    pub pattern: PatternSpec,
     #[serde(default)]
     pub is_regex: bool,
 }
@@ -84,6 +85,13 @@ impl PatternSpec {
     pub fn pattern(&self) -> &str {
         match self {
             PatternSpec::Simple(p) => p,
+            PatternSpec::Complex { pattern, .. } => pattern,
+        }
+    }
+
+    pub fn pattern_mut(&mut self) -> &mut String {
+        match self {
+            PatternSpec::Simple(pattern) => pattern,
             PatternSpec::Complex { pattern, .. } => pattern,
         }
     }
@@ -121,6 +129,55 @@ impl PatternSpec {
     
     pub fn is_negated(&self) -> bool {
         self.has_modifier(&StringModifier::Not)
+    }
+
+    pub fn matches(&self, cache: &Arc<RwLock<HashMap<String, Regex>>>, text: &str, force_regex: bool) -> bool {
+        let mut pattern = self.pattern().to_string();
+
+        if self.has_modifier(&StringModifier::Base64)
+            && let Ok(decoded) = STANDARD.decode(pattern.as_bytes()) {
+                pattern = String::from_utf8_lossy(&decoded).into_owned();
+            }
+
+        let case_insensitive = !matches!(self, PatternSpec::Complex { .. }) || self.is_case_insensitive();
+
+        let matched = if force_regex || self.is_regex() {
+            let regex_pattern = if case_insensitive && !pattern.starts_with("(?i)") {
+                format!("(?i){}", pattern)
+            } else {
+                pattern.clone()
+            };
+            Regex::new(&regex_pattern).map_or(false, |re| re.is_match(text))
+        } else {
+            let candidate = if case_insensitive {
+                text.to_lowercase()
+            } else {
+                text.to_string()
+            };
+            let needle = if case_insensitive {
+                pattern.to_lowercase()
+            } else {
+                pattern
+            };
+
+            if self.is_startswith() {
+                candidate.starts_with(&needle)
+            } else if self.is_endswith() {
+                candidate.ends_with(&needle)
+            } else if self.is_contains() {
+                candidate.contains(&needle)
+            } else {
+                matches_pattern(cache, &needle, &candidate)
+            }
+        };
+
+        if self.is_negated() { !matched } else { matched }
+    }
+}
+
+impl CommandLinePattern {
+    pub fn matches(&self, cache: &Arc<RwLock<HashMap<String, Regex>>>, text: &str) -> bool {
+        self.pattern.matches(cache, text, self.is_regex)
     }
 }
 
@@ -715,10 +772,12 @@ pub struct NamedConditionGroup {
     #[serde(default)] pub registry_keys: Vec<String>,
     #[serde(default)] pub registry_values: Vec<String>,
     #[serde(default)] pub registry_operations: Vec<String>,
+    #[serde(default)] pub registry_value_data_patterns: Vec<String>,
     #[serde(default)] pub network_indicators: Vec<String>,
     #[serde(default)] pub has_network_activity: bool,
     #[serde(default)] pub network_rules: Vec<NetworkRuleCondition>,
     #[serde(default)] pub network_domains: Vec<String>,
+    #[serde(default)] pub dns_query_patterns: Vec<String>,
     #[serde(default)] pub network_ips: Vec<String>,
     #[serde(default)] pub firewall_blocked: Option<bool>,
     #[serde(default)] pub firewall_dst_ips: Vec<String>,
@@ -916,7 +975,8 @@ impl BehaviorRule {
         };
         let expand_cmd_patterns = |patterns: &mut Vec<CommandLinePattern>| {
             for p in patterns.iter_mut() {
-                p.pattern = expand_environment_variables(&p.pattern);
+                let expanded = expand_environment_variables(p.pattern.pattern());
+                *p.pattern.pattern_mut() = expanded;
             }
         };
         let expand_network_rules = |rules: &mut Vec<NetworkRuleCondition>| {
@@ -990,6 +1050,8 @@ impl BehaviorRule {
             expand_vec(&mut cond_group.trusted_signers);
             expand_vec(&mut cond_group.untrusted_signers);
             expand_network_rules(&mut cond_group.network_rules);
+            expand_vec(&mut cond_group.registry_value_data_patterns);
+            expand_vec(&mut cond_group.dns_query_patterns);
         }
 
         for stage in &mut self.stages {

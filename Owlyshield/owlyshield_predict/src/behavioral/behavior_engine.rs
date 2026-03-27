@@ -1291,14 +1291,14 @@ impl BehaviorEngine {
                                     }
                                     history.push_back(pkt.clone());
                                     
-                                    // UNIFIED RULE MATCHING
+                                    // BEHAVIOR RULE MATCHING
                                     let mut matched_any = false;
                                     {
                                         for rule in rules_clone.iter() {
                                             if rule.matches_packet(&regex_cache, &pkt, &[]) {
                                                 matched_any = true;
                                                 Logging::alert(&format!(
-                                                    "[UNIFIED RULE MATCH] PID {} matched network condition in rule '{}': {} -> {}",
+                                                    "[BEHAVIOR RULE MATCH] PID {} matched network condition in rule '{}': {} -> {}",
                                                     pid, rule.name, pkt.src_ip, pkt.dst_ip
                                                 ));
                                                 
@@ -2402,7 +2402,7 @@ impl BehaviorEngine {
     pub fn load_rules(&mut self, path: &Path) -> Result<(), Box<dyn std::error::Error>> {
         let rules = self.load_rules_recursive(path)?;
         self.rules = rules;
-        Logging::info(&format!("[EDR]: {} unified behavior rules loaded from {:?}", self.rules.len(), path));
+        Logging::info(&format!("[EDR]: {} behavior rules loaded from {:?}", self.rules.len(), path));
         Ok(())
     }
 
@@ -2469,51 +2469,64 @@ impl BehaviorEngine {
     fn load_rules_recursive(&self, path: &Path) -> Result<Vec<BehaviorRule>, Box<dyn std::error::Error>> {
         let content = std::fs::read_to_string(path)?;
         let mut rules = Vec::new();
+        let parent = path.parent().unwrap_or_else(|| Path::new("."));
 
-        if content.contains("!include") {
-            let parent = path.parent().unwrap_or_else(|| Path::new("."));
-            
-            for line in content.lines() {
-                let trimmed = line.trim();
-                if trimmed.contains("!include ") {
-                    let include_part = if trimmed.starts_with("- ") {
-                        trimmed.trim_start_matches("- ").trim()
-                    } else {
-                        trimmed
-                    };
+        // First, handle !include directives
+        for line in content.lines() {
+            let trimmed = line.trim();
+            if trimmed.contains("!include ") {
+                let include_part = if trimmed.starts_with("- ") {
+                    trimmed.trim_start_matches("- ").trim()
+                } else {
+                    trimmed
+                };
+                
+                if include_part.starts_with("!include ") {
+                    let include_path_str = include_part.trim_start_matches("!include ").trim();
+                    let include_path = parent.join(include_path_str);
                     
-                    if include_part.starts_with("!include ") {
-                        let include_path_str = include_part.trim_start_matches("!include ").trim();
-                        let include_path = parent.join(include_path_str);
-                        
-                        if include_path.exists() {
-                            match self.load_rules_recursive(&include_path) {
-                                Ok(sub_rules) => {
-                                    rules.extend(sub_rules);
-                                },
-                                Err(e) => Logging::warning(&format!("[EDR] Failed to load include {}: {}", include_path.display(), e)),
-                            }
+                    if include_path.exists() {
+                        match self.load_rules_recursive(&include_path) {
+                            Ok(sub_rules) => {
+                                rules.extend(sub_rules);
+                            },
+                            Err(e) => Logging::warning(&format!("[EDR] Failed to load include {}: {}", include_path.display(), e)),
                         }
+                    } else {
+                        Logging::warning(&format!("[EDR] Include path does not exist: {}", include_path.display()));
                     }
                 }
             }
-            
-            let filtered_content: String = content
-                .lines()
-                .filter(|line| !line.contains("!include"))
-                .collect::<Vec<_>>()
-                .join("\n");
-            
-            if !filtered_content.trim().is_empty() && filtered_content.trim() != "---" {
-                if let Ok(main_rules) = serde_yaml::from_str::<Vec<BehaviorRule>>(&filtered_content) {
-                    rules.extend(self.finalize_rules(main_rules));
+        }
+
+        // Now parse the content as YAML, skipping !include lines
+        let filtered_content: String = content
+            .lines()
+            .filter(|line| !line.trim().starts_with("!include") && !line.trim().starts_with("- !include"))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        if filtered_content.trim().is_empty() {
+            return Ok(rules);
+        }
+
+        // Use Deserializer to handle multi-document YAML (separated by ---)
+        let deserializer = serde_yaml::Deserializer::from_str(&filtered_content);
+        for document in deserializer {
+            if let Ok(value) = serde_yaml::Value::deserialize(document) {
+                if let Some(rules_arr) = value.as_sequence() {
+                    for rule_val in rules_arr {
+                        if let Ok(mut rule) = serde_yaml::from_value::<BehaviorRule>(rule_val.clone()) {
+                            rule.finalize_rich_fields();
+                            rules.push(rule);
+                        }
+                    }
+                } else if value.get("name").is_some() {
+                    if let Ok(mut rule) = serde_yaml::from_value::<BehaviorRule>(value) {
+                        rule.finalize_rich_fields();
+                        rules.push(rule);
+                    }
                 }
-            }
-        } else {
-            if let Ok(r) = serde_yaml::from_str::<Vec<BehaviorRule>>(&content) {
-                rules.extend(self.finalize_rules(r));
-            } else if let Ok(r) = serde_yaml::from_str::<BehaviorRule>(&content) {
-                rules.extend(self.finalize_rules(vec![r]));
             }
         }
 
@@ -2676,24 +2689,6 @@ impl BehaviorEngine {
             && Self::matches_i32_list(&cond_group.hypervisor_operation_statuses, operation_status)
     }
 
-    fn finalize_rules(&self, raw_rules: Vec<BehaviorRule>) -> Vec<BehaviorRule> {
-        let mut final_rules = Vec::new();
-        
-        for mut rule in raw_rules {
-            rule.finalize_rich_fields();
-            
-            if let Some(yaml_private) = rule.private_rules.take()
-                && let Ok(private_rules) = serde_yaml::from_value::<Vec<BehaviorRule>>(yaml_private) {
-                    let mut processed_private = self.finalize_rules(private_rules);
-                    for pr in &mut processed_private {
-                        pr.is_private = true;
-                    }
-                    final_rules.extend(processed_private);
-                }
-            final_rules.push(rule);
-        }
-        final_rules
-    }
 
     pub fn register_process(&mut self, gid: u64, pid: u32, exe_path: PathBuf, app_name: String) {
         let state = self.process_states
@@ -3302,6 +3297,25 @@ impl BehaviorEngine {
                             ));
                         }
                     }
+
+                    // dns_query_patterns
+                    if !matched && !cond_group.dns_query_patterns.is_empty() {
+                        if state.net_packets.iter().any(|pkt| {
+                            if let Some(query) = &pkt.dns_query {
+                                cond_group.dns_query_patterns.iter().any(|pattern| {
+                                    Self::matches_pattern_internal(&self.regex_cache, pattern, query)
+                                })
+                            } else {
+                                false
+                            }
+                        }) {
+                            matched = true;
+                            Logging::info(&format!(
+                                "[BehaviorEngine] Condition '{}' - dns_query_patterns matched for PID {}",
+                                cond_name, state.pid
+                            ));
+                        }
+                    }
                 }
 
                 // ── Sanctum-content conditions ──────────────────────────────────
@@ -3711,6 +3725,20 @@ impl BehaviorEngine {
                                 break;
                             }
                         }
+
+                        if !matched && !cond_group.registry_value_data_patterns.is_empty() {
+                            // object_name usually contains the data for RegSetValue in this engine's current IOMessage mapping
+                            let data = msg.kernel_event_info.object_name.trim();
+                            if !data.is_empty() && cond_group.registry_value_data_patterns.iter().any(|pattern| {
+                                Self::matches_pattern_internal(&self.regex_cache, pattern, data)
+                            }) {
+                                matched = true;
+                                Logging::info(&format!(
+                                    "[BehaviorEngine] Condition '{}' - Registry value data match for PID {}: {}",
+                                    cond_name, state.pid, data
+                                ));
+                            }
+                        }
                     }
 
                 if !matched && !cond_group.parent_names.is_empty() {
@@ -3734,7 +3762,7 @@ impl BehaviorEngine {
                             Self::matches_pattern_internal(&self.regex_cache, kw, &cmdline_lc)
                         });
                         let pattern_hit = cond_group.cmdline_patterns.iter().any(|pat| {
-                            Self::matches_pattern_internal(&self.regex_cache, &pat.pattern, &cmdline_lc)
+                            pat.matches(&self.regex_cache, &cmdline_lc)
                         });
                         if keyword_hit || pattern_hit {
                             matched = true;

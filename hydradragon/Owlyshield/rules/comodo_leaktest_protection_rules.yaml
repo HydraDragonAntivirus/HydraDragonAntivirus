@@ -46,11 +46,12 @@
       registry_values:
         - "ImagePath"
       registry_operations: ["set", "create"]
-      file_paths:
-        - "\\AppData\\"
-        - "\\Temp\\"
-        - "\\ProgramData\\"
-        - "\\Users\\"
+      registry_value_data_patterns:
+        - "*\\.sys"
+        - "*\\\\Temp\\\\*"
+        - "*\\\\AppData\\\\*"
+        - "*\\\\Users\\\\*"
+        - "*\\\\ProgramData\\\\*"
       min_matches: 1
 
     driver_service_type:
@@ -161,12 +162,13 @@
         - "NtCreateFile"
         - "IoCreateFile"
       file_paths:
-        - "\\Device\\HarddiskVolume"
-        - "\\Device\\HarddiskVolumeShadowCopy"
-        - "\\Device\\Harddisk"
+        - "*\\\\Device\\\\Harddisk*"
+        - "*\\\\Device\\\\RawDisk*"
+        - "*\\\\\\\\.\\\\PhysicalDrive*"
       file_operations: ["write", "create"]
       api_threshold: 1
       min_matches: 1
+      registry_value_data_patterns: []
 
   detection_logic:
     condition: "raw_disk_write_access"
@@ -395,6 +397,12 @@
       registry_operations: ["create"]
       registry_values:
         - "ImagePath"
+      registry_value_data_patterns:
+        - "*\\\\Temp\\\\*"
+        - "*\\\\AppData\\\\*"
+        - "*\\\\Users\\\\*"
+        - "*\\.exe"
+        - "*\\.sys"
       min_matches: 1
 
     createservice_api:
@@ -469,6 +477,10 @@
       has_network_activity: true
       network_indicators:
         - "dns"
+      dns_query_patterns:
+        - "*comodo*"
+        - "*leaktest*"
+        - "*test-dns*"
       min_matches: 1
 
     process_unsigned:
@@ -769,3 +781,183 @@
 
   tags: ["hijacking", "dll-injection", "appinit", "persistence"]
   mitre_attack: ["T1547.010"]
+
+---
+
+# TEST #31 supplement: Hijacking:BootConfiguration — Protect BCD and Boot.ini
+- name: "HEUR:Win.Hijacking.BootConfigTampering.gen"
+  author: "HydraDragon"
+  date: "2026-03-27"
+  status: production
+  level: critical
+  severity: 100
+  description: |
+    Detects unauthorized modification of Boot Configuration Data (BCD) or
+    boot.ini file. Used by bootkits and ransomware to maintain persistence
+    or disable security features (nointegritychecks, testsigning).
+    COMODO Test #31: Hijacking:Boot.ini/BCD
+  debug: false
+
+  named_conditions:
+    bcd_registry_modification:
+      orderless: true
+      registry_keys:
+        - "HKLM\\BCD00000000"
+      registry_operations: ["set", "create", "delete"]
+      min_matches: 1
+
+    boot_file_modification:
+      orderless: true
+      file_paths:
+        - "C:\\boot.ini"
+        - "C:\\BCD"
+      file_operations: ["write", "create", "delete"]
+      min_matches: 1
+
+  detection_logic:
+    or:
+      - condition: "bcd_registry_modification"
+      - condition: "boot_file_modification"
+
+  response:
+    notify_user: true
+    ask_user: true
+    terminate_process: true
+    status_access_denied: true
+    record: true
+
+  tags: ["hijacking", "boot", "bcd", "persistence"]
+  mitre_attack: ["T1542.003"]
+
+---
+
+# TEST #25: Hijacking:BHO — Block Browser Helper Object registration
+- name: "HEUR:Win.Hijacking.BHO.gen"
+  author: "HydraDragon"
+  date: "2026-03-27"
+  status: production
+  level: high
+  severity: 90
+  description: |
+    Detects the registration of new Browser Helper Objects (BHO) in the
+    registry. BHOs are DLLs that load into Internet Explorer and are
+    frequently used for tracking, credential theft, and ad-injection.
+    COMODO Test #25: Hijacking:BHO
+  debug: false
+
+  named_conditions:
+    bho_registry_modification:
+      orderless: true
+      registry_keys:
+        - "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Browser Helper Objects"
+        - "HKLM\\Software\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Browser Helper Objects"
+      registry_operations: ["create", "set"]
+      min_matches: 1
+
+    caller_unsigned:
+      orderless: true
+      is_signed: false
+      min_matches: 1
+
+  detection_logic:
+    and:
+      - condition: "bho_registry_modification"
+      - condition: "caller_unsigned"
+
+  response:
+    notify_user: true
+    ask_user: true
+    terminate_process: true
+    status_access_denied: true
+    record: true
+
+  tags: ["hijacking", "bho", "internet-explorer", "persistence"]
+  mitre_attack: ["T1176"]
+
+---
+
+# TEST #30 supplement: Hijacking:GDIPlus — Block GDI+ extension hijacking
+- name: "HEUR:Win.Hijacking.GDIPlus.gen"
+  author: "HydraDragon"
+  date: "2026-03-27"
+  status: production
+  level: high
+  severity: 90
+  description: |
+    Detects attempts to hijack or supersede Microsoft's GDI+ library (gdiplus.dll).
+    Threat actors use this to inject malicious code into applications that
+    depend on GDI+ for rendering, bypassing standard DLL search order logic.
+    COMODO Test #30: Hijacking:GDIPlus
+  debug: false
+
+  named_conditions:
+    gdiplus_dll_creation:
+      orderless: true
+      file_paths:
+        - "*\\\\gdiplus.dll"
+      file_operations: ["create", "write"]
+      min_matches: 1
+
+    process_not_trusted:
+      orderless: true
+      is_signed: false
+      min_matches: 1
+
+  detection_logic:
+    and:
+      - condition: "gdiplus_dll_creation"
+      - condition: "process_not_trusted"
+
+  response:
+    notify_user: true
+    ask_user: true
+    terminate_process: true
+    status_access_denied: true
+    record: true
+
+  tags: ["hijacking", "gdiplus", "dll-hijacking", "persistence"]
+  mitre_attack: ["T1574.001"]
+
+---
+
+# REFINEMENT: Injection:Hooks — Strengthen hook-based injection detection
+- name: "HEUR:Win.Injection.HookAPI.gen"
+  author: "HydraDragon"
+  date: "2026-03-27"
+  status: production
+  level: critical
+  severity: 100
+  description: |
+    Enhanced detection for SetWinEventHook and SetWindowsHookEx based injection.
+    COMODO Test #10/11: Injection:SetWinEventHook / SetWindowsHookEx
+  debug: false
+
+  named_conditions:
+    hook_api_call:
+      orderless: true
+      apis:
+        - "SetWinEventHook"
+        - "SetWindowsHookEx"
+        - "SetWindowsHookExA"
+        - "SetWindowsHookExW"
+      api_threshold: 1
+      min_matches: 1
+
+    suspicious_caller:
+      orderless: true
+      is_signed: false
+      min_matches: 1
+
+  detection_logic:
+    and:
+      - condition: "hook_api_call"
+      - condition: "suspicious_caller"
+
+  response:
+    notify_user: true
+    ask_user: true
+    terminate_process: true
+    record: true
+
+  tags: ["injection", "hook", "code-injection"]
+  mitre_attack: ["T1547.015", "T1056.004"]
