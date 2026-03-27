@@ -822,10 +822,17 @@ mod process_records {
             
             // Collect process snapshots from behavior engine
             for (gid, state) in &self.behavior_engine.process_states {
+                let mut path = state.exe_path.to_string_lossy().into_owned();
+                if path.is_empty() || path == "UNKNOWN" {
+                    if let Some(resolved) = crate::utils::resolve_process_path(state.pid) {
+                        path = resolved.to_string_lossy().into_owned();
+                    }
+                }
+
                 let mut snapshot = crate::report::ProcessSnapshot {
                     pid: state.pid,
                     gid: *gid as u32,
-                    path: state.exe_path.to_string_lossy().into_owned(),
+                    path,
                     total_ops: state.irp_stats.get_total_operations(),
                     high_entropy_files: state.irp_stats.get_high_entropy_count(),
                     is_malicious: false,
@@ -842,6 +849,9 @@ mod process_records {
                 for cond in &state.satisfied_named_conditions {
                     snapshot.detections.push(format!("Condition: {}", cond));
                 }
+
+                snapshot.detections.sort();
+                snapshot.detections.dedup();
                 
                 report.monitored_processes.push(snapshot);
             }

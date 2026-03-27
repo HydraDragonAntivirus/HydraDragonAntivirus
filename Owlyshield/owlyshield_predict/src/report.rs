@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use chrono::Local;
 use crate::config::Config;
 use crate::globals;
+use crate::utils::resolve_process_path;
 
 #[cfg(target_os = "windows")]
 use winreg::enums::*;
@@ -56,6 +57,7 @@ pub struct NetworkListener {
     pub local_addr: String,
     pub process_name: String,
     pub pid: u32,
+    pub process_path: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -84,6 +86,48 @@ pub struct RootkitEntry {
 }
 
 impl SystemReport {
+    fn sort_sections(&mut self) {
+        self.startups.sort_by(|a, b| {
+            a.location
+                .cmp(&b.location)
+                .then_with(|| a.name.cmp(&b.name))
+                .then_with(|| a.command.cmp(&b.command))
+        });
+        self.hosts_entries.sort();
+        self.network_listeners.sort_by(|a, b| {
+            a.process_name
+                .cmp(&b.process_name)
+                .then_with(|| a.pid.cmp(&b.pid))
+                .then_with(|| a.local_addr.cmp(&b.local_addr))
+        });
+        self.kernel_drivers.sort_by(|a, b| {
+            a.name
+                .cmp(&b.name)
+                .then_with(|| a.path.cmp(&b.path))
+        });
+        self.browser_extensions.sort_by(|a, b| {
+            a.browser
+                .cmp(&b.browser)
+                .then_with(|| a.name.cmp(&b.name))
+                .then_with(|| a.id.cmp(&b.id))
+        });
+        self.monitored_processes.sort_by(|a, b| {
+            b.is_malicious
+                .cmp(&a.is_malicious)
+                .then_with(|| b.detections.len().cmp(&a.detections.len()))
+                .then_with(|| b.total_ops.cmp(&a.total_ops))
+                .then_with(|| b.high_entropy_files.cmp(&a.high_entropy_files))
+                .then_with(|| a.path.cmp(&b.path))
+                .then_with(|| a.pid.cmp(&b.pid))
+        });
+        self.rootkit_findings.sort_by(|a, b| {
+            b.severity
+                .cmp(&a.severity)
+                .then_with(|| a.label.cmp(&b.label))
+                .then_with(|| a.pid.cmp(&b.pid))
+        });
+    }
+
     pub fn collect(
         _config: &Config, 
         firewall_pids: Option<&std::collections::HashSet<u32>>, 
@@ -116,6 +160,7 @@ impl SystemReport {
             }
         }
 
+        report.sort_sections();
         report
     }
 
@@ -208,11 +253,18 @@ impl SystemReport {
     fn collect_network_listeners(&mut self, firewall_pids: Option<&std::collections::HashSet<u32>>) {
         if let Some(pids) = firewall_pids {
             for &pid in pids {
+                let process_path = resolve_process_path(pid)
+                    .map(|path| path.to_string_lossy().into_owned());
+                let process_name = process_path
+                    .as_ref()
+                    .and_then(|path| Path::new(path).file_name().map(|name| name.to_string_lossy().into_owned()))
+                    .unwrap_or_else(|| "Firewall-Observed Process".to_string());
                 self.network_listeners.push(NetworkListener {
                     protocol: "TCP/UDP (Firewall)".to_string(),
                     local_addr: "0.0.0.0:*".to_string(),
-                    process_name: format!("Firewall-Observed Process"),
+                    process_name,
                     pid: pid,
+                    process_path,
                 });
             }
         }
@@ -270,10 +322,24 @@ impl SystemReport {
 
     pub fn to_hijackthis_string(&self) -> String {
         let mut s = String::new();
+        let malicious_processes = self.monitored_processes.iter().filter(|p| p.is_malicious).count();
+        let processes_with_detections = self.monitored_processes.iter().filter(|p| !p.detections.is_empty()).count();
+        let active_processes = self.monitored_processes.iter().filter(|p| p.total_ops > 0 || p.high_entropy_files > 0).count();
+
         s.push_str(&format!("HydraDragon Owlyshield Advanced System Report - {}\n", self.timestamp));
         s.push_str("------------------------------------------------------------------\n");
         s.push_str(&format!("Hostname: {}\n", self.hostname));
         s.push_str(&format!("OS: {}\n\n", self.os_version));
+
+        s.push_str("-- Summary --\n");
+        s.push_str(&format!("Tracked Processes: {} (Malicious: {}, With Detections: {}, Active: {})\n",
+            self.monitored_processes.len(), malicious_processes, processes_with_detections, active_processes));
+        s.push_str(&format!("Startup Entries: {}\n", self.startups.len()));
+        s.push_str(&format!("Hosts Entries: {}\n", self.hosts_entries.len()));
+        s.push_str(&format!("Firewall Listener PIDs: {}\n", self.network_listeners.len()));
+        s.push_str(&format!("Kernel Drivers: {}\n", self.kernel_drivers.len()));
+        s.push_str(&format!("Browser Extensions: {}\n", self.browser_extensions.len()));
+        s.push_str(&format!("Rootkit Findings: {}\n\n", self.rootkit_findings.len()));
 
         s.push_str("-- HydraDragon Integration (O24) --\n");
         #[cfg(feature = "firewall")]
@@ -285,43 +351,73 @@ impl SystemReport {
         s.push_str(&format!("O24 - AV Config Found: {}\n", self.av_status.config_exists));
         s.push_str(&format!("O24 - AV Signatures Loaded: {}\n\n", self.av_status.signatures_count));
 
-        s.push_str("-- Hosts File (O1) --\n");
-        for entry in &self.hosts_entries {
-            s.push_str(&format!("O1 - {}\n", entry));
+        s.push_str(&format!("-- Hosts File (O1, {} entries) --\n", self.hosts_entries.len()));
+        if self.hosts_entries.is_empty() {
+            s.push_str("O1 - No non-comment hosts entries found.\n");
+        } else {
+            for entry in &self.hosts_entries {
+                s.push_str(&format!("O1 - {}\n", entry));
+            }
         }
         s.push_str("\n");
 
-        s.push_str("-- Registry/Startup (O4) --\n");
-        for entry in &self.startups {
-            s.push_str(&format!("O4 - {}: [{}] {}\n", entry.location, entry.name, entry.command));
+        s.push_str(&format!("-- Registry/Startup (O4, {} entries) --\n", self.startups.len()));
+        if self.startups.is_empty() {
+            s.push_str("O4 - No startup entries found.\n");
+        } else {
+            for entry in &self.startups {
+                s.push_str(&format!("O4 - {}: [{}] {}\n", entry.location, entry.name, entry.command));
+            }
         }
         s.push_str("\n");
 
-        s.push_str("-- Network Listeners (O17) --\n");
-        for l in &self.network_listeners {
-            s.push_str(&format!("O17 - {} - {} (PID: {}) [{}]\n", l.protocol, l.local_addr, l.pid, l.process_name));
+        s.push_str(&format!("-- Network Listeners (O17, {} entries) --\n", self.network_listeners.len()));
+        if self.network_listeners.is_empty() {
+            s.push_str("O17 - No firewall-observed listeners found.\n");
+        } else {
+            for l in &self.network_listeners {
+                if let Some(path) = &l.process_path {
+                    s.push_str(&format!(
+                        "O17 - {} - {} (PID: {}) [{}] ({})\n",
+                        l.protocol, l.local_addr, l.pid, l.process_name, path
+                    ));
+                } else {
+                    s.push_str(&format!("O17 - {} - {} (PID: {}) [{}]\n", l.protocol, l.local_addr, l.pid, l.process_name));
+                }
+            }
         }
         s.push_str("\n");
 
-        s.push_str("-- Kernel Drivers (O18) --\n");
-        let limit = 20; // Only show first 20 for brevity unless malicious
-        for (i, d) in self.kernel_drivers.iter().enumerate() {
-            if i < limit {
+        s.push_str(&format!("-- Kernel Drivers (O18, {} entries) --\n", self.kernel_drivers.len()));
+        if self.kernel_drivers.is_empty() {
+            s.push_str("O18 - No kernel drivers found.\n");
+        } else {
+            for d in &self.kernel_drivers {
                 s.push_str(&format!("O18 - {}: {} [{}] ({})\n", d.name, d.display_name, d.path, d.state));
             }
         }
-        if self.kernel_drivers.len() > limit {
-            s.push_str(&format!("... and {} more drivers.\n", self.kernel_drivers.len() - limit));
+        s.push_str("\n");
+
+        s.push_str(&format!("-- Browser Extensions (O23, {} entries) --\n", self.browser_extensions.len()));
+        if self.browser_extensions.is_empty() {
+            s.push_str("O23 - No browser extensions found.\n");
+        } else {
+            for e in &self.browser_extensions {
+                s.push_str(&format!("O23 - {}: {} [ID: {}] ({})\n", e.browser, e.name, e.id, e.path));
+            }
         }
         s.push_str("\n");
 
-        s.push_str("-- Browser Extensions (O23) --\n");
-        for e in &self.browser_extensions {
-            s.push_str(&format!("O23 - {}: {} [ID: {}] ({})\n", e.browser, e.name, e.id, e.path));
+        s.push_str(&format!(
+            "-- Monitored Processes behavioral snapshot ({} tracked, {} malicious, {} with detections, {} active) --\n",
+            self.monitored_processes.len(),
+            malicious_processes,
+            processes_with_detections,
+            active_processes,
+        ));
+        if self.monitored_processes.is_empty() {
+            s.push_str("P - No tracked processes in snapshot.\n");
         }
-        s.push_str("\n");
-
-        s.push_str("-- Monitored Processes behavioral snapshot --\n");
         for m in &self.monitored_processes {
             let status = if m.is_malicious { "!!! MALICIOUS !!!" } else { "Clean" };
             s.push_str(&format!("P {} - G {} - {} - [{}] (Ops: {}, HighEntropy: {})\n", 
@@ -332,7 +428,7 @@ impl SystemReport {
         }
         s.push_str("\n");
 
-        s.push_str("-- Rootkit Detection Findings (O25) --\n");
+        s.push_str(&format!("-- Rootkit Detection Findings (O25, {} entries) --\n", self.rootkit_findings.len()));
         if self.rootkit_findings.is_empty() {
              s.push_str("O25 - No rootkit activity detected.\n");
         } else {
