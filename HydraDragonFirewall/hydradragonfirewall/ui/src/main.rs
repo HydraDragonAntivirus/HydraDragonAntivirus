@@ -150,6 +150,7 @@ pub struct ProxyHttpEvent {
 fn build_raw_packet_log_entry(pkt: &RawPacket) -> LogEntry {
     let action_lower = pkt.action.to_ascii_lowercase();
     let level = if action_lower.contains("block")
+        || action_lower.contains("deny")
         || action_lower.contains("quarantine")
         || action_lower.contains("terminate")
         || action_lower.contains("kill")
@@ -281,6 +282,352 @@ fn build_activity_fill_path(samples: &[u32]) -> String {
     path
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ProcessInventoryEntry {
+    pub pid: u32,
+    pub parent_pid: u32,
+    pub thread_count: u32,
+    pub name: String,
+    pub path: String,
+    pub observed_by_firewall: bool,
+    pub suspicious: bool,
+    pub pending_alert: bool,
+    pub decision: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct ProcessExplorerRow {
+    pid: u32,
+    parent_pid: u32,
+    thread_count: u32,
+    name: String,
+    path: String,
+    kind: String,
+    observed_by_firewall: bool,
+    suspicious: bool,
+    pending_alert: bool,
+    decision: Option<String>,
+    packet_count: usize,
+    blocked_packet_count: usize,
+    last_activity: Option<u64>,
+    recent_targets: Vec<String>,
+    matched_rules: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct HexCell {
+    absolute_index: usize,
+    hex: String,
+    ascii: String,
+    highlighted: bool,
+    label: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct HexLine {
+    offset: usize,
+    cells: Vec<HexCell>,
+}
+
+fn normalize_process_identity(value: &str) -> String {
+    value.trim().to_ascii_lowercase()
+}
+
+fn classify_process_kind(name: &str, path: &str) -> String {
+    let name_lc = normalize_process_identity(name);
+    let path_lc = normalize_process_identity(path);
+
+    if matches!(
+        name_lc.as_str(),
+        "chrome.exe"
+            | "msedge.exe"
+            | "firefox.exe"
+            | "brave.exe"
+            | "opera.exe"
+            | "vivaldi.exe"
+            | "waterfox.exe"
+            | "librewolf.exe"
+            | "iexplore.exe"
+    ) {
+        return "Browsers".to_string();
+    }
+
+    if matches!(
+        name_lc.as_str(),
+        "svchost.exe"
+            | "services.exe"
+            | "lsass.exe"
+            | "wininit.exe"
+            | "winlogon.exe"
+            | "csrss.exe"
+            | "smss.exe"
+            | "spoolsv.exe"
+    ) {
+        return "Services".to_string();
+    }
+
+    if path_lc.contains("\\windowsapps\\") {
+        return "Windows Apps".to_string();
+    }
+
+    if path_lc.starts_with("c:\\windows\\") || path_lc == "system" {
+        return "Windows".to_string();
+    }
+
+    "Applications".to_string()
+}
+
+fn decision_badge_label(decision: Option<&str>) -> Option<String> {
+    decision.map(|value| match value {
+        "allow" => "ALLOW".to_string(),
+        "block" => "BLOCK".to_string(),
+        "pending" => "PENDING".to_string(),
+        "allow_once" => "ALLOW ONCE".to_string(),
+        other => other.to_ascii_uppercase(),
+    })
+}
+
+fn build_process_rows(
+    processes: &[ProcessInventoryEntry],
+    packets: &[RawPacket],
+) -> Vec<ProcessExplorerRow> {
+    let mut rows = Vec::with_capacity(processes.len());
+
+    for process in processes {
+        let mut packet_count = 0usize;
+        let mut blocked_packet_count = 0usize;
+        let mut last_activity: Option<u64> = None;
+        let mut recent_targets = Vec::new();
+        let mut matched_rules = Vec::new();
+
+        for packet in packets.iter().rev() {
+            if packet.process_id != process.pid {
+                continue;
+            }
+
+            packet_count += 1;
+            last_activity = Some(last_activity.map_or(packet.timestamp, |current| current.max(packet.timestamp)));
+
+            let action_lc = packet.action.to_ascii_lowercase();
+            if action_lc.contains("block")
+                || action_lc.contains("deny")
+                || action_lc.contains("quarantine")
+                || action_lc.contains("terminate")
+                || action_lc.contains("kill")
+            {
+                blocked_packet_count += 1;
+            }
+
+            let target = packet
+                .hostname
+                .clone()
+                .unwrap_or_else(|| format!("{}:{}", packet.dst_ip, packet.dst_port));
+            if !recent_targets.iter().any(|existing| existing == &target) {
+                recent_targets.push(target);
+            }
+
+            let rule = packet.rule.trim();
+            if !rule.is_empty() && !matched_rules.iter().any(|existing| existing == rule) {
+                matched_rules.push(rule.to_string());
+            }
+
+            if recent_targets.len() >= 8 && matched_rules.len() >= 8 {
+                break;
+            }
+        }
+
+        rows.push(ProcessExplorerRow {
+            pid: process.pid,
+            parent_pid: process.parent_pid,
+            thread_count: process.thread_count,
+            name: process.name.clone(),
+            path: process.path.clone(),
+            kind: classify_process_kind(&process.name, &process.path),
+            observed_by_firewall: process.observed_by_firewall,
+            suspicious: process.suspicious,
+            pending_alert: process.pending_alert,
+            decision: process.decision.clone(),
+            packet_count,
+            blocked_packet_count,
+            last_activity,
+            recent_targets,
+            matched_rules,
+        });
+    }
+
+    rows.sort_by(|a, b| {
+        b.pending_alert
+            .cmp(&a.pending_alert)
+            .then_with(|| b.suspicious.cmp(&a.suspicious))
+            .then_with(|| b.blocked_packet_count.cmp(&a.blocked_packet_count))
+            .then_with(|| b.packet_count.cmp(&a.packet_count))
+            .then_with(|| a.name.cmp(&b.name))
+            .then_with(|| a.pid.cmp(&b.pid))
+    });
+    rows
+}
+
+fn process_matches_filter(row: &ProcessExplorerRow, filter: &str, query: &str) -> bool {
+    let filter_ok = match filter {
+        "pending" => row.pending_alert,
+        "suspicious" => row.suspicious,
+        "active" => row.packet_count > 0,
+        "browsers" => row.kind == "Browsers",
+        "services" => row.kind == "Services",
+        "windows" => row.kind == "Windows" || row.kind == "Windows Apps",
+        _ => true,
+    };
+
+    if !filter_ok {
+        return false;
+    }
+
+    let query = query.trim().to_ascii_lowercase();
+    if query.is_empty() {
+        return true;
+    }
+
+    row.name.to_ascii_lowercase().contains(&query)
+        || row.path.to_ascii_lowercase().contains(&query)
+        || row.pid.to_string().contains(&query)
+        || row
+            .matched_rules
+            .iter()
+            .any(|rule| rule.to_ascii_lowercase().contains(&query))
+        || row
+            .recent_targets
+            .iter()
+            .any(|target| target.to_ascii_lowercase().contains(&query))
+}
+
+fn decode_packet_bytes(payload_hex: &str) -> Vec<u8> {
+    let hex_only = payload_hex
+        .chars()
+        .filter(|ch| ch.is_ascii_hexdigit())
+        .collect::<String>();
+    let mut bytes = Vec::new();
+    let mut index = 0;
+    while index + 1 < hex_only.len() {
+        if let Ok(byte) = u8::from_str_radix(&hex_only[index..index + 2], 16) {
+            bytes.push(byte);
+        }
+        index += 2;
+    }
+    bytes
+}
+
+fn packet_match_tokens(packet: &RawPacket) -> Vec<String> {
+    const STOPWORDS: &[&str] = &[
+        "sdk", "rule", "blocked", "allow", "allowed", "pending", "traffic", "packet",
+        "terminated", "quarantined", "decision", "attack", "detected", "proxy",
+    ];
+
+    let mut tokens = Vec::new();
+
+    if let Some(hostname) = packet.hostname.as_ref() {
+        tokens.push(hostname.clone());
+        for piece in hostname.split(|ch: char| !ch.is_ascii_alphanumeric() && ch != '.' && ch != '-' && ch != '_') {
+            if piece.len() >= 4 {
+                tokens.push(piece.to_string());
+            }
+        }
+    }
+
+    tokens.push(packet.dst_ip.clone());
+
+    for piece in packet
+        .rule
+        .split(|ch: char| !ch.is_ascii_alphanumeric() && ch != '.' && ch != '-' && ch != '_' && ch != ':')
+    {
+        let trimmed = piece.trim();
+        let lowered = trimmed.to_ascii_lowercase();
+        if trimmed.len() >= 4 && !STOPWORDS.iter().any(|word| *word == lowered) {
+            tokens.push(trimmed.to_string());
+        }
+    }
+
+    let mut deduped = Vec::new();
+    for token in tokens {
+        let normalized = token.trim().to_ascii_lowercase();
+        if normalized.len() < 4 {
+            continue;
+        }
+        if !deduped.iter().any(|existing: &String| existing.eq_ignore_ascii_case(&token)) {
+            deduped.push(token);
+        }
+        if deduped.len() >= 8 {
+            break;
+        }
+    }
+    deduped
+}
+
+fn find_packet_match_spans(bytes: &[u8], packet: &RawPacket) -> Vec<(usize, usize, String)> {
+    let mut spans = Vec::new();
+
+    for token in packet_match_tokens(packet) {
+        let needle = token.as_bytes();
+        if needle.is_empty() || needle.len() > bytes.len() {
+            continue;
+        }
+
+        for start in 0..=bytes.len().saturating_sub(needle.len()) {
+            let matched = bytes[start..start + needle.len()]
+                .iter()
+                .zip(needle.iter())
+                .all(|(left, right)| left.to_ascii_lowercase() == right.to_ascii_lowercase());
+            if matched {
+                spans.push((start, start + needle.len(), token.clone()));
+            }
+        }
+    }
+
+    spans.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
+    spans
+}
+
+fn build_packet_hex_lines(packet: &RawPacket) -> (Vec<HexLine>, Vec<String>) {
+    let bytes = decode_packet_bytes(&packet.payload_hex);
+    let spans = find_packet_match_spans(&bytes, packet);
+    let mut labels = Vec::new();
+
+    let mut markers: HashMap<usize, String> = HashMap::new();
+    for (start, end, label) in &spans {
+        if !labels.iter().any(|existing| existing == label) {
+            labels.push(label.clone());
+        }
+        for index in *start..*end {
+            markers.entry(index).or_insert_with(|| label.clone());
+        }
+    }
+
+    let mut lines = Vec::new();
+    for (line_index, chunk) in bytes.chunks(16).enumerate() {
+        let mut cells = Vec::new();
+        for (cell_index, byte) in chunk.iter().enumerate() {
+            let absolute_index = line_index * 16 + cell_index;
+            let label = markers.get(&absolute_index).cloned();
+            cells.push(HexCell {
+                absolute_index,
+                hex: format!("{:02X}", byte),
+                ascii: if byte.is_ascii_graphic() {
+                    (*byte as char).to_string()
+                } else {
+                    ".".to_string()
+                },
+                highlighted: label.is_some(),
+                label,
+            });
+        }
+        lines.push(HexLine {
+            offset: line_index * 16,
+            cells,
+        });
+    }
+
+    (lines, labels)
+}
+
 /// A body changer rule managed through the GUI.
 /// Serialised into rules.yaml as an SDK rule with action change_request_body
 /// or change_response_body.
@@ -318,6 +665,7 @@ struct ResolveArgs {
 #[derive(Copy, Clone, PartialEq)]
 enum AppView {
     Dashboard,
+    Processes,
     Rules,
     Logs,
     PacketReader,
@@ -584,6 +932,10 @@ pub fn App() -> impl IntoView {
     let (selected_packet, set_selected_packet) = create_signal(Option::<RawPacket>::None);
     let (proxy_events, set_proxy_events) = create_signal(Vec::<ProxyHttpEvent>::new());
     let (selected_proxy_event, set_selected_proxy_event) = create_signal(Option::<ProxyHttpEvent>::None);
+    let (process_inventory, set_process_inventory) = create_signal(Vec::<ProcessInventoryEntry>::new());
+    let (selected_process_pid, set_selected_process_pid) = create_signal(Option::<u32>::None);
+    let (process_filter, set_process_filter) = create_signal("all".to_string());
+    let (process_search, set_process_search) = create_signal(String::new());
 
 
     let (sdk_rules, set_sdk_rules) = create_signal(Vec::<SdkRuleView>::new());
@@ -756,6 +1108,15 @@ pub fn App() -> impl IntoView {
         });
     };
 
+    let fetch_process_inventory = move || {
+        spawn_local(async move {
+            let res = invoke("get_process_inventory", JsValue::NULL).await;
+            if let Ok(processes) = serde_wasm_bindgen::from_value::<Vec<ProcessInventoryEntry>>(res) {
+                set_process_inventory.set(processes);
+            }
+        });
+    };
+
     let save_rules_raw = move || {
         let content = rules_raw_content.get();
         spawn_local(async move {
@@ -828,13 +1189,49 @@ pub fn App() -> impl IntoView {
         let peak = graph_data.get().iter().copied().max().unwrap_or_default() as f64;
         peak / (ACTIVITY_GRAPH_INTERVAL_MS as f64 / 1000.0)
     });
+    let process_rows = create_memo(move |_| {
+        build_process_rows(&process_inventory.get(), &raw_packets.get())
+    });
+    let filtered_process_rows = create_memo(move |_| {
+        let filter = process_filter.get();
+        let query = process_search.get();
+        process_rows
+            .get()
+            .into_iter()
+            .filter(|row| process_matches_filter(row, &filter, &query))
+            .collect::<Vec<_>>()
+    });
+    let selected_process = create_memo(move |_| {
+        let selected_pid = selected_process_pid.get();
+        selected_pid.and_then(|pid| {
+            process_rows
+                .get()
+                .into_iter()
+                .find(|row| row.pid == pid)
+        })
+    });
 
     create_effect(move |_| {
         match current_view.get() {
+            AppView::Processes => { fetch_process_inventory(); }
             AppView::Rules => { fetch_sdk_rules(); fetch_rules_raw(); fetch_body_changers(); fetch_owlyshield_rules(); }
             AppView::Logs => { fetch_saved_logs(); }
             AppView::Exclusions => { fetch_app_decisions(); }
             AppView::Settings => { fetch_settings(); }
+            _ => {}
+        }
+    });
+
+    create_effect(move |_| {
+        let rows = filtered_process_rows.get();
+        let selected = selected_process_pid.get();
+        match rows.first() {
+            Some(first_row) if !rows.iter().any(|row| Some(row.pid) == selected) => {
+                set_selected_process_pid.set(Some(first_row.pid));
+            }
+            None if selected.is_some() => {
+                set_selected_process_pid.set(None);
+            }
             _ => {}
         }
     });
@@ -991,6 +1388,9 @@ pub fn App() -> impl IntoView {
                         fetch_saved_logs();
                         set_settings_loaded.set(true);
                     }
+                    if current_view.get_untracked() == AppView::Processes {
+                        fetch_process_inventory();
+                    }
                 }
             });
         };
@@ -1053,6 +1453,10 @@ pub fn App() -> impl IntoView {
                             <a href="#" class={move || if current_view.get() == AppView::Dashboard { "nav-item active" } else { "nav-item" }}
                                on:click=move |ev| { ev.prevent_default(); set_current_view.set(AppView::Dashboard); }>
                                "Dashboard"
+                            </a>
+                            <a href="#" class={move || if current_view.get() == AppView::Processes { "nav-item active" } else { "nav-item" }}
+                               on:click=move |ev| { ev.prevent_default(); set_current_view.set(AppView::Processes); }>
+                               "Processes"
                             </a>
                             <a href="#" class={move || if current_view.get() == AppView::Rules { "nav-item active" } else { "nav-item" }}
                                on:click=move |ev| { ev.prevent_default(); set_current_view.set(AppView::Rules); }>
@@ -1117,6 +1521,7 @@ pub fn App() -> impl IntoView {
                             <h2 style="margin: 0; font-weight: 800; font-size: 28px">
                                 {move || match current_view.get() {
                                     AppView::Dashboard => "Security Overview",
+                                    AppView::Processes => "Process Explorer",
                                     AppView::Rules => "Protection Rules",
                                     AppView::Logs => "Network Activity",
                                     AppView::PacketReader => "Packet Inspection",
@@ -1228,6 +1633,484 @@ pub fn App() -> impl IntoView {
                                 </div>
                             }.into_view(),
 
+                            AppView::Processes => {
+                                let all_rows = process_rows.get();
+                                let rows = filtered_process_rows.get();
+                                let selected_pid = selected_process_pid.get();
+                                let selected = selected_process.get();
+                                let active_alert_for_selected = pending_app
+                                    .get()
+                                    .filter(|alert| Some(alert.process_id) == selected.as_ref().map(|row| row.pid));
+                                let categories = vec![
+                                    ("all".to_string(), format!("All ({})", all_rows.len())),
+                                    ("pending".to_string(), format!("Pending ({})", all_rows.iter().filter(|row| row.pending_alert).count())),
+                                    ("suspicious".to_string(), format!("Suspicious ({})", all_rows.iter().filter(|row| row.suspicious).count())),
+                                    ("active".to_string(), format!("Active Network ({})", all_rows.iter().filter(|row| row.packet_count > 0).count())),
+                                    ("browsers".to_string(), format!("Browsers ({})", all_rows.iter().filter(|row| row.kind == "Browsers").count())),
+                                    ("services".to_string(), format!("Services ({})", all_rows.iter().filter(|row| row.kind == "Services").count())),
+                                    (
+                                        "windows".to_string(),
+                                        format!(
+                                            "Windows ({})",
+                                            all_rows
+                                                .iter()
+                                                .filter(|row| row.kind == "Windows" || row.kind == "Windows Apps")
+                                                .count()
+                                        ),
+                                    ),
+                                ];
+
+                                let detail_view = match selected {
+                                    Some(row) => {
+                                        let decision_text = decision_badge_label(row.decision.as_deref())
+                                            .unwrap_or_else(|| "UNDECIDED".to_string());
+                                        let recent_targets_view = if row.recent_targets.is_empty() {
+                                            view! { <div class="process-detail-empty">"No observed remote targets yet."</div> }.into_view()
+                                        } else {
+                                            let targets = row.recent_targets.clone();
+                                            view! {
+                                                <div class="process-tag-cloud">
+                                                    <For
+                                                        each={move || targets.clone()}
+                                                        key={|target| target.clone()}
+                                                        children={move |target| view! { <span class="process-tag">{target}</span> }}
+                                                    />
+                                                </div>
+                                            }.into_view()
+                                        };
+                                        let matched_rules_view = if row.matched_rules.is_empty() {
+                                            view! {
+                                                <div class="process-detail-empty">
+                                                    "No packet-side rules have matched this process in the current session."
+                                                </div>
+                                            }.into_view()
+                                        } else {
+                                            let matched_rules = row.matched_rules.clone();
+                                            view! {
+                                                <div class="process-detail-list">
+                                                    <For
+                                                        each={move || matched_rules.clone()}
+                                                        key={|rule| rule.clone()}
+                                                        children={move |rule| view! { <div class="process-detail-list-item">{rule}</div> }}
+                                                    />
+                                                </div>
+                                            }.into_view()
+                                        };
+                                        let alert_view = if let Some(alert) = active_alert_for_selected {
+                                            let alert_target = alert.target.clone().unwrap_or_else(|| format!("{}:{}", alert.dst_ip, alert.dst_port));
+                                            let alert_reason = alert.reason.clone().unwrap_or_else(|| "Prompt pending user decision".to_string());
+                                            view! {
+                                                <div class="process-detail-card alert">
+                                                    <div class="process-detail-section-title">"Active Prompt"</div>
+                                                    <div class="detail-row"><span class="detail-label">"Target"</span><span class="detail-value">{alert_target}</span></div>
+                                                    <div class="detail-row"><span class="detail-label">"Reason"</span><span class="detail-value">{alert_reason}</span></div>
+                                                </div>
+                                            }.into_view()
+                                        } else {
+                                            view! {}.into_view()
+                                        };
+
+                                        view! {
+                                            <div class="process-detail-stack">
+                                                <div>
+                                                    <div class="process-detail-heading">{row.name.clone()}</div>
+                                                    <div class="process-detail-subheading">
+                                                        {format!("PID {} - Parent {} - {}", row.pid, row.parent_pid, row.kind)}
+                                                    </div>
+                                                </div>
+                                                <div class="process-detail-grid">
+                                                    <div class="process-detail-card">
+                                                        <div class="detail-row"><span class="detail-label">"Path"</span><span class="detail-value">{row.path.clone()}</span></div>
+                                                        <div class="detail-row"><span class="detail-label">"Threads"</span><span class="detail-value">{row.thread_count}</span></div>
+                                                        <div class="detail-row"><span class="detail-label">"Decision"</span><span class="detail-value">{decision_text}</span></div>
+                                                        <div class="detail-row"><span class="detail-label">"Firewall Observed"</span><span class="detail-value">{if row.observed_by_firewall { "Yes" } else { "No" }}</span></div>
+                                                    </div>
+                                                    <div class="process-detail-card">
+                                                        <div class="detail-row"><span class="detail-label">"Packets Seen"</span><span class="detail-value">{row.packet_count}</span></div>
+                                                        <div class="detail-row"><span class="detail-label">"Blocked / Denied"</span><span class="detail-value">{row.blocked_packet_count}</span></div>
+                                                        <div class="detail-row"><span class="detail-label">"Pending Alert"</span><span class="detail-value">{if row.pending_alert { "Yes" } else { "No" }}</span></div>
+                                                        <div class="detail-row"><span class="detail-label">"Suspicious"</span><span class="detail-value">{if row.suspicious { "Yes" } else { "No" }}</span></div>
+                                                    </div>
+                                                </div>
+                                                <div class="process-detail-card">
+                                                    <div class="process-detail-section-title">"Recent Targets"</div>
+                                                    {recent_targets_view}
+                                                </div>
+                                                <div class="process-detail-card">
+                                                    <div class="process-detail-section-title">"Matched Rules / Reasons"</div>
+                                                    {matched_rules_view}
+                                                </div>
+                                                {alert_view}
+                                            </div>
+                                        }.into_view()
+                                    }
+                                    None => view! {
+                                        <div class="process-detail-empty">
+                                            "Select a process to inspect its live packet activity, pending prompts, and matched rule context."
+                                        </div>
+                                    }.into_view(),
+                                };
+
+                                view! {
+                                    <div class="process-explorer-grid">
+                                        <div class="glass-card process-category-rail">
+                                            <div class="process-pane-title">"Categories"</div>
+                                            <div class="process-category-list">
+                                                <For
+                                                    each={move || categories.clone()}
+                                                    key={|(key, _)| key.clone()}
+                                                    children={move |(key, label)| {
+                                                        let is_active = process_filter.get() == key;
+                                                        let key_for_click = key.clone();
+                                                        view! {
+                                                            <button
+                                                                class={if is_active { "process-category-chip active" } else { "process-category-chip" }}
+                                                                on:click=move |_| set_process_filter.set(key_for_click.clone())
+                                                            >
+                                                                {label}
+                                                            </button>
+                                                        }
+                                                    }}
+                                                />
+                                            </div>
+                                        </div>
+                                        <div class="glass-card process-list-pane">
+                                            <div class="section-header" style="margin-bottom: 14px">
+                                                <div>
+                                                    <h3 style="margin: 0">"Observed Processes"</h3>
+                                                    <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px">
+                                                        {format!("{} total, {} currently visible", all_rows.len(), rows.len())}
+                                                    </div>
+                                                </div>
+                                                <button
+                                                    class="btn-primary"
+                                                    style="padding: 6px 14px; font-size: 11px"
+                                                    on:click=move |_| fetch_process_inventory()
+                                                >
+                                                    "Refresh"
+                                                </button>
+                                            </div>
+                                            <input
+                                                type="text"
+                                                class="process-search-input"
+                                                placeholder="Search by name, PID, path, rule, or target..."
+                                                prop:value=move || process_search.get()
+                                                on:input=move |ev| set_process_search.set(event_target_value(&ev))
+                                            />
+                                            <div class="logs-viewport" style="margin-top: 14px">
+                                                <For
+                                                    each={move || rows.clone()}
+                                                    key={|row| row.pid}
+                                                    children={move |row| {
+                                                        let is_selected = Some(row.pid) == selected_pid;
+                                                        let pid = row.pid;
+                                                        let status_badges = {
+                                                            let mut badges = Vec::new();
+                                                            if row.pending_alert {
+                                                                badges.push(("PENDING".to_string(), "rgba(245, 158, 11, 0.18)".to_string(), "#f59e0b".to_string()));
+                                                            }
+                                                            if row.suspicious {
+                                                                badges.push(("SUSPICIOUS".to_string(), "rgba(239, 68, 68, 0.18)".to_string(), "#ef4444".to_string()));
+                                                            }
+                                                            if row.observed_by_firewall {
+                                                                badges.push(("OBSERVED".to_string(), "rgba(62, 148, 255, 0.18)".to_string(), "#60a5fa".to_string()));
+                                                            }
+                                                            if let Some(decision) = decision_badge_label(row.decision.as_deref()) {
+                                                                badges.push((decision, "rgba(0, 255, 136, 0.12)".to_string(), "#00ff88".to_string()));
+                                                            }
+                                                            badges
+                                                        };
+                                                        view! {
+                                                            <button
+                                                                class={if is_selected { "process-row-card selected" } else { "process-row-card" }}
+                                                                on:click=move |_| set_selected_process_pid.set(Some(pid))
+                                                            >
+                                                                <div class="process-row-top">
+                                                                    <div>
+                                                                        <div class="process-row-title">{row.name.clone()}</div>
+                                                                        <div class="process-row-subtitle">
+                                                                            {format!("PID {} - Parent {} - {} threads - {}", row.pid, row.parent_pid, row.thread_count, row.kind)}
+                                                                        </div>
+                                                                    </div>
+                                                                    <div class="process-row-metrics">
+                                                                        <span>{format!("{} pkt", row.packet_count)}</span>
+                                                                        <span>{format!("{} blocked", row.blocked_packet_count)}</span>
+                                                                    </div>
+                                                                </div>
+                                                                <div class="process-row-path">{row.path.clone()}</div>
+                                                                <div class="process-badge-row">
+                                                                    <For
+                                                                        each={move || status_badges.clone()}
+                                                                        key={|(label, _, _)| label.clone()}
+                                                                        children={move |(label, bg, fg)| view! {
+                                                                            <span class="process-inline-badge" style={format!("background: {}; color: {}", bg, fg)}>
+                                                                                {label}
+                                                                            </span>
+                                                                        }}
+                                                                    />
+                                                                </div>
+                                                            </button>
+                                                        }
+                                                    }}
+                                                />
+                                            </div>
+                                        </div>
+                                        <div class="glass-card process-detail-pane">
+                                            <div class="process-pane-title">"Details"</div>
+                                            {detail_view}
+                                        </div>
+                                    </div>
+                                }.into_view()
+                            },
+                            /*
+                            AppView::Processes => {
+                                let all_rows = process_rows.get();
+                                let rows = filtered_process_rows.get();
+                                let selected_pid = selected_process_pid.get();
+                                let selected = selected_process.get();
+                                let active_alert_for_selected = pending_app
+                                    .get()
+                                    .filter(|alert| Some(alert.process_id) == selected.as_ref().map(|row| row.pid));
+                                let categories = vec![
+                                    ("all".to_string(), format!("All ({})", all_rows.len())),
+                                    (
+                                        "pending".to_string(),
+                                        format!(
+                                            "Pending ({})",
+                                            all_rows.iter().filter(|row| row.pending_alert).count()
+                                        ),
+                                    ),
+                                    (
+                                        "suspicious".to_string(),
+                                        format!(
+                                            "Suspicious ({})",
+                                            all_rows.iter().filter(|row| row.suspicious).count()
+                                        ),
+                                    ),
+                                    (
+                                        "active".to_string(),
+                                        format!(
+                                            "Active Network ({})",
+                                            all_rows.iter().filter(|row| row.packet_count > 0).count()
+                                        ),
+                                    ),
+                                    (
+                                        "browsers".to_string(),
+                                        format!(
+                                            "Browsers ({})",
+                                            all_rows.iter().filter(|row| row.kind == "Browsers").count()
+                                        ),
+                                    ),
+                                    (
+                                        "services".to_string(),
+                                        format!(
+                                            "Services ({})",
+                                            all_rows.iter().filter(|row| row.kind == "Services").count()
+                                        ),
+                                    ),
+                                    (
+                                        "windows".to_string(),
+                                        format!(
+                                            "Windows ({})",
+                                            all_rows
+                                                .iter()
+                                                .filter(|row| row.kind == "Windows" || row.kind == "Windows Apps")
+                                                .count()
+                                        ),
+                                    ),
+                                ];
+
+                                view! {
+                                    <div class="process-explorer-grid">
+                                        <div class="glass-card process-category-rail">
+                                            <div class="process-pane-title">"Categories"</div>
+                                            <div class="process-category-list">
+                                                <For
+                                                    each={move || categories.clone()}
+                                                    key={|(key, _)| key.clone()}
+                                                    children={move |(key, label)| {
+                                                        let is_active = process_filter.get() == key;
+                                                        let key_for_click = key.clone();
+                                                        view! {
+                                                            <button
+                                                                class={if is_active { "process-category-chip active" } else { "process-category-chip" }}
+                                                                on:click=move |_| set_process_filter.set(key_for_click.clone())
+                                                            >
+                                                                {label}
+                                                            </button>
+                                                        }
+                                                    }}
+                                                />
+                                            </div>
+                                        </div>
+
+                                        <div class="glass-card process-list-pane">
+                                            <div class="section-header" style="margin-bottom: 14px">
+                                                <div>
+                                                    <h3 style="margin: 0">"Observed Processes"</h3>
+                                                    <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px">
+                                                        {format!("{} total, {} currently visible", all_rows.len(), rows.len())}
+                                                    </div>
+                                                </div>
+                                                <button
+                                                    class="btn-primary"
+                                                    style="padding: 6px 14px; font-size: 11px"
+                                                    on:click=move |_| fetch_process_inventory()
+                                                >
+                                                    "Refresh"
+                                                </button>
+                                            </div>
+                                            <input
+                                                type="text"
+                                                class="process-search-input"
+                                                placeholder="Search by name, PID, path, rule, or target..."
+                                                prop:value=move || process_search.get()
+                                                on:input=move |ev| set_process_search.set(event_target_value(&ev))
+                                            />
+                                            <div class="logs-viewport" style="margin-top: 14px">
+                                                <For
+                                                    each={move || rows.clone()}
+                                                    key={|row| row.pid}
+                                                    children={move |row| {
+                                                        let is_selected = Some(row.pid) == selected_pid;
+                                                        let pid = row.pid;
+                                                        let status_badges = {
+                                                            let mut badges = Vec::new();
+                                                            if row.pending_alert {
+                                                                badges.push(("PENDING".to_string(), "rgba(245, 158, 11, 0.18)".to_string(), "#f59e0b".to_string()));
+                                                            }
+                                                            if row.suspicious {
+                                                                badges.push(("SUSPICIOUS".to_string(), "rgba(239, 68, 68, 0.18)".to_string(), "#ef4444".to_string()));
+                                                            }
+                                                            if row.observed_by_firewall {
+                                                                badges.push(("OBSERVED".to_string(), "rgba(62, 148, 255, 0.18)".to_string(), "#60a5fa".to_string()));
+                                                            }
+                                                            if let Some(decision) = decision_badge_label(row.decision.as_deref()) {
+                                                                badges.push((decision, "rgba(0, 255, 136, 0.12)".to_string(), "#00ff88".to_string()));
+                                                            }
+                                                            badges
+                                                        };
+                                                        view! {
+                                                            <button
+                                                                class={if is_selected { "process-row-card selected" } else { "process-row-card" }}
+                                                                on:click=move |_| set_selected_process_pid.set(Some(pid))
+                                                            >
+                                                                <div class="process-row-top">
+                                                                    <div>
+                                                                        <div class="process-row-title">{row.name.clone()}</div>
+                                                                        <div class="process-row-subtitle">
+                                                                            {format!("PID {} • Parent {} • {} threads • {}", row.pid, row.parent_pid, row.thread_count, row.kind)}
+                                                                        </div>
+                                                                    </div>
+                                                                    <div class="process-row-metrics">
+                                                                        <span>{format!("{} pkt", row.packet_count)}</span>
+                                                                        <span>{format!("{} blocked", row.blocked_packet_count)}</span>
+                                                                    </div>
+                                                                </div>
+                                                                <div class="process-row-path">{row.path.clone()}</div>
+                                                                <div class="process-badge-row">
+                                                                    <For
+                                                                        each={move || status_badges.clone()}
+                                                                        key={|(label, _, _)| label.clone()}
+                                                                        children={move |(label, bg, fg)| view! {
+                                                                            <span class="process-inline-badge" style={format!("background: {}; color: {}", bg, fg)}>
+                                                                                {label}
+                                                                            </span>
+                                                                        }}
+                                                                    />
+                                                                </div>
+                                                            </button>
+                                                        }
+                                                    }}
+                                                />
+                                            </div>
+                                        </div>
+
+                                        <div class="glass-card process-detail-pane">
+                                            <div class="process-pane-title">"Details"</div>
+                                            {match selected {
+                                                Some(row) => {
+                                                    let decision_label = decision_badge_label(row.decision.as_deref());
+                                                    view! {
+                                                        <div class="process-detail-stack">
+                                                            <div>
+                                                                <div class="process-detail-heading">{row.name.clone()}</div>
+                                                                <div class="process-detail-subheading">
+                                                                    {format!("PID {} • Parent {} • {}", row.pid, row.parent_pid, row.kind)}
+                                                                </div>
+                                                            </div>
+
+                                                            <div class="process-detail-grid">
+                                                                <div class="process-detail-card">
+                                                                    <div class="detail-row"><span class="detail-label">"Path"</span><span class="detail-value">{row.path.clone()}</span></div>
+                                                                    <div class="detail-row"><span class="detail-label">"Threads"</span><span class="detail-value">{row.thread_count}</span></div>
+                                                                    <div class="detail-row"><span class="detail-label">"Decision"</span><span class="detail-value">{decision_label.unwrap_or_else(|| "UNDECIDED".to_string())}</span></div>
+                                                                    <div class="detail-row"><span class="detail-label">"Firewall Observed"</span><span class="detail-value">{if row.observed_by_firewall { "Yes" } else { "No" }}</span></div>
+                                                                </div>
+                                                                <div class="process-detail-card">
+                                                                    <div class="detail-row"><span class="detail-label">"Packets Seen"</span><span class="detail-value">{row.packet_count}</span></div>
+                                                                    <div class="detail-row"><span class="detail-label">"Blocked / Denied"</span><span class="detail-value">{row.blocked_packet_count}</span></div>
+                                                                    <div class="detail-row"><span class="detail-label">"Pending Alert"</span><span class="detail-value">{if row.pending_alert { "Yes" } else { "No" }}</span></div>
+                                                                    <div class="detail-row"><span class="detail-label">"Suspicious"</span><span class="detail-value">{if row.suspicious { "Yes" } else { "No" }}</span></div>
+                                                                </div>
+                                                            </div>
+
+                                                            <div class="process-detail-card">
+                                                                <div class="process-detail-section-title">"Recent Targets"</div>
+                                                                {if row.recent_targets.is_empty() {
+                                                                    view! { <div class="process-detail-empty">"No observed remote targets yet."</div> }
+                                                                } else {
+                                                                    view! {
+                                                                        <div class="process-tag-cloud">
+                                                                            <For
+                                                                                each={move || row.recent_targets.clone()}
+                                                                                key={|target| target.clone()}
+                                                                                children={move |target| view! { <span class="process-tag">{target}</span> }}
+                                                                            />
+                                                                        </div>
+                                                                    }
+                                                                }}
+                                                            </div>
+
+                                                            <div class="process-detail-card">
+                                                                <div class="process-detail-section-title">"Matched Rules / Reasons"</div>
+                                                                {if row.matched_rules.is_empty() {
+                                                                    view! { <div class="process-detail-empty">"No packet-side rules have matched this process in the current session."</div> }
+                                                                } else {
+                                                                    view! {
+                                                                        <div class="process-detail-list">
+                                                                            <For
+                                                                                each={move || row.matched_rules.clone()}
+                                                                                key={|rule| rule.clone()}
+                                                                                children={move |rule| view! { <div class="process-detail-list-item">{rule}</div> }}
+                                                                            />
+                                                                        </div>
+                                                                    }
+                                                                }}
+                                                            </div>
+
+                                                            {active_alert_for_selected.map(|alert| view! {
+                                                                <div class="process-detail-card alert">
+                                                                    <div class="process-detail-section-title">"Active Prompt"</div>
+                                                                    <div class="detail-row"><span class="detail-label">"Target"</span><span class="detail-value">{alert.target.clone().unwrap_or_else(|| format!("{}:{}", alert.dst_ip, alert.dst_port))}</span></div>
+                                                                    <div class="detail-row"><span class="detail-label">"Reason"</span><span class="detail-value">{alert.reason.clone().unwrap_or_else(|| "Prompt pending user decision".to_string())}</span></div>
+                                                                </div>
+                                                            })}
+                                                        </div>
+                                                    }.into_view()
+                                                }
+                                                None => view! {
+                                                    <div class="process-detail-empty">
+                                                        "Select a process to inspect its live packet activity, pending prompts, and matched rule context."
+                                                    </div>
+                                                }.into_view(),
+                                            }}
+                                        </div>
+                                    </div>
+                                }.into_view()
+                            },
+
+                            */
                             AppView::Rules => view! {
                                 <div style="height: calc(100vh - 120px); display: flex; flex-direction: column; gap: 0">
                                     // ── Tab Bar ──────────────────────────────────────────────
@@ -1643,24 +2526,210 @@ pub fn App() -> impl IntoView {
                                     <div class="glass-card dash-col-side" style="flex: 1">
                                         <h3>"Packet Inspection"</h3>
                                         {move || match selected_packet.get() {
-                                            Some(p) => view! {
-                                                <div style="font-size: 12px; display: flex; flex-direction: column; gap: 10px">
-                                                    <div><strong>"Time:"</strong> {p.timestamp}</div>
-                                                    <div><strong>"Direction:"</strong> {format!("{:?} -> {:?}", p.src_ip, p.dst_ip)}</div>
-                                                    <div><strong>"Process:"</strong> {if !p.process_path.trim().is_empty() && p.process_path != "Unknown" { p.process_path.clone() } else { p.process_name.clone() }}</div>
-                                                    <div><strong>"PID:"</strong> {p.process_id}</div>
-                                                    <div style="margin-top: 10px"><strong>"Payload (Hex):"</strong></div>
-                                                    <div style="background: #000; padding: 10px; border-radius: 4px; font-family: monospace; word-break: break-all">
-                                                        {p.payload_hex}
+                                            Some(p) => {
+                                                let (hex_lines, matched_markers) = build_packet_hex_lines(&p);
+                                                let process_display = if !p.process_path.trim().is_empty() && p.process_path != "Unknown" {
+                                                    p.process_path.clone()
+                                                } else {
+                                                    p.process_name.clone()
+                                                };
+                                                let matched_markers_view = if matched_markers.is_empty() {
+                                                    view! {
+                                                        <div style="color: var(--text-muted)">
+                                                            "No rule or hostname token could be mapped back into the captured payload bytes."
+                                                        </div>
+                                                    }.into_view()
+                                                } else {
+                                                    matched_markers
+                                                        .into_iter()
+                                                        .map(|marker| {
+                                                            view! {
+                                                                <span class="process-tag" style="background: rgba(245, 158, 11, 0.12); color: #fbbf24;">
+                                                                    {marker}
+                                                                </span>
+                                                            }
+                                                        })
+                                                        .collect_view()
+                                                };
+                                                let hex_view = hex_lines
+                                                    .into_iter()
+                                                    .map(|line| {
+                                                        let offset = line.offset;
+                                                        let hex_cells_view = line
+                                                            .cells
+                                                            .iter()
+                                                            .map(|cell| {
+                                                                let title = cell.label.clone().unwrap_or_default();
+                                                                let cell_class = if cell.highlighted { "hex-byte hit" } else { "hex-byte" };
+                                                                view! {
+                                                                    <span class=cell_class title=title>{cell.hex.clone()}</span>
+                                                                }
+                                                            })
+                                                            .collect_view();
+                                                        let ascii_cells_view = line
+                                                            .cells
+                                                            .iter()
+                                                            .map(|cell| {
+                                                                let title = cell.label.clone().unwrap_or_default();
+                                                                let cell_class = if cell.highlighted { "hex-ascii hit" } else { "hex-ascii" };
+                                                                view! {
+                                                                    <span class=cell_class title=title>{cell.ascii.clone()}</span>
+                                                                }
+                                                            })
+                                                            .collect_view();
+                                                        view! {
+                                                            <div class="hex-line">
+                                                                <span class="hex-offset">{format!("{:08X}", offset)}</span>
+                                                                <div class="hex-byte-group">{hex_cells_view}</div>
+                                                                <div class="hex-ascii-group">{ascii_cells_view}</div>
+                                                            </div>
+                                                        }
+                                                    })
+                                                    .collect_view();
+
+                                                view! {
+                                                    <div style="font-size: 12px; display: flex; flex-direction: column; gap: 10px">
+                                                        <div><strong>"Time:"</strong> {p.timestamp}</div>
+                                                        <div><strong>"Direction:"</strong> {format!("{:?} -> {:?}", p.src_ip, p.dst_ip)}</div>
+                                                        <div><strong>"Process:"</strong> {process_display}</div>
+                                                        <div><strong>"PID:"</strong> {p.process_id}</div>
+                                                        <div><strong>"Action:"</strong> {p.action.clone()}</div>
+                                                        <div><strong>"Rule:"</strong> {if p.rule.trim().is_empty() { "None".to_string() } else { p.rule.clone() }}</div>
+                                                        {p.hostname.clone().map(|host| view! { <div><strong>"Hostname:"</strong> {host}</div> })}
+                                                        <div style="margin-top: 10px"><strong>"Matched Payload Markers:"</strong></div>
+                                                        <div class="process-tag-cloud">{matched_markers_view}</div>
+                                                        <div style="margin-top: 10px"><strong>"Payload Hex / ASCII Map:"</strong></div>
+                                                        <div class="hex-view-shell">{hex_view}</div>
                                                     </div>
-                                                </div>
-                                            }.into_view(),
+                                                }.into_view()
+                                            }
+                                            None => view! { <div style="color: var(--text-muted)">"Select a packet to inspect"</div> }.into_view(),
+                                        }}
+                                    </div>
+                                </div>
+                            }.into_view(),
+                            /*
+                            AppView::PacketReader => view! {
+                                <div class="dashboard-grid" style="height: calc(100vh - 120px)">
+                                    <div class="glass-card dash-col-main" style="flex: 2; overflow-y: auto">
+                                        <div class="section-header">
+                                            <h3>"Live Packet Stream"</h3>
+                                            <button class="btn-primary" style="padding: 5px 15px; font-size: 11px" on:click=move |_| set_raw_packets.set(Vec::new())> "Clear" </button>
+                                        </div>
+                                        <div class="logs-viewport">
+                                            <For
+                                                each={move || raw_packets.get().into_iter().rev().collect::<Vec<_>>()}
+                                                key={|p_item| p_item.id.clone()}
+                                                children={move |p_item| {
+                                                    let p_selected = p_item.clone();
+                                                    let p_summary = p_item.summary.clone();
+                                                    let p_src = p_item.src_ip.clone();
+                                                    let p_dst = p_item.dst_ip.clone();
+                                                    let p_src_port = p_item.src_port;
+                                                    let p_dst_port = p_item.dst_port;
+                                                    view! {
+                                                        <div class="log-row lvl-info" style="cursor: pointer" on:click=move |_| set_selected_packet.set(Some(p_selected.clone()))>
+                                                            <span class="log-time">{format!("{}:{} -> {}:{}", p_src, p_src_port, p_dst, p_dst_port)}</span>
+                                                            <span class="log-msg">{p_summary}</span>
+                                                        </div>
+                                                    }
+                                                }}
+                                            />
+                                        </div>
+                                    </div>
+                                    <div class="glass-card dash-col-side" style="flex: 1">
+                                        <h3>"Packet Inspection"</h3>
+                                        {move || match selected_packet.get() {
+                                            Some(p) => {
+                                                let (hex_lines, matched_markers) = build_packet_hex_lines(&p);
+                                                let process_display = if !p.process_path.trim().is_empty() && p.process_path != "Unknown" {
+                                                    p.process_path.clone()
+                                                } else {
+                                                    p.process_name.clone()
+                                                };
+                                                view! {
+                                                    <div style="font-size: 12px; display: flex; flex-direction: column; gap: 10px">
+                                                        <div><strong>"Time:"</strong> {p.timestamp}</div>
+                                                        <div><strong>"Direction:"</strong> {format!("{:?} -> {:?}", p.src_ip, p.dst_ip)}</div>
+                                                        <div><strong>"Process:"</strong> {process_display}</div>
+                                                        <div><strong>"PID:"</strong> {p.process_id}</div>
+                                                        <div><strong>"Action:"</strong> {p.action.clone()}</div>
+                                                        <div><strong>"Rule:"</strong> {if p.rule.trim().is_empty() { "None".to_string() } else { p.rule.clone() }}</div>
+                                                        {p.hostname.clone().map(|host| view! { <div><strong>"Hostname:"</strong> {host}</div> })}
+                                                        <div style="margin-top: 10px"><strong>"Matched Payload Markers:"</strong></div>
+                                                        {if matched_markers.is_empty() {
+                                                            view! { <div style="color: var(--text-muted)">"No rule/hostname token could be mapped back into the captured payload bytes."</div> }
+                                                        } else {
+                                                            view! {
+                                                                <div class="process-tag-cloud">
+                                                                    <For
+                                                                        each={move || matched_markers.clone()}
+                                                                        key={|marker| marker.clone()}
+                                                                        children={move |marker| view! { <span class="process-tag" style="background: rgba(245, 158, 11, 0.12); color: #fbbf24;">{marker}</span> }}
+                                                                    />
+                                                                </div>
+                                                            }
+                                                        }}
+                                                        <div style="margin-top: 10px"><strong>"Payload Hex / ASCII Map:"</strong></div>
+                                                        <div class="hex-view-shell">
+                                                            <For
+                                                                each={move || hex_lines.clone()}
+                                                                key={|line| line.offset}
+                                                                children={move |line| {
+                                                                    let offset = line.offset;
+                                                                    let hex_cells = line.cells.clone();
+                                                                    let ascii_cells = line.cells.clone();
+                                                                    view! {
+                                                                    <div class="hex-line">
+                                                                        <span class="hex-offset">{format!("{:08X}", offset)}</span>
+                                                                        <div class="hex-byte-group">
+                                                                            <For
+                                                                                each={move || hex_cells.clone()}
+                                                                                key={|cell| cell.absolute_index}
+                                                                                children={move |cell| {
+                                                                                    let title = cell.label.clone().unwrap_or_default();
+                                                                                    view! {
+                                                                                        <span
+                                                                                            class={if cell.highlighted { "hex-byte hit" } else { "hex-byte" }}
+                                                                                            title=title
+                                                                                        >
+                                                                                            {cell.hex.clone()}
+                                                                                        </span>
+                                                                                    }
+                                                                                }}
+                                                                            />
+                                                                        </div>
+                                                                        <div class="hex-ascii-group">
+                                                                            <For
+                                                                                each={move || ascii_cells.clone()}
+                                                                                key={|cell| cell.absolute_index}
+                                                                                children={move |cell| {
+                                                                                    let title = cell.label.clone().unwrap_or_default();
+                                                                                    view! {
+                                                                                        <span
+                                                                                            class={if cell.highlighted { "hex-ascii hit" } else { "hex-ascii" }}
+                                                                                            title=title
+                                                                                        >
+                                                                                            {cell.ascii.clone()}
+                                                                                        </span>
+                                                                                    }
+                                                                                }}
+                                                                            />
+                                                                        </div>
+                                                                    </div>
+                                                                }}
+                                                            />
+                                                        </div>
+                                                    </div>
+                                                }.into_view()
+                                            }
                                             None => view! { <div style="color: var(--text-muted)">"Select a packet to inspect"</div> }.into_view(),
                                         }}
                                     </div>
                                 </div>
                             }.into_view(),
 
+                            */
                             AppView::HttpInspector => view! {
                                 <div class="dashboard-grid" style="height: calc(100vh - 120px)">
                                     <div class="glass-card dash-col-main" style="flex: 2; overflow-y: auto">
@@ -2204,8 +3273,8 @@ fn AlertWindow(
              </div>
              <div class="alert-window-body">
                  {move || pending_app.get().map(|app| {
-                     let n1 = app.name.clone(); let n2 = app.name.clone(); let n3 = app.name.clone(); let n4 = app.name.clone();
-                     let res1 = resolve_decision_internal.clone(); let res2 = resolve_decision_internal.clone(); let res3 = resolve_decision_internal.clone(); let res4 = resolve_decision_internal.clone();
+                     let n1 = app.name.clone(); let n2 = app.name.clone(); let n3 = app.name.clone(); let n4 = app.name.clone(); let n5 = app.name.clone();
+                     let res1 = resolve_decision_internal.clone(); let res2 = resolve_decision_internal.clone(); let res3 = resolve_decision_internal.clone(); let res4 = resolve_decision_internal.clone(); let res5 = resolve_decision_internal.clone();
                      let is_registry_alert = app.alert_kind.as_deref() == Some("registry");
                      let is_owlyshield_alert = app.alert_source.as_deref() == Some("owlyshield");
                      let is_browser_mitm_prompt = app.alert_source.as_deref() == Some("browser_mitm")
@@ -2283,6 +3352,14 @@ fn AlertWindow(
                                  "System intercept".to_string()
                              }
                          )
+                     };
+                     let description = if is_owlyshield_alert && !is_browser_mitm_prompt && !is_website_alert {
+                         format!(
+                             "{} Choose DENY to return access denied only, TERMINATE to stop the process, or QUARANTINE to stop and quarantine it.",
+                             description
+                         )
+                     } else {
+                         description
                      };
                      let target_label = if is_browser_mitm_prompt {
                          "Website:"
@@ -2405,10 +3482,26 @@ fn AlertWindow(
                              } else {
                                  view! {
                                      <>
-                                         <button class="alert-btn block" on:click={let p = app.path.clone(); move |_| res3(n3.clone(), p.clone(), "block".to_string())}> "BLOCK" </button>
-                                         <button class="alert-btn quarantine" on:click={let p = app.path.clone(); move |_| res4(n4.clone(), p.clone(), "quarantine".to_string())}> "QUARANTINE" </button>
-                                         <button class="alert-btn session" on:click={let p = app.path.clone(); move |_| res1(n1.clone(), p.clone(), "allow_once".to_string())}> "ONCE" </button>
-                                         <button class="alert-btn always" on:click={let p = app.path.clone(); let decision = always_decision.clone(); move |_| res2(n2.clone(), p.clone(), decision.clone())}> {always_label} </button>
+                                         {if is_owlyshield_alert {
+                                             view! {
+                                                 <>
+                                                     <button class="alert-btn block" on:click={let p = app.path.clone(); move |_| res5(n5.clone(), p.clone(), "deny".to_string())}> "DENY" </button>
+                                                     <button class="alert-btn block" on:click={let p = app.path.clone(); move |_| res3(n3.clone(), p.clone(), "block".to_string())}> "TERMINATE" </button>
+                                                     <button class="alert-btn quarantine" on:click={let p = app.path.clone(); move |_| res4(n4.clone(), p.clone(), "quarantine".to_string())}> "QUARANTINE" </button>
+                                                     <button class="alert-btn session" on:click={let p = app.path.clone(); move |_| res1(n1.clone(), p.clone(), "allow_once".to_string())}> "ONCE" </button>
+                                                     <button class="alert-btn always" on:click={let p = app.path.clone(); let decision = always_decision.clone(); move |_| res2(n2.clone(), p.clone(), decision.clone())}> {always_label} </button>
+                                                 </>
+                                             }.into_view()
+                                         } else {
+                                             view! {
+                                                 <>
+                                                     <button class="alert-btn block" on:click={let p = app.path.clone(); move |_| res3(n3.clone(), p.clone(), "block".to_string())}> "BLOCK" </button>
+                                                     <button class="alert-btn quarantine" on:click={let p = app.path.clone(); move |_| res4(n4.clone(), p.clone(), "quarantine".to_string())}> "QUARANTINE" </button>
+                                                     <button class="alert-btn session" on:click={let p = app.path.clone(); move |_| res1(n1.clone(), p.clone(), "allow_once".to_string())}> "ONCE" </button>
+                                                     <button class="alert-btn always" on:click={let p = app.path.clone(); let decision = always_decision.clone(); move |_| res2(n2.clone(), p.clone(), decision.clone())}> {always_label} </button>
+                                                 </>
+                                             }.into_view()
+                                         }}
                                      </>
                                  }.into_view()
                              }}

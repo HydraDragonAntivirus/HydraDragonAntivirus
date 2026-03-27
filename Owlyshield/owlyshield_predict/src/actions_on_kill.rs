@@ -14,7 +14,12 @@ use crate::connectors::register::Connectors;
 use crate::predictions::prediction::input_tensors::VecvecCappedF32;
 use crate::process::{ProcessRecord, ProcessState};
 use crate::logging::Logging;
-use crate::utils::{FILE_TIME_FORMAT, LONG_TIME_FORMAT};
+use crate::utils::{
+    protected_process_record_reason,
+    suspicious_critical_process_record_reason,
+    FILE_TIME_FORMAT,
+    LONG_TIME_FORMAT,
+};
 /// New struct to hold detailed threat information.
 #[derive(Debug, Clone)]
 pub struct ThreatInfo<'a> {
@@ -336,6 +341,10 @@ pub struct KillAction {
     pub handler: Box<dyn ThreatHandler>,
 }
 
+fn termination_block_reason(proc: &ProcessRecord) -> Option<String> {
+    protected_process_record_reason(proc)
+}
+
 impl ActionOnKill for KillAction {
     fn run(
         &self,
@@ -354,6 +363,26 @@ impl ActionOnKill for KillAction {
         }
 
         if threat_info.terminate {
+            if let Some(reason) = suspicious_critical_process_record_reason(proc) {
+                Logging::alert(&format!(
+                    "[CriticalProcessAbuse] {} (GID: {}) attempted to survive via the Windows critical-process flag: {}",
+                    proc.appname, proc.gid, reason
+                ));
+                Logging::warning(&format!(
+                    "[ActionOnKill] Refusing to terminate suspicious critical-marked process {} (GID: {}); leaving it for offline/manual remediation",
+                    proc.appname, proc.gid
+                ));
+                return Ok(());
+            }
+
+            if let Some(reason) = termination_block_reason(proc) {
+                Logging::warning(&format!(
+                    "[ActionOnKill] Refusing to terminate protected process {} (GID: {}): {}",
+                    proc.appname, proc.gid, reason
+                ));
+                return Ok(());
+            }
+
             if threat_info.quarantine {
                 Logging::info(&format!("[ActionOnKill] Terminating and Quarantining: {}", proc.appname));
                 self.handler

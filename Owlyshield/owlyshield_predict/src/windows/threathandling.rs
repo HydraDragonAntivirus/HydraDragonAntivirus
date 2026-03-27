@@ -1,6 +1,11 @@
 use crate::logging::Logging;
 use crate::process::{ProcessRecord, ProcessState};
 use crate::threat_handler::ThreatHandler;
+use crate::utils::{
+    protected_process_reason,
+    protected_process_record_reason,
+    suspicious_critical_process_record_reason,
+};
 use windows::Win32::Foundation::{BOOL, CloseHandle, GetLastError};
 use windows::Win32::System::Diagnostics::Debug::{
     DebugActiveProcess, DebugActiveProcessStop, DebugSetProcessKillOnExit,
@@ -66,6 +71,13 @@ impl WindowsThreatHandler {
     }
 
     fn kill_pid_direct(pid: u32) -> Result<(), String> {
+        if let Some(reason) = protected_process_reason(pid, None) {
+            return Err(format!(
+                "Refusing to terminate protected PID {}: {}",
+                pid, reason
+            ));
+        }
+
         unsafe {
             let process = OpenProcess(PROCESS_TERMINATE, BOOL(0), pid)
                 .map_err(|e| format!("OpenProcess({pid}) failed: {e}"))?;
@@ -190,6 +202,22 @@ impl WindowsThreatHandler {
 
 impl ThreatHandler for WindowsThreatHandler {
     fn suspend(&self, proc: &mut ProcessRecord) {
+        if let Some(reason) = suspicious_critical_process_record_reason(proc) {
+            Logging::alert(&format!(
+                "[CriticalProcessAbuse] Refusing to suspend suspicious critical-marked process {} (GID: {}): {}",
+                proc.appname, proc.gid, reason
+            ));
+            return;
+        }
+
+        if let Some(reason) = protected_process_record_reason(proc) {
+            Logging::warning(&format!(
+                "[ThreatHandler] Refusing to suspend protected process {} (GID: {}): {}",
+                proc.appname, proc.gid, reason
+            ));
+            return;
+        }
+
         proc.process_state = ProcessState::Suspended;
         for pid in &proc.pids {
             unsafe {
@@ -238,6 +266,14 @@ impl ThreatHandler for WindowsThreatHandler {
     fn kill_and_remove(&self, gid: u64, path: &std::path::Path) {
         let driver_path = Self::normalize_driver_path(path);
         if let Some(pid) = Self::synthetic_pid_from_gid(gid) {
+            if let Some(reason) = protected_process_reason(pid, Some(path)) {
+                Logging::warning(&format!(
+                    "[ThreatHandler] Refusing to kill/remove protected PID {} (GID: {}): {}",
+                    pid, gid, reason
+                ));
+                return;
+            }
+
             match Self::kill_pid_direct(pid) {
                 Ok(_) => Logging::info(&format!(
                     "[ThreatHandler] Successfully killed synthetic PID fallback target for removal: PID {} (GID: {})",
@@ -271,6 +307,14 @@ impl ThreatHandler for WindowsThreatHandler {
     fn kill_and_quarantine(&self, gid: u64, path: &std::path::Path) {
         // 1. Kill the process first to release file handles
         if let Some(pid) = Self::synthetic_pid_from_gid(gid) {
+            if let Some(reason) = protected_process_reason(pid, Some(path)) {
+                Logging::warning(&format!(
+                    "[ThreatHandler] Refusing to kill/quarantine protected PID {} (GID: {}): {}",
+                    pid, gid, reason
+                ));
+                return;
+            }
+
             match Self::kill_pid_direct(pid) {
                 Ok(_) => Logging::info(&format!(
                     "[ThreatHandler] Successfully killed synthetic PID fallback target for quarantine: PID {} (GID: {})",

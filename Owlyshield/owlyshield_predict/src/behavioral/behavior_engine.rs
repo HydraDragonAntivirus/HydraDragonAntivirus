@@ -199,6 +199,7 @@ struct FirewallHipsPromptState {
 #[cfg(feature = "firewall")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum FirewallHipsDecision {
+    Deny,
     Block,
     Quarantine,
     AllowOnce,
@@ -209,6 +210,7 @@ enum FirewallHipsDecision {
 impl FirewallHipsDecision {
     fn from_wire(value: &str) -> Option<Self> {
         match value.trim().to_ascii_lowercase().as_str() {
+            "deny" => Some(Self::Deny),
             "block" => Some(Self::Block),
             "quarantine" => Some(Self::Quarantine),
             "allow_once" => Some(Self::AllowOnce),
@@ -223,6 +225,7 @@ impl FirewallHipsDecision {
 enum FirewallHipsPromptOutcome {
     Pending,
     Allowed,
+    Deny,
     Block,
     Quarantine,
 }
@@ -1513,6 +1516,7 @@ impl BehaviorEngine {
         !cond_group.registry_keys.is_empty()
             || !cond_group.autorun_keys.is_empty()
             || !cond_group.registry_values.is_empty()
+            || !cond_group.registry_value_data_patterns.is_empty()
     }
 
     #[cfg(feature = "firewall")]
@@ -2231,6 +2235,7 @@ impl BehaviorEngine {
                             .insert(prompt.request_signature);
                         FirewallHipsPromptOutcome::Allowed
                     }
+                    FirewallHipsDecision::Deny => FirewallHipsPromptOutcome::Deny,
                     FirewallHipsDecision::Quarantine => FirewallHipsPromptOutcome::Quarantine,
                     FirewallHipsDecision::Block => FirewallHipsPromptOutcome::Block,
                 }
@@ -3832,7 +3837,8 @@ impl BehaviorEngine {
 
                 let has_reg_conditions = !cond_group.registry_keys.is_empty() || 
                                          !cond_group.autorun_keys.is_empty() ||
-                                         !cond_group.registry_values.is_empty();
+                                         !cond_group.registry_values.is_empty() ||
+                                         !cond_group.registry_value_data_patterns.is_empty();
 
                 if !matched && has_reg_conditions && *irp_op == IrpMajorOp::IrpRegistry
                     && Self::registry_op_matches(cond_group, msg, irp_op) {
@@ -4500,6 +4506,7 @@ impl BehaviorEngine {
             }
 
             if legacy_triggered || rich_triggered || stages_triggered {
+                let mut prompted_deny = false;
                 let mut prompted_block = false;
                 let mut prompted_quarantine = false;
                 #[cfg(feature = "firewall")]
@@ -4507,6 +4514,9 @@ impl BehaviorEngine {
                     match self.resolve_firewall_hips_prompt(gid, &state_ref, rule) {
                         FirewallHipsPromptOutcome::Pending | FirewallHipsPromptOutcome::Allowed => {
                             continue;
+                        }
+                        FirewallHipsPromptOutcome::Deny => {
+                            prompted_deny = true;
                         }
                         FirewallHipsPromptOutcome::Block => {
                             prompted_block = true;
@@ -4543,9 +4553,18 @@ impl BehaviorEngine {
                         Some(trigger_type),
                         Some(indicator_ratio),
                     )),
-                    deny_access: rule.response.status_access_denied,
+                    deny_access: if rule.response.ask_user {
+                        (prompted_deny || prompted_block || prompted_quarantine)
+                            && rule.response.status_access_denied
+                    } else {
+                        rule.response.status_access_denied
+                    },
                     terminate: if rule.response.ask_user {
-                        prompted_block || prompted_quarantine || rule.response.terminate_process
+                        if prompted_deny {
+                            false
+                        } else {
+                            prompted_block || prompted_quarantine || rule.response.terminate_process
+                        }
                     } else {
                         rule.response.terminate_process
                     },
@@ -5167,12 +5186,16 @@ impl BehaviorEngine {
                 }
 
                 if legacy_triggered || rich_triggered || stages_triggered {
+                    let mut prompted_deny = false;
                     let mut prompted_block = false;
                     let mut prompted_quarantine = false;
                     if rule.response.ask_user {
                         match self.resolve_firewall_hips_prompt(gid, &state, rule) {
                             FirewallHipsPromptOutcome::Pending | FirewallHipsPromptOutcome::Allowed => {
                                 continue;
+                            }
+                            FirewallHipsPromptOutcome::Deny => {
+                                prompted_deny = true;
                             }
                             FirewallHipsPromptOutcome::Block => {
                                 prompted_block = true;
@@ -5192,7 +5215,11 @@ impl BehaviorEngine {
                     p.is_malicious = true;
                     p.pids.insert(pid);
                     p.termination_requested = if rule.response.ask_user {
-                        prompted_block || prompted_quarantine || rule.response.terminate_process
+                        if prompted_deny {
+                            false
+                        } else {
+                            prompted_block || prompted_quarantine || rule.response.terminate_process
+                        }
                     } else {
                         rule.response.terminate_process
                     };
@@ -5201,7 +5228,12 @@ impl BehaviorEngine {
                     } else {
                         rule.response.quarantine
                     };
-                    p.deny_access_requested = rule.response.status_access_denied;
+                    p.deny_access_requested = if rule.response.ask_user {
+                        (prompted_deny || prompted_block || prompted_quarantine)
+                            && rule.response.status_access_denied
+                    } else {
+                        rule.response.status_access_denied
+                    };
                     p.kill_and_remove_requested = if rule.response.ask_user { false } else { rule.response.kill_and_remove };
                     p.notify_user_requested = rule.response.notify_user;
                     p.revert_requested = rule.response.auto_revert;

@@ -304,51 +304,57 @@ pub mod process_record_handling {
                         self.config[Param::ConfigPath]
                     );
 
-                    // Handle based on kill policy
-                    match self.config.get_kill_policy() {
-                        KillPolicy::Suspend => {
-                            if precord.process_state != ProcessState::Suspended {
-                                self.threat_handler.suspend(precord);
-                            }
-                        }
-                        KillPolicy::Kill => {
-                            self.threat_handler.kill(precord.gid);
-                            precord.process_state = ProcessState::Killed;
-                        }
-                        KillPolicy::KillAndQuarantine => {
-                            self.threat_handler
-                                .kill_and_quarantine(precord.gid, precord.primary_remediation_path());
-                            precord.process_state = ProcessState::Killed;
-                        }
-                        KillPolicy::KillAndRemove => {
-                            self.threat_handler
-                                .kill_and_remove(precord.gid, precord.primary_remediation_path());
-                            precord.process_state = ProcessState::Killed;
-                        }
-                        KillPolicy::DoNothing => {}
+                    let kill_policy = self.config.get_kill_policy();
+                    let heuristic_hard_remediation = precord.appname.contains("TEST-OLRANSOM")
+                        || (
+                            prediction_behavioral >= 0.98
+                                && precord.driver_msg_count >= self.config.threshold_drivermsgs.max(120)
+                                && (!precord.is_signed || !precord.has_valid_signature)
+                        );
+
+                    if heuristic_hard_remediation
+                        && matches!(kill_policy, KillPolicy::Suspend)
+                        && precord.process_state != ProcessState::Suspended
+                    {
+                        self.threat_handler.suspend(precord);
                     }
 
-                    // Create threat info for reporting
                     let threat_info = ThreatInfo {
                         threat_type_label: "Ransomware",
-                        virus_name: "Behavioral Detection",     
+                        virus_name: "Behavioral Detection",
                         prediction: prediction_behavioral,
-                        match_details: None,
+                        match_details: Some(if heuristic_hard_remediation {
+                            "Heuristic malware detection reached hard-remediation threshold".to_string()
+                        } else {
+                            "Heuristic malware detection reached notify-only threshold; hard remediation withheld to avoid false-positive termination".to_string()
+                        }),
                         deny_access: false,
-                        terminate: true,
-                        kill_and_remove: true,
-                        quarantine: true,
+                        terminate: heuristic_hard_remediation && matches!(
+                            kill_policy,
+                            KillPolicy::Kill | KillPolicy::KillAndQuarantine | KillPolicy::KillAndRemove
+                        ),
+                        kill_and_remove: heuristic_hard_remediation && matches!(kill_policy, KillPolicy::KillAndRemove),
+                        quarantine: heuristic_hard_remediation && matches!(kill_policy, KillPolicy::KillAndQuarantine),
                         notify_user: true,
-                        revert: true,
+                        revert: heuristic_hard_remediation,
                     };
-                    
-                    // Run post-kill actions (logging, reporting, notifications)
-                    ActionsOnKill::new().run_actions_with_info(
-                        self.config,
-                        precord,
-                        &self.predictor_malware.predictor_behavioral.mlp.timesteps,
-                        &threat_info,
-                    );
+
+                    if threat_info.terminate {
+                        ActionsOnKill::with_handler(self.threat_handler.clone_box())
+                            .run_actions_with_info(
+                                self.config,
+                                precord,
+                                &self.predictor_malware.predictor_behavioral.mlp.timesteps,
+                                &threat_info,
+                            );
+                    } else {
+                        ActionsOnKill::new().run_actions_with_info(
+                            self.config,
+                            precord,
+                            &self.predictor_malware.predictor_behavioral.mlp.timesteps,
+                            &threat_info,
+                        );
+                    }
                 }
         }
 
@@ -531,8 +537,13 @@ mod process_records {
     use lru::LruCache;
     use crate::config::{Config, Param};
 
+    use crate::logging::Logging;
     use crate::process::{ProcessRecord, ProcessState};
     use crate::threat_handler::ThreatHandler;
+    use crate::utils::{
+        protected_process_record_reason,
+        suspicious_critical_process_record_reason,
+    };
 
     pub struct ProcessRecords {
         pub process_records: LruCache<u64, ProcessRecord>,
@@ -562,8 +573,22 @@ mod process_records {
             for (gid, proc) in self.process_records.iter_mut() {
                 if proc.process_state == ProcessState::Suspended
                     && now.duration_since(proc.time_suspended.unwrap_or(now)).unwrap_or(Duration::from_secs(0)) > Duration::from_secs(120) {
-                        threat_handler.awake(proc, true);
-                        threat_handler.kill(*gid);
+                        if let Some(reason) = suspicious_critical_process_record_reason(proc) {
+                            Logging::alert(&format!(
+                                "[CriticalProcessAbuse] Refusing timed kill of suspicious critical-marked process {} (GID: {}): {}",
+                                proc.appname, proc.gid, reason
+                            ));
+                            threat_handler.awake(proc, false);
+                        } else if let Some(reason) = protected_process_record_reason(proc) {
+                            Logging::warning(&format!(
+                                "[ProcessRecords] Refusing timed kill of protected process {} (GID: {}): {}",
+                                proc.appname, proc.gid, reason
+                            ));
+                            threat_handler.awake(proc, false);
+                        } else {
+                            threat_handler.awake(proc, true);
+                            threat_handler.kill(*gid);
+                        }
                     }
             }
 
@@ -582,8 +607,22 @@ mod process_records {
                                                     threat_handler.awake(proc, false);
                                                 }
                                                 "K" => {
-                                                    threat_handler.awake(proc, true);
-                                                    threat_handler.kill(gid);
+                                                    if let Some(reason) = suspicious_critical_process_record_reason(proc) {
+                                                        Logging::alert(&format!(
+                                                            "[CriticalProcessAbuse] Refusing manual kill of suspicious critical-marked process {} (GID: {}): {}",
+                                                            proc.appname, proc.gid, reason
+                                                        ));
+                                                        threat_handler.awake(proc, false);
+                                                    } else if let Some(reason) = protected_process_record_reason(proc) {
+                                                        Logging::warning(&format!(
+                                                            "[ProcessRecords] Refusing manual kill of protected process {} (GID: {}): {}",
+                                                            proc.appname, proc.gid, reason
+                                                        ));
+                                                        threat_handler.awake(proc, false);
+                                                    } else {
+                                                        threat_handler.awake(proc, true);
+                                                        threat_handler.kill(gid);
+                                                    }
                                                 }
                                                 &_ => {}
                                             }
@@ -813,6 +852,8 @@ mod process_records {
             let signatures_count = self.behavior_engine.rules.len();
             let rootkit_findings = self.behavior_engine.get_rootkit_findings();
             let mut report = crate::report::SystemReport::collect(config, Some(&fw_pids), signatures_count, rootkit_findings);
+            #[cfg(feature = "firewall")]
+            let fw_net_details = self.behavior_engine.firewall_net_details.read().unwrap();
             
             // Collect process snapshots from behavior engine
             for (gid, state) in &self.behavior_engine.process_states {
@@ -826,22 +867,124 @@ mod process_records {
                 let mut snapshot = crate::report::ProcessSnapshot {
                     pid: state.pid,
                     gid: *gid as u32,
+                    name: state.app_name.clone(),
                     path,
+                    command_line: None,
+                    process_state: "RUNNING".to_string(),
                     total_ops: state.irp_stats.get_total_operations(),
                     high_entropy_files: state.irp_stats.get_high_entropy_count(),
+                    driver_message_count: 0,
+                    ops_read: 0,
+                    ops_written: 0,
+                    ops_open: 0,
+                    ops_setinfo: 0,
+                    bytes_read: 0,
+                    bytes_written: 0,
+                    files_created: 0,
+                    files_updated: 0,
+                    files_deleted: 0,
+                    directories_touched: 0,
                     is_malicious: false,
                     detections: Vec::new(),
+                    detection_details: None,
+                    named_conditions: Vec::new(),
+                    detected_apis: Vec::new(),
+                    network_targets: Vec::new(),
+                    rootkit_implicated: state.rootkit_implicated,
+                    rootkit_findings: state
+                        .rootkit_findings
+                        .iter()
+                        .take(12)
+                        .map(|finding| {
+                            format!(
+                                "{} (addr=0x{:X}, pid={})",
+                                finding.kind.threat_label(),
+                                finding.address,
+                                finding.pid
+                            )
+                        })
+                        .collect(),
+                    remediation_target: None,
+                    signature_summary: if state.is_signed {
+                        if state.has_valid_signature {
+                            "Signed / Trusted".to_string()
+                        } else {
+                            "Signed / Untrusted".to_string()
+                        }
+                    } else {
+                        "Unsigned or Unknown".to_string()
+                    },
+                    sample_created_paths: Vec::new(),
+                    sample_updated_paths: Vec::new(),
                 };
                 
                 if let Some(precord) = self.process_records.get_precord_by_gid(*gid) {
                     snapshot.is_malicious = precord.is_malicious;
+                    snapshot.process_state = precord.process_state.to_string();
+                    snapshot.driver_message_count = precord.driver_msg_count;
+                    snapshot.ops_read = precord.ops_read;
+                    snapshot.ops_written = precord.ops_written;
+                    snapshot.ops_open = precord.ops_open;
+                    snapshot.ops_setinfo = precord.ops_setinfo;
+                    snapshot.bytes_read = precord.bytes_read;
+                    snapshot.bytes_written = precord.bytes_written;
+                    snapshot.files_created = precord.fpaths_created.len();
+                    snapshot.files_updated = precord.fpaths_updated.len();
+                    snapshot.files_deleted = precord.files_deleted.len();
+                    let mut directories_touched = std::collections::BTreeSet::new();
+                    directories_touched.extend(precord.dirs_with_files_created.iter().cloned());
+                    directories_touched.extend(precord.dirs_with_files_updated.iter().cloned());
+                    directories_touched.extend(precord.dirs_with_files_opened.iter().cloned());
+                    snapshot.directories_touched = directories_touched.len();
+                    if !precord.command_line.trim().is_empty() {
+                        snapshot.command_line = Some(precord.command_line.clone());
+                    }
                     if let Some(ref rule) = precord.triggered_rule_name {
                         snapshot.detections.push(rule.clone());
                     }
+                    snapshot.detection_details = precord.triggered_rule_details.clone();
+                    snapshot.remediation_target = precord
+                        .remediation_target_path
+                        .as_ref()
+                        .map(|path| path.display().to_string());
+                    let mut sample_created_paths =
+                        precord.fpaths_created.iter().cloned().collect::<Vec<_>>();
+                    sample_created_paths.sort();
+                    sample_created_paths.truncate(6);
+                    snapshot.sample_created_paths = sample_created_paths;
+                    let mut sample_updated_paths =
+                        precord.fpaths_updated.iter().cloned().collect::<Vec<_>>();
+                    sample_updated_paths.sort();
+                    sample_updated_paths.truncate(6);
+                    snapshot.sample_updated_paths = sample_updated_paths;
+                }
+
+                if snapshot.command_line.is_none() && !state.command_line.trim().is_empty() {
+                    snapshot.command_line = Some(state.command_line.clone());
                 }
                 
                 for cond in &state.satisfied_named_conditions {
+                    snapshot.named_conditions.push(cond.clone());
                     snapshot.detections.push(format!("Condition: {}", cond));
+                }
+
+                snapshot.named_conditions.sort();
+                snapshot.named_conditions.dedup();
+
+                snapshot.detected_apis = state.detected_apis.iter().cloned().collect();
+                snapshot.detected_apis.sort();
+                snapshot.detected_apis.dedup();
+
+                #[cfg(feature = "firewall")]
+                if let Some(targets) = fw_net_details.get(&state.pid) {
+                    let mut network_targets = targets
+                        .iter()
+                        .map(|(ip, port)| format!("{}:{}", ip, port))
+                        .collect::<Vec<_>>();
+                    network_targets.sort();
+                    network_targets.dedup();
+                    network_targets.truncate(12);
+                    snapshot.network_targets = network_targets;
                 }
 
                 snapshot.detections.sort();

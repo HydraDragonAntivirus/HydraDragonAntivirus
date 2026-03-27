@@ -826,6 +826,19 @@ pub struct AppInfoContext {
     pub path: String,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ProcessInventoryEntry {
+    pub pid: u32,
+    pub parent_pid: u32,
+    pub thread_count: u32,
+    pub name: String,
+    pub path: String,
+    pub observed_by_firewall: bool,
+    pub suspicious: bool,
+    pub pending_alert: bool,
+    pub decision: Option<String>,
+}
+
 impl AppInfoCache {
     pub fn new() -> Self {
         Self {
@@ -2098,22 +2111,25 @@ impl FirewallEngine {
             "allow_once" => AppDecision::AllowOnce,
             "quarantine" => AppDecision::Block,
             "block" => AppDecision::Block,
+            "deny" => AppDecision::Pending,
             _ => AppDecision::Pending,
         };
 
         if routed_to_owlyshield {
-            // Mirror quarantine/block decisions to firewall for "predict block" security
-            if app_decision == AppDecision::Block {
-                self.app_manager.resolve_decision(&decision_identifier, app_decision);
-                self.save_settings();
-            }
+            // Owlyshield owns remediation for its HIPS prompts. Mirroring those
+            // decisions into the firewall's own app-decision store can
+            // accidentally poison generic names like `svchost.exe` or install
+            // unrelated persistent kernel block paths.
             persist_settings = false;
         } else {
             self.app_manager
                 .resolve_decision(&decision_identifier, app_decision);
         }
 
-        if effective_decision == "block" && let Some(path) = kernel_block_path.as_deref() {
+        if !routed_to_owlyshield
+            && effective_decision == "block"
+            && let Some(path) = kernel_block_path.as_deref()
+        {
             self.remember_kernel_block_path(path);
             self.send_hydranet_message(kernel_block_message(path));
         }
@@ -2127,6 +2143,18 @@ impl FirewallEngine {
 
         let now = Self::now_ts();
         match effective_decision.as_str() {
+            "deny" => emit_log_event(
+                tx,
+                LogEntry {
+                    id: format!("{}-user-deny", now),
+                    timestamp: now,
+                    level: LogLevel::Warning,
+                    message: format!(
+                        "Access denied: User decision for {} (no termination requested)",
+                        decision_label
+                    ),
+                },
+            ),
             "block" => emit_log_event(
                 tx,
                 LogEntry {
@@ -2239,6 +2267,18 @@ impl FirewallEngine {
             .collect()
     }
 
+    pub fn get_process_inventory(&self) -> Vec<ProcessInventoryEntry> {
+        #[cfg(target_os = "windows")]
+        {
+            return self.get_process_inventory_windows();
+        }
+
+        #[cfg(not(target_os = "windows"))]
+        {
+            Vec::new()
+        }
+    }
+
     pub fn get_settings(&self) -> FirewallSettings {
         self.settings.read().unwrap().clone()
     }
@@ -2256,6 +2296,125 @@ impl FirewallEngine {
         };
 
         load_saved_logs(limit)
+    }
+
+    #[cfg(target_os = "windows")]
+    fn get_process_inventory_windows(&self) -> Vec<ProcessInventoryEntry> {
+        use windows::Win32::Foundation::CloseHandle;
+        use windows::Win32::System::Diagnostics::ToolHelp::{
+            CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W,
+            TH32CS_SNAPPROCESS,
+        };
+
+        fn process_name_from_entry(entry: &PROCESSENTRY32W) -> String {
+            let len = entry
+                .szExeFile
+                .iter()
+                .position(|ch| *ch == 0)
+                .unwrap_or(entry.szExeFile.len());
+            String::from_utf16_lossy(&entry.szExeFile[..len])
+        }
+
+        fn decision_label(decision: &AppDecision) -> &'static str {
+            match decision {
+                AppDecision::Allow => "allow",
+                AppDecision::Block => "block",
+                AppDecision::Pending => "pending",
+                AppDecision::AllowOnce => "allow_once",
+            }
+        }
+
+        let observed_pids: HashSet<u32> = self
+            .app_manager
+            .info_cache
+            .cache
+            .read()
+            .unwrap()
+            .keys()
+            .copied()
+            .collect();
+        let suspicious_pids = self.app_manager.suspicious_pids.read().unwrap().clone();
+        let active_alert_pid = self
+            .app_manager
+            .active_alert
+            .read()
+            .unwrap()
+            .as_ref()
+            .map(|alert| alert.process_id);
+        let pending_pids: HashSet<u32> = self
+            .app_manager
+            .pending
+            .read()
+            .unwrap()
+            .iter()
+            .map(|alert| alert.process_id)
+            .collect();
+        let decisions = self.app_manager.decisions.read().unwrap().clone();
+
+        let mut processes = Vec::new();
+        let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
+        let Ok(snapshot) = snapshot else {
+            return processes;
+        };
+
+        unsafe {
+            let mut entry = PROCESSENTRY32W::default();
+            entry.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
+
+            if Process32FirstW(snapshot, &mut entry).is_ok() {
+                loop {
+                    let pid = entry.th32ProcessID;
+                    let fallback_name = process_name_from_entry(&entry);
+                    let info = self.app_manager.info_cache.get_info(pid);
+                    let name = if !is_unresolved_identity(&info.name) {
+                        info.name.clone()
+                    } else if !fallback_name.trim().is_empty() {
+                        fallback_name
+                    } else {
+                        "Unknown".to_string()
+                    };
+                    let path = if !is_unresolved_identity(&info.path) {
+                        info.path.clone()
+                    } else {
+                        name.clone()
+                    };
+                    let path_lower = path.to_ascii_lowercase();
+                    let name_lower = name.to_ascii_lowercase();
+                    let decision = decisions
+                        .get(&path_lower)
+                        .or_else(|| decisions.get(&name_lower))
+                        .map(|decision| decision_label(decision).to_string());
+
+                    processes.push(ProcessInventoryEntry {
+                        pid,
+                        parent_pid: entry.th32ParentProcessID,
+                        thread_count: entry.cntThreads,
+                        name,
+                        path,
+                        observed_by_firewall: observed_pids.contains(&pid),
+                        suspicious: suspicious_pids.contains(&pid),
+                        pending_alert: active_alert_pid == Some(pid) || pending_pids.contains(&pid),
+                        decision,
+                    });
+
+                    if Process32NextW(snapshot, &mut entry).is_err() {
+                        break;
+                    }
+                }
+            }
+
+            let _ = CloseHandle(snapshot);
+        }
+
+        processes.sort_by(|a, b| {
+            b.pending_alert
+                .cmp(&a.pending_alert)
+                .then_with(|| b.suspicious.cmp(&a.suspicious))
+                .then_with(|| b.observed_by_firewall.cmp(&a.observed_by_firewall))
+                .then_with(|| a.name.cmp(&b.name))
+                .then_with(|| a.pid.cmp(&b.pid))
+        });
+        processes
     }
 
     /// Resolve PID from port using Windows TCP/UDP extended tables

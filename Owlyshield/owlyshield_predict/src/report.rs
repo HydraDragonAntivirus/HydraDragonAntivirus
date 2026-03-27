@@ -36,11 +36,35 @@ pub struct StartupEntry {
 pub struct ProcessSnapshot {
     pub pid: u32,
     pub gid: u32,
+    pub name: String,
     pub path: String,
+    pub command_line: Option<String>,
+    pub process_state: String,
     pub total_ops: u64,
     pub high_entropy_files: usize,
+    pub driver_message_count: usize,
+    pub ops_read: u64,
+    pub ops_written: u64,
+    pub ops_open: u64,
+    pub ops_setinfo: u64,
+    pub bytes_read: u64,
+    pub bytes_written: u64,
+    pub files_created: usize,
+    pub files_updated: usize,
+    pub files_deleted: usize,
+    pub directories_touched: usize,
     pub is_malicious: bool,
     pub detections: Vec<String>,
+    pub detection_details: Option<String>,
+    pub named_conditions: Vec<String>,
+    pub detected_apis: Vec<String>,
+    pub network_targets: Vec<String>,
+    pub rootkit_implicated: bool,
+    pub rootkit_findings: Vec<String>,
+    pub remediation_target: Option<String>,
+    pub signature_summary: String,
+    pub sample_created_paths: Vec<String>,
+    pub sample_updated_paths: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -126,6 +150,34 @@ impl SystemReport {
                 .then_with(|| a.label.cmp(&b.label))
                 .then_with(|| a.pid.cmp(&b.pid))
         });
+    }
+
+    fn format_bytes(bytes: u64) -> String {
+        const KB: f64 = 1024.0;
+        const MB: f64 = KB * 1024.0;
+        const GB: f64 = MB * 1024.0;
+
+        let value = bytes as f64;
+        if value >= GB {
+            format!("{:.2} GB", value / GB)
+        } else if value >= MB {
+            format!("{:.2} MB", value / MB)
+        } else if value >= KB {
+            format!("{:.2} KB", value / KB)
+        } else {
+            format!("{} B", bytes)
+        }
+    }
+
+    fn push_sample_lines(s: &mut String, label: &str, values: &[String]) {
+        if values.is_empty() {
+            return;
+        }
+
+        s.push_str(&format!("    {}:\n", label));
+        for value in values {
+            s.push_str(&format!("      - {}\n", value));
+        }
     }
 
     pub fn collect(
@@ -420,11 +472,77 @@ impl SystemReport {
         }
         for m in &self.monitored_processes {
             let status = if m.is_malicious { "!!! MALICIOUS !!!" } else { "Clean" };
-            s.push_str(&format!("P {} - G {} - {} - [{}] (Ops: {}, HighEntropy: {})\n", 
-                m.pid, m.gid, m.path, status, m.total_ops, m.high_entropy_files));
+            s.push_str(&format!(
+                "P {} - G {} - {} [{}]\n",
+                m.pid, m.gid, m.name, status
+            ));
+            s.push_str(&format!("    Path: {}\n", m.path));
+            s.push_str(&format!(
+                "    State: {} | Signature: {}\n",
+                m.process_state, m.signature_summary
+            ));
+            s.push_str(&format!(
+                "    Activity: total_ops={} driver_msgs={} high_entropy={}\n",
+                m.total_ops, m.driver_message_count, m.high_entropy_files
+            ));
+            s.push_str(&format!(
+                "    IRP Counters: read={} write={} open={} setinfo={}\n",
+                m.ops_read, m.ops_written, m.ops_open, m.ops_setinfo
+            ));
+            s.push_str(&format!(
+                "    Bytes: read={} written={}\n",
+                Self::format_bytes(m.bytes_read),
+                Self::format_bytes(m.bytes_written)
+            ));
+            s.push_str(&format!(
+                "    Files: created={} updated={} deleted={} dirs_touched={}\n",
+                m.files_created, m.files_updated, m.files_deleted, m.directories_touched
+            ));
+            if let Some(cmdline) = &m.command_line
+                && !cmdline.trim().is_empty()
+            {
+                s.push_str(&format!("    Command Line: {}\n", cmdline));
+            }
+            if let Some(remediation_target) = &m.remediation_target {
+                s.push_str(&format!("    Remediation Target: {}\n", remediation_target));
+            }
+            if !m.network_targets.is_empty() {
+                s.push_str(&format!(
+                    "    Network Targets: {}\n",
+                    m.network_targets.join(", ")
+                ));
+            }
+            if !m.detected_apis.is_empty() {
+                s.push_str(&format!(
+                    "    Detected APIs: {}\n",
+                    m.detected_apis.join(", ")
+                ));
+            }
+            if !m.named_conditions.is_empty() {
+                s.push_str(&format!(
+                    "    Named Conditions: {}\n",
+                    m.named_conditions.join(", ")
+                ));
+            }
             for det in &m.detections {
                 s.push_str(&format!("    - [DETECTION]: {}\n", det));
             }
+            if let Some(details) = &m.detection_details
+                && !details.trim().is_empty()
+            {
+                s.push_str(&format!("    Detection Details: {}\n", details));
+            }
+            if m.rootkit_implicated {
+                s.push_str("    Rootkit Implicated: YES\n");
+            }
+            if !m.rootkit_findings.is_empty() {
+                for finding in &m.rootkit_findings {
+                    s.push_str(&format!("    - [ROOTKIT]: {}\n", finding));
+                }
+            }
+            Self::push_sample_lines(&mut s, "Sample Created Paths", &m.sample_created_paths);
+            Self::push_sample_lines(&mut s, "Sample Updated Paths", &m.sample_updated_paths);
+            s.push('\n');
         }
         s.push_str("\n");
 

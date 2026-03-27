@@ -79,12 +79,48 @@
       registry_operations: ["set", "create", "delete"]
       min_matches: 1
 
+    service_reconfigure_api:
+      orderless: true
+      apis:
+        - "*ChangeServiceConfig*"
+        - "*ChangeServiceConfig2*"
+        - "*OpenSCManager*"
+        - "*OpenService*"
+        - "*CreateService*"
+        - "*RegCreateKey*"
+        - "*RegCreateKeyEx*"
+        - "*RegSetValue*"
+        - "*RegSetValueEx*"
+        - "*RegSetKeyValue*"
+        - "*NtLoadDriver*"
+        - "*ZwLoadDriver*"
+        - "*NtCreateKey*"
+        - "*ZwCreateKey*"
+        - "*NtSetValueKey*"
+        - "*ZwSetValueKey*"
+      api_threshold: 1
+      min_matches: 1
+
+    suspicious_driver_payload:
+      orderless: true
+      registry_value_data_patterns:
+        - "*.sys*"
+        - "*\\users\\*"
+        - "*\\appdata\\*"
+        - "*\\temp\\*"
+        - "*\\public\\*"
+        - "*\\downloads\\*"
+      min_matches: 1
+
   detection_logic:
-    condition: "driver_path_modification"
+    or:
+      - condition: "driver_path_modification"
+      - condition: "service_reconfigure_api"
+      - condition: "suspicious_driver_payload"
 
   response:
     notify_user: true
-    ask_user: true
+    ask_user: false
     terminate_process: true
     status_access_denied: true
     record: true
@@ -193,14 +229,30 @@
   named_conditions:
     raw_disk_write_access:
       orderless: true
+      apis:
+        - "*CreateFile*"
+        - "*ReadFile*"
+        - "*WriteFile*"
+        - "*DeviceIoControl*"
+        - "*NtCreateFile*"
+        - "*ZwCreateFile*"
+        - "*NtSetInformationFile*"
+        - "*ZwSetInformationFile*"
+        - "*NtFsControlFile*"
+        - "*ZwFsControlFile*"
       file_paths:
         - "*\\\\Device\\\\Harddisk*"
         - "*\\\\Device\\\\HarddiskVolume*"
         - "*\\\\Device\\\\Harddisk0\\\\DR0*"
+        - "*\\\\Device\\\\Harddisk0\\\\Partition*"
+        - "*\\\\Device\\\\HarddiskVolumeShadowCopy*"
         - "*\\\\Device\\\\RawDisk*"
         - "*\\\\??\\\\PhysicalDrive*"
         - "*\\\\?\\\\PhysicalDrive*"
         - "*\\\\\\\\.\\\\PhysicalDrive*"
+        - "*\\\\.\\\\PhysicalDrive*"
+        - "*\\\\PhysicalDrive*"
+        - "*physicaldrive*"
         - "*\\\\GLOBALROOT\\\\Device\\\\Harddisk*"
         - "*\\\\DosDevices\\\\PhysicalDrive*"
         - "*\\\\DosDevices\\\\ElRawDisk*"
@@ -208,7 +260,7 @@
         - "*\\\\.\\\\ElRawDisk*"
         - "*ElRawDisk*"
         - "*RawDisk*"
-      file_operations: ["read", "write", "create", "setinfo"]
+      file_operations: ["read", "write", "create", "setinfo", "delete"]
       min_matches: 1
 
   detection_logic:
@@ -216,7 +268,8 @@
 
   response:
     notify_user: true
-    ask_user: true
+    ask_user: false
+    terminate_process: true
     status_access_denied: true
     record: true
 
@@ -293,14 +346,34 @@
   named_conditions:
     protected_directory_write:
       orderless: true
+      apis:
+        - "*CreateFile*"
+        - "*WriteFile*"
+        - "*CopyFile*"
+        - "*CopyFileEx*"
+        - "*MoveFile*"
+        - "*MoveFileEx*"
+        - "*ReplaceFile*"
+        - "*NtCreateFile*"
+        - "*ZwCreateFile*"
+        - "*NtWriteFile*"
+        - "*ZwWriteFile*"
+        - "*NtSetInformationFile*"
+        - "*ZwSetInformationFile*"
       file_paths:
         - "C:\\Windows\\"
         - "C:\\Windows\\System32"
+        - "C:\\Windows\\System32\\drivers\\"
         - "C:\\Windows\\SysWOW64"
         - "C:\\Windows\\System"
+        - "C:\\Windows\\Tasks\\"
+        - "C:\\Windows\\Registration\\"
         - "C:\\Program Files"
         - "C:\\Program Files (x86)"
-      file_operations: ["create", "write"]
+        - "*.sys"
+        - "*.dll"
+        - "*.exe"
+      file_operations: ["create", "write", "setinfo"]
       min_matches: 1
 
     unsigned_caller:
@@ -323,7 +396,7 @@
 
   response:
     notify_user: true
-    ask_user: true
+    ask_user: false
     terminate_process: true
     status_access_denied: true
     record: true
@@ -353,7 +426,14 @@
       orderless: true
       apis:
         - "user32.dll!SetWinEventHook"
+        - "user32.dll!SetWinEventHookA"
+        - "user32.dll!SetWinEventHookW"
+        - "win32u.dll!NtUserSetWinEventHook"
         - "SetWinEventHook"
+        - "SetWinEventHookA"
+        - "SetWinEventHookW"
+        - "NtUserSetWinEventHook"
+        - "*SetWinEventHook*"
       api_threshold: 1
       min_matches: 1
 
@@ -367,8 +447,9 @@
 
   response:
     notify_user: true
-    ask_user: true
+    ask_user: false
     terminate_process: true
+    status_access_denied: true
     record: true
 
   tags: ["injection", "hook", "code-injection"]
@@ -398,9 +479,12 @@
         - "user32.dll!SetWindowsHookEx"
         - "user32.dll!SetWindowsHookExA"
         - "user32.dll!SetWindowsHookExW"
+        - "win32u.dll!NtUserSetWindowsHookEx"
+        - "NtUserSetWindowsHookEx"
         - "SetWindowsHookEx"
         - "SetWindowsHookExA"
         - "SetWindowsHookExW"
+        - "*SetWindowsHookEx*"
       api_threshold: 1
       min_matches: 1
 
@@ -414,8 +498,9 @@
 
   response:
     notify_user: true
-    ask_user: true
+    ask_user: false
     terminate_process: true
+    status_access_denied: true
     record: true
 
   tags: ["injection", "hook", "keyboard-logging", "credential-access"]
@@ -502,6 +587,9 @@
         - "ServiceDll"
         - "ServiceDllUnloadOnStop"
         - "Parameters"
+        - "Type"
+        - "Start"
+        - "ObjectName"
       min_matches: 1
 
     createservice_api:
@@ -509,10 +597,50 @@
       apis:
         - "advapi32.dll!CreateServiceA"
         - "advapi32.dll!CreateServiceW"
+        - "advapi32.dll!CreateServiceExA"
+        - "advapi32.dll!CreateServiceExW"
         - "CreateServiceA"
         - "CreateServiceW"
         - "CreateService"
+        - "CreateServiceExA"
+        - "CreateServiceExW"
       api_threshold: 1
+      min_matches: 1
+
+    service_control_api:
+      orderless: true
+      apis:
+        - "*OpenSCManager*"
+        - "*OpenService*"
+        - "*CreateService*"
+        - "*ChangeServiceConfig*"
+        - "*ChangeServiceConfig2*"
+        - "*StartService*"
+        - "*RegCreateKey*"
+        - "*RegCreateKeyEx*"
+        - "*RegSetValue*"
+        - "*RegSetValueEx*"
+        - "*RegSetKeyValue*"
+        - "*NtLoadDriver*"
+        - "*ZwLoadDriver*"
+        - "*NtCreateKey*"
+        - "*ZwCreateKey*"
+        - "*NtSetValueKey*"
+        - "*ZwSetValueKey*"
+      api_threshold: 1
+      min_matches: 1
+
+    suspicious_service_payload:
+      orderless: true
+      registry_value_data_patterns:
+        - "*.sys*"
+        - "*.dll*"
+        - "*\\users\\*"
+        - "*\\appdata\\*"
+        - "*\\temp\\*"
+        - "*\\public\\*"
+        - "*\\downloads\\*"
+        - "*rundll32*"
       min_matches: 1
 
     non_system_caller:
@@ -525,10 +653,12 @@
       - condition: "service_key_create"
       - condition: "service_registry_create"
       - condition: "createservice_api"
+      - condition: "service_control_api"
+      - condition: "suspicious_service_payload"
 
   response:
     notify_user: true
-    ask_user: true
+    ask_user: false
     terminate_process: true
     status_access_denied: true
     record: true
@@ -611,13 +741,20 @@
   named_conditions:
     dns_activity:
       orderless: true
+      apis:
+        - "*DnsQuery*"
+        - "*DnsQuery_A*"
+        - "*DnsQuery_W*"
+        - "*DnsQueryEx*"
+        - "*getaddrinfo*"
+        - "*GetAddrInfo*"
+        - "*QueryDnsConfig*"
       has_network_activity: true
       network_indicators:
         - "dns"
+      firewall_dst_ports: [53]
       dns_query_patterns:
-        - "*comodo*"
-        - "*leaktest*"
-        - "*test-dns*"
+        - "*"
       min_matches: 1
 
     process_unsigned:
@@ -626,12 +763,13 @@
       min_matches: 1
 
   detection_logic:
-    and:
-      - condition: "dns_activity"
-      - condition: "process_unsigned"
+    condition: "dns_activity"
 
   response:
     notify_user: true
+    ask_user: false
+    terminate_process: true
+    status_access_denied: true
     record: true
 
   tags: ["exfiltration", "dns", "c2", "network"]
@@ -662,10 +800,16 @@
         - "ole32.dll!CoGetObject"
         - "ole32.dll!CoGetClassObject"
         - "ole32.dll!CoCreateInstanceEx"
+        - "ole32.dll!CoCreateInstanceAsAdmin"
+        - "ole32.dll!CoInitializeSecurity"
+        - "ole32.dll!CoSetProxyBlanket"
         - "CoCreateInstance"
         - "CoGetObject"
         - "CoGetClassObject"
         - "CoCreateInstanceEx"
+        - "CoCreateInstanceAsAdmin"
+        - "CoInitializeSecurity"
+        - "CoSetProxyBlanket"
       api_threshold: 1
       min_matches: 1
 
@@ -675,9 +819,25 @@
         - "advapi32.dll!ImpersonateLoggedOnUser"
         - "advapi32.dll!SetThreadToken"
         - "advapi32.dll!DuplicateTokenEx"
+        - "advapi32.dll!OpenThreadToken"
+        - "advapi32.dll!OpenProcessToken"
+        - "advapi32.dll!AdjustTokenPrivileges"
+        - "advapi32.dll!ImpersonateNamedPipeClient"
+        - "advapi32.dll!CreateProcessWithTokenW"
+        - "advapi32.dll!CreateProcessAsUserW"
+        - "ntdll.dll!NtImpersonateThread"
+        - "ntdll.dll!NtSetInformationThread"
         - "ImpersonateLoggedOnUser"
         - "SetThreadToken"
         - "DuplicateTokenEx"
+        - "OpenThreadToken"
+        - "OpenProcessToken"
+        - "AdjustTokenPrivileges"
+        - "ImpersonateNamedPipeClient"
+        - "CreateProcessWithTokenW"
+        - "CreateProcessAsUserW"
+        - "NtImpersonateThread"
+        - "NtSetInformationThread"
       api_threshold: 1
       min_matches: 1
 
@@ -695,8 +855,9 @@
 
   response:
     notify_user: true
-    ask_user: true
+    ask_user: false
     terminate_process: true
+    status_access_denied: true
     record: true
 
   tags: ["impersonation", "com", "privilege-escalation"]
@@ -773,7 +934,41 @@
         - "ImagePath"
         - "ImagePathValue"
         - "ServiceDllUnloadOnStop"
+        - "FailureCommand"
+        - "DllName"
       registry_operations: ["set", "create", "delete"]
+      min_matches: 1
+
+    service_reconfigure_api:
+      orderless: true
+      apis:
+        - "*ChangeServiceConfig*"
+        - "*ChangeServiceConfig2*"
+        - "*OpenSCManager*"
+        - "*OpenService*"
+        - "*CreateService*"
+        - "*RegCreateKey*"
+        - "*RegCreateKeyEx*"
+        - "*RegSetValue*"
+        - "*RegSetValueEx*"
+        - "*RegSetKeyValue*"
+        - "*NtCreateKey*"
+        - "*ZwCreateKey*"
+        - "*NtSetValueKey*"
+        - "*ZwSetValueKey*"
+      api_threshold: 1
+      min_matches: 1
+
+    suspicious_service_dll_payload:
+      orderless: true
+      registry_value_data_patterns:
+        - "*.dll*"
+        - "*.sys*"
+        - "*\\users\\*"
+        - "*\\appdata\\*"
+        - "*\\temp\\*"
+        - "*\\public\\*"
+        - "*\\downloads\\*"
       min_matches: 1
 
     caller_unsigned:
@@ -782,11 +977,14 @@
       min_matches: 1
 
   detection_logic:
-    condition: "service_dll_modification"
+    or:
+      - condition: "service_dll_modification"
+      - condition: "service_reconfigure_api"
+      - condition: "suspicious_service_dll_payload"
 
   response:
     notify_user: true
-    ask_user: true
+    ask_user: false
     terminate_process: true
     status_access_denied: true
     record: true
@@ -817,6 +1015,16 @@
   named_conditions:
     startup_registry_modification:
       orderless: true
+      apis:
+        - "*RegCreateKey*"
+        - "*RegCreateKeyEx*"
+        - "*RegSetValue*"
+        - "*RegSetValueEx*"
+        - "*RegSetKeyValue*"
+        - "*NtCreateKey*"
+        - "*ZwCreateKey*"
+        - "*NtSetValueKey*"
+        - "*ZwSetValueKey*"
       registry_keys:
         - "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run"
         - "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\RunOnce"
@@ -830,18 +1038,65 @@
         - "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\RunServicesOnce"
         - "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer\\Run"
         - "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer\\Run"
+        - "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\StartupApproved\\Run"
+        - "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\StartupApproved\\Run"
       registry_operations: ["set", "create"]
       min_matches: 1
 
     startup_folder_write:
       orderless: true
+      apis:
+        - "*CreateFile*"
+        - "*WriteFile*"
+        - "*CopyFile*"
+        - "*CopyFileEx*"
+        - "*MoveFile*"
+        - "*MoveFileEx*"
+        - "*ReplaceFile*"
       file_paths:
+        - "*\\Startup\\*"
         - "\\Start Menu\\Programs\\Startup\\"
         - "\\Programs\\Startup\\"
         - "\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\"
         - "\\ProgramData\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\"
         - "\\AppData\\Roaming\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\"
-      file_operations: ["create", "write"]
+        - "*.lnk"
+        - "*.url"
+        - "*.hta"
+        - "*.js"
+        - "*.vbs"
+        - "*.cmd"
+        - "*.bat"
+      file_operations: ["create", "write", "setinfo"]
+      min_matches: 1
+
+    startup_value_payload:
+      orderless: true
+      registry_keys:
+        - "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run"
+        - "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\RunOnce"
+        - "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Run"
+        - "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\RunOnce"
+        - "HKLM\\Software\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Run"
+        - "HKLM\\Software\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\RunOnce"
+      registry_value_data_patterns:
+        - "*.exe*"
+        - "*.dll*"
+        - "*.lnk*"
+        - "*.hta*"
+        - "*.js*"
+        - "*.vbs*"
+        - "*.cmd*"
+        - "*.bat*"
+        - "*rundll32*"
+        - "*regsvr32*"
+        - "*powershell*"
+        - "*cmd.exe*"
+        - "*\\users\\*"
+        - "*\\appdata\\*"
+        - "*\\temp\\*"
+        - "*\\public\\*"
+      registry_operations: ["set", "create"]
       min_matches: 1
 
     caller_unsigned:
@@ -853,11 +1108,13 @@
     or:
       - condition: "startup_registry_modification"
       - condition: "startup_folder_write"
+      - condition: "startup_value_payload"
 
   response:
     notify_user: true
-    ask_user: true
+    ask_user: false
     terminate_process: true
+    status_access_denied: true
     record: true
     auto_revert: true
 
@@ -944,6 +1201,16 @@
   named_conditions:
     appinit_registry_modification:
       orderless: true
+      apis:
+        - "*RegCreateKey*"
+        - "*RegCreateKeyEx*"
+        - "*RegSetValue*"
+        - "*RegSetValueEx*"
+        - "*RegSetKeyValue*"
+        - "*NtCreateKey*"
+        - "*ZwCreateKey*"
+        - "*NtSetValueKey*"
+        - "*ZwSetValueKey*"
       registry_keys:
         - "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Windows"
         - "HKCU\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Windows"
@@ -955,17 +1222,35 @@
       registry_operations: ["set", "create"]
       min_matches: 1
 
+    appinit_payload:
+      orderless: true
+      registry_keys:
+        - "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Windows"
+        - "HKCU\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Windows"
+        - "HKLM\\SOFTWARE\\Wow6432Node\\Microsoft\\Windows NT\\CurrentVersion\\Windows"
+      registry_value_data_patterns:
+        - "*.dll*"
+        - "*AppData*"
+        - "*Temp*"
+        - "*Users*"
+        - "*\\public\\*"
+        - "*\\downloads\\*"
+      registry_operations: ["set", "create"]
+      min_matches: 1
+
     caller_unsigned:
       orderless: true
       is_signed: false
       min_matches: 1
 
   detection_logic:
-    condition: "appinit_registry_modification"
+    or:
+      - condition: "appinit_registry_modification"
+      - condition: "appinit_payload"
 
   response:
     notify_user: true
-    ask_user: true
+    ask_user: false
     terminate_process: true
     status_access_denied: true
     record: true
@@ -1128,10 +1413,21 @@
     hook_api_call:
       orderless: true
       apis:
+        - "user32.dll!SetWindowsHookA"
+        - "user32.dll!SetWindowsHookW"
         - "SetWinEventHook"
+        - "SetWinEventHookA"
+        - "SetWinEventHookW"
+        - "NtUserSetWinEventHook"
         - "SetWindowsHookEx"
         - "SetWindowsHookExA"
         - "SetWindowsHookExW"
+        - "SetWindowsHookA"
+        - "SetWindowsHookW"
+        - "NtUserSetWindowsHookEx"
+        - "*SetWinEventHook*"
+        - "*SetWindowsHookEx*"
+        - "*SetWindowsHook*"
       api_threshold: 1
       min_matches: 1
 
@@ -1145,8 +1441,9 @@
 
   response:
     notify_user: true
-    ask_user: true
+    ask_user: false
     terminate_process: true
+    status_access_denied: true
     record: true
 
   tags: ["injection", "hook", "code-injection"]

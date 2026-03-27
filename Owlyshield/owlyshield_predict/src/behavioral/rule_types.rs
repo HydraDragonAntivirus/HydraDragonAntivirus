@@ -184,19 +184,28 @@ impl CommandLinePattern {
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq)]
 pub enum RuleStatus {
     #[default]
+    #[serde(alias = "stable", alias = "production")]
     Stable,
+    #[serde(alias = "experimental")]
     Experimental,
+    #[serde(alias = "test")]
     Test,
+    #[serde(alias = "deprecated")]
     Deprecated,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq)]
 pub enum DetectionLevel {
+    #[serde(alias = "informational", alias = "info")]
     Informational,
+    #[serde(alias = "low")]
     Low,
     #[default]
+    #[serde(alias = "medium")]
     Medium,
+    #[serde(alias = "high")]
     High,
+    #[serde(alias = "critical")]
     Critical,
 }
 

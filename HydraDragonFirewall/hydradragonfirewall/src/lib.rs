@@ -109,6 +109,17 @@ async fn get_saved_logs<R: Runtime>(
 }
 
 #[tauri::command]
+async fn get_process_inventory<R: Runtime>(
+    handle: AppHandle<R>,
+) -> Result<Vec<crate::engine::ProcessInventoryEntry>, String> {
+    if let Some(engine) = wait_for_engine(&handle).await {
+        Ok(engine.get_process_inventory())
+    } else {
+        Err("Engine not initialized".to_string())
+    }
+}
+
+#[tauri::command]
 async fn save_settings(
     settings: crate::engine::FirewallSettings,
     handle: AppHandle,
@@ -597,6 +608,7 @@ pub fn run() {
             resolve_app_decision,
             get_settings,
             get_saved_logs,
+            get_process_inventory,
             save_settings,
             get_sdk_rules,
             get_rules_content,
