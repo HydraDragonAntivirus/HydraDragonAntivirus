@@ -376,6 +376,14 @@
       file_operations: ["create", "write", "setinfo"]
       min_matches: 1
 
+    prefetch_artifact_write:
+      orderless: true
+      file_paths:
+        - "C:\\Windows\\Prefetch\\"
+        - "*.pf"
+      file_operations: ["create", "write", "setinfo"]
+      min_matches: 1
+
     unsigned_caller:
       orderless: true
       is_signed: false
@@ -392,7 +400,13 @@
       min_matches: 1
 
   detection_logic:
-    condition: "protected_directory_write"
+    and:
+      - condition: "protected_directory_write"
+      - any_of:
+          - "unsigned_caller"
+          - "suspicious_caller_location"
+      - not:
+          condition: "prefetch_artifact_write"
 
   response:
     notify_user: true

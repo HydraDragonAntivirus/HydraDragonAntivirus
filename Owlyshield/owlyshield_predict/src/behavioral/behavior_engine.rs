@@ -5125,8 +5125,23 @@ impl BehaviorEngine {
             }
 
             let pid = state.pid;
-            let app_name = state.app_name.clone();
-            let exe_path_buf = state.exe_path.clone();
+            let mut app_name = state.app_name.clone();
+            let mut exe_path_buf = state.exe_path.clone();
+            let stale_name = app_name.is_empty() || app_name.starts_with("PROC_") || app_name == "UNKNOWN";
+            let stale_path = exe_path_buf.as_os_str().is_empty()
+                || exe_path_buf.to_string_lossy() == "UNKNOWN";
+
+            if stale_path
+                && let Some(resolved_path) = resolve_process_path(pid)
+            {
+                exe_path_buf = resolved_path.clone();
+                if stale_name
+                    && let Some(file_name) = resolved_path.file_name().and_then(|value| value.to_str())
+                {
+                    app_name = file_name.to_string();
+                }
+            }
+
             let exe_path_str = exe_path_buf.to_string_lossy().to_string();
 
             // Firewall-confirmed malicious network traffic: act immediately,
