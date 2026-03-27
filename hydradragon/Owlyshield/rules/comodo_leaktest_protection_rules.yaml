@@ -73,7 +73,7 @@
         - "HKLM\\SYSTEM\\ControlSet002\\Services"
       registry_values:
         - "ImagePath"
-      registry_operations: ["set", "create"]
+      registry_operations: ["set", "create", "delete"]
       registry_value_data_patterns:
         - "*\\.sys"
         - "*\\\\Temp\\\\*"
@@ -82,21 +82,8 @@
         - "*\\\\ProgramData\\\\*"
       min_matches: 1
 
-    driver_service_type:
-      orderless: true
-      registry_keys:
-        - "HKLM\\SYSTEM\\CurrentControlSet\\Services"
-        - "HKLM\\SYSTEM\\ControlSet001\\Services"
-        - "HKLM\\SYSTEM\\ControlSet002\\Services"
-      registry_values:
-        - "Type"
-      registry_operations: ["set", "create"]
-      min_matches: 1
-
   detection_logic:
-    and:
-      - condition: "driver_path_modification"
-      - condition: "driver_service_type"
+    condition: "driver_path_modification"
 
   response:
     notify_user: true
@@ -180,6 +167,32 @@
     Blocks raw disk access.
   debug: false
 
+  allowlisted_apps:
+    - pattern: "%SystemRoot%/System32/diskpart.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "%SystemRoot%/System32/bcdboot.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "%SystemRoot%/System32/reagentc.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "%SystemRoot%/System32/dism.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "%SystemRoot%/servicing/TrustedInstaller.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "%SystemRoot%/WinSxS/*/TiWorker.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+
   named_conditions:
     raw_disk_write_access:
       orderless: true
@@ -191,9 +204,13 @@
         - "IoCreateFile"
       file_paths:
         - "*\\\\Device\\\\Harddisk*"
+        - "*\\\\Device\\\\HarddiskVolume*"
+        - "*\\\\Device\\\\Harddisk0\\\\DR0*"
         - "*\\\\Device\\\\RawDisk*"
+        - "*\\\\??\\\\PhysicalDrive*"
         - "*\\\\\\\\.\\\\PhysicalDrive*"
-      file_operations: ["write", "create"]
+        - "*\\\\GLOBALROOT\\\\Device\\\\Harddisk*"
+      file_operations: ["read", "write", "create", "setinfo"]
       api_threshold: 1
       min_matches: 1
       registry_value_data_patterns: []
@@ -289,20 +306,27 @@
       file_operations: ["create", "write"]
       min_matches: 1
 
-    process_not_trusted:
+    unsigned_caller:
       orderless: true
       is_signed: false
+      min_matches: 1
+
+    suspicious_caller_location:
+      orderless: true
       file_paths:
         - "AppData"
         - "Temp"
         - "Public"
         - "Downloads"
+        - "Users"
       min_matches: 1
 
   detection_logic:
     and:
       - condition: "protected_directory_write"
-      - condition: "process_not_trusted"
+      - or:
+          - condition: "unsigned_caller"
+          - condition: "suspicious_caller_location"
 
   response:
     notify_user: true
@@ -336,23 +360,19 @@
       orderless: true
       apis:
         - "user32.dll!SetWinEventHook"
+        - "SetWinEventHook"
       api_threshold: 1
       min_matches: 1
 
-    hook_dll_injection:
+    unsigned_caller:
       orderless: true
-      apis:
-        - "user32.dll!SetWinEventHook"
-      file_paths:
-        - ".dll"
-        - "AppData"
-        - "Temp"
+      is_signed: false
       min_matches: 1
 
   detection_logic:
     and:
       - condition: "setwineventhook_call"
-      - condition: "hook_dll_injection"
+      - condition: "unsigned_caller"
 
   response:
     notify_user: true
@@ -387,23 +407,21 @@
         - "user32.dll!SetWindowsHookEx"
         - "user32.dll!SetWindowsHookExA"
         - "user32.dll!SetWindowsHookExW"
+        - "SetWindowsHookEx"
+        - "SetWindowsHookExA"
+        - "SetWindowsHookExW"
       api_threshold: 1
       min_matches: 1
 
-    hook_dll_path:
+    unsigned_caller:
       orderless: true
-      apis:
-        - "user32.dll!SetWindowsHookEx"
-        - "user32.dll!SetWindowsHookExA"
-        - "user32.dll!SetWindowsHookExW"
-      file_paths:
-        - ".dll"
+      is_signed: false
       min_matches: 1
 
   detection_logic:
     and:
       - condition: "setwindowshookex_call"
-      - condition: "hook_dll_path"
+      - condition: "unsigned_caller"
 
   response:
     notify_user: true
@@ -474,13 +492,22 @@
       signers: ["*Microsoft*"]
 
   named_conditions:
-    service_registry_create:
+    service_key_create:
       orderless: true
       registry_keys:
         - "HKLM\\SYSTEM\\CurrentControlSet\\Services"
         - "HKLM\\SYSTEM\\ControlSet001\\Services"
         - "HKLM\\SYSTEM\\ControlSet002\\Services"
       registry_operations: ["create"]
+      min_matches: 1
+
+    service_registry_create:
+      orderless: true
+      registry_keys:
+        - "HKLM\\SYSTEM\\CurrentControlSet\\Services"
+        - "HKLM\\SYSTEM\\ControlSet001\\Services"
+        - "HKLM\\SYSTEM\\ControlSet002\\Services"
+      registry_operations: ["create", "set"]
       registry_values:
         - "ImagePath"
       registry_value_data_patterns:
@@ -496,6 +523,9 @@
       apis:
         - "advapi32.dll!CreateServiceA"
         - "advapi32.dll!CreateServiceW"
+        - "CreateServiceA"
+        - "CreateServiceW"
+        - "CreateService"
       api_threshold: 1
       min_matches: 1
 
@@ -507,6 +537,7 @@
   detection_logic:
     and:
       - or:
+          - condition: "service_key_create"
           - condition: "service_registry_create"
           - condition: "createservice_api"
       - condition: "non_system_caller"
@@ -645,6 +676,9 @@
       apis:
         - "ole32.dll!CoCreateInstance"
         - "ole32.dll!CoGetObject"
+        - "CoCreateInstance"
+        - "CoGetObject"
+        - "CoCreateInstanceEx"
       api_threshold: 1
       min_matches: 1
 
@@ -654,13 +688,25 @@
         - "advapi32.dll!ImpersonateLoggedOnUser"
         - "advapi32.dll!SetThreadToken"
         - "advapi32.dll!DuplicateTokenEx"
+        - "ImpersonateLoggedOnUser"
+        - "SetThreadToken"
+        - "DuplicateTokenEx"
       api_threshold: 1
       min_matches: 1
 
+    unsigned_caller:
+      orderless: true
+      is_signed: false
+      min_matches: 1
+
   detection_logic:
-    and:
-      - condition: "cocreateinstance_api"
-      - condition: "impersonate_loggedon_user"
+    or:
+      - and:
+          - condition: "cocreateinstance_api"
+          - condition: "impersonate_loggedon_user"
+      - and:
+          - condition: "impersonate_loggedon_user"
+          - condition: "unsigned_caller"
 
   response:
     notify_user: true
@@ -741,7 +787,8 @@
         - "ServiceDll"
         - "ImagePath"
         - "ImagePathValue"
-      registry_operations: ["set", "create"]
+        - "ServiceDllUnloadOnStop"
+      registry_operations: ["set", "create", "delete"]
       min_matches: 1
 
     caller_unsigned:
@@ -793,8 +840,23 @@
         - "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Run"
         - "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\RunOnce"
         - "HKLM\\Software\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Run"
+        - "HKLM\\Software\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\RunOnce"
         - "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\RunServices"
+        - "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\RunServices"
+        - "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\RunServicesOnce"
+        - "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\RunServicesOnce"
+        - "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer\\Run"
+        - "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer\\Run"
       registry_operations: ["set", "create"]
+      min_matches: 1
+
+    startup_folder_write:
+      orderless: true
+      file_paths:
+        - "\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\"
+        - "\\ProgramData\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\"
+        - "\\AppData\\Roaming\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\"
+      file_operations: ["create", "write"]
       min_matches: 1
 
     caller_unsigned:
@@ -804,7 +866,9 @@
 
   detection_logic:
     and:
-      - condition: "startup_registry_modification"
+      - or:
+          - condition: "startup_registry_modification"
+          - condition: "startup_folder_write"
       - condition: "caller_unsigned"
 
   response:
@@ -904,22 +968,19 @@
       registry_values:
         - "AppInit_DLLs"
         - "LoadAppInit_DLLs"
+        - "RequireSignedAppInit_DLLs"
       registry_operations: ["set", "create"]
       min_matches: 1
 
-    appinit_dll_suspicious:
+    caller_unsigned:
       orderless: true
-      file_paths:
-        - ".dll"
-        - "AppData"
-        - "Temp"
-        - "ProgramData"
+      is_signed: false
       min_matches: 1
 
   detection_logic:
     and:
       - condition: "appinit_registry_modification"
-      - condition: "appinit_dll_suspicious"
+      - condition: "caller_unsigned"
 
   response:
     notify_user: true

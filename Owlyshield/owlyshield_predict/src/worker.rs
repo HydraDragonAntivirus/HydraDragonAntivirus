@@ -643,7 +643,6 @@ mod process_records {
     use crate::threat_handler::ThreatHandler;
     use sysinfo::{System, ProcessesToUpdate};
     use std::collections::{HashMap, HashSet};
-    use std::hash::{Hash, Hasher, DefaultHasher};
     #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
     use crate::behavioral::behavior_engine::BehaviorEngine;
     #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
@@ -1395,18 +1394,10 @@ mod process_records {
             self.startup_complete = true;
         }
         
-        /// Generate GID for discovered processes
-        /// NOTE: This must match your kernel's GID generation logic
-        fn generate_gid_for_discovery(&self, pid: u32, exepath: &PathBuf) -> u64 {
-            let mut hasher = DefaultHasher::new();
-            pid.hash(&mut hasher);
-            exepath.hash(&mut hasher);
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_secs()
-                .hash(&mut hasher);
-            hasher.finish()
+        /// Generate a PID-backed synthetic GID for user-mode discovered processes.
+        /// This keeps tracking stable and lets the driver action path fall back to PID.
+        fn generate_gid_for_discovery(&self, pid: u32, _exepath: &PathBuf) -> u64 {
+            Self::PID_FALLBACK_GID_MASK | (pid as u64)
         }
         
         /// Find GID by PID - needed because kernel GIDs and discovery GIDs may not match
@@ -1830,7 +1821,13 @@ mod process_records {
                             det.gid,
                             record,
                         );
-                        Logging::warning(&format!("[DETECTION] Process {} (GID: {}) marked malicious", record.appname, det.gid));
+                        let rule_name = det.triggered_rule_name.as_deref().unwrap_or("Behavioral Detection");
+                        Logging::warning(&format!(
+                            "[DETECTION] Process {} (GID: {}) marked malicious by rule '{}'",
+                            record.appname,
+                            det.gid,
+                            rule_name
+                        ));
                         ActionsOnKill::with_handler(threat_handler.clone_box())
                             .run_actions_with_info(config, record, &dummy_pred_mtrx, &threat_info);
 

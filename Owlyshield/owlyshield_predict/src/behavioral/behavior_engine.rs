@@ -1029,7 +1029,9 @@ impl ProcessBehaviorState {
                     timestamp_ms: SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64,
                 };
                 self.rootkit_findings.push(finding);
-                if kind.severity() >= 3 {
+                if matches!(kind, RootkitFindingKind::HiddenProcess)
+                    && msg.kernel_event_info.source_process_id != 0
+                {
                     self.rootkit_implicated = true;
                 }
                 
@@ -4991,7 +4993,7 @@ impl BehaviorEngine {
             kind: kind.clone(),
             description: description.clone(),
             address: msg.kernel_event_info.memory_address,
-            pid: msg.kernel_event_info.target_process_id, // target_pid is where the rootkit was found (e.g. hidden process PID)
+            pid: msg.kernel_event_info.source_process_id,
             extra: msg.kernel_event_info.raw_argument1,
             timestamp_ms: SystemTime::now()
                 .duration_since(UNIX_EPOCH)
@@ -5026,14 +5028,12 @@ impl BehaviorEngine {
             finding.address
         ));
 
-        // If a specific PID is implicated (hidden process), mark it.
-        if finding.pid != 0 {
-            if let Some(state) = self.process_states.values_mut()
-                .find(|s| s.pid == finding.pid)
-            {
+        // Only hidden-process findings identify a concrete user-mode PID.
+        if matches!(finding.kind, RootkitFindingKind::HiddenProcess) && finding.pid != 0 {
+            if let Some(state) = self.process_states.values_mut().find(|s| s.pid == finding.pid) {
                 state.rootkit_implicated = true;
                 Logging::warning(&format!(
-                    "[ROOTKIT] PID {} ({}) is rootkit-implicated",
+                    "[ROOTKIT] Hidden process PID {} ({}) is rootkit-implicated",
                     finding.pid, state.app_name
                 ));
             }

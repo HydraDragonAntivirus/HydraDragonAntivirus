@@ -201,6 +201,86 @@ fn build_proxy_log_entry(ev: &ProxyHttpEvent) -> LogEntry {
     }
 }
 
+const ACTIVITY_GRAPH_POINTS: usize = 24;
+const ACTIVITY_GRAPH_INTERVAL_MS: u64 = 2000;
+const ACTIVITY_GRAPH_WIDTH: f64 = 600.0;
+const ACTIVITY_GRAPH_HEIGHT: f64 = 150.0;
+const ACTIVITY_GRAPH_TOP_PADDING: f64 = 18.0;
+const ACTIVITY_GRAPH_BOTTOM_PADDING: f64 = 18.0;
+
+#[derive(Clone, Copy, Debug, Default)]
+struct ActivitySnapshot {
+    logs: usize,
+    raw_packets: usize,
+    proxy_events: usize,
+    prompts: usize,
+}
+
+impl ActivitySnapshot {
+    fn delta_units(self, previous: Self) -> u32 {
+        self.logs.saturating_sub(previous.logs) as u32
+            + self.raw_packets.saturating_sub(previous.raw_packets) as u32
+            + self.proxy_events.saturating_sub(previous.proxy_events) as u32
+            + self.prompts.saturating_sub(previous.prompts) as u32
+    }
+}
+
+fn activity_graph_points(samples: &[u32]) -> Vec<(f64, f64)> {
+    if samples.is_empty() {
+        return Vec::new();
+    }
+
+    let max_value = samples.iter().copied().max().unwrap_or(0).max(1) as f64;
+    let usable_height = ACTIVITY_GRAPH_HEIGHT - ACTIVITY_GRAPH_TOP_PADDING - ACTIVITY_GRAPH_BOTTOM_PADDING;
+    let step_x = if samples.len() > 1 {
+        ACTIVITY_GRAPH_WIDTH / (samples.len() - 1) as f64
+    } else {
+        ACTIVITY_GRAPH_WIDTH
+    };
+
+    samples
+        .iter()
+        .enumerate()
+        .map(|(index, value)| {
+            let normalized = (*value as f64) / max_value;
+            let x = index as f64 * step_x;
+            let y = ACTIVITY_GRAPH_TOP_PADDING + (1.0 - normalized) * usable_height;
+            (x, y)
+        })
+        .collect()
+}
+
+fn build_activity_line_path(samples: &[u32]) -> String {
+    let points = activity_graph_points(samples);
+    if points.is_empty() {
+        let baseline = ACTIVITY_GRAPH_HEIGHT - ACTIVITY_GRAPH_BOTTOM_PADDING;
+        return format!("M0,{baseline:.1} L{ACTIVITY_GRAPH_WIDTH:.1},{baseline:.1}");
+    }
+
+    let mut path = format!("M{:.1},{:.1}", points[0].0, points[0].1);
+    for (x, y) in points.iter().skip(1) {
+        path.push_str(&format!(" L{:.1},{:.1}", x, y));
+    }
+    path
+}
+
+fn build_activity_fill_path(samples: &[u32]) -> String {
+    let points = activity_graph_points(samples);
+    let baseline = ACTIVITY_GRAPH_HEIGHT - ACTIVITY_GRAPH_BOTTOM_PADDING;
+    if points.is_empty() {
+        return format!("M0,{baseline:.1} L{ACTIVITY_GRAPH_WIDTH:.1},{baseline:.1} Z");
+    }
+
+    let mut path = format!("M{:.1},{baseline:.1}", points[0].0);
+    for (x, y) in &points {
+        path.push_str(&format!(" L{:.1},{:.1}", x, y));
+    }
+    if let Some((last_x, _)) = points.last() {
+        path.push_str(&format!(" L{last_x:.1},{baseline:.1} Z"));
+    }
+    path
+}
+
 /// A body changer rule managed through the GUI.
 /// Serialised into rules.yaml as an SDK rule with action change_request_body
 /// or change_response_body.
@@ -490,10 +570,13 @@ fn default_queue_total() -> usize {
 pub fn App() -> impl IntoView {
     let (logs, set_logs) = create_signal(Vec::<LogEntry>::new());
     let (selected_log, set_selected_log) = create_signal(Option::<LogEntry>::None);
-    let (blocked_count, set_blocked_count) = create_signal(0);
-    let (_threats_count, set_threats_count) = create_signal(0);
-    let (allowed_count, set_allowed_count) = create_signal(0);
-    let (total_count, set_total_count) = create_signal(0);
+    let (blocked_count, set_blocked_count) = create_signal(0usize);
+    let (_threats_count, set_threats_count) = create_signal(0usize);
+    let (allowed_count, set_allowed_count) = create_signal(0usize);
+    let (total_count, set_total_count) = create_signal(0usize);
+    let (raw_packet_count, set_raw_packet_count) = create_signal(0usize);
+    let (proxy_event_count, set_proxy_event_count) = create_signal(0usize);
+    let (prompt_count, set_prompt_count) = create_signal(0usize);
 
     // Navigation State
     let (current_view, set_current_view) = create_signal(AppView::Dashboard);
@@ -731,7 +814,20 @@ pub fn App() -> impl IntoView {
     let (firefox_policy_ready, set_firefox_policy_ready) = create_signal(false);
     let (mitm_bypass_count, set_mitm_bypass_count) = create_signal(0usize);
     let (settings_loaded, set_settings_loaded) = create_signal(false);
-    let (_graph_data, set_graph_data) = create_signal(vec![180, 160, 170, 150, 140, 130, 110, 120, 100]);
+    let (graph_data, set_graph_data) = create_signal(vec![0u32; ACTIVITY_GRAPH_POINTS]);
+    let (last_activity_snapshot, set_last_activity_snapshot) =
+        create_signal(ActivitySnapshot::default());
+
+    let activity_line_path = create_memo(move |_| build_activity_line_path(&graph_data.get()));
+    let activity_fill_path = create_memo(move |_| build_activity_fill_path(&graph_data.get()));
+    let current_activity_rate = create_memo(move |_| {
+        let latest = graph_data.get().last().copied().unwrap_or_default() as f64;
+        latest / (ACTIVITY_GRAPH_INTERVAL_MS as f64 / 1000.0)
+    });
+    let peak_activity_rate = create_memo(move |_| {
+        let peak = graph_data.get().iter().copied().max().unwrap_or_default() as f64;
+        peak / (ACTIVITY_GRAPH_INTERVAL_MS as f64 / 1000.0)
+    });
 
     create_effect(move |_| {
         match current_view.get() {
@@ -745,10 +841,22 @@ pub fn App() -> impl IntoView {
 
     create_effect(move |_| {
         set_interval(move || {
-                let current_activity = (total_count.get() % 100) as u32;
-                let val = 180 - (current_activity.min(150));
-                set_graph_data.update(|v| { v.push(val); if v.len() > 10 { v.remove(0); } });
-            }, Duration::from_millis(2000));
+                let snapshot = ActivitySnapshot {
+                    logs: total_count.get_untracked(),
+                    raw_packets: raw_packet_count.get_untracked(),
+                    proxy_events: proxy_event_count.get_untracked(),
+                    prompts: prompt_count.get_untracked(),
+                };
+                let previous = last_activity_snapshot.get_untracked();
+                let delta = snapshot.delta_units(previous);
+                set_last_activity_snapshot.set(snapshot);
+                set_graph_data.update(|values| {
+                    values.push(delta);
+                    if values.len() > ACTIVITY_GRAPH_POINTS {
+                        values.remove(0);
+                    }
+                });
+            }, Duration::from_millis(ACTIVITY_GRAPH_INTERVAL_MS));
     });
 
     create_effect(move |_| {
@@ -795,6 +903,7 @@ pub fn App() -> impl IntoView {
             if let Ok(payload) = serde_wasm_bindgen::from_value::<serde_json::Value>(event) {
                 if let Some(payload_obj) = payload.get("payload") {
                     if let Ok(app) = serde_json::from_value::<PendingApp>(payload_obj.clone()) {
+                        set_prompt_count.update(|count| *count += 1);
                         set_pending_app.set(Some(app));
                     }
                 }
@@ -806,6 +915,7 @@ pub fn App() -> impl IntoView {
             if let Ok(payload) = serde_wasm_bindgen::from_value::<serde_json::Value>(event) {
                 if let Some(payload_obj) = payload.get("payload") {
                     if let Ok(pkt) = serde_json::from_value::<RawPacket>(payload_obj.clone()) {
+                        set_raw_packet_count.update(|count| *count += 1);
                         let pkt_log = build_raw_packet_log_entry(&pkt);
                         set_raw_packets.update(|p| {
                             p.push(pkt);
@@ -834,6 +944,7 @@ pub fn App() -> impl IntoView {
             if let Ok(payload) = serde_wasm_bindgen::from_value::<serde_json::Value>(event) {
                 if let Some(payload_obj) = payload.get("payload") {
                     if let Ok(ev) = serde_json::from_value::<ProxyHttpEvent>(payload_obj.clone()) {
+                        set_proxy_event_count.update(|count| *count += 1);
                         let http_log = build_proxy_log_entry(&ev);
                         set_proxy_events.update(|p| {
                             p.push(ev);
@@ -1041,15 +1152,27 @@ pub fn App() -> impl IntoView {
                                                             <stop offset="100%" style="stop-color:var(--accent-blue);stop-opacity:0" />
                                                         </linearGradient>
                                                     </defs>
-                                                    <path d="M0,150 L0,100 Q50,50 100,80 T200,60 T300,100 T400,40 T500,80 T600,60 V150 Z"
-                                                          fill="url(#grad1)" stroke="var(--accent-blue)" stroke-width="2" />
+                                                    <path
+                                                        d=move || activity_fill_path.get()
+                                                        fill="url(#grad1)"
+                                                        stroke="none"
+                                                    />
+                                                    <path
+                                                        d=move || activity_line_path.get()
+                                                        fill="none"
+                                                        stroke="var(--accent-blue)"
+                                                        stroke-width="2.5"
+                                                        stroke-linejoin="round"
+                                                        stroke-linecap="round"
+                                                    />
                                                 </svg>
                                                 <div class="graph-overlay" style="position: absolute; top: 20px; right: 20px; text-align: right">
                                                     <div class="traffic-stat">
-                                                        <span class="label">"REAL-TIME ACTIVITY"</span>
+                                                        <span class="label">"LIVE ACTIVITY"</span>
                                                         <span class="value" style="color:var(--accent-blue)">
-                                                            {move || format!("{:.1} PPS", (total_count.get() % 50) as f32 + 5.0)}
+                                                            {move || format!("{:.1} evt/s", current_activity_rate.get())}
                                                         </span>
+                                                        <span class="label">{move || format!("Peak {:.1} evt/s", peak_activity_rate.get())}</span>
                                                     </div>
                                                 </div>
                                             </div>
