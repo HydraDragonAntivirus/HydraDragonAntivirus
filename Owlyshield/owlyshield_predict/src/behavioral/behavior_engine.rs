@@ -2054,7 +2054,7 @@ impl BehaviorEngine {
 
         let mut last_error = String::new();
         let mut pipe_handle: Option<HANDLE> = None;
-        for attempt in 0..CONNECT_ATTEMPTS {
+        for _ in 0..CONNECT_ATTEMPTS {
             let wait_ok: BOOL = unsafe { WaitNamedPipeA(pcstr, CONNECT_TIMEOUT_MS) };
             if !wait_ok.as_bool() {
                 last_error = format!("WaitNamedPipeA(GetLastError={:?})", unsafe { GetLastError() });
@@ -4873,7 +4873,7 @@ impl BehaviorEngine {
                             if let Some(path) = process_path {
                                 let path_str = path.to_string_lossy().to_lowercase().replace("\\", "/");
                                 let pat_norm = pat_lc.replace("\\", "/");
-                                if path_str != pat_norm && !path_str.ends_with(&format!("/{}", pat_norm)) {
+                                if !matches_pattern(&self.regex_cache, &pat_norm, &path_str) {
                                     name_matched = false;
                                 }
                             } else {
