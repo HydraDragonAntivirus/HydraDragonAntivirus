@@ -165,6 +165,7 @@ pub struct FirewallDetection {
 }
 
 #[cfg(feature = "firewall")]
+#[allow(dead_code)]
 impl FirewallDetection {
     /// Derive a threat type label from the reason string.
     pub fn threat_type_label(&self) -> &'static str {
@@ -5065,6 +5066,7 @@ impl BehaviorEngine {
         }
     }
 
+    #[allow(dead_code)]
     pub fn scan_all_processes(&mut self, _config: &Config, _threat_handler: &dyn ThreatHandler) -> Vec<ProcessRecord> {
         let mut detected_processes = Vec::new();
         let gids: Vec<u64> = self.process_states.keys().cloned().collect();
@@ -5128,25 +5130,8 @@ impl BehaviorEngine {
                 }
             }
 
-            // Rootkit-implicated processes are immediately marked malicious.
-            if state.rootkit_implicated {
-                let mut p = ProcessRecord::new(gid, app_name.clone(), exe_path_buf.clone());
-                p.is_malicious = true;
-                p.pids.insert(pid);
-                p.termination_requested = true;
-                p.notify_user_requested = true;
-                p.triggered_rule_name = Some("RootkitHiddenProcess".to_string());
-                p.triggered_rule_details = Some(
-                    "Kernel rootkit telemetry implicated this process as hidden or tampered."
-                        .to_string(),
-                );
-                Logging::warning(&format!(
-                    "[ROOTKIT] Terminating rootkit-implicated process PID {} ({})",
-                    pid, app_name
-                ));
-                detected_processes.push(p);
-                continue;
-            }
+            // Rootkit telemetry should flow through the normal rule engine so
+            // `ask_user`, allowlists, and remediation policy stay consistent.
 
             for rule in &self.rules {
                 let script_file_opt = if state.script_file.is_empty() {

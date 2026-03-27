@@ -300,26 +300,25 @@ pub fn run() {
             worker.discover_existing_processes();
 
             // --- Event-driven worker loop ---
-            // Run heavyweight process scans on a short cadence instead of every message
-            // to keep up with high-volume file I/O.
-            let mut last_scan = std::time::Instant::now();
-            let scan_interval = std::time::Duration::from_millis(750);
-            let mut msgs_since_scan: usize = 0;
+            // Detection runs inline on each event. Keep only lightweight
+            // housekeeping on a short cadence for suspended/dead records.
+            let mut last_housekeeping = std::time::Instant::now();
+            let housekeeping_interval = std::time::Duration::from_millis(750);
+            let mut msgs_since_housekeeping: usize = 0;
             while let Ok(mut iomsg) = rx_iomsgs.recv() {
 
                 // Process the incoming IO message immediately
                 worker.process_io(&mut iomsg, &thread_config);
 
-                msgs_since_scan += 1;
-                if msgs_since_scan >= 256 || last_scan.elapsed() >= scan_interval {
+                msgs_since_housekeeping += 1;
+                if msgs_since_housekeeping >= 256 || last_housekeeping.elapsed() >= housekeeping_interval {
                     if let Some(handler) = worker.threat_handler.as_ref() {
-                        let th_scan = handler.clone_box();
                         let th_suspended = handler.clone_box();
-                        worker.scan_processes(&thread_config, th_scan);
+                        worker.validate_tracked_processes();
                         worker.process_suspended_records(&thread_config, th_suspended);
                     }
-                    msgs_since_scan = 0;
-                    last_scan = std::time::Instant::now();
+                    msgs_since_housekeeping = 0;
+                    last_housekeeping = std::time::Instant::now();
                 }
             }
         });

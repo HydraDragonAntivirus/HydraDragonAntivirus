@@ -34,6 +34,7 @@
     condition: "ssdt_hooked"
 
   response:
+    ask_user: true
     terminate_process: true
     notify_user: true
     record: true
@@ -174,6 +175,7 @@
     condition: "uefi_boot_file_tamper"
 
   response:
+    ask_user: true
     terminate_process: true
     kill_and_remove: true
     notify_user: true
@@ -235,6 +237,7 @@
     condition: "uefi_boot_config_tamper"
 
   response:
+    ask_user: true
     terminate_process: true
     notify_user: true
     record: true
@@ -294,6 +297,7 @@
     condition: "hidden_proc"
 
   response:
+    ask_user: true
     terminate_process: true
     notify_user: true
     record: true
@@ -327,6 +331,7 @@
     condition: "hidden_drv"
 
   response:
+    ask_user: true
     terminate_process: true
     notify_user: true
     record: true
@@ -361,6 +366,7 @@
     condition: "kernel_hook"
 
   response:
+    ask_user: true
     terminate_process: true
     notify_user: true
     record: true
@@ -411,6 +417,7 @@
       - condition: "injection_apis"
 
   response:
+    ask_user: true
     terminate_process: true
     quarantine: true
     notify_user: true
@@ -460,6 +467,7 @@
     threshold: 2
 
   response:
+    ask_user: true
     terminate_process: true
     quarantine: true
     notify_user: true
@@ -494,6 +502,7 @@
     condition: "createfile_hook"
 
   response:
+    ask_user: true
     terminate_process: true
     notify_user: true
     record: true

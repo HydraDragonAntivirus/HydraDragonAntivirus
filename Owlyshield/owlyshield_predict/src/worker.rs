@@ -768,11 +768,6 @@ mod process_records {
         pub config: &'a Config,
         whitelist: Option<&'a WhiteList>,
         process_records: ProcessRecords,
-        /// Set to true after discover_existing_processes() completes.
-        /// Prevents scan_all_processes() from being called on every
-        /// IrpProcessCreate during the startup kernel-flood, which would
-        /// create a multi-minute backlog that delays real-time detection.
-        startup_complete: bool,
         process_record_handler: Option<Box<dyn ProcessRecordIOHandler + 'a>>,
         exepath_handler: Box<dyn Exepath>,
         iomsg_postprocessors: Vec<Box<dyn IOMsgPostProcessor>>,
@@ -1053,6 +1048,7 @@ mod process_records {
         }
 
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+        #[allow(dead_code)]
         fn apply_behavior_detection_state(record: &mut ProcessRecord, det: &ProcessRecord) {
             record.is_malicious = true;
             record.termination_requested = det.termination_requested;
@@ -1072,6 +1068,7 @@ mod process_records {
         }
 
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+        #[allow(dead_code)]
         fn build_behavior_threat_info<'b>(det: &'b ProcessRecord, context: &str) -> ThreatInfo<'b> {
             let mut virus_name = det
                 .triggered_rule_name
@@ -1296,7 +1293,6 @@ mod process_records {
                 config,
                 whitelist: None,
                 process_records: ProcessRecords::new(),
-                startup_complete: false,
                 process_record_handler: None,
                 exepath_handler: Box::<ExepathLive>::default(),
                 threat_handler: None,
@@ -1410,9 +1406,6 @@ mod process_records {
                 discovered_count, skipped_count
             ));
 
-            // Mark startup as complete so process_io() can resume
-            // scan_all_processes() on new process creation events.
-            self.startup_complete = true;
         }
         
         /// Generate a PID-backed synthetic GID for user-mode discovered processes.
@@ -1698,6 +1691,7 @@ mod process_records {
         }
 
         /// Scan all tracked processes for behavioral detections
+        #[allow(dead_code)]
         pub fn scan_processes(&mut self, config: &Config, threat_handler: Box<dyn ThreatHandler>) {
             #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
             {
@@ -1950,7 +1944,6 @@ mod process_records {
                 config,
                 whitelist: Some(whitelist),
                 process_records: ProcessRecords::new(),
-                startup_complete: true, // replay mode has no startup flood
                 process_record_handler: Some(Box::new(ProcessRecordHandlerReplay::new(config))),
                 exepath_handler: Box::<ExePathReplay>::default(),
                 iomsg_postprocessors: vec![],
@@ -2092,11 +2085,6 @@ mod process_records {
                 self.refresh_dynamic_hooks_for_pid_if_due(iomsg.pid);
             }
 
-            #[allow(unused_mut)]
-            let mut cleanup_after_creation_detection = false;
-            #[allow(unused_mut, unused_variables)]
-            let mut creation_detected_malicious = false;
-
             #[cfg(all(target_os = "windows", feature = "behavior_engine", feature = "firewall"))]
             if is_process_create && self.threat_handler.is_some() {
                 self.sync_firewall_process_contexts();
@@ -2107,34 +2095,6 @@ mod process_records {
                 // immediately so pre-loaded malware state is caught on creation.
                 // Skipped during startup_complete=false to avoid the O(n²)
                 // per-IrpProcessCreate scan backlog; the periodic 750ms scan covers it.
-                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-                if is_process_create
-                    && self.startup_complete {
-                    if let Some(threat_handler) = self.threat_handler.as_ref() {
-                        let detections = self.behavior_engine.scan_all_processes(config, &**threat_handler);
-                        for det in detections {
-                            if det.gid == tracking_key {
-                                let dummy_pred_mtrx = VecvecCappedF32::new(0, 0);
-                                let threat_info = Self::build_behavior_threat_info(&det, "creation-time behavior scan");
-
-                                Self::apply_behavior_detection_state(precord, &det);
-                                ActionsOnKill::with_handler(threat_handler.clone_box())
-                                    .run_actions_with_info(config, precord, &dummy_pred_mtrx, &threat_info);
-                                creation_detected_malicious = true;
-                                Logging::info(&format!(
-                                    "[BEHAVIOR SCAN] Process {} (GID: {}, PID: {}) triggered detection on creation",
-                                    precord.appname, precord.gid, iomsg.pid
-                                ));
-
-                                if det.termination_requested {
-                                    cleanup_after_creation_detection = true;
-                                }
-                                break;
-                            }
-                        }
-                    }
-                }
-
                 // Add IRP record to process
                 #[cfg(all(target_os = "windows", feature = "hydradragon"))]
                 {
@@ -2165,18 +2125,7 @@ mod process_records {
                     );
                 }
 
-                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-                if creation_detected_malicious {
-                    #[cfg(feature = "realtime_learning")]
-                    Self::mark_realtime_process_malicious(
-                        &mut self.learning_engine,
-                        &self.api_trackers,
-                        tracking_key,
-                        precord,
-                    );
-                }
-
-                if !cleanup_after_creation_detection {
+                {
                     // Heal stale appname/exepath before ANY detection runs.
                     // register_precord may have left "PROC_<pid>" / "UNKNOWN" if the
                     // IrpProcessCreate event hasn't arrived yet.  Try the exepath handler
@@ -2250,11 +2199,6 @@ mod process_records {
                         postprocessor.postprocess(iomsg, precord);
                     }
                 }
-            }
-
-            #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-            if cleanup_after_creation_detection {
-                self.cleanup_process(tracking_key, "Killed (behavior detection on creation)");
             }
 
             // FIX: Cleanup on termination - works regardless of feature flags
