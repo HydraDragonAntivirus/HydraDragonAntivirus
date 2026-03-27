@@ -4931,13 +4931,23 @@ impl BehaviorEngine {
     }
 
     fn matches_pattern_internal(cache: &Arc<RwLock<HashMap<String, Regex>>>, pattern: &str, text: &str) -> bool {
-        if !pattern.contains(['*', '?', '[', '\\', '.', '^', '$']) {
-            return text.to_lowercase().contains(&pattern.to_lowercase());
+        let trimmed = pattern.trim();
+        if trimmed.is_empty() {
+            return false;
+        }
+
+        let has_glob = trimmed.contains('*') || trimmed.contains('?');
+        let is_explicit_regex = trimmed.starts_with("(?")
+            || trimmed.starts_with('^')
+            || trimmed.ends_with('$');
+
+        if !has_glob && !is_explicit_regex {
+            return text.to_lowercase().contains(&trimmed.to_lowercase());
         }
 
         {
             if let Ok(cache_map) = cache.read() {
-                if let Some(re) = cache_map.get(pattern) {
+                if let Some(re) = cache_map.get(trimmed) {
                     return re.is_match(text);
                 }
             }
@@ -4945,27 +4955,29 @@ impl BehaviorEngine {
 
         let mut cache_map = cache.write().unwrap();
         
-        if let Some(re) = cache_map.get(pattern) {
+        if let Some(re) = cache_map.get(trimmed) {
             return re.is_match(text);
         }
 
-        let regex_str = if pattern.contains('*') || pattern.contains('?') {
-            let escaped = regex::escape(pattern)
+        let regex_str = if has_glob {
+            let escaped = regex::escape(trimmed)
                 .replace("\\*", ".*")
                 .replace("\\?", ".");
             format!("(?i)^{}$", escaped)
+        } else if trimmed.starts_with("(?") {
+            trimmed.to_string()
         } else {
-            format!("(?i){}", pattern)
+            format!("(?i){}", trimmed)
         };
 
         match Regex::new(&regex_str) {
             Ok(re) => {
                 let is_match = re.is_match(text);
-                cache_map.insert(pattern.to_string(), re);
+                cache_map.insert(trimmed.to_string(), re);
                 is_match
             }
             Err(_) => {
-                text.to_lowercase().contains(&pattern.to_lowercase())
+                text.to_lowercase().contains(&trimmed.to_lowercase())
             }
         }
     }
