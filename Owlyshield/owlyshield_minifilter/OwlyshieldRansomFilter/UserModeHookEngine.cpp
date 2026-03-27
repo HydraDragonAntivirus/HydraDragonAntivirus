@@ -3093,7 +3093,7 @@ NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROC
                                              NtCurrentProcess(),
                                              &targetDeviceHandle,
                                              0,
-                                             0,
+                                             OBJ_PROTECT_CLOSE,
                                              DUPLICATE_SAME_ACCESS);
                 if (!NT_SUCCESS(status) || targetDeviceHandle == NULL)
                 {

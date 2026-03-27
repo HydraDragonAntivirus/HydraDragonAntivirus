@@ -18,3 +18,4 @@
 !include rootkit_detection.yaml
 !include ca_key_protection_rules.yaml
 !include comodo_leaktest_protection_rules.yaml
+!include critical_process_abuse_rules.yaml

@@ -17,7 +17,10 @@ use crate::extensions::ExtensionList;
 use crate::predictions::prediction::input_tensors::VecvecCappedF32;
 use crate::threat_handler::ThreatHandler;
 use crate::signature_verification::verify_signature;
-use crate::utils::{format_process_descriptor_with_fallback, resolve_process_path, validate_pipe_client};
+use crate::utils::{
+    format_process_descriptor_with_fallback, resolve_process_path,
+    suspicious_critical_process_reason, validate_pipe_client,
+};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use num::FromPrimitive;
@@ -5164,6 +5167,38 @@ impl BehaviorEngine {
                         pid, app_name, state.irp_stats.get_injection_api_count()
                     ));
                 }
+            }
+
+            let critical_image_display = if !exe_path_str.is_empty()
+                && !exe_path_str.eq_ignore_ascii_case("unknown")
+            {
+                exe_path_str.clone()
+            } else {
+                app_name.clone()
+            };
+            if let Some(reason) = suspicious_critical_process_reason(
+                state.pid,
+                &critical_image_display,
+                state.is_signed,
+                state.has_valid_signature,
+            ) {
+                let mut p = ProcessRecord::new(
+                    gid,
+                    app_name.clone(),
+                    exe_path_buf.clone(),
+                );
+                p.is_malicious = true;
+                p.pids.insert(pid);
+                p.deny_access_requested = true;
+                p.termination_requested = true;
+                p.quarantine_requested = true;
+                p.notify_user_requested = true;
+                p.triggered_rule_name =
+                    Some("HEUR:Win.DefEvasion.CriticalProcessAbuse.gen".to_string());
+                p.triggered_rule_details = Some(reason);
+                p.remediation_target_path = Some(exe_path_buf.clone());
+                detected_processes.push(p);
+                continue;
             }
 
             // Rootkit telemetry should flow through the normal rule engine so

@@ -7,16 +7,6 @@ pub static FILE_TIME_FORMAT: &str = "%Y%m%d_%H%M%S";
 pub static LOG_TIME_FORMAT: &str = "%b %d %H:%M:%S";
 
 #[cfg(target_os = "windows")]
-pub fn protected_process_path_reason(_path: &Path) -> Option<String> {
-    None
-}
-
-#[cfg(not(target_os = "windows"))]
-pub fn protected_process_path_reason(_path: &Path) -> Option<String> {
-    None
-}
-
-#[cfg(target_os = "windows")]
 pub fn protected_process_reason(pid: u32, _fallback_path: Option<&Path>) -> Option<String> {
     if pid == 0 {
         return Some("PID 0 is not a terminable user process".to_string());
@@ -75,29 +65,50 @@ pub fn protected_process_record_reason(proc: &ProcessRecord) -> Option<String> {
 
 pub fn suspicious_critical_process_record_reason(proc: &ProcessRecord) -> Option<String> {
     for pid in &proc.pids {
-        if is_process_marked_critical(*pid) {
-            if proc.has_valid_signature {
-                return None;
-            }
+        let image = if proc.exepath.as_os_str().is_empty() {
+            proc.appname.clone()
+        } else {
+            proc.exepath.display().to_string()
+        };
 
-            let image = if proc.exepath.as_os_str().is_empty() {
-                proc.appname.clone()
-            } else {
-                proc.exepath.display().to_string()
-            };
-            let signature_state = if proc.is_signed {
-                "signed but not trusted"
-            } else {
-                "unsigned"
-            };
-            return Some(format!(
-                "PID {} ({}) is marked critical and the image is {}",
-                pid, image, signature_state
-            ));
+        if let Some(reason) = suspicious_critical_process_reason(
+            *pid,
+            &image,
+            proc.is_signed,
+            proc.has_valid_signature,
+        ) {
+            return Some(reason);
         }
     }
 
     None
+}
+
+pub fn suspicious_critical_process_reason(
+    pid: u32,
+    image_display: &str,
+    is_signed: bool,
+    has_valid_signature: bool,
+) -> Option<String> {
+    if !is_process_marked_critical(pid) || has_valid_signature {
+        return None;
+    }
+
+    let normalized_image = if image_display.trim().is_empty() {
+        "<unknown>"
+    } else {
+        image_display
+    };
+    let signature_state = if is_signed {
+        "signed but not trusted"
+    } else {
+        "unsigned"
+    };
+
+    Some(format!(
+        "PID {} ({}) is marked critical and the image is {}",
+        pid, normalized_image, signature_state
+    ))
 }
 
 pub fn resolve_process_path(pid: u32) -> Option<PathBuf> {
@@ -256,20 +267,4 @@ pub unsafe fn validate_pipe_client(pipe_handle: ::windows::Win32::Foundation::HA
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::Path;
-
-    #[test]
-    fn test_protected_process_path_reason_is_disabled() {
-        assert!(protected_process_path_reason(Path::new(r"C:\Windows\System32\svchost.exe")).is_none());
-        assert!(protected_process_path_reason(Path::new(r"c:\windows\system32\LSASS.EXE")).is_none());
-        assert!(protected_process_path_reason(Path::new(r"C:\Windows\explorer.exe")).is_none());
-        assert!(protected_process_path_reason(Path::new(r"\Device\HarddiskVolume3\Windows\System32\services.exe")).is_none());
-        assert!(protected_process_path_reason(Path::new(r"\??\C:\Windows\System32\csrss.exe")).is_none());
-        assert!(protected_process_path_reason(Path::new(r"\SystemRoot\System32\smss.exe")).is_none());
-        assert!(protected_process_path_reason(Path::new(r"\SystemRoot\System32\wininit.exe")).is_none());
-        assert!(protected_process_path_reason(Path::new(r"C:\Users\Admin\Downloads\malware.exe")).is_none());
-        assert!(protected_process_path_reason(Path::new(r"C:\Windows\System32\notepad.exe")).is_none());
-        assert!(protected_process_path_reason(Path::new(r"C:\Program Files\Google\Chrome\Application\chrome.exe")).is_none());
-        assert!(protected_process_path_reason(Path::new("")).is_none());
-    }
 }
