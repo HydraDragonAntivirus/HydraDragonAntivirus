@@ -878,6 +878,27 @@ mod process_records {
             false
         }
 
+        fn is_rootkit_irp(irp_op: &IrpMajorOp) -> bool {
+            matches!(
+                irp_op,
+                IrpMajorOp::IrpRootkitSsdtHook
+                    | IrpMajorOp::IrpRootkitHiddenProcess
+                    | IrpMajorOp::IrpRootkitHiddenDriver
+                    | IrpMajorOp::IrpRootkitKernelHook
+                    | IrpMajorOp::IrpRootkitTerminateProcess
+                    | IrpMajorOp::IrpRootkitFileMove
+                    | IrpMajorOp::IrpRootkitGeneric
+            )
+        }
+
+        fn is_unattributed_rootkit_event(iomsg: &IOMessage, irp_op: &IrpMajorOp) -> bool {
+            Self::is_rootkit_irp(irp_op)
+                && iomsg.gid == 0
+                && iomsg.pid == 0
+                && iomsg.attacker_pid == 0
+                && iomsg.kernel_event_info.source_process_id == 0
+        }
+
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
         fn build_behavior_engine() -> BehaviorEngine {
             #[cfg(feature = "firewall")]
@@ -2038,6 +2059,17 @@ mod process_records {
             let irp_op = IrpMajorOp::from_byte(iomsg.irp_op);
             let _is_process_create = irp_op == IrpMajorOp::IrpProcessCreate;
             let is_process_terminate = irp_op == IrpMajorOp::IrpProcessTerminate;
+
+            #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+            if Self::is_unattributed_rootkit_event(iomsg, &irp_op) {
+                Logging::warning(&format!(
+                    "[ROOTKIT] Routing unattributed kernel finding through global handler only: opcode={:?} desc={}",
+                    irp_op,
+                    iomsg.kernel_event_info.object_name.trim_matches('\0')
+                ));
+                self.behavior_engine.handle_rootkit_event(iomsg);
+                return;
+            }
             
             // Register or update process record based on kernel event
             self.register_precord(iomsg);

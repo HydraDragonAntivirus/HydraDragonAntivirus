@@ -1020,19 +1020,32 @@ impl ProcessBehaviorState {
             | IrpMajorOp::IrpRootkitFileMove
             | IrpMajorOp::IrpRootkitGeneric => {
                 let kind = RootkitFindingKind::from_irp_op(irp_kind);
-                let finding = RootkitFinding {
-                    kind: kind.clone(),
-                    description: msg.kernel_event_info.object_name.trim_matches('\0').to_string(),
-                    address: msg.kernel_event_info.memory_address,
-                    pid: msg.kernel_event_info.source_process_id,
-                    extra: msg.kernel_event_info.raw_argument1,
-                    timestamp_ms: SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64,
-                };
-                self.rootkit_findings.push(finding);
-                if matches!(kind, RootkitFindingKind::HiddenProcess)
-                    && msg.kernel_event_info.source_process_id != 0
-                {
-                    self.rootkit_implicated = true;
+                let owner_pid = msg.kernel_event_info.source_process_id;
+                let attaches_to_state = owner_pid != 0
+                    && self.pid != 0
+                    && (self.pid == owner_pid || self.pid == msg.pid);
+
+                if attaches_to_state {
+                    let finding = RootkitFinding {
+                        kind: kind.clone(),
+                        description: msg.kernel_event_info.object_name.trim_matches('\0').to_string(),
+                        address: msg.kernel_event_info.memory_address,
+                        pid: owner_pid,
+                        extra: msg.kernel_event_info.raw_argument1,
+                        timestamp_ms: SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64,
+                    };
+                    self.rootkit_findings.push(finding);
+                    if matches!(kind, RootkitFindingKind::HiddenProcess) {
+                        self.rootkit_implicated = true;
+                    }
+                } else {
+                    Logging::warning(&format!(
+                        "[ROOTKIT DETECTED] Unattributed {:?} finding not attached to process state pid={} src_pid={} msg_pid={}",
+                        kind,
+                        self.pid,
+                        owner_pid,
+                        msg.pid
+                    ));
                 }
                 
                 Logging::warning(&format!(
@@ -5053,6 +5066,10 @@ impl BehaviorEngine {
                 Some(s) => s.clone(),
                 None => continue,
             };
+
+            if state.pid == 0 {
+                continue;
+            }
 
             let pid = state.pid;
             let app_name = state.app_name.clone();
