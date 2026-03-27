@@ -2031,8 +2031,6 @@ impl BehaviorEngine {
         reason: &str,
     ) -> bool {
         use std::ffi::CString;
-        use std::thread::sleep;
-        use std::time::Duration;
         use windows::core::PCSTR;
         use windows::Win32::Foundation::{BOOL, CloseHandle, GetLastError, HANDLE};
         use windows::Win32::Storage::FileSystem::{
@@ -2044,7 +2042,6 @@ impl BehaviorEngine {
         const PIPE: &str = r"\\.\pipe\HydraHipEvent";
         const CONNECT_TIMEOUT_MS: u32 = 750;
         const CONNECT_ATTEMPTS: usize = 4;
-        const RETRY_DELAY_MS: u64 = 125;
 
         let pipe_name = match CString::new(PIPE) {
             Ok(value) => value,
@@ -2086,9 +2083,6 @@ impl BehaviorEngine {
                 }
             }
 
-            if attempt + 1 < CONNECT_ATTEMPTS {
-                sleep(Duration::from_millis(RETRY_DELAY_MS));
-            }
         }
 
         let Some(pipe_handle) = pipe_handle else {
