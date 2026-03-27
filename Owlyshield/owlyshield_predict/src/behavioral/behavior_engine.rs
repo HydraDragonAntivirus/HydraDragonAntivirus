@@ -375,13 +375,6 @@ impl IrpStatistics {
             | IrpMajorOp::IrpKernelCreateSection
             | IrpMajorOp::IrpKernelMapSection => {
                 self.hypervisor_event_count += 1;
-                let event_name = if rec.function_name.is_empty() {
-                    known_raw_event_name(rec.irp_type as u32)
-                        .map(|name| name.to_string())
-                        .unwrap_or_else(|| "IRP_HYPERVISOR_EVENT".to_string())
-                } else {
-                    rec.function_name.clone()
-                };
                 let details = if rec.function_name.is_empty() {
                     "API Hooking Event".to_string()
                 } else {
@@ -392,7 +385,9 @@ impl IrpStatistics {
                     IrpMajorOp::from_byte(rec.irp_type),
                     &details,
                 );
-                self.all_apis_called.insert(event_name);
+                if is_real_api_observation(&rec.function_name) {
+                    self.all_apis_called.insert(rec.function_name.clone());
+                }
             },
             
             _ => {},
@@ -673,6 +668,64 @@ fn normalize_hypervisor_api_label(raw: &str) -> String {
     value.trim().to_string()
 }
 
+fn canonical_hypervisor_event_label(irp_op: &IrpMajorOp, raw_event_type: u32) -> Option<String> {
+    let resolved = match raw_event_type {
+        12..=20 => IrpMajorOp::from_byte(raw_event_type as u8),
+        _ => irp_op.clone(),
+    };
+    match resolved {
+        IrpMajorOp::IrpHypervisorEvent
+        | IrpMajorOp::IrpUserModeHookEvent
+        | IrpMajorOp::IrpKernelRemoteThread
+        | IrpMajorOp::IrpKernelWriteMemory
+        | IrpMajorOp::IrpKernelProtectMemory
+        | IrpMajorOp::IrpKernelCreateThread
+        | IrpMajorOp::IrpKernelQueueApc
+        | IrpMajorOp::IrpKernelCreateSection
+        | IrpMajorOp::IrpKernelMapSection => Some(format!("{:?}", resolved)),
+        _ => None,
+    }
+}
+
+fn is_generic_hypervisor_label(raw: &str) -> bool {
+    matches!(
+        raw.trim(),
+        "IrpHypervisorEvent"
+            | "IrpUserModeHookEvent"
+            | "IrpKernelRemoteThread"
+            | "IrpKernelWriteMemory"
+            | "IrpKernelProtectMemory"
+            | "IrpKernelCreateThread"
+            | "IrpKernelQueueApc"
+            | "IrpKernelCreateSection"
+            | "IrpKernelMapSection"
+            | "IRP_HYPERVISOR_EVENT"
+            | "IRP_USER_MODE_HOOK_EVENT"
+            | "IRP_KERNEL_REMOTE_THREAD"
+            | "IRP_KERNEL_WRITE_MEMORY"
+            | "IRP_KERNEL_PROTECT_MEMORY"
+            | "IRP_KERNEL_CREATE_THREAD"
+            | "IRP_KERNEL_QUEUE_APC"
+            | "IRP_KERNEL_CREATE_SECTION"
+            | "IRP_KERNEL_MAP_SECTION"
+    )
+}
+
+fn is_real_api_observation(raw: &str) -> bool {
+    let trimmed = raw.trim();
+    !trimmed.is_empty() && !is_generic_hypervisor_label(trimmed)
+}
+
+fn effective_hypervisor_irp_byte(msg: &IOMessage) -> u8 {
+    if msg.irp_op == 12
+        && (12..=20).contains(&msg.kernel_event_info.event_type)
+    {
+        msg.kernel_event_info.event_type as u8
+    } else {
+        msg.irp_op
+    }
+}
+
 fn is_kernel_api_event(irp_op: &IrpMajorOp) -> bool {
     matches!(
         irp_op,
@@ -766,6 +819,7 @@ pub struct ProcessBehaviorState {
     pub irp_operations: Vec<IrpOperationRecord>,
     pub irp_stats: IrpStatistics,
     pub all_apis_called: HashSet<String>,
+    pub observed_hypervisor_event_labels: HashSet<String>,
     
     // Normalized hypervisor event tracking
     pub hypervisor_event_count: u32,
@@ -831,6 +885,7 @@ impl ProcessBehaviorState {
         state.irp_operations = Vec::new();
         state.irp_stats = IrpStatistics::default();
         state.all_apis_called = HashSet::new();
+        state.observed_hypervisor_event_labels = HashSet::new();
         
         // Initialize normalized hypervisor event counters
         state.hypervisor_event_count = 0;
@@ -880,6 +935,9 @@ impl ProcessBehaviorState {
             } else {
                 irp_op as u32
             };
+            if let Some(event_label) = canonical_hypervisor_event_label(&irp_kind, raw_event_type) {
+                self.observed_hypervisor_event_labels.insert(event_label);
+            }
             let source_process = format_process_descriptor_with_fallback(
                 msg.kernel_event_info.source_process_id,
                 None,
@@ -895,26 +953,47 @@ impl ProcessBehaviorState {
             } else {
                 normalized_kernel_api.clone()
             };
-            self.detected_apis.insert(event_name.clone());
-            self.all_apis_called.insert(event_name.clone());
-            if let Some(alias) = api_function_alias(&event_name) {
-                self.detected_apis.insert(alias.clone());
-                self.all_apis_called.insert(alias.clone());
+            let real_api = is_real_api_observation(&event_name);
+            if real_api {
+                self.detected_apis.insert(event_name.clone());
+                self.all_apis_called.insert(event_name.clone());
+                if let Some(alias) = api_function_alias(&event_name) {
+                    self.detected_apis.insert(alias.clone());
+                    self.all_apis_called.insert(alias.clone());
+                }
             }
 
-            Logging::info(&format!(
-                "[API HOOKING EVENT] opcode={} raw_event_type={} src_pid_path={} target_pid_path={} arg1=0x{:X} arg2=0x{:X} arg3=0x{:X} arg4=0x{:X} api=\"{}\" count={}",
-                irp_op,
-                raw_event_type,
-                source_process,
-                target_process,
-                msg.kernel_event_info.raw_argument1,
-                msg.kernel_event_info.raw_argument2,
-                msg.kernel_event_info.raw_argument3,
-                msg.kernel_event_info.raw_argument4,
-                event_name,
-                self.hypervisor_event_count
-            ));
+            if real_api {
+                Logging::info(&format!(
+                    "[API HOOKING EVENT] opcode={} raw_event_type={} src_pid_path={} target_pid_path={} arg1=0x{:X} arg2=0x{:X} arg3=0x{:X} arg4=0x{:X} api=\"{}\" count={}",
+                    irp_op,
+                    raw_event_type,
+                    source_process,
+                    target_process,
+                    msg.kernel_event_info.raw_argument1,
+                    msg.kernel_event_info.raw_argument2,
+                    msg.kernel_event_info.raw_argument3,
+                    msg.kernel_event_info.raw_argument4,
+                    event_name,
+                    self.hypervisor_event_count
+                ));
+            } else {
+                let event_label = canonical_hypervisor_event_label(&irp_kind, raw_event_type)
+                    .unwrap_or_else(|| event_name.clone());
+                Logging::info(&format!(
+                    "[HYPERVISOR EVENT] opcode={} raw_event_type={} src_pid_path={} target_pid_path={} arg1=0x{:X} arg2=0x{:X} arg3=0x{:X} arg4=0x{:X} event=\"{}\" count={}",
+                    irp_op,
+                    raw_event_type,
+                    source_process,
+                    target_process,
+                    msg.kernel_event_info.raw_argument1,
+                    msg.kernel_event_info.raw_argument2,
+                    msg.kernel_event_info.raw_argument3,
+                    msg.kernel_event_info.raw_argument4,
+                    event_label,
+                    self.hypervisor_event_count
+                ));
+            }
         }
 
         // Increment total hypervisor events counter and emit activity signal
@@ -1495,7 +1574,7 @@ impl BehaviorEngine {
 
     fn operation_label(msg: &IOMessage) -> String {
         let file_change = FromPrimitive::from_u8(msg.file_change);
-        let irp_op = IrpMajorOp::from_byte(msg.irp_op);
+        let irp_op = IrpMajorOp::from_byte(effective_hypervisor_irp_byte(msg));
 
         match irp_op {
             IrpMajorOp::IrpRegistry => Self::file_change_label(file_change)
@@ -2421,12 +2500,6 @@ impl BehaviorEngine {
                 for api in &cond_group.apis {
                     all_apis.insert(api.clone());
                 }
-                for api in &cond_group.hypervisor_event_labels {
-                    let normalized = normalize_hypervisor_api_label(api);
-                    if !normalized.is_empty() {
-                        all_apis.insert(normalized);
-                    }
-                }
                 for api in &cond_group.scheduled_task_apis {
                     all_apis.insert(api.clone());
                 }
@@ -2620,7 +2693,7 @@ impl BehaviorEngine {
         let raw_event_type = if msg.kernel_event_info.event_type != 0 {
             msg.kernel_event_info.event_type
         } else {
-            msg.irp_op as u32
+            effective_hypervisor_irp_byte(msg) as u32
         };
         let source_pid = msg.kernel_event_info.source_process_id;
         let target_pid = msg.kernel_event_info.target_process_id;
@@ -2886,7 +2959,7 @@ impl BehaviorEngine {
                     state.parent_path = path.clone();
                 }
         }
-        let irp_op_byte = msg.irp_op;
+        let irp_op_byte = effective_hypervisor_irp_byte(msg);
         let irp_op = IrpMajorOp::from_byte(irp_op_byte);
         if let Some(state) = self.process_states.get_mut(&gid) {
             state.record_irp_operation(msg, irp_op_byte);
@@ -3072,15 +3145,22 @@ impl BehaviorEngine {
         } else {
             HashSet::new()
         };
+        let observed_hypervisor_event_labels = if let Some(state) = self.process_states.get(&gid) {
+            state.observed_hypervisor_event_labels.clone()
+        } else {
+            HashSet::new()
+        };
         
         for api in &state_detected_apis {
-            available_apis.insert(api.to_lowercase());
+            available_apis.insert(api.clone());
         }
         
         if !available_apis.is_empty() {
+            let mut api_names: Vec<&str> = available_apis.iter().map(|s| s.as_str()).collect();
+            api_names.sort_unstable_by_key(|name| name.to_ascii_lowercase());
             Logging::info(&format!(
                 "[BehaviorEngine] Detected APIs for PID {}: {} - {}",
-                msg.pid, available_apis.len(), available_apis.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")
+                msg.pid, available_apis.len(), api_names.join(", ")
             ));
         }
 
@@ -3129,14 +3209,12 @@ impl BehaviorEngine {
                 let mut matched = false;
 
                 let has_api_conditions = !cond_group.apis.is_empty() || 
-                                         !cond_group.hypervisor_event_labels.is_empty() ||
                                          !cond_group.scheduled_task_apis.is_empty() || 
                                          !cond_group.anti_debug_apis.is_empty() || 
                                          !cond_group.anti_vm_apis.is_empty();
 
                 if has_api_conditions {
                     let api_iter = cond_group.apis.iter()
-                        .chain(cond_group.hypervisor_event_labels.iter())
                         .chain(cond_group.scheduled_task_apis.iter())
                         .chain(cond_group.anti_debug_apis.iter())
                         .chain(cond_group.anti_vm_apis.iter());
@@ -3164,12 +3242,36 @@ impl BehaviorEngine {
                     }
                 }
 
+                if !matched && !cond_group.hypervisor_event_labels.is_empty() {
+                    let matched_labels: Vec<&String> = cond_group.hypervisor_event_labels.iter().filter(|required_label| {
+                        let (required_norm, required_has_path) = Self::normalize_api_signature(required_label);
+                        observed_hypervisor_event_labels.iter().any(|observed_label| {
+                            let (observed_norm, observed_has_path) = Self::normalize_api_signature(observed_label);
+                            if required_has_path {
+                                observed_has_path
+                                    && Self::matches_pattern_internal(&self.regex_cache, required_label, observed_label)
+                            } else {
+                                Self::matches_pattern_internal(&self.regex_cache, &required_norm, &observed_norm)
+                            }
+                        })
+                    }).collect();
+
+                    if matched_labels.len() >= std::cmp::max(1, cond_group.hypervisor_event_threshold) {
+                        matched = true;
+                        let label_names = matched_labels.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ");
+                        Logging::info(&format!(
+                            "[BehaviorEngine] Condition '{}' - Hypervisor event match for PID {}: {} labels detected: {}",
+                            cond_name, state.pid, matched_labels.len(), label_names
+                        ));
+                    }
+                }
+
                 if !matched && Self::has_hypervisor_payload_conditions(cond_group)
                     && Self::matches_hypervisor_payload_conditions(cond_group, msg, irp_op) {
                         let raw_event_type = if msg.kernel_event_info.event_type != 0 {
                             msg.kernel_event_info.event_type
                         } else {
-                            msg.irp_op as u32
+                            effective_hypervisor_irp_byte(msg) as u32
                         };
                         matched = true;
                         Logging::info(&format!(
@@ -4873,7 +4975,7 @@ impl BehaviorEngine {
 
     /// Called from the main IRP dispatch loop when irp_op is 21–24.
     pub fn handle_rootkit_event(&mut self, msg: &IOMessage) {
-        let op = IrpMajorOp::from_byte(msg.irp_op);
+        let op = IrpMajorOp::from_byte(effective_hypervisor_irp_byte(msg));
         let kind = RootkitFindingKind::from_irp_op(op);
 
         let description = msg.kernel_event_info.object_name.clone();
