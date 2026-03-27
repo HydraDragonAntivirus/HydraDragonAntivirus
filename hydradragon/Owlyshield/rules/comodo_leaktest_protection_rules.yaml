@@ -73,13 +73,10 @@
         - "HKLM\\SYSTEM\\ControlSet002\\Services"
       registry_values:
         - "ImagePath"
+        - "ServiceDll"
+        - "Type"
+        - "Start"
       registry_operations: ["set", "create", "delete"]
-      registry_value_data_patterns:
-        - "*\\.sys"
-        - "*\\\\Temp\\\\*"
-        - "*\\\\AppData\\\\*"
-        - "*\\\\Users\\\\*"
-        - "*\\\\ProgramData\\\\*"
       min_matches: 1
 
   detection_logic:
@@ -196,24 +193,23 @@
   named_conditions:
     raw_disk_write_access:
       orderless: true
-      apis:
-        - "ZwOpenFile"
-        - "NtOpenFile"
-        - "ZwCreateFile"
-        - "NtCreateFile"
-        - "IoCreateFile"
       file_paths:
         - "*\\\\Device\\\\Harddisk*"
         - "*\\\\Device\\\\HarddiskVolume*"
         - "*\\\\Device\\\\Harddisk0\\\\DR0*"
         - "*\\\\Device\\\\RawDisk*"
         - "*\\\\??\\\\PhysicalDrive*"
+        - "*\\\\?\\\\PhysicalDrive*"
         - "*\\\\\\\\.\\\\PhysicalDrive*"
         - "*\\\\GLOBALROOT\\\\Device\\\\Harddisk*"
+        - "*\\\\DosDevices\\\\PhysicalDrive*"
+        - "*\\\\DosDevices\\\\ElRawDisk*"
+        - "*\\\\?\\\\ElRawDisk*"
+        - "*\\\\.\\\\ElRawDisk*"
+        - "*ElRawDisk*"
+        - "*RawDisk*"
       file_operations: ["read", "write", "create", "setinfo"]
-      api_threshold: 1
       min_matches: 1
-      registry_value_data_patterns: []
 
   detection_logic:
     condition: "raw_disk_write_access"
@@ -298,6 +294,7 @@
     protected_directory_write:
       orderless: true
       file_paths:
+        - "C:\\Windows\\"
         - "C:\\Windows\\System32"
         - "C:\\Windows\\SysWOW64"
         - "C:\\Windows\\System"
@@ -322,11 +319,7 @@
       min_matches: 1
 
   detection_logic:
-    and:
-      - condition: "protected_directory_write"
-      - or:
-          - condition: "unsigned_caller"
-          - condition: "suspicious_caller_location"
+    condition: "protected_directory_write"
 
   response:
     notify_user: true
@@ -370,9 +363,7 @@
       min_matches: 1
 
   detection_logic:
-    and:
-      - condition: "setwineventhook_call"
-      - condition: "unsigned_caller"
+    condition: "setwineventhook_call"
 
   response:
     notify_user: true
@@ -419,9 +410,7 @@
       min_matches: 1
 
   detection_logic:
-    and:
-      - condition: "setwindowshookex_call"
-      - condition: "unsigned_caller"
+    condition: "setwindowshookex_call"
 
   response:
     notify_user: true
@@ -510,12 +499,9 @@
       registry_operations: ["create", "set"]
       registry_values:
         - "ImagePath"
-      registry_value_data_patterns:
-        - "*\\\\Temp\\\\*"
-        - "*\\\\AppData\\\\*"
-        - "*\\\\Users\\\\*"
-        - "*\\.exe"
-        - "*\\.sys"
+        - "ServiceDll"
+        - "ServiceDllUnloadOnStop"
+        - "Parameters"
       min_matches: 1
 
     createservice_api:
@@ -535,12 +521,10 @@
       min_matches: 1
 
   detection_logic:
-    and:
-      - or:
-          - condition: "service_key_create"
-          - condition: "service_registry_create"
-          - condition: "createservice_api"
-      - condition: "non_system_caller"
+    or:
+      - condition: "service_key_create"
+      - condition: "service_registry_create"
+      - condition: "createservice_api"
 
   response:
     notify_user: true
@@ -676,8 +660,11 @@
       apis:
         - "ole32.dll!CoCreateInstance"
         - "ole32.dll!CoGetObject"
+        - "ole32.dll!CoGetClassObject"
+        - "ole32.dll!CoCreateInstanceEx"
         - "CoCreateInstance"
         - "CoGetObject"
+        - "CoGetClassObject"
         - "CoCreateInstanceEx"
       api_threshold: 1
       min_matches: 1
@@ -704,9 +691,7 @@
       - and:
           - condition: "cocreateinstance_api"
           - condition: "impersonate_loggedon_user"
-      - and:
-          - condition: "impersonate_loggedon_user"
-          - condition: "unsigned_caller"
+      - condition: "impersonate_loggedon_user"
 
   response:
     notify_user: true
@@ -797,9 +782,7 @@
       min_matches: 1
 
   detection_logic:
-    and:
-      - condition: "service_dll_modification"
-      - condition: "caller_unsigned"
+    condition: "service_dll_modification"
 
   response:
     notify_user: true
@@ -853,6 +836,8 @@
     startup_folder_write:
       orderless: true
       file_paths:
+        - "\\Start Menu\\Programs\\Startup\\"
+        - "\\Programs\\Startup\\"
         - "\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\"
         - "\\ProgramData\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\"
         - "\\AppData\\Roaming\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\"
@@ -865,11 +850,9 @@
       min_matches: 1
 
   detection_logic:
-    and:
-      - or:
-          - condition: "startup_registry_modification"
-          - condition: "startup_folder_write"
-      - condition: "caller_unsigned"
+    or:
+      - condition: "startup_registry_modification"
+      - condition: "startup_folder_write"
 
   response:
     notify_user: true
@@ -978,9 +961,7 @@
       min_matches: 1
 
   detection_logic:
-    and:
-      - condition: "appinit_registry_modification"
-      - condition: "caller_unsigned"
+    condition: "appinit_registry_modification"
 
   response:
     notify_user: true
@@ -1160,9 +1141,7 @@
       min_matches: 1
 
   detection_logic:
-    and:
-      - condition: "hook_api_call"
-      - condition: "suspicious_caller"
+    condition: "hook_api_call"
 
   response:
     notify_user: true
