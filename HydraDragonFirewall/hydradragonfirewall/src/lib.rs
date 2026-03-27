@@ -120,6 +120,16 @@ async fn get_process_inventory<R: Runtime>(
 }
 
 #[tauri::command]
+async fn generate_owlyshield_report(handle: AppHandle) -> Result<(), String> {
+    if let Some(engine) = wait_for_engine(&handle).await {
+        engine.request_owlyshield_report();
+        Ok(())
+    } else {
+        Err("Engine not initialized".to_string())
+    }
+}
+
+#[tauri::command]
 async fn save_settings(
     settings: crate::engine::FirewallSettings,
     handle: AppHandle,
@@ -609,6 +619,7 @@ pub fn run() {
             get_settings,
             get_saved_logs,
             get_process_inventory,
+            generate_owlyshield_report,
             save_settings,
             get_sdk_rules,
             get_rules_content,

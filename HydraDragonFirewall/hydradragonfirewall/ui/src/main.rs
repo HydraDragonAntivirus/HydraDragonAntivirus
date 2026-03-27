@@ -1117,6 +1117,26 @@ pub fn App() -> impl IntoView {
         });
     };
 
+    let request_owlyshield_report = move || {
+        let requested_at = js_sys::Date::now() as u64;
+        set_logs.update(|entries| {
+            entries.insert(
+                0,
+                LogEntry {
+                    id: format!("manual-report-{}", requested_at),
+                    timestamp: requested_at,
+                    level: LogLevel::Info,
+                    message: "Requested Owlyshield advanced report generation from the firewall UI".to_string(),
+                    source: Some("ui".to_string()),
+                    details_json: None,
+                },
+            );
+        });
+        spawn_local(async move {
+            let _ = invoke("generate_owlyshield_report", JsValue::NULL).await;
+        });
+    };
+
     let save_rules_raw = move || {
         let content = rules_raw_content.get();
         spawn_local(async move {
@@ -1571,17 +1591,24 @@ pub fn App() -> impl IntoView {
                                                         stroke-linecap="round"
                                                     />
                                                 </svg>
-                                                <div class="graph-overlay" style="position: absolute; top: 20px; right: 20px; text-align: right">
-                                                    <div class="traffic-stat">
-                                                        <span class="label">"LIVE ACTIVITY"</span>
-                                                        <span class="value" style="color:var(--accent-blue)">
-                                                            {move || format!("{:.1} evt/s", current_activity_rate.get())}
-                                                        </span>
-                                                        <span class="label">{move || format!("Peak {:.1} evt/s", peak_activity_rate.get())}</span>
-                                                    </div>
+                                            <div class="graph-overlay" style="position: absolute; top: 20px; right: 20px; text-align: right">
+                                                <div class="traffic-stat">
+                                                    <span class="label">"LIVE ACTIVITY"</span>
+                                                    <span class="value" style="color:var(--accent-blue)">
+                                                        {move || format!("{:.1} evt/s", current_activity_rate.get())}
+                                                    </span>
+                                                    <span class="label">{move || format!("Peak {:.1} evt/s", peak_activity_rate.get())}</span>
                                                 </div>
                                             </div>
+                                            <button
+                                                class="btn-secondary"
+                                                style="position: absolute; left: 20px; bottom: 18px; padding: 7px 14px; font-size: 11px"
+                                                on:click=move |_| request_owlyshield_report()
+                                            >
+                                                "Generate Owlyshield Report"
+                                            </button>
                                         </div>
+                                    </div>
 
                                          <div class="glass-card logs-section">
                                             <div class="section-header">

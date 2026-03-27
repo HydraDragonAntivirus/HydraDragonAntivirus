@@ -2023,6 +2023,10 @@ impl FirewallEngine {
         }
     }
 
+    pub fn request_owlyshield_report(&self) {
+        self.send_hydranet_message("GENERATE_REPORT\n".to_string());
+    }
+
     fn remember_kernel_block_path(&self, path: &str) {
         let mut settings = self.settings.write().unwrap();
         if settings

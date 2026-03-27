@@ -560,6 +560,16 @@ mod process_records {
             self.process_records.get(&gid)
         }
 
+        pub fn get_precord_by_gid_or_pid(&mut self, gid: u64, pid: u32) -> Option<&ProcessRecord> {
+            if let Some((_, precord)) = self.process_records.iter().find(|(candidate_gid, _)| **candidate_gid == gid) {
+                return Some(precord);
+            }
+
+            self.process_records
+                .iter()
+                .find_map(|(_, precord)| precord.pids.contains(&pid).then_some(precord))
+        }
+
         pub fn get_precord_mut_by_gid(&mut self, gid: u64) -> Option<&mut ProcessRecord> {
             self.process_records.get_mut(&gid)
         }
@@ -864,6 +874,28 @@ mod process_records {
                     }
                 }
 
+                let fallback_directories_touched = state
+                    .irp_stats
+                    .unique_paths_accessed
+                    .iter()
+                    .filter_map(|value| {
+                        let normalized = value.replace('\\', "/");
+                        if !normalized.contains(":/") && !normalized.starts_with("//") {
+                            return None;
+                        }
+                        Path::new(value)
+                            .parent()
+                            .map(|parent| parent.to_string_lossy().into_owned())
+                    })
+                    .collect::<std::collections::BTreeSet<_>>()
+                    .len();
+
+                let fallback_files_updated = state
+                    .irp_stats
+                    .write_count
+                    .saturating_add(state.irp_stats.setinfo_count)
+                    .saturating_add(state.irp_stats.rename_count) as usize;
+
                 let mut snapshot = crate::report::ProcessSnapshot {
                     pid: state.pid,
                     gid: *gid as u32,
@@ -873,17 +905,17 @@ mod process_records {
                     process_state: "RUNNING".to_string(),
                     total_ops: state.irp_stats.get_total_operations(),
                     high_entropy_files: state.irp_stats.get_high_entropy_count(),
-                    driver_message_count: 0,
-                    ops_read: 0,
-                    ops_written: 0,
-                    ops_open: 0,
-                    ops_setinfo: 0,
-                    bytes_read: 0,
-                    bytes_written: 0,
-                    files_created: 0,
-                    files_updated: 0,
-                    files_deleted: 0,
-                    directories_touched: 0,
+                    driver_message_count: state.irp_stats.get_total_operations() as usize,
+                    ops_read: state.irp_stats.read_count,
+                    ops_written: state.irp_stats.write_count,
+                    ops_open: state.irp_stats.create_count,
+                    ops_setinfo: state.irp_stats.setinfo_count,
+                    bytes_read: state.irp_stats.total_bytes_read,
+                    bytes_written: state.irp_stats.total_bytes_written,
+                    files_created: state.irp_stats.create_count as usize,
+                    files_updated: fallback_files_updated,
+                    files_deleted: state.irp_stats.delete_count as usize,
+                    directories_touched: fallback_directories_touched,
                     is_malicious: false,
                     detections: Vec::new(),
                     detection_details: None,
@@ -919,7 +951,7 @@ mod process_records {
                     restart_cleanup_requested: false,
                 };
                 
-                if let Some(precord) = self.process_records.get_precord_by_gid(*gid) {
+                if let Some(precord) = self.process_records.get_precord_by_gid_or_pid(*gid, state.pid) {
                     snapshot.is_malicious = precord.is_malicious;
                     snapshot.process_state = precord.process_state.to_string();
                     snapshot.driver_message_count = precord.driver_msg_count;

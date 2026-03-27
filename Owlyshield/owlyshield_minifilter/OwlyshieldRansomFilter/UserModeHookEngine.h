@@ -18,10 +18,6 @@ Environment:
 #include <ntifs.h>
 #include "../SharedDefs/SharedDefs.h"
 
-#ifndef OBJ_PROTECT_CLOSE
-#define OBJ_PROTECT_CLOSE 0x00000001L
-#endif
-
 //
 // -------------------------------------------------------------------------
 // TYPE DEFINITIONS
