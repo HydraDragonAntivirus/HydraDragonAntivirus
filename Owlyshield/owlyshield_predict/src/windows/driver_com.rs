@@ -47,8 +47,8 @@ pub fn register_shared_driver(driver: Driver) {
 }
 
 pub fn with_shared_driver<T>(f: impl FnOnce(&Driver) -> T) -> Option<T> {
-    let guard = shared_driver_slot().lock().unwrap();
-    guard.as_ref().map(f)
+    let driver = shared_driver_slot().lock().unwrap().clone();
+    driver.as_ref().map(f)
 }
 
 fn is_syscall_number_label(label: &str) -> bool {
@@ -138,7 +138,16 @@ impl Driver {
     /// If this fn is not used and the program has stopped, the handle is automatically closed,
     /// seemingly without any side-effects.
     pub fn _close_kernel_communication(&self) -> bool {
-        unsafe { CloseHandle(self.current_handle()).as_bool() }
+        let mut guard = self.handle.lock().unwrap();
+        let handle = *guard;
+        if handle.is_invalid() {
+            return true;
+        }
+        let closed = unsafe { CloseHandle(handle).as_bool() };
+        if closed {
+            *guard = HANDLE::default();
+        }
+        closed
     }
 
     /// The usermode running app (this one) has to register itself to the driver.
@@ -213,7 +222,6 @@ impl Driver {
         let driver = Driver::open_kernel_driver_com()?;
         driver.driver_set_app_pid()?;
         self.install_reconnected_handle(driver.current_handle());
-        register_shared_driver(self.clone());
         Ok(())
     }
 
