@@ -303,7 +303,7 @@
   debug: false
 
   named_conditions:
-    lolbin_with_network:
+    lolbin_process:
       orderless: true
       created_processes:
         - "regsvr32.exe"
@@ -314,11 +314,17 @@
         - "cmstp.exe"
         - "installutil.exe"
         - "odbcconf.exe"
+      min_matches: 1
+
+    lolbin_network_activity:
+      orderless: true
       has_network_activity: true
       min_matches: 1
 
   detection_logic:
-    condition: "lolbin_with_network"
+    and:
+      - condition: "lolbin_process"
+      - condition: "lolbin_network_activity"
 
   allowlisted_apps:
     - pattern: "C:/Program Files/HydraDragonAntivirus/HydraDragonFirewall/hydradragonfirewall.exe"

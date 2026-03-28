@@ -535,7 +535,6 @@
   detection_logic:
     or:
       - condition: "dcom_mmc20"
-      - condition: "mmc_spawned_from_non_mmc"
       - and:
           - condition: "dcom_activator"
           - condition: "mmc_spawned_from_non_mmc"

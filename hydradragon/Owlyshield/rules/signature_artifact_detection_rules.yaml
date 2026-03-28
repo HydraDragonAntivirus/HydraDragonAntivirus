@@ -56,8 +56,15 @@
         - "*\\de4dot.exe"
       min_matches: 1
 
+    signature_artifact_file_probe:
+      orderless: true
+      file_operations: ["open", "read"]
+      min_matches: 1
+
   detection_logic:
-    condition: "signature_artifact_path_probe"
+    and:
+      - condition: "signature_artifact_path_probe"
+      - condition: "signature_artifact_file_probe"
 
   response:
     notify_user: true
