@@ -3621,7 +3621,14 @@ HookProcessFailure:
                 {
                     if (hookEntry->DriverDeviceHandle != NULL)
                     {
-                        ZwClose(hookEntry->DriverDeviceHandle);
+                        //
+                        // Do not force-close the injected user-mode notify handle
+                        // from the driver. Once that handle value has been written
+                        // into target-process shellcode, user-mode teardown/rundown
+                        // must own its lifetime. Forcing ZwClose here can race the
+                        // target's own handle-table cleanup and surface as
+                        // STATUS_INVALID_HANDLE in the process.
+                        //
                         hookEntry->DriverDeviceHandle = NULL;
                     }
 
@@ -3802,7 +3809,12 @@ NTSTATUS UserModeUnhookProcess(_In_ ULONG ProcessId)
 
             if (hookEntry->DriverDeviceHandle)
             {
-                ZwClose(hookEntry->DriverDeviceHandle);
+                //
+                // Leave per-process hook-notify handle teardown to normal
+                // process handle-table rundown. Closing it explicitly from the
+                // driver during process-terminate unhook can race user-mode
+                // close/rundown and trigger STATUS_INVALID_HANDLE.
+                //
                 hookEntry->DriverDeviceHandle = NULL;
             }
         }
