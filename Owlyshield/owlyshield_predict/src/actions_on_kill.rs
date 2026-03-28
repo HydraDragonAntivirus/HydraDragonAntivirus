@@ -134,6 +134,47 @@ pub fn restart_cleanup_reason(proc: &ProcessRecord, threat_info: &ThreatInfo<'_>
     })
 }
 
+fn normalized_path_key(path: &Path) -> String {
+    path.to_string_lossy()
+        .replace('/', "\\")
+        .trim_matches(char::from(0))
+        .to_ascii_lowercase()
+}
+
+fn remediation_targets_process_image(proc: &ProcessRecord) -> bool {
+    let remediation_path = proc.primary_remediation_path();
+    if remediation_path.as_os_str().is_empty() || proc.exepath.as_os_str().is_empty() {
+        return false;
+    }
+
+    normalized_path_key(remediation_path) == normalized_path_key(proc.exepath.as_path())
+}
+
+fn should_install_kernel_deny_for_remediation(
+    proc: &ProcessRecord,
+    threat_info: &ThreatInfo<'_>,
+) -> bool {
+    let remediation_path = proc.primary_remediation_path();
+    if remediation_path.as_os_str().is_empty() {
+        return false;
+    }
+
+    if remediation_targets_process_image(proc) {
+        let deny_only = threat_info.deny_access
+            && !threat_info.terminate
+            && !threat_info.quarantine
+            && !threat_info.kill_and_remove
+            && !threat_info.revert;
+        let queued_restart_cleanup = restart_cleanup_reason(proc, threat_info).is_some();
+
+        if deny_only || queued_restart_cleanup {
+            return false;
+        }
+    }
+
+    true
+}
+
 impl ActionsOnKill {
     pub fn new() -> ActionsOnKill {
         ActionsOnKill {
@@ -393,11 +434,18 @@ impl ActionOnKill for KillAction {
         _now: &str,
     ) -> Result<(), Box<dyn Error>> {
         if threat_info.deny_access {
-            Logging::info(&format!(
-                "[ActionOnKill] Denying future access to: {}",
-                proc.primary_remediation_path().display()
-            ));
-            self.handler.deny_path_access(proc.primary_remediation_path());
+            if should_install_kernel_deny_for_remediation(proc, threat_info) {
+                Logging::info(&format!(
+                    "[ActionOnKill] Denying future access to: {}",
+                    proc.primary_remediation_path().display()
+                ));
+                self.handler.deny_path_access(proc.primary_remediation_path());
+            } else {
+                Logging::warning(&format!(
+                    "[ActionOnKill] Skipping persistent kernel deny for {} (GID: {}) because the remediation target is the running process image",
+                    proc.appname, proc.gid
+                ));
+            }
         }
 
         if let Some(reason) = restart_cleanup_reason(proc, threat_info) {
@@ -413,12 +461,19 @@ impl ActionOnKill for KillAction {
                     proc.appname, proc.gid
                 ));
             } else {
-                if !threat_info.deny_access {
+                if !threat_info.deny_access
+                    && should_install_kernel_deny_for_remediation(proc, threat_info)
+                {
                     Logging::info(&format!(
                         "[ActionOnKill] Denying future access to: {}",
                         remediation_path.display()
                     ));
                     self.handler.deny_path_access(remediation_path);
+                } else if !threat_info.deny_access {
+                    Logging::warning(&format!(
+                        "[ActionOnKill] Skipping persistent kernel deny during restart-cleanup for {} (GID: {}) because the remediation target is the running process image",
+                        proc.appname, proc.gid
+                    ));
                 }
 
                 Logging::info(&format!(

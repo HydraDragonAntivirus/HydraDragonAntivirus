@@ -2154,7 +2154,7 @@ impl FirewallEngine {
                     timestamp: now,
                     level: LogLevel::Warning,
                     message: format!(
-                        "Access denied: User decision for {} (no termination requested)",
+                        "Blocked: Access denied for {} (no termination requested)",
                         decision_label
                     ),
                 },

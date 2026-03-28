@@ -381,6 +381,7 @@ fn decision_badge_label(decision: Option<&str>) -> Option<String> {
     decision.map(|value| match value {
         "allow" => "ALLOW".to_string(),
         "block" => "BLOCK".to_string(),
+        "deny" => "DENY".to_string(),
         "pending" => "PENDING".to_string(),
         "allow_once" => "ALLOW ONCE".to_string(),
         other => other.to_ascii_uppercase(),
@@ -1302,6 +1303,7 @@ pub fn App() -> impl IntoView {
                                 let message_lower = entry.message.to_lowercase();
                                 if message_lower.starts_with("blocked:")
                                     || message_lower.contains("proxy intercept blocked")
+                                    || message_lower.contains("access denied")
                                 {
                                     set_blocked_count.update(|n| *n += 1);
                                 }
