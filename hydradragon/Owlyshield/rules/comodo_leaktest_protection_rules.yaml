@@ -293,6 +293,8 @@
   debug: false
 
   allowlisted_apps:
+    - pattern: "C:/Program Files/HydraDragonAntivirus/HydraDragonFirewall/hydradragonfirewall.exe"
+      is_absolute: true
     - pattern: "C:/Windows/System32/msiexec.exe"
       must_be_signed: true
       is_absolute: true
@@ -700,6 +702,8 @@
   debug: false
 
   allowlisted_apps:
+    - pattern: "C:/Program Files/HydraDragonAntivirus/HydraDragonFirewall/hydradragonfirewall.exe"
+      is_absolute: true
     - pattern: "C:/Windows/System32/msiexec.exe"
       must_be_signed: true
       is_absolute: true
@@ -777,7 +781,9 @@
       min_matches: 1
 
   detection_logic:
-    condition: "dns_activity"
+    and:
+      - condition: "dns_activity"
+      - condition: "process_unsigned"
 
   response:
     notify_user: true

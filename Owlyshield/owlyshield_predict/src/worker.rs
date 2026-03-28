@@ -547,12 +547,14 @@ mod process_records {
 
     pub struct ProcessRecords {
         pub process_records: LruCache<u64, ProcessRecord>,
+        pub terminated_records: LruCache<u64, ProcessRecord>,
     }
 
     impl ProcessRecords {
         pub fn new() -> ProcessRecords {
             ProcessRecords {
                 process_records: LruCache::new(NonZeroUsize::new(10000).unwrap()),
+                terminated_records: LruCache::new(NonZeroUsize::new(4096).unwrap()),
             }
         }
 
@@ -1858,8 +1860,9 @@ mod process_records {
                     }
                 }
 
-                // Put the terminated record back for history (it's non-cloneable and moved here)
-                self.process_records.process_records.put(gid, precord);
+                // Keep terminated history out of the active tracking map so the same
+                // dead process cannot be "cleaned up" over and over again.
+                self.process_records.terminated_records.push(gid, precord);
             }
             
             // Log cleanup

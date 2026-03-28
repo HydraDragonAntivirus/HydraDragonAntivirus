@@ -14,6 +14,7 @@
 #define OwlyshieldVersion "1.2.0"
 #define AgentName "Owlyshield Service"
 #define FsFilter "OwlyshieldRansomFilter"
+#define OwlyshieldAppId "8C19967B-1D27-4E6A-85CD-5059912C2788"
 
 [Setup]
 ; NOTE: The value of AppId uniquely identifies this application. Do not use the same AppId value in installers for other applications.
@@ -94,24 +95,24 @@ Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "RULE
 Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "REPORT_DIR"; ValueData: "{app}\hydradragon\Owlyshield\config\report"; Flags: uninsdeletekey
 Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "REALTIME_LEARNING_DIR"; ValueData: "{app}\hydradragon\Owlyshield\realtime_learning"; Flags: uninsdeletekey
 
-Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "APP_ID"; ValueData: "8C19967B-1D27-4E6A-85CD-5059912C2788"; Flags: uninsdeletekey
+Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "APP_ID"; ValueData: "{#OwlyshieldAppId}"; Flags: uninsdeletekey
 Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "LANGUAGE"; ValueData: "en-US"; Flags: uninsdeletekey
 Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "KILL_POLICY"; ValueData: "KILL"_AND_QUARANTINE; Flags: uninsdeletekey
 Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "TELEMETRY"; ValueData: 0; Flags: uninsdeletekey
 Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "VERBOSE_LOGGING"; ValueData: "0"; Flags: uninsdeletekey
 Root: HKLM; Subkey: "SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce"; ValueType: string; ValueName: "OwlyshieldPostInstall"; ValueData: """{app}\post_install.bat"""
 
-Root: HKCU; Subkey: "Software\Classes\AppUserModelId\8C19967B-1D27-4E6A-85CD-5059912C2788"; 
+Root: HKCU; Subkey: "Software\Classes\AppUserModelId\{#OwlyshieldAppId}"; 
 ValueType: string; ValueName: "DisplayName"; 
 ValueData: "HydraDragon Antivirus"; Flags: uninsdeletekey
 
-Root: HKCU; Subkey: "Software\Classes\AppUserModelId\8C19967B-1D27-4E6A-85CD-5059912C2788"; 
+Root: HKCU; Subkey: "Software\Classes\AppUserModelId\{#OwlyshieldAppId}"; 
 ValueType: string; ValueName: "IconUri"; 
 ValueData: "{app}\hydradragon\assets\HydraDragonAV.ico"
 
 [Icons]
-Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
-Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
+Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\hydradragon\assets\HydraDragonAV.ico"; AppUserModelID: "{#OwlyshieldAppId}"; AppUserModelToastActivatorCLSID: "{#OwlyshieldAppId}"
+Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\hydradragon\assets\HydraDragonAV.ico"; AppUserModelID: "{#OwlyshieldAppId}"; AppUserModelToastActivatorCLSID: "{#OwlyshieldAppId}"
 
 [Run]
 ; 7-Zip (silent)
