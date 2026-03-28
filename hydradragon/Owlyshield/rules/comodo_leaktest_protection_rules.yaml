@@ -286,15 +286,13 @@
   level: critical
   severity: 100
   description: |
-    Detects creation or write operations targeting critical system directories
-    from non-System32 or non-trusted processes.
+    Detects creation or write of executable/DLL/driver files into core OS
+    directories (System32, SysWOW64, drivers) by an unsigned process that
+    also originates from a user-writable location.
     COMODO Test #8: Invasion:FileDrop
-    Blocks file writes to protected system locations.
   debug: false
 
   allowlisted_apps:
-    - pattern: "C:/Program Files/HydraDragonAntivirus/HydraDragonFirewall/hydradragonfirewall.exe"
-      is_absolute: true
     - pattern: "C:/Windows/System32/msiexec.exe"
       must_be_signed: true
       is_absolute: true
@@ -311,8 +309,6 @@
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/sihost.exe"
-      is_absolute: true
     - pattern: "%SystemRoot%/servicing/TrustedInstaller.exe"
       must_be_signed: true
       is_absolute: true
@@ -337,49 +333,70 @@
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
+    - pattern: "%SystemRoot%/System32/drvinst.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
     - pattern: "C:/Windows/System32/csrss.exe"
       must_be_signed: true
       is_absolute: true
-    - pattern: "C:/Windows/explorer.exe"
-      must_be_signed: true
-      is_absolute: true
-    - pattern: "C:/Windows/System32/rundll32.exe"
-      must_be_signed: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Program Files/HydraDragonAntivirus/HydraDragonFirewall/hydradragonfirewall.exe"
       is_absolute: true
 
   named_conditions:
-    protected_directory_write:
+    # ── Condition 1: Write to SPECIFIC sensitive OS directories only ─────────
+    # Anchored to System32\, SysWOW64\, and System32\drivers\ only.
+    # Extension globs are tied to these paths via compound patterns.
+    sensitive_os_dir_write:
       orderless: true
       apis:
         - "*CreateFile*"
         - "*WriteFile*"
-        - "*CopyFile*"
-        - "*CopyFileEx*"
-        - "*MoveFile*"
-        - "*MoveFileEx*"
-        - "*ReplaceFile*"
         - "*NtCreateFile*"
         - "*ZwCreateFile*"
         - "*NtWriteFile*"
         - "*ZwWriteFile*"
-        - "*NtSetInformationFile*"
-        - "*ZwSetInformationFile*"
+        - "*CopyFile*"
+        - "*CopyFileEx*"
+        - "*MoveFile*"
+        - "*MoveFileEx*"
       file_paths:
-        - "C:\\Windows\\"
-        - "C:\\Windows\\System32"
-        - "C:\\Windows\\System32\\drivers\\"
-        - "C:\\Windows\\SysWOW64"
-        - "C:\\Windows\\System"
-        - "C:\\Windows\\Tasks\\"
-        - "C:\\Windows\\Registration\\"
-        - "C:\\Program Files"
-        - "C:\\Program Files (x86)"
-        - "*.sys"
-        - "*.dll"
-        - "*.exe"
-      file_operations: ["create", "write", "setinfo"]
+        # Anchored to System32 — only .exe/.dll/.sys/.drv drops here are dangerous
+        - "C:\\Windows\\System32\\*.exe"
+        - "C:\\Windows\\System32\\*.dll"
+        - "C:\\Windows\\System32\\*.sys"
+        - "C:\\Windows\\System32\\*.drv"
+        # Drivers subdirectory
+        - "C:\\Windows\\System32\\drivers\\*.sys"
+        - "C:\\Windows\\System32\\drivers\\*.dll"
+        # 32-bit compat layer
+        - "C:\\Windows\\SysWOW64\\*.exe"
+        - "C:\\Windows\\SysWOW64\\*.dll"
+        - "C:\\Windows\\SysWOW64\\*.sys"
+      file_operations: ["create", "write"]
       min_matches: 1
 
+    # ── Condition 2: Caller is unsigned ──────────────────────────────────────
+    unsigned_caller:
+      orderless: true
+      is_signed: false
+      min_matches: 1
+
+    # ── Condition 3: Caller binary lives in a user-writable location ─────────
+    # Requires BOTH unsigned AND user-space origin to reduce false positives.
+    user_space_origin:
+      orderless: true
+      file_paths:
+        - "*\\AppData\\*"
+        - "*\\Downloads\\*"
+        - "*\\Public\\*"
+        - "*\\Temp\\*"
+        - "C:\\Temp\\*"
+        - "%TEMP%\\*"
+      min_matches: 1
+
+    # ── Condition 4: Exclude Prefetch writes (known benign pattern) ───────────
     prefetch_artifact_write:
       orderless: true
       file_paths:
@@ -388,34 +405,18 @@
       file_operations: ["create", "write", "setinfo"]
       min_matches: 1
 
-    unsigned_caller:
-      orderless: true
-      is_signed: false
-      min_matches: 1
-
-    suspicious_caller_location:
-      orderless: true
-      file_paths:
-        - "AppData"
-        - "Temp"
-        - "Public"
-        - "Downloads"
-        - "Users"
-      min_matches: 1
-
   detection_logic:
     and:
-      - condition: "protected_directory_write"
-      - any_of:
-          - "unsigned_caller"
-          - "suspicious_caller_location"
+      - condition: "sensitive_os_dir_write"
+      - condition: "unsigned_caller"
+      - condition: "user_space_origin"    # ← both unsigned AND from user-space
       - not:
           condition: "prefetch_artifact_write"
 
   response:
     notify_user: true
-    ask_user: false
-    terminate_process: true
+    ask_user: true      # ← ask instead of auto-terminate (reduces blast radius)
+    terminate_process: false
     status_access_denied: true
     record: true
 

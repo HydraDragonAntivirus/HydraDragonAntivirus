@@ -813,6 +813,7 @@ pub struct ProcessBehaviorState {
     pub exe_path: PathBuf,
     pub app_name: String,
     pub signature_checked: bool,
+    pub signature_checked_path: PathBuf,
     pub has_valid_signature: bool,
     pub is_signed: bool, 
     
@@ -878,6 +879,7 @@ impl ProcessBehaviorState {
         state.pid = pid;
         state.exe_path = exe_path;
         state.app_name = app_name;
+        state.signature_checked_path = PathBuf::new();
         state.parent_name = "unknown".to_string();
         state.parent_path = PathBuf::new();
         state.command_line = String::new();
@@ -3050,15 +3052,32 @@ impl BehaviorEngine {
         }
         
         // === STEP 3: SIGNATURE CHECK ===
-        if !state.signature_checked && !precord.exepath.as_os_str().is_empty() {
-            if precord.exepath.exists() {
-                let info = verify_signature(&precord.exepath);
-                state.has_valid_signature = info.is_trusted;
-                state.is_signed = info.is_signed;
-                state.signature_checked = true;
-            } else {
-                state.has_valid_signature = false;
-                state.signature_checked = true;
+        let signature_path = if !precord.exepath.as_os_str().is_empty()
+            && precord.exepath.to_string_lossy() != "UNKNOWN" {
+            precord.exepath.clone()
+        } else {
+            state.exe_path.clone()
+        };
+
+        if !signature_path.as_os_str().is_empty()
+            && signature_path.to_string_lossy() != "UNKNOWN"
+        {
+            let signature_path_changed = state.signature_checked_path != signature_path;
+            if !state.signature_checked || signature_path_changed {
+                if signature_path.exists() {
+                    let info = verify_signature(&signature_path);
+                    state.has_valid_signature = info.is_trusted;
+                    state.is_signed = info.is_signed;
+                    state.signature_checked = true;
+                    state.signature_checked_path = signature_path;
+                } else {
+                    // Do not permanently cache "unsigned" just because the real path
+                    // has not been resolved yet. A later event may heal the image path.
+                    state.signature_checked = false;
+                    state.signature_checked_path = PathBuf::new();
+                    state.has_valid_signature = false;
+                    state.is_signed = false;
+                }
             }
         }
 
