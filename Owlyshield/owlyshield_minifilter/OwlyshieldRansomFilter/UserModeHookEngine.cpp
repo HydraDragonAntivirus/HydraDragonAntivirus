@@ -3282,6 +3282,8 @@ NTSTATUS ResolveAndHook(_In_ PEPROCESS Process, _In_ PPROCESS_HOOK_ENTRY HookEnt
     return InjectSingleHook(Process, HookEntry->ProcessId, HookEntry, HookDef, EventId, TargetNtDeviceIo);
 }
 
+static VOID UnhookSingleFunction(_In_ PEPROCESS Process, _Inout_ PHOOK_DEF HookDef);
+
 NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
 {
     NTSTATUS status;
@@ -3296,7 +3298,9 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
     ULONG recoverableHookFailureCount = 0;
     ULONG hookConfigSnapshotCount = 0;
     PHOOK_CONFIG_DATA hookConfigSnapshot = NULL;
+    PHOOK_CONFIG_DATA activeHookConfigSnapshot = NULL;
     SIZE_T hookConfigSnapshotBytes = 0;
+    ULONG hookCountToInstall = 0;
 
     if (g_UserHookEngine == NULL || !g_UserHookEngine->IsInitialized)
         return STATUS_DEVICE_NOT_READY;
@@ -3477,6 +3481,14 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
         ExReleaseFastMutex(&g_ConfigMutex);
     }
 
+    hookCountToInstall = customHookCountToApply;
+    activeHookConfigSnapshot = hookConfigSnapshot;
+    if (hookCountToInstall > 0 && (activeHookConfigSnapshot == NULL || hookEntry->CustomHooks == NULL))
+    {
+        status = STATUS_INSUFFICIENT_RESOURCES;
+        goto HookProcessFailure;
+    }
+
     // Single attachment for resolving exports and writing hooks
     {
         KAPC_STATE apcState;
@@ -3513,9 +3525,16 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
                     }
                 }
 
-                for (ULONG i = 0; i < customHookCountToApply; i++)
+                if (hookCountToInstall > 0 && (activeHookConfigSnapshot == NULL || hookEntry->CustomHooks == NULL))
+                {
+                    status = STATUS_INSUFFICIENT_RESOURCES;
+                    __leave;
+                }
+
+                for (ULONG i = 0; i < hookCountToInstall; i++)
                 {
                     NTSTATUS hookStatus = STATUS_UNSUCCESSFUL;
+                    PHOOK_CONFIG_DATA currentHookConfig = &activeHookConfigSnapshot[i];
                     __try
                     {
                         // Route to the correct architecture's hook installer.
@@ -3523,18 +3542,18 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
                         {
                             // WoW64: resolve from 32-bit LDR, install 5-byte E9 JMP,
                             // use 32-bit shellcode template.
-                            hookStatus = ResolveAndHook32(process, hookEntry, hookConfigSnapshot[i].ModuleName,
-                                                          hookConfigSnapshot[i].FunctionName,
-                                                          &hookEntry->CustomHooks[i], hookConfigSnapshot[i].EventId,
+                            hookStatus = ResolveAndHook32(process, hookEntry, currentHookConfig->ModuleName,
+                                                          currentHookConfig->FunctionName,
+                                                          &hookEntry->CustomHooks[i], currentHookConfig->EventId,
                                                           targetNtDeviceIo32);
                         }
                         else
                         {
                             // Native 64-bit: resolve from 64-bit LDR, install 14-byte
                             // FF 25 JMP, use 64-bit shellcode template.
-                            hookStatus = ResolveAndHook(process, hookEntry, hookConfigSnapshot[i].ModuleName,
-                                                        hookConfigSnapshot[i].FunctionName, &hookEntry->CustomHooks[i],
-                                                        hookConfigSnapshot[i].EventId, targetNtDeviceIo);
+                            hookStatus = ResolveAndHook(process, hookEntry, currentHookConfig->ModuleName,
+                                                        currentHookConfig->FunctionName, &hookEntry->CustomHooks[i],
+                                                        currentHookConfig->EventId, targetNtDeviceIo);
                         }
                     }
                     __except (EXCEPTION_EXECUTE_HANDLER)
@@ -3567,7 +3586,7 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
                         hookStatus == STATUS_INVALID_PARAMETER)
                     {
                         DbgPrint("UserModeHook: PID %lu skipping hook[%lu] '%s' - recoverable 0x%X\n", ProcessId, i,
-                                 hookConfigSnapshot[i].FunctionName, hookStatus);
+                                 currentHookConfig->FunctionName, hookStatus);
                         recoverableHookFailureCount++;
                         continue;
                     }
@@ -3576,7 +3595,7 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
                     //                  STATUS_INVALID_IMAGE_FORMAT,
                     //                  STATUS_DEVICE_DOES_NOT_EXIST).
                     DbgPrint("UserModeHook: PID %lu fatal hook[%lu] '%ws!%s' failed 0x%X\n", ProcessId, i,
-                             hookConfigSnapshot[i].ModuleName, hookConfigSnapshot[i].FunctionName, hookStatus);
+                             currentHookConfig->ModuleName, currentHookConfig->FunctionName, hookStatus);
                     status = hookStatus;
                     __leave;
                 }
@@ -3783,7 +3802,7 @@ HookProcessFailure:
 // 64-bit hooks and USERMODE_HOOK_SIZE_32 (5) for WoW64 hooks at hook
 // installation time (InjectSingleHook and InjectSingleHook32 do this).
 // -------------------------------------------------------------------------
-VOID UnhookSingleFunction(_In_ PEPROCESS Process, _Inout_ PHOOK_DEF HookDef)
+static VOID UnhookSingleFunction(_In_ PEPROCESS Process, _Inout_ PHOOK_DEF HookDef)
 {
     UNREFERENCED_PARAMETER(Process);
     NTSTATUS status;
