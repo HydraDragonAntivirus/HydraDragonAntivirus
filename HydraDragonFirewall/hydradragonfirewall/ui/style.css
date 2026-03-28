@@ -284,7 +284,10 @@ main {
 
 .logs-viewport {
     flex: 1;
+    min-height: 0;
     overflow-y: auto;
+    overflow-x: hidden;
+    overscroll-behavior: contain;
     font-family: 'Fira Code', monospace;
     font-size: 13px;
     padding: 5px;
@@ -380,6 +383,10 @@ main {
     display: flex;
     flex-direction: column;
     gap: 8px;
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
 }
 
 .process-category-chip {
@@ -485,9 +492,11 @@ main {
 .process-detail-stack {
     display: flex;
     flex-direction: column;
+    flex: 1;
     gap: 14px;
     overflow-y: auto;
     min-height: 0;
+    overscroll-behavior: contain;
 }
 
 .process-detail-heading {
@@ -1142,6 +1151,7 @@ textarea.glass-card:focus {
     flex: 1;
     min-height: 0;
     overflow-y: auto;
+    overscroll-behavior: contain;
     padding-right: 4px;
 }
 

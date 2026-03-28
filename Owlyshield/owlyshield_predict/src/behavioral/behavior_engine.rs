@@ -667,6 +667,31 @@ fn is_rename_like_file_operation(irp_op: &IrpMajorOp, file_change: Option<FileCh
     )
 }
 
+fn is_file_data_irp(irp_op: &IrpMajorOp) -> bool {
+    matches!(
+        irp_op,
+        IrpMajorOp::IrpRead | IrpMajorOp::IrpWrite | IrpMajorOp::IrpCreate | IrpMajorOp::IrpSetInfo
+    )
+}
+
+fn is_plain_pattern(pattern: &str) -> bool {
+    let trimmed = pattern.trim();
+    !trimmed.is_empty()
+        && !trimmed.contains('*')
+        && !trimmed.contains('?')
+        && !trimmed.starts_with("(?")
+        && !trimmed.starts_with('^')
+        && !trimmed.ends_with('$')
+}
+
+fn pattern_looks_like_path(pattern: &str) -> bool {
+    let normalized = normalize_path_separators(&pattern.trim().to_lowercase());
+    normalized.contains(":/")
+        || normalized.starts_with('/')
+        || normalized.starts_with('%')
+        || normalized.contains('/')
+}
+
 fn normalize_hypervisor_api_label(raw: &str) -> String {
     let mut value = raw.trim().to_string();
     if let Some(idx) = value.find(" (syscall=0x") {
@@ -1572,7 +1597,6 @@ impl BehaviorEngine {
     ) -> bool {
         let scoped = Self::scoped_condition_name(rule, cond_name);
         state.satisfied_named_conditions.contains(scoped.as_str())
-            || state.satisfied_named_conditions.contains(cond_name)
     }
 
     fn rule_condition_values<'a>(
@@ -1581,9 +1605,7 @@ impl BehaviorEngine {
         cond_name: &str,
     ) -> Option<&'a HashSet<String>> {
         let scoped = Self::scoped_condition_name(rule, cond_name);
-        state.condition_match_values
-            .get(&scoped)
-            .or_else(|| state.condition_match_values.get(cond_name))
+        state.condition_match_values.get(&scoped)
     }
 
     fn truncate_detail_value(value: &str, max_chars: usize) -> String {
@@ -1636,8 +1658,10 @@ impl BehaviorEngine {
             IrpMajorOp::IrpCreate => {
                 if matches!(file_change, Some(FileChangeInfo::OpenDirectory)) {
                     "open_directory".to_string()
-                } else {
+                } else if matches!(file_change, Some(FileChangeInfo::ChangeNewFile)) {
                     "create".to_string()
+                } else {
+                    "open".to_string()
                 }
             }
             IrpMajorOp::IrpRead => "read".to_string(),
@@ -3257,6 +3281,11 @@ impl BehaviorEngine {
             None
         };
 
+        #[cfg(feature = "firewall")]
+        let network_activity_observed = self.firewall_net_pids.read().unwrap().contains(&msg.pid);
+        #[cfg(not(feature = "firewall"))]
+        let network_activity_observed = false;
+
         for rule in &self.rules {
             if rule.named_conditions.is_empty() {
                 continue;
@@ -3281,6 +3310,19 @@ impl BehaviorEngine {
                 }
 
                 let mut matched = false;
+                let has_cmdline_requirements = !cond_group.cmdline_keywords.is_empty()
+                    || !cond_group.cmdline_patterns.is_empty();
+                let process_context_requirement_count = [
+                    !cond_group.created_processes.is_empty(),
+                    !cond_group.process_names.is_empty(),
+                    !cond_group.parent_names.is_empty(),
+                    has_cmdline_requirements,
+                    cond_group.has_network_activity,
+                ]
+                .into_iter()
+                .filter(|configured| *configured)
+                .count();
+                let conjunctive_process_context = process_context_requirement_count > 1;
 
                 let has_api_conditions = !cond_group.apis.is_empty() || 
                                          !cond_group.scheduled_task_apis.is_empty() || 
@@ -3362,8 +3404,8 @@ impl BehaviorEngine {
                         ));
                     }
 
-                if !matched && cond_group.has_network_activity
-                    && self.firewall_net_pids.read().unwrap().contains(&state.pid) {
+                if !matched && !conjunctive_process_context && cond_group.has_network_activity
+                    && network_activity_observed {
                         matched = true;
                         Logging::info(&format!(
                             "[BehaviorEngine] Condition '{}' - Network activity confirmed by firewall for PID {}",
@@ -3604,6 +3646,7 @@ impl BehaviorEngine {
                 }
 
                 let file_change = event_file_change;
+                let file_event_irp = is_file_data_irp(irp_op);
                 let is_directory_event = matches!(file_change, Some(FileChangeInfo::OpenDirectory));
 
                 let current_file_op = match *irp_op {
@@ -3664,6 +3707,7 @@ impl BehaviorEngine {
                     && target_matches_process_image(&state.parent_path, filepath, &msg.filepathstr);
 
                 if !matched
+                    && file_event_irp
                     && cond_group.detect_parent_image_delete
                     && parent_image_touched
                     && is_delete_like_file_operation(irp_op, file_change)
@@ -3678,6 +3722,7 @@ impl BehaviorEngine {
                 }
 
                 if !matched
+                    && file_event_irp
                     && cond_group.detect_parent_image_rename
                     && parent_image_touched
                     && is_rename_like_file_operation(irp_op, file_change)
@@ -3692,7 +3737,7 @@ impl BehaviorEngine {
                 }
 
                 // Path-only conditions: match on path filters when no extension-specific matcher is requested.
-                if !matched && has_path_filters && !has_extension_conditions && file_op_allowed {
+                if !matched && file_event_irp && has_path_filters && !has_extension_conditions && file_op_allowed {
                     let path_variants = build_path_variants(filepath, &msg.filepathstr);
                     let mut path_iter = cond_group.file_paths.iter()
                         .chain(cond_group.staging_paths.iter())
@@ -3720,6 +3765,7 @@ impl BehaviorEngine {
 
                 // File-operation-only conditions (no path or extension constraints) should still accumulate.
                 if !matched
+                    && file_event_irp
                     && !cond_group.file_operations.is_empty()
                     && !has_path_filters
                     && !has_extension_conditions
@@ -3742,7 +3788,7 @@ impl BehaviorEngine {
                     }
                 }
 
-                if !matched && has_extension_conditions && file_op_allowed && !is_directory_event && same_file_requirements_ok {
+                if !matched && file_event_irp && has_extension_conditions && file_op_allowed && !is_directory_event && same_file_requirements_ok {
                     let extension_changed = matches!(
                         file_change,
                         Some(FileChangeInfo::ChangeRenameFile)
@@ -3920,11 +3966,110 @@ impl BehaviorEngine {
                         }
                     }
 
-                if !matched && !cond_group.parent_names.is_empty() {
+                if !matched && conjunctive_process_context {
+                    let child_name = msg.filepathstr
+                        .split(['\\', '/'])
+                        .filter(|s| !s.is_empty())
+                        .last()
+                        .unwrap_or("")
+                        .to_lowercase();
+                    let child_path_norm = canonical_behavior_path(&msg.filepathstr);
+                    let process_name_lc = state.app_name.to_lowercase();
+                    let process_path_norm = canonical_behavior_path(&state.exe_path.to_string_lossy());
+                    let parent_name_lc = state.parent_name.to_lowercase();
+                    let parent_path_norm = canonical_behavior_path(&state.parent_path.to_string_lossy());
+
+                    let created_process_ok = if cond_group.created_processes.is_empty() {
+                        true
+                    } else if *irp_op != IrpMajorOp::IrpProcessCreate {
+                        false
+                    } else {
+                        cond_group.created_processes.iter().any(|pattern| {
+                            Self::matches_process_identity_pattern(
+                                &self.regex_cache,
+                                pattern,
+                                &child_name,
+                                &child_path_norm,
+                            )
+                        })
+                    };
+
+                    let process_name_ok = if cond_group.process_names.is_empty() {
+                        true
+                    } else {
+                        cond_group.process_names.iter().any(|pattern| {
+                            Self::matches_process_identity_pattern(
+                                &self.regex_cache,
+                                pattern,
+                                &process_name_lc,
+                                &process_path_norm,
+                            )
+                        })
+                    };
+
+                    let parent_ok = if cond_group.parent_names.is_empty() {
+                        true
+                    } else if parent_name_lc.is_empty() || parent_name_lc == "unknown" {
+                        false
+                    } else {
+                        cond_group.parent_names.iter().any(|pattern| {
+                            Self::matches_process_identity_pattern(
+                                &self.regex_cache,
+                                pattern,
+                                &parent_name_lc,
+                                &parent_path_norm,
+                            )
+                        })
+                    };
+
+                    let cmdline_source = if !cond_group.created_processes.is_empty() {
+                        msg.runtime_features.command_line.to_lowercase()
+                    } else {
+                        state.command_line.to_lowercase()
+                    };
+                    let cmdline_ok = if has_cmdline_requirements {
+                        (!cond_group.cmdline_keywords.is_empty()
+                            && cond_group.cmdline_keywords.iter().any(|kw| {
+                                Self::matches_pattern_internal(&self.regex_cache, kw, &cmdline_source)
+                            }))
+                            || (!cond_group.cmdline_patterns.is_empty()
+                                && cond_group.cmdline_patterns.iter().any(|pat| {
+                                    pat.matches(&self.regex_cache, &cmdline_source)
+                                }))
+                    } else {
+                        true
+                    };
+
+                    let network_ok = !cond_group.has_network_activity || network_activity_observed;
+
+                    if created_process_ok && process_name_ok && parent_ok && cmdline_ok && network_ok {
+                        matched = true;
+                        let subject = if !cond_group.created_processes.is_empty() {
+                            child_name.clone()
+                        } else if !process_name_lc.is_empty() {
+                            process_name_lc.clone()
+                        } else if !parent_name_lc.is_empty() {
+                            parent_name_lc.clone()
+                        } else {
+                            "process-context".to_string()
+                        };
+                        Logging::info(&format!(
+                            "[BehaviorEngine] Condition '{}' - Process context match for PID {}: {}",
+                            cond_name, state.pid, subject
+                        ));
+                    }
+                }
+
+                if !matched && !conjunctive_process_context && !cond_group.parent_names.is_empty() {
                     let parent_lc = state.parent_name.to_lowercase();
                     if !parent_lc.is_empty() && parent_lc != "unknown"
                         && cond_group.parent_names.iter().any(|p| {
-                            Self::matches_pattern_internal(&self.regex_cache, p, &parent_lc)
+                            Self::matches_process_identity_pattern(
+                                &self.regex_cache,
+                                p,
+                                &parent_lc,
+                                &canonical_behavior_path(&state.parent_path.to_string_lossy()),
+                            )
                         }) {
                             matched = true;
                             Logging::info(&format!(
@@ -3934,7 +4079,7 @@ impl BehaviorEngine {
                         }
                 }
 
-                if !matched && (!cond_group.cmdline_keywords.is_empty() || !cond_group.cmdline_patterns.is_empty()) {
+                if !matched && !conjunctive_process_context && has_cmdline_requirements {
                     let cmdline_lc = state.command_line.to_lowercase();
                     if !cmdline_lc.is_empty() {
                         let keyword_hit = cond_group.cmdline_keywords.iter().any(|kw| {
@@ -4006,6 +4151,7 @@ impl BehaviorEngine {
                 // Also checks cmdline_keywords against the CHILD's cmdline (msg.runtime_features),
                 // not the parent's stored state.command_line.
                 if !matched
+                    && !conjunctive_process_context
                     && *irp_op == IrpMajorOp::IrpProcessCreate
                     && !cond_group.created_processes.is_empty()
                 {
@@ -4020,34 +4166,34 @@ impl BehaviorEngine {
                     let child_path_norm = canonical_behavior_path(&msg.filepathstr);
 
                     let name_match = cond_group.created_processes.iter().any(|pattern| {
-                        let p_lc = pattern.to_lowercase();
-                        (!child_name.is_empty() && Self::matches_pattern_internal(&self.regex_cache, &p_lc, &child_name))
-                        || (!child_path_norm.is_empty() && Self::matches_pattern_internal(&self.regex_cache, &p_lc, &child_path_norm))
+                        Self::matches_process_identity_pattern(
+                            &self.regex_cache,
+                            pattern,
+                            &child_name,
+                            &child_path_norm,
+                        )
                     });
 
                     if name_match {
-                        // If cmdline_keywords are also specified, ALL must appear in the child's cmdline.
-                        let child_cmdline = msg.runtime_features.command_line.to_lowercase();
-                        let cmdline_ok = cond_group.cmdline_keywords.is_empty()
-                            || cond_group.cmdline_keywords.iter().all(|kw| {
-                                Self::matches_pattern_internal(&self.regex_cache, kw, &child_cmdline)
-                            });
-
-                        if cmdline_ok {
-                            matched = true;
-                            Logging::info(&format!(
-                                "[BehaviorEngine] Condition '{}' - Process name match for PID {}: {}",
-                                cond_name, state.pid, child_name
-                            ));
-                        }
+                        matched = true;
+                        Logging::info(&format!(
+                            "[BehaviorEngine] Condition '{}' - Process name match for PID {}: {}",
+                            cond_name, state.pid, child_name
+                        ));
                     }
                 }
 
-                if !matched && !cond_group.process_names.is_empty() {
+                if !matched && !conjunctive_process_context && !cond_group.process_names.is_empty() {
                     let app_lc = state.app_name.to_lowercase();
+                    let exe_path_lc = canonical_behavior_path(&state.exe_path.to_string_lossy());
                     if !app_lc.is_empty()
                         && cond_group.process_names.iter().any(|p| {
-                            Self::matches_pattern_internal(&self.regex_cache, p, &app_lc)
+                            Self::matches_process_identity_pattern(
+                                &self.regex_cache,
+                                p,
+                                &app_lc,
+                                &exe_path_lc,
+                            )
                         }) {
                             matched = true;
                             Logging::info(&format!(
@@ -4057,7 +4203,7 @@ impl BehaviorEngine {
                         }
                 }
                 
-                if !matched && cond_group.is_signed.is_some() {
+                if !matched && state.signature_checked && cond_group.is_signed.is_some() {
                     let check_signed = cond_group.is_signed.unwrap();
                     if state.is_signed == check_signed {
                         matched = true;
@@ -4068,7 +4214,7 @@ impl BehaviorEngine {
                     }
                 }
                 
-                if !matched && cond_group.is_valid_signed.is_some() {
+                if !matched && state.signature_checked && cond_group.is_valid_signed.is_some() {
                     let check_valid = cond_group.is_valid_signed.unwrap();
                     if state.has_valid_signature == check_valid {
                         matched = true;
@@ -4079,7 +4225,7 @@ impl BehaviorEngine {
                     }
                 }
                 
-                if !matched && cond_group.requires_signed.is_some() {
+                if !matched && state.signature_checked && cond_group.requires_signed.is_some() {
                     let must_be_signed = cond_group.requires_signed.unwrap();
                     if state.is_signed == must_be_signed {
                         matched = true;
@@ -5108,6 +5254,33 @@ impl BehaviorEngine {
     
     /// Network activity detection — delegates entirely to the firewall.
     /// Returns true if the firewall has observed real outbound I/O for this PID.
+    fn matches_process_identity_pattern(
+        cache: &Arc<RwLock<HashMap<String, Regex>>>,
+        pattern: &str,
+        process_name: &str,
+        process_path: &str,
+    ) -> bool {
+        let trimmed = pattern.trim();
+        if trimmed.is_empty() {
+            return false;
+        }
+
+        let name_norm = normalize_path_separators(&process_name.trim().to_lowercase());
+        let path_norm = normalize_path_separators(&process_path.trim().to_lowercase());
+
+        if pattern_looks_like_path(trimmed) {
+            return (!path_norm.is_empty() && Self::matches_pattern_internal(cache, trimmed, &path_norm))
+                || (!name_norm.is_empty() && Self::matches_pattern_internal(cache, trimmed, &name_norm));
+        }
+
+        if is_plain_pattern(trimmed) {
+            return !name_norm.is_empty() && name_norm == trimmed.to_lowercase();
+        }
+
+        (!name_norm.is_empty() && Self::matches_pattern_internal(cache, trimmed, &name_norm))
+            || (!path_norm.is_empty() && Self::matches_pattern_internal(cache, trimmed, &path_norm))
+    }
+
     fn has_network_activity(&self, state: &ProcessBehaviorState) -> bool {
         #[cfg(feature = "firewall")]
         {

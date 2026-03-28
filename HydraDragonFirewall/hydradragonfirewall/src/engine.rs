@@ -1653,7 +1653,7 @@ impl FirewallEngine {
     }
 
     pub fn save_settings(&self) {
-        let current_settings = self.settings.read().unwrap();
+        let current_settings = self.settings.read().unwrap().clone();
         
         // Filter out one-time and unresolved identities so only stable trusts persist.
         let mut decisions = self.app_manager.decisions.read().unwrap().clone();
@@ -1679,6 +1679,11 @@ impl FirewallEngine {
             tls_proxy: current_settings.tls_proxy.clone(),
             metadata: current_settings.metadata.clone(),
         };
+
+        {
+            let mut live_settings = self.settings.write().unwrap();
+            live_settings.app_decisions = settings.app_decisions.clone();
+        }
 
         if let Ok(content) = serde_json::to_string_pretty(&settings) {
             let _ = fs::write("settings.json", content);
@@ -2237,12 +2242,15 @@ impl FirewallEngine {
     }
 
     pub fn remove_app_decision(&self, name_lower: String) {
-        self.app_manager.remove_decision(&name_lower);
+        let normalized = name_lower.to_ascii_lowercase();
+        self.app_manager.remove_decision(&normalized);
+        self.settings.write().unwrap().app_decisions.remove(&normalized);
         self.save_settings();
     }
 
     pub fn clear_app_decisions(&self) {
         self.app_manager.clear_decisions();
+        self.settings.write().unwrap().app_decisions.clear();
         self.save_settings();
     }
 

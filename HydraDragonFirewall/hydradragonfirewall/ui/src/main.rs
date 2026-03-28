@@ -1163,17 +1163,30 @@ pub fn App() -> impl IntoView {
     };
 
     let remove_decision_action = move |name: String| {
+        let normalized_name = name.to_ascii_lowercase();
+        set_app_decisions.update(|decisions| {
+            decisions.remove(&normalized_name);
+        });
+        set_settings.update(|settings| {
+            settings.app_decisions.remove(&normalized_name);
+        });
         spawn_local(async move {
-            let args = serde_wasm_bindgen::to_value(&serde_json::json!({ "name": name })).unwrap();
+            let args = serde_wasm_bindgen::to_value(&serde_json::json!({ "name": normalized_name })).unwrap();
             let _ = invoke("remove_app_decision", args).await;
             fetch_app_decisions();
+            fetch_settings();
         });
     };
 
     let clear_all_decisions = move || {
+        set_app_decisions.set(HashMap::new());
+        set_settings.update(|settings| {
+            settings.app_decisions.clear();
+        });
         spawn_local(async move {
             let _ = invoke("clear_app_decisions", JsValue::NULL).await;
             fetch_app_decisions();
+            fetch_settings();
         });
     };
 
@@ -2428,16 +2441,27 @@ pub fn App() -> impl IntoView {
                                             <h3>"Allowed Applications"</h3>
                                             <button class="btn-primary" style="background: var(--accent-red)" on:click=move |_| clear_all_decisions()> "REMOVE ALL" </button>
                                         </div>
-                                        <div class="exclusions-list">
-                                            {move || app_decisions.get().into_iter().map(|(name, decision)| {
-                                                let n = name.clone();
-                                                view! {
-                                                    <div class="exclusion-item" style="display: flex; justify-content: space-between; padding: 10px; border-bottom: 1px solid #333">
-                                                        <span>{n.clone()} " (" {format!("{:?}", decision)} ")"</span>
-                                                        <button on:click=move |_| remove_decision_action(n.clone())> "Remove" </button>
-                                                    </div>
-                                                }
-                                            }).collect_view()}
+                                        <div class="exclusions-list" style="min-height: 0; overflow-y: auto;">
+                                            <For
+                                                each={move || {
+                                                    let mut rows = app_decisions
+                                                        .get()
+                                                        .into_iter()
+                                                        .collect::<Vec<_>>();
+                                                    rows.sort_by(|a, b| a.0.cmp(&b.0));
+                                                    rows
+                                                }}
+                                                key={|(name, _)| name.clone()}
+                                                children={move |(name, decision)| {
+                                                    let n = name.clone();
+                                                    view! {
+                                                        <div class="exclusion-item" style="display: flex; justify-content: space-between; padding: 10px; border-bottom: 1px solid #333">
+                                                            <span>{n.clone()} " (" {format!("{:?}", decision)} ")"</span>
+                                                            <button on:click=move |_| remove_decision_action(n.clone())> "Remove" </button>
+                                                        </div>
+                                                    }
+                                                }}
+                                            />
                                         </div>
                                     </div>
                                 </div>
