@@ -3150,11 +3150,16 @@ NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROC
                                           FILE_OPEN,
                                           FILE_NON_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT,
                                           NULL, 0);
-                    if (!NT_SUCCESS(status) || targetDeviceHandle == NULL)
+                    if (!NT_SUCCESS(status))
                     {
                         DbgPrint("UserModeHook: ZwCreateFile per-process notify handle failed 0x%X\n", status);
-                        if (NT_SUCCESS(status))
-                            status = STATUS_INVALID_HANDLE;
+                        __leave;
+                    }
+
+                    if (targetDeviceHandle == NULL)
+                    {
+                        DbgPrint("UserModeHook: ZwCreateFile per-process notify handle returned NULL handle\n");
+                        status = STATUS_UNSUCCESSFUL;
                         __leave;
                     }
                 }
@@ -3660,51 +3665,91 @@ HookProcessFailure:
 
     if (hookEntry != NULL)
     {
-        if (hookEntry->CustomHooks != NULL)
-        {
-            ExFreePoolWithTag(hookEntry->CustomHooks, 'cHuM');
-            hookEntry->CustomHooks = NULL;
-            hookEntry->CustomHookCapacity = 0;
-        }
-
-        if (hookEntry->DriverDeviceHandle != NULL || hookEntry->ShellcodeBase != NULL)
+        // Initial hook failure cleanup has two very different cases:
+        //
+        //   1. No hook bytes were ever published (appliedHookCount == 0).
+        //      Safe to close the per-process user handle and free the shellcode
+        //      region immediately because nothing in user mode can jump there.
+        //
+        //   2. At least one hook was already installed before a later fatal
+        //      error.  In that case we must first restore the original bytes.
+        //      We intentionally DO NOT free ShellcodeBase or force-close the
+        //      user handle afterwards because another thread may already be
+        //      executing in the trampoline.  Unhooking prevents any NEW entry;
+        //      normal process teardown reclaims the leaked VA + handle safely.
+        //
+        // Also avoid attaching to a dying process: the OS will reclaim its
+        // handle table and VA space during rundown.
+        if ((hookEntry->CustomHooks != NULL || hookEntry->DriverDeviceHandle != NULL || hookEntry->ShellcodeBase != NULL) &&
+            process != NULL && PsGetProcessExitStatus(process) == STATUS_PENDING)
         {
             KAPC_STATE cleanupApcState;
             KeStackAttachProcess((PRKPROCESS)process, &cleanupApcState);
             __try // outer: guarantees detach
             {
-                __try // inner: catches exceptions from ZwClose/ZwFree
+                __try // inner: catches exceptions from unhook / close / free
                 {
-                    if (hookEntry->DriverDeviceHandle != NULL)
+                    if (appliedHookCount > 0 && hookEntry->CustomHooks != NULL)
                     {
-                        //
-                        // Do not force-close the injected user-mode notify handle
-                        // from the driver. Once that handle value has been written
-                        // into target-process shellcode, user-mode teardown/rundown
-                        // must own its lifetime. Forcing ZwClose here can race the
-                        // target's own handle-table cleanup and surface as
-                        // STATUS_INVALID_HANDLE in the process.
-                        //
-                        hookEntry->DriverDeviceHandle = NULL;
-                    }
+                        for (ULONG i = 0; i < hookEntry->CustomHookCapacity; ++i)
+                        {
+                            if (hookEntry->CustomHooks[i].IsHooked)
+                            {
+                                UnhookSingleFunction(process, &hookEntry->CustomHooks[i]);
+                            }
+                        }
 
-                    if (hookEntry->ShellcodeBase != NULL && fnZwFreeVirtualMemory != NULL)
-                    {
-                        SIZE_T freeSize = 0;
-                        fnZwFreeVirtualMemory(ZwCurrentProcess(), &hookEntry->ShellcodeBase, &freeSize, MEM_RELEASE);
+                        hookEntry->DriverDeviceHandle = NULL;
                         hookEntry->ShellcodeBase = NULL;
+                        hookEntry->ShellcodeSize = 0;
+                        hookEntry->ShellcodeUsed = 0;
+                    }
+                    else
+                    {
+                        if (hookEntry->DriverDeviceHandle != NULL)
+                        {
+                            ZwClose(hookEntry->DriverDeviceHandle);
+                            hookEntry->DriverDeviceHandle = NULL;
+                        }
+
+                        if (hookEntry->ShellcodeBase != NULL && fnZwFreeVirtualMemory != NULL)
+                        {
+                            SIZE_T freeSize = 0;
+                            fnZwFreeVirtualMemory(ZwCurrentProcess(), &hookEntry->ShellcodeBase, &freeSize,
+                                                  MEM_RELEASE);
+                            hookEntry->ShellcodeBase = NULL;
+                        }
+
+                        hookEntry->ShellcodeSize = 0;
+                        hookEntry->ShellcodeUsed = 0;
                     }
                 }
                 __except (EXCEPTION_EXECUTE_HANDLER)
                 {
                     hookEntry->DriverDeviceHandle = NULL;
                     hookEntry->ShellcodeBase = NULL;
+                    hookEntry->ShellcodeSize = 0;
+                    hookEntry->ShellcodeUsed = 0;
                 }
             }
             __finally
             {
                 KeUnstackDetachProcess(&cleanupApcState);
             }
+        }
+        else
+        {
+            hookEntry->DriverDeviceHandle = NULL;
+            hookEntry->ShellcodeBase = NULL;
+            hookEntry->ShellcodeSize = 0;
+            hookEntry->ShellcodeUsed = 0;
+        }
+
+        if (hookEntry->CustomHooks != NULL)
+        {
+            ExFreePoolWithTag(hookEntry->CustomHooks, 'cHuM');
+            hookEntry->CustomHooks = NULL;
+            hookEntry->CustomHookCapacity = 0;
         }
 
         // Drop the global array's reference before clearing the entry
