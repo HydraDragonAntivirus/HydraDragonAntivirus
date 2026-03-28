@@ -989,10 +989,11 @@
       min_matches: 1
 
   detection_logic:
-    or:
+    and:
       - condition: "service_dll_modification"
-      - condition: "service_reconfigure_api"
-      - condition: "suspicious_service_dll_payload"
+      - or:
+          - condition: "suspicious_service_dll_payload"
+          - condition: "service_reconfigure_api"
 
   response:
     notify_user: true
