@@ -1,7 +1,7 @@
 use std::path::Path;
 use std::os::windows::ffi::OsStrExt;
 use windows::core::{PCWSTR, PWSTR};
-use windows::Win32::Foundation::{ERROR_SUCCESS, INVALID_HANDLE_VALUE};
+use windows::Win32::Foundation::ERROR_SUCCESS;
 use windows::Win32::Security::WinTrust::{
     WinVerifyTrust, WINTRUST_ACTION_GENERIC_VERIFY_V2, WINTRUST_DATA, 
     WTD_CHOICE_FILE, WTD_STATEACTION_VERIFY,
@@ -37,7 +37,7 @@ pub fn verify_signature(path: &Path) -> SignatureInfo {
         let mut file_info = WINTRUST_FILE_INFO {
             cbStruct: std::mem::size_of::<WINTRUST_FILE_INFO>() as u32,
             pcwszFilePath: PCWSTR(path_wide.as_ptr()),
-            hFile: INVALID_HANDLE_VALUE,
+            hFile: windows::Win32::Foundation::HANDLE::default(),
             pgKnownSubject: std::ptr::null_mut(),
         };
 
@@ -51,7 +51,7 @@ pub fn verify_signature(path: &Path) -> SignatureInfo {
             dwStateAction: WTD_STATEACTION_VERIFY,
             hWVTStateData: windows::Win32::Foundation::HANDLE::default(),
             pwszURLReference: PWSTR::null(),
-            dwProvFlags: windows::Win32::Security::WinTrust::WTD_SAFER_FLAG, 
+            dwProvFlags: windows::Win32::Security::WinTrust::WINTRUST_DATA_PROVIDER_FLAGS(0),
             dwUIContext: WINTRUST_DATA_UICONTEXT(0),
             pSignatureSettings: std::ptr::null_mut(),
             Anonymous: windows::Win32::Security::WinTrust::WINTRUST_DATA_0 {
@@ -68,6 +68,9 @@ pub fn verify_signature(path: &Path) -> SignatureInfo {
         );
 
         is_trusted = result == ERROR_SUCCESS.0 as i32;
+        if is_trusted {
+            is_signed = true;
+        }
 
         win_trust_data.dwStateAction = WTD_STATEACTION_CLOSE;
         let _ = WinVerifyTrust(

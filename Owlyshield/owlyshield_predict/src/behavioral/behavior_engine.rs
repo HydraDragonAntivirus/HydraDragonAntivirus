@@ -4982,7 +4982,28 @@ impl BehaviorEngine {
             || trimmed.ends_with('$');
 
         if !has_glob && !is_explicit_regex {
-            return text.to_lowercase().contains(&trimmed.to_lowercase());
+            let text_norm = normalize_path_separators(&text.to_lowercase());
+            let pattern_norm = normalize_path_separators(&trimmed.to_lowercase());
+            let looks_like_path = pattern_norm.contains(":/")
+                || pattern_norm.starts_with('/')
+                || pattern_norm.starts_with('%')
+                || pattern_norm.contains('/');
+
+            if looks_like_path {
+                if text_norm == pattern_norm {
+                    return true;
+                }
+
+                if pattern_norm.ends_with('/') {
+                    return text_norm.starts_with(&pattern_norm);
+                }
+
+                let mut prefix = pattern_norm.clone();
+                prefix.push('/');
+                return text_norm.starts_with(&prefix);
+            }
+
+            return text.to_lowercase().contains(&pattern_norm);
         }
 
         {

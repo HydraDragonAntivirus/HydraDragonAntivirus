@@ -311,6 +311,8 @@
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/sihost.exe"
+      is_absolute: true
     - pattern: "%SystemRoot%/servicing/TrustedInstaller.exe"
       must_be_signed: true
       is_absolute: true
