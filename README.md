@@ -164,7 +164,7 @@ See the [LICENSE](./LICENSE) file for more information.
 
  ## Discord Community Server
 
-- Here is the server link: https://discord.gg/antivirus
+- Here is the server link: https://discord.gg/7XMCuj5mbP
 
 ## Prepare environment
 - Create too many files to detect ransomware.
