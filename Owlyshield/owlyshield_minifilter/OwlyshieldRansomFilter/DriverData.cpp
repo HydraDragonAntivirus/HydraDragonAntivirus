@@ -485,14 +485,13 @@ ULONG DriverData::IrpSize() {
 
 BOOLEAN DriverData::AddIrpMessage(PIRP_ENTRY newEntry) {
     KIRQL oldIrql;
-    KeAcquireSpinLock(&irpOpsLock, &oldIrql);
-    if (irpOpsSize < MAX_OPS_SAVE) {
-        irpOpsSize++;
-        InsertTailList(&irpOps, &newEntry->entry);
-    } else {
-        KeReleaseSpinLock(&irpOpsLock, oldIrql);
+    if (newEntry == nullptr) {
         return FALSE;
     }
+
+    KeAcquireSpinLock(&irpOpsLock, &oldIrql);
+    irpOpsSize++;
+    InsertTailList(&irpOps, &newEntry->entry);
     KeReleaseSpinLock(&irpOpsLock, oldIrql);
     return TRUE;
 }

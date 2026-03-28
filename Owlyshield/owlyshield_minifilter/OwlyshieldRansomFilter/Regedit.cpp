@@ -265,9 +265,9 @@ VOID SendRegistryAlert(PUNICODE_STRING RegPath, PCWSTR Operation, HANDLE Pid, UC
     // Copy Operation to Extension
     RtlStringCbCopyW(newEntry->data.Extension, sizeof(newEntry->data.Extension), Operation);
 
-    // Add to Driver Queue; free entry if queue is full to avoid leak.
+    // Add to the driver queue; if enqueue ever fails, free the entry to avoid a leak.
     if (!driverData->AddIrpMessage(newEntry)) {
-        DbgPrint("!!! Regedit: IRP queue full, dropping registry event for PID %lu\n",
+        DbgPrint("!!! Regedit: Failed to enqueue registry event for PID %lu\n",
                  newEntry->data.PID);
         delete newEntry;
     }

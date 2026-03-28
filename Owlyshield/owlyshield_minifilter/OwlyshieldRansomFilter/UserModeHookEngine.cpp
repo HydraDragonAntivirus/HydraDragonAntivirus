@@ -130,10 +130,6 @@ typedef PPEB(NTAPI *PPS_GET_PROCESS_PEB)(_In_ PEPROCESS Process);
 typedef NTSTATUS(NTAPI *PZW_ALLOCATE_VIRTUAL_MEMORY)(_In_ HANDLE ProcessHandle, _Inout_ PVOID *BaseAddress,
                                                      _In_ ULONG_PTR ZeroBits, _Inout_ PSIZE_T RegionSize,
                                                      _In_ ULONG AllocationType, _In_ ULONG Protect);
-typedef NTSTATUS(NTAPI *PZW_DUPLICATE_OBJECT)(_In_ HANDLE SourceProcessHandle, _In_ HANDLE SourceHandle,
-                                              _In_ HANDLE TargetProcessHandle, _Out_ PHANDLE TargetHandle,
-                                              _In_ ACCESS_MASK DesiredAccess, _In_ ULONG HandleAttributes,
-                                              _In_ ULONG Options);
 typedef NTSTATUS(NTAPI *PZW_FREE_VIRTUAL_MEMORY)(_In_ HANDLE ProcessHandle, _Inout_ PVOID *BaseAddress,
                                                  _Inout_ PSIZE_T RegionSize, _In_ ULONG FreeType);
 typedef BOOLEAN(NTAPI *PPS_IS_PROTECTED_PROCESS)(_In_ PEPROCESS Process);
@@ -148,7 +144,6 @@ typedef PVOID(NTAPI *PPS_GET_PROCESS_WOW64_PROCESS)(_In_ PEPROCESS Process);
 //
 PZW_PROTECT_VIRTUAL_MEMORY fnZwProtectVirtualMemory = NULL;
 PZW_ALLOCATE_VIRTUAL_MEMORY fnZwAllocateVirtualMemory = NULL;
-PZW_DUPLICATE_OBJECT fnZwDuplicateObject = NULL;
 PZW_FREE_VIRTUAL_MEMORY fnZwFreeVirtualMemory = NULL;
 PPS_GET_PROCESS_PEB fnPsGetProcessPeb = NULL;
 PPS_IS_PROTECTED_PROCESS fnPsIsProtectedProcess = NULL;
@@ -157,9 +152,9 @@ PPS_GET_PROCESS_WOW64_PROCESS fnPsGetProcessWow64Process = NULL;
 
 PUSERMODE_HOOK_ENGINE g_UserHookEngine = NULL;
 // Master hook notification FILE_OBJECT. Opened once with synchronous I/O
-// semantics during engine init, then duplicated into each target process so
-// shellcode receives a user-visible handle without re-opening the device under
-// the target process token.
+// semantics during engine init, then re-opened as a user handle inside each
+// target process so shellcode receives a normal user-visible handle without
+// duplicating a kernel handle into the target token.
 static HANDLE g_HookNotifyMasterHandle = NULL;
 static volatile BOOLEAN g_HookEngineShuttingDown = FALSE;
 
@@ -1660,10 +1655,6 @@ NTSTATUS UserModeHookEngineInitialize(VOID)
         DbgPrint("!!! UserModeHook: Failed to resolve ZwAllocateVirtualMemory\n");
     }
 
-    // Resolve ZwDuplicateObject
-    RtlInitUnicodeString(&routineName, L"ZwDuplicateObject");
-    fnZwDuplicateObject = (PZW_DUPLICATE_OBJECT)MmGetSystemRoutineAddress(&routineName);
-
     // Resolve ZwFreeVirtualMemory
     RtlInitUnicodeString(&routineName, L"ZwFreeVirtualMemory");
     fnZwFreeVirtualMemory = (PZW_FREE_VIRTUAL_MEMORY)MmGetSystemRoutineAddress(&routineName);
@@ -1671,10 +1662,6 @@ NTSTATUS UserModeHookEngineInitialize(VOID)
     if (!fnZwFreeVirtualMemory)
     {
         DbgPrint("!!! UserModeHook: Failed to resolve ZwFreeVirtualMemory\n");
-    }
-    if (!fnZwDuplicateObject)
-    {
-        DbgPrint("!!! UserModeHook: Failed to resolve ZwDuplicateObject\n");
     }
 
     // Resolve optional process protection helpers (best-effort).
@@ -3035,7 +3022,7 @@ NTSTATUS ResolveAndHook32(_In_ PEPROCESS Process, _In_ PPROCESS_HOOK_ENTRY HookE
     return InjectSingleHook32(Process, HookEntry->ProcessId, HookEntry, HookDef, EventId, TargetNtDeviceIo32);
 }
 //
-// ROOT CAUSE FIX - keep the notification handle SYNCHRONOUS.
+// ROOT CAUSE FIX - keep the notification handle SYNCHRONOUS and truly user-mode.
 //
 // The shellcode passes an IO_STATUS_BLOCK that lives on its stack frame.
 // If the handle is opened asynchronously, NtDeviceIoControlFile can return
@@ -3045,12 +3032,14 @@ NTSTATUS ResolveAndHook32(_In_ PEPROCESS Process, _In_ PPROCESS_HOOK_ENTRY HookE
 // and producing hangs during exit, restart, and general I/O.
 //
 // Fix: open one master device handle WITH FILE_SYNCHRONOUS_IO_NONALERT during
-// engine initialization, then duplicate that same FILE_OBJECT into each target
-// process while attached.
-//   * Duplicated handles preserve the source FILE_OBJECT's synchronous I/O semantics.
+// engine initialization, then reference its FILE_OBJECT and open a new USER
+// handle to that same FILE_OBJECT while attached to each target process.
+//   * The per-process handle points at the same synchronous FILE_OBJECT.
 //   * NtDeviceIoControlFile does not return until the driver completes.
 //   * The stack-based IO_STATUS_BLOCK remains valid for the entire call.
 //   * No completion APC is needed for correctness.
+//   * The target receives a normal user handle, so CloseHandle/RTL rundown
+//     does not trip STATUS_INVALID_HANDLE for an illegal kernel-only handle.
 //
 NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROCESS_HOOK_ENTRY HookEntry)
 {
@@ -3058,6 +3047,7 @@ NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROC
     NTSTATUS status;
     PVOID baseAddress = NULL;
     HANDLE targetDeviceHandle = NULL;
+    PFILE_OBJECT hookNotifyFileObject = NULL;
     SIZE_T hookSlots = (SIZE_T)HookEntry->CustomHookCapacity;
     if (hookSlots == 0)
     {
@@ -3075,29 +3065,35 @@ NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROC
         return STATUS_DEVICE_NOT_READY;
     }
 
+    status = ObReferenceObjectByHandle(g_HookNotifyMasterHandle,
+                                       FILE_READ_DATA | FILE_WRITE_DATA | SYNCHRONIZE,
+                                       *IoFileObjectType,
+                                       KernelMode,
+                                       (PVOID *)&hookNotifyFileObject,
+                                       NULL);
+    if (!NT_SUCCESS(status) || hookNotifyFileObject == NULL)
+    {
+        DbgPrint("UserModeHook: ObReferenceObjectByHandle master notify handle failed 0x%X\n", status);
+        return !NT_SUCCESS(status) ? status : STATUS_INVALID_HANDLE;
+    }
+
     {
         KAPC_STATE apcState;
         KeStackAttachProcess((PRKPROCESS)Process, &apcState);
         __try // outer: guarantees detach
         {
-            __try // inner: catches exceptions from ZwDuplicateObject / ZwAllocate
+            __try // inner: catches exceptions from ObOpenObjectByPointer / ZwAllocate
             {
-                if (!fnZwDuplicateObject)
-                {
-                    status = STATUS_NOT_SUPPORTED;
-                    __leave;
-                }
-
-                status = fnZwDuplicateObject(NtCurrentProcess(),
-                                             g_HookNotifyMasterHandle,
-                                             NtCurrentProcess(),
-                                             &targetDeviceHandle,
-                                             0,
-                                             0,
-                                             DUPLICATE_SAME_ACCESS);
+                status = ObOpenObjectByPointer(hookNotifyFileObject,
+                                               0,
+                                               NULL,
+                                               FILE_READ_DATA | FILE_WRITE_DATA | SYNCHRONIZE,
+                                               *IoFileObjectType,
+                                               UserMode,
+                                               &targetDeviceHandle);
                 if (!NT_SUCCESS(status) || targetDeviceHandle == NULL)
                 {
-                    DbgPrint("UserModeHook: ZwDuplicateObject master notify handle failed 0x%X\n", status);
+                    DbgPrint("UserModeHook: ObOpenObjectByPointer master notify handle failed 0x%X\n", status);
                     __leave;
                 }
 
@@ -3189,6 +3185,12 @@ NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROC
         {
             KeUnstackDetachProcess(&apcState);
         }
+    }
+
+    if (hookNotifyFileObject != NULL)
+    {
+        ObDereferenceObject(hookNotifyFileObject);
+        hookNotifyFileObject = NULL;
     }
 
     return status;

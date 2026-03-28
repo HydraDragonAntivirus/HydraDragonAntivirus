@@ -649,13 +649,6 @@ QueueHypervisorEvent(_In_ ULONG RawEventType, _In_opt_z_ PCWSTR EventName, _In_ 
     }
 
     KeAcquireSpinLock(&g_OwlyHvEventQueueLock, &oldIrql);
-    if (g_OwlyHvEventQueueSize >= MAX_OPS_SAVE)
-    {
-        KeReleaseSpinLock(&g_OwlyHvEventQueueLock, oldIrql);
-        ExFreePoolWithTag(newEntry, OWLY_HV_EVENT_QUEUE_TAG);
-        return FALSE;
-    }
-
     InsertTailList(&g_OwlyHvEventQueue, &newEntry->Entry);
     g_OwlyHvEventQueueSize++;
     KeReleaseSpinLock(&g_OwlyHvEventQueueLock, oldIrql);
