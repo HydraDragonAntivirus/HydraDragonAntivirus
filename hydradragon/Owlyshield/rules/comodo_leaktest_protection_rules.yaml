@@ -350,17 +350,6 @@
     # Extension globs are tied to these paths via compound patterns.
     sensitive_os_dir_write:
       orderless: true
-      apis:
-        - "*CreateFile*"
-        - "*WriteFile*"
-        - "*NtCreateFile*"
-        - "*ZwCreateFile*"
-        - "*NtWriteFile*"
-        - "*ZwWriteFile*"
-        - "*CopyFile*"
-        - "*CopyFileEx*"
-        - "*MoveFile*"
-        - "*MoveFileEx*"
       file_paths:
         # Anchored to System32 — only .exe/.dll/.sys/.drv drops here are dangerous
         - "C:\\Windows\\System32\\*.exe"

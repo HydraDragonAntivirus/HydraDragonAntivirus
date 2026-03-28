@@ -164,30 +164,3 @@ typedef struct _REGISTRY_BACKUP_ENTRY
 
 } REGISTRY_BACKUP_ENTRY, * PREGISTRY_BACKUP_ENTRY;
 
-// =========================================================================
-// Path Classification and Finding Emission Functions
-// =========================================================================
-
-// Returns a descriptive prefix for the file path based on location
-// Examples: "system file", "user file", "uefi critical", NULL if unknown
-PCWSTR FSGetUefiPathFindingPrefix(_In_opt_ PUNICODE_STRING FilePath);
-
-// Emits a generic kernel path finding event to the communication port
-VOID FSEmitGenericKernelPathFinding(
-    _In_ ULONG PID,
-    _In_ ULONGLONG GID,
-    _In_opt_ PUNICODE_STRING FilePath,
-    _In_opt_ PCWSTR FindingPrefix,
-    _In_ ACCESS_MASK DesiredAccess,
-    _In_ NTSTATUS Status,
-    _In_ UCHAR FileChange,
-    _In_ ULONG_PTR ExtraInfo1,
-    _In_ ULONG_PTR ExtraInfo2);
-
-// Checks if a create operation has write intent based on desired access and options
-BOOLEAN FSHasCreateWriteIntent(
-    _In_ ACCESS_MASK DesiredAccess,
-    _In_ ULONG CreateOptions);
-
-// Checks if a path refers to a raw boot device (e.g., \Device\HarddiskVolume*)
-BOOLEAN FSIsRawBootDevicePath(_In_opt_ PUNICODE_STRING FilePath);

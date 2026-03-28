@@ -246,6 +246,9 @@ static ULONG RkCheckDriverObjectPathIntegrity(_In_ PCWSTR Path,
 static ULONG RkScanDriverObjectDirectory(_In_ PCWSTR DirectoryPath,
                                          _In_ PRTL_PROCESS_MODULES Modules,
                                          _In_ ULONG MaxFindings);
+_Success_(return != FALSE)
+static BOOLEAN RkBuildVisibleProcessBitmap(_Out_writes_bytes_(BitmapBytes) PUCHAR Bitmap,
+                                           _In_ ULONG BitmapBytes);
 
 // ---------------------------------------------------------------------------
 // RootkitDetectorInitialize
@@ -330,10 +333,25 @@ RootkitDetectorSetDeviceObject(_In_ PDEVICE_OBJECT DeviceObject)
 VOID
 RootkitDetectorCleanup(VOID)
 {
+    LARGE_INTEGER delayInterval;
+
+    // Block any future queue attempts before we tear down the work item/device.
+    g_ScanDeviceObject = NULL;
+    KeMemoryBarrier();
+
+    // If a scan was already queued or is currently running, wait for it to drain
+    // before freeing the shared IO_WORKITEM and before the caller tears down
+    // driverData / the device object.
+    delayInterval.QuadPart = -10 * 1000; // 1 ms
+    while (InterlockedCompareExchange(&g_ScanInProgress, 0, 0) != 0) {
+        KeDelayExecutionThread(KernelMode, FALSE, &delayInterval);
+    }
+
     if (g_ScanWorkItem) {
         IoFreeWorkItem(g_ScanWorkItem);
         g_ScanWorkItem = NULL;
     }
+    InterlockedExchange(&g_PendingTrigger, (LONG)RK_TRIGGER_LIGHT);
     DbgPrint("RootkitDetector: Cleanup done\n");
 }
 
@@ -415,6 +433,7 @@ RkWorkItemRoutine(_In_ PDEVICE_OBJECT DevObj, _In_opt_ PVOID Ctx)
         }
     }
     __finally {
+        KeMemoryBarrier();
         InterlockedExchange(&g_ScanInProgress, 0);
     }
 }
@@ -905,75 +924,12 @@ RkCheckDriverObjectIntegrity(VOID)
 static ULONG
 RkCheckObjectTypeCallbackTampering(VOID)
 {
-    PRK_OBJECT_TYPE_LAYOUT typeLayout;
-    POBJECT_TYPE fileObjectType = NULL;
-    WCHAR desc[128] = {0};
-    ULONG stateFlags = 0;
-    BOOLEAN callbacksEnabled = FALSE;
-    BOOLEAN callbacksActive = FALSE;
-
-    if (!g_IoFileObjectType || !*g_IoFileObjectType) {
-        return 0;
-    }
-
-    fileObjectType = *g_IoFileObjectType;
-
-    __try {
-        typeLayout = (PRK_OBJECT_TYPE_LAYOUT)fileObjectType;
-        callbacksEnabled =
-            (typeLayout->TypeInfo.ObjectTypeFlags & RK_OBJECT_TYPE_FLAG_SUPPORTS_CALLBACKS) != 0;
-
-        if (typeLayout->CallbackList.Flink != NULL &&
-            typeLayout->CallbackList.Blink != NULL &&
-            (typeLayout->CallbackList.Flink != &typeLayout->CallbackList ||
-             typeLayout->CallbackList.Blink != &typeLayout->CallbackList))
-        {
-            callbacksActive = TRUE;
-        }
-    }
-    __except (EXCEPTION_EXECUTE_HANDLER) {
-        DbgPrint("RootkitDetector: exception while checking object-type callback state (0x%X)\n",
-                 GetExceptionCode());
-        return 0;
-    }
-
-    if (!callbacksEnabled && !callbacksActive) {
-        return 0;
-    }
-
-    if (callbacksEnabled) {
-        stateFlags |= RK_OBJECT_CALLBACK_STATE_ENABLED;
-    }
-    if (callbacksActive) {
-        stateFlags |= RK_OBJECT_CALLBACK_STATE_ACTIVE;
-    }
-
-    if (callbacksEnabled && callbacksActive) {
-        (VOID)RtlStringCchCopyW(desc,
-                                RTL_NUMBER_OF(desc),
-                                L"Object type tampering: file object callbacks enabled with active registrations");
-    } else if (callbacksEnabled) {
-        (VOID)RtlStringCchCopyW(desc,
-                                RTL_NUMBER_OF(desc),
-                                L"Object type tampering: file object callbacks enabled");
-    } else {
-        (VOID)RtlStringCchCopyW(desc,
-                                RTL_NUMBER_OF(desc),
-                                L"Object type tampering: file object callback list populated");
-    }
-
-    DbgPrint("RootkitDetector: object-type callback tamper state=0x%lx type=%p\n",
-             stateFlags,
-             fileObjectType);
-
-    RkEmitFinding(IRP_ROOTKIT_GENERIC,
-                  0,
-                  desc,
-                  fileObjectType,
-                  sizeof(RK_OBJECT_TYPE_LAYOUT),
-                  stateFlags,
-                  0);
-    return 1;
+    //
+    // The internal OBJECT_TYPE layout is build-sensitive and the previous
+    // hardcoded cast produced false positives on newer Windows builds. Keep
+    // this detector dormant until a version-aware implementation is added.
+    //
+    return 0;
 }
 
 // ===========================================================================
@@ -1001,7 +957,7 @@ RkCheckSsdtIntegrity(VOID)
         {
             __try {
                 LONG_PTR enc      = (LONG_PTR)(LONG)table[i];
-                PVOID    resolved = (PVOID)((ULONG_PTR)&table[i] + (enc >> 4));
+                PVOID    resolved = (PVOID)((ULONG_PTR)table + (enc >> 4));
 
                 if (!RkAddressInModule(resolved, ntoBase, ntoSize)) {
                     WCHAR desc[128];
@@ -1047,38 +1003,27 @@ static ULONG
 RkCheckHiddenProcesses(VOID)
 {
     ULONG    findings = 0;
-    NTSTATUS status;
-    ULONG    need     = 0;
+    const ULONG BITMAP_BYTES = 65536 / 8;
+    PUCHAR bitmapPrimary = NULL;
+    PUCHAR bitmapSecondary = NULL;
 
     if (!fnZwQuerySystemInformation || !fnPsLookupProcessByProcessId) return 0;
 
-    status = fnZwQuerySystemInformation(SystemProcessInformation, NULL, 0, &need);
-    if (status != STATUS_INFO_LENGTH_MISMATCH || need == 0) return 0;
-
-    need += 65536;
-    PUCHAR buf = (PUCHAR)ExAllocatePool2(POOL_FLAG_PAGED, need, 'pRhO');
-    if (!buf) return 0;
-
-    status = fnZwQuerySystemInformation(SystemProcessInformation, buf, need, NULL);
-    if (!NT_SUCCESS(status)) { ExFreePoolWithTag(buf, 'pRhO'); return 0; }
-
-    // Build a 64KB bitmap of known PIDs.
-    const ULONG BITMAP_BYTES = 65536 / 8;
-    PUCHAR bitmap = (PUCHAR)ExAllocatePool2(POOL_FLAG_NON_PAGED,
-                                            BITMAP_BYTES, 'bRhO');
-    if (!bitmap) { ExFreePoolWithTag(buf, 'pRhO'); return 0; }
-    RtlZeroMemory(bitmap, BITMAP_BYTES);
-
-    SYSTEM_PROCESS_INFORMATION *entry =
-        (SYSTEM_PROCESS_INFORMATION *)(PVOID)buf;
-    while (TRUE) {
-        ULONG pid = (ULONG)(ULONG_PTR)entry->UniqueProcessId;
-        if (pid < 65536) bitmap[pid / 8] |= (UCHAR)(1 << (pid % 8));
-        if (!entry->NextEntryOffset) break;
-        entry = (SYSTEM_PROCESS_INFORMATION *)((PUCHAR)entry +
-                                                entry->NextEntryOffset);
+    bitmapPrimary = (PUCHAR)ExAllocatePool2(POOL_FLAG_NON_PAGED, BITMAP_BYTES, 'bRhO');
+    bitmapSecondary = (PUCHAR)ExAllocatePool2(POOL_FLAG_NON_PAGED, BITMAP_BYTES, '2RhO');
+    if (!bitmapPrimary || !bitmapSecondary) {
+        if (bitmapPrimary) ExFreePoolWithTag(bitmapPrimary, 'bRhO');
+        if (bitmapSecondary) ExFreePoolWithTag(bitmapSecondary, '2RhO');
+        return 0;
     }
-    ExFreePoolWithTag(buf, 'pRhO');
+
+    if (!RkBuildVisibleProcessBitmap(bitmapPrimary, BITMAP_BYTES) ||
+        !RkBuildVisibleProcessBitmap(bitmapSecondary, BITMAP_BYTES))
+    {
+        ExFreePoolWithTag(bitmapPrimary, 'bRhO');
+        ExFreePoolWithTag(bitmapSecondary, '2RhO');
+        return 0;
+    }
 
     // Scan PID space: PIDs in PspCidTable but absent from the list are DKOM-hidden.
     for (ULONG pid = 4;
@@ -1086,7 +1031,10 @@ RkCheckHiddenProcesses(VOID)
          pid += 4)
     {
         if (pid == 0) continue;
-        if (bitmap[pid / 8] & (1 << (pid % 8))) continue; // visible, skip
+        if ((bitmapPrimary[pid / 8] & (1 << (pid % 8))) ||
+            (bitmapSecondary[pid / 8] & (1 << (pid % 8)))) {
+            continue; // visible in at least one live snapshot
+        }
 
         PEPROCESS proc = NULL;
         HANDLE pidHandle = (HANDLE)(ULONG_PTR)pid;
@@ -1113,8 +1061,58 @@ RkCheckHiddenProcesses(VOID)
         }
     }
 
-    ExFreePoolWithTag(bitmap, 'bRhO');
+    ExFreePoolWithTag(bitmapPrimary, 'bRhO');
+    ExFreePoolWithTag(bitmapSecondary, '2RhO');
     return findings;
+}
+
+_Success_(return != FALSE)
+static BOOLEAN
+RkBuildVisibleProcessBitmap(_Out_writes_bytes_(BitmapBytes) PUCHAR Bitmap,
+                            _In_ ULONG BitmapBytes)
+{
+    NTSTATUS status;
+    ULONG need = 0;
+    PUCHAR buf = NULL;
+    SYSTEM_PROCESS_INFORMATION *entry = NULL;
+
+    if (!Bitmap || BitmapBytes == 0 || !fnZwQuerySystemInformation) {
+        return FALSE;
+    }
+
+    RtlZeroMemory(Bitmap, BitmapBytes);
+
+    status = fnZwQuerySystemInformation(SystemProcessInformation, NULL, 0, &need);
+    if (status != STATUS_INFO_LENGTH_MISMATCH || need == 0) {
+        return FALSE;
+    }
+
+    need += 65536;
+    buf = (PUCHAR)ExAllocatePool2(POOL_FLAG_PAGED, need, 'pRhO');
+    if (!buf) {
+        return FALSE;
+    }
+
+    status = fnZwQuerySystemInformation(SystemProcessInformation, buf, need, NULL);
+    if (!NT_SUCCESS(status)) {
+        ExFreePoolWithTag(buf, 'pRhO');
+        return FALSE;
+    }
+
+    entry = (SYSTEM_PROCESS_INFORMATION *)(PVOID)buf;
+    while (TRUE) {
+        ULONG pid = (ULONG)(ULONG_PTR)entry->UniqueProcessId;
+        if (pid < (BitmapBytes * 8)) {
+            Bitmap[pid / 8] |= (UCHAR)(1 << (pid % 8));
+        }
+        if (!entry->NextEntryOffset) {
+            break;
+        }
+        entry = (SYSTEM_PROCESS_INFORMATION *)((PUCHAR)entry + entry->NextEntryOffset);
+    }
+
+    ExFreePoolWithTag(buf, 'pRhO');
+    return TRUE;
 }
 
 // ===========================================================================

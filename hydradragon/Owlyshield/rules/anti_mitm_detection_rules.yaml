@@ -170,7 +170,7 @@
         - "--proxy-bypass-list=<-loopback>"
       min_matches: 1
 
-    firefox_profile_trust_tamper:
+    firefox_profile_trust_tamper_writer:
       orderless: true
       process_names:
         - "powershell.exe"
@@ -181,6 +181,10 @@
         - "cscript.exe"
         - "mshta.exe"
         - "rundll32.exe"
+      min_matches: 1
+
+    firefox_profile_trust_tamper_file:
+      orderless: true
       file_paths:
         - "*\\mozilla\\firefox\\profiles\\*\\prefs.js"
         - "*\\mozilla\\firefox\\profiles\\*\\user.js"
@@ -198,7 +202,9 @@
       - condition: "browser_no_proxy_server"
       - condition: "browser_direct_proxy_mode"
       - condition: "browser_loopback_bypass"
-      - condition: "firefox_profile_trust_tamper"
+      - and:
+          - condition: "firefox_profile_trust_tamper_writer"
+          - condition: "firefox_profile_trust_tamper_file"
 
   response:
     notify_user: true

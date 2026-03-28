@@ -3612,8 +3612,10 @@ impl BehaviorEngine {
                     IrpMajorOp::IrpCreate => {
                         if is_directory_event {
                             None
-                        } else {
+                        } else if matches!(file_change, Some(FileChangeInfo::ChangeNewFile)) {
                             Some("create")
+                        } else {
+                            Some("open")
                         }
                     }
                     IrpMajorOp::IrpSetInfo => {

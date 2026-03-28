@@ -35,6 +35,7 @@ import urllib.request
 import binascii
 import base64
 import shutil
+import tempfile
 from collections import Counter
 from hashlib import sha256
 import signal as signal_module
@@ -1927,17 +1928,37 @@ def removeNonAsciiDrop(string):
 
 
 def save(object, filename):
-    file = gzip.GzipFile(filename, 'wb')
-    with codecs.getwriter('utf-8')(file) as writer:
-        json.dump(object, writer, indent=4)
-    file.close()
+    # Large goodware databases become painfully slow if we pretty-print JSON
+    # into gzip directly. Write compact JSON to a temp file first, then atomically
+    # replace the destination so interrupted updates do not leave a corrupt DB.
+    abs_filename = get_abs_path(filename)
+    target_dir = os.path.dirname(abs_filename) or "."
+    os.makedirs(target_dir, exist_ok=True)
+
+    fd, temp_path = tempfile.mkstemp(
+        prefix=os.path.basename(abs_filename) + ".",
+        suffix=".tmp",
+        dir=target_dir
+    )
+
+    try:
+        with os.fdopen(fd, "wb") as raw_file:
+            with gzip.GzipFile(fileobj=raw_file, mode='wb', compresslevel=1, mtime=0) as gz_file:
+                with codecs.getwriter('utf-8')(gz_file) as writer:
+                    json.dump(object, writer, ensure_ascii=False, separators=(',', ':'))
+        os.replace(temp_path, abs_filename)
+    except Exception:
+        try:
+            os.remove(temp_path)
+        except Exception:
+            pass
+        raise
 
 
 def load(filename):
-    file = gzip.GzipFile(filename, 'rb')
-    object = json.loads(file.read())
-    file.close()
-    return object
+    abs_filename = get_abs_path(filename)
+    with gzip.open(abs_filename, 'rt', encoding='utf-8', errors='replace') as file:
+        return json.load(file)
 
 
 def update_databases():

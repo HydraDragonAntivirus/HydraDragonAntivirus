@@ -67,6 +67,26 @@ FSProcessPostReadSafe(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECT
 BOOLEAN
 FSShouldIgnorePyasWhitelistPath(_In_ PCUNICODE_STRING Path);
 
+static PCWSTR
+FSGetUefiPathFindingPrefix(_In_ PCUNICODE_STRING Path);
+
+static BOOLEAN
+FSIsRawBootDevicePath(_In_ PCUNICODE_STRING Path);
+
+static BOOLEAN
+FSHasCreateWriteIntent(_In_ ACCESS_MASK DesiredAccess, _In_ ULONG CreateOptions);
+
+static VOID
+FSEmitGenericKernelPathFinding(_In_ ULONG SourcePid,
+                               _In_ ULONGLONG Gid,
+                               _In_opt_ PCUNICODE_STRING Path,
+                               _In_z_ PCWSTR Prefix,
+                               _In_ ACCESS_MASK AccessMask,
+                               _In_ NTSTATUS OperationStatus,
+                               _In_ UCHAR FileChange,
+                               _In_ ULONG_PTR Extra1,
+                               _In_ ULONG_PTR Extra2);
+
 // CDO Dispatch Routines
 // HookDevice* dispatch functions are now in Communication.cpp.
 // Use InitHookNotifyDevice() / CleanupHookNotifyDevice() instead.
@@ -1127,6 +1147,10 @@ Return Value:
 
     // Registry Cleanup
     RegeditUnloadDriver();
+
+    // Rootkit detector owns a shared work item and caches the dedicated CDO
+    // pointer. Tear it down before freeing driverData or deleting the CDO.
+    RootkitDetectorCleanup();
 
     // Close Communication
     if (commHandle) {
