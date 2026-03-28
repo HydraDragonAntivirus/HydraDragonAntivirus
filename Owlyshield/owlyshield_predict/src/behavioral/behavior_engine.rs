@@ -1525,7 +1525,7 @@ impl BehaviorEngine {
     #[cfg(feature = "firewall")]
     fn detect_firewall_hips_alert_kind(rule: &BehaviorRule, state: &ProcessBehaviorState) -> &'static str {
         if rule.named_conditions.iter().any(|(cond_name, cond_group)| {
-            state.satisfied_named_conditions.contains(cond_name.as_str())
+            Self::rule_condition_satisfied(state, rule, cond_name)
                 && Self::is_registry_condition_group(cond_group)
         }) {
             "registry"
@@ -1557,6 +1557,31 @@ impl BehaviorEngine {
             .collect();
         candidates.sort();
         candidates.into_iter().next()
+    }
+
+    fn scoped_condition_name(rule: &BehaviorRule, cond_name: &str) -> String {
+        format!("{}::{}", rule.name, cond_name)
+    }
+
+    fn rule_condition_satisfied(
+        state: &ProcessBehaviorState,
+        rule: &BehaviorRule,
+        cond_name: &str,
+    ) -> bool {
+        let scoped = Self::scoped_condition_name(rule, cond_name);
+        state.satisfied_named_conditions.contains(scoped.as_str())
+            || state.satisfied_named_conditions.contains(cond_name)
+    }
+
+    fn rule_condition_values<'a>(
+        state: &'a ProcessBehaviorState,
+        rule: &BehaviorRule,
+        cond_name: &str,
+    ) -> Option<&'a HashSet<String>> {
+        let scoped = Self::scoped_condition_name(rule, cond_name);
+        state.condition_match_values
+            .get(&scoped)
+            .or_else(|| state.condition_match_values.get(cond_name))
     }
 
     fn truncate_detail_value(value: &str, max_chars: usize) -> String {
@@ -1711,17 +1736,17 @@ impl BehaviorEngine {
             ));
         }
 
-        let mut condition_names: Vec<&String> = state
-            .satisfied_named_conditions
-            .iter()
-            .filter(|name| rule.named_conditions.contains_key(*name))
+        let mut condition_names: Vec<&String> = rule
+            .named_conditions
+            .keys()
+            .filter(|name| Self::rule_condition_satisfied(state, rule, name))
             .collect();
         condition_names.sort();
 
         let mut condition_summaries = Vec::new();
         for cond_name in condition_names.into_iter().take(6) {
             let mut rendered = cond_name.clone();
-            if let Some(values) = state.condition_match_values.get(cond_name) {
+            if let Some(values) = Self::rule_condition_values(state, rule, cond_name) {
                 let mut sorted_values: Vec<String> = values
                     .iter()
                     .filter_map(|value| {
@@ -1836,13 +1861,13 @@ impl BehaviorEngine {
         let mut best_match: Option<(i32, String)> = None;
 
         for (cond_name, cond_group) in &rule.named_conditions {
-            if !state.satisfied_named_conditions.contains(cond_name.as_str())
+            if !Self::rule_condition_satisfied(state, rule, cond_name)
                 || !Self::is_file_condition_group(cond_group)
             {
                 continue;
             }
 
-            let Some(values) = state.condition_match_values.get(cond_name) else {
+            let Some(values) = Self::rule_condition_values(state, rule, cond_name) else {
                 continue;
             };
 
@@ -1934,13 +1959,13 @@ impl BehaviorEngine {
 
         if alert_kind == "registry" {
             for (cond_name, cond_group) in &rule.named_conditions {
-                if !state.satisfied_named_conditions.contains(cond_name.as_str())
+                if !Self::rule_condition_satisfied(state, rule, cond_name)
                     || !Self::is_registry_condition_group(cond_group)
                 {
                     continue;
                 }
 
-                if let Some(values) = state.condition_match_values.get(cond_name)
+                if let Some(values) = Self::rule_condition_values(state, rule, cond_name)
                     && let Some(value) = Self::first_real_match_value(values)
                 {
                     return value;
@@ -1957,10 +1982,9 @@ impl BehaviorEngine {
             }
         }
 
-        for (cond_name, values) in &state.condition_match_values {
-            if rule.named_conditions.contains_key(cond_name)
-                && let Some(value) = Self::first_real_match_value(values)
-            {
+        for cond_name in rule.named_conditions.keys() {
+            if let Some(values) = Self::rule_condition_values(state, rule, cond_name)
+                && let Some(value) = Self::first_real_match_value(values) {
                 return value;
             }
         }
@@ -3225,7 +3249,7 @@ impl BehaviorEngine {
             };
             
             let remaining_conditions: Vec<_> = rule.named_conditions.iter()
-                .filter(|(name, _)| !state.satisfied_named_conditions.contains(name.as_str()))
+                .filter(|(name, _)| !Self::rule_condition_satisfied(state, rule, name))
                 .collect();
             
             if remaining_conditions.is_empty() {
@@ -3233,7 +3257,7 @@ impl BehaviorEngine {
             }
             
             for (cond_name, cond_group) in remaining_conditions {
-                if state.satisfied_named_conditions.contains(cond_name) {
+                if Self::rule_condition_satisfied(state, rule, cond_name) {
                     continue;
                 }
 
@@ -4057,6 +4081,7 @@ impl BehaviorEngine {
                 }
                 
                 if matched {
+                    let scoped_name = Self::scoped_condition_name(rule, cond_name);
                     let match_key = if !filepath.is_empty() {
                         filepath.to_string()
                     } else if !msg.filepathstr.is_empty() {
@@ -4075,21 +4100,27 @@ impl BehaviorEngine {
                             cond_name, msg.pid, msg.irp_op, event_ts
                         )
                     };
-                    let values = state.condition_match_values.entry(cond_name.clone()).or_insert_with(HashSet::new);
+                    let values = state
+                        .condition_match_values
+                        .entry(scoped_name.clone())
+                        .or_insert_with(HashSet::new);
                     if values.len() > 256 {
                         values.clear();
                     }
                     let is_new = values.insert(match_key.clone());
-                    let count = state.condition_match_counts.entry(cond_name.clone()).or_insert(0);
+                    let count = state
+                        .condition_match_counts
+                        .entry(scoped_name.clone())
+                        .or_insert(0);
                     if is_new {
                         *count += 1;
                     }
-                    state.condition_first_seen.entry(cond_name.clone()).or_insert(now);
-                    state.condition_last_seen.insert(cond_name.clone(), now);
+                    state.condition_first_seen.entry(scoped_name.clone()).or_insert(now);
+                    state.condition_last_seen.insert(scoped_name.clone(), now);
 
                     let required = if cond_group.min_matches > 0 { cond_group.min_matches } else { 1 };
                     if *count >= required {
-                        state.satisfied_named_conditions.insert(cond_name.clone());
+                        state.satisfied_named_conditions.insert(scoped_name);
                         if rule.debug || self.rules.iter().any(|r| r.debug) {
                             Logging::debug(&format!(
                                 "[BehaviorEngine] Named condition '{}' satisfied for PID {} (count: {}/{}, matches: {})",
@@ -4114,62 +4145,73 @@ impl BehaviorEngine {
         &self,
         condition: &DetectionCondition,
         state: &ProcessBehaviorState,
-        _rule: &BehaviorRule,
+        rule: &BehaviorRule,
     ) -> bool {
         match condition {
             DetectionCondition::Named { condition: cond_name } => {
-                state.satisfied_named_conditions.contains(cond_name)
+                Self::rule_condition_satisfied(state, rule, cond_name)
             },
             
             DetectionCondition::And { and } => {
-                and.iter().all(|c| self.evaluate_detection_condition(c, state, _rule))
+                and.iter().all(|c| self.evaluate_detection_condition(c, state, rule))
             },
             
             DetectionCondition::Or { or } => {
-                or.iter().any(|c| self.evaluate_detection_condition(c, state, _rule))
+                or.iter().any(|c| self.evaluate_detection_condition(c, state, rule))
             },
             
             DetectionCondition::Not { not } => {
-                !self.evaluate_detection_condition(not, state, _rule)
+                !self.evaluate_detection_condition(not, state, rule)
             },
             
             DetectionCondition::AllOf { all_of } => {
-                all_of.iter().all(|cond_name| state.satisfied_named_conditions.contains(cond_name))
+                all_of
+                    .iter()
+                    .all(|cond_name| Self::rule_condition_satisfied(state, rule, cond_name))
             },
             
             DetectionCondition::AnyOf { any_of } => {
-                any_of.iter().any(|cond_name| state.satisfied_named_conditions.contains(cond_name))
+                any_of
+                    .iter()
+                    .any(|cond_name| Self::rule_condition_satisfied(state, rule, cond_name))
             },
             
             DetectionCondition::NOf { n_of, conditions } => {
                 let satisfied_count = conditions.iter()
-                    .filter(|cond_name| state.satisfied_named_conditions.contains(*cond_name))
+                    .filter(|cond_name| Self::rule_condition_satisfied(state, rule, cond_name))
                     .count();
                 satisfied_count == *n_of
             },
             
             DetectionCondition::AtLeast { at_least, conditions } => {
                 let satisfied_count = conditions.iter()
-                    .filter(|cond_name| state.satisfied_named_conditions.contains(*cond_name))
+                    .filter(|cond_name| Self::rule_condition_satisfied(state, rule, cond_name))
                     .count();
                 satisfied_count >= *at_least
             },
             
             DetectionCondition::AllOfPattern { all_of_pattern } => {
-                let matching_conditions: Vec<_> = state.satisfied_named_conditions.iter()
-                    .filter(|cond_name| Self::matches_pattern_internal(&self.regex_cache, all_of_pattern, cond_name))
+                let matching_conditions: Vec<_> = rule
+                    .named_conditions
+                    .keys()
+                    .filter(|cond_name| {
+                        Self::rule_condition_satisfied(state, rule, cond_name)
+                            && Self::matches_pattern_internal(&self.regex_cache, all_of_pattern, cond_name)
+                    })
                     .collect();
                 !matching_conditions.is_empty()
             },
             
             DetectionCondition::AnyOfPattern { any_of_pattern } => {
-                state.satisfied_named_conditions.iter()
-                    .any(|cond_name| Self::matches_pattern_internal(&self.regex_cache, any_of_pattern, cond_name))
+                rule.named_conditions.keys().any(|cond_name| {
+                    Self::rule_condition_satisfied(state, rule, cond_name)
+                        && Self::matches_pattern_internal(&self.regex_cache, any_of_pattern, cond_name)
+                })
             },
             
             DetectionCondition::Count { count, comparison, threshold } => {
                 let satisfied_count = count.iter()
-                    .filter(|cond_name| state.satisfied_named_conditions.contains(*cond_name))
+                    .filter(|cond_name| Self::rule_condition_satisfied(state, rule, cond_name))
                     .count();
                 match comparison {
                     Comparison::Gt => satisfied_count > *threshold,
@@ -4184,7 +4226,7 @@ impl BehaviorEngine {
             DetectionCondition::Percentage { percentage, comparison, threshold } => {
                 if percentage.is_empty() { return false; }
                 let satisfied_count = percentage.iter()
-                    .filter(|cond_name| state.satisfied_named_conditions.contains(*cond_name))
+                    .filter(|cond_name| Self::rule_condition_satisfied(state, rule, cond_name))
                     .count();
                 let ratio = satisfied_count as f32 / percentage.len() as f32;
                 match comparison {
