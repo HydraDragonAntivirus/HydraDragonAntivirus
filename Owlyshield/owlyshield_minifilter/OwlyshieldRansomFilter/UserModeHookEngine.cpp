@@ -185,6 +185,15 @@ static HOOK_EXCLUDE_RULE_SET g_HookExcludeRules = {0};
 // file-I/O path; all others wait until state reaches 2.
 static volatile LONG g_HookExcludeLoadState = 0;
 
+// FIX 3: Back-off for rule file loading failures.
+// When the rule file is absent, state resets to 0, causing ZwCreateFile on
+// every process-create event (a hot path). This stores the earliest absolute
+// 100ns time at which a retry is allowed. Zero means "no active back-off".
+// EnsureHookExcludeRulesLoaded respects this before claiming the loader role.
+// ReloadHookExcludeRules clears it so an explicit reload always proceeds.
+static volatile LONG64 g_HookExcludeFailRetryTime = 0;
+#define HOOK_EXCLUDE_RETRY_INTERVAL_100NS (30LL * 10000000LL) // 30 seconds
+
 static VOID EnsureHookExcludeRuleMutex(VOID)
 {
     volatile LONG *pState = (volatile LONG *)&g_HookExcludeRules.MutexInitialized;
@@ -205,9 +214,16 @@ static VOID EnsureHookExcludeRuleMutex(VOID)
         return;
     }
 
-    while (InterlockedCompareExchange(pState, 0, 0) != 2)
+    // FIX 2: YieldProcessor() is just a PAUSE hint - it does not yield the CPU
+    // to another thread. If the winner thread is preempted or slow, every other
+    // thread here burns 100% of its logical core. Replace with a real 1ms sleep.
     {
-        YieldProcessor();
+        LARGE_INTEGER delay;
+        delay.QuadPart = -10000LL; // 1ms in 100ns units
+        while (InterlockedCompareExchange(pState, 0, 0) != 2)
+        {
+            KeDelayExecutionThread(KernelMode, FALSE, &delay);
+        }
     }
     KeMemoryBarrier();
 }
@@ -468,6 +484,23 @@ static VOID EnsureHookExcludeRulesLoaded(VOID)
     if (InterlockedCompareExchange(&g_HookExcludeLoadState, 0, 0) == 2)
         return;
 
+    // FIX 3: If the last load attempt failed, enforce a 30-second back-off
+    // before retrying. Without this, every process-create event (hot path)
+    // triggers ZwCreateFile + ZwReadFile even when the rule file doesn't exist,
+    // causing latency spikes under process creation storms.
+    if (InterlockedCompareExchange(&g_HookExcludeLoadState, 0, 0) == 0)
+    {
+        LONG64 retryTime = InterlockedCompareExchange64(
+            (volatile LONG64 *)&g_HookExcludeFailRetryTime, 0, 0);
+        if (retryTime != 0)
+        {
+            LARGE_INTEGER now;
+            KeQuerySystemTime(&now);
+            if (now.QuadPart < retryTime)
+                return; // still in back-off period
+        }
+    }
+
     // Try to claim the loader role: 0 -> 1. Exactly one thread wins.
     LONG prevState = InterlockedCompareExchange(&g_HookExcludeLoadState, 1, 0);
 
@@ -525,8 +558,21 @@ static VOID EnsureHookExcludeRulesLoaded(VOID)
     ExReleaseFastMutex(&g_HookExcludeRules.Mutex);
 
     // Signal all waiting threads. On failure, reset to 0 so a later call can retry
-    // after the rules file is created or updated.
-    InterlockedExchange(&g_HookExcludeLoadState, loadSucceeded ? 2 : 0);
+    // after the rules file is created or updated, but enforce a 30-second back-off
+    // to avoid hammering the filesystem on every process-create event.
+    if (loadSucceeded)
+    {
+        InterlockedExchange64((volatile LONG64 *)&g_HookExcludeFailRetryTime, 0);
+        InterlockedExchange(&g_HookExcludeLoadState, 2);
+    }
+    else
+    {
+        LARGE_INTEGER now;
+        KeQuerySystemTime(&now);
+        InterlockedExchange64((volatile LONG64 *)&g_HookExcludeFailRetryTime,
+                              now.QuadPart + HOOK_EXCLUDE_RETRY_INTERVAL_100NS);
+        InterlockedExchange(&g_HookExcludeLoadState, 0);
+    }
 }
 
 VOID ReloadHookExcludeRules(VOID)
@@ -536,6 +582,9 @@ VOID ReloadHookExcludeRules(VOID)
     FreeHookExcludeRulesUnlocked();
     g_HookExcludeRules.Loaded = FALSE;
     ExReleaseFastMutex(&g_HookExcludeRules.Mutex);
+    // FIX 3: Clear the back-off so an explicit reload always proceeds immediately,
+    // regardless of how recently the last automatic load attempt failed.
+    InterlockedExchange64((volatile LONG64 *)&g_HookExcludeFailRetryTime, 0);
     InterlockedExchange(&g_HookExcludeLoadState, 0);
     EnsureHookExcludeRulesLoaded();
 }
@@ -1819,6 +1868,8 @@ VOID UserModeHookEngineCleanup(VOID)
     FreeHookExcludeRulesUnlocked();
     g_HookExcludeRules.Loaded = FALSE;
     ExReleaseFastMutex(&g_HookExcludeRules.Mutex);
+    // FIX 3: Reset back-off timer so a fresh driver load can load rules immediately.
+    InterlockedExchange64((volatile LONG64 *)&g_HookExcludeFailRetryTime, 0);
     InterlockedExchange(&g_HookExcludeLoadState, 0);
 
     if (g_HookNotifyMasterHandle != NULL)
@@ -3022,32 +3073,35 @@ NTSTATUS ResolveAndHook32(_In_ PEPROCESS Process, _In_ PPROCESS_HOOK_ENTRY HookE
     return InjectSingleHook32(Process, HookEntry->ProcessId, HookEntry, HookDef, EventId, TargetNtDeviceIo32);
 }
 //
-// ROOT CAUSE FIX - keep the notification handle SYNCHRONOUS and truly user-mode.
+// -------------------------------------------------------------------------
+// FIX 1: Per-process independent FILE_OBJECT via ZwCreateFile.
 //
-// The shellcode passes an IO_STATUS_BLOCK that lives on its stack frame.
-// If the handle is opened asynchronously, NtDeviceIoControlFile can return
-// STATUS_PENDING and complete later, after the shellcode has already restored
-// registers and returned to the caller. The eventual completion then writes
-// final status back through a stale stack pointer, corrupting user-mode state
-// and producing hangs during exit, restart, and general I/O.
+// PREVIOUS DESIGN (root cause of freeze):
+//   ObReferenceObjectByHandle(g_HookNotifyMasterHandle) retrieved the one
+//   master FILE_OBJECT. ObOpenObjectByPointer then inserted a new handle into
+//   the target process's handle table pointing at that SAME FILE_OBJECT.
+//   Because the master was opened with FILE_SYNCHRONOUS_IO_NONALERT, the
+//   kernel set FO_SYNCHRONOUS_IO on that FILE_OBJECT. Windows serializes ALL
+//   I/O on a synchronous FILE_OBJECT via a single Event embedded in the object.
+//   So every shellcode IOCTL call from every thread in every hooked process
+//   queued behind a global lock — a single contention point that froze the
+//   system under even moderate multi-process load.
 //
-// Fix: open one master device handle WITH FILE_SYNCHRONOUS_IO_NONALERT during
-// engine initialization, then reference its FILE_OBJECT and open a new USER
-// handle to that same FILE_OBJECT while attached to each target process.
-//   * The per-process handle points at the same synchronous FILE_OBJECT.
-//   * NtDeviceIoControlFile does not return until the driver completes.
-//   * The stack-based IO_STATUS_BLOCK remains valid for the entire call.
-//   * No completion APC is needed for correctness.
-//   * The target receives a normal user handle, so CloseHandle/RTL rundown
-//     does not trip STATUS_INVALID_HANDLE for an illegal kernel-only handle.
-//
+// FIX:
+//   Call ZwCreateFile WITHOUT OBJ_KERNEL_HANDLE while attached to the target
+//   process. This allocates a brand-new FILE_OBJECT (with its own
+//   FO_SYNCHRONOUS_IO serialization event) and inserts it directly into the
+//   target process's handle table as a user-mode handle. Each hooked process
+//   now has a fully independent FILE_OBJECT; concurrent IOCTLs from different
+//   processes no longer contend at all.
+//   g_HookNotifyMasterHandle is kept as an engine-initialized sentinel only.
+// -------------------------------------------------------------------------
 NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROCESS_HOOK_ENTRY HookEntry)
 {
     BOOLEAN isWow64 = HookEntry->IsWow64;
     NTSTATUS status;
     PVOID baseAddress = NULL;
     HANDLE targetDeviceHandle = NULL;
-    PFILE_OBJECT hookNotifyFileObject = NULL;
     SIZE_T hookSlots = (SIZE_T)HookEntry->CustomHookCapacity;
     if (hookSlots == 0)
     {
@@ -3060,21 +3114,10 @@ NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROC
     }
     regionSize = (regionSize + 0xFFF) & ~(SIZE_T)0xFFF;
 
+    // Sentinel: engine must be initialized before we can install hooks.
     if (g_HookNotifyMasterHandle == NULL)
     {
         return STATUS_DEVICE_NOT_READY;
-    }
-
-    status = ObReferenceObjectByHandle(g_HookNotifyMasterHandle,
-                                       FILE_READ_DATA | FILE_WRITE_DATA | SYNCHRONIZE,
-                                       *IoFileObjectType,
-                                       KernelMode,
-                                       (PVOID *)&hookNotifyFileObject,
-                                       NULL);
-    if (!NT_SUCCESS(status) || hookNotifyFileObject == NULL)
-    {
-        DbgPrint("UserModeHook: ObReferenceObjectByHandle master notify handle failed 0x%X\n", status);
-        return !NT_SUCCESS(status) ? status : STATUS_INVALID_HANDLE;
     }
 
     {
@@ -3082,19 +3125,38 @@ NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROC
         KeStackAttachProcess((PRKPROCESS)Process, &apcState);
         __try // outer: guarantees detach
         {
-            __try // inner: catches exceptions from ObOpenObjectByPointer / ZwAllocate
+            __try // inner: catches exceptions from ZwCreateFile / ZwAllocate
             {
-                status = ObOpenObjectByPointer(hookNotifyFileObject,
-                                               0,
-                                               NULL,
-                                               FILE_READ_DATA | FILE_WRITE_DATA | SYNCHRONIZE,
-                                               *IoFileObjectType,
-                                               UserMode,
-                                               &targetDeviceHandle);
-                if (!NT_SUCCESS(status) || targetDeviceHandle == NULL)
+                // FIX 1: Open a fresh handle to the hook device from within the
+                // target process context. ZwCreateFile without OBJ_KERNEL_HANDLE
+                // inserts the handle into the TARGET process's handle table and
+                // creates an independent FILE_OBJECT. Each process therefore owns
+                // its own FO_SYNCHRONOUS_IO event, eliminating cross-process lock
+                // contention entirely.
                 {
-                    DbgPrint("UserModeHook: ObOpenObjectByPointer master notify handle failed 0x%X\n", status);
-                    __leave;
+                    UNICODE_STRING devName;
+                    OBJECT_ATTRIBUTES oa;
+                    IO_STATUS_BLOCK ioSb;
+                    RtlInitUnicodeString(&devName, L"\\Device\\OwlyshieldHook");
+                    InitializeObjectAttributes(&oa, &devName,
+                                               OBJ_CASE_INSENSITIVE, // no OBJ_KERNEL_HANDLE
+                                               NULL, NULL);
+                    RtlZeroMemory(&ioSb, sizeof(ioSb));
+                    status = ZwCreateFile(&targetDeviceHandle,
+                                          FILE_READ_DATA | FILE_WRITE_DATA | SYNCHRONIZE,
+                                          &oa, &ioSb, NULL,
+                                          FILE_ATTRIBUTE_NORMAL,
+                                          FILE_SHARE_READ | FILE_SHARE_WRITE,
+                                          FILE_OPEN,
+                                          FILE_NON_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT,
+                                          NULL, 0);
+                    if (!NT_SUCCESS(status) || targetDeviceHandle == NULL)
+                    {
+                        DbgPrint("UserModeHook: ZwCreateFile per-process notify handle failed 0x%X\n", status);
+                        if (NT_SUCCESS(status))
+                            status = STATUS_INVALID_HANDLE;
+                        __leave;
+                    }
                 }
 
                 if (!fnZwAllocateVirtualMemory)
@@ -3185,12 +3247,6 @@ NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROC
         {
             KeUnstackDetachProcess(&apcState);
         }
-    }
-
-    if (hookNotifyFileObject != NULL)
-    {
-        ObDereferenceObject(hookNotifyFileObject);
-        hookNotifyFileObject = NULL;
     }
 
     return status;
