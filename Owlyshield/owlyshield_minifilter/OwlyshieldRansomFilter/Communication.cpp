@@ -756,11 +756,13 @@ NTSTATUS InitCommData(
 
 )
 {
-    HRESULT status;
+    NTSTATUS status;
     OBJECT_ATTRIBUTES oa;
     UNICODE_STRING uniString;
-    PSECURITY_DESCRIPTOR sd;
+    PSECURITY_DESCRIPTOR sd = NULL;
+
     EnsureQueuedHypervisorEventsInitialized();
+
     //
     //  Create a communication port.
     //
@@ -768,23 +770,29 @@ NTSTATUS InitCommData(
 
     status = FltBuildDefaultSecurityDescriptor(
         &sd,
-        FLT_PORT_ALL_ACCESS); //  We secure the port so only ADMINs & SYSTEM can acecss it.
-    status = RtlSetDaclSecurityDescriptor(sd, TRUE, NULL,
-                                          FALSE); // allow user application without admin to enter
-
-    if (NT_SUCCESS(status))
+        FLT_PORT_ALL_ACCESS); // We secure the port so only ADMINs & SYSTEM can access it.
+    if (!NT_SUCCESS(status))
     {
-        InitializeObjectAttributes(&oa, &uniString, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, sd);
-
-        status = FltCreateCommunicationPort(commHandle->Filter, &commHandle->ServerPort, &oa, NULL, RWFConnect,
-                                            RWFDissconnect, RWFNewMessage, 1);
-        //
-        //  Free the security descriptor in all cases. It is not needed once
-        //  the call to FltCreateCommunicationPort() is made.
-        //
-
-        FltFreeSecurityDescriptor(sd);
+        return status;
     }
+
+    status = RtlSetDaclSecurityDescriptor(sd, TRUE, NULL, FALSE); // allow user application without admin to enter
+    if (!NT_SUCCESS(status))
+    {
+        FltFreeSecurityDescriptor(sd);
+        return status;
+    }
+
+    InitializeObjectAttributes(&oa, &uniString, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, sd);
+
+    status = FltCreateCommunicationPort(commHandle->Filter, &commHandle->ServerPort, &oa, NULL, RWFConnect,
+                                        RWFDissconnect, RWFNewMessage, 1);
+
+    //
+    //  Free the security descriptor in all cases. It is not needed once
+    //  the call to FltCreateCommunicationPort() is made.
+    //
+    FltFreeSecurityDescriptor(sd);
 
     return status;
 }
