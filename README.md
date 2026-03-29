@@ -12,10 +12,6 @@
     WARNING: ACTIVE DEVELOPMENT IN PROGRESS  
 </h1>
 
-
-<h1 align="center" style="color: red;">
-       Notice: A VDS will soon be procured for the Hydra Dragon platform. The system will be hosted on a server, operate as a cloud-based solution, and include a separate client application. Its effectiveness will be evaluated against other antivirus solutions. These processes and results will be recorded and published as videos on the Hydra Dragon platform channel.
-</h1>
 <p align="center" style="color: red; font-size: 22px; font-weight: bold;">
 This project is not production-ready.
 Breaking changes, bugs, and incomplete features should be expected.
