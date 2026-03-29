@@ -1,5 +1,5 @@
 # Hydra Dragon Automatic Malware/Executable Analysis Platform
-<img width="1024" height="1024" alt="hydra" src=hydradragon/assets/Hydra.png" />
+<img width="1024" height="1024" alt="hydra" src=hydradragon/assets/HydraDragonAntivirus.png" />
 
 
 <img src="hydradragon/assets/HydraDragonAVGUI.png" width= 1080px>
