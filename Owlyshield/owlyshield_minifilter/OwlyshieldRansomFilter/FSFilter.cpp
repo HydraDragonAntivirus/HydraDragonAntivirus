@@ -834,11 +834,11 @@ VOID ThreadCreationCallback(
     
     // If the thread is being created in a different process, this is remote thread injection
     if (currentPid != ProcessId) {
-        DbgPrint("!!! FSFilter: Remote thread creation detected!\n");
-        DbgPrint("!!!   Source PID: %lu -> Target PID: %lu, Thread ID: %lu\n",
-                 (ULONG)(ULONG_PTR)currentPid,
-                 (ULONG)(ULONG_PTR)ProcessId,
-                 (ULONG)(ULONG_PTR)ThreadId);
+        //DbgPrint("!!! FSFilter: Remote thread creation detected!\n");
+        //DbgPrint("!!!   Source PID: %lu -> Target PID: %lu, Thread ID: %lu\n",
+        //         (ULONG)(ULONG_PTR)currentPid,
+        //         (ULONG)(ULONG_PTR)ProcessId,
+        //         (ULONG)(ULONG_PTR)ThreadId);
         
         // Check if either process is monitored
         BOOLEAN sourceFound = FALSE;
