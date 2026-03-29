@@ -3043,7 +3043,6 @@ static VOID AddRemProcessRoutineCore(HANDLE ParentId, HANDLE ProcessId, BOOLEAN 
             DbgPrint("!!! FSFilter: Failed to get process name: %#010x\n", hr);
             if (parentName != NULL)
                 ExFreePoolWithTag(parentName, 'RW');
-            ZwClose(procHandleParent);
             ZwClose(procHandleProcess);
             return;
         }
@@ -3078,21 +3077,23 @@ static VOID AddRemProcessRoutineCore(HANDLE ParentId, HANDLE ProcessId, BOOLEAN 
                 // Try to convert NT device path (\Device\HarddiskVolumeX\...) to DOS
                 // drive-letter path (C:\...) so usermode sees a consistent format.
                 PCWSTR srcPath = procName->Buffer;
-                USHORT srcLen  = procName->Length;
-                WCHAR  dosPathBuf[MAX_FILE_NAME_LENGTH] = {0};
-                if (srcPath != NULL &&
-                    NtPathToDosPath(srcPath, dosPathBuf, RTL_NUMBER_OF(dosPathBuf))) {
+                USHORT srcLen = procName->Length;
+                WCHAR dosPathBuf[MAX_FILE_NAME_LENGTH] = {0};
+                if (srcPath != NULL && NtPathToDosPath(srcPath, dosPathBuf, RTL_NUMBER_OF(dosPathBuf)))
+                {
                     srcPath = dosPathBuf;
-                    srcLen  = (USHORT)(wcslen(dosPathBuf) * sizeof(WCHAR));
+                    srcLen = (USHORT)(wcslen(dosPathBuf) * sizeof(WCHAR));
                 }
-                USHORT copyLen = (srcLen < MAX_FILE_NAME_SIZE - sizeof(WCHAR))
-                                     ? srcLen
-                                     : (MAX_FILE_NAME_SIZE - sizeof(WCHAR));
-                RtlCopyMemory(newEntry->Buffer, srcPath, copyLen);
-                newEntry->Buffer[copyLen / sizeof(WCHAR)] = L'\0';
-                newEntry->filePath.Length = copyLen;
-                newEntry->filePath.MaximumLength = MAX_FILE_NAME_SIZE;
-                newEntry->filePath.Buffer = newEntry->Buffer;
+                if (srcPath != NULL)
+                { // ← guard added: only copy when buffer is valid
+                    USHORT copyLen =
+                        (srcLen < MAX_FILE_NAME_SIZE - sizeof(WCHAR)) ? srcLen : (MAX_FILE_NAME_SIZE - sizeof(WCHAR));
+                    RtlCopyMemory(newEntry->Buffer, srcPath, copyLen);
+                    newEntry->Buffer[copyLen / sizeof(WCHAR)] = L'\0';
+                    newEntry->filePath.Length = copyLen;
+                    newEntry->filePath.MaximumLength = MAX_FILE_NAME_SIZE;
+                    newEntry->filePath.Buffer = newEntry->Buffer;
+                }
             }
 
             if (CreateInfo &&

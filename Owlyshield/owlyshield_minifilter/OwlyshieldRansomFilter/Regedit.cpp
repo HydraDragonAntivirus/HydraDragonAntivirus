@@ -107,10 +107,9 @@ BOOLEAN UnicodeContainsInsensitive(_In_ PUNICODE_STRING Source, _In_ PCWSTR Patt
     return found;
 }
 
-static BOOLEAN NormalizeRegistryAlertPath(_In_ PUNICODE_STRING SourcePath,
-                                          _Out_writes_(OutBufferChars) PWCHAR OutBuffer,
-                                          _In_ SIZE_T OutBufferChars,
-                                          _Out_ PUSHORT OutLength)
+_Success_(return != FALSE) static BOOLEAN
+ NormalizeRegistryAlertPath(_In_ PUNICODE_STRING SourcePath, _Out_writes_(OutBufferChars) PWCHAR OutBuffer,
+                               _In_ SIZE_T OutBufferChars, _Out_ PUSHORT OutLength)
 {
     if (OutBuffer == NULL || OutBufferChars == 0 || OutLength == NULL)
     {
@@ -125,22 +124,20 @@ static BOOLEAN NormalizeRegistryAlertPath(_In_ PUNICODE_STRING SourcePath,
         return FALSE;
     }
 
-    SIZE_T charsToCopy = SourcePath->Length / sizeof(WCHAR);
-    if (charsToCopy >= OutBufferChars)
-    {
-        charsToCopy = OutBufferChars - 1;
-    }
+    // RtlStringCchCopyNW is fully SAL-annotated — the analyzer understands
+    // its bounds contract and will not fire C6386 on it.
+    NTSTATUS st = RtlStringCchCopyNW(OutBuffer, OutBufferChars, SourcePath->Buffer, SourcePath->Length / sizeof(WCHAR));
+    if (!NT_SUCCESS(st) && st != STATUS_BUFFER_OVERFLOW)
+        return FALSE;
+    // STATUS_BUFFER_OVERFLOW is acceptable: RtlStringCchCopyNW still null-terminates
+    // the output and copies as many characters as fit — truncation is intentional here.
 
-    for (SIZE_T i = 0; i < charsToCopy; ++i)
+    // Fix up forward slashes in-place on the already-bounded, null-terminated buffer.
+    for (PWCHAR p = OutBuffer; *p != L'\0'; ++p)
     {
-        WCHAR ch = SourcePath->Buffer[i];
-        if (ch == L'/')
-        {
-            ch = L'\\';
-        }
-        OutBuffer[i] = ch;
+        if (*p == L'/')
+            *p = L'\\';
     }
-    OutBuffer[charsToCopy] = L'\0';
 
     // ObQueryNameString returns kernel-namespace paths (\REGISTRY\MACHINE\...).
     // Convert to user-friendly form (HKLM\...) so the usermode consumer can
