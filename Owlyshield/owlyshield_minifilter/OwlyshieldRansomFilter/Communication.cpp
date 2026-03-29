@@ -752,9 +752,7 @@ VOID DrainQueuedHypervisorEvents(_Inout_updates_bytes_(OutputBufferLength) PVOID
     }
 }
 
-NTSTATUS InitCommData(
-
-)
+NTSTATUS InitCommData()
 {
     NTSTATUS status;
     OBJECT_ATTRIBUTES oa;
@@ -763,36 +761,55 @@ NTSTATUS InitCommData(
 
     EnsureQueuedHypervisorEventsInitialized();
 
-    //
-    //  Create a communication port.
-    //
     RtlInitUnicodeString(&uniString, ComPortName);
 
-    status = FltBuildDefaultSecurityDescriptor(
-        &sd,
-        FLT_PORT_ALL_ACCESS); // We secure the port so only ADMINs & SYSTEM can access it.
+    //
+    // Build the default security descriptor first.
+    //
+    status = FltBuildDefaultSecurityDescriptor(&sd, FLT_PORT_ALL_ACCESS);
     if (!NT_SUCCESS(status))
     {
+        DbgPrint("!!! FSFilter: FltBuildDefaultSecurityDescriptor failed: 0x%X\n", status);
         return status;
     }
 
-    status = RtlSetDaclSecurityDescriptor(sd, TRUE, NULL, FALSE); // allow user application without admin to enter
+    //
+    // Relax the DACL so the user application can connect without admin rights.
+    //
+    status = RtlSetDaclSecurityDescriptor(sd, TRUE, NULL, FALSE);
     if (!NT_SUCCESS(status))
     {
+        DbgPrint("!!! FSFilter: RtlSetDaclSecurityDescriptor failed: 0x%X\n", status);
         FltFreeSecurityDescriptor(sd);
         return status;
     }
 
-    InitializeObjectAttributes(&oa, &uniString, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, sd);
+    InitializeObjectAttributes(
+        &oa,
+        &uniString,
+        OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE,
+        NULL,
+        sd);
 
-    status = FltCreateCommunicationPort(commHandle->Filter, &commHandle->ServerPort, &oa, NULL, RWFConnect,
-                                        RWFDissconnect, RWFNewMessage, 1);
+    status = FltCreateCommunicationPort(
+        commHandle->Filter,
+        &commHandle->ServerPort,
+        &oa,
+        NULL,
+        RWFConnect,
+        RWFDissconnect,
+        RWFNewMessage,
+        1);
 
     //
-    //  Free the security descriptor in all cases. It is not needed once
-    //  the call to FltCreateCommunicationPort() is made.
+    // Always free the security descriptor after FltCreateCommunicationPort.
     //
     FltFreeSecurityDescriptor(sd);
+
+    if (!NT_SUCCESS(status))
+    {
+        DbgPrint("!!! FSFilter: FltCreateCommunicationPort failed: 0x%X\n", status);
+    }
 
     return status;
 }
