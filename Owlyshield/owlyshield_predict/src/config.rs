@@ -23,6 +23,9 @@ pub enum Param {
     RulesPath,
     ReportDir,
     SdkPath,
+    LogPath,
+    VerboseLogging,
+    ProcessActivityPath,
     Unknown,
 }
 
@@ -52,7 +55,10 @@ impl Param {
             Param::RulesPath => "RULES_PATH",
             Param::ReportDir => "REPORT_DIR",
             Param::SdkPath => "SDK_PATH",
-            _ => "UNKNOWN"
+            Param::LogPath => "LOG_PATH",           // Path to log output directory
+            Param::VerboseLogging => "VERBOSE_LOGGING", // 1 if verbose logging is active, 0 if not
+            Param::ProcessActivityPath => "PROCESS_ACTIVITY_PATH", // Path to process activity debug output
+            _ => "UNKNOWN",
         }
     }
 
@@ -72,7 +78,10 @@ impl Param {
             Param::RulesPath => "rules_path",
             Param::ReportDir => "report_dir",
             Param::SdkPath => "sdk_path",
-            _ => "unknown"
+            Param::LogPath => "log_path",           // Path to log output directory
+            Param::VerboseLogging => "verbose_logging", // 1 if verbose logging is active, 0 if not
+            Param::ProcessActivityPath => "process_activity_path", // Path to process activity debug output
+            _ => "unknown",
         }
     }
 
@@ -84,6 +93,9 @@ impl Param {
             Param::NumVersion,
             Param::RealTimeLearningPath,
             Param::Language,
+            Param::LogPath,
+            Param::VerboseLogging,
+            Param::ProcessActivityPath,
         ];
 
         if cfg!(target_os = "windows") {
@@ -127,6 +139,9 @@ impl Param {
             "RULES_PATH" => Param::RulesPath,
             "REPORT_DIR" => Param::ReportDir,
             "SDK_PATH" => Param::SdkPath,
+            "LOG_PATH" => Param::LogPath,           // Path to log output directory
+            "VERBOSE_LOGGING" => Param::VerboseLogging, // 1 if verbose logging is active, 0 if not
+            "PROCESS_ACTIVITY_PATH" => Param::ProcessActivityPath, // Path to process activity debug output
             _ => Param::Unknown,
         }
     }
@@ -147,6 +162,9 @@ impl Param {
             "rules_path" => Param::RulesPath,
             "report_dir" => Param::ReportDir,
             "sdk_path" => Param::SdkPath,
+            "log_path" => Param::LogPath,           // Path to log output directory
+            "verbose_logging" => Param::VerboseLogging, // 1 if verbose logging is active, 0 if not
+            "process_activity_path" => Param::ProcessActivityPath, // Path to process activity debug output
             _ => Param::Unknown,
         }
     }
@@ -225,7 +243,7 @@ impl Config {
         self.adaptive_state.observed_predictions.push(prediction);
         self.adaptive_state.observed_timesteps.push(timesteps);
         self.adaptive_state.sample_count += 1;
-        
+
         // Adapt every 100 samples or when we have enough data
         if self.adaptive_state.sample_count.is_multiple_of(100) || self.adaptive_state.sample_count == 50 {
             self.update_adaptive_thresholds();
@@ -238,26 +256,23 @@ impl Config {
         if self.adaptive_state.observed_driver_msg_counts.len() < 10 {
             return;  // Need more data
         }
-        
+
         // Calculate percentile-based thresholds (75th percentile)
-        // This ensures we catch most cases while avoiding false positives
         let mut sorted_msgs = self.adaptive_state.observed_driver_msg_counts.clone();
         sorted_msgs.sort();
         let p75_idx = (sorted_msgs.len() * 3 / 4).min(sorted_msgs.len() - 1);
-        self.threshold_drivermsgs = sorted_msgs[p75_idx].max(30);  // Min 30
-        
-        // Adapt prediction threshold based on observed prediction distribution
+        self.threshold_drivermsgs = sorted_msgs[p75_idx].max(30);
+
         let mut sorted_preds = self.adaptive_state.observed_predictions.clone();
         sorted_preds.sort_by(|a, b| a.partial_cmp(b).unwrap());
         let p75_idx = (sorted_preds.len() * 3 / 4).min(sorted_preds.len() - 1);
-        self.threshold_prediction = sorted_preds[p75_idx].max(0.4).min(0.9);  // Between 40% and 90%
-        
-        // Adapt timesteps stride based on observed patterns
+        self.threshold_prediction = sorted_preds[p75_idx].max(0.4).min(0.9);
+
         let mut sorted_strides = self.adaptive_state.observed_timesteps.clone();
         sorted_strides.sort();
         let p75_idx = (sorted_strides.len() * 3 / 4).min(sorted_strides.len() - 1);
-        self.timesteps_stride = sorted_strides[p75_idx].max(5).min(50);  // Between 5 and 50
-        
+        self.timesteps_stride = sorted_strides[p75_idx].max(5).min(50);
+
         // Keep only recent samples to allow continuous adaptation
         if self.adaptive_state.observed_driver_msg_counts.len() > 1000 {
             self.adaptive_state.observed_driver_msg_counts.drain(0..500);
@@ -312,9 +327,7 @@ impl Index<Param> for Config {
     }
 }
 
-pub struct ConfigReader {
-    // location: String,
-}
+pub struct ConfigReader {}
 
 impl ConfigReader {
 
@@ -341,22 +354,28 @@ impl ConfigReader {
     }
 
     #[allow(dead_code)]
-    pub fn read_param_from_file(param: &str, location: &str, bloc: &str) -> String  {
-        //"/etc/owlyshield/owlyshield.conf"
+    pub fn read_param_from_file(param: &str, location: &str, bloc: &str) -> String {
         let mut config = Ini::new();
         let _map = config.load(location);
-        config.get(bloc, param).unwrap()
+        config.get(bloc, param).unwrap_or_default()
     }
 
     #[cfg(target_os = "windows")]
-    pub fn read_param_from_registry(param: &str, location: &str) -> String  {
-        let regkey = Hive::LocalMachine
-            .open(location, Security::Read)
-            .expect("Cannot open registry hive");
-        regkey
-            .value(param)
-            .unwrap_or_else(|_| panic!("Cannot open registry key {param:?}"))
-            .to_string()
+    pub fn read_param_from_registry(param: &str, location: &str) -> String {
+        let regkey = match Hive::LocalMachine.open(location, Security::Read) {
+            Ok(key) => key,
+            Err(e) => {
+                eprintln!("Cannot open registry hive '{}': {}", location, e);
+                return String::new();
+            }
+        };
+        match regkey.value(param) {
+            Ok(val) => val.to_string(),
+            Err(e) => {
+                eprintln!("Registry key '{}' not found in '{}': {}", param, location, e);
+                String::new()
+            }
+        }
     }
 
     #[allow(dead_code)]
@@ -366,7 +385,7 @@ impl ConfigReader {
         let _map = config.load(location);
 
         for param in params {
-            let val = config.get(bloc, param.as_str()).unwrap();
+            let val = config.get(bloc, param.as_str()).unwrap_or_default();
             ret.insert(param, val);
         }
         ret
