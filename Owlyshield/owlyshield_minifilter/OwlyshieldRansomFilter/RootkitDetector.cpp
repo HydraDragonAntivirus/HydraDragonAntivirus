@@ -460,6 +460,27 @@ RootkitDetectorRunScan(VOID)
 // ===========================================================================
 // Helpers
 // ===========================================================================
+#define RK_ROOTKIT_GLOBAL_GID      ((ULONGLONG)0xFFFFFFFFFFFFFFFEULL)
+#define RK_ROOTKIT_PSEUDO_GID_MASK ((ULONGLONG)0x8000000000000000ULL)
+
+static ULONGLONG
+RkResolveFindingGid(_In_ ULONG SourcePid)
+{
+    BOOLEAN found = FALSE;
+    ULONGLONG gid = 0;
+
+    if (SourcePid == 0 || driverData == NULL) {
+        return RK_ROOTKIT_GLOBAL_GID;
+    }
+
+    gid = driverData->GetProcessGid(SourcePid, &found);
+    if (found && gid != 0) {
+        return gid;
+    }
+
+    return RK_ROOTKIT_PSEUDO_GID_MASK | (ULONGLONG)SourcePid;
+}
+
 static VOID
 RkEmitFinding(_In_ ULONG IrpOpCode, _In_ ULONG SourcePid,
               _In_opt_ PCWSTR ObjectName,
@@ -476,7 +497,7 @@ RkEmitFinding(_In_ ULONG IrpOpCode, _In_ ULONG SourcePid,
 
     msg->IRP_OP                              = (UCHAR)IrpOpCode;
     msg->PID                                 = SourcePid;
-    msg->Gid                                 = 0;
+    msg->Gid                                 = RkResolveFindingGid(SourcePid);
     msg->KernelEventInfo.EventType           = IrpOpCode;
     msg->KernelEventInfo.SourceProcessId     = SourcePid;
     msg->KernelEventInfo.MemoryAddress       = MemoryAddress;

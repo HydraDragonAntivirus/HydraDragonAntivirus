@@ -744,8 +744,40 @@ fn is_generic_hypervisor_label(raw: &str) -> bool {
 }
 
 fn is_real_api_observation(raw: &str) -> bool {
-    let trimmed = raw.trim();
-    !trimmed.is_empty() && !is_generic_hypervisor_label(trimmed)
+    let normalized = normalize_hypervisor_api_label(raw);
+    if normalized.is_empty() || is_generic_hypervisor_label(&normalized) {
+        return false;
+    }
+
+    let simple_name = normalized
+        .rsplit('!')
+        .next()
+        .unwrap_or(normalized.as_str())
+        .trim();
+    if simple_name.is_empty() {
+        return false;
+    }
+
+    if simple_name.starts_with("Nt") || simple_name.starts_with("Zw") {
+        return simple_name
+            .chars()
+            .nth(2)
+            .is_some_and(|ch| ch.is_ascii_uppercase());
+    }
+
+    let has_lowercase = simple_name.chars().any(|ch| ch.is_ascii_lowercase());
+    let has_underscore = simple_name.contains('_');
+    let has_path_qualifier = normalized.contains('!');
+
+    (has_path_qualifier || has_lowercase) && !has_underscore
+}
+
+fn is_actionable_hypervisor_event(irp_op: &IrpMajorOp, raw: &str) -> bool {
+    if !is_kernel_api_event(irp_op) {
+        return false;
+    }
+
+    is_real_api_observation(raw) || !matches!(irp_op, IrpMajorOp::IrpHypervisorEvent)
 }
 
 fn effective_hypervisor_irp_byte(msg: &IOMessage) -> u8 {
@@ -811,6 +843,26 @@ fn build_default_extension_whitelist() -> HashSet<String> {
 
 
 
+
+const ROOTKIT_GLOBAL_GID: u64 = 0xFFFF_FFFF_FFFF_FFFEu64;
+const ROOTKIT_PSEUDO_GID_MASK: u64 = 0x8000_0000_0000_0000u64;
+
+fn is_rootkit_irp(irp_op: &IrpMajorOp) -> bool {
+    matches!(
+        irp_op,
+        IrpMajorOp::IrpRootkitSsdtHook
+            | IrpMajorOp::IrpRootkitHiddenProcess
+            | IrpMajorOp::IrpRootkitHiddenDriver
+            | IrpMajorOp::IrpRootkitKernelHook
+            | IrpMajorOp::IrpRootkitTerminateProcess
+            | IrpMajorOp::IrpRootkitFileMove
+            | IrpMajorOp::IrpRootkitGeneric
+    )
+}
+
+fn is_rootkit_pseudo_gid(gid: u64) -> bool {
+    gid == ROOTKIT_GLOBAL_GID || (gid & ROOTKIT_PSEUDO_GID_MASK) == ROOTKIT_PSEUDO_GID_MASK
+}
 
 // =============================================================================
 // PART 2: ENHANCED PROCESS STATE WITH IRP TRACKING
@@ -957,21 +1009,29 @@ impl ProcessBehaviorState {
             target_pid: msg.pid,
             function_name: normalized_kernel_api.clone(),
         };
-        
-        self.irp_stats.record_operation(&rec);
+
         let irp_kind = IrpMajorOp::from_byte(irp_op);
         let is_api_event = is_kernel_api_event(&irp_kind);
-        
+        let raw_event_type = if msg.kernel_event_info.event_type != 0 {
+            msg.kernel_event_info.event_type
+        } else {
+            irp_op as u32
+        };
+        let event_name = if normalized_kernel_api.is_empty() {
+            known_raw_event_name(raw_event_type)
+                .map(|name| name.to_string())
+                .unwrap_or_else(|| format!("RawEventType({raw_event_type})"))
+        } else {
+            normalized_kernel_api.clone()
+        };
+        let real_api = is_real_api_observation(&event_name);
+        let actionable_hypervisor_event = is_actionable_hypervisor_event(&irp_kind, &event_name);
+
+        if !is_api_event || actionable_hypervisor_event {
+            self.irp_stats.record_operation(&rec);
+        }
+
         if is_api_event {
-            self.hypervisor_event_count += 1;
-            let raw_event_type = if msg.kernel_event_info.event_type != 0 {
-                msg.kernel_event_info.event_type
-            } else {
-                irp_op as u32
-            };
-            if let Some(event_label) = canonical_hypervisor_event_label(&irp_kind, raw_event_type) {
-                self.observed_hypervisor_event_labels.insert(event_label);
-            }
             let source_process = format_process_descriptor_with_fallback(
                 msg.kernel_event_info.source_process_id,
                 None,
@@ -980,14 +1040,16 @@ impl ProcessBehaviorState {
                 msg.kernel_event_info.target_process_id,
                 Some(self.exe_path.as_path()),
             );
-            let event_name = if normalized_kernel_api.is_empty() {
-                known_raw_event_name(raw_event_type)
-                    .map(|name| name.to_string())
-                    .unwrap_or_else(|| format!("RawEventType({raw_event_type})"))
-            } else {
-                normalized_kernel_api.clone()
-            };
-            let real_api = is_real_api_observation(&event_name);
+
+            if actionable_hypervisor_event {
+                self.hypervisor_event_count += 1;
+                if !matches!(irp_kind, IrpMajorOp::IrpHypervisorEvent) {
+                    if let Some(event_label) = canonical_hypervisor_event_label(&irp_kind, raw_event_type) {
+                        self.observed_hypervisor_event_labels.insert(event_label);
+                    }
+                }
+            }
+
             if real_api {
                 self.detected_apis.insert(event_name.clone());
                 self.all_apis_called.insert(event_name.clone());
@@ -1015,7 +1077,8 @@ impl ProcessBehaviorState {
                 let event_label = canonical_hypervisor_event_label(&irp_kind, raw_event_type)
                     .unwrap_or_else(|| event_name.clone());
                 Logging::info(&format!(
-                    "[HYPERVISOR EVENT] opcode={} raw_event_type={} src_pid_path={} target_pid_path={} arg1=0x{:X} arg2=0x{:X} arg3=0x{:X} arg4=0x{:X} event=\"{}\" count={}",
+                    "[HYPERVISOR EVENT{}] opcode={} raw_event_type={} src_pid_path={} target_pid_path={} arg1=0x{:X} arg2=0x{:X} arg3=0x{:X} arg4=0x{:X} event=\"{}\" count={}",
+                    if actionable_hypervisor_event { "" } else { " IGNORED" },
                     irp_op,
                     raw_event_type,
                     source_process,
@@ -1031,9 +1094,9 @@ impl ProcessBehaviorState {
         }
 
         // Increment total hypervisor events counter and emit activity signal
-        if is_api_event {
+        if actionable_hypervisor_event {
             self.hypervisor_events_total += 1;
-            
+
             // Check for hypervisor event activity after each normalized event
             if self.irp_stats.has_injection_indicators() {
                 Logging::warning(&format!(
@@ -1055,14 +1118,16 @@ impl ProcessBehaviorState {
             | IrpMajorOp::IrpRootkitGeneric => {
                 let kind = RootkitFindingKind::from_irp_op(irp_kind);
                 let owner_pid = msg.kernel_event_info.source_process_id;
-                let attaches_to_state = owner_pid != 0
+                let description = msg.kernel_event_info.object_name.trim_matches('\0').trim().to_string();
+                let attaches_to_state = (owner_pid != 0
                     && self.pid != 0
-                    && (self.pid == owner_pid || self.pid == msg.pid);
+                    && (self.pid == owner_pid || self.pid == msg.pid))
+                    || (owner_pid == 0 && self.pid == 0);
 
                 if attaches_to_state {
                     let finding = RootkitFinding {
                         kind: kind.clone(),
-                        description: msg.kernel_event_info.object_name.trim_matches('\0').to_string(),
+                        description: description.clone(),
                         address: msg.kernel_event_info.memory_address,
                         pid: owner_pid,
                         extra: msg.kernel_event_info.raw_argument1,
@@ -1071,6 +1136,12 @@ impl ProcessBehaviorState {
                     self.rootkit_findings.push(finding);
                     if matches!(kind, RootkitFindingKind::HiddenProcess) {
                         self.rootkit_implicated = true;
+                        let name_is_stale = self.app_name.is_empty()
+                            || self.app_name.starts_with("PROC_")
+                            || self.app_name == "UNKNOWN";
+                        if name_is_stale && !description.is_empty() {
+                            self.app_name = description.to_lowercase();
+                        }
                     }
                 } else {
                     Logging::warning(&format!(
@@ -1081,21 +1152,23 @@ impl ProcessBehaviorState {
                         msg.pid
                     ));
                 }
-                
+
                 Logging::warning(&format!(
                     "[ROOTKIT DETECTED] PID {} - Type: {:?} - {}",
-                    msg.pid, kind, msg.kernel_event_info.object_name.trim_matches('\0')
+                    msg.pid,
+                    kind,
+                    description
                 ));
             },
             _ => {},
         }
-        
+
         // Use incremental drain to prevent blocking: remove 10% when hitting 10k
         if self.irp_operations.len() >= 10000 {
             let remove_count = (self.irp_operations.len() / 10).max(500);
             let _ = self.irp_operations.drain(0..remove_count);
         }
-        
+
         self.irp_operations.push(rec);
     }
 }
@@ -2760,11 +2833,22 @@ impl BehaviorEngine {
             return false;
         }
 
+        let normalized_kernel_api = normalize_hypervisor_api_label(&msg.kernel_event_info.object_name);
         let raw_event_type = if msg.kernel_event_info.event_type != 0 {
             msg.kernel_event_info.event_type
         } else {
             effective_hypervisor_irp_byte(msg) as u32
         };
+        let event_name = if normalized_kernel_api.is_empty() {
+            known_raw_event_name(raw_event_type)
+                .map(|name| name.to_string())
+                .unwrap_or_else(|| format!("RawEventType({raw_event_type})"))
+        } else {
+            normalized_kernel_api
+        };
+        if !is_actionable_hypervisor_event(irp_op, &event_name) {
+            return false;
+        }
         let source_pid = msg.kernel_event_info.source_process_id;
         let target_pid = msg.kernel_event_info.target_process_id;
         let raw_arg1 = msg.kernel_event_info.raw_argument1;
@@ -2876,11 +2960,42 @@ impl BehaviorEngine {
     
     pub fn process_event(&mut self, precord: &mut ProcessRecord, msg: &IOMessage, config: &Config, threat_handler: &dyn ThreatHandler) {
         let gid = msg.gid;
+        let irp_op_byte = effective_hypervisor_irp_byte(msg);
+        let irp_op = IrpMajorOp::from_byte(irp_op_byte);
+        let is_rootkit_event = is_rootkit_irp(&irp_op);
         let mut actions = ActionsOnKill::with_handler(threat_handler.clone_box());
         
         if !self.process_states.contains_key(&gid) {
             // appname and exepath are resolved by worker.rs (register_precord) before reaching here.
-            let mut s = ProcessBehaviorState::new(msg.pid, precord.exepath.clone(), precord.appname.clone());
+            let initial_pid = if is_rootkit_event && gid == ROOTKIT_GLOBAL_GID {
+                0
+            } else {
+                msg.pid
+            };
+            let initial_exe_path = if is_rootkit_event && gid == ROOTKIT_GLOBAL_GID {
+                PathBuf::from(r"\kernel\rootkit")
+            } else {
+                precord.exepath.clone()
+            };
+            let initial_app_name = if is_rootkit_event && gid == ROOTKIT_GLOBAL_GID {
+                "kernel_rootkit".to_string()
+            } else if is_rootkit_event
+                && is_rootkit_pseudo_gid(gid)
+                && msg.pid != 0
+                && (precord.appname.is_empty()
+                    || precord.appname.starts_with("PROC_")
+                    || precord.appname == "UNKNOWN")
+            {
+                let fallback_name = msg.kernel_event_info.object_name.trim_matches('\0').trim();
+                if fallback_name.is_empty() {
+                    format!("rootkit_pid_{}", msg.pid)
+                } else {
+                    fallback_name.to_lowercase()
+                }
+            } else {
+                precord.appname.clone()
+            };
+            let mut s = ProcessBehaviorState::new(initial_pid, initial_exe_path, initial_app_name);
             if !msg.runtime_features.command_line.trim().is_empty() {
                 s.command_line = msg.runtime_features.command_line.to_lowercase();
                 if let Some((fname, fpath)) = Self::extract_script_from_cmdline(
@@ -3029,8 +3144,6 @@ impl BehaviorEngine {
                     state.parent_path = path.clone();
                 }
         }
-        let irp_op_byte = effective_hypervisor_irp_byte(msg);
-        let irp_op = IrpMajorOp::from_byte(irp_op_byte);
         if let Some(state) = self.process_states.get_mut(&gid) {
             state.record_irp_operation(msg, irp_op_byte);
         }
@@ -5298,7 +5411,7 @@ impl BehaviorEngine {
         let op = IrpMajorOp::from_byte(effective_hypervisor_irp_byte(msg));
         let kind = RootkitFindingKind::from_irp_op(op);
 
-        let description = msg.kernel_event_info.object_name.clone();
+        let description = msg.kernel_event_info.object_name.trim_matches('\0').trim().to_string();
 
         let finding = RootkitFinding {
             kind: kind.clone(),
