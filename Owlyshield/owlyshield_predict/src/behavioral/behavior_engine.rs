@@ -359,7 +359,12 @@ impl IrpStatistics {
                 match rec.file_change {
                     _ if rec.file_change == FileChangeInfo::RegCreateKey as u8 => self.registry_create_count += 1,
                     _ if rec.file_change == FileChangeInfo::RegSetValue as u8 => self.registry_write_count += 1,
-                    _ if rec.file_change == FileChangeInfo::RegDeleteValue as u8 => self.registry_delete_count += 1,
+                    // FIX (Bug #2): RegDeleteKey (14) was missing and fell through to
+                    // registry_read_count. Both value-delete and key-delete are deletions.
+                    _ if rec.file_change == FileChangeInfo::RegDeleteValue as u8
+                        || rec.file_change == FileChangeInfo::RegDeleteKey as u8 => self.registry_delete_count += 1,
+                    // RegQueryValue / RegQueryKey / RegOpenKey / RegEnumKey / RegEnumValue
+                    // are all read-class operations — the catch-all is correct for them.
                     _ => self.registry_read_count += 1,
                 }
             },

@@ -29,6 +29,14 @@ pub enum FileChangeInfo {
     RegDeleteValue = 11,
     RegRenameKey = 12,
     RegQueryValue = 13,
+    // FIX (Bug #2): Added to match the newly corrected SharedDefs.h FILE_CHANGE_INFO enum.
+    // Without these, any event arriving with code 14-18 would be silently
+    // mishandled as an unknown variant by FromPrimitive consumers.
+    RegDeleteKey = 14,
+    RegOpenKey = 15,
+    RegQueryKey = 16,
+    RegEnumKey = 17,
+    RegEnumValue = 18,
 }
 
 /// See [`IOMessage`] struct.

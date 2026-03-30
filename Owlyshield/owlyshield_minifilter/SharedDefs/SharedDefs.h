@@ -332,7 +332,14 @@ enum FILE_CHANGE_INFO
     REG_SET_VALUE,
     REG_DELETE_VALUE,
     REG_RENAME_KEY,
-    REG_QUERY_VALUE
+    REG_QUERY_VALUE,
+    // FIX (Bug #2): These were missing, causing every open/query/enum/delete-key
+    // operation to be misreported as REG_QUERY_VALUE in the kernel callback.
+    REG_DELETE_KEY,   // 14
+    REG_OPEN_KEY,     // 15
+    REG_QUERY_KEY,    // 16
+    REG_ENUM_KEY,     // 17
+    REG_ENUM_VALUE    // 18
 };
 
 enum FILE_LOCATION_INFO

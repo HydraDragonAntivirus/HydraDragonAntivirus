@@ -2,6 +2,144 @@
 #include "DriverData.h"
 #include <ntstrsafe.h>
 
+// FIX (Bug #1): ZwOpenKey / ZwQueryValueKey must NEVER be called directly
+// inside a CmRegisterCallback pre-notification. Doing so causes the registry
+// subsystem to fire another RegNtPreOpenKey / RegNtPreQueryValueKey callback
+// on the same thread, re-entering this function while the registry lock is
+// still held. In checked/debug Windows builds CmQueryValueKey validates the
+// caller-supplied UNICODE_STRING against internal state and fires
+// DbgBreakPointWithStatus(STATUS_INVALID_VALUE) when it finds the re-entrant
+// call's UNICODE_STRING inconsistent — producing the 80000003 int 3 break.
+//
+// Fix: queue the backup work to a system worker thread via IoQueueWorkItem.
+// Worker threads run outside the CmCallback context, so ZwOpenKey and
+// ZwQueryValueKey are safe there.
+//
+// Requirement: g_DeviceObject must be set to your DEVICE_OBJECT* during
+// DriverEntry before CmRegisterCallback is called.
+extern PDEVICE_OBJECT g_DeviceObject;
+
+typedef struct _REG_BACKUP_WORK_CTX {
+    PIO_WORKITEM  WorkItem;
+    UNICODE_STRING KeyPath;
+    UNICODE_STRING ValueName;
+    ULONGLONG      Gid;
+    BOOLEAN        IsDeletion;
+    WCHAR          KeyPathBuffer[MAX_FILE_NAME_LENGTH];
+    WCHAR          ValueNameBuffer[MAX_FILE_NAME_LENGTH];
+} REG_BACKUP_WORK_CTX, *PREG_BACKUP_WORK_CTX;
+
+static IO_WORKITEM_ROUTINE RegBackupWorkRoutine;
+static VOID RegBackupWorkRoutine(_In_ PDEVICE_OBJECT DeviceObject, _In_opt_ PVOID Context)
+{
+    UNREFERENCED_PARAMETER(DeviceObject);
+    PREG_BACKUP_WORK_CTX ctx = (PREG_BACKUP_WORK_CTX)Context;
+    if (!ctx) return;
+
+    // Safe to call ZwOpenKey / ZwQueryValueKey here — we are NOT inside a
+    // CmCallback, so no recursive callback re-entry can occur.
+    HANDLE hKey = NULL;
+    OBJECT_ATTRIBUTES objAttr;
+    InitializeObjectAttributes(&objAttr, &ctx->KeyPath, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
+    NTSTATUS openStatus = ZwOpenKey(&hKey, KEY_QUERY_VALUE, &objAttr);
+    if (NT_SUCCESS(openStatus))
+    {
+        ULONG resultLength = 0;
+        const ULONG kDataMax = 1024;
+        PKEY_VALUE_PARTIAL_INFORMATION pValueInfo =
+            (PKEY_VALUE_PARTIAL_INFORMATION)ExAllocatePool2(
+                POOL_FLAG_NON_PAGED,
+                sizeof(KEY_VALUE_PARTIAL_INFORMATION) + kDataMax,
+                REG_TAG);
+        if (pValueInfo)
+        {
+            NTSTATUS queryStatus = ZwQueryValueKey(
+                hKey, &ctx->ValueName, KeyValuePartialInformation,
+                pValueInfo, sizeof(KEY_VALUE_PARTIAL_INFORMATION) + kDataMax, &resultLength);
+            if (NT_SUCCESS(queryStatus) && pValueInfo->DataLength <= kDataMax)
+            {
+                PREGISTRY_BACKUP_ENTRY backup = new REGISTRY_BACKUP_ENTRY();
+                if (backup)
+                {
+                    backup->Gid        = ctx->Gid;
+                    backup->IsDeletion = ctx->IsDeletion;
+                    backup->Type       = pValueInfo->Type;
+                    backup->DataSize   = pValueInfo->DataLength;
+                    RtlCopyMemory(backup->RegistryData, pValueInfo->Data, pValueInfo->DataLength);
+                    RtlStringCbCopyW(backup->KeyPath, sizeof(backup->KeyPath), ctx->KeyPath.Buffer);
+
+                    USHORT valNameLen = 0;
+                    if (ctx->ValueName.Buffer && ctx->ValueName.Length > 0)
+                    {
+                        valNameLen = (USHORT)min(ctx->ValueName.Length,
+                                                 sizeof(backup->ValueName) - sizeof(WCHAR));
+                        RtlCopyMemory(backup->ValueName, ctx->ValueName.Buffer, valNameLen);
+                    }
+                    backup->ValueName[valNameLen / sizeof(WCHAR)] = L'\0';
+                    driverData->AddRegistryBackup(backup);
+                }
+            }
+            ExFreePoolWithTag(pValueInfo, REG_TAG);
+        }
+        ZwClose(hKey);
+    }
+
+    IoFreeWorkItem(ctx->WorkItem);
+    ExFreePoolWithTag(ctx, REG_TAG);
+}
+
+// Helper: allocate and queue a deferred registry-backup work item.
+// KeyPath and ValueName are deep-copied into the context so the caller's
+// buffers can be freed immediately after this returns.
+static VOID QueueRegistryBackup(
+    _In_ PUNICODE_STRING KeyPath,
+    _In_opt_ PUNICODE_STRING ValueName,
+    _In_ ULONGLONG Gid,
+    _In_ BOOLEAN IsDeletion)
+{
+    if (!g_DeviceObject) return;
+
+    PREG_BACKUP_WORK_CTX ctx = (PREG_BACKUP_WORK_CTX)ExAllocatePool2(
+        POOL_FLAG_NON_PAGED, sizeof(REG_BACKUP_WORK_CTX), REG_TAG);
+    if (!ctx) return;
+
+    RtlZeroMemory(ctx, sizeof(*ctx));
+    ctx->Gid        = Gid;
+    ctx->IsDeletion = IsDeletion;
+
+    // Deep-copy KeyPath
+    SIZE_T pathChars = min(KeyPath->Length / sizeof(WCHAR), (SIZE_T)(MAX_FILE_NAME_LENGTH - 1));
+    RtlCopyMemory(ctx->KeyPathBuffer, KeyPath->Buffer, pathChars * sizeof(WCHAR));
+    ctx->KeyPathBuffer[pathChars] = L'\0';
+    ctx->KeyPath.Buffer        = ctx->KeyPathBuffer;
+    ctx->KeyPath.Length        = (USHORT)(pathChars * sizeof(WCHAR));
+    ctx->KeyPath.MaximumLength = (USHORT)((pathChars + 1) * sizeof(WCHAR));
+
+    // Deep-copy ValueName (optional)
+    if (ValueName && ValueName->Buffer && ValueName->Length > 0)
+    {
+        SIZE_T valChars = min(ValueName->Length / sizeof(WCHAR), (SIZE_T)(MAX_FILE_NAME_LENGTH - 1));
+        RtlCopyMemory(ctx->ValueNameBuffer, ValueName->Buffer, valChars * sizeof(WCHAR));
+        ctx->ValueNameBuffer[valChars] = L'\0';
+        ctx->ValueName.Buffer        = ctx->ValueNameBuffer;
+        ctx->ValueName.Length        = (USHORT)(valChars * sizeof(WCHAR));
+        ctx->ValueName.MaximumLength = (USHORT)((valChars + 1) * sizeof(WCHAR));
+    }
+    else
+    {
+        RtlInitUnicodeString(&ctx->ValueName, L"");
+    }
+
+    ctx->WorkItem = IoAllocateWorkItem(g_DeviceObject);
+    if (!ctx->WorkItem)
+    {
+        ExFreePoolWithTag(ctx, REG_TAG);
+        return;
+    }
+
+    IoQueueWorkItem(ctx->WorkItem, RegBackupWorkRoutine, DelayedWorkQueue, ctx);
+}
+
 typedef struct _REGISTRY_HIVE_MAP_ENTRY {
     PCWSTR UserPrefix;
     SIZE_T UserPrefixLen;
@@ -281,7 +419,13 @@ NTSTATUS RegistryCallback(_In_ PVOID CallbackContext, _In_ PVOID Argument1, _In_
     // Allocate local buffer on stack or pool? Regedit.c used Pool.
     // Creating temp buffer on new operator is cleaner for C++ or ExAllocatePool.
     // Use ExAllocatePool for safety.
-    RegPath.MaximumLength = sizeof(WCHAR) * 0x400; // 1024 chars
+    // FIX (Bug #3): The original 1024-WCHAR buffer is smaller than the maximum
+    // Windows registry path (32,767 WCHARs). After GetNameForRegistryObject fills
+    // the buffer with a long key path, appending L"\\" + ValueName overflows it.
+    // In checked builds RtlAppendUnicodeToString fires ASSERT(STATUS_BUFFER_TOO_SMALL)
+    // → DbgBreakPointWithStatus — a secondary source of the int 3 break.
+    // Use 32,768 WCHARs (0x8000) to cover the documented Windows maximum.
+    RegPath.MaximumLength = sizeof(WCHAR) * 0x8000; // 32768 WCHARs = Windows REG_MAX_KEY_LENGTH
     RegPath.Buffer = (PWCH)ExAllocatePool2(POOL_FLAG_NON_PAGED, RegPath.MaximumLength, REG_TAG);
     
     if (!RegPath.Buffer) return Status;
@@ -303,46 +447,16 @@ NTSTATUS RegistryCallback(_In_ PVOID CallbackContext, _In_ PVOID Argument1, _In_
             {
                 if (GetNameForRegistryObject(&RegPath, pInfo->Object))
                 {
-                    // Backup the value before it's deleted.
-                    // ZwOpenKey/ZwQueryValueKey require PASSIVE_LEVEL; skip backup
-                    // if called at elevated IRQL to avoid a system crash.
+                    // FIX (Bug #1): Calling ZwOpenKey / ZwQueryValueKey directly here
+                    // caused recursive CmCallback re-entry → STATUS_INVALID_VALUE int 3.
+                    // Defer the backup to a system worker thread via QueueRegistryBackup.
                     BOOLEAN isGidFound = FALSE;
                     ULONGLONG gid = driverData->GetProcessGid((ULONG)(ULONG_PTR)hPid, &isGidFound);
-                    if (isGidFound && KeGetCurrentIrql() == PASSIVE_LEVEL) {
-                        HANDLE hKey;
-                        OBJECT_ATTRIBUTES objAttr;
-                        InitializeObjectAttributes(&objAttr, &RegPath, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
-                        NTSTATUS openStatus = ZwOpenKey(&hKey, KEY_QUERY_VALUE, &objAttr);
-                        if (NT_SUCCESS(openStatus)) {
-                            ULONG resultLength;
-                            PKEY_VALUE_PARTIAL_INFORMATION pValueInfo = (PKEY_VALUE_PARTIAL_INFORMATION)ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeof(KEY_VALUE_PARTIAL_INFORMATION) + 1024, REG_TAG);
-                            if (pValueInfo) {
-                                UNICODE_STRING emptyValueName;
-                                RtlInitUnicodeString(&emptyValueName, L"");
-                                PUNICODE_STRING safeValueName = (pInfo->ValueName && pInfo->ValueName->Buffer) ? pInfo->ValueName : &emptyValueName;
-                                NTSTATUS queryStatus = ZwQueryValueKey(hKey, safeValueName, KeyValuePartialInformation, pValueInfo, sizeof(KEY_VALUE_PARTIAL_INFORMATION) + 1024, &resultLength);
-                                if (NT_SUCCESS(queryStatus) && pValueInfo->DataLength <= 1024) {
-                                    PREGISTRY_BACKUP_ENTRY backup = new REGISTRY_BACKUP_ENTRY();
-                                    if (backup) {
-                                        backup->Gid = gid;
-                                        backup->IsDeletion = TRUE;
-                                        backup->Type = pValueInfo->Type;
-                                        backup->DataSize = pValueInfo->DataLength;
-                                        RtlCopyMemory(backup->RegistryData, pValueInfo->Data, pValueInfo->DataLength);
-                                        RtlStringCbCopyW(backup->KeyPath, sizeof(backup->KeyPath), RegPath.Buffer);
-                                        USHORT valNameLen = 0;
-                                        if (safeValueName->Buffer && safeValueName->Length > 0) {
-                                            valNameLen = (USHORT)min(safeValueName->Length, sizeof(backup->ValueName) - sizeof(WCHAR));
-                                            RtlCopyMemory(backup->ValueName, safeValueName->Buffer, valNameLen);
-                                        }
-                                        backup->ValueName[valNameLen / sizeof(WCHAR)] = L'\0';
-                                        driverData->AddRegistryBackup(backup);
-                                    }
-                                }
-                                ExFreePoolWithTag(pValueInfo, REG_TAG);
-                            }
-                            ZwClose(hKey);
-                        }
+                    if (isGidFound)
+                    {
+                        PUNICODE_STRING safeValueName =
+                            (pInfo->ValueName && pInfo->ValueName->Buffer) ? pInfo->ValueName : NULL;
+                        QueueRegistryBackup(&RegPath, safeValueName, gid, TRUE /*IsDeletion*/);
                     }
 
 
@@ -369,7 +483,7 @@ NTSTATUS RegistryCallback(_In_ PVOID CallbackContext, _In_ PVOID Argument1, _In_
                 {
                     if (TRUE)
                     {
-                        SendRegistryAlert(&RegPath, L"DELETE_KEY", hPid, REG_DELETE_VALUE);
+                        SendRegistryAlert(&RegPath, L"DELETE_KEY", hPid, REG_DELETE_KEY); // FIX (Bug #2): was REG_DELETE_VALUE
                     }
                 }
             }
@@ -382,46 +496,15 @@ NTSTATUS RegistryCallback(_In_ PVOID CallbackContext, _In_ PVOID Argument1, _In_
             {
                 if (GetNameForRegistryObject(&RegPath, pInfo->Object))
                 {
-                    // Backup the value before it's set.
-                    // ZwOpenKey/ZwQueryValueKey require PASSIVE_LEVEL; skip backup
-                    // if called at elevated IRQL to avoid a system crash.
+                    // FIX (Bug #1): Same recursive re-entry hazard as in RegNtPreDeleteValueKey.
+                    // Defer backup to a worker thread.
                     BOOLEAN isGidFound = FALSE;
                     ULONGLONG gid = driverData->GetProcessGid((ULONG)(ULONG_PTR)hPid, &isGidFound);
-                    if (isGidFound && KeGetCurrentIrql() == PASSIVE_LEVEL) {
-                        HANDLE hKey;
-                        OBJECT_ATTRIBUTES objAttr;
-                        InitializeObjectAttributes(&objAttr, &RegPath, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
-                        NTSTATUS openStatus = ZwOpenKey(&hKey, KEY_QUERY_VALUE, &objAttr);
-                        if (NT_SUCCESS(openStatus)) {
-                            ULONG resultLength;
-                            PKEY_VALUE_PARTIAL_INFORMATION pValueInfo = (PKEY_VALUE_PARTIAL_INFORMATION)ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeof(KEY_VALUE_PARTIAL_INFORMATION) + 1024, REG_TAG);
-                            if (pValueInfo) {
-                                UNICODE_STRING emptyValueName;
-                                RtlInitUnicodeString(&emptyValueName, L"");
-                                PUNICODE_STRING safeValueName = (pInfo->ValueName && pInfo->ValueName->Buffer) ? pInfo->ValueName : &emptyValueName;
-                                NTSTATUS queryStatus = ZwQueryValueKey(hKey, safeValueName, KeyValuePartialInformation, pValueInfo, sizeof(KEY_VALUE_PARTIAL_INFORMATION) + 1024, &resultLength);
-                                if (NT_SUCCESS(queryStatus) && pValueInfo->DataLength <= 1024) {
-                                    PREGISTRY_BACKUP_ENTRY backup = new REGISTRY_BACKUP_ENTRY();
-                                    if (backup) {
-                                        backup->Gid = gid;
-                                        backup->IsDeletion = FALSE;
-                                        backup->Type = pValueInfo->Type;
-                                        backup->DataSize = pValueInfo->DataLength;
-                                        RtlCopyMemory(backup->RegistryData, pValueInfo->Data, pValueInfo->DataLength);
-                                        RtlStringCbCopyW(backup->KeyPath, sizeof(backup->KeyPath), RegPath.Buffer);
-                                        USHORT valNameLen = 0;
-                                        if (safeValueName->Buffer && safeValueName->Length > 0) {
-                                            valNameLen = (USHORT)min(safeValueName->Length, sizeof(backup->ValueName) - sizeof(WCHAR));
-                                            RtlCopyMemory(backup->ValueName, safeValueName->Buffer, valNameLen);
-                                        }
-                                        backup->ValueName[valNameLen / sizeof(WCHAR)] = L'\0';
-                                        driverData->AddRegistryBackup(backup);
-                                    }
-                                }
-                                ExFreePoolWithTag(pValueInfo, REG_TAG);
-                            }
-                            ZwClose(hKey);
-                        }
+                    if (isGidFound)
+                    {
+                        PUNICODE_STRING safeValueName =
+                            (pInfo->ValueName && pInfo->ValueName->Buffer) ? pInfo->ValueName : NULL;
+                        QueueRegistryBackup(&RegPath, safeValueName, gid, FALSE /*IsDeletion*/);
                     }
 
                     if (pInfo->ValueName && pInfo->ValueName->Length > 0)
@@ -458,7 +541,7 @@ NTSTATUS RegistryCallback(_In_ PVOID CallbackContext, _In_ PVOID Argument1, _In_
             PREG_OPEN_KEY_INFORMATION pInfo = (PREG_OPEN_KEY_INFORMATION)Argument2;
             if (pInfo && BuildRegistryOpenPath(&RegPath, pInfo->RootObject, pInfo->CompleteName))
             {
-                SendRegistryAlert(&RegPath, L"OPEN_KEY", hPid, REG_QUERY_VALUE);
+                SendRegistryAlert(&RegPath, L"OPEN_KEY", hPid, REG_OPEN_KEY); // FIX (Bug #2): was REG_QUERY_VALUE
             }
             break;
         }
@@ -467,7 +550,7 @@ NTSTATUS RegistryCallback(_In_ PVOID CallbackContext, _In_ PVOID Argument1, _In_
             PREG_OPEN_KEY_INFORMATION_V1 pInfo = (PREG_OPEN_KEY_INFORMATION_V1)Argument2;
             if (pInfo && BuildRegistryOpenPath(&RegPath, pInfo->RootObject, pInfo->CompleteName))
             {
-                SendRegistryAlert(&RegPath, L"OPEN_KEY_EX", hPid, REG_QUERY_VALUE);
+                SendRegistryAlert(&RegPath, L"OPEN_KEY_EX", hPid, REG_OPEN_KEY); // FIX (Bug #2): was REG_QUERY_VALUE
             }
             break;
         }
@@ -496,7 +579,7 @@ NTSTATUS RegistryCallback(_In_ PVOID CallbackContext, _In_ PVOID Argument1, _In_
             {
                 if (GetNameForRegistryObject(&RegPath, pInfo->Object))
                 {
-                    SendRegistryAlert(&RegPath, L"QUERY_KEY", hPid, REG_QUERY_VALUE);
+                    SendRegistryAlert(&RegPath, L"QUERY_KEY", hPid, REG_QUERY_KEY); // FIX (Bug #2): was REG_QUERY_VALUE
                 }
             }
             break;
@@ -508,7 +591,7 @@ NTSTATUS RegistryCallback(_In_ PVOID CallbackContext, _In_ PVOID Argument1, _In_
             {
                 if (GetNameForRegistryObject(&RegPath, pInfo->Object))
                 {
-                    SendRegistryAlert(&RegPath, L"ENUM_KEY", hPid, REG_QUERY_VALUE);
+                    SendRegistryAlert(&RegPath, L"ENUM_KEY", hPid, REG_ENUM_KEY); // FIX (Bug #2): was REG_QUERY_VALUE
                 }
             }
             break;
@@ -520,7 +603,7 @@ NTSTATUS RegistryCallback(_In_ PVOID CallbackContext, _In_ PVOID Argument1, _In_
             {
                 if (GetNameForRegistryObject(&RegPath, pInfo->Object))
                 {
-                    SendRegistryAlert(&RegPath, L"ENUM_VALUE", hPid, REG_QUERY_VALUE);
+                    SendRegistryAlert(&RegPath, L"ENUM_VALUE", hPid, REG_ENUM_VALUE); // FIX (Bug #2): was REG_QUERY_VALUE
                 }
             }
             break;

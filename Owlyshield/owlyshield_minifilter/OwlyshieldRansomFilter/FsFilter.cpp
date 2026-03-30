@@ -74,6 +74,12 @@ FSShouldIgnorePyasWhitelistPath(_In_ PCUNICODE_STRING Path);
 // g_HookDeviceObject removed: hook device owned by Communication.cpp
 static PDRIVER_OBJECT g_DriverObject = NULL;   // set in DriverEntry
 static PDEVICE_OBJECT g_WorkItemDeviceObject = NULL; // dedicated CDO for IoAllocateWorkItem
+
+// Public definition of g_DeviceObject — extern-declared in Regedit.cpp so that
+// QueueRegistryBackup (Bug #1 fix) can call IoAllocateWorkItem safely from within
+// the CmCallback work-item deferral. Assigned from g_WorkItemDeviceObject in
+// DriverEntry, after IoCreateDevice succeeds.
+PDEVICE_OBJECT g_DeviceObject = NULL;
 static BOOLEAN g_UseLegacyProcessNotify = FALSE;
 static BOOLEAN g_ProcessNotifyRegistered = FALSE;
 static BOOLEAN g_ThreadNotifyRegistered = FALSE;
@@ -591,6 +597,10 @@ Return Value:
         else
         {
             g_WorkItemDeviceObject->Flags &= ~DO_DEVICE_INITIALIZING;
+            // Wire the public g_DeviceObject pointer so Regedit.cpp's
+            // QueueRegistryBackup can call IoAllocateWorkItem.
+            // Must be assigned before RegeditDriverEntry() below.
+            g_DeviceObject = g_WorkItemDeviceObject;
         }
     }
 
