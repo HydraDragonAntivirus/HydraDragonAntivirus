@@ -183,7 +183,7 @@ async fn validate_rules_content(content: String, handle: AppHandle) -> Result<St
 }
 
 #[cfg(target_os = "windows")]
-fn get_owlyshield_rules_path() -> Option<std::path::PathBuf> {
+fn get_owlyshield_rules_dir() -> Option<std::path::PathBuf> {
     use winreg::enums::HKEY_LOCAL_MACHINE;
     use winreg::RegKey;
     let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
@@ -193,7 +193,7 @@ fn get_owlyshield_rules_path() -> Option<std::path::PathBuf> {
         .map(std::path::PathBuf::from)
 }
 
-/// Read the Firewall SDK rules folder/file path from the Windows Registry.
+/// Read the Firewall SDK rules folder path from the Windows Registry.
 /// Falls back to None if the key is absent or the OS is not Windows.
 #[cfg(target_os = "windows")]
 pub(crate) fn get_firewall_sdk_rules_path() -> Option<std::path::PathBuf> {
@@ -206,27 +206,161 @@ pub(crate) fn get_firewall_sdk_rules_path() -> Option<std::path::PathBuf> {
         .map(std::path::PathBuf::from)
 }
 
+#[derive(Clone, Debug, Serialize)]
+struct OwlyshieldRulesFileEntry {
+    name: String,
+    path: String,
+    selected: bool,
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct OwlyshieldRulesDirectoryView {
+    directory: String,
+    selected_path: Option<String>,
+    files: Vec<OwlyshieldRulesFileEntry>,
+}
+
+#[cfg(target_os = "windows")]
+fn list_owlyshield_rule_files(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
+    if dir.is_file() {
+        return vec![dir.to_path_buf()];
+    }
+
+    if !dir.is_dir() {
+        return Vec::new();
+    }
+
+    let mut yaml_files: Vec<std::path::PathBuf> = std::fs::read_dir(dir)
+        .ok()
+        .into_iter()
+        .flat_map(|entries| entries.filter_map(Result::ok))
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.is_file()
+                && matches!(
+                    path.extension().and_then(|ext| ext.to_str()),
+                    Some("yaml" | "yml")
+                )
+        })
+        .collect();
+
+    yaml_files.sort_by(|a, b| {
+        let rank = |path: &std::path::Path| match path.file_name().and_then(|name| name.to_str()) {
+            Some("owlyshield_rules.yaml") => 0,
+            Some("owlyshield_rules.yml") => 1,
+            Some("rules.yaml") => 2,
+            Some("rules.yml") => 3,
+            _ => 10,
+        };
+
+        rank(a)
+            .cmp(&rank(b))
+            .then_with(|| a.file_name().cmp(&b.file_name()))
+    });
+
+    yaml_files
+}
+
+#[cfg(target_os = "windows")]
+fn resolve_rules_file_from_registry_dir(dir: &std::path::Path) -> Option<std::path::PathBuf> {
+    list_owlyshield_rule_files(dir).into_iter().next()
+}
+
+#[cfg(target_os = "windows")]
+fn resolve_owlyshield_rule_file(requested_path: Option<&str>) -> Option<std::path::PathBuf> {
+    if let Some(path) = requested_path {
+        let requested = std::path::PathBuf::from(path);
+        if requested.is_file() {
+            return Some(requested);
+        }
+    }
+
+    get_owlyshield_rules_dir().and_then(|dir| resolve_rules_file_from_registry_dir(&dir))
+}
+
 #[tauri::command]
-async fn get_owlyshield_rules_raw() -> String {
-    // Prefer the registry-configured path (Windows).
+async fn list_owlyshield_rules_files() -> OwlyshieldRulesDirectoryView {
     #[cfg(target_os = "windows")]
-    if let Some(path) = get_owlyshield_rules_path() {
+    if let Some(dir) = get_owlyshield_rules_dir() {
+        let selected_path = resolve_rules_file_from_registry_dir(&dir)
+            .map(|path| path.to_string_lossy().to_string());
+        let files = list_owlyshield_rule_files(&dir)
+            .into_iter()
+            .map(|path| {
+                let path_string = path.to_string_lossy().to_string();
+                OwlyshieldRulesFileEntry {
+                    name: path
+                        .file_name()
+                        .and_then(|name| name.to_str())
+                        .unwrap_or("rules")
+                        .to_string(),
+                    selected: selected_path.as_deref() == Some(path_string.as_str()),
+                    path: path_string,
+                }
+            })
+            .collect();
+
+        return OwlyshieldRulesDirectoryView {
+            directory: dir.to_string_lossy().to_string(),
+            selected_path,
+            files,
+        };
+    }
+
+    let local_path = std::path::PathBuf::from("owlyshield_rules.yaml");
+    let selected_path = local_path
+        .is_file()
+        .then(|| local_path.to_string_lossy().to_string());
+    let files = selected_path
+        .as_ref()
+        .map(|path| {
+            vec![OwlyshieldRulesFileEntry {
+                name: "owlyshield_rules.yaml".to_string(),
+                path: path.clone(),
+                selected: true,
+            }]
+        })
+        .unwrap_or_default();
+
+    OwlyshieldRulesDirectoryView {
+        directory: std::env::current_dir()
+            .unwrap_or_else(|_| std::path::PathBuf::from("."))
+            .to_string_lossy()
+            .to_string(),
+        selected_path,
+        files,
+    }
+}
+
+#[tauri::command]
+async fn get_owlyshield_rules_raw(path: Option<String>) -> String {
+    #[cfg(target_os = "windows")]
+    if let Some(path) = resolve_owlyshield_rule_file(path.as_deref()) {
         if let Ok(content) = std::fs::read_to_string(&path) {
             return content;
         }
     }
-    // Fall back to a local override file next to the executable.
+
     let local_path = "owlyshield_rules.yaml";
     std::fs::read_to_string(local_path).unwrap_or_default()
 }
 
 #[tauri::command]
-async fn save_owlyshield_rules_raw(content: String) -> Result<(), String> {
-    // Prefer the registry-configured path (Windows).
+async fn save_owlyshield_rules_raw(content: String, path: Option<String>) -> Result<(), String> {
     #[cfg(target_os = "windows")]
-    if let Some(path) = get_owlyshield_rules_path() {
-        return std::fs::write(&path, content).map_err(|e| e.to_string());
+    {
+        if let Some(path) = resolve_owlyshield_rule_file(path.as_deref()) {
+            return std::fs::write(&path, content).map_err(|e| e.to_string());
+        }
+
+        if let Some(dir) = get_owlyshield_rules_dir() {
+            if dir.is_dir() {
+                let path = dir.join("owlyshield_rules.yaml");
+                return std::fs::write(&path, content).map_err(|e| e.to_string());
+            }
+        }
     }
+
     let local_path = "owlyshield_rules.yaml";
     std::fs::write(local_path, content).map_err(|e| e.to_string())
 }
@@ -456,16 +590,27 @@ pub fn run() {
         use winreg::enums::HKEY_LOCAL_MACHINE;
         use winreg::RegKey;
         let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
-        // Create SOFTWARE\Owlyshield\SDK and ensure RULES_PATH exists
+
+        // Create SOFTWARE\Owlyshield\SDK and ensure RULES_PATH exists.
+        // The registry value is treated as a directory that contains YAML rule files.
         if let Ok((key, _)) = hklm.create_subkey(r"SOFTWARE\Owlyshield\SDK") {
             if key.get_value::<String, _>("RULES_PATH").is_err() {
-                let _ = key.set_value("RULES_PATH", &"rules.yaml");
+                let default_dir = std::env::current_exe()
+                    .ok()
+                    .and_then(|p| p.parent().map(|d| d.join("rules")))
+                    .unwrap_or_else(|| std::path::PathBuf::from("rules"));
+                let _ = key.set_value("RULES_PATH", &default_dir.to_string_lossy().to_string());
             }
         }
-        // Ensure SOFTWARE\Owlyshield exists and has its own RULES_PATH
+
+        // Ensure SOFTWARE\Owlyshield exists and has its own RULES_PATH directory.
         if let Ok((key, _)) = hklm.create_subkey(r"SOFTWARE\Owlyshield") {
             if key.get_value::<String, _>("RULES_PATH").is_err() {
-                let _ = key.set_value("RULES_PATH", &"owlyshield_rules.yaml");
+                let default_dir = std::env::current_exe()
+                    .ok()
+                    .and_then(|p| p.parent().map(|d| d.join("rules")))
+                    .unwrap_or_else(|| std::path::PathBuf::from("rules"));
+                let _ = key.set_value("RULES_PATH", &default_dir.to_string_lossy().to_string());
             }
         }
     }
@@ -637,6 +782,7 @@ pub fn run() {
             quit_app,
             get_body_changers,
             save_body_changers,
+            list_owlyshield_rules_files,
             get_owlyshield_rules_raw,
             save_owlyshield_rules_raw,
         ])

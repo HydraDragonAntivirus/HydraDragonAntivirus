@@ -647,6 +647,20 @@ pub struct BodyChangerRule {
     pub replacement: String,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct OwlyshieldRuleFileEntry {
+    pub name: String,
+    pub path: String,
+    pub selected: bool,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct OwlyshieldRulesDirectoryView {
+    pub directory: String,
+    pub selected_path: Option<String>,
+    pub files: Vec<OwlyshieldRuleFileEntry>,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct EngineRuntimeStatus {
     pub active: bool,
@@ -1021,6 +1035,10 @@ pub fn App() -> impl IntoView {
     let (_validation_result, set_validation_result) = create_signal(String::from("Ready to validate."));
     let (show_owlyshield_editor, set_show_owlyshield_editor) = create_signal(false);
     let (owlyshield_rules_content, set_owlyshield_rules_content) = create_signal(String::new());
+    let (owlyshield_rules_directory, set_owlyshield_rules_directory) = create_signal(String::new());
+    let (owlyshield_rule_files, set_owlyshield_rule_files) = create_signal(Vec::<OwlyshieldRuleFileEntry>::new());
+    let (selected_owlyshield_rule_path, set_selected_owlyshield_rule_path) = create_signal(Option::<String>::None);
+    let (owlyshield_rules_status, set_owlyshield_rules_status) = create_signal(String::new());
 
     let fetch_sdk_rules = move || {
         spawn_local(async move {
@@ -1059,21 +1077,74 @@ pub fn App() -> impl IntoView {
         });
     };
 
-    let fetch_owlyshield_rules = move || {
+    let load_owlyshield_rules_for_path = std::rc::Rc::new(move |path: Option<String>| {
         spawn_local(async move {
-            let val = invoke("get_owlyshield_rules_raw", JsValue::NULL).await;
-            if let Ok(s) = serde_wasm_bindgen::from_value::<String>(val) {
-                set_owlyshield_rules_content.set(s);
+            let args = js_sys::Object::new();
+            if let Some(ref selected_path) = path {
+                js_sys::Reflect::set(&args, &"path".into(), &selected_path.clone().into()).unwrap();
+            }
+            let val = invoke("get_owlyshield_rules_raw", args.into()).await;
+            match serde_wasm_bindgen::from_value::<String>(val) {
+                Ok(content) => {
+                    set_owlyshield_rules_content.set(content);
+                    set_owlyshield_rules_status.set(String::new());
+                }
+                Err(_) => {
+                    set_owlyshield_rules_content.set(String::new());
+                    set_owlyshield_rules_status.set("Failed to load the selected OwlyShield rule file.".to_string());
+                }
             }
         });
+    });
+
+    let fetch_owlyshield_rule_files = {
+        let load_owlyshield_rules_for_path = load_owlyshield_rules_for_path.clone();
+        move || {
+            let load_owlyshield_rules_for_path = load_owlyshield_rules_for_path.clone();
+            spawn_local(async move {
+                let val = invoke("list_owlyshield_rules_files", JsValue::NULL).await;
+                match serde_wasm_bindgen::from_value::<OwlyshieldRulesDirectoryView>(val) {
+                    Ok(view) => {
+                        let fallback_selected = view.files.first().map(|file| file.path.clone());
+                        let selected_path = view.selected_path.clone().or(fallback_selected);
+                        set_owlyshield_rules_directory.set(view.directory);
+                        set_owlyshield_rule_files.set(view.files);
+                        set_selected_owlyshield_rule_path.set(selected_path.clone());
+                        if let Some(path) = selected_path {
+                            load_owlyshield_rules_for_path(Some(path));
+                        } else {
+                            set_owlyshield_rules_content.set(String::new());
+                            set_owlyshield_rules_status.set("No YAML rule files were found in the OwlyShield rules directory.".to_string());
+                        }
+                    }
+                    Err(_) => {
+                        set_owlyshield_rule_files.set(Vec::new());
+                        set_selected_owlyshield_rule_path.set(None);
+                        set_owlyshield_rules_content.set(String::new());
+                        set_owlyshield_rules_status.set("Failed to enumerate the OwlyShield rules directory.".to_string());
+                    }
+                }
+            });
+        }
     };
 
     let save_owlyshield_rules = move || {
         let content = owlyshield_rules_content.get();
+        let selected_path = selected_owlyshield_rule_path.get();
         spawn_local(async move {
             let args = js_sys::Object::new();
             js_sys::Reflect::set(&args, &"content".into(), &content.into()).unwrap();
-            let _ = invoke("save_owlyshield_rules_raw", args.into()).await;
+            if let Some(ref path) = selected_path {
+                js_sys::Reflect::set(&args, &"path".into(), &path.clone().into()).unwrap();
+            }
+            match invoke("save_owlyshield_rules_raw", args.into()).await.as_string() {
+                Some(error_message) if !error_message.is_empty() => {
+                    set_owlyshield_rules_status.set(format!("Save returned: {}", error_message));
+                }
+                _ => {
+                    set_owlyshield_rules_status.set("OwlyShield rule file saved.".to_string());
+                }
+            }
         });
     };
 
@@ -1248,7 +1319,7 @@ pub fn App() -> impl IntoView {
     create_effect(move |_| {
         match current_view.get() {
             AppView::Processes => { fetch_process_inventory(); }
-            AppView::Rules => { fetch_sdk_rules(); fetch_rules_raw(); fetch_body_changers(); fetch_owlyshield_rules(); }
+            AppView::Rules => { fetch_sdk_rules(); fetch_rules_raw(); fetch_body_changers(); fetch_owlyshield_rule_files(); }
             AppView::Logs => { fetch_saved_logs(); }
             AppView::Exclusions => { fetch_app_decisions(); }
             AppView::Settings => { fetch_settings(); }
@@ -2178,7 +2249,7 @@ pub fn App() -> impl IntoView {
                                         <button
                                             class={move || if show_owlyshield_editor.get() { "nav-item active" } else { "nav-item" }}
                                             style="padding: 8px 18px; border-radius: 4px 4px 0 0"
-                                            on:click=move |_| { set_show_owlyshield_editor.set(true); set_show_editor.set(false); set_show_bc_form.set(false); fetch_owlyshield_rules(); }>
+                                            on:click=move |_| { set_show_owlyshield_editor.set(true); set_show_editor.set(false); set_show_bc_form.set(false); fetch_owlyshield_rule_files(); }>
                                             "OwlyShield Rules"
                                         </button>
                                         // save/validate buttons for YAML tabs
@@ -2207,11 +2278,54 @@ pub fn App() -> impl IntoView {
                                                 on:input=move |ev| set_rules_raw_content.set(event_target_value(&ev)) />
                                         }.into_view()
                                     } else if show_owlyshield_editor.get() {
+                                        let load_owlyshield_rules_for_path = load_owlyshield_rules_for_path.clone();
                                         view! {
                                             <div style="display: flex; flex-direction: column; height: 100%; gap: 8px">
-                                                <div class="glass-card" style="padding: 10px 16px; font-size: 12px; color: var(--text-muted)">
-                                                    "Editing OwlyShield behavioral rules — path resolved from "
-                                                    <code style="color: var(--accent-blue)">"SOFTWARE\\Owlyshield → RULES_PATH"</code>
+                                                <div class="glass-card" style="padding: 12px 16px; font-size: 12px; color: var(--text-muted); display: flex; flex-direction: column; gap: 10px">
+                                                    <div>
+                                                        "Editing OwlyShield behavioral rules — directory resolved from "
+                                                        <code style="color: var(--accent-blue)">"SOFTWARE\\Owlyshield → RULES_PATH"</code>
+                                                    </div>
+                                                    <div style="display: flex; gap: 12px; align-items: end; flex-wrap: wrap">
+                                                        <div class="input-group" style="margin: 0; min-width: 280px; flex: 1">
+                                                            <label style="margin-bottom: 6px">"Rules file"</label>
+                                                            <select
+                                                                prop:value=move || selected_owlyshield_rule_path.get().unwrap_or_default()
+                                                                prop:disabled=move || owlyshield_rule_files.get().is_empty()
+                                                                on:change=move |ev| {
+                                                                    let selected = event_target_value(&ev);
+                                                                    set_selected_owlyshield_rule_path.set(Some(selected.clone()));
+                                                                    load_owlyshield_rules_for_path(Some(selected));
+                                                                }
+                                                            >
+                                                                <For
+                                                                    each={move || owlyshield_rule_files.get()}
+                                                                    key={|file| file.path.clone()}
+                                                                    children={move |file| view! {
+                                                                        <option value={file.path.clone()}>{file.name.clone()}</option>
+                                                                    }}
+                                                                />
+                                                            </select>
+                                                        </div>
+                                                        <button class="btn-secondary" on:click=move |_| fetch_owlyshield_rule_files()>"Refresh Files"</button>
+                                                    </div>
+                                                    <div>
+                                                        <strong>"Directory: "</strong>
+                                                        <code style="color: var(--accent-blue)">{move || owlyshield_rules_directory.get()}</code>
+                                                    </div>
+                                                    <div>
+                                                        <strong>"Selected file: "</strong>
+                                                        <code style="color: var(--accent-blue)">
+                                                            {move || selected_owlyshield_rule_path.get().unwrap_or_else(|| "No file selected".to_string())}
+                                                        </code>
+                                                    </div>
+                                                    {move || if !owlyshield_rules_status.get().is_empty() {
+                                                        view! {
+                                                            <div style="color: var(--accent-orange)">{owlyshield_rules_status.get()}</div>
+                                                        }.into_view()
+                                                    } else {
+                                                        view! {}.into_view()
+                                                    }}
                                                 </div>
                                                 <textarea class="glass-card" style="flex: 1; width: 100%; box-sizing: border-box; padding: 20px; font-family: monospace; resize: none"
                                                     prop:value=move || owlyshield_rules_content.get()
