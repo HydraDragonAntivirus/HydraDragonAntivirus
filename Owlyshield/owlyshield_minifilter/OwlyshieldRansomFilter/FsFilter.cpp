@@ -1385,7 +1385,6 @@ Arguments:
         return FLT_PREOP_SUCCESS_WITH_CALLBACK;
     }
     
-    // FIX: Corrected typo 'FSProcessPreOperartion' -> 'FSProcessPreOperation'
     hr = FSProcessPreOperation(Data, FltObjects, CompletionContext);
     if (hr == FLT_PREOP_SUCCESS_WITH_CALLBACK || hr == FLT_PREOP_COMPLETE)
         return (FLT_PREOP_CALLBACK_STATUS)hr;
@@ -1393,7 +1392,6 @@ Arguments:
     return FLT_PREOP_SUCCESS_NO_CALLBACK;
 }
 
-// FIX: Corrected typo 'FSProcessPreOperartion' -> 'FSProcessPreOperation'
 NTSTATUS
 FSProcessPreOperation(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECTS FltObjects,
                        _Flt_CompletionContext_Outptr_ PVOID *CompletionContext)
