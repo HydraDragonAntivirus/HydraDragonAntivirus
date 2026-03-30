@@ -28,7 +28,7 @@ use crate::utils::format_process_descriptor_with_fallback;
 
 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
 const FSFILTER_EXCLUDE_RULE_FILE: &str =
-    r"C:\Program Files\HydraDragonAntivirus\hydradragon\PYAS_Protection\PYAS_Protection_Rules\Process\Owlyshield\FSFilter\default_rules.txt";
+    r"C:\Program Files\HydraDragonAntivirus\hydradragon\PYAS_Protection\PYAS_Protection_Rules\Process\Owlyshield\FsFilter\default_rules.txt";
 
 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
 fn normalize_kernel_rule_entry(line: &str) -> Option<String> {

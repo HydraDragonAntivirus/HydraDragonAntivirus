@@ -74,7 +74,7 @@
     <ClCompile Include="ShanonEntropy.cpp" />
     <ClCompile Include="UserModeHookEngine.cpp" />
     <ResourceCompile Include="FsFilter.rc" />
-    <ClCompile Include="FSFilter.cpp" />
+    <ClCompile Include="FsFilter.cpp" />
     <ClCompile Include="Communication.cpp" />
     <ClCompile Include="DriverData.cpp" />
     <ClCompile Include="Regedit.cpp" />

@@ -561,7 +561,7 @@ Return Value:
         g_fnZwQuerySystemInformation = (PZW_QUERY_SYSTEM_INFORMATION)MmGetSystemRoutineAddress(&routineName);
         if (g_fnZwQuerySystemInformation == NULL)
         {
-            DbgPrint("!!! FSFilter: Cannot resolve ZwQuerySystemInformation. Driver will not load.\n");
+            DbgPrint("!!! FsFilter: Cannot resolve ZwQuerySystemInformation. Driver will not load.\n");
             return STATUS_UNSUCCESSFUL;
         }
     }
@@ -605,7 +605,7 @@ Return Value:
                                              &g_WorkItemDeviceObject);
         if (!NT_SUCCESS(cdoStatus))
         {
-            DbgPrint("!!! FSFilter: IoCreateDevice for work-item CDO failed 0x%X (non-fatal)\n", cdoStatus);
+            DbgPrint("!!! FsFilter: IoCreateDevice for work-item CDO failed 0x%X (non-fatal)\n", cdoStatus);
             g_WorkItemDeviceObject = NULL; // ImageLoadCallback will skip hook deferral
         }
         else
@@ -659,7 +659,7 @@ Return Value:
     status = InitHookNotifyDevice(DriverObject);
     if (!NT_SUCCESS(status))
     {
-        DbgPrint("!!! FSFilter: InitHookNotifyDevice failed 0x%X\n", status);
+        DbgPrint("!!! FsFilter: InitHookNotifyDevice failed 0x%X\n", status);
         // Non-fatal: minifilter still works; only shellcode IOCTL events are lost.
         status = STATUS_SUCCESS;
     }
@@ -670,7 +670,7 @@ Return Value:
     //
     if (ZwQueryInformationProcess == NULL)
     {
-        DbgPrint("!!! FSFilter: CRITICAL - ZwQueryInformationProcess is NULL before callback registration!\n");
+        DbgPrint("!!! FsFilter: CRITICAL - ZwQueryInformationProcess is NULL before callback registration!\n");
         CommClose();
         FltUnregisterFilter(driverData->getFilter());
         delete driverData;
@@ -681,11 +681,11 @@ Return Value:
     status = PsSetCreateProcessNotifyRoutineEx(AddRemProcessRoutineEx, FALSE);
     if (!NT_SUCCESS(status))
     {
-        DbgPrint("!!! FSFilter: PsSetCreateProcessNotifyRoutineEx failed: %#010x, falling back to legacy callback.\n", status);
+        DbgPrint("!!! FsFilter: PsSetCreateProcessNotifyRoutineEx failed: %#010x, falling back to legacy callback.\n", status);
         status = PsSetCreateProcessNotifyRoutine(AddRemProcessRoutineLegacy, FALSE);
         if (!NT_SUCCESS(status))
         {
-            DbgPrint("!!! FSFilter: Failed to register any process notify routine: %#010x\n", status);
+            DbgPrint("!!! FsFilter: Failed to register any process notify routine: %#010x\n", status);
             CommClose();
             FltUnregisterFilter(driverData->getFilter());
             delete driverData;
@@ -709,7 +709,7 @@ Return Value:
     // Initialize Process Protection (ObRegisterCallbacks for termination detection)
     status = InitProcessProtection();
     if (!NT_SUCCESS(status)) {
-        DbgPrint("!!! FSFilter: InitProcessProtection failed: 0x%X (non-fatal, continuing)\n", status);
+        DbgPrint("!!! FsFilter: InitProcessProtection failed: 0x%X (non-fatal, continuing)\n", status);
         // Don't fail driver load - this is an enhancement, not critical
     }
 
@@ -728,13 +728,13 @@ Return Value:
     // - Image load callbacks
     // ====================================================================
 
-    DbgPrint("!!! FSFilter: Initializing advanced monitoring systems...\n");
+    DbgPrint("!!! FsFilter: Initializing advanced monitoring systems...\n");
 
     // 1. Initialize user-mode hook engine for dynamic API hook events.
     status = UserModeHookEngineInitialize();
     if (!NT_SUCCESS(status))
     {
-        DbgPrint("!!! FSFilter: Failed to initialize user-mode hook engine: 0x%X (non-fatal)\n", status);
+        DbgPrint("!!! FsFilter: Failed to initialize user-mode hook engine: 0x%X (non-fatal)\n", status);
     }
 
     // 2. Initialize VMM-based monitoring core.
@@ -743,19 +743,19 @@ Return Value:
     {
         if (status == STATUS_NOT_SUPPORTED)
         {
-            DbgPrint("!!! FSFilter: VMM initialization skipped (HyperDbg VMM sources unavailable or unsupported build target)\n");
+            DbgPrint("!!! FsFilter: VMM initialization skipped (HyperDbg VMM sources unavailable or unsupported build target)\n");
         }
         else
         {
-            DbgPrint("!!! FSFilter: VMM initialization failed: 0x%X (non-fatal)\n", status);
+            DbgPrint("!!! FsFilter: VMM initialization failed: 0x%X (non-fatal)\n", status);
         }
     }
     else
     {
-        DbgPrint("!!! FSFilter: VMM monitoring core initialized\n");
+        DbgPrint("!!! FsFilter: VMM monitoring core initialized\n");
     }
 
-    DbgPrint("!!! FSFilter: Enumerating existing processes for initial process baseline\n");
+    DbgPrint("!!! FsFilter: Enumerating existing processes for initial process baseline\n");
     EnumerateExistingProcesses();
 
     // 3. Register thread creation callback
@@ -763,12 +763,12 @@ Return Value:
     status = PsSetCreateThreadNotifyRoutine(ThreadCreationCallback);
     if (!NT_SUCCESS(status))
     {
-        DbgPrint("!!! FSFilter: Failed to register thread creation callback: 0x%X\n", status);
+        DbgPrint("!!! FsFilter: Failed to register thread creation callback: 0x%X\n", status);
     }
     else
     {
         g_ThreadNotifyRegistered = TRUE;
-        DbgPrint("!!! FSFilter: Thread creation monitoring enabled\n");
+        DbgPrint("!!! FsFilter: Thread creation monitoring enabled\n");
     }
 
     // 4. Register image load callback
@@ -776,24 +776,24 @@ Return Value:
     status = PsSetLoadImageNotifyRoutine(ImageLoadCallback);
     if (!NT_SUCCESS(status))
     {
-        DbgPrint("!!! FSFilter: Failed to register image load callback: 0x%X\n", status);
+        DbgPrint("!!! FsFilter: Failed to register image load callback: 0x%X\n", status);
     }
     else
     {
         g_ImageNotifyRegistered = TRUE;
-        DbgPrint("!!! FSFilter: Image load monitoring enabled (DLL/driver detection)\n");
+        DbgPrint("!!! FsFilter: Image load monitoring enabled (DLL/driver detection)\n");
     }
 
-    DbgPrint("!!! FSFilter: ========================================\n");
-    DbgPrint("!!! FSFilter: MONITORING COVERAGE:\n");
-    DbgPrint("!!! FSFilter: - Process creation/termination (PsSetCreateProcessNotifyRoutine)\n");
-    DbgPrint("!!! FSFilter: - Process/thread handle operations (ObRegisterCallbacks)\n");
-    DbgPrint("!!! FSFilter: - Thread creation (PsSetCreateThreadNotifyRoutine)\n");
-    DbgPrint("!!! FSFilter: - DLL/driver loading (PsSetLoadImageNotifyRoutine)\n");
-    DbgPrint("!!! FSFilter: - File operations (Minifilter callbacks)\n");
-    DbgPrint("!!! FSFilter: - Registry operations (CmRegisterCallback)\n");
-    DbgPrint("!!! FSFilter: - Memory operations (VMM/hypervisor + dynamic API hooks)\n");
-    DbgPrint("!!! FSFilter: ========================================\n");
+    DbgPrint("!!! FsFilter: ========================================\n");
+    DbgPrint("!!! FsFilter: MONITORING COVERAGE:\n");
+    DbgPrint("!!! FsFilter: - Process creation/termination (PsSetCreateProcessNotifyRoutine)\n");
+    DbgPrint("!!! FsFilter: - Process/thread handle operations (ObRegisterCallbacks)\n");
+    DbgPrint("!!! FsFilter: - Thread creation (PsSetCreateThreadNotifyRoutine)\n");
+    DbgPrint("!!! FsFilter: - DLL/driver loading (PsSetLoadImageNotifyRoutine)\n");
+    DbgPrint("!!! FsFilter: - File operations (Minifilter callbacks)\n");
+    DbgPrint("!!! FsFilter: - Registry operations (CmRegisterCallback)\n");
+    DbgPrint("!!! FsFilter: - Memory operations (VMM/hypervisor + dynamic API hooks)\n");
+    DbgPrint("!!! FsFilter: ========================================\n");
 
     // ====================================================================
     // End of monitoring initialization
@@ -804,7 +804,7 @@ Return Value:
     if (g_WorkItemDeviceObject != NULL) {
         RootkitDetectorSetDeviceObject(g_WorkItemDeviceObject);
     }
-    DbgPrint("!!! FSFilter: Rootkit detection engine initialized\n");
+    DbgPrint("!!! FsFilter: Rootkit detection engine initialized\n");
 
     return STATUS_SUCCESS;
 }
@@ -834,7 +834,7 @@ VOID ThreadCreationCallback(
     
     // If the thread is being created in a different process, this is remote thread injection
     if (currentPid != ProcessId) {
-        DbgPrint("!!! FSFilter: Remote thread creation detected!\n");
+        DbgPrint("!!! FsFilter: Remote thread creation detected!\n");
         DbgPrint("!!!   Source PID: %lu -> Target PID: %lu, Thread ID: %lu\n",
                  (ULONG)(ULONG_PTR)currentPid,
                  (ULONG)(ULONG_PTR)ProcessId,
@@ -901,7 +901,7 @@ VOID ImageLoadCallback(_In_opt_ PUNICODE_STRING FullImageName, _In_ HANDLE Proce
     // 1. Detect Kernel Driver Loading (System Mode)
     if (ImageInfo->SystemModeImage)
     {
-        DbgPrint("!!! FSFilter: Kernel driver loaded: %wZ\n", FullImageName);
+        DbgPrint("!!! FsFilter: Kernel driver loaded: %wZ\n", FullImageName);
         // ... (logging omitted as per existing code)
         return;
     }
@@ -971,7 +971,7 @@ VOID EnumerateExistingProcesses(VOID)
     //
     if (g_fnZwQuerySystemInformation == NULL)
     {
-        DbgPrint("!!! FSFilter: EnumerateExistingProcesses: ZwQuerySystemInformation not resolved\n");
+        DbgPrint("!!! FsFilter: EnumerateExistingProcesses: ZwQuerySystemInformation not resolved\n");
         return;
     }
 
@@ -986,7 +986,7 @@ VOID EnumerateExistingProcesses(VOID)
         buffer = ExAllocatePool2(POOL_FLAG_NON_PAGED, bufferSize, 'EPrW');
         if (buffer == NULL)
         {
-            DbgPrint("!!! FSFilter: EnumerateExistingProcesses: allocation failed\n");
+            DbgPrint("!!! FsFilter: EnumerateExistingProcesses: allocation failed\n");
             return;
         }
 
@@ -1003,7 +1003,7 @@ VOID EnumerateExistingProcesses(VOID)
 
     if (!NT_SUCCESS(status) || buffer == NULL)
     {
-        DbgPrint("!!! FSFilter: EnumerateExistingProcesses: ZwQuerySystemInformation failed 0x%X\n", status);
+        DbgPrint("!!! FsFilter: EnumerateExistingProcesses: ZwQuerySystemInformation failed 0x%X\n", status);
         if (buffer != NULL)
             ExFreePoolWithTag(buffer, 'EPrW');
         return;
@@ -1105,7 +1105,7 @@ Return Value:
 
     PAGED_CODE();
 
-    DbgPrint("FSFilter: Unloading driver\n");
+    DbgPrint("FsFilter: Unloading driver\n");
 
     // Stop new activity first, then detach callbacks to avoid concurrent work
     // while teardown is in progress.
@@ -1115,13 +1115,13 @@ Return Value:
 
     if (g_ImageNotifyRegistered) {
         NTSTATUS rmImageStatus = PsRemoveLoadImageNotifyRoutine(ImageLoadCallback);
-        DbgPrint("!!! FSFilter: PsRemoveLoadImageNotifyRoutine => 0x%X\n", rmImageStatus);
+        DbgPrint("!!! FsFilter: PsRemoveLoadImageNotifyRoutine => 0x%X\n", rmImageStatus);
         g_ImageNotifyRegistered = FALSE;
     }
 
     if (g_ThreadNotifyRegistered) {
         NTSTATUS rmThreadStatus = PsRemoveCreateThreadNotifyRoutine(ThreadCreationCallback);
-        DbgPrint("!!! FSFilter: PsRemoveCreateThreadNotifyRoutine => 0x%X\n", rmThreadStatus);
+        DbgPrint("!!! FsFilter: PsRemoveCreateThreadNotifyRoutine => 0x%X\n", rmThreadStatus);
         g_ThreadNotifyRegistered = FALSE;
     }
 
@@ -1132,7 +1132,7 @@ Return Value:
         } else {
             rmProcStatus = PsSetCreateProcessNotifyRoutineEx(AddRemProcessRoutineEx, TRUE);
         }
-        DbgPrint("!!! FSFilter: Process notify unregister => 0x%X\n", rmProcStatus);
+        DbgPrint("!!! FsFilter: Process notify unregister => 0x%X\n", rmProcStatus);
         g_ProcessNotifyRegistered = FALSE;
     }
 
@@ -1371,7 +1371,7 @@ Arguments:
     if (FltGetRequestorProcessId(Data) == driverData->getPID())
     {
         if (IS_DEBUG_IRP)
-            DbgPrint("!!! FSFilter: Allowing pre op for trusted process, no post op\n");
+            DbgPrint("!!! FsFilter: Allowing pre op for trusted process, no post op\n");
 
         return FLT_PREOP_SUCCESS_NO_CALLBACK;
     }
@@ -1402,7 +1402,7 @@ FSProcessPreOperation(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECT
     if (driverData->isFilterClosed() || IsCommClosed())
     {
         // Debug logging is commented out or controlled by IS_DEBUG_IRP
-        // DbgPrint("!!! FSFilter: Filter is closed or Port is closed, skipping data\n"); // Keeping user's DbgPrint
+        // DbgPrint("!!! FsFilter: Filter is closed or Port is closed, skipping data\n"); // Keeping user's DbgPrint
         // here
         return FLT_PREOP_SUCCESS_NO_CALLBACK;
     }
@@ -1453,14 +1453,14 @@ FSProcessPreOperation(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECT
     if (driverData->IsPathInQuarantineDir(FilePath)) {
         // If the requesting process is NOT the trusted Owlyshield process
         if (FltGetRequestorProcessId(Data) != driverData->getPID()) {
-            DbgPrint("!!! FSFilter: Blocking access to quarantine folder for untrusted process (PID: %u)\n", FltGetRequestorProcessId(Data));
+            DbgPrint("!!! FsFilter: Blocking access to quarantine folder for untrusted process (PID: %u)\n", FltGetRequestorProcessId(Data));
             FltReleaseFileNameInformation(nameInfo);
             delete newEntry;
             Data->IoStatus.Status = STATUS_ACCESS_DENIED;
             Data->IoStatus.Information = 0;
             return FLT_PREOP_COMPLETE; // Block the operation
         } else {
-            DbgPrint("!!! FSFilter: Allowing access to quarantine folder for trusted Owlyshield process (PID: %u)\n", FltGetRequestorProcessId(Data));
+            DbgPrint("!!! FsFilter: Allowing access to quarantine folder for trusted Owlyshield process (PID: %u)\n", FltGetRequestorProcessId(Data));
             // Allow Owlyshield to perform operations on files in quarantine
             // We still need to release nameInfo and delete newEntry if we're not going to process it further
             FltReleaseFileNameInformation(nameInfo);
@@ -1477,7 +1477,7 @@ FSProcessPreOperation(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECT
 
     // --- KERNEL-MODE PATH BLOCKING ---
     if (driverData->IsPathBlocked(FilePath)) {
-        DbgPrint("!!! FSFilter: BLOCKING access to path: %wZ (Kernel-Mode Block)\n", FilePath);
+        DbgPrint("!!! FsFilter: BLOCKING access to path: %wZ (Kernel-Mode Block)\n", FilePath);
         FltReleaseFileNameInformation(nameInfo);
         delete newEntry;
         Data->IoStatus.Status = STATUS_ACCESS_DENIED;
@@ -1507,7 +1507,7 @@ FSProcessPreOperation(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECT
                 // Record the process in our system
                 gid = driverData->RecordNewProcess(procPath, newItem->PID, 0); // Use 0 for ParentPid as we don't know it
                 isGidFound = TRUE;
-                DbgPrint("!!! FSFilter: DISCOVERED untracked process. PID: %u, Path: %wZ, GID: %llu\n", newItem->PID, procPath, gid);
+                DbgPrint("!!! FsFilter: DISCOVERED untracked process. PID: %u, Path: %wZ, GID: %llu\n", newItem->PID, procPath, gid);
 
                 // Inform usermode about this new process discovery
                 PIRP_ENTRY discoveryEntry = new IRP_ENTRY();
@@ -1534,7 +1534,7 @@ FSProcessPreOperation(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECT
 
         if (!isGidFound) {
             if (IS_DEBUG_IRP)
-                DbgPrint("!!! FSFilter: Item does not have a gid, skipping after discovery attempt\n");
+                DbgPrint("!!! FsFilter: Item does not have a gid, skipping after discovery attempt\n");
             FltReleaseFileNameInformation(nameInfo);
             delete newEntry;
             return FLT_PREOP_SUCCESS_NO_CALLBACK;
@@ -1542,7 +1542,7 @@ FSProcessPreOperation(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECT
     }
 
     if (IS_DEBUG_IRP)
-        DbgPrint("!!! FSFilter: Registring new irp for Gid: %d with pid: %d\n", (ULONG)gid, newItem->PID);
+        DbgPrint("!!! FsFilter: Registring new irp for Gid: %d with pid: %d\n", (ULONG)gid, newItem->PID);
     newItem->Gid = gid;
 
     // get file id
@@ -1558,7 +1558,7 @@ FSProcessPreOperation(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECT
     {
         // Keeping user's DbgPrint here
         if (IS_DEBUG_IRP)
-            DbgPrint("!!! FSFilter: File in scan area \n");
+            DbgPrint("!!! FsFilter: File in scan area \n");
         newItem->FileLocationInfo = FILE_PROTECTED;
     }
 
@@ -1569,7 +1569,7 @@ FSProcessPreOperation(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECT
 
     // Keeping user's DbgPrint here
     if (IS_DEBUG_IRP)
-        DbgPrint("!!! FSFilter: Logging IRP op: %s \n", FltGetIrpName(Data->Iopb->MajorFunction));
+        DbgPrint("!!! FsFilter: Logging IRP op: %s \n", FltGetIrpName(Data->Iopb->MajorFunction));
 
     // Release nameInfo only if not IRP_MJ_SET_INFORMATION (which might need it later)
     if (Data->Iopb->MajorFunction != IRP_MJ_SET_INFORMATION)
@@ -1589,7 +1589,7 @@ FSProcessPreOperation(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECT
         }
         // Keeping user's DbgPrint here
         if (IS_DEBUG_IRP)
-            DbgPrint("!!! FSFilter: Preop IRP_MJ_READ, return with postop \n");
+            DbgPrint("!!! FsFilter: Preop IRP_MJ_READ, return with postop \n");
         // save context for post, we calculate the entropy of read, we pass the irp to application on post op
         *CompletionContext = newEntry;
         // Keeping user's DbgPrint here
@@ -1653,7 +1653,7 @@ FSProcessPreOperation(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECT
             {
                 // Keeping user's DbgPrint here
                 if (IS_DEBUG_IRP)
-                    DbgPrint("!!! FSFilter: Failed to calc entropy (Exception caught, IRP failing)\n");
+                    DbgPrint("!!! FsFilter: Failed to calc entropy (Exception caught, IRP failing)\n");
 
                 // CRITICAL: Ensure FPU state is restored even on exception path before returning
                 if (fpuStateSaved)
@@ -1679,7 +1679,7 @@ FSProcessPreOperation(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECT
         {
             // If FPU state couldn't be saved, skip calculation and continue without entropy.
             if (IS_DEBUG_IRP)
-                DbgPrint("!!! FSFilter: Failed to save FPU state (Status: 0x%X), skipping entropy calculation\n",
+                DbgPrint("!!! FsFilter: Failed to save FPU state (Status: 0x%X), skipping entropy calculation\n",
                          fpStatus);
             newItem->isEntropyCalc = FALSE;
             newItem->Entropy = 0;
@@ -1864,7 +1864,7 @@ FSProcessPreOperation(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECT
 
     // Keeping user's DbgPrint here
     if (IS_DEBUG_IRP)
-        DbgPrint("!!! FSFilter: Adding entry to irps %s\n", FltGetIrpName(Data->Iopb->MajorFunction));
+        DbgPrint("!!! FsFilter: Adding entry to irps %s\n", FltGetIrpName(Data->Iopb->MajorFunction));
 
     if (!driverData->AddIrpMessage(newEntry))
     {
@@ -1901,12 +1901,12 @@ Return Value:
 
 --*/
 {
-    // DbgPrint("!!! FSFilter: Enter post op for irp: %s, pid of process: %u\n",
+    // DbgPrint("!!! FsFilter: Enter post op for irp: %s, pid of process: %u\n",
     // FltGetIrpName(Data->Iopb->MajorFunction), FltGetRequestorProcessId(Data));
 
     if (!NT_SUCCESS(Data->IoStatus.Status) || (STATUS_REPARSE == Data->IoStatus.Status))
     {
-        // DbgPrint("!!! FSFilter: finished post operation, already failed \n");
+        // DbgPrint("!!! FsFilter: finished post operation, already failed \n");
         if (CompletionContext != nullptr && Data->Iopb->MajorFunction == IRP_MJ_READ)
         {
             delete (PIRP_ENTRY)CompletionContext;
@@ -1966,7 +1966,7 @@ FSProcessCreateIrp(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECTS F
 
     if (driverData->isFilterClosed() || IsCommClosed())
     {
-        // DbgPrint("!!! FSFilter: filter closed or comm closed, skip irp\n");
+        // DbgPrint("!!! FsFilter: filter closed or comm closed, skip irp\n");
         return FLT_POSTOP_FINISHED_PROCESSING;
     }
 
@@ -2010,13 +2010,13 @@ FSProcessCreateIrp(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECTS F
             if (NT_SUCCESS(hr) && procPath != NULL) {
                 gid = driverData->RecordNewProcess(procPath, newItem->PID, 0);
                 isGidFound = TRUE;
-                DbgPrint("!!! FSFilter: DISCOVERED untracked process in PostCreate. PID: %u, Path: %wZ, GID: %llu\n", newItem->PID, procPath, gid);
+                DbgPrint("!!! FsFilter: DISCOVERED untracked process in PostCreate. PID: %u, Path: %wZ, GID: %llu\n", newItem->PID, procPath, gid);
             }
             ObDereferenceObject(process);
         }
 
         if (!isGidFound) {
-            // DbgPrint("!!! FSFilter: Item does not have a gid, skipping\n");
+            // DbgPrint("!!! FsFilter: Item does not have a gid, skipping\n");
             FltReleaseFileNameInformation(nameInfo);
             delete newEntry;
             return FLT_POSTOP_FINISHED_PROCESSING;
@@ -2024,7 +2024,7 @@ FSProcessCreateIrp(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECTS F
     }
     newItem->Gid = gid;
     if (IS_DEBUG_IRP)
-        DbgPrint("!!! FSFilter: Registring new irp for Gid: %llu with pid: %d\n", gid,
+        DbgPrint("!!! FsFilter: Registring new irp for Gid: %llu with pid: %d\n", gid,
                  newItem->PID); // TODO: incase it doesnt exist we can add it with our method that checks for system process
 
     // get file id
@@ -2118,7 +2118,7 @@ FSProcessCreateIrp(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECTS F
 
     /*
     if (!FSIsFileNameInScanDirs(FilePath)) {
-        if (IS_DEBUG_IRP) DbgPrint("!!! FSFilter: Skipping uninterented file, not in scan area \n");
+        if (IS_DEBUG_IRP) DbgPrint("!!! FsFilter: Skipping uninterented file, not in scan area \n");
         delete newEntry;
         return FLT_POSTOP_FINISHED_PROCESSING;
     }
@@ -2127,13 +2127,13 @@ FSProcessCreateIrp(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECTS F
     if (isDir && (Data->IoStatus.Information) == FILE_OPENED)
     {
         if (IS_DEBUG_IRP)
-            DbgPrint("!!! FSFilter: Dir listing opened on existing directory\n");
+            DbgPrint("!!! FsFilter: Dir listing opened on existing directory\n");
         newItem->FileChange = FILE_OPEN_DIRECTORY;
     }
     else if (isDir)
     {
         if (IS_DEBUG_IRP)
-            DbgPrint("!!! FSFilter: Dir but not listing, not importent \n");
+            DbgPrint("!!! FsFilter: Dir but not listing, not importent \n");
         delete newEntry;
         return FLT_POSTOP_FINISHED_PROCESSING;
     }
@@ -2154,7 +2154,7 @@ FSProcessCreateIrp(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECTS F
         newItem->FileChange = FILE_CHANGE_NEW_FILE;
     }
     if (IS_DEBUG_IRP)
-        DbgPrint("!!! FSFilter: Adding entry to irps\n");
+        DbgPrint("!!! FsFilter: Adding entry to irps\n");
     if (!driverData->AddIrpMessage(newEntry))
     {
         delete newEntry;
@@ -2176,7 +2176,7 @@ FSProcessPostReadIrp(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECTS
     if (driverData->isFilterClosed() || IsCommClosed())
     {
         if (IS_DEBUG_IRP)
-            DbgPrint("!!! FSFilter: Post op read, comm or filter closed\n");
+            DbgPrint("!!! FsFilter: Post op read, comm or filter closed\n");
         delete entry;
         return FLT_POSTOP_FINISHED_PROCESSING;
     }
@@ -2243,13 +2243,13 @@ FSProcessPostReadIrp(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECTS
     else
     {
         if (IS_DEBUG_IRP)
-            DbgPrint("!!! FSFilter: Failed to save FPU state on Read (Status: 0x%X), skipping entropy calculation\n",
+            DbgPrint("!!! FsFilter: Failed to save FPU state on Read (Status: 0x%X), skipping entropy calculation\n",
                      fpStatus);
         entry->data.isEntropyCalc = FALSE;
         entry->data.Entropy = 0;
     }
     if (IS_DEBUG_IRP)
-        DbgPrint("!!! FSFilter: Addung entry to irps IRP_MJ_READ\n");
+        DbgPrint("!!! FsFilter: Addung entry to irps IRP_MJ_READ\n");
     if (!driverData->AddIrpMessage(entry))
     {
         delete entry;
@@ -2307,7 +2307,7 @@ FSProcessPostReadSafe(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECT
             }
 
             if (IS_DEBUG_IRP)
-                DbgPrint("!!! FSFilter: Adding entry to irps IRP_MJ_READ (Safe)\n");
+                DbgPrint("!!! FsFilter: Adding entry to irps IRP_MJ_READ (Safe)\n");
 
             if (NT_SUCCESS(status) && driverData->AddIrpMessage(entry))
             {
@@ -2663,7 +2663,7 @@ NTSTATUS GetFileNameInfo(_In_ PCFLT_RELATED_OBJECTS FltObjects, PUNICODE_STRING 
 VOID CopyExtension(PWCHAR dest, PFLT_FILE_NAME_INFORMATION nameInfo)
 {
     if (IS_DEBUG_IRP)
-        DbgPrint("!!! FSFilter: copying the file type extension, extension length: %d, name: %wZ\n",
+        DbgPrint("!!! FsFilter: copying the file type extension, extension length: %d, name: %wZ\n",
                  nameInfo->Extension.Length, nameInfo->Extension);
     RtlZeroBytes(dest, (FILE_OBJEC_MAX_EXTENSION_SIZE + 1) * sizeof(WCHAR));
     for (LONG i = 0; i < FILE_OBJEC_MAX_EXTENSION_SIZE; i++)
@@ -2687,7 +2687,7 @@ NTSTATUS GetProcessNameByHandle(_In_ HANDLE ProcessHandle, _Out_ PUNICODE_STRING
     // FIX: Enhanced safety check with local copy
     if (localZwQueryInformationProcess == NULL)
     {
-        DbgPrint("!!! FSFilter: CRITICAL - ZwQueryInformationProcess is NULL!\n");
+        DbgPrint("!!! FsFilter: CRITICAL - ZwQueryInformationProcess is NULL!\n");
         return STATUS_UNSUCCESSFUL;
     }
 
@@ -2815,7 +2815,7 @@ NTSTATUS QuarantineFileByPath(PUNICODE_STRING FilePath)
 
     if (!NT_SUCCESS(status))
     {
-        DbgPrint("!!! FSFilter: Failed to open file for quarantine: 0x%X\n", status);
+        DbgPrint("!!! FsFilter: Failed to open file for quarantine: 0x%X\n", status);
         return status;
     }
 
@@ -2883,7 +2883,7 @@ NTSTATUS QuarantineFileByPath(PUNICODE_STRING FilePath)
 
     if (NT_SUCCESS(status))
     {
-        DbgPrint("!!! FSFilter: File quarantined to: %wZ\n", &destPath);
+        DbgPrint("!!! FsFilter: File quarantined to: %wZ\n", &destPath);
 
         // Now rename the quarantined file to make it unrunnable
         HANDLE quarantinedFileHandle;
@@ -2930,28 +2930,28 @@ NTSTATUS QuarantineFileByPath(PUNICODE_STRING FilePath)
                                                             FileRenameInformation);
                 if (NT_SUCCESS(renameStatus))
                 {
-                    DbgPrint("!!! FSFilter: Quarantined file renamed to: %wZ\n", &newQuarantinedFileName);
+                    DbgPrint("!!! FsFilter: Quarantined file renamed to: %wZ\n", &newQuarantinedFileName);
                 }
                 else
                 {
-                    DbgPrint("!!! FSFilter: Failed to rename quarantined file: 0x%X\n", renameStatus);
+                    DbgPrint("!!! FsFilter: Failed to rename quarantined file: 0x%X\n", renameStatus);
                 }
                 ExFreePoolWithTag(newRenameInfo, 'RW');
             }
             else
             {
-                DbgPrint("!!! FSFilter: Failed to allocate memory for quarantined file rename info.\n");
+                DbgPrint("!!! FsFilter: Failed to allocate memory for quarantined file rename info.\n");
             }
             ZwClose(quarantinedFileHandle);
         }
         else
         {
-            DbgPrint("!!! FSFilter: Failed to open quarantined file for renaming: 0x%X\n", openQuarantinedStatus);
+            DbgPrint("!!! FsFilter: Failed to open quarantined file for renaming: 0x%X\n", openQuarantinedStatus);
         }
     }
     else
     {
-        DbgPrint("!!! FSFilter: Failed to quarantine file: 0x%X\n", status);
+        DbgPrint("!!! FsFilter: Failed to quarantine file: 0x%X\n", status);
     }
 
     return status;
@@ -2967,7 +2967,7 @@ static VOID AddRemProcessRoutineCore(HANDLE ParentId, HANDLE ProcessId, BOOLEAN 
     // FIX: Additional safety check for ZwQueryInformationProcess before any usage
     if (ZwQueryInformationProcess == NULL)
     {
-        DbgPrint("!!! FSFilter: Cannot process notification - ZwQueryInformationProcess is NULL\n");
+        DbgPrint("!!! FsFilter: Cannot process notification - ZwQueryInformationProcess is NULL\n");
         return;
     }
 
@@ -3001,13 +3001,13 @@ static VOID AddRemProcessRoutineCore(HANDLE ParentId, HANDLE ProcessId, BOOLEAN 
 
         hr = ZwOpenProcess(&procHandleParent, openRights, &objAttribs, &clientIdParent);
         if (!NT_SUCCESS(hr)) {
-            DbgPrint("!!! FSFilter: Failed to open parent process (non-fatal): %#010x.\n", hr);
+            DbgPrint("!!! FsFilter: Failed to open parent process (non-fatal): %#010x.\n", hr);
             procHandleParent = NULL;  // continue without parent name
         }
 
         hr = ZwOpenProcess(&procHandleProcess, openRights, &objAttribs, &clientIdProcess);
         if (!NT_SUCCESS(hr)) {
-            DbgPrint("!!! FSFilter: Failed to open process (non-fatal): %#010x.\n", hr);
+            DbgPrint("!!! FsFilter: Failed to open process (non-fatal): %#010x.\n", hr);
             if (procHandleParent) ZwClose(procHandleParent);
 
             // Even if the process is already dead (STATUS_INVALID_CID,
@@ -3031,7 +3031,7 @@ static VOID AddRemProcessRoutineCore(HANDLE ParentId, HANDLE ProcessId, BOOLEAN 
                 // Parent name lookup failed (e.g. UAC-elevated process whose parent is AppInfo/AIS svchost).
                 // parentName is only used for debug logging — don't drop the child event just because
                 // we can't name the parent. GID inheritance uses ParentId (raw PID), not parentName.
-                DbgPrint("!!! FSFilter: Failed to get parent name (non-fatal, continuing): %#010x\n", hr);
+                DbgPrint("!!! FsFilter: Failed to get parent name (non-fatal, continuing): %#010x\n", hr);
                 parentName = NULL;
             }
             ZwClose(procHandleParent);
@@ -3040,14 +3040,14 @@ static VOID AddRemProcessRoutineCore(HANDLE ParentId, HANDLE ProcessId, BOOLEAN 
         hr = GetProcessNameByHandle(procHandleProcess, &procName);
         if (!NT_SUCCESS(hr))
         {
-            DbgPrint("!!! FSFilter: Failed to get process name: %#010x\n", hr);
+            DbgPrint("!!! FsFilter: Failed to get process name: %#010x\n", hr);
             if (parentName != NULL)
                 ExFreePoolWithTag(parentName, 'RW');
             ZwClose(procHandleProcess);
             return;
         }
 
-        DbgPrint("!!! FSFilter: New Process, parent: %wZ. Pid: %d\n", parentName, (ULONG)(ULONG_PTR)ParentId);
+        DbgPrint("!!! FsFilter: New Process, parent: %wZ. Pid: %d\n", parentName, (ULONG)(ULONG_PTR)ParentId);
 
         // In legacy callback path, command line is not provided by CreateInfo.
         // Best-effort fallback: query ProcessCommandLineInformation directly.
@@ -3059,7 +3059,7 @@ static VOID AddRemProcessRoutineCore(HANDLE ParentId, HANDLE ProcessId, BOOLEAN 
         ZwClose(procHandleProcess);
 
         record_process:
-        DbgPrint("!!! FSFilter: New Process, process: %wZ , pid: %d.\n", procName, (ULONG)(ULONG_PTR)ProcessId);
+        DbgPrint("!!! FsFilter: New Process, process: %wZ , pid: %d.\n", procName, (ULONG)(ULONG_PTR)ProcessId);
 
         // ALWAYS record the process and send message to usermode
         ULONGLONG gid = driverData->RecordNewProcess(procName, (ULONG)(ULONG_PTR)ProcessId, (ULONG)(ULONG_PTR)ParentId);
@@ -3128,7 +3128,7 @@ static VOID AddRemProcessRoutineCore(HANDLE ParentId, HANDLE ProcessId, BOOLEAN 
     }
     else
     {
-        DbgPrint("!!! FSFilter: Terminate Process, Process: %d pid\n", (ULONG)(ULONG_PTR)ProcessId);
+        DbgPrint("!!! FsFilter: Terminate Process, Process: %d pid\n", (ULONG)(ULONG_PTR)ProcessId);
 
         (VOID)UserModeUnhookProcess((ULONG)(ULONG_PTR)ProcessId);
         // Always notifies usermode, Gid=0 signals "untracked process died"
@@ -3170,7 +3170,7 @@ VOID AddRemProcessRoutineLegacy(HANDLE ParentId, HANDLE ProcessId, BOOLEAN Creat
 // Hook Device Dispatch Routines
 // ====================================================================
 
-NTSTATUS FSFilter_HookDeviceCreate_UNUSED(PDEVICE_OBJECT DeviceObject, PIRP Irp)
+NTSTATUS FsFilter_HookDeviceCreate_UNUSED(PDEVICE_OBJECT DeviceObject, PIRP Irp)
 {
     UNREFERENCED_PARAMETER(DeviceObject);
     Irp->IoStatus.Status = STATUS_SUCCESS;
@@ -3179,7 +3179,7 @@ NTSTATUS FSFilter_HookDeviceCreate_UNUSED(PDEVICE_OBJECT DeviceObject, PIRP Irp)
     return STATUS_SUCCESS;
 }
 
-NTSTATUS FSFilter_HookDeviceClose_UNUSED(PDEVICE_OBJECT DeviceObject, PIRP Irp)
+NTSTATUS FsFilter_HookDeviceClose_UNUSED(PDEVICE_OBJECT DeviceObject, PIRP Irp)
 {
     UNREFERENCED_PARAMETER(DeviceObject);
     Irp->IoStatus.Status = STATUS_SUCCESS;
@@ -3188,7 +3188,7 @@ NTSTATUS FSFilter_HookDeviceClose_UNUSED(PDEVICE_OBJECT DeviceObject, PIRP Irp)
     return STATUS_SUCCESS;
 }
 
-NTSTATUS FSFilter_HookDeviceControl_UNUSED(PDEVICE_OBJECT DeviceObject, PIRP Irp)
+NTSTATUS FsFilter_HookDeviceControl_UNUSED(PDEVICE_OBJECT DeviceObject, PIRP Irp)
 {
     UNREFERENCED_PARAMETER(DeviceObject);
     PIO_STACK_LOCATION irpSp = IoGetCurrentIrpStackLocation(Irp);
@@ -3299,7 +3299,7 @@ NTSTATUS FSFilter_HookDeviceControl_UNUSED(PDEVICE_OBJECT DeviceObject, PIRP Irp
                 FormatProcessDescriptorByPid(processId, sourceProcessDescriptor, RTL_NUMBER_OF(sourceProcessDescriptor));
                 FormatProcessDescriptorByPid(processId, targetProcessDescriptor, RTL_NUMBER_OF(targetProcessDescriptor));
 
-                DbgPrint("FSFilter: API HOOKING EVENT RawType=%lu Name=%ws src_pid_path=%ws target_pid_path=%ws Arg1=0x%p Arg2=0x%p Arg3=0x%p Arg4=0x%p\n",
+                DbgPrint("FsFilter: API HOOKING EVENT RawType=%lu Name=%ws src_pid_path=%ws target_pid_path=%ws Arg1=0x%p Arg2=0x%p Arg3=0x%p Arg4=0x%p\n",
                          eventType,
                          functionName ? functionName : L"",
                          sourceProcessDescriptor,

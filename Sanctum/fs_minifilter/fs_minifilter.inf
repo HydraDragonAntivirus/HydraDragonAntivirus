@@ -36,7 +36,7 @@ ServiceBinary  = %12%\fs_minifilter.sys
 ServiceType    = 2 ; SERVICE_FILE_SYSTEM_DRIVER
 StartType      = 3 ; DEMAND_START
 ErrorControl   = 1
-LoadOrderGroup = "FSFilter Activity Monitor"
+LoadOrderGroup = "FsFilter Activity Monitor"
 Dependencies   = FltMgr
 AddReg         = fs_minifilter.AddReg
 

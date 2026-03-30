@@ -67,7 +67,7 @@ NTSTATUS  RootkitDetectorInitialize(VOID);
 // Must be called before the first RootkitDetectorOnDriverEvent().
 VOID      RootkitDetectorSetDeviceObject(_In_ PDEVICE_OBJECT DeviceObject);
 
-// Called by FSFilter on every relevant driver event.
+// Called by FsFilter on every relevant driver event.
 // Debounced internally; safe to call on every IRP.
 VOID      RootkitDetectorOnDriverEvent(_In_ RK_TRIGGER Trigger,
                                        _In_ ULONG      EventIrp);

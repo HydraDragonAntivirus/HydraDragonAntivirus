@@ -769,7 +769,7 @@ NTSTATUS InitCommData()
     status = FltBuildDefaultSecurityDescriptor(&sd, FLT_PORT_ALL_ACCESS);
     if (!NT_SUCCESS(status))
     {
-        DbgPrint("!!! FSFilter: FltBuildDefaultSecurityDescriptor failed: 0x%X\n", status);
+        DbgPrint("!!! FsFilter: FltBuildDefaultSecurityDescriptor failed: 0x%X\n", status);
         return status;
     }
 
@@ -779,7 +779,7 @@ NTSTATUS InitCommData()
     status = RtlSetDaclSecurityDescriptor(sd, TRUE, NULL, FALSE);
     if (!NT_SUCCESS(status))
     {
-        DbgPrint("!!! FSFilter: RtlSetDaclSecurityDescriptor failed: 0x%X\n", status);
+        DbgPrint("!!! FsFilter: RtlSetDaclSecurityDescriptor failed: 0x%X\n", status);
         FltFreeSecurityDescriptor(sd);
         return status;
     }
@@ -808,7 +808,7 @@ NTSTATUS InitCommData()
 
     if (!NT_SUCCESS(status))
     {
-        DbgPrint("!!! FSFilter: FltCreateCommunicationPort failed: 0x%X\n", status);
+        DbgPrint("!!! FsFilter: FltCreateCommunicationPort failed: 0x%X\n", status);
     }
 
     return status;
@@ -873,7 +873,7 @@ RWFConnect(_In_ PFLT_PORT ClientPort, _In_opt_ PVOID ServerPortCookie,
         0, *PsProcessType, KernelMode, &procHandle);
     if (!NT_SUCCESS(status))
     {
-        DbgPrint("!!! FSFilter: RWFConnect - ObOpenObjectByPointer failed 0x%X, rejecting connection\n", status);
+        DbgPrint("!!! FsFilter: RWFConnect - ObOpenObjectByPointer failed 0x%X, rejecting connection\n", status);
         return STATUS_ACCESS_DENIED;
     }
 
@@ -883,7 +883,7 @@ RWFConnect(_In_ PFLT_PORT ClientPort, _In_opt_ PVOID ServerPortCookie,
     if (status != STATUS_INFO_LENGTH_MISMATCH || returnLength == 0)
     {
         ZwClose(procHandle);
-        DbgPrint("!!! FSFilter: RWFConnect - cannot query process image path, rejecting connection\n");
+        DbgPrint("!!! FsFilter: RWFConnect - cannot query process image path, rejecting connection\n");
         return STATUS_ACCESS_DENIED;
     }
 
@@ -892,7 +892,7 @@ RWFConnect(_In_ PFLT_PORT ClientPort, _In_opt_ PVOID ServerPortCookie,
     if (imagePath == NULL)
     {
         ZwClose(procHandle);
-        DbgPrint("!!! FSFilter: RWFConnect - allocation failed, rejecting connection\n");
+        DbgPrint("!!! FsFilter: RWFConnect - allocation failed, rejecting connection\n");
         return STATUS_ACCESS_DENIED;
     }
 
@@ -903,7 +903,7 @@ RWFConnect(_In_ PFLT_PORT ClientPort, _In_opt_ PVOID ServerPortCookie,
     if (!NT_SUCCESS(status) || imagePath->Buffer == NULL || imagePath->Length == 0)
     {
         ExFreePoolWithTag(imagePath, 'cRwO');
-        DbgPrint("!!! FSFilter: RWFConnect - ZwQueryInformationProcess failed 0x%X, rejecting connection\n", status);
+        DbgPrint("!!! FsFilter: RWFConnect - ZwQueryInformationProcess failed 0x%X, rejecting connection\n", status);
         return STATUS_ACCESS_DENIED;
     }
 
@@ -954,12 +954,12 @@ RWFConnect(_In_ PFLT_PORT ClientPort, _In_opt_ PVOID ServerPortCookie,
 
     if (!allowed)
     {
-        DbgPrint("!!! FSFilter: RWFConnect - REJECTED connection from: %wZ\n", imagePath);
+        DbgPrint("!!! FsFilter: RWFConnect - REJECTED connection from: %wZ\n", imagePath);
         ExFreePoolWithTag(imagePath, 'cRwO');
         return STATUS_ACCESS_DENIED;
     }
 
-    DbgPrint("!!! FSFilter: RWFConnect - ACCEPTED connection from: %wZ\n", imagePath);
+    DbgPrint("!!! FsFilter: RWFConnect - ACCEPTED connection from: %wZ\n", imagePath);
     ExFreePoolWithTag(imagePath, 'cRwO');
 
     //
@@ -1190,7 +1190,7 @@ RWFNewMessage(IN PVOID PortCookie, IN PVOID InputBuffer, IN ULONG InputBufferLen
     }
     else if (message->type == MESSAGE_ADD_BLOCK_PATH)
     {
-        DbgPrint("!!! FSFilter: Received add block path message\n");
+        DbgPrint("!!! FsFilter: Received add block path message\n");
         PDIRECTORY_ENTRY newEntry = new DIRECTORY_ENTRY();
         if (newEntry == NULL)
         {

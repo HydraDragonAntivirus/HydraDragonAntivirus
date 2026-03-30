@@ -33,7 +33,7 @@ const WCHAR *const ComPortName = L"\\RWFilter";
 // Shared ProcessProtection rule file path (kernel-side exclude list).
 #define OWLY_PROCESS_PROTECTION_RULE_FILE_KERNEL L"\\??\\C:\\Program Files\\HydraDragonAntivirus\\hydradragon\\HydraDragon_Protection_Rules\\Owlyshield\\ProcessProtection\\default_rules.txt"
 // Shared FsFilter rule file path (kernel-side ignore list).
-#define OWLY_FSFILTER_RULE_FILE_KERNEL L"\\??\\C:\\Program Files\\HydraDragonAntivirus\\hydradragon\\HydraDragon_Protection_Rules\\Owlyshield\\FSFilter\\default_rules.txt"
+#define OWLY_FSFILTER_RULE_FILE_KERNEL L"\\??\\C:\\Program Files\\HydraDragonAntivirus\\hydradragon\\HydraDragon_Protection_Rules\\Owlyshield\\FsFilter\\default_rules.txt"
 
 // Fix C4005: Macro redefinition warning
 #ifndef MAX_FILE_NAME_LENGTH

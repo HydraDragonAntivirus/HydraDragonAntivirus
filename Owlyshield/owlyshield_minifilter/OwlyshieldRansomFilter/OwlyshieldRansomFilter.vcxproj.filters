@@ -34,7 +34,7 @@
     <ClCompile Include="ShanonEntropy.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="FSFilter.cpp">
+    <ClCompile Include="FsFilter.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="Regedit.cpp">

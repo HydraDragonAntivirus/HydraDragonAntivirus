@@ -9,7 +9,7 @@ Abstract:
     Event-driven rootkit detection engine.
     No timer - detection triggered via RootkitDetectorOnDriverEvent().
 
-    Called by FSFilter.cpp on relevant IRP events:
+    Called by FsFilter.cpp on relevant IRP events:
         IRP_PROCESS_CREATE   -> RK_TRIGGER_FULL   (new process, full scan)
         IRP_KERNEL_* events  -> RK_TRIGGER_FULL   (injection activity, full scan)
         ImageLoadCallback    -> RK_TRIGGER_DRIVER  (new image/driver loaded)
