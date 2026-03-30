@@ -207,7 +207,7 @@ ULONGLONG DriverData::RecordNewProcess(
         if (ProcessName != NULL) {
             ExFreePoolWithTag(ProcessName, 'RW');
         }
-        return NULL;
+        return 0ULL;
     }
 
     ULONGLONG gid = (ULONGLONG)PidToGids.get(ParentPid);
