@@ -209,6 +209,17 @@ typedef NTSTATUS(NTAPI *PZW_ALLOCATE_VIRTUAL_MEMORY)(
     _In_ ULONG Protect);
 extern PZW_ALLOCATE_VIRTUAL_MEMORY fnZwAllocateVirtualMemory;
 
+// ZwDuplicateObject is exported by ntoskrnl (Zw version)
+typedef NTSTATUS(NTAPI *PZW_DUPLICATE_OBJECT)(
+    _In_ HANDLE SourceProcessHandle,
+    _In_ HANDLE SourceHandle,
+    _In_ HANDLE TargetProcessHandle,
+    _Out_ PHANDLE TargetHandle,
+    _In_ ACCESS_MASK DesiredAccess,
+    _In_ ULONG HandleAttributes,
+    _In_ ULONG Options);
+extern PZW_DUPLICATE_OBJECT fnZwDuplicateObject;
+
 // FIX: Declare Free prototype
 typedef NTSTATUS(NTAPI *PZW_FREE_VIRTUAL_MEMORY)(
     _In_ HANDLE ProcessHandle,

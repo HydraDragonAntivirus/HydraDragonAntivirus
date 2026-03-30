@@ -130,6 +130,10 @@ typedef PPEB(NTAPI *PPS_GET_PROCESS_PEB)(_In_ PEPROCESS Process);
 typedef NTSTATUS(NTAPI *PZW_ALLOCATE_VIRTUAL_MEMORY)(_In_ HANDLE ProcessHandle, _Inout_ PVOID *BaseAddress,
                                                      _In_ ULONG_PTR ZeroBits, _Inout_ PSIZE_T RegionSize,
                                                      _In_ ULONG AllocationType, _In_ ULONG Protect);
+typedef NTSTATUS(NTAPI *PZW_DUPLICATE_OBJECT)(_In_ HANDLE SourceProcessHandle, _In_ HANDLE SourceHandle,
+                                              _In_ HANDLE TargetProcessHandle, _Out_ PHANDLE TargetHandle,
+                                              _In_ ACCESS_MASK DesiredAccess, _In_ ULONG HandleAttributes,
+                                              _In_ ULONG Options);
 typedef NTSTATUS(NTAPI *PZW_FREE_VIRTUAL_MEMORY)(_In_ HANDLE ProcessHandle, _Inout_ PVOID *BaseAddress,
                                                  _Inout_ PSIZE_T RegionSize, _In_ ULONG FreeType);
 typedef BOOLEAN(NTAPI *PPS_IS_PROTECTED_PROCESS)(_In_ PEPROCESS Process);
@@ -144,6 +148,7 @@ typedef PVOID(NTAPI *PPS_GET_PROCESS_WOW64_PROCESS)(_In_ PEPROCESS Process);
 //
 PZW_PROTECT_VIRTUAL_MEMORY fnZwProtectVirtualMemory = NULL;
 PZW_ALLOCATE_VIRTUAL_MEMORY fnZwAllocateVirtualMemory = NULL;
+PZW_DUPLICATE_OBJECT fnZwDuplicateObject = NULL;
 PZW_FREE_VIRTUAL_MEMORY fnZwFreeVirtualMemory = NULL;
 PPS_GET_PROCESS_PEB fnPsGetProcessPeb = NULL;
 PPS_IS_PROTECTED_PROCESS fnPsIsProtectedProcess = NULL;
@@ -152,9 +157,9 @@ PPS_GET_PROCESS_WOW64_PROCESS fnPsGetProcessWow64Process = NULL;
 
 PUSERMODE_HOOK_ENGINE g_UserHookEngine = NULL;
 // Master hook notification FILE_OBJECT. Opened once with synchronous I/O
-// semantics during engine init, then re-opened as a user handle inside each
-// target process so shellcode receives a normal user-visible handle without
-// duplicating a kernel handle into the target token.
+// semantics during engine init, then duplicated into each target process so
+// shellcode receives a user-visible handle without re-opening the device under
+// the target process token.
 static HANDLE g_HookNotifyMasterHandle = NULL;
 static volatile BOOLEAN g_HookEngineShuttingDown = FALSE;
 
@@ -185,15 +190,6 @@ static HOOK_EXCLUDE_RULE_SET g_HookExcludeRules = {0};
 // file-I/O path; all others wait until state reaches 2.
 static volatile LONG g_HookExcludeLoadState = 0;
 
-// FIX 3: Back-off for rule file loading failures.
-// When the rule file is absent, state resets to 0, causing ZwCreateFile on
-// every process-create event (a hot path). This stores the earliest absolute
-// 100ns time at which a retry is allowed. Zero means "no active back-off".
-// EnsureHookExcludeRulesLoaded respects this before claiming the loader role.
-// ReloadHookExcludeRules clears it so an explicit reload always proceeds.
-static volatile LONG64 g_HookExcludeFailRetryTime = 0;
-#define HOOK_EXCLUDE_RETRY_INTERVAL_100NS (30LL * 10000000LL) // 30 seconds
-
 static VOID EnsureHookExcludeRuleMutex(VOID)
 {
     volatile LONG *pState = (volatile LONG *)&g_HookExcludeRules.MutexInitialized;
@@ -214,16 +210,9 @@ static VOID EnsureHookExcludeRuleMutex(VOID)
         return;
     }
 
-    // FIX 2: YieldProcessor() is just a PAUSE hint - it does not yield the CPU
-    // to another thread. If the winner thread is preempted or slow, every other
-    // thread here burns 100% of its logical core. Replace with a real 1ms sleep.
+    while (InterlockedCompareExchange(pState, 0, 0) != 2)
     {
-        LARGE_INTEGER delay;
-        delay.QuadPart = -10000LL; // 1ms in 100ns units
-        while (InterlockedCompareExchange(pState, 0, 0) != 2)
-        {
-            KeDelayExecutionThread(KernelMode, FALSE, &delay);
-        }
+        YieldProcessor();
     }
     KeMemoryBarrier();
 }
@@ -484,23 +473,6 @@ static VOID EnsureHookExcludeRulesLoaded(VOID)
     if (InterlockedCompareExchange(&g_HookExcludeLoadState, 0, 0) == 2)
         return;
 
-    // FIX 3: If the last load attempt failed, enforce a 30-second back-off
-    // before retrying. Without this, every process-create event (hot path)
-    // triggers ZwCreateFile + ZwReadFile even when the rule file doesn't exist,
-    // causing latency spikes under process creation storms.
-    if (InterlockedCompareExchange(&g_HookExcludeLoadState, 0, 0) == 0)
-    {
-        LONG64 retryTime = InterlockedCompareExchange64(
-            (volatile LONG64 *)&g_HookExcludeFailRetryTime, 0, 0);
-        if (retryTime != 0)
-        {
-            LARGE_INTEGER now;
-            KeQuerySystemTime(&now);
-            if (now.QuadPart < retryTime)
-                return; // still in back-off period
-        }
-    }
-
     // Try to claim the loader role: 0 -> 1. Exactly one thread wins.
     LONG prevState = InterlockedCompareExchange(&g_HookExcludeLoadState, 1, 0);
 
@@ -558,21 +530,8 @@ static VOID EnsureHookExcludeRulesLoaded(VOID)
     ExReleaseFastMutex(&g_HookExcludeRules.Mutex);
 
     // Signal all waiting threads. On failure, reset to 0 so a later call can retry
-    // after the rules file is created or updated, but enforce a 30-second back-off
-    // to avoid hammering the filesystem on every process-create event.
-    if (loadSucceeded)
-    {
-        InterlockedExchange64((volatile LONG64 *)&g_HookExcludeFailRetryTime, 0);
-        InterlockedExchange(&g_HookExcludeLoadState, 2);
-    }
-    else
-    {
-        LARGE_INTEGER now;
-        KeQuerySystemTime(&now);
-        InterlockedExchange64((volatile LONG64 *)&g_HookExcludeFailRetryTime,
-                              now.QuadPart + HOOK_EXCLUDE_RETRY_INTERVAL_100NS);
-        InterlockedExchange(&g_HookExcludeLoadState, 0);
-    }
+    // after the rules file is created or updated.
+    InterlockedExchange(&g_HookExcludeLoadState, loadSucceeded ? 2 : 0);
 }
 
 VOID ReloadHookExcludeRules(VOID)
@@ -582,9 +541,6 @@ VOID ReloadHookExcludeRules(VOID)
     FreeHookExcludeRulesUnlocked();
     g_HookExcludeRules.Loaded = FALSE;
     ExReleaseFastMutex(&g_HookExcludeRules.Mutex);
-    // FIX 3: Clear the back-off so an explicit reload always proceeds immediately,
-    // regardless of how recently the last automatic load attempt failed.
-    InterlockedExchange64((volatile LONG64 *)&g_HookExcludeFailRetryTime, 0);
     InterlockedExchange(&g_HookExcludeLoadState, 0);
     EnsureHookExcludeRulesLoaded();
 }
@@ -1704,6 +1660,10 @@ NTSTATUS UserModeHookEngineInitialize(VOID)
         DbgPrint("!!! UserModeHook: Failed to resolve ZwAllocateVirtualMemory\n");
     }
 
+    // Resolve ZwDuplicateObject
+    RtlInitUnicodeString(&routineName, L"ZwDuplicateObject");
+    fnZwDuplicateObject = (PZW_DUPLICATE_OBJECT)MmGetSystemRoutineAddress(&routineName);
+
     // Resolve ZwFreeVirtualMemory
     RtlInitUnicodeString(&routineName, L"ZwFreeVirtualMemory");
     fnZwFreeVirtualMemory = (PZW_FREE_VIRTUAL_MEMORY)MmGetSystemRoutineAddress(&routineName);
@@ -1711,6 +1671,10 @@ NTSTATUS UserModeHookEngineInitialize(VOID)
     if (!fnZwFreeVirtualMemory)
     {
         DbgPrint("!!! UserModeHook: Failed to resolve ZwFreeVirtualMemory\n");
+    }
+    if (!fnZwDuplicateObject)
+    {
+        DbgPrint("!!! UserModeHook: Failed to resolve ZwDuplicateObject\n");
     }
 
     // Resolve optional process protection helpers (best-effort).
@@ -1868,8 +1832,6 @@ VOID UserModeHookEngineCleanup(VOID)
     FreeHookExcludeRulesUnlocked();
     g_HookExcludeRules.Loaded = FALSE;
     ExReleaseFastMutex(&g_HookExcludeRules.Mutex);
-    // FIX 3: Reset back-off timer so a fresh driver load can load rules immediately.
-    InterlockedExchange64((volatile LONG64 *)&g_HookExcludeFailRetryTime, 0);
     InterlockedExchange(&g_HookExcludeLoadState, 0);
 
     if (g_HookNotifyMasterHandle != NULL)
@@ -3073,29 +3035,23 @@ NTSTATUS ResolveAndHook32(_In_ PEPROCESS Process, _In_ PPROCESS_HOOK_ENTRY HookE
     return InjectSingleHook32(Process, HookEntry->ProcessId, HookEntry, HookDef, EventId, TargetNtDeviceIo32);
 }
 //
-// -------------------------------------------------------------------------
-// FIX 1: Per-process independent FILE_OBJECT via ZwCreateFile.
+// ROOT CAUSE FIX - keep the notification handle SYNCHRONOUS.
 //
-// PREVIOUS DESIGN (root cause of freeze):
-//   ObReferenceObjectByHandle(g_HookNotifyMasterHandle) retrieved the one
-//   master FILE_OBJECT. ObOpenObjectByPointer then inserted a new handle into
-//   the target process's handle table pointing at that SAME FILE_OBJECT.
-//   Because the master was opened with FILE_SYNCHRONOUS_IO_NONALERT, the
-//   kernel set FO_SYNCHRONOUS_IO on that FILE_OBJECT. Windows serializes ALL
-//   I/O on a synchronous FILE_OBJECT via a single Event embedded in the object.
-//   So every shellcode IOCTL call from every thread in every hooked process
-//   queued behind a global lock — a single contention point that froze the
-//   system under even moderate multi-process load.
+// The shellcode passes an IO_STATUS_BLOCK that lives on its stack frame.
+// If the handle is opened asynchronously, NtDeviceIoControlFile can return
+// STATUS_PENDING and complete later, after the shellcode has already restored
+// registers and returned to the caller. The eventual completion then writes
+// final status back through a stale stack pointer, corrupting user-mode state
+// and producing hangs during exit, restart, and general I/O.
 //
-// FIX:
-//   Call ZwCreateFile WITHOUT OBJ_KERNEL_HANDLE while attached to the target
-//   process. This allocates a brand-new FILE_OBJECT (with its own
-//   FO_SYNCHRONOUS_IO serialization event) and inserts it directly into the
-//   target process's handle table as a user-mode handle. Each hooked process
-//   now has a fully independent FILE_OBJECT; concurrent IOCTLs from different
-//   processes no longer contend at all.
-//   g_HookNotifyMasterHandle is kept as an engine-initialized sentinel only.
-// -------------------------------------------------------------------------
+// Fix: open one master device handle WITH FILE_SYNCHRONOUS_IO_NONALERT during
+// engine initialization, then duplicate that same FILE_OBJECT into each target
+// process while attached.
+//   * Duplicated handles preserve the source FILE_OBJECT's synchronous I/O semantics.
+//   * NtDeviceIoControlFile does not return until the driver completes.
+//   * The stack-based IO_STATUS_BLOCK remains valid for the entire call.
+//   * No completion APC is needed for correctness.
+//
 NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROCESS_HOOK_ENTRY HookEntry)
 {
     BOOLEAN isWow64 = HookEntry->IsWow64;
@@ -3114,7 +3070,6 @@ NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROC
     }
     regionSize = (regionSize + 0xFFF) & ~(SIZE_T)0xFFF;
 
-    // Sentinel: engine must be initialized before we can install hooks.
     if (g_HookNotifyMasterHandle == NULL)
     {
         return STATUS_DEVICE_NOT_READY;
@@ -3125,43 +3080,25 @@ NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROC
         KeStackAttachProcess((PRKPROCESS)Process, &apcState);
         __try // outer: guarantees detach
         {
-            __try // inner: catches exceptions from ZwCreateFile / ZwAllocate
+            __try // inner: catches exceptions from ZwDuplicateObject / ZwAllocate
             {
-                // FIX 1: Open a fresh handle to the hook device from within the
-                // target process context. ZwCreateFile without OBJ_KERNEL_HANDLE
-                // inserts the handle into the TARGET process's handle table and
-                // creates an independent FILE_OBJECT. Each process therefore owns
-                // its own FO_SYNCHRONOUS_IO event, eliminating cross-process lock
-                // contention entirely.
+                if (!fnZwDuplicateObject)
                 {
-                    UNICODE_STRING devName;
-                    OBJECT_ATTRIBUTES oa;
-                    IO_STATUS_BLOCK ioSb;
-                    RtlInitUnicodeString(&devName, L"\\Device\\OwlyshieldHook");
-                    InitializeObjectAttributes(&oa, &devName,
-                                               OBJ_CASE_INSENSITIVE, // no OBJ_KERNEL_HANDLE
-                                               NULL, NULL);
-                    RtlZeroMemory(&ioSb, sizeof(ioSb));
-                    status = ZwCreateFile(&targetDeviceHandle,
-                                          FILE_READ_DATA | FILE_WRITE_DATA | SYNCHRONIZE,
-                                          &oa, &ioSb, NULL,
-                                          FILE_ATTRIBUTE_NORMAL,
-                                          FILE_SHARE_READ | FILE_SHARE_WRITE,
-                                          FILE_OPEN,
-                                          FILE_NON_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT,
-                                          NULL, 0);
-                    if (!NT_SUCCESS(status))
-                    {
-                        DbgPrint("UserModeHook: ZwCreateFile per-process notify handle failed 0x%X\n", status);
-                        __leave;
-                    }
+                    status = STATUS_NOT_SUPPORTED;
+                    __leave;
+                }
 
-                    if (targetDeviceHandle == NULL)
-                    {
-                        DbgPrint("UserModeHook: ZwCreateFile per-process notify handle returned NULL handle\n");
-                        status = STATUS_UNSUCCESSFUL;
-                        __leave;
-                    }
+                status = fnZwDuplicateObject(NtCurrentProcess(),
+                                             g_HookNotifyMasterHandle,
+                                             NtCurrentProcess(),
+                                             &targetDeviceHandle,
+                                             0,
+                                             0,
+                                             DUPLICATE_SAME_ACCESS);
+                if (!NT_SUCCESS(status) || targetDeviceHandle == NULL)
+                {
+                    DbgPrint("UserModeHook: ZwDuplicateObject master notify handle failed 0x%X\n", status);
+                    __leave;
                 }
 
                 if (!fnZwAllocateVirtualMemory)
@@ -3282,8 +3219,6 @@ NTSTATUS ResolveAndHook(_In_ PEPROCESS Process, _In_ PPROCESS_HOOK_ENTRY HookEnt
     return InjectSingleHook(Process, HookEntry->ProcessId, HookEntry, HookDef, EventId, TargetNtDeviceIo);
 }
 
-static VOID UnhookSingleFunction(_In_ PEPROCESS Process, _Inout_ PHOOK_DEF HookDef);
-
 NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
 {
     NTSTATUS status;
@@ -3298,9 +3233,7 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
     ULONG recoverableHookFailureCount = 0;
     ULONG hookConfigSnapshotCount = 0;
     PHOOK_CONFIG_DATA hookConfigSnapshot = NULL;
-    PHOOK_CONFIG_DATA activeHookConfigSnapshot = NULL;
     SIZE_T hookConfigSnapshotBytes = 0;
-    ULONG hookCountToInstall = 0;
 
     if (g_UserHookEngine == NULL || !g_UserHookEngine->IsInitialized)
         return STATUS_DEVICE_NOT_READY;
@@ -3481,14 +3414,6 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
         ExReleaseFastMutex(&g_ConfigMutex);
     }
 
-    hookCountToInstall = customHookCountToApply;
-    activeHookConfigSnapshot = hookConfigSnapshot;
-    if (hookCountToInstall > 0 && (activeHookConfigSnapshot == NULL || hookEntry->CustomHooks == NULL))
-    {
-        status = STATUS_INSUFFICIENT_RESOURCES;
-        goto HookProcessFailure;
-    }
-
     // Single attachment for resolving exports and writing hooks
     {
         KAPC_STATE apcState;
@@ -3525,16 +3450,9 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
                     }
                 }
 
-                if (hookCountToInstall > 0 && (activeHookConfigSnapshot == NULL || hookEntry->CustomHooks == NULL))
-                {
-                    status = STATUS_INSUFFICIENT_RESOURCES;
-                    __leave;
-                }
-
-                for (ULONG i = 0; i < hookCountToInstall; i++)
+                for (ULONG i = 0; i < customHookCountToApply; i++)
                 {
                     NTSTATUS hookStatus = STATUS_UNSUCCESSFUL;
-                    PHOOK_CONFIG_DATA currentHookConfig = &activeHookConfigSnapshot[i];
                     __try
                     {
                         // Route to the correct architecture's hook installer.
@@ -3542,18 +3460,18 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
                         {
                             // WoW64: resolve from 32-bit LDR, install 5-byte E9 JMP,
                             // use 32-bit shellcode template.
-                            hookStatus = ResolveAndHook32(process, hookEntry, currentHookConfig->ModuleName,
-                                                          currentHookConfig->FunctionName,
-                                                          &hookEntry->CustomHooks[i], currentHookConfig->EventId,
+                            hookStatus = ResolveAndHook32(process, hookEntry, hookConfigSnapshot[i].ModuleName,
+                                                          hookConfigSnapshot[i].FunctionName,
+                                                          &hookEntry->CustomHooks[i], hookConfigSnapshot[i].EventId,
                                                           targetNtDeviceIo32);
                         }
                         else
                         {
                             // Native 64-bit: resolve from 64-bit LDR, install 14-byte
                             // FF 25 JMP, use 64-bit shellcode template.
-                            hookStatus = ResolveAndHook(process, hookEntry, currentHookConfig->ModuleName,
-                                                        currentHookConfig->FunctionName, &hookEntry->CustomHooks[i],
-                                                        currentHookConfig->EventId, targetNtDeviceIo);
+                            hookStatus = ResolveAndHook(process, hookEntry, hookConfigSnapshot[i].ModuleName,
+                                                        hookConfigSnapshot[i].FunctionName, &hookEntry->CustomHooks[i],
+                                                        hookConfigSnapshot[i].EventId, targetNtDeviceIo);
                         }
                     }
                     __except (EXCEPTION_EXECUTE_HANDLER)
@@ -3586,7 +3504,7 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
                         hookStatus == STATUS_INVALID_PARAMETER)
                     {
                         DbgPrint("UserModeHook: PID %lu skipping hook[%lu] '%s' - recoverable 0x%X\n", ProcessId, i,
-                                 currentHookConfig->FunctionName, hookStatus);
+                                 hookConfigSnapshot[i].FunctionName, hookStatus);
                         recoverableHookFailureCount++;
                         continue;
                     }
@@ -3595,7 +3513,7 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
                     //                  STATUS_INVALID_IMAGE_FORMAT,
                     //                  STATUS_DEVICE_DOES_NOT_EXIST).
                     DbgPrint("UserModeHook: PID %lu fatal hook[%lu] '%ws!%s' failed 0x%X\n", ProcessId, i,
-                             currentHookConfig->ModuleName, currentHookConfig->FunctionName, hookStatus);
+                             hookConfigSnapshot[i].ModuleName, hookConfigSnapshot[i].FunctionName, hookStatus);
                     status = hookStatus;
                     __leave;
                 }
@@ -3684,91 +3602,44 @@ HookProcessFailure:
 
     if (hookEntry != NULL)
     {
-        // Initial hook failure cleanup has two very different cases:
-        //
-        //   1. No hook bytes were ever published (appliedHookCount == 0).
-        //      Safe to close the per-process user handle and free the shellcode
-        //      region immediately because nothing in user mode can jump there.
-        //
-        //   2. At least one hook was already installed before a later fatal
-        //      error.  In that case we must first restore the original bytes.
-        //      We intentionally DO NOT free ShellcodeBase or force-close the
-        //      user handle afterwards because another thread may already be
-        //      executing in the trampoline.  Unhooking prevents any NEW entry;
-        //      normal process teardown reclaims the leaked VA + handle safely.
-        //
-        // Also avoid attaching to a dying process: the OS will reclaim its
-        // handle table and VA space during rundown.
-        if ((hookEntry->CustomHooks != NULL || hookEntry->DriverDeviceHandle != NULL || hookEntry->ShellcodeBase != NULL) &&
-            process != NULL && PsGetProcessExitStatus(process) == STATUS_PENDING)
+        if (hookEntry->CustomHooks != NULL)
+        {
+            ExFreePoolWithTag(hookEntry->CustomHooks, 'cHuM');
+            hookEntry->CustomHooks = NULL;
+            hookEntry->CustomHookCapacity = 0;
+        }
+
+        if (hookEntry->DriverDeviceHandle != NULL || hookEntry->ShellcodeBase != NULL)
         {
             KAPC_STATE cleanupApcState;
             KeStackAttachProcess((PRKPROCESS)process, &cleanupApcState);
             __try // outer: guarantees detach
             {
-                __try // inner: catches exceptions from unhook / close / free
+                __try // inner: catches exceptions from ZwClose/ZwFree
                 {
-                    if (appliedHookCount > 0 && hookEntry->CustomHooks != NULL)
+                    if (hookEntry->DriverDeviceHandle != NULL)
                     {
-                        for (ULONG i = 0; i < hookEntry->CustomHookCapacity; ++i)
-                        {
-                            if (hookEntry->CustomHooks[i].IsHooked)
-                            {
-                                UnhookSingleFunction(process, &hookEntry->CustomHooks[i]);
-                            }
-                        }
-
+                        ZwClose(hookEntry->DriverDeviceHandle);
                         hookEntry->DriverDeviceHandle = NULL;
-                        hookEntry->ShellcodeBase = NULL;
-                        hookEntry->ShellcodeSize = 0;
-                        hookEntry->ShellcodeUsed = 0;
                     }
-                    else
+
+                    if (hookEntry->ShellcodeBase != NULL && fnZwFreeVirtualMemory != NULL)
                     {
-                        if (hookEntry->DriverDeviceHandle != NULL)
-                        {
-                            ZwClose(hookEntry->DriverDeviceHandle);
-                            hookEntry->DriverDeviceHandle = NULL;
-                        }
-
-                        if (hookEntry->ShellcodeBase != NULL && fnZwFreeVirtualMemory != NULL)
-                        {
-                            SIZE_T freeSize = 0;
-                            fnZwFreeVirtualMemory(ZwCurrentProcess(), &hookEntry->ShellcodeBase, &freeSize,
-                                                  MEM_RELEASE);
-                            hookEntry->ShellcodeBase = NULL;
-                        }
-
-                        hookEntry->ShellcodeSize = 0;
-                        hookEntry->ShellcodeUsed = 0;
+                        SIZE_T freeSize = 0;
+                        fnZwFreeVirtualMemory(ZwCurrentProcess(), &hookEntry->ShellcodeBase, &freeSize, MEM_RELEASE);
+                        hookEntry->ShellcodeBase = NULL;
                     }
                 }
                 __except (EXCEPTION_EXECUTE_HANDLER)
                 {
                     hookEntry->DriverDeviceHandle = NULL;
                     hookEntry->ShellcodeBase = NULL;
-                    hookEntry->ShellcodeSize = 0;
-                    hookEntry->ShellcodeUsed = 0;
                 }
             }
             __finally
             {
                 KeUnstackDetachProcess(&cleanupApcState);
             }
-        }
-        else
-        {
-            hookEntry->DriverDeviceHandle = NULL;
-            hookEntry->ShellcodeBase = NULL;
-            hookEntry->ShellcodeSize = 0;
-            hookEntry->ShellcodeUsed = 0;
-        }
-
-        if (hookEntry->CustomHooks != NULL)
-        {
-            ExFreePoolWithTag(hookEntry->CustomHooks, 'cHuM');
-            hookEntry->CustomHooks = NULL;
-            hookEntry->CustomHookCapacity = 0;
         }
 
         // Drop the global array's reference before clearing the entry
@@ -3802,7 +3673,7 @@ HookProcessFailure:
 // 64-bit hooks and USERMODE_HOOK_SIZE_32 (5) for WoW64 hooks at hook
 // installation time (InjectSingleHook and InjectSingleHook32 do this).
 // -------------------------------------------------------------------------
-static VOID UnhookSingleFunction(_In_ PEPROCESS Process, _Inout_ PHOOK_DEF HookDef)
+VOID UnhookSingleFunction(_In_ PEPROCESS Process, _Inout_ PHOOK_DEF HookDef)
 {
     UNREFERENCED_PARAMETER(Process);
     NTSTATUS status;
@@ -3929,12 +3800,7 @@ NTSTATUS UserModeUnhookProcess(_In_ ULONG ProcessId)
 
             if (hookEntry->DriverDeviceHandle)
             {
-                //
-                // Leave per-process hook-notify handle teardown to normal
-                // process handle-table rundown. Closing it explicitly from the
-                // driver during process-terminate unhook can race user-mode
-                // close/rundown and trigger STATUS_INVALID_HANDLE.
-                //
+                ZwClose(hookEntry->DriverDeviceHandle);
                 hookEntry->DriverDeviceHandle = NULL;
             }
         }
