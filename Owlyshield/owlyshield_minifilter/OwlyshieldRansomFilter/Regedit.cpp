@@ -36,6 +36,13 @@ static VOID RegBackupWorkRoutine(_In_ PDEVICE_OBJECT DeviceObject, _In_opt_ PVOI
     PREG_BACKUP_WORK_CTX ctx = (PREG_BACKUP_WORK_CTX)Context;
     if (!ctx) return;
 
+    if (!driverData)
+    {
+        IoFreeWorkItem(ctx->WorkItem);
+        ExFreePoolWithTag(ctx, REG_TAG);
+        return;
+    }
+
     // Safe to call ZwOpenKey / ZwQueryValueKey here — we are NOT inside a
     // CmCallback, so no recursive callback re-entry can occur.
     HANDLE hKey = NULL;
@@ -157,6 +164,41 @@ static const REGISTRY_HIVE_MAP_ENTRY kRegistryHiveMap[] = {
 // Global
 LARGE_INTEGER Cookie;
 
+#ifndef REGEDIT_MONITOR_VERBOSE_NOTIFICATIONS
+#define REGEDIT_MONITOR_VERBOSE_NOTIFICATIONS 0
+#endif
+
+static BOOLEAN ShouldMonitorVerboseRegistryNotifications()
+{
+    return (REGEDIT_MONITOR_VERBOSE_NOTIFICATIONS != 0);
+}
+
+static BOOLEAN AppendRegistryPathComponent(
+    _Inout_ PUNICODE_STRING RegistryPath,
+    _In_opt_ PUNICODE_STRING Component)
+{
+    if (RegistryPath == NULL || RegistryPath->Buffer == NULL)
+    {
+        return FALSE;
+    }
+
+    if (Component == NULL || Component->Buffer == NULL || Component->Length == 0)
+    {
+        return TRUE;
+    }
+
+    if (RegistryPath->Length > 0 &&
+        RegistryPath->Buffer[(RegistryPath->Length / sizeof(WCHAR)) - 1] != L'\\')
+    {
+        if (!NT_SUCCESS(RtlAppendUnicodeToString(RegistryPath, L"\\")))
+        {
+            return FALSE;
+        }
+    }
+
+    return NT_SUCCESS(RtlAppendUnicodeStringToString(RegistryPath, Component));
+}
+
 // Helper functions (Internal)
 _IRQL_requires_max_(PASSIVE_LEVEL)
 BOOLEAN GetNameForRegistryObject(
@@ -169,41 +211,57 @@ BOOLEAN GetNameForRegistryObject(
 
     pRegistryPath->Length = 0;
 
-    if (!pRegistryObject || !MmIsAddressValid(pRegistryObject))
+    if (!pRegistryObject)
         return FALSE;
 
-    NTSTATUS Status;
+    NTSTATUS Status = STATUS_UNSUCCESSFUL;
     ULONG ReturnLen = 0;
     POBJECT_NAME_INFORMATION NameInfo = NULL;
+    BOOLEAN success = FALSE;
 
-    // First call to get required length
-    Status = ObQueryNameString(pRegistryObject, NULL, 0, &ReturnLen);
-    if (Status != STATUS_INFO_LENGTH_MISMATCH || ReturnLen == 0)
-        return FALSE;
-
-    NameInfo = (POBJECT_NAME_INFORMATION)ExAllocatePool2(POOL_FLAG_NON_PAGED, ReturnLen, REG_TAG);
-    if (!NameInfo)
-        return FALSE;
-
-    RtlZeroMemory(NameInfo, ReturnLen);
-
-    Status = ObQueryNameString(pRegistryObject, NameInfo, ReturnLen, &ReturnLen);
-    if (!NT_SUCCESS(Status) || NameInfo->Name.Length == 0)
+    __try
     {
-        ExFreePoolWithTag(NameInfo, REG_TAG);
-        return FALSE;
+        // First call to get required length.
+        Status = ObQueryNameString(pRegistryObject, NULL, 0, &ReturnLen);
+        if (Status != STATUS_INFO_LENGTH_MISMATCH || ReturnLen == 0)
+        {
+            __leave;
+        }
+
+        NameInfo = (POBJECT_NAME_INFORMATION)ExAllocatePool2(POOL_FLAG_NON_PAGED, ReturnLen, REG_TAG);
+        if (!NameInfo)
+        {
+            __leave;
+        }
+
+        RtlZeroMemory(NameInfo, ReturnLen);
+
+        Status = ObQueryNameString(pRegistryObject, NameInfo, ReturnLen, &ReturnLen);
+        if (!NT_SUCCESS(Status) || NameInfo->Name.Length == 0)
+        {
+            __leave;
+        }
+
+        if (NameInfo->Name.Length >= pRegistryPath->MaximumLength)
+        {
+            __leave;
+        }
+
+        RtlCopyUnicodeString(pRegistryPath, &NameInfo->Name);
+        pRegistryPath->Buffer[pRegistryPath->Length / sizeof(WCHAR)] = L'\0';
+        success = TRUE;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        success = FALSE;
     }
 
-    if (NameInfo->Name.Length >= pRegistryPath->MaximumLength)
+    if (NameInfo)
     {
         ExFreePoolWithTag(NameInfo, REG_TAG);
-        return FALSE;
     }
 
-    RtlCopyUnicodeString(pRegistryPath, &NameInfo->Name);
-    pRegistryPath->Buffer[pRegistryPath->Length / sizeof(WCHAR)] = L'\0';
-    ExFreePoolWithTag(NameInfo, REG_TAG);
-    return TRUE;
+    return success;
 }
 
 BOOLEAN UnicodeContainsInsensitive(_In_ PUNICODE_STRING Source, _In_ PCWSTR Pattern)
@@ -333,7 +391,7 @@ static BOOLEAN BuildRegistryOpenPath(_Inout_ PUNICODE_STRING RegistryPath,
     }
 
     BOOLEAN hasRootPath = FALSE;
-    if (RootObject != NULL && MmIsAddressValid(RootObject))
+    if (RootObject != NULL)
     {
         hasRootPath = GetNameForRegistryObject(RegistryPath, RootObject);
     }
@@ -357,7 +415,10 @@ static BOOLEAN BuildRegistryOpenPath(_Inout_ PUNICODE_STRING RegistryPath,
             return FALSE;
         }
 
-        RtlAppendUnicodeToString(RegistryPath, L"\\");
+        if (!NT_SUCCESS(RtlAppendUnicodeToString(RegistryPath, L"\")))
+        {
+            return FALSE;
+        }
     }
 
     if (RegistryPath->Length + CompleteName->Length > RegistryPath->MaximumLength)
@@ -454,13 +515,16 @@ NTSTATUS RegistryCallback(_In_ PVOID CallbackContext, _In_ PVOID Argument1, _In_
                     // FIX (Bug #1): Calling ZwOpenKey / ZwQueryValueKey directly here
                     // caused recursive CmCallback re-entry → STATUS_INVALID_VALUE int 3.
                     // Defer the backup to a system worker thread via QueueRegistryBackup.
-                    BOOLEAN isGidFound = FALSE;
-                    ULONGLONG gid = driverData->GetProcessGid((ULONG)(ULONG_PTR)hPid, &isGidFound);
-                    if (isGidFound)
+                    if (driverData)
                     {
-                        PUNICODE_STRING safeValueName =
-                            (pInfo->ValueName && pInfo->ValueName->Buffer) ? pInfo->ValueName : NULL;
-                        QueueRegistryBackup(&RegPath, safeValueName, gid, TRUE /*IsDeletion*/);
+                        BOOLEAN isGidFound = FALSE;
+                        ULONGLONG gid = driverData->GetProcessGid((ULONG)(ULONG_PTR)hPid, &isGidFound);
+                        if (isGidFound)
+                        {
+                            PUNICODE_STRING safeValueName =
+                                (pInfo->ValueName && pInfo->ValueName->Buffer) ? pInfo->ValueName : NULL;
+                            QueueRegistryBackup(&RegPath, safeValueName, gid, TRUE /*IsDeletion*/);
+                        }
                     }
 
 
@@ -506,21 +570,24 @@ NTSTATUS RegistryCallback(_In_ PVOID CallbackContext, _In_ PVOID Argument1, _In_
                 {
                     // FIX (Bug #1): Same recursive re-entry hazard as in RegNtPreDeleteValueKey.
                     // Defer backup to a worker thread.
-                    BOOLEAN isGidFound = FALSE;
-                    ULONGLONG gid = driverData->GetProcessGid((ULONG)(ULONG_PTR)hPid, &isGidFound);
-                    if (isGidFound)
+                    if (driverData)
                     {
-                        PUNICODE_STRING safeValueName =
-                            (pInfo->ValueName && pInfo->ValueName->Buffer) ? pInfo->ValueName : NULL;
-                        QueueRegistryBackup(&RegPath, safeValueName, gid, FALSE /*IsDeletion*/);
+                        BOOLEAN isGidFound = FALSE;
+                        ULONGLONG gid = driverData->GetProcessGid((ULONG)(ULONG_PTR)hPid, &isGidFound);
+                        if (isGidFound)
+                        {
+                            PUNICODE_STRING safeValueName =
+                                (pInfo->ValueName && pInfo->ValueName->Buffer) ? pInfo->ValueName : NULL;
+                            QueueRegistryBackup(&RegPath, safeValueName, gid, FALSE /*IsDeletion*/);
+                        }
                     }
 
-                    if (pInfo->ValueName && pInfo->ValueName->Length > 0)
+                    if (!AppendRegistryPathComponent(&RegPath, pInfo->ValueName))
                     {
-                        RtlAppendUnicodeToString(&RegPath, L"\\");
-                        RtlAppendUnicodeStringToString(&RegPath, pInfo->ValueName);
+                        DbgPrint("RegPath append failed: buffer too small\n");
+                        break;
                     }
-                    
+
                     if (TRUE)
                     {
                         SendRegistryAlert(&RegPath, L"SET_VALUE", hPid, REG_SET_VALUE);
@@ -549,7 +616,10 @@ NTSTATUS RegistryCallback(_In_ PVOID CallbackContext, _In_ PVOID Argument1, _In_
             PREG_OPEN_KEY_INFORMATION pInfo = (PREG_OPEN_KEY_INFORMATION)Argument2;
             if (pInfo && BuildRegistryOpenPath(&RegPath, pInfo->RootObject, pInfo->CompleteName))
             {
-                SendRegistryAlert(&RegPath, L"OPEN_KEY", hPid, REG_OPEN_KEY); // FIX (Bug #2): was REG_QUERY_VALUE
+                if (ShouldMonitorVerboseRegistryNotifications())
+                {
+                    SendRegistryAlert(&RegPath, L"OPEN_KEY", hPid, REG_OPEN_KEY); // FIX (Bug #2): was REG_QUERY_VALUE
+                }
             }
             break;
         }
@@ -558,7 +628,10 @@ NTSTATUS RegistryCallback(_In_ PVOID CallbackContext, _In_ PVOID Argument1, _In_
             PREG_OPEN_KEY_INFORMATION_V1 pInfo = (PREG_OPEN_KEY_INFORMATION_V1)Argument2;
             if (pInfo && BuildRegistryOpenPath(&RegPath, pInfo->RootObject, pInfo->CompleteName))
             {
-                SendRegistryAlert(&RegPath, L"OPEN_KEY_EX", hPid, REG_OPEN_KEY); // FIX (Bug #2): was REG_QUERY_VALUE
+                if (ShouldMonitorVerboseRegistryNotifications())
+                {
+                    SendRegistryAlert(&RegPath, L"OPEN_KEY_EX", hPid, REG_OPEN_KEY); // FIX (Bug #2): was REG_QUERY_VALUE
+                }
             }
             break;
         }
@@ -569,13 +642,16 @@ NTSTATUS RegistryCallback(_In_ PVOID CallbackContext, _In_ PVOID Argument1, _In_
             {
                 if (GetNameForRegistryObject(&RegPath, pInfo->Object))
                 {
-                    if (pInfo->ValueName && pInfo->ValueName->Length > 0)
+                    if (!AppendRegistryPathComponent(&RegPath, pInfo->ValueName))
                     {
-                        RtlAppendUnicodeToString(&RegPath, L"\\");
-                        RtlAppendUnicodeStringToString(&RegPath, pInfo->ValueName);
+                        DbgPrint("RegPath append failed: buffer too small\n");
+                        break;
                     }
 
-                    SendRegistryAlert(&RegPath, L"QUERY_VALUE", hPid, REG_QUERY_VALUE);
+                    if (ShouldMonitorVerboseRegistryNotifications())
+                    {
+                        SendRegistryAlert(&RegPath, L"QUERY_VALUE", hPid, REG_QUERY_VALUE);
+                    }
                 }
             }
             break;
@@ -587,7 +663,10 @@ NTSTATUS RegistryCallback(_In_ PVOID CallbackContext, _In_ PVOID Argument1, _In_
             {
                 if (GetNameForRegistryObject(&RegPath, pInfo->Object))
                 {
-                    SendRegistryAlert(&RegPath, L"QUERY_KEY", hPid, REG_QUERY_KEY); // FIX (Bug #2): was REG_QUERY_VALUE
+                    if (ShouldMonitorVerboseRegistryNotifications())
+                    {
+                        SendRegistryAlert(&RegPath, L"QUERY_KEY", hPid, REG_QUERY_KEY); // FIX (Bug #2): was REG_QUERY_VALUE
+                    }
                 }
             }
             break;
@@ -599,7 +678,10 @@ NTSTATUS RegistryCallback(_In_ PVOID CallbackContext, _In_ PVOID Argument1, _In_
             {
                 if (GetNameForRegistryObject(&RegPath, pInfo->Object))
                 {
-                    SendRegistryAlert(&RegPath, L"ENUM_KEY", hPid, REG_ENUM_KEY); // FIX (Bug #2): was REG_QUERY_VALUE
+                    if (ShouldMonitorVerboseRegistryNotifications())
+                    {
+                        SendRegistryAlert(&RegPath, L"ENUM_KEY", hPid, REG_ENUM_KEY); // FIX (Bug #2): was REG_QUERY_VALUE
+                    }
                 }
             }
             break;
@@ -611,7 +693,10 @@ NTSTATUS RegistryCallback(_In_ PVOID CallbackContext, _In_ PVOID Argument1, _In_
             {
                 if (GetNameForRegistryObject(&RegPath, pInfo->Object))
                 {
-                    SendRegistryAlert(&RegPath, L"ENUM_VALUE", hPid, REG_ENUM_VALUE); // FIX (Bug #2): was REG_QUERY_VALUE
+                    if (ShouldMonitorVerboseRegistryNotifications())
+                    {
+                        SendRegistryAlert(&RegPath, L"ENUM_VALUE", hPid, REG_ENUM_VALUE); // FIX (Bug #2): was REG_QUERY_VALUE
+                    }
                 }
             }
             break;
@@ -623,7 +708,10 @@ NTSTATUS RegistryCallback(_In_ PVOID CallbackContext, _In_ PVOID Argument1, _In_
             {
                 if (GetNameForRegistryObject(&RegPath, pInfo->Object))
                 {
-                    SendRegistryAlert(&RegPath, L"SET_SECURITY", hPid, REG_SET_VALUE);
+                    if (ShouldMonitorVerboseRegistryNotifications())
+                    {
+                        SendRegistryAlert(&RegPath, L"SET_SECURITY", hPid, REG_SET_VALUE);
+                    }
                 }
             }
             break;
