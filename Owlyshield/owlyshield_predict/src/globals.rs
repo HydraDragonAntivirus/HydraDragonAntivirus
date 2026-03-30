@@ -2,7 +2,7 @@ use std::sync::OnceLock;
 use std::path::{Path, PathBuf};
 use crate::config::{Config, Param};
 
-pub static REPORT_DIR: OnceLock<PathBuf> = OnceLock::new();
+pub static REPORTS_PATH: OnceLock<PathBuf> = OnceLock::new();
 pub static CONFIG_PATH: OnceLock<PathBuf> = OnceLock::new();
 pub static RULES_PATH: OnceLock<PathBuf> = OnceLock::new();
 pub static UTILS_PATH: OnceLock<PathBuf> = OnceLock::new();
@@ -16,7 +16,7 @@ pub fn init_globals(config: &Config) {
     if let Err(e) = std::fs::create_dir_all(&report_dir) {
         eprintln!("[globals] Failed to create report dir {:?}: {}", &report_dir, e);
     }
-    REPORT_DIR.set(report_dir).ok();
+    REPORTS_PATH.set(report_dir).ok();
 
     let config_path = config.get_param(Param::ConfigPath)
         .map(PathBuf::from)
@@ -41,7 +41,7 @@ pub fn init_globals(config: &Config) {
 
 /// Shorthand to get report directory
 pub fn report_dir() -> &'static Path {
-    REPORT_DIR.get().map(|p| p.as_path()).expect("Globals not initialized")
+    REPORTS_PATH.get().map(|p| p.as_path()).expect("Globals not initialized")
 }
 
 /// Shorthand to get config directory/path

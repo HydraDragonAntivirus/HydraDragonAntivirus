@@ -53,7 +53,7 @@ impl Param {
             Param::MqttServer => "MQTT_SERVER",
             Param::NoveltyPath => "NOVELTY_PATH",
             Param::RulesPath => "RULES_PATH",
-            Param::ReportDir => "REPORT_DIR",
+            Param::ReportDir => "REPORTS_PATH",
             Param::SdkPath => "SDK_PATH",
             Param::LogPath => "LOG_PATH",           // Path to log output directory
             Param::VerboseLogging => "VERBOSE_LOGGING", // 1 if verbose logging is active, 0 if not
@@ -137,7 +137,7 @@ impl Param {
             "MQTT_SERVER" => Param::MqttServer,
             "NOVELTY_PATH" => Param::NoveltyPath,
             "RULES_PATH" => Param::RulesPath,
-            "REPORT_DIR" => Param::ReportDir,
+            "REPORTS_PATH" => Param::ReportDir,
             "SDK_PATH" => Param::SdkPath,
             "LOG_PATH" => Param::LogPath,           // Path to log output directory
             "VERBOSE_LOGGING" => Param::VerboseLogging, // 1 if verbose logging is active, 0 if not
