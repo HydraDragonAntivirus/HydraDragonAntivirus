@@ -110,13 +110,6 @@ class DriverData {
         _Out_writes_z_(OutCch) PWCHAR OutBuffer,
         _In_ SIZE_T OutCch);
 
-    // NEW: Mark a GID as malicious to enable blocking
-    VOID SetGidMalicious(ULONGLONG gid);
-
-    // NEW: Check if a GID or PID belongs to a malicious process
-    BOOLEAN IsGidMalicious(ULONGLONG gid);
-    BOOLEAN IsProcessMalicious(ULONG processId);
-
     //clear all data related to Gid system
     VOID ClearGidsPids();
 

@@ -390,38 +390,6 @@ BOOLEAN DriverData::CopyProcessPathByPid(
     return found;
 }
 
-VOID DriverData::SetGidMalicious(ULONGLONG gid) {
-    KIRQL oldIrql;
-    KeAcquireSpinLock(&GIDSystemLock, &oldIrql);
-    PGID_ENTRY GidRecord = (PGID_ENTRY)GidToPids.get(gid);
-    if (GidRecord != nullptr) {
-        GidRecord->IsMalicious = TRUE;
-        DbgPrint("!!! FS : GID %llu marked as MALICIOUS. Blocking enabled.\n", gid);
-    }
-    KeReleaseSpinLock(&GIDSystemLock, oldIrql);
-}
-
-BOOLEAN DriverData::IsGidMalicious(ULONGLONG gid) {
-    BOOLEAN ret = FALSE;
-    KIRQL oldIrql;
-    KeAcquireSpinLock(&GIDSystemLock, &oldIrql);
-    PGID_ENTRY GidRecord = (PGID_ENTRY)GidToPids.get(gid);
-    if (GidRecord != nullptr) {
-        ret = GidRecord->IsMalicious;
-    }
-    KeReleaseSpinLock(&GIDSystemLock, oldIrql);
-    return ret;
-}
-
-BOOLEAN DriverData::IsProcessMalicious(ULONG processId) {
-    BOOLEAN found = FALSE;
-    ULONGLONG gid = GetProcessGid(processId, &found);
-    if (found) {
-        return IsGidMalicious(gid);
-    }
-    return FALSE;
-}
-
 //clear all data related to Gid system
 VOID DriverData::ClearGidsPids() {
     KIRQL oldIrql;
