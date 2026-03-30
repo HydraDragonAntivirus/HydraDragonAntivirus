@@ -1,12 +1,13 @@
 name: Rebuild Poetry Lock
 
 permissions:
-  contents: write   # Allow workflow to push changes
+  contents: write
+  pull-requests: write
 
 on:
-  workflow_dispatch:      # Manual trigger
+  workflow_dispatch:
   schedule:
-    - cron: "0 6 * * 1"   # Weekly refresh to keep the lockfile current
+    - cron: "0 6 * * 1"
   push:
     branches:
       - "**"
@@ -23,8 +24,6 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          persist-credentials: true  # Allow git push with GITHUB_TOKEN
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -45,16 +44,17 @@ jobs:
       - name: Validate lockfile
         run: poetry check --lock
 
-      - name: Commit and push changes
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          if ! git diff --quiet -- poetry.lock; then
-            git config user.name "github-actions"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add poetry.lock
-            git commit -m "Rebuild poetry.lock (auto)"
-            git push
-          else
-            echo "No changes in lockfile."
-          fi
+      - name: Create pull request for lockfile changes
+        uses: peter-evans/create-pull-request@v7
+        with:
+          commit-message: "Rebuild poetry.lock (auto)"
+          author: "github-actions <41898282+github-actions[bot]@users.noreply.github.com>"
+          committer: "github-actions <41898282+github-actions[bot]@users.noreply.github.com>"
+          branch: "ci/rebuild-poetry-lock"
+          delete-branch: true
+          title: "Rebuild poetry.lock"
+          body: |
+            This PR regenerates `poetry.lock` automatically after changes to `pyproject.toml`
+            or on the scheduled/manual workflow run.
+          add-paths: |
+            poetry.lock

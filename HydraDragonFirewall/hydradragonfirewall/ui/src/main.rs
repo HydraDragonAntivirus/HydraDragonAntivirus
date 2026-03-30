@@ -1077,56 +1077,6 @@ pub fn App() -> impl IntoView {
         });
     };
 
-    let load_owlyshield_rules_for_path = std::rc::Rc::new(move |path: Option<String>| {
-        spawn_local(async move {
-            let args = js_sys::Object::new();
-            if let Some(ref selected_path) = path {
-                js_sys::Reflect::set(&args, &"path".into(), &selected_path.clone().into()).unwrap();
-            }
-            let val = invoke("get_owlyshield_rules_raw", args.into()).await;
-            match serde_wasm_bindgen::from_value::<String>(val) {
-                Ok(content) => {
-                    set_owlyshield_rules_content.set(content);
-                    set_owlyshield_rules_status.set(String::new());
-                }
-                Err(_) => {
-                    set_owlyshield_rules_content.set(String::new());
-                    set_owlyshield_rules_status.set("Failed to load the selected OwlyShield rule file.".to_string());
-                }
-            }
-        });
-    });
-
-    let fetch_owlyshield_rule_files = {
-        let load_owlyshield_rules_for_path = load_owlyshield_rules_for_path.clone();
-        move || {
-            let load_owlyshield_rules_for_path = load_owlyshield_rules_for_path.clone();
-            spawn_local(async move {
-                let val = invoke("list_owlyshield_rules_files", JsValue::NULL).await;
-                match serde_wasm_bindgen::from_value::<OwlyshieldRulesDirectoryView>(val) {
-                    Ok(view) => {
-                        let fallback_selected = view.files.first().map(|file| file.path.clone());
-                        let selected_path = view.selected_path.clone().or(fallback_selected);
-                        set_owlyshield_rules_directory.set(view.directory);
-                        set_owlyshield_rule_files.set(view.files);
-                        set_selected_owlyshield_rule_path.set(selected_path.clone());
-                        if let Some(path) = selected_path {
-                            load_owlyshield_rules_for_path(Some(path));
-                        } else {
-                            set_owlyshield_rules_content.set(String::new());
-                            set_owlyshield_rules_status.set("No YAML rule files were found in the OwlyShield rules directory.".to_string());
-                        }
-                    }
-                    Err(_) => {
-                        set_owlyshield_rule_files.set(Vec::new());
-                        set_selected_owlyshield_rule_path.set(None);
-                        set_owlyshield_rules_content.set(String::new());
-                        set_owlyshield_rules_status.set("Failed to enumerate the OwlyShield rules directory.".to_string());
-                    }
-                }
-            });
-        }
-    };
 
     let save_owlyshield_rules = move || {
         let content = owlyshield_rules_content.get();
@@ -1319,7 +1269,47 @@ pub fn App() -> impl IntoView {
     create_effect(move |_| {
         match current_view.get() {
             AppView::Processes => { fetch_process_inventory(); }
-            AppView::Rules => { fetch_sdk_rules(); fetch_rules_raw(); fetch_body_changers(); fetch_owlyshield_rule_files(); }
+            AppView::Rules => {
+                fetch_sdk_rules();
+                fetch_rules_raw();
+                fetch_body_changers();
+                spawn_local(async move {
+                    let val = invoke("list_owlyshield_rules_files", JsValue::NULL).await;
+                    match serde_wasm_bindgen::from_value::<OwlyshieldRulesDirectoryView>(val) {
+                        Ok(view) => {
+                            let fallback_selected = view.files.first().map(|file| file.path.clone());
+                            let selected_path = view.selected_path.clone().or(fallback_selected);
+                            set_owlyshield_rules_directory.set(view.directory);
+                            set_owlyshield_rule_files.set(view.files);
+                            set_selected_owlyshield_rule_path.set(selected_path.clone());
+                            if let Some(path) = selected_path {
+                                let args = js_sys::Object::new();
+                                js_sys::Reflect::set(&args, &"path".into(), &path.into()).unwrap();
+                                let raw = invoke("get_owlyshield_rules_raw", args.into()).await;
+                                match serde_wasm_bindgen::from_value::<String>(raw) {
+                                    Ok(content) => {
+                                        set_owlyshield_rules_content.set(content);
+                                        set_owlyshield_rules_status.set(String::new());
+                                    }
+                                    Err(_) => {
+                                        set_owlyshield_rules_content.set(String::new());
+                                        set_owlyshield_rules_status.set("Failed to load the selected OwlyShield rule file.".to_string());
+                                    }
+                                }
+                            } else {
+                                set_owlyshield_rules_content.set(String::new());
+                                set_owlyshield_rules_status.set("No YAML rule files were found in the OwlyShield rules directory.".to_string());
+                            }
+                        }
+                        Err(_) => {
+                            set_owlyshield_rule_files.set(Vec::new());
+                            set_selected_owlyshield_rule_path.set(None);
+                            set_owlyshield_rules_content.set(String::new());
+                            set_owlyshield_rules_status.set("Failed to enumerate the OwlyShield rules directory.".to_string());
+                        }
+                    }
+                });
+            }
             AppView::Logs => { fetch_saved_logs(); }
             AppView::Exclusions => { fetch_app_decisions(); }
             AppView::Settings => { fetch_settings(); }
@@ -2249,7 +2239,47 @@ pub fn App() -> impl IntoView {
                                         <button
                                             class={move || if show_owlyshield_editor.get() { "nav-item active" } else { "nav-item" }}
                                             style="padding: 8px 18px; border-radius: 4px 4px 0 0"
-                                            on:click=move |_| { set_show_owlyshield_editor.set(true); set_show_editor.set(false); set_show_bc_form.set(false); fetch_owlyshield_rule_files(); }>
+                                            on:click=move |_| {
+                                                set_show_owlyshield_editor.set(true);
+                                                set_show_editor.set(false);
+                                                set_show_bc_form.set(false);
+                                                spawn_local(async move {
+                                                    let val = invoke("list_owlyshield_rules_files", JsValue::NULL).await;
+                                                    match serde_wasm_bindgen::from_value::<OwlyshieldRulesDirectoryView>(val) {
+                                                        Ok(view) => {
+                                                            let fallback_selected = view.files.first().map(|file| file.path.clone());
+                                                            let selected_path = view.selected_path.clone().or(fallback_selected);
+                                                            set_owlyshield_rules_directory.set(view.directory);
+                                                            set_owlyshield_rule_files.set(view.files);
+                                                            set_selected_owlyshield_rule_path.set(selected_path.clone());
+                                                            if let Some(path) = selected_path {
+                                                                let args = js_sys::Object::new();
+                                                                js_sys::Reflect::set(&args, &"path".into(), &path.into()).unwrap();
+                                                                let raw = invoke("get_owlyshield_rules_raw", args.into()).await;
+                                                                match serde_wasm_bindgen::from_value::<String>(raw) {
+                                                                    Ok(content) => {
+                                                                        set_owlyshield_rules_content.set(content);
+                                                                        set_owlyshield_rules_status.set(String::new());
+                                                                    }
+                                                                    Err(_) => {
+                                                                        set_owlyshield_rules_content.set(String::new());
+                                                                        set_owlyshield_rules_status.set("Failed to load the selected OwlyShield rule file.".to_string());
+                                                                    }
+                                                                }
+                                                            } else {
+                                                                set_owlyshield_rules_content.set(String::new());
+                                                                set_owlyshield_rules_status.set("No YAML rule files were found in the OwlyShield rules directory.".to_string());
+                                                            }
+                                                        }
+                                                        Err(_) => {
+                                                            set_owlyshield_rule_files.set(Vec::new());
+                                                            set_selected_owlyshield_rule_path.set(None);
+                                                            set_owlyshield_rules_content.set(String::new());
+                                                            set_owlyshield_rules_status.set("Failed to enumerate the OwlyShield rules directory.".to_string());
+                                                        }
+                                                    }
+                                                });
+                                            }>
                                             "OwlyShield Rules"
                                         </button>
                                         // save/validate buttons for YAML tabs
@@ -2278,7 +2308,6 @@ pub fn App() -> impl IntoView {
                                                 on:input=move |ev| set_rules_raw_content.set(event_target_value(&ev)) />
                                         }.into_view()
                                     } else if show_owlyshield_editor.get() {
-                                        let load_owlyshield_rules_for_path = load_owlyshield_rules_for_path.clone();
                                         view! {
                                             <div style="display: flex; flex-direction: column; height: 100%; gap: 8px">
                                                 <div class="glass-card" style="padding: 12px 16px; font-size: 12px; color: var(--text-muted); display: flex; flex-direction: column; gap: 10px">
@@ -2295,7 +2324,21 @@ pub fn App() -> impl IntoView {
                                                                 on:change=move |ev| {
                                                                     let selected = event_target_value(&ev);
                                                                     set_selected_owlyshield_rule_path.set(Some(selected.clone()));
-                                                                    load_owlyshield_rules_for_path(Some(selected));
+                                                                    spawn_local(async move {
+                                                                        let args = js_sys::Object::new();
+                                                                        js_sys::Reflect::set(&args, &"path".into(), &selected.into()).unwrap();
+                                                                        let raw = invoke("get_owlyshield_rules_raw", args.into()).await;
+                                                                        match serde_wasm_bindgen::from_value::<String>(raw) {
+                                                                            Ok(content) => {
+                                                                                set_owlyshield_rules_content.set(content);
+                                                                                set_owlyshield_rules_status.set(String::new());
+                                                                            }
+                                                                            Err(_) => {
+                                                                                set_owlyshield_rules_content.set(String::new());
+                                                                                set_owlyshield_rules_status.set("Failed to load the selected OwlyShield rule file.".to_string());
+                                                                            }
+                                                                        }
+                                                                    });
                                                                 }
                                                             >
                                                                 <For
@@ -2307,7 +2350,46 @@ pub fn App() -> impl IntoView {
                                                                 />
                                                             </select>
                                                         </div>
-                                                        <button class="btn-secondary" on:click=move |_| fetch_owlyshield_rule_files()>"Refresh Files"</button>
+                                                        <button class="btn-secondary" on:click=move |_| {
+                                                            spawn_local(async move {
+                                                                let val = invoke("list_owlyshield_rules_files", JsValue::NULL).await;
+                                                                match serde_wasm_bindgen::from_value::<OwlyshieldRulesDirectoryView>(val) {
+                                                                    Ok(view) => {
+                                                                        let fallback_selected = view.files.first().map(|file| file.path.clone());
+                                                                        let selected_path = view.selected_path.clone().or(fallback_selected);
+                                                                        set_owlyshield_rules_directory.set(view.directory);
+                                                                        set_owlyshield_rule_files.set(view.files);
+                                                                        set_selected_owlyshield_rule_path.set(selected_path.clone());
+                                                                        if let Some(path) = selected_path {
+                                                                            let args = js_sys::Object::new();
+                                                                            js_sys::Reflect::set(&args, &"path".into(), &path.into()).unwrap();
+                                                                            let raw = invoke("get_owlyshield_rules_raw", args.into()).await;
+                                                                            match serde_wasm_bindgen::from_value::<String>(raw) {
+                                                                                Ok(content) => {
+                                                                                    set_owlyshield_rules_content.set(content);
+                                                                                    set_owlyshield_rules_status.set(String::new());
+                                                                                }
+                                                                                Err(_) => {
+                                                                                    set_owlyshield_rules_content.set(String::new());
+                                                                                    set_owlyshield_rules_status.set("Failed to load the selected OwlyShield rule file.".to_string());
+                                                                                }
+                                                                            }
+                                                                        } else {
+                                                                            set_owlyshield_rules_content.set(String::new());
+                                                                            set_owlyshield_rules_status.set("No YAML rule files were found in the OwlyShield rules directory.".to_string());
+                                                                        }
+                                                                    }
+                                                                    Err(_) => {
+                                                                        set_owlyshield_rule_files.set(Vec::new());
+                                                                        set_selected_owlyshield_rule_path.set(None);
+                                                                        set_owlyshield_rules_content.set(String::new());
+                                                                        set_owlyshield_rules_status.set("Failed to enumerate the OwlyShield rules directory.".to_string());
+                                                                    }
+                                                                }
+                                                            });
+                                                        }>
+                                                            "Refresh Files"
+                                                        </button>
                                                     </div>
                                                     <div>
                                                         <strong>"Directory: "</strong>
