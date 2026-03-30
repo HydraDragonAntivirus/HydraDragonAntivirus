@@ -31,7 +31,7 @@
       - condition: "esp_switch_cmdline"
 
   response:
-    terminate_process: true
+    ask_user: true
     notify_user: true
     record: true
 
@@ -91,7 +91,7 @@
       - condition: "efi_drop_to_boot_partition"
 
   response:
-    terminate_process: true
+    ask_user: true
     kill_and_remove: true
     notify_user: true
     record: true
@@ -168,7 +168,7 @@
     condition: "efi_drop_to_boot_partition"
 
   response:
-    terminate_process: true
+    ask_user: true
     kill_and_remove: true
     notify_user: true
     record: true
