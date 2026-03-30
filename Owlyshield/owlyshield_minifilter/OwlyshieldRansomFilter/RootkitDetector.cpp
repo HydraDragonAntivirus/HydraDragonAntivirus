@@ -174,55 +174,6 @@ static volatile LONG     g_ScanInProgress     = 0;
 // Pending trigger level for queued work item (highest wins).
 static volatile LONG     g_PendingTrigger     = (LONG)RK_TRIGGER_LIGHT;
 
-// ---------------------------------------------------------------------------
-// Trigger classification helpers
-// ---------------------------------------------------------------------------
-static __forceinline BOOLEAN
-RkIsTelemetryOnlyIrp(_In_ ULONG EventIrp)
-{
-    switch (EventIrp)
-    {
-    case IRP_ROOTKIT_GENERIC:
-        return TRUE;
-    default:
-        return FALSE;
-    }
-}
-
-static __forceinline BOOLEAN
-RkIsStrongKernelSignalIrp(_In_ ULONG EventIrp)
-{
-    switch (EventIrp)
-    {
-    case IRP_ROOTKIT_SSDT_HOOK:
-    case IRP_ROOTKIT_HIDDEN_PROCESS:
-    case IRP_ROOTKIT_HIDDEN_DRIVER:
-    case IRP_ROOTKIT_KERNEL_HOOK:
-    case IRP_ROOTKIT_TERMINATE_PROCESS:
-        return TRUE;
-    default:
-        return FALSE;
-    }
-}
-
-static __forceinline RK_TRIGGER
-RkNormalizeTrigger(_In_ RK_TRIGGER RequestedTrigger, _In_ ULONG EventIrp)
-{
-    // Telemetry-only events are forwarded to user-mode only.
-    if (RkIsTelemetryOnlyIrp(EventIrp))
-    {
-        return (RK_TRIGGER)-1;
-    }
-
-    // Cap accidental FULL escalations for weak/non-rootkit events.
-    if (RequestedTrigger == RK_TRIGGER_FULL && !RkIsStrongKernelSignalIrp(EventIrp))
-    {
-        return RK_TRIGGER_LIGHT;
-    }
-
-    return RequestedTrigger;
-}
-
 static CONST PCWSTR g_CoreDriverObjectPaths[] = {
     L"\\Driver\\Disk",
     L"\\Driver\\PartMgr",
@@ -358,7 +309,7 @@ RootkitDetectorInitialize(VOID)
         DbgPrint("RootkitDetector: KeServiceDescriptorTable not found, SSDT scan will be skipped on this build\n");
     }
 
-    DbgPrint("RootkitDetector: Initialized (evidence-first, debounce=%lu ms)\n",
+    DbgPrint("RootkitDetector: Initialized (event-driven, debounce=%lu ms)\n",
              (ULONG)ROOTKIT_DEBOUNCE_MS);
     return STATUS_SUCCESS;
 }
@@ -412,23 +363,14 @@ RootkitDetectorCleanup(VOID)
 VOID
 RootkitDetectorOnDriverEvent(_In_ RK_TRIGGER Trigger, _In_ ULONG EventIrp)
 {
-    RK_TRIGGER effectiveTrigger;
+    UNREFERENCED_PARAMETER(EventIrp);
 
     if (!g_ScanWorkItem || !g_ScanDeviceObject) {
         return;
     }
 
-    effectiveTrigger = RkNormalizeTrigger(Trigger, EventIrp);
-
-    // Telemetry-only events should be forwarded to user-mode without queueing scans.
-    if ((LONG)effectiveTrigger == -1) {
-        DbgPrint("RootkitDetector: telemetry-only event 0x%lx forwarded to user-mode, no scan queued\n",
-                 EventIrp);
-        return;
-    }
-
     // For FULL scans: enforce minimum interval between scans.
-    if (effectiveTrigger == RK_TRIGGER_FULL) {
+    if (Trigger == RK_TRIGGER_FULL) {
         LARGE_INTEGER now;
         KeQuerySystemTime(&now);
 
@@ -449,7 +391,7 @@ RootkitDetectorOnDriverEvent(_In_ RK_TRIGGER Trigger, _In_ ULONG EventIrp)
     LONG current, desired;
     do {
         current = InterlockedCompareExchange(&g_PendingTrigger, 0, 0);
-        desired = ((LONG)effectiveTrigger > current) ? (LONG)effectiveTrigger : current;
+        desired = ((LONG)Trigger > current) ? (LONG)Trigger : current;
     } while (InterlockedCompareExchange(&g_PendingTrigger, desired, current) != current);
 
     // Only one work item in flight at a time.
@@ -562,7 +504,6 @@ RkEmitFinding(_In_ ULONG IrpOpCode, _In_ ULONG SourcePid,
     msg->KernelEventInfo.MemorySize          = MemSize;
     msg->KernelEventInfo.RawArgument1        = Extra1;
     msg->KernelEventInfo.RawArgument2        = Extra2;
-    msg->KernelEventInfo.OperationStatus     = STATUS_SUCCESS;
 
     if (ObjectName) {
         (VOID)RtlStringCchCopyW(msg->KernelEventInfo.ObjectName,
