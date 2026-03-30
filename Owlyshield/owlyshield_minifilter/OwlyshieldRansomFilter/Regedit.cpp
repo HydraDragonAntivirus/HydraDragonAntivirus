@@ -328,7 +328,7 @@ NTSTATUS RegistryCallback(_In_ PVOID CallbackContext, _In_ PVOID Argument1, _In_
                             if (pValueInfo) {
                                 UNICODE_STRING emptyValueName;
                                 RtlInitUnicodeString(&emptyValueName, L"");
-                                PUNICODE_STRING safeValueName = pInfo->ValueName ? pInfo->ValueName : &emptyValueName;
+                                PUNICODE_STRING safeValueName = (pInfo->ValueName && pInfo->ValueName->Buffer) ? pInfo->ValueName : &emptyValueName;
                                 NTSTATUS queryStatus = ZwQueryValueKey(hKey, safeValueName, KeyValuePartialInformation, pValueInfo, sizeof(KEY_VALUE_PARTIAL_INFORMATION) + 1024, &resultLength);
                                 if (NT_SUCCESS(queryStatus) && pValueInfo->DataLength <= 1024) {
                                     PREGISTRY_BACKUP_ENTRY backup = new REGISTRY_BACKUP_ENTRY();
@@ -419,7 +419,7 @@ NTSTATUS RegistryCallback(_In_ PVOID CallbackContext, _In_ PVOID Argument1, _In_
                             if (pValueInfo) {
                                 UNICODE_STRING emptyValueName;
                                 RtlInitUnicodeString(&emptyValueName, L"");
-                                PUNICODE_STRING safeValueName = pInfo->ValueName ? pInfo->ValueName : &emptyValueName;
+                                PUNICODE_STRING safeValueName = (pInfo->ValueName && pInfo->ValueName->Buffer) ? pInfo->ValueName : &emptyValueName;
                                 NTSTATUS queryStatus = ZwQueryValueKey(hKey, safeValueName, KeyValuePartialInformation, pValueInfo, sizeof(KEY_VALUE_PARTIAL_INFORMATION) + 1024, &resultLength);
                                 if (NT_SUCCESS(queryStatus) && pValueInfo->DataLength <= 1024) {
                                     PREGISTRY_BACKUP_ENTRY backup = new REGISTRY_BACKUP_ENTRY();
