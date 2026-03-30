@@ -415,7 +415,7 @@ static BOOLEAN BuildRegistryOpenPath(_Inout_ PUNICODE_STRING RegistryPath,
             return FALSE;
         }
 
-        if (!NT_SUCCESS(RtlAppendUnicodeToString(RegistryPath, L"\")))
+        if (!NT_SUCCESS(RtlAppendUnicodeToString(RegistryPath, L"\\")))
         {
             return FALSE;
         }
