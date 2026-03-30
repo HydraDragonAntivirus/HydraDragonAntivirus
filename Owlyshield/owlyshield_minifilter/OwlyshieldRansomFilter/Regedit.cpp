@@ -56,13 +56,14 @@ BOOLEAN GetNameForRegistryObject(
         return FALSE;
     }
 
-    if (NameInfo->Name.Length > pRegistryPath->MaximumLength)
+    if (NameInfo->Name.Length >= pRegistryPath->MaximumLength)
     {
         ExFreePoolWithTag(NameInfo, REG_TAG);
         return FALSE;
     }
 
     RtlCopyUnicodeString(pRegistryPath, &NameInfo->Name);
+    pRegistryPath->Buffer[pRegistryPath->Length / sizeof(WCHAR)] = L'\0';
     ExFreePoolWithTag(NameInfo, REG_TAG);
     return TRUE;
 }
@@ -124,13 +125,13 @@ _Success_(return != FALSE) static BOOLEAN
         return FALSE;
     }
 
-    // RtlStringCchCopyNW is fully SAL-annotated — the analyzer understands
+    // RtlStringCchCopyNW is fully SAL-annotated â€” the analyzer understands
     // its bounds contract and will not fire C6386 on it.
     NTSTATUS st = RtlStringCchCopyNW(OutBuffer, OutBufferChars, SourcePath->Buffer, SourcePath->Length / sizeof(WCHAR));
     if (!NT_SUCCESS(st) && st != STATUS_BUFFER_OVERFLOW)
         return FALSE;
     // STATUS_BUFFER_OVERFLOW is acceptable: RtlStringCchCopyNW still null-terminates
-    // the output and copies as many characters as fit — truncation is intentional here.
+    // the output and copies as many characters as fit â€” truncation is intentional here.
 
     // Fix up forward slashes in-place on the already-bounded, null-terminated buffer.
     for (PWCHAR p = OutBuffer; *p != L'\0'; ++p)
@@ -325,7 +326,10 @@ NTSTATUS RegistryCallback(_In_ PVOID CallbackContext, _In_ PVOID Argument1, _In_
                             ULONG resultLength;
                             PKEY_VALUE_PARTIAL_INFORMATION pValueInfo = (PKEY_VALUE_PARTIAL_INFORMATION)ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeof(KEY_VALUE_PARTIAL_INFORMATION) + 1024, REG_TAG);
                             if (pValueInfo) {
-                                NTSTATUS queryStatus = ZwQueryValueKey(hKey, pInfo->ValueName, KeyValuePartialInformation, pValueInfo, sizeof(KEY_VALUE_PARTIAL_INFORMATION) + 1024, &resultLength);
+                                UNICODE_STRING emptyValueName;
+                                RtlInitUnicodeString(&emptyValueName, L"");
+                                PUNICODE_STRING safeValueName = pInfo->ValueName ? pInfo->ValueName : &emptyValueName;
+                                NTSTATUS queryStatus = ZwQueryValueKey(hKey, safeValueName, KeyValuePartialInformation, pValueInfo, sizeof(KEY_VALUE_PARTIAL_INFORMATION) + 1024, &resultLength);
                                 if (NT_SUCCESS(queryStatus) && pValueInfo->DataLength <= 1024) {
                                     PREGISTRY_BACKUP_ENTRY backup = new REGISTRY_BACKUP_ENTRY();
                                     if (backup) {
@@ -335,9 +339,11 @@ NTSTATUS RegistryCallback(_In_ PVOID CallbackContext, _In_ PVOID Argument1, _In_
                                         backup->DataSize = pValueInfo->DataLength;
                                         RtlCopyMemory(backup->RegistryData, pValueInfo->Data, pValueInfo->DataLength);
                                         RtlStringCbCopyW(backup->KeyPath, sizeof(backup->KeyPath), RegPath.Buffer);
-                                        // Fix: pInfo->ValueName->Buffer is not null-terminated
-                                        USHORT valNameLen = min(pInfo->ValueName->Length, sizeof(backup->ValueName) - sizeof(WCHAR));
-                                        RtlCopyMemory(backup->ValueName, pInfo->ValueName->Buffer, valNameLen);
+                                        USHORT valNameLen = 0;
+                                        if (safeValueName->Buffer && safeValueName->Length > 0) {
+                                            valNameLen = (USHORT)min(safeValueName->Length, sizeof(backup->ValueName) - sizeof(WCHAR));
+                                            RtlCopyMemory(backup->ValueName, safeValueName->Buffer, valNameLen);
+                                        }
                                         backup->ValueName[valNameLen / sizeof(WCHAR)] = L'\0';
                                         driverData->AddRegistryBackup(backup);
                                     }
@@ -411,7 +417,10 @@ NTSTATUS RegistryCallback(_In_ PVOID CallbackContext, _In_ PVOID Argument1, _In_
                             ULONG resultLength;
                             PKEY_VALUE_PARTIAL_INFORMATION pValueInfo = (PKEY_VALUE_PARTIAL_INFORMATION)ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeof(KEY_VALUE_PARTIAL_INFORMATION) + 1024, REG_TAG);
                             if (pValueInfo) {
-                                NTSTATUS queryStatus = ZwQueryValueKey(hKey, pInfo->ValueName, KeyValuePartialInformation, pValueInfo, sizeof(KEY_VALUE_PARTIAL_INFORMATION) + 1024, &resultLength);
+                                UNICODE_STRING emptyValueName;
+                                RtlInitUnicodeString(&emptyValueName, L"");
+                                PUNICODE_STRING safeValueName = pInfo->ValueName ? pInfo->ValueName : &emptyValueName;
+                                NTSTATUS queryStatus = ZwQueryValueKey(hKey, safeValueName, KeyValuePartialInformation, pValueInfo, sizeof(KEY_VALUE_PARTIAL_INFORMATION) + 1024, &resultLength);
                                 if (NT_SUCCESS(queryStatus) && pValueInfo->DataLength <= 1024) {
                                     PREGISTRY_BACKUP_ENTRY backup = new REGISTRY_BACKUP_ENTRY();
                                     if (backup) {
@@ -421,9 +430,11 @@ NTSTATUS RegistryCallback(_In_ PVOID CallbackContext, _In_ PVOID Argument1, _In_
                                         backup->DataSize = pValueInfo->DataLength;
                                         RtlCopyMemory(backup->RegistryData, pValueInfo->Data, pValueInfo->DataLength);
                                         RtlStringCbCopyW(backup->KeyPath, sizeof(backup->KeyPath), RegPath.Buffer);
-                                        // Fix: pInfo->ValueName->Buffer is not null-terminated
-                                        USHORT valNameLen = min(pInfo->ValueName->Length, sizeof(backup->ValueName) - sizeof(WCHAR));
-                                        RtlCopyMemory(backup->ValueName, pInfo->ValueName->Buffer, valNameLen);
+                                        USHORT valNameLen = 0;
+                                        if (safeValueName->Buffer && safeValueName->Length > 0) {
+                                            valNameLen = (USHORT)min(safeValueName->Length, sizeof(backup->ValueName) - sizeof(WCHAR));
+                                            RtlCopyMemory(backup->ValueName, safeValueName->Buffer, valNameLen);
+                                        }
                                         backup->ValueName[valNameLen / sizeof(WCHAR)] = L'\0';
                                         driverData->AddRegistryBackup(backup);
                                     }
