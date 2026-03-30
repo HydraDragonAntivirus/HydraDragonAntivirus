@@ -419,14 +419,18 @@ NTSTATUS RegistryCallback(_In_ PVOID CallbackContext, _In_ PVOID Argument1, _In_
     // Allocate local buffer on stack or pool? Regedit.c used Pool.
     // Creating temp buffer on new operator is cleaner for C++ or ExAllocatePool.
     // Use ExAllocatePool for safety.
-    // FIX (Bug #3): The original 1024-WCHAR buffer is smaller than the maximum
-    // Windows registry path (32,767 WCHARs). After GetNameForRegistryObject fills
-    // the buffer with a long key path, appending L"\\" + ValueName overflows it.
-    // In checked builds RtlAppendUnicodeToString fires ASSERT(STATUS_BUFFER_TOO_SMALL)
-    // → DbgBreakPointWithStatus — a secondary source of the int 3 break.
-    // Use 32,768 WCHARs (0x8000) to cover the documented Windows maximum.
-    RegPath.MaximumLength = sizeof(WCHAR) * 0x8000; // 32768 WCHARs = Windows REG_MAX_KEY_LENGTH
-    RegPath.Buffer = (PWCH)ExAllocatePool2(POOL_FLAG_NON_PAGED, RegPath.MaximumLength, REG_TAG);
+    //
+    // FIX (Bug #3): The original 1024-WCHAR buffer is too small for long registry
+    // paths. After GetNameForRegistryObject fills the buffer with a long key path,
+    // appending L"\\" + ValueName can overflow it.
+    //
+    // UNICODE_STRING.MaximumLength is a USHORT, so 65536 bytes (32768 WCHARs) does
+    // not fit. The largest safe even size is 65534 bytes, i.e. 32767 WCHARs.
+    constexpr USHORT REGPATH_MAX_WCHARS = 0x7FFF; // 32767 WCHARs
+    constexpr USHORT REGPATH_MAX_BYTES = 0xFFFE;  // 65534 bytes, fits in USHORT
+
+    RegPath.MaximumLength = REGPATH_MAX_BYTES;
+    RegPath.Buffer = (PWCH)ExAllocatePool2(POOL_FLAG_NON_PAGED, REGPATH_MAX_BYTES, REG_TAG);
     
     if (!RegPath.Buffer) return Status;
     RegPath.Length = 0;
@@ -462,8 +466,12 @@ NTSTATUS RegistryCallback(_In_ PVOID CallbackContext, _In_ PVOID Argument1, _In_
 
                     if (pInfo->ValueName && pInfo->ValueName->Length > 0)
                     {
-                        RtlAppendUnicodeToString(&RegPath, L"\\");
-                        RtlAppendUnicodeStringToString(&RegPath, pInfo->ValueName);
+                        if (!NT_SUCCESS(RtlAppendUnicodeToString(&RegPath, L"\\")) ||
+                            !NT_SUCCESS(RtlAppendUnicodeStringToString(&RegPath, pInfo->ValueName)))
+                        {
+                            DbgPrint("RegPath append failed: buffer too small\n");
+                            break;
+                        }
                     }
 
                     if (TRUE) // Monitor all registry deletions
