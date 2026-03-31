@@ -69,10 +69,13 @@
       # The filename masquerades as explorer.exe but is not in %SystemRoot%\System32
       # or %SystemRoot%\ — the path starts with the drive letter and no subdirectory.
       # orderless: true — create and write events are an unordered set.
+    payload_drop_system_root:
       orderless: true
       file_paths:
-        - ":\\explorer.exe"
-      file_operations: ["create", "write"]
+        - :\explorer.exe
+      file_operations:
+        - create
+        - write
       min_matches: 1
 
     path_hijack_setx:
@@ -89,15 +92,22 @@
       min_matches: 1
 
     winlogon_shell_hijack:
-      # Sets HKLM\...\Winlogon\Shell to "cmd.exe /c explorer.exe" so the payload
-      # runs at every login session after the safe-mode reboot.
-      # orderless: false — key must be opened before Shell value is written.
-      orderless: false
+      orderless: true
       registry_keys:
-        - "SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon"
+        - SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon
       registry_values:
-        - "Shell"
-      registry_operations: ["set", "create"]
+        - Shell
+      registry_operations:
+        - reg_create_key
+        - reg_set_value
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+        - reg_query_value
+        - reg_query_key
+        - reg_open_key
+        - reg_enum_key
+        - reg_enum_value
       min_matches: 1
 
     forced_reboot:
@@ -113,17 +123,11 @@
       min_matches: 1
 
     sandbox_probe:
-      # Creates an arbitrary directory under %ProgramFiles% as a sandbox probe:
-      # if the OS blocks the create (sandbox restriction), the process exits 0
-      # to appear clean. The directory name is irrelevant — any new folder created
-      # under Program Files by a non-installer process is the signal.
-      # Legitimate installers are signed and arrive via msiexec/setup chains;
-      # a plain executable creating a bare ProgramFiles subdirectory is not.
-      # orderless: true — create event is a single unordered observation.
       orderless: true
       file_paths:
-        - "Program Files"
-      file_operations: ["create"]
+        - Program Files
+      file_operations:
+        - create
       detect_non_whitelisted_extensions: true
       min_matches: 1
 
@@ -172,24 +176,24 @@
   allowlisted_apps: []
 
   tags:
-    - "safemode-abuse"
-    - "bcdedit"
-    - "loader"
-    - "winlogon-hijack"
-    - "path-hijack"
-    - "network-kill"
-    - "date-poison"
-    - "sandbox-evasion"
-    - "pre-reboot-detection"
+    - safemode-abuse
+    - bcdedit
+    - loader
+    - winlogon-hijack
+    - path-hijack
+    - network-kill
+    - date-poison
+    - sandbox-evasion
+    - pre-reboot-detection
 
   mitre_attack:
-    - "T1562.001"   # Impair Defenses: Disable or Modify Tools (network kill, safemode)
-    - "T1547.004"   # Boot or Logon Autostart: Winlogon Helper DLL
-    - "T1562.009"   # Impair Defenses: Safe Mode Boot (bcdedit safeboot)
-    - "T1036.005"   # Masquerading: Match Legitimate Name or Location (C:\explorer.exe)
-    - "T1574.007"   # Hijack Execution Flow: Path Interception by PATH Environment Variable
-    - "T1490"       # Inhibit System Recovery
-    - "T1070.006"   # Indicator Removal: system date poison
+    - T1562.001
+    - T1547.004
+    - T1562.009
+    - T1036.005
+    - T1574.007
+    - T1490
+    - T1070.006
 
   false_positives:
     - "No known legitimate software calls bcdedit /set safeboot minimal at runtime"

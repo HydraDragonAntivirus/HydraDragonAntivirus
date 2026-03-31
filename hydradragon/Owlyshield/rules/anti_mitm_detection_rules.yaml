@@ -36,32 +36,52 @@
     internet_settings_proxy_tamper:
       orderless: true
       registry_keys:
-        - "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings*"
-        - "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings*"
+        - HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings*
+        - HKLM\Software\Microsoft\Windows\CurrentVersion\Internet Settings*
       registry_values:
-        - "ProxyEnable"
-        - "ProxyServer"
-        - "ProxyOverride"
-        - "AutoConfigURL"
-        - "MigrateProxy"
-        - "EnableAutodial"
-        - "DefaultConnectionSettings"
-        - "SavedLegacySettings"
-      registry_operations: ["set", "create", "delete", "rename"]
+        - ProxyEnable
+        - ProxyServer
+        - ProxyOverride
+        - AutoConfigURL
+        - MigrateProxy
+        - EnableAutodial
+        - DefaultConnectionSettings
+        - SavedLegacySettings
+      registry_operations:
+        - reg_create_key
+        - reg_set_value
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+        - reg_query_value
+        - reg_query_key
+        - reg_open_key
+        - reg_enum_key
+        - reg_enum_value
       min_matches: 1
 
     root_store_tamper:
       orderless: true
       registry_keys:
-        - "HKLM\\SOFTWARE\\Microsoft\\SystemCertificates\\Root*"
-        - "HKCU\\SOFTWARE\\Microsoft\\SystemCertificates\\Root*"
-        - "HKLM\\SOFTWARE\\Microsoft\\SystemCertificates\\CA*"
-        - "HKCU\\SOFTWARE\\Microsoft\\SystemCertificates\\CA*"
-        - "HKLM\\SOFTWARE\\Policies\\Mozilla\\Firefox\\Certificates*"
-        - "HKCU\\SOFTWARE\\Policies\\Mozilla\\Firefox\\Certificates*"
+        - HKLM\SOFTWARE\Microsoft\SystemCertificates\Root*
+        - HKCU\SOFTWARE\Microsoft\SystemCertificates\Root*
+        - HKLM\SOFTWARE\Microsoft\SystemCertificates\CA*
+        - HKCU\SOFTWARE\Microsoft\SystemCertificates\CA*
+        - HKLM\SOFTWARE\Policies\Mozilla\Firefox\Certificates*
+        - HKCU\SOFTWARE\Policies\Mozilla\Firefox\Certificates*
       registry_values:
-        - "ImportEnterpriseRoots"
-      registry_operations: ["set", "create", "delete", "rename"]
+        - ImportEnterpriseRoots
+      registry_operations:
+        - reg_create_key
+        - reg_set_value
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+        - reg_query_value
+        - reg_query_key
+        - reg_open_key
+        - reg_enum_key
+        - reg_enum_value
       min_matches: 1
 
     certutil_store_delete:
@@ -97,8 +117,14 @@
     terminate_process: false
     record: true
 
-  tags: ["defense-evasion", "anti-mitm", "proxy-tamper", "certificate-store"]
-  mitre_attack: ["T1112", "T1562.001"]
+  tags:
+    - defense-evasion
+    - anti-mitm
+    - proxy-tamper
+    - certificate-store
+  mitre_attack:
+    - T1112
+    - T1562.001
   false_positives:
     - "Administrators changing proxy settings or enterprise trust policy"
     - "Security software installing, removing, or rotating interception certificates"
@@ -186,14 +212,19 @@
     firefox_profile_trust_tamper_file:
       orderless: true
       file_paths:
-        - "*\\mozilla\\firefox\\profiles\\*\\prefs.js"
-        - "*\\mozilla\\firefox\\profiles\\*\\user.js"
-        - "*\\mozilla\\firefox\\profiles\\*\\cert9.db"
-        - "*\\mozilla\\firefox\\profiles\\*\\pkcs11.txt"
-        - "*\\mozilla\\firefox\\distribution\\policies.json"
-        - "*\\librewolf\\profiles\\*\\prefs.js"
-        - "*\\waterfox\\profiles\\*\\prefs.js"
-      file_operations: ["write", "create", "setinfo", "rename", "delete"]
+        - '*\mozilla\firefox\profiles\*\prefs.js'
+        - '*\mozilla\firefox\profiles\*\user.js'
+        - '*\mozilla\firefox\profiles\*\cert9.db'
+        - '*\mozilla\firefox\profiles\*\pkcs11.txt'
+        - '*\mozilla\firefox\distribution\policies.json'
+        - '*\librewolf\profiles\*\prefs.js'
+        - '*\waterfox\profiles\*\prefs.js'
+      file_operations:
+        - write
+        - create
+        - setinfo
+        - rename
+        - delete
       min_matches: 1
 
   detection_logic:
@@ -212,8 +243,13 @@
     terminate_process: false
     record: true
 
-  tags: ["info", "anti-mitm", "browser", "proxy-bypass"]
-  mitre_attack: ["T1562.001"]
+  tags:
+    - info
+    - anti-mitm
+    - browser
+    - proxy-bypass
+  mitre_attack:
+    - T1562.001
   false_positives:
     - "Developers launching browsers with debugging or proxy troubleshooting flags"
     - "User scripts or enterprise tools updating Firefox-family profile trust files"

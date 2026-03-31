@@ -19,11 +19,21 @@
     amsi_registry_disable:
       orderless: true
       registry_keys:
-        - "HKLM\\SOFTWARE\\Microsoft\\Windows Script\\Settings"
-        - "HKCU\\SOFTWARE\\Microsoft\\Windows Script\\Settings"
+        - HKLM\SOFTWARE\Microsoft\Windows Script\Settings
+        - HKCU\SOFTWARE\Microsoft\Windows Script\Settings
       registry_values:
-        - "AmsiEnable"
-      registry_operations: ["set", "create"]
+        - AmsiEnable
+      registry_operations:
+        - reg_create_key
+        - reg_set_value
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+        - reg_query_value
+        - reg_query_key
+        - reg_open_key
+        - reg_enum_key
+        - reg_enum_value
       min_matches: 1
 
     amsi_powershell_bypass:
@@ -42,8 +52,18 @@
     amsi_provider_removal:
       orderless: true
       registry_keys:
-        - "HKLM\\SOFTWARE\\Microsoft\\AMSI\\Providers"
-      registry_operations: ["delete"]
+        - HKLM\SOFTWARE\Microsoft\AMSI\Providers
+      registry_operations:
+        - reg_create_key
+        - reg_set_value
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+        - reg_query_value
+        - reg_query_key
+        - reg_open_key
+        - reg_enum_key
+        - reg_enum_value
       min_matches: 1
 
     powershell_clm_bypass:
@@ -70,8 +90,13 @@
     terminate_process: false
     record: true
 
-  tags: ["defense-evasion", "amsi-bypass", "powershell"]
-  mitre_attack: ["T1562.001", "T1059.001"]
+  tags:
+    - defense-evasion
+    - amsi-bypass
+    - powershell
+  mitre_attack:
+    - T1562.001
+    - T1059.001
   false_positives:
     - "Security research tools testing AMSI coverage"
     - "Legitimate scripting engines in restricted environments"
@@ -122,8 +147,13 @@
     terminate_process: false
     record: true
 
-  tags: ["defense-evasion", "obfuscation", "info"]
-  mitre_attack: ["T1027", "T1059.001"]
+  tags:
+    - defense-evasion
+    - obfuscation
+    - info
+  mitre_attack:
+    - T1027
+    - T1059.001
   false_positives:
     - "Legitimate automation scripts using encoded commands"
     - "Software installers that encode long argument strings"
@@ -182,8 +212,12 @@
     terminate_process: false
     record: true
 
-  tags: ["defense-evasion", "file-hiding", "info"]
-  mitre_attack: ["T1564.001"]
+  tags:
+    - defense-evasion
+    - file-hiding
+    - info
+  mitre_attack:
+    - T1564.001
   false_positives:
     - "Legitimate software hiding installation caches"
     - "Backup tools marking files system/hidden"
@@ -217,9 +251,19 @@
     safeboot_registry_service:
       orderless: true
       registry_keys:
-        - "HKLM\\SYSTEM\\CurrentControlSet\\Control\\SafeBoot\\Minimal"
-        - "HKLM\\SYSTEM\\CurrentControlSet\\Control\\SafeBoot\\Network"
-      registry_operations: ["set", "create"]
+        - HKLM\SYSTEM\CurrentControlSet\Control\SafeBoot\Minimal
+        - HKLM\SYSTEM\CurrentControlSet\Control\SafeBoot\Network
+      registry_operations:
+        - reg_create_key
+        - reg_set_value
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+        - reg_query_value
+        - reg_query_key
+        - reg_open_key
+        - reg_enum_key
+        - reg_enum_value
       min_matches: 1
 
   detection_logic:
@@ -234,8 +278,15 @@
     auto_revert: true
     record: true
 
-  tags: ["defense-evasion", "persistence", "safe-mode", "ransomware"]
-  mitre_attack: ["T1112", "T1543.003", "T1490"]
+  tags:
+    - defense-evasion
+    - persistence
+    - safe-mode
+    - ransomware
+  mitre_attack:
+    - T1112
+    - T1543.003
+    - T1490
   false_positives:
     - "IT administrators configuring boot options"
     - "Recovery tools that require Safe Mode boot"
@@ -315,8 +366,13 @@
     terminate_process: false
     record: true
 
-  tags: ["defense-evasion", "impact", "ransomware", "shadow-copy"]
-  mitre_attack: ["T1490"]
+  tags:
+    - defense-evasion
+    - impact
+    - ransomware
+    - shadow-copy
+  mitre_attack:
+    - T1490
   false_positives:
     - "IT administrators performing legitimate disk cleanup"
     - "Backup software managing its own shadow copy lifecycle"
@@ -377,8 +433,13 @@
     terminate_process: false
     record: true
 
-  tags: ["defense-evasion", "log-clearing", "info"]
-  mitre_attack: ["T1070.001", "T1070.002"]
+  tags:
+    - defense-evasion
+    - log-clearing
+    - info
+  mitre_attack:
+    - T1070.001
+    - T1070.002
   false_positives:
     - "IT administrators performing log rotation"
     - "Compliance tools resetting audit policy"
@@ -435,8 +496,15 @@
     terminate_process: false
     record: true
 
-  tags: ["defense-evasion", "process-injection", "info"]
-  mitre_attack: ["T1055", "T1055.001", "T1055.002", "T1055.004"]
+  tags:
+    - defense-evasion
+    - process-injection
+    - info
+  mitre_attack:
+    - T1055
+    - T1055.001
+    - T1055.002
+    - T1055.004
   false_positives:
     - "Legitimate debuggers and development tools"
     - "Security software performing memory inspection"
@@ -459,13 +527,23 @@
     defender_registry_disable:
       orderless: true
       registry_keys:
-        - "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows Defender"
-        - "HKLM\\SOFTWARE\\Microsoft\\Windows Defender"
+        - HKLM\SOFTWARE\Policies\Microsoft\Windows Defender
+        - HKLM\SOFTWARE\Microsoft\Windows Defender
       registry_values:
-        - "DisableAntiSpyware"
-        - "DisableAntiVirus"
-        - "DisableRealtimeMonitoring"
-      registry_operations: ["set", "create"]
+        - DisableAntiSpyware
+        - DisableAntiVirus
+        - DisableRealtimeMonitoring
+      registry_operations:
+        - reg_create_key
+        - reg_set_value
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+        - reg_query_value
+        - reg_query_key
+        - reg_open_key
+        - reg_enum_key
+        - reg_enum_value
       min_matches: 1
 
     powershell_mppreference:
@@ -513,8 +591,12 @@
     auto_revert: true
     record: true
 
-  tags: ["defense-evasion", "antivirus-disable", "windows-defender"]
-  mitre_attack: ["T1562.001"]
+  tags:
+    - defense-evasion
+    - antivirus-disable
+    - windows-defender
+  mitre_attack:
+    - T1562.001
   false_positives:
     - "IT administrators managing Defender exclusions"
     - "Enterprise security tools with their own AV managing Defender state"

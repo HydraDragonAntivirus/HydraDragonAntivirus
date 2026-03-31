@@ -16,16 +16,25 @@
     Equivalent to Sigma: Registry Run Keys Modification (T1547.001).
   debug: false
 
-  named_conditions:
     run_key_write:
       orderless: true
       registry_keys:
-        - "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run"
-        - "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\RunOnce"
-        - "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Run"
-        - "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\RunOnce"
-        - "HKLM\\Software\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Run"
-      registry_operations: ["set", "create"]
+        - HKCU\Software\Microsoft\Windows\CurrentVersion\Run
+        - HKCU\Software\Microsoft\Windows\CurrentVersion\RunOnce
+        - HKLM\Software\Microsoft\Windows\CurrentVersion\Run
+        - HKLM\Software\Microsoft\Windows\CurrentVersion\RunOnce
+        - HKLM\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Run
+      registry_operations:
+        - reg_create_key
+        - reg_set_value
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+        - reg_query_value
+        - reg_query_key
+        - reg_open_key
+        - reg_enum_key
+        - reg_enum_value
       min_matches: 1
 
   detection_logic:
@@ -49,8 +58,13 @@
     - pattern: "update*.exe"
       must_be_signed: true
 
-  tags: ["persistence", "registry", "run-key", "info"]
-  mitre_attack: ["T1547.001"]
+  tags:
+    - persistence
+    - registry
+    - run-key
+    - info
+  mitre_attack:
+    - T1547.001
   false_positives:
     - "Legitimate software installers adding startup entries"
     - "User-configured auto-start applications"
@@ -130,8 +144,12 @@
     terminate_process: false
     record: true
 
-  tags: ["persistence", "scheduled-task", "info"]
-  mitre_attack: ["T1053.005"]
+  tags:
+    - persistence
+    - scheduled-task
+    - info
+  mitre_attack:
+    - T1053.005
   false_positives:
     - "Legitimate software scheduling update checks"
     - "IT management tools configuring maintenance tasks"
@@ -193,8 +211,12 @@
     terminate_process: false
     record: true
 
-  tags: ["persistence", "wmi", "event-subscription"]
-  mitre_attack: ["T1546.003"]
+  tags:
+    - persistence
+    - wmi
+    - event-subscription
+  mitre_attack:
+    - T1546.003
   false_positives:
     - "IT monitoring tools using WMI subscriptions for event collection"
     - "Management software registering legitimate WMI providers"
@@ -218,10 +240,12 @@
     startup_folder_write:
       orderless: true
       file_paths:
-        - "\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\"
-        - "\\ProgramData\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\"
-        - "\\AppData\\Roaming\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\"
-      file_operations: ["create", "write"]
+        - \Microsoft\Windows\Start Menu\Programs\Startup\
+        - \ProgramData\Microsoft\Windows\Start Menu\Programs\Startup\
+        - \AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup\
+      file_operations:
+        - create
+        - write
       min_matches: 1
 
   detection_logic:
@@ -243,8 +267,12 @@
     - pattern: "install*.exe"
       must_be_signed: true
 
-  tags: ["persistence", "startup-folder", "info"]
-  mitre_attack: ["T1547.001"]
+  tags:
+    - persistence
+    - startup-folder
+    - info
+  mitre_attack:
+    - T1547.001
   false_positives:
     - "Legitimate software placing shortcuts in Startup"
     - "User-configured startup applications"
@@ -285,12 +313,22 @@
     service_registry_create:
       orderless: true
       registry_keys:
-        - "HKLM\\SYSTEM\\CurrentControlSet\\Services"
+        - HKLM\SYSTEM\CurrentControlSet\Services
       registry_values:
-        - "ImagePath"
-        - "Start"
-        - "Type"
-      registry_operations: ["create"]
+        - ImagePath
+        - Start
+        - Type
+      registry_operations:
+        - reg_create_key
+        - reg_set_value
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+        - reg_query_value
+        - reg_query_key
+        - reg_open_key
+        - reg_enum_key
+        - reg_enum_value
       min_matches: 1
 
   detection_logic:
@@ -317,8 +355,12 @@
       signers:
         - "microsoft"
 
-  tags: ["persistence", "service-install", "info"]
-  mitre_attack: ["T1543.003"]
+  tags:
+    - persistence
+    - service-install
+    - info
+  mitre_attack:
+    - T1543.003
   false_positives:
     - "Software installers creating legitimate services"
     - "IT tools deploying management agents"
@@ -341,12 +383,22 @@
     appinit_dll_write:
       orderless: true
       registry_keys:
-        - "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Windows"
-        - "HKLM\\SOFTWARE\\WOW6432Node\\Microsoft\\Windows NT\\CurrentVersion\\Windows"
+        - HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Windows
+        - HKLM\SOFTWARE\WOW6432Node\Microsoft\Windows NT\CurrentVersion\Windows
       registry_values:
-        - "AppInit_DLLs"
-        - "LoadAppInit_DLLs"
-      registry_operations: ["set", "create"]
+        - AppInit_DLLs
+        - LoadAppInit_DLLs
+      registry_operations:
+        - reg_create_key
+        - reg_set_value
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+        - reg_query_value
+        - reg_query_key
+        - reg_open_key
+        - reg_enum_key
+        - reg_enum_value
       min_matches: 1
 
   detection_logic:
@@ -359,8 +411,12 @@
     auto_revert: true
     record: true
 
-  tags: ["persistence", "dll-injection", "appinit"]
-  mitre_attack: ["T1546.010"]
+  tags:
+    - persistence
+    - dll-injection
+    - appinit
+  mitre_attack:
+    - T1546.010
   false_positives:
     - "Accessibility software using AppInit_DLLs (rare legitimate use)"
 
@@ -383,29 +439,59 @@
     ifeo_debugger:
       orderless: true
       registry_keys:
-        - "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Image File Execution Options"
+        - HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options
       registry_values:
-        - "Debugger"
-      registry_operations: ["set", "create"]
+        - Debugger
+      registry_operations:
+        - reg_create_key
+        - reg_set_value
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+        - reg_query_value
+        - reg_query_key
+        - reg_open_key
+        - reg_enum_key
+        - reg_enum_value
       min_matches: 1
 
     ifeo_globalflag:
       orderless: true
       registry_keys:
-        - "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Image File Execution Options"
+        - HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options
       registry_values:
-        - "GlobalFlag"
-      registry_operations: ["set", "create"]
+        - GlobalFlag
+      registry_operations:
+        - reg_create_key
+        - reg_set_value
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+        - reg_query_value
+        - reg_query_key
+        - reg_open_key
+        - reg_enum_key
+        - reg_enum_value
       min_matches: 1
 
     accessibility_hijack:
       orderless: true
       registry_keys:
-        - "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Image File Execution Options\\sethc.exe"
-        - "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Image File Execution Options\\utilman.exe"
-        - "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Image File Execution Options\\osk.exe"
-        - "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Image File Execution Options\\magnify.exe"
-      registry_operations: ["set", "create", "delete"]
+        - HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\sethc.exe
+        - HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\utilman.exe
+        - HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\osk.exe
+        - HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\magnify.exe
+      registry_operations:
+        - reg_create_key
+        - reg_set_value
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+        - reg_query_value
+        - reg_query_key
+        - reg_open_key
+        - reg_enum_key
+        - reg_enum_value
       min_matches: 1
 
   detection_logic:
@@ -421,8 +507,14 @@
     auto_revert: true
     record: true
 
-  tags: ["persistence", "privilege-escalation", "ifeo", "sticky-keys"]
-  mitre_attack: ["T1546.012", "T1546.008"]
+  tags:
+    - persistence
+    - privilege-escalation
+    - ifeo
+    - sticky-keys
+  mitre_attack:
+    - T1546.012
+    - T1546.008
   false_positives:
     - "Legitimate debuggers registered via IFEO for development"
     - "Application verifier settings"
@@ -445,19 +537,39 @@
     rdp_enable_registry:
       orderless: true
       registry_keys:
-        - "HKLM\\SYSTEM\\CurrentControlSet\\Control\\Terminal Server"
+        - HKLM\SYSTEM\CurrentControlSet\Control\Terminal Server
       registry_values:
-        - "fDenyTSConnections"
-      registry_operations: ["set"]
+        - fDenyTSConnections
+      registry_operations:
+        - reg_create_key
+        - reg_set_value
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+        - reg_query_value
+        - reg_query_key
+        - reg_open_key
+        - reg_enum_key
+        - reg_enum_value
       min_matches: 1
 
     rdp_port_change:
       orderless: true
       registry_keys:
-        - "HKLM\\SYSTEM\\CurrentControlSet\\Control\\Terminal Server\\WinStations\\RDP-Tcp"
+        - HKLM\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp
       registry_values:
-        - "PortNumber"
-      registry_operations: ["set"]
+        - PortNumber
+      registry_operations:
+        - reg_create_key
+        - reg_set_value
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+        - reg_query_value
+        - reg_query_key
+        - reg_open_key
+        - reg_enum_key
+        - reg_enum_value
       min_matches: 1
 
     netsh_rdp_enable:
@@ -492,8 +604,14 @@
     terminate_process: false
     record: true
 
-  tags: ["persistence", "lateral-movement", "rdp", "info"]
-  mitre_attack: ["T1021.001", "T1112"]
+  tags:
+    - persistence
+    - lateral-movement
+    - rdp
+    - info
+  mitre_attack:
+    - T1021.001
+    - T1112
   false_positives:
     - "IT administrators enabling RDP for management"
     - "Remote support tools configuring RDP access"

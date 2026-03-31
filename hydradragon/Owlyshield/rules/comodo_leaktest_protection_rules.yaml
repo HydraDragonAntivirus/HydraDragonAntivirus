@@ -68,15 +68,25 @@
     driver_path_modification:
       orderless: true
       registry_keys:
-        - "HKLM\\SYSTEM\\CurrentControlSet\\Services"
-        - "HKLM\\SYSTEM\\ControlSet001\\Services"
-        - "HKLM\\SYSTEM\\ControlSet002\\Services"
+        - HKLM\SYSTEM\CurrentControlSet\Services
+        - HKLM\SYSTEM\ControlSet001\Services
+        - HKLM\SYSTEM\ControlSet002\Services
       registry_values:
-        - "ImagePath"
-        - "ServiceDll"
-        - "Type"
-        - "Start"
-      registry_operations: ["set", "create", "delete"]
+        - ImagePath
+        - ServiceDll
+        - Type
+        - Start
+      registry_operations:
+        - reg_create_key
+        - reg_set_value
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+        - reg_query_value
+        - reg_query_key
+        - reg_open_key
+        - reg_enum_key
+        - reg_enum_value
       min_matches: 1
 
     service_reconfigure_api:
@@ -125,8 +135,14 @@
     status_access_denied: true
     record: true
 
-  tags: ["rootkit", "driver", "registry", "privilege-escalation"]
-  mitre_attack: ["T1014", "T1547.006"]
+  tags:
+    - rootkit
+    - driver
+    - registry
+    - privilege-escalation
+  mitre_attack:
+    - T1014
+    - T1547.006
 
 ---
 
@@ -177,8 +193,14 @@
     status_access_denied: true
     record: true
 
-  tags: ["invasion", "raw-device", "fileless", "execution"]
-  mitre_attack: ["T1218", "T1202"]
+  tags:
+    - invasion
+    - raw-device
+    - fileless
+    - execution
+  mitre_attack:
+    - T1218
+    - T1202
 
 ---
 
@@ -260,7 +282,12 @@
         - "*\\\\.\\\\ElRawDisk*"
         - "*ElRawDisk*"
         - "*RawDisk*"
-      file_operations: ["read", "write", "create", "setinfo", "delete"]
+      file_operations:
+        - read
+        - write
+        - create
+        - setinfo
+        - delete
       min_matches: 1
 
   detection_logic:
@@ -273,8 +300,14 @@
     status_access_denied: true
     record: true
 
-  tags: ["invasion", "raw-disk", "bootkit", "bootloader"]
-  mitre_attack: ["T1014", "T1561.001"]
+  tags:
+    - invasion
+    - raw-disk
+    - bootkit
+    - bootloader
+  mitre_attack:
+    - T1014
+    - T1561.001
 
 ---
 
@@ -409,8 +442,12 @@
     status_access_denied: true
     record: true
 
-  tags: ["invasion", "file-drop", "persistence"]
-  mitre_attack: ["T1105"]
+  tags:
+    - invasion
+    - file-drop
+    - persistence
+  mitre_attack:
+    - T1105
 
 ---
 
@@ -460,8 +497,13 @@
     status_access_denied: true
     record: true
 
-  tags: ["injection", "hook", "code-injection"]
-  mitre_attack: ["T1547.015", "T1179"]
+  tags:
+    - injection
+    - hook
+    - code-injection
+  mitre_attack:
+    - T1547.015
+    - T1179
 
 ---
 
@@ -511,8 +553,14 @@
     status_access_denied: true
     record: true
 
-  tags: ["injection", "hook", "keyboard-logging", "credential-access"]
-  mitre_attack: ["T1056.004", "T1179"]
+  tags:
+    - injection
+    - hook
+    - keyboard-logging
+    - credential-access
+  mitre_attack:
+    - T1056.004
+    - T1179
 
 ---
 
@@ -577,27 +625,47 @@
     service_key_create:
       orderless: true
       registry_keys:
-        - "HKLM\\SYSTEM\\CurrentControlSet\\Services"
-        - "HKLM\\SYSTEM\\ControlSet001\\Services"
-        - "HKLM\\SYSTEM\\ControlSet002\\Services"
-      registry_operations: ["create"]
+        - HKLM\SYSTEM\CurrentControlSet\Services
+        - HKLM\SYSTEM\ControlSet001\Services
+        - HKLM\SYSTEM\ControlSet002\Services
+      registry_operations:
+        - reg_create_key
+        - reg_set_value
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+        - reg_query_value
+        - reg_query_key
+        - reg_open_key
+        - reg_enum_key
+        - reg_enum_value
       min_matches: 1
 
     service_registry_create:
       orderless: true
       registry_keys:
-        - "HKLM\\SYSTEM\\CurrentControlSet\\Services"
-        - "HKLM\\SYSTEM\\ControlSet001\\Services"
-        - "HKLM\\SYSTEM\\ControlSet002\\Services"
-      registry_operations: ["create", "set"]
+        - HKLM\SYSTEM\CurrentControlSet\Services
+        - HKLM\SYSTEM\ControlSet001\Services
+        - HKLM\SYSTEM\ControlSet002\Services
+      registry_operations:
+        - reg_create_key
+        - reg_set_value
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+        - reg_query_value
+        - reg_query_key
+        - reg_open_key
+        - reg_enum_key
+        - reg_enum_value
       registry_values:
-        - "ImagePath"
-        - "ServiceDll"
-        - "ServiceDllUnloadOnStop"
-        - "Parameters"
-        - "Type"
-        - "Start"
-        - "ObjectName"
+        - ImagePath
+        - ServiceDll
+        - ServiceDllUnloadOnStop
+        - Parameters
+        - Type
+        - Start
+        - ObjectName
       min_matches: 1
 
     createservice_api:
@@ -672,8 +740,13 @@
     record: true
     auto_revert: true
 
-  tags: ["injection", "services", "persistence", "privilege-escalation"]
-  mitre_attack: ["T1543.003"]
+  tags:
+    - injection
+    - services
+    - persistence
+    - privilege-escalation
+  mitre_attack:
+    - T1543.003
 
 ---
 
@@ -784,8 +857,14 @@
     status_access_denied: true
     record: true
 
-  tags: ["exfiltration", "dns", "c2", "network"]
-  mitre_attack: ["T1041", "T1071.004"]
+  tags:
+    - exfiltration
+    - dns
+    - c2
+    - network
+  mitre_attack:
+    - T1041
+    - T1071.004
 
 ---
 
@@ -938,17 +1017,27 @@
     service_dll_modification:
       orderless: true
       registry_keys:
-        - "HKLM\\SYSTEM\\CurrentControlSet\\Services"
-        - "HKLM\\SYSTEM\\ControlSet001\\Services"
-        - "HKLM\\SYSTEM\\ControlSet002\\Services"
+        - HKLM\SYSTEM\CurrentControlSet\Services
+        - HKLM\SYSTEM\ControlSet001\Services
+        - HKLM\SYSTEM\ControlSet002\Services
       registry_values:
-        - "ServiceDll"
-        - "ImagePath"
-        - "ImagePathValue"
-        - "ServiceDllUnloadOnStop"
-        - "FailureCommand"
-        - "DllName"
-      registry_operations: ["set", "create", "delete"]
+        - ServiceDll
+        - ImagePath
+        - ImagePathValue
+        - ServiceDllUnloadOnStop
+        - FailureCommand
+        - DllName
+      registry_operations:
+        - reg_create_key
+        - reg_set_value
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+        - reg_query_value
+        - reg_query_key
+        - reg_open_key
+        - reg_enum_key
+        - reg_enum_value
       min_matches: 1
 
     service_reconfigure_api:
@@ -1003,8 +1092,13 @@
     record: true
     auto_revert: true
 
-  tags: ["hijacking", "services", "persistence", "dll-replacement"]
-  mitre_attack: ["T1547.001"]
+  tags:
+    - hijacking
+    - services
+    - persistence
+    - dll-replacement
+  mitre_attack:
+    - T1547.001
 
 ---
 
@@ -1039,21 +1133,31 @@
         - "*NtSetValueKey*"
         - "*ZwSetValueKey*"
       registry_keys:
-        - "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run"
-        - "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\RunOnce"
-        - "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Run"
-        - "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\RunOnce"
-        - "HKLM\\Software\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Run"
-        - "HKLM\\Software\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\RunOnce"
-        - "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\RunServices"
-        - "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\RunServices"
-        - "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\RunServicesOnce"
-        - "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\RunServicesOnce"
-        - "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer\\Run"
-        - "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer\\Run"
-        - "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\StartupApproved\\Run"
-        - "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\StartupApproved\\Run"
-      registry_operations: ["set", "create"]
+        - HKCU\Software\Microsoft\Windows\CurrentVersion\Run
+        - HKCU\Software\Microsoft\Windows\CurrentVersion\RunOnce
+        - HKLM\Software\Microsoft\Windows\CurrentVersion\Run
+        - HKLM\Software\Microsoft\Windows\CurrentVersion\RunOnce
+        - HKLM\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Run
+        - HKLM\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\RunOnce
+        - HKCU\Software\Microsoft\Windows\CurrentVersion\RunServices
+        - HKLM\Software\Microsoft\Windows\CurrentVersion\RunServices
+        - HKCU\Software\Microsoft\Windows\CurrentVersion\RunServicesOnce
+        - HKLM\Software\Microsoft\Windows\CurrentVersion\RunServicesOnce
+        - HKCU\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer\Run
+        - HKLM\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer\Run
+        - HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run
+        - HKLM\Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run
+      registry_operations:
+        - reg_create_key
+        - reg_set_value
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+        - reg_query_value
+        - reg_query_key
+        - reg_open_key
+        - reg_enum_key
+        - reg_enum_value
       min_matches: 1
 
     startup_folder_write:
@@ -1086,12 +1190,12 @@
     startup_value_payload:
       orderless: true
       registry_keys:
-        - "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run"
-        - "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\RunOnce"
-        - "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Run"
-        - "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\RunOnce"
-        - "HKLM\\Software\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Run"
-        - "HKLM\\Software\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\RunOnce"
+        - HKCU\Software\Microsoft\Windows\CurrentVersion\Run
+        - HKCU\Software\Microsoft\Windows\CurrentVersion\RunOnce
+        - HKLM\Software\Microsoft\Windows\CurrentVersion\Run
+        - HKLM\Software\Microsoft\Windows\CurrentVersion\RunOnce
+        - HKLM\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Run
+        - HKLM\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\RunOnce
       registry_value_data_patterns:
         - "*.exe*"
         - "*.dll*"
@@ -1109,7 +1213,17 @@
         - "*\\appdata\\*"
         - "*\\temp\\*"
         - "*\\public\\*"
-      registry_operations: ["set", "create"]
+      registry_operations:
+        - reg_create_key
+        - reg_set_value
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+        - reg_query_value
+        - reg_query_key
+        - reg_open_key
+        - reg_enum_key
+        - reg_enum_value
       min_matches: 1
 
     caller_unsigned:
@@ -1131,8 +1245,13 @@
     record: true
     auto_revert: true
 
-  tags: ["hijacking", "startup", "persistence"]
-  mitre_attack: ["T1547.001", "T1547.008"]
+  tags:
+    - hijacking
+    - startup
+    - persistence
+  mitre_attack:
+    - T1547.001
+    - T1547.008
 
 ---
 
@@ -1157,13 +1276,23 @@
     ifeo_registry_modification:
       orderless: true
       registry_keys:
-        - "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Image File Execution Options"
-        - "HKCU\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Image File Execution Options"
+        - HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options
+        - HKCU\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options
       registry_values:
-        - "Debugger"
-        - "GlobalFlag"
-        - "PageHeapFlags"
-      registry_operations: ["set", "create"]
+        - Debugger
+        - GlobalFlag
+        - PageHeapFlags
+      registry_operations:
+        - reg_create_key
+        - reg_set_value
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+        - reg_query_value
+        - reg_query_key
+        - reg_open_key
+        - reg_enum_key
+        - reg_enum_value
       min_matches: 1
 
     debugger_path_suspicious:
@@ -1189,8 +1318,13 @@
     record: true
     auto_revert: true
 
-  tags: ["hijacking", "ifeo", "debugger", "execution-redirection"]
-  mitre_attack: ["T1547.012"]
+  tags:
+    - hijacking
+    - ifeo
+    - debugger
+    - execution-redirection
+  mitre_attack:
+    - T1547.012
 
 ---
 
@@ -1225,22 +1359,32 @@
         - "*NtSetValueKey*"
         - "*ZwSetValueKey*"
       registry_keys:
-        - "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Windows"
-        - "HKCU\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Windows"
-        - "HKLM\\SOFTWARE\\Wow6432Node\\Microsoft\\Windows NT\\CurrentVersion\\Windows"
+        - HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Windows
+        - HKCU\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Windows
+        - HKLM\SOFTWARE\Wow6432Node\Microsoft\Windows NT\CurrentVersion\Windows
       registry_values:
-        - "AppInit_DLLs"
-        - "LoadAppInit_DLLs"
-        - "RequireSignedAppInit_DLLs"
-      registry_operations: ["set", "create"]
+        - AppInit_DLLs
+        - LoadAppInit_DLLs
+        - RequireSignedAppInit_DLLs
+      registry_operations:
+        - reg_create_key
+        - reg_set_value
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+        - reg_query_value
+        - reg_query_key
+        - reg_open_key
+        - reg_enum_key
+        - reg_enum_value
       min_matches: 1
 
     appinit_payload:
       orderless: true
       registry_keys:
-        - "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Windows"
-        - "HKCU\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Windows"
-        - "HKLM\\SOFTWARE\\Wow6432Node\\Microsoft\\Windows NT\\CurrentVersion\\Windows"
+        - HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Windows
+        - HKCU\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Windows
+        - HKLM\SOFTWARE\Wow6432Node\Microsoft\Windows NT\CurrentVersion\Windows
       registry_value_data_patterns:
         - "*.dll*"
         - "*AppData*"
@@ -1248,7 +1392,17 @@
         - "*Users*"
         - "*\\public\\*"
         - "*\\downloads\\*"
-      registry_operations: ["set", "create"]
+      registry_operations:
+        - reg_create_key
+        - reg_set_value
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+        - reg_query_value
+        - reg_query_key
+        - reg_open_key
+        - reg_enum_key
+        - reg_enum_value
       min_matches: 1
 
     caller_unsigned:
@@ -1269,8 +1423,13 @@
     record: true
     auto_revert: true
 
-  tags: ["hijacking", "dll-injection", "appinit", "persistence"]
-  mitre_attack: ["T1547.010"]
+  tags:
+    - hijacking
+    - dll-injection
+    - appinit
+    - persistence
+  mitre_attack:
+    - T1547.010
 
 ---
 
@@ -1292,8 +1451,18 @@
     bcd_registry_modification:
       orderless: true
       registry_keys:
-        - "HKLM\\BCD00000000"
-      registry_operations: ["set", "create", "delete"]
+        - HKLM\BCD00000000
+      registry_operations:
+        - reg_create_key
+        - reg_set_value
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+        - reg_query_value
+        - reg_query_key
+        - reg_open_key
+        - reg_enum_key
+        - reg_enum_value
       min_matches: 1
 
     boot_file_modification:
@@ -1316,8 +1485,13 @@
     status_access_denied: true
     record: true
 
-  tags: ["hijacking", "boot", "bcd", "persistence"]
-  mitre_attack: ["T1542.003"]
+  tags:
+    - hijacking
+    - boot
+    - bcd
+    - persistence
+  mitre_attack:
+    - T1542.003
 
 ---
 
@@ -1339,9 +1513,19 @@
     bho_registry_modification:
       orderless: true
       registry_keys:
-        - "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Browser Helper Objects"
-        - "HKLM\\Software\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Browser Helper Objects"
-      registry_operations: ["create", "set"]
+        - HKLM\Software\Microsoft\Windows\CurrentVersion\Explorer\Browser Helper Objects
+        - HKLM\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Explorer\Browser Helper Objects
+      registry_operations:
+        - reg_create_key
+        - reg_set_value
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+        - reg_query_value
+        - reg_query_key
+        - reg_open_key
+        - reg_enum_key
+        - reg_enum_value
       min_matches: 1
 
     caller_unsigned:
@@ -1361,8 +1545,13 @@
     status_access_denied: true
     record: true
 
-  tags: ["hijacking", "bho", "internet-explorer", "persistence"]
-  mitre_attack: ["T1176"]
+  tags:
+    - hijacking
+    - bho
+    - internet-explorer
+    - persistence
+  mitre_attack:
+    - T1176
 
 ---
 
@@ -1405,8 +1594,13 @@
     status_access_denied: true
     record: true
 
-  tags: ["hijacking", "gdiplus", "dll-hijacking", "persistence"]
-  mitre_attack: ["T1574.001"]
+  tags:
+    - hijacking
+    - gdiplus
+    - dll-hijacking
+    - persistence
+  mitre_attack:
+    - T1574.001
 
 ---
 
@@ -1459,5 +1653,10 @@
     status_access_denied: true
     record: true
 
-  tags: ["injection", "hook", "code-injection"]
-  mitre_attack: ["T1547.015", "T1056.004"]
+  tags:
+    - injection
+    - hook
+    - code-injection
+  mitre_attack:
+    - T1547.015
+    - T1056.004

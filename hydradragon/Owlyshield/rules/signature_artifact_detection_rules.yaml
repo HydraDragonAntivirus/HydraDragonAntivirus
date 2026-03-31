@@ -58,7 +58,9 @@
 
     signature_artifact_file_probe:
       orderless: true
-      file_operations: ["open", "read"]
+      file_operations:
+        - open
+        - read
       min_matches: 1
 
   detection_logic:
@@ -71,8 +73,16 @@
     status_access_denied: true
     record: true
 
-  tags: ["anti-analysis", "anti-debug", "anti-vm", "signature-artifacts", "path-probe"]
-  mitre_attack: ["T1497", "T1497.001", "T1497.003"]
+  tags:
+    - anti-analysis
+    - anti-debug
+    - anti-vm
+    - signature-artifacts
+    - path-probe
+  mitre_attack:
+    - T1497
+    - T1497.001
+    - T1497.003
   false_positives:
     - "Legitimate inventory or security software enumerating installed analysis tools"
     - "Administrator scripts checking whether VMware, VirtualBox, or Sandboxie is installed"
@@ -95,19 +105,29 @@
     signature_artifact_registry_read:
       orderless: true
       registry_keys:
-        - "HKLM\\SOFTWARE\\VMware, Inc.\\VMware Tools*"
-        - "HKLM\\SOFTWARE\\Oracle\\VirtualBox Guest Additions*"
-        - "HKLM\\HARDWARE\\DESCRIPTION\\System\\BIOS*"
-        - "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Sandboxie*"
-        - "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run\\SandboxiePlus_AutoRun"
-        - "HKLM\\SOFTWARE\\ShadowDefender*"
-        - "HKLM\\SYSTEM\\CurrentControlSet\\Services\\VMTools*"
-        - "HKLM\\SYSTEM\\CurrentControlSet\\Services\\VBoxService*"
-        - "HKLM\\SYSTEM\\CurrentControlSet\\Services\\SbieSvc*"
-        - "HKLM\\SYSTEM\\CurrentControlSet\\Services\\DFServ*"
-        - "HKLM\\SYSTEM\\CurrentControlSet\\Services\\cmdGuard*"
-        - "HKLM\\SYSTEM\\CurrentControlSet\\Services\\ShadowDefenderService*"
-      registry_operations: ["read"]
+        - HKLM\SOFTWARE\VMware, Inc.\VMware Tools*
+        - HKLM\SOFTWARE\Oracle\VirtualBox Guest Additions*
+        - HKLM\HARDWARE\DESCRIPTION\System\BIOS*
+        - HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Sandboxie*
+        - HKCU\Software\Microsoft\Windows\CurrentVersion\Run\SandboxiePlus_AutoRun
+        - HKLM\SOFTWARE\ShadowDefender*
+        - HKLM\SYSTEM\CurrentControlSet\Services\VMTools*
+        - HKLM\SYSTEM\CurrentControlSet\Services\VBoxService*
+        - HKLM\SYSTEM\CurrentControlSet\Services\SbieSvc*
+        - HKLM\SYSTEM\CurrentControlSet\Services\DFServ*
+        - HKLM\SYSTEM\CurrentControlSet\Services\cmdGuard*
+        - HKLM\SYSTEM\CurrentControlSet\Services\ShadowDefenderService*
+      registry_operations:
+        - reg_create_key
+        - reg_set_value
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+        - reg_query_value
+        - reg_query_key
+        - reg_open_key
+        - reg_enum_key
+        - reg_enum_value
       min_matches: 1
 
   detection_logic:
@@ -117,8 +137,15 @@
     notify_user: true
     record: true
 
-  tags: ["anti-analysis", "anti-debug", "anti-vm", "signature-artifacts", "registry-read"]
-  mitre_attack: ["T1497", "T1497.001"]
+  tags:
+    - anti-analysis
+    - anti-debug
+    - anti-vm
+    - signature-artifacts
+    - registry-read
+  mitre_attack:
+    - T1497
+    - T1497.001
   false_positives:
     - "System inventory, EDR, and IT management software reading virtualization software keys"
     - "Administrators using reg.exe or PowerShell to audit installed VM tools or sandbox products"
@@ -351,8 +378,15 @@
     notify_user: true
     record: true
 
-  tags: ["anti-analysis", "anti-debug", "anti-vm", "signature-artifacts", "command-probe"]
-  mitre_attack: ["T1497", "T1497.001"]
+  tags:
+    - anti-analysis
+    - anti-debug
+    - anti-vm
+    - signature-artifacts
+    - command-probe
+  mitre_attack:
+    - T1497
+    - T1497.001
   false_positives:
     - "Administrators or support scripts querying virtualization state"
     - "Inventory scripts looking for debugger or sandbox products"
@@ -413,7 +447,13 @@
     quarantine: true
     record: true
 
-  tags: ["anti-analysis", "anti-debug", "analysis-tool-kill", "signature-artifacts"]
-  mitre_attack: ["T1497", "T1562.001"]
+  tags:
+    - anti-analysis
+    - anti-debug
+    - analysis-tool-kill
+    - signature-artifacts
+  mitre_attack:
+    - T1497
+    - T1562.001
   false_positives:
     - "Security test harnesses that intentionally close analysis tools"

@@ -4,41 +4,96 @@
   status: experimental
   level: high
   severity: 88
-  tags: [regseek, hips, registry, system-modifications]
-  mitre_attack: ["T1112", "T1490", "T1562.001"]
+  tags:
+    - regseek
+    - hips
+    - registry
+    - system-modifications
+  mitre_attack:
+    - T1112
+    - T1490
+    - T1562.001
   detection_logic:
     any_of: [system_identity, boot_and_servicing, system_controls, storage_and_devices]
   named_conditions:
     system_identity:
+      orderless: true
       registry_keys:
-        - "HKLM/SYSTEM/CurrentControlSet/Control/ComputerName/ComputerName*"
-        - "HKLM/SYSTEM/CurrentControlSet/Control/TimeZoneInformation*"
-        - "HKLM/SOFTWARE/Microsoft/Windows NT/CurrentVersion/SoftwareProtectionPlatform*"
-      registry_operations: [reg_create_key, reg_set_value, reg_delete_value, reg_delete_key, reg_rename_key, reg_query_value, reg_query_key, reg_open_key, reg_enum_key, reg_enum_value]
+        - HKLM\SYSTEM\CurrentControlSet\Control\ComputerName\ComputerName*
+        - HKLM\SYSTEM\CurrentControlSet\Control\TimeZoneInformation*
+        - HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\SoftwareProtectionPlatform*
+      registry_operations:
+        - reg_create_key
+        - reg_set_value
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+        - reg_query_value
+        - reg_query_key
+        - reg_open_key
+        - reg_enum_key
+        - reg_enum_value
+      min_matches: 1
     boot_and_servicing:
+      orderless: true
       registry_keys:
-        - "HKLM/SYSTEM/CurrentControlSet/Control/SafeBoot*"
-        - "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Component Based Servicing*"
-        - "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/WindowsUpdate*"
-        - "HKLM/SOFTWARE/Microsoft/Windows/Windows Error Reporting*"
-      registry_operations: [reg_create_key, reg_set_value, reg_delete_value, reg_delete_key, reg_rename_key, reg_query_value, reg_query_key, reg_open_key, reg_enum_key, reg_enum_value]
+        - HKLM\SYSTEM\CurrentControlSet\Control\SafeBoot*
+        - HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing*
+        - HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate*
+        - HKLM\SOFTWARE\Microsoft\Windows\Windows Error Reporting*
+      registry_operations:
+        - reg_create_key
+        - reg_set_value
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+        - reg_query_value
+        - reg_query_key
+        - reg_open_key
+        - reg_enum_key
+        - reg_enum_value
+      min_matches: 1
     system_controls:
+      orderless: true
       registry_keys:
-        - "HKLM/SOFTWARE/Policies/Microsoft/Windows/Safer/CodeIdentifiers*"
-        - "HKLM/SOFTWARE/Policies/Microsoft/Windows/SrpV2*"
-        - "HKLM/SYSTEM/CurrentControlSet/Control/Power*"
-        - "HKLM/SOFTWARE/Policies/Microsoft/Windows/DeviceInstall/Restrictions*"
-        - "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/CapabilityAccessManager/ConsentStore/location*"
-      registry_operations: [reg_create_key, reg_set_value, reg_delete_value, reg_delete_key, reg_rename_key, reg_query_value, reg_query_key, reg_open_key, reg_enum_key, reg_enum_value]
+        - HKLM\SOFTWARE\Policies\Microsoft\Windows\Safer\CodeIdentifiers*
+        - HKLM\SOFTWARE\Policies\Microsoft\Windows\SrpV2*
+        - HKLM\SYSTEM\CurrentControlSet\Control\Power*
+        - HKLM\SOFTWARE\Policies\Microsoft\Windows\DeviceInstall\Restrictions*
+        - HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\location*
+      registry_operations:
+        - reg_create_key
+        - reg_set_value
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+        - reg_query_value
+        - reg_query_key
+        - reg_open_key
+        - reg_enum_key
+        - reg_enum_value
+      min_matches: 1
     storage_and_devices:
+      orderless: true
       registry_keys:
-        - "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Uninstall*"
-        - "HKLM/SYSTEM/CurrentControlSet/Enum*"
-        - "HKLM/SYSTEM/CurrentControlSet/Control/Session Manager/Memory Management*"
-        - "HKLM/SYSTEM/CurrentControlSet/Services/VSS*"
-        - "HKCU/Software/Microsoft/Windows/CurrentVersion/CDP*"
-        - "HKCU/Software/Apple Computer, Inc./iTunes*"
-      registry_operations: [reg_create_key, reg_set_value, reg_delete_value, reg_delete_key, reg_rename_key, reg_query_value, reg_query_key, reg_open_key, reg_enum_key, reg_enum_value]
+        - HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall*
+        - HKLM\SYSTEM\CurrentControlSet\Enum*
+        - HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management*
+        - HKLM\SYSTEM\CurrentControlSet\Services\VSS*
+        - HKCU\Software\Microsoft\Windows\CurrentVersion\CDP*
+        - HKCU\Software\Apple Computer, Inc.\iTunes*
+      registry_operations:
+        - reg_create_key
+        - reg_set_value
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+        - reg_query_value
+        - reg_query_key
+        - reg_open_key
+        - reg_enum_key
+        - reg_enum_value
+      min_matches: 1
   response:
     ask_user: true
     terminate_process: true
@@ -97,35 +152,79 @@
   status: experimental
   level: medium
   severity: 76
-  tags: [regseek, hips, registry, user-behaviour, cloud]
-  mitre_attack: ["T1112", "T1020", "T1537"]
+  tags:
+    - regseek
+    - hips
+    - registry
+    - user-behaviour
+    - cloud
+  mitre_attack:
+    - T1112
+    - T1020
+    - T1537
   detection_logic:
     any_of: [recent_activity, cloud_clients, shell_personalization]
   named_conditions:
     recent_activity:
+      orderless: true
       registry_keys:
-        - "HKCU/Software/Microsoft/Windows/CurrentVersion/Explorer/WordWheelQuery*"
-        - "HKCU/Software/Microsoft/Windows/CurrentVersion/Explorer/ComDlg32/CIDSizeMRU*"
-        - "HKCU/Software/Microsoft/Windows/CurrentVersion/Explorer/Advanced*"
-        - "HKCU/Software/Microsoft/Windows/CurrentVersion/Notifications/Settings*"
-        - "HKCU/Software/Microsoft/Windows/CurrentVersion/Widgets*"
-        - "HKCU/Software/Microsoft/Windows/CurrentVersion/ContentDeliveryManager*"
-      registry_operations: [reg_create_key, reg_set_value, reg_delete_value, reg_delete_key, reg_rename_key, reg_query_value, reg_query_key, reg_open_key, reg_enum_key, reg_enum_value]
+        - HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\WordWheelQuery*
+        - HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\ComDlg32\CIDSizeMRU*
+        - HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced*
+        - HKCU\Software\Microsoft\Windows\CurrentVersion\Notifications\Settings*
+        - HKCU\Software\Microsoft\Windows\CurrentVersion\Widgets*
+        - HKCU\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager*
+      registry_operations:
+        - reg_create_key
+        - reg_set_value
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+        - reg_query_value
+        - reg_query_key
+        - reg_open_key
+        - reg_enum_key
+        - reg_enum_value
+      min_matches: 1
     cloud_clients:
+      orderless: true
       registry_keys:
-        - "HKCU/Software/Microsoft/OneDrive*"
-        - "HKCU/Software/Google/Drive*"
-        - "HKCU/Software/Dropbox*"
-        - "HKCU/Software/Box/Box*"
-        - "HKCU/Software/Apple Inc./iCloud*"
-      registry_operations: [reg_create_key, reg_set_value, reg_delete_value, reg_delete_key, reg_rename_key, reg_query_value, reg_query_key, reg_open_key, reg_enum_key, reg_enum_value]
+        - HKCU\Software\Microsoft\OneDrive*
+        - HKCU\Software\Google\Drive*
+        - HKCU\Software\Dropbox*
+        - HKCU\Software\Box\Box*
+        - HKCU\Software\Apple Inc.\iCloud*
+      registry_operations:
+        - reg_create_key
+        - reg_set_value
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+        - reg_query_value
+        - reg_query_key
+        - reg_open_key
+        - reg_enum_key
+        - reg_enum_value
+      min_matches: 1
     shell_personalization:
+      orderless: true
       registry_keys:
-        - "HKCU/Software/Microsoft/Windows/CurrentVersion/Explorer/Snap*"
-        - "HKCU/Software/Classes/ActivatableClasses/Package*"
-        - "HKCU/Software/Microsoft/GameBar*"
-        - "HKCU/Software/VideoLAN/VLC*"
-      registry_operations: [reg_create_key, reg_set_value, reg_delete_value, reg_delete_key, reg_rename_key, reg_query_value, reg_query_key, reg_open_key, reg_enum_key, reg_enum_value]
+        - HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Snap*
+        - HKCU\Software\Classes\ActivatableClasses\Package*
+        - HKCU\Software\Microsoft\GameBar*
+        - HKCU\Software\VideoLAN\VLC*
+      registry_operations:
+        - reg_create_key
+        - reg_set_value
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+        - reg_query_value
+        - reg_query_key
+        - reg_open_key
+        - reg_enum_key
+        - reg_enum_value
+      min_matches: 1
   response:
     ask_user: true
     terminate_process: true
@@ -180,24 +279,56 @@
   status: experimental
   level: critical
   severity: 96
-  tags: [regseek, hips, registry, authentication]
-  mitre_attack: ["T1112", "T1003", "T1556", "T1098"]
+  tags:
+    - regseek
+    - hips
+    - registry
+    - authentication
+  mitre_attack:
+    - T1112
+    - T1003
+    - T1556
+    - T1098
   detection_logic:
     any_of: [lsa_and_credentials, account_surfaces]
   named_conditions:
     lsa_and_credentials:
+      orderless: true
       registry_keys:
-        - "HKLM/SYSTEM/CurrentControlSet/Control/Lsa*"
-        - "HKLM/SYSTEM/CurrentControlSet/Control/SecurityProviders/WDigest*"
-        - "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Authentication/Credential Providers*"
-        - "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/WinBio*"
-        - "HKLM/SECURITY/Policy*"
-      registry_operations: [reg_create_key, reg_set_value, reg_delete_value, reg_delete_key, reg_rename_key, reg_query_value, reg_query_key, reg_open_key, reg_enum_key, reg_enum_value]
+        - HKLM\SYSTEM\CurrentControlSet\Control\Lsa*
+        - HKLM\SYSTEM\CurrentControlSet\Control\SecurityProviders\WDigest*
+        - HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\Credential Providers*
+        - HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\WinBio*
+        - HKLM\SECURITY\Policy*
+      registry_operations:
+        - reg_create_key
+        - reg_set_value
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+        - reg_query_value
+        - reg_query_key
+        - reg_open_key
+        - reg_enum_key
+        - reg_enum_value
+      min_matches: 1
     account_surfaces:
+      orderless: true
       registry_keys:
-        - "HKLM/SAM/SAM/Domains/Account/Users*"
-        - "HKLM/SOFTWARE/Microsoft/Windows NT/CurrentVersion/ProfileList*"
-      registry_operations: [reg_create_key, reg_set_value, reg_delete_value, reg_delete_key, reg_rename_key, reg_query_value, reg_query_key, reg_open_key, reg_enum_key, reg_enum_value]
+        - HKLM\SAM\SAM\Domains\Account\Users*
+        - HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList*
+      registry_operations:
+        - reg_create_key
+        - reg_set_value
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+        - reg_query_value
+        - reg_query_key
+        - reg_open_key
+        - reg_enum_key
+        - reg_enum_value
+      min_matches: 1
   response:
     ask_user: true
     terminate_process: true
@@ -252,24 +383,55 @@
   status: experimental
   level: high
   severity: 84
-  tags: [regseek, hips, registry, virtualization]
-  mitre_attack: ["T1112", "T1611", "T1610"]
+  tags:
+    - regseek
+    - hips
+    - registry
+    - virtualization
+  mitre_attack:
+    - T1112
+    - T1611
+    - T1610
   detection_logic:
     any_of: [windows_virtualization, third_party_virtualization]
   named_conditions:
     windows_virtualization:
+      orderless: true
       registry_keys:
-        - "HKLM/SOFTWARE/Microsoft/Windows NT/CurrentVersion/Virtualization*"
-        - "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Container Manager*"
-        - "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Lxss*"
-        - "HKCU/Software/Microsoft/Windows/CurrentVersion/Lxss*"
-      registry_operations: [reg_create_key, reg_set_value, reg_delete_value, reg_delete_key, reg_rename_key, reg_query_value, reg_query_key, reg_open_key, reg_enum_key, reg_enum_value]
+        - HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Virtualization*
+        - HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Container Manager*
+        - HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Lxss*
+        - HKCU\Software\Microsoft\Windows\CurrentVersion\Lxss*
+      registry_operations:
+        - reg_create_key
+        - reg_set_value
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+        - reg_query_value
+        - reg_query_key
+        - reg_open_key
+        - reg_enum_key
+        - reg_enum_value
+      min_matches: 1
     third_party_virtualization:
+      orderless: true
       registry_keys:
-        - "HKCU/Software/Oracle/VirtualBox*"
-        - "HKCU/Software/VMware Inc/VMware Workstation*"
-        - "HKCU/Software/Docker Inc/Docker Desktop*"
-      registry_operations: [reg_create_key, reg_set_value, reg_delete_value, reg_delete_key, reg_rename_key, reg_query_value, reg_query_key, reg_open_key, reg_enum_key, reg_enum_value]
+        - HKCU\Software\Oracle\VirtualBox*
+        - HKCU\Software\VMware Inc\VMware Workstation*
+        - HKCU\Software\Docker Inc\Docker Desktop*
+      registry_operations:
+        - reg_create_key
+        - reg_set_value
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+        - reg_query_value
+        - reg_query_key
+        - reg_open_key
+        - reg_enum_key
+        - reg_enum_value
+      min_matches: 1
   response:
     ask_user: true
     terminate_process: true
@@ -324,28 +486,71 @@
   status: experimental
   level: high
   severity: 90
-  tags: [regseek, hips, registry, remote-access]
-  mitre_attack: ["T1112", "T1021.001", "T1090"]
+  tags:
+    - regseek
+    - hips
+    - registry
+    - remote-access
+  mitre_attack:
+    - T1112
+    - T1021.001
+    - T1090
   detection_logic:
     any_of: [rdp_and_terminal, remote_access_clients, proxy_and_ras]
   named_conditions:
     rdp_and_terminal:
+      orderless: true
       registry_keys:
-        - "HKLM/SYSTEM/CurrentControlSet/Control/Terminal Server*"
-        - "HKLM/SYSTEM/CurrentControlSet/Control/Terminal Server/WinStations*"
-      registry_operations: [reg_create_key, reg_set_value, reg_delete_value, reg_delete_key, reg_rename_key, reg_query_value, reg_query_key, reg_open_key, reg_enum_key, reg_enum_value]
+        - HKLM\SYSTEM\CurrentControlSet\Control\Terminal Server*
+        - HKLM\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations*
+      registry_operations:
+        - reg_create_key
+        - reg_set_value
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+        - reg_query_value
+        - reg_query_key
+        - reg_open_key
+        - reg_enum_key
+        - reg_enum_value
+      min_matches: 1
     remote_access_clients:
+      orderless: true
       registry_keys:
-        - "HKCU/Software/AnyDesk*"
-        - "HKCU/Software/TeamViewer*"
-      registry_operations: [reg_create_key, reg_set_value, reg_delete_value, reg_delete_key, reg_rename_key, reg_query_value, reg_query_key, reg_open_key, reg_enum_key, reg_enum_value]
+        - HKCU\Software\AnyDesk*
+        - HKCU\Software\TeamViewer*
+      registry_operations:
+        - reg_create_key
+        - reg_set_value
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+        - reg_query_value
+        - reg_query_key
+        - reg_open_key
+        - reg_enum_key
+        - reg_enum_value
+      min_matches: 1
     proxy_and_ras:
+      orderless: true
       registry_keys:
-        - "HKCU/Software/Microsoft/RAS Phonebook*"
-        - "HKLM/Software/Microsoft/Tracing/*_RASAPI32*"
-        - "HKLM/Software/Microsoft/Tracing/*_RASMANCS*"
-        - "HKCU/Software/Microsoft/Windows/CurrentVersion/Internet Settings*"
-      registry_operations: [reg_create_key, reg_set_value, reg_delete_value, reg_delete_key, reg_rename_key, reg_query_value, reg_query_key, reg_open_key, reg_enum_key, reg_enum_value]
+        - HKCU\Software\Microsoft\RAS Phonebook*
+        - HKLM\Software\Microsoft\Tracing\*_RASAPI32*
+        - HKLM\Software\Microsoft\Tracing\*_RASMANCS*
+        - HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings*
+      registry_operations:
+        - reg_create_key
+        - reg_set_value
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+        - reg_query_value
+        - reg_query_key
+        - reg_open_key
+        - reg_enum_key
+        - reg_enum_value
+      min_matches: 1
   response:
     ask_user: true
     terminate_process: true
@@ -400,22 +605,54 @@
   status: experimental
   level: high
   severity: 82
-  tags: [regseek, hips, registry, ai-features, privacy]
-  mitre_attack: ["T1112", "T1056", "T1125"]
+  tags:
+    - regseek
+    - hips
+    - registry
+    - ai-features
+    - privacy
+  mitre_attack:
+    - T1112
+    - T1056
+    - T1125
   detection_logic:
     any_of: [ai_features, privacy_permissions]
   named_conditions:
     ai_features:
+      orderless: true
       registry_keys:
-        - "HKCU/Software/Microsoft/Windows/Shell/Copilot*"
-        - "HKCU/Software/Microsoft/Windows/CurrentVersion/WindowsAI*"
-      registry_operations: [reg_create_key, reg_set_value, reg_delete_value, reg_delete_key, reg_rename_key, reg_query_value, reg_query_key, reg_open_key, reg_enum_key, reg_enum_value]
+        - HKCU\Software\Microsoft\Windows\Shell\Copilot*
+        - HKCU\Software\Microsoft\Windows\CurrentVersion\WindowsAI*
+      registry_operations:
+        - reg_create_key
+        - reg_set_value
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+        - reg_query_value
+        - reg_query_key
+        - reg_open_key
+        - reg_enum_key
+        - reg_enum_value
+      min_matches: 1
     privacy_permissions:
+      orderless: true
       registry_keys:
-        - "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/CapabilityAccessManager/ConsentStore*"
-        - "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/CapabilityAccessManager/ConsentStore/microphone*"
-        - "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/CapabilityAccessManager/ConsentStore/location*"
-      registry_operations: [reg_create_key, reg_set_value, reg_delete_value, reg_delete_key, reg_rename_key, reg_query_value, reg_query_key, reg_open_key, reg_enum_key, reg_enum_value]
+        - HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore*
+        - HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\microphone*
+        - HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\location*
+      registry_operations:
+        - reg_create_key
+        - reg_set_value
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+        - reg_query_value
+        - reg_query_key
+        - reg_open_key
+        - reg_enum_key
+        - reg_enum_value
+      min_matches: 1
   response:
     ask_user: true
     terminate_process: true
@@ -470,28 +707,71 @@
   status: experimental
   level: high
   severity: 83
-  tags: [regseek, hips, registry, browser]
-  mitre_attack: ["T1112", "T1176", "T1189"]
+  tags:
+    - regseek
+    - hips
+    - registry
+    - browser
+  mitre_attack:
+    - T1112
+    - T1176
+    - T1189
   detection_logic:
     any_of: [ie_controls, browser_extensions, browser_profiles]
   named_conditions:
     ie_controls:
+      orderless: true
       registry_keys:
-        - "HKCU/Software/Microsoft/Internet Explorer/Main*"
-        - "HKCU/Software/Microsoft/Windows/CurrentVersion/Internet Settings/Zones*"
-        - "HKCU/Software/Microsoft/Internet Explorer/TypedURLs*"
-        - "HKLM/SOFTWARE/Microsoft/Internet Explorer/ActiveX Compatibility*"
-      registry_operations: [reg_create_key, reg_set_value, reg_delete_value, reg_delete_key, reg_rename_key, reg_query_value, reg_query_key, reg_open_key, reg_enum_key, reg_enum_value]
+        - HKCU\Software\Microsoft\Internet Explorer\Main*
+        - HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings\Zones*
+        - HKCU\Software\Microsoft\Internet Explorer\TypedURLs*
+        - HKLM\SOFTWARE\Microsoft\Internet Explorer\ActiveX Compatibility*
+      registry_operations:
+        - reg_create_key
+        - reg_set_value
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+        - reg_query_value
+        - reg_query_key
+        - reg_open_key
+        - reg_enum_key
+        - reg_enum_value
+      min_matches: 1
     browser_extensions:
+      orderless: true
       registry_keys:
-        - "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Explorer/Browser Helper Objects*"
-      registry_operations: [reg_create_key, reg_set_value, reg_delete_value, reg_delete_key, reg_rename_key, reg_query_value, reg_query_key, reg_open_key, reg_enum_key, reg_enum_value]
+        - HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Browser Helper Objects*
+      registry_operations:
+        - reg_create_key
+        - reg_set_value
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+        - reg_query_value
+        - reg_query_key
+        - reg_open_key
+        - reg_enum_key
+        - reg_enum_value
+      min_matches: 1
     browser_profiles:
+      orderless: true
       registry_keys:
-        - "HKCU/Software/Mozilla/Firefox*"
-        - "HKCU/Software/Mozilla/Firefox/Profiles/*/Tor Browser*"
-        - "HKCU/Software/Google/Chrome*"
-      registry_operations: [reg_create_key, reg_set_value, reg_delete_value, reg_delete_key, reg_rename_key, reg_query_value, reg_query_key, reg_open_key, reg_enum_key, reg_enum_value]
+        - HKCU\Software\Mozilla\Firefox*
+        - HKCU\Software\Mozilla\Firefox\Profiles\*\Tor Browser*
+        - HKCU\Software\Google\Chrome*
+      registry_operations:
+        - reg_create_key
+        - reg_set_value
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+        - reg_query_value
+        - reg_query_key
+        - reg_open_key
+        - reg_enum_key
+        - reg_enum_value
+      min_matches: 1
   response:
     ask_user: true
     terminate_process: true
@@ -546,32 +826,75 @@
   status: experimental
   level: medium
   severity: 74
-  tags: [regseek, hips, registry, file-operations]
-  mitre_attack: ["T1112", "T1025", "T1005"]
+  tags:
+    - regseek
+    - hips
+    - registry
+    - file-operations
+  mitre_attack:
+    - T1112
+    - T1025
+    - T1005
   detection_logic:
     any_of: [archive_and_editors, recent_access, print_and_preview]
   named_conditions:
     archive_and_editors:
+      orderless: true
       registry_keys:
-        - "HKCU/Software/7-Zip*"
-        - "HKCU/Software/WinRAR*"
-        - "HKCU/Software/WinZip Computing/WinZip*"
-        - "HKCU/Software/Notepad++*"
-      registry_operations: [reg_create_key, reg_set_value, reg_delete_value, reg_delete_key, reg_rename_key, reg_query_value, reg_query_key, reg_open_key, reg_enum_key, reg_enum_value]
+        - HKCU\Software\7-Zip*
+        - HKCU\Software\WinRAR*
+        - HKCU\Software\WinZip Computing\WinZip*
+        - HKCU\Software\Notepad++*
+      registry_operations:
+        - reg_create_key
+        - reg_set_value
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+        - reg_query_value
+        - reg_query_key
+        - reg_open_key
+        - reg_enum_key
+        - reg_enum_value
+      min_matches: 1
     recent_access:
+      orderless: true
       registry_keys:
-        - "HKCU/Software/Microsoft/Windows/Shell/Bags*"
-        - "HKCU/Software/Microsoft/Windows/CurrentVersion/FileHistory*"
-        - "HKCU/Software/Microsoft/Windows/CurrentVersion/Explorer/ComDlg32/OpenSavePidlMRU*"
-        - "HKCU/Software/Microsoft/Windows/CurrentVersion/Explorer/ComDlg32/LastVisitedPidlMRU*"
-        - "HKCU/Software/Microsoft/Office/*/*/File MRU*"
-        - "HKCU/Software/Microsoft/Windows/CurrentVersion/Explorer/RecentDocs*"
-      registry_operations: [reg_create_key, reg_set_value, reg_delete_value, reg_delete_key, reg_rename_key, reg_query_value, reg_query_key, reg_open_key, reg_enum_key, reg_enum_value]
+        - HKCU\Software\Microsoft\Windows\Shell\Bags*
+        - HKCU\Software\Microsoft\Windows\CurrentVersion\FileHistory*
+        - HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\ComDlg32\OpenSavePidlMRU*
+        - HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\ComDlg32\LastVisitedPidlMRU*
+        - HKCU\Software\Microsoft\Office\*\*\File MRU*
+        - HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\RecentDocs*
+      registry_operations:
+        - reg_create_key
+        - reg_set_value
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+        - reg_query_value
+        - reg_query_key
+        - reg_open_key
+        - reg_enum_key
+        - reg_enum_value
+      min_matches: 1
     print_and_preview:
+      orderless: true
       registry_keys:
-        - "HKLM/SYSTEM/CurrentControlSet/Control/Print/Printers*"
-        - "HKCU/Software/Microsoft/Windows/CurrentVersion/Explorer/Advanced*"
-      registry_operations: [reg_create_key, reg_set_value, reg_delete_value, reg_delete_key, reg_rename_key, reg_query_value, reg_query_key, reg_open_key, reg_enum_key, reg_enum_value]
+        - HKLM\SYSTEM\CurrentControlSet\Control\Print\Printers*
+        - HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced*
+      registry_operations:
+        - reg_create_key
+        - reg_set_value
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+        - reg_query_value
+        - reg_query_key
+        - reg_open_key
+        - reg_enum_key
+        - reg_enum_value
+      min_matches: 1
   response:
     ask_user: true
     terminate_process: true
@@ -626,39 +949,83 @@
   status: experimental
   level: critical
   severity: 99
-  tags: [regseek, hips, registry, persistence]
-  mitre_attack: ["T1112", "T1547", "T1546", "T1543.003"]
+  tags:
+    - regseek
+    - hips
+    - registry
+    - persistence
+  mitre_attack:
+    - T1112
+    - T1547
+    - T1546
+    - T1543.003
   detection_logic:
     any_of: [autostart_surfaces, hijack_surfaces, service_surfaces]
   named_conditions:
     autostart_surfaces:
+      orderless: true
       registry_keys:
-        - "HKCU/Control Panel/Desktop*"
-        - "HKLM/SOFTWARE/Microsoft/Windows NT/CurrentVersion/Winlogon*"
-        - "HKLM/Software/Microsoft/Windows/CurrentVersion/Run*"
-        - "HKCU/Software/Microsoft/Windows/CurrentVersion/Run*"
-        - "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Explorer/Shell Folders*"
-        - "HKLM/SYSTEM/CurrentControlSet/Control/Session Manager*"
+        - HKCU\Control Panel\Desktop*
+        - HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon*
+        - HKLM\Software\Microsoft\Windows\CurrentVersion\Run*
+        - HKCU\Software\Microsoft\Windows\CurrentVersion\Run*
+        - HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Shell Folders*
+        - HKLM\SYSTEM\CurrentControlSet\Control\Session Manager*
       autorun_keys:
-        - "HKLM/Software/Microsoft/Windows/CurrentVersion/Run*"
-        - "HKCU/Software/Microsoft/Windows/CurrentVersion/Run*"
-      registry_operations: [reg_create_key, reg_set_value, reg_delete_value, reg_delete_key, reg_rename_key, reg_query_value, reg_query_key, reg_open_key, reg_enum_key, reg_enum_value]
+        - HKLM\Software\Microsoft\Windows\CurrentVersion\Run*
+        - HKCU\Software\Microsoft\Windows\CurrentVersion\Run*
+      registry_operations:
+        - reg_create_key
+        - reg_set_value
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+        - reg_query_value
+        - reg_query_key
+        - reg_open_key
+        - reg_enum_key
+        - reg_enum_value
+      min_matches: 1
     hijack_surfaces:
+      orderless: true
       registry_keys:
-        - "HKLM/SOFTWARE/Microsoft/Windows NT/CurrentVersion/Image File Execution Options*"
-        - "HKLM/SYSTEM/CurrentControlSet/Control/Lsa*"
-        - "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Shell Extensions/Approved*"
-        - "HKLM/SYSTEM/CurrentControlSet/Control/Session Manager/AppCertDLLs*"
-        - "HKLM/SOFTWARE/Microsoft/Wbem/ESS/Root/Subscription*"
-        - "HKLM/System/CurrentControlSet/Control/Lsa/DsrmAdminLogonBehavior*"
-        - "HKCR/CLSID*"
-      registry_operations: [reg_create_key, reg_set_value, reg_delete_value, reg_delete_key, reg_rename_key, reg_query_value, reg_query_key, reg_open_key, reg_enum_key, reg_enum_value]
+        - HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options*
+        - HKLM\SYSTEM\CurrentControlSet\Control\Lsa*
+        - HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Shell Extensions\Approved*
+        - HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\AppCertDLLs*
+        - HKLM\SOFTWARE\Microsoft\Wbem\ESS\Root\Subscription*
+        - HKLM\System\CurrentControlSet\Control\Lsa\DsrmAdminLogonBehavior*
+        - HKCR\CLSID*
+      registry_operations:
+        - reg_create_key
+        - reg_set_value
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+        - reg_query_value
+        - reg_query_key
+        - reg_open_key
+        - reg_enum_key
+        - reg_enum_value
+      min_matches: 1
     service_surfaces:
+      orderless: true
       registry_keys:
-        - "HKLM/SOFTWARE/Microsoft/Windows NT/CurrentVersion/Schedule/TaskCache/Tasks*"
-        - "HKLM/SYSTEM/CurrentControlSet/Control/Print/Processors*"
-        - "HKLM/SYSTEM/CurrentControlSet/Services*"
-      registry_operations: [reg_create_key, reg_set_value, reg_delete_value, reg_delete_key, reg_rename_key, reg_query_value, reg_query_key, reg_open_key, reg_enum_key, reg_enum_value]
+        - HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\Tasks*
+        - HKLM\SYSTEM\CurrentControlSet\Control\Print\Processors*
+        - HKLM\SYSTEM\CurrentControlSet\Services*
+      registry_operations:
+        - reg_create_key
+        - reg_set_value
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+        - reg_query_value
+        - reg_query_key
+        - reg_open_key
+        - reg_enum_key
+        - reg_enum_value
+      min_matches: 1
   response:
     ask_user: true
     terminate_process: true
@@ -717,29 +1084,60 @@
   status: experimental
   level: high
   severity: 86
-  tags: [regseek, hips, registry, program-execution]
-  mitre_attack: ["T1112", "T1059.001", "T1059.005"]
+  tags:
+    - regseek
+    - hips
+    - registry
+    - program-execution
+  mitre_attack:
+    - T1112
+    - T1059.001
+    - T1059.005
   detection_logic:
     any_of: [execution_state, execution_policy]
   named_conditions:
     execution_state:
+      orderless: true
       registry_keys:
-        - "HKCU/Software/Microsoft/Windows/CurrentVersion/Explorer/UserAssist*"
-        - "HKCU/Software/Microsoft/Windows Terminal*"
-        - "HKLM/SYSTEM/CurrentControlSet/Control/Session Manager/AppCompatCache*"
-        - "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/App Paths*"
-        - "HKCU/Software/Microsoft/Windows/CurrentVersion/Explorer/RunMRU*"
-        - "HKCU/Software/Classes/Local Settings/Software/Microsoft/Windows/Shell/MuiCache*"
-        - "HKLM/SYSTEM/CurrentControlSet/Control/Session Manager/Memory Management/PrefetchParameters*"
-      registry_operations: [reg_create_key, reg_set_value, reg_delete_value, reg_delete_key, reg_rename_key, reg_query_value, reg_query_key, reg_open_key, reg_enum_key, reg_enum_value]
+        - HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\UserAssist*
+        - HKCU\Software\Microsoft\Windows Terminal*
+        - HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\AppCompatCache*
+        - HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths*
+        - HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\RunMRU*
+        - HKCU\Software\Classes\Local Settings\Software\Microsoft\Windows\Shell\MuiCache*
+        - HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management\PrefetchParameters*
+      registry_operations:
+        - reg_create_key
+        - reg_set_value
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+        - reg_query_value
+        - reg_query_key
+        - reg_open_key
+        - reg_enum_key
+        - reg_enum_value
+      min_matches: 1
     execution_policy:
+      orderless: true
       registry_keys:
-        - "HKCU/Software/Git*"
-        - "HKLM/SOFTWARE/Microsoft/PowerShell/1/ShellIds/Microsoft.PowerShell*"
-        - "HKLM/SOFTWARE/Microsoft/Windows NT/CurrentVersion/AppCompatFlags*"
-        - "HKLM/SOFTWARE/Microsoft/Windows Script Host/Settings*"
-        - "HKCU/Software/Microsoft/Windows/CurrentVersion/Uninstall/{771FD6B0-FA20-440A-A002-3B3BAC16DC50}_is1*"
-      registry_operations: [reg_create_key, reg_set_value, reg_delete_value, reg_delete_key, reg_rename_key, reg_query_value, reg_query_key, reg_open_key, reg_enum_key, reg_enum_value]
+        - HKCU\Software\Git*
+        - HKLM\SOFTWARE\Microsoft\PowerShell\1\ShellIds\Microsoft.PowerShell*
+        - HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags*
+        - HKLM\SOFTWARE\Microsoft\Windows Script Host\Settings*
+        - HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\{771FD6B0-FA20-440A-A002-3B3BAC16DC50}_is1*
+      registry_operations:
+        - reg_create_key
+        - reg_set_value
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+        - reg_query_value
+        - reg_query_key
+        - reg_open_key
+        - reg_enum_key
+        - reg_enum_value
+      min_matches: 1
   response:
     ask_user: true
     terminate_process: true
@@ -794,31 +1192,74 @@
   status: experimental
   level: high
   severity: 87
-  tags: [regseek, hips, registry, network-infrastructure]
-  mitre_attack: ["T1112", "T1090", "T1021.002"]
+  tags:
+    - regseek
+    - hips
+    - registry
+    - network-infrastructure
+  mitre_attack:
+    - T1112
+    - T1090
+    - T1021.002
   detection_logic:
     any_of: [name_resolution, network_paths, tunneling_and_proxy]
   named_conditions:
     name_resolution:
+      orderless: true
       registry_keys:
-        - "HKLM/SYSTEM/CurrentControlSet/Services/NetBT/Parameters*"
-        - "HKLM/SYSTEM/CurrentControlSet/Services/Dnscache/Parameters*"
-        - "HKLM/SYSTEM/CurrentControlSet/Services/Tcpip/Parameters/Interfaces*"
-      registry_operations: [reg_create_key, reg_set_value, reg_delete_value, reg_delete_key, reg_rename_key, reg_query_value, reg_query_key, reg_open_key, reg_enum_key, reg_enum_value]
+        - HKLM\SYSTEM\CurrentControlSet\Services\NetBT\Parameters*
+        - HKLM\SYSTEM\CurrentControlSet\Services\Dnscache\Parameters*
+        - HKLM\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces*
+      registry_operations:
+        - reg_create_key
+        - reg_set_value
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+        - reg_query_value
+        - reg_query_key
+        - reg_open_key
+        - reg_enum_key
+        - reg_enum_value
+      min_matches: 1
     network_paths:
+      orderless: true
       registry_keys:
-        - "HKCU/Network*"
-        - "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/BITS/StateIndex*"
-        - "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Explorer/FolderDescriptions/{F02C1A0D-BE21-4350-88B0-7367FC96EF3C}*"
-        - "HKLM/SYSTEM/CurrentControlSet/Services/lanmanserver/Shares*"
-        - "HKLM/SOFTWARE/Microsoft/Windows NT/CurrentVersion/NetworkList/Profiles*"
-      registry_operations: [reg_create_key, reg_set_value, reg_delete_value, reg_delete_key, reg_rename_key, reg_query_value, reg_query_key, reg_open_key, reg_enum_key, reg_enum_value]
+        - HKCU\Network*
+        - HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\BITS\StateIndex*
+        - HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\FolderDescriptions\{F02C1A0D-BE21-4350-88B0-7367FC96EF3C}*
+        - HKLM\SYSTEM\CurrentControlSet\Services\lanmanserver\Shares*
+        - HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\NetworkList\Profiles*
+      registry_operations:
+        - reg_create_key
+        - reg_set_value
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+        - reg_query_value
+        - reg_query_key
+        - reg_open_key
+        - reg_enum_key
+        - reg_enum_value
+      min_matches: 1
     tunneling_and_proxy:
+      orderless: true
       registry_keys:
-        - "HKCU/Software/NordVPN*"
-        - "HKCU/Software/Microsoft/Windows/CurrentVersion/Internet Settings*"
-        - "HKLM/SYSTEM/CurrentControlSet/Services/Tcpip6/Parameters*"
-      registry_operations: [reg_create_key, reg_set_value, reg_delete_value, reg_delete_key, reg_rename_key, reg_query_value, reg_query_key, reg_open_key, reg_enum_key, reg_enum_value]
+        - HKCU\Software\NordVPN*
+        - HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings*
+        - HKLM\SYSTEM\CurrentControlSet\Services\Tcpip6\Parameters*
+      registry_operations:
+        - reg_create_key
+        - reg_set_value
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+        - reg_query_value
+        - reg_query_key
+        - reg_open_key
+        - reg_enum_key
+        - reg_enum_value
+      min_matches: 1
   response:
     ask_user: true
     terminate_process: true
@@ -873,25 +1314,56 @@
   status: experimental
   level: medium
   severity: 73
-  tags: [regseek, hips, registry, communication-apps]
-  mitre_attack: ["T1112", "T1020", "T1105"]
+  tags:
+    - regseek
+    - hips
+    - registry
+    - communication-apps
+  mitre_attack:
+    - T1112
+    - T1020
+    - T1105
   detection_logic:
     any_of: [mail_and_voip, collaboration_clients]
   named_conditions:
     mail_and_voip:
+      orderless: true
       registry_keys:
-        - "HKCU/Software/Microsoft/Office/Outlook*"
-        - "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Telephony*"
-      registry_operations: [reg_create_key, reg_set_value, reg_delete_value, reg_delete_key, reg_rename_key, reg_query_value, reg_query_key, reg_open_key, reg_enum_key, reg_enum_value]
+        - HKCU\Software\Microsoft\Office\Outlook*
+        - HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Telephony*
+      registry_operations:
+        - reg_create_key
+        - reg_set_value
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+        - reg_query_value
+        - reg_query_key
+        - reg_open_key
+        - reg_enum_key
+        - reg_enum_value
+      min_matches: 1
     collaboration_clients:
+      orderless: true
       registry_keys:
-        - "HKCU/Software/Microsoft/Office/Teams*"
-        - "HKCU/Software/Discord*"
-        - "HKCU/Software/Zoom/Installer*"
-        - "HKCU/Software/WhatsApp*"
-        - "HKCU/Software/Microsoft/Windows/CurrentVersion/Explorer/Advanced/TaskbarMn*"
-        - "HKCU/Software/Slack/Teams*"
-      registry_operations: [reg_create_key, reg_set_value, reg_delete_value, reg_delete_key, reg_rename_key, reg_query_value, reg_query_key, reg_open_key, reg_enum_key, reg_enum_value]
+        - HKCU\Software\Microsoft\Office\Teams*
+        - HKCU\Software\Discord*
+        - HKCU\Software\Zoom\Installer*
+        - HKCU\Software\WhatsApp*
+        - HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced\TaskbarMn*
+        - HKCU\Software\Slack\Teams*
+      registry_operations:
+        - reg_create_key
+        - reg_set_value
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+        - reg_query_value
+        - reg_query_key
+        - reg_open_key
+        - reg_enum_key
+        - reg_enum_value
+      min_matches: 1
   response:
     ask_user: true
     terminate_process: true
@@ -946,21 +1418,52 @@
   status: experimental
   level: high
   severity: 85
-  tags: [regseek, hips, registry, external-storage]
-  mitre_attack: ["T1112", "T1091", "T1025"]
+  tags:
+    - regseek
+    - hips
+    - registry
+    - external-storage
+  mitre_attack:
+    - T1112
+    - T1091
+    - T1025
   detection_logic:
     any_of: [usb_enumeration, drive_mapping]
   named_conditions:
     usb_enumeration:
+      orderless: true
       registry_keys:
-        - "HKLM/SYSTEM/CurrentControlSet/Enum/USBSTOR*"
-        - "HKLM/SYSTEM/CurrentControlSet/Enum/SWD/WPDBUSENUM*"
-        - "HKLM/SYSTEM/CurrentControlSet/Enum/USB/VID_*&PID_*"
-      registry_operations: [reg_create_key, reg_set_value, reg_delete_value, reg_delete_key, reg_rename_key, reg_query_value, reg_query_key, reg_open_key, reg_enum_key, reg_enum_value]
+        - HKLM\SYSTEM\CurrentControlSet\Enum\USBSTOR*
+        - HKLM\SYSTEM\CurrentControlSet\Enum\SWD\WPDBUSENUM*
+        - HKLM\SYSTEM\CurrentControlSet\Enum\USB\VID_*&PID_*
+      registry_operations:
+        - reg_create_key
+        - reg_set_value
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+        - reg_query_value
+        - reg_query_key
+        - reg_open_key
+        - reg_enum_key
+        - reg_enum_value
+      min_matches: 1
     drive_mapping:
+      orderless: true
       registry_keys:
-        - "HKLM/SYSTEM/MountedDevices*"
-      registry_operations: [reg_create_key, reg_set_value, reg_delete_value, reg_delete_key, reg_rename_key, reg_query_value, reg_query_key, reg_open_key, reg_enum_key, reg_enum_value]
+        - HKLM\SYSTEM\MountedDevices*
+      registry_operations:
+        - reg_create_key
+        - reg_set_value
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+        - reg_query_value
+        - reg_query_key
+        - reg_open_key
+        - reg_enum_key
+        - reg_enum_value
+      min_matches: 1
   response:
     ask_user: true
     terminate_process: true
@@ -1015,38 +1518,93 @@
   status: experimental
   level: critical
   severity: 98
-  tags: [regseek, hips, registry, security-monitoring]
-  mitre_attack: ["T1112", "T1562.001", "T1562.004"]
+  tags:
+    - regseek
+    - hips
+    - registry
+    - security-monitoring
+  mitre_attack:
+    - T1112
+    - T1562.001
+    - T1562.004
   detection_logic:
     any_of: [defender_and_firewall, policy_controls, trust_and_logging, privacy_and_capabilities]
   named_conditions:
     defender_and_firewall:
+      orderless: true
       registry_keys:
-        - "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/WindowsApplicationGuard*"
-        - "HKLM/SYSTEM/CurrentControlSet/Services/SharedAccess/Parameters/FirewallPolicy*"
-        - "HKLM/SYSTEM/CurrentControlSet/Services/SharedAccess/Parameters/FirewallPolicy/FirewallRules*"
-        - "HKLM/SOFTWARE/Microsoft/Windows Defender*"
-      registry_operations: [reg_create_key, reg_set_value, reg_delete_value, reg_delete_key, reg_rename_key, reg_query_value, reg_query_key, reg_open_key, reg_enum_key, reg_enum_value]
+        - HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsApplicationGuard*
+        - HKLM\SYSTEM\CurrentControlSet\Services\SharedAccess\Parameters\FirewallPolicy*
+        - HKLM\SYSTEM\CurrentControlSet\Services\SharedAccess\Parameters\FirewallPolicy\FirewallRules*
+        - HKLM\SOFTWARE\Microsoft\Windows Defender*
+      registry_operations:
+        - reg_create_key
+        - reg_set_value
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+        - reg_query_value
+        - reg_query_key
+        - reg_open_key
+        - reg_enum_key
+        - reg_enum_value
+      min_matches: 1
     policy_controls:
+      orderless: true
       registry_keys:
-        - "HKLM/SECURITY/Policy*"
-        - "HKLM/SOFTWARE/Microsoft/Microsoft Antimalware/Quarantine*"
-        - "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Policies/System*"
-        - "HKLM/SOFTWARE/Microsoft/Security Center*"
-        - "HKLM/SOFTWARE/Policies/Microsoft/FVE*"
-        - "HKCU/Software/Microsoft/Windows/CurrentVersion/Policies/Explorer*"
-      registry_operations: [reg_create_key, reg_set_value, reg_delete_value, reg_delete_key, reg_rename_key, reg_query_value, reg_query_key, reg_open_key, reg_enum_key, reg_enum_value]
+        - HKLM\SECURITY\Policy*
+        - HKLM\SOFTWARE\Microsoft\Microsoft Antimalware\Quarantine*
+        - HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System*
+        - HKLM\SOFTWARE\Microsoft\Security Center*
+        - HKLM\SOFTWARE\Policies\Microsoft\FVE*
+        - HKCU\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer*
+      registry_operations:
+        - reg_create_key
+        - reg_set_value
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+        - reg_query_value
+        - reg_query_key
+        - reg_open_key
+        - reg_enum_key
+        - reg_enum_value
+      min_matches: 1
     trust_and_logging:
+      orderless: true
       registry_keys:
-        - "HKLM/SOFTWARE/Microsoft/SystemCertificates*"
-        - "HKLM/SYSTEM/CurrentControlSet/Services/EventLog*"
-        - "HKLM/SOFTWARE/Microsoft/Windows NT/CurrentVersion/Perflib*"
-      registry_operations: [reg_create_key, reg_set_value, reg_delete_value, reg_delete_key, reg_rename_key, reg_query_value, reg_query_key, reg_open_key, reg_enum_key, reg_enum_value]
+        - HKLM\SOFTWARE\Microsoft\SystemCertificates*
+        - HKLM\SYSTEM\CurrentControlSet\Services\EventLog*
+        - HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Perflib*
+      registry_operations:
+        - reg_create_key
+        - reg_set_value
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+        - reg_query_value
+        - reg_query_key
+        - reg_open_key
+        - reg_enum_key
+        - reg_enum_value
+      min_matches: 1
     privacy_and_capabilities:
+      orderless: true
       registry_keys:
-        - "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/CapabilityAccessManager/ConsentStore*"
-        - "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/CapabilityAccessManager/ConsentStore/microphone*"
-      registry_operations: [reg_create_key, reg_set_value, reg_delete_value, reg_delete_key, reg_rename_key, reg_query_value, reg_query_key, reg_open_key, reg_enum_key, reg_enum_value]
+        - HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore*
+        - HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\microphone*
+      registry_operations:
+        - reg_create_key
+        - reg_set_value
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+        - reg_query_value
+        - reg_query_key
+        - reg_open_key
+        - reg_enum_key
+        - reg_enum_value
+      min_matches: 1
   response:
     ask_user: true
     terminate_process: true
