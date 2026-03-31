@@ -16,26 +16,26 @@
     Equivalent to Sigma: Registry Run Keys Modification (T1547.001).
   debug: false
 
-    run_key_write:
-      orderless: true
-      registry_keys:
-        - HKCU\Software\Microsoft\Windows\CurrentVersion\Run
-        - HKCU\Software\Microsoft\Windows\CurrentVersion\RunOnce
-        - HKLM\Software\Microsoft\Windows\CurrentVersion\Run
-        - HKLM\Software\Microsoft\Windows\CurrentVersion\RunOnce
-        - HKLM\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Run
-      registry_operations:
-        - reg_create_key
-        - reg_set_value
-        - reg_delete_value
-        - reg_delete_key
-        - reg_rename_key
-        - reg_query_value
-        - reg_query_key
-        - reg_open_key
-        - reg_enum_key
-        - reg_enum_value
-      min_matches: 1
+  run_key_write:
+    orderless: true
+    registry_keys:
+      - HKCU\Software\Microsoft\Windows\CurrentVersion\Run
+      - HKCU\Software\Microsoft\Windows\CurrentVersion\RunOnce
+      - HKLM\Software\Microsoft\Windows\CurrentVersion\Run
+      - HKLM\Software\Microsoft\Windows\CurrentVersion\RunOnce
+      - HKLM\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Run
+    registry_operations:
+      - reg_create_key
+      - reg_set_value
+      - reg_delete_value
+      - reg_delete_key
+      - reg_rename_key
+      - reg_query_value
+      - reg_query_key
+      - reg_open_key
+      - reg_enum_key
+      - reg_enum_value
+    min_matches: 1
 
   detection_logic:
     condition: "run_key_write"
