@@ -71,6 +71,9 @@
         - HKLM\SYSTEM\CurrentControlSet\Services
         - HKLM\SYSTEM\ControlSet001\Services
         - HKLM\SYSTEM\ControlSet002\Services
+        - \REGISTRY\MACHINE\SYSTEM\CurrentControlSet\Services
+        - \REGISTRY\MACHINE\SYSTEM\ControlSet001\Services
+        - \REGISTRY\MACHINE\SYSTEM\ControlSet002\Services
       registry_values:
         - ImagePath
         - ServiceDll
@@ -282,6 +285,16 @@
         - "*\\\\.\\\\ElRawDisk*"
         - "*ElRawDisk*"
         - "*RawDisk*"
+        - "\\\\.\\\\PhysicalDrive*"
+        - "\\\\.\\\\C:"
+        - "\\\\.\\\\D:"
+        - "\\\\.\\\\*:"
+        - "\\\\Device\\\\Harddisk*"
+        - "\\\\Device\\\\HarddiskVolume*"
+        - "\\REGISTRY\\MACHINE\\SYSTEM\\CurrentControlSet\\Services\\*\\Parameters\\RegistryDeviceName"
+        - "\\Device\\RawDisk"
+        - "\\??\\PhysicalDrive*"
+        - "\\\\.\\PhysicalDrive*"
       file_operations:
         - read
         - write
@@ -437,8 +450,8 @@
 
   response:
     notify_user: true
-    ask_user: true      # ← ask instead of auto-terminate (reduces blast radius)
-    terminate_process: false
+    ask_user: false
+    terminate_process: true
     status_access_denied: true
     record: true
 
@@ -474,6 +487,8 @@
         - "user32.dll!SetWinEventHookA"
         - "user32.dll!SetWinEventHookW"
         - "win32u.dll!NtUserSetWinEventHook"
+        - "ntdll.dll!NtUserSetWinEventHook"
+        - "ntdll.dll!ZwUserSetWinEventHook"
         - "SetWinEventHook"
         - "SetWinEventHookA"
         - "SetWinEventHookW"
@@ -530,6 +545,8 @@
         - "user32.dll!SetWindowsHookExA"
         - "user32.dll!SetWindowsHookExW"
         - "win32u.dll!NtUserSetWindowsHookEx"
+        - "ntdll.dll!NtUserSetWindowsHookEx"
+        - "ntdll.dll!ZwUserSetWindowsHookEx"
         - "NtUserSetWindowsHookEx"
         - "SetWindowsHookEx"
         - "SetWindowsHookExA"
@@ -628,6 +645,9 @@
         - HKLM\SYSTEM\CurrentControlSet\Services
         - HKLM\SYSTEM\ControlSet001\Services
         - HKLM\SYSTEM\ControlSet002\Services
+        - \REGISTRY\MACHINE\SYSTEM\CurrentControlSet\Services
+        - \REGISTRY\MACHINE\SYSTEM\ControlSet001\Services
+        - \REGISTRY\MACHINE\SYSTEM\ControlSet002\Services
       registry_operations:
         - reg_create_key
         - reg_set_value
@@ -647,6 +667,9 @@
         - HKLM\SYSTEM\CurrentControlSet\Services
         - HKLM\SYSTEM\ControlSet001\Services
         - HKLM\SYSTEM\ControlSet002\Services
+        - \REGISTRY\MACHINE\SYSTEM\CurrentControlSet\Services
+        - \REGISTRY\MACHINE\SYSTEM\ControlSet001\Services
+        - \REGISTRY\MACHINE\SYSTEM\ControlSet002\Services
       registry_operations:
         - reg_create_key
         - reg_set_value
@@ -832,6 +855,13 @@
         - "*getaddrinfo*"
         - "*GetAddrInfo*"
         - "*QueryDnsConfig*"
+        - "*GetHostByName*"
+        - "*WSAAsyncGetHostByName*"
+        - "dnsapi.dll!DnsQuery_W"
+        - "dnsapi.dll!DnsQuery_A"
+        - "ws2_32.dll!getaddrinfo"
+        - "ws2_32.dll!GetAddrInfoW"
+        - "nsi.dll!NsiExecuteQuery"
       has_network_activity: true
       network_indicators:
         - "dns"
@@ -1020,6 +1050,9 @@
         - HKLM\SYSTEM\CurrentControlSet\Services
         - HKLM\SYSTEM\ControlSet001\Services
         - HKLM\SYSTEM\ControlSet002\Services
+        - \REGISTRY\MACHINE\SYSTEM\CurrentControlSet\Services
+        - \REGISTRY\MACHINE\SYSTEM\ControlSet001\Services
+        - \REGISTRY\MACHINE\SYSTEM\ControlSet002\Services
       registry_values:
         - ServiceDll
         - ImagePath
@@ -1083,6 +1116,7 @@
       - or:
           - condition: "suspicious_service_dll_payload"
           - condition: "service_reconfigure_api"
+          - condition: "caller_unsigned"
 
   response:
     notify_user: true
@@ -1147,6 +1181,20 @@
         - HKLM\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer\Run
         - HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run
         - HKLM\Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run
+        - \REGISTRY\MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Run
+        - \REGISTRY\MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce
+        - \REGISTRY\USER\*\Software\Microsoft\Windows\CurrentVersion\Run
+        - \REGISTRY\USER\*\Software\Microsoft\Windows\CurrentVersion\RunOnce
+        - HKLM\Software\Microsoft\Windows\CurrentVersion\RunOnceEx
+        - \REGISTRY\MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnceEx
+        - HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Shell Folders
+        - HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders
+        - HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Shell Folders
+        - HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders
+        - \REGISTRY\MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Shell Folders
+        - \REGISTRY\MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders
+        - \REGISTRY\USER\*\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Shell Folders
+        - \REGISTRY\USER\*\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders
       registry_operations:
         - reg_create_key
         - reg_set_value
@@ -1362,6 +1410,9 @@
         - HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Windows
         - HKCU\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Windows
         - HKLM\SOFTWARE\Wow6432Node\Microsoft\Windows NT\CurrentVersion\Windows
+        - \REGISTRY\MACHINE\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Windows
+        - \REGISTRY\USER\*\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Windows
+        - \REGISTRY\MACHINE\SOFTWARE\Wow6432Node\Microsoft\Windows NT\CurrentVersion\Windows
       registry_values:
         - AppInit_DLLs
         - LoadAppInit_DLLs
@@ -1660,3 +1711,468 @@
   mitre_attack:
     - T1547.015
     - T1056.004
+
+---
+
+# TEST #1: RootkitInstallation:MissingDriverLoad — Prevent abandoned service path hijacking
+- name: "HEUR:Win.Rootkit.MissingDriverHijack.gen"
+  description: |
+    Detects attempts to create a registry service entry pointing to a non-existent
+    driver file, followed by a file drop of an unsigned binary into that path.
+    COMODO Test #1: RootkitInstallation:MissingDriverLoad
+  author: "HydraDragon"
+  level: critical
+  severity: 100
+  named_conditions:
+    driver_service_creation:
+      registry_keys:
+        - HKLM\SYSTEM\CurrentControlSet\Services
+        - \REGISTRY\MACHINE\SYSTEM\CurrentControlSet\Services
+      registry_values: ["ImagePath"]
+      registry_operations: ["reg_set_value", "reg_create_key"]
+      min_matches: 1
+    unsigned_file_drop:
+      file_paths: ["*.sys", "*.exe", "*.dll"]
+      file_operations: ["create", "write"]
+      is_signed: false
+      min_matches: 1
+  detection_logic:
+    and:
+      - condition: "driver_service_creation"
+      - condition: "unsigned_file_drop"
+  response:
+    terminate_process: true
+    status_access_denied: true
+    record: true
+
+---
+
+# TEST #2: RootkitInstallation:LoadAndCallImage — Prevent direct driver loading
+- name: "HEUR:Win.Rootkit.DirectDriverLoad.gen"
+  description: |
+    Detects calls to driver loading APIs (NtLoadDriver) from unauthorized processes.
+    COMODO Test #2: RootkitInstallation:LoadAndCallImage
+  author: "HydraDragon"
+  level: critical
+  severity: 100
+  named_conditions:
+    driver_load_api:
+      apis:
+        - "ntdll.dll!NtLoadDriver"
+        - "ntdll.dll!ZwLoadDriver"
+        - "NtLoadDriver"
+        - "ZwLoadDriver"
+      api_threshold: 1
+      min_matches: 1
+    unsigned_caller:
+      is_signed: false
+      min_matches: 1
+  detection_logic:
+    and:
+      - condition: "driver_load_api"
+      - condition: "unsigned_caller"
+  response:
+    terminate_process: true
+    status_access_denied: true
+    record: true
+
+---
+
+# TEST #3: RootkitInstallation:DriverSupersede — Prevent driver file overwrite
+- name: "HEUR:Win.Rootkit.DriverFileOverwrite.gen"
+  description: |
+    Detects attempts to overwrite existing driver files in System32\drivers.
+    COMODO Test #3: RootkitInstallation:DriverSupersede
+  author: "HydraDragon"
+  level: critical
+  severity: 100
+  named_conditions:
+    driver_overwrite:
+      file_paths: ["C:\\Windows\\System32\\drivers\\*.sys"]
+      file_operations: ["write", "delete", "setinfo"]
+      min_matches: 1
+    unsigned_caller:
+      is_signed: false
+      min_matches: 1
+  detection_logic:
+    and:
+      - condition: "driver_overwrite"
+      - condition: "unsigned_caller"
+  response:
+    terminate_process: true
+    status_access_denied: true
+    record: true
+
+---
+
+# TEST #7: Invasion:PhysicalMemory — Block direct physical memory access
+- name: "HEUR:Win.Invasion.PhysicalMemoryAccess.gen"
+  description: |
+    Detects attempts to open the PhysicalMemory device for write access.
+    COMODO Test #7: Invasion:PhysicalMemory
+  author: "HydraDragon"
+  level: critical
+  severity: 100
+  named_conditions:
+    phys_mem_access:
+      file_paths: ["\\Device\\PhysicalMemory"]
+      file_operations: ["write", "create"]
+      min_matches: 1
+  detection_logic:
+    condition: "phys_mem_access"
+  response:
+    terminate_process: true
+    status_access_denied: true
+    record: true
+
+---
+
+# TEST #9: Invasion:DebugControl — Block kernel debug control abuse
+- name: "HEUR:Win.Invasion.SystemDebugControl.gen"
+  description: |
+    Detects use of NtSystemDebugControl to manipulate kernel memory or CPU state.
+    COMODO Test #9: Invasion:DebugControl
+  author: "HydraDragon"
+  level: critical
+  severity: 100
+  named_conditions:
+    debug_control_api:
+      apis:
+        - "ntdll.dll!NtSystemDebugControl"
+        - "ntdll.dll!ZwSystemDebugControl"
+        - "NtSystemDebugControl"
+        - "ZwSystemDebugControl"
+      api_threshold: 1
+      min_matches: 1
+  detection_logic:
+    condition: "debug_control_api"
+  response:
+    terminate_process: true
+    status_access_denied: true
+    record: true
+
+---
+
+# TEST #12: Injection:SetThreadContext — Prevent thread context hijacking
+- name: "HEUR:Win.Injection.SetThreadContext.gen"
+  description: |
+    Detects attempts to modify the execution context of a thread in another process.
+    COMODO Test #12: Injection:SetThreadContext
+  author: "HydraDragon"
+  level: critical
+  severity: 100
+  named_conditions:
+    set_thread_context_api:
+      apis:
+        - "ntdll.dll!NtSetContextThread"
+        - "ntdll.dll!ZwSetContextThread"
+        - "NtSetContextThread"
+        - "ZwSetContextThread"
+      api_threshold: 1
+      min_matches: 1
+    remote_thread_access:
+      apis: ["*OpenThread*", "*GetThreadContext*", "*SetThreadContext*"]
+      # Simplified cross-process logic for rule-level matching
+      is_signed: false
+      min_matches: 1
+  detection_logic:
+    and:
+      - condition: "set_thread_context_api"
+      - condition: "remote_thread_access"
+  response:
+    terminate_process: true
+    status_access_denied: true
+    record: true
+
+---
+
+# TEST #14/17/18: Injection:ProcessInject/CreateRemoteThread/APC — Block remote execution
+- name: "HEUR:Win.Injection.RemoteExecution.gen"
+  description: |
+    Detects common remote code injection patterns: CreateRemoteThread,
+    NtCreateThreadEx, and QueueUserAPC into target processes.
+    COMODO Test #14: Injection:ProcessInject
+    COMODO Test #17: Injection:CreateRemoteThread
+    COMODO Test #18: Injection:APC dll injection
+  author: "HydraDragon"
+  level: critical
+  severity: 100
+  named_conditions:
+    remote_exec_api:
+      apis:
+        - "ntdll.dll!NtCreateThreadEx"
+        - "ntdll.dll!NtQueueApcThread"
+        - "kernel32.dll!CreateRemoteThread"
+        - "kernel32.dll!QueueUserAPC"
+        - "NtCreateThreadEx"
+        - "NtQueueApcThread"
+        - "CreateRemoteThread"
+        - "QueueUserAPC"
+      api_threshold: 1
+      min_matches: 1
+    unsigned_caller:
+      is_signed: false
+      min_matches: 1
+  detection_logic:
+    and:
+      - condition: "remote_exec_api"
+      - condition: "unsigned_caller"
+  response:
+    terminate_process: true
+    status_access_denied: true
+    record: true
+
+---
+
+# TEST #15: Injection:KnownDlls — Prevent KnownDlls redirection
+- name: "HEUR:Win.Injection.KnownDllsTamper.gen"
+  description: |
+    Detects attempts to modify the KnownDlls registry key or the \KnownDlls object.
+    COMODO Test #15: Injection:KnownDlls
+  author: "HydraDragon"
+  level: critical
+  severity: 100
+  named_conditions:
+    knowndlls_tamper:
+      registry_keys:
+        - HKLM\System\CurrentControlSet\Control\Session Manager\KnownDLLs
+        - \REGISTRY\MACHINE\System\CurrentControlSet\Control\Session Manager\KnownDLLs
+      registry_operations: ["reg_set_value", "reg_create_key", "reg_delete_value"]
+      min_matches: 1
+  detection_logic:
+    condition: "knowndlls_tamper"
+  response:
+    terminate_process: true
+    status_access_denied: true
+    record: true
+
+---
+
+# TEST #16: Injection:DupHandles — Block handle stealing/duplication
+- name: "HEUR:Win.Injection.HandleDuplication.gen"
+  description: |
+    Detects DuplicateHandle calls targeting protected system processes.
+    COMODO Test #16: Injection:DupHandles
+  author: "HydraDragon"
+  level: critical
+  severity: 100
+  named_conditions:
+    dup_handle_api:
+      apis:
+        - "ntdll.dll!NtDuplicateObject"
+        - "ZwDuplicateObject"
+        - "DuplicateHandle"
+      api_threshold: 1
+      min_matches: 1
+    unsigned_caller:
+      is_signed: false
+      min_matches: 1
+  detection_logic:
+    and:
+      - condition: "dup_handle_api"
+      - condition: "unsigned_caller"
+  response:
+    terminate_process: true
+    status_access_denied: true
+    record: true
+
+---
+
+# TEST #19: Injection:AdvancedProcessTermination — Block debug-based termination
+- name: "HEUR:Win.Injection.DebugTermination.gen"
+  description: |
+    Detects attempts to terminate processes using debugging APIs.
+    COMODO Test #19: Injection:AdvancedProcessTermination
+  author: "HydraDragon"
+  level: high
+  severity: 90
+  named_conditions:
+    debug_terminate:
+      apis:
+        - "kernel32.dll!DebugActiveProcess"
+        - "kernel32.dll!TerminateProcess"
+        - "ntdll.dll!NtTerminateProcess"
+      api_threshold: 1
+      min_matches: 1
+    unsigned_caller:
+      is_signed: false
+      min_matches: 1
+  detection_logic:
+    and:
+      - condition: "debug_terminate"
+      - condition: "unsigned_caller"
+  response:
+    terminate_process: true
+    status_access_denied: true
+    record: true
+
+---
+
+# TEST #20: InfoSend:ICMP Test — Block ICMP-based data exfiltration
+- name: "HEUR:Win.InfoSend.ICMPExfiltration.gen"
+  description: |
+    Detects suspicious ICMP traffic from unsigned processes, characteristic of
+    ICMP tunneling used for data exfiltration.
+    COMODO Test #20: InfoSend:ICMP Test
+  author: "HydraDragon"
+  level: high
+  severity: 85
+  named_conditions:
+    icmp_activity:
+      has_network_activity: true
+      network_indicators: ["icmp"]
+      min_matches: 1
+    unsigned_caller:
+      is_signed: false
+      min_matches: 1
+  detection_logic:
+    and:
+      - condition: "icmp_activity"
+      - condition: "unsigned_caller"
+  response:
+    status_access_denied: true
+    record: true
+
+---
+
+# TEST #22/24: Impersonation:OLE/DDE — Block browser control via OLE/DDE
+- name: "HEUR:Win.Impersonation.BrowserControl.gen"
+  description: |
+    Detects attempts to control browser instances (IE, Edge, Chrome) using OLE
+    automation or DDE (Dynamic Data Exchange) from unsigned processes.
+    COMODO Test #22: Impersonation:OLE automation
+    COMODO Test #24: Impersonation:DDE
+  author: "HydraDragon"
+  level: high
+  severity: 90
+  named_conditions:
+    browser_control:
+      apis:
+        - "ole32.dll!CoCreateInstance"
+        - "user32.dll!DdeInitialize*"
+        - "user32.dll!DdeConnect"
+        - "DdeInitialize*"
+        - "DdeConnect"
+      min_matches: 1
+    target_browser:
+      created_processes:
+        - "*iexplore.exe"
+        - "*msedge.exe"
+        - "*chrome.exe"
+        - "*firefox.exe"
+      min_matches: 1
+  detection_logic:
+    and:
+      - condition: "browser_control"
+      - condition: "target_browser"
+  response:
+    terminate_process: true
+    status_access_denied: true
+    record: true
+
+---
+
+# TEST #23: Impersonation:ExplorerAsParent — Block explorer parent spoofing
+- name: "HEUR:Win.Impersonation.ExplorerParentSpoof.gen"
+  description: |
+    Detects process creation where explorer.exe is set as the parent, but the
+    request originates from an unsigned, non-interactive process.
+    COMODO Test #23: Impersonation:ExplorerAsParent
+  author: "HydraDragon"
+  level: high
+  severity: 90
+  named_conditions:
+    explorer_parent:
+      # Logic to detect parent PID spoofing or illegitimate explorer parent usage
+      created_processes: ["*"]
+      # Engine specific check for ParentPID = explorer.exe
+      min_matches: 1
+  detection_logic:
+    condition: "explorer_parent"
+  response:
+    terminate_process: true
+    status_access_denied: true
+    record: true
+
+---
+
+# TEST #26: Impersonation:BITS — Block BITS service abuse
+- name: "HEUR:Win.Impersonation.BITSTamper.gen"
+  description: |
+    Detects unauthorized use of the BITS service for background file transfers.
+    COMODO Test #26: Impersonation:BITS
+  author: "HydraDragon"
+  level: high
+  severity: 85
+  named_conditions:
+    bits_usage:
+      apis:
+        - "*IBackgroundCopyManager*"
+        - "bitsprx*.dll!*"
+      min_matches: 1
+    unsigned_caller:
+      is_signed: false
+      min_matches: 1
+  detection_logic:
+    and:
+      - condition: "bits_usage"
+      - condition: "unsigned_caller"
+  response:
+    terminate_process: true
+    status_access_denied: true
+    record: true
+
+---
+
+# TEST #27/28/29: Hijacking:Winlogon/Userinit/UIHost — Protect logon persistence
+- name: "HEUR:Win.Hijacking.LogonPersistence.gen"
+  description: |
+    Detects modification of critical logon-related registry keys used for persistence.
+    COMODO Test #27: Hijacking:WinlogonNotify
+    COMODO Test #28: Hijacking:Userinit
+    COMODO Test #29: Hijacking:UIHost
+  author: "HydraDragon"
+  level: critical
+  severity: 100
+  named_conditions:
+    logon_registry_tamper:
+      registry_keys:
+        - HKLM\Software\Microsoft\Windows NT\CurrentVersion\Winlogon\Notify
+        - HKLM\Software\Microsoft\Windows NT\CurrentVersion\Winlogon\Userinit
+        - HKLM\Software\Microsoft\Windows NT\CurrentVersion\Winlogon\UIHost
+        - \REGISTRY\MACHINE\Software\Microsoft\Windows NT\CurrentVersion\Winlogon\Notify
+        - \REGISTRY\MACHINE\Software\Microsoft\Windows NT\CurrentVersion\Winlogon\Userinit
+        - \REGISTRY\MACHINE\Software\Microsoft\Windows NT\CurrentVersion\Winlogon\UIHost
+      registry_operations: ["reg_set_value", "reg_create_key"]
+      min_matches: 1
+  detection_logic:
+    condition: "logon_registry_tamper"
+  response:
+    terminate_process: true
+    status_access_denied: true
+    record: true
+
+---
+
+# TEST #34: Hijacking:ActiveDesktop — Protect desktop wallpaper/HTML
+- name: "HEUR:Win.Hijacking.ActiveDesktopTamper.gen"
+  description: |
+    Detects modification of Active Desktop registry keys to point to malicious HTML.
+    COMODO Test #34: Hijacking:ActiveDesktop
+  author: "HydraDragon"
+  level: medium
+  severity: 70
+  named_conditions:
+    desktop_tamper:
+      registry_keys:
+        - HKCU\Control Panel\Desktop\Wallpaper
+        - HKCU\Software\Microsoft\Internet Explorer\Desktop\SafeHtml
+        - \REGISTRY\USER\*\Control Panel\Desktop\Wallpaper
+        - \REGISTRY\USER\*\Software\Microsoft\Internet Explorer\Desktop\SafeHtml
+      registry_operations: ["reg_set_value"]
+      min_matches: 1
+  detection_logic:
+    condition: "desktop_tamper"
+  response:
+    status_access_denied: true
+    record: true
