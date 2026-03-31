@@ -2661,9 +2661,85 @@ impl BehaviorEngine {
         Logging::info(&format!("[Owlyshield] Starting behavior rule load from {:?}", path));
         let rules = self.load_rules_recursive(path, 0)?;
         let count = rules.len();
+
+        if count == 0 {
+            let msg = format!(
+                "[BehaviorEngine] CRITICAL: No rules were loaded from {:?}.                 The engine will run with zero detection capability.                 Check that rule files exist, are valid YAML, and that all string values                 (file paths, env vars like %TEMP%, API names like dll!Fn, extensions like .zip)                 are enclosed in double quotes.",
+                path
+            );
+            Logging::error(&msg);
+            return Err(msg.into());
+        }
+
         self.rules = rules;
         Logging::info(&format!("[Owlyshield] Successfully loaded {} behavior rules from {:?}", count, path));
         Ok(())
+    }
+
+    /// Scan raw YAML text for common authoring mistakes that cause silent parse failures:
+    ///   - Unquoted environment-variable expansions  (%VAR%)
+    ///   - Bare YAML tag markers used as values      (!something)
+    ///   - Unquoted file extensions at line start    (- .ext)
+    ///
+    /// Returns a list of human-readable warnings, one per suspicious line.
+    fn validate_yaml_content(path: &Path, content: &str) -> Vec<String> {
+        let mut warnings = Vec::new();
+        let file = path.display();
+
+        for (idx, line) in content.lines().enumerate() {
+            let lineno = idx + 1;
+            let trimmed = line.trim();
+
+            // Skip comments and blank lines
+            if trimmed.is_empty() || trimmed.starts_with('#') {
+                continue;
+            }
+
+            // Strip leading list marker so we test the actual value
+            let value_part = trimmed.strip_prefix("- ").unwrap_or(trimmed);
+
+            // Unquoted %ENV_VAR% — serde_yaml parses % as a plain scalar but
+            // the value confuses downstream expansion and in some parser versions
+            // the whole document is silently dropped.
+            if value_part.contains('%')
+                && !value_part.starts_with('"')
+                && !value_part.starts_with('\'')
+            {
+                warnings.push(format!(
+                    "{}:{}: unquoted value containing '%' (env-var?): `{}` — wrap in double quotes",
+                    file, lineno, trimmed
+                ));
+            }
+
+            // Bare !tag — YAML treats `!foo` as a local tag; `dll!FnName` on a
+            // list value causes a tag-parse error and the document is discarded.
+            if value_part.contains('!')
+                && !value_part.starts_with('"')
+                && !value_part.starts_with('\'')
+                && !trimmed.starts_with('#')
+            {
+                warnings.push(format!(
+                    "{}:{}: unquoted value containing '!' (YAML tag marker?): `{}` — wrap in double quotes",
+                    file, lineno, trimmed
+                ));
+            }
+
+            // Unquoted file extension (e.g. `- .zip`) — flagged for style
+            // consistency so all list values in rule files are quoted uniformly.
+            if value_part.starts_with('.')
+                && !value_part.starts_with('"')
+                && !value_part.starts_with('\'')
+                && value_part.len() <= 6
+                && value_part.chars().skip(1).all(|c| c.is_alphanumeric())
+            {
+                warnings.push(format!(
+                    "{}:{}: unquoted file extension: `{}` — wrap in double quotes",
+                    file, lineno, trimmed
+                ));
+            }
+        }
+
+        warnings
     }
 
     /// Extract all unique APIs mentioned across all rules, stages, and named conditions
@@ -2766,21 +2842,70 @@ impl BehaviorEngine {
             return Ok(rules);
         }
 
+        // Pre-validate the YAML content for common authoring mistakes before
+        // attempting deserialization — unquoted %VAR% / dll!Fn / .ext values
+        // cause serde_yaml to silently discard the whole document.
+        let lint_warnings = Self::validate_yaml_content(path, &filtered_content);
+        if !lint_warnings.is_empty() {
+            Logging::warning(&format!(
+                "[BehaviorEngine] YAML lint warnings in {:?} — these may cause rules to be silently skipped:",
+                path
+            ));
+            for w in &lint_warnings {
+                Logging::warning(&format!("[BehaviorEngine]   {}", w));
+            }
+        }
+
         // Use Deserializer to handle multi-document YAML (separated by ---)
         let deserializer = serde_yaml::Deserializer::from_str(&filtered_content);
+        let mut doc_index = 0usize;
         for document in deserializer {
-            if let Ok(value) = serde_yaml::Value::deserialize(document) {
-                if let Some(rules_arr) = value.as_sequence() {
-                    for rule_val in rules_arr {
-                        if let Ok(mut rule) = serde_yaml::from_value::<BehaviorRule>(rule_val.clone()) {
+            doc_index += 1;
+            let value = match serde_yaml::Value::deserialize(document) {
+                Ok(v) => v,
+                Err(e) => {
+                    Logging::error(&format!(
+                        "[BehaviorEngine] Failed to parse YAML document #{} in {:?}: {}.                         Hint: ensure all file paths, env vars (%VAR%), API names (dll!Fn),                         and file extensions (.zip) are enclosed in double quotes.",
+                        doc_index, path, e
+                    ));
+                    continue;
+                }
+            };
+
+            if let Some(rules_arr) = value.as_sequence() {
+                for (rule_idx, rule_val) in rules_arr.iter().enumerate() {
+                    match serde_yaml::from_value::<BehaviorRule>(rule_val.clone()) {
+                        Ok(mut rule) => {
                             rule.finalize_rich_fields();
                             rules.push(rule);
                         }
+                        Err(e) => {
+                            let name_hint = rule_val
+                                .get("name")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("<unnamed>");
+                            Logging::error(&format!(
+                                "[BehaviorEngine] Failed to deserialize rule #{} ('{}')                                 in document #{} of {:?}: {}.                                 Hint: check for unquoted special characters in string lists.",
+                                rule_idx + 1, name_hint, doc_index, path, e
+                            ));
+                        }
                     }
-                } else if value.get("name").is_some() {
-                    if let Ok(mut rule) = serde_yaml::from_value::<BehaviorRule>(value) {
+                }
+            } else if value.get("name").is_some() {
+                match serde_yaml::from_value::<BehaviorRule>(value.clone()) {
+                    Ok(mut rule) => {
                         rule.finalize_rich_fields();
                         rules.push(rule);
+                    }
+                    Err(e) => {
+                        let name_hint = value
+                            .get("name")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("<unnamed>");
+                        Logging::error(&format!(
+                            "[BehaviorEngine] Failed to deserialize rule ('{}')                             in document #{} of {:?}: {}.                             Hint: check for unquoted special characters in string lists.",
+                            name_hint, doc_index, path, e
+                        ));
                     }
                 }
             }
