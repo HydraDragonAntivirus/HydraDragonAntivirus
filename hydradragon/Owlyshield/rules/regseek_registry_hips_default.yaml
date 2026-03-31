@@ -14,14 +14,14 @@
         - "HKLM/SYSTEM/CurrentControlSet/Control/ComputerName/ComputerName*"
         - "HKLM/SYSTEM/CurrentControlSet/Control/TimeZoneInformation*"
         - "HKLM/SOFTWARE/Microsoft/Windows NT/CurrentVersion/SoftwareProtectionPlatform*"
-      registry_operations: [create, set, delete, rename]
+      registry_operations: [reg_create_key, reg_set_value, reg_delete_value, reg_delete_key, reg_rename_key, reg_query_value, reg_query_key, reg_open_key, reg_enum_key, reg_enum_value]
     boot_and_servicing:
       registry_keys:
         - "HKLM/SYSTEM/CurrentControlSet/Control/SafeBoot*"
         - "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Component Based Servicing*"
         - "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/WindowsUpdate*"
         - "HKLM/SOFTWARE/Microsoft/Windows/Windows Error Reporting*"
-      registry_operations: [create, set, delete, rename]
+      registry_operations: [reg_create_key, reg_set_value, reg_delete_value, reg_delete_key, reg_rename_key, reg_query_value, reg_query_key, reg_open_key, reg_enum_key, reg_enum_value]
     system_controls:
       registry_keys:
         - "HKLM/SOFTWARE/Policies/Microsoft/Windows/Safer/CodeIdentifiers*"
@@ -29,7 +29,7 @@
         - "HKLM/SYSTEM/CurrentControlSet/Control/Power*"
         - "HKLM/SOFTWARE/Policies/Microsoft/Windows/DeviceInstall/Restrictions*"
         - "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/CapabilityAccessManager/ConsentStore/location*"
-      registry_operations: [create, set, delete, rename]
+      registry_operations: [reg_create_key, reg_set_value, reg_delete_value, reg_delete_key, reg_rename_key, reg_query_value, reg_query_key, reg_open_key, reg_enum_key, reg_enum_value]
     storage_and_devices:
       registry_keys:
         - "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Uninstall*"
@@ -38,7 +38,7 @@
         - "HKLM/SYSTEM/CurrentControlSet/Services/VSS*"
         - "HKCU/Software/Microsoft/Windows/CurrentVersion/CDP*"
         - "HKCU/Software/Apple Computer, Inc./iTunes*"
-      registry_operations: [create, set, delete, rename]
+      registry_operations: [reg_create_key, reg_set_value, reg_delete_value, reg_delete_key, reg_rename_key, reg_query_value, reg_query_key, reg_open_key, reg_enum_key, reg_enum_value]
   response:
     ask_user: true
     terminate_process: true
@@ -58,31 +58,35 @@
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/servicing/TrustedInstaller.exe"
+    - pattern: "C:/Windows/System32/SrTasks.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/WinSxS/*/TiWorker.exe"
+    - pattern: "C:/Windows/servicing/TrustedInstaller.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/UUS/*/MoUsoCoreWorker.exe"
+    - pattern: "C:/Windows/WinSxS/*/TiWorker.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/WinSxS/*/MoUsoCoreWorker.exe"
+    - pattern: "C:/Windows/UUS/*/MoUsoCoreWorker.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/System32/poqexec.exe"
+    - pattern: "C:/Windows/WinSxS/*/MoUsoCoreWorker.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/System32/wusa.exe"
+    - pattern: "C:/Windows/System32/poqexec.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/System32/Dism/DismHost.exe"
+    - pattern: "C:/Windows/System32/wusa.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/Dism/DismHost.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
@@ -106,7 +110,7 @@
         - "HKCU/Software/Microsoft/Windows/CurrentVersion/Notifications/Settings*"
         - "HKCU/Software/Microsoft/Windows/CurrentVersion/Widgets*"
         - "HKCU/Software/Microsoft/Windows/CurrentVersion/ContentDeliveryManager*"
-      registry_operations: [create, set, delete, rename]
+      registry_operations: [reg_create_key, reg_set_value, reg_delete_value, reg_delete_key, reg_rename_key, reg_query_value, reg_query_key, reg_open_key, reg_enum_key, reg_enum_value]
     cloud_clients:
       registry_keys:
         - "HKCU/Software/Microsoft/OneDrive*"
@@ -114,14 +118,14 @@
         - "HKCU/Software/Dropbox*"
         - "HKCU/Software/Box/Box*"
         - "HKCU/Software/Apple Inc./iCloud*"
-      registry_operations: [create, set, delete, rename]
+      registry_operations: [reg_create_key, reg_set_value, reg_delete_value, reg_delete_key, reg_rename_key, reg_query_value, reg_query_key, reg_open_key, reg_enum_key, reg_enum_value]
     shell_personalization:
       registry_keys:
         - "HKCU/Software/Microsoft/Windows/CurrentVersion/Explorer/Snap*"
         - "HKCU/Software/Classes/ActivatableClasses/Package*"
         - "HKCU/Software/Microsoft/GameBar*"
         - "HKCU/Software/VideoLAN/VLC*"
-      registry_operations: [create, set, delete, rename]
+      registry_operations: [reg_create_key, reg_set_value, reg_delete_value, reg_delete_key, reg_rename_key, reg_query_value, reg_query_key, reg_open_key, reg_enum_key, reg_enum_value]
   response:
     ask_user: true
     terminate_process: true
@@ -141,31 +145,31 @@
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/servicing/TrustedInstaller.exe"
+    - pattern: "C:/Windows/servicing/TrustedInstaller.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/WinSxS/*/TiWorker.exe"
+    - pattern: "C:/Windows/WinSxS/*/TiWorker.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/UUS/*/MoUsoCoreWorker.exe"
+    - pattern: "C:/Windows/UUS/*/MoUsoCoreWorker.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/WinSxS/*/MoUsoCoreWorker.exe"
+    - pattern: "C:/Windows/WinSxS/*/MoUsoCoreWorker.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/System32/poqexec.exe"
+    - pattern: "C:/Windows/System32/poqexec.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/System32/wusa.exe"
+    - pattern: "C:/Windows/System32/wusa.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/System32/Dism/DismHost.exe"
+    - pattern: "C:/Windows/System32/Dism/DismHost.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
@@ -188,12 +192,12 @@
         - "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Authentication/Credential Providers*"
         - "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/WinBio*"
         - "HKLM/SECURITY/Policy*"
-      registry_operations: [create, set, delete, rename]
+      registry_operations: [reg_create_key, reg_set_value, reg_delete_value, reg_delete_key, reg_rename_key, reg_query_value, reg_query_key, reg_open_key, reg_enum_key, reg_enum_value]
     account_surfaces:
       registry_keys:
         - "HKLM/SAM/SAM/Domains/Account/Users*"
         - "HKLM/SOFTWARE/Microsoft/Windows NT/CurrentVersion/ProfileList*"
-      registry_operations: [create, set, delete, rename]
+      registry_operations: [reg_create_key, reg_set_value, reg_delete_value, reg_delete_key, reg_rename_key, reg_query_value, reg_query_key, reg_open_key, reg_enum_key, reg_enum_value]
   response:
     ask_user: true
     terminate_process: true
@@ -213,31 +217,31 @@
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/servicing/TrustedInstaller.exe"
+    - pattern: "C:/Windows/servicing/TrustedInstaller.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/WinSxS/*/TiWorker.exe"
+    - pattern: "C:/Windows/WinSxS/*/TiWorker.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/UUS/*/MoUsoCoreWorker.exe"
+    - pattern: "C:/Windows/UUS/*/MoUsoCoreWorker.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/WinSxS/*/MoUsoCoreWorker.exe"
+    - pattern: "C:/Windows/WinSxS/*/MoUsoCoreWorker.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/System32/poqexec.exe"
+    - pattern: "C:/Windows/System32/poqexec.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/System32/wusa.exe"
+    - pattern: "C:/Windows/System32/wusa.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/System32/Dism/DismHost.exe"
+    - pattern: "C:/Windows/System32/Dism/DismHost.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
@@ -259,13 +263,13 @@
         - "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Container Manager*"
         - "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Lxss*"
         - "HKCU/Software/Microsoft/Windows/CurrentVersion/Lxss*"
-      registry_operations: [create, set, delete, rename]
+      registry_operations: [reg_create_key, reg_set_value, reg_delete_value, reg_delete_key, reg_rename_key, reg_query_value, reg_query_key, reg_open_key, reg_enum_key, reg_enum_value]
     third_party_virtualization:
       registry_keys:
         - "HKCU/Software/Oracle/VirtualBox*"
         - "HKCU/Software/VMware Inc/VMware Workstation*"
         - "HKCU/Software/Docker Inc/Docker Desktop*"
-      registry_operations: [create, set, delete, rename]
+      registry_operations: [reg_create_key, reg_set_value, reg_delete_value, reg_delete_key, reg_rename_key, reg_query_value, reg_query_key, reg_open_key, reg_enum_key, reg_enum_value]
   response:
     ask_user: true
     terminate_process: true
@@ -285,31 +289,31 @@
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/servicing/TrustedInstaller.exe"
+    - pattern: "C:/Windows/servicing/TrustedInstaller.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/WinSxS/*/TiWorker.exe"
+    - pattern: "C:/Windows/WinSxS/*/TiWorker.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/UUS/*/MoUsoCoreWorker.exe"
+    - pattern: "C:/Windows/UUS/*/MoUsoCoreWorker.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/WinSxS/*/MoUsoCoreWorker.exe"
+    - pattern: "C:/Windows/WinSxS/*/MoUsoCoreWorker.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/System32/poqexec.exe"
+    - pattern: "C:/Windows/System32/poqexec.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/System32/wusa.exe"
+    - pattern: "C:/Windows/System32/wusa.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/System32/Dism/DismHost.exe"
+    - pattern: "C:/Windows/System32/Dism/DismHost.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
@@ -329,19 +333,19 @@
       registry_keys:
         - "HKLM/SYSTEM/CurrentControlSet/Control/Terminal Server*"
         - "HKLM/SYSTEM/CurrentControlSet/Control/Terminal Server/WinStations*"
-      registry_operations: [create, set, delete, rename]
+      registry_operations: [reg_create_key, reg_set_value, reg_delete_value, reg_delete_key, reg_rename_key, reg_query_value, reg_query_key, reg_open_key, reg_enum_key, reg_enum_value]
     remote_access_clients:
       registry_keys:
         - "HKCU/Software/AnyDesk*"
         - "HKCU/Software/TeamViewer*"
-      registry_operations: [create, set, delete, rename]
+      registry_operations: [reg_create_key, reg_set_value, reg_delete_value, reg_delete_key, reg_rename_key, reg_query_value, reg_query_key, reg_open_key, reg_enum_key, reg_enum_value]
     proxy_and_ras:
       registry_keys:
         - "HKCU/Software/Microsoft/RAS Phonebook*"
         - "HKLM/Software/Microsoft/Tracing/*_RASAPI32*"
         - "HKLM/Software/Microsoft/Tracing/*_RASMANCS*"
         - "HKCU/Software/Microsoft/Windows/CurrentVersion/Internet Settings*"
-      registry_operations: [create, set, delete, rename]
+      registry_operations: [reg_create_key, reg_set_value, reg_delete_value, reg_delete_key, reg_rename_key, reg_query_value, reg_query_key, reg_open_key, reg_enum_key, reg_enum_value]
   response:
     ask_user: true
     terminate_process: true
@@ -361,31 +365,31 @@
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/servicing/TrustedInstaller.exe"
+    - pattern: "C:/Windows/servicing/TrustedInstaller.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/WinSxS/*/TiWorker.exe"
+    - pattern: "C:/Windows/WinSxS/*/TiWorker.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/UUS/*/MoUsoCoreWorker.exe"
+    - pattern: "C:/Windows/UUS/*/MoUsoCoreWorker.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/WinSxS/*/MoUsoCoreWorker.exe"
+    - pattern: "C:/Windows/WinSxS/*/MoUsoCoreWorker.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/System32/poqexec.exe"
+    - pattern: "C:/Windows/System32/poqexec.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/System32/wusa.exe"
+    - pattern: "C:/Windows/System32/wusa.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/System32/Dism/DismHost.exe"
+    - pattern: "C:/Windows/System32/Dism/DismHost.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
@@ -405,13 +409,13 @@
       registry_keys:
         - "HKCU/Software/Microsoft/Windows/Shell/Copilot*"
         - "HKCU/Software/Microsoft/Windows/CurrentVersion/WindowsAI*"
-      registry_operations: [create, set, delete, rename]
+      registry_operations: [reg_create_key, reg_set_value, reg_delete_value, reg_delete_key, reg_rename_key, reg_query_value, reg_query_key, reg_open_key, reg_enum_key, reg_enum_value]
     privacy_permissions:
       registry_keys:
         - "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/CapabilityAccessManager/ConsentStore*"
         - "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/CapabilityAccessManager/ConsentStore/microphone*"
         - "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/CapabilityAccessManager/ConsentStore/location*"
-      registry_operations: [create, set, delete, rename]
+      registry_operations: [reg_create_key, reg_set_value, reg_delete_value, reg_delete_key, reg_rename_key, reg_query_value, reg_query_key, reg_open_key, reg_enum_key, reg_enum_value]
   response:
     ask_user: true
     terminate_process: true
@@ -431,31 +435,31 @@
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/servicing/TrustedInstaller.exe"
+    - pattern: "C:/Windows/servicing/TrustedInstaller.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/WinSxS/*/TiWorker.exe"
+    - pattern: "C:/Windows/WinSxS/*/TiWorker.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/UUS/*/MoUsoCoreWorker.exe"
+    - pattern: "C:/Windows/UUS/*/MoUsoCoreWorker.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/WinSxS/*/MoUsoCoreWorker.exe"
+    - pattern: "C:/Windows/WinSxS/*/MoUsoCoreWorker.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/System32/poqexec.exe"
+    - pattern: "C:/Windows/System32/poqexec.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/System32/wusa.exe"
+    - pattern: "C:/Windows/System32/wusa.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/System32/Dism/DismHost.exe"
+    - pattern: "C:/Windows/System32/Dism/DismHost.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
@@ -477,17 +481,17 @@
         - "HKCU/Software/Microsoft/Windows/CurrentVersion/Internet Settings/Zones*"
         - "HKCU/Software/Microsoft/Internet Explorer/TypedURLs*"
         - "HKLM/SOFTWARE/Microsoft/Internet Explorer/ActiveX Compatibility*"
-      registry_operations: [create, set, delete, rename]
+      registry_operations: [reg_create_key, reg_set_value, reg_delete_value, reg_delete_key, reg_rename_key, reg_query_value, reg_query_key, reg_open_key, reg_enum_key, reg_enum_value]
     browser_extensions:
       registry_keys:
         - "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Explorer/Browser Helper Objects*"
-      registry_operations: [create, set, delete, rename]
+      registry_operations: [reg_create_key, reg_set_value, reg_delete_value, reg_delete_key, reg_rename_key, reg_query_value, reg_query_key, reg_open_key, reg_enum_key, reg_enum_value]
     browser_profiles:
       registry_keys:
         - "HKCU/Software/Mozilla/Firefox*"
         - "HKCU/Software/Mozilla/Firefox/Profiles/*/Tor Browser*"
         - "HKCU/Software/Google/Chrome*"
-      registry_operations: [create, set, delete, rename]
+      registry_operations: [reg_create_key, reg_set_value, reg_delete_value, reg_delete_key, reg_rename_key, reg_query_value, reg_query_key, reg_open_key, reg_enum_key, reg_enum_value]
   response:
     ask_user: true
     terminate_process: true
@@ -507,31 +511,31 @@
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/servicing/TrustedInstaller.exe"
+    - pattern: "C:/Windows/servicing/TrustedInstaller.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/WinSxS/*/TiWorker.exe"
+    - pattern: "C:/Windows/WinSxS/*/TiWorker.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/UUS/*/MoUsoCoreWorker.exe"
+    - pattern: "C:/Windows/UUS/*/MoUsoCoreWorker.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/WinSxS/*/MoUsoCoreWorker.exe"
+    - pattern: "C:/Windows/WinSxS/*/MoUsoCoreWorker.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/System32/poqexec.exe"
+    - pattern: "C:/Windows/System32/poqexec.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/System32/wusa.exe"
+    - pattern: "C:/Windows/System32/wusa.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/System32/Dism/DismHost.exe"
+    - pattern: "C:/Windows/System32/Dism/DismHost.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
@@ -553,7 +557,7 @@
         - "HKCU/Software/WinRAR*"
         - "HKCU/Software/WinZip Computing/WinZip*"
         - "HKCU/Software/Notepad++*"
-      registry_operations: [create, set, delete, rename]
+      registry_operations: [reg_create_key, reg_set_value, reg_delete_value, reg_delete_key, reg_rename_key, reg_query_value, reg_query_key, reg_open_key, reg_enum_key, reg_enum_value]
     recent_access:
       registry_keys:
         - "HKCU/Software/Microsoft/Windows/Shell/Bags*"
@@ -562,12 +566,12 @@
         - "HKCU/Software/Microsoft/Windows/CurrentVersion/Explorer/ComDlg32/LastVisitedPidlMRU*"
         - "HKCU/Software/Microsoft/Office/*/*/File MRU*"
         - "HKCU/Software/Microsoft/Windows/CurrentVersion/Explorer/RecentDocs*"
-      registry_operations: [create, set, delete, rename]
+      registry_operations: [reg_create_key, reg_set_value, reg_delete_value, reg_delete_key, reg_rename_key, reg_query_value, reg_query_key, reg_open_key, reg_enum_key, reg_enum_value]
     print_and_preview:
       registry_keys:
         - "HKLM/SYSTEM/CurrentControlSet/Control/Print/Printers*"
         - "HKCU/Software/Microsoft/Windows/CurrentVersion/Explorer/Advanced*"
-      registry_operations: [create, set, delete, rename]
+      registry_operations: [reg_create_key, reg_set_value, reg_delete_value, reg_delete_key, reg_rename_key, reg_query_value, reg_query_key, reg_open_key, reg_enum_key, reg_enum_value]
   response:
     ask_user: true
     terminate_process: true
@@ -587,31 +591,31 @@
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/servicing/TrustedInstaller.exe"
+    - pattern: "C:/Windows/servicing/TrustedInstaller.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/WinSxS/*/TiWorker.exe"
+    - pattern: "C:/Windows/WinSxS/*/TiWorker.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/UUS/*/MoUsoCoreWorker.exe"
+    - pattern: "C:/Windows/UUS/*/MoUsoCoreWorker.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/WinSxS/*/MoUsoCoreWorker.exe"
+    - pattern: "C:/Windows/WinSxS/*/MoUsoCoreWorker.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/System32/poqexec.exe"
+    - pattern: "C:/Windows/System32/poqexec.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/System32/wusa.exe"
+    - pattern: "C:/Windows/System32/wusa.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/System32/Dism/DismHost.exe"
+    - pattern: "C:/Windows/System32/Dism/DismHost.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
@@ -638,7 +642,7 @@
       autorun_keys:
         - "HKLM/Software/Microsoft/Windows/CurrentVersion/Run*"
         - "HKCU/Software/Microsoft/Windows/CurrentVersion/Run*"
-      registry_operations: [create, set, delete, rename]
+      registry_operations: [reg_create_key, reg_set_value, reg_delete_value, reg_delete_key, reg_rename_key, reg_query_value, reg_query_key, reg_open_key, reg_enum_key, reg_enum_value]
     hijack_surfaces:
       registry_keys:
         - "HKLM/SOFTWARE/Microsoft/Windows NT/CurrentVersion/Image File Execution Options*"
@@ -648,13 +652,13 @@
         - "HKLM/SOFTWARE/Microsoft/Wbem/ESS/Root/Subscription*"
         - "HKLM/System/CurrentControlSet/Control/Lsa/DsrmAdminLogonBehavior*"
         - "HKCR/CLSID*"
-      registry_operations: [create, set, delete, rename]
+      registry_operations: [reg_create_key, reg_set_value, reg_delete_value, reg_delete_key, reg_rename_key, reg_query_value, reg_query_key, reg_open_key, reg_enum_key, reg_enum_value]
     service_surfaces:
       registry_keys:
         - "HKLM/SOFTWARE/Microsoft/Windows NT/CurrentVersion/Schedule/TaskCache/Tasks*"
         - "HKLM/SYSTEM/CurrentControlSet/Control/Print/Processors*"
         - "HKLM/SYSTEM/CurrentControlSet/Services*"
-      registry_operations: [create, set, delete, rename]
+      registry_operations: [reg_create_key, reg_set_value, reg_delete_value, reg_delete_key, reg_rename_key, reg_query_value, reg_query_key, reg_open_key, reg_enum_key, reg_enum_value]
   response:
     ask_user: true
     terminate_process: true
@@ -674,31 +678,35 @@
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/servicing/TrustedInstaller.exe"
+    - pattern: "C:/Windows/System32/SrTasks.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/WinSxS/*/TiWorker.exe"
+    - pattern: "C:/Windows/servicing/TrustedInstaller.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/UUS/*/MoUsoCoreWorker.exe"
+    - pattern: "C:/Windows/WinSxS/*/TiWorker.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/WinSxS/*/MoUsoCoreWorker.exe"
+    - pattern: "C:/Windows/UUS/*/MoUsoCoreWorker.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/System32/poqexec.exe"
+    - pattern: "C:/Windows/WinSxS/*/MoUsoCoreWorker.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/System32/wusa.exe"
+    - pattern: "C:/Windows/System32/poqexec.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/System32/Dism/DismHost.exe"
+    - pattern: "C:/Windows/System32/wusa.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/Dism/DismHost.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
@@ -723,7 +731,7 @@
         - "HKCU/Software/Microsoft/Windows/CurrentVersion/Explorer/RunMRU*"
         - "HKCU/Software/Classes/Local Settings/Software/Microsoft/Windows/Shell/MuiCache*"
         - "HKLM/SYSTEM/CurrentControlSet/Control/Session Manager/Memory Management/PrefetchParameters*"
-      registry_operations: [create, set, delete, rename]
+      registry_operations: [reg_create_key, reg_set_value, reg_delete_value, reg_delete_key, reg_rename_key, reg_query_value, reg_query_key, reg_open_key, reg_enum_key, reg_enum_value]
     execution_policy:
       registry_keys:
         - "HKCU/Software/Git*"
@@ -731,7 +739,7 @@
         - "HKLM/SOFTWARE/Microsoft/Windows NT/CurrentVersion/AppCompatFlags*"
         - "HKLM/SOFTWARE/Microsoft/Windows Script Host/Settings*"
         - "HKCU/Software/Microsoft/Windows/CurrentVersion/Uninstall/{771FD6B0-FA20-440A-A002-3B3BAC16DC50}_is1*"
-      registry_operations: [create, set, delete, rename]
+      registry_operations: [reg_create_key, reg_set_value, reg_delete_value, reg_delete_key, reg_rename_key, reg_query_value, reg_query_key, reg_open_key, reg_enum_key, reg_enum_value]
   response:
     ask_user: true
     terminate_process: true
@@ -751,31 +759,31 @@
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/servicing/TrustedInstaller.exe"
+    - pattern: "C:/Windows/servicing/TrustedInstaller.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/WinSxS/*/TiWorker.exe"
+    - pattern: "C:/Windows/WinSxS/*/TiWorker.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/UUS/*/MoUsoCoreWorker.exe"
+    - pattern: "C:/Windows/UUS/*/MoUsoCoreWorker.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/WinSxS/*/MoUsoCoreWorker.exe"
+    - pattern: "C:/Windows/WinSxS/*/MoUsoCoreWorker.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/System32/poqexec.exe"
+    - pattern: "C:/Windows/System32/poqexec.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/System32/wusa.exe"
+    - pattern: "C:/Windows/System32/wusa.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/System32/Dism/DismHost.exe"
+    - pattern: "C:/Windows/System32/Dism/DismHost.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
@@ -796,7 +804,7 @@
         - "HKLM/SYSTEM/CurrentControlSet/Services/NetBT/Parameters*"
         - "HKLM/SYSTEM/CurrentControlSet/Services/Dnscache/Parameters*"
         - "HKLM/SYSTEM/CurrentControlSet/Services/Tcpip/Parameters/Interfaces*"
-      registry_operations: [create, set, delete, rename]
+      registry_operations: [reg_create_key, reg_set_value, reg_delete_value, reg_delete_key, reg_rename_key, reg_query_value, reg_query_key, reg_open_key, reg_enum_key, reg_enum_value]
     network_paths:
       registry_keys:
         - "HKCU/Network*"
@@ -804,13 +812,13 @@
         - "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Explorer/FolderDescriptions/{F02C1A0D-BE21-4350-88B0-7367FC96EF3C}*"
         - "HKLM/SYSTEM/CurrentControlSet/Services/lanmanserver/Shares*"
         - "HKLM/SOFTWARE/Microsoft/Windows NT/CurrentVersion/NetworkList/Profiles*"
-      registry_operations: [create, set, delete, rename]
+      registry_operations: [reg_create_key, reg_set_value, reg_delete_value, reg_delete_key, reg_rename_key, reg_query_value, reg_query_key, reg_open_key, reg_enum_key, reg_enum_value]
     tunneling_and_proxy:
       registry_keys:
         - "HKCU/Software/NordVPN*"
         - "HKCU/Software/Microsoft/Windows/CurrentVersion/Internet Settings*"
         - "HKLM/SYSTEM/CurrentControlSet/Services/Tcpip6/Parameters*"
-      registry_operations: [create, set, delete, rename]
+      registry_operations: [reg_create_key, reg_set_value, reg_delete_value, reg_delete_key, reg_rename_key, reg_query_value, reg_query_key, reg_open_key, reg_enum_key, reg_enum_value]
   response:
     ask_user: true
     terminate_process: true
@@ -830,31 +838,31 @@
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/servicing/TrustedInstaller.exe"
+    - pattern: "C:/Windows/servicing/TrustedInstaller.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/WinSxS/*/TiWorker.exe"
+    - pattern: "C:/Windows/WinSxS/*/TiWorker.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/UUS/*/MoUsoCoreWorker.exe"
+    - pattern: "C:/Windows/UUS/*/MoUsoCoreWorker.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/WinSxS/*/MoUsoCoreWorker.exe"
+    - pattern: "C:/Windows/WinSxS/*/MoUsoCoreWorker.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/System32/poqexec.exe"
+    - pattern: "C:/Windows/System32/poqexec.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/System32/wusa.exe"
+    - pattern: "C:/Windows/System32/wusa.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/System32/Dism/DismHost.exe"
+    - pattern: "C:/Windows/System32/Dism/DismHost.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
@@ -874,7 +882,7 @@
       registry_keys:
         - "HKCU/Software/Microsoft/Office/Outlook*"
         - "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Telephony*"
-      registry_operations: [create, set, delete, rename]
+      registry_operations: [reg_create_key, reg_set_value, reg_delete_value, reg_delete_key, reg_rename_key, reg_query_value, reg_query_key, reg_open_key, reg_enum_key, reg_enum_value]
     collaboration_clients:
       registry_keys:
         - "HKCU/Software/Microsoft/Office/Teams*"
@@ -883,7 +891,7 @@
         - "HKCU/Software/WhatsApp*"
         - "HKCU/Software/Microsoft/Windows/CurrentVersion/Explorer/Advanced/TaskbarMn*"
         - "HKCU/Software/Slack/Teams*"
-      registry_operations: [create, set, delete, rename]
+      registry_operations: [reg_create_key, reg_set_value, reg_delete_value, reg_delete_key, reg_rename_key, reg_query_value, reg_query_key, reg_open_key, reg_enum_key, reg_enum_value]
   response:
     ask_user: true
     terminate_process: true
@@ -903,31 +911,31 @@
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/servicing/TrustedInstaller.exe"
+    - pattern: "C:/Windows/servicing/TrustedInstaller.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/WinSxS/*/TiWorker.exe"
+    - pattern: "C:/Windows/WinSxS/*/TiWorker.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/UUS/*/MoUsoCoreWorker.exe"
+    - pattern: "C:/Windows/UUS/*/MoUsoCoreWorker.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/WinSxS/*/MoUsoCoreWorker.exe"
+    - pattern: "C:/Windows/WinSxS/*/MoUsoCoreWorker.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/System32/poqexec.exe"
+    - pattern: "C:/Windows/System32/poqexec.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/System32/wusa.exe"
+    - pattern: "C:/Windows/System32/wusa.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/System32/Dism/DismHost.exe"
+    - pattern: "C:/Windows/System32/Dism/DismHost.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
@@ -948,11 +956,11 @@
         - "HKLM/SYSTEM/CurrentControlSet/Enum/USBSTOR*"
         - "HKLM/SYSTEM/CurrentControlSet/Enum/SWD/WPDBUSENUM*"
         - "HKLM/SYSTEM/CurrentControlSet/Enum/USB/VID_*&PID_*"
-      registry_operations: [create, set, delete, rename]
+      registry_operations: [reg_create_key, reg_set_value, reg_delete_value, reg_delete_key, reg_rename_key, reg_query_value, reg_query_key, reg_open_key, reg_enum_key, reg_enum_value]
     drive_mapping:
       registry_keys:
         - "HKLM/SYSTEM/MountedDevices*"
-      registry_operations: [create, set, delete, rename]
+      registry_operations: [reg_create_key, reg_set_value, reg_delete_value, reg_delete_key, reg_rename_key, reg_query_value, reg_query_key, reg_open_key, reg_enum_key, reg_enum_value]
   response:
     ask_user: true
     terminate_process: true
@@ -972,31 +980,31 @@
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/servicing/TrustedInstaller.exe"
+    - pattern: "C:/Windows/servicing/TrustedInstaller.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/WinSxS/*/TiWorker.exe"
+    - pattern: "C:/Windows/WinSxS/*/TiWorker.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/UUS/*/MoUsoCoreWorker.exe"
+    - pattern: "C:/Windows/UUS/*/MoUsoCoreWorker.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/WinSxS/*/MoUsoCoreWorker.exe"
+    - pattern: "C:/Windows/WinSxS/*/MoUsoCoreWorker.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/System32/poqexec.exe"
+    - pattern: "C:/Windows/System32/poqexec.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/System32/wusa.exe"
+    - pattern: "C:/Windows/System32/wusa.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/System32/Dism/DismHost.exe"
+    - pattern: "C:/Windows/System32/Dism/DismHost.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
@@ -1018,7 +1026,7 @@
         - "HKLM/SYSTEM/CurrentControlSet/Services/SharedAccess/Parameters/FirewallPolicy*"
         - "HKLM/SYSTEM/CurrentControlSet/Services/SharedAccess/Parameters/FirewallPolicy/FirewallRules*"
         - "HKLM/SOFTWARE/Microsoft/Windows Defender*"
-      registry_operations: [create, set, delete, rename]
+      registry_operations: [reg_create_key, reg_set_value, reg_delete_value, reg_delete_key, reg_rename_key, reg_query_value, reg_query_key, reg_open_key, reg_enum_key, reg_enum_value]
     policy_controls:
       registry_keys:
         - "HKLM/SECURITY/Policy*"
@@ -1027,18 +1035,18 @@
         - "HKLM/SOFTWARE/Microsoft/Security Center*"
         - "HKLM/SOFTWARE/Policies/Microsoft/FVE*"
         - "HKCU/Software/Microsoft/Windows/CurrentVersion/Policies/Explorer*"
-      registry_operations: [create, set, delete, rename]
+      registry_operations: [reg_create_key, reg_set_value, reg_delete_value, reg_delete_key, reg_rename_key, reg_query_value, reg_query_key, reg_open_key, reg_enum_key, reg_enum_value]
     trust_and_logging:
       registry_keys:
         - "HKLM/SOFTWARE/Microsoft/SystemCertificates*"
         - "HKLM/SYSTEM/CurrentControlSet/Services/EventLog*"
         - "HKLM/SOFTWARE/Microsoft/Windows NT/CurrentVersion/Perflib*"
-      registry_operations: [create, set, delete, rename]
+      registry_operations: [reg_create_key, reg_set_value, reg_delete_value, reg_delete_key, reg_rename_key, reg_query_value, reg_query_key, reg_open_key, reg_enum_key, reg_enum_value]
     privacy_and_capabilities:
       registry_keys:
         - "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/CapabilityAccessManager/ConsentStore*"
         - "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/CapabilityAccessManager/ConsentStore/microphone*"
-      registry_operations: [create, set, delete, rename]
+      registry_operations: [reg_create_key, reg_set_value, reg_delete_value, reg_delete_key, reg_rename_key, reg_query_value, reg_query_key, reg_open_key, reg_enum_key, reg_enum_value]
   response:
     ask_user: true
     terminate_process: true
@@ -1058,31 +1066,31 @@
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/servicing/TrustedInstaller.exe"
+    - pattern: "C:/Windows/servicing/TrustedInstaller.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/WinSxS/*/TiWorker.exe"
+    - pattern: "C:/Windows/WinSxS/*/TiWorker.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/UUS/*/MoUsoCoreWorker.exe"
+    - pattern: "C:/Windows/UUS/*/MoUsoCoreWorker.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/WinSxS/*/MoUsoCoreWorker.exe"
+    - pattern: "C:/Windows/WinSxS/*/MoUsoCoreWorker.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/System32/poqexec.exe"
+    - pattern: "C:/Windows/System32/poqexec.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/System32/wusa.exe"
+    - pattern: "C:/Windows/System32/wusa.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "%SystemRoot%/System32/Dism/DismHost.exe"
+    - pattern: "C:/Windows/System32/Dism/DismHost.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]

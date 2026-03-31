@@ -1713,15 +1713,35 @@ impl BehaviorEngine {
             Some(FileChangeInfo::ChangeDeleteFile) => Some("delete"),
             Some(FileChangeInfo::ChangeDeleteNewFile) => Some("delete_on_close"),
             Some(FileChangeInfo::ChangeOverwriteFile) => Some("overwrite"),
-            Some(FileChangeInfo::RegCreateKey) => Some("reg_create"),
-            Some(FileChangeInfo::RegSetValue) => Some("reg_set"),
-            Some(FileChangeInfo::RegDeleteValue) => Some("reg_delete"),
-            Some(FileChangeInfo::RegRenameKey) => Some("reg_rename"),
-            Some(FileChangeInfo::RegQueryValue) => Some("reg_read"),
+            Some(FileChangeInfo::RegCreateKey) => Some("reg_create_key"),
+            Some(FileChangeInfo::RegSetValue) => Some("reg_set_value"),
+            Some(FileChangeInfo::RegDeleteValue) => Some("reg_delete_value"),
+            Some(FileChangeInfo::RegDeleteKey) => Some("reg_delete_key"),
+            Some(FileChangeInfo::RegRenameKey) => Some("reg_rename_key"),
+            Some(FileChangeInfo::RegQueryValue) => Some("reg_query_value"),
+            Some(FileChangeInfo::RegQueryKey) => Some("reg_query_key"),
+            Some(FileChangeInfo::RegOpenKey) => Some("reg_open_key"),
+            Some(FileChangeInfo::RegEnumKey) => Some("reg_enum_key"),
+            Some(FileChangeInfo::RegEnumValue) => Some("reg_enum_value"),
             _ => None,
         }
     }
 
+    fn registry_operation_aliases(file_change: Option<FileChangeInfo>) -> &'static [&'static str] {
+        match file_change {
+            Some(FileChangeInfo::RegCreateKey) => &["reg_create_key", "reg_create", "create"],
+            Some(FileChangeInfo::RegSetValue) => &["reg_set_value", "reg_set", "set"],
+            Some(FileChangeInfo::RegDeleteValue) => &["reg_delete_value", "reg_delete", "delete"],
+            Some(FileChangeInfo::RegDeleteKey) => &["reg_delete_key", "reg_delete", "delete"],
+            Some(FileChangeInfo::RegRenameKey) => &["reg_rename_key", "reg_rename", "rename"],
+            Some(FileChangeInfo::RegQueryValue) => &["reg_query_value", "reg_read", "read"],
+            Some(FileChangeInfo::RegQueryKey) => &["reg_query_key", "reg_read", "read"],
+            Some(FileChangeInfo::RegOpenKey) => &["reg_open_key", "reg_read", "read"],
+            Some(FileChangeInfo::RegEnumKey) => &["reg_enum_key", "reg_read", "read"],
+            Some(FileChangeInfo::RegEnumValue) => &["reg_enum_value", "reg_read", "read"],
+            _ => &[],
+        }
+    }
     fn operation_label(msg: &IOMessage) -> String {
         let file_change = FromPrimitive::from_u8(msg.file_change);
         let irp_op = IrpMajorOp::from_byte(effective_hypervisor_irp_byte(msg));
@@ -2578,15 +2598,15 @@ impl BehaviorEngine {
         }
 
         let change = FromPrimitive::from_u8(msg.file_change);
-        let op = match change {
-            Some(FileChangeInfo::RegCreateKey) => "create",
-            Some(FileChangeInfo::RegSetValue) => "set",
-            Some(FileChangeInfo::RegDeleteValue) => "delete",
-            Some(FileChangeInfo::RegRenameKey) => "rename",
-            Some(FileChangeInfo::RegQueryValue) => "read",
-            _ => return false,
-        };
-        cond_group.registry_operations.iter().any(|v| v == op)
+        let aliases = Self::registry_operation_aliases(change);
+        if aliases.is_empty() {
+            return false;
+        }
+
+        cond_group.registry_operations.iter().any(|required| {
+            let required = required.trim().to_ascii_lowercase();
+            aliases.iter().any(|alias| *alias == required)
+        })
     }
 
     fn extension_pattern_matches(
