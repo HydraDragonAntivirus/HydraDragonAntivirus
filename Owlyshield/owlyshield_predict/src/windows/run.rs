@@ -3,7 +3,7 @@ use std::collections::BTreeSet;
 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
 use std::fs;
 use std::fs::File;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::thread;
 use std::sync::mpsc::channel;
 use std::io::{Read, Seek, SeekFrom};
@@ -124,10 +124,18 @@ pub fn run() {
     crate::globals::init_globals(&config);
     let _current_exe_path = std::env::current_exe().unwrap();
     #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-    let rules_dir = PathBuf::from(&config[Param::RulesPath]);
+    let rules_dir = crate::globals::rules_path().to_path_buf();
+    
+    #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+    Logging::info(&format!("[Owlyshield] Using rules directory: {:?}", rules_dir));
+
     #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
     let app_settings = AppSettings::load(&rules_dir)
-        .expect("Failed to load app settings from rules/settings.yaml");
+        .map_err(|e| {
+            Logging::error(&format!("Failed to load app settings from rules/settings.yaml at {:?}: {}", rules_dir, e));
+            e
+        })
+        .expect("Critical: Failed to load app settings");
 
     // Replay mode: process stored driver messages and exit the run function
     if cfg!(feature = "replay") {

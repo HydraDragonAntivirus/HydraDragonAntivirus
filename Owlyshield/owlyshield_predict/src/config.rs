@@ -303,9 +303,16 @@ impl Config {
     #[cfg(target_os = "windows")]
     fn get_params() -> HashMap<Param, String> {
         let mut params: HashMap<Param, String> = HashMap::new();
-        for param in ConfigReader::read_params_from_registry(Param::get_string_vec(), r"SOFTWARE\Owlyshield") {
-            params.insert(Param::convert_from_str(param.0), param.1);
+        let param_names = Param::get_string_vec();
+        
+        // Use the trusted Registry path ONLY. No fallbacks.
+        let location = r"SOFTWARE\Owlyshield";
+        let found = ConfigReader::read_params_from_registry(param_names, location);
+        
+        for (name, val) in found {
+            params.insert(Param::convert_from_str(name), val);
         }
+
         params
     }
 
