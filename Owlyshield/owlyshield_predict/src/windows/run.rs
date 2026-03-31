@@ -157,6 +157,14 @@ pub fn run() {
         #[cfg(not(all(target_os = "windows", feature = "behavior_engine")))]
         let mut worker = Worker::new_replay(&config, &whitelist);
 
+        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+        {
+            let rules_path = worker.app_settings.behavior_rules_path.clone();
+            if let Err(e) = worker.behavior_engine.load_rules(&rules_path) {
+                Logging::error(&format!("Failed to load behavior rules for replay from {:?}: {}", rules_path, e));
+            }
+        }
+
         let filename = &Path::new(&config[Param::RealTimeLearningPath])
             .join(Path::new("drivermessages.txt"));
         let mut file = File::open(Path::new(filename)).unwrap();
@@ -298,6 +306,7 @@ pub fn run() {
             #[cfg(feature = "behavior_engine")]
             {
                 let rules_path = worker.app_settings.behavior_rules_path.clone();
+                Logging::info(&format!("[Owlyshield] Handing rules off to BehaviorEngine from path: {:?}", rules_path));
                 if let Err(e) = worker.behavior_engine.load_rules(&rules_path) {
                     Logging::error(&format!("Failed to load behavior rules from {:?}: {}", rules_path, e));
                 } else if let Err(e) = sync_kernel_exclude_rules(&worker.behavior_engine.rules, &thread_driver) {

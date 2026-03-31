@@ -2658,7 +2658,8 @@ impl BehaviorEngine {
     }
 
     pub fn load_rules(&mut self, path: &Path) -> Result<(), Box<dyn std::error::Error>> {
-        let rules = self.load_rules_recursive(path)?;
+        Logging::info(&format!("[Owlyshield] Starting behavior rule load from {:?}", path));
+        let rules = self.load_rules_recursive(path, 0)?;
         let count = rules.len();
         self.rules = rules;
         Logging::info(&format!("[Owlyshield] Successfully loaded {} behavior rules from {:?}", count, path));
@@ -2708,8 +2709,21 @@ impl BehaviorEngine {
         all_apis
     }
 
-    fn load_rules_recursive(&self, path: &Path) -> Result<Vec<BehaviorRule>, Box<dyn std::error::Error>> {
-        let content = std::fs::read_to_string(path)?;
+    fn load_rules_recursive(&self, path: &Path, depth: u32) -> Result<Vec<BehaviorRule>, Box<dyn std::error::Error>> {
+        if depth > 20 {
+            Logging::error(&format!("[BehaviorEngine] CRITICAL: Max recursion depth (20) reached! Possible circular include: {:?}", path));
+            return Ok(Vec::new());
+        }
+
+        let content = match std::fs::read_to_string(path) {
+            Ok(c) => c,
+            Err(e) => {
+                Logging::error(&format!("[BehaviorEngine] Failed to read rule file {:?}: {}", path, e));
+                return Err(Box::new(e));
+            }
+        };
+
+        Logging::debug(&format!("[BehaviorEngine] Parsing file: {:?} (depth {})", path, depth));
         let mut rules = Vec::new();
         let parent = path.parent().unwrap_or_else(|| Path::new("."));
 
@@ -2728,14 +2742,14 @@ impl BehaviorEngine {
                     let include_path = parent.join(include_path_str);
                     
                     if include_path.exists() {
-                        match self.load_rules_recursive(&include_path) {
+                        match self.load_rules_recursive(&include_path, depth + 1) {
                             Ok(sub_rules) => {
                                 rules.extend(sub_rules);
                             },
-                            Err(e) => Logging::warning(&format!("[EDR] Failed to load include {}: {}", include_path.display(), e)),
+                            Err(e) => Logging::warning(&format!("[EDR] Failed to load include {:?}: {}", include_path.display(), e)),
                         }
                     } else {
-                        Logging::warning(&format!("[EDR] Include path does not exist: {}", include_path.display()));
+                        Logging::warning(&format!("[EDR] Include path does not exist: {:?}", include_path.display()));
                     }
                 }
             }
