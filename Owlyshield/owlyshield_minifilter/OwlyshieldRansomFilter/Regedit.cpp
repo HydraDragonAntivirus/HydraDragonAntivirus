@@ -29,6 +29,10 @@ typedef struct _REG_BACKUP_WORK_CTX {
     WCHAR          ValueNameBuffer[MAX_FILE_NAME_LENGTH];
 } REG_BACKUP_WORK_CTX, *PREG_BACKUP_WORK_CTX;
 
+static VOID RegMarkBackupThread(VOID);
+static VOID RegUnmarkBackupThread(VOID);
+static BOOLEAN RegIsBackupThread(VOID);
+
 static IO_WORKITEM_ROUTINE RegBackupWorkRoutine;
 static VOID RegBackupWorkRoutine(_In_ PDEVICE_OBJECT DeviceObject, _In_opt_ PVOID Context)
 {
