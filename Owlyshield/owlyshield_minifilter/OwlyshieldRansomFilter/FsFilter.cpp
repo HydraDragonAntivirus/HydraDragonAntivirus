@@ -1208,11 +1208,39 @@ STATUS_FLT_DO_NOT_ATTACH - do not attach
 
     DbgPrint("FSFIlter: Entered FSInstanceSetup\n");
 
-    WCHAR newTemp[40];
+    // BUG FIX: NMI_HARDWARE_FAILURE (0x80)
+    //
+    // The previous code did:
+    //   WCHAR newTemp[40];
+    //   GvolumeData.Buffer = newTemp;   // <-- stack address
+    //   IoVolumeDeviceToDosName(..., &GvolumeData);
+    //   if (!NT_SUCCESS(hr)) return;    // <-- returns with GvolumeData.Buffer still = newTemp!
+    //
+    // IoVolumeDeviceToDosName allocates a new pool buffer and writes it into
+    // GvolumeData.Buffer when it SUCCEEDS.  When it FAILS (network shares,
+    // named pipes, etc.) it does NOT touch GvolumeData.Buffer — so the
+    // pointer remained pointing at newTemp, a stack frame that no longer
+    // exists once FSInstanceSetup returned.  GvolumeData is a global, so
+    // every subsequent filter callback reading GvolumeData.Buffer dereferenced
+    // that dangling pointer, corrupting kernel memory → NMI.
+    //
+    // Secondary bug: on the success path IoVolumeDeviceToDosName replaces
+    // GvolumeData.Buffer with a pool allocation.  The next FSInstanceSetup
+    // call overwrote that pointer with a new stack buffer before freeing
+    // the old one → non-paged pool leak.
+    //
+    // Fix:
+    //   1. Free any pool buffer left by a prior successful call.
+    //   2. Zero GvolumeData BEFORE calling IoVolumeDeviceToDosName so that
+    //      Buffer is NULL if the call fails — no dangling pointer possible.
+    //   3. Never pre-assign a stack buffer to GvolumeData.Buffer.
 
-    GvolumeData.MaximumLength = 80;
-    GvolumeData.Buffer = newTemp;
-    GvolumeData.Length = 0;
+    if (GvolumeData.Buffer != NULL)
+    {
+        // Was allocated by IoVolumeDeviceToDosName in a prior successful call.
+        ExFreePool(GvolumeData.Buffer);
+    }
+    RtlZeroMemory(&GvolumeData, sizeof(GvolumeData));
 
     NTSTATUS hr = STATUS_SUCCESS;
     PDEVICE_OBJECT devObject;
@@ -1223,23 +1251,23 @@ STATUS_FLT_DO_NOT_ATTACH - do not attach
         return STATUS_SUCCESS;
     }
 
-    // BUGFIX: Validate device object before calling IoVolumeDeviceToDosName
-    // to avoid STATUS_OBJECT_NAME_NOT_FOUND on non-disk volumes
+    // Validate device object before calling IoVolumeDeviceToDosName
+    // to avoid STATUS_OBJECT_NAME_NOT_FOUND on non-disk volumes.
     if (!devObject)
     {
         return STATUS_SUCCESS;
     }
 
     hr = IoVolumeDeviceToDosName(devObject, &GvolumeData);
+    ObDereferenceObject(devObject);
     if (!NT_SUCCESS(hr))
     {
-        // FIX: Return success instead of error for volumes without DOS names
-        // (network shares, named pipes, etc.) - we don't need to attach to these
-        ObDereferenceObject(devObject);
+        // GvolumeData.Buffer is NULL (zeroed above) — no dangling pointer.
+        // Return success: volumes without DOS names (network shares, pipes)
+        // are silently skipped; the filter still attaches to them.
         return STATUS_SUCCESS;
     }
 
-    ObDereferenceObject(devObject);
     return STATUS_SUCCESS;
 }
 
