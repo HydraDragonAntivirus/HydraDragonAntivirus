@@ -2730,15 +2730,26 @@ impl BehaviorEngine {
                 continue;
             }
 
-            let value_part = trimmed.strip_prefix("- ").unwrap_or(trimmed);
+            let after_dash = &trimmed["- ".len()..];
+
+            // If the list item is an inline mapping (e.g. `- pattern: "value"`
+            // or `- name: foo`), extract only the scalar value after the ": ".
+            // The key itself is never problematic; only the unquoted value is.
+            let value_part: &str = if let Some(colon_pos) = after_dash.find(": ") {
+                after_dash[colon_pos + 2..].trim()
+            } else {
+                after_dash
+            };
+
+            // Already quoted — nothing to flag regardless of content.
+            if value_part.starts_with('"') || value_part.starts_with('\'') {
+                continue;
+            }
 
             // Unquoted %ENV_VAR% — serde_yaml parses % as a plain scalar but
-            // the value confuses downstream expansion and in some parser versions
-            // the whole document is silently dropped.
-            if value_part.contains('%')
-                && !value_part.starts_with('"')
-                && !value_part.starts_with('\'')
-            {
+            // some parser versions silently drop the document when % appears
+            // in an unquoted list value.
+            if value_part.contains('%') {
                 warnings.push(format!(
                     "{}:{}: unquoted list value containing '%' (env-var?): `{}` — wrap in double quotes",
                     file, lineno, trimmed
@@ -2746,11 +2757,8 @@ impl BehaviorEngine {
             }
 
             // Bare !tag — YAML treats `!foo` as a local tag; `dll!FnName` on a
-            // list value causes a tag-parse error and the document is discarded.
-            if value_part.contains('!')
-                && !value_part.starts_with('"')
-                && !value_part.starts_with('\'')
-            {
+            // list value causes a tag-parse error that discards the document.
+            if value_part.contains('!') {
                 warnings.push(format!(
                     "{}:{}: unquoted list value containing '!' (YAML tag marker?): `{}` — wrap in double quotes",
                     file, lineno, trimmed
@@ -2760,8 +2768,6 @@ impl BehaviorEngine {
             // Unquoted file extension (e.g. `- .zip`) — flagged for style
             // consistency so all list values in rule files are quoted uniformly.
             if value_part.starts_with('.')
-                && !value_part.starts_with('"')
-                && !value_part.starts_with('\'')
                 && value_part.len() <= 6
                 && value_part.chars().skip(1).all(|c| c.is_alphanumeric())
             {
