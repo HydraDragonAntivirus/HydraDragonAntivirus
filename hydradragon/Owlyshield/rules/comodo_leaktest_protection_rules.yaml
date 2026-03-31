@@ -1,7 +1,7 @@
 # =============================================================================
-# COMODO Leak Test v1.1.0.3 — 100% Protection Rules
-# Rewritten to use valid BehaviorRule / NamedConditionGroup schema fields
-# All exclude_processes now require must_be_signed: true to prevent evasion
+# COMODO Leak Test v1.1.0.3 — 100% Protection Rules (v2 semantic alignment)
+# Updated on 2026-04-01 to better align selected rules with original COMODO
+# test semantics while staying compatible with the current behavior engine.
 # =============================================================================
 
 ---
@@ -149,45 +149,46 @@
 
 ---
 
-# TEST #5: Invasion:Runner — Block executable execution from raw device
-- name: "HEUR:Win.Invasion.RawDeviceExecution.gen"
+# TEST #5: Invasion:Runner — Browser tamper followed by network use
+- name: "HEUR:Win.Invasion.Runner.gen"
   author: "HydraDragon"
-  date: "2026-03-26"
+  date: "2026-04-01"
   status: production
   level: critical
   severity: 100
   description: |
-    Detects execution of binaries directly from raw device or volume objects
-    ($DEVICE$ handles). Threat actors use this to chain rootkit installation
-    with fileless execution bypassing file-system ACLs.
+    Detects tampering with a browser executable followed by network use from
+    the same unsigned process context.
     COMODO Test #5: Invasion:Runner
-    Blocks raw device execution.
+    Best-effort alignment for browser-on-disk tamper plus Internet use.
   debug: false
 
   named_conditions:
-    raw_device_handle_open:
+    browser_binary_tamper:
       orderless: true
-      apis:
-        - "ZwOpenFile"
-        - "NtOpenFile"
-        - "IoCreateFile"
       file_paths:
-        - "\\Device\\HarddiskVolume"
-        - "\\Device\\HarddiskVolumeShadowCopy"
-        - "\\Device\\Harddisk"
-      api_threshold: 1
+        - "*\\Internet Explorer\\iexplore.exe"
+        - "*\\Microsoft\\Edge\\Application\\msedge.exe"
+        - "*\\Google\\Chrome\\Application\\chrome.exe"
+        - "*\\Mozilla Firefox\\firefox.exe"
+      file_operations: ["write", "rename", "delete", "setinfo"]
       min_matches: 1
 
-    process_create_after_raw_handle:
+    network_use:
       orderless: true
-      created_processes:
-        - "*"
+      has_network_activity: true
+      min_matches: 1
+
+    unsigned_caller:
+      orderless: true
+      is_signed: false
       min_matches: 1
 
   detection_logic:
     and:
-      - condition: "raw_device_handle_open"
-      - condition: "process_create_after_raw_handle"
+      - condition: "browser_binary_tamper"
+      - condition: "network_use"
+      - condition: "unsigned_caller"
 
   response:
     notify_user: true
@@ -198,12 +199,9 @@
 
   tags:
     - invasion
-    - raw-device
-    - fileless
-    - execution
-  mitre_attack:
-    - T1218
-    - T1202
+    - runner
+    - browser-tamper
+    - firewall-bypass
 
 ---
 
@@ -467,14 +465,13 @@
 # TEST #10: Injection:SetWinEventHook — Detect and block hook-based DLL injection
 - name: "HEUR:Win.Injection.WinEventHook.gen"
   author: "HydraDragon"
-  date: "2026-03-26"
+  date: "2026-04-01"
   status: production
   level: high
   severity: 90
   description: |
     Detects SetWinEventHook() calls with remote DLL paths to inject code into
-    target processes. Threat actors use this to execute code in processes
-    running with higher privileges.
+    target processes from unsigned callers.
     COMODO Test #10: Injection:SetWinEventHook
     Blocks hook-based injection.
   debug: false
@@ -503,7 +500,9 @@
       min_matches: 1
 
   detection_logic:
-    condition: "setwineventhook_call"
+    and:
+      - condition: "setwineventhook_call"
+      - condition: "unsigned_caller"
 
   response:
     notify_user: true
@@ -525,14 +524,13 @@
 # TEST #11: Injection:SetWindowsHookEx — Detect keyboard/mouse hook injection
 - name: "HEUR:Win.Injection.WindowsHookEx.gen"
   author: "HydraDragon"
-  date: "2026-03-26"
+  date: "2026-04-01"
   status: production
   level: high
   severity: 90
   description: |
     Detects SetWindowsHookEx() calls that inject DLLs into global hook chains
-    affecting keyboard, mouse, or other user-input events. Used for credential
-    theft, keylogging, and cross-process code execution.
+    affecting keyboard, mouse, or other user-input events from unsigned callers.
     COMODO Test #11: Injection:SetWindowsHookEx
     Blocks hook-based keyboard/mouse interception.
   debug: false
@@ -561,7 +559,9 @@
       min_matches: 1
 
   detection_logic:
-    condition: "setwindowshookex_call"
+    and:
+      - condition: "setwindowshookex_call"
+      - condition: "unsigned_caller"
 
   response:
     notify_user: true
@@ -898,68 +898,51 @@
 
 ---
 
-# TEST #25: Impersonation:Coat — Block COM impersonation attacks
+# TEST #25: Impersonation:Coat — Browser masquerade and network use
 - name: "HEUR:Win.Impersonation.COATProcImpersonate.gen"
   author: "HydraDragon"
-  date: "2026-03-26"
+  date: "2026-04-01"
   status: production
   level: high
-  severity: 85
+  severity: 90
   description: |
-    Detects CoCreateInstance/CoGetObject calls followed by privilege impersonation
-    (ImpersonateLoggedOnUser). COAT (COM Object Activation Technique) leverages
-    COM objects to elevate privileges or execute code in alternate security contexts.
+    Detects unsigned processes masquerading as common browser executables and
+    performing network activity.
     COMODO Test #25: Impersonation:Coat
-    Blocks COM-based privilege impersonation.
+    Best-effort alignment for default-browser-in-memory impersonation.
   debug: false
 
+  allowlisted_apps:
+    - pattern: "C:/Program Files/Google/Chrome/Application/chrome.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Google*"]
+    - pattern: "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Program Files/Mozilla Firefox/firefox.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Mozilla*"]
+    - pattern: "C:/Program Files/Internet Explorer/iexplore.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+
   named_conditions:
-    cocreateinstance_api:
+    browser_name_masquerade:
       orderless: true
-      apis:
-        - "ole32.dll!CoCreateInstance"
-        - "ole32.dll!CoGetObject"
-        - "ole32.dll!CoGetClassObject"
-        - "ole32.dll!CoCreateInstanceEx"
-        - "ole32.dll!CoCreateInstanceAsAdmin"
-        - "ole32.dll!CoInitializeSecurity"
-        - "ole32.dll!CoSetProxyBlanket"
-        - "CoCreateInstance"
-        - "CoGetObject"
-        - "CoGetClassObject"
-        - "CoCreateInstanceEx"
-        - "CoCreateInstanceAsAdmin"
-        - "CoInitializeSecurity"
-        - "CoSetProxyBlanket"
-      api_threshold: 1
+      process_names:
+        - "chrome.exe"
+        - "msedge.exe"
+        - "firefox.exe"
+        - "iexplore.exe"
       min_matches: 1
 
-    impersonate_loggedon_user:
+    network_use:
       orderless: true
-      apis:
-        - "advapi32.dll!ImpersonateLoggedOnUser"
-        - "advapi32.dll!SetThreadToken"
-        - "advapi32.dll!DuplicateTokenEx"
-        - "advapi32.dll!OpenThreadToken"
-        - "advapi32.dll!OpenProcessToken"
-        - "advapi32.dll!AdjustTokenPrivileges"
-        - "advapi32.dll!ImpersonateNamedPipeClient"
-        - "advapi32.dll!CreateProcessWithTokenW"
-        - "advapi32.dll!CreateProcessAsUserW"
-        - "ntdll.dll!NtImpersonateThread"
-        - "ntdll.dll!NtSetInformationThread"
-        - "ImpersonateLoggedOnUser"
-        - "SetThreadToken"
-        - "DuplicateTokenEx"
-        - "OpenThreadToken"
-        - "OpenProcessToken"
-        - "AdjustTokenPrivileges"
-        - "ImpersonateNamedPipeClient"
-        - "CreateProcessWithTokenW"
-        - "CreateProcessAsUserW"
-        - "NtImpersonateThread"
-        - "NtSetInformationThread"
-      api_threshold: 1
+      has_network_activity: true
       min_matches: 1
 
     unsigned_caller:
@@ -968,21 +951,26 @@
       min_matches: 1
 
   detection_logic:
-    or:
-      - and:
-          - condition: "cocreateinstance_api"
-          - condition: "impersonate_loggedon_user"
-      - condition: "impersonate_loggedon_user"
+    and:
+      - condition: "browser_name_masquerade"
+      - condition: "network_use"
+      - condition: "unsigned_caller"
 
   response:
     notify_user: true
-    ask_user: false
+    ask_user: true
     terminate_process: true
     status_access_denied: true
     record: true
 
-  tags: ["impersonation", "com", "privilege-escalation"]
-  mitre_attack: ["T1134", "T1559.001"]
+  tags:
+    - impersonation
+    - browser
+    - masquerading
+    - network
+  mitre_attack:
+    - T1036
+    - T1071
 
 ---
 
@@ -1658,12 +1646,13 @@
 # REFINEMENT: Injection:Hooks — Strengthen hook-based injection detection
 - name: "HEUR:Win.Injection.HookAPI.gen"
   author: "HydraDragon"
-  date: "2026-03-27"
+  date: "2026-04-01"
   status: production
   level: critical
   severity: 100
   description: |
-    Enhanced detection for SetWinEventHook and SetWindowsHookEx based injection.
+    Enhanced detection for SetWinEventHook and SetWindowsHookEx based injection
+    from unsigned callers.
     COMODO Test #10/11: Injection:SetWinEventHook / SetWindowsHookEx
   debug: false
 
@@ -1695,7 +1684,9 @@
       min_matches: 1
 
   detection_logic:
-    condition: "hook_api_call"
+    and:
+      - condition: "hook_api_call"
+      - condition: "suspicious_caller"
 
   response:
     notify_user: true
@@ -2035,61 +2026,142 @@
 
 ---
 
-# TEST #22/24: Impersonation:OLE/DDE — Block browser control via OLE/DDE
-- name: "HEUR:Win.Impersonation.BrowserControl.gen"
-  description: |
-    Detects attempts to control browser instances (IE, Edge, Chrome) using OLE
-    automation or DDE (Dynamic Data Exchange) from unsigned processes.
-    COMODO Test #22: Impersonation:OLE automation
-    COMODO Test #24: Impersonation:DDE
+# TEST #22: Impersonation:OLE automation — IE control from unsigned callers
+- name: "HEUR:Win.Impersonation.OLEAutomation.gen"
   author: "HydraDragon"
+  date: "2026-04-01"
+  status: production
   level: high
   severity: 90
+  description: |
+    Detects attempts to start and control Internet Explorer through OLE
+    automation from unsigned processes.
+    COMODO Test #22: Impersonation:OLE automation
+  debug: false
+
   named_conditions:
-    browser_control:
+    ole_control:
+      orderless: true
       apis:
         - "ole32.dll!CoCreateInstance"
-        - "user32.dll!DdeInitialize*"
-        - "user32.dll!DdeConnect"
-        - "DdeInitialize*"
-        - "DdeConnect"
+        - "CoCreateInstance"
       min_matches: 1
-    target_browser:
+
+    target_ie:
+      orderless: true
       created_processes:
         - "*iexplore.exe"
-        - "*msedge.exe"
-        - "*chrome.exe"
-        - "*firefox.exe"
       min_matches: 1
+
+    unsigned_caller:
+      orderless: true
+      is_signed: false
+      min_matches: 1
+
   detection_logic:
     and:
-      - condition: "browser_control"
-      - condition: "target_browser"
+      - condition: "ole_control"
+      - condition: "target_ie"
+      - condition: "unsigned_caller"
+
   response:
+    notify_user: true
+    ask_user: true
     terminate_process: true
     status_access_denied: true
     record: true
 
 ---
 
-# TEST #23: Impersonation:ExplorerAsParent — Block explorer parent spoofing
+# TEST #23: Impersonation:ExplorerAsParent — Engine-compatible approximation
 - name: "HEUR:Win.Impersonation.ExplorerParentSpoof.gen"
-  description: |
-    Detects process creation where explorer.exe is set as the parent, but the
-    request originates from an unsigned, non-interactive process.
-    COMODO Test #23: Impersonation:ExplorerAsParent
   author: "HydraDragon"
+  date: "2026-04-01"
+  status: production
   level: high
   severity: 90
+  description: |
+    Best-effort approximation for COMODO Test #23 using current engine fields.
+    Detects unsigned callers that spawn explorer.exe and also show network
+    activity. Exact ParentPID spoof detection requires dedicated parent-spoof
+    telemetry not currently exposed by the behavior engine.
+    COMODO Test #23: Impersonation:ExplorerAsParent
+  debug: false
+
   named_conditions:
-    explorer_parent:
-      # Logic to detect parent PID spoofing or illegitimate explorer parent usage
-      created_processes: ["*"]
-      # Engine specific check for ParentPID = explorer.exe
+    spawned_explorer:
+      orderless: true
+      created_processes:
+        - "*explorer.exe"
       min_matches: 1
+
+    network_use:
+      orderless: true
+      has_network_activity: true
+      min_matches: 1
+
+    unsigned_caller:
+      orderless: true
+      is_signed: false
+      min_matches: 1
+
   detection_logic:
-    condition: "explorer_parent"
+    and:
+      - condition: "spawned_explorer"
+      - condition: "network_use"
+      - condition: "unsigned_caller"
+
   response:
+    notify_user: true
+    ask_user: true
+    terminate_process: true
+    status_access_denied: true
+    record: true
+
+---
+
+# TEST #24: Impersonation:DDE — IE control via DDE from unsigned callers
+- name: "HEUR:Win.Impersonation.DDE.gen"
+  author: "HydraDragon"
+  date: "2026-04-01"
+  status: production
+  level: high
+  severity: 90
+  description: |
+    Detects DDE-based control of Internet Explorer from unsigned processes.
+    COMODO Test #24: Impersonation:DDE
+  debug: false
+
+  named_conditions:
+    dde_control:
+      orderless: true
+      apis:
+        - "user32.dll!DdeInitialize*"
+        - "user32.dll!DdeConnect"
+        - "DdeInitialize*"
+        - "DdeConnect"
+      min_matches: 1
+
+    target_ie:
+      orderless: true
+      created_processes:
+        - "*iexplore.exe"
+      min_matches: 1
+
+    unsigned_caller:
+      orderless: true
+      is_signed: false
+      min_matches: 1
+
+  detection_logic:
+    and:
+      - condition: "dde_control"
+      - condition: "target_ie"
+      - condition: "unsigned_caller"
+
+  response:
+    notify_user: true
+    ask_user: true
     terminate_process: true
     status_access_denied: true
     record: true
