@@ -2659,8 +2659,9 @@ impl BehaviorEngine {
 
     pub fn load_rules(&mut self, path: &Path) -> Result<(), Box<dyn std::error::Error>> {
         let rules = self.load_rules_recursive(path)?;
+        let count = rules.len();
         self.rules = rules;
-        Logging::info(&format!("[EDR]: {} behavior rules loaded from {:?}", self.rules.len(), path));
+        Logging::info(&format!("[Owlyshield] Successfully loaded {} behavior rules from {:?}", count, path));
         Ok(())
     }
 
@@ -2717,13 +2718,13 @@ impl BehaviorEngine {
             let trimmed = line.trim();
             if trimmed.contains("!include ") {
                 let include_part = if trimmed.starts_with("- ") {
-                    trimmed.trim_start_matches("- ").trim()
+                    trimmed.strip_prefix("- ").unwrap_or(trimmed).trim()
                 } else {
                     trimmed
                 };
                 
-                if include_part.starts_with("!include ") {
-                    let include_path_str = include_part.trim_start_matches("!include ").trim();
+                if let Some(include_path_str) = include_part.strip_prefix("!include ") {
+                    let include_path_str = include_path_str.trim();
                     let include_path = parent.join(include_path_str);
                     
                     if include_path.exists() {
