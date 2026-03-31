@@ -2685,17 +2685,51 @@ impl BehaviorEngine {
     fn validate_yaml_content(path: &Path, content: &str) -> Vec<String> {
         let mut warnings = Vec::new();
         let file = path.display();
+        let mut in_block_scalar = false;
+        let mut block_scalar_indent: usize = 0;
 
         for (idx, line) in content.lines().enumerate() {
             let lineno = idx + 1;
             let trimmed = line.trim();
+            let indent = line.len() - line.trim_start().len();
+
+            // Detect entry into a block scalar (| or >) — e.g. description, false_positives prose.
+            // Any content inside a block scalar is free text and must not be linted.
+            if trimmed.ends_with('|') || trimmed.ends_with('>')
+                || trimmed.ends_with("|+") || trimmed.ends_with(">+")
+                || trimmed.ends_with("|-") || trimmed.ends_with(">-")
+            {
+                in_block_scalar = true;
+                block_scalar_indent = indent;
+                continue;
+            }
+
+            // Exit block scalar when we see a non-empty line at or below the
+            // indentation level of the key that opened the block.
+            if in_block_scalar {
+                if trimmed.is_empty() {
+                    continue; // blank lines are allowed inside block scalars
+                }
+                if indent <= block_scalar_indent {
+                    in_block_scalar = false;
+                    // Fall through — this line is real YAML, lint it below.
+                } else {
+                    continue; // still inside block scalar body, skip
+                }
+            }
 
             // Skip comments and blank lines
             if trimmed.is_empty() || trimmed.starts_with('#') {
                 continue;
             }
 
-            // Strip leading list marker so we test the actual value
+            // Only lint YAML list items — lines whose first non-space content
+            // starts with "- ". Key lines (description:, tags:, etc.) and
+            // flow-sequence content are safe from the unquoted-value problem.
+            if !trimmed.starts_with("- ") {
+                continue;
+            }
+
             let value_part = trimmed.strip_prefix("- ").unwrap_or(trimmed);
 
             // Unquoted %ENV_VAR% — serde_yaml parses % as a plain scalar but
@@ -2706,7 +2740,7 @@ impl BehaviorEngine {
                 && !value_part.starts_with('\'')
             {
                 warnings.push(format!(
-                    "{}:{}: unquoted value containing '%' (env-var?): `{}` — wrap in double quotes",
+                    "{}:{}: unquoted list value containing '%' (env-var?): `{}` — wrap in double quotes",
                     file, lineno, trimmed
                 ));
             }
@@ -2716,10 +2750,9 @@ impl BehaviorEngine {
             if value_part.contains('!')
                 && !value_part.starts_with('"')
                 && !value_part.starts_with('\'')
-                && !trimmed.starts_with('#')
             {
                 warnings.push(format!(
-                    "{}:{}: unquoted value containing '!' (YAML tag marker?): `{}` — wrap in double quotes",
+                    "{}:{}: unquoted list value containing '!' (YAML tag marker?): `{}` — wrap in double quotes",
                     file, lineno, trimmed
                 ));
             }
@@ -2733,7 +2766,7 @@ impl BehaviorEngine {
                 && value_part.chars().skip(1).all(|c| c.is_alphanumeric())
             {
                 warnings.push(format!(
-                    "{}:{}: unquoted file extension: `{}` — wrap in double quotes",
+                    "{}:{}: unquoted list value with file extension: `{}` — wrap in double quotes",
                     file, lineno, trimmed
                 ));
             }
