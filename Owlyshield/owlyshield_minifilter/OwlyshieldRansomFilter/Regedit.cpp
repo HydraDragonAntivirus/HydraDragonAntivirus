@@ -45,6 +45,12 @@ static VOID RegBackupWorkRoutine(_In_ PDEVICE_OBJECT DeviceObject, _In_opt_ PVOI
 
     // Safe to call ZwOpenKey / ZwQueryValueKey here — we are NOT inside a
     // CmCallback, so no recursive callback re-entry can occur.
+    //
+    // Mark this thread so RegistryCallback knows to skip processing any
+    // callbacks our Zw* calls trigger (prevents ObQueryNameString being called
+    // on transient KCB state → STATUS_INVALID_VALUE in debug kernels).
+    RegMarkBackupThread();
+
     HANDLE hKey = NULL;
     OBJECT_ATTRIBUTES objAttr;
     InitializeObjectAttributes(&objAttr, &ctx->KeyPath, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
@@ -92,6 +98,7 @@ static VOID RegBackupWorkRoutine(_In_ PDEVICE_OBJECT DeviceObject, _In_opt_ PVOI
     }
 
     IoFreeWorkItem(ctx->WorkItem);
+    RegUnmarkBackupThread();
     ExFreePoolWithTag(ctx, REG_TAG);
 }
 
@@ -145,6 +152,79 @@ static VOID QueueRegistryBackup(
     }
 
     IoQueueWorkItem(ctx->WorkItem, RegBackupWorkRoutine, DelayedWorkQueue, ctx);
+}
+
+// =============================================================================
+// SELF-CALL GUARD
+//
+// When RegBackupWorkRoutine calls ZwOpenKey / ZwQueryValueKey, RegistryCallback
+// fires again on the same worker thread. The inner RegNtPreQueryValueKey case
+// calls GetNameForRegistryObject → ObQueryNameString on the key object. On
+// checked / debug kernels, ObQueryNameString → CmObQueryNameInfo can call
+// DbgBreakPointWithStatus(STATUS_INVALID_VALUE) if the KCB is in a transient
+// state during the ongoing Zw* call (e.g. NameLength == 0 on the root KCB path).
+//
+// Fix: track each backup work-item thread by its PETHREAD pointer. At the top of
+// RegistryCallback, bail out immediately if the current thread is one of ours.
+// This also eliminates the redundant 64 KB non-paged pool alloc + ObQueryNameString
+// that would otherwise run for every Zw* call the work item makes.
+// =============================================================================
+
+#define REG_MAX_BACKUP_THREADS 8
+
+static PETHREAD  g_BackupWorkThreads[REG_MAX_BACKUP_THREADS];
+static KSPIN_LOCK g_BackupWorkLock;
+// Initialized to 0 by the BSS linker segment; KeInitializeSpinLock writes 0 too,
+// so calling it in RegeditDriverEntry() is sufficient.
+
+static VOID RegMarkBackupThread(VOID)
+{
+    KIRQL irql;
+    PETHREAD current = PsGetCurrentThread();
+    KeAcquireSpinLock(&g_BackupWorkLock, &irql);
+    for (int i = 0; i < REG_MAX_BACKUP_THREADS; ++i)
+    {
+        if (g_BackupWorkThreads[i] == NULL)
+        {
+            g_BackupWorkThreads[i] = current;
+            break;
+        }
+    }
+    KeReleaseSpinLock(&g_BackupWorkLock, irql);
+}
+
+static VOID RegUnmarkBackupThread(VOID)
+{
+    KIRQL irql;
+    PETHREAD current = PsGetCurrentThread();
+    KeAcquireSpinLock(&g_BackupWorkLock, &irql);
+    for (int i = 0; i < REG_MAX_BACKUP_THREADS; ++i)
+    {
+        if (g_BackupWorkThreads[i] == current)
+        {
+            g_BackupWorkThreads[i] = NULL;
+            break;
+        }
+    }
+    KeReleaseSpinLock(&g_BackupWorkLock, irql);
+}
+
+static BOOLEAN RegIsBackupThread(VOID)
+{
+    KIRQL irql;
+    BOOLEAN found = FALSE;
+    PETHREAD current = PsGetCurrentThread();
+    KeAcquireSpinLock(&g_BackupWorkLock, &irql);
+    for (int i = 0; i < REG_MAX_BACKUP_THREADS; ++i)
+    {
+        if (g_BackupWorkThreads[i] == current)
+        {
+            found = TRUE;
+            break;
+        }
+    }
+    KeReleaseSpinLock(&g_BackupWorkLock, irql);
+    return found;
 }
 
 typedef struct _REGISTRY_HIVE_MAP_ENTRY {
@@ -455,6 +535,12 @@ VOID SendRegistryAlert(PUNICODE_STRING RegPath, PCWSTR Operation, HANDLE Pid, UC
         if (NormalizeRegistryAlertPath(RegPath, newEntry->Buffer, RTL_NUMBER_OF(newEntry->Buffer),
                                        &newEntry->filePath.Length))
         {
+            // FIX (Bug B): filePath.Buffer was never set. A UNICODE_STRING with
+            // Length > 0 and Buffer == NULL is invalid: any downstream code that
+            // calls RtlCopyUnicodeString or validates the string will crash or
+            // fire an assertion. filePath must point to the same Buffer array
+            // that NormalizeRegistryAlertPath wrote into.
+            newEntry->filePath.Buffer = newEntry->Buffer;
             newEntry->filePath.MaximumLength = MAX_FILE_NAME_SIZE;
         }
     }
@@ -495,6 +581,16 @@ NTSTATUS RegistryCallback(_In_ PVOID CallbackContext, _In_ PVOID Argument1, _In_
     
     if (!RegPath.Buffer) return Status;
     RegPath.Length = 0;
+
+    // Self-call guard: if the current thread is our own backup work item thread,
+    // skip all processing. Our Zw* calls would otherwise trigger RegNtPreOpenKey /
+    // RegNtPreQueryValueKey, causing GetNameForRegistryObject → ObQueryNameString
+    // on a KCB that is mid-operation, which fires STATUS_INVALID_VALUE in debug kernels.
+    if (RegIsBackupThread())
+    {
+        ExFreePoolWithTag(RegPath.Buffer, REG_TAG);
+        return STATUS_SUCCESS;
+    }
 
     REG_NOTIFY_CLASS NotifyClass = (REG_NOTIFY_CLASS)(ULONG_PTR)Argument1;
 
