@@ -827,6 +827,8 @@ NTSTATUS RegistryCallback(_In_ PVOID CallbackContext, _In_ PVOID Argument1, _In_
 
 NTSTATUS RegeditDriverEntry()
 {
+    KeInitializeSpinLock(&g_BackupWorkLock);
+
     NTSTATUS status = CmRegisterCallback(RegistryCallback, NULL, &Cookie);
     if (NT_SUCCESS(status))
     {
