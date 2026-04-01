@@ -169,30 +169,70 @@ impl IrpMajorOp {
     }
 }
 
-pub const IRP_KERNEL_REMOTE_THREAD: u32 = 13;
-pub const IRP_KERNEL_WRITE_MEMORY: u32 = 14;
-pub const IRP_KERNEL_PROTECT_MEMORY: u32 = 15;
-pub const IRP_KERNEL_CREATE_THREAD: u32 = 16;
-pub const IRP_KERNEL_QUEUE_APC: u32 = 17;
-pub const IRP_KERNEL_CREATE_SECTION: u32 = 18;
-pub const IRP_KERNEL_MAP_SECTION: u32 = 19;
+
+pub const OWLY_VMM_RAW_EVENT_BASE: u32 = 0x1000;
+pub const OWLY_VMM_RAW_CALLBACK_BASE: u32 = 0x1200;
+pub const OWLY_VMM_RAW_HYPEREVADE_BASE: u32 = 0x1300;
+pub const OWLY_VMM_RAW_DISASM_BASE: u32 = 0x1400;
 
 pub fn kernel_raw_event_name(raw_event_type: u32) -> Option<&'static str> {
     match raw_event_type {
         12 => Some("IRP_HYPERVISOR_EVENT"),
-        IRP_KERNEL_REMOTE_THREAD => Some("IRP_KERNEL_REMOTE_THREAD"),
-        IRP_KERNEL_WRITE_MEMORY => Some("IRP_KERNEL_WRITE_MEMORY"),
-        IRP_KERNEL_PROTECT_MEMORY => Some("IRP_KERNEL_PROTECT_MEMORY"),
-        IRP_KERNEL_CREATE_THREAD => Some("IRP_KERNEL_CREATE_THREAD"),
-        IRP_KERNEL_QUEUE_APC => Some("IRP_KERNEL_QUEUE_APC"),
-        IRP_KERNEL_CREATE_SECTION => Some("IRP_KERNEL_CREATE_SECTION"),
-        IRP_KERNEL_MAP_SECTION => Some("IRP_KERNEL_MAP_SECTION"),
+        13 => Some("IRP_KERNEL_REMOTE_THREAD"),
+        14 => Some("IRP_KERNEL_WRITE_MEMORY"),
+        15 => Some("IRP_KERNEL_PROTECT_MEMORY"),
+        16 => Some("IRP_KERNEL_CREATE_THREAD"),
+        17 => Some("IRP_KERNEL_QUEUE_APC"),
+        18 => Some("IRP_KERNEL_CREATE_SECTION"),
+        19 => Some("IRP_KERNEL_MAP_SECTION"),
         _ => None,
     }
 }
 
+pub fn hypervisor_raw_event_name(raw_event_type: u32) -> Option<&'static str> {
+    match raw_event_type {
+        0x1201 => Some("VMMCALL"),
+        0x1203 => Some("NMI_BROADCAST"),
+        0x1204 => Some("QUERY_TERMINATE_PROTECTED_RESOURCE"),
+        0x1206 => Some("UNHANDLED_EPT_VIOLATION"),
+        0x1208 => Some("DEBUG_DEBUG_BREAKPOINT_EXCEPTION"),
+        0x1209 => Some("DEBUG_THREAD_INTERCEPTION"),
+        0x120A => Some("CR3_PROCESS_CHANGE"),
+        0x120B => Some("REAPPLY_BREAKPOINT"),
+        0x120C => Some("KD_NMI_CALLBACK"),
+        0x120D => Some("REGISTERED_MTF_HANDLER"),
+        0x120E => Some("DEBUGGER_PROCESS_OR_THREAD_CHANGE"),
+        0x120F => Some("KD_QUERY_THREAD_OR_PROCESS_TRACING"),
+        0x1301 => Some("TRANSPARENT_HIDE_DEBUGGER"),
+        0x1302 => Some("TRANSPARENT_UNHIDE_DEBUGGER"),
+        0x1303 => Some("TRANSPARENT_CPUID"),
+        0x1304 => Some("TRANSPARENT_TRAP_FLAG_AFTER_VMEXIT"),
+        0x1305 => Some("TRANSPARENT_MSR_READ"),
+        0x1306 => Some("TRANSPARENT_MSR_WRITE"),
+        0x1307 => Some("TRANSPARENT_SYSCALL_HOOK"),
+        0x1308 => Some("TRANSPARENT_AFTER_SYSCALL"),
+        0x1401 => Some("DISASM_SHOW_INSTR_NONROOT"),
+        0x1402 => Some("DISASM_ONE_INSTR_NONROOT"),
+        0x1403 => Some("DISASM_ONE_INSTR_ROOT"),
+        0x1404 => Some("DISASM_LENGTH_ENGINE"),
+        0x1405 => Some("DISASM_LENGTH_ENGINE_ROOT_TARGET"),
+        0x1406 => Some("DISASM_LENGTH_ENGINE_BY_PID"),
+        _ => None,
+    }
+}
+
+pub fn is_hypervisor_raw_event_type(raw_event_type: u32) -> bool {
+    matches!(
+        raw_event_type,
+        OWLY_VMM_RAW_EVENT_BASE..=0x11FF
+            | OWLY_VMM_RAW_CALLBACK_BASE..=0x12FF
+            | OWLY_VMM_RAW_HYPEREVADE_BASE..=0x13FF
+            | OWLY_VMM_RAW_DISASM_BASE..=0x14FF
+    )
+}
+
 pub fn known_raw_event_name(raw_event_type: u32) -> Option<&'static str> {
-    kernel_raw_event_name(raw_event_type)
+    kernel_raw_event_name(raw_event_type).or_else(|| hypervisor_raw_event_name(raw_event_type))
 }
 
 /// See [`shared_def::IOMessage`] struct and [this doc](https://docs.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-getdrivetypea).
@@ -294,6 +334,9 @@ pub struct KernelEventInfo {
 
     // Operation result
     pub operation_status: i32, // NTSTATUS of the operation
+    pub core_id: u32,          // Hypervisor core id (if applicable)
+    pub thread_id: u32,        // Thread id captured by the kernel event source
+    pub context: u64,          // Hypervisor/event-specific context value
 }
 
 /// Represents a driver message.
@@ -352,6 +395,152 @@ impl Default for IOMessage {
             file_size: 0,
             time: SystemTime::now(),
         }
+    }
+}
+
+#[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResolvedHypervisorEvent {
+    pub irp_op: IrpMajorOp,
+    pub raw_event_type: u32,
+    pub event_name: String,
+    pub source_process_id: u32,
+    pub target_process_id: u32,
+    pub core_id: u32,
+    pub thread_id: u32,
+    pub context: u64,
+    pub memory_address: u64,
+    pub memory_size: u64,
+    pub memory_protection: u32,
+    pub is_executable_memory: bool,
+    pub thread_handle: u64,
+    pub thread_start_routine: u64,
+    pub raw_argument1: u64,
+    pub raw_argument2: u64,
+    pub raw_argument3: u64,
+    pub raw_argument4: u64,
+    pub access_mask: u32,
+    pub operation_status: i32,
+}
+
+#[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+pub fn normalize_hypervisor_label(raw: &str) -> String {
+    let mut value = raw.trim().to_string();
+    if let Some(idx) = value.find(" (syscall=0x") {
+        value.truncate(idx);
+    }
+    value.trim().to_string()
+}
+
+#[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+pub fn effective_hypervisor_irp_byte(msg: &IOMessage) -> u8 {
+    if msg.irp_op == 12 && (12..=20).contains(&msg.kernel_event_info.event_type) {
+        msg.kernel_event_info.event_type as u8
+    } else {
+        msg.irp_op
+    }
+}
+
+#[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+pub fn effective_hypervisor_raw_event_type(msg: &IOMessage) -> u32 {
+    if msg.kernel_event_info.event_type != 0 {
+        msg.kernel_event_info.event_type
+    } else {
+        effective_hypervisor_irp_byte(msg) as u32
+    }
+}
+
+#[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+pub fn is_kernel_api_irp(irp_op: &IrpMajorOp) -> bool {
+    matches!(
+        irp_op,
+        IrpMajorOp::IrpHypervisorEvent
+            | IrpMajorOp::IrpUserModeHookEvent
+            | IrpMajorOp::IrpKernelRemoteThread
+            | IrpMajorOp::IrpKernelWriteMemory
+            | IrpMajorOp::IrpKernelProtectMemory
+            | IrpMajorOp::IrpKernelCreateThread
+            | IrpMajorOp::IrpKernelQueueApc
+            | IrpMajorOp::IrpKernelCreateSection
+            | IrpMajorOp::IrpKernelMapSection
+    )
+}
+
+#[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+pub fn resolved_hypervisor_event_name(msg: &IOMessage) -> String {
+    let normalized = normalize_hypervisor_label(&msg.kernel_event_info.object_name);
+    if !normalized.is_empty() {
+        return normalized;
+    }
+
+    let raw_event_type = effective_hypervisor_raw_event_type(msg);
+    known_raw_event_name(raw_event_type)
+        .map(|name| name.to_string())
+        .unwrap_or_else(|| format!("RawEventType(0x{raw_event_type:X})"))
+}
+
+#[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+impl IOMessage {
+    pub fn normalize_hypervisor_event(&mut self) {
+        let raw_event_type = effective_hypervisor_raw_event_type(self);
+        self.kernel_event_info.event_type = raw_event_type;
+
+        if self.kernel_event_info.source_process_id == 0 {
+            self.kernel_event_info.source_process_id = if self.attacker_pid != 0 {
+                self.attacker_pid
+            } else {
+                self.pid
+            };
+        }
+
+        if self.kernel_event_info.target_process_id == 0 {
+            self.kernel_event_info.target_process_id = self.pid;
+        }
+    }
+
+    pub fn needs_hypervisor_name_resolution(&self) -> bool {
+        let object_name = self.kernel_event_info.object_name.trim();
+        let has_qualified_name =
+            object_name.contains('!') && !object_name.starts_with('!') && !object_name.ends_with('!');
+        object_name.is_empty() || !has_qualified_name
+    }
+
+    pub fn resolved_hypervisor_event(&self) -> Option<ResolvedHypervisorEvent> {
+        let irp_op = IrpMajorOp::from_byte(effective_hypervisor_irp_byte(self));
+        if !is_kernel_api_irp(&irp_op) {
+            return None;
+        }
+
+        Some(ResolvedHypervisorEvent {
+            irp_op,
+            raw_event_type: effective_hypervisor_raw_event_type(self),
+            event_name: resolved_hypervisor_event_name(self),
+            source_process_id: if self.kernel_event_info.source_process_id != 0 {
+                self.kernel_event_info.source_process_id
+            } else {
+                self.pid
+            },
+            target_process_id: if self.kernel_event_info.target_process_id != 0 {
+                self.kernel_event_info.target_process_id
+            } else {
+                self.pid
+            },
+            core_id: self.kernel_event_info.core_id,
+            thread_id: self.kernel_event_info.thread_id,
+            context: self.kernel_event_info.context,
+            memory_address: self.kernel_event_info.memory_address,
+            memory_size: self.kernel_event_info.memory_size as u64,
+            memory_protection: self.kernel_event_info.memory_protection,
+            is_executable_memory: self.kernel_event_info.is_executable_memory,
+            thread_handle: self.kernel_event_info.thread_handle,
+            thread_start_routine: self.kernel_event_info.thread_start_routine,
+            raw_argument1: self.kernel_event_info.raw_argument1,
+            raw_argument2: self.kernel_event_info.raw_argument2,
+            raw_argument3: self.kernel_event_info.raw_argument3,
+            raw_argument4: self.kernel_event_info.raw_argument4,
+            access_mask: self.kernel_event_info.access_mask,
+            operation_status: self.kernel_event_info.operation_status,
+        })
     }
 }
 

@@ -16,6 +16,9 @@
 // VMM Callbacks
 //
 
+BOOLEAN
+VmmCallbackReportOwlyEvent(_In_ const OWLY_HYPERDBG_EVENT_DETAILS * EventDetails);
+
 VMM_CALLBACK_TRIGGERING_EVENT_STATUS_TYPE
 VmmCallbackTriggerEvents(VMM_EVENT_TYPE_ENUM                   EventType,
                          VMM_CALLBACK_EVENT_CALLING_STAGE_TYPE CallingStage,

@@ -5,17 +5,11 @@
 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
 use crate::behavioral::rule_types::PacketInfo;
 use crate::process::ProcessRecord;
-use crate::shared_def::{FileChangeInfo, IOMessage, IrpMajorOp, known_raw_event_name};
+use crate::shared_def::{FileChangeInfo, IOMessage, IrpMajorOp};
+#[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+use crate::shared_def::{effective_hypervisor_raw_event_type, resolved_hypervisor_event_name};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
-
-fn normalize_hypervisor_api_label(raw: &str) -> String {
-    let mut value = raw.trim().to_string();
-    if let Some(idx) = value.find(" (syscall=0x") {
-        value.truncate(idx);
-    }
-    value.trim().to_string()
-}
 
 /// Tracks API usage for a specific process
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -468,21 +462,32 @@ impl ApiTracker {
         self.track_api_call(event_name.clone(), category, Some(msg.filepathstr.clone()));
 
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-        let (source_pid, target_pid, mem_size, status, raw_event_type, arg1, arg2, arg3, arg4) = (
-            msg.kernel_event_info.source_process_id,
-            msg.kernel_event_info.target_process_id,
-            msg.kernel_event_info.memory_size as u64,
-            msg.kernel_event_info.operation_status,
-            if msg.kernel_event_info.event_type != 0 {
-                msg.kernel_event_info.event_type
+        let (source_pid, target_pid, mem_size, status, raw_event_type, arg1, arg2, arg3, arg4) =
+            if let Some(event) = msg.resolved_hypervisor_event() {
+                (
+                    event.source_process_id,
+                    event.target_process_id,
+                    event.memory_size,
+                    event.operation_status,
+                    event.raw_event_type,
+                    event.raw_argument1,
+                    event.raw_argument2,
+                    event.raw_argument3,
+                    event.raw_argument4,
+                )
             } else {
-                msg.irp_op as u32
-            },
-            msg.kernel_event_info.raw_argument1,
-            msg.kernel_event_info.raw_argument2,
-            msg.kernel_event_info.raw_argument3,
-            msg.kernel_event_info.raw_argument4,
-        );
+                (
+                    msg.kernel_event_info.source_process_id,
+                    msg.kernel_event_info.target_process_id,
+                    msg.kernel_event_info.memory_size as u64,
+                    msg.kernel_event_info.operation_status,
+                    effective_hypervisor_raw_event_type(msg),
+                    msg.kernel_event_info.raw_argument1,
+                    msg.kernel_event_info.raw_argument2,
+                    msg.kernel_event_info.raw_argument3,
+                    msg.kernel_event_info.raw_argument4,
+                )
+            };
         #[cfg(not(all(target_os = "windows", feature = "behavior_engine")))]
         let (source_pid, target_pid, mem_size, status, raw_event_type, arg1, arg2, arg3, arg4) = (
             msg.pid,
@@ -521,17 +526,13 @@ impl ApiTracker {
     fn resolve_api_name(&self, msg: &IOMessage, fallback: &str) -> String {
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
         {
-            let api = normalize_hypervisor_api_label(msg.kernel_event_info.object_name.trim());
-            if !api.is_empty() {
-                return api;
+            if let Some(event) = msg.resolved_hypervisor_event() {
+                return event.event_name;
             }
-            let raw_event_type = if msg.kernel_event_info.event_type != 0 {
-                msg.kernel_event_info.event_type
-            } else {
-                msg.irp_op as u32
-            };
-            if let Some(name) = known_raw_event_name(raw_event_type) {
-                return name.to_string();
+
+            let event_name = resolved_hypervisor_event_name(msg);
+            if !event_name.trim().is_empty() {
+                return event_name;
             }
         }
         if !msg.filepathstr.trim().is_empty() {
@@ -574,14 +575,45 @@ impl ApiTracker {
 
     #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
     fn render_raw_event(msg: &IOMessage) -> String {
-        let irp_op = IrpMajorOp::from_byte(msg.irp_op);
+        let hyper_event = msg.resolved_hypervisor_event();
+        let irp_op = hyper_event
+            .as_ref()
+            .map(|event| event.irp_op.clone())
+            .unwrap_or_else(|| IrpMajorOp::from_byte(msg.irp_op));
         let file_change: FileChangeInfo =
             num::FromPrimitive::from_u8(msg.file_change).unwrap_or(FileChangeInfo::ChangeNotSet);
-        let raw_event_type = if msg.kernel_event_info.event_type != 0 {
-            msg.kernel_event_info.event_type
-        } else {
-            msg.irp_op as u32
-        };
+        let raw_event_type = hyper_event
+            .as_ref()
+            .map(|event| event.raw_event_type)
+            .unwrap_or_else(|| effective_hypervisor_raw_event_type(msg));
+        let source_pid = hyper_event
+            .as_ref()
+            .map(|event| event.source_process_id)
+            .unwrap_or(msg.kernel_event_info.source_process_id);
+        let target_pid = hyper_event
+            .as_ref()
+            .map(|event| event.target_process_id)
+            .unwrap_or(msg.kernel_event_info.target_process_id);
+        let operation_status = hyper_event
+            .as_ref()
+            .map(|event| event.operation_status)
+            .unwrap_or(msg.kernel_event_info.operation_status);
+        let object_name = hyper_event
+            .as_ref()
+            .map(|event| event.event_name.as_str())
+            .unwrap_or(msg.kernel_event_info.object_name.as_str());
+        let core_id = hyper_event
+            .as_ref()
+            .map(|event| event.core_id)
+            .unwrap_or(msg.kernel_event_info.core_id);
+        let thread_id = hyper_event
+            .as_ref()
+            .map(|event| event.thread_id)
+            .unwrap_or(msg.kernel_event_info.thread_id);
+        let context = hyper_event
+            .as_ref()
+            .map(|event| event.context)
+            .unwrap_or(msg.kernel_event_info.context);
         let timestamp_ms = msg
             .time
             .duration_since(std::time::UNIX_EPOCH)
@@ -589,7 +621,7 @@ impl ApiTracker {
             .as_millis();
 
         format!(
-            "ts_ms={} gid={} pid={} irp={:?} raw_event_type={} change={:?} path={} ext={} bytes={} entropy={:.4} file_size={} parent_pid={} attacker_pid={} attacker_gid={} src_pid={} target_pid={} status={} object={} cmd={}",
+            "ts_ms={} gid={} pid={} irp={:?} raw_event_type={} change={:?} path={} ext={} bytes={} entropy={:.4} file_size={} parent_pid={} attacker_pid={} attacker_gid={} core_id={} thread_id={} context=0x{:X} src_pid={} target_pid={} status={} object={} cmd={}",
             timestamp_ms,
             msg.gid,
             msg.pid,
@@ -604,10 +636,13 @@ impl ApiTracker {
             msg.parent_pid,
             msg.attacker_pid,
             msg.attacker_gid,
-            msg.kernel_event_info.source_process_id,
-            msg.kernel_event_info.target_process_id,
-            msg.kernel_event_info.operation_status,
-            Self::sanitize_raw_field(&msg.kernel_event_info.object_name),
+            core_id,
+            thread_id,
+            context,
+            source_pid,
+            target_pid,
+            operation_status,
+            Self::sanitize_raw_field(object_name),
             Self::sanitize_raw_field(&msg.runtime_features.command_line),
         )
     }

@@ -725,7 +725,7 @@ pub mod worker_instance {
     use crate::process::ProcessState;
     #[cfg(feature = "realtime_learning")]
     use crate::realtime_learning::ApiTracker;
-    use crate::shared_def::IrpMajorOp;
+    use crate::shared_def::{IrpMajorOp, effective_hypervisor_raw_event_type};
     use crate::threat_handler::ThreatHandler;
     #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
     use crate::utils::validate_pipe_client;
@@ -2404,37 +2404,15 @@ pub mod worker_instance {
 
             #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
             {
-                // Only opcode 12 is the hypervisor/user-hook stream.
-                let raw_event_type = if iomsg.kernel_event_info.event_type != 0 {
-                    iomsg.kernel_event_info.event_type
-                } else {
-                    iomsg.irp_op as u32
-                };
                 if iomsg.irp_op == 12 {
-                    iomsg.kernel_event_info.event_type = raw_event_type;
+                    iomsg.normalize_hypervisor_event();
 
-                    let needs_name_resolution = {
-                        let object_name = iomsg.kernel_event_info.object_name.trim();
-                        let has_qualified_name = object_name.contains('!')
-                            && !object_name.starts_with('!')
-                            && !object_name.ends_with('!');
-                        object_name.is_empty() || !has_qualified_name
-                    };
+                    let raw_event_type = effective_hypervisor_raw_event_type(iomsg);
+                    let needs_name_resolution = iomsg.needs_hypervisor_name_resolution();
                     if needs_name_resolution
                         && let Some(mapped_api) = self.dynamic_hook_event_map.get(&raw_event_type)
                     {
                         iomsg.kernel_event_info.object_name = mapped_api.clone();
-                    }
-
-                    if iomsg.kernel_event_info.source_process_id == 0 {
-                        iomsg.kernel_event_info.source_process_id = if iomsg.attacker_pid != 0 {
-                            iomsg.attacker_pid
-                        } else {
-                            iomsg.pid
-                        };
-                    }
-                    if iomsg.kernel_event_info.target_process_id == 0 && iomsg.irp_op != 12 {
-                        iomsg.kernel_event_info.target_process_id = iomsg.pid;
                     }
                 }
             }

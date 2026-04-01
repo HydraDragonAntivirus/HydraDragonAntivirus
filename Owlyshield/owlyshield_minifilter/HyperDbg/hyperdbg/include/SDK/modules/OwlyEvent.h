@@ -1,0 +1,45 @@
+#pragma once
+
+#define OWLY_VMM_RAW_EVENT_BASE       0x1000u
+#define OWLY_VMM_RAW_CALLBACK_BASE    0x1200u
+#define OWLY_VMM_RAW_VMCALL_EVENT     (OWLY_VMM_RAW_CALLBACK_BASE + 1u)
+#define OWLY_VMM_RAW_NMI_EVENT        (OWLY_VMM_RAW_CALLBACK_BASE + 3u)
+#define OWLY_VMM_RAW_PROTECTED_EVENT  (OWLY_VMM_RAW_CALLBACK_BASE + 4u)
+#define OWLY_VMM_RAW_RESTORE_EPT      (OWLY_VMM_RAW_CALLBACK_BASE + 5u)
+#define OWLY_VMM_RAW_UNHANDLED_EPT    (OWLY_VMM_RAW_CALLBACK_BASE + 6u)
+#define OWLY_VMM_RAW_BP_EVENT         (OWLY_VMM_RAW_CALLBACK_BASE + 7u)
+#define OWLY_VMM_RAW_DBG_BP_EVENT     (OWLY_VMM_RAW_CALLBACK_BASE + 8u)
+#define OWLY_VMM_RAW_THREAD_INT_EVENT (OWLY_VMM_RAW_CALLBACK_BASE + 9u)
+#define OWLY_VMM_RAW_CR3_EVENT        (OWLY_VMM_RAW_CALLBACK_BASE + 10u)
+#define OWLY_VMM_RAW_REAPPLY_BP_EVENT (OWLY_VMM_RAW_CALLBACK_BASE + 11u)
+#define OWLY_VMM_RAW_KD_NMI_EVENT     (OWLY_VMM_RAW_CALLBACK_BASE + 12u)
+#define OWLY_VMM_RAW_MTF_EVENT        (OWLY_VMM_RAW_CALLBACK_BASE + 13u)
+#define OWLY_VMM_RAW_PROC_THR_EVENT   (OWLY_VMM_RAW_CALLBACK_BASE + 14u)
+#define OWLY_VMM_RAW_TRACING_EVENT    (OWLY_VMM_RAW_CALLBACK_BASE + 15u)
+#define OWLY_VMM_RAW_HYPEREVADE_BASE  0x1300u
+#define OWLY_VMM_RAW_DISASM_BASE      0x1400u
+
+typedef struct _OWLY_HYPERDBG_EVENT_DETAILS
+{
+    UINT32       RawEventType;
+    UINT32       SourceProcessId;
+    UINT32       TargetProcessId;
+    UINT32       CoreId;
+    UINT32       ThreadId;
+    UINT64       Context;
+    UINT64       MemoryAddress;
+    UINT64       MemorySize;
+    UINT32       MemoryProtection;
+    BOOLEAN      IsExecutableMemory;
+    UINT64       ThreadHandle;
+    UINT64       ThreadStartRoutine;
+    UINT64       RawArgument1;
+    UINT64       RawArgument2;
+    UINT64       RawArgument3;
+    UINT64       RawArgument4;
+    UINT32       AccessMask;
+    INT32        OperationStatus;
+    const WCHAR *EventName;
+} OWLY_HYPERDBG_EVENT_DETAILS, *POWLY_HYPERDBG_EVENT_DETAILS;
+
+typedef BOOLEAN (*OWLY_REPORT_EVENT_CALLBACK)(_In_ const OWLY_HYPERDBG_EVENT_DETAILS * EventDetails);

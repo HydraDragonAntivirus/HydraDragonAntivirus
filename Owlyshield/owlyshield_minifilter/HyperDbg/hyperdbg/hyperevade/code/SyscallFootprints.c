@@ -14,7 +14,14 @@
 VOID
 TransparentHandleSystemCallHook(GUEST_REGS * Regs)
 {
-    UNREFERENCED_PARAMETER(Regs);
+    OWLY_HYPERDBG_EVENT_DETAILS eventDetails;
+
+    TransparentInitializeOwlyEvent(&eventDetails,
+                                   OWLY_VMM_RAW_HYPEREVADE_BASE + 7u,
+                                   L"TRANSPARENT_SYSCALL_HOOK");
+    eventDetails.RawArgument1 = (Regs != NULL) ? Regs->rax : 0;
+    eventDetails.RawArgument2 = (Regs != NULL) ? Regs->rcx : 0;
+    (VOID)TransparentReportOwlyEvent(&eventDetails);
 }
 
 VOID
@@ -24,11 +31,23 @@ TransparentCallbackHandleAfterSyscall(GUEST_REGS *                      Regs,
                                       UINT64                            Context,
                                       SYSCALL_CALLBACK_CONTEXT_PARAMS * Params)
 {
-    UNREFERENCED_PARAMETER(Regs);
-    UNREFERENCED_PARAMETER(ProcessId);
-    UNREFERENCED_PARAMETER(ThreadId);
-    UNREFERENCED_PARAMETER(Context);
-    UNREFERENCED_PARAMETER(Params);
+    OWLY_HYPERDBG_EVENT_DETAILS eventDetails;
+
+    TransparentInitializeOwlyEvent(&eventDetails,
+                                   OWLY_VMM_RAW_HYPEREVADE_BASE + 8u,
+                                   L"TRANSPARENT_AFTER_SYSCALL");
+    eventDetails.SourceProcessId = ProcessId;
+    eventDetails.TargetProcessId = ProcessId;
+    eventDetails.ThreadId = ThreadId;
+    eventDetails.Context = Context;
+    eventDetails.RawArgument1 = (Params != NULL) ? Params->OptionalParam1 : 0;
+    eventDetails.RawArgument2 = (Params != NULL) ? Params->OptionalParam2 : 0;
+    eventDetails.RawArgument3 = (Params != NULL) ? Params->OptionalParam3 : 0;
+    eventDetails.RawArgument4 = (Params != NULL) ? Params->OptionalParam4 : 0;
+    eventDetails.MemoryAddress = (Params != NULL) ? Params->OptionalParam3 : 0;
+    eventDetails.MemorySize = (Params != NULL) ? Params->OptionalParam4 : 0;
+    eventDetails.OperationStatus = (Regs != NULL) ? (INT32)Regs->rax : STATUS_SUCCESS;
+    (VOID)TransparentReportOwlyEvent(&eventDetails);
 }
 
 #if DISABLE_HYPERDBG_HYPEREVADE == FALSE

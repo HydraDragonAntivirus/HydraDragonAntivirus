@@ -32,6 +32,7 @@
 
   response:
     ask_user: true
+    deny_while_ask: true
     notify_user: true
     record: true
 
@@ -92,6 +93,7 @@
 
   response:
     ask_user: true
+    deny_while_ask: true
     kill_and_remove: true
     notify_user: true
     record: true
@@ -169,6 +171,7 @@
 
   response:
     ask_user: true
+    deny_while_ask: true
     kill_and_remove: true
     notify_user: true
     record: true

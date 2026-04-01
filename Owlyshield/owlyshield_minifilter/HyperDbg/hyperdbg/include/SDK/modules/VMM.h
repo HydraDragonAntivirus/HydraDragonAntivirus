@@ -11,6 +11,8 @@
  */
 #pragma once
 
+#include "OwlyEvent.h"
+
 //////////////////////////////////////////////////
 //			     Callback Types                 //
 //////////////////////////////////////////////////
@@ -176,6 +178,7 @@ typedef struct _VMM_CALLBACKS
     //
     // VMM callbacks
     //
+    OWLY_REPORT_EVENT_CALLBACK                      ReportOwlyEvent;
     VMM_CALLBACK_TRIGGER_EVENTS                     VmmCallbackTriggerEvents;                   // Fixed
     VMM_CALLBACK_SET_LAST_ERROR                     VmmCallbackSetLastError;                    // Fixed
     VMM_CALLBACK_VMCALL_HANDLER                     VmmCallbackVmcallHandler;                   // Fixed

@@ -14,8 +14,6 @@ use crate::behavioral::app_settings::AppSettings;
 use crate::behavioral::behavior_engine::BehaviorRule;
 use crate::config::Param;
 use crate::shared_def::IrpMajorOp;
-#[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-use crate::shared_def::known_raw_event_name;
 use crate::threathandling::WindowsThreatHandler;
 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
 use crate::utils::format_process_descriptor_with_fallback;
@@ -397,50 +395,110 @@ pub fn run() {
                             let irp = IrpMajorOp::from_byte(iomsg.irp_op);
                             #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
                             {
-                                let from_payload = iomsg.kernel_event_info.object_name.trim();
-                                let raw_ty = if iomsg.kernel_event_info.event_type != 0 {
-                                    iomsg.kernel_event_info.event_type
-                                } else {
-                                    iomsg.irp_op as u32
-                                };
-                                let api_name = if from_payload.is_empty() {
-                                    known_raw_event_name(raw_ty)
-                                        .map(|name| name.to_string())
-                                        .unwrap_or_else(|| format!("RawEventType({raw_ty})"))
-                                } else {
-                                    from_payload.to_string()
-                                };
+                                let hyper_event = iomsg.resolved_hypervisor_event();
+                                let diag_irp = hyper_event
+                                    .as_ref()
+                                    .map(|event| event.irp_op.clone())
+                                    .unwrap_or_else(|| irp.clone());
+                                let raw_ty = hyper_event
+                                    .as_ref()
+                                    .map(|event| event.raw_event_type)
+                                    .unwrap_or(iomsg.irp_op as u32);
+                                let api_name = hyper_event
+                                    .as_ref()
+                                    .map(|event| event.event_name.clone())
+                                    .filter(|name| !name.trim().is_empty())
+                                    .unwrap_or_else(|| {
+                                        let from_payload = iomsg.kernel_event_info.object_name.trim();
+                                        if from_payload.is_empty() {
+                                            iomsg.filepathstr.clone()
+                                        } else {
+                                            from_payload.to_string()
+                                        }
+                                    });
                                 let is_hypervisor_event =
-                                    matches!(irp, IrpMajorOp::IrpHypervisorEvent);
+                                    matches!(diag_irp.clone(), IrpMajorOp::IrpHypervisorEvent);
                                 let is_usermode_hook_event =
-                                    matches!(irp, IrpMajorOp::IrpUserModeHookEvent);
-                                let is_kernel_telemetry_event =
-                                    iomsg.irp_op >= 13 && !is_usermode_hook_event;
+                                    matches!(diag_irp.clone(), IrpMajorOp::IrpUserModeHookEvent);
+                                let is_kernel_telemetry_event = hyper_event.is_some()
+                                    && !is_hypervisor_event
+                                    && !is_usermode_hook_event;
+                                let source_pid = hyper_event
+                                    .as_ref()
+                                    .map(|event| event.source_process_id)
+                                    .unwrap_or(iomsg.pid);
+                                let target_pid = hyper_event
+                                    .as_ref()
+                                    .map(|event| event.target_process_id)
+                                    .unwrap_or(iomsg.pid);
                                 let source_process = format_process_descriptor_with_fallback(
-                                    iomsg.kernel_event_info.source_process_id,
+                                    source_pid,
                                     None,
                                 );
                                 let target_process = format_process_descriptor_with_fallback(
-                                    iomsg.kernel_event_info.target_process_id,
+                                    target_pid,
                                     None,
                                 );
+                                let arg1 = hyper_event
+                                    .as_ref()
+                                    .map(|event| event.raw_argument1)
+                                    .unwrap_or(iomsg.kernel_event_info.raw_argument1);
+                                let arg2 = hyper_event
+                                    .as_ref()
+                                    .map(|event| event.raw_argument2)
+                                    .unwrap_or(iomsg.kernel_event_info.raw_argument2);
+                                let arg3 = hyper_event
+                                    .as_ref()
+                                    .map(|event| event.raw_argument3)
+                                    .unwrap_or(iomsg.kernel_event_info.raw_argument3);
+                                let arg4 = hyper_event
+                                    .as_ref()
+                                    .map(|event| event.raw_argument4)
+                                    .unwrap_or(iomsg.kernel_event_info.raw_argument4);
+                                let memory_address = hyper_event
+                                    .as_ref()
+                                    .map(|event| event.memory_address)
+                                    .unwrap_or(iomsg.kernel_event_info.memory_address);
+                                let memory_size = hyper_event
+                                    .as_ref()
+                                    .map(|event| event.memory_size)
+                                    .unwrap_or(iomsg.kernel_event_info.memory_size as u64);
+                                let operation_status = hyper_event
+                                    .as_ref()
+                                    .map(|event| event.operation_status)
+                                    .unwrap_or(iomsg.kernel_event_info.operation_status);
+                                let core_id = hyper_event
+                                    .as_ref()
+                                    .map(|event| event.core_id)
+                                    .unwrap_or(iomsg.kernel_event_info.core_id);
+                                let thread_id = hyper_event
+                                    .as_ref()
+                                    .map(|event| event.thread_id)
+                                    .unwrap_or(iomsg.kernel_event_info.thread_id);
+                                let context = hyper_event
+                                    .as_ref()
+                                    .map(|event| event.context)
+                                    .unwrap_or(iomsg.kernel_event_info.context);
 
                                 if is_usermode_hook_event {
                                     Logging::info(&format!(
-                                        "[DIAG] USERMODE HOOK EVENT: op={:?} opcode={} raw_event_type={} gid={} src_pid_path={} target_pid_path={} arg1=0x{:X} arg2=0x{:X} arg3=0x{:X} arg4=0x{:X} addr=0x{:X} size={} status=0x{:08X} api=\"{}\" cmd=\"{}\"",
-                                        irp,
+                                        "[DIAG] USERMODE HOOK EVENT: op={:?} opcode={} raw_event_type={} gid={} core_id={} thread_id={} context=0x{:X} src_pid_path={} target_pid_path={} arg1=0x{:X} arg2=0x{:X} arg3=0x{:X} arg4=0x{:X} addr=0x{:X} size={} status=0x{:08X} api=\"{}\" cmd=\"{}\"",
+                                        diag_irp,
                                         op,
                                         raw_ty,
                                         iomsg.gid,
+                                        core_id,
+                                        thread_id,
+                                        context,
                                         source_process,
                                         target_process,
-                                        iomsg.kernel_event_info.raw_argument1,
-                                        iomsg.kernel_event_info.raw_argument2,
-                                        iomsg.kernel_event_info.raw_argument3,
-                                        iomsg.kernel_event_info.raw_argument4,
-                                        iomsg.kernel_event_info.memory_address,
-                                        iomsg.kernel_event_info.memory_size,
-                                        iomsg.kernel_event_info.operation_status as u32,
+                                        arg1,
+                                        arg2,
+                                        arg3,
+                                        arg4,
+                                        memory_address,
+                                        memory_size,
+                                        operation_status as u32,
                                         api_name,
                                         iomsg.runtime_features.command_line
                                     ));
@@ -448,39 +506,45 @@ pub fn run() {
                                     *hyper_api_counts.entry(api_name.clone()).or_insert(0) += 1;
                                     *hyper_raw_counts.entry(raw_ty).or_insert(0) += 1;
                                     Logging::info(&format!(
-                                        "[DIAG] VMM HOOK EVENT: op={:?} opcode={} raw_event_type={} gid={} src_pid_path={} target_pid_path={} arg1=0x{:X} arg2=0x{:X} arg3=0x{:X} arg4=0x{:X} addr=0x{:X} size={} status=0x{:08X} api=\"{}\" cmd=\"{}\"",
-                                        irp,
+                                        "[DIAG] VMM HOOK EVENT: op={:?} opcode={} raw_event_type={} gid={} core_id={} thread_id={} context=0x{:X} src_pid_path={} target_pid_path={} arg1=0x{:X} arg2=0x{:X} arg3=0x{:X} arg4=0x{:X} addr=0x{:X} size={} status=0x{:08X} api=\"{}\" cmd=\"{}\"",
+                                        diag_irp,
                                         op,
                                         raw_ty,
                                         iomsg.gid,
+                                        core_id,
+                                        thread_id,
+                                        context,
                                         source_process,
                                         target_process,
-                                        iomsg.kernel_event_info.raw_argument1,
-                                        iomsg.kernel_event_info.raw_argument2,
-                                        iomsg.kernel_event_info.raw_argument3,
-                                        iomsg.kernel_event_info.raw_argument4,
-                                        iomsg.kernel_event_info.memory_address,
-                                        iomsg.kernel_event_info.memory_size,
-                                        iomsg.kernel_event_info.operation_status as u32,
+                                        arg1,
+                                        arg2,
+                                        arg3,
+                                        arg4,
+                                        memory_address,
+                                        memory_size,
+                                        operation_status as u32,
                                         api_name,
                                         iomsg.runtime_features.command_line
                                     ));
                                 } else if is_kernel_telemetry_event {
                                     Logging::info(&format!(
-                                        "[DIAG] KERNEL EVENT: op={:?} opcode={} raw_event_type={} gid={} src_pid_path={} target_pid_path={} arg1=0x{:X} arg2=0x{:X} arg3=0x{:X} arg4=0x{:X} addr=0x{:X} size={} status=0x{:08X} event=\"{}\" cmd=\"{}\"",
-                                        irp,
+                                        "[DIAG] KERNEL EVENT: op={:?} opcode={} raw_event_type={} gid={} core_id={} thread_id={} context=0x{:X} src_pid_path={} target_pid_path={} arg1=0x{:X} arg2=0x{:X} arg3=0x{:X} arg4=0x{:X} addr=0x{:X} size={} status=0x{:08X} event=\"{}\" cmd=\"{}\"",
+                                        diag_irp,
                                         op,
                                         raw_ty,
                                         iomsg.gid,
+                                        core_id,
+                                        thread_id,
+                                        context,
                                         source_process,
                                         target_process,
-                                        iomsg.kernel_event_info.raw_argument1,
-                                        iomsg.kernel_event_info.raw_argument2,
-                                        iomsg.kernel_event_info.raw_argument3,
-                                        iomsg.kernel_event_info.raw_argument4,
-                                        iomsg.kernel_event_info.memory_address,
-                                        iomsg.kernel_event_info.memory_size,
-                                        iomsg.kernel_event_info.operation_status as u32,
+                                        arg1,
+                                        arg2,
+                                        arg3,
+                                        arg4,
+                                        memory_address,
+                                        memory_size,
+                                        operation_status as u32,
                                         api_name,
                                         iomsg.runtime_features.command_line
                                     ));

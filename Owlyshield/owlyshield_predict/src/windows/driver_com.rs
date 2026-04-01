@@ -637,6 +637,9 @@ pub struct CKernelEventInfo {
 
     pub access_mask: c_ulong,
     pub operation_status: i32, // NTSTATUS
+    pub core_id: c_ulong,
+    pub thread_id: c_ulong,
+    pub context: c_ulonglong,
 }
 
 /// The C object returned by the minifilter, available through [`ReplyIrp`].
@@ -724,6 +727,9 @@ impl CKernelEventInfo {
             timestamp: self.timestamp,
             source_process_id: self.source_process_id,
             target_process_id: self.target_process_id,
+            core_id: self.core_id,
+            thread_id: self.thread_id,
+            context: self.context,
             memory_address: self.memory_address as u64,
             memory_size: self.memory_size,
             memory_protection: self.memory_protection,

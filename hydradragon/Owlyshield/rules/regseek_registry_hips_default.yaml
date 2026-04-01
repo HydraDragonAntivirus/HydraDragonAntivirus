@@ -76,6 +76,7 @@
       min_matches: 1
   response:
     ask_user: true
+    deny_while_ask: true
     terminate_process: true
     notify_user: true
     auto_revert: true
@@ -207,6 +208,7 @@
       min_matches: 1
   response:
     ask_user: true
+    deny_while_ask: true
     terminate_process: true
     notify_user: true
     auto_revert: true
@@ -311,6 +313,7 @@
       min_matches: 1
   response:
     ask_user: true
+    deny_while_ask: true
     terminate_process: true
     notify_user: true
     auto_revert: true
@@ -414,6 +417,7 @@
       min_matches: 1
   response:
     ask_user: true
+    deny_while_ask: true
     terminate_process: true
     notify_user: true
     auto_revert: true
@@ -533,6 +537,7 @@
       min_matches: 1
   response:
     ask_user: true
+    deny_while_ask: true
     terminate_process: true
     notify_user: true
     auto_revert: true
@@ -635,6 +640,7 @@
       min_matches: 1
   response:
     ask_user: true
+    deny_while_ask: true
     terminate_process: true
     notify_user: true
     auto_revert: true
@@ -754,6 +760,7 @@
       min_matches: 1
   response:
     ask_user: true
+    deny_while_ask: true
     terminate_process: true
     notify_user: true
     auto_revert: true
@@ -877,6 +884,7 @@
       min_matches: 1
   response:
     ask_user: true
+    deny_while_ask: true
     terminate_process: true
     notify_user: true
     auto_revert: true
@@ -993,6 +1001,7 @@
       min_matches: 1
   response:
     ask_user: true
+    deny_while_ask: true
     terminate_process: true
     notify_user: true
     auto_revert: true
@@ -1105,6 +1114,7 @@
       min_matches: 1
   response:
     ask_user: true
+    deny_while_ask: true
     terminate_process: true
     notify_user: true
     auto_revert: true
@@ -1227,6 +1237,7 @@
       min_matches: 1
   response:
     ask_user: true
+    deny_while_ask: true
     terminate_process: true
     notify_user: true
     auto_revert: true
@@ -1331,6 +1342,7 @@
       min_matches: 1
   response:
     ask_user: true
+    deny_while_ask: true
     terminate_process: true
     notify_user: true
     auto_revert: true
@@ -1431,6 +1443,7 @@
       min_matches: 1
   response:
     ask_user: true
+    deny_while_ask: true
     terminate_process: true
     notify_user: true
     auto_revert: true
@@ -1572,6 +1585,7 @@
       min_matches: 1
   response:
     ask_user: true
+    deny_while_ask: true
     terminate_process: true
     notify_user: true
     auto_revert: true

@@ -371,14 +371,7 @@ enum IRP_MAJOR_OP
 };
 
 // Distinct raw kernel/hypervisor event ids (kept in 13..19 range).
-// User-mode keeps these opcodes distinct from IRP_HYPERVISOR_EVENT.
-#define IRP_KERNEL_REMOTE_THREAD 13
-#define IRP_KERNEL_WRITE_MEMORY 14
-#define IRP_KERNEL_PROTECT_MEMORY 15
-#define IRP_KERNEL_CREATE_THREAD 16
-#define IRP_KERNEL_QUEUE_APC 17
-#define IRP_KERNEL_CREATE_SECTION 18
-#define IRP_KERNEL_MAP_SECTION 19
+// Now unified into IRP_HYPERVISOR_EVENT natively, mapping them directly without creating distinct IRP_OPs.
 // User-mode API hook event (shellcode via UserModeHookEngine -> IOCTL_REPORT_HOOK_EVENT).
 // Distinct from IRP_HYPERVISOR_EVENT which is reserved for VMM/HyperDbg-origin events.
 #define IRP_USERMODE_HOOK_EVENT 20
@@ -437,6 +430,10 @@ typedef struct _KERNEL_EVENT_INFO
 
     ACCESS_MASK AccessMask;
     NTSTATUS OperationStatus;
+
+    ULONG CoreId;
+    ULONG ThreadId;
+    ULONGLONG Context;
 } KERNEL_EVENT_INFO, *PKERNEL_EVENT_INFO;
 
 typedef struct _DRIVER_MESSAGE

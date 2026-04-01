@@ -47,6 +47,7 @@
 
   response:
     ask_user: true
+    deny_while_ask: true
     terminate_process: true
     quarantine: false
     notify_user: true

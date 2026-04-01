@@ -7,7 +7,14 @@ use crate::extensions::ExtensionList;
 use crate::logging::Logging;
 use crate::predictions::prediction::input_tensors::VecvecCappedF32;
 use crate::process::{ProcessRecord, ProcessState};
-use crate::shared_def::{FileChangeInfo, IOMessage, IrpMajorOp, known_raw_event_name};
+use crate::shared_def::{
+    FileChangeInfo, IOMessage, IrpMajorOp, is_hypervisor_raw_event_type, known_raw_event_name,
+};
+#[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+use crate::shared_def::{
+    effective_hypervisor_irp_byte, effective_hypervisor_raw_event_type, is_kernel_api_irp,
+    normalize_hypervisor_label, resolved_hypervisor_event_name,
+};
 use crate::signature_verification::verify_signature;
 use crate::threat_handler::ThreatHandler;
 use crate::utils::{
@@ -491,6 +498,86 @@ impl IrpStatistics {
         }
     }
 
+    fn enrich_latest_hypervisor_event_operation(
+        &mut self,
+        msg: &IOMessage,
+        event_name: &str,
+        raw_event_type: u32,
+    ) {
+        let Some(operation) = self.hypervisor_event_operations.last_mut() else {
+            return;
+        };
+
+        let hyper_event = msg.resolved_hypervisor_event();
+        operation.source_pid = hyper_event
+            .as_ref()
+            .map(|event| event.source_process_id)
+            .unwrap_or(msg.kernel_event_info.source_process_id);
+        operation.target_pid = hyper_event
+            .as_ref()
+            .map(|event| event.target_process_id)
+            .unwrap_or_else(|| {
+                if msg.kernel_event_info.target_process_id != 0 {
+                    msg.kernel_event_info.target_process_id
+                } else {
+                    msg.pid
+                }
+            });
+        operation.memory_address = hyper_event
+            .as_ref()
+            .map(|event| event.memory_address)
+            .unwrap_or(msg.kernel_event_info.memory_address);
+        operation.memory_size = hyper_event
+            .as_ref()
+            .map(|event| event.memory_size)
+            .unwrap_or(msg.kernel_event_info.memory_size as u64);
+        let operation_status = hyper_event
+            .as_ref()
+            .map(|event| event.operation_status)
+            .unwrap_or(msg.kernel_event_info.operation_status);
+        let raw_argument1 = hyper_event
+            .as_ref()
+            .map(|event| event.raw_argument1)
+            .unwrap_or(msg.kernel_event_info.raw_argument1);
+        let raw_argument2 = hyper_event
+            .as_ref()
+            .map(|event| event.raw_argument2)
+            .unwrap_or(msg.kernel_event_info.raw_argument2);
+        let raw_argument3 = hyper_event
+            .as_ref()
+            .map(|event| event.raw_argument3)
+            .unwrap_or(msg.kernel_event_info.raw_argument3);
+        let raw_argument4 = hyper_event
+            .as_ref()
+            .map(|event| event.raw_argument4)
+            .unwrap_or(msg.kernel_event_info.raw_argument4);
+        let core_id = hyper_event
+            .as_ref()
+            .map(|event| event.core_id)
+            .unwrap_or(msg.kernel_event_info.core_id);
+        let thread_id = hyper_event
+            .as_ref()
+            .map(|event| event.thread_id)
+            .unwrap_or(msg.kernel_event_info.thread_id);
+        let context = hyper_event
+            .as_ref()
+            .map(|event| event.context)
+            .unwrap_or(msg.kernel_event_info.context);
+        operation.operation_details = format!(
+            "{} raw_event_type=0x{:X} status=0x{:08X} core_id={} thread_id={} context=0x{:X} arg1=0x{:X} arg2=0x{:X} arg3=0x{:X} arg4=0x{:X}",
+            event_name,
+            raw_event_type,
+            operation_status as u32,
+            core_id,
+            thread_id,
+            context,
+            raw_argument1,
+            raw_argument2,
+            raw_argument3,
+            raw_argument4
+        );
+    }
+
     pub fn get_operation_count(&self, op_type: &str) -> u64 {
         match op_type {
             "read" => self.read_count,
@@ -762,20 +849,27 @@ fn pattern_looks_like_path(pattern: &str) -> bool {
         || normalized.contains('/')
 }
 
-fn normalize_hypervisor_api_label(raw: &str) -> String {
-    let mut value = raw.trim().to_string();
-    if let Some(idx) = value.find(" (syscall=0x") {
-        value.truncate(idx);
+fn canonical_hypervisor_event_label(
+    irp_op: &IrpMajorOp,
+    raw_event_type: u32,
+    event_name: &str,
+) -> Option<String> {
+    let normalized_event_name = normalize_hypervisor_label(event_name);
+    if !normalized_event_name.is_empty() && !is_generic_hypervisor_label(&normalized_event_name) {
+        return Some(normalized_event_name);
     }
-    value.trim().to_string()
-}
 
-fn canonical_hypervisor_event_label(irp_op: &IrpMajorOp, raw_event_type: u32) -> Option<String> {
     let resolved = match raw_event_type {
         12..=20 => IrpMajorOp::from_byte(raw_event_type as u8),
         _ => irp_op.clone(),
     };
     match resolved {
+        IrpMajorOp::IrpHypervisorEvent if is_hypervisor_raw_event_type(raw_event_type) => {
+            known_raw_event_name(raw_event_type)
+                .map(|name| name.to_string())
+                .filter(|name| !is_generic_hypervisor_label(name))
+                .or_else(|| Some(format!("RawHypervisorEvent(0x{raw_event_type:X})")))
+        }
         IrpMajorOp::IrpHypervisorEvent
         | IrpMajorOp::IrpUserModeHookEvent
         | IrpMajorOp::IrpKernelRemoteThread
@@ -814,7 +908,7 @@ fn is_generic_hypervisor_label(raw: &str) -> bool {
 }
 
 fn is_real_api_observation(raw: &str) -> bool {
-    let normalized = normalize_hypervisor_api_label(raw);
+    let normalized = normalize_hypervisor_label(raw);
     if normalized.is_empty() || is_generic_hypervisor_label(&normalized) {
         return false;
     }
@@ -842,39 +936,25 @@ fn is_real_api_observation(raw: &str) -> bool {
     (has_path_qualifier || has_lowercase) && !has_underscore
 }
 
-fn is_actionable_hypervisor_event(irp_op: &IrpMajorOp, raw: &str) -> bool {
-    if !is_kernel_api_event(irp_op) {
+fn is_actionable_hypervisor_event(irp_op: &IrpMajorOp, raw: &str, raw_event_type: u32) -> bool {
+    if !is_kernel_api_irp(irp_op) {
         return false;
     }
 
-    is_real_api_observation(raw) || !matches!(irp_op, IrpMajorOp::IrpHypervisorEvent)
-}
-
-fn effective_hypervisor_irp_byte(msg: &IOMessage) -> u8 {
-    if msg.irp_op == 12 && (12..=20).contains(&msg.kernel_event_info.event_type) {
-        msg.kernel_event_info.event_type as u8
-    } else {
-        msg.irp_op
+    if !matches!(irp_op, IrpMajorOp::IrpHypervisorEvent) {
+        return true;
     }
-}
 
-fn is_kernel_api_event(irp_op: &IrpMajorOp) -> bool {
-    matches!(
-        irp_op,
-        IrpMajorOp::IrpHypervisorEvent
-            | IrpMajorOp::IrpUserModeHookEvent
-            | IrpMajorOp::IrpKernelRemoteThread
-            | IrpMajorOp::IrpKernelWriteMemory
-            | IrpMajorOp::IrpKernelProtectMemory
-            | IrpMajorOp::IrpKernelCreateThread
-            | IrpMajorOp::IrpKernelQueueApc
-            | IrpMajorOp::IrpKernelCreateSection
-            | IrpMajorOp::IrpKernelMapSection
-    )
+    let normalized = normalize_hypervisor_label(raw);
+    if !normalized.is_empty() && !is_generic_hypervisor_label(&normalized) {
+        return true;
+    }
+
+    is_hypervisor_raw_event_type(raw_event_type)
 }
 
 fn api_function_alias(raw: &str) -> Option<String> {
-    let normalized = normalize_hypervisor_api_label(raw);
+    let normalized = normalize_hypervisor_label(raw);
     if normalized.is_empty() || !normalized.contains('!') {
         return None;
     }
@@ -1062,8 +1142,19 @@ impl ProcessBehaviorState {
 
     /// Record IRP operation with full context and track normalized hypervisor events
     pub fn record_irp_operation(&mut self, msg: &IOMessage, irp_op: u8) {
-        let normalized_kernel_api =
-            normalize_hypervisor_api_label(&msg.kernel_event_info.object_name);
+        let hyper_event = msg.resolved_hypervisor_event();
+        let normalized_kernel_api = hyper_event
+            .as_ref()
+            .map(|event| normalize_hypervisor_label(&event.event_name))
+            .unwrap_or_else(|| normalize_hypervisor_label(&msg.kernel_event_info.object_name));
+        let raw_event_type = hyper_event
+            .as_ref()
+            .map(|event| event.raw_event_type)
+            .unwrap_or_else(|| effective_hypervisor_raw_event_type(msg));
+        let event_name = hyper_event
+            .as_ref()
+            .map(|event| event.event_name.clone())
+            .unwrap_or_else(|| resolved_hypervisor_event_name(msg));
         let rec = IrpOperationRecord {
             timestamp: SystemTime::now(),
             irp_type: irp_op,
@@ -1071,50 +1162,109 @@ impl ProcessBehaviorState {
             file_change: msg.file_change,
             extension: msg.extension.to_lowercase(),
             entropy: msg.entropy,
-            bytes_transferred: msg.mem_sized_used,
-            target_pid: msg.pid,
-            function_name: normalized_kernel_api.clone(),
+            bytes_transferred: if let Some(event) = hyper_event.as_ref() {
+                if event.memory_size != 0 {
+                    event.memory_size
+                } else {
+                    msg.mem_sized_used
+                }
+            } else if msg.kernel_event_info.memory_size != 0 {
+                msg.kernel_event_info.memory_size as u64
+            } else {
+                msg.mem_sized_used
+            },
+            target_pid: if let Some(event) = hyper_event.as_ref() {
+                event.target_process_id
+            } else if msg.kernel_event_info.target_process_id != 0 {
+                msg.kernel_event_info.target_process_id
+            } else {
+                msg.pid
+            },
+            function_name: if normalized_kernel_api.is_empty() {
+                event_name.clone()
+            } else {
+                normalized_kernel_api.clone()
+            },
         };
 
-        let irp_kind = IrpMajorOp::from_byte(irp_op);
-        let is_api_event = is_kernel_api_event(&irp_kind);
-        let raw_event_type = if msg.kernel_event_info.event_type != 0 {
-            msg.kernel_event_info.event_type
-        } else {
-            irp_op as u32
-        };
-        let event_name = if normalized_kernel_api.is_empty() {
-            known_raw_event_name(raw_event_type)
-                .map(|name| name.to_string())
-                .unwrap_or_else(|| format!("RawEventType({raw_event_type})"))
-        } else {
-            normalized_kernel_api.clone()
-        };
+        let irp_kind = hyper_event
+            .as_ref()
+            .map(|event| event.irp_op.clone())
+            .unwrap_or_else(|| IrpMajorOp::from_byte(irp_op));
+        let is_api_event = is_kernel_api_irp(&irp_kind);
         let real_api = is_real_api_observation(&event_name);
-        let actionable_hypervisor_event = is_actionable_hypervisor_event(&irp_kind, &event_name);
+        let actionable_hypervisor_event =
+            is_actionable_hypervisor_event(&irp_kind, &event_name, raw_event_type);
 
         if !is_api_event || actionable_hypervisor_event {
             self.irp_stats.record_operation(&rec);
+            if actionable_hypervisor_event {
+                self.irp_stats.enrich_latest_hypervisor_event_operation(
+                    msg,
+                    &event_name,
+                    raw_event_type,
+                );
+            }
         }
 
         if is_api_event {
+            let source_pid = hyper_event
+                .as_ref()
+                .map(|event| event.source_process_id)
+                .unwrap_or(msg.kernel_event_info.source_process_id);
+            let target_pid = hyper_event
+                .as_ref()
+                .map(|event| event.target_process_id)
+                .unwrap_or_else(|| {
+                    if msg.kernel_event_info.target_process_id != 0 {
+                        msg.kernel_event_info.target_process_id
+                    } else {
+                        msg.pid
+                    }
+                });
             let source_process = format_process_descriptor_with_fallback(
-                msg.kernel_event_info.source_process_id,
+                source_pid,
                 None,
             );
             let target_process = format_process_descriptor_with_fallback(
-                msg.kernel_event_info.target_process_id,
+                target_pid,
                 Some(self.exe_path.as_path()),
             );
+            let raw_argument1 = hyper_event
+                .as_ref()
+                .map(|event| event.raw_argument1)
+                .unwrap_or(msg.kernel_event_info.raw_argument1);
+            let raw_argument2 = hyper_event
+                .as_ref()
+                .map(|event| event.raw_argument2)
+                .unwrap_or(msg.kernel_event_info.raw_argument2);
+            let raw_argument3 = hyper_event
+                .as_ref()
+                .map(|event| event.raw_argument3)
+                .unwrap_or(msg.kernel_event_info.raw_argument3);
+            let raw_argument4 = hyper_event
+                .as_ref()
+                .map(|event| event.raw_argument4)
+                .unwrap_or(msg.kernel_event_info.raw_argument4);
+            let core_id = hyper_event
+                .as_ref()
+                .map(|event| event.core_id)
+                .unwrap_or(msg.kernel_event_info.core_id);
+            let thread_id = hyper_event
+                .as_ref()
+                .map(|event| event.thread_id)
+                .unwrap_or(msg.kernel_event_info.thread_id);
+            let context = hyper_event
+                .as_ref()
+                .map(|event| event.context)
+                .unwrap_or(msg.kernel_event_info.context);
 
             if actionable_hypervisor_event {
                 self.hypervisor_event_count += 1;
-                if !matches!(irp_kind, IrpMajorOp::IrpHypervisorEvent) {
-                    if let Some(event_label) =
-                        canonical_hypervisor_event_label(&irp_kind, raw_event_type)
-                    {
-                        self.observed_hypervisor_event_labels.insert(event_label);
-                    }
+                if let Some(event_label) =
+                    canonical_hypervisor_event_label(&irp_kind, raw_event_type, &event_name)
+                {
+                    self.observed_hypervisor_event_labels.insert(event_label);
                 }
             }
 
@@ -1129,23 +1279,30 @@ impl ProcessBehaviorState {
 
             if real_api {
                 Logging::info(&format!(
-                    "[API HOOKING EVENT] opcode={} raw_event_type={} src_pid_path={} target_pid_path={} arg1=0x{:X} arg2=0x{:X} arg3=0x{:X} arg4=0x{:X} api=\"{}\" count={}",
+                    "[API HOOKING EVENT] opcode={} raw_event_type={} core_id={} thread_id={} context=0x{:X} src_pid_path={} target_pid_path={} arg1=0x{:X} arg2=0x{:X} arg3=0x{:X} arg4=0x{:X} api=\"{}\" count={}",
                     irp_op,
                     raw_event_type,
+                    core_id,
+                    thread_id,
+                    context,
                     source_process,
                     target_process,
-                    msg.kernel_event_info.raw_argument1,
-                    msg.kernel_event_info.raw_argument2,
-                    msg.kernel_event_info.raw_argument3,
-                    msg.kernel_event_info.raw_argument4,
+                    raw_argument1,
+                    raw_argument2,
+                    raw_argument3,
+                    raw_argument4,
                     event_name,
                     self.hypervisor_event_count
                 ));
             } else {
-                let event_label = canonical_hypervisor_event_label(&irp_kind, raw_event_type)
+                let event_label = canonical_hypervisor_event_label(
+                    &irp_kind,
+                    raw_event_type,
+                    &event_name,
+                )
                     .unwrap_or_else(|| event_name.clone());
                 Logging::info(&format!(
-                    "[HYPERVISOR EVENT{}] opcode={} raw_event_type={} src_pid_path={} target_pid_path={} arg1=0x{:X} arg2=0x{:X} arg3=0x{:X} arg4=0x{:X} event=\"{}\" count={}",
+                    "[HYPERVISOR EVENT{}] opcode={} raw_event_type={} core_id={} thread_id={} context=0x{:X} src_pid_path={} target_pid_path={} arg1=0x{:X} arg2=0x{:X} arg3=0x{:X} arg4=0x{:X} event=\"{}\" count={}",
                     if actionable_hypervisor_event {
                         ""
                     } else {
@@ -1153,12 +1310,15 @@ impl ProcessBehaviorState {
                     },
                     irp_op,
                     raw_event_type,
+                    core_id,
+                    thread_id,
+                    context,
                     source_process,
                     target_process,
-                    msg.kernel_event_info.raw_argument1,
-                    msg.kernel_event_info.raw_argument2,
-                    msg.kernel_event_info.raw_argument3,
-                    msg.kernel_event_info.raw_argument4,
+                    raw_argument1,
+                    raw_argument2,
+                    raw_argument3,
+                    raw_argument4,
                     event_label,
                     self.hypervisor_event_count
                 ));
@@ -1834,7 +1994,15 @@ impl BehaviorEngine {
     }
     fn operation_label(msg: &IOMessage) -> String {
         let file_change = FromPrimitive::from_u8(msg.file_change);
-        let irp_op = IrpMajorOp::from_byte(effective_hypervisor_irp_byte(msg));
+        let hyper_event = msg.resolved_hypervisor_event();
+        let irp_op = hyper_event
+            .as_ref()
+            .map(|event| event.irp_op.clone())
+            .unwrap_or_else(|| IrpMajorOp::from_byte(effective_hypervisor_irp_byte(msg)));
+        let raw_event_type = hyper_event
+            .as_ref()
+            .map(|event| event.raw_event_type)
+            .unwrap_or_else(|| effective_hypervisor_raw_event_type(msg));
 
         match irp_op {
             IrpMajorOp::IrpRegistry => Self::file_change_label(file_change)
@@ -1859,7 +2027,12 @@ impl BehaviorEngine {
             IrpMajorOp::IrpProcessTerminateAttempt => "process_terminate_attempt".to_string(),
             IrpMajorOp::IrpProcessExit => "process_exit".to_string(),
             IrpMajorOp::IrpProcessHandleOpen => "process_handle_open".to_string(),
-            IrpMajorOp::IrpHypervisorEvent => "hypervisor_event".to_string(),
+            IrpMajorOp::IrpHypervisorEvent => canonical_hypervisor_event_label(
+                &irp_op,
+                raw_event_type,
+                &resolved_hypervisor_event_name(msg),
+            )
+            .unwrap_or_else(|| "hypervisor_event".to_string()),
             IrpMajorOp::IrpUserModeHookEvent => "user_mode_hook_event".to_string(),
             IrpMajorOp::IrpKernelRemoteThread => "kernel_remote_thread".to_string(),
             IrpMajorOp::IrpKernelWriteMemory => "kernel_write_memory".to_string(),
@@ -1870,8 +2043,7 @@ impl BehaviorEngine {
             IrpMajorOp::IrpKernelMapSection => "kernel_map_section".to_string(),
             _ => {
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-                if msg.kernel_event_info.event_type != 0
-                    && let Some(name) = known_raw_event_name(msg.kernel_event_info.event_type)
+                if let Some(name) = known_raw_event_name(effective_hypervisor_raw_event_type(msg))
                 {
                     return name.to_string();
                 }
@@ -1907,6 +2079,139 @@ impl BehaviorEngine {
 
         if let Some(msg) = msg {
             parts.push(format!("Operation={}", Self::operation_label(msg)));
+
+            let kernel_event = msg.resolved_hypervisor_event();
+            let kernel_irp = kernel_event
+                .as_ref()
+                .map(|event| event.irp_op.clone())
+                .unwrap_or_else(|| IrpMajorOp::from_byte(effective_hypervisor_irp_byte(msg)));
+            if is_kernel_api_irp(&kernel_irp) {
+                let raw_event_type = kernel_event
+                    .as_ref()
+                    .map(|event| event.raw_event_type)
+                    .unwrap_or_else(|| effective_hypervisor_raw_event_type(msg));
+                let event_name = kernel_event
+                    .as_ref()
+                    .map(|event| event.event_name.clone())
+                    .unwrap_or_else(|| resolved_hypervisor_event_name(msg));
+                parts.push(format!(
+                    "HypervisorEvent={}",
+                    Self::truncate_detail_value(&event_name, 180)
+                ));
+                parts.push(format!("RawEventType=0x{:X}", raw_event_type));
+                let core_id = kernel_event
+                    .as_ref()
+                    .map(|event| event.core_id)
+                    .unwrap_or(msg.kernel_event_info.core_id);
+                if core_id != 0 {
+                    parts.push(format!("CoreId={}", core_id));
+                }
+                let thread_id = kernel_event
+                    .as_ref()
+                    .map(|event| event.thread_id)
+                    .unwrap_or(msg.kernel_event_info.thread_id);
+                if thread_id != 0 {
+                    parts.push(format!("ThreadId={}", thread_id));
+                }
+                let context = kernel_event
+                    .as_ref()
+                    .map(|event| event.context)
+                    .unwrap_or(msg.kernel_event_info.context);
+                if context != 0 {
+                    parts.push(format!("Context=0x{:X}", context));
+                }
+                let source_pid = kernel_event
+                    .as_ref()
+                    .map(|event| event.source_process_id)
+                    .unwrap_or(msg.kernel_event_info.source_process_id);
+                if source_pid != 0 {
+                    parts.push(format!(
+                        "SourcePid={}",
+                        source_pid
+                    ));
+                }
+                let target_pid = kernel_event
+                    .as_ref()
+                    .map(|event| event.target_process_id)
+                    .unwrap_or(msg.kernel_event_info.target_process_id);
+                if target_pid != 0 {
+                    parts.push(format!(
+                        "TargetPid={}",
+                        target_pid
+                    ));
+                }
+                let memory_address = kernel_event
+                    .as_ref()
+                    .map(|event| event.memory_address)
+                    .unwrap_or(msg.kernel_event_info.memory_address);
+                if memory_address != 0 {
+                    parts.push(format!(
+                        "MemoryAddress=0x{:X}",
+                        memory_address
+                    ));
+                }
+                let memory_size = kernel_event
+                    .as_ref()
+                    .map(|event| event.memory_size)
+                    .unwrap_or(msg.kernel_event_info.memory_size as u64);
+                if memory_size != 0 {
+                    parts.push(format!(
+                        "MemorySize={}",
+                        memory_size
+                    ));
+                }
+                let thread_handle = kernel_event
+                    .as_ref()
+                    .map(|event| event.thread_handle)
+                    .unwrap_or(msg.kernel_event_info.thread_handle);
+                if thread_handle != 0 {
+                    parts.push(format!(
+                        "ThreadHandle=0x{:X}",
+                        thread_handle
+                    ));
+                }
+                let thread_start_routine = kernel_event
+                    .as_ref()
+                    .map(|event| event.thread_start_routine)
+                    .unwrap_or(msg.kernel_event_info.thread_start_routine);
+                if thread_start_routine != 0 {
+                    parts.push(format!(
+                        "ThreadStartRoutine=0x{:X}",
+                        thread_start_routine
+                    ));
+                }
+                let operation_status = kernel_event
+                    .as_ref()
+                    .map(|event| event.operation_status)
+                    .unwrap_or(msg.kernel_event_info.operation_status);
+                parts.push(format!(
+                    "Status=0x{:08X}",
+                    operation_status as u32
+                ));
+                let raw_argument1 = kernel_event
+                    .as_ref()
+                    .map(|event| event.raw_argument1)
+                    .unwrap_or(msg.kernel_event_info.raw_argument1);
+                let raw_argument2 = kernel_event
+                    .as_ref()
+                    .map(|event| event.raw_argument2)
+                    .unwrap_or(msg.kernel_event_info.raw_argument2);
+                let raw_argument3 = kernel_event
+                    .as_ref()
+                    .map(|event| event.raw_argument3)
+                    .unwrap_or(msg.kernel_event_info.raw_argument3);
+                let raw_argument4 = kernel_event
+                    .as_ref()
+                    .map(|event| event.raw_argument4)
+                    .unwrap_or(msg.kernel_event_info.raw_argument4);
+                parts.push(format!(
+                    "Args=[0x{:X},0x{:X},0x{:X},0x{:X}]",
+                    raw_argument1,
+                    raw_argument2,
+                    raw_argument3,
+                    raw_argument4
+                ));
+            }
 
             if !msg.filepathstr.trim().is_empty() {
                 parts.push(format!(
@@ -3097,7 +3402,7 @@ impl BehaviorEngine {
     }
 
     fn normalize_api_signature(raw: &str) -> (String, bool) {
-        let mut value = normalize_hypervisor_api_label(raw).to_lowercase();
+        let mut value = normalize_hypervisor_label(raw).to_lowercase();
         let mut has_path = false;
         if value.is_empty() {
             return (value, false);
@@ -3178,41 +3483,33 @@ impl BehaviorEngine {
         msg: &IOMessage,
         irp_op: &IrpMajorOp,
     ) -> bool {
-        if !is_kernel_api_event(irp_op) {
+        if !is_kernel_api_irp(irp_op) {
             return false;
         }
 
-        let normalized_kernel_api =
-            normalize_hypervisor_api_label(&msg.kernel_event_info.object_name);
-        let raw_event_type = if msg.kernel_event_info.event_type != 0 {
-            msg.kernel_event_info.event_type
-        } else {
-            effective_hypervisor_irp_byte(msg) as u32
+        let Some(event) = msg.resolved_hypervisor_event() else {
+            return false;
         };
-        let event_name = if normalized_kernel_api.is_empty() {
-            known_raw_event_name(raw_event_type)
-                .map(|name| name.to_string())
-                .unwrap_or_else(|| format!("RawEventType({raw_event_type})"))
-        } else {
-            normalized_kernel_api
-        };
-        if !is_actionable_hypervisor_event(irp_op, &event_name) {
+
+        let raw_event_type = event.raw_event_type;
+        let event_name = event.event_name;
+        if !is_actionable_hypervisor_event(irp_op, &event_name, raw_event_type) {
             return false;
         }
-        let source_pid = msg.kernel_event_info.source_process_id;
-        let target_pid = msg.kernel_event_info.target_process_id;
-        let raw_arg1 = msg.kernel_event_info.raw_argument1;
-        let raw_arg2 = msg.kernel_event_info.raw_argument2;
-        let raw_arg3 = msg.kernel_event_info.raw_argument3;
-        let raw_arg4 = msg.kernel_event_info.raw_argument4;
-        let memory_address = msg.kernel_event_info.memory_address;
-        let memory_size = msg.kernel_event_info.memory_size as u64;
-        let memory_protection = msg.kernel_event_info.memory_protection;
-        let is_executable_memory = msg.kernel_event_info.is_executable_memory;
-        let thread_handle = msg.kernel_event_info.thread_handle;
-        let thread_start_routine = msg.kernel_event_info.thread_start_routine;
-        let access_mask = msg.kernel_event_info.access_mask;
-        let operation_status = msg.kernel_event_info.operation_status;
+        let source_pid = event.source_process_id;
+        let target_pid = event.target_process_id;
+        let raw_arg1 = event.raw_argument1;
+        let raw_arg2 = event.raw_argument2;
+        let raw_arg3 = event.raw_argument3;
+        let raw_arg4 = event.raw_argument4;
+        let memory_address = event.memory_address;
+        let memory_size = event.memory_size;
+        let memory_protection = event.memory_protection;
+        let is_executable_memory = event.is_executable_memory;
+        let thread_handle = event.thread_handle;
+        let thread_start_routine = event.thread_start_routine;
+        let access_mask = event.access_mask;
+        let operation_status = event.operation_status;
 
         Self::matches_u32_list(&cond_group.hypervisor_raw_event_types, raw_event_type)
             && Self::matches_u32_list(&cond_group.hypervisor_source_pids, source_pid)
@@ -3940,23 +4237,47 @@ impl BehaviorEngine {
                     && Self::has_hypervisor_payload_conditions(cond_group)
                     && Self::matches_hypervisor_payload_conditions(cond_group, msg, irp_op)
                 {
-                    let raw_event_type = if msg.kernel_event_info.event_type != 0 {
-                        msg.kernel_event_info.event_type
-                    } else {
-                        effective_hypervisor_irp_byte(msg) as u32
-                    };
+                    let hyper_event = msg.resolved_hypervisor_event();
+                    let raw_event_type = hyper_event
+                        .as_ref()
+                        .map(|event| event.raw_event_type)
+                        .unwrap_or_else(|| effective_hypervisor_raw_event_type(msg));
+                    let source_pid = hyper_event
+                        .as_ref()
+                        .map(|event| event.source_process_id)
+                        .unwrap_or(msg.kernel_event_info.source_process_id);
+                    let target_pid = hyper_event
+                        .as_ref()
+                        .map(|event| event.target_process_id)
+                        .unwrap_or(msg.kernel_event_info.target_process_id);
+                    let raw_argument1 = hyper_event
+                        .as_ref()
+                        .map(|event| event.raw_argument1)
+                        .unwrap_or(msg.kernel_event_info.raw_argument1);
+                    let raw_argument2 = hyper_event
+                        .as_ref()
+                        .map(|event| event.raw_argument2)
+                        .unwrap_or(msg.kernel_event_info.raw_argument2);
+                    let raw_argument3 = hyper_event
+                        .as_ref()
+                        .map(|event| event.raw_argument3)
+                        .unwrap_or(msg.kernel_event_info.raw_argument3);
+                    let raw_argument4 = hyper_event
+                        .as_ref()
+                        .map(|event| event.raw_argument4)
+                        .unwrap_or(msg.kernel_event_info.raw_argument4);
                     matched = true;
                     Logging::info(&format!(
                         "[BehaviorEngine] Condition '{}' - API hooking payload match for PID {}: raw_event_type={} src_pid={} target_pid={} arg1=0x{:X} arg2=0x{:X} arg3=0x{:X} arg4=0x{:X}",
                         cond_name,
                         state.pid,
                         raw_event_type,
-                        msg.kernel_event_info.source_process_id,
-                        msg.kernel_event_info.target_process_id,
-                        msg.kernel_event_info.raw_argument1,
-                        msg.kernel_event_info.raw_argument2,
-                        msg.kernel_event_info.raw_argument3,
-                        msg.kernel_event_info.raw_argument4
+                        source_pid,
+                        target_pid,
+                        raw_argument1,
+                        raw_argument2,
+                        raw_argument3,
+                        raw_argument4
                     ));
                 }
 

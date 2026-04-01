@@ -51,30 +51,147 @@ OwlyNormalizeVmmInitFailure(UINT32 LastError)
     return (NTSTATUS)LastError;
 }
 
-#define OWLY_VMM_RAW_EVENT_BASE       0x1000u
-#define OWLY_VMM_RAW_CALLBACK_BASE    0x1200u
-#define OWLY_VMM_RAW_VMCALL_EVENT     (OWLY_VMM_RAW_CALLBACK_BASE + 1u)
-#define OWLY_VMM_RAW_VMCALL_EXTRA     (OWLY_VMM_RAW_CALLBACK_BASE + 2u)
-#define OWLY_VMM_RAW_NMI_EVENT        (OWLY_VMM_RAW_CALLBACK_BASE + 3u)
-#define OWLY_VMM_RAW_PROTECTED_EVENT  (OWLY_VMM_RAW_CALLBACK_BASE + 4u)
-#define OWLY_VMM_RAW_RESTORE_EPT      (OWLY_VMM_RAW_CALLBACK_BASE + 5u)
-#define OWLY_VMM_RAW_UNHANDLED_EPT    (OWLY_VMM_RAW_CALLBACK_BASE + 6u)
-#define OWLY_VMM_RAW_BP_EVENT         (OWLY_VMM_RAW_CALLBACK_BASE + 7u)
-#define OWLY_VMM_RAW_DBG_BP_EVENT     (OWLY_VMM_RAW_CALLBACK_BASE + 8u)
-#define OWLY_VMM_RAW_THREAD_INT_EVENT (OWLY_VMM_RAW_CALLBACK_BASE + 9u)
-#define OWLY_VMM_RAW_CR3_EVENT        (OWLY_VMM_RAW_CALLBACK_BASE + 10u)
-#define OWLY_VMM_RAW_REAPPLY_BP_EVENT (OWLY_VMM_RAW_CALLBACK_BASE + 11u)
-#define OWLY_VMM_RAW_KD_NMI_EVENT     (OWLY_VMM_RAW_CALLBACK_BASE + 12u)
-#define OWLY_VMM_RAW_MTF_EVENT        (OWLY_VMM_RAW_CALLBACK_BASE + 13u)
-#define OWLY_VMM_RAW_PROC_THR_EVENT   (OWLY_VMM_RAW_CALLBACK_BASE + 14u)
-#define OWLY_VMM_RAW_TRACING_EVENT    (OWLY_VMM_RAW_CALLBACK_BASE + 15u)
-#define OWLY_VMM_RAW_HYPEREVADE_BASE  0x1300u
-#define OWLY_VMM_RAW_DISASM_BASE      0x1400u
+static BOOLEAN
+OwlyReportHyperDbgEvent(_In_ const OWLY_HYPERDBG_EVENT_DETAILS * EventDetails)
+{
+    OWLY_HV_EVENT_DETAILS queueDetails;
+
+    if (EventDetails == NULL)
+    {
+        return FALSE;
+    }
+
+    RtlZeroMemory(&queueDetails, sizeof(queueDetails));
+    queueDetails.RawEventType = EventDetails->RawEventType;
+    queueDetails.SourceProcessId = EventDetails->SourceProcessId;
+    queueDetails.TargetProcessId = EventDetails->TargetProcessId;
+    queueDetails.MemoryAddress = (PVOID)(ULONG_PTR)EventDetails->MemoryAddress;
+    queueDetails.MemorySize = (SIZE_T)EventDetails->MemorySize;
+    queueDetails.MemoryProtection = EventDetails->MemoryProtection;
+    queueDetails.IsExecutableMemory = EventDetails->IsExecutableMemory;
+    queueDetails.ThreadHandle = (HANDLE)(ULONG_PTR)EventDetails->ThreadHandle;
+    queueDetails.ThreadStartRoutine = (PVOID)(ULONG_PTR)EventDetails->ThreadStartRoutine;
+    queueDetails.RawArgument1 = (ULONG_PTR)EventDetails->RawArgument1;
+    queueDetails.RawArgument2 = (ULONG_PTR)EventDetails->RawArgument2;
+    queueDetails.RawArgument3 = (ULONG_PTR)EventDetails->RawArgument3;
+    queueDetails.RawArgument4 = (ULONG_PTR)EventDetails->RawArgument4;
+    queueDetails.AccessMask = (ACCESS_MASK)EventDetails->AccessMask;
+    queueDetails.OperationStatus = (NTSTATUS)EventDetails->OperationStatus;
+    queueDetails.EventName = EventDetails->EventName;
+    queueDetails.CoreId = EventDetails->CoreId;
+    queueDetails.ThreadId = EventDetails->ThreadId;
+    queueDetails.Context = EventDetails->Context;
+
+    return QueueHypervisorEvent(&queueDetails);
+}
+
+static VOID
+OwlyInitializeBridgeEvent(_Out_ POWLY_HYPERDBG_EVENT_DETAILS EventDetails,
+                          _In_ ULONG                         RawEventType,
+                          _In_opt_ PCWSTR                    EventName)
+{
+    ULONG currentProcessId = (ULONG)(ULONG_PTR)PsGetCurrentProcessId();
+
+    RtlZeroMemory(EventDetails, sizeof(*EventDetails));
+    EventDetails->RawEventType = RawEventType;
+    EventDetails->SourceProcessId = currentProcessId;
+    EventDetails->TargetProcessId = currentProcessId;
+    EventDetails->ThreadId = (ULONG)(ULONG_PTR)PsGetCurrentThreadId();
+    EventDetails->OperationStatus = STATUS_SUCCESS;
+    EventDetails->EventName = EventName;
+}
 
 static VOID
 OwlyForwardKernelEvent(_In_ ULONG RawEventType, _In_ PCWSTR EventName, _In_ ULONG_PTR Arg1, _In_ ULONG_PTR Arg2)
 {
-    (VOID)QueueHypervisorEvent(RawEventType, EventName, Arg1, Arg2);
+    OWLY_HYPERDBG_EVENT_DETAILS eventDetails;
+
+    OwlyInitializeBridgeEvent(&eventDetails, RawEventType, EventName);
+    eventDetails.RawArgument1 = Arg1;
+    eventDetails.RawArgument2 = Arg2;
+
+    (VOID)OwlyReportHyperDbgEvent(&eventDetails);
+}
+
+static VOID
+OwlyForwardAfterSyscallEvent(_In_opt_ GUEST_REGS * Regs,
+                             _In_ UINT32           ProcessId,
+                             _In_ UINT32           ThreadId,
+                             _In_ UINT64           Context,
+                             _In_opt_ SYSCALL_CALLBACK_CONTEXT_PARAMS * Params)
+{
+    OWLY_HYPERDBG_EVENT_DETAILS eventDetails;
+    ULONG                 sourceProcessId = ProcessId;
+
+    if (sourceProcessId == 0)
+    {
+        sourceProcessId = (ULONG)(ULONG_PTR)PsGetCurrentProcessId();
+    }
+
+    OwlyInitializeBridgeEvent(&eventDetails, OWLY_VMM_RAW_HYPEREVADE_BASE + 8u, L"TRANSPARENT_AFTER_SYSCALL");
+    eventDetails.SourceProcessId = sourceProcessId;
+    eventDetails.TargetProcessId = sourceProcessId;
+    eventDetails.ThreadId = ThreadId;
+    eventDetails.Context = Context;
+    eventDetails.RawArgument1 = (Params != NULL) ? (ULONG_PTR)Params->OptionalParam1 : 0;
+    eventDetails.RawArgument2 = (Params != NULL) ? (ULONG_PTR)Params->OptionalParam2 : 0;
+    eventDetails.RawArgument3 = (Params != NULL) ? (ULONG_PTR)Params->OptionalParam3 : 0;
+    eventDetails.RawArgument4 = (Params != NULL) ? (ULONG_PTR)Params->OptionalParam4 : 0;
+    eventDetails.MemoryAddress = (Params != NULL) ? Params->OptionalParam3 : 0;
+    eventDetails.MemorySize = (Params != NULL) ? Params->OptionalParam4 : 0;
+    eventDetails.OperationStatus = (Regs != NULL) ? (NTSTATUS)(ULONG_PTR)Regs->rax : STATUS_SUCCESS;
+
+    (VOID)OwlyReportHyperDbgEvent(&eventDetails);
+}
+
+static VOID
+OwlyForwardVmcallEvent(_In_ UINT32 CoreId,
+                       _In_ UINT64 VmcallNumber,
+                       _In_ UINT64 OptionalParam1,
+                       _In_ UINT64 OptionalParam2,
+                       _In_ UINT64 OptionalParam3)
+{
+    OWLY_HYPERDBG_EVENT_DETAILS eventDetails;
+
+    OwlyInitializeBridgeEvent(&eventDetails, OWLY_VMM_RAW_VMCALL_EVENT, L"VMMCALL");
+    eventDetails.CoreId = CoreId;
+    eventDetails.RawArgument1 = VmcallNumber;
+    eventDetails.RawArgument2 = OptionalParam1;
+    eventDetails.RawArgument3 = OptionalParam2;
+    eventDetails.RawArgument4 = OptionalParam3;
+
+    (VOID)OwlyReportHyperDbgEvent(&eventDetails);
+}
+
+static VOID
+OwlyForwardProtectedResourceEvent(_In_ UINT32                               CoreId,
+                                  _In_ PROTECTED_HV_RESOURCES_TYPE          ResourceType,
+                                  _In_opt_ PVOID                            Context,
+                                  _In_ PROTECTED_HV_RESOURCES_PASSING_OVERS PassOver)
+{
+    OWLY_HYPERDBG_EVENT_DETAILS eventDetails;
+
+    OwlyInitializeBridgeEvent(&eventDetails, OWLY_VMM_RAW_PROTECTED_EVENT, L"QUERY_TERMINATE_PROTECTED_RESOURCE");
+    eventDetails.CoreId = CoreId;
+    eventDetails.RawArgument1 = (ULONG_PTR)ResourceType;
+    eventDetails.RawArgument2 = (ULONG_PTR)PassOver;
+    eventDetails.MemoryAddress = (UINT64)(ULONG_PTR)Context;
+
+    (VOID)OwlyReportHyperDbgEvent(&eventDetails);
+}
+
+static VOID
+OwlyForwardUnhandledEptEvent(_In_ UINT32 CoreId, _In_ UINT64 ViolationQualification,
+                             _In_ UINT64 GuestPhysicalAddr)
+{
+    OWLY_HYPERDBG_EVENT_DETAILS eventDetails;
+
+    OwlyInitializeBridgeEvent(&eventDetails, OWLY_VMM_RAW_UNHANDLED_EPT, L"UNHANDLED_EPT_VIOLATION");
+    eventDetails.CoreId = CoreId;
+    eventDetails.RawArgument1 = (ULONG_PTR)ViolationQualification;
+    eventDetails.MemoryAddress = GuestPhysicalAddr;
+
+    (VOID)OwlyReportHyperDbgEvent(&eventDetails);
 }
 
 static PCWSTR
@@ -224,10 +341,11 @@ OwlyVmmCallbackTriggerEvents(VMM_EVENT_TYPE_ENUM                   EventType,
     }
 
     {
+        OWLY_HYPERDBG_EVENT_DETAILS eventDetails;
         WCHAR     eventLabel[128] = {0};
+        ULONG     rawEventType    = OWLY_VMM_RAW_EVENT_BASE + (((ULONG)CallingStage & 0xffu) << 8) + ((ULONG)EventType & 0xffu);
         ULONG_PTR arg1            = (Regs != NULL) ? (ULONG_PTR)Regs->rax : 0;
         ULONG_PTR arg2            = (Context != NULL) ? (ULONG_PTR)Context : ((Regs != NULL) ? (ULONG_PTR)Regs->rcx : 0);
-        ULONG     rawEventType    = OWLY_VMM_RAW_EVENT_BASE + (((ULONG)CallingStage & 0xffu) << 8) + ((ULONG)EventType & 0xffu);
 
         if (!NT_SUCCESS(RtlStringCchPrintfW(eventLabel,
                                             RTL_NUMBER_OF(eventLabel),
@@ -238,7 +356,20 @@ OwlyVmmCallbackTriggerEvents(VMM_EVENT_TYPE_ENUM                   EventType,
             RtlStringCchCopyW(eventLabel, RTL_NUMBER_OF(eventLabel), L"VMM_EVENT");
         }
 
-        OwlyForwardKernelEvent(rawEventType, eventLabel, arg1, arg2);
+        OwlyInitializeBridgeEvent(&eventDetails, rawEventType, eventLabel);
+        eventDetails.Context = (UINT64)(ULONG_PTR)Context;
+        eventDetails.RawArgument1 = arg1;
+        eventDetails.RawArgument2 = arg2;
+        eventDetails.RawArgument3 = (Regs != NULL) ? (ULONG_PTR)Regs->rdx : 0;
+        eventDetails.RawArgument4 = (Regs != NULL) ? (ULONG_PTR)Regs->r8 : 0;
+        if (Regs != NULL &&
+            (EventType == SYSCALL_HOOK_EFER_SYSCALL || EventType == SYSCALL_HOOK_EFER_SYSRET) &&
+            CallingStage == VMM_CALLBACK_CALLING_STAGE_POST_EVENT_EMULATION)
+        {
+            eventDetails.OperationStatus = (NTSTATUS)(ULONG_PTR)Regs->rax;
+        }
+
+        (VOID)OwlyReportHyperDbgEvent(&eventDetails);
     }
 
     return VMM_CALLBACK_TRIGGERING_EVENT_STATUS_SUCCESSFUL_NO_INITIALIZED;
@@ -257,18 +388,19 @@ OwlyVmmCallbackVmcallHandler(UINT32 CoreId,
                              UINT64 OptionalParam2,
                              UINT64 OptionalParam3)
 {
-    OwlyForwardKernelEvent(OWLY_VMM_RAW_VMCALL_EVENT, L"VMMCALL", (ULONG_PTR)VmcallNumber, (ULONG_PTR)OptionalParam1);
-    OwlyForwardKernelEvent(OWLY_VMM_RAW_VMCALL_EXTRA,
-                           L"VMMCALL_EXTRA",
-                           ((ULONG_PTR)CoreId << 32) | ((ULONG_PTR)OptionalParam2 & 0xffffffffull),
-                           (ULONG_PTR)OptionalParam3);
+    OwlyForwardVmcallEvent(CoreId, VmcallNumber, OptionalParam1, OptionalParam2, OptionalParam3);
     return FALSE;
 }
 
 static VOID
 OwlyVmmCallbackNmiBroadcastRequestHandler(UINT32 CoreId, BOOLEAN IsOnVmxNmiHandler)
 {
-    OwlyForwardKernelEvent(OWLY_VMM_RAW_NMI_EVENT, L"NMI_BROADCAST", (ULONG_PTR)CoreId, (ULONG_PTR)IsOnVmxNmiHandler);
+    OWLY_HYPERDBG_EVENT_DETAILS eventDetails;
+
+    OwlyInitializeBridgeEvent(&eventDetails, OWLY_VMM_RAW_NMI_EVENT, L"NMI_BROADCAST");
+    eventDetails.CoreId = CoreId;
+    eventDetails.RawArgument1 = IsOnVmxNmiHandler ? 1u : 0u;
+    (VOID)OwlyReportHyperDbgEvent(&eventDetails);
 }
 
 static BOOLEAN
@@ -277,90 +409,123 @@ OwlyVmmCallbackQueryTerminateProtectedResource(UINT32                           
                                                PVOID                                Context,
                                                PROTECTED_HV_RESOURCES_PASSING_OVERS PassOver)
 {
-    OwlyForwardKernelEvent(OWLY_VMM_RAW_PROTECTED_EVENT,
-                           L"QUERY_TERMINATE_PROTECTED_RESOURCE",
-                           ((ULONG_PTR)CoreId << 32) | ((ULONG_PTR)ResourceType & 0xffffffffull),
-                           (ULONG_PTR)Context);
-    OwlyForwardKernelEvent(OWLY_VMM_RAW_PROTECTED_EVENT + 1u, L"QUERY_TERMINATE_PROTECTED_RESOURCE_PASSOVER", (ULONG_PTR)PassOver, 0);
+    OwlyForwardProtectedResourceEvent(CoreId, ResourceType, Context, PassOver);
     return FALSE;
 }
 
 static BOOLEAN
 OwlyVmmCallbackRestoreEptState(UINT32 CoreId)
 {
-    OwlyForwardKernelEvent(OWLY_VMM_RAW_RESTORE_EPT, L"RESTORE_EPT_STATE", (ULONG_PTR)CoreId, 0);
+    OWLY_HYPERDBG_EVENT_DETAILS eventDetails;
+
+    OwlyInitializeBridgeEvent(&eventDetails, OWLY_VMM_RAW_RESTORE_EPT, L"RESTORE_EPT_STATE");
+    eventDetails.CoreId = CoreId;
+    (VOID)OwlyReportHyperDbgEvent(&eventDetails);
     return FALSE;
 }
 
 static BOOLEAN
 OwlyVmmCallbackCheckUnhandledEptViolations(UINT32 CoreId, UINT64 ViolationQualification, UINT64 GuestPhysicalAddr)
 {
-    OwlyForwardKernelEvent(OWLY_VMM_RAW_UNHANDLED_EPT, L"UNHANDLED_EPT_VIOLATION", (ULONG_PTR)ViolationQualification, (ULONG_PTR)GuestPhysicalAddr);
-    OwlyForwardKernelEvent(OWLY_VMM_RAW_UNHANDLED_EPT + 1u, L"UNHANDLED_EPT_CORE", (ULONG_PTR)CoreId, 0);
+    OwlyForwardUnhandledEptEvent(CoreId, ViolationQualification, GuestPhysicalAddr);
     return FALSE;
 }
 
 static BOOLEAN
 OwlyDebuggingCallbackHandleBreakpointException(UINT32 CoreId)
 {
-    OwlyForwardKernelEvent(OWLY_VMM_RAW_BP_EVENT, L"DEBUG_BREAKPOINT_EXCEPTION", (ULONG_PTR)CoreId, 0);
+    OWLY_HYPERDBG_EVENT_DETAILS eventDetails;
+
+    OwlyInitializeBridgeEvent(&eventDetails, OWLY_VMM_RAW_BP_EVENT, L"DEBUG_BREAKPOINT_EXCEPTION");
+    eventDetails.CoreId = CoreId;
+    (VOID)OwlyReportHyperDbgEvent(&eventDetails);
     return FALSE;
 }
 
 static BOOLEAN
 OwlyDebuggingCallbackHandleDebugBreakpointException(UINT32 CoreId)
 {
-    OwlyForwardKernelEvent(OWLY_VMM_RAW_DBG_BP_EVENT, L"DEBUG_DEBUG_BREAKPOINT_EXCEPTION", (ULONG_PTR)CoreId, 0);
+    OWLY_HYPERDBG_EVENT_DETAILS eventDetails;
+
+    OwlyInitializeBridgeEvent(&eventDetails, OWLY_VMM_RAW_DBG_BP_EVENT, L"DEBUG_DEBUG_BREAKPOINT_EXCEPTION");
+    eventDetails.CoreId = CoreId;
+    (VOID)OwlyReportHyperDbgEvent(&eventDetails);
     return FALSE;
 }
 
 static BOOLEAN
 OwlyDebuggingCallbackCheckThreadInterception(UINT32 CoreId)
 {
-    OwlyForwardKernelEvent(OWLY_VMM_RAW_THREAD_INT_EVENT, L"DEBUG_THREAD_INTERCEPTION", (ULONG_PTR)CoreId, 0);
+    OWLY_HYPERDBG_EVENT_DETAILS eventDetails;
+
+    OwlyInitializeBridgeEvent(&eventDetails, OWLY_VMM_RAW_THREAD_INT_EVENT, L"DEBUG_THREAD_INTERCEPTION");
+    eventDetails.CoreId = CoreId;
+    (VOID)OwlyReportHyperDbgEvent(&eventDetails);
     return FALSE;
 }
 
 static VOID
 OwlyInterceptionCallbackTriggerCr3ProcessChange(UINT32 CoreId)
 {
-    OwlyForwardKernelEvent(OWLY_VMM_RAW_CR3_EVENT, L"CR3_PROCESS_CHANGE", (ULONG_PTR)CoreId, 0);
+    OWLY_HYPERDBG_EVENT_DETAILS eventDetails;
+
+    OwlyInitializeBridgeEvent(&eventDetails, OWLY_VMM_RAW_CR3_EVENT, L"CR3_PROCESS_CHANGE");
+    eventDetails.CoreId = CoreId;
+    (VOID)OwlyReportHyperDbgEvent(&eventDetails);
 }
 
 static BOOLEAN
 OwlyBreakpointCheckAndHandleReApplyingBreakpoint(UINT32 CoreId)
 {
-    OwlyForwardKernelEvent(OWLY_VMM_RAW_REAPPLY_BP_EVENT, L"REAPPLY_BREAKPOINT", (ULONG_PTR)CoreId, 0);
+    OWLY_HYPERDBG_EVENT_DETAILS eventDetails;
+
+    OwlyInitializeBridgeEvent(&eventDetails, OWLY_VMM_RAW_REAPPLY_BP_EVENT, L"REAPPLY_BREAKPOINT");
+    eventDetails.CoreId = CoreId;
+    (VOID)OwlyReportHyperDbgEvent(&eventDetails);
     return FALSE;
 }
 
 static BOOLEAN
 OwlyKdCheckAndHandleNmiCallback(UINT32 CoreId)
 {
-    OwlyForwardKernelEvent(OWLY_VMM_RAW_KD_NMI_EVENT, L"KD_NMI_CALLBACK", (ULONG_PTR)CoreId, 0);
+    OWLY_HYPERDBG_EVENT_DETAILS eventDetails;
+
+    OwlyInitializeBridgeEvent(&eventDetails, OWLY_VMM_RAW_KD_NMI_EVENT, L"KD_NMI_CALLBACK");
+    eventDetails.CoreId = CoreId;
+    (VOID)OwlyReportHyperDbgEvent(&eventDetails);
     return FALSE;
 }
 
 static VOID
 OwlyVmmCallbackRegisteredMtfHandler(UINT32 CoreId)
 {
-    OwlyForwardKernelEvent(OWLY_VMM_RAW_MTF_EVENT, L"REGISTERED_MTF_HANDLER", (ULONG_PTR)CoreId, 0);
+    OWLY_HYPERDBG_EVENT_DETAILS eventDetails;
+
+    OwlyInitializeBridgeEvent(&eventDetails, OWLY_VMM_RAW_MTF_EVENT, L"REGISTERED_MTF_HANDLER");
+    eventDetails.CoreId = CoreId;
+    (VOID)OwlyReportHyperDbgEvent(&eventDetails);
 }
 
 static BOOLEAN
 OwlyDebuggerCheckProcessOrThreadChange(UINT32 CoreId)
 {
-    OwlyForwardKernelEvent(OWLY_VMM_RAW_PROC_THR_EVENT, L"DEBUGGER_PROCESS_OR_THREAD_CHANGE", (ULONG_PTR)CoreId, 0);
+    OWLY_HYPERDBG_EVENT_DETAILS eventDetails;
+
+    OwlyInitializeBridgeEvent(&eventDetails, OWLY_VMM_RAW_PROC_THR_EVENT, L"DEBUGGER_PROCESS_OR_THREAD_CHANGE");
+    eventDetails.CoreId = CoreId;
+    (VOID)OwlyReportHyperDbgEvent(&eventDetails);
     return FALSE;
 }
 
 static BOOLEAN
 OwlyKdQueryDebuggerThreadOrProcessTracingDetailsByCoreId(UINT32 CoreId, DEBUGGER_THREAD_PROCESS_TRACING TracingType)
 {
-    OwlyForwardKernelEvent(OWLY_VMM_RAW_TRACING_EVENT,
-                           L"KD_QUERY_THREAD_OR_PROCESS_TRACING",
-                           (ULONG_PTR)CoreId,
-                           (ULONG_PTR)TracingType);
+    OWLY_HYPERDBG_EVENT_DETAILS eventDetails;
+
+    OwlyInitializeBridgeEvent(&eventDetails, OWLY_VMM_RAW_TRACING_EVENT, L"KD_QUERY_THREAD_OR_PROCESS_TRACING");
+    eventDetails.CoreId = CoreId;
+    eventDetails.RawArgument1 = (ULONG_PTR)TracingType;
+    (VOID)OwlyReportHyperDbgEvent(&eventDetails);
     return FALSE;
 }
 
@@ -381,6 +546,7 @@ OwlyVmmInitialize(VOID)
     callbacks.LogCallbackSendMessageToQueue                  = OwlyLogCallbackSendMessageToQueue;
     callbacks.LogCallbackSendBuffer                          = OwlyLogCallbackSendBuffer;
     callbacks.LogCallbackCheckIfBufferIsFull                 = OwlyLogCallbackCheckIfBufferIsFull;
+    callbacks.ReportOwlyEvent                                = OwlyReportHyperDbgEvent;
     callbacks.VmmCallbackTriggerEvents                       = OwlyVmmCallbackTriggerEvents;
     callbacks.VmmCallbackSetLastError                        = OwlyVmmCallbackSetLastError;
     callbacks.VmmCallbackVmcallHandler                       = OwlyVmmCallbackVmcallHandler;
@@ -516,28 +682,7 @@ TransparentCallbackHandleAfterSyscall(GUEST_REGS *                      Regs,
                                       UINT64                            Context,
                                       SYSCALL_CALLBACK_CONTEXT_PARAMS * Params)
 {
-    OwlyForwardKernelEvent(OWLY_VMM_RAW_HYPEREVADE_BASE + 8u,
-                           L"TRANSPARENT_AFTER_SYSCALL",
-                           ((ULONG_PTR)ProcessId << 32) | (ULONG_PTR)ThreadId,
-                           (ULONG_PTR)Context);
-    if (Params != NULL)
-    {
-        OwlyForwardKernelEvent(OWLY_VMM_RAW_HYPEREVADE_BASE + 9u,
-                               L"TRANSPARENT_AFTER_SYSCALL_PARAMS12",
-                               (ULONG_PTR)Params->OptionalParam1,
-                               (ULONG_PTR)Params->OptionalParam2);
-        OwlyForwardKernelEvent(OWLY_VMM_RAW_HYPEREVADE_BASE + 10u,
-                               L"TRANSPARENT_AFTER_SYSCALL_PARAMS34",
-                               (ULONG_PTR)Params->OptionalParam3,
-                               (ULONG_PTR)Params->OptionalParam4);
-    }
-    if (Regs != NULL)
-    {
-        OwlyForwardKernelEvent(OWLY_VMM_RAW_HYPEREVADE_BASE + 11u,
-                               L"TRANSPARENT_AFTER_SYSCALL_REGS",
-                               (ULONG_PTR)Regs->rax,
-                               (ULONG_PTR)Regs->rcx);
-    }
+    OwlyForwardAfterSyscallEvent(Regs, ProcessId, ThreadId, Context, Params);
 }
 
 BOOLEAN

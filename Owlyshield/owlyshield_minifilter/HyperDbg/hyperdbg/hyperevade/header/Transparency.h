@@ -68,5 +68,12 @@ BOOLEAN g_TransparentMode;
 //				   Functions					//
 //////////////////////////////////////////////////
 
+BOOLEAN
+TransparentReportOwlyEvent(_In_ const OWLY_HYPERDBG_EVENT_DETAILS * EventDetails);
+
+VOID
+TransparentInitializeOwlyEvent(_Out_ POWLY_HYPERDBG_EVENT_DETAILS EventDetails, _In_ UINT32 RawEventType,
+                               _In_opt_ const WCHAR * EventName);
+
 UINT32
 TransparentGetRand();

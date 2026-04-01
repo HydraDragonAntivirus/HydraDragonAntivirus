@@ -208,6 +208,7 @@
   response:
     notify_user: true
     ask_user: true
+    deny_while_ask: true
     terminate_process: false
     record: true
 
@@ -407,6 +408,7 @@
   response:
     notify_user: true
     ask_user: true
+    deny_while_ask: true
     terminate_process: false
     auto_revert: true
     record: true
@@ -503,6 +505,7 @@
   response:
     notify_user: true
     ask_user: true
+    deny_while_ask: true
     terminate_process: false
     auto_revert: true
     record: true

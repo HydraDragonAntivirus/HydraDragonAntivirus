@@ -43,11 +43,32 @@ NTSTATUS RWFNewMessage(
 
 VOID RWFDissconnect(_In_opt_ PVOID ConnectionCookie);
 
+typedef struct _OWLY_HV_EVENT_DETAILS
+{
+    ULONG RawEventType;
+    ULONG SourceProcessId;
+    ULONG TargetProcessId;
+    PVOID MemoryAddress;
+    SIZE_T MemorySize;
+    ULONG MemoryProtection;
+    BOOLEAN IsExecutableMemory;
+    HANDLE ThreadHandle;
+    PVOID ThreadStartRoutine;
+    ULONG_PTR RawArgument1;
+    ULONG_PTR RawArgument2;
+    ULONG_PTR RawArgument3;
+    ULONG_PTR RawArgument4;
+    ACCESS_MASK AccessMask;
+    NTSTATUS OperationStatus;
+    _Field_z_ PCWSTR EventName;
+
+    ULONG CoreId;
+    ULONG ThreadId;
+    ULONGLONG Context;
+} OWLY_HV_EVENT_DETAILS, *POWLY_HV_EVENT_DETAILS;
+
 // Independent hypervisor event queue for VMM bridge (C callable).
-BOOLEAN QueueHypervisorEvent(_In_ ULONG RawEventType,
-                             _In_opt_z_ PCWSTR EventName,
-                             _In_ ULONG_PTR EventArg1,
-                             _In_ ULONG_PTR EventArg2);
+BOOLEAN QueueHypervisorEvent(_In_ const OWLY_HV_EVENT_DETAILS *EventDetails);
 
 VOID DrainQueuedHypervisorEvents(_Inout_updates_bytes_(OutputBufferLength) PVOID OutputBuffer,
                                  _In_ ULONG OutputBufferLength,

@@ -114,6 +114,7 @@
   response:
     notify_user: true
     ask_user: true
+    deny_while_ask: true
     terminate_process: false
     record: true
 

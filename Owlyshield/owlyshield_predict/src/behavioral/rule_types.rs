@@ -2395,6 +2395,41 @@ json_match:
     }
 
     #[test]
+    fn plain_ask_user_rule_defaults_to_deny_while_ask() {
+        let yaml = r#"
+name: Ask User Default
+response:
+  ask_user: true
+"#;
+
+        let mut rule: BehaviorRule = serde_yaml::from_str(yaml).unwrap();
+        rule.finalize_rich_fields();
+
+        assert!(rule.response.ask_user);
+        assert!(rule.response.deny_while_ask);
+        assert!(rule.response.status_access_denied);
+        assert!(!rule.response.suspend_while_ask);
+    }
+
+    #[test]
+    fn plain_ask_user_rule_keeps_explicit_suspend_while_ask() {
+        let yaml = r#"
+name: Ask User Suspend
+response:
+  ask_user: true
+  suspend_while_ask: true
+"#;
+
+        let mut rule: BehaviorRule = serde_yaml::from_str(yaml).unwrap();
+        rule.finalize_rich_fields();
+
+        assert!(rule.response.ask_user);
+        assert!(rule.response.deny_while_ask);
+        assert!(rule.response.status_access_denied);
+        assert!(rule.response.suspend_while_ask);
+    }
+
+    #[test]
     fn firewall_sdk_regex_uses_top_level_encoding() {
         let yaml = r#"
 name: Detect Encoded PowerShell

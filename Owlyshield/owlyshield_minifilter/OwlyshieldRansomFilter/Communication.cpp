@@ -604,15 +604,30 @@ static VOID EnsureQueuedHypervisorEventsInitialized(VOID)
 }
 
 BOOLEAN
-QueueHypervisorEvent(_In_ ULONG RawEventType, _In_opt_z_ PCWSTR EventName, _In_ ULONG_PTR EventArg1,
-                     _In_ ULONG_PTR EventArg2)
+QueueHypervisorEvent(_In_ const OWLY_HV_EVENT_DETAILS * EventDetails)
 {
     KIRQL oldIrql;
     ULONG currentPid = (ULONG)(ULONG_PTR)PsGetCurrentProcessId();
+    ULONG sourcePid;
+    ULONG targetPid;
+    ULONG ownerPid;
     POWLY_HV_EVENT_ENTRY newEntry;
     LARGE_INTEGER timestamp;
+    BOOLEAN ownerFound = FALSE;
+    BOOLEAN attackerFound = FALSE;
+    ULONGLONG ownerGid = 0;
+    ULONGLONG attackerGid = 0;
 
     EnsureQueuedHypervisorEventsInitialized();
+
+    if (EventDetails == NULL)
+    {
+        return FALSE;
+    }
+
+    sourcePid = (EventDetails->SourceProcessId != 0) ? EventDetails->SourceProcessId : currentPid;
+    targetPid = (EventDetails->TargetProcessId != 0) ? EventDetails->TargetProcessId : sourcePid;
+    ownerPid = (targetPid != 0) ? targetPid : sourcePid;
 
     newEntry = (POWLY_HV_EVENT_ENTRY)ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeof(OWLY_HV_EVENT_ENTRY),
                                                      OWLY_HV_EVENT_QUEUE_TAG);
@@ -623,28 +638,47 @@ QueueHypervisorEvent(_In_ ULONG RawEventType, _In_opt_z_ PCWSTR EventName, _In_ 
 
     RtlZeroMemory(newEntry, sizeof(OWLY_HV_EVENT_ENTRY));
 
-    newEntry->Message.PID = currentPid;
-    newEntry->Message.AttackerPID = currentPid;
+    if (driverData != NULL)
+    {
+        ownerGid = driverData->GetProcessGid(ownerPid, &ownerFound);
+        attackerGid = driverData->GetProcessGid(sourcePid, &attackerFound);
+    }
+
+    newEntry->Message.PID = ownerPid;
+    newEntry->Message.Gid = ownerFound ? ownerGid : 0;
+    newEntry->Message.AttackerPID = sourcePid;
+    newEntry->Message.AttackerGid = attackerFound ? attackerGid : 0;
     newEntry->Message.IRP_OP = IRP_HYPERVISOR_EVENT;
 
     KeQuerySystemTime(&timestamp);
-    newEntry->Message.KernelEventInfo.EventType = RawEventType;
+    newEntry->Message.KernelEventInfo.EventType = EventDetails->RawEventType;
     newEntry->Message.KernelEventInfo.Timestamp = (ULONGLONG)timestamp.QuadPart;
-    newEntry->Message.KernelEventInfo.SourceProcessId = currentPid;
-    newEntry->Message.KernelEventInfo.TargetProcessId = currentPid;
-    newEntry->Message.KernelEventInfo.RawArgument1 = EventArg1;
-    newEntry->Message.KernelEventInfo.RawArgument2 = EventArg2;
-    newEntry->Message.KernelEventInfo.MemoryAddress = (PVOID)EventArg2;
-    newEntry->Message.KernelEventInfo.ThreadHandle = (HANDLE)EventArg1;
-    newEntry->Message.KernelEventInfo.AccessMask = (ACCESS_MASK)EventArg1;
-    newEntry->Message.KernelEventInfo.OperationStatus = STATUS_SUCCESS;
+    newEntry->Message.KernelEventInfo.SourceProcessId = sourcePid;
+    newEntry->Message.KernelEventInfo.TargetProcessId = targetPid;
+    newEntry->Message.KernelEventInfo.MemoryAddress = EventDetails->MemoryAddress;
+    newEntry->Message.KernelEventInfo.MemorySize = EventDetails->MemorySize;
+    newEntry->Message.KernelEventInfo.MemoryProtection = EventDetails->MemoryProtection;
+    newEntry->Message.KernelEventInfo.IsExecutableMemory = EventDetails->IsExecutableMemory;
+    newEntry->Message.KernelEventInfo.ThreadHandle = EventDetails->ThreadHandle;
+    newEntry->Message.KernelEventInfo.ThreadStartRoutine = EventDetails->ThreadStartRoutine;
+    newEntry->Message.KernelEventInfo.RawArgument1 = EventDetails->RawArgument1;
+    newEntry->Message.KernelEventInfo.RawArgument2 = EventDetails->RawArgument2;
+    newEntry->Message.KernelEventInfo.RawArgument3 = EventDetails->RawArgument3;
+    newEntry->Message.KernelEventInfo.RawArgument4 = EventDetails->RawArgument4;
+    newEntry->Message.KernelEventInfo.AccessMask = EventDetails->AccessMask;
+    newEntry->Message.KernelEventInfo.OperationStatus = EventDetails->OperationStatus;
+    
+    newEntry->Message.KernelEventInfo.CoreId = EventDetails->CoreId;
+    newEntry->Message.KernelEventInfo.ThreadId = EventDetails->ThreadId;
+    newEntry->Message.KernelEventInfo.Context = EventDetails->Context;
 
-    if (EventName != NULL && EventName[0] != L'\0')
+    if (EventDetails->EventName != NULL && EventDetails->EventName[0] != L'\0')
     {
-        size_t eventNameLength = wcsnlen(EventName, MAX_FILE_NAME_LENGTH - 1);
+        size_t eventNameLength = wcsnlen(EventDetails->EventName, MAX_FILE_NAME_LENGTH - 1);
         if (eventNameLength > 0)
         {
-            RtlCopyMemory(newEntry->Message.KernelEventInfo.ObjectName, EventName, eventNameLength * sizeof(WCHAR));
+            RtlCopyMemory(newEntry->Message.KernelEventInfo.ObjectName, EventDetails->EventName,
+                          eventNameLength * sizeof(WCHAR));
         }
     }
 

@@ -11,6 +11,8 @@
  */
 #pragma once
 
+#include "OwlyEvent.h"
+
 //////////////////////////////////////////////////
 //			     Callback Types                 //
 //////////////////////////////////////////////////
@@ -115,6 +117,7 @@ typedef struct _HYPEREVADE_CALLBACKS
     //
     // *** HYPEREVADE callbacks ***
     //
+    OWLY_REPORT_EVENT_CALLBACK ReportOwlyEvent;
 
     //
     // Memory callbacks
