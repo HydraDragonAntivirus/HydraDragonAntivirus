@@ -24,6 +24,7 @@
 //! That's why *Owlyshield* uses time-independant metric which is the number of driver messages received
 //! from a driver.
 
+use slc_paths::clustering::{Clusters, clustering};
 use std::collections::{HashMap, HashSet};
 use std::fmt::Formatter;
 use std::ops::Mul;
@@ -32,23 +33,17 @@ use std::sync::mpsc;
 use std::sync::mpsc::{Receiver, Sender};
 use std::time::{Duration, SystemTime};
 use std::{fmt, thread};
-use slc_paths::clustering::{clustering, Clusters};
 
 use crate::shared_def::{
-    FileChangeInfo,
-    FileId,
-    IOMessage,
-    DriveType::{
-        CDRom, Remote, Removable
-    },
-    IrpMajorOp,
-    DriveType
+    DriveType,
+    DriveType::{CDRom, Remote, Removable},
+    FileChangeInfo, FileId, IOMessage, IrpMajorOp,
 };
 
-use crate::extensions::ExtensionsCount;
-use crate::novelty::DirectoriesContent;
 #[cfg(all(target_os = "windows", feature = "hydradragon"))]
 use crate::av_integration::AVIntegration;
+use crate::extensions::ExtensionsCount;
+use crate::novelty::DirectoriesContent;
 
 fn normalize_extension_token(extension: &str) -> String {
     extension
@@ -97,7 +92,6 @@ fn filepath_stem_key(filepath: &str) -> Option<String> {
         Some(stem.to_string())
     }
 }
-
 
 /// GID state in real-time. This is a central structure.
 ///
@@ -174,6 +168,8 @@ pub struct ProcessRecord {
     pub termination_requested: bool,
     /// Kernel path deny requested by behavior engine
     pub deny_access_requested: bool,
+    /// Suspension requested by behavior engine
+    pub suspend_requested: bool,
     /// Remove-on-kill requested by behavior engine
     pub kill_and_remove_requested: bool,
     /// User notification requested by behavior engine
@@ -244,7 +240,7 @@ pub struct ProcessRecord {
     pub on_removable_drive_read_count: u32,
     /// Count of Write operations [IrpMajorOp::IrpWrite] on a removable drive
     pub on_removable_drive_write_count: u32,
-    
+
     // NEW: Kernel-level API hooking event tracking
     /// Count of NtWriteVirtualMemory events
     pub kernel_write_memory_count: u32,
@@ -272,20 +268,23 @@ pub struct ProcessRecord {
     pub kernel_events_total: u32,
     /// Max individual kernel event count
     pub kernel_events_max_individual: u32,
-    
+
     // NEW: Signature tracking
     /// Is process signed
     pub is_signed: bool,
     /// Has valid signature
     pub has_valid_signature: bool,
-    
+
     /// Time of execution of the I/O operation
     pub time: SystemTime,
 }
 
 impl ProcessRecord {
     /// Create a new ProcessRecord with minimal initialization
-    #[cfg_attr(feature = "realtime_learning", doc = " (for testing/realtime_learning use)")]
+    #[cfg_attr(
+        feature = "realtime_learning",
+        doc = " (for testing/realtime_learning use)"
+    )]
     pub fn new(gid: u64, appname: String, exepath: PathBuf) -> ProcessRecord {
         let (tx, rx) = mpsc::channel::<Clusters>();
 
@@ -324,6 +323,7 @@ impl ProcessRecord {
             termination_requested: false,
             quarantine_requested: false,
             deny_access_requested: false,
+            suspend_requested: false,
             kill_and_remove_requested: false,
             notify_user_requested: false,
             revert_requested: false,
@@ -358,7 +358,7 @@ impl ProcessRecord {
             on_shared_drive_write_count: 0,
             on_removable_drive_read_count: 0,
             on_removable_drive_write_count: 0,
-            
+
             // NEW: Initialize kernel event counters
             kernel_write_memory_count: 0,
             kernel_allocate_memory_count: 0,
@@ -373,11 +373,11 @@ impl ProcessRecord {
             kernel_open_process_count: 0,
             kernel_events_total: 0,
             kernel_events_max_individual: 0,
-            
+
             // NEW: Initialize signature fields
             is_signed: false,
             has_valid_signature: false,
-            
+
             time: SystemTime::now(),
         }
     }
@@ -420,6 +420,7 @@ impl ProcessRecord {
             termination_requested: false,
             quarantine_requested: false,
             deny_access_requested: false,
+            suspend_requested: false,
             kill_and_remove_requested: false,
             notify_user_requested: false,
             revert_requested: false,
@@ -454,7 +455,7 @@ impl ProcessRecord {
             on_shared_drive_write_count: 0,
             on_removable_drive_read_count: 0,
             on_removable_drive_write_count: 0,
-            
+
             // NEW: Initialize kernel event counters
             kernel_write_memory_count: 0,
             kernel_allocate_memory_count: 0,
@@ -469,11 +470,11 @@ impl ProcessRecord {
             kernel_open_process_count: 0,
             kernel_events_total: 0,
             kernel_events_max_individual: 0,
-            
+
             // NEW: Initialize signature fields
             is_signed: false,
             has_valid_signature: false,
-            
+
             time: iomsg.time,
         }
     }
@@ -491,21 +492,24 @@ impl ProcessRecord {
     pub fn previous_extension_for_event(&self, iomsg: &IOMessage) -> Option<String> {
         if iomsg.file_id_id.0 != 0
             && let Some(ext) = self.extension_by_file_id.get(&iomsg.file_id_id)
-                && !ext.is_empty() {
-                    return Some(ext.clone());
-                }
+            && !ext.is_empty()
+        {
+            return Some(ext.clone());
+        }
 
         let normalized_path = normalize_path_for_extension_tracking(&iomsg.filepathstr);
         if let Some(ext) = self.extension_by_path.get(&normalized_path)
-            && !ext.is_empty() {
-                return Some(ext.clone());
-            }
+            && !ext.is_empty()
+        {
+            return Some(ext.clone());
+        }
 
         if let Some(stem_key) = filepath_stem_key(&normalized_path)
             && let Some(ext) = self.extension_by_stem_path.get(&stem_key)
-                && !ext.is_empty() {
-                    return Some(ext.clone());
-                }
+            && !ext.is_empty()
+        {
+            return Some(ext.clone());
+        }
 
         None
     }
@@ -517,11 +521,14 @@ impl ProcessRecord {
 
         let normalized_path = normalize_path_for_extension_tracking(&iomsg.filepathstr);
         if iomsg.file_id_id.0 != 0 {
-            self.extension_by_file_id.insert(iomsg.file_id_id, ext_without_dot.to_string());
+            self.extension_by_file_id
+                .insert(iomsg.file_id_id, ext_without_dot.to_string());
         }
-        self.extension_by_path.insert(normalized_path.clone(), ext_without_dot.to_string());
+        self.extension_by_path
+            .insert(normalized_path.clone(), ext_without_dot.to_string());
         if let Some(stem_key) = filepath_stem_key(&normalized_path) {
-            self.extension_by_stem_path.insert(stem_key, ext_without_dot.to_string());
+            self.extension_by_stem_path
+                .insert(stem_key, ext_without_dot.to_string());
         }
 
         const MAX_TRACKED_EXTENSIONS: usize = 16384;
@@ -547,7 +554,6 @@ impl ProcessRecord {
     pub fn has_written_file_id(&self, file_id: &FileId) -> bool {
         self.files_written.contains(file_id)
     }
-
 
     fn launch_thread_clustering(&self) {
         let tx = self.tx.to_owned();
@@ -582,7 +588,11 @@ impl ProcessRecord {
 
     /// Public function to add an IRP record, compiled when hydradragon feature is enabled.
     #[cfg(all(target_os = "windows", feature = "hydradragon"))]
-    pub fn add_irp_record(&mut self, iomsg: &IOMessage, av_integration: Option<&mut AVIntegration>) {
+    pub fn add_irp_record(
+        &mut self,
+        iomsg: &IOMessage,
+        av_integration: Option<&mut AVIntegration>,
+    ) {
         self.add_irp_record_common(iomsg);
         if let Some(av) = av_integration {
             av.queue_file_event(iomsg, self);
@@ -604,9 +614,10 @@ impl ProcessRecord {
             self.command_line = iomsg.runtime_features.command_line.clone();
         }
         if let Some(parent) = Path::new(&iomsg.filepathstr).parent()
-            && parent.is_dir() {
-                self.dirs_content.insert(parent.to_path_buf(), iomsg);
-            }
+            && parent.is_dir()
+        {
+            self.dirs_content.insert(parent.to_path_buf(), iomsg);
+        }
         match IrpMajorOp::from_byte(iomsg.irp_op) {
             IrpMajorOp::IrpNone => {}
             IrpMajorOp::IrpRead => self.update_read(iomsg),
@@ -623,8 +634,7 @@ impl ProcessRecord {
         self.ops_read += 1;
         self.bytes_read += iomsg.mem_sized_used;
         self.files_read.insert(iomsg.file_id_id);
-        self.extensions_read
-            .add_cat_extension(&iomsg.extension);
+        self.extensions_read.add_cat_extension(&iomsg.extension);
         self.entropy_read += iomsg.entropy * (iomsg.mem_sized_used as f64);
         match DriveType::from_filepath(&iomsg.filepathstr) {
             Removable => self.on_removable_drive_read_count += 1,
@@ -650,8 +660,7 @@ impl ProcessRecord {
         ) {
             self.dirs_with_files_updated.insert(dir);
         }
-        self.extensions_written
-            .add_cat_extension(&iomsg.extension);
+        self.extensions_written.add_cat_extension(&iomsg.extension);
         self.entropy_written += iomsg.entropy * (iomsg.mem_sized_used as f64);
         self.sort_bytes(iomsg.mem_sized_used);
         self.sort_file_size(iomsg.file_size, &iomsg.filepathstr);
@@ -683,8 +692,7 @@ impl ProcessRecord {
                 }
             }
             Some(FileChangeInfo::ChangeExtensionChanged) => {
-                self.extensions_written
-                    .add_cat_extension(&iomsg.extension);
+                self.extensions_written.add_cat_extension(&iomsg.extension);
 
                 self.fpaths_updated.insert(fpath);
                 if let Some(dir) = Some(
@@ -719,8 +727,7 @@ impl ProcessRecord {
 
     fn update_create(&mut self, iomsg: &IOMessage) {
         self.ops_open += 1;
-        self.extensions_written
-            .add_cat_extension(&iomsg.extension);
+        self.extensions_written.add_cat_extension(&iomsg.extension);
         let file_change_enum = num::FromPrimitive::from_u8(iomsg.file_change);
         let fpath = iomsg.filepathstr.clone();
         match file_change_enum {
@@ -1199,7 +1206,10 @@ mod tests {
             &HashSet::from(["ico".to_string()])
         );
         assert_eq!(
-            pr.extensions_written.categories_set.get(&DocsMedia).unwrap(),
+            pr.extensions_written
+                .categories_set
+                .get(&DocsMedia)
+                .unwrap(),
             &HashSet::from(["txt".to_string(), "ico".to_string()])
         );
         assert_eq!(pr.file_size_empty, HashSet::new());

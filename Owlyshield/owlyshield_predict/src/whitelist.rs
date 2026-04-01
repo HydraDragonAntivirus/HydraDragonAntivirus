@@ -43,23 +43,28 @@ impl WhiteList {
     pub fn refresh_periodically(&self) {
         let whitelist_bis = Arc::clone(&self.whitelist);
         let path_bis = Arc::clone(&self.path);
-        thread::spawn(move || loop {
-            let res_lines = Self::load(&path_bis);
-            {
-                let mut set_whitelist = whitelist_bis.lock().unwrap();
-                if let Ok(lines) = res_lines {
-                    set_whitelist.clear();
-                    for line in lines.map_while(Result::ok) {
-                        let parts: Vec<&str> = line.split('|').collect();
-                        if parts.len() > 1 {
-                            set_whitelist.insert(parts[0].to_string(), Some(parts[1].trim().to_string()));
-                        } else {
-                            set_whitelist.insert(line.trim().to_string(), None);
+        thread::spawn(move || {
+            loop {
+                let res_lines = Self::load(&path_bis);
+                {
+                    let mut set_whitelist = whitelist_bis.lock().unwrap();
+                    if let Ok(lines) = res_lines {
+                        set_whitelist.clear();
+                        for line in lines.map_while(Result::ok) {
+                            let parts: Vec<&str> = line.split('|').collect();
+                            if parts.len() > 1 {
+                                set_whitelist.insert(
+                                    parts[0].to_string(),
+                                    Some(parts[1].trim().to_string()),
+                                );
+                            } else {
+                                set_whitelist.insert(line.trim().to_string(), None);
+                            }
                         }
                     }
                 }
+                thread::sleep(time::Duration::from_secs(10));
             }
-            thread::sleep(time::Duration::from_secs(10));
         });
     }
 

@@ -6,23 +6,25 @@
 //! - Continuous learning from real-world EDR deployment
 //! - All thresholds and parameters adapt automatically
 
+use crate::process::ProcessRecord;
 use crate::realtime_learning::api_tracker::ApiTracker;
 use crate::realtime_learning::ml_collector::MLCollector;
-use crate::process::ProcessRecord;
 
 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-use crate::behavioral::behavior_engine::{BehaviorRule, ResponseAction, DetectionLevel, RuleStatus, AttackStage, RuleCondition};
+use crate::behavioral::behavior_engine::{
+    AttackStage, BehaviorRule, DetectionLevel, ResponseAction, RuleCondition, RuleStatus,
+};
 
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::Read;
 use std::path::Path;
-use std::time::{SystemTime, Duration};
+use std::time::{Duration, SystemTime};
 
 // Hashing imports
-use sha2::{Sha256, Digest};
+use sha2::{Digest, Sha256};
 
 #[derive(Debug, Deserialize)]
 pub struct QuarantineEntry {
@@ -126,7 +128,7 @@ impl RealtimeLearningEngine {
         engine.initialize_adaptive_thresholds();
         engine
     }
-    
+
     fn initialize_adaptive_thresholds(&mut self) {
         self.config.min_runtime_for_benign = 60;
         self.config.min_operations_for_benign = 100;
@@ -135,7 +137,11 @@ impl RealtimeLearningEngine {
         self.config.benign_confidence_threshold = 0.85;
     }
 
-    pub fn with_config(config: LearningConfig, output_dir: &str, trusted_signers_path: Option<&str>) -> Self {
+    pub fn with_config(
+        config: LearningConfig,
+        output_dir: &str,
+        trusted_signers_path: Option<&str>,
+    ) -> Self {
         let _ = trusted_signers_path;
         RealtimeLearningEngine {
             collector: MLCollector::with_config(
@@ -175,7 +181,12 @@ impl RealtimeLearningEngine {
         }
     }
 
-    pub fn mark_detected_malicious(&mut self, gid: u64, api_tracker: &ApiTracker, precord: &ProcessRecord) {
+    pub fn mark_detected_malicious(
+        &mut self,
+        gid: u64,
+        api_tracker: &ApiTracker,
+        precord: &ProcessRecord,
+    ) {
         let mut should_collect = false;
         let mut pname = String::new();
 
@@ -195,30 +206,44 @@ impl RealtimeLearningEngine {
             self.stats.malicious_collected += 1;
             self.stats.detections_count += 1;
 
-            println!("[Real-Time Learning] Collected MALICIOUS sample: {} (GID: {})",
-                     pname, gid);
+            println!(
+                "[Real-Time Learning] Collected MALICIOUS sample: {} (GID: {})",
+                pname, gid
+            );
             self.adapt_thresholds_from_detection();
         }
     }
-    
+
     fn adapt_thresholds_from_detection(&mut self) {
         if self.stats.detections_count == 0 {
             return;
         }
 
-        let avg_detection_time: u64 = self.process_states.values()
+        let avg_detection_time: u64 = self
+            .process_states
+            .values()
             .filter(|s| s.detection_count > 0)
-            .map(|s| SystemTime::now().duration_since(s.start_time)
-                .unwrap_or(Duration::from_secs(0)).as_secs())
-            .sum::<u64>() / self.stats.detections_count.max(1) as u64;
-        
+            .map(|s| {
+                SystemTime::now()
+                    .duration_since(s.start_time)
+                    .unwrap_or(Duration::from_secs(0))
+                    .as_secs()
+            })
+            .sum::<u64>()
+            / self.stats.detections_count.max(1) as u64;
+
         if avg_detection_time > 0 && avg_detection_time < self.config.min_runtime_for_benign {
             self.config.min_runtime_for_benign = (avg_detection_time * 2).max(30);
         }
     }
 
-    pub fn check_benign_processes<'a, F>(&mut self, api_trackers: &HashMap<u64, ApiTracker>, get_record: F)
-    where F: Fn(u64) -> Option<&'a ProcessRecord> {
+    pub fn check_benign_processes<'a, F>(
+        &mut self,
+        api_trackers: &HashMap<u64, ApiTracker>,
+        get_record: F,
+    ) where
+        F: Fn(u64) -> Option<&'a ProcessRecord>,
+    {
         if !self.config.auto_label_benign {
             return;
         }
@@ -233,7 +258,8 @@ impl RealtimeLearningEngine {
                 continue;
             }
 
-            let runtime = now.duration_since(state.start_time)
+            let runtime = now
+                .duration_since(state.start_time)
                 .unwrap_or(Duration::from_secs(0))
                 .as_secs();
 
@@ -258,36 +284,48 @@ impl RealtimeLearningEngine {
 
             if success
                 && let Some(api_tracker) = api_trackers.get(&gid)
-                    && let Some(precord) = get_record(gid) {
-                        self.collector.collect_sample(api_tracker, precord, false);
-                        self.stats.benign_collected += 1;
-                        self.stats.auto_labeled_benign += 1;
+                && let Some(precord) = get_record(gid)
+            {
+                self.collector.collect_sample(api_tracker, precord, false);
+                self.stats.benign_collected += 1;
+                self.stats.auto_labeled_benign += 1;
 
-                        println!("[Real-Time Learning] Auto-labeled BENIGN: {} (GID: {})",
-                                 pname, gid);
-                    }
+                println!(
+                    "[Real-Time Learning] Auto-labeled BENIGN: {} (GID: {})",
+                    pname, gid
+                );
+            }
         }
     }
-    
+
     fn adapt_benign_thresholds(&mut self) {
-        let unlabeled_processes: Vec<_> = self.process_states.values()
+        let unlabeled_processes: Vec<_> = self
+            .process_states
+            .values()
             .filter(|s| s.label == LearningLabel::Unlabeled && s.detection_count == 0)
             .collect();
-        
+
         if unlabeled_processes.len() < 10 {
             return;
         }
-        
+
         let now = SystemTime::now();
-        let avg_runtime: u64 = unlabeled_processes.iter()
-            .map(|s| now.duration_since(s.start_time)
-                .unwrap_or(Duration::from_secs(0)).as_secs())
-            .sum::<u64>() / unlabeled_processes.len() as u64;
-        
-        let avg_operations: usize = unlabeled_processes.iter()
+        let avg_runtime: u64 = unlabeled_processes
+            .iter()
+            .map(|s| {
+                now.duration_since(s.start_time)
+                    .unwrap_or(Duration::from_secs(0))
+                    .as_secs()
+            })
+            .sum::<u64>()
+            / unlabeled_processes.len() as u64;
+
+        let avg_operations: usize = unlabeled_processes
+            .iter()
             .map(|s| s.operation_count)
-            .sum::<usize>() / unlabeled_processes.len();
-        
+            .sum::<usize>()
+            / unlabeled_processes.len();
+
         if avg_runtime > 0 {
             self.config.min_runtime_for_benign = (avg_runtime * 3 / 4).max(30);
         }
@@ -296,7 +334,12 @@ impl RealtimeLearningEngine {
         }
     }
 
-    pub fn process_terminated(&mut self, gid: u64, api_tracker: &ApiTracker, precord: &ProcessRecord) {
+    pub fn process_terminated(
+        &mut self,
+        gid: u64,
+        api_tracker: &ApiTracker,
+        precord: &ProcessRecord,
+    ) {
         if let Some(state) = self.process_states.get_mut(&gid) {
             if state.label == LearningLabel::Unlabeled && !state.collected {
                 let runtime = SystemTime::now()
@@ -314,8 +357,10 @@ impl RealtimeLearningEngine {
                     self.stats.benign_collected += 1;
                     self.stats.auto_labeled_benign += 1;
 
-                    println!("[Real-Time Learning] Process terminated, labeled BENIGN: {} (GID: {})",
-                             state.process_name, gid);
+                    println!(
+                        "[Real-Time Learning] Process terminated, labeled BENIGN: {} (GID: {})",
+                        state.process_name, gid
+                    );
                 }
             }
         }
@@ -329,9 +374,15 @@ impl RealtimeLearningEngine {
 
         let json_path = format!("{}/realtime_learning_{}.json", self.output_dir, timestamp);
         let csv_path = format!("{}/realtime_learning_{}.csv", self.output_dir, timestamp);
-        let yaml_full_path = format!("{}/realtime_learning_full_{}.yaml", self.output_dir, timestamp);
+        let yaml_full_path = format!(
+            "{}/realtime_learning_full_{}.yaml",
+            self.output_dir, timestamp
+        );
         #[cfg(feature = "behavior_engine")]
-        let yaml_path = format!("{}/realtime_learning_rules_{}.yaml", self.output_dir, timestamp);
+        let yaml_path = format!(
+            "{}/realtime_learning_rules_{}.yaml",
+            self.output_dir, timestamp
+        );
 
         self.collector.export_to_json(&json_path)?;
         self.collector.export_to_csv(&csv_path)?;
@@ -342,9 +393,13 @@ impl RealtimeLearningEngine {
         let (mal_count, ben_count) = self.collector.get_counts();
         self.stats.samples_exported += mal_count + ben_count;
 
-        println!("[Real-Time Learning] Exported {} samples (Malicious: {}, Benign: {})",
-                 mal_count + ben_count, mal_count, ben_count);
-        
+        println!(
+            "[Real-Time Learning] Exported {} samples (Malicious: {}, Benign: {})",
+            mal_count + ben_count,
+            mal_count,
+            ben_count
+        );
+
         self.collector.clear();
         Ok(())
     }
@@ -361,9 +416,18 @@ impl RealtimeLearningEngine {
         println!("\n+--------------------------------------------------------+");
         println!("|        Real-Time Learning Statistics                  |");
         println!("+--------------------------------------------------------+");
-        println!("|  Total Processes Tracked: {:6}                      |", self.stats.total_processes_tracked);
-        println!("|  Malicious Collected:     {:6}                      |", self.stats.malicious_collected);
-        println!("|  Benign Collected:        {:6}                      |", self.stats.benign_collected);
+        println!(
+            "|  Total Processes Tracked: {:6}                      |",
+            self.stats.total_processes_tracked
+        );
+        println!(
+            "|  Malicious Collected:     {:6}                      |",
+            self.stats.malicious_collected
+        );
+        println!(
+            "|  Benign Collected:        {:6}                      |",
+            self.stats.benign_collected
+        );
         println!("+--------------------------------------------------------+");
     }
 
@@ -392,41 +456,43 @@ impl RealtimeLearningEngine {
         }
 
         if let Ok(content) = fs::read_to_string(log_path)
-            && let Ok(entries) = serde_json::from_str::<Vec<QuarantineEntry>>(&content) {
-                for entry in entries {
-                    let path = Path::new(&entry.filepath);
-                    if let Some(filename) = path.file_name().and_then(|n| n.to_str()) {
-                        let hash_ref = self.calculate_sha256(path).unwrap_or_else(|| "unknown".to_string());
-                        let rule = BehaviorRule {
-                            name: format!("AutoBlock_Quarantined_{}", filename),
-                            description: format!("Auto-generated rule for quarantined file. Reason: {}. HWID/Hash Ref: {}", entry.reason, hash_ref),
-                            severity: 100,
-                            level: DetectionLevel::Critical,
-                            status: RuleStatus::Stable,
-                            record_on_start: vec![filename.to_string()],
-                            response: ResponseAction {
-                                terminate_process: true,
-                                quarantine: true,
-                                auto_revert: true,
-                                ..Default::default()
-                            },
-                             stages: vec![
-                                AttackStage {
-                                    name: "execution".to_string(),
-                                    conditions: vec![
-                                        RuleCondition::Process {
-                                            op: "Name".to_string(),
-                                            pattern: filename.to_string(),
-                                        }
-                                    ]
-                                }
-                             ],
-                             ..Default::default()
-                        };
-                        rules.push(rule);
-                    }
+            && let Ok(entries) = serde_json::from_str::<Vec<QuarantineEntry>>(&content)
+        {
+            for entry in entries {
+                let path = Path::new(&entry.filepath);
+                if let Some(filename) = path.file_name().and_then(|n| n.to_str()) {
+                    let hash_ref = self
+                        .calculate_sha256(path)
+                        .unwrap_or_else(|| "unknown".to_string());
+                    let rule = BehaviorRule {
+                        name: format!("AutoBlock_Quarantined_{}", filename),
+                        description: format!(
+                            "Auto-generated rule for quarantined file. Reason: {}. HWID/Hash Ref: {}",
+                            entry.reason, hash_ref
+                        ),
+                        severity: 100,
+                        level: DetectionLevel::Critical,
+                        status: RuleStatus::Stable,
+                        record_on_start: vec![filename.to_string()],
+                        response: ResponseAction {
+                            terminate_process: true,
+                            quarantine: true,
+                            auto_revert: true,
+                            ..Default::default()
+                        },
+                        stages: vec![AttackStage {
+                            name: "execution".to_string(),
+                            conditions: vec![RuleCondition::Process {
+                                op: "Name".to_string(),
+                                pattern: filename.to_string(),
+                            }],
+                        }],
+                        ..Default::default()
+                    };
+                    rules.push(rule);
                 }
             }
+        }
         rules
     }
 

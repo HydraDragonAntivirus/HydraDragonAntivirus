@@ -120,8 +120,8 @@ pub fn resolve_process_path(pid: u32) -> Option<PathBuf> {
     {
         use ::windows::Win32::Foundation::CloseHandle;
         use ::windows::Win32::System::Threading::{
-            OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32,
-            PROCESS_QUERY_LIMITED_INFORMATION,
+            OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
+            QueryFullProcessImageNameW,
         };
 
         unsafe {
@@ -159,19 +159,18 @@ pub fn resolve_process_path(pid: u32) -> Option<PathBuf> {
 }
 
 pub fn format_process_descriptor_with_fallback(pid: u32, fallback_path: Option<&Path>) -> String {
-    let fallback = fallback_path
-        .and_then(|path| {
-            if path.as_os_str().is_empty() {
+    let fallback = fallback_path.and_then(|path| {
+        if path.as_os_str().is_empty() {
+            None
+        } else {
+            let text = path.display().to_string();
+            if text.trim().is_empty() || text == "UNKNOWN" {
                 None
             } else {
-                let text = path.display().to_string();
-                if text.trim().is_empty() || text == "UNKNOWN" {
-                    None
-                } else {
-                    Some(text)
-                }
+                Some(text)
             }
-        });
+        }
+    });
 
     let path = fallback
         .or_else(|| resolve_process_path(pid).map(|p| p.display().to_string()))
@@ -209,11 +208,17 @@ pub fn is_process_alive(pid: u32) -> bool {
 /// This function is unsafe because it interacts with raw handles and Windows API calls.
 /// The caller must ensure that `pipe_handle` is a valid, open handle to a named pipe.
 #[cfg(target_os = "windows")]
-pub unsafe fn validate_pipe_client(pipe_handle: ::windows::Win32::Foundation::HANDLE, expected_path: Option<&str>, allow_kernel: bool) -> bool {
+pub unsafe fn validate_pipe_client(
+    pipe_handle: ::windows::Win32::Foundation::HANDLE,
+    expected_path: Option<&str>,
+    allow_kernel: bool,
+) -> bool {
     use ::windows::Win32::Foundation::CloseHandle;
     use ::windows::Win32::System::Pipes::GetNamedPipeClientProcessId;
-    use ::windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_INFORMATION, PROCESS_VM_READ};
     use ::windows::Win32::System::ProcessStatus::GetModuleFileNameExA;
+    use ::windows::Win32::System::Threading::{
+        OpenProcess, PROCESS_QUERY_INFORMATION, PROCESS_VM_READ,
+    };
 
     let mut client_pid: u32 = 0;
     if !unsafe { GetNamedPipeClientProcessId(pipe_handle, &mut client_pid) }.as_bool() {
@@ -242,7 +247,13 @@ pub unsafe fn validate_pipe_client(pipe_handle: ::windows::Win32::Foundation::HA
             }
         }
 
-        if let Ok(h_proc) = unsafe { OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, false, client_pid) } {
+        if let Ok(h_proc) = unsafe {
+            OpenProcess(
+                PROCESS_QUERY_INFORMATION | PROCESS_VM_READ,
+                false,
+                client_pid,
+            )
+        } {
             let mut buffer = [0u8; 1024];
             let len = unsafe { GetModuleFileNameExA(h_proc, None, &mut buffer) };
             let _ = unsafe { CloseHandle(h_proc) };

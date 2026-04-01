@@ -2,29 +2,29 @@ use std::path::Path;
 #[cfg(feature = "service")]
 use std::ptr::null_mut;
 
-use crate::config::{Config, Param};
 use crate::Logging;
+use crate::config::{Config, Param};
 
 #[cfg(feature = "service")]
 use widestring::{U16CString, U16String};
 #[cfg(feature = "service")]
-use windows::core::{PCWSTR, PWSTR};
-#[cfg(feature = "service")]
-use windows::Win32::Foundation::{CloseHandle, GetLastError, HANDLE, BOOL};
+use windows::Win32::Foundation::{BOOL, CloseHandle, GetLastError, HANDLE};
 #[cfg(feature = "service")]
 use windows::Win32::Security::{
-    DuplicateTokenEx, SecurityIdentification, TokenPrimary, SECURITY_ATTRIBUTES, TOKEN_ALL_ACCESS,
+    DuplicateTokenEx, SECURITY_ATTRIBUTES, SecurityIdentification, TOKEN_ALL_ACCESS, TokenPrimary,
 };
 #[cfg(feature = "service")]
 use windows::Win32::System::RemoteDesktop::{
-    WTSActive, WTSEnumerateSessionsW, WTSFreeMemory, 
-    WTSGetActiveConsoleSessionId, WTSQueryUserToken
+    WTSActive, WTSEnumerateSessionsW, WTSFreeMemory, WTSGetActiveConsoleSessionId,
+    WTSQueryUserToken,
 };
 #[cfg(feature = "service")]
 use windows::Win32::System::Threading::{
     CREATE_NEW_CONSOLE, CreateProcessAsUserW, PROCESS_CREATION_FLAGS, PROCESS_INFORMATION,
     STARTUPINFOW,
 };
+#[cfg(feature = "service")]
+use windows::core::{PCWSTR, PWSTR};
 
 #[cfg(feature = "service")]
 fn str_to_pcwstr(str: &str) -> U16CString {
@@ -37,41 +37,43 @@ fn str_to_pwstr(str: &str) -> U16String {
 }
 
 #[cfg(feature = "service")]
-unsafe fn get_active_user_token() -> Option<HANDLE> { unsafe {
-    // Try the standard active console session first
-    let session_id = WTSGetActiveConsoleSessionId();
-    if session_id != u32::MAX {
-        let mut token = HANDLE(0);
-        if WTSQueryUserToken(session_id, &mut token).as_bool() {
-            return Some(token);
-        }
-    }
-
-    // Fall back to enumerating all sessions
-    let mut p_sessions = null_mut();
-    let mut count = 0u32;
-    if WTSEnumerateSessionsW(None, 0, 1, &mut p_sessions, &mut count).as_bool() {
-        let sessions = std::slice::from_raw_parts(p_sessions, count as usize);
-        for s in sessions {
-            if s.State == WTSActive {
-                let mut token = HANDLE(0);
-                if WTSQueryUserToken(s.SessionId, &mut token).as_bool() {
-                    WTSFreeMemory(p_sessions as *mut _);
-                    return Some(token);
-                }
+unsafe fn get_active_user_token() -> Option<HANDLE> {
+    unsafe {
+        // Try the standard active console session first
+        let session_id = WTSGetActiveConsoleSessionId();
+        if session_id != u32::MAX {
+            let mut token = HANDLE(0);
+            if WTSQueryUserToken(session_id, &mut token).as_bool() {
+                return Some(token);
             }
         }
-        WTSFreeMemory(p_sessions as *mut _);
-    }
 
-    None
-}}
+        // Fall back to enumerating all sessions
+        let mut p_sessions = null_mut();
+        let mut count = 0u32;
+        if WTSEnumerateSessionsW(None, 0, 1, &mut p_sessions, &mut count).as_bool() {
+            let sessions = std::slice::from_raw_parts(p_sessions, count as usize);
+            for s in sessions {
+                if s.State == WTSActive {
+                    let mut token = HANDLE(0);
+                    if WTSQueryUserToken(s.SessionId, &mut token).as_bool() {
+                        WTSFreeMemory(p_sessions as *mut _);
+                        return Some(token);
+                    }
+                }
+            }
+            WTSFreeMemory(p_sessions as *mut _);
+        }
+
+        None
+    }
+}
 
 #[cfg(feature = "service")]
 pub fn notify(config: &Config, message: &str, report_path: &str) -> Result<(), String> {
     use std::thread;
     use std::time::Duration;
-    
+
     let toastapp_dir = Path::new(&config[Param::UtilsPath]);
     let toastapp_path = toastapp_dir.join("RustWindowsToast.exe");
     let app_id = &config[Param::AppId];
@@ -95,12 +97,12 @@ pub fn notify(config: &Config, message: &str, report_path: &str) -> Result<(), S
     unsafe {
         // Retry logic: wait indefinitely for an active user session
         const RETRY_DELAY_MS: u64 = 3000; // 3 seconds between retries
-        
+
         let mut attempt = 0u32;
-        
+
         let service_token = loop {
             let maybe_token = get_active_user_token();
-            
+
             if let Some(token) = maybe_token {
                 Logging::info(&format!(
                     "Toast(): Active user session found after {} attempts",
@@ -108,9 +110,11 @@ pub fn notify(config: &Config, message: &str, report_path: &str) -> Result<(), S
                 ));
                 break token;
             }
-            
+
             if attempt == 0 {
-                Logging::warning("Toast(): no active user session found, waiting for user login...");
+                Logging::warning(
+                    "Toast(): no active user session found, waiting for user login...",
+                );
             } else if attempt.is_multiple_of(10) {
                 // Log every 10th attempt (every 30 seconds) to avoid log spam
                 Logging::debug(&format!(
@@ -119,7 +123,7 @@ pub fn notify(config: &Config, message: &str, report_path: &str) -> Result<(), S
                     (attempt as u64 * RETRY_DELAY_MS) / 1000
                 ));
             }
-            
+
             attempt += 1;
             thread::sleep(Duration::from_millis(RETRY_DELAY_MS));
         };
@@ -137,10 +141,7 @@ pub fn notify(config: &Config, message: &str, report_path: &str) -> Result<(), S
         .as_bool()
         {
             CloseHandle(service_token);
-            error_msg = format!(
-                "Toast(): cannot duplicate token: {}",
-                GetLastError().0
-            );
+            error_msg = format!("Toast(): cannot duplicate token: {}", GetLastError().0);
             Logging::error(error_msg.as_str());
             return Err(error_msg);
         }
@@ -164,10 +165,7 @@ pub fn notify(config: &Config, message: &str, report_path: &str) -> Result<(), S
         )
         .as_bool()
         {
-            error_msg = format!(
-                "Toast(): failed to create process: {}",
-                GetLastError().0
-            );
+            error_msg = format!("Toast(): failed to create process: {}", GetLastError().0);
             Logging::error(error_msg.as_str());
         } else {
             Logging::info("Toast(): Notification process created successfully");

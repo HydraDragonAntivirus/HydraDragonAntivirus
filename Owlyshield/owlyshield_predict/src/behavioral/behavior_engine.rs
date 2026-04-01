@@ -1,27 +1,27 @@
-use std::collections::{HashMap, HashSet, VecDeque};
-use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
-use serde::{Deserialize, Serialize};
-use serde_yaml;
-use regex::Regex;
-use std::sync::{Arc, OnceLock, RwLock};
-use crate::shared_def::{FileChangeInfo, IOMessage, IrpMajorOp, known_raw_event_name};
-#[cfg(feature = "firewall")]
-use crate::driver_com::with_shared_driver;
-use crate::process::ProcessRecord;
-use crate::logging::Logging;
-use crate::config::Config;
 pub use super::rule_types::*;
 use crate::actions_on_kill::{ActionsOnKill, ThreatInfo};
+use crate::config::Config;
+#[cfg(feature = "firewall")]
+use crate::driver_com::with_shared_driver;
 use crate::extensions::ExtensionList;
+use crate::logging::Logging;
 use crate::predictions::prediction::input_tensors::VecvecCappedF32;
-use crate::threat_handler::ThreatHandler;
+use crate::process::{ProcessRecord, ProcessState};
+use crate::shared_def::{FileChangeInfo, IOMessage, IrpMajorOp, known_raw_event_name};
 use crate::signature_verification::verify_signature;
+use crate::threat_handler::ThreatHandler;
 use crate::utils::{
     format_process_descriptor_with_fallback, resolve_process_path,
     suspicious_critical_process_reason, validate_pipe_client,
 };
+use regex::Regex;
+use serde::{Deserialize, Serialize};
+use serde_yaml;
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, OnceLock, RwLock};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use num::FromPrimitive;
 
@@ -141,7 +141,9 @@ fn shared_firewall_generate_report() -> FirewallGenerateReport {
 
 /// Per-PID stats from Sanctum EDR telemetry (received via HydraSanctumTelemetry pipe).
 #[cfg(feature = "sanctum")]
-type FirewallSanctumStats = Arc<std::sync::RwLock<HashMap<u32, crate::realtime_learning::api_tracker::SanctumOperationStats>>>;
+type FirewallSanctumStats = Arc<
+    std::sync::RwLock<HashMap<u32, crate::realtime_learning::api_tracker::SanctumOperationStats>>,
+>;
 
 #[cfg(feature = "sanctum")]
 fn shared_firewall_sanctum_stats() -> FirewallSanctumStats {
@@ -173,12 +175,19 @@ impl FirewallDetection {
     /// Derive a threat type label from the reason string.
     pub fn threat_type_label(&self) -> &'static str {
         let r = self.reason.to_lowercase();
-        if r.contains("ransomware") { "Ransomware" }
-        else if r.contains("c2") || r.contains("command") || r.contains("botnet") { "C2 Communication" }
-        else if r.contains("exploit") { "Exploit" }
-        else if r.contains("intelligence") || r.contains("malware") { "Malware" }
-        else if r.contains("sdk rule") { "Policy Violation" }
-        else { "Malicious Network Activity" }
+        if r.contains("ransomware") {
+            "Ransomware"
+        } else if r.contains("c2") || r.contains("command") || r.contains("botnet") {
+            "C2 Communication"
+        } else if r.contains("exploit") {
+            "Exploit"
+        } else if r.contains("intelligence") || r.contains("malware") {
+            "Malware"
+        } else if r.contains("sdk rule") {
+            "Policy Violation"
+        } else {
+            "Malicious Network Activity"
+        }
     }
 
     /// Build a human-readable match_details string for reports.
@@ -186,7 +195,10 @@ impl FirewallDetection {
         if self.hostname.is_empty() {
             format!("{}:{} — {}", self.dst_ip, self.dst_port, self.reason)
         } else {
-            format!("{}:{} ({}) — {}", self.dst_ip, self.dst_port, self.hostname, self.reason)
+            format!(
+                "{}:{} ({}) — {}",
+                self.dst_ip, self.dst_port, self.hostname, self.reason
+            )
         }
     }
 }
@@ -247,8 +259,8 @@ pub struct IrpOperationRecord {
     pub extension: String,
     pub entropy: f64,
     pub bytes_transferred: u64,
-    pub target_pid: u32,  // NEW: For operations targeting another process
-    pub function_name: String,  // NEW: For generic API hooks - which function was called
+    pub target_pid: u32,       // NEW: For operations targeting another process
+    pub function_name: String, // NEW: For generic API hooks - which function was called
 }
 
 /// Hypervisor event operation details for detailed tracking and forensics
@@ -274,47 +286,62 @@ pub struct IrpStatistics {
     pub delete_count: u64,
     pub rename_count: u64,
     pub setinfo_count: u64,
-    
+
     // Registry operations
     pub registry_read_count: u64,
     pub registry_write_count: u64,
     pub registry_delete_count: u64,
     pub registry_create_count: u64,
-    
+
     // Process operations
     pub process_create_count: u64,
     pub process_terminate_count: u64,
     pub process_exit_count: u64,
     pub process_handle_open_count: u64,
     pub process_terminate_attempt_count: u64,
-    
-    pub hypervisor_event_count: u64,  // Normalized hypervisor event count
-    
+
+    pub hypervisor_event_count: u64, // Normalized hypervisor event count
+
     // Bytes transferred
     pub total_bytes_read: u64,
     pub total_bytes_written: u64,
-    
+
     // File type statistics
     pub files_by_extension: HashMap<String, u64>,
     #[allow(dead_code)]
     pub directories_accessed: HashSet<String>,
     pub unique_paths_accessed: HashSet<String>,
-    
+
     // High-entropy file tracking
     pub high_entropy_files: HashSet<String>,
     pub average_entropy: f64,
     pub entropy_samples: Vec<f64>,
-    
+
     // Hypervisor event operation history (limited to last 100 for memory efficiency)
     pub hypervisor_event_operations: Vec<HypervisorEventOperation>,
-    
+
     // All APIs called (for comprehensive tracking)
     pub all_apis_called: HashSet<String>,
 }
 
 impl IrpStatistics {
     pub fn get_total_operations(&self) -> u64 {
-        self.read_count + self.write_count + self.create_count + self.delete_count + self.rename_count + self.setinfo_count + self.registry_read_count + self.registry_write_count + self.registry_delete_count + self.registry_create_count + self.process_create_count + self.process_terminate_count + self.process_exit_count + self.process_handle_open_count + self.process_terminate_attempt_count + self.hypervisor_event_count
+        self.read_count
+            + self.write_count
+            + self.create_count
+            + self.delete_count
+            + self.rename_count
+            + self.setinfo_count
+            + self.registry_read_count
+            + self.registry_write_count
+            + self.registry_delete_count
+            + self.registry_create_count
+            + self.process_create_count
+            + self.process_terminate_count
+            + self.process_exit_count
+            + self.process_handle_open_count
+            + self.process_terminate_attempt_count
+            + self.hypervisor_event_count
     }
 
     pub fn get_high_entropy_count(&self) -> usize {
@@ -324,58 +351,71 @@ impl IrpStatistics {
     pub fn get_injection_api_count(&self) -> u64 {
         self.hypervisor_event_count
     }
-    
+
     pub fn has_injection_indicators(&self) -> bool {
         self.hypervisor_event_count > 0
     }
 
     pub fn record_operation(&mut self, rec: &IrpOperationRecord) {
         let irp_op = IrpMajorOp::from_byte(rec.irp_type);
-        
+
         match irp_op {
             // File operations
             IrpMajorOp::IrpRead => {
                 self.read_count += 1;
                 self.total_bytes_read += rec.bytes_transferred;
-            },
+            }
             IrpMajorOp::IrpWrite => {
                 self.write_count += 1;
                 self.total_bytes_written += rec.bytes_transferred;
-            },
+            }
             IrpMajorOp::IrpCreate => self.create_count += 1,
             IrpMajorOp::IrpSetInfo => {
                 self.setinfo_count += 1;
                 // Track specific file changes
                 match rec.file_change {
-                    _ if rec.file_change == FileChangeInfo::ChangeDeleteFile as u8 => self.delete_count += 1,
-                    _ if rec.file_change == FileChangeInfo::ChangeRenameFile as u8 => self.rename_count += 1,
-                    _ if rec.file_change == FileChangeInfo::ChangeExtensionChanged as u8 => self.rename_count += 1,
-                    _ => {},
+                    _ if rec.file_change == FileChangeInfo::ChangeDeleteFile as u8 => {
+                        self.delete_count += 1
+                    }
+                    _ if rec.file_change == FileChangeInfo::ChangeRenameFile as u8 => {
+                        self.rename_count += 1
+                    }
+                    _ if rec.file_change == FileChangeInfo::ChangeExtensionChanged as u8 => {
+                        self.rename_count += 1
+                    }
+                    _ => {}
                 }
-            },
-            
+            }
+
             // Registry operations
             IrpMajorOp::IrpRegistry => {
                 match rec.file_change {
-                    _ if rec.file_change == FileChangeInfo::RegCreateKey as u8 => self.registry_create_count += 1,
-                    _ if rec.file_change == FileChangeInfo::RegSetValue as u8 => self.registry_write_count += 1,
+                    _ if rec.file_change == FileChangeInfo::RegCreateKey as u8 => {
+                        self.registry_create_count += 1
+                    }
+                    _ if rec.file_change == FileChangeInfo::RegSetValue as u8 => {
+                        self.registry_write_count += 1
+                    }
                     // FIX (Bug #2): RegDeleteKey (14) was missing and fell through to
                     // registry_read_count. Both value-delete and key-delete are deletions.
                     _ if rec.file_change == FileChangeInfo::RegDeleteValue as u8
-                        || rec.file_change == FileChangeInfo::RegDeleteKey as u8 => self.registry_delete_count += 1,
+                        || rec.file_change == FileChangeInfo::RegDeleteKey as u8 =>
+                    {
+                        self.registry_delete_count += 1
+                    }
                     // RegQueryValue / RegQueryKey / RegOpenKey / RegEnumKey / RegEnumValue
                     // are all read-class operations — the catch-all is correct for them.
                     _ => self.registry_read_count += 1,
                 }
-            },
-            
+            }
+
             // Process operations
             IrpMajorOp::IrpProcessCreate => self.process_create_count += 1,
             IrpMajorOp::IrpProcessTerminate => self.process_terminate_count += 1,
             IrpMajorOp::IrpProcessTerminateAttempt => self.process_terminate_attempt_count += 1,
             IrpMajorOp::IrpProcessExit => self.process_exit_count += 1,
             IrpMajorOp::IrpProcessHandleOpen => self.process_handle_open_count += 1,
-            
+
             // Hypervisor/VMM and user-mode hook events are tracked together.
             IrpMajorOp::IrpUserModeHookEvent
             | IrpMajorOp::IrpHypervisorEvent
@@ -400,30 +440,39 @@ impl IrpStatistics {
                 if is_real_api_observation(&rec.function_name) {
                     self.all_apis_called.insert(rec.function_name.clone());
                 }
-            },
-            
-            _ => {},
+            }
+
+            _ => {}
         }
-        
+
         // Track file statistics
         if !rec.extension.is_empty() {
-            *self.files_by_extension.entry(rec.extension.clone()).or_insert(0) += 1;
+            *self
+                .files_by_extension
+                .entry(rec.extension.clone())
+                .or_insert(0) += 1;
         }
-        
+
         self.unique_paths_accessed.insert(rec.file_path.clone());
-        
+
         if rec.entropy > 0.7 {
             self.high_entropy_files.insert(rec.file_path.clone());
         }
-        
+
         if self.entropy_samples.len() < 1000 {
             self.entropy_samples.push(rec.entropy);
-            self.average_entropy = self.entropy_samples.iter().sum::<f64>() / self.entropy_samples.len() as f64;
+            self.average_entropy =
+                self.entropy_samples.iter().sum::<f64>() / self.entropy_samples.len() as f64;
         }
     }
-    
+
     /// Record detailed hypervisor event operation for forensics and analysis
-    fn record_hypervisor_event_operation(&mut self, rec: &IrpOperationRecord, api_type: IrpMajorOp, details: &str) {
+    fn record_hypervisor_event_operation(
+        &mut self,
+        rec: &IrpOperationRecord,
+        api_type: IrpMajorOp,
+        details: &str,
+    ) {
         let operation = HypervisorEventOperation {
             timestamp: rec.timestamp,
             api_type,
@@ -433,15 +482,15 @@ impl IrpStatistics {
             memory_size: rec.bytes_transferred,
             operation_details: details.to_string(),
         };
-        
+
         self.hypervisor_event_operations.push(operation);
-        
+
         // Keep only last 100 operations to prevent memory bloat
         if self.hypervisor_event_operations.len() > 100 {
             self.hypervisor_event_operations.remove(0);
         }
     }
-    
+
     pub fn get_operation_count(&self, op_type: &str) -> u64 {
         match op_type {
             "read" => self.read_count,
@@ -477,7 +526,7 @@ impl HypervisorStats {
     pub fn get_injection_api_count(&self) -> u64 {
         self.hypervisor_event_count
     }
-    
+
     /// Check if process has any hypervisor event activity.
     pub fn has_injection_indicators(&self) -> bool {
         self.hypervisor_event_count > 0
@@ -531,36 +580,34 @@ impl RootkitFindingKind {
 
     pub fn threat_label(&self) -> &'static str {
         match self {
-            RootkitFindingKind::SsdtHook        => "SSDT Hook",
-            RootkitFindingKind::HiddenProcess   => "Hidden Process (DKOM)",
-            RootkitFindingKind::HiddenDriver    => "Hidden Driver",
+            RootkitFindingKind::SsdtHook => "SSDT Hook",
+            RootkitFindingKind::HiddenProcess => "Hidden Process (DKOM)",
+            RootkitFindingKind::HiddenDriver => "Hidden Driver",
             RootkitFindingKind::KernelInlineHook => "Kernel Inline Hook",
             RootkitFindingKind::TerminateProcess => "Rootkit Terminate Process",
-            RootkitFindingKind::FileMove         => "Rootkit File Move",
-            RootkitFindingKind::Generic          => "Generic Rootkit Event",
-            RootkitFindingKind::Unknown(_)      => "Unknown Rootkit Event",
+            RootkitFindingKind::FileMove => "Rootkit File Move",
+            RootkitFindingKind::Generic => "Generic Rootkit Event",
+            RootkitFindingKind::Unknown(_) => "Unknown Rootkit Event",
         }
     }
 
     pub fn severity(&self) -> u8 {
         // 0 = low, 1 = medium, 2 = high, 3 = critical
         match self {
-            RootkitFindingKind::SsdtHook        => 3,
-            RootkitFindingKind::HiddenProcess   => 3,
-            RootkitFindingKind::HiddenDriver    => 3,
+            RootkitFindingKind::SsdtHook => 3,
+            RootkitFindingKind::HiddenProcess => 3,
+            RootkitFindingKind::HiddenDriver => 3,
             RootkitFindingKind::KernelInlineHook => 2,
             RootkitFindingKind::TerminateProcess => 3,
-            RootkitFindingKind::FileMove         => 2,
-            RootkitFindingKind::Generic          => 2,
-            RootkitFindingKind::Unknown(_)      => 1,
+            RootkitFindingKind::FileMove => 2,
+            RootkitFindingKind::Generic => 2,
+            RootkitFindingKind::Unknown(_) => 1,
         }
     }
 }
 
 // GLOBAL PROTECTED/EXCLUDED PATHS
 // =============================================================================
-
-
 
 fn normalize_path_separators(path: &str) -> String {
     path.replace("\\", "/").trim_end_matches('/').to_string()
@@ -592,18 +639,22 @@ fn normalize_device_prefix(path: &str) -> String {
 
     // Defensive: HarddiskVolumeX\Users\... -> Users\...
     if p_trim_lc.starts_with("harddiskvolume")
-        && let Some(idx) = p_trim.find('/') {
-            let remainder = &p_trim[idx + 1..];
-            if !remainder.is_empty() {
-                return remainder.to_string();
-            }
+        && let Some(idx) = p_trim.find('/')
+    {
+        let remainder = &p_trim[idx + 1..];
+        if !remainder.is_empty() {
+            return remainder.to_string();
         }
+    }
 
     p
 }
 
 fn strip_drive_prefix(path: &str) -> String {
-    if path.len() >= 3 && path.as_bytes()[1] == b':' && (path.as_bytes()[2] == b'\\' || path.as_bytes()[2] == b'/') {
+    if path.len() >= 3
+        && path.as_bytes()[1] == b':'
+        && (path.as_bytes()[2] == b'\\' || path.as_bytes()[2] == b'/')
+    {
         return path[2..].trim_start_matches(['\\', '/']).to_string();
     }
     path.to_string()
@@ -639,7 +690,11 @@ fn canonical_behavior_path(path: &str) -> String {
     strip_drive_prefix(&normalized)
 }
 
-fn target_matches_process_image(process_path: &Path, observed_norm: &str, observed_raw: &str) -> bool {
+fn target_matches_process_image(
+    process_path: &Path,
+    observed_norm: &str,
+    observed_raw: &str,
+) -> bool {
     if process_path.as_os_str().is_empty() {
         return false;
     }
@@ -659,16 +714,26 @@ fn target_matches_process_image(process_path: &Path, observed_norm: &str, observ
 fn is_delete_like_file_operation(irp_op: &IrpMajorOp, file_change: Option<FileChangeInfo>) -> bool {
     matches!(
         (irp_op, file_change),
-        (IrpMajorOp::IrpSetInfo, Some(FileChangeInfo::ChangeDeleteFile))
-            | (IrpMajorOp::IrpSetInfo, Some(FileChangeInfo::ChangeDeleteNewFile))
+        (
+            IrpMajorOp::IrpSetInfo,
+            Some(FileChangeInfo::ChangeDeleteFile)
+        ) | (
+            IrpMajorOp::IrpSetInfo,
+            Some(FileChangeInfo::ChangeDeleteNewFile)
+        )
     )
 }
 
 fn is_rename_like_file_operation(irp_op: &IrpMajorOp, file_change: Option<FileChangeInfo>) -> bool {
     matches!(
         (irp_op, file_change),
-        (IrpMajorOp::IrpSetInfo, Some(FileChangeInfo::ChangeRenameFile))
-            | (IrpMajorOp::IrpSetInfo, Some(FileChangeInfo::ChangeExtensionChanged))
+        (
+            IrpMajorOp::IrpSetInfo,
+            Some(FileChangeInfo::ChangeRenameFile)
+        ) | (
+            IrpMajorOp::IrpSetInfo,
+            Some(FileChangeInfo::ChangeExtensionChanged)
+        )
     )
 }
 
@@ -786,9 +851,7 @@ fn is_actionable_hypervisor_event(irp_op: &IrpMajorOp, raw: &str) -> bool {
 }
 
 fn effective_hypervisor_irp_byte(msg: &IOMessage) -> u8 {
-    if msg.irp_op == 12
-        && (12..=20).contains(&msg.kernel_event_info.event_type)
-    {
+    if msg.irp_op == 12 && (12..=20).contains(&msg.kernel_event_info.event_type) {
         msg.kernel_event_info.event_type as u8
     } else {
         msg.irp_op
@@ -845,10 +908,6 @@ fn build_default_extension_whitelist() -> HashSet<String> {
     whitelist
 }
 
-
-
-
-
 const ROOTKIT_GLOBAL_GID: u64 = 0xFFFF_FFFF_FFFF_FFFEu64;
 const ROOTKIT_PSEUDO_GID_MASK: u64 = 0x8000_0000_0000_0000u64;
 
@@ -890,27 +949,27 @@ pub struct ProcessBehaviorState {
     pub parent_name: String,
     pub parent_path: PathBuf,
     pub command_line: String,
-    
+
     pub pid: u32,
     pub exe_path: PathBuf,
     pub app_name: String,
     pub signature_checked: bool,
     pub signature_checked_path: PathBuf,
     pub has_valid_signature: bool,
-    pub is_signed: bool, 
-    
+    pub is_signed: bool,
+
     pub satisfied_named_conditions: HashSet<String>,
     pub condition_match_counts: HashMap<String, usize>,
     pub condition_match_values: HashMap<String, HashSet<String>>,
     pub condition_first_seen: HashMap<String, SystemTime>,
     pub condition_last_seen: HashMap<String, SystemTime>,
-    
+
     // Comprehensive IRP tracking
     pub irp_operations: Vec<IrpOperationRecord>,
     pub irp_stats: IrpStatistics,
     pub all_apis_called: HashSet<String>,
     pub observed_hypervisor_event_labels: HashSet<String>,
-    
+
     // Normalized hypervisor event tracking
     pub hypervisor_event_count: u32,
     pub hypervisor_events_total: u32,
@@ -937,7 +996,7 @@ pub struct ProcessBehaviorState {
     /// HTTP body pairs (request_body, response_body) received via the HTTP_BODY pipe message.
     #[cfg(feature = "firewall")]
     pub http_body_entries: Vec<(String, String)>,
-    
+
     /// Rolling history of network packets captured for this process (FULL_PACKET).
     #[cfg(feature = "firewall")]
     pub net_packets: VecDeque<PacketInfo>,
@@ -977,7 +1036,7 @@ impl ProcessBehaviorState {
         state.irp_stats = IrpStatistics::default();
         state.all_apis_called = HashSet::new();
         state.observed_hypervisor_event_labels = HashSet::new();
-        
+
         // Initialize normalized hypervisor event counters
         state.hypervisor_event_count = 0;
         state.hypervisor_events_total = 0;
@@ -992,17 +1051,19 @@ impl ProcessBehaviorState {
         }
         #[cfg(feature = "sanctum")]
         {
-            state.sanctum_stats = crate::realtime_learning::api_tracker::SanctumOperationStats::default();
+            state.sanctum_stats =
+                crate::realtime_learning::api_tracker::SanctumOperationStats::default();
         }
         state.rootkit_implicated = false;
         state.rootkit_findings = Vec::new();
 
         state
     }
-    
+
     /// Record IRP operation with full context and track normalized hypervisor events
     pub fn record_irp_operation(&mut self, msg: &IOMessage, irp_op: u8) {
-        let normalized_kernel_api = normalize_hypervisor_api_label(&msg.kernel_event_info.object_name);
+        let normalized_kernel_api =
+            normalize_hypervisor_api_label(&msg.kernel_event_info.object_name);
         let rec = IrpOperationRecord {
             timestamp: SystemTime::now(),
             irp_type: irp_op,
@@ -1049,7 +1110,9 @@ impl ProcessBehaviorState {
             if actionable_hypervisor_event {
                 self.hypervisor_event_count += 1;
                 if !matches!(irp_kind, IrpMajorOp::IrpHypervisorEvent) {
-                    if let Some(event_label) = canonical_hypervisor_event_label(&irp_kind, raw_event_type) {
+                    if let Some(event_label) =
+                        canonical_hypervisor_event_label(&irp_kind, raw_event_type)
+                    {
                         self.observed_hypervisor_event_labels.insert(event_label);
                     }
                 }
@@ -1083,7 +1146,11 @@ impl ProcessBehaviorState {
                     .unwrap_or_else(|| event_name.clone());
                 Logging::info(&format!(
                     "[HYPERVISOR EVENT{}] opcode={} raw_event_type={} src_pid_path={} target_pid_path={} arg1=0x{:X} arg2=0x{:X} arg3=0x{:X} arg4=0x{:X} event=\"{}\" count={}",
-                    if actionable_hypervisor_event { "" } else { " IGNORED" },
+                    if actionable_hypervisor_event {
+                        ""
+                    } else {
+                        " IGNORED"
+                    },
                     irp_op,
                     raw_event_type,
                     source_process,
@@ -1123,7 +1190,12 @@ impl ProcessBehaviorState {
             | IrpMajorOp::IrpRootkitGeneric => {
                 let kind = RootkitFindingKind::from_irp_op(irp_kind);
                 let owner_pid = msg.kernel_event_info.source_process_id;
-                let description = msg.kernel_event_info.object_name.trim_matches('\0').trim().to_string();
+                let description = msg
+                    .kernel_event_info
+                    .object_name
+                    .trim_matches('\0')
+                    .trim()
+                    .to_string();
                 let attaches_to_state = (owner_pid != 0
                     && self.pid != 0
                     && (self.pid == owner_pid || self.pid == msg.pid))
@@ -1136,7 +1208,10 @@ impl ProcessBehaviorState {
                         address: msg.kernel_event_info.memory_address,
                         pid: owner_pid,
                         extra: msg.kernel_event_info.raw_argument1,
-                        timestamp_ms: SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64,
+                        timestamp_ms: SystemTime::now()
+                            .duration_since(UNIX_EPOCH)
+                            .unwrap()
+                            .as_millis() as u64,
                     };
                     self.rootkit_findings.push(finding);
                     if matches!(kind, RootkitFindingKind::HiddenProcess) {
@@ -1151,21 +1226,16 @@ impl ProcessBehaviorState {
                 } else {
                     Logging::warning(&format!(
                         "[ROOTKIT DETECTED] Unattributed {:?} finding not attached to process state pid={} src_pid={} msg_pid={}",
-                        kind,
-                        self.pid,
-                        owner_pid,
-                        msg.pid
+                        kind, self.pid, owner_pid, msg.pid
                     ));
                 }
 
                 Logging::warning(&format!(
                     "[ROOTKIT DETECTED] PID {} - Type: {:?} - {}",
-                    msg.pid,
-                    kind,
-                    description
+                    msg.pid, kind, description
                 ));
-            },
-            _ => {},
+            }
+            _ => {}
         }
 
         // Use incremental drain to prevent blocking: remove 10% when hitting 10k
@@ -1275,12 +1345,12 @@ impl BehaviorEngine {
         use std::ffi::OsStr;
         use std::os::windows::ffi::OsStrExt;
         use windows::Win32::Foundation::{
-            CloseHandle, GetLastError, HANDLE, INVALID_HANDLE_VALUE, ERROR_PIPE_CONNECTED,
+            CloseHandle, ERROR_PIPE_CONNECTED, GetLastError, HANDLE, INVALID_HANDLE_VALUE,
         };
-        use windows::Win32::Storage::FileSystem::{ReadFile, PIPE_ACCESS_INBOUND};
+        use windows::Win32::Storage::FileSystem::{PIPE_ACCESS_INBOUND, ReadFile};
         use windows::Win32::System::Pipes::{
-            ConnectNamedPipe, CreateNamedPipeW, DisconnectNamedPipe,
-            NAMED_PIPE_MODE, PIPE_UNLIMITED_INSTANCES,
+            ConnectNamedPipe, CreateNamedPipeW, DisconnectNamedPipe, NAMED_PIPE_MODE,
+            PIPE_UNLIMITED_INSTANCES,
         };
         use windows::core::PCWSTR;
 
@@ -1289,12 +1359,13 @@ impl BehaviorEngine {
             return;
         }
 
-        let net_pids      = Arc::clone(&self.firewall_net_pids);
-        let net_details   = Arc::clone(&self.firewall_net_details);
-        let blocked_exes  = Arc::clone(&self.firewall_blocked_exes);
+        let net_pids = Arc::clone(&self.firewall_net_pids);
+        let net_details = Arc::clone(&self.firewall_net_details);
+        let blocked_exes = Arc::clone(&self.firewall_blocked_exes);
         let hips_decisions = Arc::clone(&self.firewall_hips_decisions);
         let http_body_map = Arc::clone(&self.firewall_http_body_map);
-        let full_packets: Arc<RwLock<HashMap<u32, VecDeque<PacketInfo>>>> = Arc::clone(&self.firewall_full_packets);
+        let full_packets: Arc<RwLock<HashMap<u32, VecDeque<PacketInfo>>>> =
+            Arc::clone(&self.firewall_full_packets);
         let generate_report_flag = Arc::clone(&self.generate_report_flag);
         let regex_cache = Arc::clone(&self.regex_cache);
         let rules_clone = self.rules.clone();
@@ -1572,10 +1643,15 @@ impl BehaviorEngine {
         // suspicious cross-process operations (NtOpenProcess etc.)
         // so firewall and behavior rules can correlate.
         #[cfg(feature = "firewall")]
-        if pid != 0 && matches!(function,
-            "NtOpenProcess" | "NtWriteVirtualMemory" |
-            "NtAllocateVirtualMemory" | "NtCreateThreadEx"
-        ) {
+        if pid != 0
+            && matches!(
+                function,
+                "NtOpenProcess"
+                    | "NtWriteVirtualMemory"
+                    | "NtAllocateVirtualMemory"
+                    | "NtCreateThreadEx"
+            )
+        {
             self.firewall_net_pids.write().unwrap().insert(pid);
             Logging::warning(&format!(
                 "[SanctumTelemetry] Suspicious syscall from PID {}: {}",
@@ -1586,26 +1662,37 @@ impl BehaviorEngine {
         // Update shared Sanctum stats for real-time learning.
         if pid != 0 {
             let mut sanctum_lock = self.firewall_sanctum_stats.write().unwrap();
-            let stats = sanctum_lock.entry(pid).or_insert_with(crate::realtime_learning::api_tracker::SanctumOperationStats::default);
+            let stats = sanctum_lock.entry(pid).or_insert_with(
+                crate::realtime_learning::api_tracker::SanctumOperationStats::default,
+            );
             stats.syscall_count += 1;
             stats.is_detection |= is_detection;
-            stats.last_event = Some(format!("{} - {}", function, serde_json::to_string(args).unwrap_or_default()));
-            
+            stats.last_event = Some(format!(
+                "{} - {}",
+                function,
+                serde_json::to_string(args).unwrap_or_default()
+            ));
+
             if let Some(target_pid) = args["target_pid"].as_u64() {
                 if target_pid as u32 != pid {
                     stats.cross_process_handle_count += 1;
                 }
             }
 
-            if matches!(function, "NtWriteVirtualMemory" | "NtAllocateVirtualMemory" | "NtCreateThreadEx") {
+            if matches!(
+                function,
+                "NtWriteVirtualMemory" | "NtAllocateVirtualMemory" | "NtCreateThreadEx"
+            ) {
                 stats.injection_score += 0.1;
                 stats.suspicious_syscall_hits.push(function.to_string());
                 if stats.suspicious_syscall_hits.len() > 20 {
                     stats.suspicious_syscall_hits.remove(0);
                 }
             }
-            
-            if stats.injection_score > 1.0 { stats.injection_score = 1.0; }
+
+            if stats.injection_score > 1.0 {
+                stats.injection_score = 1.0;
+            }
         }
     }
 
@@ -1628,7 +1715,10 @@ impl BehaviorEngine {
     }
 
     #[cfg(feature = "firewall")]
-    fn detect_firewall_hips_alert_kind(rule: &BehaviorRule, state: &ProcessBehaviorState) -> &'static str {
+    fn detect_firewall_hips_alert_kind(
+        rule: &BehaviorRule,
+        state: &ProcessBehaviorState,
+    ) -> &'static str {
         if rule.named_conditions.iter().any(|(cond_name, cond_group)| {
             Self::rule_condition_satisfied(state, rule, cond_name)
                 && Self::is_registry_condition_group(cond_group)
@@ -1781,9 +1871,10 @@ impl BehaviorEngine {
             _ => {
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
                 if msg.kernel_event_info.event_type != 0
-                    && let Some(name) = known_raw_event_name(msg.kernel_event_info.event_type) {
-                        return name.to_string();
-                    }
+                    && let Some(name) = known_raw_event_name(msg.kernel_event_info.event_type)
+                {
+                    return name.to_string();
+                }
 
                 format!("op{}", msg.irp_op)
             }
@@ -1897,7 +1988,10 @@ impl BehaviorEngine {
         }
 
         if !condition_summaries.is_empty() {
-            parts.push(format!("MatchedConditions={}", condition_summaries.join(" | ")));
+            parts.push(format!(
+                "MatchedConditions={}",
+                condition_summaries.join(" | ")
+            ));
         }
 
         if let Some(target) = Self::build_rule_remediation_target_path(rule, state) {
@@ -2041,7 +2135,8 @@ impl BehaviorEngine {
 
         if best_match.is_none() {
             for finding in &state.rootkit_findings {
-                let Some(extracted) = Self::extract_probable_artifact_path(&finding.description) else {
+                let Some(extracted) = Self::extract_probable_artifact_path(&finding.description)
+                else {
                     continue;
                 };
 
@@ -2078,7 +2173,11 @@ impl BehaviorEngine {
     }
 
     #[cfg(feature = "firewall")]
-    fn build_firewall_hips_target(&self, rule: &BehaviorRule, state: &ProcessBehaviorState) -> String {
+    fn build_firewall_hips_target(
+        &self,
+        rule: &BehaviorRule,
+        state: &ProcessBehaviorState,
+    ) -> String {
         let alert_kind = Self::detect_firewall_hips_alert_kind(rule, state);
 
         if alert_kind == "registry" {
@@ -2108,7 +2207,8 @@ impl BehaviorEngine {
 
         for cond_name in rule.named_conditions.keys() {
             if let Some(values) = Self::rule_condition_values(state, rule, cond_name)
-                && let Some(value) = Self::first_real_match_value(values) {
+                && let Some(value) = Self::first_real_match_value(values)
+            {
                 return value;
             }
         }
@@ -2202,13 +2302,13 @@ impl BehaviorEngine {
         reason: &str,
     ) -> bool {
         use std::ffi::CString;
-        use windows::core::PCSTR;
         use windows::Win32::Foundation::{BOOL, CloseHandle, GetLastError, HANDLE};
         use windows::Win32::Storage::FileSystem::{
-            CreateFileA, FlushFileBuffers, WriteFile, FILE_ATTRIBUTE_NORMAL, FILE_GENERIC_WRITE,
-            FILE_SHARE_NONE, OPEN_EXISTING,
+            CreateFileA, FILE_ATTRIBUTE_NORMAL, FILE_GENERIC_WRITE, FILE_SHARE_NONE,
+            FlushFileBuffers, OPEN_EXISTING, WriteFile,
         };
         use windows::Win32::System::Pipes::WaitNamedPipeA;
+        use windows::core::PCSTR;
 
         const PIPE: &str = r"\\.\pipe\HydraHipEvent";
         const CONNECT_TIMEOUT_MS: u32 = 750;
@@ -2228,7 +2328,9 @@ impl BehaviorEngine {
         for _ in 0..CONNECT_ATTEMPTS {
             let wait_ok: BOOL = unsafe { WaitNamedPipeA(pcstr, CONNECT_TIMEOUT_MS) };
             if !wait_ok.as_bool() {
-                last_error = format!("WaitNamedPipeA(GetLastError={:?})", unsafe { GetLastError() });
+                last_error = format!("WaitNamedPipeA(GetLastError={:?})", unsafe {
+                    GetLastError()
+                });
             } else {
                 match unsafe {
                     CreateFileA(
@@ -2246,22 +2348,20 @@ impl BehaviorEngine {
                         break;
                     }
                     Ok(_) => {
-                        last_error = "CreateFileA returned an invalid HydraHipEvent handle".to_string();
+                        last_error =
+                            "CreateFileA returned an invalid HydraHipEvent handle".to_string();
                     }
                     Err(err) => {
                         last_error = format!("CreateFileA failed: {:?}", err);
                     }
                 }
             }
-
         }
 
         let Some(pipe_handle) = pipe_handle else {
             Logging::warning(&format!(
                 "[Owlyshield HIPS] Failed to connect to HydraHipEvent pipe for request {} after {} attempts: {}",
-                request_id,
-                CONNECT_ATTEMPTS,
-                last_error
+                request_id, CONNECT_ATTEMPTS, last_error
             ));
             return false;
         };
@@ -2319,19 +2419,10 @@ impl BehaviorEngine {
         let alert_kind = Self::detect_firewall_hips_alert_kind(rule, state);
         let target = self.build_firewall_hips_target(rule, state);
         let request_signature = Self::build_firewall_hips_request_signature(
-            gid,
-            state.pid,
-            &rule.name,
-            alert_kind,
-            &exe_path,
-            &target,
+            gid, state.pid, &rule.name, alert_kind, &exe_path, &target,
         );
-        let allow_signature = Self::build_firewall_hips_allow_signature(
-            &rule.name,
-            alert_kind,
-            &exe_path,
-            &target,
-        );
+        let allow_signature =
+            Self::build_firewall_hips_allow_signature(&rule.name, alert_kind, &exe_path, &target);
 
         if self
             .firewall_hips_allow_always
@@ -2411,17 +2502,14 @@ impl BehaviorEngine {
                 &target,
                 &reason,
             ) {
-                self.firewall_hips_pending_prompts
-                    .write()
-                    .unwrap()
-                    .insert(
-                        request_signature.clone(),
-                        FirewallHipsPromptState {
-                            request_id,
-                            request_signature,
-                            allow_signature,
-                        },
-                    );
+                self.firewall_hips_pending_prompts.write().unwrap().insert(
+                    request_signature.clone(),
+                    FirewallHipsPromptState {
+                        request_id,
+                        request_signature,
+                        allow_signature,
+                    },
+                );
                 FirewallHipsPromptOutcome::Pending
             } else {
                 Logging::warning(&format!(
@@ -2437,20 +2525,17 @@ impl BehaviorEngine {
     fn safe_pattern_match(text: &str, pattern: &str) -> bool {
         let text_lc = text.to_lowercase();
         let pattern_lc = pattern.to_lowercase();
-        
+
         if text_lc.is_empty() || pattern_lc.is_empty() || text_lc == "unknown" {
             return false;
         }
-        
+
         text_lc.contains(&pattern_lc) || pattern_lc.contains(&text_lc)
     }
 
     fn normalize_registry_text(text: &str) -> String {
         let normalized = normalize_path_separators(
-            &text
-                .trim()
-                .trim_matches(char::from(0))
-                .to_ascii_lowercase(),
+            &text.trim().trim_matches(char::from(0)).to_ascii_lowercase(),
         );
 
         normalized
@@ -2574,7 +2659,11 @@ impl BehaviorEngine {
         sorted_aliases
     }
 
-    fn registry_pattern_matches(cache: &Arc<RwLock<HashMap<String, Regex>>>, pattern: &str, filepath: &str) -> bool {
+    fn registry_pattern_matches(
+        cache: &Arc<RwLock<HashMap<String, Regex>>>,
+        pattern: &str,
+        filepath: &str,
+    ) -> bool {
         let pattern_aliases = Self::registry_match_aliases(pattern);
         let filepath_aliases = Self::registry_match_aliases(filepath);
 
@@ -2589,7 +2678,11 @@ impl BehaviorEngine {
         false
     }
 
-    fn registry_op_matches(cond_group: &NamedConditionGroup, msg: &IOMessage, irp_op: &IrpMajorOp) -> bool {
+    fn registry_op_matches(
+        cond_group: &NamedConditionGroup,
+        msg: &IOMessage,
+        irp_op: &IrpMajorOp,
+    ) -> bool {
         if cond_group.registry_operations.is_empty() {
             return true;
         }
@@ -2652,13 +2745,17 @@ impl BehaviorEngine {
             return default_whitelist.contains(ext_without_dot);
         }
 
-        cond_group.extension_whitelist.iter().any(|p| {
-            Self::extension_pattern_matches(cache, p, ext_without_dot, ext_with_dot)
-        })
+        cond_group
+            .extension_whitelist
+            .iter()
+            .any(|p| Self::extension_pattern_matches(cache, p, ext_without_dot, ext_with_dot))
     }
 
     pub fn load_rules(&mut self, path: &Path) -> Result<(), Box<dyn std::error::Error>> {
-        Logging::info(&format!("[Owlyshield] Starting behavior rule load from {:?}", path));
+        Logging::info(&format!(
+            "[Owlyshield] Starting behavior rule load from {:?}",
+            path
+        ));
         let rules = self.load_rules_recursive(path, 0)?;
         let count = rules.len();
 
@@ -2672,7 +2769,10 @@ impl BehaviorEngine {
         }
 
         self.rules = rules;
-        Logging::info(&format!("[Owlyshield] Successfully loaded {} behavior rules from {:?}", count, path));
+        Logging::info(&format!(
+            "[Owlyshield] Successfully loaded {} behavior rules from {:?}",
+            count, path
+        ));
         Ok(())
     }
 
@@ -2695,9 +2795,12 @@ impl BehaviorEngine {
 
             // Detect entry into a block scalar (| or >) — e.g. description, false_positives prose.
             // Any content inside a block scalar is free text and must not be linted.
-            if trimmed.ends_with('|') || trimmed.ends_with('>')
-                || trimmed.ends_with("|+") || trimmed.ends_with(">+")
-                || trimmed.ends_with("|-") || trimmed.ends_with(">-")
+            if trimmed.ends_with('|')
+                || trimmed.ends_with('>')
+                || trimmed.ends_with("|+")
+                || trimmed.ends_with(">+")
+                || trimmed.ends_with("|-")
+                || trimmed.ends_with(">-")
             {
                 in_block_scalar = true;
                 block_scalar_indent = indent;
@@ -2810,7 +2913,11 @@ impl BehaviorEngine {
             // 3. Stage-level conditions
             for stage in &rule.stages {
                 for cond in &stage.conditions {
-                    if let RuleCondition::Api { name_pattern, module_pattern } = cond {
+                    if let RuleCondition::Api {
+                        name_pattern,
+                        module_pattern,
+                    } = cond
+                    {
                         if module_pattern.is_empty() {
                             all_apis.insert(name_pattern.clone());
                         } else {
@@ -2824,21 +2931,34 @@ impl BehaviorEngine {
         all_apis
     }
 
-    fn load_rules_recursive(&self, path: &Path, depth: u32) -> Result<Vec<BehaviorRule>, Box<dyn std::error::Error>> {
+    fn load_rules_recursive(
+        &self,
+        path: &Path,
+        depth: u32,
+    ) -> Result<Vec<BehaviorRule>, Box<dyn std::error::Error>> {
         if depth > 20 {
-            Logging::error(&format!("[BehaviorEngine] CRITICAL: Max recursion depth (20) reached! Possible circular include: {:?}", path));
+            Logging::error(&format!(
+                "[BehaviorEngine] CRITICAL: Max recursion depth (20) reached! Possible circular include: {:?}",
+                path
+            ));
             return Ok(Vec::new());
         }
 
         let content = match std::fs::read_to_string(path) {
             Ok(c) => c,
             Err(e) => {
-                Logging::error(&format!("[BehaviorEngine] Failed to read rule file {:?}: {}", path, e));
+                Logging::error(&format!(
+                    "[BehaviorEngine] Failed to read rule file {:?}: {}",
+                    path, e
+                ));
                 return Err(Box::new(e));
             }
         };
 
-        Logging::debug(&format!("[BehaviorEngine] Parsing file: {:?} (depth {})", path, depth));
+        Logging::debug(&format!(
+            "[BehaviorEngine] Parsing file: {:?} (depth {})",
+            path, depth
+        ));
         let mut rules = Vec::new();
         let parent = path.parent().unwrap_or_else(|| Path::new("."));
 
@@ -2851,20 +2971,27 @@ impl BehaviorEngine {
                 } else {
                     trimmed
                 };
-                
+
                 if let Some(include_path_str) = include_part.strip_prefix("!include ") {
                     let include_path_str = include_path_str.trim();
                     let include_path = parent.join(include_path_str);
-                    
+
                     if include_path.exists() {
                         match self.load_rules_recursive(&include_path, depth + 1) {
                             Ok(sub_rules) => {
                                 rules.extend(sub_rules);
-                            },
-                            Err(e) => Logging::warning(&format!("[EDR] Failed to load include {:?}: {}", include_path.display(), e)),
+                            }
+                            Err(e) => Logging::warning(&format!(
+                                "[EDR] Failed to load include {:?}: {}",
+                                include_path.display(),
+                                e
+                            )),
                         }
                     } else {
-                        Logging::warning(&format!("[EDR] Include path does not exist: {:?}", include_path.display()));
+                        Logging::warning(&format!(
+                            "[EDR] Include path does not exist: {:?}",
+                            include_path.display()
+                        ));
                     }
                 }
             }
@@ -2873,7 +3000,9 @@ impl BehaviorEngine {
         // Now parse the content as YAML, skipping !include lines
         let filtered_content: String = content
             .lines()
-            .filter(|line| !line.trim().starts_with("!include") && !line.trim().starts_with("- !include"))
+            .filter(|line| {
+                !line.trim().starts_with("!include") && !line.trim().starts_with("- !include")
+            })
             .collect::<Vec<_>>()
             .join("\n");
 
@@ -2925,7 +3054,11 @@ impl BehaviorEngine {
                                 .unwrap_or("<unnamed>");
                             Logging::error(&format!(
                                 "[BehaviorEngine] Failed to deserialize rule #{} ('{}')                                 in document #{} of {:?}: {}.                                 Hint: check for unquoted special characters in string lists.",
-                                rule_idx + 1, name_hint, doc_index, path, e
+                                rule_idx + 1,
+                                name_hint,
+                                doc_index,
+                                path,
+                                e
                             ));
                         }
                     }
@@ -2988,13 +3121,15 @@ impl BehaviorEngine {
 
     fn matches_u64_range(value: u64, min: Option<u64>, max: Option<u64>) -> bool {
         if let Some(min_v) = min
-            && value < min_v {
-                return false;
-            }
+            && value < min_v
+        {
+            return false;
+        }
         if let Some(max_v) = max
-            && value > max_v {
-                return false;
-            }
+            && value > max_v
+        {
+            return false;
+        }
         true
     }
 
@@ -3037,7 +3172,8 @@ impl BehaviorEngine {
             return false;
         }
 
-        let normalized_kernel_api = normalize_hypervisor_api_label(&msg.kernel_event_info.object_name);
+        let normalized_kernel_api =
+            normalize_hypervisor_api_label(&msg.kernel_event_info.object_name);
         let raw_event_type = if msg.kernel_event_info.event_type != 0 {
             msg.kernel_event_info.event_type
         } else {
@@ -3120,9 +3256,9 @@ impl BehaviorEngine {
             && Self::matches_i32_list(&cond_group.hypervisor_operation_statuses, operation_status)
     }
 
-
     pub fn register_process(&mut self, gid: u64, pid: u32, exe_path: PathBuf, app_name: String) {
-        let state = self.process_states
+        let state = self
+            .process_states
             .entry(gid)
             .or_insert_with(|| ProcessBehaviorState::new(pid, exe_path.clone(), app_name.clone()));
 
@@ -3135,23 +3271,28 @@ impl BehaviorEngine {
         let name_is_stale = state.app_name.is_empty()
             || state.app_name.starts_with("PROC_")
             || state.app_name == "UNKNOWN";
-        let path_is_stale = state.exe_path.to_string_lossy() == "UNKNOWN"
-            || state.exe_path.as_os_str().is_empty();
+        let path_is_stale =
+            state.exe_path.to_string_lossy() == "UNKNOWN" || state.exe_path.as_os_str().is_empty();
 
-        if name_is_stale && !app_name.is_empty() && !app_name.starts_with("PROC_") && app_name != "UNKNOWN" {
+        if name_is_stale
+            && !app_name.is_empty()
+            && !app_name.starts_with("PROC_")
+            && app_name != "UNKNOWN"
+        {
             state.app_name = app_name;
         }
-        if path_is_stale && !exe_path.as_os_str().is_empty() && exe_path.to_string_lossy() != "UNKNOWN" {
+        if path_is_stale
+            && !exe_path.as_os_str().is_empty()
+            && exe_path.to_string_lossy() != "UNKNOWN"
+        {
             state.exe_path = exe_path;
         }
     }
 
-
-
     // ==========================================================================
     // EVENT DETECTION FROM HIM EVENTS
     // ==========================================================================
-    
+
     /// Get actual detected labels from HIM events
     #[allow(dead_code)]
     fn get_detected_apis_from_state(state: &ProcessBehaviorState) -> HashSet<String> {
@@ -3161,14 +3302,20 @@ impl BehaviorEngine {
     // ==========================================================================
     // COMPLETE EVENT PROCESSING PIPELINE
     // ==========================================================================
-    
-    pub fn process_event(&mut self, precord: &mut ProcessRecord, msg: &IOMessage, config: &Config, threat_handler: &dyn ThreatHandler) {
+
+    pub fn process_event(
+        &mut self,
+        precord: &mut ProcessRecord,
+        msg: &IOMessage,
+        config: &Config,
+        threat_handler: &dyn ThreatHandler,
+    ) {
         let gid = msg.gid;
         let irp_op_byte = effective_hypervisor_irp_byte(msg);
         let irp_op = IrpMajorOp::from_byte(irp_op_byte);
         let is_rootkit_event = is_rootkit_irp(&irp_op);
         let mut actions = ActionsOnKill::with_handler(threat_handler.clone_box());
-        
+
         if !self.process_states.contains_key(&gid) {
             // appname and exepath are resolved by worker.rs (register_precord) before reaching here.
             let initial_pid = if is_rootkit_event && gid == ROOTKIT_GLOBAL_GID {
@@ -3210,7 +3357,7 @@ impl BehaviorEngine {
                     s.script_file_path = fpath;
                 }
             }
-                        
+
             let parent_pid = msg.parent_pid;
             let mut resolved_parent_name: Option<String> = None;
             let mut resolved_parent_path: Option<PathBuf> = None;
@@ -3234,7 +3381,8 @@ impl BehaviorEngine {
             if let Some(parent_name) = resolved_parent_name {
                 s.parent_name = parent_name;
             } else if let Some(parent_path) = resolved_parent_path.as_ref() {
-                if let Some(parent_name) = parent_path.file_name().and_then(|value| value.to_str()) {
+                if let Some(parent_name) = parent_path.file_name().and_then(|value| value.to_str())
+                {
                     s.parent_name = parent_name.to_lowercase();
                 }
             } else {
@@ -3244,7 +3392,7 @@ impl BehaviorEngine {
             if let Some(parent_path) = resolved_parent_path {
                 s.parent_path = parent_path;
             }
-            
+
             self.process_states.insert(gid, s);
         }
 
@@ -3255,40 +3403,41 @@ impl BehaviorEngine {
         // the correct values — process_record_handler.handle_io runs before this function.
         // Resolve parent name before the mutable borrow below (borrow checker).
         let parent_pid = msg.parent_pid;
-        let (resolved_parent_name, resolved_parent_path): (Option<String>, Option<PathBuf>) = if parent_pid != 0 {
-            if let Some(parent_state) = self.process_states.values().find(|s| {
-                s.pid == parent_pid
-                    && ((!s.app_name.is_empty()
-                        && !s.app_name.starts_with("PROC_")
-                        && s.app_name != "UNKNOWN")
-                        || !s.exe_path.as_os_str().is_empty())
-            }) {
-                (
-                    if !parent_state.app_name.is_empty()
-                        && !parent_state.app_name.starts_with("PROC_")
-                        && parent_state.app_name != "UNKNOWN"
-                    {
-                        Some(parent_state.app_name.clone())
-                    } else {
-                        None
-                    },
-                    if !parent_state.exe_path.as_os_str().is_empty() {
-                        Some(parent_state.exe_path.clone())
-                    } else {
-                        None
-                    },
-                )
+        let (resolved_parent_name, resolved_parent_path): (Option<String>, Option<PathBuf>) =
+            if parent_pid != 0 {
+                if let Some(parent_state) = self.process_states.values().find(|s| {
+                    s.pid == parent_pid
+                        && ((!s.app_name.is_empty()
+                            && !s.app_name.starts_with("PROC_")
+                            && s.app_name != "UNKNOWN")
+                            || !s.exe_path.as_os_str().is_empty())
+                }) {
+                    (
+                        if !parent_state.app_name.is_empty()
+                            && !parent_state.app_name.starts_with("PROC_")
+                            && parent_state.app_name != "UNKNOWN"
+                        {
+                            Some(parent_state.app_name.clone())
+                        } else {
+                            None
+                        },
+                        if !parent_state.exe_path.as_os_str().is_empty() {
+                            Some(parent_state.exe_path.clone())
+                        } else {
+                            None
+                        },
+                    )
+                } else {
+                    let fallback_path = resolve_process_path(parent_pid);
+                    let fallback_name = fallback_path
+                        .as_ref()
+                        .and_then(|path| path.file_name().and_then(|value| value.to_str()))
+                        .map(|value| value.to_lowercase());
+                    (fallback_name, fallback_path)
+                }
             } else {
-                let fallback_path = resolve_process_path(parent_pid);
-                let fallback_name = fallback_path
-                    .as_ref()
-                    .and_then(|path| path.file_name().and_then(|value| value.to_str()))
-                    .map(|value| value.to_lowercase());
-                (fallback_name, fallback_path)
-            }
-        } else {
-            (None, None)
-        };
+                (None, None)
+            };
 
         if let Some(state) = self.process_states.get_mut(&gid) {
             let name_is_stale = state.app_name.is_empty()
@@ -3326,36 +3475,40 @@ impl BehaviorEngine {
             let precord_path_stale = precord.exepath.to_string_lossy() == "UNKNOWN"
                 || precord.exepath.as_os_str().is_empty();
 
-            if precord_name_stale && !state.app_name.is_empty()
+            if precord_name_stale
+                && !state.app_name.is_empty()
                 && !state.app_name.starts_with("PROC_")
                 && state.app_name != "UNKNOWN"
             {
                 precord.appname = state.app_name.clone();
             }
-            if precord_path_stale && !state.exe_path.as_os_str().is_empty()
+            if precord_path_stale
+                && !state.exe_path.as_os_str().is_empty()
                 && state.exe_path.to_string_lossy() != "UNKNOWN"
             {
                 precord.exepath = state.exe_path.clone();
             }
 
             // Heal parent name using the value resolved before the mutable borrow.
-            if (state.parent_name == "unknown" || state.parent_name.is_empty() )
-                && let Some(ref name) = resolved_parent_name {
-                    state.parent_name = name.clone();
-                }
+            if (state.parent_name == "unknown" || state.parent_name.is_empty())
+                && let Some(ref name) = resolved_parent_name
+            {
+                state.parent_name = name.clone();
+            }
             if state.parent_path.as_os_str().is_empty()
-                && let Some(ref path) = resolved_parent_path {
-                    state.parent_path = path.clone();
-                }
+                && let Some(ref path) = resolved_parent_path
+            {
+                state.parent_path = path.clone();
+            }
         }
         if let Some(state) = self.process_states.get_mut(&gid) {
             state.record_irp_operation(msg, irp_op_byte);
         }
-        
+
         let dev_norm = normalize_device_prefix(&msg.filepathstr);
         let filepath = dev_norm.to_lowercase().replace("\\", "/");
         let norm_filepath = filepath.trim_end_matches('/');
-        
+
         let state = self.process_states.get_mut(&gid).unwrap();
         let pid = state.pid;
         if state.command_line.is_empty() && !msg.runtime_features.command_line.trim().is_empty() {
@@ -3374,24 +3527,33 @@ impl BehaviorEngine {
         if self.rules.iter().any(|r| r.debug) {
             Logging::debug(&format!(
                 "[BehaviorEngine] IO event: pid={} gid={} irp={:?} path={} ext={} entropy={}",
-                pid, gid, irp_op,
-                if msg.filepathstr.is_empty() { "<empty>" } else { &msg.filepathstr },
-                if msg.extension.is_empty() { "<none>" } else { &msg.extension },
+                pid,
+                gid,
+                irp_op,
+                if msg.filepathstr.is_empty() {
+                    "<empty>"
+                } else {
+                    &msg.filepathstr
+                },
+                if msg.extension.is_empty() {
+                    "<none>"
+                } else {
+                    &msg.extension
+                },
                 msg.entropy
             ));
         }
-        
+
         // === STEP 3: SIGNATURE CHECK ===
         let signature_path = if !precord.exepath.as_os_str().is_empty()
-            && precord.exepath.to_string_lossy() != "UNKNOWN" {
+            && precord.exepath.to_string_lossy() != "UNKNOWN"
+        {
             precord.exepath.clone()
         } else {
             state.exe_path.clone()
         };
 
-        if !signature_path.as_os_str().is_empty()
-            && signature_path.to_string_lossy() != "UNKNOWN"
-        {
+        if !signature_path.as_os_str().is_empty() && signature_path.to_string_lossy() != "UNKNOWN" {
             let signature_path_changed = state.signature_checked_path != signature_path;
             if !state.signature_checked || signature_path_changed {
                 if signature_path.exists() {
@@ -3423,22 +3585,27 @@ impl BehaviorEngine {
                     victim_path = state.app_name.to_lowercase();
                 }
             }
-            
+
             if msg.attacker_pid != 0 {
                 let is_self = msg.attacker_pid == msg.pid;
                 let mut attacker_found = false;
-                
+
                 if msg.attacker_gid != 0
-                    && let Some(attacker_state) = self.process_states.get_mut(&msg.attacker_gid) {
-                        attacker_found = true;
-                        if !victim_path.is_empty() {
-                            if is_self {
-                                attacker_state.self_terminated_processes.insert(victim_path.clone());
-                            } else {
-                                attacker_state.terminated_processes.insert(victim_path.clone());
-                            }
+                    && let Some(attacker_state) = self.process_states.get_mut(&msg.attacker_gid)
+                {
+                    attacker_found = true;
+                    if !victim_path.is_empty() {
+                        if is_self {
+                            attacker_state
+                                .self_terminated_processes
+                                .insert(victim_path.clone());
+                        } else {
+                            attacker_state
+                                .terminated_processes
+                                .insert(victim_path.clone());
                         }
                     }
+                }
 
                 if !attacker_found && !is_self {
                     let mut resolved_attacker_gid = None;
@@ -3448,14 +3615,17 @@ impl BehaviorEngine {
                             break;
                         }
                     }
-                    
+
                     if let Some(agid) = resolved_attacker_gid
                         && let Some(attacker_state) = self.process_states.get_mut(&agid)
-                            && !victim_path.is_empty() {
-                                attacker_state.terminated_processes.insert(victim_path.clone());
-                            }
+                        && !victim_path.is_empty()
+                    {
+                        attacker_state
+                            .terminated_processes
+                            .insert(victim_path.clone());
+                    }
                 }
-                
+
                 if !victim_path.is_empty() {
                     self.process_terminated.insert(victim_path.clone());
                 }
@@ -3470,39 +3640,50 @@ impl BehaviorEngine {
             if rule.named_conditions.is_empty() {
                 continue;
             }
-            
+
             for cond_group in rule.named_conditions.values() {
                 if let Some(state) = self.process_states.get_mut(&gid) {
                     for path_pattern in &cond_group.file_paths {
                         let norm_pattern = path_pattern.to_lowercase().replace("\\", "/");
                         let norm_pattern = norm_pattern.trim_end_matches('/');
                         if norm_filepath.contains(norm_pattern) {
-                            state.browsed_paths_tracker.insert(path_pattern.clone(), SystemTime::now());
+                            state
+                                .browsed_paths_tracker
+                                .insert(path_pattern.clone(), SystemTime::now());
                         }
                     }
-                    
+
                     for staging_pattern in &cond_group.staging_paths {
                         let norm_pattern = staging_pattern.to_lowercase().replace("\\", "/");
                         let norm_pattern = norm_pattern.trim_end_matches('/');
-                        let is_staging_op = matches!(irp_op, IrpMajorOp::IrpWrite | IrpMajorOp::IrpCreate | IrpMajorOp::IrpSetInfo);
+                        let is_staging_op = matches!(
+                            irp_op,
+                            IrpMajorOp::IrpWrite | IrpMajorOp::IrpCreate | IrpMajorOp::IrpSetInfo
+                        );
                         if norm_filepath.contains(norm_pattern) && is_staging_op {
-                            state.staged_files_written.insert(PathBuf::from(&filepath), SystemTime::now());
+                            state
+                                .staged_files_written
+                                .insert(PathBuf::from(&filepath), SystemTime::now());
                         }
                     }
-                    
+
                     for browsed_pattern in &cond_group.browsed_paths {
                         let norm_pattern = browsed_pattern.to_lowercase().replace("\\", "/");
                         let norm_pattern = norm_pattern.trim_end_matches('/');
                         if norm_filepath.contains(norm_pattern) {
-                            state.browsed_paths_tracker.insert(browsed_pattern.clone(), SystemTime::now());
+                            state
+                                .browsed_paths_tracker
+                                .insert(browsed_pattern.clone(), SystemTime::now());
                         }
                     }
-                    
+
                     for sensitive_pattern in &cond_group.sensitive_paths {
                         let norm_pattern = sensitive_pattern.to_lowercase().replace("\\", "/");
                         let norm_pattern = norm_pattern.trim_end_matches('/');
                         if norm_filepath.contains(norm_pattern) {
-                            state.accessed_paths_tracker.insert(sensitive_pattern.clone());
+                            state
+                                .accessed_paths_tracker
+                                .insert(sensitive_pattern.clone());
                         }
                     }
                 }
@@ -3540,10 +3721,17 @@ impl BehaviorEngine {
         }
     }
 
-    fn update_named_conditions_state(&mut self, precord: &mut ProcessRecord, gid: u64, msg: &IOMessage, irp_op: &IrpMajorOp, filepath: &str) {
+    fn update_named_conditions_state(
+        &mut self,
+        precord: &mut ProcessRecord,
+        gid: u64,
+        msg: &IOMessage,
+        irp_op: &IrpMajorOp,
+        filepath: &str,
+    ) {
         let now = SystemTime::now();
         let mut available_apis = HashSet::new();
-        
+
         let state_detected_apis = if let Some(state) = self.process_states.get(&gid) {
             state.all_apis_called.clone()
         } else {
@@ -3554,17 +3742,19 @@ impl BehaviorEngine {
         } else {
             HashSet::new()
         };
-        
+
         for api in &state_detected_apis {
             available_apis.insert(api.clone());
         }
-        
+
         if !available_apis.is_empty() {
             let mut api_names: Vec<&str> = available_apis.iter().map(|s| s.as_str()).collect();
             api_names.sort_unstable_by_key(|name| name.to_ascii_lowercase());
             Logging::info(&format!(
                 "[BehaviorEngine] Detected APIs for PID {}: {} - {}",
-                msg.pid, available_apis.len(), api_names.join(", ")
+                msg.pid,
+                available_apis.len(),
+                api_names.join(", ")
             ));
         }
 
@@ -3601,15 +3791,17 @@ impl BehaviorEngine {
                 Some(s) => s,
                 None => continue,
             };
-            
-            let remaining_conditions: Vec<_> = rule.named_conditions.iter()
+
+            let remaining_conditions: Vec<_> = rule
+                .named_conditions
+                .iter()
                 .filter(|(name, _)| !Self::rule_condition_satisfied(state, rule, name))
                 .collect();
-            
+
             if remaining_conditions.is_empty() {
                 continue;
             }
-            
+
             for (cond_name, cond_group) in remaining_conditions {
                 if Self::rule_condition_satisfied(state, rule, cond_name) {
                     continue;
@@ -3630,94 +3822,145 @@ impl BehaviorEngine {
                 .count();
                 let conjunctive_process_context = process_context_requirement_count > 1;
 
-                let has_api_conditions = !cond_group.apis.is_empty() || 
-                                         !cond_group.scheduled_task_apis.is_empty() || 
-                                         !cond_group.anti_debug_apis.is_empty() || 
-                                         !cond_group.anti_vm_apis.is_empty();
+                let has_api_conditions = !cond_group.apis.is_empty()
+                    || !cond_group.scheduled_task_apis.is_empty()
+                    || !cond_group.anti_debug_apis.is_empty()
+                    || !cond_group.anti_vm_apis.is_empty();
 
                 if has_api_conditions {
-                    let api_iter = cond_group.apis.iter()
+                    let api_iter = cond_group
+                        .apis
+                        .iter()
                         .chain(cond_group.scheduled_task_apis.iter())
                         .chain(cond_group.anti_debug_apis.iter())
                         .chain(cond_group.anti_vm_apis.iter());
 
-                    let matched_apis: Vec<&String> = api_iter.filter(|required_api| {
-                        let (required_norm, required_has_path) = Self::normalize_api_signature(required_api);
-                        available_apis.iter().any(|available| {
-                            let (available_norm, available_has_path) = Self::normalize_api_signature(available);
-                            if required_has_path {
-                                available_has_path
-                                    && Self::matches_pattern_internal(&self.regex_cache, required_api, available)
-                            } else {
-                                Self::matches_pattern_internal(&self.regex_cache, &required_norm, &available_norm)
-                            }
+                    let matched_apis: Vec<&String> = api_iter
+                        .filter(|required_api| {
+                            let (required_norm, required_has_path) =
+                                Self::normalize_api_signature(required_api);
+                            available_apis.iter().any(|available| {
+                                let (available_norm, available_has_path) =
+                                    Self::normalize_api_signature(available);
+                                if required_has_path {
+                                    available_has_path
+                                        && Self::matches_pattern_internal(
+                                            &self.regex_cache,
+                                            required_api,
+                                            available,
+                                        )
+                                } else {
+                                    Self::matches_pattern_internal(
+                                        &self.regex_cache,
+                                        &required_norm,
+                                        &available_norm,
+                                    )
+                                }
+                            })
                         })
-                    }).collect();
-                    
+                        .collect();
+
                     if matched_apis.len() >= std::cmp::max(1, cond_group.api_threshold) {
                         matched = true;
-                        let api_names = matched_apis.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ");
+                        let api_names = matched_apis
+                            .iter()
+                            .map(|s| s.as_str())
+                            .collect::<Vec<_>>()
+                            .join(", ");
                         Logging::info(&format!(
                             "[BehaviorEngine] Condition '{}' - API match for PID {}: {} APIs detected: {}",
-                            cond_name, state.pid, matched_apis.len(), api_names
+                            cond_name,
+                            state.pid,
+                            matched_apis.len(),
+                            api_names
                         ));
                     }
                 }
 
                 if !matched && !cond_group.hypervisor_event_labels.is_empty() {
-                    let matched_labels: Vec<&String> = cond_group.hypervisor_event_labels.iter().filter(|required_label| {
-                        let (required_norm, required_has_path) = Self::normalize_api_signature(required_label);
-                        observed_hypervisor_event_labels.iter().any(|observed_label| {
-                            let (observed_norm, observed_has_path) = Self::normalize_api_signature(observed_label);
-                            if required_has_path {
-                                observed_has_path
-                                    && Self::matches_pattern_internal(&self.regex_cache, required_label, observed_label)
-                            } else {
-                                Self::matches_pattern_internal(&self.regex_cache, &required_norm, &observed_norm)
-                            }
+                    let matched_labels: Vec<&String> = cond_group
+                        .hypervisor_event_labels
+                        .iter()
+                        .filter(|required_label| {
+                            let (required_norm, required_has_path) =
+                                Self::normalize_api_signature(required_label);
+                            observed_hypervisor_event_labels
+                                .iter()
+                                .any(|observed_label| {
+                                    let (observed_norm, observed_has_path) =
+                                        Self::normalize_api_signature(observed_label);
+                                    if required_has_path {
+                                        observed_has_path
+                                            && Self::matches_pattern_internal(
+                                                &self.regex_cache,
+                                                required_label,
+                                                observed_label,
+                                            )
+                                    } else {
+                                        Self::matches_pattern_internal(
+                                            &self.regex_cache,
+                                            &required_norm,
+                                            &observed_norm,
+                                        )
+                                    }
+                                })
                         })
-                    }).collect();
+                        .collect();
 
-                    if matched_labels.len() >= std::cmp::max(1, cond_group.hypervisor_event_threshold) {
+                    if matched_labels.len()
+                        >= std::cmp::max(1, cond_group.hypervisor_event_threshold)
+                    {
                         matched = true;
-                        let label_names = matched_labels.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ");
+                        let label_names = matched_labels
+                            .iter()
+                            .map(|s| s.as_str())
+                            .collect::<Vec<_>>()
+                            .join(", ");
                         Logging::info(&format!(
                             "[BehaviorEngine] Condition '{}' - Hypervisor event match for PID {}: {} labels detected: {}",
-                            cond_name, state.pid, matched_labels.len(), label_names
+                            cond_name,
+                            state.pid,
+                            matched_labels.len(),
+                            label_names
                         ));
                     }
                 }
 
-                if !matched && Self::has_hypervisor_payload_conditions(cond_group)
-                    && Self::matches_hypervisor_payload_conditions(cond_group, msg, irp_op) {
-                        let raw_event_type = if msg.kernel_event_info.event_type != 0 {
-                            msg.kernel_event_info.event_type
-                        } else {
-                            effective_hypervisor_irp_byte(msg) as u32
-                        };
-                        matched = true;
-                        Logging::info(&format!(
-                            "[BehaviorEngine] Condition '{}' - API hooking payload match for PID {}: raw_event_type={} src_pid={} target_pid={} arg1=0x{:X} arg2=0x{:X} arg3=0x{:X} arg4=0x{:X}",
-                            cond_name,
-                            state.pid,
-                            raw_event_type,
-                            msg.kernel_event_info.source_process_id,
-                            msg.kernel_event_info.target_process_id,
-                            msg.kernel_event_info.raw_argument1,
-                            msg.kernel_event_info.raw_argument2,
-                            msg.kernel_event_info.raw_argument3,
-                            msg.kernel_event_info.raw_argument4
-                        ));
-                    }
+                if !matched
+                    && Self::has_hypervisor_payload_conditions(cond_group)
+                    && Self::matches_hypervisor_payload_conditions(cond_group, msg, irp_op)
+                {
+                    let raw_event_type = if msg.kernel_event_info.event_type != 0 {
+                        msg.kernel_event_info.event_type
+                    } else {
+                        effective_hypervisor_irp_byte(msg) as u32
+                    };
+                    matched = true;
+                    Logging::info(&format!(
+                        "[BehaviorEngine] Condition '{}' - API hooking payload match for PID {}: raw_event_type={} src_pid={} target_pid={} arg1=0x{:X} arg2=0x{:X} arg3=0x{:X} arg4=0x{:X}",
+                        cond_name,
+                        state.pid,
+                        raw_event_type,
+                        msg.kernel_event_info.source_process_id,
+                        msg.kernel_event_info.target_process_id,
+                        msg.kernel_event_info.raw_argument1,
+                        msg.kernel_event_info.raw_argument2,
+                        msg.kernel_event_info.raw_argument3,
+                        msg.kernel_event_info.raw_argument4
+                    ));
+                }
 
-                if !matched && !conjunctive_process_context && cond_group.has_network_activity
-                    && network_activity_observed {
-                        matched = true;
-                        Logging::info(&format!(
-                            "[BehaviorEngine] Condition '{}' - Network activity confirmed by firewall for PID {}",
-                            cond_name, state.pid
-                        ));
-                    }
+                if !matched
+                    && !conjunctive_process_context
+                    && cond_group.has_network_activity
+                    && network_activity_observed
+                {
+                    matched = true;
+                    Logging::info(&format!(
+                        "[BehaviorEngine] Condition '{}' - Network activity confirmed by firewall for PID {}",
+                        cond_name, state.pid
+                    ));
+                }
 
                 // ── Firewall-content conditions ──────────────────────────────────
                 if !matched {
@@ -3742,15 +3985,19 @@ impl BehaviorEngine {
 
                     // firewall_dst_ips
                     if !matched && !cond_group.firewall_dst_ips.is_empty() {
-                        let ip_match = detection.map_or(false, |d| {
-                            cond_group.firewall_dst_ips.iter().any(|ip| {
-                                d.dst_ip.to_lowercase().contains(&ip.to_lowercase())
-                            })
-                        }) || fw_net_details.get(&state.pid).map_or(false, |conns| {
-                            cond_group.firewall_dst_ips.iter().any(|ip| {
-                                conns.iter().any(|(c_ip, _)| c_ip.to_lowercase().contains(&ip.to_lowercase()))
-                            })
-                        });
+                        let ip_match =
+                            detection.map_or(false, |d| {
+                                cond_group
+                                    .firewall_dst_ips
+                                    .iter()
+                                    .any(|ip| d.dst_ip.to_lowercase().contains(&ip.to_lowercase()))
+                            }) || fw_net_details.get(&state.pid).map_or(false, |conns| {
+                                cond_group.firewall_dst_ips.iter().any(|ip| {
+                                    conns.iter().any(|(c_ip, _)| {
+                                        c_ip.to_lowercase().contains(&ip.to_lowercase())
+                                    })
+                                })
+                            });
                         if ip_match {
                             matched = true;
                             Logging::info(&format!(
@@ -3762,11 +4009,14 @@ impl BehaviorEngine {
 
                     // firewall_dst_ports
                     if !matched && !cond_group.firewall_dst_ports.is_empty() {
-                        let port_match = detection.map_or(false, |d| {
-                            cond_group.firewall_dst_ports.contains(&d.dst_port)
-                        }) || fw_net_details.get(&state.pid).map_or(false, |conns| {
-                            conns.iter().any(|(_, port)| cond_group.firewall_dst_ports.contains(port))
-                        });
+                        let port_match =
+                            detection.map_or(false, |d| {
+                                cond_group.firewall_dst_ports.contains(&d.dst_port)
+                            }) || fw_net_details.get(&state.pid).map_or(false, |conns| {
+                                conns
+                                    .iter()
+                                    .any(|(_, port)| cond_group.firewall_dst_ports.contains(port))
+                            });
                         if port_match {
                             matched = true;
                             Logging::info(&format!(
@@ -3779,9 +4029,10 @@ impl BehaviorEngine {
                     // firewall_hostnames
                     if !matched && !cond_group.firewall_hostnames.is_empty() {
                         if detection.map_or(false, |d| {
-                            cond_group.firewall_hostnames.iter().any(|h| {
-                                d.hostname.to_lowercase().contains(&h.to_lowercase())
-                            })
+                            cond_group
+                                .firewall_hostnames
+                                .iter()
+                                .any(|h| d.hostname.to_lowercase().contains(&h.to_lowercase()))
                         }) {
                             matched = true;
                             Logging::info(&format!(
@@ -3794,9 +4045,10 @@ impl BehaviorEngine {
                     // firewall_block_reasons
                     if !matched && !cond_group.firewall_block_reasons.is_empty() {
                         if detection.map_or(false, |d| {
-                            cond_group.firewall_block_reasons.iter().any(|r| {
-                                d.reason.to_lowercase().contains(&r.to_lowercase())
-                            })
+                            cond_group
+                                .firewall_block_reasons
+                                .iter()
+                                .any(|r| d.reason.to_lowercase().contains(&r.to_lowercase()))
                         }) {
                             matched = true;
                             Logging::info(&format!(
@@ -3827,7 +4079,11 @@ impl BehaviorEngine {
                         if state.net_packets.iter().any(|pkt| {
                             if let Some(query) = &pkt.dns_query {
                                 cond_group.dns_query_patterns.iter().any(|pattern| {
-                                    Self::matches_pattern_internal(&self.regex_cache, pattern, query)
+                                    Self::matches_pattern_internal(
+                                        &self.regex_cache,
+                                        pattern,
+                                        query,
+                                    )
                                 })
                             } else {
                                 false
@@ -3850,7 +4106,10 @@ impl BehaviorEngine {
                             matched = true;
                             Logging::info(&format!(
                                 "[BehaviorEngine] Condition '{}' - sanctum_injection_score_min matched: {} >= {} for PID {}",
-                                cond_name, state.sanctum_stats.injection_score, min_score, state.pid
+                                cond_name,
+                                state.sanctum_stats.injection_score,
+                                min_score,
+                                state.pid
                             ));
                         }
                     }
@@ -3860,7 +4119,10 @@ impl BehaviorEngine {
                                 matched = true;
                                 Logging::info(&format!(
                                     "[BehaviorEngine] Condition '{}' - sanctum_syscall_count_min matched: {} >= {} for PID {}",
-                                    cond_name, state.sanctum_stats.syscall_count, min_syscalls, state.pid
+                                    cond_name,
+                                    state.sanctum_stats.syscall_count,
+                                    min_syscalls,
+                                    state.pid
                                 ));
                             }
                         }
@@ -3877,7 +4139,11 @@ impl BehaviorEngine {
                         }
                     }
                     if !matched && !cond_group.sanctum_suspicious_hits.is_empty() {
-                        if cond_group.sanctum_suspicious_hits.iter().any(|hit| state.sanctum_suspicious_hits.contains(hit)) {
+                        if cond_group
+                            .sanctum_suspicious_hits
+                            .iter()
+                            .any(|hit| state.sanctum_suspicious_hits.contains(hit))
+                        {
                             matched = true;
                             Logging::info(&format!(
                                 "[BehaviorEngine] Condition '{}' - sanctum_suspicious_hits matched for PID {}",
@@ -3901,20 +4167,27 @@ impl BehaviorEngine {
                 // ── Rootkit generic conditions ──────────────────────────────────
                 if !matched {
                     if !cond_group.rootkit_event_types.is_empty() {
-                        let matches_type = state.rootkit_findings.iter().filter(|f| {
-                            let type_str = match f.kind {
-                                RootkitFindingKind::SsdtHook => "ssdt_hook",
-                                RootkitFindingKind::HiddenProcess => "hidden_process",
-                                RootkitFindingKind::HiddenDriver => "hidden_driver",
-                                RootkitFindingKind::KernelInlineHook => "kernel_hook",
-                                RootkitFindingKind::TerminateProcess => "terminate_process",
-                                RootkitFindingKind::FileMove => "file_move",
-                                RootkitFindingKind::Generic => "generic",
-                                RootkitFindingKind::Unknown(_) => "unknown",
-                            };
-                            cond_group.rootkit_event_types.iter().any(|rt| rt.to_lowercase() == type_str)
-                        }).count();
-                        
+                        let matches_type = state
+                            .rootkit_findings
+                            .iter()
+                            .filter(|f| {
+                                let type_str = match f.kind {
+                                    RootkitFindingKind::SsdtHook => "ssdt_hook",
+                                    RootkitFindingKind::HiddenProcess => "hidden_process",
+                                    RootkitFindingKind::HiddenDriver => "hidden_driver",
+                                    RootkitFindingKind::KernelInlineHook => "kernel_hook",
+                                    RootkitFindingKind::TerminateProcess => "terminate_process",
+                                    RootkitFindingKind::FileMove => "file_move",
+                                    RootkitFindingKind::Generic => "generic",
+                                    RootkitFindingKind::Unknown(_) => "unknown",
+                                };
+                                cond_group
+                                    .rootkit_event_types
+                                    .iter()
+                                    .any(|rt| rt.to_lowercase() == type_str)
+                            })
+                            .count();
+
                         let min_count = cond_group.rootkit_event_min_count.unwrap_or(1);
                         if matches_type >= min_count {
                             matched = true;
@@ -3931,7 +4204,10 @@ impl BehaviorEngine {
                             matched = true;
                             Logging::info(&format!(
                                 "[BehaviorEngine] Condition '{}' - rootkit_total_min matched for PID {} ({} >= {})",
-                                cond_name, state.pid, state.rootkit_findings.len(), total_min
+                                cond_name,
+                                state.pid,
+                                state.rootkit_findings.len(),
+                                total_min
                             ));
                         }
                     }
@@ -3939,7 +4215,10 @@ impl BehaviorEngine {
                     if !matched && !cond_group.rootkit_description_contains.is_empty() {
                         let has_desc = state.rootkit_findings.iter().any(|f| {
                             let desc_lc = f.description.to_lowercase();
-                            cond_group.rootkit_description_contains.iter().any(|d| desc_lc.contains(&d.to_lowercase()))
+                            cond_group
+                                .rootkit_description_contains
+                                .iter()
+                                .any(|d| desc_lc.contains(&d.to_lowercase()))
                         });
                         if has_desc {
                             matched = true;
@@ -3967,17 +4246,15 @@ impl BehaviorEngine {
                             Some("open")
                         }
                     }
-                    IrpMajorOp::IrpSetInfo => {
-                        match file_change {
-                            Some(FileChangeInfo::ChangeRenameFile) => Some("rename"),
-                            Some(FileChangeInfo::ChangeExtensionChanged) => Some("rename"),
-                            Some(FileChangeInfo::ChangeDeleteFile) => Some("delete"),
-                            Some(FileChangeInfo::ChangeWrite) => Some("write"),
-                            Some(FileChangeInfo::ChangeOverwriteFile) => Some("write"),
-                            Some(FileChangeInfo::ChangeNewFile) => Some("create"),
-                            _ => Some("setinfo"),
-                        }
-                    }
+                    IrpMajorOp::IrpSetInfo => match file_change {
+                        Some(FileChangeInfo::ChangeRenameFile) => Some("rename"),
+                        Some(FileChangeInfo::ChangeExtensionChanged) => Some("rename"),
+                        Some(FileChangeInfo::ChangeDeleteFile) => Some("delete"),
+                        Some(FileChangeInfo::ChangeWrite) => Some("write"),
+                        Some(FileChangeInfo::ChangeOverwriteFile) => Some("write"),
+                        Some(FileChangeInfo::ChangeNewFile) => Some("create"),
+                        _ => Some("setinfo"),
+                    },
                     _ => None,
                 };
 
@@ -3989,25 +4266,27 @@ impl BehaviorEngine {
                     false
                 };
 
-                let has_path_filters = !cond_group.file_paths.is_empty() || 
-                                       !cond_group.staging_paths.is_empty() ||
-                                       !cond_group.browsed_paths.is_empty() ||
-                                       !cond_group.sensitive_paths.is_empty() ||
-                                       !cond_group.persistence_locations.is_empty();
+                let has_path_filters = !cond_group.file_paths.is_empty()
+                    || !cond_group.staging_paths.is_empty()
+                    || !cond_group.browsed_paths.is_empty()
+                    || !cond_group.sensitive_paths.is_empty()
+                    || !cond_group.persistence_locations.is_empty();
 
                 let has_extension_conditions = !cond_group.file_extensions.is_empty()
                     || cond_group.detect_extension_changes
                     || cond_group.detect_non_whitelisted_extensions
                     || cond_group.detect_known_to_unknown_extension_change;
 
-                let same_file_requirements_ok =
-                    (!cond_group.require_same_file_read || precord.has_read_file_id(&msg.file_id_id))
-                        && (!cond_group.require_same_file_write || precord.has_written_file_id(&msg.file_id_id))
-                        && (!cond_group.require_same_file_rename || precord.has_renamed_file_id(&msg.file_id_id))
-                        && (!cond_group.require_same_stem_created_unknown_extension
-                            || state.created_unknown_ext_stems.contains(filepath))
-                        && (!cond_group.require_same_stem_written_unknown_extension
-                            || state.written_unknown_ext_stems.contains(filepath));
+                let same_file_requirements_ok = (!cond_group.require_same_file_read
+                    || precord.has_read_file_id(&msg.file_id_id))
+                    && (!cond_group.require_same_file_write
+                        || precord.has_written_file_id(&msg.file_id_id))
+                    && (!cond_group.require_same_file_rename
+                        || precord.has_renamed_file_id(&msg.file_id_id))
+                    && (!cond_group.require_same_stem_created_unknown_extension
+                        || state.created_unknown_ext_stems.contains(filepath))
+                    && (!cond_group.require_same_stem_written_unknown_extension
+                        || state.written_unknown_ext_stems.contains(filepath));
 
                 let parent_image_touched = !state.parent_path.as_os_str().is_empty()
                     && target_matches_process_image(&state.parent_path, filepath, &msg.filepathstr);
@@ -4043,28 +4322,43 @@ impl BehaviorEngine {
                 }
 
                 // Path-only conditions: match on path filters when no extension-specific matcher is requested.
-                if !matched && file_event_irp && has_path_filters && !has_extension_conditions && file_op_allowed {
+                if !matched
+                    && file_event_irp
+                    && has_path_filters
+                    && !has_extension_conditions
+                    && file_op_allowed
+                {
                     let path_variants = build_path_variants(filepath, &msg.filepathstr);
-                    let mut path_iter = cond_group.file_paths.iter()
+                    let mut path_iter = cond_group
+                        .file_paths
+                        .iter()
                         .chain(cond_group.staging_paths.iter())
                         .chain(cond_group.browsed_paths.iter())
                         .chain(cond_group.sensitive_paths.iter())
                         .chain(cond_group.persistence_locations.iter());
 
-                    let matched_path: Option<String> = path_iter.find(|p| {
-                        let p_norm = p.replace("\\", "/");
-                        let p_norm_stripped = strip_drive_prefix(&p_norm);
-                        path_variants.iter().any(|v| {
-                            Self::matches_pattern_internal(&self.regex_cache, &p_norm, v) ||
-                            Self::matches_pattern_internal(&self.regex_cache, &p_norm_stripped, v)
+                    let matched_path: Option<String> = path_iter
+                        .find(|p| {
+                            let p_norm = p.replace("\\", "/");
+                            let p_norm_stripped = strip_drive_prefix(&p_norm);
+                            path_variants.iter().any(|v| {
+                                Self::matches_pattern_internal(&self.regex_cache, &p_norm, v)
+                                    || Self::matches_pattern_internal(
+                                        &self.regex_cache,
+                                        &p_norm_stripped,
+                                        v,
+                                    )
+                            })
                         })
-                    }).map(|s| s.to_string());
-                    
+                        .map(|s| s.to_string());
+
                     if matched_path.is_some() {
                         matched = true;
                         Logging::info(&format!(
                             "[BehaviorEngine] Condition '{}' - Path match for PID {}: {}",
-                            cond_name, state.pid, matched_path.unwrap_or_default()
+                            cond_name,
+                            state.pid,
+                            matched_path.unwrap_or_default()
                         ));
                     }
                 }
@@ -4094,7 +4388,13 @@ impl BehaviorEngine {
                     }
                 }
 
-                if !matched && file_event_irp && has_extension_conditions && file_op_allowed && !is_directory_event && same_file_requirements_ok {
+                if !matched
+                    && file_event_irp
+                    && has_extension_conditions
+                    && file_op_allowed
+                    && !is_directory_event
+                    && same_file_requirements_ok
+                {
                     let extension_changed = matches!(
                         file_change,
                         Some(FileChangeInfo::ChangeRenameFile)
@@ -4103,7 +4403,9 @@ impl BehaviorEngine {
 
                     let path_filter_match = if has_path_filters {
                         let path_variants = build_path_variants(filepath, &msg.filepathstr);
-                        cond_group.file_paths.iter()
+                        cond_group
+                            .file_paths
+                            .iter()
                             .chain(cond_group.staging_paths.iter())
                             .chain(cond_group.browsed_paths.iter())
                             .chain(cond_group.sensitive_paths.iter())
@@ -4112,8 +4414,12 @@ impl BehaviorEngine {
                                 let p_norm = p.replace("\\", "/");
                                 let p_norm_stripped = strip_drive_prefix(&p_norm);
                                 path_variants.iter().any(|v| {
-                                    Self::matches_pattern_internal(&self.regex_cache, &p_norm, v) ||
-                                    Self::matches_pattern_internal(&self.regex_cache, &p_norm_stripped, v)
+                                    Self::matches_pattern_internal(&self.regex_cache, &p_norm, v)
+                                        || Self::matches_pattern_internal(
+                                            &self.regex_cache,
+                                            &p_norm_stripped,
+                                            v,
+                                        )
                                 })
                             })
                     } else {
@@ -4127,15 +4433,22 @@ impl BehaviorEngine {
                             let ext_with_dot = format!(".{}", ext);
 
                             if !cond_group.file_extensions.is_empty()
-                                && let Some(matched_ext) = cond_group.file_extensions.iter().find(|p| {
-                                    Self::extension_pattern_matches(&self.regex_cache, p, &ext, &ext_with_dot)
-                                }) {
-                                    matched = true;
-                                    Logging::info(&format!(
-                                        "[BehaviorEngine] Condition '{}' - Extension match for PID {}: {}",
-                                        cond_name, state.pid, matched_ext
-                                    ));
-                                }
+                                && let Some(matched_ext) =
+                                    cond_group.file_extensions.iter().find(|p| {
+                                        Self::extension_pattern_matches(
+                                            &self.regex_cache,
+                                            p,
+                                            &ext,
+                                            &ext_with_dot,
+                                        )
+                                    })
+                            {
+                                matched = true;
+                                Logging::info(&format!(
+                                    "[BehaviorEngine] Condition '{}' - Extension match for PID {}: {}",
+                                    cond_name, state.pid, matched_ext
+                                ));
+                            }
 
                             if !matched && cond_group.detect_non_whitelisted_extensions {
                                 let whitelisted = Self::is_extension_whitelisted(
@@ -4151,7 +4464,9 @@ impl BehaviorEngine {
                                     // file can satisfy `require_same_stem_created_unknown_extension`
                                     // or `require_same_stem_written_unknown_extension`.
                                     // e.g., "c:/users/foo/document.docx.winball" → stem "c:/users/foo/document.docx"
-                                    if !filepath.is_empty() && matches!(current_file_op, Some("create") | Some("write")) {
+                                    if !filepath.is_empty()
+                                        && matches!(current_file_op, Some("create") | Some("write"))
+                                    {
                                         let last_sep = filepath.rfind('/').unwrap_or(0);
                                         let stem = if let Some(dot_pos) = filepath.rfind('.') {
                                             if dot_pos > last_sep {
@@ -4188,7 +4503,9 @@ impl BehaviorEngine {
 
                         if !matched && extension_changed {
                             if cond_group.detect_known_to_unknown_extension_change {
-                                let matched_known_to_unknown = if let Some(previous_ext) = previous_extension.as_ref() {
+                                let matched_known_to_unknown = if let Some(previous_ext) =
+                                    previous_extension.as_ref()
+                                {
                                     if event_extension.is_empty() {
                                         false
                                     } else {
@@ -4235,45 +4552,57 @@ impl BehaviorEngine {
                     }
                 }
 
-                let has_reg_conditions = !cond_group.registry_keys.is_empty() || 
-                                         !cond_group.autorun_keys.is_empty() ||
-                                         !cond_group.registry_values.is_empty() ||
-                                         !cond_group.registry_value_data_patterns.is_empty();
+                let has_reg_conditions = !cond_group.registry_keys.is_empty()
+                    || !cond_group.autorun_keys.is_empty()
+                    || !cond_group.registry_values.is_empty()
+                    || !cond_group.registry_value_data_patterns.is_empty();
 
-                if !matched && has_reg_conditions && *irp_op == IrpMajorOp::IrpRegistry
-                    && Self::registry_op_matches(cond_group, msg, irp_op) {
-                        let reg_iter = cond_group.registry_keys.iter()
-                            .chain(cond_group.autorun_keys.iter())
-                            .chain(cond_group.registry_values.iter());
+                if !matched
+                    && has_reg_conditions
+                    && *irp_op == IrpMajorOp::IrpRegistry
+                    && Self::registry_op_matches(cond_group, msg, irp_op)
+                {
+                    let reg_iter = cond_group
+                        .registry_keys
+                        .iter()
+                        .chain(cond_group.autorun_keys.iter())
+                        .chain(cond_group.registry_values.iter());
 
-                        for reg_pattern in reg_iter {
-                            if Self::registry_pattern_matches(&self.regex_cache, reg_pattern, filepath) {
-                                matched = true;
-                                Logging::info(&format!(
-                                    "[BehaviorEngine] Condition '{}' - Registry match for PID {}: {}",
-                                    cond_name, state.pid, reg_pattern
-                                ));
-                                break;
-                            }
-                        }
-
-                        if !matched && !cond_group.registry_value_data_patterns.is_empty() {
-                            // object_name usually contains the data for RegSetValue in this engine's current IOMessage mapping
-                            let data = msg.kernel_event_info.object_name.trim();
-                            if !data.is_empty() && cond_group.registry_value_data_patterns.iter().any(|pattern| {
-                                Self::matches_pattern_internal(&self.regex_cache, pattern, data)
-                            }) {
-                                matched = true;
-                                Logging::info(&format!(
-                                    "[BehaviorEngine] Condition '{}' - Registry value data match for PID {}: {}",
-                                    cond_name, state.pid, data
-                                ));
-                            }
+                    for reg_pattern in reg_iter {
+                        if Self::registry_pattern_matches(&self.regex_cache, reg_pattern, filepath)
+                        {
+                            matched = true;
+                            Logging::info(&format!(
+                                "[BehaviorEngine] Condition '{}' - Registry match for PID {}: {}",
+                                cond_name, state.pid, reg_pattern
+                            ));
+                            break;
                         }
                     }
 
+                    if !matched && !cond_group.registry_value_data_patterns.is_empty() {
+                        // object_name usually contains the data for RegSetValue in this engine's current IOMessage mapping
+                        let data = msg.kernel_event_info.object_name.trim();
+                        if !data.is_empty()
+                            && cond_group
+                                .registry_value_data_patterns
+                                .iter()
+                                .any(|pattern| {
+                                    Self::matches_pattern_internal(&self.regex_cache, pattern, data)
+                                })
+                        {
+                            matched = true;
+                            Logging::info(&format!(
+                                "[BehaviorEngine] Condition '{}' - Registry value data match for PID {}: {}",
+                                cond_name, state.pid, data
+                            ));
+                        }
+                    }
+                }
+
                 if !matched && conjunctive_process_context {
-                    let child_name = msg.filepathstr
+                    let child_name = msg
+                        .filepathstr
                         .split(['\\', '/'])
                         .filter(|s| !s.is_empty())
                         .last()
@@ -4281,9 +4610,11 @@ impl BehaviorEngine {
                         .to_lowercase();
                     let child_path_norm = canonical_behavior_path(&msg.filepathstr);
                     let process_name_lc = state.app_name.to_lowercase();
-                    let process_path_norm = canonical_behavior_path(&state.exe_path.to_string_lossy());
+                    let process_path_norm =
+                        canonical_behavior_path(&state.exe_path.to_string_lossy());
                     let parent_name_lc = state.parent_name.to_lowercase();
-                    let parent_path_norm = canonical_behavior_path(&state.parent_path.to_string_lossy());
+                    let parent_path_norm =
+                        canonical_behavior_path(&state.parent_path.to_string_lossy());
 
                     let created_process_ok = if cond_group.created_processes.is_empty() {
                         true
@@ -4336,19 +4667,29 @@ impl BehaviorEngine {
                     let cmdline_ok = if has_cmdline_requirements {
                         (!cond_group.cmdline_keywords.is_empty()
                             && cond_group.cmdline_keywords.iter().any(|kw| {
-                                Self::matches_pattern_internal(&self.regex_cache, kw, &cmdline_source)
+                                Self::matches_pattern_internal(
+                                    &self.regex_cache,
+                                    kw,
+                                    &cmdline_source,
+                                )
                             }))
                             || (!cond_group.cmdline_patterns.is_empty()
-                                && cond_group.cmdline_patterns.iter().any(|pat| {
-                                    pat.matches(&self.regex_cache, &cmdline_source)
-                                }))
+                                && cond_group
+                                    .cmdline_patterns
+                                    .iter()
+                                    .any(|pat| pat.matches(&self.regex_cache, &cmdline_source)))
                     } else {
                         true
                     };
 
                     let network_ok = !cond_group.has_network_activity || network_activity_observed;
 
-                    if created_process_ok && process_name_ok && parent_ok && cmdline_ok && network_ok {
+                    if created_process_ok
+                        && process_name_ok
+                        && parent_ok
+                        && cmdline_ok
+                        && network_ok
+                    {
                         matched = true;
                         let subject = if !cond_group.created_processes.is_empty() {
                             child_name.clone()
@@ -4368,7 +4709,8 @@ impl BehaviorEngine {
 
                 if !matched && !conjunctive_process_context && !cond_group.parent_names.is_empty() {
                     let parent_lc = state.parent_name.to_lowercase();
-                    if !parent_lc.is_empty() && parent_lc != "unknown"
+                    if !parent_lc.is_empty()
+                        && parent_lc != "unknown"
                         && cond_group.parent_names.iter().any(|p| {
                             Self::matches_process_identity_pattern(
                                 &self.regex_cache,
@@ -4376,13 +4718,14 @@ impl BehaviorEngine {
                                 &parent_lc,
                                 &canonical_behavior_path(&state.parent_path.to_string_lossy()),
                             )
-                        }) {
-                            matched = true;
-                            Logging::info(&format!(
-                                "[BehaviorEngine] Condition '{}' - Parent process match for PID {}: {}",
-                                cond_name, state.pid, parent_lc
-                            ));
-                        }
+                        })
+                    {
+                        matched = true;
+                        Logging::info(&format!(
+                            "[BehaviorEngine] Condition '{}' - Parent process match for PID {}: {}",
+                            cond_name, state.pid, parent_lc
+                        ));
+                    }
                 }
 
                 if !matched && !conjunctive_process_context && has_cmdline_requirements {
@@ -4391,9 +4734,10 @@ impl BehaviorEngine {
                         let keyword_hit = cond_group.cmdline_keywords.iter().any(|kw| {
                             Self::matches_pattern_internal(&self.regex_cache, kw, &cmdline_lc)
                         });
-                        let pattern_hit = cond_group.cmdline_patterns.iter().any(|pat| {
-                            pat.matches(&self.regex_cache, &cmdline_lc)
-                        });
+                        let pattern_hit = cond_group
+                            .cmdline_patterns
+                            .iter()
+                            .any(|pat| pat.matches(&self.regex_cache, &cmdline_lc));
                         if keyword_hit || pattern_hit {
                             matched = true;
                             Logging::info(&format!(
@@ -4409,11 +4753,18 @@ impl BehaviorEngine {
                 // `powershell.exe -File evil.ps1`). Matches both the filename
                 // and the full normalized path so rules can be as broad or
                 // narrow as needed.
-                if !matched && !cond_group.script_file_patterns.is_empty() && !state.script_file.is_empty() {
+                if !matched
+                    && !cond_group.script_file_patterns.is_empty()
+                    && !state.script_file.is_empty()
+                {
                     let hit = cond_group.script_file_patterns.iter().any(|pat| {
                         let p = pat.to_lowercase();
                         Self::matches_pattern_internal(&self.regex_cache, &p, &state.script_file)
-                            || Self::matches_pattern_internal(&self.regex_cache, &p, &state.script_file_path)
+                            || Self::matches_pattern_internal(
+                                &self.regex_cache,
+                                &p,
+                                &state.script_file_path,
+                            )
                     });
                     if hit {
                         matched = true;
@@ -4428,21 +4779,38 @@ impl BehaviorEngine {
                     let mut term_match = false;
                     let mut matched_victim = String::new();
                     if *irp_op == IrpMajorOp::IrpProcessTerminateAttempt
-                        && let Some(victim) = cond_group.terminated_processes.iter().find(|victim_pattern| {
-                            Self::matches_pattern_internal(&self.regex_cache, victim_pattern, filepath)
-                        }) {
-                            term_match = true;
-                            matched_victim = victim.to_string();
-                        }
+                        && let Some(victim) =
+                            cond_group
+                                .terminated_processes
+                                .iter()
+                                .find(|victim_pattern| {
+                                    Self::matches_pattern_internal(
+                                        &self.regex_cache,
+                                        victim_pattern,
+                                        filepath,
+                                    )
+                                })
+                    {
+                        term_match = true;
+                        matched_victim = victim.to_string();
+                    }
                     if !term_match
                         && let Some(victim) = state.terminated_processes.iter().find(|victim| {
-                            cond_group.terminated_processes.iter().any(|victim_pattern| {
-                                Self::matches_pattern_internal(&self.regex_cache, victim_pattern, victim)
-                            })
-                        }) {
-                            term_match = true;
-                            matched_victim = victim.to_string();
-                        }
+                            cond_group
+                                .terminated_processes
+                                .iter()
+                                .any(|victim_pattern| {
+                                    Self::matches_pattern_internal(
+                                        &self.regex_cache,
+                                        victim_pattern,
+                                        victim,
+                                    )
+                                })
+                        })
+                    {
+                        term_match = true;
+                        matched_victim = victim.to_string();
+                    }
                     if term_match {
                         matched = true;
                         Logging::info(&format!(
@@ -4463,7 +4831,8 @@ impl BehaviorEngine {
                 {
                     // Extract just the filename from device or drive-letter paths.
                     // split on both \ and / to handle \Device\HarddiskVolume3\...\bcdedit.exe
-                    let child_name = msg.filepathstr
+                    let child_name = msg
+                        .filepathstr
                         .split(['\\', '/'])
                         .filter(|s| !s.is_empty())
                         .last()
@@ -4489,7 +4858,8 @@ impl BehaviorEngine {
                     }
                 }
 
-                if !matched && !conjunctive_process_context && !cond_group.process_names.is_empty() {
+                if !matched && !conjunctive_process_context && !cond_group.process_names.is_empty()
+                {
                     let app_lc = state.app_name.to_lowercase();
                     let exe_path_lc = canonical_behavior_path(&state.exe_path.to_string_lossy());
                     if !app_lc.is_empty()
@@ -4500,15 +4870,16 @@ impl BehaviorEngine {
                                 &app_lc,
                                 &exe_path_lc,
                             )
-                        }) {
-                            matched = true;
-                            Logging::info(&format!(
-                                "[BehaviorEngine] Condition '{}' - Process name match for PID {}: {}",
-                                cond_name, state.pid, app_lc
-                            ));
-                        }
+                        })
+                    {
+                        matched = true;
+                        Logging::info(&format!(
+                            "[BehaviorEngine] Condition '{}' - Process name match for PID {}: {}",
+                            cond_name, state.pid, app_lc
+                        ));
+                    }
                 }
-                
+
                 if !matched && state.signature_checked && cond_group.is_signed.is_some() {
                     let check_signed = cond_group.is_signed.unwrap();
                     if state.is_signed == check_signed {
@@ -4519,7 +4890,7 @@ impl BehaviorEngine {
                         ));
                     }
                 }
-                
+
                 if !matched && state.signature_checked && cond_group.is_valid_signed.is_some() {
                     let check_valid = cond_group.is_valid_signed.unwrap();
                     if state.has_valid_signature == check_valid {
@@ -4530,7 +4901,7 @@ impl BehaviorEngine {
                         ));
                     }
                 }
-                
+
                 if !matched && state.signature_checked && cond_group.requires_signed.is_some() {
                     let must_be_signed = cond_group.requires_signed.unwrap();
                     if state.is_signed == must_be_signed {
@@ -4541,10 +4912,11 @@ impl BehaviorEngine {
                         ));
                     }
                 }
-                
+
                 if !matched
                     && cond_group.detect_hypervisor_event
-                    && state.hypervisor_event_count >= cond_group.hypervisor_event_threshold.max(1) as u32
+                    && state.hypervisor_event_count
+                        >= cond_group.hypervisor_event_threshold.max(1) as u32
                 {
                     matched = true;
                     Logging::info(&format!(
@@ -4552,7 +4924,7 @@ impl BehaviorEngine {
                         cond_name, state.pid, state.hypervisor_event_count
                     ));
                 }
-                
+
                 if matched {
                     let scoped_name = Self::scoped_condition_name(rule, cond_name);
                     let match_key = if !filepath.is_empty() {
@@ -4565,7 +4937,9 @@ impl BehaviorEngine {
                             msg.file_id_id.0, msg.irp_op, msg.file_change
                         )
                     } else {
-                        let event_ts = msg.time.duration_since(UNIX_EPOCH)
+                        let event_ts = msg
+                            .time
+                            .duration_since(UNIX_EPOCH)
                             .map(|d| d.as_nanos())
                             .unwrap_or(0);
                         format!(
@@ -4588,10 +4962,17 @@ impl BehaviorEngine {
                     if is_new {
                         *count += 1;
                     }
-                    state.condition_first_seen.entry(scoped_name.clone()).or_insert(now);
+                    state
+                        .condition_first_seen
+                        .entry(scoped_name.clone())
+                        .or_insert(now);
                     state.condition_last_seen.insert(scoped_name.clone(), now);
 
-                    let required = if cond_group.min_matches > 0 { cond_group.min_matches } else { 1 };
+                    let required = if cond_group.min_matches > 0 {
+                        cond_group.min_matches
+                    } else {
+                        1
+                    };
                     if *count >= required {
                         state.satisfied_named_conditions.insert(scoped_name);
                         if rule.debug || self.rules.iter().any(|r| r.debug) {
@@ -4600,13 +4981,12 @@ impl BehaviorEngine {
                                 cond_name, state.pid, *count, required, match_key
                             ));
                         }
-                    } else if is_new
-                        && (rule.debug || self.rules.iter().any(|r| r.debug)) {
-                            Logging::debug(&format!(
-                                "[BehaviorEngine] Condition '{}' match #{}/{} for PID {} ({})",
-                                cond_name, *count, required, state.pid, match_key
-                            ));
-                        }
+                    } else if is_new && (rule.debug || self.rules.iter().any(|r| r.debug)) {
+                        Logging::debug(&format!(
+                            "[BehaviorEngine] Condition '{}' match #{}/{} for PID {} ({})",
+                            cond_name, *count, required, state.pid, match_key
+                        ));
+                    }
                 }
             }
         }
@@ -4621,69 +5001,81 @@ impl BehaviorEngine {
         rule: &BehaviorRule,
     ) -> bool {
         match condition {
-            DetectionCondition::Named { condition: cond_name } => {
-                Self::rule_condition_satisfied(state, rule, cond_name)
-            },
-            
-            DetectionCondition::And { and } => {
-                and.iter().all(|c| self.evaluate_detection_condition(c, state, rule))
-            },
-            
-            DetectionCondition::Or { or } => {
-                or.iter().any(|c| self.evaluate_detection_condition(c, state, rule))
-            },
-            
-            DetectionCondition::Not { not } => {
-                !self.evaluate_detection_condition(not, state, rule)
-            },
-            
-            DetectionCondition::AllOf { all_of } => {
-                all_of
-                    .iter()
-                    .all(|cond_name| Self::rule_condition_satisfied(state, rule, cond_name))
-            },
-            
-            DetectionCondition::AnyOf { any_of } => {
-                any_of
-                    .iter()
-                    .any(|cond_name| Self::rule_condition_satisfied(state, rule, cond_name))
-            },
-            
+            DetectionCondition::Named {
+                condition: cond_name,
+            } => Self::rule_condition_satisfied(state, rule, cond_name),
+
+            DetectionCondition::And { and } => and
+                .iter()
+                .all(|c| self.evaluate_detection_condition(c, state, rule)),
+
+            DetectionCondition::Or { or } => or
+                .iter()
+                .any(|c| self.evaluate_detection_condition(c, state, rule)),
+
+            DetectionCondition::Not { not } => !self.evaluate_detection_condition(not, state, rule),
+
+            DetectionCondition::AllOf { all_of } => all_of
+                .iter()
+                .all(|cond_name| Self::rule_condition_satisfied(state, rule, cond_name)),
+
+            DetectionCondition::AnyOf { any_of } => any_of
+                .iter()
+                .any(|cond_name| Self::rule_condition_satisfied(state, rule, cond_name)),
+
             DetectionCondition::NOf { n_of, conditions } => {
-                let satisfied_count = conditions.iter()
+                let satisfied_count = conditions
+                    .iter()
                     .filter(|cond_name| Self::rule_condition_satisfied(state, rule, cond_name))
                     .count();
                 satisfied_count == *n_of
-            },
-            
-            DetectionCondition::AtLeast { at_least, conditions } => {
-                let satisfied_count = conditions.iter()
+            }
+
+            DetectionCondition::AtLeast {
+                at_least,
+                conditions,
+            } => {
+                let satisfied_count = conditions
+                    .iter()
                     .filter(|cond_name| Self::rule_condition_satisfied(state, rule, cond_name))
                     .count();
                 satisfied_count >= *at_least
-            },
-            
+            }
+
             DetectionCondition::AllOfPattern { all_of_pattern } => {
                 let matching_conditions: Vec<_> = rule
                     .named_conditions
                     .keys()
                     .filter(|cond_name| {
                         Self::rule_condition_satisfied(state, rule, cond_name)
-                            && Self::matches_pattern_internal(&self.regex_cache, all_of_pattern, cond_name)
+                            && Self::matches_pattern_internal(
+                                &self.regex_cache,
+                                all_of_pattern,
+                                cond_name,
+                            )
                     })
                     .collect();
                 !matching_conditions.is_empty()
-            },
-            
+            }
+
             DetectionCondition::AnyOfPattern { any_of_pattern } => {
                 rule.named_conditions.keys().any(|cond_name| {
                     Self::rule_condition_satisfied(state, rule, cond_name)
-                        && Self::matches_pattern_internal(&self.regex_cache, any_of_pattern, cond_name)
+                        && Self::matches_pattern_internal(
+                            &self.regex_cache,
+                            any_of_pattern,
+                            cond_name,
+                        )
                 })
-            },
-            
-            DetectionCondition::Count { count, comparison, threshold } => {
-                let satisfied_count = count.iter()
+            }
+
+            DetectionCondition::Count {
+                count,
+                comparison,
+                threshold,
+            } => {
+                let satisfied_count = count
+                    .iter()
                     .filter(|cond_name| Self::rule_condition_satisfied(state, rule, cond_name))
                     .count();
                 match comparison {
@@ -4694,11 +5086,18 @@ impl BehaviorEngine {
                     Comparison::Eq => satisfied_count == *threshold,
                     Comparison::Ne => satisfied_count != *threshold,
                 }
-            },
-            
-            DetectionCondition::Percentage { percentage, comparison, threshold } => {
-                if percentage.is_empty() { return false; }
-                let satisfied_count = percentage.iter()
+            }
+
+            DetectionCondition::Percentage {
+                percentage,
+                comparison,
+                threshold,
+            } => {
+                if percentage.is_empty() {
+                    return false;
+                }
+                let satisfied_count = percentage
+                    .iter()
                     .filter(|cond_name| Self::rule_condition_satisfied(state, rule, cond_name))
                     .count();
                 let ratio = satisfied_count as f32 / percentage.len() as f32;
@@ -4710,7 +5109,7 @@ impl BehaviorEngine {
                     Comparison::Eq => (ratio - threshold).abs() < 0.001,
                     Comparison::Ne => (ratio - threshold).abs() >= 0.001,
                 }
-            },
+            }
         }
     }
 
@@ -4721,7 +5120,7 @@ impl BehaviorEngine {
         msg: &IOMessage,
         _irp_op: IrpMajorOp,
         config: &Config,
-        actions: &mut ActionsOnKill
+        actions: &mut ActionsOnKill,
     ) {
         let state_ref = match self.process_states.get_mut(&gid) {
             Some(s) => {
@@ -4752,8 +5151,10 @@ impl BehaviorEngine {
                     if let Some(stats) = sanctum_lock.remove(&pid) {
                         s.sanctum_stats.syscall_count += stats.syscall_count;
                         s.sanctum_stats.is_detection |= stats.is_detection;
-                        s.sanctum_stats.injection_score = (s.sanctum_stats.injection_score + stats.injection_score).min(1.0);
-                        s.sanctum_stats.cross_process_handle_count += stats.cross_process_handle_count;
+                        s.sanctum_stats.injection_score =
+                            (s.sanctum_stats.injection_score + stats.injection_score).min(1.0);
+                        s.sanctum_stats.cross_process_handle_count +=
+                            stats.cross_process_handle_count;
                         s.sanctum_stats.shellcode_patterns_found |= stats.shellcode_patterns_found;
                         s.sanctum_stats.last_event = stats.last_event;
                         for hit in stats.suspicious_syscall_hits {
@@ -4785,7 +5186,12 @@ impl BehaviorEngine {
             } else {
                 Some(state_ref.script_file.as_str())
             };
-            if self.check_allowlist(&precord.appname, rule, Some(&precord.exepath), script_file_opt) {
+            if self.check_allowlist(
+                &precord.appname,
+                rule,
+                Some(&precord.exepath),
+                script_file_opt,
+            ) {
                 continue;
             }
 
@@ -4802,15 +5208,15 @@ impl BehaviorEngine {
                 if parent_lc.is_empty() || parent_lc == "unknown" {
                     false
                 } else {
-                    rule.suspicious_parents.iter().any(|p| {
-                        Self::matches_pattern_internal(&self.regex_cache, p, &parent_lc)
-                    })
+                    rule.suspicious_parents
+                        .iter()
+                        .any(|p| Self::matches_pattern_internal(&self.regex_cache, p, &parent_lc))
                 }
             } else {
                 false
             };
             let has_sensitive_access = !state_ref.accessed_paths_tracker.is_empty();
-            
+
             let mut legacy_satisfied = 0;
             let mut legacy_total = 0;
 
@@ -4833,7 +5239,8 @@ impl BehaviorEngine {
                     if rule.debug || self.rules.iter().any(|r| r.debug) {
                         Logging::debug(&format!(
                             "[BehaviorEngine] Condition 'staging_paths' matched for PID {}: {} files staged",
-                            state_ref.pid, state_ref.staged_files_written.len()
+                            state_ref.pid,
+                            state_ref.staged_files_written.len()
                         ));
                     }
                 }
@@ -4869,7 +5276,8 @@ impl BehaviorEngine {
                     if rule.debug || self.rules.iter().any(|r| r.debug) {
                         Logging::debug(&format!(
                             "[BehaviorEngine] Condition 'accessed_paths' matched for PID {}: {} sensitive paths",
-                            state_ref.pid, state_ref.accessed_paths_tracker.len()
+                            state_ref.pid,
+                            state_ref.accessed_paths_tracker.len()
                         ));
                     }
                 }
@@ -4888,18 +5296,32 @@ impl BehaviorEngine {
             }
             if !rule.monitored_apis.is_empty() {
                 legacy_total += 1;
-                let api_match_count = rule.monitored_apis.iter().filter(|monitored_api| {
-                    let (monitored_norm, monitored_has_path) = Self::normalize_api_signature(monitored_api);
-                    state_ref.all_apis_called.iter().any(|tracked_api| {
-                        let (tracked_norm, tracked_has_path) = Self::normalize_api_signature(tracked_api);
-                        if monitored_has_path {
-                            tracked_has_path
-                                && Self::matches_pattern_internal(&self.regex_cache, monitored_api, tracked_api)
-                        } else {
-                            Self::matches_pattern_internal(&self.regex_cache, &monitored_norm, &tracked_norm)
-                        }
+                let api_match_count = rule
+                    .monitored_apis
+                    .iter()
+                    .filter(|monitored_api| {
+                        let (monitored_norm, monitored_has_path) =
+                            Self::normalize_api_signature(monitored_api);
+                        state_ref.all_apis_called.iter().any(|tracked_api| {
+                            let (tracked_norm, tracked_has_path) =
+                                Self::normalize_api_signature(tracked_api);
+                            if monitored_has_path {
+                                tracked_has_path
+                                    && Self::matches_pattern_internal(
+                                        &self.regex_cache,
+                                        monitored_api,
+                                        tracked_api,
+                                    )
+                            } else {
+                                Self::matches_pattern_internal(
+                                    &self.regex_cache,
+                                    &monitored_norm,
+                                    &tracked_norm,
+                                )
+                            }
+                        })
                     })
-                }).count();
+                    .count();
                 let threshold = std::cmp::max(1, rule.multi_access_threshold);
                 if api_match_count >= threshold {
                     legacy_satisfied += 1;
@@ -4938,12 +5360,14 @@ impl BehaviorEngine {
             if !rule.terminated_processes.is_empty() {
                 legacy_total += 1;
                 let term_hit = rule.terminated_processes.iter().any(|rule_proc| {
-                    let ext_match = state_ref.terminated_processes.iter().any(|v| 
-                        Self::matches_pattern_internal(&self.regex_cache, rule_proc, v)
-                    );
-                    let self_match = rule.detect_self_termination && state_ref.self_terminated_processes.iter().any(|v|
-                        Self::matches_pattern_internal(&self.regex_cache, rule_proc, v)
-                    );
+                    let ext_match = state_ref
+                        .terminated_processes
+                        .iter()
+                        .any(|v| Self::matches_pattern_internal(&self.regex_cache, rule_proc, v));
+                    let self_match = rule.detect_self_termination
+                        && state_ref.self_terminated_processes.iter().any(|v| {
+                            Self::matches_pattern_internal(&self.regex_cache, rule_proc, v)
+                        });
                     ext_match || self_match
                 });
                 if term_hit {
@@ -4962,7 +5386,9 @@ impl BehaviorEngine {
                 if !rule.http_request_body_patterns.is_empty() {
                     legacy_total += 1;
                     let matched = state_ref.http_body_entries.iter().any(|(req_body, _)| {
-                        rule.http_request_body_patterns.iter().any(|pat| req_body.contains(pat.as_str()))
+                        rule.http_request_body_patterns
+                            .iter()
+                            .any(|pat| req_body.contains(pat.as_str()))
                     });
                     if matched {
                         legacy_satisfied += 1;
@@ -4977,7 +5403,9 @@ impl BehaviorEngine {
                 if !rule.http_response_body_patterns.is_empty() {
                     legacy_total += 1;
                     let matched = state_ref.http_body_entries.iter().any(|(_, resp_body)| {
-                        rule.http_response_body_patterns.iter().any(|pat| resp_body.contains(pat.as_str()))
+                        rule.http_response_body_patterns
+                            .iter()
+                            .any(|pat| resp_body.contains(pat.as_str()))
                     });
                     if matched {
                         legacy_satisfied += 1;
@@ -4996,17 +5424,26 @@ impl BehaviorEngine {
             } else {
                 0.0
             };
-            let legacy_threshold = if rule.conditions_percentage > 0.0 { 
-                rule.conditions_percentage 
-            } else { 
-                1.0 
+            let legacy_threshold = if rule.conditions_percentage > 0.0 {
+                rule.conditions_percentage
+            } else {
+                1.0
             };
             let legacy_triggered = legacy_total > 0 && legacy_ratio >= legacy_threshold;
-            
-            if legacy_total > 0 && legacy_ratio > 0.0 && legacy_ratio < legacy_threshold && (rule.debug || self.rules.iter().any(|r| r.debug)) {
+
+            if legacy_total > 0
+                && legacy_ratio > 0.0
+                && legacy_ratio < legacy_threshold
+                && (rule.debug || self.rules.iter().any(|r| r.debug))
+            {
                 Logging::debug(&format!(
                     "[BehaviorEngine] Partial match on rule '{}' for PID {}: {}/{} conditions met ({:.1}% < {:.1}% required)",
-                    rule.name, state_ref.pid, legacy_satisfied, legacy_total, legacy_ratio * 100.0, legacy_threshold * 100.0
+                    rule.name,
+                    state_ref.pid,
+                    legacy_satisfied,
+                    legacy_total,
+                    legacy_ratio * 100.0,
+                    legacy_threshold * 100.0
                 ));
             }
 
@@ -5029,7 +5466,67 @@ impl BehaviorEngine {
                 #[cfg(feature = "firewall")]
                 if rule.response.ask_user {
                     match self.resolve_firewall_hips_prompt(gid, &state_ref, rule) {
-                        FirewallHipsPromptOutcome::Pending | FirewallHipsPromptOutcome::Allowed => {
+                        FirewallHipsPromptOutcome::Pending => {
+                            // Block the process while waiting for the user's decision
+                            if rule.response.deny_while_ask {
+                                let pending_threat = ThreatInfo {
+                                    threat_type_label: "HIPS Pending",
+                                    virus_name: &rule.name,
+                                    prediction: 0.0,
+                                    match_details: Some(format!(
+                                        "Awaiting user decision for rule '{}'",
+                                        rule.name
+                                    )),
+                                    deny_access: true,
+                                    terminate: false,
+                                    quarantine: false,
+                                    kill_and_remove: false,
+                                    suspend: false,
+                                    notify_user: false,
+                                    revert: false,
+                                };
+                                let dummy = VecvecCappedF32::new(0, 0);
+                                actions.run_actions_with_info(
+                                    config,
+                                    precord,
+                                    &dummy,
+                                    &pending_threat,
+                                );
+                                Logging::info(&format!(
+                                    "[BehaviorEngine] HIPS pending: deny_while_ask active for '{}' (PID: {})",
+                                    rule.name, state_ref.pid
+                                ));
+                            }
+                            if rule.response.suspend_while_ask {
+                                Logging::info(&format!(
+                                    "[BehaviorEngine] HIPS pending: suspend_while_ask active for '{}' (PID: {})",
+                                    rule.name, state_ref.pid
+                                ));
+                                precord.process_state = ProcessState::Suspended;
+                                for &pid in &precord.pids {
+                                    unsafe {
+                                        let _ = windows::Win32::System::Diagnostics::Debug::DebugActiveProcess(pid);
+                                    }
+                                }
+                            }
+                            continue;
+                        }
+                        FirewallHipsPromptOutcome::Allowed => {
+                            // User allowed — resume if previously suspended
+                            if rule.response.suspend_while_ask
+                                && precord.process_state == ProcessState::Suspended
+                            {
+                                Logging::info(&format!(
+                                    "[BehaviorEngine] HIPS allowed: resuming suspended process '{}' (PID: {})",
+                                    precord.appname, state_ref.pid
+                                ));
+                                precord.process_state = ProcessState::Running;
+                                for &pid in &precord.pids {
+                                    unsafe {
+                                        let _ = windows::Win32::System::Diagnostics::Debug::DebugActiveProcessStop(pid);
+                                    }
+                                }
+                            }
                             continue;
                         }
                         FirewallHipsPromptOutcome::Deny => {
@@ -5045,17 +5542,29 @@ impl BehaviorEngine {
                     }
                 }
 
-                let trigger_type = if stages_triggered { "Stage-based" }
-                                  else if rich_triggered { "Rich-logic" }
-                                  else { "Legacy" };
+                let trigger_type = if stages_triggered {
+                    "Stage-based"
+                } else if rich_triggered {
+                    "Rich-logic"
+                } else {
+                    "Legacy"
+                };
 
-                let indicator_ratio = if stages_triggered { stage_conf }
-                                     else if rich_triggered { 1.0 }
-                                     else { legacy_ratio };
+                let indicator_ratio = if stages_triggered {
+                    stage_conf
+                } else if rich_triggered {
+                    1.0
+                } else {
+                    legacy_ratio
+                };
 
                 Logging::warning(&format!(
                     "[BehaviorEngine] DETECTION ({}) : {} (PID: {}) matched '{}' ({:.1}%)",
-                    trigger_type, precord.appname, state_ref.pid, rule.name, indicator_ratio * 100.0
+                    trigger_type,
+                    precord.appname,
+                    state_ref.pid,
+                    rule.name,
+                    indicator_ratio * 100.0
                 ));
 
                 precord.is_malicious = true;
@@ -5096,14 +5605,24 @@ impl BehaviorEngine {
                     } else {
                         rule.response.quarantine
                     },
-                    kill_and_remove: if rule.response.ask_user { false } else { rule.response.kill_and_remove },
+                    kill_and_remove: if rule.response.ask_user {
+                        false
+                    } else {
+                        rule.response.kill_and_remove
+                    },
+                    suspend: if rule.response.ask_user {
+                        false
+                    } else {
+                        rule.response.suspend_process
+                    },
                     notify_user: rule.response.notify_user,
                     revert: rule.response.auto_revert,
                 };
 
                 // FAIL-FAST SAFETY GUARD: Prevent rule-based termination of critical system processes
                 if (threat_info.terminate || threat_info.quarantine || threat_info.kill_and_remove)
-                    && let Some(reason) = crate::utils::protected_process_record_reason(precord) {
+                    && let Some(reason) = crate::utils::protected_process_record_reason(precord)
+                {
                     Logging::warning(&format!(
                         "[BehaviorEngine] Rule '{}' triggered termination for protected process {} (GID: {}), but it was BLOCKED: {}",
                         rule.name, precord.appname, precord.gid, reason
@@ -5115,7 +5634,8 @@ impl BehaviorEngine {
 
                 let dummy_pred_mtrx = VecvecCappedF32::new(0, 0);
                 actions.run_actions_with_info(config, precord, &dummy_pred_mtrx, &threat_info);
-                self.process_terminated.insert(precord.appname.to_lowercase());
+                self.process_terminated
+                    .insert(precord.appname.to_lowercase());
 
                 if threat_info.terminate {
                     break;
@@ -5123,25 +5643,30 @@ impl BehaviorEngine {
             }
         }
     }
-    
+
     fn evaluate_stages_from_state(
         &self,
         rule: &BehaviorRule,
         state: &ProcessBehaviorState,
-        msg: Option<&IOMessage>
+        msg: Option<&IOMessage>,
     ) -> (bool, f32) {
         let mut satisfied_stages = 0;
-        
+
         for stage in &rule.stages {
             let mut stage_satisfied_count = 0;
             let mut stage_total_conditions = 0;
-            
+
             for condition in &stage.conditions {
                 stage_total_conditions += 1;
                 let mut condition_matched = false;
-                
+
                 match condition {
-                    RuleCondition::OperationCount { op_type, comparison, threshold, .. } => {
+                    RuleCondition::OperationCount {
+                        op_type,
+                        comparison,
+                        threshold,
+                        ..
+                    } => {
                         let count = state.irp_stats.get_operation_count(op_type);
                         condition_matched = match comparison {
                             Comparison::Gt => count > *threshold,
@@ -5151,9 +5676,13 @@ impl BehaviorEngine {
                             Comparison::Eq => count == *threshold,
                             Comparison::Ne => count != *threshold,
                         };
-                    },
-                    
-                    RuleCondition::ByteThreshold { direction, comparison, threshold } => {
+                    }
+
+                    RuleCondition::ByteThreshold {
+                        direction,
+                        comparison,
+                        threshold,
+                    } => {
                         let bytes = match direction.as_str() {
                             "read" => state.irp_stats.total_bytes_read,
                             "write" => state.irp_stats.total_bytes_written,
@@ -5167,26 +5696,36 @@ impl BehaviorEngine {
                             Comparison::Eq => bytes == *threshold,
                             Comparison::Ne => bytes != *threshold,
                         };
-                    },
-                    
+                    }
+
                     RuleCondition::File { op, path_pattern } => {
                         let has_match = match op.as_str() {
                             "write" | "create" => {
                                 state.irp_stats.unique_paths_accessed.iter().any(|path| {
-                                    Self::matches_pattern_internal(&self.regex_cache, path_pattern, path)
+                                    Self::matches_pattern_internal(
+                                        &self.regex_cache,
+                                        path_pattern,
+                                        path,
+                                    )
                                 })
-                            },
-                            "read" => {
-                                state.irp_stats.unique_paths_accessed.iter().any(|path| {
-                                    Self::matches_pattern_internal(&self.regex_cache, path_pattern, path)
-                                })
-                            },
+                            }
+                            "read" => state.irp_stats.unique_paths_accessed.iter().any(|path| {
+                                Self::matches_pattern_internal(
+                                    &self.regex_cache,
+                                    path_pattern,
+                                    path,
+                                )
+                            }),
                             _ => false,
                         };
                         condition_matched = has_match;
-                    },
-                    
-                    RuleCondition::EntropyThreshold { comparison, threshold, .. } => {
+                    }
+
+                    RuleCondition::EntropyThreshold {
+                        comparison,
+                        threshold,
+                        ..
+                    } => {
                         if let Some(m) = msg {
                             let entropy = m.entropy;
                             condition_matched = match comparison {
@@ -5198,27 +5737,28 @@ impl BehaviorEngine {
                                 Comparison::Ne => (entropy - threshold).abs() >= 0.001,
                             };
                         }
-                    },
-                    
+                    }
+
                     RuleCondition::NetworkCondition(net_rule) => {
                         if let Some(_m) = msg {
                             // We don't have the full packet buffer here, only what's in IOMessage.
                             // However, we can construct a temporary PacketInfo if needed, or check
                             // if there's a recent packet in state.net_packets that matches.
-                            condition_matched = state.net_packets.iter().any(|pkt| {
-                                net_rule.matches_packet(&self.regex_cache, pkt, &[])
-                            });
+                            condition_matched = state
+                                .net_packets
+                                .iter()
+                                .any(|pkt| net_rule.matches_packet(&self.regex_cache, pkt, &[]));
                         }
-                    },
-                    
+                    }
+
                     _ => condition_matched = false,
                 }
-                
+
                 if condition_matched {
                     stage_satisfied_count += 1;
                 }
             }
-            
+
             if stage_total_conditions > 0 {
                 let stage_ratio = stage_satisfied_count as f32 / stage_total_conditions as f32;
                 let threshold = if rule.conditions_percentage > 0.0 {
@@ -5226,30 +5766,30 @@ impl BehaviorEngine {
                 } else {
                     1.0
                 };
-                
+
                 if stage_ratio >= threshold {
                     satisfied_stages += 1;
                 }
             }
         }
-        
+
         let total_stages = rule.stages.len() as f32;
         let stage_confidence = if total_stages > 0.0 {
             satisfied_stages as f32 / total_stages
         } else {
             0.0
         };
-        
+
         let min_stages = if rule.min_stages_satisfied > 0 {
             rule.min_stages_satisfied
         } else {
             1
         };
-        
+
         let detected = satisfied_stages >= min_stages;
         (detected, stage_confidence)
     }
-    
+
     /// Parse the command line of a known script interpreter and return
     /// `(script_filename, script_full_path_normalized)`.
     /// Returns `None` when the process is not a known interpreter or no script
@@ -5286,7 +5826,11 @@ impl BehaviorEngine {
         };
 
         // Skip token[0] — that is the interpreter itself.
-        let args: &[String] = if tokens.len() > 1 { &tokens[1..] } else { return None; };
+        let args: &[String] = if tokens.len() > 1 {
+            &tokens[1..]
+        } else {
+            return None;
+        };
 
         let script_path: Option<String> = match interp_name {
             // ── PowerShell / pwsh ──────────────────────────────────────────
@@ -5341,11 +5885,10 @@ impl BehaviorEngine {
             }
 
             // ── mshta.exe ─────────────────────────────────────────────────
-            n if n == "mshta.exe" => {
-                args.first()
-                    .filter(|a| !a.starts_with('/') && a.contains('.'))
-                    .cloned()
-            }
+            n if n == "mshta.exe" => args
+                .first()
+                .filter(|a| !a.starts_with('/') && a.contains('.'))
+                .cloned(),
 
             // ── rundll32.exe ──────────────────────────────────────────────
             // Format: rundll32.exe path\script.dll,EntryPoint
@@ -5361,14 +5904,13 @@ impl BehaviorEngine {
             }
 
             // ── regsvr32.exe ──────────────────────────────────────────────
-            n if n == "regsvr32.exe" => {
-                args.iter()
-                    .find(|a| {
-                        let l = a.to_lowercase();
-                        !l.starts_with('/') && (l.ends_with(".dll") || l.ends_with(".ocx"))
-                    })
-                    .cloned()
-            }
+            n if n == "regsvr32.exe" => args
+                .iter()
+                .find(|a| {
+                    let l = a.to_lowercase();
+                    !l.starts_with('/') && (l.ends_with(".dll") || l.ends_with(".ocx"))
+                })
+                .cloned(),
 
             // ── msiexec.exe ───────────────────────────────────────────────
             n if n == "msiexec.exe" => {
@@ -5388,11 +5930,22 @@ impl BehaviorEngine {
             // ── Generic script interpreters ───────────────────────────────
             // python.exe, python3.exe, node.exe, ruby.exe, perl.exe, php.exe,
             // bash.exe, sh.exe, lua.exe, Rscript.exe …
-            n if matches!(n,
-                "python.exe" | "python3.exe" | "node.exe" | "node" |
-                "ruby.exe" | "perl.exe" | "php.exe" | "bash.exe" |
-                "sh.exe" | "lua.exe" | "rscript.exe" | "julia.exe"
-            ) => {
+            n if matches!(
+                n,
+                "python.exe"
+                    | "python3.exe"
+                    | "node.exe"
+                    | "node"
+                    | "ruby.exe"
+                    | "perl.exe"
+                    | "php.exe"
+                    | "bash.exe"
+                    | "sh.exe"
+                    | "lua.exe"
+                    | "rscript.exe"
+                    | "julia.exe"
+            ) =>
+            {
                 // Skip interpreter flags (-c, --version, etc.) and take the
                 // first argument that looks like a file path.
                 args.iter()
@@ -5425,23 +5978,29 @@ impl BehaviorEngine {
         // Check interpreter name first, then fall back to script filename.
         // This lets allowlist entries like `pattern: "benign_deploy.ps1"` work
         // even when the tracked process is `powershell.exe`.
-        let names_to_check: &[&str] = &[
-            proc_name,
-            script_file.unwrap_or(""),
-        ];
+        let names_to_check: &[&str] = &[proc_name, script_file.unwrap_or("")];
         names_to_check.iter().any(|name| {
-            if name.is_empty() { return false; }
+            if name.is_empty() {
+                return false;
+            }
             let proc_lc = name.to_lowercase();
             rule.allowlisted_apps.iter().any(|entry| {
                 match entry {
                     AllowlistEntry::Simple(pattern) => proc_lc.contains(&pattern.to_lowercase()),
-                    AllowlistEntry::Complex { pattern, signers, must_be_signed, is_absolute } => {
+                    AllowlistEntry::Complex {
+                        pattern,
+                        signers,
+                        must_be_signed,
+                        is_absolute,
+                    } => {
                         let pat_lc = pattern.to_lowercase();
-                        let mut name_matched = proc_lc.contains(&pat_lc) || pat_lc.contains(&proc_lc);
-                        
+                        let mut name_matched =
+                            proc_lc.contains(&pat_lc) || pat_lc.contains(&proc_lc);
+
                         if *is_absolute {
                             if let Some(path) = process_path {
-                                let path_str = path.to_string_lossy().to_lowercase().replace("\\", "/");
+                                let path_str =
+                                    path.to_string_lossy().to_lowercase().replace("\\", "/");
                                 let pat_norm = pat_lc.replace("\\", "/");
                                 if !matches_pattern(&self.regex_cache, &pat_norm, &path_str) {
                                     name_matched = false;
@@ -5451,33 +6010,41 @@ impl BehaviorEngine {
                             }
                         }
 
-                        if !name_matched { return false; }
+                        if !name_matched {
+                            return false;
+                        }
 
-                        if !must_be_signed && signers.is_empty() { 
-                            return true; 
+                        if !must_be_signed && signers.is_empty() {
+                            return true;
                         }
                         if let Some(path) = process_path {
-                            if !path.exists() { return false; }
+                            if !path.exists() {
+                                return false;
+                            }
                             let info = verify_signature(path);
 
                             // Strict requirement: must be signed by one of the specified signers
                             // if the rule engine says it's a mandatory vendor check.
-                            if *must_be_signed && !info.is_trusted { 
-                                return false; 
+                            if *must_be_signed && !info.is_trusted {
+                                return false;
                             }
                             if !signers.is_empty() {
                                 if let Some(signer) = &info.signer_name {
-                                    signers.iter().any(|s_pattern| 
-                                        Self::matches_pattern_internal(&self.regex_cache, s_pattern, signer)
-                                    )
-                                } else { 
-                                    false 
+                                    signers.iter().any(|s_pattern| {
+                                        Self::matches_pattern_internal(
+                                            &self.regex_cache,
+                                            s_pattern,
+                                            signer,
+                                        )
+                                    })
+                                } else {
+                                    false
                                 }
-                            } else { 
-                                true 
+                            } else {
+                                true
                             }
-                        } else { 
-                            false 
+                        } else {
+                            false
                         }
                     }
                 }
@@ -5485,16 +6052,19 @@ impl BehaviorEngine {
         }) // end names_to_check.iter().any()
     }
 
-    fn matches_pattern_internal(cache: &Arc<RwLock<HashMap<String, Regex>>>, pattern: &str, text: &str) -> bool {
+    fn matches_pattern_internal(
+        cache: &Arc<RwLock<HashMap<String, Regex>>>,
+        pattern: &str,
+        text: &str,
+    ) -> bool {
         let trimmed = pattern.trim();
         if trimmed.is_empty() {
             return false;
         }
 
         let has_glob = trimmed.contains('*') || trimmed.contains('?');
-        let is_explicit_regex = trimmed.starts_with("(?")
-            || trimmed.starts_with('^')
-            || trimmed.ends_with('$');
+        let is_explicit_regex =
+            trimmed.starts_with("(?") || trimmed.starts_with('^') || trimmed.ends_with('$');
 
         if !has_glob && !is_explicit_regex {
             let text_norm = normalize_path_separators(&text.to_lowercase());
@@ -5530,7 +6100,7 @@ impl BehaviorEngine {
         }
 
         let mut cache_map = cache.write().unwrap();
-        
+
         if let Some(re) = cache_map.get(trimmed) {
             return re.is_match(text);
         }
@@ -5552,12 +6122,10 @@ impl BehaviorEngine {
                 cache_map.insert(trimmed.to_string(), re);
                 is_match
             }
-            Err(_) => {
-                text.to_lowercase().contains(&trimmed.to_lowercase())
-            }
+            Err(_) => text.to_lowercase().contains(&trimmed.to_lowercase()),
         }
     }
-    
+
     /// Network activity detection — delegates entirely to the firewall.
     /// Returns true if the firewall has observed real outbound I/O for this PID.
     fn matches_process_identity_pattern(
@@ -5575,8 +6143,10 @@ impl BehaviorEngine {
         let path_norm = normalize_path_separators(&process_path.trim().to_lowercase());
 
         if pattern_looks_like_path(trimmed) {
-            return (!path_norm.is_empty() && Self::matches_pattern_internal(cache, trimmed, &path_norm))
-                || (!name_norm.is_empty() && Self::matches_pattern_internal(cache, trimmed, &name_norm));
+            return (!path_norm.is_empty()
+                && Self::matches_pattern_internal(cache, trimmed, &path_norm))
+                || (!name_norm.is_empty()
+                    && Self::matches_pattern_internal(cache, trimmed, &name_norm));
         }
 
         if is_plain_pattern(trimmed) {
@@ -5598,7 +6168,7 @@ impl BehaviorEngine {
             false
         }
     }
-        
+
     /// Returns a snapshot of all rootkit findings since last clear.
     pub fn get_rootkit_findings(&self) -> &[RootkitFinding] {
         &self.rootkit_findings
@@ -5615,7 +6185,12 @@ impl BehaviorEngine {
         let op = IrpMajorOp::from_byte(effective_hypervisor_irp_byte(msg));
         let kind = RootkitFindingKind::from_irp_op(op);
 
-        let description = msg.kernel_event_info.object_name.trim_matches('\0').trim().to_string();
+        let description = msg
+            .kernel_event_info
+            .object_name
+            .trim_matches('\0')
+            .trim()
+            .to_string();
 
         let finding = RootkitFinding {
             kind: kind.clone(),
@@ -5658,7 +6233,11 @@ impl BehaviorEngine {
 
         // Only hidden-process findings identify a concrete user-mode PID.
         if matches!(finding.kind, RootkitFindingKind::HiddenProcess) && finding.pid != 0 {
-            if let Some(state) = self.process_states.values_mut().find(|s| s.pid == finding.pid) {
+            if let Some(state) = self
+                .process_states
+                .values_mut()
+                .find(|s| s.pid == finding.pid)
+            {
                 state.rootkit_implicated = true;
                 Logging::warning(&format!(
                     "[ROOTKIT] Hidden process PID {} ({}) is rootkit-implicated",
@@ -5669,13 +6248,18 @@ impl BehaviorEngine {
     }
 
     #[allow(dead_code)]
-    pub fn scan_all_processes(&mut self, _config: &Config, _threat_handler: &dyn ThreatHandler) -> Vec<ProcessRecord> {
+    pub fn scan_all_processes(
+        &mut self,
+        _config: &Config,
+        _threat_handler: &dyn ThreatHandler,
+    ) -> Vec<ProcessRecord> {
         let mut detected_processes = Vec::new();
         let gids: Vec<u64> = self.process_states.keys().cloned().collect();
 
         // Snapshot firewall-confirmed malicious exe paths once per scan cycle
         #[cfg(feature = "firewall")]
-        let fw_blocked: HashMap<String, FirewallDetection> = self.firewall_blocked_exes.read().unwrap().clone();
+        let fw_blocked: HashMap<String, FirewallDetection> =
+            self.firewall_blocked_exes.read().unwrap().clone();
 
         for gid in gids {
             let state = match self.process_states.get(&gid) {
@@ -5690,16 +6274,16 @@ impl BehaviorEngine {
             let pid = state.pid;
             let mut app_name = state.app_name.clone();
             let mut exe_path_buf = state.exe_path.clone();
-            let stale_name = app_name.is_empty() || app_name.starts_with("PROC_") || app_name == "UNKNOWN";
-            let stale_path = exe_path_buf.as_os_str().is_empty()
-                || exe_path_buf.to_string_lossy() == "UNKNOWN";
+            let stale_name =
+                app_name.is_empty() || app_name.starts_with("PROC_") || app_name == "UNKNOWN";
+            let stale_path =
+                exe_path_buf.as_os_str().is_empty() || exe_path_buf.to_string_lossy() == "UNKNOWN";
 
-            if stale_path
-                && let Some(resolved_path) = resolve_process_path(pid)
-            {
+            if stale_path && let Some(resolved_path) = resolve_process_path(pid) {
                 exe_path_buf = resolved_path.clone();
                 if stale_name
-                    && let Some(file_name) = resolved_path.file_name().and_then(|value| value.to_str())
+                    && let Some(file_name) =
+                        resolved_path.file_name().and_then(|value| value.to_str())
                 {
                     app_name = file_name.to_string();
                 }
@@ -5710,61 +6294,57 @@ impl BehaviorEngine {
             // Firewall-confirmed malicious network traffic: act immediately,
             // bypass the normal rule evaluation loop entirely.
             #[cfg(feature = "firewall")]
-            if !exe_path_str.is_empty() && exe_path_str.to_lowercase() != "unknown"
-                && let Some(detection) = fw_blocked.get(&exe_path_str.to_lowercase()) {
-                    let mut p = ProcessRecord::new(
-                        gid,
-                        app_name.clone(),
-                        exe_path_buf.clone(),
-                    );
-                    p.is_malicious = true;
-                    p.pids.insert(pid);
-                    p.termination_requested = true;
-                    p.notify_user_requested = true;
-                    p.triggered_rule_name = Some(detection.threat_type_label().to_string());
-                    p.triggered_rule_details = Some(detection.match_details());
-                    Logging::warning(&format!(
-                        "[FirewallPipe] Acting on firewall-confirmed malicious exe: {} (PID {}) — {}",
-                        exe_path_str, pid, detection.match_details()
-                    ));
-                    detected_processes.push(p);
-                    continue;
-                }
+            if !exe_path_str.is_empty()
+                && exe_path_str.to_lowercase() != "unknown"
+                && let Some(detection) = fw_blocked.get(&exe_path_str.to_lowercase())
+            {
+                let mut p = ProcessRecord::new(gid, app_name.clone(), exe_path_buf.clone());
+                p.is_malicious = true;
+                p.pids.insert(pid);
+                p.termination_requested = true;
+                p.notify_user_requested = true;
+                p.triggered_rule_name = Some(detection.threat_type_label().to_string());
+                p.triggered_rule_details = Some(detection.match_details());
+                Logging::warning(&format!(
+                    "[FirewallPipe] Acting on firewall-confirmed malicious exe: {} (PID {}) — {}",
+                    exe_path_str,
+                    pid,
+                    detection.match_details()
+                ));
+                detected_processes.push(p);
+                continue;
+            }
 
             // Log Nt API activity summary if any events detected
             if state.hypervisor_events_total > 0 {
                 Logging::info(&format!(
                     "[API HOOKING SUMMARY] PID {} ({}) - Total fallback events: {}",
-                    pid, app_name,
-                    state.hypervisor_events_total
+                    pid, app_name, state.hypervisor_events_total
                 ));
-                
+
                 if state.irp_stats.has_injection_indicators() {
                     Logging::warning(&format!(
                         "[API HOOKING PATTERN] PID {} ({}) shows API hooking activity - Total fallback events: {}",
-                        pid, app_name, state.irp_stats.get_injection_api_count()
+                        pid,
+                        app_name,
+                        state.irp_stats.get_injection_api_count()
                     ));
                 }
             }
 
-            let critical_image_display = if !exe_path_str.is_empty()
-                && !exe_path_str.eq_ignore_ascii_case("unknown")
-            {
-                exe_path_str.clone()
-            } else {
-                app_name.clone()
-            };
+            let critical_image_display =
+                if !exe_path_str.is_empty() && !exe_path_str.eq_ignore_ascii_case("unknown") {
+                    exe_path_str.clone()
+                } else {
+                    app_name.clone()
+                };
             if let Some(reason) = suspicious_critical_process_reason(
                 state.pid,
                 &critical_image_display,
                 state.is_signed,
                 state.has_valid_signature,
             ) {
-                let mut p = ProcessRecord::new(
-                    gid,
-                    app_name.clone(),
-                    exe_path_buf.clone(),
-                );
+                let mut p = ProcessRecord::new(gid, app_name.clone(), exe_path_buf.clone());
                 p.is_malicious = true;
                 p.pids.insert(pid);
                 p.deny_access_requested = true;
@@ -5796,7 +6376,9 @@ impl BehaviorEngine {
                 let mut rich_triggered = false;
                 let mut stages_triggered = false;
 
-                if !rule.browsed_paths.is_empty() && state.browsed_paths_tracker.len() >= rule.multi_access_threshold {
+                if !rule.browsed_paths.is_empty()
+                    && state.browsed_paths_tracker.len() >= rule.multi_access_threshold
+                {
                     legacy_triggered = true;
                 }
                 if !rule.staging_paths.is_empty() && !state.staged_files_written.is_empty() {
@@ -5821,7 +6403,8 @@ impl BehaviorEngine {
                     let mut prompted_quarantine = false;
                     if rule.response.ask_user {
                         match self.resolve_firewall_hips_prompt(gid, &state, rule) {
-                            FirewallHipsPromptOutcome::Pending | FirewallHipsPromptOutcome::Allowed => {
+                            FirewallHipsPromptOutcome::Pending
+                            | FirewallHipsPromptOutcome::Allowed => {
                                 continue;
                             }
                             FirewallHipsPromptOutcome::Deny => {
@@ -5837,11 +6420,8 @@ impl BehaviorEngine {
                         }
                     }
 
-                    let mut p = ProcessRecord::new(
-                        gid,
-                        app_name.clone(),
-                        exe_path_str.clone().into(),
-                    );
+                    let mut p =
+                        ProcessRecord::new(gid, app_name.clone(), exe_path_str.clone().into());
                     p.is_malicious = true;
                     p.pids.insert(pid);
                     p.termination_requested = if rule.response.ask_user {
@@ -5864,7 +6444,16 @@ impl BehaviorEngine {
                     } else {
                         rule.response.status_access_denied
                     };
-                    p.kill_and_remove_requested = if rule.response.ask_user { false } else { rule.response.kill_and_remove };
+                    p.kill_and_remove_requested = if rule.response.ask_user {
+                        false
+                    } else {
+                        rule.response.kill_and_remove
+                    };
+                    p.suspend_requested = if rule.response.ask_user {
+                        false
+                    } else {
+                        rule.response.suspend_process
+                    };
                     p.notify_user_requested = rule.response.notify_user;
                     p.revert_requested = rule.response.auto_revert;
                     p.triggered_rule_name = Some(rule.name.clone());
@@ -5881,7 +6470,8 @@ impl BehaviorEngine {
                         }),
                         None,
                     ));
-                    p.remediation_target_path = Self::build_rule_remediation_target_path(rule, &state);
+                    p.remediation_target_path =
+                        Self::build_rule_remediation_target_path(rule, &state);
                     detected_processes.push(p);
                 }
             }

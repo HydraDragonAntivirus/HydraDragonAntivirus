@@ -2,19 +2,19 @@
 //!
 //! Collects comprehensive behavioral data for ML model training
 
-use crate::realtime_learning::api_tracker::{ApiTracker, OperationType};
-use crate::process::ProcessRecord;
 #[cfg(feature = "behavior_engine")]
 use crate::behavioral::behavior_engine::{BehaviorRule, DetectionCondition, NamedConditionGroup};
+use crate::process::ProcessRecord;
+use crate::realtime_learning::api_tracker::{ApiTracker, OperationType};
 #[cfg(target_os = "windows")]
 use crate::signature_verification::verify_signature;
 use md5::{Digest as Md5Digest, Md5};
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 use std::collections::{HashMap, HashSet};
-use std::path::Path;
 use std::fs::File;
 use std::io::Write;
+use std::path::Path;
 use std::path::PathBuf;
 use std::time::SystemTime;
 use win_pe_inspection::inspect_pe;
@@ -102,7 +102,7 @@ pub struct MLFeatures {
     pub registry_keys_created: f32,
     pub registry_keys_deleted: f32,
     pub registry_keys_modified: f32,
-    pub autorun_keys_modified: f32, // 0.0 or 1.0
+    pub autorun_keys_modified: f32,  // 0.0 or 1.0
     pub security_keys_accessed: f32, // 0.0 or 1.0
 
     // Network features
@@ -246,7 +246,11 @@ impl MLCollector {
     }
 
     /// Create with custom configuration
-    pub fn with_config(mode: CollectionMode, output_dir: PathBuf, auto_save_threshold: usize) -> Self {
+    pub fn with_config(
+        mode: CollectionMode,
+        output_dir: PathBuf,
+        auto_save_threshold: usize,
+    ) -> Self {
         // Create output directory if it doesn't exist
         std::fs::create_dir_all(&output_dir).ok();
 
@@ -263,7 +267,12 @@ impl MLCollector {
     }
 
     /// Collect a sample from a process
-    pub fn collect_sample(&mut self, api_tracker: &ApiTracker, precord: &ProcessRecord, is_malicious: bool) {
+    pub fn collect_sample(
+        &mut self,
+        api_tracker: &ApiTracker,
+        precord: &ProcessRecord,
+        is_malicious: bool,
+    ) {
         // Check if we should collect this sample based on mode
         match self.mode {
             CollectionMode::MaliciousOnly if !is_malicious => return,
@@ -272,7 +281,9 @@ impl MLCollector {
         }
 
         // Extract features
-        let features = self.feature_extractor.extract_features(api_tracker, precord);
+        let features = self
+            .feature_extractor
+            .extract_features(api_tracker, precord);
 
         // Extract executable telemetry and raw data
         let executable_telemetry = self.get_executable_telemetry(precord);
@@ -301,14 +312,26 @@ impl MLCollector {
         }
 
         // Auto-save if threshold reached
-        if self.auto_save_threshold > 0 && self.total_samples().is_multiple_of(self.auto_save_threshold) && self.total_samples() > 0 {
+        if self.auto_save_threshold > 0
+            && self
+                .total_samples()
+                .is_multiple_of(self.auto_save_threshold)
+            && self.total_samples() > 0
+        {
             self.auto_save();
         }
     }
 
     /// Extract raw behavioral data
-    fn extract_raw_data(&self, api_tracker: &ApiTracker, precord: &ProcessRecord, executable_telemetry: ExecutableTelemetry) -> RawBehaviorData {
-        let all_apis_used: Vec<String> = api_tracker.enumeration_apis.iter()
+    fn extract_raw_data(
+        &self,
+        api_tracker: &ApiTracker,
+        precord: &ProcessRecord,
+        executable_telemetry: ExecutableTelemetry,
+    ) -> RawBehaviorData {
+        let all_apis_used: Vec<String> = api_tracker
+            .enumeration_apis
+            .iter()
             .chain(api_tracker.injection_apis.iter())
             .chain(api_tracker.evasion_apis.iter())
             .chain(api_tracker.spying_apis.iter())
@@ -319,11 +342,19 @@ impl MLCollector {
             .cloned()
             .collect();
 
-        let mut file_paths_accessed: HashSet<String> = precord.fpaths_created.iter()
+        let mut file_paths_accessed: HashSet<String> = precord
+            .fpaths_created
+            .iter()
             .chain(precord.fpaths_updated.iter())
             .cloned()
             .collect();
-        file_paths_accessed.extend(api_tracker.file_operations.executable_files_accessed.iter().cloned());
+        file_paths_accessed.extend(
+            api_tracker
+                .file_operations
+                .executable_files_accessed
+                .iter()
+                .cloned(),
+        );
         file_paths_accessed.extend(api_tracker.dlls_loaded.iter().cloned());
 
         let mut file_telemetry = Vec::new();
@@ -361,10 +392,16 @@ impl MLCollector {
                 }
                 OperationType::ProcessCreate(name) => format!("PROC_CREATE:{name}"),
                 OperationType::ProcessTerminate(pid) => format!("PROC_TERM:{pid}"),
-                OperationType::ProcessTerminateAttempt { source_pid, target_pid } => {
+                OperationType::ProcessTerminateAttempt {
+                    source_pid,
+                    target_pid,
+                } => {
                     format!("PROC_TERM_ATTEMPT:{source_pid}->{target_pid}")
                 }
-                OperationType::ProcessHandleOpen { source_pid, target_pid } => {
+                OperationType::ProcessHandleOpen {
+                    source_pid,
+                    target_pid,
+                } => {
                     format!("PROC_HANDLE_OPEN:{source_pid}->{target_pid}")
                 }
                 OperationType::MemoryAllocate(sz) => format!("MEM_ALLOC:{sz}"),
@@ -390,7 +427,9 @@ impl MLCollector {
                 OperationType::DriverLoad(path) => format!("DRIVER_LOAD:{path}"),
                 OperationType::ProcessInjected(pid) => format!("PROC_INJECTED:{pid}"),
                 OperationType::MemoryModify(addr, size) => format!("MEM_MODIFY:0x{addr:X}:{size}"),
-                OperationType::MemoryProtect(addr, prot) => format!("MEM_PROTECT:0x{addr:X}:0x{prot:X}"),
+                OperationType::MemoryProtect(addr, prot) => {
+                    format!("MEM_PROTECT:0x{addr:X}:0x{prot:X}")
+                }
                 OperationType::Generic(desc) => format!("GENERIC:{desc}"),
             };
             operation_sequence.push(rendered);
@@ -399,7 +438,9 @@ impl MLCollector {
         let mut file_paths_accessed: Vec<String> = file_paths_accessed.into_iter().collect();
         file_paths_accessed.sort_unstable();
 
-        let mut entropy_samples: Vec<f64> = api_tracker.operation_sequence.iter()
+        let mut entropy_samples: Vec<f64> = api_tracker
+            .operation_sequence
+            .iter()
             .filter_map(|op| match op {
                 OperationType::FileWrite(_, entropy) => Some(*entropy),
                 _ => None,
@@ -414,7 +455,9 @@ impl MLCollector {
             dlls.insert(dll.clone());
         }
 
-        let api_call_sequence: Vec<(String, String)> = api_tracker.api_sequence.iter()
+        let api_call_sequence: Vec<(String, String)> = api_tracker
+            .api_sequence
+            .iter()
             .map(|call| (call.name.clone(), format!("{:?}", call.category)))
             .collect();
 
@@ -438,7 +481,12 @@ impl MLCollector {
             entropy_samples,
             kernel_event_log: api_tracker.kernel_event_log.clone(),
             irp_opcode_counts: api_tracker.kernel_opcode_counts(),
-            loaded_kernel_drivers: api_tracker.kernel_operations.loaded_kernel_drivers.iter().cloned().collect(),
+            loaded_kernel_drivers: api_tracker
+                .kernel_operations
+                .loaded_kernel_drivers
+                .iter()
+                .cloned()
+                .collect(),
             executable_telemetry,
             #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
             net_packets: api_tracker.net_packets.clone(),
@@ -451,7 +499,10 @@ impl MLCollector {
             #[cfg(feature = "sanctum")]
             sanctum_injection_score: api_tracker.sanctum_operations.injection_score,
             #[cfg(feature = "sanctum")]
-            sanctum_suspicious_hits: api_tracker.sanctum_operations.suspicious_syscall_hits.clone(),
+            sanctum_suspicious_hits: api_tracker
+                .sanctum_operations
+                .suspicious_syscall_hits
+                .clone(),
         }
     }
 
@@ -593,7 +644,9 @@ impl MLCollector {
             use crate::behavioral::rule_types::{DomainMatcher, UrlMatcher};
             for pkt in &api_tracker.net_packets {
                 if !pkt.domain.is_empty() {
-                    network_rules.push(NetCondition::Domain(DomainMatcher::exact(pkt.domain.clone())));
+                    network_rules.push(NetCondition::Domain(DomainMatcher::exact(
+                        pkt.domain.clone(),
+                    )));
                 }
                 if !pkt.url.is_empty() {
                     network_rules.push(NetCondition::Url(UrlMatcher::contains(pkt.url.clone())));
@@ -627,19 +680,26 @@ impl MLCollector {
         observed_condition.file_extensions = Self::sorted_strings(file_extensions);
         observed_condition.cmdline_keywords = Self::extract_cmdline_keywords(&precord.command_line);
         observed_condition.hypervisor_event_labels = Self::sorted_strings(hypervisor_event_labels);
-        observed_condition.detect_hypervisor_event = !observed_condition.hypervisor_event_labels.is_empty();
+        observed_condition.detect_hypervisor_event =
+            !observed_condition.hypervisor_event_labels.is_empty();
         if observed_condition.detect_hypervisor_event {
             observed_condition.hypervisor_event_threshold = 1;
         }
-        observed_condition.hypervisor_raw_event_types = Self::sorted_u32(hypervisor_raw_event_types);
+        observed_condition.hypervisor_raw_event_types =
+            Self::sorted_u32(hypervisor_raw_event_types);
         observed_condition.hypervisor_source_pids = Self::sorted_u32(hypervisor_source_pids);
         observed_condition.hypervisor_target_pids = Self::sorted_u32(hypervisor_target_pids);
-        observed_condition.hypervisor_raw_arg1_values = Self::sorted_u64(hypervisor_raw_arg1_values);
-        observed_condition.hypervisor_raw_arg2_values = Self::sorted_u64(hypervisor_raw_arg2_values);
-        observed_condition.hypervisor_raw_arg3_values = Self::sorted_u64(hypervisor_raw_arg3_values);
-        observed_condition.hypervisor_raw_arg4_values = Self::sorted_u64(hypervisor_raw_arg4_values);
+        observed_condition.hypervisor_raw_arg1_values =
+            Self::sorted_u64(hypervisor_raw_arg1_values);
+        observed_condition.hypervisor_raw_arg2_values =
+            Self::sorted_u64(hypervisor_raw_arg2_values);
+        observed_condition.hypervisor_raw_arg3_values =
+            Self::sorted_u64(hypervisor_raw_arg3_values);
+        observed_condition.hypervisor_raw_arg4_values =
+            Self::sorted_u64(hypervisor_raw_arg4_values);
         observed_condition.hypervisor_memory_sizes = Self::sorted_u64(hypervisor_memory_sizes);
-        observed_condition.hypervisor_operation_statuses = Self::sorted_i32(hypervisor_operation_statuses);
+        observed_condition.hypervisor_operation_statuses =
+            Self::sorted_i32(hypervisor_operation_statuses);
 
         let mut rule = BehaviorRule::default();
         rule.name = format!("realtime_learning_gid_{}", api_tracker.gid);
@@ -654,7 +714,8 @@ impl MLCollector {
         rule.file_actions = observed_condition.file_operations.clone();
         rule.file_extensions = observed_condition.file_extensions.clone();
         rule.terminated_processes = observed_condition.terminated_processes.clone();
-        rule.named_conditions.insert("observed_telemetry".to_string(), observed_condition);
+        rule.named_conditions
+            .insert("observed_telemetry".to_string(), observed_condition);
         rule.detection_logic = Some(DetectionCondition::Named {
             condition: "observed_telemetry".to_string(),
         });
@@ -758,8 +819,10 @@ impl MLCollector {
         if telemetry.path_exists {
             if let Ok(meta) = std::fs::metadata(path) {
                 telemetry.file_size_bytes = meta.len();
-                telemetry.file_created_unix = meta.created().ok().and_then(Self::system_time_to_unix);
-                telemetry.file_modified_unix = meta.modified().ok().and_then(Self::system_time_to_unix);
+                telemetry.file_created_unix =
+                    meta.created().ok().and_then(Self::system_time_to_unix);
+                telemetry.file_modified_unix =
+                    meta.modified().ok().and_then(Self::system_time_to_unix);
             }
 
             if let Ok(bin) = std::fs::read(path) {
@@ -784,7 +847,8 @@ impl MLCollector {
                     telemetry.has_debug_symbols = static_features.has_dbg_symbols;
 
                     let mut dlls = HashSet::new();
-                    let mut api_entries = Vec::with_capacity(static_features.imports.len().min(4096));
+                    let mut api_entries =
+                        Vec::with_capacity(static_features.imports.len().min(4096));
                     let mut suspicious_hits = HashSet::new();
                     for imp in static_features.imports {
                         let dll = imp.lib.trim().to_ascii_lowercase();
@@ -814,11 +878,60 @@ impl MLCollector {
                     telemetry.imported_dlls = dlls.clone().into_iter().collect();
                     telemetry.imported_apis = api_entries;
                     telemetry.suspicious_import_hits = suspicious_hits.into_iter().collect();
-                    telemetry.has_network_imports = telemetry.imported_apis.iter().any(|v| Self::contains_any(v, &["!Internet", "!WinHttp", "!WSA", "!socket", "!connect", "!Dns", "!Http"]));
-                    telemetry.has_process_injection_imports = telemetry.imported_apis.iter().any(|v| Self::contains_any(v, &["!VirtualAllocEx", "!WriteProcessMemory", "!CreateRemoteThread", "!NtWriteVirtualMemory", "!NtCreateThreadEx"]));
-                    telemetry.has_crypto_imports = telemetry.imported_apis.iter().any(|v| Self::contains_any(v, &["!Crypt", "!BCrypt", "!NCrypt", "!RtlEncrypt"]));
-                    telemetry.has_persistence_imports = telemetry.imported_apis.iter().any(|v| Self::contains_any(v, &["!RegSetValue", "!RegCreateKey", "!CreateService", "!StartService", "!SchTasks", "!TaskScheduler"]));
-                    telemetry.has_anti_analysis_imports = telemetry.imported_apis.iter().any(|v| Self::contains_any(v, &["!IsDebuggerPresent", "!CheckRemoteDebuggerPresent", "!NtQueryInformationProcess", "!OutputDebugString"]));
+                    telemetry.has_network_imports = telemetry.imported_apis.iter().any(|v| {
+                        Self::contains_any(
+                            v,
+                            &[
+                                "!Internet",
+                                "!WinHttp",
+                                "!WSA",
+                                "!socket",
+                                "!connect",
+                                "!Dns",
+                                "!Http",
+                            ],
+                        )
+                    });
+                    telemetry.has_process_injection_imports =
+                        telemetry.imported_apis.iter().any(|v| {
+                            Self::contains_any(
+                                v,
+                                &[
+                                    "!VirtualAllocEx",
+                                    "!WriteProcessMemory",
+                                    "!CreateRemoteThread",
+                                    "!NtWriteVirtualMemory",
+                                    "!NtCreateThreadEx",
+                                ],
+                            )
+                        });
+                    telemetry.has_crypto_imports = telemetry.imported_apis.iter().any(|v| {
+                        Self::contains_any(v, &["!Crypt", "!BCrypt", "!NCrypt", "!RtlEncrypt"])
+                    });
+                    telemetry.has_persistence_imports = telemetry.imported_apis.iter().any(|v| {
+                        Self::contains_any(
+                            v,
+                            &[
+                                "!RegSetValue",
+                                "!RegCreateKey",
+                                "!CreateService",
+                                "!StartService",
+                                "!SchTasks",
+                                "!TaskScheduler",
+                            ],
+                        )
+                    });
+                    telemetry.has_anti_analysis_imports = telemetry.imported_apis.iter().any(|v| {
+                        Self::contains_any(
+                            v,
+                            &[
+                                "!IsDebuggerPresent",
+                                "!CheckRemoteDebuggerPresent",
+                                "!NtQueryInformationProcess",
+                                "!OutputDebugString",
+                            ],
+                        )
+                    });
                 }
                 Err(e) => {
                     telemetry.parse_error = Some(e.to_string());
@@ -833,7 +946,9 @@ impl MLCollector {
     }
 
     fn system_time_to_unix(t: SystemTime) -> Option<u64> {
-        t.duration_since(SystemTime::UNIX_EPOCH).ok().map(|d| d.as_secs())
+        t.duration_since(SystemTime::UNIX_EPOCH)
+            .ok()
+            .map(|d| d.as_secs())
     }
 
     fn compute_md5(data: &[u8]) -> String {
@@ -936,23 +1051,28 @@ impl MLCollector {
         };
 
         let file = File::create(output_path)?;
-        serde_yaml::to_writer(file, &dataset)
-            .map_err(std::io::Error::other)
+        serde_yaml::to_writer(file, &dataset).map_err(std::io::Error::other)
     }
 
     #[cfg(feature = "behavior_engine")]
     fn collected_rule_snapshots(&self) -> Vec<BehaviorRule> {
         let mut rules = Vec::new();
 
-        for sample in self.malicious_samples.iter().chain(self.benign_samples.iter()) {
+        for sample in self
+            .malicious_samples
+            .iter()
+            .chain(self.benign_samples.iter())
+        {
             let mut rule = sample.raw_data.rule_format_rule.clone();
-            let label = if sample.is_malicious { "malicious" } else { "benign" };
+            let label = if sample.is_malicious {
+                "malicious"
+            } else {
+                "benign"
+            };
             rule.name = format!("realtime_learning_{}_gid_{}", label, sample.id);
             rule.description = format!(
                 "Realtime {} telemetry snapshot for {} ({})",
-                label,
-                sample.process_name,
-                sample.exe_path
+                label, sample.process_name, sample.exe_path
             );
             rules.push(rule);
         }
@@ -964,8 +1084,7 @@ impl MLCollector {
     pub fn export_rules_to_yaml(&self, output_path: &str) -> Result<(), std::io::Error> {
         let rules = self.collected_rule_snapshots();
         let file = File::create(output_path)?;
-        serde_yaml::to_writer(file, &rules)
-            .map_err(std::io::Error::other)
+        serde_yaml::to_writer(file, &rules).map_err(std::io::Error::other)
     }
 
     #[cfg(feature = "behavior_engine")]
@@ -1047,7 +1166,8 @@ impl MLCollector {
          registry_keys_created,registry_keys_deleted,registry_keys_modified,\
          autorun_keys_modified,network_connections,processes_created,processes_injected,\
          threads_created,memory_allocated_mb,dlls_loaded,has_keylogging_pattern,\
-         has_injection_pattern,has_persistence_pattern,operations_per_second".to_string()
+         has_injection_pattern,has_persistence_pattern,operations_per_second"
+            .to_string()
     }
 
     /// Convert sample to CSV row
@@ -1055,16 +1175,43 @@ impl MLCollector {
         let f = &sample.features;
         format!(
             "{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
-            sample.id, sample.process_name, sample.is_malicious as u8,
-            f.enumeration_api_count, f.injection_api_count, f.evasion_api_count, f.spying_api_count,
-            f.internet_api_count, f.anti_debugging_api_count, f.ransomware_api_count, f.helper_api_count,
-            f.total_api_count, f.files_read, f.files_written, f.files_deleted, f.files_renamed,
-            f.files_encrypted, f.directories_enumerated, f.mass_file_operations, f.executable_files_accessed,
-            f.suspicious_extensions_written, f.avg_entropy_written, f.high_entropy_writes,
-            f.registry_keys_created, f.registry_keys_deleted, f.registry_keys_modified,
-            f.autorun_keys_modified, f.network_connections, f.processes_created, f.processes_injected,
-            f.threads_created, f.memory_allocated_mb, f.dlls_loaded, f.has_keylogging_pattern,
-            f.has_injection_pattern, f.has_persistence_pattern, f.operations_per_second
+            sample.id,
+            sample.process_name,
+            sample.is_malicious as u8,
+            f.enumeration_api_count,
+            f.injection_api_count,
+            f.evasion_api_count,
+            f.spying_api_count,
+            f.internet_api_count,
+            f.anti_debugging_api_count,
+            f.ransomware_api_count,
+            f.helper_api_count,
+            f.total_api_count,
+            f.files_read,
+            f.files_written,
+            f.files_deleted,
+            f.files_renamed,
+            f.files_encrypted,
+            f.directories_enumerated,
+            f.mass_file_operations,
+            f.executable_files_accessed,
+            f.suspicious_extensions_written,
+            f.avg_entropy_written,
+            f.high_entropy_writes,
+            f.registry_keys_created,
+            f.registry_keys_deleted,
+            f.registry_keys_modified,
+            f.autorun_keys_modified,
+            f.network_connections,
+            f.processes_created,
+            f.processes_injected,
+            f.threads_created,
+            f.memory_allocated_mb,
+            f.dlls_loaded,
+            f.has_keylogging_pattern,
+            f.has_injection_pattern,
+            f.has_persistence_pattern,
+            f.operations_per_second
         )
     }
 
@@ -1077,9 +1224,13 @@ impl MLCollector {
 
         let json_path = self.output_dir.join(format!("dataset_{}.json", timestamp));
         let csv_path = self.output_dir.join(format!("dataset_{}.csv", timestamp));
-        let yaml_full_path = self.output_dir.join(format!("dataset_full_{}.yaml", timestamp));
+        let yaml_full_path = self
+            .output_dir
+            .join(format!("dataset_full_{}.yaml", timestamp));
         #[cfg(feature = "behavior_engine")]
-        let yaml_path = self.output_dir.join(format!("dataset_rules_{}.yaml", timestamp));
+        let yaml_path = self
+            .output_dir
+            .join(format!("dataset_rules_{}.yaml", timestamp));
 
         self.export_to_json(json_path.to_str().unwrap()).ok();
         self.export_to_csv(csv_path.to_str().unwrap()).ok();
@@ -1096,7 +1247,11 @@ impl MLCollector {
     }
 
     /// Export separate files for malicious and benign
-    pub fn export_separated(&self, malicious_path: &str, benign_path: &str) -> Result<(), std::io::Error> {
+    pub fn export_separated(
+        &self,
+        malicious_path: &str,
+        benign_path: &str,
+    ) -> Result<(), std::io::Error> {
         // Export malicious
         let mal_dataset = MLDataset {
             malicious_samples: self.malicious_samples.clone(),
@@ -1139,13 +1294,19 @@ impl FeatureExtractor {
     }
 
     /// Extract comprehensive feature vector
-    pub fn extract_features(&self, api_tracker: &ApiTracker, precord: &ProcessRecord) -> MLFeatures {
-        let execution_time = precord.time_started
+    pub fn extract_features(
+        &self,
+        api_tracker: &ApiTracker,
+        precord: &ProcessRecord,
+    ) -> MLFeatures {
+        let execution_time = precord
+            .time_started
             .elapsed()
             .unwrap_or(std::time::Duration::from_secs(1))
             .as_secs_f32();
 
-        let total_ops = precord.ops_read + precord.ops_written + precord.ops_setinfo + precord.ops_open;
+        let total_ops =
+            precord.ops_read + precord.ops_written + precord.ops_setinfo + precord.ops_open;
         let operations_per_second = total_ops as f32 / execution_time.max(1.0);
 
         // Calculate average entropy
@@ -1162,33 +1323,73 @@ impl FeatureExtractor {
         let has_keylogging = self.detect_keylogging_pattern(api_tracker);
         let has_injection = self.detect_injection_pattern(api_tracker);
         let has_persistence = self.detect_persistence_pattern(api_tracker);
-        let has_anti_analysis = !api_tracker.anti_debugging_apis.is_empty() || !api_tracker.evasion_apis.is_empty();
+        let has_anti_analysis =
+            !api_tracker.anti_debugging_apis.is_empty() || !api_tracker.evasion_apis.is_empty();
         let has_credential_theft = self.detect_credential_theft_pattern(api_tracker);
 
         MLFeatures {
             // Normalized API counts
-            enumeration_api_count: self.normalize(api_tracker.enumeration_apis.len() as f32, self.max_api_count),
-            injection_api_count: self.normalize(api_tracker.injection_apis.len() as f32, self.max_api_count),
-            evasion_api_count: self.normalize(api_tracker.evasion_apis.len() as f32, self.max_api_count),
-            spying_api_count: self.normalize(api_tracker.spying_apis.len() as f32, self.max_api_count),
-            internet_api_count: self.normalize(api_tracker.internet_apis.len() as f32, self.max_api_count),
-            anti_debugging_api_count: self.normalize(api_tracker.anti_debugging_apis.len() as f32, self.max_api_count),
-            ransomware_api_count: self.normalize(api_tracker.ransomware_apis.len() as f32, self.max_api_count),
-            helper_api_count: self.normalize(api_tracker.helper_apis.len() as f32, self.max_api_count),
-            total_api_count: self.normalize(api_tracker.total_api_calls() as f32, self.max_api_count),
+            enumeration_api_count: self.normalize(
+                api_tracker.enumeration_apis.len() as f32,
+                self.max_api_count,
+            ),
+            injection_api_count: self
+                .normalize(api_tracker.injection_apis.len() as f32, self.max_api_count),
+            evasion_api_count: self
+                .normalize(api_tracker.evasion_apis.len() as f32, self.max_api_count),
+            spying_api_count: self
+                .normalize(api_tracker.spying_apis.len() as f32, self.max_api_count),
+            internet_api_count: self
+                .normalize(api_tracker.internet_apis.len() as f32, self.max_api_count),
+            anti_debugging_api_count: self.normalize(
+                api_tracker.anti_debugging_apis.len() as f32,
+                self.max_api_count,
+            ),
+            ransomware_api_count: self
+                .normalize(api_tracker.ransomware_apis.len() as f32, self.max_api_count),
+            helper_api_count: self
+                .normalize(api_tracker.helper_apis.len() as f32, self.max_api_count),
+            total_api_count: self
+                .normalize(api_tracker.total_api_calls() as f32, self.max_api_count),
 
             // File operations
-            files_read: self.normalize(api_tracker.file_operations.files_read as f32, self.max_file_operations),
-            files_written: self.normalize(api_tracker.file_operations.files_written as f32, self.max_file_operations),
-            files_deleted: self.normalize(api_tracker.file_operations.files_deleted as f32, self.max_file_operations),
-            files_renamed: self.normalize(api_tracker.file_operations.files_renamed as f32, self.max_file_operations),
-            files_encrypted: self.normalize(api_tracker.file_operations.files_encrypted as f32, self.max_file_operations),
-            directories_enumerated: self.normalize(api_tracker.file_operations.directories_enumerated as f32, self.max_file_operations),
-            mass_file_operations: if api_tracker.file_operations.mass_file_operations { 1.0 } else { 0.0 },
+            files_read: self.normalize(
+                api_tracker.file_operations.files_read as f32,
+                self.max_file_operations,
+            ),
+            files_written: self.normalize(
+                api_tracker.file_operations.files_written as f32,
+                self.max_file_operations,
+            ),
+            files_deleted: self.normalize(
+                api_tracker.file_operations.files_deleted as f32,
+                self.max_file_operations,
+            ),
+            files_renamed: self.normalize(
+                api_tracker.file_operations.files_renamed as f32,
+                self.max_file_operations,
+            ),
+            files_encrypted: self.normalize(
+                api_tracker.file_operations.files_encrypted as f32,
+                self.max_file_operations,
+            ),
+            directories_enumerated: self.normalize(
+                api_tracker.file_operations.directories_enumerated as f32,
+                self.max_file_operations,
+            ),
+            mass_file_operations: if api_tracker.file_operations.mass_file_operations {
+                1.0
+            } else {
+                0.0
+            },
 
             // File characteristics
-            executable_files_accessed: api_tracker.file_operations.executable_files_accessed.len() as f32,
-            suspicious_extensions_written: api_tracker.file_operations.suspicious_extensions_written.len() as f32,
+            executable_files_accessed: api_tracker.file_operations.executable_files_accessed.len()
+                as f32,
+            suspicious_extensions_written: api_tracker
+                .file_operations
+                .suspicious_extensions_written
+                .len() as f32,
             avg_entropy_written: avg_entropy as f32,
             high_entropy_writes,
 
@@ -1196,23 +1397,43 @@ impl FeatureExtractor {
             registry_keys_created: api_tracker.registry_operations.keys_created as f32,
             registry_keys_deleted: api_tracker.registry_operations.keys_deleted as f32,
             registry_keys_modified: api_tracker.registry_operations.keys_modified as f32,
-            autorun_keys_modified: if api_tracker.registry_operations.autorun_keys_modified { 1.0 } else { 0.0 },
-            security_keys_accessed: if api_tracker.registry_operations.security_keys_accessed { 1.0 } else { 0.0 },
+            autorun_keys_modified: if api_tracker.registry_operations.autorun_keys_modified {
+                1.0
+            } else {
+                0.0
+            },
+            security_keys_accessed: if api_tracker.registry_operations.security_keys_accessed {
+                1.0
+            } else {
+                0.0
+            },
 
             // Network
-            network_connections: self.normalize(api_tracker.network_operations.connections_established as f32, self.max_network_operations),
+            network_connections: self.normalize(
+                api_tracker.network_operations.connections_established as f32,
+                self.max_network_operations,
+            ),
             data_sent_kb: (api_tracker.network_operations.data_sent as f32) / 1024.0,
             data_received_kb: (api_tracker.network_operations.data_received as f32) / 1024.0,
             dns_queries: api_tracker.network_operations.dns_queries as f32,
             http_requests: api_tracker.network_operations.http_requests as f32,
-            suspicious_ports_used: if !api_tracker.network_operations.suspicious_ports.is_empty() { 1.0 } else { 0.0 },
+            suspicious_ports_used: if !api_tracker.network_operations.suspicious_ports.is_empty() {
+                1.0
+            } else {
+                0.0
+            },
 
             // Process
             processes_created: api_tracker.process_operations.processes_created as f32,
             processes_injected: api_tracker.process_operations.processes_injected as f32,
             threads_created: api_tracker.process_operations.threads_created as f32,
-            memory_allocated_mb: (api_tracker.process_operations.memory_allocated as f32) / (1024.0 * 1024.0),
-            privileges_escalated: if api_tracker.process_operations.privileges_escalated { 1.0 } else { 0.0 },
+            memory_allocated_mb: (api_tracker.process_operations.memory_allocated as f32)
+                / (1024.0 * 1024.0),
+            privileges_escalated: if api_tracker.process_operations.privileges_escalated {
+                1.0
+            } else {
+                0.0
+            },
 
             // DLLs
             dlls_loaded: api_tracker.dlls_loaded.len() as f32,
@@ -1248,18 +1469,31 @@ impl FeatureExtractor {
             #[cfg(feature = "sanctum")]
             sanctum_syscall_count: api_tracker.sanctum_operations.syscall_count as f32,
             #[cfg(feature = "sanctum")]
-            sanctum_cross_process_handles: api_tracker.sanctum_operations.cross_process_handle_count as f32,
+            sanctum_cross_process_handles: api_tracker.sanctum_operations.cross_process_handle_count
+                as f32,
             kernel_telemetry_density: if api_tracker.total_api_calls() > 0 {
-                api_tracker.kernel_operations.total_kernel_events as f32 / api_tracker.total_api_calls() as f32
+                api_tracker.kernel_operations.total_kernel_events as f32
+                    / api_tracker.total_api_calls() as f32
             } else {
                 0.0
             },
             #[cfg(feature = "sanctum")]
-            sanctum_shellcode_detected: if api_tracker.sanctum_operations.shellcode_patterns_found { 1.0 } else { 0.0 },
+            sanctum_shellcode_detected: if api_tracker.sanctum_operations.shellcode_patterns_found {
+                1.0
+            } else {
+                0.0
+            },
             #[cfg(feature = "sanctum")]
-            sanctum_suspicious_hits_count: api_tracker.sanctum_operations.suspicious_syscall_hits.len() as f32,
+            sanctum_suspicious_hits_count: api_tracker
+                .sanctum_operations
+                .suspicious_syscall_hits
+                .len() as f32,
             #[cfg(feature = "sanctum")]
-            sanctum_detected: if api_tracker.sanctum_operations.is_detection { 1.0 } else { 0.0 },
+            sanctum_detected: if api_tracker.sanctum_operations.is_detection {
+                1.0
+            } else {
+                0.0
+            },
         }
     }
 
@@ -1269,26 +1503,37 @@ impl FeatureExtractor {
 
     fn detect_keylogging_pattern(&self, api_tracker: &ApiTracker) -> bool {
         let keylog_apis = ["GetAsyncKeyState", "SetWindowsHookExA", "GetKeyState"];
-        keylog_apis.iter().any(|api| api_tracker.spying_apis.contains(*api))
+        keylog_apis
+            .iter()
+            .any(|api| api_tracker.spying_apis.contains(*api))
     }
 
     fn detect_injection_pattern(&self, api_tracker: &ApiTracker) -> bool {
         let injection_apis = ["VirtualAllocEx", "WriteProcessMemory", "CreateRemoteThread"];
-        injection_apis.iter().filter(|api| api_tracker.injection_apis.contains(&api.to_string())).count() >= 2
+        injection_apis
+            .iter()
+            .filter(|api| api_tracker.injection_apis.contains(&api.to_string()))
+            .count()
+            >= 2
     }
 
     fn detect_persistence_pattern(&self, api_tracker: &ApiTracker) -> bool {
         let persistence_apis = ["RegCreateKeyExA", "RegSetValueExA", "CreateServiceA"];
-        persistence_apis.iter().any(|api| api_tracker.helper_apis.contains(*api))
+        persistence_apis
+            .iter()
+            .any(|api| api_tracker.helper_apis.contains(*api))
     }
 
     fn detect_credential_theft_pattern(&self, api_tracker: &ApiTracker) -> bool {
         api_tracker.helper_apis.contains("ReadProcessMemory")
-            && api_tracker.enumeration_apis.contains("CreateToolhelp32Snapshot")
+            && api_tracker
+                .enumeration_apis
+                .contains("CreateToolhelp32Snapshot")
     }
 
     fn calculate_operation_diversity(&self, precord: &ProcessRecord) -> f32 {
-        let total_ops = precord.ops_read + precord.ops_written + precord.ops_setinfo + precord.ops_open;
+        let total_ops =
+            precord.ops_read + precord.ops_written + precord.ops_setinfo + precord.ops_open;
         if total_ops == 0 {
             return 0.0;
         }

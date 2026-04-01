@@ -1,9 +1,9 @@
+use num_derive::FromPrimitive;
+use serde::{Deserialize, Serialize};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
 use std::time::SystemTime;
-use serde::{Deserialize, Serialize};
-use num_derive::FromPrimitive;
 
 #[cfg(target_os = "windows")]
 const FILE_ID_LEN: usize = 16;
@@ -90,7 +90,7 @@ pub enum IrpMajorOp {
     _IrpCleanUp, //not used (yet)
     /// Registry operation
     IrpRegistry,
-    
+
     // Process-related operations
     /// Process creation
     IrpProcessCreate,
@@ -120,7 +120,7 @@ pub enum IrpMajorOp {
     IrpKernelCreateSection,
     /// Kernel process-protection signal: map section
     IrpKernelMapSection,
-    
+
     // Rootkit-related operations
     IrpRootkitSsdtHook,
     IrpRootkitHiddenProcess,
@@ -155,7 +155,7 @@ impl IrpMajorOp {
             17 => IrpMajorOp::IrpKernelQueueApc,
             18 => IrpMajorOp::IrpKernelCreateSection,
             19 => IrpMajorOp::IrpKernelMapSection,
-            
+
             21 => IrpMajorOp::IrpRootkitSsdtHook,
             22 => IrpMajorOp::IrpRootkitHiddenProcess,
             23 => IrpMajorOp::IrpRootkitHiddenDriver,
@@ -225,7 +225,7 @@ impl DriveType {
             return DriveType::Remote;
         }
 
-        if filepath.starts_with('/'){ 
+        if filepath.starts_with('/') {
             // Linux-style paths default to fixed/local media
             return DriveType::Fixed;
         }
@@ -233,7 +233,11 @@ impl DriveType {
         // Windows-style "X:\" drive letter prefixes
         if filepath.chars().nth(1) == Some(':') {
             // Treat removable drive letters explicitly
-            let drive_letter = filepath.chars().next().unwrap_or_default().to_ascii_uppercase();
+            let drive_letter = filepath
+                .chars()
+                .next()
+                .unwrap_or_default()
+                .to_ascii_uppercase();
             if matches!(drive_letter, 'A' | 'B') {
                 return DriveType::Removable;
             }
@@ -261,17 +265,17 @@ impl FileId {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[repr(C)]
 pub struct KernelEventInfo {
-    pub event_type: u32,           // IRP_MAJOR_OP type
-    pub timestamp: u64,            // Event timestamp
-    pub source_process_id: u32,    // Process initiating the operation
-    pub target_process_id: u32,    // Target process (if applicable)
-    
+    pub event_type: u32,        // IRP_MAJOR_OP type
+    pub timestamp: u64,         // Event timestamp
+    pub source_process_id: u32, // Process initiating the operation
+    pub target_process_id: u32, // Target process (if applicable)
+
     // Memory operation details
-    pub memory_address: u64,       // Address involved in operation
-    pub memory_size: usize,        // Size of memory operation
-    pub memory_protection: u32,    // Protection flags
+    pub memory_address: u64,        // Address involved in operation
+    pub memory_size: usize,         // Size of memory operation
+    pub memory_protection: u32,     // Protection flags
     pub is_executable_memory: bool, // Whether operation targets executable memory
-    
+
     // Thread operation details
     pub thread_handle: u64,        // Thread handle (for thread operations)
     pub thread_start_routine: u64, // Start routine (for thread creation)
@@ -281,15 +285,15 @@ pub struct KernelEventInfo {
     pub raw_argument2: u64,
     pub raw_argument3: u64,
     pub raw_argument4: u64,
-    
+
     // File/Section operation details
-    pub object_name: String,       // File/section name (up to 520 WCHARs in C)
-    
+    pub object_name: String, // File/section name (up to 520 WCHARs in C)
+
     // Access control details
-    pub access_mask: u32,          // Requested access rights
-    
+    pub access_mask: u32, // Requested access rights
+
     // Operation result
-    pub operation_status: i32,     // NTSTATUS of the operation
+    pub operation_status: i32, // NTSTATUS of the operation
 }
 
 /// Represents a driver message.

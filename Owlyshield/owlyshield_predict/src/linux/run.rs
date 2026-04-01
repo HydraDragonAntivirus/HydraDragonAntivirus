@@ -7,47 +7,46 @@ use std::os::raw::c_char;
 use tracing::Level;
 use tracing_subscriber::FmtSubscriber;
 
-use crate::config;
-use crate::config::Param;
-use crate::threathandling::LinuxThreatHandler;
-use crate::whitelist;
 use crate::Connectors;
 use crate::ExepathLive;
-use crate::ProcessRecordHandlerLive;
-use crate::ProcessRecordHandlerNovelty;
-use crate::IOMsgPostProcessorWriter;
-use crate::IOMsgPostProcessorRPC;
 use crate::IOMessage;
 use crate::IOMsgPostProcessorMqtt;
 use crate::IOMsgPostProcessorRPC;
+use crate::IOMsgPostProcessorRPC;
+use crate::IOMsgPostProcessorWriter;
 use crate::IOMsgPostProcessorWriter;
 use crate::LDriverMsg;
 use crate::Logging;
 use crate::ProcessRecordHandlerLive;
+use crate::ProcessRecordHandlerLive;
+use crate::ProcessRecordHandlerNovelty;
 use crate::Worker;
+use crate::config;
+use crate::config::Param;
+use crate::config::Param;
+use crate::driver_com::Buf;
+use crate::threathandling::LinuxThreatHandler;
+use crate::watchlist::WatchList;
+use crate::whitelist;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
 use std::sync::mpsc::channel;
 use std::thread;
-use crate::config::Param;
-use crate::driver_com::Buf;
-use crate::watchlist::WatchList;
 
 fn probe_code() -> &'static [u8] {
     include_bytes!(
         concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/target/bpf/programs/openmonitor/openmonitor.elf"
-        )
-        // "/home/fedora/redbpf_test/target/bpf/programs/openmonitor/openmonitor.elf"
+        ) // "/home/fedora/redbpf_test/target/bpf/programs/openmonitor/openmonitor.elf"
     )
 }
 
 use aya::maps::perf::AsyncPerfEventArray;
 use aya::programs::KProbe;
 use aya::util::online_cpus;
-use aya::{include_bytes_aligned, Bpf};
+use aya::{Bpf, include_bytes_aligned};
 use aya_log::BpfLogger;
 use bytes::BytesMut;
 use ebpf_monitor_common::*;
@@ -72,7 +71,7 @@ pub async fn run() -> Result<(), anyhow::Error> {
         let whitelist = whitelist::WhiteList::from(
             &Path::new(&config[Param::ConfigPath]).join(Path::new("exclusions.txt")),
         )
-            .unwrap();
+        .unwrap();
         let mut worker = Worker::new_replay(&config, &whitelist);
 
         let filename =
@@ -135,16 +134,14 @@ pub async fn run() -> Result<(), anyhow::Error> {
             //NEW
             thread::spawn(move || {
                 let whitelist = whitelist::WhiteList::from(
-                    &Path::new(&config[Param::ConfigPath])
-                        .join(Path::new("exclusions.txt")),
+                    &Path::new(&config[Param::ConfigPath]).join(Path::new("exclusions.txt")),
                 )
-                    .expect("Cannot open exclusions.txt");
+                .expect("Cannot open exclusions.txt");
                 whitelist.refresh_periodically();
 
                 if cfg!(feature = "novelty") {
                     let watchlist = WatchList::from(
-                        &Path::new(&config[Param::NoveltyPath])
-                            .join(Path::new("to_analyze.yml")),
+                        &Path::new(&config[Param::NoveltyPath]).join(Path::new("to_analyze.yml")),
                     )
                     .expect("Cannot open to_analyze.yml");
                     watchlist.refresh_periodically();
@@ -164,10 +161,9 @@ pub async fn run() -> Result<(), anyhow::Error> {
                 }
 
                 if cfg!(feature = "novelty") {
-                    worker = worker
-                        .process_record_handler(Box::new(ProcessRecordHandlerNovelty::new(
-                            &config, watchlist,
-                        )));
+                    worker = worker.process_record_handler(Box::new(
+                        ProcessRecordHandlerNovelty::new(&config, watchlist),
+                    ));
                 }
 
                 if cfg!(feature = "record") {
@@ -218,11 +214,11 @@ pub async fn run() -> Result<(), anyhow::Error> {
         // like to specify the eBPF program at runtime rather than at compile-time, you can
         // reach for `Bpf::load_file` instead.
         #[cfg(debug_assertions)]
-            let mut bpf = Bpf::load(include_bytes_aligned!(
+        let mut bpf = Bpf::load(include_bytes_aligned!(
             "../../vfs-kprobes/target/bpfel-unknown-none/debug/ebpf-monitor"
         ))?;
         #[cfg(not(debug_assertions))]
-            let mut bpf = Bpf::load(include_bytes_aligned!(
+        let mut bpf = Bpf::load(include_bytes_aligned!(
             "../../vfs-kprobes/target/bpfel-unknown-none/release/ebpf-monitor"
         ))?;
         if let Err(e) = BpfLogger::init(&mut bpf) {

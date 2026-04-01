@@ -1,9 +1,9 @@
 //! [Connectors] allows to manage the list of [Connector].
 
 use crate::config::Config;
-use crate::process::ProcessRecord;
-use crate::connectors::connector::Connector;
 use crate::connectors::community::Community;
+use crate::connectors::connector::Connector;
+use crate::process::ProcessRecord;
 // use crate::connectors::sitincloud::SitinCloud;
 use crate::Logging;
 

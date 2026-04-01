@@ -37,7 +37,7 @@ pub enum LogLevel {
     Other,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct LogEntry {
     pub id: String,
     pub timestamp: u64,
@@ -388,6 +388,56 @@ fn decision_badge_label(decision: Option<&str>) -> Option<String> {
     })
 }
 
+fn is_owlyshield_log_entry(log: &LogEntry) -> bool {
+    let source = log
+        .source
+        .as_deref()
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    let message = log.message.to_ascii_lowercase();
+
+    source.contains("owlyshield")
+        || message.contains("owlyshield")
+        || message.contains("hips")
+        || message.contains("behavior")
+        || message.contains("report generation")
+}
+
+fn compact_log_message(message: &str, max_len: usize) -> String {
+    let trimmed = message.trim();
+    if trimmed.chars().count() <= max_len {
+        return trimmed.to_string();
+    }
+
+    let shortened = trimmed.chars().take(max_len.saturating_sub(1)).collect::<String>();
+    format!("{}...", shortened)
+}
+
+fn format_file_size_bytes(size: u64) -> String {
+    const KB: f64 = 1024.0;
+    const MB: f64 = KB * 1024.0;
+
+    let value = size as f64;
+    if value >= MB {
+        format!("{:.2} MB", value / MB)
+    } else if value >= KB {
+        format!("{:.2} KB", value / KB)
+    } else {
+        format!("{size} B")
+    }
+}
+
+fn format_unix_timestamp(ts: Option<u64>) -> String {
+    ts.map(|secs| {
+        let millis = secs as f64 * 1000.0;
+        js_sys::Date::new(&JsValue::from_f64(millis))
+            .to_locale_string("en-GB", &JsValue::UNDEFINED)
+            .as_string()
+            .unwrap_or_else(|| secs.to_string())
+    })
+    .unwrap_or_else(|| "Unknown".to_string())
+}
+
 fn build_process_rows(
     processes: &[ProcessInventoryEntry],
     packets: &[RawPacket],
@@ -661,6 +711,36 @@ pub struct OwlyshieldRulesDirectoryView {
     pub files: Vec<OwlyshieldRuleFileEntry>,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct OwlyshieldReportFileEntry {
+    pub name: String,
+    pub path: String,
+    pub selected: bool,
+    pub modified_ts: Option<u64>,
+    pub size_bytes: u64,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct OwlyshieldReportsDirectoryView {
+    pub directory: String,
+    pub selected_path: Option<String>,
+    pub files: Vec<OwlyshieldReportFileEntry>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct FirewallQuarantineFileEntry {
+    pub name: String,
+    pub path: String,
+    pub modified_ts: Option<u64>,
+    pub size_bytes: u64,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct FirewallQuarantineDirectoryView {
+    pub directory: String,
+    pub files: Vec<FirewallQuarantineFileEntry>,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct EngineRuntimeStatus {
     pub active: bool,
@@ -682,6 +762,7 @@ enum AppView {
     Dashboard,
     Processes,
     Rules,
+    OwlyShield,
     Logs,
     PacketReader,
     HttpInspector,
@@ -1039,6 +1120,13 @@ pub fn App() -> impl IntoView {
     let (owlyshield_rule_files, set_owlyshield_rule_files) = create_signal(Vec::<OwlyshieldRuleFileEntry>::new());
     let (selected_owlyshield_rule_path, set_selected_owlyshield_rule_path) = create_signal(Option::<String>::None);
     let (owlyshield_rules_status, set_owlyshield_rules_status) = create_signal(String::new());
+    let (owlyshield_report_content, set_owlyshield_report_content) = create_signal(String::new());
+    let (owlyshield_reports_directory, set_owlyshield_reports_directory) = create_signal(String::new());
+    let (owlyshield_report_files, set_owlyshield_report_files) = create_signal(Vec::<OwlyshieldReportFileEntry>::new());
+    let (selected_owlyshield_report_path, set_selected_owlyshield_report_path) = create_signal(Option::<String>::None);
+    let (owlyshield_report_status, set_owlyshield_report_status) = create_signal(String::new());
+    let (firewall_quarantine_directory, set_firewall_quarantine_directory) = create_signal(String::new());
+    let (firewall_quarantine_files, set_firewall_quarantine_files) = create_signal(Vec::<FirewallQuarantineFileEntry>::new());
 
     let fetch_sdk_rules = move || {
         spawn_local(async move {
@@ -1141,6 +1229,11 @@ pub fn App() -> impl IntoView {
 
     let request_owlyshield_report = move || {
         let requested_at = js_sys::Date::now() as u64;
+        set_current_view.set(AppView::OwlyShield);
+        set_owlyshield_report_status.set(
+            "Report generation requested. Refresh the report list after OwlyShield finishes writing the new report."
+                .to_string(),
+        );
         set_logs.update(|entries| {
             entries.insert(
                 0,
@@ -1265,14 +1358,22 @@ pub fn App() -> impl IntoView {
                 .find(|row| row.pid == pid)
         })
     });
+    let owlyshield_activity_logs = create_memo(move |_| {
+        logs.get()
+            .into_iter()
+            .filter(is_owlyshield_log_entry)
+            .take(10)
+            .collect::<Vec<_>>()
+    });
 
     create_effect(move |_| {
         match current_view.get() {
             AppView::Processes => { fetch_process_inventory(); }
-            AppView::Rules => {
+            AppView::Rules | AppView::OwlyShield => {
                 fetch_sdk_rules();
                 fetch_rules_raw();
                 fetch_body_changers();
+                fetch_saved_logs();
                 spawn_local(async move {
                     let val = invoke("list_owlyshield_rules_files", JsValue::NULL).await;
                     match serde_wasm_bindgen::from_value::<OwlyshieldRulesDirectoryView>(val) {
@@ -1306,6 +1407,57 @@ pub fn App() -> impl IntoView {
                             set_selected_owlyshield_rule_path.set(None);
                             set_owlyshield_rules_content.set(String::new());
                             set_owlyshield_rules_status.set("Failed to enumerate the OwlyShield rules directory.".to_string());
+                        }
+                    }
+                });
+                spawn_local(async move {
+                    let val = invoke("list_owlyshield_report_files", JsValue::NULL).await;
+                    match serde_wasm_bindgen::from_value::<OwlyshieldReportsDirectoryView>(val) {
+                        Ok(view) => {
+                            let fallback_selected = view.files.first().map(|file| file.path.clone());
+                            let selected_path = view.selected_path.clone().or(fallback_selected);
+                            set_owlyshield_reports_directory.set(view.directory);
+                            set_owlyshield_report_files.set(view.files);
+                            set_selected_owlyshield_report_path.set(selected_path.clone());
+                            if let Some(path) = selected_path {
+                                let args = js_sys::Object::new();
+                                js_sys::Reflect::set(&args, &"path".into(), &path.into()).unwrap();
+                                let raw = invoke("get_owlyshield_report_raw", args.into()).await;
+                                match serde_wasm_bindgen::from_value::<String>(raw) {
+                                    Ok(content) => {
+                                        set_owlyshield_report_content.set(content);
+                                        if owlyshield_report_status.get_untracked().starts_with("Report generation requested.") {
+                                            set_owlyshield_report_status.set("OwlyShield report list refreshed.".to_string());
+                                        }
+                                    }
+                                    Err(_) => {
+                                        set_owlyshield_report_content.set(String::new());
+                                        set_owlyshield_report_status.set("Failed to load the selected OwlyShield report.".to_string());
+                                    }
+                                }
+                            } else {
+                                set_owlyshield_report_content.set(String::new());
+                                set_owlyshield_report_status.set("No OwlyShield reports were found in the reports directory.".to_string());
+                            }
+                        }
+                        Err(_) => {
+                            set_owlyshield_report_files.set(Vec::new());
+                            set_selected_owlyshield_report_path.set(None);
+                            set_owlyshield_report_content.set(String::new());
+                            set_owlyshield_report_status.set("Failed to enumerate the OwlyShield reports directory.".to_string());
+                        }
+                    }
+                });
+                spawn_local(async move {
+                    let val = invoke("list_firewall_quarantine_files", JsValue::NULL).await;
+                    match serde_wasm_bindgen::from_value::<FirewallQuarantineDirectoryView>(val) {
+                        Ok(view) => {
+                            set_firewall_quarantine_directory.set(view.directory);
+                            set_firewall_quarantine_files.set(view.files);
+                        }
+                        Err(_) => {
+                            set_firewall_quarantine_directory.set(String::new());
+                            set_firewall_quarantine_files.set(Vec::new());
                         }
                     }
                 });
@@ -1558,6 +1710,10 @@ pub fn App() -> impl IntoView {
                                on:click=move |ev| { ev.prevent_default(); set_current_view.set(AppView::Rules); }>
                                "Protection Rules"
                             </a>
+                            <a href="#" class={move || if current_view.get() == AppView::OwlyShield { "nav-item active" } else { "nav-item" }}
+                               on:click=move |ev| { ev.prevent_default(); set_current_view.set(AppView::OwlyShield); }>
+                               "OwlyShield"
+                            </a>
                             <a href="#" class={move || if current_view.get() == AppView::Logs { "nav-item active" } else { "nav-item" }}
                                on:click=move |ev| { ev.prevent_default(); set_current_view.set(AppView::Logs); }>
                                "Network Activity"
@@ -1619,6 +1775,7 @@ pub fn App() -> impl IntoView {
                                     AppView::Dashboard => "Security Overview",
                                     AppView::Processes => "Process Explorer",
                                     AppView::Rules => "Protection Rules",
+                                    AppView::OwlyShield => "OwlyShield Manager",
                                     AppView::Logs => "Network Activity",
                                     AppView::PacketReader => "Packet Inspection",
                                     AppView::HttpInspector => "HTTP Inspector",
@@ -1679,9 +1836,9 @@ pub fn App() -> impl IntoView {
                                             <button
                                                 class="btn-secondary"
                                                 style="position: absolute; left: 20px; bottom: 18px; padding: 7px 14px; font-size: 11px"
-                                                on:click=move |_| request_owlyshield_report()
+                                                on:click=move |_| set_current_view.set(AppView::OwlyShield)
                                             >
-                                                "Generate Owlyshield Report"
+                                                "Open OwlyShield Manager"
                                             </button>
                                         </div>
                                     </div>
@@ -2626,6 +2783,263 @@ pub fn App() -> impl IntoView {
                                             </div>
                                         }.into_view()
                                     }}
+                                    </div>
+                                </div>
+                            }.into_view(),
+
+                            AppView::OwlyShield => view! {
+                                <div style="height: calc(100vh - 120px); display: flex; gap: 16px; min-height: 0;">
+                                    <div style="width: 360px; min-width: 320px; display: flex; flex-direction: column; gap: 14px; min-height: 0;">
+                                        <div class="glass-card" style="padding: 18px; display: flex; flex-direction: column; gap: 12px;">
+                                            <div class="section-header" style="padding: 0; border: none;">
+                                                <h3 style="margin: 0;">"OwlyShield Report Manager"</h3>
+                                            </div>
+                                            <p style="margin: 0; color: var(--text-muted); font-size: 12px; line-height: 1.55;">
+                                                "Advanced reports are requested from the firewall GUI, but generation is handled by the OwlyShield backend."
+                                            </p>
+                                            <button class="btn-primary" style="width: 100%;" on:click=move |_| request_owlyshield_report()>
+                                                "Generate Advanced Report"
+                                            </button>
+                                            <div style="padding: 12px; border-radius: 10px; background: rgba(15, 23, 42, 0.48); border: 1px solid rgba(96, 165, 250, 0.16); font-size: 12px; line-height: 1.5;">
+                                                <div><strong>"Reports directory: "</strong>{move || owlyshield_reports_directory.get()}</div>
+                                                <div style="margin-top: 6px;"><strong>"Latest report: "</strong>{move || selected_owlyshield_report_path.get().unwrap_or_else(|| "No report selected".to_string())}</div>
+                                                <div style="margin-top: 6px;"><strong>"Rules directory: "</strong>{move || owlyshield_rules_directory.get()}</div>
+                                                {move || if !owlyshield_report_status.get().is_empty() {
+                                                    view! {
+                                                        <div style="margin-top: 8px; color: var(--accent-orange);">{owlyshield_report_status.get()}</div>
+                                                    }.into_view()
+                                                } else {
+                                                    view! {}.into_view()
+                                                }}
+                                            </div>
+                                        </div>
+
+                                        <div class="glass-card" style="padding: 18px; display: flex; flex-direction: column; gap: 10px;">
+                                            <div class="section-header" style="padding: 0; border: none;">
+                                                <h3 style="margin: 0;">"Prompt & Decode Defaults"</h3>
+                                            </div>
+                                            <p style="margin: 0; color: var(--text-muted); font-size: 12px; line-height: 1.55;">
+                                                "OwlyShield now treats `ask_user: true` rules as deny-while-asking by default. Keep `suspend_while_ask: true` only on rules where you want the process paused."
+                                            </p>
+                                            <div style="font-size: 12px; line-height: 1.6; color: var(--text-muted);">
+                                                <div>"Decoded match sources: plain, base64, base58, hex, reverse"</div>
+                                                <div>"JSON matching now checks decoded request/response bodies instead of only preview text."</div>
+                                            </div>
+                                            <pre style="margin: 0; background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(148, 163, 184, 0.15); border-radius: 8px; padding: 12px; font-size: 11px; color: #a5d6ff; overflow-x: auto;">"response:
+  ask_user: true
+  suspend_while_ask: false
+  deny_while_ask: true"</pre>
+                                        </div>
+
+                                        <div class="glass-card" style="padding: 18px; display: flex; flex-direction: column; gap: 10px; min-height: 0;">
+                                            <div class="section-header" style="padding: 0; border: none;">
+                                                <h3 style="margin: 0;">"Quarantine Manager"</h3>
+                                            </div>
+                                            <p style="margin: 0; color: var(--text-muted); font-size: 12px; line-height: 1.55;">
+                                                "Recent files currently stored in the firewall quarantine directory."
+                                            </p>
+                                            <div style="font-size: 11px; color: var(--text-muted); overflow-wrap: anywhere;">
+                                                {move || firewall_quarantine_directory.get()}
+                                            </div>
+                                            <div style="display: flex; flex-direction: column; gap: 8px; overflow-y: auto; min-height: 0;">
+                                                <For
+                                                    each={move || firewall_quarantine_files.get()}
+                                                    key={|file| file.path.clone()}
+                                                    children={move |file| view! {
+                                                        <div style="padding: 10px 12px; border-radius: 8px; background: rgba(15, 23, 42, 0.5); border: 1px solid rgba(248, 113, 113, 0.14);">
+                                                            <div style="font-size: 12px; font-weight: 700; margin-bottom: 4px;">{file.name.clone()}</div>
+                                                            <div style="font-size: 11px; color: var(--accent-orange); margin-bottom: 2px;">{format_unix_timestamp(file.modified_ts)}</div>
+                                                            <div style="font-size: 11px; color: var(--text-muted);">{format_file_size_bytes(file.size_bytes)}</div>
+                                                            <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px; overflow-wrap: anywhere;">{compact_log_message(&file.path, 96)}</div>
+                                                        </div>
+                                                    }}
+                                                />
+                                                {move || if firewall_quarantine_files.get().is_empty() {
+                                                    view! {
+                                                        <div style="padding: 12px; border-radius: 8px; background: rgba(15, 23, 42, 0.35); color: var(--text-muted); font-size: 12px;">
+                                                            "No quarantined files are currently present."
+                                                        </div>
+                                                    }.into_view()
+                                                } else {
+                                                    view! {}.into_view()
+                                                }}
+                                            </div>
+                                        </div>
+
+                                        <div class="glass-card" style="padding: 18px; display: flex; flex-direction: column; gap: 10px; min-height: 0;">
+                                            <div class="section-header" style="padding: 0; border: none;">
+                                                <h3 style="margin: 0;">"OwlyShield Activity"</h3>
+                                            </div>
+                                            <div style="display: flex; flex-direction: column; gap: 8px; overflow-y: auto; min-height: 0;">
+                                                <For
+                                                    each={move || owlyshield_activity_logs.get()}
+                                                    key={|log| log.id.clone()}
+                                                    children={move |log| view! {
+                                                        <div style="padding: 10px 12px; border-radius: 8px; background: rgba(15, 23, 42, 0.5); border: 1px solid rgba(96, 165, 250, 0.14);">
+                                                            <div style="font-size: 11px; color: var(--accent-blue); margin-bottom: 4px;">{format!("Event {}", log.timestamp % 100000)}</div>
+                                                            <div style="font-size: 12px; line-height: 1.5;">{compact_log_message(&log.message, 110)}</div>
+                                                        </div>
+                                                    }}
+                                                />
+                                                {move || if owlyshield_activity_logs.get().is_empty() {
+                                                    view! {
+                                                        <div style="padding: 12px; border-radius: 8px; background: rgba(15, 23, 42, 0.35); color: var(--text-muted); font-size: 12px;">
+                                                            "No OwlyShield-specific activity has been logged yet."
+                                                        </div>
+                                                    }.into_view()
+                                                } else {
+                                                    view! {}.into_view()
+                                                }}
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 12px; min-height: 0;">
+                                        <div class="glass-card" style="padding: 14px 16px; font-size: 12px; color: var(--text-muted); display: flex; flex-direction: column; gap: 10px;">
+                                            <div class="section-header" style="padding: 0; border: none;">
+                                                <h3 style="margin: 0;">"Generated Report Browser"</h3>
+                                                <div style="display: flex; gap: 8px;">
+                                                    <button class="btn-secondary" on:click=move |_| set_current_view.set(AppView::Rules)>
+                                                        "Open Rules Editor"
+                                                    </button>
+                                                    <button class="btn-secondary" on:click=move |_| {
+                                                        spawn_local(async move {
+                                                            let val = invoke("list_owlyshield_report_files", JsValue::NULL).await;
+                                                            match serde_wasm_bindgen::from_value::<OwlyshieldReportsDirectoryView>(val) {
+                                                                Ok(view) => {
+                                                                    let fallback_selected = view.files.first().map(|file| file.path.clone());
+                                                                    let selected_path = view.selected_path.clone().or(fallback_selected);
+                                                                    set_owlyshield_reports_directory.set(view.directory);
+                                                                    set_owlyshield_report_files.set(view.files);
+                                                                    set_selected_owlyshield_report_path.set(selected_path.clone());
+                                                                    if let Some(path) = selected_path {
+                                                                        let args = js_sys::Object::new();
+                                                                        js_sys::Reflect::set(&args, &"path".into(), &path.into()).unwrap();
+                                                                        let raw = invoke("get_owlyshield_report_raw", args.into()).await;
+                                                                        match serde_wasm_bindgen::from_value::<String>(raw) {
+                                                                            Ok(content) => {
+                                                                                set_owlyshield_report_content.set(content);
+                                                                                set_owlyshield_report_status.set("OwlyShield report list refreshed.".to_string());
+                                                                            }
+                                                                            Err(_) => {
+                                                                                set_owlyshield_report_content.set(String::new());
+                                                                                set_owlyshield_report_status.set("Failed to load the selected OwlyShield report.".to_string());
+                                                                            }
+                                                                        }
+                                                                    } else {
+                                                                        set_owlyshield_report_content.set(String::new());
+                                                                        set_owlyshield_report_status.set("No OwlyShield reports were found in the reports directory.".to_string());
+                                                                    }
+                                                                }
+                                                                Err(_) => {
+                                                                    set_owlyshield_report_files.set(Vec::new());
+                                                                    set_selected_owlyshield_report_path.set(None);
+                                                                    set_owlyshield_report_content.set(String::new());
+                                                                    set_owlyshield_report_status.set("Failed to enumerate the OwlyShield reports directory.".to_string());
+                                                                }
+                                                            }
+                                                        });
+                                                    }>
+                                                        "Refresh Reports"
+                                                    </button>
+                                                </div>
+                                            </div>
+                                            <div>
+                                                <strong>"Directory: "</strong>
+                                                <code style="color: var(--accent-blue)">{move || owlyshield_reports_directory.get()}</code>
+                                            </div>
+                                            <div style="display: flex; gap: 16px; flex-wrap: wrap;">
+                                                <div><strong>"Reports: "</strong>{move || owlyshield_report_files.get().len().to_string()}</div>
+                                                <div><strong>"Selected: "</strong>{move || selected_owlyshield_report_path.get().unwrap_or_else(|| "None".to_string())}</div>
+                                            </div>
+                                        </div>
+
+                                        <div style="flex: 1; min-height: 0; display: flex; gap: 14px;">
+                                            <div class="glass-card" style="width: 320px; min-width: 280px; display: flex; flex-direction: column; min-height: 0;">
+                                                <div class="section-header">
+                                                    <h3 style="margin: 0;">"Reports"</h3>
+                                                    <span style="font-size: 11px; opacity: 0.7;">{move || owlyshield_report_files.get().len().to_string()}</span>
+                                                </div>
+                                                <div style="padding: 12px; display: flex; flex-direction: column; gap: 8px; overflow-y: auto; min-height: 0;">
+                                                    <For
+                                                        each={move || owlyshield_report_files.get()}
+                                                        key={|file| file.path.clone()}
+                                                        children={move |file| {
+                                                            let file_path = file.path.clone();
+                                                            let active_path = file_path.clone();
+                                                            let report_name = file.name.clone();
+                                                            let modified = format_unix_timestamp(file.modified_ts);
+                                                            let size_label = format_file_size_bytes(file.size_bytes);
+                                                            view! {
+                                                                <button
+                                                                    style=move || {
+                                                                        let active = selected_owlyshield_report_path.get().as_deref() == Some(active_path.as_str());
+                                                                        if active {
+                                                                            "text-align: left; width: 100%; padding: 12px; border-radius: 10px; border: 1px solid rgba(96, 165, 250, 0.35); background: rgba(59, 130, 246, 0.14); color: var(--text-bright); cursor: pointer;"
+                                                                        } else {
+                                                                            "text-align: left; width: 100%; padding: 12px; border-radius: 10px; border: 1px solid rgba(148, 163, 184, 0.12); background: rgba(15, 23, 42, 0.48); color: var(--text-bright); cursor: pointer;"
+                                                                        }
+                                                                    }
+                                                                    on:click=move |_| {
+                                                                        let selected = file_path.clone();
+                                                                        set_selected_owlyshield_report_path.set(Some(selected.clone()));
+                                                                        spawn_local(async move {
+                                                                            let args = js_sys::Object::new();
+                                                                            js_sys::Reflect::set(&args, &"path".into(), &selected.into()).unwrap();
+                                                                            let raw = invoke("get_owlyshield_report_raw", args.into()).await;
+                                                                            match serde_wasm_bindgen::from_value::<String>(raw) {
+                                                                                Ok(content) => {
+                                                                                    set_owlyshield_report_content.set(content);
+                                                                                    set_owlyshield_report_status.set(String::new());
+                                                                                }
+                                                                                Err(_) => {
+                                                                                    set_owlyshield_report_content.set(String::new());
+                                                                                    set_owlyshield_report_status.set("Failed to load the selected OwlyShield report.".to_string());
+                                                                                }
+                                                                            }
+                                                                        });
+                                                                    }>
+                                                                    <div style="font-size: 12px; font-weight: 700; margin-bottom: 4px;">{report_name}</div>
+                                                                    <div style="font-size: 11px; color: var(--text-muted);">{modified}</div>
+                                                                    <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">{size_label}</div>
+                                                                </button>
+                                                            }
+                                                        }}
+                                                    />
+                                                    {move || if owlyshield_report_files.get().is_empty() {
+                                                        view! {
+                                                            <div style="padding: 12px; border-radius: 8px; background: rgba(15, 23, 42, 0.35); color: var(--text-muted); font-size: 12px;">
+                                                                "No generated reports are available yet."
+                                                            </div>
+                                                        }.into_view()
+                                                    } else {
+                                                        view! {}.into_view()
+                                                    }}
+                                                </div>
+                                            </div>
+
+                                            <div class="glass-card" style="flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0;">
+                                                <div class="section-header">
+                                                    <h3 style="margin: 0;">"Report Details"</h3>
+                                                    <span style="font-size: 11px; opacity: 0.7;">
+                                                        {move || selected_owlyshield_report_path.get().unwrap_or_else(|| "No report selected".to_string())}
+                                                    </span>
+                                                </div>
+                                                <div style="padding: 14px; min-height: 0; flex: 1; overflow: auto;">
+                                                    {move || if owlyshield_report_content.get().trim().is_empty() {
+                                                        view! {
+                                                            <div style="padding: 14px; border-radius: 8px; background: rgba(15, 23, 42, 0.35); color: var(--text-muted); font-size: 12px;">
+                                                                "Select a generated report to inspect the full OwlyShield output."
+                                                            </div>
+                                                        }.into_view()
+                                                    } else {
+                                                        view! {
+                                                            <pre style="margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-family: Consolas, 'JetBrains Mono', monospace; font-size: 12px; line-height: 1.5; color: #d6e2f0;">{move || owlyshield_report_content.get()}</pre>
+                                                        }.into_view()
+                                                    }}
+                                                </div>
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
                             }.into_view(),

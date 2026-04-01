@@ -1,23 +1,22 @@
 //! Low-level communication with the minifilter.
 use std::time::SystemTime;
 
-use crate::shared_def::{
-    FileId,
-    IOMessage,
-    DriveType::{NoRootDir},
-    DriveType,
-    RuntimeFeatures,
-};
+use crate::shared_def::{DriveType, DriveType::NoRootDir, FileId, IOMessage, RuntimeFeatures};
 
+use ebpf_monitor_common::Access::{Create, Mkdir, Read, Rename, Rmdir, Symlink, Unlink, Write};
 use ebpf_monitor_common::FileAccess;
-use ebpf_monitor_common::Access::{Read, Write, Unlink, Rmdir, Mkdir, Symlink, Create, Rename};
 
 pub type Buf = [u8; 32];
 
 impl IOMessage {
     pub fn from(l_drivermsg: &LDriverMsg) -> IOMessage {
         IOMessage {
-            extension: l_drivermsg.filepath.split(".").last().unwrap_or("").to_string(),
+            extension: l_drivermsg
+                .filepath
+                .split(".")
+                .last()
+                .unwrap_or("")
+                .to_string(),
             file_id_id: FileId(l_drivermsg.ino),
             mem_sized_used: l_drivermsg.mem_sized_used,
             entropy: l_drivermsg.entropy,
@@ -76,7 +75,7 @@ impl LDriverMsg {
             file_change: 0,
             file_location_info: 0,
             mem_sized_used: 0,
-            comm: [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+            comm: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
             gid: 0,
             exepath: String::from(""),
             filepath: String::from(""),
@@ -99,42 +98,42 @@ impl LDriverMsg {
                 self.irp_op = 1;
                 self.file_change = 0;
                 self.mem_sized_used = mem.try_into().unwrap();
-            },
+            }
             Write(mem) => {
                 self.irp_op = 2;
                 self.file_change = 2;
                 self.mem_sized_used = mem.try_into().unwrap();
-            },
+            }
             Unlink(mem) => {
                 self.irp_op = 0;
                 self.file_change = 6;
                 self.mem_sized_used = mem.try_into().unwrap();
-            },
+            }
             Rmdir(mem) => {
                 self.irp_op = 0;
                 self.file_change = 6;
                 self.mem_sized_used = mem.try_into().unwrap();
-            },
+            }
             Mkdir(mem) => {
                 self.irp_op = 4;
                 self.file_change = 3;
                 self.mem_sized_used = mem.try_into().unwrap();
-            },
+            }
             Symlink(mem) => {
                 self.irp_op = 4;
                 self.file_change = 3;
                 self.mem_sized_used = mem.try_into().unwrap();
-            },
+            }
             Create(mem) => {
                 self.irp_op = 4;
                 self.file_change = 3;
                 self.mem_sized_used = mem.try_into().unwrap();
-            },
+            }
             Rename(mem) => {
                 self.irp_op = 3;
                 self.file_change = 4;
                 self.mem_sized_used = mem.try_into().unwrap();
-            },
+            }
         }
     }
 
@@ -149,5 +148,4 @@ impl LDriverMsg {
     pub fn set_exepath(&mut self, exepath: String) {
         self.exepath = exepath;
     }
-
 }

@@ -33,6 +33,19 @@ fn body_changers_path() -> std::path::PathBuf {
         .join("body_changers.json")
 }
 
+fn firewall_data_dir() -> std::path::PathBuf {
+    if let Ok(program_data) = std::env::var("PROGRAMDATA") {
+        return std::path::PathBuf::from(program_data)
+            .join("HydraDragonAntivirus")
+            .join("HydraDragonFirewall");
+    }
+
+    std::env::current_exe()
+        .ok()
+        .and_then(|path| path.parent().map(|parent| parent.to_path_buf()))
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+}
+
 fn load_body_changers() -> Vec<BodyChangerRule> {
     let path = body_changers_path();
     std::fs::read_to_string(&path)
@@ -193,6 +206,17 @@ fn get_owlyshield_rules_dir() -> Option<std::path::PathBuf> {
         .map(std::path::PathBuf::from)
 }
 
+#[cfg(target_os = "windows")]
+fn get_owlyshield_reports_dir() -> Option<std::path::PathBuf> {
+    use winreg::enums::HKEY_LOCAL_MACHINE;
+    use winreg::RegKey;
+    let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
+    hklm.open_subkey(r"SOFTWARE\Owlyshield")
+        .ok()
+        .and_then(|key| key.get_value::<String, _>("REPORTS_PATH").ok())
+        .map(std::path::PathBuf::from)
+}
+
 /// Read the Firewall SDK rules folder path from the Windows Registry.
 /// Falls back to None if the key is absent or the OS is not Windows.
 #[cfg(target_os = "windows")]
@@ -218,6 +242,36 @@ struct OwlyshieldRulesDirectoryView {
     directory: String,
     selected_path: Option<String>,
     files: Vec<OwlyshieldRulesFileEntry>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct OwlyshieldReportFileEntry {
+    name: String,
+    path: String,
+    selected: bool,
+    modified_ts: Option<u64>,
+    size_bytes: u64,
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct OwlyshieldReportsDirectoryView {
+    directory: String,
+    selected_path: Option<String>,
+    files: Vec<OwlyshieldReportFileEntry>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct FirewallQuarantineFileEntry {
+    name: String,
+    path: String,
+    modified_ts: Option<u64>,
+    size_bytes: u64,
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct FirewallQuarantineDirectoryView {
+    directory: String,
+    files: Vec<FirewallQuarantineFileEntry>,
 }
 
 #[cfg(target_os = "windows")]
@@ -267,6 +321,47 @@ fn resolve_rules_file_from_registry_dir(dir: &std::path::Path) -> Option<std::pa
 }
 
 #[cfg(target_os = "windows")]
+fn collect_owlyshield_report_files(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
+    if dir.is_file() {
+        return vec![dir.to_path_buf()];
+    }
+
+    if !dir.is_dir() {
+        return Vec::new();
+    }
+
+    let mut report_files: Vec<std::path::PathBuf> = std::fs::read_dir(dir)
+        .ok()
+        .into_iter()
+        .flat_map(|entries| entries.filter_map(Result::ok))
+        .map(|entry| entry.path())
+        .filter(|path| path.is_file())
+        .collect();
+
+    report_files.sort_by(|a, b| {
+        let modified_key = |path: &std::path::Path| {
+            std::fs::metadata(path)
+                .ok()
+                .and_then(|meta| meta.modified().ok())
+                .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|duration| duration.as_secs())
+                .unwrap_or_default()
+        };
+
+        modified_key(b)
+            .cmp(&modified_key(a))
+            .then_with(|| b.file_name().cmp(&a.file_name()))
+    });
+
+    report_files
+}
+
+#[cfg(target_os = "windows")]
+fn resolve_report_file_from_registry_dir(dir: &std::path::Path) -> Option<std::path::PathBuf> {
+    collect_owlyshield_report_files(dir).into_iter().next()
+}
+
+#[cfg(target_os = "windows")]
 fn resolve_owlyshield_rule_file(requested_path: Option<&str>) -> Option<std::path::PathBuf> {
     if let Some(path) = requested_path {
         let requested = std::path::PathBuf::from(path);
@@ -276,6 +371,18 @@ fn resolve_owlyshield_rule_file(requested_path: Option<&str>) -> Option<std::pat
     }
 
     get_owlyshield_rules_dir().and_then(|dir| resolve_rules_file_from_registry_dir(&dir))
+}
+
+#[cfg(target_os = "windows")]
+fn resolve_owlyshield_report_file(requested_path: Option<&str>) -> Option<std::path::PathBuf> {
+    if let Some(path) = requested_path {
+        let requested = std::path::PathBuf::from(path);
+        if requested.is_file() {
+            return Some(requested);
+        }
+    }
+
+    get_owlyshield_reports_dir().and_then(|dir| resolve_report_file_from_registry_dir(&dir))
 }
 
 #[tauri::command]
@@ -333,6 +440,87 @@ async fn list_owlyshield_rules_files() -> OwlyshieldRulesDirectoryView {
 }
 
 #[tauri::command]
+async fn list_owlyshield_report_files() -> OwlyshieldReportsDirectoryView {
+    #[cfg(target_os = "windows")]
+    if let Some(dir) = get_owlyshield_reports_dir() {
+        let selected_path = resolve_report_file_from_registry_dir(&dir)
+            .map(|path| path.to_string_lossy().to_string());
+        let files = collect_owlyshield_report_files(&dir)
+            .into_iter()
+            .map(|path| {
+                let metadata = std::fs::metadata(&path).ok();
+                let modified_ts = metadata
+                    .as_ref()
+                    .and_then(|meta| meta.modified().ok())
+                    .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map(|duration| duration.as_secs());
+                let size_bytes = metadata.map(|meta| meta.len()).unwrap_or_default();
+                let path_string = path.to_string_lossy().to_string();
+
+                OwlyshieldReportFileEntry {
+                    name: path
+                        .file_name()
+                        .and_then(|name| name.to_str())
+                        .unwrap_or("report")
+                        .to_string(),
+                    selected: selected_path.as_deref() == Some(path_string.as_str()),
+                    path: path_string,
+                    modified_ts,
+                    size_bytes,
+                }
+            })
+            .collect();
+
+        return OwlyshieldReportsDirectoryView {
+            directory: dir.to_string_lossy().to_string(),
+            selected_path,
+            files,
+        };
+    }
+
+    let local_dir = std::path::PathBuf::from("reports");
+    let selected_path = local_dir
+        .is_dir()
+        .then(|| collect_owlyshield_report_files(&local_dir).into_iter().next())
+        .flatten()
+        .map(|path| path.to_string_lossy().to_string());
+    let files = if local_dir.is_dir() {
+        collect_owlyshield_report_files(&local_dir)
+            .into_iter()
+            .map(|path| {
+                let metadata = std::fs::metadata(&path).ok();
+                let modified_ts = metadata
+                    .as_ref()
+                    .and_then(|meta| meta.modified().ok())
+                    .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map(|duration| duration.as_secs());
+                let size_bytes = metadata.map(|meta| meta.len()).unwrap_or_default();
+                let path_string = path.to_string_lossy().to_string();
+                OwlyshieldReportFileEntry {
+                    name: path
+                        .file_name()
+                        .and_then(|name| name.to_str())
+                        .unwrap_or("report")
+                        .to_string(),
+                    selected: selected_path.as_deref() == Some(path_string.as_str()),
+                    path: path_string,
+                    modified_ts,
+                    size_bytes,
+                }
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
+
+    OwlyshieldReportsDirectoryView {
+        directory: local_dir.to_string_lossy().to_string(),
+        selected_path,
+        files,
+    }
+}
+
+#[tauri::command]
 async fn get_owlyshield_rules_raw(path: Option<String>) -> String {
     #[cfg(target_os = "windows")]
     if let Some(path) = resolve_owlyshield_rule_file(path.as_deref()) {
@@ -343,6 +531,85 @@ async fn get_owlyshield_rules_raw(path: Option<String>) -> String {
 
     let local_path = "owlyshield_rules.yaml";
     std::fs::read_to_string(local_path).unwrap_or_default()
+}
+
+#[tauri::command]
+async fn get_owlyshield_report_raw(path: Option<String>) -> String {
+    #[cfg(target_os = "windows")]
+    if let Some(path) = resolve_owlyshield_report_file(path.as_deref()) {
+        if let Ok(content) = std::fs::read_to_string(&path) {
+            return content;
+        }
+    }
+
+    let local_dir = std::path::PathBuf::from("reports");
+    if local_dir.is_dir()
+        && let Some(path) = collect_owlyshield_report_files(&local_dir).into_iter().next()
+    {
+        return std::fs::read_to_string(path).unwrap_or_default();
+    }
+
+    String::new()
+}
+
+#[tauri::command]
+async fn list_firewall_quarantine_files() -> FirewallQuarantineDirectoryView {
+    let dir = firewall_data_dir().join("quarantine");
+    let mut files = if dir.is_dir() {
+        std::fs::read_dir(&dir)
+            .ok()
+            .into_iter()
+            .flat_map(|entries| entries.filter_map(Result::ok))
+            .map(|entry| entry.path())
+            .filter(|path| path.is_file())
+            .collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
+
+    files.sort_by(|a, b| {
+        let modified_key = |path: &std::path::Path| {
+            std::fs::metadata(path)
+                .ok()
+                .and_then(|meta| meta.modified().ok())
+                .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|duration| duration.as_secs())
+                .unwrap_or_default()
+        };
+
+        modified_key(b)
+            .cmp(&modified_key(a))
+            .then_with(|| b.file_name().cmp(&a.file_name()))
+    });
+
+    let entries = files
+        .into_iter()
+        .map(|path| {
+            let metadata = std::fs::metadata(&path).ok();
+            let modified_ts = metadata
+                .as_ref()
+                .and_then(|meta| meta.modified().ok())
+                .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|duration| duration.as_secs());
+            let size_bytes = metadata.map(|meta| meta.len()).unwrap_or_default();
+
+            FirewallQuarantineFileEntry {
+                name: path
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or("quarantined_file")
+                    .to_string(),
+                path: path.to_string_lossy().to_string(),
+                modified_ts,
+                size_bytes,
+            }
+        })
+        .collect();
+
+    FirewallQuarantineDirectoryView {
+        directory: dir.to_string_lossy().to_string(),
+        files: entries,
+    }
 }
 
 #[tauri::command]
@@ -783,7 +1050,10 @@ pub fn run() {
             get_body_changers,
             save_body_changers,
             list_owlyshield_rules_files,
+            list_owlyshield_report_files,
+            list_firewall_quarantine_files,
             get_owlyshield_rules_raw,
+            get_owlyshield_report_raw,
             save_owlyshield_rules_raw,
         ])
         .run(tauri::generate_context!())

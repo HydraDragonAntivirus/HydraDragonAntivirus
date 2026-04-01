@@ -7,13 +7,13 @@
 //! - Detects future sophisticated attacks automatically
 //! - Pure machine learning approach
 
-use crate::realtime_learning::api_tracker::ApiTracker;
 use crate::process::ProcessRecord;
-use serde::{Serialize, Deserialize};
-use serde_yaml;
-use std::collections::{HashMap, BTreeMap};
-use std::time::{SystemTime, Duration};
+use crate::realtime_learning::api_tracker::ApiTracker;
 use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
+use serde_yaml;
+use std::collections::{BTreeMap, HashMap};
+use std::time::{Duration, SystemTime};
 
 // =================================================================================================
 // YAML Rule Structures (for serialization)
@@ -66,7 +66,6 @@ struct YamlResponse {
     record: bool,
     block_network: bool,
 }
-
 
 // =================================================================================================
 // Original Behavioral Profile Structures
@@ -129,7 +128,7 @@ pub struct ActivityBurst {
 pub struct MemoryPattern {
     pub total_allocated: u64,
     pub allocation_frequency: f32,
-    pub external_allocation: bool,  // Allocating in other processes
+    pub external_allocation: bool, // Allocating in other processes
     pub unusual_regions: usize,
 }
 
@@ -139,7 +138,7 @@ pub struct FileOperationPattern {
     pub files_per_second: f32,
     pub entropy_average: f32,
     pub mass_operations: bool,
-    pub operation_clustering: f32,  // How clustered are operations
+    pub operation_clustering: f32, // How clustered are operations
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -216,7 +215,7 @@ pub struct BehaviorCluster {
     pub cluster_id: usize,
     pub centroid: Vec<f32>,  // Feature vector centroid
     pub members: Vec<u64>,   // GIDs in this cluster
-    pub is_suspicious: bool,  // Automatically determined
+    pub is_suspicious: bool, // Automatically determined
     pub average_anomaly_score: f32,
 }
 
@@ -251,10 +250,10 @@ pub struct AutonomousLearningConfig {
 impl Default for AutonomousLearningConfig {
     fn default() -> Self {
         AutonomousLearningConfig {
-            baseline_sample_size: 0,      // Will be learned adaptively from observed patterns
-            anomaly_threshold: 0.0,        // Will be learned adaptively from statistical analysis
-            threat_threshold: 0.0,         // Will be learned adaptively from threat patterns
-            auto_export_interval: 0,       // Will adapt based on system resources
+            baseline_sample_size: 0, // Will be learned adaptively from observed patterns
+            anomaly_threshold: 0.0,  // Will be learned adaptively from statistical analysis
+            threat_threshold: 0.0,   // Will be learned adaptively from threat patterns
+            auto_export_interval: 0, // Will adapt based on system resources
             clustering_update_frequency: 0, // Will adapt based on system performance
         }
     }
@@ -285,7 +284,7 @@ impl AutonomousLearningEngine {
                 sample_count: 0,
             },
             anomaly_detector: AnomalyDetector {
-                z_score_threshold: 0.0,  // Will be learned adaptively
+                z_score_threshold: 0.0, // Will be learned adaptively
                 anomalies_detected: 0,
             },
             behavior_clusters: BehaviorClusters {
@@ -298,21 +297,26 @@ impl AutonomousLearningEngine {
         engine.initialize_adaptive_thresholds();
         engine
     }
-    
+
     /// Initialize adaptive thresholds with conservative starting values
     fn initialize_adaptive_thresholds(&mut self) {
         // Start with minimal values that will adapt quickly based on observed patterns
-        self.config.baseline_sample_size = 50;  // Start small, will adapt
-        self.config.anomaly_threshold = 2.0;  // Start conservative, will adapt based on false positive rate
-        self.config.threat_threshold = 0.7;  // Start at 70%, will adapt based on detection accuracy
-        self.config.auto_export_interval = 500;  // Start conservative, will adapt based on system resources
-        self.config.clustering_update_frequency = 25;  // Start frequent, will adapt based on performance
-        self.anomaly_detector.z_score_threshold = 2.0;  // Start conservative, will adapt
+        self.config.baseline_sample_size = 50; // Start small, will adapt
+        self.config.anomaly_threshold = 2.0; // Start conservative, will adapt based on false positive rate
+        self.config.threat_threshold = 0.7; // Start at 70%, will adapt based on detection accuracy
+        self.config.auto_export_interval = 500; // Start conservative, will adapt based on system resources
+        self.config.clustering_update_frequency = 25; // Start frequent, will adapt based on performance
+        self.anomaly_detector.z_score_threshold = 2.0; // Start conservative, will adapt
     }
 
     /// Observe a running process (called for every API call/operation)
     /// This is where the learning happens - purely from memory observations
-    pub fn observe_process(&mut self, gid: u64, api_tracker: &ApiTracker, precord: &ProcessRecord) -> ThreatAssessment {
+    pub fn observe_process(
+        &mut self,
+        gid: u64,
+        api_tracker: &ApiTracker,
+        precord: &ProcessRecord,
+    ) -> ThreatAssessment {
         // Create or update behavioral profile
         let mut profile = self.create_or_update_profile(gid, api_tracker, precord);
 
@@ -337,7 +341,11 @@ impl AutonomousLearningEngine {
         self.behavioral_profiles.insert(gid, profile.clone());
 
         // Update clusters periodically
-        if self.stats.total_processes_observed.is_multiple_of(self.config.clustering_update_frequency) {
+        if self
+            .stats
+            .total_processes_observed
+            .is_multiple_of(self.config.clustering_update_frequency)
+        {
             self.update_behavior_clusters();
         }
 
@@ -347,16 +355,27 @@ impl AutonomousLearningEngine {
 
         if is_threat {
             self.stats.high_threat_processes += 1;
-            println!("[Autonomous Learning] 🚨 HIGH THREAT detected: {} (GID: {})
+            println!(
+                "[Autonomous Learning] 🚨 HIGH THREAT detected: {} (GID: {})
   - Threat Probability: {:.1}%
   - Anomaly Score:      {:.2}
   - Novelty Score:      {:.2}
   - Reasoning: {}",
-                     profile.process_name, gid, threat_probability * 100.0, anomaly_score, novelty_score, reasoning);
+                profile.process_name,
+                gid,
+                threat_probability * 100.0,
+                anomaly_score,
+                novelty_score,
+                reasoning
+            );
         }
 
         // Auto-export if needed
-        if self.stats.profiles_collected.is_multiple_of(self.config.auto_export_interval) {
+        if self
+            .stats
+            .profiles_collected
+            .is_multiple_of(self.config.auto_export_interval)
+        {
             let _ = self.export_learned_rules_to_yaml();
         }
 
@@ -371,9 +390,14 @@ impl AutonomousLearningEngine {
     }
 
     /// Create or update behavioral profile from memory observations
-    fn create_or_update_profile(&mut self, gid: u64, api_tracker: &ApiTracker, precord: &ProcessRecord) -> BehavioralProfile {
+    fn create_or_update_profile(
+        &mut self,
+        gid: u64,
+        api_tracker: &ApiTracker,
+        precord: &ProcessRecord,
+    ) -> BehavioralProfile {
         let now = SystemTime::now();
-        
+
         // Calculate all values BEFORE getting mutable borrows
         let api_categories_ratio = self.calculate_api_ratios(api_tracker);
         let unique_apis_count = api_tracker.total_api_calls();
@@ -384,10 +408,12 @@ impl AutonomousLearningEngine {
         let api_diversity_score = self.calculate_diversity_score(api_tracker);
 
         // Check if profile exists and get first_seen time
-        let first_seen = self.behavioral_profiles.get(&gid)
+        let first_seen = self
+            .behavioral_profiles
+            .get(&gid)
             .map(|p| p.first_seen)
             .unwrap_or(now);
-        
+
         let is_new = !self.behavioral_profiles.contains_key(&gid);
         if is_new {
             self.stats.total_processes_observed += 1;
@@ -395,8 +421,10 @@ impl AutonomousLearningEngine {
         }
 
         // Now get mutable access to update or create profile
-        let profile = self.behavioral_profiles.entry(gid).or_insert_with(|| {
-            BehavioralProfile {
+        let profile = self
+            .behavioral_profiles
+            .entry(gid)
+            .or_insert_with(|| BehavioralProfile {
                 gid,
                 process_name: precord.appname.clone(),
                 api_call_sequence: Vec::new(),
@@ -416,14 +444,16 @@ impl AutonomousLearningEngine {
                 first_seen,
                 last_updated: now,
                 observation_count: 1,
-            }
-        });
+            });
 
         // Update temporal features
-        let duration = now.duration_since(profile.first_seen).unwrap_or(Duration::from_secs(1));
+        let duration = now
+            .duration_since(profile.first_seen)
+            .unwrap_or(Duration::from_secs(1));
         profile.execution_duration = duration.as_secs_f32();
 
-        let total_ops = precord.ops_read + precord.ops_written + precord.ops_setinfo + precord.ops_open;
+        let total_ops =
+            precord.ops_read + precord.ops_written + precord.ops_setinfo + precord.ops_open;
         profile.operations_per_second = total_ops as f32 / profile.execution_duration.max(1.0);
 
         // Update patterns with pre-calculated values
@@ -500,20 +530,24 @@ impl AutonomousLearningEngine {
 
     /// Extract memory allocation patterns
     fn extract_memory_pattern(&self, api_tracker: &ApiTracker) -> MemoryPattern {
-        let has_external = api_tracker.injection_apis.contains("VirtualAllocEx") ||
-                          api_tracker.injection_apis.contains("WriteProcessMemory");
+        let has_external = api_tracker.injection_apis.contains("VirtualAllocEx")
+            || api_tracker.injection_apis.contains("WriteProcessMemory");
 
         MemoryPattern {
             total_allocated: api_tracker.process_operations.memory_allocated,
-            allocation_frequency: api_tracker.process_operations.memory_allocated as f32 /
-                                 api_tracker.total_api_calls().max(1) as f32,
+            allocation_frequency: api_tracker.process_operations.memory_allocated as f32
+                / api_tracker.total_api_calls().max(1) as f32,
             external_allocation: has_external,
             unusual_regions: 0,
         }
     }
 
     /// Extract file operation patterns
-    fn extract_file_pattern(&self, api_tracker: &ApiTracker, precord: &ProcessRecord) -> FileOperationPattern {
+    fn extract_file_pattern(
+        &self,
+        api_tracker: &ApiTracker,
+        precord: &ProcessRecord,
+    ) -> FileOperationPattern {
         let total_ops = precord.ops_read + precord.ops_written;
         let ratio = if total_ops > 0 {
             precord.ops_read as f32 / total_ops as f32
@@ -529,8 +563,12 @@ impl AutonomousLearningEngine {
 
         FileOperationPattern {
             read_write_ratio: ratio,
-            files_per_second: api_tracker.file_operations.files_written as f32 /
-                             precord.time_started.elapsed().unwrap_or(Duration::from_secs(1)).as_secs_f32(),
+            files_per_second: api_tracker.file_operations.files_written as f32
+                / precord
+                    .time_started
+                    .elapsed()
+                    .unwrap_or(Duration::from_secs(1))
+                    .as_secs_f32(),
             entropy_average: avg_entropy as f32,
             mass_operations: api_tracker.file_operations.mass_file_operations,
             operation_clustering: 0.0,
@@ -542,8 +580,10 @@ impl AutonomousLearningEngine {
         NetworkBehavior {
             has_network: !api_tracker.internet_apis.is_empty(),
             connections_per_minute: api_tracker.network_operations.connections_established as f32,
-            data_transfer_rate: (api_tracker.network_operations.data_sent +
-                                api_tracker.network_operations.data_received) as f32 / 1024.0,
+            data_transfer_rate: (api_tracker.network_operations.data_sent
+                + api_tracker.network_operations.data_received)
+                as f32
+                / 1024.0,
             connection_diversity: api_tracker.internet_apis.len() as f32,
         }
     }
@@ -553,8 +593,8 @@ impl AutonomousLearningEngine {
         ProcessInteraction {
             creates_processes: api_tracker.process_operations.processes_created > 0,
             injects_into_processes: api_tracker.process_operations.processes_injected > 0,
-            inter_process_operations: api_tracker.process_operations.processes_created +
-                                     api_tracker.process_operations.processes_injected,
+            inter_process_operations: api_tracker.process_operations.processes_created
+                + api_tracker.process_operations.processes_injected,
         }
     }
 
@@ -563,8 +603,10 @@ impl AutonomousLearningEngine {
         if self.normal_baseline.sample_count >= self.config.baseline_sample_size {
             self.normal_baseline.is_established = true;
             self.stats.baseline_established_at = Some(SystemTime::now());
-            println!("[Autonomous Learning] ✅ Baseline established from {} clean processes",
-                     self.normal_baseline.sample_count);
+            println!(
+                "[Autonomous Learning] ✅ Baseline established from {} clean processes",
+                self.normal_baseline.sample_count
+            );
             return;
         }
 
@@ -579,7 +621,8 @@ impl AutonomousLearningEngine {
 
         // Update average operations per second
         self.normal_baseline.avg_operations_per_second =
-            (self.normal_baseline.avg_operations_per_second * n + profile.operations_per_second) / new_n;
+            (self.normal_baseline.avg_operations_per_second * n + profile.operations_per_second)
+                / new_n;
 
         // Update average API diversity
         self.normal_baseline.avg_api_diversity =
@@ -599,16 +642,19 @@ impl AutonomousLearningEngine {
 
         // Check operations per second deviation
         if self.normal_baseline.std_operations_per_second > 0.0 {
-            let z_score = (profile.operations_per_second - self.normal_baseline.avg_operations_per_second).abs()
-                         / self.normal_baseline.std_operations_per_second;
+            let z_score = (profile.operations_per_second
+                - self.normal_baseline.avg_operations_per_second)
+                .abs()
+                / self.normal_baseline.std_operations_per_second;
             anomaly_score += z_score;
             checks += 1.0;
         }
 
         // Check API diversity deviation
         if self.normal_baseline.std_api_diversity > 0.0 {
-            let z_score = (profile.api_diversity_score - self.normal_baseline.avg_api_diversity).abs()
-                         / self.normal_baseline.std_api_diversity;
+            let z_score = (profile.api_diversity_score - self.normal_baseline.avg_api_diversity)
+                .abs()
+                / self.normal_baseline.std_api_diversity;
             anomaly_score += z_score;
             checks += 1.0;
         }
@@ -655,29 +701,33 @@ impl AutonomousLearningEngine {
         let normalization_factor = self.adaptive_novelty_normalization_factor();
         (min_distance / normalization_factor).min(1.0)
     }
-    
+
     /// Adaptive injection ratio threshold (replaces hardcoded 0.1)
     fn adaptive_injection_threshold(&self) -> f32 {
         // Learn from observed injection ratios in baseline
         if self.normal_baseline.is_established {
             // Use 2x the typical injection ratio as threshold
-            (self.normal_baseline.typical_api_ratios.injection_ratio * 2.0).max(0.05).min(0.2)
+            (self.normal_baseline.typical_api_ratios.injection_ratio * 2.0)
+                .max(0.05)
+                .min(0.2)
         } else {
-            0.05  // Start conservative, will adapt
+            0.05 // Start conservative, will adapt
         }
     }
-    
+
     /// Adaptive evasion ratio threshold (replaces hardcoded 0.1)
     fn adaptive_evasion_threshold(&self) -> f32 {
         // Learn from observed evasion ratios in baseline
         if self.normal_baseline.is_established {
             // Use 2x the typical evasion ratio as threshold
-            (self.normal_baseline.typical_api_ratios.evasion_ratio * 2.0).max(0.05).min(0.2)
+            (self.normal_baseline.typical_api_ratios.evasion_ratio * 2.0)
+                .max(0.05)
+                .min(0.2)
         } else {
-            0.05  // Start conservative, will adapt
+            0.05 // Start conservative, will adapt
         }
     }
-    
+
     /// Adaptive novelty normalization factor (replaces hardcoded 10.0)
     fn adaptive_novelty_normalization_factor(&self) -> f32 {
         // Learn from observed cluster distances
@@ -686,10 +736,10 @@ impl AutonomousLearningEngine {
             let mut total_distance = 0.0;
             let mut count = 0;
             for i in 0..self.behavior_clusters.clusters.len() {
-                for j in (i+1)..self.behavior_clusters.clusters.len() {
+                for j in (i + 1)..self.behavior_clusters.clusters.len() {
                     let dist = self.euclidean_distance(
                         &self.behavior_clusters.clusters[i].centroid,
-                        &self.behavior_clusters.clusters[j].centroid
+                        &self.behavior_clusters.clusters[j].centroid,
                     );
                     total_distance += dist;
                     count += 1;
@@ -697,12 +747,12 @@ impl AutonomousLearningEngine {
             }
             if count > 0 {
                 let avg_distance = total_distance / count as f32;
-                (avg_distance * 2.0).max(5.0).min(20.0)  // Between 5 and 20
+                (avg_distance * 2.0).max(5.0).min(20.0) // Between 5 and 20
             } else {
                 10.0
             }
         } else {
-            10.0  // Default until we have enough clusters
+            10.0 // Default until we have enough clusters
         }
     }
 
@@ -726,8 +776,9 @@ impl AutonomousLearningEngine {
         }
 
         // High-risk API combinations
-        if profile.api_categories_ratio.injection_ratio > 0.0 &&
-           profile.api_categories_ratio.evasion_ratio > 0.0 {
+        if profile.api_categories_ratio.injection_ratio > 0.0
+            && profile.api_categories_ratio.evasion_ratio > 0.0
+        {
             threat_score += 0.8 * 0.3;
             total_weight += 0.3;
         }
@@ -751,7 +802,11 @@ impl AutonomousLearningEngine {
             profile.api_categories_ratio.internet_ratio,
             profile.file_operation_pattern.files_per_second,
             profile.file_operation_pattern.entropy_average / 8.0,
-            if profile.memory_allocation_pattern.external_allocation { 1.0 } else { 0.0 },
+            if profile.memory_allocation_pattern.external_allocation {
+                1.0
+            } else {
+                0.0
+            },
         ]
     }
 
@@ -771,37 +826,39 @@ impl AutonomousLearningEngine {
 
         println!("[Autonomous Learning] 🔄 Updating behavior clusters...");
         // Implementation of clustering algorithm would go here
-        
+
         // Adapt clustering frequency based on performance
         self.adapt_clustering_frequency();
     }
-    
+
     /// Adaptive novelty threshold (replaces hardcoded 0.7)
     fn adaptive_novelty_threshold(&self) -> f32 {
         // Learn from observed novelty scores
         if self.behavioral_profiles.len() > 20 {
             // Calculate percentile of observed novelty scores
-            let mut novelty_scores: Vec<f32> = self.behavioral_profiles.values()
+            let mut novelty_scores: Vec<f32> = self
+                .behavioral_profiles
+                .values()
                 .map(|p| p.novelty_score)
                 .collect();
             novelty_scores.sort_by(|a, b| a.partial_cmp(b).unwrap());
             let p75_idx = (novelty_scores.len() * 3 / 4).min(novelty_scores.len() - 1);
-            novelty_scores[p75_idx].max(0.5).min(0.9)  // Between 0.5 and 0.9
+            novelty_scores[p75_idx].max(0.5).min(0.9) // Between 0.5 and 0.9
         } else {
-            0.6  // Start conservative, will adapt
+            0.6 // Start conservative, will adapt
         }
     }
-    
+
     /// Adapt clustering frequency based on system performance
     fn adapt_clustering_frequency(&mut self) {
         // Adapt based on number of profiles and system performance
         // More profiles = less frequent clustering to save resources
         if self.behavioral_profiles.len() > 1000 {
-            self.config.clustering_update_frequency = 100;  // Less frequent for large datasets
+            self.config.clustering_update_frequency = 100; // Less frequent for large datasets
         } else if self.behavioral_profiles.len() > 500 {
             self.config.clustering_update_frequency = 50;
         } else {
-            self.config.clustering_update_frequency = 25;  // More frequent for small datasets
+            self.config.clustering_update_frequency = 25; // More frequent for small datasets
         }
     }
 
@@ -810,19 +867,28 @@ impl AutonomousLearningEngine {
         let mut reasons = Vec::new();
 
         if profile.anomaly_score > self.config.anomaly_threshold {
-            reasons.push(format!("High statistical anomaly (score: {:.2})", profile.anomaly_score));
+            reasons.push(format!(
+                "High statistical anomaly (score: {:.2})",
+                profile.anomaly_score
+            ));
         }
 
         let novelty_threshold = self.adaptive_novelty_threshold();
         if profile.novelty_score > novelty_threshold {
-            reasons.push(format!("Novel/unseen behavior pattern (novelty: {:.2})", profile.novelty_score));
+            reasons.push(format!(
+                "Novel/unseen behavior pattern (novelty: {:.2})",
+                profile.novelty_score
+            ));
         }
 
         let injection_threshold = self.adaptive_injection_threshold();
         if profile.api_categories_ratio.injection_ratio > injection_threshold {
-            reasons.push(format!("High ratio of process injection APIs ({:.1}%)", profile.api_categories_ratio.injection_ratio * 100.0));
+            reasons.push(format!(
+                "High ratio of process injection APIs ({:.1}%)",
+                profile.api_categories_ratio.injection_ratio * 100.0
+            ));
         }
-        
+
         if profile.process_interaction.injects_into_processes {
             reasons.push("Observed injection into other processes".to_string());
         }
@@ -834,17 +900,28 @@ impl AutonomousLearningEngine {
         if profile.file_operation_pattern.mass_operations {
             reasons.push("Conducted mass file operations (potential ransomware)".to_string());
         }
-        
+
         if profile.file_operation_pattern.entropy_average > 7.0 {
-            reasons.push(format!("High entropy file writes ({:.2}), suggesting encryption", profile.file_operation_pattern.entropy_average));
+            reasons.push(format!(
+                "High entropy file writes ({:.2}), suggesting encryption",
+                profile.file_operation_pattern.entropy_average
+            ));
         }
-        
-        if profile.network_behavior.has_network && profile.api_categories_ratio.internet_ratio > 0.2 {
-            reasons.push(format!("Suspicious network activity (connections/min: {:.1})", profile.network_behavior.connections_per_minute));
+
+        if profile.network_behavior.has_network && profile.api_categories_ratio.internet_ratio > 0.2
+        {
+            reasons.push(format!(
+                "Suspicious network activity (connections/min: {:.1})",
+                profile.network_behavior.connections_per_minute
+            ));
         }
 
         if reasons.is_empty() {
-            if is_threat { "Behavioral profile matches known threat patterns.".to_string() } else { "Normal behavior".to_string() }
+            if is_threat {
+                "Behavioral profile matches known threat patterns.".to_string()
+            } else {
+                "Normal behavior".to_string()
+            }
         } else {
             reasons.join("; ")
         }
@@ -857,7 +934,9 @@ impl AutonomousLearningEngine {
         let mut stage_names = Vec::new();
 
         // Stage: Process Injection
-        if profile.api_categories_ratio.injection_ratio > self.adaptive_injection_threshold() || profile.process_interaction.injects_into_processes {
+        if profile.api_categories_ratio.injection_ratio > self.adaptive_injection_threshold()
+            || profile.process_interaction.injects_into_processes
+        {
             let stage_name = "Suspicious Process Behavior".to_string();
             stages.push(YamlStage {
                 name: stage_name.clone(),
@@ -879,51 +958,50 @@ impl AutonomousLearningEngine {
             let stage_name = "Defense Evasion".to_string();
             stages.push(YamlStage {
                 name: stage_name.clone(),
-                conditions: vec![
-                    YamlCondition {
-                        condition_type: "Process".to_string(),
-                        op: Some("CommandLine".to_string()),
-                        pattern: Some("(?i)(netsh.*firewall.*set.*disable|wevtutil.*cl)".to_string()),
-                        name_pattern: None,
-                        module_pattern: None,
-                    },
-                ],
+                conditions: vec![YamlCondition {
+                    condition_type: "Process".to_string(),
+                    op: Some("CommandLine".to_string()),
+                    pattern: Some("(?i)(netsh.*firewall.*set.*disable|wevtutil.*cl)".to_string()),
+                    name_pattern: None,
+                    module_pattern: None,
+                }],
             });
             stage_names.push(stage_name);
         }
 
         // Stage: Ransomware Behavior
-        if profile.file_operation_pattern.mass_operations || profile.api_categories_ratio.ransomware_ratio > 0.1 {
+        if profile.file_operation_pattern.mass_operations
+            || profile.api_categories_ratio.ransomware_ratio > 0.1
+        {
             let stage_name = "Ransomware Precursors".to_string();
             stages.push(YamlStage {
                 name: stage_name.clone(),
-                conditions: vec![
-                    YamlCondition {
-                        condition_type: "Process".to_string(),
-                        op: Some("CommandLine".to_string()),
-                        pattern: Some("(?i)(vssadmin.*delete.*shadows|wmic.*shadowcopy.*delete)".to_string()),
-                        name_pattern: None,
-                        module_pattern: None,
-                    },
-                ],
+                conditions: vec![YamlCondition {
+                    condition_type: "Process".to_string(),
+                    op: Some("CommandLine".to_string()),
+                    pattern: Some(
+                        "(?i)(vssadmin.*delete.*shadows|wmic.*shadowcopy.*delete)".to_string(),
+                    ),
+                    name_pattern: None,
+                    module_pattern: None,
+                }],
             });
             stage_names.push(stage_name);
         }
-        
+
         // Stage: Network C2
-        if profile.network_behavior.has_network && profile.api_categories_ratio.internet_ratio > 0.2 {
+        if profile.network_behavior.has_network && profile.api_categories_ratio.internet_ratio > 0.2
+        {
             let stage_name = "Network C2 Patterns".to_string();
             stages.push(YamlStage {
                 name: stage_name.clone(),
-                conditions: vec![
-                    YamlCondition {
-                        condition_type: "Network".to_string(),
-                        op: Some("Connect".to_string()),
-                        pattern: None,
-                        name_pattern: None,
-                        module_pattern: None,
-                    },
-                ],
+                conditions: vec![YamlCondition {
+                    condition_type: "Network".to_string(),
+                    op: Some("Connect".to_string()),
+                    pattern: None,
+                    name_pattern: None,
+                    module_pattern: None,
+                }],
             });
             stage_names.push(stage_name);
         }
@@ -939,15 +1017,28 @@ impl AutonomousLearningEngine {
         mapping.insert("or".to_string(), or_conditions);
 
         YamlRule {
-            name: format!("HEUR/ML.Learned.Win32.{}.{}", profile.process_name.replace(".exe", ""), profile.gid),
-            description: format!("Automatically generated rule for {}. Threat Score: {:.1}%. Details: {}", profile.process_name, profile.threat_probability * 100.0, self.generate_reasoning(profile, true)),
+            name: format!(
+                "HEUR/ML.Learned.Win32.{}.{}",
+                profile.process_name.replace(".exe", ""),
+                profile.gid
+            ),
+            description: format!(
+                "Automatically generated rule for {}. Threat Score: {:.1}%. Details: {}",
+                profile.process_name,
+                profile.threat_probability * 100.0,
+                self.generate_reasoning(profile, true)
+            ),
             author: "HydraDragon Autonomous Engine".to_string(),
             date: now.format("%Y-%m-%d").to_string(),
             severity: (profile.threat_probability * 10.0) as u8,
             status: "generated".to_string(),
             level: "critical".to_string(),
             mitre_attack: vec!["T1055".to_string(), "T1562".to_string()], // Placeholder
-            tags: vec!["machine_learning".to_string(), "autonomous_rule".to_string(), "heuristic".to_string()],
+            tags: vec![
+                "machine_learning".to_string(),
+                "autonomous_rule".to_string(),
+                "heuristic".to_string(),
+            ],
             references: vec!["Internal Observation".to_string()],
             debug: false,
             min_stages_satisfied: 1,
@@ -1001,8 +1092,11 @@ impl AutonomousLearningEngine {
         let yaml_data = serde_yaml::to_string(&all_rules).map_err(std::io::Error::other)?;
         std::fs::write(FILENAME, yaml_data)?;
 
-        println!("[Autonomous Learning] 💾 Exported {} total learned rules to: {}",
-                 all_rules.len(), FILENAME);
+        println!(
+            "[Autonomous Learning] 💾 Exported {} total learned rules to: {}",
+            all_rules.len(),
+            FILENAME
+        );
 
         Ok(())
     }
@@ -1012,16 +1106,40 @@ impl AutonomousLearningEngine {
         println!("\n╔════════════════════════════════════════════════════════╗");
         println!("║     Autonomous Learning Statistics                    ║");
         println!("╠════════════════════════════════════════════════════════╣");
-        println!("║  Processes Observed:      {:6}                      ║", self.stats.total_processes_observed);
-        println!("║  Profiles Collected:      {:6}                      ║", self.stats.profiles_collected);
+        println!(
+            "║  Processes Observed:      {:6}                      ║",
+            self.stats.total_processes_observed
+        );
+        println!(
+            "║  Profiles Collected:      {:6}                      ║",
+            self.stats.profiles_collected
+        );
         println!("║  ─────────────────────────────────────────────────     ║");
-        println!("║  Baseline Status:         {}                        ║",
-                 if self.normal_baseline.is_established { "ESTABLISHED ✅" } else { "LEARNING... " });
-        println!("║  Baseline Sample Size:    {:6}                      ║", self.normal_baseline.sample_count);
+        println!(
+            "║  Baseline Status:         {}                        ║",
+            if self.normal_baseline.is_established {
+                "ESTABLISHED ✅"
+            } else {
+                "LEARNING... "
+            }
+        );
+        println!(
+            "║  Baseline Sample Size:    {:6}                      ║",
+            self.normal_baseline.sample_count
+        );
         println!("║  ─────────────────────────────────────────────────     ║");
-        println!("║  Anomalies Detected:      {:6}                      ║", self.stats.anomalies_detected);
-        println!("║  High Threat Processes:   {:6}                      ║", self.stats.high_threat_processes);
-        println!("║  Behavior Clusters:       {:6}                      ║", self.behavior_clusters.clusters.len());
+        println!(
+            "║  Anomalies Detected:      {:6}                      ║",
+            self.stats.anomalies_detected
+        );
+        println!(
+            "║  High Threat Processes:   {:6}                      ║",
+            self.stats.high_threat_processes
+        );
+        println!(
+            "║  Behavior Clusters:       {:6}                      ║",
+            self.behavior_clusters.clusters.len()
+        );
         println!("╚════════════════════════════════════════════════════════╝\n");
     }
 }

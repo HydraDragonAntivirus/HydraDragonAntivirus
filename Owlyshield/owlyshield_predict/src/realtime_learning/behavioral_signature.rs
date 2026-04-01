@@ -2,9 +2,9 @@
 //!
 //! Detects malware based on specific combinations of API calls and behaviors
 
-use crate::realtime_learning::api_tracker::ApiTracker;
 use crate::process::ProcessRecord;
-use serde::{Serialize, Deserialize};
+use crate::realtime_learning::api_tracker::ApiTracker;
+use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::fs;
 
@@ -102,18 +102,16 @@ impl SignatureEngine {
     /// Load malapi.json categories
     fn load_malapi_categories(path: &str) -> MalApiCategories {
         match fs::read_to_string(path) {
-            Ok(content) => {
-                serde_json::from_str(&content).unwrap_or_else(|_| MalApiCategories {
-                    enumeration: vec![],
-                    injection: vec![],
-                    evasion: vec![],
-                    spying: vec![],
-                    internet: vec![],
-                    anti_debugging: vec![],
-                    ransomware: vec![],
-                    helper: vec![],
-                })
-            }
+            Ok(content) => serde_json::from_str(&content).unwrap_or_else(|_| MalApiCategories {
+                enumeration: vec![],
+                injection: vec![],
+                evasion: vec![],
+                spying: vec![],
+                internet: vec![],
+                anti_debugging: vec![],
+                ransomware: vec![],
+                helper: vec![],
+            }),
             Err(_) => MalApiCategories {
                 enumeration: vec![],
                 injection: vec![],
@@ -327,7 +325,11 @@ impl SignatureEngine {
     }
 
     /// Check if a process matches any behavioral signatures
-    pub fn check_behavior(&self, api_tracker: &ApiTracker, precord: &ProcessRecord) -> Option<SignatureMatch> {
+    pub fn check_behavior(
+        &self,
+        api_tracker: &ApiTracker,
+        precord: &ProcessRecord,
+    ) -> Option<SignatureMatch> {
         for signature in &self.signatures {
             if let Some(match_result) = self.check_signature(signature, api_tracker, precord) {
                 return Some(match_result);
@@ -372,7 +374,10 @@ impl SignatureEngine {
             total_checks += 1.0;
             if api_tracker.file_operations.files_written >= min_written {
                 confidence_score += 1.0;
-                matched_behaviors.push(format!("Wrote {} files", api_tracker.file_operations.files_written));
+                matched_behaviors.push(format!(
+                    "Wrote {} files",
+                    api_tracker.file_operations.files_written
+                ));
             }
         }
 
@@ -380,7 +385,10 @@ impl SignatureEngine {
             total_checks += 1.0;
             if api_tracker.file_operations.files_deleted >= min_deleted {
                 confidence_score += 1.0;
-                matched_behaviors.push(format!("Deleted {} files", api_tracker.file_operations.files_deleted));
+                matched_behaviors.push(format!(
+                    "Deleted {} files",
+                    api_tracker.file_operations.files_deleted
+                ));
             }
         }
 
@@ -388,38 +396,45 @@ impl SignatureEngine {
             total_checks += 1.0;
             if api_tracker.file_operations.files_encrypted >= min_encrypted {
                 confidence_score += 1.0;
-                matched_behaviors.push(format!("Encrypted {} files", api_tracker.file_operations.files_encrypted));
+                matched_behaviors.push(format!(
+                    "Encrypted {} files",
+                    api_tracker.file_operations.files_encrypted
+                ));
             }
         }
 
         // Check behavioral requirements
         if let Some(requires_mass) = signature.requires_mass_file_ops
-            && requires_mass {
-                total_checks += 1.0;
-                if api_tracker.file_operations.mass_file_operations {
-                    confidence_score += 1.0;
-                    matched_behaviors.push("Mass file operations detected".to_string());
-                }
+            && requires_mass
+        {
+            total_checks += 1.0;
+            if api_tracker.file_operations.mass_file_operations {
+                confidence_score += 1.0;
+                matched_behaviors.push("Mass file operations detected".to_string());
             }
+        }
 
         if let Some(requires_network) = signature.requires_network_activity
-            && requires_network {
-                total_checks += 1.0;
-                if !api_tracker.internet_apis.is_empty() {
-                    confidence_score += 1.0;
-                    matched_behaviors.push("Network activity detected".to_string());
-                }
+            && requires_network
+        {
+            total_checks += 1.0;
+            if !api_tracker.internet_apis.is_empty() {
+                confidence_score += 1.0;
+                matched_behaviors.push("Network activity detected".to_string());
             }
+        }
 
         if let Some(requires_injection) = signature.requires_process_injection
-            && requires_injection {
-                total_checks += 1.0;
-                if api_tracker.process_operations.processes_injected > 0
-                    || self.has_injection_pattern(api_tracker) {
-                    confidence_score += 1.0;
-                    matched_behaviors.push("Process injection detected".to_string());
-                }
+            && requires_injection
+        {
+            total_checks += 1.0;
+            if api_tracker.process_operations.processes_injected > 0
+                || self.has_injection_pattern(api_tracker)
+            {
+                confidence_score += 1.0;
+                matched_behaviors.push("Process injection detected".to_string());
             }
+        }
 
         // Check API sequences
         if !signature.required_api_sequences.is_empty() {
@@ -458,14 +473,12 @@ impl SignatureEngine {
 
         // We need a dummy ProcessRecord for this method
         // In real usage, this should be provided
-        let dummy_precord = ProcessRecord::new(
-            api_tracker.gid,
-            String::new(),
-            std::path::PathBuf::new(),
-        );
+        let dummy_precord =
+            ProcessRecord::new(api_tracker.gid, String::new(), std::path::PathBuf::new());
 
         for signature in &self.signatures {
-            if let Some(match_result) = self.check_signature(signature, api_tracker, &dummy_precord) {
+            if let Some(match_result) = self.check_signature(signature, api_tracker, &dummy_precord)
+            {
                 matches.push(match_result);
             }
         }
@@ -488,7 +501,9 @@ impl SignatureEngine {
     }
 
     fn count_matched_apis(&self, api_tracker: &ApiTracker, required_apis: &[String]) -> usize {
-        let all_apis: HashSet<String> = api_tracker.enumeration_apis.iter()
+        let all_apis: HashSet<String> = api_tracker
+            .enumeration_apis
+            .iter()
             .chain(api_tracker.injection_apis.iter())
             .chain(api_tracker.evasion_apis.iter())
             .chain(api_tracker.spying_apis.iter())
@@ -499,16 +514,24 @@ impl SignatureEngine {
             .cloned()
             .collect();
 
-        required_apis.iter()
+        required_apis
+            .iter()
             .filter(|api| all_apis.contains(*api))
             .count()
     }
 
     fn has_injection_pattern(&self, api_tracker: &ApiTracker) -> bool {
-        let injection_apis = ["VirtualAllocEx", "WriteProcessMemory", "CreateRemoteThread",
-            "NtCreateThreadEx", "QueueUserAPC", "SetThreadContext"];
+        let injection_apis = [
+            "VirtualAllocEx",
+            "WriteProcessMemory",
+            "CreateRemoteThread",
+            "NtCreateThreadEx",
+            "QueueUserAPC",
+            "SetThreadContext",
+        ];
 
-        let matched = injection_apis.iter()
+        let matched = injection_apis
+            .iter()
             .filter(|api| api_tracker.injection_apis.contains(&api.to_string()))
             .count();
 

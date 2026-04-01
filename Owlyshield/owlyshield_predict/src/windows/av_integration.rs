@@ -3,37 +3,35 @@
 use std::collections::HashMap;
 use std::ffi::CString;
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::mpsc::{Receiver, Sender, channel};
 use std::thread;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use windows::core::PCSTR;
 
-use windows::Win32::Foundation::{
-    CloseHandle, GetLastError, HANDLE, ERROR_PIPE_CONNECTED, BOOL,
-};
+use windows::Win32::Foundation::{BOOL, CloseHandle, ERROR_PIPE_CONNECTED, GetLastError, HANDLE};
 use windows::Win32::Storage::FileSystem::{
-    CreateFileA, FlushFileBuffers, ReadFile, WriteFile, FILE_ATTRIBUTE_NORMAL, 
-    FILE_GENERIC_WRITE, FILE_SHARE_NONE, OPEN_EXISTING, PIPE_ACCESS_DUPLEX, PIPE_ACCESS_INBOUND,
+    CreateFileA, FILE_ATTRIBUTE_NORMAL, FILE_GENERIC_WRITE, FILE_SHARE_NONE, FlushFileBuffers,
+    OPEN_EXISTING, PIPE_ACCESS_DUPLEX, PIPE_ACCESS_INBOUND, ReadFile, WriteFile,
 };
 use windows::Win32::System::Pipes::{
-    ConnectNamedPipe, CreateNamedPipeA, DisconnectNamedPipe, PIPE_TYPE_BYTE,
-    PIPE_UNLIMITED_INSTANCES, PIPE_WAIT, WaitNamedPipeA, PIPE_READMODE_BYTE, PIPE_READMODE_MESSAGE,
-    PIPE_TYPE_MESSAGE,
+    ConnectNamedPipe, CreateNamedPipeA, DisconnectNamedPipe, PIPE_READMODE_BYTE,
+    PIPE_READMODE_MESSAGE, PIPE_TYPE_BYTE, PIPE_TYPE_MESSAGE, PIPE_UNLIMITED_INSTANCES, PIPE_WAIT,
+    WaitNamedPipeA,
 };
 
-use crate::process::ProcessRecord;
-use crate::logging::Logging;
 use crate::actions_on_kill::{ActionsOnKill, ThreatInfo};
-use crate::threat_handler::ThreatHandler;
 use crate::config::Config;
-use crate::worker::predictor::PredictorMalware;
-use chrono::Utc;
+use crate::driver_com::Driver;
+use crate::logging::Logging;
+use crate::process::ProcessRecord;
 use crate::shared_def::IOMessage;
 use crate::signature_verification::verify_signature;
-use crate::driver_com::Driver;
+use crate::threat_handler::ThreatHandler;
 use crate::utils::validate_pipe_client;
+use crate::worker::predictor::PredictorMalware;
+use chrono::Utc;
 
 // --- Pipe names (single source of truth) ---
 #[allow(dead_code)] // Silencing warning, this pipe may be used by the external AV client
@@ -48,8 +46,7 @@ const PIPE_READ_BUFFER_SIZE: u32 = 65536;
 const CONNECT_TIMEOUT_MS: u32 = 900_000; // 900s - adjust as needed
 
 /// Action to take when a threat is detected
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
-#[derive(Default)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Default)]
 pub enum ThreatAction {
     #[serde(rename = "monitor")]
     Monitor,
@@ -61,7 +58,6 @@ pub enum ThreatAction {
     #[serde(rename = "kill")]
     Kill,
 }
-
 
 impl ThreatAction {
     pub fn from_raw(raw: Option<&str>) -> Self {
@@ -154,7 +150,9 @@ struct SelfDefenseAlert {
 }
 
 fn normalize_path_for_compare(path: &str) -> String {
-    normalize_nt_path(path).replace('/', "\\").to_ascii_lowercase()
+    normalize_nt_path(path)
+        .replace('/', "\\")
+        .to_ascii_lowercase()
 }
 
 fn path_is_under(prefix: &Path, candidate: &Path) -> bool {
@@ -166,7 +164,8 @@ fn path_is_under(prefix: &Path, candidate: &Path) -> bool {
 fn is_protected_path(candidate_path: &str) -> bool {
     let candidate = PathBuf::from(candidate_path);
 
-    let program_files = std::env::var("ProgramFiles").unwrap_or_else(|_| r"C:\Program Files".to_string());
+    let program_files =
+        std::env::var("ProgramFiles").unwrap_or_else(|_| r"C:\Program Files".to_string());
     let pf_hda = PathBuf::from(program_files).join("HydraDragonAntivirus");
     if path_is_under(&pf_hda, &candidate) {
         return true;
@@ -200,7 +199,10 @@ fn normalize_nt_path(nt_path: &str) -> String {
         normalized = normalized.trim_start_matches("\\??\\").to_string();
     } else if normalized.starts_with("\\\\?\\") {
         normalized = normalized.trim_start_matches("\\\\?\\").to_string();
-    } else if normalized.to_ascii_lowercase().starts_with("\\device\\harddiskvolume") {
+    } else if normalized
+        .to_ascii_lowercase()
+        .starts_with("\\device\\harddiskvolume")
+    {
         // Keep this conversion simple and deterministic, aligned with kernel rule matching.
         // If we detect a device-volume path, map it to system drive for fast comparisons.
         let system_drive = std::env::var("SystemDrive").unwrap_or_else(|_| "C:".to_string());
@@ -218,7 +220,9 @@ fn decode_utf16le_message(data: &[u8]) -> String {
     for chunk in data[..usable_len].chunks_exact(2) {
         words.push(u16::from_le_bytes([chunk[0], chunk[1]]));
     }
-    String::from_utf16_lossy(&words).trim_end_matches('\0').to_string()
+    String::from_utf16_lossy(&words)
+        .trim_end_matches('\0')
+        .to_string()
 }
 
 fn parse_av_threat_event(message: &str) -> Result<AVThreatEvent, String> {
@@ -273,8 +277,7 @@ fn resolve_gid_for_action(event: &AVThreatEvent) -> Option<u64> {
     if let Some(gid) = event.gid {
         return Some(gid);
     }
-    event.pid
-        .map(|pid| 0x8000_0000_0000_0000u64 | (pid as u64))
+    event.pid.map(|pid| 0x8000_0000_0000_0000u64 | (pid as u64))
 }
 
 fn apply_fast_driver_action(event: &AVThreatEvent) {
@@ -400,8 +403,9 @@ fn spawn_av_to_edr_listener() -> thread::JoinHandle<()> {
                 );
 
                 if read_ok.as_bool() && bytes_read > 0 {
-                    let message =
-                        String::from_utf8_lossy(&buffer[..bytes_read as usize]).trim().to_string();
+                    let message = String::from_utf8_lossy(&buffer[..bytes_read as usize])
+                        .trim()
+                        .to_string();
                     match parse_av_threat_event(&message) {
                         Ok(mut event) => {
                             event.file_path = normalize_nt_path(&event.file_path);
@@ -500,7 +504,7 @@ fn spawn_mbr_alert_listener() -> thread::JoinHandle<()> {
 
                 if read_ok.as_bool() && bytes_read > 0 {
                     let raw = decode_utf16le_message(&buffer[..bytes_read as usize]);
-                    
+
                     // Parse enriched format: "DISK:<number>|<process_path>"
                     let (disk_number, process_path) = if raw.starts_with("DISK:") {
                         if let Some(pipe_pos) = raw.find('|') {
@@ -528,7 +532,7 @@ fn spawn_mbr_alert_listener() -> thread::JoinHandle<()> {
                             "[MBR ALERT] USB/External disk {} MBR write blocked — Offending process: {}",
                             disk_number, process_path
                         ));
-                        
+
                         // Forward to firewall GUI HIPS pipe for user notification
                         send_mbr_hips_notification(disk_number, &process_path);
                     }
@@ -546,13 +550,13 @@ fn spawn_mbr_alert_listener() -> thread::JoinHandle<()> {
 /// Send a HIPS-style notification to the firewall GUI about a blocked USB MBR write.
 fn send_mbr_hips_notification(disk_number: i32, process_path: &str) {
     use std::ffi::CString;
-    use windows::core::PCSTR;
     use windows::Win32::Foundation::{BOOL, CloseHandle, GetLastError, HANDLE};
     use windows::Win32::Storage::FileSystem::{
-        CreateFileA, FlushFileBuffers, WriteFile, FILE_ATTRIBUTE_NORMAL, FILE_GENERIC_WRITE,
-        FILE_SHARE_NONE, OPEN_EXISTING,
+        CreateFileA, FILE_ATTRIBUTE_NORMAL, FILE_GENERIC_WRITE, FILE_SHARE_NONE, FlushFileBuffers,
+        OPEN_EXISTING, WriteFile,
     };
     use windows::Win32::System::Pipes::WaitNamedPipeA;
+    use windows::core::PCSTR;
 
     const HIPS_PIPE: &str = r"\\.\pipe\HydraHipEvent";
     const CONNECT_TIMEOUT_MS: u32 = 750;
@@ -711,10 +715,11 @@ fn spawn_self_defense_listener() -> thread::JoinHandle<()> {
 
                 if read_ok.as_bool() && bytes_read > 0 {
                     let raw_message = decode_utf16le_message(&buffer[..bytes_read as usize]);
-                    let parsed = serde_json::from_str::<SelfDefenseAlert>(&raw_message).or_else(|_| {
-                        let escaped = raw_message.replace('\\', "\\\\");
-                        serde_json::from_str::<SelfDefenseAlert>(&escaped)
-                    });
+                    let parsed =
+                        serde_json::from_str::<SelfDefenseAlert>(&raw_message).or_else(|_| {
+                            let escaped = raw_message.replace('\\', "\\\\");
+                            serde_json::from_str::<SelfDefenseAlert>(&escaped)
+                        });
 
                     match parsed {
                         Ok(mut alert) => {
@@ -758,9 +763,10 @@ pub struct AVIntegration<'a> {
 
 impl<'a> AVIntegration<'a> {
     /// Create new AVIntegration instance
-    pub fn new(config: &'a Config, predictor_malware: PredictorMalware<'a>) -> Self { // <-- MODIFIED: Takes a borrow
+    pub fn new(config: &'a Config, predictor_malware: PredictorMalware<'a>) -> Self {
+        // <-- MODIFIED: Takes a borrow
         let (internal_scan_tx, internal_scan_rx) = channel::<EDRScanRequest>();
-        
+
         let scan_request_handle = thread::spawn(move || {
             scan_request_server_loop(internal_scan_rx);
         });
@@ -812,6 +818,7 @@ impl<'a> AVIntegration<'a> {
             terminate: true,
             quarantine: event.action_required == ThreatAction::KillAndQuarantine,
             kill_and_remove: event.action_required == ThreatAction::KillAndRemove,
+            suspend: false,
             notify_user: true,
             revert: false, // AV integration doesn't trigger automatic reversion
         };
@@ -830,7 +837,9 @@ impl<'a> AVIntegration<'a> {
                 ));
                 Logging::info(&format!(
                     "   Type: {} | Certainty: {:.2}% | GID: {}",
-                    threat_label, prediction_behavioral * 100.0, precord.gid
+                    threat_label,
+                    prediction_behavioral * 100.0,
+                    precord.gid
                 ));
             }
             ThreatAction::KillAndQuarantine => {
@@ -840,7 +849,9 @@ impl<'a> AVIntegration<'a> {
                 ));
                 Logging::info(&format!(
                     "   Type: {} | Certainty: {:.2}% | GID: {}",
-                    threat_label, prediction_behavioral * 100.0, precord.gid
+                    threat_label,
+                    prediction_behavioral * 100.0,
+                    precord.gid
                 ));
             }
             ThreatAction::KillAndRemove => {
@@ -850,7 +861,9 @@ impl<'a> AVIntegration<'a> {
                 ));
                 Logging::info(&format!(
                     "   Type: {} | Certainty: {:.2}% | GID: {}",
-                    threat_label, prediction_behavioral * 100.0, precord.gid
+                    threat_label,
+                    prediction_behavioral * 100.0,
+                    precord.gid
                 ));
             }
         }
@@ -995,7 +1008,10 @@ fn send_threat_to_edr(event: AVThreatEvent) -> Result<(), String> {
 
         Logging::info(&format!(
             "Successfully sent threat event to EDR: {} - {} [{}] ({} bytes)",
-            event.file_path, event.virus_name, event.action_required.as_str(), bytes_written
+            event.file_path,
+            event.virus_name,
+            event.action_required.as_str(),
+            bytes_written
         ));
         Ok(())
     }
@@ -1032,7 +1048,10 @@ fn write_scan_request(pipe_handle: HANDLE, request: &EDRScanRequest) -> Result<u
 /// Sends one JSON message per connection; the HydraDragon client is expected to reconnect
 /// for subsequent messages.
 fn scan_request_server_loop(rx: Receiver<EDRScanRequest>) {
-    Logging::info(&format!("Starting pipe server (EDR->AV): {}", PIPE_EDR_TO_AV));
+    Logging::info(&format!(
+        "Starting pipe server (EDR->AV): {}",
+        PIPE_EDR_TO_AV
+    ));
 
     unsafe {
         let pipe_name_c = match CString::new(PIPE_EDR_TO_AV) {
@@ -1064,7 +1083,10 @@ fn scan_request_server_loop(rx: Receiver<EDRScanRequest>) {
 
             if pipe_handle.is_invalid() {
                 let err = GetLastError();
-                Logging::error(&format!("CreateNamedPipeA returned invalid handle: {:?}", err));
+                Logging::error(&format!(
+                    "CreateNamedPipeA returned invalid handle: {:?}",
+                    err
+                ));
                 thread::sleep(Duration::from_secs(1));
                 continue;
             }
@@ -1082,7 +1104,7 @@ fn scan_request_server_loop(rx: Receiver<EDRScanRequest>) {
                     let _ = CloseHandle(pipe_handle);
                     continue;
                 }
-                
+
                 Logging::info("PIPE: EDR scan request client (Python) connected");
 
                 let request = match rx.recv() {
@@ -1111,4 +1133,3 @@ fn scan_request_server_loop(rx: Receiver<EDRScanRequest>) {
         }
     }
 }
-

@@ -1,5 +1,5 @@
-use std::collections::{HashMap, HashSet};
 use serde::Serialize;
+use std::collections::{HashMap, HashSet};
 
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
@@ -41,77 +41,96 @@ impl ExtensionList {
     pub fn new() -> ExtensionList {
         let documents_media = vec![
             // Documents
-            "pdf", "doc", "docx", "ppt", "pptx", "xls", "xlsx",
-            "odt", "odp", "ods", "rtf", "txt", "csv",
-            "md", "markdown", // Markdown files
-            "tex", // LaTeX files
-            "epub", // E-book files
-
+            "pdf", "doc", "docx", "ppt", "pptx", "xls", "xlsx", "odt", "odp", "ods", "rtf", "txt",
+            "csv", "md", "markdown", // Markdown files
+            "tex",      // LaTeX files
+            "epub",     // E-book files
             // Images
-            "jpg", "jpeg", "png", "gif", "bmp", "svg", "ico", "webp",
-            "psd", // Photoshop files
-            "ai", // Adobe Illustrator files
-
+            "jpg", "jpeg", "png", "gif", "bmp", "svg", "ico", "webp", "psd", // Photoshop files
+            "ai",  // Adobe Illustrator files
             // Audio
-            "mp3", "wav", "flac", "aac", "ogg", "wma",
-
-            // Video
-            "mp4", "avi", "mkv", "mov", "wmv", "flv"
+            "mp3", "wav", "flac", "aac", "ogg", "wma", // Video
+            "mp4", "avi", "mkv", "mov", "wmv", "flv",
         ];
         let config = vec![
             "env", // Environment variables
-            "ini", "conf", // General configuration files
-            "cfg", "config", // Application configuration files
-            "properties", "yml", "yaml", // Configuration files for specific applications or frameworks
-            "htaccess" // Apache configuration files
+            "ini",
+            "conf", // General configuration files
+            "cfg",
+            "config", // Application configuration files
+            "properties",
+            "yml",
+            "yaml",     // Configuration files for specific applications or frameworks
+            "htaccess", // Apache configuration files
         ];
         let archive = vec!["zip", "rar", "7z", "gz", "tgz", "tar", "gzip", "tar.gz"];
         let database = vec![
-            "sql",
-            "mdb", "accdb", // Microsoft Access
+            "sql", "mdb", "accdb", // Microsoft Access
             "frm", "myd", "myi", "ibd", // MySQL
             "backup", "dump", // PostgreSQL
             "db", "sqlite", "sqlite3", // SQLite
-            "dbf", "ora", // Oracle Database
+            "dbf", "ora",  // Oracle Database
             "bson", // MongoDB
         ];
         let code = vec![
-            "c", "h",
-            "cpp", "hpp", "cc", "hh",
-            "java", "jar",
-            "py", "pyc", "pyd",
+            "c",
+            "h",
+            "cpp",
+            "hpp",
+            "cc",
+            "hh",
+            "java",
+            "jar",
+            "py",
+            "pyc",
+            "pyd",
             "js",
             "yml",
-            "html", "htm",
+            "html",
+            "htm",
             "css",
-            "php", "phtml",
+            "php",
+            "phtml",
             "rb",
             "swift",
-            "kt", "kts",
-            "m", "mm",
+            "kt",
+            "kts",
+            "m",
+            "mm",
             "cs",
             "go",
             "rs",
             "ts",
             "jsp",
-            "asp", "aspx", "ascx",
+            "asp",
+            "aspx",
+            "ascx",
             "jsx",
             "vue",
-
             // Development Tools
-            "vscode-settings.json", "vscode-workspace", "vscodeignore",
-            "gitignore", "gitattributes",
-            "sublime-project", "sublime-workspace",
-            "project", "classpath", "settings/",
-            "gradle", "idea/", "iml",
-            "xcodeproj", "xcworkspace", "pbxproj",
+            "vscode-settings.json",
+            "vscode-workspace",
+            "vscodeignore",
+            "gitignore",
+            "gitattributes",
+            "sublime-project",
+            "sublime-workspace",
+            "project",
+            "classpath",
+            "settings/",
+            "gradle",
+            "idea/",
+            "iml",
+            "xcodeproj",
+            "xcworkspace",
+            "pbxproj",
         ];
         let executables = vec![
             "exe", // Windows executable
             "app", // macOS application
-            "sh", "bash", "bat", // Script files
-            "jar", // Java executable
-            "py", // Python script
+            "sh", "bash", "bat",   // Script files
+            "jar",   // Java executable
+            "py",    // Python script
             "class", // Java class file
             "dll", "so", // Shared libraries
             "msi", "rpm", "deb", "dmg", "pkg", // Installer packages
@@ -119,38 +138,45 @@ impl ExtensionList {
             "ipa", // iOS application package
         ];
         let email = vec![
-            "eml", // Standard email message format
-            "msg", // Microsoft Outlook message format
-            "pst", // Outlook data file
+            "eml",  // Standard email message format
+            "msg",  // Microsoft Outlook message format
+            "pst",  // Outlook data file
             "mbox", // Unix mailbox format
             "emlx", // Apple Mail message format
-            "ics", // iCalendar file format for calendar events
-            "vcf" // vCard file format for contact information
+            "ics",  // iCalendar file format for calendar events
+            "vcf",  // vCard file format for contact information
         ];
         let password_vault = vec![
-            "kdb", "kdbx", // KeePass
-            "pws", "psafe3", // Password Safe
-            "1pif", "1password", // 1Password
-            "opvault", // AgileBits 1Password vault
+            "kdb",
+            "kdbx", // KeePass
+            "pws",
+            "psafe3", // Password Safe
+            "1pif",
+            "1password", // 1Password
+            "opvault",   // AgileBits 1Password vault
             "bitwarden", // Bitwarden vault
-            "lastpass", // LastPass vault
-            "dashlane", // Dashlane vault
-            "keepassx", "keepassxc" // KeePassX, KeePassXC
+            "lastpass",  // LastPass vault
+            "dashlane",  // Dashlane vault
+            "keepassx",
+            "keepassxc", // KeePassX, KeePassXC
         ];
         let logs = vec![
             "log", // Plain text log files
-            "xml", "json", // Structured log formats
-            "tsv", // Log data in tabular format
-            "syslog", "journald", // System logs
-            "evt", "evtx", // Windows Event logs
-            "access", // Apache access logs
-            "error", // Apache error logs
-            "audit", // Linux audit logs
-            "w3c", // IIS logs
-            "nginx", // Nginx logs
-            "asl", // Apple System Log
+            "xml",
+            "json", // Structured log formats
+            "tsv",  // Log data in tabular format
+            "syslog",
+            "journald", // System logs
+            "evt",
+            "evtx",      // Windows Event logs
+            "access",    // Apache access logs
+            "error",     // Apache error logs
+            "audit",     // Linux audit logs
+            "w3c",       // IIS logs
+            "nginx",     // Nginx logs
+            "asl",       // Apple System Log
             "aslremote", // Apple Remote System Log
-            "etl", // Event Tracing for Windows log
+            "etl",       // Event Tracing for Windows log
         ];
         let others = vec![
             "sys", // Windows system file
@@ -161,20 +187,32 @@ impl ExtensionList {
             "inf", // Windows setup information file
             "chm", // Compiled HTML Help file
             "hlp", // Windows Help file
-            "pem", "cer", "crt", "key", "pfx", // SSL certificate files
-            "der", "csr", // Certificate-related files
+            "pem",
+            "cer",
+            "crt",
+            "key",
+            "pfx", // SSL certificate files
+            "der",
+            "csr", // Certificate-related files
             "ipa", // iOS application package
-            "bak", "old", // Backup files
-            "temp", "swp", // Temporary files
-            "lock", // Lock files
-            "cache", // Cache files
-            "tmp", // Temporary files
-            "part", // Partially downloaded files
+            "bak",
+            "old", // Backup files
+            "temp",
+            "swp",        // Temporary files
+            "lock",       // Lock files
+            "cache",      // Cache files
+            "tmp",        // Temporary files
+            "part",       // Partially downloaded files
             "crdownload", // Chrome partially downloaded file
-            "torrent", // Torrent file
-            "iso", "img", // Disk image files
-            "bin", "cue", "mdf", "nrg", // CD/DVD image files
-            "rom", "bios", // BIOS firmware files
+            "torrent",    // Torrent file
+            "iso",
+            "img", // Disk image files
+            "bin",
+            "cue",
+            "mdf",
+            "nrg", // CD/DVD image files
+            "rom",
+            "bios", // BIOS firmware files
         ];
 
         let mut categories = HashMap::new();

@@ -1,18 +1,24 @@
+use base64::{Engine as _, engine::general_purpose::STANDARD};
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_yaml::Value as YamlValue;
-use base64::{Engine as _, engine::general_purpose::STANDARD};
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::sync::{Arc, RwLock};
-use regex::Regex;
 
 // =============================================================================
 // HELPER FUNCTIONS & DEFAULTS
 // =============================================================================
 
-pub fn default_zero() -> usize { 0 }
-pub fn default_severity() -> u8 { 50 }
-pub fn default_true() -> bool { true }
+pub fn default_zero() -> usize {
+    0
+}
+pub fn default_severity() -> u8 {
+    50
+}
+pub fn default_true() -> bool {
+    true
+}
 
 pub fn expand_environment_variables(text: &str) -> String {
     if !text.contains('%') {
@@ -26,9 +32,10 @@ pub fn expand_environment_variables(text: &str) -> String {
         let var_name = &caps[1].to_uppercase();
         match std::env::var(var_name) {
             Ok(val) => val,
-            Err(_) => caps[0].to_string()
+            Err(_) => caps[0].to_string(),
         }
-    }).to_string()
+    })
+    .to_string()
 }
 
 // =============================================================================
@@ -67,7 +74,13 @@ pub struct CommandLinePattern {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum StringModifier {
-    Nocase, Contains, Startswith, Endswith, Re, Base64, Not,
+    Nocase,
+    Contains,
+    Startswith,
+    Endswith,
+    Re,
+    Base64,
+    Not,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -95,51 +108,60 @@ impl PatternSpec {
             PatternSpec::Complex { pattern, .. } => pattern,
         }
     }
-    
+
     pub fn modifiers(&self) -> &[StringModifier] {
         match self {
             PatternSpec::Simple(_) => &[],
             PatternSpec::Complex { modifiers, .. } => modifiers,
         }
     }
-    
+
     pub fn has_modifier(&self, modifier: &StringModifier) -> bool {
-        self.modifiers().iter().any(|m| std::mem::discriminant(m) == std::mem::discriminant(modifier))
+        self.modifiers()
+            .iter()
+            .any(|m| std::mem::discriminant(m) == std::mem::discriminant(modifier))
     }
-    
+
     pub fn is_case_insensitive(&self) -> bool {
         self.has_modifier(&StringModifier::Nocase)
     }
-    
+
     pub fn is_regex(&self) -> bool {
         self.has_modifier(&StringModifier::Re)
     }
-    
+
     pub fn is_contains(&self) -> bool {
         self.has_modifier(&StringModifier::Contains)
     }
-    
+
     pub fn is_startswith(&self) -> bool {
         self.has_modifier(&StringModifier::Startswith)
     }
-    
+
     pub fn is_endswith(&self) -> bool {
         self.has_modifier(&StringModifier::Endswith)
     }
-    
+
     pub fn is_negated(&self) -> bool {
         self.has_modifier(&StringModifier::Not)
     }
 
-    pub fn matches(&self, cache: &Arc<RwLock<HashMap<String, Regex>>>, text: &str, force_regex: bool) -> bool {
+    pub fn matches(
+        &self,
+        cache: &Arc<RwLock<HashMap<String, Regex>>>,
+        text: &str,
+        force_regex: bool,
+    ) -> bool {
         let mut pattern = self.pattern().to_string();
 
         if self.has_modifier(&StringModifier::Base64)
-            && let Ok(decoded) = STANDARD.decode(pattern.as_bytes()) {
-                pattern = String::from_utf8_lossy(&decoded).into_owned();
-            }
+            && let Ok(decoded) = STANDARD.decode(pattern.as_bytes())
+        {
+            pattern = String::from_utf8_lossy(&decoded).into_owned();
+        }
 
-        let case_insensitive = !matches!(self, PatternSpec::Complex { .. }) || self.is_case_insensitive();
+        let case_insensitive =
+            !matches!(self, PatternSpec::Complex { .. }) || self.is_case_insensitive();
 
         let matched = if force_regex || self.is_regex() {
             let regex_pattern = if case_insensitive && !pattern.starts_with("(?i)") {
@@ -300,6 +322,199 @@ pub struct PacketInfo {
     pub url: String,
 }
 
+fn push_unique_bytes(candidates: &mut Vec<Vec<u8>>, data: &[u8]) {
+    if data.is_empty() {
+        return;
+    }
+
+    if candidates
+        .iter()
+        .any(|existing| existing.as_slice() == data)
+    {
+        return;
+    }
+
+    candidates.push(data.to_vec());
+}
+
+fn packet_payload_candidates(packet: &PacketInfo, payload: &[u8]) -> Vec<Vec<u8>> {
+    let mut candidates = Vec::new();
+    push_unique_bytes(&mut candidates, payload);
+
+    if let Some(body) = packet.http_request_body.as_deref() {
+        push_unique_bytes(&mut candidates, body.as_bytes());
+    }
+    if let Some(body) = packet.http_response_body.as_deref() {
+        push_unique_bytes(&mut candidates, body.as_bytes());
+    }
+    if let Some(sample) = packet.payload_sample.as_deref() {
+        push_unique_bytes(&mut candidates, sample.as_bytes());
+    }
+
+    candidates
+}
+
+fn decoded_json_candidates(payload: &[u8]) -> Vec<Vec<u8>> {
+    let mut candidates = Vec::new();
+    push_unique_bytes(&mut candidates, payload);
+
+    for decoded in [
+        ContentEncoding::Base64.decode(payload),
+        ContentEncoding::Base58.decode(payload),
+        ContentEncoding::Hex.decode(payload),
+        ContentEncoding::Reverse.decode(payload),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        push_unique_bytes(&mut candidates, &decoded);
+    }
+
+    candidates
+}
+
+fn decoded_packet_payload_candidates(
+    packet: &PacketInfo,
+    payload: &[u8],
+    encoding: &ContentEncoding,
+) -> Vec<Vec<u8>> {
+    let mut candidates = Vec::new();
+    for candidate in packet_payload_candidates(packet, payload) {
+        let decoded = encoding.decode(&candidate).unwrap_or(candidate);
+        push_unique_bytes(&mut candidates, &decoded);
+    }
+    candidates
+}
+
+fn json_path_lookup<'a>(
+    value: &'a serde_json::Value,
+    field: &str,
+) -> Option<&'a serde_json::Value> {
+    if field.trim().is_empty() {
+        return None;
+    }
+
+    field
+        .split('.')
+        .try_fold(value, |current, segment| match current {
+            serde_json::Value::Object(map) => map.get(segment),
+            serde_json::Value::Array(items) => segment
+                .parse::<usize>()
+                .ok()
+                .and_then(|index| items.get(index)),
+            _ => None,
+        })
+}
+
+fn json_key_match_recursive(
+    value: &serde_json::Value,
+    field: &str,
+    expected: &serde_json::Value,
+) -> bool {
+    match value {
+        serde_json::Value::Object(map) => map.iter().any(|(key, child)| {
+            (key.eq_ignore_ascii_case(field) && json_value_matches(child, expected))
+                || json_key_match_recursive(child, field, expected)
+        }),
+        serde_json::Value::Array(items) => items
+            .iter()
+            .any(|item| json_key_match_recursive(item, field, expected)),
+        _ => false,
+    }
+}
+
+fn json_value_matches(found: &serde_json::Value, expected: &serde_json::Value) -> bool {
+    if matches!(expected, serde_json::Value::String(value) if value.is_empty()) {
+        return true;
+    }
+
+    if found == expected {
+        return true;
+    }
+
+    let found_text = match found {
+        serde_json::Value::String(value) => value.clone(),
+        _ => found.to_string(),
+    };
+    let expected_text = match expected {
+        serde_json::Value::String(value) => value.clone(),
+        _ => expected.to_string(),
+    };
+
+    found_text == expected_text
+}
+
+fn rule_protocol_matches(proto: &RuleProtocol, packet: &PacketInfo) -> bool {
+    match proto {
+        RuleProtocol::TCP => packet.protocol == Protocol::TCP,
+        RuleProtocol::UDP => packet.protocol == Protocol::UDP,
+        RuleProtocol::ICMP => packet.protocol == Protocol::ICMP,
+        RuleProtocol::HTTP => {
+            packet.full_url.is_some()
+                || packet.hostname.is_some()
+                || packet.dst_port == 80
+                || packet.src_port == 80
+        }
+        RuleProtocol::HTTPS => {
+            packet.tls_handshake || packet.dst_port == 443 || packet.src_port == 443
+        }
+        RuleProtocol::DNS => {
+            packet.dns_query.is_some() || packet.dst_port == 53 || packet.src_port == 53
+        }
+        RuleProtocol::QUIC => {
+            packet.protocol == Protocol::UDP && (packet.dst_port == 443 || packet.src_port == 443)
+        }
+        RuleProtocol::TLSSNI => packet.tls_handshake,
+        RuleProtocol::ARP => matches!(packet.protocol, Protocol::Raw(0)),
+        RuleProtocol::ANY => true,
+    }
+}
+
+fn expand_ip_matcher(matcher: &mut IpMatcher) {
+    for address in &mut matcher.addresses {
+        *address = expand_environment_variables(address);
+    }
+    for cidr in &mut matcher.cidr_ranges {
+        *cidr = expand_environment_variables(cidr);
+    }
+}
+
+fn expand_domain_matcher(matcher: &mut DomainMatcher) {
+    for domain in &mut matcher.domains {
+        *domain = expand_environment_variables(domain);
+    }
+}
+
+fn expand_url_matcher(matcher: &mut UrlMatcher) {
+    for pattern in &mut matcher.patterns {
+        *pattern = expand_environment_variables(pattern);
+    }
+}
+
+fn expand_regex_matcher(matcher: &mut RegexMatcher) {
+    matcher.pattern = expand_environment_variables(&matcher.pattern);
+}
+
+fn expand_content_match_data(data: &mut ContentMatchData) {
+    data.pattern = expand_environment_variables(&data.pattern);
+}
+
+fn expand_traffic_routine(routine: &mut TrafficRoutine) {
+    if let Some(from_ip) = &mut routine.from_ip {
+        *from_ip = expand_environment_variables(from_ip);
+    }
+    if let Some(to_ip) = &mut routine.to_ip {
+        *to_ip = expand_environment_variables(to_ip);
+    }
+}
+
+fn expand_json_matcher(matcher: &mut JsonMatcher) {
+    matcher.field = expand_environment_variables(&matcher.field);
+    if let serde_json::Value::String(value) = &mut matcher.value {
+        *value = expand_environment_variables(value);
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum RuleProtocol {
@@ -349,7 +564,14 @@ pub struct UrlMatcher {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum LocalhostType {
-    Loopback, PrivateA, PrivateB, PrivateC, Any, #[default] All, None,
+    Loopback,
+    PrivateA,
+    PrivateB,
+    PrivateC,
+    Any,
+    #[default]
+    All,
+    None,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -391,44 +613,187 @@ pub struct TrafficRoutine {
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct JsonMatcher {
+    #[serde(default, alias = "key")]
     pub field: String,
     pub value: serde_json::Value,
 }
 
 impl JsonMatcher {
     pub fn matches(&self, payload: &[u8]) -> bool {
-        let text = String::from_utf8_lossy(payload);
-        if !text.trim().starts_with('{') && !text.trim().starts_with('[') {
+        if self.field.trim().is_empty() || payload.is_empty() {
             return false;
         }
-        // Basic heuristic for JSON field matching without full parsing
-        text.contains(&format!("\"{}\"", self.field)) && text.contains(&format!("{:?}", self.value))
+
+        decoded_json_candidates(payload)
+            .into_iter()
+            .any(|candidate| {
+                serde_json::from_slice::<serde_json::Value>(&candidate)
+                    .ok()
+                    .is_some_and(|parsed| {
+                        json_path_lookup(&parsed, &self.field)
+                            .is_some_and(|found| json_value_matches(found, &self.value))
+                            || json_key_match_recursive(&parsed, &self.field, &self.value)
+                    })
+            })
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+pub struct FirewallSdkFileTypeMatcher {
+    #[serde(default)]
+    pub file_types: Vec<String>,
+}
+
+impl FirewallSdkFileTypeMatcher {
+    pub fn matches(&self, detected_type: Option<&str>) -> bool {
+        if self.file_types.is_empty() {
+            return true;
+        }
+
+        let Some(file_type) = detected_type else {
+            return false;
+        };
+
+        let file_type_lower = file_type.to_lowercase();
+        self.file_types
+            .iter()
+            .any(|entry| entry.to_lowercase() == file_type_lower)
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+pub struct FirewallSdkEntropyMatcher {
+    #[serde(default, alias = "threshold")]
+    pub min_entropy: f64,
+}
+
+impl FirewallSdkEntropyMatcher {
+    pub fn matches(&self, entropy: Option<f64>) -> bool {
+        entropy.is_some_and(|value| value >= self.min_entropy)
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum FirewallSdkRuleAction {
+    TrafficAttack,
+    Block,
+    #[default]
+    Allow,
+    Ask,
+    Terminate,
+    Quarantine,
+    KillAndRemove,
+    ChangePacket,
+    SolvePacket,
+    ChangeRequestBody,
+    ChangeResponseBody,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum FirewallSdkConditionLogic {
+    #[default]
+    And,
+    Or,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", untagged)]
+pub enum FirewallSdkCondition {
+    And(Vec<FirewallSdkCondition>),
+    Or(Vec<FirewallSdkCondition>),
+    Protocol(RuleProtocol),
+    SrcIp(IpMatcher),
+    DstIp(IpMatcher),
+    SrcPort(PortMatcher),
+    DstPort(PortMatcher),
+    Domain(DomainMatcher),
+    Url(UrlMatcher),
+    FileType(FirewallSdkFileTypeMatcher),
+    Regex(RegexMatcher),
+    Localhost(LocalhostType),
+    ContentMatch(ContentMatchData),
+    Entropy(FirewallSdkEntropyMatcher),
+    SanctumDetected,
+    Routine(TrafficRoutine),
+    JsonMatch(JsonMatcher),
+}
+
+impl FirewallSdkCondition {
+    pub fn matches_packet(
+        &self,
+        _cache: &Arc<RwLock<HashMap<String, Regex>>>,
+        packet: &PacketInfo,
+        payload: &[u8],
+    ) -> bool {
+        match self {
+            FirewallSdkCondition::And(conds) => conds
+                .iter()
+                .all(|cond| cond.matches_packet(_cache, packet, payload)),
+            FirewallSdkCondition::Or(conds) => conds
+                .iter()
+                .any(|cond| cond.matches_packet(_cache, packet, payload)),
+            FirewallSdkCondition::Protocol(proto) => rule_protocol_matches(proto, packet),
+            FirewallSdkCondition::SrcIp(matcher) => matcher.matches(packet.src_ip),
+            FirewallSdkCondition::DstIp(matcher) => matcher.matches(packet.dst_ip),
+            FirewallSdkCondition::SrcPort(matcher) => matcher.matches(packet.src_port),
+            FirewallSdkCondition::DstPort(matcher) => matcher.matches(packet.dst_port),
+            FirewallSdkCondition::Domain(matcher) => matcher.matches(packet.hostname.as_deref()),
+            FirewallSdkCondition::Url(matcher) => matcher.matches(packet.full_url.as_deref()),
+            FirewallSdkCondition::FileType(matcher) => {
+                matcher.matches(packet.detected_file_type.as_deref())
+            }
+            FirewallSdkCondition::Regex(matcher) => matcher.matches(payload),
+            FirewallSdkCondition::Localhost(localhost_type) => {
+                if packet.outbound {
+                    localhost_type.matches(packet.dst_ip)
+                } else {
+                    localhost_type.matches(packet.src_ip)
+                }
+            }
+            FirewallSdkCondition::ContentMatch(data) => data
+                .encoding
+                .decode(payload)
+                .is_some_and(|decoded| String::from_utf8_lossy(&decoded).contains(&data.pattern)),
+            FirewallSdkCondition::Entropy(matcher) => matcher.matches(packet.payload_entropy),
+            FirewallSdkCondition::SanctumDetected => true,
+            FirewallSdkCondition::Routine(routine) => routine.matches(packet),
+            FirewallSdkCondition::JsonMatch(matcher) => matcher.matches(payload),
+        }
     }
 }
 
 impl NetworkRuleCondition {
-    pub fn matches_packet(&self, cache: &Arc<RwLock<HashMap<String, Regex>>>, packet: &PacketInfo, payload: &[u8]) -> bool {
+    pub fn matches_packet(
+        &self,
+        cache: &Arc<RwLock<HashMap<String, Regex>>>,
+        packet: &PacketInfo,
+        payload: &[u8],
+    ) -> bool {
         match self {
-            NetworkRuleCondition::And(conds) => conds.iter().all(|c| c.matches_packet(cache, packet, payload)),
-            NetworkRuleCondition::Or(conds) => conds.iter().any(|c| c.matches_packet(cache, packet, payload)),
-            NetworkRuleCondition::Protocol(proto) => match proto {
-                RuleProtocol::TCP => packet.protocol == Protocol::TCP,
-                RuleProtocol::UDP => packet.protocol == Protocol::UDP,
-                RuleProtocol::ICMP => packet.protocol == Protocol::ICMP,
-                RuleProtocol::HTTP => packet.full_url.is_some() || packet.hostname.is_some() || packet.dst_port == 80 || packet.src_port == 80,
-                RuleProtocol::HTTPS => packet.tls_handshake || packet.dst_port == 443 || packet.src_port == 443,
-                RuleProtocol::DNS => packet.dns_query.is_some() || packet.dst_port == 53 || packet.src_port == 53,
-                RuleProtocol::QUIC => packet.protocol == Protocol::UDP && (packet.dst_port == 443 || packet.src_port == 443),
-                RuleProtocol::TLSSNI => packet.tls_handshake,
-                RuleProtocol::ARP => matches!(packet.protocol, Protocol::Raw(0)),
-                RuleProtocol::ANY => true,
-            },
+            NetworkRuleCondition::And(conds) => conds
+                .iter()
+                .all(|c| c.matches_packet(cache, packet, payload)),
+            NetworkRuleCondition::Or(conds) => conds
+                .iter()
+                .any(|c| c.matches_packet(cache, packet, payload)),
+            NetworkRuleCondition::Protocol(proto) => rule_protocol_matches(proto, packet),
             NetworkRuleCondition::SrcIp(matcher) => matcher.matches(packet.src_ip),
             NetworkRuleCondition::DstIp(matcher) => matcher.matches(packet.dst_ip),
             NetworkRuleCondition::SrcPort(matcher) => matcher.matches(packet.src_port),
             NetworkRuleCondition::DstPort(matcher) => matcher.matches(packet.dst_port),
-            NetworkRuleCondition::Domain(matcher) => matcher.matches(packet.hostname.as_deref()) || packet.payload_domains.iter().any(|d| matcher.matches(Some(d))),
-            NetworkRuleCondition::Url(matcher) => matcher.matches(packet.full_url.as_deref()) || packet.payload_urls.iter().any(|u| matcher.matches(Some(u))),
+            NetworkRuleCondition::Domain(matcher) => {
+                matcher.matches(packet.hostname.as_deref())
+                    || packet
+                        .payload_domains
+                        .iter()
+                        .any(|d| matcher.matches(Some(d)))
+            }
+            NetworkRuleCondition::Url(matcher) => {
+                matcher.matches(packet.full_url.as_deref())
+                    || packet.payload_urls.iter().any(|u| matcher.matches(Some(u)))
+            }
             NetworkRuleCondition::FileType(types) => {
                 if let Some(ft) = &packet.detected_file_type {
                     let ft_lower = ft.to_lowercase();
@@ -437,53 +802,73 @@ impl NetworkRuleCondition {
                     false
                 }
             }
-            NetworkRuleCondition::Regex(matcher) => {
-                if let Some(sample) = &packet.payload_sample {
-                    matcher.matches(sample.as_bytes())
-                } else {
-                    false
-                }
-            }
-            NetworkRuleCondition::Localhost(l_type) => l_type.matches(if packet.outbound { packet.dst_ip } else { packet.src_ip }),
-            NetworkRuleCondition::ContentMatch(data) => {
-                if let Some(sample) = &packet.payload_sample {
-                    if let Some(decoded) = data.encoding.decode(sample.as_bytes()) {
-                        let text = String::from_utf8_lossy(&decoded);
-                        text.contains(&data.pattern)
-                    } else {
-                        false
-                    }
-                } else {
-                    false
-                }
-            }
-            NetworkRuleCondition::Entropy(matcher) => packet.payload_entropy.map_or(false, |e| e >= matcher.threshold),
+            NetworkRuleCondition::Regex(matcher) => packet_payload_candidates(packet, payload)
+                .iter()
+                .any(|candidate| matcher.matches(candidate)),
+            NetworkRuleCondition::Localhost(l_type) => l_type.matches(if packet.outbound {
+                packet.dst_ip
+            } else {
+                packet.src_ip
+            }),
+            NetworkRuleCondition::ContentMatch(data) => packet_payload_candidates(packet, payload)
+                .iter()
+                .any(|candidate| {
+                    data.encoding.decode(candidate).is_some_and(|decoded| {
+                        String::from_utf8_lossy(&decoded).contains(&data.pattern)
+                    })
+                }),
+            NetworkRuleCondition::Entropy(matcher) => packet
+                .payload_entropy
+                .map_or(false, |e| e >= matcher.threshold),
             NetworkRuleCondition::Routine(routine) => routine.matches(packet),
             NetworkRuleCondition::SanctumDetected => true,
+            NetworkRuleCondition::JsonMatch(matcher) => packet_payload_candidates(packet, payload)
+                .iter()
+                .any(|candidate| matcher.matches(candidate)),
         }
     }
 }
 
 impl IpMatcher {
     pub fn matches(&self, ip: IpAddr) -> bool {
-        if self.addresses.is_empty() && self.cidr_ranges.is_empty() { return true; }
+        if self.addresses.is_empty() && self.cidr_ranges.is_empty() {
+            return true;
+        }
         let ip_str = ip.to_string();
-        if self.addresses.iter().any(|a| a == "*" || a == "any" || a == &ip_str) { return true; }
+        if self
+            .addresses
+            .iter()
+            .any(|a| a == "*" || a == "any" || a == &ip_str)
+        {
+            return true;
+        }
         self.cidr_ranges.iter().any(|c| ip_in_cidr(ip, c))
     }
 }
 
 impl DomainMatcher {
     pub fn matches(&self, hostname: Option<&str>) -> bool {
-        let Some(host) = hostname else { return false; };
-        if self.domains.is_empty() { return true; }
-        let host_check = if self.case_insensitive { host.to_lowercase() } else { host.to_string() };
+        let Some(host) = hostname else {
+            return false;
+        };
+        if self.domains.is_empty() {
+            return true;
+        }
+        let host_check = if self.case_insensitive {
+            host.to_lowercase()
+        } else {
+            host.to_string()
+        };
         self.domains.iter().any(|d| {
-            let d_check = if self.case_insensitive { d.to_lowercase() } else { d.clone() };
+            let d_check = if self.case_insensitive {
+                d.to_lowercase()
+            } else {
+                d.clone()
+            };
             wildcard_match(&d_check, &host_check)
         })
     }
-    
+
     pub fn exact(domain: String) -> Self {
         Self {
             domains: vec![domain],
@@ -494,12 +879,18 @@ impl DomainMatcher {
 
 impl UrlMatcher {
     pub fn matches(&self, url: Option<&str>) -> bool {
-        let Some(u) = url else { return false; };
-        if self.patterns.is_empty() { return true; }
+        let Some(u) = url else {
+            return false;
+        };
+        if self.patterns.is_empty() {
+            return true;
+        }
         let u_lower = u.to_lowercase();
-        self.patterns.iter().any(|p| wildcard_match(&p.to_lowercase(), &u_lower))
+        self.patterns
+            .iter()
+            .any(|p| wildcard_match(&p.to_lowercase(), &u_lower))
     }
-    
+
     pub fn contains(pattern: String) -> Self {
         Self {
             patterns: vec![format!("*{}*", pattern)],
@@ -509,18 +900,38 @@ impl UrlMatcher {
 
 impl PortMatcher {
     pub fn matches(&self, port: u16) -> bool {
-        if self.ports.is_empty() && self.ranges.is_empty() { return true; }
-        if self.ports.contains(&port) { return true; }
+        if self.ports.is_empty() && self.ranges.is_empty() {
+            return true;
+        }
+        if self.ports.contains(&port) {
+            return true;
+        }
         self.ranges.iter().any(|(s, e)| port >= *s && port <= *e)
     }
 }
 
 impl TrafficRoutine {
     pub fn matches(&self, packet: &PacketInfo) -> bool {
-        if let Some(ref f) = self.from_ip { if f != "*" && f != "any" && &packet.src_ip.to_string() != f { return false; } }
-        if let Some(f) = self.from_port { if f != 0 && packet.src_port != f { return false; } }
-        if let Some(ref t) = self.to_ip { if t != "*" && t != "any" && &packet.dst_ip.to_string() != t { return false; } }
-        if let Some(t) = self.to_port { if t != 0 && packet.dst_port != t { return false; } }
+        if let Some(ref f) = self.from_ip {
+            if f != "*" && f != "any" && &packet.src_ip.to_string() != f {
+                return false;
+            }
+        }
+        if let Some(f) = self.from_port {
+            if f != 0 && packet.src_port != f {
+                return false;
+            }
+        }
+        if let Some(ref t) = self.to_ip {
+            if t != "*" && t != "any" && &packet.dst_ip.to_string() != t {
+                return false;
+            }
+        }
+        if let Some(t) = self.to_port {
+            if t != 0 && packet.dst_port != t {
+                return false;
+            }
+        }
         true
     }
 }
@@ -532,16 +943,27 @@ impl LocalhostType {
                 LocalhostType::None => true,
                 LocalhostType::Loopback => ipv4.octets()[0] == 127,
                 LocalhostType::PrivateA => ipv4.octets()[0] == 10,
-                LocalhostType::PrivateB => ipv4.octets()[0] == 172 && ipv4.octets()[1] >= 16 && ipv4.octets()[1] <= 31,
+                LocalhostType::PrivateB => {
+                    ipv4.octets()[0] == 172 && ipv4.octets()[1] >= 16 && ipv4.octets()[1] <= 31
+                }
                 LocalhostType::PrivateC => ipv4.octets()[0] == 192 && ipv4.octets()[1] == 168,
-                LocalhostType::Any => ipv4 == Ipv4Addr::new(0,0,0,0),
-                LocalhostType::All => ipv4.octets()[0] == 127 || ipv4.octets()[0] == 10 || (ipv4.octets()[0] == 172 && ipv4.octets()[1] >= 16 && ipv4.octets()[1] <= 31) || (ipv4.octets()[0] == 192 && ipv4.octets()[1] == 168),
+                LocalhostType::Any => ipv4 == Ipv4Addr::new(0, 0, 0, 0),
+                LocalhostType::All => {
+                    ipv4.octets()[0] == 127
+                        || ipv4.octets()[0] == 10
+                        || (ipv4.octets()[0] == 172
+                            && ipv4.octets()[1] >= 16
+                            && ipv4.octets()[1] <= 31)
+                        || (ipv4.octets()[0] == 192 && ipv4.octets()[1] == 168)
+                }
             },
             IpAddr::V6(ipv6) => match self {
                 LocalhostType::None => true,
                 LocalhostType::Loopback => ipv6.is_loopback(),
-                _ => ipv6.is_unique_local() || ipv6.is_unicast_link_local() || ipv6.is_unspecified(),
-            }
+                _ => {
+                    ipv6.is_unique_local() || ipv6.is_unicast_link_local() || ipv6.is_unspecified()
+                }
+            },
         }
     }
 }
@@ -549,7 +971,11 @@ impl LocalhostType {
 impl RegexMatcher {
     pub fn matches(&self, data: &[u8]) -> bool {
         let text = String::from_utf8_lossy(data);
-        let p = if self.case_insensitive { format!("(?i){}", self.pattern) } else { self.pattern.clone() };
+        let p = if self.case_insensitive {
+            format!("(?i){}", self.pattern)
+        } else {
+            self.pattern.clone()
+        };
         Regex::new(&p).map_or(false, |re| re.is_match(&text))
     }
 }
@@ -558,65 +984,117 @@ impl ContentEncoding {
     pub fn decode(&self, data: &[u8]) -> Option<Vec<u8>> {
         match self {
             ContentEncoding::Plain => Some(data.to_vec()),
+            ContentEncoding::Base64 => {
+                let text = String::from_utf8_lossy(data);
+                STANDARD.decode(text.trim()).ok()
+            }
+            ContentEncoding::Base58 => {
+                let text = String::from_utf8_lossy(data);
+                bs58::decode(text.trim()).into_vec().ok()
+            }
             ContentEncoding::Reverse => Some(data.iter().rev().cloned().collect()),
             ContentEncoding::Hex => {
                 let text = String::from_utf8_lossy(data).trim().replace(" ", "");
-                if text.len() % 2 != 0 { return None; }
+                if text.len() % 2 != 0 {
+                    return None;
+                }
                 let mut result = Vec::with_capacity(text.len() / 2);
                 for i in (0..text.len()).step_by(2) {
                     if let Ok(byte) = u8::from_str_radix(&text[i..i + 2], 16) {
                         result.push(byte);
-                    } else { return None; }
+                    } else {
+                        return None;
+                    }
                 }
                 Some(result)
             }
-            _ => None, // Base64/Base58 omitted for brevity or implement if needed
         }
     }
 }
 
 fn ip_in_cidr(ip: IpAddr, cidr: &str) -> bool {
     let parts: Vec<&str> = cidr.split('/').collect();
-    if parts.len() != 2 { return false; }
-    let Ok(prefix_len) = parts[1].parse::<u32>() else { return false; };
+    if parts.len() != 2 {
+        return false;
+    }
+    let Ok(prefix_len) = parts[1].parse::<u32>() else {
+        return false;
+    };
     match ip {
         IpAddr::V4(v4) => {
-            let Ok(net) = parts[0].parse::<Ipv4Addr>() else { return false; };
-            if prefix_len > 32 { return false; }
-            let mask = if prefix_len == 0 { 0 } else { !0u32 << (32 - prefix_len) };
+            let Ok(net) = parts[0].parse::<Ipv4Addr>() else {
+                return false;
+            };
+            if prefix_len > 32 {
+                return false;
+            }
+            let mask = if prefix_len == 0 {
+                0
+            } else {
+                !0u32 << (32 - prefix_len)
+            };
             (u32::from(v4) & mask) == (u32::from(net) & mask)
         }
         IpAddr::V6(v6) => {
-            let Ok(net) = parts[0].parse::<Ipv6Addr>() else { return false; };
-            if prefix_len > 128 { return false; }
-            let mask = if prefix_len == 0 { 0 } else { !0u128 << (128 - prefix_len) };
+            let Ok(net) = parts[0].parse::<Ipv6Addr>() else {
+                return false;
+            };
+            if prefix_len > 128 {
+                return false;
+            }
+            let mask = if prefix_len == 0 {
+                0
+            } else {
+                !0u128 << (128 - prefix_len)
+            };
             (u128::from(v6) & mask) == (u128::from(net) & mask)
         }
     }
 }
 
 fn wildcard_match(pattern: &str, text: &str) -> bool {
-    if pattern == "*" || pattern == "any" { return true; }
+    if pattern == "*" || pattern == "any" {
+        return true;
+    }
     let parts: Vec<&str> = pattern.split('*').collect();
-    if parts.len() == 1 { return text == pattern; }
+    if parts.len() == 1 {
+        return text == pattern;
+    }
     let mut pos = 0;
     for (i, part) in parts.iter().enumerate() {
-        if part.is_empty() { continue; }
+        if part.is_empty() {
+            continue;
+        }
         if let Some(found) = text[pos..].find(part) {
-            if i == 0 && found != 0 { return false; }
+            if i == 0 && found != 0 {
+                return false;
+            }
             pos += found + part.len();
-        } else { return false; }
+        } else {
+            return false;
+        }
     }
     pattern.ends_with('*') || pos == text.len()
 }
 
-pub fn matches_pattern(cache: &Arc<RwLock<HashMap<String, Regex>>>, pattern: &str, text: &str) -> bool {
+pub fn matches_pattern(
+    cache: &Arc<RwLock<HashMap<String, Regex>>>,
+    pattern: &str,
+    text: &str,
+) -> bool {
     let p = pattern.to_lowercase();
     let t = text.to_lowercase();
-    if p == "*" || p == "*.*" || p.is_empty() { return true; }
-    if !p.contains('*') && !p.contains('?') { return t == p || t.contains(&p); }
-    let rp = format!("^{}$", regex::escape(&p).replace("\\*", ".*").replace("\\?", "."));
-    
+    if p == "*" || p == "*.*" || p.is_empty() {
+        return true;
+    }
+    if !p.contains('*') && !p.contains('?') {
+        return t == p || t.contains(&p);
+    }
+    let rp = format!(
+        "^{}$",
+        regex::escape(&p).replace("\\*", ".*").replace("\\?", ".")
+    );
+
     {
         if let Ok(cache_map) = cache.read() {
             if let Some(re) = cache_map.get(&rp) {
@@ -625,8 +1103,13 @@ pub fn matches_pattern(cache: &Arc<RwLock<HashMap<String, Regex>>>, pattern: &st
         }
     }
 
-    let Ok(mut cache_map) = cache.write() else { return false; };
-    cache_map.entry(rp.clone()).or_insert_with(|| Regex::new(&rp).unwrap_or_else(|_| Regex::new(".*").unwrap())).is_match(&t)
+    let Ok(mut cache_map) = cache.write() else {
+        return false;
+    };
+    cache_map
+        .entry(rp.clone())
+        .or_insert_with(|| Regex::new(&rp).unwrap_or_else(|_| Regex::new(".*").unwrap()))
+        .is_match(&t)
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -648,6 +1131,7 @@ pub enum NetworkRuleCondition {
     ContentMatch(ContentMatchData),
     Entropy(EntropyMatcher),
     Routine(TrafficRoutine),
+    JsonMatch(JsonMatcher),
 }
 
 // =============================================================================
@@ -656,25 +1140,55 @@ pub enum NetworkRuleCondition {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ResponseAction {
-    #[serde(default)] pub terminate_process: bool,
-    #[serde(default)] pub suspend_process: bool,
-    #[serde(default)] pub quarantine: bool,
+    #[serde(default)]
+    pub terminate_process: bool,
+    #[serde(default)]
+    pub suspend_while_ask: bool,
+    #[serde(default)]
+    pub deny_while_ask: bool,
+    #[serde(default)]
+    pub suspend_process: bool,
+    #[serde(default)]
+    pub quarantine: bool,
     #[serde(default, alias = "deny_access", alias = "kernel_block")]
     pub status_access_denied: bool,
-    #[serde(default)] pub kill_and_remove: bool,
-    #[serde(default)] pub ask_user: bool,
-    #[serde(default)] pub notify_user: bool,
-    #[serde(default)] pub auto_revert: bool,
-    #[serde(default)] pub record: bool,
-    
+    #[serde(default)]
+    pub kill_and_remove: bool,
+    #[serde(default)]
+    pub ask_user: bool,
+    #[serde(default)]
+    pub notify_user: bool,
+    #[serde(default)]
+    pub auto_revert: bool,
+    #[serde(default)]
+    pub record: bool,
+
     // Integrated Network Actions (from SdkRule)
-    #[serde(default)] pub traffic_attack: bool,
-    #[serde(default)] pub change_packet: bool,
-    #[serde(default)] pub solve_packet: bool,
-    #[serde(default)] pub change_request_body: Option<String>,
-    #[serde(default)] pub change_response_body: Option<String>,
-    #[serde(default)] pub use_regex_replacement: bool,
-    #[serde(default)] pub search_pattern: Option<String>,
+    #[serde(default)]
+    pub traffic_attack: bool,
+    #[serde(default)]
+    pub change_packet: bool,
+    #[serde(default)]
+    pub change_data: Option<String>,
+    #[serde(default)]
+    pub solve_packet: bool,
+    #[serde(default)]
+    pub change_request_body: Option<String>,
+    #[serde(default)]
+    pub change_response_body: Option<String>,
+    #[serde(default)]
+    pub use_regex_replacement: bool,
+    #[serde(default)]
+    pub search_pattern: Option<String>,
+}
+
+impl ResponseAction {
+    pub fn normalize_prompt_defaults(&mut self) {
+        if self.ask_user {
+            self.deny_while_ask = true;
+            self.status_access_denied = true;
+        }
+    }
 }
 
 // =============================================================================
@@ -699,40 +1213,158 @@ pub enum AllowlistEntry {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum RuleCondition {
-    File { op: String, path_pattern: String },
-    Registry { op: String, key_pattern: String, value_name: Option<String>, expected_data: Option<String> },
-    Process { op: String, pattern: String },
-    Service { op: String, name_pattern: String },
-    Network { op: String, dest_pattern: Option<String> },
-    NetworkCondition(NetworkRuleCondition),
-    Api { name_pattern: String, module_pattern: String },
-    Heuristic { metric: String, threshold: f64 },
-    OperationCount { op_type: String, #[serde(default)] path_pattern: Option<String>, #[serde(default)] comparison: Comparison, threshold: u64 },
-    ExtensionPattern { patterns: Vec<String>, #[serde(default)] match_mode: MatchMode, op_type: String },
-    ByteThreshold { direction: String, #[serde(default)] comparison: Comparison, threshold: u64 },
-    EntropyThreshold { metric: String, #[serde(default)] comparison: Comparison, threshold: f64 },
-    FileCount { category: String, #[serde(default)] comparison: Comparison, threshold: u64 },
-    Signature { 
-        #[serde(default)]
-        is_trusted: Option<bool>,  
-        #[serde(default)]
-        is_signed: Option<bool>,   
-        #[serde(default)]
-        signer_pattern: Option<String> 
+    File {
+        op: String,
+        path_pattern: String,
     },
-    DirectorySpread { category: String, #[serde(default)] comparison: Comparison, threshold: u64 },
-    DriveActivity { drive_type: String, op_type: String, #[serde(default)] comparison: Comparison, threshold: u32 },
-    ProcessAncestry { ancestor_pattern: String, #[serde(default)] max_depth: Option<u32> },
-    ExtensionRatio { extensions: Vec<String>, #[serde(default)] comparison: Comparison, threshold: f32 },
-    RateOfChange { metric: String, #[serde(default)] comparison: Comparison, threshold: f64 },
-    SelfModification { modification_type: String },
-    CommandLineMatch { patterns: Vec<CommandLinePattern>, #[serde(default)] match_mode: MatchMode },
-    SensitivePathAccess { patterns: Vec<String>, op_type: String, #[serde(default)] min_unique_paths: Option<u32> },
-    ClusterPattern { #[serde(default)] min_clusters: Option<usize>, #[serde(default)] max_clusters: Option<usize> },
-    TempDirectoryWrite { #[serde(default)] min_bytes: Option<u64>, #[serde(default)] min_files: Option<u32> },
-    ArchiveCreation { #[serde(default)] extensions: Vec<String>, #[serde(default)] min_size: Option<u64>, #[serde(default)] in_temp: bool },
-    DataExfiltrationPattern { source_patterns: Vec<String>, #[serde(default)] min_source_reads: Option<u32>, #[serde(default)] detect_temp_staging: bool, #[serde(default)] detect_archive: bool },
-    MemoryScan { #[serde(default)] patterns: Vec<String>, #[serde(default)] detect_pe_headers: bool, #[serde(default)] private_only: bool },
+    Registry {
+        op: String,
+        key_pattern: String,
+        value_name: Option<String>,
+        expected_data: Option<String>,
+    },
+    Process {
+        op: String,
+        pattern: String,
+    },
+    Service {
+        op: String,
+        name_pattern: String,
+    },
+    Network {
+        op: String,
+        dest_pattern: Option<String>,
+    },
+    NetworkCondition(NetworkRuleCondition),
+    Api {
+        name_pattern: String,
+        module_pattern: String,
+    },
+    Heuristic {
+        metric: String,
+        threshold: f64,
+    },
+    OperationCount {
+        op_type: String,
+        #[serde(default)]
+        path_pattern: Option<String>,
+        #[serde(default)]
+        comparison: Comparison,
+        threshold: u64,
+    },
+    ExtensionPattern {
+        patterns: Vec<String>,
+        #[serde(default)]
+        match_mode: MatchMode,
+        op_type: String,
+    },
+    ByteThreshold {
+        direction: String,
+        #[serde(default)]
+        comparison: Comparison,
+        threshold: u64,
+    },
+    EntropyThreshold {
+        metric: String,
+        #[serde(default)]
+        comparison: Comparison,
+        threshold: f64,
+    },
+    FileCount {
+        category: String,
+        #[serde(default)]
+        comparison: Comparison,
+        threshold: u64,
+    },
+    Signature {
+        #[serde(default)]
+        is_trusted: Option<bool>,
+        #[serde(default)]
+        is_signed: Option<bool>,
+        #[serde(default)]
+        signer_pattern: Option<String>,
+    },
+    DirectorySpread {
+        category: String,
+        #[serde(default)]
+        comparison: Comparison,
+        threshold: u64,
+    },
+    DriveActivity {
+        drive_type: String,
+        op_type: String,
+        #[serde(default)]
+        comparison: Comparison,
+        threshold: u32,
+    },
+    ProcessAncestry {
+        ancestor_pattern: String,
+        #[serde(default)]
+        max_depth: Option<u32>,
+    },
+    ExtensionRatio {
+        extensions: Vec<String>,
+        #[serde(default)]
+        comparison: Comparison,
+        threshold: f32,
+    },
+    RateOfChange {
+        metric: String,
+        #[serde(default)]
+        comparison: Comparison,
+        threshold: f64,
+    },
+    SelfModification {
+        modification_type: String,
+    },
+    CommandLineMatch {
+        patterns: Vec<CommandLinePattern>,
+        #[serde(default)]
+        match_mode: MatchMode,
+    },
+    SensitivePathAccess {
+        patterns: Vec<String>,
+        op_type: String,
+        #[serde(default)]
+        min_unique_paths: Option<u32>,
+    },
+    ClusterPattern {
+        #[serde(default)]
+        min_clusters: Option<usize>,
+        #[serde(default)]
+        max_clusters: Option<usize>,
+    },
+    TempDirectoryWrite {
+        #[serde(default)]
+        min_bytes: Option<u64>,
+        #[serde(default)]
+        min_files: Option<u32>,
+    },
+    ArchiveCreation {
+        #[serde(default)]
+        extensions: Vec<String>,
+        #[serde(default)]
+        min_size: Option<u64>,
+        #[serde(default)]
+        in_temp: bool,
+    },
+    DataExfiltrationPattern {
+        source_patterns: Vec<String>,
+        #[serde(default)]
+        min_source_reads: Option<u32>,
+        #[serde(default)]
+        detect_temp_staging: bool,
+        #[serde(default)]
+        detect_archive: bool,
+    },
+    MemoryScan {
+        #[serde(default)]
+        patterns: Vec<String>,
+        #[serde(default)]
+        detect_pe_headers: bool,
+        #[serde(default)]
+        private_only: bool,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -744,18 +1376,50 @@ pub struct AttackStage {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum DetectionCondition {
-    And { and: Vec<DetectionCondition> },
-    Or { or: Vec<DetectionCondition> },
-    Not { not: Box<DetectionCondition> },
-    Named { condition: String },
-    AllOf { all_of: Vec<String> },
-    AnyOf { any_of: Vec<String> },
-    NOf { n_of: usize, conditions: Vec<String> },
-    AtLeast { at_least: usize, conditions: Vec<String> },
-    AllOfPattern { all_of_pattern: String },
-    AnyOfPattern { any_of_pattern: String },
-    Count { count: Vec<String>, #[serde(default)] comparison: Comparison, threshold: usize },
-    Percentage { percentage: Vec<String>, #[serde(default)] comparison: Comparison, threshold: f32 },
+    And {
+        and: Vec<DetectionCondition>,
+    },
+    Or {
+        or: Vec<DetectionCondition>,
+    },
+    Not {
+        not: Box<DetectionCondition>,
+    },
+    Named {
+        condition: String,
+    },
+    AllOf {
+        all_of: Vec<String>,
+    },
+    AnyOf {
+        any_of: Vec<String>,
+    },
+    NOf {
+        n_of: usize,
+        conditions: Vec<String>,
+    },
+    AtLeast {
+        at_least: usize,
+        conditions: Vec<String>,
+    },
+    AllOfPattern {
+        all_of_pattern: String,
+    },
+    AnyOfPattern {
+        any_of_pattern: String,
+    },
+    Count {
+        count: Vec<String>,
+        #[serde(default)]
+        comparison: Comparison,
+        threshold: usize,
+    },
+    Percentage {
+        percentage: Vec<String>,
+        #[serde(default)]
+        comparison: Comparison,
+        threshold: f32,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -769,170 +1433,571 @@ pub enum RuleMapping {
 
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
 pub struct NamedConditionGroup {
-    #[serde(default)] pub apis: Vec<String>,
-    #[serde(default = "default_zero")] pub api_threshold: usize,
-    #[serde(default)] pub file_paths: Vec<String>,
-    #[serde(default)] pub file_operations: Vec<String>,
-    #[serde(default)] pub require_same_file_read: bool,
-    #[serde(default)] pub require_same_file_write: bool,
-    #[serde(default)] pub require_same_file_rename: bool,
-    #[serde(default)] pub require_same_stem_created_unknown_extension: bool,
-    #[serde(default)] pub require_same_stem_written_unknown_extension: bool,
-    #[serde(default)] pub registry_keys: Vec<String>,
-    #[serde(default)] pub registry_values: Vec<String>,
-    #[serde(default)] pub registry_operations: Vec<String>,
-    #[serde(default)] pub registry_value_data_patterns: Vec<String>,
-    #[serde(default)] pub network_indicators: Vec<String>,
-    #[serde(default)] pub has_network_activity: bool,
-    #[serde(default)] pub network_rules: Vec<NetworkRuleCondition>,
-    #[serde(default)] pub network_domains: Vec<String>,
-    #[serde(default)] pub dns_query_patterns: Vec<String>,
-    #[serde(default)] pub network_ips: Vec<String>,
-    #[serde(default)] pub firewall_blocked: Option<bool>,
-    #[serde(default)] pub firewall_dst_ips: Vec<String>,
-    #[serde(default)] pub firewall_dst_ports: Vec<u16>,
-    #[serde(default)] pub firewall_hostnames: Vec<String>,
-    #[serde(default)] pub firewall_block_reasons: Vec<String>,
-    #[serde(default)] pub process_names: Vec<String>,
-    #[serde(default)] pub parent_names: Vec<String>,
-    #[serde(default)] pub terminated_processes: Vec<String>,
-    #[serde(default)] pub created_processes: Vec<String>,
-    #[serde(default)] pub detect_self_termination: bool,
-    #[serde(default)] pub detect_parent_image_delete: bool,
-    #[serde(default)] pub detect_parent_image_rename: bool,
-    #[serde(default)] pub file_extensions: Vec<String>,
-    #[serde(default)] pub detect_extension_changes: bool,
-    #[serde(default)] pub detect_known_to_unknown_extension_change: bool,
-    #[serde(default, alias = "extension_allowlist")] pub extension_whitelist: Vec<String>,
-    #[serde(default, alias = "detect_non_allowlisted_extensions")] pub detect_non_whitelisted_extensions: bool,
-    #[serde(default)] pub file_actions: Vec<String>,
-    #[serde(default)] pub entropy_threshold: f64,
-    #[serde(default)] pub file_size_min: Option<u64>,
-    #[serde(default)] pub file_size_max: Option<u64>,
-    #[serde(default)] pub cmdline_patterns: Vec<CommandLinePattern>,
-    #[serde(default)] pub cmdline_keywords: Vec<String>,
-    #[serde(default)] pub script_file_patterns: Vec<String>,
-    #[serde(default)] pub staging_paths: Vec<String>,
-    #[serde(default)] pub browsed_paths: Vec<String>,
-    #[serde(default)] pub sensitive_paths: Vec<String>,
-    #[serde(default)] pub temp_writes: bool,
-    #[serde(default)] pub persistence_locations: Vec<String>,
-    #[serde(default)] pub autorun_keys: Vec<String>,
-    #[serde(default)] pub scheduled_task_apis: Vec<String>,
-    #[serde(default)] pub obfuscation_indicators: Vec<String>,
-    #[serde(default)] pub anti_debug_apis: Vec<String>,
-    #[serde(default)] pub anti_vm_apis: Vec<String>,
-    #[serde(default)] pub requires_signed: Option<bool>,
-    #[serde(default)] pub is_signed: Option<bool>,
-    #[serde(default)] pub is_valid_signed: Option<bool>,
-    #[serde(default)] pub trusted_signers: Vec<String>,
-    #[serde(default)] pub untrusted_signers: Vec<String>,
-    #[serde(default)] pub hypervisor_event_labels: Vec<String>,
-    #[serde(default)] pub detect_hypervisor_event: bool,
-    #[serde(default)] pub hypervisor_event_threshold: usize,
-    #[serde(default)] pub hypervisor_raw_event_types: Vec<u32>,
-    #[serde(default)] pub hypervisor_source_pids: Vec<u32>,
-    #[serde(default)] pub hypervisor_target_pids: Vec<u32>,
-    #[serde(default)] pub hypervisor_raw_arg1_values: Vec<u64>,
-    #[serde(default)] pub hypervisor_raw_arg2_values: Vec<u64>,
-    #[serde(default)] pub hypervisor_raw_arg3_values: Vec<u64>,
-    #[serde(default)] pub hypervisor_raw_arg4_values: Vec<u64>,
-    #[serde(default)] pub hypervisor_memory_sizes: Vec<u64>,
-    #[serde(default)] pub hypervisor_operation_statuses: Vec<i32>,
-    #[serde(default)] pub hypervisor_thread_handles: Vec<u64>,
-    #[serde(default)] pub hypervisor_thread_start_routines: Vec<u64>,
-    #[serde(default)] pub hypervisor_access_masks: Vec<u32>,
-    #[serde(default)] pub hypervisor_memory_protections: Vec<u32>,
-    #[serde(default)] pub hypervisor_is_executable_memory: Option<bool>,
-    #[serde(default)] pub hypervisor_raw_arg1_min: Option<u64>,
-    #[serde(default)] pub hypervisor_raw_arg1_max: Option<u64>,
-    #[serde(default)] pub hypervisor_raw_arg2_min: Option<u64>,
-    #[serde(default)] pub hypervisor_raw_arg2_max: Option<u64>,
-    #[serde(default)] pub hypervisor_raw_arg3_min: Option<u64>,
-    #[serde(default)] pub hypervisor_raw_arg3_max: Option<u64>,
-    #[serde(default)] pub hypervisor_raw_arg4_min: Option<u64>,
-    #[serde(default)] pub hypervisor_raw_arg4_max: Option<u64>,
-    #[serde(default)] pub hypervisor_memory_addresses: Vec<u64>,
-    #[serde(default)] pub hypervisor_memory_address_min: Option<u64>,
-    #[serde(default)] pub hypervisor_memory_address_max: Option<u64>,
-    #[serde(default)] pub hypervisor_memory_size_min: Option<u64>,
-    #[serde(default)] pub hypervisor_memory_size_max: Option<u64>,
-    #[serde(default = "default_zero")] pub min_matches: usize,
-    #[serde(default)] pub json_match: Option<JsonMatcher>,
-    
+    #[serde(default)]
+    pub apis: Vec<String>,
+    #[serde(default = "default_zero")]
+    pub api_threshold: usize,
+    #[serde(default)]
+    pub file_paths: Vec<String>,
+    #[serde(default)]
+    pub file_operations: Vec<String>,
+    #[serde(default)]
+    pub require_same_file_read: bool,
+    #[serde(default)]
+    pub require_same_file_write: bool,
+    #[serde(default)]
+    pub require_same_file_rename: bool,
+    #[serde(default)]
+    pub require_same_stem_created_unknown_extension: bool,
+    #[serde(default)]
+    pub require_same_stem_written_unknown_extension: bool,
+    #[serde(default)]
+    pub registry_keys: Vec<String>,
+    #[serde(default)]
+    pub registry_values: Vec<String>,
+    #[serde(default)]
+    pub registry_operations: Vec<String>,
+    #[serde(default)]
+    pub registry_value_data_patterns: Vec<String>,
+    #[serde(default)]
+    pub network_indicators: Vec<String>,
+    #[serde(default)]
+    pub has_network_activity: bool,
+    #[serde(default)]
+    pub network_rules: Vec<NetworkRuleCondition>,
+    #[serde(default)]
+    pub network_domains: Vec<String>,
+    #[serde(default)]
+    pub dns_query_patterns: Vec<String>,
+    #[serde(default)]
+    pub network_ips: Vec<String>,
+    #[serde(default)]
+    pub firewall_blocked: Option<bool>,
+    #[serde(default)]
+    pub firewall_dst_ips: Vec<String>,
+    #[serde(default)]
+    pub firewall_dst_ports: Vec<u16>,
+    #[serde(default)]
+    pub firewall_hostnames: Vec<String>,
+    #[serde(default)]
+    pub firewall_block_reasons: Vec<String>,
+    #[serde(default)]
+    pub process_names: Vec<String>,
+    #[serde(default)]
+    pub parent_names: Vec<String>,
+    #[serde(default)]
+    pub terminated_processes: Vec<String>,
+    #[serde(default)]
+    pub created_processes: Vec<String>,
+    #[serde(default)]
+    pub detect_self_termination: bool,
+    #[serde(default)]
+    pub detect_parent_image_delete: bool,
+    #[serde(default)]
+    pub detect_parent_image_rename: bool,
+    #[serde(default)]
+    pub file_extensions: Vec<String>,
+    #[serde(default)]
+    pub detect_extension_changes: bool,
+    #[serde(default)]
+    pub detect_known_to_unknown_extension_change: bool,
+    #[serde(default, alias = "extension_allowlist")]
+    pub extension_whitelist: Vec<String>,
+    #[serde(default, alias = "detect_non_allowlisted_extensions")]
+    pub detect_non_whitelisted_extensions: bool,
+    #[serde(default)]
+    pub file_actions: Vec<String>,
+    #[serde(default)]
+    pub entropy_threshold: f64,
+    #[serde(default)]
+    pub file_size_min: Option<u64>,
+    #[serde(default)]
+    pub file_size_max: Option<u64>,
+    #[serde(default)]
+    pub cmdline_patterns: Vec<CommandLinePattern>,
+    #[serde(default)]
+    pub cmdline_keywords: Vec<String>,
+    #[serde(default)]
+    pub script_file_patterns: Vec<String>,
+    #[serde(default)]
+    pub staging_paths: Vec<String>,
+    #[serde(default)]
+    pub browsed_paths: Vec<String>,
+    #[serde(default)]
+    pub sensitive_paths: Vec<String>,
+    #[serde(default)]
+    pub temp_writes: bool,
+    #[serde(default)]
+    pub persistence_locations: Vec<String>,
+    #[serde(default)]
+    pub autorun_keys: Vec<String>,
+    #[serde(default)]
+    pub scheduled_task_apis: Vec<String>,
+    #[serde(default)]
+    pub obfuscation_indicators: Vec<String>,
+    #[serde(default)]
+    pub anti_debug_apis: Vec<String>,
+    #[serde(default)]
+    pub anti_vm_apis: Vec<String>,
+    #[serde(default)]
+    pub requires_signed: Option<bool>,
+    #[serde(default)]
+    pub is_signed: Option<bool>,
+    #[serde(default)]
+    pub is_valid_signed: Option<bool>,
+    #[serde(default)]
+    pub trusted_signers: Vec<String>,
+    #[serde(default)]
+    pub untrusted_signers: Vec<String>,
+    #[serde(default)]
+    pub hypervisor_event_labels: Vec<String>,
+    #[serde(default)]
+    pub detect_hypervisor_event: bool,
+    #[serde(default)]
+    pub hypervisor_event_threshold: usize,
+    #[serde(default)]
+    pub hypervisor_raw_event_types: Vec<u32>,
+    #[serde(default)]
+    pub hypervisor_source_pids: Vec<u32>,
+    #[serde(default)]
+    pub hypervisor_target_pids: Vec<u32>,
+    #[serde(default)]
+    pub hypervisor_raw_arg1_values: Vec<u64>,
+    #[serde(default)]
+    pub hypervisor_raw_arg2_values: Vec<u64>,
+    #[serde(default)]
+    pub hypervisor_raw_arg3_values: Vec<u64>,
+    #[serde(default)]
+    pub hypervisor_raw_arg4_values: Vec<u64>,
+    #[serde(default)]
+    pub hypervisor_memory_sizes: Vec<u64>,
+    #[serde(default)]
+    pub hypervisor_operation_statuses: Vec<i32>,
+    #[serde(default)]
+    pub hypervisor_thread_handles: Vec<u64>,
+    #[serde(default)]
+    pub hypervisor_thread_start_routines: Vec<u64>,
+    #[serde(default)]
+    pub hypervisor_access_masks: Vec<u32>,
+    #[serde(default)]
+    pub hypervisor_memory_protections: Vec<u32>,
+    #[serde(default)]
+    pub hypervisor_is_executable_memory: Option<bool>,
+    #[serde(default)]
+    pub hypervisor_raw_arg1_min: Option<u64>,
+    #[serde(default)]
+    pub hypervisor_raw_arg1_max: Option<u64>,
+    #[serde(default)]
+    pub hypervisor_raw_arg2_min: Option<u64>,
+    #[serde(default)]
+    pub hypervisor_raw_arg2_max: Option<u64>,
+    #[serde(default)]
+    pub hypervisor_raw_arg3_min: Option<u64>,
+    #[serde(default)]
+    pub hypervisor_raw_arg3_max: Option<u64>,
+    #[serde(default)]
+    pub hypervisor_raw_arg4_min: Option<u64>,
+    #[serde(default)]
+    pub hypervisor_raw_arg4_max: Option<u64>,
+    #[serde(default)]
+    pub hypervisor_memory_addresses: Vec<u64>,
+    #[serde(default)]
+    pub hypervisor_memory_address_min: Option<u64>,
+    #[serde(default)]
+    pub hypervisor_memory_address_max: Option<u64>,
+    #[serde(default)]
+    pub hypervisor_memory_size_min: Option<u64>,
+    #[serde(default)]
+    pub hypervisor_memory_size_max: Option<u64>,
+    #[serde(default = "default_zero")]
+    pub min_matches: usize,
+    #[serde(default)]
+    pub json_match: Option<JsonMatcher>,
+
     // Sanctum EDR conditions
-    #[serde(default)] pub sanctum_injection_score_min: Option<f32>,
-    #[serde(default)] pub sanctum_syscall_count_min: Option<usize>,
-    #[serde(default)] pub sanctum_shellcode_detected: Option<bool>,
-    #[serde(default)] pub sanctum_suspicious_hits: Vec<String>,
-    #[serde(default)] pub sanctum_detected: Option<bool>,
+    #[serde(default)]
+    pub sanctum_injection_score_min: Option<f32>,
+    #[serde(default)]
+    pub sanctum_syscall_count_min: Option<usize>,
+    #[serde(default)]
+    pub sanctum_shellcode_detected: Option<bool>,
+    #[serde(default)]
+    pub sanctum_suspicious_hits: Vec<String>,
+    #[serde(default)]
+    pub sanctum_detected: Option<bool>,
 
     // Rootkit generic condition tracking
-    #[serde(default)] pub rootkit_event_types: Vec<String>,
-    #[serde(default)] pub rootkit_event_min_count: Option<usize>,
-    #[serde(default)] pub rootkit_total_min: Option<usize>,
-    #[serde(default)] pub rootkit_description_contains: Vec<String>,
+    #[serde(default)]
+    pub rootkit_event_types: Vec<String>,
+    #[serde(default)]
+    pub rootkit_event_min_count: Option<usize>,
+    #[serde(default)]
+    pub rootkit_total_min: Option<usize>,
+    #[serde(default)]
+    pub rootkit_description_contains: Vec<String>,
 }
 
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
 pub struct BehaviorRule {
     pub name: String,
-    #[serde(default)] pub description: String,
-    #[serde(default)] pub browsed_paths: Vec<String>,
-    #[serde(default)] pub accessed_paths: Vec<String>,
-    #[serde(default)] pub staging_paths: Vec<String>,
-    #[serde(default = "default_zero")] pub multi_access_threshold: usize,
-    #[serde(default)] pub require_internet: bool,
-    #[serde(default)] pub monitored_apis: Vec<String>,
-    #[serde(default)] pub file_actions: Vec<String>,
-    #[serde(default)] pub file_extensions: Vec<String>,
-    #[serde(default)] pub suspicious_parents: Vec<String>,
-    #[serde(default)] pub terminated_processes: Vec<String>,
-    #[serde(default)] pub detect_self_termination: bool,
-    #[serde(default)] pub entropy_threshold: f64,
-    #[serde(default)] pub conditions_percentage: f32,
-    #[serde(default)] pub named_conditions: HashMap<String, NamedConditionGroup>,
-    #[serde(default)] pub detection_logic: Option<DetectionCondition>,
-    #[serde(default = "default_true")] pub enabled: bool,
-    #[serde(default)] pub stages: Vec<AttackStage>,
-    #[serde(default)] pub mapping: Option<RuleMapping>,
-    #[serde(default)] pub min_stages_satisfied: usize,
-    #[serde(default = "default_severity")] pub severity: u8,
-    #[serde(default)] pub author: Option<String>,
-    #[serde(default)] pub date: Option<String>,
-    #[serde(default)] pub status: RuleStatus,
-    #[serde(default)] pub tags: Vec<String>,
-    #[serde(default)] pub level: DetectionLevel,
-    #[serde(default)] pub mitre_attack: Vec<String>,
-    #[serde(default)] pub logsource: Option<LogSource>,
-    #[serde(default)] pub response: ResponseAction,
-    #[serde(default)] pub allowlisted_apps: Vec<AllowlistEntry>,
-    #[serde(default)] pub proximity_log_threshold: f32,
-    #[serde(default)] pub record_on_start: Vec<String>,
-    #[serde(default)] pub debug: bool,
-    #[serde(default)] pub memory_scan_config: Option<MemoryScanConfig>,
-    #[serde(default)] pub protected_paths: ProtectedPaths,
-    
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub browsed_paths: Vec<String>,
+    #[serde(default)]
+    pub accessed_paths: Vec<String>,
+    #[serde(default)]
+    pub staging_paths: Vec<String>,
+    #[serde(default = "default_zero")]
+    pub multi_access_threshold: usize,
+    #[serde(default)]
+    pub require_internet: bool,
+    #[serde(default)]
+    pub monitored_apis: Vec<String>,
+    #[serde(default)]
+    pub file_actions: Vec<String>,
+    #[serde(default)]
+    pub file_extensions: Vec<String>,
+    #[serde(default)]
+    pub suspicious_parents: Vec<String>,
+    #[serde(default)]
+    pub terminated_processes: Vec<String>,
+    #[serde(default)]
+    pub detect_self_termination: bool,
+    #[serde(default)]
+    pub entropy_threshold: f64,
+    #[serde(default)]
+    pub conditions_percentage: f32,
+    #[serde(default)]
+    pub named_conditions: HashMap<String, NamedConditionGroup>,
+    #[serde(default)]
+    pub detection_logic: Option<DetectionCondition>,
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default)]
+    pub stages: Vec<AttackStage>,
+    #[serde(default)]
+    pub mapping: Option<RuleMapping>,
+    #[serde(default)]
+    pub min_stages_satisfied: usize,
+    #[serde(default = "default_severity")]
+    pub severity: u8,
+    #[serde(default)]
+    pub author: Option<String>,
+    #[serde(default)]
+    pub date: Option<String>,
+    #[serde(default)]
+    pub status: RuleStatus,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    #[serde(default)]
+    pub level: DetectionLevel,
+    #[serde(default)]
+    pub mitre_attack: Vec<String>,
+    #[serde(default)]
+    pub logsource: Option<LogSource>,
+    #[serde(default)]
+    pub response: ResponseAction,
+    #[serde(default)]
+    pub allowlisted_apps: Vec<AllowlistEntry>,
+    #[serde(default)]
+    pub proximity_log_threshold: f32,
+    #[serde(default)]
+    pub record_on_start: Vec<String>,
+    #[serde(default)]
+    pub debug: bool,
+    #[serde(default)]
+    pub memory_scan_config: Option<MemoryScanConfig>,
+    #[serde(default)]
+    pub protected_paths: ProtectedPaths,
+
+    // Firewall SDK YAML compatibility fields
+    #[serde(default, rename = "protocol")]
+    pub sdk_protocol: Option<RuleProtocol>,
+    #[serde(default, rename = "action")]
+    pub sdk_action: Option<FirewallSdkRuleAction>,
+    #[serde(default, rename = "condition_logic")]
+    pub sdk_condition_logic: Option<FirewallSdkConditionLogic>,
+    #[serde(default, rename = "encoding")]
+    pub sdk_encoding: Option<ContentEncoding>,
+    #[serde(default, rename = "src_ip")]
+    pub sdk_src_ip: Option<IpMatcher>,
+    #[serde(default, rename = "dst_ip")]
+    pub sdk_dst_ip: Option<IpMatcher>,
+    #[serde(default, rename = "src_port")]
+    pub sdk_src_port: Option<PortMatcher>,
+    #[serde(default, rename = "dst_port")]
+    pub sdk_dst_port: Option<PortMatcher>,
+    #[serde(default, rename = "domain")]
+    pub sdk_domain: Option<DomainMatcher>,
+    #[serde(default, rename = "url")]
+    pub sdk_url: Option<UrlMatcher>,
+    #[serde(default, rename = "file_type")]
+    pub sdk_file_type: Option<FirewallSdkFileTypeMatcher>,
+    #[serde(default, rename = "regex")]
+    pub sdk_regex: Option<RegexMatcher>,
+    #[serde(default, rename = "localhost_type")]
+    pub sdk_localhost_type: Option<LocalhostType>,
+    #[serde(default, rename = "routine")]
+    pub sdk_routine: Option<TrafficRoutine>,
+    #[serde(default, rename = "conditions")]
+    pub sdk_conditions: Vec<FirewallSdkCondition>,
+    #[serde(default, rename = "change_data")]
+    pub sdk_change_data: Option<String>,
+    #[serde(default, rename = "change_request_body")]
+    pub sdk_change_request_body: Option<String>,
+    #[serde(default, rename = "change_response_body")]
+    pub sdk_change_response_body: Option<String>,
+    #[serde(default, rename = "http_request_body")]
+    pub sdk_http_request_body: Option<Vec<String>>,
+    #[serde(default, rename = "http_response_body")]
+    pub sdk_http_response_body: Option<Vec<String>>,
+    #[serde(default, rename = "use_regex_replacement")]
+    pub sdk_use_regex_replacement: bool,
+    #[serde(default, rename = "search_pattern")]
+    pub sdk_search_pattern: Option<String>,
+    #[serde(default, rename = "json_match")]
+    pub sdk_json_match: Option<JsonMatcher>,
+
     // Integrated high-perf network matcher triggers
-    #[serde(default)] pub http_request_body_patterns: Vec<String>,
-    #[serde(default)] pub http_response_body_patterns: Vec<String>,
-    #[serde(default)] pub private_rules: Option<YamlValue>,
-    #[serde(default)] pub is_private: bool,
+    #[serde(default)]
+    pub http_request_body_patterns: Vec<String>,
+    #[serde(default)]
+    pub http_response_body_patterns: Vec<String>,
+    #[serde(default)]
+    pub private_rules: Option<YamlValue>,
+    #[serde(default)]
+    pub is_private: bool,
 }
 
 impl BehaviorRule {
+    fn has_firewall_sdk_compat_fields(&self) -> bool {
+        self.sdk_protocol.is_some()
+            || self.sdk_action.is_some()
+            || self.sdk_condition_logic.is_some()
+            || self.sdk_encoding.is_some()
+            || self.sdk_src_ip.is_some()
+            || self.sdk_dst_ip.is_some()
+            || self.sdk_src_port.is_some()
+            || self.sdk_dst_port.is_some()
+            || self.sdk_domain.is_some()
+            || self.sdk_url.is_some()
+            || self.sdk_file_type.is_some()
+            || self.sdk_regex.is_some()
+            || self.sdk_localhost_type.is_some()
+            || self.sdk_routine.is_some()
+            || !self.sdk_conditions.is_empty()
+            || self.sdk_change_data.is_some()
+            || self.sdk_change_request_body.is_some()
+            || self.sdk_change_response_body.is_some()
+            || self
+                .sdk_http_request_body
+                .as_ref()
+                .is_some_and(|patterns| !patterns.is_empty())
+            || self
+                .sdk_http_response_body
+                .as_ref()
+                .is_some_and(|patterns| !patterns.is_empty())
+            || self.sdk_use_regex_replacement
+            || self.sdk_search_pattern.is_some()
+            || self.sdk_json_match.is_some()
+    }
+
+    fn firewall_sdk_condition_logic(&self) -> FirewallSdkConditionLogic {
+        self.sdk_condition_logic.clone().unwrap_or_default()
+    }
+
+    fn firewall_sdk_encoding(&self) -> ContentEncoding {
+        self.sdk_encoding.clone().unwrap_or_default()
+    }
+
+    fn matches_firewall_sdk_packet(
+        &self,
+        cache: &Arc<RwLock<HashMap<String, Regex>>>,
+        packet: &PacketInfo,
+        payload: &[u8],
+    ) -> bool {
+        if !self.has_firewall_sdk_compat_fields() {
+            return false;
+        }
+
+        let raw_payload_candidates = packet_payload_candidates(packet, payload);
+        let decoded_payload_candidates =
+            decoded_packet_payload_candidates(packet, payload, &self.firewall_sdk_encoding());
+        let mut checks = vec![rule_protocol_matches(
+            &self.sdk_protocol.clone().unwrap_or_default(),
+            packet,
+        )];
+
+        if let Some(matcher) = &self.sdk_src_ip {
+            checks.push(matcher.matches(packet.src_ip));
+        }
+        if let Some(matcher) = &self.sdk_dst_ip {
+            checks.push(matcher.matches(packet.dst_ip));
+        }
+        if let Some(matcher) = &self.sdk_src_port {
+            checks.push(matcher.matches(packet.src_port));
+        }
+        if let Some(matcher) = &self.sdk_dst_port {
+            checks.push(matcher.matches(packet.dst_port));
+        }
+        if let Some(matcher) = &self.sdk_domain {
+            checks.push(matcher.matches(packet.hostname.as_deref()));
+        }
+        if let Some(matcher) = &self.sdk_url {
+            checks.push(matcher.matches(packet.full_url.as_deref()));
+        }
+        if let Some(matcher) = &self.sdk_file_type {
+            checks.push(matcher.matches(packet.detected_file_type.as_deref()));
+        }
+        if let Some(matcher) = &self.sdk_regex {
+            checks.push(
+                decoded_payload_candidates
+                    .iter()
+                    .any(|candidate| matcher.matches(candidate)),
+            );
+        }
+        if let Some(localhost_type) = &self.sdk_localhost_type {
+            checks.push(if packet.outbound {
+                localhost_type.matches(packet.dst_ip)
+            } else {
+                localhost_type.matches(packet.src_ip)
+            });
+        }
+        if let Some(routine) = &self.sdk_routine {
+            checks.push(routine.matches(packet));
+        }
+        for condition in &self.sdk_conditions {
+            checks.push(
+                decoded_payload_candidates
+                    .iter()
+                    .any(|candidate| condition.matches_packet(cache, packet, candidate)),
+            );
+        }
+        if self.entropy_threshold > 0.0 {
+            checks.push(packet.payload_entropy.unwrap_or(0.0) >= self.entropy_threshold);
+        }
+        if let Some(patterns) = &self.sdk_http_request_body
+            && !patterns.is_empty()
+        {
+            let body = packet.http_request_body.as_deref().unwrap_or("");
+            checks.push(patterns.iter().any(|pattern| body.contains(pattern)));
+        }
+        if let Some(patterns) = &self.sdk_http_response_body
+            && !patterns.is_empty()
+        {
+            let body = packet.http_response_body.as_deref().unwrap_or("");
+            checks.push(patterns.iter().any(|pattern| body.contains(pattern)));
+        }
+        if let Some(matcher) = &self.sdk_json_match {
+            checks.push(
+                raw_payload_candidates
+                    .iter()
+                    .any(|candidate| matcher.matches(candidate)),
+            );
+        }
+
+        match self.firewall_sdk_condition_logic() {
+            FirewallSdkConditionLogic::And => checks.into_iter().all(|matched| matched),
+            FirewallSdkConditionLogic::Or => checks.into_iter().any(|matched| matched),
+        }
+    }
+
+    fn normalize_firewall_sdk_compat(&mut self) {
+        if !self.has_firewall_sdk_compat_fields() {
+            return;
+        }
+
+        if let Some(patterns) = &self.sdk_http_request_body {
+            for pattern in patterns {
+                if !self.http_request_body_patterns.contains(pattern) {
+                    self.http_request_body_patterns.push(pattern.clone());
+                }
+            }
+        }
+        if let Some(patterns) = &self.sdk_http_response_body {
+            for pattern in patterns {
+                if !self.http_response_body_patterns.contains(pattern) {
+                    self.http_response_body_patterns.push(pattern.clone());
+                }
+            }
+        }
+
+        match self.sdk_action.clone().unwrap_or_default() {
+            FirewallSdkRuleAction::TrafficAttack => {
+                self.response.traffic_attack = true;
+            }
+            FirewallSdkRuleAction::Block => {
+                self.response.status_access_denied = true;
+            }
+            FirewallSdkRuleAction::Allow => {}
+            FirewallSdkRuleAction::Ask => {
+                self.response.ask_user = true;
+            }
+            FirewallSdkRuleAction::Terminate => {
+                self.response.terminate_process = true;
+            }
+            FirewallSdkRuleAction::Quarantine => {
+                self.response.quarantine = true;
+            }
+            FirewallSdkRuleAction::KillAndRemove => {
+                self.response.kill_and_remove = true;
+            }
+            FirewallSdkRuleAction::ChangePacket => {
+                self.response.change_packet = true;
+                if self.response.change_data.is_none() {
+                    self.response.change_data = self.sdk_change_data.clone();
+                }
+            }
+            FirewallSdkRuleAction::SolvePacket => {
+                self.response.solve_packet = true;
+            }
+            FirewallSdkRuleAction::ChangeRequestBody => {
+                if self.response.change_request_body.is_none() {
+                    self.response.change_request_body = self.sdk_change_request_body.clone();
+                }
+                self.response.use_regex_replacement |= self.sdk_use_regex_replacement;
+                if self.response.search_pattern.is_none() {
+                    self.response.search_pattern = self.sdk_search_pattern.clone();
+                }
+            }
+            FirewallSdkRuleAction::ChangeResponseBody => {
+                if self.response.change_response_body.is_none() {
+                    self.response.change_response_body = self.sdk_change_response_body.clone();
+                }
+                self.response.use_regex_replacement |= self.sdk_use_regex_replacement;
+                if self.response.search_pattern.is_none() {
+                    self.response.search_pattern = self.sdk_search_pattern.clone();
+                }
+            }
+        }
+    }
+
     pub fn apply_replacement(&self, body: &str) -> String {
         if !self.response.use_regex_replacement {
             if self.response.change_request_body.is_some() {
-                return self.response.change_request_body.clone().unwrap_or_else(|| body.to_string());
+                return self
+                    .response
+                    .change_request_body
+                    .clone()
+                    .unwrap_or_else(|| body.to_string());
             } else if self.response.change_response_body.is_some() {
-                return self.response.change_response_body.clone().unwrap_or_else(|| body.to_string());
+                return self
+                    .response
+                    .change_response_body
+                    .clone()
+                    .unwrap_or_else(|| body.to_string());
             }
             return body.to_string();
         }
 
-        let Some(search) = &self.response.search_pattern else { return body.to_string(); };
-        let replace_with = self.response.change_request_body.as_deref()
+        let Some(search) = &self.response.search_pattern else {
+            return body.to_string();
+        };
+        let replace_with = self
+            .response
+            .change_request_body
+            .as_deref()
             .or(self.response.change_response_body.as_deref())
             .unwrap_or("");
 
@@ -943,28 +2008,81 @@ impl BehaviorRule {
         }
     }
 
-    pub fn matches_packet(&self, cache: &Arc<RwLock<HashMap<String, Regex>>>, packet: &PacketInfo, payload: &[u8]) -> bool {
-        if !self.enabled { return false; }
-        
+    pub fn matches_packet(
+        &self,
+        cache: &Arc<RwLock<HashMap<String, Regex>>>,
+        packet: &PacketInfo,
+        payload: &[u8],
+    ) -> bool {
+        if !self.enabled {
+            return false;
+        }
+
+        if self.matches_firewall_sdk_packet(cache, packet, payload) {
+            return true;
+        }
+
+        let payload_candidates = packet_payload_candidates(packet, payload);
+
         // Match top-level HTTP body patterns if MITM is active
         for pattern in &self.http_request_body_patterns {
-            if matches_pattern(cache, pattern, &String::from_utf8_lossy(payload)) { return true; }
+            if packet
+                .http_request_body
+                .as_deref()
+                .is_some_and(|body| matches_pattern(cache, pattern, body))
+                || payload_candidates.iter().any(|candidate| {
+                    matches_pattern(cache, pattern, &String::from_utf8_lossy(candidate))
+                })
+            {
+                return true;
+            }
+        }
+
+        for pattern in &self.http_response_body_patterns {
+            if packet
+                .http_response_body
+                .as_deref()
+                .is_some_and(|body| matches_pattern(cache, pattern, body))
+                || payload_candidates.iter().any(|candidate| {
+                    matches_pattern(cache, pattern, &String::from_utf8_lossy(candidate))
+                })
+            {
+                return true;
+            }
         }
 
         // Match against named conditions that contain network rules
         for cond_group in self.named_conditions.values() {
+            if let Some(matcher) = &cond_group.json_match {
+                if payload_candidates
+                    .iter()
+                    .any(|candidate| matcher.matches(candidate))
+                {
+                    return true;
+                }
+            }
+
             for net_cond in &cond_group.network_rules {
                 if net_cond.matches_packet(cache, packet, payload) {
                     return true;
                 }
             }
-            
+
             // Match classic domain/IP indicators in named conditions
             for domain in &cond_group.network_domains {
-                if packet.hostname.as_ref().map_or(false, |h| h.contains(domain)) { return true; }
+                if packet
+                    .hostname
+                    .as_ref()
+                    .map_or(false, |h| h.contains(domain))
+                {
+                    return true;
+                }
             }
             for ip in &cond_group.network_ips {
-                if packet.dst_ip.to_string().contains(ip) || packet.src_ip.to_string().contains(ip) { return true; }
+                if packet.dst_ip.to_string().contains(ip) || packet.src_ip.to_string().contains(ip)
+                {
+                    return true;
+                }
             }
         }
 
@@ -991,21 +2109,37 @@ impl BehaviorRule {
         let expand_network_rules = |rules: &mut Vec<NetworkRuleCondition>| {
             for r in rules.iter_mut() {
                 match r {
+                    NetworkRuleCondition::And(conds) | NetworkRuleCondition::Or(conds) => {
+                        for cond in conds {
+                            match cond {
+                                NetworkRuleCondition::SrcIp(m) | NetworkRuleCondition::DstIp(m) => {
+                                    expand_ip_matcher(m)
+                                }
+                                NetworkRuleCondition::Domain(m) => expand_domain_matcher(m),
+                                NetworkRuleCondition::Url(m) => expand_url_matcher(m),
+                                NetworkRuleCondition::Regex(m) => expand_regex_matcher(m),
+                                NetworkRuleCondition::ContentMatch(m) => {
+                                    expand_content_match_data(m)
+                                }
+                                NetworkRuleCondition::Routine(routine) => {
+                                    expand_traffic_routine(routine)
+                                }
+                                NetworkRuleCondition::JsonMatch(matcher) => {
+                                    expand_json_matcher(matcher)
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
                     NetworkRuleCondition::SrcIp(m) | NetworkRuleCondition::DstIp(m) => {
-                        for p in m.addresses.iter_mut() { *p = expand_environment_variables(p); }
+                        expand_ip_matcher(m)
                     }
-                    NetworkRuleCondition::Domain(m) => {
-                        for p in m.domains.iter_mut() { *p = expand_environment_variables(p); }
-                    }
-                    NetworkRuleCondition::Url(m) => {
-                        for p in m.patterns.iter_mut() { *p = expand_environment_variables(p); }
-                    }
-                    NetworkRuleCondition::Regex(m) => {
-                        m.pattern = expand_environment_variables(&m.pattern);
-                    }
-                    NetworkRuleCondition::ContentMatch(m) => {
-                        m.pattern = expand_environment_variables(&m.pattern);
-                    }
+                    NetworkRuleCondition::Domain(m) => expand_domain_matcher(m),
+                    NetworkRuleCondition::Url(m) => expand_url_matcher(m),
+                    NetworkRuleCondition::Regex(m) => expand_regex_matcher(m),
+                    NetworkRuleCondition::ContentMatch(m) => expand_content_match_data(m),
+                    NetworkRuleCondition::Routine(routine) => expand_traffic_routine(routine),
+                    NetworkRuleCondition::JsonMatch(matcher) => expand_json_matcher(matcher),
                     _ => {}
                 }
             }
@@ -1023,7 +2157,9 @@ impl BehaviorRule {
         for entry in &mut self.allowlisted_apps {
             match entry {
                 AllowlistEntry::Simple(s) => *s = expand_environment_variables(s),
-                AllowlistEntry::Complex { pattern, signers, .. } => {
+                AllowlistEntry::Complex {
+                    pattern, signers, ..
+                } => {
                     *pattern = expand_environment_variables(pattern);
                     expand_vec(signers);
                 }
@@ -1066,27 +2202,51 @@ impl BehaviorRule {
         for stage in &mut self.stages {
             for condition in &mut stage.conditions {
                 match condition {
-                    RuleCondition::File { path_pattern, .. } => *path_pattern = expand_environment_variables(path_pattern),
-                    RuleCondition::Registry { key_pattern, value_name, expected_data, .. } => {
+                    RuleCondition::File { path_pattern, .. } => {
+                        *path_pattern = expand_environment_variables(path_pattern)
+                    }
+                    RuleCondition::Registry {
+                        key_pattern,
+                        value_name,
+                        expected_data,
+                        ..
+                    } => {
                         *key_pattern = expand_environment_variables(key_pattern);
                         expand_opt_string(value_name);
                         expand_opt_string(expected_data);
-                    },
-                    RuleCondition::Process { pattern, .. } => *pattern = expand_environment_variables(pattern),
-                    RuleCondition::Service { name_pattern, .. } => *name_pattern = expand_environment_variables(name_pattern),
+                    }
+                    RuleCondition::Process { pattern, .. } => {
+                        *pattern = expand_environment_variables(pattern)
+                    }
+                    RuleCondition::Service { name_pattern, .. } => {
+                        *name_pattern = expand_environment_variables(name_pattern)
+                    }
                     RuleCondition::Network { dest_pattern, .. } => expand_opt_string(dest_pattern),
-                    RuleCondition::Api { name_pattern, module_pattern } => {
+                    RuleCondition::Api {
+                        name_pattern,
+                        module_pattern,
+                    } => {
                         *name_pattern = expand_environment_variables(name_pattern);
                         *module_pattern = expand_environment_variables(module_pattern);
-                    },
-                    RuleCondition::OperationCount { path_pattern, .. } => expand_opt_string(path_pattern),
+                    }
+                    RuleCondition::OperationCount { path_pattern, .. } => {
+                        expand_opt_string(path_pattern)
+                    }
                     RuleCondition::ExtensionPattern { patterns, .. } => expand_vec(patterns),
-                    RuleCondition::Signature { signer_pattern, .. } => expand_opt_string(signer_pattern),
-                    RuleCondition::ProcessAncestry { ancestor_pattern, .. } => *ancestor_pattern = expand_environment_variables(ancestor_pattern),
-                    RuleCondition::CommandLineMatch { patterns, .. } => expand_cmd_patterns(patterns),
+                    RuleCondition::Signature { signer_pattern, .. } => {
+                        expand_opt_string(signer_pattern)
+                    }
+                    RuleCondition::ProcessAncestry {
+                        ancestor_pattern, ..
+                    } => *ancestor_pattern = expand_environment_variables(ancestor_pattern),
+                    RuleCondition::CommandLineMatch { patterns, .. } => {
+                        expand_cmd_patterns(patterns)
+                    }
                     RuleCondition::SensitivePathAccess { patterns, .. } => expand_vec(patterns),
                     RuleCondition::ArchiveCreation { extensions, .. } => expand_vec(extensions),
-                    RuleCondition::DataExfiltrationPattern { source_patterns, .. } => expand_vec(source_patterns),
+                    RuleCondition::DataExfiltrationPattern {
+                        source_patterns, ..
+                    } => expand_vec(source_patterns),
                     RuleCondition::MemoryScan { patterns, .. } => expand_vec(patterns),
                     _ => {}
                 }
@@ -1096,5 +2256,170 @@ impl BehaviorRule {
         if let Some(msc) = &mut self.memory_scan_config {
             expand_vec(&mut msc.target_processes);
         }
+
+        if let Some(matcher) = &mut self.sdk_src_ip {
+            expand_ip_matcher(matcher);
+        }
+        if let Some(matcher) = &mut self.sdk_dst_ip {
+            expand_ip_matcher(matcher);
+        }
+        if let Some(matcher) = &mut self.sdk_domain {
+            expand_domain_matcher(matcher);
+        }
+        if let Some(matcher) = &mut self.sdk_url {
+            expand_url_matcher(matcher);
+        }
+        if let Some(matcher) = &mut self.sdk_regex {
+            expand_regex_matcher(matcher);
+        }
+        if let Some(routine) = &mut self.sdk_routine {
+            expand_traffic_routine(routine);
+        }
+        if let Some(matcher) = &mut self.sdk_json_match {
+            expand_json_matcher(matcher);
+        }
+        for condition in &mut self.sdk_conditions {
+            match condition {
+                FirewallSdkCondition::And(conds) | FirewallSdkCondition::Or(conds) => {
+                    for cond in conds {
+                        match cond {
+                            FirewallSdkCondition::SrcIp(m) | FirewallSdkCondition::DstIp(m) => {
+                                expand_ip_matcher(m)
+                            }
+                            FirewallSdkCondition::Domain(m) => expand_domain_matcher(m),
+                            FirewallSdkCondition::Url(m) => expand_url_matcher(m),
+                            FirewallSdkCondition::Regex(m) => expand_regex_matcher(m),
+                            FirewallSdkCondition::ContentMatch(m) => expand_content_match_data(m),
+                            FirewallSdkCondition::Routine(routine) => {
+                                expand_traffic_routine(routine)
+                            }
+                            FirewallSdkCondition::JsonMatch(matcher) => {
+                                expand_json_matcher(matcher)
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                FirewallSdkCondition::SrcIp(m) | FirewallSdkCondition::DstIp(m) => {
+                    expand_ip_matcher(m)
+                }
+                FirewallSdkCondition::Domain(m) => expand_domain_matcher(m),
+                FirewallSdkCondition::Url(m) => expand_url_matcher(m),
+                FirewallSdkCondition::Regex(m) => expand_regex_matcher(m),
+                FirewallSdkCondition::ContentMatch(m) => expand_content_match_data(m),
+                FirewallSdkCondition::Routine(routine) => expand_traffic_routine(routine),
+                FirewallSdkCondition::JsonMatch(matcher) => expand_json_matcher(matcher),
+                _ => {}
+            }
+        }
+        expand_opt_string(&mut self.sdk_change_data);
+        expand_opt_string(&mut self.sdk_change_request_body);
+        expand_opt_string(&mut self.sdk_change_response_body);
+        expand_opt_string(&mut self.sdk_search_pattern);
+        if let Some(patterns) = &mut self.sdk_http_request_body {
+            expand_vec(patterns);
+        }
+        if let Some(patterns) = &mut self.sdk_http_response_body {
+            expand_vec(patterns);
+        }
+        self.normalize_firewall_sdk_compat();
+        self.response.normalize_prompt_defaults();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_packet() -> PacketInfo {
+        PacketInfo {
+            timestamp: 0,
+            protocol: Protocol::TCP,
+            src_ip: "10.0.0.10".parse().unwrap(),
+            dst_ip: "149.154.167.220".parse().unwrap(),
+            src_port: 49152,
+            dst_port: 443,
+            size: 256,
+            outbound: true,
+            process_id: 4242,
+            dns_query: None,
+            hostname: Some("api.telegram.org".to_string()),
+            full_url: Some("https://api.telegram.org/bot123/sendMessage".to_string()),
+            tls_handshake: true,
+            http_method: Some("POST".to_string()),
+            http_path: Some("/bot123/sendMessage".to_string()),
+            http_user_agent: Some("UnitTest".to_string()),
+            http_content_type: Some("application/json".to_string()),
+            http_referer: None,
+            payload_entropy: Some(6.2),
+            payload_sample: None,
+            payload_urls: Vec::new(),
+            payload_domains: Vec::new(),
+            image_path: "C:\\test.exe".to_string(),
+            detected_file_type: None,
+            http_request_body: Some("{\"chat_id\":\"12345\",\"text\":\"hello\"}".to_string()),
+            http_response_body: None,
+            domain: "api.telegram.org".to_string(),
+            url: "https://api.telegram.org/bot123/sendMessage".to_string(),
+        }
+    }
+
+    #[test]
+    fn firewall_sdk_ask_rule_maps_to_owlyshield_response() {
+        let yaml = r#"
+name: Block Telegram Bots
+description: Prevent Telegram bot exfiltration
+enabled: true
+protocol: https
+action: ask
+condition_logic: and
+domain:
+  domains:
+    - api.telegram.org
+  case_insensitive: true
+url:
+  patterns:
+    - "*/bot*/sendMessage*"
+json_match:
+  key: chat_id
+  value: ""
+"#;
+
+        let mut rule: BehaviorRule = serde_yaml::from_str(yaml).unwrap();
+        rule.finalize_rich_fields();
+
+        assert!(rule.response.ask_user);
+        assert!(rule.response.deny_while_ask);
+        assert!(rule.response.status_access_denied);
+        assert!(rule.matches_packet(&Arc::new(RwLock::new(HashMap::new())), &test_packet(), &[],));
+    }
+
+    #[test]
+    fn firewall_sdk_regex_uses_top_level_encoding() {
+        let yaml = r#"
+name: Detect Encoded PowerShell
+enabled: true
+protocol: http
+action: traffic_attack
+encoding: base64
+regex:
+  pattern: "powershell.*-enc"
+  case_insensitive: true
+"#;
+
+        let mut rule: BehaviorRule = serde_yaml::from_str(yaml).unwrap();
+        rule.finalize_rich_fields();
+
+        let mut packet = test_packet();
+        packet.dst_port = 80;
+        packet.tls_handshake = false;
+        packet.full_url = Some("http://example.test/upload".to_string());
+        packet.hostname = Some("example.test".to_string());
+        packet.http_request_body = None;
+        packet.payload_sample =
+            Some(base64::engine::general_purpose::STANDARD.encode("powershell -enc test"));
+
+        assert!(rule.response.traffic_attack);
+        assert!(rule.matches_packet(&Arc::new(RwLock::new(HashMap::new())), &packet, &[],));
     }
 }

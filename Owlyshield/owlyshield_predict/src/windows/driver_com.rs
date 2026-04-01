@@ -6,30 +6,30 @@ use std::ptr;
 use wchar::wchar_t;
 use widestring::U16CString;
 
-use windows::core::{Error, PCWSTR};
 use windows::Win32::Foundation::{CloseHandle, HANDLE};
 use windows::Win32::Storage::InstallableFileSystems::{
     FilterConnectCommunicationPort, FilterSendMessage,
 };
+use windows::core::{Error, PCWSTR};
 
+use std::collections::HashMap;
 use std::os::raw::{c_uchar, c_ulong, c_ulonglong, c_ushort};
 use std::path::{Path, PathBuf};
-use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::SystemTime;
 
-use windows::Win32::Storage::FileSystem::FILE_ID_INFO;
 use std::os::windows::ffi::OsStringExt;
 use win_pe_inspection::{inspect_ntdll_syscalls, inspect_win32u_syscalls};
+use windows::Win32::Storage::FileSystem::FILE_ID_INFO;
 
 use crate::shared_def::{
     DriverComMessageType,
     FileId,
     IOMessage,
     IrpMajorOp,
+    KernelEventInfo, // AMENDED: Fix typo
     RuntimeFeatures,
     known_raw_event_name,
-    KernelEventInfo, // AMENDED: Fix typo
 };
 use crate::utils::resolve_process_path;
 
@@ -191,7 +191,9 @@ impl Driver {
                 Some(ptr::null_mut()),
             )?;
         }
-        let res = Driver { handle: Arc::new(Mutex::new(handle)) };
+        let res = Driver {
+            handle: Arc::new(Mutex::new(handle)),
+        };
         Ok(res)
     }
 
@@ -263,7 +265,10 @@ impl Driver {
                 );
 
                 if let Err(e) = status {
-                    crate::logging::Logging::error(&format!("FilterSendMessage failed: 0x{:X}", e.code().0));
+                    crate::logging::Logging::error(&format!(
+                        "FilterSendMessage failed: 0x{:X}",
+                        e.code().0
+                    ));
                     return Err(e);
                 }
             }
@@ -275,7 +280,8 @@ impl Driver {
                 reply_irp = ptr::read_unaligned(vecnew.as_ptr() as *const ReplyIrp);
                 // FIX: The kernel cannot set a valid user-mode pointer for `data`.
                 // We must set it ourselves to point to the memory immediately following the struct.
-                reply_irp.data = vecnew.as_ptr().add(mem::size_of::<ReplyIrp>()) as *const CDriverMsg;
+                reply_irp.data =
+                    vecnew.as_ptr().add(mem::size_of::<ReplyIrp>()) as *const CDriverMsg;
             }
             return Ok(Some(reply_irp));
         }
@@ -350,7 +356,11 @@ impl Driver {
         Ok(())
     }
 
-    pub fn kill_and_quarantine_driver(&self, gid: c_ulonglong, path: &Path) -> Result<windows::core::HRESULT, Error> {
+    pub fn kill_and_quarantine_driver(
+        &self,
+        gid: c_ulonglong,
+        path: &Path,
+    ) -> Result<windows::core::HRESULT, Error> {
         let (real_gid, real_pid) = if gid & 0x80000000_00000000 != 0 {
             (0, (gid & !0x80000000_00000000) as c_ulong)
         } else {
@@ -385,7 +395,11 @@ impl Driver {
         Ok(hres)
     }
 
-    pub fn kill_and_remove_driver(&self, gid: c_ulonglong, path: &Path) -> Result<windows::core::HRESULT, Error> {
+    pub fn kill_and_remove_driver(
+        &self,
+        gid: c_ulonglong,
+        path: &Path,
+    ) -> Result<windows::core::HRESULT, Error> {
         let (real_gid, real_pid) = if gid & 0x80000000_00000000 != 0 {
             (0, (gid & !0x80000000_00000000) as c_ulong)
         } else {
@@ -424,11 +438,22 @@ impl Driver {
     /// * `module`: DLL name (e.g., "user32.dll")
     /// * `function`: Function name (e.g., "MessageBoxW")
     /// * `event_id`: Custom event ID to report when hooked (driver default is 0x6000 when 0)
-    pub fn add_hook_target(&self, module: &str, function: &str, event_id: u32) -> Result<(), Error> {
+    pub fn add_hook_target(
+        &self,
+        module: &str,
+        function: &str,
+        event_id: u32,
+    ) -> Result<(), Error> {
         self.add_hook_target_for_pid(0, module, function, event_id)
     }
 
-    pub fn add_hook_target_for_pid(&self, pid: u32, module: &str, function: &str, event_id: u32) -> Result<(), Error> {
+    pub fn add_hook_target_for_pid(
+        &self,
+        pid: u32,
+        module: &str,
+        function: &str,
+        event_id: u32,
+    ) -> Result<(), Error> {
         let path = Driver::string_to_commessage_buffer(module);
         let quarantine_path = Driver::string_to_commessage_buffer(function);
         self.with_reconnect_retry("add_hook_target_for_pid", |handle| {
@@ -537,7 +562,6 @@ impl Driver {
         Ok(hres)
     }
 
-
     fn string_to_commessage_buffer(bufstr: &str) -> BufPath {
         let temp = U16CString::from_str(bufstr).unwrap();
         let mut buf: BufPath = [0; 520];
@@ -595,24 +619,24 @@ pub struct CKernelEventInfo {
     pub timestamp: c_ulonglong,
     pub source_process_id: c_ulong,
     pub target_process_id: c_ulong,
-    
+
     pub memory_address: *const c_void,
     pub memory_size: usize,
     pub memory_protection: c_ulong,
-    pub is_executable_memory: c_uchar,  // BOOLEAN in C
-    
-    pub thread_handle: *const c_void,  // HANDLE
+    pub is_executable_memory: c_uchar, // BOOLEAN in C
+
+    pub thread_handle: *const c_void, // HANDLE
     pub thread_start_routine: *const c_void,
 
     pub raw_argument1: c_ulonglong, // ULONG_PTR in SharedDefs.h (x64 build)
     pub raw_argument2: c_ulonglong, // ULONG_PTR in SharedDefs.h (x64 build)
     pub raw_argument3: c_ulonglong, // ULONG_PTR in SharedDefs.h (x64 build)
     pub raw_argument4: c_ulonglong, // ULONG_PTR in SharedDefs.h (x64 build)
-    
-    pub object_name: [wchar_t; 520],  // MAX_FILE_NAME_LENGTH from SharedDefs.h
-    
+
+    pub object_name: [wchar_t; 520], // MAX_FILE_NAME_LENGTH from SharedDefs.h
+
     pub access_mask: c_ulong,
-    pub operation_status: i32,  // NTSTATUS
+    pub operation_status: i32, // NTSTATUS
 }
 
 /// The C object returned by the minifilter, available through [`ReplyIrp`].
@@ -660,10 +684,10 @@ impl UnicodeString {
         if self.buffer.is_null() || self.length == 0 {
             return String::new();
         }
-        
+
         // UNICODE_STRING.Length is in bytes. wchar_t is 2 bytes.
         let num_elements = self.length as usize / 2;
-        
+
         // Safety check: ensure the pointer is aligned for wchar_t (2 bytes)
         if !(self.buffer as usize).is_multiple_of(2) {
             return String::new();
@@ -672,7 +696,10 @@ impl UnicodeString {
         unsafe {
             let str_slice = std::slice::from_raw_parts(self.buffer, num_elements);
             // Find the first null terminator or use the full length
-            let effective_len = str_slice.iter().position(|&c| c == 0).unwrap_or(num_elements);
+            let effective_len = str_slice
+                .iter()
+                .position(|&c| c == 0)
+                .unwrap_or(num_elements);
             String::from_utf16_lossy(&str_slice[..effective_len])
         }
     }
@@ -680,16 +707,19 @@ impl UnicodeString {
 
 impl CKernelEventInfo {
     /// Convert C kernel event info to Rust KernelEventInfo
-    pub fn to_kernel_event_info(&self) -> KernelEventInfo { // AMENDED: Fix return type
+    pub fn to_kernel_event_info(&self) -> KernelEventInfo {
+        // AMENDED: Fix return type
         let raw_object_name = if self.object_name[0] != 0 {
             let len = self.object_name.iter().position(|&c| c == 0).unwrap_or(520);
             String::from_utf16_lossy(&self.object_name[..len])
         } else {
             String::new()
         };
-        let object_name = resolve_hypervisor_api_name(&raw_object_name, self.raw_argument1, self.event_type);
-        
-        KernelEventInfo { // AMENDED: Fix struct construction
+        let object_name =
+            resolve_hypervisor_api_name(&raw_object_name, self.raw_argument1, self.event_type);
+
+        KernelEventInfo {
+            // AMENDED: Fix struct construction
             event_type: self.event_type,
             timestamp: self.timestamp,
             source_process_id: self.source_process_id,
@@ -718,18 +748,18 @@ impl ReplyIrp {
         unsafe {
             let mut current_ptr = self.data as *mut u8;
             let end_ptr = current_ptr.add(self.data_size as usize);
-            
+
             for _ in 0..self.num_ops {
                 if current_ptr.is_null() || current_ptr >= end_ptr {
                     break;
                 }
                 let msg_ptr = current_ptr as *mut CDriverMsg;
-                
+
                 // Safety check: ensure CDriverMsg fits
                 if current_ptr.add(mem::size_of::<CDriverMsg>()) > end_ptr {
                     break;
                 }
-                
+
                 let msg = &mut *msg_ptr;
 
                 // Always fixup buffer pointer to point to the appended data
@@ -747,12 +777,12 @@ impl ReplyIrp {
                 }
 
                 res.push(&*msg_ptr);
-                
+
                 let name_buffer_size = msg.filepath.length as usize;
                 // Align to 8 bytes to find the next CDriverMsg
                 let aligned_name_buffer_size = (name_buffer_size + 7) & !7;
                 let total_size = mem::size_of::<CDriverMsg>() + aligned_name_buffer_size;
-                
+
                 current_ptr = current_ptr.add(total_size);
             }
         }
@@ -763,7 +793,11 @@ impl ReplyIrp {
 impl IOMessage {
     pub fn from_driver_msg(c_drivermsg: &CDriverMsg) -> IOMessage {
         let command_line = if c_drivermsg.command_line[0] != 0 {
-            let len = c_drivermsg.command_line.iter().position(|&c| c == 0).unwrap_or(520);
+            let len = c_drivermsg
+                .command_line
+                .iter()
+                .position(|&c| c == 0)
+                .unwrap_or(520);
             String::from_utf16_lossy(&c_drivermsg.command_line[..len])
         } else {
             String::new()
@@ -787,7 +821,11 @@ impl IOMessage {
         }
 
         IOMessage {
-            extension: std::ffi::OsString::from_wide(c_drivermsg.extension.split(|&v| v == 0).next().unwrap()).to_string_lossy().into() ,//String::from_utf16_lossy(&c_drivermsg.extension),
+            extension: std::ffi::OsString::from_wide(
+                c_drivermsg.extension.split(|&v| v == 0).next().unwrap(),
+            )
+            .to_string_lossy()
+            .into(), //String::from_utf16_lossy(&c_drivermsg.extension),
             file_id_id: FileId::from(c_drivermsg.file_id.FileId.Identifier),
             mem_sized_used: c_drivermsg.mem_sized_used,
             entropy: c_drivermsg.entropy,
@@ -810,9 +848,7 @@ impl IOMessage {
                 exe_still_exists: true,
                 command_line,
             },
-            file_size: match PathBuf::from(&filepathstr)
-                .metadata()
-            {
+            file_size: match PathBuf::from(&filepathstr).metadata() {
                 Ok(f) => f.len() as i64,
                 Err(_) => -1,
             },

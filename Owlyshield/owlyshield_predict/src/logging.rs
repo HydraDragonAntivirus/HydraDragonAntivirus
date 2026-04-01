@@ -1,31 +1,31 @@
+use crate::config::ConfigReader;
+use crate::utils::LOG_TIME_FORMAT;
+use chrono::{DateTime, Local};
+use log::{debug, error, info, warn};
 use std::fs::OpenOptions;
 use std::io::prelude::*;
-use std::path::{Path, PathBuf};
-use std::time::SystemTime;
-use chrono::{DateTime, Local};
-use log::{error, warn, info, debug};
-use crate::utils::LOG_TIME_FORMAT;
-use crate::config::ConfigReader;
 #[cfg(target_os = "windows")]
 use std::os::windows::fs::OpenOptionsExt;
-#[cfg(target_os = "windows")]
-use windows::Win32::Storage::FileSystem::{FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE};
+use std::path::{Path, PathBuf};
 #[cfg(target_os = "windows")]
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::SystemTime;
+#[cfg(target_os = "windows")]
+use windows::Win32::Storage::FileSystem::{FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE};
 
 #[cfg(target_os = "windows")]
 static VERBOSE_LOGGING: AtomicBool = AtomicBool::new(false);
 
 #[derive(Copy, Clone)]
 enum Status {
-    Start,    // Program starting
-    Stop,     // Program stopping
-    Alert,    // Program detected a malware
-    Warning,  // Warning in program execution
-    Error,    // Error in program execution
-    Novelty,  // Notice a novelty
-    Info,     // General information
-    Debug,    // Debug-level message
+    Start,   // Program starting
+    Stop,    // Program stopping
+    Alert,   // Program detected a malware
+    Warning, // Warning in program execution
+    Error,   // Error in program execution
+    Novelty, // Notice a novelty
+    Info,    // General information
+    Debug,   // Debug-level message
 }
 
 impl Status {
@@ -51,7 +51,6 @@ impl Logging {
         std::fs::create_dir_all(dir)?;
         OpenOptions::new()
             .create(true)
-            
             .append(true)
             .share_mode(FILE_SHARE_READ.0 | FILE_SHARE_WRITE.0 | FILE_SHARE_DELETE.0)
             .open(dir.join("owlyshield.log"))
@@ -142,9 +141,7 @@ impl Logging {
     }
 
     #[cfg(target_os = "linux")]
-    pub fn init() {
-
-    }
+    pub fn init() {}
 
     /// Log the program start event
     pub fn start() {
@@ -189,26 +186,30 @@ impl Logging {
     #[cfg(target_os = "windows")]
     fn log(status: Status, message: &str) {
         if Self::should_write_to_file(status, message) {
-            Self::log_in_file(status, message, ConfigReader::read_param_from_registry("LOG_PATH", r"SOFTWARE\Owlyshield").as_str());
+            Self::log_in_file(
+                status,
+                message,
+                ConfigReader::read_param_from_registry("LOG_PATH", r"SOFTWARE\Owlyshield").as_str(),
+            );
         }
 
         match status {
-            Status::Alert | Status::Warning | Status::Novelty => { 
-                warn!("{}: {}", status.to_str(), message); 
-            },
+            Status::Alert | Status::Warning | Status::Novelty => {
+                warn!("{}: {}", status.to_str(), message);
+            }
             Status::Error => {
                 error!("{}: {}", status.to_str(), message);
-            },
+            }
             Status::Debug => {
                 debug!("{}: {}", status.to_str(), message);
-            },
+            }
             _ => {
                 if message.is_empty() {
                     info!("{}", status.to_str());
                 } else {
                     info!("{}: {}", status.to_str(), message);
                 }
-            },
+            }
         }
     }
 
@@ -224,9 +225,20 @@ impl Logging {
             .to_string();
 
         let comment = if message.is_empty() {
-            format!("{} localhost owlyshield[{}]: {}", now, std::process::id(), status.to_str())
+            format!(
+                "{} localhost owlyshield[{}]: {}",
+                now,
+                std::process::id(),
+                status.to_str()
+            )
         } else {
-            format!("{} localhost owlyshield[{}]: {}: {}", now, std::process::id(), status.to_str(), message)
+            format!(
+                "{} localhost owlyshield[{}]: {}: {}",
+                now,
+                std::process::id(),
+                status.to_str(),
+                message
+            )
         };
 
         let mut last_error: Option<(PathBuf, std::io::Error)> = None;
@@ -252,7 +264,11 @@ impl Logging {
         }
 
         if let Some((path, err)) = last_error {
-            eprintln!("Couldn't open any log file. Last path {} failed: {}", path.display(), err);
+            eprintln!(
+                "Couldn't open any log file. Last path {} failed: {}",
+                path.display(),
+                err
+            );
         }
     }
 }

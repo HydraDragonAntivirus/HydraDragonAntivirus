@@ -3,32 +3,31 @@ use std::collections::BTreeSet;
 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
 use std::fs;
 use std::fs::File;
-use std::path::Path;
-use std::thread;
-use std::sync::mpsc::channel;
 use std::io::{Read, Seek, SeekFrom};
+use std::path::Path;
+use std::sync::mpsc::channel;
+use std::thread;
 
-use crate::{
-    CDriverMsgs, config, Connectors, Driver, ExepathLive, IOMessage,
-    IOMsgPostProcessorMqtt, IOMsgPostProcessorRPC, IOMsgPostProcessorWriter,
-    Logging, ProcessRecordHandlerLive, whitelist, Worker, ProcessRecordHandlerNovelty,
-};
-use crate::config::Param;
-use crate::watchlist::WatchList;
 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
 use crate::behavioral::app_settings::AppSettings;
 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
 use crate::behavioral::behavior_engine::BehaviorRule;
-use crate::threathandling::WindowsThreatHandler;
+use crate::config::Param;
 use crate::shared_def::IrpMajorOp;
 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
 use crate::shared_def::known_raw_event_name;
+use crate::threathandling::WindowsThreatHandler;
 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
 use crate::utils::format_process_descriptor_with_fallback;
+use crate::watchlist::WatchList;
+use crate::{
+    CDriverMsgs, Connectors, Driver, ExepathLive, IOMessage, IOMsgPostProcessorMqtt,
+    IOMsgPostProcessorRPC, IOMsgPostProcessorWriter, Logging, ProcessRecordHandlerLive,
+    ProcessRecordHandlerNovelty, Worker, config, whitelist,
+};
 
 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-const FSFILTER_EXCLUDE_RULE_FILE: &str =
-    r"C:\Program Files\HydraDragonAntivirus\hydradragon\PYAS_Protection\PYAS_Protection_Rules\Process\Owlyshield\FsFilter\default_rules.txt";
+const FSFILTER_EXCLUDE_RULE_FILE: &str = r"C:\Program Files\HydraDragonAntivirus\hydradragon\PYAS_Protection\PYAS_Protection_Rules\Process\Owlyshield\FsFilter\default_rules.txt";
 
 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
 fn normalize_kernel_rule_entry(line: &str) -> Option<String> {
@@ -59,7 +58,10 @@ fn collect_kernel_exclude_entries(rules: &[BehaviorRule]) -> BTreeSet<String> {
 }
 
 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-fn sync_kernel_exclude_rule_file(path: &Path, dynamic_entries: &BTreeSet<String>) -> std::io::Result<()> {
+fn sync_kernel_exclude_rule_file(
+    path: &Path,
+    dynamic_entries: &BTreeSet<String>,
+) -> std::io::Result<()> {
     let mut merged = BTreeSet::new();
 
     if let Ok(existing) = fs::read_to_string(path) {
@@ -88,7 +90,10 @@ fn sync_kernel_exclude_rule_file(path: &Path, dynamic_entries: &BTreeSet<String>
 }
 
 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-fn sync_kernel_exclude_rules(rules: &[BehaviorRule], driver: &Driver) -> Result<(), Box<dyn std::error::Error>> {
+fn sync_kernel_exclude_rules(
+    rules: &[BehaviorRule],
+    driver: &Driver,
+) -> Result<(), Box<dyn std::error::Error>> {
     let dynamic_entries = collect_kernel_exclude_entries(rules);
     if dynamic_entries.is_empty() {
         return Ok(());
@@ -125,14 +130,20 @@ pub fn run() {
     let _current_exe_path = std::env::current_exe().unwrap();
     #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
     let rules_dir = crate::globals::rules_path().to_path_buf();
-    
+
     #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-    Logging::info(&format!("[Owlyshield] Using rules directory: {:?}", rules_dir));
+    Logging::info(&format!(
+        "[Owlyshield] Using rules directory: {:?}",
+        rules_dir
+    ));
 
     #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
     let app_settings = AppSettings::load(&rules_dir)
         .map_err(|e| {
-            Logging::error(&format!("Failed to load app settings from rules/settings.yaml at {:?}: {}", rules_dir, e));
+            Logging::error(&format!(
+                "Failed to load app settings from rules/settings.yaml at {:?}: {}",
+                rules_dir, e
+            ));
             e
         })
         .expect("Critical: Failed to load app settings");
@@ -148,12 +159,12 @@ pub fn run() {
 
         // For replay we load a separate AppSettings instance if behavior engine is enabled
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-        let app_settings_replay = AppSettings::load(&rules_dir)
-            .expect("Failed to load app settings for replay");
+        let app_settings_replay =
+            AppSettings::load(&rules_dir).expect("Failed to load app settings for replay");
 
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-        let mut worker = Worker::new_replay(&config, &whitelist, app_settings_replay)
-            .driver(driver.clone());
+        let mut worker =
+            Worker::new_replay(&config, &whitelist, app_settings_replay).driver(driver.clone());
         #[cfg(not(all(target_os = "windows", feature = "behavior_engine")))]
         let mut worker = Worker::new_replay(&config, &whitelist);
 
@@ -161,12 +172,15 @@ pub fn run() {
         {
             let rules_path = worker.app_settings.behavior_rules_path.clone();
             if let Err(e) = worker.behavior_engine.load_rules(&rules_path) {
-                Logging::error(&format!("Failed to load behavior rules for replay from {:?}: {}", rules_path, e));
+                Logging::error(&format!(
+                    "Failed to load behavior rules for replay from {:?}: {}",
+                    rules_path, e
+                ));
             }
         }
 
-        let filename = &Path::new(&config[Param::RealTimeLearningPath])
-            .join(Path::new("drivermessages.txt"));
+        let filename =
+            &Path::new(&config[Param::RealTimeLearningPath]).join(Path::new("drivermessages.txt"));
         let mut file = File::open(Path::new(filename)).unwrap();
         let file_len = file.metadata().unwrap().len() as usize;
 
@@ -177,11 +191,11 @@ pub fn run() {
         while cursor_index < file_len {
             buf.fill(0);
             file.seek(SeekFrom::Start(cursor_index as u64)).unwrap();
-            
+
             // Read remaining bytes if less than buf_size
             let bytes_remaining = file_len - cursor_index;
             let bytes_to_read = bytes_remaining.min(buf_size);
-            
+
             if bytes_to_read < buf_size {
                 // Partial read for the final chunk
                 file.read_exact(&mut buf[0..bytes_to_read]).unwrap();
@@ -247,7 +261,8 @@ pub fn run() {
             whitelist.refresh_periodically();
 
             #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-            let mut worker = Worker::new(&thread_config, thread_app_settings).driver(thread_driver.clone());
+            let mut worker =
+                Worker::new(&thread_config, thread_app_settings).driver(thread_driver.clone());
             #[cfg(not(all(target_os = "windows", feature = "behavior_engine")))]
             let mut worker = Worker::new(&thread_config).driver(thread_driver.clone());
 
@@ -274,7 +289,8 @@ pub fn run() {
 
             if cfg!(feature = "novelty") {
                 let watchlist = WatchList::from(
-                    &Path::new(&thread_config[Param::NoveltyPath]).join(Path::new("to_analyze.yml")),
+                    &Path::new(&thread_config[Param::NoveltyPath])
+                        .join(Path::new("to_analyze.yml")),
                 )
                 .expect("Cannot open to_analyze.yml");
                 watchlist.refresh_periodically();
@@ -291,7 +307,8 @@ pub fn run() {
             }
 
             if cfg!(feature = "jsonrpc") {
-                worker = worker.register_iomsg_postprocessor(Box::new(IOMsgPostProcessorRPC::new()));
+                worker =
+                    worker.register_iomsg_postprocessor(Box::new(IOMsgPostProcessorRPC::new()));
             }
 
             if cfg!(feature = "mqtt") {
@@ -306,10 +323,18 @@ pub fn run() {
             #[cfg(feature = "behavior_engine")]
             {
                 let rules_path = worker.app_settings.behavior_rules_path.clone();
-                Logging::info(&format!("[Owlyshield] Handing rules off to BehaviorEngine from path: {:?}", rules_path));
+                Logging::info(&format!(
+                    "[Owlyshield] Handing rules off to BehaviorEngine from path: {:?}",
+                    rules_path
+                ));
                 if let Err(e) = worker.behavior_engine.load_rules(&rules_path) {
-                    Logging::error(&format!("Failed to load behavior rules from {:?}: {}", rules_path, e));
-                } else if let Err(e) = sync_kernel_exclude_rules(&worker.behavior_engine.rules, &thread_driver) {
+                    Logging::error(&format!(
+                        "Failed to load behavior rules from {:?}: {}",
+                        rules_path, e
+                    ));
+                } else if let Err(e) =
+                    sync_kernel_exclude_rules(&worker.behavior_engine.rules, &thread_driver)
+                {
                     Logging::error(&format!("Failed to sync kernel exclude rules: {}", e));
                 }
             }
@@ -323,12 +348,13 @@ pub fn run() {
             let housekeeping_interval = std::time::Duration::from_millis(750);
             let mut msgs_since_housekeeping: usize = 0;
             while let Ok(mut iomsg) = rx_iomsgs.recv() {
-
                 // Process the incoming IO message immediately
                 worker.process_io(&mut iomsg, &thread_config);
 
                 msgs_since_housekeeping += 1;
-                if msgs_since_housekeeping >= 256 || last_housekeeping.elapsed() >= housekeeping_interval {
+                if msgs_since_housekeeping >= 256
+                    || last_housekeeping.elapsed() >= housekeeping_interval
+                {
                     if let Some(handler) = worker.threat_handler.as_ref() {
                         let th_suspended = handler.clone_box();
                         worker.validate_tracked_processes();
@@ -346,10 +372,12 @@ pub fn run() {
         let mut total_msgs: u64 = 0;
         let mut last_diag = std::time::Instant::now();
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-        let mut hyper_api_counts: std::collections::HashMap<String, u64> = std::collections::HashMap::new();
+        let mut hyper_api_counts: std::collections::HashMap<String, u64> =
+            std::collections::HashMap::new();
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-        let mut hyper_raw_counts: std::collections::HashMap<u32, u64> = std::collections::HashMap::new();
-        
+        let mut hyper_raw_counts: std::collections::HashMap<u32, u64> =
+            std::collections::HashMap::new();
+
         loop {
             match driver.get_irp(&mut vecnew[..]) {
                 Ok(Some(reply_irp)) => {
@@ -357,12 +385,14 @@ pub fn run() {
                         let drivermsgs = CDriverMsgs::new(&reply_irp);
                         for drivermsg in drivermsgs {
                             let iomsg = IOMessage::from_driver_msg(&drivermsg);
-                            
+
                             // DIAGNOSTIC: Count by opcode
                             let op = iomsg.irp_op as usize;
-                            if op < 32 { opcode_counts[op] += 1; }
+                            if op < 32 {
+                                opcode_counts[op] += 1;
+                            }
                             total_msgs += 1;
-                            
+
                             // Log every event from the driver.
                             let irp = IrpMajorOp::from_byte(iomsg.irp_op);
                             #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
@@ -380,9 +410,12 @@ pub fn run() {
                                 } else {
                                     from_payload.to_string()
                                 };
-                                let is_hypervisor_event = matches!(irp, IrpMajorOp::IrpHypervisorEvent);
-                                let is_usermode_hook_event = matches!(irp, IrpMajorOp::IrpUserModeHookEvent);
-                                let is_kernel_telemetry_event = iomsg.irp_op >= 13 && !is_usermode_hook_event;
+                                let is_hypervisor_event =
+                                    matches!(irp, IrpMajorOp::IrpHypervisorEvent);
+                                let is_usermode_hook_event =
+                                    matches!(irp, IrpMajorOp::IrpUserModeHookEvent);
+                                let is_kernel_telemetry_event =
+                                    iomsg.irp_op >= 13 && !is_usermode_hook_event;
                                 let source_process = format_process_descriptor_with_fallback(
                                     iomsg.kernel_event_info.source_process_id,
                                     None,
@@ -488,17 +521,30 @@ pub fn run() {
                 }
                 Err(e) => {
                     // Don't panic, log and wait before retry
-                    Logging::error(&format!("Driver communication error (HRESULT: 0x{:X})", e.code().0));
+                    Logging::error(&format!(
+                        "Driver communication error (HRESULT: 0x{:X})",
+                        e.code().0
+                    ));
                     thread::sleep(std::time::Duration::from_millis(100));
                 }
             }
-            
+
             // DIAGNOSTIC: Print opcode distribution every 10 seconds
             if last_diag.elapsed() >= std::time::Duration::from_secs(10) {
                 let mut summary = format!("[DIAG] {} total msgs in 10s. Opcodes: ", total_msgs);
                 let names = [
-                    "None","Read","Write","SetInfo","Create","Cleanup","Registry",
-                    "ProcCreate","ProcTerm","ProcTermAttempt","ProcExit","ProcHandleOpen"
+                    "None",
+                    "Read",
+                    "Write",
+                    "SetInfo",
+                    "Create",
+                    "Cleanup",
+                    "Registry",
+                    "ProcCreate",
+                    "ProcTerm",
+                    "ProcTermAttempt",
+                    "ProcExit",
+                    "ProcHandleOpen",
                 ];
                 for i in 0..12 {
                     if opcode_counts[i] > 0 {
@@ -506,10 +552,7 @@ pub fn run() {
                     }
                 }
                 let hypervisor_total = opcode_counts[12];
-                let kernel_telemetry_total: u64 = opcode_counts
-                    .iter()
-                    .skip(13)
-                    .sum::<u64>();
+                let kernel_telemetry_total: u64 = opcode_counts.iter().skip(13).sum::<u64>();
                 if hypervisor_total > 0 {
                     summary.push_str(&format!("ApiHooking={} ", hypervisor_total));
                 }
@@ -518,7 +561,8 @@ pub fn run() {
                 }
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
                 if hypervisor_total > 0 {
-                    let mut top_raw: Vec<(u32, u64)> = hyper_raw_counts.iter().map(|(k, v)| (*k, *v)).collect();
+                    let mut top_raw: Vec<(u32, u64)> =
+                        hyper_raw_counts.iter().map(|(k, v)| (*k, *v)).collect();
                     top_raw.sort_by(|a, b| b.1.cmp(&a.1));
                     if !top_raw.is_empty() {
                         let raw_text = top_raw
@@ -546,12 +590,14 @@ pub fn run() {
                     }
                 }
                 Logging::info(&summary);
-                
+
                 // Check specifically for the API-hooking opcode stream.
                 if hypervisor_total == 0 {
-                    Logging::warning("[DIAG] ZERO API HOOKING EVENTS (opcode 12) received from driver!");
+                    Logging::warning(
+                        "[DIAG] ZERO API HOOKING EVENTS (opcode 12) received from driver!",
+                    );
                 }
-                
+
                 opcode_counts = [0; 32];
                 total_msgs = 0;
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]

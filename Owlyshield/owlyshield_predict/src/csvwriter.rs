@@ -1,10 +1,10 @@
 //! Used to dump `ProcessRecords` to a csv file to create Learning samples that will be used to train the model.
 
+use chrono::{DateTime, Utc};
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
-use chrono::{DateTime, Utc};
 
 use crate::config::{Config, Param};
 use crate::predictions::prediction::input_tensors::Timestep;
@@ -41,8 +41,12 @@ impl CsvWriter {
         time: SystemTime,
     ) -> Result<(), std::io::Error> {
         let predrow_vec = predrow.to_vec_f32();
-        let datetime : DateTime<Utc> = time.into();
-        let mut process_vec = vec![String::from(appname), gid.to_string(), datetime.to_rfc3339()];
+        let datetime: DateTime<Utc> = time.into();
+        let mut process_vec = vec![
+            String::from(appname),
+            gid.to_string(),
+            datetime.to_rfc3339(),
+        ];
         process_vec.append(&mut Self::vec_to_vecstring(&predrow_vec));
 
         let process_vec_csv =
@@ -53,7 +57,6 @@ impl CsvWriter {
         }
         let mut file = fs::OpenOptions::new()
             .create(true)
-            
             .append(true)
             .open(&self.path)?;
 
@@ -69,7 +72,6 @@ impl CsvWriter {
         }
         let mut file = fs::OpenOptions::new()
             .create(true)
-            
             .append(true)
             .open(&self.path)?;
 

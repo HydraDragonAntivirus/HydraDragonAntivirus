@@ -2,9 +2,8 @@
 //! Uses native Win32 APIs for surgical existence checks.
 
 use windows::Win32::System::Services::{
-    OpenSCManagerW, OpenServiceW, CloseServiceHandle, QueryServiceStatusEx,
-    SC_MANAGER_CONNECT, SERVICE_QUERY_STATUS, SC_STATUS_PROCESS_INFO,
-    SERVICE_STATUS_PROCESS, SERVICE_RUNNING,
+    CloseServiceHandle, OpenSCManagerW, OpenServiceW, QueryServiceStatusEx, SC_MANAGER_CONNECT,
+    SC_STATUS_PROCESS_INFO, SERVICE_QUERY_STATUS, SERVICE_RUNNING, SERVICE_STATUS_PROCESS,
 };
 use windows::core::PCWSTR;
 
@@ -43,7 +42,8 @@ impl ServiceChecker {
             };
 
             let name_u16: Vec<u16> = name.encode_utf16().chain(std::iter::once(0)).collect();
-            let h_service = match OpenServiceW(scm, PCWSTR(name_u16.as_ptr()), SERVICE_QUERY_STATUS) {
+            let h_service = match OpenServiceW(scm, PCWSTR(name_u16.as_ptr()), SERVICE_QUERY_STATUS)
+            {
                 Ok(h) => h,
                 Err(_) => {
                     let _ = CloseServiceHandle(scm);
@@ -54,8 +54,11 @@ impl ServiceChecker {
             let mut status = SERVICE_STATUS_PROCESS::default();
             let mut bytes_needed = 0u32;
             let buffer_ptr = &mut status as *mut SERVICE_STATUS_PROCESS as *mut u8;
-            let buffer_slice = std::slice::from_raw_parts_mut(buffer_ptr, std::mem::size_of::<SERVICE_STATUS_PROCESS>());
-            
+            let buffer_slice = std::slice::from_raw_parts_mut(
+                buffer_ptr,
+                std::mem::size_of::<SERVICE_STATUS_PROCESS>(),
+            );
+
             let ok = QueryServiceStatusEx(
                 h_service,
                 SC_STATUS_PROCESS_INFO,

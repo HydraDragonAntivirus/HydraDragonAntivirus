@@ -1,16 +1,16 @@
 /// Our Input tensor has dimensions *(None, PREDMTRXCOLS)*
-pub static PREDMTRXCOLS: usize = 42;  // Updated from 26 to 42 to include kernel event features
+pub static PREDMTRXCOLS: usize = 42; // Updated from 26 to 42 to include kernel event features
 /// We cap the dimension1 of our input tensor (that is the length of the prediction sequence). See
 /// [`input_tensors::VecvecCapped`] for details about how and why.
 pub static PREDMTRXROWS: usize = 500;
 
 /// Contains structures to transform features computed in [`ProcessRecord`] into input tensors.
 pub mod input_tensors {
+    use serde::Serialize;
     use std::collections::VecDeque;
     use std::error::Error;
     use std::fmt::{Debug, Display, Formatter};
     use std::ops::{Index, IndexMut};
-    use serde::Serialize;
 
     use crate::extensions::ExtensionCategory;
     use crate::process::ProcessRecord;
@@ -93,7 +93,7 @@ pub mod input_tensors {
         pub on_removable_drive_read_count: u32,
         /// Count of Write operations [crate::shared_def::IrpMajorOp::IrpWrite] on a removable drive
         pub on_removable_drive_write_count: u32,
-        
+
         // NEW: Kernel-level API hooking event features
         /// Count of NtWriteVirtualMemory events (code injection)
         pub kernel_write_memory_count: u32,
@@ -121,13 +121,12 @@ pub mod input_tensors {
         pub kernel_events_total: u32,
         /// Maximum kernel event type seen (for feature engineering)
         pub kernel_events_max_individual: u32,
-        
+
         // NEW: Signature-related features
         /// Is process signed (has any signature)
         pub is_process_signed: bool,
         /// Does process have valid signature
         pub has_valid_process_signature: bool,
-        
         // pub is_web_credentials_read: bool, // TODO
         // pub is_windows_credentials_read: bool, // TODO
     }
@@ -172,17 +171,29 @@ pub mod input_tensors {
                 cluster_count: proc.clusters.len(),
                 clusters_max_size: proc.clusters.iter().map(|c| c.size()).max().unwrap_or(0),
 
-                alters_email_file: proc.extensions_read.count_category(ExtensionCategory::Email) > 0
-                    || proc.extensions_written.count_category(ExtensionCategory::Email) > 0,
-                password_vault_read_count: proc.extensions_read.count_category(ExtensionCategory::PasswordVault),
-                alters_event_log_file: proc.extensions_read.count_category(ExtensionCategory::Logs) > 0
-                    || proc.extensions_written.count_category(ExtensionCategory::Logs) > 0,
+                alters_email_file: proc
+                    .extensions_read
+                    .count_category(ExtensionCategory::Email)
+                    > 0
+                    || proc
+                        .extensions_written
+                        .count_category(ExtensionCategory::Email)
+                        > 0,
+                password_vault_read_count: proc
+                    .extensions_read
+                    .count_category(ExtensionCategory::PasswordVault),
+                alters_event_log_file: proc.extensions_read.count_category(ExtensionCategory::Logs)
+                    > 0
+                    || proc
+                        .extensions_written
+                        .count_category(ExtensionCategory::Logs)
+                        > 0,
                 alters_ssh_file: proc.fpaths_updated.contains(".ssh"),
                 on_shared_drive_read_count: proc.on_shared_drive_read_count,
                 on_shared_drive_write_count: proc.on_shared_drive_write_count,
                 on_removable_drive_read_count: proc.on_removable_drive_read_count,
                 on_removable_drive_write_count: proc.on_removable_drive_write_count,
-                
+
                 // NEW: Initialize kernel event features from ProcessRecord
                 kernel_write_memory_count: proc.kernel_write_memory_count,
                 kernel_allocate_memory_count: proc.kernel_allocate_memory_count,
@@ -197,11 +208,10 @@ pub mod input_tensors {
                 kernel_open_process_count: proc.kernel_open_process_count,
                 kernel_events_total: proc.kernel_events_total,
                 kernel_events_max_individual: proc.kernel_events_max_individual,
-                
+
                 // NEW: Initialize signature features from ProcessRecord
                 is_process_signed: proc.is_signed,
                 has_valid_process_signature: proc.has_valid_signature,
-                
                 // is_web_credentials_read, // TODO
                 // is_windows_credentials_read, // TODO
             }
@@ -235,7 +245,6 @@ pub mod input_tensors {
                 self.exe_exists as u8 as f32,
                 self.cluster_count as f32,
                 self.clusters_max_size as f32,
-                
                 // NEW: Kernel-level API hooking event features
                 self.kernel_write_memory_count as f32,
                 self.kernel_allocate_memory_count as f32,
@@ -252,7 +261,6 @@ pub mod input_tensors {
                 self.kernel_events_max_individual as f32,
                 self.is_process_signed as u8 as f32,
                 self.has_valid_process_signature as u8 as f32,
-                
                 // (self.alters_email_file as u32) as f32,
                 // self.password_vault_read_count as f32,
                 // (self.alters_event_log_file as u32) as f32,
@@ -269,11 +277,7 @@ pub mod input_tensors {
 
         #[inline]
         fn order_magnitude(a: f64) -> u32 {
-            if a <= 0f64 {
-                0
-            } else {
-                a.log10() as u32
-            }
+            if a <= 0f64 { 0 } else { a.log10() as u32 }
         }
     }
 

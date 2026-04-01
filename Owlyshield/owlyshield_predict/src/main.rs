@@ -13,9 +13,9 @@ use std::sync::mpsc;
 use std::thread;
 //win
 #[cfg(feature = "service")]
-use std::time::Duration;
-#[cfg(feature = "service")]
 use crate::mpsc::channel;
+#[cfg(feature = "service")]
+use std::time::Duration;
 
 #[cfg(all(target_os = "windows", feature = "service"))]
 use windows_service::service::{
@@ -59,28 +59,33 @@ pub fn is_hydra_dragon_enabled() -> bool {
 }
 
 /// Initialize AVIntegration for the current thread.
-/// 
+///
 /// CRITICAL: This function MUST be called on the thread that will use the AVIntegration.
 /// The TensorFlow Lite models contain raw pointers (NonNull) that are NOT Send/Sync,
 /// so AVIntegration CANNOT be stored in a static or shared across threads via Mutex/Arc.
-/// 
+///
 /// # Arguments
 /// * `config` - Reference to the Config instance for this thread
-/// 
+///
 /// # Returns
 /// * `Some(AVIntegration)` if HydraDragon is available
 /// * `None` if HydraDragon is not installed
 #[cfg(all(target_os = "windows", feature = "hydradragon"))]
-pub fn init_hydra_dragon(config: &crate::config::Config) -> Option<av_integration::AVIntegration<'_>> {
+pub fn init_hydra_dragon(
+    config: &crate::config::Config,
+) -> Option<av_integration::AVIntegration<'_>> {
     if is_hydra_dragon_enabled() {
         use crate::worker::predictor::PredictorMalware;
-        
+
         // Create predictor on this thread
         let predictor_malware = PredictorMalware::new(config);
-        
+
         // Create AVIntegration on this thread
         // This is safe because we're not trying to share it across threads
-        Some(av_integration::AVIntegration::new(config, predictor_malware))
+        Some(av_integration::AVIntegration::new(
+            config,
+            predictor_malware,
+        ))
     } else {
         None
     }
@@ -93,10 +98,14 @@ pub fn init_hydra_dragon(config: &crate::config::Config) -> Option<av_integratio
 use crate::driver_com::CDriverMsgs;
 #[cfg(target_os = "linux")]
 use crate::driver_com::LDriverMsg;
-use crate::shared_def::IOMessage;
 use crate::logging::Logging;
-use crate::worker::process_record_handling::{ExepathLive, ProcessRecordHandlerLive, ProcessRecordHandlerNovelty};
-use crate::worker::worker_instance::{IOMsgPostProcessorMqtt, IOMsgPostProcessorRPC, IOMsgPostProcessorWriter, Worker};
+use crate::shared_def::IOMessage;
+use crate::worker::process_record_handling::{
+    ExepathLive, ProcessRecordHandlerLive, ProcessRecordHandlerNovelty,
+};
+use crate::worker::worker_instance::{
+    IOMsgPostProcessorMqtt, IOMsgPostProcessorRPC, IOMsgPostProcessorWriter, Worker,
+};
 
 mod actions_on_kill;
 mod config;
@@ -123,12 +132,12 @@ mod process;
 #[cfg(target_os = "windows")]
 #[path = "windows/run.rs"]
 mod run;
-#[cfg(target_os = "windows")]
-#[path = "windows/signature_verification.rs"]
-pub mod signature_verification;
 #[cfg(all(target_os = "linux", feature = "linux-ebpf"))]
 #[path = "linux/run.rs"]
 mod run;
+#[cfg(target_os = "windows")]
+#[path = "windows/signature_verification.rs"]
+pub mod signature_verification;
 
 #[cfg(all(target_os = "linux", not(feature = "linux-ebpf")))]
 mod run {
@@ -138,25 +147,25 @@ mod run {
         log::info!("Linux runtime skipped (enable `linux-ebpf` to run eBPF monitor)");
     }
 }
-pub(crate) mod shared_def;
-mod threat_handler;
-mod utils;
-mod watchlist;
-mod whitelist;
-pub(crate) mod worker;
-mod novelty;
-mod report;
 mod globals;
+mod novelty;
+#[cfg(all(target_os = "windows", feature = "realtime_learning"))]
+pub mod realtime_learning; // OwlyShield realtime-learning module
+mod report;
 #[cfg(target_os = "windows")]
 pub mod services;
-#[cfg(all(target_os = "windows", feature = "realtime_learning"))]
-pub mod realtime_learning;  // OwlyShield realtime-learning module
+pub(crate) mod shared_def;
+mod threat_handler;
 #[cfg(target_os = "windows")]
 #[path = "windows/threathandling.rs"]
 pub(crate) mod threathandling;
 #[cfg(target_os = "linux")]
 #[path = "linux/threathandling.rs"]
 pub(crate) mod threathandling;
+mod utils;
+mod watchlist;
+mod whitelist;
+pub(crate) mod worker;
 
 #[cfg(feature = "service")]
 const SERVICE_NAME: &str = "Owlyshield Service";
@@ -183,7 +192,6 @@ fn service_main(arguments: Vec<OsString>) {
     // winlog::init(log_source).unwrap_or(());
     // info!("Program started.");
     Logging::start();
-
 
     if let Err(_e) = run_service(arguments) {
         // error!("Error in run_service.");

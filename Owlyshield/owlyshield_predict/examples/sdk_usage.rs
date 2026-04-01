@@ -7,11 +7,11 @@
 
 #[cfg(feature = "realtime_learning")]
 mod real_example {
-    use owlyshield_ransom::sdk::{OwlyShieldSDK, CollectionMode};
-    #[allow(unused_imports)]
-    use owlyshield_ransom::shared_def::IOMessage;
     #[allow(unused_imports)]
     use owlyshield_ransom::process::ProcessRecord;
+    use owlyshield_ransom::sdk::{CollectionMode, OwlyShieldSDK};
+    #[allow(unused_imports)]
+    use owlyshield_ransom::shared_def::IOMessage;
     #[allow(unused_imports)]
     use std::path::PathBuf;
 
@@ -32,8 +32,8 @@ mod real_example {
 
         // Initialize SDK with ML collection disabled
         let sdk = OwlyShieldSDK::new(
-            false,  // ML mode disabled
-            "models/malapi.json"
+            false, // ML mode disabled
+            "models/malapi.json",
         );
 
         // Simulate processing messages from kernel driver
@@ -49,8 +49,8 @@ mod real_example {
 
         // Initialize SDK with ML collection enabled
         let mut sdk = OwlyShieldSDK::new(
-            true,  // ML mode enabled
-            "models/malapi.json"
+            true, // ML mode enabled
+            "models/malapi.json",
         );
 
         println!("ML data collection mode enabled!");
@@ -82,13 +82,19 @@ mod real_example {
             println!("Threat Analysis for GID {}:", gid);
             println!("  Process: {}", analysis.app_name);
             println!("  Threat Level: {:?}", analysis.threat_level);
-            println!("  Signatures Matched: {}", analysis.signatures_matched.len());
+            println!(
+                "  Signatures Matched: {}",
+                analysis.signatures_matched.len()
+            );
             println!("  Patterns Matched: {:?}", analysis.patterns_matched);
             println!();
 
             // Display matched signatures
             for sig_match in &analysis.signatures_matched {
-                println!("  [{:?}] {}", sig_match.threat_level, sig_match.signature_name);
+                println!(
+                    "  [{:?}] {}",
+                    sig_match.threat_level, sig_match.signature_name
+                );
                 println!("    Confidence: {:.2}%", sig_match.confidence * 100.0);
                 println!("    Description: {}", sig_match.description);
                 println!("    Recommended Action: {}", sig_match.recommended_action);
@@ -167,7 +173,9 @@ mod real_example {
         if let Some(engine) = sdk.signature_engine.as_mut() {
             engine.add_signature(custom_signature);
         } else {
-            println!("Signature engine is disabled; cannot add custom signatures in this configuration.");
+            println!(
+                "Signature engine is disabled; cannot add custom signatures in this configuration."
+            );
         }
 
         println!("Custom signature added successfully!");
@@ -224,10 +232,7 @@ mod real_example {
             }
 
             // Export separated datasets
-            match collector.export_separated(
-                "datasets/malicious.json",
-                "datasets/benign.json"
-            ) {
+            match collector.export_separated("datasets/malicious.json", "datasets/benign.json") {
                 Ok(_) => println!("✓ Separated datasets exported"),
                 Err(e) => println!("✗ Separated export failed: {}", e),
             }
@@ -249,6 +254,8 @@ fn main() {
     real_example::main();
 
     #[cfg(not(feature = "realtime_learning"))]
-    println!("This example requires the 'realtime_learning' feature.\n\
-              Run with: cargo run --example sdk_usage --features realtime_learning");
+    println!(
+        "This example requires the 'realtime_learning' feature.\n\
+              Run with: cargo run --example sdk_usage --features realtime_learning"
+    );
 }

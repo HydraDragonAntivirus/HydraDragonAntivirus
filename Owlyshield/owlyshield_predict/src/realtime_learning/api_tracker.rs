@@ -2,10 +2,10 @@
 //!
 //! Tracks Windows API usage patterns from kernel driver messages
 
-use crate::process::ProcessRecord;
-use crate::shared_def::{FileChangeInfo, IOMessage, IrpMajorOp, known_raw_event_name};
 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
 use crate::behavioral::rule_types::PacketInfo;
+use crate::process::ProcessRecord;
+use crate::shared_def::{FileChangeInfo, IOMessage, IrpMajorOp, known_raw_event_name};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
@@ -167,8 +167,14 @@ pub enum OperationType {
     FileRename(String, String),
     ProcessCreate(String),
     ProcessTerminate(u32),
-    ProcessTerminateAttempt { source_pid: u32, target_pid: u32 },
-    ProcessHandleOpen { source_pid: u32, target_pid: u32 },
+    ProcessTerminateAttempt {
+        source_pid: u32,
+        target_pid: u32,
+    },
+    ProcessHandleOpen {
+        source_pid: u32,
+        target_pid: u32,
+    },
     MemoryAllocate(u64),
     NetworkConnect(String),
     RegistryModify(String),
@@ -272,21 +278,24 @@ impl ApiTracker {
         self.raw_event_log.push(Self::render_raw_event(msg));
 
         let irp_op = IrpMajorOp::from_byte(msg.irp_op);
-        let file_change: FileChangeInfo = num::FromPrimitive::from_u8(msg.file_change)
-            .unwrap_or(FileChangeInfo::ChangeNotSet);
+        let file_change: FileChangeInfo =
+            num::FromPrimitive::from_u8(msg.file_change).unwrap_or(FileChangeInfo::ChangeNotSet);
 
         match irp_op {
             IrpMajorOp::IrpRead => {
                 self.file_operations.files_read += 1;
-                self.operation_sequence.push(OperationType::FileRead(msg.filepathstr.clone()));
+                self.operation_sequence
+                    .push(OperationType::FileRead(msg.filepathstr.clone()));
             }
             IrpMajorOp::IrpWrite => {
                 self.file_operations.files_written += 1;
                 if msg.is_entropy_calc == 1 && msg.entropy > 7.5 {
                     self.file_operations.files_encrypted += 1;
                 }
-                self.operation_sequence
-                    .push(OperationType::FileWrite(msg.filepathstr.clone(), msg.entropy));
+                self.operation_sequence.push(OperationType::FileWrite(
+                    msg.filepathstr.clone(),
+                    msg.entropy,
+                ));
                 if self.is_suspicious_extension(&msg.extension) {
                     self.file_operations
                         .suspicious_extensions_written
@@ -301,18 +310,26 @@ impl ApiTracker {
                 }
                 FileChangeInfo::ChangeRenameFile => {
                     self.file_operations.files_renamed += 1;
-                    self.operation_sequence
-                        .push(OperationType::FileRename(msg.filepathstr.clone(), String::new()));
+                    self.operation_sequence.push(OperationType::FileRename(
+                        msg.filepathstr.clone(),
+                        String::new(),
+                    ));
                 }
                 FileChangeInfo::RegCreateKey => {
                     self.registry_operations.keys_created += 1;
                     self.operation_sequence
-                        .push(OperationType::RegistryModify(format!("REG_CREATE:{}", msg.filepathstr)));
+                        .push(OperationType::RegistryModify(format!(
+                            "REG_CREATE:{}",
+                            msg.filepathstr
+                        )));
                 }
                 FileChangeInfo::RegSetValue => {
                     self.registry_operations.keys_modified += 1;
                     self.operation_sequence
-                        .push(OperationType::RegistryModify(format!("REG_SET:{}", msg.filepathstr)));
+                        .push(OperationType::RegistryModify(format!(
+                            "REG_SET:{}",
+                            msg.filepathstr
+                        )));
                     let lower = msg.filepathstr.to_ascii_lowercase();
                     if lower.contains("\\run") || lower.contains("runonce") {
                         self.registry_operations.autorun_keys_modified = true;
@@ -324,12 +341,18 @@ impl ApiTracker {
                 FileChangeInfo::RegDeleteValue => {
                     self.registry_operations.keys_deleted += 1;
                     self.operation_sequence
-                        .push(OperationType::RegistryModify(format!("REG_DELETE:{}", msg.filepathstr)));
+                        .push(OperationType::RegistryModify(format!(
+                            "REG_DELETE:{}",
+                            msg.filepathstr
+                        )));
                 }
                 FileChangeInfo::RegRenameKey => {
                     self.registry_operations.keys_modified += 1;
                     self.operation_sequence
-                        .push(OperationType::RegistryModify(format!("REG_RENAME:{}", msg.filepathstr)));
+                        .push(OperationType::RegistryModify(format!(
+                            "REG_RENAME:{}",
+                            msg.filepathstr
+                        )));
                 }
                 _ => {}
             },
@@ -344,41 +367,46 @@ impl ApiTracker {
                     .push(OperationType::ProcessCreate(msg.filepathstr.clone()));
             }
             IrpMajorOp::IrpProcessTerminate | IrpMajorOp::IrpProcessExit => {
-                self.operation_sequence.push(OperationType::ProcessTerminate(msg.pid));
+                self.operation_sequence
+                    .push(OperationType::ProcessTerminate(msg.pid));
             }
             IrpMajorOp::IrpProcessTerminateAttempt => {
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
                 {
                     self.kernel_operations.process_terminate_attempt += 1;
-                    self.operation_sequence.push(OperationType::ProcessTerminateAttempt {
-                        source_pid: msg.attacker_pid,
-                        target_pid: msg.pid,
-                    });
+                    self.operation_sequence
+                        .push(OperationType::ProcessTerminateAttempt {
+                            source_pid: msg.attacker_pid,
+                            target_pid: msg.pid,
+                        });
                 }
                 #[cfg(not(all(target_os = "windows", feature = "behavior_engine")))]
                 {
                     self.kernel_operations.process_terminate_attempt += 1;
-                    self.operation_sequence.push(OperationType::ProcessTerminateAttempt {
-                        source_pid: msg.pid,
-                        target_pid: msg.pid,
-                    });
+                    self.operation_sequence
+                        .push(OperationType::ProcessTerminateAttempt {
+                            source_pid: msg.pid,
+                            target_pid: msg.pid,
+                        });
                 }
             }
             IrpMajorOp::IrpProcessHandleOpen => {
                 self.kernel_operations.process_handle_open += 1;
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
                 {
-                    self.operation_sequence.push(OperationType::ProcessHandleOpen {
-                        source_pid: msg.kernel_event_info.source_process_id,
-                        target_pid: msg.kernel_event_info.target_process_id,
-                    });
+                    self.operation_sequence
+                        .push(OperationType::ProcessHandleOpen {
+                            source_pid: msg.kernel_event_info.source_process_id,
+                            target_pid: msg.kernel_event_info.target_process_id,
+                        });
                 }
                 #[cfg(not(all(target_os = "windows", feature = "behavior_engine")))]
                 {
-                    self.operation_sequence.push(OperationType::ProcessHandleOpen {
-                        source_pid: msg.pid,
-                        target_pid: msg.pid,
-                    });
+                    self.operation_sequence
+                        .push(OperationType::ProcessHandleOpen {
+                            source_pid: msg.pid,
+                            target_pid: msg.pid,
+                        });
                 }
             }
             IrpMajorOp::IrpHypervisorEvent | IrpMajorOp::IrpUserModeHookEvent => {
@@ -387,14 +415,23 @@ impl ApiTracker {
             IrpMajorOp::IrpKernelRemoteThread => {
                 self.process_operations.threads_created += 1;
                 self.process_operations.processes_injected += 1;
-                self.operation_sequence.push(OperationType::ProcessInjected(msg.kernel_event_info.target_process_id));
+                self.operation_sequence.push(OperationType::ProcessInjected(
+                    msg.kernel_event_info.target_process_id,
+                ));
             }
             IrpMajorOp::IrpKernelWriteMemory => {
-                self.process_operations.memory_allocated += msg.kernel_event_info.memory_size as u64;
-                self.operation_sequence.push(OperationType::MemoryModify(msg.kernel_event_info.memory_address, msg.kernel_event_info.memory_size as u32));
+                self.process_operations.memory_allocated +=
+                    msg.kernel_event_info.memory_size as u64;
+                self.operation_sequence.push(OperationType::MemoryModify(
+                    msg.kernel_event_info.memory_address,
+                    msg.kernel_event_info.memory_size as u32,
+                ));
             }
             IrpMajorOp::IrpKernelProtectMemory => {
-                self.operation_sequence.push(OperationType::MemoryProtect(msg.kernel_event_info.memory_address, msg.kernel_event_info.memory_protection));
+                self.operation_sequence.push(OperationType::MemoryProtect(
+                    msg.kernel_event_info.memory_address,
+                    msg.kernel_event_info.memory_protection,
+                ));
             }
             IrpMajorOp::IrpKernelCreateThread => {
                 self.process_operations.threads_created += 1;
@@ -508,8 +545,12 @@ impl ApiTracker {
             return ApiCategory::Internet;
         }
         match op {
-            IrpMajorOp::IrpHypervisorEvent | IrpMajorOp::IrpUserModeHookEvent => ApiCategory::Helper,
-            IrpMajorOp::IrpProcessHandleOpen | IrpMajorOp::IrpProcessTerminateAttempt => ApiCategory::Enumeration,
+            IrpMajorOp::IrpHypervisorEvent | IrpMajorOp::IrpUserModeHookEvent => {
+                ApiCategory::Helper
+            }
+            IrpMajorOp::IrpProcessHandleOpen | IrpMajorOp::IrpProcessTerminateAttempt => {
+                ApiCategory::Enumeration
+            }
             _ => ApiCategory::Unknown,
         }
     }
@@ -528,15 +569,14 @@ impl ApiTracker {
             return "<empty>".to_string();
         }
 
-        trimmed
-            .replace(['\r', '\n', '\t'], " ")
+        trimmed.replace(['\r', '\n', '\t'], " ")
     }
 
     #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
     fn render_raw_event(msg: &IOMessage) -> String {
         let irp_op = IrpMajorOp::from_byte(msg.irp_op);
-        let file_change: FileChangeInfo = num::FromPrimitive::from_u8(msg.file_change)
-            .unwrap_or(FileChangeInfo::ChangeNotSet);
+        let file_change: FileChangeInfo =
+            num::FromPrimitive::from_u8(msg.file_change).unwrap_or(FileChangeInfo::ChangeNotSet);
         let raw_event_type = if msg.kernel_event_info.event_type != 0 {
             msg.kernel_event_info.event_type
         } else {
@@ -575,8 +615,8 @@ impl ApiTracker {
     #[cfg(not(all(target_os = "windows", feature = "behavior_engine")))]
     fn render_raw_event(msg: &IOMessage) -> String {
         let irp_op = IrpMajorOp::from_byte(msg.irp_op);
-        let file_change: FileChangeInfo = num::FromPrimitive::from_u8(msg.file_change)
-            .unwrap_or(FileChangeInfo::ChangeNotSet);
+        let file_change: FileChangeInfo =
+            num::FromPrimitive::from_u8(msg.file_change).unwrap_or(FileChangeInfo::ChangeNotSet);
         let timestamp_ms = msg
             .time
             .duration_since(std::time::UNIX_EPOCH)
@@ -600,7 +640,12 @@ impl ApiTracker {
         )
     }
 
-    pub fn track_api_call(&mut self, api_name: String, category: ApiCategory, associated_file: Option<String>) {
+    pub fn track_api_call(
+        &mut self,
+        api_name: String,
+        category: ApiCategory,
+        associated_file: Option<String>,
+    ) {
         let api_call = ApiCall {
             name: api_name.clone(),
             category,
@@ -764,10 +809,16 @@ impl ApiTracker {
         if api_name.contains("connect") || api_name.contains("socket") {
             self.network_operations.connections_established += 1;
         }
-        if api_name.contains("dnsquery") || api_name.contains("gethostbyname") || api_name.contains("getaddrinfo") {
+        if api_name.contains("dnsquery")
+            || api_name.contains("gethostbyname")
+            || api_name.contains("getaddrinfo")
+        {
             self.network_operations.dns_queries += 1;
         }
-        if api_name.contains("http") || api_name.contains("winhttp") || api_name.contains("urldownload") {
+        if api_name.contains("http")
+            || api_name.contains("winhttp")
+            || api_name.contains("urldownload")
+        {
             self.network_operations.http_requests += 1;
         }
     }
@@ -796,13 +847,22 @@ impl ApiTracker {
 
     pub fn kernel_opcode_counts(&self) -> HashMap<String, usize> {
         HashMap::from([
-            ("IrpHypervisorEvent".to_string(), self.kernel_operations.generic_api_call),
-            ("IrpProcessHandleOpen".to_string(), self.kernel_operations.process_handle_open),
+            (
+                "IrpHypervisorEvent".to_string(),
+                self.kernel_operations.generic_api_call,
+            ),
+            (
+                "IrpProcessHandleOpen".to_string(),
+                self.kernel_operations.process_handle_open,
+            ),
             (
                 "IrpProcessTerminateAttempt".to_string(),
                 self.kernel_operations.process_terminate_attempt,
             ),
-            ("TotalKernelEvents".to_string(), self.kernel_operations.total_kernel_events),
+            (
+                "TotalKernelEvents".to_string(),
+                self.kernel_operations.total_kernel_events,
+            ),
         ])
     }
 
@@ -811,16 +871,20 @@ impl ApiTracker {
     pub fn track_sanctum_event(&mut self, source: &str, function: &str, _args: &serde_json::Value) {
         self.sanctum_operations.syscall_count += 1;
         self.sanctum_operations.last_event = Some(function.to_string());
-        
+
         // Update injection score based on suspicious functions
         match function {
             "NtWriteVirtualMemory" | "NtAllocateVirtualMemory" => {
                 self.sanctum_operations.injection_score += 1.0;
-                self.sanctum_operations.suspicious_syscall_hits.push(function.to_string());
+                self.sanctum_operations
+                    .suspicious_syscall_hits
+                    .push(function.to_string());
             }
             "NtCreateThreadEx" | "NtQueueApcThread" => {
                 self.sanctum_operations.injection_score += 2.0;
-                self.sanctum_operations.suspicious_syscall_hits.push(function.to_string());
+                self.sanctum_operations
+                    .suspicious_syscall_hits
+                    .push(function.to_string());
             }
             "NtOpenProcess" | "NtOpenThread" => {
                 self.sanctum_operations.cross_process_handle_count += 1;
@@ -828,6 +892,9 @@ impl ApiTracker {
             _ => {}
         }
 
-        self.operation_sequence.push(OperationType::Generic(format!("SANCTUM:{}:{}", source, function)));
+        self.operation_sequence.push(OperationType::Generic(format!(
+            "SANCTUM:{}:{}",
+            source, function
+        )));
     }
 }

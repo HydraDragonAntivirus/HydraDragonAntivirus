@@ -6,22 +6,22 @@
 //! - Malware pattern matching (RAT, ransomware, spyware, etc.)
 //! - API usage tracking and analysis
 
+pub mod api_tracker;
+pub mod autonomous_learning;
 pub mod behavioral_signature;
 pub mod malware_patterns;
 pub mod ml_collector;
-pub mod api_tracker;
 pub mod realtime_learning;
-pub mod autonomous_learning;
 
-pub use behavioral_signature::{SignatureMatch, ThreatLevel};
-pub use malware_patterns::{PatternType, PatternMatcher};
-pub use ml_collector::MLCollector;
 pub use api_tracker::ApiTracker;
-pub use realtime_learning::{RealtimeLearningEngine, LearningConfig, LearningLabel};
 pub use autonomous_learning::{AutonomousLearningEngine, ThreatAssessment};
+pub use behavioral_signature::{SignatureMatch, ThreatLevel};
+pub use malware_patterns::{PatternMatcher, PatternType};
+pub use ml_collector::MLCollector;
+pub use realtime_learning::{LearningConfig, LearningLabel, RealtimeLearningEngine};
 
-use crate::shared_def::IOMessage;
 use crate::process::ProcessRecord;
+use crate::shared_def::IOMessage;
 use std::collections::HashMap;
 
 /// Main realtime learning interface for behavioral analysis
@@ -58,10 +58,15 @@ impl OwlyShieldSDK {
         ml_mode_enabled: bool,
         malapi_json_path: &str,
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-        app_settings: &crate::behavioral::app_settings::AppSettings
+        app_settings: &crate::behavioral::app_settings::AppSettings,
     ) -> Self {
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-        return Self::with_realtime_learning(ml_mode_enabled, false, malapi_json_path, app_settings);
+        return Self::with_realtime_learning(
+            ml_mode_enabled,
+            false,
+            malapi_json_path,
+            app_settings,
+        );
         #[cfg(not(all(target_os = "windows", feature = "behavior_engine")))]
         return Self::with_realtime_learning(ml_mode_enabled, false, malapi_json_path);
     }
@@ -77,7 +82,7 @@ impl OwlyShieldSDK {
         realtime_learning_enabled: bool,
         malapi_json_path: &str,
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-        app_settings: &crate::behavioral::app_settings::AppSettings
+        app_settings: &crate::behavioral::app_settings::AppSettings,
     ) -> Self {
         let signature_engine = Some(behavioral_signature::SignatureEngine::new(malapi_json_path));
         let pattern_matcher = Some(PatternMatcher::new(malapi_json_path));
@@ -92,7 +97,10 @@ impl OwlyShieldSDK {
             #[cfg(not(all(target_os = "windows", feature = "behavior_engine")))]
             let trust_path = None;
 
-            Some(RealtimeLearningEngine::new("./ml_data/realtime", trust_path))
+            Some(RealtimeLearningEngine::new(
+                "./ml_data/realtime",
+                trust_path,
+            ))
         } else {
             None
         };
@@ -133,8 +141,8 @@ impl OwlyShieldSDK {
         println!("╚═══════════════════════════════════════════════════════════╝\n");
 
         OwlyShieldSDK {
-            signature_engine: None,  // NO hardcoded signatures!
-            pattern_matcher: None,   // NO hardcoded patterns!
+            signature_engine: None, // NO hardcoded signatures!
+            pattern_matcher: None,  // NO hardcoded patterns!
             ml_collector: Some(MLCollector::new()),
             realtime_learning: None,
             autonomous_engine: Some(AutonomousLearningEngine::new()),
@@ -152,7 +160,8 @@ impl OwlyShieldSDK {
         let gid = msg.gid;
 
         // Get or create API tracker for this process
-        let api_tracker = self.api_trackers
+        let api_tracker = self
+            .api_trackers
             .entry(gid)
             .or_insert_with(|| ApiTracker::new(gid, precord.appname.clone()));
 
@@ -167,16 +176,19 @@ impl OwlyShieldSDK {
 
         // AUTONOMOUS MODE: Pure ML detection from memory
         if self.autonomous_mode_enabled
-            && let Some(ref mut autonomous) = self.autonomous_engine {
-                let assessment = autonomous.observe_process(gid, api_tracker, precord);
+            && let Some(ref mut autonomous) = self.autonomous_engine
+        {
+            let assessment = autonomous.observe_process(gid, api_tracker, precord);
 
-                if assessment.is_threat {
-                    println!("[Next-Gen Detection] 🚨 Threat: {} - {}",
-                             precord.appname, assessment.reasoning);
-                }
-
-                return assessment.is_threat;
+            if assessment.is_threat {
+                println!(
+                    "[Next-Gen Detection] 🚨 Threat: {} - {}",
+                    precord.appname, assessment.reasoning
+                );
             }
+
+            return assessment.is_threat;
+        }
 
         // TRADITIONAL MODE: Signature + Pattern based detection
         let signature_match = if let Some(ref engine) = self.signature_engine {
@@ -194,10 +206,9 @@ impl OwlyShieldSDK {
         let is_malicious = signature_match.is_some() || pattern_match.is_some();
 
         // Real-time learning: If malicious detected, mark it
-        if is_malicious
-            && let Some(ref mut rt_learning) = self.realtime_learning {
-                rt_learning.mark_detected_malicious(gid, api_tracker, precord);
-            }
+        if is_malicious && let Some(ref mut rt_learning) = self.realtime_learning {
+            rt_learning.mark_detected_malicious(gid, api_tracker, precord);
+        }
 
         // Collect data for ML if enabled
         if let Some(ref mut collector) = self.ml_collector {
@@ -208,20 +219,22 @@ impl OwlyShieldSDK {
         is_malicious
     }
 
-
     /// Process terminated - final chance to auto-label if benign
     pub fn process_terminated(&mut self, gid: u64) {
         if let Some(ref mut rt_learning) = self.realtime_learning
-            && let Some(api_tracker) = self.api_trackers.get(&gid) {
-                let precord = ProcessRecord::new(gid, String::new(), std::path::PathBuf::new());
-                rt_learning.process_terminated(gid, api_tracker, &precord);
-            }
+            && let Some(api_tracker) = self.api_trackers.get(&gid)
+        {
+            let precord = ProcessRecord::new(gid, String::new(), std::path::PathBuf::new());
+            rt_learning.process_terminated(gid, api_tracker, &precord);
+        }
     }
 
     /// Periodic check for benign processes (call this every few minutes)
     /// Automatically labels long-running, non-malicious processes as benign
     pub fn check_benign_processes<'a, F>(&mut self, get_record: F)
-    where F: Fn(u64) -> Option<&'a ProcessRecord> {
+    where
+        F: Fn(u64) -> Option<&'a ProcessRecord>,
+    {
         if let Some(ref mut rt_learning) = self.realtime_learning {
             rt_learning.check_benign_processes(&self.api_trackers, get_record);
 
@@ -237,9 +250,7 @@ impl OwlyShieldSDK {
         if let Some(ref mut rt_learning) = self.realtime_learning {
             rt_learning.export_samples()
         } else {
-            Err(std::io::Error::other(
-                "Real-time learning is not enabled",
-            ))
+            Err(std::io::Error::other("Real-time learning is not enabled"))
         }
     }
 
@@ -290,9 +301,7 @@ impl OwlyShieldSDK {
         if let Some(ref mut autonomous) = self.autonomous_engine {
             autonomous.export_learned_rules_to_yaml()
         } else {
-            Err(std::io::Error::other(
-                "Autonomous mode is not enabled",
-            ))
+            Err(std::io::Error::other("Autonomous mode is not enabled"))
         }
     }
 
@@ -326,9 +335,7 @@ impl OwlyShieldSDK {
         if let Some(ref collector) = self.ml_collector {
             collector.export_to_json(output_path)
         } else {
-            Err(std::io::Error::other(
-                "ML collection mode is not enabled",
-            ))
+            Err(std::io::Error::other("ML collection mode is not enabled"))
         }
     }
 

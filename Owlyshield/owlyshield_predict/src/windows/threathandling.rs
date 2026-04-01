@@ -1,20 +1,19 @@
+use crate::driver_com::Driver;
 use crate::logging::Logging;
 use crate::process::{ProcessRecord, ProcessState};
 use crate::threat_handler::ThreatHandler;
 use crate::utils::{
-    protected_process_reason,
-    protected_process_record_reason,
+    protected_process_reason, protected_process_record_reason,
     suspicious_critical_process_record_reason,
 };
+use serde::{Deserialize, Serialize};
 use windows::Win32::Foundation::{BOOL, CloseHandle, GetLastError};
+use windows::Win32::Storage::FileSystem::{MOVEFILE_DELAY_UNTIL_REBOOT, MoveFileExW};
 use windows::Win32::System::Diagnostics::Debug::{
     DebugActiveProcess, DebugActiveProcessStop, DebugSetProcessKillOnExit,
 };
-use windows::Win32::Storage::FileSystem::{MoveFileExW, MOVEFILE_DELAY_UNTIL_REBOOT};
-use windows::Win32::System::Threading::{OpenProcess, TerminateProcess, PROCESS_TERMINATE};
+use windows::Win32::System::Threading::{OpenProcess, PROCESS_TERMINATE, TerminateProcess};
 use windows::core::PCWSTR;
-use crate::driver_com::Driver;
-use serde::{Serialize, Deserialize};
 
 use std::io::Write;
 use std::os::windows::ffi::OsStrExt;
@@ -27,7 +26,6 @@ struct QuarantineLogEntry {
     timestamp: u64,
     reason: String,
 }
-
 
 #[derive(Clone)]
 pub struct WindowsThreatHandler {
@@ -46,7 +44,7 @@ impl WindowsThreatHandler {
     pub fn from(driver: Driver) -> WindowsThreatHandler {
         WindowsThreatHandler { driver }
     }
-    
+
     /// Create a new WindowsThreatHandler with a fresh driver connection.
     /// WARNING: This opens a new kernel driver connection every time it's called.
     /// Reusing a single connection is strongly recommended (e.g. via `WindowsThreatHandler::from(driver)`)
@@ -248,13 +246,22 @@ impl ThreatHandler for WindowsThreatHandler {
         match self.driver.try_kill(gid) {
             Ok(hres) => {
                 if hres.is_ok() {
-                    Logging::info(&format!("[ThreatHandler] Successfully killed process group GID: {}", gid));
+                    Logging::info(&format!(
+                        "[ThreatHandler] Successfully killed process group GID: {}",
+                        gid
+                    ));
                 } else {
-                    Logging::error(&format!("[ThreatHandler] Driver failed to kill GID: {}. HRESULT: 0x{:08X}", gid, hres.0 as u32));
+                    Logging::error(&format!(
+                        "[ThreatHandler] Driver failed to kill GID: {}. HRESULT: 0x{:08X}",
+                        gid, hres.0 as u32
+                    ));
                 }
             }
             Err(e) => {
-                Logging::error(&format!("[ThreatHandler] Failed to communicate with driver for GID: {}. Error: {}", gid, e));
+                Logging::error(&format!(
+                    "[ThreatHandler] Failed to communicate with driver for GID: {}. Error: {}",
+                    gid, e
+                ));
             }
         }
     }
@@ -288,13 +295,22 @@ impl ThreatHandler for WindowsThreatHandler {
             match self.driver.kill_and_remove_driver(gid, &driver_path) {
                 Ok(hres) => {
                     if hres.is_ok() {
-                        Logging::info(&format!("[ThreatHandler] Successfully killed and removed process group GID: {}", gid));
+                        Logging::info(&format!(
+                            "[ThreatHandler] Successfully killed and removed process group GID: {}",
+                            gid
+                        ));
                     } else {
-                        Logging::error(&format!("[ThreatHandler] Driver failed to kill and remove GID: {}. HRESULT: 0x{:08X}", gid, hres.0 as u32));
+                        Logging::error(&format!(
+                            "[ThreatHandler] Driver failed to kill and remove GID: {}. HRESULT: 0x{:08X}",
+                            gid, hres.0 as u32
+                        ));
                     }
                 }
                 Err(e) => {
-                    Logging::error(&format!("[ThreatHandler] Failed to communicate with driver for GID: {} during removal. Error: {}", gid, e));
+                    Logging::error(&format!(
+                        "[ThreatHandler] Failed to communicate with driver for GID: {} during removal. Error: {}",
+                        gid, e
+                    ));
                 }
             }
         }
@@ -329,22 +345,32 @@ impl ThreatHandler for WindowsThreatHandler {
             match self.driver.try_kill(gid) {
                 Ok(hres) => {
                     if hres.is_ok() {
-                        Logging::info(&format!("[ThreatHandler] Successfully killed process group GID: {} for quarantine", gid));
+                        Logging::info(&format!(
+                            "[ThreatHandler] Successfully killed process group GID: {} for quarantine",
+                            gid
+                        ));
                     } else {
-                        Logging::warning(&format!("[ThreatHandler] Driver returned HRESULT 0x{:08X} when killing GID: {} for quarantine", hres.0 as u32, gid));
+                        Logging::warning(&format!(
+                            "[ThreatHandler] Driver returned HRESULT 0x{:08X} when killing GID: {} for quarantine",
+                            hres.0 as u32, gid
+                        ));
                     }
                 }
                 Err(e) => {
-                    Logging::error(&format!("[ThreatHandler] Failed to communicate with driver for GID: {} during quarantine. Error: {}", gid, e));
+                    Logging::error(&format!(
+                        "[ThreatHandler] Failed to communicate with driver for GID: {} during quarantine. Error: {}",
+                        gid, e
+                    ));
                 }
             }
         }
-        
+
         // 2. Small delay to ensure process is dead and handles are closed
         std::thread::sleep(std::time::Duration::from_millis(200));
 
         // 3. Prepare quarantine path
-        let quarantine_dir = std::path::Path::new(r"C:\ProgramData\HydraDragonAntivirus\Quarantine");
+        let quarantine_dir =
+            std::path::Path::new(r"C:\ProgramData\HydraDragonAntivirus\Quarantine");
         if !quarantine_dir.exists() {
             let _ = std::fs::create_dir_all(quarantine_dir);
         }
@@ -353,54 +379,69 @@ impl ThreatHandler for WindowsThreatHandler {
 
         if let Some(filename) = source_path.file_name() {
             let dest_path = quarantine_dir.join(filename);
-            
+
             // 4. Move the file
             match std::fs::rename(&source_path, &dest_path) {
                 Ok(_) => {
-                    Logging::alert(&format!("Quarantined malicious file to: {}", dest_path.display()));
+                    Logging::alert(&format!(
+                        "Quarantined malicious file to: {}",
+                        dest_path.display()
+                    ));
                 }
                 Err(e) => {
                     // If rename fails (e.g. across drives), try copy + delete
                     match std::fs::copy(&source_path, &dest_path) {
                         Ok(_) => {
                             let _ = self.delete_with_reboot_fallback(&source_path);
-                            Logging::alert(&format!("Quarantined malicious file (copy/delete) to: {}", dest_path.display()));
+                            Logging::alert(&format!(
+                                "Quarantined malicious file (copy/delete) to: {}",
+                                dest_path.display()
+                            ));
                         }
                         Err(e2) => {
-                            Logging::alert(&format!("Failed to quarantine file {}: {} (Copy error: {})", source_path.display(), e, e2));
+                            Logging::alert(&format!(
+                                "Failed to quarantine file {}: {} (Copy error: {})",
+                                source_path.display(),
+                                e,
+                                e2
+                            ));
                         }
                     }
                 }
             }
-            
+
             self.add_kernel_block_path(path);
         }
 
-            
-            // 5. Log to JSON for Realtime Learning
-            let log_entry = QuarantineLogEntry {
-                filepath: path.to_string_lossy().to_string(),
-                timestamp: SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs(),
-                reason: "Malicious Behavior Detected".to_string(), // In future pass reason
-            };
-            
-            let log_path = quarantine_dir.join("quarantine_log.json");
-            
-            // Read existing or create new
-            let mut entries: Vec<QuarantineLogEntry> = Vec::new();
-            if log_path.exists()
-                && let Ok(content) = std::fs::read_to_string(&log_path)
-                    && let Ok(existing) = serde_json::from_str(&content) {
-                        entries = existing;
-                    }
-            
-            entries.push(log_entry);
-            
-            if let Ok(json) = serde_json::to_string_pretty(&entries)
-                && let Ok(mut file) = std::fs::File::create(&log_path) {
-                let _ = file.write_all(json.as_bytes());
-            }
+        // 5. Log to JSON for Realtime Learning
+        let log_entry = QuarantineLogEntry {
+            filepath: path.to_string_lossy().to_string(),
+            timestamp: SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
+            reason: "Malicious Behavior Detected".to_string(), // In future pass reason
+        };
+
+        let log_path = quarantine_dir.join("quarantine_log.json");
+
+        // Read existing or create new
+        let mut entries: Vec<QuarantineLogEntry> = Vec::new();
+        if log_path.exists()
+            && let Ok(content) = std::fs::read_to_string(&log_path)
+            && let Ok(existing) = serde_json::from_str(&content)
+        {
+            entries = existing;
         }
+
+        entries.push(log_entry);
+
+        if let Ok(json) = serde_json::to_string_pretty(&entries)
+            && let Ok(mut file) = std::fs::File::create(&log_path)
+        {
+            let _ = file.write_all(json.as_bytes());
+        }
+    }
 
     fn schedule_cleanup_on_reboot(&self, path: &Path) {
         let usermode_path = Self::normalize_usermode_path(path);
@@ -438,7 +479,7 @@ impl ThreatHandler for WindowsThreatHandler {
         for pid in &proc.pids {
             unsafe {
                 DebugSetProcessKillOnExit(kill_proc_on_exit);
-                DebugActiveProcessStop(*pid );
+                DebugActiveProcessStop(*pid);
             }
         }
         proc.process_state = ProcessState::Running;
@@ -450,12 +491,17 @@ impl ThreatHandler for WindowsThreatHandler {
                 Logging::alert(&format!("[REGISTRY] Revert signal sent for GID: {}", gid));
             }
             Err(e) => {
-                Logging::alert(&format!("[REGISTRY] Failed to revert for GID: {}. Error: {:?}", gid, e));
+                Logging::alert(&format!(
+                    "[REGISTRY] Failed to revert for GID: {}. Error: {:?}",
+                    gid, e
+                ));
             }
         }
     }
 
     fn clone_box(&self) -> Box<dyn ThreatHandler> {
-        Box::new(WindowsThreatHandler { driver: self.driver.clone() })
+        Box::new(WindowsThreatHandler {
+            driver: self.driver.clone(),
+        })
     }
 }

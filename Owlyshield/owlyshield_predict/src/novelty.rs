@@ -1,13 +1,13 @@
+use crate::process::ProcessRecord;
+use crate::shared_def::{FileId, IOMessage, IrpMajorOp};
+use chrono::{DateTime, Local};
+use serde::{Deserialize, Serialize};
+use serde_json::{from_reader, to_writer};
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::fs::File;
 use std::io::{BufReader, BufWriter};
 use std::path::{Path, PathBuf};
-use chrono::{DateTime, Local};
-use serde::{Serialize, Deserialize};
-use serde_json::{from_reader, to_writer};
-use crate::process::ProcessRecord;
-use crate::shared_def::{FileId, IOMessage, IrpMajorOp};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct StateSave {
@@ -78,19 +78,21 @@ impl Rule {
     }
 
     fn get_cluster(&self, target_path: &Path) -> Option<&RuleCluster> {
-        self.clusters.iter().find(|cluster| {
-            match &cluster.path {
-                Some(path) => path == target_path.to_str().unwrap(),
-                None => false,
-            }
+        self.clusters.iter().find(|cluster| match &cluster.path {
+            Some(path) => path == target_path.to_str().unwrap(),
+            None => false,
         })
     }
 
     fn replace_cluster(&mut self, target_path: &Path, new_cluster: RuleCluster) {
-        if let Some(index) = self.clusters.iter().position(|cluster| match &cluster.path {
-            Some(path) => path == target_path.to_str().unwrap(),
-            None => false,
-        }) {
+        if let Some(index) = self
+            .clusters
+            .iter()
+            .position(|cluster| match &cluster.path {
+                Some(path) => path == target_path.to_str().unwrap(),
+                None => false,
+            })
+        {
             self.clusters[index] = new_cluster;
         }
     }
@@ -99,10 +101,11 @@ impl Rule {
     pub fn replace_subclusters(&mut self, oldrule: &Rule, distances: &[ClusterDistance]) {
         for distance in distances {
             if distance.distance == 0.0
-                && let Some(old_cluster) = oldrule.get_cluster(&distance.dir1) {
-                    let new_cluster = old_cluster.clone();
-                    self.replace_cluster(&distance.dir2, new_cluster);
-                }
+                && let Some(old_cluster) = oldrule.get_cluster(&distance.dir1)
+            {
+                let new_cluster = old_cluster.clone();
+                self.replace_cluster(&distance.dir2, new_cluster);
+            }
         }
     }
 
@@ -114,13 +117,11 @@ impl Rule {
         res.clusters.clear();
         //Clusters to RuleClusters
         for cluster in &precord.clusters {
-            res.clusters.push(
-                RuleCluster {
-                    // mode: mode.clone(),
-                    cardinality: cluster.size(),
-                    path: Some(cluster.root()),
-                }
-            );
+            res.clusters.push(RuleCluster {
+                // mode: mode.clone(),
+                cardinality: cluster.size(),
+                path: Some(cluster.root()),
+            });
         }
         res.driver_msg_count = precord.driver_msg_count;
         res
@@ -150,8 +151,16 @@ impl Rule {
 
     pub fn distance(&self, newrule: &Rule, precord: &ProcessRecord) -> Vec<ClusterDistance> {
         let mut res = Vec::new();
-        let rule_clusters: HashSet<PathBuf> = self.clusters.iter().map(|c| PathBuf::from(c.path.as_ref().unwrap())).collect();
-        let newrule_clusters: HashSet<PathBuf> = newrule.clusters.iter().map(|c| PathBuf::from(c.path.as_ref().unwrap())).collect();
+        let rule_clusters: HashSet<PathBuf> = self
+            .clusters
+            .iter()
+            .map(|c| PathBuf::from(c.path.as_ref().unwrap()))
+            .collect();
+        let newrule_clusters: HashSet<PathBuf> = newrule
+            .clusters
+            .iter()
+            .map(|c| PathBuf::from(c.path.as_ref().unwrap()))
+            .collect();
         let clusters_diff: HashSet<_> = newrule_clusters.difference(&rule_clusters).collect();
 
         if !clusters_diff.is_empty() {
@@ -162,7 +171,8 @@ impl Rule {
                         // new cluster is not subcluster : may happen if program recently started; In that case, distance should be zero.
                         let newcluster_set = precord.dirs_content.set_recur(newcluster);
                         let union_count = rule_cluster_set.union(&newcluster_set).count() as f32;
-                        let inter_count = rule_cluster_set.intersection(&newcluster_set).count() as f32;
+                        let inter_count =
+                            rule_cluster_set.intersection(&newcluster_set).count() as f32;
 
                         res.push(ClusterDistance {
                             dir1: rule_cluster.to_path_buf(),
@@ -212,12 +222,17 @@ impl DirectoriesContent {
         let fileid = iomsg.file_id_id;
         let operation_type = IrpMajorOp::from_byte(iomsg.irp_op);
         if !self.dirs_fileids.contains_key(&path) {
-            self.dirs_fileids.insert(path.clone(), HashSet::from([fileid]));
-            self.dirs_optypes.insert(path.clone(), HashSet::from([operation_type]));
+            self.dirs_fileids
+                .insert(path.clone(), HashSet::from([fileid]));
+            self.dirs_optypes
+                .insert(path.clone(), HashSet::from([operation_type]));
             // self.dirs_filetypes.insert(path, HashSet::from([self.extensionList.get_extension_category(&iomsg.extension)]));
         } else {
             self.dirs_fileids.get_mut(&path).unwrap().insert(fileid);
-            self.dirs_optypes.get_mut(&path).unwrap().insert(operation_type);
+            self.dirs_optypes
+                .get_mut(&path)
+                .unwrap()
+                .insert(operation_type);
             // self.dirs_filetypes.get_mut(&path).unwrap().insert(self.extensionList.get_extension_category(&iomsg.extension));
         }
     }
@@ -283,8 +298,12 @@ impl DirectoriesContent {
     }
 
     pub fn is_child_of(parent: &Path, child_candidate: &Path) -> bool {
-        let parent = parent.canonicalize().unwrap_or_else(|_| parent.to_path_buf());
-        let child_candidate = child_candidate.canonicalize().unwrap_or_else(|_| child_candidate.to_path_buf());
+        let parent = parent
+            .canonicalize()
+            .unwrap_or_else(|_| parent.to_path_buf());
+        let child_candidate = child_candidate
+            .canonicalize()
+            .unwrap_or_else(|_| child_candidate.to_path_buf());
 
         child_candidate
             .ancestors()

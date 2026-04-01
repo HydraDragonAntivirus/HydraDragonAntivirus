@@ -11,10 +11,10 @@ use serde::Serialize;
 
 use crate::config::{Config, ConfigReader, Param};
 use crate::connectors::connector::{Connector, ConnectorError};
+use crate::logging::Logging;
 use crate::notifications::notify;
 use crate::process::ProcessRecord;
 use crate::utils::FILE_TIME_FORMAT;
-use crate::logging::Logging;
 
 use std::io::Read;
 
