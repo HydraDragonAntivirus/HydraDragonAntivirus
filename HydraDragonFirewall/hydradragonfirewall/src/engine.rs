@@ -3003,7 +3003,6 @@ impl FirewallEngine {
         }
         {
             let stop_pipe = Arc::clone(&stop);
-            let am_pipe = Arc::clone(&am);
             std::thread::Builder::new()
                 .name("net_event_pipe_writer".to_string())
                 .spawn(move || {
