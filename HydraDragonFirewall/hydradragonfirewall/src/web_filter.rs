@@ -16,7 +16,7 @@ pub struct WebFilter {
     ipv4_blocklist: Arc<RwLock<HashSet<Ipv4Addr>>>,
     ipv6_blocklist: Arc<RwLock<HashSet<Ipv6Addr>>>,
     domain_blocklist: Arc<RwLock<HashSet<String>>>,
-    
+
     // Whitelists to override blocklists
     ipv4_whitelist: Arc<RwLock<HashSet<Ipv4Addr>>>,
     ipv6_whitelist: Arc<RwLock<HashSet<Ipv6Addr>>>,
@@ -43,7 +43,7 @@ impl WebFilter {
             ipv4_blocklist: Arc::new(RwLock::new(HashSet::new())),
             ipv6_blocklist: Arc::new(RwLock::new(HashSet::new())),
             domain_blocklist: Arc::new(RwLock::new(HashSet::new())),
-            
+
             ipv4_whitelist: Arc::new(RwLock::new(HashSet::new())),
             ipv6_whitelist: Arc::new(RwLock::new(HashSet::new())),
             domain_whitelist: Arc::new(RwLock::new(
@@ -84,7 +84,12 @@ impl WebFilter {
         let hostname_lower = hostname.to_lowercase();
 
         // 0. Check whitelist (whitelist prevents hostname/domain blocking, but individual URLs can still be blocked)
-        if self.domain_whitelist.read().unwrap().contains(&hostname_lower) {
+        if self
+            .domain_whitelist
+            .read()
+            .unwrap()
+            .contains(&hostname_lower)
+        {
             return None;
         }
 
@@ -598,7 +603,9 @@ impl WebThreatMatch {
 
     pub fn decision_key(&self) -> String {
         match self.kind {
-            WebThreatTargetKind::Url => format!("website:url:{}", WebFilter::normalize_url(&self.target)),
+            WebThreatTargetKind::Url => {
+                format!("website:url:{}", WebFilter::normalize_url(&self.target))
+            }
             WebThreatTargetKind::Hostname => {
                 format!("website:host:{}", self.target.trim().to_lowercase())
             }

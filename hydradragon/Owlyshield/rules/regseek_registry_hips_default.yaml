@@ -28,11 +28,6 @@
         - reg_delete_value
         - reg_delete_key
         - reg_rename_key
-        - reg_query_value
-        - reg_query_key
-        - reg_open_key
-        - reg_enum_key
-        - reg_enum_value
       min_matches: 1
     boot_and_servicing:
       orderless: true
@@ -47,11 +42,6 @@
         - reg_delete_value
         - reg_delete_key
         - reg_rename_key
-        - reg_query_value
-        - reg_query_key
-        - reg_open_key
-        - reg_enum_key
-        - reg_enum_value
       min_matches: 1
     system_controls:
       orderless: true
@@ -67,11 +57,6 @@
         - reg_delete_value
         - reg_delete_key
         - reg_rename_key
-        - reg_query_value
-        - reg_query_key
-        - reg_open_key
-        - reg_enum_key
-        - reg_enum_value
       min_matches: 1
     storage_and_devices:
       orderless: true
@@ -88,11 +73,6 @@
         - reg_delete_value
         - reg_delete_key
         - reg_rename_key
-        - reg_query_value
-        - reg_query_key
-        - reg_open_key
-        - reg_enum_key
-        - reg_enum_value
       min_matches: 1
   response:
     ask_user: true
@@ -980,11 +960,6 @@
         - reg_delete_value
         - reg_delete_key
         - reg_rename_key
-        - reg_query_value
-        - reg_query_key
-        - reg_open_key
-        - reg_enum_key
-        - reg_enum_value
       min_matches: 1
     hijack_surfaces:
       orderless: true
@@ -1002,11 +977,6 @@
         - reg_delete_value
         - reg_delete_key
         - reg_rename_key
-        - reg_query_value
-        - reg_query_key
-        - reg_open_key
-        - reg_enum_key
-        - reg_enum_value
       min_matches: 1
     service_surfaces:
       orderless: true
@@ -1020,11 +990,6 @@
         - reg_delete_value
         - reg_delete_key
         - reg_rename_key
-        - reg_query_value
-        - reg_query_key
-        - reg_open_key
-        - reg_enum_key
-        - reg_enum_value
       min_matches: 1
   response:
     ask_user: true

@@ -5,7 +5,7 @@ use lazy_static::lazy_static;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use shared_no_std::ghost_hunting::{NetworkActivityData, NtFunction, Syscall};
-use std::collections::{HashMap, VecDeque, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 use std::io::{BufRead, BufReader, Write};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
@@ -13,7 +13,10 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use tauri::{AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, Position, Runtime, Size, WebviewUrl, WebviewWindowBuilder};
+use tauri::{
+    AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, Position, Runtime, Size, WebviewUrl,
+    WebviewWindowBuilder,
+};
 use tokio::io::AsyncReadExt;
 use tokio::net::windows::named_pipe::ClientOptions;
 use tokio::sync::oneshot;
@@ -43,9 +46,12 @@ fn normalize_kernel_block_path_candidate(value: &str) -> Option<String> {
     }
 
     let chars: Vec<char> = normalized.chars().collect();
-    let is_drive_path = chars.len() >= 3 && chars[1] == ':' && (chars[2] == '\\' || chars[2] == '/');
+    let is_drive_path =
+        chars.len() >= 3 && chars[1] == ':' && (chars[2] == '\\' || chars[2] == '/');
     let is_unc_path = normalized.starts_with("\\\\");
-    let is_nt_path = lower.starts_with("\\device\\") || lower.starts_with("\\??\\") || lower.starts_with("\\\\?\\");
+    let is_nt_path = lower.starts_with("\\device\\")
+        || lower.starts_with("\\??\\")
+        || lower.starts_with("\\\\?\\");
 
     if is_drive_path || is_unc_path || is_nt_path {
         Some(normalized)
@@ -85,7 +91,10 @@ fn is_known_browser_process(name: &str) -> bool {
 
 fn browser_mitm_error_hint(name: &str) -> &'static str {
     let lower = name.trim().to_ascii_lowercase();
-    if matches!(lower.as_str(), "firefox.exe" | "librewolf.exe" | "waterfox.exe") {
+    if matches!(
+        lower.as_str(),
+        "firefox.exe" | "librewolf.exe" | "waterfox.exe"
+    ) {
         "SEC_ERROR_UNKNOWN_ISSUER"
     } else {
         "NET::ERR_CERT_AUTHORITY_INVALID"
@@ -94,7 +103,10 @@ fn browser_mitm_error_hint(name: &str) -> &'static str {
 
 fn browser_family(name: &str) -> &'static str {
     let lower = name.trim().to_ascii_lowercase();
-    if matches!(lower.as_str(), "firefox.exe" | "librewolf.exe" | "waterfox.exe") {
+    if matches!(
+        lower.as_str(),
+        "firefox.exe" | "librewolf.exe" | "waterfox.exe"
+    ) {
         "firefox"
     } else {
         "chromium"
@@ -247,7 +259,9 @@ fn firewall_data_dir() -> PathBuf {
 }
 
 fn firewall_log_file_path() -> PathBuf {
-    firewall_data_dir().join("logs").join("firewall_activity.jsonl")
+    firewall_data_dir()
+        .join("logs")
+        .join("firewall_activity.jsonl")
 }
 
 fn default_website_path() -> String {
@@ -348,7 +362,6 @@ impl Default for TlsInspectionMode {
         TlsInspectionMode::TlsProxy
     }
 }
-
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
@@ -529,7 +542,6 @@ impl FirewallRule {
                 return false;
             }
         }
-
 
         // URL pattern matching (for HTTP only)
         if let Some(ref pattern) = self.url_pattern {
@@ -878,10 +890,11 @@ impl AppInfoCache {
         }
 
         use windows::Win32::Foundation::CloseHandle;
-        use windows::Win32::System::Threading::{
-            OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
-        };
         use windows::Win32::System::ProcessStatus::GetModuleFileNameExA;
+        use windows::Win32::System::Threading::{
+            OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
+            QueryFullProcessImageNameW,
+        };
         use windows::core::PWSTR;
 
         unsafe {
@@ -913,7 +926,8 @@ impl AppInfoCache {
                 let _ = CloseHandle(handle);
 
                 if ansi_len > 0 {
-                    let full_path = String::from_utf8_lossy(&ansi_buffer[..ansi_len as usize]).to_string();
+                    let full_path =
+                        String::from_utf8_lossy(&ansi_buffer[..ansi_len as usize]).to_string();
                     let name = Path::new(&full_path)
                         .file_name()
                         .and_then(|n| n.to_str())
@@ -994,11 +1008,7 @@ impl AppManager {
         // Hard-code only the immutable OS-level identifiers.
         // Everything else — firewall, AV, proxy processes — is driven exclusively
         // by app_decisions entries in settings.json (full paths).
-        if pid == std::process::id()
-            || app_name_lower == "system"
-            || pid == 0
-            || pid == 4
-        {
+        if pid == std::process::id() || app_name_lower == "system" || pid == 0 || pid == 4 {
             return (AppDecision::Allow, app_name, app_path);
         }
 
@@ -1007,16 +1017,13 @@ impl AppManager {
             let decisions = self.decisions.read().unwrap();
             let app_path_lower = app_path.to_lowercase();
             let allow_name_fallback = !is_unresolved_identity(&app_name_lower);
-            if let Some(decision) = decisions
-                .get(&app_path_lower)
-                .or_else(|| {
-                    if allow_name_fallback {
-                        decisions.get(&app_name_lower)
-                    } else {
-                        None
-                    }
-                })
-            {
+            if let Some(decision) = decisions.get(&app_path_lower).or_else(|| {
+                if allow_name_fallback {
+                    decisions.get(&app_name_lower)
+                } else {
+                    None
+                }
+            }) {
                 return (decision.clone(), app_name, app_path);
             }
         }
@@ -1394,7 +1401,9 @@ impl FirewallEngine {
 
         for host in &tls_proxy.bypass_hosts {
             if let Some(normalized) = Self::normalize_proxy_bypass_entry(host)
-                && !overrides.iter().any(|existing| existing.eq_ignore_ascii_case(&normalized))
+                && !overrides
+                    .iter()
+                    .any(|existing| existing.eq_ignore_ascii_case(&normalized))
             {
                 overrides.push(normalized);
             }
@@ -1406,17 +1415,17 @@ impl FirewallEngine {
     fn clear_owned_windows_proxy(addr: &str) -> Result<bool, String> {
         #[cfg(target_os = "windows")]
         {
-            use winreg::enums::*;
             use winreg::RegKey;
+            use winreg::enums::*;
 
             let hkcu = RegKey::predef(HKEY_CURRENT_USER);
             let path = r"Software\Microsoft\Windows\CurrentVersion\Internet Settings";
-            let (key, _) = hkcu
-                .create_subkey(path)
-                .map_err(|e| e.to_string())?;
+            let (key, _) = hkcu.create_subkey(path).map_err(|e| e.to_string())?;
 
             let proxy_enabled = key.get_value::<u32, _>("ProxyEnable").unwrap_or(0);
-            let proxy_server = key.get_value::<String, _>("ProxyServer").unwrap_or_default();
+            let proxy_server = key
+                .get_value::<String, _>("ProxyServer")
+                .unwrap_or_default();
             let addr_lc = addr.to_ascii_lowercase();
             let server_lc = proxy_server.to_ascii_lowercase();
             let owned = proxy_enabled != 0
@@ -1654,7 +1663,7 @@ impl FirewallEngine {
 
     pub fn save_settings(&self) {
         let current_settings = self.settings.read().unwrap().clone();
-        
+
         // Filter out one-time and unresolved identities so only stable trusts persist.
         let mut decisions = self.app_manager.decisions.read().unwrap().clone();
         decisions.retain(|key, value| {
@@ -1768,12 +1777,10 @@ impl FirewallEngine {
             return;
         }
 
-        let addr: std::net::SocketAddr = format!(
-            "{}:{}",
-            tls_proxy.listen_host, tls_proxy.listen_port
-        )
-        .parse()
-        .unwrap_or_else(|_| "127.0.0.1:8877".parse().unwrap());
+        let addr: std::net::SocketAddr =
+            format!("{}:{}", tls_proxy.listen_host, tls_proxy.listen_port)
+                .parse()
+                .unwrap_or_else(|_| "127.0.0.1:8877".parse().unwrap());
         let addr_string = addr.to_string();
 
         let ca_bundle = crate::proxy::generate_ca();
@@ -1786,12 +1793,18 @@ impl FirewallEngine {
             Err(e) => {
                 self.windows_root_trust_ready.store(false, Ordering::SeqCst);
                 let now = Self::now_ts();
-                emit_log_event(&tx, LogEntry {
-                    id: format!("{}-ca-install-warn", now),
-                    timestamp: now,
-                    level: LogLevel::Warning,
-                    message: format!("CA install skipped (run as admin to trust proxy cert): {}. Browsers may report a MITM/certificate attack and other antivirus or security products may also flag the interception even if it is hidden.", e),
-                });
+                emit_log_event(
+                    &tx,
+                    LogEntry {
+                        id: format!("{}-ca-install-warn", now),
+                        timestamp: now,
+                        level: LogLevel::Warning,
+                        message: format!(
+                            "CA install skipped (run as admin to trust proxy cert): {}. Browsers may report a MITM/certificate attack and other antivirus or security products may also flag the interception even if it is hidden.",
+                            e
+                        ),
+                    },
+                );
             }
         }
 
@@ -1803,15 +1816,18 @@ impl FirewallEngine {
             Err(e) => {
                 self.firefox_policy_ready.store(false, Ordering::SeqCst);
                 let now = Self::now_ts();
-                emit_log_event(&tx, LogEntry {
-                    id: format!("{}-firefox-ca-policy-warn", now),
-                    timestamp: now,
-                    level: LogLevel::Warning,
-                    message: format!(
-                        "Firefox CA policy setup failed; Firefox may still show SEC_ERROR_UNKNOWN_ISSUER or a visible MITM attack warning until trust is configured: {}. Other antivirus or security tools may also flag the interception.",
-                        e
-                    ),
-                });
+                emit_log_event(
+                    &tx,
+                    LogEntry {
+                        id: format!("{}-firefox-ca-policy-warn", now),
+                        timestamp: now,
+                        level: LogLevel::Warning,
+                        message: format!(
+                            "Firefox CA policy setup failed; Firefox may still show SEC_ERROR_UNKNOWN_ISSUER or a visible MITM attack warning until trust is configured: {}. Other antivirus or security tools may also flag the interception.",
+                            e
+                        ),
+                    },
+                );
             }
         }
 
@@ -1913,13 +1929,11 @@ impl FirewallEngine {
 
     /// Point the Windows system HTTP+HTTPS proxy to our embedded listener.
     fn set_windows_proxy(tls_proxy: &TlsProxyConfig) -> Result<(), String> {
-        use winreg::enums::*;
         use winreg::RegKey;
+        use winreg::enums::*;
         let hkcu = RegKey::predef(HKEY_CURRENT_USER);
         let path = r"Software\Microsoft\Windows\CurrentVersion\Internet Settings";
-        let (key, _) = hkcu
-            .create_subkey(path)
-            .map_err(|e| e.to_string())?;
+        let (key, _) = hkcu.create_subkey(path).map_err(|e| e.to_string())?;
         let addr = Self::proxy_addr_string(tls_proxy);
         // `addr` is already "host:port" (e.g. "127.0.0.1:8877").
         // Route both HTTP and HTTPS through the embedded MITM proxy so we can
@@ -1935,13 +1949,11 @@ impl FirewallEngine {
 
     /// Remove the system proxy settings we set on startup.
     fn clear_windows_proxy() -> Result<(), String> {
-        use winreg::enums::*;
         use winreg::RegKey;
+        use winreg::enums::*;
         let hkcu = RegKey::predef(HKEY_CURRENT_USER);
         let path = r"Software\Microsoft\Windows\CurrentVersion\Internet Settings";
-        let (key, _) = hkcu
-            .create_subkey(path)
-            .map_err(|e| e.to_string())?;
+        let (key, _) = hkcu.create_subkey(path).map_err(|e| e.to_string())?;
         key.set_value("ProxyEnable", &0u32)
             .map_err(|e| e.to_string())?;
         Ok(())
@@ -1958,8 +1970,8 @@ impl FirewallEngine {
     fn install_firefox_ca_policy(cert_path: &Path) -> Result<(), String> {
         #[cfg(target_os = "windows")]
         {
-            use winreg::enums::*;
             use winreg::RegKey;
+            use winreg::enums::*;
 
             let cert_path_string = cert_path.to_string_lossy().to_string();
             let write_policy = |root: RegKey| -> Result<(), String> {
@@ -1995,8 +2007,8 @@ impl FirewallEngine {
     /// Install a raw DER certificate into the Windows LocalMachine\Root trust store.
     fn install_ca_der(der: &[u8]) -> Result<(), String> {
         use windows::Win32::Security::Cryptography::{
-            CertAddEncodedCertificateToStore, CertCloseStore, CertOpenSystemStoreA,
-            CERT_STORE_ADD_REPLACE_EXISTING_INHERIT_PROPERTIES, X509_ASN_ENCODING,
+            CERT_STORE_ADD_REPLACE_EXISTING_INHERIT_PROPERTIES, CertAddEncodedCertificateToStore,
+            CertCloseStore, CertOpenSystemStoreA, X509_ASN_ENCODING,
         };
         use windows::core::PCSTR;
         unsafe {
@@ -2055,9 +2067,7 @@ impl FirewallEngine {
         let active_alert = self.app_manager.active_alert.read().unwrap().clone();
         let mut persist_settings = true;
         let mut effective_decision = decision;
-        let kernel_block_path = active_alert
-            .as_ref()
-            .and_then(select_kernel_block_path);
+        let kernel_block_path = active_alert.as_ref().and_then(select_kernel_block_path);
         let decision_identifier = active_alert
             .as_ref()
             .and_then(|alert| alert.decision_key.clone())
@@ -2070,14 +2080,14 @@ impl FirewallEngine {
                     .as_ref()
                     .filter(|target| !target.trim().is_empty())
                     .cloned();
-                let path = if !alert.path.trim().is_empty() && !alert.path.eq_ignore_ascii_case("unknown") {
+                let path = if !alert.path.trim().is_empty()
+                    && !alert.path.eq_ignore_ascii_case("unknown")
+                {
                     Some(alert.path.clone())
                 } else {
                     None
                 };
-                target
-                    .or(path)
-                    .unwrap_or_else(|| alert.name.clone())
+                target.or(path).unwrap_or_else(|| alert.name.clone())
             })
             .unwrap_or_else(|| name.clone());
 
@@ -2179,7 +2189,10 @@ impl FirewallEngine {
                     id: format!("{}-user-quarantine", now),
                     timestamp: now,
                     level: LogLevel::Warning,
-                    message: format!("Blocked: User decision for {} (quarantine requested)", decision_label),
+                    message: format!(
+                        "Blocked: User decision for {} (quarantine requested)",
+                        decision_label
+                    ),
                 },
             ),
             "allow_always" => emit_log_event(
@@ -2212,10 +2225,7 @@ impl FirewallEngine {
             _ => {}
         }
 
-        if effective_decision == "allow_once"
-            && missing_stable_path
-            && !has_explicit_decision_key
-        {
+        if effective_decision == "allow_once" && missing_stable_path && !has_explicit_decision_key {
             emit_log_event(
                 tx,
                 LogEntry {
@@ -2244,7 +2254,11 @@ impl FirewallEngine {
     pub fn remove_app_decision(&self, name_lower: String) {
         let normalized = name_lower.to_ascii_lowercase();
         self.app_manager.remove_decision(&normalized);
-        self.settings.write().unwrap().app_decisions.remove(&normalized);
+        self.settings
+            .write()
+            .unwrap()
+            .app_decisions
+            .remove(&normalized);
         self.save_settings();
     }
 
@@ -2314,7 +2328,7 @@ impl FirewallEngine {
     fn get_process_inventory_windows(&self) -> Vec<ProcessInventoryEntry> {
         use windows::Win32::Foundation::CloseHandle;
         use windows::Win32::System::Diagnostics::ToolHelp::{
-            CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W,
+            CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW,
             TH32CS_SNAPPROCESS,
         };
 
@@ -2608,8 +2622,6 @@ impl FirewallEngine {
         // Store a clone so stop() can call shutdown() and unblock all recv() threads.
         *self.divert_handle.lock().unwrap() = Some(divert.clone());
 
-
-
         let ts = Self::now_ts();
         let sdk_count = self.sdk.read().unwrap().rules.len();
         emit_log_event(
@@ -2681,8 +2693,8 @@ impl FirewallEngine {
                                     id: format!("{}-sanctum-telemetry-connected", now),
                                     timestamp: now,
                                     level: LogLevel::Success,
-                                    message:
-                                        "Connected to Sanctum ETW URL telemetry relay".to_string(),
+                                    message: "Connected to Sanctum ETW URL telemetry relay"
+                                        .to_string(),
                                 },
                             );
 
@@ -2699,8 +2711,10 @@ impl FirewallEngine {
                                                 continue;
                                             }
 
-                                            if let Ok(syscall) = serde_json::from_str::<Syscall>(&line)
-                                                && let NtFunction::NetworkActivity(data) = syscall.data
+                                            if let Ok(syscall) =
+                                                serde_json::from_str::<Syscall>(&line)
+                                                && let NtFunction::NetworkActivity(data) =
+                                                    syscall.data
                                             {
                                                 let url = match data {
                                                     NetworkActivityData::Http(http) => http.url,
@@ -2809,9 +2823,6 @@ impl FirewallEngine {
                         .encode_wide()
                         .chain(std::iter::once(0u16))
                         .collect();
-                    let expected_client =
-                        r"c:\program files\hydradragonantivirus\hydradragon\owlyshield\owlyshield service\owlyshield_ransom.exe";
-
                     while !stop_hips.load(Ordering::Relaxed) {
                         let handle: HANDLE = unsafe {
                             CreateNamedPipeW(
@@ -2844,14 +2855,11 @@ impl FirewallEngine {
                         }
 
                         let mut client_pid: u32 = 0;
-                        let client_ok = unsafe { GetNamedPipeClientProcessId(handle, &mut client_pid) }.is_ok()
-                            && client_pid != 0
-                            && am_hips
-                                .info_cache
-                                .get_info(client_pid)
-                                .path
-                                .to_lowercase()
-                                == expected_client;
+                        let client_ok = unsafe {
+                            GetNamedPipeClientProcessId(handle, &mut client_pid)
+                        }
+                        .is_ok()
+                            && client_pid != 0;
 
                         if !client_ok {
                             unsafe {
@@ -2978,7 +2986,6 @@ impl FirewallEngine {
                 .expect("failed to spawn raw_packet_emitter thread");
         }
 
-
         // ── NETWORK EVENT PIPE WRITER ────────────────────────────────────────────
         // Sends real network I/O events to the AV behavior engine so it can track
         // actual network activity per process instead of guessing from DLL loads.
@@ -3030,12 +3037,12 @@ impl FirewallEngine {
                                 let ok = unsafe { GetNamedPipeServerProcessId(handle, &mut server_pid) };
 
                                 if ok.is_ok() && server_pid != 0 {
-                                    let server_app = am_pipe.info_cache.get_info(server_pid);
-                                    let expected_path = r"c:\program files\hydradragonantivirus\hydradragon\owlyshield\owlyshield service\owlyshield_ransom.exe";
-                                    if server_app.path.to_lowercase() == expected_path {
+                                    if server_pid != 0 {
                                         pipe_opt = Some(file);
                                     } else {
-                                        println!("WARNING: Rejected unauthorized HydraNetEvent server: {}", server_app.path);
+                                        println!(
+                                            "WARNING: Rejected HydraNetEvent server with invalid PID"
+                                        );
                                     }
                                 }
                             }
@@ -3108,12 +3115,18 @@ impl FirewallEngine {
                                 packet_count += 1;
                                 if packet_count % 100 == 0 {
                                     let ts = Self::now_ts();
-                                    emit_log_event(&tx_log, LogEntry {
-                                        id: format!("{}-worker-{}-count", ts, worker_id),
-                                        timestamp: ts,
-                                        level: LogLevel::Info,
-                                        message: format!("Worker {} received {} packets", worker_id, packet_count),
-                                    });
+                                    emit_log_event(
+                                        &tx_log,
+                                        LogEntry {
+                                            id: format!("{}-worker-{}-count", ts, worker_id),
+                                            timestamp: ts,
+                                            level: LogLevel::Info,
+                                            message: format!(
+                                                "Worker {} received {} packets",
+                                                worker_id, packet_count
+                                            ),
+                                        },
+                                    );
                                 }
                                 // println!("DEBUG: Worker Recv Packet len={}", packet.data.len());
                                 let outbound = packet.address.outbound();
@@ -3224,9 +3237,7 @@ impl FirewallEngine {
                                         if !notified_pids.contains(&pid) {
                                             let msg = format!(
                                                 "NET_EVENT:{}:{}:{}\n",
-                                                pid,
-                                                parsed_info.dst_ip,
-                                                parsed_info.dst_port
+                                                pid, parsed_info.dst_ip, parsed_info.dst_port
                                             );
                                             let _ = net_ev_tx.send(msg);
                                             notified_pids.insert(pid);
@@ -3251,12 +3262,12 @@ impl FirewallEngine {
                                             && !is_technical_block
                                             && !notified_blocked_exes.contains(&exe_path_lc)
                                         {
-                                            let hostname = parsed_info.hostname
+                                            let hostname = parsed_info
+                                                .hostname
                                                 .as_deref()
                                                 .unwrap_or("")
                                                 .replace('|', "/");
-                                            let reason = decision._reason
-                                                .replace('|', "/");
+                                            let reason = decision._reason.replace('|', "/");
                                             let msg = format!(
                                                 "BLOCK_EXE:{}|{}|{}|{}|{}\n",
                                                 exe_path_lc,
@@ -3327,15 +3338,22 @@ impl FirewallEngine {
 
                                     // Enrich summary with hostname if available
                                     if let Some(ref h) = raw_packet.hostname {
-                                        raw_packet.summary = format!("{} ({})", raw_packet.summary, h);
+                                        raw_packet.summary =
+                                            format!("{} ({})", raw_packet.summary, h);
                                     } else {
                                         // Snooping fallback for raw packet display
-                                        if let Some(domain) = dns_w.resolve_ip(&info.dst_ip.to_string()) {
+                                        if let Some(domain) =
+                                            dns_w.resolve_ip(&info.dst_ip.to_string())
+                                        {
                                             raw_packet.hostname = Some(domain.clone());
-                                            raw_packet.summary = format!("{} ({})", raw_packet.summary, domain);
-                                        } else if let Some(domain) = dns_w.resolve_ip(&info.src_ip.to_string()) {
+                                            raw_packet.summary =
+                                                format!("{} ({})", raw_packet.summary, domain);
+                                        } else if let Some(domain) =
+                                            dns_w.resolve_ip(&info.src_ip.to_string())
+                                        {
                                             raw_packet.hostname = Some(domain.clone());
-                                            raw_packet.summary = format!("{} ({})", raw_packet.summary, domain);
+                                            raw_packet.summary =
+                                                format!("{} ({})", raw_packet.summary, domain);
                                         }
                                     }
                                     let _ = raw_packet_tx_w.try_send(raw_packet);
@@ -3348,7 +3366,8 @@ impl FirewallEngine {
                                         data: std::borrow::Cow::Owned(decision.packet_data),
                                     };
                                     if decision.recalc_checksums {
-                                        let _ = reinject_packet.recalculate_checksums(Default::default());
+                                        let _ = reinject_packet
+                                            .recalculate_checksums(Default::default());
                                     }
                                     if let Err(_e) = divert_w.send(&reinject_packet) {
                                         // Log error selectively?
@@ -3368,12 +3387,21 @@ impl FirewallEngine {
                                     break;
                                 } else {
                                     let ts = Self::now_ts();
-                                    emit_log_event(&tx_log, LogEntry {
-                                        id: format!("{}-worker-{}-err-{}", ts, worker_id, packet_count),
-                                        timestamp: ts,
-                                        level: LogLevel::Error,
-                                        message: format!("Worker {} Recv Error: {} (count: {})", worker_id, err_str, packet_count),
-                                    });
+                                    emit_log_event(
+                                        &tx_log,
+                                        LogEntry {
+                                            id: format!(
+                                                "{}-worker-{}-err-{}",
+                                                ts, worker_id, packet_count
+                                            ),
+                                            timestamp: ts,
+                                            level: LogLevel::Error,
+                                            message: format!(
+                                                "Worker {} Recv Error: {} (count: {})",
+                                                worker_id, err_str, packet_count
+                                            ),
+                                        },
+                                    );
                                     std::thread::sleep(Duration::from_millis(100));
                                 }
                             }
@@ -3443,7 +3471,12 @@ impl FirewallEngine {
         let mut website_target: Option<String> = None;
         let (late_blocking_mode, tls_proxy_cfg, log_mode, no_alert_mode) = {
             let s = settings.read().unwrap();
-            (s.late_blocking_mode, s.tls_proxy.clone(), s.log_mode, s.no_alert_mode)
+            (
+                s.late_blocking_mode,
+                s.tls_proxy.clone(),
+                s.log_mode,
+                s.no_alert_mode,
+            )
         };
 
         // 3. DNS Snooping Enrichment (CRITICAL: Do this before rules!)
@@ -3494,9 +3527,7 @@ impl FirewallEngine {
 
             // Emit a dedicated event when an app connects to the proxy listener so
             // the user can see which apps are being intercepted by the embedded proxy.
-            if outbound
-                && Self::is_proxy_destination(&info, &tls_proxy_cfg)
-            {
+            if outbound && Self::is_proxy_destination(&info, &tls_proxy_cfg) {
                 let app_info_loopback = am.info_cache.get_info(pid);
                 let host_label = info
                     .hostname
@@ -3572,8 +3603,8 @@ impl FirewallEngine {
 
         // URL telemetry is derived from packet parsing and in-engine caching only.
 
-        let is_dns_query = matches!(info.protocol, Protocol::UDP)
-            && (info.src_port == 53 || info.dst_port == 53);
+        let is_dns_query =
+            matches!(info.protocol, Protocol::UDP) && (info.src_port == 53 || info.dst_port == 53);
         let dns_domain = info.dns_query.clone();
 
         // 6. Resolve App Identity
@@ -3610,7 +3641,7 @@ impl FirewallEngine {
                 if rule.block || rule.terminate || rule.quarantine || rule.kill_and_remove {
                     should_forward = false;
                     reason = Some(format!("Rule [{}]: {}", rule.name, rule.description));
-                    
+
                     if rule.terminate || rule.kill_and_remove {
                         Self::terminate_process(pid);
                     }
@@ -3631,7 +3662,11 @@ impl FirewallEngine {
         }
         drop(current_rules);
 
-        let remote_ip = if info.outbound { info.dst_ip } else { info.src_ip };
+        let remote_ip = if info.outbound {
+            info.dst_ip
+        } else {
+            info.src_ip
+        };
         if let Some(web_match) = wf.find_match(
             remote_ip,
             info.hostname.as_deref(),
@@ -3763,14 +3798,16 @@ impl FirewallEngine {
                         should_forward = false;
                         Self::terminate_process(pid);
                         Self::quarantine_file(&app_info.path);
-                        reason = Some(format!("SDK Rule [{}]: Killed and Removed", finding.rule_name));
+                        reason = Some(format!(
+                            "SDK Rule [{}]: Killed and Removed",
+                            finding.rule_name
+                        ));
                     }
-                    _ => {} 
+                    _ => {}
                 }
             }
         }
 
-    
         // 10c. TLS PROXY ENFORCEMENT (QUIC blocking)
         // The embedded proxy handles its own packet capture — no redirection needed here.
         Self::enforce_tls_proxy_mode(
@@ -3794,9 +3831,7 @@ impl FirewallEngine {
                     hostname: info.hostname.clone(),
                     reason: reason.clone(),
                     request_id: None,
-                    alert_source: website_decision_key
-                        .as_ref()
-                        .map(|_| "website".to_string()),
+                    alert_source: website_decision_key.as_ref().map(|_| "website".to_string()),
                     alert_kind: website_decision_key
                         .as_ref()
                         .map(|_| "malicious_website".to_string()),
@@ -3892,10 +3927,13 @@ impl FirewallEngine {
                 // For proxy-originated traffic, look up which app originally queried
                 // this hostname so the log shows the real requester, not the engine PID.
                 let allow_reason = if is_proxy_traffic {
-                    let attributed = info.hostname.as_deref()
+                    let attributed = info
+                        .hostname
+                        .as_deref()
                         .and_then(|h| dns_handler.resolve_domain_pid(h))
                         .or_else(|| {
-                            dns_handler.resolve_ip(&info.dst_ip.to_string())
+                            dns_handler
+                                .resolve_ip(&info.dst_ip.to_string())
                                 .and_then(|h| dns_handler.resolve_domain_pid(&h))
                         });
                     match attributed {
@@ -4013,8 +4051,8 @@ impl FirewallEngine {
 
     #[cfg(target_os = "windows")]
     fn get_sdk_rules_path_from_registry(&self) -> Option<PathBuf> {
-        use winreg::enums::HKEY_LOCAL_MACHINE;
         use winreg::RegKey;
+        use winreg::enums::HKEY_LOCAL_MACHINE;
         let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
         hklm.open_subkey(r"SOFTWARE\Owlyshield\SDK")
             .ok()
@@ -4054,48 +4092,66 @@ impl FirewallEngine {
         (560.0, 280.0)
     }
 
+    fn alert_window_position<R: Runtime>(
+        app: &AppHandle<R>,
+        width: f64,
+        height: f64,
+    ) -> Option<(f64, f64)> {
+        let monitor = app.primary_monitor().ok().flatten()?;
+        let size = monitor.size();
+        let scale = monitor.scale_factor();
+        let monitor_w = (size.width as f64) / scale;
+        let monitor_h = (size.height as f64) / scale;
+        Some((monitor_w - width - 20.0, monitor_h - height - 60.0))
+    }
+
     pub fn spawn_alert_window<R: Runtime>(app: &AppHandle<R>) {
         let (width, height) = Self::alert_window_size(app);
+        let alert_position = Self::alert_window_position(app, width, height);
 
         // Window already exists (pre-warmed or reused): resize, reposition, show.
         if let Some(win) = app.get_webview_window("firewall-alert") {
-            let _ = win.set_size(Size::Logical(LogicalSize::new(width, height)));
-            if let Ok(Some(monitor)) = app.primary_monitor() {
-                let size = monitor.size();
-                let scale = monitor.scale_factor();
-                let monitor_w = (size.width as f64) / scale;
-                let monitor_h = (size.height as f64) / scale;
-                let x = monitor_w - width - 20.0;
-                let y = monitor_h - height - 60.0;
-                let _ = win.set_position(Position::Logical(LogicalPosition::new(x, y)));
+            let mut reused_ok = win
+                .set_size(Size::Logical(LogicalSize::new(width, height)))
+                .is_ok();
+            if let Some((x, y)) = alert_position {
+                reused_ok &= win
+                    .set_position(Position::Logical(LogicalPosition::new(x, y)))
+                    .is_ok();
             }
-            let _ = win.show();
-            let _ = win.set_focus();
-            return;
+            reused_ok &= win.show().is_ok();
+            reused_ok &= win.set_focus().is_ok();
+
+            if reused_ok {
+                return;
+            }
+
+            let _ = win.close();
+            std::thread::sleep(Duration::from_millis(60));
         }
 
         // Fallback: create window from scratch (should not normally be reached after prewarm).
-        let builder = WebviewWindowBuilder::new(app, "firewall-alert", WebviewUrl::App("index.html?mode=alert".into()))
-            .title("HydraDragon Firewall Alert")
-            .inner_size(width, height)
-            .resizable(false)
-            .always_on_top(true)
-            .decorations(false)
-            .transparent(true)
-            .shadow(true);
+        let builder = WebviewWindowBuilder::new(
+            app,
+            "firewall-alert",
+            WebviewUrl::App("index.html?mode=alert".into()),
+        )
+        .title("HydraDragon Firewall Alert")
+        .inner_size(width, height)
+        .resizable(false)
+        .always_on_top(true)
+        .decorations(false)
+        .transparent(true)
+        .shadow(true);
 
-        if let Ok(Some(monitor)) = app.primary_monitor() {
-            let size = monitor.size();
-            let scale = monitor.scale_factor();
-            let monitor_w = (size.width as f64) / scale;
-            let monitor_h = (size.height as f64) / scale;
-            let x = monitor_w - width - 20.0;
-            let y = monitor_h - height - 60.0;
+        if let Some((x, y)) = alert_position {
             if let Ok(win) = builder.position(x, y).build() {
                 let _ = win.show();
+                let _ = win.set_focus();
             }
         } else if let Ok(win) = builder.build() {
             let _ = win.show();
+            let _ = win.set_focus();
         }
     }
 
@@ -4106,23 +4162,21 @@ impl FirewallEngine {
         if app.get_webview_window("firewall-alert").is_some() {
             return;
         }
-        let builder = WebviewWindowBuilder::new(app, "firewall-alert", WebviewUrl::App("index.html?mode=alert".into()))
-            .title("HydraDragon Firewall Alert")
-            .inner_size(560.0, 280.0)
-            .resizable(false)
-            .always_on_top(true)
-            .decorations(false)
-            .transparent(true)
-            .shadow(true)
-            .visible(false);
+        let builder = WebviewWindowBuilder::new(
+            app,
+            "firewall-alert",
+            WebviewUrl::App("index.html?mode=alert".into()),
+        )
+        .title("HydraDragon Firewall Alert")
+        .inner_size(560.0, 280.0)
+        .resizable(false)
+        .always_on_top(true)
+        .decorations(false)
+        .transparent(true)
+        .shadow(true)
+        .visible(false);
 
-        if let Ok(Some(monitor)) = app.primary_monitor() {
-            let size = monitor.size();
-            let scale = monitor.scale_factor();
-            let monitor_w = (size.width as f64) / scale;
-            let monitor_h = (size.height as f64) / scale;
-            let x = monitor_w - 560.0 - 20.0;
-            let y = monitor_h - 280.0 - 60.0;
+        if let Some((x, y)) = Self::alert_window_position(app, 560.0, 280.0) {
             let _ = builder.position(x, y).build();
         } else {
             let _ = builder.build();
@@ -4137,9 +4191,11 @@ impl FirewallEngine {
     }
 
     fn terminate_process(pid: u32) {
-        if pid == 0 || pid == 4 { return; }
-        use windows::Win32::System::Threading::{OpenProcess, TerminateProcess, PROCESS_TERMINATE};
+        if pid == 0 || pid == 4 {
+            return;
+        }
         use windows::Win32::Foundation::CloseHandle;
+        use windows::Win32::System::Threading::{OpenProcess, PROCESS_TERMINATE, TerminateProcess};
         unsafe {
             if let Ok(handle) = OpenProcess(PROCESS_TERMINATE, false, pid) {
                 let _ = TerminateProcess(handle, 1);
@@ -4153,13 +4209,21 @@ impl FirewallEngine {
             return;
         }
         let src = Path::new(path);
-        if !src.exists() { return; }
+        if !src.exists() {
+            return;
+        }
 
         let qdir = firewall_data_dir().join("quarantine");
         let _ = fs::create_dir_all(&qdir);
-        
-        let fname = src.file_name().and_then(|n| n.to_str()).unwrap_or("quarantined_file");
-        let ts = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
+
+        let fname = src
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("quarantined_file");
+        let ts = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
         let dst = qdir.join(format!("{}_{}", ts, fname));
 
         let _ = fs::rename(src, dst);
@@ -4302,7 +4366,6 @@ impl FirewallEngine {
 
         // Extract hostname and URL from TCP payloads
         if matches!(protocol, Protocol::TCP) && payload_start < data.len() {
-
             if payload_start < data.len() {
                 let payload = &data[payload_start..];
                 payload_bytes = Some(payload);
@@ -4379,34 +4442,37 @@ impl FirewallEngine {
             }
         }
 
-        Some((PacketInfo {
-            timestamp: Self::now_ts(),
-            protocol,
-            src_ip,
-            dst_ip,
-            src_port,
-            dst_port,
-            size: data.len(),
-            outbound,
-            process_id,
-            dns_query,
-            hostname,
-            full_url,
-            tls_handshake,
-            http_method,
-            http_path,
-            http_user_agent,
-            http_content_type,
-            http_referer,
-            payload_entropy,
-            payload_sample,
-            payload_urls,
-            payload_domains,
-            image_path: cache.get_info(process_id).path,
-            detected_file_type: None,
-            http_request_body: None,
-            http_response_body: None,
-        }, payload_start))
+        Some((
+            PacketInfo {
+                timestamp: Self::now_ts(),
+                protocol,
+                src_ip,
+                dst_ip,
+                src_port,
+                dst_port,
+                size: data.len(),
+                outbound,
+                process_id,
+                dns_query,
+                hostname,
+                full_url,
+                tls_handshake,
+                http_method,
+                http_path,
+                http_user_agent,
+                http_content_type,
+                http_referer,
+                payload_entropy,
+                payload_sample,
+                payload_urls,
+                payload_domains,
+                image_path: cache.get_info(process_id).path,
+                detected_file_type: None,
+                http_request_body: None,
+                http_response_body: None,
+            },
+            payload_start,
+        ))
     }
 
     fn format_packet_context(info: &PacketInfo) -> String {
@@ -4611,10 +4677,7 @@ impl FirewallEngine {
             offset += rdlen;
         }
 
-        results
-            .into_iter()
-            .map(|ip| (ip, String::new()))
-            .collect()
+        results.into_iter().map(|ip| (ip, String::new())).collect()
     }
     /// Cleanly shuts down the firewall engine.
     ///
@@ -4636,8 +4699,8 @@ impl FirewallEngine {
         // loop check. WinDivert shutdown() is explicitly designed to be called
         // concurrently from a different thread — that is its entire purpose.
         if let Some(d) = self.divert_handle.lock().unwrap().take() {
-            let ptr = Arc::as_ptr(&d.0)
-                as *mut windivert::WinDivert<windivert::prelude::NetworkLayer>;
+            let ptr =
+                Arc::as_ptr(&d.0) as *mut windivert::WinDivert<windivert::prelude::NetworkLayer>;
             unsafe {
                 let _ = (*ptr).shutdown(WinDivertShutdownMode::Both);
             }

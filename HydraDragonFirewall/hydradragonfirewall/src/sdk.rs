@@ -43,9 +43,7 @@ impl ContentEncoding {
                     .decode(text.trim())
                     .ok()
             }
-            ContentEncoding::Reverse => {
-                Some(data.iter().rev().cloned().collect())
-            }
+            ContentEncoding::Reverse => Some(data.iter().rev().cloned().collect()),
             ContentEncoding::Hex => {
                 let text = String::from_utf8_lossy(data);
                 let hex_str = text.trim().replace(" ", "");
@@ -70,16 +68,12 @@ impl ContentEncoding {
     pub fn encode(&self, data: &[u8]) -> String {
         match self {
             ContentEncoding::Base58 => bs58::encode(data).into_string(),
-            ContentEncoding::Base64 => {
-                base64::engine::general_purpose::STANDARD.encode(data)
-            }
+            ContentEncoding::Base64 => base64::engine::general_purpose::STANDARD.encode(data),
             ContentEncoding::Reverse => {
                 String::from_utf8_lossy(&data.iter().rev().cloned().collect::<Vec<u8>>())
                     .to_string()
             }
-            ContentEncoding::Hex => {
-                data.iter().map(|b| format!("{:02x}", b)).collect()
-            }
+            ContentEncoding::Hex => data.iter().map(|b| format!("{:02x}", b)).collect(),
             ContentEncoding::Plain => String::from_utf8_lossy(data).to_string(),
         }
     }
@@ -111,8 +105,7 @@ impl RuleProtocol {
             RuleProtocol::UDP => packet.protocol == Protocol::UDP,
             RuleProtocol::ICMP => packet.protocol == Protocol::ICMP,
             RuleProtocol::HTTP => {
-                packet.protocol == Protocol::TCP
-                    && (packet.dst_port == 80 || packet.src_port == 80)
+                packet.protocol == Protocol::TCP && (packet.dst_port == 80 || packet.src_port == 80)
             }
             RuleProtocol::HTTPS => {
                 packet.protocol == Protocol::TCP
@@ -479,14 +472,14 @@ impl EntropyMatcher {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum LocalhostType {
-    Loopback,   // 127.x.x.x
-    PrivateA,   // 10.x.x.x
-    PrivateB,   // 172.16-31.x.x
-    PrivateC,   // 192.168.x.x
-    Any,        // 0.0.0.0
+    Loopback, // 127.x.x.x
+    PrivateA, // 10.x.x.x
+    PrivateB, // 172.16-31.x.x
+    PrivateC, // 192.168.x.x
+    Any,      // 0.0.0.0
     #[default]
-    All,        // Match any localhost/private type
-    None,       // Disable localhost matching
+    All, // Match any localhost/private type
+    None,     // Disable localhost matching
 }
 
 impl LocalhostType {
@@ -499,9 +492,7 @@ impl LocalhostType {
                 LocalhostType::PrivateB => {
                     ipv4.octets()[0] == 172 && ipv4.octets()[1] >= 16 && ipv4.octets()[1] <= 31
                 }
-                LocalhostType::PrivateC => {
-                    ipv4.octets()[0] == 192 && ipv4.octets()[1] == 168
-                }
+                LocalhostType::PrivateC => ipv4.octets()[0] == 192 && ipv4.octets()[1] == 168,
                 LocalhostType::Any => ipv4 == Ipv4Addr::new(0, 0, 0, 0),
                 LocalhostType::All => {
                     LocalhostType::Loopback.matches(ip)
@@ -519,7 +510,9 @@ impl LocalhostType {
                 }
                 LocalhostType::Any => ipv6.is_unspecified(),
                 LocalhostType::All => {
-                    ipv6.is_loopback() || ipv6.is_unique_local() || ipv6.is_unicast_link_local()
+                    ipv6.is_loopback()
+                        || ipv6.is_unique_local()
+                        || ipv6.is_unicast_link_local()
                         || ipv6.is_unspecified()
                 }
             },
@@ -590,17 +583,17 @@ impl TrafficRoutine {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum RuleAction {
-    TrafficAttack,      // Feature 18: Detect/log attack patterns
-    Block,              // Feature 19
+    TrafficAttack, // Feature 18: Detect/log attack patterns
+    Block,         // Feature 19
     #[default]
-    Allow,              // Feature 20
-    Ask,                // Feature 21: Prompt user
-    Terminate,          // Terminate the process associated with the packet
-    Quarantine,         // Quarantine the file associated with the process
-    KillAndRemove,      // Terminate and remove the file
-    ChangePacket,       // Feature 22: Modify packet payload
-    SolvePacket,        // Feature 23: Fix/normalize packet
-    ChangeRequestBody,  // Replace the HTTP request body with change_request_body
+    Allow, // Feature 20
+    Ask,           // Feature 21: Prompt user
+    Terminate,     // Terminate the process associated with the packet
+    Quarantine,    // Quarantine the file associated with the process
+    KillAndRemove, // Terminate and remove the file
+    ChangePacket,  // Feature 22: Modify packet payload
+    SolvePacket,   // Feature 23: Fix/normalize packet
+    ChangeRequestBody, // Replace the HTTP request body with change_request_body
     ChangeResponseBody, // Replace the HTTP response body with change_response_body
 }
 
@@ -696,7 +689,7 @@ impl RuleCondition {
             RuleCondition::SanctumDetected => {
                 // This condition is typically evaluated by the behavior engine
                 // which has access to Sanctum telemetry.
-                true 
+                true
             }
             RuleCondition::JsonMatch(matcher) => matcher.matches(payload),
         }
@@ -835,14 +828,22 @@ impl SdkRule {
     pub fn apply_replacement(&self, body: &str) -> String {
         if !self.use_regex_replacement {
             if self.action == RuleAction::ChangeRequestBody {
-                return self.change_request_body.clone().unwrap_or_else(|| body.to_string());
+                return self
+                    .change_request_body
+                    .clone()
+                    .unwrap_or_else(|| body.to_string());
             } else if self.action == RuleAction::ChangeResponseBody {
-                return self.change_response_body.clone().unwrap_or_else(|| body.to_string());
+                return self
+                    .change_response_body
+                    .clone()
+                    .unwrap_or_else(|| body.to_string());
             }
             return body.to_string();
         }
 
-        let Some(search) = &self.search_pattern else { return body.to_string(); };
+        let Some(search) = &self.search_pattern else {
+            return body.to_string();
+        };
         let replace_with = match self.action {
             RuleAction::ChangeRequestBody => self.change_request_body.as_deref().unwrap_or(""),
             RuleAction::ChangeResponseBody => self.change_response_body.as_deref().unwrap_or(""),
@@ -974,7 +975,9 @@ impl SdkRule {
                             if let Some(ref patterns) = self.http_request_body {
                                 if !patterns.is_empty() {
                                     let body = packet.http_request_body.as_deref().unwrap_or("");
-                                    return Some(patterns.iter().any(|p| body.contains(p.as_str())));
+                                    return Some(
+                                        patterns.iter().any(|p| body.contains(p.as_str())),
+                                    );
                                 }
                             }
                         }
@@ -983,7 +986,9 @@ impl SdkRule {
                             if let Some(ref patterns) = self.http_response_body {
                                 if !patterns.is_empty() {
                                     let body = packet.http_response_body.as_deref().unwrap_or("");
-                                    return Some(patterns.iter().any(|p| body.contains(p.as_str())));
+                                    return Some(
+                                        patterns.iter().any(|p| body.contains(p.as_str())),
+                                    );
                                 }
                             }
                         }
@@ -1019,11 +1024,7 @@ impl SdkRule {
                         break;
                     }
                 }
-                if !any_checked {
-                    true
-                } else {
-                    found_match
-                }
+                if !any_checked { true } else { found_match }
             }
         }
     }
@@ -1034,7 +1035,11 @@ impl SdkRule {
     }
 
     pub fn requires_file_type(&self) -> bool {
-        self.file_type.is_some() || self.conditions.iter().any(RuleCondition::requires_file_type)
+        self.file_type.is_some()
+            || self
+                .conditions
+                .iter()
+                .any(RuleCondition::requires_file_type)
     }
 
     pub fn requires_deferred_inspection(&self) -> bool {
@@ -1162,7 +1167,8 @@ impl SdkRuleFile {
         let base_dir = path_ref.parent().unwrap_or(Path::new("."));
 
         // Pre-process: Filter out !include lines to parse the rest as valid YAML
-        let sanitized_content: String = content.lines()
+        let sanitized_content: String = content
+            .lines()
             .filter(|line| !line.trim().starts_with("!include "))
             .collect::<Vec<_>>()
             .join("\n");
@@ -1177,9 +1183,12 @@ impl SdkRuleFile {
         for line in content.lines() {
             let trimmed = line.trim();
             if trimmed.starts_with("!include ") {
-                let include_path_str = trimmed["!include ".len()..].trim().trim_matches('"').trim_matches('\'');
+                let include_path_str = trimmed["!include ".len()..]
+                    .trim()
+                    .trim_matches('"')
+                    .trim_matches('\'');
                 let include_path = base_dir.join(include_path_str);
-                
+
                 let included_file = Self::load_from_file(&include_path)?;
                 final_rules.extend(included_file.rules);
             }
@@ -1196,8 +1205,8 @@ impl SdkRuleFile {
 
     /// Save rules to YAML file
     pub fn save_to_file<P: AsRef<Path>>(&self, path: P) -> Result<(), String> {
-        let content = serde_yaml::to_string(self)
-            .map_err(|e| format!("Failed to serialize rules: {}", e))?;
+        let content =
+            serde_yaml::to_string(self).map_err(|e| format!("Failed to serialize rules: {}", e))?;
 
         fs::write(path, content).map_err(|e| format!("Failed to write rules file: {}", e))
     }
@@ -1248,7 +1257,10 @@ impl SdkRegistry {
             if let Some(path) = crate::get_firewall_sdk_rules_path() {
                 let path_str = path.to_string_lossy().to_string();
                 if self.load_rules_from_file(&path_str).is_ok() {
-                    println!("[SDK] Loaded {} rules from registry-defined path", self.rules.len());
+                    println!(
+                        "[SDK] Loaded {} rules from registry-defined path",
+                        self.rules.len()
+                    );
                     return;
                 }
             }
@@ -1365,9 +1377,10 @@ impl SdkRegistry {
 
     fn sanitize_rules(mut rules: Vec<SdkRule>) -> Vec<SdkRule> {
         for rule in &mut rules {
-            let is_named_entropy_prompt = rule.name.eq_ignore_ascii_case(
-                "Ask To Block Encrypted Exfiltration",
-            ) && rule.entropy_threshold == Some(7.95);
+            let is_named_entropy_prompt = rule
+                .name
+                .eq_ignore_ascii_case("Ask To Block Encrypted Exfiltration")
+                && rule.entropy_threshold == Some(7.95);
 
             if rule.enabled && (is_named_entropy_prompt || rule.is_entropy_only_ask_rule()) {
                 println!(

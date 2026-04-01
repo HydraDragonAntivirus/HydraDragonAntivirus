@@ -1,7 +1,15 @@
 use bytes::Bytes;
 use http_body_util::{BodyExt, Full};
-use http_mitm_proxy::{DefaultClient, MitmProxy, hyper::{http::{request::Parts as HttpRequestParts, response::Parts as HttpResponseParts}, service::service_fn, StatusCode}, moka::sync::Cache};
-use http_mitm_proxy::hyper::header::{HeaderValue, HeaderMap};
+use http_mitm_proxy::hyper::header::{HeaderMap, HeaderValue};
+use http_mitm_proxy::{
+    DefaultClient, MitmProxy,
+    hyper::{
+        StatusCode,
+        http::{request::Parts as HttpRequestParts, response::Parts as HttpResponseParts},
+        service::service_fn,
+    },
+    moka::sync::Cache,
+};
 use rcgen::{
     BasicConstraints, Certificate, CertificateParams, DnType, DnValue, IsCa, KeyPair,
     KeyUsagePurpose,
@@ -14,7 +22,7 @@ use std::sync::{Arc, RwLock};
 use tauri::{AppHandle, Emitter, Manager, Runtime};
 use tokio::sync::oneshot;
 
-use crate::engine::{emit_log_event, FirewallSettings, LogEntry, LogLevel, PacketInfo, Protocol};
+use crate::engine::{FirewallSettings, LogEntry, LogLevel, PacketInfo, Protocol, emit_log_event};
 use crate::sdk::{PacketContext, RuleAction, SdkRegistry};
 
 // ── Rich HTTP event emitted by the MITM proxy ─────────────────────────────────
@@ -113,20 +121,22 @@ fn error_response_502() -> http_mitm_proxy::hyper::Response<Full<Bytes>> {
 }
 
 /// Validates that the request has a valid URI and method before forwarding.
-fn validate_request(req: &http_mitm_proxy::hyper::Request<http_mitm_proxy::hyper::body::Incoming>) -> Result<(), String> {
+fn validate_request(
+    req: &http_mitm_proxy::hyper::Request<http_mitm_proxy::hyper::body::Incoming>,
+) -> Result<(), String> {
     let uri = req.uri();
-    
+
     // Check that URI has a host
     if uri.host().is_none() {
         return Err("Request missing host in URI".to_string());
     }
-    
+
     // Check that method is valid
     let method = req.method().as_str();
     if method.is_empty() {
         return Err("Request has empty method".to_string());
     }
-    
+
     Ok(())
 }
 
@@ -153,10 +163,8 @@ pub fn generate_ca() -> CaBundle {
     let cert_path = dir.join(CA_CERT_FILE);
 
     // ── Try to load an existing CA ─────────────────────────────────────────
-    if let (Ok(key_der_bytes), Ok(cert_der)) = (
-        std::fs::read(&key_path),
-        std::fs::read(&cert_path),
-    ) {
+    if let (Ok(key_der_bytes), Ok(cert_der)) = (std::fs::read(&key_path), std::fs::read(&cert_path))
+    {
         if let Ok(key) = KeyPair::try_from(key_der_bytes.as_slice()) {
             let params = ca_params();
             let issuer = rcgen::Issuer::new(params, key);
@@ -199,45 +207,51 @@ pub async fn run_proxy<R: Runtime>(
     settings: Arc<RwLock<FirewallSettings>>,
     mut stop_rx: oneshot::Receiver<()>,
 ) {
-    let proxy = MitmProxy::new(
-        Some(ca),
-        Some(Cache::new(512)),
-    );
+    let proxy = MitmProxy::new(Some(ca), Some(Cache::new(512)));
 
     let client = DefaultClient::new();
     let app_handle_cloned = app_handle.clone();
 
-    let bind_result = proxy
-        .bind(
-            addr,
-            service_fn(move |req: http_mitm_proxy::hyper::Request<http_mitm_proxy::hyper::body::Incoming>| {
-                let client = client.clone();
-                let app = app_handle_cloned.clone();
-                let sdk = sdk.clone();
-                let settings = settings.clone();
+    let bind_result =
+        proxy
+            .bind(
+                addr,
+                service_fn(
+                    move |req: http_mitm_proxy::hyper::Request<
+                        http_mitm_proxy::hyper::body::Incoming,
+                    >| {
+                        let client = client.clone();
+                        let app = app_handle_cloned.clone();
+                        let sdk = sdk.clone();
+                        let settings = settings.clone();
 
-                async move {
-                    // Wrap in generic error handler: all errors return 502
-                    match handle_proxy_request(client, app.clone(), sdk, settings, req).await {
-                        Ok(res) => Ok::<_, http_mitm_proxy::default_client::Error>(res),
-                        Err(e) => {
-                            let ts = now_ts();
-                            emit_log_event(
-                                &app,
-                                LogEntry {
-                                    id: format!("{}-proxy-err", ts),
-                                    timestamp: ts,
-                                    level: LogLevel::Error,
-                                    message: format!("Proxy error: {}", e),
-                                },
-                            );
-                            Ok::<_, http_mitm_proxy::default_client::Error>(error_response_502())
+                        async move {
+                            // Wrap in generic error handler: all errors return 502
+                            match handle_proxy_request(client, app.clone(), sdk, settings, req)
+                                .await
+                            {
+                                Ok(res) => Ok::<_, http_mitm_proxy::default_client::Error>(res),
+                                Err(e) => {
+                                    let ts = now_ts();
+                                    emit_log_event(
+                                        &app,
+                                        LogEntry {
+                                            id: format!("{}-proxy-err", ts),
+                                            timestamp: ts,
+                                            level: LogLevel::Error,
+                                            message: format!("Proxy error: {}", e),
+                                        },
+                                    );
+                                    Ok::<_, http_mitm_proxy::default_client::Error>(
+                                        error_response_502(),
+                                    )
+                                }
+                            }
                         }
-                    }
-                }
-            }),
-        )
-        .await;
+                    },
+                ),
+            )
+            .await;
 
     match bind_result {
         Ok(server) => {
@@ -317,12 +331,25 @@ async fn handle_proxy_request<R: Runtime>(
     let uri = req.uri().clone();
     let host = uri.host().unwrap_or("unknown").to_string();
     let port = uri.port_u16().unwrap_or(443);
-    let path = format!("{}{}", uri.path(), uri.query().map(|q| format!("?{}", q)).unwrap_or_default());
-    let full_url = format!("{}://{}:{}{}", uri.scheme_str().unwrap_or("https"), host, port, path);
+    let path = format!(
+        "{}{}",
+        uri.path(),
+        uri.query().map(|q| format!("?{}", q)).unwrap_or_default()
+    );
+    let full_url = format!(
+        "{}://{}:{}{}",
+        uri.scheme_str().unwrap_or("https"),
+        host,
+        port,
+        path
+    );
 
     let mut request_headers: HashMap<String, String> = HashMap::new();
     for (name, value) in req.headers().iter() {
-        request_headers.insert(name.to_string(), value.to_str().unwrap_or("<binary>").to_string());
+        request_headers.insert(
+            name.to_string(),
+            value.to_str().unwrap_or("<binary>").to_string(),
+        );
     }
     let user_agent = request_headers.get("user-agent").cloned();
     let content_type = request_headers.get("content-type").cloned();
@@ -330,14 +357,12 @@ async fn handle_proxy_request<R: Runtime>(
 
     // ── Collect request body with timeout ───────────────────────────────────
     let (parts, body) = req.into_parts();
-    let raw_body: Bytes = tokio::time::timeout(
-        std::time::Duration::from_secs(TIMEOUT_SECS),
-        body.collect(),
-    )
-    .await
-    .map_err(|_| "Request body timeout".to_string())?
-    .map_err(|e| e.to_string())?
-    .to_bytes();
+    let raw_body: Bytes =
+        tokio::time::timeout(std::time::Duration::from_secs(TIMEOUT_SECS), body.collect())
+            .await
+            .map_err(|_| "Request body timeout".to_string())?
+            .map_err(|e| e.to_string())?
+            .to_bytes();
 
     let body_truncated = raw_body.len() > max_body;
     let body_bytes = if body_truncated {
@@ -351,7 +376,11 @@ async fn handle_proxy_request<R: Runtime>(
     } else {
         Some(match String::from_utf8(body_bytes.to_vec()) {
             Ok(s) => s,
-            Err(_) => body_bytes.iter().map(|b| format!("{:02X}", b)).collect::<Vec<_>>().join(" "),
+            Err(_) => body_bytes
+                .iter()
+                .map(|b| format!("{:02X}", b))
+                .collect::<Vec<_>>()
+                .join(" "),
         })
     };
 
@@ -441,7 +470,10 @@ async fn handle_proxy_request<R: Runtime>(
     let status = res.status().as_u16();
     let mut response_headers: HashMap<String, String> = HashMap::new();
     for (name, value) in res.headers().iter() {
-        response_headers.insert(name.to_string(), value.to_str().unwrap_or("<binary>").to_string());
+        response_headers.insert(
+            name.to_string(),
+            value.to_str().unwrap_or("<binary>").to_string(),
+        );
     }
     let response_content_type = response_headers.get("content-type").cloned();
     let response_content_length = response_headers.get("content-length").cloned();
@@ -469,7 +501,11 @@ async fn handle_proxy_request<R: Runtime>(
     } else {
         Some(match String::from_utf8(res_body_bytes.to_vec()) {
             Ok(s) => s,
-            Err(_) => res_body_bytes.iter().map(|b| format!("{:02X}", b)).collect::<Vec<_>>().join(" "),
+            Err(_) => res_body_bytes
+                .iter()
+                .map(|b| format!("{:02X}", b))
+                .collect::<Vec<_>>()
+                .join(" "),
         })
     };
 
@@ -529,7 +565,13 @@ async fn handle_proxy_request<R: Runtime>(
         if let Some(engine) = app.try_state::<Arc<crate::engine::FirewallEngine>>() {
             let req_b = request_body.as_deref().unwrap_or("").replace('|', " ");
             let resp_b = response_body.as_deref().unwrap_or("").replace('|', " ");
-            let msg = format!("HTTP_BODY:0|{}|{}|{}|{}\n", method.replace('|', " "), full_url.replace('|', " "), req_b, resp_b);
+            let msg = format!(
+                "HTTP_BODY:0|{}|{}|{}|{}\n",
+                method.replace('|', " "),
+                full_url.replace('|', " "),
+                req_b,
+                resp_b
+            );
             engine.send_hydranet_message(msg);
         }
     }
@@ -559,5 +601,8 @@ async fn handle_proxy_request<R: Runtime>(
         },
     );
 
-    Ok(http_mitm_proxy::hyper::Response::from_parts(res_parts, res_body_obj))
+    Ok(http_mitm_proxy::hyper::Response::from_parts(
+        res_parts,
+        res_body_obj,
+    ))
 }

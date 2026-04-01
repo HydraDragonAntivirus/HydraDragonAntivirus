@@ -7,11 +7,11 @@ pub mod tls_parser;
 pub mod web_filter;
 pub mod windivert_api;
 
-use crate::engine::{emit_log_event, FirewallEngine};
+use crate::engine::{FirewallEngine, emit_log_event};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Manager, Runtime};
-use tokio::time::{sleep, Duration};
+use tokio::time::{Duration, sleep};
 
 /// A body changer rule stored in body_changers.json and reflected in rules.yaml.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -19,7 +19,7 @@ pub struct BodyChangerRule {
     pub id: String,
     pub name: String,
     pub enabled: bool,
-    pub target: String,       // "request" or "response"
+    pub target: String, // "request" or "response"
     pub url_pattern: String,
     pub method_pattern: String,
     pub replacement: String,
@@ -56,10 +56,9 @@ fn load_body_changers() -> Vec<BodyChangerRule> {
 
 fn save_body_changers_to_disk(rules: &[BodyChangerRule]) -> Result<(), String> {
     let path = body_changers_path();
-    let json = serde_json::to_string_pretty(rules)
-        .map_err(|e| format!("Serialize error: {}", e))?;
-    std::fs::write(&path, json)
-        .map_err(|e| format!("Write error: {}", e))
+    let json =
+        serde_json::to_string_pretty(rules).map_err(|e| format!("Serialize error: {}", e))?;
+    std::fs::write(&path, json).map_err(|e| format!("Write error: {}", e))
 }
 
 // FirewallState was redundant as we manage Arc<FirewallEngine> directly in modern Tauri 2
@@ -197,8 +196,8 @@ async fn validate_rules_content(content: String, handle: AppHandle) -> Result<St
 
 #[cfg(target_os = "windows")]
 fn get_owlyshield_rules_dir() -> Option<std::path::PathBuf> {
-    use winreg::enums::HKEY_LOCAL_MACHINE;
     use winreg::RegKey;
+    use winreg::enums::HKEY_LOCAL_MACHINE;
     let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
     hklm.open_subkey(r"SOFTWARE\Owlyshield")
         .ok()
@@ -208,8 +207,8 @@ fn get_owlyshield_rules_dir() -> Option<std::path::PathBuf> {
 
 #[cfg(target_os = "windows")]
 fn get_owlyshield_reports_dir() -> Option<std::path::PathBuf> {
-    use winreg::enums::HKEY_LOCAL_MACHINE;
     use winreg::RegKey;
+    use winreg::enums::HKEY_LOCAL_MACHINE;
     let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
     hklm.open_subkey(r"SOFTWARE\Owlyshield")
         .ok()
@@ -221,8 +220,8 @@ fn get_owlyshield_reports_dir() -> Option<std::path::PathBuf> {
 /// Falls back to None if the key is absent or the OS is not Windows.
 #[cfg(target_os = "windows")]
 pub(crate) fn get_firewall_sdk_rules_path() -> Option<std::path::PathBuf> {
-    use winreg::enums::HKEY_LOCAL_MACHINE;
     use winreg::RegKey;
+    use winreg::enums::HKEY_LOCAL_MACHINE;
     let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
     hklm.open_subkey(r"SOFTWARE\Owlyshield\SDK")
         .ok()
@@ -481,7 +480,11 @@ async fn list_owlyshield_report_files() -> OwlyshieldReportsDirectoryView {
     let local_dir = std::path::PathBuf::from("reports");
     let selected_path = local_dir
         .is_dir()
-        .then(|| collect_owlyshield_report_files(&local_dir).into_iter().next())
+        .then(|| {
+            collect_owlyshield_report_files(&local_dir)
+                .into_iter()
+                .next()
+        })
         .flatten()
         .map(|path| path.to_string_lossy().to_string());
     let files = if local_dir.is_dir() {
@@ -544,7 +547,9 @@ async fn get_owlyshield_report_raw(path: Option<String>) -> String {
 
     let local_dir = std::path::PathBuf::from("reports");
     if local_dir.is_dir()
-        && let Some(path) = collect_owlyshield_report_files(&local_dir).into_iter().next()
+        && let Some(path) = collect_owlyshield_report_files(&local_dir)
+            .into_iter()
+            .next()
     {
         return std::fs::read_to_string(path).unwrap_or_default();
     }
@@ -633,7 +638,9 @@ async fn save_owlyshield_rules_raw(content: String, path: Option<String>) -> Res
 }
 
 #[tauri::command]
-async fn get_app_decisions(handle: AppHandle) -> Result<std::collections::HashMap<String, crate::engine::AppDecision>, String> {
+async fn get_app_decisions(
+    handle: AppHandle,
+) -> Result<std::collections::HashMap<String, crate::engine::AppDecision>, String> {
     if let Some(engine) = wait_for_engine(&handle).await {
         Ok(engine.get_app_decisions())
     } else {
@@ -701,13 +708,14 @@ async fn get_engine_runtime_status<R: Runtime>(handle: AppHandle<R>) -> EngineRu
         let status = if active {
             let settings = engine.settings.read().unwrap();
             if settings.tls_proxy.mode == crate::engine::TlsInspectionMode::TlsProxy
-                && settings.tls_proxy.auto_start {
-                    "Firewall Engine ACTIVE (MITM proxy managed)".to_string()
-                } else if settings.tls_proxy.mode == crate::engine::TlsInspectionMode::MetadataOnly {
-                    "Firewall Engine ACTIVE (metadata-only TLS visibility)".to_string()
-                } else {
-                    "Firewall Engine ACTIVE (MITM proxy disabled)".to_string()
-                }
+                && settings.tls_proxy.auto_start
+            {
+                "Firewall Engine ACTIVE (MITM proxy managed)".to_string()
+            } else if settings.tls_proxy.mode == crate::engine::TlsInspectionMode::MetadataOnly {
+                "Firewall Engine ACTIVE (metadata-only TLS visibility)".to_string()
+            } else {
+                "Firewall Engine ACTIVE (MITM proxy disabled)".to_string()
+            }
         } else {
             "Firewall Engine INACTIVE".to_string()
         };
@@ -751,7 +759,9 @@ async fn close_window(window: tauri::Window) {
     // Hide the alert window instead of destroying it so it stays pre-loaded
     // for the next alert (eliminates WebView2/Wasm init latency).
     if window.label() == "firewall-alert" {
-        let _ = window.hide();
+        if window.hide().is_err() {
+            let _ = window.close();
+        }
     } else {
         let _ = window.close();
     }
@@ -778,10 +788,7 @@ async fn get_body_changers() -> Vec<BodyChangerRule> {
 /// Any previous auto-generated body-changer entries (identified by a `# [body-changer]`
 /// comment header) are replaced.
 #[tauri::command]
-async fn save_body_changers(
-    rules: Vec<BodyChangerRule>,
-    handle: AppHandle,
-) -> Result<(), String> {
+async fn save_body_changers(rules: Vec<BodyChangerRule>, handle: AppHandle) -> Result<(), String> {
     // Persist JSON index
     save_body_changers_to_disk(&rules)?;
 
@@ -854,8 +861,8 @@ pub fn run() {
 
     #[cfg(target_os = "windows")]
     {
-        use winreg::enums::HKEY_LOCAL_MACHINE;
         use winreg::RegKey;
+        use winreg::enums::HKEY_LOCAL_MACHINE;
         let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
 
         // Create SOFTWARE\Owlyshield\SDK and ensure RULES_PATH exists.
@@ -973,13 +980,19 @@ pub fn run() {
 
                     println!("DEBUG: FirewallEngine::new() starting...");
                     let engine_obj = FirewallEngine::new();
-                    
+
                     // Apply CLI flags to engine settings
                     {
                         let mut s = engine_obj.settings.write().unwrap();
-                        if headless { s.headless_mode = true; }
-                        if log_mode { s.log_mode = true; }
-                        if no_alert { s.no_alert_mode = true; }
+                        if headless {
+                            s.headless_mode = true;
+                        }
+                        if log_mode {
+                            s.log_mode = true;
+                        }
+                        if no_alert {
+                            s.no_alert_mode = true;
+                        }
                     }
 
                     let engine = Arc::new(engine_obj);
@@ -1010,19 +1023,30 @@ pub fn run() {
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 if window.label() == "main" {
-                    window.hide().unwrap();
-                    api.prevent_close();
+                    if window.hide().is_ok() {
+                        api.prevent_close();
 
-                    // Optional: notify the frontend/log that the app is still running.
-                    emit_log_event(
-                        &window.app_handle(),
-                        crate::engine::LogEntry {
-                            id: format!("hide-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs()),
-                            timestamp: std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64,
-                            level: crate::engine::LogLevel::Info,
-                            message: "Firewall window hidden. Still running in system tray.".to_string(),
-                        },
-                    );
+                        // Optional: notify the frontend/log that the app is still running.
+                        emit_log_event(
+                            &window.app_handle(),
+                            crate::engine::LogEntry {
+                                id: format!(
+                                    "hide-{}",
+                                    std::time::SystemTime::now()
+                                        .duration_since(std::time::UNIX_EPOCH)
+                                        .unwrap()
+                                        .as_secs()
+                                ),
+                                timestamp: std::time::SystemTime::now()
+                                    .duration_since(std::time::UNIX_EPOCH)
+                                    .unwrap()
+                                    .as_millis() as u64,
+                                level: crate::engine::LogLevel::Info,
+                                message: "Firewall window hidden. Still running in system tray."
+                                    .to_string(),
+                            },
+                        );
+                    }
                 }
             }
         })

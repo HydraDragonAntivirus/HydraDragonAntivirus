@@ -2323,49 +2323,6 @@ impl BehaviorEngine {
         };
         let pcstr = PCSTR(pipe_name.as_ptr() as *const u8);
 
-        let mut last_error = String::new();
-        let mut pipe_handle: Option<HANDLE> = None;
-        for _ in 0..CONNECT_ATTEMPTS {
-            let wait_ok: BOOL = unsafe { WaitNamedPipeA(pcstr, CONNECT_TIMEOUT_MS) };
-            if !wait_ok.as_bool() {
-                last_error = format!("WaitNamedPipeA(GetLastError={:?})", unsafe {
-                    GetLastError()
-                });
-            } else {
-                match unsafe {
-                    CreateFileA(
-                        pcstr,
-                        FILE_GENERIC_WRITE.0,
-                        FILE_SHARE_NONE,
-                        None,
-                        OPEN_EXISTING,
-                        FILE_ATTRIBUTE_NORMAL,
-                        HANDLE::default(),
-                    )
-                } {
-                    Ok(handle) if !handle.is_invalid() => {
-                        pipe_handle = Some(handle);
-                        break;
-                    }
-                    Ok(_) => {
-                        last_error =
-                            "CreateFileA returned an invalid HydraHipEvent handle".to_string();
-                    }
-                    Err(err) => {
-                        last_error = format!("CreateFileA failed: {:?}", err);
-                    }
-                }
-            }
-        }
-
-        let Some(pipe_handle) = pipe_handle else {
-            Logging::warning(&format!(
-                "[Owlyshield HIPS] Failed to connect to HydraHipEvent pipe for request {} after {} attempts: {}",
-                request_id, CONNECT_ATTEMPTS, last_error
-            ));
-            return false;
-        };
-
         let message = format!(
             "HIPS_ASK:{}|{}|{}|{}|{}|{}|{}\n",
             Self::sanitize_firewall_hips_field(request_id),
@@ -2378,34 +2335,87 @@ impl BehaviorEngine {
         );
         let message_bytes = message.as_bytes();
 
-        let mut bytes_written: u32 = 0;
-        let ok: BOOL = unsafe {
-            WriteFile(
-                pipe_handle,
-                Some(message_bytes),
-                Some(&mut bytes_written as *mut u32),
-                None,
-            )
-        };
+        let mut last_error = String::new();
+        for attempt in 0..CONNECT_ATTEMPTS {
+            let wait_ok: BOOL = unsafe { WaitNamedPipeA(pcstr, CONNECT_TIMEOUT_MS) };
+            if !wait_ok.as_bool() {
+                last_error = format!("WaitNamedPipeA(GetLastError={:?})", unsafe {
+                    GetLastError()
+                });
+            } else {
+                let pipe_handle = match unsafe {
+                    CreateFileA(
+                        pcstr,
+                        FILE_GENERIC_WRITE.0,
+                        FILE_SHARE_NONE,
+                        None,
+                        OPEN_EXISTING,
+                        FILE_ATTRIBUTE_NORMAL,
+                        HANDLE::default(),
+                    )
+                } {
+                    Ok(handle) if !handle.is_invalid() => handle,
+                    Ok(_) => {
+                        last_error =
+                            "CreateFileA returned an invalid HydraHipEvent handle".to_string();
+                        if attempt + 1 < CONNECT_ATTEMPTS {
+                            std::thread::sleep(std::time::Duration::from_millis(120));
+                        }
+                        continue;
+                    }
+                    Err(err) => {
+                        last_error = format!("CreateFileA failed: {:?}", err);
+                        if attempt + 1 < CONNECT_ATTEMPTS {
+                            std::thread::sleep(std::time::Duration::from_millis(120));
+                        }
+                        continue;
+                    }
+                };
 
-        unsafe {
-            let _ = FlushFileBuffers(pipe_handle);
-            let _ = CloseHandle(pipe_handle);
+                let mut bytes_written: u32 = 0;
+                let ok: BOOL = unsafe {
+                    WriteFile(
+                        pipe_handle,
+                        Some(message_bytes),
+                        Some(&mut bytes_written as *mut u32),
+                        None,
+                    )
+                };
+
+                unsafe {
+                    let _ = FlushFileBuffers(pipe_handle);
+                    let _ = CloseHandle(pipe_handle);
+                }
+
+                if ok.as_bool() && bytes_written as usize == message_bytes.len() {
+                    Logging::info(&format!(
+                        "[Owlyshield HIPS] Prompted firewall GUI for request {} (PID {}, {} bytes)",
+                        request_id, pid, bytes_written
+                    ));
+                    return true;
+                }
+
+                last_error = if ok.as_bool() {
+                    format!(
+                        "WriteFile wrote {} of {} bytes",
+                        bytes_written,
+                        message_bytes.len()
+                    )
+                } else {
+                    format!("WriteFile(GetLastError={:?})", unsafe { GetLastError() })
+                };
+            }
+
+            if attempt + 1 < CONNECT_ATTEMPTS {
+                std::thread::sleep(std::time::Duration::from_millis(120));
+            }
         }
 
-        if !ok.as_bool() {
-            Logging::error(&format!(
-                "[Owlyshield HIPS] Failed to write HydraHipEvent prompt for request {}",
-                request_id
-            ));
-            return false;
-        }
-
-        Logging::info(&format!(
-            "[Owlyshield HIPS] Prompted firewall GUI for request {} (PID {}, {} bytes)",
-            request_id, pid, bytes_written
+        Logging::warning(&format!(
+            "[Owlyshield HIPS] Failed to connect/write HydraHipEvent prompt for request {} after {} attempts: {}",
+            request_id, CONNECT_ATTEMPTS, last_error
         ));
-        true
+        false
     }
 
     #[cfg(feature = "firewall")]
