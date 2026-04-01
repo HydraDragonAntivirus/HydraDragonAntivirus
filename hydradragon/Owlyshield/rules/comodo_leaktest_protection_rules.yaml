@@ -63,8 +63,19 @@
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
+    # explorer.exe legitimately writes Shell\Bags and other HKCU keys via reg_set_value.
+    # Must be explicitly allowlisted to prevent ShellBags false positives (Alert #1).
+    - pattern: "C:/Windows/explorer.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
 
   named_conditions:
+    # Condition 1: Driver service registry path modification.
+    # min_matches: 3 requires one hit from EACH criterion group (key + value + op).
+    # Prevents the condition firing on a reg_set_value operation alone — the root
+    # cause of the ShellBags FP. "Type" and "Start" removed: too generic as substrings
+    # (e.g. "SniffedFolderType" contains "Type"). HKCU paths not listed here.
     driver_path_modification:
       orderless: true
       registry_keys:
@@ -77,43 +88,30 @@
       registry_values:
         - ImagePath
         - ServiceDll
-        - Type
-        - Start
       registry_operations:
         - reg_create_key
         - reg_set_value
         - reg_delete_value
         - reg_delete_key
         - reg_rename_key
-        - reg_query_value
-        - reg_query_key
-        - reg_open_key
-        - reg_enum_key
-        - reg_enum_value
-      min_matches: 1
+      min_matches: 3  # all three criterion groups must match
 
-    service_reconfigure_api:
+    # Condition 2: Driver-load or service-config APIs only.
+    # Removed *RegSetValue*/*RegCreateKey* globs — they fire on ANY registry write.
+    driver_load_api:
       orderless: true
       apis:
+        - "*NtLoadDriver*"
+        - "*ZwLoadDriver*"
         - "*ChangeServiceConfig*"
         - "*ChangeServiceConfig2*"
         - "*OpenSCManager*"
         - "*OpenService*"
         - "*CreateService*"
-        - "*RegCreateKey*"
-        - "*RegCreateKeyEx*"
-        - "*RegSetValue*"
-        - "*RegSetValueEx*"
-        - "*RegSetKeyValue*"
-        - "*NtLoadDriver*"
-        - "*ZwLoadDriver*"
-        - "*NtCreateKey*"
-        - "*ZwCreateKey*"
-        - "*NtSetValueKey*"
-        - "*ZwSetValueKey*"
       api_threshold: 1
       min_matches: 1
 
+    # Condition 3: Payload points to a user-writable or suspicious path.
     suspicious_driver_payload:
       orderless: true
       registry_value_data_patterns:
@@ -125,16 +123,24 @@
         - "*\\downloads\\*"
       min_matches: 1
 
+    # Condition 4: Caller must be unsigned — first gate for all branches.
+    unsigned_caller:
+      orderless: true
+      is_signed: false
+      min_matches: 1
+
   detection_logic:
-    or:
-      - condition: "driver_path_modification"
-      - condition: "service_reconfigure_api"
-      - condition: "suspicious_driver_payload"
+    and:
+      - condition: "unsigned_caller"   # signed Microsoft binaries excluded here + allowlist
+      - or:
+          - condition: "driver_path_modification"
+          - condition: "driver_load_api"
+          - condition: "suspicious_driver_payload"
 
   response:
     notify_user: true
-    ask_user: false
-    terminate_process: true
+    ask_user: true
+    terminate_process: false
     status_access_denied: true
     record: true
 
@@ -193,7 +199,7 @@
   response:
     notify_user: true
     ask_user: true
-    terminate_process: true
+    terminate_process: false
     status_access_denied: true
     record: true
 
@@ -306,8 +312,8 @@
 
   response:
     notify_user: true
-    ask_user: false
-    terminate_process: true
+    ask_user: true
+    terminate_process: false
     status_access_denied: true
     record: true
 
@@ -448,8 +454,8 @@
 
   response:
     notify_user: true
-    ask_user: false
-    terminate_process: true
+    ask_user: true
+    terminate_process: false
     status_access_denied: true
     record: true
 
@@ -506,8 +512,8 @@
 
   response:
     notify_user: true
-    ask_user: false
-    terminate_process: true
+    ask_user: true
+    terminate_process: false
     status_access_denied: true
     record: true
 
@@ -565,8 +571,8 @@
 
   response:
     notify_user: true
-    ask_user: false
-    terminate_process: true
+    ask_user: true
+    terminate_process: false
     status_access_denied: true
     record: true
 
@@ -748,17 +754,19 @@
       min_matches: 1
 
   detection_logic:
-    or:
-      - condition: "service_key_create"
-      - condition: "service_registry_create"
-      - condition: "createservice_api"
-      - condition: "service_control_api"
-      - condition: "suspicious_service_payload"
+    and:
+      - condition: "non_system_caller"   # unsigned callers only — signed system processes covered by allowlist
+      - or:
+          - condition: "service_key_create"
+          - condition: "service_registry_create"
+          - condition: "createservice_api"
+          - condition: "service_control_api"
+          - condition: "suspicious_service_payload"
 
   response:
     notify_user: true
-    ask_user: false
-    terminate_process: true
+    ask_user: true
+    terminate_process: false
     status_access_denied: true
     record: true
     auto_revert: true
@@ -882,8 +890,8 @@
 
   response:
     notify_user: true
-    ask_user: false
-    terminate_process: true
+    ask_user: true
+    terminate_process: false
     status_access_denied: true
     record: true
 
@@ -959,7 +967,7 @@
   response:
     notify_user: true
     ask_user: true
-    terminate_process: true
+    terminate_process: false
     status_access_denied: true
     record: true
 
@@ -1108,8 +1116,8 @@
 
   response:
     notify_user: true
-    ask_user: false
-    terminate_process: true
+    ask_user: true
+    terminate_process: false
     status_access_denied: true
     record: true
     auto_revert: true
@@ -1268,15 +1276,17 @@
       min_matches: 1
 
   detection_logic:
-    or:
-      - condition: "startup_registry_modification"
-      - condition: "startup_folder_write"
-      - condition: "startup_value_payload"
+    and:
+      - condition: "caller_unsigned"     # unsigned callers only
+      - or:
+          - condition: "startup_registry_modification"
+          - condition: "startup_folder_write"
+          - condition: "startup_value_payload"
 
   response:
     notify_user: true
-    ask_user: false
-    terminate_process: true
+    ask_user: true
+    terminate_process: false
     status_access_denied: true
     record: true
     auto_revert: true
@@ -1349,7 +1359,7 @@
   response:
     notify_user: true
     ask_user: true
-    terminate_process: true
+    terminate_process: false
     status_access_denied: true
     record: true
     auto_revert: true
@@ -1450,14 +1460,16 @@
       min_matches: 1
 
   detection_logic:
-    or:
-      - condition: "appinit_registry_modification"
-      - condition: "appinit_payload"
+    and:
+      - condition: "caller_unsigned"     # unsigned callers only
+      - or:
+          - condition: "appinit_registry_modification"
+          - condition: "appinit_payload"
 
   response:
     notify_user: true
-    ask_user: false
-    terminate_process: true
+    ask_user: true
+    terminate_process: false
     status_access_denied: true
     record: true
     auto_revert: true
@@ -1520,7 +1532,7 @@
   response:
     notify_user: true
     ask_user: true
-    terminate_process: true
+    terminate_process: false
     status_access_denied: true
     record: true
 
@@ -1580,7 +1592,7 @@
   response:
     notify_user: true
     ask_user: true
-    terminate_process: true
+    terminate_process: false
     status_access_denied: true
     record: true
 
@@ -1629,7 +1641,7 @@
   response:
     notify_user: true
     ask_user: true
-    terminate_process: true
+    terminate_process: false
     status_access_denied: true
     record: true
 
@@ -1690,8 +1702,8 @@
 
   response:
     notify_user: true
-    ask_user: false
-    terminate_process: true
+    ask_user: true
+    terminate_process: false
     status_access_denied: true
     record: true
 
@@ -1732,7 +1744,9 @@
       - condition: "driver_service_creation"
       - condition: "unsigned_file_drop"
   response:
-    terminate_process: true
+    ask_user: true
+    notify_user: true
+    terminate_process: false
     status_access_denied: true
     record: true
 
@@ -1763,7 +1777,9 @@
       - condition: "driver_load_api"
       - condition: "unsigned_caller"
   response:
-    terminate_process: true
+    ask_user: true
+    notify_user: true
+    terminate_process: false
     status_access_denied: true
     record: true
 
@@ -1790,7 +1806,9 @@
       - condition: "driver_overwrite"
       - condition: "unsigned_caller"
   response:
-    terminate_process: true
+    ask_user: true
+    notify_user: true
+    terminate_process: false
     status_access_denied: true
     record: true
 
@@ -1812,7 +1830,9 @@
   detection_logic:
     condition: "phys_mem_access"
   response:
-    terminate_process: true
+    ask_user: true
+    notify_user: true
+    terminate_process: false
     status_access_denied: true
     record: true
 
@@ -1838,7 +1858,9 @@
   detection_logic:
     condition: "debug_control_api"
   response:
-    terminate_process: true
+    ask_user: true
+    notify_user: true
+    terminate_process: false
     status_access_denied: true
     record: true
 
@@ -1871,7 +1893,9 @@
       - condition: "set_thread_context_api"
       - condition: "remote_thread_access"
   response:
-    terminate_process: true
+    ask_user: true
+    notify_user: true
+    terminate_process: false
     status_access_denied: true
     record: true
 
@@ -1909,7 +1933,9 @@
       - condition: "remote_exec_api"
       - condition: "unsigned_caller"
   response:
-    terminate_process: true
+    ask_user: true
+    notify_user: true
+    terminate_process: false
     status_access_denied: true
     record: true
 
@@ -1933,7 +1959,9 @@
   detection_logic:
     condition: "knowndlls_tamper"
   response:
-    terminate_process: true
+    ask_user: true
+    notify_user: true
+    terminate_process: false
     status_access_denied: true
     record: true
 
@@ -1963,7 +1991,9 @@
       - condition: "dup_handle_api"
       - condition: "unsigned_caller"
   response:
-    terminate_process: true
+    ask_user: true
+    notify_user: true
+    terminate_process: false
     status_access_denied: true
     record: true
 
@@ -1993,7 +2023,9 @@
       - condition: "debug_terminate"
       - condition: "unsigned_caller"
   response:
-    terminate_process: true
+    ask_user: true
+    notify_user: true
+    terminate_process: false
     status_access_denied: true
     record: true
 
@@ -2008,6 +2040,40 @@
   author: "HydraDragon"
   level: high
   severity: 85
+
+  allowlisted_apps:
+    # The HydraDragon firewall itself sends ICMP for network monitoring — must not self-block
+    - pattern: "C:/Program Files/HydraDragonAntivirus/HydraDragonFirewall/hydradragonfirewall.exe"
+      is_absolute: true
+    - pattern: "C:/Windows/System32/svchost.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/services.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/lsass.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/ping.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/tracert.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/pathping.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "%SystemRoot%/servicing/TrustedInstaller.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+
   named_conditions:
     icmp_activity:
       has_network_activity: true
@@ -2021,8 +2087,153 @@
       - condition: "icmp_activity"
       - condition: "unsigned_caller"
   response:
+    notify_user: true
+    ask_user: true
+    terminate_process: false
     status_access_denied: true
     record: true
+
+---
+
+# HEUR:Win.Persist.ServiceInstall.gen — New service registration from non-privileged processes
+# Closes the gap exposed by Alert #2: svchost writing VFUProvider\StartTime should NEVER match.
+# The service_registry_create condition here is intentionally narrow: it only fires on
+# subkey creation or ImagePath/Type/Start writes directly under a Services\<n> path,
+# not on arbitrary SOFTWARE\CurrentVersion\* keys.
+- name: "HEUR:Win.Persist.ServiceInstall.gen"
+  author: "HydraDragon"
+  date: "2026-04-01"
+  status: production
+  level: high
+  severity: 85
+  description: |
+    Detects new Windows service registration via sc.exe, PowerShell New-Service,
+    or direct registry key creation under HKLM\SYSTEM\*\Services from an
+    unsigned, non-system caller.
+    Scope is intentionally restricted to actual Services registry sub-paths so
+    that legitimate writes such as svchost.exe updating
+    HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\VFUProvider\StartTime do NOT
+    trigger this rule.
+    Response is notify-only to avoid disrupting Windows Update workflows.
+  debug: false
+
+  allowlisted_apps:
+    - pattern: "C:/Windows/System32/svchost.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/services.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/msiexec.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/sc.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "%SystemRoot%/servicing/TrustedInstaller.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "%SystemRoot%/WinSxS/*/TiWorker.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "%SystemRoot%/UUS/*/MoUsoCoreWorker.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "%SystemRoot%/WinSxS/*/MoUsoCoreWorker.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "%SystemRoot%/System32/poqexec.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "%SystemRoot%/System32/wusa.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "%SystemRoot%/System32/Dism/DismHost.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    # Own firewall may register a driver service during installation
+    - pattern: "C:/Program Files/HydraDragonAntivirus/HydraDragonFirewall/hydradragonfirewall.exe"
+      is_absolute: true
+
+  named_conditions:
+    # NARROW scope: only actual service-creation writes under SYSTEM hive.
+    # Uses min_matches: 3 so that key + value + op must ALL match simultaneously.
+    # This prevents a kernel_remote_thread IRP from satisfying the condition via
+    # prefix-match on Services\bam\State\UserSettings\... (the Alert #2 root cause).
+    service_registry_create:
+      orderless: true
+      registry_keys:
+        - HKLM\SYSTEM\CurrentControlSet\Services
+        - HKLM\SYSTEM\ControlSet001\Services
+        - HKLM\SYSTEM\ControlSet002\Services
+        - \REGISTRY\MACHINE\SYSTEM\CurrentControlSet\Services
+        - \REGISTRY\MACHINE\SYSTEM\ControlSet001\Services
+        - \REGISTRY\MACHINE\SYSTEM\ControlSet002\Services
+      # Exclude known Windows state/telemetry subkeys under Services\ that are
+      # NOT real service installations (bam, dam, etc.)
+      registry_keys_exclude:
+        - "*\\\\Services\\\\bam\\\\*"
+        - "*\\\\Services\\\\dam\\\\*"
+        - "*\\\\Services\\\\WdiServiceHost\\\\*"
+        - "*\\\\Services\\\\Tcpip\\\\Parameters\\\\*"
+      registry_values:
+        - ImagePath
+        - ServiceDll
+        - ObjectName
+      # Only real write ops — kernel_remote_thread and read ops excluded
+      registry_operations:
+        - reg_create_key
+        - reg_set_value
+      min_matches: 3  # key group + value group + op group must ALL match
+
+    createservice_api:
+      orderless: true
+      apis:
+        - "advapi32.dll!CreateServiceA"
+        - "advapi32.dll!CreateServiceW"
+        - "CreateServiceA"
+        - "CreateServiceW"
+        - "CreateService"
+      api_threshold: 1
+      min_matches: 1
+
+    # Must be unsigned — blocks the entire rule for any signed Microsoft binary
+    non_system_caller:
+      orderless: true
+      is_signed: false
+      min_matches: 1
+
+  detection_logic:
+    and:
+      - or:
+          - condition: "service_registry_create"
+          - condition: "createservice_api"
+      - condition: "non_system_caller"   # signed system processes are excluded here AND via allowlist
+
+  response:
+    notify_user: true
+    ask_user: true
+    terminate_process: false   # notify-only: avoids disrupting borderline installers
+    status_access_denied: false
+    record: true
+
+  tags:
+    - persistence
+    - services
+    - privilege-escalation
+  mitre_attack:
+    - T1543.003
 
 ---
 
@@ -2067,7 +2278,7 @@
   response:
     notify_user: true
     ask_user: true
-    terminate_process: true
+    terminate_process: false
     status_access_denied: true
     record: true
 
@@ -2114,7 +2325,7 @@
   response:
     notify_user: true
     ask_user: true
-    terminate_process: true
+    terminate_process: false
     status_access_denied: true
     record: true
 
@@ -2162,7 +2373,7 @@
   response:
     notify_user: true
     ask_user: true
-    terminate_process: true
+    terminate_process: false
     status_access_denied: true
     record: true
 
@@ -2190,7 +2401,9 @@
       - condition: "bits_usage"
       - condition: "unsigned_caller"
   response:
-    terminate_process: true
+    ask_user: true
+    notify_user: true
+    terminate_process: false
     status_access_denied: true
     record: true
 
@@ -2220,7 +2433,9 @@
   detection_logic:
     condition: "logon_registry_tamper"
   response:
-    terminate_process: true
+    ask_user: true
+    notify_user: true
+    terminate_process: false
     status_access_denied: true
     record: true
 
@@ -2246,5 +2461,7 @@
   detection_logic:
     condition: "desktop_tamper"
   response:
+    ask_user: true
+    notify_user: true
     status_access_denied: true
     record: true
