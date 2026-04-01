@@ -1745,21 +1745,46 @@
   severity: 100
   named_conditions:
     driver_service_creation:
+      orderless: true
       registry_keys:
         - HKLM\SYSTEM\CurrentControlSet\Services
+        - HKLM\SYSTEM\ControlSet001\Services
+        - HKLM\SYSTEM\ControlSet002\Services
         - \REGISTRY\MACHINE\SYSTEM\CurrentControlSet\Services
+        - \REGISTRY\MACHINE\SYSTEM\ControlSet001\Services
+        - \REGISTRY\MACHINE\SYSTEM\ControlSet002\Services
+      registry_keys_exclude:
+        - "*\\\\Services\\\\bam\\\\*"
+        - "*\\\\Services\\\\dam\\\\*"
+        - "*\\\\Services\\\\WdiServiceHost\\\\*"
+        - "*\\\\Services\\\\Tcpip\\\\Parameters\\\\*"
       registry_values: ["ImagePath"]
+      registry_value_data_patterns:
+        - "*.sys"
+        - "*.sys *"
+        - "*\\System32\\drivers\\*.sys*"
+        - "*\\drivers\\*.sys*"
+        - "\\SystemRoot\\System32\\drivers\\*.sys*"
       registry_operations: ["reg_set_value", "reg_create_key"]
-      min_matches: 1
+      min_matches: 4
     unsigned_file_drop:
-      file_paths: ["*.sys", "*.exe", "*.dll"]
+      orderless: true
+      file_paths:
+        - "*.sys"
+        - "*\\System32\\drivers\\*.sys"
+        - "*\\drivers\\*.sys"
       file_operations: ["create", "write"]
+      is_signed: false
+      min_matches: 1
+    unsigned_caller:
+      orderless: true
       is_signed: false
       min_matches: 1
   detection_logic:
     and:
       - condition: "driver_service_creation"
       - condition: "unsigned_file_drop"
+      - condition: "unsigned_caller"
   response:
     ask_user: true
     deny_while_ask: true

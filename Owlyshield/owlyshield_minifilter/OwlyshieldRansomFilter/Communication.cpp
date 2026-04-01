@@ -1,7 +1,6 @@
 #include "Communication.h"
 #include "FsFilter.h"
 #include "ProcessProtection.h" // OnKernelApiEvent - called by HookDeviceControl
-#include "RootkitDetector.h"
 #include "UserModeHookEngine.h"
 #include <ntstrsafe.h>
 
@@ -687,11 +686,6 @@ QueueHypervisorEvent(_In_ const OWLY_HV_EVENT_DETAILS * EventDetails)
     InsertTailList(&g_OwlyHvEventQueue, &newEntry->Entry);
     g_OwlyHvEventQueueSize++;
     KeReleaseSpinLock(&g_OwlyHvEventQueueLock, oldIrql);
-
-    if (EventDetails->RawEventType >= 0x1000u)
-    {
-        RootkitDetectorOnDriverEvent(RK_TRIGGER_FULL, IRP_HYPERVISOR_EVENT);
-    }
 
     return TRUE;
 }

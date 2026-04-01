@@ -539,13 +539,6 @@
         - "ntdll!NtCreateThreadEx"
         - "ntdll!NtQueueApcThread"
       api_threshold: 1
-      # Also catch raw kernel-path events
-      detect_hypervisor_event: true
-      hypervisor_event_labels:
-        - "IrpKernelWriteMemory"
-        - "IrpKernelRemoteThread"
-        - "IrpKernelQueueApc"
-      hypervisor_event_threshold: 1
 
   detection_logic:
     and:

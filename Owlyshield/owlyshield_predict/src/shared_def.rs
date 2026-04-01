@@ -165,7 +165,7 @@ impl IrpMajorOp {
             26 => IrpMajorOp::IrpRootkitFileMove,
             27 => IrpMajorOp::IrpRootkitGeneric,
 
-            28..=u8::MAX => IrpMajorOp::IrpHypervisorEvent,
+            _ => IrpMajorOp::IrpNone,
         }
     }
 }
