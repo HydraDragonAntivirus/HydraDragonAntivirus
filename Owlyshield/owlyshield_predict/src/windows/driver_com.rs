@@ -669,7 +669,8 @@ pub struct CDriverMsg {
     pub attacker_pid: c_ulong,
     /// For IRP_PROCESS_TERMINATE_ATTEMPT: GID of attacker process (0 if not tracked)
     pub attacker_gid: c_ulonglong,
-    /// Kernel/hypervisor event payload
+    /// Shared kernel event payload used by both VMM/HyperDbg events and
+    /// kernel process-protection/FsFilter signals.
     pub kernel_event_info: CKernelEventInfo,
     /// null (0x0) when there is no [`IOMessage`] remaining
     pub next: *const CDriverMsg,

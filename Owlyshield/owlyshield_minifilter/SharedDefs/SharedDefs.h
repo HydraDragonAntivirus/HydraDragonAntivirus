@@ -366,15 +366,26 @@ enum IRP_MAJOR_OP
     IRP_PROCESS_EXIT,
     IRP_PROCESS_HANDLE_OPEN,
 
-    // Single normalized opcode for all hypervisor-origin events
+    // Single normalized opcode reserved for real VMM/HyperDbg-origin events.
+    // Do not use this for ProcessProtection/FsFilter kernel API signals.
     IRP_HYPERVISOR_EVENT,
 };
 
-// Distinct raw kernel/hypervisor event ids (kept in 13..19 range).
-// Now unified into IRP_HYPERVISOR_EVENT natively, mapping them directly without creating distinct IRP_OPs.
+// Distinct raw kernel/process-protection event ids (kept in 13..19 range).
+// These are still emitted directly by kernel producers and must remain real
+// integral constants for switch labels and static initialization sites.
+// They are not hypervisor events.
+#define IRP_KERNEL_REMOTE_THREAD   13U
+#define IRP_KERNEL_WRITE_MEMORY    14U
+#define IRP_KERNEL_PROTECT_MEMORY  15U
+#define IRP_KERNEL_CREATE_THREAD   16U
+#define IRP_KERNEL_QUEUE_APC       17U
+#define IRP_KERNEL_CREATE_SECTION  18U
+#define IRP_KERNEL_MAP_SECTION     19U
+
 // User-mode API hook event (shellcode via UserModeHookEngine -> IOCTL_REPORT_HOOK_EVENT).
 // Distinct from IRP_HYPERVISOR_EVENT which is reserved for VMM/HyperDbg-origin events.
-#define IRP_USERMODE_HOOK_EVENT 20
+#define IRP_USERMODE_HOOK_EVENT 20U
 
 #define IRP_ROOTKIT_SSDT_HOOK       21U
 #define IRP_ROOTKIT_HIDDEN_PROCESS  22U
@@ -396,7 +407,8 @@ typedef struct _HOOK_CONFIG_DATA {
 
 // ... (Existing Macros) ...
 
-// Generic hypervisor event id is represented by IRP_HYPERVISOR_EVENT.
+// Generic VMM/HyperDbg-origin event id is represented by IRP_HYPERVISOR_EVENT.
+// ProcessProtection/FsFilter kernel API signals keep using IRP_KERNEL_* above.
 
 
 enum THREAT_ACTION_TYPE

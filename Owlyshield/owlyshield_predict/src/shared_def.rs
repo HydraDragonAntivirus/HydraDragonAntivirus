@@ -102,7 +102,8 @@ pub enum IrpMajorOp {
     IrpProcessExit,
     /// Process handle opened for access (OB callback)
     IrpProcessHandleOpen,
-    /// Single normalized event for all hypervisor-origin activity
+    /// Single normalized opcode for real VMM/HyperDbg-origin activity only.
+    /// Kernel process-protection signals stay in the dedicated IrpKernel* variants below.
     IrpHypervisorEvent,
     /// User-mode API hook callback from UserModeHookEngine shellcode (via IOCTL_REPORT_HOOK_EVENT)
     IrpUserModeHookEvent,
