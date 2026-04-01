@@ -13,7 +13,8 @@ use crate::shared_def::{
 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
 use crate::shared_def::{
     effective_hypervisor_irp_byte, effective_hypervisor_raw_event_type, is_kernel_api_irp,
-    normalize_hypervisor_label, resolved_hypervisor_event_name,
+    is_kernel_process_protection_irp, is_real_hypervisor_irp, normalize_hypervisor_label,
+    resolved_hypervisor_event_name,
 };
 use crate::signature_verification::verify_signature;
 use crate::threat_handler::ThreatHandler;
@@ -941,8 +942,14 @@ fn is_actionable_hypervisor_event(irp_op: &IrpMajorOp, raw: &str, raw_event_type
         return false;
     }
 
-    if !matches!(irp_op, IrpMajorOp::IrpHypervisorEvent) {
+    if is_kernel_process_protection_irp(irp_op)
+        || matches!(irp_op, IrpMajorOp::IrpUserModeHookEvent)
+    {
         return true;
+    }
+
+    if !is_real_hypervisor_irp(irp_op, raw_event_type) {
+        return false;
     }
 
     let normalized = normalize_hypervisor_label(raw);
@@ -1301,8 +1308,18 @@ impl ProcessBehaviorState {
                     &event_name,
                 )
                     .unwrap_or_else(|| event_name.clone());
+                let event_family = if is_real_hypervisor_irp(&irp_kind, raw_event_type) {
+                    "HYPERVISOR EVENT"
+                } else if is_kernel_process_protection_irp(&irp_kind) {
+                    "KERNEL API EVENT"
+                } else if matches!(irp_kind, IrpMajorOp::IrpUserModeHookEvent) {
+                    "USERMODE HOOK EVENT"
+                } else {
+                    "KERNEL EVENT"
+                };
                 Logging::info(&format!(
-                    "[HYPERVISOR EVENT{}] opcode={} raw_event_type={} core_id={} thread_id={} context=0x{:X} src_pid_path={} target_pid_path={} arg1=0x{:X} arg2=0x{:X} arg3=0x{:X} arg4=0x{:X} event=\"{}\" count={}",
+                    "[{}{}] opcode={} raw_event_type={} core_id={} thread_id={} context=0x{:X} src_pid_path={} target_pid_path={} arg1=0x{:X} arg2=0x{:X} arg3=0x{:X} arg4=0x{:X} event=\"{}\" count={}",
+                    event_family,
                     if actionable_hypervisor_event {
                         ""
                     } else {

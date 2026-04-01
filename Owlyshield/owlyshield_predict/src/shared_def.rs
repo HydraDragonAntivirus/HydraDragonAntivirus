@@ -468,6 +468,25 @@ pub fn is_kernel_api_irp(irp_op: &IrpMajorOp) -> bool {
 }
 
 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+pub fn is_kernel_process_protection_irp(irp_op: &IrpMajorOp) -> bool {
+    matches!(
+        irp_op,
+        IrpMajorOp::IrpKernelRemoteThread
+            | IrpMajorOp::IrpKernelWriteMemory
+            | IrpMajorOp::IrpKernelProtectMemory
+            | IrpMajorOp::IrpKernelCreateThread
+            | IrpMajorOp::IrpKernelQueueApc
+            | IrpMajorOp::IrpKernelCreateSection
+            | IrpMajorOp::IrpKernelMapSection
+    )
+}
+
+#[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+pub fn is_real_hypervisor_irp(irp_op: &IrpMajorOp, raw_event_type: u32) -> bool {
+    matches!(irp_op, IrpMajorOp::IrpHypervisorEvent) && is_hypervisor_raw_event_type(raw_event_type)
+}
+
+#[cfg(all(target_os = "windows", feature = "behavior_engine"))]
 pub fn resolved_hypervisor_event_name(msg: &IOMessage) -> String {
     let normalized = normalize_hypervisor_label(&msg.kernel_event_info.object_name);
     if !normalized.is_empty() {

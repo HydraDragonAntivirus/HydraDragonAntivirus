@@ -279,7 +279,7 @@
     - "User-configured startup applications"
 
 
-- name: "HEUR:Win.Persist.ServiceInstall.gen"
+- name: "TEST:Win.Persist.ServiceInstall.legacy"
   author: "Emirhan Ucan"
   date: "2026-03-22"
   status: test
@@ -315,22 +315,24 @@
       orderless: true
       registry_keys:
         - HKLM\SYSTEM\CurrentControlSet\Services
+        - HKLM\SYSTEM\ControlSet001\Services
+        - HKLM\SYSTEM\ControlSet002\Services
+        - \REGISTRY\MACHINE\SYSTEM\CurrentControlSet\Services
+        - \REGISTRY\MACHINE\SYSTEM\ControlSet001\Services
+        - \REGISTRY\MACHINE\SYSTEM\ControlSet002\Services
+      registry_keys_exclude:
+        - "*\\\\Services\\\\bam\\\\*"
+        - "*\\\\Services\\\\dam\\\\*"
+        - "*\\\\Services\\\\WdiServiceHost\\\\*"
+        - "*\\\\Services\\\\Tcpip\\\\Parameters\\\\*"
       registry_values:
         - ImagePath
-        - Start
-        - Type
+        - ServiceDll
+        - ObjectName
       registry_operations:
         - reg_create_key
         - reg_set_value
-        - reg_delete_value
-        - reg_delete_key
-        - reg_rename_key
-        - reg_query_value
-        - reg_query_key
-        - reg_open_key
-        - reg_enum_key
-        - reg_enum_value
-      min_matches: 1
+      min_matches: 3
 
   detection_logic:
     or:
