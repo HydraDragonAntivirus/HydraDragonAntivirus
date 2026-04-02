@@ -1254,8 +1254,9 @@ RWFNewMessage(IN PVOID PortCookie, IN PVOID InputBuffer, IN ULONG InputBufferLen
         {
             return STATUS_INVALID_PARAMETER;
         }
-        driverData->DriverGetIrps(OutputBuffer, OutputBufferLength, ReturnOutputBufferLength);
+        *ReturnOutputBufferLength = 0;
         DrainQueuedHypervisorEvents(OutputBuffer, OutputBufferLength, ReturnOutputBufferLength);
+        driverData->DriverGetIrps(OutputBuffer, OutputBufferLength, ReturnOutputBufferLength);
         return STATUS_SUCCESS;
     }
     else if (message->type == MESSAGE_SET_PID)

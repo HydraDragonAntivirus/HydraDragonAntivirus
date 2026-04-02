@@ -43,6 +43,7 @@ pub fn expand_environment_variables(text: &str) -> String {
 // =============================================================================
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "lowercase")]
 pub enum Comparison {
     #[default]
     Gt,
@@ -2458,5 +2459,37 @@ regex:
 
         assert!(rule.response.traffic_attack);
         assert!(rule.matches_packet(&Arc::new(RwLock::new(HashMap::new())), &packet, &[],));
+    }
+
+    #[test]
+    fn detection_logic_count_accepts_lowercase_comparison() {
+        let yaml = r#"
+name: Rootkit MultiVector
+named_conditions:
+  ssdt_finding:
+    rootkit_event_types: ["ssdt_hook"]
+  driver_finding:
+    rootkit_event_types: ["hidden_driver"]
+detection_logic:
+  count:
+    - "ssdt_finding"
+    - "driver_finding"
+  comparison: gte
+  threshold: 2
+"#;
+
+        let rule: BehaviorRule = serde_yaml::from_str(yaml).unwrap();
+        let DetectionCondition::Count {
+            count,
+            comparison,
+            threshold,
+        } = rule.detection_logic.unwrap()
+        else {
+            panic!("expected count detection logic");
+        };
+
+        assert_eq!(count, vec!["ssdt_finding".to_string(), "driver_finding".to_string()]);
+        assert_eq!(comparison, Comparison::Gte);
+        assert_eq!(threshold, 2);
     }
 }

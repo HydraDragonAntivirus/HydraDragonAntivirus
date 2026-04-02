@@ -519,7 +519,12 @@ pub fn run() {
                     if reply_irp.num_ops > 0 {
                         let drivermsgs = CDriverMsgs::new(&reply_irp);
                         for drivermsg in drivermsgs {
-                            let iomsg = IOMessage::from_driver_msg(&drivermsg);
+                            let mut iomsg = IOMessage::from_driver_msg(&drivermsg);
+
+                            #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                            if iomsg.irp_op == 12 {
+                                iomsg.normalize_hypervisor_event();
+                            }
 
                             // DIAGNOSTIC: Count by opcode
                             let op = iomsg.irp_op as usize;

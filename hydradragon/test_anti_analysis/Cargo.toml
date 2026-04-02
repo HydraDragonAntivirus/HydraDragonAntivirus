@@ -1,0 +1,81 @@
+[package]
+name = "signaturemonster"
+version = "0.1.0"
+edition = "2024"
+description = "Signature Monster SDK - Usermode system artifact checking for malware signatures"
+license = "MIT"
+
+[lib]
+name = "signaturemonster"
+path = "src/lib.rs"
+
+[[bin]]
+name = "signaturemonster-cli"
+path = "src/main.rs"
+
+[dependencies]
+windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    "Win32_System_Registry",
+    "Win32_System_Threading",
+    "Win32_System_ProcessStatus",
+    "Win32_System_Diagnostics_ToolHelp",
+    "Win32_Security",
+    "Win32_System_Services",
+    "Win32_Storage_FileSystem",
+    "Win32_System_WindowsProgramming",
+    "Win32_System_SystemInformation",
+    "Win32_System_Environment",
+    "Win32_NetworkManagement_NetManagement",
+    "Win32_Security_Authorization",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Diagnostics_Debug",
+    "Win32_System_Memory",
+]}
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+serde_yaml = "0.9"
+regex = "1.10"
+thiserror = "1.0"
+uuid = { version = "1.0", features = ["v4"] }
+base64 = "0.22"
+windows-sys = { version = "0.59", features = [
+    "Win32_Foundation",
+    "Win32_System_Threading",
+    "Win32_System_WindowsProgramming",
+    "Win32_System_Memory",
+    "Win32_System_SystemServices",
+    "Win32_System_Kernel",
+    "Win32_Security",
+]}
+
+[build-dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_yaml = "0.9"
+serde_json = "1.0"
+walkdir = "2.3"
+quote = "1.0"
+syn = { version = "2.0", features = ["full", "fold", "visit-mut", "visit"] }
+rand = "0.9" 
+base45 = "3.2.0"
+base32 = "0.4"
+base64 = "0.21"
+base85 = "2.0.0"
+bs58 = "0.5"
+proc-macro2 = "1.0"
+regex = "1.10"
+aes = "0.8"
+hex = "0.4"
+getrandom = "0.3"
+
+[features]
+default = []
+cli = []
+# Anti-DLL injection protection testing
+antidll = []
+# Process utilities for testing
+processutils = []
+# Registry protection utilities
+regprotect = []
+# Full testing suite with all features
+testing = ["antidll", "processutils", "regprotect"]

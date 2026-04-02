@@ -1833,13 +1833,6 @@ pub fn App() -> impl IntoView {
                                                     <span class="label">{move || format!("Peak {:.1} evt/s", peak_activity_rate.get())}</span>
                                                 </div>
                                             </div>
-                                            <button
-                                                class="btn-secondary"
-                                                style="position: absolute; left: 20px; bottom: 18px; padding: 7px 14px; font-size: 11px"
-                                                on:click=move |_| set_current_view.set(AppView::OwlyShield)
-                                            >
-                                                "Open OwlyShield Manager"
-                                            </button>
                                         </div>
                                     </div>
 
@@ -2830,68 +2823,6 @@ pub fn App() -> impl IntoView {
   suspend_while_ask: false
   deny_while_ask: true"</pre>
                                         </div>
-
-                                        <div class="glass-card" style="padding: 18px; display: flex; flex-direction: column; gap: 10px; min-height: 0;">
-                                            <div class="section-header" style="padding: 0; border: none;">
-                                                <h3 style="margin: 0;">"Quarantine Manager"</h3>
-                                            </div>
-                                            <p style="margin: 0; color: var(--text-muted); font-size: 12px; line-height: 1.55;">
-                                                "Recent files currently stored in the firewall quarantine directory."
-                                            </p>
-                                            <div style="font-size: 11px; color: var(--text-muted); overflow-wrap: anywhere;">
-                                                {move || firewall_quarantine_directory.get()}
-                                            </div>
-                                            <div style="display: flex; flex-direction: column; gap: 8px; overflow-y: auto; min-height: 0;">
-                                                <For
-                                                    each={move || firewall_quarantine_files.get()}
-                                                    key={|file| file.path.clone()}
-                                                    children={move |file| view! {
-                                                        <div style="padding: 10px 12px; border-radius: 8px; background: rgba(15, 23, 42, 0.5); border: 1px solid rgba(248, 113, 113, 0.14);">
-                                                            <div style="font-size: 12px; font-weight: 700; margin-bottom: 4px;">{file.name.clone()}</div>
-                                                            <div style="font-size: 11px; color: var(--accent-orange); margin-bottom: 2px;">{format_unix_timestamp(file.modified_ts)}</div>
-                                                            <div style="font-size: 11px; color: var(--text-muted);">{format_file_size_bytes(file.size_bytes)}</div>
-                                                            <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px; overflow-wrap: anywhere;">{compact_log_message(&file.path, 96)}</div>
-                                                        </div>
-                                                    }}
-                                                />
-                                                {move || if firewall_quarantine_files.get().is_empty() {
-                                                    view! {
-                                                        <div style="padding: 12px; border-radius: 8px; background: rgba(15, 23, 42, 0.35); color: var(--text-muted); font-size: 12px;">
-                                                            "No quarantined files are currently present."
-                                                        </div>
-                                                    }.into_view()
-                                                } else {
-                                                    view! {}.into_view()
-                                                }}
-                                            </div>
-                                        </div>
-
-                                        <div class="glass-card" style="padding: 18px; display: flex; flex-direction: column; gap: 10px; min-height: 0;">
-                                            <div class="section-header" style="padding: 0; border: none;">
-                                                <h3 style="margin: 0;">"OwlyShield Activity"</h3>
-                                            </div>
-                                            <div style="display: flex; flex-direction: column; gap: 8px; overflow-y: auto; min-height: 0;">
-                                                <For
-                                                    each={move || owlyshield_activity_logs.get()}
-                                                    key={|log| log.id.clone()}
-                                                    children={move |log| view! {
-                                                        <div style="padding: 10px 12px; border-radius: 8px; background: rgba(15, 23, 42, 0.5); border: 1px solid rgba(96, 165, 250, 0.14);">
-                                                            <div style="font-size: 11px; color: var(--accent-blue); margin-bottom: 4px;">{format!("Event {}", log.timestamp % 100000)}</div>
-                                                            <div style="font-size: 12px; line-height: 1.5;">{compact_log_message(&log.message, 110)}</div>
-                                                        </div>
-                                                    }}
-                                                />
-                                                {move || if owlyshield_activity_logs.get().is_empty() {
-                                                    view! {
-                                                        <div style="padding: 12px; border-radius: 8px; background: rgba(15, 23, 42, 0.35); color: var(--text-muted); font-size: 12px;">
-                                                            "No OwlyShield-specific activity has been logged yet."
-                                                        </div>
-                                                    }.into_view()
-                                                } else {
-                                                    view! {}.into_view()
-                                                }}
-                                            </div>
-                                        </div>
                                     </div>
 
                                     <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 12px; min-height: 0;">
@@ -3037,6 +2968,77 @@ pub fn App() -> impl IntoView {
                                                             <pre style="margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-family: Consolas, 'JetBrains Mono', monospace; font-size: 12px; line-height: 1.5; color: #d6e2f0;">{move || owlyshield_report_content.get()}</pre>
                                                         }.into_view()
                                                     }}
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div style="display: flex; gap: 14px; min-height: 280px; max-height: 340px;">
+                                            <div class="glass-card" style="flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0;">
+                                                <div class="section-header">
+                                                    <h3 style="margin: 0;">"Quarantine Manager"</h3>
+                                                </div>
+                                                <div style="padding: 14px; display: flex; flex-direction: column; gap: 10px; min-height: 0; overflow: hidden;">
+                                                    <p style="margin: 0; color: var(--text-muted); font-size: 12px; line-height: 1.55;">
+                                                        "Recent files currently stored in the firewall quarantine directory."
+                                                    </p>
+                                                    <div style="font-size: 11px; color: var(--text-muted); overflow-wrap: anywhere;">
+                                                        {move || firewall_quarantine_directory.get()}
+                                                    </div>
+                                                    <div style="display: flex; flex-direction: column; gap: 8px; overflow-y: auto; min-height: 0; padding-right: 4px;">
+                                                        <For
+                                                            each={move || firewall_quarantine_files.get()}
+                                                            key={|file| file.path.clone()}
+                                                            children={move |file| view! {
+                                                                <div style="padding: 10px 12px; border-radius: 8px; background: rgba(15, 23, 42, 0.5); border: 1px solid rgba(248, 113, 113, 0.14);">
+                                                                    <div style="font-size: 12px; font-weight: 700; margin-bottom: 4px;">{file.name.clone()}</div>
+                                                                    <div style="font-size: 11px; color: var(--accent-orange); margin-bottom: 2px;">{format_unix_timestamp(file.modified_ts)}</div>
+                                                                    <div style="font-size: 11px; color: var(--text-muted);">{format_file_size_bytes(file.size_bytes)}</div>
+                                                                    <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px; overflow-wrap: anywhere;">{compact_log_message(&file.path, 96)}</div>
+                                                                </div>
+                                                            }}
+                                                        />
+                                                        {move || if firewall_quarantine_files.get().is_empty() {
+                                                            view! {
+                                                                <div style="padding: 12px; border-radius: 8px; background: rgba(15, 23, 42, 0.35); color: var(--text-muted); font-size: 12px;">
+                                                                    "No quarantined files are currently present."
+                                                                </div>
+                                                            }.into_view()
+                                                        } else {
+                                                            view! {}.into_view()
+                                                        }}
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            <div class="glass-card" style="flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0;">
+                                                <div class="section-header">
+                                                    <h3 style="margin: 0;">"OwlyShield Activity"</h3>
+                                                </div>
+                                                <div style="padding: 14px; display: flex; flex-direction: column; gap: 10px; min-height: 0; overflow: hidden;">
+                                                    <p style="margin: 0; color: var(--text-muted); font-size: 12px; line-height: 1.55;">
+                                                        "Recent OwlyShield-specific backend events collected by the firewall UI."
+                                                    </p>
+                                                    <div style="display: flex; flex-direction: column; gap: 8px; overflow-y: auto; min-height: 0; padding-right: 4px;">
+                                                        <For
+                                                            each={move || owlyshield_activity_logs.get()}
+                                                            key={|log| log.id.clone()}
+                                                            children={move |log| view! {
+                                                                <div style="padding: 10px 12px; border-radius: 8px; background: rgba(15, 23, 42, 0.5); border: 1px solid rgba(96, 165, 250, 0.14);">
+                                                                    <div style="font-size: 11px; color: var(--accent-blue); margin-bottom: 4px;">{format!("Event {}", log.timestamp % 100000)}</div>
+                                                                    <div style="font-size: 12px; line-height: 1.5;">{compact_log_message(&log.message, 110)}</div>
+                                                                </div>
+                                                            }}
+                                                        />
+                                                        {move || if owlyshield_activity_logs.get().is_empty() {
+                                                            view! {
+                                                                <div style="padding: 12px; border-radius: 8px; background: rgba(15, 23, 42, 0.35); color: var(--text-muted); font-size: 12px;">
+                                                                    "No OwlyShield-specific activity has been logged yet."
+                                                                </div>
+                                                            }.into_view()
+                                                        } else {
+                                                            view! {}.into_view()
+                                                        }}
+                                                    </div>
                                                 </div>
                                             </div>
                                         </div>

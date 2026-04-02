@@ -951,6 +951,13 @@ fn is_actionable_hypervisor_event(
         return false;
     }
 
+    // Benign handle-race fallout from GUI/WebView/browser lifetime churn should
+    // stay visible in low-level telemetry, but must not contaminate behavioral
+    // API history or trigger higher-level detections.
+    if is_benign_hypervisor_failure_status(operation_status) {
+        return false;
+    }
+
     if is_kernel_process_protection_irp(irp_op)
         || matches!(irp_op, IrpMajorOp::IrpUserModeHookEvent)
     {
@@ -958,13 +965,6 @@ fn is_actionable_hypervisor_event(
     }
 
     if !is_real_hypervisor_irp(irp_op, raw_event_type) {
-        return false;
-    }
-
-    // HyperDbg-origin callback noise can legitimately report transient invalid-handle
-    // failures during normal GUI/process lifetime events. Keep those for low-level
-    // diagnostics, but do not surface them as actionable behavioral detections.
-    if is_benign_hypervisor_failure_status(operation_status) {
         return false;
     }
 
@@ -1325,17 +1325,21 @@ impl ProcessBehaviorState {
             }
 
             if real_api {
-                self.detected_apis.insert(event_name.clone());
-                self.all_apis_called.insert(event_name.clone());
-                if let Some(alias) = api_function_alias(&event_name) {
-                    self.detected_apis.insert(alias.clone());
-                    self.all_apis_called.insert(alias.clone());
+                if actionable_hypervisor_event {
+                    self.detected_apis.insert(event_name.clone());
+                    self.all_apis_called.insert(event_name.clone());
+                    if let Some(alias) = api_function_alias(&event_name) {
+                        self.detected_apis.insert(alias.clone());
+                        self.all_apis_called.insert(alias.clone());
+                    }
                 }
-            }
-
-            if real_api {
                 Logging::info(&format!(
-                    "[API HOOKING EVENT] opcode={} raw_event_type={} core_id={} thread_id={} context=0x{:X} src_pid_path={} target_pid_path={} arg1=0x{:X} arg2=0x{:X} arg3=0x{:X} arg4=0x{:X} api=\"{}\" count={}",
+                    "[API HOOKING EVENT{}] opcode={} raw_event_type={} core_id={} thread_id={} context=0x{:X} src_pid_path={} target_pid_path={} arg1=0x{:X} arg2=0x{:X} arg3=0x{:X} arg4=0x{:X} api=\"{}\" count={}",
+                    if actionable_hypervisor_event {
+                        ""
+                    } else {
+                        " IGNORED"
+                    },
                     irp_op,
                     raw_event_type,
                     core_id,

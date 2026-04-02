@@ -491,11 +491,29 @@ VOID DriverData::DriverGetIrps(
     PVOID Buffer,
     ULONG BufferSize,
     PULONG ReturnOutputBufferLength) {
-    *ReturnOutputBufferLength = sizeof(RWD_REPLY_IRPS);
-
     PCHAR OutputBuffer = (PCHAR)Buffer;
     ASSERT(OutputBuffer != nullptr);
-    
+    ASSERT(ReturnOutputBufferLength != nullptr);
+
+    ULONG initialOutputSize = sizeof(RWD_REPLY_IRPS);
+    RWD_REPLY_IRPS outHeader;
+
+    if (*ReturnOutputBufferLength >= sizeof(RWD_REPLY_IRPS) && *ReturnOutputBufferLength <= BufferSize)
+    {
+        initialOutputSize = *ReturnOutputBufferLength;
+        RtlCopyMemory(&outHeader, OutputBuffer, sizeof(RWD_REPLY_IRPS));
+
+        if (outHeader.dataSize < sizeof(RWD_REPLY_IRPS) || outHeader.dataSize > BufferSize)
+        {
+            outHeader = RWD_REPLY_IRPS();
+            initialOutputSize = sizeof(RWD_REPLY_IRPS);
+        }
+    }
+    else
+    {
+        *ReturnOutputBufferLength = sizeof(RWD_REPLY_IRPS);
+    }
+
     LIST_ENTRY tempIrpList;
     InitializeListHead(&tempIrpList);
 
@@ -510,9 +528,9 @@ VOID DriverData::DriverGetIrps(
     irpOpsSize = 0;
     KeReleaseSpinLock(&irpOpsLock, oldIrql);
 
-    PCHAR CurrentBuffer = OutputBuffer + sizeof(RWD_REPLY_IRPS);
-    ULONG BufferSizeRemain = BufferSize - sizeof(RWD_REPLY_IRPS);
-    RWD_REPLY_IRPS outHeader;
+    *ReturnOutputBufferLength = initialOutputSize;
+    PCHAR CurrentBuffer = OutputBuffer + initialOutputSize;
+    ULONG BufferSizeRemain = (BufferSize > initialOutputSize) ? (BufferSize - initialOutputSize) : 0;
 
     // Process the temporary list without holding the spinlock
     while (!IsListEmpty(&tempIrpList)) {
