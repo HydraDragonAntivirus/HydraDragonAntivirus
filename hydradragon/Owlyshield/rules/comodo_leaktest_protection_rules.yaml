@@ -691,6 +691,8 @@
         - ImagePath
         - ServiceDll
         - ObjectName
+        - Type
+        - Start
       registry_value_data_patterns:
         - "*.sys*"
         - "*.dll*"
@@ -2236,6 +2238,8 @@
         - ImagePath
         - ServiceDll
         - ObjectName
+        - Type
+        - Start
       # Only real write ops — kernel_remote_thread and read ops excluded
       registry_operations:
         - reg_create_key

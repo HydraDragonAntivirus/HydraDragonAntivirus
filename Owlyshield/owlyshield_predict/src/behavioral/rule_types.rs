@@ -1454,6 +1454,8 @@ pub struct NamedConditionGroup {
     #[serde(default)]
     pub registry_keys: Vec<String>,
     #[serde(default)]
+    pub registry_keys_exclude: Vec<String>,
+    #[serde(default)]
     pub registry_values: Vec<String>,
     #[serde(default)]
     pub registry_operations: Vec<String>,

@@ -329,6 +329,8 @@
         - ImagePath
         - ServiceDll
         - ObjectName
+        - Type
+        - Start
       registry_operations:
         - reg_create_key
         - reg_set_value

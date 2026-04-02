@@ -2789,7 +2789,7 @@ pub fn App() -> impl IntoView {
 
                             AppView::OwlyShield => view! {
                                 <div style="height: calc(100vh - 120px); display: flex; gap: 16px; min-height: 0;">
-                                    <div style="width: 360px; min-width: 320px; display: flex; flex-direction: column; gap: 14px; min-height: 0;">
+                                    <div style="width: 360px; min-width: 320px; display: flex; flex-direction: column; gap: 14px; min-height: 0; overflow-y: auto; padding-right: 4px;">
                                         <div class="glass-card" style="padding: 18px; display: flex; flex-direction: column; gap: 12px;">
                                             <div class="section-header" style="padding: 0; border: none;">
                                                 <h3 style="margin: 0;">"OwlyShield Report Manager"</h3>

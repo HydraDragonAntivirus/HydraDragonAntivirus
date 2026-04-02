@@ -1973,6 +1973,21 @@ impl BehaviorEngine {
         state.condition_match_values.get(&scoped)
     }
 
+    fn rule_has_current_named_condition_match(
+        state: &ProcessBehaviorState,
+        rule: &BehaviorRule,
+        event_time: SystemTime,
+    ) -> bool {
+        if rule.named_conditions.is_empty() {
+            return true;
+        }
+
+        rule.named_conditions.keys().any(|cond_name| {
+            let scoped = Self::scoped_condition_name(rule, cond_name);
+            state.condition_last_seen.get(&scoped).copied() == Some(event_time)
+        })
+    }
+
     fn truncate_detail_value(value: &str, max_chars: usize) -> String {
         let normalized = value
             .replace('\r', " ")
@@ -3030,6 +3045,52 @@ impl BehaviorEngine {
         false
     }
 
+    fn registry_value_pattern_matches(
+        cache: &Arc<RwLock<HashMap<String, Regex>>>,
+        pattern: &str,
+        filepath: &str,
+    ) -> bool {
+        let pat = pattern
+            .trim()
+            .trim_matches('"')
+            .trim_matches(char::from(0))
+            .to_ascii_lowercase()
+            .replace("\\", "/");
+        if pat.is_empty() {
+            return false;
+        }
+
+        let filepath_aliases = Self::registry_match_aliases(filepath);
+        for filepath_alias in &filepath_aliases {
+            let trimmed = filepath_alias.trim_matches('/');
+            let terminal = trimmed
+                .rsplit('/')
+                .next()
+                .unwrap_or(trimmed)
+                .split(" (")
+                .next()
+                .unwrap_or(trimmed)
+                .trim();
+
+            if !terminal.is_empty() && Self::matches_pattern_internal(cache, &pat, terminal) {
+                return true;
+            }
+
+            if Self::matches_pattern_internal(cache, &pat, trimmed) {
+                return true;
+            }
+
+            if !pat.contains('/') {
+                let suffix_pattern = format!("*/{}", pat);
+                if Self::matches_pattern_internal(cache, &suffix_pattern, trimmed) {
+                    return true;
+                }
+            }
+        }
+
+        false
+    }
+
     fn registry_op_matches(
         cond_group: &NamedConditionGroup,
         msg: &IOMessage,
@@ -4078,7 +4139,11 @@ impl BehaviorEngine {
         irp_op: &IrpMajorOp,
         filepath: &str,
     ) {
-        let now = SystemTime::now();
+        let now = if msg.time.duration_since(UNIX_EPOCH).is_ok() {
+            msg.time
+        } else {
+            SystemTime::now()
+        };
         let mut available_apis = HashSet::new();
 
         let state_detected_apis = if let Some(state) = self.process_states.get(&gid) {
@@ -4926,6 +4991,7 @@ impl BehaviorEngine {
                 }
 
                 let has_reg_conditions = !cond_group.registry_keys.is_empty()
+                    || !cond_group.registry_keys_exclude.is_empty()
                     || !cond_group.autorun_keys.is_empty()
                     || !cond_group.registry_values.is_empty()
                     || !cond_group.registry_value_data_patterns.is_empty();
@@ -4935,39 +5001,70 @@ impl BehaviorEngine {
                     && *irp_op == IrpMajorOp::IrpRegistry
                     && Self::registry_op_matches(cond_group, msg, irp_op)
                 {
-                    let reg_iter = cond_group
-                        .registry_keys
-                        .iter()
-                        .chain(cond_group.autorun_keys.iter())
-                        .chain(cond_group.registry_values.iter());
+                    let excluded = cond_group.registry_keys_exclude.iter().any(|pattern| {
+                        Self::registry_pattern_matches(&self.regex_cache, pattern, filepath)
+                    });
 
-                    for reg_pattern in reg_iter {
-                        if Self::registry_pattern_matches(&self.regex_cache, reg_pattern, filepath)
+                    if excluded {
+                        if rule.debug || self.rules.iter().any(|r| r.debug) {
+                            Logging::debug(&format!(
+                                "[BehaviorEngine] Condition '{}' excluded for PID {}: {}",
+                                cond_name, state.pid, filepath
+                            ));
+                        }
+                    } else {
+                        let key_ok = if cond_group.registry_keys.is_empty()
+                            && cond_group.autorun_keys.is_empty()
                         {
+                            true
+                        } else {
+                            cond_group
+                                .registry_keys
+                                .iter()
+                                .chain(cond_group.autorun_keys.iter())
+                                .any(|pattern| {
+                                    Self::registry_pattern_matches(
+                                        &self.regex_cache,
+                                        pattern,
+                                        filepath,
+                                    )
+                                })
+                        };
+
+                        let value_ok = if cond_group.registry_values.is_empty() {
+                            true
+                        } else {
+                            cond_group.registry_values.iter().any(|pattern| {
+                                Self::registry_value_pattern_matches(
+                                    &self.regex_cache,
+                                    pattern,
+                                    filepath,
+                                )
+                            })
+                        };
+
+                        let data = msg.kernel_event_info.object_name.trim();
+                        let data_ok = if cond_group.registry_value_data_patterns.is_empty() {
+                            true
+                        } else {
+                            !data.is_empty()
+                                && cond_group
+                                    .registry_value_data_patterns
+                                    .iter()
+                                    .any(|pattern| {
+                                        Self::matches_pattern_internal(
+                                            &self.regex_cache,
+                                            pattern,
+                                            data,
+                                        )
+                                    })
+                        };
+
+                        if key_ok && value_ok && data_ok {
                             matched = true;
                             Logging::info(&format!(
                                 "[BehaviorEngine] Condition '{}' - Registry match for PID {}: {}",
-                                cond_name, state.pid, reg_pattern
-                            ));
-                            break;
-                        }
-                    }
-
-                    if !matched && !cond_group.registry_value_data_patterns.is_empty() {
-                        // object_name usually contains the data for RegSetValue in this engine's current IOMessage mapping
-                        let data = msg.kernel_event_info.object_name.trim();
-                        if !data.is_empty()
-                            && cond_group
-                                .registry_value_data_patterns
-                                .iter()
-                                .any(|pattern| {
-                                    Self::matches_pattern_internal(&self.regex_cache, pattern, data)
-                                })
-                        {
-                            matched = true;
-                            Logging::info(&format!(
-                                "[BehaviorEngine] Condition '{}' - Registry value data match for PID {}: {}",
-                                cond_name, state.pid, data
+                                cond_name, state.pid, filepath
                             ));
                         }
                     }
@@ -5823,6 +5920,17 @@ impl BehaviorEngine {
             let mut rich_triggered = false;
             if let Some(logic) = &rule.detection_logic {
                 rich_triggered = self.evaluate_detection_condition(logic, &state_ref, rule);
+                if rich_triggered
+                    && !Self::rule_has_current_named_condition_match(&state_ref, rule, msg.time)
+                {
+                    if rule.debug || self.rules.iter().any(|r| r.debug) {
+                        Logging::debug(&format!(
+                            "[BehaviorEngine] Skipping stale rich-logic trigger for '{}' on PID {}: current event did not satisfy a rule condition",
+                            rule.name, state_ref.pid
+                        ));
+                    }
+                    rich_triggered = false;
+                }
             }
             let mut stages_triggered = false;
             let mut stage_conf = 0.0;

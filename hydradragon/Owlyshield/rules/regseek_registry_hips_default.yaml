@@ -992,6 +992,11 @@
         - HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\Tasks*
         - HKLM\SYSTEM\CurrentControlSet\Control\Print\Processors*
         - HKLM\SYSTEM\CurrentControlSet\Services*
+      registry_keys_exclude:
+        - "*\\\\Services\\\\bam\\\\*"
+        - "*\\\\Services\\\\dam\\\\*"
+        - "*\\\\Services\\\\WdiServiceHost\\\\*"
+        - "*\\\\Services\\\\Tcpip\\\\Parameters\\\\*"
       registry_operations:
         - reg_create_key
         - reg_set_value
