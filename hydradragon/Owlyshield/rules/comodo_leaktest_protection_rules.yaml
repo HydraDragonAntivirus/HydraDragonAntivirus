@@ -660,18 +660,15 @@
         - \REGISTRY\MACHINE\SYSTEM\CurrentControlSet\Services
         - \REGISTRY\MACHINE\SYSTEM\ControlSet001\Services
         - \REGISTRY\MACHINE\SYSTEM\ControlSet002\Services
+      registry_keys_exclude:
+        - "*\\\\Services\\\\bam\\\\*"
+        - "*\\\\Services\\\\dam\\\\*"
+        - "*\\\\Services\\\\WdiServiceHost\\\\*"
+        - "*\\\\Services\\\\Tcpip\\\\Parameters\\\\*"
       registry_operations:
         - reg_create_key
         - reg_set_value
-        - reg_delete_value
-        - reg_delete_key
-        - reg_rename_key
-        - reg_query_value
-        - reg_query_key
-        - reg_open_key
-        - reg_enum_key
-        - reg_enum_value
-      min_matches: 1
+      min_matches: 2
 
     service_registry_create:
       orderless: true
@@ -682,26 +679,30 @@
         - \REGISTRY\MACHINE\SYSTEM\CurrentControlSet\Services
         - \REGISTRY\MACHINE\SYSTEM\ControlSet001\Services
         - \REGISTRY\MACHINE\SYSTEM\ControlSet002\Services
+      registry_keys_exclude:
+        - "*\\\\Services\\\\bam\\\\*"
+        - "*\\\\Services\\\\dam\\\\*"
+        - "*\\\\Services\\\\WdiServiceHost\\\\*"
+        - "*\\\\Services\\\\Tcpip\\\\Parameters\\\\*"
       registry_operations:
         - reg_create_key
         - reg_set_value
-        - reg_delete_value
-        - reg_delete_key
-        - reg_rename_key
-        - reg_query_value
-        - reg_query_key
-        - reg_open_key
-        - reg_enum_key
-        - reg_enum_value
       registry_values:
         - ImagePath
         - ServiceDll
-        - ServiceDllUnloadOnStop
-        - Parameters
-        - Type
-        - Start
         - ObjectName
-      min_matches: 1
+      registry_value_data_patterns:
+        - "*.sys*"
+        - "*.dll*"
+        - "*\\system32\\drivers\\*.sys*"
+        - "\\SystemRoot\\System32\\drivers\\*.sys*"
+        - "*\\users\\*"
+        - "*\\appdata\\*"
+        - "*\\temp\\*"
+        - "*\\public\\*"
+        - "*\\downloads\\*"
+        - "*rundll32*"
+      min_matches: 4
 
     createservice_api:
       orderless: true
@@ -721,23 +722,11 @@
     service_control_api:
       orderless: true
       apis:
-        - "*OpenSCManager*"
-        - "*OpenService*"
         - "*CreateService*"
         - "*ChangeServiceConfig*"
         - "*ChangeServiceConfig2*"
-        - "*StartService*"
-        - "*RegCreateKey*"
-        - "*RegCreateKeyEx*"
-        - "*RegSetValue*"
-        - "*RegSetValueEx*"
-        - "*RegSetKeyValue*"
         - "*NtLoadDriver*"
         - "*ZwLoadDriver*"
-        - "*NtCreateKey*"
-        - "*ZwCreateKey*"
-        - "*NtSetValueKey*"
-        - "*ZwSetValueKey*"
       api_threshold: 1
       min_matches: 1
 
@@ -763,11 +752,14 @@
     and:
       - condition: "non_system_caller"   # unsigned callers only — signed system processes covered by allowlist
       - or:
-          - condition: "service_key_create"
-          - condition: "service_registry_create"
           - condition: "createservice_api"
           - condition: "service_control_api"
-          - condition: "suspicious_service_payload"
+          - and:
+              - condition: "service_key_create"
+              - condition: "suspicious_service_payload"
+          - and:
+              - condition: "service_registry_create"
+              - condition: "suspicious_service_payload"
 
   response:
     notify_user: true

@@ -20,7 +20,7 @@ use windows::Win32::System::RemoteDesktop::{
 };
 #[cfg(feature = "service")]
 use windows::Win32::System::Threading::{
-    CREATE_NEW_CONSOLE, CreateProcessAsUserW, PROCESS_CREATION_FLAGS, PROCESS_INFORMATION,
+    CREATE_NO_WINDOW, CreateProcessAsUserW, PROCESS_CREATION_FLAGS, PROCESS_INFORMATION,
     STARTUPINFOW,
 };
 #[cfg(feature = "service")]
@@ -157,7 +157,7 @@ pub fn notify(config: &Config, message: &str, report_path: &str) -> Result<(), S
             None,
             None,
             BOOL(0),
-            PROCESS_CREATION_FLAGS(CREATE_NEW_CONSOLE.0),
+            PROCESS_CREATION_FLAGS(CREATE_NO_WINDOW.0),
             Some(null_mut()),
             PCWSTR(str_to_pcwstr(toastapp_dir.to_str().unwrap()).as_ptr()),
             &si,

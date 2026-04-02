@@ -5,6 +5,8 @@ use std::fs;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
+#[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+use std::path::PathBuf;
 use std::sync::mpsc::channel;
 use std::thread;
 
@@ -25,7 +27,12 @@ use crate::{
 };
 
 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-const FSFILTER_EXCLUDE_RULE_FILE: &str = r"C:\Program Files\HydraDragonAntivirus\hydradragon\PYAS_Protection\PYAS_Protection_Rules\Process\Owlyshield\FsFilter\default_rules.txt";
+#[derive(Debug, Clone)]
+struct KernelExcludeRulePaths {
+    fsfilter: PathBuf,
+    dynamic_hook: PathBuf,
+    process_protection: PathBuf,
+}
 
 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
 fn normalize_kernel_rule_entry(line: &str) -> Option<String> {
@@ -52,6 +59,125 @@ fn collect_kernel_exclude_entries(rules: &[BehaviorRule]) -> BTreeSet<String> {
             }
         }
     }
+    entries
+}
+
+#[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+fn push_unique_path(paths: &mut Vec<PathBuf>, candidate: PathBuf) {
+    if !paths.iter().any(|existing| existing == &candidate) {
+        paths.push(candidate);
+    }
+}
+
+#[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+fn hydra_dragon_root_candidates() -> Vec<PathBuf> {
+    let mut roots = Vec::new();
+
+    if let Some(root) = crate::globals::rules_path()
+        .parent()
+        .and_then(|path| path.parent())
+        .map(Path::to_path_buf)
+    {
+        push_unique_path(&mut roots, root);
+    }
+
+    if let Some(root) = crate::globals::config_path()
+        .parent()
+        .and_then(|path| path.parent())
+        .map(Path::to_path_buf)
+    {
+        push_unique_path(&mut roots, root);
+    }
+
+    roots
+}
+
+#[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+fn select_existing_or_first(candidates: Vec<PathBuf>) -> Option<PathBuf> {
+    if candidates.is_empty() {
+        return None;
+    }
+
+    candidates
+        .iter()
+        .find(|candidate| candidate.exists())
+        .cloned()
+        .or_else(|| candidates.into_iter().next())
+}
+
+#[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+fn resolve_kernel_exclude_rule_paths() -> Option<KernelExcludeRulePaths> {
+    for hydra_root in hydra_dragon_root_candidates() {
+        let protection_root = hydra_root.join("HydraDragon_Protection_Rules").join("Owlyshield");
+
+        let fsfilter = select_existing_or_first(vec![
+            protection_root.join("FSFilter").join("default_rules.txt"),
+            protection_root.join("FsFilter").join("default_rules.txt"),
+            hydra_root
+                .join("PYAS_Protection")
+                .join("PYAS_Protection_Rules")
+                .join("Process")
+                .join("Owlyshield")
+                .join("FsFilter")
+                .join("default_rules.txt"),
+        ]);
+        let dynamic_hook =
+            select_existing_or_first(vec![protection_root.join("DynamicHook").join("default_rules.txt")]);
+        let process_protection = select_existing_or_first(vec![
+            protection_root
+                .join("ProcessProtection")
+                .join("default_rules.txt"),
+        ]);
+
+        if let (Some(fsfilter), Some(dynamic_hook), Some(process_protection)) =
+            (fsfilter, dynamic_hook, process_protection)
+        {
+            return Some(KernelExcludeRulePaths {
+                fsfilter,
+                dynamic_hook,
+                process_protection,
+            });
+        }
+    }
+
+    None
+}
+
+#[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+fn firewall_gui_path_candidates() -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+
+    for hydra_root in hydra_dragon_root_candidates() {
+        if let Some(install_root) = hydra_root.parent() {
+            push_unique_path(
+                &mut candidates,
+                install_root
+                    .join("HydraDragonFirewall")
+                    .join("hydradragonfirewall.exe"),
+            );
+        }
+
+        push_unique_path(
+            &mut candidates,
+            hydra_root
+                .join("HydraDragonFirewall")
+                .join("hydradragonfirewall.exe"),
+        );
+    }
+
+    candidates
+}
+
+#[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+fn firewall_gui_exclude_candidates() -> BTreeSet<String> {
+    let mut entries = BTreeSet::new();
+
+    for firewall_exe in firewall_gui_path_candidates() {
+        if let Some(normalized) = normalize_kernel_rule_entry(&firewall_exe.to_string_lossy()) {
+            entries.insert(normalized);
+        }
+    }
+
     entries
 }
 
@@ -92,12 +218,23 @@ fn sync_kernel_exclude_rules(
     rules: &[BehaviorRule],
     driver: &Driver,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let dynamic_entries = collect_kernel_exclude_entries(rules);
-    if dynamic_entries.is_empty() {
-        return Ok(());
+    let Some(rule_paths) = resolve_kernel_exclude_rule_paths() else {
+        return Err("failed to resolve kernel exclude rule paths from configured install layout".into());
+    };
+
+    let fsfilter_entries = collect_kernel_exclude_entries(rules);
+    if !fsfilter_entries.is_empty() {
+        sync_kernel_exclude_rule_file(&rule_paths.fsfilter, &fsfilter_entries)?;
     }
 
-    sync_kernel_exclude_rule_file(Path::new(FSFILTER_EXCLUDE_RULE_FILE), &dynamic_entries)?;
+    let cooperative_process_entries = firewall_gui_exclude_candidates();
+    if !cooperative_process_entries.is_empty() {
+        sync_kernel_exclude_rule_file(&rule_paths.dynamic_hook, &cooperative_process_entries)?;
+        sync_kernel_exclude_rule_file(
+            &rule_paths.process_protection,
+            &cooperative_process_entries,
+        )?;
+    }
 
     driver.reload_exclude_rules()?;
     Ok(())

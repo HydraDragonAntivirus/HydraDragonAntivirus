@@ -937,7 +937,16 @@ fn is_real_api_observation(raw: &str) -> bool {
     (has_path_qualifier || has_lowercase) && !has_underscore
 }
 
-fn is_actionable_hypervisor_event(irp_op: &IrpMajorOp, raw: &str, raw_event_type: u32) -> bool {
+fn is_benign_hypervisor_failure_status(operation_status: i32) -> bool {
+    matches!(operation_status as u32, 0xC0000008 | 0x80070006)
+}
+
+fn is_actionable_hypervisor_event(
+    irp_op: &IrpMajorOp,
+    raw: &str,
+    raw_event_type: u32,
+    operation_status: i32,
+) -> bool {
     if !is_kernel_api_irp(irp_op) {
         return false;
     }
@@ -949,6 +958,13 @@ fn is_actionable_hypervisor_event(irp_op: &IrpMajorOp, raw: &str, raw_event_type
     }
 
     if !is_real_hypervisor_irp(irp_op, raw_event_type) {
+        return false;
+    }
+
+    // HyperDbg-origin callback noise can legitimately report transient invalid-handle
+    // failures during normal GUI/process lifetime events. Keep those for low-level
+    // diagnostics, but do not surface them as actionable behavioral detections.
+    if is_benign_hypervisor_failure_status(operation_status) {
         return false;
     }
 
@@ -1200,8 +1216,12 @@ impl ProcessBehaviorState {
             .unwrap_or_else(|| IrpMajorOp::from_byte(irp_op));
         let is_api_event = is_kernel_api_irp(&irp_kind);
         let real_api = is_real_api_observation(&event_name);
+        let operation_status = hyper_event
+            .as_ref()
+            .map(|event| event.operation_status)
+            .unwrap_or(msg.kernel_event_info.operation_status);
         let actionable_hypervisor_event =
-            is_actionable_hypervisor_event(&irp_kind, &event_name, raw_event_type);
+            is_actionable_hypervisor_event(&irp_kind, &event_name, raw_event_type, operation_status);
 
         if !is_api_event || actionable_hypervisor_event {
             self.irp_stats.record_operation(&rec);
@@ -3510,7 +3530,12 @@ impl BehaviorEngine {
 
         let raw_event_type = event.raw_event_type;
         let event_name = event.event_name;
-        if !is_actionable_hypervisor_event(irp_op, &event_name, raw_event_type) {
+        if !is_actionable_hypervisor_event(
+            irp_op,
+            &event_name,
+            raw_event_type,
+            event.operation_status,
+        ) {
             return false;
         }
         let source_pid = event.source_process_id;
@@ -5808,6 +5833,22 @@ impl BehaviorEngine {
             }
 
             if legacy_triggered || rich_triggered || stages_triggered {
+                let trigger_type = if stages_triggered {
+                    "Stage-based"
+                } else if rich_triggered {
+                    "Rich-logic"
+                } else {
+                    "Legacy"
+                };
+
+                let indicator_ratio = if stages_triggered {
+                    stage_conf
+                } else if rich_triggered {
+                    1.0
+                } else {
+                    legacy_ratio
+                };
+
                 let mut prompted_deny = false;
                 let mut prompted_block = false;
                 let mut prompted_quarantine = false;
@@ -5817,14 +5858,25 @@ impl BehaviorEngine {
                         FirewallHipsPromptOutcome::Pending => {
                             // Block the process while waiting for the user's decision
                             if rule.response.deny_while_ask {
+                                let pending_match_details = Self::build_rule_match_details(
+                                    rule,
+                                    &state_ref,
+                                    Some(msg),
+                                    Some(trigger_type),
+                                    Some(indicator_ratio),
+                                );
                                 let pending_threat = ThreatInfo {
                                     threat_type_label: "HIPS Pending",
                                     virus_name: &rule.name,
                                     prediction: 0.0,
-                                    match_details: Some(format!(
-                                        "Awaiting user decision for rule '{}'",
-                                        rule.name
-                                    )),
+                                    match_details: Some(if pending_match_details.is_empty() {
+                                        format!("Awaiting user decision for rule '{}'", rule.name)
+                                    } else {
+                                        format!(
+                                            "Awaiting user decision for rule '{}' | {}",
+                                            rule.name, pending_match_details
+                                        )
+                                    }),
                                     deny_access: true,
                                     terminate: false,
                                     quarantine: false,
@@ -5889,22 +5941,6 @@ impl BehaviorEngine {
                         }
                     }
                 }
-
-                let trigger_type = if stages_triggered {
-                    "Stage-based"
-                } else if rich_triggered {
-                    "Rich-logic"
-                } else {
-                    "Legacy"
-                };
-
-                let indicator_ratio = if stages_triggered {
-                    stage_conf
-                } else if rich_triggered {
-                    1.0
-                } else {
-                    legacy_ratio
-                };
 
                 Logging::warning(&format!(
                     "[BehaviorEngine] DETECTION ({}) : {} (PID: {}) matched '{}' ({:.1}%)",
