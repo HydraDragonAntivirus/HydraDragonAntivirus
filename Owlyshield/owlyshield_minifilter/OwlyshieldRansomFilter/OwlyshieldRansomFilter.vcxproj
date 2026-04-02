@@ -213,6 +213,31 @@
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
+  <PropertyGroup>
+    <OwlyOptionalHyperDbgLibDirs></OwlyOptionalHyperDbgLibDirs>
+    <OwlyOptionalHyperDbgDeps></OwlyOptionalHyperDbgDeps>
+    <OwlyOptionalHyperDbgDefines></OwlyOptionalHyperDbgDefines>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64' and Exists('$(ProjectDir)..\\HyperDbg\\hyperdbg\\build\\bin\\debug\\hyperhv.lib')">
+    <OwlyOptionalHyperDbgLibDirs>$(ProjectDir)..\HyperDbg\hyperdbg\build\bin\debug;$(ProjectDir)..\HyperDbg\hyperdbg\libraries\zydis\kernel</OwlyOptionalHyperDbgLibDirs>
+    <OwlyOptionalHyperDbgDeps>hyperhv.lib;hypertrace.lib;hyperevade.lib;Zycore.lib;Zydis.lib;</OwlyOptionalHyperDbgDeps>
+    <OwlyOptionalHyperDbgDefines>OWLY_HYPERDBG_COMPONENT_LIBS=1;</OwlyOptionalHyperDbgDefines>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='DebugApp|x64' and Exists('$(ProjectDir)..\\HyperDbg\\hyperdbg\\build\\bin\\debug\\hyperhv.lib')">
+    <OwlyOptionalHyperDbgLibDirs>$(ProjectDir)..\HyperDbg\hyperdbg\build\bin\debug;$(ProjectDir)..\HyperDbg\hyperdbg\libraries\zydis\kernel</OwlyOptionalHyperDbgLibDirs>
+    <OwlyOptionalHyperDbgDeps>hyperhv.lib;hypertrace.lib;hyperevade.lib;Zycore.lib;Zydis.lib;</OwlyOptionalHyperDbgDeps>
+    <OwlyOptionalHyperDbgDefines>OWLY_HYPERDBG_COMPONENT_LIBS=1;</OwlyOptionalHyperDbgDefines>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug App|x64' and Exists('$(ProjectDir)..\\HyperDbg\\hyperdbg\\build\\bin\\debug\\hyperhv.lib')">
+    <OwlyOptionalHyperDbgLibDirs>$(ProjectDir)..\HyperDbg\hyperdbg\build\bin\debug;$(ProjectDir)..\HyperDbg\hyperdbg\libraries\zydis\kernel</OwlyOptionalHyperDbgLibDirs>
+    <OwlyOptionalHyperDbgDeps>hyperhv.lib;hypertrace.lib;hyperevade.lib;Zycore.lib;Zydis.lib;</OwlyOptionalHyperDbgDeps>
+    <OwlyOptionalHyperDbgDefines>OWLY_HYPERDBG_COMPONENT_LIBS=1;</OwlyOptionalHyperDbgDefines>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64' and Exists('$(ProjectDir)..\\HyperDbg\\hyperdbg\\build\\bin\\release\\hyperhv.lib')">
+    <OwlyOptionalHyperDbgLibDirs>$(ProjectDir)..\HyperDbg\hyperdbg\build\bin\release;$(ProjectDir)..\HyperDbg\hyperdbg\libraries\zydis\kernel</OwlyOptionalHyperDbgLibDirs>
+    <OwlyOptionalHyperDbgDeps>hyperhv.lib;hypertrace.lib;hyperevade.lib;Zycore.lib;Zydis.lib;</OwlyOptionalHyperDbgDeps>
+    <OwlyOptionalHyperDbgDefines>OWLY_HYPERDBG_COMPONENT_LIBS=1;</OwlyOptionalHyperDbgDefines>
+  </PropertyGroup>
   <PropertyGroup />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <DebuggerFlavor>DbgengKernelDebugger</DebuggerFlavor>
@@ -302,7 +327,8 @@
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <Link>
-      <AdditionalDependencies>fltmgr.lib;$(DDK_LIB_PATH)\libcntpr.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(OwlyOptionalHyperDbgLibDirs);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>$(OwlyOptionalHyperDbgDeps)fltmgr.lib;$(DDK_LIB_PATH)\libcntpr.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <AdditionalOptions>/INTEGRITYCHECK %(AdditionalOptions)</AdditionalOptions>
       <TreatLinkerWarningAsErrors>true</TreatLinkerWarningAsErrors>
       <LinkTimeCodeGeneration>UseLinkTimeCodeGeneration</LinkTimeCodeGeneration>
@@ -312,6 +338,9 @@
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
       <TreatWarningAsError>false</TreatWarningAsError>
       <AdditionalIncludeDirectories>$(ProjectDir)..\HyperDbg\hyperdbg\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <ProgramDataBaseFileName>$(IntDir)OwlyshieldRansomFilter-Debug-x64.pdb</ProgramDataBaseFileName>
+      <ForceSynchronousPdbWrites>true</ForceSynchronousPdbWrites>
+      <PreprocessorDefinitions>$(OwlyOptionalHyperDbgDefines)%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <LanguageStandard_C>stdc11</LanguageStandard_C>
       <Optimization>MaxSpeed</Optimization>
@@ -324,7 +353,8 @@
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='DebugApp|x64'">
     <Link>
-      <AdditionalDependencies>fltmgr.lib;$(DDK_LIB_PATH)\libcntpr.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(OwlyOptionalHyperDbgLibDirs);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>$(OwlyOptionalHyperDbgDeps)fltmgr.lib;$(DDK_LIB_PATH)\libcntpr.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <TreatLinkerWarningAsErrors>true</TreatLinkerWarningAsErrors>
     </Link>
     <ClCompile>
@@ -332,12 +362,16 @@
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
       <TreatWarningAsError>false</TreatWarningAsError>
       <AdditionalIncludeDirectories>$(ProjectDir)..\HyperDbg\hyperdbg\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <ProgramDataBaseFileName>$(IntDir)OwlyshieldRansomFilter-DebugApp-x64.pdb</ProgramDataBaseFileName>
+      <ForceSynchronousPdbWrites>true</ForceSynchronousPdbWrites>
+      <PreprocessorDefinitions>$(OwlyOptionalHyperDbgDefines)%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <LanguageStandard>stdcpp17</LanguageStandard>
     </ClCompile>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug App|x64'">
     <Link>
-      <AdditionalDependencies>fltmgr.lib;$(DDK_LIB_PATH)\libcntpr.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(OwlyOptionalHyperDbgLibDirs);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>$(OwlyOptionalHyperDbgDeps)fltmgr.lib;$(DDK_LIB_PATH)\libcntpr.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <TreatLinkerWarningAsErrors>true</TreatLinkerWarningAsErrors>
     </Link>
     <ClCompile>
@@ -345,17 +379,23 @@
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
       <TreatWarningAsError>false</TreatWarningAsError>
       <AdditionalIncludeDirectories>$(ProjectDir)..\HyperDbg\hyperdbg\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <ProgramDataBaseFileName>$(IntDir)OwlyshieldRansomFilter-Debug-App-x64.pdb</ProgramDataBaseFileName>
+      <ForceSynchronousPdbWrites>true</ForceSynchronousPdbWrites>
+      <PreprocessorDefinitions>$(OwlyOptionalHyperDbgDefines)%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <LanguageStandard>stdcpp17</LanguageStandard>
     </ClCompile>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <Link>
-      <AdditionalDependencies>fltmgr.lib;$(DDK_LIB_PATH)\libcntpr.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(OwlyOptionalHyperDbgLibDirs);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>$(OwlyOptionalHyperDbgDeps)fltmgr.lib;$(DDK_LIB_PATH)\libcntpr.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <AdditionalOptions>/INTEGRITYCHECK %(AdditionalOptions)</AdditionalOptions>
     </Link>
     <ClCompile>
       <AdditionalIncludeDirectories>$(ProjectDir)..\HyperDbg\hyperdbg\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-      <PreprocessorDefinitions>__DATE__="Jan 01 1970";__TIME__="00:00:00";%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <ProgramDataBaseFileName>$(IntDir)OwlyshieldRansomFilter-Release-x64.pdb</ProgramDataBaseFileName>
+      <ForceSynchronousPdbWrites>true</ForceSynchronousPdbWrites>
+      <PreprocessorDefinitions>$(OwlyOptionalHyperDbgDefines)__DATE__="Jan 01 1970";__TIME__="00:00:00";%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <LanguageStandard_C>stdc11</LanguageStandard_C>
       <Optimization>MaxSpeed</Optimization>

@@ -577,7 +577,6 @@ NTSTATUS RegistryCallback(_In_ PVOID CallbackContext, _In_ PVOID Argument1, _In_
     //
     // UNICODE_STRING.MaximumLength is a USHORT, so 65536 bytes (32768 WCHARs) does
     // not fit. The largest safe even size is 65534 bytes, i.e. 32767 WCHARs.
-    constexpr USHORT REGPATH_MAX_WCHARS = 0x7FFF; // 32767 WCHARs
     constexpr USHORT REGPATH_MAX_BYTES = 0xFFFE;  // 65534 bytes, fits in USHORT
 
     RegPath.MaximumLength = REGPATH_MAX_BYTES;

@@ -733,7 +733,7 @@ Return Value:
     {
         if (status == STATUS_NOT_SUPPORTED)
         {
-            DbgPrint("!!! FsFilter: VMM initialization skipped (HyperDbg VMM sources unavailable or unsupported build target)\n");
+            DbgPrint("!!! FsFilter: VMM initialization skipped (HyperDbg components unavailable, not linked, or unsupported on this target)\n");
         }
         else
         {

@@ -2,8 +2,12 @@
 #include "Communication.h"
 #include <ntstrsafe.h>
 
+typedef UCHAR *(*OWLY_PS_GET_PROCESS_IMAGE_FILE_NAME)(_In_ PEPROCESS Process);
+
 static BOOLEAN g_OwlyVmmInitialized = FALSE;
 static UINT32  g_OwlyVmmLastError   = 0;
+static BOOLEAN g_OwlyHyperTraceInitialized = FALSE;
+static OWLY_PS_GET_PROCESS_IMAGE_FILE_NAME g_OwlyPsGetProcessImageFileName = NULL;
 
 #if defined(_M_AMD64)
 static BOOLEAN g_OwlyVmmFallbackActive = FALSE;
@@ -21,9 +25,59 @@ OwlyVmFuncUninitVmmFallback(VOID)
 {
 }
 
+BOOLEAN
+OwlyHyperTraceInitFallback(HYPERTRACE_CALLBACKS * HypertraceCallbacks)
+{
+    UNREFERENCED_PARAMETER(HypertraceCallbacks);
+    return FALSE;
+}
+
+VOID
+OwlyVmFuncSetTriggerEventFallback(BOOLEAN Set)
+{
+    UNREFERENCED_PARAMETER(Set);
+}
+
+BOOLEAN
+OwlyCheckAccessValidityAndSafetyFallback(UINT64 TargetAddress, UINT32 Size)
+{
+    UNREFERENCED_PARAMETER(TargetAddress);
+    UNREFERENCED_PARAMETER(Size);
+    return FALSE;
+}
+
+BOOLEAN
+OwlyMemoryMapperReadMemorySafeOnTargetProcessFallback(UINT64 VaAddressToRead,
+                                                      PVOID  BufferToSaveMemory,
+                                                      SIZE_T SizeToRead)
+{
+    UNREFERENCED_PARAMETER(VaAddressToRead);
+    UNREFERENCED_PARAMETER(BufferToSaveMemory);
+    UNREFERENCED_PARAMETER(SizeToRead);
+    return FALSE;
+}
+
+BOOLEAN
+OwlyMemoryMapperWriteMemorySafeOnTargetProcessFallback(UINT64 Destination,
+                                                       PVOID  Source,
+                                                       SIZE_T Size)
+{
+    UNREFERENCED_PARAMETER(Destination);
+    UNREFERENCED_PARAMETER(Source);
+    UNREFERENCED_PARAMETER(Size);
+    return FALSE;
+}
+
 // Use HyperDbg exports when they are linked; otherwise resolve to local fallbacks.
 #pragma comment(linker, "/alternatename:VmFuncInitVmm=OwlyVmFuncInitVmmFallback")
 #pragma comment(linker, "/alternatename:VmFuncUninitVmm=OwlyVmFuncUninitVmmFallback")
+#pragma comment(linker, "/alternatename:HyperTraceInit=OwlyHyperTraceInitFallback")
+#pragma comment(linker, "/alternatename:VmFuncSetTriggerEventForVmcalls=OwlyVmFuncSetTriggerEventFallback")
+#pragma comment(linker, "/alternatename:VmFuncSetTriggerEventForCpuids=OwlyVmFuncSetTriggerEventFallback")
+#pragma comment(linker, "/alternatename:VmFuncSetTriggerEventForXsetbvs=OwlyVmFuncSetTriggerEventFallback")
+#pragma comment(linker, "/alternatename:CheckAccessValidityAndSafety=OwlyCheckAccessValidityAndSafetyFallback")
+#pragma comment(linker, "/alternatename:MemoryMapperReadMemorySafeOnTargetProcess=OwlyMemoryMapperReadMemorySafeOnTargetProcessFallback")
+#pragma comment(linker, "/alternatename:MemoryMapperWriteMemorySafeOnTargetProcess=OwlyMemoryMapperWriteMemorySafeOnTargetProcessFallback")
 #endif
 
 static NTSTATUS
@@ -99,6 +153,36 @@ OwlyInitializeBridgeEvent(_Out_ POWLY_HYPERDBG_EVENT_DETAILS EventDetails,
     EventDetails->ThreadId = (ULONG)(ULONG_PTR)PsGetCurrentThreadId();
     EventDetails->OperationStatus = STATUS_SUCCESS;
     EventDetails->EventName = EventName;
+}
+
+static VOID
+OwlyEnsurePsGetProcessImageFileName(VOID)
+{
+    if (g_OwlyPsGetProcessImageFileName == NULL)
+    {
+        UNICODE_STRING routineName;
+
+        RtlInitUnicodeString(&routineName, L"PsGetProcessImageFileName");
+        g_OwlyPsGetProcessImageFileName =
+            (OWLY_PS_GET_PROCESS_IMAGE_FILE_NAME)MmGetSystemRoutineAddress(&routineName);
+    }
+}
+
+static PCHAR
+OwlyGetProcessNameFromProcessControlBlock(_In_opt_ PVOID Eprocess)
+{
+    if (Eprocess == NULL)
+    {
+        return NULL;
+    }
+
+    OwlyEnsurePsGetProcessImageFileName();
+    if (g_OwlyPsGetProcessImageFileName == NULL)
+    {
+        return NULL;
+    }
+
+    return (PCHAR)g_OwlyPsGetProcessImageFileName((PEPROCESS)Eprocess);
 }
 
 static VOID
@@ -533,6 +617,7 @@ NTSTATUS
 OwlyVmmInitialize(VOID)
 {
     VMM_CALLBACKS callbacks;
+    HYPERTRACE_CALLBACKS hyperTraceCallbacks;
     BOOLEAN       initResult = FALSE;
 
     if (g_OwlyVmmInitialized)
@@ -541,6 +626,7 @@ OwlyVmmInitialize(VOID)
     }
 
     RtlZeroMemory(&callbacks, sizeof(callbacks));
+    RtlZeroMemory(&hyperTraceCallbacks, sizeof(hyperTraceCallbacks));
 
     callbacks.LogCallbackPrepareAndSendMessageToQueueWrapper = OwlyLogCallbackPrepareAndSendMessageToQueueWrapper;
     callbacks.LogCallbackSendMessageToQueue                  = OwlyLogCallbackSendMessageToQueue;
@@ -564,6 +650,19 @@ OwlyVmmInitialize(VOID)
     callbacks.DebuggerCheckProcessOrThreadChange              = OwlyDebuggerCheckProcessOrThreadChange;
     callbacks.KdQueryDebuggerQueryThreadOrProcessTracingDetailsByCoreId =
         OwlyKdQueryDebuggerThreadOrProcessTracingDetailsByCoreId;
+
+    hyperTraceCallbacks.LogCallbackPrepareAndSendMessageToQueueWrapper =
+        OwlyLogCallbackPrepareAndSendMessageToQueueWrapper;
+    hyperTraceCallbacks.LogCallbackSendMessageToQueue = OwlyLogCallbackSendMessageToQueue;
+    hyperTraceCallbacks.LogCallbackSendBuffer = OwlyLogCallbackSendBuffer;
+    hyperTraceCallbacks.LogCallbackCheckIfBufferIsFull = OwlyLogCallbackCheckIfBufferIsFull;
+    hyperTraceCallbacks.CheckAccessValidityAndSafety = CheckAccessValidityAndSafety;
+    hyperTraceCallbacks.MemoryMapperReadMemorySafeOnTargetProcess =
+        MemoryMapperReadMemorySafeOnTargetProcess;
+    hyperTraceCallbacks.MemoryMapperWriteMemorySafeOnTargetProcess =
+        MemoryMapperWriteMemorySafeOnTargetProcess;
+    hyperTraceCallbacks.CommonGetProcessNameFromProcessControlBlock =
+        OwlyGetProcessNameFromProcessControlBlock;
 
 #if defined(_M_AMD64)
     g_OwlyVmmFallbackActive = FALSE;
@@ -591,6 +690,10 @@ OwlyVmmInitialize(VOID)
     }
 
     g_OwlyVmmInitialized = TRUE;
+    VmFuncSetTriggerEventForVmcalls(TRUE);
+    VmFuncSetTriggerEventForCpuids(TRUE);
+    VmFuncSetTriggerEventForXsetbvs(TRUE);
+    g_OwlyHyperTraceInitialized = HyperTraceInit(&hyperTraceCallbacks);
     return STATUS_SUCCESS;
 }
 
@@ -604,12 +707,13 @@ OwlyVmmUninitialize(VOID)
 
     VmFuncUninitVmm();
     g_OwlyVmmInitialized = FALSE;
+    g_OwlyHyperTraceInitialized = FALSE;
 }
 
 //
-// Stubs for optional components we intentionally keep disabled.
-// They preserve VMM core behavior while avoiding unrelated module dependencies.
+// Fallback shims used only when external HyperDbg component libraries are not linked.
 //
+#if !defined(OWLY_HYPERDBG_COMPONENT_LIBS)
 
 BOOLEAN
 TransparentHideDebuggerWrapper(DEBUGGER_HIDE_AND_TRANSPARENT_DEBUGGER_MODE * TransparentModeRequest)
@@ -744,3 +848,4 @@ DisassemblerLengthDisassembleEngineByProcessId(PVOID Address, BOOLEAN Is32Bit, U
                            (ULONG_PTR)Address);
     return 1;
 }
+#endif

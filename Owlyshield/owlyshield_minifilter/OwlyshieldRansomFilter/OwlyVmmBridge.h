@@ -8,13 +8,17 @@
 #endif
 #define SCRIPT_ENGINE_KERNEL_MODE
 #define HYPERDBG_KERNEL_MODE
+#define HYPERDBG_STATIC_LINK
 #define HYPERDBG_VMM
 #define HYPERDBG_HYPEREVADE
+#define HYPERDBG_HYPERTRACE
 #include "SDK/HyperDbgSdk.h"
 #include "SDK/modules/VMM.h"
 #include "SDK/modules/HyperEvade.h"
+#include "SDK/modules/HyperTrace.h"
 #include "SDK/imports/kernel/HyperDbgVmmImports.h"
 #include "SDK/imports/kernel/HyperDbgHyperEvade.h"
+#include "SDK/imports/kernel/HyperDbgHyperTrace.h"
 #endif
 
 #ifdef __cplusplus

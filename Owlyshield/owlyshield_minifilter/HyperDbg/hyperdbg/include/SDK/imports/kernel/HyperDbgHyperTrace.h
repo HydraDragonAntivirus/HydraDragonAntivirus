@@ -10,7 +10,9 @@
  */
 #pragma once
 
-#ifdef HYPERDBG_HYPERTRACE
+#ifdef HYPERDBG_STATIC_LINK
+#    define IMPORT_EXPORT_HYPERTRACE
+#elif defined(HYPERDBG_HYPERTRACE)
 #    define IMPORT_EXPORT_HYPERTRACE __declspec(dllexport)
 #else
 #    define IMPORT_EXPORT_HYPERTRACE __declspec(dllimport)
