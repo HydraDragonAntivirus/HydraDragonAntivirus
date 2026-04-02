@@ -260,17 +260,6 @@
   named_conditions:
     raw_disk_write_access:
       orderless: true
-      apis:
-        - "*CreateFile*"
-        - "*ReadFile*"
-        - "*WriteFile*"
-        - "*DeviceIoControl*"
-        - "*NtCreateFile*"
-        - "*ZwCreateFile*"
-        - "*NtSetInformationFile*"
-        - "*ZwSetInformationFile*"
-        - "*NtFsControlFile*"
-        - "*ZwFsControlFile*"
       file_paths:
         - "*\\\\Device\\\\Harddisk*"
         - "*\\\\Device\\\\HarddiskVolume*"
@@ -1156,16 +1145,6 @@
   named_conditions:
     startup_registry_modification:
       orderless: true
-      apis:
-        - "*RegCreateKey*"
-        - "*RegCreateKeyEx*"
-        - "*RegSetValue*"
-        - "*RegSetValueEx*"
-        - "*RegSetKeyValue*"
-        - "*NtCreateKey*"
-        - "*ZwCreateKey*"
-        - "*NtSetValueKey*"
-        - "*ZwSetValueKey*"
       registry_keys:
         - HKCU\Software\Microsoft\Windows\CurrentVersion\Run
         - HKCU\Software\Microsoft\Windows\CurrentVersion\RunOnce
@@ -1210,14 +1189,6 @@
 
     startup_folder_write:
       orderless: true
-      apis:
-        - "*CreateFile*"
-        - "*WriteFile*"
-        - "*CopyFile*"
-        - "*CopyFileEx*"
-        - "*MoveFile*"
-        - "*MoveFileEx*"
-        - "*ReplaceFile*"
       file_paths:
         - "*\\Startup\\*"
         - "\\Start Menu\\Programs\\Startup\\"
@@ -1400,16 +1371,6 @@
   named_conditions:
     appinit_registry_modification:
       orderless: true
-      apis:
-        - "*RegCreateKey*"
-        - "*RegCreateKeyEx*"
-        - "*RegSetValue*"
-        - "*RegSetValueEx*"
-        - "*RegSetKeyValue*"
-        - "*NtCreateKey*"
-        - "*ZwCreateKey*"
-        - "*NtSetValueKey*"
-        - "*ZwSetValueKey*"
       registry_keys:
         - HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Windows
         - HKCU\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Windows

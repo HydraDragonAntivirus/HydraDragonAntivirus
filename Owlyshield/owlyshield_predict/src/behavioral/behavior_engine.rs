@@ -1072,6 +1072,7 @@ pub struct ProcessBehaviorState {
     pub irp_stats: IrpStatistics,
     pub all_apis_called: HashSet<String>,
     pub observed_hypervisor_event_labels: HashSet<String>,
+    pub recent_kernel_api_events: VecDeque<String>,
 
     // Normalized hypervisor event tracking
     pub hypervisor_event_count: u32,
@@ -1139,6 +1140,7 @@ impl ProcessBehaviorState {
         state.irp_stats = IrpStatistics::default();
         state.all_apis_called = HashSet::new();
         state.observed_hypervisor_event_labels = HashSet::new();
+        state.recent_kernel_api_events = VecDeque::with_capacity(128);
 
         // Initialize normalized hypervisor event counters
         state.hypervisor_event_count = 0;
@@ -1285,6 +1287,33 @@ impl ProcessBehaviorState {
                 .as_ref()
                 .map(|event| event.context)
                 .unwrap_or(msg.kernel_event_info.context);
+            let event_family = if is_real_hypervisor_irp(&irp_kind, raw_event_type) {
+                "hypervisor"
+            } else if is_kernel_process_protection_irp(&irp_kind) {
+                "kernel_api"
+            } else if matches!(irp_kind, IrpMajorOp::IrpUserModeHookEvent) {
+                "api_hook"
+            } else {
+                "kernel_event"
+            };
+
+            let mut event_summary = format!(
+                "{}:{} raw=0x{:X} status=0x{:08X}",
+                event_family, event_name, raw_event_type, operation_status as u32
+            );
+            if source_pid != 0 || target_pid != 0 {
+                event_summary.push_str(&format!(" src={} tgt={}", source_pid, target_pid));
+            }
+            if thread_id != 0 {
+                event_summary.push_str(&format!(" tid={}", thread_id));
+            }
+            if context != 0 {
+                event_summary.push_str(&format!(" ctx=0x{:X}", context));
+            }
+            if self.recent_kernel_api_events.len() >= 128 {
+                self.recent_kernel_api_events.pop_front();
+            }
+            self.recent_kernel_api_events.push_back(event_summary);
 
             if actionable_hypervisor_event {
                 self.hypervisor_event_count += 1;
@@ -2146,8 +2175,21 @@ impl BehaviorEngine {
                     .as_ref()
                     .map(|event| event.event_name.clone())
                     .unwrap_or_else(|| resolved_hypervisor_event_name(msg));
+                let event_label = match kernel_irp {
+                    IrpMajorOp::IrpUserModeHookEvent => "ApiHookEvent",
+                    IrpMajorOp::IrpHypervisorEvent => "HypervisorEvent",
+                    IrpMajorOp::IrpKernelRemoteThread
+                    | IrpMajorOp::IrpKernelWriteMemory
+                    | IrpMajorOp::IrpKernelProtectMemory
+                    | IrpMajorOp::IrpKernelCreateThread
+                    | IrpMajorOp::IrpKernelQueueApc
+                    | IrpMajorOp::IrpKernelCreateSection
+                    | IrpMajorOp::IrpKernelMapSection => "KernelApiEvent",
+                    _ => "KernelApiEvent",
+                };
                 parts.push(format!(
-                    "HypervisorEvent={}",
+                    "{}={}",
+                    event_label,
                     Self::truncate_detail_value(&event_name, 180)
                 ));
                 parts.push(format!("RawEventType=0x{:X}", raw_event_type));
@@ -2349,6 +2391,19 @@ impl BehaviorEngine {
                 "MatchedConditions={}",
                 condition_summaries.join(" | ")
             ));
+        }
+
+        if !state.recent_kernel_api_events.is_empty() {
+            let events = state
+                .recent_kernel_api_events
+                .iter()
+                .rev()
+                .take(8)
+                .map(|entry| Self::truncate_detail_value(entry, 140))
+                .collect::<Vec<_>>();
+            if !events.is_empty() {
+                parts.push(format!("RecentKernelApiEvents={}", events.join(" || ")));
+            }
         }
 
         if let Some(target) = Self::build_rule_remediation_target_path(rule, state) {
@@ -4151,11 +4206,49 @@ impl BehaviorEngine {
         } else {
             HashSet::new()
         };
-        let observed_hypervisor_event_labels = if let Some(state) = self.process_states.get(&gid) {
-            state.observed_hypervisor_event_labels.clone()
-        } else {
-            HashSet::new()
-        };
+        let current_hypervisor_event = msg.resolved_hypervisor_event();
+        let current_irp_kind = current_hypervisor_event
+            .as_ref()
+            .map(|event| event.irp_op.clone())
+            .unwrap_or_else(|| irp_op.clone());
+        let current_raw_event_type = current_hypervisor_event
+            .as_ref()
+            .map(|event| event.raw_event_type)
+            .unwrap_or_else(|| effective_hypervisor_raw_event_type(msg));
+        let current_event_name = current_hypervisor_event
+            .as_ref()
+            .map(|event| event.event_name.clone())
+            .unwrap_or_else(|| resolved_hypervisor_event_name(msg));
+        let current_operation_status = current_hypervisor_event
+            .as_ref()
+            .map(|event| event.operation_status)
+            .unwrap_or(msg.kernel_event_info.operation_status);
+        let current_actionable_hypervisor_event = is_actionable_hypervisor_event(
+            &current_irp_kind,
+            &current_event_name,
+            current_raw_event_type,
+            current_operation_status,
+        );
+        let mut current_event_apis = HashSet::new();
+        if is_kernel_api_irp(&current_irp_kind)
+            && current_actionable_hypervisor_event
+            && is_real_api_observation(&current_event_name)
+        {
+            current_event_apis.insert(current_event_name.clone());
+            if let Some(alias) = api_function_alias(&current_event_name) {
+                current_event_apis.insert(alias);
+            }
+        }
+        let mut current_event_hypervisor_labels = HashSet::new();
+        if current_actionable_hypervisor_event
+            && let Some(event_label) = canonical_hypervisor_event_label(
+                &current_irp_kind,
+                current_raw_event_type,
+                &current_event_name,
+            )
+        {
+            current_event_hypervisor_labels.insert(event_label);
+        }
 
         for api in &state_detected_apis {
             available_apis.insert(api.clone());
@@ -4240,6 +4333,25 @@ impl BehaviorEngine {
                     || !cond_group.scheduled_task_apis.is_empty()
                     || !cond_group.anti_debug_apis.is_empty()
                     || !cond_group.anti_vm_apis.is_empty();
+                let api_context_has_reg_conditions = !cond_group.registry_keys.is_empty()
+                    || !cond_group.registry_keys_exclude.is_empty()
+                    || !cond_group.autorun_keys.is_empty()
+                    || !cond_group.registry_values.is_empty()
+                    || !cond_group.registry_value_data_patterns.is_empty();
+                let api_context_has_path_filters = !cond_group.file_paths.is_empty()
+                    || !cond_group.staging_paths.is_empty()
+                    || !cond_group.browsed_paths.is_empty()
+                    || !cond_group.sensitive_paths.is_empty()
+                    || !cond_group.persistence_locations.is_empty();
+                let api_context_has_extension_conditions = !cond_group.file_extensions.is_empty()
+                    || cond_group.detect_extension_changes
+                    || cond_group.detect_non_whitelisted_extensions
+                    || cond_group.detect_known_to_unknown_extension_change;
+                let api_only_condition = !api_context_has_reg_conditions
+                    && !api_context_has_path_filters
+                    && !api_context_has_extension_conditions
+                    && cond_group.file_operations.is_empty()
+                    && !conjunctive_process_context;
 
                 if has_api_conditions {
                     let api_iter = cond_group
@@ -4253,7 +4365,7 @@ impl BehaviorEngine {
                         .filter(|required_api| {
                             let (required_norm, required_has_path) =
                                 Self::normalize_api_signature(required_api);
-                            available_apis.iter().any(|available| {
+                            current_event_apis.iter().any(|available| {
                                 let (available_norm, available_has_path) =
                                     Self::normalize_api_signature(available);
                                 if required_has_path {
@@ -4275,19 +4387,26 @@ impl BehaviorEngine {
                         .collect();
 
                     if matched_apis.len() >= std::cmp::max(1, cond_group.api_threshold) {
-                        matched = true;
                         let api_names = matched_apis
                             .iter()
                             .map(|s| s.as_str())
                             .collect::<Vec<_>>()
                             .join(", ");
-                        Logging::info(&format!(
-                            "[BehaviorEngine] Condition '{}' - API match for PID {}: {} APIs detected: {}",
-                            cond_name,
-                            state.pid,
-                            matched_apis.len(),
-                            api_names
-                        ));
+                        if api_only_condition {
+                            matched = true;
+                            Logging::info(&format!(
+                                "[BehaviorEngine] Condition '{}' - Current API match for PID {}: {} APIs detected: {}",
+                                cond_name,
+                                state.pid,
+                                matched_apis.len(),
+                                api_names
+                            ));
+                        } else if rule.debug || self.rules.iter().any(|r| r.debug) {
+                            Logging::debug(&format!(
+                                "[BehaviorEngine] Condition '{}' observed API activity for PID {} but requires file/registry context too: {}",
+                                cond_name, state.pid, api_names
+                            ));
+                        }
                     }
                 }
 
@@ -4298,7 +4417,7 @@ impl BehaviorEngine {
                         .filter(|required_label| {
                             let (required_norm, required_has_path) =
                                 Self::normalize_api_signature(required_label);
-                            observed_hypervisor_event_labels
+                            current_event_hypervisor_labels
                                 .iter()
                                 .any(|observed_label| {
                                     let (observed_norm, observed_has_path) =
