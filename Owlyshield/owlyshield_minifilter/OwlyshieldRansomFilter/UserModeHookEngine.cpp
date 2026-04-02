@@ -726,18 +726,14 @@ static BOOLEAN ShouldSkipHookingProcess(_In_ PEPROCESS Process, _In_ ULONG Proce
         PACCESS_TOKEN primaryToken = PsReferencePrimaryToken(Process);
         if (primaryToken != NULL)
         {
-            PVOID tokenInfo = NULL;
-            NTSTATUS tokenStatus = SeQueryInformationToken(primaryToken, TokenIsAppContainer, &tokenInfo);
+            ULONG tokenIsAppContainer = 0;
+            NTSTATUS tokenStatus =
+                SeQueryInformationToken(primaryToken, TokenIsAppContainer, (PVOID *)&tokenIsAppContainer);
             PsDereferencePrimaryToken(primaryToken);
 
-            if (NT_SUCCESS(tokenStatus) && tokenInfo != NULL)
+            if (NT_SUCCESS(tokenStatus) && tokenIsAppContainer != 0)
             {
-                BOOLEAN isAppContainer = (*(PULONG)tokenInfo != 0);
-                ExFreePool(tokenInfo);
-                if (isAppContainer)
-                {
-                    return TRUE;
-                }
+                return TRUE;
             }
         }
     }
