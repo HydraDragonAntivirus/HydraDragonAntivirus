@@ -768,16 +768,11 @@ static BOOLEAN ShouldSkipHookingProcess(_In_ PEPROCESS Process, _In_ ULONG Proce
         PACCESS_TOKEN primaryToken = PsReferencePrimaryToken(Process);
         if (primaryToken != NULL)
         {
-            // BUGFIX: SeQueryInformationToken(TokenIsAppContainer) allocates a
-            // pool buffer containing a ULONG and returns its address via the
-            // PVOID* parameter.  The old code passed a stack ULONG directly,
-            // which meant:
-            //   (a) the actual pool buffer was leaked on every call,
-            //   (b) the AppContainer check read uninitialised stack data
-            //       instead of the real flag, so sandbox processes
-            //       (e.g. msedgewebview2.exe) were never skipped.
-            // The per-process ZwCreateFile then ran in a restricted security
-            // context and failed with STATUS_INVALID_HANDLE.
+            // TokenIsAppContainer is annoyingly version-sensitive in practice:
+            // some builds return a pool buffer containing a ULONG, while others
+            // can surface the ULONG value directly in the out pointer slot.
+            // Treat small raw values as inline scalars and only dereference/free
+            // when the returned address looks like a real kernel buffer.
             PVOID tokenInfoBuffer = NULL;
             NTSTATUS tokenStatus =
                 SeQueryInformationToken(primaryToken, TokenIsAppContainer, &tokenInfoBuffer);
@@ -785,8 +780,25 @@ static BOOLEAN ShouldSkipHookingProcess(_In_ PEPROCESS Process, _In_ ULONG Proce
 
             if (NT_SUCCESS(tokenStatus) && tokenInfoBuffer != NULL)
             {
-                ULONG isAppContainer = *(PULONG)tokenInfoBuffer;
-                ExFreePool(tokenInfoBuffer);
+                ULONG_PTR tokenInfoRaw = (ULONG_PTR)tokenInfoBuffer;
+                ULONG isAppContainer = 0;
+                BOOLEAN freeTokenInfoBuffer = FALSE;
+
+                if (tokenInfoRaw <= MAXULONG)
+                {
+                    isAppContainer = (ULONG)tokenInfoRaw;
+                }
+                else
+                {
+                    isAppContainer = *(PULONG)tokenInfoBuffer;
+                    freeTokenInfoBuffer = TRUE;
+                }
+
+                if (freeTokenInfoBuffer)
+                {
+                    ExFreePool(tokenInfoBuffer);
+                }
+
                 if (isAppContainer != 0)
                 {
                     return TRUE;
