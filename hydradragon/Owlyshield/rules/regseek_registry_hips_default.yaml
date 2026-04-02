@@ -1018,6 +1018,7 @@
         - "*\\\\Services\\\\*\\\\TriggerInfo\\\\*"
         - "*\\\\Services\\\\WdiServiceHost\\\\*"
         - "*\\\\Services\\\\Tcpip\\\\Parameters\\\\*"
+        - "*\\\\Services\\\\EventLog\\\\*"
       registry_operations:
         - reg_create_key
         - reg_delete_key
@@ -1037,6 +1038,7 @@
         - "*\\\\Services\\\\*\\\\TriggerInfo\\\\*"
         - "*\\\\Services\\\\WdiServiceHost\\\\*"
         - "*\\\\Services\\\\Tcpip\\\\Parameters\\\\*"
+        - "*\\\\Services\\\\EventLog\\\\*"
       registry_values:
         - ImagePath
         - ServiceDll
@@ -1103,6 +1105,13 @@
       is_absolute: true
       signers: ["*Microsoft*"]
     - pattern: "C:/Windows/System32/Dism/DismHost.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Program Files/HydraDragonAntivirus/HydraDragonFirewall/hydradragonfirewall.exe"
+      must_be_signed: false
+      is_absolute: true
+    - pattern: "C:/Windows/System32/drvinst.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
