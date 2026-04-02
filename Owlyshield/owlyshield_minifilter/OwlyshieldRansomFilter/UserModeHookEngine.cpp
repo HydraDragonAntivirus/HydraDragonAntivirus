@@ -694,44 +694,95 @@ static BOOLEAN IsSensitiveSystemPathForHookingProcess(_In_ PEPROCESS Process, _I
     return isSensitive;
 }
 
-static BOOLEAN IsExcludedParentProcessForHooking(_In_ PEPROCESS Process)
+static BOOLEAN IsExcludedAncestorProcessForHooking(_In_ PEPROCESS Process)
 {
+    static const ULONG kMaxAncestorDepth = 16;
     WCHAR parentPathBuffer[MAX_FILE_NAME_LENGTH] = {0};
     WCHAR parentNormalizedPathBuffer[MAX_FILE_NAME_LENGTH] = {0};
     UNICODE_STRING parentPath;
     UNICODE_STRING parentNormalizedPath;
-    HANDLE parentHandle = NULL;
-    ULONG parentPid = 0;
+    ULONG visitedPids[kMaxAncestorDepth] = {0};
+    ULONG visitedCount = 0;
+    PEPROCESS currentProcess = Process;
+    BOOLEAN currentProcessReferenced = FALSE;
+    BOOLEAN shouldSkip = FALSE;
 
     if (Process == NULL || driverData == NULL || fnPsGetProcessInheritedFromUniqueProcessId == NULL)
     {
         return FALSE;
     }
 
-    parentHandle = fnPsGetProcessInheritedFromUniqueProcessId(Process);
-    parentPid = (ULONG)(ULONG_PTR)parentHandle;
-    if (parentPid <= 4)
+    for (;;)
     {
-        return FALSE;
+        HANDLE parentHandle = fnPsGetProcessInheritedFromUniqueProcessId(currentProcess);
+        ULONG parentPid = (ULONG)(ULONG_PTR)parentHandle;
+        BOOLEAN seenBefore = FALSE;
+        PEPROCESS parentProcess = NULL;
+
+        if (parentPid <= 4)
+        {
+            break;
+        }
+
+        for (ULONG i = 0; i < visitedCount; ++i)
+        {
+            if (visitedPids[i] == parentPid)
+            {
+                seenBefore = TRUE;
+                break;
+            }
+        }
+
+        if (seenBefore)
+        {
+            break;
+        }
+
+        if (visitedCount >= RTL_NUMBER_OF(visitedPids))
+        {
+            break;
+        }
+        visitedPids[visitedCount++] = parentPid;
+
+        if (IsRegisteredOwlyshieldAppProcess(parentPid))
+        {
+            shouldSkip = TRUE;
+            break;
+        }
+
+        RtlZeroMemory(parentPathBuffer, sizeof(parentPathBuffer));
+        if (driverData->CopyProcessPathByPid(parentPid, parentPathBuffer, RTL_NUMBER_OF(parentPathBuffer)))
+        {
+            RtlInitUnicodeString(&parentPath, parentPathBuffer);
+            if (OwlyNormalizePathForMatch(&parentPath, parentNormalizedPathBuffer, &parentNormalizedPath) &&
+                IsNormalizedPathExcludedByHookRules(&parentNormalizedPath))
+            {
+                shouldSkip = TRUE;
+                break;
+            }
+        }
+
+        if (!NT_SUCCESS(PsLookupProcessByProcessId((HANDLE)(ULONG_PTR)parentPid, &parentProcess)) ||
+            parentProcess == NULL)
+        {
+            break;
+        }
+
+        if (currentProcessReferenced)
+        {
+            ObDereferenceObject(currentProcess);
+        }
+
+        currentProcess = parentProcess;
+        currentProcessReferenced = TRUE;
     }
 
-    if (IsRegisteredOwlyshieldAppProcess(parentPid))
+    if (currentProcessReferenced)
     {
-        return TRUE;
+        ObDereferenceObject(currentProcess);
     }
 
-    if (!driverData->CopyProcessPathByPid(parentPid, parentPathBuffer, RTL_NUMBER_OF(parentPathBuffer)))
-    {
-        return FALSE;
-    }
-
-    RtlInitUnicodeString(&parentPath, parentPathBuffer);
-    if (!OwlyNormalizePathForMatch(&parentPath, parentNormalizedPathBuffer, &parentNormalizedPath))
-    {
-        return FALSE;
-    }
-
-    return IsNormalizedPathExcludedByHookRules(&parentNormalizedPath);
+    return shouldSkip;
 }
 
 static BOOLEAN ShouldSkipHookingProcess(_In_ PEPROCESS Process, _In_ ULONG ProcessId)
@@ -812,7 +863,7 @@ static BOOLEAN ShouldSkipHookingProcess(_In_ PEPROCESS Process, _In_ ULONG Proce
         return TRUE;
     }
 
-    if (IsExcludedParentProcessForHooking(Process))
+    if (IsExcludedAncestorProcessForHooking(Process))
     {
         return TRUE;
     }

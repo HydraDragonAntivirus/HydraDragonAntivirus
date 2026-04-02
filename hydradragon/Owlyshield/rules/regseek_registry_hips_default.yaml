@@ -36,6 +36,8 @@
         - HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing*
         - HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate*
         - HKLM\SOFTWARE\Microsoft\Windows\Windows Error Reporting*
+      registry_keys_exclude:
+        - "*\\Windows Error Reporting\\PreviousRing*"
       registry_operations:
         - reg_create_key
         - reg_set_value

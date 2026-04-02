@@ -1,5 +1,6 @@
 #include "Communication.h"
 #include "FsFilter.h"
+#include "OwlyVmmBridge.h"
 #include "ProcessProtection.h" // OnKernelApiEvent - called by HookDeviceControl
 #include "UserModeHookEngine.h"
 #include <ntstrsafe.h>
@@ -871,7 +872,6 @@ void CommClose()
     }
     commHandle->UserProcess = NULL;
     commHandle->CommClosed = TRUE;
-    ResetQueuedHypervisorEvents();
 }
 
 NTSTATUS
@@ -1265,6 +1265,7 @@ RWFNewMessage(IN PVOID PortCookie, IN PVOID InputBuffer, IN ULONG InputBufferLen
         {
             driverData->setPID(message->pid);
             driverData->setSystemRootPath(message->path);
+            OwlyVmmReplayStateEvents();
             commHandle->CommClosed = FALSE;
             return STATUS_SUCCESS;
         }

@@ -29,6 +29,9 @@ NTSTATUS
 OwlyVmmInitialize(VOID);
 
 VOID
+OwlyVmmReplayStateEvents(VOID);
+
+VOID
 OwlyVmmUninitialize(VOID);
 
 #ifdef __cplusplus

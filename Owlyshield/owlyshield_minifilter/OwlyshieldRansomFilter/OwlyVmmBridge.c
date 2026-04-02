@@ -8,6 +8,9 @@ static BOOLEAN g_OwlyVmmInitialized = FALSE;
 static UINT32  g_OwlyVmmLastError   = 0;
 static BOOLEAN g_OwlyHyperTraceInitialized = FALSE;
 static BOOLEAN g_OwlyHyperEvadeInitialized = FALSE;
+static BOOLEAN g_OwlyTransparentAttempted = FALSE;
+static NTSTATUS g_OwlyTransparentLastStatus = STATUS_NOT_SUPPORTED;
+static ULONG g_OwlyTransparentResolvedSyscallCount = 0;
 static OWLY_PS_GET_PROCESS_IMAGE_FILE_NAME g_OwlyPsGetProcessImageFileName = NULL;
 
 #if defined(_M_AMD64)
@@ -196,6 +199,139 @@ OwlyForwardKernelEvent(_In_ ULONG RawEventType, _In_ PCWSTR EventName, _In_ ULON
     eventDetails.RawArgument2 = Arg2;
 
     (VOID)OwlyReportHyperDbgEvent(&eventDetails);
+}
+
+static BOOLEAN
+OwlyTryExtractSyscallNumberFromRoutine(_In_reads_bytes_(MaxProbeLength) const UCHAR * RoutineBytes,
+                                       _In_ ULONG                                     MaxProbeLength,
+                                       _Out_ UINT32 *                                 SyscallNumber)
+{
+    if (RoutineBytes == NULL || SyscallNumber == NULL || MaxProbeLength < 8)
+    {
+        return FALSE;
+    }
+
+    __try
+    {
+        for (ULONG i = 0; i + 5 < MaxProbeLength; ++i)
+        {
+            if (RoutineBytes[i] != 0xB8)
+            {
+                continue;
+            }
+
+            for (ULONG j = i + 5; j + 1 < MaxProbeLength && j < i + 18; ++j)
+            {
+                if (RoutineBytes[j] == 0x0F && RoutineBytes[j + 1] == 0x05)
+                {
+                    *SyscallNumber = *(const UINT32 UNALIGNED *)(RoutineBytes + i + 1);
+                    return TRUE;
+                }
+            }
+        }
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        return FALSE;
+    }
+
+    return FALSE;
+}
+
+static BOOLEAN
+OwlyResolveSyscallNumberByZwName(_In_ PCWSTR RoutineName, _Out_ UINT32 * SyscallNumber)
+{
+    UNICODE_STRING routineName;
+    PVOID routine = NULL;
+
+    if (RoutineName == NULL || SyscallNumber == NULL)
+    {
+        return FALSE;
+    }
+
+    RtlInitUnicodeString(&routineName, RoutineName);
+    routine = MmGetSystemRoutineAddress(&routineName);
+    if (routine == NULL)
+    {
+        return FALSE;
+    }
+
+    return OwlyTryExtractSyscallNumberFromRoutine((const UCHAR *)routine, 32, SyscallNumber);
+}
+
+static ULONG
+OwlyPopulateTransparentSyscallNumbers(_Out_ PSYSTEM_CALL_NUMBERS_INFORMATION SyscallNumbers)
+{
+    ULONG resolvedCount = 0;
+
+    if (SyscallNumbers == NULL)
+    {
+        return 0;
+    }
+
+    RtlFillMemory(SyscallNumbers, sizeof(*SyscallNumbers), 0xFF);
+
+#define OWLY_RESOLVE_SYSCALL(_field, _name)                                      \
+    do                                                                           \
+    {                                                                            \
+        UINT32 syscallNumber = 0;                                                \
+        if (OwlyResolveSyscallNumberByZwName((_name), &syscallNumber))           \
+        {                                                                        \
+            (SyscallNumbers)->_field = syscallNumber;                            \
+            resolvedCount++;                                                     \
+        }                                                                        \
+    } while (0)
+
+    OWLY_RESOLVE_SYSCALL(SysNtQuerySystemInformation, L"ZwQuerySystemInformation");
+    OWLY_RESOLVE_SYSCALL(SysNtQuerySystemInformationEx, L"ZwQuerySystemInformationEx");
+    OWLY_RESOLVE_SYSCALL(SysNtSystemDebugControl, L"ZwSystemDebugControl");
+    OWLY_RESOLVE_SYSCALL(SysNtQueryAttributesFile, L"ZwQueryAttributesFile");
+    OWLY_RESOLVE_SYSCALL(SysNtOpenDirectoryObject, L"ZwOpenDirectoryObject");
+    OWLY_RESOLVE_SYSCALL(SysNtQueryDirectoryObject, L"ZwQueryDirectoryObject");
+    OWLY_RESOLVE_SYSCALL(SysNtQueryInformationProcess, L"ZwQueryInformationProcess");
+    OWLY_RESOLVE_SYSCALL(SysNtSetInformationProcess, L"ZwSetInformationProcess");
+    OWLY_RESOLVE_SYSCALL(SysNtQueryInformationThread, L"ZwQueryInformationThread");
+    OWLY_RESOLVE_SYSCALL(SysNtSetInformationThread, L"ZwSetInformationThread");
+    OWLY_RESOLVE_SYSCALL(SysNtOpenFile, L"ZwOpenFile");
+    OWLY_RESOLVE_SYSCALL(SysNtOpenKey, L"ZwOpenKey");
+    OWLY_RESOLVE_SYSCALL(SysNtOpenKeyEx, L"ZwOpenKeyEx");
+    OWLY_RESOLVE_SYSCALL(SysNtQueryValueKey, L"ZwQueryValueKey");
+    OWLY_RESOLVE_SYSCALL(SysNtEnumerateKey, L"ZwEnumerateKey");
+
+#undef OWLY_RESOLVE_SYSCALL
+
+    return resolvedCount;
+}
+
+VOID
+OwlyVmmReplayStateEvents(VOID)
+{
+    if (!g_OwlyVmmInitialized)
+    {
+        return;
+    }
+
+    OwlyForwardKernelEvent(OWLY_VMM_RAW_EVENT_BASE + 0x7Eu, L"VMM_INITIALIZED", 0, 0);
+
+    if (!g_OwlyTransparentAttempted)
+    {
+        return;
+    }
+
+    if (g_OwlyHyperEvadeInitialized)
+    {
+        OwlyForwardKernelEvent(OWLY_VMM_RAW_HYPEREVADE_BASE + 0x7Fu,
+                               L"TRANSPARENT_MODE_ACTIVE",
+                               (ULONG_PTR)(ULONG)g_OwlyTransparentLastStatus,
+                               (ULONG_PTR)g_OwlyTransparentResolvedSyscallCount);
+    }
+    else
+    {
+        OwlyForwardKernelEvent(OWLY_VMM_RAW_HYPEREVADE_BASE + 0x7Eu,
+                               L"TRANSPARENT_MODE_SKIPPED",
+                               (ULONG_PTR)(ULONG)g_OwlyTransparentLastStatus,
+                               (ULONG_PTR)g_OwlyTransparentResolvedSyscallCount);
+    }
 }
 
 static VOID
@@ -671,6 +807,9 @@ OwlyVmmInitialize(VOID)
     g_OwlyVmmFallbackActive = FALSE;
 #endif
     g_OwlyVmmLastError = 0;
+    g_OwlyTransparentAttempted = FALSE;
+    g_OwlyTransparentLastStatus = STATUS_NOT_SUPPORTED;
+    g_OwlyTransparentResolvedSyscallCount = 0;
 
     initResult = VmFuncInitVmm(&callbacks);
     if (!initResult)
@@ -700,31 +839,35 @@ OwlyVmmInitialize(VOID)
     OwlyForwardKernelEvent(OWLY_VMM_RAW_EVENT_BASE + 0x7Eu, L"VMM_INITIALIZED", 0, 0);
 
     transparentModeRequest.IsHide = TRUE;
-    RtlFillMemory(&transparentModeRequest.SystemCallNumbersInformation,
-                  sizeof(transparentModeRequest.SystemCallNumbersInformation),
-                  0xFF);
+    g_OwlyTransparentResolvedSyscallCount =
+        OwlyPopulateTransparentSyscallNumbers(&transparentModeRequest.SystemCallNumbersInformation);
+    g_OwlyTransparentAttempted = TRUE;
     g_OwlyHyperEvadeInitialized = TransparentHideDebuggerWrapper(&transparentModeRequest);
     if (!g_OwlyHyperEvadeInitialized)
     {
         NTSTATUS transparentStatus = (transparentModeRequest.KernelStatus != 0)
                                          ? (NTSTATUS)transparentModeRequest.KernelStatus
                                          : STATUS_UNSUCCESSFUL;
+        g_OwlyTransparentLastStatus = transparentStatus;
 
         DbgPrint("!!! OwlyVmmBridge: Transparent mode initialization failed: 0x%X\n",
                  transparentModeRequest.KernelStatus);
         OwlyForwardKernelEvent(OWLY_VMM_RAW_HYPEREVADE_BASE + 0x7Eu,
                                L"TRANSPARENT_MODE_SKIPPED",
                                (ULONG_PTR)(ULONG)transparentStatus,
-                               (ULONG_PTR)(ULONG)transparentModeRequest.KernelStatus);
+                               (ULONG_PTR)g_OwlyTransparentResolvedSyscallCount);
         return STATUS_SUCCESS;
     }
 
+    g_OwlyTransparentLastStatus = (transparentModeRequest.KernelStatus != 0)
+                                      ? (NTSTATUS)transparentModeRequest.KernelStatus
+                                      : STATUS_SUCCESS;
     DbgPrint("!!! OwlyVmmBridge: Transparent mode initialization succeeded: 0x%X\n",
              transparentModeRequest.KernelStatus);
     OwlyForwardKernelEvent(OWLY_VMM_RAW_HYPEREVADE_BASE + 0x7Fu,
                            L"TRANSPARENT_MODE_ACTIVE",
-                           (ULONG_PTR)(ULONG)transparentModeRequest.KernelStatus,
-                           0);
+                           (ULONG_PTR)(ULONG)g_OwlyTransparentLastStatus,
+                           (ULONG_PTR)g_OwlyTransparentResolvedSyscallCount);
 
     return STATUS_SUCCESS;
 }
@@ -746,6 +889,9 @@ OwlyVmmUninitialize(VOID)
     VmFuncUninitVmm();
     g_OwlyVmmInitialized = FALSE;
     g_OwlyHyperTraceInitialized = FALSE;
+    g_OwlyTransparentAttempted = FALSE;
+    g_OwlyTransparentLastStatus = STATUS_NOT_SUPPORTED;
+    g_OwlyTransparentResolvedSyscallCount = 0;
 }
 
 //
