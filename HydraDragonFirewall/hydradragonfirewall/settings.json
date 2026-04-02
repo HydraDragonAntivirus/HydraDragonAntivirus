@@ -7,7 +7,8 @@
         "c:\\windows\\system32\\svchost.exe": "Allow",
         "c:\\windows\\syswow64\\svchost.exe": "Allow",
         "c:\\windows\\explorer.exe": "Allow",
-        "c:\\program files\\hydradragonantivirus\\hydradragonfirewall\\hydradragonfirewall.exe": "Allow"
+        "c:\\program files\\hydradragonantivirus\\hydradragonfirewall\\hydradragonfirewall.exe": "Allow",
+        "c:\\program files\\hydradragonantivirus\\hydradragon\\owlyshield\\owlyshield service\\owlyshield_ransom.exe": "Allow"
     },
     "website_path": "website",
     "rules": [],
