@@ -17,7 +17,7 @@ use crate::predictions::prediction::input_tensors::VecvecCappedF32;
 use crate::process::{ProcessRecord, ProcessState};
 use crate::utils::{
     FILE_TIME_FORMAT, LONG_TIME_FORMAT, protected_process_record_reason,
-    suspicious_critical_process_record_reason,
+    resolve_process_path, suspicious_critical_process_record_reason,
 };
 /// New struct to hold detailed threat information.
 #[derive(Debug, Clone)]
@@ -238,6 +238,47 @@ impl ActionsOnKill {
     }
 }
 
+fn best_process_display(proc: &mut ProcessRecord) -> String {
+    let exe_text = proc.exepath.to_string_lossy().trim().to_string();
+    if !exe_text.is_empty() && !exe_text.eq_ignore_ascii_case("unknown") {
+        return exe_text;
+    }
+
+    let app_text = proc.appname.trim().to_string();
+    if !app_text.is_empty()
+        && !app_text.eq_ignore_ascii_case("unknown")
+        && !app_text.starts_with("PROC_")
+    {
+        return app_text;
+    }
+
+    if let Some(resolved) = proc
+        .pids
+        .iter()
+        .find_map(|pid| resolve_process_path(*pid).map(|path| (*pid, path)))
+    {
+        let (_, path) = resolved;
+        if let Some(file_name) = path.file_name().and_then(|value| value.to_str()) {
+            proc.appname = file_name.to_string();
+        }
+        proc.exepath = path.clone();
+        return path.display().to_string();
+    }
+
+    if let Some(remediation) = proc.remediation_target_path.as_ref() {
+        let text = remediation.to_string_lossy().trim().to_string();
+        if !text.is_empty() && !text.eq_ignore_ascii_case("unknown") {
+            return text;
+        }
+    }
+
+    if let Some(pid) = proc.pids.iter().next() {
+        return format!("PID {}", pid);
+    }
+
+    "UNKNOWN".to_string()
+}
+
 impl ActionOnKill for WriteReportFile {
     fn run(
         &self,
@@ -267,12 +308,13 @@ impl ActionOnKill for WriteReportFile {
         println!("{report_path}");
         let mut file = File::create(Path::new(&report_path))?;
         let stime_started: DateTime<Local> = proc.time_started.into();
+        let display_process = best_process_display(proc);
         file.write_all(b"Owlyshield report file\n\n")?;
         file.write_all(
             // MODIFIED: Use threat_type_label
             format!(
                 "{} detected running from: {}\n\n",
-                threat_info.threat_type_label, proc.appname
+                threat_info.threat_type_label, display_process
             )
             .as_bytes(),
         )?;
@@ -340,6 +382,7 @@ impl ActionOnKill for WriteReportHtmlFile {
         println!("{report_path}");
         let mut file = File::create(Path::new(&report_path))?;
         let stime_started: DateTime<Local> = proc.time_started.into();
+        let display_process = best_process_display(proc);
         file.write_all(b"<!DOCTYPE html><html><head>")?;
         file.write_all(format!("<title>Owlyshield Report {}</title><link rel='icon' href='https://static.thenounproject.com/png/3420953-200.png'/><meta name='viewport' content='width=device-width, initial-scale=1'/>\n", proc.gid).as_bytes())?;
         file.write_all(b"<style>body{font-family: Arial;}.tab{overflow: hidden;border: 1px solid #ccc;background-color: #f1f1f1;}.tab button{background-color: inherit;    float: inherit;    border: none;    outline: none;    cursor: pointer;    padding: 14px 16px;    transition: 0.3s;    font-size: 17px;    width: 33%;}.tab button:hover{    background-color: #ddd;}.tab button.active{	background-color: #ccc;}.tabcontent{	display: none;	padding: 6px 12px;/*border: 1px solid #ccc;border-top: none;*/}table{	width: 80%;	align: center;	margin-left: auto;	margin-right: auto;}th{	background-color: red;}select{	width: 100%;    align: center;	margin-left: auto;	margin-right: auto;}</style>")?;
@@ -353,7 +396,7 @@ impl ActionOnKill for WriteReportHtmlFile {
         file.write_all(format!(
                 "<br/><table><tr><td style='text-align: center;'><h3>{} detected running from: <span style='color: red;' id='fullPath'>{}</span></h3></td></tr><tr valign='top'><td style='text-align: left;'><ul><li>Process State:<b id='processState'> {}</b></li><li>Started on<b id='startDate'> {}</b></li><li>Response:<b id='response'> {}</b></li><li>{}<b id='responseDate'> {}</b></li><li>GID: <b id='gid'> {}</b></li><li>Detection: <b id='detection'> {}</b></li><li>Certainty: <b id='certainty'> {}</b></li><li>Details: <b id='details'> {}</b></li></ul></td></tr></table>\n",
                 threat_info.threat_type_label, // 1. Threat Type
-                proc.exepath.to_string_lossy(), // 2. Path
+                display_process, // 2. Path
                 proc.process_state, // 3. State
                 stime_started.format(LONG_TIME_FORMAT), // 4. Start time
                 threat_info.response_label_for(proc), // 5. Response action
@@ -416,11 +459,12 @@ impl ActionOnKill for Logging {
     ) -> Result<(), Box<dyn Error>> {
         let stime_started: DateTime<Local> = proc.time_started.into();
         let response_label = threat_info.response_label_for(proc);
+        let display_process = best_process_display(proc);
         // MODIFIED: Use details from threat_info
         let msg = format!(
             "{} detected running from: {}[{}] with certainty {} (detection: {}) (response: {}) (details: {}) (started at {})",
             threat_info.threat_type_label,
-            proc.appname,
+            display_process,
             proc.gid,
             threat_info.prediction,
             threat_info.virus_name,

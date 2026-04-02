@@ -67,6 +67,12 @@
         - HKLM\SYSTEM\CurrentControlSet\Services\VSS*
         - HKCU\Software\Microsoft\Windows\CurrentVersion\CDP*
         - HKCU\Software\Apple Computer, Inc.\iTunes*
+      registry_keys_exclude:
+        - "*\\\\Services\\\\*\\\\Diag\\\\*"
+        - "*\\\\Services\\\\*\\\\State\\\\*"
+        - "*\\\\Services\\\\*\\\\Enum\\\\*"
+        - "*\\\\Services\\\\*\\\\Performance\\\\*"
+        - "*\\\\Services\\\\*\\\\TriggerInfo\\\\*"
       registry_operations:
         - reg_create_key
         - reg_set_value
