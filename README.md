@@ -41,7 +41,6 @@ Breaking changes, bugs, and incomplete features should be expected.
 HydraDragon is a local antivirus project currently under active and experimental development.
 
 - It operates locally on the system.
-- No client-server architecture is implemented at this time.
 - It is intended for research, learning, and malware analysis experimentation.
 
 This project does not aim to replace your primary daily antivirus solution.
@@ -113,7 +112,6 @@ C:\ProgramData\HydraDragonAntivirus\Quarantine
 ## Description
 At this stage:
 - The application works **locally only**.
-- The **client-server architecture has not been implemented yet**.
 - Features may be incomplete or unstable.
 - Breaking changes may occur without prior notice.
 - This project is **not production-ready** and should be used for development and testing purposes only.
