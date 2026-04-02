@@ -325,6 +325,7 @@
         - "*\\\\Services\\\\dam\\\\*"
         - "*\\\\Services\\\\WdiServiceHost\\\\*"
         - "*\\\\Services\\\\Tcpip\\\\Parameters\\\\*"
+        - "*\\\\Services\\\\EventLog\\\\*"
       registry_values:
         - ImagePath
         - ServiceDll
@@ -359,6 +360,9 @@
       must_be_signed: true
       signers:
         - "microsoft"
+    - pattern: "C:/Program Files/HydraDragonAntivirus/HydraDragonFirewall/hydradragonfirewall.exe"
+      must_be_signed: false
+      is_absolute: true
 
   tags:
     - persistence
