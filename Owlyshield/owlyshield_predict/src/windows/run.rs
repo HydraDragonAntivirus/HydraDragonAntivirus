@@ -506,6 +506,8 @@ pub fn run() {
         let mut opcode_counts: [u64; 32] = [0; 32];
         let mut total_msgs: u64 = 0;
         let mut last_diag = std::time::Instant::now();
+        let mut saw_any_hypervisor_event_since_start = false;
+        let mut total_hypervisor_events_since_start: u64 = 0;
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
         let mut hyper_api_counts: std::collections::HashMap<String, u64> =
             std::collections::HashMap::new();
@@ -532,6 +534,10 @@ pub fn run() {
                                 opcode_counts[op] += 1;
                             }
                             total_msgs += 1;
+                            if iomsg.irp_op == 12 {
+                                saw_any_hypervisor_event_since_start = true;
+                                total_hypervisor_events_since_start += 1;
+                            }
 
                             // Log every event from the driver.
                             let irp = IrpMajorOp::from_byte(iomsg.irp_op);
@@ -762,6 +768,12 @@ pub fn run() {
                 if hypervisor_total > 0 {
                     summary.push_str(&format!("Hypervisor={} ", hypervisor_total));
                 }
+                if saw_any_hypervisor_event_since_start {
+                    summary.push_str(&format!(
+                        "HypervisorSinceStart={} ",
+                        total_hypervisor_events_since_start
+                    ));
+                }
                 if kernel_telemetry_total > 0 {
                     summary.push_str(&format!("KernelTelemetry={} ", kernel_telemetry_total));
                 }
@@ -798,7 +810,7 @@ pub fn run() {
                 Logging::info(&summary);
 
                 // Check specifically for the API-hooking opcode stream.
-                if hypervisor_total == 0 {
+                if !saw_any_hypervisor_event_since_start {
                     Logging::warning(
                         "[DIAG] ZERO HYPERVISOR EVENTS (opcode 12) received from driver!",
                     );

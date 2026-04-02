@@ -1009,16 +1009,16 @@
       registry_keys:
         - HKLM\SYSTEM\CurrentControlSet\Services\*
       registry_keys_exclude:
-        - "*\\\\Services\\\\bam\\\\*"
-        - "*\\\\Services\\\\dam\\\\*"
-        - "*\\\\Services\\\\*\\\\State\\\\*"
-        - "*\\\\Services\\\\*\\\\Diag\\\\*"
-        - "*\\\\Services\\\\*\\\\Enum\\\\*"
-        - "*\\\\Services\\\\*\\\\Performance\\\\*"
-        - "*\\\\Services\\\\*\\\\TriggerInfo\\\\*"
-        - "*\\\\Services\\\\WdiServiceHost\\\\*"
-        - "*\\\\Services\\\\Tcpip\\\\Parameters\\\\*"
-        - "*\\\\Services\\\\EventLog\\\\*"
+        - "*/services/bam/*"
+        - "*/services/dam/*"
+        - "*/services/*/state/*"
+        - "*/services/*/diag/*"
+        - "*/services/*/enum/*"
+        - "*/services/*/performance/*"
+        - "*/services/*/triggerinfo/*"
+        - "*/services/wdiservicehost/*"
+        - "*/services/tcpip/parameters/*"
+        - "*/services/eventlog/*"
       registry_operations:
         - reg_create_key
         - reg_delete_key
@@ -1029,16 +1029,16 @@
       registry_keys:
         - HKLM\SYSTEM\CurrentControlSet\Services\*
       registry_keys_exclude:
-        - "*\\\\Services\\\\bam\\\\*"
-        - "*\\\\Services\\\\dam\\\\*"
-        - "*\\\\Services\\\\*\\\\State\\\\*"
-        - "*\\\\Services\\\\*\\\\Diag\\\\*"
-        - "*\\\\Services\\\\*\\\\Enum\\\\*"
-        - "*\\\\Services\\\\*\\\\Performance\\\\*"
-        - "*\\\\Services\\\\*\\\\TriggerInfo\\\\*"
-        - "*\\\\Services\\\\WdiServiceHost\\\\*"
-        - "*\\\\Services\\\\Tcpip\\\\Parameters\\\\*"
-        - "*\\\\Services\\\\EventLog\\\\*"
+        - "*/services/bam/*"
+        - "*/services/dam/*"
+        - "*/services/*/state/*"
+        - "*/services/*/diag/*"
+        - "*/services/*/enum/*"
+        - "*/services/*/performance/*"
+        - "*/services/*/triggerinfo/*"
+        - "*/services/wdiservicehost/*"
+        - "*/services/tcpip/parameters/*"
+        - "*/services/eventlog/*"
       registry_values:
         - ImagePath
         - ServiceDll

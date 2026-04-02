@@ -697,6 +697,7 @@ OwlyVmmInitialize(VOID)
     VmFuncSetTriggerEventForCpuids(TRUE);
     VmFuncSetTriggerEventForXsetbvs(TRUE);
     g_OwlyHyperTraceInitialized = HyperTraceInit(&hyperTraceCallbacks);
+    OwlyForwardKernelEvent(OWLY_VMM_RAW_EVENT_BASE + 0x7Eu, L"VMM_INITIALIZED", 0, 0);
 
     transparentModeRequest.IsHide = TRUE;
     RtlFillMemory(&transparentModeRequest.SystemCallNumbersInformation,
@@ -711,16 +712,19 @@ OwlyVmmInitialize(VOID)
 
         DbgPrint("!!! OwlyVmmBridge: Transparent mode initialization failed: 0x%X\n",
                  transparentModeRequest.KernelStatus);
-
-        VmFuncUninitVmm();
-        g_OwlyVmmInitialized = FALSE;
-        g_OwlyHyperTraceInitialized = FALSE;
-
-        return transparentStatus;
+        OwlyForwardKernelEvent(OWLY_VMM_RAW_HYPEREVADE_BASE + 0x7Eu,
+                               L"TRANSPARENT_MODE_SKIPPED",
+                               (ULONG_PTR)(ULONG)transparentStatus,
+                               (ULONG_PTR)(ULONG)transparentModeRequest.KernelStatus);
+        return STATUS_SUCCESS;
     }
 
     DbgPrint("!!! OwlyVmmBridge: Transparent mode initialization succeeded: 0x%X\n",
              transparentModeRequest.KernelStatus);
+    OwlyForwardKernelEvent(OWLY_VMM_RAW_HYPEREVADE_BASE + 0x7Fu,
+                           L"TRANSPARENT_MODE_ACTIVE",
+                           (ULONG_PTR)(ULONG)transparentModeRequest.KernelStatus,
+                           0);
 
     return STATUS_SUCCESS;
 }

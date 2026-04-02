@@ -321,11 +321,11 @@
         - \REGISTRY\MACHINE\SYSTEM\ControlSet001\Services
         - \REGISTRY\MACHINE\SYSTEM\ControlSet002\Services
       registry_keys_exclude:
-        - "*\\\\Services\\\\bam\\\\*"
-        - "*\\\\Services\\\\dam\\\\*"
-        - "*\\\\Services\\\\WdiServiceHost\\\\*"
-        - "*\\\\Services\\\\Tcpip\\\\Parameters\\\\*"
-        - "*\\\\Services\\\\EventLog\\\\*"
+        - "*/services/bam/*"
+        - "*/services/dam/*"
+        - "*/services/wdiservicehost/*"
+        - "*/services/tcpip/parameters/*"
+        - "*/services/eventlog/*"
       registry_values:
         - ImagePath
         - ServiceDll
@@ -341,7 +341,6 @@
     or:
       - condition: "sc_create_service"
       - condition: "powershell_new_service"
-      - condition: "service_registry_create"
 
   response:
     notify_user: true

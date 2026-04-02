@@ -3130,16 +3130,27 @@ impl BehaviorEngine {
                 .next()
                 .unwrap_or(trimmed)
                 .trim();
+            let has_glob = pat.contains('*') || pat.contains('?');
+            let is_explicit_regex =
+                pat.starts_with("(?") || pat.starts_with('^') || pat.ends_with('$');
+            let is_path_pattern = pat.contains('/');
+            let is_simple_value_name = !has_glob && !is_explicit_regex && !is_path_pattern;
 
-            if !terminal.is_empty() && Self::matches_pattern_internal(cache, &pat, terminal) {
+            if !terminal.is_empty() {
+                if is_simple_value_name {
+                    if terminal.eq_ignore_ascii_case(&pat) {
+                        return true;
+                    }
+                } else if Self::matches_pattern_internal(cache, &pat, terminal) {
+                    return true;
+                }
+            }
+
+            if !is_simple_value_name && Self::matches_pattern_internal(cache, &pat, trimmed) {
                 return true;
             }
 
-            if Self::matches_pattern_internal(cache, &pat, trimmed) {
-                return true;
-            }
-
-            if !pat.contains('/') {
+            if !is_simple_value_name && !pat.contains('/') {
                 let suffix_pattern = format!("*/{}", pat);
                 if Self::matches_pattern_internal(cache, &suffix_pattern, trimmed) {
                     return true;

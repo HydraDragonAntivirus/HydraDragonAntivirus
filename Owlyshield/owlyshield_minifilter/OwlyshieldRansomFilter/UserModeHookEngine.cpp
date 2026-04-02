@@ -134,6 +134,7 @@ typedef NTSTATUS(NTAPI *PZW_FREE_VIRTUAL_MEMORY)(_In_ HANDLE ProcessHandle, _Ino
                                                  _Inout_ PSIZE_T RegionSize, _In_ ULONG FreeType);
 typedef BOOLEAN(NTAPI *PPS_IS_PROTECTED_PROCESS)(_In_ PEPROCESS Process);
 typedef BOOLEAN(NTAPI *PPS_IS_PROTECTED_PROCESS_LIGHT)(_In_ PEPROCESS Process);
+typedef HANDLE(NTAPI *PPS_GET_PROCESS_INHERITED_FROM_UNIQUE_PROCESS_ID)(_In_ PEPROCESS Process);
 
 // PsGetProcessWow64Process - returns the PEB32 pointer for a WoW64 process,
 // or NULL if the process is a native 64-bit process.
@@ -148,6 +149,7 @@ PZW_FREE_VIRTUAL_MEMORY fnZwFreeVirtualMemory = NULL;
 PPS_GET_PROCESS_PEB fnPsGetProcessPeb = NULL;
 PPS_IS_PROTECTED_PROCESS fnPsIsProtectedProcess = NULL;
 PPS_IS_PROTECTED_PROCESS_LIGHT fnPsIsProtectedProcessLight = NULL;
+PPS_GET_PROCESS_INHERITED_FROM_UNIQUE_PROCESS_ID fnPsGetProcessInheritedFromUniqueProcessId = NULL;
 PPS_GET_PROCESS_WOW64_PROCESS fnPsGetProcessWow64Process = NULL;
 
 PUSERMODE_HOOK_ENGINE g_UserHookEngine = NULL;
@@ -692,6 +694,46 @@ static BOOLEAN IsSensitiveSystemPathForHookingProcess(_In_ PEPROCESS Process, _I
     return isSensitive;
 }
 
+static BOOLEAN IsExcludedParentProcessForHooking(_In_ PEPROCESS Process)
+{
+    WCHAR parentPathBuffer[MAX_FILE_NAME_LENGTH] = {0};
+    WCHAR parentNormalizedPathBuffer[MAX_FILE_NAME_LENGTH] = {0};
+    UNICODE_STRING parentPath;
+    UNICODE_STRING parentNormalizedPath;
+    HANDLE parentHandle = NULL;
+    ULONG parentPid = 0;
+
+    if (Process == NULL || driverData == NULL || fnPsGetProcessInheritedFromUniqueProcessId == NULL)
+    {
+        return FALSE;
+    }
+
+    parentHandle = fnPsGetProcessInheritedFromUniqueProcessId(Process);
+    parentPid = (ULONG)(ULONG_PTR)parentHandle;
+    if (parentPid <= 4)
+    {
+        return FALSE;
+    }
+
+    if (IsRegisteredOwlyshieldAppProcess(parentPid))
+    {
+        return TRUE;
+    }
+
+    if (!driverData->CopyProcessPathByPid(parentPid, parentPathBuffer, RTL_NUMBER_OF(parentPathBuffer)))
+    {
+        return FALSE;
+    }
+
+    RtlInitUnicodeString(&parentPath, parentPathBuffer);
+    if (!OwlyNormalizePathForMatch(&parentPath, parentNormalizedPathBuffer, &parentNormalizedPath))
+    {
+        return FALSE;
+    }
+
+    return IsNormalizedPathExcludedByHookRules(&parentNormalizedPath);
+}
+
 static BOOLEAN ShouldSkipHookingProcess(_In_ PEPROCESS Process, _In_ ULONG ProcessId)
 {
     if (Process == NULL)
@@ -754,6 +796,11 @@ static BOOLEAN ShouldSkipHookingProcess(_In_ PEPROCESS Process, _In_ ULONG Proce
     }
 
     if (IsSensitiveSystemPathForHookingProcess(Process, ProcessId))
+    {
+        return TRUE;
+    }
+
+    if (IsExcludedParentProcessForHooking(Process))
     {
         return TRUE;
     }
@@ -1772,6 +1819,9 @@ NTSTATUS UserModeHookEngineInitialize(VOID)
     fnPsIsProtectedProcess = (PPS_IS_PROTECTED_PROCESS)MmGetSystemRoutineAddress(&routineName);
     RtlInitUnicodeString(&routineName, L"PsIsProtectedProcessLight");
     fnPsIsProtectedProcessLight = (PPS_IS_PROTECTED_PROCESS_LIGHT)MmGetSystemRoutineAddress(&routineName);
+    RtlInitUnicodeString(&routineName, L"PsGetProcessInheritedFromUniqueProcessId");
+    fnPsGetProcessInheritedFromUniqueProcessId =
+        (PPS_GET_PROCESS_INHERITED_FROM_UNIQUE_PROCESS_ID)MmGetSystemRoutineAddress(&routineName);
 
     // Resolve PsGetProcessWow64Process - used to detect WoW64 processes and
     // obtain their PEB32 pointer.  Best-effort: if unavailable (e.g., on very
