@@ -1390,6 +1390,13 @@ UCHAR g_ShellcodeTemplate32[] = {
 
     // Save old value so we can restore it after the IOCTL
     0x89, 0x44, 0x24, 0x78, // mov [esp+0x78], eax
+    // Preserve TEB32.LastErrorValue so the helper NtDeviceIoControlFile does
+    // not leak its failure state into the hooked API's caller.
+    0x64, 0xA1, 0x34, 0x00, 0x00, 0x00, // mov eax, fs:[0x34]
+    0x89, 0x44, 0x24, 0x7C,             // mov [esp+0x7C], eax
+    // Reload the saved ArbitraryUserPointer before comparing with the
+    // re-entrancy sentinel.
+    0x8B, 0x44, 0x24, 0x78, // mov eax, [esp+0x78]
 
     // If eax == magic -> already inside shellcode, skip IOCTL
     0x3B, 0xC3, // cmp eax, ebx
@@ -1454,6 +1461,9 @@ UCHAR g_ShellcodeTemplate32[] = {
     0xB8, 0x44, 0x44, 0x44, 0x44, // mov eax, imm32
     0xFF, 0xD0,                   // call eax
 
+    // ---- Restore TEB32.LastErrorValue and re-entrancy guard -------------
+    0x8B, 0x44, 0x24, 0x7C,       // mov eax, [esp+0x7C]
+    0x64, 0xA3, 0x34, 0x00, 0x00, 0x00, // mov fs:[0x34], eax
     // ---- Restore re-entrancy guard (clear back to old FS:[0x14] value) --
     0x8B, 0x44, 0x24, 0x78, // mov eax, [esp+0x78]
     // FS(64) A3 [14 00 00 00] = MOV [moffs32], EAX
@@ -1576,6 +1586,15 @@ UCHAR g_ShellcodeTemplate[] = {
 
     // Save old value so we can restore it after the IOCTL
     0x48, 0x89, 0x84, 0x24, 0x70, 0x00, 0x00, 0x00, // mov [rsp+0x70], rax
+    // Preserve TEB.LastErrorValue and LastStatusValue so the helper
+    // NtDeviceIoControlFile remains side-effect free for the hooked caller.
+    0x65, 0x8B, 0x04, 0x25, 0x68, 0x00, 0x00, 0x00, // mov eax, gs:[0x68]
+    0x89, 0x84, 0x24, 0x78, 0x00, 0x00, 0x00,       // mov [rsp+0x78], eax
+    0x65, 0x8B, 0x04, 0x25, 0x50, 0x12, 0x00, 0x00, // mov eax, gs:[0x1250]
+    0x89, 0x84, 0x24, 0x7C, 0x00, 0x00, 0x00,       // mov [rsp+0x7C], eax
+    // Reload the saved ArbitraryUserPointer before comparing with the
+    // re-entrancy sentinel.
+    0x48, 0x8B, 0x84, 0x24, 0x70, 0x00, 0x00, 0x00, // mov rax, [rsp+0x70]
 
     // If rax == magic -> already inside shellcode on this thread, skip IOCTL
     // cmp rax, r10  -> REX.WB(49) 3B C2
@@ -1640,7 +1659,11 @@ UCHAR g_ShellcodeTemplate[] = {
     // ---- Call NtDeviceIoControlFile <- patched: kNtIoSig -----------------
     0x48, 0xB8, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0xFF, 0xD0, // call rax
 
-    // ---- Restore re-entrancy guard ---------------------------------------
+    // ---- Restore TEB error/status and re-entrancy guard ------------------
+    0x8B, 0x84, 0x24, 0x7C, 0x00, 0x00, 0x00,       // mov eax, [rsp+0x7C]
+    0x65, 0x89, 0x04, 0x25, 0x50, 0x12, 0x00, 0x00, // mov gs:[0x1250], eax
+    0x8B, 0x84, 0x24, 0x78, 0x00, 0x00, 0x00,       // mov eax, [rsp+0x78]
+    0x65, 0x89, 0x04, 0x25, 0x68, 0x00, 0x00, 0x00, // mov gs:[0x68], eax
     // Restores the old TEB.ArbitraryUserPointer value saved at [RSP+0x70].
     // This correctly handles the case where the field was non-zero before we
     // set the sentinel (e.g. the CRT had its own value there).

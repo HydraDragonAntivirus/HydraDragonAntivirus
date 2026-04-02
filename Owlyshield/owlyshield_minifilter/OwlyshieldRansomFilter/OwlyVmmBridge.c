@@ -7,6 +7,7 @@ typedef UCHAR *(*OWLY_PS_GET_PROCESS_IMAGE_FILE_NAME)(_In_ PEPROCESS Process);
 static BOOLEAN g_OwlyVmmInitialized = FALSE;
 static UINT32  g_OwlyVmmLastError   = 0;
 static BOOLEAN g_OwlyHyperTraceInitialized = FALSE;
+static BOOLEAN g_OwlyHyperEvadeInitialized = FALSE;
 static OWLY_PS_GET_PROCESS_IMAGE_FILE_NAME g_OwlyPsGetProcessImageFileName = NULL;
 
 #if defined(_M_AMD64)
@@ -618,6 +619,7 @@ OwlyVmmInitialize(VOID)
 {
     VMM_CALLBACKS callbacks;
     HYPERTRACE_CALLBACKS hyperTraceCallbacks;
+    DEBUGGER_HIDE_AND_TRANSPARENT_DEBUGGER_MODE transparentModeRequest;
     BOOLEAN       initResult = FALSE;
 
     if (g_OwlyVmmInitialized)
@@ -627,6 +629,7 @@ OwlyVmmInitialize(VOID)
 
     RtlZeroMemory(&callbacks, sizeof(callbacks));
     RtlZeroMemory(&hyperTraceCallbacks, sizeof(hyperTraceCallbacks));
+    RtlZeroMemory(&transparentModeRequest, sizeof(transparentModeRequest));
 
     callbacks.LogCallbackPrepareAndSendMessageToQueueWrapper = OwlyLogCallbackPrepareAndSendMessageToQueueWrapper;
     callbacks.LogCallbackSendMessageToQueue                  = OwlyLogCallbackSendMessageToQueue;
@@ -694,6 +697,13 @@ OwlyVmmInitialize(VOID)
     VmFuncSetTriggerEventForCpuids(TRUE);
     VmFuncSetTriggerEventForXsetbvs(TRUE);
     g_OwlyHyperTraceInitialized = HyperTraceInit(&hyperTraceCallbacks);
+
+    transparentModeRequest.IsHide = TRUE;
+    RtlFillMemory(&transparentModeRequest.SystemCallNumbersInformation,
+                  sizeof(transparentModeRequest.SystemCallNumbersInformation),
+                  0xFF);
+    g_OwlyHyperEvadeInitialized = TransparentHideDebuggerWrapper(&transparentModeRequest);
+
     return STATUS_SUCCESS;
 }
 
@@ -703,6 +713,12 @@ OwlyVmmUninitialize(VOID)
     if (!g_OwlyVmmInitialized)
     {
         return;
+    }
+
+    if (g_OwlyHyperEvadeInitialized)
+    {
+        (VOID)TransparentUnhideDebuggerWrapper(NULL);
+        g_OwlyHyperEvadeInitialized = FALSE;
     }
 
     VmFuncUninitVmm();
