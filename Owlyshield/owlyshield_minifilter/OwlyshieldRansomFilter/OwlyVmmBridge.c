@@ -703,6 +703,24 @@ OwlyVmmInitialize(VOID)
                   sizeof(transparentModeRequest.SystemCallNumbersInformation),
                   0xFF);
     g_OwlyHyperEvadeInitialized = TransparentHideDebuggerWrapper(&transparentModeRequest);
+    if (!g_OwlyHyperEvadeInitialized)
+    {
+        NTSTATUS transparentStatus = (transparentModeRequest.KernelStatus != 0)
+                                         ? (NTSTATUS)transparentModeRequest.KernelStatus
+                                         : STATUS_UNSUCCESSFUL;
+
+        DbgPrint("!!! OwlyVmmBridge: Transparent mode initialization failed: 0x%X\n",
+                 transparentModeRequest.KernelStatus);
+
+        VmFuncUninitVmm();
+        g_OwlyVmmInitialized = FALSE;
+        g_OwlyHyperTraceInitialized = FALSE;
+
+        return transparentStatus;
+    }
+
+    DbgPrint("!!! OwlyVmmBridge: Transparent mode initialization succeeded: 0x%X\n",
+             transparentModeRequest.KernelStatus);
 
     return STATUS_SUCCESS;
 }

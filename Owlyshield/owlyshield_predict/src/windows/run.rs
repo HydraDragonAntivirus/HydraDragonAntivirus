@@ -760,7 +760,7 @@ pub fn run() {
                 let hypervisor_total = opcode_counts[12];
                 let kernel_telemetry_total: u64 = opcode_counts.iter().skip(13).sum::<u64>();
                 if hypervisor_total > 0 {
-                    summary.push_str(&format!("ApiHooking={} ", hypervisor_total));
+                    summary.push_str(&format!("Hypervisor={} ", hypervisor_total));
                 }
                 if kernel_telemetry_total > 0 {
                     summary.push_str(&format!("KernelTelemetry={} ", kernel_telemetry_total));
@@ -800,7 +800,7 @@ pub fn run() {
                 // Check specifically for the API-hooking opcode stream.
                 if hypervisor_total == 0 {
                     Logging::warning(
-                        "[DIAG] ZERO API HOOKING EVENTS (opcode 12) received from driver!",
+                        "[DIAG] ZERO HYPERVISOR EVENTS (opcode 12) received from driver!",
                     );
                 }
 
