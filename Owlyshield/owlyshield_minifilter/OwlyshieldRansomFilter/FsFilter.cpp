@@ -2284,11 +2284,9 @@ FSEntrySetFileName(CONST PFLT_VOLUME Volume, PFLT_FILE_NAME_INFORMATION nameInfo
     // --- START: MODIFICATION ---
 
     // Use a local variable for the volume's DOS name.
+    // Initialize to zero so that Buffer is NULL and safely freed if the call fails.
     UNICODE_STRING volumeData;
-    WCHAR volumeBuffer[40]; // Buffer for the DOS name (e.g., "C:")
-    volumeData.MaximumLength = sizeof(volumeBuffer);
-    volumeData.Buffer = volumeBuffer;
-    volumeData.Length = 0;
+    RtlZeroMemory(&volumeData, sizeof(volumeData));
 
     if (uString == NULL)
     {
@@ -2338,7 +2336,7 @@ FSEntrySetFileName(CONST PFLT_VOLUME Volume, PFLT_FILE_NAME_INFORMATION nameInfo
 
 cleanup:
     // BUGFIX: IoVolumeDeviceToDosName allocates memory that MUST be freed
-    if (volumeData.Buffer != NULL && volumeData.Buffer != volumeBuffer) {
+    if (volumeData.Buffer != NULL) {
         ExFreePool(volumeData.Buffer);
     }
 
