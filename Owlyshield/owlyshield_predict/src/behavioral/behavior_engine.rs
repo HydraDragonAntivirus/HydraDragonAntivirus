@@ -6614,9 +6614,8 @@ impl BehaviorEngine {
 
                         if *is_absolute {
                             if let Some(path) = process_path {
-                                let path_str =
-                                    path.to_string_lossy().to_lowercase().replace("\\", "/");
-                                let pat_norm = pat_lc.replace("\\", "/");
+                                let path_str = canonical_behavior_path(&path.to_string_lossy());
+                                let pat_norm = canonical_behavior_path(&pat_lc);
                                 if !matches_pattern(&self.regex_cache, &pat_norm, &path_str) {
                                     name_matched = false;
                                 }
@@ -6633,10 +6632,74 @@ impl BehaviorEngine {
                             return true;
                         }
                         if let Some(path) = process_path {
-                            if !path.exists() {
+                            let mut dos_path_buf = path.to_path_buf();
+                            if let Some(path_str) = path.to_str() {
+                                let path_lc = path_str.to_lowercase();
+                                if path_lc.starts_with("\\device\\harddiskvolume") {
+                                    use std::ffi::OsString;
+                                    use std::os::windows::ffi::OsStringExt;
+                                    use std::os::windows::ffi::OsStrExt;
+                                    use windows::Win32::Storage::FileSystem::{GetLogicalDriveStringsW, QueryDosDeviceW};
+                                    use windows::core::PCWSTR;
+
+                                    unsafe {
+                                        let mut drives_buf = [0u16; 512];
+                                        let len = GetLogicalDriveStringsW(Some(&mut drives_buf));
+                                        let mut matched_drive = false;
+                                        if len > 0 && (len as usize) < drives_buf.len() {
+                                            let mut i = 0;
+                                            while i < len as usize {
+                                                let start = i;
+                                                while i < len as usize && drives_buf[i] != 0 {
+                                                    i += 1;
+                                                }
+                                                if i > start {
+                                                    let drive = OsString::from_wide(&drives_buf[start..i]);
+                                                    if let Some(drive_str) = drive.to_str() {
+                                                        let drive_letter = drive_str.trim_end_matches('\\');
+                                                        let drive_wide: Vec<u16> = drive_letter.encode_utf16().chain(std::iter::once(0)).collect();
+                                                        let mut target_buf = [0u16; 512];
+                                                        let target_len = QueryDosDeviceW(
+                                                            PCWSTR(drive_wide.as_ptr()),
+                                                            Some(&mut target_buf),
+                                                        );
+                                                        if target_len > 0 {
+                                                            let target = OsString::from_wide(&target_buf[..((target_len as usize) - 1)]);
+                                                            if let Some(target_str) = target.to_str() {
+                                                                if path_lc.starts_with(&target_str.to_lowercase()) {
+                                                                    let remainder = &path_str[target_str.len()..];
+                                                                    dos_path_buf = std::path::PathBuf::from(format!("{}{}", drive_letter, remainder));
+                                                                    matched_drive = true;
+                                                                    break;
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                                i += 1;
+                                            }
+                                        }
+
+                                        // Fallback to SystemDrive if we couldn't resolve via QueryDosDevice
+                                        if !matched_drive {
+                                            let system_drive = std::env::var("SystemDrive")
+                                                .unwrap_or_else(|_| "C:".to_string());
+                                            if let Some(rest) = path_str.splitn(4, '\\').nth(3) {
+                                                dos_path_buf = std::path::PathBuf::from(format!("{}\\{}", system_drive, rest));
+                                            }
+                                        }
+                                    }
+                                } else if path_lc.starts_with("\\??\\") {
+                                    dos_path_buf = PathBuf::from(&path_str[4..]);
+                                } else if path_lc.starts_with("\\\\?\\") {
+                                    dos_path_buf = PathBuf::from(&path_str[4..]);
+                                }
+                            }
+
+                            if !dos_path_buf.exists() {
                                 return false;
                             }
-                            let info = verify_signature(path);
+                            let info = verify_signature(&dos_path_buf);
 
                             // Strict requirement: must be signed by one of the specified signers
                             // if the rule engine says it's a mandatory vendor check.
