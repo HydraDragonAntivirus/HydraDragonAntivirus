@@ -121,6 +121,18 @@ fn browser_mitm_prompt_decision_key(browser_name: &str, target: &str) -> String 
     )
 }
 
+fn alert_window_op_lock() -> &'static Mutex<()> {
+    static ALERT_WINDOW_OP_LOCK: std::sync::OnceLock<Mutex<()>> = std::sync::OnceLock::new();
+    ALERT_WINDOW_OP_LOCK.get_or_init(|| Mutex::new(()))
+}
+
+fn alert_window_error_is_invalid_handle<E: std::fmt::Display>(error: &E) -> bool {
+    let rendered = error.to_string().to_ascii_lowercase();
+    rendered.contains("invalid handle")
+        || rendered.contains("status_invalid_handle")
+        || rendered.contains("os error 6")
+}
+
 fn is_unresolved_identity(value: &str) -> bool {
     let trimmed = value.trim();
     trimmed.is_empty() || trimmed.eq_ignore_ascii_case("unknown")
@@ -4104,29 +4116,50 @@ impl FirewallEngine {
         Some((monitor_w - width - 20.0, monitor_h - height - 60.0))
     }
 
+    fn wait_for_alert_window_release<R: Runtime>(app: &AppHandle<R>, timeout_ms: u64) -> bool {
+        let deadline = std::time::Instant::now() + Duration::from_millis(timeout_ms);
+        while std::time::Instant::now() < deadline {
+            if app.get_webview_window("firewall-alert").is_none() {
+                return true;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        app.get_webview_window("firewall-alert").is_none()
+    }
+
     pub fn spawn_alert_window<R: Runtime>(app: &AppHandle<R>) {
+        let _window_guard = alert_window_op_lock().lock().unwrap();
         let (width, height) = Self::alert_window_size(app);
         let alert_position = Self::alert_window_position(app, width, height);
 
         // Window already exists (pre-warmed or reused): resize, reposition, show.
         if let Some(win) = app.get_webview_window("firewall-alert") {
-            let mut reused_ok = win
-                .set_size(Size::Logical(LogicalSize::new(width, height)))
-                .is_ok();
+            let size_ok = match win.set_size(Size::Logical(LogicalSize::new(width, height))) {
+                Ok(_) => true,
+                Err(err) if !alert_window_error_is_invalid_handle(&err) => true,
+                Err(_) => false,
+            };
+            let mut reused_ok = size_ok;
             if let Some((x, y)) = alert_position {
-                reused_ok &= win
-                    .set_position(Position::Logical(LogicalPosition::new(x, y)))
-                    .is_ok();
+                reused_ok &= match win.set_position(Position::Logical(LogicalPosition::new(x, y))) {
+                    Ok(_) => true,
+                    Err(err) if !alert_window_error_is_invalid_handle(&err) => true,
+                    Err(_) => false,
+                };
             }
-            reused_ok &= win.show().is_ok();
-            reused_ok &= win.set_focus().is_ok();
+            reused_ok &= match win.show() {
+                Ok(_) => true,
+                Err(err) if !alert_window_error_is_invalid_handle(&err) => true,
+                Err(_) => false,
+            };
 
             if reused_ok {
+                let _ = win.set_focus();
                 return;
             }
 
             let _ = win.close();
-            std::thread::sleep(Duration::from_millis(60));
+            let _ = Self::wait_for_alert_window_release(app, 300);
         }
 
         // Fallback: create window from scratch (should not normally be reached after prewarm).
@@ -4158,8 +4191,13 @@ impl FirewallEngine {
     /// event listener is already registered when the first alert arrives.
     /// This eliminates WebView2 init + Wasm startup latency from alert display.
     pub fn prewarm_alert_window<R: Runtime>(app: &AppHandle<R>) {
-        if app.get_webview_window("firewall-alert").is_some() {
-            return;
+        let _window_guard = alert_window_op_lock().lock().unwrap();
+        if let Some(win) = app.get_webview_window("firewall-alert") {
+            if win.hide().is_ok() {
+                return;
+            }
+            let _ = win.close();
+            let _ = Self::wait_for_alert_window_release(app, 300);
         }
         let builder = WebviewWindowBuilder::new(
             app,
