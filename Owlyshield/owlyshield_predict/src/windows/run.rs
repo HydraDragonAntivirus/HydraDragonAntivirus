@@ -506,6 +506,7 @@ pub fn run() {
         let mut opcode_counts: [u64; 32] = [0; 32];
         let mut total_msgs: u64 = 0;
         let mut last_diag = std::time::Instant::now();
+        let diag_started_at = std::time::Instant::now();
         let mut saw_any_hypervisor_event_since_start = false;
         let mut total_hypervisor_events_since_start: u64 = 0;
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
@@ -810,7 +811,9 @@ pub fn run() {
                 Logging::info(&summary);
 
                 // Check specifically for the API-hooking opcode stream.
-                if !saw_any_hypervisor_event_since_start {
+                if !saw_any_hypervisor_event_since_start
+                    && diag_started_at.elapsed() >= std::time::Duration::from_secs(30)
+                {
                     Logging::warning(
                         "[DIAG] ZERO HYPERVISOR EVENTS (opcode 12) received from driver!",
                     );

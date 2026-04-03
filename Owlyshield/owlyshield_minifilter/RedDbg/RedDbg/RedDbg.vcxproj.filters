@@ -1,0 +1,202 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="Source Files">
+      <UniqueIdentifier>{4FC737F1-C7A5-4376-A066-2A32D752A2FF}</UniqueIdentifier>
+      <Extensions>cpp;c;cc;cxx;def;odl;idl;hpj;bat;asm;asmx</Extensions>
+    </Filter>
+    <Filter Include="Header Files">
+      <UniqueIdentifier>{93995380-89BD-4b04-88EB-625FBE52EBFB}</UniqueIdentifier>
+      <Extensions>h;hpp;hxx;hm;inl;inc;xsd</Extensions>
+    </Filter>
+    <Filter Include="Driver Files">
+      <UniqueIdentifier>{8E41214B-6785-4CFE-B992-037D68949A14}</UniqueIdentifier>
+      <Extensions>inf;inv;inx;mof;mc;</Extensions>
+    </Filter>
+    <Filter Include="Source Files\Log">
+      <UniqueIdentifier>{d59758b5-0d31-4898-92ad-bc181ebb1765}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\Log\Trace">
+      <UniqueIdentifier>{2eb48885-10a2-48f1-b5c9-47aa4b0cdd2e}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\TransparentMode">
+      <UniqueIdentifier>{30368a92-6ff8-4bad-9d01-8127b4b765fe}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\Debugger">
+      <UniqueIdentifier>{f06ecf6a-eb32-43f1-8d31-0cdc9953ba1a}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Header Files\TransparentMode">
+      <UniqueIdentifier>{9eae198b-e9df-4d93-a1f7-78ecf3986520}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Header Files\Log">
+      <UniqueIdentifier>{901d3d4a-e456-43ca-b3c0-252cc41448cc}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Header Files\Log\Trace">
+      <UniqueIdentifier>{504c6353-288e-423f-b347-cd0ec74c1dea}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Header Files\Log\GraphViz">
+      <UniqueIdentifier>{63271e8c-be44-478c-b035-c6178460d569}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\Log\Logger">
+      <UniqueIdentifier>{0fa322f0-8c8a-4fc0-9d7f-0e5cc51f9bd1}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Header Files\Log\Logger">
+      <UniqueIdentifier>{60c4d9fb-c10c-41de-acd2-eb8b8bfb7ab0}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Header Files\HyperVisor">
+      <UniqueIdentifier>{99bb3458-915a-453a-9777-3700d469b131}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\HyperVisor">
+      <UniqueIdentifier>{ef67ba18-34b7-4bbe-8d03-e563219a5f3d}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\HyperVisor\CommonApi">
+      <UniqueIdentifier>{02de67ff-6b9d-4514-924d-89dbc9901da2}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Header Files\HyperVisor\CommonApi">
+      <UniqueIdentifier>{184f47f2-6ecf-4db1-b846-a55e3968aa3f}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Header Files\HyperVisor\CommonTypes">
+      <UniqueIdentifier>{b81fcdff-fc89-4b50-ad3c-dfcb5e37f9a8}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Header Files\CppSupport">
+      <UniqueIdentifier>{08ddb49d-33f4-4d9d-ad12-9a14ece25e26}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\CppSupport">
+      <UniqueIdentifier>{b0a6356e-5848-4d45-8937-7bd8d292279e}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Header Files\Debugger">
+      <UniqueIdentifier>{7d21b647-339a-4021-a63c-9faf2f25e279}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Header Files\Debugger\Pe">
+      <UniqueIdentifier>{97a1da5c-ad36-4b8a-b647-acd19558e302}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <Inf Include="RedDbg.inf">
+      <Filter>Driver Files</Filter>
+    </Inf>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="Source\Log\File.cpp">
+      <Filter>Source Files\Log\Trace</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Log\Trace.cpp">
+      <Filter>Source Files\Log\Trace</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\TransparentMode\TransparentMode.cpp">
+      <Filter>Source Files\TransparentMode</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\HyperVisor\CommonApi\Callable.cpp">
+      <Filter>Source Files\HyperVisor\CommonApi</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\HyperVisor\CommonApi\MemoryUtils.cpp">
+      <Filter>Source Files\HyperVisor\CommonApi</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\HyperVisor\CommonApi\PteUtils.cpp">
+      <Filter>Source Files\HyperVisor\CommonApi</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\HyperVisor\CommonApi\Spinlock.cpp">
+      <Filter>Source Files\HyperVisor\CommonApi</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\HyperVisor\CommonApi\SystemMemory.cpp">
+      <Filter>Source Files\HyperVisor\CommonApi</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Debugger\Driver\DrvMain.cpp">
+      <Filter>Source Files\Debugger</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Log\Log.cpp">
+      <Filter>Source Files\Log\Logger</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\HyperVisor\HyperVisor.cpp">
+      <Filter>Source Files\HyperVisor</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\CppSupport\CppSupport.cpp">
+      <Filter>Source Files\CppSupport</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <MASM Include="Source\Debugger\Driver\Pushf.asm">
+      <Filter>Source Files\Debugger</Filter>
+    </MASM>
+    <MASM Include="Source\Debugger\Driver\SVMrun.asm">
+      <Filter>Source Files\Debugger</Filter>
+    </MASM>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="Include\General.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Include\TransparentMode\TransparentMode.hpp">
+      <Filter>Header Files\TransparentMode</Filter>
+    </ClInclude>
+    <ClInclude Include="Include\Log\File.hpp">
+      <Filter>Header Files\Log\Trace</Filter>
+    </ClInclude>
+    <ClInclude Include="Include\Log\Trace.hpp">
+      <Filter>Header Files\Log\Trace</Filter>
+    </ClInclude>
+    <ClInclude Include="Include\Log\Log.hpp">
+      <Filter>Header Files\Log\Logger</Filter>
+    </ClInclude>
+    <ClInclude Include="Include\Log\Logger.hpp">
+      <Filter>Header Files\Log\Logger</Filter>
+    </ClInclude>
+    <ClInclude Include="Include\Log\GraphViz\GraphVizLanguage.hpp">
+      <Filter>Header Files\Log\GraphViz</Filter>
+    </ClInclude>
+    <ClInclude Include="Include\HyperVisor\HyperVisor.hpp">
+      <Filter>Header Files\HyperVisor</Filter>
+    </ClInclude>
+    <ClInclude Include="Include\HyperVisor\CommonApi\MemoryUtils.hpp">
+      <Filter>Header Files\HyperVisor\CommonApi</Filter>
+    </ClInclude>
+    <ClInclude Include="Include\HyperVisor\CommonApi\PteUtils.hpp">
+      <Filter>Header Files\HyperVisor\CommonApi</Filter>
+    </ClInclude>
+    <ClInclude Include="Include\HyperVisor\CommonApi\Spinlock.hpp">
+      <Filter>Header Files\HyperVisor\CommonApi</Filter>
+    </ClInclude>
+    <ClInclude Include="Include\HyperVisor\CommonApi\SystemMemory.hpp">
+      <Filter>Header Files\HyperVisor\CommonApi</Filter>
+    </ClInclude>
+    <ClInclude Include="Include\HyperVisor\CommonApi\Callable.hpp">
+      <Filter>Header Files\HyperVisor\CommonApi</Filter>
+    </ClInclude>
+    <ClInclude Include="Include\HyperVisor\CommonTypes\CPUID.hpp">
+      <Filter>Header Files\HyperVisor\CommonTypes</Filter>
+    </ClInclude>
+    <ClInclude Include="Include\HyperVisor\CommonTypes\Exception.hpp">
+      <Filter>Header Files\HyperVisor\CommonTypes</Filter>
+    </ClInclude>
+    <ClInclude Include="Include\HyperVisor\CommonTypes\Interrupts.hpp">
+      <Filter>Header Files\HyperVisor\CommonTypes</Filter>
+    </ClInclude>
+    <ClInclude Include="Include\HyperVisor\CommonTypes\MSR.hpp">
+      <Filter>Header Files\HyperVisor\CommonTypes</Filter>
+    </ClInclude>
+    <ClInclude Include="Include\HyperVisor\CommonTypes\PTE.hpp">
+      <Filter>Header Files\HyperVisor\CommonTypes</Filter>
+    </ClInclude>
+    <ClInclude Include="Include\HyperVisor\CommonTypes\Registers.hpp">
+      <Filter>Header Files\HyperVisor\CommonTypes</Filter>
+    </ClInclude>
+    <ClInclude Include="Include\HyperVisor\CommonTypes\Segmentation.hpp">
+      <Filter>Header Files\HyperVisor\CommonTypes</Filter>
+    </ClInclude>
+    <ClInclude Include="Include\HyperVisor\CommonTypes\SVM.hpp">
+      <Filter>Header Files\HyperVisor\CommonTypes</Filter>
+    </ClInclude>
+    <ClInclude Include="Include\Debugger\Driver\Pe\PeInformation.hpp">
+      <Filter>Header Files\Debugger\Pe</Filter>
+    </ClInclude>
+    <ClInclude Include="Include\Debugger\Driver\Pe\PeStruct.hpp">
+      <Filter>Header Files\Debugger\Pe</Filter>
+    </ClInclude>
+    <ClInclude Include="Include\Debugger\Driver\GuestContext.hpp">
+      <Filter>Header Files\Debugger</Filter>
+    </ClInclude>
+    <ClInclude Include="Include\CppSupport\CppSupport.hpp">
+      <Filter>Header Files\CppSupport</Filter>
+    </ClInclude>
+  </ItemGroup>
+</Project>

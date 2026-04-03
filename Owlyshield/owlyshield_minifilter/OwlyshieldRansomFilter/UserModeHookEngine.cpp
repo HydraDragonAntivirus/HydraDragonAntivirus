@@ -3370,15 +3370,32 @@ NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROC
                         __leave;
                     }
 
-                    if (fnZwSetInformationObject != NULL)
+                    if (fnZwSetInformationObject == NULL)
+                    {
+                        DbgPrint("UserModeHook: ZwSetInformationObject unavailable, skipping hook install for PID %lu\n",
+                                 HookEntry->ProcessId);
+                        status = STATUS_NOT_SUPPORTED;
+                        __leave;
+                    }
+
                     {
                         OWLY_OBJECT_HANDLE_FLAG_INFORMATION handleFlags = {0};
+                        NTSTATUS handleProtectStatus;
+
                         handleFlags.ProtectFromClose = TRUE;
                         handleFlags.Inherit = FALSE;
-                        (VOID)fnZwSetInformationObject(targetDeviceHandle,
-                                                       OWLY_OBJECT_HANDLE_FLAG_INFORMATION_CLASS,
-                                                       &handleFlags,
-                                                       sizeof(handleFlags));
+                        handleProtectStatus = fnZwSetInformationObject(targetDeviceHandle,
+                                                                       OWLY_OBJECT_HANDLE_FLAG_INFORMATION_CLASS,
+                                                                       &handleFlags,
+                                                                       sizeof(handleFlags));
+                        if (!NT_SUCCESS(handleProtectStatus))
+                        {
+                            DbgPrint("UserModeHook: failed to protect per-process notify handle for PID %lu (0x%X)\n",
+                                     HookEntry->ProcessId,
+                                     handleProtectStatus);
+                            status = handleProtectStatus;
+                            __leave;
+                        }
                     }
                 }
 

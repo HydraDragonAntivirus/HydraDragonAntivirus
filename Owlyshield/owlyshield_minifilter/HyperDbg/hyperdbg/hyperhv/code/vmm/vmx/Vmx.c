@@ -11,6 +11,33 @@
  */
 #include "pch.h"
 
+static VOID
+VmxSetInitLastError(UINT32 LastError)
+{
+    VmmCallbackSetLastError(LastError);
+}
+
+static UINT32
+VmxGetUnsupportedCpuVendorError(VOID)
+{
+    CPUID VendorLeaf = {0};
+    CHAR  VendorString[13] = {0};
+
+    __cpuid((int *)&VendorLeaf, 0);
+
+    RtlCopyMemory(&VendorString[0], &VendorLeaf.ebx, sizeof(VendorLeaf.ebx));
+    RtlCopyMemory(&VendorString[4], &VendorLeaf.edx, sizeof(VendorLeaf.edx));
+    RtlCopyMemory(&VendorString[8], &VendorLeaf.ecx, sizeof(VendorLeaf.ecx));
+    VendorString[12] = '\0';
+
+    if (RtlEqualMemory(VendorString, "AuthenticAMD", 12))
+    {
+        return DEBUGGER_ERROR_VMX_UNSUPPORTED_CPU_VENDOR;
+    }
+
+    return DEBUGGER_ERROR_VMX_NOT_SUPPORTED_BY_PROCESSOR;
+}
+
 /**
  * @brief VMX VMREAD instruction (64-bit)
  * @param Field
@@ -181,6 +208,7 @@ VmxCheckVmxSupport()
         //
         // returns FALSE if vmx is not supported
         //
+        VmxSetInitLastError(VmxGetUnsupportedCpuVendorError());
         return FALSE;
     }
 
@@ -206,6 +234,7 @@ VmxCheckVmxSupport()
 
     if (FeatureControlMsr.EnableVmxOutsideSmx == FALSE)
     {
+        VmxSetInitLastError(DEBUGGER_ERROR_VMX_DISABLED_IN_BIOS);
         LogError("Err, you should enable vt-x from BIOS");
         return FALSE;
     }
@@ -294,6 +323,7 @@ VmxInitialize()
             //
             // Some error in allocating Vmm Stack
             //
+            VmxSetInitLastError(DEBUGGER_ERROR_VMX_INSUFFICIENT_RESOURCES);
             return FALSE;
         }
 
@@ -305,6 +335,7 @@ VmxInitialize()
             //
             // Some error in allocating Msr Bitmaps
             //
+            VmxSetInitLastError(DEBUGGER_ERROR_VMX_INSUFFICIENT_RESOURCES);
             return FALSE;
         }
 
@@ -316,6 +347,7 @@ VmxInitialize()
             //
             // Some error in allocating I/O Bitmaps
             //
+            VmxSetInitLastError(DEBUGGER_ERROR_VMX_INSUFFICIENT_RESOURCES);
             return FALSE;
         }
 
@@ -329,6 +361,7 @@ VmxInitialize()
             //
             // Some error in allocating Host IDT
             //
+            VmxSetInitLastError(DEBUGGER_ERROR_VMX_INSUFFICIENT_RESOURCES);
             return FALSE;
         }
 #endif // USE_DEFAULT_OS_IDT_AS_HOST_IDT == FALSE
@@ -343,6 +376,7 @@ VmxInitialize()
             //
             // Some error in allocating Host GDT
             //
+            VmxSetInitLastError(DEBUGGER_ERROR_VMX_INSUFFICIENT_RESOURCES);
             return FALSE;
         }
 
@@ -354,6 +388,7 @@ VmxInitialize()
             //
             // Some error in allocating Host TSS
             //
+            VmxSetInitLastError(DEBUGGER_ERROR_VMX_INSUFFICIENT_RESOURCES);
             return FALSE;
         }
 
@@ -369,6 +404,7 @@ VmxInitialize()
             //
             // Some error in allocating Interrupt Stack
             //
+            VmxSetInitLastError(DEBUGGER_ERROR_VMX_INSUFFICIENT_RESOURCES);
             return FALSE;
         }
 
@@ -382,6 +418,7 @@ VmxInitialize()
 
     if (g_MsrBitmapInvalidMsrs == NULL)
     {
+        VmxSetInitLastError(DEBUGGER_ERROR_VMX_INSUFFICIENT_RESOURCES);
         return FALSE;
     }
 
@@ -400,6 +437,7 @@ VmxInitialize()
     }
     else
     {
+        VmxSetInitLastError(DEBUGGER_ERROR_VMX_INITIALIZATION_STAGE_FAILED);
         return FALSE;
     }
 }
@@ -427,6 +465,7 @@ VmxPerformVirtualizationOnAllCores()
 
     if (!g_EptState)
     {
+        VmxSetInitLastError(DEBUGGER_ERROR_VMX_INSUFFICIENT_RESOURCES);
         LogError("Err, insufficient memory");
         return FALSE;
     }
@@ -441,6 +480,7 @@ VmxPerformVirtualizationOnAllCores()
     //
     if (!EptCheckFeatures())
     {
+        VmxSetInitLastError(DEBUGGER_ERROR_VMX_EPT_NOT_SUPPORTED);
         LogError("Err, your processor doesn't support all EPT features");
         return FALSE;
     }
@@ -456,6 +496,7 @@ VmxPerformVirtualizationOnAllCores()
         //
         if (!EptBuildMtrrMap())
         {
+            VmxSetInitLastError(DEBUGGER_ERROR_VMX_INITIALIZATION_STAGE_FAILED);
             LogError("Err, could not build MTRR memory map");
             return FALSE;
         }
@@ -468,6 +509,7 @@ VmxPerformVirtualizationOnAllCores()
     //
     if (!PoolManagerInitialize())
     {
+        VmxSetInitLastError(DEBUGGER_ERROR_VMX_INITIALIZATION_STAGE_FAILED);
         LogError("Err, could not initialize pool manager");
         return FALSE;
     }
@@ -477,6 +519,7 @@ VmxPerformVirtualizationOnAllCores()
         //
         // There were some errors in EptLogicalProcessorInitialize
         //
+        VmxSetInitLastError(DEBUGGER_ERROR_VMX_INITIALIZATION_STAGE_FAILED);
         return FALSE;
     }
 

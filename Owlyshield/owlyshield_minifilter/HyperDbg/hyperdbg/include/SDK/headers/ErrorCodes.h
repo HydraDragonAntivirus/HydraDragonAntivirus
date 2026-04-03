@@ -581,6 +581,42 @@
  */
 #define DEBUGGER_ERROR_UNABLE_TO_APPLY_COMMAND_TO_THE_TARGET_THREAD 0xc0000059
 
+/**
+ * @brief error, this HyperDbg VMX backend does not support the current CPU vendor
+ *
+ */
+#define DEBUGGER_ERROR_VMX_UNSUPPORTED_CPU_VENDOR 0xc000005a
+
+/**
+ * @brief error, the current processor does not expose VMX capability
+ *
+ */
+#define DEBUGGER_ERROR_VMX_NOT_SUPPORTED_BY_PROCESSOR 0xc000005b
+
+/**
+ * @brief error, VMX is disabled in BIOS/firmware
+ *
+ */
+#define DEBUGGER_ERROR_VMX_DISABLED_IN_BIOS 0xc000005c
+
+/**
+ * @brief error, EPT is not fully supported on the current processor
+ *
+ */
+#define DEBUGGER_ERROR_VMX_EPT_NOT_SUPPORTED 0xc000005d
+
+/**
+ * @brief error, VMX initialization failed during a later setup stage
+ *
+ */
+#define DEBUGGER_ERROR_VMX_INITIALIZATION_STAGE_FAILED 0xc000005e
+
+/**
+ * @brief error, VMX initialization ran out of required resources
+ *
+ */
+#define DEBUGGER_ERROR_VMX_INSUFFICIENT_RESOURCES 0xc000005f
+
 //
 // WHEN YOU ADD ANYTHING TO THIS LIST OF ERRORS, THEN
 // MAKE SURE TO ADD AN ERROR MESSAGE TO ShowErrorMessage(UINT32 Error)

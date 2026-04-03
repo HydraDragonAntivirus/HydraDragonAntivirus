@@ -1,0 +1,156 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" ToolsVersion="12.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="DebugX64Kernel|x64">
+      <Configuration>DebugX64Kernel</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="ReleaseX64Kernel|x64">
+      <Configuration>ReleaseX64Kernel</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{93BDA9EC-BD6B-4D64-9DA8-FFAEB20F4332}</ProjectGuid>
+    <TemplateGuid>{dd38f7fc-d7bd-488b-9242-7d8754cde80d}</TemplateGuid>
+    <TargetFrameworkVersion>v4.5</TargetFrameworkVersion>
+    <MinimumVisualStudioVersion>12.0</MinimumVisualStudioVersion>
+    <Configuration>Debug</Configuration>
+    <Platform Condition="'$(Platform)' == ''">x64</Platform>
+    <RootNamespace>RedDbg</RootNamespace>
+    <ProjectName>RedDbgDrv</ProjectName>
+    <WindowsTargetPlatformVersion>$(LatestTargetPlatformVersion)</WindowsTargetPlatformVersion>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='DebugX64Kernel|x64'" Label="Configuration">
+    <TargetVersion>Windows10</TargetVersion>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <PlatformToolset>WindowsKernelModeDriver10.0</PlatformToolset>
+    <ConfigurationType>Driver</ConfigurationType>
+    <DriverType>WDM</DriverType>
+    <Driver_SpectreMitigation>Spectre</Driver_SpectreMitigation>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='ReleaseX64Kernel|x64'" Label="Configuration">
+    <TargetVersion>Windows10</TargetVersion>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <PlatformToolset>WindowsKernelModeDriver10.0</PlatformToolset>
+    <ConfigurationType>Driver</ConfigurationType>
+    <DriverType>WDM</DriverType>
+    <Driver_SpectreMitigation>Spectre</Driver_SpectreMitigation>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings" />
+  <ImportGroup Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <PropertyGroup Label="UserMacros" />
+  <PropertyGroup />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='DebugX64Kernel|x64'">
+    <DebuggerFlavor>DbgengKernelDebugger</DebuggerFlavor>
+    <IncludePath>$(VC_IncludePath);$(IncludePath)</IncludePath>
+    <Inf2CatUseLocalTime>true</Inf2CatUseLocalTime>
+    <EnableClangTidyCodeAnalysis>true</EnableClangTidyCodeAnalysis>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='ReleaseX64Kernel|x64'">
+    <DebuggerFlavor>DbgengKernelDebugger</DebuggerFlavor>
+    <IncludePath>$(VC_IncludePath);$(IncludePath)</IncludePath>
+    <Inf2CatUseLocalTime>true</Inf2CatUseLocalTime>
+    <EnableClangTidyCodeAnalysis>true</EnableClangTidyCodeAnalysis>
+  </PropertyGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='DebugX64Kernel|x64'">
+    <DriverSign>
+      <FileDigestAlgorithm>sha256</FileDigestAlgorithm>
+    </DriverSign>
+    <ClCompile>
+      <AdditionalIncludeDirectories>$(SolutionDir)/Source/Deps/zydis/dependencies/zycore/include;$(SolutionDir)/Source/Deps/zydis/include;$(SolutionDir)/Include/Deps;$(SolutionDir)/Include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>ZYAN_NO_LIBC;ZYDIS_NO_LIBC;ZYCORE_STATIC_BUILD;ZYDIS_STATIC_BUILD;POOL_NX_OPTIN=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <LanguageStandard>stdcpplatest</LanguageStandard>
+      <TreatWarningAsError>false</TreatWarningAsError>
+      <InlineFunctionExpansion>AnySuitable</InlineFunctionExpansion>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <ControlFlowGuard>Guard</ControlFlowGuard>
+      <DisableSpecificWarnings>4201;4748;%(DisableSpecificWarnings)</DisableSpecificWarnings>
+      <EnableEnhancedInstructionSet>AdvancedVectorExtensions2</EnableEnhancedInstructionSet>
+      <AdditionalOptions>/Gw /kernel</AdditionalOptions>
+    </ClCompile>
+    <Link>
+      <AdditionalLibraryDirectories>$(SolutionDir)/Source/Deps/zydis/msvc/bin/$(ConfigurationName);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>Zydis.lib;%(AdditionalDependencies);$(KernelBufferOverflowLib);$(DDK_LIB_PATH)ntoskrnl.lib;$(DDK_LIB_PATH)hal.lib;$(DDK_LIB_PATH)wmilib.lib</AdditionalDependencies>
+      <TreatLinkerWarningAsErrors>false</TreatLinkerWarningAsErrors>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='ReleaseX64Kernel|x64'">
+    <DriverSign>
+      <FileDigestAlgorithm>sha256</FileDigestAlgorithm>
+    </DriverSign>
+    <ClCompile>
+      <AdditionalIncludeDirectories>$(SolutionDir)/Source/Deps/zydis/dependencies/zycore/include;$(SolutionDir)/Source/Deps/zydis/include;$(SolutionDir)/Include/Deps;$(SolutionDir)/Include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>ZYAN_NO_LIBC;ZYDIS_NO_LIBC;ZYCORE_STATIC_BUILD;ZYDIS_STATIC_BUILD;POOL_NX_OPTIN=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <TreatWarningAsError>false</TreatWarningAsError>
+      <LanguageStandard>stdcpplatest</LanguageStandard>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <DisableSpecificWarnings>4201;4748;%(DisableSpecificWarnings)</DisableSpecificWarnings>
+      <EnableEnhancedInstructionSet>AdvancedVectorExtensions2</EnableEnhancedInstructionSet>
+      <InlineFunctionExpansion>AnySuitable</InlineFunctionExpansion>
+      <AdditionalOptions>/Gw /kernel</AdditionalOptions>
+    </ClCompile>
+    <Link>
+      <AdditionalLibraryDirectories>$(SolutionDir)/Source/Deps/zydis/msvc/bin/$(ConfigurationName);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>Zydis.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <TreatLinkerWarningAsErrors>false</TreatLinkerWarningAsErrors>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <Inf Include="RedDbg.inf" />
+  </ItemGroup>
+  <ItemGroup>
+    <FilesToPackage Include="$(TargetPath)" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="Source\CppSupport\CppSupport.cpp" />
+    <ClCompile Include="Source\Debugger\Driver\DrvMain.cpp" />
+    <ClCompile Include="Source\HyperVisor\CommonApi\Callable.cpp" />
+    <ClCompile Include="Source\HyperVisor\CommonApi\MemoryUtils.cpp" />
+    <ClCompile Include="Source\HyperVisor\CommonApi\PteUtils.cpp" />
+    <ClCompile Include="Source\HyperVisor\CommonApi\Spinlock.cpp" />
+    <ClCompile Include="Source\HyperVisor\CommonApi\SystemMemory.cpp" />
+    <ClCompile Include="Source\HyperVisor\HyperVisor.cpp" />
+    <ClCompile Include="Source\Log\File.cpp" />
+    <ClCompile Include="Source\Log\Log.cpp" />
+    <ClCompile Include="Source\Log\Trace.cpp" />
+    <ClCompile Include="Source\TransparentMode\TransparentMode.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <MASM Include="Source\Debugger\Driver\Pushf.asm" />
+    <MASM Include="Source\Debugger\Driver\SVMrun.asm" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="Include\CppSupport\CppSupport.hpp" />
+    <ClInclude Include="Include\Debugger\Driver\GuestContext.hpp" />
+    <ClInclude Include="Include\Debugger\Driver\Pe\PeInformation.hpp" />
+    <ClInclude Include="Include\Debugger\Driver\Pe\PeStruct.hpp" />
+    <ClInclude Include="Include\General.hpp" />
+    <ClInclude Include="Include\HyperVisor\CommonApi\Callable.hpp" />
+    <ClInclude Include="Include\HyperVisor\CommonApi\MemoryUtils.hpp" />
+    <ClInclude Include="Include\HyperVisor\CommonApi\PteUtils.hpp" />
+    <ClInclude Include="Include\HyperVisor\CommonApi\Spinlock.hpp" />
+    <ClInclude Include="Include\HyperVisor\CommonApi\SystemMemory.hpp" />
+    <ClInclude Include="Include\HyperVisor\CommonTypes\CPUID.hpp" />
+    <ClInclude Include="Include\HyperVisor\CommonTypes\Exception.hpp" />
+    <ClInclude Include="Include\HyperVisor\CommonTypes\Interrupts.hpp" />
+    <ClInclude Include="Include\HyperVisor\CommonTypes\MSR.hpp" />
+    <ClInclude Include="Include\HyperVisor\CommonTypes\PTE.hpp" />
+    <ClInclude Include="Include\HyperVisor\CommonTypes\Registers.hpp" />
+    <ClInclude Include="Include\HyperVisor\CommonTypes\Segmentation.hpp" />
+    <ClInclude Include="Include\HyperVisor\CommonTypes\SVM.hpp" />
+    <ClInclude Include="Include\HyperVisor\HyperVisor.hpp" />
+    <ClInclude Include="Include\Log\File.hpp" />
+    <ClInclude Include="Include\Log\GraphViz\GraphVizLanguage.hpp" />
+    <ClInclude Include="Include\Log\Log.hpp" />
+    <ClInclude Include="Include\Log\Logger.hpp" />
+    <ClInclude Include="Include\Log\Trace.hpp" />
+    <ClInclude Include="Include\TransparentMode\TransparentMode.hpp" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets" />
+</Project>

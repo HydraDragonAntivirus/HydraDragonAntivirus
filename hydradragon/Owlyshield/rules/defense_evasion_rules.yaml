@@ -565,9 +565,9 @@
       orderless: false
       created_processes:
         - "sc.exe"
-      cmdline_keywords:
-        - "WinDefend"
-        - "stop"
+      cmdline_patterns:
+        - pattern: '(?i)(?:^|\\s|")stop(?:\\s|")+(?:windefend|wdnisvc|sense|securityhealthservice)(?:$|\\s|")'
+          is_regex: true
       min_matches: 1
 
     net_stop_defender:
@@ -575,9 +575,9 @@
       created_processes:
         - "net.exe"
         - "net1.exe"
-      cmdline_keywords:
-        - "stop"
-        - "WinDefend"
+      cmdline_patterns:
+        - pattern: '(?i)(?:^|\\s|")stop(?:\\s|")+(?:windefend|wdnisvc|sense|securityhealthservice)(?:$|\\s|")'
+          is_regex: true
       min_matches: 1
 
   detection_logic:

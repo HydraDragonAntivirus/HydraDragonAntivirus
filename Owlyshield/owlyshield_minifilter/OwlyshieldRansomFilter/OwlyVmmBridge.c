@@ -111,6 +111,30 @@ OwlyNormalizeVmmInitFailure(UINT32 LastError)
     return (NTSTATUS)LastError;
 }
 
+static PCWSTR
+OwlyGetVmmInitEventName(NTSTATUS InitStatus, UINT32 LastError)
+{
+    switch (LastError)
+    {
+    case DEBUGGER_ERROR_VMX_UNSUPPORTED_CPU_VENDOR:
+        return L"VMM_INITIALIZATION_UNSUPPORTED_CPU_VENDOR";
+    case DEBUGGER_ERROR_VMX_NOT_SUPPORTED_BY_PROCESSOR:
+        return L"VMM_INITIALIZATION_VMX_NOT_SUPPORTED";
+    case DEBUGGER_ERROR_VMX_DISABLED_IN_BIOS:
+        return L"VMM_INITIALIZATION_VMX_DISABLED_IN_BIOS";
+    case DEBUGGER_ERROR_VMX_EPT_NOT_SUPPORTED:
+        return L"VMM_INITIALIZATION_EPT_NOT_SUPPORTED";
+    case DEBUGGER_ERROR_VMX_INSUFFICIENT_RESOURCES:
+        return L"VMM_INITIALIZATION_INSUFFICIENT_RESOURCES";
+    case DEBUGGER_ERROR_VMX_INITIALIZATION_STAGE_FAILED:
+        return L"VMM_INITIALIZATION_STAGE_FAILED";
+    default:
+        return (InitStatus == STATUS_NOT_SUPPORTED)
+                   ? L"VMM_INITIALIZATION_SKIPPED"
+                   : L"VMM_INITIALIZATION_FAILED";
+    }
+}
+
 static BOOLEAN
 OwlyReportHyperDbgEvent(_In_ const OWLY_HYPERDBG_EVENT_DETAILS * EventDetails)
 {
@@ -328,9 +352,7 @@ OwlyVmmReplayStateEvents(VOID)
         OwlyForwardKernelEvent((g_OwlyVmmInitStatus == STATUS_NOT_SUPPORTED)
                                    ? (OWLY_VMM_RAW_EVENT_BASE + 0x7Du)
                                    : (OWLY_VMM_RAW_EVENT_BASE + 0x7Cu),
-                               (g_OwlyVmmInitStatus == STATUS_NOT_SUPPORTED)
-                                   ? L"VMM_INITIALIZATION_SKIPPED"
-                                   : L"VMM_INITIALIZATION_FAILED",
+                               OwlyGetVmmInitEventName(g_OwlyVmmInitStatus, g_OwlyVmmLastError),
                                (ULONG_PTR)(ULONG)g_OwlyVmmInitStatus,
                                (ULONG_PTR)(ULONG)g_OwlyVmmLastError);
         return;
@@ -848,7 +870,7 @@ OwlyVmmInitialize(VOID)
         {
             g_OwlyVmmInitStatus = STATUS_NOT_SUPPORTED;
             OwlyForwardKernelEvent(OWLY_VMM_RAW_EVENT_BASE + 0x7Du,
-                                   L"VMM_INITIALIZATION_SKIPPED",
+                                   OwlyGetVmmInitEventName(g_OwlyVmmInitStatus, g_OwlyVmmLastError),
                                    (ULONG_PTR)(ULONG)g_OwlyVmmInitStatus,
                                    (ULONG_PTR)(ULONG)g_OwlyVmmLastError);
             return STATUS_NOT_SUPPORTED;
@@ -862,9 +884,7 @@ OwlyVmmInitialize(VOID)
         OwlyForwardKernelEvent((initStatus == STATUS_NOT_SUPPORTED)
                                    ? (OWLY_VMM_RAW_EVENT_BASE + 0x7Du)
                                    : (OWLY_VMM_RAW_EVENT_BASE + 0x7Cu),
-                               (initStatus == STATUS_NOT_SUPPORTED)
-                                   ? L"VMM_INITIALIZATION_SKIPPED"
-                                   : L"VMM_INITIALIZATION_FAILED",
+                               OwlyGetVmmInitEventName(initStatus, g_OwlyVmmLastError),
                                (ULONG_PTR)(ULONG)initStatus,
                                (ULONG_PTR)(ULONG)g_OwlyVmmLastError);
         return initStatus;
