@@ -132,6 +132,10 @@ typedef NTSTATUS(NTAPI *PZW_ALLOCATE_VIRTUAL_MEMORY)(_In_ HANDLE ProcessHandle, 
                                                      _In_ ULONG AllocationType, _In_ ULONG Protect);
 typedef NTSTATUS(NTAPI *PZW_FREE_VIRTUAL_MEMORY)(_In_ HANDLE ProcessHandle, _Inout_ PVOID *BaseAddress,
                                                  _Inout_ PSIZE_T RegionSize, _In_ ULONG FreeType);
+typedef NTSTATUS(NTAPI *PZW_SET_INFORMATION_OBJECT)(_In_ HANDLE Handle,
+                                                    _In_ OBJECT_INFORMATION_CLASS ObjectInformationClass,
+                                                    _In_reads_bytes_(ObjectInformationLength) PVOID ObjectInformation,
+                                                    _In_ ULONG ObjectInformationLength);
 typedef BOOLEAN(NTAPI *PPS_IS_PROTECTED_PROCESS)(_In_ PEPROCESS Process);
 typedef BOOLEAN(NTAPI *PPS_IS_PROTECTED_PROCESS_LIGHT)(_In_ PEPROCESS Process);
 typedef HANDLE(NTAPI *PPS_GET_PROCESS_INHERITED_FROM_UNIQUE_PROCESS_ID)(_In_ PEPROCESS Process);
@@ -140,12 +144,21 @@ typedef HANDLE(NTAPI *PPS_GET_PROCESS_INHERITED_FROM_UNIQUE_PROCESS_ID)(_In_ PEP
 // or NULL if the process is a native 64-bit process.
 typedef PVOID(NTAPI *PPS_GET_PROCESS_WOW64_PROCESS)(_In_ PEPROCESS Process);
 
+typedef struct _OWLY_OBJECT_HANDLE_FLAG_INFORMATION
+{
+    BOOLEAN Inherit;
+    BOOLEAN ProtectFromClose;
+} OWLY_OBJECT_HANDLE_FLAG_INFORMATION, *POWLY_OBJECT_HANDLE_FLAG_INFORMATION;
+
+#define OWLY_OBJECT_HANDLE_FLAG_INFORMATION_CLASS ((OBJECT_INFORMATION_CLASS)4)
+
 //
 // Global Function Pointers
 //
 PZW_PROTECT_VIRTUAL_MEMORY fnZwProtectVirtualMemory = NULL;
 PZW_ALLOCATE_VIRTUAL_MEMORY fnZwAllocateVirtualMemory = NULL;
 PZW_FREE_VIRTUAL_MEMORY fnZwFreeVirtualMemory = NULL;
+PZW_SET_INFORMATION_OBJECT fnZwSetInformationObject = NULL;
 PPS_GET_PROCESS_PEB fnPsGetProcessPeb = NULL;
 PPS_IS_PROTECTED_PROCESS fnPsIsProtectedProcess = NULL;
 PPS_IS_PROTECTED_PROCESS_LIGHT fnPsIsProtectedProcessLight = NULL;
@@ -1877,6 +1890,11 @@ NTSTATUS UserModeHookEngineInitialize(VOID)
         DbgPrint("!!! UserModeHook: Failed to resolve ZwFreeVirtualMemory\n");
     }
 
+    // Resolve ZwSetInformationObject - used to protect the per-process hook
+    // device handle from user-mode close sanitizers such as browser sandboxes.
+    RtlInitUnicodeString(&routineName, L"ZwSetInformationObject");
+    fnZwSetInformationObject = (PZW_SET_INFORMATION_OBJECT)MmGetSystemRoutineAddress(&routineName);
+
     // Resolve optional process protection helpers (best-effort).
     RtlInitUnicodeString(&routineName, L"PsIsProtectedProcess");
     fnPsIsProtectedProcess = (PPS_IS_PROTECTED_PROCESS)MmGetSystemRoutineAddress(&routineName);
@@ -3328,6 +3346,17 @@ NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROC
                         DbgPrint("UserModeHook: ZwCreateFile per-process notify handle returned NULL handle\n");
                         status = STATUS_UNSUCCESSFUL;
                         __leave;
+                    }
+
+                    if (fnZwSetInformationObject != NULL)
+                    {
+                        OWLY_OBJECT_HANDLE_FLAG_INFORMATION handleFlags = {0};
+                        handleFlags.ProtectFromClose = TRUE;
+                        handleFlags.Inherit = FALSE;
+                        (VOID)fnZwSetInformationObject(targetDeviceHandle,
+                                                       OWLY_OBJECT_HANDLE_FLAG_INFORMATION_CLASS,
+                                                       &handleFlags,
+                                                       sizeof(handleFlags));
                     }
                 }
 

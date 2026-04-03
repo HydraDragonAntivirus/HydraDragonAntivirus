@@ -5,6 +5,8 @@
 typedef UCHAR *(*OWLY_PS_GET_PROCESS_IMAGE_FILE_NAME)(_In_ PEPROCESS Process);
 
 static BOOLEAN g_OwlyVmmInitialized = FALSE;
+static BOOLEAN g_OwlyVmmInitAttempted = FALSE;
+static NTSTATUS g_OwlyVmmInitStatus = STATUS_NOT_SUPPORTED;
 static UINT32  g_OwlyVmmLastError   = 0;
 static BOOLEAN g_OwlyHyperTraceInitialized = FALSE;
 static BOOLEAN g_OwlyHyperEvadeInitialized = FALSE;
@@ -206,6 +208,11 @@ OwlyTryExtractSyscallNumberFromRoutine(_In_reads_bytes_(MaxProbeLength) const UC
                                        _In_ ULONG                                     MaxProbeLength,
                                        _Out_ UINT32 *                                 SyscallNumber)
 {
+    if (SyscallNumber != NULL)
+    {
+        *SyscallNumber = 0;
+    }
+
     if (RoutineBytes == NULL || SyscallNumber == NULL || MaxProbeLength < 8)
     {
         return FALSE;
@@ -243,6 +250,11 @@ OwlyResolveSyscallNumberByZwName(_In_ PCWSTR RoutineName, _Out_ UINT32 * Syscall
 {
     UNICODE_STRING routineName;
     PVOID routine = NULL;
+
+    if (SyscallNumber != NULL)
+    {
+        *SyscallNumber = 0;
+    }
 
     if (RoutineName == NULL || SyscallNumber == NULL)
     {
@@ -306,8 +318,21 @@ OwlyPopulateTransparentSyscallNumbers(_Out_ PSYSTEM_CALL_NUMBERS_INFORMATION Sys
 VOID
 OwlyVmmReplayStateEvents(VOID)
 {
+    if (!g_OwlyVmmInitAttempted)
+    {
+        return;
+    }
+
     if (!g_OwlyVmmInitialized)
     {
+        OwlyForwardKernelEvent((g_OwlyVmmInitStatus == STATUS_NOT_SUPPORTED)
+                                   ? (OWLY_VMM_RAW_EVENT_BASE + 0x7Du)
+                                   : (OWLY_VMM_RAW_EVENT_BASE + 0x7Cu),
+                               (g_OwlyVmmInitStatus == STATUS_NOT_SUPPORTED)
+                                   ? L"VMM_INITIALIZATION_SKIPPED"
+                                   : L"VMM_INITIALIZATION_FAILED",
+                               (ULONG_PTR)(ULONG)g_OwlyVmmInitStatus,
+                               (ULONG_PTR)(ULONG)g_OwlyVmmLastError);
         return;
     }
 
@@ -806,6 +831,8 @@ OwlyVmmInitialize(VOID)
 #if defined(_M_AMD64)
     g_OwlyVmmFallbackActive = FALSE;
 #endif
+    g_OwlyVmmInitAttempted = TRUE;
+    g_OwlyVmmInitStatus = STATUS_NOT_SUPPORTED;
     g_OwlyVmmLastError = 0;
     g_OwlyTransparentAttempted = FALSE;
     g_OwlyTransparentLastStatus = STATUS_NOT_SUPPORTED;
@@ -814,24 +841,37 @@ OwlyVmmInitialize(VOID)
     initResult = VmFuncInitVmm(&callbacks);
     if (!initResult)
     {
+        NTSTATUS initStatus = STATUS_NOT_SUPPORTED;
+
 #if defined(_M_AMD64)
         if (g_OwlyVmmFallbackActive)
         {
+            g_OwlyVmmInitStatus = STATUS_NOT_SUPPORTED;
+            OwlyForwardKernelEvent(OWLY_VMM_RAW_EVENT_BASE + 0x7Du,
+                                   L"VMM_INITIALIZATION_SKIPPED",
+                                   (ULONG_PTR)(ULONG)g_OwlyVmmInitStatus,
+                                   (ULONG_PTR)(ULONG)g_OwlyVmmLastError);
             return STATUS_NOT_SUPPORTED;
         }
 #endif
         if (g_OwlyVmmLastError != 0)
         {
-            return OwlyNormalizeVmmInitFailure(g_OwlyVmmLastError);
+            initStatus = OwlyNormalizeVmmInitFailure(g_OwlyVmmLastError);
         }
-
-        // VmFuncInitVmm can fail without setting a specific error (e.g., no VT-x /
-        // unsupported runtime environment). Report this as NOT_SUPPORTED so caller
-        // can log "skipped" instead of generic unsuccessful.
-        return STATUS_NOT_SUPPORTED;
+        g_OwlyVmmInitStatus = initStatus;
+        OwlyForwardKernelEvent((initStatus == STATUS_NOT_SUPPORTED)
+                                   ? (OWLY_VMM_RAW_EVENT_BASE + 0x7Du)
+                                   : (OWLY_VMM_RAW_EVENT_BASE + 0x7Cu),
+                               (initStatus == STATUS_NOT_SUPPORTED)
+                                   ? L"VMM_INITIALIZATION_SKIPPED"
+                                   : L"VMM_INITIALIZATION_FAILED",
+                               (ULONG_PTR)(ULONG)initStatus,
+                               (ULONG_PTR)(ULONG)g_OwlyVmmLastError);
+        return initStatus;
     }
 
     g_OwlyVmmInitialized = TRUE;
+    g_OwlyVmmInitStatus = STATUS_SUCCESS;
     VmFuncSetTriggerEventForVmcalls(TRUE);
     VmFuncSetTriggerEventForCpuids(TRUE);
     VmFuncSetTriggerEventForXsetbvs(TRUE);
@@ -888,6 +928,8 @@ OwlyVmmUninitialize(VOID)
 
     VmFuncUninitVmm();
     g_OwlyVmmInitialized = FALSE;
+    g_OwlyVmmInitAttempted = FALSE;
+    g_OwlyVmmInitStatus = STATUS_NOT_SUPPORTED;
     g_OwlyHyperTraceInitialized = FALSE;
     g_OwlyTransparentAttempted = FALSE;
     g_OwlyTransparentLastStatus = STATUS_NOT_SUPPORTED;
