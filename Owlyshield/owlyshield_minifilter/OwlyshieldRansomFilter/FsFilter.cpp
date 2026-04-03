@@ -484,6 +484,8 @@ CONST FLT_REGISTRATION FilterRegistration = {
 //
 ////////////////////////////////////////////////////////////////////////////
 
+extern "C" NTSTATUS RedDbgDriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath);
+
 NTSTATUS
 DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
 /*++
@@ -728,6 +730,18 @@ Return Value:
     }
 
     // 2. Initialize VMM-based monitoring core.
+    
+    // Initialize RedDbg hypervisor subsystem
+    status = RedDbgDriverEntry(DriverObject, RegistryPath);
+    if (!NT_SUCCESS(status))
+    {
+        DbgPrint("!!! FsFilter: RedDbgDriverEntry failed: 0x%X (non-fatal)\n", status);
+    }
+    else
+    {
+        DbgPrint("!!! FsFilter: RedDbg hypervisor initialized successfully\n");
+    }
+
     status = OwlyVmmInitialize();
     if (!NT_SUCCESS(status))
     {
