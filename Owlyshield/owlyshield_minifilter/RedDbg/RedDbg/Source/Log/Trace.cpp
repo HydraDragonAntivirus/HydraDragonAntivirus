@@ -208,7 +208,7 @@ void Trace::AcceptRipMessage(File& objFile)
 
 				for (uint64_t Rip = 0; Rip < CircleOfRips[Arc].size(sizeof(uint64_t)); ++Rip)
 				{
-					size_t Length = 0;
+					size_t Length = 0; UNREFERENCED_PARAMETER(Length);
 					RtlInt64ToCharExsitingArray(*LocalCWI, 16, (PCH)ValuesCWI, Length);
 					ValuesLen += strlen(ValuesCWI);
 					ValuesCWI = (PCH)(uint64_t(ValuesCWI) + strlen(ValuesCWI));
@@ -260,7 +260,7 @@ void Trace::AcceptMnemonicMessage(File& objFile)
 				Mnemonic* LocalCWI = CircleOfMnemonics[Arc].Start;
 				PCH ValuesCWI = ValuesBuffer;
 				size_t ValuesLen = 0;
-				size_t Length = 0;
+				size_t Length = 0; UNREFERENCED_PARAMETER(Length);
 
 				for (uint64_t cMnemonic = 0; cMnemonic < CircleOfMnemonics[Arc].size(sizeof(Mnemonic)); ++cMnemonic)
 				{
@@ -333,7 +333,7 @@ void Trace::AcceptGraphMessage(File& objFile)
 				Mnemonic* LocalCWI = CircleOfMnemonics[Arc].Start;
 				PCH ValuesCWI = ValuesBuffer;
 				size_t ValuesLen = 0;
-				size_t Length = 0;
+				size_t Length = 0; UNREFERENCED_PARAMETER(Length);
 				CHAR NameOfGraph[] = "test";
 
 				if (!GraphEntry)
@@ -511,7 +511,7 @@ void Trace::AcceptGraphCycleFoldingMessage(File& objFile)
 				Mnemonic* LocalCWI = CircleOfMnemonics[Arc].Start;
 				PCH ValuesCWI = ValuesBuffer;
 				size_t ValuesLen = 0;
-				size_t Length = 0;
+				size_t Length = 0; UNREFERENCED_PARAMETER(Length);
 				CHAR NameOfGraph[] = "test";
 
 				if (!CycleEntry)

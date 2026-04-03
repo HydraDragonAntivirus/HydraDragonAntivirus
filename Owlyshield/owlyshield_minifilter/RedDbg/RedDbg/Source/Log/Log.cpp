@@ -283,6 +283,7 @@ namespace Cwrapper
 
 NTSTATUS Log::LogRegisterIrpBasedNotification(PDEVICE_OBJECT DeviceObject, PIRP Irp)
 {
+	UNREFERENCED_PARAMETER(DeviceObject);
 	PNOTIFY_RECORD NotifyRecord;
 	PIO_STACK_LOCATION IrpStack;
 	PREGISTER_EVENT RegisterEvent;
@@ -322,6 +323,7 @@ NTSTATUS Log::LogRegisterIrpBasedNotification(PDEVICE_OBJECT DeviceObject, PIRP 
 
 NTSTATUS Log::LogRegisterEventBasedNotification(PDEVICE_OBJECT DeviceObject, PIRP Irp)
 {
+	UNREFERENCED_PARAMETER(DeviceObject);
 	PNOTIFY_RECORD NotifyRecord;
 	NTSTATUS Status;
 	PIO_STACK_LOCATION IrpStack;
