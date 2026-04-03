@@ -617,6 +617,36 @@
  */
 #define DEBUGGER_ERROR_VMX_INSUFFICIENT_RESOURCES 0xc000005f
 
+/**
+ * @brief error, this RedDbg SVM backend does not support the current CPU vendor
+ *
+ */
+#define DEBUGGER_ERROR_SVM_UNSUPPORTED_CPU_VENDOR 0xc0000060
+
+/**
+ * @brief error, the current processor does not expose SVM capability
+ *
+ */
+#define DEBUGGER_ERROR_SVM_NOT_SUPPORTED_BY_PROCESSOR 0xc0000061
+
+/**
+ * @brief error, SVM is disabled in BIOS/firmware
+ *
+ */
+#define DEBUGGER_ERROR_SVM_DISABLED_IN_BIOS 0xc0000062
+
+/**
+ * @brief error, nested paging is not supported on the current processor
+ *
+ */
+#define DEBUGGER_ERROR_SVM_NPT_NOT_SUPPORTED 0xc0000063
+
+/**
+ * @brief error, SVM initialization failed during a later setup stage
+ *
+ */
+#define DEBUGGER_ERROR_SVM_INITIALIZATION_STAGE_FAILED 0xc0000064
+
 //
 // WHEN YOU ADD ANYTHING TO THIS LIST OF ERRORS, THEN
 // MAKE SURE TO ADD AN ERROR MESSAGE TO ShowErrorMessage(UINT32 Error)

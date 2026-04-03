@@ -1,5 +1,5 @@
 #pragma once 
-#include <ntddk.h>
+#include <ntifs.h>
 #include <mmintrin.h>
 #include <xmmintrin.h>
 struct GuestContext

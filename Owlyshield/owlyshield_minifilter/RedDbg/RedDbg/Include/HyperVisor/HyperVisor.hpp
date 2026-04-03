@@ -1,4 +1,7 @@
 #pragma once 
+#include <fltKernel.h>
+#include <intrin.h>
+
 #include "CppSupport/CppSupport.hpp"
 #include "TransparentMode/TransparentMode.hpp"
 #include "HyperVisor/CommonTypes/CPUID.hpp"
@@ -10,9 +13,6 @@
 #include "HyperVisor/CommonTypes/Interrupts.hpp"
 #include "HyperVisor/CommonApi/Callable.hpp"
 #include "HyperVisor/CommonApi/MemoryUtils.hpp"
-
-#include <fltKernel.h>
-#include <intrin.h>
 
 extern "C" typedef void(*_SvmVmmRun)(
 	_In_ void* InitialVmmStackPointer);

@@ -1,5 +1,4 @@
 #include <fltKernel.h>
-#include <ntddk.h>
 
 #include "HyperVisor/CommonTypes/PTE.hpp"
 #include "HyperVisor/CommonApi/PteUtils.hpp"

@@ -1,13 +1,22 @@
 #include "OwlyVmmBridge.h"
+#include "OwlyAmdVmmBridge.h"
 #include "Communication.h"
 #include <ntstrsafe.h>
 
 typedef UCHAR *(*OWLY_PS_GET_PROCESS_IMAGE_FILE_NAME)(_In_ PEPROCESS Process);
 
+typedef enum _OWLY_VMM_BACKEND
+{
+    OwlyVmmBackendNone = 0,
+    OwlyVmmBackendIntelVmx = 1,
+    OwlyVmmBackendAmdSvm = 2
+} OWLY_VMM_BACKEND;
+
 static BOOLEAN g_OwlyVmmInitialized = FALSE;
 static BOOLEAN g_OwlyVmmInitAttempted = FALSE;
 static NTSTATUS g_OwlyVmmInitStatus = STATUS_NOT_SUPPORTED;
 static UINT32  g_OwlyVmmLastError   = 0;
+static OWLY_VMM_BACKEND g_OwlyVmmBackend = OwlyVmmBackendNone;
 static BOOLEAN g_OwlyHyperTraceInitialized = FALSE;
 static BOOLEAN g_OwlyHyperEvadeInitialized = FALSE;
 static BOOLEAN g_OwlyTransparentAttempted = FALSE;
@@ -128,10 +137,34 @@ OwlyGetVmmInitEventName(NTSTATUS InitStatus, UINT32 LastError)
         return L"VMM_INITIALIZATION_INSUFFICIENT_RESOURCES";
     case DEBUGGER_ERROR_VMX_INITIALIZATION_STAGE_FAILED:
         return L"VMM_INITIALIZATION_STAGE_FAILED";
+    case DEBUGGER_ERROR_SVM_UNSUPPORTED_CPU_VENDOR:
+        return L"VMM_INITIALIZATION_UNSUPPORTED_CPU_VENDOR";
+    case DEBUGGER_ERROR_SVM_NOT_SUPPORTED_BY_PROCESSOR:
+        return L"VMM_INITIALIZATION_SVM_NOT_SUPPORTED";
+    case DEBUGGER_ERROR_SVM_DISABLED_IN_BIOS:
+        return L"VMM_INITIALIZATION_SVM_DISABLED_IN_BIOS";
+    case DEBUGGER_ERROR_SVM_NPT_NOT_SUPPORTED:
+        return L"VMM_INITIALIZATION_NPT_NOT_SUPPORTED";
+    case DEBUGGER_ERROR_SVM_INITIALIZATION_STAGE_FAILED:
+        return L"VMM_INITIALIZATION_SVM_STAGE_FAILED";
     default:
         return (InitStatus == STATUS_NOT_SUPPORTED)
                    ? L"VMM_INITIALIZATION_SKIPPED"
                    : L"VMM_INITIALIZATION_FAILED";
+    }
+}
+
+static PCWSTR
+OwlyGetVmmInitializedEventName(VOID)
+{
+    switch (g_OwlyVmmBackend)
+    {
+    case OwlyVmmBackendAmdSvm:
+        return L"VMM_INITIALIZED_AMD_SVM";
+    case OwlyVmmBackendIntelVmx:
+        return L"VMM_INITIALIZED_INTEL_VMX";
+    default:
+        return L"VMM_INITIALIZED";
     }
 }
 
@@ -358,7 +391,7 @@ OwlyVmmReplayStateEvents(VOID)
         return;
     }
 
-    OwlyForwardKernelEvent(OWLY_VMM_RAW_EVENT_BASE + 0x7Eu, L"VMM_INITIALIZED", 0, 0);
+    OwlyForwardKernelEvent(OWLY_VMM_RAW_EVENT_BASE + 0x7Eu, OwlyGetVmmInitializedEventName(), 0, 0);
 
     if (!g_OwlyTransparentAttempted)
     {
@@ -856,9 +889,43 @@ OwlyVmmInitialize(VOID)
     g_OwlyVmmInitAttempted = TRUE;
     g_OwlyVmmInitStatus = STATUS_NOT_SUPPORTED;
     g_OwlyVmmLastError = 0;
+    g_OwlyVmmBackend = OwlyVmmBackendNone;
+    g_OwlyHyperTraceInitialized = FALSE;
+    g_OwlyHyperEvadeInitialized = FALSE;
     g_OwlyTransparentAttempted = FALSE;
     g_OwlyTransparentLastStatus = STATUS_NOT_SUPPORTED;
     g_OwlyTransparentResolvedSyscallCount = 0;
+
+    if (OwlyAmdVmmShouldUseBackend())
+    {
+        NTSTATUS amdStatus = OwlyAmdVmmInitialize(&g_OwlyVmmLastError);
+
+        if (!NT_SUCCESS(amdStatus))
+        {
+            g_OwlyVmmInitStatus = amdStatus;
+            OwlyForwardKernelEvent((amdStatus == STATUS_NOT_SUPPORTED)
+                                       ? (OWLY_VMM_RAW_EVENT_BASE + 0x7Du)
+                                       : (OWLY_VMM_RAW_EVENT_BASE + 0x7Cu),
+                                   OwlyGetVmmInitEventName(amdStatus, g_OwlyVmmLastError),
+                                   (ULONG_PTR)(ULONG)amdStatus,
+                                   (ULONG_PTR)(ULONG)g_OwlyVmmLastError);
+            return amdStatus;
+        }
+
+        g_OwlyVmmBackend = OwlyVmmBackendAmdSvm;
+        g_OwlyVmmInitialized = TRUE;
+        g_OwlyVmmInitStatus = STATUS_SUCCESS;
+        OwlyForwardKernelEvent(OWLY_VMM_RAW_EVENT_BASE + 0x7Eu, OwlyGetVmmInitializedEventName(), 0, 0);
+
+        g_OwlyTransparentAttempted = TRUE;
+        g_OwlyHyperEvadeInitialized = TRUE;
+        g_OwlyTransparentLastStatus = STATUS_SUCCESS;
+        OwlyForwardKernelEvent(OWLY_VMM_RAW_HYPEREVADE_BASE + 0x7Fu,
+                               L"TRANSPARENT_MODE_ACTIVE",
+                               (ULONG_PTR)(ULONG)g_OwlyTransparentLastStatus,
+                               (ULONG_PTR)g_OwlyTransparentResolvedSyscallCount);
+        return STATUS_SUCCESS;
+    }
 
     initResult = VmFuncInitVmm(&callbacks);
     if (!initResult)
@@ -890,13 +957,14 @@ OwlyVmmInitialize(VOID)
         return initStatus;
     }
 
+    g_OwlyVmmBackend = OwlyVmmBackendIntelVmx;
     g_OwlyVmmInitialized = TRUE;
     g_OwlyVmmInitStatus = STATUS_SUCCESS;
     VmFuncSetTriggerEventForVmcalls(TRUE);
     VmFuncSetTriggerEventForCpuids(TRUE);
     VmFuncSetTriggerEventForXsetbvs(TRUE);
     g_OwlyHyperTraceInitialized = HyperTraceInit(&hyperTraceCallbacks);
-    OwlyForwardKernelEvent(OWLY_VMM_RAW_EVENT_BASE + 0x7Eu, L"VMM_INITIALIZED", 0, 0);
+    OwlyForwardKernelEvent(OWLY_VMM_RAW_EVENT_BASE + 0x7Eu, OwlyGetVmmInitializedEventName(), 0, 0);
 
     transparentModeRequest.IsHide = TRUE;
     g_OwlyTransparentResolvedSyscallCount =
@@ -940,16 +1008,27 @@ OwlyVmmUninitialize(VOID)
         return;
     }
 
-    if (g_OwlyHyperEvadeInitialized)
+    if (g_OwlyHyperEvadeInitialized && g_OwlyVmmBackend == OwlyVmmBackendIntelVmx)
     {
         (VOID)TransparentUnhideDebuggerWrapper(NULL);
         g_OwlyHyperEvadeInitialized = FALSE;
     }
 
-    VmFuncUninitVmm();
+    if (g_OwlyVmmBackend == OwlyVmmBackendAmdSvm)
+    {
+        OwlyAmdVmmUninitialize();
+    }
+    else
+    {
+        VmFuncUninitVmm();
+    }
+
+    g_OwlyHyperEvadeInitialized = FALSE;
     g_OwlyVmmInitialized = FALSE;
     g_OwlyVmmInitAttempted = FALSE;
     g_OwlyVmmInitStatus = STATUS_NOT_SUPPORTED;
+    g_OwlyVmmLastError = 0;
+    g_OwlyVmmBackend = OwlyVmmBackendNone;
     g_OwlyHyperTraceInitialized = FALSE;
     g_OwlyTransparentAttempted = FALSE;
     g_OwlyTransparentLastStatus = STATUS_NOT_SUPPORTED;

@@ -1,5 +1,8 @@
 #include "HyperVisor/HyperVisor.hpp"
 
+extern "C" void _sgdt(void*);
+#pragma intrinsic(_sgdt)
+
 PVOID HyperVisorSvm::AllocPhys(
     _In_ SIZE_T Size, 
     _In_ MEMORY_CACHING_TYPE CachingType = MmCached,

@@ -1,5 +1,5 @@
 #pragma once
-#include <ntddk.h>
+#include <ntifs.h>
 
 namespace AddressRange {
     inline BOOLEAN IsUserAddress(PVOID Address) {

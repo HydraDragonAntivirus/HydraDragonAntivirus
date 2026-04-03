@@ -69,10 +69,15 @@
   <ItemGroup>
     <ClCompile Include="KernelCommon.cpp" />
     <ClCompile Include="KernelString.cpp" />
+    <ClCompile Include="OwlyAmdVmmBridge.cpp" />
     <ClCompile Include="OwlyVmmBridge.c" />
     <ClCompile Include="RootkitDetector.cpp" />
     <ClCompile Include="ShanonEntropy.cpp" />
     <ClCompile Include="UserModeHookEngine.cpp" />
+    <ClCompile Include="..\RedDbg\RedDbg\Source\HyperVisor\CommonApi\Callable.cpp" />
+    <ClCompile Include="..\RedDbg\RedDbg\Source\HyperVisor\CommonApi\MemoryUtils.cpp" />
+    <ClCompile Include="..\RedDbg\RedDbg\Source\HyperVisor\CommonApi\PteUtils.cpp" />
+    <ClCompile Include="..\RedDbg\RedDbg\Source\HyperVisor\HyperVisor.cpp" />
     <ResourceCompile Include="FsFilter.rc" />
     <ClCompile Include="FsFilter.cpp" />
     <ClCompile Include="Communication.cpp" />
@@ -337,10 +342,10 @@
       <WarningLevel>Level4</WarningLevel>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
       <TreatWarningAsError>false</TreatWarningAsError>
-      <AdditionalIncludeDirectories>$(ProjectDir)..\HyperDbg\hyperdbg\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir)..\HyperDbg\hyperdbg\include;$(ProjectDir)..\RedDbg\RedDbg\Include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <ProgramDataBaseFileName>$(IntDir)OwlyshieldRansomFilter-Debug-x64.pdb</ProgramDataBaseFileName>
       <ForceSynchronousPdbWrites>true</ForceSynchronousPdbWrites>
-      <PreprocessorDefinitions>$(OwlyOptionalHyperDbgDefines)%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>$(OwlyOptionalHyperDbgDefines)POOL_NX_OPTIN=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <LanguageStandard_C>stdc11</LanguageStandard_C>
       <Optimization>MaxSpeed</Optimization>
@@ -361,10 +366,10 @@
       <WarningLevel>Level4</WarningLevel>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
       <TreatWarningAsError>false</TreatWarningAsError>
-      <AdditionalIncludeDirectories>$(ProjectDir)..\HyperDbg\hyperdbg\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir)..\HyperDbg\hyperdbg\include;$(ProjectDir)..\RedDbg\RedDbg\Include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <ProgramDataBaseFileName>$(IntDir)OwlyshieldRansomFilter-DebugApp-x64.pdb</ProgramDataBaseFileName>
       <ForceSynchronousPdbWrites>true</ForceSynchronousPdbWrites>
-      <PreprocessorDefinitions>$(OwlyOptionalHyperDbgDefines)%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>$(OwlyOptionalHyperDbgDefines)POOL_NX_OPTIN=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <LanguageStandard>stdcpp17</LanguageStandard>
     </ClCompile>
   </ItemDefinitionGroup>
@@ -378,10 +383,10 @@
       <WarningLevel>Level4</WarningLevel>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
       <TreatWarningAsError>false</TreatWarningAsError>
-      <AdditionalIncludeDirectories>$(ProjectDir)..\HyperDbg\hyperdbg\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir)..\HyperDbg\hyperdbg\include;$(ProjectDir)..\RedDbg\RedDbg\Include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <ProgramDataBaseFileName>$(IntDir)OwlyshieldRansomFilter-Debug-App-x64.pdb</ProgramDataBaseFileName>
       <ForceSynchronousPdbWrites>true</ForceSynchronousPdbWrites>
-      <PreprocessorDefinitions>$(OwlyOptionalHyperDbgDefines)%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>$(OwlyOptionalHyperDbgDefines)POOL_NX_OPTIN=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <LanguageStandard>stdcpp17</LanguageStandard>
     </ClCompile>
   </ItemDefinitionGroup>
@@ -392,10 +397,10 @@
       <AdditionalOptions>/INTEGRITYCHECK %(AdditionalOptions)</AdditionalOptions>
     </Link>
     <ClCompile>
-      <AdditionalIncludeDirectories>$(ProjectDir)..\HyperDbg\hyperdbg\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir)..\HyperDbg\hyperdbg\include;$(ProjectDir)..\RedDbg\RedDbg\Include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <ProgramDataBaseFileName>$(IntDir)OwlyshieldRansomFilter-Release-x64.pdb</ProgramDataBaseFileName>
       <ForceSynchronousPdbWrites>true</ForceSynchronousPdbWrites>
-      <PreprocessorDefinitions>$(OwlyOptionalHyperDbgDefines)__DATE__="Jan 01 1970";__TIME__="00:00:00";%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>$(OwlyOptionalHyperDbgDefines)POOL_NX_OPTIN=1;__DATE__="Jan 01 1970";__TIME__="00:00:00";%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <LanguageStandard_C>stdc11</LanguageStandard_C>
       <Optimization>MaxSpeed</Optimization>
@@ -460,12 +465,16 @@
     <ClInclude Include="KernelCommon.h" />
     <ClInclude Include="KernelHookEngine.h" />
     <ClInclude Include="KernelString.h" />
+    <ClInclude Include="OwlyAmdVmmBridge.h" />
     <ClInclude Include="OwlyVmmBridge.h" />
     <ClInclude Include="RootkitDetector.h" />
     <ClInclude Include="ShanonEntropy.h" />
     <ClInclude Include="Regedit.h" />
     <ClInclude Include="ProcessProtection.h" />
     <ClInclude Include="UserModeHookEngine.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <MASM Include="..\RedDbg\RedDbg\Source\Debugger\Driver\SVMrun.asm" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
