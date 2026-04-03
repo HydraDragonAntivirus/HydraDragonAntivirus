@@ -209,6 +209,28 @@ static volatile LONG g_HookExcludeLoadState = 0;
 static volatile LONG64 g_HookExcludeFailRetryTime = 0;
 #define HOOK_EXCLUDE_RETRY_INTERVAL_100NS (30LL * 10000000LL) // 30 seconds
 
+static VOID CloseHookNotifyHandleSafe(_Inout_ PHANDLE Handle)
+{
+    if (Handle == NULL || *Handle == NULL)
+    {
+        return;
+    }
+
+    if (fnZwSetInformationObject != NULL)
+    {
+        OWLY_OBJECT_HANDLE_FLAG_INFORMATION handleFlags = {0};
+        handleFlags.Inherit = FALSE;
+        handleFlags.ProtectFromClose = FALSE;
+        (VOID)fnZwSetInformationObject(*Handle,
+                                       OWLY_OBJECT_HANDLE_FLAG_INFORMATION_CLASS,
+                                       &handleFlags,
+                                       sizeof(handleFlags));
+    }
+
+    ZwClose(*Handle);
+    *Handle = NULL;
+}
+
 static VOID EnsureHookExcludeRuleMutex(VOID)
 {
     volatile LONG *pState = (volatile LONG *)&g_HookExcludeRules.MutexInitialized;
@@ -3430,8 +3452,7 @@ NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROC
             {
                 if (targetDeviceHandle != NULL)
                 {
-                    ZwClose(targetDeviceHandle);
-                    targetDeviceHandle = NULL;
+                    CloseHookNotifyHandleSafe(&targetDeviceHandle);
                 }
                 if (baseAddress != NULL && fnZwFreeVirtualMemory != NULL)
                 {
@@ -3923,8 +3944,7 @@ HookProcessFailure:
                     {
                         if (hookEntry->DriverDeviceHandle != NULL)
                         {
-                            ZwClose(hookEntry->DriverDeviceHandle);
-                            hookEntry->DriverDeviceHandle = NULL;
+                            CloseHookNotifyHandleSafe(&hookEntry->DriverDeviceHandle);
                         }
 
                         if (hookEntry->ShellcodeBase != NULL && fnZwFreeVirtualMemory != NULL)
