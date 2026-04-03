@@ -67,6 +67,12 @@ FSProcessPostReadSafe(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECT
 BOOLEAN
 FSShouldIgnorePyasWhitelistPath(_In_ PCUNICODE_STRING Path);
 
+static BOOLEAN
+FSIsKernelDebuggerAttached(VOID)
+{
+    return (KD_DEBUGGER_ENABLED != FALSE && KD_DEBUGGER_NOT_PRESENT == FALSE);
+}
+
 // CDO Dispatch Routines
 // HookDevice* dispatch functions are now in Communication.cpp.
 // Use InitHookNotifyDevice() / CleanupHookNotifyDevice() instead.
@@ -730,33 +736,43 @@ Return Value:
     }
 
     // 2. Initialize VMM-based monitoring core.
-    
-    // Initialize RedDbg hypervisor subsystem
-    status = RedDbgDriverEntry(DriverObject, RegistryPath);
-    if (!NT_SUCCESS(status))
+    //
+    // Live KD sessions already own low-level debug/NMI plumbing. Bringing up
+    // the RedDbg/HyperDbg path on top of that is a high-risk combination and
+    // has been observed to surface as NMI_HARDWARE_FAILURE bugchecks on AMD.
+    if (FSIsKernelDebuggerAttached())
     {
-        DbgPrint("!!! FsFilter: RedDbgDriverEntry failed: 0x%X (non-fatal)\n", status);
+        DbgPrint("!!! FsFilter: Kernel debugger attached; skipping RedDbg/OwlyVmm initialization for this boot\n");
     }
     else
     {
-        DbgPrint("!!! FsFilter: RedDbg hypervisor initialized successfully\n");
-    }
-
-    status = OwlyVmmInitialize();
-    if (!NT_SUCCESS(status))
-    {
-        if (status == STATUS_NOT_SUPPORTED)
+        // Initialize RedDbg hypervisor subsystem
+        status = RedDbgDriverEntry(DriverObject, RegistryPath);
+        if (!NT_SUCCESS(status))
         {
-            DbgPrint("!!! FsFilter: VMM initialization skipped (HyperDbg components unavailable, not linked, or unsupported on this target)\n");
+            DbgPrint("!!! FsFilter: RedDbgDriverEntry failed: 0x%X (non-fatal)\n", status);
         }
         else
         {
-            DbgPrint("!!! FsFilter: VMM initialization failed: 0x%X (non-fatal)\n", status);
+            DbgPrint("!!! FsFilter: RedDbg hypervisor initialized successfully\n");
         }
-    }
-    else
-    {
-        DbgPrint("!!! FsFilter: VMM monitoring core initialized\n");
+
+        status = OwlyVmmInitialize();
+        if (!NT_SUCCESS(status))
+        {
+            if (status == STATUS_NOT_SUPPORTED)
+            {
+                DbgPrint("!!! FsFilter: VMM initialization skipped (HyperDbg components unavailable, not linked, or unsupported on this target)\n");
+            }
+            else
+            {
+                DbgPrint("!!! FsFilter: VMM initialization failed: 0x%X (non-fatal)\n", status);
+            }
+        }
+        else
+        {
+            DbgPrint("!!! FsFilter: VMM monitoring core initialized\n");
+        }
     }
 
     DbgPrint("!!! FsFilter: Enumerating existing processes for initial process baseline\n");
