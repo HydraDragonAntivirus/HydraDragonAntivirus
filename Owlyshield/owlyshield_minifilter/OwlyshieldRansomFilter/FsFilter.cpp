@@ -490,7 +490,7 @@ CONST FLT_REGISTRATION FilterRegistration = {
 //
 ////////////////////////////////////////////////////////////////////////////
 
-extern "C" NTSTATUS RedDbgInitializeEmbedded(VOID);
+extern "C" NTSTATUS RedDbgDriverEntry(_In_ PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegisterPath);
 
 NTSTATUS
 DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
@@ -735,19 +735,15 @@ Return Value:
         DbgPrint("!!! FsFilter: Failed to initialize user-mode hook engine: 0x%X (non-fatal)\n", status);
     }
 
-    // 2. Initialize RedDbg support.
-    //
-    // Owlyshield links RedDbg in-process, so we only bring up its shared
-    // tracing/decoder state here. The standalone device/IRP wiring remains
-    // owned by the dedicated RedDbg driver entry point.
-    status = RedDbgInitializeEmbedded();
+    // 2. Initialize RedDbg hypervisor subsystem.
+    status = RedDbgDriverEntry(DriverObject, RegistryPath);
     if (!NT_SUCCESS(status))
     {
-        DbgPrint("!!! FsFilter: RedDbgInitializeEmbedded failed: 0x%X (non-fatal)\n", status);
+        DbgPrint("!!! FsFilter: RedDbgDriverEntry failed: 0x%X (non-fatal)\n", status);
     }
     else
     {
-        DbgPrint("!!! FsFilter: RedDbg support initialized successfully\n");
+        DbgPrint("!!! FsFilter: RedDbg hypervisor initialized successfully\n");
     }
 
     // 3. Initialize the VMM monitoring backend.

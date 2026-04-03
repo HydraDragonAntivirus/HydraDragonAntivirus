@@ -64,7 +64,7 @@ porcupine.ndb
 # Directories
 /coverage
 __pycache__/
-/log
+# /log
 /venv
 /build
 

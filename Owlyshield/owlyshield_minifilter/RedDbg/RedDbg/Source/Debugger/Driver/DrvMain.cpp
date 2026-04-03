@@ -435,10 +435,8 @@ NTSTATUS DrvDispatchIoControl(PDEVICE_OBJECT DeviceObject, PIRP Irp)
 	{
 		//objTrace.AcceptRipMessage(objFile);
 		objTrace.AcceptMnemonicMessage(objFile);
-		// The graph exporters currently build very large temporary buffers and are
-		// not safe to invoke from kernel mode on production systems.
-		// objTrace.AcceptGraphMessage(objFile);
-		//objTrace.AcceptGraphCycleFoldingMessage(objFile);
+		objTrace.AcceptGraphMessage(objFile);
+		objTrace.AcceptGraphCycleFoldingMessage(objFile);
 		//while (TRUE)
 		//{
 		//	objTrace.AcceptCombineBufferRipMessage(objFile, objTrace.MainBuffer);
