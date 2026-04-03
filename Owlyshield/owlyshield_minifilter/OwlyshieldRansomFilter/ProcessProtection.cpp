@@ -1128,8 +1128,6 @@ NTSTATUS OnKernelApiEvent(_In_ ULONG IrpOp, _In_ ULONG EventType, _In_ ULONG Sou
     if (ShouldSkipProcessProtectionPair(SourcePid, TargetPid, TRUE))
         return STATUS_SUCCESS;
 
-    WCHAR sourceProcessDescriptor[MAX_FILE_NAME_LENGTH + 32] = {0};
-    WCHAR targetProcessDescriptor[MAX_FILE_NAME_LENGTH + 32] = {0};
     BOOLEAN sourceFound = FALSE;
     BOOLEAN targetFound = FALSE;
     ULONGLONG sourceGid = driverData->GetProcessGid(SourcePid, &sourceFound);
@@ -1167,12 +1165,9 @@ NTSTATUS OnKernelApiEvent(_In_ ULONG IrpOp, _In_ ULONG EventType, _In_ ULONG Sou
         (FunctionName != NULL && FunctionName[0] != L'\0') ? FunctionName : KernelEventDefaultLabel(EventType);
     SetKernelEventObjectName(newItem, effectiveName);
 
-    FormatProcessDescriptorByPid(SourcePid, sourceProcessDescriptor, RTL_NUMBER_OF(sourceProcessDescriptor));
-    FormatProcessDescriptorByPid(TargetPid, targetProcessDescriptor, RTL_NUMBER_OF(targetProcessDescriptor));
-
     DbgPrint("!!! ProcessProtection: API HOOKING EVENT forwarded - RawType: %lu, IrpOp: %u, Name: %ls, "
-             "src_pid_path=%ws, target_pid_path=%ws, Arg1: 0x%p, Arg2: 0x%p, Arg3: 0x%p, Arg4: 0x%p\n",
-             EventType, IrpOp, effectiveName, sourceProcessDescriptor, targetProcessDescriptor,
+             "SourcePid=%lu, TargetPid=%lu, Arg1: 0x%p, Arg2: 0x%p, Arg3: 0x%p, Arg4: 0x%p\n",
+             EventType, IrpOp, effectiveName, SourcePid, TargetPid,
              (PVOID)EventArg1, (PVOID)EventArg2, (PVOID)EventArg3, (PVOID)EventArg4);
 
     if (!driverData->AddIrpMessage(newEntry))
