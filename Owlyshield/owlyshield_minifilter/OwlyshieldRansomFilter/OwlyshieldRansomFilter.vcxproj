@@ -77,7 +77,15 @@
     <ClCompile Include="..\RedDbg\RedDbg\Source\HyperVisor\CommonApi\Callable.cpp" />
     <ClCompile Include="..\RedDbg\RedDbg\Source\HyperVisor\CommonApi\MemoryUtils.cpp" />
     <ClCompile Include="..\RedDbg\RedDbg\Source\HyperVisor\CommonApi\PteUtils.cpp" />
+    <ClCompile Include="..\RedDbg\RedDbg\Source\HyperVisor\CommonApi\Spinlock.cpp" />
+    <ClCompile Include="..\RedDbg\RedDbg\Source\HyperVisor\CommonApi\SystemMemory.cpp" />
     <ClCompile Include="..\RedDbg\RedDbg\Source\HyperVisor\HyperVisor.cpp" />
+    <ClCompile Include="..\RedDbg\RedDbg\Source\TransparentMode\TransparentMode.cpp" />
+    <ClCompile Include="..\RedDbg\RedDbg\Source\CppSupport\CppSupport.cpp" />
+    <ClCompile Include="..\RedDbg\RedDbg\Source\Debugger\Driver\DrvMain.cpp" />
+    <ClCompile Include="..\RedDbg\RedDbg\Source\Log\File.cpp" />
+    <ClCompile Include="..\RedDbg\RedDbg\Source\Log\Log.cpp" />
+    <ClCompile Include="..\RedDbg\RedDbg\Source\Log\Trace.cpp" />
     <ResourceCompile Include="FsFilter.rc" />
     <ClCompile Include="FsFilter.cpp" />
     <ClCompile Include="Communication.cpp" />
@@ -222,6 +230,10 @@
     <OwlyOptionalHyperDbgLibDirs></OwlyOptionalHyperDbgLibDirs>
     <OwlyOptionalHyperDbgDeps></OwlyOptionalHyperDbgDeps>
     <OwlyOptionalHyperDbgDefines></OwlyOptionalHyperDbgDefines>
+    <OwlyOptionalRedDbgLibDirs>$(ProjectDir)..\RedDbg\RedDbg\Source\Deps\zydis\msvc\bin\$(ConfigurationName)</OwlyOptionalRedDbgLibDirs>
+    <OwlyOptionalRedDbgIncludeDirs>$(ProjectDir)..\RedDbg\RedDbg\Source\Deps\zydis\dependencies\zycore\include;$(ProjectDir)..\RedDbg\RedDbg\Source\Deps\zydis\include;$(ProjectDir)..\RedDbg\RedDbg\Include\Deps;</OwlyOptionalRedDbgIncludeDirs>
+    <OwlyOptionalRedDbgDeps>Zydis.lib;</OwlyOptionalRedDbgDeps>
+    <OwlyOptionalRedDbgDefines>ZYAN_NO_LIBC;ZYDIS_NO_LIBC;ZYCORE_STATIC_BUILD;ZYDIS_STATIC_BUILD;</OwlyOptionalRedDbgDefines>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64' and Exists('$(ProjectDir)..\\HyperDbg\\hyperdbg\\build\\bin\\debug\\hyperhv.lib')">
     <OwlyOptionalHyperDbgLibDirs>$(ProjectDir)..\HyperDbg\hyperdbg\build\bin\debug;$(ProjectDir)..\HyperDbg\hyperdbg\libraries\zydis\kernel</OwlyOptionalHyperDbgLibDirs>
@@ -262,6 +274,7 @@
     <EnableInf2cat>false</EnableInf2cat>
     <SkipPackageVerification>true</SkipPackageVerification>
     <TimeStampServer>http://timestamp.globalsign.com/scripts/timstamp.dll</TimeStampServer>
+    <IncludePath>$(VC_IncludePath);$(IncludePath)</IncludePath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='DebugApp|x64'">
     <DebuggerFlavor>DbgengKernelDebugger</DebuggerFlavor>
@@ -269,6 +282,7 @@
     <TargetName>Application</TargetName>
     <EnableInf2cat>false</EnableInf2cat>
     <SkipPackageVerification>true</SkipPackageVerification>
+    <IncludePath>$(VC_IncludePath);$(IncludePath)</IncludePath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug App|x64'">
     <DebuggerFlavor>DbgengKernelDebugger</DebuggerFlavor>
@@ -276,6 +290,7 @@
     <TargetName>Application</TargetName>
     <EnableInf2cat>true</EnableInf2cat>
     <SkipPackageVerification>true</SkipPackageVerification>
+    <IncludePath>$(VC_IncludePath);$(IncludePath)</IncludePath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <DebuggerFlavor>DbgengKernelDebugger</DebuggerFlavor>
@@ -285,6 +300,7 @@
     <Inf2CatUseLocalTime>true</Inf2CatUseLocalTime>
     <EnableInf2cat>true</EnableInf2cat>
     <SkipPackageVerification>true</SkipPackageVerification>
+    <IncludePath>$(VC_IncludePath);$(IncludePath)</IncludePath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|ARM'">
     <DebuggerFlavor>DbgengKernelDebugger</DebuggerFlavor>
@@ -332,8 +348,8 @@
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <Link>
-      <AdditionalLibraryDirectories>$(OwlyOptionalHyperDbgLibDirs);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>$(OwlyOptionalHyperDbgDeps)fltmgr.lib;$(DDK_LIB_PATH)\libcntpr.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(OwlyOptionalRedDbgLibDirs);$(OwlyOptionalHyperDbgLibDirs);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>$(OwlyOptionalRedDbgDeps)$(OwlyOptionalHyperDbgDeps)fltmgr.lib;$(DDK_LIB_PATH)\libcntpr.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <AdditionalOptions>/INTEGRITYCHECK %(AdditionalOptions)</AdditionalOptions>
       <TreatLinkerWarningAsErrors>true</TreatLinkerWarningAsErrors>
       <LinkTimeCodeGeneration>UseLinkTimeCodeGeneration</LinkTimeCodeGeneration>
@@ -342,10 +358,10 @@
       <WarningLevel>Level4</WarningLevel>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
       <TreatWarningAsError>false</TreatWarningAsError>
-      <AdditionalIncludeDirectories>$(ProjectDir)..\HyperDbg\hyperdbg\include;$(ProjectDir)..\RedDbg\RedDbg\Include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(OwlyOptionalRedDbgIncludeDirs)$(ProjectDir)..\HyperDbg\hyperdbg\include;$(ProjectDir)..\HyperDbg\hyperdbg\dependencies\zydis\include;$(ProjectDir)..\HyperDbg\hyperdbg\dependencies\zydis\dependencies\zycore\include;$(ProjectDir)..\RedDbg\RedDbg\Include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <ProgramDataBaseFileName>$(IntDir)OwlyshieldRansomFilter-Debug-x64.pdb</ProgramDataBaseFileName>
       <ForceSynchronousPdbWrites>true</ForceSynchronousPdbWrites>
-      <PreprocessorDefinitions>$(OwlyOptionalHyperDbgDefines)POOL_NX_OPTIN=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>$(OwlyOptionalRedDbgDefines)$(OwlyOptionalHyperDbgDefines)POOL_NX_OPTIN=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <LanguageStandard_C>stdc11</LanguageStandard_C>
       <Optimization>MaxSpeed</Optimization>
@@ -358,49 +374,49 @@
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='DebugApp|x64'">
     <Link>
-      <AdditionalLibraryDirectories>$(OwlyOptionalHyperDbgLibDirs);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>$(OwlyOptionalHyperDbgDeps)fltmgr.lib;$(DDK_LIB_PATH)\libcntpr.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(OwlyOptionalRedDbgLibDirs);$(OwlyOptionalHyperDbgLibDirs);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>$(OwlyOptionalRedDbgDeps)$(OwlyOptionalHyperDbgDeps)fltmgr.lib;$(DDK_LIB_PATH)\libcntpr.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <TreatLinkerWarningAsErrors>true</TreatLinkerWarningAsErrors>
     </Link>
     <ClCompile>
       <WarningLevel>Level4</WarningLevel>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
       <TreatWarningAsError>false</TreatWarningAsError>
-      <AdditionalIncludeDirectories>$(ProjectDir)..\HyperDbg\hyperdbg\include;$(ProjectDir)..\RedDbg\RedDbg\Include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(OwlyOptionalRedDbgIncludeDirs)$(ProjectDir)..\HyperDbg\hyperdbg\include;$(ProjectDir)..\HyperDbg\hyperdbg\dependencies\zydis\include;$(ProjectDir)..\HyperDbg\hyperdbg\dependencies\zydis\dependencies\zycore\include;$(ProjectDir)..\RedDbg\RedDbg\Include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <ProgramDataBaseFileName>$(IntDir)OwlyshieldRansomFilter-DebugApp-x64.pdb</ProgramDataBaseFileName>
       <ForceSynchronousPdbWrites>true</ForceSynchronousPdbWrites>
-      <PreprocessorDefinitions>$(OwlyOptionalHyperDbgDefines)POOL_NX_OPTIN=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>$(OwlyOptionalRedDbgDefines)$(OwlyOptionalHyperDbgDefines)POOL_NX_OPTIN=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <LanguageStandard>stdcpp17</LanguageStandard>
     </ClCompile>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug App|x64'">
     <Link>
-      <AdditionalLibraryDirectories>$(OwlyOptionalHyperDbgLibDirs);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>$(OwlyOptionalHyperDbgDeps)fltmgr.lib;$(DDK_LIB_PATH)\libcntpr.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(OwlyOptionalRedDbgLibDirs);$(OwlyOptionalHyperDbgLibDirs);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>$(OwlyOptionalRedDbgDeps)$(OwlyOptionalHyperDbgDeps)fltmgr.lib;$(DDK_LIB_PATH)\libcntpr.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <TreatLinkerWarningAsErrors>true</TreatLinkerWarningAsErrors>
     </Link>
     <ClCompile>
       <WarningLevel>Level4</WarningLevel>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
       <TreatWarningAsError>false</TreatWarningAsError>
-      <AdditionalIncludeDirectories>$(ProjectDir)..\HyperDbg\hyperdbg\include;$(ProjectDir)..\RedDbg\RedDbg\Include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(OwlyOptionalRedDbgIncludeDirs)$(ProjectDir)..\HyperDbg\hyperdbg\include;$(ProjectDir)..\HyperDbg\hyperdbg\dependencies\zydis\include;$(ProjectDir)..\HyperDbg\hyperdbg\dependencies\zydis\dependencies\zycore\include;$(ProjectDir)..\RedDbg\RedDbg\Include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <ProgramDataBaseFileName>$(IntDir)OwlyshieldRansomFilter-Debug-App-x64.pdb</ProgramDataBaseFileName>
       <ForceSynchronousPdbWrites>true</ForceSynchronousPdbWrites>
-      <PreprocessorDefinitions>$(OwlyOptionalHyperDbgDefines)POOL_NX_OPTIN=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>$(OwlyOptionalRedDbgDefines)$(OwlyOptionalHyperDbgDefines)POOL_NX_OPTIN=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <LanguageStandard>stdcpp17</LanguageStandard>
     </ClCompile>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <Link>
-      <AdditionalLibraryDirectories>$(OwlyOptionalHyperDbgLibDirs);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>$(OwlyOptionalHyperDbgDeps)fltmgr.lib;$(DDK_LIB_PATH)\libcntpr.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(OwlyOptionalRedDbgLibDirs);$(OwlyOptionalHyperDbgLibDirs);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>$(OwlyOptionalRedDbgDeps)$(OwlyOptionalHyperDbgDeps)fltmgr.lib;$(DDK_LIB_PATH)\libcntpr.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <AdditionalOptions>/INTEGRITYCHECK %(AdditionalOptions)</AdditionalOptions>
     </Link>
     <ClCompile>
-      <AdditionalIncludeDirectories>$(ProjectDir)..\HyperDbg\hyperdbg\include;$(ProjectDir)..\RedDbg\RedDbg\Include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(OwlyOptionalRedDbgIncludeDirs)$(ProjectDir)..\HyperDbg\hyperdbg\include;$(ProjectDir)..\HyperDbg\hyperdbg\dependencies\zydis\include;$(ProjectDir)..\HyperDbg\hyperdbg\dependencies\zydis\dependencies\zycore\include;$(ProjectDir)..\RedDbg\RedDbg\Include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <ProgramDataBaseFileName>$(IntDir)OwlyshieldRansomFilter-Release-x64.pdb</ProgramDataBaseFileName>
       <ForceSynchronousPdbWrites>true</ForceSynchronousPdbWrites>
-      <PreprocessorDefinitions>$(OwlyOptionalHyperDbgDefines)POOL_NX_OPTIN=1;__DATE__="Jan 01 1970";__TIME__="00:00:00";%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>$(OwlyOptionalRedDbgDefines)$(OwlyOptionalHyperDbgDefines)POOL_NX_OPTIN=1;__DATE__="Jan 01 1970";__TIME__="00:00:00";%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <LanguageStandard_C>stdc11</LanguageStandard_C>
       <Optimization>MaxSpeed</Optimization>
@@ -472,9 +488,35 @@
     <ClInclude Include="Regedit.h" />
     <ClInclude Include="ProcessProtection.h" />
     <ClInclude Include="UserModeHookEngine.h" />
+    <ClInclude Include="..\RedDbg\RedDbg\Include\General.hpp" />
+    <ClInclude Include="..\RedDbg\RedDbg\Include\CppSupport\CppSupport.hpp" />
+    <ClInclude Include="..\RedDbg\RedDbg\Include\Debugger\Driver\GuestContext.hpp" />
+    <ClInclude Include="..\RedDbg\RedDbg\Include\Debugger\Driver\Pe\PeInformation.hpp" />
+    <ClInclude Include="..\RedDbg\RedDbg\Include\Debugger\Driver\Pe\PeStruct.hpp" />
+    <ClInclude Include="..\RedDbg\RedDbg\Include\HyperVisor\HyperVisor.hpp" />
+    <ClInclude Include="..\RedDbg\RedDbg\Include\HyperVisor\CommonApi\Callable.hpp" />
+    <ClInclude Include="..\RedDbg\RedDbg\Include\HyperVisor\CommonApi\MemoryUtils.hpp" />
+    <ClInclude Include="..\RedDbg\RedDbg\Include\HyperVisor\CommonApi\PteUtils.hpp" />
+    <ClInclude Include="..\RedDbg\RedDbg\Include\HyperVisor\CommonApi\Spinlock.hpp" />
+    <ClInclude Include="..\RedDbg\RedDbg\Include\HyperVisor\CommonApi\SystemMemory.hpp" />
+    <ClInclude Include="..\RedDbg\RedDbg\Include\HyperVisor\CommonTypes\CPUID.hpp" />
+    <ClInclude Include="..\RedDbg\RedDbg\Include\HyperVisor\CommonTypes\Exception.hpp" />
+    <ClInclude Include="..\RedDbg\RedDbg\Include\HyperVisor\CommonTypes\Interrupts.hpp" />
+    <ClInclude Include="..\RedDbg\RedDbg\Include\HyperVisor\CommonTypes\MSR.hpp" />
+    <ClInclude Include="..\RedDbg\RedDbg\Include\HyperVisor\CommonTypes\PTE.hpp" />
+    <ClInclude Include="..\RedDbg\RedDbg\Include\HyperVisor\CommonTypes\Registers.hpp" />
+    <ClInclude Include="..\RedDbg\RedDbg\Include\HyperVisor\CommonTypes\Segmentation.hpp" />
+    <ClInclude Include="..\RedDbg\RedDbg\Include\HyperVisor\CommonTypes\SVM.hpp" />
+    <ClInclude Include="..\RedDbg\RedDbg\Include\Log\File.hpp" />
+    <ClInclude Include="..\RedDbg\RedDbg\Include\Log\Log.hpp" />
+    <ClInclude Include="..\RedDbg\RedDbg\Include\Log\Logger.hpp" />
+    <ClInclude Include="..\RedDbg\RedDbg\Include\Log\Trace.hpp" />
+    <ClInclude Include="..\RedDbg\RedDbg\Include\Log\GraphViz\GraphVizLanguage.hpp" />
+    <ClInclude Include="..\RedDbg\RedDbg\Include\TransparentMode\TransparentMode.hpp" />
   </ItemGroup>
   <ItemGroup>
     <MASM Include="..\RedDbg\RedDbg\Source\Debugger\Driver\SVMrun.asm" />
+    <MASM Include="..\RedDbg\RedDbg\Source\Debugger\Driver\Pushf.asm" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

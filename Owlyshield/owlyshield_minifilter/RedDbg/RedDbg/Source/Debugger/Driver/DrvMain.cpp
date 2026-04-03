@@ -1,4 +1,4 @@
-#include <ntddk.h>
+#include <fltKernel.h>
 
 #include "Debugger/Driver/GuestContext.hpp"
 #include "Zydis/Zydis.h"
@@ -7,11 +7,8 @@
 #include "Log/File.hpp"
 #include "Log/Trace.hpp"
 
-#include <cstdarg>
 #include <stdio.h>
 #include <memory.h>
-#include <stdio.h>
-#include <vector>
 
 HyperVisorSvm objHyperVisorSvm;
 Log objLog;
@@ -161,7 +158,7 @@ bool TrapFlagHandler(_Inout_ SVM::PRIVATE_VM_DATA* Private, _Inout_ GuestContext
 	else { return false; }
 }
 
-extern "C" SVM::VMM_STATUS SvmVmexitHandler(
+extern "C" SVM::VMM_STATUS RedDbgSvmVmexitHandler(
 	_In_ SVM::PRIVATE_VM_DATA* Private,
 	_In_ GuestContext* Context)
 {
@@ -514,7 +511,7 @@ NTSTATUS DrvClose(PDEVICE_OBJECT DeviceObject, PIRP Irp)
 
 bool SvmExitCodesAllocator()
 {
-	DecoderMinimal = (ZydisDecoder*)ExAllocatePool(NonPagedPoolNx, sizeof(ZydisDecoder));
+	DecoderMinimal = (ZydisDecoder*)ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeof(ZydisDecoder), 'ZydS');
 	if (DecoderMinimal != nullptr)
 	{
 		RtlZeroMemory(DecoderMinimal, sizeof(ZydisDecoder));
@@ -522,7 +519,7 @@ bool SvmExitCodesAllocator()
 		DecoderMinimal->machine_mode = ZYDIS_MACHINE_MODE_LONG_64;
 		DecoderMinimal->stack_width = ZYDIS_STACK_WIDTH_64;
 
-		Instruction = (ZydisDecodedInstruction*)ExAllocatePool(NonPagedPoolNx, sizeof(ZydisDecodedInstruction));
+		Instruction = (ZydisDecodedInstruction*)ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeof(ZydisDecodedInstruction), 'ZydI');
 		if (Instruction != nullptr)
 		{
 			RtlZeroMemory(Instruction, sizeof(ZydisDecodedInstruction));
@@ -534,7 +531,7 @@ bool SvmExitCodesAllocator()
 	return true;
 }
 
-extern "C" NTSTATUS DriverEntry(_In_ PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegisterPath)
+extern "C" NTSTATUS RedDbgDriverEntry(_In_ PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegisterPath)
 {
 	UNREFERENCED_PARAMETER(RegisterPath); NTSTATUS Ntstatus = STATUS_SUCCESS;
 	PDEVICE_OBJECT DeviceObject = NULL; UNICODE_STRING DriverName, DosDeviceName;

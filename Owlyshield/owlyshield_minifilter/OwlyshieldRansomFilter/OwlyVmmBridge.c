@@ -382,9 +382,12 @@ OwlyVmmReplayStateEvents(VOID)
 
     if (!g_OwlyVmmInitialized)
     {
-        OwlyForwardKernelEvent((g_OwlyVmmInitStatus == STATUS_NOT_SUPPORTED)
-                                   ? (OWLY_VMM_RAW_EVENT_BASE + 0x7Du)
-                                   : (OWLY_VMM_RAW_EVENT_BASE + 0x7Cu),
+        if (g_OwlyVmmInitStatus == STATUS_NOT_SUPPORTED)
+        {
+            return;
+        }
+
+        OwlyForwardKernelEvent(OWLY_VMM_RAW_EVENT_BASE + 0x7Cu,
                                OwlyGetVmmInitEventName(g_OwlyVmmInitStatus, g_OwlyVmmLastError),
                                (ULONG_PTR)(ULONG)g_OwlyVmmInitStatus,
                                (ULONG_PTR)(ULONG)g_OwlyVmmLastError);

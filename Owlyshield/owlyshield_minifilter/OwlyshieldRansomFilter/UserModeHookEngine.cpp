@@ -216,18 +216,26 @@ static VOID CloseHookNotifyHandleSafe(_Inout_ PHANDLE Handle)
         return;
     }
 
-    if (fnZwSetInformationObject != NULL)
+    __try
     {
-        OWLY_OBJECT_HANDLE_FLAG_INFORMATION handleFlags = {0};
-        handleFlags.Inherit = FALSE;
-        handleFlags.ProtectFromClose = FALSE;
-        (VOID)fnZwSetInformationObject(*Handle,
-                                       OWLY_OBJECT_HANDLE_FLAG_INFORMATION_CLASS,
-                                       &handleFlags,
-                                       sizeof(handleFlags));
+        if (fnZwSetInformationObject != NULL)
+        {
+            OWLY_OBJECT_HANDLE_FLAG_INFORMATION handleFlags = {0};
+            handleFlags.Inherit = FALSE;
+            handleFlags.ProtectFromClose = FALSE;
+            (VOID)fnZwSetInformationObject(*Handle,
+                                           OWLY_OBJECT_HANDLE_FLAG_INFORMATION_CLASS,
+                                           &handleFlags,
+                                           sizeof(handleFlags));
+        }
+
+        ZwClose(*Handle);
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        // Ignore exception from invalid handles or destroyed handle tables
     }
 
-    ZwClose(*Handle);
     *Handle = NULL;
 }
 
