@@ -1657,6 +1657,13 @@
     auto_revert: true
     record: true
   allowlisted_apps:
+    - pattern: "C:/Program Files/HydraDragonAntivirus/HydraDragonFirewall/hydradragonfirewall.exe"
+      must_be_signed: false
+      is_absolute: true
+    - pattern: "C:/Windows/System32/lsass.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
     - pattern: "C:/Windows/System32/msiexec.exe"
       must_be_signed: true
       is_absolute: true
