@@ -490,7 +490,7 @@ CONST FLT_REGISTRATION FilterRegistration = {
 //
 ////////////////////////////////////////////////////////////////////////////
 
-extern "C" NTSTATUS RedDbgDriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath);
+extern "C" NTSTATUS RedDbgInitializeEmbedded(VOID);
 
 NTSTATUS
 DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
@@ -735,28 +735,33 @@ Return Value:
         DbgPrint("!!! FsFilter: Failed to initialize user-mode hook engine: 0x%X (non-fatal)\n", status);
     }
 
-    // 2. Initialize VMM-based monitoring core.
+    // 2. Initialize RedDbg support.
     //
-    // Live KD sessions already own low-level debug/NMI plumbing. Bringing up
-    // the RedDbg/HyperDbg path on top of that is a high-risk combination and
-    // has been observed to surface as NMI_HARDWARE_FAILURE bugchecks on AMD.
-    if (FSIsKernelDebuggerAttached())
+    // Owlyshield links RedDbg in-process, so we only bring up its shared
+    // tracing/decoder state here. The standalone device/IRP wiring remains
+    // owned by the dedicated RedDbg driver entry point.
+    status = RedDbgInitializeEmbedded();
+    if (!NT_SUCCESS(status))
     {
-        DbgPrint("!!! FsFilter: Kernel debugger attached; skipping RedDbg/OwlyVmm initialization for this boot\n");
+        DbgPrint("!!! FsFilter: RedDbgInitializeEmbedded failed: 0x%X (non-fatal)\n", status);
     }
     else
     {
-        // Initialize RedDbg hypervisor subsystem
-        status = RedDbgDriverEntry(DriverObject, RegistryPath);
-        if (!NT_SUCCESS(status))
-        {
-            DbgPrint("!!! FsFilter: RedDbgDriverEntry failed: 0x%X (non-fatal)\n", status);
-        }
-        else
-        {
-            DbgPrint("!!! FsFilter: RedDbg hypervisor initialized successfully\n");
-        }
+        DbgPrint("!!! FsFilter: RedDbg support initialized successfully\n");
+    }
 
+    // 3. Initialize the VMM monitoring backend.
+    //
+    // Live KD sessions already own low-level debug/NMI plumbing. On AMD, bringing
+    // up the Owly/HyperDbg VMM while KD is attached has been observed to surface
+    // as NMI_HARDWARE_FAILURE bugchecks, so we skip only the VMM backend in that
+    // specific configuration while leaving the rest of the monitoring stack alive.
+    if (FSIsKernelDebuggerAttached())
+    {
+        DbgPrint("!!! FsFilter: Kernel debugger attached; skipping OwlyVmm initialization for this boot\n");
+    }
+    else
+    {
         status = OwlyVmmInitialize();
         if (!NT_SUCCESS(status))
         {

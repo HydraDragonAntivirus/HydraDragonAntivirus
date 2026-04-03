@@ -16,6 +16,9 @@ File objFile;
 Trace objTrace;
 Transparent objTransparent;
 
+static BOOLEAN g_RedDbgCoreInitialized = FALSE;
+static BOOLEAN g_RedDbgControlDeviceCreated = FALSE;
+
 bool TransparentMode = true;
 
 uint64_t CounterOfInstrs = 0;
@@ -431,8 +434,10 @@ NTSTATUS DrvDispatchIoControl(PDEVICE_OBJECT DeviceObject, PIRP Irp)
 	case IOCTL_WRITE:
 	{
 		//objTrace.AcceptRipMessage(objFile);
-		//objTrace.AcceptMnemonicMessage(objFile);
-		objTrace.AcceptGraphMessage(objFile);
+		objTrace.AcceptMnemonicMessage(objFile);
+		// The graph exporters currently build very large temporary buffers and are
+		// not safe to invoke from kernel mode on production systems.
+		// objTrace.AcceptGraphMessage(objFile);
 		//objTrace.AcceptGraphCycleFoldingMessage(objFile);
 		//while (TRUE)
 		//{
@@ -531,15 +536,50 @@ bool SvmExitCodesAllocator()
 	return true;
 }
 
-extern "C" NTSTATUS RedDbgDriverEntry(_In_ PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegisterPath)
+static NTSTATUS RedDbgInitializeCore(VOID)
 {
-	UNREFERENCED_PARAMETER(RegisterPath); NTSTATUS Ntstatus = STATUS_SUCCESS;
-	PDEVICE_OBJECT DeviceObject = NULL; UNICODE_STRING DriverName, DosDeviceName;
+	if (g_RedDbgCoreInitialized)
+	{
+		return STATUS_SUCCESS;
+	}
+
 	__crt_init();
 
-	if (!objLog.LogInitialize()) { DbgPrint("[*] Log buffer is not initialized !\n"); DbgBreakPoint(); }
-	if (!objTrace.TraceInitializeMnemonic()) { DbgPrint("[*] Trace buffer is not initialized !\n"); DbgBreakPoint(); }
-	if (!SvmExitCodesAllocator()) { DbgPrint("[*] SvmExitCodesAllocator buffer is not initialized !\n"); DbgBreakPoint(); }
+	if (!objLog.LogInitialize())
+	{
+		DbgPrint("[*] Log buffer is not initialized !\n");
+		return STATUS_INSUFFICIENT_RESOURCES;
+	}
+	if (!objTrace.TraceInitializeMnemonic())
+	{
+		DbgPrint("[*] Trace buffer is not initialized !\n");
+		return STATUS_INSUFFICIENT_RESOURCES;
+	}
+	if (!SvmExitCodesAllocator())
+	{
+		DbgPrint("[*] SvmExitCodesAllocator buffer is not initialized !\n");
+		return STATUS_INSUFFICIENT_RESOURCES;
+	}
+
+	g_RedDbgCoreInitialized = TRUE;
+	return STATUS_SUCCESS;
+}
+
+static NTSTATUS RedDbgRegisterControlDevice(_In_ PDRIVER_OBJECT DriverObject)
+{
+	NTSTATUS Ntstatus = STATUS_SUCCESS;
+	PDEVICE_OBJECT DeviceObject = NULL;
+	UNICODE_STRING DriverName, DosDeviceName;
+
+	if (DriverObject == NULL)
+	{
+		return STATUS_INVALID_PARAMETER;
+	}
+
+	if (g_RedDbgControlDeviceCreated)
+	{
+		return STATUS_SUCCESS;
+	}
 
 	RtlInitUnicodeString(&DriverName, L"\\Device\\MyHypervisorDevice");
 	RtlInitUnicodeString(&DosDeviceName, L"\\DosDevices\\MyHypervisorDevice");
@@ -553,8 +593,34 @@ extern "C" NTSTATUS RedDbgDriverEntry(_In_ PDRIVER_OBJECT DriverObject, PUNICODE
 		DriverObject->MajorFunction[IRP_MJ_CREATE] = DrvCreate;
 		DriverObject->MajorFunction[IRP_MJ_DEVICE_CONTROL] = DrvDispatchIoControl;
 		DriverObject->DriverUnload = DrvUnload;
-		IoCreateSymbolicLink(&DosDeviceName, &DriverName);
+		Ntstatus = IoCreateSymbolicLink(&DosDeviceName, &DriverName);
+		if (!NT_SUCCESS(Ntstatus) && Ntstatus != STATUS_OBJECT_NAME_COLLISION)
+		{
+			IoDeleteDevice(DeviceObject);
+			return Ntstatus;
+		}
+
+		g_RedDbgControlDeviceCreated = TRUE;
+		return STATUS_SUCCESS;
 	}
 
-	return STATUS_SUCCESS;
+	return Ntstatus;
+}
+
+extern "C" NTSTATUS RedDbgInitializeEmbedded(VOID)
+{
+	return RedDbgInitializeCore();
+}
+
+extern "C" NTSTATUS RedDbgDriverEntry(_In_ PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegisterPath)
+{
+	UNREFERENCED_PARAMETER(RegisterPath);
+
+	NTSTATUS status = RedDbgInitializeCore();
+	if (!NT_SUCCESS(status))
+	{
+		return status;
+	}
+
+	return RedDbgRegisterControlDevice(DriverObject);
 }
