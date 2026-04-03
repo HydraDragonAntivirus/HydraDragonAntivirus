@@ -215,7 +215,7 @@ void Trace::AcceptRipMessage(File& objFile)
 
 					++LocalCWI;
 				}
-				objFile.WriteFile(ValuesBuffer, ValuesLen);
+				objFile.WriteFile(ValuesBuffer, (ULONG)ValuesLen);
 
 				KdPrint(("Fin\n"));
 				ExFreePool(ValuesBuffer);
@@ -297,7 +297,7 @@ void Trace::AcceptMnemonicMessage(File& objFile)
 					++LocalCWI;
 				}
 
-				objFile.WriteFile(ValuesBuffer, ValuesLen);
+				objFile.WriteFile(ValuesBuffer, (ULONG)ValuesLen);
 
 				KdPrint(("Fin\n"));
 				ExFreePool(ValuesBuffer);
@@ -463,7 +463,7 @@ void Trace::AcceptGraphMessage(File& objFile)
 				}
 				if (EoF) { STRCAT(ValuesCWI, objGraphVizLanguage.EndOfdigraph, ValuesLen); EoF = false; }
 
-				objFile.WriteFile(ValuesBuffer, ValuesLen);
+				objFile.WriteFile(ValuesBuffer, (ULONG)ValuesLen);
 
 				KdPrint(("Fin\n"));
 				ExFreePool(ValuesBuffer);
@@ -641,7 +641,7 @@ void Trace::AcceptGraphCycleFoldingMessage(File& objFile)
 				}
 				STRCAT(ValuesCWI, objGraphVizLanguage.EndOfdigraph, ValuesLen);
 
-				objFile.WriteFile(ValuesBuffer, ValuesLen);
+				objFile.WriteFile(ValuesBuffer, (ULONG)ValuesLen);
 
 				KdPrint(("Fin\n"));
 				ExFreePool(ValuesBuffer);
@@ -1162,3 +1162,5 @@ void Trace::TraceMnemonic(_In_ SVM::PRIVATE_VM_DATA* Private)
 void Trace::TraceRipFinalization() { for (auto& Arc : CircleOfRips) { if (Arc.DataWritten > 0) { Arc.Reading = true; } } }
 
 void Trace::TraceMnemonicFinalization() { for (auto& Arc : CircleOfMnemonics) { if (Arc.DataWritten > 0) { Arc.Reading = true; } } EoF = true; }
+
+void Trace::AcceptCombineBufferRipMessage(File& objFile, uint64_t _MainBuffer) { UNREFERENCED_PARAMETER(objFile); UNREFERENCED_PARAMETER(_MainBuffer); }

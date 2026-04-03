@@ -433,16 +433,17 @@ NTSTATUS DrvDispatchIoControl(PDEVICE_OBJECT DeviceObject, PIRP Irp)
 	}
 	case IOCTL_WRITE:
 	{
-		//objTrace.AcceptRipMessage(objFile);
+		objTrace.AcceptRipMessage(objFile);
 		objTrace.AcceptMnemonicMessage(objFile);
 		objTrace.AcceptGraphMessage(objFile);
 		objTrace.AcceptGraphCycleFoldingMessage(objFile);
-		//while (TRUE)
-		//{
-		//	objTrace.AcceptCombineBufferRipMessage(objFile, objTrace.MainBuffer);
-		//
-		////	if(objTrace.Exit) { objTrace.AcceptCombineBufferRipMessage(objFile, objTrace.MainBuffer); }
-		//}
+		
+		while (!objTrace.Exit)
+		{
+			objTrace.AcceptCombineBufferRipMessage(objFile, objTrace.MainBuffer);
+		}
+		if(objTrace.Exit) { objTrace.AcceptCombineBufferRipMessage(objFile, objTrace.MainBuffer); }
+		
 		Irp->IoStatus.Status = STATUS_SUCCESS;
 		IoCompleteRequest(Irp, IO_NO_INCREMENT);
 		Status = STATUS_SUCCESS;

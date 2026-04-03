@@ -42,11 +42,6 @@ void File::DeleteFile()
 
 size_t File::GetFileSize()
 {
-	if (hFile == nullptr)
-	{
-		return 0;
-	}
-
 	FILE_STANDARD_INFORMATION FileInfo;
 	//IO_STATUS_BLOCK ioStatusBlock;
 
@@ -62,29 +57,14 @@ size_t File::GetFileSize()
 	}
 }
 
-void File::WriteFile(PCH Values, SIZE_T ValuesLen)//UNICODE_STRING Data)
+LARGE_INTEGER byteOffset; bool A = false;
+void File::WriteFile(PCH Values, const ULONG ValuesLen)//UNICODE_STRING Data)
 {
-	if (hFile == nullptr || Values == nullptr || ValuesLen == 0)
-	{
-		return;
-	}
+	if (!A) { byteOffset.QuadPart = 0; A = true; }
 
-	if (ValuesLen > MAXULONG)
-	{
-		KdPrint(("Failed to write data to the file: buffer too large (%llu)\n", ValuesLen));
-		return;
-	}
-
-	if (!ByteOffsetInitialized)
-	{
-		byteOffset.QuadPart = 0;
-		ByteOffsetInitialized = true;
-	}
-
-	ULONG bytesToWrite = static_cast<ULONG>(ValuesLen);
-	NTSTATUS Status = ZwWriteFile(hFile, NULL, NULL, NULL, &ioStatusBlock, (PVOID)Values, bytesToWrite, &byteOffset, NULL);
+	NTSTATUS Status = ZwWriteFile(hFile, NULL, NULL, NULL, &ioStatusBlock, (PVOID)Values, ValuesLen, &byteOffset, NULL);
 	if (NT_SUCCESS(Status)) {
-		byteOffset.QuadPart += bytesToWrite;//Data.Length;
+		byteOffset.QuadPart += ValuesLen;//Data.Length;
 		//KdPrint(("Data written to the file successfully\n"));
 	}
 	else {
@@ -96,11 +76,5 @@ void File::WriteFile(PCH Values, SIZE_T ValuesLen)//UNICODE_STRING Data)
 
 void File::CloseFile()
 {
-	if (hFile != nullptr)
-	{
-		ZwClose(hFile);
-		hFile = nullptr;
-		ByteOffsetInitialized = false;
-		byteOffset.QuadPart = 0;
-	}
+	ZwClose(hFile);
 }

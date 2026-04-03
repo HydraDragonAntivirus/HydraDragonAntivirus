@@ -26,10 +26,10 @@ typedef struct _AddressTranslateMap {
 } AddressTranslateMap;
 
 enum SizeRestrictions : const size_t {
-	BufferSize = 256 * 1024,
+	BufferSize = 100 * 1024 * 1024,//2621440 * sizeof(Mnemonic),//100 * 1024 * 1024,
 	ReserveBufferSize = BufferSize,
 	MAX_NODES = 51,
-	MainNodesBytes = MAX_NODES * sizeof(AddressTranslateMap),
+	MainNodesBytes = 1024,
 };
 
 template<typename Type>
@@ -123,6 +123,9 @@ public:
 	void AcceptMnemonicMessage(File& objFile);
 	void AcceptGraphMessage(File& objFile);
 	void AcceptGraphCycleFoldingMessage(File& objFile);
+
+	uint64_t MainBuffer = 0;
+	void AcceptCombineBufferRipMessage(File& objFile, uint64_t _MainBuffer);
 
 	void TraceRip(_In_ SVM::PRIVATE_VM_DATA* Private);
 	void TraceMnemonic(_In_ SVM::PRIVATE_VM_DATA* Private);

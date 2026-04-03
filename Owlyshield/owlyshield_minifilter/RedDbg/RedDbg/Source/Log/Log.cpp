@@ -6,44 +6,28 @@
 
 #include "General.hpp"
 
-namespace
-{
-	static PVOID
-	LogAllocateNonPaged(_In_ SIZE_T size, _In_ ULONG tag)
-	{
-		return ExAllocatePool2(POOL_FLAG_NON_PAGED, size, tag);
-	}
-}
-
 BOOLEAN Log::LogInitialize()
 {
-	MessageBufferInformation = static_cast<struct _LOG_BUFFER_INFORMATION*>(
-		LogAllocateNonPaged(sizeof(_LOG_BUFFER_INFORMATION) * 2, 'gLfR'));
+	MessageBufferInformation = (struct _LOG_BUFFER_INFORMATION*)ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeof(_LOG_BUFFER_INFORMATION) * 2, 'Lbg1');
 
 	if (!MessageBufferInformation) { KdPrint(("Message %p", MessageBufferInformation)); return FALSE; }
 
 	RtlZeroMemory(MessageBufferInformation, sizeof(_LOG_BUFFER_INFORMATION) * 2);
-	GlobalNotifyRecord = NULL;
 	SvmRootLoggingLock = 0;
-	SvmRootLoggingLockForNonImmBuffers = 0;
 
 	for (int i = 0; i < 2; i++)
 	{
 		KeInitializeSpinLock(&MessageBufferInformation[i].BufferLock);
 		KeInitializeSpinLock(&MessageBufferInformation[i].BufferLockForNonImmMessage);
 
-		MessageBufferInformation[i].BufferStartAddress =
-			LogAllocateNonPaged(LogBufferSize, 'bLfR');
-		MessageBufferInformation[i].BufferForMultipleNonImmediateMessage =
-			LogAllocateNonPaged(PacketChunkSize, 'mLfR');
+		MessageBufferInformation[i].BufferStartAddress = ExAllocatePool2(POOL_FLAG_NON_PAGED, LogBufferSize, 'Lbg2');
+		MessageBufferInformation[i].BufferForMultipleNonImmediateMessage = ExAllocatePool2(POOL_FLAG_NON_PAGED, PacketChunkSize, 'Lbg3');
 
-		if (!MessageBufferInformation[i].BufferStartAddress ||
-			!MessageBufferInformation[i].BufferForMultipleNonImmediateMessage)
+		if (!MessageBufferInformation[i].BufferStartAddress)
 		{
 			return FALSE;
 		}
 		RtlZeroMemory(MessageBufferInformation[i].BufferStartAddress, LogBufferSize);
-		RtlZeroMemory(MessageBufferInformation[i].BufferForMultipleNonImmediateMessage, PacketChunkSize);
 
 		MessageBufferInformation[i].BufferEndAddress = PVOID(UINT64(MessageBufferInformation[i].BufferStartAddress) + LogBufferSize);
 
@@ -91,13 +75,13 @@ BOOLEAN Log::LogSendBuffer(UINT32 OperationCode, PVOID Buffer, UINT32 BufferLeng
 	}
 
 	IsSvmRoot ? Spinlock.SpinlockUnlock((LONG*)&SvmRootLoggingLock) : KeReleaseSpinLock(&MessageBufferInformation[Index].BufferLock, OldIRQL);
-	return TRUE;
+return TRUE;
 }
 
 BOOLEAN Log::LogReadBuffer(BOOLEAN IsSvmRoot, PVOID BufferToSaveMessage, UINT32 * ReturnedLength) 
 {
 
-	KIRQL OldIRQL = PASSIVE_LEVEL; UINT32 Index;
+	KIRQL OldIRQL = 0; UINT32 Index;
 
 	if (IsSvmRoot) { Index = 1; Spinlock.SpinlockLock((LONG*)&SvmRootLoggingLock); }
 	else { Index = 0; KeAcquireSpinLock(&MessageBufferInformation[Index].BufferLock, &OldIRQL); }
@@ -106,12 +90,7 @@ BOOLEAN Log::LogReadBuffer(BOOLEAN IsSvmRoot, PVOID BufferToSaveMessage, UINT32 
 		(BUFFER_HEADER*)((UINT64)MessageBufferInformation[Index].BufferStartAddress +
 			(MessageBufferInformation[Index].CurrentIndexToSend * (PacketChunkSize + sizeof(BUFFER_HEADER))));
 
-	if (!Header->Valid)
-	{
-		if (IsSvmRoot) { Spinlock.SpinlockUnlock((LONG*)&SvmRootLoggingLock); }
-		else { KeReleaseSpinLock(&MessageBufferInformation[Index].BufferLock, OldIRQL); }
-		return FALSE;
-	}
+	if (!Header->Valid) { return FALSE; }
 
 	RtlCopyBytes(BufferToSaveMessage, &Header->OpeationNumber, sizeof(UINT32));
 
@@ -148,27 +127,89 @@ BOOLEAN Log::LogCheckForNewMessage(BOOLEAN IsSvmRoot)
 
 BOOLEAN Log::LogSendMessageToQueue(UINT32 OperationCode, BOOLEAN IsImmediateMessage, BOOLEAN ShowCurrentSystemTime, const char* Fmt, ...)
 {
-	UNREFERENCED_PARAMETER(ShowCurrentSystemTime);
-	UNREFERENCED_PARAMETER(IsImmediateMessage);
+	UNREFERENCED_PARAMETER(OperationCode); UNREFERENCED_PARAMETER(IsImmediateMessage); UNREFERENCED_PARAMETER(ShowCurrentSystemTime); UNREFERENCED_PARAMETER(Fmt); BOOLEAN IsSvmRootMode;
 
-	if (Fmt == nullptr)
+	// Set Vmx State
+	// IsSvmRootMode = false;//GuestState[KeGetCurrentProcessorNumber()].IsOnVmxRootMode;
+	
+	IsSvmRootMode = true;
+	/*
+	if (ShowCurrentSystemTime)
 	{
-		return FALSE;
+		va_start(ArgList, Fmt);
+
+		SprintfResult = vsprintf_s(LogMessage, PacketChunkSize - 1, Fmt, ArgList);
+		va_end(ArgList);
+
+		if (SprintfResult == -1) { return FALSE; }
+
+		TIME_FIELDS TimeFields;
+		LARGE_INTEGER SystemTime, LocalTime;
+		KeQuerySystemTime(&SystemTime);
+		ExSystemTimeToLocalTime(&SystemTime, &LocalTime);
+		RtlTimeToTimeFields(&LocalTime, &TimeFields);
+
+		sprintf_s(TimeBuffer, RTL_NUMBER_OF(TimeBuffer), "%02hd:%02hd:%02hd.%03hd", TimeFields.Hour,
+			TimeFields.Minute, TimeFields.Second,
+			TimeFields.Milliseconds);
+
+		// Append time with previous message
+		SprintfResult = sprintf_s(LogMessage, PacketChunkSize - 1, "(%s - core : %d - vmx-root? %s)\t %s",
+			TimeBuffer, KeGetCurrentProcessorNumberEx(0), IsSvmRootMode ? "yes" : "no", TempMessage);
+
+		if (SprintfResult == -1) { return FALSE; }
+	}
+	else
+	{
+		va_start(ArgList, Fmt);
+
+		SprintfResult = vsprintf_s(LogMessage, PacketChunkSize - 1, Fmt, ArgList);
+		va_end(ArgList);
+
+		if (SprintfResult == -1) { return FALSE; }
 	}
 
-	char LogMessage[PacketChunkSize] = {};
-	size_t messageLength = strnlen_s(Fmt, RTL_NUMBER_OF(LogMessage) - 1);
+	WrittenSize = strnlen_s(LogMessage, PacketChunkSize - 1);
 
-	if (messageLength == 0 || messageLength >= RTL_NUMBER_OF(LogMessage))
-	{
-		return FALSE;
+	if (LogMessage[0] == '\0') { return FALSE; }
+
+	if (IsImmediateMessage) 
+	{ 
+		BufferIsReady = TRUE; 
+		LogSendBuffer(OperationCode, LogMessage, WrittenSize);
+		RtlZeroMemory(LogMessage, sizeof(LogMessage));
 	}
+	else
+	{
+		if (IsSvmRootMode) { Index = 1; Spinlock.SpinlockLock((LONG*)&SvmRootLoggingLockForNonImmBuffers); }
+		else { Index = 0; KeAcquireSpinLock(&MessageBufferInformation[Index].BufferLockForNonImmMessage, &OldIRQL); }
 
-	RtlCopyMemory(LogMessage, Fmt, messageLength);
-	LogMessage[messageLength] = '\0';
+		Result = TRUE;
 
-	BufferIsReady = TRUE;
-	return LogSendBuffer(OperationCode, LogMessage, static_cast<UINT32>(messageLength));
+		if ((MessageBufferInformation[Index].CurrentLengthOfNonImmBuffer + WrittenSize) > PacketChunkSize - 1 &&
+			MessageBufferInformation[Index].CurrentLengthOfNonImmBuffer != 0)
+		{
+			BufferIsReady = TRUE;
+			Result = LogSendBuffer(OPERATION_LOG_NON_IMMEDIATE_MESSAGE,
+				MessageBufferInformation[Index].BufferForMultipleNonImmediateMessage,
+				MessageBufferInformation[Index].CurrentLengthOfNonImmBuffer);
+
+			MessageBufferInformation[Index].CurrentLengthOfNonImmBuffer = 0;
+			RtlZeroMemory(MessageBufferInformation[Index].BufferForMultipleNonImmediateMessage, PacketChunkSize);
+		}
+
+		RtlCopyBytes(PVOID(UINT64(MessageBufferInformation[Index].BufferForMultipleNonImmediateMessage) +
+			MessageBufferInformation[Index].CurrentLengthOfNonImmBuffer), LogMessage, WrittenSize);
+
+		MessageBufferInformation[Index].CurrentLengthOfNonImmBuffer += WrittenSize;
+
+		if (IsSvmRootMode) { Spinlock.SpinlockUnlock((LONG*)&SvmRootLoggingLockForNonImmBuffers); }
+		else { KeReleaseSpinLock(&MessageBufferInformation[Index].BufferLockForNonImmMessage, OldIRQL); }
+
+		return Result;
+	}
+	*/
+	return 1;
 }
 
 VOID Log::LogNotifyUsermodeCallback(PKDPC Dpc, PVOID DeferredContext, PVOID SystemArgument1, PVOID SystemArgument2)
@@ -242,14 +283,16 @@ namespace Cwrapper
 
 NTSTATUS Log::LogRegisterIrpBasedNotification(PDEVICE_OBJECT DeviceObject, PIRP Irp)
 {
-	UNREFERENCED_PARAMETER(DeviceObject);
-
 	PNOTIFY_RECORD NotifyRecord;
+	PIO_STACK_LOCATION IrpStack;
+	PREGISTER_EVENT RegisterEvent;
 
 	if (GlobalNotifyRecord == NULL)
 	{
-		NotifyRecord = static_cast<PNOTIFY_RECORD>(
-			ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeof(NOTIFY_RECORD), POOLTAG));
+		IrpStack = IoGetCurrentIrpStackLocation(Irp);
+		RegisterEvent = (PREGISTER_EVENT)Irp->AssociatedIrp.SystemBuffer;
+
+		NotifyRecord = (PNOTIFY_RECORD)ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeof(NOTIFY_RECORD), POOLTAG);
 
 		if (NULL == NotifyRecord) {
 			return  STATUS_INSUFFICIENT_RESOURCES;
@@ -279,17 +322,16 @@ NTSTATUS Log::LogRegisterIrpBasedNotification(PDEVICE_OBJECT DeviceObject, PIRP 
 
 NTSTATUS Log::LogRegisterEventBasedNotification(PDEVICE_OBJECT DeviceObject, PIRP Irp)
 {
-	UNREFERENCED_PARAMETER(DeviceObject);
-
 	PNOTIFY_RECORD NotifyRecord;
 	NTSTATUS Status;
+	PIO_STACK_LOCATION IrpStack;
 	PREGISTER_EVENT RegisterEvent;
 
+	IrpStack = IoGetCurrentIrpStackLocation(Irp);
 	RegisterEvent = (PREGISTER_EVENT)Irp->AssociatedIrp.SystemBuffer;
 
 	// Allocate a record and save all the event context.
-	NotifyRecord = static_cast<PNOTIFY_RECORD>(
-		ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeof(NOTIFY_RECORD), POOLTAG));
+	NotifyRecord = (PNOTIFY_RECORD)ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeof(NOTIFY_RECORD), POOLTAG);
 
 	if (NULL == NotifyRecord) { return  STATUS_INSUFFICIENT_RESOURCES; }
 

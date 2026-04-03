@@ -7,10 +7,9 @@ class File {
 private:
 	size_t GetFileSize();
 public:
-	HANDLE hFile = nullptr;
-	IO_STATUS_BLOCK ioStatusBlock = {};
-	LARGE_INTEGER byteOffset = {};
-	bool ByteOffsetInitialized = false;
+	HANDLE hFile;
+	IO_STATUS_BLOCK ioStatusBlock;
+	LARGE_INTEGER byteOffset;
 public:
 	void CreateFile(
 		PCWSTR PathAndFile,
@@ -22,5 +21,5 @@ public:
 	void DeleteFile();
 	void CloseFile();
 public:
-	void WriteFile(PCH Values, SIZE_T ValuesLen);
+	void WriteFile(PCH Values, const ULONG ValuesLen);
 };
