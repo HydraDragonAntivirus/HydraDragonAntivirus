@@ -1023,7 +1023,7 @@ class DataProcessor:
             'index_path': str(self.index_path),
             'malicious_pickle_path': str(self.malicious_pickle_path),
             'benign_pickle_path': str(self.benign_pickle_path),
-            'feature_vector_size': 52  # Update this if you change features
+            'feature_vector_size': 51  # Keep in sync with features_to_numeric()
         }
 
         output_file = self.output_dir / 'summary.json'

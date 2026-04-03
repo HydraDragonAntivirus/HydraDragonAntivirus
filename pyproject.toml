@@ -43,6 +43,7 @@ dependencies = [
     "comtypes",
     "androguard",
     "oletools",
+    "esprima",
     "aiofiles",
     "unipacker",
    

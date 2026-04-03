@@ -1,5 +1,6 @@
 pefile
 numpy
+esprima
 tqdm
 capstone
 logly
