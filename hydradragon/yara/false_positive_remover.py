@@ -69,6 +69,13 @@ def build_cli_parser():
         default=os.cpu_count(),
         help=f"Number of parallel processes to use for scanning. (Default: {os.cpu_count()})"
     )
+    parser.add_option(
+        "--skip-yara-files",
+        action="store_true",
+        dest="skip_yara_files",
+        default=False,
+        help="Skip .yar, .yara, and .yrc files when scanning the benign files directory."
+    )
     return parser
 
 def log_message(message):
@@ -79,6 +86,11 @@ def log_message(message):
             f.write(f"[{datetime.datetime.now()}] {message}\n")
     except IOError as e:
         print(f"Error: Could not write to log file {LOG_FILE}: {e}")
+
+
+def is_yara_artifact(filepath):
+    """Return True when the path looks like a YARA source or compiled rule file."""
+    return os.path.splitext(filepath)[1].lower() in (".yar", ".yara", ".yrc")
 
 def get_scan_entrypoint(yara_path, recursive):
     """
@@ -126,17 +138,29 @@ def scan_file(rules_path, file_to_scan):
         pass
     return matching_rules, file_to_scan
 
-def generate_fp_rules_from_scan(scan_entrypoint_path, benign_files_dir, num_workers):
+def generate_fp_rules_from_scan(scan_entrypoint_path, benign_files_dir, num_workers, skip_yara_files=False):
     """
     Scans a directory of benign files in parallel and returns the names of all matching rules.
     """
     fp_rule_names = set()
     
     # 1. Collect all benign files to be scanned
-    benign_files = [os.path.join(r, f) for r, _, fs in os.walk(benign_files_dir) for f in fs]
+    benign_files = []
+    skipped_yara_files = 0
+    for root, _, files in os.walk(benign_files_dir):
+        for filename in files:
+            filepath = os.path.join(root, filename)
+            if skip_yara_files and is_yara_artifact(filepath):
+                skipped_yara_files += 1
+                continue
+            benign_files.append(filepath)
+
     if not benign_files:
         log_message("Warning: No files found in the benign files directory.")
         return fp_rule_names
+
+    if skip_yara_files and skipped_yara_files:
+        log_message(f"Skipped {skipped_yara_files} YARA file(s) in the benign files directory.")
 
     log_message(f"Scanning {len(benign_files)} benign files with {num_workers} workers...")
     
@@ -246,7 +270,12 @@ def main():
     false_positive_rules = set()
     try:
         # 1. Generate the set of false positive rule names by scanning benign files in parallel
-        false_positive_rules = generate_fp_rules_from_scan(scan_entrypoint, opts.fp_path, opts.workers)
+        false_positive_rules = generate_fp_rules_from_scan(
+            scan_entrypoint,
+            opts.fp_path,
+            opts.workers,
+            skip_yara_files=opts.skip_yara_files,
+        )
     finally:
         if temp_file_obj:
             os.unlink(temp_file_obj.name)
