@@ -45,13 +45,15 @@ jobs:
         run: poetry check --lock
 
       - name: Create pull request for lockfile changes
+        if: github.ref_name != github.event.repository.default_branch
         uses: peter-evans/create-pull-request@v7
         with:
           commit-message: "Rebuild poetry.lock (auto)"
           author: "github-actions <41898282+github-actions[bot]@users.noreply.github.com>"
           committer: "github-actions <41898282+github-actions[bot]@users.noreply.github.com>"
-          branch: "ci/rebuild-poetry-lock"
-          delete-branch: true
+          branch: "${{ github.ref_name }}"
+          base: "${{ github.event.repository.default_branch }}"
+          delete-branch: false
           title: "Rebuild poetry.lock"
           body: |
             This PR regenerates `poetry.lock` automatically after changes to `pyproject.toml`
