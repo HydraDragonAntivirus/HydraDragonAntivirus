@@ -4,4 +4,4 @@ py -3.12 compile_yargen_machine_learning_pe.py
 py -3.12 compile_yargen_machine_learning_js.py
 py -3.12 compile_icewater.py
 py -3.12 compile_yarax.py
-py -3.12 compile_yarax_windefender.py
+py -3.12 compile_yara_windefender.py

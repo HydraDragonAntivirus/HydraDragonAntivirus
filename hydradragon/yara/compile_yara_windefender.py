@@ -1,29 +1,26 @@
-import yara_x
+import yara
 
 def compile_yara_rule(rule_path):
     try:
-        with open(rule_path, 'r', encoding='utf-8') as f:
-            rule = f.read()
-        compiled_rule = yara_x.compile(rule)
+        compiled_rule = yara.compile(filepath=rule_path)
         return compiled_rule
     except FileNotFoundError:
         print(f"Error: Rule file '{rule_path}' not found.")
         return None
-    except yara_x.CompileError as e:
-        print("Error compiling YARA rule: ", e)
+    except yara.SyntaxError as e:
+        print("Error compiling YARA rule:", e)
         return None
 
 def save_compiled_rule(compiled_rule, output_path):
     try:
-        with open(output_path, 'wb') as f:
-            compiled_rule.serialize_into(f)
+        compiled_rule.save(output_path)
         print(f"Compiled rule saved to '{output_path}'")
     except Exception as e:
-        print("Error saving compiled rule: ", e)
+        print("Error saving compiled rule:", e)
 
 def main():
     rule_path = "WindowsDefender.yar"
-    output_path = "WindowsDefender.yrc"
+    output_path = "WindowsDefender.yarc"
 
     compiled_rule = compile_yara_rule(rule_path)
     if compiled_rule is None:
