@@ -125,6 +125,7 @@ from .path_and_variables import (
     clamav_database_directory_path,
     icewater_rule_path,
     valhalla_rule_path,
+    windows_defender_rule_path,
     yarGen_js_rule_path,
     yarGen_pe_rule_path,
     antivirus_list_path,
@@ -1549,6 +1550,7 @@ icewater_rules = None
 valhalla_rules = None
 clean_rules = None
 yaraxtr_rules = None
+windows_defender_rules = None
 
 def scan_yara(file_path):
     """Scan file with multiple YARA rule sets in parallel using threads.
@@ -1896,6 +1898,32 @@ def scan_yara(file_path):
             except Exception as e:
                 logger.error(f"Error scanning with valhalla_rule: {e}")
 
+
+        # Thread worker for windows_defender_rule scanning
+        def windows_defender_rule_worker():
+            try:
+                if windows_defender_rules:
+                    matches = windows_defender_rules.match(data=data_content)
+                    local_matched_rules = []
+                    local_matched_results = []
+
+                    for match in matches or []:
+                        if match.rule not in excluded_rules:
+                            local_matched_rules.append(match.rule)
+                            match_details = extract_match_details(match, 'windows_defender_rule')
+                            local_matched_results.append(match_details)
+                        else:
+                            logger.info(f"Rule {match.rule} is excluded from windows_defender_rules.")
+
+                    # Update shared results
+                    with thread_lock_yara:
+                        results['matched_rules'].extend(local_matched_rules)
+                        results['matched_results'].extend(local_matched_results)
+                else:
+                    logger.error("windows_defender_rule is not defined.")
+            except Exception as e:
+                logger.error(f"Error scanning with windows_defender_rule: {e}")
+
         # Create and start threads for yara-python rules ONLY
         # YARA-X is NOT included in threading
         workers = [
@@ -1903,7 +1931,8 @@ def scan_yara(file_path):
             yargen_rule_worker,
             yargen_js_rule_worker,
             icewater_rule_worker,
-            valhalla_rule_worker
+            valhalla_rule_worker,
+            windows_defender_rule_worker
         ]
 
         for worker in workers:
@@ -9506,7 +9535,7 @@ async def load_all_resources_async():
         except Exception as ex:
             logger.exception(f"Error loading Antivirus List: {ex}")
 
-    async def load_yargen():
+    async def load_yargen_pe():
         global yarGen_pe_rules
         yarGen_pe_rules = await load_resource_safe("yarGen PE Rules",
                                                 functools.partial(load_yara_safe, yarGen_pe_rule_path, "yarGen PE Rules", False),
@@ -9529,6 +9558,12 @@ async def load_all_resources_async():
         valhalla_rules = await load_resource_safe("Valhalla Rules",
                                                   functools.partial(load_yara_safe, valhalla_rule_path, "Valhalla Rules", False),
                                                   timeout=30)
+
+    async def load_windows_defender():
+        global windows_defender_rules
+        windows_defender_rules = await load_resource_safe("Windows Defender Rules",
+                                                           functools.partial(load_yara_safe, windows_defender_rule_path, "Windows Defender Rules", False),
+                                                           timeout=30)
 
     async def load_clean():
         global clean_rules
@@ -9568,10 +9603,11 @@ async def load_all_resources_async():
     # Fire and forget all tasks (pass coroutine objects to create_task)
     asyncio.create_task(load_suricata(), name="load_suricata")
     asyncio.create_task(load_antivirus_list(), name="load_antivirus_list")
-    asyncio.create_task(load_yargen(), name="load_yargen")
+    asyncio.create_task(load_yargen_pe(), name="load_yargen")
     asyncio.create_task(load_yargen_js(), name="load_yargen_js")
     asyncio.create_task(load_icewater(), name="load_icewater")
     asyncio.create_task(load_valhalla(), name="load_valhalla")
+    asyncio.create_task(load_windows_defender(), name="load_windows_defender")
     asyncio.create_task(load_clean(), name="load_clean")
     asyncio.create_task(load_yaraxtr(), name="load_yaraxtr")
     asyncio.create_task(load_clamav(), name="load_clamav")
