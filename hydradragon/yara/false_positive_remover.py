@@ -70,6 +70,13 @@ def build_cli_parser():
         help=f"Number of parallel processes to use for scanning. (Default: {os.cpu_count()})"
     )
     parser.add_option(
+        "--from-log",
+        action="store_true",
+        dest="from_log",
+        default=False,
+        help="Skip scanning. Read already-identified FP rules from removal.log and remove them directly."
+    )
+    parser.add_option(
         "--skip-yara-files",
         action="store_true",
         dest="skip_yara_files",
@@ -246,6 +253,23 @@ def process_yara_file(filepath, rules_to_remove):
         except Exception as e:
             log_message(f"Error: Could not write changes to {filepath}. Details: {e}")
 
+def parse_fp_rules_from_log(log_path):
+    """Parses the removal.log file and extracts all identified FP rule names."""
+    fp_rules = set()
+    pattern = re.compile(r"Identified FP: Rule '([^']+)'")
+    try:
+        with open(log_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                match = pattern.search(line)
+                if match:
+                    fp_rules.add(match.group(1))
+    except FileNotFoundError:
+        log_message(f"Error: Log file '{log_path}' not found.")
+    except IOError as e:
+        log_message(f"Error: Could not read log file '{log_path}': {e}")
+    return fp_rules
+
+
 def main():
     """Main function to parse arguments and start the process."""
     parser = build_cli_parser()
@@ -262,6 +286,32 @@ def main():
         log_message(f"Error: YARA path does not exist: '{yara_path}'"); sys.exit(1)
     if not os.path.isdir(opts.fp_path):
         log_message(f"Error: Path for benign files must be a directory: '{opts.fp_path}'"); sys.exit(1)
+
+    # --from-log mode: skip scanning, parse rules directly from removal.log
+    if opts.from_log:
+        log_message(f"--- From-Log Mode: Reading FP rules from '{LOG_FILE}' ---")
+        false_positive_rules = parse_fp_rules_from_log(LOG_FILE)
+        if not false_positive_rules:
+            log_message("Info: No FP rules found in log. Exiting.")
+            sys.exit(0)
+        log_message(f"Found {len(false_positive_rules)} unique FP rules in log. Proceeding to clean...")
+        files_to_clean = []
+        if os.path.isfile(yara_path):
+            files_to_clean.append(yara_path)
+        else:
+            if opts.subdirectories:
+                for root, _, files in os.walk(yara_path):
+                    for f in files:
+                        if f.endswith((".yar", ".yara")): files_to_clean.append(os.path.join(root, f))
+            else:
+                for f in os.listdir(yara_path):
+                    fp = os.path.join(yara_path, f)
+                    if os.path.isfile(fp) and f.endswith((".yar", ".yara")): files_to_clean.append(fp)
+        log_message(f"Cleaning {len(files_to_clean)} YARA file(s)...")
+        for f in tqdm(files_to_clean, desc="Cleaning YARA Files"):
+            process_yara_file(f, false_positive_rules)
+        log_message("--- YARA False Positive Remover Finished ---")
+        sys.exit(0)
 
     scan_entrypoint, temp_file_obj = get_scan_entrypoint(yara_path, opts.subdirectories)
     if not scan_entrypoint:
