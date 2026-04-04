@@ -275,17 +275,22 @@ def main():
     parser = build_cli_parser()
     opts, _ = parser.parse_args()
 
-    if not all([opts.yara_path, opts.fp_path]):
+    # Only require fp_path if NOT using --from-log
+    if not opts.from_log and not opts.fp_path:
         parser.print_help()
         sys.exit(1)
+        
 
     log_message("--- YARA False Positive Remover Started ---")
 
     yara_path = opts.yara_path
     if not os.path.exists(yara_path):
         log_message(f"Error: YARA path does not exist: '{yara_path}'"); sys.exit(1)
-    if not os.path.isdir(opts.fp_path):
-        log_message(f"Error: Path for benign files must be a directory: '{opts.fp_path}'"); sys.exit(1)
+    # Check benign files path only if NOT using --from-log
+    if not opts.from_log:
+        if not os.path.isdir(opts.fp_path):
+            log_message(f"Error: Path for benign files must be a directory: '{opts.fp_path}'")
+            sys.exit(1)
 
     # --from-log mode: skip scanning, parse rules directly from removal.log
     if opts.from_log:
