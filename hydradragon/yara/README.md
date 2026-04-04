@@ -6,3 +6,23 @@
 - py -3.12 compileryarax.py
 
 - Our strongest tool for removing duplicates is YARA_Util.py: https://github.com/RandomRhythm/YARA_Rules_Util
+
+## false_positive_remover.py examples
+
+- Scan one YARA file against a benign sample folder:
+  `py -3.12 false_positive_remover.py -y clean_rules.yar -f D:\benign_samples`
+
+- Scan a YARA directory recursively:
+  `py -3.12 false_positive_remover.py -y . -f D:\benign_samples -s`
+
+- Skip `.yar`, `.yara`, and `.yrc` files inside the benign folder while checking false positives:
+  `py -3.12 false_positive_remover.py -y . -f D:\benign_samples -s --skip-yara-files`
+
+- Limit worker count for slower machines or smaller test runs:
+  `py -3.12 false_positive_remover.py -y machine_learning_pe.yar -f D:\benign_samples --workers 4`
+
+- Scan only one rule pack and skip YARA artifacts in a mixed folder:
+  `py -3.12 false_positive_remover.py -y valhalla-rules.yar -f D:\mixed_clean_files --skip-yara-files`
+
+- Output:
+  The script logs matched false-positive rules in `removal.log` and removes those rules from the target YARA file or directory.
