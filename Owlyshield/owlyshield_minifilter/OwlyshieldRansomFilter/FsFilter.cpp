@@ -68,6 +68,50 @@ BOOLEAN
 FSShouldIgnorePyasWhitelistPath(_In_ PCUNICODE_STRING Path);
 
 static BOOLEAN
+FSShouldBypassReadTelemetry(_In_ PFLT_CALLBACK_DATA Data)
+{
+    ULONG requestorPid;
+    PEPROCESS requestorProcess = NULL;
+
+    if (Data == NULL || Data->Iopb == NULL || Data->Iopb->MajorFunction != IRP_MJ_READ)
+    {
+        return FALSE;
+    }
+
+    if (FlagOn(Data->Iopb->IrpFlags, IRP_PAGING_IO))
+    {
+        return TRUE;
+    }
+
+    if (Data->RequestorMode == KernelMode)
+    {
+        return TRUE;
+    }
+
+    requestorPid = FltGetRequestorProcessId(Data);
+    if (requestorPid == 0 || requestorPid == 4)
+    {
+        return TRUE;
+    }
+
+    if (NT_SUCCESS(PsLookupProcessByProcessId((HANDLE)(ULONG_PTR)requestorPid, &requestorProcess)))
+    {
+        UCHAR *processName = PsGetProcessImageFileName(requestorProcess);
+        if (processName != NULL &&
+            (_stricmp((const char *)processName, "MemCompression") == 0 ||
+             _stricmp((const char *)processName, "System") == 0))
+        {
+            ObDereferenceObject(requestorProcess);
+            return TRUE;
+        }
+
+        ObDereferenceObject(requestorProcess);
+    }
+
+    return FALSE;
+}
+
+static BOOLEAN
 FSIsKernelDebuggerAttached(VOID)
 {
     return (KD_DEBUGGER_ENABLED != FALSE && KD_DEBUGGER_NOT_PRESENT == FALSE);
@@ -491,6 +535,8 @@ CONST FLT_REGISTRATION FilterRegistration = {
 ////////////////////////////////////////////////////////////////////////////
 
 extern "C" NTSTATUS RedDbgDriverEntry(_In_ PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegisterPath);
+extern "C" NTSTATUS RedDbgStartStandaloneControlDriver(VOID);
+extern "C" VOID RedDbgStopStandaloneControlDriver(VOID);
 
 NTSTATUS
 DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
@@ -735,11 +781,14 @@ Return Value:
         DbgPrint("!!! FsFilter: Failed to initialize user-mode hook engine: 0x%X (non-fatal)\n", status);
     }
 
-    // 2. Initialize RedDbg hypervisor subsystem.
-    status = RedDbgDriverEntry(DriverObject, RegistryPath);
+    // 2. Initialize RedDbg hypervisor subsystem on an independent DRIVER_OBJECT.
+    // RedDbgDriverEntry remains the actual initialization entrypoint; the
+    // standalone wrapper simply prevents the minifilter's dispatch table from
+    // being repurposed for RedDbg's control device.
+    status = RedDbgStartStandaloneControlDriver();
     if (!NT_SUCCESS(status))
     {
-        DbgPrint("!!! FsFilter: RedDbgDriverEntry failed: 0x%X (non-fatal)\n", status);
+        DbgPrint("!!! FsFilter: RedDbgStartStandaloneControlDriver failed: 0x%X (non-fatal)\n", status);
     }
     else
     {
@@ -852,6 +901,21 @@ VOID ThreadCreationCallback(
     }
     
     HANDLE currentPid = PsGetCurrentProcessId();
+    {
+        ULONG correlatedSourcePid = 0;
+        if (ResolveRemoteThreadCandidate((ULONG)(ULONG_PTR)ProcessId, &correlatedSourcePid))
+        {
+            currentPid = (HANDLE)(ULONG_PTR)correlatedSourcePid;
+        }
+        else
+        {
+            // Keep the legacy code below intact, but only execute it when we
+            // have a real creator/target correlation from PROCESS_CREATE_THREAD
+            // telemetry. The raw thread notify callback alone cannot identify
+            // the creator process reliably.
+            return;
+        }
+    }
     
     // If the thread is being created in a different process, this is remote thread injection
     if (currentPid != ProcessId) {
@@ -868,6 +932,14 @@ VOID ThreadCreationCallback(
         ULONGLONG targetGid = driverData->GetProcessGid((ULONG)(ULONG_PTR)ProcessId, &targetFound);
         
         if (sourceFound || targetFound) {
+            NTSTATUS onThreadStatus = OnThreadCreation((ULONG)(ULONG_PTR)currentPid,
+                                                      (ULONG)(ULONG_PTR)ProcessId,
+                                                      NULL);
+            if (NT_SUCCESS(onThreadStatus))
+            {
+                return;
+            }
+
             // Log to usermode via dedicated remote-thread callback opcode
             PIRP_ENTRY newEntry = new IRP_ENTRY();
             if (newEntry != NULL) {
@@ -1165,6 +1237,9 @@ Return Value:
 
     // VMM Cleanup
     OwlyVmmUninitialize();
+
+    // RedDbg control-device cleanup
+    RedDbgStopStandaloneControlDriver();
 
     // Registry Cleanup
     RegeditUnloadDriver();
@@ -1634,6 +1709,13 @@ FSProcessPreOperation(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECT
             DbgPrint("FsFilter: IRP READ NOCALLBACK LENGTH IS ZERO! \n");
             return FLT_PREOP_SUCCESS_NO_CALLBACK;
         }
+        if (FSShouldBypassReadTelemetry(Data))
+        {
+            delete newEntry;
+            if (IS_DEBUG_IRP)
+                DbgPrint("!!! FsFilter: Skipping post-read telemetry for paging/kernel MM read path\n");
+            return FLT_PREOP_SUCCESS_NO_CALLBACK;
+        }
         // Keeping user's DbgPrint here
         if (IS_DEBUG_IRP)
             DbgPrint("!!! FsFilter: Preop IRP_MJ_READ, return with postop \n");
@@ -1911,6 +1993,11 @@ Return Value:
              return FLT_POSTOP_FINISHED_PROCESSING;
         }
 
+        if (FSShouldBypassReadTelemetry(Data)) {
+            delete (PIRP_ENTRY)CompletionContext;
+            return FLT_POSTOP_FINISHED_PROCESSING;
+        }
+
         if (Data->Iopb->Parameters.Read.Length == 0)
         {
             // FIX: 'newEntry' is undefined here. We delete the context passed in.
@@ -2103,6 +2190,12 @@ FSProcessPostReadIrp(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECTS
 
     PIRP_ENTRY entry = (PIRP_ENTRY)CompletionContext;
 
+    if (FSShouldBypassReadTelemetry(Data))
+    {
+        delete entry;
+        return FLT_POSTOP_FINISHED_PROCESSING;
+    }
+
     if (driverData->isFilterClosed() || IsCommClosed())
     {
         if (IS_DEBUG_IRP)
@@ -2134,26 +2227,36 @@ FSProcessPostReadIrp(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECTS
         }
         else
         {
-            Data->IoStatus.Status = STATUS_INTERNAL_ERROR;
-            Data->IoStatus.Information = 0;
-            delete entry;
-            return status;
+            entry->data.isEntropyCalc = FALSE;
+            entry->data.Entropy = 0;
+            entry->data.MemSizeUsed = (ULONG)Data->IoStatus.Information;
+            if (!driverData->AddIrpMessage(entry))
+            {
+                delete entry;
+            }
+            return FLT_POSTOP_FINISHED_PROCESSING;
         }
     }
     if (!ReadBuffer)
     {
-        delete entry;
-        Data->IoStatus.Status = STATUS_INSUFFICIENT_RESOURCES;
-        Data->IoStatus.Information = 0;
+        entry->data.isEntropyCalc = FALSE;
+        entry->data.Entropy = 0;
+        entry->data.MemSizeUsed = (ULONG)Data->IoStatus.Information;
+        if (!driverData->AddIrpMessage(entry))
+        {
+            delete entry;
+        }
         return FLT_POSTOP_FINISHED_PROCESSING;
     }
     entry->data.MemSizeUsed = (ULONG)Data->IoStatus.Information; // successful read data
     // we catch EXCEPTION_EXECUTE_HANDLER so to prevent crash when calculating
     KFLOATING_SAVE floatingSave;
+    BOOLEAN fpuStateSaved = FALSE;
     NTSTATUS fpStatus = KeSaveFloatingPointState(&floatingSave);
 
     if (NT_SUCCESS(fpStatus))
     {
+        fpuStateSaved = TRUE;
         __try
         {
             entry->data.Entropy = shannonEntropy((PUCHAR)ReadBuffer, Data->IoStatus.Information);
@@ -2161,14 +2264,14 @@ FSProcessPostReadIrp(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECTS
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
-            KeRestoreFloatingPointState(&floatingSave);
-            delete entry;
-            // fail the irp request
-            Data->IoStatus.Status = STATUS_INTERNAL_ERROR;
-            Data->IoStatus.Information = 0;
-            return FLT_POSTOP_FINISHED_PROCESSING;
+            entry->data.isEntropyCalc = FALSE;
+            entry->data.Entropy = 0;
         }
-        KeRestoreFloatingPointState(&floatingSave);
+        if (fpuStateSaved)
+        {
+            KeRestoreFloatingPointState(&floatingSave);
+            fpuStateSaved = FALSE;
+        }
     }
     else
     {
@@ -2199,6 +2302,11 @@ FSProcessPostReadSafe(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECT
     if (entry == nullptr) {
         return FLT_POSTOP_FINISHED_PROCESSING;
     }
+    if (FSShouldBypassReadTelemetry(Data))
+    {
+        delete entry;
+        return FLT_POSTOP_FINISHED_PROCESSING;
+    }
     ASSERT(entry != nullptr);
     status = FltLockUserBuffer(Data);
     if (NT_SUCCESS(status))
@@ -2210,10 +2318,12 @@ FSProcessPostReadSafe(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECT
             entry->data.MemSizeUsed = Data->IoStatus.Information; // successful read data.
 
             KFLOATING_SAVE floatingSave;
+            BOOLEAN fpuStateSaved = FALSE;
             NTSTATUS fpStatus = KeSaveFloatingPointState(&floatingSave);
 
             if(NT_SUCCESS(fpStatus))
             {
+                fpuStateSaved = TRUE;
                 __try
                 {
                     entry->data.Entropy = shannonEntropy((PUCHAR)ReadBuffer, Data->IoStatus.Information);
@@ -2221,13 +2331,16 @@ FSProcessPostReadSafe(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECT
                 }
                 __except (EXCEPTION_EXECUTE_HANDLER)
                 {
-                    KeRestoreFloatingPointState(&floatingSave);
                     // Entropy calculation failed. Reset flags.
                     entry->data.isEntropyCalc = FALSE;
                     entry->data.Entropy = 0;
                     status = STATUS_INTERNAL_ERROR; // Indicate an internal error happened
                 }
-                KeRestoreFloatingPointState(&floatingSave);
+                if (fpuStateSaved)
+                {
+                    KeRestoreFloatingPointState(&floatingSave);
+                    fpuStateSaved = FALSE;
+                }
             }
             else
             {
@@ -2249,7 +2362,13 @@ FSProcessPostReadSafe(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECT
         } // End of if (ReadBuffer != NULL)
 
     }
-    delete entry;
+    entry->data.isEntropyCalc = FALSE;
+    entry->data.Entropy = 0;
+    entry->data.MemSizeUsed = (ULONG)Data->IoStatus.Information;
+    if (!driverData->AddIrpMessage(entry))
+    {
+        delete entry;
+    }
     return FLT_POSTOP_FINISHED_PROCESSING;
 }
 

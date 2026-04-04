@@ -120,6 +120,16 @@ NTSTATUS OnThreadCreation(
     _In_ PVOID StartRoutine
 );
 
+VOID NoteRemoteThreadCandidate(
+    _In_ ULONG SourcePid,
+    _In_ ULONG TargetPid
+);
+
+BOOLEAN ResolveRemoteThreadCandidate(
+    _In_ ULONG TargetPid,
+    _Out_ PULONG SourcePid
+);
+
 NTSTATUS OnApcQueueing(
     _In_ ULONG SourcePid,
     _In_ ULONG TargetPid,

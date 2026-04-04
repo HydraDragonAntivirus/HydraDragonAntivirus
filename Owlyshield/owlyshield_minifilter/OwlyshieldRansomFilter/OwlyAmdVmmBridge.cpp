@@ -45,9 +45,20 @@ namespace
     {
         CPUID_REGS regs = {};
 
+        if (KD_DEBUGGER_ENABLED != FALSE && KD_DEBUGGER_NOT_PRESENT == FALSE)
+        {
+            return DEBUGGER_ERROR_SVM_INITIALIZATION_STAGE_FAILED;
+        }
+
         if (OwlyAmdQueryCpuVendor() != CpuVendor::CpuAmd)
         {
             return DEBUGGER_ERROR_SVM_UNSUPPORTED_CPU_VENDOR;
+        }
+
+        __cpuid(regs.Raw, CPUID::Generic::CPUID_FEATURE_INFORMATION);
+        if ((regs.Regs.Ecx & (1u << 31)) != 0)
+        {
+            return DEBUGGER_ERROR_SVM_INITIALIZATION_STAGE_FAILED;
         }
 
         __cpuid(regs.Raw, CPUID::AMD::CPUID_EXTENDED_FEATURE_INFORMATION);

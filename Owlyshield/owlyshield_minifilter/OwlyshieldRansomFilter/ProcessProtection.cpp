@@ -683,6 +683,20 @@ static PVOID g_ObRegistrationHandle = NULL;
 static POB_CALLBACK_REGISTRATION g_ObReg = NULL;
 static POB_OPERATION_REGISTRATION g_OpReg = NULL;
 
+#define REMOTE_THREAD_CANDIDATE_SLOTS 64
+#define REMOTE_THREAD_CANDIDATE_WINDOW_100NS (1ull * 10ull * 1000ull * 1000ull)
+
+typedef struct _REMOTE_THREAD_CANDIDATE
+{
+    ULONG SourcePid;
+    ULONG TargetPid;
+    ULONGLONG LastSeenTime100ns;
+} REMOTE_THREAD_CANDIDATE, *PREMOTE_THREAD_CANDIDATE;
+
+static REMOTE_THREAD_CANDIDATE g_RemoteThreadCandidates[REMOTE_THREAD_CANDIDATE_SLOTS] = {0};
+static KSPIN_LOCK g_RemoteThreadCandidateLock;
+static BOOLEAN g_RemoteThreadCandidateLockInitialized = FALSE;
+
 //
 // --- Forward Declarations ---
 //
@@ -693,6 +707,8 @@ OB_PREOP_CALLBACK_STATUS ProcessHandlePreCallback(_In_ PVOID RegistrationContext
 NTSTATUS QueueTerminationAttemptToUserMode(PEPROCESS AttackerProcess, PEPROCESS TargetProcess);
 
 BOOLEAN IsSystemProcessPP(PEPROCESS Process);
+VOID NoteRemoteThreadCandidate(_In_ ULONG SourcePid, _In_ ULONG TargetPid);
+BOOLEAN ResolveRemoteThreadCandidate(_In_ ULONG TargetPid, _Out_ PULONG SourcePid);
 
 //
 // --- Initialization and Cleanup ---
@@ -755,6 +771,10 @@ NTSTATUS InitProcessProtection()
         return status;
     }
 
+    KeInitializeSpinLock(&g_RemoteThreadCandidateLock);
+    RtlZeroMemory(g_RemoteThreadCandidates, sizeof(g_RemoteThreadCandidates));
+    g_RemoteThreadCandidateLockInitialized = TRUE;
+
     EnsureProcessProtectionExcludeRulesLoaded();
     DbgPrint("!!! ProcessProtection: ObRegisterCallbacks succeeded\n");
     return STATUS_SUCCESS;
@@ -780,6 +800,15 @@ VOID UninitProcessProtection()
     {
         ExFreePoolWithTag(g_ObReg, 'ppCr');
         g_ObReg = NULL;
+    }
+
+    if (g_RemoteThreadCandidateLockInitialized)
+    {
+        KIRQL oldIrql;
+        KeAcquireSpinLock(&g_RemoteThreadCandidateLock, &oldIrql);
+        RtlZeroMemory(g_RemoteThreadCandidates, sizeof(g_RemoteThreadCandidates));
+        KeReleaseSpinLock(&g_RemoteThreadCandidateLock, oldIrql);
+        g_RemoteThreadCandidateLockInitialized = FALSE;
     }
 
     EnsureProcessProtectionRuleMutex();
@@ -861,8 +890,118 @@ OB_PREOP_CALLBACK_STATUS ProcessHandlePreCallback(_In_ PVOID RegistrationContext
                                  (UCHAR)pOperationInformation->Operation);
     }
 
+    if ((desiredAccess & PROCESS_CREATE_THREAD) != 0 && callerPid != targetPid)
+    {
+        NoteRemoteThreadCandidate(callerPid, targetPid);
+    }
+
     // Always allow the operation to proceed - we're just observing
     return OB_PREOP_SUCCESS;
+}
+
+VOID NoteRemoteThreadCandidate(_In_ ULONG SourcePid, _In_ ULONG TargetPid)
+{
+    KIRQL oldIrql;
+    ULONGLONG now;
+    ULONG replaceIndex = 0;
+    ULONGLONG oldestSeen = ~0ull;
+    ULONG i;
+
+    if (!g_RemoteThreadCandidateLockInitialized || SourcePid == 0 || TargetPid == 0 || SourcePid == TargetPid)
+    {
+        return;
+    }
+
+    now = KeQueryInterruptTime();
+
+    KeAcquireSpinLock(&g_RemoteThreadCandidateLock, &oldIrql);
+
+    for (i = 0; i < RTL_NUMBER_OF(g_RemoteThreadCandidates); ++i)
+    {
+        PREMOTE_THREAD_CANDIDATE slot = &g_RemoteThreadCandidates[i];
+
+        if (slot->TargetPid == TargetPid && slot->SourcePid == SourcePid)
+        {
+            slot->LastSeenTime100ns = now;
+            KeReleaseSpinLock(&g_RemoteThreadCandidateLock, oldIrql);
+            return;
+        }
+
+        if (slot->TargetPid == 0 || (now - slot->LastSeenTime100ns) > REMOTE_THREAD_CANDIDATE_WINDOW_100NS)
+        {
+            replaceIndex = i;
+            oldestSeen = 0;
+            break;
+        }
+
+        if (slot->LastSeenTime100ns < oldestSeen)
+        {
+            oldestSeen = slot->LastSeenTime100ns;
+            replaceIndex = i;
+        }
+    }
+
+    g_RemoteThreadCandidates[replaceIndex].SourcePid = SourcePid;
+    g_RemoteThreadCandidates[replaceIndex].TargetPid = TargetPid;
+    g_RemoteThreadCandidates[replaceIndex].LastSeenTime100ns = now;
+
+    KeReleaseSpinLock(&g_RemoteThreadCandidateLock, oldIrql);
+}
+
+BOOLEAN ResolveRemoteThreadCandidate(_In_ ULONG TargetPid, _Out_ PULONG SourcePid)
+{
+    KIRQL oldIrql;
+    ULONGLONG now;
+    ULONGLONG newestSeen = 0;
+    ULONG resolvedSource = 0;
+    ULONG i;
+
+    if (SourcePid == NULL)
+    {
+        return FALSE;
+    }
+
+    *SourcePid = 0;
+    if (!g_RemoteThreadCandidateLockInitialized || TargetPid == 0)
+    {
+        return FALSE;
+    }
+
+    now = KeQueryInterruptTime();
+
+    KeAcquireSpinLock(&g_RemoteThreadCandidateLock, &oldIrql);
+
+    for (i = 0; i < RTL_NUMBER_OF(g_RemoteThreadCandidates); ++i)
+    {
+        PREMOTE_THREAD_CANDIDATE slot = &g_RemoteThreadCandidates[i];
+
+        if (slot->TargetPid == 0)
+        {
+            continue;
+        }
+
+        if ((now - slot->LastSeenTime100ns) > REMOTE_THREAD_CANDIDATE_WINDOW_100NS)
+        {
+            RtlZeroMemory(slot, sizeof(*slot));
+            continue;
+        }
+
+        if (slot->TargetPid == TargetPid && slot->LastSeenTime100ns >= newestSeen)
+        {
+            newestSeen = slot->LastSeenTime100ns;
+            resolvedSource = slot->SourcePid;
+        }
+    }
+
+    KeReleaseSpinLock(&g_RemoteThreadCandidateLock, oldIrql);
+
+    if (resolvedSource == 0 || resolvedSource == TargetPid)
+    {
+        return FALSE;
+    }
+
+    *SourcePid = resolvedSource;
+    return TRUE;
 }
 
 //

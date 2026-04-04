@@ -243,9 +243,14 @@ bool HyperVisorSvm::IsSvmSupported()
 {
     CPUID_REGS Regs = {};
 
+    if (KD_DEBUGGER_ENABLED != FALSE && KD_DEBUGGER_NOT_PRESENT == FALSE) return false;
+
     // Check the 'AuthenticAMD' vendor name:
     __cpuid(Regs.Raw, CPUID::Generic::CPUID_MAXIMUM_FUNCTION_NUMBER_AND_VENDOR_ID);
     if (Regs.Regs.Ebx != AmdEnc::AEbx || Regs.Regs.Edx != AmdEnc::AEdx || Regs.Regs.Ecx != AmdEnc::AEcx) return false;
+
+    __cpuid(Regs.Raw, CPUID::Generic::CPUID_FEATURE_INFORMATION);
+    if ((Regs.Regs.Ecx & (1u << 31)) != 0) return false;
 
     // Check the AMD SVM (AMD-V) support:
     constexpr unsigned int CPUID_FN80000001_ECX_SVM = 1 << 2;

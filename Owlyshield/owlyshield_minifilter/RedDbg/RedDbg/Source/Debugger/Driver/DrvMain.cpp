@@ -18,6 +18,16 @@ Transparent objTransparent;
 
 static BOOLEAN g_RedDbgCoreInitialized = FALSE;
 static BOOLEAN g_RedDbgControlDeviceCreated = FALSE;
+static PDEVICE_OBJECT g_RedDbgControlDeviceObject = NULL;
+static PDRIVER_OBJECT g_RedDbgStandaloneDriverObject = NULL;
+
+typedef NTSTATUS(NTAPI* PIO_CREATE_DRIVER)(
+	_In_opt_ PUNICODE_STRING DriverName,
+	_In_ PDRIVER_INITIALIZE InitializationFunction);
+
+static PIO_CREATE_DRIVER g_RedDbgIoCreateDriver = NULL;
+
+extern "C" NTSTATUS RedDbgDriverEntry(_In_ PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegisterPath);
 
 bool TransparentMode = true;
 
@@ -344,9 +354,34 @@ extern "C" SVM::VMM_STATUS RedDbgSvmVmexitHandler(
 //Define in asm file(in my example)
 extern "C" void SvmVmmRun(_In_ void* InitialVmmStackPointer);
 
+static VOID RedDbgCleanupControlDevice(VOID)
+{
+	UNICODE_STRING DosDeviceName;
+
+	RtlInitUnicodeString(&DosDeviceName, L"\\DosDevices\\MyHypervisorDevice");
+	IoDeleteSymbolicLink(&DosDeviceName);
+
+	if (g_RedDbgControlDeviceObject == NULL && g_RedDbgStandaloneDriverObject != NULL)
+	{
+		g_RedDbgControlDeviceObject = g_RedDbgStandaloneDriverObject->DeviceObject;
+	}
+
+	if (g_RedDbgControlDeviceObject != NULL)
+	{
+		IoDeleteDevice(g_RedDbgControlDeviceObject);
+		g_RedDbgControlDeviceObject = NULL;
+	}
+
+	g_RedDbgControlDeviceCreated = FALSE;
+}
+
 void DrvUnload(_In_ PDRIVER_OBJECT DriverObj)
 {
-	UNREFERENCED_PARAMETER(DriverObj);
+	RedDbgCleanupControlDevice();
+	if (DriverObj == g_RedDbgStandaloneDriverObject)
+	{
+		g_RedDbgStandaloneDriverObject = NULL;
+	}
 	KdPrint(("Sample driver Unload called\n"));
 }
 
@@ -363,9 +398,29 @@ NTSTATUS DrvUnsupported(PDEVICE_OBJECT DeviceObject, PIRP Irp)
 NTSTATUS DrvCreate(PDEVICE_OBJECT DeviceObject, PIRP Irp)
 {
 	UNREFERENCED_PARAMETER(DeviceObject);
+	CPUID_REGS regs = {};
 
 	objHyperVisorSvm.PInterceptions = &Interceptions;
 	objHyperVisorSvm.PSvmVmmRun = &SvmVmmRun;
+
+	if (KD_DEBUGGER_ENABLED != FALSE && KD_DEBUGGER_NOT_PRESENT == FALSE)
+	{
+		KdPrint(("RedDbg: skipping SVM virtualization while a kernel debugger is attached\n"));
+		Irp->IoStatus.Status = STATUS_SUCCESS;
+		Irp->IoStatus.Information = 0;
+		IoCompleteRequest(Irp, IO_NO_INCREMENT);
+		return STATUS_SUCCESS;
+	}
+
+	__cpuid(regs.Raw, CPUID::Generic::CPUID_FEATURE_INFORMATION);
+	if ((regs.Regs.Ecx & (1u << 31)) != 0)
+	{
+		KdPrint(("RedDbg: skipping SVM virtualization because another hypervisor is already present\n"));
+		Irp->IoStatus.Status = STATUS_SUCCESS;
+		Irp->IoStatus.Information = 0;
+		IoCompleteRequest(Irp, IO_NO_INCREMENT);
+		return STATUS_SUCCESS;
+	}
 
 	if (objHyperVisorSvm.IsSvmSupported()) 
 	{ 
@@ -599,6 +654,7 @@ static NTSTATUS RedDbgRegisterControlDevice(_In_ PDRIVER_OBJECT DriverObject)
 			return Ntstatus;
 		}
 
+		g_RedDbgControlDeviceObject = DeviceObject;
 		g_RedDbgControlDeviceCreated = TRUE;
 		return STATUS_SUCCESS;
 	}
@@ -611,11 +667,51 @@ extern "C" NTSTATUS RedDbgInitializeEmbedded(VOID)
 	return RedDbgInitializeCore();
 }
 
+static NTSTATUS RedDbgStandaloneDriverInit(_In_ PDRIVER_OBJECT DriverObject, _In_ PUNICODE_STRING RegisterPath)
+{
+	g_RedDbgStandaloneDriverObject = DriverObject;
+	return RedDbgDriverEntry(DriverObject, RegisterPath);
+}
+
+extern "C" NTSTATUS RedDbgStartStandaloneControlDriver(VOID)
+{
+	UNICODE_STRING routineName;
+
+	if (g_RedDbgControlDeviceCreated)
+	{
+		return STATUS_SUCCESS;
+	}
+
+	if (g_RedDbgIoCreateDriver == NULL)
+	{
+		RtlInitUnicodeString(&routineName, L"IoCreateDriver");
+		g_RedDbgIoCreateDriver = (PIO_CREATE_DRIVER)MmGetSystemRoutineAddress(&routineName);
+		if (g_RedDbgIoCreateDriver == NULL)
+		{
+			return STATUS_NOT_IMPLEMENTED;
+		}
+	}
+
+	return g_RedDbgIoCreateDriver(NULL, RedDbgStandaloneDriverInit);
+}
+
+extern "C" VOID RedDbgStopStandaloneControlDriver(VOID)
+{
+	RedDbgCleanupControlDevice();
+
+	if (g_RedDbgStandaloneDriverObject != NULL)
+	{
+		ObMakeTemporaryObject(g_RedDbgStandaloneDriverObject);
+		ObDereferenceObject(g_RedDbgStandaloneDriverObject);
+		g_RedDbgStandaloneDriverObject = NULL;
+	}
+}
+
 extern "C" NTSTATUS RedDbgDriverEntry(_In_ PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegisterPath)
 {
 	UNREFERENCED_PARAMETER(RegisterPath);
 
-	NTSTATUS status = RedDbgInitializeCore();
+	NTSTATUS status = RedDbgInitializeEmbedded();
 	if (!NT_SUCCESS(status))
 	{
 		return status;
