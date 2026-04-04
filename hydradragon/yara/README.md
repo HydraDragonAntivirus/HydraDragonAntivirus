@@ -19,7 +19,7 @@
   `py -3.12 false_positive_remover.py -y . -f D:\benign_samples -s --skip-yara-files`
 
 - Limit worker count for slower machines or smaller test runs:
-  `py -3.12 false_positive_remover.py -y machine_learning_pe.yar -f D:\benign_samples --workers 4`
+  `py -3.12 false_positive_remover.py -y valhalla-rules.yar -f D:\benign_samples --workers 4`
 
 - Scan only one rule pack and skip YARA artifacts in a mixed folder:
   `py -3.12 false_positive_remover.py -y WindowsDefender.yar -f C:\ --skip-yara-files`
