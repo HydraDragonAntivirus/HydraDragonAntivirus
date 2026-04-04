@@ -22,7 +22,7 @@
   `py -3.12 false_positive_remover.py -y machine_learning_pe.yar -f D:\benign_samples --workers 4`
 
 - Scan only one rule pack and skip YARA artifacts in a mixed folder:
-  `py -3.12 false_positive_remover.py -y WindowsDefender.yar -f D:\mixed_clean_files --skip-yara-files`
+  `py -3.12 false_positive_remover.py -y WindowsDefender.yar -f C:\ --skip-yara-files`
 
 - Output:
   The script logs matched false-positive rules in `removal.log` and removes those rules from the target YARA file or directory.
