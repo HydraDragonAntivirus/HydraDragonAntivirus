@@ -30,3 +30,8 @@ py -3.12 false_positive_remover.py -y <YARA_DIR> -s --from-log
 
 - Output:
   The script logs matched false-positive rules in `removal.log` and removes those rules from the target YARA file or directory.
+
+# For a single file
+python yara_utils_pro_cli.py -f rules/generated_rules.yar --fix-limits
+# For a whole directory (recursive)
+python yara_utils_pro_cli.py -d ./rules -r --fix-limits
