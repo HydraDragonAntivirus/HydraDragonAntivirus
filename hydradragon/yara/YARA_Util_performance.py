@@ -20,10 +20,10 @@ def build_cli_parser():
     slow_group.add_argument("--input-file", dest="input_rules", required=True, help="Input YARA rules file to check for slow rules.")
     slow_group.add_argument("-y", "--yarac", dest="yarac_path", default="yarac64.exe",
                            help="Path to yarac64.exe (default: yarac64.exe)")
-    slow_group.add_argument("--clean-file", dest="clean_file", default="clean_rules.yar",
+    slow_group.add_argument("--clean-file", dest="clean_file", default="clean_rules_out.yar",
                            help="Output file for clean (non-slow) rules.")
-    slow_group.add_argument("--slow-file", dest="slow_file", default="bad_rules.yar",
-                           help="Output file for slow/bad rules (default: bad_rules.yar).")
+    slow_group.add_argument("--slow-file", dest="slow_file", default="bad_rules_out.yar",
+                           help="Output file for slow/bad rules (default: bad_rules_out.yar).")
     slow_group.add_argument("--compiled-output", dest="compiled_output", default=None,
                            help="Save the compiled YARA output to this file.")
     slow_group.add_argument("--save-warnings", dest="save_warnings", default=None,
