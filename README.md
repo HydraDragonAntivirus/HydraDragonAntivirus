@@ -25,6 +25,15 @@
   />
 </p>
 
+<p>
+  <img
+    src="hydradragon/assets/OpenEDR.jpg"
+    width="1024"
+    alt="OpenEDR"
+  />
+</p>
+
+
 <h1 align="center" style="color: red;">
     WARNING: ACTIVE DEVELOPMENT IN PROGRESS  
 </h1>
@@ -116,7 +125,7 @@ At this stage:
 - Breaking changes may occur without prior notice.
 - This project is **not production-ready** and should be used for development and testing purposes only.
 
-- Dynamic and static analysis with Real Time Malware/Executable Analysis Platform for Windows, including open-source XDR (2 EDR projects), ClamAV, YARA-X, machine learning AI, behavioral analysis, Unpacker, Deobfuscator, Decompiler, website signatures, Ghidra, Suricata, Sigma, Kernel, Hypervisior based protection and much more than you can imagine.
+- Dynamic and static analysis with Real Time Malware/Executable Analysis Platform for Windows, including open-source XDR (3 EDR projects), ClamAV, YARA-X, machine learning AI, behavioral analysis, Unpacker, Deobfuscator, Decompiler, website signatures, Ghidra, Suricata, Sigma, Kernel, Hypervisior based protection and much more than you can imagine.
 - HydraDragonAntivirus Platform - Unified Executable Analysis & Detection Framework
 
 ## License

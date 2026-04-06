@@ -204,38 +204,53 @@ static VOID FSEnsurePyasRuleMutex(VOID)
     KeMemoryBarrier();
 }
 
-static VOID FSFreePyasWhitelistRulesUnlocked(VOID)
+static VOID FSFreePyasRuleSetStorage(_Inout_ PPYAS_WHITELIST_RULE_SET RuleSet)
 {
-    if (g_PyasWhitelistRules.Rules != NULL)
+    if (RuleSet == NULL)
     {
-        for (ULONG i = 0; i < g_PyasWhitelistRules.Count; ++i)
+        return;
+    }
+
+    if (RuleSet->Rules != NULL)
+    {
+        for (ULONG i = 0; i < RuleSet->Count; ++i)
         {
-            PWSTR rule = g_PyasWhitelistRules.Rules[i];
+            PWSTR rule = RuleSet->Rules[i];
             if (rule != NULL)
             {
                 ExFreePoolWithTag(rule, PYAS_RULE_POOL_TAG);
             }
         }
-        ExFreePoolWithTag(g_PyasWhitelistRules.Rules, PYAS_RULE_POOL_TAG);
+        ExFreePoolWithTag(RuleSet->Rules, PYAS_RULE_POOL_TAG);
     }
 
-    g_PyasWhitelistRules.Rules = NULL;
-    g_PyasWhitelistRules.Count = 0;
-    g_PyasWhitelistRules.Capacity = 0;
+    RuleSet->Rules = NULL;
+    RuleSet->Count = 0;
+    RuleSet->Capacity = 0;
 }
 
-static NTSTATUS FSEnsurePyasRuleCapacityUnlocked(_In_ ULONG RequiredCount)
+static VOID FSFreePyasWhitelistRulesUnlocked(VOID)
+{
+    FSFreePyasRuleSetStorage(&g_PyasWhitelistRules);
+}
+
+static NTSTATUS FSEnsurePyasRuleCapacityForSet(_Inout_ PPYAS_WHITELIST_RULE_SET RuleSet, _In_ ULONG RequiredCount)
 {
     PWSTR *newArray;
     SIZE_T allocSize;
     ULONG newCapacity;
 
-    if (g_PyasWhitelistRules.Capacity >= RequiredCount)
+    if (RuleSet == NULL)
+    {
+        return STATUS_INVALID_PARAMETER;
+    }
+
+    if (RuleSet->Capacity >= RequiredCount)
     {
         return STATUS_SUCCESS;
     }
 
-    newCapacity = (g_PyasWhitelistRules.Capacity == 0) ? 8 : g_PyasWhitelistRules.Capacity * 2;
+    newCapacity = (RuleSet->Capacity == 0) ? 8 : RuleSet->Capacity * 2;
     if (newCapacity < RequiredCount)
     {
         newCapacity = RequiredCount;
@@ -249,22 +264,29 @@ static NTSTATUS FSEnsurePyasRuleCapacityUnlocked(_In_ ULONG RequiredCount)
     }
 
     RtlZeroMemory(newArray, allocSize);
-    if (g_PyasWhitelistRules.Rules != NULL && g_PyasWhitelistRules.Count > 0)
+    if (RuleSet->Rules != NULL && RuleSet->Count > 0)
     {
-        RtlCopyMemory(newArray, g_PyasWhitelistRules.Rules, sizeof(PWSTR) * g_PyasWhitelistRules.Count);
-        ExFreePoolWithTag(g_PyasWhitelistRules.Rules, PYAS_RULE_POOL_TAG);
+        RtlCopyMemory(newArray, RuleSet->Rules, sizeof(PWSTR) * RuleSet->Count);
+        ExFreePoolWithTag(RuleSet->Rules, PYAS_RULE_POOL_TAG);
     }
 
-    g_PyasWhitelistRules.Rules = newArray;
-    g_PyasWhitelistRules.Capacity = newCapacity;
+    RuleSet->Rules = newArray;
+    RuleSet->Capacity = newCapacity;
     return STATUS_SUCCESS;
 }
 
-static NTSTATUS FSAddPyasWhitelistRuleNormalizedUnlocked(_In_reads_(RuleChars) PCWSTR RuleText, _In_ SIZE_T RuleChars)
+static NTSTATUS FSAddPyasWhitelistRuleNormalizedToSet(_Inout_ PPYAS_WHITELIST_RULE_SET RuleSet,
+                                                      _In_reads_(RuleChars) PCWSTR RuleText,
+                                                      _In_ SIZE_T RuleChars)
 {
     WCHAR normalizedLine[PYAS_RULE_MAX_LINE_CHARS];
     SIZE_T lineLen = 0;
     NTSTATUS status;
+
+    if (RuleSet == NULL)
+    {
+        return STATUS_INVALID_PARAMETER;
+    }
 
     if (!OwlyNormalizeRuleLineForMatch(RuleText,
                                        RuleChars,
@@ -277,15 +299,15 @@ static NTSTATUS FSAddPyasWhitelistRuleNormalizedUnlocked(_In_reads_(RuleChars) P
         return STATUS_SUCCESS;
     }
 
-    for (ULONG i = 0; i < g_PyasWhitelistRules.Count; ++i)
+    for (ULONG i = 0; i < RuleSet->Count; ++i)
     {
-        if (_wcsicmp(g_PyasWhitelistRules.Rules[i], normalizedLine) == 0)
+        if (_wcsicmp(RuleSet->Rules[i], normalizedLine) == 0)
         {
             return STATUS_SUCCESS;
         }
     }
 
-    status = FSEnsurePyasRuleCapacityUnlocked(g_PyasWhitelistRules.Count + 1);
+    status = FSEnsurePyasRuleCapacityForSet(RuleSet, RuleSet->Count + 1);
     if (!NT_SUCCESS(status))
     {
         return status;
@@ -302,14 +324,21 @@ static NTSTATUS FSAddPyasWhitelistRuleNormalizedUnlocked(_In_reads_(RuleChars) P
         RtlZeroMemory(newRule, allocSize);
         RtlCopyMemory(newRule, normalizedLine, lineLen * sizeof(WCHAR));
         newRule[lineLen] = L'\0';
-        g_PyasWhitelistRules.Rules[g_PyasWhitelistRules.Count++] = newRule;
+        RuleSet->Rules[RuleSet->Count++] = newRule;
     }
 
     return STATUS_SUCCESS;
 }
 
-static NTSTATUS FSAppendPyasRulesFromBufferUnlocked(_In_reads_bytes_(BytesRead) PUCHAR Buffer, _In_ ULONG BytesRead)
+static NTSTATUS FSAppendPyasRulesFromBufferToSet(_Inout_ PPYAS_WHITELIST_RULE_SET RuleSet,
+                                                 _In_reads_bytes_(BytesRead) PUCHAR Buffer,
+                                                 _In_ ULONG BytesRead)
 {
+    if (RuleSet == NULL)
+    {
+        return STATUS_INVALID_PARAMETER;
+    }
+
     if (Buffer == NULL || BytesRead == 0)
     {
         return STATUS_SUCCESS;
@@ -327,7 +356,7 @@ static NTSTATUS FSAppendPyasRulesFromBufferUnlocked(_In_reads_bytes_(BytesRead) 
             {
                 if (i > start)
                 {
-                    (VOID)FSAddPyasWhitelistRuleNormalizedUnlocked(&utf16Buffer[start], i - start);
+                    (VOID)FSAddPyasWhitelistRuleNormalizedToSet(RuleSet, &utf16Buffer[start], i - start);
                 }
                 start = i + 1;
             }
@@ -351,7 +380,7 @@ static NTSTATUS FSAppendPyasRulesFromBufferUnlocked(_In_reads_bytes_(BytesRead) 
                         lineBuffer[lineLen++] = (WCHAR)Buffer[j];
                     }
                     lineBuffer[lineLen] = L'\0';
-                    (VOID)FSAddPyasWhitelistRuleNormalizedUnlocked(lineBuffer, lineLen);
+                    (VOID)FSAddPyasWhitelistRuleNormalizedToSet(RuleSet, lineBuffer, lineLen);
                 }
                 start = i + 1;
             }
@@ -361,7 +390,8 @@ static NTSTATUS FSAppendPyasRulesFromBufferUnlocked(_In_reads_bytes_(BytesRead) 
     return STATUS_SUCCESS;
 }
 
-static NTSTATUS FSLoadPyasWhitelistRulesFromFileUnlocked(_In_ PCUNICODE_STRING FilePath)
+static NTSTATUS FSLoadPyasWhitelistRulesFromFileToSet(_Inout_ PPYAS_WHITELIST_RULE_SET RuleSet,
+                                                      _In_ PCUNICODE_STRING FilePath)
 {
     OBJECT_ATTRIBUTES oa;
     IO_STATUS_BLOCK ioStatus;
@@ -372,6 +402,11 @@ static NTSTATUS FSLoadPyasWhitelistRulesFromFileUnlocked(_In_ PCUNICODE_STRING F
     NTSTATUS status;
 
     if (FilePath == NULL || FilePath->Buffer == NULL || FilePath->Length == 0)
+    {
+        return STATUS_INVALID_PARAMETER;
+    }
+
+    if (RuleSet == NULL)
     {
         return STATUS_INVALID_PARAMETER;
     }
@@ -433,7 +468,7 @@ static NTSTATUS FSLoadPyasWhitelistRulesFromFileUnlocked(_In_ PCUNICODE_STRING F
                         NULL);
     if (NT_SUCCESS(status))
     {
-        (VOID)FSAppendPyasRulesFromBufferUnlocked(buffer, (ULONG)ioStatus.Information);
+        (VOID)FSAppendPyasRulesFromBufferToSet(RuleSet, buffer, (ULONG)ioStatus.Information);
     }
 
     ExFreePoolWithTag(buffer, PYAS_RULE_POOL_TAG);
@@ -443,6 +478,8 @@ static NTSTATUS FSLoadPyasWhitelistRulesFromFileUnlocked(_In_ PCUNICODE_STRING F
 
 static VOID FSLoadPyasWhitelistRules(VOID)
 {
+    PYAS_WHITELIST_RULE_SET stagedRules = {0};
+
     //
     // FIX: FAST_MUTEX raises IRQL to APC_LEVEL which disables kernel APCs.
     // ZwCreateFile with FILE_SYNCHRONOUS_IO_NONALERT needs a kernel APC to
@@ -464,18 +501,26 @@ static VOID FSLoadPyasWhitelistRules(VOID)
     NTSTATUS loadStatus;
     RtlInitUnicodeString(&ruleFilePath, OWLY_FSFILTER_RULE_FILE_KERNEL);
 
+    // File I/O happens here with no mutex held. Build a private snapshot first
+    // so live callbacks never walk a partially-updated rule array.
+    loadStatus = FSLoadPyasWhitelistRulesFromFileToSet(&stagedRules, &ruleFilePath);
+
+    // Publish the new snapshot in one short critical section. On reload,
+    // readers keep seeing the old cache until the replacement is ready.
     ExAcquireFastMutex(&g_PyasWhitelistRules.Mutex);
     FSFreePyasWhitelistRulesUnlocked();
-    ExReleaseFastMutex(&g_PyasWhitelistRules.Mutex);
-
-    // File I/O happens here with no mutex held
-    loadStatus = FSLoadPyasWhitelistRulesFromFileUnlocked(&ruleFilePath);
-
-    // Only latch the cache as loaded after a successful file read. If the
-    // rules file is not present yet, keep the cache retryable.
-    ExAcquireFastMutex(&g_PyasWhitelistRules.Mutex);
+    if (NT_SUCCESS(loadStatus))
+    {
+        g_PyasWhitelistRules.Rules = stagedRules.Rules;
+        g_PyasWhitelistRules.Count = stagedRules.Count;
+        g_PyasWhitelistRules.Capacity = stagedRules.Capacity;
+        stagedRules.Rules = NULL;
+        stagedRules.Count = 0;
+        stagedRules.Capacity = 0;
+    }
     g_PyasWhitelistRules.Loaded = NT_SUCCESS(loadStatus);
     ExReleaseFastMutex(&g_PyasWhitelistRules.Mutex);
+    FSFreePyasRuleSetStorage(&stagedRules);
 }
 
 static VOID FSCleanupPyasWhitelistRules(VOID)
@@ -2384,16 +2429,14 @@ FSShouldIgnorePyasWhitelistPath(_In_ PCUNICODE_STRING Path)
         return FALSE;
     }
 
-    if (KeGetCurrentIrql() == PASSIVE_LEVEL && !g_PyasWhitelistRules.Loaded)
-    {
-        FSLoadPyasWhitelistRules();
-    }
-
     if (!OwlyNormalizePathForMatch(Path, normalizedPathBuffer, &normalizedPath))
     {
         return FALSE;
     }
 
+    // Never issue ZwCreateFile/ZwReadFile from the minifilter callback path.
+    // The cache is populated at startup and refreshed explicitly through
+    // MESSAGE_RELOAD_EXCLUDE_RULES from user mode.
     FSEnsurePyasRuleMutex();
     ExAcquireFastMutex(&g_PyasWhitelistRules.Mutex);
     for (ULONG i = 0; i < g_PyasWhitelistRules.Count; ++i)
