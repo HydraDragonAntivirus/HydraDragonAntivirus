@@ -11,6 +11,7 @@
 /// @addtogroup netmon Network Monitor library
 /// @{
 #pragma once
+#include <windows.h>
 #include <atomic>
 #include <thread>
 
@@ -29,10 +30,23 @@ class NetFilterWrapper : public ObjectBase<CLSID_NetFilterWrapper>,
 {
 private:
 	inline static const wchar_t c_sDefaultPipeName[] = LR"(\\.\pipe\HydraNetEvent)";
+	inline static const wchar_t c_sDefaultFirewallBridgeDllName[] = L"hydradragonfirewall.dll";
 	inline static constexpr size_t c_nReadBufferSize = 8192;
+
+	using FnHydraDragonFirewallStart = int(__stdcall*)();
+	using FnHydraDragonFirewallStop = int(__stdcall*)();
+	using FnHydraDragonFirewallIsRunning = int(__stdcall*)();
+	using FnHydraDragonFirewallGetLastErrorMessage = size_t(__stdcall*)(char*, size_t);
 
 	ObjPtr<INetworkMonitorController> m_pNetMonController;
 	std::wstring m_sPipeName = c_sDefaultPipeName;
+	std::wstring m_sFirewallBridgeDllPath;
+	bool m_fEnableFirewallBridge = true;
+	HMODULE m_hFirewallBridge = nullptr;
+	FnHydraDragonFirewallStart m_fnFirewallStart = nullptr;
+	FnHydraDragonFirewallStop m_fnFirewallStop = nullptr;
+	FnHydraDragonFirewallIsRunning m_fnFirewallIsRunning = nullptr;
+	FnHydraDragonFirewallGetLastErrorMessage m_fnFirewallGetLastErrorMessage = nullptr;
 	std::atomic_bool m_fStarted = false;
 	std::atomic_bool m_fStopRequested = false;
 	std::thread m_pListenerThread;
@@ -44,6 +58,11 @@ private:
 	void processNetEventLine(const std::string& sPayload);
 	void processFullPacketLine(const std::string& sPayload);
 	void dispatchConnection(std::shared_ptr<ConnectionInfo> pInfo);
+	bool loadFirewallBridge();
+	void unloadFirewallBridge();
+	std::string getFirewallBridgeError() const;
+	void startFirewallBridge();
+	void stopFirewallBridge();
 
 protected:
 	NetFilterWrapper();

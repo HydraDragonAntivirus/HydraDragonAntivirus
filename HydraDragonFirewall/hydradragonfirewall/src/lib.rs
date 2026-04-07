@@ -1,4 +1,6 @@
 pub mod engine;
+#[cfg(target_os = "windows")]
+mod ffi;
 pub mod file_magic;
 pub mod http_parser;
 pub mod proxy;

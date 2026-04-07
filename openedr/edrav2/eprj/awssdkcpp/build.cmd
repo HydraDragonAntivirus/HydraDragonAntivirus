@@ -1,5 +1,37 @@
 @echo off
-setlocal
+setlocal EnableExtensions EnableDelayedExpansion
+
+for %%I in ("%~dp0.") do set "ScriptRoot=%%~fI"
+set "StageRoot=%SystemDrive%\aws_tmp\awssdkcpp"
+
+if /I not "%AWS_SDKCPP_SHORT_PATH_STAGE%"=="1" if /I not "%ScriptRoot%"=="%StageRoot%" (
+    echo [INFO] Staging AWS SDK build to "%StageRoot%" to avoid long-path failures...
+    if exist "%StageRoot%" rd /s /q "%StageRoot%"
+    robocopy "%ScriptRoot%" "%StageRoot%" /MIR /NFL /NDL /NJH /NJS /NP >nul
+    if errorlevel 8 (
+        echo [ERROR] Failed to stage AWS SDK sources.
+        exit /b !errorlevel!
+    )
+
+    pushd "%StageRoot%"
+    set "AWS_SDKCPP_SHORT_PATH_STAGE=1"
+    set "AWS_SDKCPP_ORIGINAL_ROOT=%ScriptRoot%"
+    call build.cmd
+    set "BuildRc=%errorlevel%"
+    popd
+
+    if not "%BuildRc%"=="0" exit /b %BuildRc%
+
+    robocopy "%StageRoot%\lib" "%AWS_SDKCPP_ORIGINAL_ROOT%\lib" /MIR /NFL /NDL /NJH /NJS /NP >nul
+    if errorlevel 8 (
+        echo [ERROR] Failed to copy staged AWS SDK artifacts back to "%AWS_SDKCPP_ORIGINAL_ROOT%\lib".
+        exit /b !errorlevel!
+    )
+
+    echo [INFO] AWS SDK artifacts copied back from short-path staging area.
+    exit /b 0
+)
+
 @set vcvarsall="%ProgramFiles%\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvarsall.bat"
 @set cmake=cmake -G "Visual Studio 17 2022"
 

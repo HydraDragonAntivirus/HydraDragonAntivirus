@@ -10,8 +10,10 @@
 #include "pch_win.h"
 #include "nfwrapper_win.h"
 
+#include <array>
 #include <chrono>
 #include <cstring>
+#include <filesystem>
 
 #undef CMD_COMPONENT
 #define CMD_COMPONENT "netmon"
@@ -65,6 +67,45 @@ std::shared_ptr<ConnectionInfo> createConnectionInfo(
 	return pInfo;
 }
 
+std::vector<std::filesystem::path> getFirewallBridgeCandidates(const std::wstring& sExplicitPath)
+{
+	std::vector<std::filesystem::path> result;
+	if (!sExplicitPath.empty())
+		result.emplace_back(sExplicitPath);
+
+	std::array<wchar_t, 32768> pBuffer = {};
+	const auto nLength = ::GetModuleFileNameW(nullptr, pBuffer.data(), static_cast<DWORD>(pBuffer.size()));
+	if (nLength == 0 || nLength >= pBuffer.size())
+		return result;
+
+	const std::filesystem::path currentExePath(pBuffer.data());
+	const auto currentExeDir = currentExePath.parent_path();
+	result.push_back(currentExeDir / L"hydradragonfirewall.dll");
+
+	const std::array<std::filesystem::path, 2> pRelativeCandidates = {
+		std::filesystem::path(LR"(HydraDragonFirewall\hydradragonfirewall\target\release\hydradragonfirewall.dll)"),
+		std::filesystem::path(LR"(HydraDragonFirewall\hydradragonfirewall\target\debug\hydradragonfirewall.dll)")
+	};
+
+	for (auto currentPath = currentExeDir; !currentPath.empty(); )
+	{
+		for (const auto& relativePath : pRelativeCandidates)
+			result.push_back(currentPath / relativePath);
+
+		const auto nextPath = currentPath.parent_path();
+		if (nextPath == currentPath)
+			break;
+		currentPath = nextPath;
+	}
+
+	return result;
+}
+
+std::string pathToUtf8(const std::filesystem::path& path)
+{
+	return std::string(string::convertWCharToUtf8(path.native()));
+}
+
 } // namespace
 
 NetFilterWrapper::NetFilterWrapper()
@@ -74,6 +115,7 @@ NetFilterWrapper::NetFilterWrapper()
 NetFilterWrapper::~NetFilterWrapper()
 {
 	stop();
+	unloadFirewallBridge();
 }
 
 void NetFilterWrapper::finalConstruct(Variant vConfig)
@@ -81,6 +123,121 @@ void NetFilterWrapper::finalConstruct(Variant vConfig)
 	CHECK_IN_SOURCE_LOCATION();
 	m_pNetMonController = queryInterface<INetworkMonitorController>(vConfig.get("controller"));
 	m_sPipeName = vConfig.get("pipeName", std::wstring(c_sDefaultPipeName));
+	m_fEnableFirewallBridge = vConfig.get("enableFirewallBridge", true);
+	m_sFirewallBridgeDllPath = vConfig.get("firewallBridgeDllPath", std::wstring());
+}
+
+bool NetFilterWrapper::loadFirewallBridge()
+{
+	if (m_hFirewallBridge != nullptr)
+		return m_fnFirewallStart != nullptr && m_fnFirewallStop != nullptr;
+
+	for (const auto& candidate : getFirewallBridgeCandidates(m_sFirewallBridgeDllPath))
+	{
+		std::error_code ec;
+		if (!std::filesystem::exists(candidate, ec) || ec)
+			continue;
+
+		HMODULE hBridge = ::LoadLibraryW(candidate.c_str());
+		if (hBridge == nullptr)
+			continue;
+
+		auto fnStart = reinterpret_cast<FnHydraDragonFirewallStart>(::GetProcAddress(hBridge, "HydraDragonFirewall_Start"));
+		auto fnStop = reinterpret_cast<FnHydraDragonFirewallStop>(::GetProcAddress(hBridge, "HydraDragonFirewall_Stop"));
+		auto fnIsRunning = reinterpret_cast<FnHydraDragonFirewallIsRunning>(::GetProcAddress(hBridge, "HydraDragonFirewall_IsRunning"));
+		auto fnGetLastError = reinterpret_cast<FnHydraDragonFirewallGetLastErrorMessage>(
+			::GetProcAddress(hBridge, "HydraDragonFirewall_GetLastErrorMessage"));
+		if (fnStart == nullptr || fnStop == nullptr)
+		{
+			::FreeLibrary(hBridge);
+			continue;
+		}
+
+		m_hFirewallBridge = hBridge;
+		m_fnFirewallStart = fnStart;
+		m_fnFirewallStop = fnStop;
+		m_fnFirewallIsRunning = fnIsRunning;
+		m_fnFirewallGetLastErrorMessage = fnGetLastError;
+
+		LOGLVL(Detailed, "Loaded HydraDragonFirewall bridge from <" << pathToUtf8(candidate) << ">");
+		return true;
+	}
+
+	return false;
+}
+
+void NetFilterWrapper::unloadFirewallBridge()
+{
+	if (m_hFirewallBridge != nullptr)
+		::FreeLibrary(m_hFirewallBridge);
+
+	m_hFirewallBridge = nullptr;
+	m_fnFirewallStart = nullptr;
+	m_fnFirewallStop = nullptr;
+	m_fnFirewallIsRunning = nullptr;
+	m_fnFirewallGetLastErrorMessage = nullptr;
+}
+
+std::string NetFilterWrapper::getFirewallBridgeError() const
+{
+	if (m_fnFirewallGetLastErrorMessage == nullptr)
+		return {};
+
+	std::array<char, 512> pBuffer = {};
+	const auto nLength = m_fnFirewallGetLastErrorMessage(pBuffer.data(), pBuffer.size());
+	if (nLength == 0)
+		return {};
+
+	return std::string(pBuffer.data());
+}
+
+void NetFilterWrapper::startFirewallBridge()
+{
+	if (!m_fEnableFirewallBridge)
+		return;
+
+	if (!loadFirewallBridge())
+	{
+		if (!m_sFirewallBridgeDllPath.empty())
+			LOGWRN("Failed to load HydraDragonFirewall bridge from <" <<
+				std::string(string::convertWCharToUtf8(m_sFirewallBridgeDllPath)) << ">");
+		else
+			LOGLVL(Detailed, "HydraDragonFirewall bridge dll was not found. Waiting for an external telemetry producer.");
+		return;
+	}
+
+	if (m_fnFirewallIsRunning != nullptr && m_fnFirewallIsRunning() != 0)
+	{
+		LOGLVL(Detailed, "HydraDragonFirewall engine is already running");
+		return;
+	}
+
+	if (m_fnFirewallStart() == 0)
+	{
+		const auto sError = getFirewallBridgeError();
+		if (!sError.empty())
+			LOGWRN("Failed to initialize HydraDragonFirewall engine: " << sError);
+		else
+			LOGWRN("Failed to initialize HydraDragonFirewall engine");
+		return;
+	}
+
+	LOGLVL(Detailed, "HydraDragonFirewall engine initialized");
+}
+
+void NetFilterWrapper::stopFirewallBridge()
+{
+	if (m_fnFirewallStop == nullptr)
+		return;
+
+	if (m_fnFirewallStop() == 0)
+	{
+		const auto sError = getFirewallBridgeError();
+		if (!sError.empty())
+			LOGWRN("Failed to stop HydraDragonFirewall engine cleanly: " << sError);
+		else
+			LOGWRN("Failed to stop HydraDragonFirewall engine cleanly");
+	}
 }
 
 void NetFilterWrapper::wakeListener() const
@@ -278,6 +435,8 @@ void NetFilterWrapper::start()
 			LOGWRN("HydraDragonFirewall telemetry loop failed: " << ex.what());
 		}
 	});
+
+	startFirewallBridge();
 }
 
 void NetFilterWrapper::stop()
@@ -286,6 +445,7 @@ void NetFilterWrapper::stop()
 		return;
 
 	m_fStopRequested = true;
+	stopFirewallBridge();
 	wakeListener();
 	if (m_pListenerThread.joinable())
 		m_pListenerThread.join();
@@ -295,6 +455,7 @@ void NetFilterWrapper::shutdown()
 {
 	stop();
 	m_pNetMonController.reset();
+	unloadFirewallBridge();
 }
 
 } // namespace win

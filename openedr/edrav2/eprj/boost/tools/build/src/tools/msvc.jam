@@ -1559,13 +1559,17 @@ local rule default-path ( version )
             root = [ os.environ "ProgramFiles" ] ;
         }
         local vswhere = "$(root)\\Microsoft Visual Studio\\Installer\\vswhere.exe" ;
-        if $(version) in 14.1 14.2 default && [ path.exists $(vswhere) ]
+        if $(version) in 14.1 14.2 14.3 default && [ path.exists $(vswhere) ]
         {
             local req = "-requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64" ;
             local prop = "-property installationPath" ;
             local limit ;
 
-            if $(version) = 14.2 || $(version) = "default"
+            if $(version) = 14.3
+            {
+                limit = "-version \"[17.0,18.0)\"" ;
+            }
+            else if $(version) = 14.2 || $(version) = "default"
             {
                 limit = "-version \"[16.0,17.0)\"" ;
             }
@@ -1961,8 +1965,11 @@ if [ MATCH (--debug-configuration) : [ modules.peek : ARGV ] ]
                      armv7 armv7s ;
 
 # Known toolset versions, in order of preference.
-.known-versions = 14.2 14.1 14.0 12.0 11.0 10.0 10.0express 9.0 9.0express 8.0 8.0express 7.1
-    7.1toolkit 7.0 6.0 ;
+.known-versions = 14.3 14.2 14.1 14.0 12.0 11.0 10.0 10.0express 9.0 9.0express 8.0 8.0express 7.1 7.0 7.0b 6.0 6.0sp ;
+
+# Visual Studio 2022 - 14.3
+.version-14.3-path = ;
+.version-14.3-env = VS170COMNTOOLS $(.version-14.2-env) ;
 
 # Version aliases.
 .version-alias-6 = 6.0 ;
