@@ -46,3 +46,4 @@ Hedef kitle beklentileri doğrultusunda konsept, "Kullanıcı dostu basit antivi
 3. **Aşama 3 (Tamamlandı):** `engine.py` fonksiyonlarının Queue & Asyncio_threadsafe pattern'i kullanılarak UI'ye bağlanması (Graceful degradation).
 4. **Aşama 4 (Tamamlandı):** Setup (Konfig), Admin Kontrol mekanizması ve `build_dashboard.py` kodlanmasıyla EDR'nin üretime (Production) hazır, paketlenebilir hale getirilmesi.
 hı
+hı
