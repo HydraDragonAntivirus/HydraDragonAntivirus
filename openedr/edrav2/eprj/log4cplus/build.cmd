@@ -9,13 +9,16 @@ call :buildx86
 exit /b %errorlevel%
 
 :buildx64
+if exist build-x64 rd /s /q build-x64
 call %vcvarsall% x64
 
 %cmake% -Bbuild-x64 -A x64 ^
  -DBUILD_SHARED_LIBS=OFF ^
  -DLOG4CPLUS_BUILD_TESTING=OFF ^
+ -DWITH_UNIT_TESTS=OFF ^
  -DLOG4CPLUS_BUILD_LOGGINGSERVER=OFF ^
  -DCMAKE_CXX_STANDARD=17 ^
+ -DUNICODE=OFF ^
  -DCMAKE_CXX_FLAGS_RELEASE:STRING="/std:c++17 /MT /Zi /O2 /Ob2 /DNDEBUG" ^
  -DCMAKE_CXX_FLAGS_DEBUG:STRING="/std:c++17 /MTd /Zi /Ob0 /Od /RTC1"
 
@@ -38,13 +41,16 @@ copy /Y build-x64\src\log4cplus.dir\Debug\log4cplusSD.pdb lib\win-Debug-x64\
 exit /b 0
 
 :buildx86
+if exist build-x86 rd /s /q build-x86
 call %vcvarsall% x64_x86
 
 %cmake% -Bbuild-x86 -A Win32 ^
  -DBUILD_SHARED_LIBS=OFF ^
  -DLOG4CPLUS_BUILD_TESTING=OFF ^
+ -DWITH_UNIT_TESTS=OFF ^
  -DLOG4CPLUS_BUILD_LOGGINGSERVER=OFF ^
  -DCMAKE_CXX_STANDARD=17 ^
+ -DUNICODE=OFF ^
  -DCMAKE_CXX_FLAGS_RELEASE:STRING="/std:c++17 /MT /Zi /O2 /Ob2 /DNDEBUG" ^
  -DCMAKE_CXX_FLAGS_DEBUG:STRING="/std:c++17 /MTd /Zi /Ob0 /Od /RTC1"
 

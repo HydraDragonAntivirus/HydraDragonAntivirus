@@ -1,0 +1,13 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <CustomBuild Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\uri\build-x64\CMakeFiles\fbc1a04020af3d5f12ac7b312dc7040b\generate.stamp.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="CMake Rules">
+      <UniqueIdentifier>{22BB8059-DC0E-32DF-834D-219B24DCEE6B}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

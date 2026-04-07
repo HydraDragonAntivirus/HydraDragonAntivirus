@@ -9,12 +9,13 @@ call :buildx86
 exit /b %errorlevel%
 
 :buildx64
+if exist build-x64 rd /s /q build-x64
 call %vcvarsall% x64
 
 %cmake% -Bbuild-x64 -A x64 ^
  -DUri_BUILD_TESTS=OFF ^
  -DUri_BUILD_DOCS=OFF ^
- -DBOOST_INCLUDEDIR=..\boost_1_69_0 ^
+ -DBOOST_INCLUDEDIR=..\boost ^
  -DCMAKE_CXX_FLAGS_RELEASE:STRING="/MT /EHsc /Zi /O2 /Ob2 /DEBUG:FULL /DNDEBUG /D_UNICODE /DUNICODE" ^
  -DCMAKE_CXX_FLAGS_DEBUG:STRING="/MTd /EHsc /Zi /Ob0 /Od /DEBUG:FULL /RTC1 /D_UNICODE /DUNICODE"
 
@@ -37,12 +38,13 @@ copy /Y build-x64\src\network-uri.dir\Debug\network-uri.pdb lib\win-Debug-x64\
 exit /b 0
 
 :buildx86
+if exist build-x86 rd /s /q build-x86
 call %vcvarsall% x64_x86
 
 %cmake% -Bbuild-x86 -A Win32 ^
  -DUri_BUILD_TESTS=OFF ^
  -DUri_BUILD_DOCS=OFF ^
- -DBOOST_INCLUDEDIR=..\boost_1_69_0 ^
+ -DBOOST_INCLUDEDIR=..\boost ^
  -DCMAKE_CXX_FLAGS_RELEASE:STRING="/MT /EHsc /Zi /O2 /Ob2 /DEBUG:FULL /DNDEBUG /D_UNICODE /DUNICODE" ^
  -DCMAKE_CXX_FLAGS_DEBUG:STRING="/MTd /EHsc /Zi /Ob0 /Od /DEBUG:FULL /RTC1 /D_UNICODE /DUNICODE"
 

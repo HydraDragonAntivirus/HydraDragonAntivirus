@@ -1,0 +1,353 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <PreferredToolArchitecture>x64</PreferredToolArchitecture>
+  </PropertyGroup>
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|Win32">
+      <Configuration>Debug</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|Win32">
+      <Configuration>Release</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="MinSizeRel|Win32">
+      <Configuration>MinSizeRel</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="RelWithDebInfo|Win32">
+      <Configuration>RelWithDebInfo</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{1B377139-C149-31A3-9D71-E6F35E8BF626}</ProjectGuid>
+    <Keyword>Win32Proj</Keyword>
+    <WindowsTargetPlatformVersion>10.0.26100.0</WindowsTargetPlatformVersion>
+    <Platform>Win32</Platform>
+    <ProjectName>log4cplusS</ProjectName>
+    <VCProjectUpgraderObjectName>NoUpgrade</VCProjectUpgraderObjectName>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
+    <ConfigurationType>StaticLibrary</ConfigurationType>
+    <CharacterSet>MultiByte</CharacterSet>
+    <PlatformToolset>v143</PlatformToolset>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="Configuration">
+    <ConfigurationType>StaticLibrary</ConfigurationType>
+    <CharacterSet>MultiByte</CharacterSet>
+    <PlatformToolset>v143</PlatformToolset>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|Win32'" Label="Configuration">
+    <ConfigurationType>StaticLibrary</ConfigurationType>
+    <CharacterSet>MultiByte</CharacterSet>
+    <PlatformToolset>v143</PlatformToolset>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|Win32'" Label="Configuration">
+    <ConfigurationType>StaticLibrary</ConfigurationType>
+    <CharacterSet>MultiByte</CharacterSet>
+    <PlatformToolset>v143</PlatformToolset>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings">
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <PropertyGroup Label="UserMacros" />
+  <PropertyGroup>
+    <_ProjectFileVersion>10.0.20506.1</_ProjectFileVersion>
+    <OutDir Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\build-x86\src\Debug\</OutDir>
+    <IntDir Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">log4cplusS.dir\Debug\</IntDir>
+    <TargetName Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">log4cplusSD</TargetName>
+    <TargetExt Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">.lib</TargetExt>
+    <OutDir Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\build-x86\src\Release\</OutDir>
+    <IntDir Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">log4cplusS.dir\Release\</IntDir>
+    <TargetName Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">log4cplusS</TargetName>
+    <TargetExt Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">.lib</TargetExt>
+    <OutDir Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|Win32'">C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\build-x86\src\MinSizeRel\</OutDir>
+    <IntDir Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|Win32'">log4cplusS.dir\MinSizeRel\</IntDir>
+    <TargetName Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|Win32'">log4cplusS</TargetName>
+    <TargetExt Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|Win32'">.lib</TargetExt>
+    <OutDir Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|Win32'">C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\build-x86\src\RelWithDebInfo\</OutDir>
+    <IntDir Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|Win32'">log4cplusS.dir\RelWithDebInfo\</IntDir>
+    <TargetName Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|Win32'">log4cplusS</TargetName>
+    <TargetExt Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|Win32'">.lib</TargetExt>
+  </PropertyGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <ClCompile>
+      <AdditionalIncludeDirectories>C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\include;C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\threadpool;C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\catch\single_include;C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\build-x86\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
+      <BasicRuntimeChecks>EnableFastChecks</BasicRuntimeChecks>
+      <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
+      <ExceptionHandling>Sync</ExceptionHandling>
+      <InlineFunctionExpansion>Disabled</InlineFunctionExpansion>
+      <LanguageStandard>stdcpp17</LanguageStandard>
+      <MinimalRebuild></MinimalRebuild>
+      <Optimization>Disabled</Optimization>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
+      <RuntimeTypeInfo>true</RuntimeTypeInfo>
+      <SupportJustMyCode></SupportJustMyCode>
+      <UseFullPaths>false</UseFullPaths>
+      <WarningLevel>Level3</WarningLevel>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;INSIDE_LOG4CPLUS;_GNU_SOURCE=1;MINGW_HAS_SECURE_API=1;_WIN32_WINNT=0x0600;CMAKE_INTDIR="Debug"</PreprocessorDefinitions>
+      <ObjectFileName>$(IntDir)</ObjectFileName>
+      <ScanSourceForModuleDependencies>false</ScanSourceForModuleDependencies>
+    </ClCompile>
+    <ResourceCompile>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_DEBUG;_WINDOWS;INSIDE_LOG4CPLUS;_GNU_SOURCE=1;MINGW_HAS_SECURE_API=1;_WIN32_WINNT=0x0600;CMAKE_INTDIR=\"Debug\"</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\include;C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\threadpool;C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\catch\single_include;C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\build-x86\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ResourceCompile>
+    <Midl>
+      <AdditionalIncludeDirectories>C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\include;C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\threadpool;C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\catch\single_include;C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\build-x86\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <OutputDirectory>$(ProjectDir)/$(IntDir)</OutputDirectory>
+      <HeaderFileName>%(Filename).h</HeaderFileName>
+      <TypeLibraryName>%(Filename).tlb</TypeLibraryName>
+      <InterfaceIdentifierFileName>%(Filename)_i.c</InterfaceIdentifierFileName>
+      <ProxyFileName>%(Filename)_p.c</ProxyFileName>
+    </Midl>
+    <Lib>
+      <AdditionalOptions>%(AdditionalOptions) /machine:X86</AdditionalOptions>
+    </Lib>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <ClCompile>
+      <AdditionalIncludeDirectories>C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\include;C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\threadpool;C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\catch\single_include;C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\build-x86\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
+      <BasicRuntimeChecks>Default</BasicRuntimeChecks>
+      <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
+      <ExceptionHandling>Sync</ExceptionHandling>
+      <InlineFunctionExpansion>AnySuitable</InlineFunctionExpansion>
+      <LanguageStandard>stdcpp17</LanguageStandard>
+      <MinimalRebuild></MinimalRebuild>
+      <Optimization>MaxSpeed</Optimization>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
+      <RuntimeTypeInfo>true</RuntimeTypeInfo>
+      <SupportJustMyCode></SupportJustMyCode>
+      <UseFullPaths>false</UseFullPaths>
+      <WarningLevel>Level3</WarningLevel>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;INSIDE_LOG4CPLUS;_GNU_SOURCE=1;MINGW_HAS_SECURE_API=1;_WIN32_WINNT=0x0600;CMAKE_INTDIR="Release"</PreprocessorDefinitions>
+      <ObjectFileName>$(IntDir)</ObjectFileName>
+      <ScanSourceForModuleDependencies>false</ScanSourceForModuleDependencies>
+    </ClCompile>
+    <ResourceCompile>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;INSIDE_LOG4CPLUS;_GNU_SOURCE=1;MINGW_HAS_SECURE_API=1;_WIN32_WINNT=0x0600;CMAKE_INTDIR=\"Release\"</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\include;C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\threadpool;C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\catch\single_include;C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\build-x86\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ResourceCompile>
+    <Midl>
+      <AdditionalIncludeDirectories>C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\include;C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\threadpool;C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\catch\single_include;C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\build-x86\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <OutputDirectory>$(ProjectDir)/$(IntDir)</OutputDirectory>
+      <HeaderFileName>%(Filename).h</HeaderFileName>
+      <TypeLibraryName>%(Filename).tlb</TypeLibraryName>
+      <InterfaceIdentifierFileName>%(Filename)_i.c</InterfaceIdentifierFileName>
+      <ProxyFileName>%(Filename)_p.c</ProxyFileName>
+    </Midl>
+    <Lib>
+      <AdditionalOptions>%(AdditionalOptions) /machine:X86</AdditionalOptions>
+    </Lib>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|Win32'">
+    <ClCompile>
+      <AdditionalIncludeDirectories>C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\include;C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\threadpool;C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\catch\single_include;C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\build-x86\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
+      <BasicRuntimeChecks>Default</BasicRuntimeChecks>
+      <ExceptionHandling>Sync</ExceptionHandling>
+      <InlineFunctionExpansion>OnlyExplicitInline</InlineFunctionExpansion>
+      <LanguageStandard>stdcpp17</LanguageStandard>
+      <MinimalRebuild></MinimalRebuild>
+      <Optimization>MinSpace</Optimization>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
+      <RuntimeTypeInfo>true</RuntimeTypeInfo>
+      <SupportJustMyCode></SupportJustMyCode>
+      <UseFullPaths>false</UseFullPaths>
+      <WarningLevel>Level3</WarningLevel>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;INSIDE_LOG4CPLUS;_GNU_SOURCE=1;MINGW_HAS_SECURE_API=1;_WIN32_WINNT=0x0600;CMAKE_INTDIR="MinSizeRel"</PreprocessorDefinitions>
+      <ObjectFileName>$(IntDir)</ObjectFileName>
+      <DebugInformationFormat>
+      </DebugInformationFormat>
+      <ScanSourceForModuleDependencies>false</ScanSourceForModuleDependencies>
+    </ClCompile>
+    <ResourceCompile>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;INSIDE_LOG4CPLUS;_GNU_SOURCE=1;MINGW_HAS_SECURE_API=1;_WIN32_WINNT=0x0600;CMAKE_INTDIR=\"MinSizeRel\"</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\include;C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\threadpool;C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\catch\single_include;C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\build-x86\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ResourceCompile>
+    <Midl>
+      <AdditionalIncludeDirectories>C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\include;C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\threadpool;C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\catch\single_include;C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\build-x86\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <OutputDirectory>$(ProjectDir)/$(IntDir)</OutputDirectory>
+      <HeaderFileName>%(Filename).h</HeaderFileName>
+      <TypeLibraryName>%(Filename).tlb</TypeLibraryName>
+      <InterfaceIdentifierFileName>%(Filename)_i.c</InterfaceIdentifierFileName>
+      <ProxyFileName>%(Filename)_p.c</ProxyFileName>
+    </Midl>
+    <Lib>
+      <AdditionalOptions>%(AdditionalOptions) /machine:X86</AdditionalOptions>
+    </Lib>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|Win32'">
+    <ClCompile>
+      <AdditionalIncludeDirectories>C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\include;C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\threadpool;C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\catch\single_include;C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\build-x86\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
+      <BasicRuntimeChecks>Default</BasicRuntimeChecks>
+      <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
+      <ExceptionHandling>Sync</ExceptionHandling>
+      <InlineFunctionExpansion>OnlyExplicitInline</InlineFunctionExpansion>
+      <LanguageStandard>stdcpp17</LanguageStandard>
+      <MinimalRebuild></MinimalRebuild>
+      <Optimization>MaxSpeed</Optimization>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
+      <RuntimeTypeInfo>true</RuntimeTypeInfo>
+      <SupportJustMyCode></SupportJustMyCode>
+      <UseFullPaths>false</UseFullPaths>
+      <WarningLevel>Level3</WarningLevel>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;INSIDE_LOG4CPLUS;_GNU_SOURCE=1;MINGW_HAS_SECURE_API=1;_WIN32_WINNT=0x0600;CMAKE_INTDIR="RelWithDebInfo"</PreprocessorDefinitions>
+      <ObjectFileName>$(IntDir)</ObjectFileName>
+      <ScanSourceForModuleDependencies>false</ScanSourceForModuleDependencies>
+    </ClCompile>
+    <ResourceCompile>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;INSIDE_LOG4CPLUS;_GNU_SOURCE=1;MINGW_HAS_SECURE_API=1;_WIN32_WINNT=0x0600;CMAKE_INTDIR=\"RelWithDebInfo\"</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\include;C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\threadpool;C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\catch\single_include;C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\build-x86\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ResourceCompile>
+    <Midl>
+      <AdditionalIncludeDirectories>C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\include;C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\threadpool;C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\catch\single_include;C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\build-x86\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <OutputDirectory>$(ProjectDir)/$(IntDir)</OutputDirectory>
+      <HeaderFileName>%(Filename).h</HeaderFileName>
+      <TypeLibraryName>%(Filename).tlb</TypeLibraryName>
+      <InterfaceIdentifierFileName>%(Filename)_i.c</InterfaceIdentifierFileName>
+      <ProxyFileName>%(Filename)_p.c</ProxyFileName>
+    </Midl>
+    <Lib>
+      <AdditionalOptions>%(AdditionalOptions) /machine:X86</AdditionalOptions>
+    </Lib>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <CustomBuild Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\CMakeLists.txt">
+      <UseUtf8Encoding>Always</UseUtf8Encoding>
+      <Message Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">Building Custom Rule C:/Users/semae/OneDrive/Belgeler/GitHub/HydraDragonAntivirus/openedr/edrav2/eprj/log4cplus/src/CMakeLists.txt</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">setlocal
+"C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -SC:/Users/semae/OneDrive/Belgeler/GitHub/HydraDragonAntivirus/openedr/edrav2/eprj/log4cplus -BC:/Users/semae/OneDrive/Belgeler/GitHub/HydraDragonAntivirus/openedr/edrav2/eprj/log4cplus/build-x86 --check-stamp-file C:/Users/semae/OneDrive/Belgeler/GitHub/HydraDragonAntivirus/openedr/edrav2/eprj/log4cplus/build-x86/src/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\share\cmake-3.31\Modules\BasicConfigVersion-SameMajorVersion.cmake.in;C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\share\cmake-3.31\Modules\CMakePackageConfigHelpers.cmake;C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\share\cmake-3.31\Modules\WriteBasicConfigVersionFile.cmake;C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\cmake\Config.cmake.in;C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\log4cplus.rc.in;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\build-x86\src\CMakeFiles\generate.stamp</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">Building Custom Rule C:/Users/semae/OneDrive/Belgeler/GitHub/HydraDragonAntivirus/openedr/edrav2/eprj/log4cplus/src/CMakeLists.txt</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">setlocal
+"C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -SC:/Users/semae/OneDrive/Belgeler/GitHub/HydraDragonAntivirus/openedr/edrav2/eprj/log4cplus -BC:/Users/semae/OneDrive/Belgeler/GitHub/HydraDragonAntivirus/openedr/edrav2/eprj/log4cplus/build-x86 --check-stamp-file C:/Users/semae/OneDrive/Belgeler/GitHub/HydraDragonAntivirus/openedr/edrav2/eprj/log4cplus/build-x86/src/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\share\cmake-3.31\Modules\BasicConfigVersion-SameMajorVersion.cmake.in;C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\share\cmake-3.31\Modules\CMakePackageConfigHelpers.cmake;C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\share\cmake-3.31\Modules\WriteBasicConfigVersionFile.cmake;C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\cmake\Config.cmake.in;C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\log4cplus.rc.in;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\build-x86\src\CMakeFiles\generate.stamp</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|Win32'">Building Custom Rule C:/Users/semae/OneDrive/Belgeler/GitHub/HydraDragonAntivirus/openedr/edrav2/eprj/log4cplus/src/CMakeLists.txt</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|Win32'">setlocal
+"C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -SC:/Users/semae/OneDrive/Belgeler/GitHub/HydraDragonAntivirus/openedr/edrav2/eprj/log4cplus -BC:/Users/semae/OneDrive/Belgeler/GitHub/HydraDragonAntivirus/openedr/edrav2/eprj/log4cplus/build-x86 --check-stamp-file C:/Users/semae/OneDrive/Belgeler/GitHub/HydraDragonAntivirus/openedr/edrav2/eprj/log4cplus/build-x86/src/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|Win32'">C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\share\cmake-3.31\Modules\BasicConfigVersion-SameMajorVersion.cmake.in;C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\share\cmake-3.31\Modules\CMakePackageConfigHelpers.cmake;C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\share\cmake-3.31\Modules\WriteBasicConfigVersionFile.cmake;C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\cmake\Config.cmake.in;C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\log4cplus.rc.in;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|Win32'">C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\build-x86\src\CMakeFiles\generate.stamp</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|Win32'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|Win32'">Building Custom Rule C:/Users/semae/OneDrive/Belgeler/GitHub/HydraDragonAntivirus/openedr/edrav2/eprj/log4cplus/src/CMakeLists.txt</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|Win32'">setlocal
+"C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -SC:/Users/semae/OneDrive/Belgeler/GitHub/HydraDragonAntivirus/openedr/edrav2/eprj/log4cplus -BC:/Users/semae/OneDrive/Belgeler/GitHub/HydraDragonAntivirus/openedr/edrav2/eprj/log4cplus/build-x86 --check-stamp-file C:/Users/semae/OneDrive/Belgeler/GitHub/HydraDragonAntivirus/openedr/edrav2/eprj/log4cplus/build-x86/src/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|Win32'">C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\share\cmake-3.31\Modules\BasicConfigVersion-SameMajorVersion.cmake.in;C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\share\cmake-3.31\Modules\CMakePackageConfigHelpers.cmake;C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\share\cmake-3.31\Modules\WriteBasicConfigVersionFile.cmake;C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\cmake\Config.cmake.in;C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\log4cplus.rc.in;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|Win32'">C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\build-x86\src\CMakeFiles\generate.stamp</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|Win32'">false</LinkObjects>
+    </CustomBuild>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\appenderattachableimpl.cxx" />
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\appender.cxx" />
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\asyncappender.cxx" />
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\callbackappender.cxx" />
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\clogger.cxx" />
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\configurator.cxx" />
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\connectorthread.cxx" />
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\consoleappender.cxx" />
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\cygwin-win32.cxx" />
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\env.cxx" />
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\factory.cxx" />
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\fileappender.cxx" />
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\fileinfo.cxx" />
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\filter.cxx" />
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\global-init.cxx" />
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\hierarchy.cxx" />
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\hierarchylocker.cxx" />
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\layout.cxx" />
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\log4judpappender.cxx" />
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\lockfile.cxx" />
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\logger.cxx" />
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\loggerimpl.cxx" />
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\loggingevent.cxx" />
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\loggingmacros.cxx" />
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\loglevel.cxx" />
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\loglog.cxx" />
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\mdc.cxx" />
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\ndc.cxx" />
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\nullappender.cxx" />
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\objectregistry.cxx" />
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\patternlayout.cxx" />
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\pointer.cxx" />
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\property.cxx" />
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\queue.cxx" />
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\rootlogger.cxx" />
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\snprintf.cxx" />
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\socketappender.cxx" />
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\socketbuffer.cxx" />
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\socket.cxx" />
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\stringhelper.cxx" />
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\stringhelper-clocale.cxx" />
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\stringhelper-cxxlocale.cxx" />
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\stringhelper-iconv.cxx" />
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\syncprims.cxx" />
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\syslogappender.cxx" />
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\threads.cxx" />
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\timehelper.cxx" />
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\tls.cxx" />
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\version.cxx" />
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\nteventlogappender.cxx" />
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\socket-win32.cxx" />
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\win32consoleappender.cxx" />
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\win32debugappender.cxx" />
+    <ResourceCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\build-x86\src\log4cplus.rc" />
+  </ItemGroup>
+  <ItemGroup />
+  <ItemGroup>
+    <ProjectReference Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\build-x86\ZERO_CHECK.vcxproj">
+      <Project>{AA6818F9-D65F-3AA0-A204-BC9C626C9749}</Project>
+      <Name>ZERO_CHECK</Name>
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </ProjectReference>
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets">
+  </ImportGroup>
+</Project>

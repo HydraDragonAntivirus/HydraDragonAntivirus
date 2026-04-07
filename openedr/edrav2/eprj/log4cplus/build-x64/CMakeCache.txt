@@ -313,9 +313,6 @@ LOG4CPLUS_QT4:BOOL=OFF
 //Build with Qt5DebugAppender
 LOG4CPLUS_QT5:BOOL=OFF
 
-//No help, variable specified on the command line.
-LOG4CPLUS_REQUIRE_CXX11:UNINITIALIZED=ON
-
 //Define if you want to build single-threaded version of the library.
 LOG4CPLUS_SINGLE_THREADED:BOOL=OFF
 
@@ -327,22 +324,19 @@ LOG4CPLUS_WORKING_C_LOCALE:BOOL=OFF
 LOG4CPLUS_WORKING_LOCALE:BOOL=ON
 
 //Build with tchar = wchar_t
-UNICODE:BOOL=ON
+UNICODE:BOOL=OFF
 
 //Use iconv() for char->wchar_t conversion.
 WITH_ICONV:BOOL=OFF
 
 //Enable unit tests
-WITH_UNIT_TESTS:BOOL=ON
-
-//No help, variable specified on the command line.
-_UNICODE:UNINITIALIZED=ON
+WITH_UNIT_TESTS:BOOL=OFF
 
 //Define Windows API version to use.
 _WIN32_WINNT:STRING=0x0600
 
 //Dependencies for the target
-log4cplusSU_LIB_DEPENDS:STATIC=general;ws2_32;general;advapi32;
+log4cplusS_LIB_DEPENDS:STATIC=general;ws2_32;general;advapi32;
 
 //Value Computed by CMake
 log4cplus_BINARY_DIR:STATIC=C:/Users/semae/OneDrive/Belgeler/GitHub/HydraDragonAntivirus/openedr/edrav2/eprj/log4cplus/build-x64

@@ -1,0 +1,451 @@
+
+---
+events:
+  -
+    kind: "message-v1"
+    backtrace:
+      - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/share/cmake-3.31/Modules/CMakeDetermineSystem.cmake:205 (message)"
+      - "CMakeLists.txt:8 (project)"
+    message: |
+      The system is: Windows - 10.0.26200 - AMD64
+  -
+    kind: "message-v1"
+    backtrace:
+      - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/share/cmake-3.31/Modules/CMakeDetermineCompilerId.cmake:17 (message)"
+      - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/share/cmake-3.31/Modules/CMakeDetermineCompilerId.cmake:64 (__determine_compiler_id_test)"
+      - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/share/cmake-3.31/Modules/CMakeDetermineCCompiler.cmake:123 (CMAKE_DETERMINE_COMPILER_ID)"
+      - "CMakeLists.txt:8 (project)"
+    message: |
+      Compiling the C compiler identification source file "CMakeCCompilerId.c" succeeded.
+      Compiler:  
+      Build flags: 
+      Id flags:  
+      
+      The output was:
+      0
+      .NET Framework i├ğin MSBuild s├╝r├╝m 17.14.40+3e7442088
+      Olu┼şturma ba┼şlat─▒ld─▒: 7.04.2026 20:43:13.
+      
+      1 d├╝─ş├╝m├╝nde "C:\\Users\\semae\\OneDrive\\Belgeler\\GitHub\\HydraDragonAntivirus\\openedr\\edrav2\\eprj\\uri\\build-x64\\CMakeFiles\\3.31.6-msvc6\\CompilerIdC\\CompilerIdC.vcxproj" projesi (varsay─▒lan hedefler).
+      PrepareForBuild:
+        "Debug\\" dizini olu┼şturuluyor.
+        Structured output is enabled. The formatting of compiler diagnostics will reflect the error hierarchy. See https://aka.ms/cpp/structured-output for more details.
+        "Debug\\CompilerIdC.tlog\\" dizini olu┼şturuluyor.
+      InitializeBuildStatus:
+        "AlwaysCreate" belirtildi─şi i├ğin "Debug\\CompilerIdC.tlog\\unsuccessfulbuild" olu┼şturuluyor.
+        "Debug\\CompilerIdC.tlog\\unsuccessfulbuild" ├Â─şesine eri┼şiliyor.
+      ClCompile:
+        C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\CL.exe /c /nologo /W0 /WX- /diagnostics:column /Od /D _MBCS /Gm- /EHsc /RTC1 /MDd /GS /fp:precise /Zc:wchar_t /Zc:forScope /Zc:inline /Fo"Debug\\\\" /Fd"Debug\\vc143.pdb" /external:W0 /Gd /TC /FC /errorReport:queue CMakeCCompilerId.c
+        CMakeCCompilerId.c
+      Link:
+        C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\link.exe /ERRORREPORT:QUEUE /OUT:".\\CompilerIdC.exe" /INCREMENTAL:NO /NOLOGO kernel32.lib user32.lib gdi32.lib winspool.lib comdlg32.lib advapi32.lib shell32.lib ole32.lib oleaut32.lib uuid.lib odbc32.lib odbccp32.lib /MANIFEST /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /manifest:embed /PDB:".\\CompilerIdC.pdb" /SUBSYSTEM:CONSOLE /TLBID:1 /DYNAMICBASE /NXCOMPAT /IMPLIB:".\\CompilerIdC.lib" /MACHINE:X64 Debug\\CMakeCCompilerId.obj
+        CompilerIdC.vcxproj -> C:\\Users\\semae\\OneDrive\\Belgeler\\GitHub\\HydraDragonAntivirus\\openedr\\edrav2\\eprj\\uri\\build-x64\\CMakeFiles\\3.31.6-msvc6\\CompilerIdC\\CompilerIdC.exe
+      PostBuildEvent:
+        for %%i in (cl.exe) do @echo CMAKE_C_COMPILER=%%~$PATH:i
+        :VCEnd
+        CMAKE_C_COMPILER=C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\Hostx64\\x64\\cl.exe
+      FinalizeBuildStatus:
+        "Debug\\CompilerIdC.tlog\\unsuccessfulbuild" dosyas─▒ siliniyor.
+        "Debug\\CompilerIdC.tlog\\CompilerIdC.lastbuildstate" ├Â─şesine eri┼şiliyor.
+      "C:\\Users\\semae\\OneDrive\\Belgeler\\GitHub\\HydraDragonAntivirus\\openedr\\edrav2\\eprj\\uri\\build-x64\\CMakeFiles\\3.31.6-msvc6\\CompilerIdC\\CompilerIdC.vcxproj" Projesini Olu┼şturma ─░┼şlemi Tamamland─▒ (varsay─▒lan hedefler).
+      
+      Olu┼şturma ba┼şar─▒l─▒ oldu.
+          0 Uyar─▒
+          0 Hata
+      
+      Ge├ğen S├╝re 00:00:00.93
+      
+      
+      Compilation of the C compiler identification source "CMakeCCompilerId.c" produced "CompilerIdC.exe"
+      
+      Compilation of the C compiler identification source "CMakeCCompilerId.c" produced "CompilerIdC.vcxproj"
+      
+      The C compiler identification is MSVC, found in:
+        C:/Users/semae/OneDrive/Belgeler/GitHub/HydraDragonAntivirus/openedr/edrav2/eprj/uri/build-x64/CMakeFiles/3.31.6-msvc6/CompilerIdC/CompilerIdC.exe
+      
+  -
+    kind: "message-v1"
+    backtrace:
+      - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/share/cmake-3.31/Modules/CMakeDetermineCompilerId.cmake:17 (message)"
+      - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/share/cmake-3.31/Modules/CMakeDetermineCompilerId.cmake:64 (__determine_compiler_id_test)"
+      - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/share/cmake-3.31/Modules/CMakeDetermineCXXCompiler.cmake:126 (CMAKE_DETERMINE_COMPILER_ID)"
+      - "CMakeLists.txt:8 (project)"
+    message: |
+      Compiling the CXX compiler identification source file "CMakeCXXCompilerId.cpp" succeeded.
+      Compiler:  
+      Build flags: 
+      Id flags:  
+      
+      The output was:
+      0
+      .NET Framework i├ğin MSBuild s├╝r├╝m 17.14.40+3e7442088
+      Olu┼şturma ba┼şlat─▒ld─▒: 7.04.2026 20:43:14.
+      
+      1 d├╝─ş├╝m├╝nde "C:\\Users\\semae\\OneDrive\\Belgeler\\GitHub\\HydraDragonAntivirus\\openedr\\edrav2\\eprj\\uri\\build-x64\\CMakeFiles\\3.31.6-msvc6\\CompilerIdCXX\\CompilerIdCXX.vcxproj" projesi (varsay─▒lan hedefler).
+      PrepareForBuild:
+        "Debug\\" dizini olu┼şturuluyor.
+        Structured output is enabled. The formatting of compiler diagnostics will reflect the error hierarchy. See https://aka.ms/cpp/structured-output for more details.
+        "Debug\\CompilerIdCXX.tlog\\" dizini olu┼şturuluyor.
+      InitializeBuildStatus:
+        "AlwaysCreate" belirtildi─şi i├ğin "Debug\\CompilerIdCXX.tlog\\unsuccessfulbuild" olu┼şturuluyor.
+        "Debug\\CompilerIdCXX.tlog\\unsuccessfulbuild" ├Â─şesine eri┼şiliyor.
+      ClCompile:
+        C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\CL.exe /c /nologo /W0 /WX- /diagnostics:column /Od /D _MBCS /Gm- /EHsc /RTC1 /MDd /GS /fp:precise /Zc:wchar_t /Zc:forScope /Zc:inline /Fo"Debug\\\\" /Fd"Debug\\vc143.pdb" /external:W0 /Gd /TP /FC /errorReport:queue CMakeCXXCompilerId.cpp
+        CMakeCXXCompilerId.cpp
+      Link:
+        C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\link.exe /ERRORREPORT:QUEUE /OUT:".\\CompilerIdCXX.exe" /INCREMENTAL:NO /NOLOGO kernel32.lib user32.lib gdi32.lib winspool.lib comdlg32.lib advapi32.lib shell32.lib ole32.lib oleaut32.lib uuid.lib odbc32.lib odbccp32.lib /MANIFEST /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /manifest:embed /PDB:".\\CompilerIdCXX.pdb" /SUBSYSTEM:CONSOLE /TLBID:1 /DYNAMICBASE /NXCOMPAT /IMPLIB:".\\CompilerIdCXX.lib" /MACHINE:X64 Debug\\CMakeCXXCompilerId.obj
+        CompilerIdCXX.vcxproj -> C:\\Users\\semae\\OneDrive\\Belgeler\\GitHub\\HydraDragonAntivirus\\openedr\\edrav2\\eprj\\uri\\build-x64\\CMakeFiles\\3.31.6-msvc6\\CompilerIdCXX\\CompilerIdCXX.exe
+      PostBuildEvent:
+        for %%i in (cl.exe) do @echo CMAKE_CXX_COMPILER=%%~$PATH:i
+        :VCEnd
+        CMAKE_CXX_COMPILER=C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\Hostx64\\x64\\cl.exe
+      FinalizeBuildStatus:
+        "Debug\\CompilerIdCXX.tlog\\unsuccessfulbuild" dosyas─▒ siliniyor.
+        "Debug\\CompilerIdCXX.tlog\\CompilerIdCXX.lastbuildstate" ├Â─şesine eri┼şiliyor.
+      "C:\\Users\\semae\\OneDrive\\Belgeler\\GitHub\\HydraDragonAntivirus\\openedr\\edrav2\\eprj\\uri\\build-x64\\CMakeFiles\\3.31.6-msvc6\\CompilerIdCXX\\CompilerIdCXX.vcxproj" Projesini Olu┼şturma ─░┼şlemi Tamamland─▒ (varsay─▒lan hedefler).
+      
+      Olu┼şturma ba┼şar─▒l─▒ oldu.
+          0 Uyar─▒
+          0 Hata
+      
+      Ge├ğen S├╝re 00:00:01.03
+      
+      
+      Compilation of the CXX compiler identification source "CMakeCXXCompilerId.cpp" produced "CompilerIdCXX.exe"
+      
+      Compilation of the CXX compiler identification source "CMakeCXXCompilerId.cpp" produced "CompilerIdCXX.vcxproj"
+      
+      The CXX compiler identification is MSVC, found in:
+        C:/Users/semae/OneDrive/Belgeler/GitHub/HydraDragonAntivirus/openedr/edrav2/eprj/uri/build-x64/CMakeFiles/3.31.6-msvc6/CompilerIdCXX/CompilerIdCXX.exe
+      
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/share/cmake-3.31/Modules/CMakeDetermineCompilerABI.cmake:74 (try_compile)"
+      - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/share/cmake-3.31/Modules/CMakeTestCCompiler.cmake:26 (CMAKE_DETERMINE_COMPILER_ABI)"
+      - "CMakeLists.txt:8 (project)"
+    checks:
+      - "Detecting C compiler ABI info"
+    directories:
+      source: "C:/Users/semae/OneDrive/Belgeler/GitHub/HydraDragonAntivirus/openedr/edrav2/eprj/uri/build-x64/CMakeFiles/CMakeScratch/TryCompile-tpm5wi"
+      binary: "C:/Users/semae/OneDrive/Belgeler/GitHub/HydraDragonAntivirus/openedr/edrav2/eprj/uri/build-x64/CMakeFiles/CMakeScratch/TryCompile-tpm5wi"
+    cmakeVariables:
+      CMAKE_C_FLAGS: "/DWIN32 /D_WINDOWS /W3"
+    buildResult:
+      variable: "CMAKE_C_ABI_COMPILED"
+      cached: true
+      stdout: |
+        Change Dir: 'C:/Users/semae/OneDrive/Belgeler/GitHub/HydraDragonAntivirus/openedr/edrav2/eprj/uri/build-x64/CMakeFiles/CMakeScratch/TryCompile-tpm5wi'
+        
+        Run Build Command(s): "C:/Program Files/Microsoft Visual Studio/2022/Community/MSBuild/Current/Bin/amd64/MSBuild.exe" cmTC_d2f4d.vcxproj /p:Configuration=Debug /p:Platform=x64 /p:VisualStudioVersion=17.0 /v:n
+        .NET Framework i├ğin MSBuild s├╝r├╝m 17.14.40+3e7442088
+        Olu┼şturma ba┼şlat─▒ld─▒: 7.04.2026 20:43:16.
+        
+        1 d├╝─ş├╝m├╝nde "C:\\Users\\semae\\OneDrive\\Belgeler\\GitHub\\HydraDragonAntivirus\\openedr\\edrav2\\eprj\\uri\\build-x64\\CMakeFiles\\CMakeScratch\\TryCompile-tpm5wi\\cmTC_d2f4d.vcxproj" projesi (varsay─▒lan hedefler).
+        PrepareForBuild:
+          "cmTC_d2f4d.dir\\Debug\\" dizini olu┼şturuluyor.
+          Structured output is enabled. The formatting of compiler diagnostics will reflect the error hierarchy. See https://aka.ms/cpp/structured-output for more details.
+          "C:\\Users\\semae\\OneDrive\\Belgeler\\GitHub\\HydraDragonAntivirus\\openedr\\edrav2\\eprj\\uri\\build-x64\\CMakeFiles\\CMakeScratch\\TryCompile-tpm5wi\\Debug\\" dizini olu┼şturuluyor.
+          "cmTC_d2f4d.dir\\Debug\\cmTC_d2f4d.tlog\\" dizini olu┼şturuluyor.
+        InitializeBuildStatus:
+          "AlwaysCreate" belirtildi─şi i├ğin "cmTC_d2f4d.dir\\Debug\\cmTC_d2f4d.tlog\\unsuccessfulbuild" olu┼şturuluyor.
+          "cmTC_d2f4d.dir\\Debug\\cmTC_d2f4d.tlog\\unsuccessfulbuild" ├Â─şesine eri┼şiliyor.
+        ClCompile:
+          C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\CL.exe /c /Zi /W3 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D "CMAKE_INTDIR=\\"Debug\\"" /RTC1 /MDd /GS /fp:precise /Zc:wchar_t /Zc:forScope /Zc:inline /Fo"cmTC_d2f4d.dir\\Debug\\\\" /Fd"cmTC_d2f4d.dir\\Debug\\vc143.pdb" /external:W3 /Gd /TC /errorReport:queue "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\CommonExtensions\\Microsoft\\CMake\\CMake\\share\\cmake-3.31\\Modules\\CMakeCCompilerABI.c"
+          Microsoft (R) C/C++ Optimizing Compiler Version 19.44.35224 for x64
+          Copyright (C) Microsoft Corporation.  All rights reserved.
+          cl /c /Zi /W3 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D "CMAKE_INTDIR=\\"Debug\\"" /RTC1 /MDd /GS /fp:precise /Zc:wchar_t /Zc:forScope /Zc:inline /Fo"cmTC_d2f4d.dir\\Debug\\\\" /Fd"cmTC_d2f4d.dir\\Debug\\vc143.pdb" /external:W3 /Gd /TC /errorReport:queue "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\CommonExtensions\\Microsoft\\CMake\\CMake\\share\\cmake-3.31\\Modules\\CMakeCCompilerABI.c"
+          CMakeCCompilerABI.c
+        Link:
+          C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\link.exe /ERRORREPORT:QUEUE /OUT:"C:\\Users\\semae\\OneDrive\\Belgeler\\GitHub\\HydraDragonAntivirus\\openedr\\edrav2\\eprj\\uri\\build-x64\\CMakeFiles\\CMakeScratch\\TryCompile-tpm5wi\\Debug\\cmTC_d2f4d.exe" /INCREMENTAL /ILK:"cmTC_d2f4d.dir\\Debug\\cmTC_d2f4d.ilk" /NOLOGO kernel32.lib user32.lib gdi32.lib winspool.lib shell32.lib ole32.lib oleaut32.lib uuid.lib comdlg32.lib advapi32.lib /MANIFEST /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /manifest:embed /DEBUG /PDB:"C:/Users/semae/OneDrive/Belgeler/GitHub/HydraDragonAntivirus/openedr/edrav2/eprj/uri/build-x64/CMakeFiles/CMakeScratch/TryCompile-tpm5wi/Debug/cmTC_d2f4d.pdb" /SUBSYSTEM:CONSOLE /TLBID:1 /DYNAMICBASE /NXCOMPAT /IMPLIB:"C:/Users/semae/OneDrive/Belgeler/GitHub/HydraDragonAntivirus/openedr/edrav2/eprj/uri/build-x64/CMakeFiles/CMakeScratch/TryCompile-tpm5wi/Debug/cmTC_d2f4d.lib" /MACHINE:X64  /machine:x64 cmTC_d2f4d.dir\\Debug\\CMakeCCompilerABI.obj
+          cmTC_d2f4d.vcxproj -> C:\\Users\\semae\\OneDrive\\Belgeler\\GitHub\\HydraDragonAntivirus\\openedr\\edrav2\\eprj\\uri\\build-x64\\CMakeFiles\\CMakeScratch\\TryCompile-tpm5wi\\Debug\\cmTC_d2f4d.exe
+        FinalizeBuildStatus:
+          "cmTC_d2f4d.dir\\Debug\\cmTC_d2f4d.tlog\\unsuccessfulbuild" dosyas─▒ siliniyor.
+          "cmTC_d2f4d.dir\\Debug\\cmTC_d2f4d.tlog\\cmTC_d2f4d.lastbuildstate" ├Â─şesine eri┼şiliyor.
+        "C:\\Users\\semae\\OneDrive\\Belgeler\\GitHub\\HydraDragonAntivirus\\openedr\\edrav2\\eprj\\uri\\build-x64\\CMakeFiles\\CMakeScratch\\TryCompile-tpm5wi\\cmTC_d2f4d.vcxproj" Projesini Olu┼şturma ─░┼şlemi Tamamland─▒ (varsay─▒lan hedefler).
+        
+        Olu┼şturma ba┼şar─▒l─▒ oldu.
+            0 Uyar─▒
+            0 Hata
+        
+        Ge├ğen S├╝re 00:00:00.78
+        
+      exitCode: 0
+  -
+    kind: "message-v1"
+    backtrace:
+      - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/share/cmake-3.31/Modules/CMakeDetermineCompilerABI.cmake:218 (message)"
+      - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/share/cmake-3.31/Modules/CMakeTestCCompiler.cmake:26 (CMAKE_DETERMINE_COMPILER_ABI)"
+      - "CMakeLists.txt:8 (project)"
+    message: |
+      Parsed C implicit link information:
+        link line regex: [^( *|.*[/\\])(ld[0-9]*(\\.[a-z]+)?|link\\.exe|lld-link(\\.exe)?|CMAKE_LINK_STARTFILE-NOTFOUND|([^/\\]+-)?ld|collect2)[^/\\]*( |$)]
+        linker tool regex: [^[ 	]*(->|")?[ 	]*(([^"]*[/\\])?(ld[0-9]*(\\.[a-z]+)?|link\\.exe|lld-link(\\.exe)?))("|,| |$)]
+        linker tool for 'C': C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/HostX64/x64/link.exe
+        implicit libs: []
+        implicit objs: []
+        implicit dirs: []
+        implicit fwks: []
+      
+      
+  -
+    kind: "message-v1"
+    backtrace:
+      - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/share/cmake-3.31/Modules/Internal/CMakeDetermineLinkerId.cmake:40 (message)"
+      - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/share/cmake-3.31/Modules/CMakeDetermineCompilerABI.cmake:255 (cmake_determine_linker_id)"
+      - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/share/cmake-3.31/Modules/CMakeTestCCompiler.cmake:26 (CMAKE_DETERMINE_COMPILER_ABI)"
+      - "CMakeLists.txt:8 (project)"
+    message: |
+      Running the C compiler's linker: "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/HostX64/x64/link.exe" "-v"
+      Microsoft (R) Incremental Linker Version 14.44.35224.0
+      Copyright (C) Microsoft Corporation.  All rights reserved.
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/share/cmake-3.31/Modules/CMakeDetermineCompilerABI.cmake:74 (try_compile)"
+      - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/share/cmake-3.31/Modules/CMakeTestCXXCompiler.cmake:26 (CMAKE_DETERMINE_COMPILER_ABI)"
+      - "CMakeLists.txt:8 (project)"
+    checks:
+      - "Detecting CXX compiler ABI info"
+    directories:
+      source: "C:/Users/semae/OneDrive/Belgeler/GitHub/HydraDragonAntivirus/openedr/edrav2/eprj/uri/build-x64/CMakeFiles/CMakeScratch/TryCompile-37pmwn"
+      binary: "C:/Users/semae/OneDrive/Belgeler/GitHub/HydraDragonAntivirus/openedr/edrav2/eprj/uri/build-x64/CMakeFiles/CMakeScratch/TryCompile-37pmwn"
+    cmakeVariables:
+      CMAKE_CXX_FLAGS: "/DWIN32 /D_WINDOWS /W3 /GR /EHsc"
+      CMAKE_CXX_SCAN_FOR_MODULES: "OFF"
+    buildResult:
+      variable: "CMAKE_CXX_ABI_COMPILED"
+      cached: true
+      stdout: |
+        Change Dir: 'C:/Users/semae/OneDrive/Belgeler/GitHub/HydraDragonAntivirus/openedr/edrav2/eprj/uri/build-x64/CMakeFiles/CMakeScratch/TryCompile-37pmwn'
+        
+        Run Build Command(s): "C:/Program Files/Microsoft Visual Studio/2022/Community/MSBuild/Current/Bin/amd64/MSBuild.exe" cmTC_42203.vcxproj /p:Configuration=Debug /p:Platform=x64 /p:VisualStudioVersion=17.0 /v:n
+        .NET Framework i├ğin MSBuild s├╝r├╝m 17.14.40+3e7442088
+        Olu┼şturma ba┼şlat─▒ld─▒: 7.04.2026 20:43:17.
+        
+        1 d├╝─ş├╝m├╝nde "C:\\Users\\semae\\OneDrive\\Belgeler\\GitHub\\HydraDragonAntivirus\\openedr\\edrav2\\eprj\\uri\\build-x64\\CMakeFiles\\CMakeScratch\\TryCompile-37pmwn\\cmTC_42203.vcxproj" projesi (varsay─▒lan hedefler).
+        PrepareForBuild:
+          "cmTC_42203.dir\\Debug\\" dizini olu┼şturuluyor.
+          Structured output is enabled. The formatting of compiler diagnostics will reflect the error hierarchy. See https://aka.ms/cpp/structured-output for more details.
+          "C:\\Users\\semae\\OneDrive\\Belgeler\\GitHub\\HydraDragonAntivirus\\openedr\\edrav2\\eprj\\uri\\build-x64\\CMakeFiles\\CMakeScratch\\TryCompile-37pmwn\\Debug\\" dizini olu┼şturuluyor.
+          "cmTC_42203.dir\\Debug\\cmTC_42203.tlog\\" dizini olu┼şturuluyor.
+        InitializeBuildStatus:
+          "AlwaysCreate" belirtildi─şi i├ğin "cmTC_42203.dir\\Debug\\cmTC_42203.tlog\\unsuccessfulbuild" olu┼şturuluyor.
+          "cmTC_42203.dir\\Debug\\cmTC_42203.tlog\\unsuccessfulbuild" ├Â─şesine eri┼şiliyor.
+        ClCompile:
+          C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\CL.exe /c /Zi /W3 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D "CMAKE_INTDIR=\\"Debug\\"" /EHsc /RTC1 /MDd /GS /fp:precise /Zc:wchar_t /Zc:forScope /Zc:inline /GR /Fo"cmTC_42203.dir\\Debug\\\\" /Fd"cmTC_42203.dir\\Debug\\vc143.pdb" /external:W3 /Gd /TP /errorReport:queue "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\CommonExtensions\\Microsoft\\CMake\\CMake\\share\\cmake-3.31\\Modules\\CMakeCXXCompilerABI.cpp"
+          Microsoft (R) C/C++ Optimizing Compiler Version 19.44.35224 for x64
+          Copyright (C) Microsoft Corporation.  All rights reserved.
+          cl /c /Zi /W3 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D "CMAKE_INTDIR=\\"Debug\\"" /EHsc /RTC1 /MDd /GS /fp:precise /Zc:wchar_t /Zc:forScope /Zc:inline /GR /Fo"cmTC_42203.dir\\Debug\\\\" /Fd"cmTC_42203.dir\\Debug\\vc143.pdb" /external:W3 /Gd /TP /errorReport:queue "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\CommonExtensions\\Microsoft\\CMake\\CMake\\share\\cmake-3.31\\Modules\\CMakeCXXCompilerABI.cpp"
+          CMakeCXXCompilerABI.cpp
+        Link:
+          C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\link.exe /ERRORREPORT:QUEUE /OUT:"C:\\Users\\semae\\OneDrive\\Belgeler\\GitHub\\HydraDragonAntivirus\\openedr\\edrav2\\eprj\\uri\\build-x64\\CMakeFiles\\CMakeScratch\\TryCompile-37pmwn\\Debug\\cmTC_42203.exe" /INCREMENTAL /ILK:"cmTC_42203.dir\\Debug\\cmTC_42203.ilk" /NOLOGO kernel32.lib user32.lib gdi32.lib winspool.lib shell32.lib ole32.lib oleaut32.lib uuid.lib comdlg32.lib advapi32.lib /MANIFEST /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /manifest:embed /DEBUG /PDB:"C:/Users/semae/OneDrive/Belgeler/GitHub/HydraDragonAntivirus/openedr/edrav2/eprj/uri/build-x64/CMakeFiles/CMakeScratch/TryCompile-37pmwn/Debug/cmTC_42203.pdb" /SUBSYSTEM:CONSOLE /TLBID:1 /DYNAMICBASE /NXCOMPAT /IMPLIB:"C:/Users/semae/OneDrive/Belgeler/GitHub/HydraDragonAntivirus/openedr/edrav2/eprj/uri/build-x64/CMakeFiles/CMakeScratch/TryCompile-37pmwn/Debug/cmTC_42203.lib" /MACHINE:X64  /machine:x64 cmTC_42203.dir\\Debug\\CMakeCXXCompilerABI.obj
+          cmTC_42203.vcxproj -> C:\\Users\\semae\\OneDrive\\Belgeler\\GitHub\\HydraDragonAntivirus\\openedr\\edrav2\\eprj\\uri\\build-x64\\CMakeFiles\\CMakeScratch\\TryCompile-37pmwn\\Debug\\cmTC_42203.exe
+        FinalizeBuildStatus:
+          "cmTC_42203.dir\\Debug\\cmTC_42203.tlog\\unsuccessfulbuild" dosyas─▒ siliniyor.
+          "cmTC_42203.dir\\Debug\\cmTC_42203.tlog\\cmTC_42203.lastbuildstate" ├Â─şesine eri┼şiliyor.
+        "C:\\Users\\semae\\OneDrive\\Belgeler\\GitHub\\HydraDragonAntivirus\\openedr\\edrav2\\eprj\\uri\\build-x64\\CMakeFiles\\CMakeScratch\\TryCompile-37pmwn\\cmTC_42203.vcxproj" Projesini Olu┼şturma ─░┼şlemi Tamamland─▒ (varsay─▒lan hedefler).
+        
+        Olu┼şturma ba┼şar─▒l─▒ oldu.
+            0 Uyar─▒
+            0 Hata
+        
+        Ge├ğen S├╝re 00:00:00.92
+        
+      exitCode: 0
+  -
+    kind: "message-v1"
+    backtrace:
+      - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/share/cmake-3.31/Modules/CMakeDetermineCompilerABI.cmake:218 (message)"
+      - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/share/cmake-3.31/Modules/CMakeTestCXXCompiler.cmake:26 (CMAKE_DETERMINE_COMPILER_ABI)"
+      - "CMakeLists.txt:8 (project)"
+    message: |
+      Parsed CXX implicit link information:
+        link line regex: [^( *|.*[/\\])(ld[0-9]*(\\.[a-z]+)?|link\\.exe|lld-link(\\.exe)?|CMAKE_LINK_STARTFILE-NOTFOUND|([^/\\]+-)?ld|collect2)[^/\\]*( |$)]
+        linker tool regex: [^[ 	]*(->|")?[ 	]*(([^"]*[/\\])?(ld[0-9]*(\\.[a-z]+)?|link\\.exe|lld-link(\\.exe)?))("|,| |$)]
+        linker tool for 'CXX': C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/HostX64/x64/link.exe
+        implicit libs: []
+        implicit objs: []
+        implicit dirs: []
+        implicit fwks: []
+      
+      
+  -
+    kind: "message-v1"
+    backtrace:
+      - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/share/cmake-3.31/Modules/Internal/CMakeDetermineLinkerId.cmake:40 (message)"
+      - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/share/cmake-3.31/Modules/CMakeDetermineCompilerABI.cmake:255 (cmake_determine_linker_id)"
+      - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/share/cmake-3.31/Modules/CMakeTestCXXCompiler.cmake:26 (CMAKE_DETERMINE_COMPILER_ABI)"
+      - "CMakeLists.txt:8 (project)"
+    message: |
+      Running the CXX compiler's linker: "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/HostX64/x64/link.exe" "-v"
+      Microsoft (R) Incremental Linker Version 14.44.35224.0
+      Copyright (C) Microsoft Corporation.  All rights reserved.
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/share/cmake-3.31/Modules/Internal/CheckSourceCompiles.cmake:108 (try_compile)"
+      - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/share/cmake-3.31/Modules/CheckCSourceCompiles.cmake:58 (cmake_check_source_compiles)"
+      - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/share/cmake-3.31/Modules/FindThreads.cmake:97 (CHECK_C_SOURCE_COMPILES)"
+      - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/share/cmake-3.31/Modules/FindThreads.cmake:163 (_threads_check_libc)"
+      - "CMakeLists.txt:16 (find_package)"
+    checks:
+      - "Performing Test CMAKE_HAVE_LIBC_PTHREAD"
+    directories:
+      source: "C:/Users/semae/OneDrive/Belgeler/GitHub/HydraDragonAntivirus/openedr/edrav2/eprj/uri/build-x64/CMakeFiles/CMakeScratch/TryCompile-eoleb4"
+      binary: "C:/Users/semae/OneDrive/Belgeler/GitHub/HydraDragonAntivirus/openedr/edrav2/eprj/uri/build-x64/CMakeFiles/CMakeScratch/TryCompile-eoleb4"
+    cmakeVariables:
+      CMAKE_C_FLAGS: "/DWIN32 /D_WINDOWS /W3"
+    buildResult:
+      variable: "CMAKE_HAVE_LIBC_PTHREAD"
+      cached: true
+      stdout: |
+        Change Dir: 'C:/Users/semae/OneDrive/Belgeler/GitHub/HydraDragonAntivirus/openedr/edrav2/eprj/uri/build-x64/CMakeFiles/CMakeScratch/TryCompile-eoleb4'
+        
+        Run Build Command(s): "C:/Program Files/Microsoft Visual Studio/2022/Community/MSBuild/Current/Bin/amd64/MSBuild.exe" cmTC_6d5cd.vcxproj /p:Configuration=Debug /p:Platform=x64 /p:VisualStudioVersion=17.0 /v:n
+        .NET Framework i├ğin MSBuild s├╝r├╝m 17.14.40+3e7442088
+        Olu┼şturma ba┼şlat─▒ld─▒: 7.04.2026 20:43:18.
+        
+        1 d├╝─ş├╝m├╝nde "C:\\Users\\semae\\OneDrive\\Belgeler\\GitHub\\HydraDragonAntivirus\\openedr\\edrav2\\eprj\\uri\\build-x64\\CMakeFiles\\CMakeScratch\\TryCompile-eoleb4\\cmTC_6d5cd.vcxproj" projesi (varsay─▒lan hedefler).
+        PrepareForBuild:
+          "cmTC_6d5cd.dir\\Debug\\" dizini olu┼şturuluyor.
+          Structured output is enabled. The formatting of compiler diagnostics will reflect the error hierarchy. See https://aka.ms/cpp/structured-output for more details.
+          "C:\\Users\\semae\\OneDrive\\Belgeler\\GitHub\\HydraDragonAntivirus\\openedr\\edrav2\\eprj\\uri\\build-x64\\CMakeFiles\\CMakeScratch\\TryCompile-eoleb4\\Debug\\" dizini olu┼şturuluyor.
+          "cmTC_6d5cd.dir\\Debug\\cmTC_6d5cd.tlog\\" dizini olu┼şturuluyor.
+        InitializeBuildStatus:
+          "AlwaysCreate" belirtildi─şi i├ğin "cmTC_6d5cd.dir\\Debug\\cmTC_6d5cd.tlog\\unsuccessfulbuild" olu┼şturuluyor.
+          "cmTC_6d5cd.dir\\Debug\\cmTC_6d5cd.tlog\\unsuccessfulbuild" ├Â─şesine eri┼şiliyor.
+        ClCompile:
+          C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\CL.exe /c /Zi /W3 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D CMAKE_HAVE_LIBC_PTHREAD /D "CMAKE_INTDIR=\\"Debug\\"" /RTC1 /MDd /GS /fp:precise /Zc:wchar_t /Zc:forScope /Zc:inline /Fo"cmTC_6d5cd.dir\\Debug\\\\" /Fd"cmTC_6d5cd.dir\\Debug\\vc143.pdb" /external:W3 /Gd /TC /errorReport:queue "C:\\Users\\semae\\OneDrive\\Belgeler\\GitHub\\HydraDragonAntivirus\\openedr\\edrav2\\eprj\\uri\\build-x64\\CMakeFiles\\CMakeScratch\\TryCompile-eoleb4\\src.c"
+          Microsoft (R) C/C++ Optimizing Compiler Version 19.44.35224 for x64
+          Copyright (C) Microsoft Corporation.  All rights reserved.
+          cl /c /Zi /W3 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D CMAKE_HAVE_LIBC_PTHREAD /D "CMAKE_INTDIR=\\"Debug\\"" /RTC1 /MDd /GS /fp:precise /Zc:wchar_t /Zc:forScope /Zc:inline /Fo"cmTC_6d5cd.dir\\Debug\\\\" /Fd"cmTC_6d5cd.dir\\Debug\\vc143.pdb" /external:W3 /Gd /TC /errorReport:queue "C:\\Users\\semae\\OneDrive\\Belgeler\\GitHub\\HydraDragonAntivirus\\openedr\\edrav2\\eprj\\uri\\build-x64\\CMakeFiles\\CMakeScratch\\TryCompile-eoleb4\\src.c"
+          src.c
+        C:\\Users\\semae\\OneDrive\\Belgeler\\GitHub\\HydraDragonAntivirus\\openedr\\edrav2\\eprj\\uri\\build-x64\\CMakeFiles\\CMakeScratch\\TryCompile-eoleb4\\src.c(1,10): error C1083: Cannot open include file: 'pthread.h': No such file or directory [C:\\Users\\semae\\OneDrive\\Belgeler\\GitHub\\HydraDragonAntivirus\\openedr\\edrav2\\eprj\\uri\\build-x64\\CMakeFiles\\CMakeScratch\\TryCompile-eoleb4\\cmTC_6d5cd.vcxproj]
+        "C:\\Users\\semae\\OneDrive\\Belgeler\\GitHub\\HydraDragonAntivirus\\openedr\\edrav2\\eprj\\uri\\build-x64\\CMakeFiles\\CMakeScratch\\TryCompile-eoleb4\\cmTC_6d5cd.vcxproj" Projesini Olu┼şturma ─░┼şlemi Tamamland─▒ (varsay─▒lan hedefler) -- BA┼ŞARISIZ OLDU.
+        
+        Olu┼şturma BA┼ŞARISIZ OLDU.
+        
+        "C:\\Users\\semae\\OneDrive\\Belgeler\\GitHub\\HydraDragonAntivirus\\openedr\\edrav2\\eprj\\uri\\build-x64\\CMakeFiles\\CMakeScratch\\TryCompile-eoleb4\\cmTC_6d5cd.vcxproj" (varsay─▒lan hedef) (1) ->
+        (ClCompile hedefi) -> 
+          C:\\Users\\semae\\OneDrive\\Belgeler\\GitHub\\HydraDragonAntivirus\\openedr\\edrav2\\eprj\\uri\\build-x64\\CMakeFiles\\CMakeScratch\\TryCompile-eoleb4\\src.c(1,10): error C1083: Cannot open include file: 'pthread.h': No such file or directory [C:\\Users\\semae\\OneDrive\\Belgeler\\GitHub\\HydraDragonAntivirus\\openedr\\edrav2\\eprj\\uri\\build-x64\\CMakeFiles\\CMakeScratch\\TryCompile-eoleb4\\cmTC_6d5cd.vcxproj]
+        
+            0 Uyar─▒
+            1 Hata
+        
+        Ge├ğen S├╝re 00:00:00.52
+        
+      exitCode: 1
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/share/cmake-3.31/Modules/CheckLibraryExists.cmake:78 (try_compile)"
+      - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/share/cmake-3.31/Modules/FindThreads.cmake:112 (CHECK_LIBRARY_EXISTS)"
+      - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/share/cmake-3.31/Modules/FindThreads.cmake:175 (_threads_check_lib)"
+      - "CMakeLists.txt:16 (find_package)"
+    checks:
+      - "Looking for pthread_create in pthreads"
+    directories:
+      source: "C:/Users/semae/OneDrive/Belgeler/GitHub/HydraDragonAntivirus/openedr/edrav2/eprj/uri/build-x64/CMakeFiles/CMakeScratch/TryCompile-u75nxf"
+      binary: "C:/Users/semae/OneDrive/Belgeler/GitHub/HydraDragonAntivirus/openedr/edrav2/eprj/uri/build-x64/CMakeFiles/CMakeScratch/TryCompile-u75nxf"
+    cmakeVariables:
+      CMAKE_C_FLAGS: "/DWIN32 /D_WINDOWS /W3"
+    buildResult:
+      variable: "CMAKE_HAVE_PTHREADS_CREATE"
+      cached: true
+      stdout: |
+        Change Dir: 'C:/Users/semae/OneDrive/Belgeler/GitHub/HydraDragonAntivirus/openedr/edrav2/eprj/uri/build-x64/CMakeFiles/CMakeScratch/TryCompile-u75nxf'
+        
+        Run Build Command(s): "C:/Program Files/Microsoft Visual Studio/2022/Community/MSBuild/Current/Bin/amd64/MSBuild.exe" cmTC_fbaee.vcxproj /p:Configuration=Debug /p:Platform=x64 /p:VisualStudioVersion=17.0 /v:n
+        .NET Framework i├ğin MSBuild s├╝r├╝m 17.14.40+3e7442088
+        Olu┼şturma ba┼şlat─▒ld─▒: 7.04.2026 20:43:19.
+        
+        1 d├╝─ş├╝m├╝nde "C:\\Users\\semae\\OneDrive\\Belgeler\\GitHub\\HydraDragonAntivirus\\openedr\\edrav2\\eprj\\uri\\build-x64\\CMakeFiles\\CMakeScratch\\TryCompile-u75nxf\\cmTC_fbaee.vcxproj" projesi (varsay─▒lan hedefler).
+        PrepareForBuild:
+          "cmTC_fbaee.dir\\Debug\\" dizini olu┼şturuluyor.
+          Structured output is enabled. The formatting of compiler diagnostics will reflect the error hierarchy. See https://aka.ms/cpp/structured-output for more details.
+          "C:\\Users\\semae\\OneDrive\\Belgeler\\GitHub\\HydraDragonAntivirus\\openedr\\edrav2\\eprj\\uri\\build-x64\\CMakeFiles\\CMakeScratch\\TryCompile-u75nxf\\Debug\\" dizini olu┼şturuluyor.
+          "cmTC_fbaee.dir\\Debug\\cmTC_fbaee.tlog\\" dizini olu┼şturuluyor.
+        InitializeBuildStatus:
+          "AlwaysCreate" belirtildi─şi i├ğin "cmTC_fbaee.dir\\Debug\\cmTC_fbaee.tlog\\unsuccessfulbuild" olu┼şturuluyor.
+          "cmTC_fbaee.dir\\Debug\\cmTC_fbaee.tlog\\unsuccessfulbuild" ├Â─şesine eri┼şiliyor.
+        ClCompile:
+          C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\CL.exe /c /Zi /W3 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D CHECK_FUNCTION_EXISTS=pthread_create /D "CMAKE_INTDIR=\\"Debug\\"" /RTC1 /MDd /GS /fp:precise /Zc:wchar_t /Zc:forScope /Zc:inline /Fo"cmTC_fbaee.dir\\Debug\\\\" /Fd"cmTC_fbaee.dir\\Debug\\vc143.pdb" /external:W3 /Gd /TC /errorReport:queue "C:\\Users\\semae\\OneDrive\\Belgeler\\GitHub\\HydraDragonAntivirus\\openedr\\edrav2\\eprj\\uri\\build-x64\\CMakeFiles\\CMakeScratch\\TryCompile-u75nxf\\CheckFunctionExists.c"
+          Microsoft (R) C/C++ Optimizing Compiler Version 19.44.35224 for x64
+          Copyright (C) Microsoft Corporation.  All rights reserved.
+          cl /c /Zi /W3 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D CHECK_FUNCTION_EXISTS=pthread_create /D "CMAKE_INTDIR=\\"Debug\\"" /RTC1 /MDd /GS /fp:precise /Zc:wchar_t /Zc:forScope /Zc:inline /Fo"cmTC_fbaee.dir\\Debug\\\\" /Fd"cmTC_fbaee.dir\\Debug\\vc143.pdb" /external:W3 /Gd /TC /errorReport:queue "C:\\Users\\semae\\OneDrive\\Belgeler\\GitHub\\HydraDragonAntivirus\\openedr\\edrav2\\eprj\\uri\\build-x64\\CMakeFiles\\CMakeScratch\\TryCompile-u75nxf\\CheckFunctionExists.c"
+          CheckFunctionExists.c
+        Link:
+          C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\link.exe /ERRORREPORT:QUEUE /OUT:"C:\\Users\\semae\\OneDrive\\Belgeler\\GitHub\\HydraDragonAntivirus\\openedr\\edrav2\\eprj\\uri\\build-x64\\CMakeFiles\\CMakeScratch\\TryCompile-u75nxf\\Debug\\cmTC_fbaee.exe" /INCREMENTAL /ILK:"cmTC_fbaee.dir\\Debug\\cmTC_fbaee.ilk" /NOLOGO pthreads.lib kernel32.lib user32.lib gdi32.lib winspool.lib shell32.lib ole32.lib oleaut32.lib uuid.lib comdlg32.lib advapi32.lib /MANIFEST /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /manifest:embed /DEBUG /PDB:"C:/Users/semae/OneDrive/Belgeler/GitHub/HydraDragonAntivirus/openedr/edrav2/eprj/uri/build-x64/CMakeFiles/CMakeScratch/TryCompile-u75nxf/Debug/cmTC_fbaee.pdb" /SUBSYSTEM:CONSOLE /TLBID:1 /DYNAMICBASE /NXCOMPAT /IMPLIB:"C:/Users/semae/OneDrive/Belgeler/GitHub/HydraDragonAntivirus/openedr/edrav2/eprj/uri/build-x64/CMakeFiles/CMakeScratch/TryCompile-u75nxf/Debug/cmTC_fbaee.lib" /MACHINE:X64  /machine:x64 cmTC_fbaee.dir\\Debug\\CheckFunctionExists.obj
+        LINK : fatal error LNK1104: cannot open file 'pthreads.lib' [C:\\Users\\semae\\OneDrive\\Belgeler\\GitHub\\HydraDragonAntivirus\\openedr\\edrav2\\eprj\\uri\\build-x64\\CMakeFiles\\CMakeScratch\\TryCompile-u75nxf\\cmTC_fbaee.vcxproj]
+        "C:\\Users\\semae\\OneDrive\\Belgeler\\GitHub\\HydraDragonAntivirus\\openedr\\edrav2\\eprj\\uri\\build-x64\\CMakeFiles\\CMakeScratch\\TryCompile-u75nxf\\cmTC_fbaee.vcxproj" Projesini Olu┼şturma ─░┼şlemi Tamamland─▒ (varsay─▒lan hedefler) -- BA┼ŞARISIZ OLDU.
+        
+        Olu┼şturma BA┼ŞARISIZ OLDU.
+        
+        "C:\\Users\\semae\\OneDrive\\Belgeler\\GitHub\\HydraDragonAntivirus\\openedr\\edrav2\\eprj\\uri\\build-x64\\CMakeFiles\\CMakeScratch\\TryCompile-u75nxf\\cmTC_fbaee.vcxproj" (varsay─▒lan hedef) (1) ->
+        (Link hedefi) -> 
+          LINK : fatal error LNK1104: cannot open file 'pthreads.lib' [C:\\Users\\semae\\OneDrive\\Belgeler\\GitHub\\HydraDragonAntivirus\\openedr\\edrav2\\eprj\\uri\\build-x64\\CMakeFiles\\CMakeScratch\\TryCompile-u75nxf\\cmTC_fbaee.vcxproj]
+        
+            0 Uyar─▒
+            1 Hata
+        
+        Ge├ğen S├╝re 00:00:00.55
+        
+      exitCode: 1
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/share/cmake-3.31/Modules/CheckLibraryExists.cmake:78 (try_compile)"
+      - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/share/cmake-3.31/Modules/FindThreads.cmake:112 (CHECK_LIBRARY_EXISTS)"
+      - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/share/cmake-3.31/Modules/FindThreads.cmake:176 (_threads_check_lib)"
+      - "CMakeLists.txt:16 (find_package)"
+    checks:
+      - "Looking for pthread_create in pthread"
+    directories:
+      source: "C:/Users/semae/OneDrive/Belgeler/GitHub/HydraDragonAntivirus/openedr/edrav2/eprj/uri/build-x64/CMakeFiles/CMakeScratch/TryCompile-9hwmve"
+      binary: "C:/Users/semae/OneDrive/Belgeler/GitHub/HydraDragonAntivirus/openedr/edrav2/eprj/uri/build-x64/CMakeFiles/CMakeScratch/TryCompile-9hwmve"
+    cmakeVariables:
+      CMAKE_C_FLAGS: "/DWIN32 /D_WINDOWS /W3"
+    buildResult:
+      variable: "CMAKE_HAVE_PTHREAD_CREATE"
+      cached: true
+      stdout: |
+        Change Dir: 'C:/Users/semae/OneDrive/Belgeler/GitHub/HydraDragonAntivirus/openedr/edrav2/eprj/uri/build-x64/CMakeFiles/CMakeScratch/TryCompile-9hwmve'
+        
+        Run Build Command(s): "C:/Program Files/Microsoft Visual Studio/2022/Community/MSBuild/Current/Bin/amd64/MSBuild.exe" cmTC_208fa.vcxproj /p:Configuration=Debug /p:Platform=x64 /p:VisualStudioVersion=17.0 /v:n
+        .NET Framework i├ğin MSBuild s├╝r├╝m 17.14.40+3e7442088
+        Olu┼şturma ba┼şlat─▒ld─▒: 7.04.2026 20:43:20.
+        
+        1 d├╝─ş├╝m├╝nde "C:\\Users\\semae\\OneDrive\\Belgeler\\GitHub\\HydraDragonAntivirus\\openedr\\edrav2\\eprj\\uri\\build-x64\\CMakeFiles\\CMakeScratch\\TryCompile-9hwmve\\cmTC_208fa.vcxproj" projesi (varsay─▒lan hedefler).
+        PrepareForBuild:
+          "cmTC_208fa.dir\\Debug\\" dizini olu┼şturuluyor.
+          Structured output is enabled. The formatting of compiler diagnostics will reflect the error hierarchy. See https://aka.ms/cpp/structured-output for more details.
+          "C:\\Users\\semae\\OneDrive\\Belgeler\\GitHub\\HydraDragonAntivirus\\openedr\\edrav2\\eprj\\uri\\build-x64\\CMakeFiles\\CMakeScratch\\TryCompile-9hwmve\\Debug\\" dizini olu┼şturuluyor.
+          "cmTC_208fa.dir\\Debug\\cmTC_208fa.tlog\\" dizini olu┼şturuluyor.
+        InitializeBuildStatus:
+          "AlwaysCreate" belirtildi─şi i├ğin "cmTC_208fa.dir\\Debug\\cmTC_208fa.tlog\\unsuccessfulbuild" olu┼şturuluyor.
+          "cmTC_208fa.dir\\Debug\\cmTC_208fa.tlog\\unsuccessfulbuild" ├Â─şesine eri┼şiliyor.
+        ClCompile:
+          C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\CL.exe /c /Zi /W3 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D CHECK_FUNCTION_EXISTS=pthread_create /D "CMAKE_INTDIR=\\"Debug\\"" /RTC1 /MDd /GS /fp:precise /Zc:wchar_t /Zc:forScope /Zc:inline /Fo"cmTC_208fa.dir\\Debug\\\\" /Fd"cmTC_208fa.dir\\Debug\\vc143.pdb" /external:W3 /Gd /TC /errorReport:queue "C:\\Users\\semae\\OneDrive\\Belgeler\\GitHub\\HydraDragonAntivirus\\openedr\\edrav2\\eprj\\uri\\build-x64\\CMakeFiles\\CMakeScratch\\TryCompile-9hwmve\\CheckFunctionExists.c"
+          Microsoft (R) C/C++ Optimizing Compiler Version 19.44.35224 for x64
+          Copyright (C) Microsoft Corporation.  All rights reserved.
+          cl /c /Zi /W3 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D CHECK_FUNCTION_EXISTS=pthread_create /D "CMAKE_INTDIR=\\"Debug\\"" /RTC1 /MDd /GS /fp:precise /Zc:wchar_t /Zc:forScope /Zc:inline /Fo"cmTC_208fa.dir\\Debug\\\\" /Fd"cmTC_208fa.dir\\Debug\\vc143.pdb" /external:W3 /Gd /TC /errorReport:queue "C:\\Users\\semae\\OneDrive\\Belgeler\\GitHub\\HydraDragonAntivirus\\openedr\\edrav2\\eprj\\uri\\build-x64\\CMakeFiles\\CMakeScratch\\TryCompile-9hwmve\\CheckFunctionExists.c"
+          CheckFunctionExists.c
+        Link:
+          C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\link.exe /ERRORREPORT:QUEUE /OUT:"C:\\Users\\semae\\OneDrive\\Belgeler\\GitHub\\HydraDragonAntivirus\\openedr\\edrav2\\eprj\\uri\\build-x64\\CMakeFiles\\CMakeScratch\\TryCompile-9hwmve\\Debug\\cmTC_208fa.exe" /INCREMENTAL /ILK:"cmTC_208fa.dir\\Debug\\cmTC_208fa.ilk" /NOLOGO pthread.lib kernel32.lib user32.lib gdi32.lib winspool.lib shell32.lib ole32.lib oleaut32.lib uuid.lib comdlg32.lib advapi32.lib /MANIFEST /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /manifest:embed /DEBUG /PDB:"C:/Users/semae/OneDrive/Belgeler/GitHub/HydraDragonAntivirus/openedr/edrav2/eprj/uri/build-x64/CMakeFiles/CMakeScratch/TryCompile-9hwmve/Debug/cmTC_208fa.pdb" /SUBSYSTEM:CONSOLE /TLBID:1 /DYNAMICBASE /NXCOMPAT /IMPLIB:"C:/Users/semae/OneDrive/Belgeler/GitHub/HydraDragonAntivirus/openedr/edrav2/eprj/uri/build-x64/CMakeFiles/CMakeScratch/TryCompile-9hwmve/Debug/cmTC_208fa.lib" /MACHINE:X64  /machine:x64 cmTC_208fa.dir\\Debug\\CheckFunctionExists.obj
+        LINK : fatal error LNK1104: cannot open file 'pthread.lib' [C:\\Users\\semae\\OneDrive\\Belgeler\\GitHub\\HydraDragonAntivirus\\openedr\\edrav2\\eprj\\uri\\build-x64\\CMakeFiles\\CMakeScratch\\TryCompile-9hwmve\\cmTC_208fa.vcxproj]
+        "C:\\Users\\semae\\OneDrive\\Belgeler\\GitHub\\HydraDragonAntivirus\\openedr\\edrav2\\eprj\\uri\\build-x64\\CMakeFiles\\CMakeScratch\\TryCompile-9hwmve\\cmTC_208fa.vcxproj" Projesini Olu┼şturma ─░┼şlemi Tamamland─▒ (varsay─▒lan hedefler) -- BA┼ŞARISIZ OLDU.
+        
+        Olu┼şturma BA┼ŞARISIZ OLDU.
+        
+        "C:\\Users\\semae\\OneDrive\\Belgeler\\GitHub\\HydraDragonAntivirus\\openedr\\edrav2\\eprj\\uri\\build-x64\\CMakeFiles\\CMakeScratch\\TryCompile-9hwmve\\cmTC_208fa.vcxproj" (varsay─▒lan hedef) (1) ->
+        (Link hedefi) -> 
+          LINK : fatal error LNK1104: cannot open file 'pthread.lib' [C:\\Users\\semae\\OneDrive\\Belgeler\\GitHub\\HydraDragonAntivirus\\openedr\\edrav2\\eprj\\uri\\build-x64\\CMakeFiles\\CMakeScratch\\TryCompile-9hwmve\\cmTC_208fa.vcxproj]
+        
+            0 Uyar─▒
+            1 Hata
+        
+        Ge├ğen S├╝re 00:00:00.54
+        
+      exitCode: 1
+...

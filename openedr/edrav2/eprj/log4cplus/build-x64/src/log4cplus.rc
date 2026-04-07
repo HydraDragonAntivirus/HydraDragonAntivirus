@@ -31,8 +31,8 @@ BEGIN
             VALUE "CompanyName", "log4cplus"
             VALUE "FileDescription", "log4cplus logging library"
             VALUE "FileVersion", VER_STR
-            VALUE "InternalName", "log4cplusSU"
-            VALUE "ProductName", "log4cplusSU"
+            VALUE "InternalName", "log4cplusS"
+            VALUE "ProductName", "log4cplusS"
             VALUE "ProductVersion", VER_STR
         END
     END

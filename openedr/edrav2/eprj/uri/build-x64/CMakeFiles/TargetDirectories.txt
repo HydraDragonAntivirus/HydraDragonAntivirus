@@ -1,0 +1,5 @@
+C:/Users/semae/OneDrive/Belgeler/GitHub/HydraDragonAntivirus/openedr/edrav2/eprj/uri/build-x64/CMakeFiles/INSTALL.dir
+C:/Users/semae/OneDrive/Belgeler/GitHub/HydraDragonAntivirus/openedr/edrav2/eprj/uri/build-x64/CMakeFiles/ALL_BUILD.dir
+C:/Users/semae/OneDrive/Belgeler/GitHub/HydraDragonAntivirus/openedr/edrav2/eprj/uri/build-x64/CMakeFiles/ZERO_CHECK.dir
+C:/Users/semae/OneDrive/Belgeler/GitHub/HydraDragonAntivirus/openedr/edrav2/eprj/uri/build-x64/src/CMakeFiles/network-uri.dir
+C:/Users/semae/OneDrive/Belgeler/GitHub/HydraDragonAntivirus/openedr/edrav2/eprj/uri/build-x64/src/CMakeFiles/INSTALL.dir

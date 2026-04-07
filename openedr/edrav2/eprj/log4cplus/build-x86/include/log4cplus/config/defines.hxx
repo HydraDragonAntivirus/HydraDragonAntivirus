@@ -242,6 +242,6 @@
 /* #undef LOG4CPLUS_HAVE_VAR_ATTRIBUTE_INIT_PRIORITY */
 
 /* Defined to enable unit tests. */
-#define LOG4CPLUS_WITH_UNIT_TESTS 1
+/* #undef LOG4CPLUS_WITH_UNIT_TESTS */
 
 #endif // LOG4CPLUS_CONFIG_DEFINES_HXX
