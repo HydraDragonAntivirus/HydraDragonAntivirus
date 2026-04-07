@@ -24,8 +24,6 @@ void handlePureCall(void)
 	CRASHPAD_SIMULATE_CRASH();
 }
 
-#endif // _MSC_VER
-
 //
 // Initializes Crashpad's client-side handlers.
 //
