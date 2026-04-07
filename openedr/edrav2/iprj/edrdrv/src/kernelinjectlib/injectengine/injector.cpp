@@ -357,6 +357,14 @@ void Injector::enableDllVerification(SE_SIGNING_LEVEL RequiredLevel)
 NTSTATUS Injector::addSystemDll(const UNICODE_STRING& DllPath)
 {
 	UNICODE_STRING parentComponent = { 0 }, finalComponent = { 0 };
+	
+	// CVE-2025-69784 Fix: Block any path traversal sequences
+	for (USHORT i = 0; i < DllPath.Length / sizeof(WCHAR) - 1; i++) {
+		if (DllPath.Buffer[i] == L'.' && DllPath.Buffer[i + 1] == L'.') {
+			return STATUS_OBJECT_NAME_INVALID;
+		}
+	}
+
 	IFERR_RET(tools::getObjectNamePathParentComponent(&DllPath, &parentComponent, &finalComponent), "Invalid Dll path <%wZ>\r\n", (PCUNICODE_STRING)&DllPath);
 
 	DynUnicodeString fullDllPath;

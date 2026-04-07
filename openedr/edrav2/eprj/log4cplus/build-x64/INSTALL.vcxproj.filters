@@ -1,0 +1,13 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <CustomBuild Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\build-x64\CMakeFiles\043f9dc4df7752ea4f7a17923b92fafa\INSTALL_force.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="CMake Rules">
+      <UniqueIdentifier>{E7CEB0C4-CA1D-3A15-920A-4788C7F3BFB3}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

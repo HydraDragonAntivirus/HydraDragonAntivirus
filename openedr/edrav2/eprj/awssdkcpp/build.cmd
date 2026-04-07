@@ -1,5 +1,7 @@
-﻿@echo off
-@call "C:\Program Files (x86)\Microsoft Visual Studio\2017\Community\Common7\Tools\VsDevCmd.bat"
+@echo off
+setlocal
+@set vcvarsall="%ProgramFiles%\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvarsall.bat"
+@set cmake=cmake -G "Visual Studio 17 2022"
 
 call :buildx64
 call :buildx86
@@ -7,9 +9,10 @@ call :buildx86
 exit /b %errorlevel%
  
 :buildx64
+call %vcvarsall% x64
 
-cmake -Bbuild-x64 ^
- -G "Visual Studio 15 2017 Win64" -T "host=x64" ^
+%cmake% -Bbuild-x64 -A x64 ^
+ -DCMAKE_BUILD_TYPE=Release ^
  -DBUILD_ONLY="firehose" ^
  -DBUILD_SHARED_LIBS=OFF ^
  -DFORCE_SHARED_CRT=OFF ^
@@ -21,27 +24,28 @@ cmake -Bbuild-x64 ^
 if %errorlevel% neq 0 exit /b %errorlevel%
 
 cd build-x64
-devenv AWSSDK.sln /build "Release|x64"
+msbuild AWSSDK.sln /p:Configuration=Release /p:Platform=x64 /t:Build /m
 if %errorlevel% neq 0 exit /b %errorlevel%
 xcopy aws-cpp-sdk-core\Release\aws-cpp-sdk-core.lib ..\lib\win-Release-x64\ /I /Y
 xcopy aws-cpp-sdk-core\aws-cpp-sdk-core.dir\Release\aws-cpp-sdk-core.pdb ..\lib\win-Release-x64\ /I /Y
 xcopy aws-cpp-sdk-firehose\Release\aws-cpp-sdk-firehose.lib ..\lib\win-Release-x64\ /I /Y
 xcopy aws-cpp-sdk-firehose\aws-cpp-sdk-firehose.dir\Release\aws-cpp-sdk-firehose.pdb ..\lib\win-Release-x64\ /I /Y
 
-devenv AWSSDK.sln /build "Debug|x64"
+msbuild AWSSDK.sln /p:Configuration=Debug /p:Platform=x64 /t:Build /m
 if %errorlevel% neq 0 exit /b %errorlevel%
 xcopy aws-cpp-sdk-core\Debug\aws-cpp-sdk-core.lib ..\lib\win-Debug-x64\ /I /Y
-xcopy aws-cpp-sdk-core\Debug\aws-cpp-sdk-core.pdb ..\lib\win-Debug-x64\ /I /Y
+xcopy aws-cpp-sdk-core\aws-cpp-sdk-core.dir\Debug\aws-cpp-sdk-core.pdb ..\lib\win-Debug-x64\ /I /Y
 xcopy aws-cpp-sdk-firehose\Debug\aws-cpp-sdk-firehose.lib ..\lib\win-Debug-x64\ /I /Y
-xcopy aws-cpp-sdk-firehose\Debug\aws-cpp-sdk-firehose.pdb ..\lib\win-Debug-x64\ /I /Y
+xcopy aws-cpp-sdk-firehose\aws-cpp-sdk-firehose.dir\Debug\aws-cpp-sdk-firehose.pdb ..\lib\win-Debug-x64\ /I /Y
 cd ..
 
 exit /b 0
 
 :buildx86
+call %vcvarsall% x64_x86
 
-cmake -Bbuild-x86 ^
- -T "host=x64" ^
+%cmake% -Bbuild-x86 -A Win32 ^
+ -DCMAKE_BUILD_TYPE=Release ^
  -DBUILD_ONLY="firehose" ^
  -DBUILD_SHARED_LIBS=OFF ^
  -DFORCE_SHARED_CRT=OFF ^
@@ -53,20 +57,19 @@ cmake -Bbuild-x86 ^
 if %errorlevel% neq 0 exit /b %errorlevel%
 
 cd build-x86
-devenv AWSSDK.sln /build "Release|Win32"
+msbuild AWSSDK.sln /p:Configuration=Release /p:Platform=Win32 /t:Build /m
 if %errorlevel% neq 0 exit /b %errorlevel%
 xcopy aws-cpp-sdk-core\Release\aws-cpp-sdk-core.lib ..\lib\win-Release-Win32\ /I /Y
 xcopy aws-cpp-sdk-core\aws-cpp-sdk-core.dir\Release\aws-cpp-sdk-core.pdb ..\lib\win-Release-Win32\ /I /Y
 xcopy aws-cpp-sdk-firehose\Release\aws-cpp-sdk-firehose.lib ..\lib\win-Release-Win32\ /I /Y
 xcopy aws-cpp-sdk-firehose\aws-cpp-sdk-firehose.dir\Release\aws-cpp-sdk-firehose.pdb ..\lib\win-Release-Win32\ /I /Y
 
-devenv AWSSDK.sln /build "Debug|Win32"
+msbuild AWSSDK.sln /p:Configuration=Debug /p:Platform=Win32 /t:Build /m
 if %errorlevel% neq 0 exit /b %errorlevel%
 xcopy aws-cpp-sdk-core\Debug\aws-cpp-sdk-core.lib ..\lib\win-Debug-Win32\ /I /Y
-xcopy aws-cpp-sdk-core\Debug\aws-cpp-sdk-core.pdb ..\lib\win-Debug-Win32\ /I /Y
+xcopy aws-cpp-sdk-core\aws-cpp-sdk-core.dir\Debug\aws-cpp-sdk-core.pdb ..\lib\win-Debug-Win32\ /I /Y
 xcopy aws-cpp-sdk-firehose\Debug\aws-cpp-sdk-firehose.lib ..\lib\win-Debug-Win32\ /I /Y
-xcopy aws-cpp-sdk-firehose\Debug\aws-cpp-sdk-firehose.pdb ..\lib\win-Debug-Win32\ /I /Y
+xcopy aws-cpp-sdk-firehose\aws-cpp-sdk-firehose.dir\Debug\aws-cpp-sdk-firehose.pdb ..\lib\win-Debug-Win32\ /I /Y
 
 cd ..
-
 exit /b 0

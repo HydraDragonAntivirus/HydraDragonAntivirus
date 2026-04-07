@@ -335,7 +335,7 @@ void LaneOperation::finalConstruct(Variant vConfig)
 //
 //
 //
-Variant LaneOperation::execute(Variant vParam)
+Variant LaneOperation::execute(Variant /*vParam*/)
 {
 	if (!m_fnOperation)
 		error::LogicError(SL).throwException();

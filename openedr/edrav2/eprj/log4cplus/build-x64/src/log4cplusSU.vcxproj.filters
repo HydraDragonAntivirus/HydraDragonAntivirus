@@ -1,0 +1,177 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\appenderattachableimpl.cxx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\appender.cxx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\asyncappender.cxx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\callbackappender.cxx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\clogger.cxx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\configurator.cxx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\connectorthread.cxx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\consoleappender.cxx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\cygwin-win32.cxx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\env.cxx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\factory.cxx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\fileappender.cxx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\fileinfo.cxx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\filter.cxx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\global-init.cxx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\hierarchy.cxx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\hierarchylocker.cxx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\layout.cxx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\log4judpappender.cxx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\lockfile.cxx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\logger.cxx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\loggerimpl.cxx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\loggingevent.cxx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\loggingmacros.cxx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\loglevel.cxx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\loglog.cxx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\mdc.cxx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\ndc.cxx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\nullappender.cxx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\objectregistry.cxx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\patternlayout.cxx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\pointer.cxx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\property.cxx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\queue.cxx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\rootlogger.cxx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\snprintf.cxx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\socketappender.cxx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\socketbuffer.cxx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\socket.cxx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\stringhelper.cxx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\stringhelper-clocale.cxx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\stringhelper-cxxlocale.cxx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\stringhelper-iconv.cxx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\syncprims.cxx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\syslogappender.cxx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\threads.cxx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\timehelper.cxx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\tls.cxx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\version.cxx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\nteventlogappender.cxx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\socket-win32.cxx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\win32consoleappender.cxx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\win32debugappender.cxx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <CustomBuild Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\src\CMakeLists.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\build-x64\src\log4cplus.rc">
+      <Filter>Source Files</Filter>
+    </ResourceCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="Source Files">
+      <UniqueIdentifier>{969BEE6F-314F-3157-B0EB-F8C90B73FA0F}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

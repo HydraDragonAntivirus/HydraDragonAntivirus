@@ -1595,7 +1595,7 @@ Variant FileDataProvider::execute(Variant vCommand, Variant vParams)
 //
 //
 //
-void FileDataProvider::loadState(Variant vState)
+void FileDataProvider::loadState(Variant /*vState*/)
 {
 }
 

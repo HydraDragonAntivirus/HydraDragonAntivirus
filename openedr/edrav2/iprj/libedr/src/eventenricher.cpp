@@ -35,7 +35,7 @@ namespace {
 
 		str.erase(str.begin(), str.begin() + commandEnd + executableExt.length());
 
-		const std::wregex filePathRegex(L"[A-za-z]:.*(\.cmd|\.bat|\.ps1|\.py)");
+		const std::wregex filePathRegex(LR"([A-Za-z]:.*(\.cmd|\.bat|\.ps1|\.py))");
 
 		str.erase(remove_if(str.begin(), str.end(), [](const wchar_t& sym) {return sym == L'\"'; }), str.end());
 
@@ -93,7 +93,7 @@ void EventEnricher::finalConstruct(Variant vConfig)
 //
 //
 //
-void EventEnricher::loadState(Variant vState)
+void EventEnricher::loadState(Variant /*vState*/)
 {
 }
 
@@ -537,7 +537,7 @@ void EventEnricher::notifyAddQueueData(Variant vTag)
 //
 //
 //
-void EventEnricher::notifyQueueOverflowWarning(Variant vTag)
+void EventEnricher::notifyQueueOverflowWarning(Variant /*vTag*/)
 {
 }
 

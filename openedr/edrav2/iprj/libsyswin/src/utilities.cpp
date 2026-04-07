@@ -295,7 +295,7 @@ std::wstring getKnownPath(const GUID& ePathId, const HANDLE hToken)
 {
 	constexpr auto eFlags = KF_FLAG_DONT_VERIFY | KF_FLAG_NO_ALIAS;
 	PWSTR psPath = nullptr;
-	HRESULT eStatus = ::SHGetKnownFolderPath(ePathId, 0, hToken, &psPath);
+	HRESULT eStatus = ::SHGetKnownFolderPath(ePathId, eFlags, hToken, &psPath);
 	if (eStatus != S_OK || psPath == nullptr)
 		return {};
 

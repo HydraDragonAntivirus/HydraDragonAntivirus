@@ -610,7 +610,7 @@ Variant ProcessDataProvider::getParentsChain(Variant vProcess, bool fAddProc)
 //
 //
 //
-void ProcessDataProvider::loadState(Variant vState)
+void ProcessDataProvider::loadState(Variant /*vState*/)
 {
 }
 

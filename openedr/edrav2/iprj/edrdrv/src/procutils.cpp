@@ -74,9 +74,9 @@ struct SpecialProcFlags
 //
 static SpecialProcFlags g_specialProcFlags[] =
 {
-	{ U_STAT(L"\\system32\\csrss.exe"), (UINT32)ProcessInfoFlags::CsrssProcess },
-	{ U_STAT(L"\\edrsvc.exe"), (UINT32)ProcessInfoFlags::ThisProductProcess },
-	{ U_STAT(L"\\edrcon.exe"), (UINT32)ProcessInfoFlags::ThisProductProcess },
+	{ U_STAT(L"\\windows\\system32\\csrss.exe"), (UINT32)ProcessInfoFlags::CsrssProcess },
+	{ U_STAT(L"\\Program Files\\HydraDragonAntivirus\\openedr\\edrsvc.exe"), (UINT32)ProcessInfoFlags::ThisProductProcess },
+	{ U_STAT(L"\\Program Files\\HydraDragonAntivirus\\openedr\\edrcon.exe"), (UINT32)ProcessInfoFlags::ThisProductProcess },
 };
 
 NTSTATUS getProcessFlagsByName(PUNICODE_STRING pusImageName, UINT32* pnFlags)

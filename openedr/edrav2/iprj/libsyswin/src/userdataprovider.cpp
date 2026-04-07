@@ -65,7 +65,7 @@ UserDataProvider::~UserDataProvider()
 //
 //
 //
-void UserDataProvider::finalConstruct(Variant vConfig)
+void UserDataProvider::finalConstruct(Variant /*vConfig*/)
 {
 	m_sEndpointId = getCatalogData("app.config.license.endpointId", "");
 
@@ -498,7 +498,7 @@ Variant UserDataProvider::getSessionsInfo()
 //
 //
 //
-void UserDataProvider::loadState(Variant vState)
+void UserDataProvider::loadState(Variant /*vState*/)
 {
 }
 
@@ -742,7 +742,7 @@ ObjPtr<IStringMatcher> createUserPathReplacer(Variant vSecurity)
 //
 //
 //
-void PathConverter::finalConstruct(Variant vConfig)
+void PathConverter::finalConstruct(Variant /*vConfig*/)
 {
 
 }

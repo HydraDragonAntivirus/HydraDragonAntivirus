@@ -263,7 +263,7 @@ inline void callFinalConstruct(ObjPtr<T> pObj, const Variant& vConfig)
 // Object initializer if T does not have finalConstruct
 //
 template<typename T, std::enable_if_t<!HasFinalConstruct<T>::value, int> = 0>
-inline void callFinalConstruct(ObjPtr<T> pObj, const Variant& /*vConfig*/)
+inline void callFinalConstruct(ObjPtr<T> /*pObj*/, const Variant& /*vConfig*/)
 {
 	return;
 }

@@ -476,7 +476,7 @@ void ProcessMonitorController::install(Variant vParams)
 //
 //
 //
-void ProcessMonitorController::uninstall(Variant vParams)
+void ProcessMonitorController::uninstall(Variant /*vParams*/)
 {
 	if (m_hGlobalEvent && !::ResetEvent(m_hGlobalEvent))
 		error::win::WinApiError(SL, "Fail to reset global event").log();
@@ -494,7 +494,7 @@ void ProcessMonitorController::uninstall(Variant vParams)
 //
 //
 //
-void ProcessMonitorController::loadState(Variant vState)
+void ProcessMonitorController::loadState(Variant /*vState*/)
 {
 }
 
@@ -517,7 +517,7 @@ void ProcessMonitorController::start()
 //
 //
 //
-bool ProcessMonitorController::start(Variant vParams)
+bool ProcessMonitorController::start(Variant /*vParams*/)
 {
 	LOGLVL(Detailed, "ProcMon controller is being started");
 
@@ -562,7 +562,7 @@ void ProcessMonitorController::stop()
 //
 //
 //
-bool ProcessMonitorController::stop(Variant vParams)
+bool ProcessMonitorController::stop(Variant /*vParams*/)
 {
 	LOGLVL(Detailed, "ProcMon controller is being stopped");
 
