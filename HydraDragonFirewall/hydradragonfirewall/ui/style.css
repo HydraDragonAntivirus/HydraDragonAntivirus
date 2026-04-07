@@ -1,27 +1,23 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Fira+Code:wght@400;500&display=swap');
 
 :root {
-    /* TACTICAL TECH-NOIR THEME VARIABLES */
-    --bg-dark: #09090B;
-    --bg-panel: #121216;
-    --bg-terminal: #000000;
-    --bg-accent: rgba(34, 197, 94, 0.1);
-    
+    --bg-dark: #08090b;
+    --bg-panel: rgba(18, 20, 25, 0.7);
+    --bg-accent: rgba(255, 62, 62, 0.1);
     --glass-border: rgba(255, 255, 255, 0.05);
     --glass-highlight: rgba(255, 255, 255, 0.08);
 
-    --text-main: #F8F9FA;
+    --text-main: #e0e0e0;
     --text-muted: #888e96;
-    --text-terminal: #22C55E;
 
     --accent-red: #ff3e3e;
     --accent-red-glow: rgba(255, 62, 62, 0.4);
     --accent-blue: #3e94ff;
-    --accent-green: #10B981;
+    --accent-green: #00ff88;
     --accent-yellow: #ffcc00;
 
     --sidebar-width: 240px;
-    --border-radius: 6px; /* Micro-radius as per spec */
+    --border-radius: 16px;
     --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
@@ -133,10 +129,12 @@ main {
 /* Glass Cards */
 .glass-card {
     background: var(--bg-panel);
+    backdrop-filter: blur(12px);
     border: 1px solid var(--glass-border);
+    border-top: 1px solid var(--glass-highlight);
     border-radius: var(--border-radius);
     padding: 24px;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
 }
 
 /* Dashboard Grid */
@@ -290,21 +288,17 @@ main {
     overflow-y: auto;
     overflow-x: hidden;
     overscroll-behavior: contain;
-    font-family: 'Consolas', 'Courier New', monospace;
+    font-family: 'Fira Code', monospace;
     font-size: 13px;
-    padding: 10px;
-    background: var(--bg-terminal);
-    color: var(--text-terminal);
-    border-radius: var(--border-radius);
-    border: 1px solid var(--glass-border);
+    padding: 5px;
 }
 
 .log-row {
     display: flex;
     gap: 15px;
-    padding: 4px 8px;
-    border-radius: 4px;
-    margin-bottom: 2px;
+    padding: 8px 12px;
+    border-radius: 8px;
+    margin-bottom: 4px;
     transition: background 0.2s;
 }
 

@@ -1510,10 +1510,13 @@ pub fn App() -> impl IntoView {
                     if let Ok(entry) = serde_json::from_value::<LogEntry>(payload_obj.clone()) {
                         set_logs.update(|l| {
                             l.push(entry.clone());
-                            // Tactical Ring Buffer (Strict 1000 max)
-                            if l.len() > 1000 {
-                                let remove_count = l.len() - 1000;
-                                l.drain(0..remove_count);
+                            let current_settings = settings.get_untracked();
+                            if current_settings.prune_old_logs {
+                                let keep = current_settings.max_visible_logs.max(1);
+                                if l.len() > keep {
+                                    let remove_count = l.len() - keep;
+                                    l.drain(0..remove_count);
+                                }
                             }
                         });
                         set_total_count.update(|n| *n += 1);
@@ -1561,17 +1564,19 @@ pub fn App() -> impl IntoView {
                         let pkt_log = build_raw_packet_log_entry(&pkt);
                         set_raw_packets.update(|p| {
                             p.push(pkt);
-                            if p.len() > 1000 {
-                                let remove_count = p.len() - 1000;
-                                p.drain(0..remove_count);
+                            if p.len() > 100 {
+                                p.remove(0);
                             }
                         });
                         set_logs.update(|l| {
                             l.push(pkt_log);
-                            // Tactical Ring Buffer (Strict 1000 max)
-                            if l.len() > 1000 {
-                                let remove_count = l.len() - 1000;
-                                l.drain(0..remove_count);
+                            let current_settings = settings.get_untracked();
+                            if current_settings.prune_old_logs {
+                                let keep = current_settings.max_visible_logs.max(1);
+                                if l.len() > keep {
+                                    let remove_count = l.len() - keep;
+                                    l.drain(0..remove_count);
+                                }
                             }
                         });
                     }
@@ -1588,18 +1593,24 @@ pub fn App() -> impl IntoView {
                         let http_log = build_proxy_log_entry(&ev);
                         set_proxy_events.update(|p| {
                             p.push(ev);
-                            // Tactical Ring Buffer (Strict 1000 max)
-                            if p.len() > 1000 {
-                                let remove_count = p.len() - 1000;
-                                p.drain(0..remove_count);
+                            let current_settings = settings.get_untracked();
+                            if current_settings.prune_http_history {
+                                let keep = current_settings.max_visible_http_events.max(1);
+                                if p.len() > keep {
+                                    let remove_count = p.len() - keep;
+                                    p.drain(0..remove_count);
+                                }
                             }
                         });
                         set_logs.update(|l| {
                             l.push(http_log);
-                            // Tactical Ring Buffer (Strict 1000 max)
-                            if l.len() > 1000 {
-                                let remove_count = l.len() - 1000;
-                                l.drain(0..remove_count);
+                            let current_settings = settings.get_untracked();
+                            if current_settings.prune_old_logs {
+                                let keep = current_settings.max_visible_logs.max(1);
+                                if l.len() > keep {
+                                    let remove_count = l.len() - keep;
+                                    l.drain(0..remove_count);
+                                }
                             }
                         });
                     }
@@ -1779,94 +1790,97 @@ pub fn App() -> impl IntoView {
 
                         {move || match current_view.get() {
                             AppView::Dashboard => view! {
-                                <div class="dashboard-grid" style="flex-direction: column; gap: 20px;">
-                                    // ÜST BENTO (Kalkan & Metrikler)
-                                    <div style="display: flex; gap: 20px;">
-                                        <div class="glass-card" style="flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; position: relative;">
-                                            <div style="font-size: 48px; margin-bottom: 15px; text-shadow: 0 0 25px var(--accent-green), 0 0 10px rgba(16, 185, 129, 0.5);">
-                                                {move || if engine_active.get() { "🛡️" } else { "⏳" }}
+                                <div class="dashboard-grid">
+                                    <div class="dash-col-main">
+                                        <div class="glass-card status-card">
+                                            <div class="status-header">
+                                                <div>
+                                                    <h3>"System Status"</h3>
+                                                    <span class={move || if engine_active.get() { "status-badge secure" } else { "status-badge" }}>
+                                                        {move || if engine_active.get() { "SECURE" } else { "INITIALIZING" }}
+                                                    </span>
+                                                </div>
+                                                <div class="pulse-indicator"></div>
                                             </div>
-                                            <h3 style="margin: 0; color: var(--accent-green); letter-spacing: 3px; font-weight: 800;">
-                                                {move || if engine_active.get() { "SYSTEM SECURE" } else { "INITIALIZING" }}
-                                            </h3>
-                                            <button class="btn-primary" style="margin-top: 15px; width: 60%; font-family: 'Consolas', monospace; letter-spacing: 1px;">"QUICK SCAN"</button>
-                                        </div>
-                                        <div class="glass-card" style="flex: 1; display: flex; flex-direction: column; gap: 20px; justify-content: center;">
-                                            <h4 style="margin:0; color: var(--text-muted); text-transform: uppercase; font-size: 13px; font-weight: 700; letter-spacing: 1px;">"Hardware Telemetry"</h4>
-                                            <div>
-                                                <div style="display:flex; justify-content: space-between; font-size: 12px; margin-bottom: 8px; font-family: 'Consolas', monospace; font-weight: bold;">
-                                                    <span style="color: var(--text-main);">"CPU LOAD_AVG"</span><span style="color:var(--accent-red)">"12.4%"</span>
-                                                </div>
-                                                <div style="width: 100%; height: 8px; background: rgba(255,255,255,0.05); border-radius: 4px; overflow: hidden; border: 1px solid rgba(255,255,255,0.1);">
-                                                    <div style="width: 12.4%; height: 100%; background: var(--accent-red); box-shadow: 0 0 10px var(--accent-red-glow);"></div>
-                                                </div>
-                                            </div>
-                                            <div>
-                                                <div style="display:flex; justify-content: space-between; font-size: 12px; margin-bottom: 8px; font-family: 'Consolas', monospace; font-weight: bold;">
-                                                    <span style="color: var(--text-main);">"MEMORY ALLOC"</span><span style="color:var(--accent-blue)">"4.2 GB"</span>
-                                                </div>
-                                                <div style="width: 100%; height: 8px; background: rgba(255,255,255,0.05); border-radius: 4px; overflow: hidden; border: 1px solid rgba(255,255,255,0.1);">
-                                                    <div style="width: 35%; height: 100%; background: var(--accent-blue); box-shadow: 0 0 10px rgba(62,148,255,0.4);"></div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    // ORTA BENTO (İstihbarat & İstatistik)
-                                    <div style="display: flex; gap: 20px;">
-                                        <div class="glass-card" style="flex: 1;">
-                                            <h4 style="margin:0 0 15px 0; color: var(--text-muted); text-transform: uppercase; font-size: 13px; font-weight: 700; letter-spacing: 1px;">"Threat Intelligence"</h4>
-                                            <div style="display: flex; flex-direction: column; gap: 12px; font-family: 'Consolas', monospace; font-size: 13px;">
-                                                <div style="display:flex; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 6px;">
-                                                    <span style="color: var(--text-main);">"Hayabusa Rules:"</span><span style="color:var(--accent-green); font-weight: bold;">"SYNCED"</span>
-                                                </div>
-                                                <div style="display:flex; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 6px;">
-                                                    <span style="color: var(--text-main);">"ClamAV DB:"</span><span style="color:var(--accent-green); font-weight: bold;">"UP TO DATE"</span>
-                                                </div>
-                                                <div style="display:flex; justify-content: space-between;">
-                                                    <span style="color: var(--text-main);">"YARA Signatures:"</span><span style="color:var(--accent-blue); font-weight: bold;">"14,208"</span>
-                                                </div>
-                                            </div>
-                                        </div>
-                                        <div class="glass-card" style="flex: 1;">
-                                            <h4 style="margin:0 0 15px 0; color: var(--text-muted); text-transform: uppercase; font-size: 13px; font-weight: 700; letter-spacing: 1px;">"Engine Stats"</h4>
-                                            <div style="display: flex; flex-direction: column; gap: 12px; font-family: 'Consolas', monospace; font-size: 13px;">
-                                                <div style="display:flex; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 6px;">
-                                                    <span style="color: var(--text-main);">"Live Activity:"</span><span style="color:var(--accent-blue); font-weight: bold;">{move || format!("{:.1} evt/s", current_activity_rate.get())}</span>
-                                                </div>
-                                                <div style="display:flex; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 6px;">
-                                                    <span style="color: var(--text-main);">"Total Packets:"</span><span style="color: white;">{move || total_count.get()}</span>
-                                                </div>
-                                                <div style="display:flex; justify-content: space-between;">
-                                                    <span style="color: var(--text-main);">"Blocked Threats:"</span><span style="color:var(--accent-red); font-weight: bold; text-shadow: 0 0 5px var(--accent-red);">{move || blocked_count.get()}</span>
+                                             <div class="traffic-graph-container">
+                                                <svg width="100%" height="150" viewBox="0 0 600 150" class="traffic-svg">
+                                                    <defs>
+                                                        <linearGradient id="grad1" x1="0%" y1="0%" x2="0%" y2="100%">
+                                                            <stop offset="0%" style="stop-color:var(--accent-blue);stop-opacity:0.5" />
+                                                            <stop offset="100%" style="stop-color:var(--accent-blue);stop-opacity:0" />
+                                                        </linearGradient>
+                                                    </defs>
+                                                    <path
+                                                        d=move || activity_fill_path.get()
+                                                        fill="url(#grad1)"
+                                                        stroke="none"
+                                                    />
+                                                    <path
+                                                        d=move || activity_line_path.get()
+                                                        fill="none"
+                                                        stroke="var(--accent-blue)"
+                                                        stroke-width="2.5"
+                                                        stroke-linejoin="round"
+                                                        stroke-linecap="round"
+                                                    />
+                                                </svg>
+                                            <div class="graph-overlay" style="position: absolute; top: 20px; right: 20px; text-align: right">
+                                                <div class="traffic-stat">
+                                                    <span class="label">"LIVE ACTIVITY"</span>
+                                                    <span class="value" style="color:var(--accent-blue)">
+                                                        {move || format!("{:.1} evt/s", current_activity_rate.get())}
+                                                    </span>
+                                                    <span class="label">{move || format!("Peak {:.1} evt/s", peak_activity_rate.get())}</span>
                                                 </div>
                                             </div>
                                         </div>
                                     </div>
 
-                                    // ALT DENİŞ BENTO (Canlı Terminal)
-                                    <div class="glass-card logs-section" style="flex: 1; min-height: 300px; display: flex; flex-direction: column;">
-                                        <div class="section-header" style="margin-bottom: 10px;">
-                                            <h3 style="margin: 0; font-size: 14px; font-weight: 800; text-transform: uppercase; letter-spacing: 2px;">"Matrix Terminal Flow"</h3>
-                                            <span style={move || if engine_active.get() { "font-family: 'Consolas', monospace; font-size: 12px; color: var(--accent-green);" } else { "font-family: 'Consolas', monospace; font-size: 12px; color: var(--text-muted);" }}>
-                                                {move || engine_status.get()}
-                                            </span>
+                                         <div class="glass-card logs-section">
+                                            <div class="section-header">
+                                                <h3 style="margin: 0; font-size: 16px; font-weight: 700">"Real-time Intelligence"</h3>
+                                                <span style={move || if engine_active.get() { "font-size: 12px; color: var(--accent-green)" } else { "font-size: 12px; color: var(--text-muted)" }}>
+                                                    {move || engine_status.get()}
+                                                </span>
+                                            </div>
+                                            <div class="logs-viewport">
+                                                <For
+                                                    each={move || logs.get()}
+                                                    key={|log_item| log_item.id.clone()}
+                                                    children={move |log_item| {
+                                                        let ts = log_item.timestamp % 100000;
+                                                        let msg = log_item.message.clone();
+                                                        let level_class = match log_item.level {
+                                                            LogLevel::Info => "lvl-info",
+                                                            LogLevel::Success => "lvl-success",
+                                                            LogLevel::Warning => "lvl-warning",
+                                                            LogLevel::Error => "lvl-error",
+                                                            _ => "lvl-info",
+                                                        };
+                                                        view! {
+                                                            <div class={format!("log-row {}", level_class)}>
+                                                                <span class="log-time">"[" {ts} "]"</span>
+                                                                <span class="log-msg">{msg}</span>
+                                                            </div>
+                                                        }
+                                                    }}
+                                                />
+                                            </div>
                                         </div>
-                                        <div class="logs-viewport" style="flex: 1;">
-                                            <For
-                                                each={move || logs.get()}
-                                                key={|log_item| log_item.id.clone()}
-                                                children={move |log_item| {
-                                                    let ts = log_item.timestamp % 100000;
-                                                    let msg = log_item.message.clone();
-                                                    view! {
-                                                        <div class="log-row">
-                                                            <span class="log-time" style="color: var(--text-muted); user-select: none;">"[" {ts} "]"</span>
-                                                            <span class="log-msg" style="color: var(--text-terminal); text-shadow: 0 0 2px rgba(34, 197, 94, 0.4);">{msg}</span>
-                                                        </div>
-                                                    }
-                                                }}
-                                            />
+                                    </div>
+
+                                    <div class="dash-col-side">
+                                         <div class="glass-card stat-item-compact">
+                                            <h4>"Total Traffic"</h4>
+                                            <div class="stat-value">{move || total_count.get()}</div>
+                                        </div>
+                                        <div class="glass-card stat-item-compact">
+                                            <h4>"Blocked"</h4>
+                                            <div class="stat-value" style="color: var(--accent-red)">{move || blocked_count.get()}</div>
+                                        </div>
+                                        <div class="glass-card stat-item-compact">
+                                            <h4>"Allowed"</h4>
+                                            <div class="stat-value" style="color: var(--accent-green)">{move || allowed_count.get()}</div>
                                         </div>
                                     </div>
                                 </div>
