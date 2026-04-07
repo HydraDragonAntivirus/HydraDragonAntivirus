@@ -1,0 +1,16 @@
+[package]
+name = "hydradragon_ui"
+version = "0.1.0"
+edition = "2021"
+description = "HydraDragon Tactical EDR Command Center"
+
+[dependencies]
+eframe = "0.27.2"
+egui = "0.27.2"
+egui_extras = "0.27.2"
+tokio = { version = "1.36", features = ["full"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+chrono = "0.4.34"
+log = "0.4.20"
+env_logger = "0.11.2"
