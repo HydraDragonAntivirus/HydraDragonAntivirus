@@ -14,9 +14,7 @@ namespace error {
 namespace dump {
 namespace crashpad_ {
 
-// @ermakov FIXME: Disable crashpad compilation
-
-#if defined(_MSC_VER)
+#if defined(CMD_WITH_CRASHPAD) && defined(_MSC_VER)
 
 //
 // Handles a pure virtual call errors.
@@ -84,6 +82,22 @@ bool initCrashHandlers(const std::wstring& sHandlerPath, const std::wstring& sDB
 
 	return success;
 }
+
+#else
+
+//
+// The active Windows crash handling path uses minidumps from dump_win.cpp.
+// Keep this API available, but make it a no-op until real Crashpad archives
+// are available for the current toolchain.
+//
+bool initCrashHandlers(const std::wstring& sHandlerPath, const std::wstring& sDBPath)
+{
+	(void)sHandlerPath;
+	(void)sDBPath;
+	return false;
+}
+
+#endif // defined(CMD_WITH_CRASHPAD) && defined(_MSC_VER)
 
 } // namespace crashpad_
 } // namespace dump

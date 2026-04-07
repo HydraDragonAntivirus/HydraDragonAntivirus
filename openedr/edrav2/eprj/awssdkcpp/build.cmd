@@ -7,7 +7,7 @@ set "StageRoot=%SystemDrive%\aws_tmp\awssdkcpp"
 if /I not "%AWS_SDKCPP_SHORT_PATH_STAGE%"=="1" if /I not "%ScriptRoot%"=="%StageRoot%" (
     echo [INFO] Staging AWS SDK build to "%StageRoot%" to avoid long-path failures...
     if exist "%StageRoot%" rd /s /q "%StageRoot%"
-    robocopy "%ScriptRoot%" "%StageRoot%" /MIR /NFL /NDL /NJH /NJS /NP >nul
+    robocopy "%ScriptRoot%" "%StageRoot%" /MIR /XD build-x64 build-x86 /NFL /NDL /NJH /NJS /NP >nul
     if errorlevel 8 (
         echo [ERROR] Failed to stage AWS SDK sources.
         exit /b !errorlevel!
@@ -33,15 +33,26 @@ if /I not "%AWS_SDKCPP_SHORT_PATH_STAGE%"=="1" if /I not "%ScriptRoot%"=="%Stage
 )
 
 @set vcvarsall="%ProgramFiles%\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvarsall.bat"
-@set cmake=cmake -G "Visual Studio 17 2022"
+set "CMakeExe="
+for %%I in (cmake.exe) do if not defined CMakeExe set "CMakeExe=%%~$PATH:I"
+if not defined CMakeExe if exist "%ProgramFiles%\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" set "CMakeExe=%ProgramFiles%\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe"
+if not defined CMakeExe (
+    echo [ERROR] Could not find cmake.exe. Install Visual Studio CMake tools or add CMake to PATH.
+    exit /b 1
+)
+@set cmake="%CMakeExe%" -G "Visual Studio 17 2022"
 
 call :buildx64
+if errorlevel 1 exit /b %errorlevel%
 call :buildx86
+if errorlevel 1 exit /b %errorlevel%
 
 exit /b %errorlevel%
  
 :buildx64
 call %vcvarsall% x64
+
+if exist build-x64 rd /s /q build-x64
 
 %cmake% -Bbuild-x64 -A x64 ^
  -DCMAKE_BUILD_TYPE=Release ^
@@ -75,6 +86,8 @@ exit /b 0
 
 :buildx86
 call %vcvarsall% x64_x86
+
+if exist build-x86 rd /s /q build-x86
 
 %cmake% -Bbuild-x86 -A Win32 ^
  -DCMAKE_BUILD_TYPE=Release ^
