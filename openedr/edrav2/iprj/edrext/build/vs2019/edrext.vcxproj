@@ -23,7 +23,7 @@
     <ProjectGuid>{984F7792-D19B-40F8-BD66-FE2F001D27AF}</ProjectGuid>
     <Keyword>Win32Proj</Keyword>
     <RootNamespace>edrext</RootNamespace>
-    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+    <WindowsTargetPlatformVersion>10.0.19041.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">

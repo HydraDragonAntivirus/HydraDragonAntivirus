@@ -50,9 +50,7 @@
     <CopyFileToFolders Include="..\..\qsc\match_patterns.qsc">
       <Filter>qsc</Filter>
     </CopyFileToFolders>
-  </ItemGroup>
-  <ItemGroup>
-    <None Include="..\..\evm.act" />
-    <None Include="..\..\evm.cloud.src" />
+    <CopyFileToFolders Include="..\..\evm.act" />
+    <CopyFileToFolders Include="..\..\evm.cloud.src" />
   </ItemGroup>
 </Project>

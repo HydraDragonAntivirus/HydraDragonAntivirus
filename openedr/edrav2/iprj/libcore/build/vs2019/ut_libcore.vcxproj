@@ -92,7 +92,7 @@
     <ProjectGuid>{D1D047FD-B1C4-4778-B085-00F9B7A75698}</ProjectGuid>
     <Keyword>Win32Proj</Keyword>
     <RootNamespace>testvariant</RootNamespace>
-    <WindowsTargetPlatformVersion>10.0.18362.0</WindowsTargetPlatformVersion>
+    <WindowsTargetPlatformVersion>10.0.19041.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <Import Project="..\..\..\build\vs2019\consts.props" />

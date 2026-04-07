@@ -60,7 +60,7 @@
     <VCProjectVersion>15.0</VCProjectVersion>
     <ProjectGuid>{fc301254-f2e4-4462-a340-1d4c50567916}</ProjectGuid>
     <Keyword>Win32Proj</Keyword>
-    <WindowsTargetPlatformVersion>10.0.18362.0</WindowsTargetPlatformVersion>
+    <WindowsTargetPlatformVersion>10.0.19041.0</WindowsTargetPlatformVersion>
     <ProjectName>libedr</ProjectName>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />

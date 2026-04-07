@@ -66,10 +66,14 @@ void SystemMonitorController::finalConstruct(Variant vConfig)
 		}
 		else
 		{
+#if defined(FEATURE_ENABLE_MADCHOOK)
 			LOGWRN("Injection DLLs not found in system directory. Use default directory.");
 			std::wstring sImageDir(getCatalogData("app.imagePath"));
 			sqDllName.push_back(sImageDir + L"\\" + c_sInjDll64);
 			sqDllName.push_back(sImageDir + L"\\" + c_sInjDll32);
+#else
+			LOGWRN("Injection DLLs not found in system directory.");
+#endif
 		}
 #else
 		std::wstring sSystemDir(getCatalogData("os.systemDir"));

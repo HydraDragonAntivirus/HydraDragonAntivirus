@@ -55,6 +55,13 @@ private:
 	// Check if DLL loaded into process
 	bool isDllLoadedIntoProcess(const uint32_t dwPid, const std::wstring_view sDllName);
 
+	// Without Madchook we using injection from our driver, no need to inject from usermode
+#if defined(FEATURE_ENABLE_MADCHOOK)
+	bool injectProcess(bool fInject, const uint32_t nPid);
+	static BOOL WINAPI injectionCallback(PVOID pContext, DWORD dwProcessId, DWORD dwParentId, 
+		DWORD dwSessionId, DWORD dwFlags, LPCWSTR pProcessImagePath, LPCWSTR pProcessCommandLine);
+	void injectAll(const bool fInject, const std::wstring& sIncludeMask = {}, const std::wstring& sExcludeMask = {});
+#endif
 	void copyInjectionDll(const std::wstring& sDllName, const GUID guidFolder);
 	void removeInjectionDll(const std::wstring& sDllName, const GUID guidFolder);
 
@@ -75,6 +82,9 @@ public:
 		unsigned long dwMessageLen, void* pAnswerBuf, unsigned long dwAnswerLen,
 		void* pContext, bool& fHasAnswer);
 
+	///
+	/// MadCHook IPC callback. IPC command port.
+	///
 	static void WINAPI ipcEventsCallback(const char* pIpc, const void* pMessageBuf,
 		unsigned long dwMessageLen, void* pAnswerBuf, unsigned long dwAnswerLen,
 		void* pContext);

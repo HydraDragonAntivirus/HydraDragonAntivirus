@@ -84,7 +84,7 @@
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
       <WarningLevel>Level4</WarningLevel>
-      <AdditionalIncludeDirectories>$(CmdIPrjDir)\edrpm\inc;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(CmdIPrjDir)\edrpm\inc;$(CmdEPrjDir)\madchook;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <UseFullPaths>false</UseFullPaths>
     </ClCompile>
   </ItemDefinitionGroup>
@@ -92,13 +92,13 @@
     <ClCompile>
       <WarningLevel>Level4</WarningLevel>
       <UseFullPaths>false</UseFullPaths>
-      <AdditionalIncludeDirectories>$(CmdIPrjDir)\edrpm\inc;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(CmdIPrjDir)\edrpm\inc;$(CmdEPrjDir)\madchook;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <ClCompile>
       <WarningLevel>Level4</WarningLevel>
-      <AdditionalIncludeDirectories>$(CmdIPrjDir)\edrpm\inc;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(CmdIPrjDir)\edrpm\inc;$(CmdEPrjDir)\madchook;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <UseFullPaths>false</UseFullPaths>
     </ClCompile>
   </ItemDefinitionGroup>
@@ -106,7 +106,7 @@
     <ClCompile>
       <WarningLevel>Level4</WarningLevel>
       <UseFullPaths>false</UseFullPaths>
-      <AdditionalIncludeDirectories>$(CmdIPrjDir)\edrpm\inc;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(CmdIPrjDir)\edrpm\inc;$(CmdEPrjDir)\madchook;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
   </ItemDefinitionGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

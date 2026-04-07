@@ -16,8 +16,15 @@ namespace edrpm {
 
 inline constexpr uint64_t c_nDefaultEventsFlags = 0xffffffffffffffffui64;
 
+#if defined(FEATURE_ENABLE_MADCHOOK)
+static const char c_sIpcEventsPort[] = "edrIpcEventsPort";
+static const char c_sIpcErrorsPort[] = "edrIpcErrorsPort";
+static const char c_sGlobalCaptureEvent[] = "edrCaptureEvent";
+inline constexpr uint32_t ProcmonEventsOffset = 0;
+#else
 inline constexpr uint32_t ProcmonEventsOffset = 0;
 static const wchar_t c_sGlobalCaptureEvent[] = L"Global\\edrCaptureEvent";
+#endif // FEATURE_ENABLE_MADCHOOK
 
 
 ///
