@@ -20,6 +20,7 @@ namespace cmd {
 namespace cloud {
 namespace gcp {
 
+#if defined(CMD_WITH_GCP)
 
 static ProtobufDeleter g_protobufDeleter(nullptr,
 	[](int* /*ptr*/)
@@ -747,6 +748,132 @@ Variant Controller::execute(Variant vCommand, Variant vParams)
 	TRACE_END(FMT("Error during processing of the command <" << vCommand << ">"));
 	error::OperationNotSupported(SL, FMT("Unsupported command <" << vCommand << ">")).throwException();
 }
+
+#else // defined(CMD_WITH_GCP)
+
+static ProtobufDeleter g_protobufDeleter(nullptr, [](int* /*ptr*/) {});
+
+static void logGcpDisabled()
+{
+	static std::once_flag s_once;
+	std::call_once(s_once, []()
+	{
+		LOGWRN("GCP support is disabled because CMD_WITH_GCP is not enabled");
+	});
+}
+
+ProtobufDeleter getProtobufDeleter()
+{
+	return g_protobufDeleter;
+}
+
+void PubSubClient::finalConstruct(Variant vConfig)
+{
+	m_vConfig = vConfig.clone();
+	m_nTimeout = vConfig.get("timeout", m_nTimeout);
+	m_fStatEnabled = vConfig.get("enableStatistic", m_fStatEnabled);
+	m_nStatFlushTimeout = vConfig.get("statFlushTimeout", m_nStatFlushTimeout);
+	logGcpDisabled();
+}
+
+void PubSubClient::updateSettings(Variant vConfig)
+{
+	m_vConfig = vConfig.clone();
+}
+
+void PubSubClient::connect(const std::string& /*sSaCredentials*/)
+{
+	logGcpDisabled();
+}
+
+void PubSubClient::reconnect()
+{
+	logGcpDisabled();
+}
+
+bool PubSubClient::publish(const Variant& /*vData*/)
+{
+	logGcpDisabled();
+	return true;
+}
+
+void PubSubClient::addStatistic(const Variant& /*vData*/)
+{
+}
+
+Variant PubSubClient::getStatistic()
+{
+	return Dictionary();
+}
+
+bool PubSubClient::flushStatistic()
+{
+	return true;
+}
+
+std::string PubSubClient::prepareSingleEvent(const Variant& /*vData*/)
+{
+	return {};
+}
+
+::grpc::Status PubSubClient::publishInt(::google::pubsub::v1::PublishRequest& /*request*/, Size /*nTimeout*/)
+{
+	return ::grpc::Status(::grpc::StatusCode::UNIMPLEMENTED,
+		"GCP support is disabled because CMD_WITH_GCP is not enabled");
+}
+
+Variant PubSubClient::execute(Variant vCommand, Variant vParams)
+{
+	if (vCommand == "submit")
+	{
+		logGcpDisabled();
+		return vParams.get("default", true);
+	}
+	if (vCommand == "updateSettings")
+	{
+		updateSettings(vParams);
+		return true;
+	}
+	if (vCommand == "getStatistic")
+		return getStatistic();
+
+	error::OperationNotSupported(SL, FMT("Unsupported command <" << vCommand << ">")).throwException();
+}
+
+Variant PubSubClient::execute(Variant vParam)
+{
+	if (vParam["messageId"] == Message::CloudConfigurationIsChanged)
+	{
+		updateSettings(getCatalogData("app.config.cloud.gcp", Dictionary()));
+		return {};
+	}
+	if (vParam["messageId"] == Message::AppFinishing)
+		return {};
+	return {};
+}
+
+void logFunction(gpr_log_func_args* /*args*/)
+{
+	logGcpDisabled();
+}
+
+void Controller::finalConstruct(Variant /*vConfig*/)
+{
+	logGcpDisabled();
+}
+
+Variant Controller::execute(Variant vCommand, Variant /*vParams*/)
+{
+	if (vCommand == "initializeLogging")
+	{
+		logGcpDisabled();
+		return {};
+	}
+
+	error::OperationNotSupported(SL, FMT("Unsupported command <" << vCommand << ">")).throwException();
+}
+
+#endif // defined(CMD_WITH_GCP)
 
 } // namespace gcp
 } // namespace cloud

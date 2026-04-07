@@ -72,7 +72,7 @@ if errorlevel 1 (
 )
 
 echo [INFO] Building HydraDragon EDR Solution...
-msbuild "%SolutionPath%" /p:Configuration=Release /p:Platform=x64 /t:Build /m
+msbuild "%SolutionPath%" /p:Configuration=Release /p:Platform=x64 /t:Build /m:1
 if errorlevel 1 (
     echo [ERROR] Build failed! errorlevel: !errorlevel!
     exit /b !errorlevel!

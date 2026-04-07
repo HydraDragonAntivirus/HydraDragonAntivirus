@@ -24,6 +24,7 @@ CMD_IMPORT_LIBRARY_OBJECTS(libcloud)
 #pragma comment(lib, "libssl.lib")
 #pragma comment(lib, "libcrypto.lib")
 
+#if defined(CMD_WITH_GCP)
 // Google Cloud
 #pragma comment(lib, "gpr.lib")
 #pragma comment(lib, "grpc.lib")
@@ -37,6 +38,7 @@ CMD_IMPORT_LIBRARY_OBJECTS(libcloud)
 #pragma comment(lib, "libprotobuf.lib")
 #pragma comment(lib, "zlib.lib")
 #endif // _DEBUG
+#endif // defined(CMD_WITH_GCP)
 
 #else
 #error Declaration of linking dependences is not implemented for this compiler
