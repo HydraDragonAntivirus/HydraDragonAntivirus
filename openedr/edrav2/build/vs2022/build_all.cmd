@@ -1,19 +1,15 @@
 @echo off
 setlocal EnableExtensions EnableDelayedExpansion
 
-if /I not "%~1"=="--internal" (
-    set "ForwardArgs="
-    if /I "%~1"=="--full" set "ForwardArgs= --full"
-    powershell -NoProfile -ExecutionPolicy Bypass -Command "$psi = New-Object System.Diagnostics.ProcessStartInfo; $psi.FileName = 'cmd.exe'; $psi.Arguments = '/c ""%~f0"" --internal%ForwardArgs%'; $psi.UseShellExecute = $false; $envMap = @{}; foreach ($line in (cmd /c set)) { $idx = $line.IndexOf('='); if ($idx -gt 0) { $name = $line.Substring(0, $idx); $value = $line.Substring($idx + 1); $envMap[$name.ToUpperInvariant()] = @{ Name = $name; Value = $value } } }; foreach ($entry in $envMap.Values) { $psi.EnvironmentVariables[$entry.Name] = $entry.Value }; $proc = [System.Diagnostics.Process]::Start($psi); $proc.WaitForExit(); exit $proc.ExitCode"
-    exit /b %errorlevel%
-)
-
-shift /1
+set "NormalizedPath=%PATH%"
+set "Path="
+set "PATH=%NormalizedPath%"
 
 for %%I in ("%~dp0.") do set "ScriptDir=%%~fI"
 for %%I in ("%ScriptDir%\..\..") do set "EdrRoot=%%~fI"
 for %%I in ("%ScriptDir%\..\..\..\..") do set "RepoRoot=%%~fI"
 
+set "SolutionPath=%ScriptDir%\edrav2.sln"
 set "OutDir=%EdrRoot%\out"
 set "OutBinDir=%OutDir%\bin\win-Release-x64"
 set "CrashpadRoot=%EdrRoot%\eprj\crashpad"
@@ -76,7 +72,7 @@ if errorlevel 1 (
 )
 
 echo [INFO] Building HydraDragon EDR Solution...
-msbuild edrav2.sln /p:Configuration=Release /p:Platform=x64 /t:Build /m
+msbuild "%SolutionPath%" /p:Configuration=Release /p:Platform=x64 /t:Build /m
 if errorlevel 1 (
     echo [ERROR] Build failed! errorlevel: !errorlevel!
     exit /b !errorlevel!
@@ -89,7 +85,7 @@ echo [SUCCESS] Build completed successfully!
 exit /b 0
 
 :EnsureCrashpadArtifacts
-set "MissingCrashpad="
+set "CrashpadUnavailable="
 for %%F in (
     "%CrashpadRoot%\out\Debug-Win32\obj\client\client.lib"
     "%CrashpadRoot%\out\Debug-Win32\obj\util\util.lib"
@@ -105,14 +101,17 @@ for %%F in (
     "%CrashpadRoot%\out\Release-x64\obj\third_party\mini_chromium\mini_chromium\base\base.lib"
 ) do (
     if not exist "%%~fF" (
-        echo [ERROR] Missing Crashpad artifact: %%~fF
-        set "MissingCrashpad=1"
+        echo [WARN] Missing Crashpad artifact: %%~fF
+        set "CrashpadUnavailable=1"
+    ) else if %%~zF lss 1024 (
+        echo [WARN] Crashpad artifact looks like a placeholder: %%~fF
+        set "CrashpadUnavailable=1"
     )
 )
 
-if defined MissingCrashpad (
-    echo [ERROR] Crashpad static libraries are incomplete. Rebuild "%CrashpadRoot%" before continuing.
-    exit /b 1
+if defined CrashpadUnavailable (
+    echo [WARN] Crashpad static libraries are unavailable or invalid. OpenEDR will continue with the built-in minidump crash handler.
+    exit /b 0
 )
 
 echo [INFO] Crashpad artifacts are present.
