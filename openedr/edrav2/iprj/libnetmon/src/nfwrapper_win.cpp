@@ -166,7 +166,7 @@ void NetFilterWrapper::processFullPacketLine(const std::string& sPayload)
 			fOutbound ? nDstPort : nSrcPort);
 		dispatchConnection(pInfo);
 	}
-	catch (const error::Exception& ex)
+	catch (error::Exception& ex)
 	{
 		ex.log(SL, "Failed to parse FULL_PACKET telemetry from HydraDragonFirewall");
 	}
