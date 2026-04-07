@@ -94,12 +94,12 @@
       <UndefinePreprocessorDefinitions>MBCS;_MBCS</UndefinePreprocessorDefinitions>
       <UseFullPaths>false</UseFullPaths>
       <WarningLevel>Level3</WarningLevel>
-      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;_UNICODE;UNICODE;INSIDE_LOG4CPLUS;CATCH_CONFIG_PREFIX_ALL=1;LOG4CPLUS_WITH_UNIT_TESTS=1;_GNU_SOURCE=1;MINGW_HAS_SECURE_API=1;_WIN32_WINNT=0x0600;CMAKE_INTDIR="Debug"</PreprocessorDefinitions>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;INSIDE_LOG4CPLUS;CATCH_CONFIG_PREFIX_ALL=1;LOG4CPLUS_WITH_UNIT_TESTS=1;_GNU_SOURCE=1;UNICODE;_UNICODE;MINGW_HAS_SECURE_API=1;_WIN32_WINNT=0x0600;CMAKE_INTDIR="Debug"</PreprocessorDefinitions>
       <ObjectFileName>$(IntDir)</ObjectFileName>
       <ScanSourceForModuleDependencies>false</ScanSourceForModuleDependencies>
     </ClCompile>
     <ResourceCompile>
-      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_DEBUG;_WINDOWS;_UNICODE;UNICODE;INSIDE_LOG4CPLUS;CATCH_CONFIG_PREFIX_ALL=1;LOG4CPLUS_WITH_UNIT_TESTS=1;_GNU_SOURCE=1;MINGW_HAS_SECURE_API=1;_WIN32_WINNT=0x0600;CMAKE_INTDIR=\"Debug\"</PreprocessorDefinitions>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_DEBUG;_WINDOWS;INSIDE_LOG4CPLUS;CATCH_CONFIG_PREFIX_ALL=1;LOG4CPLUS_WITH_UNIT_TESTS=1;_GNU_SOURCE=1;UNICODE;_UNICODE;MINGW_HAS_SECURE_API=1;_WIN32_WINNT=0x0600;CMAKE_INTDIR=\"Debug\"</PreprocessorDefinitions>
       <AdditionalIncludeDirectories>C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\include;C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\threadpool;C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\catch\single_include;C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\build-x64\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ResourceCompile>
     <Midl>
@@ -132,12 +132,12 @@
       <UndefinePreprocessorDefinitions>MBCS;_MBCS</UndefinePreprocessorDefinitions>
       <UseFullPaths>false</UseFullPaths>
       <WarningLevel>Level3</WarningLevel>
-      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;_UNICODE;UNICODE;INSIDE_LOG4CPLUS;CATCH_CONFIG_PREFIX_ALL=1;LOG4CPLUS_WITH_UNIT_TESTS=1;_GNU_SOURCE=1;MINGW_HAS_SECURE_API=1;_WIN32_WINNT=0x0600;CMAKE_INTDIR="Release"</PreprocessorDefinitions>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;INSIDE_LOG4CPLUS;CATCH_CONFIG_PREFIX_ALL=1;LOG4CPLUS_WITH_UNIT_TESTS=1;_GNU_SOURCE=1;UNICODE;_UNICODE;MINGW_HAS_SECURE_API=1;_WIN32_WINNT=0x0600;CMAKE_INTDIR="Release"</PreprocessorDefinitions>
       <ObjectFileName>$(IntDir)</ObjectFileName>
       <ScanSourceForModuleDependencies>false</ScanSourceForModuleDependencies>
     </ClCompile>
     <ResourceCompile>
-      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;_UNICODE;UNICODE;INSIDE_LOG4CPLUS;CATCH_CONFIG_PREFIX_ALL=1;LOG4CPLUS_WITH_UNIT_TESTS=1;_GNU_SOURCE=1;MINGW_HAS_SECURE_API=1;_WIN32_WINNT=0x0600;CMAKE_INTDIR=\"Release\"</PreprocessorDefinitions>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;INSIDE_LOG4CPLUS;CATCH_CONFIG_PREFIX_ALL=1;LOG4CPLUS_WITH_UNIT_TESTS=1;_GNU_SOURCE=1;UNICODE;_UNICODE;MINGW_HAS_SECURE_API=1;_WIN32_WINNT=0x0600;CMAKE_INTDIR=\"Release\"</PreprocessorDefinitions>
       <AdditionalIncludeDirectories>C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\include;C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\threadpool;C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\catch\single_include;C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\openedr\edrav2\eprj\log4cplus\build-x64\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ResourceCompile>
     <Midl>

@@ -30,13 +30,13 @@ CMAKE_CONFIGURATION_TYPES:STRING=Debug;Release;MinSizeRel;RelWithDebInfo
 CMAKE_CXX_FLAGS:STRING=/DWIN32 /D_WINDOWS /W3 /GR /EHsc
 
 //No help, variable specified on the command line.
-CMAKE_CXX_FLAGS_DEBUG:STRING=/std:c++17 /MTd /Zi /Ob0 /Od /RTC1 /D_UNICODE /DUNICODE
+CMAKE_CXX_FLAGS_DEBUG:STRING=/std:c++17 /MTd /Zi /Ob0 /Od /RTC1
 
 //Flags used by the CXX compiler during MINSIZEREL builds.
 CMAKE_CXX_FLAGS_MINSIZEREL:STRING=/MD /O1 /Ob1 /DNDEBUG
 
 //No help, variable specified on the command line.
-CMAKE_CXX_FLAGS_RELEASE:STRING=/std:c++17 /MT /Zi /O2 /Ob2 /DNDEBUG /D_UNICODE /DUNICODE
+CMAKE_CXX_FLAGS_RELEASE:STRING=/std:c++17 /MT /Zi /O2 /Ob2 /DNDEBUG
 
 //Flags used by the CXX compiler during RELWITHDEBINFO builds.
 CMAKE_CXX_FLAGS_RELWITHDEBINFO:STRING=/MD /Zi /O2 /Ob1 /DNDEBUG

@@ -1539,7 +1539,11 @@ static void cleanupOldSessionFiles(const tstring& filename,
     {
         if (!p.is_regular_file())
             continue;
+#if defined(_UNICODE) || defined(UNICODE)
+        auto curFilename = p.path().filename().wstring();
+#else
         auto curFilename = p.path().filename().string();
+#endif
         if (!curFilename.compare(0, filenamePrefix.size(), filenamePrefix))
             vecFiles.push_back(curFilename);
     }
@@ -1557,9 +1561,13 @@ static void cleanupOldSessionFiles(const tstring& filename,
         if (dotPos != curFilename.npos)
         {
             int backupIndex = 0;
-            const auto res = std::from_chars(curFilename.data() + dotPos + 1,
-                curFilename.data() + curFilename.size(), backupIndex);
-            curSessionName = (res.ec == std::errc()) ? curFilename.substr(0, dotPos) : curFilename;
+            bool success = true;
+            try {
+                backupIndex = std::stoi(curFilename.substr(dotPos + 1));
+            } catch (...) {
+                success = false;
+            }
+            curSessionName = success ? curFilename.substr(0, dotPos) : curFilename;
         }
         else
             curSessionName = curFilename;
@@ -1574,7 +1582,11 @@ static void cleanupOldSessionFiles(const tstring& filename,
         }
 
         auto pathCurFile = pathDir / curFilename;
+#if defined(_UNICODE) || defined(UNICODE)
+        auto res = file_remove(pathCurFile.wstring());
+#else
         auto res = file_remove(pathCurFile.string());
+#endif
     }
 }
 
