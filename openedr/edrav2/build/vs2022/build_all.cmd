@@ -13,9 +13,7 @@ set "SolutionPath=%ScriptDir%\edrav2.sln"
 set "OutDir=%EdrRoot%\out"
 set "OutBinDir=%OutDir%\bin\win-Release-x64"
 set "CrashpadRoot=%EdrRoot%\eprj\crashpad"
-set "FirewallProjectDir=%RepoRoot%\HydraDragonFirewall\hydradragonfirewall"
 set "FirewallTargetDir=%FirewallProjectDir%\target\release"
-set "WinDivertDir=%RepoRoot%\HydraDragonFirewall\everything"
 set "vcvarsall=%ProgramFiles%\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvarsall.bat"
 
 if not exist "%vcvarsall%" (
@@ -58,10 +56,8 @@ if /I "%~1"=="--full" (
     call :EnsureCrashpadArtifacts
     if errorlevel 1 exit /b %errorlevel%
 
-    call :BuildHydraDragonFirewall
-    if errorlevel 1 exit /b %errorlevel%
 ) else (
-    echo [INFO] Skipping external dependency builds... Run with "--full" to rebuild dependencies and HydraDragonFirewall.
+    echo [INFO] Skipping external dependency builds... Run with "--full" to rebuild dependencies.
 )
 
 echo [INFO] Initializing Visual Studio 2022 x64 Environment...
@@ -77,9 +73,6 @@ if errorlevel 1 (
     echo [ERROR] Build failed! errorlevel: !errorlevel!
     exit /b !errorlevel!
 )
-
-call :CopyHydraDragonFirewallRuntime
-if errorlevel 1 exit /b %errorlevel%
 
 echo [SUCCESS] Build completed successfully!
 exit /b 0
@@ -115,84 +108,4 @@ if defined CrashpadUnavailable (
 )
 
 echo [INFO] Crashpad artifacts are present.
-exit /b 0
-
-:BuildHydraDragonFirewall
-if not exist "%FirewallProjectDir%\Cargo.toml" (
-    echo [WARN] HydraDragonFirewall project not found at "%FirewallProjectDir%". Skipping firewall build.
-    exit /b 0
-)
-
-if not exist "%WinDivertDir%\WinDivert.lib" (
-    echo [ERROR] Missing WinDivert import library at "%WinDivertDir%\WinDivert.lib".
-    exit /b 1
-)
-
-echo [INFO] Initializing Visual Studio 2022 x64 Environment for HydraDragonFirewall...
-call "%vcvarsall%" x64 >nul
-if errorlevel 1 (
-    echo [ERROR] Failed to initialize Visual Studio 2022 x64 environment for HydraDragonFirewall.
-    exit /b !errorlevel!
-)
-
-echo [INFO] Building HydraDragonFirewall release artifacts...
-pushd "%FirewallProjectDir%"
-set "WINDIVERT_PATH=%WinDivertDir%"
-set "WINDIVERT_DLL_OUTPUT=%FirewallTargetDir%"
-cargo build --release
-set "BuildRc=%errorlevel%"
-popd
-
-if not "%BuildRc%"=="0" (
-    echo [ERROR] HydraDragonFirewall build failed! errorlevel: %BuildRc%
-    exit /b %BuildRc%
-)
-
-if not exist "%FirewallTargetDir%\hydradragonfirewall.exe" (
-    echo [ERROR] Expected HydraDragonFirewall executable was not produced.
-    exit /b 1
-)
-
-if not exist "%FirewallTargetDir%\hydradragonfirewall.dll" (
-    echo [ERROR] Expected HydraDragonFirewall bridge DLL was not produced.
-    exit /b 1
-)
-
-call :CopyHydraDragonFirewallRuntime
-if errorlevel 1 exit /b %errorlevel%
-exit /b 0
-
-:CopyHydraDragonFirewallRuntime
-if not exist "%FirewallTargetDir%\hydradragonfirewall.exe" (
-    echo [WARN] HydraDragonFirewall runtime is not built yet. Skipping runtime copy.
-    exit /b 0
-)
-
-if not exist "%OutBinDir%" mkdir "%OutBinDir%"
-
-call :CopyIfExists "%FirewallTargetDir%\hydradragonfirewall.exe" "%OutBinDir%"
-call :CopyIfExists "%FirewallTargetDir%\hydradragonfirewall.dll" "%OutBinDir%"
-call :CopyIfExists "%FirewallTargetDir%\hydradragonfirewall.pdb" "%OutBinDir%"
-call :CopyIfExists "%FirewallTargetDir%\WinDivert.dll" "%OutBinDir%"
-call :CopyIfExists "%FirewallTargetDir%\WinDivert64.sys" "%OutBinDir%"
-call :CopyIfExists "%FirewallProjectDir%\rules.yaml" "%OutBinDir%"
-call :CopyIfExists "%FirewallProjectDir%\settings.json" "%OutBinDir%"
-
-if exist "%FirewallProjectDir%\dist" (
-    robocopy "%FirewallProjectDir%\dist" "%OutBinDir%\dist" /MIR /NFL /NDL /NJH /NJS /NP >nul
-    if errorlevel 8 (
-        echo [ERROR] Failed to copy HydraDragonFirewall UI assets.
-        exit /b !errorlevel!
-    )
-)
-
-echo [INFO] HydraDragonFirewall runtime copied to "%OutBinDir%".
-exit /b 0
-
-:CopyIfExists
-if exist "%~1" (
-    xcopy "%~1" "%~2\" /Y /I >nul
-) else (
-    echo [WARN] Optional HydraDragonFirewall artifact not found: %~1
-)
 exit /b 0
