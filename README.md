@@ -1,4 +1,4 @@
-<h1>Hydra Dragon Automatic Malware/Executable Analysis Platform</h1>
+<h1>Hydra Dragon Automatic Malware Analysis Platform</h1>
 
 <p>
   <img
@@ -125,8 +125,7 @@ At this stage:
 - Breaking changes may occur without prior notice.
 - This project is **not production-ready** and should be used for development and testing purposes only.
 
-- Dynamic and static analysis with Real Time Malware/Executable Analysis Platform for Windows, including open-source XDR (3 EDR projects), ClamAV, YARA-X, machine learning AI, behavioral analysis, Unpacker, Deobfuscator, Decompiler, website signatures, Ghidra, Suricata, Sigma, Kernel, Hypervisior based protection and much more than you can imagine.
-- HydraDragonAntivirus Platform - Unified Executable Analysis & Detection Framework
+- Dynamic and static analysis with Real Time Malware Analysis Platform for Windows, including open-source XDR (3 EDR projects), ClamAV, YARA-X, machine learning AI, behavioral analysis, Unpacker, Deobfuscator, Decompiler, website signatures, Ghidra, Suricata, Sigma, Kernel, Hypervisior based protection and much more than you can imagine.
 
 ## License
 
