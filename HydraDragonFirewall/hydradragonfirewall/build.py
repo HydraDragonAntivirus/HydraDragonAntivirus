@@ -166,7 +166,9 @@ def copy_windivert(script_dir: Path, release: bool, windivert_path: Path):
 
     # Also mirror the exe into the everything/ folder for easy deployment
     exe_src = target_dir / "hydradragonfirewall.exe"
+    dll_src = target_dir / "hydradragonfirewall.dll"
     robust_copy(exe_src, windivert_path / "hydradragonfirewall.exe")
+    robust_copy(dll_src, windivert_path / "hydradragonfirewall.dll")
 
 # ── Entry point ────────────────────────────────────────────────────────────────
 
@@ -175,10 +177,6 @@ def main():
     parser.add_argument("--release", action="store_true", help="Build in release mode")
     parser.add_argument("--run",     action="store_true", help="Launch the app after building")
     args = parser.parse_args()
-
-    # Enable ANSI colours on Windows
-    if sys.platform == "win32":
-        os.system("")
 
     header("HydraDragon Firewall Build System")
 
