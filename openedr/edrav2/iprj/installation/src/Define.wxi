@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Include>
+<Include xmlns="http://wixtoolset.org/schemas/v4/wxs">
   <?define strproduct = "EDR Agent v2" ?>
   <?define upgradecode = "2237ece0-b8e3-218d-7446-841de131c6b3" ?>
   <?if $(var.Platform) = "x64" ?>
