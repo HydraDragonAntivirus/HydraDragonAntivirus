@@ -73,9 +73,33 @@ std::vector<std::filesystem::path> getFirewallBridgeCandidates(const std::wstrin
 	if (!sExplicitPath.empty())
 		result.emplace_back(sExplicitPath);
 
-	// Production candidates (Strictly hardcoded)
+	const std::array<std::filesystem::path, 2> relativeCandidates = {
+		std::filesystem::path(LR"(HydraDragonFirewall\hydradragonfirewall\target\release\hydradragonfirewall.dll)"),
+		std::filesystem::path(LR"(HydraDragonFirewall\hydradragonfirewall\target\debug\hydradragonfirewall.dll)")
+	};
+
+	if (const auto currentExePath = getCurrentExecutablePath(); !currentExePath.empty())
+	{
+		std::filesystem::path exePath(currentExePath);
+		if (exePath.has_parent_path())
+		{
+			const auto exeDir = exePath.parent_path();
+
+			for (auto ancestor = exeDir; !ancestor.empty(); ancestor = ancestor.parent_path())
+			{
+				for (const auto& relativeCandidate : relativeCandidates)
+					result.emplace_back(ancestor / relativeCandidate);
+
+				if (ancestor == ancestor.root_path())
+					break;
+			}
+
+			result.emplace_back(exeDir / L"hydradragonfirewall.dll");
+		}
+	}
+
+	// Production candidate for installed deployments.
 	result.emplace_back(LR"(C:\Program Files\HydraDragonAntivirus\HydraDragonFirewall\hydradragonfirewall.dll)");
-	result.emplace_back(LR"(C:\Program Files\HydraDragonAntivirus\HydraDragonFirewall\hydradragonfirewall.exe)");
 
 	return result;
 }

@@ -35,8 +35,6 @@ fn candidate_executable_paths() -> Vec<PathBuf> {
 
     if let Ok(current_exe) = std::env::current_exe() {
         if let Some(exe_dir) = current_exe.parent() {
-            candidates.push(exe_dir.join("hydradragonfirewall.exe"));
-
             let relative_candidates = [
                 PathBuf::from(r"HydraDragonFirewall\hydradragonfirewall\target\release\hydradragonfirewall.exe"),
                 PathBuf::from(r"HydraDragonFirewall\hydradragonfirewall\target\debug\hydradragonfirewall.exe"),
@@ -47,9 +45,14 @@ fn candidate_executable_paths() -> Vec<PathBuf> {
                     candidates.push(ancestor.join(relative_path));
                 }
             }
+
+            candidates.push(exe_dir.join("hydradragonfirewall.exe"));
         }
     }
 
+    candidates.push(PathBuf::from(
+        r"C:\Program Files\HydraDragonAntivirus\HydraDragonFirewall\hydradragonfirewall.exe",
+    ));
     candidates.push(PathBuf::from("hydradragonfirewall.exe"));
 
     candidates

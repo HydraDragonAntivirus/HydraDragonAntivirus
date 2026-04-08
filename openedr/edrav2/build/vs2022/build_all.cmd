@@ -11,8 +11,10 @@ for %%I in ("%ScriptDir%\..\..\..\..") do set "RepoRoot=%%~fI"
 
 set "SolutionPath=%ScriptDir%\edrav2.sln"
 set "OutDir=%EdrRoot%\out"
-set "OutBinDir=%OutDir%\bin\win-Release-x64"
 set "CrashpadRoot=%EdrRoot%\eprj\crashpad"
+set "FirewallProjectDir=%RepoRoot%\HydraDragonFirewall\hydradragonfirewall"
+set "FirewallTargetDir=%FirewallProjectDir%\target\release"
+set "WinDivertDir=%RepoRoot%\HydraDragonFirewall\everything"
 set "vcvarsall=%ProgramFiles%\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvarsall.bat"
 
 if not exist "%vcvarsall%" (
@@ -55,8 +57,11 @@ if /I "%~1"=="--full" (
     call :EnsureCrashpadArtifacts
     if errorlevel 1 exit /b %errorlevel%
 
+    call :BuildHydraDragonFirewall
+    if errorlevel 1 exit /b %errorlevel%
+
 ) else (
-    echo [INFO] Skipping external dependency builds... Run with "--full" to rebuild dependencies.
+    echo [INFO] Skipping external dependency builds... Run with "--full" to rebuild dependencies and HydraDragonFirewall.
 )
 
 echo [INFO] Initializing Visual Studio 2022 x64 Environment...
@@ -107,4 +112,49 @@ if defined CrashpadUnavailable (
 )
 
 echo [INFO] Crashpad artifacts are present.
+exit /b 0
+
+:BuildHydraDragonFirewall
+if not exist "%FirewallProjectDir%\Cargo.toml" (
+    echo [WARN] HydraDragonFirewall project not found at "%FirewallProjectDir%". Skipping firewall build.
+    exit /b 0
+)
+
+if not exist "%FirewallProjectDir%\build.py" (
+    echo [ERROR] HydraDragonFirewall build script not found at "%FirewallProjectDir%\build.py".
+    exit /b 1
+)
+
+set "PythonLauncher="
+where py >nul 2>&1 && set "PythonLauncher=py -3"
+if not defined PythonLauncher (
+    where python >nul 2>&1 && set "PythonLauncher=python"
+)
+if not defined PythonLauncher (
+    echo [ERROR] Python launcher not found. Install Python or the Windows py launcher to build HydraDragonFirewall.
+    exit /b 1
+)
+
+echo [INFO] Building HydraDragonFirewall in its original project location via build.py...
+pushd "%FirewallProjectDir%"
+call %PythonLauncher% build.py --release
+set "BuildRc=%errorlevel%"
+popd
+
+if not "%BuildRc%"=="0" (
+    echo [ERROR] HydraDragonFirewall build failed! errorlevel: %BuildRc%
+    exit /b %BuildRc%
+)
+
+if not exist "%FirewallTargetDir%\hydradragonfirewall.exe" (
+    echo [ERROR] Expected HydraDragonFirewall executable was not produced.
+    exit /b 1
+)
+
+if not exist "%FirewallTargetDir%\hydradragonfirewall.dll" (
+    echo [ERROR] Expected HydraDragonFirewall bridge DLL was not produced.
+    exit /b 1
+)
+
+echo [INFO] HydraDragonFirewall runtime remains in "%FirewallTargetDir%".
 exit /b 0
