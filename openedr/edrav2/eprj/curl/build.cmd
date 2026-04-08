@@ -1,5 +1,8 @@
 @echo off
-setlocal
+setlocal EnableExtensions
+set "NormalizedPath=%PATH%"
+set "Path="
+set "PATH=%NormalizedPath%"
 @set vcvarsall="%ProgramFiles%\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvarsall.bat"
 @set cmake=cmake -G "Visual Studio 17 2022"
 
@@ -11,6 +14,12 @@ exit /b %errorlevel%
 :buildx64
 call %vcvarsall% x64
 
+set "ClPath="
+for /f "delims=" %%I in ('where cl') do if not defined ClPath set "ClPath=%%~fI"
+if not defined ClPath exit /b 1
+
+if exist "build-x64" rd /s /q "build-x64"
+
 %cmake% -Bbuild-x64 -A x64 ^
  -DHTTP_ONLY=YES ^
  -DENABLE_IPV6=NO ^
@@ -19,6 +28,12 @@ call %vcvarsall% x64
  -DCURL_STATIC_CRT=YES ^
  -DBUILD_SHARED_LIBS=NO ^
  -DCURL_STATICLIB=YES ^
+ -DCURL_ZLIB=OFF ^
+ -DCMAKE_USE_LIBSSH2=OFF ^
+ -DCMAKE_DISABLE_FIND_PACKAGE_ZLIB=ON ^
+ -DCMAKE_DISABLE_FIND_PACKAGE_Libssh2=ON ^
+ -DCMAKE_C_COMPILER:FILEPATH="%ClPath%" ^
+ -DCMAKE_CXX_COMPILER:FILEPATH="%ClPath%" ^
  -DCMAKE_C_FLAGS_RELEASE:STRING="/MT /Zi /O2 /Ob2 /DNDEBUG /D_UNICODE /DUNICODE /DCURL_STATICLIB" ^
  -DCMAKE_C_FLAGS_DEBUG:STRING="/MTd /Zi /Ob0 /Od /RTC1 /D_UNICODE /DUNICODE /DCURL_STATICLIB"
 
@@ -43,6 +58,12 @@ exit /b 0
 :buildx86
 call %vcvarsall% x64_x86
 
+set "ClPath="
+for /f "delims=" %%I in ('where cl') do if not defined ClPath set "ClPath=%%~fI"
+if not defined ClPath exit /b 1
+
+if exist "build-x86" rd /s /q "build-x86"
+
 %cmake% -Bbuild-x86 -A Win32 ^
  -DHTTP_ONLY=YES ^
  -DENABLE_IPV6=NO ^
@@ -51,6 +72,12 @@ call %vcvarsall% x64_x86
  -DCURL_STATIC_CRT=YES ^
  -DBUILD_SHARED_LIBS=NO ^
  -DCURL_STATICLIB=YES ^
+ -DCURL_ZLIB=OFF ^
+ -DCMAKE_USE_LIBSSH2=OFF ^
+ -DCMAKE_DISABLE_FIND_PACKAGE_ZLIB=ON ^
+ -DCMAKE_DISABLE_FIND_PACKAGE_Libssh2=ON ^
+ -DCMAKE_C_COMPILER:FILEPATH="%ClPath%" ^
+ -DCMAKE_CXX_COMPILER:FILEPATH="%ClPath%" ^
  -DCMAKE_C_FLAGS_RELEASE:STRING="/MT /Zi /O2 /Ob2 /DNDEBUG /D_UNICODE /DUNICODE /DCURL_STATICLIB" ^
  -DCMAKE_C_FLAGS_DEBUG:STRING="/MTd /Zi /Ob0 /Od /RTC1 /D_UNICODE /DUNICODE /DCURL_STATICLIB"
 

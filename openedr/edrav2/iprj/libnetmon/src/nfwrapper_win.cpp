@@ -24,6 +24,17 @@ namespace win {
 
 namespace {
 
+std::wstring getCurrentExecutablePath()
+{
+	std::wstring result(32768, L'\0');
+	const auto nLength = ::GetModuleFileNameW(nullptr, result.data(), static_cast<DWORD>(result.size()));
+	if (nLength == 0)
+		return {};
+
+	result.resize(nLength);
+	return result;
+}
+
 AddressFamily detectAddressFamily(const std::string& sIp)
 {
 	return sIp.find(':') == std::string::npos ? AddressFamily::Inet : AddressFamily::Inet6;

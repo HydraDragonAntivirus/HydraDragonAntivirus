@@ -130,7 +130,7 @@ At this stage:
 
 ## License
 
-This project is licensed under the **GNU Affero General Public License v3.0** (AGPLv3).  
+This project is licensed under the **GNU General Public License v2.0** (GPLv2).  
 See the [LICENSE](./LICENSE) file for more information.
 
  
@@ -234,6 +234,7 @@ See the [LICENSE](./LICENSE) file for more information.
 
 - https://github.com/HydraDragonAntivirus/Owlyshield
 - https://github.com/HydraDragonAntivirus/Sanctum
+- https://github.com/ComodoSecurity/openedr
 
 - I used these projects for EDR (Notice newest forks added to main repo instead of other repo).
 
