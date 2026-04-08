@@ -209,7 +209,7 @@ namespace HydraDragonAntivirusTaskScheduler
 
         private async Task StartFirewallAsync(CancellationToken ct)
         {
-            string firewallExe = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "HydraDragonAntivirus", "openedr", "HydraDragonFirewall.exe");
+            string firewallExe = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "HydraDragonAntivirus", "HydraDragonFirewall", "HydraDragonFirewall.exe");
 
             if (!File.Exists(firewallExe))
             {
