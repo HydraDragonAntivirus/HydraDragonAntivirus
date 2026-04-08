@@ -359,7 +359,7 @@
       must_be_signed: true
       signers:
         - "microsoft"
-    - pattern: "C:/Program Files/HydraDragonAntivirus/openedr/hydradragonfirewall.exe"
+    - pattern: "C:/Program Files/HydraDragonAntivirus/HydraDragonFirewall/hydradragonfirewall.exe"
       must_be_signed: false
       is_absolute: true
 
