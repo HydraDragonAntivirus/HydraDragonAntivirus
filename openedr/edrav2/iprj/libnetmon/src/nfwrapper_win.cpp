@@ -73,30 +73,9 @@ std::vector<std::filesystem::path> getFirewallBridgeCandidates(const std::wstrin
 	if (!sExplicitPath.empty())
 		result.emplace_back(sExplicitPath);
 
-	std::array<wchar_t, 32768> pBuffer = {};
-	const auto nLength = ::GetModuleFileNameW(nullptr, pBuffer.data(), static_cast<DWORD>(pBuffer.size()));
-	if (nLength == 0 || nLength >= pBuffer.size())
-		return result;
-
-	const std::filesystem::path currentExePath(pBuffer.data());
-	const auto currentExeDir = currentExePath.parent_path();
-	result.push_back(currentExeDir / L"hydradragonfirewall.dll");
-
-	const std::array<std::filesystem::path, 2> pRelativeCandidates = {
-		std::filesystem::path(LR"(HydraDragonFirewall\hydradragonfirewall\target\release\hydradragonfirewall.dll)"),
-		std::filesystem::path(LR"(HydraDragonFirewall\hydradragonfirewall\target\debug\hydradragonfirewall.dll)")
-	};
-
-	for (auto currentPath = currentExeDir; !currentPath.empty(); )
-	{
-		for (const auto& relativePath : pRelativeCandidates)
-			result.push_back(currentPath / relativePath);
-
-		const auto nextPath = currentPath.parent_path();
-		if (nextPath == currentPath)
-			break;
-		currentPath = nextPath;
-	}
+	// Production candidates (Strictly hardcoded)
+	result.emplace_back(LR"(C:\Program Files\HydraDragonAntivirus\HydraDragonFirewall\hydradragonfirewall.dll)");
+	result.emplace_back(LR"(C:\Program Files\HydraDragonAntivirus\HydraDragonFirewall\hydradragonfirewall.exe)");
 
 	return result;
 }
