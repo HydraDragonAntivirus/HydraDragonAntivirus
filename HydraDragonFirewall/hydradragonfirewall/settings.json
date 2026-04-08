@@ -7,7 +7,7 @@
         "c:\\windows\\system32\\svchost.exe": "Allow",
         "c:\\windows\\syswow64\\svchost.exe": "Allow",
         "c:\\windows\\explorer.exe": "Allow",
-        "c:\\program files\\hydradragonantivirus\\hydradragonfirewall\\hydradragonfirewall.exe": "Allow",
+        "c:\\program files\\hydradragonantivirus\\openedr\\hydradragonfirewall.exe": "Allow",
         "c:\\program files\\hydradragonantivirus\\hydradragon\\owlyshield\\owlyshield service\\owlyshield_ransom.exe": "Allow"
     },
     "website_path": "website",
@@ -31,7 +31,7 @@
         "block_quic_udp_443": true,
         "enforce_proxy_routing": true,
         "proxy_process_allowlist": [
-            "c:\\program files\\hydradragonantivirus\\hydradragonfirewall\\hydradragonfirewall.exe",
+            "c:\\program files\\hydradragonantivirus\\openedr\\hydradragonfirewall.exe",
             "c:\\program files\\hydradragonantivirus\\mitmproxy\\bin\\mitmproxy.exe",
             "c:\\program files\\hydradragonantivirus\\mitmproxy\\bin\\mitmdump.exe"
         ],

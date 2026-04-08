@@ -383,7 +383,7 @@
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Program Files/HydraDragonAntivirus/HydraDragonFirewall/hydradragonfirewall.exe"
+    - pattern: "C:/Program Files/HydraDragonAntivirus/openedr/hydradragonfirewall.exe"
       is_absolute: true
 
   named_conditions:
@@ -788,7 +788,7 @@
   debug: false
 
   allowlisted_apps:
-    - pattern: "C:/Program Files/HydraDragonAntivirus/HydraDragonFirewall/hydradragonfirewall.exe"
+    - pattern: "C:/Program Files/HydraDragonAntivirus/openedr/hydradragonfirewall.exe"
       is_absolute: true
     - pattern: "C:/Windows/System32/msiexec.exe"
       must_be_signed: true
@@ -2050,7 +2050,7 @@
 
   allowlisted_apps:
     # The HydraDragon firewall itself sends ICMP for network monitoring — must not self-block
-    - pattern: "C:/Program Files/HydraDragonAntivirus/HydraDragonFirewall/hydradragonfirewall.exe"
+    - pattern: "C:/Program Files/HydraDragonAntivirus/openedr/hydradragonfirewall.exe"
       is_absolute: true
     - pattern: "C:/Windows/System32/svchost.exe"
       must_be_signed: true
@@ -2171,7 +2171,7 @@
       is_absolute: true
       signers: ["*Microsoft*"]
     # Own firewall may register a driver service during installation
-    - pattern: "C:/Program Files/HydraDragonAntivirus/HydraDragonFirewall/hydradragonfirewall.exe"
+    - pattern: "C:/Program Files/HydraDragonAntivirus/openedr/hydradragonfirewall.exe"
       is_absolute: true
 
   named_conditions:
