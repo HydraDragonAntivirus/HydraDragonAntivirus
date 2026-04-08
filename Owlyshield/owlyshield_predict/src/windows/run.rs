@@ -152,7 +152,7 @@ fn firewall_gui_path_candidates() -> Vec<PathBuf> {
             push_unique_path(
                 &mut candidates,
                 install_root
-                    .join("HydraDragonFirewall")
+                    .join("openedr")
                     .join("hydradragonfirewall.exe"),
             );
         }
@@ -160,7 +160,7 @@ fn firewall_gui_path_candidates() -> Vec<PathBuf> {
         push_unique_path(
             &mut candidates,
             hydra_root
-                .join("HydraDragonFirewall")
+                .join("openedr")
                 .join("hydradragonfirewall.exe"),
         );
     }

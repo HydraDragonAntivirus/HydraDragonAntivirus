@@ -189,7 +189,7 @@ def main():
         fail(
             f"WinDivert folder not found: {windivert_path}\n"
             "  Expected layout:\n"
-            "    HydraDragonPlatform/\n"
+            "    HydraDragonAntivirus/\n"
             "      everything/          ← WinDivert.dll, WinDivert.lib, WinDivert64.sys\n"
             "      HydraDragonFirewall/ ← this script\n"
             "  Download WinDivert from https://reqrypt.org/windivert.html and place\n"

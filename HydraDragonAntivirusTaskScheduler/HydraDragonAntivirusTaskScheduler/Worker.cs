@@ -202,14 +202,14 @@ namespace HydraDragonAntivirusTaskScheduler
             await RunExeAsync(appPath);
 
             // 6) HydraDragonFirewall (via Task Scheduler for highest privileges)
-            await StartFirewallAsync(sanctumDir, ct);
+            await StartFirewallAsync(ct);
 
             _logger.LogInformation("Sanctum sequence completed.");
         }
 
-        private async Task StartFirewallAsync(string sanctumDir, CancellationToken ct)
+        private async Task StartFirewallAsync(CancellationToken ct)
         {
-            string firewallExe = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "HydraDragonAntivirus", "HydraDragonFirewall", "HydraDragonFirewall.exe");
+            string firewallExe = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "HydraDragonAntivirus", "openedr", "HydraDragonFirewall.exe");
 
             if (!File.Exists(firewallExe))
             {

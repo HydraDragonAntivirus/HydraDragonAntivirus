@@ -196,7 +196,6 @@ impl SystemReport {
             report.os_version = "Windows".to_string();
             report.collect_windows_startups();
             report.collect_hosts_file();
-            report.collect_av_status();
             report.collect_network_listeners(firewall_pids);
             report.collect_kernel_drivers();
             report.collect_browser_extensions();
@@ -298,29 +297,6 @@ impl SystemReport {
                 if !trimmed.is_empty() && !trimmed.starts_with('#') {
                     self.hosts_entries.push(trimmed.to_string());
                 }
-            }
-        }
-    }
-
-    #[cfg(target_os = "windows")]
-    fn collect_av_status(&mut self) {
-        self.av_status.is_enabled = crate::is_hydra_dragon_enabled();
-
-        if let Ok(pf) = std::env::var("ProgramFiles") {
-            let base_path = Path::new(&pf).join("HydraDragonAntivirus");
-            self.av_status.config_exists = base_path.join("config.json").exists();
-        }
-
-        // Check if our service is running
-        #[cfg(target_os = "windows")]
-        {
-            use std::process::Command;
-            let output = Command::new("sc")
-                .args(["query", "HydraDragonPredict"])
-                .output();
-            if let Ok(out) = output {
-                let status_str = String::from_utf8_lossy(&out.stdout);
-                self.av_status.service_running = status_str.contains("RUNNING");
             }
         }
     }

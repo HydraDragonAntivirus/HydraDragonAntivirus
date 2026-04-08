@@ -288,13 +288,6 @@ PIPE_EDR_TO_AV = r"\\.\pipe\Global\owlyshield_to_hydradragon"
 
 # Pipe 3: HydraDragon AV forwards artifacts to the Firewall (Firewall receives)
 PIPE_AV_TO_FIREWALL = r"\\.\pipe\HydraDragonFirewall"
-
-# Pipe 4: MBR write alerts from the kernel driver
-PIPE_MBR_ALERT = r"\\.\pipe\Global\mbr_filter_alerts"
-
-# Pipe 5: Self-defense alerts from file/process/registry drivers
-PIPE_SELF_DEFENSE_ALERT = r"\\.\pipe\Global\self_defense_alerts"
-
 def get_startup_paths():
     """Return a tuple of (user_startup, common_startup) using ctypes Windows API."""
     MAX_PATH = 260

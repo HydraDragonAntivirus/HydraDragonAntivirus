@@ -249,7 +249,7 @@ fn firewall_data_dir() -> PathBuf {
     if let Ok(program_data) = std::env::var("PROGRAMDATA") {
         return PathBuf::from(program_data)
             .join("HydraDragonAntivirus")
-            .join("HydraDragonFirewall");
+            .join("openedr");
     }
 
     std::env::current_exe()
