@@ -13,7 +13,6 @@ set "SolutionPath=%ScriptDir%\edrav2.sln"
 set "OutDir=%EdrRoot%\out"
 set "OutBinDir=%OutDir%\bin\win-Release-x64"
 set "CrashpadRoot=%EdrRoot%\eprj\crashpad"
-set "FirewallTargetDir=%FirewallProjectDir%\target\release"
 set "vcvarsall=%ProgramFiles%\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvarsall.bat"
 
 if not exist "%vcvarsall%" (
