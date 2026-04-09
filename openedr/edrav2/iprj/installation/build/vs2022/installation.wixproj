@@ -1,4 +1,3 @@
-<?xml version="1.0" encoding="utf-8"?>
 <Project Sdk="WixToolset.Sdk/6.0.2">
   <PropertyGroup>
     <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
@@ -13,6 +12,7 @@
     <HarvestDirectorySuppressFragments>true</HarvestDirectorySuppressFragments>
     <HarvestDirectorySuppressRegistry>true</HarvestDirectorySuppressRegistry>
     <HarvestDirectorySuppressRootDirectory>true</HarvestDirectorySuppressRootDirectory>
+	<AcceptEula>wix6</AcceptEula>
   </PropertyGroup>
 
   <PropertyGroup>
@@ -29,16 +29,23 @@
     <IncludeSearchPaths>..\..\src</IncludeSearchPaths>
   </PropertyGroup>
 
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|x86' ">
+    <DefineConstants>$(DefineConstants);Debug</DefineConstants>
+  </PropertyGroup>
+
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|x64' ">
+    <DefineConstants>$(DefineConstants);Debug</DefineConstants>
+  </PropertyGroup>
+
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|x86' ">
+  </PropertyGroup>
+
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|x64' ">
     <SuppressIces>ICE61</SuppressIces>
   </PropertyGroup>
-
   <ItemGroup>
     <Compile Include="..\..\src\Product.wxs">
       <Link>Product.wxs</Link>
-    </Compile>
-    <Compile Include="$(IntermediateOutputPath)BinaryFiles.wxs">
-      <Link>BinaryFiles.wxs</Link>
     </Compile>
   </ItemGroup>
 
@@ -66,23 +73,16 @@
     <PackageReference Include="WixToolset.Heat" Version="6.0.2" />
   </ItemGroup>
 
+  <Target Name="ValidateSourceBinaries" BeforeTargets="PrepareInstallationPayload">
+    <Warning Condition="!Exists('$(CmdRootDir)\out\bin\$(CmdOutDirName)')" Text="Source binaries not found in '$(CmdRootDir)\out\bin\$(CmdOutDirName)'. The installer will be empty." />
+  </Target>
+
   <Target Name="PrepareInstallationPayload" BeforeTargets="CoreCompile">
     <Exec Command='if exist "$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)" rd "$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)" /S /Q' />
     <Exec Command='md "$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)"' />
-    <Exec Command='xcopy "$(CmdRootDir)\out\bin\$(CmdOutDirName)" "$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)" /Q /E /I /Exclude:$(ProjectDir)..\..\src\exclude.list' />
-    <Exec Command='FOR /r "$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)" %%i in (*.cfg, *.qsc, *.src, *.act) do "$(CmdRootDir)\out\bin\$(CmdOutDirName)\edrcon.exe" file encrypt -f "%%~i" -o "%%~i.new" -e aes' />
-    <Exec Command='FOR /r "$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)" %%i in (*evm.cloud.src, *evm.local.src) do copy "%%~i" "%%~i.new" /Y' />
-    <Exec Command='FOR /r "$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)" %%i in (*.new) do del "%%~dpni" /F /Q &amp; ren "%%~i" "%%~ni"' />
-    <HeatDirectory
-      ToolPath="$(HeatToolDir)"
-      Directory="$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)"
-      OutputFile="$(IntermediateOutputPath)BinaryFiles.wxs"
-      GenerateGuidsNow="true"
-      SuppressFragments="true"
-      SuppressRegistry="true"
-      ComponentGroupName="BinaryFiles"
-      PreprocessorVariable="var.SourceBinDir"
-      SuppressRootDirectory="true"
-      DirectoryRefId="INSTALLDIR" />
+    <Exec Condition="Exists('$(CmdRootDir)\out\bin\$(CmdOutDirName)')" Command='xcopy "$(CmdRootDir)\out\bin\$(CmdOutDirName)" "$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)" /Q /E /I /Exclude:$(ProjectDir)..\..\src\exclude.list' />
+    <Exec Condition="Exists('$(CmdRootDir)\out\bin\$(CmdOutDirName)')" Command='FOR /r "$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)" %%i in (*.cfg, *.qsc, *.src, *.act) do "$(CmdRootDir)\out\bin\$(CmdOutDirName)\edrcon.exe" file encrypt -f "%%~i" -o "%%~i.new" -e aes' />
+    <Exec Condition="Exists('$(CmdRootDir)\out\bin\$(CmdOutDirName)')" Command='FOR /r "$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)" %%i in (*evm.cloud.src, *evm.local.src) do copy "%%~i" "%%~i.new" /Y' />
+    <Exec Condition="Exists('$(CmdRootDir)\out\bin\$(CmdOutDirName)')" Command='FOR /r "$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)" %%i in (*.new) do del "%%~dpni" /F /Q &amp; ren "%%~i" "%%~ni"' />
   </Target>
 </Project>

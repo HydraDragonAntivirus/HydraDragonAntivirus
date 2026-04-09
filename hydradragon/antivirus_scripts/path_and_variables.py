@@ -146,20 +146,9 @@ ungarbler_string_dir = os.path.join(data_dir, "ungarbler_string")
 html_extracted_dir = os.path.join(data_dir, "html_extracted")
 
 # YARA rules and website data (keep in script_dir as they're read-only reference data)
-yara_dir = os.path.join(script_dir, "yara")
-excluded_rules_dir = os.path.join(script_dir, "excluded")
-excluded_rules_path = os.path.join(excluded_rules_dir, "excluded_rules.txt")
 website_rules_dir = os.path.join(script_dir, "website")
 urlhaus_path = os.path.join(website_rules_dir, "urlhaus.txt")
 antivirus_list_path = os.path.join(script_dir, "hosts", "antivirus_list.txt")
-yaraxtr_yrc_path = os.path.join(yara_dir, "yaraxtr.yrc")
-clean_rules_path = os.path.join(yara_dir, "clean_rules.yrc")
-yarGen_pe_rule_path = os.path.join(yara_dir, "machine_learning_pe.yrc")
-yarGen_js_rule_path = os.path.join(yara_dir, "machine_learning_js.yrc")
-icewater_rule_path = os.path.join(yara_dir, "icewater.yrc")
-valhalla_rule_path = os.path.join(yara_dir, "valhalla-rules.yrc")
-windows_defender_rule_path = os.path.join(yara_dir, "WindowsDefender.yrc")
-
 # Email last 365 days
 spam_email_365_path = os.path.join(website_rules_dir, "listed_email_365.txt")
 # Define all website file paths

@@ -29,20 +29,20 @@
 		<?include InstallSequence.wxi ?>
 
 		<InstallExecuteSequence>
-			<Custom Action="SetActualInstallDirX86" After="SetActualInstallDir">NOT VersionNT64</Custom>
-			<Custom Action="SetActualInstallDirX64" After="SetActualInstallDir">VersionNT64</Custom>
+			<Custom Action="SetActualInstallDirX86" After="SetActualInstallDir" Condition="NOT VersionNT64" />
+			<Custom Action="SetActualInstallDirX64" After="SetActualInstallDir" Condition="VersionNT64" />
 		</InstallExecuteSequence>
 
 		<CustomAction Id="SetActualInstallDirX86" Property="ACTUALINSTALLDIR" Value="[INSTALLDIRX86]" />
 		<CustomAction Id="SetActualInstallDirX64" Property="ACTUALINSTALLDIR" Value="[INSTALLDIRX64]" />
 		
 		<Feature Id="BinaryFeatureX64" Level="0" AllowAbsent="no" AllowAdvertise="no" TypicalDefault="install" InstallDefault="local">
-			<Condition Level="1">VersionNT64</Condition>
+			<Condition Level="1" Condition="VersionNT64" />
 			<ComponentGroupRef Id="ProductComponentsX64" />
 		</Feature>
 
 		<Feature Id="BinaryFeatureX86" Level="0" AllowAbsent="no" AllowAdvertise="no" TypicalDefault="install" InstallDefault="local">
-			<Condition Level="1">NOT VersionNT64</Condition>
+			<Condition Level="1" Condition="NOT VersionNT64" />
 			<ComponentGroupRef Id="ProductComponentsX86" />
 		</Feature>
 	
@@ -90,7 +90,7 @@
 				<RemoveFile Id="RemovingDriverX86" Directory="DRIVERSDIR" Name="edrdrv.sys" On="uninstall" />
 			</Component>
 
-			<ComponentGroupRef Id="BinaryFilesWin32"/>
+			<Files Include="$(var.SourceBinDir32)**" />
 		</ComponentGroup>
 
 		<ComponentGroup Id="ProductComponentsX64" Directory="INSTALLDIRX64">
@@ -105,7 +105,7 @@
 				<RemoveFile Id="RemovingDriverX64" Directory="DRIVERSDIR" Name="edrdrv.sys" On="uninstall" />
 			</Component>
 
-			<ComponentGroupRef Id="BinaryFilesX64"/>
+			<Files Include="$(var.SourceBinDir64)**" />
 		</ComponentGroup>
 		
 		

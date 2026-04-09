@@ -1,9 +1,8 @@
-<?xml version="1.0" encoding="utf-8"?>
 <Project Sdk="WixToolset.Sdk/6.0.2">
   <PropertyGroup>
     <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
     <Platform Condition=" '$(Platform)' == '' ">x86</Platform>
-    <Platforms>x86</Platforms>
+    <Platforms>x86;x64</Platforms>
     <ProjectGuid>{b7302b2d-5ee2-4660-a1c8-a8d560d9c581}</ProjectGuid>
     <OutputName>upgrade</OutputName>
     <OutputType>Package</OutputType>
@@ -13,10 +12,12 @@
     <HarvestDirectorySuppressFragments>true</HarvestDirectorySuppressFragments>
     <HarvestDirectorySuppressRegistry>true</HarvestDirectorySuppressRegistry>
     <HarvestDirectorySuppressRootDirectory>true</HarvestDirectorySuppressRootDirectory>
+	<AcceptEula>wix6</AcceptEula>
   </PropertyGroup>
 
   <PropertyGroup>
     <PlatformName Condition=" '$(Platform)' == 'x86' ">Win32</PlatformName>
+    <PlatformName Condition=" '$(Platform)' == 'x64' ">x64</PlatformName>
   </PropertyGroup>
 
   <Import Project="..\..\..\build\vs2022\consts.props" />
@@ -28,15 +29,24 @@
     <IncludeSearchPaths>..\..\src;..\..\..\installation\src</IncludeSearchPaths>
   </PropertyGroup>
 
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|x86' ">
+    <DefineConstants>$(DefineConstants);Debug</DefineConstants>
+  </PropertyGroup>
+
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|x64' ">
+    <DefineConstants>$(DefineConstants);Debug</DefineConstants>
+  </PropertyGroup>
+
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|x86' ">
+  </PropertyGroup>
+
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|x64' ">
+    <SuppressIces>ICE61</SuppressIces>
+  </PropertyGroup>
+
   <ItemGroup>
     <Compile Include="..\..\src\Product.wxs">
       <Link>Product.wxs</Link>
-    </Compile>
-    <Compile Include="$(IntermediateOutputPath)BinaryFilesWin32.wxs">
-      <Link>BinaryFilesWin32.wxs</Link>
-    </Compile>
-    <Compile Include="$(IntermediateOutputPath)BinaryFilesX64.wxs">
-      <Link>BinaryFilesX64.wxs</Link>
     </Compile>
   </ItemGroup>
 
@@ -65,37 +75,21 @@
     <PackageReference Include="WixToolset.Heat" Version="6.0.2" />
   </ItemGroup>
 
+  <Target Name="ValidateSourceBinaries" BeforeTargets="PrepareUpgradePayload">
+    <Warning Condition="!Exists('$(CmdRootDir)\out\bin\win-$(Configuration)-Win32')" Text="Source binaries not found in '$(CmdRootDir)\out\bin\win-$(Configuration)-Win32'. The Win32 part of the installer will be empty." />
+    <Warning Condition="!Exists('$(CmdRootDir)\out\bin\win-$(Configuration)-x64')" Text="Source binaries not found in '$(CmdRootDir)\out\bin\win-$(Configuration)-x64'. The x64 part of the installer will be empty." />
+  </Target>
+
   <Target Name="PrepareUpgradePayload" BeforeTargets="CoreCompile">
     <Exec Command='if exist "$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)" rd "$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)" /S /Q' />
     <Exec Command='md "$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\Win32"' />
     <Exec Command='md "$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\x64"' />
-    <Exec Command='xcopy "$(CmdRootDir)\out\bin\win-$(Configuration)-Win32" "$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\Win32" /Q /E /I /Exclude:$(ProjectDir)..\..\..\installation\src\exclude.list' />
-    <Exec Command='xcopy "$(CmdRootDir)\out\bin\win-$(Configuration)-x64" "$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\x64" /Q /E /I /Exclude:$(ProjectDir)..\..\..\installation\src\exclude.list' />
-    <Exec Command='FOR /r "$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\Win32" %%i in (*.cfg, *.qsc, *.src) do "$(CmdRootDir)\out\bin\win-$(Configuration)-Win32\edrcon.exe" file encrypt -f "%%~i" -o "%%~i.new" -e aes' />
-    <Exec Command='FOR /r "$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\Win32" %%i in (*.new) do del "%%~dpni" /F /Q &amp; ren "%%~i" "%%~ni"' />
-    <Exec Command='FOR /r "$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\x64" %%i in (*.cfg, *.qsc, *.src) do "$(CmdRootDir)\out\bin\win-$(Configuration)-x64\edrcon.exe" file encrypt -f "%%~i" -o "%%~i.new" -e aes' />
-    <Exec Command='FOR /r "$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\x64" %%i in (*.new) do del "%%~dpni" /F /Q &amp; ren "%%~i" "%%~ni"' />
-    <HeatDirectory
-      ToolPath="$(HeatToolDir)"
-      Directory="$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\Win32"
-      OutputFile="$(IntermediateOutputPath)BinaryFilesWin32.wxs"
-      GenerateGuidsNow="true"
-      SuppressFragments="true"
-      SuppressRegistry="true"
-      ComponentGroupName="BinaryFilesWin32"
-      PreprocessorVariable="var.SourceBinDir32"
-      SuppressRootDirectory="true"
-      DirectoryRefId="INSTALLDIRX86" />
-    <HeatDirectory
-      ToolPath="$(HeatToolDir)"
-      Directory="$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\x64"
-      OutputFile="$(IntermediateOutputPath)BinaryFilesX64.wxs"
-      GenerateGuidsNow="true"
-      SuppressFragments="true"
-      SuppressRegistry="true"
-      ComponentGroupName="BinaryFilesX64"
-      PreprocessorVariable="var.SourceBinDir64"
-      SuppressRootDirectory="true"
-      DirectoryRefId="INSTALLDIRX64" />
+    <Exec Condition="Exists('$(CmdRootDir)\out\bin\win-$(Configuration)-Win32')" Command='xcopy "$(CmdRootDir)\out\bin\win-$(Configuration)-Win32" "$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\Win32" /Q /E /I /Exclude:$(ProjectDir)..\..\..\installation\src\exclude.list' />
+    <Exec Condition="Exists('$(CmdRootDir)\out\bin\win-$(Configuration)-x64')" Command='xcopy "$(CmdRootDir)\out\bin\win-$(Configuration)-x64" "$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\x64" /Q /E /I /Exclude:$(ProjectDir)..\..\..\installation\src\exclude.list' />
+    <Exec Condition="Exists('$(CmdRootDir)\out\bin\win-$(Configuration)-Win32')" Command='FOR /r "$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\Win32" %%i in (*.cfg, *.qsc, *.src) do "$(CmdRootDir)\out\bin\win-$(Configuration)-Win32\edrcon.exe" file encrypt -f "%%~i" -o "%%~i.new" -e aes' />
+    <Exec Condition="Exists('$(CmdRootDir)\out\bin\win-$(Configuration)-Win32')" Command='FOR /r "$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\Win32" %%i in (*.new) do del "%%~dpni" /F /Q &amp; ren "%%~i" "%%~ni"' />
+    <Exec Condition="Exists('$(CmdRootDir)\out\bin\win-$(Configuration)-x64')" Command='FOR /r "$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\x64" %%i in (*.cfg, *.qsc, *.src) do "$(CmdRootDir)\out\bin\win-$(Configuration)-x64\edrcon.exe" file encrypt -f "%%~i" -o "%%~i.new" -e aes' />
+    <Exec Condition="Exists('$(CmdRootDir)\out\bin\win-$(Configuration)-x64')" Command='FOR /r "$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\x64" %%i in (*.new) do del "%%~dpni" /F /Q &amp; ren "%%~i" "%%~ni"' />
+    <Exec Condition="Exists('$(CmdRootDir)\out\bin\win-$(Configuration)-x64')" Command='FOR /r "$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\x64" %%i in (*.new) do del "%%~dpni" /F /Q &amp; ren "%%~i" "%%~ni"' />
   </Target>
 </Project>

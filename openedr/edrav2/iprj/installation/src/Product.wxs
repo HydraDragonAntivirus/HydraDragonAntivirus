@@ -72,7 +72,7 @@
 				<ServiceControl Id="StopEdrSvc" Name="edrsvc" Stop="uninstall" />
 				<RemoveFile Id="RemovingDriver" Directory="DRIVERSDIR" Name="edrdrv.sys" On="uninstall" />
 			</Component>
-			<ComponentGroupRef Id="BinaryFiles" />
+			<Files Include="$(var.SourceBinDir)**" />
 		</ComponentGroup>
 	</Fragment>
 </Wix>
