@@ -1,4 +1,4 @@
-<h1>Hydra Dragon Automatic Malware Analysis Platform</h1>
+<h1>Hydra Dragon Antivirus</h1>
 
 <p>
   <img
