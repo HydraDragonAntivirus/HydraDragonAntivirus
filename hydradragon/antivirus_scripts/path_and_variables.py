@@ -218,7 +218,6 @@ seven_zip_folder = os.path.join(program_files, "7-Zip")
 
 # ClamAV file paths and configurations
 freshclam_path = os.path.join(clamav_folder, "freshclam.exe")
-libclamav_path = os.path.join(clamav_folder, "libclamav.dll")
 clamav_database_directory_path = os.path.join(clamav_folder, "database")
 clamav_file_paths = [
     os.path.join(clamav_database_directory_path, "daily.cvd"),
@@ -269,14 +268,18 @@ _RETRY_DELAY = 0.5             # seconds between open retries
 # Internal queue other code will push scan requests into
 _SCAN_REQUEST_SEND_QUEUE: "asyncio.Queue[dict]" = asyncio.Queue()
 
-# Pipe 1: HydraDragon SENDS threat events TO Owlyshield (Owlyshield receives)
+# Pipe 1: HydraDragonAV engine
+PIPE_HYDRADRAGON_AV = r'\\.\pipe\HydraDragonAV'
+
+# Pipe 2: HydraDragon SENDS threat events TO Owlyshield (Owlyshield receives)
 PIPE_AV_TO_EDR = r"\\.\pipe\Global\hydradragon_to_owlyshield"
 
-# Pipe 2: Owlyshield SENDS scan requests TO HydraDragon (HydraDragon receives)
+# Pipe 3: Owlyshield SENDS scan requests TO HydraDragon (HydraDragon receives)
 PIPE_EDR_TO_AV = r"\\.\pipe\Global\owlyshield_to_hydradragon"
 
-# Pipe 3: HydraDragon AV forwards artifacts to the Firewall (Firewall receives)
+# Pipe 4: HydraDragon AV forwards artifacts to the Firewall (Firewall receives)
 PIPE_AV_TO_FIREWALL = r"\\.\pipe\HydraDragonFirewall"
+
 def get_startup_paths():
     """Return a tuple of (user_startup, common_startup) using ctypes Windows API."""
     MAX_PATH = 260

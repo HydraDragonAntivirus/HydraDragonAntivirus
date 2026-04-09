@@ -121,15 +121,8 @@ from .path_and_variables import (
     suricata_config_path,
     suricata_exe_path,
     seven_zip_path,
-    libclamav_path,
     clamav_database_directory_path,
-    icewater_rule_path,
-    valhalla_rule_path,
-    windows_defender_rule_path,
-    yarGen_js_rule_path,
-    yarGen_pe_rule_path,
     antivirus_list_path,
-    clean_rules_path,
     yaraxtr_yrc_path
 )
 
@@ -222,9 +215,6 @@ start_time = time.time()
 import tarfile
 logger.debug(f"tarfile module loaded in {time.time() - start_time:.6f} seconds")
 
-start_time = time.time()
-import yara
-logger.debug(f"yara module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import yara_x
@@ -391,10 +381,6 @@ logger.debug(
     "utils_and_helpers functions loaded in "
     f"{time.time() - start_time:.6f} seconds"
 )
-
-start_time = time.time()
-from . import clamav  # noqa: E402
-logger.debug(f"clamav imported in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from . pyinstaller_mod_extractor_ng import (PyInstArchive # noqa: E402
@@ -1543,441 +1529,107 @@ def dispatch_firewall_web_scan(paths: List[str], origin: str) -> None:
 
     loop.create_task(_forward_web_candidates_to_firewall(paths, origin))
 
-# Global variables for rules
-yarGen_pe_rules = None
-yarGen_js_rules = None
-icewater_rules = None
-valhalla_rules = None
-clean_rules = None
+# Global variables for rules and ML
 yaraxtr_rules = None
-windows_defender_rules = None
+excluded_rules = None
+malicious_numeric_features = []
+malicious_file_names = []
+benign_numeric_features = []
+benign_file_names = []
 
 def scan_yara(file_path):
-    """Scan file with multiple YARA rule sets in parallel using threads.
-
-    SAFETY: This function will ABORT scanning if the excluded_rules file is missing,
-    empty, or corrupted. This prevents false positives if malware deletes the file.
-
-    Change: when a VMProtect unpacking indicator is matched, we do NOT
-    attempt to unpack the PE or write any metadata file. Instead we set
-    a boolean flag `is_vmprotect` which is returned as the third
-    return value.
-
-    Note: YARA-X scanning is performed sequentially (not in a thread) due to
-    Rust thread safety constraints. The yara_x.Scanner and compiled rules
-    cannot be safely shared across threads.
     """
-
-    # CRITICAL SAFETY CHECK: Load excluded rules with verification
+    Simplified YARA scan using ONLY yara-x (Rust-based).
+    Returns: (matched_rules, matched_results, is_vmprotect)
+    """
     if excluded_rules is None:
-        logger.critical(f"ABORTING YARA scan of {file_path} - excluded_rules file integrity check failed!")
-        logger.critical("This could indicate malware tampering with configuration files.")
-        # Return None to signal scan failure due to security issue
+        logger.error(f"excluded_rules missing for {file_path}")
         return None, None, None
 
-    # Shared variables for results
-    results = {
-        'matched_rules': [],
-        'matched_results': [],
-        'is_vmprotect': False
-    }
-
-    # Lock for thread-safe access to shared variables
-    thread_lock_yara = threading.Lock()
-    threads = []
+    results = {'matched_rules': [], 'matched_results': [], 'is_vmprotect': False}
 
     try:
         if not os.path.exists(file_path):
-            logger.error(f"File not found during YARA scan: {file_path}")
             return None, None, None
 
-        with open(file_path, 'rb') as yara_file:
-            data_content = yara_file.read()
+        with open(file_path, 'rb') as f:
+            data_content = f.read()
 
-        def extract_match_details(match, rule_source):
-            """Robust extraction for yara-python style matches (tuples or objects)."""
-            match_info = {
-                'rule_name': getattr(match, 'rule', None),
-                'rule_source': rule_source,
-                'strings': [],
-                'tags': getattr(match, 'tags', []),
-                'meta': getattr(match, 'meta', {}),
-                'namespace': getattr(match, 'namespace', None)
-            }
-
-            if not hasattr(match, 'strings'):
-                return match_info
-
-            for string_match in match.strings:
-                # string_match can be a tuple like (offset, identifier, data)
-                # or an object with .identifier and .instances
-                string_info = {'identifier': None, 'instances': []}
-
-                if isinstance(string_match, (tuple, list)):
-                    # Try to unpack common tuple shapes:
-                    # (offset, identifier, data)  OR  (offset, data)
-                    if len(string_match) >= 3:
-                        offset, identifier, data = string_match[:3]
-                    elif len(string_match) == 2:
-                        offset, data = string_match
-                        identifier = None
-                    else:
-                        continue
-
-                    matched_data = data if isinstance(data, (bytes, bytearray)) else (
-                        data.encode('utf-8', errors='ignore') if isinstance(data, str) else b''
-                    )
-                    length = len(matched_data)
-
-                    instance_info = {
-                        'offset': offset,
-                        'length': length,
-                        'matched_data': matched_data
-                    }
-                    try:
-                        instance_info['matched_text'] = matched_data.decode('utf-8', errors='ignore')
-                    except Exception:
-                        instance_info['matched_text'] = None
-                    instance_info['matched_hex'] = matched_data.hex()
-                    string_info['identifier'] = identifier
-                    string_info['instances'].append(instance_info)
-
-                else:
-                    # Assume object-like: string_match.identifier and string_match.instances (or .matches)
-                    identifier = getattr(string_match, 'identifier', getattr(string_match, 'name', None))
-                    instances = getattr(string_match, 'instances', getattr(string_match, 'matches', []))
-                    string_info['identifier'] = identifier
-
-                    for inst in instances:
-                        # inst can be tuple/list or object
-                        if isinstance(inst, (tuple, list)):
-                            # common tuple forms: (offset, length, data) or (offset, data)
-                            if len(inst) >= 3:
-                                off, length, data = inst[:3]
-                            elif len(inst) == 2:
-                                off, data = inst
-                                length = len(data) if isinstance(data, (bytes, bytearray)) else 0
-                            else:
-                                continue
-
-                            matched_data = data if isinstance(data, (bytes, bytearray)) else (
-                                data.encode('utf-8', errors='ignore') if isinstance(data, str) else b''
-                            )
-
-                        else:
-                            # object: try typical attributes
-                            off = getattr(inst, 'offset', getattr(inst, 'start', None))
-                            length = getattr(inst, 'length', None)
-                            matched_data = getattr(inst, 'data', None) or getattr(inst, 'matched_data', None) or getattr(inst, 'value', None)
-
-                            if matched_data is None and off is not None:
-                                # Fall back to slicing the file content if we have offset and length
-                                if length is not None:
-                                    matched_data = data_content[off: off + length]
-                                else:
-                                    # No length available - try to take a small slice (best-effort)
-                                    matched_data = data_content[off: off + 64]
-
-                            if isinstance(matched_data, str):
-                                matched_data = matched_data.encode('utf-8', errors='ignore')
-
-                        length = length if (length is not None) and isinstance(length, int) else (len(matched_data) if matched_data is not None else 0)
-                        instance_info = {
-                            'offset': off,
-                            'length': length,
-                            'matched_data': matched_data or b''
-                        }
-                        try:
-                            instance_info['matched_text'] = instance_info['matched_data'].decode('utf-8', errors='ignore')
-                        except Exception:
-                            instance_info['matched_text'] = None
-                        instance_info['matched_hex'] = (instance_info['matched_data'] or b'').hex()
-                        string_info['instances'].append(instance_info)
-
-                match_info['strings'].append(string_info)
-
-            return match_info
-
-
-        def extract_yarax_match_details(rule, rule_source):
-            """Robust extraction for YARA-X style rule/pattern matches."""
-            match_info = {
-                'rule_name': getattr(rule, 'identifier', None),
-                'rule_source': rule_source,
-                'strings': [],
-                'tags': list(rule.tags) if hasattr(rule, 'tags') else [],
-                'meta': dict(rule.metadata) if hasattr(rule, 'metadata') else {},
-                'namespace': getattr(rule, 'namespace', None)
-            }
-
-            # Patterns may be an iterable; each pattern may expose .identifier and .matches
-            if not hasattr(rule, 'patterns'):
-                return match_info
-
-            for pattern in rule.patterns:
-                string_info = {
-                    'identifier': getattr(pattern, 'identifier', getattr(pattern, 'name', None)),
-                    'instances': []
-                }
-
-                matches_iter = getattr(pattern, 'matches', []) or getattr(pattern, 'instances', [])
-
-                for m in matches_iter:
-                    # match object may have .offset and optionally .length or may be a tuple
-                    if isinstance(m, (tuple, list)):
-                        if len(m) >= 3:
-                            offset, length, data = m[:3]
-                        elif len(m) == 2:
-                            offset, data = m
-                            length = len(data) if isinstance(data, (bytes, bytearray)) else 0
-                        else:
-                            continue
-
-                        matched_data = data if isinstance(data, (bytes, bytearray)) else (
-                            data.encode('utf-8', errors='ignore') if isinstance(data, str) else b''
-                        )
-
-                    else:
-                        offset = getattr(m, 'offset', getattr(m, 'start', None))
-                        length = getattr(m, 'length', None)
-                        matched_data = getattr(m, 'data', None) or getattr(m, 'matched_data', None) or None
-
-                        if matched_data is None and offset is not None:
-                            if length is not None:
-                                matched_data = data_content[offset: offset + length]
-                            else:
-                                matched_data = data_content[offset: offset + 64]
-
-                        if isinstance(matched_data, str):
-                            matched_data = matched_data.encode('utf-8', errors='ignore')
-
-                    length = length if (isinstance(length, int) and length >= 0) else (len(matched_data) if matched_data is not None else 0)
-                    instance_info = {
-                        'offset': offset,
-                        'length': length,
-                        'matched_data': matched_data or b''
-                    }
-                    try:
-                        instance_info['matched_text'] = instance_info['matched_data'].decode('utf-8', errors='ignore')
-                    except Exception:
-                        instance_info['matched_text'] = None
-                    instance_info['matched_hex'] = (instance_info['matched_data'] or b'').hex()
-                    string_info['instances'].append(instance_info)
-
-                match_info['strings'].append(string_info)
-
-            return match_info
-
-        # Thread worker for compiled_rule scanning
-        def clean_rules_worker():
-            try:
-                if clean_rules:
-                    matches = clean_rules.match(data=data_content)
-                    local_matched_rules = []
-                    local_matched_results = []
-                    local_is_vmprotect = False
-
-                    for match in matches or []:
-                        # Detect VMProtect even if excluded
-                        if match.rule == "INDICATOR_EXE_Packed_VMProtect":
-                            local_is_vmprotect = True
-
-                        if match.rule not in excluded_rules:
-                            local_matched_rules.append(match.rule)
-                            match_details = extract_match_details(match, 'clean_rules')
-                            local_matched_results.append(match_details)
-
-                    # Update shared results
-                    with thread_lock_yara:
-                        results['matched_rules'].extend(local_matched_rules)
-                        results['matched_results'].extend(local_matched_results)
-                        if local_is_vmprotect:
-                            results['is_vmprotect'] = True
-                else:
-                    logger.error("clean_rules is not defined.")
-            except Exception as e:
-                logger.error(f"Error scanning with clean_rules: {e}")
-
-        # Thread worker for yarGen PE rule scanning
-        def yargen_rule_worker():
-            try:
-                if yarGen_pe_rules:
-                    matches = yarGen_pe_rules.match(data=data_content)
-                    local_matched_rules = []
-                    local_matched_results = []
-
-                    for match in matches or []:
-                        if match.rule not in excluded_rules:
-                            local_matched_rules.append(match.rule)
-                            match_details = extract_match_details(match, 'yarGen_pe_rule')
-                            local_matched_results.append(match_details)
-                        else:
-                            logger.info(f"Rule {match.rule} is excluded from yarGen_pe_rule.")
-
-                    # Update shared results
-                    with thread_lock_yara:
-                        results['matched_rules'].extend(local_matched_rules)
-                        results['matched_results'].extend(local_matched_results)
-                else:
-                    logger.error("yarGen_pe_rules is not defined.")
-            except Exception as e:
-                logger.error(f"Error scanning with yarGen_pe_rule: {e}")
-
-        # Thread worker for yarGen JS rule scanning
-        def yargen_js_rule_worker():
-            try:
-                if yarGen_js_rules:
-                    matches = yarGen_js_rules.match(data=data_content)
-                    local_matched_rules = []
-                    local_matched_results = []
-
-                    for match in matches or []:
-                        if match.rule not in excluded_rules:
-                            local_matched_rules.append(match.rule)
-                            match_details = extract_match_details(match, 'yarGen_js_rule')
-                            local_matched_results.append(match_details)
-                        else:
-                            logger.info(f"Rule {match.rule} is excluded from yarGen_js_rule.")
-
-                    # Update shared results
-                    with thread_lock_yara:
-                        results['matched_rules'].extend(local_matched_rules)
-                        results['matched_results'].extend(local_matched_results)
-                else:
-                    logger.error("yarGen_js_rules is not defined.")
-            except Exception as e:
-                logger.error(f"Error scanning with yarGen_js_rule: {e}")
-
-        # Thread worker for icewater_rule scanning
-        def icewater_rule_worker():
-            try:
-                if icewater_rules:
-                    matches = icewater_rules.match(data=data_content)
-                    local_matched_rules = []
-                    local_matched_results = []
-
-                    for match in matches or []:
-                        if match.rule not in excluded_rules:
-                            local_matched_rules.append(match.rule)
-                            match_details = extract_match_details(match, 'icewater_rule')
-                            local_matched_results.append(match_details)
-                        else:
-                            logger.info(f"Rule {match.rule} is excluded from icewater_rules.")
-
-                    # Update shared results
-                    with thread_lock_yara:
-                        results['matched_rules'].extend(local_matched_rules)
-                        results['matched_results'].extend(local_matched_results)
-                else:
-                    logger.error("icewater_rule is not defined.")
-            except Exception as e:
-                logger.error(f"Error scanning with icewater_rule: {e}")
-
-        # Thread worker for valhalla_rule scanning
-        def valhalla_rule_worker():
-            try:
-                if valhalla_rules:
-                    matches = valhalla_rules.match(data=data_content)
-                    local_matched_rules = []
-                    local_matched_results = []
-
-                    for match in matches or []:
-                        if match.rule not in excluded_rules:
-                            local_matched_rules.append(match.rule)
-                            match_details = extract_match_details(match, 'valhalla_rule')
-                            local_matched_results.append(match_details)
-                        else:
-                            logger.info(f"Rule {match.rule} is excluded from valhalla_rules.")
-
-                    # Update shared results
-                    with thread_lock_yara:
-                        results['matched_rules'].extend(local_matched_rules)
-                        results['matched_results'].extend(local_matched_results)
-                else:
-                    logger.error("valhalla_rule is not defined.")
-            except Exception as e:
-                logger.error(f"Error scanning with valhalla_rule: {e}")
-
-
-        # Thread worker for windows_defender_rule scanning
-        def windows_defender_rule_worker():
-            try:
-                if windows_defender_rules:
-                    matches = windows_defender_rules.match(data=data_content)
-                    local_matched_rules = []
-                    local_matched_results = []
-
-                    for match in matches or []:
-                        if match.rule not in excluded_rules:
-                            local_matched_rules.append(match.rule)
-                            match_details = extract_match_details(match, 'windows_defender_rule')
-                            local_matched_results.append(match_details)
-                        else:
-                            logger.info(f"Rule {match.rule} is excluded from windows_defender_rules.")
-
-                    # Update shared results
-                    with thread_lock_yara:
-                        results['matched_rules'].extend(local_matched_rules)
-                        results['matched_results'].extend(local_matched_results)
-                else:
-                    logger.error("windows_defender_rule is not defined.")
-            except Exception as e:
-                logger.error(f"Error scanning with windows_defender_rule: {e}")
-
-        # Create and start threads for yara-python rules ONLY
-        # YARA-X is NOT included in threading
-        workers = [
-            clean_rules_worker,
-            yargen_rule_worker,
-            yargen_js_rule_worker,
-            icewater_rule_worker,
-            valhalla_rule_worker,
-            windows_defender_rule_worker
-        ]
-
-        for worker in workers:
-            thread = threading.Thread(daemon=True, target=worker)
-            thread.start()
-            threads.append(thread)
-
-        # Run YARA-X scanning sequentially in the main thread AFTER threads complete
-        # This avoids all thread safety issues with Rust-based yara_x objects
         if yaraxtr_rules:
-            yaraxtr_scanner = None
-            try:
-                # create scanner on THIS thread
-                yaraxtr_scanner = yara_x.Scanner(rules=yaraxtr_rules)
-                scan_results = yaraxtr_scanner.scan(data_content)
+            # yara-x scanning (thread-safe creation per scan)
+            scanner = yara_x.Scanner(rules=yaraxtr_rules)
+            scan_results = scanner.scan(data_content)
 
-                for rule in getattr(scan_results, "matching_rules", []) or []:
-                    if rule.identifier not in excluded_rules:
-                        results['matched_rules'].append(rule.identifier)
-                        match_details = extract_yarax_match_details(rule, 'yaraxtr_rules')
-                        results['matched_results'].append(match_details)
-                    else:
-                        logger.info(f"Rule {rule.identifier} is excluded from yaraxtr_rules.")
+            for rule in getattr(scan_results, "matching_rules", []) or []:
+                if rule.identifier not in excluded_rules:
+                    results['matched_rules'].append(rule.identifier)
+                    # Simple extraction
+                    details = {
+                        'rule_name': rule.identifier,
+                        'rule_source': 'yaraxtr_rules',
+                        'tags': list(rule.tags) if hasattr(rule, 'tags') else [],
+                        'meta': dict(rule.metadata) if hasattr(rule, 'metadata') else {}
+                    }
+                    results['matched_results'].append(details)
+                    if rule.identifier == "INDICATOR_EXE_Packed_VMProtect":
+                        results['is_vmprotect'] = True
 
-            except Exception as e:
-                logger.error(f"Error scanning with yaraxtr_rules: {e}")
-            finally:
-                # IMPORTANT: ensure the Scanner is destroyed on THIS thread.
-                # Deleting it and forcing a GC here makes the Rust destructor run on this thread.
-                try:
-                    if yaraxtr_scanner is not None:
-                        del yaraxtr_scanner
-                        import gc
-                        gc.collect()
-                except Exception:
-                    logger.exception("Exception during yara_x cleanup")
+            del scanner
+            import gc
+            gc.collect()
 
-        # Return results (third value is a boolean `is_vmprotect`)
         return (results['matched_rules'] if results['matched_rules'] else None,
                 results['matched_results'] if results['matched_results'] else None,
                 results['is_vmprotect'])
 
     except Exception as ex:
-        logger.error(f"An error occurred during YARA scan: {ex}")
+        logger.error(f"YARA-X scan error for {file_path}: {ex}")
         return None, None, None
+
+# ============================================================================#
+# C++ ENGINE (HydraDragonAV) PIPE CLIENT
+# ============================================================================#
+def scan_with_hydradragon_engine(file_path):
+    """
+    Sends scan request to HydraDragonAV C++ pipe server (ClamAV + Legacy YARA).
+    Returns: (malicious: bool, virus_name: str, engine: str)
+    """
+    try:
+        norm_path = os.path.abspath(file_path)
+        request = json.dumps({"path": norm_path})
+        
+        # Connect to C++ pipe
+        handle = win32file.CreateFile(
+            PIPE_HYDRADRAGON_AV,
+            win32file.GENERIC_READ | win32file.GENERIC_WRITE,
+            0, None, win32file.OPEN_EXISTING, 0, None
+        )
+        
+        # Write request
+        win32file.WriteFile(handle, request.encode('utf-8'))
+        
+        # Read response
+        resp_data = win32file.ReadFile(handle, 65536)
+        win32file.CloseHandle(handle)
+        
+        if resp_data[0] == 0:
+            response = json.loads(resp_data[1].decode('utf-8'))
+            if response.get("status") == "success":
+                malicious = response.get("malicious", False)
+                clamav_virus = response.get("clamav", "")
+                yara_matches = response.get("yara", [])
+                
+                if malicious:
+                    if clamav_virus:
+                        return True, clamav_virus, "ClamAV"
+                    if yara_matches:
+                        return True, yara_matches[0], "LegacyYARA"
+                
+        return False, "Clean", ""
+    except Exception as ex:
+        # Expected if server not running or path inaccessible
+        logger.debug(f"HydraDragonAV Pipe Error: {ex}")
+        return False, "Error", ""
 
 def is_encrypted(zip_info):
     """Check if a ZIP entry is encrypted."""
@@ -3532,72 +3184,14 @@ def load_ml_definitions_pickle(malicious_path: str, benign_path: str) -> bool:
         logger.info(f"Loading benign ML definitions from: {benign_path_obj}")
         _load_stream(benign_path_obj, False)
 
-        if malicious_numeric_features:
-            vec_len = len(malicious_numeric_features[0])
-        elif benign_numeric_features:
-            vec_len = len(benign_numeric_features[0])
-        else:
-            vec_len = 'N/A'
-
-        logger.info(f"[!] Loaded {len(malicious_numeric_features)} malicious and {len(benign_numeric_features)} benign ML definitions (vectors length = {vec_len}).")
+        total_ml = len(malicious_numeric_features) + len(benign_numeric_features)
+        logger.info(f"Successfully loaded {total_ml} ML definitions.")
         return True
-
     except Exception as e:
         logger.exception(f"Failed to load ML definitions: {e}")
         return False
 
-def load_yara_rule(path: str, display_name: str = None, is_yara_x: bool = False):
-    """
-    Load a YARA or YARA-X rule from a precompiled .yrc file.
-
-    :param path: Path to the precompiled rule file.
-    :param display_name: Optional friendly name for logger.
-    :param is_yara_x: If True, use YARA-X deserialization.
-    :return: Loaded rule object or None if failed.
-    """
-    try:
-        if is_yara_x:
-            with open(path, 'rb') as f:
-                rule = yara_x.Rules.deserialize_from(f)
-        else:
-            rule = yara.load(path)
-
-        name = display_name or path
-        logger.info(f"{name} loaded successfully!")
-        return rule
-    except Exception as ex:
-        name = display_name or path
-        logger.error(f"Error loading {name}: {ex}")
-        return None
-
-def reload_clamav_database():
-    """
-    Reloads the ClamAV engine with the updated database.
-    Required after updating signatures.
-    """
-    try:
-        logger.info("Reloading ClamAV database...")
-        clamav_scanner.loadDB()
-        logger.info("ClamAV database reloaded successfully.")
-    except Exception as ex:
-        logger.error(f"Failed to reload ClamAV database: {ex}")
-
-def scan_file_with_clamav(file_path):
-    """Scan file using the in-process ClamAV wrapper (scanner) and return virus name or 'Clean'."""
-    try:
-        file_path = os.path.abspath(file_path)
-        ret, virus_name = clamav_scanner.scanFile(file_path)
-
-        if ret == clamav.CL_CLEAN:
-            return "Clean"
-        elif ret == clamav.CL_VIRUS:
-            return virus_name or "Infected"
-        else:
-            logger.error(f"Unexpected ClamAV scan result for {file_path}: {ret}")
-            return "Error"
-    except Exception as ex:
-        logger.error(f"Error scanning file {file_path}: {ex}")
-        return "Error"
+# Removed: scan_file_with_clamav (Merged into HydraDragonAV C++ engine)
 
 def scan_file_real_time_yara(
     file_path: str,
@@ -3672,112 +3266,30 @@ def scan_file_real_time(
             logger.error(f"An error occurred while scanning the file for fake system files and worm analysis: {file_path}. Error: {ex}")
             return False
 
-    def clamav_scan_worker():
-        """Worker function for ClamAV scan"""
+    def cpp_scanner_worker():
+        """Worker function for HydraDragonAV C++ engine (ClamAV + Legacy YARA)."""
         if stop_event.is_set():
             return
         try:
-            result = scan_file_with_clamav(file_path)
-            if result not in ("Clean", "Error"):
+            is_malicious, virus_name, engine = scan_with_hydradragon_engine(file_path)
+            if is_malicious:
                 if sig_valid:
-                    result = f"{result}.SIG"
-                logger.critical(f"Infected file detected (ClamAV): {file_path} - Virus: {result}")
+                    virus_name = f"{virus_name}.SIG"
+                logger.critical(f"Infected file detected ({engine}): {file_path} - Virus: {virus_name}")
 
                 with thread_lock_real_time:
                     if not results['malware_found']:
                         results['malware_found'] = True
-                        results['virus_name'] = result
-                        results['engine'] = "ClamAV"
+                        results['virus_name'] = virus_name
+                        results['engine'] = engine
                         stop_event.set()
-            else:
-                if not stop_event.is_set():
-                    logger.info(f"No malware detected by ClamAV in file: {file_path}")
         except Exception as ex:
-            logger.error(f"An error occurred while scanning file with ClamAV: {file_path}. Error: {ex}")
-
-    def tar_scan_worker():
-        """Worker function for TAR scan"""
-        if stop_event.is_set():
-            return
-        try:
-            if tarfile.is_tarfile(file_path):
-                scan_result, virus_name = scan_tar_file(file_path)
-                if scan_result and virus_name not in ("Clean", "F", "", [], None):
-                    virus_str = str(virus_name) if virus_name else "Unknown"
-                    if sig_valid:
-                        virus_str = f"{virus_str}.SIG"
-                    logger.critical(f"Infected file detected (TAR): {file_path} - Virus: {virus_str}")
-
-                    with thread_lock_real_time:
-                        if not results['malware_found']:
-                            results['malware_found'] = True
-                            results['virus_name'] = virus_str
-                            results['engine'] = "TAR"
-                            stop_event.set()
-                else:
-                    if not stop_event.is_set():
-                        logger.info(f"No malware detected in TAR file: {file_path}")
-        except (PermissionError, FileNotFoundError) as ferr:
-            logger.error(f"File error occurred while scanning TAR file: {file_path}. Error: {ferr}")
-        except Exception as ex:
-            logger.error(f"An error occurred while scanning TAR file: {file_path}. Error: {ex}")
-
-    def zip_scan_worker():
-        """Worker function for ZIP scan"""
-        if stop_event.is_set():
-            return
-        try:
-            if is_zip_file(file_path):
-                scan_result, virus_name = scan_zip_file(file_path)
-                if scan_result and virus_name not in ("Clean", ""):
-                    if sig_valid:
-                        virus_name = f"{virus_name}.SIG"
-                    logger.critical(f"Infected file detected (ZIP): {file_path} - Virus: {virus_name}")
-
-                    with thread_lock_real_time:
-                        if not results['malware_found']:
-                            results['malware_found'] = True
-                            results['virus_name'] = virus_name
-                            results['engine'] = "ZIP"
-                            stop_event.set()
-                else:
-                    if not stop_event.is_set():
-                        logger.info(f"No malware detected in ZIP file: {file_path}")
-        except (PermissionError, FileNotFoundError) as ferr:
-            logger.error(f"File error occurred while scanning ZIP file: {file_path}. Error: {ferr}")
-        except Exception as ex:
-            logger.error(f"An error occurred while scanning ZIP file: {file_path}. Error: {ex}")
-
-    def sevenz_scan_worker():
-        """Worker function for 7z scan"""
-        if stop_event.is_set():
-            return
-        try:
-            if is_7z_file_from_output(die_output):
-                scan_result, virus_name = scan_7z_file(file_path)
-                if scan_result and virus_name not in ("Clean", ""):
-                    if sig_valid:
-                        virus_name = f"{virus_name}.SIG"
-                    logger.critical(f"Infected file detected (7z): {file_path} - Virus: {virus_name}")
-
-                    with thread_lock_real_time:
-                        if not results['malware_found']:
-                            results['malware_found'] = True
-                            results['virus_name'] = virus_name
-                            results['engine'] = "7z"
-                            stop_event.set()
-                else:
-                    if not stop_event.is_set():
-                        logger.info(f"No malware detected in 7z file: {file_path}")
-        except (PermissionError, FileNotFoundError) as ferr:
-            logger.error(f"File error occurred while scanning 7Z file: {file_path}. Error: {ferr}")
-        except Exception as ex:
-            logger.error(f"An error occurred while scanning 7Z file: {file_path}. Error: {ex}")
+            logger.debug(f"HydraDragonAV worker error: {ex}")
 
     try:
         workers = [
             pe_scan_worker,
-            clamav_scan_worker,
+            cpp_scanner_worker,
             tar_scan_worker,
             zip_scan_worker,
             sevenz_scan_worker
@@ -9414,36 +8926,6 @@ async def load_excluded_rules_async():
 # FIXED: Safe YARA-X Loader
 # ==========================================
 
-def load_yara_safe(path, display_name, is_yara_x=False):
-    """
-    Fire-and-forget version of load_yara_safe.
-    """
-    async def _load():
-        def load_rules():
-            try:
-                if is_yara_x:
-                    with open(path, 'rb') as f:
-                        return yara_x.Rules.deserialize_from(f)
-                else:
-                    return yara.load(path)
-            except Exception as e:
-                raise RuntimeError(f"Failed to load {display_name}: {e}")
-
-        try:
-            rules = await asyncio.to_thread(load_rules)
-            logger.info(f"{display_name} loaded successfully!")
-            return rules
-        except Exception as e:
-            logger.error(f"{display_name} loading error: {e}")
-            return None
-
-    # Fire-and-forget: schedule as a background task
-    asyncio.create_task(_load())
-
-# ==========================================
-# FIXED: Non-blocking Resource Loading
-# ==========================================
-
 async def load_all_resources_async():
     """
     Start loading all resources in background WITHOUT waiting.
@@ -9535,82 +9017,29 @@ async def load_all_resources_async():
         except Exception as ex:
             logger.exception(f"Error loading Antivirus List: {ex}")
 
-    async def load_yargen_pe():
-        global yarGen_pe_rules
-        yarGen_pe_rules = await load_resource_safe("yarGen PE Rules",
-                                                functools.partial(load_yara_safe, yarGen_pe_rule_path, "yarGen PE Rules", False),
-                                                timeout=30)
-
-    async def load_yargen_js():
-        global yarGen_js_rules
-        yarGen_js_rules = await load_resource_safe("yarGen JS Rules",
-                                                functools.partial(load_yara_safe, yarGen_js_rule_path, "yarGen JS Rules", False),
-                                                timeout=30)
-
-    async def load_icewater():
-        global icewater_rules
-        icewater_rules = await load_resource_safe("Icewater Rules",
-                                                  functools.partial(load_yara_safe, icewater_rule_path, "Icewater Rules", False),
-                                                  timeout=30)
-
-    async def load_valhalla():
-        global valhalla_rules
-        valhalla_rules = await load_resource_safe("Valhalla Rules",
-                                                  functools.partial(load_yara_safe, valhalla_rule_path, "Valhalla Rules", False),
-                                                  timeout=30)
-
-    async def load_windows_defender():
-        global windows_defender_rules
-        windows_defender_rules = await load_resource_safe("Windows Defender Rules",
-                                                           functools.partial(load_yara_safe, windows_defender_rule_path, "Windows Defender Rules", False),
-                                                           timeout=30)
-
-    async def load_clean():
-        global clean_rules
-        clean_rules = await load_resource_safe("Clean Rules",
-                                               functools.partial(load_yara_safe, clean_rules_path, "(clean) YARA Rules", False),
-                                               timeout=30)
-
     async def load_yaraxtr():
         global yaraxtr_rules
-        yaraxtr_rules = await load_resource_safe("YARA-X Rules",
-                                                 functools.partial(load_yara_safe, yaraxtr_yrc_path, "YARA-X Rules", True),
-                                                 timeout=40)
-
-    async def load_clamav():
-        global clamav_scanner
-        # let clamav.Scanner.create_async(...) return its coroutine
-        clamav_scanner = await load_resource_safe(
-            "ClamAV Scanner",
-            clamav.Scanner.create_async(libclamav_path=libclamav_path, dbpath=clamav_database_directory_path),
-            timeout=45,
-        )
+        try:
+            def _load_yara_x():
+                with open(yaraxtr_yrc_path, 'rb') as f:
+                    return yara_x.Rules.deserialize_from(f)
+            yaraxtr_rules = await asyncio.to_thread(_load_yara_x)
+            logger.info("YARA-X Rules loaded successfully!")
+        except Exception as e:
+            logger.error(f"Failed to load YARA-X Rules: {e}")
 
     async def load_ml():
-        global ml_definitions
         # load_ml_definitions_pickle is sync, so run in a thread
-        ml_definitions = await load_resource_safe(
-            "ML Definitions",
-            functools.partial(load_ml_definitions_pickle, machine_learning_pickle_malicious_path, machine_learning_pickle_benign_path),
-            run_in_thread_for_sync=True,
-            timeout=30,
-        )
+        await asyncio.to_thread(load_ml_definitions_pickle, machine_learning_pickle_malicious_path, machine_learning_pickle_benign_path)
 
     async def load_excluded():
         global excluded_rules
-        excluded_rules = await load_resource_safe("Excluded Rules", load_excluded_rules_async, timeout=20)
+        excluded_rules = await load_excluded_rules_async()
 
-    # Fire and forget all tasks (pass coroutine objects to create_task)
+    # Fire and forget available tasks
     asyncio.create_task(load_suricata(), name="load_suricata")
     asyncio.create_task(load_antivirus_list(), name="load_antivirus_list")
-    asyncio.create_task(load_yargen_pe(), name="load_yargen")
-    asyncio.create_task(load_yargen_js(), name="load_yargen_js")
-    asyncio.create_task(load_icewater(), name="load_icewater")
-    asyncio.create_task(load_valhalla(), name="load_valhalla")
-    asyncio.create_task(load_windows_defender(), name="load_windows_defender")
-    asyncio.create_task(load_clean(), name="load_clean")
     asyncio.create_task(load_yaraxtr(), name="load_yaraxtr")
-    asyncio.create_task(load_clamav(), name="load_clamav")
     asyncio.create_task(load_ml(), name="load_ml")
     asyncio.create_task(load_excluded(), name="load_excluded")
 
