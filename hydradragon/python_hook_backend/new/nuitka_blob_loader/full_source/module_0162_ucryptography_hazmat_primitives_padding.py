@@ -1,0 +1,263 @@
+# Reconstructed from integrated Nuitka blob
+# Module: ucryptography.hazmat.primitives.padding
+
+aPaddingContext
+a__qualname__
+abstractmethod
+update
+uPaddingContext.update
+finalize
+uPaddingContext.finalize
+aPKCS7
+a__init__
+uPKCS7.__init__
+padder
+uPKCS7.padder
+unpadder
+uPKCS7.unpadder
+register
+aANSIX923
+uANSIX923.__init__
+uANSIX923.padder
+uANSIX923.unpadder
+ucryptography\hazmat\primitives\padding.py
+u<module cryptography.hazmat.primitives.padding>
+T a__class__
+T aself
+block_size
+T ablock_size
+T aself
+T aself
+data
+
+.cryptography.hazmat.primitives.poly1305
+a__doc__
+a__file__
+a__spec__
+origin
+has_location
+a__cached__
+annotations
+ucryptography.hazmat.bindings._rust
+T aopenssl
+l
+openssl
+rust_openssl
+aPoly1305
+a__all__
+poly1305
+ucryptography\hazmat\primitives\poly1305.py
+u<module cryptography.hazmat.primitives.poly1305>
+
+.cryptography.hazmat.primitives.serialization.base
+a__doc__
+a__file__
+a__spec__
+origin
+has_location
+a__cached__
+ucryptography.hazmat.bindings._rust
+T aopenssl
+l
+openssl
+rust_openssl
+keys
+load_pem_private_key
+load_der_private_key
+load_pem_public_key
+load_der_public_key
+dh
+from_pem_parameters
+load_pem_parameters
+from_der_parameters
+load_der_parameters
+ucryptography\hazmat\primitives\serialization\base.py
+u<module cryptography.hazmat.primitives.serialization.base>
+
+.cryptography.hazmat.primitives.serialization
+:
+a__doc__
+a__file__
+path
+dirname
+join
+environ
+get
+T aNUITKA_PACKAGE_cryptography
+u\not_existing
+uhazmat\primitives\serialization
+T aNUITKA_PACKAGE_cryptography_hazmat
+u\not_existing
+uprimitives\serialization
+T aNUITKA_PACKAGE_cryptography_hazmat_primitives
+u\not_existing
+serialization
+T aNUITKA_PACKAGE_cryptography_hazmat_primitives_serialization
+u\not_existing
+a__path__
+a__spec__
+origin
+has_location
+submodule_search_locations
+a__cached__
+annotations
+ucryptography.hazmat.primitives._serialization
+T aBestAvailableEncryption
+aEncoding
+aKeySerializationEncryption
+aNoEncryption
+aParameterFormat
+aPrivateFormat
+aPublicFormat
+a_KeySerializationEncryption
+l
+aBestAvailableEncryption
+aEncoding
+aKeySerializationEncryption
+aNoEncryption
+aParameterFormat
+aPrivateFormat
+aPublicFormat
+a_KeySerializationEncryption
+ucryptography.hazmat.primitives.serialization.base
+T aload_der_parameters
+load_der_private_key
+load_der_public_key
+load_pem_parameters
+load_pem_private_key
+load_pem_public_key
+load_der_parameters
+load_der_private_key
+load_der_public_key
+load_pem_parameters
+load_pem_private_key
+load_pem_public_key
+ucryptography.hazmat.primitives.serialization.ssh
+T aSSHCertificate
+aSSHCertificateBuilder
+aSSHCertificateType
+aSSHCertPrivateKeyTypes
+aSSHCertPublicKeyTypes
+aSSHPrivateKeyTypes
+aSSHPublicKeyTypes
+load_ssh_private_key
+load_ssh_public_identity
+load_ssh_public_key
+ssh_key_fingerprint
+aSSHCertificate
+aSSHCertificateBuilder
+aSSHCertificateType
+aSSHCertPrivateKeyTypes
+aSSHCertPublicKeyTypes
+aSSHPrivateKeyTypes
+aSSHPublicKeyTypes
+load_ssh_private_key
+load_ssh_public_identity
+load_ssh_public_key
+ssh_key_fingerprint
+L aBestAvailableEncryption
+aEncoding
+aKeySerializationEncryption
+aNoEncryption
+aParameterFormat
+aPrivateFormat
+aPublicFormat
+aSSHCertPrivateKeyTypes
+aSSHCertPublicKeyTypes
+aSSHCertificate
+aSSHCertificateBuilder
+aSSHCertificateType
+aSSHPrivateKeyTypes
+aSSHPublicKeyTypes
+a_KeySerializationEncryption
+load_der_parameters
+load_der_private_key
+load_der_public_key
+load_pem_parameters
+load_pem_private_key
+load_pem_public_key
+load_ssh_private_key
+load_ssh_public_identity
+load_ssh_public_key
+ssh_key_fingerprint
+a__all__
+ucryptography\hazmat\primitives\serialization\__init__.py
+u<module cryptography.hazmat.primitives.serialization>
+
+.cryptography.hazmat.primitives.serialization.pkcs12
+]
+rsa
+aRSAPrivateKey
+dsa
+aDSAPrivateKey
+ec
+aEllipticCurvePrivateKey
+ed25519
+aEd25519PrivateKey
+ed448
+aEd448PrivateKey
+uKey must be RSA, DSA, EllipticCurve, ED25519, or ED448 private key, or None.
+aPKCS12Certificate
+ucert must be a PKCS12Certificate object or None
+uall values in additional_certs must be PKCS12Certificate objects
+a_key
+a_cert
+a_additional_certs
+u<genexpr>
+uPKCS12KeyAndCertificates.__init__.<locals>.<genexpr>
+aPKCS12KeyAndCertificates
+key
+cert
+additional_certs
+u<PKCS12KeyAndCertificates(key={}, cert={}, additional_certs={})>
+uYou must supply at least one cert
+serialization
+aKeySerializationEncryption
+uKey encryption algorithm must be a KeySerializationEncryption instance
+rust_pkcs12
+serialize_java_truststore
+uYou must supply at least one of key, cert, or cas
+serialize_key_and_certificates
+a__doc__
+a__file__
+a__spec__
+origin
+has_location
+a__cached__
+annotations
+typing
+ucollections.abc
+T aIterable
+l
+aIterable
+cryptography
+T ax509
+x509
+ucryptography.hazmat.bindings._rust
+T apkcs12
+pkcs12
+ucryptography.hazmat.primitives
+T aserialization
+ucryptography.hazmat.primitives._serialization
+T aPBES
+aPBES
+ucryptography.hazmat.primitives.asymmetric
+T adsa
+ec
+ed448
+ed25519
+rsa
+ucryptography.hazmat.primitives.asymmetric.types
+T aPrivateKeyTypes
+aPrivateKeyTypes
+L aPBES
+aPKCS12Certificate
+aPKCS12KeyAndCertificates
+aPKCS12PrivateKeyTypes
+load_key_and_certificates
+load_pkcs12
+serialize_java_truststore
+serialize_key_and_certificates
+a__all__
+aUnion
+aPKCS12PrivateKeyTypes

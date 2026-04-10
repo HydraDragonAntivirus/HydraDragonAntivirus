@@ -1,0 +1,308 @@
+# Reconstructed from integrated Nuitka blob
+# Module: Funumpy._core.tests.test_defchararray
+
+aTestBasic
+a__qualname__
+test_from_object_array
+uTestBasic.test_from_object_array
+test_from_object_array_unicode
+uTestBasic.test_from_object_array_unicode
+test_from_string_array
+uTestBasic.test_from_string_array
+test_from_unicode_array
+uTestBasic.test_from_unicode_array
+test_unicode_upconvert
+uTestBasic.test_unicode_upconvert
+test_from_string
+uTestBasic.test_from_string
+test_from_unicode
+uTestBasic.test_from_unicode
+aTestVecString
+test_non_existent_method
+uTestVecString.test_non_existent_method
+test_non_string_array
+uTestVecString.test_non_string_array
+test_invalid_args_tuple
+uTestVecString.test_invalid_args_tuple
+test_invalid_type_descr
+uTestVecString.test_invalid_type_descr
+test_invalid_function_args
+uTestVecString.test_invalid_function_args
+test_invalid_result_type
+uTestVecString.test_invalid_result_type
+test_broadcast_error
+uTestVecString.test_broadcast_error
+aTestWhitespace
+uTestWhitespace.setup_method
+test1
+uTestWhitespace.test1
+aTestChar
+uTestChar.setup_method
+test_it
+uTestChar.test_it
+uTestComparisons.setup_method
+test_not_equal
+uTestComparisons.test_not_equal
+test_equal
+uTestComparisons.test_equal
+test_greater_equal
+uTestComparisons.test_greater_equal
+test_less_equal
+uTestComparisons.test_less_equal
+test_greater
+uTestComparisons.test_greater
+test_less
+uTestComparisons.test_less
+test_type
+uTestComparisons.test_type
+a__prepare__
+aTestComparisonsMixed1
+a__getitem__
+u%s.__prepare__() must return a mapping, not %s
+a__name__
+u<metaclass>
+uTestComparisonsMixed1.setup_method
+a__orig_bases__
+aTestComparisonsMixed2
+uTestComparisonsMixed2.setup_method
+aTestInformation
+uTestInformation.setup_method
+test_len
+uTestInformation.test_len
+test_count
+uTestInformation.test_count
+test_endswith
+uTestInformation.test_endswith
+mark
+parametrize
+udtype, encode
+T wUOstr
+u<lambda>
+uTestInformation.<lambda>
+test_find
+uTestInformation.test_find
+test_index
+uTestInformation.test_index
+test_isalnum
+uTestInformation.test_isalnum
+test_isalpha
+uTestInformation.test_isalpha
+test_isdigit
+uTestInformation.test_isdigit
+test_islower
+uTestInformation.test_islower
+test_isspace
+uTestInformation.test_isspace
+test_istitle
+uTestInformation.test_istitle
+test_isupper
+uTestInformation.test_isupper
+test_rfind
+uTestInformation.test_rfind
+test_rindex
+uTestInformation.test_rindex
+test_startswith
+uTestInformation.test_startswith
+aTestMethods
+uTestMethods.setup_method
+test_capitalize
+uTestMethods.test_capitalize
+test_center
+uTestMethods.test_center
+test_decode
+uTestMethods.test_decode
+test_encode
+uTestMethods.test_encode
+test_expandtabs
+uTestMethods.test_expandtabs
+test_join
+uTestMethods.test_join
+test_ljust
+uTestMethods.test_ljust
+test_lower
+uTestMethods.test_lower
+test_lstrip
+uTestMethods.test_lstrip
+test_partition
+uTestMethods.test_partition
+test_replace
+uTestMethods.test_replace
+test_replace_count_and_size
+uTestMethods.test_replace_count_and_size
+test_replace_broadcasting
+uTestMethods.test_replace_broadcasting
+test_rjust
+uTestMethods.test_rjust
+test_rpartition
+uTestMethods.test_rpartition
+test_rsplit
+uTestMethods.test_rsplit
+test_rstrip
+uTestMethods.test_rstrip
+test_strip
+uTestMethods.test_strip
+test_split
+uTestMethods.test_split
+test_splitlines
+uTestMethods.test_splitlines
+test_swapcase
+uTestMethods.test_swapcase
+test_title
+uTestMethods.test_title
+test_upper
+uTestMethods.test_upper
+test_isnumeric
+uTestMethods.test_isnumeric
+test_isdecimal
+uTestMethods.test_isdecimal
+aTestOperations
+uTestOperations.setup_method
+test_add
+uTestOperations.test_add
+test_radd
+uTestOperations.test_radd
+test_mul
+uTestOperations.test_mul
+test_rmul
+uTestOperations.test_rmul
+test_mod
+uTestOperations.test_mod
+test_rmod
+uTestOperations.test_rmod
+test_slice
+uTestOperations.test_slice
+data
+L L aplate
+
+shrimp
+L cretro
+c
+cencabulator
+test_getitem_length_zero_item
+uTestOperations.test_getitem_length_zero_item
+aTestMethodsEmptyArray
+uTestMethodsEmptyArray.setup_method
+uTestMethodsEmptyArray.test_encode
+uTestMethodsEmptyArray.test_decode
+test_decode_with_reshape
+uTestMethodsEmptyArray.test_decode_with_reshape
+aTestMethodsScalarValues
+uTestMethodsScalarValues.test_mod
+uTestMethodsScalarValues.test_decode
+uTestMethodsScalarValues.test_encode
+uTestMethodsScalarValues.test_expandtabs
+uTestMethodsScalarValues.test_join
+uTestMethodsScalarValues.test_partition
+uTestMethodsScalarValues.test_rpartition
+uTestMethodsScalarValues.test_replace
+test_empty_indexing
+unumpy\_core\tests\test_defchararray.py
+T wxu<module numpy._core.tests.test_defchararray>
+T a__class__
+T wAT aself
+T aself
+aAB
+T aself
+fail
+T aself
+tgt
+T aself
+wCatgt
+T aself
+wAT aself
+res
+T aself
+bytestring
+T wsT aself
+wBT aself
+unicode
+T aself
+wTT aself
+wsT aself
+dtype
+encode
+wAwCT aself
+wAwBT aself
+wAwBwCT aself
+wAwBafail
+T aself
+data
+waT aself
+aA0
+wAatgt
+T aself
+seps
+T aself
+wAatgt
+T aself
+wFwCaFC
+wAaA1
+aA2
+T aself
+wAwraAr
+ob
+T aself
+wPatgt
+T aself
+aQA
+T aself
+wRatgt
+aS1
+aS2
+aS3
+aS4
+T aself
+waar1
+r2
+r3
+T aself
+waar1
+r2
+r3
+r4
+r5
+T aself
+ob
+T aself
+arr
+sl1
+sl2
+T aself
+out1
+out2
+
+.numpy._core.tests.test_deprecations
+24
+U awarnings
+catch_warnings
+T tT arecord
+warn_ctx
+a__enter__
+log
+filterwarnings
+warning_cls
+T aalways
+T acategory
+message
+T amessage
+category
+a__exit__
+:nnnanp
+a_NoValue
+l
+category
+self
+num_found
+l uexpected %s but got: %s
+a__name__
+u%i warnings found but %i expected.
+w
+T aerror
+uNo error raised during function call
+uError raised during function call
+T nnnaassert_deprecated
+T anum
+ignore_others
+exceptions
+args
+kwargs

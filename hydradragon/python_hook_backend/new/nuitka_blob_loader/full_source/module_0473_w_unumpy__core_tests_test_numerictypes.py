@@ -1,0 +1,220 @@
+# Reconstructed from integrated Nuitka blob
+# Module: w<unumpy._core.tests.test_numerictypes
+
+aCreateZeros
+a__qualname__
+test_zeros0D
+uCreateZeros.test_zeros0D
+test_zerosSD
+uCreateZeros.test_zerosSD
+test_zerosMD
+uCreateZeros.test_zerosMD
+a__prepare__
+aTestCreateZerosPlain
+a__getitem__
+u%s.__prepare__() must return a mapping, not %s
+u<metaclass>
+a__orig_bases__
+aTestCreateZerosNested
+aCreateValues
+test_tuple
+uCreateValues.test_tuple
+test_list_of_tuple
+uCreateValues.test_list_of_tuple
+test_list_of_list_of_tuple
+uCreateValues.test_list_of_list_of_tuple
+aTestCreateValuesPlainSingle
+aTestCreateValuesPlainMultiple
+aTestCreateValuesNestedSingle
+aTestCreateValuesNestedMultiple
+aReadValuesPlain
+test_access_fields
+uReadValuesPlain.test_access_fields
+aTestReadValuesPlainSingle
+aTestReadValuesPlainMultiple
+aReadValuesNested
+test_access_top_fields
+uReadValuesNested.test_access_top_fields
+test_nested1_acessors
+uReadValuesNested.test_nested1_acessors
+test_nested2_acessors
+uReadValuesNested.test_nested2_acessors
+test_nested1_descriptor
+uReadValuesNested.test_nested1_descriptor
+test_nested2_descriptor
+uReadValuesNested.test_nested2_descriptor
+aTestReadValuesNestedSingle
+aTestReadValuesNestedMultiple
+aTestEmptyField
+test_assign
+uTestEmptyField.test_assign
+aTestMultipleFields
+setup_method
+uTestMultipleFields.setup_method
+uTestMultipleFields._bad_call
+test_no_tuple
+uTestMultipleFields.test_no_tuple
+test_return
+uTestMultipleFields.test_return
+aTestIsSubDType
+u<lambda>
+uTestIsSubDType.<lambda>
+test_both_abstract
+uTestIsSubDType.test_both_abstract
+test_same
+uTestIsSubDType.test_same
+test_subclass
+uTestIsSubDType.test_subclass
+test_subclass_backwards
+uTestIsSubDType.test_subclass_backwards
+test_sibling_class
+uTestIsSubDType.test_sibling_class
+test_nondtype_nonscalartype
+uTestIsSubDType.test_nondtype_nonscalartype
+aTestIsDType
+usigned integer
+uunsigned integer
+integral
+ureal floating
+ucomplex floating
+numeric
+mark
+parametrize
+udtype,close_dtype
+uint64
+uint32
+complex64
+dtype_group
+L nusigned integer
+uunsigned integer
+integral
+ureal floating
+ucomplex floating
+numeric
+test_isdtype
+uTestIsDType.test_isdtype
+test_isdtype_invalid_args
+uTestIsDType.test_isdtype_invalid_args
+test_sctypes_complete
+uTestIsDType.test_sctypes_complete
+aTestSctypeDict
+test_longdouble
+uTestSctypeDict.test_longdouble
+test_ulong
+uTestSctypeDict.test_ulong
+filterwarnings
+T uignore:.*maximum_sctype.*:DeprecationWarning
+aTestMaximumSctype
+wtabyte
+short
+intc
+test_int
+uTestMaximumSctype.test_int
+ubyte
+ushort
+uintc
+ulong
+ulonglong
+test_uint
+uTestMaximumSctype.test_uint
+half
+single
+test_float
+uTestMaximumSctype.test_float
+csingle
+cdouble
+test_complex
+uTestMaximumSctype.test_complex
+bool
+object_
+test_other
+uTestMaximumSctype.test_other
+aTest_sctype2char
+test_scalar_type
+uTest_sctype2char.test_scalar_type
+test_other_type
+uTest_sctype2char.test_other_type
+test_third_party_scalar_type
+uTest_sctype2char.test_third_party_scalar_type
+test_array_instance
+uTest_sctype2char.test_array_instance
+test_abstract_type
+uTest_sctype2char.test_abstract_type
+test_non_type
+uTest_sctype2char.test_non_type
+urep, expected
+T Olist
+FT f       ?FT Ostr
+taint16
+T l l waaint8
+test_issctype
+skipif
+flags
+optimize
+D areason
+uno docstrings present to inspect when PYTHONOPTIMIZE/Py_OptimizeFlag > 1
+xfail
+D areason
+uPyPy cannot modify tp_doc after PyType_Ready
+aTestDocStrings
+test_platform_dependent_aliases
+uTestDocStrings.test_platform_dependent_aliases
+aTestScalarTypeNames
+test_names_are_unique
+uTestScalarTypeNames.test_names_are_unique
+test_names_reflect_attributes
+uTestScalarTypeNames.test_names_reflect_attributes
+test_names_are_undersood_by_dtype
+uTestScalarTypeNames.test_names_are_undersood_by_dtype
+aTestBoolDefinition
+test_bool_definition
+uTestBoolDefinition.test_bool_definition
+unumpy\_core\tests\test_numerictypes.py
+T wxu<module numpy._core.tests.test_numerictypes>
+T a__class__
+T aself
+T adescr
+out
+item
+dtype
+onebyte
+nitem
+wlT aself
+whT aself
+waT aself
+wtT aself
+dtype
+close_dtype
+dtype_group
+T arep
+expected
+actual
+T aself
+names
+T aself
+res
+T aself
+cls
+w1
+w2
+T aself
+w1
+w2
+T aself
+wwT aself
+rational
+
+.numpy._core.tests.test_overrides
+]5
+np
+array
+T l a_get_implementing_args
+assert_equal
+l andarray
+l
+a__prepare__
+aOverrideSub
+a__getitem__
+u%s.__prepare__() must return a mapping, not %s
+a__name__
+u<metaclass>

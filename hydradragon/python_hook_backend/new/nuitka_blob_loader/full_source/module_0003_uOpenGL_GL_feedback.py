@@ -1,0 +1,415 @@
+# Reconstructed from integrated Nuitka blob
+# Module: uOpenGL.GL.feedback
+
+a__qualname__
+T avertex
+color
+texture
+a__slots__
+T nna__init__
+uVertex.__init__
+a__orig_bases__
+uOpenGL\GL\feedback.py
+u<module OpenGL.GL.feedback>
+T a__class__
+T aself
+vertex
+color
+texture
+T amode
+indexMode
+colorSize
+size
+getVertex
+T abuffer
+bufferIndex
+end
+colorEnd
+colorSize
+T acolorSize
+T abuffer
+bufferIndex
+end
+colorEnd
+textureEnd
+size
+colorSize
+T acolorSize
+size
+T abuffer
+bufferIndex
+end
+size
+T asize
+T abuffer
+entryCount
+bufferIndex
+result
+getVertex
+token
+vData
+vData2
+temp
+count
+item
+
+.OpenGL.GL.framebufferobjects
+J
+glCheckFramebufferStatus
+aGL_FRAMEBUFFER
+aGL_FRAMEBUFFER_COMPLETE
+uOpenGL.error
+T aGLError
+l
+aGLError
+aGL_FRAMEBUFFER_INCOMPLETE_ATTACHMENT
+aGL_FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT
+aGL_FRAMEBUFFER_INCOMPLETE_DIMENSIONS
+aGL_FRAMEBUFFER_INCOMPLETE_FORMATS
+aGL_FRAMEBUFFER_INCOMPLETE_DRAW_BUFFER
+aGL_FRAMEBUFFER_INCOMPLETE_READ_BUFFER
+aGL_FRAMEBUFFER_UNSUPPORTED
+status
+str
+description
+T aerr
+result
+baseOperation
+description
+a__doc__
+a__file__
+a__spec__
+origin
+has_location
+a__cached__
+uOpenGL.extensions
+T aalternate
+alternate
+uOpenGL.GL.ARB.framebuffer_object
+T w*uOpenGL.GL.EXT.framebuffer_object
+uOpenGL.GL.EXT.framebuffer_multisample
+uOpenGL.GL.EXT.framebuffer_blit
+glBindFramebuffer
+glBindFramebufferEXT
+glBindRenderbuffer
+glBindRenderbufferEXT
+glCheckFramebufferStatusEXT
+glDeleteFramebuffers
+glDeleteFramebuffersEXT
+glDeleteRenderbuffers
+glDeleteRenderbuffersEXT
+glFramebufferRenderbuffer
+glFramebufferRenderbufferEXT
+glFramebufferTexture1D
+glFramebufferTexture1DEXT
+glFramebufferTexture2D
+glFramebufferTexture2DEXT
+glFramebufferTexture3D
+glFramebufferTexture3DEXT
+glGenFramebuffers
+glGenFramebuffersEXT
+glGenRenderbuffers
+glGenRenderbuffersEXT
+glGenerateMipmap
+glGenerateMipmapEXT
+glGetFramebufferAttachmentParameteriv
+glGetFramebufferAttachmentParameterivEXT
+glGetRenderbufferParameteriv
+glGetRenderbufferParameterivEXT
+glIsFramebuffer
+glIsFramebufferEXT
+glIsRenderbuffer
+glIsRenderbufferEXT
+glRenderbufferStorage
+glRenderbufferStorageEXT
+glBlitFramebuffer
+glBlitFramebufferEXT
+glRenderbufferStorageMultisample
+glRenderbufferStorageMultisampleEXT
+checkFramebufferStatus
+uOpenGL\GL\framebufferobjects.py
+u<module OpenGL.GL.framebufferobjects>
+T astatus
+aGLError
+description
+error_constant
+
+.OpenGL.GL.glget
+;
+a__doc__
+a__file__
+a__spec__
+origin
+has_location
+a__cached__
+uOpenGL.GL.VERSION
+T aGL_1_1
+l
+aGL_1_1
+a_simple
+ctypes
+c_uint
+aGLenum
+c_int
+aGLsize
+aGLsizei
+T aglGetString
+a__all__
+glGetString
+c_char_p
+restype
+uglGetString( constant ) -> Current string value
+uOpenGL\GL\glget.py
+u<module OpenGL.GL.glget>
+
+.OpenGL.GL.images
+"
+round
+l
+a_types
+aGLuint
+aGL_1_1
+glGetTexLevelParameteriv
+aGL_TEXTURE_WIDTH
+value
+aGL_TEXTURE_1D
+aGL_TEXTURE_HEIGHT
+aGL_TEXTURE_2D
+aGL_1_2
+aGL_TEXTURE_DEPTH
+asInt
+utoo many values to unpack (expected 4)
+arrays
+aGL_CONSTANT_TO_ARRAY_TYPE
+images
+aTYPE_TO_ARRAYTYPE
+get
+aSetupPixelRead
+integer_types
+c_void_p
+asArray
+voidDataPointer
+glReadPixels
+bytes
+returnFormat
+array
+a_get_texture_level_dims
+glGetTexImage
+wrapper
+aWrapper
+asWrapper
+pyConverterNames
+argNames
+utoo many values to unpack (expected 2)
+aINT_DIMENSION_NAMES
+baseOperation
+setPyConverter
+asIntConverter
+rank
+typeName
+pixelsName
+pyArgIndex
+typeIndex
+pixelsIndex
+setupDefaultTransferMode
+rankPacking
+arrayType
+dimensions
+l l T adata
+dataIndex
+arraydatatype
+aArrayDatatype
+arrayByteCount
+aTypedImageInputConverter
+T atypeName
+setCConverter
+converter
+type
+aImageInputConverter
+T apixelsName
+typeName
+aDATA_SIZE_NAMES
+imageDataSize
+pixelName
+a__name__
+u%(functionName)s%(suffix)s
+suffix
+arrayConstant
+baseFunction
+functionName
+setDimensionsAsInts
+setImageInput
+aCompressedImageConverter
+a_setDataSize
+D aargument
+imageSize
+a__doc__
+a__file__
+a__spec__
+origin
+has_location
+a__cached__
+uOpenGL.raw.GL.VERSION
+T aGL_1_1
+aGL_1_2
+aGL_3_0
+aGL_3_0
+aOpenGL
+T aimages
+arrays
+wrapper
+uOpenGL.arrays
+T aarraydatatype
+uOpenGL._bytes
+T abytes
+integer_types
+uOpenGL.raw.GL
+T a_types
+ctypes
+aCOMPONENT_COUNTS
+update
+aGL_BITMAP
+aGL_RED
+aGL_GREEN
+aGL_BLUE
+aGL_ALPHA
+aGL_RED_INTEGER
+aGL_GREEN_INTEGER
+aGL_BLUE_INTEGER
+aGL_ALPHA_INTEGER
+aGL_LUMINANCE
+aGL_LUMINANCE_ALPHA
+aGL_COLOR_INDEX
+aGL_STENCIL_INDEX
+aGL_DEPTH_COMPONENT
+aGL_RGB
+l aGL_BGR
+aGL_RGB16F
+aGL_RGB16I
+aGL_RGB16UI
+aGL_RGB32F
+aGL_RGB32I
+aGL_RGB32UI
+aGL_RGB8I
+aGL_RGB8UI
+aGL_RGB9_E5
+aGL_RGB_INTEGER
+aGL_RGBA
+l aGL_BGRA
+aGL_RGBA16F
+aGL_RGBA16I
+aGL_RGBA16UI
+aGL_RGBA32F
+aGL_RGBA32I
+aGL_RGBA32UI
+aGL_RGBA8I
+aGL_RGBA8UI
+aGL_RGBA_INTEGER
+aGL_HALF_FLOAT
+aGL_UNSIGNED_BYTE_3_3_2
+aGL_UNSIGNED_BYTE
+aGL_UNSIGNED_BYTE_2_3_3_REV
+aGL_UNSIGNED_SHORT_4_4_4_4
+aGL_UNSIGNED_SHORT
+aGL_UNSIGNED_SHORT_4_4_4_4_REV
+aGL_UNSIGNED_SHORT_5_5_5_1
+aGL_UNSIGNED_SHORT_1_5_5_5_REV
+aGL_UNSIGNED_SHORT_5_6_5
+aGL_UNSIGNED_SHORT_5_6_5_REV
+aGL_UNSIGNED_INT_8_8_8_8
+aGL_UNSIGNED_INT
+aGL_UNSIGNED_INT_8_8_8_8_REV
+aGL_UNSIGNED_INT_10_10_10_2
+aGL_UNSIGNED_INT_2_10_10_10_REV
+aGL_BYTE
+aGL_SHORT
+aGL_INT
+aGL_FLOAT
+aGL_DOUBLE
+aTIGHT_PACK_FORMATS
+l aRANK_PACKINGS
+glPixelStorei
+aGL_PACK_ALIGNMENT
+aGL_PACK_SKIP_IMAGES
+aGL_PACK_IMAGE_HEIGHT
+aGL_PACK_ROW_LENGTH
+aGL_PACK_SKIP_ROWS
+aGL_PACK_SKIP_PIXELS
+T:aglReadPixels
+glReadPixelsb
+glReadPixelsd
+glReadPixelsf
+glReadPixelsi
+glReadPixelss
+glReadPixelsub
+glReadPixelsui
+glReadPixelsus
+glGetTexImage
+glDrawPixels
+glDrawPixelsb
+glDrawPixelsf
+glDrawPixelsi
+glDrawPixelss
+glDrawPixelsub
+glDrawPixelsui
+glDrawPixelsus
+glTexSubImage2D
+glTexSubImage1D
+glTexImage1D
+glTexImage2D
+glGetTexImageb
+glGetTexImaged
+glGetTexImagef
+glGetTexImagei
+glGetTexImages
+glGetTexImageub
+glGetTexImageui
+glGetTexImageus
+glTexImage1Db
+glTexImage2Db
+glTexSubImage1Db
+glTexSubImage2Db
+glTexImage1Df
+glTexImage2Df
+glTexSubImage1Df
+glTexSubImage2Df
+glTexImage1Di
+glTexImage2Di
+glTexSubImage1Di
+glTexSubImage2Di
+glTexImage1Ds
+glTexImage2Ds
+glTexSubImage1Ds
+glTexSubImage2Ds
+glTexImage1Dub
+glTexImage2Dub
+glTexSubImage1Dub
+glTexSubImage2Dub
+glTexImage1Dui
+glTexImage2Dui
+glTexSubImage1Dui
+glTexSubImage2Dui
+glTexImage1Dus
+glTexImage2Dus
+glTexSubImage1Dus
+glTexSubImage2Dus
+a__all__
+wbwdwfwiwsaub
+ui
+us
+uglReadPixels%s
+uglGetTexImage%s
+err
+L awidth
+height
+depth
+wxwywzaxoffset
+yoffset
+zoffset
+start
+count
+T Oobject
+a__prepare__
+a__getitem__
+u%s.__prepare__() must return a mapping, not %s
+u<metaclass>

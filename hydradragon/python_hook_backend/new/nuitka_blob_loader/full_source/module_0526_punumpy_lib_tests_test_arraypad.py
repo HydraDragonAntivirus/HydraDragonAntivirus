@@ -1,0 +1,330 @@
+# Reconstructed from integrated Nuitka blob
+# Module: punumpy.lib.tests.test_arraypad
+
+aTestAsPairs
+a__qualname__
+test_single_value
+uTestAsPairs.test_single_value
+test_two_values
+uTestAsPairs.test_two_values
+test_with_none
+uTestAsPairs.test_with_none
+test_pass_through
+uTestAsPairs.test_pass_through
+test_as_index
+uTestAsPairs.test_as_index
+test_exceptions
+uTestAsPairs.test_exceptions
+aTestConditionalShortcuts
+mark
+parametrize
+mode
+keys
+test_zero_padding_shortcuts
+uTestConditionalShortcuts.test_zero_padding_shortcuts
+L amaximum
+mean
+median
+minimum
+test_shallow_statistic_range
+uTestConditionalShortcuts.test_shallow_statistic_range
+test_clip_statistic_range
+uTestConditionalShortcuts.test_clip_statistic_range
+aTestStatistic
+test_check_mean_stat_length
+uTestStatistic.test_check_mean_stat_length
+test_check_maximum_1
+uTestStatistic.test_check_maximum_1
+test_check_maximum_2
+uTestStatistic.test_check_maximum_2
+test_check_maximum_stat_length
+uTestStatistic.test_check_maximum_stat_length
+test_check_minimum_1
+uTestStatistic.test_check_minimum_1
+test_check_minimum_2
+uTestStatistic.test_check_minimum_2
+test_check_minimum_stat_length
+uTestStatistic.test_check_minimum_stat_length
+test_check_median
+uTestStatistic.test_check_median
+test_check_median_01
+uTestStatistic.test_check_median_01
+test_check_median_02
+uTestStatistic.test_check_median_02
+test_check_median_stat_length
+uTestStatistic.test_check_median_stat_length
+test_check_mean_shape_one
+uTestStatistic.test_check_mean_shape_one
+test_check_mean_2
+uTestStatistic.test_check_mean_2
+L amean
+median
+minimum
+maximum
+test_same_prepend_append
+uTestStatistic.test_same_prepend_append
+stat_length
+L q T q T l q T T l l T q l T T q T l atest_check_negative_stat_length
+uTestStatistic.test_check_negative_stat_length
+test_simple_stat_length
+uTestStatistic.test_simple_stat_length
+filterwarnings
+T uignore:Mean of empty slice:RuntimeWarning
+T uignore:invalid value encountered in( scalar)? divide:RuntimeWarning
+test_zero_stat_length_valid
+uTestStatistic.test_zero_stat_length_valid
+test_zero_stat_length_invalid
+uTestStatistic.test_zero_stat_length_invalid
+aTestConstant
+test_check_constant
+uTestConstant.test_check_constant
+test_check_constant_zeros
+uTestConstant.test_check_constant_zeros
+test_check_constant_float
+uTestConstant.test_check_constant_float
+test_check_constant_float2
+uTestConstant.test_check_constant_float2
+test_check_constant_float3
+uTestConstant.test_check_constant_float3
+test_check_constant_odd_pad_amount
+uTestConstant.test_check_constant_odd_pad_amount
+test_check_constant_pad_2d
+uTestConstant.test_check_constant_pad_2d
+test_check_large_integers
+uTestConstant.test_check_large_integers
+test_check_object_array
+uTestConstant.test_check_object_array
+test_pad_empty_dimension
+uTestConstant.test_pad_empty_dimension
+aTestLinearRamp
+test_check_simple
+uTestLinearRamp.test_check_simple
+test_check_2d
+uTestLinearRamp.test_check_2d
+xfail
+T T EAssertionError
+T aexceptions
+test_object_array
+uTestLinearRamp.test_object_array
+test_end_values
+uTestLinearRamp.test_end_values
+dtype
+test_negative_difference
+uTestLinearRamp.test_negative_difference
+aTestReflect
+uTestReflect.test_check_simple
+test_check_odd_method
+uTestReflect.test_check_odd_method
+test_check_large_pad
+uTestReflect.test_check_large_pad
+test_check_shape
+uTestReflect.test_check_shape
+test_check_01
+uTestReflect.test_check_01
+test_check_02
+uTestReflect.test_check_02
+test_check_03
+uTestReflect.test_check_03
+test_check_04
+uTestReflect.test_check_04
+test_check_05
+uTestReflect.test_check_05
+test_check_06
+uTestReflect.test_check_06
+test_check_07
+uTestReflect.test_check_07
+aTestEmptyArray
+sorted
+S aempty
+constant
+uTestEmptyArray.test_pad_empty_dimension
+test_pad_non_empty_dimension
+uTestEmptyArray.test_pad_non_empty_dimension
+aTestSymmetric
+uTestSymmetric.test_check_simple
+uTestSymmetric.test_check_odd_method
+uTestSymmetric.test_check_large_pad
+test_check_large_pad_odd
+uTestSymmetric.test_check_large_pad_odd
+uTestSymmetric.test_check_shape
+uTestSymmetric.test_check_01
+uTestSymmetric.test_check_02
+uTestSymmetric.test_check_03
+aTestWrap
+uTestWrap.test_check_simple
+uTestWrap.test_check_large_pad
+uTestWrap.test_check_01
+uTestWrap.test_check_02
+test_pad_with_zero
+uTestWrap.test_pad_with_zero
+test_repeated_wrapping
+uTestWrap.test_repeated_wrapping
+test_repeated_wrapping_multiple_origin
+uTestWrap.test_repeated_wrapping_multiple_origin
+aTestEdge
+uTestEdge.test_check_simple
+test_check_width_shape_1_2
+uTestEdge.test_check_width_shape_1_2
+aTestEmpty
+test_simple
+uTestEmpty.test_simple
+uTestEmpty.test_pad_empty_dimension
+test_legacy_vector_functionality
+test_unicode_mode
+L aedge
+symmetric
+reflect
+wrap
+test_object_input
+aTestPadWidth
+pad_width
+L T l l l l T T l T l T l T T l l T l l T l l T T l l l T l
+l l atest_misshaped_pad_width
+uTestPadWidth.test_misshaped_pad_width
+test_misshaped_pad_width_2
+uTestPadWidth.test_misshaped_pad_width_2
+test_negative_pad_width
+uTestPadWidth.test_negative_pad_width
+upad_width, dtype
+T w3nT aword
+nT nnT f333333 @nT T T l l l T l l Oobject
+T j
+?
+nT T T f
+l T l l natest_bad_type
+uTestPadWidth.test_bad_type
+test_pad_width_as_ndarray
+uTestPadWidth.test_pad_width_as_ndarray
+T T l
+pT l
+patest_zero_pad_width
+uTestPadWidth.test_zero_pad_width
+test_kwargs
+test_constant_zero_default
+const
+test_unsupported_mode
+test_non_contiguous_array
+test_memory_layout_persistence
+test_dtype_persistence
+unumpy\lib\tests\test_arraypad.py
+u<module numpy.lib.tests.test_arraypad>
+T a__class__
+T avector
+pad_width
+iaxis
+kwargs
+T aself
+wxT aself
+pad_width
+dtype
+mode
+arr
+match
+T aself
+wawbT aself
+arr
+test
+expected
+T aself
+arr
+arr_float
+test
+expected
+T aself
+uint64_max
+arr
+test
+expected
+int64_max
+T aself
+mode
+stat_length
+arr
+match
+T aself
+arr
+obj_a
+obj_b
+obj_c
+expected
+T aself
+waapadded
+expected
+T aself
+mode
+test
+pad_amt
+T aarr
+T adtype
+mode
+arr
+result
+T aself
+waT aself
+T amode
+allowed
+not_allowed
+kwargs
+key
+value
+match
+T a_padwithtens
+wawbT amode
+wxT aself
+pad_width
+mode
+arr
+match
+T aself
+mode
+arr
+match
+T aself
+dtype
+wxaresult
+expected
+T amode
+arr
+result
+T aself
+aFraction
+arr
+actual
+expected
+T amode
+waapad_amt
+wbT aself
+arr
+result
+T aself
+mode
+match
+T aself
+mode
+result
+T aself
+expected
+T aself
+mode
+waT aself
+expected
+wxaresult
+obj
+T wawbT amode
+match
+T aself
+pad_width
+mode
+arr
+T aself
+mode
+arr
+expected
+
+.numpy.lib.tests.test_arraysetops
+H'
+np
+array
+L l l l l L l l l l l l l l aintersect1d
+D aassume_unique
+taassert_array_equal

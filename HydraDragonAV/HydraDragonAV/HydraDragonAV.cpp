@@ -10,6 +10,8 @@
 #include <mutex>
 #include <filesystem>
 #include <Windows.h>
+#include <algorithm>
+#include <cctype>
 
 // YARA Headers
 #include "yara/yara.h"
@@ -120,10 +122,21 @@ void ProcessRequest(const std::string& request, std::string& response) {
     std::string clamavVirusName;
     bool isMalicious = false;
 
+    bool is_vmprotect = false;
+
     // YARA Scan
     if (g_yaraRules && fs::exists(wFilePath)) {
         yr_rules_scan_file(g_yaraRules, cleanPath.c_str(), 0, yara_callback, &yaraMatches, 0);
-        if (!yaraMatches.empty()) isMalicious = true;
+        if (!yaraMatches.empty()) {
+            isMalicious = true;
+            for (const auto& match : yaraMatches) {
+                std::string lowerMatch = match;
+                std::transform(lowerMatch.begin(), lowerMatch.end(), lowerMatch.begin(), ::tolower);
+                if (lowerMatch.find("vmprotect") != std::string::npos) {
+                    is_vmprotect = true;
+                }
+            }
+        }
     }
 
     // ClamAV Scan
@@ -137,7 +150,7 @@ void ProcessRequest(const std::string& request, std::string& response) {
 
     // Build JSON Response
     std::stringstream ss;
-    ss << "{\"status\":\"success\", \"malicious\":" << (isMalicious ? "true" : "false") << ", \"yara\":[";
+    ss << "{\"status\":\"success\", \"malicious\":" << (isMalicious ? "true" : "false") << ", \"is_vmprotect\":" << (is_vmprotect ? "true" : "false") << ", \"yara\":[";
     for (size_t i = 0; i < yaraMatches.size(); ++i) {
         ss << "\"" << yaraMatches[i] << "\"" << (i == yaraMatches.size() - 1 ? "" : ",");
     }

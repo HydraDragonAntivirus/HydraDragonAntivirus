@@ -1,0 +1,311 @@
+# Reconstructed from integrated Nuitka blob
+# Module: ullvmlite.binding.module
+
+a__qualname__
+uModuleRef.__init__
+a__str__
+uModuleRef.__str__
+as_bitcode
+uModuleRef.as_bitcode
+a_dispose
+uModuleRef._dispose
+get_function
+uModuleRef.get_function
+get_global_variable
+uModuleRef.get_global_variable
+get_struct_type
+uModuleRef.get_struct_type
+verify
+uModuleRef.verify
+property
+name
+uModuleRef.name
+setter
+source_file
+uModuleRef.source_file
+data_layout
+uModuleRef.data_layout
+triple
+uModuleRef.triple
+link_in
+uModuleRef.link_in
+global_variables
+uModuleRef.global_variables
+functions
+uModuleRef.functions
+struct_types
+uModuleRef.struct_types
+uModuleRef.clone
+a__orig_bases__
+a_Iterator
+u_Iterator.__init__
+a__next__
+u_Iterator.__next__
+anext
+a__iter__
+u_Iterator.__iter__
+u_GlobalsIterator._dispose
+u_GlobalsIterator._next
+u_FunctionsIterator._dispose
+u_FunctionsIterator._next
+type
+u_TypesIterator._dispose
+u_TypesIterator.__next__
+u_TypesIterator._next
+aLLVMContextRef
+argtypes
+aLLVMModuleRef
+restype
+aLLVMValueRef
+aLLVMTypeRef
+aLLVMGlobalsIterator
+aLLVMFunctionsIterator
+aLLVMTypesIterator
+ullvmlite\binding\module.py
+u<module llvmlite.binding.module>
+T a__class__
+T aself
+module_ptr
+context
+a__class__
+T aself
+ptr
+parents
+T aself
+T aself
+vp
+T aself
+outstr
+T aself
+ptr
+size
+T aself
+outmsg
+T aself
+strrep
+T aself
+it
+T aself
+name
+wpT aself
+other
+preserve
+T aself
+value
+T allvmir
+context
+strbuf
+errmsg
+mod
+T abitcode
+context
+buf
+bufsize
+errmsg
+mod
+
+.llvmlite.binding.newpassmanagers
+d.
+aModulePassManager
+aFunctionPassManager
+aPassBuilder
+aPipelineTuningOptions
+aPruneStats
+uPruneStats can only be added to another PruneStats, got {}.
+basicblock
+diamond
+fanout
+fanout_raise
+uPruneStats can only be subtracted from another PruneStats, got {}.
+a_c_PruneStats
+T l
+pppac_bool
+ffi
+lib
+aLLVMPY_DumpRefPruneStats
+byref
+aLLVMPY_SetTimePasses
+aOutputString
+a__enter__
+a__exit__
+aLLVMPY_ReportAndResetTimings
+T nnnaNewPassManager
+uCannot instantiate NewPassManager directly
+aLLVMPY_RunNewModulePassManager
+aLLVMPY_RunNewFunctionPassManager
+aLLVMPY_module_AddAAEvaluator
+aLLVMPY_function_AddAAEvaluator
+aLLVMPY_module_AddSimplifyCFGPass
+aLLVMPY_function_AddSimplifyCFGPass
+aLLVMPY_module_AddLoopUnrollPass
+aLLVMPY_function_AddLoopUnrollPass
+aLLVMPY_module_AddInstCombinePass
+aLLVMPY_function_AddInstCombinePass
+aLLVMPY_AddJumpThreadingPass_module
+aLLVMPY_AddJumpThreadingPass_function
+aLLVMPY_module_AddCFGPrinterPass
+aLLVMPY_function_AddCFGPrinterPass
+aLLVMPY_module_AddCFGOnlyPrinterPass
+aLLVMPY_function_AddCFGOnlyPrinterPass
+aLLVMPY_module_AddDomPrinter
+aLLVMPY_function_AddDomPrinter
+aLLVMPY_module_AddDomOnlyPrinter
+aLLVMPY_function_AddDomOnlyPrinter
+aLLVMPY_module_AddPostDomPrinter
+aLLVMPY_function_AddPostDomPrinter
+aLLVMPY_module_AddPostDomOnlyPrinter
+aLLVMPY_function_AddPostDomOnlyPrinter
+aLLVMPY_module_AddDomViewer
+aLLVMPY_function_AddDomViewer
+aLLVMPY_module_AddDomOnlyViewer
+aLLVMPY_function_AddDomOnlyViewer
+aLLVMPY_module_AddPostDomViewer
+aLLVMPY_function_AddPostDomViewer
+aLLVMPY_module_AddPostDomOnlyViewer
+aLLVMPY_function_AddPostDomOnlyViewer
+aLLVMPY_module_AddLintPass
+aLLVMPY_function_AddLintPass
+aLLVMPY_module_AddADCEPass
+aLLVMPY_function_AddADCEPass
+aLLVMPY_module_AddBreakCriticalEdgesPass
+aLLVMPY_function_AddBreakCriticalEdgesPass
+aLLVMPY_module_AddDSEPass
+aLLVMPY_function_AddDSEPass
+aLLVMPY_module_AddDCEPass
+aLLVMPY_function_AddDCEPass
+aLLVMPY_module_AddAggressiveInstCombinePass
+aLLVMPY_function_AddAggressiveInstCombinePass
+aLLVMPY_module_AddLCSSAPass
+aLLVMPY_function_AddLCSSAPass
+aLLVMPY_module_AddNewGVNPass
+aLLVMPY_function_AddNewGVNPass
+aLLVMPY_module_AddLoopSimplifyPass
+aLLVMPY_function_AddLoopSimplifyPass
+aLLVMPY_module_AddLoopUnrollAndJamPass
+aLLVMPY_function_AddLoopUnrollAndJamPass
+aLLVMPY_module_AddSCCPPass
+aLLVMPY_function_AddSCCPPass
+aLLVMPY_module_AddLowerAtomicPass
+aLLVMPY_function_AddLowerAtomicPass
+aLLVMPY_module_AddLowerInvokePass
+aLLVMPY_function_AddLowerInvokePass
+aLLVMPY_module_AddLowerSwitchPass
+aLLVMPY_function_AddLowerSwitchPass
+aLLVMPY_module_AddMemCpyOptPass
+aLLVMPY_function_AddMemCpyOptPass
+aLLVMPY_module_AddUnifyFunctionExitNodesPass
+aLLVMPY_function_AddUnifyFunctionExitNodesPass
+aLLVMPY_module_AddReassociatePass
+aLLVMPY_function_AddReassociatePass
+aLLVMPY_module_AddRegToMemPass
+aLLVMPY_function_AddRegToMemPass
+aLLVMPY_module_AddSROAPass
+aLLVMPY_function_AddSROAPass
+aLLVMPY_module_AddSinkingPass
+aLLVMPY_function_AddSinkingPass
+aLLVMPY_module_AddTailCallElimPass
+aLLVMPY_function_AddTailCallElimPass
+aLLVMPY_module_AddInstructionNamerPass
+aLLVMPY_function_AddInstructionNamerPass
+aLLVMPY_module_AddLoopDeletionPass
+aLLVMPY_function_AddLoopDeletionPass
+aLLVMPY_module_AddLoopStrengthReducePass
+aLLVMPY_function_AddLoopStrengthReducePass
+aLLVMPY_module_AddLoopRotatePass
+aLLVMPY_function_AddLoopRotatePass
+aLLVMPY_DisposeNewModulePassManger
+aLLVMPY_DisposeNewFunctionPassManger
+aLLVMPY_CreateNewModulePassManager
+a__class__
+a__init__
+aLLVMPY_module_AddVerifierPass
+aLLVMPY_module_AddConstantMergePass
+aLLVMPY_module_AddDeadArgumentEliminationPass
+aLLVMPY_module_AddCallGraphDOTPrinterPass
+aLLVMPY_module_AddModuleDebugInfoPrinterPass
+aLLVMPY_module_AddAlwaysInlinerPass
+aLLVMPY_module_AddReversePostOrderFunctionAttrsPass
+aLLVMPY_module_AddGlobalDCEPass
+aLLVMPY_module_AddGlobalOptPass
+aLLVMPY_module_AddIPSCCPPass
+aLLVMPY_module_AddInternalizePass
+aLLVMPY_module_AddLoopExtractorPass
+aLLVMPY_module_AddMergeFunctionsPass
+aLLVMPY_module_AddPartialInlinerPass
+aLLVMPY_module_AddStripSymbolsPass
+aLLVMPY_module_AddStripDeadDebugInfoPass
+aLLVMPY_module_AddStripDeadPrototypesPass
+aLLVMPY_module_AddStripDebugDeclarePass
+aLLVMPY_module_AddStripNonDebugSymbolsPass
+aLLVMPY_module_AddArgumentPromotionPass
+aLLVMPY_module_AddPostOrderFunctionAttrsPass
+aRefPruneSubpasses
+aLLVMPY_AddRefPrunePass_module
+aLLVMPY_CreateNewFunctionPassManager
+aLLVMPY_AddRefPrunePass_function
+a_speed_level
+a_size_level
+speed_level
+size_level
+aLLVMPY_CreatePipelineTuningOptions
+l
+l uOptimization level for speed should be 0, 1, 2, or 3
+l uOptimization level for size should be 0, 1, or 2
+uOptimization for size should be encoded with speed level == 2
+aLLVMPY_PTOGetLoopInterleaving
+aLLVMPY_PTOSetLoopInterleaving
+aLLVMPY_PTOGetLoopVectorization
+aLLVMPY_PTOSetLoopVectorization
+aLLVMPY_PTOGetSLPVectorization
+aLLVMPY_PTOSetSLPVectorization
+aLLVMPY_PTOGetLoopUnrolling
+aLLVMPY_PTOSetLoopUnrolling
+aLLVMPY_PTOGetInlinerThreshold
+aLLVMPY_PTOSetInlinerThreshold
+aLLVMPY_DisposePipelineTuningOptions
+aLLVMPY_CreateTimePassesHandler
+aLLVMPY_DisposeTimePassesHandler
+aLLVMPY_CreatePassBuilder
+a_pto
+a_tm
+a_time_passes_handler
+aLLVMPY_buildPerModuleDefaultPipeline
+aLLVMPY_buildFunctionSimplificationPipeline
+uPass timing can only be done once
+aTimePassesHandler
+aLLVMPY_EnableTimePasses
+uPass timing is not enabled
+aLLVMPY_ReportAndDisableTimePasses
+aLLVMPY_DisposePassBuilder
+a__doc__
+a__file__
+a__spec__
+origin
+has_location
+a__cached__
+c_int
+c_size_t
+aPOINTER
+aStructure
+c_char_p
+collections
+T anamedtuple
+namedtuple
+enum
+T aIntFlag
+aIntFlag
+ullvmlite.binding
+T affi
+create_new_module_pass_manager
+create_new_function_pass_manager
+create_pass_builder
+T l l
+create_pipeline_tuning_options
+T aPruneStats
+ubasicblock diamond fanout fanout_raise
+a_prunestats
+a__prepare__
+a__getitem__
+u%s.__prepare__() must return a mapping, not %s
+a__name__
+u<metaclass>

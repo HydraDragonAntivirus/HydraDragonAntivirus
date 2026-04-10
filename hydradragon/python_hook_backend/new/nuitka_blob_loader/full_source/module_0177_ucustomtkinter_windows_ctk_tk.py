@@ -1,0 +1,267 @@
+# Reconstructed from integrated Nuitka blob
+# Module: ucustomtkinter.windows.ctk_tk
+
+a__qualname__
+S ause
+className
+useTk
+sync
+baseName
+screenName
+S avisual
+cursor
+bd
+relief
+screen
+padx
+borderwidth
+height
+class
+menu
+use
+takefocus
+width
+pady
+highlightthickness
+container
+a_deactivate_macos_window_header_manipulation
+T nuCTk.__init__
+uCTk.destroy
+uCTk._focus_in_event
+uCTk._update_dimensions_event
+uCTk._set_scaling
+block_update_dimensions_event
+uCTk.block_update_dimensions_event
+unblock_update_dimensions_event
+uCTk.unblock_update_dimensions_event
+uCTk._set_scaled_min_max
+uCTk.withdraw
+uCTk.iconify
+uCTk.update
+uCTk.mainloop
+T nnuCTk.resizable
+uCTk.minsize
+uCTk.maxsize
+uCTk.geometry
+uCTk.configure
+uCTk.cget
+uCTk.wm_iconbitmap
+uCTk.iconbitmap
+uCTk._windows_set_titlebar_icon
+classmethod
+uCTk._enable_macos_dark_title_bar
+uCTk._disable_macos_dark_title_bar
+uCTk._windows_set_titlebar_color
+uCTk._set_appearance_mode
+a__orig_bases__
+ucustomtkinter\windows\ctk_tk.py
+u<module customtkinter.windows.ctk_tk>
+T a__class__
+a_valid_tk_constructor_arguments
+a_valid_tk_configure_arguments
+a_deactivate_macos_window_header_manipulation
+a_deactivate_windows_window_header_manipulation
+T aself
+fg_color
+kwargs
+a__class__
+T a__class__
+T acls
+T aself
+event
+T aself
+mode_string
+a__class__
+T aself
+a__class__
+T aself
+new_widget_scaling
+new_window_scaling
+a__class__
+T aself
+event
+detected_width
+detected_height
+a__class__
+T aself
+color_mode
+value
+hwnd
+aDWMWA_USE_IMMERSIVE_DARK_MODE
+aDWMWA_USE_IMMERSIVE_DARK_MODE_BEFORE_20H1
+err
+a__class__
+T aself
+customtkinter_directory
+T aself
+T aself
+attribute_name
+a__class__
+T aself
+kwargs
+child
+a__class__
+T aself
+geometry_string
+width
+height
+wxwya__class__
+T aself
+bitmap
+default
+a__class__
+T aself
+args
+kwargs
+a__class__
+T aself
+width
+height
+a__class__
+T aself
+width
+height
+current_resizable_values
+a__class__
+.customtkinter.windows.ctk_toplevel
+a_enable_macos_dark_title_bar
+a__class__
+a__init__
+pop_from_dict_by_set
+a_valid_tk_toplevel_arguments
+aCTkAppearanceModeBaseClass
+aCTkScalingBaseClass
+D ascaling_type
+window
+check_kwargs_empty
+D araise_error
+ta__file__
+after
+l  u<lambda>
+uCTkToplevel.__init__.<locals>.<lambda>
+a_current_width
+a_current_height
+l
+a_min_width
+a_min_height
+l  =a_max_width
+a_max_height
+a_last_resizable_args
+aThemeManager
+theme
+aCTkToplevel
+fg_color
+a_check_color_type
+a_fg_color
+configure
+a_apply_appearance_mode
+T abg
+title
+T aCTkToplevel
+a_iconbitmap_method_called
+a_state_before_windows_set_titlebar_color
+a_windows_set_titlebar_color_called
+a_withdraw_called_after_windows_set_titlebar_color
+a_iconify_called_after_windows_set_titlebar_color
+a_block_update_dimensions_event
+focused_widget_before_widthdraw
+a_windows_set_titlebar_icon
+a_windows_set_titlebar_color
+a_get_appearance_mode
+bind
+u<Configure>
+a_update_dimensions_event
+u<FocusIn>
+a_focus_in_event
+self
+iconbitmap
+join
+customtkinter_directory
+assets
+icons
+uCustomTkinter_icon_Windows.ico
+a_disable_macos_dark_title_bar
+tkinter
+aToplevel
+destroy
+winfo_width
+winfo_height
+a_reverse_window_scaling
+a_set_scaling
+minsize
+a_apply_window_scaling
+maxsize
+geometry
+
+wxl  a_set_scaled_min_max
+a_apply_geometry_scaling
+a_parse_geometry_string
+utoo many values to unpack (expected 4)
+max
+min
+a_reverse_geometry_scaling
+withdraw
+iconify
+resizable
+width
+height
+l
+uCTkToplevel.resizable.<locals>.<lambda>
+winfo_children
+T abg_color
+cget
+wm_iconbitmap
+a_deactivate_windows_window_header_manipulation
+state
+focus_get
+update
+lower
+dark
+l alight
+windll
+user32
+aGetParent
+winfo_id
+dwmapi
+aDwmSetWindowAttribute
+l abyref
+c_int
+sizeof
+l aprint
+l a_revert_withdraw_after_windows_set_titlebar_color
+focus
+normal
+deiconify
+iconic
+zoomed
+T azoomed
+a_set_appearance_mode
+a__doc__
+a__spec__
+origin
+has_location
+a__cached__
+packaging
+T aversion
+version
+sys
+os
+platform
+ctypes
+aUnion
+aTuple
+aOptional
+uwidgets.theme
+T aThemeManager
+uwidgets.scaling
+T aCTkScalingBaseClass
+uwidgets.appearance_mode
+T aCTkAppearanceModeBaseClass
+ucustomtkinter.windows.widgets.utility.utility_functions
+T apop_from_dict_by_set
+check_kwargs_empty
+a__prepare__
+a__getitem__
+u%s.__prepare__() must return a mapping, not %s
+a__name__
+u<metaclass>

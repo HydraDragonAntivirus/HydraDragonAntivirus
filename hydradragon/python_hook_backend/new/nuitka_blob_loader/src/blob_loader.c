@@ -677,11 +677,73 @@ static char *blob_strdup(const char *s) {
     return d;
 }
 
-static void ensure_dir_exists(const char *path) {
+static int path_is_dir(const char *path) {
+    FILE *probe;
     if (!path || !*path) {
-        return;
+        return 0;
     }
-    (void)BLOB_MKDIR(path);
+    probe = fopen(path, "rb");
+    if (probe) {
+        fclose(probe);
+        return 0;
+    }
+    if (errno == EISDIR) {
+        return 1;
+    }
+#if defined(_WIN32)
+    return errno == EACCES;
+#else
+    return 0;
+#endif
+}
+
+static int ensure_dir_exists(const char *path) {
+    char tmp[4096];
+    size_t i;
+    size_t n;
+
+    if (!path || !*path) {
+        return 0;
+    }
+    n = strlen(path);
+    if (n >= sizeof(tmp)) {
+        return 0;
+    }
+    memcpy(tmp, path, n + 1);
+
+    for (i = 1; i < n; i++) {
+        if (tmp[i] == '/' || tmp[i] == '\\') {
+            char saved = tmp[i];
+            tmp[i] = '\0';
+            if (tmp[0] != '\0' && BLOB_MKDIR(tmp) != 0) {
+#if defined(_WIN32)
+                if (errno != EEXIST && !path_is_dir(tmp)) {
+                    tmp[i] = saved;
+                    return 0;
+                }
+#else
+                if (errno != EEXIST) {
+                    tmp[i] = saved;
+                    return 0;
+                }
+#endif
+            }
+            tmp[i] = saved;
+        }
+    }
+
+    if (BLOB_MKDIR(tmp) != 0) {
+#if defined(_WIN32)
+        if (errno != EEXIST && !path_is_dir(tmp)) {
+            return 0;
+        }
+#else
+        if (errno != EEXIST) {
+            return 0;
+        }
+#endif
+    }
+    return 1;
 }
 
 static void rstrip_in_place(char *s) {
@@ -720,13 +782,43 @@ static char *decode_a_prefix_token(const char *token) {
     return blob_strdup(token ? token : "");
 }
 
+static int is_windows_reserved_basename(const char *name) {
+    static const char *reserved[] = {
+        "con", "prn", "aux", "nul",
+        "com1", "com2", "com3", "com4", "com5", "com6", "com7", "com8", "com9",
+        "lpt1", "lpt2", "lpt3", "lpt4", "lpt5", "lpt6", "lpt7", "lpt8", "lpt9",
+        NULL
+    };
+    char lower[64];
+    size_t i;
+    size_t n;
+    if (!name || !*name) {
+        return 0;
+    }
+    n = strlen(name);
+    if (n >= sizeof(lower)) {
+        n = sizeof(lower) - 1;
+    }
+    for (i = 0; i < n; i++) {
+        lower[i] = (char)tolower((unsigned char)name[i]);
+    }
+    lower[n] = '\0';
+    for (i = 0; reserved[i] != NULL; i++) {
+        if (strcmp(lower, reserved[i]) == 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 static char *sanitize_module_name_for_path(const char *name) {
     size_t i;
     size_t n;
+    size_t o = 0;
     char *out;
     const char *src = name ? name : "__main__";
 
-    while (*src == '.') {
+    while (*src == "."[0]) {
         src++;
     }
     if (*src == '\0') {
@@ -734,17 +826,29 @@ static char *sanitize_module_name_for_path(const char *name) {
     }
 
     n = strlen(src);
-    out = (char *)malloc(n + 8);
+    out = (char *)malloc(192);
     if (!out) {
         return NULL;
     }
-    for (i = 0; i < n; i++) {
+    for (i = 0; i < n && o < 150; i++) {
         unsigned char ch = (unsigned char)src[i];
-        out[i] = (isalnum(ch) || ch == '_') ? (char)ch : '_';
+        if (isalnum(ch) || ch == "_"[0]) {
+            out[o++] = (char)ch;
+        } else if (o == 0 || out[o - 1] != "_"[0]) {
+            out[o++] = "_"[0];
+        }
     }
-    out[n] = '\0';
+    while (o > 0 && out[o - 1] == "_"[0]) {
+        o--;
+    }
+    out[o] = '\0';
     if (out[0] == '\0') {
         strcpy(out, "__main__");
+    }
+    if (is_windows_reserved_basename(out)) {
+        size_t len = strlen(out);
+        memmove(out + 4, out, len + 1);
+        memcpy(out, "mod_", 4);
     }
     return out;
 }
@@ -865,26 +969,59 @@ static int write_text_file(const char *path, const char *text) {
     return 1;
 }
 
-static int write_module_file(const char *out_dir, const SourceModule *mod, FILE *combined) {
+static int write_module_file(const char *out_dir,
+                             const SourceModule *mod,
+                             size_t module_index,
+                             FILE *combined,
+                             FILE *index_file,
+                             int *out_opened_file) {
     char *safe_name;
+    char file_name[512];
     char path[4096];
-    FILE *f;
+    FILE *f = NULL;
     size_t i;
+
+    if (out_opened_file) {
+        *out_opened_file = 0;
+    }
 
     safe_name = sanitize_module_name_for_path(mod->name);
     if (!safe_name) {
         return 0;
     }
-    snprintf(path, sizeof(path), "%s/%s.py", out_dir, safe_name);
+
+    if (strcmp(safe_name, "__main__") == 0) {
+        snprintf(file_name, sizeof(file_name), "__main__.py");
+    } else {
+        snprintf(file_name, sizeof(file_name), "module_%04zu_%s.py", module_index, safe_name);
+    }
     free(safe_name);
 
+    snprintf(path, sizeof(path), "%s/%s", out_dir, file_name);
     f = fopen(path, "wb");
     if (!f) {
-        return 0;
+        fprintf(stderr,
+                "[blob] WARNING: could not open module file '%s' for module '%s' (errno=%d). Keeping output in combined_source.py only.\n",
+                path,
+                mod->name,
+                errno);
+    } else if (out_opened_file) {
+        *out_opened_file = 1;
     }
 
-    fprintf(f, "# Reconstructed from integrated Nuitka blob\n");
-    fprintf(f, "# Module: %s\n\n", mod->name);
+    if (index_file) {
+        fprintf(index_file,
+                "%zu\t%s\t%s\t%s\n",
+                module_index,
+                mod->name,
+                file_name,
+                f ? "ok" : "combined_only");
+    }
+
+    if (f) {
+        fprintf(f, "# Reconstructed from integrated Nuitka blob\n");
+        fprintf(f, "# Module: %s\n\n", mod->name);
+    }
 
     if (combined) {
         fprintf(combined, "# ==================================================\n");
@@ -894,7 +1031,9 @@ static int write_module_file(const char *out_dir, const SourceModule *mod, FILE 
 
     for (i = 0; i < mod->count; i++) {
         const char *line = mod->lines[i] ? mod->lines[i] : "";
-        fprintf(f, "%s\n", line);
+        if (f) {
+            fprintf(f, "%s\n", line);
+        }
         if (combined) {
             fprintf(combined, "%s\n", line);
         }
@@ -902,7 +1041,9 @@ static int write_module_file(const char *out_dir, const SourceModule *mod, FILE 
     if (combined) {
         fprintf(combined, "\n\n");
     }
-    fclose(f);
+    if (f) {
+        fclose(f);
+    }
     return 1;
 }
 
@@ -921,6 +1062,8 @@ BlobError blob_dump_full_source(BlobCtx *ctx, const char *out_dir, size_t *out_m
     char combined_path[4096];
     char raw_path[4096];
     FILE *combined = NULL;
+    FILE *index_file = NULL;
+    char index_path[4096];
     size_t i;
 
     if (out_module_count) {
@@ -936,7 +1079,10 @@ BlobError blob_dump_full_source(BlobCtx *ctx, const char *out_dir, size_t *out_m
         return BLOB_ERR_CORRUPT;
     }
 
-    ensure_dir_exists(out_dir);
+    if (!ensure_dir_exists(out_dir)) {
+        fprintf(stderr, "[blob] Cannot create source output dir '%s' (errno=%d)\n", out_dir, errno);
+        return BLOB_ERR_IO;
+    }
 
     normalized = (char *)malloc(src_len + 1);
     if (!normalized) {
@@ -947,8 +1093,10 @@ BlobError blob_dump_full_source(BlobCtx *ctx, const char *out_dir, size_t *out_m
 
     snprintf(raw_path, sizeof(raw_path), "%s/raw_source_dump.txt", out_dir);
     if (!write_text_file(raw_path, scan)) {
-        free(normalized);
-        return BLOB_ERR_IO;
+        fprintf(stderr,
+                "[blob] WARNING: could not write raw source dump '%s' (errno=%d). Continuing.\n",
+                raw_path,
+                errno);
     }
 
     current_mod = module_get_or_add(&mods, &mod_count, &mod_cap, "__main__");
@@ -1073,8 +1221,23 @@ BlobError blob_dump_full_source(BlobCtx *ctx, const char *out_dir, size_t *out_m
     fprintf(combined, "# Best-effort integrated source reconstruction\n");
     fprintf(combined, "# Generated from raw Nuitka RCDATA blob\n\n");
 
+    snprintf(index_path, sizeof(index_path), "%s/module_index.tsv", out_dir);
+    index_file = fopen(index_path, "wb");
+    if (index_file) {
+        fprintf(index_file, "index\tmodule_name\tfile_name\tstatus\n");
+    } else {
+        fprintf(stderr,
+                "[blob] WARNING: could not write module index '%s' (errno=%d). Continuing.\n",
+                index_path,
+                errno);
+    }
+
     for (i = 0; i < mod_count; i++) {
-        if (!write_module_file(out_dir, &mods[i], combined)) {
+        int opened_file = 0;
+        if (!write_module_file(out_dir, &mods[i], i, combined, index_file, &opened_file)) {
+            if (index_file) {
+                fclose(index_file);
+            }
             fclose(combined);
             free_modules(mods, mod_count);
             free(normalized);
@@ -1082,6 +1245,9 @@ BlobError blob_dump_full_source(BlobCtx *ctx, const char *out_dir, size_t *out_m
         }
     }
 
+    if (index_file) {
+        fclose(index_file);
+    }
     fclose(combined);
     if (out_module_count) {
         *out_module_count = mod_count;

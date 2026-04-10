@@ -1,0 +1,63 @@
+# Reconstructed from integrated Nuitka blob
+# Module: ucustomtkinter.windows.widgets.appearance_mode.appearance_mode_base_class
+
+aCTkAppearanceModeBaseClass
+a__qualname__
+a__init__
+uCTkAppearanceModeBaseClass.__init__
+destroy
+uCTkAppearanceModeBaseClass.destroy
+uCTkAppearanceModeBaseClass._set_appearance_mode
+a_get_appearance_mode
+uCTkAppearanceModeBaseClass._get_appearance_mode
+a_apply_appearance_mode
+uCTkAppearanceModeBaseClass._apply_appearance_mode
+T Fa_check_color_type
+uCTkAppearanceModeBaseClass._check_color_type
+ucustomtkinter\windows\widgets\appearance_mode\appearance_mode_base_class.py
+u<module customtkinter.windows.widgets.appearance_mode.appearance_mode_base_class>
+T aself
+T aself
+color
+T acolor
+transparency
+T aself
+mode_string
+.customtkinter.windows.widgets.appearance_mode.appearance_mode_tracker
+B
+appearance_mode_set_by
+system
+detect_appearance_mode
+appearance_mode
+update_callbacks
+callback_list
+append
+get_tk_root_of_widget
+app_list
+update_loop_running
+after
+update_loop_interval
+update
+remove
+darkdetect
+theme
+aDark
+l l
+current_widget
+tkinter
+aTk
+master
+T aLight
+T aDark
+cls
+lower
+dark
+user
+light
+a__doc__
+a__file__
+a__spec__
+origin
+has_location
+a__cached__
+aCallable

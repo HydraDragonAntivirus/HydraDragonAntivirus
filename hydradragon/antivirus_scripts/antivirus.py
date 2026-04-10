@@ -1592,7 +1592,7 @@ def scan_yara(file_path):
 def scan_with_hydradragon_engine(file_path):
     """
     Sends scan request to HydraDragonAV C++ pipe server (ClamAV + Legacy YARA).
-    Returns: (malicious: bool, virus_name: str, engine: str)
+    Returns: (malicious: bool, virus_name: str, engine: str, is_vmprotect: bool)
     """
     try:
         norm_path = os.path.abspath(file_path)
@@ -1618,18 +1618,19 @@ def scan_with_hydradragon_engine(file_path):
                 malicious = response.get("malicious", False)
                 clamav_virus = response.get("clamav", "")
                 yara_matches = response.get("yara", [])
+                is_vmprotect = response.get("is_vmprotect", False)
                 
                 if malicious:
                     if clamav_virus:
-                        return True, clamav_virus, "ClamAV"
+                        return True, clamav_virus, "ClamAV", is_vmprotect
                     if yara_matches:
-                        return True, yara_matches[0], "LegacyYARA"
+                        return True, yara_matches[0], "LegacyYARA", is_vmprotect
                 
-        return False, "Clean", ""
+        return False, "Clean", "", False
     except Exception as ex:
         # Expected if server not running or path inaccessible
         logger.debug(f"HydraDragonAV Pipe Error: {ex}")
-        return False, "Error", ""
+        return False, "Error", "", False
 
 def is_encrypted(zip_info):
     """Check if a ZIP entry is encrypted."""
@@ -3245,6 +3246,7 @@ def scan_file_real_time(
         'malware_found': False,
         'virus_name': 'Clean',
         'engine': '',
+        'is_vmprotect': False,
     }
     stop_event = threading.Event()
     thread_lock_real_time = threading.Lock()
@@ -3271,7 +3273,7 @@ def scan_file_real_time(
         if stop_event.is_set():
             return
         try:
-            is_malicious, virus_name, engine = scan_with_hydradragon_engine(file_path)
+            is_malicious, virus_name, engine, is_vmprotect = scan_with_hydradragon_engine(file_path)
             if is_malicious:
                 if sig_valid:
                     virus_name = f"{virus_name}.SIG"
@@ -3282,6 +3284,8 @@ def scan_file_real_time(
                         results['malware_found'] = True
                         results['virus_name'] = virus_name
                         results['engine'] = engine
+                        if is_vmprotect:
+                            results['is_vmprotect'] = True
                         stop_event.set()
         except Exception as ex:
             logger.debug(f"HydraDragonAV worker error: {ex}")
@@ -3303,10 +3307,10 @@ def scan_file_real_time(
 
         with thread_lock_real_time:
             if results['malware_found']:
-                return True, results['virus_name'], results['engine']
+                return True, results['virus_name'], results['engine'], results['is_vmprotect']
             else:
                 logger.info(f"File is clean - no malware detected by any engine: {file_path}")
-                return False, "Clean", ""
+                return False, "Clean", "", results['is_vmprotect']
 
     except Exception as ex:
         logger.error(f"An error occurred while scanning file: {file_path}. Error: {ex}")
@@ -8657,10 +8661,24 @@ async def scan_and_warn(file_path,
         # NON-YARA REALTIME TASK
         async def realtime_malware_thread(norm_path, signature_check, file_name, die_output, pe_file, main_file_path):
             try:
-                is_malicious, virus_names, engine_detected = await asyncio.to_thread(
+                is_malicious, virus_names, engine_detected, is_vmprotect = await asyncio.to_thread(
                     scan_file_real_time,
                     norm_path, signature_check, file_name, die_output, pe_file=pe_file
                 )
+
+                if is_vmprotect and not getattr(threading.current_thread(), 'is_unpacking_vmp', False):
+                    logger.warning(f"VMProtect detected by HydraDragonAV in {norm_path}. Spawning unpacker.")
+                    try:
+                        unpacked_path, success = await vmprotect_unpack(norm_path)
+                        if success and unpacked_path:
+                            # Add delay to avoid race conditions with file system
+                            await asyncio.sleep(2)
+                            logger.info(f"Successfully unpacked VMProtect. Scanning unpacked file: {unpacked_path}")
+                            asyncio.create_task(scan_and_warn(unpacked_path, flag_vmprotect=True, main_file_path=main_file_path))
+                        else:
+                            logger.warning(f"Unpacking VMProtect failed for {norm_path}")
+                    except Exception as e:
+                        logger.error(f"Error unpacking VMProtect file {norm_path}: {e}")
 
                 if is_malicious:
                     virus_name = ''.join(virus_names)

@@ -1,0 +1,283 @@
+# Reconstructed from integrated Nuitka blob
+# Module: ullvmlite.binding.newpassmanagers
+
+a__qualname__
+a__add__
+uPruneStats.__add__
+a__sub__
+uPruneStats.__sub__
+a__orig_bases__
+a_fields_
+T Fadump_refprune_stats
+set_time_passes
+report_and_reset_timings
+l aPER_BB
+aDIAMOND
+l aFANOUT
+l aFANOUT_RAISE
+aALL
+uNewPassManager.__init__
+run
+uNewPassManager.run
+add_aa_eval_pass
+uNewPassManager.add_aa_eval_pass
+add_simplify_cfg_pass
+uNewPassManager.add_simplify_cfg_pass
+add_loop_unroll_pass
+uNewPassManager.add_loop_unroll_pass
+add_instruction_combine_pass
+uNewPassManager.add_instruction_combine_pass
+T q aadd_jump_threading_pass
+uNewPassManager.add_jump_threading_pass
+add_cfg_printer_pass
+uNewPassManager.add_cfg_printer_pass
+add_cfg_only_printer_pass
+uNewPassManager.add_cfg_only_printer_pass
+add_dom_printer_pass
+uNewPassManager.add_dom_printer_pass
+add_dom_only_printer_pass
+uNewPassManager.add_dom_only_printer_pass
+add_post_dom_printer_pass
+uNewPassManager.add_post_dom_printer_pass
+add_post_dom_only_printer_pass
+uNewPassManager.add_post_dom_only_printer_pass
+add_dom_viewer_pass
+uNewPassManager.add_dom_viewer_pass
+add_dom_only_viewer_pass
+uNewPassManager.add_dom_only_viewer_pass
+add_post_dom_viewer_pass
+uNewPassManager.add_post_dom_viewer_pass
+add_post_dom_only_viewer_pass
+uNewPassManager.add_post_dom_only_viewer_pass
+add_lint_pass
+uNewPassManager.add_lint_pass
+add_aggressive_dce_pass
+uNewPassManager.add_aggressive_dce_pass
+add_break_critical_edges_pass
+uNewPassManager.add_break_critical_edges_pass
+add_dead_store_elimination_pass
+uNewPassManager.add_dead_store_elimination_pass
+add_dead_code_elimination_pass
+uNewPassManager.add_dead_code_elimination_pass
+add_aggressive_instcombine_pass
+uNewPassManager.add_aggressive_instcombine_pass
+add_lcssa_pass
+uNewPassManager.add_lcssa_pass
+add_new_gvn_pass
+uNewPassManager.add_new_gvn_pass
+add_loop_simplify_pass
+uNewPassManager.add_loop_simplify_pass
+add_loop_unroll_and_jam_pass
+uNewPassManager.add_loop_unroll_and_jam_pass
+add_sccp_pass
+uNewPassManager.add_sccp_pass
+add_lower_atomic_pass
+uNewPassManager.add_lower_atomic_pass
+add_lower_invoke_pass
+uNewPassManager.add_lower_invoke_pass
+add_lower_switch_pass
+uNewPassManager.add_lower_switch_pass
+add_mem_copy_opt_pass
+uNewPassManager.add_mem_copy_opt_pass
+add_unify_function_exit_nodes_pass
+uNewPassManager.add_unify_function_exit_nodes_pass
+add_reassociate_pass
+uNewPassManager.add_reassociate_pass
+add_register_to_memory_pass
+uNewPassManager.add_register_to_memory_pass
+add_sroa_pass
+uNewPassManager.add_sroa_pass
+add_sinking_pass
+uNewPassManager.add_sinking_pass
+add_tail_call_elimination_pass
+uNewPassManager.add_tail_call_elimination_pass
+add_instruction_namer_pass
+uNewPassManager.add_instruction_namer_pass
+add_loop_deletion_pass
+uNewPassManager.add_loop_deletion_pass
+add_loop_strength_reduce_pass
+uNewPassManager.add_loop_strength_reduce_pass
+add_loop_rotate_pass
+uNewPassManager.add_loop_rotate_pass
+a_dispose
+uNewPassManager._dispose
+aObjectRef
+T nuModulePassManager.__init__
+add_verifier
+uModulePassManager.add_verifier
+add_constant_merge_pass
+uModulePassManager.add_constant_merge_pass
+add_dead_arg_elimination_pass
+uModulePassManager.add_dead_arg_elimination_pass
+add_dot_call_graph_printer_pass
+uModulePassManager.add_dot_call_graph_printer_pass
+add_module_debug_info_pass
+uModulePassManager.add_module_debug_info_pass
+add_always_inliner_pass
+uModulePassManager.add_always_inliner_pass
+add_rpo_function_attrs_pass
+uModulePassManager.add_rpo_function_attrs_pass
+add_global_dead_code_eliminate_pass
+uModulePassManager.add_global_dead_code_eliminate_pass
+add_global_opt_pass
+uModulePassManager.add_global_opt_pass
+add_ipsccp_pass
+uModulePassManager.add_ipsccp_pass
+add_internalize_pass
+uModulePassManager.add_internalize_pass
+add_loop_extract_pass
+uModulePassManager.add_loop_extract_pass
+add_merge_functions_pass
+uModulePassManager.add_merge_functions_pass
+add_partial_inliner_pass
+uModulePassManager.add_partial_inliner_pass
+add_strip_symbols_pass
+uModulePassManager.add_strip_symbols_pass
+add_strip_dead_debug_info_pass
+uModulePassManager.add_strip_dead_debug_info_pass
+add_strip_dead_prototype_pass
+uModulePassManager.add_strip_dead_prototype_pass
+add_strip_debug_declare_pass
+uModulePassManager.add_strip_debug_declare_pass
+add_strip_non_debug_symbols_pass
+uModulePassManager.add_strip_non_debug_symbols_pass
+add_argument_promotion_pass
+uModulePassManager.add_argument_promotion_pass
+add_post_order_function_attributes_pass
+uModulePassManager.add_post_order_function_attributes_pass
+l  aadd_refprune_pass
+uModulePassManager.add_refprune_pass
+uFunctionPassManager.__init__
+uFunctionPassManager.add_refprune_pass
+uPipelineTuningOptions.__init__
+property
+uPipelineTuningOptions.speed_level
+setter
+uPipelineTuningOptions.size_level
+loop_interleaving
+uPipelineTuningOptions.loop_interleaving
+loop_vectorization
+uPipelineTuningOptions.loop_vectorization
+slp_vectorization
+uPipelineTuningOptions.slp_vectorization
+loop_unrolling
+uPipelineTuningOptions.loop_unrolling
+inlining_threshold
+uPipelineTuningOptions.inlining_threshold
+uPipelineTuningOptions._dispose
+uTimePassesHandler.__init__
+uTimePassesHandler._dispose
+uPassBuilder.__init__
+getModulePassManager
+uPassBuilder.getModulePassManager
+getFunctionPassManager
+uPassBuilder.getFunctionPassManager
+start_pass_timing
+uPassBuilder.start_pass_timing
+finish_pass_timing
+uPassBuilder.finish_pass_timing
+uPassBuilder._dispose
+argtypes
+aLLVMModulePassManagerRef
+restype
+aLLVMModuleRef
+aLLVMPassBuilderRef
+aLLVMFunctionPassManagerRef
+aLLVMValueRef
+aLLVMPipelineTuningOptionsRef
+aLLVMTargetMachineRef
+aLLVMTimePassesHandlerRef
+ullvmlite\binding\newpassmanagers.py
+u<module llvmlite.binding.newpassmanagers>
+T a__class__
+T aself
+other
+msg
+T aself
+ptr
+a__class__
+T aself
+T aself
+tm
+pto
+a__class__
+T aself
+speed_level
+size_level
+a__class__
+T aself
+a__class__
+T aself
+threshold
+T aself
+subpasses_flags
+subgraph_limit
+iflags
+T atm
+pto
+T aspeed_level
+size_level
+T aprintout
+stats
+do_print
+T aself
+buf
+T aself
+value
+T abuf
+T aself
+aIR
+pb
+T aenable
+
+.llvmlite.binding.object_file
+E
+U
+ffi
+lib
+aLLVMPY_GetSectionName
+aLLVMPY_IsSectionText
+aLLVMPY_GetSectionSize
+aLLVMPY_GetSectionAddress
+string_at
+aLLVMPY_GetSectionContents
+size
+aLLVMPY_IsSectionIteratorAtEnd
+aLLVMPY_MoveToNextSection
+aLLVMPY_DisposeSectionIterator
+aLLVMPY_CreateObjectFile
+rb
+a__enter__
+a__exit__
+read
+T nnnadata
+aSectionIteratorRef
+aLLVMPY_GetSections
+self
+it
+is_end
+anext
+sections
+uObjectFileRef.sections
+aLLVMPY_DisposeObjectFile
+a__doc__
+a__file__
+a__spec__
+origin
+has_location
+a__cached__
+ullvmlite.binding
+T affi
+l
+c_bool
+c_char_p
+c_char
+c_size_t
+c_uint64
+aPOINTER
+aObjectRef
+a__prepare__
+a__getitem__
+u%s.__prepare__() must return a mapping, not %s
+a__name__
+u<metaclass>
