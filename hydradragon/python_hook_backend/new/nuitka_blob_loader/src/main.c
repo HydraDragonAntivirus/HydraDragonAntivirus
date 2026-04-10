@@ -9,9 +9,6 @@
  *        - .pyc files
  *        - pyc_list.txt / manifest.tsv
  *
- * Default .pyc header magic is Python 3.11 final (A7 0D 0D 0A), because the
- * current target in this project is python311.dll. Override with --magic-hex
- * if you need another CPython version.
  */
 
 #include "blob_loader.h"
@@ -76,7 +73,6 @@ int main(int argc, char *argv[]) {
     const char *bundle_dir = "pylingual_bundle";
     int want_source = 1;
     int want_bundle = 1;
-    uint8_t pyc_magic[4] = {0xA7, 0x0D, 0x0D, 0x0A};
     BlobCtx *ctx = NULL;
     BlobError err;
     size_t module_count = 0;
@@ -99,11 +95,7 @@ int main(int argc, char *argv[]) {
             source_dir = argv[++i];
         } else if (strcmp(argv[i], "--bundle-dir") == 0 && i + 1 < argc) {
             bundle_dir = argv[++i];
-        } else if (strcmp(argv[i], "--magic-hex") == 0 && i + 1 < argc) {
-            if (!parse_magic_hex(argv[++i], pyc_magic)) {
-                fprintf(stderr, "[main] ERROR: --magic-hex must be 8 hex chars, e.g. a70d0d0a\n");
-                return 1;
-            }
+        }
         } else if (!bin_path) {
             bin_path = argv[i];
         } else {
@@ -117,7 +109,7 @@ int main(int argc, char *argv[]) {
         if (!bin_path) {
             fprintf(stderr,
                     "[main] ERROR: rcdata_10_3.bin not found.\n"
-                    "  Usage: ./blob_loader [path/to/rcdata_10_3.bin] [--magic-hex a70d0d0a]\n"
+                    "  Usage: ./blob_loader [path/to/rcdata_10_3.bin]\n"
                     "                      [--source-dir full_source] [--bundle-dir pylingual_bundle]\n"
                     "                      [--no-source] [--no-pyc]\n");
             return 1;
@@ -170,7 +162,7 @@ int main(int argc, char *argv[]) {
             return 1;
         }
 
-        err = blob_export_pylingual_bundle(vals, count, bundle_dir, pyc_magic, &written);
+        err = blob_export_pylingual_bundle(vals, count, bundle_dir, &written);
         if (err != BLOB_OK) {
             fprintf(stderr, "[main] blob_export_pylingual_bundle: %s\n", blob_error_str(err));
             blob_free_values(vals, count);
@@ -183,7 +175,7 @@ int main(int argc, char *argv[]) {
         printf("[main] Manifest: ./%s/manifest.tsv\n", bundle_dir);
         printf("[main] Helper:   ./%s/make_pyc_list.py\n\n", bundle_dir);
         printf("[main] PyLingual example:\n");
-        printf("        pylingual -v 3.11 -o out %s/bytecode_*.pyc\n\n", bundle_dir);
+        printf("        pylingual -v 3.12 -o out %s/bytecode_*.pyc\n\n", bundle_dir);
 
         blob_free_values(vals, count);
     }

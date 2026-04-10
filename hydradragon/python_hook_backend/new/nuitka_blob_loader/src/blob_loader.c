@@ -1433,7 +1433,6 @@ BlobError blob_write_pylingual_helper(const char *out_dir, const uint8_t default
         "def main() -> int:\n"
         "    ap = argparse.ArgumentParser(description='Rebuild .pyc files from exported Nuitka marshal blobs')\n"
         "    ap.add_argument('bundle_dir', nargs='?', default='.', help='Directory containing bytecode_*.marshal')\n"
-        "    ap.add_argument('--magic-hex', help='Override 4-byte MAGIC_NUMBER as 8 hex chars (e.g. a70d0d0a for Python 3.11)')\n"
         "    args = ap.parse_args()\n"
         "\n"
         "    bundle_dir = Path(args.bundle_dir)\n"
@@ -1487,7 +1486,7 @@ BlobError blob_write_pylingual_helper(const char *out_dir, const uint8_t default
             "Default MAGIC_NUMBER used here: %s\n"
             "For Python 3.11 final that value is A70D0D0A.\n"
             "If you need a different header, run:\n"
-            "  python make_pyc_list.py --magic-hex <8hex> .\n\n"
+            "  python make_pyc_list.py.\n\n"
             "PyLingual usage example:\n"
             "  pylingual -v 3.11 -o out bytecode_*.pyc\n",
             magic_hex);
