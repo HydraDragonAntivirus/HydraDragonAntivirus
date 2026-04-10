@@ -1,0 +1,275 @@
+# Reconstructed from integrated Nuitka blob
+# Module: uCrypto.SelfTest.Hash.test_TupleHash
+
+a__qualname__
+uTupleHashTest.new
+test_new_positive
+uTupleHashTest.test_new_positive
+test_new_negative
+uTupleHashTest.test_new_negative
+test_default_digest_size
+uTupleHashTest.test_default_digest_size
+test_update
+uTupleHashTest.test_update
+test_update_negative
+uTupleHashTest.test_update_negative
+test_digest
+uTupleHashTest.test_digest
+test_update_after_digest
+uTupleHashTest.test_update_after_digest
+test_hex_digest
+uTupleHashTest.test_hex_digest
+test_bytearray
+uTupleHashTest.test_bytearray
+test_memoryview
+uTupleHashTest.test_memoryview
+a__orig_bases__
+l@l  adefault_bits
+T u00 01 02
+u10 11 12 13 14 15
+
+uC5 D8 78 6C 1A FB 9B 82 11 1A B3 4B 65 B2 C0 048F A6 4E 6D 48 E2 63 26 4C E1 70 7D 3F FC 8E D1
+uKMAC128 Sample #1 NIST
+uMy Tuple App
+u75 CD B2 0F F4 DB 11 54 E8 41 D7 58 E2 41 60 C54B AE 86 EB 8C 13 E7 F5 F4 0E B3 55 88 E9 6D FB
+uKMAC128 Sample #2 NIST
+T u00 01 02
+u10 11 12 13 14 15
+u20 21 22 23 24 25 26 27 28
+uE6 0F 20 2C 89 A2 63 1E DA 8D 4C 58 8C A5 FD 07F3 9E 51 51 99 8D EC CF 97 3A DB 38 04 BB 6E 84
+uKMAC128 Sample #3 NIST
+uCF B7 05 8C AC A5 E6 68 F8 1A 12 A2 0A 21 95 CE97 A9 25 F1 DB A3 E7 44 9A 56 F8 22 01 EC 60 7311 AC 26 96 B1 AB 5E A2 35 2D F1 42 3B DE 7B D4BB 78 C9 AE D1 A8 53 C7 86 72 F9 EB 23 BB E1 94
+uKMAC256 Sample #4 NIST
+u14 7C 21 91 D5 ED 7E FD 98 DB D9 6D 7A B5 A1 1692 57 6F 5F E2 A5 06 5F 3E 33 DE 6B BA 9F 3A A1C4 E9 A0 68 A2 89 C6 1C 95 AA B3 0A EE 1E 41 0B0B 60 7D E3 62 0E 24 A4 E3 BF 98 52 A1 D4 36 7E
+uKMAC256 Sample #5 NIST
+u45 00 0B E6 3F 9B 6B FD 89 F5 47 17 67 0F 69 A9BC 76 35 91 A4 F0 5C 50 D6 88 91 A7 44 BC C6 E7D6 D5 B5 E8 2C 01 8D A9 99 ED 35 B0 BB 49 C9 678E 52 6A BD 8E 85 C1 3E D2 54 02 1D B9 E7 90 CE
+uKMAC256 Sample #6 NIST
+setUp
+uNISTExampleTestVectors.setUp
+runTest
+uNISTExampleTestVectors.runTest
+get_tests
+uCrypto\SelfTest\Hash\test_TupleHash.py
+u<module Crypto.SelfTest.Hash.test_TupleHash>
+T a__class__
+T adata
+T aconfig
+tests
+T aself
+args
+kwargs
+T	aself
+data
+custom
+digest
+text
+module
+hd1
+hd2
+string
+T aself
+td
+tv_in
+tv_out
+string
+T aself
+data
+data_ba
+h1
+h2
+T aself
+digest
+T aself
+whadigest
+T aself
+mac
+digest
+hexdigest
+T aself
+data
+get_mv_ro
+get_mv_rw
+get_mv
+data_mv
+h1
+h2
+T aself
+whanew_func
+T aself
+whanew_func
+dbits
+hobj
+dbytes
+T aself
+whamac1
+mac2
+wtT aself
+msg
+whadig1
+T aself
+wha__spec__
+.Crypto.SelfTest.Hash.test_TurboSHAKE
+aTurboSHAKE
+new
+update
+T c90
+T l T adomain
+T adata
+read
+T l  aassertEqual
+T l T l aassertNotEqual
+bchr
+T l
+l  T l l  aassertRaises
+string
+T lZaassertTrue
+lZT crrrr
+cttt
+T l T ldD adomain
+l areplace
+T w u
+T w
+
+T wu
+unhexlify
+c
+;l
+l  l l  apattern
+res
+source
+size
+chunked
+txt2bin
+T u1E 41 5F 1C 59 83 AF F2 16 92 17 27 7D 17 BB 53
+8C D9 45 A3 97 DD EC 54 1F 1C E4 1A F2 C1 B7 4C
+aTurboSHAKE128
+T u1E 41 5F 1C 59 83 AF F2 16 92 17 27 7D 17 BB 53
+8C D9 45 A3 97 DD EC 54 1F 1C E4 1A F2 C1 B7 4C
+3E 8C CA E2 A4 DA E5 6C 84 A0 4C 23 85 C0 3C 15
+E8 19 3B DF 58 73 73 63 32 16 91 C0 54 62 C8 DF
+T l@T uA3 B9 B0 38 59 00 CE 76 1F 22 AE D5 48 E7 54 DA
+10 A5 24 2D 62 E8 C6 58 E3 F3 A9 23 A7 55 56 07
+T l N:q nnT u55 CE DD 6F 60 AF 7B B2 9A 40 42 AE 83 2E F3 F5
+8D B7 29 9F 89 3E BB 92 47 24 7D 85 69 58 DA A9
+ptn
+T l T u9C 97 D0 36 A3 BA C8 19 DB 70 ED E0 CA 55 4E C6
+E4 C2 A1 A4 FF BF D9 EC 26 9C A6 A1 11 16 12 33
+T l T u96 C7 7C 27 9E 01 26 F7 FC 07 C9 B0 7F 5C DA E1
+E0 BE 60 BD BE 10 62 00 40 E7 5D 72 23 A6 24 D2
+T l  T uD4 97 6E B5 6B CF 11 85 20 58 2B 70 9F 73 E1 D6
+85 3E 00 1F DA F8 0E 1B 13 E0 D0 59 9D 5F B3 72
+T l &T uDA 67 C7 03 9E 98 BF 53 0C F7 A3 78 30 C6 66 4E
+14 CB AB 7F 54 0F 58 40 3B 1B 82 95 13 18 EE 5C
+T l   axof
+T ll l l l adata
+self
+btv
+T uB9 7A 90 6F BF 83 EF 7C 81 25 17 AB F3 B2 D0 AE
+A0 C4 F6 03 18 CE 11 CF 10 39 25 12 7F 59 EE CD
+T l  Vl @T u35 CD 49 4A DE DE D2 F2 52 39 AF 09 A7 B8 EF 0C
+4D 1C A4 FE 2D 1A C3 70 FA 63 21 6F E7 B4 C2 B1
+T l    T uBF 32 3F 94 04 94 E8 8E E1 C5 40 FE 66 0B E8 A0
+C9 3F 43 D1 5E C0 06 99 84 62 FA 99 4E ED 5D AB
+T c
+l T adata
+domain
+T u8E C9 C6 64 65 ED 0D 4A 6C 35 D1 35 06 71 8D 68
+7A 25 CB 05 C7 4C CA 1E 42 50 1A BD 83 87 4A 67
+T d l T uB6 58 57 60 01 CA D9 B1 E5 F3 99 A9 F7 77 23 BB
+A0 54 58 04 2D 68 20 6F 72 52 68 2D BA 36 63 ED
+T c
+l T u8D EE AA 1A EC 47 CC EE 56 9F 65 9C 21 DF A8 E1
+12 DB 3C EE 37 B1 81 78 B2 AC D8 05 B7 99 CC 37
+T c
+l T u55 31 22 E2 13 5E 36 3C 32 92 BE D2 C6 42 1F A2
+32 BA B0 3D AA 07 C7 D6 63 66 03 28 65 06 32 5B
+T d l0T u16 27 4C C6 56 D4 4C EF D4 22 39 5D 0F 90 53 BD
+A6 D2 8E 12 2A BA 15 C7 65 E5 AD 0E 6E AF 26 F9
+T c
+l T u36 7A 32 9D AF EA 87 1C 78 02 EC 67 F9 05 AE 13
+C5 76 95 DC 2C 66 63 C6 10 35 F5 9A 18 F8 E7 DB
+11 ED C0 E1 2E 91 EA 60 EB 6B 32 DF 06 DD 7F 00
+2F BA FA BB 6E 13 EC 1C C2 0D 99 55 47 60 0D B0
+aTurboSHAKE256
+T uAB EF A1 16 30 C6 61 26 92 49 74 26 85 EC 08 2F
+20 72 65 DC CF 2F 43 53 4E 9C 61 BA 0C 9D 1D 75
+T u3E 17 12 F9 28 F8 EA F1 05 46 32 B2 AA 0A 24 6E
+D8 B0 C3 78 72 8F 60 BC 97 04 10 15 5C 28 82 0E
+90 CC 90 D8 A3 00 6A A2 37 2C 5C 5E A1 76 B0 68
+2B F2 2B AE 74 67 AC 94 F7 4D 43 D3 9B 04 82 E2
+T uB3 BA B0 30 0E 6A 19 1F BE 61 37 93 98 35 92 35
+78 79 4E A5 48 43 F5 01 10 90 FA 2F 37 80 A9 E5
+CB 22 C5 9D 78 B4 0A 0F BF F9 E6 72 C0 FB E0 97
+0B D2 C8 45 09 1C 60 44 D6 87 05 4D A5 D8 E9 C7
+T u66 B8 10 DB 8E 90 78 04 24 C0 84 73 72 FD C9 57
+10 88 2F DE 31 C6 DF 75 BE B9 D4 CD 93 05 CF CA
+E3 5E 7B 83 E8 B7 E6 EB 4B 78 60 58 80 11 63 16
+FE 2C 07 8A 09 B9 4A D7 B8 21 3C 0A 73 8B 65 C0
+T uC7 4E BC 91 9A 5B 3B 0D D1 22 81 85 BA 02 D2 9E
+F4 42 D6 9D 3D 42 76 A9 3E FE 0B F9 A1 6A 7D C0
+CD 4E AB AD AB 8C D7 A5 ED D9 66 95 F5 D3 60 AB
+E0 9E 2C 65 11 A3 EC 39 7D A3 B7 6B 9E 16 74 FB
+T u02 CC 3A 88 97 E6 F4 F6 CC B6 FD 46 63 1B 1F 52
+07 B6 6C 6D E9 C7 B5 5B 2D 1A 23 13 4A 17 0A FD
+AC 23 4E AB A9 A7 7C FF 88 C1 F0 20 B7 37 24 61
+8C 56 87 B3 62 C4 30 B2 48 CD 38 64 7F 84 8A 1D
+T uAD D5 3B 06 54 3E 58 4B 58 23 F6 26 99 6A EE 50
+FE 45 ED 15 F2 02 43 A7 16 54 85 AC B4 AA 76 B4
+FF DA 75 CE DF 6D 8C DC 95 C3 32 BD 56 F4 B9 86
+B5 8B B1 7D 17 78 BF C1 B1 A9 75 45 CD F4 EC 9F
+T u9E 11 BC 59 C2 4E 73 99 3C 14 84 EC 66 35 8E F7
+1D B7 4A EF D8 4E 12 3F 78 00 BA 9C 48 53 E0 2C
+FE 70 1D 9E 6B B7 65 A3 04 F0 DC 34 A4 EE 3B A8
+2C 41 0F 0D A7 0E 86 BF BD 90 EA 87 7C 2D 61 04
+T uD2 1C 6F BB F5 87 FA 22 82 F2 9A EA 62 01 75 FB
+02 57 41 3A F7 8A 0B 1B 2A 87 41 9C E0 31 D9 33
+AE 7A 4D 38 33 27 A8 A1 76 41 A3 4F 8A 1D 10 03
+AD 7D A6 B7 2D BA 84 BB 62 FE F2 8F 62 F1 24 24
+T u73 8D 7B 4E 37 D1 8B 7F 22 AD 1B 53 13 E3 57 E3
+DD 7D 07 05 6A 26 A3 03 C4 33 FA 35 33 45 52 80
+F4 F5 A7 D4 F7 00 EF B4 37 FE 6D 28 14 05 E0 7B
+E3 2A 0A 97 2E 22 E6 3A DC 1B 09 0D AE FE 00 4B
+T u18 B3 B5 B7 06 1C 2E 67 C1 75 3A 00 E6 AD 7E D7
+BA 1C 90 6C F9 3E FB 70 92 EA F2 7F BE EB B7 55
+AE 6E 29 24 93 C1 10 E4 8D 26 00 28 49 2B 8E 09
+B5 50 06 12 B8 F2 57 89 85 DE D5 35 7D 00 EC 67
+T uBB 36 76 49 51 EC 97 E9 D8 5F 7E E9 A6 7A 77 18
+FC 00 5C F4 25 56 BE 79 CE 12 C0 BD E5 0E 57 36
+D6 63 2B 0D 0D FB 20 2D 1B BB 8F FE 3D D7 4C B0
+08 34 FA 75 6C B0 34 71 BA B1 3A 1E 2C 16 B3 C0
+T uF3 FE 12 87 3D 34 BC BB 2E 60 87 79 D6 B7 0E 7F
+86 BE C7 E9 0B F1 13 CB D4 FD D0 C4 E2 F4 62 5E
+14 8D D7 EE 1A 52 77 6C F7 7F 24 05 14 D9 CC FC
+3B 5D DA B8 EE 25 5E 39 EE 38 90 72 96 2C 11 1A
+T uAB E5 69 C1 F7 7E C3 40 F0 27 05 E7 D3 7C 9A B7
+E1 55 51 6E 4A 6A 15 00 21 D7 0B 6F AC 0B B4 0C
+06 9F 9A 98 28 A0 D5 75 CD 99 F9 BA E4 35 AB 1A
+CF 7E D9 11 0B A9 7C E0 38 8D 07 4B AC 76 87 76
+list_test_cases
+aTurboSHAKE128Test
+aTurboSHAKE256Test
+aTurboSHAKE128TV
+aTurboSHAKE256TV
+uSelf-test suite for Crypto.Hash.TurboSHAKE128 and TurboSHAKE256
+a__doc__
+a__file__
+origin
+has_location
+a__cached__
+unittest
+binascii
+T aunhexlify
+uCrypto.SelfTest.st_common
+T alist_test_cases
+uCrypto.Hash
+T aTurboSHAKE128
+aTurboSHAKE256
+uCrypto.Util.py3compat
+T abchr
+aTestCase
+a__prepare__
+aTurboSHAKETest
+a__getitem__
+u%s.__prepare__() must return a mapping, not %s
+a__name__
+u<metaclass>

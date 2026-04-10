@@ -1,0 +1,361 @@
+# Reconstructed from integrated Nuitka blob
+# Module: uCrypto.SelfTest.Cipher.test_ChaCha20
+
+a__qualname__
+test_new_positive
+uChaCha20Test.test_new_positive
+test_new_negative
+uChaCha20Test.test_new_negative
+test_default_nonce
+uChaCha20Test.test_default_nonce
+test_nonce
+uChaCha20Test.test_nonce
+test_eiter_encrypt_or_decrypt
+uChaCha20Test.test_eiter_encrypt_or_decrypt
+test_round_trip
+uChaCha20Test.test_round_trip
+test_streaming
+uChaCha20Test.test_streaming
+test_seek
+uChaCha20Test.test_seek
+test_seek_tv
+uChaCha20Test.test_seek_tv
+test_rfc7539
+uChaCha20Test.test_rfc7539
+a__orig_bases__
+test_hchacha20
+uXChaCha20Test.test_hchacha20
+uXChaCha20Test.test_nonce
+test_encrypt
+uXChaCha20Test.test_encrypt
+uVerify we can encrypt or decrypt bytearrays
+runTest
+uByteArrayTest.runTest
+uMemoryviewTest.runTest
+L T u0000000000000000000000000000000000000000000000000000000000000000
+u0000000000000000
+u76b8e0ada0f13d90405d6ae55386bd28bdd219b8a08ded1aa836efcc8b770dc7da41597c5157488d7724e03fb8d84a376a43b8f41518a11cc387b669b2ee65869f07e7be5551387a98ba977c732d080dcb0f29a048e3656912c6533e32ee7aed29b721769ce64e43d57133b074d839d531ed1f28510afb45ace10a1f4b794d6f
+T u0000000000000000000000000000000000000000000000000000000000000001
+u0000000000000000
+u4540f05a9f1fb296d7736e7b208e3c96eb4fe1834688d2604f450952ed432d41bbe2a0b6ea7566d2a5d1e7e20d42af2c53d792b1c43fea817e9ad275ae5469633aeb5224ecf849929b9d828db1ced4dd832025e8018b8160b82284f3c949aa5a8eca00bbb4a73bdad192b5c42f73f2fd4e273644c8b36125a64addeb006c13a0
+T u0000000000000000000000000000000000000000000000000000000000000000
+u0000000000000001
+de9cba7bf3d69ef5e786dc63973f653a0b49e015adbff7134fcb7df137821031e85a050278a7084527214f73efc7fa5b5277062eb7a0433e445f41e3
+T u0000000000000000000000000000000000000000000000000000000000000000
+u0100000000000000
+ef3fdfd6c61578fbf5cf35bd3dd33b8009631634d21e42ac33960bd138e50d32111e4caf237ee53ca8ad6426194a88545ddc497a0b466e7d6bbdb0041b2f586b
+T u000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f
+u0001020304050607
+f798a189f195e66982105ffb640bb7757f579da31602fc93ec01ac56f85ac3c134a4547b733b46413042c9440049176905d3be59ea1c53f15916155c2be8241a38008b9a26bc35941e2444177c8ade6689de95264986d95889fb60e84629c9bd9a5acb1cc118be563eb9b3a4a472f82e09a7e778492b562ef7130e88dfe031c79db9d4f7c7a899151b9a475032b63fc385245fe054e3dd5a97a5f576fe064025d3ce042c566ab2c507b138db853e3d6959660996546cc9c4a6eafdc777c040d70eaf46f76dad3979e5c5360c3317166a1c894c94a371876a94df7628fe4eaaf2ccb27d5aaae0ad7ad0f9d4b6ad3b54098746d4524d38407a6deb3ab78fab78c9
+T u0000000000000000000000000000000000000000000000000000000000000000
+u0000000000000002
+c2c64d378cd536374ae204b9ef933fcd1a8b2288b3dfa49672ab765b54ee27c78a970e0e955c14f3a88e741b97c286f75f8fc299e8148362fa198a39531bed6d
+uChaCha20_AGL_NIR.runTest
+uTestOutput.runTest
+get_tests
+uCrypto\SelfTest\Cipher\test_ChaCha20.py
+u<module Crypto.SelfTest.Cipher.test_ChaCha20>
+T a__class__
+T aconfig
+tests
+T aself
+data
+key
+nonce
+data_ba
+key_ba
+nonce_ba
+cipher1
+ct
+cipher2
+ct_test
+ct_ba
+cipher3
+pt_test
+T aself
+key
+nonce
+stream
+wcact
+pt
+T aself
+data
+key
+nonce
+data_mv
+key_mv
+nonce_mv
+cipher1
+ct
+cipher2
+ct_test
+ct_mv
+cipher3
+pt_test
+T	aself
+key
+nonce
+cipher
+pt
+ct
+output
+res
+shorter_output
+T aself
+cipher1
+cipher2
+T aself
+c1
+c2
+T aself
+pt
+key
+iv
+ct
+cipher
+ct_test
+T aself
+a_HChaCha20
+key
+nonce
+subkey
+expected
+T aself
+new
+T aself
+cipher
+T aself
+key
+nonce1
+cipher1
+nonce2
+cipher2
+T aself
+key
+nonce
+cipher
+T
+self
+tvs
+tv
+key
+nonce
+offset
+pt
+ct_expect
+cipher
+ct
+T aself
+pt
+c1
+c2
+ct
+T aself
+cipher1
+offset
+pt
+ct1
+cipher2
+ct2
+T aself
+key
+nonce
+cipher
+expected_key_stream
+ct
+T aself
+aSHA1
+segments
+total
+pt
+cipher1
+ct
+cipher2
+cipher3
+idx
+segment
+
+a__spec__
+.Crypto.SelfTest.Cipher.test_ChaCha20_Poly1305
+<'
+* aSHAKE128
+new
+tobytes
+T adata
+read
+aChaCha20_Poly1305
+key_256
+nonce_96
+T akey
+nonce
+get_tag_random
+T aplaintext
+l  aencrypt
+decrypt
+assertEqual
+cHHHHHHHH
+nonce
+l cHHHHHHHHHHHH
+l T akey
+assertNotEqual
+data_128
+assertRaises
+test12345678
+c0000000
+c
+assertFalse
+block_size
+l	T akey
+param
+T aencrypt
+decrypt
+self
+T c
+utest1234567890-*
+encrypt_and_digest
+l uCrypto.Util.strxor
+T astrxor_c
+strxor_c
+decrypt_and_verify
+hexdigest
+digest
+unhexlify
+hexverify
+T uauthenticated data
+l T aplaintext
+l aupdate
+break_up
+uChaCha20Poly1305Tests.test_message_chunks.<locals>.break_up
+T
+l l l l l
+ll l(lPl  aauth_data
+cipher
+ciphertext
+pt2
+plaintext
+verify
+ref_mac
+ct2
+chunk_length
+c
+:nl nc
+T cYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYY
+cHHHHHHHHHHHHHHHHHHHHHHHH
+l cHHHHHHHHHHHHHHHHHHHHHHHH
+T c4c616469657320616e642047656e746c656d656e206f662074686520636c617373206f66202739393a204966204920636f756c64206f6666657220796f75206f6e6c79206f6e652074697020666f7220746865206675747572652c2073756e73637265656e20776f756c642062652069742e
+T c50515253c0c1c2c3c4c5c6c7
+T c808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9f
+T c404142434445464748494a4b4c4d4e4f5051525354555657
+c
+bd6d179d3e83d43b9576579493c0e939572a1700252bfaccbed2902c21396cbb
+731c7f1b0b4aa6440bf3a82f4eda7e39ae64c6708c54c216cb96b72e1213b452
+2f8c9ba40db5d945b11b69b982c1bb9e3f3fac2bc369488f76b2383565d3fff9
+21f9664c97637da9768812f615c68b13b52e
+d
+d T cc0875924c1c7987947deafd8780acf49
+c333
+d3;l
+l l afirst_mac
+;l
+l l T T aencrypt
+decrypt
+T adecrypt
+encrypt
+T tFT aencrypt
+update
+T adecrypt
+update
+ct
+mac
+replace
+T w u
+T w:u
+test_vectors
+aTestCase
+a__init__
+a_wycheproof_warnings
+aNone
+a_id
+filter_tag
+uTestVectorsWycheproof.load_tests.<locals>.filter_tag
+filter_algo
+uTestVectorsWycheproof.load_tests.<locals>.filter_algo
+load_test_vectors_wycheproof
+T aCipher
+wycheproof
+uWycheproof ChaCha20-Poly1305
+algo
+tag_size
+T aroot_tag
+group_tag
+tagSize
+algorithm
+tv
+extend
+load_tests
+T uchacha20_poly1305_test.json
+T uxchacha20_poly1305_test.json
+warning
+warnings
+warn
+uWycheproof warning: %s (%s)
+comment
+uWycheproof Encrypt %s Test #%s
+id
+key
+iv
+T l l uNonce must be
+aad
+msg
+valid
+tag
+uWycheproof Decrypt %s Test #%s
+pt
+uWycheproof Corrupt Decrypt ChaCha20-Poly1305 Test #
+strxor
+d
+d atest_encrypt
+test_decrypt
+test_corrupt_decrypt
+T c44444444444444444444444444444444
+c555555555555
+T c5555555555555555
+B
+T aoutput
+c5555555555555555
+D aoutput
+c0000000000000000
+B
+get
+T awycheproof_warnings
+list_test_cases
+aChaCha20Poly1305Tests
+aXChaCha20Poly1305Tests
+aChaCha20Poly1305FSMTests
+aTestVectorsRFC
+aTestVectorsWycheproof
+aTestOutput
+a__doc__
+a__file__
+origin
+has_location
+a__cached__
+unittest
+binascii
+T aunhexlify
+uCrypto.SelfTest.st_common
+T alist_test_cases
+uCrypto.SelfTest.loader
+T aload_test_vectors_wycheproof
+uCrypto.Util.py3compat
+T atobytes
+uCrypto.Cipher
+T aChaCha20_Poly1305
+uCrypto.Hash
+T aSHAKE128
+T astrxor
+a__prepare__
+a__getitem__
+u%s.__prepare__() must return a mapping, not %s
+a__name__
+u<metaclass>

@@ -1,0 +1,557 @@
+# Reconstructed from integrated Nuitka blob
+# Module: uCrypto.SelfTest.Cipher.test_EAX
+
+a__qualname__
+T akey_128
+l T akey_192
+l T anonce_128
+l T adata_128
+l atest_loopback_128
+uEaxTests.test_loopback_128
+test_loopback_64
+uEaxTests.test_loopback_64
+test_nonce
+uEaxTests.test_nonce
+test_nonce_must_be_bytes
+uEaxTests.test_nonce_must_be_bytes
+test_nonce_length
+uEaxTests.test_nonce_length
+test_block_size_128
+uEaxTests.test_block_size_128
+test_block_size_64
+uEaxTests.test_block_size_64
+test_nonce_attribute
+uEaxTests.test_nonce_attribute
+test_unknown_parameters
+uEaxTests.test_unknown_parameters
+test_null_encryption_decryption
+uEaxTests.test_null_encryption_decryption
+test_either_encrypt_or_decrypt
+uEaxTests.test_either_encrypt_or_decrypt
+test_data_must_be_bytes
+uEaxTests.test_data_must_be_bytes
+test_mac_len
+uEaxTests.test_mac_len
+test_invalid_mac
+uEaxTests.test_invalid_mac
+test_hex_mac
+uEaxTests.test_hex_mac
+test_message_chunks
+uEaxTests.test_message_chunks
+test_bytearray
+uEaxTests.test_bytearray
+test_memoryview
+uEaxTests.test_memoryview
+test_output_param
+uEaxTests.test_output_param
+test_output_param_memoryview
+uEaxTests.test_output_param_memoryview
+test_output_param_neg
+uEaxTests.test_output_param_neg
+a__orig_bases__
+test_valid_init_encrypt_decrypt_digest_verify
+uEaxFSMTests.test_valid_init_encrypt_decrypt_digest_verify
+test_valid_init_update_digest_verify
+uEaxFSMTests.test_valid_init_update_digest_verify
+test_valid_full_path
+uEaxFSMTests.test_valid_full_path
+test_valid_init_digest
+uEaxFSMTests.test_valid_init_digest
+test_valid_init_verify
+uEaxFSMTests.test_valid_init_verify
+test_valid_multiple_encrypt_or_decrypt
+uEaxFSMTests.test_valid_multiple_encrypt_or_decrypt
+test_valid_multiple_digest_or_verify
+uEaxFSMTests.test_valid_multiple_digest_or_verify
+test_valid_encrypt_and_digest_decrypt_and_verify
+uEaxFSMTests.test_valid_encrypt_and_digest_decrypt_and_verify
+test_invalid_mixing_encrypt_decrypt
+uEaxFSMTests.test_invalid_mixing_encrypt_decrypt
+test_invalid_encrypt_or_update_after_digest
+uEaxFSMTests.test_invalid_encrypt_or_update_after_digest
+test_invalid_decrypt_or_update_after_verify
+uEaxFSMTests.test_invalid_decrypt_or_update_after_verify
+uClass exercising the EAX test vectors found in
+http://www.cs.ucdavis.edu/~rogaway/papers/eax.pdf
+L
+T u6bfb914fd07eae6b
+
+pae037830e8389f27b025a2d6527e79d01
+u233952dee4d5ed5f9b9c6d6ff80ff478
+u62EC67F9C3A4A407FCB2A8C49031A8B3
+T afa3bfd4806eb53fa
+f7fb
+u19dd
+u5c4c9331049d0bdab0277408f67967e5
+u91945d3f4dcbee0bf45ef52255f095a4
+aBECAF043B0A23D843194BA972C66DEBD
+T u234a3463c1264ac6
+u1a47cb4933
+d851d5bae0
+u3a59f238a23e39199dc9266626c40f80
+u01f74ad64077f2e704c0f60ada3dd523
+u70C3DB4F0D26368400A10ED05D2BFF5E
+T u33cce2eabff5a79d
+u481c9e39b1
+u632a9d131a
+d4c168a4225d8e1ff755939974a7bede
+d07cf6cbb7f313bdde66b727afd3c5e8
+u8408DFFF3C1A2B1292DC199E46B7D617
+T aaeb96eaebe2970e9
+u40d0c07da5e4
+u071dfe16c675
+cb0677e536f73afe6a14b74ee49844dd
+u35b6d0580005bbc12b0587124557d2c2
+aFDB6B06676EEDC5C61D74276E1F8E816
+T ad4482d1ca78dce0f
+u4de3b35c3fc039245bd1fb7d
+u835bb4f15d743e350e728414
+abb8644fd6ccb86947c5e10590210a4f
+bd8e6e11475e60b268784c38c62feb22
+u6EAC5C93072D8E8513F750935E46DA1B
+T u65d2017990d62528
+u8b0a79306c9ce7ed99dae4f87f8dd61636
+u02083e3979da014812f59f11d52630da30
+u137327d10649b0aa6e1c181db617d7f2
+u7c77d6e813bed5ac98baa417477a2e7d
+u1A8C98DCD73D38393B2BF1569DEEFC19
+T u54b9f04e6a09189a
+u1bda122bce8a8dbaf1877d962b8592dd2d56
+u2ec47b2c4954a489afc7ba4897edcdae8cc3
+u3b60450599bd02c96382902aef7f832a
+u5fff20cafab119ca2fc73549e20f5b0d
+aDDE59B97D722156D4D9AFF2BC7559826
+T u899a175897561d7e
+u6cf36720872b8513f6eab1a8a44438d5ef11
+u0de18fd0fdd91e7af19f1d8ee8733938b1e8
+e7f6d2231618102fdb7fe55ff1991700
+a4a4782bcffd3ec5e7ef6d8c34a56123
+aB781FCF2F75FA5A8DE97A9CA48E522EC
+T u126735fcc320d25a
+ca40d7446e545ffaed3bd12a740a659ffbbb3ceab7
+cb8920f87a6c75cff39627b56e3ed197c552d295a7
+cfc46afc253b4652b1af3795b124ab6e
+u8395fcf1e95bebd697bd010bc766aac3
+u22E7ADD93CFC6393C57EC0B3C17D6B44
+test_vectors_hex
+runTest
+uTestVectorsPaper.runTest
+uTestVectorsWycheproof.__init__
+setUp
+uTestVectorsWycheproof.setUp
+shortDescription
+uTestVectorsWycheproof.shortDescription
+uTestVectorsWycheproof.warn
+uTestVectorsWycheproof.test_encrypt
+uTestVectorsWycheproof.test_decrypt
+uTestVectorsWycheproof.test_corrupt_decrypt
+uTestVectorsWycheproof.runTest
+classmethod
+create_test
+uTestOtherCiphers.create_test
+T aDES
+aDES3
+aARC2
+aCAST
+aBlowfish
+aDES
+aARC2
+aCAST
+aBlowfish
+aDES_
+key_size
+ks
+aDES3_
+aARC2_
+aCAST_
+aBlowfish_
+get_tests
+uCrypto\SelfTest\Cipher\test_EAX.py
+u<module Crypto.SelfTest.Cipher.test_EAX>
+T a__class__
+T aself
+wycheproof_warnings
+T adata
+chunk_length
+T acls
+name
+factory
+key_size
+test_template
+T agroup
+T atag
+length
+T aconfig
+wycheproof_warnings
+tests
+T aself
+assoc_data
+pt
+ct
+mac
+key
+nonce
+cipher
+ct2
+mac2
+pt2
+T aself
+tv
+T aself
+filter_tag
+T aself
+T aself
+cipher
+T aself
+key_ba
+nonce_ba
+header_ba
+data_ba
+cipher1
+ct
+tag
+cipher2
+ct_test
+tag_test
+ct_ba
+tag_ba
+cipher3
+pt_test
+T aself
+tv
+cipher
+ct_corrupt
+T aself
+tv
+cipher
+weapt
+T aself
+tv
+cipher
+weact
+tag
+T aself
+cipher
+mac_hex
+T aself
+cipher
+ct
+mac
+method_name
+T aself
+method_name
+cipher
+T aself
+strxor_c
+cipher
+ct
+mac
+invalid_mac
+T aself
+method1_name
+method2_name
+assoc_data_present
+cipher
+T aself
+cipher
+pt
+ct
+pt2
+T aself
+mac_len
+cipher
+w_amac
+T aself
+key_mv
+nonce_mv
+header_mv
+data_mv
+cipher1
+ct
+tag
+cipher2
+ct_test
+tag_test
+ct_mv
+tag_mv
+cipher3
+pt_test
+T aself
+auth_data
+plaintext
+cipher
+ciphertext
+ref_mac
+break_up
+chunk_length
+chunk
+pt2
+ct2
+T aself
+cipher
+nonce1
+nonce2
+ct
+T aself
+cipher
+nonce1
+nonce2
+T aself
+wxacipher
+T aself
+func
+cipher
+result
+T aself
+pt
+cipher
+ct
+tag
+output
+res
+tag_out
+T aself
+pt
+cipher
+ct
+output
+T aself
+aLEN_PT
+pt
+cipher
+ct
+shorter_output
+T aself
+factory
+key_size
+cipher
+ct
+mac
+pt2
+T aself
+cipher
+ct
+mac
+pt
+T aself
+cipher
+ct
+mac
+T aself
+cipher
+mac
+T aself
+cipher
+first_mac
+wxT aself
+method_name
+auth_data
+assoc_len
+cipher
+method
+T aself
+tv
+warnings
+
+a__spec__
+.Crypto.SelfTest.Cipher.test_GCM
+q8
+W aSHAKE128
+new
+tobytes
+T adata
+read
+aAES
+key_128
+aMODE_GCM
+nonce_96
+T anonce
+get_tag_random
+T aplaintext
+l  aencrypt
+decrypt
+assertEqual
+data
+assertRaises
+D anonce
+test12345678
+D anonce
+c
+;l l  l aself
+bchr
+T l ablock_size
+nonce
+l aassertNotEqual
+l T anonce
+unknown
+T anonce
+use_aesni
+T aencrypt
+decrypt
+T c
+c
+utest1234567890-*
+l T anonce
+mac_len
+l ;l l l aencrypt_and_digest
+uCrypto.Util.strxor
+T astrxor_c
+strxor_c
+decrypt_and_verify
+hexdigest
+digest
+unhexlify
+hexverify
+T uauthenticated data
+l T aplaintext
+l aupdate
+break_up
+uGcmTests.test_message_chunks.<locals>.break_up
+T
+l l l l l
+ll l(lPl  aauth_data
+cipher
+ciphertext
+pt2
+plaintext
+verify
+ref_mac
+ct2
+chunk_length
+c
+:nl nT c55555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555
+B
+T aoutput
+c55555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555
+D aoutput
+c00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+B
+c333
+d3;l
+l l afirst_mac
+;l
+l l T T aencrypt
+decrypt
+T adecrypt
+encrypt
+T tFT aencrypt
+update
+T adecrypt
+update
+ct
+mac
+test_vectors
+T amac_len
+T u3da6c536d6295579c0959a7043efb503
+T u2b926197d34e091ef722db94
+T u00000000000000000000000000000000000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f
+T u69dd586555ce3fcc89663801a71d957b
+T u843ffcf5d2b72694d19ed01d01249412
+T adbcca32ebf9b804617c3aa9e
+T u00000000000000000000000000000000101112131415161718191a1b1c1d1e1f
+T u000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f
+T u6268c6fa2a80b2d137467f092f657ac04d89be2beaa623d61b5a868c8f03ff95d3dcee23ad2f1ab3a6c80eaf4b140eb05de3457f0fbc111a6b43d0763aa422a3013cf1dc37fe417d1fbfc449b75d4cc5
+T u3b629ccfbc1119b7319e1dce2cd6fd6d
+use_clmul
+aTestCase
+a__init__
+desc
+description
+key
+iv
+tag
+T anonce
+mac_len
+use_clmul
+aad
+aFAIL
+others
+pt
+a_wycheproof_warnings
+a_extra_params
+aNone
+a_id
+filter_tag
+uTestVectorsWycheproof.setUp.<locals>.filter_tag
+load_test_vectors_wycheproof
+tag_size
+T T aCipher
+wycheproof
+uaes_gcm_test.json
+uWycheproof GCM
+T agroup_tag
+tv
+tagSize
+l awarning
+warnings
+warn
+uWycheproof warning: %s (%s)
+comment
+uWycheproof Encrypt GCM Test #
+id
+mac_len
+uNonce cannot be empty
+msg
+valid
+uWycheproof Decrypt GCM Test #
+uWycheproof Corrupt Decrypt GCM Test #
+strxor
+d
+d atest_encrypt
+test_decrypt
+test_corrupt_decrypt
+c0000000000000000
+aSHA256
+;l
+l  l u{0:04d}
+uutf-8
+whu7b7eb1ffbe67a2e53a912067c0ec8e62ebc7ce4d83490ea7426941349811bdf4
+uCrypto.Util
+T a_cpu_features
+a_cpu_features
+get
+T awycheproof_warnings
+list_test_cases
+aGcmTests
+aGcmFSMTests
+aTestVectors
+aTestVectorsWycheproof
+aTestVectorsGueronKrasnov
+aTestVariableLength
+T aslow_tests
+aNISTTestVectorsGCM
+have_clmul
+D ause_clmul
+FT FT ause_clmul
+aNISTTestVectorsGCM_no_clmul
+print
+T uSkipping test of PCLMULDQD in AES GCM
+a__doc__
+a__file__
+origin
+has_location
+a__cached__
+print_function
+unittest
+binascii
+T aunhexlify
+uCrypto.SelfTest.st_common
+T alist_test_cases
+uCrypto.SelfTest.loader
+T aload_test_vectors
+load_test_vectors_wycheproof
+load_test_vectors
+uCrypto.Util.py3compat
+T atobytes
+bchr
+uCrypto.Cipher
+T aAES
+uCrypto.Hash
+T aSHAKE128
+aSHA256
+T astrxor
+a__prepare__
+a__getitem__
+u%s.__prepare__() must return a mapping, not %s
+a__name__
+u<metaclass>

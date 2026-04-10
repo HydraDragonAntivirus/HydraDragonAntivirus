@@ -1,0 +1,383 @@
+# Reconstructed from integrated Nuitka blob
+# Module: uCrypto.SelfTest.Hash.test_CMAC
+
+a__qualname__
+test_internal_caching
+uTestCMAC.test_internal_caching
+test_update_after_digest
+uTestCMAC.test_update_after_digest
+a__orig_bases__
+runTest
+uByteArrayTests.runTest
+uMemoryViewTests.runTest
+uTestVectorsWycheproof.__init__
+setUp
+uTestVectorsWycheproof.setUp
+shortDescription
+uTestVectorsWycheproof.shortDescription
+uTestVectorsWycheproof.warn
+uTestVectorsWycheproof.test_create_mac
+uTestVectorsWycheproof.test_verify_mac
+uTestVectorsWycheproof.runTest
+get_tests
+uCrypto\SelfTest\Hash\test_CMAC.py
+u<module Crypto.SelfTest.Hash.test_CMAC>
+T a__class__
+T aself
+wycheproof_warnings
+T agroup
+T atag
+length
+T aconfig
+types
+make_mac_tests
+wycheproof_warnings
+params_test_data
+row
+wtatests
+T aself
+key
+data
+key_ba
+data_ba
+h1
+h2
+T
+self
+key
+data
+get_mv_ro
+get_mv_rw
+get_mv
+key_mv
+data_mv
+h1
+h2
+T aself
+tv
+T aself
+filter_tag
+T aself
+T aself
+tv
+tag
+weT aself
+data_to_mac
+key
+ref_mac
+chunk_length
+chunks
+mac
+chunk
+T aself
+msg
+key
+whadig1
+dig2
+h2
+T aself
+tv
+mac
+weT aself
+tv
+warnings
+a__spec__
+.Crypto.SelfTest.Hash.test_HMAC
+/
+tostr
+hexlify
+tobytes
+aTestCase
+a__init__
+hashmods
+
+description
+uInitialize the test with a dictionary of hash modules
+indexed by their names
+c
+bd
+items
+uTest HMAC in combination with
+self
+aHMAC
+new
+key
+payload
+digest
+assertEqual
+c
+c
+aSHA1
+B 0000000000000000B
+T c0000000000000000
+b
+d :nl nT c0000000000000000
+update
+T b
+c0000000000000000
+b
+get_mv_ro
+uMemoryViewTests.runTest.<locals>.get_mv_ro
+get_mv_rw
+uMemoryViewTests.runTest.<locals>.get_mv_rw
+data
+readonly
+common
+T amake_mac_tests
+make_mac_tests
+test_data
+l akeys
+digestmod
+exp_test_data
+append
+aHMAC_Module_and_Instance_Test
+hash_modules
+aHMAC_None
+aByteArrayTests
+aMemoryViewTests
+uSelf-test suite for Crypto.Hash.HMAC
+a__doc__
+a__file__
+origin
+has_location
+a__cached__
+unittest
+binascii
+T ahexlify
+uCrypto.Util.py3compat
+T atostr
+tobytes
+uCrypto.Hash
+T aHMAC
+aMD5
+aSHA1
+aSHA256
+aSHA224
+aSHA384
+aSHA512
+aRIPEMD160
+aSHA3_224
+aSHA3_256
+aSHA3_384
+aSHA3_512
+aMD5
+aSHA256
+aSHA224
+aSHA384
+aSHA512
+aRIPEMD160
+aSHA3_224
+aSHA3_256
+aSHA3_384
+aSHA3_512
+default_hash
+xl
+T u0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b
+u4869205468657265
+D adefault_hash
+u9294727a3638bb1c13f48ef8158bfc9d
+udefault-is-MD5
+T u0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b
+u4869205468657265
+D aMD5
+u9294727a3638bb1c13f48ef8158bfc9d
+uRFC 2202 #1-MD5 (HMAC-MD5)
+T u0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b
+u4869205468657265
+D aSHA1
+b617318655057264e28bc0b6fb378c8ef146be00
+uRFC 2202 #1-SHA1 (HMAC-SHA1)
+T u4a656665
+u7768617420646f2079612077616e7420666f72206e6f7468696e673f
+D aMD5
+aSHA1
+u750c783e6ab0b503eaa86e310a5db738
+effcdf6ae5eb2fa2d27416d5f184df9c259a7c79
+uRFC 2202 #2 (HMAC-MD5/SHA1)
+T aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+D aMD5
+u56be34521d144c88dbb8c733f0e8b3f6
+uRFC 2202 #3-MD5 (HMAC-MD5)
+T aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+D aSHA1
+u125d7342b9ac11cd91a39af48aa17b4f63f175d3
+uRFC 2202 #3-SHA1 (HMAC-SHA1)
+T u0102030405060708090a0b0c0d0e0f10111213141516171819
+cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd
+D aMD5
+aSHA1
+u697eaf0aca3a3aea3a75164746ffaa79
+u4c9007f4026250c6bc8414f9bf50c86c2d7235da
+uRFC 2202 #4 (HMAC-MD5/SHA1)
+T u0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c
+u546573742057697468205472756e636174696f6e
+D aMD5
+u56461ef2342edc00f9bab995690efd4c
+uRFC 2202 #5-MD5 (HMAC-MD5)
+T u0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c
+u546573742057697468205472756e636174696f6e
+D aSHA1
+u4c1a03424b55e07fe7f27be1d58bb9324a9a5a04
+uRFC 2202 #5-SHA1 (HMAC-SHA1)
+T aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+u54657374205573696e67204c6172676572205468616e20426c6f636b2d53697a65204b6579202d2048617368204b6579204669727374
+D aMD5
+aSHA1
+u6b1ab7fe4bd7bf8f0b62e6ce61b9d0cd
+aa4ae5e15272d00e95705637ce8a3b55ed402112
+uRFC 2202 #6 (HMAC-MD5/SHA1)
+T aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+u54657374205573696e67204c6172676572205468616e20426c6f636b2d53697a65204b657920616e64204c6172676572205468616e204f6e6520426c6f636b2d53697a652044617461
+D aMD5
+aSHA1
+u6f630fad67cda0ee1fb1f562db3aa53e
+e8e99d0f45237d786d6bbaa7965c7808bbff1a91
+uRFC 2202 #7 (HMAC-MD5/SHA1)
+T u0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b
+u4869205468657265
+D aSHA256
+
+b0344c61d8db38535ca8afceaf0bf12b
+881dc200c9833da726e9376c2e32cff7
+uRFC 4231 #1 (HMAC-SHA256)
+T u4a656665
+u7768617420646f2079612077616e7420666f72206e6f7468696e673f
+D aSHA256
+
+5bdcc146bf60754e6a042426089575c7
+5a003f089d2739839dec58b964ec3843
+uRFC 4231 #2 (HMAC-SHA256)
+T aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+D aSHA256
+
+773ea91e36800e46854db8ebd09181a7
+2959098b3ef8c122d9635514ced565fe
+uRFC 4231 #3 (HMAC-SHA256)
+T u0102030405060708090a0b0c0d0e0f10111213141516171819
+cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd
+D aSHA256
+
+82558a389a443c0ea4cc819899f2083a
+85f0faa3e578f8077a2e3ff46729665b
+uRFC 4231 #4 (HMAC-SHA256)
+aa
+l  u54657374205573696e67204c6172676572205468616e20426c6f636b2d53697a65204b6579202d2048617368204b6579204669727374
+D aSHA256
+
+60e431591ee0b67f0d8a26aacbf5b77f
+8e0bc6213728c5140546040f0ee37f54
+uRFC 4231 #6 (HMAC-SHA256)
+u5468697320697320612074657374207573696e672061206c6172676572207468616e20626c6f636b2d73697a65206b657920616e642061206c6172676572207468616e20626c6f636b2d73697a6520646174612e20546865206b6579206e6565647320746f20626520686173686564206265666f7265206265696e6720757365
+u642062792074686520484d414320616c676f726974686d2e
+D aSHA256
+
+9b09ffa71b942fcb27635fbcd5b0e944
+bfdc63644f0713938a7f51535c3a35e2
+uRFC 4231 #7 (HMAC-SHA256)
+T u4a656665
+u7768617420646f2079612077616e7420666f72206e6f7468696e673f
+D aSHA224
+a30e01098bc6dbbf45690f3a7e9e6d0f8bbea2a39e6148008fd05e44
+uRFC 4634 8.4 SHA224 (HMAC-SHA224)
+T u4a656665
+u7768617420646f2079612077616e7420666f72206e6f7468696e673f
+D aSHA384
+af45d2e376484031617f78d2b58a6b1b9c7ef464f5a01b47e42ec3736322445e8e2240ca5e69e2c78b3239ecfab21649
+uRFC 4634 8.4 SHA384 (HMAC-SHA384)
+T u4a656665
+u7768617420646f2079612077616e7420666f72206e6f7468696e673f
+D aSHA512
+u164b7a7bfcf819e2e395fbe73b56e0a387bd64222e831fd610270cd7ea2505549758bf75c05a994a6d034f65f8f0e6fdcaeab1a34d4a6b4b636e070a38bce737
+uRFC 4634 8.4 SHA512 (HMAC-SHA512)
+u0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b
+T uHi There
+D aRIPEMD160
+u24cb4bd67d20fc1a5d2ed7732dcc39377f0a5668
+uRFC 2286 #1 (HMAC-RIPEMD)
+T aJefe
+T uwhat do ya want for nothing?
+D aRIPEMD160
+dda6c0213a485a9e24f4742064a7f033b43c4069
+uRFC 2286 #2 (HMAC-RIPEMD)
+T aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+D aRIPEMD160
+b0b105360de759960ab4f35298e116e295d8e7c1
+uRFC 2286 #3 (HMAC-RIPEMD)
+T u0102030405060708090a0b0c0d0e0f10111213141516171819
+cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd
+D aRIPEMD160
+d5ca862f4d21d5e610e18b4cf1beb97a4365ecf4
+uRFC 2286 #4 (HMAC-RIPEMD)
+u0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c
+T uTest With Truncation
+D aRIPEMD160
+u7619693978f91d90539ae786500ff3d8e0518e39
+uRFC 2286 #5 (HMAC-RIPEMD)
+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+T uTest Using Larger Than Block-Size Key - Hash Key First
+D aRIPEMD160
+u6466ca07ac5eac29e1bd523e5ada7605b791fd8b
+uRFC 2286 #6 (HMAC-RIPEMD)
+T uTest Using Larger Than Block-Size Key and Larger Than One Block-Size Data
+D aRIPEMD160
+u69ea60798d71616cce5fd0871e23754cd75d5a0a
+uRFC 2286 #7 (HMAC-RIPEMD)
+u000102030405060708090a0b0c0d0e0f101112131415161718191a1b
+T uSample message for keylen<blocklen
+D aSHA3_224
+u332cfd59347fdb8e576e77260be4aba2d6dc53117b3bfb52c6d18c04
+uNIST CSRC Sample #1 (SHA3-224)
+u000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f
+T uSample message for keylen=blocklen
+D aSHA3_224
+d8b733bcf66c644a12323d564e24dcf3fc75f231f3b67968359100c7
+uNIST CSRC Sample #2 (SHA3-224)
+u000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaab
+T uSample message for keylen>blocklen
+D aSHA3_224
+u078695eecc227c636ad31d063a15dd05a7e819a66ec6d8de1e193e59
+uNIST CSRC Sample #3 (SHA3-224)
+u000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f
+D aSHA3_256
+u4fe8e202c4f058e8dddc23d8c34e467343e23555e24fc2f025d598f558f67205
+uNIST CSRC Sample #1 (SHA3-256)
+u000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f8081828384858687
+D aSHA3_256
+u68b94e2e538a9be4103bebb5aa016d47961d4d1aa906061313b557f8af2c3faa
+uNIST CSRC Sample #2 (SHA3-256)
+u000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7
+D aSHA3_256
+u9bcf2c238e235c3ce88404e813bd2f3a97185ac6f238c63d6229a00b07974258
+uNIST CSRC Sample #3 (SHA3-256)
+u000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f
+D aSHA3_384
+d588a3c51f3f2d906e8298c1199aa8ff6296218127f6b38a90b6afe2c5617725bc99987f79b22a557b6520db710b7f42
+uNIST CSRC Sample #1 (SHA3-384)
+u000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f6061626364656667
+D aSHA3_384
+a27d24b592e8c8cbf6d4ce6fc5bf62d8fc98bf2d486640d9eb8099e24047837f5f3bffbe92dcce90b4ed5b1e7e44fa90
+uNIST CSRC Sample #2 (SHA3-384)
+u000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f9091929394959697
+D aSHA3_384
+e5ae4c739f455279368ebf36d4f5354c95aa184c899d3870e460ebc288ef1f9470053f73f7c6da2a71bcaec38ce7d6ac
+uNIST CSRC Sample #3 (SHA3-384)
+u000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f
+D aSHA3_512
+u4efd629d6c71bf86162658f29943b1c308ce27cdfa6db0d9c3ce81763f9cbce5f7ebe9868031db1a8f8eb7b6b95e5c5e3f657a8996c86a2f6527e307f0213196
+uNIST CSRC Sample #1 (SHA3-512)
+u000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f4041424344454647
+D aSHA3_512
+u544e257ea2a3e5ea19a590e6a24b724ce6327757723fe2751b75bf007d80f6b360744bf1b7a88ea585f9765b47911976d3191cf83c039f5ffab0d29cc9d9b6da
+uNIST CSRC Sample #2 (SHA3-512)
+D aSHA3_512
+u5f464f5e5b7848e3885e49b2c385f0694985d0e38966242dc4a5fe3fea4b37d46b65ceced5dcf59438dd840bab22269f0ba7febdb9fcf74602a35666b2a32915
+uNIST CSRC Sample #3 (SHA3-512)
+a__prepare__
+a__getitem__
+u%s.__prepare__() must return a mapping, not %s
+a__name__
+u<metaclass>

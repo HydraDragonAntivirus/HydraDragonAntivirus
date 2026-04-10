@@ -122,6 +122,10 @@ pub struct EDRScanRequest {
     /// Optional signature status (so HydraDragon doesn't need to re-verify the same executable).
     #[serde(default)]
     pub signature_status: Option<FileSignatureStatus>,
+    #[serde(default)]
+    pub yara_x_matches: Option<Vec<String>>,
+    #[serde(default)]
+    pub is_vmprotect: bool,
 }
 
 /// AV scan response (sent to EDR as a threat event)
@@ -757,8 +761,40 @@ pub struct AVIntegration<'a> {
     predictor_malware: PredictorMalware<'a>,
     internal_scan_tx: Sender<EDRScanRequest>,
     signature_cache: HashMap<String, FileSignatureStatus>,
+    yara_rules: Option<yara_x::Rules>,
     _scan_request_handle: thread::JoinHandle<()>,
     _av_to_edr_listener_handle: thread::JoinHandle<()>,
+}
+
+fn load_yara_x_rules() -> Option<yara_x::Rules> {
+    let rules_folder = r"C:\Program Files\HydraDragonAntivirus\hydradragon\signatures\rules\yara\";
+    if !std::path::Path::new(rules_folder).exists() {
+        return None;
+    }
+
+    let mut compiler = yara_x::Compiler::new();
+    let mut added = false;
+    
+    if let Ok(entries) = std::fs::read_dir(rules_folder) {
+        for entry in entries.filter_map(Result::ok) {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) == Some("yar") {
+                if let Ok(content) = std::fs::read_to_string(&path) {
+                    if let Err(e) = compiler.add_source(content.as_str()) {
+                        crate::logging::Logging::error(&format!("Failed to compile YARA rule {}: {:?}", path.display(), e));
+                    } else {
+                        added = true;
+                    }
+                }
+            }
+        }
+    }
+    
+    if added {
+        Some(compiler.build())
+    } else {
+        None
+    }
 }
 
 impl<'a> AVIntegration<'a> {
@@ -779,6 +815,7 @@ impl<'a> AVIntegration<'a> {
             predictor_malware,
             internal_scan_tx,
             signature_cache: HashMap::new(),
+            yara_rules: load_yara_x_rules(),
             _scan_request_handle: scan_request_handle,
             _av_to_edr_listener_handle: av_to_edr_listener_handle,
         }
@@ -888,6 +925,25 @@ impl<'a> AVIntegration<'a> {
         let file_path = precord.exepath.to_string_lossy().to_string();
         let signature_status = self.get_or_compute_signature_status(&file_path, &precord.exepath);
 
+        let mut yara_x_matches = Vec::new();
+        let mut is_vmprotect = false;
+
+        if let Some(rules) = &self.yara_rules {
+            if let Ok(data) = std::fs::read(&precord.exepath) {
+                let mut scanner = yara_x::Scanner::new(rules);
+                if let Ok(scan_results) = scanner.scan(&data) {
+                    for matching_rule in scan_results.matching_rules() {
+                        let id = matching_rule.identifier().to_string();
+                        let id_lower = id.to_lowercase();
+                        yara_x_matches.push(id.clone());
+                        if id_lower.contains("vmprotect") {
+                            is_vmprotect = true;
+                        }
+                    }
+                }
+            }
+        }
+
         let request = EDRScanRequest {
             event_type: "NEW_IO_EVENT".to_string(),
             file_path,
@@ -895,6 +951,8 @@ impl<'a> AVIntegration<'a> {
             pid: Some(iomsg.pid),
             additional_context: Some(format!("Event triggered by GID: {}", precord.gid)),
             signature_status,
+            yara_x_matches: Some(yara_x_matches),
+            is_vmprotect,
         };
 
         if let Err(e) = self.internal_scan_tx.send(request) {
