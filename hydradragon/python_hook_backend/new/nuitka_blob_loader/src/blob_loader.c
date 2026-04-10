@@ -1145,29 +1145,50 @@ BlobError blob_dump_full_source(BlobCtx *ctx, const char *out_dir, size_t *out_m
 
         marker = strstr(decoded, "a__module__");
         if (marker) {
-            if (strcmp(decoded, "a__module__") == 0) {
-                module_name = prev_token ? trim_in_place(prev_token) : NULL;
-            } else {
-                *marker = '\0';
-                module_name = trim_in_place(decoded);
-            }
+            char *candidate_buf = NULL;
+            const char *candidate = NULL;
 
-            if (module_name && *module_name) {
-                current_mod = module_get_or_add(&mods, &mod_count, &mod_cap, module_name);
-                if (!current_mod) {
+            /* Only treat true marker forms as module boundaries:
+               1) standalone token: "a__module__"
+               2) exact suffix form: "<name>a__module__"
+               Anything else falls through as normal text. */
+            if (strcmp(decoded, "a__module__") == 0) {
+                candidate = prev_token ? trim_in_place(prev_token) : NULL;
+            } else if (strcmp(marker, "a__module__") == 0) {
+                size_t prefix_len = (size_t)(marker - decoded);
+                candidate_buf = (char *)malloc(prefix_len + 1);
+                if (!candidate_buf) {
                     free(decoded);
                     free(prev_token);
                     free_modules(mods, mod_count);
                     free(normalized);
                     return BLOB_ERR_ALLOC;
                 }
+                memcpy(candidate_buf, decoded, prefix_len);
+                candidate_buf[prefix_len] = '\0';
+                candidate = trim_in_place(candidate_buf);
             }
 
-            free(prev_token);
-            prev_token = NULL;
-            prev_was_a = 0;
-            free(decoded);
-            continue;
+            if (candidate && *candidate) {
+                current_mod = module_get_or_add(&mods, &mod_count, &mod_cap, candidate);
+                if (!current_mod) {
+                    free(candidate_buf);
+                    free(decoded);
+                    free(prev_token);
+                    free_modules(mods, mod_count);
+                    free(normalized);
+                    return BLOB_ERR_ALLOC;
+                }
+
+                free(candidate_buf);
+                free(prev_token);
+                prev_token = NULL;
+                prev_was_a = 0;
+                free(decoded);
+                continue;
+            }
+
+            free(candidate_buf);
         }
 
         if (prev_was_a && decoded[0] != '\0' && isalpha((unsigned char)decoded[0])) {
@@ -1335,7 +1356,11 @@ static BlobError write_single_pylingual_blob(PyLingualExportCtx *ctx, const Blob
     if (!fp) {
         return BLOB_ERR_IO;
     }
-    if (v->buf.len && fwrite(v->buf.data, 1, v->buf.len, fp) != v->buf.len) {
+    if (fwrite(ctx->pyc_magic, 1, 4, fp) != 4 ||
+        !write_u32_le(fp, 0) ||
+        !write_u32_le(fp, 0) ||
+        !write_u32_le(fp, 0) ||
+        (v->buf.len && fwrite(v->buf.data, 1, v->buf.len, fp) != v->buf.len)) {
         fclose(fp);
         return BLOB_ERR_IO;
     }
