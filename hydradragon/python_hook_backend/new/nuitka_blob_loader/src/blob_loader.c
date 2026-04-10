@@ -1047,24 +1047,172 @@ static int write_module_file(const char *out_dir,
     return 1;
 }
 
+static void bytes_to_hex(const uint8_t *src, size_t len, char *dst, size_t dst_len);
+
+static int blobval_is_top_level_bytecode(const BlobVal *v) {
+    if (!v || v->kind != BVAL_BYTES) {
+        return 0;
+    }
+    if (v->tag == 'X') {
+        return 1;
+    }
+    if (v->buf.len >= 8 && (v->buf.data[0] == 0x63 || v->buf.data[0] == 0xE3)) {
+        return 1;
+    }
+    if (v->buf.len >= 20 && v->buf.data[2] == 0x0D && v->buf.data[3] == 0x0A &&
+        (v->buf.data[16] == 0x63 || v->buf.data[16] == 0xE3)) {
+        return 1;
+    }
+    return 0;
+}
+
+static int is_valid_module_ident_segment(const char *s, size_t n) {
+    size_t i;
+    if (!s || n == 0) {
+        return 0;
+    }
+    if (!(isalpha((unsigned char)s[0]) || s[0] == '_')) {
+        return 0;
+    }
+    for (i = 1; i < n; i++) {
+        unsigned char ch = (unsigned char)s[i];
+        if (!(isalnum(ch) || ch == '_')) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+static char *module_hint_from_path_token(const char *token) {
+    char temp[512];
+    char *parts[64];
+    size_t part_count = 0;
+    char *p;
+    char *seg_start;
+    size_t out_len = 0;
+    char *out;
+    size_t i;
+
+    if (!token || !*token) {
+        return NULL;
+    }
+    if (strlen(token) >= sizeof(temp)) {
+        return NULL;
+    }
+    strcpy(temp, token);
+    for (p = temp; *p; ++p) {
+        if (*p == '\\') {
+            *p = '/';
+        }
+    }
+
+    p = strstr(temp, ".py");
+    if (!p) {
+        return NULL;
+    }
+    p[0] = '\0';
+
+    seg_start = temp;
+    while (*seg_start && part_count < (sizeof(parts) / sizeof(parts[0]))) {
+        char *seg_end = strchr(seg_start, '/');
+        size_t n;
+        if (seg_end) {
+            *seg_end = '\0';
+        }
+        n = strlen(seg_start);
+        if (n != 0 && strcmp(seg_start, ".") != 0 && strcmp(seg_start, "..") != 0 &&
+            strcmp(seg_start, "site-packages") != 0 && strcmp(seg_start, "__init__") != 0) {
+            if (!is_valid_module_ident_segment(seg_start, n)) {
+                return NULL;
+            }
+            parts[part_count++] = seg_start;
+        }
+        if (!seg_end) {
+            break;
+        }
+        seg_start = seg_end + 1;
+    }
+
+    if (part_count == 0) {
+        return NULL;
+    }
+    if (part_count == 1 && strcmp(parts[0], "__main__") == 0) {
+        return blob_strdup("__main__");
+    }
+
+    for (i = 0; i < part_count; i++) {
+        out_len += strlen(parts[i]) + (i ? 1 : 0);
+    }
+    out = (char *)malloc(out_len + 1);
+    if (!out) {
+        return NULL;
+    }
+    out[0] = '\0';
+    for (i = 0; i < part_count; i++) {
+        if (i) {
+            strcat(out, ".");
+        }
+        strcat(out, parts[i]);
+    }
+    return out;
+}
+
+
+static char *extract_module_hint_from_blob_bytes(const uint8_t *data, size_t len) {
+    size_t i = 0;
+    char run[512];
+
+    if (!data || len < 8) {
+        return NULL;
+    }
+
+    while (i < len) {
+        if (data[i] >= 0x20 && data[i] <= 0x7E) {
+            size_t start = i;
+            size_t run_len;
+            char *hint;
+            while (i < len && data[i] >= 0x20 && data[i] <= 0x7E) {
+                i++;
+            }
+            run_len = i - start;
+            if (run_len < 6) {
+                continue;
+            }
+            if (run_len >= sizeof(run)) {
+                run_len = sizeof(run) - 1;
+            }
+            memcpy(run, data + start, run_len);
+            run[run_len] = '\0';
+            hint = module_hint_from_path_token(run);
+            if (hint) {
+                return hint;
+            }
+        } else {
+            i++;
+        }
+    }
+    return NULL;
+}
+
 BlobError blob_dump_full_source(BlobCtx *ctx, const char *out_dir, size_t *out_module_count) {
     const uint8_t *src;
     size_t src_len;
-    char *normalized;
+    char *normalized = NULL;
     char *scan;
-    char *line;
+    char raw_path[4096];
+    char combined_path[4096];
+    char index_path[4096];
+    FILE *combined = NULL;
+    FILE *index_file = NULL;
+    BlobVal *vals = NULL;
+    uint32_t count = 0;
+    uint32_t section_size = 0;
+    BlobError err;
     SourceModule *mods = NULL;
     size_t mod_count = 0;
     size_t mod_cap = 0;
-    SourceModule *current_mod;
-    char *prev_token = NULL;
-    int prev_was_a = 0;
-    char combined_path[4096];
-    char raw_path[4096];
-    FILE *combined = NULL;
-    FILE *index_file = NULL;
-    char index_path[4096];
     size_t i;
+    int have_any = 0;
 
     if (out_module_count) {
         *out_module_count = 0;
@@ -1090,7 +1238,6 @@ BlobError blob_dump_full_source(BlobCtx *ctx, const char *out_dir, size_t *out_m
     }
     normalize_blob_text(src, src_len, normalized);
     scan = slice_after_marker(normalized);
-
     snprintf(raw_path, sizeof(raw_path), "%s/raw_source_dump.txt", out_dir);
     if (!write_text_file(raw_path, scan)) {
         fprintf(stderr,
@@ -1099,137 +1246,85 @@ BlobError blob_dump_full_source(BlobCtx *ctx, const char *out_dir, size_t *out_m
                 errno);
     }
 
-    current_mod = module_get_or_add(&mods, &mod_count, &mod_cap, "__main__");
-    if (!current_mod) {
+    err = blob_find_section(ctx, ".bytecode", &section_size);
+    if (err != BLOB_OK) {
         free(normalized);
-        return BLOB_ERR_ALLOC;
+        return err;
+    }
+    err = blob_parse_constants(ctx, &vals, &count);
+    if (err != BLOB_OK) {
+        free(normalized);
+        return err;
     }
 
-    for (line = strtok(scan, "\n"); line != NULL; line = strtok(NULL, "\n")) {
-        char *trimmed = trim_in_place(line);
-        char *decoded = NULL;
-        char *marker = NULL;
-        char *module_name = NULL;
+    for (i = 0; i < count; i++) {
+        SourceModule *mod;
+        char *hint;
+        char line[256];
+        char hex16[64];
+        const BlobVal *v = &vals[i];
 
-        if (*trimmed == '\0') {
-            prev_was_a = 0;
+        if (!blobval_is_top_level_bytecode(v)) {
             continue;
         }
-
-        if (strcmp(trimmed, "u") == 0) {
-            if (prev_token) {
-                if (!module_append_line(current_mod, prev_token)) {
-                    free(prev_token);
-                    free_modules(mods, mod_count);
-                    free(normalized);
-                    return BLOB_ERR_ALLOC;
-                }
-                free(prev_token);
-                prev_token = NULL;
-            }
-            if (!module_append_line(current_mod, "")) {
-                free_modules(mods, mod_count);
-                free(normalized);
-                return BLOB_ERR_ALLOC;
-            }
-            prev_was_a = 0;
-            continue;
+        have_any = 1;
+        hint = extract_module_hint_from_blob_bytes(v->buf.data, v->buf.len);
+        if (!hint) {
+            snprintf(line, sizeof(line), "bytecode_top%04u", (unsigned)i);
+            hint = blob_strdup(line);
+        }
+        if (!hint) {
+            err = BLOB_ERR_ALLOC;
+            goto cleanup;
+        }
+        mod = module_get_or_add(&mods, &mod_count, &mod_cap, hint);
+        free(hint);
+        if (!mod) {
+            err = BLOB_ERR_ALLOC;
+            goto cleanup;
         }
 
-        decoded = decode_a_prefix_token(trimmed);
-        if (!decoded) {
-            free_modules(mods, mod_count);
-            free(normalized);
-            return BLOB_ERR_ALLOC;
-        }
-
-        marker = strstr(decoded, "a__module__");
-        if (marker) {
-            char *candidate = NULL;
-
-            if (strcmp(decoded, "a__module__") == 0) {
-                candidate = prev_token ? trim_in_place(prev_token) : NULL;
-            } else if (marker[10] == '\0') {
-                *marker = '\0';
-                candidate = trim_in_place(decoded);
-            } else {
-                candidate = NULL;
-            }
-
-            if (candidate && is_plausible_source_module_name(candidate)) {
-                current_mod = module_get_or_add(&mods, &mod_count, &mod_cap, candidate);
-                if (!current_mod) {
-                    free(decoded);
-                    free(prev_token);
-                    free_modules(mods, mod_count);
-                    free(normalized);
-                    return BLOB_ERR_ALLOC;
-                }
-                free(prev_token);
-                prev_token = NULL;
-                prev_was_a = 0;
-                free(decoded);
-                continue;
-            }
-
-            /* Not a real module marker: keep text as normal content */
-        }
-
-        if (prev_was_a && decoded[0] != '\0' && isalpha((unsigned char)decoded[0])) {
-            size_t n = strlen(decoded);
-            char *with_def = (char *)malloc(n + 5);
-            if (!with_def) {
-                free(decoded);
-                free(prev_token);
-                free_modules(mods, mod_count);
-                free(normalized);
-                return BLOB_ERR_ALLOC;
-            }
-            strcpy(with_def, "def ");
-            strcat(with_def, decoded);
-            free(decoded);
-            decoded = with_def;
-        }
-
-        if (prev_token) {
-            if (!module_append_line(current_mod, prev_token)) {
-                free(decoded);
-                free(prev_token);
-                free_modules(mods, mod_count);
-                free(normalized);
-                return BLOB_ERR_ALLOC;
-            }
-            free(prev_token);
-        }
-        prev_token = decoded;
-        prev_was_a = (strcmp(decoded, "a") == 0);
+        bytes_to_hex(v->buf.data, v->buf.len < 16 ? v->buf.len : 16, hex16, sizeof(hex16));
+        if (!module_append_line(mod, "# Bytecode-derived module entry")) { err = BLOB_ERR_ALLOC; goto cleanup; }
+        snprintf(line, sizeof(line), "# top_index: %u", (unsigned)i);
+        if (!module_append_line(mod, line)) { err = BLOB_ERR_ALLOC; goto cleanup; }
+        snprintf(line, sizeof(line), "# blob_tag: %c", v->tag ? v->tag : '?');
+        if (!module_append_line(mod, line)) { err = BLOB_ERR_ALLOC; goto cleanup; }
+        snprintf(line, sizeof(line), "# size: %zu", v->buf.len);
+        if (!module_append_line(mod, line)) { err = BLOB_ERR_ALLOC; goto cleanup; }
+        if (!module_append_line(mod, "# source_of_truth: .bytecode constants stream")) { err = BLOB_ERR_ALLOC; goto cleanup; }
+        snprintf(line, sizeof(line), "# first16_hex: %s", hex16);
+        if (!module_append_line(mod, line)) { err = BLOB_ERR_ALLOC; goto cleanup; }
+        if (!module_append_line(mod, "")) { err = BLOB_ERR_ALLOC; goto cleanup; }
+        if (!module_append_line(mod, "# This file is a bytecode-index placeholder, not reconstructed source.")) { err = BLOB_ERR_ALLOC; goto cleanup; }
+        if (!module_append_line(mod, "# Use pylingual_bundle/manifest.tsv and exported .pyc/.marshal files for actual decompilation.")) { err = BLOB_ERR_ALLOC; goto cleanup; }
+        if (!module_append_line(mod, "pass")) { err = BLOB_ERR_ALLOC; goto cleanup; }
+        if (!module_append_line(mod, "")) { err = BLOB_ERR_ALLOC; goto cleanup; }
     }
 
-    if (prev_token) {
-        if (!module_append_line(current_mod, prev_token)) {
-            free(prev_token);
-            free_modules(mods, mod_count);
-            free(normalized);
-            return BLOB_ERR_ALLOC;
+    if (!have_any) {
+        SourceModule *mod = module_get_or_add(&mods, &mod_count, &mod_cap, "__main__");
+        if (!mod) {
+            err = BLOB_ERR_ALLOC;
+            goto cleanup;
         }
-        free(prev_token);
-        prev_token = NULL;
+        if (!module_append_line(mod, "# No top-level bytecode blobs were detected in .bytecode.")) { err = BLOB_ERR_ALLOC; goto cleanup; }
+        if (!module_append_line(mod, "pass")) { err = BLOB_ERR_ALLOC; goto cleanup; }
     }
 
     snprintf(combined_path, sizeof(combined_path), "%s/combined_source.py", out_dir);
     combined = fopen(combined_path, "wb");
     if (!combined) {
-        free_modules(mods, mod_count);
-        free(normalized);
-        return BLOB_ERR_IO;
+        err = BLOB_ERR_IO;
+        goto cleanup;
     }
-    fprintf(combined, "# Best-effort integrated source reconstruction\n");
-    fprintf(combined, "# Generated from raw Nuitka RCDATA blob\n\n");
+    fprintf(combined, "# Bytecode-driven module index generated from Nuitka .bytecode constants\n");
+    fprintf(combined, "# This file intentionally avoids the old a__module__ text heuristics.\n\n");
 
     snprintf(index_path, sizeof(index_path), "%s/module_index.tsv", out_dir);
     index_file = fopen(index_path, "wb");
     if (index_file) {
-        fprintf(index_file, "index\tmodule_name\tfile_name\tstatus\n");
+        fprintf(index_file, "index	module_name	file_name	status\n");
     } else {
         fprintf(stderr,
                 "[blob] WARNING: could not write module index '%s' (errno=%d). Continuing.\n",
@@ -1240,26 +1335,27 @@ BlobError blob_dump_full_source(BlobCtx *ctx, const char *out_dir, size_t *out_m
     for (i = 0; i < mod_count; i++) {
         int opened_file = 0;
         if (!write_module_file(out_dir, &mods[i], i, combined, index_file, &opened_file)) {
-            if (index_file) {
-                fclose(index_file);
-            }
-            fclose(combined);
-            free_modules(mods, mod_count);
-            free(normalized);
-            return BLOB_ERR_IO;
+            err = BLOB_ERR_IO;
+            goto cleanup;
         }
     }
 
-    if (index_file) {
-        fclose(index_file);
-    }
-    fclose(combined);
     if (out_module_count) {
         *out_module_count = mod_count;
     }
+    err = BLOB_OK;
+
+cleanup:
+    if (index_file) {
+        fclose(index_file);
+    }
+    if (combined) {
+        fclose(combined);
+    }
+    blob_free_values(vals, count);
     free_modules(mods, mod_count);
     free(normalized);
-    return BLOB_OK;
+    return err;
 }
 
 
@@ -1387,63 +1483,6 @@ static int is_plausible_module_hint(const char *s) {
             return 0;
         }
     }
-    return 1;
-}
-
-static int is_plausible_source_module_name(const char *name) {
-    size_t i, n;
-    int has_alpha = 0;
-
-    if (!name || !*name) {
-        return 0;
-    }
-
-    if (strcmp(name, "__main__") == 0) {
-        return 1;
-    }
-
-    n = strlen(name);
-
-    /* Reject very short junk like "S", "sc", etc. */
-    if (n < 3) {
-        return 0;
-    }
-
-    /* Reject obvious sentence/text fragments */
-    if (n > 120) {
-        return 0;
-    }
-
-    /* Require identifier-ish module naming only */
-    for (i = 0; i < n; i++) {
-        unsigned char ch = (unsigned char)name[i];
-        if (isalpha(ch)) {
-            has_alpha = 1;
-        }
-        if (!(isalnum(ch) || ch == '_' || ch == '.')) {
-            return 0;
-        }
-    }
-
-    if (!has_alpha) {
-        return 0;
-    }
-
-    /* Reject ALL-CAPS junk module names unless private-ish */
-    {
-        int all_upper = 1;
-        for (i = 0; i < n; i++) {
-            unsigned char ch = (unsigned char)name[i];
-            if (islower(ch)) {
-                all_upper = 0;
-                break;
-            }
-        }
-        if (all_upper) {
-            return 0;
-        }
-    }
-
     return 1;
 }
 
