@@ -2502,8 +2502,6 @@ dependencies = [
 [[package]]
 name = "ring"
 version = "0.14.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "426bc186e3e95cac1e4a4be125a4aca7e84c2d616ffc02244eef36e2a60a093c"
 dependencies = [
  "cc",
  "lazy_static",

@@ -7,6 +7,7 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <errno.h>
+#include <process.h>
 
 #ifdef _WIN32
 #  include <direct.h>
@@ -497,20 +498,20 @@ static int locate_helper(char *helper_path, size_t cap) {
     return -1;
 }
 
-static int run_pyc_helper(const char *helper_path,
-                          const char *raw_path,
-                          const char *pyc_path) {
+static int run_helper_dir(const char *helper_path,
+                          const char *stage_dir,
+                          const char *output_dir) {
 #ifdef _WIN32
     intptr_t rc = _spawnlp(_P_WAIT,
                            "py",
                            "py",
                            "-3.12",
                            helper_path,
-                           raw_path,
-                           pyc_path,
+                           stage_dir,
+                           output_dir,
                            NULL);
     if (rc == -1) {
-        fprintf(stderr, "[export] failed to run: py -3.12 %s\n", helper_path);
+        fprintf(stderr, "[export] failed to run folder helper: py -3.12 %s\n", helper_path);
         return -1;
     }
     return (int)rc;
@@ -519,7 +520,7 @@ static int run_pyc_helper(const char *helper_path,
     int status = 0;
     if (pid < 0) return -1;
     if (pid == 0) {
-        execlp("python3.12", "python3.12", helper_path, raw_path, pyc_path, (char *)NULL);
+        execlp("python3.12", "python3.12", helper_path, stage_dir, output_dir, (char *)NULL);
         _exit(127);
     }
     if (waitpid(pid, &status, 0) < 0) return -1;
@@ -528,29 +529,13 @@ static int run_pyc_helper(const char *helper_path,
 #endif
 }
 
-static int write_pyc_via_helper(const char *helper_path,
-                                const char *pyc_path,
-                                const uint8_t *marshal_data,
-                                size_t marshal_len,
-                                const char *blob_name) {
-    char raw_tmp_path[4096];
-    int rc;
-
-    snprintf(raw_tmp_path, sizeof(raw_tmp_path), "%s.rawmarshal", pyc_path);
-
-    if (write_binary_file(raw_tmp_path, marshal_data, marshal_len) != 0)
+static int stage_blob_for_helper(const char *stage_raw_path,
+                                 const uint8_t *marshal_data,
+                                 size_t marshal_len) {
+    if (write_binary_file(stage_raw_path, marshal_data, marshal_len) != 0)
         return -1;
 
-    rc = run_pyc_helper(helper_path, raw_tmp_path, pyc_path);
-    remove(raw_tmp_path);
-
-    if (rc != 0) {
-        fprintf(stderr, "[export] helper failed for %s -> %s (exit=%d)\n",
-                blob_name ? blob_name : "<blob>", pyc_path, rc);
-        return -1;
-    }
-
-    printf("[export] %-60s (%zu bytes marshal)\n", pyc_path, marshal_len);
+    printf("[stage]  %-60s (%zu bytes marshal)\n", stage_raw_path, marshal_len);
     return 0;
 }
 
@@ -576,9 +561,12 @@ int blob_export_all_pyc(BlobCtx *ctx_opaque,
     BlobCtxView *ctx = (BlobCtxView *)ctx_opaque;
     const uint8_t *toc_p;
     const uint8_t *toc_end;
+    int total_staged = 0;
     int total_written = 0;
     int section_idx = 0;
+    int helper_rc;
     char helper_path[4096];
+    char stage_dir[4096];
 
     (void)py_version;
 
@@ -597,10 +585,14 @@ int blob_export_all_pyc(BlobCtx *ctx_opaque,
         return -1;
     }
 
+    snprintf(stage_dir, sizeof(stage_dir), "%s.rawstage", output_dir);
+    mkdirs(stage_dir);
+
     toc_p = ctx->payload;
     toc_end = ctx->payload + ctx->payload_len;
 
     printf("\n[export] Using helper: %s\n", helper_path);
+    printf("[export] Staging raw marshal blobs into: %s\n", stage_dir);
     printf("[export] Scanning all sections for 'X' blobs...\n");
 
     while (toc_p < toc_end && *toc_p != 0) {
@@ -649,7 +641,7 @@ int blob_export_all_pyc(BlobCtx *ctx_opaque,
                 uint64_t blob_len;
                 const uint8_t *blob_data;
                 char blob_name[512] = {0};
-                char pyc_path[4096];
+                char stage_raw_path[4096];
 
                 p++;
                 blob_len = ex_varint(&p);
@@ -670,29 +662,28 @@ int blob_export_all_pyc(BlobCtx *ctx_opaque,
                         snprintf(blob_name, sizeof(blob_name),
                                  "_bytecode_%d_%d", section_idx, x_count);
                     }
-                    build_pyc_path(pyc_path, sizeof(pyc_path),
-                                   output_dir, blob_name, ".pyc");
+
+                    build_pyc_path(stage_raw_path, sizeof(stage_raw_path),
+                                   stage_dir, blob_name, ".pyc.rawmarshal");
                 } else {
                     if (x_count == 0) {
-                        build_pyc_path(pyc_path, sizeof(pyc_path),
-                                       output_dir, section_name, ".pyc");
                         snprintf(blob_name, sizeof(blob_name), "%s", section_name);
+                        build_pyc_path(stage_raw_path, sizeof(stage_raw_path),
+                                       stage_dir, section_name, ".pyc.rawmarshal");
                     } else {
-                        char suffix[32];
-                        snprintf(suffix, sizeof(suffix), ".%d.pyc", x_count);
-                        build_pyc_path(pyc_path, sizeof(pyc_path),
-                                       output_dir, section_name, suffix);
+                        char suffix[64];
                         snprintf(blob_name, sizeof(blob_name), "%s#%d",
                                  section_name, x_count);
+                        snprintf(suffix, sizeof(suffix), ".%d.pyc.rawmarshal", x_count);
+                        build_pyc_path(stage_raw_path, sizeof(stage_raw_path),
+                                       stage_dir, section_name, suffix);
                     }
                 }
 
-                if (write_pyc_via_helper(helper_path,
-                                         pyc_path,
-                                         blob_data,
-                                         (size_t)blob_len,
-                                         blob_name) == 0) {
-                    total_written++;
+                if (stage_blob_for_helper(stage_raw_path,
+                                          blob_data,
+                                          (size_t)blob_len) == 0) {
+                    total_staged++;
                 }
 
                 x_count++;
@@ -714,8 +705,18 @@ int blob_export_all_pyc(BlobCtx *ctx_opaque,
         section_idx++;
     }
 
-    printf("\n[export] Done. %d .pyc file(s) written to '%s'\n\n",
-           total_written, output_dir);
+    helper_rc = run_helper_dir(helper_path, stage_dir, output_dir);
+    if (helper_rc != 0) {
+        fprintf(stderr,
+                "\n[export] folder helper failed for '%s' -> '%s' (exit=%d)\n\n",
+                stage_dir, output_dir, helper_rc);
+        return -1;
+    }
+
+    total_written = total_staged;
+
+    printf("\n[export] Done. %d staged blob(s) processed from '%s' into '%s'\n\n",
+           total_written, stage_dir, output_dir);
 
     return total_written;
 }

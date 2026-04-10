@@ -99,3 +99,7 @@ firewall = []
 sanctum = []
 behavior_engine = ["realtime_learning"]
 realtime_learning = []  # Enable OwlyShield realtime-learning for behavioral analysis and ML data collection
+
+[patch.crates-io]
+ring = { path = "ring-patch" }
+

@@ -204,17 +204,12 @@ import traceback
 logger.debug(f"traceback module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-import functools
-logger.debug(f"functools module loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
 import pyzipper
 logger.debug(f"pyzipper module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import tarfile
 logger.debug(f"tarfile module loaded in {time.time() - start_time:.6f} seconds")
-
 
 start_time = time.time()
 import yara_x
