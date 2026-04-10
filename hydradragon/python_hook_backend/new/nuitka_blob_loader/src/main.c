@@ -4,19 +4,14 @@
  * Default behavior:
  *   1. Verify the RCDATA blob and dump the section TOC.
  *   2. Reconstruct the integrated source-like text into ./full_source.
- *   3. Parse .bytecode and export every recoverable marshal/code blob into ./pylingual_bundle as:
+ *   3. Parse .bytecode and export every raw 'X' blob into ./pylingual_bundle as:
  *        - .marshal blobs
  *        - .pyc files
  *        - pyc_list.txt / manifest.tsv
  *
- * Exported .marshal files always preserve the original extracted bytes.
- * Derived .pyc files keep the original header when one is already present;
- * otherwise a synthetic header is added for raw marshal/code blobs.
- *
- * Default synthetic .pyc header magic is Python 3.13.3 (F3 0D 0D 0A),
- * matching the earlier target runtime in this project. Use --py-version or
- * --magic-hex when you need another CPython version such as 3.13.3
- * (F3 0D 0D 0A).
+ * Default .pyc header magic is Python 3.11 final (A7 0D 0D 0A), because the
+ * current target in this project is python311.dll. Override with --magic-hex
+ * if you need another CPython version.
  */
 
 #include "blob_loader.h"
@@ -81,7 +76,7 @@ int main(int argc, char *argv[]) {
     const char *bundle_dir = "pylingual_bundle";
     int want_source = 1;
     int want_bundle = 1;
-    uint8_t pyc_magic[4] = {0xF3, 0x0D, 0x0D, 0x0A};
+    uint8_t pyc_magic[4] = {0xA7, 0x0D, 0x0D, 0x0A};
     BlobCtx *ctx = NULL;
     BlobError err;
     size_t module_count = 0;
@@ -106,7 +101,7 @@ int main(int argc, char *argv[]) {
             bundle_dir = argv[++i];
         } else if (strcmp(argv[i], "--magic-hex") == 0 && i + 1 < argc) {
             if (!parse_magic_hex(argv[++i], pyc_magic)) {
-                fprintf(stderr, "[main] ERROR: --magic-hex must be 8 hex chars, e.g. f30d0d0a\n");
+                fprintf(stderr, "[main] ERROR: --magic-hex must be 8 hex chars, e.g. a70d0d0a\n");
                 return 1;
             }
         } else if (!bin_path) {
@@ -122,9 +117,8 @@ int main(int argc, char *argv[]) {
         if (!bin_path) {
             fprintf(stderr,
                     "[main] ERROR: rcdata_10_3.bin not found.\n"
-                    "  Usage: ./blob_loader [path/to/rcdata_10_3.bin] [--py-version 3.13.3]\n"
-                    "                      [--magic-hex f30d0d0a] [--source-dir full_source]\n"
-                    "                      [--bundle-dir pylingual_bundle]\n"
+                    "  Usage: ./blob_loader [path/to/rcdata_10_3.bin] [--magic-hex a70d0d0a]\n"
+                    "                      [--source-dir full_source] [--bundle-dir pylingual_bundle]\n"
                     "                      [--no-source] [--no-pyc]\n");
             return 1;
         }
@@ -176,7 +170,7 @@ int main(int argc, char *argv[]) {
             return 1;
         }
 
-        err = blob_export_pylingual_bundle(vals, count, bundle_dir, want_source ? source_dir : NULL, pyc_magic, &written);
+        err = blob_export_pylingual_bundle(vals, count, bundle_dir, pyc_magic, &written);
         if (err != BLOB_OK) {
             fprintf(stderr, "[main] blob_export_pylingual_bundle: %s\n", blob_error_str(err));
             blob_free_values(vals, count);
@@ -185,13 +179,11 @@ int main(int argc, char *argv[]) {
         }
 
         printf("[main] Exported %u bytecode blob(s) into ./%s\n", written, bundle_dir);
-        printf("[main] Names keep original top-level constant indexes when available.\n");
         printf("[main] Pyc list: ./%s/pyc_list.txt\n", bundle_dir);
         printf("[main] Manifest: ./%s/manifest.tsv\n", bundle_dir);
         printf("[main] Helper:   ./%s/make_pyc_list.py\n\n", bundle_dir);
         printf("[main] PyLingual example:\n");
-        printf("        pylingual -v 3.13 -o out %s/bytecode_*.pyc\n", bundle_dir);
-        printf("        pylingual -v 3.13 -o out %s/bytecode_*.pyc\n\n", bundle_dir);
+        printf("        pylingual -v 3.11 -o out %s/bytecode_*.pyc\n\n", bundle_dir);
 
         blob_free_values(vals, count);
     }
