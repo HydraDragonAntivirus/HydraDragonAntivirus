@@ -43,6 +43,8 @@ static const char *find_default_bin(void) {
 /*  main                                                                 */
 /* ------------------------------------------------------------------ */
 int main(int argc, char *argv[]) {
+    const char *bundle_dir = "pylingual_bundle";
+    uint32_t written = 0;
     printf("=======================================================\n");
     printf("  Nuitka constants blob loader  (.bytecode section)\n");
     printf("=======================================================\n\n");
@@ -107,7 +109,17 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    /* ---- Step 6: print ---- */
+    /* ---- Step 6: export named bytecode files ---- */
+    err = blob_export_named_bytecode_files(vals, count, bundle_dir, &written);
+    if (err != BLOB_OK) {
+        fprintf(stderr, "[main] blob_export_named_bytecode_files: %s\n", blob_error_str(err));
+        blob_free_values(vals, count);
+        blob_free(ctx);
+        return 1;
+    }
+    printf("[main] Exported %u detected bytecode file(s) into ./%s\n\n", written, bundle_dir);
+
+    /* ---- Step 7: print ---- */
     printf("\n=== Decoded .bytecode constants (%u total) ===\n\n", count);
     for (uint32_t i = 0; i < count; i++) {
         printf("[%4u] ", i);

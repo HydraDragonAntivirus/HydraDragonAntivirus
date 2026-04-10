@@ -149,4 +149,21 @@ BlobError blob_dump_toc(BlobCtx *ctx);
  */
 void blob_set_sbox(const uint8_t sbox[256]);
 
+
+
+/*
+ * Export detected raw 'X' bytecode blobs to files named from best-effort
+ * import/module names recovered from the blob bytes. Falls back to
+ * bytecode_XXXX when no reliable name is found.
+ *
+ * Files created under out_dir:
+ *   <module>__XXXX.pyc   - raw extracted bytecode blob bytes
+ *   pyc_list.txt         - one exported path per line
+ *   manifest.tsv         - index, module_hint, size, path, first16_hex
+ */
+BlobError blob_export_named_bytecode_files(const BlobVal *vals,
+                                           uint32_t count,
+                                           const char *out_dir,
+                                           uint32_t *out_written);
+
 #endif /* BLOB_LOADER_H */
