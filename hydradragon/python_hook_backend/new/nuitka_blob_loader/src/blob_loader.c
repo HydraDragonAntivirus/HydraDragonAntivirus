@@ -1323,6 +1323,20 @@ static int write_u32_le(FILE *f, uint32_t value) {
     return fwrite(b, 1, 4, f) == 4;
 }
 
+static int looks_like_pyc_bytes(const uint8_t *data, size_t len) {
+    if (!data || len < 20) {
+        return 0;
+    }
+    /* Recent CPython magic headers end with 0D 0D 0A. Keep already-wrapped
+       pyc blobs unchanged instead of synthesizing a new header. */
+    if (data[2] != 0x0D || data[3] != 0x0A) {
+        return 0;
+    }
+    /* The first marshal byte after a normal 16-byte pyc header is often TYPE_CODE
+       (0x63) or TYPE_CODE|FLAG_REF (0xE3) for module code objects. */
+    return data[16] == 0x63 || data[16] == 0xE3;
+}
+
 static int looks_like_marshaled_code_blob(const uint8_t *data, size_t len) {
     if (!data || len < 8) {
         return 0;
@@ -1722,6 +1736,9 @@ static BlobError write_single_pylingual_blob(PyLingualExportCtx *ctx, const Blob
     char pyc_path[4096];
     char magic_hex[16];
     char head_hex[34];
+    int input_is_pyc;
+    const uint8_t *effective_magic;
+    const char *pyc_mode;
     char *raw_hint = NULL;
     char *safe_hint = NULL;
     const char *hint_source = "none";
@@ -1729,6 +1746,10 @@ static BlobError write_single_pylingual_blob(PyLingualExportCtx *ctx, const Blob
     FILE *fp = NULL;
     size_t preview_len;
     uint32_t sub_index = ctx->current_sub_index;
+
+    input_is_pyc = looks_like_pyc_bytes(v->buf.data, v->buf.len);
+    effective_magic = input_is_pyc ? v->buf.data : ctx->pyc_magic;
+    pyc_mode = input_is_pyc ? "preserved" : "synthesized";
 
     raw_hint = guess_module_hint_from_bytes(v->buf.data, v->buf.len, &ctx->source_hints);
     if (raw_hint) {
@@ -1788,15 +1809,24 @@ static BlobError write_single_pylingual_blob(PyLingualExportCtx *ctx, const Blob
         free(safe_hint);
         return BLOB_ERR_IO;
     }
-    if (fwrite(ctx->pyc_magic, 1, 4, fp) != 4 ||
-        !write_u32_le(fp, 0) ||
-        !write_u32_le(fp, 0) ||
-        !write_u32_le(fp, 0) ||
-        (v->buf.len && fwrite(v->buf.data, 1, v->buf.len, fp) != v->buf.len)) {
-        fclose(fp);
-        free(raw_hint);
-        free(safe_hint);
-        return BLOB_ERR_IO;
+    if (input_is_pyc) {
+        if (v->buf.len && fwrite(v->buf.data, 1, v->buf.len, fp) != v->buf.len) {
+            fclose(fp);
+            free(raw_hint);
+            free(safe_hint);
+            return BLOB_ERR_IO;
+        }
+    } else {
+        if (fwrite(ctx->pyc_magic, 1, 4, fp) != 4 ||
+            !write_u32_le(fp, 0) ||
+            !write_u32_le(fp, 0) ||
+            !write_u32_le(fp, 0) ||
+            (v->buf.len && fwrite(v->buf.data, 1, v->buf.len, fp) != v->buf.len)) {
+            fclose(fp);
+            free(raw_hint);
+            free(safe_hint);
+            return BLOB_ERR_IO;
+        }
     }
     fclose(fp);
 
@@ -1807,17 +1837,18 @@ static BlobError write_single_pylingual_blob(PyLingualExportCtx *ctx, const Blob
         fprintf(ctx->pyc_list, "%s\n", pyc_path);
     }
     if (ctx->manifest) {
-        bytes_to_hex(ctx->pyc_magic, 4, magic_hex, sizeof(magic_hex));
+        bytes_to_hex(effective_magic, 4, magic_hex, sizeof(magic_hex));
         preview_len = v->buf.len < 16 ? v->buf.len : 16;
         bytes_to_hex(v->buf.data, preview_len, head_hex, sizeof(head_hex));
         fprintf(ctx->manifest,
-                "%u\t%u\t%u\t%c\t%s\t%s\t%zu\t%s\t%s\t%s\t%s\n",
+                "%u\t%u\t%u\t%c\t%s\t%s\t%s\t%zu\t%s\t%s\t%s\t%s\n",
                 ctx->next_ordinal,
                 ctx->current_top_index,
                 sub_index,
                 v->tag ? v->tag : '?',
                 raw_hint ? raw_hint : "",
                 hint_source,
+                pyc_mode,
                 v->buf.len,
                 marshal_path,
                 pyc_path,
@@ -1888,7 +1919,7 @@ BlobError blob_write_pylingual_helper(const char *out_dir, const uint8_t default
         "        return importlib.util.MAGIC_NUMBER\n"
         "    value = value.strip().lower().replace('0x', '').replace(' ', '')\n"
         "    if len(value) != 8:\n"
-        "        raise SystemExit('magic must be exactly 8 hex characters, e.g. a70d0d0a')\n"
+        "        raise SystemExit('magic must be exactly 8 hex characters, e.g. f30d0d0a')\n"
         "    return bytes.fromhex(value)\n"
         "\n"
         "def build_pyc(marshal_bytes: bytes, magic: bytes) -> bytes:\n"
@@ -1897,7 +1928,7 @@ BlobError blob_write_pylingual_helper(const char *out_dir, const uint8_t default
         "def main() -> int:\n"
         "    ap = argparse.ArgumentParser(description='Rebuild .pyc files from exported Nuitka marshal blobs')\n"
         "    ap.add_argument('bundle_dir', nargs='?', default='.', help='Directory containing bytecode_*.marshal')\n"
-        "    ap.add_argument('--magic-hex', help='Override 4-byte MAGIC_NUMBER as 8 hex chars (e.g. a70d0d0a for Python 3.11)')\n"
+        "    ap.add_argument('--magic-hex', help='Override 4-byte MAGIC_NUMBER as 8 hex chars (e.g. f30d0d0a for Python 3.11)')\n"
         "    args = ap.parse_args()\n"
         "\n"
         "    bundle_dir = Path(args.bundle_dir)\n"
@@ -1953,7 +1984,7 @@ BlobError blob_write_pylingual_helper(const char *out_dir, const uint8_t default
             "If you need a different header, run:\n"
             "  python make_pyc_list.py --magic-hex <8hex> .\n\n"
             "PyLingual usage example:\n"
-            "  pylingual -v 3.11 -o out bytecode_*.pyc\n",
+            "  pylingual -v 3.13 -o out bytecode_*.pyc\n",
             magic_hex);
     fclose(f);
     return BLOB_OK;
@@ -2004,7 +2035,7 @@ BlobError blob_export_pylingual_bundle(const BlobVal *vals,
     }
 
     fprintf(ctx.manifest,
-            "ordinal\ttop_index\tsub_index\torigin_tag\tmodule_hint\thint_source\tsize\tmarshal_path\tpyc_path\tpyc_magic\tfirst16_hex\n");
+            "ordinal\ttop_index\tsub_index\torigin_tag\tmodule_hint\thint_source\tpyc_mode\tsize\tmarshal_path\tpyc_path\tpyc_magic\tfirst16_hex\n");
 
     e = blob_write_pylingual_helper(out_dir, pyc_magic);
     if (e != BLOB_OK) {

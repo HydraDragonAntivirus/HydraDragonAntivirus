@@ -148,14 +148,17 @@ BlobError blob_dump_full_source(BlobCtx *ctx,
  *   marshal_list.txt    - one raw marshal blob path per line
  *   pyc_list.txt        - one generated .pyc path per line
  *   bytecode_topXXXX__name.pyc/.marshal
- *   make_pyc_list.py    - helper to rebuild .pyc headers with a different magic
+ *   make_pyc_list.py    - helper to rebuild derived .pyc files without touching
+ *                         the original exported raw bytes
  *
  * source_dir may point at the directory previously created by
  * blob_dump_full_source(); when present, module_index.tsv is used as a hint
  * source for naming exported bytecode blobs. Pass NULL to disable name hints.
  *
- * pyc_magic is the 4-byte CPython MAGIC_NUMBER to use for emitted .pyc files.
- * For Python 3.11 final that value is A7 0D 0D 0A.
+ * pyc_magic is the 4-byte CPython MAGIC_NUMBER used only when a raw exported
+ * blob does not already contain its own .pyc header. Exported .marshal files
+ * always preserve the original bytes exactly. Existing .pyc blobs keep
+ * their original header bytes too.
  */
 BlobError blob_export_pylingual_bundle(const BlobVal *vals,
                                        uint32_t count,
