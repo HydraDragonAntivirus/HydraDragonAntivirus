@@ -73,6 +73,7 @@ int main(int argc, char *argv[]) {
     const char *bundle_dir = "pylingual_bundle";
     int want_source = 1;
     int want_bundle = 1;
+    uint8_t pyc_magic[4] = {0xA7, 0x0D, 0x0D, 0x0A};
     BlobCtx *ctx = NULL;
     BlobError err;
     size_t module_count = 0;
@@ -95,7 +96,6 @@ int main(int argc, char *argv[]) {
             source_dir = argv[++i];
         } else if (strcmp(argv[i], "--bundle-dir") == 0 && i + 1 < argc) {
             bundle_dir = argv[++i];
-        }
         } else if (!bin_path) {
             bin_path = argv[i];
         } else {
@@ -162,7 +162,7 @@ int main(int argc, char *argv[]) {
             return 1;
         }
 
-        err = blob_export_pylingual_bundle(vals, count, bundle_dir, &written);
+        err = blob_export_pylingual_bundle(vals, count, bundle_dir, pyc_magic, &written);
         if (err != BLOB_OK) {
             fprintf(stderr, "[main] blob_export_pylingual_bundle: %s\n", blob_error_str(err));
             blob_free_values(vals, count);

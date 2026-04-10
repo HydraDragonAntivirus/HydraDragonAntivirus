@@ -1335,11 +1335,7 @@ static BlobError write_single_pylingual_blob(PyLingualExportCtx *ctx, const Blob
     if (!fp) {
         return BLOB_ERR_IO;
     }
-    if (fwrite(ctx->pyc_magic, 1, 4, fp) != 4 ||
-        !write_u32_le(fp, 0) ||
-        !write_u32_le(fp, 0) ||
-        !write_u32_le(fp, 0) ||
-        (v->buf.len && fwrite(v->buf.data, 1, v->buf.len, fp) != v->buf.len)) {
+    if (v->buf.len && fwrite(v->buf.data, 1, v->buf.len, fp) != v->buf.len) {
         fclose(fp);
         return BLOB_ERR_IO;
     }
