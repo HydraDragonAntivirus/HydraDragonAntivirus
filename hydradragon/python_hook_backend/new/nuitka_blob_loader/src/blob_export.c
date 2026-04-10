@@ -44,6 +44,7 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <errno.h>
+#include <ctype.h>
 
 #ifdef _WIN32
 #  include <direct.h>
@@ -370,6 +371,138 @@ static bool get_str_val(const uint8_t *tag_ptr, const uint8_t *end,
     return false;
 }
 
+
+static bool normalize_module_name(const char *src, char *out, size_t cap) {
+    char work[1024];
+    char *tokens[64];
+    size_t token_count = 0;
+    size_t i, n, start, end, keep_from;
+    bool saw_sep = false;
+
+    if (!src || !*src || !out || cap == 0) return false;
+
+    while (*src == ' ' || *src == '\t' || *src == '\r' || *src == '\n')
+        src++;
+
+    n = strlen(src);
+    while (n > 0 && (src[n - 1] == ' ' || src[n - 1] == '\t' || src[n - 1] == '\r' || src[n - 1] == '\n'))
+        n--;
+
+    if (n == 0 || n >= sizeof(work))
+        return false;
+
+    memcpy(work, src, n);
+    work[n] = '\0';
+
+    if (n > 4 && strcmp(work + n - 4, ".pyc") == 0) {
+        work[n - 4] = '\0';
+        n -= 4;
+    } else if (n > 3 && strcmp(work + n - 3, ".py") == 0) {
+        work[n - 3] = '\0';
+        n -= 3;
+    }
+
+    start = 0;
+    for (i = 0; i <= n; i++) {
+        char c = work[i];
+        if (c == '/' || c == '\\' || c == '.' || c == '\0') {
+            if (c == '/' || c == '\\')
+                saw_sep = true;
+            end = i;
+            if (end > start) {
+                char *tok = work + start;
+                size_t j;
+                int valid = 1;
+                if (!(isalpha((unsigned char)tok[0]) || tok[0] == '_'))
+                    valid = 0;
+                for (j = 1; j < end - start && valid; j++) {
+                    unsigned char ch = (unsigned char)tok[j];
+                    if (!(isalnum(ch) || ch == '_'))
+                        valid = 0;
+                }
+                if (valid && token_count < 64) {
+                    work[end] = '\0';
+                    tokens[token_count++] = tok;
+                }
+            }
+            start = i + 1;
+        }
+    }
+
+    if (token_count == 0)
+        return false;
+
+    if (saw_sep && token_count > 4)
+        keep_from = token_count - 4;
+    else
+        keep_from = 0;
+
+    out[0] = '\0';
+    for (i = keep_from; i < token_count; i++) {
+        size_t cur = strlen(out);
+        size_t add = strlen(tokens[i]);
+        if (cur + (cur ? 1 : 0) + add + 1 >= cap)
+            return cur > 0;
+        if (cur)
+            out[cur++] = '.';
+        memcpy(out + cur, tokens[i], add + 1);
+    }
+
+    return out[0] != '\0';
+}
+
+static bool extract_module_name_from_blob(const uint8_t *data, size_t len,
+                                          char *out, size_t cap) {
+    char best[512];
+    int best_score = -1;
+    size_t i = 0;
+
+    if (!data || !len || !out || cap == 0)
+        return false;
+
+    best[0] = '\0';
+
+    while (i < len) {
+        size_t j = i;
+        while (j < len && data[j] >= 0x20 && data[j] <= 0x7e)
+            j++;
+
+        if (j > i + 3) {
+            size_t slen = j - i;
+            if (slen < 1024) {
+                char s[1024];
+                char norm[512];
+                int score = 0;
+                memcpy(s, data + i, slen);
+                s[slen] = '\0';
+
+                if (normalize_module_name(s, norm, sizeof(norm))) {
+                    if (strstr(s, ".pyc")) score += 200;
+                    else if (strstr(s, ".py")) score += 180;
+                    if (strchr(s, '/') || strchr(s, '\\')) score += 80;
+                    if (strchr(s, '.')) score += 40;
+                    score += (int)strlen(norm);
+
+                    if (score > best_score) {
+                        best_score = score;
+                        strncpy(best, norm, sizeof(best) - 1);
+                        best[sizeof(best) - 1] = '\0';
+                    }
+                }
+            }
+        }
+
+        i = (j == i) ? (i + 1) : (j + 1);
+    }
+
+    if (best_score < 0)
+        return false;
+
+    strncpy(out, best, cap - 1);
+    out[cap - 1] = '\0';
+    return true;
+}
+
 /* ------------------------------------------------------------------ */
 /*  Main export function                                                 */
 /* ------------------------------------------------------------------ */
@@ -468,23 +601,9 @@ int blob_export_all_pyc(BlobCtx *ctx_opaque,
                 char pyc_path[4096];
 
                 if (is_bytecode_section) {
-                    /* Use the last string constant seen as filename.
-                       Strip any .py extension and normalise slashes. */
                     char modname[512] = {0};
-                    if (last_str[0]) {
-                        /* Convert filename like "pkg/mod.py" to "pkg.mod" */
-                        const char *src = last_str;
-                        size_t mi = 0;
-                        while (*src && mi + 1 < sizeof(modname)) {
-                            char c = *src++;
-                            if (c == '/' || c == '\\') c = '.';
-                            modname[mi++] = c;
-                        }
-                        /* Strip .py suffix */
-                        if (mi > 3 && strcmp(modname + mi - 3, ".py") == 0)
-                            mi -= 3;
-                        modname[mi] = '\0';
-                    } else {
+                    if (!(last_str[0] && normalize_module_name(last_str, modname, sizeof(modname))) &&
+                        !extract_module_name_from_blob(blob_data, (size_t)blob_len, modname, sizeof(modname))) {
                         snprintf(modname, sizeof(modname),
                                  "_bytecode_%d_%d", section_idx, x_count);
                     }
