@@ -602,22 +602,13 @@ int blob_export_all_pyc(BlobCtx *ctx_opaque,
 
                 if (is_bytecode_section) {
                     char modname[512] = {0};
-                    char suffix[32];
-
                     if (!(last_str[0] && normalize_module_name(last_str, modname, sizeof(modname))) &&
                         !extract_module_name_from_blob(blob_data, (size_t)blob_len, modname, sizeof(modname))) {
                         snprintf(modname, sizeof(modname),
                                  "_bytecode_%d_%d", section_idx, x_count);
                     }
-
-                    if (x_count == 0) {
-                        strcpy(suffix, ".pyc");
-                    } else {
-                        snprintf(suffix, sizeof(suffix), "__%d.pyc", x_count);
-                    }
-
                     build_pyc_path(pyc_path, sizeof(pyc_path),
-                                   output_dir, modname, suffix);
+                                   output_dir, modname, ".pyc");
                 } else {
                     /* One 'X' per non-.bytecode section = the module bytecode */
                     build_pyc_path(pyc_path, sizeof(pyc_path),
