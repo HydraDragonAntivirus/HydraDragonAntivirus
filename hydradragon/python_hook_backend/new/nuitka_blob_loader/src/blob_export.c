@@ -6,33 +6,33 @@
  * 1. blob_hexdump()         – classic hex+ascii dump, usable anywhere.
  *
  * 2. blob_export_all_pyc()  – walks every TOC section, finds every 'X'
- * (raw marshal) blob, and assembles a proper .pyc file in memory
- * (Disk writing disabled as requested).
+ *    (raw marshal) blob, and saves it as a proper .pyc file plus a .hex
+ *    side-car.
  *
  * .pyc file layout (Python 3.8+):
- * offset 0  uint32  magic number   (version-specific, see table below)
- * offset 4  uint32  flags          0 = timestamp-based validation
- * offset 8  uint32  source mtime   0 (unknown)
- * offset 12 uint32  source size    0 (unknown)
- * offset 16 bytes   raw marshal data from the 'X' blob
+ *   offset 0  uint32  magic number   (version-specific, see table below)
+ *   offset 4  uint32  flags          0 = timestamp-based validation
+ *   offset 8  uint32  source mtime   0 (unknown)
+ *   offset 12 uint32  source size    0 (unknown)
+ *   offset 16 bytes   raw marshal data from the 'X' blob
  *
  * Python magic numbers:
- * 3.8  → 0x0D0D550A   (3413 + CRLF)
- * 3.9  → 0x0D0D610A   (3425 + CRLF)
- * 3.10 → 0x0D0D6F0A   (3439 + CRLF)
- * 3.11 → 0x0D0DA70A   (3495 + CRLF)
- * 3.12 → 0x0D0DCB0A   (3531 + CRLF)
- * 3.13 → 0x0D0DF50A   (3557 + CRLF)
+ *   3.8  → 0x0D0D550A   (3413 + CRLF)
+ *   3.9  → 0x0D0D610A   (3425 + CRLF)
+ *   3.10 → 0x0D0D6F0A   (3439 + CRLF)
+ *   3.11 → 0x0D0DA70A   (3495 + CRLF)
+ *   3.12 → 0x0D0DCB0A   (3531 + CRLF)
+ *   3.13 → 0x0D0DF50A   (3557 + CRLF)
  *
  * Auto-detection heuristic (when py_version == 0):
- * We scan the marshal bytes for a TYPE_CODE (0x63) or TYPE_CODE|FLAG_REF
- * (0xE3) marker and look at the co_flags / nlocals fields to guess version.
- * If detection fails we default to 3.11 magic (most common Nuitka target).
+ *   We scan the marshal bytes for a TYPE_CODE (0x63) or TYPE_CODE|FLAG_REF
+ *   (0xE3) marker and look at the co_flags / nlocals fields to guess version.
+ *   If detection fails we default to 3.11 magic (most common Nuitka target).
  *
  * Section name → file path mapping:
- * "pkg.subpkg.mod"  → output_dir/pkg/subpkg/mod.pyc
- * ".bytecode"       → output_dir/.bytecode/<filename_or_index>.pyc
- * "__main__"        → output_dir/__main__.pyc
+ *   "pkg.subpkg.mod"  → output_dir/pkg/subpkg/mod.pyc
+ *   ".bytecode"       → output_dir/.bytecode/<filename_or_index>.pyc
+ *   "__main__"        → output_dir/__main__.pyc
  *
  * For .bytecode section: the constant immediately before each 'X' that is
  * a string (tag 'u','a','v','c','w') is used as the file path.  If no string
@@ -57,7 +57,7 @@
 #endif
 
 /* ------------------------------------------------------------------ */
-/* Forward-declare what we need from blob_loader.c internals           */
+/*  Forward-declare what we need from blob_loader.c internals           */
 /* ------------------------------------------------------------------ */
 /* We expose the internal blob format via a thin shim — the raw payload
    pointer and length are accessible through the opaque BlobCtx only via
@@ -77,7 +77,7 @@ static uint64_t ex_varint(const uint8_t **p) {
 static const uint8_t *ex_skip_cstr(const uint8_t *p){ while(*p) p++; return p+1; }
 
 /* ------------------------------------------------------------------ */
-/* Hex dump                                                             */
+/*  Hex dump                                                             */
 /* ------------------------------------------------------------------ */
 void blob_hexdump(FILE *fp, const char *label,
                   const uint8_t *data, size_t len) {
@@ -102,7 +102,7 @@ void blob_hexdump(FILE *fp, const char *label,
 }
 
 /* ------------------------------------------------------------------ */
-/* Python magic number table                                            */
+/*  Python magic number table                                            */
 /* ------------------------------------------------------------------ */
 static uint32_t pyc_magic(unsigned int py_ver) {
     /* Format: little-endian uint32
@@ -121,12 +121,12 @@ static uint32_t pyc_magic(unsigned int py_ver) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Auto-detect Python version from marshal stream                      */
-/* */
-/* The marshal format changed significantly between versions.           */
-/* We use a heuristic: look at the second 4-byte field of a code       */
-/* object (nlocals in 3.8-3.10, argcount+kwonlycount in 3.11+).        */
-/* In practice, for most compiled outputs, defaulting to 3.11 is safe. */
+/*  Auto-detect Python version from marshal stream                      */
+/*                                                                       */
+/*  The marshal format changed significantly between versions.           */
+/*  We use a heuristic: look at the second 4-byte field of a code       */
+/*  object (nlocals in 3.8-3.10, argcount+kwonlycount in 3.11+).        */
+/*  In practice, for most compiled outputs, defaulting to 3.11 is safe. */
 /* ------------------------------------------------------------------ */
 static unsigned int autodetect_pyver(const uint8_t *data, size_t len) {
     if (len < 4) return 0x3b0;
@@ -149,8 +149,7 @@ static unsigned int autodetect_pyver(const uint8_t *data, size_t len) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Directory creation (recursive mkdir -p)                             */
-/* (Retained for completeness, unused in in-memory mode)               */
+/*  Directory creation (recursive mkdir -p)                             */
 /* ------------------------------------------------------------------ */
 static int mkdirs(const char *path) {
     char tmp[4096];
@@ -176,11 +175,11 @@ static int mkdirs(const char *path) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Build output path from module name                                   */
-/* */
-/* "pkg.sub.mod"  → output_dir/pkg/sub/mod.pyc                        */
-/* ".bytecode"    → output_dir/_bytecode/  (prefix dot → underscore)  */
-/* "__main__"     → output_dir/__main__.pyc                            */
+/*  Build output path from module name                                   */
+/*                                                                       */
+/*  "pkg.sub.mod"  → output_dir/pkg/sub/mod.pyc                        */
+/*  ".bytecode"    → output_dir/_bytecode/  (prefix dot → underscore)  */
+/*  "__main__"     → output_dir/__main__.pyc                            */
 /* ------------------------------------------------------------------ */
 static void build_pyc_path(char *out, size_t cap,
                            const char *base_dir,
@@ -206,52 +205,70 @@ static void build_pyc_path(char *out, size_t cap,
     snprintf(out, cap, "%s%c%s%s", base_dir, PATH_SEP, modpath, file_suffix);
 }
 
+/* Strip any path prefix and return just the basename without extension */
+
 /* ------------------------------------------------------------------ */
-/* Process one .pyc in memory (No disk write)                          */
+/*  Write one .pyc file + .hex side-car                                 */
 /* ------------------------------------------------------------------ */
-static int process_pyc_in_memory(const char *pyc_path,
+static int write_pyc(const char *pyc_path,
                      const uint8_t *marshal_data, size_t marshal_len,
                      uint32_t magic) {
+    /* Create parent directories */
+    char dir[4096];
+    snprintf(dir, sizeof(dir), "%s", pyc_path);
+    /* Find last separator */
+    char *last = strrchr(dir, PATH_SEP);
+    if (last) { *last = '\0'; mkdirs(dir); }
+
+    FILE *f = fopen(pyc_path, "wb");
+    if (!f) {
+        fprintf(stderr, "[export] Cannot write '%s': %s\n", pyc_path, strerror(errno));
+        return -1;
+    }
+
     /* .pyc header */
     uint32_t flags    = 0;   /* timestamp-based validation */
     uint32_t mtime    = 0;
     uint32_t src_size = 0;
 
-    size_t pyc_size = 16 + marshal_len;
-    uint8_t *pyc_buf = (uint8_t *)malloc(pyc_size);
-    if (!pyc_buf) {
-        fprintf(stderr, "[export] Allocation failed for '%s'\n", pyc_path);
-        return -1;
+    fwrite(&magic,    4, 1, f);
+    fwrite(&flags,    4, 1, f);
+    fwrite(&mtime,    4, 1, f);
+    fwrite(&src_size, 4, 1, f);
+    fwrite(marshal_data, 1, marshal_len, f);
+    fclose(f);
+
+    /* .hex side-car */
+    char hex_path[4096];
+    snprintf(hex_path, sizeof(hex_path), "%s", pyc_path);
+    size_t hlen = strlen(hex_path);
+    /* Replace .pyc with .hex */
+    if (hlen > 4 && strcmp(hex_path + hlen - 4, ".pyc") == 0)
+        strcpy(hex_path + hlen - 4, ".hex");
+    else
+        strncat(hex_path, ".hex", sizeof(hex_path) - hlen - 1);
+
+    FILE *hf = fopen(hex_path, "w");
+    if (hf) {
+        blob_hexdump(hf, pyc_path, marshal_data, marshal_len);
+        fclose(hf);
     }
 
-    /* Assemble PYC file structure in memory */
-    memcpy(pyc_buf, &magic, 4);
-    memcpy(pyc_buf + 4, &flags, 4);
-    memcpy(pyc_buf + 8, &mtime, 4);
-    memcpy(pyc_buf + 12, &src_size, 4);
-    memcpy(pyc_buf + 16, marshal_data, marshal_len);
-
-    /* We skip creating the hex side-car as well to completely avoid disk IO */
-    printf("[export] IN-MEMORY ASSEMBLED: %-60s  (%zu bytes marshal, %zu bytes total)\n", 
-           pyc_path, marshal_len, pyc_size);
-
-    /* Free the buffer. If you need to interface with this buffer later, 
-       you could return pyc_buf instead of freeing it. */
-    free(pyc_buf);
+    printf("[export] %-60s  (%zu bytes marshal)\n", pyc_path, marshal_len);
     return 0;
 }
 
 /* ------------------------------------------------------------------ */
-/* Section-level raw constant scanner                                   */
-/* */
-/* We need to find 'X' blobs inside a section WITHOUT fully decoding   */
-/* nested constants (to avoid needing the full recursive decoder here). */
-/* Instead we do a linear scan tracking only:                           */
-/* • the immediately-preceding string value (for naming)             */
-/* • the 'X' blob start + size                                        */
-/* */
-/* This is done with a minimal tag-skip routine that understands all    */
-/* tag widths — it doesn't build a BlobVal tree, just skips.           */
+/*  Section-level raw constant scanner                                   */
+/*                                                                       */
+/*  We need to find 'X' blobs inside a section WITHOUT fully decoding   */
+/*  nested constants (to avoid needing the full recursive decoder here). */
+/*  Instead we do a linear scan tracking only:                           */
+/*    • the immediately-preceding string value (for naming)             */
+/*    • the 'X' blob start + size                                        */
+/*                                                                       */
+/*  This is done with a minimal tag-skip routine that understands all    */
+/*  tag widths — it doesn't build a BlobVal tree, just skips.           */
 /* ------------------------------------------------------------------ */
 
 /* Returns pointer just past the consumed constant, or NULL on error. */
@@ -328,7 +345,7 @@ static const uint8_t *skip_one(const uint8_t *p, const uint8_t *end) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Get the string value of a zero-terminated str tag ('u','a','c')     */
+/*  Get the string value of a zero-terminated str tag ('u','a','c')     */
 /* ------------------------------------------------------------------ */
 static bool get_str_val(const uint8_t *tag_ptr, const uint8_t *end,
                         char *buf, size_t cap) {
@@ -487,7 +504,7 @@ static bool extract_module_name_from_blob(const uint8_t *data, size_t len,
 }
 
 /* ------------------------------------------------------------------ */
-/* Main export function                                                 */
+/*  Main export function                                                 */
 /* ------------------------------------------------------------------ */
 
 /* We expose the payload pointer through a private accessor.
@@ -517,8 +534,8 @@ int blob_export_all_pyc(BlobCtx *ctx_opaque,
         return -1;
     }
 
-    /* Create output root is skipped since we aren't writing to disk anymore */
-    /* mkdirs(output_dir); */
+    /* Create output root */
+    mkdirs(output_dir);
 
     /* Auto-detect Python version if not specified */
     unsigned int actual_pyver = py_version;
@@ -529,7 +546,7 @@ int blob_export_all_pyc(BlobCtx *ctx_opaque,
     int total_written = 0;
     int section_idx   = 0;
 
-    printf("\n[export] Scanning all sections for 'X' blobs (In-Memory Processing)...\n");
+    printf("\n[export] Scanning all sections for 'X' blobs...\n");
 
     /* ---- Walk TOC ---- */
     while (toc_p < toc_end && *toc_p != 0) {
@@ -609,7 +626,7 @@ int blob_export_all_pyc(BlobCtx *ctx_opaque,
                                    : (char[32]){[0]='.', [1]='0'+x_count, [2]='\0'});
                 }
 
-                if (process_pyc_in_memory(pyc_path, blob_data, (size_t)blob_len, magic) == 0) {
+                if (write_pyc(pyc_path, blob_data, (size_t)blob_len, magic) == 0) {
                     total_written++;
                     x_count++;
                 }
@@ -637,7 +654,7 @@ int blob_export_all_pyc(BlobCtx *ctx_opaque,
         section_idx++;
     }
 
-    printf("\n[export] Done. %d .pyc file(s) processed in-memory for '%s'\n\n",
+    printf("\n[export] Done. %d .pyc file(s) written to '%s'\n\n",
            total_written, output_dir);
     return total_written;
 }
