@@ -125,9 +125,7 @@ void blob_set_sbox(const uint8_t sbox[256]);
  * Files created under out_dir:
  *   raw_source_dump.txt      - normalized full blob text after marker slicing
  *   combined_source.py       - all recovered modules in one file
- *   module_index.tsv         - module name to emitted file mapping
- *   __main__.py / module_XXXX_<name>.py
- *                            - one file per reconstructed module when writable
+ *   <module>.py              - one file per reconstructed module
  */
 BlobError blob_dump_full_source(BlobCtx *ctx,
                                 const char *out_dir,
