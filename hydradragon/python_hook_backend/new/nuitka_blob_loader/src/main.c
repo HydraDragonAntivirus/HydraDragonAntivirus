@@ -52,14 +52,6 @@ static int hex_nibble(int ch) {
     return -1;
 }
 
-static int parse_py_version_magic(const char *text, uint8_t out[4]) {
-    if (!text || !out) return 0;
-    if (strncmp(text, "3.11", 4) == 0) { out[0] = 0xA7; out[1] = 0x0D; out[2] = 0x0D; out[3] = 0x0A; return 1; }
-    if (strncmp(text, "3.12", 4) == 0) { out[0] = 0xCB; out[1] = 0x0D; out[2] = 0x0D; out[3] = 0x0A; return 1; }
-    if (strncmp(text, "3.13", 4) == 0) { out[0] = 0xF3; out[1] = 0x0D; out[2] = 0x0D; out[3] = 0x0A; return 1; }
-    return 0;
-}
-
 static int parse_magic_hex(const char *text, uint8_t out[4]) {
     char clean[9];
     int n = 0;
