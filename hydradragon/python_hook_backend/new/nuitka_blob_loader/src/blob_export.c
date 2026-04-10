@@ -373,6 +373,54 @@ static bool get_str_val(const uint8_t *tag_ptr, const uint8_t *end,
 /* ------------------------------------------------------------------ */
 /*  Main export function                                                 */
 /* ------------------------------------------------------------------ */
+static bool normalize_detected_module_name(const char *src, char *dst, size_t cap) {
+    size_t di = 0;
+    size_t n;
+    bool saw_sep = false;
+    bool saw_alpha = false;
+
+    if (!src || !*src || !dst || cap == 0) return false;
+
+    while (*src == ' ' || *src == '\t' || *src == '\r' || *src == '\n')
+        src++;
+
+    n = strlen(src);
+    while (n > 0 && (src[n - 1] == ' ' || src[n - 1] == '\t' || src[n - 1] == '\r' || src[n - 1] == '\n'))
+        n--;
+
+    if (n == 0) return false;
+
+    for (size_t i = 0; i < n && di + 1 < cap; i++) {
+        unsigned char c = (unsigned char)src[i];
+        if (c == '/' || c == '\\') {
+            if (di > 0 && dst[di - 1] != '.') dst[di++] = '.';
+            saw_sep = true;
+        } else if (c == '.') {
+            if (i + 3 == n && src[i] == '.' && src[i + 1] == 'p' && src[i + 2] == 'y') break;
+            if (i + 4 == n && src[i] == '.' && src[i + 1] == 'p' && src[i + 2] == 'y' && src[i + 3] == 'c') break;
+            if (di > 0 && dst[di - 1] != '.') dst[di++] = '.';
+            saw_sep = true;
+        } else if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')) {
+            dst[di++] = (char)c;
+            saw_alpha = true;
+        } else if ((c >= '0' && c <= '9') || c == '_') {
+            dst[di++] = (char)c;
+        } else {
+            return false;
+        }
+    }
+
+    while (di > 0 && dst[di - 1] == '.')
+        di--;
+
+    dst[di] = '\0';
+
+    if (!saw_alpha || di == 0) return false;
+    if (!saw_sep && strchr(dst, '.') == NULL) return false;
+
+    return true;
+}
+
 
 /* We expose the payload pointer through a private accessor.
    Since blob_loader.c and blob_export.c share the same BlobCtx struct
@@ -468,23 +516,10 @@ int blob_export_all_pyc(BlobCtx *ctx_opaque,
                 char pyc_path[4096];
 
                 if (is_bytecode_section) {
-                    /* Use the last string constant seen as filename.
-                       Strip any .py extension and normalise slashes. */
+                    /* Keep existing export behavior; only prefer a detected
+                       module/import name over the generic bytecode index. */
                     char modname[512] = {0};
-                    if (last_str[0]) {
-                        /* Convert filename like "pkg/mod.py" to "pkg.mod" */
-                        const char *src = last_str;
-                        size_t mi = 0;
-                        while (*src && mi + 1 < sizeof(modname)) {
-                            char c = *src++;
-                            if (c == '/' || c == '\\') c = '.';
-                            modname[mi++] = c;
-                        }
-                        /* Strip .py suffix */
-                        if (mi > 3 && strcmp(modname + mi - 3, ".py") == 0)
-                            mi -= 3;
-                        modname[mi] = '\0';
-                    } else {
+                    if (!normalize_detected_module_name(last_str, modname, sizeof(modname))) {
                         snprintf(modname, sizeof(modname),
                                  "_bytecode_%d_%d", section_idx, x_count);
                     }
