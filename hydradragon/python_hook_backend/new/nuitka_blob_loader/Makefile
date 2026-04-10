@@ -11,7 +11,7 @@ CC      = gcc
 CFLAGS  = -std=c11 -O2 -Wall -Wextra -Iinclude
 LDFLAGS = -lm
 
-SRC     = src/main.c src/blob_loader.c src/crc32.c
+SRC     = src/main.c src/blob_loader.c src/blob_export.c src/crc32.c
 TARGET  = blob_loader
 
 # ---- native build ----

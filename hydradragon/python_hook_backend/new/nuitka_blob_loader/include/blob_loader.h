@@ -135,6 +135,32 @@ BlobError blob_parse_constants(BlobCtx *ctx,
 /* Print a BlobVal tree to stdout at the given indent level. */
 void blob_print_val(const BlobVal *val, int indent);
 
+/* Print a hex+ascii dump of raw bytes to fp (e.g. stdout or a file). */
+void blob_hexdump(FILE *fp, const char *label,
+                  const uint8_t *data, size_t len);
+
+/*
+ * Export every section to .pyc + .hex files.
+ *
+ * Algorithm:
+ *  - Walk every TOC section (including .bytecode).
+ *  - Decode all constants in each section.
+ *  - Any 'X'-tagged blob = raw marshal bytes for a Python code object.
+ *  - Non-.bytecode sections: name them after the section.
+ *    "pkg.mod" -> output_dir/pkg/mod.pyc
+ *  - .bytecode section: the string constant immediately before each 'X'
+ *    is used as the filename; falls back to ".bytecode_N".
+ *  - Each .pyc file gets: [4B magic][4B flags=0][4B mtime=0][4B srcsize=0]
+ *    followed by the raw marshal bytes.
+ *  - Each .hex file:  full hex+ascii dump of the marshal bytes.
+ *
+ * py_version  one of 0x380..0x3d0  (0 = auto-detect from marshal header).
+ * Returns number of .pyc files written, or -1 on fatal error.
+ */
+int blob_export_all_pyc(BlobCtx *ctx,
+                        const char *output_dir,
+                        unsigned int py_version);
+
 /* Free everything. */
 void blob_free_values(BlobVal *vals, uint32_t count);
 void blob_free(BlobCtx *ctx);
@@ -148,22 +174,5 @@ BlobError blob_dump_toc(BlobCtx *ctx);
  * If not called, raw bytes are used as-is (works when DECODE is a no-op).
  */
 void blob_set_sbox(const uint8_t sbox[256]);
-
-
-
-/*
- * Export detected raw 'X' bytecode blobs to files named from best-effort
- * import/module names recovered from the blob bytes. Falls back to
- * bytecode_XXXX when no reliable name is found.
- *
- * Files created under out_dir:
- *   <module>__XXXX.pyc   - raw extracted bytecode blob bytes
- *   pyc_list.txt         - one exported path per line
- *   manifest.tsv         - index, module_hint, size, path, first16_hex
- */
-BlobError blob_export_named_bytecode_files(const BlobVal *vals,
-                                           uint32_t count,
-                                           const char *out_dir,
-                                           uint32_t *out_written);
 
 #endif /* BLOB_LOADER_H */

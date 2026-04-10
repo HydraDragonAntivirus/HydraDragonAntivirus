@@ -1,69 +1,81 @@
 # nuitka_blob_loader
 
-Standalone C tool to load and decode the **`.bytecode`** constants section
-from a Nuitka-compiled binary's `rcdata_10_3.bin` RCDATA resource.
-
-No CPython required. No external dependencies.
+Standalone C tool to **extract, decode, and export** Python source code from
+Nuitka-compiled binaries — with no CPython dependency in the loader itself.
 
 ---
 
-## Project structure
+## What it does
+
+```
+Nuitka .exe / .dll
+   └─ RCDATA resource #3  (rcdata_10_3.bin)
+         └─ blob header     [CRC32][size]
+         └─ .bytecode       → .pyc per module
+         └─ __main__        → __main__.pyc
+         └─ mypackage.mod   → mypackage/mod.pyc
+         └─ ...
+                 ↓
+         output/
+           __main__.pyc   + __main__.hex
+           mypackage/
+             mod.pyc      + mod.hex
+```
+
+Each `.pyc` is a proper Python bytecode file:
+`[4B magic][4B flags=0][4B mtime=0][4B srcsize=0][marshal bytes]`
+
+---
+
+## Project layout
 
 ```
 nuitka_blob_loader/
 ├── include/
-│   └── blob_loader.h       ← public API + full format documentation
+│   └── blob_loader.h        ← public API + complete wire-format docs
 ├── src/
-│   ├── main.c              ← entry point (CLI)
-│   ├── blob_loader.c       ← core: verify / find-section / parse-constants
-│   └── crc32.c             ← CRC-32/ISO-HDLC implementation
-├── bin/                    ← put rcdata_10_3.bin here
+│   ├── main.c               ← CLI with all flags
+│   ├── blob_loader.c        ← verify / find / decode constants
+│   ├── blob_export.c        ← .pyc + .hex writer, hex dumper
+│   └── crc32.c              ← CRC-32/ISO-HDLC
+├── extract_sbox.py          ← dump cipher S-box from the .exe
+├── gen_test_blob.py         ← generate a test rcdata_10_3.bin
+├── verify_pyc.py            ← verify / disassemble / decompile output
 ├── Makefile
-├── CMakeLists.txt
-└── README.md
+└── CMakeLists.txt
 ```
 
 ---
 
-## Step 1 — Extract `rcdata_10_3.bin` from the Nuitka binary
+## Step 1 — Extract rcdata_10_3.bin
 
-### Windows (ResourceHacker GUI)
-1. Open **ResourceHacker.exe** → File → Open → select the compiled `.exe`
-2. Expand `RCDATA` → `3`
-3. Right-click → **Save resource to BIN file** → save as `rcdata_10_3.bin`
-
-### Windows (ResourceHacker CLI)
+### Windows — ResourceHacker CLI
 ```cmd
 ResourceHacker.exe -open program.exe -save rcdata_10_3.bin ^
     -action extract -mask RCDATA,3
 ```
 
-### Windows (Python, no tools needed)
+### Windows — Python (no tools needed)
 ```python
-import ctypes, ctypes.wintypes as wt
-
-kernel32 = ctypes.WinDLL("kernel32")
-hmod   = kernel32.LoadLibraryExA(b"program.exe", None, 0x20)  # LOAD_LIBRARY_AS_DATAFILE
-hrsrc  = kernel32.FindResourceA(hmod, ctypes.c_int(3), ctypes.c_int(10))  # RT_RCDATA=10
-hglob  = kernel32.LoadResource(hmod, hrsrc)
-ptr    = kernel32.LockResource(hglob)
-size   = kernel32.SizeofResource(hmod, hrsrc)
-
-data   = (ctypes.c_ubyte * size).from_address(ptr)
-with open("rcdata_10_3.bin", "wb") as f:
-    f.write(bytes(data))
-
-kernel32.FreeLibrary(hmod)
-print("Saved", size, "bytes to rcdata_10_3.bin")
+import ctypes, struct, zlib
+k = ctypes.WinDLL("kernel32")
+hmod  = k.LoadLibraryExA(b"program.exe", None, 0x20)
+hrsrc = k.FindResourceA(hmod, ctypes.c_int(3), ctypes.c_int(10))
+hglob = k.LoadResource(hmod, hrsrc)
+ptr   = k.LockResource(hglob)
+size  = k.SizeofResource(hmod, hrsrc)
+data  = (ctypes.c_ubyte * size).from_address(ptr)
+open("rcdata_10_3.bin", "wb").write(bytes(data))
+k.FreeLibrary(hmod)
 ```
 
-### Linux/macOS (objcopy for ELF/Mach-O builds)
-For ELF binaries (Linux Nuitka builds), the blob is in a section, not RCDATA:
+### Linux (ELF Nuitka build)
 ```bash
-# ELF: extract the __constants section
 objcopy --dump-section .nuitka_constants=rcdata_10_3.bin program
+```
 
-# macOS: extract the constant/constant Mach-O section
+### macOS (Mach-O)
+```bash
 otool -s constant constant program | xxd -r -p > rcdata_10_3.bin
 ```
 
@@ -71,105 +83,153 @@ otool -s constant constant program | xxd -r -p > rcdata_10_3.bin
 
 ## Step 2 — Build
 
-### Linux / macOS
 ```bash
+# Linux / macOS
 make
-# or with CMake:
+
+# Windows cross-compile (MinGW)
+make windows
+
+# Windows MSVC (Developer Command Prompt)
+cl /TC /O2 /Iinclude src\main.c src\blob_loader.c src\blob_export.c src\crc32.c /Fe:blob_loader.exe
+
+# CMake
 cmake -B build && cmake --build build
 ```
 
-### Windows (MinGW cross-compile from Linux)
-```bash
-make windows
-```
-
-### Windows (MSVC, from Developer Command Prompt)
-```cmd
-cl /TC /O2 /Iinclude src\main.c src\blob_loader.c src\crc32.c /Fe:blob_loader.exe
-```
-
 ---
 
-## Step 3 — Run
+## Step 3 — Export .pyc files
 
 ```bash
-# Auto-detect rcdata_10_3.bin in current dir or bin/
-./blob_loader
+# Auto-detect everything, export all modules
+./blob_loader rcdata_10_3.bin --save-pyc ./output
 
-# Explicit path
-./blob_loader /path/to/rcdata_10_3.bin
-```
+# Force Python 3.11 magic (if auto-detect is wrong)
+./blob_loader rcdata_10_3.bin --save-pyc ./output --pyver 0x3b0
 
-### Example output
-```
-=======================================================
-  Nuitka constants blob loader  (.bytecode section)
-=======================================================
+# Print section table only
+./blob_loader rcdata_10_3.bin --toc
 
-[blob] Loaded 'rcdata_10_3.bin': 48392 bytes
-[blob] Header: expected CRC32=0xA3F21C88  covered_size=48384 bytes
-[blob] Computed CRC32=0xA3F21C88  -> OK
+# Decode and print constants from one section
+./blob_loader rcdata_10_3.bin --section __main__
 
-[blob] === Section TOC ===
-  [ 0] .bytecode                                  1024 bytes  (offset=14)
-  [ 1] __main__                                   4200 bytes  (offset=1042)
-  [ 2] mymodule                                   8830 bytes  (offset=5246)
-  ...
-[blob] ===  End TOC  ===
-
-[blob] Found section '.bytecode': 1024 bytes at payload offset 14
-[main] .bytecode section: 1024 bytes
-
-[blob] Section contains 37 top-level constants
-
-=== Decoded .bytecode constants (37 total) ===
-
-[   0] str[8](filename)
-[   1] str[12](__main__.py)
-[   2] code <code '__main__' qualname='<module>' line=1 args=0 kw=0 ...>
-[   3] int(1)
-[   4] None
-...
+# Export + no stdout constant dump
+./blob_loader rcdata_10_3.bin --save-pyc ./output --no-print
 ```
 
 ---
 
-## Blob wire format (quick reference)
+## Step 4 — Verify and disassemble
 
-```
-File layout:
-  [uint32] CRC32 of everything after this
-  [uint32] size covered by CRC32
-  repeated sections:
-    [cstr]   section name  (e.g. ".bytecode", "__main__", "mymodule")
-    [uint32] section payload size in bytes
-    [bytes]  payload
+```bash
+# Verify all .pyc files + disassemble
+python3 verify_pyc.py output --dis
 
-Section payload:
-  [uint16] number of constants N
-  N × encoded constant:
-    [char]   type tag
-    [...]    type-specific payload
+# Show constant pools too
+python3 verify_pyc.py output --dis --verbose
+
+# Decompile to Python source (requires pip install decompile3)
+python3 verify_pyc.py output --decompile --save-py
 ```
 
-See `include/blob_loader.h` for the complete tag table.
+Or directly in Python:
+```python
+import marshal, dis
+with open("output/__main__.pyc", "rb") as f:
+    f.read(16)           # skip 16-byte pyc header
+    dis.dis(marshal.loads(f.read()))
+```
 
 ---
 
-## API (for embedding in your own code)
+## Step 5 — Decryption (if blob is encrypted)
+
+The IDA decompilation revealed a stream cipher using a 256-byte S-box
+(`byte_38B57EC20`). Extract it from the binary, then pass it to the loader.
+
+```bash
+# Extract S-box from the .exe (needs IDA address of the S-box)
+python3 extract_sbox.py program.exe --addr 0x38B57EC20 --out-bin sbox.bin
+
+# Run with decryption enabled
+./blob_loader rcdata_10_3.bin --sbox sbox.bin --save-pyc ./output
+```
+
+---
+
+## Python version magic numbers
+
+| Version | `--pyver` | Magic (LE uint32) |
+|---------|-----------|-------------------|
+| 3.8     | `0x380`   | `0x0D0D550A`      |
+| 3.9     | `0x390`   | `0x0D0D610A`      |
+| 3.10    | `0x3a0`   | `0x0D0D6F0A`      |
+| 3.11    | `0x3b0`   | `0x0D0DA70A`      |
+| 3.12    | `0x3c0`   | `0x0D0DCB0A`      |
+| 3.13    | `0x3d0`   | `0x0D0DF50A`      |
+
+---
+
+## Wire format (quick reference)
+
+```
+File:
+  [uint32]  CRC32 of everything below
+  [uint32]  byte count covered by CRC32
+  Sections (repeated):
+    [cstr]    section name  (".bytecode", "__main__", "pkg.mod", ...)
+    [uint32]  section payload size
+    [uint16]  constant count N
+    N × constant:
+      [char]  type tag
+      [...]   type payload
+
+Type tags:
+  'n'  None          't'  True        'F'  False
+  's'  empty str     'p'  back-ref
+  'l'  +int (varint) 'q'  -int (varint)
+  'G'  +bigint       'g'  -bigint
+  'f'  float (8B)    'Z'  special float (sub-tag: 0=+0 1=-0 2=+nan 3=-nan 4=+inf 5=-inf)
+  'j'  complex (16B) 'J'  complex via 2 child floats
+  'c'  bytes (cstr)  'd'  bytes (1B)   'b'  bytes (varint+raw)
+  'w'  str (1 char)  'u'  str (cstr)   'a'  interned str (cstr)  'v'  str (varint+raw)
+  'T'  tuple         'L'  list         'D'  dict
+  'S'  set           'P'  frozenset    ':'  slice   ';'  range
+  'A'  GenericAlias  'H'  UnionType
+  'M'  anon builtin  'Q'  special singleton  'O'/'E'  builtin by name
+  'C'  code object   'X'  raw marshal blob  ← compiled .pyc content
+```
+
+---
+
+## API (embed in your own code)
 
 ```c
 #include "blob_loader.h"
 
 BlobCtx *ctx;
-blob_load_file("rcdata_10_3.bin", &ctx);   // 1. read file
-blob_verify(ctx);                           // 2. check CRC32
-blob_dump_toc(ctx);                         // 3. print section map
-blob_find_section(ctx, ".bytecode", NULL);  // 4. locate section
+blob_load_file("rcdata_10_3.bin", &ctx);
+blob_verify(ctx);                          // CRC32 check
+blob_dump_toc(ctx);                        // print section list
+blob_find_section(ctx, ".bytecode", NULL); // select section
 BlobVal *vals; uint32_t count;
-blob_parse_constants(ctx, &vals, &count);  // 5. decode
+blob_parse_constants(ctx, &vals, &count);  // decode constants
 for (uint32_t i = 0; i < count; i++)
-    blob_print_val(&vals[i], 0);            // 6. print
+    blob_print_val(&vals[i], 0);
+blob_export_all_pyc(ctx, "./output", 0);   // export .pyc + .hex
 blob_free_values(vals, count);
 blob_free(ctx);
 ```
+
+---
+
+## All constants tag handling
+
+| Tag | Type | Fixed |
+|-----|------|-------|
+| `'X'` | raw marshal / bytecode | ✓ (was missing in v1) |
+| `'C'` | code object | ✓ (field order was wrong in v1) |
+| `'A'` | GenericAlias (3.9+) | ✓ (new) |
+| `'H'` | UnionType (3.10+) | ✓ (new) |
+| All others | fully handled | ✓ |

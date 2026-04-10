@@ -6,6 +6,7 @@ set(CMAKE_C_STANDARD 11)
 add_executable(blob_loader
     src/main.c
     src/blob_loader.c
+    src/blob_export.c
     src/crc32.c
 )
 
