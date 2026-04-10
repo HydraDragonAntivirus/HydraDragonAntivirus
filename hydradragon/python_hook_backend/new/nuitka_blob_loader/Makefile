@@ -29,7 +29,7 @@ windows:
 	@echo "Built: blob_loader.exe"
 
 # ---- MSVC build hint (run from Developer Command Prompt) ----
-# cl /TC /O2 /Iinclude src\main.c src\blob_loader.c src\crc32.c /Fe:blob_loader.exe
+# cl /TC /O2 /Iinclude src\main.c src\blob_loader.c src\blob_export.c src\crc32.c /Fe:blob_loader.exe
 
 .PHONY: clean
 clean:
