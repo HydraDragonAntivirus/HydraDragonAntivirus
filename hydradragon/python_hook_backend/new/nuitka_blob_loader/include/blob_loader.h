@@ -135,16 +135,24 @@ BlobError blob_dump_full_source(BlobCtx *ctx,
 
 
 /*
- * Export every raw marshalled bytecode/blob entry ('X' tags) found in the
- * decoded constants tree into a PyLingual-friendly bundle.
+ * Export every raw marshalled bytecode/blob entry found in the decoded
+ * constants tree into a PyLingual-friendly bundle.
+ *
+ * Improvements over the older exporter:
+ *   - keeps the original top-level constant index from the .bytecode dump
+ *   - uses best-effort module-name hints in file names when source hints exist
+ *   - also exports marshal-looking raw bytes even when their tag is not 'X'
  *
  * Files created under out_dir:
- *   manifest.tsv        - index, size, marshal path, pyc path
+ *   manifest.tsv        - ordinal, top_index, sub_index, module hint, paths
  *   marshal_list.txt    - one raw marshal blob path per line
  *   pyc_list.txt        - one generated .pyc path per line
- *   bytecode_XXXX.marshal
- *   bytecode_XXXX.pyc
+ *   bytecode_topXXXX__name.pyc/.marshal
  *   make_pyc_list.py    - helper to rebuild .pyc headers with a different magic
+ *
+ * source_dir may point at the directory previously created by
+ * blob_dump_full_source(); when present, module_index.tsv is used as a hint
+ * source for naming exported bytecode blobs. Pass NULL to disable name hints.
  *
  * pyc_magic is the 4-byte CPython MAGIC_NUMBER to use for emitted .pyc files.
  * For Python 3.11 final that value is A7 0D 0D 0A.
@@ -152,6 +160,7 @@ BlobError blob_dump_full_source(BlobCtx *ctx,
 BlobError blob_export_pylingual_bundle(const BlobVal *vals,
                                        uint32_t count,
                                        const char *out_dir,
+                                       const char *source_dir,
                                        const uint8_t pyc_magic[4],
                                        uint32_t *out_written);
 

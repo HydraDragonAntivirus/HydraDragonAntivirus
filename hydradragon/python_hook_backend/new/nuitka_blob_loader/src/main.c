@@ -4,7 +4,7 @@
  * Default behavior:
  *   1. Verify the RCDATA blob and dump the section TOC.
  *   2. Reconstruct the integrated source-like text into ./full_source.
- *   3. Parse .bytecode and export every raw 'X' blob into ./pylingual_bundle as:
+ *   3. Parse .bytecode and export every recoverable marshal/code blob into ./pylingual_bundle as:
  *        - .marshal blobs
  *        - .pyc files
  *        - pyc_list.txt / manifest.tsv
@@ -170,7 +170,7 @@ int main(int argc, char *argv[]) {
             return 1;
         }
 
-        err = blob_export_pylingual_bundle(vals, count, bundle_dir, pyc_magic, &written);
+        err = blob_export_pylingual_bundle(vals, count, bundle_dir, want_source ? source_dir : NULL, pyc_magic, &written);
         if (err != BLOB_OK) {
             fprintf(stderr, "[main] blob_export_pylingual_bundle: %s\n", blob_error_str(err));
             blob_free_values(vals, count);
@@ -179,6 +179,7 @@ int main(int argc, char *argv[]) {
         }
 
         printf("[main] Exported %u bytecode blob(s) into ./%s\n", written, bundle_dir);
+        printf("[main] Names keep original top-level constant indexes when available.\n");
         printf("[main] Pyc list: ./%s/pyc_list.txt\n", bundle_dir);
         printf("[main] Manifest: ./%s/manifest.tsv\n", bundle_dir);
         printf("[main] Helper:   ./%s/make_pyc_list.py\n\n", bundle_dir);

@@ -830,7 +830,7 @@ static char *sanitize_module_name_for_path(const char *name) {
     if (!out) {
         return NULL;
     }
-    for (i = 0; i < n && o < 150; i++) {
+    for (i = 0; i < n && o < 80; i++) {
         unsigned char ch = (unsigned char)src[i];
         if (isalnum(ch) || ch == "_"[0]) {
             out[o++] = (char)ch;
@@ -1262,14 +1262,28 @@ BlobError blob_dump_full_source(BlobCtx *ctx, const char *out_dir, size_t *out_m
 /*  PyLingual bundle export                                            */
 /* ------------------------------------------------------------------ */
 
+/* ------------------------------------------------------------------ */
+/*  PyLingual bundle export                                            */
+/* ------------------------------------------------------------------ */
+
+typedef struct {
+    char **names;
+    size_t count;
+    size_t cap;
+} ModuleHintSet;
+
 typedef struct {
     const char *out_dir;
     const uint8_t *pyc_magic;
     FILE *manifest;
     FILE *pyc_list;
     FILE *marshal_list;
-    uint32_t next_index;
+    uint32_t next_ordinal;
     uint32_t written;
+    uint32_t current_top_index;
+    uint32_t current_sub_index;
+    char *current_top_hint;
+    ModuleHintSet source_hints;
 } PyLingualExportCtx;
 
 static int ensure_dir_exists_ok(const char *path) {
@@ -1309,30 +1323,469 @@ static int write_u32_le(FILE *f, uint32_t value) {
     return fwrite(b, 1, 4, f) == 4;
 }
 
+static int looks_like_marshaled_code_blob(const uint8_t *data, size_t len) {
+    if (!data || len < 8) {
+        return 0;
+    }
+    /* CPython marshal TYPE_CODE is 'c' (0x63); with FLAG_REF it becomes 0xE3. */
+    return data[0] == 0x63 || data[0] == 0xE3;
+}
+
+static void module_hintset_free(ModuleHintSet *set) {
+    size_t i;
+    if (!set) {
+        return;
+    }
+    for (i = 0; i < set->count; i++) {
+        free(set->names[i]);
+    }
+    free(set->names);
+    set->names = NULL;
+    set->count = 0;
+    set->cap = 0;
+}
+
+static int is_plausible_module_hint(const char *s) {
+    size_t i;
+    size_t n;
+    if (!s || !*s) {
+        return 0;
+    }
+    if (strcmp(s, "<module>") == 0 || strcmp(s, "<lambda>") == 0 || strcmp(s, "<listcomp>") == 0 ||
+        strcmp(s, "<dictcomp>") == 0 || strcmp(s, "<setcomp>") == 0 || strcmp(s, "<genexpr>") == 0) {
+        return 0;
+    }
+    n = strlen(s);
+    if (n == 0 || n > 180) {
+        return 0;
+    }
+    if (!(isalpha((unsigned char)s[0]) || s[0] == '_')) {
+        return 0;
+    }
+    for (i = 0; i < n; i++) {
+        unsigned char ch = (unsigned char)s[i];
+        if (!(isalnum(ch) || ch == '_' || ch == '.')) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+static const char *module_hintset_find_exact(const ModuleHintSet *set, const char *name) {
+    size_t i;
+    if (!set || !name || !*name) {
+        return NULL;
+    }
+    for (i = 0; i < set->count; i++) {
+        if (strcmp(set->names[i], name) == 0) {
+            return set->names[i];
+        }
+    }
+    return NULL;
+}
+
+static const char *module_hintset_resolve_basename(const ModuleHintSet *set, const char *base) {
+    size_t i;
+    const char *match = NULL;
+    if (!set || !base || !*base) {
+        return NULL;
+    }
+    for (i = 0; i < set->count; i++) {
+        const char *full = set->names[i];
+        const char *tail = strrchr(full, '.');
+        tail = tail ? tail + 1 : full;
+        if (strcmp(tail, base) == 0) {
+            if (match && strcmp(match, full) != 0) {
+                return NULL;
+            }
+            match = full;
+        }
+    }
+    return match;
+}
+
+static int module_hintset_add(ModuleHintSet *set, const char *name) {
+    char *dup;
+    char **new_names;
+    size_t new_cap;
+
+    if (!set || !name || !*name || !is_plausible_module_hint(name)) {
+        return 1;
+    }
+    if (module_hintset_find_exact(set, name)) {
+        return 1;
+    }
+    if (set->count == set->cap) {
+        new_cap = (set->cap == 0) ? 64 : (set->cap * 2);
+        new_names = (char **)realloc(set->names, new_cap * sizeof(char *));
+        if (!new_names) {
+            return 0;
+        }
+        set->names = new_names;
+        set->cap = new_cap;
+    }
+    dup = blob_strdup(name);
+    if (!dup) {
+        return 0;
+    }
+    set->names[set->count++] = dup;
+    return 1;
+}
+
+static char *module_hint_from_output_file(const char *file_name) {
+    const char *base;
+    const char *dot;
+    char temp[256];
+    size_t n;
+    if (!file_name || !*file_name) {
+        return NULL;
+    }
+    base = file_name;
+    if (strcmp(base, "__main__.py") == 0) {
+        return blob_strdup("__main__");
+    }
+    if (strncmp(base, "module_", 7) == 0) {
+        const char *p = base + 7;
+        while (*p && isdigit((unsigned char)*p)) {
+            p++;
+        }
+        if (*p == '_') {
+            base = p + 1;
+        }
+    }
+    dot = strrchr(base, '.');
+    n = dot ? (size_t)(dot - base) : strlen(base);
+    if (n == 0 || n >= sizeof(temp)) {
+        return NULL;
+    }
+    memcpy(temp, base, n);
+    temp[n] = '\0';
+    return blob_strdup(temp);
+}
+
+static int load_source_hints_from_dir(const char *source_dir, ModuleHintSet *set) {
+    char index_path[4096];
+    FILE *f;
+    char line[4096];
+    if (!source_dir || !set) {
+        return 1;
+    }
+    snprintf(index_path, sizeof(index_path), "%s/module_index.tsv", source_dir);
+    f = fopen(index_path, "rb");
+    if (!f) {
+        return 1;
+    }
+    while (fgets(line, sizeof(line), f)) {
+        char *p = line;
+        char *c1;
+        char *c2;
+        char *c3;
+        char *module_name;
+        char *file_name;
+        char *derived;
+        if (strncmp(p, "index\t", 6) == 0) {
+            continue;
+        }
+        c1 = strchr(p, '\t');
+        if (!c1) {
+            continue;
+        }
+        c2 = strchr(c1 + 1, '\t');
+        if (!c2) {
+            continue;
+        }
+        c3 = strchr(c2 + 1, '\t');
+        if (!c3) {
+            continue;
+        }
+        *c1 = '\0';
+        *c2 = '\0';
+        *c3 = '\0';
+        module_name = trim_in_place(c1 + 1);
+        file_name = trim_in_place(c2 + 1);
+        module_hintset_add(set, module_name);
+        derived = module_hint_from_output_file(file_name);
+        if (derived) {
+            module_hintset_add(set, derived);
+            free(derived);
+        }
+    }
+    fclose(f);
+    return 1;
+}
+
+static char *normalize_module_hint_candidate(const char *raw,
+                                             const ModuleHintSet *known,
+                                             int require_path_or_known,
+                                             int *score_out) {
+    char temp[512];
+    size_t n;
+    char *s;
+    char *candidate;
+    char *slash;
+    char *py;
+    int path_like = 0;
+    const char *exact;
+    const char *resolved;
+    int score = -1;
+
+    if (score_out) {
+        *score_out = -1;
+    }
+    if (!raw || !*raw) {
+        return NULL;
+    }
+
+    n = strlen(raw);
+    if (n >= sizeof(temp)) {
+        n = sizeof(temp) - 1;
+    }
+    memcpy(temp, raw, n);
+    temp[n] = '\0';
+    s = trim_in_place(temp);
+
+    while (*s == '\'' || *s == '"' || *s == '<' || *s == '(' || *s == '[' || *s == '{') {
+        s++;
+    }
+    n = strlen(s);
+    while (n > 0 && (s[n - 1] == '\'' || s[n - 1] == '"' || s[n - 1] == '>' ||
+                     s[n - 1] == ')' || s[n - 1] == ']' || s[n - 1] == '}' ||
+                     s[n - 1] == ':' || s[n - 1] == ',' || s[n - 1] == ';')) {
+        s[--n] = '\0';
+    }
+    if (*s == '\0') {
+        return NULL;
+    }
+
+    for (candidate = s; *candidate; candidate++) {
+        if (*candidate == '\\') {
+            *candidate = '/';
+        }
+    }
+
+    candidate = s;
+    if (strchr(candidate, '/')) {
+        path_like = 1;
+    }
+    py = strstr(candidate, ".py");
+    if (py) {
+        char *last_slash = py;
+        path_like = 1;
+        while (last_slash > candidate && last_slash[-1] != '/') {
+            last_slash--;
+        }
+        *py = '\0';
+        candidate = last_slash;
+        if (strcmp(candidate, "__init__") == 0 && last_slash > s) {
+            char *prev = last_slash - 1;
+            *py = '\0';
+            while (prev > s && prev[-1] != '/') {
+                prev--;
+            }
+            if (*prev) {
+                candidate = prev;
+            }
+        }
+    } else {
+        slash = strrchr(candidate, '/');
+        if (slash && slash[1] != '\0') {
+            candidate = slash + 1;
+            path_like = 1;
+        }
+    }
+
+    while (*candidate == '.') {
+        candidate++;
+    }
+    if (!*candidate) {
+        return NULL;
+    }
+
+    exact = module_hintset_find_exact(known, candidate);
+    if (exact) {
+        if (score_out) {
+            *score_out = 1000;
+        }
+        return blob_strdup(exact);
+    }
+
+    resolved = module_hintset_resolve_basename(known, candidate);
+    if (resolved) {
+        if (score_out) {
+            *score_out = 900;
+        }
+        return blob_strdup(resolved);
+    }
+
+    if (!is_plausible_module_hint(candidate)) {
+        return NULL;
+    }
+
+    if (require_path_or_known && !path_like) {
+        return NULL;
+    }
+
+    score = path_like ? 700 : 500;
+    if (strcmp(candidate, "__main__") == 0) {
+        score += 50;
+    }
+    if (score_out) {
+        *score_out = score;
+    }
+    return blob_strdup(candidate);
+}
+
+static char *guess_module_hint_from_bytes(const uint8_t *data, size_t len, const ModuleHintSet *known) {
+    size_t i = 0;
+    char *best = NULL;
+    int best_score = -1;
+
+    if (!data || len < 3) {
+        return NULL;
+    }
+
+    while (i < len) {
+        if (data[i] >= 0x20 && data[i] <= 0x7E) {
+            size_t start = i;
+            char run[256];
+            size_t run_len;
+            int score = -1;
+            char *cand;
+            while (i < len && data[i] >= 0x20 && data[i] <= 0x7E) {
+                i++;
+            }
+            run_len = i - start;
+            if (run_len < 3) {
+                continue;
+            }
+            if (run_len >= sizeof(run)) {
+                run_len = sizeof(run) - 1;
+            }
+            memcpy(run, data + start, run_len);
+            run[run_len] = '\0';
+            cand = normalize_module_hint_candidate(run, known, 1, &score);
+            if (cand) {
+                if (score > best_score) {
+                    free(best);
+                    best = cand;
+                    best_score = score;
+                } else {
+                    free(cand);
+                }
+            }
+        } else {
+            i++;
+        }
+    }
+
+    return best;
+}
+
+static char *guess_module_hint_from_blobval(const BlobVal *v, const ModuleHintSet *known) {
+    int score = -1;
+    if (!v) {
+        return NULL;
+    }
+    switch (v->kind) {
+    case BVAL_BYTES:
+        return guess_module_hint_from_bytes(v->buf.data, v->buf.len, known);
+    case BVAL_STR:
+    case BVAL_BUILTIN:
+        return normalize_module_hint_candidate((const char *)v->buf.data, known, 1, &score);
+    default:
+        return NULL;
+    }
+}
+
+static char *guess_top_level_hint(const BlobVal *vals,
+                                  uint32_t count,
+                                  uint32_t top_index,
+                                  const ModuleHintSet *known) {
+    static const int offsets[] = {0, -1, 1, -2, 2, -3, 3};
+    size_t j;
+    for (j = 0; j < sizeof(offsets) / sizeof(offsets[0]); j++) {
+        int idx = (int)top_index + offsets[j];
+        char *hint;
+        if (idx < 0 || (uint32_t)idx >= count) {
+            continue;
+        }
+        hint = guess_module_hint_from_blobval(&vals[idx], known);
+        if (hint) {
+            return hint;
+        }
+    }
+    return NULL;
+}
+
 static BlobError write_single_pylingual_blob(PyLingualExportCtx *ctx, const BlobVal *v) {
     char marshal_path[4096];
     char pyc_path[4096];
     char magic_hex[16];
     char head_hex[34];
+    char *raw_hint = NULL;
+    char *safe_hint = NULL;
+    const char *hint_source = "none";
     FILE *fm = NULL;
     FILE *fp = NULL;
     size_t preview_len;
+    uint32_t sub_index = ctx->current_sub_index;
 
-    snprintf(marshal_path, sizeof(marshal_path), "%s/bytecode_%04u.marshal", ctx->out_dir, ctx->next_index);
-    snprintf(pyc_path, sizeof(pyc_path), "%s/bytecode_%04u.pyc", ctx->out_dir, ctx->next_index);
+    raw_hint = guess_module_hint_from_bytes(v->buf.data, v->buf.len, &ctx->source_hints);
+    if (raw_hint) {
+        hint_source = "marshal";
+    } else if (ctx->current_top_hint) {
+        raw_hint = blob_strdup(ctx->current_top_hint);
+        hint_source = "top_hint";
+    }
+
+    if (raw_hint) {
+        safe_hint = sanitize_module_name_for_path(raw_hint);
+    }
+
+    if (safe_hint && *safe_hint) {
+        if (sub_index == 0) {
+            snprintf(marshal_path, sizeof(marshal_path), "%s/bytecode_top%04u__%s.marshal",
+                     ctx->out_dir, ctx->current_top_index, safe_hint);
+            snprintf(pyc_path, sizeof(pyc_path), "%s/bytecode_top%04u__%s.pyc",
+                     ctx->out_dir, ctx->current_top_index, safe_hint);
+        } else {
+            snprintf(marshal_path, sizeof(marshal_path), "%s/bytecode_top%04u_sub%03u__%s.marshal",
+                     ctx->out_dir, ctx->current_top_index, sub_index, safe_hint);
+            snprintf(pyc_path, sizeof(pyc_path), "%s/bytecode_top%04u_sub%03u__%s.pyc",
+                     ctx->out_dir, ctx->current_top_index, sub_index, safe_hint);
+        }
+    } else {
+        if (sub_index == 0) {
+            snprintf(marshal_path, sizeof(marshal_path), "%s/bytecode_top%04u.marshal",
+                     ctx->out_dir, ctx->current_top_index);
+            snprintf(pyc_path, sizeof(pyc_path), "%s/bytecode_top%04u.pyc",
+                     ctx->out_dir, ctx->current_top_index);
+        } else {
+            snprintf(marshal_path, sizeof(marshal_path), "%s/bytecode_top%04u_sub%03u.marshal",
+                     ctx->out_dir, ctx->current_top_index, sub_index);
+            snprintf(pyc_path, sizeof(pyc_path), "%s/bytecode_top%04u_sub%03u.pyc",
+                     ctx->out_dir, ctx->current_top_index, sub_index);
+        }
+    }
 
     fm = fopen(marshal_path, "wb");
     if (!fm) {
+        free(raw_hint);
+        free(safe_hint);
         return BLOB_ERR_IO;
     }
     if (v->buf.len && fwrite(v->buf.data, 1, v->buf.len, fm) != v->buf.len) {
         fclose(fm);
+        free(raw_hint);
+        free(safe_hint);
         return BLOB_ERR_IO;
     }
     fclose(fm);
 
     fp = fopen(pyc_path, "wb");
     if (!fp) {
+        free(raw_hint);
+        free(safe_hint);
         return BLOB_ERR_IO;
     }
     if (fwrite(ctx->pyc_magic, 1, 4, fp) != 4 ||
@@ -1341,6 +1794,8 @@ static BlobError write_single_pylingual_blob(PyLingualExportCtx *ctx, const Blob
         !write_u32_le(fp, 0) ||
         (v->buf.len && fwrite(v->buf.data, 1, v->buf.len, fp) != v->buf.len)) {
         fclose(fp);
+        free(raw_hint);
+        free(safe_hint);
         return BLOB_ERR_IO;
     }
     fclose(fp);
@@ -1355,8 +1810,14 @@ static BlobError write_single_pylingual_blob(PyLingualExportCtx *ctx, const Blob
         bytes_to_hex(ctx->pyc_magic, 4, magic_hex, sizeof(magic_hex));
         preview_len = v->buf.len < 16 ? v->buf.len : 16;
         bytes_to_hex(v->buf.data, preview_len, head_hex, sizeof(head_hex));
-        fprintf(ctx->manifest, "%u\t%zu\t%s\t%s\t%s\t%s\n",
-                ctx->next_index,
+        fprintf(ctx->manifest,
+                "%u\t%u\t%u\t%c\t%s\t%s\t%zu\t%s\t%s\t%s\t%s\n",
+                ctx->next_ordinal,
+                ctx->current_top_index,
+                sub_index,
+                v->tag ? v->tag : '?',
+                raw_hint ? raw_hint : "",
+                hint_source,
                 v->buf.len,
                 marshal_path,
                 pyc_path,
@@ -1364,8 +1825,11 @@ static BlobError write_single_pylingual_blob(PyLingualExportCtx *ctx, const Blob
                 head_hex);
     }
 
-    ctx->next_index++;
+    ctx->current_sub_index++;
+    ctx->next_ordinal++;
     ctx->written++;
+    free(raw_hint);
+    free(safe_hint);
     return BLOB_OK;
 }
 
@@ -1377,7 +1841,7 @@ static BlobError export_value_pylingual(PyLingualExportCtx *ctx, const BlobVal *
     }
     switch (v->kind) {
     case BVAL_BYTES:
-        if (v->tag == 'X') {
+        if (v->tag == 'X' || looks_like_marshaled_code_blob(v->buf.data, v->buf.len)) {
             return write_single_pylingual_blob(ctx, v);
         }
         return BLOB_OK;
@@ -1477,13 +1941,13 @@ BlobError blob_write_pylingual_helper(const char *out_dir, const uint8_t default
         return BLOB_ERR_IO;
     }
     fprintf(f,
-            "PyLingual bundle generated from Nuitka 'X' bytecode blobs.\n\n"
+            "PyLingual bundle generated from Nuitka marshal/code blobs.\n\n"
             "Files:\n"
-            "  - bytecode_XXXX.marshal : raw marshal/code-object blob\n"
-            "  - bytecode_XXXX.pyc     : .pyc rebuilt with the selected magic\n"
-            "  - pyc_list.txt          : one .pyc path per line\n"
-            "  - marshal_list.txt      : one raw marshal path per line\n"
-            "  - manifest.tsv          : bundle manifest\n\n"
+            "  - bytecode_topXXXX*.marshal : raw marshal/code-object blob\n"
+            "  - bytecode_topXXXX*.pyc     : .pyc rebuilt with the selected magic\n"
+            "  - pyc_list.txt              : one .pyc path per line\n"
+            "  - marshal_list.txt          : one raw marshal path per line\n"
+            "  - manifest.tsv              : export manifest with top-level indexes\n\n"
             "Default MAGIC_NUMBER used here: %s\n"
             "For Python 3.11 final that value is A70D0D0A.\n"
             "If you need a different header, run:\n"
@@ -1498,6 +1962,7 @@ BlobError blob_write_pylingual_helper(const char *out_dir, const uint8_t default
 BlobError blob_export_pylingual_bundle(const BlobVal *vals,
                                        uint32_t count,
                                        const char *out_dir,
+                                       const char *source_dir,
                                        const uint8_t pyc_magic[4],
                                        uint32_t *out_written) {
     PyLingualExportCtx ctx;
@@ -1521,6 +1986,7 @@ BlobError blob_export_pylingual_bundle(const BlobVal *vals,
     memset(&ctx, 0, sizeof(ctx));
     ctx.out_dir = out_dir;
     ctx.pyc_magic = pyc_magic;
+    load_source_hints_from_dir(source_dir, &ctx.source_hints);
 
     snprintf(manifest_path, sizeof(manifest_path), "%s/manifest.tsv", out_dir);
     snprintf(pyc_list_path, sizeof(pyc_list_path), "%s/pyc_list.txt", out_dir);
@@ -1533,25 +1999,34 @@ BlobError blob_export_pylingual_bundle(const BlobVal *vals,
         if (ctx.manifest) fclose(ctx.manifest);
         if (ctx.pyc_list) fclose(ctx.pyc_list);
         if (ctx.marshal_list) fclose(ctx.marshal_list);
+        module_hintset_free(&ctx.source_hints);
         return BLOB_ERR_IO;
     }
 
-    fprintf(ctx.manifest, "index\tsize\tmarshal_path\tpyc_path\tpyc_magic\tfirst16_hex\n");
+    fprintf(ctx.manifest,
+            "ordinal\ttop_index\tsub_index\torigin_tag\tmodule_hint\thint_source\tsize\tmarshal_path\tpyc_path\tpyc_magic\tfirst16_hex\n");
 
     e = blob_write_pylingual_helper(out_dir, pyc_magic);
     if (e != BLOB_OK) {
         fclose(ctx.manifest);
         fclose(ctx.pyc_list);
         fclose(ctx.marshal_list);
+        module_hintset_free(&ctx.source_hints);
         return e;
     }
 
     for (i = 0; i < count; i++) {
+        ctx.current_top_index = i;
+        ctx.current_sub_index = 0;
+        free(ctx.current_top_hint);
+        ctx.current_top_hint = guess_top_level_hint(vals, count, i, &ctx.source_hints);
         e = export_value_pylingual(&ctx, &vals[i]);
         if (e != BLOB_OK) {
             fclose(ctx.manifest);
             fclose(ctx.pyc_list);
             fclose(ctx.marshal_list);
+            free(ctx.current_top_hint);
+            module_hintset_free(&ctx.source_hints);
             return e;
         }
     }
@@ -1559,6 +2034,8 @@ BlobError blob_export_pylingual_bundle(const BlobVal *vals,
     fclose(ctx.manifest);
     fclose(ctx.pyc_list);
     fclose(ctx.marshal_list);
+    free(ctx.current_top_hint);
+    module_hintset_free(&ctx.source_hints);
 
     if (out_written) {
         *out_written = ctx.written;

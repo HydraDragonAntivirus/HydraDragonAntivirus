@@ -1,11 +1,11 @@
-PyLingual bundle generated from Nuitka 'X' bytecode blobs.
+PyLingual bundle generated from Nuitka marshal/code blobs.
 
 Files:
-  - bytecode_XXXX.marshal : raw marshal/code-object blob
-  - bytecode_XXXX.pyc     : .pyc rebuilt with the selected magic
-  - pyc_list.txt          : one .pyc path per line
-  - marshal_list.txt      : one raw marshal path per line
-  - manifest.tsv          : bundle manifest
+  - bytecode_topXXXX*.marshal : raw marshal/code-object blob
+  - bytecode_topXXXX*.pyc     : .pyc rebuilt with the selected magic
+  - pyc_list.txt              : one .pyc path per line
+  - marshal_list.txt          : one raw marshal path per line
+  - manifest.tsv              : export manifest with top-level indexes
 
 Default MAGIC_NUMBER used here: A70D0D0A
 For Python 3.11 final that value is A70D0D0A.

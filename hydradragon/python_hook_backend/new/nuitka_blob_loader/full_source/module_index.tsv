@@ -733,11 +733,11 @@ index	module_name	file_name	status
 731	upydantic.v1.errors	module_0731_upydantic_v1_errors.py	ok
 732	T wTwTupydantic.v1.fields	module_0732_T_wTwTupydantic_v1_fields.py	ok
 733	T	module_0733_T.py	ok
-734	T ufield definitions should either be a tuple of (<type>, <default>) or just a default value, unfortunately this means tuples as default values are not allowed	module_0734_T_ufield_definitions_should_either_be_a_tuple_of_type_default_or_just_a_default_value_unfortunately_this_means_tuples_as_default_values_are_not_allowe.py	combined_only
+734	T ufield definitions should either be a tuple of (<type>, <default>) or just a default value, unfortunately this means tuples as default values are not allowed	module_0734_T_ufield_definitions_should_either_be_a_tuple_of_type_default_or_just_a_default.py	ok
 735	D a__config__	module_0735_D_a__config.py	ok
 736	upydantic.v1.parse	module_0736_upydantic_v1_parse.py	ok
-737	a field of type ``Baz`` (also subclass of ``BaseModel``), the return value will be ``set([Foo, Bar, Baz])``.	module_0737_a_field_of_type_Baz_also_subclass_of_BaseModel_the_return_value_will_be_set_Foo_Bar_Baz.py	ok
-738	Try to update ForwardRefs on fields based on this ModelField, globalns and localns.	module_0738_Try_to_update_ForwardRefs_on_fields_based_on_this_ModelField_globalns_and_localns.py	ok
+737	a field of type ``Baz`` (also subclass of ``BaseModel``), the return value will be ``set([Foo, Bar, Baz])``.	module_0737_a_field_of_type_Baz_also_subclass_of_BaseModel_the_return_value_will_be_set_Foo.py	ok
+738	Try to update ForwardRefs on fields based on this ModelField, globalns and localns.	module_0738_Try_to_update_ForwardRefs_on_fields_based_on_this_ModelField_globalns_and_localn.py	ok
 739	upydantic.v1.utils	module_0739_upydantic_v1_utils.py	ok
 740	create_model_from_namedtuple	module_0740_create_model_from_namedtuple.py	ok
 741	T a__config__	module_0741_T_a__config.py	ok
