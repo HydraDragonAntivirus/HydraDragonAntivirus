@@ -558708,12 +558708,8 @@ l
 l q Z
 Z f
 ?f
-
-
-# ==================================================
-# Module: sc
-# ==================================================
-
+sc
+a__module__
 a__class__
 a__name__
 a__package__
@@ -670583,12 +670579,8 @@ mask=[[False, False],
 fill_value=np.int64(999999),
 dtype=int32)
 wraps
-
-
-# ==================================================
-# Module: S
-# ==================================================
-
+aWRAPPER_ASSIGNMENTS
+S a__module__
 T aassigned
 u_convert2ma.<locals>.wrapper
 a__wrapped__

@@ -1145,15 +1145,19 @@ BlobError blob_dump_full_source(BlobCtx *ctx, const char *out_dir, size_t *out_m
 
         marker = strstr(decoded, "a__module__");
         if (marker) {
+            char *candidate = NULL;
+
             if (strcmp(decoded, "a__module__") == 0) {
-                module_name = prev_token ? trim_in_place(prev_token) : NULL;
-            } else {
+                candidate = prev_token ? trim_in_place(prev_token) : NULL;
+            } else if (marker[10] == '\0') {
                 *marker = '\0';
-                module_name = trim_in_place(decoded);
+                candidate = trim_in_place(decoded);
+            } else {
+                candidate = NULL;
             }
 
-            if (module_name && *module_name) {
-                current_mod = module_get_or_add(&mods, &mod_count, &mod_cap, module_name);
+            if (candidate && is_plausible_source_module_name(candidate)) {
+                current_mod = module_get_or_add(&mods, &mod_count, &mod_cap, candidate);
                 if (!current_mod) {
                     free(decoded);
                     free(prev_token);
@@ -1161,13 +1165,14 @@ BlobError blob_dump_full_source(BlobCtx *ctx, const char *out_dir, size_t *out_m
                     free(normalized);
                     return BLOB_ERR_ALLOC;
                 }
+                free(prev_token);
+                prev_token = NULL;
+                prev_was_a = 0;
+                free(decoded);
+                continue;
             }
 
-            free(prev_token);
-            prev_token = NULL;
-            prev_was_a = 0;
-            free(decoded);
-            continue;
+            /* Not a real module marker: keep text as normal content */
         }
 
         if (prev_was_a && decoded[0] != '\0' && isalpha((unsigned char)decoded[0])) {
@@ -1382,6 +1387,63 @@ static int is_plausible_module_hint(const char *s) {
             return 0;
         }
     }
+    return 1;
+}
+
+static int is_plausible_source_module_name(const char *name) {
+    size_t i, n;
+    int has_alpha = 0;
+
+    if (!name || !*name) {
+        return 0;
+    }
+
+    if (strcmp(name, "__main__") == 0) {
+        return 1;
+    }
+
+    n = strlen(name);
+
+    /* Reject very short junk like "S", "sc", etc. */
+    if (n < 3) {
+        return 0;
+    }
+
+    /* Reject obvious sentence/text fragments */
+    if (n > 120) {
+        return 0;
+    }
+
+    /* Require identifier-ish module naming only */
+    for (i = 0; i < n; i++) {
+        unsigned char ch = (unsigned char)name[i];
+        if (isalpha(ch)) {
+            has_alpha = 1;
+        }
+        if (!(isalnum(ch) || ch == '_' || ch == '.')) {
+            return 0;
+        }
+    }
+
+    if (!has_alpha) {
+        return 0;
+    }
+
+    /* Reject ALL-CAPS junk module names unless private-ish */
+    {
+        int all_upper = 1;
+        for (i = 0; i < n; i++) {
+            unsigned char ch = (unsigned char)name[i];
+            if (islower(ch)) {
+                all_upper = 0;
+                break;
+            }
+        }
+        if (all_upper) {
+            return 0;
+        }
+    }
+
     return 1;
 }
 
