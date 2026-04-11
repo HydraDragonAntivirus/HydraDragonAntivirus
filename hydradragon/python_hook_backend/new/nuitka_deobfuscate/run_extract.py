@@ -72,61 +72,67 @@ def main(argv: list[str] | None = None) -> int:
 
     # Decode via C extension
     try:
+        import traceback
         sections = nuitka_deobfuscate.decode_blob(raw)
-    except Exception as e:
-        print(f"[run] decode_blob failed: {e}", file=sys.stderr)
+    except Exception:
+        traceback.print_exc()
+        return 1
+    except SystemError:
+        import traceback
+        traceback.print_exc()
         return 1
 
     print(f"[run] Decoded {len(sections)} section(s): {', '.join(sections.keys())}")
 
-    # We specifically want the '.bytecode' section
-    bytecode_tuple = sections.get(".bytecode")
-    if not bytecode_tuple or not isinstance(bytecode_tuple, tuple):
-        print("error: .bytecode section missing or not a tuple", file=sys.stderr)
-        return 1
-        
-    # The .bytecode section ONLY contains byte payloads (count == 397 in this case)
-    # The names are hardcoded in the C code, so we use synthetic names.
-    blobs = {}
-    for i, val in enumerate(bytecode_tuple):
-        name = f".bytecode_{i}"
-        blobs[name] = val
-
-    if args.list_only:
-        for name in sorted(blobs.keys(), key=lambda x: int(x.split('_')[1])):
-            val = blobs[name]
-            size_str = f"{len(val)} bytes" if isinstance(val, (bytes, bytearray)) else type(val).__name__
-            print(f"  {name}  ({size_str})")
-        return 0
-
-    # Export .pyc files
+    out_dir: Path = args.output
     magic_int = magic_int_for(args.version)
     header = pyc_header(magic_int)
-    out_dir: Path = args.output
-    ok = 0
-    bad = 0
 
-    for name in sorted(blobs.keys(), key=lambda x: int(x.split('_')[1])):
-        val = blobs[name]
-        if not isinstance(val, (bytes, bytearray)):
-            print(f"  [skip] {name}: not bytes ({type(val).__name__})")
+    for section_name, items in sections.items():
+        if not items:
             continue
+            
+        # Create a subdirectory for the section
+        section_dir = out_dir / section_name.replace(".", "_").strip("_")
+        section_dir.mkdir(parents=True, exist_ok=True)
+        
+        print(f"\n[run] Processing section '{section_name}' ({len(items)} items) -> {section_dir}")
+        
+        for i, val in enumerate(items):
+            # Synthetic name for the item
+            item_name = f"{section_name.replace('.', '_').strip('_')}_{i}"
+            
+            if args.list_only:
+                size_str = f"{len(val)} bytes" if isinstance(val, (bytes, bytearray)) else type(val).__name__
+                print(f"  {item_name}  ({size_str})")
+                continue
 
-        rel = module_to_relpath(name)
-        dest = out_dir / rel
+            if not isinstance(val, (bytes, bytearray)):
+                # If it's a string, int, etc., save as repr text
+                dest = section_dir / f"{item_name}.txt"
+                dest.write_text(repr(val), encoding="utf-8")
+                continue
 
-        valid = validate_marshal(val, magic_int)
-        if not valid:
-            print(f"  [warn] {name}: xdis marshal validation failed, writing anyway")
+            # Default to .bin
+            ext = ".bin"
+            content = val
+            
+            # Special handling for bytecode section - add pyc header
+            if section_name == ".bytecode":
+                ext = ".pyc"
+                content = header + val
+            
+            dest = section_dir / f"{item_name}{ext}"
+            dest.write_bytes(content)
+            
+            if i < 3 or i >= len(items) - 3: 
+                 print(f"  [dump] {item_name} -> {dest.name} ({len(val)} bytes)")
+            elif i == 3:
+                 print(f"  ...")
 
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        dest.write_bytes(header + val)
-        status = "OK" if valid else "WARN"
-        print(f"  [{status}] {name} -> {dest} ({len(val)} bytes)")
-        ok += 1
-
-    print(f"\n[run] Wrote {ok} .pyc file(s), {bad} failed -> {out_dir}/")
-    return 0 if bad == 0 else 1
+    if not args.list_only:
+        print(f"\n[run] Extraction complete. Files written to {out_dir}/")
+    return 0
 
 
 if __name__ == "__main__":
