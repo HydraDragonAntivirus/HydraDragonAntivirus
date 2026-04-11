@@ -1,3 +1,0 @@
-CALE, YSCALE.
-scaleNr
-Canvas.scaleN

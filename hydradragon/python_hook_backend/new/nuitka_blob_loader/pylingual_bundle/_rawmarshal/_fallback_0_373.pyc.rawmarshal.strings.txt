@@ -1,3 +1,0 @@
-C_PREFIXr
-     r#
-_init_config_varsr

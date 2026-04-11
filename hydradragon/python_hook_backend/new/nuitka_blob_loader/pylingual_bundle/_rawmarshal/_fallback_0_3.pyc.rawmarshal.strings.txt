@@ -1,8 +1,0 @@
-CHARS_PER_WRITE
-_write_chunk
-len)
-line
-chunks
-    r
-write
-TextLogStream.w

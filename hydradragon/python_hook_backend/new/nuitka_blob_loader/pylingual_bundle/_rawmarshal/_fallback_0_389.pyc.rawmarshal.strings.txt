@@ -1,4 +1,0 @@
-ajorRminor vendor vendorVersion".rf
-serverr
-winfo_server
-Misc.winfo_serverb

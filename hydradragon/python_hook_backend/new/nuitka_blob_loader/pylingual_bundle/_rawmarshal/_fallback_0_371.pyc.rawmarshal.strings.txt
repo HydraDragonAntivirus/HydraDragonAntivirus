@@ -1,2 +1,0 @@
-systems.
-_PYTHON_SYSCONFIGDATA_

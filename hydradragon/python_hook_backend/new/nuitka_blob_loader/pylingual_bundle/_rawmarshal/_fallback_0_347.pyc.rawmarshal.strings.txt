@@ -1,2 +1,0 @@
-<= n
-The mean (expected value) 

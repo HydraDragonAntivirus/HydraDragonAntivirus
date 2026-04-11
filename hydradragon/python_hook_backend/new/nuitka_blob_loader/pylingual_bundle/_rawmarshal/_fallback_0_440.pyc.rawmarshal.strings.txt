@@ -1,2 +1,0 @@
-CT_TOKEN_TYPESz&^[ \t\f]*#.*?coding[:=][ \t]*([-\w.]+)s
-^[ \t\

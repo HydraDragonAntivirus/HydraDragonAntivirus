@@ -1,6 +1,0 @@
-CONIN$
-CONOUT$u
-123456789
-LPTc
-z6Return true if the pathname is reserved by the system.r{
-_isreservedname)

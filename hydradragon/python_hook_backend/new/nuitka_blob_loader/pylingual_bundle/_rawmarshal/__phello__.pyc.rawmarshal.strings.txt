@@ -1,8 +1,0 @@
-Hello world!)
-print
-__phello__.py
-mainr
-__main__N)
-initializedr
-__name__r
-<module>r

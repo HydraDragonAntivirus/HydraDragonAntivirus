@@ -1,4 +1,0 @@
-versionN)
-numpy.versionr
-numpy\f2py\__version__.py
-<module>r

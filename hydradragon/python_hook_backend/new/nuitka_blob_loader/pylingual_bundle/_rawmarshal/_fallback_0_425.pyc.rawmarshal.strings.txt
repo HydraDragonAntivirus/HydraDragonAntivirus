@@ -1,2 +1,0 @@
-previousNr
-mark_p

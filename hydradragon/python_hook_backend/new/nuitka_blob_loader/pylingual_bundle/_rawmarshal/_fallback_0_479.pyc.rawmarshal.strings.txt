@@ -1,1 +1,0 @@
-Return the per-file header as a byt

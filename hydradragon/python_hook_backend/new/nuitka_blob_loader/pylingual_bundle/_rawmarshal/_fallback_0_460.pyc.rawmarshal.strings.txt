@@ -1,3 +1,0 @@
-CANDIDATE_ITEMS
-_MAX_STRING_SIZErP
-_levenshtein_distance)
