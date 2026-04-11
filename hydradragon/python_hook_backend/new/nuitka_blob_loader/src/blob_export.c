@@ -7,7 +7,6 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <errno.h>
-
 #ifdef _WIN32
 #  include <direct.h>
 #  include <io.h>
@@ -182,93 +181,179 @@ static const uint8_t *skip_one(const uint8_t *p, const uint8_t *end) {
 /* ------------------------------------------------------------------ */
 /*  String helpers                                                    */
 /* ------------------------------------------------------------------ */
+/* Forward declaration */
+static bool extract_module_name_from_blob(const uint8_t *data, size_t len,
+                                          char *out, size_t cap);
+
 static bool get_str_val(const uint8_t *tag_ptr, const uint8_t *end,
                         char *buf, size_t cap) {
     if (!tag_ptr || tag_ptr >= end || !buf || cap == 0) return false;
 
-    {
-        char tag = (char)*tag_ptr++;
-        if (tag == 'u' || tag == 'a' || tag == 'c') {
-            size_t i = 0;
-            while (tag_ptr < end && *tag_ptr && i + 1 < cap)
-                buf[i++] = (char)*tag_ptr++;
-            buf[i] = '\0';
-            return i > 0;
-        }
-        if (tag == 'v') {
-            uint64_t l = ex_varint(&tag_ptr);
-            size_t cp = (l < cap - 1) ? (size_t)l : cap - 1;
-            memcpy(buf, tag_ptr, cp);
-            buf[cp] = '\0';
-            return cp > 0;
-        }
-        if (tag == 'w' || tag == 'd') {
-            buf[0] = (char)*tag_ptr;
-            buf[1] = '\0';
-            return true;
-        }
-    }
+    char tag = (char)*tag_ptr++;
 
+    if (tag == 'u' || tag == 'a' || tag == 'c') {
+        size_t i = 0;
+        while (tag_ptr < end && *tag_ptr && i + 1 < cap)
+            buf[i++] = (char)*tag_ptr++;
+        buf[i] = '\0';
+        return i > 0;
+    }
+    if (tag == 'v') {
+        uint64_t l = ex_varint(&tag_ptr);
+        size_t cp = (l < cap - 1) ? (size_t)l : cap - 1;
+        memcpy(buf, tag_ptr, cp);
+        buf[cp] = '\0';
+        return cp > 0;
+    }
+    if (tag == 'w' || tag == 'd') {
+        if (tag_ptr >= end) return false;
+        buf[0] = (char)*tag_ptr;
+        buf[1] = '\0';
+        return buf[0] != '\0';
+    }
+    /* 's' = empty string/bytes: not a useful filename */
+    /* 'p' = back-ref: caller keeps previous last_str, which is correct */
+    /* all other tags: not a string, caller keeps previous last_str */
     return false;
 }
 
+/*
+ * normalize_module_name  --  convert a raw filename/path into a dotted
+ * Python module name suitable for use as a file path.
+ *
+ * Handles:
+ *   "pkg/sub/mod.py"              -> "pkg.sub.mod"
+ *   "C:\\Users\\x\\pkg\\mod.py"  -> "pkg.mod"  (Windows absolute, strips drive+prefix)
+ *   "/usr/lib/python3/mod.py"     -> "mod"      (Unix absolute, strips prefix)
+ *   "<frozen importlib._bootstrap>" -> "importlib._bootstrap" (frozen notation)
+ *   "a/b/c/d/e/f/mod.py"         -> "a.b.c.d.e.f.mod"  (deep: full path kept)
+ *   "some-bad/mod.py"            -> false  (invalid component: reject whole name)
+ *
+ * Strategy:
+ *   1. Strip angle-bracket frozen prefix: "<frozen X>" -> "X"
+ *   2. Strip Windows drive letter:        "C:\\..." -> "..."
+ *   3. Split on / \\ . separators
+ *   4. Validate each token as a Python identifier
+ *   5. If a token is INVALID, drop all tokens collected so far and
+ *      restart accumulation from the NEXT token.
+ *      This lets us skip absolute path prefixes like "/usr/lib/python3.11"
+ *      where "3" or "3.11" would be invalid, and recover the meaningful
+ *      tail of the path automatically.
+ *   6. Join remaining valid tokens with '.'
+ *   7. If output is empty, return false.
+ */
 static bool normalize_module_name(const char *src, char *out, size_t cap) {
     char work[4096];
-    char *tokens[256];
+    /* token pointers into work[] — sized for very deep paths */
+    char *tokens[512];
     size_t token_count = 0;
-    size_t i, n, start, end;
+    size_t i, n, start, end_pos;
 
     if (!src || !*src || !out || cap == 0) return false;
 
     /* strip leading/trailing whitespace */
     while (*src == ' ' || *src == '\t' || *src == '\r' || *src == '\n')
         src++;
-
     n = strlen(src);
     while (n > 0 &&
            (src[n-1] == ' ' || src[n-1] == '\t' ||
             src[n-1] == '\r' || src[n-1] == '\n'))
         n--;
-
     if (n == 0 || n >= sizeof(work)) return false;
-
     memcpy(work, src, n);
     work[n] = '\0';
 
-    /* strip .pyc / .py extension */
-    if (n > 4 && strcmp(work + n - 4, ".pyc") == 0) {
-        work[n - 4] = '\0'; n -= 4;
-    } else if (n > 3 && strcmp(work + n - 3, ".py") == 0) {
-        work[n - 3] = '\0'; n -= 3;
+    /* --- Step 1: unwrap "<frozen X>" notation --- */
+    if (work[0] == '<') {
+        char *close = strchr(work, '>');
+        if (!close) return false;        /* malformed */
+        *close = '\0';
+        char *inner = work + 1;
+        /* skip optional "frozen " prefix */
+        if (strncmp(inner, "frozen ", 7) == 0) inner += 7;
+        /* shift in-place */
+        n = strlen(inner);
+        memmove(work, inner, n + 1);
     }
 
-    /* split on / \\ . and validate every token individually.
-       If ANY token is invalid the whole name is rejected --
-       no silent dropping of components. */
+    /* --- Step 2: strip .pyc / .py extension --- */
+    n = strlen(work);
+    if (n > 4 && strcmp(work + n - 4, ".pyc") == 0) { work[n-4] = '\0'; n -= 4; }
+    else if (n > 3 && strcmp(work + n - 3, ".py")  == 0) { work[n-3] = '\0'; n -= 3; }
+
+    /* --- Step 3: strip Windows drive letter "X:" or "X:\" at start --- */
+    if (n >= 2 && isalpha((unsigned char)work[0]) && work[1] == ':') {
+        size_t skip = 2;
+        /* also skip the leading slash/backslash after the colon */
+        if (n > 2 && (work[2] == '/' || work[2] == '\\')) skip = 3;
+        memmove(work, work + skip, n - skip + 1);
+        n -= skip;
+    }
+
+    /* --- Step 4: split on / \ . and collect tokens.
+     *
+     * Two-pass strategy:
+     *
+     * Pass A: collect all syntactically-valid Python-identifier tokens,
+     *   resetting the accumulation whenever an INVALID token is seen.
+     *   This auto-skips non-Python prefix components like version numbers
+     *   ("3.11"), hyphenated dirs ("lib-dynload"), drive letters ("C"), etc.
+     *
+     * Pass B: after Pass A, if the token list is still very deep (> MAX_KEEP),
+     *   prune leading tokens that match known OS/user directory names
+     *   (e.g. "Users", "home", "usr", "OneDrive") from the front until the
+     *   list is short enough or we reach the first unknown token (which we
+     *   assume is the project root).  Always keep at least 2 tokens.
+     */
+    static const char *const SKIP_PREFIXES[] = {
+        /* Windows user/system dirs */
+        "Users", "user", "AppData", "Roaming", "Local",
+        "Temp", "Temporary", "ProgramData", "ProgramFiles",
+        "OneDrive", "Desktop", "Documents", "Downloads", "Pictures",
+        /* Common code-hosting checkout dirs */
+        "GitHub", "GitLab", "Bitbucket", "git", "repos", "code",
+        "workspace", "workspaces", "projects", "dev", "develop",
+        "development", "src_root",
+        /* Linux/macOS system dirs */
+        "home", "usr", "opt", "var", "etc", "tmp",
+        "local", "lib", "lib64", "share", "include", "bin",
+        "site_packages", "dist_packages",
+        /* Python stdlib dirs that are not real packages */
+        "python", "cpython",
+        NULL
+    };
+#define NMN_MAX_KEEP 8
+
+    /* Pass A: split on / \ . and collect valid Python identifier tokens.
+       Reset accumulation on any invalid token (auto-skips numeric version
+       dirs, hyphenated dirs, drive letter remnants, etc.). */
+    token_count = 0;
     start = 0;
     for (i = 0; i <= n; i++) {
         char c = work[i];
         if (c == '/' || c == '\\' || c == '.' || c == '\0') {
-            end = i;
-            if (end > start) {
-                char *tok = work + start;
-                size_t tlen = end - start;
+            end_pos = i;
+            if (end_pos > start) {
+                char *tok  = work + start;
+                size_t tlen = end_pos - start;
                 size_t j;
+                int valid = 1;
 
-                /* first char: letter or underscore */
                 if (!(isalpha((unsigned char)tok[0]) || tok[0] == '_'))
-                    return false;
-
-                /* remaining: alnum or underscore */
-                for (j = 1; j < tlen; j++) {
+                    valid = 0;
+                for (j = 1; j < tlen && valid; j++) {
                     unsigned char ch = (unsigned char)tok[j];
                     if (!(isalnum(ch) || ch == '_'))
-                        return false;
+                        valid = 0;
                 }
 
-                if (token_count >= 256) return false;
-                work[end] = '\0';
-                tokens[token_count++] = tok;
+                if (valid) {
+                    if (token_count >= 512) return false;
+                    work[end_pos] = '\0';
+                    tokens[token_count++] = tok;
+                } else {
+                    token_count = 0;   /* invalid token: restart fresh */
+                }
             }
             start = i + 1;
         }
@@ -276,14 +361,73 @@ static bool normalize_module_name(const char *src, char *out, size_t cap) {
 
     if (token_count == 0) return false;
 
-    /* join all tokens with '.' -- no truncation, full path preserved */
+    /* Pass B: scan the first half of the token list and find the rightmost
+       skip-prefix token OR any token sandwiched between skip-prefix tokens
+       (which is likely a personal/locale directory name we can't predict).
+       Start the module content from the token AFTER the last such position.
+
+       Example:  semae / OneDrive / Belgeler / GitHub / HydraDragonAntivirus
+                 ─────────────────────────────────────
+                 prefix zone (first half)
+                 OneDrive=skip, Belgeler=unknown, GitHub=skip
+                 → best_start = after GitHub (index 3+1=4)
+                 → keep HydraDragonAntivirus / hydradragon / mod              */
+    {
+        size_t half = (token_count + 1) / 2;
+        size_t best_start = 0;
+        size_t last_skip_pos = (size_t)-1;   /* position of last skip token seen */
+        size_t k;
+
+        for (k = 0; k < half; k++) {
+            const char *const *sp;
+            int is_skip = 0;
+            for (sp = SKIP_PREFIXES; *sp; sp++)
+                if (strcmp(tokens[k], *sp) == 0) { is_skip = 1; break; }
+
+            if (is_skip) {
+                last_skip_pos = k;
+                /* advance best_start past any tokens up to and including
+                   this skip token (including unknowns that came before it) */
+                best_start = k + 1;
+            } else if (last_skip_pos != (size_t)-1) {
+                size_t look;
+                for (look = k + 1; look < half; look++) {
+                    int next_is_skip = 0;
+                    for (sp = SKIP_PREFIXES; *sp; sp++) {
+                        if (strcmp(tokens[look], *sp) == 0) {
+                            next_is_skip = 1;
+                            break;
+                        }
+                    }
+                    if (next_is_skip) {
+                        best_start = look + 1;
+                        last_skip_pos = look;
+                        break;
+                    }
+                }
+            }
+        }
+
+        /* hard cap regardless */
+        if ((token_count - best_start) > NMN_MAX_KEEP)
+            best_start = token_count - NMN_MAX_KEEP;
+
+        if (best_start > 0 && best_start < token_count) {
+            token_count -= best_start;
+            for (k = 0; k < token_count; k++)
+                tokens[k] = tokens[k + best_start];
+        }
+    }
+#undef NMN_MAX_KEEP
+
+    /* --- Step 5: join with '.' --- */
     out[0] = '\0';
     for (i = 0; i < token_count; i++) {
         size_t cur = strlen(out);
         size_t add = strlen(tokens[i]);
 
         if (cur + (cur ? 1 : 0) + add + 1 >= cap)
-            return false;   /* buffer too small: reject cleanly */
+            return false;   /* output too small: reject cleanly */
 
         if (cur) out[cur++] = '.';
         memcpy(out + cur, tokens[i], add + 1);
@@ -292,6 +436,12 @@ static bool normalize_module_name(const char *src, char *out, size_t cap) {
     return out[0] != '\0';
 }
 
+/* ------------------------------------------------------------------ */
+/*  extract_module_name_from_blob                                      */
+/*  Fallback: scan marshal bytes for printable strings that look like  */
+/*  Python module paths. Used when the preceding string constant is    */
+/*  missing or cannot be normalized.                                   */
+/* ------------------------------------------------------------------ */
 static bool extract_module_name_from_blob(const uint8_t *data, size_t len,
                                           char *out, size_t cap) {
     char best[512];
@@ -309,8 +459,8 @@ static bool extract_module_name_from_blob(const uint8_t *data, size_t len,
 
         if (j > i + 3) {
             size_t slen = j - i;
-            if (slen < 1024) {
-                char s[1024];
+            if (slen < sizeof(best)) {
+                char s[512];
                 char norm[512];
                 int score = 0;
 
