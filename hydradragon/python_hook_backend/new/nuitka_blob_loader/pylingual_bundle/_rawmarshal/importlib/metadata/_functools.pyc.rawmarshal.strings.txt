@@ -1,0 +1,76 @@
+Wrap lru_cache to support storing the cache data in the object instances.
+Abstracts the common paradigm where the method explicitly saves an
+underscore-prefixed protected property on first call and returns that
+subsequently.
+>>> class MyClass:
+...     calls = 0
+...     @method_cache
+...     def method(self, value):
+...         self.calls += 1
+...         return value
+>>> a = MyClass()
+>>> a.method(3)
+>>> for x in range(75):
+...     res = a.method(x)
+>>> a.calls
+Note that the apparent behavior will be exactly like that of lru_cache
+except that the cache is stored on each instance, so values in one
+instance will not flush values from another, and when an instance is
+deleted, so are the cached values for that instance.
+>>> b = MyClass()
+>>> for x in range(35):
+...     res = b.method(x)
+>>> b.calls
+>>> a.method(0)
+>>> a.calls
+Note that if method had been decorated with ``functools.lru_cache()``,
+a.calls would have been 76 (due to the cached value of 0 having been
+flushed by the 'b' instance).
+Clear the cache with ``.cache_clear()``
+>>> a.method.cache_clear()
+Same for a method that hasn't yet been called.
+>>> c = MyClass()
+>>> c.method.cache_clear()
+Another cache wrapper may be supplied:
+>>> cache = functools.lru_cache(maxsize=2)
+>>> MyClass.method2 = method_cache(lambda self: 3, cache_wrapper=cache)
+>>> a = MyClass()
+>>> a.method2()
+Caution - do not subsequently wrap the method with another decorator, such
+as ``@property``, which changes the semantics of the function.
+See also
+http://code.activestate.com/recipes/577452-a-memoize-decorator-for-instance-methods/
+for another implementation and additional justification.
+types
+MethodType
+setattr
+__name__)
+self
+args
+kwargs
+bound_method
+cached_method
+cache_wrapper
+methods
+     
+ importlib\metadata\_functools.py
+wrapper
+method_cache.<locals>.wrapperK
+<lambda>
+method_cache.<locals>.<lambda>S
+functools
+lru_cache
+cache_clear)
+`` r
+method_cacher
+Wrap func so it's not called if its first param is None
+>>> print_text = pass_none(print)
+>>> print_text('text')
+text
+>>> print_text(None)
+paramr
+funcs
+pass_none.<locals>.wrapperc
+wraps)
+pass_noner#
+<module>r$

@@ -1,0 +1,172 @@
+quoprimimec
+ContentManager
+get_handlers
+set_handlers)
+selfs
+email\contentmanager.py
+__init__
+ContentManager.__init__
+handlers
+   r
+add_get_handler
+ContentManager.add_get_handler
+get_content_typer
+get_content_maintype
+KeyError)
+args
+content_type
+maintypes
+      r
+get_content
+ContentManager.get_content
+typekeyr
+   r
+add_set_handler
+ContentManager.add_set_handler
+multipartz"set_content not valid on multipart)
+TypeError
+_find_set_handler
+clear_content)
+objr
+      r
+set_content
+ContentManager.set_content
+__module__r
+type
+__mro__r
+__qualname__
+getattr
+join
+__name__r
+full_path_for_error
+qname
+modname
+full_path
+names
+         r
+ ContentManager._find_set_handler(
+__firstlineno__r
+__static_attributes__
+decode
+charset
+ASCII)
+errors)
+get_payload
+get_paramrC
+contentrD
+    r
+get_text_contentrJ
+textc
+NTrB
+get_non_text_contentrO
+audio image video applicationc
+get_message_contentrR
+rfc822 external-bodyz
+message/c
+bytesrG
+%get_and_fixup_unknown_message_contentrU
+messagec
+Content-Typer
+Invalid header: {})
+policy)
+hasattrrY
+header_factory
+header_source_parse
+defectsr<
+emailrF
+HeaderDefect
+ValueError
+format
+fold)
+subtype
+headers
+header
+excs
+       r
+_prepare_setrh
+-7B+
+attachmentz
+Content-Disposition
+filenameT)
+replacez
+Content-ID)
+set_param
+items)
+dispositionrk
+paramsr
+values
+       r
+_finalize_setrs
+asciir
+range
+append
+binascii
+b2a_base64rC
+data
+max_line_length
+encoded_lines
+unencoded_bytes_per_line
+thislines
+      r
+_encode_base64r
+lines
+lineseps
+embedded_body
+#_encode_text.<locals>.embedded_body
+normal_body
+!_encode_text.<locals>.normal_body
+default
+7bit
+8bit
+surrogateescape
+latin-1
+base64
+quoted-printablez$Unknown content transfer encoding {})
+maxsize
+encode
+splitlinesr
+mapry
+UnicodeDecodeError
+cte_typer
+body_encoder{
+stringrD
+cterY
+maxlenr
+sniff
+sniff_qp
+sniff_base64r}
+            @r
+_encode_textr
+Content-Transfer-Encoding)
+set_payloadrm
+ALIASES
+getrs
+payloads
+           r
+set_text_contentr
+partialz4message/partial is not supported for Message objects
+rfc822)
+binaryz*message/rfc822 parts do not support cte={}r
+external-body)
+z1message/external-body parts do not support cte={}r
+         r
+set_message_contentr
+istextrf
+quotetabsrw
+b2a_qprC
+          r
+set_bytes_contentr
+plainz
+utf-8NNNNNN)
+NNNNNN)
+NNNNN) r{
+email.charsetr^
+email.message
+email.errorsr
+raw_data_managerrJ
+splitr
+strr
+Messager
+bytearray
+memoryviewr8
+<module>r

@@ -1,0 +1,235 @@
+r-S8r.g9s
+annotations)
+contextmanager)
+dataclass
+field
+commands
+input)
+Reader
+\%03oz
+isearch-end
+isearch-add-character)
+self-insert)
+\C-rz
+isearch-backwards)
+\C-sz
+isearch-forwards)
+\C-c
+isearch-cancel)
+\C-gr
+\<backspace>z
+isearch-backspace
+'tuple[tuple[KeySpec, CommandName], ...]
+isearch_keymap
+next_history
+end of history listr
+reader
+historyi
+history
+error
+select_item
+selfr
+_pyrepl\historical_reader.py
+next_history.do9
+return
+None
+__name__
+__module__
+__qualname__
+__firstlineno__r$
+__static_attributes__r'
+previous_history
+start of history listr
+  r#
+previous_history.doB
+history_search_backward
+forwards
+search_nextr!
+  r#
+history_search_backward.doK
+history_search_forward
+NTr;
+  r#
+history_search_forward.doQ
+restore_history
+get_unicode
+list
+buffer
+dirtyr!
+  r#
+restore_history.doW
+first_history
+first_history.doa
+last_history
+last_history.dof
+operate_and_get_next
+operate_and_get_next.dok
+yank_arg
+beginning of history list
+no such argT)
+last_command
+__class__
+yank_arg_ir
+get_arg
+get_item
+splitr
+yank_arg_yankedrK
+words
+       r#
+yank_arg.dop
+forward_history_isearch
+ISEARCH_DIRECTION_FORWARDS
+isearch_directionr
+isearch_start
+isearch_termrN
+push_input_trans
+isearch_transr!
+  r#
+forward_history_isearch.do
+reverse_history_isearch
+ISEARCH_DIRECTION_BACKWARDSrx
+  r#
+reverse_history_isearch.do
+isearch_cancel
+ISEARCH_DIRECTION_NONErx
+pop_input_transr 
+  r#
+isearch_cancel.do
+isearch_add_character
+eventrN
+isearch_next)
+    r#
+isearch_add_character.do
+isearch_backspace
+nothing to rubout)
+  r#
+isearch_backspace.do
+isearch_forwards
+  r#
+isearch_forwards.do
+isearch_backwards
+  r#
+isearch_backwards.do
+isearch_end
+console
+forgetinputr
+  r#
+isearch_end.do
+S,S"
+S&S#
+S%r U
+HistoricalReader
+zOAdds history support (with incremental history searching) to the
+Reader class.
+default_factoryz
+list[str]r
+intr
+int | Noner
+dict[int, str]
+transient_historyr
+strrz
+initz
+tuple[int, int]ry
+input.KeymapTranslatorr|
+invalid_cls
+character_cls)
+super
+__post_init__r
+replacer
+KeymapTranslatorr
+HistoricalReader.__post_init__
+\C-nz
+next-history)
+\C-pz
+previous-history)
+\C-oz
+operate-and-get-next)
+reverse-history-isearch)
+forward-history-isearch)
+\M-rz
+restore-history)
+\M-.z
+yank-arg)
+\<page down>
+history-search-forward)
+\x1b[6~r
+\<page up>
+history-search-backward)
+\x1b[5~r
+collect_keymap
+HistoricalReader.collect_keymap
+getr
+rstriprK
+last_refresh_cache
+invalidated)
+bufs
+   r#
+HistoricalReader.select_item
+  r#
+HistoricalReader.get_item
+suspend
+suspend_historyr
+HistoricalReader.suspend#
+old_historys
+  r#
+ HistoricalReader.suspend_history(
+preparer
+restorer
+HistoricalReader.prepare1
+-search `z
+') )
+get_prompt)
+lineno
+cursor_on_line
+    
+HistoricalReader.get_promptA
+X(:X
+Search history for the current line contents up to the cursor.
+Selects the first item found. If nothing is under the cursor, any next
+item in history is selected.
+not foundNre
+keepends)
+rfindr
+enumerate
+splitlines
+startswith)
+history_index
+nl_index
+prefix
+match_prefix
+len_item
+out_of_bounds
+len_accr
+lines
+             r#
+HistoricalReader.search_nextH
+findr
+      r#
+HistoricalReader.isearch_next}
+finishrJ
+itemsr
+should_auto_add_history
+append)
+retr
+    
+HistoricalReader.finish
+SimpleContextManager)
+boolr)
+)"r,
+__doc__r
+__annotations__r
+dictr
+__classcell__)
+TN)/
+__future__r
+contextlibr
+dataclassesr
+typesr
+KeySpec
+CommandName
+tuple
+range
+isalphar
+Commandr
+FinishCommandr]
+<module>r

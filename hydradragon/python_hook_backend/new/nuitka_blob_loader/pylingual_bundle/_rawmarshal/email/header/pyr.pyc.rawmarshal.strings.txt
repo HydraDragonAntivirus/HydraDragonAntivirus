@@ -1,0 +1,315 @@
+z+Header encoding and decoding functionality.)
+Header
+decode_header
+make_header
+HeaderParseError)
+charset
+        
+us-asciiz
+utf-8ai
+  =\?                   # literal =?
+  (?P<charset>[^?]*?)   # non-greedy up to the next ? is the charset
+  \?                    # literal ?
+  (?P<encoding>[qQbB])  # either a "q" or a "b", case insensitive
+  \?                    # literal ?
+  (?P<encoded>.*?)      # non-greedy up to the next ?= is the encoded string
+  \?=                   # literal ?=
+[\041-\176]+:$z
+\n[^ \t]+:c
+Decode a message header value without converting charset.
+For historical reasons, this function may return either:
+1. A list of length 1 containing a pair (str, None).
+2. A list of (bytes, charset) pairs containing each of the decoded
+   parts of the header.  Charset is None for non-encoded parts of the header,
+   otherwise a lower-case string containing the name of the character set
+   specified in the encoded string.
+header may be a string that may or may not contain RFC2047 encoded words,
+or it may be a Header object.
+An email.errors.HeaderParseError may be raised when certain decoding error
+occurs (e.g. a base64 decoding exception).
+This function exists for backwards compatibility only. For new code, we
+recommend using email.headerregistry.HeaderRegistry instead.
+_chunksNTr
+===z
+Base64 decoding errorz
+Unexpected encoding: z
+raw-unicode-escape)
+hasattrr
+_charset
+_encode
+ecre
+search
+splitlines
+split
+lstrip
+append
+lower
+enumerate
+isspace
+reversed
+email
+quoprimime
+header_decode
+base64mime
+decode
+binascii
+Errorr
+AssertionError
+isinstance
+bytes
+BSPACE)
+header
+stringr
+words
+line
+parts
+first
+unencoded
+encoding
+encoded
+droplist
+decoded_words
+encoded_string
+word
+paderr
+collapsed
+last_word
+last_charsets
+                     
+email\header.pyr
+Create a Header from a sequence of pairs as returned by decode_header()
+decode_header() takes a header value string and returns a sequence of
+pairs of the format (decoded_string, charset) where charset is the string
+name of the character set.
+This function takes one of those sequence of pairs and returns a Header
+instance.  Optional maxlinelen, header_name, and continuation_ws are as in
+the Header constructor.
+This function exists for backwards compatibility only, and is not
+recommended for use in new code.
+maxlinelen
+header_name
+continuation_ws)
+Charsetr
+decoded_seqrF
+       rD
+Create a MIME-compliant header that can contain many character sets.
+Optional s is the initial header value.  If None, the initial header
+value is not set.  You can later append to the header with .append()
+method calls.  s may be a byte string or a Unicode string, but see the
+.append() documentation for semantics.
+Optional charset serves two purposes: it has the same meaning as the
+charset argument to the .append() method.  It also sets the default
+character set for all subsequent .append() calls that omit the charset
+argument.  If charset is not provided in the constructor, the us-ascii
+charset is used both as s's initial charset and as the default for
+subsequent .append() calls.
+The maximum line length can be specified explicitly via maxlinelen. For
+splitting the first line to a shorter value (to account for the field
+header which isn't included in s, e.g. `Subject') pass in the name of
+the field in header_name.  The default maxlinelen is 78 as recommended
+by RFC 2822.
+continuation_ws must be RFC 2822 compliant folding whitespace (usually
+either a space or a hard tab) which will be prepended to continuation
+lines.
+errors is passed through to the .append() call.
+USASCIIr-
+_continuation_wsr
+MAXLINELEN
+_maxlinelen
+_headerlenr'
+selfrL
+errorss
+       rD
+__init__
+Header.__init__
+z&Return the string value of the header.N
+ascii
+surrogateescape
+replacer
+_normalizer
+UNKNOWN8BIT
+encoder)
+_nonctextr
+SPACE
+EMPTYSTRING
+join)
+uchunks
+lastcs
+lastspacer1
+nextcs
+original_bytes
+hasspaces
+         rD
+__str__
+Header.__str__
+others
+  rD
+__eq__
+Header.__eq__
+Append a string to the MIME header.
+Optional charset, if given, should be a Charset instance or the name
+of a character set (which will be converted to a Charset instance).  A
+value of None (the default) means that the charset given in the
+constructor is used.
+s may be a byte string or a Unicode string.  If it is a byte string
+(i.e. isinstance(s, str) is false), then charset is the encoding of
+that byte string, and a UnicodeError will be raised if the string
+cannot be decoded with that charset.  If s is a Unicode string, then
+charset is a hint specifying the character set of the characters in
+the string.  In either case, when producing an RFC 2822 compliant
+header using RFC 2047 rules, the string will be encoded using the
+output codec of the charset.  If the string cannot be encoded to the
+output codec, a UnicodeError will be raised.
+Optional `errors' is passed as the errors argument to the decode
+call if s is a byte string.
+input_codecra
+output_codecrb
+UnicodeEncodeError
+UTF8r
+input_charset
+output_charsets
+      rD
+Header.append
+z=True if string s is not a ctext character of RFC822.
+        )
+  rD
+Header._nonctext9
+Encode a message header into an RFC-compliant format.
+There are many issues involved in converting a given string for use in
+an email header.  Only certain character sets are readable in most
+email clients, and as header strings can only contain a subset of
+7-bit ASCII, care must be taken to properly convert and encode (with
+Base64 or quoted-printable) header strings.  In addition, there is a
+75-character length limit on any given encoded header field, so
+line-wrapping must be performed, even with double-byte character sets.
+Optional maxlinelen specifies the maximum length of each generated
+line, exclusive of the linesep string.  Individual lines may be longer
+than maxlinelen if a folding point cannot be found.  The first line
+will be shorter by the length of the header name plus ": " if a header
+name was specified at Header construction time.  The default value for
+maxlinelen is determined at header construction time.
+Optional splitchars is a string containing characters which should be
+given extra weight by the splitting algorithm during normal header
+wrapping.  This is in very rough support of RFC 2822's `higher level
+syntactic breaks':  split points preceded by a splitchar are preferred
+during line splitting, with the characters preferred in the order in
+which they appear in the string.  Space and tab may be included in the
+string to indicate whether preference should be given to one over the
+other as a split point when other split chars do not appear in the line
+being split.  Splitchars does not affect RFC 2047 encoded lines.
+Optional linesep is a string to be used to separate the lines of
+the value.  The default value is the most useful for typical
+Python applications, but it can be set to \r\n to produce RFC-compliant
+line separators when needed.
+z8header value appears to contain an embedded header: {!r})
+_ValueFormatterrU
+add_transitionr
+feed
+newline
+header_encodingr
+_str
+_embedded_headerr
+format)
+splitcharsrF
+linesep
+formatterrh
+linesr3
+sline
+values
+               rD
+Header.encode>
+pEXR:X
+chunksrC
+last_chunkr1
+      rD
+Header._normalize
+NNNNr
+strict)
+__name__
+__module__
+__qualname__
+__firstlineno__rX
+__static_attributes__
+_maxlenrR
+_continuation_ws_len
+_splitchars
+_lines
+_Accumulator
+_current_line)
+headerlen
+maxlenrH
+     rD
+_ValueFormatter.__init__
+  rD
+_ValueFormatter._str
+_ValueFormatter.__str__
+pushr'
+is_onlywsr
+reset)
+end_of_lines
+  rD
+_ValueFormatter.newline
+_ValueFormatter.add_transition
+_ascii_splitr
+header_encode_lines
+_maxlengthsr
+IndexError
+_append_chunkr
+encoded_lines
+first_line
+last_liner3
+        rD
+_ValueFormatter.feed
+_ValueFormatter._maxlengths
+]+)r
+FWSr
+iterr
+parts
+      rD
+_ValueFormatter._ascii_split
+range
+part_countr"
+_initial_sizer
+pop_fromr
+prevpartr
+remainders
+        rD
+_ValueFormatter._append_chunk
+superrX
+initial_size
+__class__s
+_Accumulator.__init__#
+   rD
+_Accumulator.push'
+poppeds
+   rD
+_Accumulator.pop_from*
+_Accumulator.pop/
+   rD
+<genexpr>
+'_Accumulator.__len__.<locals>.<genexpr>5
+sumr
+__len__
+_Accumulator.__len__4
+   rD
+'_Accumulator.__str__.<locals>.<genexpr>9
+_Accumulator.__str__8
+startvals
+  rD
+_Accumulator.reset<
+_Accumulator.is_onlywsB
+_Accumulator.part_countE
+__classcell__)
+__doc__
+__all__r
+email.quoprimimer$
+email.base64mime
+email.errorsr
+SPACE8re
+compile
+VERBOSE
+MULTILINEr
+fcrer
+_max_appendr
+listr
+<module>r

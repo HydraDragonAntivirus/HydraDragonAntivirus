@@ -1,0 +1,95 @@
+Standard "encodings" Package
+    Standard Python encoding modules are stored in this package
+    directory.
+    Codec modules must have names corresponding to normalized encoding
+    names as defined in the normalize_encoding() function below, e.g.
+    'utf-8' must be implemented by the module 'utf_8.py'.
+    Each codec module must export the following interface:
+    * getregentry() -> codecs.CodecInfo object
+    The getregentry() API must return a CodecInfo object with encoder, decoder,
+    incrementalencoder, incrementaldecoder, streamwriter and streamreader
+    attributes which adhere to the Python Codec Interface Standard.
+    In addition, a module may optionally also define the following
+    APIs which are then used by the package's codec search function:
+    * getaliases() -> sequence of encoding name strings to use as aliases
+    Alias names returned by getaliases() must be normalized encoding
+    names as defined by normalize_encoding().
+Written by Marc-Andre Lemburg (mal@lemburg.com).
+(c) Copyright CNRI, All Rights Reserved. NO WARRANTY.
+aliasesz
+--unknown--
+CodecRegistryError
+__name__
+__module__
+__qualname__
+__firstlineno__
+__static_attributes__r
+encodings.pyr
+Normalize an encoding name.
+Normalization works as follows: all non-alphanumeric
+characters except the dot used for Python package names are
+collapsed and replaced with a single underscore, e.g. '  -;#'
+becomes '_'. Leading and trailing underscores are removed.
+Note that encoding names should be ASCII only.
+asciiF
+isinstance
+bytes
+isalnum
+append
+isascii
+join)
+encoding
+chars
+punct
+    r
+normalize_encodingr!
+encodings.r
+fromlist
+level
+module "z
+" (z
+) failed to registerr
+incompatible codecs in module "
+_cache
+_unknownr!
+_aliases
+replace
+__import__
+_import_tail
+ImportError
+getregentry
+AttributeErrorr
+codecs
+CodecInfo
+lenr
+__file__
+callable
+split
+getaliases)
+entry
+norm_encoding
+aliased_encoding
+modnames
+modname
+modr4
+codecaliases
+aliass
+          r
+search_functionrE
+win32c
+cp%s)
+_winapi
+GetACP
+encodings.mbcs
+mbcsr4
+ansi_code_page
+encodingss
+    r
+_alias_mbcsrN
+__doc__r6
+sysr
+LookupError
+SystemErrorr
+register
+platformrN
+<module>rU

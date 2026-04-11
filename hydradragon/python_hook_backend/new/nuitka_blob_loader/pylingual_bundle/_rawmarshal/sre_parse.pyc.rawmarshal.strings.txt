@@ -1,0 +1,14 @@
+module z
+ is deprecated
+stacklevel)
+_parser
+warnings
+warn
+__name__
+DeprecationWarning
+globals
+update
+vars
+items)
+sre_parse.py
+<module>r

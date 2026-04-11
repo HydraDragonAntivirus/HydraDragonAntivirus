@@ -1,0 +1,435 @@
+ClassVar
+Optionalc
+Get the representation of an object, with dedicated pprint-like format for lists.
+_repr
+replace)
+pycparser\c_ast.py
+<genexpr>
+_repr.<locals>.<genexpr>
+isinstance
+list
+join
+repr)
+objs
+Node
+attr_names
+coordc
+z5Generates a python representation of the current node
+__class__
+__name__
+__slots__r
+getattrr
+len)
+self
+result
+indent
+separator
+names
+     r
+__repr__
+Node.__repr__'
+z)A sequence of all children that are NodesNr
+children
+Node.childrenB
+offset
+attrnames
+showemptyattrs
+nodenames
+showcoord
+_my_node_namec
+Pretty print the Node and all its attributes and
+children (recursively) to a buffer.
+buf:
+    Open IO buffer into which the Node is printed.
+offset:
+    Initial offset (amount of leading spaces)
+attrnames:
+    True if you want to see the attribute names in
+    name=value pairs. False to only see the values.
+showemptyattrs:
+    False if you want to suppress printing empty attributes.
+nodenames:
+    True if you want to see the actual node names
+    within their parents.
+showcoord:
+    Do you want the coordinates of each Node to be
+    displayed.
+>: z
+__len__r
+hasattrr+
+is_empty
+Node.show.<locals>.is_emptyp
+values
+   r
+Node.show.<locals>.<genexpr>y
+   r
+ (at r&
+writer'
+show)
+leadrC
+nvlist
+attrstr
+child_name
+childs
+               r
+Node.showF
+__module__
+__qualname__
+__firstlineno__r)
+tuple
+__annotations__r
+stdoutr
+boolrM
+__static_attributes__r
+NodeVisitor
+A base NodeVisitor class for visiting c_ast nodes.
+Subclass it and define your own visit_XXX methods, where
+XXX is the class name you want to visit with these
+methods.
+For example:
+class ConstantVisitor(NodeVisitor):
+    def __init__(self):
+        self.values = []
+    def visit_Constant(self, node):
+        self.values.append(node.value)
+Creates a list of values of all the constant nodes
+encountered below the given node. To use it:
+cv = ConstantVisitor()
+cv.visit(node)
+Notes:
+*   generic_visit() will be called for AST nodes for which
+    no visit_XXX method was defined.
+*   The children of nodes for which a visit_XXX was
+    defined will not be visited - if you need this, call
+    generic_visit() on the node.
+    You can use:
+        NodeVisitor.generic_visit(self, node)
+*   Modeled after Python's own AST visiting facilities
+    (the ast module of Python 3.0)
+nodec
+Visit a node.N
+visit_)
+_method_cache
+getr'
+generic_visit)
+visitor
+methods
+    r
+visit
+NodeVisitor.visit
+zdCalled if no explicit visitor function exists for a
+node. Implements preorder visiting of the node.
+    r
+NodeVisitor.generic_visit
+__doc__rf
+ArrayDecl
+type
+dim_qualsr
+__weakref__Nc
+     r
+__init__
+ArrayDecl.__init__
+appendru
+nodelists
+ArrayDecl.children
+__iter__
+ArrayDecl.__iter__
+ArrayRef
+subscriptr
+    r
+ArrayRef.__init__
+ArrayRef.children
+ArrayRef.__iter__
+Assignment
+lvalue
+rvaluer
+     r
+Assignment.__init__
+Assignment.children
+Assignment.__iter__
+Alignasi
+alignmentr
+   r
+Alignas.__init__
+Alignas.children
+Alignas.__iter__"
+BinaryOpi)
+left
+rightr
+     r
+BinaryOp.__init__,
+BinaryOp.children2
+BinaryOp.__iter__:
+BreakiC
+Break.__init__F
+Break.childrenI
+Break.__iter__L
+CaseiS
+expr
+stmtsr
+    r
+Case.__init__V
+stmts[
+enumerater
+    r
+Case.children[
+Case.__iter__c
+Castil
+to_typer
+    r
+Cast.__init__o
+Cast.childrent
+Cast.__iter__|
+Compoundi
+block_itemsr
+   r
+Compound.__init__
+block_items[r
+    r
+Compound.children
+Compound.__iter__
+CompoundLiterali
+initr
+    r
+CompoundLiteral.__init__
+CompoundLiteral.children
+CompoundLiteral.__iter__
+Constanti
+    r
+Constant.__init__
+Constant.children
+Constant.__iter__
+Continuei
+Continue.__init__
+Continue.children
+Continue.__iter__
+Decli
+quals
+align
+storage
+funcspecrt
+bitsizer
+          r
+Decl.__init__
+Decl.children
+Decl.__iter__
+DeclListi
+declsr
+   r
+DeclList.__init__
+decls[r
+    r
+DeclList.children
+DeclList.__iter__
+Defaulti"
+   r
+Default.__init__%
+    r
+Default.children)
+Default.__iter__/
+DoWhilei6
+cond
+stmtr
+    r
+DoWhile.__init__9
+DoWhile.children>
+DoWhile.__iter__F
+EllipsisParamiO
+EllipsisParam.__init__R
+EllipsisParam.childrenU
+EllipsisParam.__iter__X
+EmptyStatementi_
+EmptyStatement.__init__b
+EmptyStatement.childrene
+EmptyStatement.__iter__h
+Enumio
+valuesr
+    r
+Enum.__init__r
+Enum.childrenw
+Enum.__iter__}
+Enumeratori
+    r
+Enumerator.__init__
+Enumerator.children
+Enumerator.__iter__
+EnumeratorListi
+enumeratorsr
+   r
+EnumeratorList.__init__
+enumerators[r
+    r
+EnumeratorList.children
+EnumeratorList.__iter__
+ExprListi
+exprsr
+   r
+ExprList.__init__
+exprs[r
+    r
+ExprList.children
+ExprList.__iter__
+FileASTi
+extr
+   r
+FileAST.__init__
+ext[r
+    r
+FileAST.children
+FileAST.__iter__
+Fori
+nextr7
+      r
+For.__init__
+For.children
+For.__iter__
+A/A1
+FuncCalli
+argsr
+    r
+FuncCall.__init__
+FuncCall.children
+FuncCall.__iter__
+FuncDecli
+    r
+FuncDecl.__init__
+FuncDecl.children
+FuncDecl.__iter__!
+FuncDefi*
+decl
+param_decls
+bodyr
+     r
+FuncDef.__init__-
+param_decls[r
+    r
+FuncDef.children3
+FuncDef.__iter__=
+GotoiH
+   r
+Goto.__init__K
+Goto.childrenO
+Goto.__iter__S
+IDiZ
+   r
+ID.__init__]
+ID.childrena
+ID.__iter__e
+IdentifierTypeil
+namesr
+   r
+IdentifierType.__init__o
+IdentifierType.childrens
+IdentifierType.__iter__w
+Ifi~
+iftrue
+iffalser
+     r
+If.__init__
+If.children
+If.__iter__
+InitListi
+   r
+InitList.__init__
+    r
+InitList.children
+InitList.__iter__
+Labeli
+    r
+Label.__init__
+Label.children
+Label.__iter__
+NamedInitializeri
+    r
+NamedInitializer.__init__
+name[r
+    r
+NamedInitializer.children
+NamedInitializer.__iter__
+ParamListi
+paramsr
+   r
+ParamList.__init__
+params[r
+    r
+ParamList.children
+ParamList.__iter__
+PtrDecli
+    r
+PtrDecl.__init__
+PtrDecl.children
+PtrDecl.__iter__
+Returni
+   r
+Return.__init__
+Return.children
+Return.__iter__
+StaticAsserti
+messager
+    r
+StaticAssert.__init__
+StaticAssert.children#
+StaticAssert.__iter__+
+Structi4
+    r
+Struct.__init__7
+    r
+Struct.children<
+Struct.__iter__B
+StructRefiI
+fieldr
+     r
+StructRef.__init__L
+StructRef.childrenR
+StructRef.__iter__Z
+Switchic
+    r
+Switch.__init__f
+Switch.childrenk
+Switch.__iter__s
+TernaryOpi|
+     r
+TernaryOp.__init__
+TernaryOp.children
+TernaryOp.__iter__
+TypeDecli
+declnamer
+      r
+TypeDecl.__init__
+TypeDecl.children
+TypeDecl.__iter__
+Typedefi
+      r
+Typedef.__init__
+Typedef.children
+Typedef.__iter__
+Typenamei
+      r
+Typename.__init__
+Typename.children
+Typename.__iter__
+UnaryOpi
+    r
+UnaryOp.__init__
+UnaryOp.children
+UnaryOp.__iter__
+Unioni
+    r
+Union.__init__
+    r
+Union.children
+Union.__iter__
+Whilei
+    r
+While.__init__
+While.children
+While.__iter__%
+Pragmai.
+stringr
+   r
+Pragma.__init__1
+Pragma.children5
+Pragma.__iter__9
+):r[
+typingr
+<module>r

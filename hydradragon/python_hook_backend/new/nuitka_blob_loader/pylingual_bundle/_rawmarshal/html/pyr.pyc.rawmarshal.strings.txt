@@ -1,0 +1,61 @@
+S S!_
+S"S#_
+S$S%_
+S&S'_
+S(S)_
+S*S+_
+S,S-_
+S.S/_
+S0S1_
+S2S3_
+S4S5_
+S6S7_
+S8S9_
+S:S;_
+S<S=_
+S>S?_
+S@SA_
+SBSC_
+SDSE_
+SFSG_
+SHSI_
+)Oz*
+General functions for HTML manipulation.
+html5
+escape
+unescapec
+Replace special characters "&", "<" and ">" to HTML-safe sequences.
+If the optional flag quote is true (the default), the quotation mark
+characters, both double quote (") and single quote (') characters are also
+translated.
+&amp;
+&lt;
+&gt;
+&quot;
+&#x27;)
+replace)
+quotes
+html.pyr
+xXr:
+group
+rstrip
+_invalid_charrefs
+_invalid_codepoints
+_html5
+range
+len)
+   r
+_replace_charrefr
+z7&(#[0-9]+;?|#[xX][0-9a-fA-F]+;?|[^\t\n\f <&#;]{1,32};?)c
+Convert all named and numeric character references (e.g. &gt;, &#62;,
+&x3e;) in the string s to the corresponding unicode characters.
+This function uses the rules defined by the HTML 5 standard
+for both valid and invalid character references, and the list of
+HTML 5 named character references defined in html.entities.html5.
+_charref
+subr
+__doc__
+html.entitiesr
+__all__r
+compiler
+<module>r

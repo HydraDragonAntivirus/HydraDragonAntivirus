@@ -1,0 +1,209 @@
+Utilities for comparing files and directories.
+Classes:
+    dircmp
+Functions:
+    cmp(f1, f2, shallow=True) -> int
+    cmpfiles(a, b, common) -> ([], [], [])
+    clear_cache()
+filterfalse)
+GenericAlias)
+clear_cache
+dircmp
+cmpfiles
+DEFAULT_IGNORESi
+tagsz
+.gitz
+.hgz
+.bzr
+_darcs
+__pycache__c
+Clear the filecmp cache.N)
+_cache
+clear
+filecmp.pyr
+X4:X
+Compare two files.
+Arguments:
+f1 -- First file name
+f2 -- Second file name
+shallow -- treat files as identical if their stat signatures (type, size,
+           mtime) are identical. Otherwise, files are considered different
+           if their sizes or contents differ.  [default: True]
+Return value:
+True if the files are the same, False otherwise.
+This function uses a cache for past comparisons and the results,
+with cache entries invalidated if their stat information
+changes.  The cache may be cleared by calling clear_cache().
+_sig
+stat
+S_IFREGr
+_do_cmp
+lenr
+shallow
+outcomes
+      r
+S_IFMT
+st_mode
+st_size
+st_mtime)
+XV:w
+rbTF)
+BUFSIZE
+open
+read)
+bufsize
+       r
+A class that manages the comparison of 2 directories.
+dircmp(a, b, ignore=None, hide=None, *, shallow=True)
+  A and B are directories.
+  IGNORE is a list of names to ignore,
+    defaults to DEFAULT_IGNORES.
+  HIDE is a list of names to hide,
+    defaults to [os.curdir, os.pardir].
+  SHALLOW specifies whether to just check the stat signature (do not read
+    the files).
+    defaults to True.
+High level usage:
+  x = dircmp(dir1, dir2)
+  x.report() -> prints a report on the differences between dir1 and dir2
+   or
+  x.report_partial_closure() -> prints report on differences between dir1
+        and dir2, and reports on common immediate subdirectories.
+  x.report_full_closure() -> like report_partial_closure,
+        but fully recursive.
+Attributes:
+ left_list, right_list: The files in dir1 and dir2,
+    filtered by hide and ignore.
+ common: a list of names in both dir1 and dir2.
+ left_only, right_only: names only in dir1, dir2.
+ common_dirs: subdirectories in both dir1 and dir2.
+ common_files: files in both dir1 and dir2.
+ common_funny: names in both dir1 and dir2 where the type differs between
+    dir1 and dir2, or the name is not stat-able.
+ same_files: list of identical files.
+ diff_files: list of filenames which differ.
+ funny_files: list of files which could not be compared.
+ subdirs: a dictionary of dircmp instances (or MyDirCmp instances if this
+   object is of type MyDirCmp, a subclass of dircmp), keyed by names
+   in common_dirs.
+left
+rightr
+curdir
+pardir
+hider
+ignorer!
+self
+      r
+__init__
+dircmp.__init__
+_filterr
+listdirr:
+left_listr;
+right_list
+sort
+phase0
+dircmp.phase0
+dict
+mapr
+path
+normcaserH
+list
+__getitem__
+filter
+__contains__
+commonr
+left_only
+right_only)
+   r
+phase1
+dircmp.phase1
+Xx:w
+NTF)
+common_dirs
+common_files
+common_funnyrX
+joinr:
+OSError
+ValueErrorr'
+append
+S_ISDIR
+S_ISREG)
+a_path
+b_path
+a_stat
+b_stat
+a_type
+b_types
+         r
+phase2
+dircmp.phase2
+same_files
+diff_files
+funny_files)
+phase3
+dircmp.phase3
+subdirsr^
+__class__r?
+b_xs
+    r
+phase4
+dircmp.phase4
+values
+phase4_closure
+dircmp.phase4_closure
+diffz
+Only in
+Identical files :z
+Differing files :z
+Trouble with common files :z
+Common subdirectories :z
+Common funny cases :)
+printr:
+report
+dircmp.report
+report_partial_closure
+dircmp.report_partial_closure
+report_full_closurer
+dircmp.report_full_closure
+methodmap
+AttributeError
+getattr)
+attrs
+__getattr__
+dircmp.__getattr__
+__name__
+__module__
+__qualname__
+__firstlineno__
+__doc__rC
+classmethodr
+__class_getitem__
+__static_attributes__r
+Compare common files in two directories.
+a, b -- directory names
+common -- list of file names found in both directories
+shallow -- if true, do comparison based solely on stat() information
+Returns a tuple of three lists:
+  files that compare equal
+  files that are different
+  filenames that aren't regular files.
+_cmprd
+resrg
+        r
+absr
+     r
+flist
+skips
+need exactly two args)
+getopt
+argvr
+GetoptErrorr
+options
+args
+     r
+demor
+__main__)
+itertoolsr
+typesr
+__all__r
+<module>r

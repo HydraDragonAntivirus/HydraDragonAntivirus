@@ -1,0 +1,41 @@
+FreezableDefaultDict
+Often it is desirable to prevent the mutation of
+a default dict after its initial construction, such
+as to prevent mutation during iteration.
+>>> dd = FreezableDefaultDict(list)
+>>> dd[0].append('1')
+>>> dd.freeze()
+>>> dd[1]
+>>> len(dd)
+_frozen)
+getattr
+super
+__missing__)
+self
+__class__s
+"importlib\metadata\_collections.pyr
+ FreezableDefaultDict.__missing__
+default_factory)
+<lambda>
+-FreezableDefaultDict.freeze.<locals>.<lambda>
+freeze
+FreezableDefaultDict.freeze
+__name__
+__module__
+__qualname__
+__firstlineno__
+__doc__r
+__static_attributes__
+__classcell__)
+Pair
+strip
+split)
+texts
+parse
+Pair.parse
+classmethodr,
+name value)
+collections
+defaultdictr
+namedtupler!
+<module>r3

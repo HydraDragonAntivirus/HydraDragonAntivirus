@@ -1,0 +1,932 @@
+r SHS
+r$S 
+r&S"
+r'S#
+r(S$
+r)S%
+r*S&
+r+S'
+r,S(
+r-S)
+r.S*
+r0\0"
+\0l1
+S.S/S0S0S1S29
+\0l2
+\0l3
+r4\4r5\4"
+\4l1
+S6S75
+\4l2
+\4l3
+S<\75
+r8\8r9C8\6r:
+S/S0S0S15
+S@\45
+r<\<"
+\<l1
+S6S7S/S0S0S15
+\<l2
+\<l3
+SC\65
+r>\>R
+r@\>lA
+S/S0SD9
+\>l1
+S/S0SD9
+\>l2
+Concrete date/time and related types.
+See http://www.iana.org/time-zones/repository/tz-link.html for
+time zone and DST data sources.
+date
+datetime
+time
+timedelta
+timezone
+tzinfo
+MINYEAR
+MAXYEAR
+indexc
+_pydatetime.py
+_cmpr
+_pydatetimer
+__class__
+__module__)
+self
+module_names
+_get_class_moduler
+year -> 1 if leap year, else 0.
+years
+_is_leapr%
+z2year -> number of days before January 1st of year.r
+_days_before_yearr(
+z9year, month -> number of days in that month in that year.r
+_DAYS_IN_MONTH
+months
+_days_in_monthr0
+zCyear, month -> number of days in year preceding first day of month.r
+month must be in 1..12r+
+_DAYS_BEFORE_MONTHr%
+_days_before_monthr4
+z>year, month, day -> ordinal, considering 01-Jan-0001 as day 1.r
+day must be in 1..%d)
+dims
+    r
+_ymd2ordr:
+pPX#S
+z@ordinal -> (year, month, day), considering 01-Jan-0001 as day 1.r
+divmod
+_DI400Y
+_DI100Y
+_DI4Yr%
+n400r$
+n100
+leapyearr/
+precedings
+         r
+_ord2ymdrM
+Dec)
+Sunc
+X#XEXxU
+_time
+struct_time)
+dstflag
+wday
+dnums
+         r
+_build_struct_timern
+{:02d}z
+{:02d}:{:02d}z
+{:02d}:{:02d}:{:02d}z
+{:02d}:{:02d}:{:02d}.{:03d}z
+{:02d}:{:02d}:{:02d}.{:06d})
+hours
+minutes
+seconds
+milliseconds
+microseconds
+autort
+Unknown timespec value)
+format
+KeyError
+ValueError)
+timespec
+specs
+fmts
+       r
+_format_timer~
+%s%02d%s%02dz
+%s%02d
+.%06d)
+daysrB
+signrh
+       r
+_format_offsetr
+%06d
+microsecond
+utcoffsetr
+tznamez
+append
+getattr
+hasattrr
+replace
+joinrd
+strftime)
+objectrw
+timetuple
+freplace
+zreplace
+colonzreplace
+Zreplace
+newformat
+push
+ch2r
+              r
+_wrap_strftimer
+0123456789r
+_is_ascii_digitr
+Invalid ISO string
+dtstr
+len_dtstr
+date_separator
+week_indicator
+idxs
+     r
+"_find_isoformat_datetime_separatorr
+z"Inconsistent use of dash separator)
+intry
+list
+_isoweek_to_gregorian)
+has_sep
+weekno
+daynor/
+        r
+_parse_isoformat_dater
+Incomplete time componentr
+Invalid time separator: %cz
+Invalid microsecond componentz
+Non-digit values in fractionrb
+rangery
+mapr
+_FRACTION_CORRECTION)
+tstr
+len_str
+time_compsr
+comp
+next_charr
+len_remainder
+to_parses
+         r
+_parse_hh_mm_ss_ffr
+X!:X
+Isoformat time too shortr
+Malformed time zone stringc
+<genexpr>
+(_parse_isoformat_time.<locals>.<genexpr>
+findr
+utcr
+tz_pos
+timestrr
+tzstr
+tz_comps
+tzsign
+          r
+_parse_isoformat_timer
+Year is out of range: r
+Invalid week: r
+Invalid weekday: z
+ (range is [1, 7]))
+_isoweek1mondayrM
+weekr8
+out_of_range
+first_weekday
+day_offset
+day_1
+ord_days
+        r
+Nz4tzinfo.tzname() must return None or string, not '%s')
+isinstance
+TypeError
+type)
+names
+_check_tznamer
+dstz
+tzinfo.z'() must return None or timedelta, not '
+()=zG, must be strictly between -timedelta(hours=24) and timedelta(hours=24))
+offsets
+_check_utc_offsetr
+year must be in %d..%dr
+_indexr
+    r
+_check_date_fieldsr
+hour must be in 0..23
+minute must be in 0..59z
+second must be in 0..59
+z microsecond must be in 0..999999)
+fold must be either 0 or 1)
+hour
+minute
+secondr
+folds
+     r
+_check_time_fieldsr
+Nz4tzinfo argument must be None or of a tzinfo subclass)
+_check_tzinfo_argr
+X1:X
+divide a by b and round result to the nearest integer
+When the ratio is exactly half-way between two integers,
+the even integer is returned.
+greater_than_halfs
+     r
+_divide_and_roundr
+r$S 
+r%S!r&g")$r
+Represent the difference between two datetime objects.
+Supported operators:
+- add, subtract timedelta
+- unary plus, minus, abs
+- compare to timedelta
+- multiply, divide by int
+In addition, datetime supports subtraction of two datetime objects
+returning a timedelta, and addition or subtraction of a datetime
+and a timedelta giving a datetime.
+Representation: (days, seconds, microseconds).
+_days
+_seconds
+_microseconds
+_hashcodec
+;z$timedelta # of days is too large: %dr
+float
+_math
+modfr
+absrB
+round
+OverflowErrorr
+__new__r
+clsr
+weeksrg
+dayfrac
+daysecondsfrac
+daysecondswhole
+secondsfrac
+usdoubler
+                 r
+timedelta.__new__X
+days=%dz
+seconds=%dz
+microseconds=%d
+__qualname__r
+argss
+__repr__
+timedelta.__repr__
+%d:%02d:%02dc
+plural
+!timedelta.__str__.<locals>.plural
+%d day%s, r
+      r
+__str__
+timedelta.__str__
+Total seconds in the duration.r
+total_seconds
+timedelta.total_seconds
+timedelta.days
+timedelta.seconds
+timedelta.microseconds
+NotImplemented
+others
+__add__
+timedelta.__add__
+__sub__
+timedelta.__sub__
+__rsub__
+timedelta.__rsub__
+__neg__
+timedelta.__neg__
+__pos__
+timedelta.__pos__
+__abs__
+timedelta.__abs__
+_to_microseconds
+as_integer_ratior
+usecr
+     r
+__mul__
+timedelta.__mul__
+timedelta._to_microseconds$
+   r
+__floordiv__
+timedelta.__floordiv__(
+     r
+__truediv__
+timedelta.__truediv__1
+   r
+__mod__
+timedelta.__mod__=
+    r
+__divmod__
+timedelta.__divmod__C
+__eq__
+timedelta.__eq__L
+__le__
+timedelta.__le__R
+__lt__
+timedelta.__lt__X
+__ge__
+timedelta.__ge__^
+__gt__
+timedelta.__gt__d
+_getstaterH
+timedelta._cmpj
+hashr
+__hash__
+timedelta.__hash__n
+__bool__
+timedelta.__bool__s
+timedelta._getstatez
+__reduce__
+timedelta.__reduce__}
+__name__r
+__firstlineno__
+__doc__
+__slots__r
+propertyr
+__radd__rN
+__rmul__r^
+__static_attributes__r
+r"\"r#S
+r%S 
+r&S!
+r'S"
+r(S#
+r)S$
+r*S%r+g
+Concrete date type.
+Constructors:
+__new__()
+fromtimestamp()
+today()
+fromordinal()
+Operators:
+__repr__, __str__
+__eq__, __le__, __lt__, __ge__, __gt__, __hash__
+__add__, __radd__, __sub__ (add/radd only with timedelta arg)
+Methods:
+timetuple()
+toordinal()
+weekday()
+isoweekday(), isocalendar(), isoformat()
+ctime()
+strftime()
+Properties (readonly):
+year, month, day
+_year
+_month
+_dayr
+z>Constructor.
+Arguments:
+year, month, day (required, base 1)
+latin1znFailed to encode latin1 string when unpickling a date object. pickle.load(data, encoding='latin1') is assumed.r
+bytesr
+encode
+UnicodeEncodeErrorry
+_date__setstater
+     r
+date.__new__
+p#pEpgp
+z;Construct a date from a POSIX timestamp (like time.time()).z5'NoneType' object cannot be interpreted as an integer)
+localtime)
+weekday
+jdayr
+           r
+fromtimestamp
+date.fromtimestamp
+z"Construct a date from time.time().
+today
+date.today
+Construct a date from a proleptic Gregorian ordinal.
+January 1 of year 1 is day 1.  Only the year, month and day are
+non-zero in the result.
+     r
+fromordinal
+date.fromordinal
+z2Construct a date from a string in ISO 8601 format.
+#fromisoformat: argument must be strr
+Invalid isoformat string: )
+Exception)
+date_strings
+fromisoformat
+date.fromisoformat
+ztConstruct a date from the ISO year, week number and weekday.
+This is the inverse of the date.isocalendar() function)
+    r
+fromisocalendar
+date.fromisocalendar
+zhConvert to formal string, for repr().
+>>> d = date(2010, 1, 1)
+>>> repr(d)
+'datetime.date(2010, 1, 1)'
+%s.%s(%d, %d, %d))
+date.__repr__
+Return ctime() style string.rc
+%s %s %2d 00:00:00 %04d)
+toordinal
+_DAYNAMES
+_MONTHNAMESr
+ctime
+date.ctime
+Format using strftime().
+Example: "%d/%m/%Y, %H:%M:%S"
+date.strftime
+must be str, not %sr
+__format__
+date.__format__
+Return the date formatted according to ISO.
+This is 'YYYY-MM-DD'.
+References:
+- https://www.w3.org/TR/NOTE-datetime
+- https://www.cl.cam.ac.uk/~mgk25/iso-time.html
+%04d-%02d-%02d)
+isoformat
+date.isoformat
+year (1-9999))
+date.year+
+month (1-12))
+date.month0
+day (1-31))
+date.day5
+9Return local time tuple compatible with time.localtime().r
+date.timetuple=
+Return proleptic Gregorian ordinal for the year, month and day.
+January 1 of year 1 is day 1.  Only the year, month and day values
+contribute to the result.
+date.toordinalB
+z;Return a new date with new values for the specified fields.)
+    r
+date.replaceJ
+date.__eq__X
+date.__le__]
+date.__lt__b
+date.__ge__g
+date.__gt__l
+        r
+date._cmpq
+Hash.r
+date.__hash__x
+Add a date to a timedelta.r
+result out of range)
+_MAXORDINALr
+   r
+date.__add__
+z.Subtract two dates, or a date and a timedelta.)
+days1
+days2s
+    r
+date.__sub__
+z:Return day of the week, where Monday == 0 ... Sunday == 6.rb
+date.weekday
+z:Return day of the week, where Monday == 1 ... Sunday == 7.rc
+isoweekday
+date.isoweekday
+Return a named tuple containing ISO year, week number, and weekday.
+The first ISO week of the year is the (Mon-Sun) week
+containing the year's first Thursday; everything else derives
+from that.
+The first week is 1; Monday is 1 ... Sunday is 7.
+ISO calendar algorithm taken from
+https://www.phys.uu.nl/~vgent/calendar/isocalendar.htm
+(used with permission)
+_IsoCalendarDate)
+week1mondayr
+      r
+isocalendar
+date.isocalendar
+ylos
+   r
+date._getstate
+stringr
+    r
+__setstate
+date.__setstate
+date.__reduce__
+NNN),r
+classmethodr
+__replace__ru
+zwAbstract base class for time zone info classes.
+Subclasses must override the tzname(), utcoffset() and dst() methods.
+z%datetime -> string name of time zone.z&tzinfo subclass must override tzname()
+NotImplementedError
+tzinfo.tzname
+zIdatetime -> timedelta, positive for east of UTC, negative for west of UTCz)tzinfo subclass must override utcoffset()r 
+tzinfo.utcoffset
+datetime -> DST offset as timedelta, positive for east of UTC.
+Return 0 if DST not in effect.  utcoffset() must include the DST
+offset.
+z#tzinfo subclass must override dst()r 
+tzinfo.dst
+z*datetime in UTC -> datetime in local time.z&fromutc() requires a datetime argumentz
+dt.tzinfo is not selfz0fromutc() requires a non-None utcoffset() resultz*fromutc() requires a non-None dst() resultz;fromutc(): dt.dst gave inconsistent results; cannot convert)
+dtoff
+dtdst
+deltas
+     r
+fromutc
+tzinfo.fromutc
+__getinitargs__r
+__getstate__)
+getinitargsr,
+   r
+tzinfo.__reduce__
+IsoCalendarDatei
+superr
+    
+IsoCalendarDate.__new__
+IsoCalendarDate.year
+IsoCalendarDate.week
+IsoCalendarDate.weekday
+tupler6
+IsoCalendarDate.__reduce__
+(year=r
+, week=r
+, weekday=r+
+IsoCalendarDate.__repr__#
+__classcell__)
+r \ r!S(S
+r"S 
+r#S!
+r$S"
+r%S#r&g
+Time with time zone.
+Constructors:
+__new__()
+Operators:
+__repr__, __str__
+__eq__, __le__, __lt__, __ge__, __gt__, __hash__
+Methods:
+strftime()
+isoformat()
+utcoffset()
+tzname()
+dst()
+Properties (readonly):
+hour, minute, second, microsecond, tzinfo, fold
+_hour
+_minute
+_second
+_microsecond
+_tzinfor
+_foldr
+Constructor.
+Arguments:
+hour, minute (required)
+second, microsecond (default to zero)
+tzinfo (default to None)
+fold (keyword only, default to zero)
+znFailed to encode latin1 string when unpickling a time object. pickle.load(data, encoding='latin1') is assumed.Nr
+_time__setstater
+        r
+time.__new__E
+hour (0-23)
+time.hourm
+minute (0-59)
+time.minuter
+second (0-59)
+time.secondw
+microsecond (0-999999)
+time.microsecond|
+timezone info object
+time.tzinfo
+time.fold
+allow_mixedr
+time.__eq__
+time.__le__
+time.__lt__
+time.__ge__
+time.__gt__
+pVX4L
+XV:H
+NTr+
+z$cannot compare naive and aware timesr
+mytz
+ottz
+myoff
+otoff
+base_compare
+myhhmm
+othhmms
+          r
+time._cmp
+whole minuter@
+tzoff
+     r
+time.__hash__
+z=Return formatted timezone offset (+xx:xx) or an empty string.)
+_tzstr
+time._tzstr
+%Convert to formal string, for repr().r
+, %d, %dz
+, %dr
+%s.%s(%d, %d%s)Nr
+, tzinfo=%r
+, fold=1))
+time.__repr__
+Return the time formatted according to ISO.
+The full format is 'HH:MM:SS.mmmmmm+zz:zz'. By default, the fractional
+part is omitted if self.microsecond == 0.
+The optional argument timespec specifies the number of additional
+terms of the time to include. Valid options are 'auto', 'hours',
+'minutes', 'seconds', 'milliseconds' and 'microseconds'.
+    r
+time.isoformat
+z>Construct a time from a string in one of the ISO 8601 formats.r
+removeprefixr
+time_strings
+time.fromisoformat
+zkFormat using strftime().  The date part of the timestamp passed
+to underlying strftime should not be used.
+   r
+time.strftime
+time.__format__%
+zUReturn the timezone offset as timedelta, positive east of UTC
+(negative west of UTC).Nr
+time.utcoffset.
+Return the timezone name.
+Note that the name is 100% informational -- there's no requirement that
+it mean anything in particular. For example, "GMT", "UTC", "-500",
+"-5:00", "EDT", "US/Eastern", "America/New York" are all valid replies.
+time.tzname7
+Return 0 if DST is not in effect, or the DST offset (as timedelta
+positive eastward) if DST is in effect.
+This is purely informational; the DST offset has already been added to
+the UTC offset returned by utcoffset() if applicable, so there's no
+need to consult dst() unless you're interested in displaying the DST
+info.
+time.dstD
+X4XVS
+z;Return a new time with new values for the specified fields.TrN
+       r
+time.replaceS
+protocol
+us1r
+basestates
+       r
+time._getstateh
+bad tzinfo state argrP
+_tzinfo_classr
+       r
+time.__setstateu
+__reduce_ex__
+time.__reduce_ex__
+time.__reduce__
+NNNNT
+r!S8S
+r"S 
+r#S!
+r%S#
+r&S$
+r'S%
+r(S&
+r)S'
+r*S(
+r+S)
+r,S*
+r-S9S+
+r.S,
+r/\/r0S-
+r1S.
+r2S:S/
+r3S0
+r4S1
+r5S2
+r6S3r7g
+datetime(year, month, day[, hour[, minute[, second[, microsecond[,tzinfo]]]]])
+The year, month and day arguments are required. tzinfo may be None, or an
+instance of a tzinfo subclass. The remaining arguments may be ints.
+XEXgU
+pEpgn
+zrFailed to encode latin1 string when unpickling a datetime object. pickle.load(data, encoding='latin1') is assumed.r
+_datetime__setstater
+           r
+datetime.__new__
+datetime.hour
+datetime.minute
+datetime.second
+datetime.microsecond
+datetime.tzinfo
+datetime.fold
+rConstruct a datetime from a POSIX timestamp (like time.time()).
+A timezone info object may be passed in as well.
+winrb
+gmtimer
+platform
+startswithr
+fracrz
+converterr
+result
+max_fold_seconds
+probe1
+trans
+probe2s
+                     r
+_fromtimestamp
+datetime._fromtimestamp
+timestampr
+   r
+datetime.fromtimestamp
+z6Construct a naive UTC datetime from a POSIX timestamp.r
+datetime.datetime.utcfromtimestamp() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.fromtimestamp(t, datetime.UTC).r+
+stacklevelT)
+warnings
+warn
+DeprecationWarningr
+   r
+utcfromtimestamp
+datetime.utcfromtimestamp
+zBConstruct a datetime from time.time() and optional time zone info.r
+   r
+datetime.now
+z*Construct a UTC datetime from time.time().r
+datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).r+
+   r
+utcnow
+datetime.utcnow 
+z8Construct a datetime from a given date and a given time.z%date argument must be a date instancez%time argument must be a time instanceTrN
+_date_classr
+_time_classr
+    r
+combine
+datetime.combine-
+zBConstruct a datetime from a string in one of the ISO 8601 formats.r
+separator_location
+dstrr
+date_components
+time_componentss
+       r
+datetime.fromisoformat:
+datetime.timetupleY
+Xb:X
+XH:X
+XH:w
+Xb:X
+Return integer POSIX timestamp.
+p4pV[
+X4XV5
+epochs
+       
+local
+datetime._mktime.<locals>.localk
+maxr
+          @r
+_mktime
+datetime._mktimef
+Return POSIX timestamp as floatr
+_EPOCHr7
+datetime.timestamp
+X#XEXgS
+z4Return UTC time tuple compatible with time.gmtime().r
+        r
+utctimetuple
+datetime.utctimetuple
+Return the date part.)
+datetime.date
+z'Return the time part, with tzinfo None.rN
+datetime.time
+z'Return the time part, with same tzinfo.rN
+timetz
+datetime.timetz
+X4XVXxU
+z?Return a new datetime with new values for the specified fields.TrN
+          r
+datetime.replace
+X!:w
+tm_gmtoff
+tm_zoner
+localtmr
+gmtoff
+zones
+       r
+_local_timezone
+datetime._local_timezone
+Nz)tz argument must be an instance of tzinfo
+myoffsetr
+     r
+astimezone
+datetime.astimezone
+%s %s %2d %02d:%02d:%02d %04d)
+datetime.ctime
+Return the time formatted according to ISO.
+The full format looks like 'YYYY-MM-DD HH:MM:SS.mmmmmm'.
+By default, the fractional part is omitted if self.microsecond == 0.
+If self.tzinfo is not None, the UTC offset is also attached, giving
+a full format of 'YYYY-MM-DD HH:MM:SS.mmmmmm+HH:MM'.
+Optional argument sep specifies the separator between date and
+time, default 'T'.
+The optional argument timespec specifies the number of additional
+terms of the time to include. Valid options are 'auto', 'hours',
+'minutes', 'seconds', 'milliseconds' and 'microseconds'.
+%04d-%02d-%02d%c)
+      r
+datetime.isoformat
+   r
+datetime.__repr__
+Convert to string, for str().
+datetime.__str__&
+zKstring, format -> new datetime parsed from a string (like time.strptime()).r
+_strptime
+_strptime_datetime)
+    r
+strptime
+datetime.strptime*
+zTReturn the timezone offset as timedelta positive east of UTC (negative west of
+UTC).Nr
+datetime.utcoffset0
+datetime.tzname9
+datetime.dstF
+datetime.__eq__W
+datetime.__le__]
+datetime.__lt__c
+datetime.__ge__i
+datetime.__gt__o
+pVX4L
+XV:H
+NTrN
+z(cannot compare naive and aware datetimesr
+diffs
+         r
+datetime._cmpu
+Add a datetime and a timedelta.r
+remr
+       r
+datetime.__add__
+Xx:X
+z6Subtract two datetimes, or a datetime and a timedelta.r
+z(cannot mix naive and timezone-aware time)
+secs1
+secs2
+baser
+         r
+datetime.__sub__
+     r
+datetime.__hash__
+X#XpR
+         r
+datetime._getstate
+p4oPl
+         r
+datetime.__setstate
+datetime.__reduce_ex__
+datetime.__reduce__
+NNNNNNNT)
+THURSDAY
+firstday
+firstweekdayr
+     r
+_offset
+_namec
+offset must be a timedeltaz
+name must be a stringzYoffset must be a timedelta strictly between -timedelta(hours=24) and timedelta(hours=24).)
+_Omittedr
+_minoffset
+_maxoffsetry
+_create)
+   r
+timezone.__new__
+Nz7type 'datetime.timezone' is not an acceptable base type)
+__init_subclass__
+timezone.__init_subclass__!
+    r
+timezone._create$
+pickle support
+timezone.__getinitargs__+
+timezone.__eq__1
+timezone.__hash__6
+Convert to formal string, for repr().
+>>> tz = timezone.utc
+>>> repr(tz)
+'datetime.timezone.utc'
+>>> tz = timezone(timedelta(hours=-5), 'EST')
+>>> repr(tz)
+"datetime.timezone(datetime.timedelta(-1, 68400), 'EST')"
+datetime.timezone.utcr'
+timezone.__repr__9
+timezone.__str__M
+Nz8utcoffset() argument must be a datetime instance or None)
+timezone.utcoffsetP
+Nz5tzname() argument must be a datetime instance or None)
+_name_from_offsetrq
+timezone.tznameV
+Nz2dst() argument must be a datetime instance or None)
+timezone.dst^
+fromutc: dt.tzinfo is not selfz6fromutc() argument must be a datetime instance or None)
+timezone.fromutcd
+02dr
+06d)
+restrq
+       r
+timezone._name_from_offsetp
+staticmethodr
+__all__r
+mathr
+operatorr
+dbmr9
+resolutionr
+<module>r

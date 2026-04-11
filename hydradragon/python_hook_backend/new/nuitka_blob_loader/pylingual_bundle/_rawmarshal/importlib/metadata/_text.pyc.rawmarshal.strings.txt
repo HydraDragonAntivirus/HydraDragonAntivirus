@@ -1,0 +1,82 @@
+method_cachec
+FoldedCase
+A case insensitive string class; behaves just like str
+except compares equal when the only variation is case.
+>>> s = FoldedCase('hello world')
+>>> s == 'Hello World'
+True
+>>> 'Hello World' == s
+True
+>>> s != 'Hello World'
+False
+>>> s.index('O')
+>>> s.split('O')
+['hell', ' w', 'rld']
+>>> sorted(map(FoldedCase, ['GAMMA', 'alpha', 'Beta']))
+['alpha', 'Beta', 'GAMMA']
+Sequence membership is straightforward.
+>>> "Hello World" in [s]
+True
+>>> s in ["Hello World"]
+True
+You may test for set inclusion, but candidate and elements
+must both be folded.
+>>> FoldedCase("Hello World") in {s}
+True
+>>> s in {FoldedCase("Hello World")}
+True
+String inclusion works as long as the FoldedCase object
+is on the right.
+>>> "hello" in FoldedCase("Hello World")
+True
+But not if the FoldedCase object is on the left:
+>>> FoldedCase('hello') in 'Hello World'
+False
+In that case, use in_:
+>>> FoldedCase('hello').in_('Hello World')
+True
+>>> FoldedCase('hello') > FoldedCase('Hello')
+False
+lower
+self
+others
+importlib\metadata\_text.py
+__lt__
+FoldedCase.__lt__C
+__gt__
+FoldedCase.__gt__F
+__eq__
+FoldedCase.__eq__I
+__ne__
+FoldedCase.__ne__L
+hashr
+__hash__
+FoldedCase.__hash__O
+superr
+__contains__)
+__class__s
+FoldedCase.__contains__R
+Does self appear in other?)
+FoldedCase.in_U
+FoldedCase.lowerZ
+index)
+subs
+FoldedCase.index^
+compile
+escape
+split)
+splitter
+maxsplit
+patterns
+    r
+FoldedCase.splita
+__name__
+__module__
+__qualname__
+__firstlineno__
+__doc__r
+__static_attributes__
+__classcell__)
+_functoolsr
+strr
+<module>rE

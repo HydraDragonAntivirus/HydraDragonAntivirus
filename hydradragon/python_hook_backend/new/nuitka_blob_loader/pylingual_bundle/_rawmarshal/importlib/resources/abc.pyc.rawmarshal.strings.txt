@@ -1,0 +1,136 @@
+BinaryIO
+Iterable
+Iterator
+NoReturn
+Text
+Optional)
+runtime_checkable
+Protocol)
+Union)
+ResourceReader
+Traversable
+TraversableResourcesc
+zDAbstract base class for loaders to provide resource reading support.
+resource
+returnc
+Return an opened, file-like object for binary reading.
+The 'resource' argument is expected to represent only a file name.
+If the resource cannot be found, FileNotFoundError is raised.
+FileNotFoundError
+selfr
+importlib\resources\abc.py
+open_resource
+ResourceReader.open_resource
+Return the file system path to the specified resource.
+The 'resource' argument is expected to represent only a file name.
+If the resource does not exist on the file system, raise
+FileNotFoundError.
+resource_path
+ResourceReader.resource_path
+pathc
+zZReturn True if the named 'path' is a resource.
+Files are resources, directories are not.
+is_resource
+ResourceReader.is_resource,
+z+Return an iterable of entries in `package`.r
+contents
+ResourceReader.contents4
+__name__
+__module__
+__qualname__
+__firstlineno__
+__doc__
+abstractmethodr
+boolr#
+strr'
+__static_attributes__r)
+metaclassc
+TraversalError
+An object with a subset of pathlib.Path methods suitable for
+traversing directories and opening files.
+Any exceptions that occur when accessing the backing resource
+may propagate unaltered.
+Yield Traversable objects in self
+iterdir
+Traversable.iterdirH
+Read contents of self as bytes
+open
+read)
+strms
+read_bytes
+Traversable.read_bytesN
+encodingc
+Read contents of self as text
+   r
+read_text
+Traversable.read_textU
+Return True if self is a directory
+is_dir
+Traversable.is_dir\
+Return True if self is a file
+is_file
+Traversable.is_fileb
+descendantsc
+Return Traversable resolved with any descendants applied.
+Each descendant should be a path segment relative to self
+and each may contain multiple levels separated by
+``posixpath.sep`` (``/``).
+parts)
+.0r 
+<genexpr>
+'Traversable.joinpath.<locals>.<genexpr>r
+name)
+traversable
+targets
+z"Target not found during traversal.)
+itertools
+chain
+from_iterable
+pathlib
+PurePosixPath
+nextr;
+StopIterationr6
+list
+joinpath)
+names
+matches
+matchr]
+     @r
+Traversable.joinpathh
+childc
+Return Traversable child in self
+__truediv__
+Traversable.__truediv__
+mode may be 'r' or 'rb' to open as text or binary. Return a handle
+suitable for reading (same as pathlib.Path.open).
+When opening as text, accepts encoding parameters such as those
+accepted by io.TextIOWrapper.
+mode
+args
+kwargss
+    r
+Traversable.open
+The base name of this object without any parent references.
+Traversable.name
+bytesrD
+StrPathrg
+propertyr[
+The required interface for providing traversable
+resources.
+z3Return a Traversable object for the loaded package.Nr)
+files
+TraversableResources.files
+"TraversableResources.open_resource
+"TraversableResources.resource_path
+ TraversableResources.is_resource
+items
+0TraversableResources.contents.<locals>.<genexpr>
+TraversableResources.contents
+BufferedReaderr
+osrb
+typingr
+PathLikery
+__all__
+ABCMetar
+Exceptionr6
+<module>r

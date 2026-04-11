@@ -1,0 +1,363 @@
+g=)>z
+Representing and manipulating email headers via custom objects.
+This module provides an implementation of the HeaderRegistry API.
+The implementation is designed to flexibly follow RFC5322 rules.
+MappingProxyType)
+utils)
+errors)
+_header_value_parserc
+Address
+Create an object representing a full email address.
+An address can have a 'display_name', a 'username', and a 'domain'.  In
+addition to specifying the username and domain separately, they may be
+specified together by using the addr_spec keyword *instead of* the
+username and domain keywords.  If an addr_spec string is specified it
+must be properly quoted according to RFC 5322 rules; an error will be
+raised if it is not.
+An Address object has display_name, username, domain, and addr_spec
+attributes, all of which are read-only.  The addr_spec and the string
+value of the object are both quoted according to RFC5322 rules, but
+without any Content Transfer Encoding.
+z8invalid arguments; address parts cannot contain CR or LFz=addrspec specified when username and/or domain also specifiedz6Invalid addr_spec; only '{}' could be parsed from '{}'r
+join
+filter
+ValueError
+TypeError
+parser
+get_addr_spec
+format
+all_defects
+local_part
+domain
+_display_name
+_username
+_domain)
+self
+display_name
+usernamer
+addr_spec
+inputs
+rests
+        
+email\headerregistry.py
+__init__
+Address.__init__
+Address.display_name8
+Address.username<
+Address.domain@
+The addr_spec (username@domain) portion of the address, quoted
+according to RFC 5322 rules, but with no Content Transfer Encoding.
+DOT_ATOM_ENDS
+isdisjoint
+quote_stringr
+  r"
+Address.addr_specD
+Nz1{}(display_name={!r}, username={!r}, domain={!r}))
+__class__
+__name__r
+__repr__
+Address.__repr__R
+{} <{}>)
+SPECIALSr6
+dispr
+   r"
+__str__
+Address.__str__W
+isinstancer
+NotImplementedr
+others
+  r"
+__eq__
+Address.__eq__`
+__module__
+__qualname__
+__firstlineno__r#
+propertyr
+__static_attributes__
+Group
+Create an object representing an address group.
+An address group consists of a display_name followed by colon and a
+list of addresses (see Address) terminated by a semi-colon.  The Group
+is created by specifying a display_name and a possibly empty list of
+Address objects.  A Group can also be used to represent a single
+address that is not in a group, which is convenient when manipulating
+lists that are a combination of Groups and individual Addresses.  In
+this case the display_name should be set to None.  In particular, the
+string representation of a Group whose display_name is None is the same
+as the Address object, if there is one and only one Address object in
+the addresses list.
+tuple
+_addresses)
+addressess
+   r"
+Group.__init__j
+Group.display_name|
+Group.addresses
+Nz${}(display_name={!r}, addresses={!r})
+Group.__repr__
+str)
+  r"
+<genexpr>
+ Group.__str__.<locals>.<genexpr>
+{}:{};)
+lenrW
+adrstrs
+   r"
+Group.__str__
+  r"
+Group.__eq__
+BaseHeader
+Base class for message headers.
+Implements generic behavior and provides tools for subclasses.
+A subclass must define a classmethod named 'parse' that takes an unfolded
+value string and a dictionary as its arguments.  The dictionary will
+contain one key, 'defects', initialized to an empty list.  After the call
+the dictionary must contain two additional keys: parse_tree, set to the
+parse tree obtained from parsing the header, and 'decoded', set to the
+string value of the idealized representation of the data from the value.
+(That is, encoded words are decoded, and values that have canonical
+representations are so represented.)
+The defects key is intended to collect parsing defects, which the message
+parser will subsequently dispose of as appropriate.  The parser should not,
+insofar as practical, raise any errors.  Defects should be added to the
+list instead.  The standard header parsers register defects for RFC
+compliance issues, for obsolete RFC syntax, and for unrecoverable parsing
+errors.
+The parse method may add additional keys to the dictionary.  In this case
+the subclass must define an 'init' method, which will be passed the
+dictionary as its keyword arguments.  The method should use (usually by
+setting them as the value of similarly named attributes) and remove all the
+extra keys added by its parse method, and then use super to call its parent
+class with the remaining arguments and keywords.
+The subclass should also make sure that a 'max_count' attribute is defined
+that is either None or 1. XXX: need to better define this API.
+defects
+decoded)
+parser
+_has_surrogates
+_sanitizerc
+__new__
+init)
+name
+value
+kwdsr
+     r"
+BaseHeader.__new__
+_name
+_parse_tree
+_defects)
+parse_treerr
+    r"
+BaseHeader.init
+BaseHeader.name
+BaseHeader.defects
+_reconstruct_headerr;
+__bases__rc
+__getstate__r)
+__reduce__
+BaseHeader.__reduce__
+  r"
+_reconstruct
+BaseHeader._reconstruct
+Fold header according to policy.
+The parsed representation of the header is folded according to
+RFC5322 rules, as modified by the policy.  If the parse tree
+contains surrogateescaped bytes, the bytes are CTE encoded using
+the charset 'unknown-8bit".
+Any non-ASCII characters in the parse tree are CTE encoded using
+charset utf-8. XXX: make this a policy setting.
+The returned value is an ASCII-only string possibly containing linesep
+characters, and ending with a linesep character.  The string includes
+the header name and the ': ' separator.
+header-name
+header-seprh
+fws)
+policy)
+Header
+HeaderLabel
+ValueTerminalrz
+append
+CFWSList
+WhiteSpaceTerminal
+fold)
+headers
+   r"
+BaseHeader.fold
+__doc__rw
+classmethodr
+typer
+cls_name
+basesr{
+   r"
+UnstructuredHeaderi
+value_parserrc
+   r"
+UnstructuredHeader.parse
+max_count
+staticmethodr
+get_unstructuredr
+UniqueUnstructuredHeaderi
+DateHeaderi
+Header whose value consists of a single timestamp.
+Provides an additional attribute, datetime, which is either an aware
+datetime using a timezone, or a naive datetime if the timezone
+in the input string is -0000.  Also accepts a datetime as input.
+The 'value' attribute is the normalized form of the timestamp,
+which means it is the output of format_datetime on the datetime.
+datetimer
+Invalid date value or format)
+HeaderMissingRequiredValuer
+TokenListrE
+parsedate_to_datetimer
+InvalidDateDefect
+format_datetimer
+   r"
+DateHeader.parse$
+_datetime
+superrx
+args
+kwr;
+DateHeader.init9
+DateHeader.datetime=
+__classcell__
+UniqueDateHeaderiB
+AddressHeaderiG
+this should not happen)
+get_address_list)
+address_lists
+  r"
+AddressHeader.value_parserK
+__iter__rW
+groupsrr
+all_mailboxesr
+listr
+hasattrr
+addr
+mbrr
+items
+         r"
+AddressHeader.parseQ
+3*E;
+_groupsrV
+AddressHeader.initm
+AddressHeader.groupsr
+group
+addresss
+   r"
+*AddressHeader.addresses.<locals>.<genexpr>y
+AddressHeader.addressesv
+UniqueAddressHeaderi~
+SingleAddressHeaderi
+z9value of single address header {} is not a single addressr
+SingleAddressHeader.address
+UniqueSingleAddressHeaderi
+MIMEVersionHeaderi
+major
+minorz
+{}.{}
+version)
+extendr
+    r"
+MIMEVersionHeader.parse
+_version
+_major
+_minorr
+MIMEVersionHeader.init
+MIMEVersionHeader.major
+MIMEVersionHeader.minor
+MIMEVersionHeader.version
+parse_mime_versionr
+ParameterizedMIMEHeaderi
+params)
+lower)
+     r"
+ParameterizedMIMEHeader.parse
+_paramsr
+ParameterizedMIMEHeader.init
+ParameterizedMIMEHeader.params
+ContentTypeHeaderi
+maintype
+_maintype
+subtype
+_subtyper
+ContentTypeHeader.init
+ContentTypeHeader.maintype
+ContentTypeHeader.subtype
+content_type
+ContentTypeHeader.content_type
+parse_content_type_headerr
+ContentDispositionHeaderi
+content_dispositionr
+_content_disposition)
+cdr;
+    
+ContentDispositionHeader.init
+,ContentDispositionHeader.content_disposition
+ parse_content_disposition_headerr
+ContentTransferEncodingHeaderi
+    r"
+#ContentTransferEncodingHeader.parse
+_cter
+"ContentTransferEncodingHeader.init
+!ContentTransferEncodingHeader.cte
+&parse_content_transfer_encoding_headerr
+MessageIDHeaderi
+    r"
+MessageIDHeader.parse
+parse_message_idr
+subject
+datez
+resent-datez
+orig-date
+senderz
+resent-sender
+resent-to
+resent-cc
+bccz
+resent-bcc
+fromz
+resent-fromz
+reply-toz
+mime-versionz
+content-type)
+content-dispositionz
+content-transfer-encodingz
+message-idc
+HeaderRegistryi2
+z%A header_factory and header registry.Tc
+Create a header_factory that works with the Policy API.
+base_class is the class that will be the last class in the created
+header class's __bases__ list.  default_class is the class that will be
+used if "name" (see __call__) does not appear in the registry.
+use_default_map controls whether or not the default mapping of names to
+specialized classes is copied in to the registry when the factory is
+created.  The default is True.
+registry
+base_class
+default_class
+update
+_default_header_map)
+use_default_maps
+    r"
+HeaderRegistry.__init__6
+zLRegister cls as the specialized class for handling "name" headers.
+        N)
+   r"
+map_to_type
+HeaderRegistry.map_to_typeH
+getr
+   r"
+__getitem__
+HeaderRegistry.__getitem__N
+Create a header instance for header 'name' from 'value'.
+Creates a header instance by creating a specialized class for parsing
+and representing the specified header by combining the factory
+base_class with a specialized class from the registry or the
+default_class, and passing the name and value to the constructed
+class's constructor.
+   r"
+__call__
+HeaderRegistry.__call__R
+typesr
+emailr
+<module>r^

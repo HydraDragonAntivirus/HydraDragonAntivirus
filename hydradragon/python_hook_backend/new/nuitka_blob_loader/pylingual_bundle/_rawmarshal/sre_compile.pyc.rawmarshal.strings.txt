@@ -1,0 +1,14 @@
+module z
+ is deprecated
+stacklevel)
+_compiler
+warnings
+warn
+__name__
+DeprecationWarning
+globals
+update
+vars
+items)
+sre_compile.py
+<module>r

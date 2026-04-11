@@ -1,0 +1,141 @@
+z:Issue a warning, or maybe ignore it or raise an exception.Nz/category must be a Warning subclass, not '{:s}'z+skip_file_prefixes must be a tuple of strs.
+<sys>r
+<string>
+__warningregistry__)
+__class__
+UserWarningrN
+formatr'
+tuple
+maxr
+_getframe
+ranger
+f_globalsr
+f_lineno
+__dict__
+setdefaultr
+stacklevelr,
+globalsr
+registrys
+            r
+6A4F
+X?:X
+<unknown>
+versionr
+Unrecognized action (z
+) in warnings.filters:
+lower
+_filters_version
+clearrL
+matchrO
+defaultactionr(
+getlines
+onceregistry
+RuntimeErrorr
+module_globalsr,
+keyr]
+lnr(
+oncekey
+altkeys
+                   r
+_category_name)
+selfr
+        r
+__init__
+WarningMessage.__init__
+{message : z
+, category : z
+, filename : z
+, lineno : z
+, line : 
+__str__
+WarningMessage.__str__
+NNN)
+_WARNING_DETAILSr
+A context manager that copies and restores the warnings filter upon
+exiting the context.
+The 'record' argument specifies whether warnings should be captured by a
+custom implementation of warnings.showwarning() and be appended to a list
+returned by the context manager. Otherwise None is returned by the context
+manager. The objects appended to the list are arguments whose attributes
+mirror the arguments to showwarning().
+The 'module' argument is to specify an alternative module to the module
+named 'warnings' and imported under that name. This argument is only useful
+when testing the warnings module itself.
+If the 'action' argument is not None, the remaining arguments are passed
+to warnings.simplefilter() as if it were called immediately on entering the
+context.
+recordrD
+X4XV4
+Specify whether to record warnings and if an alternative module
+should be used other than sys.modules['warnings'].
+For compatibility with Python 3.0, please consider all arguments to be
+keyword-only.
+warningsF)
+_recordr
+modules
+_module
+_entered
+_filter)
+       r
+catch_warnings.__init__
+record=Truer
+module=%r
+join)
+names
+   r
+__repr__
+catch_warnings.__repr__
+Cannot enter %r twiceT)
+_filtersr\
+_showwarningr
+logs
+__enter__
+catch_warnings.__enter__
+Nz%Cannot exit %r without entering first)
+exc_infos
+__exit__
+catch_warnings.__exit__
+Indicate that a class, function or overload is deprecated.
+When this decorator is applied to an object, the type checker
+will generate a diagnostic on usage of the deprecated object.
+Usage:
+    @deprecated("Use B instead")
+    class A:
+        pass
+    @deprecated("Use g instead")
+    def f():
+        pass
+    @overload
+    @deprecated("int support is deprecated")
+    def g(x: int) -> int: ...
+    @overload
+    def g(x: str) -> int: ...
+The warning specified by *category* will be emitted at runtime
+on use of deprecated objects. For functions, that happens on calls;
+for classes, on instantiation and on creation of subclasses.
+If the *category* is ``None``, no warning is emitted at runtime.
+The *stacklevel* determines where the
+warning is emitted. If it is ``1`` (the default), the warning
+is emitted at the direct caller of the deprecated object; if it
+is higher, it is emitted further up the stack.
+Static type checker behavior is not affected by the *category*
+and *stacklevel* arguments.
+The deprecation message passed to the decorator is saved in the
+``__deprecated__`` attribute on the decorated object.
+If applied to an overload, the decorator
+must be after the ``@overload`` decorator for the attribute to
+exist on the overload as returned by ``get_overloads()``.
+See PEP 702 for details.
+returnc
+Nz2Expected an object of type str for 'message', not )
+    r
+deprecated.__init__0
+MethodTypec
+() takes no arguments)
+object
+__new__r
+clsrk
+kwargsrl
+original_newr
+$deprecated.__call__.<locals>.__new__O
+__init_subclass__c

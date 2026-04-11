@@ -1,0 +1,46 @@
+z1Various types of useful iterators and generators.)
+body_line_iterator
+typed_subpart_iterator
+walk
+StringIOc
+z}Walk over the message tree, yielding each subpart.
+The walk is performed in depth-first order.  This method is a
+generator.
+is_multipart
+get_payloadr
+self
+subparts
+email\iterators.pyr
+Iterate over the parts, returning string payloads line-by-line.
+Optional decode (default False) is passed through to .get_payload().
+decodeN)
+isinstance
+strr
+msgr
+payloads
+    r
+Iterate over the subparts with a given MIME type.
+Use `maintype' as the main MIME type to match against; this defaults to
+"text".  Optional `subtype' is the MIME subtype to match against; if
+omitted, only the main type is matched.
+get_content_maintype
+get_content_subtype)
+maintype
+subtyper
+    r
+A handy debugging aidN
+filez
+ [%s])
+stdout
+print
+get_content_type
+get_default_typer
+_structure)
+level
+include_default
+tabr
+      r
+textN)
+__doc__
+__all__r
+<module>r/

@@ -1,0 +1,210 @@
+chain)
+Path)
+Template
+Backendc
+MesonTemplate
+z+Template meson build file generation class.
+modulename
+sources
+deps
+libraries
+library_dirs
+include_dirs
+object_files
+linker_args
+fortran_args
+build_type
+python_exec
+meson.build.template
+                     )
+__file__
+parent
+absolute
+build_template_pathr
+substitutions
+objects
+startswith
+endswithr
+initialize_template
+sources_substitution
+objects_substitution
+deps_substitution
+include_substitution
+libraries_substitution
+fortran_args_substitution
+pipeliner
+indent)
+selfr
+             
+numpy\f2py\_backends\_meson.py
+__init__
+MesonTemplate.__init__
+returnc
+Meson build template z
+ does not exist.)
+is_file
+FileNotFoundError
+errno
+ENOENTr
+read_text
+meson_build_template
+"MesonTemplate.meson_build_template?
+buildtype
+python)
+!MesonTemplate.initialize_templateI
+''',
+source_list)
+joinr
+sources
+  r+
+"MesonTemplate.sources_substitutionN
+obj_list)
+objs
+  r+
+"MesonTemplate.objects_substitutionS
+dependency('z
+dep_list)
+deps
+  r+
+MesonTemplate.deps_substitutionX
+lib_dir_z( = declare_dependency(link_args : ['''-Lz
+'''])
+lib_dir_declarations
+_z& = declare_dependency(link_args : ['-lz
+lib_declarations
+lib_list
+lib_dir_list)
+enumerater
+replacer(
+range
+len)
+lib_dir
+libs
+    r+
+$MesonTemplate.libraries_substitution]
+'"E/
+inc_list)
+incs
+  r+
+"MesonTemplate.include_substitutions
+fortran_args: [z
+listr
+'MesonTemplate.fortran_args_substitutionx
+,,rV
+substituter
+node
+template
+meson_builds
+    r+
+generate_meson_build
+"MesonTemplate.generate_meson_build
+__name__
+__module__
+__qualname__
+__firstlineno__
+__doc__
+strrg
+__static_attributes__
+MesonBackend
+dependencies
+bbdirc
+debugNrx
+flags
+  r+
+<genexpr>
+(MesonBackend.__init__.<locals>.<genexpr>
+release)
+superr,
+extra_dat
+getr}
+meson_build_dir
+fc_flagsr
+_get_flags)
+args
+kwargs
+__class__s
+MesonBackend.__init__
+build_dirc
+*.soz
+*.pydz
+*.dll)
+globr
+name
+exists
+unlink
+shutil
+copy2
+remove)
+walk_dir
+path_objects
+path_object
+dest_paths
+      r+
+_move_exec_to_root
+MesonBackend._move_exec_to_root
+z1Writes the meson build file at specified locationT
+parents
+exist_okz
+meson.build)
+extra_objects
+flib_flagsr
+executablern
+mkdir
+write_text)
+meson_template
+meson_build_files
+     r+
+write_meson_build
+MesonBackend.write_meson_build
+check)
+subprocess
+run)
+commandr
+   r+
+_run_subprocess_command
+$MesonBackend._run_subprocess_command
+meson
+setup
+compilez
+setup_command
+compile_commands
+    r+
+run_meson
+MesonBackend.run_meson
+_prepare_sourcesr
+_prepare_objectsr
+MesonBackend.compile
+__classcell__)
+module.cz
+-f2pywrappers2.f90z
+-f2pywrappers.fz
+.pyf)
+copyr
+appendr
+suffix)
+mnamer
+bdir
+extended_sourcesrC
+generated_sources
+generated_sources
+       r+
+    r+
+--f(77|90)flags=(.*)
+match
+group
+strip
+split
+extendrg
+dict
+fromkeys)
+flag_values
+flag_patternr
+match_result
+values
+unique_flagss
+        r+
+itertoolsr
+pathlibr
+stringr
+_backendr
+<module>r

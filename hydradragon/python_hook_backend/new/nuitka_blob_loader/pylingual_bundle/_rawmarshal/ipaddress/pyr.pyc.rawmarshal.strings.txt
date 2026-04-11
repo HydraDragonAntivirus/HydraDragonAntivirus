@@ -1,0 +1,1125 @@
+S+\ \
+S-\!5
+S/\ \
+r$\$\!l
+\$\#l
+A fast, lightweight IPv4/IPv6 manipulation library in Python.
+This library is used to create/poke/manipulate IPv4 and IPv6 addresses
+and networks.
+AddressValueError
+z%A Value Error related to the address.
+__name__
+__module__
+__qualname__
+__firstlineno__
+__doc__
+__static_attributes__r
+ipaddress.pyr
+NetmaskValueError
+z%A Value Error related to the netmask.r
+Take an IP string/int and return an object of the correct type.
+Args:
+    address: A string or integer, the IP address.  Either IPv4 or
+      IPv6 addresses may be supplied; integers less than 2**32 will
+      be considered to be IPv4 by default.
+Returns:
+    An IPv4Address or IPv6Address object.
+Raises:
+    ValueError: if the *address* passed isn't either a v4 or a v6
+      address
+z. does not appear to be an IPv4 or IPv6 address)
+IPv4Addressr
+IPv6Address
+ValueError
+addresss
+ip_addressr
+Take an IP string/int and return an object of the correct type.
+Args:
+    address: A string or integer, the IP network.  Either IPv4 or
+      IPv6 networks may be supplied; integers less than 2**32 will
+      be considered to be IPv4 by default.
+Returns:
+    An IPv4Network or IPv6Network object.
+Raises:
+    ValueError: if the string passed isn't either a v4 or a v6
+      address. Or if the network has host bits set.
+z. does not appear to be an IPv4 or IPv6 network)
+IPv4Networkr
+IPv6Networkr
+stricts
+ip_networkr"
+Take an IP string/int and return an object of the correct type.
+Args:
+    address: A string or integer, the IP address.  Either IPv4 or
+      IPv6 addresses may be supplied; integers less than 2**32 will
+      be considered to be IPv4 by default.
+Returns:
+    An IPv4Interface or IPv6Interface object.
+Raises:
+    ValueError: if the string passed isn't either a v4 or a v6
+      address.
+Notes:
+    The IPv?Interface classes describe an Address on a particular
+    Network, so they're basically a combination of both the Address
+    and Network classes.
+z0 does not appear to be an IPv4 or IPv6 interface)
+IPv4Interfacer
+IPv6Interfacer
+ip_interfacer&
+Represent an address as 4 packed bytes in network (big-endian) order.
+Args:
+    address: An integer representation of an IPv4 IP address.
+Returns:
+    The integer address packed as 4 bytes in network (big-endian) order.
+Raises:
+    ValueError: If the integer is negative or too large to be an
+      IPv4 IP address.
+z&Address negative or too large for IPv4
+to_bytes
+OverflowErrorr
+v4_int_to_packedr,
+Represent an address as 16 packed bytes in network (big-endian) order.
+Args:
+    address: An integer representation of an IPv6 IP address.
+Returns:
+    The integer address packed as 16 bytes in network (big-endian) order.
+z&Address negative or too large for IPv6r)
+v6_int_to_packedr0
+zAHelper to split the netmask and raise AddressValueError if needed
+Only one '/' permitted in )
+split
+lenr
+addrs
+_split_optional_netmaskr8
+Find a sequence of sorted deduplicated IPv#Address.
+Args:
+    addresses: a list of IPv#Address objects.
+Yields:
+    A tuple containing the first and last IP addresses in the sequence.
+iter
+next
+_ip)
+addresses
+first
+last
+     r
+_find_address_rangerC
+Count the number of zero bits on the right hand side.
+Args:
+    number: an integer.
+    bits: maximum number of bits to count.
+Returns:
+    The number of zero bits on the right hand side of the number.
+bit_length)
+number
+bitss
+_count_righthand_zero_bitsrI
+XE::
+XE::
+Summarize a network range given the first and last IP addresses.
+Example:
+    >>> list(summarize_address_range(IPv4Address('192.0.2.0'),
+    ...                              IPv4Address('192.0.2.130')))
+    ...                                #doctest: +NORMALIZE_WHITESPACE
+    [IPv4Network('192.0.2.0/25'), IPv4Network('192.0.2.128/31'),
+     IPv4Network('192.0.2.130/32')]
+Args:
+    first: the first IPv4Address or IPv6Address in the range.
+    last: the last IPv4Address or IPv6Address in the range.
+Returns:
+    An iterator of the summarized IPv(4|6) network objects.
+Raise:
+    TypeError:
+        If the first and last objects are not IP addresses.
+        If the first and last objects are not the same version.
+    ValueError:
+        If the last object is not greater than the first.
+        If the version of the first address is not 4 or 6.
+z1first and last must be IP addresses, not networks
+ and 
+ are not of the same versionz*last IP address must be greater than firstr(
+unknown IP versionr:
+isinstance
+_BaseAddress
+TypeError
+versionr
+_max_prefixlenr=
+_ALL_ONES)
+ip_bits
+first_int
+last_int
+nbits
+nets
+        r
+summarize_address_rangerY
+D1D7
+XS:w
+Loops through the addresses, collapsing concurrent netblocks.
+Example:
+    ip1 = IPv4Network('192.0.2.0/26')
+    ip2 = IPv4Network('192.0.2.64/26')
+    ip3 = IPv4Network('192.0.2.128/26')
+    ip4 = IPv4Network('192.0.2.192/26')
+    _collapse_addresses_internal([ip1, ip2, ip3, ip4]) ->
+      [IPv4Network('192.0.2.0/24')]
+    This shouldn't be called directly; it is called via
+      collapse_addresses([]).
+Args:
+    addresses: A list of IPv4Network's or IPv6Network's
+Returns:
+    A list of IPv4Network's or IPv6Network's depending on what we were
+    passed.
+list
+supernet
+append
+sorted
+values
+broadcast_address)
+to_merge
+subnetsrX
+existingrA
+       r
+_collapse_addresses_internalrf
+A-B9
+Collapse a list of IP objects.
+Example:
+    collapse_addresses([IPv4Network('192.0.2.0/25'),
+                        IPv4Network('192.0.2.128/25')]) ->
+                       [IPv4Network('192.0.2.0/24')]
+Args:
+    addresses: An iterable of IPv4Network or IPv6Network objects.
+Returns:
+    An iterator of the collapsed IPv(4|6)Network objects.
+Raises:
+    TypeError: If passed a list of mixed version objects.
+_versionrP
+_prefixlenrR
+AttributeError
+network_addressr`
+setrC
+extendrY
+addrs
+netsrB
+       r
+collapse_addressesrr
+Return a key suitable for sorting between networks and addresses.
+Address and Network objects are not sortable by default; they're
+fundamentally different so the expression
+    IPv4Address('192.0.2.0') <= IPv4Network('192.0.2.0/24')
+doesn't make any sense.  There are some times however, where you may wish
+to have ipaddress sort these for you anyway. If you need to do this, you
+can use this function as the key= argument to sorted().
+Args:
+  obj: either a Network or Address object.
+Returns:
+  appropriate key.
+_BaseNetwork
+_get_networks_keyrO
+_get_address_key
+NotImplemented)
+objs
+get_mixed_type_keyry
+_IPAddressBasei
+The mother class.r
+z:Return the longhand version of the IP address as a string.)
+_explode_shorthand_ip_string
+selfs
+exploded
+_IPAddressBase.exploded
+z;Return the shorthand version of the IP address as a string.
+compressed
+_IPAddressBase.compressed
+The name of the reverse DNS pointer for the IP address, e.g.:
+>>> ipaddress.ip_address("127.0.0.1").reverse_pointer
+'1.0.0.127.in-addr.arpa'
+>>> ipaddress.ip_address("2001:db8::1").reverse_pointer
+'1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.8.b.d.0.1.0.0.2.ip6.arpa'
+_reverse_pointerr~
+reverse_pointer
+_IPAddressBase.reverse_pointer
+%200s has no version specified
+type
+NotImplementedError
+msgs
+_IPAddressBase.version
+z-%d (< 0) is not permitted as an IPv%d addressz2%d (>= 2**%d) is not permitted as an IPv%d address)
+   r
+_check_int_address
+!_IPAddressBase._check_int_address
+X2:w
+Nz6%r (len %d != %d) is not permitted as an IPv%d address)
+expected_len
+address_lenr
+     r
+_check_packed_address
+$_IPAddressBase._check_packed_address
+z~Turn the prefix length into a bitwise netmask
+Args:
+    prefixlen: An integer, the prefix length.
+Returns:
+    An integer.
+prefixlens
+_ip_int_from_prefix
+"_IPAddressBase._ip_int_from_prefix
+XE:w
+Return prefix length from the bitwise netmask.
+Args:
+    ip_int: An integer, the netmask in expanded bitwise format
+Returns:
+    An integer, the prefix length.
+Raises:
+    ValueError: If the input intermingles zeroes & ones
+bigz&Netmask pattern %r mixes zeroes & ones)
+ip_int
+trailing_zeroesr
+leading_ones
+all_ones
+byteslen
+detailsr
+         r
+_prefix_from_ip_int
+"_IPAddressBase._prefix_from_ip_int
+%r is not a valid netmask)
+netmask_strr
+   r
+_report_invalid_netmask
+&_IPAddressBase._report_invalid_netmask
+Return prefix length from a numeric string
+Args:
+    prefixlen_str: The string to be converted
+Returns:
+    An integer, the prefix length.
+Raises:
+    NetmaskValueError: If the input is not a valid netmask
+isascii
+isdigitr
+intr
+prefixlen_strr
+   r
+_prefix_from_prefix_string
+)_IPAddressBase._prefix_from_prefix_string
+Turn a netmask/hostmask string into a prefix length
+Args:
+    ip_str: The netmask/hostmask to be converted
+Returns:
+    An integer, the prefix length.
+Raises:
+    NetmaskValueError: If the input is not a valid netmask/hostmask
+_ip_int_from_stringr
+ip_strr
+   r
+_prefix_from_ip_string
+%_IPAddressBase._prefix_from_ip_string
+Helper function to parse address of Network/Interface.
+Arg:
+    address: Argument of Network/Interface.
+Returns:
+    (addr, prefix) tuple.
+bytesr
+tupler8
+_split_addr_prefix
+!_IPAddressBase._split_addr_prefix
+__class__r4
+__reduce__
+_IPAddressBase.__reduce__-
+__slots__
+propertyr
+classmethodr
+ztA generic IP object.
+This IP class contains the version independent methods which are
+used by single IP addresses.
+__int__
+_BaseAddress.__int__>
+others
+__eq__
+_BaseAddress.__eq__A
+__lt__
+_BaseAddress.__lt__H
+__add__
+_BaseAddress.__add__T
+__sub__
+_BaseAddress.__sub__Y
+__repr__
+_BaseAddress.__repr__^
+_string_from_ip_intr=
+__str__
+_BaseAddress.__str__a
+hash
+hexr
+__hash__
+_BaseAddress.__hash__d
+_BaseAddress._get_address_keyg
+_BaseAddress.__reduce__j
+Returns an IP address as a formatted string.
+Supported presentation types are:
+'s': returns the IP address as a string (default)
+'b': converts to binary and returns a zero-padded string
+'X' or 'x': converts to upper- or lower-case hex and returns a zero-padded string
+'n': the same as 'b' for IPv4 and 'x' for IPv6
+For binary and hex presentation types, the alternate form specifier
+'#' and the grouping option '_' are supported.
+(#?)(_?)([xbnX])
+formatr4
+_address_fmt_re
+compile
+fullmatch
+super
+__format__
+groupsri
+fmtr
+alternate
+grouping
+fmt_base
+padlenr
+        
+_BaseAddress.__format__m
+__classcell__
+r)S%r*g
+)'rt
+zqA generic IP network object.
+This IP class contains the version independent methods which are
+used by networks.
+_BaseNetwork.__repr__
+%s/%d)
+_BaseNetwork.__str__
+Generate Iterator over usable hosts in a network.
+This is like __iter__ except it doesn't return the network
+or broadcast addresses.
+range
+_address_class
+network
+broadcastr
+    r
+hosts
+_BaseNetwork.hosts
+    r
+__iter__
+_BaseNetwork.__iter__
+address out of ranger:
+IndexErrorr
+    r
+__getitem__
+_BaseNetwork.__getitem__
+netmaskr
+_BaseNetwork.__lt__
+_BaseNetwork.__eq__
+A*A-
+_BaseNetwork.__hash__
+__contains__
+_BaseNetwork.__contains__
+z*Tell if self is partly contained in other.
+overlaps
+_BaseNetwork.overlaps
+hostmaskr~
+_BaseNetwork.broadcast_address
+_BaseNetwork.hostmask
+with_prefixlen
+_BaseNetwork.with_prefixlen
+with_netmask
+_BaseNetwork.with_netmask
+with_hostmask
+_BaseNetwork.with_hostmask
+z&Number of hosts in the current subnet.r:
+num_addresses
+_BaseNetwork.num_addresses
+Nz%%200s has no associated address classr
+_BaseNetwork._address_class
+_BaseNetwork.prefixlen
+p#X!:w
+X1:w
+p#ODU
+X!:w
+X1:w
+X!:X
+X1:X
+Remove an address from a larger block.
+For example:
+    addr1 = ip_network('192.0.2.0/28')
+    addr2 = ip_network('192.0.2.1/32')
+    list(addr1.address_exclude(addr2)) =
+        [IPv4Network('192.0.2.0/32'), IPv4Network('192.0.2.2/31'),
+         IPv4Network('192.0.2.4/30'), IPv4Network('192.0.2.8/29')]
+or IPv6:
+    addr1 = ip_network('2001:db8::1/32')
+    addr2 = ip_network('2001:db8::1/128')
+    list(addr1.address_exclude(addr2)) =
+        [ip_network('2001:db8::1/128'),
+         ip_network('2001:db8::2/127'),
+         ip_network('2001:db8::4/126'),
+         ip_network('2001:db8::8/125'),
+         ...
+         ip_network('2001:db8:8000::/33')]
+Args:
+    other: An IPv4Network or IPv6Network object of the same type.
+Returns:
+    An iterator of the IPv(4|6)Network objects which is self
+    minus other.
+Raises:
+    TypeError: If self and other are of differing address
+      versions, or if other is not a network object.
+    ValueError: If other is not completely contained by self.
+%s is not a network objectz
+ not contained in Nr2
+z Error performing exclusion: s1: z
+ s2: z
+ other: )
+subnet_ofr
+AssertionError)
+    r
+address_exclude
+_BaseNetwork.address_exclude
+Compare two IP objects.
+This is only concerned about the comparison of the integer
+representation of the network addresses.  This means that the
+host bits aren't considered at all in this method.  If you want
+to compare host bits, you can easily enough do a
+'HostA._ip < HostB._ip'
+Args:
+    other: An IP object.
+Returns:
+    If the IP versions of self and other are the same, returns:
+    -1 if self < other:
+      eg: IPv4Network('192.0.2.0/25') < IPv4Network('192.0.2.128/25')
+      IPv6Network('2001:db8::1000/124') <
+          IPv6Network('2001:db8::2000/124')
+    0 if self == other
+      eg: IPv4Network('192.0.2.0/24') == IPv4Network('192.0.2.0/24')
+      IPv6Network('2001:db8::1000/124') ==
+          IPv6Network('2001:db8::1000/124')
+    1 if self > other
+      eg: IPv4Network('192.0.2.128/25') > IPv4Network('192.0.2.0/25')
+          IPv6Network('2001:db8::2000/124') >
+              IPv6Network('2001:db8::1000/124')
+  Raises:
+      TypeError if the IP versions are different.
+ are not of the same typerh
+compare_networks
+_BaseNetwork.compare_networksg
+Network-only key function.
+Returns an object that identifies this address' network and
+netmask. This function is a suitable "key" argument for sorted()
+and list.sort().
+_BaseNetwork._get_networks_key
+The subnets which join to make the current subnet.
+In the case that self contains only one IP
+(self._prefixlen == 32 for IPv4 or self._prefixlen == 128
+for IPv6), yield an iterator with just ourself.
+Args:
+    prefixlen_diff: An integer, the amount the prefix length
+      should be increased by. This should not be set if
+      new_prefix is also set.
+    new_prefix: The desired new prefix length. This must be a
+      larger number (smaller prefix) than the existing prefix.
+      This should not be set if prefixlen_diff is also set.
+Returns:
+    An iterator of IPv(4|6) objects.
+Raises:
+    ValueError: The prefixlen_diff is too small or too large.
+        OR
+    prefixlen_diff and new_prefix are both set or new_prefix
+      is a smaller number than the current prefix (smaller
+      number means a larger network)
+new prefix must be longerr:
+(cannot set prefixlen_diff and new_prefixr
+prefix length diff must be > 0z0prefix length diff %d is invalid for netblock %s)
+prefixlen_diff
+new_prefix
+new_prefixlen
+start
+step
+new_addr
+currents
+         r
+_BaseNetwork.subnets
+The supernet containing the current network.
+Args:
+    prefixlen_diff: An integer, the amount the prefix length of
+      the network should be decreased by.  For example, given a
+      /24 network and a prefixlen_diff of 3, a supernet with a
+      /21 netmask is returned.
+Returns:
+    An IPv4 network object.
+Raises:
+    ValueError: If self.prefixlen - prefixlen_diff < 0. I.e., you have
+      a negative prefix length.
+        OR
+    If prefixlen_diff and new_prefix are both set or new_prefix is a
+      larger number than the current prefix (larger number means a
+      smaller network)
+new prefix must be shorterr:
+z;current prefixlen is %d, cannot have a prefixlen_diff of %d)
+    r
+_BaseNetwork.supernet
+Test if the address is reserved for multicast use.
+Returns:
+    A boolean, True if the address is a multicast address.
+    See RFC 2373 2.7 for details.
+is_multicastrb
+_BaseNetwork.is_multicast
+z*Unable to test subnet containment between )
+_is_subnet_of
+_BaseNetwork._is_subnet_of
+A#A&
+z1Return True if this network is a subnet of other.
+_BaseNetwork.subnet_of
+z3Return True if this network is a supernet of other.rh
+supernet_of
+_BaseNetwork.supernet_of
+Test if the address is otherwise IETF reserved.
+Returns:
+    A boolean, True if the address is within one of the
+    reserved IPv6 Network ranges.
+is_reservedrb
+_BaseNetwork.is_reserved
+zxTest if the address is reserved for link-local.
+Returns:
+    A boolean, True if the address is reserved per RFC 4291.
+is_link_localrb
+_BaseNetwork.is_link_local+
+Test if this network belongs to a private range.
+Returns:
+    A boolean, True if the network is reserved per
+    iana-ipv4-special-registry or iana-ipv6-special-registry.
+priv_networkr
+<genexpr>
+*_BaseNetwork.is_private.<locals>.<genexpr>?
+_constants
+_private_networks
+_private_networks_exceptionsr~
+is_private
+_BaseNetwork.is_private6
+Test if this address is allocated for public networks.
+Returns:
+    A boolean, True if the address is not reserved per
+    iana-ipv4-special-registry or iana-ipv6-special-registry.
+is_global
+_BaseNetwork.is_globalG
+Test if the address is unspecified.
+Returns:
+    A boolean, True if this is the unspecified address as defined in
+    RFC 2373 2.5.2.
+is_unspecifiedrb
+_BaseNetwork.is_unspecifiedR
+Test if the address is a loopback address.
+Returns:
+    A boolean, True if the address is a loopback address as defined in
+    RFC 2373 2.5.3.
+is_loopbackrb
+_BaseNetwork.is_loopback^
+N)+r
+functools
+cached_propertyrb
+staticmethodre
+_BaseConstantsik
+_BaseV4is
+zmBase IPv4 object.
+The following methods are used by IPv4 objects in both single IP
+addresses and networks.
+$_BaseV4._explode_shorthand_ip_string
+Make a (netmask, prefix_len) tuple from the given argument.
+Argument can be:
+- an integer (the prefix length)
+- a string representing the prefix length (e.g. "24")
+- a string representing the prefix netmask (e.g. "255.255.255.0")
+_netmask_cacherN
+argr
+    r
+_make_netmask
+_BaseV4._make_netmask
+Turn the given IP string into an integer for comparison.
+Args:
+    ip_str: A string, the IP ip_str.
+Returns:
+    The IP ip_str as an integer.
+Raises:
+    AddressValueError: if ip_str isn't a valid IPv4 Address.
+Address cannot be empty
+Expected 4 octets in %rr
+ in N)
+from_bytes
+_parse_octetr
+octets
+excs
+    r
+_BaseV4._ip_int_from_string
+Convert a decimal octet into an integer.
+Args:
+    octet_str: A string, the number to parse.
+Returns:
+    The octet as an integer.
+Raises:
+    ValueError: if the octet isn't strictly a decimal from [0..255].
+Empty octet not permittedz#Only decimal digits permitted in %r
+z$At most 3 characters permitted in %rr
+z%Leading zeros are not permitted in %r
+Octet %d (> 255) not permitted)
+octet_strr
+octet_ints
+    r
+_BaseV4._parse_octet
+Turns a 32-bit integer into dotted decimal notation.
+Args:
+    ip_int: An integer, the IP address.
+Returns:
+    The IP address as a string in dotted decimal notation.
+joinr
+_BaseV4._string_from_ip_int
+zqReturn the reverse DNS pointer name for the IPv4 address.
+This implements the method described in RFC1035 3.5.
+.in-addr.arpa)
+reverse_octetss
+_BaseV4._reverse_pointer
+max_prefixlen
+_BaseV4.max_prefixlen
+_BaseV4.version
+IPV4LENGTHrS
+z/Represent and manipulate single IPv4 Addresses.)
+__weakref__c
+Args:
+    address: A string or integer representing the IP
+      Additionally, an integer can be passed, so
+      IPv4Address('192.0.2.1') == IPv4Address(3221225985).
+      or, more generally
+      IPv4Address(int(IPv4Address('192.0.2.1'))) ==
+        IPv4Address('192.0.2.1')
+Raises:
+    AddressValueError: If ipaddress isn't a valid IPv4 address.
+Unexpected '/' in )
+addr_strs
+   r
+__init__
+IPv4Address.__init__
+z*The binary representation of this address.)
+packed
+IPv4Address.packed)
+Test if the address is otherwise IETF reserved.
+Returns:
+    A boolean, True if the address is within the
+    reserved IPv4 Network range.
+_reserved_networkr~
+IPv4Address.is_reserved.
+``True`` if the address is defined as not globally reachable by
+iana-ipv4-special-registry_ (for IPv4) or iana-ipv6-special-registry_
+(for IPv6) with the following exceptions:
+* ``is_private`` is ``False`` for ``100.64.0.0/10``
+* For IPv4-mapped IPv6-addresses the ``is_private`` value is determined by the
+    semantics of the underlying IPv4 addresses and the following condition holds
+    (see :attr:`IPv6Address.ipv4_mapped`)::
+        address.is_private == address.ipv4_mapped.is_private
+``is_private`` has value opposite to :attr:`is_global`, except for the ``100.64.0.0/10``
+IPv4 range where they are both ``False``.
+)IPv4Address.is_private.<locals>.<genexpr>K
+IPv4Address.is_private9
+``True`` if the address is defined as globally reachable by
+iana-ipv4-special-registry_ (for IPv4) or iana-ipv6-special-registry_
+(for IPv6) with the following exception:
+For IPv4-mapped IPv6-addresses the ``is_private`` value is determined by the
+semantics of the underlying IPv4 addresses and the following condition holds
+(see :attr:`IPv6Address.ipv4_mapped`)::
+    address.is_global == address.ipv4_mapped.is_global
+``is_global`` has value opposite to :attr:`is_private`, except for the ``100.64.0.0/10``
+IPv4 range where they are both ``False``.
+_public_networkr
+IPv4Address.is_globalO
+Test if the address is reserved for multicast use.
+Returns:
+    A boolean, True if the address is multicast.
+    See RFC 3171 for details.
+_multicast_networkr~
+IPv4Address.is_multicasta
+Test if the address is unspecified.
+Returns:
+    A boolean, True if this is the unspecified address as defined in
+    RFC 5735 3.
+_unspecified_addressr~
+IPv4Address.is_unspecifiedl
+zuTest if the address is a loopback address.
+Returns:
+    A boolean, True if the address is a loopback per RFC 3330.
+_loopback_networkr~
+IPv4Address.is_loopbackw
+zzTest if the address is reserved for link-local.
+Returns:
+    A boolean, True if the address is link-local per RFC 3927.
+_linklocal_networkr~
+IPv4Address.is_link_local
+z_Return the IPv4-mapped IPv6 address.
+Returns:
+    The IPv4-mapped IPv6 address per RFC 4291.
+::ffff:)
+ipv6_mapped
+IPv4Address.ipv6_mapped
+lru_cacher
+masks
+    r
+IPv4Interface.__init__
+IPv4Interface.hostmask
+IPv4Interface.__str__
+address_equals
+   r
+IPv4Interface.__eq__
+address_lesss
+   r
+IPv4Interface.__lt__
+IPv4Interface.__hash__
+IPv4Interface.ip
+IPv4Interface.with_prefixlen
+IPv4Interface.with_netmask
+IPv4Interface.with_hostmask
+This class represents and manipulates 32-bit IPv4 network + addresses..
+Attributes: [examples for IPv4Network('192.0.2.0/27')]
+    .network_address: IPv4Address('192.0.2.0')
+    .hostmask: IPv4Address('0.0.0.31')
+    .broadcast_address: IPv4Address('192.0.2.32')
+    .netmask: IPv4Address('255.255.255.224')
+    .prefixlen: 27
+Instantiate a new IPv4 network object.
+Args:
+    address: A string or integer representing the IP [& network].
+      '192.0.2.0/24'
+      '192.0.2.0/255.255.255.0'
+      '192.0.2.0/0.0.0.255'
+      are all functionally the same in IPv4. Similarly,
+      '192.0.2.1'
+      '192.0.2.1/255.255.255.255'
+      '192.0.2.1/32'
+      are also functionally equivalent. That is to say, failing to
+      provide a subnetmask will create an object with a mask of /32.
+      If the mask (portion after the / in the argument) is given in
+      dotted quad form, it is treated as a netmask if it starts with a
+      non-zero field (e.g. /255.0.0.0 == /8) and as a hostmask if it
+      starts with a zero field (e.g. 0.255.255.255 == /8), with the
+      single exception of an all-zero mask which is treated as a
+      netmask == /0. If no mask is given, a default of /32 is used.
+      Additionally, an integer can be passed, so
+      IPv4Network('192.0.2.1') == IPv4Network(3221225985)
+      or, more generally
+      IPv4Interface(int(IPv4Interface('192.0.2.1'))) ==
+        IPv4Interface('192.0.2.1')
+Raises:
+    AddressValueError: If ipaddress isn't a valid IPv4 address.
+    NetmaskValueError: If the netmask isn't valid for
+      an IPv4 address.
+    ValueError: If strict is True and a network address is not
+      supplied.
+%s has host bits setr:
+<lambda>
+&IPv4Network.__init__.<locals>.<lambda>
+     @r
+IPv4Network.__init__
+Test if this address is allocated for public networks.
+Returns:
+    A boolean, True if the address is not reserved per
+    iana-ipv4-special-registry.
+100.64.0.0/10)
+IPv4Network.is_global
+_IPv4Constantsi+
+169.254.0.0/16z
+127.0.0.0/8z
+224.0.0.0/4r%
+0.0.0.0/8z
+10.0.0.0/8z
+172.16.0.0/12z
+192.0.0.0/24z
+192.0.0.170/31z
+192.0.2.0/24z
+192.168.0.0/16z
+198.18.0.0/15z
+198.51.100.0/24z
+203.0.113.0/24z
+240.0.0.0/4z
+255.255.255.255/32z
+192.0.0.9/32z
+192.0.0.10/32z
+0.0.0.0r
+_BaseV6iU
+zmBase IPv6 object.
+The following methods are used by IPv6 objects in both single IP
+addresses and networks.
+0123456789ABCDEFabcdefc
+    r
+_BaseV6._make_netmaski
+Turn an IPv6 ip_str into an integer.
+Args:
+    ip_str: A string, the IPv6 ip_str.
+Returns:
+    An int, the IPv6 address
+Raises:
+    AddressValueError: if ip_str isn't a valid IPv6 Address.
+ chars elided)i
+z"At most 45 characters expected in r:
+maxsplitr
+z At least %d parts expected in %rr
+%xr/
+z!At most %d colons permitted in %rz At most one '::' permitted in %rr
+z0Leading ':' only permitted as part of '::' in %rz1Trailing ':' only permitted as part of '::' in %rz/Expected at most %d other parts with '::' in %rz,Exactly %d parts expected without '::' in %r)
+_HEXTET_COUNTr5
+_parse_hextetr
+shorten
+_max_parts
+parts
+_min_partsr
+ipv4_intr
+skip_index
+parts_hi
+parts_lo
+parts_skippedr
+               r
+_BaseV6._ip_int_from_string}
+.A%K9
+Convert an IPv6 hextet string into an integer.
+Args:
+    hextet_str: A string, the number to parse.
+Returns:
+    The hextet as an integer.
+Raises:
+    ValueError: if the input isn't strictly a hex number from
+      [0..FFFF].
+Only hex digits permitted in %rr(
+z$At most 4 characters permitted in %rr/
+_HEX_DIGITS
+issupersetr
+hextet_strr
+   r
+_BaseV6._parse_hextet
+Compresses a list of hextets.
+Compresses a list of strings, replacing the longest continuous
+sequence of "0" in the list with "" and adding empty strings at
+the beginning or at the end of the string such that subsequently
+calling ":".join(hextets) will produce the compressed version of
+the IPv6 address.
+Args:
+    hextets: A list of strings, the hextets to compress.
+Returns:
+    A list of strings.
+enumerater6
+hextets
+best_doublecolon_start
+best_doublecolon_len
+doublecolon_start
+doublecolon_len
+index
+hextet
+best_doublecolon_ends
+         r
+_compress_hextets
+_BaseV6._compress_hextets
+Turns a 128-bit integer into hexadecimal notation.
+Args:
+    ip_int: An integer, the IP address.
+Returns:
+    A string, the hexadecimal representation of the address.
+Raises:
+    ValueError: The address is bigger than 128 bits of all ones.
+IPv6 address is too large
+%032xr
+hex_strr
+     r
+_BaseV6._string_from_ip_int8
+oCXDS
+zUExpand a shortened IPv6 address.
+Returns:
+    A string, the expanded IPv6 address.
+      r
+$_BaseV6._explode_shorthand_ip_stringR
+zqReturn the reverse DNS pointer name for the IPv6 address.
+This implements the method described in RFC3596 2.5.
+.ip6.arpa)
+replacer
+reverse_charss
+_BaseV6._reverse_pointerg
+Helper function to parse IPv6 string address with scope id.
+See RFC 4007 for details.
+Args:
+    ip_str: A string, the IPv6 address.
+Returns:
+    (addr, scope_id) tuple.
+Invalid IPv6 address: "%r")
+partitionr
+scope_ids
+    r
+_split_scope_id
+_BaseV6._split_scope_idp
+_BaseV6.max_prefixlen
+_BaseV6.version
+IPV6LENGTHrS
+frozensetrF
+z/Represent and manipulate single IPv6 Addresses.)
+_scope_idr
+Instantiate a new IPv6 address object.
+Args:
+    address: A string or integer representing the IP
+      Additionally, an integer can be passed, so
+      IPv6Address('2001:db8::') ==
+        IPv6Address(42540766411282592856903984951653826560)
+      or, more generally
+      IPv6Address(int(IPv6Address('2001:db8::'))) ==
+        IPv6Address('2001:db8::')
+Raises:
+    AddressValueError: If address isn't a valid IPv6 address.
+   r
+IPv6Address.__init__
+ipv4_mappedr
+prefix_len
+raw_exploded_strr
+    
+(IPv6Address._explode_shorthand_ip_string
+008xrh
+      
+IPv6Address._reverse_pointer
+Return convenient text representation of IPv4-mapped IPv6 address
+See RFC 4291 2.5.5.2, 2.2 p.3 for details.
+Returns:
+    A string, 'x:x:x:x:x:x:d.d.d.d', where the 'x's are the hexadecimal values of
+    the six high-order 16-bit pieces of the address, and the 'd's are
+    the decimal values of the four low-order 8-bit pieces of the
+    address (standard IPv4 representation) as defined in RFC 4291 2.2 p.3.
+z0Can not apply to non-IPv4-mapped IPv6 address %sr
+high_order_bitss
+   r
+_ipv4_mapped_ipv6_to_str
+$IPv6Address._ipv4_mapped_ipv6_to_str
+IPv6Address.__str__
+IPv6Address.__hash__
+NFrp
+getattr)
+IPv6Address.__eq__
+IPv6Address.__reduce__
+Identifier of a particular zone of the address's scope.
+See RFC 4007 for details.
+Returns:
+    A string identifying the zone of the address if specified, else None.
+IPv6Address.scope_id
+IPv6Address.packed
+IPv6Address.is_multicast
+*IPv6Address.is_reserved.<locals>.<genexpr>!
+_reserved_networksr
+IPv6Address.is_reserved
+IPv6Address.is_link_local#
+Test if the address is reserved for site-local.
+Note that the site-local address space has been deprecated by RFC 3879.
+Use is_private to test if this address is in the space of unique local
+addresses as defined by RFC 4193.
+Returns:
+    A boolean, True if the address is reserved per RFC 3513 2.5.6.
+_sitelocal_networkr~
+is_site_local
+IPv6Address.is_site_local0
+)IPv6Address.is_private.<locals>.<genexpr>S
+IPv6Address.is_private>
+IPv6Address.is_globalW
+IPv6Address.is_unspecifiedk
+IPv6Address.is_loopbacky
+Return the IPv4 mapped address.
+Returns:
+    If the IPv6 address is a v4 mapped address, return the
+    IPv4 mapped address. Return None otherwise.
+IPv6Address.ipv4_mapped
+Tuple of embedded teredo IPs.
+Returns:
+    Tuple of the (server, client) IPs or None if the address
+    doesn't appear to be a teredo address (doesn't start with
+    2001::/32)
+teredo
+IPv6Address.teredo
+Return the IPv4 6to4 embedded address.
+Returns:
+    The IPv4 6to4-embedded address if present or None if the
+    address doesn't appear to contain a 6to4 embedded address.
+sixtofour
+IPv6Address.sixtofour
+    r
+IPv6Interface.__init__
+IPv6Interface.hostmask
+IPv6Interface.__str__
+   r
+IPv6Interface.__eq__
+   r
+IPv6Interface.__lt__
+IPv6Interface.__hash__
+IPv6Interface.ip
+IPv6Interface.with_prefixlen
+IPv6Interface.with_netmask
+IPv6Interface.with_hostmask
+IPv6Interface.is_unspecified
+IPv6Interface.is_loopback
+This class represents and manipulates 128-bit IPv6 networks.
+Attributes: [examples for IPv6('2001:db8::1000/124')]
+    .network_address: IPv6Address('2001:db8::1000')
+    .hostmask: IPv6Address('::f')
+    .broadcast_address: IPv6Address('2001:db8::100f')
+    .netmask: IPv6Address('ffff:ffff:ffff:ffff:ffff:ffff:ffff:fff0')
+    .prefixlen: 124
+Instantiate a new IPv6 Network object.
+Args:
+    address: A string or integer representing the IPv6 network or the
+      IP and prefix/netmask.
+      '2001:db8::/128'
+      '2001:db8:0000:0000:0000:0000:0000:0000/128'
+      '2001:db8::'
+      are all functionally the same in IPv6.  That is to say,
+      failing to provide a subnetmask will create an object with
+      a mask of /128.
+      Additionally, an integer can be passed, so
+      IPv6Network('2001:db8::') ==
+        IPv6Network(42540766411282592856903984951653826560)
+      or, more generally
+      IPv6Network(int(IPv6Network('2001:db8::'))) ==
+        IPv6Network('2001:db8::')
+    strict: A boolean. If true, ensure that we have been passed
+      A true network address, eg, 2001:db8::1000/124 and not an
+      IP address on a network, eg, 2001:db8::1/124.
+Raises:
+    AddressValueError: If address isn't a valid IPv6 address.
+    NetmaskValueError: If the netmask isn't valid for
+      an IPv6 address.
+    ValueError: If strict was True and a network address was not
+      supplied.
+&IPv6Network.__init__.<locals>.<lambda>:
+     @r
+IPv6Network.__init__
+Generate Iterator over usable hosts in a network.
+This is like __iter__ except it doesn't return the
+Subnet-Router anycast address.
+    r
+IPv6Network.hosts<
+IPv6Network.is_site_localH
+g%)&
+_IPv6ConstantsiX
+fe80::/10z
+ff00::/8z
+::1/128z
+::/128z
+::ffff:0:0/96z
+64:ff9b:1::/48z
+100::/64z
+2001::/23z
+2001:db8::/32z
+2002::/16z
+3fff::/20z
+fc00::/7z
+2001:1::1/128z
+2001:1::2/128z
+2001:3::/32z
+2001:4:112::/48z
+2001:20::/28z
+2001:30::/28z
+::/8z
+100::/8z
+200::/7z
+400::/6z
+800::/5z
+1000::/4z
+4000::/3z
+6000::/3z
+8000::/3z
+A000::/3z
+C000::/3z
+E000::/4z
+F000::/5z
+F800::/6z
+FE00::/9z
+fec0::/10r
+__version__r
+total_orderingrO
+<module>r

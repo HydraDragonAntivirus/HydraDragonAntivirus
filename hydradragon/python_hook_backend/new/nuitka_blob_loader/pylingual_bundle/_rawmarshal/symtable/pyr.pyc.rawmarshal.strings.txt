@@ -1,0 +1,351 @@
+r!\!
+r#\$S
+K%r%\#"
+\%RL
+z2Interface to the compiler's internal symbol tables
+DEF_GLOBAL
+DEF_NONLOCAL
+DEF_LOCAL
+DEF_PARAM
+DEF_IMPORT
+DEF_BOUND
+DEF_ANNOT
+SCOPE_OFF
+SCOPE_MASK
+FREE
+LOCAL
+GLOBAL_IMPLICIT
+GLOBAL_EXPLICIT
+CELL)
+StrEnum)
+symtable
+SymbolTableType
+SymbolTable
+Class
+Function
+Symbolc
+Return the toplevel *SymbolTable* for the source code.
+*filename* is the name of the file with the code
+and *compile_type* is the *compile()* mode argument.
+_symtabler
+_newSymbolTable)
+code
+filename
+compile_type
+tops
+    
+symtable.pyr
+SymbolTableFactory
+weakref
+WeakValueDictionary
+_SymbolTableFactory__memo
+selfs
+__init__
+SymbolTableFactory.__init__
+typer
+TYPE_FUNCTIONr
+TYPE_CLASSr
+tabler
+   r 
+SymbolTableFactory.new
+getr3
+objs
+     r 
+__call__
+SymbolTableFactory.__call__!
+__memoN)
+__name__
+__module__
+__qualname__
+__firstlineno__r,
+__static_attributes__
+module
+function
+class
+annotationz
+type aliasz
+type parametersz
+type variablerA
+MODULE
+FUNCTION
+CLASS
+ANNOTATION
+TYPE_ALIAS
+TYPE_PARAMETERS
+TYPE_VARIABLEr@
+_table
+_filename
+_symbols)
+raw_tabler
+   r 
+SymbolTable.__init__7
+%s r
+<{0}SymbolTable for module {1}>z
+<{0}SymbolTable for {1} in {2}>)
+__class__r
+name
+formatrS
+kinds
+  r 
+__repr__
+SymbolTable.__repr__<
+zvReturn the type of the symbol table.
+The value returned is one of the values in
+the ``SymbolTableType`` enumeration.
+unexpected type: )
+TYPE_MODULEr
+TYPE_ANNOTATIONrK
+TYPE_TYPE_ALIASrL
+TYPE_TYPE_PARAMETERSrM
+TYPE_TYPE_VARIABLErN
+get_type
+SymbolTable.get_typeI
+z,Return an identifier for the table.
+        )
+idr*
+get_id
+SymbolTable.get_id_
+Return the table's name.
+This corresponds to the name of the class, function
+or 'top' if the table is for a class, function or
+global respectively.
+get_name
+SymbolTable.get_named
+z@Return the number of the first line in the
+block for the table.
+linenor*
+get_lineno
+SymbolTable.get_linenom
+z:Return *True* if the locals in the table
+are optimizable.
+boolrR
+is_optimized
+SymbolTable.is_optimizeds
+z9Return *True* if the block is a nested class
+or function.)
+nestedr*
+is_nested
+SymbolTable.is_nestedy
+z:Return *True* if the block has nested namespaces.
+        )
+childrenr*
+has_children
+SymbolTable.has_children~
+zKReturn a view object containing the names of symbols in the table.
+        )
+symbols
+keysr*
+get_identifiers
+SymbolTable.get_identifiers
+z<Lookup a *name* in the table.
+Returns a *Symbol* instance.
+module_scope)
+_SymbolTable__check_childrenrZ
+flags
+namespacesr
+      r 
+lookup
+SymbolTable.lookup
+z<Return a list of *Symbol* instances for
+names in the table.
+idents
+  r 
+get_symbols
+SymbolTable.get_symbols
+   r 
+__check_children
+SymbolTable.__check_children
+z3Return a list of the nested symbol tables.
+        )
+  r 
+get_children
+SymbolTable.get_children
+test_funcs
+<genexpr>
+-Function.__idents_matching.<locals>.<genexpr>
+tupler
+``r 
+__idents_matching
+Function.__idents_matching
+z6Return a tuple of parameters to the function.
+        c
+<lambda>
+)Function.get_parameters.<locals>.<lambda>
+_Function__params
+_Function__idents_matchingr*
+get_parameters
+Function.get_parameters
+z2Return a tuple of locals in the function.
+        c
+locss
+%Function.get_locals.<locals>.<lambda>
+_Function__localsr
+testr
+  @r 
+get_locals
+Function.get_locals
+z3Return a tuple of globals in the function.
+        c
+globs
+&Function.get_globals.<locals>.<lambda>
+_Function__globalsr
+  @r 
+get_globals
+Function.get_globals
+z5Return a tuple of nonlocals in the function.
+        c
+(Function.get_nonlocals.<locals>.<lambda>
+?Or!
+_Function__nonlocalsr
+get_nonlocals
+Function.get_nonlocals
+z:Return a tuple of free variables in the function.
+        c
+$Function.get_frees.<locals>.<lambda>
+_Function__freesr
+is_frees
+  r 
+get_frees
+Function.get_frees
+__frees
+__globals
+__locals
+__nonlocals
+__params)
+z9Return a tuple of methods declared in the class.
+        c
+is_local_symbol
+*Class.get_methods.<locals>.is_local_symbol
+genexprz
+_Class__methodsrR
+varnamesrc
+scope_name
+`     r 
+get_methods
+Class.get_methods
+__methods)
+_Symbol__name
+_Symbol__flagsr
+_Symbol__scope
+_Symbol__namespaces
+_Symbol__module_scope)
+     r 
+Symbol.__init__
+<symbol 
+join
+_flags_strr
+_scope_str)
+flags_strs
+  r 
+Symbol.__repr__
+_scopes_value_to_namer6
+strr*
+Symbol._scope_str
+_flagsr
+flagname
+flagvalues
+   r 
+Symbol._flags_str
+z#Return a name of a symbol.
+        )
+Symbol.get_name
+z2Return *True* if the symbol is used in
+its block.
+is_referenced
+Symbol.is_referenced$
+z4Return *True* if the symbol is a parameter.
+        )
+is_parameter
+Symbol.is_parameter*
+z/Return *True* if the symbol is global.
+        )
+is_global
+Symbol.is_global/
+z(Return *True* if the symbol is nonlocal.)
+is_nonlocal
+Symbol.is_nonlocal5
+zGReturn *True* if the symbol is declared global
+with a global statement.)
+is_declared_global
+Symbol.is_declared_global9
+z.Return *True* if the symbol is local.
+        )
+is_local
+Symbol.is_local>
+z2Return *True* if the symbol is annotated.
+        )
+is_annotated
+Symbol.is_annotatedD
+z9Return *True* if a referenced symbol is
+not assigned to.
+Symbol.is_freeI
+zAReturn *True* if the symbol is created from
+an import statement.
+is_imported
+Symbol.is_importedO
+z)Return *True* if a symbol is assigned to.)
+is_assigned
+Symbol.is_assignedU
+Returns *True* if name binding introduces new namespace.
+If the name is used as the target of a function or class
+statement, this will be true.
+Note that a single name can be bound to multiple objects.  If
+is_namespace() is true, the name may also be bound to other
+objects, like an int or list, that does not introduce a new
+namespace.
+is_namespace
+Symbol.is_namespaceY
+z.Return a list of namespaces bound to this name)
+get_namespaces
+Symbol.get_namespacesf
+Return the single namespace bound to this name.
+Raises ValueError if the name is bound to multiple namespaces
+or no namespace.
+z#name is not bound to any namespacesr
+z$name is bound to multiple namespaces)
+lenr
+ValueErrorr*
+get_namespace
+Symbol.get_namespacej
+__flags
+__module_scope
+__name
+__namespaces
+__scoper&
+DEF_N)
+startswith)
+  r 
+    z
+nested rX
+from file z
+symbol table for 
+ symbol r
+printr
+lowerr
+level
+indentrw
+whatr
+symbolr
+table2
+print_symbolss
+         
+main.<locals>.print_symbols
+<stdin>
+exec)
+stdin
+read
+openr
+argsr=
+modr8
+      @r 
+mainrE
+__main__r
+__doc__r
+enumr
+__all__r
+extend
+globals
+items
+_scopes_namesr
+argv)
+<module>rP

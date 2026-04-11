@@ -1,0 +1,55 @@
+Generic Python Character Mapping Codec.
+    Use this codec directly rather than through the automatic
+    conversion mechanisms supplied by unicode() and .encode().
+Written by Marc-Andre Lemburg (mal@lemburg.com).
+(c) Copyright CNRI, All Rights Reserved. NO WARRANTY.
+Codec
+__name__
+__module__
+__qualname__
+__firstlineno__
+codecs
+charmap_encode
+encode
+charmap_decode
+decode
+__static_attributes__r
+encodings\charmap.pyr
+IncrementalEncoder
+__init__
+mapping
+self
+errorsr
+   r
+IncrementalEncoder.__init__
+input
+finals
+   r
+IncrementalEncoder.encode
+strictN
+IncrementalDecoder
+   r
+IncrementalDecoder.__init__!
+   r
+IncrementalDecoder.decode%
+StreamWriter
+streamr
+    r
+StreamWriter.__init__*
+   r
+StreamWriter.encode.
+StreamReader
+    r
+StreamReader.__init__3
+   r
+StreamReader.decode7
+charmap)
+namer
+incrementalencoder
+incrementaldecoder
+streamwriter
+streamreader)
+CodecInfor
+getregentryrQ
+__doc__r
+<module>rS

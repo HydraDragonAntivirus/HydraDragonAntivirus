@@ -1,0 +1,1382 @@
+r1\1r2\ \!\"\#\&\'\(\$\%\)\*\+4
+r3\ \!\(\+4
+r4\)\*\+4
+r7\8\8\8\9\9\9S!.
+S":X
+S#r<O
+r<S$
+r>S%
+r?S&
+r@S'\24
+rAS)
+rCS+
+S-\E5
+S/\F5
+S1\F5
+S3\F5
+S5\F5
+S7\F5
+S9\K5
+S;\K5
+S=\K5
+S?\K5
+SA\K5
+SG\S5
+SI\S5
+SM\F5
+SO\X5
+SQ\X5
+SS\X5
+SU\X5
+SW\X5
+SY\X5
+r^\X\
+r_SgSZ
+r`S[
+raS\
+rbS]
+rc\a\b\cS^.
+rd\S"
+Sa\S5
+Sc\S5
+riSd
+rj\iR
+rk\lSf:X
+)hz,Read from and write to tar format archives.
+0.9.0u"
+Lars Gust
+bel (lars@gustaebel.de)u4
+Gustavo Niemeyer, Niels Gust
+bel, Richard Townsend.
+openN)
+TarFile
+TarInfo
+is_tarfile
+TarError
+ReadError
+CompressionError
+StreamError
+ExtractError
+HeaderError
+ENCODING
+USTAR_FORMAT
+GNU_FORMAT
+PAX_FORMAT
+DEFAULT_FORMATr
+fully_trusted_filter
+data_filter
+tar_filter
+FilterError
+AbsoluteLinkError
+OutsideDestinationError
+SpecialFileError
+AbsolutePathError
+LinkOutsideDestinationError
+LinkFallbackError
+ustar  
+ustar
+path
+linkpath
+size
+mtime
+uname
+gname>
+atime
+ctimer3
+utf-8c
+z8Convert a string to a null-terminated bytes object.
+    Nz
+metadata cannot contain None)
+ValueError
+encode
+NUL)
+length
+encoding
+errorss
+    
+tarfile.py
+stnrF
+z8Convert a null-terminated bytes object to a string.
+    r
+find
+decode)
+    rE
+ntsrM
+z/Convert a number field to a python number.
+    r
+ascii
+strict
+invalid header)
+ranger?
+stripr=
+InvalidHeaderError)
+   rE
+ntir]
+z/Convert a python number to a number field.
+    r
+%0*orS
+overflow in number field)
+bytesr@
+bytearrayrW
+insertr=
+digits
+format
+original_nrA
+      rE
+itnre
+Calculate the checksum for a member's header by summing up all
+characters except for the chksum field which is treated as if
+it was filled with spaces. According to the GNU tar sources,
+some tars (Sun and NeXT) calculate chksum with signed char,
+which will be different if there are chars in the buffer with
+the high bit set. So we calculate two checksums, unsigned and
+signed.
+148B8x356B
+148b8x356b)
+struct
+unpack_from)
+unsigned_chksum
+signed_chksums
+   rE
+calc_chksumsro
+z_Copy length bytes from fileobj src to fileobj dst.
+If length is None, copy the entire content.
+unexpected end of data)
+shutil
+copyfileobj
+divmodrW
+readr?
+write)
+dstrB
+exception
+bufsize
+blocks
+remainder
+         rE
+backslashreplace
+end)
+getattr
+stdoutr>
+print)
+  rE
+_safe_printr
+Base exception.
+__name__
+__module__
+__qualname__
+__firstlineno__
+__doc__
+__static_attributes__r
+z%General exception for extract errors.r
+z&Exception for unreadable tar archives.r
+z.Exception for unavailable compression methods.r
+z=Exception for unsupported operations on stream-like TarFiles.r
+z!Base exception for header errors.r
+EmptyHeaderErrori
+Exception for empty headers.r
+TruncatedHeaderErrori"
+z Exception for truncated headers.r
+EOFHeaderErrori%
+z"Exception for end of file headers.r
+Exception for invalid headers.r
+SubsequentHeaderErrori+
+z3Exception for missing and invalid extended headers.r
+_LowLevelFilei2
+zwLow-level file object. Supports reading and writing.
+It is used instead of a regular file object for streaming
+access.
+O_BINARYi
+O_RDONLY
+O_WRONLY
+O_CREAT
+O_TRUNC
+hasattrr
+self
+name
+modes
+   rE
+__init__
+_LowLevelFile.__init__8
+closer
+_LowLevelFile.closeA
+  rE
+_LowLevelFile.readD
+  rE
+_LowLevelFile.writeG
+_StreamiJ
+Class that serves as an adapter between TarFile and
+a stream-like object.  The stream-like object only
+needs to have a read() or write() method that works with bytes,
+and the method is accessed blockwise.
+Use of gzip or bzip2 compression is possible.
+A stream-like object could be for example: sys.stdin.buffer,
+sys.stdout.buffer, a socket, a tape device etc.
+_Stream is intended to be used only internally.
+z$Construct a _Stream object.
+        TNF
+zlib module is not availabler
+bz2 module is not available
+lzma module is not available
+unknown compression type %r)"
+_extfileobjr
+_StreamProxy
+getcomptyper
+fspathr
+comptype
+fileobjrz
+closed
+zlib
+ImportErrorr
+crc32
+errorry
+_init_read_gz
+_init_write_gzr
+dbuf
+BZ2Decompressor
+OSError
+BZ2Compressor
+lzma
+LZMADecompressor
+LZMAError
+LZMACompressorr
+compresslevelr
+          rE
+_Stream.__init__V
+8-G5
+55H*
+__del__
+_Stream.__del__
+z6Initialize for writing with gzip compression.
+        r
+.gzN
+iso-8859-1
+replace)
+compressobj
+DEFLATED
+MAX_WBITS
+DEF_MEM_LEVELr
+packrX
+time
+_Stream__writer
+endswithr
+basenamer>
+timestamps
+   rE
+_Stream._init_write_gz
+z&Write string s to the stream.
+        r
+compressr
+  rE
+_Stream.write
+zJWrite string s to the stream if a whole new block
+is ready to be written.
+  rE
+__write
+_Stream.__write
+zHClose the _Stream object. No operation should be
+done on it afterwards.
+flushr
+_Stream.close
+D!E)
+z:Initialize for reading a gzip compressed fileobj.
+        rG
+not a gzip filer.
+unsupported compression method
+decompressobjr
+_Stream__readr
+ordru
+flag
+xlenrA
+    rE
+_Stream._init_read_gz
+z3Return the stream's file pointer position.
+        )
+tell
+_Stream.tell
+zESet the stream's file pointer to pos. Negative seeking
+is forbidden.
+z seeking backwards is not allowed)
+     rE
+seek
+_Stream.seek
+z5Return the next size number of bytes from the stream.)
+_readr
+   rE
+_Stream.read
+z+Return size bytes from the stream.
+        r
+invalid compressed dataN)
+decompressry
+append
+join)
+      rE
+_Stream._read
+z`Return size bytes from stream. If internal buffer is empty,
+read another block from the stream.
+     rE
+__read
+_Stream.__read.
+zhSmall proxy class that enables transparent compression
+detection for the Stream interface (mode 'r|*').
+BLOCKSIZErl
+  rE
+_StreamProxy.__init__D
+  rE
+_StreamProxy.readH
+BZhr
+1AY&SYr
+7zXZr
+startswithr
+_StreamProxy.getcomptypeL
+_StreamProxy.closeV
+_FileInFilei]
+zmA thin wrapper around an existing file object that
+provides a part of its data as an individual file
+object.
+p#X&:
+offsetr2
+positionr
+map_index
+mapr
+blockinfo
+lastpos
+realposs
+        rE
+_FileInFile.__init__c
+_FileInFile.flush|
+_FileInFile.mode
+readable
+_FileInFile.readable
+writable
+_FileInFile.writable
+seekabler
+_FileInFile.seekable
+z*Return the current file position.
+        )
+_FileInFile.tell
+z(Seek to a position in the file.
+        r
+Invalid argument)
+SEEK_SET
+maxr2
+SEEK_CUR
+SEEK_ENDr=
+whences
+   rE
+_FileInFile.seek
+p4pVX@R
+z!Read data from the file.
+        rG
+data
+start
+stopr.
+         rE
+_FileInFile.read
+   rE
+readinto
+_FileInFile.readinto
+_FileInFile.close
+propertyr
+ExFileObjecti
+offset_datar2
+sparse
+superr
+tarfile
+tarinfor
+__class__s
+    
+ExFileObject.__init__
+__classcell__
+member z
+ has an absolute path
+AbsolutePathError.__init__
+ would be extracted to 
+ which is outside the destination
+_pathrb
+ OutsideDestinationError.__init__
+ is a special filerm
+SpecialFileError.__init__
+ is a link to an absolute pathrm
+AbsoluteLinkError.__init__
+ would link to rs
+$LinkOutsideDestinationError.__init__
+link z
+ would be extracted as a z
+copy of z
+, which was rejectedru
+LinkFallbackError.__init__
+XpR.
+linkname)
+realpath
+ALLOW_MISSINGr'
+lstrip
+isabsr
+commonpathr
+isreg
+islnk
+isdir
+issymr
+normpath
+dirnamer
+member
+dest_path
+for_data
+new_attrsr
+target_pathr
+normalizeds
+        rE
+_get_filtered_attrsr
+  rE
+deepr
+   rE
+   rE
+fully_trustedr
+([0-9]{1,20}) c
+S!S"_
+S#S$_
+S%S&_
+S'S&_
+S(S&_
+SYS)
+r SB
+r!SC
+r"SD
+r#SE
+r$SF
+r%SG
+r&SH
+r'SI
+r(SJ
+r)SK
+r*SL
+r+SM
+r,SN
+r-SO
+r.SP
+r/SQ
+r0SR
+r1SS
+r2ST
+r3SU
+r4SV
+r5SWr6g&)Zr
+Informational class which holds the details about an
+archive member given by a tar header block.
+TarInfo objects are returned by TarFile.getmember(),
+TarFile.getmembers() and TarFile.gettarinfo() and are
+usually created internally.
+Name of the archive member.r
+Permission bits.r4
+z6User ID of the user who originally stored this member.r5
+z7Group ID of the user who originally stored this member.r2
+Size in bytes.r3
+Time of last modification.
+chksumz
+Header checksum.
+typez
+File type. type is usually one of these constants: REGTYPE, AREGTYPE, LNKTYPE, SYMTYPE, DIRTYPE, FIFOTYPE, CONTTYPE, CHRTYPE, BLKTYPE, GNUTYPE_SPARSE.r
+zcName of the target file name, which is only present in TarInfo objects of type LNKTYPE and SYMTYPE.r6
+User name.r7
+Group name.
+devmajorz
+Device major number.
+devminorz
+Device minor number.r.
+The tar header starts here.r`
+The file's data starts here.
+pax_headerszMA dictionary containing key-value pairs of an associated pax extended header.ra
+Sparse member information.
+_tarfileN
+_sparse_structs
+_link_targetc
+zEConstruct a TarInfo object. name is the optional name
+of the member.
+REGTYPEr
+  rE
+TarInfo.__init__
+zhThe undocumented "tarfile" attribute of TarInfo objects is deprecated and will be removed in Python 3.16r/
+stacklevel
+warnings
+warn
+DeprecationWarningr
+  rE
+TarInfo.tarfile
+   rE
+z(In pax headers, "name" is called "path".
+TarInfo.path
+  rE
+z0In pax headers, "linkname" is called "linkpath".
+TarInfo.linkpath
+  rE
+<%s %r at %#x>)
+__repr__
+TarInfo.__repr__
+_KEEPc
+zGReturn a deep copy of self with the given attributes replaced.
+        )
+copy
+deepcopyr
+results
+            rE
+TarInfo.replace
+z9Return the TarInfo's attributes as a dictionary.
+        N
+DIRTYPEr
+infos
+   rE
+get_info
+TarInfo.get_info
+surrogateescapec
+z<Return a tar header as a string of 512 byte blocks.
+        z
+%s may not be Nonez
+invalid format)
+itemsr=
+create_ustar_headerr
+create_gnu_headerr
+create_pax_header)
+values
+       rE
+tobuf
+TarInfo.tobuf
+z3Return the object as a ustar header block.
+        
+magicr
+linkname is too longr
+prefix)
+POSIX_MAGICr?
+LENGTH_LINKr=
+LENGTH_NAME
+_posix_split_name
+_create_headerr
+    rE
+TarInfo.create_ustar_header
+z:Return the object as a GNU header block sequence.
+        r
+GNU_MAGICr?
+_create_gnu_long_header
+GNUTYPE_LONGLINKr
+GNUTYPE_LONGNAMEr
+     rE
+TarInfo.create_gnu_header
+Return the object as a ustar header block. If it cannot be
+represented this way, prepend a pax extended header sequence
+with supplement information.
+UnicodeEncodeErrorr?
+isinstance
+float
+round
+_create_pax_generic_header
+XHDTYPEr
+hnamerB
+needs_pax
+val_is_float
+val_intrl
+             rE
+TarInfo.create_pax_header+
+zAReturn the object as a pax global header block sequence.
+        r;
+XGLTYPE)
+clsr
+  rE
+create_pax_global_header
+ TarInfo.create_pax_global_headere
+zBSplit a name longer than 100 chars into a prefix
+and a name part.
+name is too long)
+splitrW
+LENGTH_PREFIXr
+componentsr\
+       rE
+TarInfo._posix_split_namek
+) zqReturn a header block. info is a dictionary with file
+information, format must be one of the *_FORMAT constants.
+TarInfo.type must not be Noner
+        r
+%dsrG
+%06o
+CHRTYPE
+BLKTYPEre
+has_device_fieldsr
+filetype
+partsrl
+           rE
+TarInfo._create_header{
+zQReturn the string payload filled with zero bytes
+up to the next 512 byte border.
+payloadr{
+   rE
+_create_payload
+TarInfo._create_payload
+zAReturn a GNUTYPE_LONGNAME or GNUTYPE_LONGLINK sequence
+for name.
+././@LongLinkr
+      rE
+TarInfo._create_gnu_long_header
+Return a POSIX.1-2008 extended or global header sequence
+that contains a list of keyword, value pairs. The values
+must be strings.
+21 hdrcharset=BINARY
+././@PaxHeaderr
+binary
+keywordr
+records
+            rE
+"TarInfo._create_pax_generic_header
+zAConstruct a TarInfo object from a 512 byte bytes object.
+        r
+empty headerz
+truncated headerz
+end of file header
+bad checksumr
+)$r?
+countr@
+AREGTYPEr
+GNUTYPE_SPARSErW
+boolr
+rstrip
+GNU_TYPES)
+objr
+structsr\
+numbytes
+isextended
+origsizes
+              rE
+frombuf
+TarInfo.frombuf
+*#J6
+z<Return the next TarInfo object from TarFile object
+tarfile.
+_proc_member)
+    rE
+fromtarfile
+TarInfo.fromtarfile2
+zFChoose the right processing method depending on
+the type and call it.
+_proc_gnulongr)
+_proc_sparser
+SOLARIS_XHDTYPE
+_proc_pax
+_proc_builtin)
+  rE
+TarInfo._proc_memberG
+zSProcess a builtin type or an unknown type which
+will be treated as a regular file.
+SUPPORTED_TYPES
+_blockr2
+_apply_pax_infor
+   rE
+TarInfo._proc_builtinT
+z@Process the blocks that hold a GNU longname
+or longlink member.
+removesuffix)
+nextr
+     rE
+TarInfo._proc_gnulongj
+z8Process a GNU sparse header plus extra headers.
+        r
+          rE
+TarInfo._proc_sparse
+X'R!
+X1R&
+zCProcess an extended or global header as described in
+POSIX.1-2008.
+hdrcharsets
+BINARYr;
+GNU.sparse.map
+GNU.sparse.sizez
+GNU.sparse.major
+GNU.sparse.minorrU
+_header_length_prefix_re
+matchrZ
+groupr=
+partitionr
+_decode_pax_fieldrD
+PAX_NAME_FIELDSr6
+_proc_gnusparse_01
+_proc_gnusparse_00r
+_proc_gnusparse_10r
+raw_headersrQ
+header_value_end_offset
+keyword_and_value
+raw_keyword
+equals
+raw_valuer
+                   rE
+TarInfo._proc_pax
+z?Process a GNU tar extended sparse header, version 0.0.
+        s
+GNU.sparse.offsetrV
+GNU.sparse.numbytesN)
+list
+zipra
+offsetsr/
+        rE
+TarInfo._proc_gnusparse_00
+z?Process a GNU tar extended sparse header, version 0.1.
+        rM
+,Nr/
+     rE
+TarInfo._proc_gnusparse_01.
+z?Process a GNU tar extended sparse header, version 1.0.
+        Nr
+fieldsra
+numbers
+        rE
+TarInfo._proc_gnusparse_104
+z\Replace fields with supplemental information from a previous
+pax extended or global header.
+GNU.sparse.namer0
+GNU.sparse.realsizer
+setattrrX
+PAX_FIELDS
+PAX_NUMBER_FIELDSr=
+      rE
+TarInfo._apply_pax_infoD
+z1Decode a single field from a pax record.
+        rT
+UnicodeDecodeError)
+fallback_encoding
+fallback_errorss
+     rE
+TarInfo._decode_pax_field[
+zLRound up a byte count by BLOCKSIZE and return it,
+e.g. _block(834) => 1024.
+invalid offsetr.
+    rE
+TarInfo._blockc
+z4Return True if the Tarinfo object is a regular file.)
+REGULAR_TYPESr
+TarInfo.isrego
+isfile
+TarInfo.isfiles
+z!Return True if it is a directory.)
+TarInfo.isdirw
+z%Return True if it is a symbolic link.)
+SYMTYPEr
+TarInfo.issym{
+z!Return True if it is a hard link.)
+LNKTYPEr
+TarInfo.islnk
+z(Return True if it is a character device.)
+ischr
+TarInfo.ischr
+z$Return True if it is a block device.)
+isblk
+TarInfo.isblk
+Return True if it is a FIFO.)
+FIFOTYPEr
+isfifo
+TarInfo.isfifo
+issparse
+TarInfo.issparse
+zCReturn True if it is one of character device, block device or FIFO.)
+isdev
+TarInfo.isdev
+dict
+__slots__r
+setterr0
+classmethodr
+staticmethodr
+r SBS
+r!SCS
+r"SDS
+r$SES
+r%S 
+r&SFS
+r'S"
+SDS#
+r)S$
+r*S%
+r+S&
+r-S)
+r.S*
+r/S+
+r0S,
+r1S-
+r2S.
+r3S/
+r4S0
+r5S1
+r6S2
+r7S3
+r8SHS4
+r9S5
+r:SDS6
+r;S7
+r<S8
+r=S9
+r>S:
+r?S;
+r@S<rAg
+z=The TarFile Class provides an interface to tar archives.
+    r
+Open an (uncompressed) tar archive `name'. `mode' is either 'r' to
+read from an existing archive, 'a' to append data to an existing
+file or 'w' to create a new file overwriting an existing one. `mode'
+defaults to 'r'.
+If `fileobj' is given, it is used for reading or writing data. If it
+can be determined, `mode' is overridden by `fileobj's mode.
+`fileobj' is not closed, when TarFile is closed.
+!mode must be 'r', 'a', 'w' or 'x'r
+).r=
+_moder
+exists
+bltn_openr
+abspathr
+streamrc
+dereference
+ignore_zerosrC
+debug
+errorlevel
+copybufsizer
+members
+_loadedr
+inodes
+firstmemberrF
+modesr
+                  rE
+TarFile.__init__
+ A"M*
+Open a tar archive for reading, writing or appending. Return
+an appropriate TarFile class.
+mode:
+'r' or 'r:*' open for reading with transparent compression
+'r:'         open for reading exclusively uncompressed
+'r:gz'       open for reading with gzip compression
+'r:bz2'      open for reading with bzip2 compression
+'r:xz'       open for reading with lzma compression
+'a' or 'a:'  open for appending, creating the file if necessary
+'w' or 'w:'  open for writing without compression
+'w:gz'       open for writing with gzip compression
+'w:bz2'      open for writing with bzip2 compression
+'w:xz'       open for writing with lzma compression
+'x' or 'x:'  create a tarfile exclusively without compression, raise
+             an exception if the file is already created
+'x:gz'       create a gzip compressed tarfile, raise an exception
+             if the file is already created
+'x:bz2'      create a bzip2 compressed tarfile, raise an exception
+             if the file is already created
+'x:xz'       create an lzma compressed tarfile, raise an exception
+             if the file is already created
+'r|*'        open a stream of tar blocks with transparent compression
+'r|'         open an uncompressed stream of tar blocks for reading
+'r|gz'       open a gzip compressed stream of tar blocks
+'r|bz2'      open a bzip2 compressed stream of tar blocks
+'r|xz'       open an lzma compressed stream of tar blocks
+'w|'         open an uncompressed stream for writing
+'w|gz'       open a gzip compressed stream for writing
+'w|bz2'      open a bzip2 compressed stream for writing
+'w|xz'       open an lzma compressed stream for writing
+nothing to open)
+r:*c
+taropen)
+OPEN_METH)
+not_compressed
+$TarFile.open.<locals>.not_compressedN
+keyNr
+- method z
+z'file could not be opened successfully:
+mode must be 'r' or 'w'r
+undiscernible mode)
+sortedr
+popr
+kwargsr
+error_msgsr
+func
+saved_posr
+error_msgs_summary
+filemoder
+`                rE
+TarFile.open$
+7,G*
+zCOpen uncompressed tar archive name for reading or writing.
+        r
+     rE
+TarFile.taropen
+zXOpen gzip compressed tar archive name for reading or writing.
+Appending is not allowed.
+mode must be 'r', 'w' or 'x'r
+GzipFilez
+gzip module is not availableNr}
+gzipr
+         rE
+gzopen
+TarFile.gzopen
+zYOpen bzip2 compressed tar archive name for reading or writing.
+Appending is not allowed.
+BZ2Filer
+not a bzip2 fileF)
+EOFErrorr
+         rE
+bz2open
+TarFile.bz2open
+zXOpen lzma compressed tar archive name for reading or writing.
+Appending is not allowed.
+LZMAFiler
+presetr
+not an lzma fileF)
+          rE
+xzopen
+TarFile.xzopen
+zYClose the TarFile. In write-mode, two finishing zero blocks are
+appended to the archive.
+RECORDSIZEr
+   rE
+TarFile.close
+B C(
+Return a TarInfo object for member `name'. If `name' can not be
+found in the archive, KeyError is raised. If a member occurs more
+than once in the archive, its last occurrence is assumed to be the
+most up-to-date version.
+filename %r not found)
+_getmemberr+
+KeyError)
+   rE
+getmember
+TarFile.getmember
+z{Return the members of the archive as a list of TarInfo objects. The
+list has the same order as the members in the archive.
+_checkr
+_loadr
+getmembers
+TarFile.getmembers
+zxReturn the members of the archive as a list of their names. It has
+the same order as the list returned by getmembers().
+  rE
+getnames
+TarFile.getnames
+X R(
+X R(
+Xul,
+Create a TarInfo object from the result of os.stat or equivalent
+on an existing file. The file is either named by `name', or
+specified as a file object `fileobj' with a file descriptor. If
+given, `arcname' specifies an alternative name for the file in the
+archive, otherwise, the name is taken from the 'name' attribute of
+'fileobj', or the 'name' argument. The name should be a text
+string.
+awxNr
+major
+minor):r
+splitdriver
+lstat
+stat
+fstat
+fileno
+st_mode
+S_ISREG
+st_ino
+st_dev
+st_nlinkr
+S_ISDIRr
+S_ISFIFOr
+S_ISLNKr
+readlink
+S_ISCHRr
+S_ISBLKr
+st_uidr4
+st_gidr5
+st_sizer2
+st_mtimer3
+getpwuidr6
+getgrgidr7
+st_rdevr
+arcnamer
+drvrd
+statresr
+stmd
+inoder
+           rE
+gettarinfo
+TarFile.gettarinfo 
+Print a table of contents to sys.stdout. If `verbose' is False, only
+the names of the members are printed. If it is True, an `ls -l'-like
+output is produced. `members' is optional and must be a subset of the
+list returned by getmembers().
+??????????r
+%10sz
+%d,%dz
+%10dz
+????-??-?? ??:??:??z
+%d-%02d-%02d %02d:%02d:%02dr
+-> z
+link to )%r
+S_IFREGr
+S_IFLNKr
+S_IFIFOr
+S_IFCHRr
+S_IFDIRr
+S_IFBLKr
+localtimer
+verboser
+type2moderd
+modetypes
+      rE
+TarFile.list
+filterc
+Add the file `name' to the archive. `name' may be any type of file
+(directory, fifo, symbolic link, etc.). If given, `arcname'
+specifies an alternative name for the file in the archive.
+Directories are added recursively by default. This can be avoided by
+setting `recursive' to False. `filter' is a function
+that expects a TarInfo object argument and returns the changed
+TarInfo object, if it returns None the TarInfo object will be
+excluded from the archive.
+tarfile: Skipped %rr.
+tarfile: Unsupported type %r
+tarfile: Excluded %rr9
+_dbgr
+addfiler
+listdir
+addr
+recursiver 
+       rE
+TarFile.add
+Add the TarInfo object `tarinfo' to the archive. If `tarinfo' represents
+a non zero-size regular file, the `fileobj' argument should be a binary file,
+and tarinfo.size bytes are read from it and added to the archive.
+You can create TarInfo objects directly, or by using gettarinfo().
+z3fileobj not provided for non zero-size regular file)
+       rE
+TarFile.addfile
+Python 3.14 will, by default, filter extracted tar archives and reject files or modify their metadata. Use the filter argument to control this behavior.r%
+zrString names are not supported for TarFile.extraction_filter. Use a function such as tarfile.data_filter directly.z
+filter z
+ not found)
+extraction_filterr
+TypeError
+callable
+_NAMED_FILTERSr
+   rE
+_get_filter_function
+TarFile._get_filter_function
+numeric_ownerr 
+Extract all members from the archive to the current working
+directory and set owner, modification time and permissions on
+directories afterwards. `path' specifies a different directory
+to extract to. `members' is optional and must be a subset of the
+list returned by getmembers(). If `numeric_owner` is True, only
+the numbers for user/group names are used and not the names.
+The `filter` function will be called on each member just
+before extraction.
+It can return a changed TarInfo or None to skip the member.
+String names of common filters are accepted.
+set_attrsr3
+filter_functionc
+<lambda>
+$TarFile.extractall.<locals>.<lambda>8
+reversez
+excluded by filter
+missingz
+not a directory)
+_get_extract_tarinfor
+_extract_one
+sort
+_FILTER_ERRORS
+_log_no_directory_fixup
+reprr
+FileNotFoundErrorr
+chown
+utime
+chmodr
+_handle_nonfatal_error)
+directoriesr6
+unfiltered
+dirpathr
+              rE
+extractall
+TarFile.extractall
+z!tarfile: Not fixing up directory z
+reasons
+   rE
+TarFile._log_no_directory_fixupZ
+XrX45
+Extract a member from the archive to the current working directory,
+using its full name. Its file information is extracted as accurately
+as possible. `member' may be a filename or a TarInfo object. You can
+specify a different directory using `path'. File attributes (owner,
+mtime, mode) are set unless `set_attrs' is False. If `numeric_owner`
+is True, only the numbers for user/group names are used and not
+the names.
+The `filter` function will be called before extraction.
+It can return a changed TarInfo or None to skip the member.
+String names of common filters are accepted.
+         rE
+extract
+TarFile.extract^
+X5R 
+zrGet (filtered, unfiltered) TarInfos from *member*
+*member* might be a string.
+Return (None, None) if not found.
+_handle_fatal_errorr
+filteredr
+       rE
+TarFile._get_extract_tarinfor
+Extract from filtered tarinfo to disk.
+filter_function is only used when extracting a *different*
+member (e.g. as fallback to creating a symlink)
+extraction_rootN)
+_extract_memberr
+       rE
+TarFile._extract_one
+z=Handle non-fatal error (ExtractError) according to errorlevelr.
+tarfile: %sN)
+  rE
+TarFile._handle_nonfatal_error
+z1Handle "fatal" error according to self.errorlevelr
+tarfile: r
+filenamer#
+strerrorr
+  rE
+TarFile._handle_fatal_error
+Extract a member from the archive as a file object. `member' may be
+a filename or a TarInfo object. If `member' is a regular file or
+a link, an io.BufferedReader object is returned. For all other
+existing members, None is returned. If `member' does not appear
+in the archive, KeyError is raised.
+z'cannot extract (sym)link as file objectN)
+fileobjectr
+extractfile
+_find_link_target)
+   rE
+TarFile.extractfile
+Extract the filtered TarInfo object tarinfo to a physical
+file called targetpath.
+filter_function is only used when extracting a *different*
+member (e.g. as fallback to creating a symlink)
+exist_okr.
+ -> ri
+makedirsr
+makefiler
+makedirr
+makefifor
+makedev
+makelink_with_filterr
+makeunknownrC
+targetpathr5
+upperdirss
+        rE
+TarFile._extract_member
+z,Make a directory called targetpath.
+        Ni
+mkdir
+FileExistsErrorr0
+   rE
+TarFile.makedir
+z'Make a file called targetpath.
+        r
+truncate)
+sourcerz
+targetr.
+        rE
+TarFile.makefile
+zFMake a file from a TarInfo object with an unknown type
+at targetpath.
+z9tarfile: Unknown file type %r, extracted as regular file.N)
+   rE
+TarFile.makeunknown.
+z'Make a fifo called targetpath.
+        
+mkfifoz
+fifo not supported by systemN)
+   rE
+TarFile.makefifo6
+z<Make a character or block device called targetpath.
+        
+mknodrp
+z'special devices not supported by systemNr
+    rE
+TarFile.makedev>
+   rE
+makelink
+TarFile.makelinkP
+Make a (symbolic) link called targetpath. If it cannot be created
+(platform limitation), we try to make a copy of the referenced file
+instead of a link.
+filter_function is only used when extracting a *different*
+member (e.g. as fallback to creating a link).
+FNTz%unable to resolve link inside archivez[makelink_with_filter: if filter_function is not None, extraction_root must also not be Noneri
+lexists
+unlink
+symlinkr
+link
+symlink_exceptionrg
+keyerror_to_extracterrorrH
+causes
+         rE
+TarFile.makelink_with_filterS
+Set owner of targetpath according to tarinfo. If numeric_owner
+is True, use .gid/.uid instead of .gname/.uname. If numeric_owner
+is False, fall back to .gid/.uid when the search based on name
+fails.
+geteuidr
+lchownz
+could not change owner)
+getgrnamr
+getpwnamr
+OverflowErrorr
+       rE
+TarFile.chown
+zASet file permissions of targetpath according to tarinfo.
+        Nz
+could not change mode)
+    rE
+TarFile.chmod
+zBSet modification time of targetpath according to tarinfo.
+        NrD
+z"could not change modification time)
+     rE
+TarFile.utime
+NQ["
+X4R,
+Return the next member of the archive as a TarInfo object, when
+TarFile is opened for reading. Return None if there is no more
+available.
+raNr
+0x%X: %sz
+empty filez
+zlib error: )
+Exceptionr
+     rE
+TarFile.next
+9%I$
+zjFind an archive member by name from bottom to top.
+If tarinfo is given, it is used as the starting point.
+FNT)
+indexr=
+reversedr.
+normalizer
+skippingr
+member_names
+         rE
+TarFile._getmember
+zvRead through the entire archive file and look for readable
+members. This should not run if the file is set to stream.
+TarFile._load-
+z[Check if TarFile is still open, and if the operation's mode
+corresponds to TarFile's mode.
+%s is closedNz
+bad operation for mode %r)
+  rE
+TarFile._check6
+zGFind the target member of a symlink or hardlink member in the
+archive.
+linkname %r not found)
+limitr
+     rE
+TarFile._find_link_target?
+z$Provide an iterator object.
+        Nr
+   rE
+__iter__
+TarFile.__iter__R
+z.Write debugging output to sys.stderr.
+        
+fileN)
+stderr)
+level
+msgs
+   rE
+TarFile._dbgq
+__enter__
+TarFile.__enter__w
+tracebacks
+    rE
+__exit__
+TarFile.__exit__{
+NNNNNNr
+NNNNF)
+TFr@
+Return True if name points to a tar archive that we
+are able to handle, else return False.
+'name' should be a string, file, or file-like object.
+   rE
+S"S#5
+S&R#
+S"S'R#
+S"S'R#
+S":X
+OH[)
+S*:X
+pXO U
+S,:X
+S-R#
+S.R#
+S"S'R#
+S/S/S0S0S1S1S1S1S2.
+S5R#
+)6Nr
+z3A simple command-line interface for tarfile module.)
+descriptionz
+--verbose
+store_trueFz
+Verbose output)
+action
+default
+helpz
+--filterz
+<filtername>z
+Filter for extraction)
+metavar
+choicesr
+requiredz
+--list
+<tarfile>z
+Show listing of a tarfile)
+--extract
+<output_dir>z
+Extract tarfile into target dir)
+nargsr
+--create)
+<name>z
+<file>z
+Create tarfile from sourcesz
+--testz
+Test if a tarfile is validr.
+z&--filter is only valid for extraction
+{!r} is a tar archive.z
+{!r} is not a tar archive.
+{!r} file is extracted.z+{!r} file is extracted into {!r} directory.r
+.tgzz
+.xzz
+.txzz
+.bz2z
+.tbzz
+.tbz2z
+.tb2z
+{!r} file created.)
+argparse
+ArgumentParser
+add_argumentr0
+add_mutually_exclusive_group
+parse_argsr 
+exit
+testr
+curdir
+format_helprK
+creater
+splitextr&
+parserrR
+argsrw
+tar_namerd
+compressions
+tar_mode
+tar_files
+file_names
+                 rE
+mainr
+__main__r
+version
+__author__
+__credits__
+builtinsr
+AttributeError
+NotImplementedErrorr
+__all__r@
+CONTTYPEr
+getfilesystemencodingrF
+objectr
+BufferedReaderr^
+compilerP
+<module>r

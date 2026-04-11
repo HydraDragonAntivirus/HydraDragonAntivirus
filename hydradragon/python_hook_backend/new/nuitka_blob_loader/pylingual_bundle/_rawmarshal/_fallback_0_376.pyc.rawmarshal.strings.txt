@@ -1,0 +1,2 @@
+startswithr
+_StreamProxy.getcomptypeL

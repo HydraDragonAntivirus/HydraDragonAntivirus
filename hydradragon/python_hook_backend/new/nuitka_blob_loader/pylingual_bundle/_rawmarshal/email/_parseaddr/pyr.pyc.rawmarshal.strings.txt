@@ -1,0 +1,213 @@
+zcEmail address parsing code.
+Lifted directly from rfc822.py.  This should eventually be rewritten.
+mktime_tz
+parsedate
+parsedate_tz
+quote
+january
+february
+march
+aprilr
+june
+july
+august
+september
+october
+november
+december)
+sunip
+PDTc
+zIConvert a date string to a time tuple.
+Accounts for military timezones.
+_parsedate_tz
+tuple)
+data
+ress
+email\_parseaddr.pyr
+pEpgn
+XvpvU
+XeXIX
+Convert date to extended time tuple.
+The last (additional) element is the time zone offset in seconds, except if
+the timezone was specified as -0000.  In that case the last element is
+None.  This indicates a UTC timestamp that explicitly declaims knowledge of
+the source timezone, as opposed to a +0000 timestamp that indicates the
+source timezone really was UTC.
+split
+endswith
+lower
+_daynames
+rfind
+find
+append
+_monthnames
+index
+isdigit
+ValueError
+upper
+_timezones
+startswith)
+stuff
+tzoffset
+tzsigns
+              r;
+z&Convert a time string to a time tuple.Nr6
+isinstancer8
+  r;
+zETurn a 10-tuple as returned by parsedate_tz() into a POSIX timestamp.r6
+time
+mktime
+calendar
+timegm)
+   r;
+Prepare string to be used in a quoted string.
+Turns backslash and double quote characters into quoted pairs.  These
+are the only characters that need to be quoted inside a quoted string.
+Does not add the surrounding double quotes.
+replace)
+strs
+AddrlistClass
+Address parser class by Ben Escoto.
+To understand what this class does, it helps to have a copy of RFC 2822 in
+front of you.
+Note: this class interface is deprecated and may be removed in the future.
+Use email.utils.AddressList instead.
+zkInitialize a new instance.
+`field' is an unparsed address header field, containing
+one or more addresses.
+()<>@,:;."[]r
+specials
+atomendsrw
+phraseends
+field
+commentlist
+selfr
+  r;
+__init__
+AddrlistClass.__init__
+z&Skip white space and extract comments.z
+getcomment
+EMPTYSTRING
+join)
+wslists
+  r;
+gotonext
+AddrlistClass.gotonext
+zFParse all addresses.
+Returns a list containing all of the addresses.
+getaddressrU
+result
+   r;
+getaddrlist
+AddrlistClass.getaddrlist
+O3X@R
+Parse the next address.r
+.@rG
+getphraselistrS
+SPACEr
+getaddrspecr
+getrouteaddrr}
+oldpos
+oldcl
+plist
+returnlist
+addrspec
+fieldlen
+routeaddrs
+        r;
+AddrlistClass.getaddress
+zqParse a route address (Return-path value).
+This method just skips all the route stuff and returns the addrspec.
+NFr?
+@TrG
+getdomainr
+expectroute
+adlists
+   r;
+AddrlistClass.getrouteaddrM
+Parse an RFC 2822 addr-spec.TrJ
+"%s"r
+strip
+poprU
+getquoter
+getatomr
+aslist
+preserve_ws
+domains
+     r;
+AddrlistClass.getaddrspecm
+z-Get the complete domain name from an address.r?
+getdomainliteralr
+sdlists
+  r;
+AddrlistClass.getdomain
+Parse a header fragment delimited by special characters.
+`beginchar' is the start character for the fragment.
+If self is not looking at an instance of `beginchar' then
+getdelimited returns the empty string.
+`endchars' is a sequence of allowable end-delimiting characters.
+Parsing stops when one of these is encountered.
+If `allowcomments' is non-zero, embedded RFC 2822 comments are allowed
+within the parsed fragment.
+beginchar
+endchars
+allowcomments
+slistr
+      r;
+getdelimited
+AddrlistClass.getdelimited
+z1Get a quote-delimited fragment from self's field.rv
+AddrlistClass.getquote
+z7Get a parenthesis-delimited fragment from self's field.r
+AddrlistClass.getcomment
+z!Parse an RFC 2822 domain-literal.z
+[%s]r
+AddrlistClass.getdomainliteral
+Parse an RFC 2822 atom.
+Optional atomends specifies a different set of end token delimiters
+(the default is to use self.atomends).  This is used e.g. in
+getphraselist() since phrase endings must not include the `.' (which
+is legal in phrases).r
+atomlists
+   r;
+AddrlistClass.getatom
+Parse a sequence of RFC 2822 phrases.
+A phrase is a sequence of words, which are in turn either RFC 2822
+atoms or quoted-strings.  Phrases are canonicalized by squeezing all
+runs of continuous whitespace into one space.
+  r;
+AddrlistClass.getphraselist
+__name__
+__module__
+__qualname__
+__firstlineno__
+__doc__r
+__static_attributes__
+AddressListi
+z@An AddressList encapsulates a list of parsed RFC 2822 addresses.c
+addresslistr
+  r;
+AddressList.__init__
+__len__
+AddressList.__len__
+other
+newaddr
+    r;
+__add__
+AddressList.__add__
+   r;
+__iadd__
+AddressList.__iadd__
+    r;
+__sub__
+AddressList.__sub__"
+remover
+   r;
+__isub__
+AddressList.__isub__*
+  r;
+__getitem__
+AddressList.__getitem__1
+__all__rp
+COMMASPACErV
+<module>r

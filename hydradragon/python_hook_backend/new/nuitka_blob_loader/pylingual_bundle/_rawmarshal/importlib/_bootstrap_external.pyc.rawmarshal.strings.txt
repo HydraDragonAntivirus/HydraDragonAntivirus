@@ -1,0 +1,803 @@
+r$SQS
+r%\&"
+\%RN
+r*\+RY
+r.S r/S!/
+\0Rc
+r3S#/
+r4\4=
+r5r6SRS
+r7S&
+r8S'
+r9S(
+r:S)
+r;S*
+r<S+
+r=S,
+r>S-
+r?SSS.
+r@STS/
+rASUS0
+rBS1
+rC\D"
+rESRS
+\ES2.
+rFS4
+S:\I5
+S>\K\J5
+S@\K\I5
+SB\K\I5
+rP\PrQ
+SL\N5
+rTSRSM
+rUSN
+rVSO
+rWSP
+)Va^
+Core implementation of path-based import.
+This module is NOT meant to be directly imported! It has been designed such
+that it can be bootstrapped into Python as the implementation of import. As
+such it requires the injection of specific modules and attributes in order to
+work. One should use importlib as the public-facing version of this module.
+win32
+len)
+seps
+ importlib\_bootstrap_external.py
+<genexpr>r
+win)
+cygwin
+darwin
+tvos
+watchosc
+PYTHONCASEOKs
+PYTHONCASEOKc
+z^True if filenames must be checked case-insensitively and ignore environment flags are not set.)
+flags
+ignore_environment
+environ
+keys
+_relax_case
+%_make_relax_case.<locals>._relax_caseC
+z5True if filenames must be checked case-insensitively.F
+platform
+startswith
+_CASE_INSENSITIVE_PLATFORMS
+#_CASE_INSENSITIVE_PLATFORMS_STR_KEY)
+_make_relax_caser(
+z*Convert a 32-bit integer to little-endian.
+little)
+to_bytes)
+_pack_uint32r0
+z/Convert 8 bytes in little-endian to an integer.
+from_bytes
+datas
+_unpack_uint64r7
+z/Convert 4 bytes in little-endian to an integer.r+
+_unpack_uint32r:
+z/Convert 2 bytes in little-endian to an integer.
+_unpack_uint16r=
+Replacement for os.path.join().r
+mapr
+_path_splitrootr%
+path_sep_tuple
+endswith
+rstrip
+path_separators
+path_sep
+casefold
+append
+join)
+path_parts
+root
+path
+new_root
+tail
+      r
+_path_joinrP
+parts
+z Replacement for os.path.split().c
+rfind)
+_path_split.<locals>.<genexpr>
+maxrE
+_path_splitrZ
+zrStat the path.
+Made a separate function to make it easier to override in experiments
+(e.g. cache stat results).
+stat
+_path_statr^
+z1Test whether the path is the specified mode type.Fi
+OSError
+st_mode)
+mode
+stat_infos
+   r
+_path_is_mode_typerd
+Replacement for os.path.isfile.i
+_path_isfilerf
+Replacement for os.path.isdir.i
+getcwdrd
+_path_isdirri
+Replacement for os.path.isabs.Fr
+replacer
+_path_isabsrm
+z Replacement for os.path.abspath.
+removeprefixrP
+_path_abspathrr
+Best-effort function to write data to a path atomically.
+Be prepared to handle a FileExistsError if concurrent writing of the
+temporary file is attempted.rp
+wbN)
+open
+O_EXCL
+O_CREAT
+O_WRONLY
+writerl
+unlink)
+path_tmp
+files
+      r
+_write_atomicr
+__pycache__z
+opt-z
+.pyz
+.pywz
+.pyc)
+optimizationc
+Given the path to a .py file, return the path to its .pyc file.
+The .py file does not need to exist; this simply returns the path to the
+.pyc file calculated as if the .py file were imported.
+The 'optimization' parameter controls the presumed optimization level of
+the bytecode file. If 'optimization' is not None, the string representation
+of the argument is taken and verified to be alphanumeric (else ValueError
+is raised).
+The debug_override parameter is deprecated. If debug_override is not None,
+a True value is the same as setting 'optimization' to the empty string
+while a False value is equivalent to setting 'optimization' to '1'.
+If sys.implementation.cache_tag is None then NotImplementedError is raised.
+NzFthe debug_override parameter is deprecated; use 'optimization' insteadz2debug_override or optimization must be set to Noner
+$sys.implementation.cache_tag is Noner
+ is not alphanumericr<
+_warnings
+warn
+DeprecationWarning
+TypeErrorr
+fspathrZ
+rpartitionr
+implementation
+cache_tag
+NotImplementedErrorrI
+optimize
+isalnum
+ValueError
+_OPT
+BYTECODE_SUFFIXES
+pycache_prefixrr
+lstrip
+_PYCACHE)
+debug_overrider
+message
+headrN
+baser
+rest
+almost_filename
+filenames
+            r
+cache_from_sourcer
+Given the path to a .pyc. file, return the path to its .py file.
+The .pyc file does not need to exist; this simply returns the path to
+the .py file calculated to correspond to the .pyc file.  If path does
+not conform to PEP 3147/488 format, ValueError will be raised. If
+sys.implementation.cache_tag is None then NotImplementedError is raised.
+ not bottom-level directory in rp
+expected only 2 or 3 dots in r
+z5optimization portion of filename does not start with z
+optimization level z
+ is not an alphanumeric valuer
+count
+rsplitr
+partitionrP
+SOURCE_SUFFIXES)
+pycache_filename
+found_in_pycache_prefix
+stripped_path
+pycache
+dot_countr
+opt_level
+base_filenames
+          r
+source_from_cacher
+Convert a bytecode file path to a source path (if possible).
+This function exists purely for backwards-compatibility for
+PyImport_ExecCodeModuleWithFilenames() in the C API.
+lowerr
+bytecode_pathr
+extension
+source_paths
+     r
+_get_sourcefiler
+tupler
+_get_cachedr
+z3Calculate the mode permissions for a bytecode file.rt
+_calc_moder
+Decorator to verify that the module being requested matches the one the
+loader can handle.
+The first argument (self) must define _name which the second argument is
+compared against. If the comparison fails then ImportError is raised.
+loader for z
+ cannot handle 
+name)
+ImportError)
+selfr
+args
+kwargs
+methods
+    
+_check_name_wrapper
+(_check_name.<locals>._check_name_wrapper
+__module__
+__name__
+__qualname__
+__doc__)
+hasattr
+setattr
+getattr
+__dict__
+update)
+oldrl
+   r
+_wrap
+_check_name.<locals>._wrap
+_bootstrapr
+`  r
+_check_namer
+Perform basic validity checking of a pyc header and return the flags field,
+which determines how the pyc should be further validated against the source.
+*data* is the contents of the pyc file. (Only the first 16 bytes are
+required, though.)
+*name* is the name of the module being imported. It is used for logging.
+*exc_details* is a dictionary passed to ImportError if it raised for
+improved debugging.
+ImportError is raised when the magic number is incorrect or when the flags
+field is invalid. EOFError is raised when the data is found to be truncated.
+bad magic number in z
+z(reached EOF while reading pyc header of r2
+invalid flags z
+ in )
+MAGIC_NUMBERr
+_verbose_messager
+EOFErrorr:
+exc_details
+magicr
+      r
+_classify_pycr
+Validate a pyc against the source last-modified time.
+*data* is the contents of the pyc file. (Only the first 16 bytes are
+required.)
+*source_mtime* is the last modified timestamp of the source file.
+*source_size* is None or the size of the source file in bytes.
+*name* is the name of the module being imported. It is used for logging.
+*exc_details* is a dictionary passed to ImportError if it raised for
+improved debugging.
+An ImportError is raised if the bytecode is stale.
+bytecode is stale for r
+source_mtime
+source_sizer
+      r
+_validate_timestamp_pycr
+Validate a hash-based pyc by checking the real source hash against the one in
+the pyc header.
+*data* is the contents of the pyc file. (Only the first 16 bytes are
+required.)
+*source_hash* is the importlib.util.source_hash() of the source file.
+*name* is the name of the module being imported. It is used for logging.
+*exc_details* is a dictionary passed to ImportError if it raised for
+improved debugging.
+An ImportError is raised if the bytecode is stale.
+z.hash in bytecode doesn't match hash of source N)
+source_hashr
+    r
+_validate_hash_pycr
+z#Compile bytecode as found in a pyc.z
+code object from {!r}z
+Non-code object in 
+marshal
+loads
+isinstance
+_code_typer
+_imp
+_fix_co_filenamer
+codes
+     r
+_compile_bytecoder
+z+Produce the data for a timestamp-based pyc.r
+bytearrayr
+extendr0
+dumps)
+mtimer
+    r
+_code_to_timestamp_pycr
+z&Produce the data for a hash-based pyc.r
+checkedr6
+     r
+_code_to_hash_pycr
+zqDecode bytes representing source code and return the string.
+Universal newline support is used in the decoding.
+tokenizer{
+BytesIO
+readline
+detect_encoding
+IncrementalNewlineDecoder
+decode)
+source_bytesr
+source_bytes_readline
+encoding
+newline_decoders
+     r
+decode_sourcer
+loader
+submodule_search_locationsc
+O#O"[
+Return a module spec based on a file location.
+To indicate that the module is a package, set
+submodule_search_locations to a list of directory paths.  An
+empty list is sufficient, though its not otherwise useful to the
+import system.
+The loader must take a spec as its only __init__() arg.
+<unknown>
+get_filename
+originT
+is_packager
+ModuleSpec
+_set_fileattr
+_get_supported_file_loadersrC
+_POPULATEr
+locationr
+spec
+loader_class
+suffixesr
+dirnames
+         r
+spec_from_file_locationr
+X$:w
+z;Helper function for _warnings.c
+See GH#97850 for details.
+__loader__
+__spec__z+Module globals is missing a __spec__.loaderr
+z-Module globals; __loader__ != __spec__.loader)
+dict
+object
+getr
+AttributeErrorr
+module_globals
+missingr
+spec_loader
+excs
+      r
+_bless_my_loaderr)
+WindowsRegistryFinderi
+z>Meta path finder for modules declared in the Windows registry.z;Software\Python\PythonCore\{sys_version}\Modules\{fullname}zASoftware\Python\PythonCore\{sys_version}\Modules\{fullname}\Debugz
+_d.pydc
+winreg
+OpenKey
+HKEY_CURRENT_USERr`
+HKEY_LOCAL_MACHINEr
+_open_registry
+$WindowsRegistryFinder._open_registry
+%d.%dr<
+fullname
+sys_versionr
+DEBUG_BUILD
+REGISTRY_KEY_DEBUG
+REGISTRY_KEY
+formatr
+version_infor1
+QueryValuer`
+clsr4
+registry_keyr
+hkey
+filepaths
+      r
+_search_registry
+&WindowsRegistryFinder._search_registry
+spec_from_loader)
+targetr?
+        r
+find_spec
+WindowsRegistryFinder.find_spec
+__firstlineno__r
+_MS_WINDOWS
+EXTENSION_SUFFIXESr6
+staticmethodr1
+classmethodr@
+__static_attributes__r#
+_LoaderBasicsi
+zOBase class of common code needed by both SourceLoader and
+SourcelessFileLoader.c
+Concrete implementation of InspectLoader.is_package by checking if
+the path returned by get_filename has a filename of '__init__.py'.r
+__init__)
+filename_base
+tail_names
+     r
+_LoaderBasics.is_package
+z*Use default semantics for module creation.Nr#
+create_module
+_LoaderBasics.create_module
+Execute the module.Nz
+cannot load module z
+ when get_code() returns None)
+get_coder
+_call_with_frames_removed
+execr
+moduler
+   r
+exec_module
+_LoaderBasics.exec_module
+This method is deprecated.)
+_load_module_shim
+load_module
+_LoaderBasics.load_module
+SourceLoaderi
+Optional method that returns the modification time (an int) for the
+specified path (a str).
+Raises OSError when the path cannot be handled.
+path_mtime
+SourceLoader.path_mtime
+Optional method returning a metadata dict for the specified
+path (a str).
+Possible keys:
+- 'mtime' (mandatory) is the numeric timestamp of last source
+  code modification;
+- 'size' (optional) is the size in bytes of the source code.
+Implementing this method allows the loader to read bytecode files.
+Raises OSError when the path cannot be handled.
+path_stats
+SourceLoader.path_stats
+Optional method which writes data (bytes) to a file path (a str).
+Implementing this method allows for the writing of bytecode files.
+The source path is needed in order to correctly transfer permissions
+set_data)
+cache_pathr6
+    r
+_cache_bytecode
+SourceLoader._cache_bytecode
+Optional method which writes data (bytes) to a file path (a str).
+Implementing this method allows for the writing of bytecode files.
+   r
+SourceLoader.set_data)
+z4Concrete implementation of InspectLoader.get_source.z'source not available through get_data()r
+get_datar`
+     r
+get_source
+SourceLoader.get_source0
+_optimizec
+zrReturn the code object compiled from source.
+The 'data' argument can be any object type that compile() supports.
+dont_inheritr
+compile)
+    r
+source_to_code
+SourceLoader.source_to_code:
+Concrete implementation of InspectLoader.get_code.
+Reading of bytecode requires path_stats to be implemented. To write
+bytecode, set_data must also be implemented.
+NFTr
+never
+always
+sizez
+{} matches {})
+code object from {})
+memoryviewr
+check_hash_based_pycsr
+_RAW_MAGIC_NUMBERr
+dont_write_bytecoder
+hash_based
+check_sourcer
+str6
+bytes_data
+code_objects
+               r
+SourceLoader.get_codeB
+ B,D.
+FileLoaderi
+zcBase file loader class which implements the loader protocol methods that
+require file system usage.c
+zCCache the module name and the path to the file found by the
+finder.Nr
+   r
+FileLoader.__init__
+__class__r
+others
+__eq__
+FileLoader.__eq__
+hashr
+__hash__
+FileLoader.__hash__
+zTLoad a module from a file.
+This method is deprecated.  Use exec_module() instead.
+superr
+FileLoader.load_module
+z:Return the path to the source file as found by the finder.r]
+FileLoader.get_filename
+z'Return the data from path as raw bytes.N
+ExtensionFileLoaderr{
+open_coder
+read
+FileIO)
+   r
+FileLoader.get_data
+FileReader)
+importlib.readersr
+   r
+get_resource_reader
+FileLoader.get_resource_reader
+__classcell__)
+SourceFileLoaderi
+z>Concrete implementation of SourceLoader using the file system.c
+z!Return the metadata for the path.)
+st_mtime
+st_size)
+   r
+SourceFileLoader.path_stats
+_mode)
+     r
+ SourceFileLoader._cache_bytecode
+Write bytes data to a file.z
+could not create {!r}: {!r}Nz
+created {!r})
+reversedrP
+mkdir
+FileExistsErrorr`
+parentr
+         r
+SourceFileLoader.set_data
+SourcelessFileLoaderi
+z-Loader which handles sourceless file imports.c
+     r
+SourcelessFileLoader.get_code
+z'Return None as there is no source code.Nr#
+SourcelessFileLoader.get_source
+zULoader for extension modules.
+The constructor is designed to work with FileFinder.
+   r
+ExtensionFileLoader.__init__
+ExtensionFileLoader.__eq__
+ExtensionFileLoader.__hash__ 
+z(Create an uninitialized extension modulez&extension module {!r} loaded from {!r})
+create_dynamicr
+   r
+!ExtensionFileLoader.create_module#
+Initialize an extension modulez(extension module {!r} executed from {!r}N)
+exec_dynamicr
+ExtensionFileLoader.exec_module+
+z1Return True if the extension module is a package.r
+suffix
+file_names
+1ExtensionFileLoader.is_package.<locals>.<genexpr>4
+anyrJ
+  @r
+ExtensionFileLoader.is_package1
+z?Return None as an extension module cannot create a code object.Nr#
+ExtensionFileLoader.get_code7
+z5Return None as extension modules have no source code.Nr#
+ExtensionFileLoader.get_source;
+ ExtensionFileLoader.get_filename?
+_NamespacePathiE
+Represents a namespace package's path.  It uses the module name
+to find its parent module, and from there it looks up the parent's
+__path__.  When this changes, the module's own path is recomputed,
+using path_finder.  For top-level modules, the parent module's path
+is sys.path.r
+_name
+_pathr
+_get_parent_path
+_last_parent_path
+_epoch
+_last_epoch
+_path_finder
+path_finders
+    r
+_NamespacePath.__init__P
+z>Returns a tuple of (parent-module-name, parent-path-attr-name)rp
+__path__)
+    r
+_find_parent_path_names
+&_NamespacePath._find_parent_path_namesW
+modules)
+parent_module_name
+path_attr_names
+   r
+_NamespacePath._get_parent_patha
+parent_pathr
+   r
+_recalculate
+_NamespacePath._recalculatee
+iterr
+__iter__
+_NamespacePath.__iter__s
+indexs
+__getitem__
+_NamespacePath.__getitem__v
+   r
+__setitem__
+_NamespacePath.__setitem__y
+__len__
+_NamespacePath.__len__|
+_NamespacePath(
+__repr__
+_NamespacePath.__repr__
+items
+__contains__
+_NamespacePath.__contains__
+_NamespacePath.append
+NamespaceLoaderi
+    r
+NamespaceLoader.__init__
+NTr#
+NamespaceLoader.is_package
+NamespaceLoader.get_source
+<string>r^
+NamespaceLoader.get_code
+NamespaceLoader.create_module
+NamespaceLoader.exec_module
+zRLoad a namespace module.
+This method is deprecated.  Use exec_module() instead.
+z&namespace module loaded with path {!r})
+NamespaceLoader.load_module
+NamespaceReader)
+   r
+#NamespaceLoader.get_resource_reader
+PathFinderi
+z>Meta path finder for sys.path and package __path__ attributes.c
+ztCall the invalidate_caches() method on all path entry finders
+stored in sys.path_importer_cache (where implemented).N
+invalidate_cachesr
+MetadataPathFinder)
+listr
+path_importer_cache
+itemsrm
+importlib.metadatar7
+finderr7
+   r
+PathFinder.invalidate_caches
+z.Search sys.path_hooks for a finder for 'path'.Nz
+sys.path_hooks is empty)
+path_hooksr
+ImportWarningr
+hooks
+_path_hooks
+PathFinder._path_hooks
+Get the finder for the path entry from sys.path_importer_cache.
+If the path entry is not in the cache, find the appropriate finder
+and cache it. If no finder is available, store None.
+FileNotFoundErrorr
+KeyErrorrB
+   r
+_path_importer_cache
+PathFinder._path_importer_cache
+z?Find the loader or namespace_path for this module/package name.Nz
+spec missing loader)
+namespace_path
+entryr<
+portionss
+         r
+_get_spec
+PathFinder._get_spec
+z}Try to find a spec for 'fullname' on sys.path or 'path'.
+The search is based on sys.path_hooks and sys.path_importer_cache.
+      r
+PathFinder.find_spec
+Find distributions.
+Return an iterable of all Distribution instances capable of
+loading the metadata for packages matching ``context.name``
+(or all names if ``None`` indicated) along the paths in the list
+of directories ``context.path``.
+find_distributions)
+   r
+PathFinder.find_distributions$
+FileFinderi2
+File-based finder.
+Interactions with the file system are cached for performance, being
+refreshed when the directory the finder is handling has been modified.
+Initialize with the path to search on and a variable number of
+2-tuples containing the loader and the file suffixes the loader
+recognizes.c
+&FileFinder.__init__.<locals>.<genexpr>A
+_loadersr
+_path_mtime
+_path_cache
+_relaxed_path_cache)
+loader_details
+loadersr
+     @r
+FileFinder.__init__;
+Invalidate the directory mtime.r
+FileFinder.invalidate_cachesL
+smslrD
+       r
+FileFinder._get_specP
+z_Try to find a spec for the specified module.
+Returns the matching spec, or None if not found.
+trying {})
+verbosityz
+possible namespace for {})
+_fill_cacher
+is_namespace
+tail_moduler
+cache
+cache_module
+base_pathr
+init_filename
+full_pathr
+              r
+FileFinder.find_specU
+zDFill the cache of potential modules and packages for this directory.r
+listdirrh
+PermissionError
+NotADirectoryErrorr
+addr&
+contents
+lower_suffix_contentsr
+new_name
+          r
+FileFinder._fill_cache
+A class method which returns a closure to use on sys.path_hook
+which will return an instance using the specified loaders and the path
+called on the closure.
+If the path called on the closure is not a directory, ImportError is
+raised.
+z-Path hook for importlib.machinery.FileFinder.z
+only directories are supportedr]
+path_hook_for_FileFinder
+6FileFinder.path_hook.<locals>.path_hook_for_FileFinder
+`` r
+path_hook
+FileFinder.path_hook
+FileFinder(r
+FileFinder.__repr__
+AppleFrameworkLoaderi
+zrA loader for modules that have been packaged as frameworks for
+compatibility with Apple's iOS App Store policies.
+.fworkr
+.originzBApple framework extension module {!r} loaded from {!r} (path {!r}))
+striprZ
+executablerP
+__file__r$
+framework_binary
+bundle_pathrL
+        r
+"AppleFrameworkLoader.create_module
+X#:X
+__cached__)
+cached
+Exception)
+pathname
+cpathnamer
+      r
+_fix_up_moduler
+zWReturns a list of file-based module loaders.
+Each item is a tuple (loader, suffixes).
+.sor
+extension_suffixesrl
+extension_loadersr
+source
+bytecodes
+    r
+_bootstrap_modules
+_set_bootstrap_moduler
+z)Install the path-based import components.N)
+meta_pathrH
+supported_loaderss
+_installr
+NNN)
+T)Yr
+posixrE
+allrF
+_pathseps_with_colonr'
+%_CASE_INSENSITIVE_PLATFORMS_BYTES_KEYr&
+type
+__code__r
+DEBUG_BYTECODE_SUFFIXES
+OPTIMIZED_BYTECODE_SUFFIXESr
+_NamespaceLoaderr3
+<module>r

@@ -1,0 +1,119 @@
+Utilities to compile possibly incomplete Python source code.
+This module provides two interfaces, broadly similar to the builtin
+function compile(), which take program text, a filename and a 'mode'
+and:
+- Return code object if the command is complete and valid
+- Return None if the command is incomplete
+- Raise SyntaxError, ValueError or OverflowError if the command is a
+  syntax error (OverflowError and ValueError can be produced by
+  malformed literals).
+The two interfaces are:
+compile_command(source, filename, symbol):
+    Compiles a single command in the manner described above.
+CommandCompiler():
+    Instances of this class have __call__ methods identical in
+    signature to compile_command; the difference is that if the
+    instance compiles program text containing a __future__ statement,
+    the instance 'remembers' and compiles all subsequent program texts
+    with the statement in force.
+The module also provides another class:
+Compile():
+    Instances of this class act like the built-in function compile,
+    but with 'memory' in the sense described above.
+compile_command
+Compile
+CommandCompileri
+eval
+pass
+ignoreF)
+incomplete_input)
+split
+strip
+warnings
+catch_warnings
+simplefilter
+SyntaxWarning
+DeprecationWarning
+SyntaxError
+_IncompleteInputError)
+compiler
+source
+filename
+symbol
+line
+      
+codeop.py
+_maybe_compiler
+PyCF_ALLOW_INCOMPLETE_INPUT
+PyCF_DONT_IMPLY_DEDENT
+compile)
+flagss
+     r
+_compiler#
+Compile a command and determine whether it is incomplete.
+Arguments:
+source -- the source string; may contain \n characters
+filename -- optional filename from which source was read; default
+            "<input>"
+symbol -- optional grammar start symbol; "single" (default), "exec"
+          or "eval"
+Return value / exceptions raised:
+- Return a code object if the command is complete and valid
+- Return None if the command is incomplete
+- Raise SyntaxError, ValueError or OverflowError if the command is a
+  syntax error (OverflowError and ValueError can be produced by
+  malformed literals).
+   r
+Instances of this class behave much like the built-in compile
+function, but if one is used to compile text containing a future
+statement, it "remembers" and compiles all subsequent program texts
+with the statement in force.c
+selfs
+__init__
+Compile.__init__n
+getr 
+PyCF_ONLY_AST
+_features
+co_flags
+compiler_flag)
+kwargs
+codeob
+features
+        r
+__call__
+Compile.__call__q
+__name__
+__module__
+__qualname__
+__firstlineno__
+__doc__r,
+__static_attributes__
+Instances of this class have __call__ methods identical in
+signature to compile_command; the difference is that if the
+instance compiles program text containing a __future__ statement,
+the instance 'remembers' and compiles all subsequent program texts
+with the statement in force.c
+CommandCompiler.__init__
+Compile a command and determine whether it is incomplete.
+Arguments:
+source -- the source string; may contain \n characters
+filename -- optional filename from which source was read;
+            default "<input>"
+symbol -- optional grammar start symbol; "single" (default) or
+          "eval"
+Return value / exceptions raised:
+- Return a code object if the command is complete and valid
+- Return None if the command is incomplete
+- Raise SyntaxError, ValueError or OverflowError if the command is a
+  syntax error (OverflowError and ValueError can be produced by
+  malformed literals).
+    r
+CommandCompiler.__call__
+<input>
+singler9
+__future__r
+all_feature_names
+getattrr1
+__all__r 
+fnames
+<module>rN

@@ -1,0 +1,46 @@
+  r)
+HTTPConnection._encode_request
+z&Validate a method name for putrequest.z)method can't contain control characters. 
+ (found at least 
+$_contains_disallowed_method_pchar_re
+searchr
+group)
+matchs
+   r)
+HTTPConnection._validate_method
+Validate a url for putrequest.
+&URL can't contain control characters. r
+!_contains_disallowed_url_pchar_rer
+   r)
+HTTPConnection._validate_path
+z9Validate a host so it doesn't contain control characters.r
+   r)
+HTTPConnection._validate_host
+z[Send a request header line to the server.
+For example: h.putheader('Accept', 'text/html')
+Invalid header name r
+Invalid header value s
+: N)
+_is_legal_header_namer
+enumerater
+_is_illegal_header_valuer\
+valuesr
+one_valuer
+      r)
+HTTPConnection.putheader"
+Indicate that the last header line has been sent to the server.
+This method sends the request to the server.  The optional message_body
+argument can be used to pass a message body associated with the
+request.
+_CS_REQ_SENTr
+   r)
+endheaders
+HTTPConnection.endheaders>
+z&Send a complete request to the server.N)
+_send_request)
+      r)
+HTTPConnection.requestK
+  r)
+/HTTPConnection._send_request.<locals>.<genexpr>R
+accept-encodingr
+Unable to determ

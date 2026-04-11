@@ -1,0 +1,4 @@
+link
+attlist
+element
+linktypez&unsupported '[' char in %s declarationz"unexpec

@@ -1,0 +1,64 @@
+Array
+Structure
+Unionc
+Return the type with the 'other' byte order.  Simple types like
+c_int and so on already have __ctype_be__ and __ctype_le__
+attributes which contain the types, for more complicated types
+arrays and structures are supported.
+z+This type does not support other endian: %s)
+hasattr
+_OTHER_ENDIAN
+getattr
+isinstance
+_array_type
+_other_endian
+_type_
+_length_
+issubclassr
+TypeError)
+typs
+ctypes\_endian.pyr
+_swapped_meta
+_fields_r
+appendr
+super
+__setattr__)
+self
+attrname
+value
+fields
+desc
+namer
+rest
+__class__s
+        
+_swapped_meta.__setattr__
+__name__
+__module__
+__qualname__
+__firstlineno__r
+__static_attributes__
+__classcell__)
+_swapped_struct_meta
+_swapped_union_meta
+little
+__ctype_be__c
+BigEndianStructure
+z$Structure with big endian byte orderr'
+__doc__
+__slots__
+_swappedbytes_r,
+metaclassc
+BigEndianUnion
+z Union with big endian byte orderr'
+__ctype_le__c
+LittleEndianStructure
+z'Structure with little endian byte orderr'
+LittleEndianUnion
+z#Union with little endian byte orderr'
+Invalid byteorder)
+ctypesr
+typer
+byteorderr
+RuntimeErrorr'
+<module>rO

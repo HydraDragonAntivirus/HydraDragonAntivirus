@@ -1,0 +1,388 @@
+K J!r!J"r" 
+K#J$r$J
+J%r%J&r& 
+r'\'(
+K(J)r)J*r* 
+\!\+/
+r1S/S
+r2S0S
+r3S1S 
+r4S2S!
+r5S3S"
+r9\9"
+r:\:Rv
+r;\:Rx
+r<\:Rz
+r=\:R|
+r>\:R~
+r?\:R
+r@\:R
+rA\:R
+rB\:R
+rC\:R
+rD\:R
+rE\:R
+rF\:R
+rG\:R
+rH\:R
+rI\:R
+rJ\:R
+rK\:R
+rL\:R
+rM\:R
+rN\:R
+rO\:R
+rQS4S*
+rRS+
+rSrT\S\U"
+\S\T5
+S5S,
+qWS-\
+A compatibility wrapper reimplementing the 'readline' standard module
+on top of pyrepl.  Not all functionalities are supported.  Contains
+extensions for multiline input.
+annotationsN)
+dataclass
+field)
+gethistoryfile)
+Completer
+commands
+historical_reader)
+CompletingReader)
+Consolez
+type[ConsoleType]r
+z-tuple[type[Exception], ...] | type[Exception]
+_error
+WindowsConsoler
+UnixConsoler
+latin1)
+Callable
+Collection)
+Callbackr
+KeySpec
+CommandNameF)
+Mapping)
+add_history
+clear_history
+get_begidx
+get_completer
+get_completer_delims
+get_current_history_length
+get_endidx
+get_history_item
+get_history_length
+get_line_buffer
+insert_text
+parse_and_bind
+read_history_file
+remove_history_item
+replace_history_item
+set_auto_history
+set_completer
+set_completer_delims
+set_history_length
+set_startup_hook
+write_history_file
+multiline_inputc
+ReadlineConfig
+Completer | None
+readline_completerz! 
+`~!@#$%^&*()-=+[{]}\|;:'",<>/?z
+frozenset[str]
+completer_delims
+__name__
+__module__
+__qualname__
+__firstlineno__r3
+__annotations__
+frozensetr4
+__static_attributes__r5
+_pyrepl\readline.pyr0
+kw_onlyc
+ReadlineAlikeReader
+FTr0
+configNz
+MoreLinesCallable | None
+more_lines
+str | None
+last_used_indentationc
+maybe_accept
+maybe-accept
+backspace_dedent
+backspace-dedent)
+super
+__post_init__rH
+self
+__class__s
+!ReadlineAlikeReader.__post_init__u
+msgs
+  r>
+error
+ReadlineAlikeReader.error|
+buffer
+posrC
+join)
+    r>
+get_stem
+ReadlineAlikeReader.get_stem
+lenrD
+UnicodeEncodeError
+Exception
+isinstance
+append
+sort)
+stemr]
+num_spaces
+result
+function
+state
+nexts
+         r>
+get_completions
+#ReadlineAlikeReader.get_completions
+history)
+maxlength
+cuts
+   r>
+get_trimmed_history
+'ReadlineAlikeReader.get_trimmed_history
+_get_first_indentationrZ
+indentations
+  r>
+update_last_used_indentation
+0ReadlineAlikeReader.update_last_used_indentation
+\nrI
+\<backspace>rK
+collect_keymaprN
+"ReadlineAlikeReader.collect_keymap
+after_commandrD
+indexr[
+ValueError)
+cmdr
+!ReadlineAlikeReader.after_command
+return
+None)
+none)
+list[str])
+intr
+z'tuple[tuple[KeySpec, CommandName], ...])
+Commandr
+assume_immutable_completions
+use_brackets
+sort_in_columnr:
+__classcell__)
+z#Enable or disable automatic historyN)
+boolr
+should_auto_add_history)
+_should_auto_add_historys
+indents
+   r>
+_get_this_line_indentr
+X1:X
+prevlinestart
+prevlinetextr
+     r>
+_get_previous_line_indentr
+rangere
+indented_line_start
+   r>
+last_chars
+   r>
+_should_auto_indentr
+NTrb
+isspace
+count)
+before_idx
+texts
+_newline_before_pos
+,maybe_accept.do.<locals>._newline_before_pos
+    )
+reader
+dirty
+in_bracketed_paste
+insert
+get_unicoderZ
+finishr
+paste_moder
+      @@r>
+maybe_accept.do
+can't backspace at start)
+repeatr
+       r>
+backspace_dedent.do>
+slotsc
+S.S/S
+S2S3S
+S,S 
+S;S!
+S<S"
+S=S#
+r S>S$
+r!S2S?S%
+r"S6S&
+r#S@S'
+r$S8S(
+r%S8S)
+r&SAS*
+r'S+r(g
+_ReadlineWrapperiV
+f_in
+f_outNF)
+default
+reprz
+ReadlineAlikeReader | Noner
+saved_history_length
+Callback | None
+startup_hook)
+default_factoryr
+dupr
+_ReadlineWrapper.__post_init___
+encoding)
+consolerC
+ENCODINGrA
+  r>
+get_reader
+_ReadlineWrapper.get_readere
+builtins.input
+builtins.input/result)
+raw_inputrf
+audit
+readliner
+promptr
+prompt_strrn
+     r>
+input
+_ReadlineWrapper.inputk
+Read an input on possibly multiple lines, asking for more
+lines as long as 'more_lines(unicodetext)' returns an object whose
+boolean value is true.
+ignore)
+actionNF)
+warnings
+catch_warningsr
+saveds
+      r>
+ _ReadlineWrapper.multiline_inputx
+strings
+  r>
+_ReadlineWrapper.parse_and_bind
+  r>
+_ReadlineWrapper.set_completer
+_ReadlineWrapper.get_completer
+delimiterss
+  r>
+%_ReadlineWrapper.set_completer_delims
+sortedrC
+%_ReadlineWrapper.get_completer_delims
+rstrip
+lines
+  r>
+_histline
+_ReadlineWrapper._histline
+#_ReadlineWrapper.get_history_length
+lengths
+  r>
+#_ReadlineWrapper.set_history_length
++_ReadlineWrapper.get_current_history_length
+_HiStOrY_V2_z
+unicode-escaper
+utf-8
+replace)
+errors
+openr
+path
+expanduserr
+startswith
+seek
+read
+split
+decode
+endswithrj
+filenamerv
+is_editliner
+linesrZ
+         r>
+"_ReadlineWrapper.read_history_file
+newlinez
+write)
+entrys
+      r>
+#_ReadlineWrapper.write_history_file
+_ReadlineWrapper.clear_history
+   r>
+!_ReadlineWrapper.get_history_item
+No history item at position %d)
+   r>
+$_ReadlineWrapper.remove_history_item
+    r>
+%_ReadlineWrapper.replace_history_item
+  r>
+_ReadlineWrapper.add_history
+  r>
+!_ReadlineWrapper.set_startup_hook
+ _ReadlineWrapper.get_line_buffer
+start
+cursor
+bufr
+     r>
+_get_idxs
+_ReadlineWrapper._get_idxs
+_ReadlineWrapper.get_begidx
+_ReadlineWrapper.get_endidx
+  r>
+_ReadlineWrapper.insert_text
+objectr
+MoreLinesCallabler
+Collection[str]r
+tuple[int, int])
+))r6
+readline.%s() not implemented
+stacklevel)
+warn)
+args
+kwdsr
+_names
+stub
+_make_stub.<locals>.stub(
+globals)
+_retrR
+`  r>
+_make_stubrV
+read_init_fileN)
+redisplayN)
+set_pre_input_hookNc
+stdin
+fileno
+stdout
+AttributeErrorr
+isatty
+_wrapperr
+dict
+RLCompleter
+completerC
+builtinsr
+namespacer
+    r>
+_setuprf
+Callable[[object], str] | Noner
+tuple[int, int | None])
+Mapping[str, Any]r
+__doc__
+__future__r
+dataclassesr
+siter
+rlcompleterr
+completing_readerr
+ConsoleTyper:
+name
+windows_consoler
+unix_consoler
+getdefaultencodingr
+collections.abcr
+typesr
+TYPE_CHECKING
+typingr
+__all__r0
+HistoricalReaderrA
+_get_readerrV
+<module>ry

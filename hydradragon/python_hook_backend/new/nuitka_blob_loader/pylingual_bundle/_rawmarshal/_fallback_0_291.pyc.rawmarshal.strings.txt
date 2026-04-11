@@ -1,0 +1,38 @@
+Find and load the module.r
+import of z
+ halted; None in sys.modulesr
+_NEEDS_LOADINGr
+    r
+_find_and_loadr
+Import and return the module based on its name, the package the call is
+being made from, and the level adjustment.
+This function represents the greatest common denominator of functionality
+between import_module and __import__. This includes setting __package__ if
+the loader did not.
+_gcd_importr
+   r
+recursivec
+Figure out what __import__ should return.
+The import_ parameter is a callable which takes the name of module to
+import. It is required to decouple the function from assuming importlib's
+import implementation is desired.
+.__all__z
+``from list''z
+Item in z
+ must be str, not 
+__all__Tr
+_handle_fromlistr
+fromlistr
+where
+from_name
+excs
+        r
+Calculate what __package__ should be.
+__package__ is not guaranteed to be defined or could be set to None
+to represent that its proper value is unknown.
+z __package__ != __spec__.parent (z
+ != r
+stacklevelzYcan't resolve package from __spec__ or __package__, falling back on __name__ and __path__r
+globalsr
+   r
+_calc___package__r

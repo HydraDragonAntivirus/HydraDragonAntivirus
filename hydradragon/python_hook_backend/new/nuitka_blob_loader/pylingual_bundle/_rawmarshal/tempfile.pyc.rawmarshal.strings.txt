@@ -1,0 +1,501 @@
+r)S.S
+r5S/S
+r6S0S
+S"S#.
+S%:w
+S&:X
+\;r>O
+Temporary files.
+This module provides generic, low- and high-level interfaces for
+creating temporary files and directories.  All of the interfaces
+provided by this module can be used without fear of race conditions
+except for 'mktemp'.  'mktemp' is subject to race conditions and
+should not be used; it is provided for backward compatibility only.
+The default path names are returned as str.  If you supply bytes as
+input, all return values will be in bytes.  Ex:
+    >>> tempfile.mkstemp()
+    (4, '/tmp/tmptpu9nin8')
+    >>> tempfile.mkdtemp(suffix=b'')
+    b'/tmp/tmppbi8f0hy'
+This module also provides some data items to the user:
+  TMP_MAX  - maximum number of names that will be tried before
+             giving up.
+  tempdir  - If this is set to a string before the first use of
+             any routine from this module, it will be considered as
+             another candidate location to store temporary files.
+NamedTemporaryFile
+TemporaryFile
+SpooledTemporaryFile
+TemporaryDirectory
+mkstemp
+mkdtemp
+mktemp
+TMP_MAX
+gettempprefix
+tempdir
+gettempdir
+gettempprefixb
+gettempdirb
+Random
+O_NOFOLLOW
+O_BINARYr
+tmpc
+NTF)
+lstat
+OSError)
+tempfile.py
+_existsr
+zBLook at the type of all args and divine their implied return type.Nz1Can't mix bytes and non-bytes in path components.)
+isinstancer
+PathLike
+fspath
+bytes
+TypeErrorr
+args
+return_type
+args
+   r
+_infer_return_typer%
+z9Common parameter processing for most APIs in this module.)
+templater
+fsencoder
+prefix
+suffix
+output_types
+    r
+_sanitize_paramsr.
+_RandomNameSequence
+An instance of _RandomNameSequence generates an endless
+sequence of unpredictable strings which can safely be incorporated
+into file names.  Each string is eight characters long.  Multiple
+threads can safely use the same instance at the same time.
+_RandomNameSequence is an iterator.
+%abcdefghijklmnopqrstuvwxyz0123456789_c
+_rng_pid)
+getpid
+getattr
+_Random
+_rngr4
+self
+cur_pids
+_RandomNameSequence.rng
+__iter__
+_RandomNameSequence.__iter__
+joinr;
+choices
+charactersr@
+__next__
+_RandomNameSequence.__next__
+__name__
+__module__
+__qualname__
+__firstlineno__
+__doc__rI
+propertyr;
+__static_attributes__r?
+zWGenerate a list of candidate temporary directories which
+_get_default_tempdir will try.)
+TMPDIR
+TEMP
+~\AppData\Local\Tempz
+%SYSTEMROOT%\Tempz
+c:\tempz
+c:\tmpz
+\tempz
+\tmp)
+/tmpz
+/var/tmpz
+/usr/tmp)
+getenv
+append
+name
+extend
+path
+expanduser
+expandvars
+getcwd
+AttributeErrorr
+curdir)
+dirlist
+envname
+dirnames
+   r
+_candidate_tempdir_listre
+Calculate the default directory to use for temporary files.
+This routine should be called exactly once.
+We determine whether or not a candidate temp dir is usable by
+trying to create and write to a file in that directory.  If this
+is successful, the test file is deleted.  To prevent denial of
+service, the name of the test file must be randomized.
+blatrW
+z)No usable temporary directory found in %s)
+abspath
+range
+nextrG
+open
+_bin_openflags
+write
+close
+unlink
+FileExistsError
+PermissionErrorrZ
+isdir
+access
+W_OKr
+FileNotFoundError
+_errno
+ENOENT)
+namerr,
+seqrZ
+filename
+       r
+_get_default_tempdirr}
+z7Common setup sequence for all user-callable interfaces.)
+_name_sequence
+_once_lock
+acquirer0
+releaser?
+_get_candidate_namesr
+z>Code common to mkstemp, TemporaryFile, and NamedTemporaryFile.z
+tempfile.mkstemprh
+z#No usable temporary file name found)
+mapr)
+_sys
+auditrl
+EEXIST)
+flagsr-
+namesrz
+filer|
+          r
+_mkstemp_innerr
+,A+E
+follow_symlinksF)
+supports_follow_symlinksr\
+islink)
+funcr\
+   r
+_dont_follow_symlinksr
+chflagsr
+chmod)
+_resetpermsr
+z7The default prefix for temporary directories as string.)
+fsdecoder(
+z6The default prefix for temporary directories as bytes.)
+z&Private accessor for tempfile.tempdir.)
+_gettempdirr
+z Returns tempfile.tempdir as str.)
+z"Returns tempfile.tempdir as bytes.)
+User-callable function to create and return a unique temporary
+file.  The return value is a pair (fd, name) where fd is the
+file descriptor returned by os.open, and name is the filename.
+If 'suffix' is not None, the file name will end with that suffix,
+otherwise there will be no suffix.
+If 'prefix' is not None, the file name will begin with that prefix,
+otherwise a default prefix is used.
+If 'dir' is not None, the file will be created in that directory,
+otherwise a default directory is used.
+If 'text' is specified and true, the file is opened in text
+mode.  Else (the default) the file is opened in binary mode.
+If any of 'suffix', 'prefix' and 'dir' are not None, they must be the
+same type.  If they are bytes, the returned name will be bytes; str
+otherwise.
+The file is readable and writable only by the creating user ID.
+If the operating system uses permission bits to indicate whether a
+file is executable, the file is executable by no one. The file
+descriptor is not inherited by children of this process.
+Caller is responsible for deleting the file when done with it.
+_text_openflagsrm
+textr-
+      r
+User-callable function to create and return a unique temporary
+directory.  The return value is the pathname of the directory.
+Arguments are as for mkstemp, except that the 'text' argument is
+not accepted.
+The directory is readable, writable, and searchable only by the
+creating user.
+Caller is responsible for deleting the directory when done with it.
+tempfile.mkdtempr
+z(No usable temporary directory name found)
+mkdirrq
+        r
+8A+E)
+User-callable function to return a unique temporary file name.  The
+file is not created.
+Arguments are similar to mkstemp, except that the 'text' argument is
+not accepted, and suffix=None, prefix=None and bytes file names are not
+supported.
+THIS FUNCTION IS UNSAFE AND SHOULD NOT BE USED.  The file name may
+refer to a file that did not exist at some point, but by the time
+you get around to creating it, someone else may have beaten you to
+the punch.
+z"No usable temporary filename found)
+       r
+_TemporaryFileCloseri
+A separate object allowing proper closing of a temporary file's
+underlying file object, without adding a __del__ method to the
+temporary file.Fc
+delete
+delete_on_close
+     r
+__init__
+_TemporaryFileCloser.__init__
+cleanup_called
+close_calledr
+windowsrp
+   r
+cleanup
+_TemporaryFileCloser.cleanup
+_TemporaryFileCloser.close
+*6B 
+__del__
+_TemporaryFileCloser.__del__
+_TemporaryFileWrapperi
+Temporary file wrapper
+This class provides a wrapper around files opened for
+temporary use.  In particular, it seeks to automatically
+remove the file when it is no longer needed.
+_closerr
+     r
+_TemporaryFileWrapper.__init__
+__call__c
+kwargsr
+func_wrapper
+7_TemporaryFileWrapper.__getattr__.<locals>.func_wrapper
+__dict__r6
+hasattr
+_functools
+wrapsr
+setattr)
+     @r
+__getattr__
+!_TemporaryFileWrapper.__getattr__
+__enter__r@
+_TemporaryFileWrapper.__enter__
+__exit__r
+value
+results
+     r
+_TemporaryFileWrapper.__exit__
+Close the temporary file, possibly deleting it.
+_TemporaryFileWrapper.close
+lines
+_TemporaryFileWrapper.__iter__
+errorsr
+Create and return a temporary file.
+Arguments:
+'prefix', 'suffix', 'dir' -- as for mkstemp.
+'mode' -- the mode argument to io.open (default "w+b").
+'buffering' -- the buffer size argument to io.open (default -1).
+'encoding' -- the encoding argument to io.open (default None)
+'newline' -- the newline argument to io.open (default None)
+'delete' -- whether the file is automatically deleted (default True).
+'delete_on_close' -- if 'delete', whether the file is deleted on close
+   (default True) or otherwise either on context manager exit
+   (if context manager was used) or on object finalization. .
+'errors' -- the errors argument to io.open (default None)
+The file is created as mkstemp() would do it.
+Returns an object with a file-like interface; the name of the file
+is accessible as its 'name' attribute.  The file will be automatically
+deleted when it is closed unless the 'delete' argument is set to False.
+On POSIX, NamedTemporaryFiles cannot be automatically deleted if
+the creating process is terminated abruptly with a SIGKILL signal.
+Windows can delete the file even in this case.
+opener
+"NamedTemporaryFile.<locals>.openerB
+buffering
+newline
+encodingr
+buffer
+raw)
+O_TEMPORARY
+text_encodingrl
+moder
+    ```      @@@r
+posix
+cygwin
+O_TMPFILE
+X2XxS
+Create and return a temporary file.
+Arguments:
+'prefix', 'suffix', 'dir' -- as for mkstemp.
+'mode' -- the mode argument to io.open (default "w+b").
+'buffering' -- the buffer size argument to io.open (default -1).
+'encoding' -- the encoding argument to io.open (default None)
+'newline' -- the newline argument to io.open (default None)
+'errors' -- the errors argument to io.open (default None)
+The file is created as mkstemp() would do it.
+Returns an object with a file-like interface.  The file has no
+name, and will cease to exist when it is closed.
+O_CREATrl
+flags2r,
+TemporaryFile.<locals>.opener}
+BaseExceptionro
+_O_TMPFILE_WORKSrl
+IsADirectoryErrorr
+    ```    @@@r
+r$S 
+r%S(S!
+r&S"
+r'S#
+r(S$
+r)S%
+r*S&r+g
+Temporary file wrapper, specialized to switch from BytesIO
+or StringIO to a real file when it exceeds a certain size or
+when a fileno is needed.
+X#XgXEX
+BytesIO
+_filer
+TextIOWrapper
+_max_size
+_rolled
+_TemporaryFileArgs)
+max_sizer
+          r
+SpooledTemporaryFile.__init__
+tell
+rollover)
+   r
+_check
+SpooledTemporaryFile._check
+detach
+getvalue
+seek)
+newfile
+poss
+    r
+SpooledTemporaryFile.rollover
+Nz%Cannot enter context with closed file)
+closed
+ValueErrorr@
+SpooledTemporaryFile.__enter__
+    r
+SpooledTemporaryFile.__exit__
+SpooledTemporaryFile.__iter__
+Unclosed file {!r}
+stacklevel
+source)
+_warnings
+warn
+format
+ResourceWarningro
+SpooledTemporaryFile.__del__
+SpooledTemporaryFile.close
+SpooledTemporaryFile.closed
+SpooledTemporaryFile.encoding
+SpooledTemporaryFile.errors
+filenor@
+SpooledTemporaryFile.fileno
+flushr@
+SpooledTemporaryFile.flush
+isattyr@
+SpooledTemporaryFile.isatty
+SpooledTemporaryFile.mode
+SpooledTemporaryFile.name
+newlinesr@
+SpooledTemporaryFile.newlines 
+readabler@
+SpooledTemporaryFile.readable$
+read
+SpooledTemporaryFile.read'
+read1rK
+SpooledTemporaryFile.read1*
+readinto
+SpooledTemporaryFile.readinto-
+readinto1rS
+SpooledTemporaryFile.readinto10
+readlinerK
+SpooledTemporaryFile.readline3
+readlinesrK
+SpooledTemporaryFile.readlines6
+seekabler@
+SpooledTemporaryFile.seekable9
+SpooledTemporaryFile.seek<
+SpooledTemporaryFile.tell?
+truncater
+sizes
+SpooledTemporaryFile.truncateB
+writabler@
+SpooledTemporaryFile.writableJ
+    r
+SpooledTemporaryFile.writeM
+writelines
+iterrn
+iterable
+    r
+SpooledTemporaryFile.writelinesS
+SpooledTemporaryFile.detach]
+NNNNNr>
+),rL
+classmethod
+_types
+GenericAlias
+__class_getitem__r
+Create and return a temporary directory.  This has the same
+behavior as mkdtemp but can be used as a context manager.  For
+example:
+    with TemporaryDirectory() as tmpdir:
+        ...
+Upon exiting the context, the directory and everything contained
+in it are removed (unless delete=False is passed or an exception
+is raised during cleanup and ignore_cleanup_errors is not True).
+Optional Arguments:
+    suffix - A str suffix for the directory name.  (see mkdtemp)
+    prefix - A str prefix for the directory name.  (see mkdtemp)
+    dir - A directory to create this temp dir in.  (see mkdtemp)
+    ignore_cleanup_errors - False; ignore exceptions during cleanup?
+    delete - True; whether the directory is automatically deleted.
+Implicitly cleaning up {!r})
+warn_message
+ignore_errorsr
+_ignore_cleanup_errors
+_delete
+_weakref
+finalize
+_cleanupr(
+_finalizer)
+ignore_cleanup_errorsr
+      r
+TemporaryDirectory.__init__u
+repeated)
+_rmtreers
+isjunctionrv
+clsr
+onexc
+)TemporaryDirectory._rmtree.<locals>.onexc
+_shutil
+rmtree)
+```` r
+TemporaryDirectory._rmtree
+     r
+TemporaryDirectory._cleanup
+<{} {!r}>)
+__class__rL
+__repr__
+TemporaryDirectory.__repr__
+TemporaryDirectory.__enter__
+    r
+TemporaryDirectory.__exit__
+existsrZ
+TemporaryDirectory.cleanup
+NNNF)
+NNN)
+NNNNNT)
+NNNNN)CrP
+__all__
+functoolsr
+warningsr&
+shutilr
+errnorw
+randomr
+sysr
+typesr{
+weakrefr
+_thread
+allocate_lock
+_allocate_lock
+O_RDWRr
+O_EXCLr
+platformr
+IOBaser
+<module>r

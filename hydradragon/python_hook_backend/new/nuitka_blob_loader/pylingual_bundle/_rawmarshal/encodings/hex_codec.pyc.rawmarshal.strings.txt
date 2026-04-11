@@ -1,0 +1,48 @@
+Python 'hex_codec' Codec - 2-digit hex content transfer encoding.
+This codec de/encodes from bytes to bytes.
+Written by Marc-Andre Lemburg (mal@lemburg.com).
+strict)
+binascii
+b2a_hex
+input
+errorss
+encodings\hex_codec.py
+hex_encoder
+a2b_hexr
+hex_decoder
+Codec
+selfr
+   r
+encode
+Codec.encode
+   r
+decode
+Codec.decode
+__name__
+__module__
+__qualname__
+__firstlineno__r
+__static_attributes__r 
+IncrementalEncoder
+finals
+   r
+IncrementalEncoder.encode
+IncrementalDecoder
+   r
+IncrementalDecoder.decode!
+StreamWriter
+bytes
+charbuffertyper&
+StreamReader
+hexF)
+namer
+incrementalencoder
+incrementaldecoder
+streamwriter
+streamreader
+_is_text_encoding)
+codecs
+CodecInfor
+getregentryrJ
+__doc__rH
+<module>rL

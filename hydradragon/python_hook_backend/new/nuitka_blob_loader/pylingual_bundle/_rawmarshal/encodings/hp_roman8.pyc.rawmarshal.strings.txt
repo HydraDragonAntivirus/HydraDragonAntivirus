@@ -1,0 +1,47 @@
+Python Character Mapping Codec generated from 'hp_roman8.txt' with gencodec.py.
+Based on data from ftp://dkuug.dk/i18n/charmaps/HP-ROMAN8 (Keld Simonsen)
+Original source: LaserJet IIP Printer User's Manual HP part no
+33471-90901, Hewlet-Packard, June 1989.
+(Used with permission)
+Codec
+codecs
+charmap_encode
+encoding_table
+self
+input
+errorss
+encodings\hp_roman8.py
+encode
+Codec.encode
+charmap_decode
+decoding_tabler
+   r
+decode
+Codec.decode
+strict)
+__name__
+__module__
+__qualname__
+__firstlineno__r
+__static_attributes__r
+IncrementalEncoder
+finals
+   r
+IncrementalEncoder.encode
+IncrementalDecoder
+   r
+IncrementalDecoder.decode
+StreamWriter
+StreamReader
+hp-roman8)
+namer
+incrementalencoder
+incrementaldecoder
+streamwriter
+streamreader)
+CodecInfor
+getregentryr?
+ !"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\]^_`abcdefghijklmnopqrstuvwxyz{|}~
+__doc__r
+charmap_buildr
+<module>rB

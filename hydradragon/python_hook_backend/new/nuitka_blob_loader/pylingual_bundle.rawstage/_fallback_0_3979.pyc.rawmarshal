@@ -1,1 +1,0 @@
-ECREF(capi_#varname#_as_array); }z,        Py_XDECREF(capi_#varname#

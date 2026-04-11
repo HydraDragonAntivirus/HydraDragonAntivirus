@@ -1,0 +1,990 @@
+rBS rCS!rDS"rES#rFS
+rIS$rJS%rKS&rLS'rMS(rN\
+r[S)r\S*r]\
+r^S+r_S,r`\
+rkS-rl
+S/\m5
+rnS0
+roS1
+rpS2
+rqS3
+rrS4
+quS7
+rvS8
+S#SF_
+SGSH_
+SISJ_
+SKSL_
+rzSM
+r{S^SN
+r|SO
+S^S\
+)_zP
+Read and write ZIP files.
+XXX references to utf-8 need further investigation.
+BadZipFile
+BadZipfile
+error
+ZIP_STORED
+ZIP_DEFLATED
+ZIP_BZIP2
+ZIP_LZMA
+is_zipfile
+ZipInfo
+ZipFile
+PyZipFile
+LargeZipFile
+Pathc
+__name__
+__module__
+__qualname__
+__firstlineno__
+__static_attributes__r
+zipfile.pyr
+Raised when writing a zipfile, the zipfile requires ZIP64 extensions
+and those extensions are disabled.
+__doc__r
+<4s4H2LHs
+<4s4B4HL2L5H2Ls
+<4s2B4HL2L2Hs
+<4sLQLs
+<4sQ2H2L4Qs
+_Extra
+<HHc
+super
+__new__)
+__class__s
+_Extra.__new__
+selfr?
+   r
+__init__
+_Extra.__init__
+FIELD_STRUCT
+unpack
+structr
+xlens
+    r
+read_one
+_Extra.read_one
+memoryviewr7
+data
+rest
+extras
+    r
+split
+_Extra.split
+z'Remove Extra fields with specified IDs.r
+xidss
+<genexpr>
+_Extra.strip.<locals>.<genexpr>
+joinrV
+  `r
+strip
+_Extra.strip
+StructrI
+classmethodrO
+__classcell__
+NTF)
+_EndRecData
+OSError
+_check_zipfilerk
+Quickly see if a file is a ZIP file by checking the magic number.
+The filename argument may be a file or file-like object too.
+readri
+rbN)
+hasattrrk
+openrh
+filename
+resultrj
+   r
+pEpgU
+Xa:w
+Read the ZIP64 end-of-archive records and use that to update endrec
+Unknown I/O errorr%
+z3zipfiles that span multiple disks are not supportedz.Corrupt zip64 end of central directory locatorz/Zip64 end of central directory record not foundr
+z-Corrupt zip64 end of central directory record)
+sizeEndCentDir64Locator
+seekrm
+lenrh
+structEndArchive64Locator
+stringEndArchive64Locatorr
+sizeEndCentDir64
+startswith
+stringEndArchive64
+structEndArchive64
+_ECD_SIGNATURE
+_ECD_DISK_NUMBER
+_ECD_DISK_START
+_ECD_ENTRIES_THIS_DISK
+_ECD_ENTRIES_TOTAL
+_ECD_SIZE
+_ECD_OFFSET
+_ECD_LOCATION)
+fpin
+offset
+endrecrS
+diskno
+reloff
+disks
+extrasz
+create_version
+read_version
+disk_num
+disk_dir
+dircount
+dircount2
+dirsize
+diroffsets
+                  r
+_EndRecData64r
+Return data from the "End of Central Directory" record, or None.
+The data is a list of the nine items in the ZIP "End of central dir"
+record followed by a tenth item, the file seek offset of this record.r
+tell
+sizeEndCentDirrh
+stringEndArchiverK
+structEndArchive
+list
+appendr
+ZIP_MAX_COMMENT
+rfind
+_ECD_COMMENT_SIZE)
+filesizerS
+maxCommentStart
+start
+recData
+commentSize
+comments
+         r
+zvTerminate the file name at the first null byte and
+ensure paths always use forward slashes as the directory separator.r
+find
+replace
+altsep)
+null_bytes
+_sanitize_filenamer
+z>Class with attributes describing each file in the ZIP archive.)
+orig_filenamerq
+date_time
+compress_type
+compress_levelr
+create_systemr
+extract_version
+reserved
+flag_bits
+volume
+internal_attr
+external_attr
+header_offset
+compress_size
+file_size
+_raw_time
+_end_offsetc
+z+ZIP does not support timestamps before 1980r
+win32r'
+ValueErrorr
+platformr
+DEFAULT_VERSIONr
+   r
+ZipInfo.__init__
+_compresslevel
+ZipInfo._compresslevel
+values
+ filename=
+ compress_type=%sr1
+ filemode=%rz
+ external_attr=%#xz
+ file_size=%rz
+ compress_size=%r
+compressor_names
+getr
+stat
+filemode
+is_dirr
+isdirs
+     r
+__repr__
+ZipInfo.__repr__
+pgO$U
+Xg[1
+Return the per-file header as a bytes object.
+When the optional zip64 arg is None rather than a bool, we will
+decide based upon the file_size and compress_size, if known,
+False otherwise.
+<HHQQ
+_MASK_USE_DATA_DESCRIPTORr
+ZIP64_LIMITrK
+pack
+calcsize
+ZIP64_VERSIONr
+BZIP2_VERSIONr
+LZMA_VERSIONr
+_encodeFilenameFlags
+structFileHeader
+stringFileHeaderr
+zip64
+dosdate
+dostimer
+min_version
+fmtrq
+headers
+              r
+FileHeader
+ZipInfo.FileHeader
+ascii
+utf-8)
+encoder
+UnicodeEncodeError
+_MASK_UTF_FILENAMEr
+ZipInfo._encodeFilenameFlags
+z"Corrupt extra field %04x (size=%d)r%
+File sizez
+Compress sizez
+Header offsetz
+Corrupt zip64 extra field. z
+ not found.iup
+<BLr)
+z'Empty unicode path extra field (0x7075)r&
+stacklevelz)Corrupt unicode path extra field (0x7075)z>Corrupt unicode path extra field (0x7075): invalid utf-8 bytes)
+decoder
+warnings
+warn
+UnicodeDecodeError)
+filename_crcrU
+lnrS
+field
+up_version
+up_name_crc
+up_unicode_namer
+             r
+_decodeExtra
+ZipInfo._decodeExtra
++A9E(
+strict_timestampsc
+Construct an appropriate ZipInfo for a file on the filesystem.
+filename should be the path to a file or directory on the filesystem.
+arcname is the name which it will have within the archive (by default,
+this will be the same as filename, but without a drive letter and with
+leading path separators removed).
+isinstancer
+PathLike
+fspathr
+S_ISDIR
+st_mode
+time
+localtime
+st_mtime
+path
+normpath
+splitdriver
+st_size)
+arcnamer
+mtimer
+zinfos
+         r
+from_file
+ZipInfo.from_fileH
+z2Return True if this archive member is a directory.r
+endswithr
+ZipInfo.is_dirn
+NoNamer
+__slots__rF
+propertyr
+setterr
+range)
+_gen_crcr5
+NixV4
+gE#i
+z(Compute the CRC32 primitive on one byte.r
+chr3
+crctables
+crc32
+_ZipDecrypter.<locals>.crc32
+key0
+key1
+key2s
+update_keys
+"_ZipDecrypter.<locals>.update_keys
+Decrypt a bytes object.r&
+bytearrayr
+bytes)
+     
+decrypter
+ _ZipDecrypter.<locals>.decrypter
+_crctabler
+mapr5
+   @@@@@@r
+_ZipDecrypterrP
+LZMACompressori
+_compr
+LZMACompressor.__init__
+filtersz
+<BBHr,
+lzma
+_encode_filter_properties
+FILTER_LZMA1rR
+FORMAT_RAW
+_decode_filter_propertiesrU
+propss
+_init
+LZMACompressor._init
+compress
+LZMACompressor.compress
+flushr
+LZMACompressor.flush
+LZMADecompressori
+_decomp
+_unconsumed
+eofr
+LZMADecompressor.__init__
+<Hr&
+decompressro
+psizerr
+    r
+LZMADecompressor.decompress
+store
+shrink
+reduce
+implode
+tokenize
+deflate
+deflate64
+bzip2rZ
+terse
+lz77
+wavpack
+ppmdc
+Nz.Compression requires the (missing) zlib modulez-Compression requires the (missing) bz2 modulez.Compression requires the (missing) lzma modulez(That compression method is not supported)
+zlib
+RuntimeErrorr
+bz2r
+NotImplementedError)
+compressions
+_check_compressionr
+compressobj
+DEFLATED
+Z_DEFAULT_COMPRESSIONr
+BZ2Compressorr
+compresslevels
+_get_compressorr
+compression type %d (%s)z
+compression type %d)
+decompressobjr
+BZ2Decompressorr
+descrs
+_get_decompressorr
+_SharedFilei2
+_file
+_pos
+_close
+_lock
+_writing
+seekable)
+file
+close
+lock
+writings
+      r
+_SharedFile.__init__3
+_SharedFile.tell;
+Nz}Can't reposition in the ZIP file while there is an open writing handle on it. Close the writing handle before trying to read.)
+SEEK_CURr
+whences
+   r
+_SharedFile.seek>
+B#B:
+yCan't read from the ZIP file while there is an open writing handle on it. Close the writing handle before trying to read.)
+   r
+_SharedFile.readK
+fileobjs
+_SharedFile.closeV
+_Tellablei]
+_Tellable.__init__^
+writer
+   r
+_Tellable.writeb
+_Tellable.tellg
+_Tellable.flushj
+_Tellable.closem
+ZipExtFileiq
+zOFile-like object for reading an archive member.
+Is returned by ZipFile.open().
+Xv:w
+Bad password for file %r)'
+_fileobj
+_pwd
+_close_fileobjr
+_compress_typer
+_compress_leftr
+_leftr
+_decompressor
+_eof
+_readbuffer
+_offset
+newlines
+moderq
+namero
+_expected_crcr<
+_running_crc
+_seekabler
+_orig_compress_start
+_orig_compress_size
+_orig_file_size
+_orig_start_crc
+_orig_crc
+AttributeError
+_decrypterr
+_init_decrypterr
+zipinforN
+close_fileobj
+check_byte
+        r
+ZipExtFile.__init__
+ZipExtFile._init_decrypter
+ name=r
+ [closed]r
+closedr
+ZipExtFile.__repr__
+zbRead and return a line from the stream.
+If limit is specified, at most limit bytes will be read.
+BufferedIOBase
+readline)
+limit
+lines
+    r
+ZipExtFile.readline
+z6Returns buffered bytes without advancing the position.Nr
+chunks
+   r
+peek
+ZipExtFile.peek
+I/O operation on closed file.T)
+readable
+ZipExtFile.readable
+z~Read and return up to n bytes.
+If the argument is omitted, None, or negative, data is read and returned until EOF is reached.
+read from closed file.Nr
+_read1
+MAX_Nrv
+endrS
+     r
+ZipExtFile.read
+Bad CRC-32 for file %r)
+newdatas
+_update_crc
+ZipExtFile._update_crc
+z7Read up to n bytes with at most one read() system call.Nr
+     r
+read1
+ZipExtFile.read1
+unconsumed_tailrv
+_read2r
+MIN_READ_SIZErr
+   r
+ZipExtFile._read1@
+minr
+EOFErrorr
+   r
+ZipExtFile._read2d
+ZipExtFile.closet
+ZipExtFile.seekable{
+seek on closed file.
+!underlying stream is not seekablezCwhence must be os.SEEK_SET (0), os.SEEK_CUR (1), or os.SEEK_END (2)r
+F)"r
+UnsupportedOperationr
+SEEK_SETr
+SEEK_ENDr
+MAX_SEEK_READrm
+curr_pos
+new_pos
+read_offset
+buff_offset
+read_lens
+        r
+ZipExtFile.seek
+tell on closed file.r
+fileposs
+ZipExtFile.tell
+_ZipWriteFilei
+_zinfo
+_zip64
+_zipfiler
+_compressor
+_file_size
+_compress_size
+_crc)
+zfr'
+    r
+_ZipWriteFile.__init__
+_ZipWriteFile._fileobj
+_ZipWriteFile.name
+_ZipWriteFile.mode
+writable
+_ZipWriteFile.writable
+nbytesr3
+   r
+_ZipWriteFile.write
+Nz*File size too large, try using force_zip64z0Compressed size too large, try using force_zip64z
+<LLQQz
+<LLLLF)"r
+_DD_SIGNATUREr
+start_dirru
+filelistr
+NameToInforq
+_ZipWriteFile.close
+r S+S 
+r!S!
+r"S"
+r#S#
+r$S$
+r%S%r&g
+Class with methods to open, read, write, close, list zip files.
+z = ZipFile(file, mode="r", compression=ZIP_STORED, allowZip64=True,
+            compresslevel=None)
+file: Either the path to the file, or a file-like object.
+      If it is a path, the file will be opened and closed by ZipFile.
+mode: The mode can be either read 'r', write 'w', exclusive create 'x',
+      or append 'a'.
+compression: ZIP_STORED (no compression), ZIP_DEFLATED (requires zlib),
+             ZIP_BZIP2 (requires bz2) or ZIP_LZMA (requires lzma).
+allowZip64: if True ZipFile will create files with ZIP64 extensions when
+            needed, otherwise it will raise an exception when this would
+            be necessary.
+compresslevel: None (default for the given compression type) or an integer
+               specifying the level to pass to the compressor.
+               When using ZIP_STORED or ZIP_LZMA this keyword has no effect.
+               When using ZIP_DEFLATED integers 0 through 9 are accepted.
+               When using ZIP_BZIP2 integers 1 through 9 are accepted.
+metadata_encodingc
+zUOpen the ZIP file with mode read 'r', write 'w', exclusive create 'x',
+or append 'a'.)
+az+ZipFile requires mode 'r', 'w', 'x', or 'a'Fr
+z5metadata_encoding is only supported for reading filesrn
+r+br=
+z"Mode must be 'r', 'w', 'x', or 'a')(r
+_allowZip64
+_didModify
+debugrI
+_comment
+_strict_timestampsrM
+_filePassedrq
+getattr
+_fileRefCnt
+threading
+RLockr
+_RealGetContentsr
+_fpclose)
+allowZip64r
+modeDictr
+           r
+ZipFile.__init__@
+$%H.
+__enter__
+ZipFile.__enter__
+typer
+tracebacks
+    r
+__exit__
+ZipFile.__exit__
+ file=%rz
+ filename=%rz
+ mode=%rr
+ZipFile.__repr__
+z/Read in the table of contents for the ZIP file.z
+File is not a zip filer%
+given, inferred, offsetr
+z Bad offset for central directoryz
+Truncated central directoryz&Bad magic number for central directoryr
+cp437r
+zip file version %.1fr-
+totalc
+<lambda>
+*ZipFile._RealGetContents.<locals>.<lambda>
+keyN)<rj
+printr
+_ECD_COMMENTrY
+BytesIO
+sizeCentralDirrv
+structCentralDir
+_CD_SIGNATURE
+stringCentralDir
+_CD_FILENAME_LENGTHr<
+_CD_FLAG_BITSr
+_CD_EXTRA_FIELD_LENGTHrU
+_CD_COMMENT_LENGTHr
+_CD_LOCAL_HEADER_OFFSETr
+MAX_EXTRACT_VERSIONr
+reversed
+sortedr
+size_cd
+offset_cd
+concat
+inferredrS
+centdirrq
+orig_filename_crc
+flagsrP
+end_offsetr'
+                  r
+ZipFile._RealGetContents
+z+Return a list of file names in the archive.)
+namelist
+ZipFile.namelist
+zBReturn a list of class ZipInfo instances for files in the
+archive.)
+infolist
+ZipFile.infolist
+z+Print a table of contents for the zip file.z
+%-46s %19s %12s)
+File Namez
+Modified    
+Size
+%d-%02d-%02d %02d:%02d:%02dNr*
+%-46s %s %12d)
+dates
+    r
+printdir
+ZipFile.printdir
+Read all the files and check the CRC.
+Return None if all files could be read successfully, or the name
+of the offending file otherwise.i
+chunk_sizer'
+    r
+testzip
+ZipFile.testzip
+z,Return the instance of ZipInfo given 'name'.z(There is no item named %r in the archive)
+KeyError)
+infos
+   r
+getinfo
+ZipFile.getinfo(
+z)Set default password for encrypted files.
+pwd: expected bytes, got %sN)
+TypeErrorrk
+setpassword
+ZipFile.setpassword1
+z.The comment text associated with the ZIP file.)
+ZipFile.comment:
+comment: expected bytes, got %sr
+z3Archive comment is too long; truncating to %d bytesr&
+   r
+zMReturn file bytes for name. 'pwd' is the password to decrypt
+encrypted files.rL
+    r
+ZipFile.readL
+force_zip64c
+Return file-like object for 'name'.
+name is a string for the file name within the ZIP file, or a ZipInfo
+object.
+mode should be 'r' to read a file already in the ZIP file, or 'w' to
+write to a file newly added to the archive.
+pwd is the password to decrypt files (only used for reading).
+When writing, if the file size is not known in advance but may exceed
+2 GiB, pass force_zip64 to use the ZIP64 format, which can handle large
+files.  If the size is known in advance, it is best to pass a ZipInfo
+instance for name, with zinfo.file_size set.
+open() requires mode "r" or "w"rO
+z'pwd is only supported for reading filesz2Attempt to use ZIP archive that was already closedr
+ZipFile.open.<locals>.<lambda>
+Truncated file headerz Bad magic number for file header)
+z$compressed patched data (flag bit 5)z
+strong encryption (flag bit 6)r
+File name in directory z
+ and header z
+ differ.Nr
+Overlapped entries: z
+ (possible zip bomb))
+skip_file_prefixesr
+z6File %r is encrypted, password required for extraction
+bT)7r
+_open_to_writer
+sizeFileHeaderrv
+_FH_SIGNATUREr
+_FH_FILENAME_LENGTH
+_FH_EXTRA_FIELD_LENGTHru
+_MASK_COMPRESSED_PATCHr
+_MASK_STRONG_ENCRYPTION
+_FH_GENERAL_PURPOSE_FLAG_BITSr
+dirname
+__file__
+_MASK_ENCRYPTEDrN
+zef_file
+fheader
+fname
+fname_strr
+is_encrypteds
+`           r
+ZipFile.openR
+&J(O
+NzHforce_zip64 is True, but allowZip64 was False when opening the ZIP file.zzCan't write to the ZIP file while there is another write handle open on it. Close the first handle before opening another.r
+?z'Filesize would require ZIP64 extensionsT)
+_MASK_COMPRESS_OPTION_1r
+_writecheckrW
+    r
+ZipFile._open_to_write
+Extract a member from the archive to the current working directory,
+using its full name. Its file information is extracted as accurately
+as possible. `member' may be a filename or a ZipInfo object. You can
+specify a different directory using `path'. You can specify the
+password to decrypt the file using 'pwd'.
+getcwdr
+_extract_member)
+memberr 
+    r
+extract
+ZipFile.extract
+Extract all members from the archive to the current working
+directory. `path' specifies a different directory to extract to.
+`members' is optional and must be a subset of the list returned
+by namelist(). You can specify the password to decrypt all files
+using 'pwd'.
+membersrN
+     r
+extractall
+ZipFile.extractall
+z;Replace bad characters and remove trailing dots from parts.z
+:<>|"?*
+ .N)
+rstrip
+1ZipFile._sanitize_windows_name.<locals>.<genexpr>
+!_windows_illegal_name_trans_tabler[
+maketransrv
+translaterV
+pathsep
+table
+illegals
+     r
+_sanitize_windows_name
+ZipFile._sanitize_windows_name
+zOExtract the ZipInfo object 'member' to a physical
+file on the path targetpath.
+invalid_path_partss
+*ZipFile._extract_member.<locals>.<genexpr>+
+Empty filename.T)
+exist_ok)
+curdir
+pardirr_
+exists
+makedirsr
+mkdir
+FileExistsErrorrp
+shutil
+copyfileobj)
+targetpathrN
+upperdirs
+source
+targetr
+        @r
+ZipFile._extract_member
+z6Check for errors before writing a file to the archive.r
+Duplicate name: %rr'
+z&write() requires mode 'w', 'x', or 'a'z4Attempt to write ZIP archive that was already closed
+Files count
+Filesizez
+Zipfile size
+ would require ZIP64 extensions)
+ZIP_FILECOUNT_LIMITr
+requires_zip64s
+    r
+ZipFile._writecheckK
+zDPut the bytes from filename into the archive under the name
+arcname.
+7Attempt to write to ZIP archive that was already closedz>Can't write to ZIP archive while an open writing handle existsr
+dests
+        r
+ZipFile.writeb
+Write a file into the archive.  The contents is 'data', which
+may be either a 'str' or a 'bytes' instance; if it is a 'str',
+it is encoded as UTF-8 first.
+'zinfo_or_arcname' is either a ZipInfo instance or
+the name of the file in the archive.r
+z?Can't write to ZIP archive while an open writing handle exists.rO
+zinfo_or_arcnamerS
+       r
+writestr
+ZipFile.writestr
+X0R4
+z+Creates a directory inside the zip archive.z/The given ZipInfo does not describe a directoryr
+Expected type str or ZipInfoTFN)
+zinfo_or_directory_namer
+directory_names
+     r
+ZipFile.mkdir
+z2Call the "close()" method in case the user forgot.Nrj
+__del__
+ZipFile.__del__
+zGClose the file, and for mode 'w', 'x' and 'a' write the ending
+records.NzvCan't close the ZIP file while there is an open writing handle on it. Close the writing handle before closing the zip.r
+_write_end_recordrb
+ZipFile.close
+Central directory offsetz
+Central directory sizer
+)2rH
+truncaterg
+extra_datar
+pos2
+centDirCount
+centDirSize
+centDirOffsetr
+zip64endrec
+zip64locrecr
+                        r
+ZipFile._write_end_record
+ZipFile._fpcloseG
+NNN)
+zDClass to create ZIP archives with Python library files and packages.rL
+_optimize)
+optimizes
+      r
+PyZipFile.__init__Q
+Add all files from "pathname" to the ZIP archive.
+If pathname is a package directory, search the directory and
+all package subdirectories recursively for all *.py and enter
+the modules into the archive.  If pathname is a plain
+directory, listdir *.py and enter all modules.  Else, pathname
+must be a Python *.py file and the module will be put into the
+archive.  Added modules are always module.pyc.
+This method will compile the module.py into module.pyc if
+necessary.
+If filterfunc(pathname) is given, it is called with every argument.
+When it is False, the file or directory is skipped.
+ skipped by filterfuncNz
+__init__.pyr
+Adding package in
+Adding)
+filterfunc
+.pyz
+file %r skipped by filterfuncz
+Adding files from directoryz.Files added with writepy() must end with ".py"z
+Adding file)
+isfile
+_get_codenamer
+listdir
+remove
+splitext
+writepyr
+pathname
+basenamer.
+label
+dirr
+initnamer
+dirlistrq
+root
+exts
+               r
+PyZipFile.writepyW
+Return (filename, archivename) for the path.
+Given a module name path, return the correct file path and
+archive name, compiling if necessary.  For example, given
+/python/lib/string, return (/python/lib/string.pyc, string).
+CompilingT)
+doraiser'
+py_compilerX
+compile
+PyCompileError
+msg)
+errrE
+    
+_compile
+)PyZipFile._get_codename.<locals>._compile
+.pycr
+optimizationr%
+z"invalid value for 'optimize': {!r})
+importlib
+util
+cache_from_sourcer&
+formatr
+file_py
+file_pyc
+pycache_opt0
+pycache_opt1
+pycache_opt2r$
+archivenames
+`            r
+PyZipFile._get_codename
+S [ 
+S%[(
+)&Nr
+z3A simple command-line interface for zipfile module.)
+descriptionT)
+requiredz
+--list
+<zipfile>z
+Show listing of a zipfile)
+metavar
+helpz
+--extractr&
+<output_dir>z
+Extract zipfile into target dir)
+nargsrZ
+--create
+<name>z
+<file>z
+Create zipfile from sourcesz
+--testz
+Test if a zipfile is validz
+--metadata-encodingz
+<encoding>z2Specify encoding of member names for -l, -e and -trL
+z.The following enclosed file is corrupted: {!r}z
+Done testingz/Non-conforming encodings not supported with -c.r
+zippath
+addToZips
+    
+main.<locals>.addToZip-
+argparse
+ArgumentParser
+add_mutually_exclusive_group
+add_argument
+parse_argsrM
+testr
+creater
+stderr
+exit
+popr
+argsrc
+parser
+group
+encodingr
+badfiler
+zip_name
+filesr 
+              @r
+mainrt
+CompleteDirsr;
+binascii
+importlib.utilrK
+ImportErrorr
+__all__
+Exceptionr
+_CD_CREATE_VERSION
+_CD_CREATE_SYSTEM
+_CD_EXTRACT_VERSION
+_CD_EXTRACT_SYSTEMr
+_CD_COMPRESS_TYPE
+_CD_TIME
+_CD_DATE
+_CD_CRC
+_CD_COMPRESSED_SIZE
+_CD_UNCOMPRESSED_SIZEr
+_CD_DISK_NUMBER_START
+_CD_INTERNAL_FILE_ATTRIBUTES
+_CD_EXTERNAL_FILE_ATTRIBUTESr
+_FH_EXTRACT_VERSION
+_FH_EXTRACT_SYSTEMr
+_FH_COMPRESSION_METHOD
+_FH_LAST_MOD_TIME
+_FH_LAST_MOD_DATE
+_FH_CRC
+_FH_COMPRESSED_SIZE
+_FH_UNCOMPRESSED_SIZEr
+_CD64_SIGNATURE
+_CD64_DIRECTORY_RECSIZE
+_CD64_CREATE_VERSION
+_CD64_EXTRACT_VERSION
+_CD64_DISK_NUMBER
+_CD64_DISK_NUMBER_START
+_CD64_NUMBER_ENTRIES_THIS_DISK
+_CD64_NUMBER_ENTRIES_TOTAL
+_CD64_DIRECTORY_SIZE
+_CD64_OFFSET_START_CENTDIRrF
+_pathr
+<module>r

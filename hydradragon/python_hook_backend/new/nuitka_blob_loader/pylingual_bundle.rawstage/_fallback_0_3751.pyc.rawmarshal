@@ -1,5 +1,0 @@
-T
-f2py_cb_start_clock();
-#endif
-    cb = get_active_#name#();
-    if (cb 

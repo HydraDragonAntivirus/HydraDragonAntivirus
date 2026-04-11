@@ -1,0 +1,82 @@
+Build 'use others module data' mechanism for f2py2e.
+Copyright 1999 -- 2011 Pearu Peterson all rights reserved.
+Copyright 2011 -- present NumPy Developers.
+Permission to use, modify, and distribute this software is given under the
+terms of the NumPy License.
+NO WARRANTY IS EXPRESSED OR IMPLIED.  USE AT YOUR OWN RISK.
+$Revision: 1.3 $
+See `f2py -v`
+applyrules
+dictappend
+gentitle
+hasnote
+outmessa
+#begintitle#
+static char doc_#apiname#[] = "\
+Variable wrapper signature:\n\
+ #name# = get_#name#()\n\
+Arguments:\n\
+#docstr#";
+extern F_MODFUNC(#usemodulename#,#USEMODULENAME#,#realname#,#REALNAME#);
+static PyObject *#apiname#(PyObject *capi_self, PyObject *capi_args) {
+/*#decl#*/
+if (!PyArg_ParseTuple(capi_args, "")) goto capi_fail;
+printf("c: %d\n",F_MODFUNC(#usemodulename#,#USEMODULENAME#,#realname#,#REALNAME#));
+return Py_BuildValue("");
+capi_fail:
+return NULL;
+{"get_#name#",#apiname#,METH_VARARGS|METH_KEYWORDS,doc_#apiname#},
+F_MODFUNC)
+body
+method
+needc
+Building use variable hooks for module "
+namez " (feature only for F90/F95)...
+mapz
+Variable "z
+" is already mapped by "z
+". Skipping.
+only
+varsz
+Ignoring map "
+". See above.
+No definition for variable ")
+keys
+getr
+buildusevar)
+varsmap
+revmap
+       
+numpy\f2py\use_rules.py
+buildusevarsr
+Constructing wrapper function for variable "r
+"...
+end of z
+#modulename#_use_
+_from_)
+realname
+REALNAME
+usemodulename
+USEMODULENAME
+texname
+begintitle
+endtitle
+apiname
+Riii
+Rvii
+Rviii
+Rix)
+texnamename
+note)
+upper
+replacer
+reprr
+printr
+usemodule_rules)
+nummap
+         r
+__doc__
+__version__
+f2py_version
+auxfuncsr
+<module>rO

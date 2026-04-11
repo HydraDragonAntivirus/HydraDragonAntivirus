@@ -1,0 +1,305 @@
+r"r#r$\
+z@A POP3 client class.
+Based on the J. Myers POP3 draft, Jan. 96
+POP3
+error_protoc
+__name__
+__module__
+__qualname__
+__firstlineno__
+__static_attributes__r
+poplib.pyr
+r#S#S
+r%S 
+r&S#S!
+r'S"r(g
+This class supports both the minimal and optional command sets.
+Arguments can be strings or integers (where appropriate)
+(e.g.: retr(1) and retr('1') both work equally well.
+Minimal Command Set:
+        USER name               user(name)
+        PASS string             pass_(string)
+        STAT                    stat()
+        LIST [msg]              list(msg = None)
+        RETR msg                retr(msg)
+        DELE msg                dele(msg)
+        NOOP                    noop()
+        RSET                    rset()
+        QUIT                    quit()
+Optional Commands (some servers support these):
+        RPOP name               rpop(name)
+        APOP name digest        apop(name, digest)
+        TOP msg n               top(msg, n)
+        UIDL [msg]              uidl(msg = None)
+        CAPA                    capa()
+        STLS                    stls()
+        UTF8                    utf8()
+Raises one exception: 'error_proto'.
+Instantiate with:
+        POP3(hostname, port=110)
+NB:     the POP protocol locks the mailbox from user
+        authorization until QUIT, so be sure to get in, suck
+        the messages, and quit, each time you access the
+        mailbox.
+        POP is a line-based protocol, which means large mail
+        messages consume lots of python cycles reading them
+        line-by-line.
+        If it's available on your mail server, use IMAP4
+        instead, it doesn't suffer from the two problems
+        above.
+UTF-8c
+poplib.connect
+host
+port
+_tls_established
+audit
+_create_socket
+sock
+makefile
+file
+_debugging
+_getresp
+welcome)
+selfr
+timeouts
+    r
+__init__
+POP3.__init__b
+Nz0Non-blocking socket (timeout=0) is not supported)
+ValueError
+socket
+create_connectionr
+POP3._create_socketm
+*put*z
+poplib.putline)
+print
+reprr
+sendall
+CRLF
+lines
+_putline
+POP3._putliner
+*cmd*)
+bytes
+encodingr3
+_putcmd
+POP3._putcmdz
+line too longz
+*get*z
+-ERR EOF
+readline
+_MAXLINE
+lenr
+octetss
+   r
+_getline
+POP3._getline
+*resp*
+startswithr
+resp
+   r
+POP3._getresp
+..r,
+append)
+listrA
+      r
+_getlongresp
+POP3._getlongresp
+_shortcmd
+POP3._shortcmd
+_longcmd
+POP3._longcmd
+getwelcome
+POP3.getwelcome
+levels
+set_debuglevel
+POP3.set_debuglevel
+zFSend user name, return response
+(should indicate password required).
+USER %s
+users
+POP3.user
+Send password, return response
+(response includes message count, mailbox size).
+NB: mailbox is locked by server from here to 'quit()'
+PASS %sr`
+pswds
+pass_
+POP3.pass_
+zMGet mailbox status.
+Result is tuple of 2 ints (message count, mailbox size)
+STATz
+*stat*
+Invalid STAT response formatr,
+z.Invalid STAT response data: non-numeric values)
+splitr
+intr'
+retval
+rets
+numMessages
+sizeMessagess
+     r
+stat
+POP3.stat
+Request listing, return result.
+Result without a message number argument is in form
+['response', ['mesg_num octets', ...], octets].
+Result when a message number argument is given is a
+single response: the "scan listing" for that message.
+LIST %s
+LIST
+whichs
+POP3.list
+z_Retrieve whole message number 'which'.
+Result is in form ['response', ['line', ...], octets].
+RETR %s
+retr
+POP3.retr
+z6Delete message number 'which'.
+Result is 'response'.
+DELE %sr`
+dele
+POP3.dele
+zHDoes nothing.
+One supposes the response indicates the server is alive.
+NOOPr`
+noop
+POP3.noop
+z(Unmark all messages marked for deletion.
+RSETr`
+rset
+POP3.rset
+zDSignoff: commit changes on server, unlock mailbox, close connection.
+QUIT)
+close)
+quit
+POP3.quit 
+z8Close the connection without assuming anything about it.N
+winerrorr
+shutdownr(
+SHUT_RDWR
+OSError
+errno
+ENOTCONN
+getattr)
+excs
+    r
+POP3.close&
+:0B/
+z?Send RPOP command to access the mailbox with an alternate user.z
+RPOP %sr`
+rpop
+POP3.rpopB
+\+OK.[^<]*(<.*>)c
+Authorisation
+- only possible if server has supplied a timestamp in initial greeting.
+Args:
+        user     - mailbox user;
+        password - mailbox password.
+NB: mailbox is locked by server from here to 'quit()'
+z!-ERR APOP not supported by serverr
+APOP 
+timestamp
+matchr!
+hashlib
+group
+hexdigestrR
+password
+secret
+digests
+       r
+apop
+POP3.apopI
+Retrieve message header of message number 'which'
+and first 'howmuch' lines of message body.
+Result is in form ['response', ['line', ...], octets].
+TOP r
+howmuchs
+   r
+POP3.top^
+Return message digest (unique id) list.
+If 'which', result contains unique id for that message
+in the form 'response mesgnum uid', otherwise result is
+the list ['response', ['mesgnum uid', ...], octets]
+UIDL %s
+UIDLrv
+uidl
+POP3.uidlg
+zITry to enter UTF-8 mode (see RFC 6856). Returns server response.
+        
+UTF8r`
+utf8
+POP3.utf8s
+pgXrU
+Return server capabilities (RFC 2449) as a dictionary
+>>> c=poplib.POP3('localhost')
+>>> c.capa()
+{'IMPLEMENTATION': ['Cyrus', 'POP3', 'server', 'v2.2.12'],
+ 'TOP': [], 'LOGIN-DELAY': ['0'], 'AUTH-RESP-CODE': [],
+ 'EXPIRE': ['NEVER'], 'USER': [], 'STLS': [], 'PIPELINING': [],
+ 'UIDL': [], 'RESP-CODES': []}
+Really, according to RFC 2449, the cyrus folks should avoid
+having the implementation split into multiple arguments...
+asciir
+decoderl
+lsts
+_parsecap
+POP3.capa.<locals>._parsecap
+CAPAr,
+z!-ERR CAPA not supported by server)
+capsrG
+rawcaps
+capline
+capnm
+capargss
+        r
+capa
+POP3.capay
+zcStart a TLS session on the active connection as specified in RFC 2595.
+context - a ssl.SSLContext
+-ERR TLS support missing
+$-ERR TLS session already established
+STLSz!-ERR STLS not supported by server
+server_hostnamer
+HAVE_SSLr
+_create_stdlib_contextrR
+wrap_socketr
+contextr
+    r
+stls
+POP3.stls
+__doc__r7
+POP3_PORTr(
+_GLOBAL_DEFAULT_TIMEOUTr$
+compiler
+POP3_SSLi
+POP3 client class over SSL connection
+Instantiate with: POP3_SSL(hostname, port=995, context=None)
+       hostname - the hostname of the pop3 over ssl server
+       port - port number
+       context - a ssl.SSLContext
+See the methods of the parent class POP3 for more documentation.
+     r
+POP3_SSL.__init__
+   r
+POP3_SSL._create_socket
+The method unconditionally raises an exception since the
+STLS command doesn't make any sense on an already established
+SSL/TLS session.
+POP3_SSL.stls
+POP3_SSL_PORTr(
+__main__r,
+Message %d:z
+   z
+-----------------------)'r
+ImportError
+__all__
+Exceptionr
+LFr0
+argv
+numMsgs
+totalSize
+range
+header
+msgrA
+<module>r

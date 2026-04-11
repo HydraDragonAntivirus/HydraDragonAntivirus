@@ -1,0 +1,138 @@
+Build common block mechanism for f2py2e.
+Copyright 1999 -- 2011 Pearu Peterson all rights reserved.
+Copyright 2011 -- present NumPy Developers.
+Permission to use, modify, and distribute this software is given under the
+terms of the NumPy License
+NO WARRANTY IS EXPRESSED OR IMPLIED.  USE AT YOUR OWN RISK.
+__version__)
+capi_maps
+func2subr)
+getuseblocks
+hasbody
+hascommon
+hasnote
+isintent_hide
+outmess)
+rmbadnamec
+common
+vars
+body
+items
+appendr
+findcommonblocks)
+block
+value
+vars_
+tret
+names
+           
+numpy\f2py\common_rules.pyr
+S,S@5
+XASK'
+XaSL'
+SO::
+)PNz
+"COMMON blocks:\n")
+commonhooks
+initcommonhooks
+docs
+      
+line
+  r 
+fadd
+buildhooks.<locals>.fadd-
+  r 
+cadd
+buildhooks.<locals>.cadd1
+  r 
+iadd
+buildhooks.<locals>.iadd5
+  r 
+dadd
+buildhooks.<locals>.dadd9
+Constructing COMMON block support for "z
+"...
+  Hidden: r0
+subroutine f2pyinitz
+(setupfunc)z
+use z
+external setupfunc
+_BLNK_z
+common z
+common /z
+call setupfunc(
+z'static FortranDataDef f2py_%s_def[] = {
+dims
+rankz
+,{{z
+}},z
+{NULL}
+char *z
+static void f2py_setup_z
+) {z
+int i_f2py=0;z
+f2py_z
+_def[i_f2py++].data = 
+F_FUNC_US
+F_FUNCz
+extern void z
+(f2pyinitz
+,F2PYINITz
+)(void(*)(z
+char*z
+));z static void f2py_init_%s(void) {
+)(f2py_setup_z
+tmp = PyFortranObject_New(f2py_z
+_def,f2py_init_z
+if (tmp == NULL) return NULL;z 
+if (F2PyDict_SetItemString(d, "z
+", tmp) == -1) return NULL;z
+Py_DECREF(tmp);z
+\_z&\subsection{Common block \texttt{%s}}
+\begin{description}z
+\item[]{{}\verb@%s@{}}
+notez
+--- z
+\end{description}r$
+  r 
+<lambda>
+buildhooks.<locals>.<lambda>
+\n"r"
+latexdocr
+lowerr
+joinr
+var2fixfortranr
+getctype
+get_elsize
+c2capi_map
+getarrdims
+stripr
+upper
+replace
+getarrdocsignr
+isinstance
+list
+map)
+fwrapr+
+chooksr1
+ihooksr5
+docr8
+name
+vnamesr
+lower_name
+hnames
+inames
+usename
+idims
+elsize
+inames1r*
+inames1_tpsrD
+tnamerF
+                              r 
+buildhooksrp
+__doc__r%
+version
+f2py_versionr
+auxfuncsr
+crackfortranr
+<module>rv

@@ -1,0 +1,20 @@
+visit_Attribute
+_Unparser.visit_Attribute"
+    r
+visit_Call
+_Unparser.visit_Call-
+slice_values
+is_non_empty_tuple
+5_Unparser.visit_Subscript.<locals>.is_non_empty_tuple@
+   r
+visit_Subscript
+_Unparser.visit_Subscript?
+visit_Starred
+_Unparser.visit_StarredO
+visit_Ellipsis
+_Unparser.visit_EllipsisT
+lowerr
+upper
+stepr
+visit_Slice
+_Unparser.visit_SliceW

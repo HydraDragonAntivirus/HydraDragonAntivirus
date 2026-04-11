@@ -1,0 +1,25 @@
+zqParse a route address (Return-path value).
+This method just skips all the route stuff and returns the addrspec.
+NFr?
+@TrG
+getdomainr
+expectroute
+adlists
+   r;
+AddrlistClass.getrouteaddrM
+Parse an RFC 2822 addr-spec.TrJ
+"%s"r
+strip
+poprU
+getquoter
+getatomr
+aslist
+preserve_ws
+domains
+     r;
+AddrlistClass.getaddrspecm
+z-Get the complete domain name from an address.r?
+getdomainliteralr
+sdlists
+  r;
+AddrlistClass.getdomain

@@ -1,0 +1,103 @@
+S S!5
+S S"5
+S S#5
+S S$5
+S S&5
+S S(5
+S S*5
+S S,5
+Dialog)
+showinfo
+showwarning
+showerror
+askquestion
+askokcancel
+askyesno
+askyesnocancel
+askretrycancel
+error
+info
+question
+warning
+abortretryignore
+okcancel
+retrycancel
+yesno
+yesnocancel
+abort
+retry
+ignore
+cancel
+Message
+A message box
+tk_messageBox
+__name__
+__module__
+__qualname__
+__firstlineno__
+__doc__
+command
+__static_attributes__r 
+tkinter\messagebox.pyr
+icon
+type
+title
+messager 
+show
+isinstance
+bool
+str)
+_icon
+_type
+options
+ress
+      r)
+_showr9
+Show an info message)
+INFO
+   r)
+Show a warning message)
+WARNINGr<
+   r)
+Show an error message)
+ERRORr<
+   r)
+Ask a question)
+QUESTION
+YESNOr=
+   r)
+z@Ask if operation should proceed; return true if the answer is ok)
+OKCANCELr<
+    r)
+z0Ask a question; return true if the answer is yes)
+    r)
+zDAsk a question; return true if the answer is yes, None if cancelled.N)
+YESNOCANCELr4
+CANCELr2
+    r)
+zDAsk if operation should be retried; return true if the answer is yes)
+RETRYCANCEL
+RETRYrG
+    r)
+__main__
+Spamz
+Egg Informationz
+Egg Warningz
+Egg Alertz
+Question?
+proceedz
+Proceed?z
+yes/noz
+Got it?z
+yes/no/cancelz
+Want it?z
+try againz
+Try again?)
+NNNN)
+tkinter.commondialogr
+__all__rA
+ABORTRETRYIGNOREr<
+ABORTrO
+IGNORErL
+printr 
+<module>rY

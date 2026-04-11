@@ -1,0 +1,407 @@
+r$S r%S!r&S"r'S#\$-
+r(S&r)S'\(-
+r*S(\*-
+r+S)\+-
+r,S*\+-
+r-S+\+-
+r.S,\+-
+r/S(\*-
+r0S.\*-
+r1S.\*-
+r2S3\)-
+r3S4\3-
+r4S)\4-
+r5S*\4-
+r6S+\4-
+r7S,\4-
+r8S4\3-
+r9S7r:S8r;S9\;-
+r<S<r=S=\
+r>SA\
+rA\A"
+SH\"\@R
+SJ\#\@R
+SK\9\@R
+SM\5\@R
+SN\6\@R
+SO\7\@R
+SP\8\@R
+SQ\4\@R
+SR\?\@R
+SS\<\@R
+SU\ \@R
+SV\!\@R
+SZ\0\@R
+S[\+\@R
+S\\,\@R
+S]\-\@R
+S^\.\@R
+S_\/\@R
+S`\1\@R
+Sb\2\@R
+rH\HR
+\F\HR
+Sg\HR
+Sh\HR
+SlSm5
+SnSo5
+SpSq5
+SrSs5
+StSu5
+SvSw5
+SxSy5
+SzS{5
+S|S}5
+rU\TR
+rY\YR
+dataclass)
+Enum)
+Callable
+Dict
+List
+Optional
+TupleT)
+slotsc
+_Token
+type
+value
+lineno
+column
+__name__
+__module__
+__qualname__
+__firstlineno__
+__annotations__
+__static_attributes__r
+pycparser\c_lexer.pyr
+CLexer
+A standalone lexer for C.
+Parameters for construction:
+    error_func:
+        Called with (msg, line, column) on lexing errors.
+    on_lbrace_func:
+        Called when an LBRACE token is produced (used for scope tracking).
+    on_rbrace_func:
+        Called when an RBRACE token is produced (used for scope tracking).
+    type_lookup_func:
+        Called with an identifier name; expected to return True if it is
+        a typedef name and should be tokenized as TYPEID.
+Call input(text) to initialize lexing, and then keep calling token() to
+get the next token, until it returns None (at end of input).
+error_funcN
+on_lbrace_func
+on_rbrace_func
+type_lookup_func
+returnc
+_init_state)
+selfr 
+     r
+__init__
+CLexer.__init__)
+text
+filenamec
+Initialize the lexer to the given input text.
+filename is an optional name identifying the file from which the input
+comes. The lexer can modify it if #line directives are encountered.
+_lexdata
+_filename)
+   r
+input
+CLexer.input6
+_pos
+_line_start
+_pending_tok
+_lineno
+CLexer._init_state@
+CLexer.filenameH
+PPHASH)
+lenr7
+_line_pattern
+match
+_handle_ppline
+_pragma_pattern
+_handle_pppragma
+_make_token
+_match_token)
+tokss
+     r
+token
+CLexer.tokenL
+XuXhU
+puphn
+Match one token at the current position.
+Returns a Token on success, or None if no token could be matched and
+an error was reported. This method always advances _pos by the matched
+length, or by 1 on error/no-match.
+Illegal character r4
+BAD_CHAR_CONSTz
+Invalid char constant 
+TYPEID
+LBRACE
+RBRACE)
+_regex_masterrE
+lastgroup
+grouprC
+_regex_actions
+_fixed_tokens_by_first
+startswith
+literal
+tok_type
+_RegexAction
+TOKEN
+repr
+_error
+ERROR
+maxrR
+_keyword_mapr#
+best
+length
+action
+bucket
+entryrL
+             r
+CLexer._match_token
+Create a Token at an absolute input position.
+Expects tok_type/value and the absolute byte offset pos in the current
+input. Does not advance lexer state; callers manage _pos themselves.
+Returns a Token with lineno/column computed from current line tracking.
+      r
+CLexer._make_token
+    r
+CLexer._error
+line
+line_lenrf
+skip_ws
+&CLexer._handle_ppline.<locals>.skip_ws
+pp_line
+pp_filenamec
+line number missing in #liner4
+line_endry
+success
+&CLexer._handle_ppline.<locals>.success
+offsetc
+fail
+#CLexer._handle_ppline.<locals>.fail
+"z$filename before line number in #linez
+invalid #line directive
+findr5
+rerE
+_decimal_constantrX
+_string_literal
+lstrip
+rstrip)
+`        @@@@r
+CLexer._handle_ppline
+pragmaz
+invalid #pragma directive
+PPPRAGMAr@
+PPPRAGMASTR)
+appendr8
+pragma_posrM
+starts
+       r
+CLexer._handle_pppragmaK
+__doc__r
+boolr)
+propertyr,
+AUTO
+BREAK
+CASE
+CHAR
+CONST
+CONTINUE
+DEFAULT
+DOUBLE
+ELSE
+ENUM
+EXTERN
+FLOAT
+GOTO
+INLINE
+LONG
+REGISTER
+OFFSETOF
+RESTRICT
+RETURN
+SHORT
+SIGNED
+SIZEOF
+STATIC
+STRUCT
+SWITCH
+TYPEDEF
+UNION
+UNSIGNED
+VOID
+VOLATILE
+WHILE
+__INT128
+_BOOL
+_COMPLEX
+_NORETURN
+_THREAD_LOCAL
+_STATIC_ASSERT
+_ATOMIC
+_ALIGNOF
+_ALIGNAS
+_PRAGMA.
+_keywordsre
+[a-zA-Z_$][0-9a-zA-Z_$]*z
+0[xX]z
+[0-9a-fA-F]+z
+0[bB]z
+[01]+zD(([uU]ll)|([uU]LL)|(ll[uU]?)|(LL[uU]?)|([uU][lL])|([lL][uU]?)|[uU])?z
+)|([1-9][0-9]*
+0[0-7]*z
+0[0-7]*[89]z
+\/\*z
+\/\/z,([a-wyzA-Z._~!=&\^\-\\?'"]|x(?![0-9a-fA-F]))z
+(\d+)(?!\d)z
+(x[0-9a-fA-F]+)(?![0-9a-fA-F])z#([\\][^a-zA-Z._~^!=&\^\-\\?'"x0-9])z
+(\\(
+(\\[0-9a-zA-Z._~!=&\^\-\\?'"])z
+([^'\\\n]|
+{2,4}'z
+*\n)|('z
+*$)z
+]+')|('')|('z
+[^'\n]*')z
+([^"\\\n]|r
+([eE][-+]?[0-9]+)z
+([0-9]*\.[0-9]+)|([0-9]+\.)z
+((((z
+?)|([0-9]+z
+))[FfLl]?)z
+([pP][+-]?[0-9]+)z
+(((z
+)?\.z
+)|(z
+\.))
+[FfLl]?)c
+frozenc
+_RegexRulei8
+regex_patternrj
+error_messager
+UNSUPPORTED_C_STYLE_COMMENTzKComments are not supported, see https://github.com/eliben/pycparser#3using.
+UNSUPPORTED_CXX_STYLE_COMMENT
+BAD_STRING_LITERALz#String contains invalid escape code
+WSTRING_LITERAL
+U8STRING_LITERAL
+U16STRING_LITERAL
+U32STRING_LITERAL
+STRING_LITERAL
+HEX_FLOAT_CONST
+FLOAT_CONST
+INT_CONST_HEX
+INT_CONST_BIN
+BAD_CONST_OCTz
+Invalid octal constant
+INT_CONST_OCT
+INT_CONST_DEC
+INT_CONST_CHAR
+CHAR_CONST
+WCHAR_CONST
+U8CHAR_CONST
+U16CHAR_CONST
+U32CHAR_CONST
+UNMATCHED_QUOTEz
+Unmatched 'rQ
+_regex_rulesrY
+_regex_pattern_partsz
+(?P<
+_FixedTokeni
+ELLIPSISz
+LSHIFTEQUALz
+RSHIFTEQUALz
+PLUSPLUSz
+MINUSMINUSz
+ARROWz
+LANDz
+LORz
+LSHIFTz
+RSHIFTz
+TIMESEQUALz
+DIVEQUALz
+MODEQUALz
+PLUSEQUALz
+MINUSEQUALz
+ANDEQUALz
+OREQUALz
+XOREQUALz
+EQUALS
+PLUS
+MINUS
+TIMES
+DIVIDE
+LNOT
+CONDOP
+LPAREN
+RPAREN
+LBRACKET
+RBRACKET
+COMMA
+PERIOD
+SEMI
+COLON
+_fixed_tokensrZ
+items
+<lambda>r7
+reversez
+([ \t]*line\W)|([ \t]*\d+)rD
+[ \t]*pragma\WrG
+dataclassesr
+enumr
+typingr
+keywordr\
+isalpha
+upper
+lower
+_identifier
+_hex_prefix
+_hex_digits
+_bin_prefix
+_bin_digits
+_integer_suffix_optr
+_octal_constant
+_hex_constant
+_bin_constant
+_bad_octal_constant
+_unsupported_c_style_comment
+_unsupported_cxx_style_comment
+_simple_escape
+_decimal_escape
+_hex_escape
+_bad_escape
+_escape_sequence
+ _escape_sequence_start_in_string
+_cconst_char
+_char_const
+_wchar_const
+_u8char_const
+_u16char_const
+_u32char_const
+_multicharacter_constant
+_unmatched_quote
+_bad_char_const
+_string_charr
+_wstring_literal
+_u8string_literal
+_u16string_literal
+_u32string_literal
+_bad_string_literal
+_exponent_part
+_fractional_constant
+_floating_constant
+_binary_exponent_part
+_hex_fractional_constant
+_hex_floating_constantr_
+_rulerj
+compile
+joinrV
+Patternr
+_entry
+setdefaultr]
+values
+_bucket
+sortrD
+<module>rq

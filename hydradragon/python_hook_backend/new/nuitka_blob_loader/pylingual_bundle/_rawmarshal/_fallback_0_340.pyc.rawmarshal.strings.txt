@@ -1,0 +1,20 @@
+buffer
+lengthr
+system_property_gets
+     
+getprop
+android_ver.<locals>.getpropM
+ro.build.version.releasez
+ro.build.version.sdkz
+ro.product.manufacturerz
+ro.product.modelz
+ro.product.devicez
+ro.kernel.qemur
+ctypesr
+argtypesr
+api_level
+manufacturerr
+device
+is_emulatorr
+         @@r"
+android_verr+

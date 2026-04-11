@@ -1,0 +1,554 @@
+Abstract base classes for rich path objects.
+This module is published as a PyPI package called "pathlib-abc".
+This module is also a *PRIVATE* part of the Python standard library, where
+it's developed alongside pathlib. If it finds success and maturity as a PyPI
+package, it could become a public part of the standard library.
+Two base classes are defined here -- PurePathBase and PathBase -- that
+resemble pathlib's PurePath and Path respectively.
+_Globber
+_no_recurse_symlinks)
+ENOENT
+ENOTDIR
+EBADF
+ELOOP
+EINVAL)
+S_ISDIR
+S_ISLNK
+S_ISREG
+S_ISSOCK
+S_ISBLK
+S_ISCHR
+S_ISFIFO
+UnsupportedOperation
+errno
+winerror)
+getattr
+_IGNORED_ERRNOS
+_IGNORED_WINERRORS)
+exceptions
+pathlib\_abc.py
+_ignore_errorr
+normcase)
+parsers
+_is_case_sensitiver"
+zVAn exception that is raised when an unsupported operation is called on
+a path object.
+__name__
+__module__
+__qualname__
+__firstlineno__
+__doc__
+__static_attributes__r%
+ParserBase
+Base class for path parsers, which do low-level path manipulation.
+Path parsers provide a subset of the os.path API, specifically those
+functions needed to provide PurePathBase functionality. Each PurePathBase
+subclass references its path parser via a 'parser' class attribute.
+Every method in this base class raises an UnsupportedOperation exception.
+ is unsupported
+attributes
+_unsupported_msg
+ParserBase._unsupported_msgA
+z/The character used to separate path components.
+selfs
+ParserBase.sepE
+Join path segments.z
+join()r;
+path
+pathss
+   r
+join
+ParserBase.joinJ
+Split the path into a pair (head, tail), where *head* is everything
+before the final path separator, and *tail* is everything after.
+Either part may be empty.
+split()r;
+split
+ParserBase.splitN
+Split the path into a 2-item tuple (drive, tail), where *drive* is
+a device name or mount point, and *tail* is everything after the
+drive. Either part may be empty.z
+splitdrive()r;
+splitdrive
+ParserBase.splitdriveU
+Normalize the case of the path.z
+normcase()r;
+ParserBase.normcase[
+zXReturns whether the path is absolute, i.e. unaffected by the
+current directory or drive.z
+isabs()r;
+isabs
+ParserBase.isabs_
+classmethodr6
+propertyr:
+PurePathBase
+Base class for pure path objects.
+This class *does not* provide several magic methods that are defined in
+its subclass PurePath. They are: __fspath__, __bytes__, __reduce__,
+__hash__, __eq__, __lt__, __le__, __gt__, __ge__. Its initializer and path
+joining methods accept only strings, not os.PathLike objects more broadly.
+_raw_path
+_resolvingc
+path should be a str, not F)
+isinstance
+TypeError
+typer&
+   r
+__init__
+PurePathBase.__init__{
+Construct a new path object from any number of path-like objects.
+Subclasses may override this method to customize how new path objects
+are created from methods like `iterdir()`.
+pathsegmentss
+with_segments
+PurePathBase.with_segments
+zSReturn the string representation of the path, suitable for
+passing to system calls.)
+__str__
+PurePathBase.__str__
+zFReturn the string representation of the path with forward (/)
+slashes.
+replacer!
+as_posix
+PurePathBase.as_posix
+z.The drive prefix (letter or UNC path), if any.r
+anchorr<
+drive
+PurePathBase.drive
+The root of the path, if any.
+root
+PurePathBase.root
+z/The concatenation of the drive and root, or ''.r
+_stackr<
+PurePathBase.anchor
+z!The final path component, if any.rt
+name
+PurePathBase.name
+The final component's last suffix, if any.
+This includes the leading period. For example: '.txt'
+rfind
+   r
+suffix
+PurePathBase.suffix
+A list of the final component's suffixes, if any.
+These include the leading periods. For example: ['.tar', '.gz']
+endswith
+lstriprG
+   r
+suffixes
+PurePathBase.suffixes
+z0The final path component, minus its last suffix.r1
+   r
+stem
+PurePathBase.stem
+z-Return a new path with the file name changed.r
+Invalid name )
+ValueErrorrc
+   r
+with_name
+PurePathBase.with_name
+z(Return a new path with the stem changed.z
+ has a non-empty suffix)
+   r
+with_stem
+PurePathBase.with_stem
+Return a new path with the file suffix changed.  If the path
+has no suffix, add given suffix.  If the given suffix is an empty
+string, remove the suffix from the path.
+ has an empty namer1
+Invalid suffix )
+startswithr
+   r
+with_suffix
+PurePathBase.with_suffix
+walk_upc
+pVX5:w
+Return the relative path to another path identified by the passed
+arguments.  If the operation is not possible (because this is not
+related to the other path), raise ValueError.
+The *walk_up* parameter controls whether `..` may be used to resolve
+the path.
+ and z
+ have different anchors
+ is not in the subpath of 
+'..' segment in z
+ cannot be walkedr~
+append
+reversed)
+otherr
+anchor0
+parts0
+anchor1
+parts1
+parts
+        r
+relative_to
+PurePathBase.relative_to
+pEX$:w
+zFReturn True if the path is relative to another path or False.
+        Fr
+       r
+is_relative_to
+PurePathBase.is_relative_to
+zRAn object providing sequence-like access to the
+components in the filesystem path.)
+tupler
+partss
+   r
+PurePathBase.parts
+Combine this path with one or several arguments, and return a
+new path representing either a subpath (if all arguments are relative
+paths) or a totally different path (if one of the arguments is
+anchored).
+joinpath
+PurePathBase.joinpath"
+NotImplemented
+keys
+__truediv__
+PurePathBase.__truediv__*
+__rtruediv__
+PurePathBase.__rtruediv__0
+X#:w
+p4X#:w
+Split the path into a 2-tuple (anchor, parts), where *anchor* is the
+uppermost parent of the path (equivalent to path.parents[-1]), and
+*parts* is a reversed list of parts following the anchor.
+parentr{
+namess
+      r
+PurePathBase._stack6
+The logical parent of the path.r
+   r
+PurePathBase.parentG
+X#:w
+X#:w
+z*A sequence of this path's logical parents.r
+parentss
+     r
+PurePathBase.parentsR
+zKTrue if the path is absolute (has both a root and, if applicable,
+a drive).)
+is_absolute
+PurePathBase.is_absolute_
+z<The path expressed as a string, for use in pattern-matching.)
+_pattern_str
+PurePathBase._pattern_strd
+case_sensitivec
+Return True if this path matches the given pattern. If the pattern is
+relative, matching is done from the right; otherwise, the entire path
+is matched. The recursive wildcard '**' is *not* supported by this
+method.
+empty patternFT)
+_globber
+compile)
+path_patternr
+path_parts
+pattern_parts
+globber
+path_part
+pattern_part
+matchs
+          r
+PurePathBase.matchi
+Return True if this path matches the given glob-style pattern. The
+pattern is matched against the entire path.
+recursive)
+patternr
+     r
+full_match
+PurePathBase.full_match
+)'r&
+__slots__r-
+S8S!
+r!S$
+r#S&
+r$S \$l%
+S9S'
+r&S9S(
+r'S)
+r(S:S*
+r)S;S+
+r*S,
+r+S-
+r-S/
+r.S9S0
+r/S1
+r3S5
+PathBasei
+Base class for concrete path objects.
+This class provides dummy implementations for many methods that derived
+classes can override selectively; the default implementations raise
+UnsupportedOperation. The most basic methods, such as stat() and open(),
+directly raise UnsupportedOperation; these basic methods are called by
+other methods such as is_dir() and read_text().
+The Path class derives this class to implement local filesystem paths.
+Users may derive their own classes to implement virtual filesystem paths,
+such as paths in archive files or on remote storage systems.
+PathBase._unsupported_msg
+follow_symlinksc
+Return the result of the stat() system call on this path, like
+os.stat() does.
+stat()r;
+stat
+PathBase.stat
+Like stat(), except if the path points to a symlink, the symlink's
+status information is returned, rather than its target's.
+lstat
+PathBase.lstat
+Whether this path exists.
+This method normally follows symlinks; to check whether a symlink exists,
+add the argument follow_symlinks=False.
+NFT)
+OSErrorr
+   r
+exists
+PathBase.exists
+Whether this path is a directory.
+st_moder
+   r
+is_dir
+PathBase.is_dir
+Whether this path is a regular file (also True for symlinks pointing
+to regular files).
+   r
+is_file
+PathBase.is_file
+X!:w
+X4:H
+Check if this path is a mount point
+st_devr
+st_ino)
+parent_dev
+parent_inos
+     r
+is_mount
+PathBase.is_mount
+Whether this path is a symbolic link.
+is_symlink
+PathBase.is_symlink
+Whether this path is a junction.
+is_junction
+PathBase.is_junction
+Whether this path is a block device.
+is_block_device
+PathBase.is_block_device
+Whether this path is a character device.
+is_char_device
+PathBase.is_char_device)
+Whether this path is a FIFO.
+is_fifo
+PathBase.is_fifo9
+Whether this path is a socket.
+is_socket
+PathBase.is_socketI
+z_Return whether other_path is the same or not as this file
+(as returned by os.path.samefile()).
+AttributeErrorrc
+other_path
+other_sts
+    r
+samefile
+PathBase.samefileY
+Open the file pointed to by this path and return a file object, as
+the built-in open() function does.
+open()r;
+mode
+buffering
+encoding
+errors
+newlines
+      r
+open
+PathBase.opene
+Open the file in bytes mode, read it, and close the file.
+read)
+read_bytes
+PathBase.read_bytesm
+Open the file in text mode, read it, and close the file.
+     r
+read_text
+PathBase.read_textt
+Open the file in bytes mode, write to it, and close the file.
+wbr+
+memoryviewr'
+write)
+data
+viewr.
+    r
+write_bytes
+PathBase.write_bytes{
+Open the file in text mode, write to it, and close the file.
+data must be str, not %s
+__class__r&
+      r
+write_text
+PathBase.write_text
+Yield path objects of the directory contents.
+The children are yielded in arbitrary order, and the
+special entries '.' and '..' are not included.
+iterdir()r;
+iterdir
+PathBase.iterdir
+NFT)
+selector)
+recurse_symlinks
+case_pedanticr
+       r
+_glob_selector
+PathBase._glob_selector
+Iterate over this subtree and yield all existing files (of any
+kind, including directories) matching the given relative pattern.
+z%Non-relative patterns are unsupported)
+NotImplementedErrorrJ
+selects
+       r
+glob
+PathBase.glob
+Recursively yield all existing files (of any kind, including
+directories) matching the given relative pattern, anywhere in
+this subtree.
+**rL
+    r
+rglob
+PathBase.rglob
+zBWalk the directory tree from this directory, similar to os.walk().r
+top_down
+on_errorr
+dirnames
+filenames
+child
+error
+           r
+walk
+PathBase.walk
+Return an absolute version of this path
+No normalization or symlink resolution is performed.
+Use resolve() to resolve symlinks and remove '..' segments.
+absolute()r;
+absolute
+PathBase.absolute
+z<Return a new path pointing to the current working directory.r~
+PathBase.cwd
+z[Return a new path with expanded ~ and ~user constructs
+(as returned by os.path.expanduser)
+expanduser()r;
+expanduser
+PathBase.expanduser
+z7Return a new path pointing to expanduser('~').
+        
+home
+PathBase.home
+Return the path to which the symbolic link points.
+readlink()r;
+readlink
+PathBase.readlink
+XpR 
+Make the path absolute, resolving all symlinks on the way and also
+normalizing it.
+_supportedTr
+Too many symbolic links in pathz
+Not a directory)
+reverser
+_max_symlinksr
+clear
+extendr
+NotADirectoryErrorr
+strict
+path_rootr
+path_tail
+querying
+link_countr
+target_root
+target_partss
+            r
+resolve
+PathBase.resolve
+;B/I<
+-<I<
+Make this path a symlink pointing to the target path.
+Note the order of arguments (link, target) is the reverse of os.symlink.
+symlink_to()r;
+target
+target_is_directorys
+   r
+symlink_to
+PathBase.symlink_toB
+Make this path a hard link pointing to the same file as *target*.
+Note the order of arguments (self, target) is the reverse of os.link's.
+hardlink_to()r;
+hardlink_to
+PathBase.hardlink_toI
+Create this file with the given access mode, if it doesn't exist.
+touch()r;
+exist_oks
+   r
+touch
+PathBase.touchQ
+Create a new directory at this given path.
+mkdir()r;
+    r
+mkdir
+PathBase.mkdirW
+Rename this path to the target path.
+The target path may be absolute or relative. Relative paths are
+interpreted relative to the current working directory, *not* the
+directory of the Path object.
+Returns the new Path instance pointing to the target path.
+rename()r;
+rename
+PathBase.rename]
+Rename this path to the target path, overwriting if that path exists.
+The target path may be absolute or relative. Relative paths are
+interpreted relative to the current working directory, *not* the
+directory of the Path object.
+Returns the new Path instance pointing to the target path.
+replace()r;
+PathBase.replacei
+Change the permissions of the path, like os.chmod().
+chmod()r;
+   r
+chmod
+PathBase.chmodu
+Like chmod(), except if the path points to a symlink, the symlink's
+permissions are changed, rather than its target's.
+lchmod
+PathBase.lchmod{
+Remove this file or link.
+If the path is a directory, use rmdir() instead.
+unlink()r;
+missing_oks
+unlink
+PathBase.unlink
+Remove this directory.  The directory must be empty.
+rmdir()r;
+rmdir
+PathBase.rmdir
+Return the login name of the file owner.
+owner()r;
+owner
+PathBase.owner
+Return the group name of the file gid.
+group()r;
+group
+PathBase.group
+z,Return a new path from the given 'file' URI.z
+from_uri()r;
+uris
+from_uri
+PathBase.from_uri
+Return the path as a URI.z
+as_uri()r;
+as_uri
+PathBase.as_uri
+NNN)
+NNN)
+TNF)
+FF)6r&
+)!r*
+functoolsrP
+__all__
+_WINERROR_NOT_READY
+_WINERROR_INVALID_NAME
+_WINERROR_CANT_RESOLVE_FILENAMEr
+cacher"
+<module>r

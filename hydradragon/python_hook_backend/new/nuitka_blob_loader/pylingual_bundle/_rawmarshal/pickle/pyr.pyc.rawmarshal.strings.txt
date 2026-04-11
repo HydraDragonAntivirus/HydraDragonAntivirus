@@ -1,0 +1,910 @@
+r+S r,S!r-S"r.S#r/S$r0S%r1S&r2S'r3S(r4S)r5S*r6S+r7S,r8S-r9S.r:S/r;S0r<S1r=S2r>S3r?S4r@S5rAS6rBS7rCS8rDS9rES:rFS;rGS<rHS=rIS>rJS?rKS@rLSArMSBrNSCrOSDrPSErQSFrRSGrSSHrTSIrUSJrVSKrWSLrXSMrYSNrZSOr[SPr\SQr]\M\W\X\Y/
+r^SRr_SSr`STraSUrbSVrcSWrdSXreSYrfSZrgS[rhS\riS]rjS^rkS_rlS`rm\
+rrSf
+rsSg
+rtSh
+ruSi
+rv\w"
+SqSrS
+SqSrS
+J#r#J$r$J%r%J
+Sw:X
+SxSy9
+SzS{S|S}9
+\y\zs
+\{\|\}\~4
+Create portable serialized representations of Python objects.
+See module copyreg for a mechanism for registering custom picklers.
+See module pickletools source for extensive comments.
+Classes:
+    Pickler
+    Unpickler
+Functions:
+    dump(object, file)
+    dumps(object) -> string
+    load(file) -> object
+    loads(bytes) -> object
+Misc variables:
+    __version__
+    format_version
+    compatible_formats
+FunctionType)
+dispatch_table)
+_extension_registry
+_inverted_registry
+_extension_cache)
+islice)
+partialN)
+maxsize)
+pack
+unpack)
+PickleError
+PicklingError
+UnpicklingError
+Pickler
+Unpickler
+dump
+dumps
+load
+loads)
+PickleBufferr
+4.0)
+1.0z
+1.1z
+1.2z
+1.3z
+2.0z
+3.0r
+z6A common base class for the other pickling exceptions.
+__name__
+__module__
+__qualname__
+__firstlineno__
+__doc__
+__static_attributes__r
+pickle.pyr
+zUThis exception is raised when an unpicklable object is passed to the
+dump() method.
+This exception is raised when there is a problem unpickling an object,
+such as a security violation.
+Note that other exceptions may also be raised during unpickling, including
+(but not necessarily limited to) AttributeError, EOFError, ImportError,
+and IndexError.
+_Stop
+value
+selfr0
+  r%
+__init__
+_Stop.__init__b
+[A-Z][A-Z0-9_]+$c
+_Framer
+file_write
+current_frame)
+  r%
+_Framer.__init__
+BytesIOr~
+start_framing
+_Framer.start_framing
+force)
+tell
+commit_framer
+end_framing
+_Framer.end_framing
+_FRAME_SIZE_TARGET
+getbufferr}
+_FRAME_SIZE_MIN
+FRAMEr
+data
+writes
+     r%
+_Framer.commit_frame
+  r%
+_Framer.write
+header
+payloadr
+    r%
+write_large_bytes
+_Framer.write_large_bytes
+_Unframeri
+file_read
+file_readliner~
+file_tells
+    r%
+_Unframer.__init__
+$pickle exhausted before end of frame)
+readintor
+   r%
+_Unframer.readinto
+readr
+   r%
+_Unframer.read
+readliner
+  r%
+_Unframer.readline&
+z4beginning of a new frame before end of current frame)
+frame_sizes
+  r%
+load_frame
+_Unframer.load_frame3
+<locals>z&Can't get local attribute {!r} on {!r}z Can't get attribute {!r} on {!r})
+split
+AttributeError
+format
+getattr)
+name
+subpath
+parents
+     r%
+_getattributer
+z$Find the module an object belong to.r
+__main__
+__mp_main__r
+modules
+copy
+itemsr
+module_name
+modules
+    r%
+whichmoduler
+Encode a long to a two's complement little-endian binary string.
+Note that 0 is a special case, returning an empty string, to save a
+byte in the LONG1 pickling context.
+>>> encode_long(0)
+>>> encode_long(255)
+b'\xff\x00'
+>>> encode_long(32767)
+b'\xff\x7f'
+>>> encode_long(-256)
+b'\x00\xff'
+>>> encode_long(-32768)
+b'\x00\x80'
+>>> encode_long(-128)
+b'\x80'
+>>> encode_long(127)
+b'\x7f'
+littleT
+byteorder
+signedr
+bit_length
+to_bytes)
+nbytes
+results
+   r%
+encode_longr
+Decode a long from a two's complement little-endian binary string.
+>>> decode_long(b'')
+>>> decode_long(b"\xff\x00")
+>>> decode_long(b"\xff\x7f")
+32767
+>>> decode_long(b"\x00\xff")
+-256
+>>> decode_long(b"\x00\x80")
+-32768
+>>> decode_long(b"\x80")
+-128
+>>> decode_long(b"\x7f")
+from_bytes)
+decode_longr
+r \ \
+r"\"\
+r$\$\
+r(\(\
+r*S 
+r+\+\
+r-\-\
+S&S"
+r/S#
+r0S$
+r1\/\
+S%r3g
+_Pickleri
+fix_imports
+buffer_callbackc
+This takes a binary file for writing a pickle data stream.
+The optional *protocol* argument tells the pickler to use the
+given protocol; supported protocols are 0, 1, 2, 3, 4 and 5.
+The default protocol is 4. It was introduced in Python 3.4, and
+is incompatible with previous versions.
+Specifying a negative protocol version selects the highest
+protocol version supported.  The higher the protocol used, the
+more recent the version of Python needed to read the pickle
+produced.
+The *file* argument must have a write() method that accepts a
+single bytes argument. It can thus be a file object opened for
+binary writing, an io.BytesIO instance, or any other custom
+object that meets this interface.
+If *fix_imports* is True and *protocol* is less than 3, pickle
+will try to map the new Python 3 names to the old module names
+used in Python 2, so that the pickle data stream is readable
+with Python 2.
+If *buffer_callback* is None (the default), buffer views are
+serialized into *file* as part of the pickle stream.
+If *buffer_callback* is not None, then it can be called any number
+of times with a buffer view.  If the callback returns a false value
+(such as None), the given buffer is out-of-band; otherwise the
+buffer is serialized in-band, i.e. inside the pickle stream.
+It is an error if *buffer_callback* is not None and *protocol*
+is None or smaller than 5.
+pickle protocol must be <= %dr
+z#buffer_callback needs protocol >= 5z"file must have a 'write' attributer
+DEFAULT_PROTOCOL
+HIGHEST_PROTOCOL
+ValueError
+_buffer_callbackr
+_file_writer
+TypeErrorrz
+framerr
+_write_large_bytes
+memor
+proto
+fastr
+file
+protocolr
+     r%
+_Pickler.__init__
+Clears the pickler's "memo".
+The memo is the data structure that remembers which objects the
+pickler has already seen, so that shared or recursive objects
+are pickled by reference and not by value.  This method is
+useful when re-using picklers.
+clearr
+clear_memo
+_Pickler.clear_memo
+z7Write a pickled representation of obj to the open file.r
+z%Pickler.__init__() was not called by 
+.__init__()
+hasattrr
+__class__r
+PROTOr
+save
+STOPr
+  r%
+_Pickler.dump
+Store an object in the memo.N)
+put)
+idxs
+   r%
+memoize
+_Pickler.memoize
+ascii
+MEMOIZEr
+BINPUTr
+LONG_BINPUT
+repr
+encode)
+  r%
+_Pickler.put
+BINGETr
+LONG_BINGET
+GETr
+  r%
+_Pickler.get
+reducer_overrider
+__reduce_ex__
+__reduce__
+Can't pickle z
+ object: z
+%s must return string or tupler
+z2Tuple returned by %s must have two to six elementsr
+persistent_id
+save_persr
+NotImplementedr
+_NoValue
+type
+dispatchr
+issubclass
+save_globalr
+isinstance
+tupler
+save_reduce)
+save_persistent_id
+pidr
+reduce
+          r%
+_Pickler.save
+  r%
+_Pickler.persistent_id[
+2persistent IDs in protocol 0 must be ASCII strings)
+BINPERSID
+PERSIDr3
+UnicodeEncodeErrorr
+  r%
+_Pickler.save_pers_
+Nz'args from save_reduce() must be a tuplez(func from save_reduce() must be callabler
+__newobj_ex__
+__new__z#args[0] from {} args has no __new__z(args[0] from {} args has the wrong classr
+__newobj__r
+z+args[0] from __newobj__ args has no __new__z0args[0] from __newobj__ args has the wrong classr
+callabler
+NEWOBJ_EXr
+REDUCE
+NEWOBJr
+POPr"
+_batch_appends
+_batch_setitems
+BUILD
+TUPLE2)
+func
+args
+state
+listitems
+dictitems
+state_setterr
+func_name
+kwargss
+             r%
+_Pickler.save_reducek
+NONEr
+  r%
+save_none
+_Pickler.save_none
+NEWTRUE
+NEWFALSE
+TRUE
+FALSEr
+  r%
+save_bool
+_Pickler.save_bool
+BININT1r
+BININT2
+BININTr
+LONG1
+LONG4
+INTr
+LONG)
+encodedr
+    r%
+save_long
+_Pickler.save_long
+BINFLOATr
+FLOATr
+  r%
+save_float
+_Pickler.save_float
+SHORT_BINBYTESr
+BINBYTES8r
+BINBYTES
+   r%
+_save_bytes_no_memo
+_Pickler._save_bytes_no_memo
+latin1)
+bytes
+codecsr
+  r%
+save_bytes
+_Pickler.save_bytes!
+BYTEARRAY8r
+   r%
+_save_bytearray_no_memo
+ _Pickler._save_bytearray_no_memo-
+bytearrayr
+  r%
+save_bytearray
+_Pickler.save_bytearray7
+z3PickleBuffer can only be pickled with protocol >= 5zHPickleBuffer can not be pickled when pointing to a non-contiguous bufferT)
+contiguousr
+bool
+tobytesr
+readonlyr
+NEXT_BUFFER
+READONLY_BUFFER)
+in_bandr
+in_memos
+      r%
+save_picklebuffer
+_Pickler.save_picklebufferC
+utf-8
+surrogatepassr
+\u005c
+\u0000
+\u000a
+\u000d
+\u001a
+raw-unicode-escaper
+SHORT_BINUNICODEr
+BINUNICODE8r
+BINUNICODE
+replace
+UNICODEr
+tmps
+     r%
+save_str
+_Pickler.save_stre
+EMPTY_TUPLE
+MARK
+TUPLEr
+_tuplesize2coder
+POP_MARK)
+elementr"
+        r%
+save_tuple
+_Pickler.save_tuple|
+EMPTY_LISTr
+LISTr
+  r%
+save_list
+_Pickler.save_list
+APPEND
+iter
+listr
+_BATCHSIZEr
+APPENDS)
+        r%
+_Pickler._batch_appends
+EMPTY_DICTr
+DICTr
+  r%
+save_dict
+_Pickler.save_dict
+SETITEMr
+SETITEMS)
+         r%
+_Pickler._batch_setitems
+setr
+EMPTY_SETr
+ADDITEMS)
+batchr
+items
+        r%
+save_set
+_Pickler.save_set
+frozensetr
+FROZENSETr
+     r%
+save_frozenset
+_Pickler.save_frozenset
+pxXqL
+levelr(
+: it's not the same object as r
+: it's not found as r
+z extension code 0 is out of rangerk
+__import__r
+ImportError
+KeyErrorr
+RuntimeError
+EXT1
+EXT2
+EXT4
+rpartitionr
+STACK_GLOBALr
+popr
+_save_toplevel_by_namer
+obj2r
+coder
+lastname
+dotted_pathr
+attrnames
+               r%
+_Pickler.save_global0
+z?can't pickle global identifier '%s.%s' using pickle protocol %i)
+GLOBALr
+_compat_pickle
+REVERSE_NAME_MAPPING
+REVERSE_IMPORT_MAPPINGrC
+r_name_mapping
+r_import_mappings
+     r%
+_Pickler._save_toplevel_by_namex
+  r%
+save_type
+_Pickler.save_type
+NNNN)4r
+floatr
+_HAVE_PICKLE_BUFFERr
+dictrR
+r!\!\
+r#\#\
+r%\%\
+r'\'\
+r*\*\
+r,\,\
+r.\.\
+r0\0\
+r2\2\
+r4\4\
+r6\6\
+r8\8\
+r:\:\
+r<\<\
+r>\>\
+r@\@\
+rB\B\
+rD\D\
+rF\F\
+rH\H\
+rJ\J\
+rL\L\
+rN\N\
+rP\P\
+rR\R\
+rT\T\
+rV\V\
+rX\X\
+rZS6
+r[\[\
+r]\]\
+r_\_\
+ra\a\
+rc\c\
+re\e\
+rg\g\
+ri\i\
+rk\k\
+rmS@
+rnSA
+ro\o\
+rq\q\
+rs\s\
+ru\u\
+rw\w\
+ry\y\
+r{\{\
+r}\}\
+_Unpickleri
+ASCII
+strictN
+encoding
+errors
+buffersc
+This takes a binary file for reading a pickle data stream.
+The protocol version of the pickle is detected automatically, so
+no proto argument is needed.
+The argument *file* must have two methods, a read() method that
+takes an integer argument, and a readline() method that requires
+no arguments.  Both methods should return bytes.  Thus *file*
+can be a binary file object opened for reading, an io.BytesIO
+object, or any other custom object that meets this interface.
+The file-like object must have two methods, a read() method
+that takes an integer argument, and a readline() method that
+requires no arguments.  Both methods should return bytes.
+Thus file-like object can be a binary file object opened for
+reading, a BytesIO object, or any other custom object that
+meets this interface.
+If *buffers* is not None, it should be an iterable of buffer-enabled
+objects that is consumed each time the pickle stream references
+an out-of-band buffer view.  Such buffers have been given in order
+to the *buffer_callback* of a Pickler object.
+If *buffers* is None (the default), then the buffers are taken
+from the pickle stream, assuming they are serialized there.
+It is an error for *buffers* to be None if the pickle stream
+was produced with a non-None *buffer_callback*.
+Other optional arguments are *fix_imports*, *encoding* and
+*errors*, which are used to control compatibility support for
+pickle stream generated by Python 2.  If *fix_imports* is True,
+pickle will try to map the old Python 2 names to the new names
+used in Python 3.  The *encoding* and *errors* tell pickle how
+to decode 8-bit string instances pickled by Python 2; these
+default to 'ASCII' and 'strict', respectively. *encoding* can be
+'bytes' to read these 8-bit string instances as bytes objects.
+_buffersr
+_file_readliner
+_file_readr
+      r%
+_Unpickler.__init__
+z{Read a pickled object representation from the open file.
+Return the reconstituted object hierarchy specified in the file.
+z'Unpickler.__init__() was not called by r
+_unframerr
+metastack
+stack
+appendr
+EOFErrorr2
+bytes_typesr+
+stopinsts
+     r%
+_Unpickler.load
+5<D1
+  r%
+pop_mark
+_Unpickler.pop_mark
+Nz%unsupported persistent id encountered)
+  r%
+persistent_load
+_Unpickler.persistent_load
+unsupported pickle protocol: %d)
+  r%
+load_proto
+_Unpickler.load_proto
+frame size > sys.maxsize: %d)
+  r%
+_Unpickler.load_frame
+decode
+UnicodeDecodeErrorr
+  r%
+load_persid
+_Unpickler.load_persid
+  r%
+load_binpersid
+_Unpickler.load_binpersid
+load_none
+_Unpickler.load_none
+NFr2
+load_false
+_Unpickler.load_false
+NTr2
+load_true
+_Unpickler.load_true
+vals
+   r%
+load_int
+_Unpickler.load_int 
+load_binint
+_Unpickler.load_binint+
+load_binint1
+_Unpickler.load_binint1/
+load_binint2
+_Unpickler.load_binint23
+  r%
+load_long
+_Unpickler.load_long7
+   r%
+load_long1
+_Unpickler.load_long1>
+z#LONG pickle has negative byte count)
+   r%
+load_long4
+_Unpickler.load_long4D
+load_float
+_Unpickler.load_floatM
+load_binfloat
+_Unpickler.load_binfloatQ
+  r%
+_decode_string
+_Unpickler._decode_stringU
+z)the STRING opcode argument must be quoted)
+escape_decoder
+  r%
+load_string
+_Unpickler.load_string^
+z(BINSTRING pickle has negative byte count)
+   r%
+load_binstring
+_Unpickler.load_binstringh
+z2BINBYTES exceeds system's maximum size of %d bytes
+  r%
+load_binbytes
+_Unpickler.load_binbytesq
+load_unicode
+_Unpickler.load_unicodey
+z4BINUNICODE exceeds system's maximum size of %d bytesr
+  r%
+load_binunicode
+_Unpickler.load_binunicode}
+z5BINUNICODE8 exceeds system's maximum size of %d bytesr
+  r%
+load_binunicode8
+_Unpickler.load_binunicode8
+z3BINBYTES8 exceeds system's maximum size of %d bytesrh
+  r%
+load_binbytes8
+_Unpickler.load_binbytes8
+z4BYTEARRAY8 exceeds system's maximum size of %d bytes)
+   r%
+load_bytearray8
+_Unpickler.load_bytearray8
+NzLpickle stream refers to out-of-band data but no *buffers* argument was givenz
+not enough out-of-band buffers)
+next
+StopIterationr
+  r%
+load_next_buffer
+_Unpickler.load_next_buffer
+memoryviewr
+toreadonly)
+   r%
+load_readonly_buffer
+_Unpickler.load_readonly_buffer
+   r%
+load_short_binstring
+_Unpickler.load_short_binstring
+  r%
+load_short_binbytes
+_Unpickler.load_short_binbytes
+  r%
+load_short_binunicode
+ _Unpickler.load_short_binunicode
+  r%
+load_tuple
+_Unpickler.load_tuple
+load_empty_tuple
+_Unpickler.load_empty_tuple
+load_tuple1
+_Unpickler.load_tuple1
+load_tuple2
+_Unpickler.load_tuple2
+load_tuple3
+_Unpickler.load_tuple3
+load_empty_list
+_Unpickler.load_empty_list
+load_empty_dictionary
+ _Unpickler.load_empty_dictionary
+load_empty_set
+_Unpickler.load_empty_set
+  r%
+load_frozenset
+_Unpickler.load_frozenset
+  r%
+load_list
+_Unpickler.load_list
+ranger
+    r%
+load_dict
+_Unpickler.load_dict
+__getinitargs__z
+in constructor for z
+__traceback__rJ
+klassrV
+errs
+     r%
+_instantiate
+_Unpickler._instantiate
+find_classr
+    r%
+load_inst
+_Unpickler.load_inst
+   r%
+load_obj
+_Unpickler.load_obj
+    r%
+load_newobj
+_Unpickler.load_newobj
+     r%
+load_newobj_ex
+_Unpickler.load_newobj_ex
+    r%
+load_global
+_Unpickler.load_global!
+STACK_GLOBAL requires str)
+   r%
+load_stack_global
+_Unpickler.load_stack_global(
+get_extension
+  r%
+load_ext1
+_Unpickler.load_ext10
+  r%
+load_ext2
+_Unpickler.load_ext25
+  r%
+load_ext4
+_Unpickler.load_ext4:
+EXT specifies code <= 0z
+unregistered extension code %d)
+    r%
+_Unpickler.get_extension?
+pickle.find_classr
+auditr
+NAME_MAPPING
+IMPORT_MAPPINGr
+   r%
+_Unpickler.find_classN
+    r%
+load_reduce
+_Unpickler.load_reduce\
+load_pop
+_Unpickler.load_popc
+load_pop_mark
+_Unpickler.load_pop_markj
+load_dup
+_Unpickler.load_dupn
+Memo value not found at index )
+msgs
+   r%
+load_get
+_Unpickler.load_getr
+excr
+    r%
+load_binget
+_Unpickler.load_binget{
+    r%
+load_long_binget
+_Unpickler.load_long_binget
+negative PUT argument)
+  r%
+load_put
+_Unpickler.load_put
+negative BINPUT argumentr
+  r%
+load_binput
+_Unpickler.load_binput
+negative LONG_BINPUT argumentr
+  r%
+load_long_binput
+_Unpickler.load_long_binput
+  r%
+load_memoize
+_Unpickler.load_memoize
+    r%
+load_append
+_Unpickler.load_append
+extendr
+list_objr
+      r%
+load_appends
+_Unpickler.load_appends
+     r%
+load_setitem
+_Unpickler.load_setitem
+    r%
+load_setitems
+_Unpickler.load_setitems
+update
+add)
+set_objr
+     r%
+load_additems
+_Unpickler.load_additems
+__setstate__r
+__dict__r
+internr
+setattr)
+inst
+setstate
+slotstate
+inst_dictr&
+          r%
+load_build
+_Unpickler.load_build
+load_mark
+_Unpickler.load_mark
+  r%
+load_stop
+_Unpickler.load_stop
+STRINGre
+BINSTRINGrj
+SHORT_BINSTRINGr
+TUPLE1r
+TUPLE3r
+INSTr
+OBJr
+DUPr
+     r%
+_dumpr>
+getvaluer2
+ress
+      r%
+_dumpsrB
+     r%
+_loadrE
+Nz%Can't load pickle from unicode stringrD
+      r%
+_loadsrH
+doctest
+testmod)
+_testrL
+z$display contents of the pickle files)
+description
+pickle_file
+the pickle file)
+nargs
+helpz
+--test
+store_truez
+run self-test suite)
+actionrQ
+-vz)run verbosely; only affects self-test run
+rbr.
+typesr
+copyregr
+itertoolsr
+functoolsr
+structr
+__all__
+_pickler
+format_version
+compatible_formatsr
+Exceptionr
+matchrz
+objectr-
+argparse
+ArgumentParser
+parser
+add_argument
+parse_argsrV
+testrN
+print_help
+pprint
+stdin
+bufferr
+openr
+<module>rp

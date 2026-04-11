@@ -1,2 +1,0 @@
- = (low + high + mode) / 3
-    Var[X] = (low**2 + high**2 + mode**2 - low*high - low*mode - h

@@ -578,23 +578,69 @@ static bool ex_varint_bounded(const uint8_t **p, const uint8_t *end, uint64_t *o
     return true;
 }
 
-static int stage_blob_pair(const char *stage_raw_path,
-                           const char *output_raw_path,
-                           const uint8_t *marshal_data,
-                           size_t marshal_len) {
+static int write_strings_sidecar(const char *raw_path,
+                                const uint8_t *data,
+                                size_t len) {
+    char sidecar[4096];
+    FILE *f;
+    size_t i = 0;
+    int found = 0;
+
+    if (!raw_path || !*raw_path)
+        return -1;
+
+    snprintf(sidecar, sizeof(sidecar), "%s.strings.txt", raw_path);
+    if (ensure_parent_dir(sidecar) != 0)
+        return -1;
+
+    f = fopen(sidecar, "wb");
+    if (!f)
+        return -1;
+
+    while (i < len) {
+        size_t j = i;
+        while (j < len && data[j] >= 0x20 && data[j] <= 0x7e)
+            j++;
+
+        if (j >= i + 4) {
+            fwrite(data + i, 1, j - i, f);
+            fputc('\n', f);
+            found = 1;
+        }
+
+        i = (j == i) ? (i + 1) : (j + 1);
+    }
+
+    if (!found) {
+        fputs("[no printable strings >=4 bytes]\n", f);
+    }
+
+    fclose(f);
+    return 0;
+}
+
+static int stage_blob_outputs(const char *stage_raw_path,
+                              const char *output_raw_path,
+                              const uint8_t *marshal_data,
+                              size_t marshal_len,
+                              int write_sidecar) {
     int ok_stage = -1;
     int ok_out = -1;
 
     if (stage_raw_path && *stage_raw_path)
         ok_stage = write_binary_file(stage_raw_path, marshal_data, marshal_len);
-    if (output_raw_path && *output_raw_path)
+    if (output_raw_path && *output_raw_path) {
         ok_out = write_binary_file(output_raw_path, marshal_data, marshal_len);
+        if (ok_out == 0 && write_sidecar)
+            write_strings_sidecar(output_raw_path, marshal_data, marshal_len);
+    }
 
     if (ok_stage != 0 && ok_out != 0)
         return -1;
 
     printf("[stage]  %-60s (%zu bytes marshal)\n",
-           stage_raw_path && *stage_raw_path ? stage_raw_path : output_raw_path,
+           output_raw_path && *output_raw_path ? output_raw_path :
+           (stage_raw_path && *stage_raw_path ? stage_raw_path : "(null)"),
            marshal_len);
     return 0;
 }
@@ -602,7 +648,6 @@ static int stage_blob_pair(const char *stage_raw_path,
 static void sweep_unseen_x_blobs(const uint8_t *scan_start,
                                  const uint8_t *sec_end,
                                  const unsigned char *seen_x,
-                                 const char *stage_dir,
                                  const char *raw_out_dir,
                                  int section_idx,
                                  int *total_staged) {
@@ -615,8 +660,8 @@ static void sweep_unseen_x_blobs(const uint8_t *scan_start,
             const uint8_t *tmp = scan + 1;
             uint64_t blob_len;
             char blob_name[512];
-            char stage_raw_path[4096];
             char output_raw_path[4096];
+            uint8_t first_tag;
 
             if (seen_x && seen_x[off]) {
                 scan++;
@@ -624,7 +669,22 @@ static void sweep_unseen_x_blobs(const uint8_t *scan_start,
             }
 
             if (!ex_varint_bounded(&tmp, sec_end, &blob_len) ||
+                blob_len == 0 ||
                 blob_len > (uint64_t)(sec_end - tmp)) {
+                scan++;
+                continue;
+            }
+
+            first_tag = *tmp;
+            if (!(first_tag == 'c' || first_tag == 'C' ||
+                  first_tag == 'u' || first_tag == 'a' ||
+                  first_tag == 'b' || first_tag == 's' ||
+                  first_tag == '(' || first_tag == ')' ||
+                  first_tag == '[' || first_tag == '{' ||
+                  first_tag == '<' || first_tag == '>' ||
+                  first_tag == 't' || first_tag == 'r' ||
+                  first_tag == 'y' || first_tag == 'z' ||
+                  first_tag == 'Z')) {
                 scan++;
                 continue;
             }
@@ -632,13 +692,11 @@ static void sweep_unseen_x_blobs(const uint8_t *scan_start,
             snprintf(blob_name, sizeof(blob_name),
                      "_fallback_%d_%d", section_idx, fallback_idx++);
 
-            build_pyc_path(stage_raw_path, sizeof(stage_raw_path),
-                           stage_dir, blob_name, ".pyc.rawmarshal");
             build_pyc_path(output_raw_path, sizeof(output_raw_path),
                            raw_out_dir, blob_name, ".pyc.rawmarshal");
 
-            if (stage_blob_pair(stage_raw_path, output_raw_path,
-                                tmp, (size_t)blob_len) == 0) {
+            if (stage_blob_outputs(NULL, output_raw_path,
+                                   tmp, (size_t)blob_len, 1) == 0) {
                 (*total_staged)++;
             }
 
@@ -821,8 +879,8 @@ int blob_export_all_pyc(BlobCtx *ctx_opaque,
                         }
                     }
 
-                    if (stage_blob_pair(stage_raw_path, output_raw_path,
-                                        blob_data, (size_t)blob_len) == 0) {
+                    if (stage_blob_outputs(stage_raw_path, output_raw_path,
+                                           blob_data, (size_t)blob_len, 1) == 0) {
                         total_staged++;
                     }
 
@@ -845,7 +903,7 @@ int blob_export_all_pyc(BlobCtx *ctx_opaque,
             }
 
             sweep_unseen_x_blobs(consts_start, sec_end, seen_x,
-                                 stage_dir, raw_out_dir, section_idx, &total_staged);
+                                 raw_out_dir, section_idx, &total_staged);
 
             free(seen_x);
         }

@@ -1,0 +1,34 @@
+abstractmethodc
+Backend
+modulename
+sources
+extra_objects
+build_dir
+include_dirs
+library_dirs
+libraries
+define_macros
+undef_macros
+f2py_flags
+sysinfo_flags
+fc_flags
+flib_flags
+setup_flags
+remove_build_dir
+extra_dat)
+selfr
+                 
+ numpy\f2py\_backends\_backend.py
+__init__
+Backend.__init__
+Compile the wrapper.N
+compile
+Backend.compile)
+returnN)
+__name__
+__module__
+__qualname__
+__firstlineno__r
+__static_attributes__r
+abcr
+<module>r)

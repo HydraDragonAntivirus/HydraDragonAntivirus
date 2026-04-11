@@ -1,0 +1,212 @@
+StrEnum
+IntEnum
+_simple_enum
+HTTPStatus
+HTTPMethodc
+r"S r#S!r$S"r%S#r&S$r'S%r(S&r)S'r*S(r+S)r,S*r-S+r.S,r/\/r0S-r1\1r2S.r3S/r4\4r5S0r6S1r7S2r8S3r9\9r:S4r;S5r<S6r=S7r>S8r?S9r@S:rAS;rBS<rCS=rDS>rES?rFS@rGSArHSBrISCrJSDrKSErLSFrMSGrNgH)Jr
+HTTP status codes and reason phrases
+Status codes from the following RFCs are all observed:
+    * RFC 9110: HTTP Semantics, obsoletes 7231, which obsoleted 2616
+    * RFC 6585: Additional HTTP Status Codes
+    * RFC 3229: Delta encoding in HTTP
+    * RFC 4918: HTTP Extensions for WebDAV, obsoletes 2518
+    * RFC 5842: Binding Extensions to WebDAV
+    * RFC 7238: Permanent Redirect
+    * RFC 2295: Transparent Content Negotiation in HTTP
+    * RFC 2774: An HTTP Extension Framework
+    * RFC 7725: An HTTP Status Code to Report Legal Obstacles
+    * RFC 7540: Hypertext Transfer Protocol Version 2 (HTTP/2)
+    * RFC 2324: Hyper Text Coffee Pot Control Protocol (HTCPCP/1.0)
+    * RFC 8297: An HTTP Status Code for Indicating Hints
+    * RFC 8470: Using Early Data in HTTP
+__new__
+_value_
+phrase
+description)
+valuer
+objs
+     
+http.pyr
+HTTPStatus.__new__
+selfs
+is_informational
+HTTPStatus.is_informational!
+is_success
+HTTPStatus.is_success%
+is_redirection
+HTTPStatus.is_redirection)
+is_client_error
+HTTPStatus.is_client_error-
+is_server_error
+HTTPStatus.is_server_error1
+Continuez!Request received, please continue)
+Switching Protocolsz.Switching to new protocol; obey Upgrade header)
+Processing)
+Early Hints)
+OKz#Request fulfilled, document follows)
+Createdz
+Document created, URL follows)
+Acceptedz/Request accepted, processing continues off-line)
+Non-Authoritative Informationz
+Request fulfilled from cache)
+No Contentz"Request fulfilled, nothing follows)
+Reset Contentz"Clear input form for further input)
+Partial Contentz
+Partial content follows)
+Multi-Status)
+Already Reported)
+IM Used)
+Multiple Choicesz,Object has several resources -- see URI list)
+Moved Permanently
+(Object moved permanently -- see URI list)
+Found
+(Object moved temporarily -- see URI list)
+See Otherz'Object moved -- see Method and URL list)
+Not Modifiedz)Document has not changed since given time)
+Use Proxyz@You must use proxy specified in Location to access this resource)
+Temporary RedirectrC
+Permanent RedirectrA
+Bad Requestz(Bad request syntax or unsupported method)
+Unauthorizedz*No permission -- see authorization schemes)
+Payment Requiredz"No payment -- see charging schemes)
+Forbiddenz0Request forbidden -- authorization will not help)
+Not Foundz
+Nothing matches the given URI)
+Method Not Allowedz-Specified method is invalid for this resource)
+Not Acceptablez%URI not available in preferred format)
+Proxy Authentication Requiredz7You must authenticate with this proxy before proceeding)
+Request Timeoutz"Request timed out; try again later)
+Conflictz
+Request conflict)
+Gonez5URI no longer exists and has been permanently removed)
+Length Requiredz"Client must specify Content-Length)
+Precondition Failedz Precondition in headers is false)
+Content Too Largez
+Content is too large)
+URI Too Longz
+URI is too long)
+Unsupported Media Typez!Entity body in unsupported format)
+Range Not Satisfiablez
+Cannot satisfy request range)
+Expectation Failedz'Expect condition could not be satisfied)
+I'm a Teapotz5Server refuses to brew coffee because it is a teapot.)
+Misdirected Requestz(Server is not able to produce a response)
+Unprocessable Content)
+Locked)
+Failed Dependency)
+Too Early)
+Upgrade Required)
+Precondition Requiredz8The origin server requires the request to be conditional)
+Too Many RequestszOThe user has sent too many requests in a given amount of time ("rate limiting"))
+Request Header Fields Too LargezVThe server is unwilling to process the request because its header fields are too large)
+Unavailable For Legal ReasonszOThe server is denying access to the resource as a consequence of a legal demand)
+Internal Server Errorz
+Server got itself in trouble)
+Not Implementedz&Server does not support this operation)
+Bad Gatewayz+Invalid responses from another server/proxy)
+Service Unavailablez8The server cannot process the request due to a high load)
+Gateway Timeoutz4The gateway server did not receive a timely response)
+HTTP Version Not Supportedz
+Cannot fulfill request)
+Variant Also Negotiates)
+Insufficient Storage)
+Loop Detected)
+Not Extended)
+Network Authentication Requiredz7The client needs to authenticate to gain network accessr
+__name__
+__module__
+__qualname__
+__firstlineno__
+__doc__r
+propertyr
+CONTINUE
+SWITCHING_PROTOCOLS
+PROCESSING
+EARLY_HINTSr5
+CREATED
+ACCEPTED
+NON_AUTHORITATIVE_INFORMATION
+NO_CONTENT
+RESET_CONTENT
+PARTIAL_CONTENT
+MULTI_STATUS
+ALREADY_REPORTED
+IM_USED
+MULTIPLE_CHOICES
+MOVED_PERMANENTLY
+FOUND
+SEE_OTHER
+NOT_MODIFIED
+USE_PROXY
+TEMPORARY_REDIRECT
+PERMANENT_REDIRECT
+BAD_REQUEST
+UNAUTHORIZED
+PAYMENT_REQUIRED
+FORBIDDEN
+NOT_FOUND
+METHOD_NOT_ALLOWED
+NOT_ACCEPTABLE
+PROXY_AUTHENTICATION_REQUIRED
+REQUEST_TIMEOUT
+CONFLICT
+GONE
+LENGTH_REQUIRED
+PRECONDITION_FAILED
+CONTENT_TOO_LARGE
+REQUEST_ENTITY_TOO_LARGE
+URI_TOO_LONG
+REQUEST_URI_TOO_LONG
+UNSUPPORTED_MEDIA_TYPE
+RANGE_NOT_SATISFIABLE
+REQUESTED_RANGE_NOT_SATISFIABLE
+EXPECTATION_FAILED
+IM_A_TEAPOT
+MISDIRECTED_REQUEST
+UNPROCESSABLE_CONTENT
+UNPROCESSABLE_ENTITY
+LOCKED
+FAILED_DEPENDENCY
+TOO_EARLY
+UPGRADE_REQUIRED
+PRECONDITION_REQUIRED
+TOO_MANY_REQUESTS
+REQUEST_HEADER_FIELDS_TOO_LARGE
+UNAVAILABLE_FOR_LEGAL_REASONS
+INTERNAL_SERVER_ERROR
+NOT_IMPLEMENTED
+BAD_GATEWAY
+SERVICE_UNAVAILABLE
+GATEWAY_TIMEOUT
+HTTP_VERSION_NOT_SUPPORTED
+VARIANT_ALSO_NEGOTIATES
+INSUFFICIENT_STORAGE
+LOOP_DETECTED
+NOT_EXTENDED
+NETWORK_AUTHENTICATION_REQUIRED
+__static_attributes__r
+HTTP methods and descriptions
+Methods from the following RFCs are all observed:
+    * RFC 9110: HTTP Semantics, obsoletes 7231, which obsoleted 2616
+    * RFC 5789: PATCH Method for HTTP
+strr
+    r
+HTTPMethod.__new__
+__class__rJ
+_name_r
+__repr__
+HTTPMethod.__repr__
+CONNECTz%Establish a connection to the server.)
+DELETEz
+Remove the target.)
+GETz
+Retrieve the target.)
+HEADzBSame as GET, but only retrieve the status line and header section.)
+OPTIONSz2Describe the communication options for the target.)
+PATCHz(Apply partial modifications to a target.)
+POSTz<Perform target-specific processing with the request payload.)
+PUTz,Replace the target with the request payload.)
+TRACEz>Perform a message loop-back test along the path to the target.r
+enumr
+__all__r
+<module>r

@@ -1,0 +1,108 @@
+Path operations common to more than one OS
+Do not use directly.  The OS specific modules import the appropriate
+functions from this module themselves.
+commonprefix
+exists
+getatime
+getctime
+getmtime
+getsize
+isdevdrive
+isdir
+isfile
+isjunction
+islink
+lexists
+samefile
+sameopenfile
+samestat
+ALLOW_MISSINGc
+zDTest whether a path exists.  Returns False for broken symbolic linksFT)
+stat
+OSError
+ValueError
+paths
+genericpath.pyr
+zCTest whether a path exists.  Returns True for broken symbolic linksFT)
+lstatr
+z%Test whether a path is a regular fileF)
+S_ISREG
+st_mode
+z<Return true if the pathname refers to an existing directory.F)
+S_ISDIRr 
+z&Test whether a path is a symbolic linkF)
+AttributeErrorr
+S_ISLNKr 
+zUTest whether a path is a junction
+Junctions are not supported on the current platformF
+fspathr
+zuDetermines whether the specified path is on a Windows Dev Drive.
+Dev Drives are not supported on the current platformFr+
+z1Return the size of a file, reported by os.stat().)
+st_size
+filenames
+zCReturn the last modification time of a file, reported by os.stat().)
+st_mtimer2
+z=Return the last access time of a file, reported by os.stat().)
+st_atimer2
+zAReturn the metadata change time of a file, reported by os.stat().)
+st_ctimer2
+p4XBU
+zGGiven a list of pathnames, returns the longest common leading component
+isinstance
+list
+tuple
+mapr
+enumerate)
+     r
+z5Test whether two stat buffers reference the same file)
+st_ino
+st_dev)
+Test whether two pathnames reference the same actual file or directory
+This is determined by the device number and i-node number and
+raises an exception if an os.stat() call on either pathname fails.
+f2rE
+    r
+z:Test whether two open file objects reference the same file)
+fstatr
+fp2rE
+    r
+Split the extension from a pathname.
+Extension is everything from the last dot to the end, ignoring
+leading dots.  Returns "(root, ext)"; ext may be empty.
+rfindrB
+altsep
+extsep
+sepIndex
+altsepIndex
+dotIndex
+filenameIndexs
+        r
+_splitextr^
+NFTz;() argument must be str, bytes, or os.PathLike object, not z.Can't mix strings and bytes in path components)
+bytes
+TypeError
+__class__
+__name__)
+funcname
+args
+hasstr
+hasbytesr&
+     r
+_check_arg_typesri
+z$Special value for use in realpath().c
+os.path.ALLOW_MISSING
+selfs
+__repr__
+ALLOW_MISSING.__repr__
+__reduce__
+ALLOW_MISSING.__reduce__
+__module__
+__qualname__
+__firstlineno__
+__doc__rp
+__static_attributes__rm
+__all__r
+object
+__new__r
+<module>r}

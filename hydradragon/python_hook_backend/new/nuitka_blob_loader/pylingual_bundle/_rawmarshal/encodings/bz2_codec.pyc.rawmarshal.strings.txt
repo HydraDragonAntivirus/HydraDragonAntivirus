@@ -1,0 +1,60 @@
+Python 'bz2_codec' Codec - bz2 compression encoding.
+This codec de/encodes from bytes to bytes and is therefore usable with
+bytes.transform() and bytes.untransform().
+Adapted by Raymond Hettinger from zlib_codec.py which was written
+by Marc-Andre Lemburg (mal@lemburg.com).
+strict)
+compress
+input
+errorss
+encodings\bz2_codec.py
+bz2_encoder
+decompressr
+bz2_decoder
+Codec
+selfr
+   r
+encode
+Codec.encode
+   r
+decode
+Codec.decode
+__name__
+__module__
+__qualname__
+__firstlineno__r
+__static_attributes__r
+IncrementalEncoder
+BZ2Compressor
+compressobj
+__init__
+IncrementalEncoder.__init__
+flush)
+final
+    r
+IncrementalEncoder.encode#
+reset
+IncrementalEncoder.reset*
+IncrementalDecoder
+BZ2Decompressor
+decompressobjr,
+IncrementalDecoder.__init__.
+EOFError)
+   r
+IncrementalDecoder.decode3
+IncrementalDecoder.reset9
+StreamWriter
+bytes
+charbuffertyper%
+StreamReader
+namer
+incrementalencoder
+incrementaldecoder
+streamwriter
+streamreader
+_is_text_encoding)
+codecs
+CodecInfor
+getregentryrY
+__doc__rW
+<module>r[

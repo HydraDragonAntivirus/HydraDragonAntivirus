@@ -1,0 +1,391 @@
+r"\#\$\%\&\'\(\)S
+r*\(\$-
+r+\,r-S
+r5S&S 
+r6S!
+r7S"
+r8S'S$
+r9S%
+r:g#)(z
+Internal support module for sre
+.\[{()*+?^$|z
+*+?{
+0123456789
+01234567
+0123456789abcdefABCDEF
+4abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZz
+State
+flags
+groupdict
+groupwidths
+lookbehindgroups
+grouprefpos
+selfs
+re\_parser.py
+__init__
+State.__init__L
+lenr
+groups
+State.groupsR
+too many groupsz7redefinition of group name %r as group %d; was group %d)
+append
+MAXGROUPS
+errorr
+get)
+name
+ogids
+    r$
+opengroup
+State.opengroupU
+getwidthr
+   r$
+closegroup
+State.closegroupa
+  r$
+checkgroup
+State.checkgroupc
+cannot refer to an open groupz?cannot refer to group defined in the same lookbehind subpattern)
+sources
+   r$
+checklookbehindgroup
+State.checklookbehindgroupf
+__name__
+__module__
+__qualname__
+__firstlineno__r%
+propertyr+
+__static_attributes__
+SubPattern
+state
+data
+width)
+   r$
+SubPattern.__init__p
+endr
+ELSEFT
+tuple
+listrP
+print
+BRANCH
+enumerate
+dump
+GROUPREF_EXISTS
+isinstancerL
+level
+seqtypes
+condgroup
+item_yes
+item_no
+           r$
+SubPattern.dumpw
+reprrP
+__repr__
+SubPattern.__repr__
+__len__
+SubPattern.__len__
+indexs
+  r$
+__delitem__
+SubPattern.__delitem__
+slicerL
+  r$
+__getitem__
+SubPattern.__getitem__
+codes
+   r$
+__setitem__
+SubPattern.__setitem__
+insertr~
+   r$
+SubPattern.insert
+  r$
+SubPattern.append
+MAXWIDTHr8
+ATOMIC_GROUP
+SUBPATTERN
+_REPEATCODES
+MAXREPEAT
+_UNITCODES
+GROUPREFrO
+SUCCESS)
+hire
+         r$
+SubPattern.getwidth
+Tokenizer
+latin1r
+istext
+string
+decoded_stringrv
+next
+_Tokenizer__next)
+  r$
+Tokenizer.__init__
+bad escape (end of pattern))
+IndexErrorr
+chars
+   r$
+__next
+Tokenizer.__next
+  r$
+match
+Tokenizer.match
+thiss
+  r$
+Tokenizer.get
+ranger
+charset
+result
+      r$
+getwhile
+Tokenizer.getwhile
+XA:X
+missing z
+missing %s, unterminated namer
+terminatorr2
+     r$
+getuntil
+Tokenizer.getuntil
+Tokenizer.pos!
+tell
+Tokenizer.tell$
+  r$
+seek
+Tokenizer.seek&
+ascii
+backslashreplace)
+encode
+decoder0
+offsets
+   r$
+Tokenizer.error*
+bad character in group name %az
+bad character in group name %r)
+isasciir0
+isidentifier)
+    r$
+checkgroupname
+Tokenizer.checkgroupname/
+incomplete escape %s
+missing {
+character name
+undefined character name %r
+\N{}
+.octal escape value %s outside of range 0-0o377
+bad escape %s)
+ESCAPESr1
+CATEGORIESr]
+HEXDIGITSr*
+LITERAL
+intr
+unicodedatar
+lookup
+KeyError
+TypeError
+OCTDIGITS
+DIGITS
+ValueError
+ASCIILETTERS)
+escaper
+charnames
+      r$
+_class_escaper
+A$L+
+/A0L+
+ A=L+
+,<L(
+XrR*
+invalid group reference %dr
+groups
+        r$
+_escaper
+#A0P
+<B+P
+(A&P
+dict
+fromkeys)
+itemss
+_uniqr
+_parser
+SRE_FLAG_VERBOSEr*
+NEGATE
+extendr
+verbose
+nestedr
+itemsappend
+sourcematch
+start
+subpattern
+prefix
+item
+setre
+              r$
+_parse_subr
+S :X
+O$[F
+S):X
+S*:X
+n!S+n"S
+S-:X
+S/S05
+S2S05
+n$U$c#
+S3U#-
+S6:X
+S+n!G
+S2:X
+S.:X
+S&n%U
+n&U&c
+S1:X
+S*:X
+S2S05
+n'U'Rc
+U'Re
+n(U(c#
+S3U'-
+O&[7
+n(U((
+U([f
+S>U(-
+U'Rc
+U'Re
+S@:X
+U(U)U*4
+S/:X
+S+n!S
+n+U+cG
+S+n!O!U
+n-[[
+SD:X
+n/n0U/[@
+U.U.S
+n,A,f
+)FNTz
+z"Possible nested set at position %dr
+stacklevel
+unterminated character set
+-&~|z
+Possible set %s at position %d
+difference
+intersection
+symmetric difference
+unionz&Possible set difference at position %dr
+bad character range 
+,z"the repetition number is too largez"min repeat greater than max repeatz
+unsupported quantifier r
+nothing to repeatz
+multiple repeat
+unexpected end of pattern
+group name
+unknown group name %rr@
+unknown extension ?P
+missing ), unterminated commentz
+=!<z
+unknown extension ?<z"missing ), unterminated subpatternrJ
+bad group numberr
+-bad character in group name %s at position %dr
+z/conditional backref with more than two branchesz/global flags not at the start of the expressionz
+unknown extension ?
+unsupported special character )FrL
+WHITESPACEr
+SPECIAL_CHARSr
+warnings
+warn
+FutureWarningr0
+RANGEr
+NOT_LITERALr
+REPEAT_CHARSr
+OverflowError
+AssertionError
+MIN_REPEAT
+POSSESSIVE_REPEAT
+MAX_REPEAT
+ANYr
+ASSERT
+ASSERT_NOT
+FAILURE
+isdecimalr
+DeprecationWarningr
+FLAGS
+_parse_flagsr
+AT_BEGINNING
+AT_ENDr
+)1rA
+firstr
+subpatternappend
+sourcegetr
+_len
+_ordr
+herer
+setappendr3
+negate
+code1
+that
+code2r
+add_flags
+del_flagsr9
+capture
+atomicr2
+dirr 
+condnamerg
+sub_verboser
+                                                 r$
+z8bad inline flags: cannot use 'L' flag with a str patternr
+z:bad inline flags: cannot use 'u' flag with a bytes patternz9bad inline flags: flags 'a', 'u' and 'L' are incompatiblez
+missing -, : or )z
+)-:z
+unknown flagr,
+z,bad inline flags: cannot turn on global flagr
+missing flagz8bad inline flags: cannot turn off flags 'a', 'u' and 'L'z
+missing :r.
+z-bad inline flags: cannot turn off global flagz(bad inline flags: flag turned on and off)
+TYPE_FLAGS
+isalphar*
+GLOBAL_FLAGS)
+flagr
+        r$
+Nz)cannot use LOCALE flag with a str patternz(ASCII and UNICODE flags are incompatiblez,cannot use UNICODE flag with a bytes patternz'ASCII and LOCALE flags are incompatible)
+SRE_FLAG_LOCALEr
+SRE_FLAG_ASCII
+SRE_FLAG_UNICODE)
+srcr
+  r$
+fix_flagsrf
+unbalanced parenthesisr
+SRE_FLAG_DEBUGr`
+       r$
+parserj
+latin-1)
+joinr
+literalr
+addliteral
+"parse_template.<locals>.addliteral
+patternr
+addgroup
+ parse_template.<locals>.addgroup
+missing <r)
+groupindexr
+sget
+lappendrs
+isoctalro
+ `          @@@@r$
+parse_templaterz
+=3M3
+__doc__
+_constantsr2
+frozensetr
+CATEGORYr
+AT_BEGINNING_STRING
+AT_BOUNDARY
+AT_NON_BOUNDARY
+CATEGORY_DIGIT
+CATEGORY_NOT_DIGIT
+CATEGORY_SPACE
+CATEGORY_NOT_SPACE
+CATEGORY_WORD
+CATEGORY_NOT_WORD
+AT_END_STRINGr
+SRE_FLAG_IGNORECASErb
+SRE_FLAG_MULTILINE
+SRE_FLAG_DOTALLr
+<module>r

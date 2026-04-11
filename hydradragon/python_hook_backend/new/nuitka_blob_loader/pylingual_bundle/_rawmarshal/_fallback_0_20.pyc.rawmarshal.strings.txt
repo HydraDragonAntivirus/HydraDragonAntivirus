@@ -1,0 +1,23 @@
+Round a nonzero, nonspecial Decimal to a fixed number of
+significant figures, using the given rounding mode.
+Infinities, NaNs and zeros are returned unaltered.
+This operation is quiet: it raises no flags, and uses no
+information from the context.
+z'argument should be at least 1 in _roundr2
+placesru
+    r/
+_round
+Decimal._round
+X0:w
+Rounds to a nearby integer.
+If no rounding mode is specified, take the rounding mode from
+the context.  This method raises the Rounded and Inexact flags
+when appropriate.
+See also: to_integral_value, which does exactly the same as
+this method except that it doesn't raise Inexact or Rounded.
+    r/
+to_integral_exact
+Decimal.to_integral_exact!
+z@Rounds to the nearest integer, without raising inexact, rounded.r
+    r/
+Decimal.to_integral_value>

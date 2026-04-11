@@ -1,0 +1,24 @@
+Read resources contained within a package.
+This codebase is shared between importlib.resources in the stdlib
+and importlib_resources in PyPI. See
+https://github.com/python/importlib_metadata/wiki/Development-Methodology
+for more detail.
+as_file
+files
+Package
+Anchor)
+contents
+is_resource
+open_binary
+open_text
+path
+read_binary
+read_text)
+ResourceReader)
+__doc__
+_commonr
+_functionalr
+abcr
+__all__
+importlib\resources.py
+<module>r

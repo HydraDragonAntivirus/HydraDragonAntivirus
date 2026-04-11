@@ -1,0 +1,15 @@
+packagingz"Core utilities for Python packagesz!https://github.com/pypa/packagingz
+26.0z)Donald Stufft and individual contributorsz
+donald@stufft.ioz
+BSD-2-Clause or Apache-2.0z
+2014 N)
+__title__
+__summary__
+__uri__
+__version__
+__author__
+__email__
+__license__
+__copyright__
+packaging.py
+<module>r

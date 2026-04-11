@@ -1,0 +1,569 @@
+SBS"
+S#S$.
+r S'
+r!S(
+r"S)
+r#S*
+r$S+
+r(S2
+r)SCS3
+r*S4
+r+S5r,\,S6-
+r-S7
+r.\/"
+r0S8
+r1SDS9
+r2S#S:.
+r3S<
+r4SES=
+r5S>
+r6S?
+r7S@
+r8SA
+)FaS
+Core implementation of import.
+This module is NOT meant to be directly imported! It has been designed such
+that it can be bootstrapped into Python as the implementation of import. As
+such it requires the injection of specific modules and attributes in order to
+work. One should use importlib as the public-facing version of this module.
+__qualname__
+AttributeError
+type)
+objs
+importlib\_bootstrap.py
+_object_namer
+z/Simple substitute for functools.update_wrapper.)
+__module__
+__name__r
+__doc__N)
+hasattr
+setattr
+getattr
+__dict__
+update)
+replaces
+   r
+_wrapr
+names
+_new_moduler
+_List
+__weakref__
+__firstlineno__
+__slots__
+__static_attributes__r!
+_WeakValueDictionary
+z/_WeakValueDictionary.__init__.<locals>.KeyedRef
+keyc
+super
+__new__
+remover+
+obr+
+self
+__class__s
+    
+7_WeakValueDictionary.__init__.<locals>.KeyedRef.__new__J
+__init__r/
+8_WeakValueDictionary.__init__.<locals>.KeyedRef.__init__O
+_iterating
+_pending_removals
+appendr+
+_weakref
+_remove_dead_weakref
+data)
+wrr1
+self_weakrefs
+6_WeakValueDictionary.__init__.<locals>.KeyedRef.removeR
+staticmethodr/
+__classcell__)
+KeyedRef
+/_WeakValueDictionary.__init__.<locals>.KeyedRefF
+_KeyedRef
+clear)
+  @r
+_WeakValueDictionary.__init__@
+setr8
+_WeakValueDictionary.clear`
+popr=
+IndexErrorr;
+    r
+_commit_removals
+%_WeakValueDictionary._commit_removalse
+KeyError)
+defaultr>
+     r
+_WeakValueDictionary.geto
+    r
+setdefault
+_WeakValueDictionary.setdefault|
+_BlockingOnManager
+z;A context manager responsible to updating ``_blocking_on``.c
+thread_id
+lock)
+   r
+_BlockingOnManager.__init__
+zCMark the running thread as waiting for self.lock. via _blocking_on.N)
+_blocking_onrZ
+blocked_onr:
+__enter__
+_BlockingOnManager.__enter__
+z6Remove self.lock from this thread's _blocking_on list.N)
+args
+kwargss
+   r
+__exit__
+_BlockingOnManager.__exit__
+_DeadlockError
+Check if 'target_id' is holding the same lock as another thread(s).
+The search within 'blocking_on' starts with the threads listed in
+'candidate_ids'.  'seen_ids' contains any threads that are considered
+already traversed in the search.
+Keyword arguments:
+target_id     -- The thread id to try to reach.
+seen_ids      -- A set of threads that have already been visited.
+candidate_ids -- The thread ids from which to begin.
+blocking_on   -- A dict representing the thread/blocking-on graph.  This may
+                 be the same object as the global '_blocking_on' but it is
+                 a parameter to reduce the impact that global mutable
+                 state has on the result of this function.
+seen_ids
+candidate_ids
+blocking_on)
+owner
+_has_deadlocked)
+target_idrr
+candidate_blocking_onra
+edgess
+        r
+_ModuleLock
+A recursive lock implementation which is able to detect deadlocks
+(e.g. thread 1 trying to take locks A then B, and thread 2 trying to
+take locks B then A).
+_thread
+RLockra
+allocate_lock
+wakeupr
+count
+waiters
+_ModuleLock.__init__
+get_identrJ
+has_deadlock
+_ModuleLock.has_deadlock 
+Acquire the module lock.  If a potential deadlock is detected,
+a _DeadlockError is raised.
+Otherwise, the lock is always acquired and True is returned.
+deadlock detected by F)
+acquirer
+release
+_ModuleLock.acquire0
+!>D0
+cannot release un-acquired lock
+RuntimeError
+lenr
+_ModuleLock.releaset
+B?C)
+_ModuleLock(
+) at 
+idrK
+__repr__
+_ModuleLock.__repr__
+_DummyModuleLocki
+zRA simple _ModuleLock equivalent for Python builds without
+multi-threading support.c
+_DummyModuleLock.__init__
+_DummyModuleLock.acquire
+_DummyModuleLock.release
+_DummyModuleLock(r
+_DummyModuleLock.__repr__
+_ModuleLockManageri
+_name
+_lockr
+_ModuleLockManager.__init__
+_get_module_lockr
+_ModuleLockManager.__enter__
+   r
+_ModuleLockManager.__exit__
+Get or create the module lock for a given module name.
+Acquire/release internally the global import lock to protect
+_module_locks.Nc
+_imp
+acquire_lock
+_module_locksrW
+release_lock)
+_get_module_lock.<locals>.cb
+   r
+Acquires then releases the module lock for a given module name.
+This is used to ensure a module is completely initialized, in the
+event it is being imported by another thread.
+_lock_unlock_moduler
+remove_importlib_frames in import.c will always remove sequences
+of importlib frames that end with a call to this function
+Use it instead of a normal call in places where including the importlib
+frames introduces unwanted noise into the traceback (e.g. when executing
+module code)
+kwdss
+   r
+_call_with_frames_removedr
+verbosityc
+z=Print the message to stderr if -v/PYTHONVERBOSE is turned on.)
+import z
+fileN)
+flags
+verbose
+startswith
+print
+format
+stderr)
+messager
+   r
+_verbose_messager
+z1Decorator to verify the named module is built-in.c
+ is not a built-in moduler
+builtin_module_names
+ImportError
+fullname
+fxns
+_requires_builtin_wrapper
+4_requires_builtin.<locals>._requires_builtin_wrapper
+_requires_builtinr
+z/Decorator to verify the named module is frozen.c
+ is not a frozen moduler
+is_frozenr
+_requires_frozen_wrapper
+2_requires_frozen.<locals>._requires_frozen_wrapper
+_requires_frozenr
+zzLoad the specified module into sys.modules and return it.
+This method is deprecated.  Use loader.exec_module() instead.
+zgthe load_module() method is deprecated and slated for removal in Python 3.15; use exec_module() instead)
+_warnings
+warn
+DeprecationWarning
+spec_from_loaderr
+modules
+_exec
+_load)
+spec
+modules
+     r
+_load_module_shimr
+z,The implementation of ModuleType.__repr__().
+__loader__N
+__spec__
+<module 
+ from 
+_module_repr_from_specr
+__file__)
+loaderr
+filenames
+     r
+_module_reprr
+ModuleSpeci2
+The specification for a module, used for loading.
+A module's spec is the source for information about the module.  For
+data associated with the module, including source, use the spec's
+loader.
+`name` is the absolute name of the module.  `loader` is the loader
+to use when loading the module.  `parent` is the name of the
+package the module is in.  The parent is derived from the name.
+`is_package` determines if the module is considered a package or
+not.  On modules this is reflected by the `__path__` attribute.
+`origin` is the specific location used by the loader from which to
+load the module, if that information is available.  When filename is
+set, origin will match.
+`has_location` indicates that a spec's "origin" reflects a location.
+When this is True, `__file__` attribute of the module is set.
+`cached` is the location of the cached bytecode file, if any.  It
+corresponds to the `__cached__` attribute.
+`submodule_search_locations` is the sequence of path entries to
+search when importing submodules.  If set, is_package should be
+True--and False otherwise.
+Packages are simply modules that (may) have submodules.  If a spec
+has a non-None value in `submodule_search_locations`, the import
+system will consider modules loaded from the spec as packages.
+Only finders (see importlib.abc.MetaPathFinder and
+importlib.abc.PathEntryFinder) should modify ModuleSpec instances.
+origin
+loader_state
+is_packagec
+submodule_search_locations
+_uninitialized_submodules
+_set_fileattr
+_cached)
+      r
+ModuleSpec.__init__W
+name=z
+loader=z
+origin=z
+submodule_search_locations=
+join)
+ModuleSpec.__repr__d
+cached
+has_locationr
+NotImplemented)
+other
+smsls
+   r
+__eq__
+ModuleSpec.__eq__l
+B-B<
+_bootstrap_external
+NotImplementedError
+_get_cachedrK
+ModuleSpec.cachedx
+z The name of the module's parent.
+rpartitionrK
+parent
+ModuleSpec.parent
+ModuleSpec.has_location
+boolr
+values
+propertyr
+setterr
+z5Return a module spec based on various loader methods.N
+_ORIGIN
+get_filename)
+spec_from_file_locationr
+searchs
+      r
+X%:H
+__cached__
+list
+__path__r
+locationr
+        r
+_spec_from_moduler1
+overridec
+__package__r/
+NamespaceLoaderr.
+_pathr
+     r
+_init_module_attrsr8
+z+Create a module based on the provided spec.N
+create_module
+exec_modulezBloaders that define exec_module() must also define create_module())
+module_from_specr=
+z&Return the repr to use for the module.r
+ (namespace) from r
+isinstancer6
+   r
+zFExecute the spec's specified module in an existing module's namespace.z
+module z
+ not in sys.modulesr
+missing loaderTr2
+7.exec_module() not found; falling back to load_module())
+ImportWarning
+load_moduler;
+    r
+_load_backward_compatiblerF
+:A'E!
+import {!r} # {!r}F)
+_initializingr
+   r
+_load_unlockedrI
+!A(F
+Return a new module object, loaded by the spec's loader.
+The module is not added to its parent.
+If a module is already in sys.modules, that existing module gets
+clobbered.
+BuiltinImporteri
+Meta path import for built-in modules.
+All methods are either class or static methods to avoid the need to
+instantiate the class.
+built-inNc
+is_builtinr
+clsr
+path
+targets
+    r
+find_spec
+BuiltinImporter.find_spec
+Create a built-in moduler
+create_builtinrK
+BuiltinImporter.create_module
+Exec a built-in moduleN)
+exec_builtin)
+BuiltinImporter.exec_module
+z9Return None as built-in modules do not have code objects.Nr!
+get_code
+BuiltinImporter.get_code
+z8Return None as built-in modules do not have source code.Nr!
+get_source
+BuiltinImporter.get_source
+z4Return False as built-in modules are never packages.Fr!
+BuiltinImporter.is_package
+classmethodrS
+FrozenImporteri
+Meta path import for frozen modules.
+All methods are either class or static methods to avoid the need to
+instantiate the class.
+frozenc
+__origname__z'see PyImport_ImportFrozenModuleObject()r/
+orignamer
+varsrN
+is_frozen_packager
+_resolve_filenamer
+implementationr
+insertr
+extend
+sortedrm
+staterm
+ispkgr
+pkgdirr/
+          r
+_fix_up_module
+FrozenImporter._fix_up_module
+_stdlib_dirre
+win32
+.__init__Fr
+__init__.pyz
+.py)
+_SEPr
+platformr
+aliasrv
+relfilerw
+        r
+ FrozenImporter._resolve_filenameO
+find_frozenr
+info
+           r
+FrozenImporter.find_spech
+Set __file__, if able.)
+   r
+FrozenImporter.create_module
+get_frozen_object
+execr
+codes
+    r
+FrozenImporter.exec_module
+zOLoad a frozen module.
+This method is deprecated.  Use exec_module() instead.
+       r
+FrozenImporter.load_module
+z-Return the code object for the frozen module.)
+FrozenImporter.get_code
+z6Return None as frozen modules do not have source code.Nr!
+FrozenImporter.get_source
+z.Return True if the frozen module is a package.)
+FrozenImporter.is_package
+_ImportLockContexti
+z$Context manager for the import lock.c
+Acquire the import lock.N)
+_ImportLockContext.__enter__
+z<Release the import lock regardless of any raised exceptions.N)
+exc_type
+exc_value
+exc_tracebacks
+    r
+_ImportLockContext.__exit__
+z2Resolve a relative module name to an absolute one.r
+z2attempted relative import beyond top-level packager
+rsplitr
+package
+level
+bits
+bases
+     r
+_resolve_namer
+Find a module's spec.Nz5sys.meta_path is None, Python is likely shutting downz
+sys.meta_path is empty)
+meta_pathr
+is_reload
+finderrS
+          r
+_find_specr
+Verify arguments are "sane".z
+module name must be str, not r
+level must be >= 0z
+__package__ not set to a stringz6attempted relative import with no known parent packagez
+Empty module nameN)
+TypeErrorr
+ValueErrorr
+   r
+_sanity_checkr
+No module named z
+{!r}c
+ is not a packager
+Cannot set an attribute on z
+ for child module )
+_ERR_MSG_PREFIX
+ModuleNotFoundErrorr
+import_rQ
+parent_spec
+parent_moduler
+childr
+          r
+_find_and_load_unlockedr
+Find and load the module.r
+import of z
+ halted; None in sys.modulesr
+_NEEDS_LOADINGr
+    r
+_find_and_loadr
+Import and return the module based on its name, the package the call is
+being made from, and the level adjustment.
+This function represents the greatest common denominator of functionality
+between import_module and __import__. This includes setting __package__ if
+the loader did not.
+_gcd_importr
+   r
+recursivec
+Figure out what __import__ should return.
+The import_ parameter is a callable which takes the name of module to
+import. It is required to decouple the function from assuming importlib's
+import implementation is desired.
+.__all__z
+``from list''z
+Item in z
+ must be str, not 
+__all__Tr
+_handle_fromlistr
+fromlistr
+where
+from_name
+excs
+        r
+Calculate what __package__ should be.
+__package__ is not guaranteed to be defined or could be set to None
+to represent that its proper value is unknown.
+z __package__ != __spec__.parent (z
+ != r
+stacklevelzYcan't resolve package from __spec__ or __package__, falling back on __name__ and __path__r
+globalsr
+   r
+_calc___package__r
+Import a module.
+The 'globals' argument is used to infer where the import is occurring from
+to handle relative imports. The 'locals' argument is ignored. The
+'fromlist' argument specifies what should exist as attributes on the module
+being imported (e.g. ``from module import <fromlist>``).  The 'level'
+argument represents the package location to import from in a relative
+import (e.g. ``from ..pkg import mod`` would have a 'level' of 2).
+partitionr
+localsr
+globals_r
+cut_offs
+         r
+__import__r
+no built-in module named )
+_builtin_from_namer
+Setup importlib by importing needed built-in modules and injecting them
+into the global namespace.
+As sys is needed for sys.modules access and _imp is needed to load built-in
+modules, those two modules must be explicitly passed in.
+itemsr?
+sys_module
+_imp_module
+module_typer
+self_module
+builtin_name
+builtin_modules
+          r
+_setupr
+z0Install importers for builtin and frozen modulesN)
+_installr
+z9Install importers that require external filesystem accessr
+_frozen_importlib_externalr
+_install_external_importersr
+NNr!
+_ERR_MSGr
+objectr
+<module>r

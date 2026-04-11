@@ -1,0 +1,53 @@
+z5Simplified function-based API for importlib.resources
+files
+as_filec
+z8Open for binary reading the *resource* within *package*.
+_get_resource
+open
+anchor
+path_namess
+"importlib\resources\_functional.py
+open_binaryr
+strict
+encoding
+errorsc
+z6Open for text reading the *resource* within *package*.
+_get_encoding_argr
+resources
+     r
+open_textr
+zARead and return contents of *resource* within *package* as bytes.)
+read_bytesr
+read_binaryr
+z?Read and return contents of *resource* within *package* as str.r
+read_textr
+     r
+z@Return the path to the *resource* as an actual file system path.)
+pathr 
+zbReturn ``True`` if there is a resource named *name* in the package,
+Otherwise returns ``False``.
+is_filer
+is_resourcer#
+Return an iterable over the named resources within the package.
+The iterable returns :class:`str` resources (e.g. files).
+The iterable does not recurse into subdirectories.
+zPimportlib.resources.contents is deprecated. Use files(anchor).iterdir() instead.r
+stacklevelc
+name)
+<genexpr>
+contents.<locals>.<genexpr><
+warnings
+warn
+DeprecationWarningr
+iterdirr
+contentsr/
+z5'encoding' argument required with multiple path namesz
+utf-8)
+_MISSING
+TypeError)
+Nz)anchor must be module or string, got None)
+joinpathr
+__doc__r+
+_commonr
+objectr1
+<module>r:

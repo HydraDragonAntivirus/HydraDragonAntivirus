@@ -1,0 +1,7 @@
+stripcolorr
+real_lenr 
+maxlen
+stripped
+paddings
+    r
+left_alignr&

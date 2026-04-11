@@ -1,0 +1,127 @@
+Rules for building C/API module with f2py2e.
+Copyright 1999 -- 2011 Pearu Peterson all rights reserved.
+Copyright 2011 -- present NumPy Developers.
+Permission to use, modify, and distribute this software is given under the
+terms of the NumPy License.
+NO WARRANTY IS EXPRESSED OR IMPLIED.  USE AT YOUR OWN RISK.
+isoc_kindmap)
+getfortranname
+isexternal
+isfunction
+isfunction_wrap
+isintent_in
+isintent_out
+islogicalfunction
+ismoduleroutine
+isscalar
+issubroutine
+issubroutine_wrap
+outmess
+showc
+Nz,var2fixfortran: No definition for argument "z
+typespecz*var2fixfortran: No typespec for argument "
+type
+typename
+kindselector
+kind
+charselector
+(*)z
+(len=*)
+(len=z
+,kind=z
+(kind=
+dimension
+join)
+vars
+f90mode
+vardef
+selector
+       
+numpy\f2py\func2subr.py
+var2fixfortranr-
+NFr%
+values
+getr
+rout
+useisoc
+value
+kind_values
+    r,
+useiso_c_bindingr6
+)3Nr%
+argsr"
+f2py_
+integer
+hide
+intent
+shape(
+      
+line
+rets
+  r,
+createfuncwrapper.<locals>.addj
+name
+f2pywrapr
+@@@NAME@@@
+character*(*)z
+character(len=10)z
+character*10r
+subroutine f2pywrap_
+modulename
+use 
+, only : 
+use iso_c_binding
+subroutine f2pywrap
+external r!
+saved_interface
+__user__
+interface
+end interfacez
+ = .not.(.not.r
+end subroutine f2pywrap_
+endr
+enumerater1
+append
+extend
+boolr
+replacer6
+split
+lstrip
+startswithr
+signature
+extra_argsr%
+need_interfacerF
+fortrannamer(
+newnamer8
+l_tmpl
+charselect
+rlr3
+sargs
+argrE
+dumped_argss
+                           r,
+createfuncwrapperrx
+)%Nr%
+  r,
+createsubrwrapper.<locals>.add
+call r
+                     r,
+createsubrwrapperr|
+Creating wrapper for Fortran function "z
+"("z
+")...
+resultr%
+outr
+out=r
+Creating wrapper for Fortran subroutine "r
+copyr
+fname
+rname
+fvar
+flagrj
+        r,
+assubrr
+__doc__r
+_isocbindr
+auxfuncsr
+<module>r

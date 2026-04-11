@@ -1,0 +1,51 @@
+z:Return the object as a GNU header block sequence.
+        r
+GNU_MAGICr?
+_create_gnu_long_header
+GNUTYPE_LONGLINKr
+GNUTYPE_LONGNAMEr
+     rE
+TarInfo.create_gnu_header
+Return the object as a ustar header block. If it cannot be
+represented this way, prepend a pax extended header sequence
+with supplement information.
+UnicodeEncodeErrorr?
+isinstance
+float
+round
+_create_pax_generic_header
+XHDTYPEr
+hnamerB
+needs_pax
+val_is_float
+val_intrl
+             rE
+TarInfo.create_pax_header+
+zAReturn the object as a pax global header block sequence.
+        r;
+XGLTYPE)
+clsr
+  rE
+create_pax_global_header
+ TarInfo.create_pax_global_headere
+zBSplit a name longer than 100 chars into a prefix
+and a name part.
+name is too long)
+splitrW
+LENGTH_PREFIXr
+componentsr\
+       rE
+TarInfo._posix_split_namek
+) zqReturn a header block. info is a dictionary with file
+information, format must be one of the *_FORMAT constants.
+TarInfo.type must not be Noner
+        r
+%dsrG
+%06o
+CHRTYPE
+BLKTYPEre
+has_device_fieldsr
+filetype
+partsrl
+           rE
+TarInfo._create_header{

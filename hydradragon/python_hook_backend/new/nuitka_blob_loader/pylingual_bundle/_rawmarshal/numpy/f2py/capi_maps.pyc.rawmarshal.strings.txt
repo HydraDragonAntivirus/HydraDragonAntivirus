@@ -1,0 +1,450 @@
+S'S(_
+S*S+_
+S.S.S/.
+S'S:_
+S*S<_
+S@SAS/.
+S0S1S3S3S5S7S9S:SBSBSBSCSASD.
+S*SF.
+S'ST_
+r SY
+r!SZ
+r"S[
+r#SgS\
+r$S]
+r%S^
+r&S_
+r'S`
+r(Sa
+r)Sb
+r*Sc
+r+ShSd
+r,Se
+r-Sf
+Copyright 1999 -- 2011 Pearu Peterson all rights reserved.
+Copyright 2011 -- present NumPy Developers.
+Permission to use, modify, and distribute this software is given under the
+terms of the NumPy License.
+NO WARRANTY IS EXPRESSED OR IMPLIED.  USE AT YOUR OWN RISK.
+__version__
+cb_rules)
+iso_c2py_map
+iso_c_binding_map
+isoc_c2pycode_map)
+markoutercomma)
+getctype
+getstrlength
+getarrdims
+getpydocsign
+getarrdocsign
+getinit
+sign2map
+routsign2map
+modsign2map
+cb_sign2map
+cb_routsign2map
+common_sign2map
+process_f2cmap_dict
+double
+float
+long_double
+char
+signed_char
+unsigned_char
+short
+unsigned_short
+long
+long_long
+unsigned
+complex_float
+complex
+complex_double
+complex_long_double
+string
+character
+bytes
+NPY_DOUBLE
+NPY_FLOAT
+NPY_LONGDOUBLE
+NPY_BYTE
+NPY_UBYTE
+NPY_SHORT
+NPY_USHORT
+NPY_INT
+NPY_UINT
+NPY_LONG
+unsigned_long
+NPY_ULONG
+NPY_LONGLONG
+unsigned_long_long
+NPY_ULONGLONG
+NPY_CFLOAT
+NPY_CDOUBLE
+NPY_STRING)
+real
+integerr%
+complexkind
+logicalz
+double complexz
+double precision
+bytec
+.f2py_f2cmapz
+Reading f2cmap from z
+ ...
+Tz1Successfully applied user defined f2cmap changes
+z-Failed to apply user defined f2cmap changes: z
+. Skipping.
+copy
+deepcopy
+f2cmap_default
+f2cmap_all
+path
+isfile
+outmess
+open
+eval
+read
+lowerr
+c2py_map
+f2cmap_mapped
+Exception
+errmess)
+f2cmap_filer>
+msgs
+    
+numpy\f2py\capi_maps.py
+load_f2cmap_filert
+!*B8
+%Lgz
+%hhuz
+%hdz
+%huz
+%ldz
+%luz
+(%g,%g)z
+(%Lg,%Lg)z
+\"%s\"z
+'%c'c
+Determines C type
+void
+result
+name
+vars
+getctype: function 
+ has no return value?!
+typespecrQ
+kindselectorr
+getctype: "
+" not supported.
+kindz
+(kind=z
+)" is mapped to C "z
+" (to override define dict(z
+ = dict(z
+="<C typespec>")) in z
+/.f2py_f2cmap file).
+getctype: No C-type found in "z
+", assuming void.
+isfunctionr
+issubroutine
+ischaracter_or_characterarray
+isstring_or_stringarrayrl
+KeyError
+strre
+getcwd
+isexternal)
+ctype
+f2cmaps
+     rs
+3+E"
+Rewrite Fortran expression as f2py supported C expression.
+Due to the lack of a proper expression parser in f2py, this
+function uses a heuristic approach that assumes that Fortran
+arithmetic expressions are valid C arithmetic expressions when
+mapping Fortran function calls to the corresponding C function/CPP
+macros calls.
+\blen\b
+f2py_slen)
+sub)
+exprs
+f2cexprr
+getstrlength: function r{
+z8getstrlength: expected a signature of a string but got: 
+charselectorr
+lenz
+\(\s*(\*|:)\s*\)z
+(\*|:)zMgetstrlength:intent(hide): expected a string with defined length but got: %s
+isstringfunctionr
+isstring
+reprr
+match
+isintent_hide)
+   rs
+size
+rankrQ
+dimsrV
+dimensionr
+rank*[-1]z
+.*?\b%s\b.*)
+setdims)
+(*)z
+(:)z
+%s#varname#_Dims[%d]=%s,
+cbsetdimsz?getarrdims:warning: assumed shape array, using 0 instead of %r
+z5getarrdims: If in call-back function: array argument z# must have bounded dimensions: got r
+isarrayr
+isscalarra
+joinr
+range
+depargsr
+append
+index
+isintent_inrh
+verbose
+dimrD
+var=
+         rs
+S [(
+)%Nrw
+inputz
+in/output
+intent
+out=z
+, optional\n    Default: z
+ : z
+ rank-0 array(
+')r~
+ rank-0 array(string(len=
+),'c')z
+ string(len=
+ : string(len=r
+ rank-
+ array('
+') with bounds (r
+ : rank-z
+) and z
+ storage
+argnamez
+ => z
+ : call-back functionz2getpydocsign: Could not resolve docsignature for "z
+isintent_inout
+isintent_outr
+hasinitvaluer
+c2pycode_mapr
+lcb_map
+lcb2_map)
+sigout
+out_a
+initr
+showinitr
+              rs
+ : rank-0 array(string(len=r
+ : rank-0 array(r
+      rs
+init.r
+init.iz2getinit: expected complex number `(r,i)' but got `z
+' as initial value of 
+(capi_c.r=z
+,capi_c.i=z
+,capi_c)r
+"%s"
+iscomplex
+iscomplexarrayr
+splitrj
+imagro
+ValueErrorr
+replace)
+      rs
+f2py_lenrV
+isstringarrayr
+ischaracter
+ischaracterarray)
+elsizes
+  rs
+get_elsizer
+S3[U
+S=S7R
+O*S;U
+S=S7R
+S@[X
+S@[X
+)Mzn
+varname,ctype,atype
+init,init.r,init.i,pytype
+vardebuginfo,vardebugshowvalue,varshowvalue
+varrformat
+intent
+varname
+outvarnamer
+F2PY_
+F2PY_INTENT_INrO
+varrformatr
+cbnamekey
+cbname
+maxnofargs
+nofoptargs
+docstr
+cbdocstr
+latexdocstr
+cblatexdocstrz
+sign2map: Confused: external z
+ is not in lcb_mapz
+lengthr
+atyper
+output
+inoutput
+required
+optional
+hiddenz
+complex scalar
+scalarr(
+arrayz
+complex arrayz
+string arrayz
+complex function
+function
+callback
+auxiliaryr
+slen(z
+  rs
+<lambda>
+sign2map.<locals>.<lambda>.
+dims(r
+debug-capi:z
+vardebuginfor~
+vardebugshowvalue
+debug-capi:slen(
+)=%d 
+=\"%s\"z
+=%pz
+#name#:
+varshowvalue
+showvalueformatz
+#name#:slen(
+pydocsign
+pydocsignout
+note)/r
+isintent_dict
+itemsr
+c2buildvalue_mapr
+list
+keysr
+dictappendr
+c2capi_mapr
+debugcapir
+isrequired
+isoptionalr
+l_andr
+l_notr
+iscomplexfunctionr
+isintent_callback
+isintent_auxr
+cformat_mapr
+hasnote)
+intent_flagsr>
+rlrD
+ddims
+             rs
+S![,
+S':X
+)*zF
+name,NAME,begintitle,endtitle
+rname,ctype,rformat
+routdebugshowvalue
+end of rQ
+texname
+name_lower
+NAME
+begintitle
+endtitle
+fortranname
+FORTRANNAME
+callstatement
+usercode
+usercode1
+F_FUNC_US
+F_FUNC
+F_WRAPPEDFUNC_US
+F_WRAPPEDFUNC
+user
+externalsz!routsign2map: Confused: function z
+ has externals z
+ but no "use" statement.
+callprotoargumentrw
+rnamer
+resultnote
+See elsewhere.
+rformatr
+z.routsign2map: no c2buildvalue key for type %s
+routdebugshowvaluer
+rlengthrX
+zzroutsign2map: expected explicit specification of the length of the string returned by the fortran function %s; taking 10.
+getfortrannamer
+upper
+gentitle
+getcallstatement
+getusercode
+getusercode1r
+cb_mapr
+getcallprotoargumentr
+hasresultnoter
+routrx
+fnamer
+         rs
+modulename
+f90modulename
+F90MODULENAME
+texf90modulename)
+modulename
+MODULENAME
+texmodulename
+restdocr
+bodyr
+interface_usercode
+pymethoddef
+gil_used
+coutput
+f2py_wrapper_output)
+ismodulerI
+getrestdocr&
+getpymethoddef)
+  rs
+varname_ir
+    rs
+XBS '
+)*zP
+name,begintitle,endtitle,argname
+ctype,rctype,maxnofargs,nofoptargs,returncptr
+cb_rx
+_in_rQ
+returncptrr-
+callbackname
+extern
+staticr
+rctyper(
+#ifdef F2PY_CB_RETURNCOMPLEX
+return_value=
+#endif
+return_value=r
+strlengthrw
+#ifdef F2PY_CB_RETURNCOMPLEX
+#ctype#
+#else
+void
+#endif
+argsr
+routnote)
+l_orr
+nofargsr
+        rs
+arrdocstr)
+   rs
+__doc__rQ
+version
+f2py_versionra
+_isocbindr
+auxfuncs
+crackfortranr
+__all__r
+updater
+<module>r

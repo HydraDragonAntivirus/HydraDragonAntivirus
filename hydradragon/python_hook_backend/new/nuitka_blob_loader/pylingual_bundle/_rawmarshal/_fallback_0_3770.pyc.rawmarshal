@@ -1,4 +1,0 @@
-õ
-/* See fortranobject.h for definitions. The macros here are provided for BC. */
-#define rank f2py_rank
-#define shape f2p

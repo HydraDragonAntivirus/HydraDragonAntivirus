@@ -1,0 +1,142 @@
+ref)
+GenericAlias
+WeakSetc
+_IterationGuard
+weakcontainer)
+selfr
+_weakrefset.py
+__init__
+_IterationGuard.__init__
+_iterating
+add)
+__enter__
+_IterationGuard.__enter__
+remove
+_commit_removals)
+      r
+__exit__
+_IterationGuard.__exit__
+__name__
+__module__
+__qualname__
+__firstlineno__r
+__static_attributes__
+r!\!r"S
+r%\%r&S 
+r'S!
+r(\)"
+r+S"r,g
+_pending_removals
+append
+data
+discard)
+item
+selfrefr
+   r
+_remove
+!WeakSet.__init__.<locals>._remove'
+setr-
+update)
+   r
+WeakSet.__init__%
+popr-
+IndexError)
+    r
+WeakSet._commit_removals5
+itemrefr/
+   r
+__iter__
+WeakSet.__iter__?
+lenr-
+__len__
+WeakSet.__len__H
+TypeErrorr-
+   r
+__contains__
+WeakSet.__contains__K
+__class__
+list
+__getstate__rA
+__reduce__
+WeakSet.__reduce__R
+WeakSet.addU
+clearrA
+WeakSet.clearZ
+copy
+WeakSet.copy_
+pop from empty WeakSet)
+KeyErrorr;
+   r
+WeakSet.popb
+WeakSet.removen
+WeakSet.discards
+other
+elements
+   r
+WeakSet.updatex
+__ior__
+WeakSet.__ior__~
+difference_update
+newsets
+   r
+difference
+WeakSet.difference
+__isub__re
+WeakSet.difference_update
+.0r/
+<genexpr>
+#WeakSet.__isub__.<locals>.<genexpr>
+WeakSet.__isub__
+'WeakSet.intersection.<locals>.<genexpr>
+intersection
+WeakSet.intersection
+__iand__re
+intersection_update
+WeakSet.intersection_update
+#WeakSet.__iand__.<locals>.<genexpr>
+WeakSet.__iand__
+#WeakSet.issubset.<locals>.<genexpr>
+issubsetre
+WeakSet.issubset
+mapr
+__lt__
+WeakSet.__lt__
+%WeakSet.issuperset.<locals>.<genexpr>
+issupersetre
+WeakSet.issuperset
+__gt__
+WeakSet.__gt__
+isinstancerJ
+NotImplementedr-
+__eq__
+WeakSet.__eq__
+symmetric_difference_updaterj
+   r
+symmetric_difference
+WeakSet.symmetric_difference
+__ixor__re
+#WeakSet.symmetric_difference_update
+#WeakSet.__ixor__.<locals>.<genexpr>
+WeakSet.__ixor__
+   r
+ WeakSet.union.<locals>.<genexpr>
+union
+WeakSet.union
+isdisjoint
+WeakSet.isdisjoint
+reprr-
+__repr__
+WeakSet.__repr__
+)-r!
+__sub__ri
+__and__r
+__le__r
+__ge__r
+__xor__r
+__or__r
+classmethodr
+__class_getitem__r%
+_weakrefr
+typesr
+__all__r
+<module>r

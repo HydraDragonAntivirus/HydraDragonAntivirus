@@ -1,0 +1,203 @@
+Implementation of JSONDecoder
+scanner)
+scanstring
+JSONDecoder
+JSONDecodeError
+infz
+-infc
+Subclass of ValueError with the following additional properties:
+msg: The unformatted error message
+doc: The JSON document being parsed
+pos: The start index of doc where parsing failed
+lineno: The line corresponding to pos
+colno: The column corresponding to pos
+%s: line %d column %d (char %d))
+count
+rfind
+ValueError
+__init__
+lineno
+colno)
+selfr
+errmsgs
+       
+json\decoder.pyr
+JSONDecodeError.__init__
+__class__r
+__reduce__
+JSONDecodeError.__reduce__*
+__name__
+__module__
+__qualname__
+__firstlineno__
+__doc__r
+__static_attributes__
+-Infinity
+Infinity
+NaNz
+[0-9A-Fa-f]{4}z
+(.*?)(["\\\x00-\x1f])
+Invalid \uXXXX escape)
+groupr
+escr
+     r
+_decode_uXXXXr<
+Scan the string s for a JSON string. End is the index of the
+character in s after the quote that started the JSON string.
+Unescapes all valid JSON string escape sequences and raises ValueError
+on attempt to decode an invalid string. If strict is False then literal
+control characters are allowed in the string.
+Returns a tuple of the decoded string and the index of the character in s
+after the end quote.r
+Unterminated string starting atr)
+z"Invalid control character {0!r} at
+Invalid \escape: {0!r}
+appendr
+groups
+format
+IndexError
+KeyErrorr<
+join)
+strict
+_br:
+chunks
+_append
+begin
+chunk
+content
+terminatorr
+char
+uni2s
+                r
+py_scanstringrW
+[ \t\n\r]*z
+}z1Expecting property name enclosed in double quotes
+Expecting ':' delimiter
+Expecting valuerC
+Expecting ',' delimiterz+Illegal trailing comma before end of object)
+setdefaultrE
+StopIteration
+value
+dict)
+s_and_endrL
+scan_once
+object_hook
+object_pairs_hook
+memo
+_wsr9
+pairs
+pairs_append
+memo_get
+nextchar
+result
+keyr`
+comma_idxs
+                   r
+JSONObjectrq
+).G.
+.&H(
+z*Illegal trailing comma before end of array)
+valuesrl
+            r
+JSONArrayru
+55D'
+Simple JSON <https://json.org> decoder
+Performs the following translations in decoding by default:
++---------------+-------------------+
+| JSON          | Python            |
++===============+===================+
+| object        | dict              |
++---------------+-------------------+
+| array         | list              |
++---------------+-------------------+
+| string        | str               |
++---------------+-------------------+
+| number (int)  | int               |
++---------------+-------------------+
+| number (real) | float             |
++---------------+-------------------+
+| true          | True              |
++---------------+-------------------+
+| false         | False             |
++---------------+-------------------+
+| null          | None              |
++---------------+-------------------+
+It also understands ``NaN``, ``Infinity``, and ``-Infinity`` as
+their corresponding ``float`` values, which is outside the JSON spec.
+parse_float
+parse_int
+parse_constantrL
+``object_hook``, if specified, will be called with the result
+of every JSON object decoded and its return value will be used in
+place of the given ``dict``.  This can be used to provide custom
+deserializations (e.g. to support JSON-RPC class hinting).
+``object_pairs_hook``, if specified will be called with the result
+of every JSON object decoded with an ordered list of pairs.  The
+return value of ``object_pairs_hook`` will be used instead of the
+``dict``.  This feature can be used to implement custom decoders.
+If ``object_hook`` is also defined, the ``object_pairs_hook`` takes
+priority.
+``parse_float``, if specified, will be called with the string
+of every JSON float to be decoded. By default this is equivalent to
+float(num_str). This can be used to use another datatype or parser
+for JSON floats (e.g. decimal.Decimal).
+``parse_int``, if specified, will be called with the string
+of every JSON int to be decoded. By default this is equivalent to
+int(num_str). This can be used to use another datatype or parser
+for JSON integers (e.g. float).
+``parse_constant``, if specified, will be called with one of the
+following strings: -Infinity, Infinity, NaN.
+This can be used to raise an exception if invalid JSON numbers
+are encountered.
+If ``strict`` is false (true is the default), then control
+characters will be allowed inside strings.  Control characters in
+this context are those with character codes in the 0-31 range,
+including ``'\t'`` (tab), ``'\n'``, ``'\r'`` and ``'\0'``.
+floatrw
+_CONSTANTS
+__getitem__ry
+parse_objectru
+parse_arrayr
+parse_stringrf
+make_scannerrc
+       r
+JSONDecoder.__init__$
+z\Return the Python representation of ``s`` (a ``str`` instance
+containing a JSON document).
+idxz
+Extra data)
+raw_decoderE
+lenr
+objrE
+     r
+decode
+JSONDecoder.decodeT
+p4X44
+Decode a JSON document from ``s`` (a ``str`` beginning with
+a JSON document) and return a 2-tuple of the Python
+representation and the index in ``s`` where the document ended.
+This can be used to decode a JSON document from a string that may
+have extraneous data at the end.
+      r
+JSONDecoder.raw_decode_
+WHITESPACE
+matchr
+)!r$
+jsonr
+_jsonr
+c_scanstring
+ImportError
+__all__
+VERBOSE
+MULTILINE
+DOTALL
+FLAGSr{
+PosInf
+NegInfr
+compile
+HEXDIGITS
+STRINGCHUNK
+BACKSLASHr
+WHITESPACE_STRrq
+objectr
+<module>r

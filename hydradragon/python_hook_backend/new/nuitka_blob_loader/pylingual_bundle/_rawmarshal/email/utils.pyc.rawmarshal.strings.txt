@@ -1,0 +1,252 @@
+r"S'S
+r#S(S
+r$S)S
+r(S 
+r)S)S!
+r,S#
+S*S$
+r.S)S%
+Miscellaneous utilities.)
+collapse_rfc2231_value
+decode_params
+decode_rfc2231
+encode_rfc2231
+formataddr
+formatdate
+format_datetime
+getaddresses
+make_msgid
+mktime_tz
+parseaddr
+parsedate
+parsedate_tz
+parsedate_to_datetime
+unquote
+quote)
+AddressList)
+_parsedate_tzz
+[][\\()<>@,:;".]z
+[\\"]c
+z;Return True if s may contain surrogate-escaped binary data.FT)
+encode
+UnicodeEncodeError)
+email\utils.py
+_has_surrogatesr
+utf-8
+surrogateescape
+replace)
+decode)
+string
+original_bytess
+_sanitizer$
+The inverse of parseaddr(), this takes a 2-tuple of the form
+(realname, email_address) and returns the string value suitable
+for an RFC 2822 From, To or Cc header.
+If the first element of pair is false, then the second element is
+returned unmodified.
+The optional charset is the character set that is used to encode
+realname in case realname is not ASCII safe.  Can be an instance of str or
+a Charset-like object which has a header_encode method.  Default is
+'utf-8'.
+asciir
+\\\g<0>z
+Charset)
+specialsre
+search
+escapesre
+subr
+isinstance
+email.charsetr*
+header_encode)
+pair
+charset
+name
+address
+quotesr*
+encoded_names
+       r
+enumerate)
+addr
+escape
+    r
+_iter_escaped_charsr@
+z Strip real names between quotes.r(
+append
+join)
+start
+open_pos
+resultr=
+      r
+_strip_quoted_realnamesrI
+strictc
+Return a list of (REALNAME, EMAIL) or ('','') for each fieldvalue.
+When parsing fails for a fieldvalue, a 2-tuple of ('', '') is returned in
+its place.
+If strict is true, use a strict parser which rejects malformed inputs.
+<genexpr>
+getaddresses.<locals>.<genexpr>
+COMMASPACErE
+_AddressList
+addresslistr0
+_pre_parse_validation
+_post_parse_validationrI
+countrD
+fieldvaluesrJ
+        r
+opensr=
+    r
+_check_parenthesisrb
+('', ''))
+email_header_fields
+accepted_valuesrO
+   r
+parsed_email_header_tuplesre
+   r
+Nz"%s, %02d %s %04d %02d:%02d:%02d %s)
+DecrB
+timetuple
+zones
+_format_timetuple_and_zoner
+Returns a date string as specified by RFC 2822, e.g.:
+Fri, 09 Nov 2001 01:08:47 -0000
+Optional timeval if given is a floating-point time value as accepted by
+gmtime() and localtime(), otherwise the current time is used.
+Optional localtime is a flag that when True, interprets timeval, and
+returns a date relative to the local timezone instead of UTC, properly
+taking daylight savings time into account.
+Optional argument usegmt means that the timezone is written out as
+an ascii string, not numeric one (so "GMT" instead of "+0000"). This
+is needed for HTTP, and is only used when localtime==False.
+tzinfo)
+time
+datetime
+fromtimestamp
+timezone
+astimezoner 
+timeval
+localtime
+usegmt
+    r
+Turn a datetime into a date string as specified in RFC 2822.
+If usegmt is True, dt must be an aware datetime with an offset of zero.  In
+this case 'GMT' will be rendered instead of the normal +0000 required by
+RFC2822.  This is to support HTTP headers involving date stamps.
+z%usegmt option requires a UTC datetime
+GMTz
+-0000z
+ValueError
+strftimer
+nowr
+    r
+X4XPU
+Returns a string suitable for RFC 2822 compliant Message-ID, e.g:
+<142480216486.20800.16526388040877946887@nightshade.la.mastaler.com>
+Optional idstring if given is a string used to strengthen the
+uniqueness of the message id.  Optional domain if given provides the
+portion of the message id after the '@'.  It defaults to the locally
+defined hostname.
+socketz
+<%d.%d.%d%s@%s>)
+random
+intr
+getpid
+getrandbits
+__import__
+getfqdn)
+idstring
+domainr
+randint
+msgids
+       r
+Nz!Invalid date value or format "%s"rq
+seconds)
+timedelta)
+data
+parsed_date_tz
+dtuple
+    r
+Parse addr into its constituent realname and email address parts.
+Return a tuple of realname and email address, unless the parse fails, in
+which case return a 2-tuple of ('', '').
+If strict is True, use a strict parser which rejects malformed inputs.
+listr0
+addrss
+   r
+Remove quotes from a string.rB
+\\r:
+startswith
+endswithr 
+z#Decode string according to RFC 2231rr
+split
+TICKrD
+partss
+Encode string according to RFC 2231.
+If neither charset nor language is given, then s is returned as-is.  If
+charset is given but not language, the string is encoded using the empty
+string for language.
+safe
+encodingr
+urllib
+parser
+languages
+   r
+z&^(?P<name>\w+)\*((?P<num>[0-9]+)\*?)?$c
+zwDecode parameters list according to RFC 2231.
+params is a sequence of 2-tuples containing (param name, string value).
+numz
+"%s"Fc
+ decode_params.<locals>.<genexpr>
+<lambda>
+decode_params.<locals>.<lambda>
+keyz
+latin-1)
+rfc2231_continuation
+match
+groupr
+setdefaultrC
+items
+sortr
+EMPTYSTRINGrE
+params
+new_params
+rfc2231_paramsr5
+value
+encoded
+continuations
+extended
+has_zeror
+               r
+raw-unicode-escape)
+tuplerD
+bytesr0
+LookupError)
+errors
+fallback_charsetr4
+text
+rawbytess
+       r
+Return local time as an aware datetime object.
+If called without arguments, return current time.  Otherwise *dt*
+argument should be a datetime instance, and it is converted to the
+local time zone according to the system time zone database.  If *dt* is
+naive (that is, dt.tzinfo is None), it is assumed to be in local time.
+The isdst parameter is ignored.
+z$The 'isdst' parameter to 'localtime'z>{name} is deprecated and slated for removal in Python {remove})
+message
+remove)
+warnings
+_deprecatedr
+isdstr
+   r
+NFF)
+us-ascii)0
+__doc__
+__all__r
+urllib.parser
+email._parseaddrr
+UEMPTYSTRING
+CRLFr
+compiler+
+supports_strict_parsingr
+ASCIIr
+<module>r

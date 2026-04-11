@@ -1,0 +1,458 @@
+program/module to trace Python program or function execution
+Sample use, command line:
+  trace.py -c -f counts --ignore-dir '$prefix' spam.py eggs
+  trace.py -t --ignore-dir '$prefix' spam.py eggs
+  trace.py --trackcalls spam.py eggs
+Sample use, programmatically
+  import sys
+  # create a Trace object, telling it what to ignore, and whether to
+  # do tracing or line-counting or both.
+  tracer = trace.Trace(ignoredirs=[sys.base_prefix, sys.base_exec_prefix,],
+                       trace=0, count=1)
+  # run the new command using the given tracer
+  tracer.run('main()')
+  # make a report, placing output in /tmp
+  r = tracer.results()
+  r.write_results(show_missing=True, coverdir="/tmp")
+Trace
+CoverageResults
+monotonicz
+#pragma NO COVERc
+_Ignore
+<string>
+_mods
+path
+normpath
+_dirs
+_ignore)
+self
+modules
+dirs
+    
+trace.py
+__init__
+_Ignore.__init__F
+startswithr
+sep)
+filename
+modulename
+modr
+     r
+names
+_Ignore.namesL
+__name__
+__module__
+__qualname__
+__firstlineno__r
+__static_attributes__
+,Return a plausible module name for the path.)
+basename
+splitext)
+baser
+exts
+    r
+_modnamer0
+normcase
+sysr
+lenr
+splitdrive
+replace
+altsepr-
+lstrip)
+comparepath
+longest
+dirr.
+driver
+        r
+_fullmodnamer>
+callersz
+Skipping counts file 
+file)
+counts
+copy
+counter
+calledfuncsrC
+infile
+outfile
+open
+pickle
+load
+update
+__class__
+OSError
+EOFError
+ValueError
+printr4
+stderr)
+errs
+        r
+CoverageResults.__init__
+:'D4
+zOReturn True if the filename does not refer to a file
+we want to have reported.
+endswith)
+is_ignored_filename
+#CoverageResults.is_ignored_filename
+z.Merge in the data from another CoverageResultsr
+get)
+otherrG
+other_counts
+other_calledfuncs
+other_callers
+keys
+         r
+CoverageResults.update
+ignore_missing_filesc
+n![8
+n"A"g
+n"A"f
+Write the coverage results.
+:param show_missing: Show lines that had no hits.
+:param summary: Include coverage summary per module.
+:param coverdir: If None, the results of each module are placed in its
+                 directory, otherwise it is included in the directory
+                 specified.
+:param ignore_missing_files: If True, counts for files that no longer
+                 exist are silently ignored. Otherwise, a missing file
+                 will raise a FileNotFoundError.
+functions called:z
+filename: z
+, modulename: 
+, funcname: z
+calling relationships:r2
+***z
+  -->z
+    r
+ -> z
+.pycN
+exist_okz
+.coverrB
+lines   cov%   module   (path)z
+%5d   %3d%%   %s   (%s)
+z"Can't save counts files because %srE
+)!rJ
+sortedrC
+itemsr^
+isfile
+dirname
+abspathr0
+makedirsr>
+_find_executable_linenos
+linecache
+getlines
+joinrM
+tokenize
+detect_encoding
+readline
+write_results_file
+intrL
+dumprR
+show_missing
+summary
+coverdirrh
+callsr
+funcname
+lastfile
+lastcfile
+pfile
+pmod
+pfunc
+cfile
+cmod
+cfunc
+per_file
+lineno
+lines_hit
+sums
+countr<
+lnotab
+source
+coverpath
+encoding
+n_hits
+n_lines
+percent
+                                   r
+write_results
+CoverageResults.write_results
+&:N<
+z'Return a coverage results file in path.
+trace: Could not open z
+ for writing: z
+ - skippingrE
+%5d: z
+>>>>>> z
+       
+enumerate
+write
+PRAGMA_NOCOVER
+expandtabs)
+linesr
+lines
+            r
+"CoverageResults.write_results_file.
+;!C!
+NNNNN)
+p4XA;
+z:Return dict where keys are lines in the line number table.r
+findlinestarts)
+code
+strs
+linenosr
+     r
+_find_lines_from_coder
+z<Return lineno dict for all code objects reachable from code.)
+co_consts
+inspect
+iscoderP
+_find_lines)
+    r
+Return a dict of possible docstring positions.
+The dict maps line numbers to strings.  There is an entry for
+line that contains only a string or a part of a triple-quoted
+string.
+token
+INDENTrM
+generate_tokensr{
+STRING
+range)
+prev_ttyperW
+ttype
+tstr
+start
+endr
+sline
+scol
+eline
+ecol
+                r
+_find_stringsr
+zAReturn dict where keys are line numbers in the line number table.Nz
+Not printing coverage data for rD
+exec)
+readr
+compiler
+progr
+       r
+<!B#
+@param count true iff it should count number of times each
+             line is executed
+@param trace true iff it should print out each line that is
+             being counted
+@param countfuncs true iff it should just output a list of
+             (filename, modulename, funcname,) for functions
+             that were called at least once;  This overrides
+             `count' and `trace'
+@param ignoremods a list of the names of modules to ignore
+@param ignoredirs a list of the names of directories to ignore
+             all of the (recursive) contents of
+@param infile file from which to read stored counts to be
+             added into the results
+@param outfile file in which to write the results
+@param timing true iff timing information be displayed
+ignorerG
+pathtobasename
+donothing
+trace
+_calledfuncs
+_callers
+_caller_cache
+start_time
+_time
+globaltrace_trackcallers
+globaltrace
+globaltrace_countfuncs
+globaltrace_lt
+localtrace_trace_and_count
+localtrace
+localtrace_trace
+localtrace_count)
+countfuncs
+countcallers
+ignoremods
+ignoredirsrK
+timings
+          r
+Trace.__init__
+__main__
+__dict__
+runctx)
+cmdr
+dicts
+    r
+Trace.run
+threading
+settracer
+globals
+localss
+    r
+Trace.runctx
+func
+args
+results
+     r
+runfunc
+Trace.runfunc
+__bases__r
+f_code
+co_filenamer0
+co_namer
+get_referrersr
+isfunctionr5
+isinstancer
+hasattrr$
+framer
+clsnamerW
+funcsr
+dictsr
+classess
+             r
+file_module_function_of
+Trace.file_module_function_of
+z[Handler for call events.
+Adds information about who called who to the self._callers dict.
+callr
+f_backr
+this_func
+parent_funcs
+      r
+Trace.globaltrace_trackcallers
+z_Handler for call events.
+Adds (filename, modulename, funcname) to the self._calledfuncs dict.
+     r
+Trace.globaltrace_countfuncs
+zzHandler for call events.
+If the code block being entered is to be ignored, returns `None',
+else returns self.localtrace.
+__file__Nz
+ --- modulename: rj
+f_globalsra
+ignore_its
+        r
+Trace.globaltrace_lt
+%.2f
+%s(%d)r2
+f_linenorG
+getliner
+bnamer
+         r
+ Trace.localtrace_trace_and_count-
+        r
+Trace.localtrace_trace@
+       r
+Trace.localtrace_countQ
+results
+Trace.resultsY
+NNFr#
+S!S"S#S 9
+S$S%S
+S'S(S
+S*S+S
+S-S.5
+S/S0/
+S1S29
+S3S0/
+S4S29
+S6S7S29
+S8S9S:S;9
+S=S;9
+SM[H
+)ONr
+--version
+versionz
+trace 2.0)
+actionr,
+Main optionsz(One of these (or --report) must be givenz
+--count
+store_truez
+Count the number of times each line is executed and write the counts to <module>.cover for each module executed, in the module's directory. See also --coverdir, --file, --no-report below.)
+helpz
+--tracez3Print each line to sys.stdout before it is executedz
+--listfuncsz
+Keep track of which functions are executed at least once and write the results to sys.stdout after the program exits. Cannot be specified alongside --trace or --count.z
+--trackcallsz^Keep track of caller/called pairs and write the results to sys.stdout after the program exits.
+Modifiersz
+--reportz
+Generate a report from a counts file; does not execute any code. --file must specify the results file to read, which must have been created in a previous run with --count --file=FILEz
+--no-reportz^Do not generate the coverage report files. Useful if you want to accumulate over several runs.z
+--filez+File to accumulate counts over several runs)
+--coverdirz
+Directory where the report files go. The coverage report for <package>.<module> will be written to file <dir>/<package>/<module>.coverz
+--missingz?Annotate executable lines that were not executed with ">>>>>> "z
+--summaryz\Write a brief summary for each file to sys.stdout. Can only be used with --count or --reportz
+--timingzQPrefix each line with the time since the program started. Only used while tracing
+Filtersz
+Can be specified multiple timesz
+--ignore-module
+appendzqIgnore the given module(s) and its submodules (if it is a package). Accepts comma separated list of module names.)
+defaultr/
+--ignore-dirzWIgnore files in the given directory (multiple directories can be joined by os.pathsep).z
+--moduleFz
+Trace a module. 
+progname
+file to run as main program)
+nargsr/
+argumentsz
+arguments to the program
+stdlib
+platstdlibc
+$prefixz
+$exec_prefix)
+expanduser
+expandvarsr7
+_exec_prefix
+_prefixs
+parse_ignore_dir
+main.<locals>.parse_ignore_dir
+-r/--report requires -f/--file)
+zLmust specify one of --trace, --count, --report, --listfuncs, or --trackcallsz8cannot specify both --listfuncs and (--trace or --count)z3--summary can only be used with --count or --reportz3progname is missing: required with the main options)
+__package__
+__loader__
+__spec__
+__cached__r
+Cannot run file z
+ because: )4
+argparse
+ArgumentParser
+add_argument
+add_argument_group
+add_mutually_exclusive_group
+REMAINDER
+parse_args
+ignore_dir
+sysconfig
+get_path
+ignore_module
+split
+stripr
+pathsep
+reportrF
+errorr
+missingr
+anyr
+listfuncs
+trackcallsr4
+module
+runpy
+_get_module_detailsr
+argv
+parent
+loaderr
+open_coder
+exit
+SystemExitr)
+no_report)
+parser
+_grp
+optsr@
+module_name
+mod_name
+mod_specr
+globsr
+                   @@r
+mainro
+62W2
+__doc__
+__all__ra
+timer
+<module>rs

@@ -1,0 +1,37 @@
+Python 'utf-8' Codec
+Written by Marc-Andre Lemburg (mal@lemburg.com).
+(c) Copyright CNRI, All Rights Reserved. NO WARRANTY.
+codecs
+utf_8_decode)
+input
+errorss
+encodings\utf_8.py
+decoder
+IncrementalEncoder
+utf_8_encoder
+selfr
+finals
+   r
+encode
+IncrementalEncoder.encode
+__name__
+__module__
+__qualname__
+__firstlineno__r
+__static_attributes__r
+IncrementalDecoder
+_buffer_decoder
+StreamWriter
+StreamReader
+utf-8)
+namer
+incrementalencoder
+incrementaldecoder
+streamreader
+streamwriter)
+CodecInfor
+getregentryr,
+strict)
+__doc__r
+BufferedIncrementalDecoderr
+<module>r0

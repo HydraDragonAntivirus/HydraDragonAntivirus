@@ -1,0 +1,148 @@
+r"\"r#S r$S!r%S"r&S#r'S$r(S!r)S"r*S#r+S%r,S&r-S'r.S
+r3S(r4S
+r8S'r9S&r:S#r;S"r<S
+r=S)r>S*r?S+r@S,rAS-rBS.rCS/rDS0rES1rF\
+\)S94
+\*S:4
+\+\!-
+\!S;4
+\+S<4
+\-S94
+\.S:4
+\/\"-
+\"S;4
+\/S<4
+\1S94
+\2S:4
+\3\$-
+\$S>4
+\3S<4
+rGS?
+rHS&rIS
+rJS#rKS'rLS
+rOS"rPS
+rQS+rRS
+rUS rVS
+rWS!rXS*rY
+S@KZ7
+)BzoConstants/functions for interpreting results of os.stat() and os.lstat().
+Suggested usage: from stat import *
+zEReturn the portion of the file's mode that can be set by
+os.chmod().
+modes
+stat.py
+S_IMODEr
+zDReturn the portion of the file's mode that describes the
+file type.
+S_IFMTr
+z(Return True if mode is from a directory.)
+S_IFDIRr
+S_ISDIRr
+z<Return True if mode is from a character special device file.)
+S_IFCHRr
+S_ISCHRr
+z8Return True if mode is from a block special device file.)
+S_IFBLKr
+S_ISBLKr
+z+Return True if mode is from a regular file.)
+S_IFREGr
+S_ISREGr!
+z0Return True if mode is from a FIFO (named pipe).)
+S_IFIFOr
+S_ISFIFOr$
+z,Return True if mode is from a symbolic link.)
+S_IFLNKr
+S_ISLNKr'
+z%Return True if mode is from a socket.)
+S_IFSOCKr
+S_ISSOCKr*
+z#Return True if mode is from a door.Fr
+S_ISDOORr,
+z*Return True if mode is from an event port.Fr
+S_ISPORTr/
+z'Return True if mode is from a whiteout.Fr
+S_ISWHTr1
+z;Convert a file's mode to a string of the form '-rwxrwxrwx'.r
+enumerate
+_filemode_table
+append
+join)
+perm
+index
+table
+chars
+      r
+filemoderQ
+*N)\
+__doc__
+ST_MODE
+ST_INO
+ST_DEV
+ST_NLINK
+ST_UID
+ST_GID
+ST_SIZE
+ST_ATIME
+ST_MTIME
+ST_CTIMEr
+S_IFDOOR
+S_IFPORT
+S_IFWHTr
+S_ISUID
+S_ISGID
+S_ENFMT
+S_ISVTX
+S_IREAD
+S_IWRITE
+S_IEXEC
+S_IRWXU
+S_IRUSR
+S_IWUSR
+S_IXUSR
+S_IRWXG
+S_IRGRP
+S_IWGRP
+S_IXGRP
+S_IRWXO
+S_IROTH
+S_IWOTH
+S_IXOTH
+UF_SETTABLE
+UF_NODUMP
+UF_IMMUTABLE
+UF_APPEND
+UF_OPAQUE
+UF_NOUNLINK
+UF_COMPRESSED
+UF_TRACKED
+UF_DATAVAULT
+UF_HIDDEN
+SF_SETTABLE
+SF_ARCHIVED
+SF_IMMUTABLE
+SF_APPEND
+SF_RESTRICTED
+SF_NOUNLINK
+SF_SNAPSHOT
+SF_FIRMLINK
+SF_DATALESSrI
+FILE_ATTRIBUTE_ARCHIVE
+FILE_ATTRIBUTE_COMPRESSED
+FILE_ATTRIBUTE_DEVICE
+FILE_ATTRIBUTE_DIRECTORY
+FILE_ATTRIBUTE_ENCRYPTED
+FILE_ATTRIBUTE_HIDDEN
+FILE_ATTRIBUTE_INTEGRITY_STREAM
+FILE_ATTRIBUTE_NORMAL
+"FILE_ATTRIBUTE_NOT_CONTENT_INDEXED
+FILE_ATTRIBUTE_NO_SCRUB_DATA
+FILE_ATTRIBUTE_OFFLINE
+FILE_ATTRIBUTE_READONLY
+FILE_ATTRIBUTE_REPARSE_POINT
+FILE_ATTRIBUTE_SPARSE_FILE
+FILE_ATTRIBUTE_SYSTEM
+FILE_ATTRIBUTE_TEMPORARY
+FILE_ATTRIBUTE_VIRTUAL
+_stat
+ImportErrorr
+<module>r

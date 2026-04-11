@@ -1,0 +1,37 @@
+Python 'utf-16-be' Codec
+Written by Marc-Andre Lemburg (mal@lemburg.com).
+(c) Copyright CNRI, All Rights Reserved. NO WARRANTY.
+codecs
+utf_16_be_decode)
+input
+errorss
+encodings\utf_16_be.py
+decoder
+IncrementalEncoder
+utf_16_be_encoder
+selfr
+finals
+   r
+encode
+IncrementalEncoder.encode
+__name__
+__module__
+__qualname__
+__firstlineno__r
+__static_attributes__r
+IncrementalDecoder
+_buffer_decoder
+StreamWriter
+StreamReader
+utf-16-be)
+namer
+incrementalencoder
+incrementaldecoder
+streamreader
+streamwriter)
+CodecInfor
+getregentryr,
+strict)
+__doc__r
+BufferedIncrementalDecoderr
+<module>r0

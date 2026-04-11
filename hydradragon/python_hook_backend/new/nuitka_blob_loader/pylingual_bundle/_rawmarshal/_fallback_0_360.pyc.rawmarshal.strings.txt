@@ -1,0 +1,12 @@
+sigpendingc
+sigwaitc
+sigset
+retsigs
+valid_signalsc
+enumr
+_IntEnum
+globals
+_globals
+_convert_
+__name__r"
+<module>rQ

@@ -1,0 +1,307 @@
+r#\#\
+r)\*S
+r+\*S
+r/S>S#
+S?S$
+r1S@S%
+r2S@S&
+r3SAS'
+r4SAS(
+SBS)
+SCS*
+r7SDS+
+r8SES,
+r9SES-
+r:SFS.
+r;SGS/
+r<S0S1.
+SHS2
+r=SES3
+r>SIS4
+r?SES5
+r@SJS6
+rASHS7
+SKS8
+rCSLS9
+rDSMS:
+rESNS;
+annotations)
+IterableN)
+MappingProxyType)
+BinaryIO
+NamedTuple
+RE_DATETIME
+RE_LOCALTIME
+RE_NUMBER
+match_to_datetime
+match_to_localtime
+match_to_number)
+ParseFloat
+Posc
+chr)
+tomllib\_parser.py
+<genexpr>r
+TOMLDecodeError
+z0An error raised if a document is not valid TOML.
+__name__
+__module__
+__qualname__
+__firstlineno__
+__doc__
+__static_attributes__r&
+parse_floatc
+z%Parse TOML from a binary file object.zEFile must be opened in binary mode, e.g. use `open('foo.toml', 'rb')`Nr.
+read
+decode
+AttributeError
+TypeError
+loads)
+fpr/
+    r
+loadr9
+X#XEU
+Parse TOML from a string.z
+Invalid statementz5Expected newline or end of document after a statement)
+replace
+Output
+NestedDict
+Flags
+make_safe_parse_float
+skip_chars
+TOML_WS
+IndexError
+KEY_INITIAL_CHARS
+key_value_rule
+flags
+finalize_pending
+create_list_rule
+create_dict_rule
+suffixed_err
+skip_comment
+data
+dict)
+header
+char
+second_chars
+        r
+z)Flags that map to parsed keys/namespaces.r
+_flags
+_pending_flags
+selfs
+__init__
+Flags.__init__
+flags
+   r
+add_pending
+Flags.add_pending
+recursive)
+clearra
+   r
+Flags.finalize_pending
+nested)
+pop)
+cont
+    r
+unset_all
+Flags.unset_all
+recursive_flagsrm
+key_parent
+key_stemrp
+        r
+Flags.set
+NFrl
+inner_contrv
+       r
+Flags.is_
+return
+None)
+intr}
+boolr}
+FROZEN
+EXPLICIT_NESTr]
+NestedDict.__init__
+access_listsc
+z There is no nest behind this key)
+isinstance
+list
+KeyError)
+     r
+get_or_create_nest
+NestedDict.get_or_create_nest
+z/An object other than list found behind this key)
+append)
+last_key
+list_s
+     r
+append_nest_to_list
+NestedDict.append_nest_to_list
+dict[str, Any]r
+__annotations__r,
+charss
+   r
+Expected r
+Found invalid character )
+index
+ValueError
+lenrK
+isdisjoint)
+expect
+error_on
+error_on_eof
+new_poss
+      r
+skip_untilr
+ILLEGAL_COMMENT_CHARS)
+   r
+TOML_WS_AND_NEWLINErL
+pos_before_skips
+   r
+skip_comments_and_array_wsr
+Cannot declare z
+ twiceFrg
+Cannot overwrite a value
+]z.Expected ']' at the end of a table declaration)
+parse_keyrG
+startswith
+    r
+"Cannot mutate immutable namespace Frg
+]]z0Expected ']]' at the end of an array declaration)
+    r
+!key_value_rule.<locals>.<genexpr>J
+Cannot redefine namespace r
+parse_key_value_pair
+ranger
+valueru
+abs_key_parent
+relative_path_cont_keys
+cont_key
+nestrb
+   `        @r
+=z,Expected '=' after a key in a key/value pairr
+parse_value)
+      r
+parse_key_partrB
+key_partrb
+     r
+z(Invalid initial character for a key part)
+BARE_KEY_CHARSrB
+parse_literal_str
+parse_one_line_basic_strrK
+start_poss
+    r
+multiline)
+parse_basic_str
+Unclosed array)
+array
+      r
+parse_arrayr
+}Trl
+Duplicate inline table key r
+Unclosed inline tablerg
+nested_dictrG
+           r
+parse_inline_tabler
+Unescaped '\' in a stringr
+parse_hex_char
+BASIC_STR_ESCAPE_REPLACEMENTSr
+escape_idrS
+     r
+parse_basic_str_escaper
+ parse_basic_str_escape_multiliner
+Invalid hex value
+z/Escaped character is not a Unicode scalar value)
+HEXDIGIT_CHARS
+issupersetrK
+is_unicode_scalar_valuer
+hex_len
+hex_str
+hex_ints
+     r
+ILLEGAL_LITERAL_STR_CHARS)
+   r
+'''Tr
+#ILLEGAL_MULTILINE_LITERAL_STR_CHARSr
+literal
+delim
+end_pos
+results
+      r
+parse_multiline_strr
+XPXa
+XPXa
+XPXa
+Unterminated stringr!
+"""r
+Illegal character )
+!ILLEGAL_MULTILINE_BASIC_STR_CHARSr
+ILLEGAL_BASIC_STR_CHARSr
+parse_escapesr
+parsed_escapes
+         r
+truer
+false
+Invalid date or datetimer
+nan>
++inf
++nan
+-inf
+-nanz
+Invalid value)
+matchr
+endr
+datetime_match
+datetime_obj
+localtime_match
+number_match
+first_three
+first_fours
+           r
+zVReturn a `TOMLDecodeError` where error message is suffixed with
+coordinates in source.c
+end of documentr
+line z
+, column )
+count
+rindex)
+line
+columns
+    r
+coord_repr
+ suffixed_err.<locals>.coord_repr
+ (at 
+strrP
+msgr
+    r
+codepoints
+A decorator to make `parse_float` safe.
+`parse_float` must not return dicts or lists, because these types
+would be mixed with parsed TOML tables and arrays, thus confusing
+the parser. The returned decorated callable raises `ValueError`
+instead of returning illegal types.
+Nz*parse_float must not return dicts or lists)
+float_str
+float_valuer/
+safe_parse_float
+/make_safe_parse_float.<locals>.safe_parse_float
+float)
+Iterable[str]r}
+frozenset[str]r
+tuple[Pos, Key])
+tuple[Pos, Key, Any])
+tuple[Pos, str])
+tuple[Pos, list[Any]])
+tuple[Pos, dict[str, Any]])
+tuple[Pos, Any])
+__future__r
+collections.abcr
+string
+typesr
+typingr
+_rer
+_typesr
+frozensetr
+ASCII_CTRLr
+ascii_letters
+digitsr
+hexdigitsr
+<module>r;

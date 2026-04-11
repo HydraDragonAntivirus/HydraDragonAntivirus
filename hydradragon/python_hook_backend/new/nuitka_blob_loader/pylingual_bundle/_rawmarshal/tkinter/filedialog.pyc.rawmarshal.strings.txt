@@ -1,0 +1,285 @@
+r&S S
+r)\*S
+)!aU
+File selection dialog classes.
+Classes:
+- FileDialog
+- LoadFileDialog
+- SaveFileDialog
+This module also presents tk common file dialogues, it provides interfaces
+to the native file dialogues available in Tk 4.2 and newer, and the
+directory dialogue available in Tk 8.3 and newer.
+These interfaces were written by Fredrik Lundh, May 1997.
+FileDialog
+LoadFileDialog
+SaveFileDialog
+Open
+SaveAs
+Directory
+askopenfilename
+asksaveasfilename
+askopenfilenames
+askopenfile
+askopenfiles
+asksaveasfile
+askdirectory
+Frame
+LEFT
+BOTTOM
+Entry
+Button
+Toplevel
+RIGHT
+Listbox
+BOTH
+Scrollbar)
+Dialog)
+commondialog)
+_setup_dialogc
+Standard file selection dialog -- no checks on selected file.
+Usage:
+    d = FileDialog(master)
+    fname = d.go(dir_or_file, pattern, default, key)
+    if fname is None: ...canceled...
+    else: ...open file...
+All arguments to go() are optional.
+The 'key' argument specifies a key in the global dictionary
+'dialogstates', which keeps track of the values for the directory
+and pattern arguments, overriding the values passed in (it does
+not keep track of the default argument!).  If no key is specified,
+the dialog keeps no memory of previous state.  Note that memory is
+kept even when the dialog is canceled.  (All this emulates the
+behavior of the Macintosh file selection dialogs.)
+File Selection DialogNc
+side
+fillz
+<Return>)
+expandr'
+set)
+exportselection
+yscrollcommand)
+<ButtonRelease-1>z
+<Double-ButtonRelease-1>
+yview)
+command
+textr.
+Filter)
+Cancel
+WM_DELETE_WINDOWz
+<Alt-w>z
+<Alt-W>),
+title
+master
+directoryr
+iconnamer"
+botframe
+packr
+selection
+bind
+ok_event
+filterr
+filter_command
+midframer
+filesbarr
+files
+bindtags
+files_select_event
+files_double_event
+config
+dirsbarr
+dirs
+dirs_select_event
+dirs_double_eventr
+ok_command
+ok_button
+filter_button
+cancel_command
+cancel_button
+protocol)
+selfr5
+btagss
+    
+tkinter\filedialog.py
+__init__
+FileDialog.__init__:
+dialogstatesr6
+path
+expanduser
+isdir
+split
+set_filter
+set_selectionr?
+focus_setr7
+wait_visibility
+grab_set
+howr5
+mainloop
+get_filter
+dirname
+destroy)
+dir_or_file
+pattern
+default
+keyr6
+      rS
+FileDialog.goz
+quit)
+  rS
+FileDialog.quit
+events
+  rS
+FileDialog.dirs_double_event
+active)
+getr\
+normpath
+joinr6
+subdirs
+     rS
+FileDialog.dirs_select_event
+  rS
+FileDialog.files_double_event
+files
+   rS
+FileDialog.files_select_event
+  rS
+FileDialog.ok_event
+get_selection
+FileDialog.ok_command
+listdir
+OSErrorr5
+bellr6
+sort
+pardirr]
+append
+fnmatchrH
+deleter
+insertrB
+curdirrb
+names
+subdirs
+matchingfiles
+name
+fullname
+head
+tails
+           rS
+FileDialog.filter_command
+sepr_
+  rS
+FileDialog.get_filter
+  rS
+FileDialog.get_selection
+  rS
+FileDialog.cancel_command
+isabs
+getcwdr
+pwds
+    rS
+FileDialog.set_filter
+  rS
+FileDialog.set_selection
+__name__
+__module__
+__qualname__
+__firstlineno__
+__doc__r4
+__static_attributes__
+z8File selection dialog which checks that the file exists.z
+Load File Selection Dialogc
+isfiler5
+  rS
+LoadFileDialog.ok_command
+z@File selection dialog which checks that the file may be created.z
+Save File Selection Dialogc
+Nz Overwrite Existing File Questionz
+Overwrite existing file 
+questheadr,
+Yesr2
+bitmaprm
+stringsr
+existsr_
+numr`
+     rS
+SaveFileDialog.ok_command
+_Dialogi0
+filetypes)
+tuple
+options
+KeyErrorr
+_fixoptions
+_Dialog._fixoptions2
+p4X0R
+initialdir
+initialfile)
+string
+AttributeErrorr\
+filename)
+widget
+resultr]
+     rS
+_fixresult
+_Dialog._fixresult9
+Ask for a filename to open
+tk_getOpenFilec
+pEX@R
+multiple)
+isinstancer
+getattrr\
+wantobjectsr
+splitlistr
+      rS
+Open._fixresultQ
+Ask for a filename to save as
+tk_getSaveFiler
+Ask for a directory
+tk_chooseDirectoryc
+   rS
+Directory._fixresultl
+show
+zhAsk for multiple filenames to open
+Returns a list of filenames or empty list if
+cancel button selected
+z8Ask for a filename to open, and returned the opened fileNr
+open
+moder
+   rS
+Ask for multiple filenames and return the open file
+objects
+returns a list of open file objects or an empty list if
+cancel selected
+ofilesr
+     rS
+z;Ask for a filename to save as, and returned the opened fileNr
+   rS
+z-Ask for a directory, and return the file namer
+Simple test program.
+test)
+utf-8r
+all filesrW
+Could not open File: r
+saveas)
+withdrawr
+print
+locale
+setlocale
+LC_ALL
+nl_langinfo
+CODESET
+ImportErrorr
+close
+BaseException
+encoder
+root
+loadfile
+savefile
+encr
+openfilename
+saveasfilenames
+          rS
+__main__)
+w)+r
+__all__r
+tkinterr
+tkinter.dialogr 
+tkinter.simpledialogr"
+<module>r

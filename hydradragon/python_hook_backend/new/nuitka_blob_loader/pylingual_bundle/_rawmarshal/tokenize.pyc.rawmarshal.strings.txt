@@ -1,0 +1,440 @@
+\"\#\$\%5
+\(\)5
+\*S -
+\+\*\&5
+r,S!
+r0S#r1S$r2S%r3S&r4\
+\0S'-
+\0S(-
+\0S)-
+\0S*-
+S+S,9
+S-\:5
+\,\;\6\!5
+r<\ \<-
+\0S.-
+\0S0-
+\?\,\;\>\!5
+rA\-"
+rB\1\A\BS/-
+\2\A\BS1-
+\3\A\BS'-
+\4\A\BS(-
+CB\C"
+rD\C"
+rE\-"
+rF\FS1-
+\FS/-
+rG\DR
+\FS(-
+\FS'-
+rG\ER
+CFCGS3rI
+S5\J5
+rLS8
+rMS9
+rNS:
+rOS;
+rPS=
+rQS>
+rRS?
+rSSBS@
+rT\USA:X
+)Cao
+Tokenization help for Python programs.
+tokenize(readline) is a generator that breaks a stream of bytes into
+Python tokens.  It decodes the bytes according to PEP-0263 for
+determining source file encoding.
+It accepts a readline-like method which is called repeatedly to get the
+next line of input (or b"" for EOF).  It generates 5-tuples with these
+members:
+    the token type (see token.py)
+    the token (a string)
+    the starting (row, column) indices of the token (a 2-tuple of ints)
+    the ending (row, column) indices of the token (a 2-tuple of ints)
+    the original line (string)
+It is designed to match the working of the Python tokenizer exactly, except
+that it produces COMMENT tokens for comments and gives type OP for all
+operators.  Additionally, all token lists start with an ENCODING token
+which tells you which encoding was used to decode the bytes stream.
+Ka-Ping Yee <ping@lfw.org>zpGvR, ESR, Tim Peters, Thomas Wouters, Fred Drake, Skip Montanaro, Raymond Hettinger, Trent Nelson, Michael Foord
+open)
+lookup
+BOM_UTF8N)
+TextIOWrapper)
+EXACT_TOKEN_TYPESz&^[ \t\f]*#.*?coding[:=][ \t]*([-\w.]+)s
+^[ \t\f]*(?:[#\r\n]|$))
+tokenize
+generate_tokens
+detect_encoding
+untokenize
+TokenInfor
+TokenErrorc
+%d (%s)z8TokenInfo(type=%s, string=%r, start=%r, end=%r, line=%r))
+type)
+tok_name
+_replace)
+self
+annotated_types
+tokenize.py
+__repr__
+TokenInfo.__repr__0
+stringr
+exact_type
+TokenInfo.exact_type5
+__name__
+__module__
+__qualname__
+__firstlineno__r
+propertyr 
+__static_attributes__r"
+type string start end linec
+join
+choicess
+groupr0
+anyr3
+mayber6
+[ \f\t]*z
+#[^\r\n]*z
+\\\r?\nz
+\w+z
+0[xX](?:_?[0-9a-fA-F])+z
+0[bB](?:_?[01])+z
+0[oO](?:_?[0-7])+z
+(?:0(?:_?0)*|[1-9](?:_?[0-9])*)z
+[eE][-+]?[0-9](?:_?[0-9])*z)[0-9](?:_?[0-9])*\.(?:[0-9](?:_?[0-9])*)?z
+\.[0-9](?:_?[0-9])*z
+[0-9](?:_?[0-9])*z
+[0-9](?:_?[0-9])*[jJ]z
+[jJ]c
+_itertools
+permutations
+product
+upper
+addr-
+_valid_string_prefixes
+result
+prefix
+      r
+_all_string_prefixesrI
+compile
+UNICODE)
+exprs
+_compilerO
+[^'\\]*(?:\\.[^'\\]*)*'z
+[^"\\]*(?:\\.[^"\\]*)*"z%[^'\\]*(?:(?:\\.|'(?!''))[^'\\]*)*'''z%[^"\\]*(?:(?:\\.|"(?!""))[^"\\]*)*"""z
+'''z
+"""z
+'[^\n'\\]*(?:\\.[^\n'\\]*)*'z
+"[^\n"\\]*(?:\\.[^\n"\\]*)*"T)
+reversez
+\r?\nz
+'[^\n'\\]*(?:\\.[^\n'\\]*)*
+"[^\n"\\]*(?:\\.[^\n"\\]*)*
+\\\r?\n|\Z
+Untokenizer
+tokens
+prev_row
+prev_col
+prev_type
+prev_line
+encodingr
+__init__
+Untokenizer.__init__
+p#X R
+Nz+start ({},{}) precedes previous end ({},{})
+ValueError
+format
+add_backslash_continuationr[
+append)
+start
+col_offsets
+     r
+add_whitespace
+Untokenizer.add_whitespace
+Add backslash continuation characters if the row has increased
+without encountering a newline token.
+This also inserts the correct amount of whitespace before the backslash.
+endswith
+rstripr-
+takewhile
+isspace
+reversedr[
+row_offset
+newline
+line
+       r
+&Untokenizer.add_backslash_continuation
+chars
+<genexpr>
+.Untokenizer.escape_brackets.<locals>.<genexpr>
+NTr>
+sumr?
+__eq__r-
+token
+characters
+consume_until_next_bracket
+character
+n_backslashess
+      r
+escape_brackets
+Untokenizer.escape_brackets
+iter
+compat
+ENCODINGr`
+ENDMARKER
+INDENTrh
+DEDENT
+popr\
+NEWLINE
+NLr[
+FSTRING_MIDDLEr
+splitlines
+countrm
+iterable
+indents
+startlinerG
+tok_typer
+endrz
+indent
+last_line
+end_line
+end_col
+extra_charss
+                r
+Untokenizer.untokenize
+chainr
+NAME
+NUMBER
+STRING
+FSTRING_START
+FSTRING_ENDr
+toks_appendr
+prevstring
+in_fstring
+toknum
+tokvals
+           r
+Untokenizer.compat
+Transform tokens back into Python source code.
+It returns a bytes object, encoded using the ENCODING
+token, which is the first token sequence output by tokenize.
+Each element returned by the iterable must be a token sequence
+with at least two elements, a token number and token value.  If
+only two tokens are passed, the resulting output is poor.
+The result is guaranteed to tokenize back to match the input so
+that the conversion is lossless and round-trips are assured.
+The guarantee applies only to the token type and token string as
+the spacing between tokens (column positions) may change.
+encode)
+outs
+   r
+z7Imitates get_normal_name in Parser/tokenizer/helpers.c.N
+utf-8z
+utf-8-)
+latin-1
+iso-8859-1z
+iso-latin-1)
+latin-1-z
+iso-8859-1-z
+iso-latin-1-r
+lower
+replace
+startswith)
+orig_enc
+encs
+_get_normal_namer
+The detect_encoding() function is used to detect the encoding that should
+be used to decode a Python source file.  It requires one argument, readline,
+in the same way as the tokenize() generator.
+It will call readline a maximum of twice, and return the encoding used
+(as a string) and a list of any lines (left as bytes) it has read in.
+It detects the encoding from the presence of a utf-8 bom or an encoding
+cookie as specified in pep-0263.  If both a bom and a cookie are present,
+but disagree, a SyntaxError will be raised.  If the encoding cookie is an
+invalid charset, raise a SyntaxError.  Note that if a utf-8 bom is found,
+'utf-8-sig' is returned.
+If no encoding is specified, then the default of 'utf-8' will be returned.
+StopIteration
+readlines
+read_or_stop
+%detect_encoding.<locals>.read_or_stop~
+z'invalid or missing encoding declarationz
+{} for {!r}rZ
+unknown encoding: z
+unknown encoding for {!r}: {}z
+encoding problem: utf-8z encoding problem for {!r}: utf-8z
+-sig)
+decode
+UnicodeDecodeErrorrf
+SyntaxError
+cookie_re
+matchr
+LookupError)
+line_string
+msgr
+codec
+bom_found
+filenames
+      
+find_cookie
+$detect_encoding.<locals>.find_cookie
+=1C.
+utf-8-sig)
+__self__
+name
+AttributeErrorr
+blank_rer
+defaultr
+first
+secondr
+`      @@r
+zPOpen a file in read only mode using the encoding detected by
+detect_encoding().
+line_bufferingr9
+_builtin_openr
+seekr
+mode
+close)
+bufferr`
+lines
+texts
+     r
+The tokenize() generator requires one argument, readline, which
+must be a callable object which provides the same interface as the
+readline() method of built-in file objects.  Each call to the function
+should return one line of input as bytes.  Alternatively, readline
+can be a callable function terminating with StopIteration:
+    readline = open(myfile, 'rb').__next__  # Example of alternate readline
+The generator produces 5-tuples with these members: the token type; the
+token string; a 2-tuple (srow, scol) of ints specifying the row and
+column where the token begins in the source; a 2-tuple (erow, ecol) of
+ints specifying the row and column where the token ends in the source;
+and the line on which the token was found.  The line passed is the
+physical line.
+The first token sequence will always be an ENCODING token
+which tells you which encoding was used to decode the bytes stream.
+extra_tokens)
+!_generate_tokens_from_c_tokenizer
+__next__)
+consumed
+rl_gens
+    r
+A'A1
+Tokenize a source reading Python code as unicode strings.
+This has the same API as tokenize(), except that it expects the *readline*
+callable to return str objects instead of bytes.
+stderr
+write)
+messages
+perror
+main.<locals>.perror
+%s:%d:%d: error: %sz
+: error: z
+error: %srZ
+exit)
+location
+argsr
+    
+error
+main.<locals>.error
+python -m tokenize)
+progr
+filename.pyz'the file to tokenize; defaults to stdin)
+dest
+nargs
+metavar
+helpz
+--exact
+exact
+store_truez(display token names using the exact type)
+actionr
+<stdin>Tr
+%d,%d-%d,%d:
+15rZ
+interrupted
+unexpected error: %s)
+argparse
+ArgumentParser
+add_argument
+parse_argsr
+listr
+stdinr
+printr
+IndentationErrorr
+OSError
+KeyboardInterrupt
+Exception)
+parserr
+token_type
+token_range
+errrz
+columnr
+             @r
+mainr"
+Transform error messages from the C tokenizer into the Python tokenize
+The C tokenizer is more picky than the Python one, so we need to massage
+the error messages a bit for backwards compatibility.
+z)unterminated triple-quoted string literalz
+EOF in multi-line stringr"
+_transform_msgr$
+zWTokenize a source reading Python code as unicode strings using the internal C tokenizerNr
+_tokenize
+TokenizerIterr
+_maker
+lineno
+offset)
+sourcer`
+info
+       r
+__main__)
+NF)V
+__doc__
+__author__
+__credits__
+builtinsr
+codecsr
+collections
+functools
+itertoolsr?
+ASCIIr
+__all__
+namedtupler
+Whitespace
+Comment
+Ignore
+Name
+Hexnumber
+Binnumber
+Octnumber
+Decnumber
+Intnumber
+Exponent
+Pointfloat
+Expfloat
+Floatnumber
+Imagnumber
+NumberrI
+lru_cacherO
+StringPrefix
+Single
+Double
+Single3
+Double3
+Triple
+String
+escape
+sorted
+Special
+Funny
+PlainToken
+Token
+ContStr
+PseudoExtras
+PseudoToken
+endpats
+_prefix
+single_quoted
+triple_quotedrG
+tabsizer
+<module>rb

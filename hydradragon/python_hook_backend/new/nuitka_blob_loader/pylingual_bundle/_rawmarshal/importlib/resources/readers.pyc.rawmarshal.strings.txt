@@ -1,0 +1,197 @@
+annotationsN)
+Iterator
+abc)
+onlyc
+iter
+collections
+OrderedDict
+fromkeys)
+itemss
+importlib\resources\readers.py
+remove_duplicatesr
+FileReader
+pathlib
+Path
+path
+parent)
+self
+loaders
+__init__
+FileReader.__init__
+Return the file system path to prevent
+`resources.path()` from creating a temporary
+copy.
+strr
+joinpath
+resources
+resource_path
+FileReader.resource_path
+files
+FileReader.files"
+__name__
+__module__
+__qualname__
+__firstlineno__r
+__static_attributes__
+ZipReader
+prefix
+replace
+is_package
+rpartition
+archive)
+module
+names
+     r
+ZipReader.__init__'
+super
+open_resource
+KeyError
+FileNotFoundError
+args)
+__class__s
+ZipReader.open_resource.
+Workaround for `zipfile.Path.is_file` returning true
+for non-existent paths.
+is_file
+exists)
+targets
+   r
+is_resource
+ZipReader.is_resource4
+zipfiler
+ZipReader.files<
+__classcell__
+MultiplexedPath
+Given a series of Traversable objects, implement a merged
+version of the interface across all objects. Useful for
+namespace packages which may be multihomed at a single
+name.
+Nz.MultiplexedPath must contain at least one pathc
+is_dir
+<genexpr>
++MultiplexedPath.__init__.<locals>.<genexpr>M
+z)MultiplexedPath only supports directories)
+list
+_ensure_traversabler
+_pathsrI
+NotADirectoryError)
+paths
+messages
+   r
+MultiplexedPath.__init__H
+iterdir)
+childs
+   r
+*MultiplexedPath.iterdir.<locals>.<genexpr>Q
+keyc
+locss
+   r
+operator
+attrgetter
+itertools
+groupby
+sortedre
+_follow)
+children
+by_name
+groupss
+    r
+MultiplexedPath.iterdirP
+ is not a file
+read_bytes
+MultiplexedPath.read_bytesV
+kwargss
+   r
+read_text
+MultiplexedPath.read_textY
+NTr3
+MultiplexedPath.is_dir\
+NFr3
+MultiplexedPath.is_file_
+TraversalErrorrg
+descendantsrL
+MultiplexedPath.joinpathb
+Construct a MultiplexedPath if needed.
+If children contains a sole element, return it.
+Otherwise, return a MultiplexedPath of the items.
+Unless one of the items is not a Directory, then return the first.
+teer
+ValueErrorri
+next)
+clsr{
+subdirs
+one_dir
+one_files
+     r
+MultiplexedPath._followj
+   r
+open
+MultiplexedPath.open}
+MultiplexedPath.name
+'Nr3
++MultiplexedPath.__repr__.<locals>.<genexpr>
+MultiplexedPath(
+joinrg
+__repr__
+MultiplexedPath.__repr__
+__doc__r
+classmethodrz
+propertyrB
+NamespaceReader
+NamespacePathz
+Invalid path)
+filter
+boolre
+_resolver
+namespace_paths
+NamespaceReader.__init__
+Given an item from a namespace path, resolve it to a Traversable.
+path_str might be a directory on the filesystem or a path to a
+zipfile plus the path within the zipfile, e.g. ``/foo/bar`` or
+``/foo/baz.zip/inner_dir`` or ``foo\baz.zip\inner_dir\sub``.
+path_str might also be a sentinel used by editable packages to
+trigger other behaviors (see python/importlib_resources#311).
+In that case, return None.
+cands
++NamespaceReader._resolve.<locals>.<genexpr>
+_candidate_pathsr
+path_str
+dirss
+   r
+NamespaceReader._resolve
+_resolve_zip_path)
+ NamespaceReader._candidate_paths
+[\\/]r8
+reversedrd
+finditer
+contextlib
+suppressrI
+IsADirectoryErrorri
+PermissionError
+endr<
+start
+lstrip)
+match
+inners
+   r
+!NamespaceReader._resolve_zip_path
+NamespaceReader.resource_path
+NamespaceReader.files
+returnz
+abc.Traversable | None)
+Iterator[abc.Traversable])
+staticmethodr
+Convert deprecated string arguments to traversables (pathlib.Path).
+Remove with Python 3.15.
+z<String arguments are deprecated. Pass a Traversable instead.r
+stacklevel)
+isinstancer!
+warnings
+warn
+DeprecationWarningr
+__future__r
+collections.abcr
+_itertoolsr
+TraversableResourcesr
+TraversablerZ
+<module>r

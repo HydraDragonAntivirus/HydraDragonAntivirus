@@ -1,0 +1,50 @@
+S!S"_
+S#S$_
+S%S&S'S(S)S*S+S,S-.
+g1)2z'
+Windows event and VT sequence scanner
+BaseEventQueues
+downs
+rights
+lefts
+[1;5Dz
+ctrl lefts
+[1;5Cz
+ctrl rights
+homes
+backspaces
+inserts
+deletes
+[5~z
+page ups
+[6~z
+page downs
+f12)
+[15~s
+[17~s
+[18~s
+[19~s
+[20~s
+[21~s
+[23~s
+[24~
+VT_MAPc
+EventQueue
+encoding
+returnNc
+__init__r
+selfr
+_pyrepl\windows_eventqueue.pyr!
+EventQueue.__init__)
+__name__
+__module__
+__qualname__
+__firstlineno__
+strr!
+__static_attributes__r&
+__doc__
+base_eventqueuer
+dict
+bytesr+
+__annotations__r
+<module>r2

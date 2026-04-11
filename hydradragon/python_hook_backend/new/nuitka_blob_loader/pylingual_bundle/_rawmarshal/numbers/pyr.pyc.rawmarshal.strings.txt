@@ -1,0 +1,237 @@
+z~Abstract Base Classes (ABCs) for numbers, according to PEP 3141.
+TODO: Fill out more detailed documentation on the operators.
+ABCMeta
+abstractmethod)
+Number
+Complex
+Real
+Rational
+Integralc
+All numbers inherit from this class.
+If you just want to check if an argument x is a number, without
+caring what kind, use isinstance(x, Number).
+__name__
+__module__
+__qualname__
+__firstlineno__
+__doc__
+__slots__
+__hash__
+__static_attributes__r
+numbers.pyr
+metaclassc
+Complex defines the operations that work on the builtin complex type.
+In short, those are: a conversion to complex, .real, .imag, +, -,
+*, /, **, abs(), .conjugate, ==, and !=.
+If it is given heterogeneous arguments, and doesn't have special
+knowledge about them, it should fall back to the builtin complex
+type as described below.
+z<Return a builtin complex instance. Called for complex(self).Nr
+selfs
+__complex__
+Complex.__complex__F
+z)True if self != 0. Called for bool(self).r
+__bool__
+Complex.__bool__J
+zHRetrieve the real component of this number.
+This should subclass Real.
+NotImplementedErrorr
+real
+Complex.realN
+zMRetrieve the imaginary component of this number.
+This should subclass Real.
+imag
+Complex.imagW
+self + otherr#
+others
+__add__
+Complex.__add__`
+other + selfr#
+__radd__
+Complex.__radd__e
+-selfr#
+__neg__
+Complex.__neg__j
++selfr#
+__pos__
+Complex.__pos__o
+self - otherr
+__sub__
+Complex.__sub__t
+other - selfr
+__rsub__
+Complex.__rsub__x
+self * otherr#
+__mul__
+Complex.__mul__|
+other * selfr#
+__rmul__
+Complex.__rmul__
+z5self / other: Should promote to float when necessary.r#
+__truediv__
+Complex.__truediv__
+other / selfr#
+__rtruediv__
+Complex.__rtruediv__
+zDself ** exponent; should promote to float or complex when necessary.r#
+exponents
+__pow__
+Complex.__pow__
+base ** selfr#
+bases
+__rpow__
+Complex.__rpow__
+z7Returns the Real distance from 0. Called for abs(self).r#
+__abs__
+Complex.__abs__
+z$(x+y*i).conjugate() returns (x-y*i).r#
+conjugate
+Complex.conjugate
+self == otherr#
+__eq__
+Complex.__eq__
+propertyr%
+To Complex, Real adds the operations that work on real numbers.
+In short, those are: a conversion to float, trunc(), divmod,
+%, <, <=, >, and >=.
+Real also provides defaults for the derived operations.
+zLAny Real can be converted to a native float object.
+Called for float(self).r#
+__float__
+Real.__float__
+trunc(self): Truncates self to an Integral.
+Returns an Integral i such that:
+  * i > 0 iff self > 0;
+  * abs(i) <= abs(self);
+  * for any Integral j satisfying the first two conditions,
+    abs(i) >= abs(j) [i.e. i has "maximal" abs among those].
+i.e. "truncate towards 0".
+__trunc__
+Real.__trunc__
+z$Finds the greatest Integral <= self.r#
+__floor__
+Real.__floor__
+z!Finds the least Integral >= self.r#
+__ceil__
+Real.__ceil__
+Rounds self to ndigits decimal places, defaulting to 0.
+If ndigits is omitted or None, returns an Integral, otherwise
+returns a Real. Rounds half toward even.
+ndigitss
+__round__
+Real.__round__
+divmod(self, other): The pair (self // other, self % other).
+Sometimes this can be computed faster than the pair of
+operations.
+__divmod__
+Real.__divmod__
+divmod(other, self): The pair (other // self, other % self).
+Sometimes this can be computed faster than the pair of
+operations.
+__rdivmod__
+Real.__rdivmod__
+z)self // other: The floor() of self/other.r#
+__floordiv__
+Real.__floordiv__
+z)other // self: The floor() of other/self.r#
+__rfloordiv__
+Real.__rfloordiv__
+self % otherr#
+__mod__
+Real.__mod__
+other % selfr#
+__rmod__
+Real.__rmod__
+zJself < other
+< on Reals defines a total ordering, except perhaps for NaN.r#
+__lt__
+Real.__lt__
+self <= otherr#
+__le__
+Real.__le__
+z(complex(self) == complex(float(self), 0))
+complex
+floatr
+Real.__complex__
+z&Real numbers are their real component.r
+Real.real
+z)Real numbers have no imaginary component.r
+Real.imag
+Conjugate is a no-op for Reals.r
+Real.conjugate
+To Real, Rational adds numerator and denominator properties.
+The numerator and denominator values should be in lowest terms,
+with a positive denominator.
+z3The numerator of a rational number in lowest terms.r#
+numerator
+Rational.numerator-
+z\The denominator of a rational number in lowest terms.
+This denominator should be positive.
+denominator
+Rational.denominator3
+float(self) = self.numerator / self.denominator
+It's important that this conversion use the integer's "true"
+division rather than casting one side to float before dividing
+so that ratios of huge integers convert without overflowing.
+intr
+Rational.__float__=
+Integral adds methods that work on integral numbers.
+In short, these are conversion to int, pow with modulus, and the
+bit-string operations.
+int(self)r#
+__int__
+Integral.__int__Q
+z6Called whenever an index is needed, such as in slicing)
+__index__
+Integral.__index__V
+self ** exponent % modulus, but maybe faster.
+Accept the modulus argument if you want to support the
+3-argument version of pow(). Raise a TypeError if exponent < 0
+or any argument isn't Integral. Otherwise, just implement the
+2-argument version described in Complex.
+moduluss
+   r
+Integral.__pow__Z
+self << otherr#
+__lshift__
+Integral.__lshift__e
+other << selfr#
+__rlshift__
+Integral.__rlshift__j
+self >> otherr#
+__rshift__
+Integral.__rshift__o
+other >> selfr#
+__rrshift__
+Integral.__rrshift__t
+self & otherr#
+__and__
+Integral.__and__y
+other & selfr#
+__rand__
+Integral.__rand__~
+self ^ otherr#
+__xor__
+Integral.__xor__
+other ^ selfr#
+__rxor__
+Integral.__rxor__
+self | otherr#
+__or__
+Integral.__or__
+other | selfr#
+__ror__
+Integral.__ror__
+~selfr#
+__invert__
+Integral.__invert__
+float(self) == float(int(self)))
+Integral.__float__
+z"Integers are their own numerators.r
+Integral.numerator
+z!Integers have a denominator of 1.
+Integral.denominator
+abcr
+__all__r
+registerr
+<module>r

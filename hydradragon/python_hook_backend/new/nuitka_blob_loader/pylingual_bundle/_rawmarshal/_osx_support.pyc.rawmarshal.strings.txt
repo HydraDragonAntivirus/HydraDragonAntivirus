@@ -1,0 +1,252 @@
+Shared OS X support functions.
+compiler_fixup
+customize_config_vars
+customize_compiler
+get_platform_osx)
+CFLAGS
+LDFLAGS
+CPPFLAGS
+BASECFLAGS
+BLDSHARED
+LDSHARED
+PY_CFLAGS
+PY_LDFLAGS
+PY_CPPFLAGS
+PY_CORE_CFLAGS
+PY_CORE_LDFLAGS)
+_OSX_SUPPORT_INITIAL_c
+Tries to find 'executable' in the directories listed in 'path'.
+A string listing directories separated by 'os.pathsep'; defaults to
+os.environ['PATH'].  Returns the complete filename or None if not found.
+PATH
+win32z
+.exe)
+environ
+split
+pathsep
+path
+splitext
+platform
+isfile
+join)
+executabler
+paths
+base
+       
+_osx_support.py
+_find_executabler)
+z0Output from successful command execution or Noner
+/tmp/_osx_support.z
+w+bz
+ >'z
+' 2>&1z
+ 2>/dev/null >'
+utf-8)
+contextlib
+tempfile
+NamedTemporaryFile
+ImportError
+openr
+getpid
+closing
+name
+system
+read
+decode
+strip)
+commandstring
+capture_stderrr.
+cmds
+      r(
+_read_outputr>
+A:C"
+z0Find a build tool on current path or using xcrunz
+/usr/bin/xcrun -find 
+toolnames
+_find_build_toolrB
+z*Return the OS X system version as a stringNr@
+z0/System/Library/CoreServices/SystemVersion.plistr-
+encodingz=<key>ProductUserVisibleVersion</key>\s*<string>(.*?)</string>
+_SYSTEM_VERSIONr2
+searchr7
+closer!
+groupr
+OSError)
+  r(
+_get_system_versionrO
+Return the macOS system version as a tuple
+The return value is safe to use to compare
+two version numbers.
+  r(
+<genexpr>
+,_get_system_version_tuple.<locals>.<genexpr>
+_SYSTEM_VERSION_TUPLErO
+tupler
+ValueError
+osx_versions
+_get_system_version_tuplera
+z-Remove original unmodified values for testingN)
+list
+startswith
+_INITPRE)
+_config_vars
+  r(
+_remove_original_valuesrh
+X2:w
+z@Save modified and original unmodified value of configuration varr@
+getre
+newvalue
+oldvalues
+    r(
+_save_modified_valuern
+z<Returns the root of the default SDK for this system, or '/' Nz
+ -c -E -v - </dev/nullTFz
+#include <...>z
+End of search listz
+/usr/include
+.sdk/usr/includei
+_cache_default_sysrootr>
+splitlinesrd
+endswith)
+contents
+in_incdirs
+lines
+    r(
+_default_sysrootrx
+z=Returns True if universal builds are supported on this system
+boolr_
+_supports_universal_buildsr~
+z9Returns True if arm64 builds are supported on this system)
+_supports_arm64_buildsr
+z7Find appropriate C compiler for extension module buildsr
+clang
+gccr,
+'"'"'z
+' --versionz
+llvm-gccz
+Cannot locate working compilerr
+basenamerd
+replace
+SystemError
+_COMPILER_CONFIG_VARSrn
+oldcc
+datark
+cv_splits
+      r(
+_find_appropriate_compilerr
+z5Remove all universal build arguments from config vars
+-arch\s+\w+\sr
+flagsz
+-isysroot\s*\S+)
+_UNIVERSAL_CONFIG_VARSr
+ASCIIrn
+   r(
+_remove_universal_flagsr
+z-Remove any unsupported archs from config varsr
+-arch\s+ppcr
+echo 'int main{};' | 'r,
+z6' -c -arch ppc -x c -o /dev/null /dev/null 2>/dev/nullz
+-arch\s+ppc\w*\sr
+statusrk
+    r(
+_remove_unsupported_archsr
+z2Allow override of all archs with ARCHFLAGS env var
+ARCHFLAGS
+-archr
+archrk
+    r(
+_override_all_archsr
+z+Remove references to any SDKs not availabler
+-isysroot\s*(\S+)rF
+-isysroot\s*\S+(?:\s|$)r
+existsr
+cflagsrN
+sdkrk
+      r(
+_check_for_unavailable_sdkr
+This function will strip '-isysroot PATH' and '-arch ARCH' from the
+compile flags if the user has specified one them in extra_compile_flags.
+This is needed because '-arch ARCH' adds another architecture to the
+build, without a way to remove an architecture. Furthermore GCC will
+barf if multiple '-isysroot' arguments are present.
+-isysrootN)
+args
+  r(
+!compiler_fixup.<locals>.<genexpr>y
+arm64r
+Nz2Compiling with an SDK that doesn't seem to exist: 
+z%Please check your Xcode installation
+anyr
+indexr^
+reversed
+range
+lenr
+enumeraterd
+isdirr
+stderr
+write
+flush)
+compiler_so
+cc_args
+stripArch
+stripSysrootr
+idxrW
+indices
+sysroot
+argvars
+           r(
+Customize Python build configuration variables.
+Called internally from sysconfig with a mutable mapping
+containing name/value pairs parsed from the configured
+makefile used to build this interpreter.  Returns
+the mapping updated as needed to reflect the environment
+in which the interpreter is running; in the case of
+a Python from a binary installer, the installed
+environment may be very different from the build
+environment, i.e. different OS levels, different
+built tools, different available CPU architectures.
+This customization is performed whenever
+distutils.sysconfig.get_config_vars() is first
+called.  It may be used in environments where no
+compilers are present, i.e. when installing pure
+Python dists.  Customization of compiler paths
+and detection of unavailable archs is deferred
+until the first extension module build is
+requested (in distutils.sysconfig.customize_compiler).
+Currently called from distutils.sysconfig
+Customize compiler path and configuration variables.
+This customization is performed when the first
+extension module build is requested
+in distutils.sysconfig.customize_compiler.
+)"z Filter values for get_platform()
+MACOSX_DEPLOYMENT_TARGETr@
+macosxr
+  r(
+#get_platform_osx.<locals>.<genexpr>
+fatz
+-arch\s+(\S+)rF
+x86_64
+universal2)
+i386
+ppc)
+intel)
+fat3)
+ppc64r
+fat64)
+universalz#Don't know machine value for archs=r
+PowerPC
+Power_Macintoshr
+findall
+sorted
+setr
+maxsize)
+osname
+release
+machine
+macver
+macreleaser
+archss
+        r(
+__doc__r
+__all__r
+<module>r

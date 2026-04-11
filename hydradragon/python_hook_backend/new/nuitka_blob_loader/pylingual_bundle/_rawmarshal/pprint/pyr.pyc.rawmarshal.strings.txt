@@ -1,0 +1,345 @@
+Support to pretty-print lists, tuples, & dictionaries recursively.
+Very simple, but useful, especially in debugging data structures.
+Classes
+-------
+PrettyPrinter()
+    Handle pretty-printing operations onto a stream using a configured
+    set of formatting parameters.
+Functions
+---------
+pformat()
+    Format a Python object into a pretty-printed representation.
+pprint()
+    Pretty-print a Python object to a stream [default is sys.stdout].
+saferepr()
+    Generate a 'standard' repr()-like value, but protect against recursive
+    data structures.
+StringIO)
+pprint
+pformat
+isreadable
+isrecursive
+saferepr
+PrettyPrinter
+ppFT
+compact
+sort_dicts
+underscore_numbersc
+X4XVU
+zAPretty-print a Python object to a stream [default is sys.stdout].)
+stream
+indent
+width
+depthr
+objectr
+printers
+         
+pprint.pyr
+z<Format a Python object into a pretty-printed representation.)
+       r
+Pretty-print a Python objectr
+args
+kwargss
+    r
+z=Version of repr() which can handle recursive data structures.Nr
+_safe_repr
+z4Determine if saferepr(object) is readable by eval().Nr
+z8Determine if object requires a recursive representation.Nr
+_safe_key
+Helper function for key functions when sorting unorderable objects.
+The wrapped-object will fallback to a Py2.x style comparison for
+unorderable types (sorting first comparing the type name and then by
+the obj ids).  Does not work recursively, so dict.items() must have
+_safe_key applied to both the key and the value.
+objc
+selfr(
+__init__
+_safe_key.__init__\
+TypeError
+type
+others
+__lt__
+_safe_key.__lt___
+__name__
+__module__
+__qualname__
+__firstlineno__
+__doc__
+__slots__r-
+__static_attributes__
+z&Helper function for comparing 2-tuplesr
+_safe_tuplerA
+\ RB
+r"\"\
+\ RF
+r)\)\
+r+\+\
+r-\-\
+r/\/\
+r1\1\
+r3\3\
+r5\5\
+r7S$r8g
+NFTr
+Handle pretty printing operations onto a stream using a set of
+configured parameters.
+indent
+    Number of spaces to indent for each level of nesting.
+width
+    Attempted maximum number of columns in the output.
+depth
+    The maximum depth to print out nested structures.
+stream
+    The desired output stream.  If omitted (or false), the standard
+    output stream available at construction will be used.
+compact
+    If true, several items will be combined in one line.
+sort_dicts
+    If true, dict keys are sorted.
+underscore_numbers
+    If true, digit groups are separated with underscores.
+indent must be >= 0Nz
+depth must be > 0z
+width must be != 0)
+ValueError
+_depth
+_indent_per_level
+_width
+_stream
+_sys
+stdout
+bool
+_compact
+_sort_dicts
+_underscore_numbers)
+        r
+PrettyPrinter.__init__k
+_format
+write
+PrettyPrinter.pprint
+_StringIOrT
+getvalue)
+sios
+   r
+PrettyPrinter.pformat
+formatrV
+PrettyPrinter.isrecursive
+readable
+recursives
+     r
+PrettyPrinter.isreadable
+X#XEU
+X4XVS
+NTFr"
+__wrapped__
+__create_fn__)
+_recursion
+_recursive
+_readable
+_reprrI
+_dispatch
+getr2
+__repr__
+_dataclasses
+is_dataclass
+isinstance
+__dataclass_params__
+repr
+hasattrrh
+_pprint_dataclass)
+allowance
+context
+level
+objid
+max_width
+           r
+PrettyPrinter._format
+X4XV5
+__class__r7
+fieldsrv
+name
+getattrrU
+_format_namespace_items)
+cls_name
+itemss
+          r
+PrettyPrinter._pprint_dataclass
+sortedr
+_format_dict_items)
+lengthr
+          r
+_pprint_dict
+PrettyPrinter._pprint_dict
+listr
+clss
+        r
+_pprint_ordered_dict
+"PrettyPrinter._pprint_ordered_dict
+_format_items
+       r
+_pprint_list
+PrettyPrinter._pprint_list
+endchars
+        r
+_pprint_tuple
+PrettyPrinter._pprint_tuple
+})r"
+setr7
+typr
+         r
+_pprint_set
+PrettyPrinter._pprint_set
+NTr"
+\S*\s*
+splitlinesrI
+enumerate
+append
+findall
+pop)
+chunks
+lines
+max_width1r~
+liner}
+parts
+max_width2
+current
+part
+candidates
+                     r
+_pprint_str
+PrettyPrinter._pprint_str
+_wrap_bytes_reprrI
+parens
+delimr}
+           r
+_pprint_bytes
+PrettyPrinter._pprint_bytesG
+bytearray(
+bytes)
+        r
+_pprint_bytearray
+PrettyPrinter._pprint_bytearray\
+mappingproxy(
+copyr
+       r
+_pprint_mappingproxy
+"PrettyPrinter._pprint_mappingproxye
+X4XV5
+namespacer"
+_types
+SimpleNamespacer
+__dict__r
+         r
+_pprint_simplenamespace
+%PrettyPrinter._pprint_simplenamespacem
+: r$
+delimnl
+last_indexr
+lastr}
+               r
+ PrettyPrinter._format_dict_items|
+...)
+              r
+%PrettyPrinter._format_namespace_items
+FTr$
+iter
+next
+StopIterationrN
+next_entr
+                  r
+PrettyPrinter._format_items
+NFT)
+       r
+PrettyPrinter._repr
+Format object for a specific context, returning a string
+and flags indicating whether the representation is 'readable'
+and whether the object represents a recursive construct.
+maxlevelsr{
+     r
+PrettyPrinter.format
+default_factoryr
+rdfr
+         r
+_pprint_default_dict
+"PrettyPrinter._pprint_default_dict
+most_commonr
+         r
+_pprint_counter
+PrettyPrinter._pprint_counter
+mapsrU
+          r
+_pprint_chain_map
+PrettyPrinter._pprint_chain_map
+maxlen=r
+maxlenr
+rmls
+         r
+_pprint_deque
+PrettyPrinter._pprint_deque
+X#XEU
+datar
+       r
+_pprint_user_dict
+PrettyPrinter._pprint_user_dict
+X#XEU
+       r
+_pprint_user_list
+PrettyPrinter._pprint_user_list 
+X#XEU
+       r
+_pprint_user_string
+!PrettyPrinter._pprint_user_string%
+NTFrq
+{}TFz
+{...}r"
+{%s}r
+[]TFz
+[%s]z
+(%s,))
+()TFz
+(%s)r
+_builtin_scalarsrv
+issubclassrE
+dictr3
+joinr
+tuplern
+startswith)
+componentsr
+krepr
+kreadable
+krecur
+vrepr
+vreadable
+vrecurr`
+orepr
+oreadable
+orecurr}
+                           r
+PrettyPrinter._safe_repr*
+NN)9r7
+_collections
+OrderedDictr
+frozensetr
+bytearrayr
+MappingProxyTyper
+defaultdictr
+Counterr
+ChainMapr
+dequer
+UserDictr
+UserListr
+UserStringr
+<Recursion on z
+ with id=
+XT:X
+rangerv
+        r
+N)"r;
+collectionsr/
+dataclassesrr
+sysrK
+typesr
+__all__r
+float
+complexrM
+<module>rG

@@ -1,0 +1,102 @@
+zHConversions to/from quoted-printable transport encoding as per RFC 1521.)
+encode
+decode
+encodestring
+decodestring
+0123456789ABCDEF
+a2b_qp
+b2a_qpNc
+Decide whether a particular byte ordinal needs to be quoted.
+The 'quotetabs' flag indicates whether embedded tabs and spaces should be
+quoted.  Note that line-ending tabs and spaces are always encoded, as per
+RFC 1521.
+isinstance
+bytes
+ESCAPE)
+quotetabs
+headers
+quopri.py
+needsquotingr
+Quote a single character.
+ordr
+quoter 
+Read 'input', apply quoted-printable encoding, and write to 'output'.
+'input' and 'output' are binary file objects. The 'quotetabs' flag
+indicates whether embedded tabs and spaces should be quoted. Note that
+line-ending tabs and spaces are always encoded, as per RFC 1521.
+The 'header' flag indicates whether we are encoding spaces as _ as per RFC
+1522.N
+writer 
+output
+lineEnds
+   r
+encode.<locals>.write;
+readr'
+readliner
+append
+EMPTYSTRING
+joinr
+MAXLINESIZE)
+inputr)
+data
+odatar'
+prevline
+line
+outline
+strippedr
+thislines
+             r
+BytesIO)
+ior<
+getvalue)
+infp
+outfps
+      r
+Read 'input', apply quoted-printable decoding, and write to 'output'.
+'input' and 'output' are binary file objects.
+If 'header' is true, decode underscore as space (per RFC 1522).N
+ishexr
+unhex)
+newr6
+partialr
+           r
+     r
+zDReturn true if the byte ordinal 'c' is a hexadecimal digit in ASCII.
+z.Get the integer value of a hexadecimal number.r
+non-hex digit r
+repr)
+bitsr
+    r
+tdz"usage: quopri [-t | -d] [file] ...z
+-t: quote tabsz
+-d: decode; default encoderC
+-tTz
+-dz -t and -d are mutually exclusive
+: can't open (z
+getopt
+argv
+error
+stderr
+stdout
+print
+exit
+stdin
+buffer
+open
+OSErrorr'
+close)
+opts
+args
+deco
+tabs
+file
+            r
+mainrs
+6%G"
+__main__)
+__doc__
+__all__r
+binasciir
+ImportErrorr
+__name__
+<module>r{

@@ -1,0 +1,38 @@
+Python 'latin-1' Codec
+Written by Marc-Andre Lemburg (mal@lemburg.com).
+(c) Copyright CNRI, All Rights Reserved. NO WARRANTY.
+Codec
+__name__
+__module__
+__qualname__
+__firstlineno__
+codecs
+latin_1_encode
+encode
+latin_1_decode
+decode
+__static_attributes__r
+encodings\latin_1.pyr
+IncrementalEncoder
+errors
+self
+input
+finals
+   r
+IncrementalEncoder.encode
+IncrementalDecoder
+   r
+IncrementalDecoder.decode
+StreamWriter
+StreamReader
+StreamConverter
+iso8859-1)
+namer
+incrementalencoder
+incrementaldecoder
+streamreader
+streamwriter)
+CodecInfor
+getregentryr8
+__doc__r
+<module>r:

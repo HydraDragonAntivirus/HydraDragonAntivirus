@@ -1,0 +1,49 @@
+zQCodec for quoted-printable encoding.
+This codec de/encodes from bytes to bytes.
+BytesIOc
+strictT)
+quotetabs)
+quopri
+encode
+getvalue
+input
+errors
+    
+encodings\quopri_codec.py
+quopri_encoder
+decoder
+    r
+quopri_decoder
+Codec
+selfr
+   r
+Codec.encode
+   r
+Codec.decode
+__name__
+__module__
+__qualname__
+__firstlineno__r
+__static_attributes__r!
+IncrementalEncoder
+finals
+   r
+IncrementalEncoder.encode
+IncrementalDecoder
+   r
+IncrementalDecoder.decode#
+StreamWriter
+bytes
+charbuffertyper'
+StreamReader
+namer
+incrementalencoder
+incrementaldecoder
+streamwriter
+streamreader
+_is_text_encoding)
+codecs
+CodecInfor
+getregentryrK
+__doc__rI
+<module>rN

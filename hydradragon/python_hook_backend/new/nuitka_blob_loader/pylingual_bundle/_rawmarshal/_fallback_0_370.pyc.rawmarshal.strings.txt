@@ -1,0 +1,18 @@
+:All callers to this function MUST hold self._waitpid_lock.N)
+   r?
+Popen._handle_exitstatus
+p4X0R
+Check if child process has terminated.  Returns returncode
+attribute.
+This method is called by __del__, so it cannot reference anything
+outside of the local scope (nor can any methods it calls).
+acquire
+releaser6
+      r?
+p#X#4
+wait_flagsr_
+    r?
+_try_wait
+Popen._try_wait
+pEX@R
+pEX@R

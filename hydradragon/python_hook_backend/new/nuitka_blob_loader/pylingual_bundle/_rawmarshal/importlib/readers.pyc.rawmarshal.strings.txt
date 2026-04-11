@@ -1,0 +1,12 @@
+Compatibility shim for .resources.readers as found on Python 3.10.
+Consumers that can rely on Python 3.11 should use the other
+module directly.
+FileReader
+ZipReader
+MultiplexedPath
+NamespaceReaderN)
+__doc__
+resources.readersr
+__all__
+importlib\readers.py
+<module>r

@@ -1,0 +1,78 @@
+K!J"n
+K#J"n
+S$:X
+S$:w
+K$J"n
+)%Nz
+------z
+os.name=z
+sys.platform=z
+sys.version:z
+sys.prefix:z
+sys.path=
+Failed to import new numpy:)
+f2py2ez
+Failed to import f2py2e:
+z!Failed to import numpy_distutils:z
+Found new numpy version z
+ in z
+error:z
+Found f2py2e version z
+Found numpy.distutils version z
+Found numpy_distutils version z0Importing numpy_distutils.command.build_flib ...
+okz5Checking availability of supported Fortran compilers:)
+verbosezD(ignore it, build_flib is obsolete for numpy.distutils 0.2.2 and up)z'Importing numpy.distutils.fcompiler ...z'Importing numpy_distutils.fcompiler ...z%Importing numpy.distutils.cpuinfo ...)
+cpuinfoz-Importing numpy_distutils.command.cpuinfo ...z
+(ignore it)z%Importing numpy_distutils.cpuinfo ...z
+CPU information:
+getcwd
+chdir
+tempfile
+gettempdir
+print
+name
+platform
+version
+prefix
+join
+path
+numpy
+ImportError
+numpy.f2pyr
+numpy.distutils
+numpy_distutils
+__version__
+__file__
+Exception
+distutils
+numpy_distutils_version
+"numpy_distutils.command.build_flib
+command
+build_flib
+all_compilers
+is_available
+numpy.distutils.fcompiler
+fcompiler
+numpy_distutils.fcompiler
+show_fcompilers
+numpy.distutils.cpuinfor
+numpy_distutils.command.cpuinfo
+numpy_distutils.cpuinfo
+getattr)
+_pathr
+has_newnumpy
+has_f2py2e
+has_numpy_distutilsr
+msgr'
+compiler_classr+
+cpur
+               
+numpy\f2py\diagnose.py
+runr<
+6A>S
+5/T*
+%=S;
+;&V8
+__main__)
+__name__
+<module>rA

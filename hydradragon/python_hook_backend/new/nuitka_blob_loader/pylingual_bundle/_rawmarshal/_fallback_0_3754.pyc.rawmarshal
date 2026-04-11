@@ -1,6 +1,0 @@
-T
-f2py_cb_stop_clock();
-#endif
-    goto capi_return_pt;
-capi_fail:
-    fp

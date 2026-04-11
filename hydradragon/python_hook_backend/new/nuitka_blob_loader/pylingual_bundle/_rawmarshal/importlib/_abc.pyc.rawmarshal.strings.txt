@@ -1,0 +1,36 @@
+z>Subset of importlib.abc used to reduce importlib.util imports.
+_bootstrap
+Loader
+z'Abstract base class for import loaders.c
+Return a module to initialize and into which to load.
+This method should raise ImportError if anything prevents it
+from creating a new module.  It may return None to indicate
+that the spec should create the new module.
+self
+specs
+importlib\_abc.py
+create_module
+Loader.create_module
+Return the loaded module.
+The module must be added to sys.modules and have import-related
+attributes set properly.  The fullname is a str.
+ImportError is raised on failure.
+This method is deprecated in favor of loader.exec_module(). If
+exec_module() exists then it is used to provide a backwards-compatible
+functionality for this method.
+exec_module)
+hasattr
+ImportErrorr
+_load_module_shim)
+fullnames
+load_module
+Loader.load_module
+__name__
+__module__
+__qualname__
+__firstlineno__
+__doc__r
+__static_attributes__r
+metaclass)
+ABCMetar
+<module>r"

@@ -1,0 +1,251 @@
+This modules handles dialog boxes.
+It contains the following public symbols:
+SimpleDialog -- A simple but flexible modal dialog box
+Dialog -- a base class for dialogs
+askinteger -- get an integer from the user
+askfloat -- get a float from the user
+askstring -- get a string from the user
+_get_temp_root
+_destroy_temp_root)
+messageboxc
+SimpleDialog
+class_i
+text
+aspect
+expand
+fill
+<Return>c
+done
+self
+nums
+tkinter\simpledialog.py
+<lambda>
+'SimpleDialog.__init__.<locals>.<lambda>9
+command
+relief
+borderwidth)
+sider
+WM_DELETE_WINDOW)
+Toplevel
+root
+title
+iconname
+_setup_dialog
+Message
+message
+pack
+BOTH
+Frame
+framer
+cancel
+default
+bind
+return_event
+range
+Button
+config
+RIDGE
+LEFT
+protocol
+wm_delete_window
+transient
+_place_window)
+masterr
+buttonsr0
+           r
+__init__
+SimpleDialog.__init__!
+wait_visibility
+grab_set
+mainloop
+destroyr
+SimpleDialog.goA
+bellr
+events
+SimpleDialog.return_eventH
+SimpleDialog.wm_delete_windowN
+quitr
+SimpleDialog.doneT
+__name__
+__module__
+__qualname__
+__firstlineno__rA
+__static_attributes__
+Dialog
+zRClass to open dialogs.
+This class is intended as a base class for custom dialogs
+zxInitialize a dialog.
+Arguments:
+    parent -- a parent window (the application window)
+    title -- the dialog title
+padx
+padyr#
+withdraw
+winfo_viewabler;
+parent
+resultr-
+body
+initial_focusr+
+buttonboxr9
+focus_setrD
+wait_window)
+     r
+Dialog.__init__`
+Destroy the windowN)
+Dialog.destroy
+create dialog body.
+return widget that should have initial focus.
+This method should be overridden, and is called
+by the __init__ method.
+Dialog.body
+zKadd standard button box.
+override if you do not want the standard buttons
+widthr
+Cancel)
+<Escape>N)
+ACTIVEr+
+   r
+Dialog.buttonbox
+validaterg
+update_idletasks
+applyr/
+Dialog.ok
+Dialog.cancel
+validate the data
+This method is called automatically to validate the data before the
+dialog is destroyed. By default, it always validates OK.
+Dialog.validate
+process the data
+This method is called automatically to process the data, *after*
+the dialog is destroyed. By default, it does nothing.
+Dialog.apply
+__doc__rA
+aqua
++%d+%d)
+wm_withdrawr}
+winfo_reqwidth
+winfo_reqheight
+winfo_vrootwidth
+winfo_vrootheight
+winfo_ismapped
+winfo_rootx
+winfo_width
+winfo_rooty
+winfo_height
+winfo_vrootx
+winfo_vrooty
+_windowingsystem
+winfo_screenwidth
+winfo_screenheight
+wm_maxsize
+wm_geometry
+wm_deiconify)
+minwidth
+minheight
+maxwidth
+maxheight
+vrootx
+vrootys
+          r
+z!::tk::unsupported::MacWindowStyle
+style
+moveableModalr
+dialog)
+type)
+call
+wm_attributes)
+_QueryDialogi
+prompt
+minvalue
+maxvalue
+initialvaluer\
+       r
+_QueryDialog.__init__
+entryr\
+_QueryDialog.destroy
+justifyr
+rowr`
+stickyr
+namer
+Labelr
+grid
+Entryr
+insert
+select_range
+END)
+   r
+_QueryDialog.body!
+Illegal valuez
+Please try again)
+Too smallz2The allowed minimum value is %s. Please try again.z
+Too largez2The allowed maximum value is %s. Please try again.r
+getresult
+ValueErrorr
+showwarning
+errormessager
+_QueryDialog.validate/
+NNNN)
+_QueryIntegeriQ
+Not an integer.c
+getintr
+getrH
+_QueryInteger.getresultT
+get an integer from the user
+Arguments:
+    title -- the dialog title
+    prompt -- the label text
+    **kw -- see SimpleDialog class
+Return value is an integer
+    r
+askintegerr
+_QueryFloatig
+Not a floating-point value.c
+getdoubler
+_QueryFloat.getresultj
+get a float from the user
+Arguments:
+    title -- the dialog title
+    prompt -- the label text
+    **kw -- see SimpleDialog class
+Return value is a float
+    r
+askfloatr
+_QueryStringi}
+show)
+_QueryString__showr
+argsr
+   r
+_QueryString.__init__~
+configure)
+   r
+_QueryString.body
+_QueryString.getresult
+__showN)
+get a string from the user
+Arguments:
+    title -- the dialog title
+    prompt -- the label text
+    **kw -- see SimpleDialog class
+Return value is a string
+    r
+askstringr
+__main__c
+This is a test dialog.  Would this have been an actual dialog, the buttons below would have been glowing in soft pink light.
+Do you believe this?)
+Noru
+Test Dialog)
+Spamz
+Egg count
+Egg weight
+(in tons)r
+Egg label)
+printrI
+doit
+test.<locals>.doit
+Testr
+Quit)
+Tkr5
+    r
+testr
+tkinterr
+<module>r

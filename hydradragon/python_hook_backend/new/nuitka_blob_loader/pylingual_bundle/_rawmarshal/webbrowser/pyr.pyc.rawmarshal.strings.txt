@@ -1,0 +1,331 @@
+r S$
+r!S%
+S':X
+S*:X
+S-:X
+S.K&J'r' 
+S/K(J)r)J*r*J+r+ 
+r,S2\-\.
+r/S6S2\-\.
+r0\1S5:X
+)8z?Interfaces for launching and remotely controlling web browsers.
+Error
+open
+open_new
+open_new_tab
+registerc
+__name__
+__module__
+__qualname__
+__firstlineno__
+__static_attributes__r
+webbrowser.pyr
+preferredc
+Register a browser connector.Nz
+.desktopr
+_lock
+_tryorder
+register_standard_browsers
+_browsers
+lower
+_os_preferred_browser
+insert
+append)
+name
+klass
+instancer
+    r
+zCReturn a browser launcher instance appropriate for the environment.N
+z!could not locate runnable browser)
+shlex
+split
+BackgroundBrowser
+GenericBrowserr
+KeyError
+_synthesizer
+using
+alternatives
+browser
+commands
+    r
+Display url using the default browser.
+If possible, open url in a location determined by new.
+- 0: the same browser window (the default).
+- 1: a new browser window.
+- 2: a new browser page ("tab").
+If possible, autoraise raises the window (the default) or not.
+If opening the browser succeeds, return True.
+If there is a problem, return False.
+NTF)
+autoraiser
+     r
+zmOpen url in a new window of the default browser.
+If not possible, then open url in the only browser window.
+z}Open url in a new page ("tab") of the default browser.
+If not possible, then the behavior becomes equivalent to open_new().
+Attempt to synthesize a controller based on existing controllers.
+This is useful to create a controller when a user specifies a path to
+an entry in the BROWSER environment variable -- we can copy a general
+controller to operate using a specific installation of the desired
+browser in this way.
+If we can't create a controller in this way, or if there is no
+executable for the requested browser, return [None, None].
+shutil
+which
+path
+basenamer
+copyr
+cmdr
+controllerr@
+       r
+BaseBrowser
+z3Parent class for all browsers. Do not use directly.r"
+selfr
+__init__
+BaseBrowser.__init__
+NotImplementedError
+    r
+BaseBrowser.open
+BaseBrowser.open_new
+BaseBrowser.open_new_tab
+__doc__
+argsrJ
+zOClass for all browsers started with a command
+and without remote functionality.c
+isinstance
+strr
+GenericBrowser.__init__
+webbrowser.openr"
+winT)
+close_fdsF)
+auditr
+replace
+platform
+subprocess
+Popen
+wait
+OSError
+cmdline
+       r
+GenericBrowser.open
+zAClass for all browsers which are to be started in the
+background.c
+start_new_sessionF)
+pollrl
+       r
+BackgroundBrowser.open
+UnixBrowser
+z=Parent class for all Unix browsers with remote functionality.NFT
+%actionr"
+stdin
+stdout
+stderrru
+raise_opts
+intr
+backgroundri
+DEVNULLrj
+redirect_stdoutrk
+TimeoutExpiredrv
+remoter3
+raise_opt
+optro
+inoutrp
+           r
+_invoke
+UnixBrowser._invoke
+z8Bad 'new' parameter to open(); expected 0, 1, or 2, got r"
+remote_action
+remote_action_newwin
+remote_action_newtabr
+remote_argsrg
+actionrn
+successs
+        r
+UnixBrowser.open
+Mozillai'
+z$Launcher class for Mozilla browsers.r|
+-new-windowz
+-new-tabTr
+Epiphanyi1
+z$Launcher class for Epiphany browser.z
+-noraiserV
+-wTr
+Chromei;
+z)Launcher class for Google Chrome browser.r|
+--new-windowTr
+OperaiH
+z!Launcher class for Opera browser.r|
+ElinksiR
+z#Launcher class for Elinks browsers.z
+-remotez
+openURL(%s%action)rV
+,new-windowz
+,new-tabFr
+Konquerori`
+Controller for the KDE File Manager (kfm, or Konqueror).
+See the output of ``kfmclient --commands``
+for more information on the Konqueror remote-control interface.
+newTab
+openURL
+kfmclientT)
+konquerorz
+--silentr~
+kfmz
+-dF)
+devnullrp
+       r
+Konqueror.openg
+Edgei
+z*Launcher class for Microsoft Edge browser.r|
+xdg-open
+gio)
+--r"
+XDG_CURRENT_DESKTOPrV
+GNOME
+GNOME_DESKTOP_SESSION_IDz
+gvfs-open
+KDE_FULL_SESSIONr
+x-www-browser)
+firefox
+iceweasel
+seamonkeyz
+mozilla-firefox
+mozillar
+epiphany)
+google-chrome
+chrome
+chromiumz
+chromium-browser
+opera
+microsoft-edge)
+getenvr'
+environr
+xdg_desktopr.
+register_X_browsersr
+S%:w
+darwin
+MacOSX
+defaultr
+safari
+iosbrowserTr
+serenityos
+Browserrb
+windows-defaultz
+PROGRAMFILES(x86)z
+C:\Program Files (x86)z%Microsoft\Edge\Application\msedge.exe
+PROGRAMFILESz
+C:\Program Filesr
+MicrosoftEdge.exer
+DISPLAY
+WAYLAND_DISPLAYz$xdg-settings get default-web-browser)
+TERMz
+www-browser
+links
+elinks
+lynx
+BROWSERrV
+MacOSXOSAScript
+IOSBrowserr(
+WindowsDefaultr=
+joinr
+check_outputr
+decode
+stripr
+FileNotFoundError
+CalledProcessError
+PermissionError
+NotADirectoryErrorr
+pathsep
+reverser+
+edge64
+edge32r.
+raw_result
+result
+userchoicesro
+        r
+;$Q#
+startfilerl
+    r
+WindowsDefault.openA
+superrJ
+__class__s
+MacOSXOSAScript.__init__R
+%22r
+open location "z&
+                   tell application "zH"
+                       activate
+                       open location "z,"
+                   end
+                   
+osascript
+popen
+write
+close)
+script
+osapiper
+       r
+MacOSXOSAScript.openU
+__classcell__)
+objc)
+c_void_p
+c_char_p
+c_ulongc
+NSStrings
+stringWithCString:encoding:z
+utf-8
+NSURLs
+URLWithString:s
+UIApplications
+sharedApplications"
+openURL:options:completionHandler:T)
+objc_msgSend
+restype
+objc_getClass
+sel_registerNamer
+argtypes
+encode)
+NSString
+constructor
+url_string
+NSURL
+urlWithString_
+ns_url
+UIApplication
+sharedApplication
+shared_app
+openURL_s
+              r
+IOSBrowser.opent
+arg_listc
+Open URL in a web browser.)
+descriptionr1
+URL to open)
+helpr
+store_constr%
+new_winz
+open new window)
+constr
+destr
+--new-tabr9
+open new tab)
+argparse
+ArgumentParser
+add_argument
+add_mutually_exclusive_group
+parse_args)
+parser
+grouprY
+     r
+print)
+mainr)
+__main__rG
+)2rX
+threading
+__all__
+Exceptionr
+RLockr
+Chromiumr
+_ios_supportr
+ctypesr
+listr^
+<module>r3

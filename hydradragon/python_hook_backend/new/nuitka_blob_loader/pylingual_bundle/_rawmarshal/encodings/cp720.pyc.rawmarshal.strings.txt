@@ -1,0 +1,45 @@
+Python Character Mapping Codec cp720 generated on Windows:
+Vista 6.0.6002 SP2 Multiprocessor Free with the command:
+  python Tools/unicode/genwincodec.py 720
+Codec
+codecs
+charmap_encode
+encoding_table
+self
+input
+errorss
+encodings\cp720.py
+encode
+Codec.encode
+charmap_decode
+decoding_tabler
+   r
+decode
+Codec.decode
+strict)
+__name__
+__module__
+__qualname__
+__firstlineno__r
+__static_attributes__r
+IncrementalEncoder
+finals
+   r
+IncrementalEncoder.encode
+IncrementalDecoder
+   r
+IncrementalDecoder.decode
+StreamWriter
+StreamReader
+cp720)
+namer
+incrementalencoder
+incrementaldecoder
+streamreader
+streamwriter)
+CodecInfor
+getregentryr@
+ !"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\]^_`abcdefghijklmnopqrstuvwxyz{|}~
+__doc__r
+charmap_buildr
+<module>rC

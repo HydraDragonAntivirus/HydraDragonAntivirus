@@ -1,0 +1,387 @@
+)-z4Utilities for with-statement contexts.  See PEP 343.
+deque
+wraps)
+MethodType
+GenericAlias)
+asynccontextmanager
+contextmanager
+closing
+nullcontext
+AbstractContextManager
+AbstractAsyncContextManager
+AsyncExitStack
+ContextDecorator
+ExitStack
+redirect_stdout
+redirect_stderr
+suppress
+aclosing
+chdirc
+z,An abstract base class for context managers.
+z0Return `self` upon entering the runtime context.r
+selfs
+contextlib.py
+__enter__
+ AbstractContextManager.__enter__
+z9Raise any exception triggered within the runtime context.Nr
+exc_type
+exc_value
+tracebacks
+    r
+__exit__
+AbstractContextManager.__exit__
+_collections_abc
+_check_methods
+NotImplemented
+__subclasshook__
+'AbstractContextManager.__subclasshook__"
+__name__
+__module__
+__qualname__
+__firstlineno__
+__doc__
+classmethodr
+__class_getitem__
+__slots__r
+abstractmethodr'
+__static_attributes__r
+z9An abstract base class for asynchronous context managers.r
+__aenter__
+&AbstractAsyncContextManager.__aenter__1
+    r
+__aexit__
+%AbstractAsyncContextManager.__aexit__5
+,AbstractAsyncContextManager.__subclasshook__:
+zJA base class or mixin that enables context managers to work as decorators.c
+Return a recreated instance of self.
+Allows an otherwise one-shot context manager like
+_GeneratorContextManager to support use as
+a decorator via implicit recreation.
+This is a private interface just for _GeneratorContextManager.
+See issue #11647 for details.
+_recreate_cm
+ContextDecorator._recreate_cmE
+args
+kwds
+funcr
+inner
+(ContextDecorator.__call__.<locals>.innerR
+`` r
+__call__
+ContextDecorator.__call__Q
+AsyncContextDecorator
+zPA base class or mixin that enables async context managers to work as decorators.c
+z-Return a recreated instance of self.
+        r
+"AsyncContextDecorator._recreate_cm\
+-AsyncContextDecorator.__call__.<locals>.innerb
+`` r
+AsyncContextDecorator.__call__a
+_GeneratorContextManagerBase
+zBShared functionality for @contextmanager and @asynccontextmanager.c
+genrU
+getattr
+typer6
+docs
+     r
+__init__
+%_GeneratorContextManagerBase.__init__l
+__class__rU
+)_GeneratorContextManagerBase._recreate_cmz
+_GeneratorContextManager
+z%Helper for @contextmanager decorator.c
+generator didn't yield)
+nextri
+StopIteration
+RuntimeErrorr
+"_GeneratorContextManager.__enter__
+generator didn't stopFz#generator didn't stop after throw())
+closerx
+throw
+__traceback__
+isinstance
+__cause__
+BaseException
+valuer&
+excs
+     r
+!_GeneratorContextManager.__exit__
+5*C%
+_AsyncGeneratorContextManager
+z*Helper for @asynccontextmanager decorator.c
+anextri
+StopAsyncIterationry
+(_AsyncGeneratorContextManager.__aenter__
+Fz$generator didn't stop after athrow())
+acloser
+athrowr
+     r
+'_AsyncGeneratorContextManager.__aexit__
+@contextmanager decorator.
+Typical usage:
+    @contextmanager
+    def some_generator(<arguments>):
+        <setup>
+        try:
+            yield <value>
+        finally:
+            <cleanup>
+This makes this:
+    with some_generator(<arguments>) as <variable>:
+        <body>
+equivalent to this:
+    <setup>
+    try:
+        <variable> = <value>
+        <body>
+    finally:
+        <cleanup>
+helper
+contextmanager.<locals>.helper/
+@asynccontextmanager decorator.
+Typical usage:
+    @asynccontextmanager
+    async def some_async_generator(<arguments>):
+        <setup>
+        try:
+            yield <value>
+        finally:
+            <cleanup>
+This makes this:
+    async with some_async_generator(<arguments>) as <variable>:
+        <body>
+equivalent to this:
+    <setup>
+    try:
+        <variable> = <value>
+        <body>
+    finally:
+        <cleanup>
+#asynccontextmanager.<locals>.helperP
+Context to automatically close something at the end of a block.
+Code like this:
+    with closing(<module>.open(<arguments>)) as f:
+        <block>
+is equivalent to this:
+    f = <module>.open(<arguments>)
+    try:
+        <block>
+    finally:
+        f.close()
+thing
+closing.__init__g
+closing.__enter__i
+exc_infos
+closing.__exit__k
+Async context manager for safely finalizing an asynchronously cleaned-up
+resource such as an async generator, calling its ``aclose()`` method.
+Code like this:
+    async with aclosing(<module>.fetch(<arguments>)) as agen:
+        <block>
+is equivalent to this:
+    agen = <module>.fetch(<arguments>)
+    try:
+        <block>
+    finally:
+        await agen.aclose()
+aclosing.__init__
+aclosing.__aenter__
+aclosing.__aexit__
+_RedirectStreami
+_new_target
+_old_targets)
+new_targets
+_RedirectStream.__init__
+appendrj
+_stream
+setattrr
+_RedirectStream.__enter__
+pop)
+exctype
+excinst
+exctbs
+    r
+_RedirectStream.__exit__
+Context manager for temporarily redirecting stdout to another file.
+# How to send help() to stderr
+with redirect_stdout(sys.stderr):
+    help(dir)
+# How to write help() to a file
+with open('help.txt', 'w') as f:
+    with redirect_stdout(f):
+        help(pow)
+stdoutr
+zCContext manager for temporarily redirecting stderr to another file.
+stderrr
+Context manager to suppress specified exceptions
+After the exception is suppressed, execution proceeds with the next
+statement following the with statement.
+     with suppress(FileNotFoundError):
+         os.remove(somefile)
+     # Execution still resumes here if the file was already removed
+_exceptions)
+exceptionss
+suppress.__init__
+suppress.__enter__
+NTF)
+issubclassr
+BaseExceptionGroup
+split)
+match
+rests
+      r
+suppress.__exit__
+_BaseExitStacki
+z.A base class for ExitStack and AsyncExitStack.c
+cm_exits
+_create_exit_wrapper
+#_BaseExitStack._create_exit_wrapper
+tbrS
+callbackrT
+_exit_wrapper
+8_BaseExitStack._create_cb_wrapper.<locals>._exit_wrapper
+``` r
+_create_cb_wrapper
+!_BaseExitStack._create_cb_wrapper
+_exit_callbacksr
+_BaseExitStack.__init__
+z@Preserve the context stack by transferring it to a new instance.)
+new_stacks
+pop_all
+_BaseExitStack.pop_all
+Registers a callback with the standard __exit__ method signature.
+Can suppress exceptions the same way __exit__ method can.
+Also accepts any object with an __exit__ method (registering a call
+to the method instead of the object itself).
+_push_cm_exit
+AttributeError
+_push_exit_callback
+exit
+_cb_type
+exit_methods
+    r
+push
+_BaseExitStack.push
+Enters the supplied context manager.
+If successful, also pushes its __exit__ method as a callback and
+returns the result of the __enter__ method.
+.z6' object does not support the context manager protocolN)
+TypeErrorr3
+_enter
+_exit
+results
+      r
+enter_context
+_BaseExitStack.enter_context
+zLRegisters an arbitrary callback and arguments.
+Cannot suppress exceptions.
+__wrapped__r
+     r
+_BaseExitStack.callback
+z;Helper to correctly register callbacks to __exit__ methods.TN)
+    r
+_BaseExitStack._push_cm_exit#
+is_syncs
+   r
+"_BaseExitStack._push_exit_callback(
+staticmethodr
+Context manager for dynamic management of a stack of exit callbacks.
+For example:
+    with ExitStack() as stack:
+        files = [stack.enter_context(open(fname)) for fname in filenames]
+        # All opened files will automatically be closed at the end of
+        # the with statement, even if attempts to open files later
+        # in the list raise an exception.
+ExitStack.__enter__8
+__context__
+new_exc
+old_exc
+exc_context
+frame_excs
+_fix_exception_context
+2ExitStack.__exit__.<locals>._fix_exception_contextB
+NNNT
+exceptionr
+exc_detailsr
+received_excr"
+suppressed_exc
+pending_raiser
+fixed_ctxr!
+           @r
+ExitStack.__exit__;
+z%Immediately unwind the context stack.N)
+ExitStack.closeq
+Async context manager for dynamic management of a stack of exit
+callbacks.
+For example:
+    async with AsyncExitStack() as stack:
+        connections = [await stack.enter_async_context(get_connection())
+            for i in range(5)]
+        # All opened connections will automatically be released at the
+        # end of the async with statement, even if attempts to open a
+        # connection later in the list raise an exception.
+_create_async_exit_wrapper
+)AsyncExitStack._create_async_exit_wrapper
+>AsyncExitStack._create_async_cb_wrapper.<locals>._exit_wrapper
+``` r
+_create_async_cb_wrapper
+'AsyncExitStack._create_async_cb_wrapper
+Enters the supplied async context manager.
+If successful, also pushes its __aexit__ method as a callback and
+returns the result of the __aenter__ method.
+zC' object does not support the asynchronous context manager protocolN)
+_push_async_cm_exitr
+      r
+enter_async_context
+"AsyncExitStack.enter_async_context
+Registers a coroutine function with the standard __aexit__ method
+signature.
+Can suppress exceptions the same way __aexit__ method can.
+Also accepts any object with an __aexit__ method (registering a call
+to the method instead of the object itself).
+    r
+push_async_exit
+AsyncExitStack.push_async_exit
+zVRegisters an arbitrary coroutine function and arguments.
+Cannot suppress exceptions.
+     r
+push_async_callback
+"AsyncExitStack.push_async_callback
+AsyncExitStack.aclose
+zDHelper to correctly register coroutine function to __aexit__
+method.FN)
+    r
+"AsyncExitStack._push_async_cm_exit
+AsyncExitStack.__aenter__
+8AsyncExitStack.__aexit__.<locals>._fix_exception_context
+cb_suppressr
+            @r
+AsyncExitStack.__aexit__
+Context manager that does no additional processing.
+Used as a stand-in for a normal context manager, when a particular
+block of code is only sometimes used with a normal context manager:
+cm = optional_cm if condition else nullcontext()
+with cm:
+    # Perform operation, using optional_cm if condition is True
+enter_result)
+nullcontext.__init__
+nullcontext.__enter__
+excinfos
+nullcontext.__exit__
+nullcontext.__aenter__
+nullcontext.__aexit__
+zHNon thread-safe context manager to change the current working directory.c
+path
+_old_cwd)
+chdir.__init__%
+getcwdr
+chdir.__enter__)
+chdir.__exit__-
+)#r6
+collectionsr
+functoolsr
+typesr
+__all__
+ABCr
+objectr
+<module>rp

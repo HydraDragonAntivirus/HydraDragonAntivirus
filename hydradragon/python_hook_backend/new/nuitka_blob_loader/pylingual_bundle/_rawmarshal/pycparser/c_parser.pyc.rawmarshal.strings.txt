@@ -1,0 +1,840 @@
+S!S"_
+S#S"_
+S$S%_
+S&S%_
+S'S%0
+S)S*1
+r S0S11
+r"S31
+r*g=)>
+dataclass)
+Dict
+List
+Literal
+NoReturn
+Optional
+Tuple
+TypedDict
+cast
+c_ast)
+CLexer
+_Token)
+fix_switch_cases
+fix_atomic_specifiersc
+Coord
+z[Coordinates of a syntactic element. Consists of:
+- File name
+- Line number
+- Column number
+file
+lineN
+column
+returnc
+self
+texts
+pycparser\c_parser.py
+__str__
+Coord.__str__'
+__name__
+__module__
+__qualname__
+__firstlineno__
+__doc__
+__annotations__
+intr
+__static_attributes__r#
+ParseError
+S*\"\
+S/S0S1\
+S3S-S4\"S5
+r%S3S-S'\
+r&S;\
+r+SA\
+r,SA\
+r.SE\
+r/SG\(S
+r@S3S-S[\
+\5S-\
+\"S5
+\"S5
+rUS/\
+rWS'\
+rXSw\
+rZSw\
+r`S3S-S'\
+CParser
+Recursive-descent C parser.
+Usage:
+    parser = CParser()
+    ast = parser.parse(text, filename)
+The `lexer` parameter lets you inject a lexer class (defaults to CLexer).
+The parameters after `lexer` are accepted for backward compatibility with
+the old PLY-based parser and are otherwise unused.
+pycparser.lextabz
+pycparser.yacctabF
+lex_optimize
+lexer
+lextab
+yacc_optimize
+yacctab
+yacc_debug
+taboutputdirr
+error_func
+on_lbrace_func
+on_rbrace_func
+type_lookup_func)
+_lex_error_func
+_lex_on_lbrace_func
+_lex_on_rbrace_func
+_lex_type_lookup_func
+clex
+dict
+_scope_stack
+_TokenStream
+_tokens)
+        r
+__init__
+CParser.__init__>
+filename
+debugc
+Parses C code and returns an AST.
+text:
+    A string containing the C source code
+filename:
+    Name of the file being parsed (for meaningful
+    error messages)
+debug:
+    Deprecated debug flag (unused); for backwards compatibility.
+before: )
+inputrG
+ _parse_translation_unit_or_empty
+_peek
+_parse_error
+value
+_tok_coord)
+toks
+      r
+parse
+CParser.parseZ
+linenor
+   r
+_coord
+CParser._coordv
+coordc
+   r
+CParser._parse_errory
+appendrE
+_push_scope
+CParser._push_scope|
+lenrF
+poprd
+_pop_scope
+CParser._pop_scope
+namec
+z9Add a new typedef name (ie a TYPEID) to the current scope
+Typedef z1 previously declared as non-typedef in this scopeN
+getrR
+   r
+_add_typedef_name
+CParser._add_typedef_name
+zPAdd a new object, function, or enum member name (ie an ID) to the
+current scope
+Non-typedef z- previously declared as typedef in this scopeNro
+   r
+_add_identifier
+CParser._add_identifier
+z.Is *name* a typedef-name in the current scope?F)
+reversedrF
+scope
+in_scopes
+    r
+_is_type_in_scope
+CParser._is_type_in_scope
+    r
+CParser._lex_error_func
+CParser._lex_on_lbrace_func
+CParser._lex_on_rbrace_func
+zzLooks up types that were previously defined with
+typedef.
+Passed to the lexer for recognizing identifiers that
+are types.
+CParser._lex_type_lookup_func
+decl
+modifierc
+Tacks a type modifier on a declarator, and returns
+the modified declarator.
+Note: the declarator and modifier may be modified
+type
+isinstancer
+TypeDecl)
+modifier_head
+modifier_tail
+decl_tails
+      r
+_type_modify_decl
+CParser._type_modify_decl
+typenamec
+z#Fixes a declaration. Modifies decl.Nr
+z Invalid multiple types specified
+Missing type in declarationr+
+declnamerl
+quals
+IdentifierTyperh
+FuncDecl
+names)
+idrl
+       r
+_fix_decl_name_type
+CParser._fix_decl_name_type
+declspec
+_DeclSpec
+newspec
+kind
+_DeclSpecKindrc
+z2See _DeclSpec for the specifier dictionary layout.
+qual
+storager
+function
+alignmentr
+insert)
+specs
+      r
+_add_declaration_specifier
+"CParser._add_declaration_specifier(
+decls
+_DeclInfo
+typedef_namespacec
+Builds a list of declarations all sharing the given specifiers.
+If typedef_namespace is true, each declared name is added
+to the "typedef namespace", which also includes objects,
+functions, and enum constants.
+typedefr
+bitsizeNr
+Invalid declarationr
+alignr^
+init
+funcspecr
+hasattrr^
+Enum
+Struct
+Unionr
+Typedef
+Declr
+is_typedef
+declarationsr^
+decls_0_tailr
+declaration
+fixed_decls
+            r
+_build_declarations
+CParser._build_declarations>
+param_decls
+bodyc
+XSXBR
+Builds a function definition.r
+Invalid typedefN
+FuncDef)
+      r
+_build_function_definition
+"CParser._build_function_definition
+tokenc
+zKGiven a token (either STRUCT or UNION), selects the
+appropriate AST class.
+struct)
+_select_struct_union_class
+"CParser._select_struct_union_class
+z:Return the k-th next token without consuming it (1-based).)
+peek
+CParser._peek
+zDReturn the type of the k-th next token, or None if absent (1-based).N)
+   r
+_peek_type
+CParser._peek_type
+At end of input)
+nextrR
+_advance
+CParser._advance
+token_typec
+Conditionally consume next token, only if it's of token_type.
+If it is of the expected type, consume and return it.
+Otherwise, leaves the token intact and returns None.
+   r
+_accept
+CParser._accept
+   r
+_expect
+CParser._expect
+markrd
+_mark
+CParser._mark
+reset
+_reset
+CParser._reset
+CParser._tok_coord
+_DECL_STARTr
+_starts_declaration
+CParser._starts_declaration
+_STARTS_EXPRESSIONr
+_starts_expression
+CParser._starts_expression
+NFT)
+_STARTS_STATEMENTr
+tok_types
+_starts_statement
+CParser._starts_statement
+id_onlyc
+TIMES
+LPARENT
+TYPEID
+   r
+_starts_declarator
+CParser._starts_declarator
+_scan_declarator_name_infor
+saw_parens
+    r
+_peek_declarator_name_info
+"CParser._peek_declarator_name_info
+allow_abstract
+typeid_paren_as_abstractc
+Invalid declaratorFT)
+_parse_abstract_declarator_opt
+ _parse_typeid_noparen_declarator
+_parse_typeid_declarator
+_parse_id_declarator)
+name_typer
+        r
+_parse_any_declarator
+CParser._parse_any_declarator
+RPARENr
+_TYPE_QUALIFIERr
+nested_paren
+depths
+      r
+"CParser._scan_declarator_name_info/
+LBRACKETr
+"_starts_direct_abstract_declarator
+*CParser._starts_direct_abstract_declaratorR
+_ASSIGNMENT_OPSr
+_is_assignment_op
+CParser._is_assignment_opU
+Parse and return a parenthesized type name if present.
+Returns (typ, mark, lparen_tok) when the next tokens look like
+'(' type_name ')', where typ is the parsed type name, mark is the
+token-stream position before parsing, and lparen_tok is the LPAREN
+token. Returns None if no parenthesized type name is present.
+_parse_type_name)
+lparen_tokr
+    r
+_try_parse_paren_type_name
+"CParser._try_parse_paren_type_nameY
+FileAST
+_parse_translation_unitrd
+(CParser._parse_translation_unit_or_emptyt
+extend
+_parse_external_declaration)
+exts
+CParser._parse_translation_unitz
+PPHASH
+_PRAGMA
+PPPRAGMA
+SEMI
+_STATIC_ASSERT
+LBRACEz
+Invalid function definitionr+
+allow_no_typer
+EQUALSr
+firstr
+_parse_pp_directive
+_parse_pppragma_directiver
+_parse_static_assertr
+_parse_compound_statement
+_parse_declaration_specifiersr
+_parse_decl_body_with_specr
+_parse_declaration_list
+_parse_initializer
+_parse_init_declarator_listr
+func
+saw_type
+spec_coordr
+decl_dicts
+            r
+#CParser._parse_external_declaration
+_parse_decl_bodyr
+_parse_declaration
+CParser._parse_declaration
+NTrA
+    r
+CParser._parse_decl_body
+s_u_or_es
+      r
+"CParser._parse_decl_body_with_spec
+CParser._parse_declaration_list
+X R!
+Parse declaration-specifier sequence.
+allow_no_type:
+    If True, allow a missing type specifier without error.
+Returns:
+    (spec, saw_type, first_coord) where spec is a dict with
+    qual/storage/type/function/alignment entries, saw_type is True
+    if a type specifier was consumed, and first_coord is the coord
+    of the first specifier token (used for diagnostics).
+_ALIGNASr
+_ATOMICr
+UNION
+STRUCT
+ENUMr
+_parse_alignment_specifierr
+_parse_atomic_specifierr
+_STORAGE_CLASS
+_FUNCTION_SPEC
+_TYPE_SPEC_SIMPLEr
+ _parse_struct_or_union_specifier
+_parse_enum_specifierrR
+first_coordrV
+      r
+%CParser._parse_declaration_specifiers
+NFTrd
+Invalid specifier listr
+saw_alignmentrr
+      r
+_parse_specifier_qualifier_list
+'CParser._parse_specifier_qualifier_list
+_parse_type_qualifier_list
+"CParser._parse_type_qualifier_list
+AlignasrT
+_parse_constant_expression)
+exprs
+    r
+"CParser._parse_alignment_specifier
+_Atomic)
+CParser._parse_atomic_specifier
+COMMA)
+_parse_init_declaratorr
+    r
+#CParser._parse_init_declarator_list
+_parse_declaratorr
+    r
+CParser._parse_init_declarator'
+RBRACE)
+z Invalid struct/union declaration)
+_parse_struct_declaration_listr
+klass
+name_tokr
+brace_toks
+      r
+(CParser._parse_struct_or_union_specifier3
+_parse_struct_declarationr5
+itemss
+   r
+&CParser._parse_struct_declaration_listT
+COLON
+_parse_struct_declarator_listr
+Noder
+node
+decl_types
+     r
+!CParser._parse_struct_declaration`
+_parse_struct_declaratorr
+%CParser._parse_struct_declarator_list
+   r
+ CParser._parse_struct_declarator
+_parse_enumerator_listr
+enumss
+    r
+CParser._parse_enum_specifier
+_parse_enumeratorr
+EnumeratorListr^
+enumeratorsrc
+enum
+enum_lists
+   r
+CParser._parse_enumerator_list
+EnumeratorrS
+    r
+CParser._parse_enumerator
+   r
+CParser._parse_declarator
+allow_paren
+_parse_declarator_kindrd
+CParser._parse_id_declarator
+typeidTr
+ CParser._parse_typeid_declarator
+(CParser._parse_typeid_noparen_declarator
+_parse_pointer
+_parse_direct_declaratorr
+directs
+     r
+CParser._parse_declarator_kind
+_parse_decl_suffixes)
+     r
+ CParser._parse_direct_declarator
+zAParse a chain of array/function suffixes and attach them to decl.r$
+_parse_array_decl
+_parse_function_decl)
+   r
+CParser._parse_decl_suffixes
+base_declc
+base_typer^
+_parse_array_decl_commonr^
+CParser._parse_array_decl
+Parse an array declarator suffix and return an ArrayDecl node.
+base_type:
+    Base declarator node to attach (None for direct-declarator parsing,
+    TypeDecl for abstract declarators).
+coord:
+    Coordinate to use for the ArrayDecl. If None, uses the '[' token.
+dim_qualsr^
+ArrayDecl)
+make_array_decl
+9CParser._parse_array_decl_common.<locals>.make_array_decl
+STATIC
+static
+RBRACKETr
+_parse_assignment_expressionr
+lbrack_tokr
+times_toks
+ ``     r
+ CParser._parse_array_decl_common
+argsr
+_parse_parameter_type_list
+_parse_identifier_list_optr
+paramsr
+EllipsisParam
+getattrru
+paramrl
+      r
+CParser._parse_function_declF
+PtrDecl)
+starsr
+      r
+CParser._parse_pointer`
+ELLIPSIS)
+_parse_parameter_listr
+ell_toks
+   r
+"CParser._parse_parameter_type_listq
+_parse_parameter_declarationr
+ParamListr^
+   r
+CParser._parse_parameter_listz
+NTrA
+_build_parameter_declarationr
+is_nameds
+      r
+$CParser._parse_parameter_declaration
+Typenamer
+    r
+$CParser._build_parameter_declaration
+_parse_identifier_listrd
+"CParser._parse_identifier_list_opt
+_parse_identifierr
+   r
+CParser._parse_identifier_list
+     r
+CParser._parse_type_name
+!_parse_direct_abstract_declaratorr
+   r
+&CParser._parse_abstract_declarator_opt
+Invalid abstract declarator)
+_parse_parameter_type_list_optr
+_parse_abstract_array_baserR
+    r
+)CParser._parse_direct_abstract_declarator
+&CParser._parse_parameter_type_list_opt
+"CParser._parse_abstract_array_base
+CASE
+DEFAULTr
+SWITCH
+WHILE
+GOTO
+BREAK
+CONTINUE
+RETURNr=
+_parse_labeled_statementrH
+_parse_selection_statement
+_parse_iteration_statement
+_parse_jump_statementrF
+_parse_expression_statementr
+_parse_statement
+CParser._parse_statement
+block_itemsr^
+_parse_pppragma_directive_listr(
+Compoundr^
+pragmas
+stmts
+   r
+_parse_pragmacomp_or_statement
+&CParser._parse_pragmacomp_or_statement$
+_parse_block_item
+CParser._parse_block_item,
+listr5
+items
+   r
+_parse_block_item_list
+CParser._parse_block_item_list2
+lbrace_tokr,
+   r
+!CParser._parse_compound_statement?
+Invalid labeled statement)
+EmptyStatementrT
+LabelrS
+Case
+DefaultrR
+case_tokr~
+def_toks
+       r
+ CParser._parse_labeled_statementL
+X#X@R
+ELSEr
+Invalid selection statement)
+_parse_expressionr1
+IfrT
+SwitchrR
+cond
+then_stmt
+else_stmtr~
+       r
+"CParser._parse_selection_statementm
+XRXcU
+XRXcU
+Invalid iteration statement)
+WhilerT
+DoWhiler
+DeclList
+_parse_expression_opt
+ForrR
+next_exprs
+       r
+"CParser._parse_iteration_statement
+Invalid jump statement)
+GotorS
+Break
+Continuer
+ReturnrH
+    r
+CParser._parse_jump_statement
+semi_toks
+   r
+#CParser._parse_expression_statement
+CParser._parse_expression_opt
+ExprListr^
+exprss
+   r
+CParser._parse_expression
+X2XBR
+_parse_conditional_expressionr)
+Assignmentr^
+compr~
+rhss
+     r
+$CParser._parse_assignment_expression
+CONDOPr
+_parse_binary_expressionr
+TernaryOpr^
+iftrue
+iffalses
+    r
+%CParser._parse_conditional_expression
+min_prec
+lhsc
+XRXbR
+_parse_cast_expressionrQ
+_BINARY_PRECEDENCErS
+BinaryOpr^
+precrl
+next_tok
+next_precs
+         r
+ CParser._parse_binary_expression
+CastrT
+_parse_unary_expression)
+resultr
+      r
+CParser._parse_cast_expression
+PLUSPLUS
+MINUSMINUS>
+LNOT
+PLUS
+MINUSr
+SIZEOF
+_ALIGNOFr
+UnaryOprS
+_parse_postfix_expression)
+       r
+CParser._parse_unary_expression4
+XiR&
+ARROW
+PERIOD>
+Invalid struct referencer
+_parse_initializer_listr
+CompoundLiteralr
+_parse_primary_expressionrH
+ArrayRefr^
+_parse_argument_expression_list
+FuncCallr
+StructRefr
+subr
+op_tokr
+fieldrV
+             r
+!CParser._parse_postfix_expressionT
+OFFSETOFr
+Invalid expression)
+_INT_CONST
+_FLOAT_CONST
+_CHAR_CONST
+_parse_constant
+_STRING_LITERAL
+_parse_unified_string_literal
+_WSTR_LITERAL
+_parse_unified_wstring_literalr
+!_parse_offsetof_member_designatorrT
+off_tokr
+designatorr^
+       r
+!CParser._parse_primary_expression
+_parse_identifier_or_typeidr
+    r
+)CParser._parse_offsetof_member_designator
+   r
+'CParser._parse_argument_expression_list
+"CParser._parse_constant_expression
+CParser._parse_identifier
+Expected identifier)
+#CParser._parse_identifier_or_typeid
+Uz.Constant cannot have more than one u/U suffix.r
+z.Constant cannot have more than two l/L suffix.z
+unsigned z
+long r+
+floatz
+long double
+double
+charz
+Invalid constant)
+ValueErrorr
+ConstantrT
+u_count
+l_count
+prefixr
+       r
+CParser._parse_constant
+STRING_LITERAL
+stringrn
+tok2s
+    r
+%CParser._parse_unified_string_literal
+Invalid string literalr
+rstripr
+    r
+&CParser._parse_unified_wstring_literal
+InitListrT
+init_lists
+   r
+CParser._parse_initializer
+_parse_initializer_itemr
+CParser._parse_initializer_list
+_parse_designationrL
+NamedInitializer)
+designationr
+   r
+CParser._parse_initializer_item%
+_parse_designator_listr
+designatorss
+CParser._parse_designation/
+_parse_designatorr
+CParser._parse_designator_list5
+Invalid designator)
+CParser._parse_designator=
+Directives not supported yet)
+CParser._parse_pp_directiveJ
+PPPRAGMASTRr3
+Invalid pragma)
+PragmarS
+str_tok
+lparen
+literals
+     r
+!CParser._parse_pppragma_directiveP
+&CParser._parse_pppragma_directive_listb
+StaticAssertrT
+    r
+CParser._parse_static_asserti
+boolr
+OREQUAL
+ANDEQUAL
+DIVEQUAL
+MODEQUAL
+XOREQUAL
+PLUSEQUAL
+MINUSEQUAL
+TIMESEQUAL
+LSHIFTEQUAL
+RSHIFTEQUAL
+LAND
+RSHIFT
+LSHIFTr
+DIVIDE
+MOD>
+AUTO
+EXTERNr
+TYPEDEF
+REGISTER
+_THREAD_LOCAL
+INLINE
+_NORETURN>
+CONSTrf
+RESTRICT
+VOLATILE>
+CHAR
+LONG
+VOID
+FLOAT
+SHORT
+_BOOL
+DOUBLE
+SIGNED
+UNSIGNED
+_COMPLEX
+__INT128>
+INT_CONST_BIN
+INT_CONST_DEC
+INT_CONST_HEX
+INT_CONST_OCT
+INT_CONST_CHAR
+FLOAT_CONST
+HEX_FLOAT_CONST>
+CHAR_CONST
+WCHAR_CONST
+U8CHAR_CONST
+U16CHAR_CONST
+U32CHAR_CONSTr
+WSTRING_LITERAL
+U8STRING_LITERAL
+U16STRING_LITERAL
+U32STRING_LITERAL>
+Wraps a lexer to provide convenient, buffered access to the underlying
+token stream. The lexer is expected to be initialized with the input
+string already.
+_lexer
+_buffer
+_index)
+_TokenStream.__init__
+Peek at the k-th next token in the stream, without consuming it.
+Examples:
+    k=1 returns the immediate next token.
+    k=2 returns the token after that.
+_fillrF
+_TokenStream.peek
+z%Consume a single token and return it.r
+_TokenStream.next
+_TokenStream.mark"
+_TokenStream.reset%
+   r
+_TokenStream._fill(
+dataclassesr
+typingr
+c_lexerr
+ast_transformsr
+Exceptionr.
+_EXPR_STARTr
+<module>r_

@@ -1,0 +1,37 @@
+_&e:
+From 
+Missing header name.z3_parse_headers fed line with no : and no leading WS)
+enumerater
+#FirstHeaderLineIsContinuationDefectrW
+set_raw
+header_source_parser
+set_unixfromr_
+MisplacedEnvelopeHeaderDefect
+defects
+find
+InvalidHeaderDefect)
+lastheader
+lastvalue
+linenor1
+         r
+FeedParser._parse_headers
+z(Like FeedParser, but feed accepts bytes.c
+ascii
+surrogateescape)
+superrl
+decode)
+__class__s
+BytesFeedParser.feed
+__classcell__)
+__all__
+emailr
+email._policybaser
+collectionsr
+compiler
+NLCRE_crackr
+objectr-
+<module>r
+z:Classes to generate plain text from a message object tree.)
+Generator
+DecodedGenerator
+BytesGenerator

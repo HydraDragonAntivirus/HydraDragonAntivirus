@@ -1,0 +1,211 @@
+FeedParser - An email feed parser.
+The feed parser implements an interface for incrementally parsing an email
+message, line by line.  This has advantages for certain applications, such as
+those reading email messages off a socket.
+FeedParser.feed() is the primary interface for pushing new data into the
+parser.  It returns when there's nothing more it can do with the available
+data.  When you have no more data to push into the parser, call .close().
+This completes the parsing and returns the root message object.
+The other advantage of this parser is that it will never raise a parsing
+exception.  Instead, when it finds something unexpected, it adds a 'defect' to
+the current message.  Defects are just instances that live on the message
+object's .defects attribute.
+FeedParser
+BytesFeedParser
+errors)
+compat32)
+deque)
+StringIOz
+\r\n|\r|\nz
+(\r\n|\r|\n)z
+(\r\n|\r|\n)\Zz%^(From |[\041-\071\073-\176]*:|[\t ])
+z3(?P<end>--)?(?P<ws>[ \t]*)(?P<linesep>\r\n|\r|\n)?$c
+BufferedSubFile
+A file-ish object that can have new data loaded into it.
+You can also push and pop line-matching predicates onto a stack.  When the
+current predicate matches the current line, a false EOF response
+(i.e. empty string) is returned instead.  This lets the parser adhere to a
+simple abstraction -- it parses until EOF closes the current message.
+newlineF)
+_partialr
+_lines
+_eofstack
+_closed
+selfs
+email\feedparser.py
+__init__
+BufferedSubFile.__init__6
+append)
+preds
+push_eof_matcher
+ BufferedSubFile.push_eof_matcherA
+popr
+pop_eof_matcher
+BufferedSubFile.pop_eof_matcherD
+seek
+pushlines
+readlines
+truncater
+close
+BufferedSubFile.closeG
+NeedMoreData
+popleft
+reversedr
+appendleft)
+line
+ateofs
+   r
+readline
+BufferedSubFile.readlineO
+unreadline
+BufferedSubFile.unreadlinea
+z$Push some new data into this object.r
+writer%
+endswithr!
+data
+partss
+   r
+push
+BufferedSubFile.pushf
+extend)
+liness
+BufferedSubFile.pushlines{
+__iter__
+BufferedSubFile.__iter__~
+StopIterationr6
+__next__
+BufferedSubFile.__next__
+__name__
+__module__
+__qualname__
+__firstlineno__
+__doc__r
+__static_attributes__rG
+A feed-style parser of email.N
+policyc
+_factory is called with no arguments to create a new message obj
+The policy keyword specifies a policy object that controls a number of
+aspects of the parser's operation.  The default policy maintains
+backward compatibility.
+MessagerV
+_old_style_factory
+message_factory
+email.messagerY
+_factory
+TypeErrorr
+_input
+_msgstack
+_parsegenrL
+_parse
+_cur
+_last
+_headersonly)
+    r
+FeedParser.__init__
+_set_headersonly
+FeedParser._set_headersonly
+Push more data into the parser.N)
+_call_parse)
+feed
+FeedParser.feed
+FeedParser._call_parse
+z<Parse all remaining data and return the root message object.
+multipart)
+_pop_messager`
+get_content_maintype
+is_multipartre
+!MultipartInvariantViolationDefectrW
+handle_defect)
+root
+defects
+   r
+FeedParser.close
+multipart/digestz
+message/rfc822r;
+get_content_type
+set_default_typer`
+attachr
+msgs
+_new_message
+FeedParser._new_message
+retvals
+FeedParser._pop_message
+message/delivery-status
+messagerq
+content-transfer-encoding
+8bit)
+7bitr
+binaryz
+startswith
+boundaryendRE
+match
+len)
+separators
+boundarymatch
++FeedParser._parsegen.<locals>.boundarymatchL
+linesepr;
+headerREr
+NLCREr
+ MissingHeaderBodySeparatorDefectrW
+_parse_headersre
+set_payload
+EMPTYSTRING
+joinr{
+get_boundary
+NoBoundaryInMultipartDefect
+lower
+-InvalidMultipartContentTransferEncodingDefect
+group
+NLCRE_eol
+searchr
+preamblerd
+epilogue
+_payload
+isinstance
+StartBoundaryNotFoundDefect
+CloseBoundaryNotFoundDefect
+NLCRE_bol)
+headersr1
+boundaryr
+capturing_preambler
+close_boundary_seen
+lastline
+eolmor
+payload
+firstline
+bolmor
+                    @r
+FeedParser._parsegen
+_&e:
+From 
+Missing header name.z3_parse_headers fed line with no : and no leading WS)
+enumerater
+#FirstHeaderLineIsContinuationDefectrW
+set_raw
+header_source_parser
+set_unixfromr_
+MisplacedEnvelopeHeaderDefect
+defects
+find
+InvalidHeaderDefect)
+lastheader
+lastvalue
+linenor1
+         r
+FeedParser._parse_headers
+z(Like FeedParser, but feed accepts bytes.c
+ascii
+surrogateescape)
+superrl
+decode)
+__class__s
+BytesFeedParser.feed
+__classcell__)
+__all__
+emailr
+email._policybaser
+collectionsr
+compiler
+NLCRE_crackr
+objectr-
+<module>r

@@ -1,0 +1,53 @@
+zrPython Character Mapping Codec cp875 generated from 'MAPPINGS/VENDORS/MICSFT/EBCDIC/CP875.TXT' with gencodec.py.
+Codec
+codecs
+charmap_encode
+encoding_table
+self
+input
+errorss
+encodings\cp875.py
+encode
+Codec.encode
+charmap_decode
+decoding_tabler
+   r
+decode
+Codec.decode
+strict)
+__name__
+__module__
+__qualname__
+__firstlineno__r
+__static_attributes__r
+IncrementalEncoder
+finals
+   r
+IncrementalEncoder.encode
+IncrementalDecoder
+   r
+IncrementalDecoder.decode
+StreamWriter
+StreamReader
+cp875)
+namer
+incrementalencoder
+incrementaldecoder
+streamreader
+streamwriter)
+CodecInfor
+getregentryr@
+[.<(+!&
+]$*);^-/
+|,%_>?
+`:#@'="
+abcdefghi
+jklmnopqr
+~stuvwxyz
+{ABCDEFGHI
+}JKLMNOPQR
+STUVWXYZ
+0123456789
+__doc__r
+charmap_buildr
+<module>rC

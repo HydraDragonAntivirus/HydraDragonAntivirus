@@ -1,0 +1,74 @@
+annotationsN)
+Protocol)
+Dict
+Iterator
+List
+Optional
+TypeVar
+Union
+overload
+PackageMetadata
+selfs
+importlib\metadata\_meta.py
+__len__
+PackageMetadata.__len__
+items
+__contains__
+PackageMetadata.__contains__
+keys
+__getitem__
+PackageMetadata.__getitem__
+__iter__
+PackageMetadata.__iter__
+name
+failobjs
+   r
+PackageMetadata.get
+   r
+   r
+get_all
+PackageMetadata.get_all
+Return all values associated with a possibly multi-valued key.
+   r
+A JSON-compatible form of the metadata.
+json
+PackageMetadata.json(
+return
+int)
+strr6
+bool)
+Iterator[str]r
+Noner6
+Optional[str])
+Union[str, _T])
+Optional[List[Any]])
+Union[List[Any], _T])
+z Dict[str, Union[str, List[str]]])
+__name__
+__module__
+__qualname__
+__firstlineno__r
+propertyr4
+__static_attributes__r
+SimplePath
+A minimal subset of pathlib.Path required by Distribution.
+others
+joinpath
+SimplePath.joinpath4
+__truediv__
+SimplePath.__truediv__8
+parent
+SimplePath.parent<
+encodings
+read_text
+SimplePath.read_text?
+read_bytes
+SimplePath.read_bytesA
+exists
+SimplePath.existsC
+Union[str, os.PathLike[str]]r6
+bytes)
+__doc__rG
+__future__r
+typingr
+<module>r_

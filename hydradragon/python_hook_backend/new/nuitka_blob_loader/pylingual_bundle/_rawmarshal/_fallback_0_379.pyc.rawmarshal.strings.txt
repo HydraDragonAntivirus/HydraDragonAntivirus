@@ -1,0 +1,20 @@
+z?Process a GNU tar extended sparse header, version 0.0.
+        s
+GNU.sparse.offsetrV
+GNU.sparse.numbytesN)
+list
+zipra
+offsetsr/
+        rE
+TarInfo._proc_gnusparse_00
+z?Process a GNU tar extended sparse header, version 0.1.
+        rM
+,Nr/
+     rE
+TarInfo._proc_gnusparse_01.
+z?Process a GNU tar extended sparse header, version 1.0.
+        Nr
+fieldsra
+numbers
+        rE
+TarInfo._proc_gnusparse_104

@@ -1,0 +1,180 @@
+A collection of string constants.
+Public module variables:
+whitespace -- a string containing all ASCII whitespace
+ascii_lowercase -- a string containing all ASCII lowercase letters
+ascii_uppercase -- a string containing all ASCII uppercase letters
+ascii_letters -- a string containing all ASCII letters
+digits -- a string containing all ASCII decimal digits
+hexdigits -- a string containing all ASCII hexadecimal digits
+octdigits -- a string containing all ASCII octal digits
+punctuation -- a string containing all ASCII punctuation characters
+printable -- a string containing all ASCII characters considered printable
+ascii_letters
+ascii_lowercase
+ascii_uppercase
+capwords
+digits
+hexdigits
+octdigits
+printable
+punctuation
+whitespace
+Formatter
+Template
+abcdefghijklmnopqrstuvwxyz
+ABCDEFGHIJKLMNOPQRSTUVWXYZ
+0123456789
+abcdef
+ABCDEF
+01234567z !"#$%&'()*+,-./:;<=>?@[\]^_`{|}~c
+capwords(s [,sep]) -> string
+Split the argument into words using split, capitalize each
+word using capitalize, and join the capitalized words using
+join.  If the optional second argument sep is absent or None,
+runs of whitespace characters are replaced by a single space
+and leading and trailing whitespace are removed, otherwise
+sep is used to split and join the words.
+join
+capitalize
+split)
+seps
+string.pyr
+ChainMapc
+z.A string class for supporting $-substitutions.
+(?a:[_a-z][_a-z0-9]*)Nc
+patternz
+            z
+              (?P<escaped>zC)  |   # Escape sequence of two delimiters
+              (?P<named>zJ)       |   # delimiter and a Python identifier
+              {(?P<braced>z
+)} |   # delimiter and a braced identifier
+              (?P<invalid>)             # Other ill-formed delimiter exprs
+            )
+            )
+super
+__init_subclass__
+__dict__r%
+escape
+delimiter
+idpattern
+braceidpattern
+compile
+flags
+VERBOSE)
+clsr%
+delim
+__class__s
+     
+Template.__init_subclass__E
+template)
+selfr:
+__init__
+Template.__init__W
+invalidT)
+keepends
+z.Invalid placeholder in string: line %d, col %d)
+startr:
+splitlines
+lenr
+ValueError)
+lines
+colno
+linenos
+      r
+_invalid
+Template._invalid\
+named
+braced
+escapedr?
+#Unrecognized named group in pattern)
+groupr
+mappingr;
+convert
+$Template.substitute.<locals>.convertn
+_sentinel_dict
+_ChainMapr%
+subr:
+kwsrY
+``  r
+substitute
+Template.substituteh
+KeyErrorr+
+)Template.safe_substitute.<locals>.convert
+``  r
+safe_substitute
+Template.safe_substitute{
+finditerr:
+is_valid
+Template.is_valid
+appendrG
+idsrH
+    r
+get_identifiers
+Template.get_identifiers
+__name__
+__module__
+__qualname__
+__firstlineno__
+__doc__r+
+IGNORECASEr/
+__static_attributes__
+__classcell__)
+vformat)
+format_string
+args
+kwargss
+    r
+format
+Formatter.format
+_vformat
+check_unused_args)
+used_args
+result
+       r
+Formatter.vformat
+Max string recursion exceededrB
+FzJcannot switch from manual field specification to automatic field numberingrA
+auto_arg_index)
+parsern
+isdigit
+get_field
+convert_fieldr
+format_fieldr
+recursion_depthr
+literal_text
+field_name
+format_spec
+conversion
+arg_useds
+              r
+Formatter._vformat
+isinstance
+int)
+keyr
+    r
+get_value
+Formatter.get_value
+    r
+Formatter.check_unused_args
+valuer
+   r
+Formatter.format_field
+az"Unknown conversion specifier {0!s})
+repr
+asciirG
+   r
+Formatter.convert_field
+_string
+formatter_parser)
+Formatter.parse
+formatter_field_name_splitr
+getattr)
+first
+restr
+is_attrrI
+         r
+Formatter.get_field(
+__all__r
+rer)
+collectionsr 
+<module>r

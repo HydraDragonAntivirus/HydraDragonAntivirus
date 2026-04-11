@@ -1,0 +1,38 @@
+Python 'mbcs' Codec for Windows
+Cloned by Mark Hammond (mhammond@skippinet.com.au) from ascii.py,
+which was written by Marc-Andre Lemburg (mal@lemburg.com).
+(c) Copyright CNRI, All Rights Reserved. NO WARRANTY.
+mbcs_encode
+mbcs_decodeNc
+input
+errorss
+encodings\mbcs.py
+decoder
+IncrementalEncoder
+selfr
+finals
+   r
+encode
+IncrementalEncoder.encode
+__name__
+__module__
+__qualname__
+__firstlineno__r
+__static_attributes__r
+IncrementalDecoder
+_buffer_decoder
+StreamWriter
+StreamReader
+mbcs)
+namer
+incrementalencoder
+incrementaldecoder
+streamreader
+streamwriter)
+codecs
+CodecInfor
+getregentryr-
+strict)
+__doc__r+
+BufferedIncrementalDecoderr
+<module>r1

@@ -1,0 +1,634 @@
+r+\,"
+r.\/"
+r2r3\3\4"
+\2\.\3'
+\3\0\2'
+r6SuS
+r7SuS
+r8S S!S"S#S$S%S&S'S(S)S*.
+r9S+
+r;\;"
+r<S.
+r=S/
+r>S0
+r?S1
+r@S2
+rES<\ERZ
+S=\ER
+S>\ER
+S?\ER
+S@\ER
+SA\ER
+SB\ER
+SC\ER
+SD\ER
+SE\ER
+SF\ER
+SG\ER
+SHSI5
+SK\P5
+rQSLrRSMrSSN
+rTSO
+SQ\E5
+rYSX
+rZSY
+r[SZ
+r\S[
+r]S\
+r^S]
+SvS^
+r`SwS
+rbSxSb
+rcScrdSd
+reSyS
+rfSwSg
+rgSh
+rh\ariSirjSj\jSk-
+rkSl
+rlSm
+rmSn
+rnSo
+roSp
+rqSuSs
+rr\sSt:X
+)zz0Disassembler of Python byte code into mnemonics.
+__all__
+_cache_format
+_inline_cache_entries
+_nb_ops
+_intrinsic_1_descs
+_intrinsic_2_descs
+_specializations
+_specialized_opmap)
+get_executor)
+code_info
+disassemble
+distb
+disco
+findlinestarts
+findlabels
+show_code
+get_instructions
+Instruction
+Bytecode
+CONVERT_VALUE
+SET_FUNCTION_ATTRIBUTE)
+defaults
+kwdefaults
+annotations
+closure
+ENTER_EXECUTOR
+LOAD_CONST
+RETURN_CONST
+LOAD_GLOBAL
+BINARY_OP
+JUMP_BACKWARD
+FOR_ITER
+SEND
+LOAD_ATTR
+LOAD_SUPER_ATTR
+CALL_INTRINSIC_1
+CALL_INTRINSIC_2
+LOAD_FAST_LOAD_FAST
+STORE_FAST_LOAD_FAST
+STORE_FAST_STORE_FAST
+CACHEc
+Attempts to compile the given source, first as an expression and
+then as a statement if the first approach fails.
+Utility function to accept strings in functions that otherwise
+expect code objects
+eval
+exec)
+compile
+SyntaxError)
+source
+names
+dis.py
+_try_compiler6
+file
+depth
+show_caches
+adaptive
+show_offsetsc
+X#XES
+X#XES
+X#XES
+Disassemble classes, methods, functions, and other compiled objects.
+With no argument, disassemble the last traceback.
+Compiled objects currently include generator objects, async generator
+objects, and coroutine objects, all of which store their code object
+in a special attribute.
+__func__
+__code__
+gi_code
+ag_code
+cr_code
+__dict__z
+Disassembly of %s:
+Sorry:
+co_code
+offset_width
+label_widthr:
+labels_map)
+arg_resolver
+formatter
+(don't know how to disassemble %s objects)
+hasattrr?
+sortedrD
+items
+isinstance
+_have_code
+printr
+TypeError
+_disassemble_recursive
+bytes
+bytearray
+_make_labels_map
+Formatter
+ArgResolver
+_disassemble_bytes
+_disassemble_str
+type
+__name__)
+msgrL
+              r5
+z2Disassemble a traceback (default: last traceback).N
+last_excz no last traceback to disassembler>
+sysrh
+__traceback__
+last_traceback
+AttributeError
+RuntimeError
+tb_nextr
+tb_frame
+f_code
+tb_lasti)
+tbr8
+     r5
+OPTIMIZED
+NEWLOCALS
+VARARGS
+VARKEYWORDS
+NESTED
+GENERATOR
+NOFREE
+COROUTINE
+ITERABLE_COROUTINE
+ASYNC_GENERATOR)
+z+Return pretty representation of code flags.r
+range
+append
+COMPILER_FLAG_NAMES
+join)
+flags
+names
+flags
+    r5
+pretty_flagsr
+_Unknown
+<unknown>
+selfs
+__repr__
+_Unknown.__repr__
+__module__
+__qualname__
+__firstlineno__r
+__static_attributes__r
+zDHelper to handle methods, compiled or raw code objects, and strings.r?
+<disassembly>rF
+_get_code_objectr
+_all_opname
+deoptmap
+_all_opmap)
+opr4
+  r5
+_deoptopr
+_co_code_adaptiver
+ValueErrorrm
+get_opcode
+get_opargr
+to_bytesr
+cor;
+code
+foundr
+         r5
+_get_code_arrayr
+z1Formatted details of methods, functions, or code.)
+_format_code_infor
+Name:              %sz
+Filename:          %sz
+Argument count:    %sz
+Positional-only arguments: %sz
+Kw-only arguments: %sz
+Number of locals:  %sz
+Stack size:        %sz
+Flags:             %sz
+Constants:z
+%4d: %rz
+Names:z
+%4d: %sz
+Variable names:z
+Free variables:z
+Cell variables:
+co_name
+co_filename
+co_argcount
+co_posonlyargcount
+co_kwonlyargcount
+co_nlocals
+co_stacksizer
+co_flags
+co_consts
+enumerate
+co_names
+co_varnames
+co_freevars
+co_cellvarsr
+lines
+i_ns
+    r5
+zuPrint details of methods, functions, or code to *file*.
+If *file* is not provided, the output is printed on stdout.
+  r5
+Positions)
+lineno
+end_lineno
+col_offset
+end_col_offsetrG
+_Instruction)
+opname
+opcoder
+argval
+argrepr
+offset
+start_offset
+starts_line
+line_number
+label
+positions
+cache_info)
+NNNz!Human readable name for operationz
+Numeric code for operationz6Numeric argument to operation (if any), otherwise Nonez4Resolved arg value (if known), otherwise same as argz0Human readable description of operation argumentz1Start index of operation within bytecode sequencez|Start index of operation within bytecode sequence, including extended args if present; otherwise equal to Instruction.offsetz9True if this opcode starts a source line, otherwise FalsezGsource line number associated with this opcode (if any), otherwise NonezFA label (int > 0) if this instruction is a jump target, otherwise NonezPdis.Positions object holding the span of source code covered by this instructionzGlist of (name, size, data), one for each cache entry of the instruction
+_ExceptionTableEntryBasez
+start end target depth lastic
+_ExceptionTableEntryiD
+_get_cache_sizer
+zcGets the bytecode offset of the jump target if this is a jump instruction.
+Otherwise return None.
+hasjrel
+_is_backward_jump
+hasjabs)
+deop
+caches
+targets
+      r5
+_get_jump_targetr
+Details for a bytecode operation.
+Defined fields:
+  opname - human readable name for operation
+  opcode - numeric code for operation
+  arg - numeric argument to operation (if any), otherwise None
+  argval - resolved arg value (if known), otherwise same as arg
+  argrepr - human readable description of operation argument
+  offset - start index of operation within bytecode sequence
+  start_offset - start index of operation within bytecode sequence including extended args if present;
+                 otherwise equal to Instruction.offset
+  starts_line - True if this opcode starts a source line, otherwise False
+  line_number - source line number associated with this opcode (if any), otherwise None
+  label - A label if this instruction is a jump target, otherwise None
+  positions - Optional dis.Positions object holding the span of source code
+              covered by this instruction
+  cache_info - information about the format and content of the instruction's cache
+                 entries (if any)
+Alias for Instruction.arg.)
+oparg
+Instruction.opargt
+ziNumeric code for the base operation if operation is specialized.
+Otherwise equal to Instruction.opcode.
+baseopcode
+Instruction.baseopcodey
+zpHuman readable name for the base operation if operation is specialized.
+Otherwise equal to Instruction.opname.
+baseopname
+Instruction.baseopname
+z9Start index of the cache entries following the operation.rH
+cache_offset
+Instruction.cache_offset
+z7End index of the cache entries following the operation.rH
+end_offset
+Instruction.end_offset
+zWBytecode index of the jump target if this is a jump operation.
+Otherwise return None.
+jump_target
+Instruction.jump_target
+z1True if other code jumps to here, otherwise FalseN)
+is_jump_target
+Instruction.is_jump_target
+StringIOr]
+print_instruction
+getvalue)
+outputrN
+   r5
+__str__
+Instruction.__str__
+__doc__
+propertyr
+Create a Formatter
+*file* where to write the output
+*lineno_width* sets the width of the line number field (0 omits it)
+*offset_width* sets the width of the instruction offset field
+*label_width* sets the width of the label field
+*show_caches* is a boolean indicating whether to display cache lines
+lineno_widthrJ
+line_offsetr:
+       r5
+__init__
+Formatter.__init__
+print_instruction_liner:
+from_bytesri
+byteorderr
+instr
+mark_as_currentr
+size
+datar
+         r5
+Formatter.print_instruction
+z?Format instruction details for inclusion in disassembly output.r
+%%%ddz
+%%%ds
+-->z
+_NO_LINENOr
+reprr
+ljust
+_OPNAME_WIDTHr
+rjust
+_OPARG_WIDTHr
+rstrip)
+new_source_line
+fields
+lineno_fmtr
+lblr
+opname_excesss
+             r5
+ Formatter.print_instruction_line
+ExceptionTable:rE
+ lastir
+  Lz
+ to Lz
+ -> Lz
+lasti
+start_label
+end_label
+target_labelr9
+exception_entriesr8
+entryr6
+start
+endr
+        r5
+print_exception_table
+Formatter.print_exception_table
+varname_from_opargrL
+     r5
+ArgResolver.__init__
+signed_argr
+        r5
+offset_from_jump_arg
+ ArgResolver.offset_from_jump_arg
+  r5
+get_label_for_offset
+ ArgResolver.get_label_for_offset
+pVXV4
+pVXV4
+ + NULLz
+ + NULL|selfrG
+to L
+bool(r&
+asciic
+<genexpr>
+1ArgResolver.get_argval_argrepr.<locals>.<genexpr>T
+__getitem__r
+hasconst
+_get_const_infor
+hasnamer!
+_get_name_infor&
+hasjump
+hasexcrH
+haslocal
+hasfree
+hascompare
+cmp_opr
+FUNCTION_ATTR_FLAGSr"
+get_namer
+arg1
+arg2
+val1
+argrepr1
+val2
+argrepr2
+  `             r5
+get_argval_argrepr
+ArgResolver.get_argval_argrepr!
+NNNN)
+first_liner:
+Iterator for the opcodes in methods, functions or code
+Generates a series of Instruction named tuples giving the details of
+each operations in the supplied code.
+If *first_line* is not None, it indicates the line number that should
+be reported for the first source line in the disassembled code.
+Otherwise, the source line information (if any) is taken directly from
+the disassembled code object.
+linestartsr
+co_positions
+original_coderM
+dictr
+co_firstlinenorF
+_varname_from_opargrZ
+_get_instructions_bytesr
+         r5
+Helper to get the value of the const in a hasconst op.
+Returns the dereferenced constant if this is possible.
+Otherwise (if it is a LOAD_CONST and co_consts is not
+provided) returns the dis.UNKNOWN sentinel.
+UNKNOWN)
+    r5
+_get_const_valuerw
+Helper to get optional details about const references
+Returns the dereferenced constant and its repr if the value
+can be calculated.
+Otherwise returns the sentinel value dis.UNKNOWN for the value
+and an empty string for its repr.
+     r5
+Helper to get optional details about named references
+Returns the dereferenced name as both value and repr if the name
+list is defined.
+Otherwise returns the sentinel value dis.UNKNOWN for the value
+and an empty string for its repr.
+name_indexra
+extrainfor
+    r5
+next)
+iterator
+vals
+   r5
+_parse_varintr
+X5XhU
+iter
+co_exceptiontabler
+boolr
+StopIteration)
+entriesr<
+lengthr=
+dlr9
+          r5
+_parse_exception_tabler
+JUMP_BACKWARD_NO_INTERRUPTr
+Iterate over the instructions in a bytecode string.
+Generates a sequence of Instruction namedtuples giving the details of each
+opcode.
+FNrH
+_unpack_opargsr
+local_line_numberr
+                        r5
+E#E%
+XpR!
+Disassemble a code object.)
+_get_lineno_widthr^
+            r5
+XaX#XES
+Disassembly of r#
+       r5
+setr
+addrQ
+jump_targets
+labelsr<
+            r5
+  --c
+default
+filter
+valuesr[
+maxlinenor
+   r5
+print_instructions)
+instrss
+          r5
+is_current_instrs
+      r5
+z<Compile the source string, then disassemble the code object.z
+<dis>N)
+kwargss
+  r5
+XDXW4
+XHXW4
+hasarg
+EXTENDED_ARG
+_INT_OVERFLOW)
+extended_arg
+extended_args_offsetr
+         r5
+B:B<
+p#pEU
+zXDetect all offsets in a byte code which are jump targets.
+Return the list of offsets.
+       r5
+Find the offsets in a byte code which are start of lines in the source.
+Generate pairs (offset, lineno)
+lineno will be an integer or None the offset does not have a source line.
+co_lines)
+lastliner<
+lines
+     r5
+pYXQ:X
+Find import statements in the code
+Generate triplets (name, level, fromlist) where
+name is the imported module and level, fromlist are
+the corresponding args to __import__.
+IMPORT_NAMErH
+opmapr
+constsr
+opargsr
+from_op
+level_op
+level
+fromlists
+              r5
+_find_importsr
+,:C&
+zTFind names of variables which are written in the code
+Generate sequence of strings
+STORE_NAME
+STORE_GLOBALN)
+STORE_OPSr
+      r5
+_find_store_namesr
+The bytecode operations of a piece of code
+Instantiate this with a function, method, other compiled object, string of
+code, or a code object (as returned by compile()).
+Iterating over this yields the bytecode operations as Instruction instances.
+current_offsetr:
+codeobjrr
+_line_offsetrq
+_linestarts
+_original_objectr
+        r5
+Bytecode.__init__
+     r5
+__iter__
+Bytecode.__iter__
+{}({!r}))
+format
+__class__rc
+Bytecode.__repr__
+z.Construct a Bytecode from the given traceback )
+clsrr
+    r5
+from_traceback
+Bytecode.from_traceback
+z3Return formatted information about the code object.)
+info
+Bytecode.info
+z3Return a formatted view of the bytecode operations.Nr
+          r5
+Bytecode.dis
+classmethodr
+--show-caches
+store_truez
+show inline caches)
+action
+helpz
+--show-offsetsz
+show instruction offsets
+infile
+nargsr
+argsz
+<stdin>
+rbr0
+argparse
+ArgumentParser
+add_argument
+parse_argsr
+stdin
+buffer
+read
+openr1
+parserr4
+       r5
+mainr
+__main__r
+NNN)
+N)tr
+types
+collectionsr
+_opcodes_allr
+_opcoder
+MethodType
+FunctionType
+CodeTyper
+staticmethodrb
+listr
+namedtupler
+_INT_BITSr
+base
+family
+specializeds
+000r5
+<module>r

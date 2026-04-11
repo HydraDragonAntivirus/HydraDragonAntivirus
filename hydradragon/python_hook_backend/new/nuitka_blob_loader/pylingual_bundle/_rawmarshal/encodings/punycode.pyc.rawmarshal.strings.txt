@@ -1,0 +1,125 @@
+Codec for the Punycode encoding, as specified in RFC 3492
+Written by Martin v. L
+wis.
+z 3.1 Basic code point segregation
+bytearray
+append
+sorted
+bytes)
+base
+extended
+    
+encodings\punycode.py
+segregater
+z@Return the length of str, considering only characters below max.r
+resr
+    r
+selective_lenr
+X4:X
+XQ:X
+Return a pair (index, pos), indicating the next occurrence of
+char in str. index is the position of the character considering
+only ordinals up to and including char, and pos is the position in
+the full string. index/pos is the starting position in the full
+string.r
+len)
+char
+index
+      r
+selective_findr
+3.2 Insertion unsort codingr
+oldchar
+result
+oldindexr
+curlen
+deltas
+           r
+insertion_unsortr&
+biasr
+   r
+abcdefghijklmnopqrstuvwxyz0123456789c
+(3.3 Generalized variable-length integersr
+digitsr
+     r
+generate_generalized_integerr3
+first
+numchars
+divisionsr,
+     r
+adaptr;
+3.4 Bias adaptation
+enumerater3
+extendr;
+baselen
+deltasr"
+pointsr%
+       r
+generate_integersrD
+textr
+    r
+punycode_encoderH
+strict
+punycodez
+incomplete punycode stringN
+Invalid extended code point '
+IndexError
+UnicodeDecodeErrorr-
+extposr,
+errorsr"
+digitr2
+          r
+decode_generalized_numberrX
+3.2 Insertion sort codingr
+Invalid character U+
+chrr;
+newposr%
+         r
+insertion_sortr^
+asciirF
+isinstancer
+encode
+memoryviewr
+rfind
+upperrS
+start
+reasonr^
+offsets
+       r
+punycode_decoderl
+-7D$
+Codec
+self
+inputrU
+    r
+Codec.encode
+replace
+ignorez
+Unsupported error handling: )
+UnicodeErrorrl
+    r
+decode
+Codec.decode
+__name__
+__module__
+__qualname__
+__firstlineno__rc
+__static_attributes__r*
+IncrementalEncoder
+finals
+   r
+IncrementalEncoder.encode
+IncrementalDecoder
+   r
+IncrementalDecoder.decode
+StreamWriter
+StreamReader
+namerc
+incrementalencoder
+incrementaldecoder
+streamwriter
+streamreader)
+codecs
+CodecInforn
+getregentryr
+__doc__r
+<module>r

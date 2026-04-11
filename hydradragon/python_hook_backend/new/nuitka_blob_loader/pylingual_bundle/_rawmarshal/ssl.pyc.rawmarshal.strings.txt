@@ -1,0 +1,931 @@
+J r J!r! 
+J"r" 
+J$r$J%r%J&r&J'r'J(r(J)r)J*r*J+r+J,r,J-r-J.r. 
+J/r/J0r0 
+\3Rh
+r5\3l5
+\3Rl
+r8\9"
+S$:X
+J@r@JArA 
+S&KBJBrBJCrCJDrD 
+S'KBJErEJFrFJGrG 
+KBrHS
+KIrIS
+KJrJS
+KKrK\LrMS(/
+rN\O"
+rP\/rQ\
+rRS*
+rSS+
+rTS,
+S-S.5
+rVS/
+S1S25
+S4\X\
+rZ\YR
+r\SH\]S9\YR
+r^\\r_\^r`
+raS>
+S@\B5
+rc\c\Zld
+\a\Zle
+rfSBrgSCrhSD
+riSE
+rj\kS
+rlSG
+This module provides some more Pythonic support for SSL.
+Object types:
+  SSLSocket -- subtype of socket.socket which does SSL over the socket
+Exceptions:
+  SSLError -- exception raised for I/O errors
+Functions:
+  cert_time_to_seconds -- convert time string used for certificate
+                          notBefore and notAfter functions to integer
+                          seconds past the Epoch (the time values
+                          returned from time.time())
+  get_server_certificate (addr, ssl_version, ca_certs, timeout) -- Retrieve the
+                          certificate from the server at the specified
+                          address and return it as a PEM-encoded string
+Integer constants:
+SSL_ERROR_ZERO_RETURN
+SSL_ERROR_WANT_READ
+SSL_ERROR_WANT_WRITE
+SSL_ERROR_WANT_X509_LOOKUP
+SSL_ERROR_SYSCALL
+SSL_ERROR_SSL
+SSL_ERROR_WANT_CONNECT
+SSL_ERROR_EOF
+SSL_ERROR_INVALID_ERROR_CODE
+The following group define certificate requirements that one side is
+allowing/requiring from the other side:
+CERT_NONE - no certificates from the other side are required (or will
+            be looked at if provided)
+CERT_OPTIONAL - certificates are not required, but if provided will be
+                validated, and if validation fails, the connection will
+                also fail
+CERT_REQUIRED - certificates are required, and will be validated, and
+                if validation fails, the connection will also fail
+The following constants identify various SSL protocol variants:
+PROTOCOL_SSLv2
+PROTOCOL_SSLv3
+PROTOCOL_SSLv23
+PROTOCOL_TLS
+PROTOCOL_TLS_CLIENT
+PROTOCOL_TLS_SERVER
+PROTOCOL_TLSv1
+PROTOCOL_TLSv1_1
+PROTOCOL_TLSv1_2
+The following constants identify various SSL alert message descriptions as per
+http://www.iana.org/assignments/tls-parameters/tls-parameters.xml#tls-parameters-6
+ALERT_DESCRIPTION_CLOSE_NOTIFY
+ALERT_DESCRIPTION_UNEXPECTED_MESSAGE
+ALERT_DESCRIPTION_BAD_RECORD_MAC
+ALERT_DESCRIPTION_RECORD_OVERFLOW
+ALERT_DESCRIPTION_DECOMPRESSION_FAILURE
+ALERT_DESCRIPTION_HANDSHAKE_FAILURE
+ALERT_DESCRIPTION_BAD_CERTIFICATE
+ALERT_DESCRIPTION_UNSUPPORTED_CERTIFICATE
+ALERT_DESCRIPTION_CERTIFICATE_REVOKED
+ALERT_DESCRIPTION_CERTIFICATE_EXPIRED
+ALERT_DESCRIPTION_CERTIFICATE_UNKNOWN
+ALERT_DESCRIPTION_ILLEGAL_PARAMETER
+ALERT_DESCRIPTION_UNKNOWN_CA
+ALERT_DESCRIPTION_ACCESS_DENIED
+ALERT_DESCRIPTION_DECODE_ERROR
+ALERT_DESCRIPTION_DECRYPT_ERROR
+ALERT_DESCRIPTION_PROTOCOL_VERSION
+ALERT_DESCRIPTION_INSUFFICIENT_SECURITY
+ALERT_DESCRIPTION_INTERNAL_ERROR
+ALERT_DESCRIPTION_USER_CANCELLED
+ALERT_DESCRIPTION_NO_RENEGOTIATION
+ALERT_DESCRIPTION_UNSUPPORTED_EXTENSION
+ALERT_DESCRIPTION_CERTIFICATE_UNOBTAINABLE
+ALERT_DESCRIPTION_UNRECOGNIZED_NAME
+ALERT_DESCRIPTION_BAD_CERTIFICATE_STATUS_RESPONSE
+ALERT_DESCRIPTION_BAD_CERTIFICATE_HASH_VALUE
+ALERT_DESCRIPTION_UNKNOWN_PSK_IDENTITY
+namedtuple)
+Enum
+IntEnum
+IntFlag)
+_simple_enum)
+OPENSSL_VERSION_NUMBER
+OPENSSL_VERSION_INFO
+OPENSSL_VERSION)
+_SSLContext
+MemoryBIO
+SSLSession)
+SSLError
+SSLZeroReturnError
+SSLWantReadError
+SSLWantWriteError
+SSLSyscallError
+SSLEOFError
+SSLCertVerificationError)
+txt2obj
+nid2obj)
+RAND_status
+RAND_add
+RAND_bytes)
+RAND_egd)
+HAS_SNI
+HAS_ECDH
+HAS_NPN
+HAS_ALPN
+HAS_SSLv2
+HAS_SSLv3
+HAS_TLSv1
+HAS_TLSv1_1
+HAS_TLSv1_2
+HAS_TLSv1_3
+HAS_PSK)
+_DEFAULT_CIPHERS
+_OPENSSL_API_VERSION
+_SSLMethodc
+PROTOCOL_
+PROTOCOL_SSLv23
+startswith
+names
+ssl.py
+<lambda>r1
+source
+Optionsc
+OP_r,
+AlertDescriptionc
+ALERT_DESCRIPTION_r,
+SSLErrorNumberc
+SSL_ERROR_r,
+VerifyFlagsc
+VERIFY_r,
+VerifyModec
+CERT_r,
+PROTOCOL_SSLv2c
+TLSVersion
+__name__
+__module__
+__qualname__
+__firstlineno__
+_ssl
+PROTO_MINIMUM_SUPPORTED
+MINIMUM_SUPPORTED
+PROTO_SSLv3
+SSLv3
+PROTO_TLSv1
+TLSv1
+PROTO_TLSv1_1
+TLSv1_1
+PROTO_TLSv1_2
+TLSv1_2
+PROTO_TLSv1_3
+TLSv1_3
+PROTO_MAXIMUM_SUPPORTED
+MAXIMUM_SUPPORTED
+__static_attributes__rG
+_TLSContentType
+z8Content types (record layer)
+See RFC 8446, section B.1
+__doc__
+CHANGE_CIPHER_SPEC
+ALERT
+HANDSHAKE
+APPLICATION_DATA
+HEADER
+INNER_CONTENT_TYPEr[
+r!S r"S!r#S"r$S#r%S$r&S%r'g&)'
+_TLSAlertType
+zIAlert types for TLSContentType.ALERT messages
+See RFC 8466, section B.2
+N)(rH
+CLOSE_NOTIFY
+UNEXPECTED_MESSAGE
+BAD_RECORD_MAC
+DECRYPTION_FAILED
+RECORD_OVERFLOW
+DECOMPRESSION_FAILURE
+HANDSHAKE_FAILURE
+NO_CERTIFICATE
+BAD_CERTIFICATE
+UNSUPPORTED_CERTIFICATE
+CERTIFICATE_REVOKED
+CERTIFICATE_EXPIRED
+CERTIFICATE_UNKNOWN
+ILLEGAL_PARAMETER
+UNKNOWN_CA
+ACCESS_DENIED
+DECODE_ERROR
+DECRYPT_ERROR
+EXPORT_RESTRICTION
+PROTOCOL_VERSION
+INSUFFICIENT_SECURITY
+INTERNAL_ERROR
+INAPPROPRIATE_FALLBACK
+USER_CANCELED
+NO_RENEGOTIATION
+MISSING_EXTENSION
+UNSUPPORTED_EXTENSION
+CERTIFICATE_UNOBTAINABLE
+UNRECOGNIZED_NAME
+BAD_CERTIFICATE_STATUS_RESPONSE
+BAD_CERTIFICATE_HASH_VALUE
+UNKNOWN_PSK_IDENTITY
+CERTIFICATE_REQUIRED
+NO_APPLICATION_PROTOCOLr[
+_TLSMessageType
+z>Message types (handshake protocol)
+See RFC 8446, section B.3
+HELLO_REQUEST
+CLIENT_HELLO
+SERVER_HELLO
+HELLO_VERIFY_REQUEST
+NEWSESSION_TICKET
+END_OF_EARLY_DATA
+HELLO_RETRY_REQUEST
+ENCRYPTED_EXTENSIONS
+CERTIFICATE
+SERVER_KEY_EXCHANGE
+CERTIFICATE_REQUEST
+SERVER_DONE
+CERTIFICATE_VERIFY
+CLIENT_KEY_EXCHANGE
+FINISHED
+CERTIFICATE_URL
+CERTIFICATE_STATUS
+SUPPLEMENTAL_DATA
+KEY_UPDATE
+NEXT_PROTO
+MESSAGE_HASHrf
+win32)
+enum_certificates
+enum_crls)
+socket
+SOCK_STREAM
+create_connection)
+SOL_SOCKET
+SO_TYPE
+_GLOBAL_DEFAULT_TIMEOUT
+tls-unique
+HOSTFLAG_NEVER_CHECK_SUBJECTc
+Matching according to RFC 6125, section 6.4.3
+- Hostnames are compared lower-case.
+- For IDNA, both dn and hostname must be encoded as IDN A-label (ACE).
+- Partial wildcards like 'www*.example.org', multiple wildcards, sole
+  wildcard or wildcards in labels other then the left-most label are not
+  supported and a CertificateError is raised.
+- A wildcard must match at least one character.
+z1too many wildcards in certificate DNS name: {!r}.
+.z9wildcard can only be present in the leftmost label: {!r}.z>sole wildcard without additional labels are not support: {!r}.z<partial wildcards in leftmost label are not supported: {!r}.)
+count
+lower
+CertificateError
+format
+partition)
+hostname
+wildcards
+dn_leftmost
+dn_remainder
+hostname_leftmost
+hostname_remainders
+        r0
+_dnsname_matchr
+Try to convert an IP address to packed binary form
+Supports IPv4 addresses on all platforms and IPv6 on platforms with IPv6
+support.
+z'{!r} is not a quad-dotted IPv4 address.z+{!r} is neither an IPv4 nor an IP6 address.z
+{!r} is not an IPv4 address.)
+_socket
+inet_aton
+inet_ntoa
+ValueErrorr
+OSError
+inet_pton
+AF_INET6
+AttributeError)
+ipname
+addrs
+  r0
+_inet_patonr
+X!:H
+z|Exact matching of IP addresses.
+RFC 6125 explicitly doesn't define an algorithm for this
+(section 1.7.2 - "Out of Scope").
+rstrip)
+cert_ipaddress
+host_ip
+   r0
+_ipaddress_matchr
+DefaultVerifyPathszQcafile capath openssl_cafile_env openssl_cafile openssl_capath_env openssl_capathc
+z/Return paths to default cafile and capath.
+    r
+get_default_verify_paths
+environ
+getr
+path
+isfile
+isdir)
+parts
+cafile
+capaths
+   r0
+_ASN1Objecti
+z#ASN.1 object identifier lookup
+    rG
+NFr.
+super
+__new__
+_txt2obj)
+__class__s
+_ASN1Object.__new__
+z3Create _ASN1Object from OpenSSL numeric ID
+        )
+_nid2obj)
+nidr
+fromnid
+_ASN1Object.fromnid
+z=Create _ASN1Object from short name, long name or OID
+        Tr.
+fromname
+_ASN1Object.fromname
+__slots__r
+classmethodr
+__classcell__
+nid shortname longname oidc
+Purposei
+zDSSLContext purpose flags with X509v3 Extended Key Usage objects
+    z
+1.3.6.1.5.5.7.3.1z
+1.3.6.1.5.5.7.3.2rG
+SERVER_AUTH
+CLIENT_AUTHr[
+S r U
+SSLContexti
+zxAn SSLContext holds various SSL-related configuration options and
+data, such as certificates and possibly a private key.)
+ROOTNc
+Nz9ssl.SSLContext() without protocol argument is deprecated.r
+category
+stacklevel)
+warnings
+warn
+DeprecationWarning
+PROTOCOL_TLSr
+protocol
+args
+kwargs
+selfs
+     r0
+SSLContext.__new__
+idna
+ascii)
+isinstance
+encode
+decode)
+  r0
+_encode_hostname
+SSLContext._encode_hostname
+sock
+server_side
+do_handshake_on_connect
+suppress_ragged_eofs
+server_hostname
+context
+session)
+sslsocket_class
+_create)
+       r0
+wrap_socket
+SSLContext.wrap_socket
+sslobject_classrN
+incoming
+outgoingrG
+      r0
+wrap_bio
+SSLContext.wrap_bio
+'ssl NPN is deprecated, use ALPN insteadr
+z(NPN protocols must be 1 to 255 in length)
+bytearray
+bytes
+lenr
+append
+extend
+_set_npn_protocols)
+npn_protocols
+protosr7
+     r0
+set_npn_protocols
+SSLContext.set_npn_protocols
+not a callable objectc
+sslobj
+servername
+sslctxr:
+server_name_callbacks
+shim_cb
+3SSLContext.set_servername_callback.<locals>.shim_cb
+sni_callback
+callable
+TypeError)
+`` r0
+set_servername_callback
+"SSLContext.set_servername_callback
+z)ALPN protocols must be 1 to 255 in length)
+_set_alpn_protocols)
+alpn_protocolsrb
+     r0
+set_alpn_protocols
+SSLContext.set_alpn_protocols
+x509_asnT)
+cadataz.Bad certificate in Windows certificate store: z-unable to enumerate Windows certificate store)
+load_verify_locationsr
+PermissionError)
+storename
+purpose
+cert
+encoding
+trust
+excs
+       r0
+_load_windows_store_certs
+$SSLContext._load_windows_store_certs
+platform
+_windows_cert_storesr
+set_default_verify_paths)
+   r0
+load_default_certs
+SSLContext.load_default_certs
+minimum_versionc
+SSLContext.minimum_version
+optionsr4
+OP_NO_SSLv3r
+__set__
+valuer
+maximum_versionr
+SSLContext.maximum_version#
+SSLContext.options+
+_host_flagsrL
+ncss
+  r0
+hostname_checks_common_name
+&SSLContext.hostname_checks_common_name4
+  r0
+NTrG
+TLS message callback
+The message callback provides a debugging hook to analyze TLS
+connections. The callback is called for any TLS protocol message
+(header, handshake, alert, and more), but not for application data.
+Due to technical  limitations, the callback can't be used to filter
+traffic or to abort a connection. Any exception raised in the
+callback is delayed until the handshake, read, or write operation
+has been performed.
+def msg_cb(conn, direction, version, content_type, msg_type, data):
+    pass
+conn
+    :class:`SSLSocket` or :class:`SSLObject` instance
+direction
+    ``read`` or ``write``
+version
+    :class:`TLSVersion` enum member or int for unknown version. For a
+    frame header, it's the header version.
+content_type
+    :class:`_TLSContentType` enum member or int for unsupported
+    content type.
+msg_type
+    Either a :class:`_TLSContentType` enum number for a header
+    message, a :class:`_TLSAlertType` enum member for an alert
+    message, a :class:`_TLSMessageType` enum member for other
+    messages, or int for unsupported message types.
+data
+    Raw, decrypted message content as bytes
+_msg_callback
+user_function)
+innerr
+SSLContext._msg_callbackD
+__call__z
+ is not callable.c
+conn
+direction
+version
+content_type
+msg_type
+data
+msg_enum
+callbacks
+       
+'SSLContext._msg_callback.<locals>.innert
+hasattrrq
+SSLContext.protocol
+verify_flagsr
+SSLContext.verify_flags
+verify_moder@
+SSLContext.verify_mode
+FTTNN)
+FNN)"rH
+propertyr
+setterr
+Create a SSLContext object with default settings.
+NOTE: The protocol and settings may change anytime without prior
+      deprecation. The values represent a fair balance between maximum
+      compatibility and security.
+keylog_filename
+SSLKEYLOGFILE)
+PROTOCOL_TLS_CLIENT
+CERT_REQUIREDr
+check_hostnamer+
+PROTOCOL_TLS_SERVERr
+VERIFY_X509_PARTIAL_CHAIN
+VERIFY_X509_STRICTr|
+CERT_NONEr
+flags
+ignore_environmentr
+keylogfiles
+      r0
+create_default_contextr
+cert_reqsr
+certfile
+keyfiler
+Create a SSLContext object for Python stdlib modules
+All Python stdlib modules shall use this function to create SSLContext
+objects in order to keep common settings in one place. The configuration
+is less restrict than create_default_context()'s to increase backward
+compatibility.
+certfile must be specifiedr
+load_cert_chainr|
+           r0
+_create_unverified_contextr
+SSLObjecti
+This class implements an interface on top of a low-level SSL object as
+implemented by OpenSSL. This object captures the state of an SSL connection
+but does not provide any network IO itself. IO needs to be performed
+through separate "BIO" objects which are OpenSSL's IO abstraction layer.
+This class does not have a public constructor. Instances are returned by
+``SSLContext.wrap_bio``. This class is typically used by framework authors
+that want to implement asynchronous IO for SSL through memory buffers.
+When compared to ``SSLSocket``, this object lacks the following features:
+ * Any form of network IO, including methods such as ``recv`` and ``send``.
+ * The ``do_handshake_on_connect`` and ``suppress_ragged_eofs`` machinery.
+NzU does not have a public constructor. Instances are returned by SSLContext.wrap_bio().
+   r0
+__init__
+SSLObject.__init__'
+ownerrL
+_wrap_bio
+_sslobj)
+         r0
+SSLObject._create-
+z(The SSLContext that is currently in use.
+SSLObject.context9
+ctxs
+  r0
+z!The SSLSession for client socket.
+SSLObject.sessionB
+  r0
+z.Was the client session reused during handshake
+session_reusedr
+SSLObject.session_reusedK
+z%Whether this is a server-side socket.)
+SSLObject.server_sideP
+zVThe currently set server hostname (for SNI), or ``None`` if no
+server hostname is set.)
+SSLObject.server_hostnameU
+Read up to 'len' bytes from the SSL object and return them.
+If 'buffer' is provided, read into this buffer and return the number of
+bytes read.
+read)
+buffer
+    r0
+SSLObject.read[
+Write 'data' to the SSL object and return the number of bytes
+written.
+The 'data' argument must support the buffer interface.
+write
+  r0
+SSLObject.writeg
+Returns a formatted version of the data in the certificate provided
+by the other end of the SSL channel.
+Return None if no certificate was provided, {} if a certificate was
+provided, but not validated.
+getpeercert
+binary_forms
+  r0
+SSLObject.getpeercerto
+Returns verified certificate chain provided by the other
+end of the SSL channel as a list of DER-encoded bytes.
+If certificate verification was disabled method acts the same as
+``SSLSocket.get_unverified_chain``.
+get_verified_chain
+public_bytesrL
+ENCODING_DER
+chainr
+   r0
+SSLObject.get_verified_chainx
+zkReturns raw certificate chain provided by the other
+end of the SSL channel as a list of DER-encoded bytes.
+get_unverified_chainr
+   r0
+SSLObject.get_unverified_chain
+Return the currently selected NPN protocol as a string, or ``None``
+if a next protocol was not negotiated or if NPN is not supported by one
+of the peers.rX
+selected_npn_protocol
+SSLObject.selected_npn_protocol
+Return the currently selected ALPN protocol as a string, or ``None``
+if a next protocol was not negotiated or if ALPN is not supported by one
+of the peers.)
+selected_alpn_protocolr
+ SSLObject.selected_alpn_protocol
+zWReturn the currently selected cipher as a 3-tuple ``(name,
+ssl_version, secret_bits)``.)
+cipherr
+SSLObject.cipher
+zuReturn a list of ciphers shared by the client during the handshake or
+None if this is not a valid server connection.
+shared_ciphersr
+SSLObject.shared_ciphers
+Return the current compression algorithm in use, or ``None`` if
+compression was not negotiated or not supported by one of the peers.)
+compressionr
+SSLObject.compression
+z8Return the number of bytes that can be read immediately.)
+pendingr
+SSLObject.pending
+Start the SSL/TLS handshake.N)
+do_handshaker
+SSLObject.do_handshake
+z!Start the SSL shutdown handshake.)
+shutdownr
+unwrap
+SSLObject.unwrap
+Get channel binding data for current connection.  Raise ValueError
+if the requested `cb_type` is not supported.  Return bytes of the data
+or None if the data is not available (e.g. before the handshake).)
+get_channel_binding
+cb_types
+  r0
+SSLObject.get_channel_binding
+zRReturn a string identifying the protocol version used by the
+current SSL channel. 
+SSLObject.version
+verify_client_post_handshaker
+&SSLObject.verify_client_post_handshake
+FNNN
+) rH
+z*Copy docstring from SSLObject to SSLSocket)
+getattrr
+funcs
+_sslcopydocr@
+r S6U
+r!S5U
+r"S6U
+r#S 
+r$S!
+S2S'
+r,S)
+r-S*
+S7S,
+r1S.r2U
+SSLSocketi
+This class implements a subtype of socket.socket that wraps
+the underlying OS socket in an SSL context when necessary, and
+provides read and write methods over that channel. c
+NzX does not have a public constructor. Instances are returned by SSLContext.wrap_socket().r
+   r0
+SSLSocket.__init__
+Nz!only stream sockets are supportedz4server_hostname can only be specified in client modez,session can only be specified in client modez'check_hostname requires server_hostname)
+family
+type
+proto
+filenoFTr
+z5Closed before TLS handshake with data in recv buffer.
+zHdo_handshake_on_connect should not be specified for non-blocking socketsrG
+getsockoptr
+NotImplementedErrorr
+gettimeout
+dictrF
+detach
+_context
+_session
+_closedr
+getpeernamer
+errno
+ENOTCONN
+getblocking
+setblocking
+recv
+EINVALr
+reason
+library
+settimeout
+_connected
+_wrap_socketr(
+close)
+sock_timeoutr9
+connected
+blocking
+notconn_pre_handshake_datar[
+ notconn_pre_handshake_data_error
+timeoutr
+                  
+SSLSocket._create
+SSLSocket.context=
+  r0
+SSLSocket.sessionG
+  r0
+SSLSocket.session_reusedS
+Can't dup() %s instances)
+SSLSocket.dupY
+msgs
+  r0
+_checkClosed
+SSLSocket._checkClosed]
+_check_connected
+SSLSocket._check_connecteda
+zGRead up to LEN bytes and return them.
+Return zero-length string on EOF.Nz'Read on closed or unwrapped SSL socket.r
+SSL_ERROR_EOFrI
+    r0
+SSLSocket.readi
+-+B#
+z`Write DATA to the underlying SSL channel.  Returns
+number of bytes of DATA actually transmitted.z(Write on closed or unwrapped SSL socket.)
+  r0
+SSLSocket.write~
+  r0
+SSLSocket.getpeercert
+   r0
+SSLSocket.get_verified_chain
+   r0
+SSLSocket.get_unverified_chain
+SSLSocket.selected_npn_protocol
+ SSLSocket.selected_alpn_protocol
+SSLSocket.cipher
+SSLSocket.shared_ciphers
+SSLSocket.compression
+z3non-zero flags not allowed in calls to send() on %s)
+send)
+SSLSocket.send
+Nz%sendto not allowed on instances of %s)
+sendto)
+flags_or_addrr
+    
+SSLSocket.sendto
+Nz&sendmsg not allowed on instances of %s
+   r0
+sendmsg
+SSLSocket.sendmsg
+z6non-zero flags not allowed in calls to sendall() on %s
+memoryview
+castr]
+sendall)
+view
+byte_view
+amountr
+        
+SSLSocket.sendall
+zuSend a file, possibly by using os.sendfile() if this is a
+clear-text socket.  Return the total number of bytes sent.
+_sendfile_use_sendr
+sendfile)
+file
+offsetr
+    
+SSLSocket.sendfile
+z3non-zero flags not allowed in calls to recv() on %s)
+buflenr
+SSLSocket.recv
+z8non-zero flags not allowed in calls to recv_into() on %s)
+nbytesr
+recv_into)
+     
+SSLSocket.recv_into
+Nz'recvfrom not allowed on instances of %s)
+recvfromr
+SSLSocket.recvfrom
+Nz,recvfrom_into not allowed on instances of %s)
+recvfrom_into)
+    
+SSLSocket.recvfrom_into$
+Nz&recvmsg not allowed on instances of %sr
+   r0
+recvmsg
+SSLSocket.recvmsg,
+Nz+recvmsg_into not allowed on instances of %sr
+   r0
+recvmsg_into
+SSLSocket.recvmsg_into0
+SSLSocket.pending4
+howr
+SSLSocket.shutdown<
+No SSL wrapper around )
+  r0
+SSLSocket.unwrapA
+&SSLSocket.verify_client_post_handshakeJ
+_real_closer
+SSLSocket._real_closeQ
+blockrg
+   r0
+SSLSocket.do_handshakeU
+Nz!can't connect in server-side modez/attempt to connect already-connected SSLSocket!FrJ
+connect_ex
+connectrH
+    
+_real_connect
+SSLSocket._real_connect`
+IConnects to remote ADDR, and then wraps the connection in
+an SSL channel.FN
+  r0
+SSLSocket.connectz
+  r0
+SSLSocket.connect_ex
+Accepts a new connection from a remote client, and returns
+a tuple containing that new connection wrapped with a server-side
+SSL channel, and the address of the remote client.T)
+acceptrK
+newsockr
+SSLSocket.accept
+Nz({0} channel binding type not implemented)
+CHANNEL_BINDING_TYPESr
+  r0
+SSLSocket.get_channel_binding
+SSLSocket.version
+FTTNNNrh
+)4rH
+Return the time in seconds since the Epoch, given the timestring
+representing the "notBefore" or "notAfter" date from a certificate
+in ``"%b %d %H:%M:%S %Y %Z"`` strptime format (C locale).
+"notBefore" or "notAfter" dates must use UTC (RFC 5280).
+Month is one of: Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec
+UTC should be specified as GMT (see ASN1_TIME_print())
+strptime)
+timegm)
+Decz
+ %d %H:%M:%S %Y GMTNr
+time data z
+ does not match format "%b
+timer
+calendarr
+index
+titler
+cert_timer
+months
+time_format
+month_number
+       r0
+cert_time_to_secondsr
+-----BEGIN CERTIFICATE-----z
+-----END CERTIFICATE-----c
+o1X3S
+zWTakes a certificate in binary DER format and returns the
+PEM version of it as a string.
+ASCII
+strictr
+base64
+standard_b64encode
+PEM_HEADER
+ranger]
+PEM_FOOTER
+join)
+der_cert_bytes
+    r0
+DER_cert_to_PEM_certr
+zdTakes a certificate in ASCII PEM format and returns the
+DER-encoded version of it as a byte sequencez(Invalid PEM encoding; must start with %sz&Invalid PEM encoding; must end with %sr
+strip
+endswithr
+decodebytesrA
+pem_cert_string
+  r0
+PEM_cert_to_DER_certr
+Retrieve the certificate from the server at the specified address,
+and return it as a PEM-encoded string.
+If 'ca_certs' is specified, validate the server cert against it.
+If 'ssl_version' is specified, use it in the connection attempt.
+If 'timeout' is specified, use it in the connection attempt.
+_create_stdlib_contextr
+ssl_version
+ca_certsrg
+host
+portr
+sslsock
+dercerts
+           r0
+get_server_certificater 
+<unknown>)
+_PROTOCOL_NAMESr
+protocol_codes
+get_protocol_namer$
+)nre
+collectionsr
+enumr
+_Enumr
+_IntEnumr
+_IntFlagr
+ImportErrorr
+_convert_rH
+__members__
+itemsr"
+_SSLv2_IF_EXISTSrE
+socket_errorr
+HAS_NEVER_CHECK_COMMON_NAME
+_RESTRICTED_SERVER_CIPHERSr
+_create_default_https_contextr
+00r0
+<module>r3

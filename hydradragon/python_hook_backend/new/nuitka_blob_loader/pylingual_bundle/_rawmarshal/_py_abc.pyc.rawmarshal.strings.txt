@@ -1,0 +1,100 @@
+WeakSetc
+Returns the current ABC cache token.
+The token is an opaque object (supporting equality testing) identifying the
+current version of the ABC cache for virtual subclasses. The token changes
+with every call to ``register()`` on any ABC.
+ABCMeta
+_abc_invalidation_counter
+_py_abc.py
+get_cache_tokenr
+Metaclass for defining Abstract Base Classes (ABCs).
+Use this metaclass to create an ABC.  An ABC can be subclassed
+directly, and then acts as a mix-in class.  You can also register
+unrelated concrete classes (even built-in classes) and unrelated
+ABCs as 'virtual subclasses' -- these and their descendants will
+be considered subclasses of the registering ABC by the built-in
+issubclass() function, but the registering ABC won't show up in
+their MRO (Method Resolution Order) nor will method
+implementations defined by the registering ABC be callable (not
+even via super()).
+__isabstractmethod__F
+__abstractmethods__)
+super
+__new__
+items
+getattr
+frozensetr
+_abc_registry
+_abc_cache
+_abc_negative_cacher
+_abc_negative_cache_version)
+mcls
+name
+bases
+namespace
+kwargs
+value
+abstracts
+base
+__class__s
+         
+ABCMeta.__new__#
+zcRegister a virtual subclass of an ABC.
+Returns the subclass, to allow usage as a class decorator.
+Can only register classesz'Refusing to create an inheritance cycle
+isinstance
+type
+TypeError
+issubclass
+RuntimeErrorr
+subclasss
+register
+ABCMeta.register6
+z'Debug helper to print the ABC registry.z
+Class: 
+filez
+Inv. counter: 
+_abc_z
+: N)
+print
+__module__
+__qualname__r
+__dict__
+startswithr
+    r
+_dump_registry
+ABCMeta._dump_registryH
+z.Clear the registry (for debugging or testing).N)
+clear
+_abc_registry_clear
+ABCMeta._abc_registry_clearS
+z,Clear the caches (for debugging or testing).N)
+_abc_caches_clear
+ABCMeta._abc_caches_clearW
+z'Override for isinstance(instance, cls).TFc
+__subclasscheck__)
+<genexpr>
+,ABCMeta.__instancecheck__.<locals>.<genexpr>j
+any)
+instancer-
+subtypes
+`   r
+__instancecheck__
+ABCMeta.__instancecheck__\
+z'Override for issubclass(subclass, cls).z"issubclass() arg 1 must be a classTF
+__mro__r
+__subclasshook__
+NotImplemented
+boolr
+__subclasses__)
+rcls
+sclss
+     r
+ABCMeta.__subclasscheck__l
+__name__r5
+__firstlineno__
+__doc__r
+__static_attributes__
+__classcell__)
+_weakrefsetr
+<module>r`

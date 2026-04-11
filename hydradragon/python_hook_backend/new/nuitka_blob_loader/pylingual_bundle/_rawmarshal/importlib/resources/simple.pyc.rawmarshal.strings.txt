@@ -1,0 +1,87 @@
+Interface adapters for low-level readers.
+BinaryIO
+List
+Traversable
+TraversableResourcesc
+SimpleReader
+The minimum, low-level interface required from a resource
+provider.
+returnc
+The name of the package for which this reader loads resources.
+selfs
+importlib\resources\simple.py
+package
+SimpleReader.package
+Obtain an iterable of SimpleReader for available
+child containers (e.g. directories).
+children
+SimpleReader.children
+Obtain available named resources for this virtual package.
+resources
+SimpleReader.resources!
+resourcec
+Obtain a File-like for a named resource.
+open_binary
+SimpleReader.open_binary'
+splitr
+name
+SimpleReader.name-
+__name__
+__module__
+__qualname__
+__firstlineno__
+__doc__
+property
+abstractmethod
+strr
+__static_attributes__r
+ResourceContainer
+Traversable container for a package's resources via its reader.
+readerc
+__init__
+ResourceContainer.__init__7
+is_dir
+ResourceContainer.is_dir:
+is_file
+ResourceContainer.is_file=
+ResourceHandle)
+.0r#
+<genexpr>
+,ResourceContainer.iterdir.<locals>.<genexpr>A
+mapr0
+itertools
+chain)
+files
+dirss
+`  r
+iterdir
+ResourceContainer.iterdir@
+IsADirectoryError)
+args
+kwargss
+   r
+open
+ResourceContainer.openE
+Handle to a named resource in a ResourceReader.
+parentr#
+   r
+ResourceHandle.__init__N
+ResourceHandle.is_fileR
+ResourceHandle.is_dirU
+TextIOWrapper)
+moderQ
+streams
+     r
+ResourceHandle.openX
+Cannot traverse into a resource)
+RuntimeError)
+joinpath
+ResourceHandle.joinpath^
+TraversableReader
+A TraversableResources based on SimpleReader. Resource providers
+may derive from this class to provide the TraversableResources
+interface by supplying the SimpleReader interface.
+TraversableReader.filesi
+typingr
+ABCr
+<module>rq

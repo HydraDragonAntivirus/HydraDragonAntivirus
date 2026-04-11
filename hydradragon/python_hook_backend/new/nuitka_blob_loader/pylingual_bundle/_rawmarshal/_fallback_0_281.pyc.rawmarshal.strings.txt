@@ -1,0 +1,10 @@
+cr;u
+xscr;u
+xsqcup;z
+xuplus;z
+xutri;z
+xvee;z
+xwedge;
+Yacute;z
+yacute;z
+YAcy;u

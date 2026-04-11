@@ -1,0 +1,159 @@
+8A lexical analyzer class for simple shell-like syntaxes.
+deque)
+StringIO)
+shlex
+split
+quote
+joinc
+?abcdfeghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_u|
+();<>|&z
+~-./*?=)
+isinstance
+strr
+instream
+infile
+stdin
+posix
+commenters
+wordchars
+whitespace
+whitespace_split
+quotes
+escape
+escapedquotes
+stater
+pushback
+lineno
+debug
+token
+filestack
+source
+_punctuation_chars
+_pushback_chars
+maketrans
+dict
+fromkeys
+translate)
+selfr
+punctuation_chars
+      
+shlex.py
+__init__
+shlex.__init__
+shlex.punctuation_charsD
+z:Push a token onto the stack popped by the get_token methodr
+shlex: pushing token N)
+print
+reprr$
+appendleft)
+toks
+  r3
+push_token
+shlex.push_tokenH
+z9Push an input source onto the lexer's input source stack.r
+shlex: pushing to file z
+shlex: pushing to stream )
+newstream
+newfiles
+   r3
+push_source
+shlex.push_sourceN
+Pop the input source stack.z
+shlex: popping to %s, line %dr
+closer(
+popleftr
+pop_source
+shlex.pop_source\
+zBGet a token from the input stream (or from stack if it's nonempty)r
+shlex: popping token z
+shlex: token=z
+shlex: token=EOF)
+read_tokenr)
+sourcehookrE
+get_tokenr
+specrD
+      r3
+shlex.get_tokene
+X0R 
+OzX0l
+X R 
+X2:w
+OoX0R
+X0R 
+X0R 
+shlex: in state z
+ I see character: r
+z+shlex: I see whitespace in whitespace state
+cz shlex: I see EOF in quotes statez
+No closing quotationz shlex: I see EOF in escape statez
+No escaped character)
+z%shlex: I see whitespace in word statez&shlex: I see punctuation in word statez
+shlex: raw token=z
+shlex: raw token=EOF)
+popr
+readr%
+readliner!
+ValueErrorr"
+appendr$
+quoted
+escapedstate
+nextchar
+results
+     r3
+shlex.read_token
+z(Hook called on a filename to be sourced.r
+path
+isabsr
+dirname
+open)
+  r3
+shlex.sourcehook
+z<Emit a C-compiler-like, Emacs-friendly error-message leader.z
+"%s", line %d: )
+   r3
+error_leader
+shlex.error_leader 
+__iter__
+shlex.__iter__(
+StopIteration)
+  r3
+__next__
+shlex.__next__+
+NNFFr8
+__name__
+__module__
+__qualname__
+__firstlineno__
+__doc__r4
+propertyr1
+__static_attributes__rp
+z-Split the string *s* using shell-like syntax.z
+s argument must not be None)
+list)
+commentsr
+lexs
+    r3
+z3Return a shell-escaped string from *split_command*.r
+args
+  r3
+<genexpr>
+join.<locals>.<genexpr>>
+split_commands
+[^\w@%+=:,./-]c
+z1Return a shell-escaped version of the string *s*.z
+'"'"')
+_find_unsafe
+replace)
+Token: )
+lexer
+  r3
+_print_tokensr
+__main__r
+collectionsr
+__all__r
+compile
+ASCII
+searchr
+argv
+fnrj
+<module>r

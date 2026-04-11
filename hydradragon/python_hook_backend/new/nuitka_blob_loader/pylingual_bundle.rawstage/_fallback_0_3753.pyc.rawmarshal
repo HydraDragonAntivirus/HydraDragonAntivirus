@@ -1,4 +1,0 @@
-T
-f2py_cb_stop_call_clock();
-#endif
-    CFUNCSMESSPY("cb:capi_return=",ca

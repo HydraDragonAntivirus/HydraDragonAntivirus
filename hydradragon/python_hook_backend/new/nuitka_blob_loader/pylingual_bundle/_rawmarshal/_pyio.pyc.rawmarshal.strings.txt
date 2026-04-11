@@ -1,0 +1,1122 @@
+S \*5
+S"\.\-5
+S$\)5
+S&\'5
+S*\25
+S,\55
+\ r!
+\$\%5
+)/z)
+Python implementation of the io module.
+allocate_lock>
+win32
+cygwin)
+setmode)
+__all__
+SEEK_SET
+SEEK_CUR
+SEEK_END>
+SEEK_HOLEi
+gettotalrefcountc
+A helper function to choose the text encoding.
+When encoding is not None, this function returns it.
+Otherwise, this function returns the default text encoding
+(i.e. "locale" or "utf-8" depends on UTF-8 mode).
+This function emits an EncodingWarning if *encoding* is None and
+sys.flags.warn_default_encoding is true.
+This can be used in APIs with an encoding=None parameter
+that pass it to TextIOWrapper or open.
+However, please consider using encoding="utf-8" for new APIs.
+utf-8
+localer
+z"'encoding' argument not specified.r
+flags
+utf8_mode
+warn_default_encoding
+warnings
+warn
+EncodingWarning)
+encoding
+stacklevelr
+_pyio.py
+text_encodingr
+)!a`
+Open file and return a stream.  Raise OSError upon failure.
+file is either a text or byte string giving the name (and the path
+if the file isn't in the current working directory) of the file to
+be opened or an integer file descriptor of the file to be
+wrapped. (If a file descriptor is given, it is closed when the
+returned I/O object is closed, unless closefd is set to False.)
+mode is an optional string that specifies the mode in which the file is
+opened. It defaults to 'r' which means open for reading in text mode. Other
+common values are 'w' for writing (truncating the file if it already
+exists), 'x' for exclusive creation of a new file, and 'a' for appending
+(which on some Unix systems, means that all writes append to the end of the
+file regardless of the current seek position). In text mode, if encoding is
+not specified the encoding used is platform dependent. (For reading and
+writing raw bytes use binary mode and leave encoding unspecified.) The
+available modes are:
+========= ===============================================================
+Character Meaning
+--------- ---------------------------------------------------------------
+'r'       open for reading (default)
+'w'       open for writing, truncating the file first
+'x'       create a new file and open it for writing
+'a'       open for writing, appending to the end of the file if it exists
+'b'       binary mode
+'t'       text mode (default)
+'+'       open a disk file for updating (reading and writing)
+========= ===============================================================
+The default mode is 'rt' (open for reading text). For binary random
+access, the mode 'w+b' opens and truncates the file to 0 bytes, while
+'r+b' opens the file without truncation. The 'x' mode implies 'w' and
+raises an `FileExistsError` if the file already exists.
+Python distinguishes between files opened in binary and text modes,
+even when the underlying operating system doesn't. Files opened in
+binary mode (appending 'b' to the mode argument) return contents as
+bytes objects without any decoding. In text mode (the default, or when
+'t' is appended to the mode argument), the contents of the file are
+returned as strings, the bytes having been first decoded using a
+platform-dependent encoding or using the specified encoding if given.
+buffering is an optional integer used to set the buffering policy.
+Pass 0 to switch buffering off (only allowed in binary mode), 1 to select
+line buffering (only usable in text mode), and an integer > 1 to indicate
+the size of a fixed-size chunk buffer.  When no buffering argument is
+given, the default buffering policy works as follows:
+* Binary files are buffered in fixed-size chunks; the size of the buffer
+  is chosen using a heuristic trying to determine the underlying device's
+  "block size" and falling back on `io.DEFAULT_BUFFER_SIZE`.
+  On many systems, the buffer will typically be 4096 or 8192 bytes long.
+* "Interactive" text files (files for which isatty() returns True)
+  use line buffering.  Other text files use the policy described above
+  for binary files.
+encoding is the str name of the encoding used to decode or encode the
+file. This should only be used in text mode. The default encoding is
+platform dependent, but any encoding supported by Python can be
+passed.  See the codecs module for the list of supported encodings.
+errors is an optional string that specifies how encoding errors are to
+be handled---this argument should not be used in binary mode. Pass
+'strict' to raise a ValueError exception if there is an encoding error
+(the default of None has the same effect), or pass 'ignore' to ignore
+errors. (Note that ignoring encoding errors can lead to data loss.)
+See the documentation for codecs.register for a list of the permitted
+encoding error strings.
+newline is a string controlling how universal newlines works (it only
+applies to text mode). It can be None, '', '\n', '\r', and '\r\n'.  It works
+as follows:
+* On input, if newline is None, universal newlines mode is
+  enabled. Lines in the input can end in '\n', '\r', or '\r\n', and
+  these are translated into '\n' before being returned to the
+  caller. If it is '', universal newline mode is enabled, but line
+  endings are returned to the caller untranslated. If it has any of
+  the other legal values, input lines are only terminated by the given
+  string, and the line ending is returned to the caller untranslated.
+* On output, if newline is None, any '\n' characters written are
+  translated to the system default line separator, os.linesep. If
+  newline is '', no translation takes place. If newline is any of the
+  other legal values, any '\n' characters written are translated to
+  the given string.
+closedfd is a bool. If closefd is False, the underlying file descriptor will
+be kept open when the file is closed. This does not work when a file name is
+given and must be True in that case.
+The newly created file is non-inheritable.
+A custom opener can be used by passing a callable as *opener*. The
+underlying file descriptor for the file object is then obtained by calling
+*opener* with (*file*, *flags*). *opener* must return an open file
+descriptor (passing os.open as *opener* results in functionality similar to
+passing None).
+open() returns a file object whose type depends on the mode, and
+through which the standard file operations such as reading and writing
+are performed. When open() is used to open a file in a text mode ('w',
+'r', 'wt', 'rt', etc.), it returns a TextIOWrapper. When used to open
+a file in a binary mode, the returned class varies: in read binary
+mode, it returns a BufferedReader; in write binary and append binary
+modes, it returns a BufferedWriter, and in read/write mode, it returns
+a BufferedRandom.
+It is also possible to use a string or bytearray as a file for both
+reading and writing. For strings StringIO can be used like a file
+opened in a text mode, and for bytes a BytesIO can be used like a file
+opened in a binary mode.
+invalid file: %rz
+invalid mode: %rz
+invalid buffering: %rN
+invalid encoding: %r
+invalid errors: %rz
+axrwb+t
+bz'can't have text and binary mode at oncer
+z)can't have read/write/append mode at oncez/must have exactly one of read/write/append modez-binary mode doesn't take an encoding argumentz+binary mode doesn't take an errors argumentz+binary mode doesn't take a newline argumentr
+zaline buffering (buffering=1) isn't supported in binary mode, the default buffer size will be usedr
+openerF
+invalid buffering sizez
+can't have unbuffered text I/Oz
+unknown mode: %r)
+isinstance
+fspath
+bytes
+TypeError
+ValueErrorr
+RuntimeWarning
+FileIO
+isatty
+DEFAULT_BUFFER_SIZE
+fstat
+fileno
+st_blksize
+OSError
+AttributeError
+BufferedRandom
+BufferedWriter
+BufferedReaderr
+TextIOWrapper
+mode
+close)
+filerB
+bufferingr
+errors
+newline
+closefdr)
+modes
+creating
+reading
+writing
+appending
+updating
+text
+binaryr
+result
+line_buffering
+buffers
+                      r
+openrV
+;.N"
+)'N8
+A-N8
+?"N8
+Opens the provided file with mode ``'rb'``. This function
+should be used when the intent is to treat the contents as
+executable code.
+``path`` should be an absolute path.
+When supported by the runtime, this function can be hooked
+in order to allow embedders more control over code files.
+This functionality is not supported on the current runtime.
+Nz(_pyio.open_code() may not be using hooksr
+pathr
+_open_code_with_warningrZ
+UnsupportedOperationi4
+__name__
+__module__
+__qualname__
+__firstlineno__
+__static_attributes__r]
+IOBasei8
+The abstract base class for all I/O classes.
+This class provides dummy implementations for many methods that
+derived classes can override selectively; the default implementations
+represent a file that cannot be read, written or seeked.
+Even though IOBase does not declare read or write because
+their signatures will vary, implementations and clients should
+consider those methods part of the interface. Also, implementations
+may raise UnsupportedOperation when operations they do not support are
+called.
+The basic type used for binary data read from or written to a file is
+bytes. Other bytes-like objects are accepted as method arguments too.
+Text I/O classes work with str data.
+Note that calling any method (even inquiries) on a closed stream is
+undefined. Implementations may raise OSError in this case.
+IOBase (and its subclasses) support the iterator protocol, meaning
+that an IOBase object can be iterated over yielding the lines in a
+stream.
+IOBase also supports the :keyword:`with` statement. In this example,
+fp is closed after the suite of the with statement is complete:
+with open('spam.txt', 'r') as fp:
+    fp.write('Spam and eggs!')
+z@Internal: raise an OSError exception for unsupported operations.
+() not supported)
+__class__r^
+self
+names
+_unsupported
+IOBase._unsupportedZ
+Change stream position.
+Change the stream position to byte offset pos. Argument pos is
+interpreted relative to the position indicated by whence.  Values
+for whence are ints:
+* 0 -- start of stream (the default); offset should be zero or positive
+* 1 -- current stream position; offset may be negative
+* 2 -- end of stream; offset is usually negative
+Some operating systems / file systems could provide additional values.
+Return an int indicating the new absolute position.
+seekN
+whences
+   r
+IOBase.seeka
+z5Return an int indicating the current stream position.r
+tell
+IOBase.tellq
+ztTruncate file to size bytes.
+Size defaults to the current IO position as reported by tell().  Return
+the new size.
+truncateNrn
+IOBase.truncateu
+zeFlush write buffers, if applicable.
+This is not implemented for read-only and non-blocking streams.
+_checkClosedrt
+flush
+IOBase.flush
+zYFlush and close the IO object.
+This method has no effect if the file is already closed.
+_IOBase__closedr
+IOBase.close
+Destructor.  Calls close().N
+_dealloc_warn)
+closedr=
+getattrrC
+dealloc_warns
+   r
+__del__
+IOBase.__del__
+Return a bool indicating whether object supports random access.
+If False, seek(), tell() and truncate() will raise OSError.
+This method may need to do a test seek().
+seekable
+IOBase.seekable
+zEInternal: raise UnsupportedOperation if file is not seekable
+        Nz
+File or stream is not seekable.)
+msgs
+_checkSeekable
+IOBase._checkSeekable
+zfReturn a bool indicating whether object was opened for reading.
+If False, read() will raise OSError.
+readable
+IOBase.readable
+zEInternal: raise UnsupportedOperation if file is not readable
+        Nz
+File or stream is not readable.)
+_checkReadable
+IOBase._checkReadable
+zvReturn a bool indicating whether object was opened for writing.
+If False, write() and truncate() will raise OSError.
+writable
+IOBase.writable
+zEInternal: raise UnsupportedOperation if file is not writable
+        Nz
+File or stream is not writable.)
+_checkWritable
+IOBase._checkWritable
+zuclosed: bool.  True iff the file has been closed.
+For backwards compatibility, this is a property, not a predicate.
+IOBase.closed
+z7Internal: raise a ValueError if file is closed
+        N
+I/O operation on closed file.
+IOBase._checkClosed
+zCContext management protocol.  Returns self (an instance of IOBase).r}
+__enter__
+IOBase.__enter__
+z+Context management protocol.  Calls close()N)
+argss
+__exit__
+IOBase.__exit__
+Returns underlying file descriptor (an int) if one exists.
+An OSError is raised if the IO object does not use a file descriptor.
+IOBase.fileno
+zkReturn a bool indicating whether this is an 'interactive' stream.
+Return False if it can't be determined.
+IOBase.isatty
+O4XE-
+Read and return a line of bytes from the stream.
+If size is specified, at most size bytes will be read.
+Size should be an int.
+The line terminator is always b'\n' for binary files; for text
+files, the newlines argument to open can be used to select the line
+terminator(s) recognized.
+peekc
+findr3
+min)
+readahead
+sizes
+nreadahead
+#IOBase.readline.<locals>.nreadahead
+ is not an integerr
+hasattr
+__index__r=
+bytearrayr3
+read
+endswithr0
+size_index
+resr'
+``    r
+readline
+IOBase.readline
+__iter__
+IOBase.__iter__-
+StopIteration
+lines
+__next__
+IOBase.__next__1
+Return a list of lines from the stream.
+hint can be specified to control the number of lines read: no more
+lines will be read if the total size (in bytes/characters) of all
+lines so far exceeds hint.
+list
+appendr3
+hintr
+linesr
+     r
+readlines
+IOBase.readlines7
+Write a list of lines to the stream.
+Line separators are not added, so it is usual for each of the lines
+provided to have a line separator at the end.
+write)
+   r
+writelines
+IOBase.writelinesI
+__closed
+) r^
+__doc__rj
+propertyr
+metaclassc
+RawIOBaseiV
+Base class for raw binary I/O.c
+Read and return up to size bytes, where size is an int.
+Returns an empty bytes object on EOF, or None if the object is
+set not to block and has no data to read.
+readinto returned z
+ outside buffer size )
+readallr
+readintor3
+    r
+RawIOBase.readd
+z+Read until EOF, using multiple read() call.)
+datas
+   r
+RawIOBase.readallw
+Read bytes into a pre-allocated bytes-like object b.
+Returns an int representing the number of bytes read (0 for EOF), or
+None if the object is set not to block and has no data to read.
+RawIOBase.readinto
+Write the given buffer to the IO stream.
+Returns the number of bytes written, which may be less than the
+length of b in bytes.
+RawIOBase.write
+BufferedIOBasei
+Base class for buffered IO objects.
+The main difference with RawIOBase is that the read() method
+supports omitting the size argument, and does not have a default
+implementation that defers to readinto().
+In addition, read(), readinto() and write() may raise
+BlockingIOError if the underlying raw stream is in non-blocking
+mode and not ready; unlike their raw counterparts, they will never
+return None.
+A typical implementation should not inherit from a RawIOBase
+implementation, but wrap one.
+Read and return up to size bytes, where size is an int.
+If the argument is omitted, None, or negative, reads and
+returns all data until EOF.
+If the argument is positive, and the underlying raw stream is
+not 'interactive', multiple raw reads may be issued to satisfy
+the byte count (unless EOF is reached first).  But for
+interactive raw streams (XXX and for pipes?), at most one raw
+read will be issued, and a short result does not imply that
+EOF is imminent.
+Returns an empty bytes array on EOF.
+Raises BlockingIOError if the underlying raw stream has no
+data at the moment.
+BufferedIOBase.read
+zQRead up to size bytes with at most one read() system call,
+where size is an int.
+read1Nrn
+BufferedIOBase.read1
+Read bytes into a pre-allocated bytes-like object b.
+Like read(), this may issue multiple reads to the underlying raw
+stream, unless the latter is 'interactive'.
+Returns an int representing the number of bytes read (0 for EOF).
+Raises BlockingIOError if the underlying raw stream has no
+data at the moment.
+_readintor
+BufferedIOBase.readinto
+Read bytes into buffer *b*, using at most one system call
+Returns an int representing the number of bytes read (0 for EOF).
+Raises BlockingIOError if the underlying raw stream has no
+data at the moment.
+readinto1
+BufferedIOBase.readinto1
+memoryview
+castr
+     r
+BufferedIOBase._readinto
+Write the given bytes buffer to the IO stream.
+Return the number of bytes written, which is always the length of b
+in bytes.
+Raises BlockingIOError if the buffer is full and the
+underlying raw stream cannot accept more data at the moment.
+BufferedIOBase.write
+Separate the underlying raw stream from the buffer and return it.
+After the raw stream has been detached, the buffer is in an unusable
+state.
+detachNrn
+BufferedIOBase.detach
+_BufferedIOMixini
+A mixin implementation of BufferedIOBase with an underlying raw stream.
+This passes most requests on to the underlying raw stream.  It
+does *not* provide implementations of read(), readinto() or
+write().
+_raw
+__init__
+_BufferedIOMixin.__init__
+z#seek() returned an invalid position)
+new_positions
+    r
+_BufferedIOMixin.seek
+z#tell() returned an invalid position)
+_BufferedIOMixin.tell
+_BufferedIOMixin.truncate
+flush on closed file)
+_BufferedIOMixin.flush*
+_BufferedIOMixin.close/
+raw stream already detached)
+_BufferedIOMixin.detach7
+_BufferedIOMixin.seekableA
+_BufferedIOMixin.rawD
+_BufferedIOMixin.closedH
+_BufferedIOMixin.nameL
+_BufferedIOMixin.modeP
+cannot pickle z
+ object
+__getstate__
+_BufferedIOMixin.__getstate__T
+<{}.{} name={!r}>z
+<{}.{}>)
+formatr=
+modname
+clsnameri
+    r
+__repr__
+_BufferedIOMixin.__repr__W
+sourcer
+   r
+_BufferedIOMixin._dealloc_warna
+_BufferedIOMixin.filenog
+_BufferedIOMixin.isattyj
+BytesIOin
+z<Buffered I/O implementation using an in-memory bytes buffer.Nc
+_buffer
+_pos)
+initial_bytes
+bufs
+   r
+BytesIO.__init__v
+__getstate__ on closed file)
+__dict__
+copyrt
+BytesIO.__getstate__}
+z8Return the bytes value (contents) of the buffer
+        z
+getvalue on closed file)
+getvalue
+BytesIO.getvalue
+z;Return a readable and writable view of the buffer.
+        z
+getbuffer on closed file)
+getbuffer
+BytesIO.getbuffer
+clear
+superrC
+BytesIO.close
+read from closed filer*
+newposr'
+     r
+BytesIO.read
+z"This is the same as read.
+        )
+BytesIO.read1
+write to closed file
+ can't write str to binary streamr
+nbytesrK
+viewr
+paddings
+      r
+BytesIO.write
+seek on closed filer
+negative seek position r
+unsupported whence value)
+maxr3
+pos_indexs
+    r
+BytesIO.seek
+tell on closed file)
+BytesIO.tell
+truncate on closed filer
+negative truncate position )
+   r
+BytesIO.truncate
+BytesIO.readable
+BytesIO.writable
+BytesIO.seekable
+__classcell__
+BufferedReader(raw[, buffer_size])
+A buffer for a readable, sequential BaseRawIO object.
+The constructor creates a BufferedReader for the given readable raw
+stream and buffer_size. If buffer_size is omitted, DEFAULT_BUFFER_SIZE
+is used.
+zMCreate a new buffered reader using the given readable raw IO object.
+        z "raw" argument must be readable.r
+invalid buffer sizeN)
+buffer_size
+_reset_read_buf
+Lock
+_read_lock
+   r
+BufferedReader.__init__
+BufferedReader.readable
+_read_buf
+_read_posrt
+BufferedReader._reset_read_buf
+Read size bytes.
+Returns exactly size bytes of data unless the underlying raw IO
+stream reaches EOF or if the call would block in non-blocking
+mode. If size is negative, read until EOF or until read() would
+block.
+invalid number of bytes to read)
+_read_unlockedr
+BufferedReader.read
+XEXQ-
+joinrn
+nodata_val
+empty_valuesrM
+chunk
+chunks
+current_size
+avail
+wanted
+outs
+            r
+BufferedReader._read_unlocked)
+Returns buffered bytes without advancing the position.
+The argument indicates a desired minimal number of bytes; we
+do at most one raw read to satisfy it.  We never return more
+than self.buffer_size.
+peek of closed fileN)
+_peek_unlockedr
+BufferedReader.peek]
+want
+have
+to_read
+currents
+      r
+BufferedReader._peek_unlockedh
+z<Reads up to size bytes, with at most one read() system call.z
+read of closed filer
+BufferedReader.read1s
+OKX5-
+z2Read data into *buf* with at most one system call.z
+readinto of closed filer
+writtenr
+      r
+BufferedReader._readinto
+"D)F
+BufferedReader.tell
+invalid whence valuez
+seek of closed filer
+valid_seek_flagsr4
+   r
+BufferedReader.seek
+A buffer for a writeable sequential RawIO object.
+The constructor creates a BufferedWriter for the given writeable raw
+stream. If the buffer_size is not given, it defaults to
+DEFAULT_BUFFER_SIZE.
+Nz "raw" argument must be writable.r
+_write_bufr
+_write_lockr
+   r
+BufferedWriter.__init__
+BufferedWriter.writable
+_flush_unlocked
+extend
+BlockingIOError
+errno
+strerror)
+beforer
+overages
+      r
+BufferedWriter.write
+B;F#
+BufferedWriter.truncate
+BufferedWriter.flush
+zHself.raw should implement RawIOBase: it should not raise BlockingIOErrorz)write could not complete without blockingr
+z*write() returned incorrect number of bytes)
+RuntimeErrorr
+EAGAINr3
+BufferedWriter._flush_unlocked
+BufferedWriter.tell
+   r
+BufferedWriter.seek
+BufferedWriter.close
+BufferedRWPairi.
+A buffered reader and writer object together.
+A buffered reader object and buffered writer object put together to
+form a sequential IO object that can read and write. This is typically
+used with a socket or two-way pipe.
+reader and writer are RawIOBase objects that are readable and
+writeable respectively. If the buffer_size is omitted it defaults to
+DEFAULT_BUFFER_SIZE.
+z5Constructor.
+The arguments are two RawIO instances.
+z#"reader" argument must be readable.z#"writer" argument must be writable.N)
+readerr?
+writer)
+    r
+BufferedRWPair.__init__>
+BufferedRWPair.readL
+BufferedRWPair.readintoQ
+BufferedRWPair.writeT
+BufferedRWPair.peekW
+BufferedRWPair.read1Z
+BufferedRWPair.readinto1]
+BufferedRWPair.readable`
+BufferedRWPair.writablec
+BufferedRWPair.flushf
+BufferedRWPair.closei
+BufferedRWPair.isattyo
+BufferedRWPair.closedr
+A buffered interface to random access streams.
+The constructor creates a reader and writer for a seekable stream,
+raw, given in the first argument. If the buffer_size is omitted it
+defaults to DEFAULT_BUFFER_SIZE.
+   r
+BufferedRandom.__init__
+z seek() returned invalid position)
+   r
+BufferedRandom.seek
+BufferedRandom.tell
+BufferedRandom.truncate
+BufferedRandom.read
+BufferedRandom.readinto
+BufferedRandom.peek
+BufferedRandom.read1
+BufferedRandom.readinto1
+BufferedRandom.write
+FNTc
+Open a file.  The mode can be 'r' (default), 'w', 'x' or 'a' for reading,
+writing, exclusive creation or appending.  The file will be created if it
+doesn't exist when opened for writing or appending; it will be truncated
+when opened for writing.  A FileExistsError will be raised if it already
+exists when opened for creating. Opening a file for creating implies
+writing so this mode behaves in a similar way to 'w'. Add a '+' to the mode
+to allow simultaneous reading and writing. A custom opener can be used by
+passing a callable as *opener*. The underlying file descriptor for the file
+object is then obtained by calling opener with (*name*, *flags*).
+*opener* must return an open file descriptor (passing os.open as *opener*
+results in functionality similar to passing None).
+z$integer argument expected, got floatNz!bool is used as a file descriptorr
+negative file descriptorz
+invalid mode: z
+xrwab+c
+rwaxNr]
+<genexpr>
+"FileIO.__init__.<locals>.<genexpr>
+zKMust have exactly one of create/read/write/append mode and at most one plusr!
+O_BINARY
+O_NOINHERIT
+O_CLOEXECz'Cannot use closefd=False with file namei
+expected integer from openerz
+opener returned Fr;
+_closefdr-
+floatr1
+boolr
+count
+_created
+_writable
+O_EXCL
+O_CREAT
+_readable
+O_TRUNC
+_appending
+O_APPEND
+O_RDWR
+O_RDONLY
+O_WRONLYr
+set_inheritabler9
+stat
+S_ISDIR
+st_mode
+IsADirectoryErrorr
+EISDIRr
+_blksizer8
+_setmoder
+lseekr
+ESPIPE)
+noinherit_flag
+owned_fd
+fdfstatr
+            r
+FileIO.__init__
+?B+R/
++A"Q)
+A*R/
+unclosed file r
+ResourceWarning)
+   r
+FileIO._dealloc_warnI
+FileIO.__getstate__O
+<%s [closed]>
+ name=z
+ mode=z
+ closefd=
+<%s fd=%d mode=%r closefd=%r>)
+class_nameri
+   r
+FileIO.__repr__R
+<0B/
+File not open for reading)
+FileIO._checkReadable`
+File not open for writing)
+FileIO._checkWritabled
+Read at most size bytes, returned as bytes.
+Only makes one system call, so less data may be returned than requested
+In non-blocking mode, returns None if no data is available.
+Return an empty bytes object at EOF.
+FileIO.readh
+Read all data from the file, returned as bytes.
+In non-blocking mode, returns as much as is immediately available,
+or None if no data is available.  Return an empty bytes object at EOF.
+st_sizer<
+bufsizerp
+endrR
+       r
+FileIO.readallx
+Same as RawIOBase.readinto().r
+     r
+FileIO.readinto
+Write bytes b to file, return number written.
+Only makes one system call, so not all of the data may be written.
+The number of bytes actually written is returned.  In non-blocking mode,
+returns None if the write would block.
+FileIO.write
+Move to new file position.
+Argument offset is a byte count.  Optional argument whence defaults to
+SEEK_SET or 0 (offset from start of file, offset should be >= 0); other values
+are SEEK_CUR or 1 (move relative to current position, positive or negative),
+and SEEK_END or 2 (move relative to end of file, usually negative, although
+many platforms allow seeking beyond the end of a file).
+Note that not all file objects are seekable.
+an integer is required)
+   r
+FileIO.seek
+zQtell() -> int.  Current file position.
+Can raise OSError for non seekable files.r
+FileIO.tell
+Truncate the file to at most size bytes.
+Size defaults to the current file position, as returned by tell().
+The current file position is changed to the value of size.
+ftruncater
+FileIO.truncate
+Close the file.
+A closed file cannot be used for further I/O operations.  close() may be
+called more than once without error.
+FileIO.close
+z$True if file supports random-access.TF)
+_seekableru
+FileIO.seekable
+z'True if file was opened in a read mode.)
+FileIO.readable
+z(True if file was opened in a write mode.)
+FileIO.writable
+z3Return the underlying file descriptor (an integer).)
+FileIO.fileno
+z.True if the file is connected to a TTY device.)
+FileIO.isatty
+z6True if the file descriptor will be closed by close().)
+FileIO.closefd
+String giving the file modez
+rb+rX
+FileIO.mode
+)$r^
+TextIOBasei
+zbBase class for text I/O.
+This class provides a character and line based interface to stream
+I/O.
+Read at most size characters from stream, where size is an int.
+Read from underlying buffer until we have size characters or we hit EOF.
+If size is negative or omitted, read until EOF.
+Returns a string.
+TextIOBase.read%
+z.Write string s to stream and returning an int.r
+TextIOBase.write/
+z*Truncate size to pos, where pos is an int.rx
+TextIOBase.truncate3
+zORead until newline or EOF.
+Returns an empty string if EOF is hit immediately.
+TextIOBase.readline7
+Separate the underlying buffer from the TextIOBase and return it.
+After the underlying buffer has been detached, the TextIO is in an
+unusable state.
+TextIOBase.detach>
+Subclasses should override.Nr]
+TextIOBase.encodingG
+zzLine endings translated so far.
+Only line endings translated during reading are considered.
+Subclasses should override.
+newlines
+TextIOBase.newlinesL
+zEError setting of the decoder or encoder.
+Subclasses should override.Nr]
+TextIOBase.errorsV
+IncrementalNewlineDecoderi`
+Codec used when reading a file in universal newlines mode.  It wraps
+another incremental decoder, translating \r\n and \r into \n.  It also
+records the types of newlines encountered.  When used with
+translate=False, it ensures that the newline sequence is returned in
+one piece.
+codecs
+IncrementalDecoderr
+translate
+decoder
+seennl
+pendingcr)
+    r
+"IncrementalNewlineDecoder.__init__g
+final
+decoder
+_CRLFr
+replace)
+inputr
+output
+crlf
+       r
+ IncrementalNewlineDecoder.decoden
+getstater
+flags
+   r
+"IncrementalNewlineDecoder.getstate
+setstate)
+staterM
+    r
+"IncrementalNewlineDecoder.setstate
+resetrt
+IncrementalNewlineDecoder.reset
+"IncrementalNewlineDecoder.newlines
+strict)
+r"S 
+S/S!
+r$S"
+r%S#
+r&S.S$
+r'S%
+r(S0S&
+r)S.S'
+r*S(
+r+S.S)
+r-S+
+r.S,r/g
+)1rA
+Character and line based layer over a BufferedIOBase object, buffer.
+encoding gives the name of the encoding that the stream will be
+decoded or encoded with. It defaults to locale.getencoding().
+errors determines the strictness of encoding and decoding (see the
+codecs.register) and defaults to "strict".
+newline can be None, '', '\n', '\r', or '\r\n'.  It controls the
+handling of line endings. If it is None, universal newlines is
+enabled.  With this enabled, on input, the lines endings '\n', '\r',
+or '\r\n' are translated to '\n' before being returned to the
+caller. Conversely, on output, '\n' is translated to the system
+default line separator, os.linesep. If newline is any other of its
+legal values, that newline becomes the newline when the file is read
+and it is returned untranslated. On output, '\n' is converted to the
+newline.
+If line_buffering is True, a call to flush is implied when a call to
+write contains a newline character.
+zG%r is not a text encoding; use codecs.open() to handle arbitrary codecsr
+_check_newliner
+_get_locale_encodingr+
+lookup
+_is_text_encoding
+LookupError
+_CHECK_ERRORS
+lookup_errorrJ
+_decoded_chars
+_decoded_chars_used
+_snapshotrU
+_tellingr
+_has_read1
+_configure)
+write_throughr
+        r
+TextIOWrapper.__init__
+illegal newline type: )
+illegal newline value: )
+typer4
+TextIOWrapper._check_newline
+_encoding
+_errors
+_encoder
+_decoder
+_b2cratio
+_readuniversal
+_readtranslate
+_readnl
+_writetranslater-
+linesep
+_writenl
+_line_buffering
+_write_throughrW
+_get_encoderr
+positions
+       r
+TextIOWrapper._configure
+<{}.{}z
+ name={0!r}z
+ mode={0!r}z
+ encoding={0!r}>)
+    r
+TextIOWrapper.__repr__!
+TextIOWrapper.encoding2
+TextIOWrapper.errors6
+TextIOWrapper.line_buffering:
+TextIOWrapper.write_through>
+TextIOWrapper.bufferB
+zPReconfigure the text stream with new parameters.
+This also flushes the stream.
+NzPIt is not possible to set the encoding or newline of stream after the first readr
+Ellipsisr\
+      r
+reconfigure
+TextIOWrapper.reconfigureF
+TextIOWrapper.seekableq
+TextIOWrapper.readablev
+TextIOWrapper.writabley
+TextIOWrapper.flush|
+TextIOWrapper.close
+TextIOWrapper.closed
+TextIOWrapper.name
+TextIOWrapper.fileno
+TextIOWrapper.isatty
+Write data, where s is a strre
+can't write %s to text streamr
+encoderU
+_set_decoded_charsr
+length
+haslf
+encoderr'
+      r
+TextIOWrapper.write
+getincrementalencoderr
+make_encoders
+TextIOWrapper._get_encoder
+getincrementaldecoderr
+make_decoderr
+   r
+_get_decoder
+TextIOWrapper._get_decoder
+Set the _decoded_chars buffer.r
+charss
+ TextIOWrapper._set_decoded_chars
+z'Advance into the _decoded_chars buffer.N)
+offsetr
+    r
+_get_decoded_chars
+ TextIOWrapper._get_decoded_chars
+getencoding
+ImportError)
+"TextIOWrapper._get_locale_encoding
+z!Rewind the _decoded_chars buffer.z"rewind decoded_chars out of boundsN)
+AssertionErrorr
+_rewind_decoded_chars
+#TextIOWrapper._rewind_decoded_chars
+Read and decode the next chunk of data from the BufferedReader.
+no decoderr
+_CHUNK_SIZEr
+dec_buffer
+dec_flags
+input_chunk
+decoded_charss
+      r
+_read_chunk
+TextIOWrapper._read_chunk
+bytes_to_feed
+need_eof
+chars_to_skips
+      r
+_pack_cookie
+TextIOWrapper._pack_cookie
+pgX4U
+divmodr
+bigint
+restr
+        r
+_unpack_cookie
+TextIOWrapper._unpack_cookie
+!underlying stream is not seekablez(telling position disabled by next() callz
+pending decoded textr
+z'can't reconstruct logical file position)
+range)
+next_inputr 
+saved_state
+skip_bytes
+skip_backr
+start_pos
+start_flags
+bytes_fedr
+chars_decoded
+                   r
+TextIOWrapper.tell
+-B&J+
+A8J+
+TextIOWrapper.truncatey
+buffer is already detached)
+TextIOWrapper.detach
+pVpxn
+z9Reset the encoder (merely useful for proper BOM handling)r
+_reset_encoder
+*TextIOWrapper.seek.<locals>._reset_encoder
+z#can't do nonzero cur-relative seeksz#can't do nonzero end-relative seeksr(
+unsupported whence (
+z#can't restore logical file position)
+cookierq
+`          r
+TextIOWrapper.seek
+      r
+TextIOWrapper.read
+TextIOWrapper.__next__
+startrp
+endpos
+nlpos
+crposs
+         r
+TextIOWrapper.readline
+TextIOWrapper.newlinesU
+   r
+TextIOWrapper._dealloc_warnY
+NNNFFr
+)0r^
+StringIOi^
+Text I/O implementation using an in-memory buffer.
+The initial_value argument sets the value of object.  The newline
+argument is like the one of TextIOWrapper's constructor.
+surrogatepass)
+Fz*initial_value must be str or None, not {0}r
+initial_valuerG
+StringIO.__init__e
+old_states
+   r
+StringIO.getvalueu
+objectr:
+StringIO.__repr__
+StringIO.errors
+StringIO.encoding
+StringIO.detach
+NNNTN)7r
+abcr
+_threadr
+platform
+msvcrtr
+addr
+SEEK_DATAr8
+dev_moder
+staticmethodrV
+open_coder=
+ABCMetard
+registerr
+<module>ro

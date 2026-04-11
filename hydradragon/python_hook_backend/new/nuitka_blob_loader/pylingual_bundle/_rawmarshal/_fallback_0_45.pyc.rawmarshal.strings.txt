@@ -1,0 +1,47 @@
+.0F 
+Return a new object replacing specified fields with new values.
+This is especially useful for frozen classes.  Example usage::
+  @dataclass(frozen=True)
+  class C:
+      x: int
+      y: int
+  c = C(1, 2)
+  c1 = replace(c, x=3)
+  assert c1.x == 3 and c1.y == 2
+z1replace() should be called on dataclass instances)
+changess
+zC is declared with init=False, it cannot be specified with replace()z
+InitVar z! must be specified with replace()r
+   r
+reprlibr
+__all__r
+compiler
+frozenset
+NoneTyper:
+floatr
+complex
+bytes
+EllipsisType
+NotImplementedType
+CodeType
+BuiltinFunctionType
+FunctionTyperA
+range
+propertyr
+<module>r
+__doc__)
+date
+datetime
+time
+timedelta
+timezone
+tzinfo
+MINYEAR
+MAXYEAR
+UTCN)
+_datetimer
+ImportError
+_pydatetime
+__all__
+datetime.py
+<module>r

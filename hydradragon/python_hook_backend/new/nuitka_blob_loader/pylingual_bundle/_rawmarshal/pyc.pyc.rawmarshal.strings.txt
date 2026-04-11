@@ -1,0 +1,297 @@
+Sequence
+Iterable)
+total_orderingN)
+_get_object_traceback
+_get_tracesc
+%+.1f %sz
+%.1f %si
+%+.0f %sz
+%.0f %si
+abs)
+size
+sign
+units
+tracemalloc.py
+_format_sizer
+Statistic
+Statistic difference on memory allocations between two Snapshot instance.
+tracebackr
+countc
+selfr
+    r
+__init__
+Statistic.__init__%
+hashr
+__hash__
+Statistic.__hash__*
+isinstancer
+NotImplementedr
+others
+__eq__
+Statistic.__eq__-
+%s: size=%s, count=%iF
+, average=%s)
+text
+averages
+   r
+__str__
+Statistic.__str__4
+Nz)<Statistic traceback=%r size=%i count=%i>r
+__repr__
+Statistic.__repr__>
+_sort_key
+Statistic._sort_keyB
+__name__
+__module__
+__qualname__
+__firstlineno__
+__doc__
+__slots__r 
+__static_attributes__
+StatisticDiff
+Statistic difference on memory allocations between an old and a new
+Snapshot instance.
+size_diffr
+count_diffc
+      r
+StatisticDiff.__init__M
+StatisticDiff.__hash__T
+StatisticDiff.__eq__X
+Nz %s: size=%s (%s), count=%i (%+i)FTr/
+   r
+StatisticDiff.__str__a
+Nz9<StatisticDiff traceback=%r size=%i (%+i) count=%i (%+i)>rG
+StatisticDiff.__repr__m
+StatisticDiff._sort_keyr
+items
+poprE
+append)
+old_group
+new_group
+statisticsr
+stat
+previouss
+      r
+_compare_grouped_statsr`
+Frame
+Frame of a traceback.
+_framec
+frames
+Frame.__init__
+filename
+Frame.filename
+lineno
+Frame.lineno
+Frame.__eq__
+__lt__
+Frame.__lt__
+Frame.__hash__
+Frame.__str__
+<Frame filename=z
+ lineno=
+Frame.__repr__
+propertyrk
+Traceback
+Sequence of Frame instances sorted from the oldest frame
+to the most recent frame.
+_frames
+_total_nframeNc
+tuple
+reversedr
+frames
+total_nframes
+   r
+Traceback.__init__
+Traceback.total_nframe
+lenr
+__len__
+Traceback.__len__
+traces
+<genexpr>
+(Traceback.__getitem__.<locals>.<genexpr>
+slicer
+indexs
+__getitem__
+Traceback.__getitem__
+__contains__
+Traceback.__contains__
+Traceback.__hash__
+Traceback.__eq__
+Traceback.__lt__
+strr$
+Traceback.__str__
+<Traceback r
+ total_nframe=)
+Traceback.__repr__
+  File "z
+", line z
+    %s)
+linecache
+getline
+strip)
+limit
+most_recent_first
+lines
+frame_slicerh
+lines
+       r
+format
+Traceback.format
+Get the traceback where the Python object *obj* was allocated.
+Return a Traceback instance.
+Return None if the tracemalloc module is not tracing memory allocations or
+did not trace the allocation of the object.
+objr
+get_object_tracebackr
+Tracei
+Trace of a memory block.
+_tracec
+Trace.__init__
+domain
+Trace.domain
+Trace.size
+Trace.traceback#
+Trace.__eq__'
+Trace.__hash__,
+: F)
+Trace.__str__/
+<Trace domain=z
+ size=Fz
+, traceback=r
+Trace.__repr__2
+_Tracesi7
+_traces)
+tracess
+_Traces.__init__8
+_Traces.__len__=
+&_Traces.__getitem__.<locals>.<genexpr>B
+_Traces.__getitem__@
+_Traces.__contains__F
+_Traces.__eq__I
+<Traces len=%s>)
+_Traces.__repr__N
+.pyc
+path
+normcase
+endswith)
+_normalize_filenamer
+BaseFilteriY
+inclusive)
+BaseFilter.__init__Z
+NotImplementedErrorr
+_match
+BaseFilter._match]
+Filteria
+superr 
+_filename_patternrq
+all_framesr
+filename_patternrq
+__class__s
+      
+Filter.__init__b
+Filter.filename_patternk
+NFT)
+fnmatchr
+   r
+_match_frame_impl
+Filter._match_frame_implo
+   r
+_match_frame
+Filter._match_framex
+*Filter._match_traceback.<locals>.<genexpr>}
+anyr
+`   r
+_match_traceback
+Filter._match_traceback{
+p#pEU
+ress
+       r
+Filter._match
+NFN)
+__classcell__
+DomainFilteri
+_domain)
+DomainFilter.__init__
+DomainFilter.domain
+p#pEX R
+      r
+DomainFilter._match
+Snapshoti
+Snapshot of traces of memory blocks allocated by Python.
+traceback_limit)
+   r
+Snapshot.__init__
+Write the snapshot into a file.
+wbN)
+open
+pickle
+dump
+HIGHEST_PROTOCOL)
+   r
+Snapshot.dump
+Load a snapshot from a file.
+rbN)
+load)
+Snapshot.load
+trace_filterr
+)Snapshot._filter_trace.<locals>.<genexpr>
+include_filters
+exclude_filtersr
+   `r
+_filter_trace
+Snapshot._filter_trace
+Create a new Snapshot instance with a filtered traces sequence, filters
+is a list of Filter or DomainFilter instances.  If filters is an empty
+list, return a new Snapshot instance with a copy of the traces.
+z)filters must be a list of filters, not %s)
+TypeError
+typer<
+copyr(
+filtersr?
+new_tracess
+       r
+filter_traces
+Snapshot.filter_traces
+unknown key_type: )
+z/cumulative mode cannot by used with key type %rr
+ValueErrorr
+KeyErrorr
+key_type
+cumulative
+stats
+tracebacksr
+trace_tracebackr
+              r
+_group_by
+Snapshot._group_by
+ .D4
+59D1
+Group statistics by key_type. Return a sorted list of Statistic
+instances.
+reverse
+key)
+list
+values
+sortr
+groupedr]
+     r
+Snapshot.statistics
+Compute the differences with an old snapshot old_snapshot. Get
+statistics as a sorted list of StatisticDiff instances, grouped by
+group_by.
+old_snapshotrN
+       r
+compare_to
+Snapshot.compare_to
+staticmethodr6
+Take a snapshot of traces of memory blocks allocated by Python.
+zLthe tracemalloc module must be tracing memory allocations to take a snapshot)
+is_tracing
+RuntimeErrorr
+get_traceback_limitr(
+take_snapshotrg
+collections.abcr
+functoolsr
+os.pathr
+_tracemallocr
+<module>rl

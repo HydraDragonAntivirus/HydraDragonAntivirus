@@ -1,0 +1,58 @@
+errors)
+SystemLog
+stderrr
+stdout)
+log_write
+stdout_level
+stderr_levels
+_apple_support.py
+init_streamsr
+encodingz
+UTF-8
+line_bufferingT)
+setdefault
+super
+__init__
+LogStream)
+selfr
+level
+kwargs
+__class__s
+    
+SystemLog.__init__
+<SystemLog (level 
+bufferr
+__repr__
+SystemLog.__repr__
+Nz"write() argument must be str, not T)
+keepends)
+isinstance
+TypeError
+type
+__name__
+__str__
+splitlinesr
+write
+len)
+liner
+SystemLog.write
+__module__
+__qualname__
+__firstlineno__r
+__static_attributes__
+__classcell__)
+   r
+LogStream.__init__(
+<LogStream (level r
+LogStream.__repr__,
+NTr1
+writable
+LogStream.writable/
+Nz)write() argument must be bytes-like, not 
+bytes
+memoryviewr'
+replacer-
+LogStream.write2
+TextIOWrapperr
+RawIOBaser
+<module>rJ

@@ -1,0 +1,519 @@
+K!J r  
+r$\$4
+S K!J%r% 
+S#K!J&r& 
+S%\#5
+r'S&
+r(S'
+r+\#"
+r/S;S-
+r0S.
+S/K!J1r1 
+r2S1
+r3S<S3
+r4S4
+r5S5
+r6S6
+r8\#"
+r:g2!
+)=zEfunctools.py - Tools for working with functions and callable objects
+update_wrapper
+wraps
+WRAPPER_ASSIGNMENTS
+WRAPPER_UPDATES
+total_ordering
+cache
+cmp_to_key
+lru_cache
+reduce
+partial
+partialmethod
+singledispatch
+singledispatchmethod
+cached_property
+get_cache_token)
+namedtuple)
+recursive_repr)
+RLock)
+__module__
+__name__
+__qualname__
+__doc__
+__annotations__
+__type_params__)
+__dict__c
+Update a wrapper function to look like the wrapped function
+wrapper is the function to be updated
+wrapped is the original function
+assigned is a tuple naming the attributes assigned directly
+from the wrapped function to the wrapper function (defaults to
+functools.WRAPPER_ASSIGNMENTS)
+updated is a tuple naming the attributes of the wrapper that
+are updated with the corresponding attribute from the wrapped
+function (defaults to functools.WRAPPER_UPDATES)
+getattr
+setattr
+AttributeError
+update
+__wrapped__)
+wrapper
+wrapped
+assigned
+updated
+attr
+values
+      
+functools.pyr
+Decorator factory to apply update_wrapper() to a wrapper function
+Returns a decorator that invokes update_wrapper() with the decorated
+function as the wrapper argument and the arguments to wraps() as the
+remaining arguments. Default arguments are as for update_wrapper().
+This is a convenience function to simplify applying partial() to
+update_wrapper().
+   r(
+zIReturn a > b.  Computed by @total_ordering from (not a < b) and (a != b).
+type
+__lt__
+NotImplemented
+self
+other
+op_results
+   r(
+_gt_from_ltr5
+zEReturn a <= b.  Computed by @total_ordering from (a < b) or (a == b).r-
+   r(
+_le_from_ltr8
+z=Return a >= b.  Computed by @total_ordering from (not a < b).r-
+   r(
+_ge_from_ltr;
+zJReturn a >= b.  Computed by @total_ordering from (not a <= b) or (a == b).
+__le__r0
+   r(
+_ge_from_ler@
+zFReturn a < b.  Computed by @total_ordering from (a <= b) and (a != b).r>
+   r(
+_lt_from_lerC
+z=Return a > b.  Computed by @total_ordering from (not a <= b).r>
+   r(
+_gt_from_lerF
+zIReturn a < b.  Computed by @total_ordering from (not a > b) and (a != b).
+__gt__r0
+   r(
+_lt_from_gtrJ
+zEReturn a >= b.  Computed by @total_ordering from (a > b) or (a == b).rH
+   r(
+_ge_from_gtrL
+z=Return a <= b.  Computed by @total_ordering from (not a > b).rH
+   r(
+_le_from_gtrN
+zJReturn a <= b.  Computed by @total_ordering from (not a >= b) or (a == b).
+__ge__r0
+   r(
+_le_from_gerR
+zFReturn a > b.  Computed by @total_ordering from (a >= b) and (a != b).rP
+   r(
+_gt_from_gerT
+z=Return a < b.  Computed by @total_ordering from (not a >= b).rP
+   r(
+_lt_from_gerV
+pEXB;
+z6Class decorator that fills in missing ordering methodsNz6must define at least one ordering operation: < > <= >=)
+_convertr
+object
+ValueError
+maxr
+roots
+root
+opname
+opfuncs
+      r(
+z,Convert a cmp= function into a key= functionc
+cmp_to_key.<locals>.K
+objc
+  r(
+__init__
+cmp_to_key.<locals>.K.__init__
+mycmps
+cmp_to_key.<locals>.K.__lt__
+cmp_to_key.<locals>.K.__gt__
+__eq__
+cmp_to_key.<locals>.K.__eq__
+cmp_to_key.<locals>.K.__le__
+cmp_to_key.<locals>.K.__ge__
+__firstlineno__
+__slots__ri
+__hash__
+__static_attributes__)
+cmp_to_key.<locals>.K
+` r(
+reduce(function, iterable[, initial], /) -> value
+Apply a function of two arguments cumulatively to the items of an iterable, from left to right.
+This effectively reduces the iterable to a single value.  If initial is present,
+it is placed before the items of the iterable in the calculation, and serves as
+a default when the iterable is empty.
+For example, reduce(lambda x, y: x+y, [1, 2, 3, 4, 5])
+calculates ((((1 + 2) + 3) + 4) + 5).
+z0reduce() of empty iterable with no initial valueN)
+iter
+_initial_missing
+next
+StopIteration
+TypeError)
+function
+sequence
+initial
+itr'
+elements
+      r(
+zKNew function with partial application of the given arguments
+and keywords.
+func
+args
+keywordsr
+__weakref__c
+Nz#the first argument must be callable)
+callabler
+isinstancer
+super
+__new__)
+__class__s
+     
+partial.__new__
+   r(
+__call__
+partial.__call__.
+repr)
+  r(
+<genexpr>
+#partial.__repr__.<locals>.<genexpr>8
+   r(
+extendr
+items
+join)
+qualname
+moduler
+     r(
+__repr__
+partial.__repr__2
+functools.partial will be a method descriptor in future Python versions; wrap it in staticmethod() if you want to preserve the old behavior
+warnings
+warn
+FutureWarning)
+objtyper
+    r(
+__get__
+partial.__get__<
+__reduce__
+partial.__reduce__F
+p#pE[
+Nz(argument to __setstate__ must be a tuple
+expected 4 items in state, got z
+invalid partial state)
+tupler
+lenr
+dictr.
+stater
+kwds
+namespaces
+      r(
+__setstate__
+partial.__setstate__J
+classmethod
+GenericAlias
+__class_getitem__r~
+__classcell__)
+Method descriptor with partial application of the given arguments
+and keywords.
+Supports wrapping existing descriptors and handles non-descriptor
+callables as instance methods.
+z${!r} is not callable or a descriptor)
+hasattrr
+formatr
+    r(
+partialmethod.__init__s
+   r(
+)partialmethod.__repr__.<locals>.<genexpr>
+mapr
+     r(
+partialmethod.__repr__
+cls_or_selfr
+_method
+3partialmethod._make_unbound_method.<locals>._method
+__isabstractmethod__
+__partialmethod__)
+` r(
+_make_unbound_method
+"partialmethod._make_unbound_method
+__self__r
+result
+new_funcs
+      r(
+partialmethod.__get__
+"partialmethod.__isabstractmethod__
+propertyr
+_unwrap_partialr
+prevs
+  r(
+_unwrap_partialmethodr
+CacheInfo)
+hits
+misses
+maxsize
+currsizec
+_HashedSeqi
+This class guarantees that hash() will be called no more than once
+per element.  This is important because the lru_cache() will hash
+the key multiple times on a cache miss.
+hashvaluec
+hashs
+   r(
+_HashedSeq.__init__
+_HashedSeq.__hash__
+Make a cache key from optionally typed positional and keyword arguments
+The key is constructed in a way that is flat as possible rather than
+as a nested structure that would take more memory.
+If there is only a single argument and its data type is known to cache
+its hash value, then that argument is returned without a wrapper.  This
+saves space and improves lookup speed.
+_make_key.<locals>.<genexpr>
+valuesr
+typed
+kwd_mark
+fasttypesr
+items
+      `   r(
+_make_keyr
+Least-recently-used cache decorator.
+If *maxsize* is set to None, the LRU features are disabled and the cache
+can grow without bound.
+If *typed* is True, arguments of different types will be cached separately.
+For example, f(decimal.Decimal("3.0")) and f(3.0) will be treated as
+distinct calls with distinct results. Some types such as str and int may
+be cached separately even when typed is false.
+Arguments to the cached function must be hashable.
+View the cache statistics named tuple (hits, misses, maxsize, currsize)
+with f.cache_info().  Clear the cache and statistics with f.cache_clear().
+Access the underlying function with f.__wrapped__.
+See:  https://en.wikipedia.org/wiki/Cache_replacement_policies#Least_recently_used_(LRU)
+<lambda>
+lru_cache.<locals>.<lambda>
+,Pr+
+z=Expected first argument to be an integer, a callable, or Nonec
+8lru_cache.<locals>.decorating_function.<locals>.<lambda>"
+_lru_cache_wrapper
+_CacheInfo
+cache_parametersr
+user_functionr"
+decorating_function
+&lru_cache.<locals>.decorating_function 
+intr
+boolr
+``   r(
+#_lru_cache_wrapper.<locals>.wrapper8
+cache_getr
+make_keyr
+sentinelr
+    
+pEpgXTT
+link
+link_prev
+link_next
+_keyr
+last
+oldroot
+oldkey
+oldresult
+NEXT
+PREV
+RESULTr
+cache_len
+fullr
+lockr,
+            
+Report cache statisticsNr
+cache_info
+&_lru_cache_wrapper.<locals>.cache_info
+z$Clear the cache and cache statisticsNr
+clear)
+cache_clear
+'_lru_cache_wrapper.<locals>.cache_clear
+__len__r
+````   @@@@@@@@@@@@@@r(
+z@Simple lightweight unbounded cache.  Sometimes called "memoize".N)
+z|Merges MROs in *sequences* to a single MRO using the C3 algorithm.
+Adapted from https://docs.python.org/3/howto/mro.html.
+Inconsistent hierarchy)
+RuntimeError
+append)
+sequencesr
+candidate
+seqs
+       r(
+_c3_mergerP
+Computes the method resolution order using extended C3 linearization.
+If no *abcs* are given, the algorithm works exactly like the built-in C3
+linearization used for method resolution.
+If given, *abcs* is a list of abstract base classes that should be inserted
+into the resulting MRO. Unrelated ABCs are ignored and don't end up in the
+result. The algorithm inserts ABCs where their functionality is introduced,
+i.e. issubclass(cls, abc) returns True for the class itself but returns
+False for all its direct base classes. Implicit ABCs for a given class
+(either registered or inferred from the presence of a special method like
+__len__) are inserted directly after the last ABC explicitly listed in the
+MRO of said class. If two implicit ABCs end up next to each other in the
+resulting MRO, their ordering depends on the order of types in *abcs*.
+__abstractmethods__r
+issubclass)
+bases
+_c3_mro.<locals>.<genexpr>
+abcs)
+enumerate
+reversed
+__bases__r
+listrT
+anyrI
+remove
+_c3_mrorP
+boundary
+explicit_bases
+abstract_bases
+other_basesrV
+explicit_c3_mros
+abstract_c3_mros
+other_c3_mross
+       `   r(
+Calculates the method resolution order for a given class *cls*.
+Includes relevant abstract base classes (with their respective bases) from
+the *types* iterable. Uses a modified C3 linearization algorithm.
+__mro__)
+basesr\
+is_related
+ _compose_mro.<locals>.is_related
+NTF)
+typess
+is_strict_base
+$_compose_mro.<locals>.is_strict_base
+reverserX
+setrk
+__subclasses__rT
+sortr
+type_set
+mrorl
+found
+subrK
+subclsrm
+``          @r(
+_compose_mror~
+Returns the best matching implementation from *registry* for type *cls*.
+Where there is no registered implementation for a specific type, its method
+resolution order is used to find a more generic implementation.
+Note: if *registry* does not contain an implementation for the base
+*object* type, this function may return None.
+Ambiguous dispatch: {} or {})
+keysrk
+registryrz
+match
+     r(
+_find_implr
+Single-dispatch generic function decorator.
+Transforms a function into a generic function, which can have different
+behaviours depending upon the type of its first argument. The decorated
+function acts as the default implementation, and additional
+implementations can be registered using the register() attribute of the
+generic function.
+generic_func.dispatch(cls) -> <function implementation>
+Runs the dispatch algorithm to return the best available implementation
+for the given *cls* registered on *generic_func*.
+KeyErrorr
+current_token
+impl
+cache_token
+dispatch_cacher
+dispatch
+ singledispatch.<locals>.dispatchL
+get_origin
+Union)
+typingr
+UnionType)
+_is_union_type
+&singledispatch.<locals>._is_union_typec
+get_argsc
+args
+  r(
+Bsingledispatch.<locals>._is_valid_dispatch_type.<locals>.<genexpr>l
+all)
+_is_valid_dispatch_type
+/singledispatch.<locals>._is_valid_dispatch_typeg
+zsgeneric_func.register(cls, func) -> func
+Registers a new implementation for the given *cls* on a *generic_func*.
+registers
+2singledispatch.<locals>.register.<locals>.<lambda>w
+!1r+
+z(Invalid first argument to `register()`. z
+ is not a class or union type.r
+z(Invalid first argument to `register()`: zS. Use either `@register(some_class)` or plain `@register` on an annotated function.r
+get_type_hintsz
+Invalid annotation for z
+ not all arguments are classes.z
+ is not a class.r
+annr
+argnamer
+`      
+ singledispatch.<locals>.registern
+Nz( requires at least 1 positional argumentr
+funcnames
+singledispatch.<locals>.wrapper
+singledispatch functionrg
+weakref
+WeakKeyDictionaryr
+MappingProxyTyper
+_clear_cacher
+   @@@@@@@@@r(
+zTSingle-dispatch generic method descriptor.
+Supports wrapping existing descriptors.
+z  is not callable or a descriptor)
+dispatcherr
+  r(
+singledispatchmethod.__init__
+zvgeneric_method.register(cls, func) -> func
+Registers a new implementation for the given *cls* on a *generic_method*.
+methods
+   r(
+singledispatchmethod.register
+singledispatchmethod methodc
+kwargsr\
+-singledispatchmethod.__get__.<locals>._method
+ `` @@r(
+singledispatchmethod.__get__
+)singledispatchmethod.__isabstractmethod__
+attrnamer
+  r(
+cached_property.__init__
+Nz?Cannot assign the same cached_property to two different names (z
+ and z
+owner
+names
+   r(
+__set_name__
+cached_property.__set_name__
+NzGCannot use cached_property instance without calling __set_name__ on it.z
+No '__dict__' attribute on z
+ instance to cache z
+ property.z
+The '__dict__' attribute on z7 instance does not support item assignment for caching )
+_NOT_FOUNDr
+instancer
+vals
+      r(
+cached_property.__get__
+8?B7
+:?C9
+__all__
+abcr
+collectionsr
+reprlibr
+_threadr
+_functools
+ImportErrorrY
+strr
+<module>r

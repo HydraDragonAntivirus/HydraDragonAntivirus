@@ -1,0 +1,204 @@
+annotationsNc
+Command
+bool
+finishT
+kills_digit_argc
+reader
+event
+event_name)
+selfr
+    
+_pyrepl\commands.py
+__init__
+Command.__init__,
+Command.do7
+HistoricalReaderr
+strr
+list[str]
+return
+None
+__name__
+__module__
+__qualname__
+__firstlineno__r
+__annotations__r
+__static_attributes__r
+KillCommand
+buffer
+is_kill
+last_command
+kill_ring
+append
+dirty)
+start
+texts
+      r
+kill_range
+KillCommand.kill_range<
+intr2
+YankCommand
+MotionCommand
+EditCommand
+FinishCommand
+issubclassr&
+commands
+is_yankrM
+digit_arg
+argr8
+    r
+digit_arg.dom
+clear_screen
+console
+clearr0
+clear_screen.do
+refresh
+refresh.do
+repaint
+repaint.do
+kill_line
+eolr-
+isspacer6
+     r
+kill_line.do
+unix_line_discard
+bolr-
+unix_line_discard.do
+unix_word_rubout
+range
+get_argr6
+bowr-
+   r
+unix_word_rubout.do
+kill_word
+eowr
+   r
+kill_word.do
+backward_kill_word
+   r
+backward_kill_word.do
+yank
+nothing to yankr)
+error
+insertr_
+yank.do
+yank_pop
+previous command was not a yankr)
+lenr
+popr-
+repl
+     r
+yank_pop.do
+interrupt
+signalr
+kill
+getpid
+SIGINT)
+interrupt.do
+ctrl_c
+KeyboardInterruptr
+ctrl_c.do
+suspend
+SIGSTOP
+preparer0
+screen)
+    r
+suspend.do
+start of bufferc
+<genexpr>
+up.do.<locals>.<genexpr>
+pos2xyry
+historyi
+select_itemr-
+max_column
+anyr*
+setpos_from_xy)
+new_y
+new_xs
+       r
+up.do
+downi
+end of bufferc
+down.do.<locals>.<genexpr>,
+historyr
+        r
+down.do
+lefti5
+    r
+left.do6
+righti@
+     r
+right.doA
+beginning_of_lineiL
+beginning_of_line.doM
+end_of_lineiQ
+end_of_line.doR
+homeiV
+home.doW
+end.do\
+forward_wordi`
+   r
+forward_word.doa
+backward_wordig
+   r
+backward_word.doh
+self_insertin
+   r
+self_insert.doo
+insert_nliu
+insert_nl.dov
+transpose_charactersi{
+z#cannot transpose at start of bufferT)
+minr
+      r
+transpose_characters.do|
+backspacei
+can't backspace at start)
+    r
+backspace.do
+deletei
+endswithr
+update_screenr]
+EOFErrorr
+    r
+delete.do
+accepti
+accept.do
+helpi
+_sitebuiltinsr
+_Helper
+msg)
+help.do
+invalid_keyi
+`%r' not bound)
+getpending
+joinr
+datar
+pendingr
+   r
+invalid_key.do
+invalid_commandi
+command `%s' not known)
+invalid_command.do
+show_historyi
+get_pagerr
+gethistoryfile)
+pagerr9
+siter:
+linesepr.
+restorer
+copy
+posxy)
+     r
+show_history.do
+paste_modei
+paste_mode.do
+enable_bracketed_pastei
+in_bracketed_paster
+enable_bracketed_paste.do
+disable_bracketed_pastei
+NFT)
+disable_bracketed_paste.do
+type[Command] | Noner
+__future__r
+historical_readerr
+<module>rR

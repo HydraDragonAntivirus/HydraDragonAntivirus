@@ -1,3 +1,0 @@
-YARRAYTEMPLATE(ctype,typecode)\
-        PyArrayObject *arr = NULL;\
-        if (

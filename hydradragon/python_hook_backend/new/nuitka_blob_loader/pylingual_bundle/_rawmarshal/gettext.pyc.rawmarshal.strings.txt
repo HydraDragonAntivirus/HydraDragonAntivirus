@@ -1,0 +1,302 @@
+r S*S
+r"S 
+r#S!
+r$S"
+r%S#
+r&S$
+r'S%
+r(S&
+Internationalization and localization support.
+This module provides internationalization (I18N) and localization (L10N)
+support for your Python programs by providing an interface to the GNU gettext
+message catalog library.
+I18N refers to the operation by which a program is made aware of multiple
+languages.  L10N refers to the adaptation of your program, once
+internationalized, to the local language and cultural habits.
+NullTranslations
+GNUTranslations
+Catalog
+bindtextdomain
+find
+translation
+install
+textdomain
+dgettext
+dngettext
+gettext
+ngettext
+pgettext
+dpgettext
+npgettext
+dnpgettext
+share
+localea
+        (?P<WHITESPACES>[ \t]+)                    | # spaces and horizontal tabs
+        (?P<NUMBER>[0-9]+\b)                       | # decimal integer
+        (?P<NAME>n\b)                              | # only n is allowed
+        (?P<PARENTHESIS>[()])                      |
+        (?P<OPERATOR>[-*/%+?:]|[><!]=?|==|&&|\|\|) | # !, *, /, %, +, -, <, >,
+                                                     # <=, >=, ==, !=, &&, ||,
+                                                     # ? :
+                                                     # unary and bitwise ops
+                                                     # not allowed
+        (?P<INVALID>\w+|.)                           # invalid token
+    c
+WHITESPACES
+INVALIDz invalid token in plural form: %s
+finditer
+_token_pattern
+lastgroup
+group
+ValueError)
+plural
+kind
+values
+    
+gettext.py
+_tokenizer$
+A%A'
+Nz#unexpected token in plural form: %sz
+unexpected end of plural form)
+_errorr&
+andz
+not 
+)z%unbalanced parenthesis in plural form
+%s%d
+(%s)r1
+ if z
+ else )
+next
+_parser
+intr&
+_binary_ops
+_c2py_ops
+get)
+tokens
+priority
+result
+nexttok
+subr"
+right
+if_true
+if_falses
+            r#
+%Plural value must be an integer, got )
+round
+TypeError
+__class__
+__name__
+_as_int2
+_as_intrY
+operator
+indexrT
+warnings
+_getframe
+f_back
+f_globalsrE
+warnrU
+DeprecationWarning)
+frame
+stacklevels
+    r#
+Gets a C expression as used in PO files for plural forms and returns a
+Python function that implements an equivalent expression.
+z"plural form expression is too longr
+z%plural form expression is too complexr7
+if True:
+            def func(n):
+                if not isinstance(n, int):
+                    n = _as_int(n)
+                return int(%s)
+            
+func)
+lenr
+exec
+RecursionError)
+depth
+      r#
+c2pyrp
+normalizer
+range
+append
+reverse)
+locr
+COMPONENT_CODESET
+COMPONENT_TERRITORY
+COMPONENT_MODIFIER
+mask
+modifier
+codeset
+territory
+language
+retrL
+vals
+              r#
+_expand_langr
+_info
+_charset
+_fallbackrA
+self
+  r#
+__init__
+NullTranslations.__init__
+  r#
+NullTranslations._parse
+add_fallback)
+fallbacks
+  r#
+NullTranslations.add_fallback
+messages
+  r#
+NullTranslations.gettext"
+msgid1
+msgid2r8
+    r#
+NullTranslations.ngettext'
+contextr
+   r#
+NullTranslations.pgettext0
+     r#
+NullTranslations.npgettext5
+info
+NullTranslations.info>
+charset
+NullTranslations.charsetA
+builtinsr
+__dict__
+getattr)
+namesr
+allowed
+names
+     r#
+NullTranslations.installD
+__module__
+__qualname__
+__firstlineno__r
+__static_attributes__r
+z/Returns a tuple of major version, minor version
+versions
+  r#
+_get_versions
+GNUTranslations._get_versionsY
+O.XpR
+z8Override this method to support alternative .mo formats.r
+unpackr
+<lambda>
+(GNUTranslations._parse.<locals>.<lambda>f
+<INr<
+<4Irh
+<IIz
+>4Iz
+>IIz
+Bad magic numberz
+Bad version number 
+File is corrupt
+#-#-#-#-#r?
+content-typez
+charset=z
+plural-forms
+plural=
+ascii
+structr
+_catalogr
+readrj
+LE_MAGIC
+BE_MAGIC
+OSErrorr
+VERSIONS
+strrv
+split
+decode
+strip
+startswith
+endswith
+lowerr
+enumerate)"r
+filename
+catalog
+buflen
+magicr
+msgcount
+masteridx
+transidx
+major_version
+minor_versionrL
+mlen
+moff
+mend
+tlen
+toff
+tend
+tmsg
+lastk
+b_item
+item
+                                  r#
+GNUTranslations._parse]
+objectr
+missingr
+    r#
+GNUTranslations.gettext
+KeyErrorr
+     r#
+GNUTranslations.ngettext
+CONTEXTr
+ctxt_msg_idr
+      r#
+GNUTranslations.pgettext
+       r#
+GNUTranslations.npgettext
+LANGUAGE
+LC_ALL
+LC_MESSAGES
+LANGr?
+%s.mo)
+_default_localedir
+environrE
+path
+join
+exists)
+domain
+localedir
+languages
+envarr
+nelangs
+lang
+nelangrH
+mofiles
+           r#
+ENOENTz$No translation file found for domain
+errnor
+FileNotFoundErrorr
+abspath
+_translationsrE
+open
+setdefault
+copyr
+class_r
+mofilesr
+             r#
+    r#
+messagesc
+_current_domain)
+_localedirsrE
+  r#
+   r#
+     r#
+    r#
+      r#
+   r#
+  r#
+    r#
+NNF)
+NNNFr
+__doc__r\
+__all__r
+base_prefixr
+compile
+VERBOSE
+DOTALLr
+opsrM
+000r#
+<module>r;

@@ -1,2 +1,0 @@
-) calculate chksum with signed char,
-which will be different if there are chars in t

@@ -1,0 +1,36 @@
+Convert a NT pathname to a file URL and vice versa.
+This module only exists to provide OS-specific code
+for urllib.requests, thus do not use directly.
+zwOS-specific conversion from a relative URL of the 'file' scheme
+to a file system path; not recommended for general use.
+//localhost/
+Bad URL: )
+string
+urllib.parse
+replace
+parse
+unquote
+split
+ascii_letters
+OSError
+upper)
+urlr
+urllib
+comp
+error
+drive
+tails
+       
+nturl2path.py
+url2pathnamer 
+zwOS-specific conversion from a file system path to a relative URL
+of the 'file' scheme; not recommended for general use.r
+//?/z
+UNC/z
+Bad path: )
+maxsplitr
+quoter
+      r
+pathname2urlr'
+__doc__r 
+<module>r*

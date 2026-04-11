@@ -1,0 +1,75 @@
+Create a composite member containing all canonical members present in `value`.
+If non-member values are present, result depends on `_boundary_` setting.
+ invalid value z
+    given z
+  allowed r
+ unknown flag boundary 
+) -->  unknown values z
+: no members with value z
+|%s)
+flag_mask
+singles_mask
+all_bits
+neg_valuer
+unknown
+aliasesr
+pseudo_memberr
+combined_valuer^
+                r,
+Flag._missing_
+Returns True if self has at least the same flags set as other.
+z&unsupported operand type(s) for 'in': 
+ and )
+others
+  r,
+Flag.__contains__
+Returns flags in definition order.
+Flag.__iter__
+bit_countr
+Flag.__len__ 
+   r,
+Flag.__repr__#
+  r,
+Flag.__str__+
+boolr
+Flag.__bool__2
+NotImplemented)
+flags
+  r,
+_get_value
+Flag._get_value5
+'z,' cannot be combined with other flags with |
+other_valuerV
+     r,
+Flag.__or__<
+z,' cannot be combined with other flags with &r[
+     r,
+Flag.__and__G
+z,' cannot be combined with other flags with ^r[
+     r,
+Flag.__xor__R
+' cannot be inverted)
+Flag.__invert__]
+Support for integer-based Flags
+returns index of highest bit, or -1 if value is zero or negative
+p#X#R
+Class decorator for enumerations ensuring unique member values.
+ -> z
+duplicate values found in r
+enumeration
+duplicatesrP
+alias
+alias_detailss
+      r,
+dcfr+
+"_dataclass_repr.<locals>.<genexpr>
+`@r,
+use module.enum_name instead of class.enum_name
+the module is the last module in case of a multi-module name
+  r,
+use module.flag_name instead of class.flag_name
+the module is the last module in case of a multi-module name
+isdigitr
+     r,
+use enum_name instead of class.enum_name
+  r,

@@ -1,0 +1,43 @@
+ziPython Character Mapping Codec iso8859_9 generated from 'MAPPINGS/ISO8859/8859-9.TXT' with gencodec.py.
+Codec
+codecs
+charmap_encode
+encoding_table
+self
+input
+errorss
+encodings\iso8859_9.py
+encode
+Codec.encode
+charmap_decode
+decoding_tabler
+   r
+decode
+Codec.decode
+strict)
+__name__
+__module__
+__qualname__
+__firstlineno__r
+__static_attributes__r
+IncrementalEncoder
+finals
+   r
+IncrementalEncoder.encode
+IncrementalDecoder
+   r
+IncrementalDecoder.decode
+StreamWriter
+StreamReader
+iso8859-9)
+namer
+incrementalencoder
+incrementaldecoder
+streamreader
+streamwriter)
+CodecInfor
+getregentryr?
+ !"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\]^_`abcdefghijklmnopqrstuvwxyz{|}~
+__doc__r
+charmap_buildr
+<module>rB

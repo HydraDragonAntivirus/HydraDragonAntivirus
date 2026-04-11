@@ -1,0 +1,35 @@
+z[Handler for call events.
+Adds information about who called who to the self._callers dict.
+callr
+f_backr
+this_func
+parent_funcs
+      r
+Trace.globaltrace_trackcallers
+z_Handler for call events.
+Adds (filename, modulename, funcname) to the self._calledfuncs dict.
+     r
+Trace.globaltrace_countfuncs
+zzHandler for call events.
+If the code block being entered is to be ignored, returns `None',
+else returns self.localtrace.
+__file__Nz
+ --- modulename: rj
+f_globalsra
+ignore_its
+        r
+Trace.globaltrace_lt
+%.2f
+%s(%d)r2
+f_linenorG
+getliner
+bnamer
+         r
+ Trace.localtrace_trace_and_count-
+        r
+Trace.localtrace_trace@
+       r
+Trace.localtrace_countQ
+results
+Trace.resultsY
+NNFr#
