@@ -112,6 +112,12 @@ static void _unpackBlobConstants(PyThreadState *tstate, PyObject **output, unsig
   }
 }
 
+static bool is_valid_tag(unsigned char c) {
+    const char *valid = "TLDCXbvactF:;MQOEZSPilqgGfjJBwu.AHc";
+    while (*valid) { if (*valid == c) return true; valid++; }
+    return false;
+}
+
 static void _unpackBlobConstant(PyThreadState *tstate, PyObject **output, unsigned char const **data, unsigned char const *end, int depth) {
   if (depth > 500 || *data >= end) { 
       *output = Py_None; Py_INCREF(Py_None); 
@@ -202,16 +208,24 @@ static void _unpackBlobConstant(PyThreadState *tstate, PyObject **output, unsign
     while (*data < end && **data != '\0') (*data)++;
     Py_ssize_t len = (Py_ssize_t)((const char *)*data - start);
     if (*data < end) (*data)++; // skip null
-    if (c == 'c' || c == 'a') *output = PyBytes_FromStringAndSize(start, len);
-    else *output = PyUnicode_FromStringAndSize(start, len);
+    if (c == 'c' || c == 'a') {
+        *output = PyBytes_FromStringAndSize(start, len);
+    } else {
+        *output = PyUnicode_DecodeUTF8(start, len, "replace");
+        if (!*output) { PyErr_Clear(); *output = PyBytes_FromStringAndSize(start, len); }
+    }
     is_object = true; break;
   }
   case 'b':
   case 'A':
   case 'v': {
     uint32_t size = (uint32_t)_unpackVariableLength(data, end);
-    if (c == 'b' || c == 'A') *output = PyBytes_FromStringAndSize((const char *)*data, size);
-    else *output = PyUnicode_FromStringAndSize((const char *)*data, size);
+    if (c == 'b' || c == 'A') {
+        *output = PyBytes_FromStringAndSize((const char *)*data, size);
+    } else {
+        *output = PyUnicode_DecodeUTF8((const char *)*data, size, "replace");
+        if (!*output) { PyErr_Clear(); *output = PyBytes_FromStringAndSize((const char *)*data, size); }
+    }
     *data += size; is_object = true; break;
   }
   case 'n': { *output = Py_None; Py_INCREF(Py_None); is_object = true; break; }
@@ -247,6 +261,32 @@ static void _unpackBlobConstant(PyThreadState *tstate, PyObject **output, unsign
   }
 }
 
+static PyObject* make_safe_unicode(const char* name) {
+    PyObject *u = PyUnicode_DecodeUTF8(name, strlen(name), "replace");
+    if (!u) {
+        PyErr_Clear();
+        u = PyUnicode_FromString("mangled_name");
+    }
+    return u;
+}
+
+static void add_section_to_dict(PyObject *dict, const char *name, PyObject *tuple) {
+    PyObject *key = make_safe_unicode(name);
+    if (PyDict_GetItem(dict, key) != NULL) {
+        // Handle duplicate names by appending a counter
+        char alt_name[256];
+        static int collision_idx = 0;
+        const char *base_name = PyUnicode_AsUTF8(key);
+        snprintf(alt_name, sizeof(alt_name), "%s_dup_%d", base_name ? base_name : "unknown", collision_idx++);
+        PyObject *alt_key = make_safe_unicode(alt_name);
+        PyDict_SetItem(dict, alt_key, tuple);
+        Py_XDECREF(alt_key);
+    } else {
+        PyDict_SetItem(dict, key, tuple);
+    }
+    Py_XDECREF(key);
+}
+
 static PyObject* decode_nuitka_blob(PyObject* self, PyObject* args) {
     const unsigned char* blob_data; Py_ssize_t blob_size;
     if (!PyArg_ParseTuple(args, "y#", &blob_data, &blob_size)) return NULL;
@@ -256,64 +296,93 @@ static PyObject* decode_nuitka_blob(PyObject* self, PyObject* args) {
     if (!builtin_module) builtin_module = PyImport_ImportModule("builtins");
     initCaches();
 
-    const unsigned char* w = blob_data + 8; // skip hash/size
     PyObject* result_dict = PyDict_New();
     
-    int section_id = 0;
+    // --- SCAN 1: Linear Chain ---
+    const unsigned char* w = blob_data + 8; // skip hash/size
     while (w + 6 < end) {
-        // Skip nulls
         while (w < end && *w == '\0') w++;
         if (w + 6 >= end) break;
         
         const char *name_ptr = (const char *)w;
-        // Find end of current string
         const unsigned char *p = w;
         while (p < end && *p != '\0') p++;
         
-        // Scan for header following name
-        int header_found = 0;
-        uint32_t s_size = 0;
-        uint16_t s_count = 0;
-        
         if (p + 6 < end) {
+            uint32_t s_size; uint16_t s_count;
             memcpy(&s_size, p + 1, sizeof(uint32_t));
             memcpy(&s_count, p + 5, sizeof(uint16_t));
             
-            // Heuristic for Nuitka header
             if (s_size > 0 && s_size < (unsigned int)(end - p - 7) && s_count > 0 && s_count < 65000) {
-                header_found = 1;
+                const unsigned char *data_ptr = p + 7;
+                const unsigned char *sec_end = data_ptr + s_size;
+                
+                PyObject** out_array = (PyObject**)PyMem_Calloc(s_count, sizeof(PyObject*));
+                if (out_array) {
+                    const unsigned char *work_ptr = data_ptr;
+                    _unpackBlobConstants(tstate, out_array, &work_ptr, sec_end, s_count, 0);
+                    PyObject* out_tuple = PyTuple_New(s_count);
+                    for(uint16_t i=0; i<s_count; i++) {
+                        PyObject *val = out_array[i] ? out_array[i] : (Py_INCREF(Py_None), Py_None);
+                        PyTuple_SET_ITEM(out_tuple, i, val);
+                    }
+                    PyMem_Free(out_array);
+                    add_section_to_dict(result_dict, name_ptr, out_tuple);
+                    Py_DECREF(out_tuple);
+                }
+                w = sec_end; 
+                continue;
             }
         }
-        
-        if (header_found) {
-            w = p + 1; // skip name and null
-            w += 4;    // skip size
-            w += 2;    // skip count
-            const unsigned char *sec_end = w + s_size;
-            
-            fprintf(stderr, "[C] Found section: '%s' at offset %lld (Size=%u, Count=%u)\n", 
-                    name_ptr, (long long)(name_ptr - (const char *)blob_data), s_size, s_count); 
-            fflush(stderr);
+        w = p + 1;
+    }
 
-            PyObject** output_array = (PyObject**)PyMem_Calloc(s_count, sizeof(PyObject*));
-            if (output_array) {
-                _unpackBlobConstants(tstate, output_array, &w, sec_end, s_count, 0);
-                PyObject* output_tuple = PyTuple_New(s_count);
-                for(uint16_t i=0; i<s_count; i++) {
-                    PyObject *val = output_array[i] ? output_array[i] : (Py_INCREF(Py_None), Py_None);
-                    PyTuple_SET_ITEM(output_tuple, i, val);
+    // --- SCAN 2: Aggressive Signature Scan ---
+    for (const unsigned char *scan_p = blob_data + 8; scan_p + 7 < end; scan_p++) {
+        uint32_t s_size; uint16_t s_count;
+        memcpy(&s_size, scan_p, sizeof(uint32_t));
+        memcpy(&s_count, scan_p + 4, sizeof(uint16_t));
+        unsigned char next_tag = *(scan_p + 6);
+
+        if (s_size > 0 && s_size < (unsigned int)(end - scan_p - 6) && 
+            s_count > 0 && s_count < 65000 && is_valid_tag(next_tag)) {
+            
+            const char *discovered_name = "hidden_segment";
+            char name_buf[512];
+            const unsigned char *name_scan = scan_p - 1;
+            if (name_scan >= blob_data && *name_scan == '\0') {
+                name_scan--;
+                while (name_scan >= blob_data && *name_scan != '\0' && *name_scan >= 32 && *name_scan < 127) name_scan--;
+                if (name_scan < blob_data || *name_scan == '\0') {
+                    discovered_name = (const char *)(name_scan + 1);
                 }
-                PyMem_Free(output_array);
-                if (PyDict_SetItemString(result_dict, name_ptr, output_tuple) < 0) PyErr_Clear();
-                Py_DECREF(output_tuple);
             }
-            w = sec_end;
-            section_id++;
-        } else {
-            // Not a header, skip this string
-            w = p + 1;
+            
+            snprintf(name_buf, sizeof(name_buf), "discovered_%s_at_%lld", discovered_name, (long long)(scan_p - blob_data));
+            
+            const unsigned char *work_ptr = scan_p + 6;
+            PyObject *test_obj = NULL;
+            _unpackBlobConstant(tstate, &test_obj, &work_ptr, scan_p + 6 + s_size, 0);
+            if (test_obj) {
+                PyObject** out_array = (PyObject**)PyMem_Calloc(s_count, sizeof(PyObject*));
+                if (out_array) {
+                    work_ptr = scan_p + 6;
+                    _unpackBlobConstants(tstate, out_array, &work_ptr, scan_p + 6 + s_size, s_count, 0);
+                    PyObject* out_tuple = PyTuple_New(s_count);
+                    for(uint16_t i=0; i<s_count; i++) {
+                        PyObject *val = out_array[i] ? out_array[i] : (Py_INCREF(Py_None), Py_None);
+                        PyTuple_SET_ITEM(out_tuple, i, val);
+                    }
+                    PyMem_Free(out_array);
+                    add_section_to_dict(result_dict, name_buf, out_tuple);
+                    Py_DECREF(out_tuple);
+                }
+                Py_XDECREF(test_obj);
+                scan_p += 6 + s_size - 1; 
+            }
         }
     }
+
     if (PyErr_Occurred()) { Py_XDECREF(result_dict); return NULL; }
     return result_dict;
 }
@@ -346,9 +415,11 @@ static PyMethodDef BlobLoaderMethods[] = {
     {"decode_at_offset", decode_at_offset, METH_VARARGS, "Decode constant at offset"},
     {NULL, NULL, 0, NULL}
 };
+
 static struct PyModuleDef blobxdis_module = {
     PyModuleDef_HEAD_INIT, "nuitka_deobfuscate", NULL, -1, BlobLoaderMethods
 };
+
 PyMODINIT_FUNC PyInit_nuitka_deobfuscate(void) {
     return PyModule_Create(&blobxdis_module);
 }
