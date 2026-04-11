@@ -1,0 +1,83 @@
+﻿Total method refs: 79
+
+================================================================================
+=== SinqleBoYApp._set_status (index 748 -> 757, 9 constants) ===
+================================================================================
+  [748] str: 'SinqleBoYApp._set_status'
+  [749] tuple(2): [info, 2000]
+  [750] dict(3): keys=['text', 'kind', 'duration_ms']
+  [751] None
+  [752] None
+  [753] None
+  [754] int: 110
+  [755] bool: True
+  [756] None
+
+================================================================================
+=== SinqleBoYApp._http_get_text (index 795 -> 828, 33 constants) ===
+================================================================================
+  [795] str: 'SinqleBoYApp._http_get_text'
+  [796] dict(2): keys=['icon', 'enabled']
+  [797] bool: True
+  [798] None
+  [799] None
+  [800] None
+  [801] PACKED: 'ol\x00uSinqleBoYApp._set_update_icon\x00uSinqleBoYApp._update_check_start\x00uSinqleBoYApp._on_update_click\x00uSinqleBoYAp'
+  [802] None
+  [803] None
+  [804] bool: True
+  [805] None
+  [806] None
+  [807] None
+  [808] int: 101
+  [809] None
+  [810] str: 'sibility\x00uSinqleBoYApp._slash_hide_handler\x00uSinqleBoYApp._setup_tray\x00uSinqleBoYApp._reset_edge_latch'
+  [811] float: 2.327093656368688e+199
+  [812] None
+  [813] int: -108
+  [814] None
+  [815] None
+  [816] None
+  [817] None
+  [818] PACKED: 'p._action_key_hard_up\x00D\x02aon\x00alog\x00Obool\x00puSinqleBoYApp._apply_listener_state\x00uSinqleBoYApp.start_listener\x00uSinqle'
+  [819] None
+  [820] None
+  [821] None
+  [822] PACKED: 'p.stop_listener\x00uSinqleBoYApp._key_binding_pressed\x00D\x02ause_block\x00adurath_rclick\x00Obool\x00puSinqleBoYApp._secure_mous'
+  [823] None
+  [824] None
+  [825] None
+  [826] str: 'n'
+  [827] tuple(2): [left, down_up]
+
+================================================================================
+=== SinqleBoYApp._build_ui (index 727 -> 728, 1 constants) ===
+================================================================================
+  [727] str: 'SinqleBoYApp._build_ui'
+
+================================================================================
+=== SinqleBoYApp._enforce_license_async (index 671 -> 672, 1 constants) ===
+================================================================================
+  [671] str: 'SinqleBoYApp._enforce_license_async'
+
+================================================================================
+=== SinqleBoYApp._verified_click (index 828 -> 829, 1 constants) ===
+================================================================================
+  [828] str: 'SinqleBoYApp._verified_click'
+
+=== SinqleBoYApp.start_listener: NOT FOUND ===
+
+================================================================================
+=== SinqleBoYApp._run_action_direct (index 836 -> 842, 6 constants) ===
+================================================================================
+  [836] str: 'SinqleBoYApp._run_action_direct'
+  [837] dict(1): keys=['label']
+  [838] None
+  [839] bool: True
+  [840] None
+  [841] None
+
+================================================================================
+=== SinqleBoYApp._init_icons (index 719 -> 720, 1 constants) ===
+================================================================================
+  [719] str: 'SinqleBoYApp._init_icons'
