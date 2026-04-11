@@ -15,8 +15,6 @@ keywords = ["antivirus", "reverse engineering", "bytecode", "python", "decompile
 
 dependencies = [
     # Antivirus dependencies
-    "yara-python",
-    "yara-x",
     "joblib",
     "pefile",
     "psutil",

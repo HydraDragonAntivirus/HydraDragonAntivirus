@@ -4039,7 +4039,7 @@ def extract_marshal_code_from_source(source: str) -> types.CodeType | None:
     logger.error("[!] marshal.loads pattern with base64 blob not found in AST")
     return None
 
-
+# TODO make it xdis for two defs
 def decompile_pyc_with_pylingual(pyc_path: str) -> str | None:
     """
     Decompile a .pyc file using Pylingual main function directly.
