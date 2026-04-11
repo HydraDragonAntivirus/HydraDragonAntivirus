@@ -7,7 +7,6 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <errno.h>
-#include <process.h>
 
 #ifdef _WIN32
 #  include <direct.h>
@@ -214,21 +213,21 @@ static bool get_str_val(const uint8_t *tag_ptr, const uint8_t *end,
 }
 
 static bool normalize_module_name(const char *src, char *out, size_t cap) {
-    char work[1024];
-    char *tokens[64];
+    char work[4096];
+    char *tokens[256];
     size_t token_count = 0;
-    size_t i, n, start, end, keep_from;
-    bool saw_sep = false;
+    size_t i, n, start, end;
 
     if (!src || !*src || !out || cap == 0) return false;
 
+    /* strip leading/trailing whitespace */
     while (*src == ' ' || *src == '\t' || *src == '\r' || *src == '\n')
         src++;
 
     n = strlen(src);
     while (n > 0 &&
-           (src[n - 1] == ' ' || src[n - 1] == '\t' ||
-            src[n - 1] == '\r' || src[n - 1] == '\n'))
+           (src[n-1] == ' ' || src[n-1] == '\t' ||
+            src[n-1] == '\r' || src[n-1] == '\n'))
         n--;
 
     if (n == 0 || n >= sizeof(work)) return false;
@@ -236,39 +235,40 @@ static bool normalize_module_name(const char *src, char *out, size_t cap) {
     memcpy(work, src, n);
     work[n] = '\0';
 
+    /* strip .pyc / .py extension */
     if (n > 4 && strcmp(work + n - 4, ".pyc") == 0) {
-        work[n - 4] = '\0';
-        n -= 4;
+        work[n - 4] = '\0'; n -= 4;
     } else if (n > 3 && strcmp(work + n - 3, ".py") == 0) {
-        work[n - 3] = '\0';
-        n -= 3;
+        work[n - 3] = '\0'; n -= 3;
     }
 
+    /* split on / \\ . and validate every token individually.
+       If ANY token is invalid the whole name is rejected --
+       no silent dropping of components. */
     start = 0;
     for (i = 0; i <= n; i++) {
         char c = work[i];
         if (c == '/' || c == '\\' || c == '.' || c == '\0') {
-            if (c == '/' || c == '\\')
-                saw_sep = true;
             end = i;
             if (end > start) {
                 char *tok = work + start;
+                size_t tlen = end - start;
                 size_t j;
-                int valid = 1;
 
+                /* first char: letter or underscore */
                 if (!(isalpha((unsigned char)tok[0]) || tok[0] == '_'))
-                    valid = 0;
+                    return false;
 
-                for (j = 1; j < end - start && valid; j++) {
+                /* remaining: alnum or underscore */
+                for (j = 1; j < tlen; j++) {
                     unsigned char ch = (unsigned char)tok[j];
                     if (!(isalnum(ch) || ch == '_'))
-                        valid = 0;
+                        return false;
                 }
 
-                if (valid && token_count < 64) {
-                    work[end] = '\0';
-                    tokens[token_count++] = tok;
-                }
+                if (token_count >= 256) return false;
+                work[end] = '\0';
+                tokens[token_count++] = tok;
             }
             start = i + 1;
         }
@@ -276,15 +276,14 @@ static bool normalize_module_name(const char *src, char *out, size_t cap) {
 
     if (token_count == 0) return false;
 
-    keep_from = (saw_sep && token_count > 4) ? (token_count - 4) : 0;
-
+    /* join all tokens with '.' -- no truncation, full path preserved */
     out[0] = '\0';
-    for (i = keep_from; i < token_count; i++) {
+    for (i = 0; i < token_count; i++) {
         size_t cur = strlen(out);
         size_t add = strlen(tokens[i]);
 
         if (cur + (cur ? 1 : 0) + add + 1 >= cap)
-            return cur > 0;
+            return false;   /* buffer too small: reject cleanly */
 
         if (cur) out[cur++] = '.';
         memcpy(out + cur, tokens[i], add + 1);
