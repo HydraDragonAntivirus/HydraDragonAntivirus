@@ -214,20 +214,19 @@ static bool get_str_val(const uint8_t *tag_ptr, const uint8_t *end,
 
 static bool normalize_module_name(const char *src, char *out, size_t cap) {
     char work[4096];
-    char *tokens[256];
+    char *tokens[512];
     size_t token_count = 0;
-    size_t i, n, start, end;
+    size_t i, n, start, end_pos;
 
     if (!src || !*src || !out || cap == 0) return false;
 
-    /* strip leading/trailing whitespace */
     while (*src == ' ' || *src == '\t' || *src == '\r' || *src == '\n')
         src++;
 
     n = strlen(src);
     while (n > 0 &&
-           (src[n-1] == ' ' || src[n-1] == '\t' ||
-            src[n-1] == '\r' || src[n-1] == '\n'))
+           (src[n - 1] == ' ' || src[n - 1] == '\t' ||
+            src[n - 1] == '\r' || src[n - 1] == '\n'))
         n--;
 
     if (n == 0 || n >= sizeof(work)) return false;
@@ -235,40 +234,60 @@ static bool normalize_module_name(const char *src, char *out, size_t cap) {
     memcpy(work, src, n);
     work[n] = '\0';
 
-    /* strip .pyc / .py extension */
-    if (n > 4 && strcmp(work + n - 4, ".pyc") == 0) {
-        work[n - 4] = '\0'; n -= 4;
-    } else if (n > 3 && strcmp(work + n - 3, ".py") == 0) {
-        work[n - 3] = '\0'; n -= 3;
+    if (work[0] == '<') {
+        char *close = strchr(work, '>');
+        if (!close) return false;
+        *close = '\0';
+        char *inner = work + 1;
+        if (strncmp(inner, "frozen ", 7) == 0) inner += 7;
+        n = strlen(inner);
+        memmove(work, inner, n + 1);
     }
 
-    /* split on / \\ . and validate every token individually.
-       If ANY token is invalid the whole name is rejected --
-       no silent dropping of components. */
+    n = strlen(work);
+    if (n > 4 && strcmp(work + n - 4, ".pyc") == 0) {
+        work[n - 4] = '\0';
+        n -= 4;
+    } else if (n > 3 && strcmp(work + n - 3, ".py") == 0) {
+        work[n - 3] = '\0';
+        n -= 3;
+    }
+
+    if (n >= 2 && isalpha((unsigned char)work[0]) && work[1] == ':') {
+        size_t skip = 2;
+        if (n > 2 && (work[2] == '/' || work[2] == '\\')) skip = 3;
+        memmove(work, work + skip, n - skip + 1);
+        n -= skip;
+    }
+
+    token_count = 0;
     start = 0;
     for (i = 0; i <= n; i++) {
         char c = work[i];
         if (c == '/' || c == '\\' || c == '.' || c == '\0') {
-            end = i;
-            if (end > start) {
+            end_pos = i;
+            if (end_pos > start) {
                 char *tok = work + start;
-                size_t tlen = end - start;
+                size_t tlen = end_pos - start;
                 size_t j;
+                int valid = 1;
 
-                /* first char: letter or underscore */
                 if (!(isalpha((unsigned char)tok[0]) || tok[0] == '_'))
-                    return false;
+                    valid = 0;
 
-                /* remaining: alnum or underscore */
-                for (j = 1; j < tlen; j++) {
+                for (j = 1; j < tlen && valid; j++) {
                     unsigned char ch = (unsigned char)tok[j];
                     if (!(isalnum(ch) || ch == '_'))
-                        return false;
+                        valid = 0;
                 }
 
-                if (token_count >= 256) return false;
-                work[end] = '\0';
-                tokens[token_count++] = tok;
+                if (valid) {
+                    if (token_count >= 512) return false;
+                    work[end_pos] = '\0';
+                    tokens[token_count++] = tok;
+                } else {
+                    token_count = 0;
+                }
             }
             start = i + 1;
         }
@@ -276,14 +295,13 @@ static bool normalize_module_name(const char *src, char *out, size_t cap) {
 
     if (token_count == 0) return false;
 
-    /* join all tokens with '.' -- no truncation, full path preserved */
     out[0] = '\0';
     for (i = 0; i < token_count; i++) {
         size_t cur = strlen(out);
         size_t add = strlen(tokens[i]);
 
         if (cur + (cur ? 1 : 0) + add + 1 >= cap)
-            return false;   /* buffer too small: reject cleanly */
+            return false;
 
         if (cur) out[cur++] = '.';
         memcpy(out + cur, tokens[i], add + 1);
@@ -499,7 +517,9 @@ static int locate_helper(char *helper_path, size_t cap) {
 
 static int run_helper_dir(const char *helper_path,
                           const char *stage_dir,
-                          const char *output_dir) {
+                          const char *output_dir,
+                          unsigned int py_version) {
+    (void)py_version;
 #ifdef _WIN32
     intptr_t rc = _spawnlp(_P_WAIT,
                            "py",
@@ -515,8 +535,10 @@ static int run_helper_dir(const char *helper_path,
     }
     return (int)rc;
 #else
-    pid_t pid = fork();
+    pid_t pid;
     int status = 0;
+
+    pid = fork();
     if (pid < 0) return -1;
     if (pid == 0) {
         execlp("python3.12", "python3.12", helper_path, stage_dir, output_dir, (char *)NULL);
@@ -528,14 +550,104 @@ static int run_helper_dir(const char *helper_path,
 #endif
 }
 
-static int stage_blob_for_helper(const char *stage_raw_path,
-                                 const uint8_t *marshal_data,
-                                 size_t marshal_len) {
-    if (write_binary_file(stage_raw_path, marshal_data, marshal_len) != 0)
+static bool ex_varint_bounded(const uint8_t **p, const uint8_t *end, uint64_t *out) {
+    uint64_t r = 0, f = 1;
+    const uint8_t *q;
+
+    if (!p || !*p || !out) return false;
+    q = *p;
+
+    for (;;) {
+        uint8_t b;
+
+        if (q >= end) return false;
+        b = *q++;
+        r += (uint64_t)(b & 0x7F) * f;
+
+        if (b < 0x80)
+            break;
+
+        if (f > (UINT64_MAX >> 7))
+            return false;
+
+        f <<= 7;
+    }
+
+    *p = q;
+    *out = r;
+    return true;
+}
+
+static int stage_blob_pair(const char *stage_raw_path,
+                           const char *output_raw_path,
+                           const uint8_t *marshal_data,
+                           size_t marshal_len) {
+    int ok_stage = -1;
+    int ok_out = -1;
+
+    if (stage_raw_path && *stage_raw_path)
+        ok_stage = write_binary_file(stage_raw_path, marshal_data, marshal_len);
+    if (output_raw_path && *output_raw_path)
+        ok_out = write_binary_file(output_raw_path, marshal_data, marshal_len);
+
+    if (ok_stage != 0 && ok_out != 0)
         return -1;
 
-    printf("[stage]  %-60s (%zu bytes marshal)\n", stage_raw_path, marshal_len);
+    printf("[stage]  %-60s (%zu bytes marshal)\n",
+           stage_raw_path && *stage_raw_path ? stage_raw_path : output_raw_path,
+           marshal_len);
     return 0;
+}
+
+static void sweep_unseen_x_blobs(const uint8_t *scan_start,
+                                 const uint8_t *sec_end,
+                                 const unsigned char *seen_x,
+                                 const char *stage_dir,
+                                 const char *raw_out_dir,
+                                 int section_idx,
+                                 int *total_staged) {
+    const uint8_t *scan = scan_start;
+    int fallback_idx = 0;
+
+    while (scan < sec_end) {
+        if (*scan == 'X') {
+            size_t off = (size_t)(scan - scan_start);
+            const uint8_t *tmp = scan + 1;
+            uint64_t blob_len;
+            char blob_name[512];
+            char stage_raw_path[4096];
+            char output_raw_path[4096];
+
+            if (seen_x && seen_x[off]) {
+                scan++;
+                continue;
+            }
+
+            if (!ex_varint_bounded(&tmp, sec_end, &blob_len) ||
+                blob_len > (uint64_t)(sec_end - tmp)) {
+                scan++;
+                continue;
+            }
+
+            snprintf(blob_name, sizeof(blob_name),
+                     "_fallback_%d_%d", section_idx, fallback_idx++);
+
+            build_pyc_path(stage_raw_path, sizeof(stage_raw_path),
+                           stage_dir, blob_name, ".pyc.rawmarshal");
+            build_pyc_path(output_raw_path, sizeof(output_raw_path),
+                           raw_out_dir, blob_name, ".pyc.rawmarshal");
+
+            if (stage_blob_pair(stage_raw_path, output_raw_path,
+                                tmp, (size_t)blob_len) == 0) {
+                (*total_staged)++;
+            }
+
+            scan = tmp + blob_len;
+            continue;
+        }
+
+        scan++;
+    }
 }
 
 /* ------------------------------------------------------------------ */
@@ -563,11 +675,11 @@ int blob_export_all_pyc(BlobCtx *ctx_opaque,
     int total_staged = 0;
     int total_written = 0;
     int section_idx = 0;
-    int helper_rc;
+    int helper_rc = 0;
+    int helper_available = 0;
     char helper_path[4096];
     char stage_dir[4096];
-
-    (void)py_version;
+    char raw_out_dir[4096];
 
     if (!ctx || !ctx->payload) {
         fprintf(stderr, "[export] Call blob_verify() first.\n");
@@ -579,18 +691,25 @@ int blob_export_all_pyc(BlobCtx *ctx_opaque,
 
     mkdirs(output_dir);
 
-    if (locate_helper(helper_path, sizeof(helper_path)) != 0) {
-        fprintf(stderr, "[export] pyc_helper.py not found next to exe or in cwd\n");
-        return -1;
+    if (locate_helper(helper_path, sizeof(helper_path)) == 0) {
+        helper_available = 1;
+    } else {
+        helper_path[0] = '\0';
+        fprintf(stderr, "[export] pyc_helper.py not found; raw marshal staging will continue without pyc conversion\n");
     }
 
     snprintf(stage_dir, sizeof(stage_dir), "%s.rawstage", output_dir);
     mkdirs(stage_dir);
+    snprintf(raw_out_dir, sizeof(raw_out_dir), "%s%c_rawmarshal", output_dir, PATH_SEP);
+    mkdirs(raw_out_dir);
 
     toc_p = ctx->payload;
     toc_end = ctx->payload + ctx->payload_len;
 
-    printf("\n[export] Using helper: %s\n", helper_path);
+    if (helper_available)
+        printf("\n[export] Using helper: %s\n", helper_path);
+    else
+        printf("\n[export] No helper available; staging raw marshal blobs only\n");
     printf("[export] Staging raw marshal blobs into: %s\n", stage_dir);
     printf("[export] Scanning all sections for 'X' blobs...\n");
 
@@ -623,93 +742,124 @@ int blob_export_all_pyc(BlobCtx *ctx_opaque,
         }
 
         count = ex_read_u16(&sec_start);
-        p = sec_start;
-        is_bytecode_section = (strcmp(section_name, ".bytecode") == 0);
+        {
+            const uint8_t *consts_start = sec_start;
+            unsigned char *seen_x = NULL;
 
-        printf("[export] Section [%2d] %-35s %u consts %u bytes\n",
-               section_idx, section_name, count, section_bytes);
+            p = consts_start;
+            is_bytecode_section = (strcmp(section_name, ".bytecode") == 0);
 
-        for (uint16_t ci = 0; ci < count && p < sec_end; ci++) {
-            const uint8_t *const_start = p;
-            char tag;
-
-            if (p >= sec_end) break;
-            tag = (char)*p;
-
-            if (tag == 'X') {
-                uint64_t blob_len;
-                const uint8_t *blob_data;
-                char blob_name[512] = {0};
-                char stage_raw_path[4096];
-
-                p++;
-                blob_len = ex_varint(&p);
-                if (p + blob_len > sec_end) {
-                    fprintf(stderr, "[export] 'X' blob overruns section '%s'\n",
-                            section_name);
-                    break;
-                }
-
-                blob_data = p;
-                p += blob_len;
-
-                if (is_bytecode_section) {
-                    if (!(last_str[0] &&
-                          normalize_module_name(last_str, blob_name, sizeof(blob_name))) &&
-                        !extract_module_name_from_blob(blob_data, (size_t)blob_len,
-                                                       blob_name, sizeof(blob_name))) {
-                        snprintf(blob_name, sizeof(blob_name),
-                                 "_bytecode_%d_%d", section_idx, x_count);
-                    }
-
-                    build_pyc_path(stage_raw_path, sizeof(stage_raw_path),
-                                   stage_dir, blob_name, ".pyc.rawmarshal");
-                } else {
-                    if (x_count == 0) {
-                        snprintf(blob_name, sizeof(blob_name), "%s", section_name);
-                        build_pyc_path(stage_raw_path, sizeof(stage_raw_path),
-                                       stage_dir, section_name, ".pyc.rawmarshal");
-                    } else {
-                        char suffix[64];
-                        snprintf(blob_name, sizeof(blob_name), "%s#%d",
-                                 section_name, x_count);
-                        snprintf(suffix, sizeof(suffix), ".%d.pyc.rawmarshal", x_count);
-                        build_pyc_path(stage_raw_path, sizeof(stage_raw_path),
-                                       stage_dir, section_name, suffix);
-                    }
-                }
-
-                if (stage_blob_for_helper(stage_raw_path,
-                                          blob_data,
-                                          (size_t)blob_len) == 0) {
-                    total_staged++;
-                }
-
-                x_count++;
-                last_str[0] = '\0';
-            } else {
-                const uint8_t *next;
-                get_str_val(const_start, sec_end, last_str, sizeof(last_str));
-                next = skip_one(const_start, sec_end);
-                if (!next) {
-                    fprintf(stderr,
-                            "[export] skip_one failed at section '%s' const #%u tag=0x%02X\n",
-                            section_name, ci, (unsigned int)(uint8_t)tag);
-                    break;
-                }
-                p = next;
+            if (sec_end > consts_start) {
+                seen_x = (unsigned char *)calloc((size_t)(sec_end - consts_start), 1);
             }
+
+            printf("[export] Section [%2d] %-35s %u consts %u bytes\n",
+                   section_idx, section_name, count, section_bytes);
+
+            for (uint16_t ci = 0; ci < count && p < sec_end; ci++) {
+                const uint8_t *const_start = p;
+                char tag;
+
+                if (p >= sec_end) break;
+                tag = (char)*p;
+
+                if (tag == 'X') {
+                    uint64_t blob_len;
+                    const uint8_t *blob_data;
+                    char blob_name[512] = {0};
+                    char stage_raw_path[4096];
+                    char output_raw_path[4096];
+                    size_t off = (size_t)(const_start - consts_start);
+
+                    p++;
+                    if (!ex_varint_bounded(&p, sec_end, &blob_len) ||
+                        blob_len > (uint64_t)(sec_end - p)) {
+                        fprintf(stderr,
+                                "[export] invalid 'X' blob length in section '%s' const #%u -- resyncing\n",
+                                section_name, ci);
+                        p = const_start + 1;
+                        last_str[0] = '\0';
+                        continue;
+                    }
+
+                    blob_data = p;
+                    p += blob_len;
+
+                    if (seen_x && off < (size_t)(sec_end - consts_start)) {
+                        seen_x[off] = 1;
+                    }
+
+                    if (is_bytecode_section) {
+                        if (!(last_str[0] &&
+                              normalize_module_name(last_str, blob_name, sizeof(blob_name))) &&
+                            !extract_module_name_from_blob(blob_data, (size_t)blob_len,
+                                                           blob_name, sizeof(blob_name))) {
+                            snprintf(blob_name, sizeof(blob_name),
+                                     "_bytecode_section_%d_blob_%d", section_idx, x_count);
+                        }
+
+                        build_pyc_path(stage_raw_path, sizeof(stage_raw_path),
+                                       stage_dir, blob_name, ".pyc.rawmarshal");
+                        build_pyc_path(output_raw_path, sizeof(output_raw_path),
+                                       raw_out_dir, blob_name, ".pyc.rawmarshal");
+                    } else {
+                        if (x_count == 0) {
+                            snprintf(blob_name, sizeof(blob_name), "%s", section_name);
+                            build_pyc_path(stage_raw_path, sizeof(stage_raw_path),
+                                           stage_dir, section_name, ".pyc.rawmarshal");
+                            build_pyc_path(output_raw_path, sizeof(output_raw_path),
+                                           raw_out_dir, section_name, ".pyc.rawmarshal");
+                        } else {
+                            char suffix[64];
+                            snprintf(blob_name, sizeof(blob_name), "%s#%d",
+                                     section_name, x_count);
+                            snprintf(suffix, sizeof(suffix), ".%d.pyc.rawmarshal", x_count);
+                            build_pyc_path(stage_raw_path, sizeof(stage_raw_path),
+                                           stage_dir, section_name, suffix);
+                            build_pyc_path(output_raw_path, sizeof(output_raw_path),
+                                           raw_out_dir, section_name, suffix);
+                        }
+                    }
+
+                    if (stage_blob_pair(stage_raw_path, output_raw_path,
+                                        blob_data, (size_t)blob_len) == 0) {
+                        total_staged++;
+                    }
+
+                    x_count++;
+                    last_str[0] = '\0';
+                } else {
+                    const uint8_t *next;
+                    get_str_val(const_start, sec_end, last_str, sizeof(last_str));
+                    next = skip_one(const_start, sec_end);
+                    if (!next) {
+                        fprintf(stderr,
+                                "[export] skip_one failed at section '%s' const #%u tag=0x%02X -- resyncing\n",
+                                section_name, ci, (unsigned int)(uint8_t)tag);
+                        p = const_start + 1;
+                        last_str[0] = '\0';
+                        continue;
+                    }
+                    p = next;
+                }
+            }
+
+            sweep_unseen_x_blobs(consts_start, sec_end, seen_x,
+                                 stage_dir, raw_out_dir, section_idx, &total_staged);
+
+            free(seen_x);
         }
 
         section_idx++;
     }
 
-    helper_rc = run_helper_dir(helper_path, stage_dir, output_dir);
-    if (helper_rc != 0) {
-        fprintf(stderr,
-                "\n[export] folder helper failed for '%s' -> '%s' (exit=%d)\n\n",
-                stage_dir, output_dir, helper_rc);
-        return -1;
+    if (helper_available) {
+        helper_rc = run_helper_dir(helper_path, stage_dir, output_dir, py_version);
+        if (helper_rc != 0) {
+            fprintf(stderr,
+                    "\n[export] helper reported failures for '%s' -> '%s' (exit=%d); staged raw blobs were kept\n\n",
+                    stage_dir, output_dir, helper_rc);
+        }
     }
 
     total_written = total_staged;

@@ -1,0 +1,2 @@
+X this is a bug).  If
+      __safe_for_unpickling__ doesn't exist, UnpicklingError is ra

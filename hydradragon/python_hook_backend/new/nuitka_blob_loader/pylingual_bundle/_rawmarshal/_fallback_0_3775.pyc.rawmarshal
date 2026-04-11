@@ -1,0 +1,6 @@
+ECREF(tmp);
+    return 1;
+capi_fail:
+    Py_XDECREF(tmp);
+    {
+    

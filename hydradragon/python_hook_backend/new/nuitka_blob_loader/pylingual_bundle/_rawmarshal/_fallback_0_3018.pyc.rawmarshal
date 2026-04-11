@@ -1,0 +1,4 @@
+ except <">>
+  quoted-pair       = "\" CHAR
+
+  parameter         = attribute "=" val

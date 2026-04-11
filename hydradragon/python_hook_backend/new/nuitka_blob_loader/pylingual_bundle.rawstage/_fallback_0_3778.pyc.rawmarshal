@@ -1,0 +1,3 @@
+ECREF(tmp);
+        }
+        else if (PyFortran_Check(fun) || PyFor

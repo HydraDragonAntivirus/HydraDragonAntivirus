@@ -1,0 +1,2 @@
+YARRAYTEMPLATE:");PRINTPYOBJERR(obj);return 0;}\
+        if (PyArray_DESCR(arr)-

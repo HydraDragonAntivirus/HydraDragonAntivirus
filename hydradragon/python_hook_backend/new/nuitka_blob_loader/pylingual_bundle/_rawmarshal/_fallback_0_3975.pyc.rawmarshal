@@ -1,0 +1,5 @@
+T
+f2py_start_call_clock();
+#endif
+#callfortranroutine#
+if (PyErr_Occurred

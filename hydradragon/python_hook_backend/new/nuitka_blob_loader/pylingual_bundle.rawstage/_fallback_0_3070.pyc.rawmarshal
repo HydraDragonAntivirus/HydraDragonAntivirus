@@ -1,0 +1,4 @@
+UNGE' response for each deleted message.
+
+(typ, [data]) = <instance>.expunge()
+

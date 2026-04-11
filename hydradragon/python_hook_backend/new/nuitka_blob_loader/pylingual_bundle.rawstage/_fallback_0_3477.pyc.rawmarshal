@@ -1,0 +1,1 @@
+TF-8 Mode affects locale.getpreferredencoding(). Consider locale.getencoding() instea

@@ -1,0 +1,2 @@
+ = alpha / (alpha + beta)
+    Var[X] = alpha * beta / ((alpha + beta)**2 * (alpha + beta + 1)

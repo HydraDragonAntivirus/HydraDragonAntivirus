@@ -1,0 +1,3 @@
+ Fortran, not tested though */
+#if defined(NO_APPEND_FORTRAN)
+#define F_MODF

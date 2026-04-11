@@ -1,0 +1,7 @@
+T
+f2py_stop_clock();
+#endif
+    return capi_buildvalue;
+}
+#endtitle#
+z#r

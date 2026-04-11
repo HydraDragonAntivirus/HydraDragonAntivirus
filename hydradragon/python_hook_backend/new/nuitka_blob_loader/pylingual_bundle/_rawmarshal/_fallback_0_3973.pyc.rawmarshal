@@ -1,0 +1,3 @@
+T
+    if (! PyErr_Occurred())
+        on_exit(f2py_report_on_exit,(void*)
