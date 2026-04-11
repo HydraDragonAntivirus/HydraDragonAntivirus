@@ -233,6 +233,17 @@ static void _unpackBlobConstant(PyThreadState *tstate, PyObject **output, unsign
   case 'F': { *output = Py_False; Py_INCREF(Py_False); is_object = true; break; }
   case 'X': {
     uint64_t size = _unpackVariableLength(data, end);
+    if (*data + size > end) { *output = Py_None; Py_INCREF(Py_None); break; }
+    *output = PyBytes_FromStringAndSize((const char *)*data, (Py_ssize_t)size);
+    *data += (size_t)size; is_object = true; break;
+  }
+  case 'K': {
+    _unpackBlobConstant(tstate, output, data, end, depth + 1);
+    is_object = true; break;
+  }
+  case 'Q': {
+    uint64_t size = _unpackVariableLength(data, end);
+    if (*data + size > end) { *output = Py_None; Py_INCREF(Py_None); break; }
     *output = PyBytes_FromStringAndSize((const char *)*data, (Py_ssize_t)size);
     *data += (size_t)size; is_object = true; break;
   }
