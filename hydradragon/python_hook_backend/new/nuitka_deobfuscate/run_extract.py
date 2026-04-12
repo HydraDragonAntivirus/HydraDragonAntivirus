@@ -5,9 +5,7 @@ run_extract.py -- Extract .pyc files from a Nuitka constants blob using
 from __future__ import annotations
 
 import argparse
-import io
 import sys
-import os
 import struct
 import marshal
 import importlib.util
