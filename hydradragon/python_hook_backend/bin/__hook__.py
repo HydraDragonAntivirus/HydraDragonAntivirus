@@ -3,6 +3,7 @@
 import sys
 import os
 import threading
+import time
 
 # Get the directory where this script is located
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -630,16 +631,44 @@ def run_decompiler():
     # host process's main thread.
     sys.setrecursionlimit(15000)
 
-    backup_dir = get_next_dump_path("C:\\ProgramData\\HydraDragonAntivirus\\python_dumps")
+    dump_root = Path(r"C:\ProgramData\HydraDragonAntivirus\python_dumps")
+    backup_dir = get_next_dump_path(str(dump_root))
+    source_dir = backup_dir / "RECONSTRUCTED_SOURCE"
+    started_path = backup_dir / "started.txt"
+    progress_path = backup_dir / "progress.txt"
+    finished_path = backup_dir / "finished.txt"
+    error_path = backup_dir / "error.txt"
+    status_path = source_dir / "__dump_status__.txt"
 
-    # All output goes to a log file — never print() to stdout/stderr because
-    # those belong to the host process (could be a pipe, GUI widget, etc.).
-    log_path = os.path.join(os.environ.get('TEMP', 'C:\\Temp'), "decompiler_debug.txt")
-    
-    # Clear the log on startup
-    with open(log_path, "w", encoding='utf-8', errors='replace') as f:
-        f.write("")
-        
+    def write_marker(path: Path, text: str):
+        try:
+            path.write_text(text, encoding='utf-8', errors='replace')
+        except Exception:
+            pass
+
+    # Create output directories immediately so the injector can see progress
+    # even if logging fails later.
+    source_dir.mkdir(parents=True, exist_ok=True)
+    write_marker(
+        started_path,
+        "pid={pid}\nstarted_unix={ts:.3f}\nstarted_local={local}\n".format(
+            pid=os.getpid(),
+            ts=time.time(),
+            local=time.strftime('%Y-%m-%d %H:%M:%S'),
+        ),
+    )
+    write_marker(progress_path, "phase=bootstrap\n")
+    write_marker(status_path, "status=started\n")
+
+    # Keep the debug log beside the dump so the user can always find it.
+    log_path = str(backup_dir / "decompiler_debug.txt")
+
+    try:
+        with open(log_path, "w", encoding='utf-8', errors='replace') as f:
+            f.write("")
+    except Exception:
+        pass
+
     def hook_log(msg):
         # Open, Write, and Close instantly to prevent Windows file locking
         try:
@@ -648,80 +677,126 @@ def run_decompiler():
         except Exception:
             pass
 
-    hook_log(f"Starting decompilation\nTarget Dir: {backup_dir}\n")
-
-    # Create output directories
-    (backup_dir / "RECONSTRUCTED_SOURCE").mkdir(parents=True, exist_ok=True)
-    hook_log(f"Created: {backup_dir / 'RECONSTRUCTED_SOURCE'}\n")
-
-    recon = ModuleReconstructor(backup_dir)
-    # Snapshot sys.modules immediately — the set changes as imports happen.
-    targets = list(sys.modules.items())
-    hook_log(f"Found {len(targets)} modules\n")
-
-    # Identify the application entry point(s) for the report header —
-    # __main__ that isn't the hook itself, or any non-hook module.
-    potential_mains = []
-    for name, mod in targets:
-        if not mod or not hasattr(mod, '__file__') or not mod.__file__:
-            continue
-        file_path = mod.__file__
-        if '__hook__' in file_path or 'hook_backend' in file_path:
-            continue
-        potential_mains.append((name, file_path))
-
-    if potential_mains:
-        hook_log(f"\n[INFO] Modules found in process:\n")
-        for name, path in potential_mains:
-            hook_log(f"  - {name}: {path}\n")
-        hook_log("\n")
-
-    processed_count = 0
-    error_count = 0
-
-    for name, mod in targets:
-        # Skip null entries
-        if not mod:
-            continue
-
-        # Only skip __hook__ itself — decompile everything else including stdlib
-        if name == '__hook__':
-            continue
-
-        # Skip __main__ only if it literally IS the hook script
-        if name == '__main__':
-            try:
-                if hasattr(mod, '__file__') and mod.__file__:
-                    if '__hook__' in mod.__file__ or 'hook_backend' in mod.__file__:
-                        hook_log(f"[SKIP] __main__ is the hook script: {mod.__file__}\n")
-                        continue
-            except Exception:
-                pass
-
-        # is_potential_main: mark __main__ and any non-hook module that has a file
-        is_potential_main = False
-        if hasattr(mod, '__file__') and mod.__file__:
-            file_path = mod.__file__
-            if '__hook__' not in file_path and 'hook_backend' not in file_path:
-                is_potential_main = (name == '__main__')
-
-        try:
-            recon.process_module(name, mod, is_potential_main)
-            processed_count += 1
-            hook_log(f"[OK] Processed: {name}\n")
-        except Exception as e:
-            error_count += 1
-            hook_log(f"[ERR] Error processing {name}: {str(e)}\n")
-
-    hook_log("\n" + "=" * 60 + "\n--- FINISHED ---\n")
-    hook_log(f"Output location: {backup_dir}\n")
-    hook_log(f"Processed: {processed_count} modules\nErrors: {error_count}\n")
-    hook_log(f"Compiled code blocks: {len(recon.compiled_modules)}\n")
-    
     try:
-        (backup_dir / "finished.txt").write_text("DONE", encoding='utf-8')
+        hook_log(f"Starting decompilation\nTarget Dir: {backup_dir}\n")
+        hook_log(f"Created: {source_dir}\n")
+        write_marker(progress_path, "phase=initializing\n")
+
+        recon = ModuleReconstructor(backup_dir)
+        # Snapshot sys.modules immediately — the set changes as imports happen.
+        targets = list(sys.modules.items())
+        total_targets = len(targets)
+        hook_log(f"Found {total_targets} modules\n")
+        write_marker(
+            progress_path,
+            "phase=scanning\ncurrent=0/{total}\nprocessed=0\nerrors=0\n".format(
+                total=total_targets
+            ),
+        )
+
+        # Identify the application entry point(s) for the report header —
+        # __main__ that isn't the hook itself, or any non-hook module.
+        potential_mains = []
+        for name, mod in targets:
+            if not mod or not hasattr(mod, '__file__') or not mod.__file__:
+                continue
+            file_path = mod.__file__
+            if '__hook__' in file_path or 'hook_backend' in file_path:
+                continue
+            potential_mains.append((name, file_path))
+
+        if potential_mains:
+            hook_log(f"\n[INFO] Modules found in process:\n")
+            for name, path in potential_mains:
+                hook_log(f"  - {name}: {path}\n")
+            hook_log("\n")
+
+        processed_count = 0
+        error_count = 0
+
+        for idx, (name, mod) in enumerate(targets, 1):
+            if idx == 1 or idx % 25 == 0 or idx == total_targets:
+                progress_text = (
+                    "phase=processing\n"
+                    "current={idx}/{total}\n"
+                    "module={name}\n"
+                    "processed={processed}\n"
+                    "errors={errors}\n"
+                ).format(
+                    idx=idx,
+                    total=total_targets,
+                    name=name,
+                    processed=processed_count,
+                    errors=error_count,
+                )
+                write_marker(progress_path, progress_text)
+                write_marker(status_path, "status=" + progress_text)
+
+            # Skip null entries
+            if not mod:
+                continue
+
+            # Only skip __hook__ itself — decompile everything else including stdlib
+            if name == '__hook__':
+                continue
+
+            # Skip __main__ only if it literally IS the hook script
+            if name == '__main__':
+                try:
+                    if hasattr(mod, '__file__') and mod.__file__:
+                        if '__hook__' in mod.__file__ or 'hook_backend' in mod.__file__:
+                            hook_log(f"[SKIP] __main__ is the hook script: {mod.__file__}\n")
+                            continue
+                except Exception:
+                    pass
+
+            # is_potential_main: mark __main__ and any non-hook module that has a file
+            is_potential_main = False
+            if hasattr(mod, '__file__') and mod.__file__:
+                file_path = mod.__file__
+                if '__hook__' not in file_path and 'hook_backend' not in file_path:
+                    is_potential_main = (name == '__main__')
+
+            try:
+                recon.process_module(name, mod, is_potential_main)
+                processed_count += 1
+                hook_log(f"[OK] Processed: {name}\n")
+            except Exception as e:
+                error_count += 1
+                hook_log(f"[ERR] Error processing {name}: {str(e)}\n")
+
+        hook_log("\n" + "=" * 60 + "\n--- FINISHED ---\n")
+        hook_log(f"Output location: {backup_dir}\n")
+        hook_log(f"Processed: {processed_count} modules\nErrors: {error_count}\n")
+        hook_log(f"Compiled code blocks: {len(recon.compiled_modules)}\n")
+        write_marker(
+            progress_path,
+            "phase=finished\nprocessed={processed}\nerrors={errors}\ncompiled={compiled}\n".format(
+                processed=processed_count,
+                errors=error_count,
+                compiled=len(recon.compiled_modules),
+            ),
+        )
+        write_marker(
+            status_path,
+            "status=finished\nprocessed={processed}\nerrors={errors}\ncompiled={compiled}\n".format(
+                processed=processed_count,
+                errors=error_count,
+                compiled=len(recon.compiled_modules),
+            ),
+        )
+        write_marker(finished_path, "DONE\n")
     except Exception:
-        pass
+        try:
+            import traceback
+            tb = traceback.format_exc()
+            hook_log(tb)
+            write_marker(error_path, tb)
+            write_marker(progress_path, "phase=crashed\n")
+            write_marker(status_path, "status=crashed\n")
+        except Exception:
+            pass
+        raise
 
 
 # =============================================================================

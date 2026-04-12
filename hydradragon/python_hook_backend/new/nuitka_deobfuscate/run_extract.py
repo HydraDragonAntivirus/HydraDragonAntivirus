@@ -60,22 +60,7 @@ def extract_path_from_code(code_obj) -> str | None:
     except: pass
     return None
 
-# ============================================================================
-# EMBEDDED OMNI FRAMEWORK (To prevent multi-file dependency clutter)
-# ============================================================================
-def generate_omni_source(decompiler, section_name):
-    out = []
-    out.append('"""\n==== OMNI UNIFIED MAXIMUM DECOMPILATION ====\nReconstructed source: ' + section_name + '\nUniting everything known.\n"""\n')
-    out.append('import customtkinter as ctk\nimport requests, time, ctypes\nfrom mss import mss\n\n')
-    
-    out.append("MACRO_C_API = {\n    'LOOKUP_ATTRIBUTE': 'PyObject *LOOKUP_ATTRIBUTE(PyThreadState *tstate, PyObject *obj, PyObject *name)',\n    'CALL_FUNCTION_NO_ARGS': 'PyObject *CALL_FUNCTION_NO_ARGS(PyThreadState *tstate, PyObject *func)',\n    'MODULE_DICT': 'PyDictObject *moduledict_NAME = MODULE_DICT(module_NAME);'\n}\n")
-    
-    for cls_name, cls_node in decompiler.classes.items():
-        if len(cls_name) > 60 or ' ' in cls_name or '\x00' in cls_name: continue
-        if not cls_name[0:1].isalpha() and cls_name[0:1] != '_': continue
-        if not cls_node.methods and not cls_node.attributes: continue
-        out.append(cls_node.render(0))
-    return "".join(out)
+# OMNI SYSTEM IMPORTED FROM EXTERNAL MODULE
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -96,10 +81,11 @@ def main(argv: list[str] | None = None) -> int:
         return 1
         
     try:
-        from omni_nuitka_framework import OmniDecompiler
+        from omni_nuitka_framework import OmniDecompiler, generate_omni_source
     except ImportError:
         print("[!] Warning: omni_nuitka_framework.py missing. Will only run bytecode extraction.")
         OmniDecompiler = None
+        generate_omni_source = None
 
     raw = args.blob.read_bytes()
     print(f"[*] Loaded {len(raw)} bytes from {args.blob}")

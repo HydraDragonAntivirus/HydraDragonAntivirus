@@ -390,15 +390,157 @@ static bool FindLoadedPythonHome(char *outPath, size_t maxLen) {
   return false;
 }
 
+// Returns the raw directory containing the loaded pythonXY.dll — no Lib/
+// check. This is the Nuitka temp extraction dir when running a OneFile build,
+// and it contains the bundled _ctypes.pyd / other extension modules.
+static bool GetLoadedPythonDllDir(char *outPath, size_t maxLen) {
+  if (!outPath || maxLen == 0)
+    return false;
+
+  for (int i = 15; i >= 6; i--) {
+    char dllName[32];
+    _snprintf_s(dllName, sizeof(dllName), _TRUNCATE, "python3%d.dll", i);
+    dllName[sizeof(dllName) - 1] = '\0';
+    HMODULE hPy = GetModuleHandleA(dllName);
+    if (!hPy)
+      continue;
+
+    DWORD len = GetModuleFileNameA(hPy, outPath, (DWORD)maxLen);
+    if (len > 0 && len < maxLen) {
+      outPath[maxLen - 1] = '\0';
+      PathRemoveFileSpecA(outPath);
+      dbgPrintf("[HOOK] Loaded DLL dir (Nuitka temp): %s\n", outPath);
+      return true;
+    }
+    break;
+  }
+  return false;
+}
+
+static int GetLoadedPythonRuntimeTag() {
+  for (int i = 15; i >= 6; --i) {
+    char dllName[32];
+    _snprintf_s(dllName, sizeof(dllName), _TRUNCATE, "python3%d.dll", i);
+    dllName[sizeof(dllName) - 1] = '\0';
+    if (GetModuleHandleA(dllName))
+      return i;
+  }
+  return 0;
+}
+
+static bool PythonHomeMatchesLoadedRuntime(const char *pythonHome,
+                                           int loadedRuntimeTag) {
+  if (!pythonHome || pythonHome[0] == '\0' || loadedRuntimeTag == 0)
+    return true;
+
+  char marker[32];
+  _snprintf_s(marker, sizeof(marker), _TRUNCATE, "Python3%d", loadedRuntimeTag);
+  marker[sizeof(marker) - 1] = '\0';
+  if (StrStrIA(pythonHome, marker) != NULL)
+    return true;
+
+  char dllPath[MAX_PATH];
+  _snprintf_s(dllPath, MAX_PATH, _TRUNCATE, "%s\\python3%d.dll", pythonHome,
+              loadedRuntimeTag);
+  dllPath[MAX_PATH - 1] = '\0';
+  DWORD attrib = GetFileAttributesA(dllPath);
+  if (attrib != INVALID_FILE_ATTRIBUTES && !(attrib & FILE_ATTRIBUTE_DIRECTORY))
+    return true;
+
+  _snprintf_s(dllPath, MAX_PATH, _TRUNCATE, "%s\\DLLs\\python3%d.dll",
+              pythonHome, loadedRuntimeTag);
+  dllPath[MAX_PATH - 1] = '\0';
+  attrib = GetFileAttributesA(dllPath);
+  if (attrib != INVALID_FILE_ATTRIBUTES && !(attrib & FILE_ATTRIBUTE_DIRECTORY))
+    return true;
+
+  return false;
+}
+
+// Find the installed Python home that matches the pythonXY.dll actually
+// loaded in this process. This avoids version mismatches where (e.g.)
+// python311.dll is loaded but PYTHONHOME points at Python312.
+static bool FindPythonHomeForLoadedDll(char *outPath, size_t maxLen) {
+  if (!outPath || maxLen == 0)
+    return false;
+
+  char localAppData[MAX_PATH] = {0};
+  SHGetFolderPathA(NULL, CSIDL_LOCAL_APPDATA, NULL, 0, localAppData);
+
+  // Walk from newest to oldest to match FindLoadedPythonHome search order.
+  for (int i = 15; i >= 6; i--) {
+    char dllName[32];
+    _snprintf_s(dllName, sizeof(dllName), _TRUNCATE, "python3%d.dll", i);
+    dllName[sizeof(dllName) - 1] = '\0';
+    if (!GetModuleHandleA(dllName))
+      continue;
+
+    dbgPrintf("[HOOK] Detected loaded runtime: python3%d.dll — searching for "
+              "matching install\n", i);
+
+    char candidate[MAX_PATH];
+
+    // %LOCALAPPDATA%\Programs\Python\Python3X
+    if (localAppData[0]) {
+      _snprintf_s(candidate, MAX_PATH, _TRUNCATE,
+                  "%s\\Programs\\Python\\Python3%d", localAppData, i);
+      candidate[MAX_PATH - 1] = '\0';
+      if (IsValidPythonHome(candidate, outPath, maxLen)) {
+        dbgPrintf("[HOOK] Matched loaded DLL to install: %s\n", outPath);
+        return true;
+      }
+    }
+
+    // C:\Python3X
+    _snprintf_s(candidate, MAX_PATH, _TRUNCATE, "C:\\Python3%d", i);
+    candidate[MAX_PATH - 1] = '\0';
+    if (IsValidPythonHome(candidate, outPath, maxLen)) {
+      dbgPrintf("[HOOK] Matched loaded DLL to install: %s\n", outPath);
+      return true;
+    }
+
+    // C:\Program Files\Python3X
+    _snprintf_s(candidate, MAX_PATH, _TRUNCATE,
+                "C:\\Program Files\\Python3%d", i);
+    candidate[MAX_PATH - 1] = '\0';
+    if (IsValidPythonHome(candidate, outPath, maxLen)) {
+      dbgPrintf("[HOOK] Matched loaded DLL to install: %s\n", outPath);
+      return true;
+    }
+
+    // C:\Program Files (x86)\Python3X
+    _snprintf_s(candidate, MAX_PATH, _TRUNCATE,
+                "C:\\Program Files (x86)\\Python3%d", i);
+    candidate[MAX_PATH - 1] = '\0';
+    if (IsValidPythonHome(candidate, outPath, maxLen)) {
+      dbgPrintf("[HOOK] Matched loaded DLL to install: %s\n", outPath);
+      return true;
+    }
+
+    // Found the loaded DLL but no matching install — stop searching.
+    dbgPrintf("[HOOK] WARNING: python3%d.dll loaded but no matching install "
+              "found\n", i);
+    break;
+  }
+  return false;
+}
+
 static void AutoSetPythonHome() {
   char pythonHome[MAX_PATH] = {0};
   bool found = false;
+  const int loadedRuntimeTag = GetLoadedPythonRuntimeTag();
 
-  // PRIORITY 1: Prefer the Python runtime already loaded in this process.
-  if (FindLoadedPythonHome(pythonHome, MAX_PATH))
+  // PRIORITY 1: Find the installed home that matches the loaded pythonXY.dll.
+  // This must come first so DLLs/Lib always match the actual runtime version.
+  if (FindPythonHomeForLoadedDll(pythonHome, MAX_PATH))
     found = true;
 
-  // PRIORITY 2: Use the current executable's Python home when available.
+  // PRIORITY 2: Fallback — use the directory of the loaded DLL itself
+  // (handles in-place / embedded installs without a standard layout).
+  if (!found && FindLoadedPythonHome(pythonHome, MAX_PATH))
+    found = true;
+
+  // PRIORITY 3: Use the current executable's Python home when available.
   if (!found) {
     char currentExe[MAX_PATH] = {0};
     DWORD currentExeLen = GetModuleFileNameA(NULL, currentExe, MAX_PATH);
@@ -415,14 +557,20 @@ static void AutoSetPythonHome() {
         pythonHome[MAX_PATH - 1] = '\0';
         PathRemoveFileSpecA(pythonHome);
         if (IsValidPythonHome(pythonHome, NULL, 0)) {
-          found = true;
-          dbgPrintf("[HOOK] Using current python.exe dir: %s\n", pythonHome);
+          if (PythonHomeMatchesLoadedRuntime(pythonHome, loadedRuntimeTag)) {
+            found = true;
+            dbgPrintf("[HOOK] Using current python.exe dir: %s\n", pythonHome);
+          } else {
+            dbgPrintf("[HOOK] Skipping current python.exe dir because it does "
+                      "not match loaded runtime python3%d.dll\n",
+                      loadedRuntimeTag);
+          }
         }
       }
     }
   }
 
-  // PRIORITY 3: Use existing PYTHONHOME only when it still points to a valid
+  // PRIORITY 4: Use existing PYTHONHOME only when it still points to a valid
   // install.
   if (!found) {
     char existing[MAX_PATH] = {0};
@@ -430,10 +578,16 @@ static void AutoSetPythonHome() {
         GetEnvironmentVariableA("PYTHONHOME", existing, MAX_PATH);
     if (existingLen > 0 && existingLen < MAX_PATH) {
       if (IsValidPythonHome(existing, NULL, 0)) {
-        dbgPrintf("[HOOK] PYTHONHOME already set to: %s\n", existing);
-        strncpy_s(pythonHome, MAX_PATH, existing, _TRUNCATE);
-        pythonHome[MAX_PATH - 1] = '\0';
-        found = true;
+        if (PythonHomeMatchesLoadedRuntime(existing, loadedRuntimeTag)) {
+          dbgPrintf("[HOOK] PYTHONHOME already set to: %s\n", existing);
+          strncpy_s(pythonHome, MAX_PATH, existing, _TRUNCATE);
+          pythonHome[MAX_PATH - 1] = '\0';
+          found = true;
+        } else {
+          dbgPrintf("[HOOK] Ignoring PYTHONHOME because it does not match "
+                    "loaded runtime python3%d.dll: %s\n",
+                    loadedRuntimeTag, existing);
+        }
       } else {
         dbgPrintf("[HOOK] Ignoring invalid PYTHONHOME: %s\n", existing);
       }
@@ -442,53 +596,63 @@ static void AutoSetPythonHome() {
     }
   }
 
-  // PRIORITY 4: Prefer HydraDragonAntivirus's Python 3.12 install.
-  if (!found) {
+  // If a version-specific runtime is already loaded and no matching install was
+  // found, do NOT fall back to an arbitrary different Python version.
+  if (!found && loadedRuntimeTag != 0) {
+    dbgPrintf("[HOOK] Loaded runtime python3%d.dll has no matching install. "
+              "Skipping cross-version PYTHONHOME fallback.\n",
+              loadedRuntimeTag);
+  }
+
+  // Generic fallback logic is only safe when there is no version-specific
+  // python3X.dll already loaded in this process.
+  if (!found && loadedRuntimeTag == 0) {
+    // PRIORITY 5: Prefer HydraDragonAntivirus's Python 3.12 install.
     if (FindPreferredPython312Home(pythonHome, MAX_PATH))
       found = true;
-  }
 
-  // PRIORITY 5: Find python.exe in other processes.
-  if (!found) {
-    char pythonExe[MAX_PATH] = {0};
-    if (FindPythonExePath(pythonExe, MAX_PATH)) {
-      strncpy_s(pythonHome, MAX_PATH, pythonExe, _TRUNCATE);
-      pythonHome[MAX_PATH - 1] = '\0';
-      PathRemoveFileSpecA(pythonHome);
-      if (IsValidPythonHome(pythonHome, NULL, 0))
-        found = true;
-    }
-  }
-
-  // Method 5: Check common installation paths.
-  if (!found)
-    found = FindPythonInstallation(pythonHome, MAX_PATH);
-
-  // Method 6: Check PATH environment.
-  if (!found) {
-    char *pathEnv = (char *)malloc(32768);
-    if (pathEnv) {
-      DWORD pathLen = GetEnvironmentVariableA("PATH", pathEnv, 32768);
-      if (pathLen > 0 && pathLen < 32768) {
-        char *context = NULL;
-        char *token = strtok_s(pathEnv, ";", &context);
-        while (token != NULL) {
-          char testExe[MAX_PATH];
-          _snprintf_s(testExe, MAX_PATH, _TRUNCATE, "%s\\python.exe", token);
-          testExe[MAX_PATH - 1] = '\0';
-
-          DWORD attrib = GetFileAttributesA(testExe);
-          if (attrib != INVALID_FILE_ATTRIBUTES &&
-              !(attrib & FILE_ATTRIBUTE_DIRECTORY)) {
-            if (IsValidPythonHome(token, pythonHome, MAX_PATH)) {
-              found = true;
-              break;
-            }
-          }
-          token = strtok_s(NULL, ";", &context);
-        }
+    // PRIORITY 6: Find python.exe in other processes.
+    if (!found) {
+      char pythonExe[MAX_PATH] = {0};
+      if (FindPythonExePath(pythonExe, MAX_PATH)) {
+        strncpy_s(pythonHome, MAX_PATH, pythonExe, _TRUNCATE);
+        pythonHome[MAX_PATH - 1] = '\0';
+        PathRemoveFileSpecA(pythonHome);
+        if (IsValidPythonHome(pythonHome, NULL, 0))
+          found = true;
       }
-      free(pathEnv);
+    }
+
+    // PRIORITY 7: Check common installation paths.
+    if (!found)
+      found = FindPythonInstallation(pythonHome, MAX_PATH);
+
+    // PRIORITY 8: Check PATH environment.
+    if (!found) {
+      char *pathEnv = (char *)malloc(32768);
+      if (pathEnv) {
+        DWORD pathLen = GetEnvironmentVariableA("PATH", pathEnv, 32768);
+        if (pathLen > 0 && pathLen < 32768) {
+          char *context = NULL;
+          char *token = strtok_s(pathEnv, ";", &context);
+          while (token != NULL) {
+            char testExe[MAX_PATH];
+            _snprintf_s(testExe, MAX_PATH, _TRUNCATE, "%s\\python.exe", token);
+            testExe[MAX_PATH - 1] = '\0';
+
+            DWORD attrib = GetFileAttributesA(testExe);
+            if (attrib != INVALID_FILE_ATTRIBUTES &&
+                !(attrib & FILE_ATTRIBUTE_DIRECTORY)) {
+              if (IsValidPythonHome(token, pythonHome, MAX_PATH)) {
+                found = true;
+                break;
+              }
+            }
+            token = strtok_s(NULL, ";", &context);
+          }
+        }
+        free(pathEnv);
+      }
     }
   }
 
@@ -506,7 +670,11 @@ static void AutoSetPythonHome() {
     SetEnvironmentVariableA("PYTHONPATH", pythonPath);
     dbgPrintf("[HOOK] Set PYTHONPATH=%s\n", pythonPath);
   } else {
-    dbgPrintf("[HOOK] Could not auto-detect PYTHONHOME\n");
+    g_pythonHomePath[0] = '\0';
+    SetEnvironmentVariableA("PYTHONHOME", NULL);
+    SetEnvironmentVariableA("PYTHONPATH", NULL);
+    dbgPrintf("[HOOK] Could not auto-detect a SAFE PYTHONHOME; leaving "
+              "PYTHONHOME/PYTHONPATH unset\n");
   }
 }
 
@@ -609,6 +777,114 @@ static __declspec(noinline) void SafePyErr_Print(PyErr_PrintFunc func) {
   }
 }
 
+static void RestorePythonStdStreams(PyRun_SimpleStringFunc func) {
+  if (!func)
+    return;
+
+  static const char *restoreCmd =
+      "import sys, builtins\n"
+      "try:\n"
+      "    _saved_out = getattr(builtins, '__hydra_saved_stdout__', None)\n"
+      "    _saved_err = getattr(builtins, '__hydra_saved_stderr__', None)\n"
+      "    _log_file = getattr(builtins, '__hydra_log_stream__', None)\n"
+      "    if _saved_out is not None:\n"
+      "        sys.stdout = _saved_out\n"
+      "    if _saved_err is not None:\n"
+      "        sys.stderr = _saved_err\n"
+      "    if _log_file is not None:\n"
+      "        try:\n"
+      "            _log_file.flush()\n"
+      "        except Exception:\n"
+      "            pass\n"
+      "    for _name in ('__hydra_saved_stdout__', '__hydra_saved_stderr__',\n"
+      "                  '__hydra_log_stream__'):\n"
+      "        if hasattr(builtins, _name):\n"
+      "            delattr(builtins, _name)\n"
+      "except Exception:\n"
+      "    pass\n";
+
+  int restoreRes = SafePyRun_SimpleString(func, restoreCmd);
+  dbgPrintf("[HOOK] Restore Python stdio returned: %d\n", restoreRes);
+}
+
+static void LogImportedHookModulePath(PyRun_SimpleStringFunc func,
+                                    const char *moduleName) {
+  if (!func || !moduleName || !moduleName[0])
+    return;
+
+  char cmd[1024];
+  int written = _snprintf_s(
+      cmd, sizeof(cmd), _TRUNCATE,
+      "import sys\n"
+      "try:\n"
+      "    _m = sys.modules.get(r'%s')\n"
+      "    print('Imported module __file__:', getattr(_m, '__file__', '<none>'))\n"
+      "except Exception as _e:\n"
+      "    print('Imported module path logging failed:', type(_e).__name__, str(_e))\n",
+      moduleName);
+  if (written >= 0)
+    SafePyRun_SimpleString(func, cmd);
+}
+
+// --- Unmasking Logic & Globals ---
+typedef char* (__fastcall* tPyUnicode_AsUTF8)(void*);
+tPyUnicode_AsUTF8 pPyUnicode_AsUTF8 = nullptr;
+
+unsigned char g_originalBytes[14];
+void* g_targetAddr = nullptr;
+
+// 1. Generic Pattern Scanner
+void* FindNuitkaUnmarshal(const char* moduleName) {
+    HMODULE hModule = GetModuleHandleA(moduleName);
+    if (!hModule) return nullptr;
+
+    MODULEINFO modInfo;
+    if (!GetModuleInformation(GetCurrentProcess(), hModule, &modInfo, sizeof(MODULEINFO)))
+        return nullptr;
+
+    unsigned char* start = (unsigned char*)modInfo.lpBaseOfDll;
+    size_t size = modInfo.SizeOfImage;
+
+    // Pattern for Nuitka's Unmarshal function (Generic x64)
+    const unsigned char pattern[] = { 0x40, 0x53, 0x48, 0x83, 0xEC, 0x20, 0x48, 0x8B, 0xDA, 0x48, 0x8B, 0xD1, 0x48, 0x8B, 0x0D };
+    const size_t patternLen = 15;
+
+    for (size_t i = 0; i < size - patternLen; i++) {
+        bool found = true;
+        for (size_t j = 0; j < patternLen; j++) {
+            if (pattern[j] != start[i + j]) {
+                found = false;
+                break;
+            }
+        }
+        if (found) return (void*)&start[i];
+    }
+    return nullptr;
+}
+
+// 2. The Hook Trampoline
+void PlaceTrampoline(void* target, void* detour) {
+    g_targetAddr = target;
+    DWORD oldProtect;
+    VirtualProtect(target, 14, PAGE_EXECUTE_READWRITE, &oldProtect);
+    memcpy(g_originalBytes, target, 14);
+
+    unsigned char jumpCode[] = { 0xFF, 0x25, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
+    uintptr_t addr = (uintptr_t)detour;
+    memcpy(&jumpCode[6], &addr, 8);
+    
+    memcpy(target, jumpCode, 14);
+    VirtualProtect(target, 14, oldProtect, &oldProtect);
+}
+
+void RemoveTrampoline() {
+    if (!g_targetAddr) return;
+    DWORD old;
+    VirtualProtect(g_targetAddr, 14, PAGE_EXECUTE_READWRITE, &old);
+    memcpy(g_targetAddr, g_originalBytes, 14);
+    VirtualProtect(g_targetAddr, 14, old, &old);
+}
+
 static unsigned __stdcall hookImpl(void *lpParam) {
   UNREFERENCED_PARAMETER(lpParam);
 
@@ -696,13 +972,19 @@ static unsigned __stdcall hookImpl(void *lpParam) {
     }
 
     // CRITICAL FIX: Allocate larger buffer for Python setup code
-    char *pycmd = (char *)malloc(16384);
+    char *pycmd = (char *)malloc(24576);
     if (!pycmd) {
       dbgPrintf(
           "[HOOK] ERROR: Memory allocation failed for Python setup command\n");
       PyGILState_Release(gilState);
       return 1;
     }
+
+    char hookFilePath[MAX_PATH] = {0};
+    char hookDir[MAX_PATH] = {0};
+    char pyHookPath[MAX_PATH] = {0};
+    char pyHookDir[MAX_PATH] = {0};
+    bool haveConfiguredHook = false;
 
     if (PyRun_SimpleString) {
       char pyLogPath[MAX_PATH];
@@ -722,19 +1004,76 @@ static unsigned __stdcall hookImpl(void *lpParam) {
           *p = '/';
       }
 
+      if (GetHookFilePathFromConfig(hookFilePath, MAX_PATH) &&
+          hookFilePath[0] != '\0') {
+        strncpy_s(hookDir, MAX_PATH, hookFilePath, _TRUNCATE);
+        hookDir[MAX_PATH - 1] = '\0';
+        PathRemoveFileSpecA(hookDir);
+        strncpy_s(pyHookPath, MAX_PATH, hookFilePath, _TRUNCATE);
+        pyHookPath[MAX_PATH - 1] = '\0';
+        strncpy_s(pyHookDir, MAX_PATH, hookDir, _TRUNCATE);
+        pyHookDir[MAX_PATH - 1] = '\0';
+        for (char *p = pyHookPath; *p; ++p)
+          if (*p == '\\')
+            *p = '/';
+        for (char *p = pyHookDir; *p; ++p)
+          if (*p == '\\')
+            *p = '/';
+        haveConfiguredHook = true;
+        dbgPrintf("[HOOK] Configured hook file: %s\n", hookFilePath);
+        dbgPrintf("[HOOK] Configured hook dir: %s\n", hookDir);
+      }
+
+      // Get the raw dir of the loaded pythonXY.dll (Nuitka temp extraction
+      // dir). This is where the bundled _ctypes.pyd lives when no matching
+      // system-wide Python install exists for the loaded DLL version.
+      char pyDllDir[MAX_PATH] = {0};
+      {
+        char rawDllDir[MAX_PATH] = {0};
+        if (GetLoadedPythonDllDir(rawDllDir, MAX_PATH)) {
+          strncpy_s(pyDllDir, MAX_PATH, rawDllDir, _TRUNCATE);
+          pyDllDir[MAX_PATH - 1] = '\0';
+          for (char *p = pyDllDir; *p; ++p)
+            if (*p == '\\') *p = '/';
+        }
+      }
+
       // Safely build Python setup command
       int written = _snprintf_s(
-          pycmd, 16384, _TRUNCATE,
+          pycmd, 24576, _TRUNCATE,
           "import sys, os\n"
           "try:\n"
-          "    f = open(r'%s', 'a', buffering=1, encoding='utf-8')\n"
-          "    sys.stdout = f\n"
-          "    sys.stderr = f\n"
-          "    print('Python stdout/stderr redirected')\n"
+          "    import builtins as _hydra_builtins\n"
+          "    _log_path = r'%s'\n"
+          "    _hydra_builtins.__hydra_saved_stdout__ = sys.stdout\n"
+          "    _hydra_builtins.__hydra_saved_stderr__ = sys.stderr\n"
+          "    if _log_path:\n"
+          "        try:\n"
+          "            f = open(_log_path, 'a', buffering=1, encoding='utf-8')\n"
+          "            _hydra_builtins.__hydra_log_stream__ = f\n"
+          "            sys.stdout = f\n"
+          "            sys.stderr = f\n"
+          "            print('Python stdout/stderr temporarily redirected')\n"
+          "        except Exception as _le:\n"
+          "            print('WARNING: Could not open log file:', _le)\n"
+          "    else:\n"
+          "        print('WARNING: Log path is empty, skipping file redirect')\n"
           "    print('sys.executable:', sys.executable)\n"
           "    print('sys.prefix:', sys.prefix)\n"
           "    pythonhome = r'%s'\n"
           "    print('Detected PYTHONHOME:', pythonhome)\n"
+          "    \n"
+          "    # PRIORITY 0: Add the raw loaded pythonXY.dll directory first.\n"
+          "    # For Nuitka OneFile builds this is the temp extraction dir and\n"
+          "    # contains the bundled _ctypes.pyd / other extension modules.\n"
+          "    _dll_dir = r'%s'\n"
+          "    if _dll_dir and os.path.isdir(_dll_dir):\n"
+          "        if _dll_dir not in sys.path:\n"
+          "            sys.path.insert(0, _dll_dir)\n"
+          "            print('Added Nuitka DLL dir:', _dll_dir)\n"
+          "        if _dll_dir not in os.environ.get('PATH', ''):\n"
+          "            os.environ['PATH'] = _dll_dir + os.pathsep + os.environ.get('PATH', '')\n"
+          "            print('Added Nuitka DLL dir to PATH')\n"
           "    \n"
           "    # CRITICAL: Add DLLs directory for compiled extensions like "
           "_ctypes\n"
@@ -762,6 +1101,27 @@ static unsigned __stdcall hookImpl(void *lpParam) {
           "            sys.path.insert(0, site_packages)\n"
           "            print('Added site-packages:', site_packages)\n"
           "    \n"
+          "    # Force the configured hook directory to win before any plain import.\n"
+          "    configured_hook_file = r'%s'\n"
+          "    configured_hook_dir = r'%s'\n"
+          "    if configured_hook_dir:\n"
+          "        try:\n"
+          "            if '__hook__' in sys.modules:\n"
+          "                del sys.modules['__hook__']\n"
+          "                print('Removed stale __hook__ from sys.modules')\n"
+          "        except Exception as _se:\n"
+          "            print('Could not clear stale __hook__:', type(_se).__name__, str(_se))\n"
+          "        if os.path.isdir(configured_hook_dir):\n"
+          "            while configured_hook_dir in sys.path:\n"
+          "                sys.path.remove(configured_hook_dir)\n"
+          "            sys.path.insert(0, configured_hook_dir)\n"
+          "            os.environ['HYDRA_HOOK_PATH'] = configured_hook_dir\n"
+          "            print('Pinned configured hook dir:', configured_hook_dir)\n"
+          "            print('Configured hook file exists:', os.path.exists(configured_hook_file))\n"
+          "        else:\n"
+          "            print('WARNING: Configured hook dir is missing:', configured_hook_dir)\n"
+          "    else:\n"
+          "        print('WARNING: No configured hook path available before import')\n"
           "    # Add current working directory and executable directory\n"
           "    cwd = os.getcwd()\n"
           "    exe_dir = os.path.dirname(sys.executable)\n"
@@ -779,27 +1139,17 @@ static unsigned __stdcall hookImpl(void *lpParam) {
           "        sys.path.insert(0, env_hook)\n"
           "        print('Added env hook path:', env_hook)\n"
           "    \n"
-          "    # Test if _ctypes is now available\n"
-          "    try:\n"
-          "        import _ctypes\n"
-          "        print('SUCCESS: _ctypes is available')\n"
-          "    except ImportError as e:\n"
-          "        print('WARNING: _ctypes still not available:', e)\n"
-          "        print('This will cause ctypes imports to fail')\n"
-          "    \n"
-          "    # Test concurrent.futures\n"
-          "    try:\n"
-          "        import concurrent.futures\n"
-          "        print('SUCCESS: concurrent.futures available')\n"
-          "    except ImportError as e:\n"
-          "        print('ERROR: concurrent.futures not available:', e)\n"
-          "    \n"
           "    print('Final sys.path:', sys.path[:5], '...')\n"
           "except Exception as e:\n"
-          "    print('Setup error:', e)\n"
-          "    import traceback\n"
-          "    traceback.print_exc()\n",
-          pyLogPath, pyHomePath);
+          "    print('Setup error:', type(e).__name__, str(e))\n"
+          "    import sys as _sys\n"
+          "    _ei = _sys.exc_info()\n"
+          "    print('  Type :', _ei[0].__name__ if _ei[0] else '?')\n"
+          "    print('  Value:', str(_ei[1]))\n"
+          "    try:\n"
+          "        import traceback as _tb; _tb.print_exc()\n"
+          "    except Exception: pass\n",
+          pyLogPath, pyHomePath, pyDllDir, pyHookPath, pyHookDir);
 
       if (written < 0) {
         dbgPrintf("[HOOK] WARNING: Python setup command truncated!\n");
@@ -820,7 +1170,9 @@ static unsigned __stdcall hookImpl(void *lpParam) {
         SafePyImport_ImportModule(PyImport_ImportModule, PYMODULE_NAME);
 
     if (hook_module) {
+      LogImportedHookModulePath(PyRun_SimpleString, PYMODULE_NAME);
       SafePy_DecRef(Py_DecRef, hook_module);
+      RestorePythonStdStreams(PyRun_SimpleString);
       SafePyGILState_Release(PyGILState_Release, gilState);
       dbgPrintf("[HOOK] Successfully imported %s\n", PYMODULE_NAME);
       return 0;
@@ -829,25 +1181,29 @@ static unsigned __stdcall hookImpl(void *lpParam) {
     // Fallback: explicit file execution
     dbgPrintf("[HOOK] Standard import failed, trying explicit execution\n");
 
-    char hookFilePath[MAX_PATH];
-    if (GetHookFilePathFromConfig(hookFilePath, MAX_PATH)) {
+    if ((hookFilePath[0] != '\0') || GetHookFilePathFromConfig(hookFilePath, MAX_PATH)) {
+      // Guard: path must be non-empty before passing into Python
+      if (hookFilePath[0] == '\0') {
+        dbgPrintf("[HOOK] ERROR: HookPath resolved to empty string. "
+                  "Check hook_config.ini has a valid HookPath= entry.\n");
+        RestorePythonStdStreams(PyRun_SimpleString);
+        SafePyGILState_Release(PyGILState_Release, gilState);
+        return 1;
+      }
       dbgPrintf("[HOOK] Explicit hook path: %s\n", hookFilePath);
 
       // Extract directory from hook file path and add to sys.path
-      char hookDir[MAX_PATH];
       strncpy_s(hookDir, MAX_PATH, hookFilePath, _TRUNCATE);
       hookDir[MAX_PATH - 1] = '\0';
       PathRemoveFileSpecA(hookDir); // Get directory only
 
       // Convert backslashes for Python
-      char pyHookPath[MAX_PATH];
       strncpy_s(pyHookPath, MAX_PATH, hookFilePath, _TRUNCATE);
       pyHookPath[MAX_PATH - 1] = '\0';
       for (char *p = pyHookPath; *p; ++p)
         if (*p == '\\')
           *p = '/';
 
-      char pyHookDir[MAX_PATH];
       strncpy_s(pyHookDir, MAX_PATH, hookDir, _TRUNCATE);
       pyHookDir[MAX_PATH - 1] = '\0';
       for (char *p = pyHookDir; *p; ++p)
@@ -894,8 +1250,13 @@ static unsigned __stdcall hookImpl(void *lpParam) {
             "            print('Cannot list directory:', e)\n"
             "except Exception as e:\n"
             "    print('ERROR in path addition:', type(e).__name__, str(e))\n"
-            "    import traceback\n"
-            "    traceback.print_exc()\n",
+            "    import sys as _sys\n"
+            "    _ei = _sys.exc_info()\n"
+            "    print('  Type :', _ei[0].__name__ if _ei[0] else '?')\n"
+            "    print('  Value:', str(_ei[1]))\n"
+            "    try:\n"
+            "        import traceback as _tb; _tb.print_exc()\n"
+            "    except Exception: pass\n",
             pyHookDir);
 
         int pathRes = SafePyRun_SimpleString(PyRun_SimpleString, addPathCmd);
@@ -907,7 +1268,9 @@ static unsigned __stdcall hookImpl(void *lpParam) {
           void *hook_module_retry =
               SafePyImport_ImportModule(PyImport_ImportModule, PYMODULE_NAME);
           if (hook_module_retry) {
+            LogImportedHookModulePath(PyRun_SimpleString, PYMODULE_NAME);
             SafePy_DecRef(Py_DecRef, hook_module_retry);
+            RestorePythonStdStreams(PyRun_SimpleString);
             SafePyGILState_Release(PyGILState_Release, gilState);
             dbgPrintf("[HOOK] Successfully imported %s after adding path\n",
                       PYMODULE_NAME);
@@ -960,15 +1323,17 @@ static unsigned __stdcall hookImpl(void *lpParam) {
             "        print('\\n=== SYNTAX ERROR IN HOOK FILE ===')\n"
             "        print('Line', e.lineno, ':', e.msg)\n"
             "        print('Text:', e.text)\n"
-            "        import traceback\n"
-            "        traceback.print_exc()\n"
+            "        try:\n"
+            "            import traceback as _tb; _tb.print_exc()\n"
+            "        except Exception: pass\n"
             "        raise\n"
             "    except Exception as e:\n"
             "        print('\\n=== HOOK EXECUTION ERROR ===')\n"
             "        print('Error type:', type(e).__name__)\n"
             "        print('Error message:', str(e))\n"
-            "        import traceback\n"
-            "        traceback.print_exc()\n"
+            "        try:\n"
+            "            import traceback as _tb; _tb.print_exc()\n"
+            "        except Exception: pass\n"
             "        print('=== END ERROR ===')\n"
             "        raise\n"
             "else:\n"
@@ -1005,7 +1370,8 @@ static unsigned __stdcall hookImpl(void *lpParam) {
 
           if (execRes == 0) {
             free(execCmd);
-            PyGILState_Release(gilState);
+            RestorePythonStdStreams(PyRun_SimpleString);
+            SafePyGILState_Release(PyGILState_Release, gilState);
             dbgPrintf("[HOOK] Hook executed successfully via direct exec\n");
             return 0;
           } else {
@@ -1026,7 +1392,8 @@ static unsigned __stdcall hookImpl(void *lpParam) {
 
     if (PyErr_Print)
       PyErr_Print();
-    PyGILState_Release(gilState);
+    RestorePythonStdStreams(PyRun_SimpleString);
+    SafePyGILState_Release(PyGILState_Release, gilState);
 
     dbgPrintf("[HOOK] Failed to import %s\n", PYMODULE_NAME);
     return 1;
