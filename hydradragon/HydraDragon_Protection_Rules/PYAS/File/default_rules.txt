@@ -22,6 +22,7 @@
 # HydraDragon Antivirus install directory (entire tree)
 # ---------------------------------------------------------------------------
 c:\program files\hydradragonantivirus
+c:\programdata\hydradragonantivirus
 
 # ---------------------------------------------------------------------------
 # Sanctum in-box DLL

@@ -14,6 +14,7 @@
 
 # HydraDragonAntivirus-specific examples
 c:\program files\hydradragonantivirus
+c:\programdata\hydradragonantivirus
 desktop\sanctum\
 appdata\roaming\sanctum\
 c:\windows\system32\tasks\hydradragonantivirus

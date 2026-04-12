@@ -81,6 +81,8 @@ Name: "{app}\hydradragon\Owlyshield\config\threats"; Flags: uninsneveruninstall
 Name: "{app}\hydradragon\HydraDragonAV\engines\clamav"
 Name: "{app}\hydradragon\suricata"
 Name: "{app}\openedr"
+Name: "{app}\nodejs"
+Name: "{app}\python"
 
 [Registry]
 Root: HKA; Subkey: "Software\Classes\{#MyAppAssocExt}\OpenWithProgids"; ValueType: string; ValueName: "{#MyAppAssocKey}"; ValueData: ""; Flags: uninsdeletevalue
@@ -138,8 +140,8 @@ Filename: "{tmp}\jre-8u481-windows-x64.exe"; Parameters: "/s INSTALL_SILENT=Enab
 ; JDK 21 (silent, environment variables)
 Filename: "{tmp}\jdk-21_windows-x64_bin.exe"; Parameters: "/s"; Flags: shellexec waituntilterminated
 
-; Python 3.12.10 amd64 (silent, all users, add to PATH, include pip)
-Filename: "{tmp}\python-3.12.10-amd64.exe"; Parameters: "/quiet InstallAllUsers=1 PrependPath=1 Include_pip=1"; Flags: shellexec waituntilterminated
+; Python 3.12.10 amd64 (silent, all users, add to PATH, include pip, target directory)
+Filename: "{tmp}\python-3.12.10-amd64.exe"; Parameters: "/quiet InstallAllUsers=1 PrependPath=1 Include_pip=1 TargetDir=""{app}\python"""; Flags: shellexec waituntilterminated
 
 ; ClamAV Installer (MSI - Silent Install)
 Filename: "{tmp}\clamav-1.5.2.win.x64.msi"; Parameters: "/quiet /norestart INSTALLDIR=""{app}\hydradragon\HydraDragonAV\engines\clamav"""; Flags: shellexec waituntilterminated
@@ -151,7 +153,7 @@ Filename: "{tmp}\Suricata-7.0.14-1-64bit.msi"; Parameters: "/quiet /norestart IN
 Filename: "{tmp}\openedr.msi"; Parameters: "/quiet /norestart INSTALLDIR=""{app}\openedr"""; Flags: shellexec waituntilterminated
 
 ; Node.js 22.22.0 (silent)
-Filename: "{tmp}\node-v22.22.1-x64.msi"; Parameters: "/quiet /norestart"; Flags: shellexec waituntilterminated
+Filename: "{tmp}\node-v22.22.1-x64.msi"; Parameters: "/quiet /norestart INSTALLDIR=""{app}\nodejs"""; Flags: shellexec waituntilterminated
 
 ; Npcap
 Filename: "{tmp}\npcap-1.85.exe"; Flags: shellexec waituntilterminated
