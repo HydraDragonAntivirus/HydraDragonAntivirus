@@ -184,6 +184,7 @@ See the [LICENSE](./LICENSE) file for more information.
 - We strongly recommend that you take a snapshot and then go back when you have finished your work.
 - Make your username random (for example and for avoid anti analysis).
 - The installer also includes daily.cvd, main.cvd, bytecode.cvd due to download issues with the ClamAV database.
+- You can't install ClamAV signatures from Russian IP https://github.com/Cisco-Talos/clamav/issues/500
 
  ## Discord Community Server
 
