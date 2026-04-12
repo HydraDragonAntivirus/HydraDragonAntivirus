@@ -94,10 +94,10 @@ def get_env_programw6432() -> Path:
 PROGRAMW6432 = get_env_programw6432()
 HYDRADRAGON_ROOT_PATH = PROGRAMW6432 / "HydraDragonAntivirus"
 HYDRADRAGON_PATH = HYDRADRAGON_ROOT_PATH / "hydradragon"
-CLAMAV_DIR = PROGRAMW6432 / "ClamAV"
+CLAMAV_DIR = HYDRADRAGON_PATH / "ClamAV"
 CONFIG_FILE = CLAMAV_DIR / "freshclam.conf"
-SURICATA_DIR = PROGRAMW6432 / "Suricata"
-NODEJS_PATH = PROGRAMW6432 / "nodejs"
+SURICATA_DIR = HYDRADRAGON_PATH / "Suricata"
+NODEJS_PATH = HYDRADRAGON_PATH / "nodejs"
 PKG_UNPACKER_DIR = HYDRADRAGON_PATH / "pkg-unpacker"
 CLEAN_VM_PY_PATH = HYDRADRAGON_PATH / "Sanctum" / "clean_vm" / "installer_clean_vm.py"
 CLEAN_VM_FOLDER = HYDRADRAGON_PATH / "Sanctum" / "clean_vm"
