@@ -15,6 +15,7 @@
 # HydraDragonAntivirus-specific examples
 c:\program files\hydradragonantivirus
 c:\programdata\hydradragonantivirus
+c:\programdata\edrsvc
 # TODO Convert to hardcoded path
 # \desktop\sanctum\
 # \appdata\roaming\sanctum\

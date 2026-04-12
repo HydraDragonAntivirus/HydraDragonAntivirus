@@ -26,3 +26,5 @@ c:\windows\explorer.exe
 # ---------------------------------------------------------------------------
 c:\program files\hydradragonantivirus
 c:\programdata\hydradragonantivirus
+c:\programdata\edrsvc
+

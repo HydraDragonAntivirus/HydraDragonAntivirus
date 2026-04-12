@@ -23,6 +23,7 @@
 # ---------------------------------------------------------------------------
 c:\program files\hydradragonantivirus
 c:\programdata\hydradragonantivirus
+c:\programdata\edrsvc
 
 # ---------------------------------------------------------------------------
 # Sanctum in-box DLL
