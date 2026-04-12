@@ -9,6 +9,6 @@ ext = Extension(
 
 setup(
     name="nuitka_deobfuscate",
-    version="1.0.0",
+    version="0.1.0",
     ext_modules=[ext],
 )
