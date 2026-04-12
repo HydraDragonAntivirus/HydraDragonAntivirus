@@ -32,6 +32,8 @@ from hydradragon.antivirus_scripts.antivirus import (
     get_latest_clamav_def_time
 )
 
+from hydradragon.antivirus_scripts.rule_sync import sync_dynamic_protection_rules
+
 # ==============================================================================
 # Thread Pool Setup
 # ==============================================================================
@@ -293,6 +295,12 @@ def main():
     logger.info("[INIT] HydraDragon EDR initializing...")
     logger.info(f"[INIT] Python: {sys.version}")
     logger.info(f"[INIT] CWD: {os.getcwd()}")
+
+    # Synchronize dynamic protection rules (Desktop, AppData, etc.) on start
+    try:
+        sync_dynamic_protection_rules()
+    except Exception as e:
+        logger.error(f"[INIT] Failed to synchronize dynamic protection rules: {e}")
 
     try:
         asyncio.run(main_async())

@@ -21,6 +21,11 @@ system_root = os.getenv("SystemRoot", os.path.join(system_drive, "Windows"))
 # Fallback to %SystemRoot%\System32 if %System32% is not set
 system32_dir = os.getenv("System32", os.path.join(system_root, "System32"))
 
+# --- CSIDL Constants for User Paths ---
+CSIDL_DESKTOP = 0x0000
+CSIDL_APPDATA = 0x001a        # Roaming
+CSIDL_LOCAL_APPDATA = 0x001c  # Local
+
 # Hydra Dragon Antivirus base folder path (read-only installation files)
 hydra_dragon_antivirus_dir = os.path.join(program_files, "HydraDragonAntivirus")
 
@@ -297,3 +302,16 @@ def get_startup_paths():
 # Explicit hardcoded paths for peer validation
 OWLYSHIELD_RANSOM_EXE = owlyshield_ransom_exe
 FIREWALL_EXE_PATH = firewall_exe_path
+
+# --- Protection Rule File Paths ---
+PROTECTION_RULES_BASE = os.path.join(script_dir, "HydraDragon_Protection_Rules")
+RULE_FILES = [
+    os.path.join(PROTECTION_RULES_BASE, "PYAS", "File", "default_rules.txt"),
+    os.path.join(PROTECTION_RULES_BASE, "Owlyshield", "DynamicHook", "default_rules.txt"),
+    os.path.join(PROTECTION_RULES_BASE, "Owlyshield", "FSFilter", "default_rules.txt"),
+    os.path.join(PROTECTION_RULES_BASE, "Owlyshield", "ProcessProtection", "default_rules.txt")
+]
+
+# Nuitka Deobfuscator Bytecode Output
+NUITKA_DEOBFUSCATE_DIR = os.path.join(script_dir, "python_hook_backend", "new", "nuitka_deobfuscate")
+NUITKA_BYTECODE_DIR = os.path.join(NUITKA_DEOBFUSCATE_DIR, "build", "bytecode")

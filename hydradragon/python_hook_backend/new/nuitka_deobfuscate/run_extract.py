@@ -26,23 +26,30 @@ import xdis.marsh as marshal
 # ============================================================================
 # PYC HEADER RESOLUTION
 # ============================================================================
-def magic_int_for(version: str) -> int:
-    try:
-        from xdis.magics import by_version
-        magic = by_version.get(version)
-        if magic:
-            return int.from_bytes(bytes(magic[:2]), "little")
-    except ImportError:
-        pass
-        
-    if version.startswith('3.12'): return 3531 | (0x0a0d << 16)
-    if version.startswith('3.11'): return 3495 | (0x0a0d << 16)
-    if version.startswith('3.10'): return 3439 | (0x0a0d << 16)
-    return struct.unpack("<I", importlib.util.MAGIC_NUMBER)[0]
+from xdis.magics import by_version
 
-def pyc_header(magic_int: int) -> bytes:
-    magic = struct.pack("<I", magic_int & 0xFFFFFFFF)
-    return magic + b"\x00" * 12
+def get_pyc_header(version: str, timestamp: int = None, filesize: int = 0) -> bytes:
+    """Generate a valid 16-byte .pyc header for Python 3.11+ using xdis."""
+    magic = by_version.get(version)
+    if not magic:
+        # Fallback to current interpreter magic
+        import importlib.util
+        magic = importlib.util.MAGIC_NUMBER
+    
+    # 4 bytes Magic
+    # 4 bytes Bitfield (0)
+    # 4 bytes Timestamp
+    # 4 bytes File Size
+    header = bytes(magic)
+    header += struct.pack("<I", 0) # Bitfield
+    
+    if timestamp is None:
+        import time
+        timestamp = int(time.time())
+    header += struct.pack("<I", timestamp)
+    header += struct.pack("<I", filesize & 0xFFFFFFFF)
+    
+    return header
 
 def sanitize_filename(filepath: str) -> str:
     filepath = filepath.replace("\\", "/")
@@ -66,7 +73,7 @@ def extract_path_from_code(code_obj) -> str | None:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Unified Extract & Omni Decompiler (Python 3.12 Safe)")
     parser.add_argument("blob", type=Path, help="Path to the Nuitka constants blob file")
-    parser.add_argument("-o", "--output", type=Path, default=Path("./restore_final"), help="Output directory")
+    parser.add_argument("-o", "--output", type=Path, default=Path("./build/bytecode"), help="Output directory")
     args = parser.parse_args(argv)
 
     if not args.blob.is_file():
@@ -102,8 +109,8 @@ def main(argv: list[str] | None = None) -> int:
     out_dir: Path = args.output
     out_dir.mkdir(parents=True, exist_ok=True)
     
-    magic_int = magic_int_for(str(sys.version_info.major) + "." + str(sys.version_info.minor))
-    header = pyc_header(magic_int)
+    magic_version = "{}.{}".format(sys.version_info.major, sys.version_info.minor)
+    header = get_pyc_header(magic_version)
 
     count_pyc = 0
     count_other = 0
@@ -173,7 +180,7 @@ def main(argv: list[str] | None = None) -> int:
                     try:
                         # Serialize safely back into raw bytes using xdis logic
                         # Providing cross-version compatibility without crashing the interpreter
-                        raw_bytes = marshal.dumps(code_obj)
+                        raw_bytes = marshal.dumps(code_obj, python_version=sys.version_info[:2])
                         
                         path_str = extract_path_from_code(code_obj)
                         item_id = f"{i:04d}_{j:02d}"
@@ -196,7 +203,20 @@ def main(argv: list[str] | None = None) -> int:
             item_id = f"{i:04d}"
             try:
                 if isinstance(root_item, (bytes, bytearray)):
-                    (meta_dir / f"item_{item_id}.bin").write_bytes(root_item)
+                    # Check if it looks like a marshal blob (bytecode)
+                    # If it starts with \xe3 (marshal tag), save as .pyc with valid header via xdis logic
+                    if root_item.startswith(b'\xe3'):
+                        try:
+                            # Verify it's actually code via xdis
+                            obj = marshal.loads(root_item)
+                            if type(obj).__name__ == 'code' or type(obj).__name__.startswith('Code'):
+                                (meta_dir / f"item_{item_id}.pyc").write_bytes(header + root_item)
+                            else:
+                                (meta_dir / f"item_{item_id}.pyc").write_bytes(root_item)
+                        except:
+                            (meta_dir / f"item_{item_id}.pyc").write_bytes(root_item)
+                    else:
+                        (meta_dir / f"item_{item_id}.pyc").write_bytes(root_item)
                 else:
                     (meta_dir / f"item_{item_id}.txt").write_text(repr(root_item[:200]), encoding='utf-8', errors='replace')
                 count_other += 1
