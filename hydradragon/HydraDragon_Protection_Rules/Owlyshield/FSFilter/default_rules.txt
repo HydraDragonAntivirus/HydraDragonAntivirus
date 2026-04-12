@@ -15,6 +15,7 @@
 # HydraDragonAntivirus-specific examples
 c:\program files\hydradragonantivirus
 c:\programdata\hydradragonantivirus
-desktop\sanctum\
-appdata\roaming\sanctum\
+# TODO Convert to hardcoded path after install
+# \desktop\sanctum\
+# \appdata\roaming\sanctum\
 c:\windows\system32\tasks\hydradragonantivirus

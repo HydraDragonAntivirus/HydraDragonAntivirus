@@ -16,6 +16,6 @@
 c:\program files\hydradragonantivirus
 c:\programdata\hydradragonantivirus
 # TODO Convert to hardcoded path
-desktop\sanctum\
-appdata\roaming\sanctum\
+# \desktop\sanctum\
+# \appdata\roaming\sanctum\
 c:\windows\system32\tasks\hydradragonantivirus
