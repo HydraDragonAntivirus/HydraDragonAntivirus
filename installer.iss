@@ -79,6 +79,8 @@ Name: "{app}\hydradragon\Owlyshield\log"; Flags: uninsneveruninstall
 Name: "{app}\hydradragon\Owlyshield\config"; Flags: uninsneveruninstall
 Name: "{app}\hydradragon\Owlyshield\config\threats"; Flags: uninsneveruninstall
 Name: "{app}\hydradragon\HydraDragonAV\engines\clamav"
+Name: "{app}\hydradragon\suricata"
+Name: "{app}\openedr"
 
 [Registry]
 Root: HKA; Subkey: "Software\Classes\{#MyAppAssocExt}\OpenWithProgids"; ValueType: string; ValueName: "{#MyAppAssocKey}"; ValueData: ""; Flags: uninsdeletevalue
@@ -143,7 +145,10 @@ Filename: "{tmp}\python-3.12.10-amd64.exe"; Parameters: "/quiet InstallAllUsers=
 Filename: "{tmp}\clamav-1.5.2.win.x64.msi"; Parameters: "/quiet /norestart INSTALLDIR=""{app}\hydradragon\HydraDragonAV\engines\clamav"""; Flags: shellexec waituntilterminated
 
 ; Suricata Installer (MSI - Silent Install)
-Filename: "{tmp}\Suricata-7.0.14-1-64bit.msi"; Parameters: "/quiet /norestart"; Flags: shellexec waituntilterminated
+Filename: "{tmp}\Suricata-7.0.14-1-64bit.msi"; Parameters: "/quiet /norestart INSTALLDIR=""{app}\hydradragon\suricata"""; Flags: shellexec waituntilterminated
+
+; OpenEDR Installer (MSI - Silent Install)
+Filename: "{tmp}\openedr.msi"; Parameters: "/quiet /norestart INSTALLDIR=""{app}\openedr"""; Flags: shellexec waituntilterminated
 
 ; Node.js 22.22.0 (silent)
 Filename: "{tmp}\node-v22.22.1-x64.msi"; Parameters: "/quiet /norestart"; Flags: shellexec waituntilterminated

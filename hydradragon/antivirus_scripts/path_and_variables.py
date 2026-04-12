@@ -21,9 +21,6 @@ system_root = os.getenv("SystemRoot", os.path.join(system_drive, "Windows"))
 # Fallback to %SystemRoot%\System32 if %System32% is not set
 system32_dir = os.getenv("System32", os.path.join(system_root, "System32"))
 
-# Suricata base folder path
-suricata_dir = os.path.join(program_files, "Suricata")
-
 # Hydra Dragon Antivirus base folder path (read-only installation files)
 hydra_dragon_antivirus_dir = os.path.join(program_files, "HydraDragonAntivirus")
 
@@ -35,6 +32,9 @@ script_dir = os.path.join(hydra_dragon_antivirus_dir, "hydradragon")
 
 # Data directory for runtime-generated files
 data_dir = os.path.join(hydra_dragon_data_dir, "hydradragon")
+
+# Suricata base folder path
+suricata_dir = os.path.join(script_dir, "Suricata")
 
 # Define the paths for read-only tools (remain in Program Files)
 jadx_decompiler_dir = os.path.join(script_dir, "jadx-1.5.5")
