@@ -172,7 +172,9 @@ See the [LICENSE](./LICENSE) file for more information.
  - https://github.com/Yamato-Security/hayabusa/releases/tag/v3.8.1 (hayabusa-3.8.1-win-x64.zip)
 
  ## IMPORTANT
-- After installation, you won't be able to browse the internet without a firewall.
+ - **Vulnerable Drivers & Post-Infection Risk**: This project utilizes drivers like `WinDivert` and `PYAS_Protection`. These drivers are currently unsigned or vulnerable, which prevents the use of **ELAM (Early Launch Anti-Malware)** as a bootstrap security solution (Even if Sanctum exists). 
+ - **The "Fatal Design" Assumption**: By default, this project assumes your system is **clean** at the time of installation. It is NOT designed to clean or repair an already infected system.
+ - **Zero Responsibility**: If you install this on a system that is already compromised, resident malware may exploit these drivers or the centralized dependency structure (Python/Node.js) to escalate or persist. The developer is not responsible for any damage in a post-infection scenario.
 - To prevent connection speed loss, make sure "late_blocking_mode" is set to true in C:\Program Files\HydraDragonAntivirus\HydraDragonFirewall\settings.json. This may cause malware to be detected slightly later.
 - For debugging, remember to set HKEY_LOCAL_MACHINE\SOFTWARE\Owlyshield\VERBOSE_LOGGING to 1.
 - Some kernel-level paths are hardcoded for extra protection, so do not modify them.
