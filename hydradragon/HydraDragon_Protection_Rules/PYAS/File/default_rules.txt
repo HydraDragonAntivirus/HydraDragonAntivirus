@@ -48,3 +48,10 @@ c:\windows\system32\drivers\owlyshieldransomfilter.sys
 c:\windows\system32\drivers\simplepyasprotection.sys
 c:\windows\system32\drivers\mbrfilter.sys
 c:\windows\system32\drivers\fs_minifilter.sys
+
+# ---------------------------------------------------------------------------
+# OpenEDR Injection DLLs (Moved to System32)
+# ---------------------------------------------------------------------------
+c:\windows\system32\edrpm64.dll
+c:\windows\system32\edrpm32.dll
+c:\windows\system32\edrmm.dll

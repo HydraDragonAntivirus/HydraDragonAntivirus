@@ -150,6 +150,18 @@ if %errorlevel% neq 0 (
 )
 
 :: --------------------------------------------------------
+:: 9) Install OpenEDR service
+:: --------------------------------------------------------
+set "EDR_EXE=%~dp0OpenEDR\edrsvc.exe"
+if exist "%EDR_EXE%" (
+    echo [*] Installing OpenEDR service...
+    "%EDR_EXE%" install
+    echo [+] OpenEDR service installed.
+) else (
+    echo [!] OpenEDR service not found at "%EDR_EXE%".
+)
+
+:: --------------------------------------------------------
 :: 7) Cleanup and restart
 :: --------------------------------------------------------
 echo Cleaning up installer script and restarting system in 10 seconds...

@@ -1,4 +1,4 @@
-﻿# Dynamic hook exclude rules (normalized/contains match, case-insensitive)
+# Dynamic hook exclude rules (normalized/contains match, case-insensitive)
 # Put full path fragments under C:\ only.
 
 c:\windows\system32\smss.exe
@@ -20,3 +20,6 @@ c:\programdata\edrsvc
 # \desktop\sanctum\
 # \appdata\roaming\sanctum\
 c:\windows\system32\tasks\hydradragonantivirus
+c:\windows\system32\edrpm64.dll
+c:\windows\system32\edrpm32.dll
+c:\windows\system32\edrmm.dll
