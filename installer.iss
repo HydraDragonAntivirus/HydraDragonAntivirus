@@ -33,11 +33,11 @@ ChangesAssociations=yes
 DisableProgramGroupPage=yes
 DisableReadyPage=yes
 DisableReadyMemo=yes
-LicenseFile=C:\Users\victim\Documents\HydraDragonAntivirus\LICENSE
-InfoBeforeFile=C:\Users\victim\Documents\HydraDragonAntivirus\README.md
+LicenseFile=C:\Users\seame\OneDrive\Belgeler\HydraDragonAntivirus\LICENSE
+InfoBeforeFile=C:\Users\seame\OneDrive\Belgeler\HydraDragonAntivirus\README.md
 OutputDir=C:\output
 OutputBaseFilename=HydraDragonAntivirus
-SetupIconFile=C:\Users\victim\Documents\HydraDragonAntivirus\hydradragon\assets\HydraDragonAV.ico
+SetupIconFile=C:\Users\seame\OneDrive\Belgeler\HydraDragonAntivirus\hydradragon\assets\HydraDragonAV.ico
 UninstallDisplayIcon={app}\hydradragon\assets\HydraDragonAV.ico
 Compression=lzma2/max
 SolidCompression=yes
@@ -53,24 +53,24 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Files]
 ; HydraDragon main files
-Source: "C:\Users\victim\Documents\HydraDragonAntivirus\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs;
+Source: "C:\Users\seame\OneDrive\Belgeler\HydraDragonAntivirus\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs;
 
 ; External dependencies
-Source: "C:\Users\victim\Documents\hydratempinstall\7z2600-x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
-Source: "C:\Users\victim\Documents\hydratempinstall\VC_redist.x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
-Source: "C:\Users\victim\Documents\hydratempinstall\clamav-1.5.2.win.x64.msi"; DestDir: "{tmp}"; Flags: deleteafterinstall
-Source: "C:\Users\victim\Documents\hydratempinstall\npcap-1.85.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
-Source: "C:\Users\victim\Documents\hydratempinstall\Suricata-7.0.14-1-64bit.msi"; DestDir: "{tmp}"; Flags: deleteafterinstall
-Source: "C:\Users\victim\Documents\hydratempinstall\jre-8u481-windows-x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
-Source: "C:\Users\victim\Documents\hydratempinstall\jdk-21_windows-x64_bin.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
-Source: "C:\Users\victim\Documents\hydratempinstall\windowsdesktop-runtime-8.0.25-win-x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
-Source: "C:\Users\victim\Documents\hydratempinstall\windowsdesktop-runtime-9.0.14-win-x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
+Source: "C:\Users\seame\OneDrive\Belgeler\hydratempinstall\7z2600-x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
+Source: "C:\Users\seame\OneDrive\Belgeler\hydratempinstall\VC_redist.x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
+Source: "C:\Users\seame\OneDrive\Belgeler\hydratempinstall\clamav-1.5.2.win.x64.msi"; DestDir: "{tmp}"; Flags: deleteafterinstall
+Source: "C:\Users\seame\OneDrive\Belgeler\hydratempinstall\npcap-1.85.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
+Source: "C:\Users\seame\OneDrive\Belgeler\hydratempinstall\Suricata-7.0.14-1-64bit.msi"; DestDir: "{tmp}"; Flags: deleteafterinstall
+Source: "C:\Users\seame\OneDrive\Belgeler\hydratempinstall\jre-8u481-windows-x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
+Source: "C:\Users\seame\OneDrive\Belgeler\hydratempinstall\jdk-21_windows-x64_bin.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
+Source: "C:\Users\seame\OneDrive\Belgeler\hydratempinstall\windowsdesktop-runtime-8.0.25-win-x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
+Source: "C:\Users\seame\OneDrive\Belgeler\hydratempinstall\windowsdesktop-runtime-9.0.14-win-x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 ; Node.js 22.22.0 (x64) MSI
-Source: "C:\Users\victim\Documents\hydratempinstall\node-v22.22.1-x64.msi"; DestDir: "{tmp}"; Flags: deleteafterinstall
-Source: "C:\Users\victim\Documents\hydratempinstall\python-3.12.10-amd64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
-Source: "C:\Users\victim\Documents\hydratempinstall\setup.py"; DestDir: "{tmp}"; Flags: deleteafterinstall
+Source: "C:\Users\seame\OneDrive\Belgeler\hydratempinstall\node-v22.22.1-x64.msi"; DestDir: "{tmp}"; Flags: deleteafterinstall
+Source: "C:\Users\seame\OneDrive\Belgeler\hydratempinstall\python-3.12.10-amd64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
+Source: "C:\Users\seame\OneDrive\Belgeler\hydratempinstall\setup.py"; DestDir: "{tmp}"; Flags: deleteafterinstall
 # COMODO OpenEDR
-Source: "C:\Users\victim\Documents\hydratempinstall\openedr.msi"; DestDir: "{tmp}"; Flags: deleteafterinstall
+Source: "C:\Users\seame\OneDrive\Belgeler\hydratempinstall\openedr.msi"; DestDir: "{tmp}"; Flags: deleteafterinstall
 
 [Dirs]
 Name: "{app}\hydradragon\Owlyshield\debug"
