@@ -165,16 +165,23 @@ See the [LICENSE](./LICENSE) file for more information.
 
 ## Ghidra
 - Ghidra: %ProgramFiles%\aHydraDragonAntivirus\hydradragon\ghidra
-- Ghidra Run: %ProgramFiles%\aHydraDragonAntivirus\hydradragon\ghidra\ghidraRun.bat
 - Ghidra scripts: %ProgramFiles%\aHydraDragonAntivirus\hydradragon\scripts
  
  ## Sigma-HQ - Hayabusa
  - https://github.com/Yamato-Security/hayabusa/releases/tag/v3.8.1 (hayabusa-3.8.1-win-x64.zip)
 
  ## IMPORTANT
- - **Vulnerable Drivers & Post-Infection Risk**: This project utilizes drivers like `WinDivert` and `PYAS_Protection`. These drivers are currently unsigned or vulnerable, which prevents the use of **ELAM (Early Launch Anti-Malware)** as a bootstrap security solution (Even if Sanctum exists). 
+ - **Vulnerable Drivers & Post-Infection Risk**: This project utilizes drivers like `WinDivert` and `PYAS_Protection`. These drivers are currently unsigned or vulnerable, which prevents the use of **ELAM (Early Launch Anti-Malware)** as a bootstrap security solution (Even if Sanctum exists it's not signed). 
  - **The "Fatal Design" Assumption**: By default, this project assumes your system is **clean** at the time of installation. It is NOT designed to clean or repair an already infected system.
  - **Zero Responsibility**: If you install this on a system that is already compromised, resident malware may exploit these drivers or the centralized dependency structure (Python/Node.js) to escalate or persist. The developer is not responsible for any damage in a post-infection scenario.
+
+ ### How an Attack is Possible (Threat Model)
+ In a post-infection state, the malware already has **First Mover Advantage**. Because this project uses unsigned drivers and hardcoded paths, an attacker can perform the following:
+ 
+ 1. **Directory Squatting**: Malware pre-creates `C:\Program Files\HydraDragonAntivirus` before you run the installer. It sets restrictive ACLs or drops "Poisoned" configuration files. When the driver starts, it blindly loads these malicious rules from the hardcoded path.
+ 2. **Dependency Hijacking**: Since Python and Node.js are installed into the AV's subdirectory, malware can drop a malicious `python312.dll` or `node.exe` into those folders. The AV will then unknowingly execute malicious code with Administrative privileges during its normal operation.
+ 3. **Vulnerable Driver Abuse (BYOVD)**: Attackers can "Bring Their Own Vulnerable Driver" (or abuse the ones included here) to bypass Windows Kernel protections. Without **ELAM** and **Digital Signatures**, the AV cannot verify its own identity or the integrity of its environment during the boot process.
+
 - To prevent connection speed loss, make sure "late_blocking_mode" is set to true in C:\Program Files\HydraDragonAntivirus\HydraDragonFirewall\settings.json. This may cause malware to be detected slightly later.
 - For debugging, remember to set HKEY_LOCAL_MACHINE\SOFTWARE\Owlyshield\VERBOSE_LOGGING to 1.
 - Some kernel-level paths are hardcoded for extra protection, so do not modify them.
