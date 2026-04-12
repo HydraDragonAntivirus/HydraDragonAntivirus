@@ -19,7 +19,7 @@
 # ---------------------------------------------------------------------------
 # Windows Shell - protect explorer.exe against termination / injection
 # ---------------------------------------------------------------------------
-c:\windows\explorer.exe
+# c:\windows\explorer.exe
 
 # ---------------------------------------------------------------------------
 # Sanctum agent executables (installed under Program Files)
