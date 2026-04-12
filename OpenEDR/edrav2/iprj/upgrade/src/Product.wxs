@@ -2,7 +2,7 @@
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs" xmlns:fire="http://wixtoolset.org/schemas/v4/wxs/firewall">
     <?include Define.wxi ?>
     <?include BuildInfo.wxi ?>
-    <Package ProductCode="$(var.strproductid)" Name="$(var.strproduct)" Language="1033" Version="$(var.strversion)" Manufacturer="COMODO" UpgradeCode="$(var.upgradecode)" InstallerVersion="200" Compressed="yes" Scope="perMachine">
+    <Package ProductCode="$(var.strproductid)" Name="$(var.strproduct)" Language="1033" Version="$(var.strversion)" Manufacturer="HydraDragonAntivirus" UpgradeCode="$(var.upgradecode)" InstallerVersion="200" Compressed="yes" Scope="perMachine">
 
         <MajorUpgrade DowngradeErrorMessage="A newer version of [ProductName] is already installed." IgnoreRemoveFailure="yes" AllowSameVersionUpgrades="yes" />
 
@@ -44,8 +44,8 @@
 
     <Fragment>
         <StandardDirectory Id="$(var.AppsDir)">
-            <Directory Id="COMPANYNAMEGROUP" Name="COMODO">
-                <Directory Id="INSTALLDIR" Name="EdrAgentV2">
+            <Directory Id="COMPANYNAMEGROUP" Name="HydraDragonAntivirus">
+                <Directory Id="INSTALLDIR" Name="OpenEDR">
                     <?if $(var.Platform) = "x64" ?>
                         <Directory Id="INSTALLDIR_PLATFORM" Name="x64" />
                     <?else?>
