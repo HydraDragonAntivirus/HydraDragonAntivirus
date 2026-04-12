@@ -69,6 +69,8 @@ Source: "C:\Users\victim\Documents\hydratempinstall\windowsdesktop-runtime-9.0.1
 Source: "C:\Users\victim\Documents\hydratempinstall\node-v22.22.1-x64.msi"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\victim\Documents\hydratempinstall\python-3.12.10-amd64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\victim\Documents\hydratempinstall\setup.py"; DestDir: "{tmp}"; Flags: deleteafterinstall
+# COMODO OpenEDR
+Source: "C:\Users\victim\Documents\hydratempinstall\openedr.msi"; DestDir: "{tmp}"; Flags: deleteafterinstall
 
 [Dirs]
 Name: "{app}\hydradragon\Owlyshield\debug"
