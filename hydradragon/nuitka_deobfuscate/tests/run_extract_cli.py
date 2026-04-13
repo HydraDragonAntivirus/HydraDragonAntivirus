@@ -1,6 +1,7 @@
 """
-run_extract.py
+run_extract.py (V16 Unified Extract & OMNI Decompile)
 ------------------------------------------------------
+V16 Changes:
 - Added raw blob scan for marshal code objects (Nuitka constants blobs do NOT
   store bytecode as structured section items — must scan raw bytes directly).
 - Added all marshal code object tags for Python 3.x (0xe3, 0x63, 0xf3).
@@ -11,6 +12,7 @@ run_extract.py
 """
 
 from __future__ import annotations
+import argparse
 import sys
 import struct
 from pathlib import Path
@@ -225,40 +227,40 @@ def recursive_find_code(item, results, processed_ids, depth=0):
 # MAIN
 # ============================================================================
 
-from dataclasses import dataclass
+def main(argv=None) -> int:
+    parser = argparse.ArgumentParser(
+        description="Unified Extract & Omni Decompiler (Python 3.12 Safe, V16)"
+    )
+    parser.add_argument("blob", type=Path,
+                        help="Path to the Nuitka constants blob file")
+    parser.add_argument("-o", "--output", type=Path, default=Path(r"C:\ProgramData\HydraDragonAntivirus\nuitka_deobfuscate"),
+                        help=r"Output directory (default: C:\ProgramData\HydraDragonAntivirus\nuitka_deobfuscate)")
+    parser.add_argument("-v", "--version", type=parse_version, default=None,
+                        metavar="VER",
+                        help="Target CPython version e.g. 3.13 (default: auto-detect)")
+    parser.add_argument("--list-only", action="store_true",
+                        help="List decoded section names only, do not write files")
+    args = parser.parse_args(argv)
 
-@dataclass
-class ExtractionResult:
-    pyc_count: int
-    raw_scan_hits: int
-    omni_recon_count: int
-    metadata_count: int
-    output_dir: Path
-    recovered_files: list[str]
+    if not args.blob.is_file():
+        print(f"[!] Error: blob not found: {args.blob}")
+        return 2
 
-def extract_blob(blob_path: Path | str, output_dir: Path | str, target_version: str | tuple[int, int] | None = None, list_only: bool = False) -> ExtractionResult | None:
-    blob_path = Path(blob_path)
-    output_dir = Path(output_dir)
-
-    if not blob_path.is_file():
-        print(f"[!] Error: blob not found: {blob_path}")
-        return None
-
+    # -------------------------------------------------------------------------
     # Load raw bytes first so we can auto-detect version from content
-    raw = blob_path.read_bytes()
-    print(f"[*] Loaded {len(raw)} bytes from {blob_path}")
+    # -------------------------------------------------------------------------
+    raw = args.blob.read_bytes()
+    print(f"[*] Loaded {len(raw)} bytes from {args.blob}")
 
+    # -------------------------------------------------------------------------
     # Resolve target Python version
-    if target_version is not None:
-        if isinstance(target_version, str):
-            target_ver_tuple = tuple(map(int, target_version.split(".")))
-            target_ver_str = target_version
-        else:
-            target_ver_tuple = target_version
-            target_ver_str = f"{target_ver_tuple[0]}.{target_ver_tuple[1]}"
-        print(f"[*] Target Python version : {target_ver_str} (from args)")
+    # -------------------------------------------------------------------------
+    if args.version is not None:
+        target_ver_tuple = args.version
+        target_ver_str = f"{target_ver_tuple[0]}.{target_ver_tuple[1]}"
+        print(f"[*] Target Python version : {target_ver_str} (from -v flag)")
     else:
-        print("[*] No target version specified, probing blob for Python version...")
+        print("[*] No -v specified, probing blob for Python version...")
         # Try to find a marshal code object in the first 64KB for version probe
         probe_detected = None
         for tag in MARSHAL_CODE_TAGS:
@@ -281,7 +283,7 @@ def extract_blob(blob_path: Path | str, output_dir: Path | str, target_version: 
         print(f"[!] ERROR: xdis has no magic for Python {target_ver_str}.")
         print(f"    Known: {sorted(by_version.keys())}")
         print(f"    Fix:   pip install --upgrade xdis")
-        return None
+        return 1
 
     print(f"[*] Running Python        : {sys.version_info.major}.{sys.version_info.minor}")
 
@@ -289,23 +291,17 @@ def extract_blob(blob_path: Path | str, output_dir: Path | str, target_version: 
     # Load extensions
     # -------------------------------------------------------------------------
     try:
-        from . import nuitka_deobfuscate
+        import nuitka_deobfuscate
     except ImportError:
-        try:
-            import nuitka_deobfuscate
-        except ImportError:
-            print("[!] FATAL: nuitka_deobfuscate extension missing or incompatible.")
-            return None
+        print("[!] FATAL: nuitka_deobfuscate extension missing or incompatible.")
+        return 1
 
     try:
-        from .omni_nuitka_framework import OmniDecompiler, generate_omni_source
+        from omni_nuitka_framework import OmniDecompiler, generate_omni_source
     except ImportError:
-        try:
-            from omni_nuitka_framework import OmniDecompiler, generate_omni_source
-        except ImportError:
-            print("[!] Warning: omni_nuitka_framework.py missing. Bytecode extraction only.")
-            OmniDecompiler = None
-            generate_omni_source = None
+        print("[!] Warning: omni_nuitka_framework.py missing. Bytecode extraction only.")
+        OmniDecompiler = None
+        generate_omni_source = None
 
     # -------------------------------------------------------------------------
     # Decode sections
@@ -315,20 +311,18 @@ def extract_blob(blob_path: Path | str, output_dir: Path | str, target_version: 
         sections = nuitka_deobfuscate.decode_blob(raw)
     except Exception as e:
         print(f"[!] Fatal error during C decoding: {e}")
-        return None
+        return 1
 
     print(f"[*] Discovered {len(sections)} sections/fragments.")
 
-    if list_only:
+    if args.list_only:
         for name in sections:
             print(f"  {name}")
-        return ExtractionResult(0, 0, 0, 0, output_dir, [])
+        return 0
 
-    out_dir = output_dir
+    out_dir = args.output
     out_dir.mkdir(parents=True, exist_ok=True)
     header = get_pyc_header(target_ver_str)
-    
-    recovered_file_paths = []
 
     count_pyc = 0
     count_other = 0
@@ -353,9 +347,7 @@ def extract_blob(blob_path: Path | str, output_dir: Path | str, target_version: 
                 dest = out_dir / 'pyc' / 'raw_scan' / f"at_{offset:08x}.pyc"
 
             dest.parent.mkdir(parents=True, exist_ok=True)
-            dest.parent.mkdir(parents=True, exist_ok=True)
             dest.write_bytes(header + raw_bytes)
-            recovered_file_paths.append(str(dest))
             count_pyc += 1
         except Exception:
             pass
@@ -389,9 +381,7 @@ def extract_blob(blob_path: Path | str, output_dir: Path | str, target_version: 
                     safe_name = re.sub(r'[<>:"/\\|?*\x00]', '_', section_name)[:80]
                     omni_out = out_dir / 'omni_reconstructed'
                     omni_out.mkdir(parents=True, exist_ok=True)
-                    target_py_path = omni_out / f'{safe_name}.py'
-                    target_py_path.write_text(source, encoding='utf-8')
-                    recovered_file_paths.append(str(target_py_path))
+                    (omni_out / f'{safe_name}.py').write_text(source, encoding='utf-8')
                     sc += 1
             except Exception:
                 pass
@@ -416,7 +406,6 @@ def extract_blob(blob_path: Path | str, output_dir: Path | str, target_version: 
 
                         dest.parent.mkdir(parents=True, exist_ok=True)
                         dest.write_bytes(header + raw_bytes)
-                        recovered_file_paths.append(str(dest))
                         count_pyc += 1
                     except Exception:
                         pass
@@ -459,11 +448,8 @@ def extract_blob(blob_path: Path | str, output_dir: Path | str, target_version: 
         print(f"    OMNI recon      : {sc} Python reconstructions")
     print(f"    Output          : {out_dir.absolute()}")
 
-    return ExtractionResult(
-        pyc_count=count_pyc,
-        raw_scan_hits=len(raw_code_objects),
-        omni_recon_count=sc if OmniDecompiler else 0,
-        metadata_count=count_other,
-        output_dir=out_dir,
-        recovered_files=recovered_file_paths
-    )
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -399,6 +399,14 @@ from . pyinstaller_mod_extractor_ng import (PyInstArchive # noqa: E402
 logger.debug(f"pyinstaller_mod_extractor_ng imported in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
+try:
+    from hydradragon.nuitka_deobfuscate.run_extract import extract_blob
+except Exception as e:
+    logger.error(f"Failed to import nuitka_deobfuscate library API: {e}")
+    extract_blob = None
+logger.debug(f"nuitka_deobfuscate imported in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
 from .detect_type import (  # noqa: E402
     is_protector_from_output,
     is_nexe_file_from_output,
@@ -3625,7 +3633,7 @@ def split_source_by_u_delimiter(source_code, base_name="initial_code", file_path
 
 def run_nuitka_deobfuscator(blob_path: str, main_file_path: Optional[str] = None) -> List[str]:
     """
-    Decode a Nuitka constants blob using the bundled nuitka_deobfuscate pipeline.
+    Decode a Nuitka constants blob using the bundled nuitka_deobfuscate pipeline via library API.
     Returns recovered .py / .pyc files and scans recovered .py files for links.
     """
     blob_file = Path(blob_path)
@@ -3633,10 +3641,8 @@ def run_nuitka_deobfuscator(blob_path: str, main_file_path: Optional[str] = None
         logger.warning(f"[NuitkaDeobfuscate] Invalid blob path: {blob_path}")
         return []
 
-    tool_dir = Path(script_dir) / "nuitka_deobfuscate"
-    runner_path = tool_dir / "run_extract.py"
-    if not runner_path.is_file():
-        logger.warning(f"[NuitkaDeobfuscate] Runner not found: {runner_path}")
+    if extract_blob is None:
+        logger.warning(f"[NuitkaDeobfuscate] extract_blob library not loaded.")
         return []
 
     output_root = Path(nuitka_extracted_dir) / "nuitka_deobfuscate"
@@ -3645,51 +3651,28 @@ def run_nuitka_deobfuscator(blob_path: str, main_file_path: Optional[str] = None
         Path(f"{sanitize_filename(blob_file.stem)}_decoded"),
     )
 
-    interpreter = python_path if os.path.isfile(python_path) else sys.executable
-    command = [
-        interpreter,
-        str(runner_path),
-        str(blob_file),
-        "-o",
-        str(output_dir),
-    ]
-
     try:
         logger.info(
-            f"[NuitkaDeobfuscate] Running bundled decoder for {blob_file} -> {output_dir}"
+            f"[NuitkaDeobfuscate] Running python native decoder for {blob_file} -> {output_dir}"
         )
-        result = subprocess.run(
-            command,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            encoding="utf-8",
-            errors="ignore",
-            cwd=str(tool_dir),
+        result = extract_blob(
+            blob_path=str(blob_file),
+            output_dir=str(output_dir),
+            target_version=None,
+            list_only=False
         )
     except Exception as ex:
-        logger.error(f"[NuitkaDeobfuscate] Failed to start decoder: {ex}")
+        logger.error(f"[NuitkaDeobfuscate] Failed during native extraction: {ex}")
         return []
 
-    if result.stdout:
-        logger.info(f"[NuitkaDeobfuscate] stdout:\n{result.stdout.strip()}")
-    if result.stderr:
-        logger.error(f"[NuitkaDeobfuscate] stderr:\n{result.stderr.strip()}")
-
-    if result.returncode != 0:
+    if not result:
         logger.warning(
-            f"[NuitkaDeobfuscate] Decoder exited with code {result.returncode} "
+            f"[NuitkaDeobfuscate] Decoder returned None or empty result "
             f"for {blob_file}"
         )
         return []
 
-    recovered_files = sorted(
-        {
-            str(path)
-            for path in output_dir.rglob("*")
-            if path.is_file() and path.suffix.lower() in {".py", ".pyc"}
-        }
-    )
+    recovered_files = result.recovered_files
 
     if not recovered_files:
         logger.warning(f"[NuitkaDeobfuscate] No .py / .pyc outputs found for {blob_file}")
