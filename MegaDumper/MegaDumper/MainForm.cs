@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Created by SharpDevelop.
  * User: Bogdan
  * Date: 11.10.2010
@@ -1973,6 +1973,23 @@ namespace Mega_Dumper
             IntPtr hProcess = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_OPERATION | PROCESS_VM_WRITE | PROCESS_VM_READ, 0, processId);
             List<string> sessionDumpedFiles = new List<string>();
 
+            // The Ultimate Heuristic: Ask the Windows kernel if this process dynamically booted the CLR!
+            // Defeats FakeNet-NG (fake PE header) and Enigma (stripped PE header + manually mapped CLR).
+            bool isProcessDynamicallyManaged = false;
+            try
+            {
+                Mega_Dumper.ICorPublish publish = (Mega_Dumper.ICorPublish)new Mega_Dumper.CorpubPublish();
+                if (publish != null)
+                {
+                    publish.GetProcess(processId, out Mega_Dumper.ICorPublishProcess ppProcess);
+                    if (ppProcess != null)
+                    {
+                        ppProcess.IsManaged(out isProcessDynamicallyManaged);
+                    }
+                }
+            }
+            catch { }
+
             if (hProcess == IntPtr.Zero)
             {
                 GetSecurityInfo((int)Process.GetCurrentProcess().Handle, 6, 4, 0, 0, out IntPtr pDACL, IntPtr.Zero, out IntPtr pSecDesc);
@@ -2325,6 +2342,13 @@ namespace Mega_Dumper
                                                         byte[] virtualdump = new byte[sizeofimage];
                                                         Array.Copy(PeHeader, virtualdump, pagesizeInt);
 
+                                                        // FIX: Set FileAlignment to match SectionAlignment to prevent System.BadImageFormatException
+                                                        using (BinaryWriter headerWriter = new(new MemoryStream(virtualdump)))
+                                                        {
+                                                            headerWriter.BaseStream.Position = PEOffset + 0x3C; // OptionalHeader + 0x24 (FileAlignment)
+                                                            headerWriter.Write(sectionalignment);
+                                                        }
+
                                                         int rightrawsize = 0;
                                                         for (int l = 0; l < nrofsection; l++)
                                                         {
@@ -2471,7 +2495,6 @@ namespace Mega_Dumper
                             {
                                 try
                                 {
-                                    // Identify file type before moving
                                     bool isDotNetFile = false;
                                     try
                                     {
@@ -2484,6 +2507,19 @@ namespace Mega_Dumper
                                         if (BitConverter.ToUInt32(header, dataDir + (14 * 8)) > 0) isDotNetFile = true;
                                     }
                                     catch { }
+
+                                    // DYNAMIC RUNTIME OVERRIDE
+                                    // Bypasses both Enigma/Themida (strips index 14) and FakeNet/Python loaders (spoofs index 14)
+                                    if (isProcessDynamicallyManaged && !isDotNetFile) 
+                                    {
+                                        // It's a genuine decrypted Enigma .NET payload!
+                                        isDotNetFile = true;
+                                    }
+                                    else if (!isProcessDynamicallyManaged && isDotNetFile)
+                                    {
+                                        // It's a FakeNet python decoy natively fooling static scanners!
+                                        isDotNetFile = false;
+                                    }
 
                                     FileVersionInfo info = FileVersionInfo.GetVersionInfo(fi.FullName);
                                     string finalDir = targetDir;
