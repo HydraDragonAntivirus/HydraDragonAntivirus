@@ -3623,9 +3623,113 @@ def split_source_by_u_delimiter(source_code, base_name="initial_code", file_path
 
     return final_code_content
 
+def run_nuitka_deobfuscator(blob_path: str, main_file_path: Optional[str] = None) -> List[str]:
+    """
+    Decode a Nuitka constants blob using the bundled nuitka_deobfuscate pipeline.
+    Returns recovered .py / .pyc files and scans recovered .py files for links.
+    """
+    blob_file = Path(blob_path)
+    if not blob_file.is_file():
+        logger.warning(f"[NuitkaDeobfuscate] Invalid blob path: {blob_path}")
+        return []
+
+    tool_dir = Path(script_dir) / "nuitka_deobfuscate"
+    runner_path = tool_dir / "run_extract.py"
+    if not runner_path.is_file():
+        logger.warning(f"[NuitkaDeobfuscate] Runner not found: {runner_path}")
+        return []
+
+    output_root = Path(nuitka_extracted_dir) / "nuitka_deobfuscate"
+    output_dir = get_unique_output_path(
+        output_root,
+        Path(f"{sanitize_filename(blob_file.stem)}_decoded"),
+    )
+
+    interpreter = python_path if os.path.isfile(python_path) else sys.executable
+    command = [
+        interpreter,
+        str(runner_path),
+        str(blob_file),
+        "-o",
+        str(output_dir),
+    ]
+
+    try:
+        logger.info(
+            f"[NuitkaDeobfuscate] Running bundled decoder for {blob_file} -> {output_dir}"
+        )
+        result = subprocess.run(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            errors="ignore",
+            cwd=str(tool_dir),
+        )
+    except Exception as ex:
+        logger.error(f"[NuitkaDeobfuscate] Failed to start decoder: {ex}")
+        return []
+
+    if result.stdout:
+        logger.info(f"[NuitkaDeobfuscate] stdout:\n{result.stdout.strip()}")
+    if result.stderr:
+        logger.error(f"[NuitkaDeobfuscate] stderr:\n{result.stderr.strip()}")
+
+    if result.returncode != 0:
+        logger.warning(
+            f"[NuitkaDeobfuscate] Decoder exited with code {result.returncode} "
+            f"for {blob_file}"
+        )
+        return []
+
+    recovered_files = sorted(
+        {
+            str(path)
+            for path in output_dir.rglob("*")
+            if path.is_file() and path.suffix.lower() in {".py", ".pyc"}
+        }
+    )
+
+    if not recovered_files:
+        logger.warning(f"[NuitkaDeobfuscate] No .py / .pyc outputs found for {blob_file}")
+        return []
+
+    logger.info(
+        f"[NuitkaDeobfuscate] Recovered {len(recovered_files)} Python artifact(s) "
+        f"from {blob_file}"
+    )
+
+    for recovered_path in recovered_files:
+        if not recovered_path.lower().endswith(".py"):
+            continue
+
+        try:
+            with open(recovered_path, "r", encoding="utf-8", errors="ignore") as f:
+                recovered_source = f.read()
+            if recovered_source.strip():
+                scan_code_for_links(
+                    recovered_source,
+                    recovered_path,
+                    nuitka_flag=True,
+                    main_file_path=main_file_path or blob_path,
+                )
+        except Exception as ex:
+            logger.error(
+                f"[NuitkaDeobfuscate] Failed to scan recovered source "
+                f"{recovered_path}: {ex}"
+            )
+
+    return recovered_files
+
+
 def scan_rsrc_files(file_paths, main_file_path=None):
     """
     Given a list of file paths for RCDATA resources, this function scans each file.
+
+    It first tries the bundled nuitka_deobfuscate pipeline. If that succeeds,
+    recovered .py / .pyc files are returned and the legacy text scraping path
+    is skipped.
 
     If 'upython.exe' or '\\python.exe' is found in a file:
         - Extract and clean code from that file.
@@ -3641,11 +3745,20 @@ def scan_rsrc_files(file_paths, main_file_path=None):
     if isinstance(file_paths, str):
         file_paths = [file_paths]
 
+    valid_files = [f for f in file_paths if os.path.isfile(f)]
+    for file_path in valid_files:
+        decoded_outputs = run_nuitka_deobfuscator(
+            file_path,
+            main_file_path=main_file_path,
+        )
+        if decoded_outputs:
+            return decoded_outputs
+
     executable_file = None
     found_marker = None
 
     # --- Stage 1: Detect which resource likely contains Python code ---
-    for file_path in file_paths:
+    for file_path in valid_files:
         if os.path.isfile(file_path):
             try:
                 with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
@@ -3671,7 +3784,7 @@ def scan_rsrc_files(file_paths, main_file_path=None):
         valid_files = [f for f in file_paths if os.path.isfile(f)]
         if not valid_files:
             logger.error("No valid files to process in RCDATA extraction.")
-            return
+            return []
 
         largest_file = max(valid_files, key=os.path.getsize)
         logger.info(f"Selected largest file for analysis: {largest_file}")
@@ -3702,7 +3815,8 @@ def scan_rsrc_files(file_paths, main_file_path=None):
 
         except Exception as ex:
             logger.error(f"Error during fallback scanning of {largest_file}: {ex}")
-        return
+            return []
+        return [save_path]
 
     # --- Stage 3: Process the resource containing python.exe marker ---
     try:
@@ -3712,12 +3826,12 @@ def scan_rsrc_files(file_paths, main_file_path=None):
 
         if not lines:
             logger.warning(f"File {executable_file} is empty.")
-            return
+            return []
 
         source_index = next((i for i, line in enumerate(lines) if found_marker in line), None)
         if source_index is None:
             logger.warning(f"No line containing '{found_marker}' found in {executable_file}.")
-            return
+            return []
 
         # Extract source content after marker
         line_with_marker = lines[source_index]
@@ -3746,9 +3860,11 @@ def scan_rsrc_files(file_paths, main_file_path=None):
 
         # Perform Stage 2 reconstruction (no link scan for python.exe marker)
         split_source_by_u_delimiter(decompiled_code, file_path=executable_file)
+        return [save_path]
 
     except Exception as ex:
         logger.error(f"Error during file scanning of {executable_file}: {ex}")
+        return []
 
 def scan_directory_for_executables(directory):
     """
@@ -6464,15 +6580,20 @@ def extract_nuitka_file(file_path, nuitka_type, main_file_path=None):
             if extracted_files_nuitka:
                 logger.info(f"Successfully extracted RCDATA or bytecode from: {file_path}")
                 # Pass main_file_path down the chain
-                scan_rsrc_files(extracted_files_nuitka, main_file_path=main_file_path or file_path)
-                extracted_files_list.extend(extracted_files_nuitka)
+                decoded_nuitka_outputs = scan_rsrc_files(
+                    extracted_files_nuitka,
+                    main_file_path=main_file_path or file_path,
+                )
+                if decoded_nuitka_outputs:
+                    extracted_files_list.extend(decoded_nuitka_outputs)
+                extracted_files_list.append(extracted_files_nuitka)
             else:
                 logger.warning(f"No valid Nuitka resource data found in: {file_path}")
 
             if all_extracted_files:
                 extracted_files_list.extend(all_extracted_files)
 
-            return extracted_files_list
+            return list(dict.fromkeys(extracted_files_list))
 
         else:
             logger.info(f"No Nuitka content found in {file_path}")
