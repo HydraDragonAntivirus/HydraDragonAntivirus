@@ -118,6 +118,15 @@ https://github.com/adrianyy/kernelhook/issues/1
 
 C:\ProgramData\HydraDragonAntivirus\Quarantine
 
+---
+
+### Firewall / HIPS Alert Note
+
+- Do not quarantine every alert that appears from firewall "new connection" notifications.
+- A new connection alert is not the same thing as a full automated malware verdict.
+- Firewall and HIPS telemetry are still partially separated, so some alerts are informational, contextual, or require manual review before quarantine.
+- Review the process path, parent process, destination, and other telemetry first instead of assuming every network alert is malicious.
+
 ## Description
 At this stage:
 - The application works **locally only**.
