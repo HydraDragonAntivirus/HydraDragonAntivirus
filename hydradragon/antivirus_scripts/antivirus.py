@@ -196,6 +196,10 @@ import json
 logger.debug(f"json module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
+import esprima
+logger.debug(f"esprima module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
 import pickle
 logger.debug(f"pickle module loaded in {time.time() - start_time:.6f} seconds")
 
@@ -5662,6 +5666,89 @@ def deobfuscate_webcrack_js(file_path) -> str:
         logger.error(f"Error processing JavaScript file {file_path}: {ex}")
         return ""
 
+
+_JAVASCRIPT_AST_NODE_TYPES = frozenset({
+    "ArrowFunctionExpression",
+    "AssignmentExpression",
+    "AwaitExpression",
+    "CallExpression",
+    "ClassDeclaration",
+    "DoWhileStatement",
+    "ExportAllDeclaration",
+    "ExportDefaultDeclaration",
+    "ExportNamedDeclaration",
+    "ForInStatement",
+    "ForOfStatement",
+    "ForStatement",
+    "FunctionDeclaration",
+    "FunctionExpression",
+    "IfStatement",
+    "ImportDeclaration",
+    "NewExpression",
+    "ReturnStatement",
+    "SwitchStatement",
+    "TaggedTemplateExpression",
+    "ThrowStatement",
+    "TryStatement",
+    "UpdateExpression",
+    "VariableDeclaration",
+    "WhileStatement",
+})
+
+
+def _iter_esprima_nodes(node):
+    """Yield an Esprima node tree depth-first."""
+    if node is None or not hasattr(node, "type"):
+        return
+
+    yield node
+
+    for value in getattr(node, "__dict__", {}).values():
+        if isinstance(value, list):
+            for item in value:
+                if hasattr(item, "type"):
+                    yield from _iter_esprima_nodes(item)
+        elif hasattr(value, "type"):
+            yield from _iter_esprima_nodes(value)
+
+
+def _parse_javascript_ast(source_code: str):
+    """Try Esprima in both script and module mode."""
+    parse_options = {"tolerant": True, "jsx": True}
+
+    for parser in (esprima.parseScript, esprima.parseModule):
+        try:
+            tree = parser(source_code, parse_options)
+            if getattr(tree, "body", None) is not None:
+                return tree
+        except Exception:
+            continue
+
+    return None
+
+
+def is_javascript_source_by_ast(source_code: str) -> bool:
+    """
+    Decide whether text is real JavaScript by requiring Esprima parsing and at
+    least one executable/program-structure AST node.
+    """
+    if not source_code:
+        return False
+
+    stripped = source_code.lstrip("\ufeff \t\r\n")
+    if not stripped or "\x00" in source_code:
+        return False
+
+    tree = _parse_javascript_ast(source_code)
+    if tree is None:
+        return False
+
+    for node in _iter_esprima_nodes(tree):
+        if getattr(node, "type", "") in _JAVASCRIPT_AST_NODE_TYPES:
+            return True
+
+    return False
+
 def extract_all_files_with_7z(file_path, nsis_flag=False):
     """
     Extracts all files from an archive via 7-Zip CLI.
@@ -8827,6 +8914,8 @@ async def scan_and_warn(file_path,
         # FIXED: Wait for tasks to complete to fix flake8 error and address user feedback
         await asyncio.gather(*additional_tasks)
 
+        javascript_source_flag = False
+
         # ========== TEXT FILE PROCESSING ==========
         if plain_text_flag:
             # Plain text file processing
@@ -8834,11 +8923,17 @@ async def scan_and_warn(file_path,
 
             # Wait for file reading to complete
             await file_read_task
+            javascript_source_flag = is_javascript_source_by_ast(
+                "".join(thread_results.get('file_lines') or [])
+            )
 
-        # If file is a .js file, deobfuscate it first
-        if norm_path.lower().endswith(".js"):
+        # If the file parses as JavaScript, deobfuscate it first.
+        if javascript_source_flag:
             try:
-                logger.info(f"Detected JavaScript file: {norm_path}, deobfuscating with Webcrack...")
+                logger.info(
+                    f"Detected JavaScript source via Esprima AST: {norm_path}, "
+                    "deobfuscating with Webcrack..."
+                )
                 output_dir = await asyncio.to_thread(deobfuscate_webcrack_js, norm_path)
 
                 if output_dir and os.path.exists(output_dir):
