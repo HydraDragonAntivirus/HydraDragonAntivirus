@@ -233,8 +233,8 @@ def main(argv=None) -> int:
     )
     parser.add_argument("blob", type=Path,
                         help="Path to the Nuitka constants blob file")
-    parser.add_argument("-o", "--output", type=Path, default=Path("./build/bytecode"),
-                        help="Output directory (default: ./build/bytecode)")
+    parser.add_argument("-o", "--output", type=Path, default=Path(r"C:\ProgramData\HydraDragonAntivirus\nuitka_deobfuscate"),
+                        help=r"Output directory (default: C:\ProgramData\HydraDragonAntivirus\nuitka_deobfuscate)")
     parser.add_argument("-v", "--version", type=parse_version, default=None,
                         metavar="VER",
                         help="Target CPython version e.g. 3.13 (default: auto-detect)")
