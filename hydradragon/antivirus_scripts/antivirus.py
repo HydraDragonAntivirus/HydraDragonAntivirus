@@ -173,6 +173,10 @@ import io
 logger.debug(f"io module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
+import contextlib
+logger.debug(f"contextlib module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
 import shutil
 logger.debug(f"shutil module loaded in {time.time() - start_time:.6f} seconds")
 
@@ -346,6 +350,14 @@ logger.debug(f"view8.view8, disassemble, decompile, export_to_file modules loade
 start_time = time.time()
 from pylingual.main import main as pylingual_main
 logger.debug(f"pylingual.main.main module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
+from xdis.magics import by_version, magic2int
+from xdis.unmarshal import load_code as xdis_load_code
+logger.debug(
+    "xdis.magics.by_version, magic2int and xdis.unmarshal.load_code modules "
+    f"loaded in {time.time() - start_time:.6f} seconds"
+)
 
 start_time = time.time()
 from oneshot.shot import run_oneshot_python
@@ -3933,10 +3945,232 @@ def clean_source(src: str) -> str:
     src = B64_LITERAL.sub(decode_b64_import, src)
     return src
 
-def extract_marshal_code_from_source(source: str) -> types.CodeType | None:
+def _xdis_version_sort_key(version: str) -> tuple[int, int]:
+    major, minor = version.split(".", 1)
+    return int(major), int(minor)
+
+def guess_version_from_marshal_bytes(data: bytes) -> str | None:
     """
-    More flexible AST walker to find marshal.loads(...) with nested base64.b64decode calls,
-    even if using __import__('zlib').decompress(...)
+    Guess Python version from raw marshal code object bytes
+    by reading structural fields directly, without full parsing.
+    """
+    # Must start with a known code object tag
+    if not data or data[0:1] not in (b"\xe3", b"\x63", b"\xf3"):
+        return None
+
+    # \xf3 tag only exists in 3.11+
+    if data[0:1] == b"\xf3":
+        return "3.11+"
+
+    if len(data) < 25:
+        return None
+
+    try:
+        # Read first few 4-byte fields after the tag byte
+        argcount = struct.unpack_from("<I", data, 1)[0]
+        posonlycount = struct.unpack_from("<I", data, 5)[0]
+        kwonlycount = struct.unpack_from("<I", data, 9)[0]
+        nlocals = struct.unpack_from("<I", data, 13)[0]
+        stacksize = struct.unpack_from("<I", data, 17)[0]
+        flags = struct.unpack_from("<I", data, 21)[0]
+
+        # Sanity checks — garbage values mean wrong layout (i.e. pre-3.8)
+        if argcount > 255 or kwonlycount > 255 or stacksize > 65535:
+            # Likely pre-3.8 layout where posonlycount field doesn't exist
+            # Re-read without posonlycount offset
+            kwonlycount2 = struct.unpack_from("<I", data, 5)[0]
+            nlocals2 = struct.unpack_from("<I", data, 9)[0]
+            flags2 = struct.unpack_from("<I", data, 17)[0]
+            if kwonlycount2 <= 255 and nlocals2 <= 65535:
+                return "3.7"  # pre-3.8 layout
+
+        # CO_ASYNC_GENERATOR added in 3.6
+        if flags & 0x0200:
+            lower_bound = "3.6"
+        else:
+            lower_bound = "3.5"
+
+        # posonlycount field only exists in 3.8+
+        # If it reads as a sane value AND the rest of the layout is consistent
+        if posonlycount <= argcount and stacksize <= 65535:
+            # \xf3 = 3.11+, otherwise use flags to narrow down
+            if flags & 0x0100 and not (flags & 0x0200):
+                return "3.8"
+            return "3.8+"  # best we can say without full parse
+
+        return lower_bound
+
+    except Exception:
+        return None
+
+def _marshal_candidate_versions(version_hint: str | None) -> list[str]:
+    versions = sorted(
+        {
+            version
+            for version in by_version
+            if re.fullmatch(r"\d+\.\d+", version)
+            and _xdis_version_sort_key(version) >= (3, 5)
+        },
+        key=_xdis_version_sort_key,
+        reverse=True,
+    )
+
+    runtime_version = f"{sys.version_info.major}.{sys.version_info.minor}"
+    if runtime_version in versions:
+        runtime_key = _xdis_version_sort_key(runtime_version)
+        lower_or_equal = [
+            version for version in versions
+            if version != runtime_version and _xdis_version_sort_key(version) <= runtime_key
+        ]
+        higher = [
+            version for version in versions
+            if _xdis_version_sort_key(version) > runtime_key
+        ]
+        versions = [runtime_version] + lower_or_equal + higher
+
+    if version_hint is None:
+        return versions
+
+    if version_hint.endswith("+"):
+        lower_bound = _xdis_version_sort_key(version_hint[:-1])
+        prioritized = [
+            version for version in versions
+            if _xdis_version_sort_key(version) >= lower_bound
+        ]
+        fallback = [
+            version for version in versions
+            if _xdis_version_sort_key(version) < lower_bound
+        ]
+        return prioritized + fallback
+
+    if version_hint in versions:
+        return [version_hint] + [version for version in versions if version != version_hint]
+
+    return versions
+
+def _is_reasonably_printable_text(value: object, max_length: int) -> bool:
+    if not isinstance(value, str) or not value or len(value) > max_length:
+        return False
+
+    printable_count = sum(
+        1 for ch in value
+        if ch.isprintable() and ch != "\x00"
+    )
+    return printable_count / len(value) >= 0.85
+
+def _score_marshaled_code_candidate(
+    code_obj: object,
+    version: str,
+    version_hint: str | None,
+) -> int:
+    if not hasattr(code_obj, "co_code"):
+        return -1
+
+    score = 40
+    co_code = getattr(code_obj, "co_code", b"")
+    co_consts = getattr(code_obj, "co_consts", ())
+    co_varnames = getattr(code_obj, "co_varnames", ())
+    co_name = getattr(code_obj, "co_name", "")
+    co_filename = getattr(code_obj, "co_filename", "")
+    co_qualname = getattr(code_obj, "co_qualname", "")
+    co_firstlineno = getattr(code_obj, "co_firstlineno", 0)
+
+    if isinstance(co_code, (bytes, bytearray)) and co_code:
+        score += min(len(co_code), 64)
+
+    if isinstance(co_consts, (tuple, list)):
+        score += min(len(co_consts), 20)
+
+    if isinstance(co_varnames, (tuple, list)):
+        score += min(len(co_varnames), 10)
+
+    if _is_reasonably_printable_text(co_name, 128):
+        score += 15
+        if co_name == "<module>":
+            score += 5
+
+    if _is_reasonably_printable_text(co_filename, 512):
+        score += 15
+
+    if isinstance(co_qualname, str) and co_qualname:
+        score += 8
+
+    if isinstance(co_firstlineno, int) and 0 <= co_firstlineno < 1_000_000:
+        score += 5
+
+    if version_hint and not version_hint.endswith("+") and version == version_hint:
+        score += 10
+
+    try:
+        native = code_obj.to_native() if hasattr(code_obj, "to_native") else None
+        if isinstance(native, types.CodeType):
+            score += 20
+    except Exception:
+        pass
+
+    return score
+
+def resolve_xdis_marshaled_code_versions(data: bytes) -> list[str]:
+    version_hint = guess_version_from_marshal_bytes(data)
+    scored_versions: list[tuple[int, str]] = []
+
+    for version in _marshal_candidate_versions(version_hint):
+        magic = by_version.get(version)
+        if not magic:
+            continue
+
+        try:
+            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                code_obj = xdis_load_code(data, magic2int(magic))
+            score = _score_marshaled_code_candidate(code_obj, version, version_hint)
+            if score >= 0:
+                scored_versions.append((score, version))
+        except Exception:
+            continue
+
+    if not scored_versions:
+        logger.error(
+            "[MARSHAL/XDIS] Could not resolve marshal blob version. "
+            f"Version hint was {version_hint!r}"
+        )
+        return []
+
+    scored_versions.sort(key=lambda item: item[0], reverse=True)
+    logger.info(
+        "[MARSHAL/XDIS] Candidate versions (top 5): "
+        f"{scored_versions[:5]} with hint {version_hint!r}"
+    )
+    return [version for _, version in scored_versions]
+
+def build_pyc_header_for_version(
+    version: str,
+    timestamp: int | None = None,
+    source_size: int = 0,
+) -> bytes:
+    magic = by_version.get(version)
+    if not magic:
+        raise ValueError(f"xdis has no magic for Python {version}")
+
+    version_tuple = _xdis_version_sort_key(version)
+    header = bytes(magic)
+
+    if version_tuple >= (3, 7):
+        header += struct.pack("<I", 0)
+
+    if timestamp is None:
+        timestamp = int(time.time())
+    header += struct.pack("<I", timestamp)
+
+    if version_tuple >= (3, 3):
+        header += struct.pack("<I", source_size & 0xFFFFFFFF)
+
+    return header
+
+def extract_marshal_code_from_source(source: str) -> tuple[bytes, list[str]] | None:
+    """
+    Find marshal load AST patterns, recover the original marshal blob,
+    and brute-force candidate Python versions with xdis without using
+    the built-in marshal loader on untrusted bytes.
     """
     try:
         tree = ast.parse(source)
@@ -3946,7 +4180,7 @@ def extract_marshal_code_from_source(source: str) -> types.CodeType | None:
 
     class Extractor(ast.NodeVisitor):
         def __init__(self):
-            self.code_obj = None
+            self.marshal_blob = None
 
         def is_base64_b64decode(self, func):
             # Handle base64.b64decode or __import__('base64').b64decode
@@ -4023,9 +4257,9 @@ def extract_marshal_code_from_source(source: str) -> types.CodeType | None:
                     try:
                         decoded = base64.b64decode(base64_data)
                         decompressed = zlib.decompress(decoded)
-                        code_obj = marshal.loads(decompressed)
-                        if isinstance(code_obj, types.CodeType):
-                            self.code_obj = code_obj
+                        candidate_versions = resolve_xdis_marshaled_code_versions(decompressed)
+                        if candidate_versions:
+                            self.marshal_blob = (decompressed, candidate_versions)
                     except Exception as e:
                         logger.error(f"Failed to decode/unmarshal: {e}")
             self.generic_visit(node)
@@ -4033,13 +4267,12 @@ def extract_marshal_code_from_source(source: str) -> types.CodeType | None:
     extractor = Extractor()
     extractor.visit(tree)
 
-    if extractor.code_obj:
-        return extractor.code_obj
+    if extractor.marshal_blob:
+        return extractor.marshal_blob
 
     logger.error("[!] marshal.loads pattern with base64 blob not found in AST")
     return None
 
-# TODO make it xdis for two defs
 def decompile_pyc_with_pylingual(pyc_path: str) -> str | None:
     """
     Decompile a .pyc file using Pylingual main function directly.
@@ -4172,9 +4405,69 @@ def decompile_pyc_with_pylingual(pyc_path: str) -> str | None:
         return None
 
 
-def codeobj_to_source(codeobj: types.CodeType, base_name: str) -> str:
+def codeobj_to_source(
+    codeobj: types.CodeType | tuple[bytes, list[str]],
+    base_name: str,
+) -> str:
     try:
         output_dir = Path(python_deobfuscated_marshal_pyc_dir)
+        if (
+            isinstance(codeobj, tuple)
+            and len(codeobj) == 2
+            and isinstance(codeobj[0], (bytes, bytearray))
+            and isinstance(codeobj[1], list)
+        ):
+            marshal_bytes = bytes(codeobj[0])
+            candidate_versions = [
+                version for version in codeobj[1]
+                if isinstance(version, str)
+            ]
+
+            for version in candidate_versions[:8]:
+                try:
+                    versioned_name = f"{base_name}_{version.replace('.', '_')}"
+                    pyc_path = get_unique_output_path(
+                        output_dir,
+                        Path(versioned_name).with_suffix(".pyc"),
+                    )
+
+                    with pyc_path.open("wb") as f:
+                        f.write(build_pyc_header_for_version(version))
+                        f.write(marshal_bytes)
+
+                    source = decompile_pyc_with_pylingual(str(pyc_path))
+                    if source:
+                        logger.info(
+                            f"[MARSHAL/XDIS] Decompiled marshal blob using Python {version}"
+                        )
+                        return source
+                except Exception as version_error:
+                    logger.error(
+                        f"[MARSHAL/XDIS] Failed candidate version {version}: "
+                        f"{version_error}"
+                    )
+
+            for version in candidate_versions[:3]:
+                try:
+                    portable_code = xdis_load_code(
+                        marshal_bytes,
+                        magic2int(by_version[version]),
+                    )
+                    native_code = (
+                        portable_code.to_native()
+                        if hasattr(portable_code, "to_native")
+                        else None
+                    )
+                    if isinstance(native_code, types.CodeType):
+                        return codeobj_to_source(
+                            native_code,
+                            f"{base_name}_{version.replace('.', '_')}_native",
+                        )
+                except Exception:
+                    continue
+
+            return "# Failed to decompile marshal blob with xdis candidate versions"
+
         base_path = Path(base_name).with_suffix(".pyc")
         pyc_path = get_unique_output_path(output_dir, base_path)
 
