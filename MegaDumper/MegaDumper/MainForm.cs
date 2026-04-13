@@ -2355,22 +2355,16 @@ namespace Mega_Dumper
                                                             virtualsize = sections[l].virtual_size;
                                                             virtualAddress = sections[l].virtual_address;
 
-                                                            // To prevent BadImageFormatException when FileAlignment=SectionAlignment, 
-                                                            // SizeOfRawData MUST be aligned to FileAlignment (which is SectionAlignment here).
-                                                            int alignedRawSize = virtualsize;
-                                                            int rem = alignedRawSize % sectionalignment;
-                                                            if (rem != 0) alignedRawSize += (sectionalignment - rem);
-
                                                             // Memory dumper always produces a "fixed" dump (Raw layout = Virtual layout)
                                                             // to prevent corruption and fragmentation.
-                                                            rawsize = alignedRawSize;
+                                                            rawsize = virtualsize;
                                                             rawAddress = virtualAddress;
 
                                                             using (BinaryWriter sectionWriter = new(new MemoryStream(virtualdump)))
                                                             {
                                                                 // Fix section header in memory buffer
                                                                 sectionWriter.BaseStream.Position = PEOffset + 24 + sizeofoptionalheader + (0x28 * l) + 16;
-                                                                sectionWriter.Write(alignedRawSize);   // SizeOfRawData ALIGNED !!
+                                                                sectionWriter.Write(virtualsize);   // SizeOfRawData
                                                                 sectionWriter.BaseStream.Position = PEOffset + 24 + sizeofoptionalheader + (0x28 * l) + 20;
                                                                 sectionWriter.Write(virtualAddress); // PointerToRawData
                                                             }
