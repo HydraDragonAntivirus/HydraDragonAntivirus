@@ -66,11 +66,6 @@ static_assert(((size_t)SysmonEvent::_Max) < (sizeof(uint64_t) * 8) + 1, "Too man
 #define CMD_EDRDRV_SERVICE_NAME "edrdrv"
 
 ///
-/// PCA service name.
-///
-#define CMD_PCA_SERVICE_NAME "PcaSvc"
-
-///
 /// Driver filename name.
 ///
 #define CMD_EDRDRV_FILE_NAME "edrdrv.sys"
@@ -497,6 +492,5 @@ constexpr wchar_t c_sAltitudeValue[] = L"368325";
 } // namespace edrdrv
 } // namespace cmd
 /// @}
-
 
 

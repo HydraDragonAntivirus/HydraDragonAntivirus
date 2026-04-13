@@ -34,8 +34,6 @@ private:
 	
 	/// Name of Windows service.
 	inline static const wchar_t c_sDrvSrvName[] = L"" CMD_EDRDRV_SERVICE_NAME;
-
-	inline static const wchar_t c_sPCAService[] = L"" CMD_PCA_SERVICE_NAME;
 	
 	/// Name of mini-filter driver file.
 	inline static const wchar_t c_sDriverName[] = L"" CMD_EDRDRV_FILE_NAME;

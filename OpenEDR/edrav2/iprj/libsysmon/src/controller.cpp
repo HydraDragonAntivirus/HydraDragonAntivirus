@@ -129,40 +129,11 @@ void SystemMonitorController::install(Variant vParams)
 	bool fReinstall = execCommand(createObject(CLSID_WinServiceController), "isExist",
 			Dictionary({ {"name", c_sDrvSrvName} }));
 
-	std::unique_ptr<void, std::function<void(void*)>> pcaServiceEnabler(nullptr);
-
 	// We must stop service on reinstall
 	if (fReinstall)
 	{
 		(void) execCommand(createObject(CLSID_WinServiceController), "stop",
 			Dictionary({ {"name", c_sDrvSrvName} }));
-	}
-	else // we have to stop the PCA service before the edr service installation, regarding CODEV-4457
-	{	 // and run it after the edr service will be installed
-
-		const bool pcaServiceExists = execCommand(createObject(CLSID_WinServiceController), "isExist",
-			Dictionary({ {"name", c_sPCAService} }));
-
-		if (pcaServiceExists)
-		{
-			// PCA service stop
-			(void)execCommand(createObject(CLSID_WinServiceController), "stop",
-				Dictionary({ {"name", c_sPCAService} }));
-
-			auto startPcaService = [](auto* obj)
-			{
-				if (obj) // dummy object
-				{
-					delete obj;
-
-					// PCA service start
-					(void)execCommand(createObject(CLSID_WinServiceController), "start",
-						Dictionary({ {"name", c_sPCAService} }));
-				}
-			};
-
-			pcaServiceEnabler = std::unique_ptr<void, std::function<void(void*)>>(new int(1)/*dummy object*/, startPcaService);
-		}
 	}
 
 	namespace fs = std::filesystem;
