@@ -66,7 +66,7 @@ porcupine.ndb
 __pycache__/
 /log
 /venv
-/build
+# /build
 
 # Big website files
 hydradragon/website/IPv4Malware.csv
@@ -99,7 +99,7 @@ hydradragon/antivirus_scripts/w293emptycheck.py
 # User-specific files
 *.rsuser
 *.suo
-*.user
+# *.user
 *.userosscache
 *.sln.docstates
 

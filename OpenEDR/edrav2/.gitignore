@@ -1,4 +1,4 @@
-*.vcxproj.user
+# *.vcxproj.user
 .vs
 *.orig
 user.cfg
