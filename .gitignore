@@ -2,7 +2,7 @@
 rcdata_10_3.bin*
 
 # Comodo
-/HydraDragonFirewall/COMODO/tests/CLT
+/HydraDragonFirewall/tests/COMODO/CLT
 
 # Machine Learning Folder
 hydradragon/machine_learning/pe_features_*
