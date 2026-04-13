@@ -2342,13 +2342,6 @@ namespace Mega_Dumper
                                                         byte[] virtualdump = new byte[sizeofimage];
                                                         Array.Copy(PeHeader, virtualdump, pagesizeInt);
 
-                                                        // FIX: Set FileAlignment to match SectionAlignment to prevent System.BadImageFormatException
-                                                        using (BinaryWriter headerWriter = new(new MemoryStream(virtualdump)))
-                                                        {
-                                                            headerWriter.BaseStream.Position = PEOffset + 0x3C; // OptionalHeader + 0x24 (FileAlignment)
-                                                            headerWriter.Write(sectionalignment);
-                                                        }
-
                                                         int rightrawsize = 0;
                                                         for (int l = 0; l < nrofsection; l++)
                                                         {
