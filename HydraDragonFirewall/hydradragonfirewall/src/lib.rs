@@ -4,6 +4,7 @@ mod ffi;
 pub mod file_magic;
 pub mod http_parser;
 pub mod proxy;
+pub mod quarantine;
 pub mod sdk;
 pub mod tls_parser;
 pub mod web_filter;

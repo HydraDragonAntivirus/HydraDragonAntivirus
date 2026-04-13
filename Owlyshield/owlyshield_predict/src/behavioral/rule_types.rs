@@ -2488,7 +2488,10 @@ detection_logic:
             panic!("expected count detection logic");
         };
 
-        assert_eq!(count, vec!["ssdt_finding".to_string(), "driver_finding".to_string()]);
+        assert_eq!(
+            count,
+            vec!["ssdt_finding".to_string(), "driver_finding".to_string()]
+        );
         assert_eq!(comparison, Comparison::Gte);
         assert_eq!(threshold, 2);
     }

@@ -1,4 +1,4 @@
-use crate::threat_handler::ThreatHandler;
+use crate::threat_handler::{QuarantineMetadata, ThreatHandler};
 use std::error::Error;
 use std::fmt::{Debug, Formatter};
 use std::fs::File;
@@ -16,8 +16,8 @@ use crate::notifications::notify;
 use crate::predictions::prediction::input_tensors::VecvecCappedF32;
 use crate::process::{ProcessRecord, ProcessState};
 use crate::utils::{
-    FILE_TIME_FORMAT, LONG_TIME_FORMAT, protected_process_record_reason,
-    resolve_process_path, suspicious_critical_process_record_reason,
+    FILE_TIME_FORMAT, LONG_TIME_FORMAT, protected_process_record_reason, resolve_process_path,
+    suspicious_critical_process_record_reason,
 };
 /// New struct to hold detailed threat information.
 #[derive(Debug, Clone)]
@@ -180,6 +180,48 @@ fn should_install_kernel_deny_for_remediation(
     }
 
     true
+}
+
+fn quarantine_detection_label(proc: &ProcessRecord, threat_info: &ThreatInfo<'_>) -> String {
+    let mut segments = Vec::new();
+
+    let mut push_unique = |value: &str| {
+        let trimmed = value.trim();
+        if trimmed.is_empty() {
+            return;
+        }
+        if segments
+            .iter()
+            .any(|existing: &String| existing.eq_ignore_ascii_case(trimmed))
+        {
+            return;
+        }
+        segments.push(trimmed.to_string());
+    };
+
+    push_unique(threat_info.threat_type_label);
+    push_unique(threat_info.virus_name);
+
+    if let Some(rule_name) = proc.triggered_rule_name.as_deref() {
+        push_unique(rule_name);
+    }
+
+    if let Some(details) = threat_info
+        .match_details
+        .as_deref()
+        .or(proc.triggered_rule_details.as_deref())
+    {
+        let clipped = details.trim().chars().take(240).collect::<String>();
+        if !clipped.is_empty() {
+            segments.push(format!("Details: {}", clipped));
+        }
+    }
+
+    if segments.is_empty() {
+        "Malicious Behavior Detected".to_string()
+    } else {
+        segments.join(" | ")
+    }
 }
 
 impl ActionsOnKill {
@@ -591,8 +633,14 @@ impl ActionOnKill for KillAction {
                     "[ActionOnKill] Terminating and Quarantining: {}",
                     proc.appname
                 ));
-                self.handler
-                    .kill_and_quarantine(proc.gid, proc.primary_remediation_path());
+                let quarantine_metadata = QuarantineMetadata {
+                    detection: quarantine_detection_label(proc, threat_info),
+                };
+                self.handler.kill_and_quarantine(
+                    proc.gid,
+                    proc.primary_remediation_path(),
+                    &quarantine_metadata,
+                );
             } else if threat_info.kill_and_remove {
                 Logging::info(&format!("[ActionOnKill] Kill and Remove: {}", proc.appname));
                 self.handler

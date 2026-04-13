@@ -38,6 +38,10 @@ pub mod realtime_learning;
 #[path = "windows/av_integration.rs"]
 pub mod av_integration;
 
+#[cfg(target_os = "windows")]
+#[path = "windows/quarantine.rs"]
+pub mod quarantine;
+
 // Platform-Specific Modules via sub-mod files
 #[cfg(target_os = "windows")]
 pub mod windows;

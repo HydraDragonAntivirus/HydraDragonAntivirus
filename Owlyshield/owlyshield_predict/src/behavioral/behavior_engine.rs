@@ -1222,8 +1222,12 @@ impl ProcessBehaviorState {
             .as_ref()
             .map(|event| event.operation_status)
             .unwrap_or(msg.kernel_event_info.operation_status);
-        let actionable_hypervisor_event =
-            is_actionable_hypervisor_event(&irp_kind, &event_name, raw_event_type, operation_status);
+        let actionable_hypervisor_event = is_actionable_hypervisor_event(
+            &irp_kind,
+            &event_name,
+            raw_event_type,
+            operation_status,
+        );
 
         if !is_api_event || actionable_hypervisor_event {
             self.irp_stats.record_operation(&rec);
@@ -1251,14 +1255,9 @@ impl ProcessBehaviorState {
                         msg.pid
                     }
                 });
-            let source_process = format_process_descriptor_with_fallback(
-                source_pid,
-                None,
-            );
-            let target_process = format_process_descriptor_with_fallback(
-                target_pid,
-                Some(self.exe_path.as_path()),
-            );
+            let source_process = format_process_descriptor_with_fallback(source_pid, None);
+            let target_process =
+                format_process_descriptor_with_fallback(target_pid, Some(self.exe_path.as_path()));
             let raw_argument1 = hyper_event
                 .as_ref()
                 .map(|event| event.raw_argument1)
@@ -1355,12 +1354,9 @@ impl ProcessBehaviorState {
                     self.hypervisor_event_count
                 ));
             } else {
-                let event_label = canonical_hypervisor_event_label(
-                    &irp_kind,
-                    raw_event_type,
-                    &event_name,
-                )
-                    .unwrap_or_else(|| event_name.clone());
+                let event_label =
+                    canonical_hypervisor_event_label(&irp_kind, raw_event_type, &event_name)
+                        .unwrap_or_else(|| event_name.clone());
                 let event_family = if is_real_hypervisor_irp(&irp_kind, raw_event_type) {
                     "HYPERVISOR EVENT"
                 } else if is_kernel_process_protection_irp(&irp_kind) {
@@ -2128,8 +2124,7 @@ impl BehaviorEngine {
             IrpMajorOp::IrpKernelMapSection => "kernel_map_section".to_string(),
             _ => {
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-                if let Some(name) = known_raw_event_name(effective_hypervisor_raw_event_type(msg))
-                {
+                if let Some(name) = known_raw_event_name(effective_hypervisor_raw_event_type(msg)) {
                     return name.to_string();
                 }
 
@@ -2223,69 +2218,48 @@ impl BehaviorEngine {
                     .map(|event| event.source_process_id)
                     .unwrap_or(msg.kernel_event_info.source_process_id);
                 if source_pid != 0 {
-                    parts.push(format!(
-                        "SourcePid={}",
-                        source_pid
-                    ));
+                    parts.push(format!("SourcePid={}", source_pid));
                 }
                 let target_pid = kernel_event
                     .as_ref()
                     .map(|event| event.target_process_id)
                     .unwrap_or(msg.kernel_event_info.target_process_id);
                 if target_pid != 0 {
-                    parts.push(format!(
-                        "TargetPid={}",
-                        target_pid
-                    ));
+                    parts.push(format!("TargetPid={}", target_pid));
                 }
                 let memory_address = kernel_event
                     .as_ref()
                     .map(|event| event.memory_address)
                     .unwrap_or(msg.kernel_event_info.memory_address);
                 if memory_address != 0 {
-                    parts.push(format!(
-                        "MemoryAddress=0x{:X}",
-                        memory_address
-                    ));
+                    parts.push(format!("MemoryAddress=0x{:X}", memory_address));
                 }
                 let memory_size = kernel_event
                     .as_ref()
                     .map(|event| event.memory_size)
                     .unwrap_or(msg.kernel_event_info.memory_size as u64);
                 if memory_size != 0 {
-                    parts.push(format!(
-                        "MemorySize={}",
-                        memory_size
-                    ));
+                    parts.push(format!("MemorySize={}", memory_size));
                 }
                 let thread_handle = kernel_event
                     .as_ref()
                     .map(|event| event.thread_handle)
                     .unwrap_or(msg.kernel_event_info.thread_handle);
                 if thread_handle != 0 {
-                    parts.push(format!(
-                        "ThreadHandle=0x{:X}",
-                        thread_handle
-                    ));
+                    parts.push(format!("ThreadHandle=0x{:X}", thread_handle));
                 }
                 let thread_start_routine = kernel_event
                     .as_ref()
                     .map(|event| event.thread_start_routine)
                     .unwrap_or(msg.kernel_event_info.thread_start_routine);
                 if thread_start_routine != 0 {
-                    parts.push(format!(
-                        "ThreadStartRoutine=0x{:X}",
-                        thread_start_routine
-                    ));
+                    parts.push(format!("ThreadStartRoutine=0x{:X}", thread_start_routine));
                 }
                 let operation_status = kernel_event
                     .as_ref()
                     .map(|event| event.operation_status)
                     .unwrap_or(msg.kernel_event_info.operation_status);
-                parts.push(format!(
-                    "Status=0x{:08X}",
-                    operation_status as u32
-                ));
+                parts.push(format!("Status=0x{:08X}", operation_status as u32));
                 let raw_argument1 = kernel_event
                     .as_ref()
                     .map(|event| event.raw_argument1)
@@ -2304,10 +2278,7 @@ impl BehaviorEngine {
                     .unwrap_or(msg.kernel_event_info.raw_argument4);
                 parts.push(format!(
                     "Args=[0x{:X},0x{:X},0x{:X},0x{:X}]",
-                    raw_argument1,
-                    raw_argument2,
-                    raw_argument3,
-                    raw_argument4
+                    raw_argument1, raw_argument2, raw_argument3, raw_argument4
                 ));
             }
 
@@ -6648,9 +6619,11 @@ impl BehaviorEngine {
                                 let path_lc = path_str.to_lowercase();
                                 if path_lc.starts_with("\\device\\harddiskvolume") {
                                     use std::ffi::OsString;
-                                    use std::os::windows::ffi::OsStringExt;
                                     use std::os::windows::ffi::OsStrExt;
-                                    use windows::Win32::Storage::FileSystem::{GetLogicalDriveStringsW, QueryDosDeviceW};
+                                    use std::os::windows::ffi::OsStringExt;
+                                    use windows::Win32::Storage::FileSystem::{
+                                        GetLogicalDriveStringsW, QueryDosDeviceW,
+                                    };
                                     use windows::core::PCWSTR;
 
                                     unsafe {
@@ -6665,21 +6638,41 @@ impl BehaviorEngine {
                                                     i += 1;
                                                 }
                                                 if i > start {
-                                                    let drive = OsString::from_wide(&drives_buf[start..i]);
+                                                    let drive =
+                                                        OsString::from_wide(&drives_buf[start..i]);
                                                     if let Some(drive_str) = drive.to_str() {
-                                                        let drive_letter = drive_str.trim_end_matches('\\');
-                                                        let drive_wide: Vec<u16> = drive_letter.encode_utf16().chain(std::iter::once(0)).collect();
+                                                        let drive_letter =
+                                                            drive_str.trim_end_matches('\\');
+                                                        let drive_wide: Vec<u16> = drive_letter
+                                                            .encode_utf16()
+                                                            .chain(std::iter::once(0))
+                                                            .collect();
                                                         let mut target_buf = [0u16; 512];
                                                         let target_len = QueryDosDeviceW(
                                                             PCWSTR(drive_wide.as_ptr()),
                                                             Some(&mut target_buf),
                                                         );
                                                         if target_len > 0 {
-                                                            let target = OsString::from_wide(&target_buf[..((target_len as usize) - 1)]);
-                                                            if let Some(target_str) = target.to_str() {
-                                                                if path_lc.starts_with(&target_str.to_lowercase()) {
-                                                                    let remainder = &path_str[target_str.len()..];
-                                                                    dos_path_buf = std::path::PathBuf::from(format!("{}{}", drive_letter, remainder));
+                                                            let target = OsString::from_wide(
+                                                                &target_buf
+                                                                    [..((target_len as usize) - 1)],
+                                                            );
+                                                            if let Some(target_str) =
+                                                                target.to_str()
+                                                            {
+                                                                if path_lc.starts_with(
+                                                                    &target_str.to_lowercase(),
+                                                                ) {
+                                                                    let remainder = &path_str
+                                                                        [target_str.len()..];
+                                                                    dos_path_buf =
+                                                                        std::path::PathBuf::from(
+                                                                            format!(
+                                                                                "{}{}",
+                                                                                drive_letter,
+                                                                                remainder
+                                                                            ),
+                                                                        );
                                                                     matched_drive = true;
                                                                     break;
                                                                 }
@@ -6696,7 +6689,10 @@ impl BehaviorEngine {
                                             let system_drive = std::env::var("SystemDrive")
                                                 .unwrap_or_else(|_| "C:".to_string());
                                             if let Some(rest) = path_str.splitn(4, '\\').nth(3) {
-                                                dos_path_buf = std::path::PathBuf::from(format!("{}\\{}", system_drive, rest));
+                                                dos_path_buf = std::path::PathBuf::from(format!(
+                                                    "{}\\{}",
+                                                    system_drive, rest
+                                                ));
                                             }
                                         }
                                     }

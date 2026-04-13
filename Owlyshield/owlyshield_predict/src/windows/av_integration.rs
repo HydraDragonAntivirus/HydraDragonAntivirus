@@ -774,14 +774,18 @@ fn load_yara_x_rules() -> Option<yara_x::Rules> {
 
     let mut compiler = yara_x::Compiler::new();
     let mut added = false;
-    
+
     if let Ok(entries) = std::fs::read_dir(rules_folder) {
         for entry in entries.filter_map(Result::ok) {
             let path = entry.path();
             if path.extension().and_then(|e| e.to_str()) == Some("yar") {
                 if let Ok(content) = std::fs::read_to_string(&path) {
                     if let Err(e) = compiler.add_source(content.as_str()) {
-                        crate::logging::Logging::error(&format!("Failed to compile YARA rule {}: {:?}", path.display(), e));
+                        crate::logging::Logging::error(&format!(
+                            "Failed to compile YARA rule {}: {:?}",
+                            path.display(),
+                            e
+                        ));
                     } else {
                         added = true;
                     }
@@ -789,12 +793,8 @@ fn load_yara_x_rules() -> Option<yara_x::Rules> {
             }
         }
     }
-    
-    if added {
-        Some(compiler.build())
-    } else {
-        None
-    }
+
+    if added { Some(compiler.build()) } else { None }
 }
 
 impl<'a> AVIntegration<'a> {

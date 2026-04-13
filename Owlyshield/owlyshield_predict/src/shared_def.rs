@@ -170,7 +170,6 @@ impl IrpMajorOp {
     }
 }
 
-
 pub const OWLY_VMM_RAW_EVENT_BASE: u32 = 0x1000;
 pub const OWLY_VMM_RAW_CALLBACK_BASE: u32 = 0x1200;
 pub const OWLY_VMM_RAW_HYPEREVADE_BASE: u32 = 0x1300;
@@ -520,8 +519,9 @@ impl IOMessage {
 
     pub fn needs_hypervisor_name_resolution(&self) -> bool {
         let object_name = self.kernel_event_info.object_name.trim();
-        let has_qualified_name =
-            object_name.contains('!') && !object_name.starts_with('!') && !object_name.ends_with('!');
+        let has_qualified_name = object_name.contains('!')
+            && !object_name.starts_with('!')
+            && !object_name.ends_with('!');
         object_name.is_empty() || !has_qualified_name
     }
 

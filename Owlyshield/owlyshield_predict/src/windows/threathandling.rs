@@ -1,7 +1,8 @@
 use crate::driver_com::Driver;
 use crate::logging::Logging;
 use crate::process::{ProcessRecord, ProcessState};
-use crate::threat_handler::ThreatHandler;
+use crate::quarantine::{compute_sha256, quarantine_file};
+use crate::threat_handler::{QuarantineMetadata, ThreatHandler};
 use crate::utils::{
     protected_process_reason, protected_process_record_reason,
     suspicious_critical_process_record_reason,
@@ -18,7 +19,7 @@ use windows::core::PCWSTR;
 use std::io::Write;
 use std::os::windows::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
-use std::time::SystemTime;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Serialize, Deserialize, Debug)]
 struct QuarantineLogEntry {
@@ -103,6 +104,33 @@ impl WindowsThreatHandler {
             PathBuf::from(format!(r"\\?\GLOBALROOT{}", normalized))
         } else {
             PathBuf::from(normalized)
+        }
+    }
+
+    fn build_quarantine_destination(source_path: &Path, quarantine_dir: &Path) -> PathBuf {
+        let filename = source_path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .filter(|name| !name.is_empty())
+            .unwrap_or("quarantined_file");
+
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default();
+        let prefix = format!("{}_{}", timestamp.as_secs(), timestamp.subsec_nanos());
+
+        let mut counter = 0_u32;
+        loop {
+            let suffix = if counter == 0 {
+                String::new()
+            } else {
+                format!("_{counter}")
+            };
+            let candidate = quarantine_dir.join(format!("{prefix}_{filename}{suffix}.hqf"));
+            if !candidate.exists() {
+                return candidate;
+            }
+            counter = counter.saturating_add(1);
         }
     }
 
@@ -320,7 +348,7 @@ impl ThreatHandler for WindowsThreatHandler {
         self.add_kernel_block_path(path);
     }
 
-    fn kill_and_quarantine(&self, gid: u64, path: &std::path::Path) {
+    fn kill_and_quarantine(&self, gid: u64, path: &std::path::Path, metadata: &QuarantineMetadata) {
         // 1. Kill the process first to release file handles
         if let Some(pid) = Self::synthetic_pid_from_gid(gid) {
             if let Some(reason) = protected_process_reason(pid, Some(path)) {
@@ -371,76 +399,86 @@ impl ThreatHandler for WindowsThreatHandler {
         // 3. Prepare quarantine path
         let quarantine_dir =
             std::path::Path::new(r"C:\ProgramData\HydraDragonAntivirus\Quarantine");
-        if !quarantine_dir.exists() {
-            let _ = std::fs::create_dir_all(quarantine_dir);
+        if let Err(e) = std::fs::create_dir_all(quarantine_dir) {
+            Logging::error(&format!(
+                "[ThreatHandler] Failed to create quarantine directory {}: {}",
+                quarantine_dir.display(),
+                e
+            ));
+            self.add_kernel_block_path(path);
+            return;
         }
 
         let source_path = Self::normalize_usermode_path(path);
+        if source_path.as_os_str().is_empty() {
+            Logging::warning("[ThreatHandler] Cannot quarantine an empty remediation path");
+            self.add_kernel_block_path(path);
+            return;
+        }
 
-        if let Some(filename) = source_path.file_name() {
-            let dest_path = quarantine_dir.join(filename);
+        let detection = metadata.detection.trim();
+        let detection = if detection.is_empty() {
+            "Malicious Behavior Detected"
+        } else {
+            detection
+        };
+        let dest_path = Self::build_quarantine_destination(&source_path, quarantine_dir);
+        let sha256 = compute_sha256(&source_path).unwrap_or_else(|_| "unknown".to_string());
 
-            // 4. Move the file
-            match std::fs::rename(&source_path, &dest_path) {
-                Ok(_) => {
-                    Logging::alert(&format!(
-                        "Quarantined malicious file to: {}",
-                        dest_path.display()
+        // 4. Seal the file into a quarantine container, then remove the original.
+        match quarantine_file(&source_path, &dest_path, detection, &sha256) {
+            Ok(_) => {
+                Logging::alert(&format!(
+                    "[ThreatHandler] Quarantined malicious file into container: {}",
+                    dest_path.display()
+                ));
+                if !self.delete_with_reboot_fallback(&source_path) {
+                    Logging::warning(&format!(
+                        "[ThreatHandler] Quarantine container created, but cleanup of the original file failed: {}",
+                        source_path.display()
                     ));
                 }
-                Err(e) => {
-                    // If rename fails (e.g. across drives), try copy + delete
-                    match std::fs::copy(&source_path, &dest_path) {
-                        Ok(_) => {
-                            let _ = self.delete_with_reboot_fallback(&source_path);
-                            Logging::alert(&format!(
-                                "Quarantined malicious file (copy/delete) to: {}",
-                                dest_path.display()
-                            ));
-                        }
-                        Err(e2) => {
-                            Logging::alert(&format!(
-                                "Failed to quarantine file {}: {} (Copy error: {})",
-                                source_path.display(),
-                                e,
-                                e2
-                            ));
-                        }
-                    }
+
+                // 5. Log to JSON for Realtime Learning
+                let log_entry = QuarantineLogEntry {
+                    filepath: source_path.to_string_lossy().to_string(),
+                    timestamp: SystemTime::now()
+                        .duration_since(SystemTime::UNIX_EPOCH)
+                        .unwrap()
+                        .as_secs(),
+                    reason: detection.to_string(),
+                };
+
+                let log_path = quarantine_dir.join("quarantine_log.json");
+
+                // Read existing or create new
+                let mut entries: Vec<QuarantineLogEntry> = Vec::new();
+                if log_path.exists()
+                    && let Ok(content) = std::fs::read_to_string(&log_path)
+                    && let Ok(existing) = serde_json::from_str(&content)
+                {
+                    entries = existing;
+                }
+
+                entries.push(log_entry);
+
+                if let Ok(json) = serde_json::to_string_pretty(&entries)
+                    && let Ok(mut file) = std::fs::File::create(&log_path)
+                {
+                    let _ = file.write_all(json.as_bytes());
                 }
             }
-
-            self.add_kernel_block_path(path);
+            Err(e) => {
+                Logging::alert(&format!(
+                    "[ThreatHandler] Failed to quarantine file {} into container {}: {}",
+                    source_path.display(),
+                    dest_path.display(),
+                    e
+                ));
+            }
         }
 
-        // 5. Log to JSON for Realtime Learning
-        let log_entry = QuarantineLogEntry {
-            filepath: path.to_string_lossy().to_string(),
-            timestamp: SystemTime::now()
-                .duration_since(SystemTime::UNIX_EPOCH)
-                .unwrap()
-                .as_secs(),
-            reason: "Malicious Behavior Detected".to_string(), // In future pass reason
-        };
-
-        let log_path = quarantine_dir.join("quarantine_log.json");
-
-        // Read existing or create new
-        let mut entries: Vec<QuarantineLogEntry> = Vec::new();
-        if log_path.exists()
-            && let Ok(content) = std::fs::read_to_string(&log_path)
-            && let Ok(existing) = serde_json::from_str(&content)
-        {
-            entries = existing;
-        }
-
-        entries.push(log_entry);
-
-        if let Ok(json) = serde_json::to_string_pretty(&entries)
-            && let Ok(mut file) = std::fs::File::create(&log_path)
-        {
-            let _ = file.write_all(json.as_bytes());
-        }
+        self.add_kernel_block_path(path);
     }
 
     fn schedule_cleanup_on_reboot(&self, path: &Path) {

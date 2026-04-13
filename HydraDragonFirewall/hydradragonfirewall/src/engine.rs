@@ -1,4 +1,5 @@
 use crate::file_magic::FileMagicChecker;
+use crate::quarantine::{compute_sha256, quarantine_file as write_quarantine_file};
 
 use crate::web_filter::WebFilter;
 use lazy_static::lazy_static;
@@ -2808,15 +2809,16 @@ impl FirewallEngine {
                     use std::ffi::OsStr;
                     use std::net::{IpAddr, Ipv4Addr};
                     use std::os::windows::ffi::OsStrExt;
-                    use windows::core::PCWSTR;
                     use windows::Win32::Foundation::{
-                        CloseHandle, GetLastError, HANDLE, INVALID_HANDLE_VALUE, ERROR_PIPE_CONNECTED,
+                        CloseHandle, ERROR_PIPE_CONNECTED, GetLastError, HANDLE,
+                        INVALID_HANDLE_VALUE,
                     };
-                    use windows::Win32::Storage::FileSystem::{ReadFile, PIPE_ACCESS_INBOUND};
+                    use windows::Win32::Storage::FileSystem::{PIPE_ACCESS_INBOUND, ReadFile};
                     use windows::Win32::System::Pipes::{
                         ConnectNamedPipe, CreateNamedPipeW, DisconnectNamedPipe,
                         GetNamedPipeClientProcessId, NAMED_PIPE_MODE, PIPE_UNLIMITED_INSTANCES,
                     };
+                    use windows::core::PCWSTR;
 
                     let pipe_name = r"\\.\pipe\HydraHipEvent";
                     let wide_name: Vec<u16> = OsStr::new(pipe_name)
@@ -2855,11 +2857,9 @@ impl FirewallEngine {
                         }
 
                         let mut client_pid: u32 = 0;
-                        let client_ok = unsafe {
-                            GetNamedPipeClientProcessId(handle, &mut client_pid)
-                        }
-                        .is_ok()
-                            && client_pid != 0;
+                        let client_ok =
+                            unsafe { GetNamedPipeClientProcessId(handle, &mut client_pid) }.is_ok()
+                                && client_pid != 0;
 
                         if !client_ok {
                             unsafe {
@@ -2887,7 +2887,8 @@ impl FirewallEngine {
                                 break;
                             }
 
-                            leftover.push_str(&String::from_utf8_lossy(&buf[..bytes_read as usize]));
+                            leftover
+                                .push_str(&String::from_utf8_lossy(&buf[..bytes_read as usize]));
 
                             while let Some(pos) = leftover.find('\n') {
                                 let line = leftover[..pos].trim().to_string();
@@ -2902,11 +2903,17 @@ impl FirewallEngine {
                                         .trim()
                                         .parse::<u32>()
                                         .unwrap_or(0);
-                                    let name = parts.next().unwrap_or("Owlyshield").trim().to_string();
+                                    let name =
+                                        parts.next().unwrap_or("Owlyshield").trim().to_string();
                                     let path = parts.next().unwrap_or("").trim().to_string();
-                                    let alert_kind = parts.next().unwrap_or("behavior").trim().to_string();
+                                    let alert_kind =
+                                        parts.next().unwrap_or("behavior").trim().to_string();
                                     let target = parts.next().unwrap_or("").trim().to_string();
-                                    let reason = parts.next().unwrap_or("Owlyshield HIPS detection").trim().to_string();
+                                    let reason = parts
+                                        .next()
+                                        .unwrap_or("Owlyshield HIPS detection")
+                                        .trim()
+                                        .to_string();
 
                                     if !request_id.is_empty() {
                                         let enqueued = am_hips.enqueue_pending_app(
@@ -2942,7 +2949,8 @@ impl FirewallEngine {
                                         );
                                         if enqueued {
                                             if let Some(active_alert) = am_hips.get_active_alert() {
-                                                let _ = tx_hips.emit("ask_app_decision", active_alert);
+                                                let _ =
+                                                    tx_hips.emit("ask_app_decision", active_alert);
                                             }
                                         }
                                     }
@@ -3639,13 +3647,14 @@ impl FirewallEngine {
             if rule.matches(&info, &app_name) {
                 if rule.block || rule.terminate || rule.quarantine || rule.kill_and_remove {
                     should_forward = false;
-                    reason = Some(format!("Rule [{}]: {}", rule.name, rule.description));
+                    let rule_reason = format!("Rule [{}]: {}", rule.name, rule.description);
+                    reason = Some(rule_reason.clone());
 
                     if rule.terminate || rule.kill_and_remove {
                         Self::terminate_process(pid);
                     }
                     if rule.quarantine || rule.kill_and_remove {
-                        Self::quarantine_file(&app_info.path);
+                        Self::quarantine_file(&app_info.path, &rule_reason);
                     }
                     break;
                 } else if rule.ask_user {
@@ -3790,13 +3799,17 @@ impl FirewallEngine {
                     }
                     crate::sdk::RuleAction::Quarantine => {
                         should_forward = false;
-                        Self::quarantine_file(&app_info.path);
+                        let quarantine_reason =
+                            format!("SDK Rule [{}]: {}", finding.rule_name, finding.description);
+                        Self::quarantine_file(&app_info.path, &quarantine_reason);
                         reason = Some(format!("SDK Rule [{}]: Quarantined", finding.rule_name));
                     }
                     crate::sdk::RuleAction::KillAndRemove => {
                         should_forward = false;
                         Self::terminate_process(pid);
-                        Self::quarantine_file(&app_info.path);
+                        let quarantine_reason =
+                            format!("SDK Rule [{}]: {}", finding.rule_name, finding.description);
+                        Self::quarantine_file(&app_info.path, &quarantine_reason);
                         reason = Some(format!(
                             "SDK Rule [{}]: Killed and Removed",
                             finding.rule_name
@@ -4206,7 +4219,33 @@ impl FirewallEngine {
         }
     }
 
-    fn quarantine_file(path: &str) {
+    fn build_quarantine_destination(src: &Path, qdir: &Path) -> PathBuf {
+        let filename = src
+            .file_name()
+            .and_then(|n| n.to_str())
+            .filter(|name| !name.is_empty())
+            .unwrap_or("quarantined_file");
+        let ts = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default();
+        let prefix = format!("{}_{}", ts.as_secs(), ts.subsec_nanos());
+
+        let mut counter = 0_u32;
+        loop {
+            let suffix = if counter == 0 {
+                String::new()
+            } else {
+                format!("_{counter}")
+            };
+            let dst = qdir.join(format!("{prefix}_{filename}{suffix}.hqf"));
+            if !dst.exists() {
+                return dst;
+            }
+            counter = counter.saturating_add(1);
+        }
+    }
+
+    fn quarantine_file(path: &str, detection: &str) {
         if path.is_empty() || path.to_lowercase() == "unknown" || path.to_lowercase() == "system" {
             return;
         }
@@ -4217,18 +4256,19 @@ impl FirewallEngine {
 
         let qdir = firewall_data_dir().join("quarantine");
         let _ = fs::create_dir_all(&qdir);
+        let dst = Self::build_quarantine_destination(src, &qdir);
+        let sha256 = compute_sha256(src).unwrap_or_else(|_| "unknown".to_string());
 
-        let fname = src
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("quarantined_file");
-        let ts = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
-        let dst = qdir.join(format!("{}_{}", ts, fname));
-
-        let _ = fs::rename(src, dst);
+        if write_quarantine_file(src, &dst, detection, &sha256).is_ok() {
+            if let Ok(metadata) = fs::metadata(src) {
+                let mut permissions = metadata.permissions();
+                if permissions.readonly() {
+                    permissions.set_readonly(false);
+                    let _ = fs::set_permissions(src, permissions);
+                }
+            }
+            let _ = fs::remove_file(src);
+        }
     }
 
     fn extract_payload_text(bytes: &[u8]) -> Option<String> {

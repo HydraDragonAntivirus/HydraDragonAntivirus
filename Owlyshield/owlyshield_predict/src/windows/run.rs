@@ -108,7 +108,9 @@ fn select_existing_or_first(candidates: Vec<PathBuf>) -> Option<PathBuf> {
 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
 fn resolve_kernel_exclude_rule_paths() -> Option<KernelExcludeRulePaths> {
     for hydra_root in hydra_dragon_root_candidates() {
-        let protection_root = hydra_root.join("HydraDragon_Protection_Rules").join("Owlyshield");
+        let protection_root = hydra_root
+            .join("HydraDragon_Protection_Rules")
+            .join("Owlyshield");
 
         let fsfilter = select_existing_or_first(vec![
             protection_root.join("FSFilter").join("default_rules.txt"),
@@ -121,8 +123,11 @@ fn resolve_kernel_exclude_rule_paths() -> Option<KernelExcludeRulePaths> {
                 .join("FsFilter")
                 .join("default_rules.txt"),
         ]);
-        let dynamic_hook =
-            select_existing_or_first(vec![protection_root.join("DynamicHook").join("default_rules.txt")]);
+        let dynamic_hook = select_existing_or_first(vec![
+            protection_root
+                .join("DynamicHook")
+                .join("default_rules.txt"),
+        ]);
         let process_protection = select_existing_or_first(vec![
             protection_root
                 .join("ProcessProtection")
@@ -219,7 +224,9 @@ fn sync_kernel_exclude_rules(
     driver: &Driver,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let Some(rule_paths) = resolve_kernel_exclude_rule_paths() else {
-        return Err("failed to resolve kernel exclude rule paths from configured install layout".into());
+        return Err(
+            "failed to resolve kernel exclude rule paths from configured install layout".into(),
+        );
     };
 
     let fsfilter_entries = collect_kernel_exclude_entries(rules);
@@ -558,7 +565,8 @@ pub fn run() {
                                     .map(|event| event.event_name.clone())
                                     .filter(|name| !name.trim().is_empty())
                                     .unwrap_or_else(|| {
-                                        let from_payload = iomsg.kernel_event_info.object_name.trim();
+                                        let from_payload =
+                                            iomsg.kernel_event_info.object_name.trim();
                                         if from_payload.is_empty() {
                                             iomsg.filepathstr.clone()
                                         } else {
@@ -580,14 +588,10 @@ pub fn run() {
                                     .as_ref()
                                     .map(|event| event.target_process_id)
                                     .unwrap_or(iomsg.pid);
-                                let source_process = format_process_descriptor_with_fallback(
-                                    source_pid,
-                                    None,
-                                );
-                                let target_process = format_process_descriptor_with_fallback(
-                                    target_pid,
-                                    None,
-                                );
+                                let source_process =
+                                    format_process_descriptor_with_fallback(source_pid, None);
+                                let target_process =
+                                    format_process_descriptor_with_fallback(target_pid, None);
                                 let arg1 = hyper_event
                                     .as_ref()
                                     .map(|event| event.raw_argument1)

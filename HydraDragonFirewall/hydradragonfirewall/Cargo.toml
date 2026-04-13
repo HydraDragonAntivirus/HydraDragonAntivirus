@@ -18,6 +18,7 @@ serde_json = "1.0"
 serde_yaml = "0.9"
 bs58 = "0.5"
 base64 = "0.22"
+hex = "0.4"
 regex = "1.12"
 lazy_static = "1.4"
 glob = "0.3"
@@ -29,6 +30,7 @@ rcgen = "0.14.7"
 moka = { version = "0.12", features = ["sync"] }
 tokio = { version = "1", features = ["full"] }
 url = "2.5.8"
+sha2 = "0.10"
 shared_no_std = { path = "../../Sanctum/shared_no_std" }
 
 [target.'cfg(windows)'.dependencies]

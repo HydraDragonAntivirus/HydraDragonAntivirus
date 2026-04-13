@@ -1,5 +1,5 @@
 use crate::process::ProcessRecord;
-use crate::threat_handler::ThreatHandler;
+use crate::threat_handler::{QuarantineMetadata, ThreatHandler};
 use log::warn;
 
 #[derive(Default, Clone)]
@@ -25,7 +25,12 @@ impl ThreatHandler for LinuxThreatHandler {
         todo!()
     }
 
-    fn kill_and_quarantine(&self, gid: u64, _path: &std::path::Path) {
+    fn kill_and_quarantine(
+        &self,
+        gid: u64,
+        _path: &std::path::Path,
+        _metadata: &QuarantineMetadata,
+    ) {
         warn!(
             "kill_and_quarantine not supported on Linux; requested kill/quarantine for gid {gid}, ignoring"
         );

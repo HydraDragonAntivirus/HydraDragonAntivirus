@@ -130,6 +130,9 @@ pub(crate) mod notifications;
 mod predictions;
 mod process;
 #[cfg(target_os = "windows")]
+#[path = "windows/quarantine.rs"]
+pub(crate) mod quarantine;
+#[cfg(target_os = "windows")]
 #[path = "windows/run.rs"]
 mod run;
 #[cfg(all(target_os = "linux", feature = "linux-ebpf"))]
