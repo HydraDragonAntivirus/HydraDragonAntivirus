@@ -347,6 +347,42 @@ void NetFilterWrapper::processFullPacketLine(const std::string& sPayload)
 	}
 }
 
+void NetFilterWrapper::processHttpBodyLine(const std::string& sPayload)
+{
+	try
+	{
+		// Format: hash|method|url||hex_data
+		const auto nDataSep = sPayload.find("||");
+		if (nDataSep == std::string::npos)
+		{
+			LOGWRN("Invalid HydraNetEvent HTTP_BODY payload (missing data separator) <" << sPayload << ">");
+			return;
+		}
+
+		const auto sMetadata = sPayload.substr(0, nDataSep);
+		const auto sHexData = sPayload.substr(nDataSep + 2);
+
+		std::vector<std::string> vParts;
+		boost::split(vParts, sMetadata, boost::is_any_of("|"));
+
+		if (vParts.size() < 3)
+		{
+			LOGWRN("Invalid HydraNetEvent HTTP_BODY metadata <" << sMetadata << ">");
+			return;
+		}
+
+		const auto& sId = vParts[0];
+		const auto& sMethod = vParts[1];
+		const auto& sUrl = vParts[2];
+
+		LOGLVL(Detailed, "HydraNetEvent - HTTP " << sMethod << " " << sUrl << " [ID:" << sId << "] Payload: " << sHexData.length() / 2 << " bytes");
+	}
+	catch (const std::exception& ex)
+	{
+		LOGWRN("Failed to parse HTTP_BODY telemetry: " << ex.what());
+	}
+}
+
 void NetFilterWrapper::processLine(const std::string& sLine)
 {
 	if (boost::algorithm::starts_with(sLine, "NET_EVENT:"))
@@ -361,10 +397,24 @@ void NetFilterWrapper::processLine(const std::string& sLine)
 		return;
 	}
 
+	if (boost::algorithm::starts_with(sLine, "HTTP_BODY:"))
+	{
+		processHttpBodyLine(sLine.substr(std::strlen("HTTP_BODY:")));
+		return;
+	}
+
+	if (boost::algorithm::starts_with(sLine, "SSL_DATA:") ||
+		boost::algorithm::starts_with(sLine, "TCP_DATA:") ||
+		boost::algorithm::starts_with(sLine, "DOMAIN_NAME:"))
+	{
+		// Suppress warnings for known but currently unhandled types
+		return;
+	}
+
 	if (boost::algorithm::starts_with(sLine, "BLOCK_EXE:"))
 		return;
 
-	LOGLVL(Detailed, "Ignoring unsupported HydraNetEvent message <" << sLine << ">");
+	LOGLVL(Detailed, "Ignoring unsupported HydraNetEvent message <" << (sLine.length() > 256 ? sLine.substr(0, 256) + "..." : sLine) << ">");
 }
 
 void NetFilterWrapper::listenLoop()

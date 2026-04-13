@@ -57,6 +57,7 @@ private:
 	void processLine(const std::string& sLine);
 	void processNetEventLine(const std::string& sPayload);
 	void processFullPacketLine(const std::string& sPayload);
+	void processHttpBodyLine(const std::string& sPayload);
 	void dispatchConnection(std::shared_ptr<ConnectionInfo> pInfo);
 	bool loadFirewallBridge();
 	void unloadFirewallBridge();
