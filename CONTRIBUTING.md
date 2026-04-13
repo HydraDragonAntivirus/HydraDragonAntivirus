@@ -22,4 +22,4 @@ We need extensive testing since we might introduce some bugs to make it open sou
 We are lack of effective documentation right now, please provide any kind of knowledgebase, case studies, analysis results, etc.
 
 ## Spread the word
-Last but not least, the more people use OpenEDR, the better we will be, please help us by sharing it via social media or any other channels
+Last but not least, the more people use HydraDragonAntivirus, the better we will be, please help us by sharing it via social media or any other channels
