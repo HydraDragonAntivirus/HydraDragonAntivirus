@@ -1,5 +1,8 @@
 @echo off
-setlocal
+setlocal EnableExtensions
+
+set "POSTINSTALL_STAGE=initial"
+if /I "%~1"=="--after-hypervisor-reboot" set "POSTINSTALL_STAGE=after_hypervisor_reboot"
 
 :: --------------------------------------------------------
 :: 1) Ensure we're elevated
@@ -13,14 +16,31 @@ if %errorlevel% neq 0 (
 )
 
 :: --------------------------------------------------------
-:: 2) Environment setup
+:: 2) Disable Windows hypervisor/VBS stack if needed
+:: --------------------------------------------------------
+if /I "%POSTINSTALL_STAGE%"=="after-hypervisor-reboot" (
+    echo [*] Continuing post-install after hypervisor/VBS reboot...
+) else (
+    call :prepare_hypervisor_stack
+    if "%HYPERVISOR_REBOOT_REQUIRED%"=="1" (
+        echo [*] Hypervisor/VBS settings were changed. A reboot is required before driver installation.
+        echo [*] Scheduling post-install continuation after reboot...
+        reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce" /v "HydraDragonPostInstallContinue" /t REG_SZ /d "\"%~f0\" --after-hypervisor-reboot" /f >nul 2>&1
+        echo [*] Restarting system in 15 seconds...
+        shutdown -r -t 15
+        exit /b
+    )
+)
+
+:: --------------------------------------------------------
+:: 3) Environment setup
 :: --------------------------------------------------------
 set "DESKTOP_SANCTUM=%USERPROFILE%\Desktop\sanctum"
 
 echo [*] Desktop sanctum path: %DESKTOP_SANCTUM%
 
 :: --------------------------------------------------------
-:: 3) Check %APPDATA%\Sanctum and auto-download missing files
+:: 4) Check %APPDATA%\Sanctum and auto-download missing files
 :: --------------------------------------------------------
 set "SANCTUM_DIR=%APPDATA%\Sanctum"
 set "FILE1=ioc_list.txt"
@@ -77,7 +97,7 @@ if exist "%SANCTUM_DIR%\%FILE2%" (
 echo [+] All required Sanctum files are present.
 
 :: --------------------------------------------------------
-:: 4) Run ELAM installer first (if exists)
+:: 5) Run ELAM installer first (if exists)
 :: --------------------------------------------------------
 set "ELAM_EXE=%DESKTOP_SANCTUM%\elam_installer.exe"
 
@@ -90,7 +110,7 @@ if exist "%ELAM_EXE%" (
 )
 
 :: --------------------------------------------------------
-:: 5) Install OwlyshieldRansomFilter driver
+:: 6) Install OwlyshieldRansomFilter driver
 :: --------------------------------------------------------
 echo Installing OwlyshieldRansomFilter driver INF...
 pnputil /add-driver "%~dp0hydradragon\Owlyshield\OwlyshieldRansomFilter\OwlyshieldRansomFilter.inf" /install
@@ -102,7 +122,7 @@ if %errorlevel% neq 0 (
 echo [+] OwlyshieldRansomFilter driver installed.
 
 :: --------------------------------------------------------
-:: 6) Install MBRFilter driver
+:: 7) Install MBRFilter driver
 :: --------------------------------------------------------
 echo Installing MBRFilter driver INF...
 pnputil /add-driver "%~dp0hydradragon\MBRFilter\MBRFilter.inf" /install
@@ -114,7 +134,7 @@ if %errorlevel% neq 0 (
 echo [+] MBRFilter driver installed.
 
 :: --------------------------------------------------------
-:: 7) Install SimplePYASProtection driver
+:: 8) Install SimplePYASProtection driver
 :: --------------------------------------------------------
 echo Installing SimplePYASProtection driver INF...
 pnputil /add-driver "%~dp0hydradragon\SimplePYASProtection\SimplePYASProtection.inf" /install
@@ -126,7 +146,7 @@ if %errorlevel% neq 0 (
 echo [+] SimplePYASProtection driver installed.
 
 :: --------------------------------------------------------
-:: 8) Register HydraDragonAntivirus scheduled task (autostart after reboot)
+:: 9) Register HydraDragonAntivirus scheduled task (autostart after reboot)
 :: --------------------------------------------------------
 set "HD_TASK_EXE=%~dp0Service\HydraDragonAntivirusTaskScheduler.exe"
 
@@ -150,7 +170,7 @@ if %errorlevel% neq 0 (
 )
 
 :: --------------------------------------------------------
-:: 9) Install OpenEDR service
+:: 10) Install OpenEDR service
 :: --------------------------------------------------------
 set "EDR_EXE=%~dp0OpenEDR\edrsvc.exe"
 if exist "%EDR_EXE%" (
@@ -162,9 +182,58 @@ if exist "%EDR_EXE%" (
 )
 
 :: --------------------------------------------------------
-:: 7) Cleanup and restart
+:: 11) Cleanup and restart
 :: --------------------------------------------------------
 echo Cleaning up installer script and restarting system in 10 seconds...
 shutdown -r -t 10
 del "%~f0"
 endlocal
+goto :eof
+
+:prepare_hypervisor_stack
+set "HYPERVISOR_REBOOT_REQUIRED=0"
+echo [*] Disabling VBS/HVCI/Hyper-V features for hypervisor-based testing compatibility...
+
+call :mark_reboot_if_reg_enabled "HKLM\SYSTEM\CurrentControlSet\Control\DeviceGuard" "EnableVirtualizationBasedSecurity"
+call :mark_reboot_if_reg_enabled "HKLM\SYSTEM\CurrentControlSet\Control\DeviceGuard\Scenarios\HypervisorEnforcedCodeIntegrity" "Enabled"
+call :mark_reboot_if_feature_enabled Microsoft-Hyper-V-All
+call :mark_reboot_if_feature_enabled Microsoft-Hyper-V-Hypervisor
+call :mark_reboot_if_feature_enabled VirtualMachinePlatform
+call :mark_reboot_if_feature_enabled HypervisorPlatform
+
+reg add "HKLM\SYSTEM\CurrentControlSet\Control\DeviceGuard" /v EnableVirtualizationBasedSecurity /t REG_DWORD /d 0 /f >nul 2>&1
+reg add "HKLM\SYSTEM\CurrentControlSet\Control\DeviceGuard\Scenarios\HypervisorEnforcedCodeIntegrity" /v Enabled /t REG_DWORD /d 0 /f >nul 2>&1
+bcdedit /set hypervisorlaunchtype off >nul 2>&1
+bcdedit /set vsmlaunchtype off >nul 2>&1
+
+call :disable_feature_if_present Microsoft-Hyper-V-All
+call :disable_feature_if_present Microsoft-Hyper-V-Hypervisor
+call :disable_feature_if_present VirtualMachinePlatform
+call :disable_feature_if_present HypervisorPlatform
+
+if "%HYPERVISOR_REBOOT_REQUIRED%"=="1" (
+    echo [+] Hypervisor-conflicting Windows settings were updated.
+) else (
+    echo [+] Hypervisor-conflicting Windows settings already appear disabled.
+)
+exit /b 0
+
+:mark_reboot_if_reg_enabled
+for /f "tokens=3" %%A in ('reg query "%~1" /v "%~2" 2^>nul ^| find /i "%~2"') do (
+    if /I not "%%A"=="0x0" set "HYPERVISOR_REBOOT_REQUIRED=1"
+)
+exit /b 0
+
+:mark_reboot_if_feature_enabled
+dism.exe /Online /English /Get-FeatureInfo /FeatureName:%~1 | findstr /c:"State : Enabled" >nul 2>&1
+if not errorlevel 1 set "HYPERVISOR_REBOOT_REQUIRED=1"
+exit /b 0
+
+:disable_feature_if_present
+dism.exe /Online /Disable-Feature /FeatureName:%~1 /NoRestart >nul 2>&1
+if errorlevel 1 (
+    echo [*] Optional feature not changed: %~1
+) else (
+    echo [+] Optional feature disable requested: %~1
+)
+exit /b 0
