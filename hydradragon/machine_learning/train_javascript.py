@@ -21,6 +21,35 @@ import esprima  # JavaScript AST parser
 from hydra_logger import logger
 
 
+JAVASCRIPT_AST_NODE_TYPES = frozenset({
+    'ArrowFunctionExpression',
+    'AssignmentExpression',
+    'AwaitExpression',
+    'CallExpression',
+    'ClassDeclaration',
+    'DoWhileStatement',
+    'ExportAllDeclaration',
+    'ExportDefaultDeclaration',
+    'ExportNamedDeclaration',
+    'ForInStatement',
+    'ForOfStatement',
+    'ForStatement',
+    'FunctionDeclaration',
+    'FunctionExpression',
+    'IfStatement',
+    'ImportDeclaration',
+    'NewExpression',
+    'ReturnStatement',
+    'SwitchStatement',
+    'TaggedTemplateExpression',
+    'ThrowStatement',
+    'TryStatement',
+    'UpdateExpression',
+    'VariableDeclaration',
+    'WhileStatement',
+})
+
+
 class JSFeatureExtractor:
     def __init__(self):
         self.features_cache = {}
@@ -88,6 +117,67 @@ class JSFeatureExtractor:
 
         return float(entropy)
 
+    def _iter_ast_nodes(self, node):
+        """Yield an Esprima AST depth-first."""
+        if node is None or not hasattr(node, 'type'):
+            return
+
+        yield node
+
+        for value in getattr(node, '__dict__', {}).values():
+            if isinstance(value, list):
+                for item in value:
+                    if hasattr(item, 'type'):
+                        yield from self._iter_ast_nodes(item)
+            elif hasattr(value, 'type'):
+                yield from self._iter_ast_nodes(value)
+
+    def _parse_javascript_tree(self, code: str):
+        """Try both classic script and ES module parsing modes."""
+        parse_options = {'tolerant': True, 'loc': True, 'jsx': True}
+
+        for parser in (esprima.parseScript, esprima.parseModule):
+            try:
+                tree = parser(code, parse_options)
+                if getattr(tree, 'body', None) is not None:
+                    return tree
+            except Exception:
+                continue
+
+        return None
+
+    def is_javascript_source(self, code: str) -> bool:
+        """Return True only for text that Esprima recognizes as real JavaScript."""
+        if not code:
+            return False
+
+        stripped = code.lstrip('\ufeff \t\r\n')
+        if not stripped or '\x00' in code:
+            return False
+
+        tree = self._parse_javascript_tree(code)
+        if tree is None:
+            return False
+
+        for node in self._iter_ast_nodes(tree):
+            if getattr(node, 'type', '') in JAVASCRIPT_AST_NODE_TYPES:
+                return True
+
+        return False
+
+    def is_javascript_file(self, file_path: Path) -> bool:
+        """Detect JavaScript by AST instead of filename extension."""
+        try:
+            with open(file_path, 'rb') as handle:
+                raw = handle.read()
+
+            if b'\x00' in raw:
+                return False
+
+            return self.is_javascript_source(raw.decode('utf-8', errors='ignore'))
+        except Exception:
+            return False
+
     def extract_ast_features(self, code: str) -> Dict[str, Any]:
         """Extract features from JavaScript AST using esprima."""
         ast_features = {
@@ -106,12 +196,15 @@ class JSFeatureExtractor:
             'max_nesting_depth': 0,
             'suspicious_function_calls': [],
             'eval_usage': 0,
+            'program_structure_nodes': 0,
             'error': None
         }
 
         try:
             # Parse JavaScript code
-            tree = esprima.parseScript(code, {'tolerant': True, 'loc': True})
+            tree = self._parse_javascript_tree(code)
+            if tree is None:
+                raise ValueError('Esprima could not parse the source as script or module')
             ast_features['parse_success'] = True
 
             # Traverse AST and collect features
@@ -123,6 +216,9 @@ class JSFeatureExtractor:
                 ast_features['node_counts'][node_type] = ast_features['node_counts'].get(node_type, 0) + 1
 
                 max_depth = depth
+
+                if node_type in JAVASCRIPT_AST_NODE_TYPES:
+                    ast_features['program_structure_nodes'] += 1
 
                 # Count specific node types
                 if node_type in ['FunctionDeclaration', 'FunctionExpression', 'ArrowFunctionExpression']:
@@ -451,13 +547,19 @@ class JSFeatureExtractor:
                 _move_failed()
                 return None
 
+            ast_features = self.extract_ast_features(code)
+            if not ast_features.get('parse_success') or ast_features.get('program_structure_nodes', 0) <= 0:
+                logger.warning(f"{file_path} is not recognized as JavaScript by Esprima")
+                _move_failed()
+                return None
+
             features = {
                 # Basic file info
                 'file_size': len(code),
                 'entropy': self._calculate_entropy(code),
 
                 # AST-based features
-                'ast_features': self.extract_ast_features(code),
+                'ast_features': ast_features,
 
                 # Obfuscation analysis
                 'obfuscation': self.analyze_obfuscation(code),
@@ -852,8 +954,14 @@ class DataProcessor:
         PRIORITY: Malicious set is 100% correct. If a benign file matches a malicious one, move the BENIGN file."""
         logger.info("[JS] Initializing Global MD5 Pre-filter Stage (Malicious Priority)...")
 
-        malicious_raw = [f for f in Path(self.malicious_dir).rglob('*.js') if f.is_file()]
-        benign_raw = [f for f in Path(self.benign_dir).rglob('*.js') if f.is_file()]
+        malicious_raw = [
+            f for f in Path(self.malicious_dir).rglob('*')
+            if f.is_file() and self.js_extractor.is_javascript_file(f)
+        ]
+        benign_raw = [
+            f for f in Path(self.benign_dir).rglob('*')
+            if f.is_file() and self.js_extractor.is_javascript_file(f)
+        ]
         self.stats['malicious']['discovered'] = len(malicious_raw)
         self.stats['benign']['discovered'] = len(benign_raw)
 

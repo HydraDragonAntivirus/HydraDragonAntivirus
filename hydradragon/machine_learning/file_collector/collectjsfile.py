@@ -9,6 +9,37 @@ from pathlib import Path
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from multiprocessing import cpu_count
 
+import esprima
+
+
+JAVASCRIPT_AST_NODE_TYPES = frozenset({
+    'ArrowFunctionExpression',
+    'AssignmentExpression',
+    'AwaitExpression',
+    'CallExpression',
+    'ClassDeclaration',
+    'DoWhileStatement',
+    'ExportAllDeclaration',
+    'ExportDefaultDeclaration',
+    'ExportNamedDeclaration',
+    'ForInStatement',
+    'ForOfStatement',
+    'ForStatement',
+    'FunctionDeclaration',
+    'FunctionExpression',
+    'IfStatement',
+    'ImportDeclaration',
+    'NewExpression',
+    'ReturnStatement',
+    'SwitchStatement',
+    'TaggedTemplateExpression',
+    'ThrowStatement',
+    'TryStatement',
+    'UpdateExpression',
+    'VariableDeclaration',
+    'WhileStatement',
+})
+
 
 def safe_print(text):
     """Print text with Unicode error handling."""
@@ -26,11 +57,60 @@ def is_admin():
         return False
 
 
+def _iter_ast_nodes(node):
+    """Yield an Esprima AST depth-first."""
+    if node is None or not hasattr(node, 'type'):
+        return
+
+    yield node
+
+    for value in getattr(node, '__dict__', {}).values():
+        if isinstance(value, list):
+            for item in value:
+                if hasattr(item, 'type'):
+                    yield from _iter_ast_nodes(item)
+        elif hasattr(value, 'type'):
+            yield from _iter_ast_nodes(value)
+
+
+def _parse_javascript_tree(code):
+    """Try both classic script and ES module parsing modes."""
+    parse_options = {'tolerant': True, 'jsx': True}
+
+    for parser in (esprima.parseScript, esprima.parseModule):
+        try:
+            tree = parser(code, parse_options)
+            if getattr(tree, 'body', None) is not None:
+                return tree
+        except Exception:
+            continue
+
+    return None
+
+
 def is_js_file(file_path):
-    """Check if file is JavaScript."""
+    """Check if file contains real JavaScript, not just a .js suffix."""
     try:
-        return file_path.lower().endswith('.js')
-    except:
+        with open(file_path, 'rb') as handle:
+            raw = handle.read()
+
+        if not raw or b'\x00' in raw:
+            return False
+
+        code = raw.decode('utf-8', errors='ignore')
+        stripped = code.lstrip('\ufeff \t\r\n')
+        if not stripped:
+            return False
+
+        tree = _parse_javascript_tree(code)
+        if tree is None:
+            return False
+
+        return any(
+            getattr(node, 'type', '') in JAVASCRIPT_AST_NODE_TYPES
+            for node in _iter_ast_nodes(tree)
+        )
+    except Exception:
         return False
 
 
