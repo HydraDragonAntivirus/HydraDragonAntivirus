@@ -68,44 +68,6 @@ BOOLEAN
 FSShouldIgnorePyasWhitelistPath(_In_ PCUNICODE_STRING Path);
 
 static BOOLEAN
-FSShouldBypassStackSensitiveIo(_In_ PFLT_CALLBACK_DATA Data)
-{
-    ULONG requestorPid;
-
-    if (Data == NULL || Data->Iopb == NULL)
-    {
-        return TRUE;
-    }
-
-    // Avoid recursive name queries and self-generated filter traffic on the
-    // tight kernel stack. These paths are prone to re-enter the minifilter
-    // while we are still inside our own callback work.
-    if (FlagOn(Data->Flags, FLTFL_CALLBACK_DATA_GENERATED_IO) ||
-        FlagOn(Data->Flags, FLTFL_CALLBACK_DATA_REISSUED_IO))
-    {
-        return TRUE;
-    }
-
-    if (IoGetTopLevelIrp() != NULL)
-    {
-        return TRUE;
-    }
-
-    if (Data->RequestorMode == KernelMode)
-    {
-        return TRUE;
-    }
-
-    requestorPid = FltGetRequestorProcessId(Data);
-    if (requestorPid == 0 || requestorPid == 4)
-    {
-        return TRUE;
-    }
-
-    return FALSE;
-}
-
-static BOOLEAN
 FSShouldBypassReadTelemetry(_In_ PFLT_CALLBACK_DATA Data)
 {
     ULONG requestorPid;
@@ -117,17 +79,6 @@ FSShouldBypassReadTelemetry(_In_ PFLT_CALLBACK_DATA Data)
     }
 
     if (FlagOn(Data->Iopb->IrpFlags, IRP_PAGING_IO))
-    {
-        return TRUE;
-    }
-
-    if (FlagOn(Data->Flags, FLTFL_CALLBACK_DATA_GENERATED_IO) ||
-        FlagOn(Data->Flags, FLTFL_CALLBACK_DATA_REISSUED_IO))
-    {
-        return TRUE;
-    }
-
-    if (IoGetTopLevelIrp() != NULL)
     {
         return TRUE;
     }
@@ -1597,10 +1548,6 @@ Arguments:
     { // no file object
         return FLT_PREOP_SUCCESS_NO_CALLBACK;
     }
-    if (FSShouldBypassStackSensitiveIo(Data))
-    {
-        return FLT_PREOP_SUCCESS_NO_CALLBACK;
-    }
     // create tested only on post op, cant check here
     if (Data->Iopb->MajorFunction == IRP_MJ_CREATE)
     {
@@ -1624,10 +1571,6 @@ FSProcessPreOperation(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECT
         // Debug logging is commented out or controlled by IS_DEBUG_IRP
         // DbgPrint("!!! FsFilter: Filter is closed or Port is closed, skipping data\n"); // Keeping user's DbgPrint
         // here
-        return FLT_PREOP_SUCCESS_NO_CALLBACK;
-    }
-    if (FSShouldBypassStackSensitiveIo(Data))
-    {
         return FLT_PREOP_SUCCESS_NO_CALLBACK;
     }
     NTSTATUS hr = FLT_PREOP_SUCCESS_NO_CALLBACK;
@@ -2133,10 +2076,6 @@ FLT_POSTOP_CALLBACK_STATUS
 FSProcessCreateIrp(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECTS FltObjects)
 {
     NTSTATUS hr;
-    if (FSShouldBypassStackSensitiveIo(Data))
-    {
-        return FLT_POSTOP_FINISHED_PROCESSING;
-    }
     if (FlagOn(Data->Iopb->OperationFlags, SL_OPEN_TARGET_DIRECTORY) ||
         FlagOn(Data->Iopb->OperationFlags, SL_OPEN_PAGING_FILE))
     {
