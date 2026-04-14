@@ -37,6 +37,10 @@ MARSHAL_CODE_TAGS = tuple(bytes((value,)) for value in MARSHAL_CODE_TAG_VALUES)
 MARSHAL_CODE_TAG_PATTERN = re.compile(
     b"[" + re.escape(bytes(MARSHAL_CODE_TAG_VALUES)) + b"]"
 )
+MARSHAL_VERSION_HINT_TAGS = (b"\xf3",) + MARSHAL_CODE_TAGS
+MARSHAL_VERSION_HINT_TAG_PATTERN = re.compile(
+    b"[" + re.escape(b"\xf3" + bytes(MARSHAL_CODE_TAG_VALUES)) + b"]"
+)
 
 
 # ============================================================================
@@ -85,6 +89,101 @@ def get_magic_int(version: str | tuple[int, int]) -> int | None:
     if not magic:
         return None
     return magic2int(bytes(magic))
+
+
+def _xdis_version_sort_key(version: str) -> tuple[int, int]:
+    major, minor = version.split(".", 1)
+    return int(major), int(minor)
+
+
+def guess_version_from_marshal_bytes(data: bytes) -> str | None:
+    """
+    Guess Python version from raw marshal code object bytes
+    by reading structural fields directly, without full parsing.
+    """
+    if not data or data[0:1] not in (b"\xe3", b"\x63", b"\xf3"):
+        return None
+
+    if data[0:1] == b"\xf3":
+        return "3.11+"
+
+    if len(data) < 25:
+        return None
+
+    try:
+        argcount = struct.unpack_from("<I", data, 1)[0]
+        posonlycount = struct.unpack_from("<I", data, 5)[0]
+        kwonlycount = struct.unpack_from("<I", data, 9)[0]
+        nlocals = struct.unpack_from("<I", data, 13)[0]
+        stacksize = struct.unpack_from("<I", data, 17)[0]
+        flags = struct.unpack_from("<I", data, 21)[0]
+
+        if argcount > 255 or kwonlycount > 255 or stacksize > 65535:
+            kwonlycount2 = struct.unpack_from("<I", data, 5)[0]
+            nlocals2 = struct.unpack_from("<I", data, 9)[0]
+            flags2 = struct.unpack_from("<I", data, 17)[0]
+            if kwonlycount2 <= 255 and nlocals2 <= 65535 and flags2 >= 0:
+                return "3.7"
+
+        if flags & 0x0200:
+            lower_bound = "3.6"
+        else:
+            lower_bound = "3.5"
+
+        if posonlycount <= argcount and stacksize <= 65535 and nlocals <= 65535:
+            if flags & 0x0100 and not (flags & 0x0200):
+                return "3.8"
+            return "3.8+"
+
+        return lower_bound
+    except Exception:
+        return None
+
+
+def _marshal_candidate_versions(version_hint: str | None) -> list[str]:
+    versions = sorted(
+        {
+            version
+            for version in by_version
+            if re.fullmatch(r"\d+\.\d+", version)
+            and _xdis_version_sort_key(version) >= (3, 5)
+        },
+        key=_xdis_version_sort_key,
+        reverse=True,
+    )
+
+    runtime_version = f"{sys.version_info.major}.{sys.version_info.minor}"
+    if runtime_version in versions:
+        runtime_key = _xdis_version_sort_key(runtime_version)
+        lower_or_equal = [
+            version for version in versions
+            if version != runtime_version and _xdis_version_sort_key(version) <= runtime_key
+        ]
+        higher = [
+            version for version in versions
+            if _xdis_version_sort_key(version) > runtime_key
+        ]
+        versions = [runtime_version] + lower_or_equal + higher
+
+    if version_hint is None:
+        return versions
+
+    if version_hint.endswith("+"):
+        lower_bound = _xdis_version_sort_key(version_hint[:-1])
+        prioritized = [
+            version for version in versions
+            if _xdis_version_sort_key(version) >= lower_bound
+        ]
+        fallback = [
+            version for version in versions
+            if _xdis_version_sort_key(version) < lower_bound
+        ]
+        return prioritized + fallback
+
+    if version_hint in versions:
+        return [version_hint] + [version for version in versions if version != version_hint]
+
+    return versions
 
 
 class MemoryReader:
@@ -214,12 +313,11 @@ def detect_version_from_marshal(data: bytes) -> str | None:
     Probe stable MAJOR.MINOR xdis versions against likely code-object offsets.
     Scores successful parses by richness to avoid false positives.
     """
-    candidates = sorted(
-        (ver for ver in by_version if re.fullmatch(r"\d+\.\d+", ver)),
-        key=parse_version,
-        reverse=True,
-    )
-    probe_offsets = [match.start() for match in MARSHAL_CODE_TAG_PATTERN.finditer(data)]
+    version_hint = guess_version_from_marshal_bytes(data)
+    candidates = _marshal_candidate_versions(version_hint)
+    probe_offsets = [match.start() for match in MARSHAL_VERSION_HINT_TAG_PATTERN.finditer(data)]
+    if not probe_offsets and data[:1] in MARSHAL_VERSION_HINT_TAGS:
+        probe_offsets = [0]
     if not probe_offsets:
         return None
 
@@ -240,6 +338,11 @@ def detect_version_from_marshal(data: bytes) -> str | None:
             scores[ver] = best_score
 
     if not scores:
+        if version_hint:
+            fallback_versions = _marshal_candidate_versions(version_hint)
+            if fallback_versions:
+                print(f"[*] Version structural hint: {version_hint} -> {fallback_versions[0]}")
+                return fallback_versions[0]
         return None
 
     best = max(scores, key=lambda v: scores[v])
@@ -269,6 +372,30 @@ def extract_path_from_code(code_obj) -> str | None:
             return str(code_obj.co_filename)
         if hasattr(code_obj, 'co_qualname'):
             return str(code_obj.co_qualname)
+    except Exception:
+        pass
+    return None
+
+
+def extract_code_label(code_obj) -> str | None:
+    try:
+        for attr in ('co_qualname', 'co_name', 'co_filename'):
+            value = getattr(code_obj, attr, None)
+            if not value:
+                continue
+            label = str(value).strip().replace("\\", "/")
+            if not label:
+                continue
+            if attr == 'co_filename' and ":" in label:
+                label = label.split(":", 1)[1]
+            label = label.lstrip("/")
+            if label == "<module>":
+                label = "module"
+            if attr == 'co_filename':
+                label = Path(label).stem or label
+            label = re.sub(r'[<>:"/\\|?*\x00]+', "_", label).strip("._ ")
+            if label:
+                return label[:96]
     except Exception:
         pass
     return None
@@ -390,6 +517,8 @@ def process_section(
     for i, root_item in enumerate(items):
         discovered_code = []
         recursive_find_code(root_item, discovered_code, set(), magic_int)
+        primary_code = discovered_code[0] if discovered_code else None
+        primary_code_label = extract_code_label(primary_code) if primary_code else None
 
         if discovered_code:
             for j, code_obj in enumerate(discovered_code):
@@ -397,10 +526,13 @@ def process_section(
                     raw_bytes = marshal.dumps(code_obj, python_version=target_ver_tuple)
                     path_str = extract_path_from_code(code_obj)
                     item_id = f"{i:04d}_{j:02d}"
+                    code_label = extract_code_label(code_obj)
 
                     if path_str and "<" not in path_str:
                         recovered_path = sanitize_filename(path_str)
                         dest = out_dir / 'pyc' / recovered_path.replace('.py', '.pyc')
+                    elif code_label:
+                        dest = out_dir / 'pyc' / clean_section / f"{code_label}_{item_id}.pyc"
                     else:
                         dest = out_dir / 'pyc' / clean_section / f"bytecode_{item_id}.pyc"
 
@@ -418,14 +550,18 @@ def process_section(
                 is_code_tag = root_item[:1] in MARSHAL_CODE_TAGS
                 if is_code_tag:
                     obj = try_load_code_object(root_item, 0, magic_int)
+                    code_label = extract_code_label(obj) if obj is not None else primary_code_label
+                    base_name = f"{code_label}_{item_id}" if code_label else f"item_{item_id}"
                     if obj is not None:
-                        (meta_dir / f"item_{item_id}.pyc").write_bytes(header + root_item)
+                        (meta_dir / f"{base_name}.pyc").write_bytes(header + root_item)
                     else:
-                        (meta_dir / f"item_{item_id}.pyc").write_bytes(root_item)
+                        (meta_dir / f"{base_name}.pyc").write_bytes(root_item)
                 else:
-                    (meta_dir / f"item_{item_id}.bin").write_bytes(root_item)
+                    base_name = f"{primary_code_label}_{item_id}" if primary_code_label else f"item_{item_id}"
+                    (meta_dir / f"{base_name}.bin").write_bytes(root_item)
             else:
-                (meta_dir / f"item_{item_id}.txt").write_text(
+                base_name = f"{primary_code_label}_{item_id}" if primary_code_label else f"item_{item_id}"
+                (meta_dir / f"{base_name}.txt").write_text(
                     repr(root_item[:200]), encoding='utf-8', errors='replace'
                 )
             count_other += 1
@@ -475,7 +611,7 @@ def main(argv=None) -> int:
         print("[*] No -v specified, probing blob for Python version...")
         # Try to find a marshal code object in the first 64KB for version probe
         probe_detected = None
-        for tag in MARSHAL_CODE_TAGS:
+        for tag in MARSHAL_VERSION_HINT_TAGS:
             offset = raw.find(tag)
             if offset != -1:
                 probe_detected = detect_version_from_marshal(raw[offset:offset + 65536])
@@ -553,9 +689,12 @@ def main(argv=None) -> int:
         try:
             raw_bytes = marshal.dumps(code_obj, python_version=target_ver_tuple)
             path_str = extract_path_from_code(code_obj)
+            code_label = extract_code_label(code_obj)
 
             if path_str and "<" not in path_str:
                 dest = out_dir / 'pyc' / sanitize_filename(path_str).replace('.py', '.pyc')
+            elif code_label:
+                dest = out_dir / 'pyc' / 'raw_scan' / f"{code_label}_at_{offset:08x}.pyc"
             else:
                 dest = out_dir / 'pyc' / 'raw_scan' / f"at_{offset:08x}.pyc"
 
