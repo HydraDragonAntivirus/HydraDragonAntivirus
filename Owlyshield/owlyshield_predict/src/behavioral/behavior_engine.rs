@@ -161,6 +161,43 @@ fn shared_firewall_sanctum_stats() -> FirewallSanctumStats {
         .clone()
 }
 
+/// Per-PID OpenEDR telemetry stats collected from OpenEDR's local JSON event logs.
+type OpenEdrTelemetryStatsMap = Arc<std::sync::RwLock<HashMap<u32, OpenEdrTelemetryStats>>>;
+type OpenEdrNetPids = Arc<std::sync::RwLock<HashSet<u32>>>;
+type OpenEdrNetDetails = Arc<std::sync::RwLock<HashMap<u32, Vec<(String, u16)>>>>;
+
+fn shared_openedr_stats() -> OpenEdrTelemetryStatsMap {
+    static OPENEDR_STATS: OnceLock<OpenEdrTelemetryStatsMap> = OnceLock::new();
+    OPENEDR_STATS
+        .get_or_init(|| Arc::new(std::sync::RwLock::new(HashMap::new())))
+        .clone()
+}
+
+fn shared_openedr_net_pids() -> OpenEdrNetPids {
+    static OPENEDR_NET_PIDS: OnceLock<OpenEdrNetPids> = OnceLock::new();
+    OPENEDR_NET_PIDS
+        .get_or_init(|| Arc::new(std::sync::RwLock::new(HashSet::new())))
+        .clone()
+}
+
+fn shared_openedr_net_details() -> OpenEdrNetDetails {
+    static OPENEDR_NET_DETAILS: OnceLock<OpenEdrNetDetails> = OnceLock::new();
+    OPENEDR_NET_DETAILS
+        .get_or_init(|| Arc::new(std::sync::RwLock::new(HashMap::new())))
+        .clone()
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct OpenEdrTelemetryStats {
+    pub process_open_count: usize,
+    pub memory_write_count: usize,
+    pub injection_activity_count: usize,
+    pub network_connect_count: usize,
+    pub detected_apis: HashSet<String>,
+    pub recent_events: VecDeque<String>,
+    pub last_event: Option<String>,
+}
+
 // =============================================================================
 // FIREWALL DETECTION — details received from the firewall via HydraNetEvent pipe
 // =============================================================================
@@ -1485,6 +1522,12 @@ pub struct BehaviorEngine {
     regex_cache: Arc<std::sync::RwLock<HashMap<String, Regex>>>,
     pub process_terminated: HashSet<String>,
     default_extension_whitelist: HashSet<String>,
+    /// PIDs for which OpenEDR observed network activity from its local telemetry logs.
+    pub openedr_net_pids: OpenEdrNetPids,
+    /// Per-PID list of (dst_ip, dst_port) records learned from OpenEDR network events.
+    pub openedr_net_details: OpenEdrNetDetails,
+    /// Per-PID OpenEDR telemetry counters and aliases synced into rule state.
+    pub openedr_stats: OpenEdrTelemetryStatsMap,
     /// PIDs for which the firewall observed real outbound network I/O (NET_EVENT).
     #[cfg(feature = "firewall")]
     pub firewall_net_pids: FirewallNetPids,
@@ -1535,6 +1578,9 @@ impl BehaviorEngine {
             regex_cache: Arc::new(std::sync::RwLock::new(HashMap::new())),
             process_terminated: HashSet::new(),
             default_extension_whitelist: build_default_extension_whitelist(),
+            openedr_net_pids: shared_openedr_net_pids(),
+            openedr_net_details: shared_openedr_net_details(),
+            openedr_stats: shared_openedr_stats(),
             #[cfg(feature = "firewall")]
             firewall_net_pids: shared_firewall_net_pids(),
             #[cfg(feature = "firewall")]
@@ -1919,6 +1965,112 @@ impl BehaviorEngine {
             if stats.injection_score > 1.0 {
                 stats.injection_score = 1.0;
             }
+        }
+    }
+
+    /// Ingest a telemetry event emitted by OpenEDR's local JSON event logs.
+    pub fn ingest_openedr_event(&self, event: &serde_json::Value) {
+        let event_type = event["type"].as_str().unwrap_or("").trim();
+        let pid = event["process"]["pid"].as_u64().unwrap_or(0) as u32;
+        if pid == 0 || event_type.is_empty() {
+            return;
+        }
+
+        let target_pid = event["target"]["pid"].as_u64().unwrap_or(0) as u32;
+        let remote_ip = event["connection"]["remote"]["ip"].as_str().unwrap_or("").trim();
+        let remote_port = event["connection"]["remote"]["port"].as_u64().unwrap_or(0) as u16;
+
+        let mut aliases = vec![format!(
+            "OpenEDR::{}",
+            event_type.trim_start_matches("LLE_")
+        )];
+        match event_type {
+            "LLE_PROCESS_OPEN" => {
+                aliases.push("OpenEDR::ProcessOpen".to_string());
+                if target_pid != 0 && target_pid != pid {
+                    aliases.push("OpenEDR::CrossProcessHandle".to_string());
+                }
+            }
+            "LLE_PROCESS_MEMORY_WRITE" => {
+                aliases.push("OpenEDR::ProcessMemoryWrite".to_string());
+                aliases.push("OpenEDR::MemoryWrite".to_string());
+            }
+            "LLE_INJECTION_ACTIVITY" => {
+                aliases.push("OpenEDR::InjectionActivity".to_string());
+                aliases.push("OpenEDR::ProcessInjection".to_string());
+            }
+            "LLE_NETWORK_CONNECT_IN" | "LLE_NETWORK_CONNECT_OUT" | "LLE_NETWORK_LISTEN" => {
+                aliases.push("OpenEDR::NetworkConnect".to_string());
+            }
+            "LLE_NETWORK_REQUEST_DNS" => {
+                aliases.push("OpenEDR::DnsRequest".to_string());
+            }
+            "LLE_NETWORK_REQUEST_DATA" => {
+                aliases.push("OpenEDR::NetworkRequestData".to_string());
+            }
+            _ => {}
+        }
+
+        let mut summary = event_type.to_string();
+        if target_pid != 0 && target_pid != pid {
+            summary.push_str(&format!(" target={}", target_pid));
+        }
+        if !remote_ip.is_empty() {
+            if remote_port != 0 {
+                summary.push_str(&format!(" remote={}:{}", remote_ip, remote_port));
+            } else {
+                summary.push_str(&format!(" remote={}", remote_ip));
+            }
+        }
+
+        if matches!(
+            event_type,
+            "LLE_NETWORK_CONNECT_IN"
+                | "LLE_NETWORK_CONNECT_OUT"
+                | "LLE_NETWORK_LISTEN"
+                | "LLE_NETWORK_REQUEST_DNS"
+                | "LLE_NETWORK_REQUEST_DATA"
+        ) {
+            self.openedr_net_pids.write().unwrap().insert(pid);
+            if !remote_ip.is_empty() {
+                let mut net_details = self.openedr_net_details.write().unwrap();
+                let entries = net_details.entry(pid).or_default();
+                if !entries
+                    .iter()
+                    .any(|(ip, port)| ip == remote_ip && *port == remote_port)
+                {
+                    entries.push((remote_ip.to_string(), remote_port));
+                    if entries.len() > 64 {
+                        let overflow = entries.len() - 64;
+                        entries.drain(0..overflow);
+                    }
+                }
+            }
+        }
+
+        let mut openedr_lock = self.openedr_stats.write().unwrap();
+        let stats = openedr_lock
+            .entry(pid)
+            .or_insert_with(OpenEdrTelemetryStats::default);
+        stats.last_event = Some(summary.clone());
+        if stats.recent_events.len() >= 32 {
+            stats.recent_events.pop_front();
+        }
+        stats.recent_events.push_back(summary);
+        for alias in aliases {
+            stats.detected_apis.insert(alias);
+        }
+
+        match event_type {
+            "LLE_PROCESS_OPEN" => stats.process_open_count += 1,
+            "LLE_PROCESS_MEMORY_WRITE" => stats.memory_write_count += 1,
+            "LLE_INJECTION_ACTIVITY" => stats.injection_activity_count += 1,
+            "LLE_NETWORK_CONNECT_IN"
+            | "LLE_NETWORK_CONNECT_OUT"
+            | "LLE_NETWORK_LISTEN"
+            | "LLE_NETWORK_REQUEST_DNS"
+            | "LLE_NETWORK_REQUEST_DATA" => stats.network_connect_count += 1,
+            _ => {}
         }
     }
 
@@ -4270,10 +4422,7 @@ impl BehaviorEngine {
             None
         };
 
-        #[cfg(feature = "firewall")]
-        let network_activity_observed = self.firewall_net_pids.read().unwrap().contains(&msg.pid);
-        #[cfg(not(feature = "firewall"))]
-        let network_activity_observed = false;
+        let network_activity_observed = self.pid_has_network_activity(msg.pid);
 
         for rule in &self.rules {
             if rule.named_conditions.is_empty() {
@@ -5742,6 +5891,21 @@ impl BehaviorEngine {
                         }
                     }
                 }
+                if let Ok(mut openedr_lock) = self.openedr_stats.write() {
+                    if let Some(stats) = openedr_lock.remove(&pid) {
+                        for alias in stats.detected_apis {
+                            s.detected_apis.insert(alias.clone());
+                            s.all_apis_called.insert(alias);
+                        }
+                        for event in stats.recent_events {
+                            if s.recent_kernel_api_events.len() >= 128 {
+                                s.recent_kernel_api_events.pop_front();
+                            }
+                            s.recent_kernel_api_events
+                                .push_back(format!("openedr:{}", event));
+                        }
+                    }
+                }
                 s.clone()
             }
             None => return,
@@ -6841,16 +7005,21 @@ impl BehaviorEngine {
             || (!path_norm.is_empty() && Self::matches_pattern_internal(cache, trimmed, &path_norm))
     }
 
-    fn has_network_activity(&self, state: &ProcessBehaviorState) -> bool {
+    fn pid_has_network_activity(&self, pid: u32) -> bool {
+        let openedr_observed = self.openedr_net_pids.read().unwrap().contains(&pid);
+
         #[cfg(feature = "firewall")]
         {
-            // Authoritative: firewall observed real outbound network I/O for this PID.
-            self.firewall_net_pids.read().unwrap().contains(&state.pid)
+            openedr_observed || self.firewall_net_pids.read().unwrap().contains(&pid)
         }
         #[cfg(not(feature = "firewall"))]
         {
-            false
+            openedr_observed
         }
+    }
+
+    fn has_network_activity(&self, state: &ProcessBehaviorState) -> bool {
+        self.pid_has_network_activity(state.pid)
     }
 
     /// Returns a snapshot of all rootkit findings since last clear.

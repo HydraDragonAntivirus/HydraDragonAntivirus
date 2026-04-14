@@ -32,7 +32,7 @@ Environment:
 volatile QUERY_INFO_PROCESS ZwQueryInformationProcess = NULL;
 
 // Global variable definition
-UNICODE_STRING GvolumeData;
+// No global UNICODE_STRING for volumes - use driverData cache instead
 
 EXTERN_C_START
 
@@ -1359,64 +1359,28 @@ STATUS_FLT_DO_NOT_ATTACH - do not attach
 
     DbgPrint("FSFIlter: Entered FSInstanceSetup\n");
 
-    // BUG FIX: NMI_HARDWARE_FAILURE (0x80)
-    //
-    // The previous code did:
-    //   WCHAR newTemp[40];
-    //   GvolumeData.Buffer = newTemp;   // <-- stack address
-    //   IoVolumeDeviceToDosName(..., &GvolumeData);
-    //   if (!NT_SUCCESS(hr)) return;    // <-- returns with GvolumeData.Buffer still = newTemp!
-    //
-    // IoVolumeDeviceToDosName allocates a new pool buffer and writes it into
-    // GvolumeData.Buffer when it SUCCEEDS.  When it FAILS (network shares,
-    // named pipes, etc.) it does NOT touch GvolumeData.Buffer — so the
-    // pointer remained pointing at newTemp, a stack frame that no longer
-    // exists once FSInstanceSetup returned.  GvolumeData is a global, so
-    // every subsequent filter callback reading GvolumeData.Buffer dereferenced
-    // that dangling pointer, corrupting kernel memory → NMI.
-    //
-    // Secondary bug: on the success path IoVolumeDeviceToDosName replaces
-    // GvolumeData.Buffer with a pool allocation.  The next FSInstanceSetup
-    // call overwrote that pointer with a new stack buffer before freeing
-    // the old one → non-paged pool leak.
-    //
-    // Fix:
-    //   1. Free any pool buffer left by a prior successful call.
-    //   2. Zero GvolumeData BEFORE calling IoVolumeDeviceToDosName so that
-    //      Buffer is NULL if the call fails — no dangling pointer possible.
-    //   3. Never pre-assign a stack buffer to GvolumeData.Buffer.
-
-    if (GvolumeData.Buffer != NULL)
-    {
-        // Was allocated by IoVolumeDeviceToDosName in a prior successful call.
-        ExFreePool(GvolumeData.Buffer);
-    }
-    RtlZeroMemory(&GvolumeData, sizeof(GvolumeData));
-
     NTSTATUS hr = STATUS_SUCCESS;
-    PDEVICE_OBJECT devObject;
+    PDEVICE_OBJECT devObject = NULL;
+    UNICODE_STRING volumeData;
+    RtlZeroMemory(&volumeData, sizeof(volumeData));
+
     hr = FltGetDiskDeviceObject(FltObjects->Volume, &devObject);
     if (!NT_SUCCESS(hr))
     {
-        // Not a disk device - skip attachment (e.g., named pipes, network shares)
+        // Not a disk device - skip caching (e.g., named pipes, network shares)
         return STATUS_SUCCESS;
     }
 
-    // Validate device object before calling IoVolumeDeviceToDosName
-    // to avoid STATUS_OBJECT_NAME_NOT_FOUND on non-disk volumes.
-    if (!devObject)
+    if (devObject != NULL)
     {
-        return STATUS_SUCCESS;
-    }
-
-    hr = IoVolumeDeviceToDosName(devObject, &GvolumeData);
-    ObDereferenceObject(devObject);
-    if (!NT_SUCCESS(hr))
-    {
-        // GvolumeData.Buffer is NULL (zeroed above) — no dangling pointer.
-        // Return success: volumes without DOS names (network shares, pipes)
-        // are silently skipped; the filter still attaches to them.
-        return STATUS_SUCCESS;
+        hr = IoVolumeDeviceToDosName(devObject, &volumeData);
+        ObDereferenceObject(devObject);
+        if (NT_SUCCESS(hr))
+        {
+            // Pre-populate the cache for this volume
+            (VOID)driverData->AddVolumeDosName(FltObjects->Volume, &volumeData);
+            ExFreePool(volumeData.Buffer);
+        }
     }
 
     return STATUS_SUCCESS;
@@ -1664,18 +1628,6 @@ FSProcessPreOperation(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECT
         // --- START DISCOVERY LOGIC ---
         // If the PID is not tracked, it might be a process that was already running 
         // when the driver loaded. Let's try to discover it now.
-        PEPROCESS process = NULL;
-        hr = PsLookupProcessByProcessId((HANDLE)newItem->PID, &process);
-        if (NT_SUCCESS(hr)) {
-            PUNICODE_STRING procPath = NULL;
-            // SeLocateProcessImageName is safe to call here
-            hr = SeLocateProcessImageName(process, &procPath);
-            if (NT_SUCCESS(hr) && procPath != NULL) {
-                // Record the process in our system
-                gid = driverData->RecordNewProcess(procPath, newItem->PID, 0); // Use 0 for ParentPid as we don't know it
-                isGidFound = TRUE;
-                DbgPrint("!!! FsFilter: DISCOVERED untracked process. PID: %u, Path: %wZ, GID: %llu\n", newItem->PID, procPath, gid);
-
                 // Inform usermode about this new process discovery
                 PIRP_ENTRY discoveryEntry = new IRP_ENTRY();
                 if (discoveryEntry != NULL) {
@@ -2474,10 +2426,6 @@ FSEntrySetFileName(CONST PFLT_VOLUME Volume, PFLT_FILE_NAME_INFORMATION nameInfo
     USHORT volumeNameSize = nameInfo->Volume.Length; // in bytes
     USHORT origNameSize = nameInfo->Name.Length;     // in bytes
 
-    // --- START: MODIFICATION ---
-
-    // Use a local variable for the volume's DOS name.
-    // Initialize to zero so that Buffer is NULL and safely freed if the call fails.
     UNICODE_STRING volumeData;
     RtlZeroMemory(&volumeData, sizeof(volumeData));
 
@@ -2486,37 +2434,46 @@ FSEntrySetFileName(CONST PFLT_VOLUME Volume, PFLT_FILE_NAME_INFORMATION nameInfo
         return STATUS_INVALID_ADDRESS;
     }
 
-    hr = FltGetDiskDeviceObject(Volume, &devObject);
-    if (NT_SUCCESS(hr) && devObject != NULL && !KeAreAllApcsDisabled())
+    // --- CACHE CHECK ---
+    hr = driverData->GetVolumeDosName(Volume, &volumeData);
+    if (!NT_SUCCESS(hr))
     {
-        hr = IoVolumeDeviceToDosName(devObject, &volumeData);
-    }
-    else
-    {
-        hr = STATUS_UNSUCCESSFUL;
+        // Not in cache, try to resolve it once.
+        // NOTE: IoVolumeDeviceToDosName can re-enter the filter. 
+        // The cache breaks infinite recursion as the second entry for the same volume will hit GetVolumeDosName.
+        hr = FltGetDiskDeviceObject(Volume, &devObject);
+        if (NT_SUCCESS(hr) && devObject != NULL && !KeAreAllApcsDisabled())
+        {
+            hr = IoVolumeDeviceToDosName(devObject, &volumeData);
+            if (NT_SUCCESS(hr))
+            {
+                // Store in cache for future use
+                (VOID)driverData->AddVolumeDosName(Volume, &volumeData);
+            }
+        }
+        else
+        {
+            hr = STATUS_UNSUCCESSFUL;
+        }
     }
 
     if (!NT_SUCCESS(hr))
     {
-        // Preserve device/provider paths when there is no DOS mount point. This
-        // keeps ESP and raw-device activity visible to the user-mode engine.
+        // Preserve device/provider paths when there is no DOS mount point or resolution fails.
         hr = RtlUnicodeStringCopy(uString, &nameInfo->Name);
         goto cleanup;
     }
 
     volumeDosNameSize = volumeData.Length;
 
-    // --- END: MODIFICATION ---
-
     finalNameSize = origNameSize - volumeNameSize + volumeDosNameSize;
 
     if (volumeNameSize == origNameSize)
-    { // file is the volume, don't need to do anything
-        hr = RtlUnicodeStringCopy(uString, &nameInfo->Name);
+    { // file is the volume
+        hr = RtlUnicodeStringCopy(uString, &volumeData);
         goto cleanup;
     }
 
-    // Use the local 'volumeData' instead of the global 'GvolumeData'
     if (NT_SUCCESS(hr = RtlUnicodeStringCopy(uString, &volumeData)))
     {
         RtlCopyMemory(uString->Buffer + (volumeDosNameSize / 2), nameInfo->Name.Buffer + (volumeNameSize / 2),
@@ -2524,11 +2481,11 @@ FSEntrySetFileName(CONST PFLT_VOLUME Volume, PFLT_FILE_NAME_INFORMATION nameInfo
                            ? (MAX_FILE_NAME_SIZE - volumeDosNameSize)
                            : (finalNameSize - volumeDosNameSize)));
         uString->Length = (finalNameSize > MAX_FILE_NAME_SIZE) ? MAX_FILE_NAME_SIZE : finalNameSize;
-        // DbgPrint("File name: %wZ\n", uString);
     }
 
 cleanup:
-    // BUGFIX: IoVolumeDeviceToDosName allocates memory that MUST be freed
+    // We always free volumeData here because GetVolumeDosName returns a copy 
+    // and IoVolumeDeviceToDosName allocates a new buffer.
     if (volumeData.Buffer != NULL) {
         ExFreePool(volumeData.Buffer);
     }

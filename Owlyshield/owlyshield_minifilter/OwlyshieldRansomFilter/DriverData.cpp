@@ -33,6 +33,9 @@ DriverData::DriverData(PDRIVER_OBJECT DriverObject) :
     InitializeListHead(&registryBackups);
     KeInitializeSpinLock(&registryBackupsLock);
 
+    // Initialize volumeCacheLock
+    KeInitializeSpinLock(&volumeCacheLock);
+
     // Initialize quarantinePath
     RtlInitUnicodeString(&quarantinePath, NULL);
 }
@@ -42,6 +45,29 @@ DriverData::~DriverData() {
 }
 
 DriverData* driverData;
+
+//#######################################################################################
+//# Volume Cache handling
+//#######################################################################################
+
+VOID DriverData::FreeCachedUnicodeString(PVOID str) {
+    PUNICODE_STRING pStr = (PUNICODE_STRING)str;
+    if (pStr != NULL) {
+        if (pStr->Buffer != NULL) {
+            ExFreePoolWithTag(pStr->Buffer, 'RW');
+        }
+        ExFreePoolWithTag(pStr, 'RW');
+    }
+}
+
+VOID DriverData::ClearVolumeCache() {
+    KIRQL oldIrql;
+    KeAcquireSpinLock(&volumeCacheLock, &oldIrql);
+
+    VolumeToDosName.clear(FreeCachedUnicodeString);
+
+    KeReleaseSpinLock(&volumeCacheLock, oldIrql);
+}
 
 //#######################################################################################
 //# Quarantine Path Handling

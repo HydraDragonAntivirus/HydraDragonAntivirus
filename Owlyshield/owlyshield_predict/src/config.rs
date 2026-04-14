@@ -24,6 +24,7 @@ pub enum Param {
     ReportDir,
     SdkPath,
     LogPath,
+    OpenEdrTelemetryPath,
     VerboseLogging,
     ProcessActivityPath,
     Unknown,
@@ -56,6 +57,7 @@ impl Param {
             Param::ReportDir => "REPORTS_PATH",
             Param::SdkPath => "SDK_PATH",
             Param::LogPath => "LOG_PATH", // Path to log output directory
+            Param::OpenEdrTelemetryPath => "OPENEDR_TELEMETRY_PATH", // Optional OpenEDR output_events directory override
             Param::VerboseLogging => "VERBOSE_LOGGING", // 1 if verbose logging is active, 0 if not
             Param::ProcessActivityPath => "PROCESS_ACTIVITY_PATH", // Path to process activity debug output
             _ => "UNKNOWN",
@@ -79,6 +81,7 @@ impl Param {
             Param::ReportDir => "report_dir",
             Param::SdkPath => "sdk_path",
             Param::LogPath => "log_path", // Path to log output directory
+            Param::OpenEdrTelemetryPath => "openedr_telemetry_path", // Optional OpenEDR output_events directory override
             Param::VerboseLogging => "verbose_logging", // 1 if verbose logging is active, 0 if not
             Param::ProcessActivityPath => "process_activity_path", // Path to process activity debug output
             _ => "unknown",
@@ -94,6 +97,7 @@ impl Param {
             Param::RealTimeLearningPath,
             Param::Language,
             Param::LogPath,
+            Param::OpenEdrTelemetryPath,
             Param::VerboseLogging,
             Param::ProcessActivityPath,
         ];
@@ -137,6 +141,7 @@ impl Param {
             "REPORTS_PATH" => Param::ReportDir,
             "SDK_PATH" => Param::SdkPath,
             "LOG_PATH" => Param::LogPath, // Path to log output directory
+            "OPENEDR_TELEMETRY_PATH" => Param::OpenEdrTelemetryPath, // Optional OpenEDR output_events directory override
             "VERBOSE_LOGGING" => Param::VerboseLogging, // 1 if verbose logging is active, 0 if not
             "PROCESS_ACTIVITY_PATH" => Param::ProcessActivityPath, // Path to process activity debug output
             _ => Param::Unknown,
@@ -160,6 +165,7 @@ impl Param {
             "report_dir" => Param::ReportDir,
             "sdk_path" => Param::SdkPath,
             "log_path" => Param::LogPath, // Path to log output directory
+            "openedr_telemetry_path" => Param::OpenEdrTelemetryPath, // Optional OpenEDR output_events directory override
             "verbose_logging" => Param::VerboseLogging, // 1 if verbose logging is active, 0 if not
             "process_activity_path" => Param::ProcessActivityPath, // Path to process activity debug output
             _ => Param::Unknown,

@@ -144,4 +144,26 @@ class HashMap {
     bool isEmpty() {
         return size == 0;
     }
+
+    // Function to clear the map and free resources
+    // Takes a callback to free the HANDLE values
+    void clear(void (*freeValue)(HANDLE)) {
+        for (ULONGLONG i = 0; i < capacity; i++) {
+            PLIST_ENTRY head = arr[i];
+            PLIST_ENTRY iterator = head->Flink;
+            while (iterator != head) {
+                HashNode* pNode = (HashNode*)CONTAINING_RECORD(iterator, HashNode, entry);
+                PLIST_ENTRY next = iterator->Flink;
+                
+                if (freeValue != nullptr && pNode->value != nullptr) {
+                    freeValue(pNode->value);
+                }
+                
+                RemoveEntryList(iterator);
+                delete pNode;
+                size--;
+                iterator = next;
+            }
+        }
+    }
 };

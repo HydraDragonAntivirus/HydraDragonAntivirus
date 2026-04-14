@@ -38,12 +38,18 @@ class DriverData {
     LIST_ENTRY GidsList;  // list entry of gids, used to clear memory
     KSPIN_LOCK GIDSystemLock;
 
+    /* Volume cache data members */
+    HashMap VolumeToDosName;
+    KSPIN_LOCK volumeCacheLock;
+
     /* Registry backup data members */
     ULONG registryBackupsSize;
     LIST_ENTRY registryBackups;
     KSPIN_LOCK registryBackupsLock;
 
   private:
+    // Helper to free a UNICODE_STRING and its buffer
+    static VOID FreeCachedUnicodeString(PVOID str);
     // call assumes protected code - high IRQL
     BOOLEAN RemoveProcessRecordAux(ULONG ProcessId, ULONGLONG gid);
 
@@ -182,6 +188,13 @@ class DriverData {
     BOOLEAN IsPathBlocked(CONST PUNICODE_STRING path);
 
     VOID ClearBlockedPaths();
+
+    /* Volume Cache functions */
+    VOID ClearVolumeCache();
+    // Returns a POINTER TO A COPY of the DOS name. Caller is responsible for freeing it.
+    NTSTATUS GetVolumeDosName(PFLT_VOLUME volume, PUNICODE_STRING outDosName);
+    // Stores a copy of the DOS name for the given volume.
+    NTSTATUS AddVolumeDosName(PFLT_VOLUME volume, PUNICODE_STRING dosName);
 
     VOID Clear() {
         // clear directories
