@@ -41,6 +41,8 @@ MARSHAL_VERSION_HINT_TAGS = (b"\xf3",) + MARSHAL_CODE_TAGS
 MARSHAL_VERSION_HINT_TAG_PATTERN = re.compile(
     b"[" + re.escape(b"\xf3" + bytes(MARSHAL_CODE_TAG_VALUES)) + b"]"
 )
+DISCOVERED_SECTION_PATTERN = re.compile(r"^discovered_(.+?)_at_\d+$")
+MARSHAL_PYC_PATH_PATTERN = re.compile(rb"([A-Za-z0-9_./\\-]{1,260}\.py)")
 
 
 # ============================================================================
@@ -296,16 +298,7 @@ def try_load_code_object(
 ):
     if not looks_like_code_header(data, offset, magic_int):
         return None
-
-    try:
-        obj = marshal._FastUnmarshaller(memoryview(data)[offset:]).load()
-    except Exception:
-        return None
-
-    name = type(obj).__name__
-    if name == 'code' or name.startswith('Code'):
-        return obj
-    return None
+    return try_detect_code_object(data, offset, magic_int)
 
 
 def detect_version_from_marshal(data: bytes) -> str | None:
@@ -401,6 +394,60 @@ def extract_code_label(code_obj) -> str | None:
     return None
 
 
+def extract_path_from_marshaled_bytes(data: bytes | bytearray) -> str | None:
+    try:
+        candidates = []
+        for match in MARSHAL_PYC_PATH_PATTERN.finditer(bytes(data)[:65536]):
+            candidate = match.group(1).decode('utf-8', errors='ignore').replace("\\", "/")
+            candidate = candidate.lstrip("./")
+            if candidate:
+                candidates.append(candidate)
+        if not candidates:
+            return None
+        return max(candidates, key=lambda value: (value.count("/"), len(value)))
+    except Exception:
+        return None
+
+
+def _discovered_alias_matches(discovered_name: str, plain_name: str) -> bool:
+    if discovered_name == plain_name:
+        return True
+    if len(discovered_name) > 1 and discovered_name[1:] == plain_name:
+        return True
+    if len(discovered_name) > 2 and discovered_name[2:] == plain_name:
+        return True
+    return False
+
+
+def normalize_decoded_sections(sections: dict) -> dict[str, tuple]:
+    discovered_names = []
+    for section_name in sections:
+        match = DISCOVERED_SECTION_PATTERN.fullmatch(section_name)
+        if not match:
+            continue
+        discovered_name = match.group(1).lstrip(".")
+        if discovered_name and not discovered_name.startswith("hidden_segment"):
+            discovered_names.append(discovered_name)
+
+    normalized = {}
+    for section_name, items in sections.items():
+        match = DISCOVERED_SECTION_PATTERN.fullmatch(section_name)
+        if match:
+            discovered_name = match.group(1).lstrip(".")
+            if not discovered_name or discovered_name.startswith("hidden_segment"):
+                normalized[section_name.replace("discovered_", "hidden_")] = items
+            else:
+                normalized.setdefault(discovered_name, items)
+            continue
+
+        plain_name = section_name.lstrip(".")
+        if any(_discovered_alias_matches(discovered_name, plain_name) for discovered_name in discovered_names):
+            continue
+        normalized[plain_name] = items
+
+    return normalized
+
+
 # ============================================================================
 # RAW BLOB SCAN — finds bytecode embedded in Nuitka constants blobs
 # ============================================================================
@@ -491,10 +538,10 @@ def process_section(
 ) -> tuple[int, int, int]:
     clean_section = (
         section_name
-        .replace("discovered_", "hidden_")
         .replace(".", "_")
         .strip("_")
     )
+    is_marshaled_bytecode_section = section_name.strip(".").lower() == "bytecode"
     count_pyc = 0
     count_other = 0
     omni_count = 0
@@ -515,6 +562,34 @@ def process_section(
             pass
 
     for i, root_item in enumerate(items):
+        item_id = f"{i:04d}"
+
+        if (
+            is_marshaled_bytecode_section
+            and isinstance(root_item, (bytes, bytearray))
+            and len(root_item) > 16
+            and root_item[:1] in MARSHAL_VERSION_HINT_TAGS
+        ):
+            guessed_path = extract_path_from_marshaled_bytes(root_item)
+            guessed_label = None
+            if guessed_path:
+                guessed_label = Path(guessed_path).stem
+
+            if guessed_path:
+                dest = out_dir / 'pyc' / sanitize_filename(guessed_path).replace('.py', '.pyc')
+            elif guessed_label:
+                dest = out_dir / 'pyc' / clean_section / f"{guessed_label}_{item_id}.pyc"
+            else:
+                dest = out_dir / 'pyc' / clean_section / f"bytecode_{item_id}.pyc"
+
+            try:
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                dest.write_bytes(header + bytes(root_item))
+                count_pyc += 1
+            except Exception:
+                pass
+            continue
+
         discovered_code = []
         recursive_find_code(root_item, discovered_code, set(), magic_int)
         primary_code = discovered_code[0] if discovered_code else None
@@ -544,18 +619,14 @@ def process_section(
 
         meta_dir = out_dir / "_metadata" / clean_section
         meta_dir.mkdir(parents=True, exist_ok=True)
-        item_id = f"{i:04d}"
         try:
             if isinstance(root_item, (bytes, bytearray)):
-                is_code_tag = root_item[:1] in MARSHAL_CODE_TAGS
+                is_code_tag = root_item[:1] in MARSHAL_VERSION_HINT_TAGS
                 if is_code_tag:
                     obj = try_load_code_object(root_item, 0, magic_int)
                     code_label = extract_code_label(obj) if obj is not None else primary_code_label
                     base_name = f"{code_label}_{item_id}" if code_label else f"item_{item_id}"
-                    if obj is not None:
-                        (meta_dir / f"{base_name}.pyc").write_bytes(header + root_item)
-                    else:
-                        (meta_dir / f"{base_name}.pyc").write_bytes(root_item)
+                    (meta_dir / f"{base_name}.pyc").write_bytes(header + bytes(root_item))
                 else:
                     base_name = f"{primary_code_label}_{item_id}" if primary_code_label else f"item_{item_id}"
                     (meta_dir / f"{base_name}.bin").write_bytes(root_item)
@@ -661,6 +732,8 @@ def main(argv=None) -> int:
         print(f"[!] Fatal error during C decoding: {e}")
         return 1
 
+    sections = normalize_decoded_sections(sections)
+
     print(f"[*] Discovered {len(sections)} sections/fragments.")
 
     if args.list_only:
@@ -681,9 +754,13 @@ def main(argv=None) -> int:
     # Nuitka constants blobs embed bytecode in raw bytes — NOT as section items.
     # This is the primary extraction path for Nuitka binaries.
     # =========================================================================
-    print("[*] Pass 1: Raw blob scan for embedded marshal code objects...")
-    raw_code_objects = raw_scan_for_code_objects(raw, target_ver_str)
-    print(f"[*] Raw scan found {len(raw_code_objects)} code object(s) in blob.")
+    raw_code_objects = []
+    if sections.get("bytecode"):
+        print("[*] Pass 1: Raw blob scan skipped (bytecode section already provides marshalled code).")
+    else:
+        print("[*] Pass 1: Raw blob scan for embedded marshal code objects...")
+        raw_code_objects = raw_scan_for_code_objects(raw, target_ver_str)
+        print(f"[*] Raw scan found {len(raw_code_objects)} code object(s) in blob.")
 
     for offset, code_obj in raw_code_objects:
         try:
