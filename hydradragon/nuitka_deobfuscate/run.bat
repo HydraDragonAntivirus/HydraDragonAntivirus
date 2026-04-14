@@ -30,5 +30,5 @@ if "%1"=="" (
 
 echo === Running Extraction ===
 echo.
-py -3.12 run_extract.py %*
+py -3.12 run_extract_cli.py %*
 exit /b %errorlevel%
