@@ -1008,26 +1008,58 @@ class OmniDecompiler:
             if self.current_function and text not in DECORATOR_NAMES:
                 self._record_target_hint(self.current_function, 'string', text)
 
+    def _scrape_all_attributes(self):
+        """Scan all methods in all classes to find common instance attributes."""
+        for cls_node in self.classes.values():
+            found_attrs = set()
+            for func in cls_node.methods.values():
+                # From string hints (e.g. '_value', '_lib')
+                for hint in func.string_hints:
+                    if IDENTIFIER_RE.fullmatch(hint) and hint.startswith('_'):
+                        found_attrs.add(hint)
+                # From tuples
+                for tup in func.tuples:
+                    for item in tup:
+                        if isinstance(item, str) and IDENTIFIER_RE.fullmatch(item) and item.startswith('_'):
+                            found_attrs.add(item)
+                # From messages (e.g. '_CallbackExceptionHelper')
+                for msg in func.messages:
+                    for word in re.findall(r'_([a-zA-Z0-9_]+)', msg):
+                        if IDENTIFIER_RE.fullmatch('_' + word):
+                            found_attrs.add('_' + word)
+            
+            # Special common attributes for C-API bindings
+            if any('_lib' in f.string_hints or any('SSL_' in h for h in f.string_hints) for f in cls_node.methods.values()):
+                found_attrs.add('_lib')
+            if any('_ffi' in f.string_hints for f in cls_node.methods.values()):
+                found_attrs.add('_ffi')
+            if any('_ptr' in f.string_hints or '_handle' in f.string_hints for f in cls_node.methods.values()):
+                found_attrs.add('_ptr')
+
+            cls_node.attributes.update(found_attrs)
+
     def _candidate_attributes(self, cls_node, func):
-        attrs = []
-        if cls_node.slots:
-            attrs.extend([attr for attr in cls_node.slots if isinstance(attr, str)])
-        attrs.extend(sorted(cls_node.attributes))
+        """Get best candidate attributes for the current function context."""
+        # Start with class-wide attributes we've scraped
+        attrs = sorted(list(cls_node.attributes))
+        
+        # Add function-specific hints that might have been missed
         for tuple_hint in func.tuples:
             for item in tuple_hint:
                 if isinstance(item, str) and item.startswith('_') and item not in attrs:
                     attrs.append(item)
+        
         return attrs
 
     def _validation_lines(self, func):
         lines = []
         args = [arg for arg in func.args if arg not in {'self', 'cls'}]
         primary = args[0] if args else 'value'
-        for message in func.messages[:3]:
+        for message in func.messages[:6]:
             lower = message.lower()
-            if 'must be string' in lower:
+            if 'must be string' in lower or 'must be a byte string' in lower:
                 lines.extend([
-                    f"if not isinstance({primary}, str):",
+                    f"if not isinstance({primary}, (str, bytes)):",
                     f"    raise TypeError({message!r})",
                 ])
             elif 'must be a name' in lower:
@@ -1040,12 +1072,72 @@ class OmniDecompiler:
                     f"if not isinstance({primary}, ObjectIdentifier):",
                     f"    raise TypeError({message!r})",
                 ])
+            elif 'must be an integer' in lower:
+                lines.extend([
+                    f"if not isinstance({primary}, int):",
+                    f"    raise TypeError({message!r})",
+                ])
+            elif 'must be an instance of' in lower:
+                lines.append(f"# Validation: {message}")
             elif 'unsupported' in lower or lower.startswith('invalid '):
                 lines.append(f"raise ValueError({message!r})")
                 break
-            elif 'must be an instance of' in lower:
-                lines.append(f"# Validation hint: {message}")
         return lines
+
+    @staticmethod
+    def _is_api_call_hint(text):
+        """Detect C-API style function names like SSL_CTX_set_options, X509_free."""
+        if not IDENTIFIER_RE.fullmatch(text):
+            return False
+        if '_' not in text or len(text) < 4:
+            return False
+        # C-API pattern: UPPER_prefix_lower or mixed
+        parts = text.split('_')
+        if len(parts) >= 2 and any(p[0:1].isupper() for p in parts[:2]):
+            return True
+        return False
+
+    @staticmethod
+    def _is_method_call_hint(text):
+        """Detect Python method-like names: load_verify_locations, set_timeout."""
+        if not IDENTIFIER_RE.fullmatch(text):
+            return False
+        return text[0:1].islower() and '_' in text and len(text) > 3
+
+    @staticmethod
+    def _is_docstring_message(text):
+        """Detect if a message is a docstring (not a validation error)."""
+        text = text.strip()
+        return (
+            len(text) > 30
+            and ('\n' in text or ':param' in text or ':return' in text or ':type' in text)
+        )
+
+    @staticmethod
+    def _is_error_message(text):
+        """Detect if a message is an error/validation string."""
+        lower = text.strip().lower()
+        return (
+            len(text) < 100
+            and '\n' not in text
+            and any(kw in lower for kw in (
+                'must be', 'invalid', 'unsupported', 'error', 'failed',
+                'cannot', 'expected', 'should be', 'not a valid',
+                'is not', 'deprecated',
+            ))
+        )
+
+    def _promote_messages_to_docstrings(self, func):
+        """Move long messages that look like docstrings to func.docstring."""
+        if func.docstring:
+            return
+        remaining = []
+        for msg in func.messages:
+            if not func.docstring and self._is_docstring_message(msg):
+                func.docstring = clean_docstring(msg)
+            else:
+                remaining.append(msg)
+        func.messages = remaining
 
     def _build_prepare_body(self, cls_node, func):
         lines = []
@@ -1090,12 +1182,90 @@ class OmniDecompiler:
                 lines.append("self.hooks = hooks")
         return lines
 
+    def _build_api_call_body(self, cls_node, func):
+        """Generate body from string_hints that look like API/method calls."""
+        args_no_self = [a for a in func.args if a not in {'self', 'cls'}]
+        lines = []
+
+        # Separate hints by type
+        api_calls = []
+        method_calls = []
+        field_refs = []
+        for hint in func.string_hints:
+            if self._is_api_call_hint(hint):
+                api_calls.append(hint)
+            elif self._is_method_call_hint(hint):
+                method_calls.append(hint)
+            elif IDENTIFIER_RE.fullmatch(hint) and hint.startswith('_'):
+                field_refs.append(hint)
+
+        # Validation from error messages
+        error_msgs = [m for m in func.messages if self._is_error_message(m)]
+        for msg in error_msgs[:2]:
+            lower = msg.lower()
+            if 'must be' in lower:
+                if args_no_self:
+                    lines.append(f"if not {args_no_self[0]}:")
+                    lines.append(f"    raise TypeError({msg!r})")
+                else:
+                    lines.append(f"# Validation: {msg}")
+            elif 'deprecated' in lower:
+                lines.append(f"warnings.warn({msg!r}, DeprecationWarning, stacklevel=2)")
+
+        # Sequential API calls
+        if api_calls:
+            # Detect if this is a cffi/ffi binding pattern (OpenSSL, etc.)
+            has_lib_prefix = any(
+                h.startswith(('SSL_', 'X509_', 'EVP_', 'BIO_', 'OBJ_', 'ASN1_', 'PEM_', 'PKCS', 'RSA_', 'EC_', 'DH_'))
+                for h in api_calls
+            )
+            for i, call in enumerate(api_calls[:8]):
+                call_args = ', '.join(args_no_self[:3]) if args_no_self else ''
+                # If it's a getter-like method and this is the last call, maybe it's a return
+                prefix = ""
+                if i == len(api_calls[:8]) - 1 and (func.name.startswith('get_') or 'property' in func.decorators):
+                    prefix = "return "
+                
+                if has_lib_prefix:
+                    if func.is_method:
+                        lines.append(f"{prefix}self._lib.{call}({call_args})")
+                    else:
+                        lines.append(f"{prefix}lib.{call}({call_args})")
+                else:
+                    lines.append(f"{prefix}{call}({call_args})")
+
+        # Method calls within the same class
+        if method_calls:
+            for call in method_calls[:6]:
+                if func.is_method:
+                    if call in cls_node.methods:
+                        lines.append(f"self.{call}()")
+                    else:
+                        call_args = ', '.join(args_no_self[:2]) if args_no_self else ''
+                        lines.append(f"self.{call}({call_args})")
+                else:
+                    call_args = ', '.join(args_no_self[:2]) if args_no_self else ''
+                    lines.append(f"{call}({call_args})")
+
+        # Use field references for return or assignment
+        if field_refs and not lines:
+            if not args_no_self:
+                lines.append(f"return self.{field_refs[0]}" if func.is_method else f"return {field_refs[0]}")
+            else:
+                for ref in field_refs[:3]:
+                    lines.append(f"self.{ref} = {args_no_self[0]}" if func.is_method else f"{ref} = {args_no_self[0]}")
+
+        return lines
+
     def _build_body(self, cls_node, func):
         attrs = self._candidate_attributes(cls_node, func)
         lines = []
 
         if 'abstractmethod' in func.decorators:
             return ['raise NotImplementedError']
+
+        # Promote rich messages to docstrings before building body
+        self._promote_messages_to_docstrings(func)
 
         if func.name in {'__init__', '_init_without_validation'}:
             arg_names = [arg for arg in func.args if arg not in {'self', 'cls'}]
@@ -1189,68 +1359,199 @@ class OmniDecompiler:
             return prepare_lines
 
         validation = self._validation_lines(func)
+
+        # --- Rich hint-driven body generation ---
+        args_no_self = [a for a in func.args if a not in {'self', 'cls'}]
+
+        # Try API call-based body if we have string hints
+        if func.string_hints or func.messages:
+            api_body = self._build_api_call_body(cls_node, func)
+            if api_body:
+                lines.extend(validation)
+                lines.extend(api_body)
+                return lines
+
         if validation:
             return validation
 
+        # Dict hints → config-like body
         if func.dict_hints:
             lines.append(f"config = {literal_source(func.dict_hints[0])}")
-        elif func.tuples:
-            lines.append(f"state = {literal_source(func.tuples[0])}")
 
-        for text in func.string_hints[:5]:
+        # Tuple hints → structured data
+        if func.tuples:
+            for tup in func.tuples[:3]:
+                texts = [t for t in tup if isinstance(t, str)]
+                if texts:
+                    # If tuple items are field-like, generate assignments
+                    if all(IDENTIFIER_RE.fullmatch(t) for t in texts):
+                        if func.is_method and func.name.startswith(('_set', 'set_', '_update', 'update_')):
+                            for t in texts[:4]:
+                                if args_no_self:
+                                    lines.append(f"self.{t} = {args_no_self[0]}.get({t!r}, None)")
+                                else:
+                                    lines.append(f"# field: {t}")
+                        elif not lines:
+                            lines.append(f"state = {literal_source(tup)}")
+
+        # String hints → annotate what API calls this method makes
+        for text in func.string_hints[:8]:
             if is_probable_docstring(text):
                 continue
             if is_probable_endpoint(text):
                 lines.append(f"# External reference: {text}")
+            elif self._is_api_call_hint(text):
+                continue  # already handled by _build_api_call_body
+            elif self._is_method_call_hint(text) and func.is_method:
+                if text in cls_node.methods:
+                    lines.append(f"self.{text}()")
+                elif not lines:
+                    call_args = ', '.join(args_no_self[:2]) if args_no_self else ''
+                    lines.append(f"self.{text}({call_args})")
             elif len(text) > 20 and ' ' in text:
                 lines.append(f"# {text}")
 
-        # General fallback: emit meaningful body when no hardcoded pattern matched
+        # Literal hints → constants used in body
+        if func.literals and not lines:
+            int_lits = [v for v in func.literals if isinstance(v, int) and v > 0]
+            if int_lits and func.name.startswith(('set_', '_set_')):
+                suffix = func.name.split('set_', 1)[-1]
+                lines.append(f"self._{suffix} = {int_lits[0]}")
+
+        # If we still have no body, use structural inference
         if not lines:
-            args_no_self = [a for a in func.args if a not in {'self', 'cls'}]
-            # Getter-like: single return value for no-arg methods
-            if not args_no_self and func.string_hints:
-                # If the function has string hints suggesting a return value
-                for hint in func.string_hints:
-                    if IDENTIFIER_RE.fullmatch(hint) and hint.startswith('_'):
-                        lines.append(f"return self.{hint}" if func.is_method else f"return {hint}")
-                        break
-            # Setter-like: single arg methods starting with set_ or _set_
-            if not lines and len(args_no_self) == 1 and func.name.startswith(('set_', '_set_')):
+            # Property-like: no args, return a field
+            if 'property' in func.decorators:
+                if attrs:
+                    name_match = func.name.lstrip('_')
+                    for attr in attrs:
+                        if attr.lstrip('_') == name_match:
+                            return [f"return self.{attr}"]
+                    return [f"return self.{attrs[0]}"]
+                return ["return None"]
+
+            # Setter-like: single arg methods with set_ prefix
+            if len(args_no_self) == 1 and func.name.startswith(('set_', '_set_')):
                 suffix = func.name.split('set_', 1)[-1]
                 if func.is_method:
                     lines.append(f"self._{suffix} = {args_no_self[0]}")
                 else:
-                    lines.append(f"# {suffix} = {args_no_self[0]}")
-            # Delegate patterns: methods with messages that look like errors
-            if not lines and func.messages:
-                for msg in func.messages:
-                    lower = msg.lower()
-                    if any(kw in lower for kw in ('error', 'invalid', 'failed', 'must')):
-                        lines.append(f"raise ValueError({msg!r})")
-                        break
-            # Last resort: emit return ... for getters, raise NotImplementedError for others
-            if not lines:
-                if func.name.startswith(('get', 'is_', 'has_')):
-                    lines.append("return ...")
-                elif func.is_method and args_no_self:
-                    # Methods with arguments likely do something — emit stub assignments
+                    lines.append(f"{suffix} = {args_no_self[0]}")
+
+            # Add-like: single arg methods with add_ prefix
+            elif len(args_no_self) >= 1 and func.name.startswith(('add_', '_add_', 'append_')):
+                suffix = func.name.split('_', 1)[-1]
+                if func.is_method:
+                    lines.append(f"self._{suffix}s.append({args_no_self[0]})")
+
+            # Remove-like
+            elif len(args_no_self) >= 1 and func.name.startswith(('remove_', '_remove_', 'delete_')):
+                suffix = func.name.split('_', 1)[-1]
+                if func.is_method:
+                    lines.append(f"self._{suffix}s.remove({args_no_self[0]})")
+
+            # Clear-like
+            elif func.name.startswith(('clear_', '_clear_', 'reset_')):
+                suffix = func.name.split('_', 1)[-1]
+                if func.is_method:
+                    lines.append(f"self._{suffix} = None")
+
+            # Check/validate: is_, has_, can_
+            elif func.name.startswith(('is_', 'has_', 'can_')):
+                if attrs:
+                    suffix = func.name.split('_', 1)[-1]
+                    for attr in attrs:
+                        if suffix in attr:
+                            return [f"return bool(self.{attr})"]
+                lines.append("return False")
+
+            # Getter-like: get_ with no args
+            elif func.name.startswith('get') and not args_no_self:
+                if attrs:
+                    return [f"return self.{attrs[0]}"]
+                lines.append("return None")
+
+            # close / shutdown / cleanup
+            elif func.name in {'close', 'shutdown', 'cleanup', 'dispose', 'destroy', '__del__'}:
+                for attr in attrs[:4]:
+                    lines.append(f"self.{attr} = None")
+                if not lines:
+                    lines.append("pass")
+
+            # __str__ / __bytes__
+            elif func.name == '__str__':
+                if attrs:
+                    return [f"return str(self.{attrs[0]})"]
+                return [f'return f"<{cls_node.name}>"']
+            elif func.name == '__bytes__':
+                if attrs:
+                    return [f"return bytes(self.{attrs[0]})"]
+
+            # __len__ / __bool__
+            elif func.name == '__len__':
+                for attr in attrs:
+                    if any(kw in attr for kw in ('list', 'items', 'data', 'buffer', 'entries')):
+                        return [f"return len(self.{attr})"]
+                if attrs:
+                    return [f"return len(self.{attrs[0]})"]
+            elif func.name == '__bool__':
+                if attrs:
+                    return [f"return bool(self.{attrs[0]})"]
+                return ["return True"]
+
+            # __iter__
+            elif func.name == '__iter__':
+                if attrs:
+                    return [f"return iter(self.{attrs[0]})"]
+                return ["return iter(self)"]
+
+            # __contains__
+            elif func.name == '__contains__':
+                if attrs and args_no_self:
+                    return [f"return {args_no_self[0]} in self.{attrs[0]}"]
+
+            # copy / clone
+            elif func.name in {'copy', 'clone', '__copy__'}:
+                return [f"return {cls_node.name}(**self.__dict__)"]
+
+            # Methods with args but no other signal → assignment pattern
+            elif func.is_method and args_no_self:
+                # Try to match args to attrs
+                matched = False
+                for arg in args_no_self[:4]:
+                    for attr in attrs:
+                        if attr.lstrip('_') == arg:
+                            lines.append(f"self.{attr} = {arg}")
+                            matched = True
+                            break
+                if not matched:
                     for arg in args_no_self[:3]:
-                        lines.append(f"self._{arg} = {arg}" if func.is_method else f"# {arg}")
+                        lines.append(f"self._{arg} = {arg}")
+
+            # Truly unknown no-arg method
+            else:
+                if attrs:
+                    lines.append(f"return self.{attrs[0]}")
                 else:
-                    lines.append("raise NotImplementedError")
+                    lines.append("pass")
+
         return lines
 
     def run_pass_2_ast_synthesis(self):
+        # Step 1: Scrape all attributes across the class first
+        self._scrape_all_attributes()
+
         kept_classes = OrderedDict()
         for cls_name, cls_node in self.classes.items():
             if cls_name.endswith('Warning') and not cls_node.bases:
                 cls_node.bases = ['Warning']
             elif cls_name.endswith('Error') and not cls_node.bases:
                 cls_node.bases = ['Exception']
+            
             for func in cls_node.methods.values():
                 self._finalize_function_signature(func)
                 func.body_lines = self._build_body(cls_node, func)
+            
             if self._should_keep_class(cls_node):
                 kept_classes[cls_name] = cls_node
         self.classes = kept_classes
@@ -1258,10 +1559,8 @@ class OmniDecompiler:
         kept_functions = OrderedDict()
         for name, func in self.functions.items():
             self._finalize_function_signature(func)
-            if not func.body_lines:
-                func.body_lines = self._validation_lines(func)
-            if not func.body_lines and func.dict_hints:
-                func.body_lines = [f"config = {literal_source(func.dict_hints[0])}"]
+            # Global functions have no class context
+            func.body_lines = self._build_body(None, func)
             if self._should_keep_function(func):
                 kept_functions[name] = func
         self.functions = kept_functions
