@@ -193,6 +193,8 @@ goto :eof
 :prepare_hypervisor_stack
 set "HYPERVISOR_REBOOT_REQUIRED=0"
 echo [*] Disabling VBS/HVCI/Hyper-V features for hypervisor-based testing compatibility...
+echo [*] Note: this only refers to Windows Hyper-V/VBS settings used by this installer.
+echo [*] It is separate from the hypervisor material documented in the wiki or other folders.
 
 call :mark_reboot_if_reg_enabled "HKLM\SYSTEM\CurrentControlSet\Control\DeviceGuard" "EnableVirtualizationBasedSecurity"
 call :mark_reboot_if_reg_enabled "HKLM\SYSTEM\CurrentControlSet\Control\DeviceGuard\Scenarios\HypervisorEnforcedCodeIntegrity" "Enabled"

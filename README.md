@@ -280,6 +280,8 @@ See the [LICENSE](./LICENSE) file for more information.
 
 **Note 4:**.
 - You will need an internet connection to install. It's not an offline installer.
+- Installer note: when setup disables Hyper-V/VBS or asks for a reboot, that is only for this repo's Windows driver and testing compatibility.
+- It is not the same thing as the separate hypervisor material mentioned in the wiki or other folders.
 
 **Note 5:**
 

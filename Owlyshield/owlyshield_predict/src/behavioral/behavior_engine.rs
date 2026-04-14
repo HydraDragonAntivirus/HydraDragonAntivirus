@@ -6619,7 +6619,6 @@ impl BehaviorEngine {
                                 let path_lc = path_str.to_lowercase();
                                 if path_lc.starts_with("\\device\\harddiskvolume") {
                                     use std::ffi::OsString;
-                                    use std::os::windows::ffi::OsStrExt;
                                     use std::os::windows::ffi::OsStringExt;
                                     use windows::Win32::Storage::FileSystem::{
                                         GetLogicalDriveStringsW, QueryDosDeviceW,
