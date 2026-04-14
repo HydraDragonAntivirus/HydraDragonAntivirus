@@ -50,7 +50,12 @@ def is_annotation_dict(d):
     if not isinstance(d, dict) or not d or len(d) > 25:
         return False
     for key in d.keys():
-        text = b2s_safe(key)
+        if isinstance(key, (bytes, bytearray)):
+            text = b2s_safe(key)
+        elif isinstance(key, str):
+            text = key
+        else:
+            return False
         if not text.isidentifier() and text != 'return':
             return False
     return True
@@ -113,6 +118,7 @@ IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 CLASS_NAME_RE = re.compile(r"^_?[A-Z][A-Za-z0-9_]*$")
 IMPORT_PATH_RE = re.compile(r"^[a-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)+$")
 METHOD_REF_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)$")
+HTTP_ENDPOINT_RE = re.compile(r"https?://[A-Za-z0-9]|/functions/[A-Za-z0-9_]")
 
 DECORATOR_NAMES = {'property', 'abstractmethod', 'staticmethod', 'classmethod'}
 META_FIELD_NAMES = {
@@ -133,6 +139,24 @@ KNOWN_BASE_NAMES = {
     'Exception', 'Warning', 'ValueError', 'TypeError', 'RuntimeError',
     'ConnectionError', 'LookupError', 'MessageDefect', 'IncompleteRead',
 }
+NOISE_CLASS_NAMES = {
+    'ABCMeta', 'Callable', 'Iterable', 'Mapping', 'OrderedDict', 'Path',
+    'Sequence', 'defaultdict',
+}
+WEAK_TOPLEVEL_FUNCTION_NAMES = {
+    'self', 'cls', 'url', 'warn', 'reason', 'conn', 'header', 'headers',
+    'body', 'json', 'data', 'params', 'value', 'type', 'origin', 'message',
+    'status', 'host', 'path', 'replace', 'warnings', 'lstrip',
+}
+MODULE_DOCSTRING_HINTS = (
+    'module', 'package', 'utilities', 'helpers', 'exceptions',
+    'tools', 'support', 'constants',
+)
+MODULE_DOCSTRING_BAD_PREFIXES = (
+    'build ', 'parse ', 'return ', 'create ', 'construct ', 'convert ',
+    'serialize ', 'deserialize ', 'encode ', 'decode ', 'represent ',
+    'initialize ', 'prepare ', 'register ', 'deregister ', 'max retries exceeded',
+)
 
 
 def clean_docstring(text):
@@ -188,7 +212,12 @@ def is_probable_import_path(text):
 
 
 def is_probable_class_name(text):
-    return isinstance(text, str) and CLASS_NAME_RE.fullmatch(text) and text not in DECORATOR_NAMES
+    return (
+        isinstance(text, str)
+        and CLASS_NAME_RE.fullmatch(text)
+        and text not in DECORATOR_NAMES
+        and text not in NOISE_CLASS_NAMES
+    )
 
 
 def is_probable_method_name(text):
@@ -218,18 +247,50 @@ def tuple_texts(value):
 
 
 def literal_source(value):
+    def _trim_sequence(seq, marker):
+        if len(seq) > 12:
+            return seq[:12] + [marker]
+        return seq
+
     if isinstance(value, bytes):
         return repr(b2s_safe(value))
     if isinstance(value, tuple):
-        return repr(tuple(tuple_texts(value)))
+        return repr(tuple(_trim_sequence(list(tuple_texts(value)), '...')))
     if isinstance(value, list):
-        return repr(list(tuple_texts(value)))
+        return repr(_trim_sequence(list(tuple_texts(value)), '...'))
     if isinstance(value, dict):
         cleaned = OrderedDict()
         for key, item in list(value.items())[:20]:
             cleaned[b2s_safe(key)] = b2s_safe(item) if isinstance(item, (bytes, bytearray)) else item
         return repr(dict(cleaned))
     return repr(value)
+
+
+def is_probable_endpoint(text):
+    return isinstance(text, str) and bool(HTTP_ENDPOINT_RE.search(text))
+
+
+def is_probable_module_docstring(text):
+    if not is_probable_docstring(text):
+        return False
+    lowered = text.strip().lower()
+    if lowered.startswith(MODULE_DOCSTRING_BAD_PREFIXES):
+        return False
+    if any(token in lowered for token in (' must ', ' invalid ', 'unsupported ', 'deprecated')):
+        return False
+    return '\n' in text or any(token in lowered for token in MODULE_DOCSTRING_HINTS)
+
+
+def is_fragmentary_docstring(text):
+    cleaned = clean_docstring(text)
+    if not cleaned:
+        return True
+    stripped = cleaned.strip()
+    if stripped[:1] in {',', ':', '%', ')'}:
+        return True
+    if '\n' not in stripped and len(stripped.split()) < 3:
+        return True
+    return False
 
 
 def should_render_constant(name):
@@ -252,6 +313,14 @@ class FunctionDefNode:
     literals: list[object] = field(default_factory=list)
     body_lines: list[str] = field(default_factory=list)
     line_hint: int | None = None
+
+    def reset_hints(self):
+        """Clear all accumulated hints — used when a new method block opens."""
+        self.messages.clear()
+        self.string_hints.clear()
+        self.tuples.clear()
+        self.dict_hints.clear()
+        self.literals.clear()
 
     def render(self, indent=0):
         pad = " " * (indent * 4)
@@ -418,7 +487,9 @@ class OmniDecompiler:
                 continue
             match = METHOD_REF_RE.fullmatch(text)
             if match:
-                scores[match.group(1)] += 5
+                owner = match.group(1)
+                if is_probable_class_name(owner):
+                    scores[owner] += 5
                 continue
             if not is_probable_class_name(text):
                 continue
@@ -442,6 +513,115 @@ class OmniDecompiler:
                 scores[text] += score
         return {name for name, score in scores.items() if score >= 3}
 
+    def _should_capture_module_docstring(self, items, index, text):
+        if self.current_class or self.current_function:
+            return False
+        if index > 4 or not is_probable_module_docstring(text):
+            return False
+        window = items[index + 1:index + 6]
+        if any(
+            isinstance(x, (bytes, bytearray, str))
+            and is_probable_import_path(b2s_safe(x))
+            for x in window
+        ):
+            return True
+        return '\n' in text
+
+    def _looks_like_toplevel_function(self, items, index, text, pending_args, pending_annotations):
+        if (
+            text in WEAK_TOPLEVEL_FUNCTION_NAMES
+            or text.startswith('__')
+            or is_probable_import_path(text)
+        ):
+            return False
+
+        score = 0
+        if pending_annotations:
+            score += 2
+        if pending_args:
+            score += 1
+
+        window = items[index + 1:index + 6]
+        if any(isinstance(x, dict) and is_annotation_dict(x) for x in window):
+            score += 2
+        if any(
+            isinstance(x, tuple)
+            and 0 < len(x) <= 8
+            and all(safe_identifier(v) for v in tuple_texts(x))
+            for x in window
+        ):
+            score += 1
+        if any(isinstance(x, str) and is_probable_docstring(x) for x in window):
+            score += 1
+        if any(isinstance(x, int) and 0 < x < 10000 for x in window):
+            score += 1
+        return score >= 3
+
+    def _finalize_function_signature(self, func):
+        if func.is_method:
+            if not func.args:
+                func.args = ['self']
+            elif func.args[0] not in {'self', 'cls'}:
+                func.args = ['self'] + [arg for arg in func.args if arg not in {'self', 'cls'}]
+
+        if func.name == '__eq__' and func.is_method:
+            if not func.args:
+                func.args = ['self', 'other']
+            elif 'other' not in func.args:
+                func.args = [func.args[0], 'other']
+        elif func.name in {'register_hook', 'deregister_hook'} and func.is_method and len(func.args) <= 1:
+            func.args = [func.args[0] if func.args else 'self', 'event', 'hook']
+
+        if 'property' in func.decorators:
+            func.args = ['self']
+
+    def _has_meaningful_body(self, func):
+        for line in func.body_lines:
+            stripped = line.strip()
+            if not stripped or stripped == 'pass':
+                continue
+            if stripped.startswith('#') or stripped.startswith('config = ') or stripped.startswith('state = '):
+                continue
+            return True
+        return False
+
+    def _should_keep_function(self, func):
+        if func.name in WEAK_TOPLEVEL_FUNCTION_NAMES:
+            return False
+        if func.annotations or func.decorators:
+            return True
+        return self._has_meaningful_body(func)
+
+    def _imported_symbol_names(self):
+        names = set()
+        for bucket in self.from_imports.values():
+            names.update(bucket.keys())
+        return names
+
+    def _should_keep_class(self, cls_node):
+        if cls_node.name in NOISE_CLASS_NAMES:
+            return False
+        if not cls_node.methods and not cls_node.attributes and not cls_node.docstring:
+            return False
+
+        imported_symbols = self._imported_symbol_names()
+        meaningful_methods = 0
+        for func in cls_node.methods.values():
+            if func.annotations or func.decorators or self._has_meaningful_body(func):
+                meaningful_methods += 1
+
+        if cls_node.name in imported_symbols and not cls_node.attributes and not cls_node.constants:
+            if meaningful_methods <= 1:
+                return False
+
+        if cls_node.name in {'Unknown', 'None_'} and meaningful_methods <= 1 and not cls_node.attributes:
+            return False
+
+        if is_fragmentary_docstring(cls_node.docstring) and meaningful_methods == 0 and not cls_node.attributes:
+            return False
+
+        return True
+
     def _normalize_args(self, values, method=False):
         args = []
         for value in values or ():
@@ -463,7 +643,9 @@ class OmniDecompiler:
                     annotations[ident] = text
         return annotations
 
-    def _apply_pending(self, func, *, args=None, annotations=None, docstring=None, decorators=None, line_hint=None):
+    def _apply_pending(self, func, *, args=None, annotations=None, docstring=None,
+                       decorators=None, line_hint=None,
+                       pending_dicts=None, pending_tuples=None, pending_literals=None):
         if func is None:
             return
         ann = self._normalize_annotations(annotations)
@@ -483,6 +665,13 @@ class OmniDecompiler:
             func.docstring = clean_docstring(docstring)
         if line_hint and not func.line_hint:
             func.line_hint = line_hint
+        # Flush accumulated hints that arrived before the function was identified
+        for d in (pending_dicts or []):
+            self._record_target_hint(func, 'dict', d)
+        for t in (pending_tuples or []):
+            self._record_target_hint(func, 'tuple', t)
+        for lit in (pending_literals or []):
+            self._record_target_hint(func, 'literal', lit)
 
     def _record_target_hint(self, target, kind, value):
         if target is None:
@@ -504,23 +693,40 @@ class OmniDecompiler:
 
     def _looks_like_method_block(self, items, index, text):
         if not is_probable_method_name(text):
-            return False
-        window = items[index + 1:index + 5]
+            # Also accept _-prefixed identifiers inside a known class context
+            if not (
+                self.current_class
+                and text.startswith('_')
+                and IDENTIFIER_RE.fullmatch(text)
+            ):
+                return False
+        window = items[index + 1:index + 10]
+        score = 0
         if any(isinstance(x, dict) and is_annotation_dict(x) for x in window):
-            return True
+            score += 2
         if any(isinstance(x, tuple) and len(x) <= 12 for x in window):
-            return True
+            score += 1
         if any(isinstance(x, str) and is_probable_docstring(x) for x in window):
-            return True
+            score += 1
         if text in KNOWN_METHOD_NAMES or text.startswith(KNOWN_METHOD_PREFIXES):
-            return True
-        return False
+            score += 2
+        if text.startswith('_') and self.current_class:
+            score += 1
+        if any(isinstance(x, int) and 0 < x < 10000 for x in window):
+            score += 1
+        return score >= 2
 
     def _hydrate_class_metadata(self, items, index, cls_node):
         if cls_node is None:
             return
         if not cls_node.docstring:
-            for candidate in items[index + 1:index + 8]:
+            for offset, candidate in enumerate(items[index + 1:index + 8], start=1):
+                if isinstance(candidate, (bytes, bytearray, str)):
+                    text = b2s_safe(candidate)
+                    if text in self.class_candidates and text != cls_node.name:
+                        break
+                    if METHOD_REF_RE.fullmatch(text) or self._looks_like_method_block(items, index + offset, text):
+                        break
                 if isinstance(candidate, str) and is_probable_docstring(candidate):
                     cls_node.docstring = clean_docstring(candidate)
                     break
@@ -544,6 +750,9 @@ class OmniDecompiler:
         pending_decorators = []
         pending_args = None
         pending_line = None
+        pending_dicts = []
+        pending_tuples = []
+        pending_literals = []
 
         for index, item in enumerate(items):
             if item is None:
@@ -588,8 +797,14 @@ class OmniDecompiler:
                         match = METHOD_REF_RE.fullmatch(ref)
                         if not match:
                             continue
-                        func = self.ensure_method(match.group(1), match.group(2))
-                        self.current_class = match.group(1)
+                        owner = match.group(1)
+                        if not is_probable_class_name(owner):
+                            continue
+                        func = self.ensure_method(owner, match.group(2))
+                        # Reset bleed: clear previous function's context
+                        if self.current_function and self.current_function is not func:
+                            self.current_function = None
+                        self.current_class = owner
                         self.current_function = func
                         self._apply_pending(
                             func,
@@ -598,12 +813,18 @@ class OmniDecompiler:
                             docstring=pending_docstring,
                             decorators=pending_decorators,
                             line_hint=pending_line,
+                            pending_dicts=pending_dicts,
+                            pending_tuples=pending_tuples,
+                            pending_literals=pending_literals,
                         )
                         pending_docstring = None
                         pending_annotations = None
                         pending_decorators = []
                         pending_args = None
                         pending_line = None
+                        pending_dicts = []
+                        pending_tuples = []
+                        pending_literals = []
                 elif args:
                     pending_args = args
                     if hints:
@@ -614,7 +835,10 @@ class OmniDecompiler:
                 if is_annotation_dict(item):
                     pending_annotations = decode_annotation_blob(item)
                 else:
-                    self._record_target_hint(self.current_function, 'dict', item)
+                    if self.current_function:
+                        self._record_target_hint(self.current_function, 'dict', item)
+                    else:
+                        pending_dicts.append(item)
                 continue
 
             if item_type == 'tuple':
@@ -625,13 +849,19 @@ class OmniDecompiler:
                         cls_node.slots = tuple(x for x in decoded if isinstance(x, str) and safe_identifier(x))
                 elif all(isinstance(x, str) and safe_identifier(x) for x in decoded) and 0 < len(decoded) <= 12:
                     pending_args = decoded
-                self._record_target_hint(self.current_function, 'tuple', item)
+                if self.current_function:
+                    self._record_target_hint(self.current_function, 'tuple', item)
+                else:
+                    pending_tuples.append(item)
                 continue
 
             if item_type == 'literal':
                 if isinstance(item, int) and 0 < item < 10000:
                     pending_line = item
-                self._record_target_hint(self.current_function, 'literal', item)
+                if self.current_function:
+                    self._record_target_hint(self.current_function, 'literal', item)
+                else:
+                    pending_literals.append(item)
                 continue
 
             if not isinstance(text, str) or not text:
@@ -639,7 +869,7 @@ class OmniDecompiler:
 
             self.last_item_name = text
 
-            if 'http' in text.lower() or '/functions/' in text:
+            if is_probable_endpoint(text):
                 self.api_endpoints.add(text)
 
             if text in DECORATOR_NAMES:
@@ -648,8 +878,13 @@ class OmniDecompiler:
 
             method_ref = METHOD_REF_RE.fullmatch(text)
             if method_ref:
-                func = self.ensure_method(method_ref.group(1), method_ref.group(2))
-                self.current_class = method_ref.group(1)
+                owner = method_ref.group(1)
+                if not is_probable_class_name(owner):
+                    continue
+                func = self.ensure_method(owner, method_ref.group(2))
+                # Reset bleed: cut previous function before reassigning
+                self.current_function = None
+                self.current_class = owner
                 self.current_function = func
                 self._apply_pending(
                     func,
@@ -658,12 +893,18 @@ class OmniDecompiler:
                     docstring=pending_docstring,
                     decorators=pending_decorators,
                     line_hint=pending_line,
+                    pending_dicts=pending_dicts,
+                    pending_tuples=pending_tuples,
+                    pending_literals=pending_literals,
                 )
                 pending_docstring = None
                 pending_annotations = None
                 pending_decorators = []
                 pending_args = None
                 pending_line = None
+                pending_dicts = []
+                pending_tuples = []
+                pending_literals = []
                 continue
 
             if text in self.class_candidates:
@@ -681,6 +922,8 @@ class OmniDecompiler:
                 if index + 1 < len(items) and isinstance(items[index + 1], tuple):
                     names = [name for name in tuple_texts(items[index + 1]) if isinstance(name, str) and safe_identifier(name)]
                 self.record_import(text, names)
+                self.current_class = None
+                self.current_function = None
                 continue
 
             if should_render_constant(text) and index + 1 < len(items):
@@ -689,13 +932,21 @@ class OmniDecompiler:
                     self.module_constants[text] = literal_source(nxt)
                 continue
 
-            if self.current_class and text.startswith('_') and not text.startswith('__') and len(text) > 1:
+            if (
+                self.current_class
+                and text.startswith('_')
+                and not text.startswith('__')
+                and len(text) > 1
+                and not self._looks_like_method_block(items, index, text)
+            ):
                 cls_node = self.classes.get(self.current_class)
                 if cls_node:
                     cls_node.attributes.add(text)
 
             if self.current_class and self._looks_like_method_block(items, index, text):
                 func = self.ensure_method(self.current_class, text)
+                # Reset bleed: cut previous function before reassigning
+                self.current_function = None
                 self.current_function = func
                 self._apply_pending(
                     func,
@@ -704,18 +955,25 @@ class OmniDecompiler:
                     docstring=pending_docstring,
                     decorators=pending_decorators,
                     line_hint=pending_line,
+                    pending_dicts=pending_dicts,
+                    pending_tuples=pending_tuples,
+                    pending_literals=pending_literals,
                 )
                 pending_docstring = None
                 pending_annotations = None
                 pending_decorators = []
                 pending_args = None
                 pending_line = None
+                pending_dicts = []
+                pending_tuples = []
+                pending_literals = []
                 continue
 
             if not self.current_class and is_probable_method_name(text):
-                window = items[index + 1:index + 4]
-                if any(isinstance(x, (tuple, dict)) for x in window) or any(isinstance(x, str) and is_probable_docstring(x) for x in window):
+                if self._looks_like_toplevel_function(items, index, text, pending_args, pending_annotations):
                     func = self.ensure_function(text)
+                    # Reset bleed
+                    self.current_function = None
                     self.current_function = func
                     self._apply_pending(
                         func,
@@ -724,16 +982,22 @@ class OmniDecompiler:
                         docstring=pending_docstring,
                         decorators=pending_decorators,
                         line_hint=pending_line,
+                        pending_dicts=pending_dicts,
+                        pending_tuples=pending_tuples,
+                        pending_literals=pending_literals,
                     )
                     pending_docstring = None
                     pending_annotations = None
                     pending_decorators = []
                     pending_args = None
                     pending_line = None
+                    pending_dicts = []
+                    pending_tuples = []
+                    pending_literals = []
                     continue
 
             if is_probable_docstring(text):
-                if not self.module_docstring and index < 8:
+                if not self.module_docstring and self._should_capture_module_docstring(items, index, text):
                     self.module_docstring = clean_docstring(text)
                 elif self.current_function:
                     self._record_target_hint(self.current_function, 'message', text)
@@ -936,26 +1200,71 @@ class OmniDecompiler:
         for text in func.string_hints[:5]:
             if is_probable_docstring(text):
                 continue
-            if 'http' in text.lower():
+            if is_probable_endpoint(text):
                 lines.append(f"# External reference: {text}")
             elif len(text) > 20 and ' ' in text:
                 lines.append(f"# {text}")
+
+        # General fallback: emit meaningful body when no hardcoded pattern matched
+        if not lines:
+            args_no_self = [a for a in func.args if a not in {'self', 'cls'}]
+            # Getter-like: single return value for no-arg methods
+            if not args_no_self and func.string_hints:
+                # If the function has string hints suggesting a return value
+                for hint in func.string_hints:
+                    if IDENTIFIER_RE.fullmatch(hint) and hint.startswith('_'):
+                        lines.append(f"return self.{hint}" if func.is_method else f"return {hint}")
+                        break
+            # Setter-like: single arg methods starting with set_ or _set_
+            if not lines and len(args_no_self) == 1 and func.name.startswith(('set_', '_set_')):
+                suffix = func.name.split('set_', 1)[-1]
+                if func.is_method:
+                    lines.append(f"self._{suffix} = {args_no_self[0]}")
+                else:
+                    lines.append(f"# {suffix} = {args_no_self[0]}")
+            # Delegate patterns: methods with messages that look like errors
+            if not lines and func.messages:
+                for msg in func.messages:
+                    lower = msg.lower()
+                    if any(kw in lower for kw in ('error', 'invalid', 'failed', 'must')):
+                        lines.append(f"raise ValueError({msg!r})")
+                        break
+            # Last resort: emit return ... for getters, raise NotImplementedError for others
+            if not lines:
+                if func.name.startswith(('get', 'is_', 'has_')):
+                    lines.append("return ...")
+                elif func.is_method and args_no_self:
+                    # Methods with arguments likely do something — emit stub assignments
+                    for arg in args_no_self[:3]:
+                        lines.append(f"self._{arg} = {arg}" if func.is_method else f"# {arg}")
+                else:
+                    lines.append("raise NotImplementedError")
         return lines
 
     def run_pass_2_ast_synthesis(self):
+        kept_classes = OrderedDict()
         for cls_name, cls_node in self.classes.items():
             if cls_name.endswith('Warning') and not cls_node.bases:
                 cls_node.bases = ['Warning']
             elif cls_name.endswith('Error') and not cls_node.bases:
                 cls_node.bases = ['Exception']
             for func in cls_node.methods.values():
+                self._finalize_function_signature(func)
                 func.body_lines = self._build_body(cls_node, func)
+            if self._should_keep_class(cls_node):
+                kept_classes[cls_name] = cls_node
+        self.classes = kept_classes
 
-        for func in self.functions.values():
+        kept_functions = OrderedDict()
+        for name, func in self.functions.items():
+            self._finalize_function_signature(func)
             if not func.body_lines:
                 func.body_lines = self._validation_lines(func)
             if not func.body_lines and func.dict_hints:
                 func.body_lines = [f"config = {literal_source(func.dict_hints[0])}"]
+            if self._should_keep_function(func):
+                kept_functions[name] = func
+        self.functions = kept_functions
 
 
 def generate_omni_source(decompiler, section_name):
