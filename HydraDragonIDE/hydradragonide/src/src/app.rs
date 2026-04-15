@@ -84,6 +84,48 @@ fn format_size(size: usize) -> String {
     }
 }
 
+fn parse_offset_input(input: &str) -> Option<u64> {
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    if let Some(hex) = trimmed
+        .strip_prefix("0x")
+        .or_else(|| trimmed.strip_prefix("0X"))
+    {
+        return u64::from_str_radix(hex, 16).ok();
+    }
+
+    if trimmed
+        .chars()
+        .any(|c| c.is_ascii_hexdigit() && c.is_ascii_alphabetic())
+    {
+        return u64::from_str_radix(trimmed, 16).ok();
+    }
+
+    trimmed
+        .parse::<u64>()
+        .ok()
+        .or_else(|| u64::from_str_radix(trimmed, 16).ok())
+}
+
+fn selected_byte_details(hex_page: Option<&HexPage>, selected_byte: Option<u64>) -> Option<(u8, Option<String>)> {
+    let selected = selected_byte?;
+    let page = hex_page?;
+
+    for row in &page.rows {
+        let row_start = row.offset;
+        let row_end = row.offset + row.bytes.len() as u64;
+        if (row_start..row_end).contains(&selected) {
+            let index = (selected - row_start) as usize;
+            return Some((row.bytes[index], row.hit_rules[index].clone()));
+        }
+    }
+
+    None
+}
+
 #[derive(Properties, PartialEq)]
 pub struct HexViewProps {
     pub hex_page: Option<HexPage>,
@@ -93,16 +135,8 @@ pub struct HexViewProps {
 
 #[function_component]
 fn HexView(props: &HexViewProps) -> Html {
-    let Some(page) = &props.hex_page else {
-        return html! {
-            <div class="empty-state">
-                {"Open a binary to inspect bytes, ASCII, and YARA-marked regions in one place."}
-            </div>
-        };
-    };
-
     html! {
-        <div class="table-wrap">
+        <div class="table-wrap editor-table-wrap">
             <table class="hex-table">
                 <thead>
                     <tr>
@@ -112,56 +146,68 @@ fn HexView(props: &HexViewProps) -> Html {
                     </tr>
                 </thead>
                 <tbody>
-                    { for page.rows.iter().map(|row| {
-                        html! {
-                            <tr>
-                                <td class="hex-offset">{format!("0x{:08X}", row.offset)}</td>
-                                {
-                                    for row.bytes.iter().enumerate().map(|(index, byte)| {
-                                        let offset = row.offset + index as u64;
-                                        let is_selected = Some(offset) == props.selected_byte;
-                                        let is_hit = row.hit_rules.get(index).and_then(|rule| rule.as_deref()).is_some();
-                                        let class_name = classes!(
-                                            "hex-byte",
-                                            is_selected.then_some("is-selected"),
-                                            is_hit.then_some("is-hit"),
-                                        );
-                                        let title = row
-                                            .hit_rules
-                                            .get(index)
-                                            .and_then(|rule| rule.as_ref())
-                                            .cloned()
-                                            .unwrap_or_default();
+                    {
+                        if let Some(page) = &props.hex_page {
+                            html! {
+                                { for page.rows.iter().map(|row| {
+                                    html! {
+                                        <tr>
+                                            <td class="hex-offset">{format!("0x{:08X}", row.offset)}</td>
+                                            {
+                                                for row.bytes.iter().enumerate().map(|(index, byte)| {
+                                                    let offset = row.offset + index as u64;
+                                                    let is_selected = Some(offset) == props.selected_byte;
+                                                    let is_hit = row
+                                                        .hit_rules
+                                                        .get(index)
+                                                        .and_then(|rule| rule.as_deref())
+                                                        .is_some();
+                                                    let class_name = classes!(
+                                                        "hex-byte",
+                                                        is_selected.then_some("is-selected"),
+                                                        is_hit.then_some("is-hit"),
+                                                    );
+                                                    let title = row
+                                                        .hit_rules
+                                                        .get(index)
+                                                        .and_then(|rule| rule.as_ref())
+                                                        .cloned()
+                                                        .unwrap_or_default();
 
-                                        html! {
-                                            <td
-                                                class={class_name}
-                                                title={title}
-                                                onclick={{
-                                                    let on_byte_click = props.on_byte_click.clone();
-                                                    Callback::from(move |_| on_byte_click.emit(offset))
-                                                }}
-                                            >
-                                                {format!("{byte:02X}")}
+                                                    html! {
+                                                        <td
+                                                            class={class_name}
+                                                            title={title}
+                                                            onclick={{
+                                                                let on_byte_click = props.on_byte_click.clone();
+                                                                Callback::from(move |_| on_byte_click.emit(offset))
+                                                            }}
+                                                        >
+                                                            {format!("{byte:02X}")}
+                                                        </td>
+                                                    }
+                                                })
+                                            }
+                                            <td class="ascii-cell">
+                                                {
+                                                    for row.bytes.iter().map(|byte| {
+                                                        let chr = if (0x20..=0x7e).contains(byte) {
+                                                            *byte as char
+                                                        } else {
+                                                            '.'
+                                                        };
+                                                        html! { <span>{chr}</span> }
+                                                    })
+                                                }
                                             </td>
-                                        }
-                                    })
-                                }
-                                <td class="ascii-cell">
-                                    {
-                                        for row.bytes.iter().map(|byte| {
-                                            let chr = if (0x20..=0x7e).contains(byte) {
-                                                *byte as char
-                                            } else {
-                                                '.'
-                                            };
-                                            html! { <span>{chr}</span> }
-                                        })
+                                        </tr>
                                     }
-                                </td>
-                            </tr>
+                                }) }
+                            }
+                        } else {
+                            Html::default()
                         }
-                    }) }
+                    }
                 </tbody>
             </table>
         </div>
@@ -177,21 +223,7 @@ pub struct DisasmPanelProps {
 
 #[function_component]
 fn DisasmPanel(props: &DisasmPanelProps) -> Html {
-    if !props.has_file {
-        return html! {
-            <div class="empty-state">
-                {"Load a file first, then disassembly will start from the current selection or page offset."}
-            </div>
-        };
-    }
-
-    if props.rows.is_empty() {
-        return html! {
-            <div class="empty-state">
-                {format!("Disassembly is ready for offset 0x{:08X}. Use the action above to populate it.", props.target_offset)}
-            </div>
-        };
-    }
+    let _ = props.target_offset;
 
     html! {
         <div class="table-wrap">
@@ -205,16 +237,24 @@ fn DisasmPanel(props: &DisasmPanelProps) -> Html {
                     </tr>
                 </thead>
                 <tbody>
-                    { for props.rows.iter().map(|row| {
-                        html! {
-                            <tr>
-                                <td class="mono-accent">{format!("0x{:08X}", row.address)}</td>
-                                <td class="mono-dim">{&row.bytes_hex}</td>
-                                <td class="mono-strong">{&row.mnemonic}</td>
-                                <td class="mono-dim">{&row.operands}</td>
-                            </tr>
+                    {
+                        if props.has_file {
+                            html! {
+                                { for props.rows.iter().map(|row| {
+                                    html! {
+                                        <tr>
+                                            <td class="mono-accent">{format!("0x{:08X}", row.address)}</td>
+                                            <td class="mono-dim">{&row.bytes_hex}</td>
+                                            <td class="mono-strong">{&row.mnemonic}</td>
+                                            <td class="mono-dim">{&row.operands}</td>
+                                        </tr>
+                                    }
+                                }) }
+                            }
+                        } else {
+                            Html::default()
                         }
-                    }) }
+                    }
                 </tbody>
             </table>
         </div>
@@ -250,15 +290,18 @@ pub fn App() -> Html {
     let b64_output = use_state(String::new);
     let status = use_state(|| "Ready.".to_string());
     let selected_byte = use_state(|| None::<u64>);
+    let jump_input = use_state(|| "0x00000000".to_string());
 
     let load_hex = {
         let hex_page = hex_page.clone();
         let hex_offset = hex_offset.clone();
+        let jump_input = jump_input.clone();
         let status = status.clone();
 
         Callback::from(move |offset: u64| {
             let hex_page = hex_page.clone();
             let hex_offset = hex_offset.clone();
+            let jump_input = jump_input.clone();
             let status = status.clone();
 
             spawn_local(async move {
@@ -270,6 +313,7 @@ pub fn App() -> Html {
                 {
                     Ok(page) => {
                         hex_offset.set(offset);
+                        jump_input.set(format!("0x{offset:08X}"));
                         hex_page.set(Some(page));
                     }
                     Err(error) => status.set(format!("Hex view error: {error}")),
@@ -316,6 +360,7 @@ pub fn App() -> Html {
         let b64_output = b64_output.clone();
         let load_hex = load_hex.clone();
         let request_disasm = request_disasm.clone();
+        let jump_input = jump_input.clone();
         let status = status.clone();
 
         Callback::from(move |_| {
@@ -329,6 +374,7 @@ pub fn App() -> Html {
             let b64_output = b64_output.clone();
             let load_hex = load_hex.clone();
             let request_disasm = request_disasm.clone();
+            let jump_input = jump_input.clone();
             let status = status.clone();
 
             spawn_local(async move {
@@ -343,6 +389,7 @@ pub fn App() -> Html {
                         xor_candidates.set(Vec::new());
                         b64_input.set(String::new());
                         b64_output.set(String::new());
+                        jump_input.set("0x00000000".to_string());
                         load_hex.emit(0);
                         request_disasm.emit(0);
                     }
@@ -524,8 +571,50 @@ pub fn App() -> Html {
         })
     };
 
+    let on_jump_to_offset = {
+        let jump_input = jump_input.clone();
+        let load_hex = load_hex.clone();
+        let status = status.clone();
+
+        Callback::from(move |_| {
+            if let Some(offset) = parse_offset_input((*jump_input).as_str()) {
+                load_hex.emit(offset);
+            } else {
+                status.set(format!("Invalid offset: {}", (*jump_input).clone()));
+            }
+        })
+    };
+
     let has_file = (*file_info).is_some();
     let active_offset = (*selected_byte).unwrap_or(*hex_offset);
+    let selection_details = selected_byte_details((*hex_page).as_ref(), *selected_byte);
+    let (selected_hex, selected_ascii, selected_rule) = if let Some((byte, hit_rule)) = selection_details {
+        let ascii = if (0x20..=0x7e).contains(&byte) {
+            (byte as char).to_string()
+        } else {
+            ".".to_string()
+        };
+        (
+            format!("{byte:02X}"),
+            ascii,
+            hit_rule.unwrap_or_else(|| "-".to_string()),
+        )
+    } else {
+        ("--".to_string(), "--".to_string(), "-".to_string())
+    };
+
+    let file_path = (*file_info)
+        .as_ref()
+        .map(|info| info.path.clone())
+        .unwrap_or_else(|| "No file".to_string());
+    let file_size = (*file_info)
+        .as_ref()
+        .map(|info| format_size(info.size))
+        .unwrap_or_else(|| "0 B".to_string());
+    let file_sha256 = (*file_info)
+        .as_ref()
+        .map(|info| info.sha256.clone())
+        .unwrap_or_else(|| "-".to_string());
 
     html! {
         <div class="app-shell">
@@ -533,273 +622,249 @@ pub fn App() -> Html {
                 <div class="brand-block">
                     <div class="eyebrow">{"HydraDragon"}</div>
                     <h1>{"HydraDragonIDE"}</h1>
-                    <p>{"Unified static analysis workspace for one file at a time."}</p>
-                </div>
-
-                <div class="topbar-actions">
-                    <button class="btn btn-primary" onclick={on_open_file}>{"Open File"}</button>
-                    <button class="btn" onclick={on_scan.clone()} disabled={!has_file}>{"Run YARA"}</button>
-                    <button class="btn" onclick={on_run_disasm.clone()} disabled={!has_file}>{"Disassemble"}</button>
+                    <p>{"Single-screen binary editor workspace with analysis tools kept in the same flow."}</p>
                 </div>
             </header>
 
-            <main class="workspace">
-                <section class="section summary-section">
-                    <div class="section-header">
-                        <div>
-                            <h2>{"Session"}</h2>
-                            <p>{"Current file, selection, and analysis status."}</p>
+            <main class="workspace workspace-fixed">
+                <section class="workbench workbench-fixed">
+                    <div class="workbench-toolbar">
+                        <div class="toolbar-group">
+                            <button class="btn btn-primary" onclick={on_open_file}>{"Open File"}</button>
+                            <button class="btn" onclick={on_scan.clone()} disabled={!has_file}>{"Run YARA"}</button>
+                            <button class="btn" onclick={on_run_disasm.clone()} disabled={!has_file}>{"Disassemble"}</button>
+                            <button class="btn" onclick={on_prev_page.clone()} disabled={!has_file || *hex_offset == 0}>{"Page -"}</button>
+                            <button class="btn" onclick={on_next_page.clone()} disabled={!has_file}>{"Page +"}</button>
+                        </div>
+
+                        <div class="toolbar-group">
+                            <label class="field-inline" for="offset-jump">{"Offset"}</label>
+                            <input
+                                id="offset-jump"
+                                class="text-input offset-input"
+                                value={(*jump_input).clone()}
+                                oninput={{
+                                    let jump_input = jump_input.clone();
+                                    Callback::from(move |event: InputEvent| {
+                                        if let Some(input) = event.target_dyn_into::<web_sys::HtmlInputElement>() {
+                                            jump_input.set(input.value());
+                                        }
+                                    })
+                                }}
+                            />
+                            <button class="btn" onclick={on_jump_to_offset} disabled={!has_file}>{"Jump"}</button>
                         </div>
                     </div>
 
-                    {
-                        if let Some(info) = (*file_info).as_ref() {
-                            html! {
-                                <div class="summary-grid">
-                                    <div class="summary-card">
-                                        <span class="summary-label">{"Path"}</span>
-                                        <code>{info.path.clone()}</code>
-                                    </div>
-                                    <div class="summary-card">
-                                        <span class="summary-label">{"Size"}</span>
-                                        <strong>{format_size(info.size)}</strong>
-                                    </div>
-                                    <div class="summary-card">
-                                        <span class="summary-label">{"Selected Offset"}</span>
-                                        <strong>{format!("0x{:08X}", active_offset)}</strong>
-                                    </div>
-                                    <div class="summary-card">
-                                        <span class="summary-label">{"YARA Hits"}</span>
-                                        <strong>{yara_hits.len()}</strong>
-                                    </div>
-                                    <div class="summary-card summary-card-wide">
-                                        <span class="summary-label">{"SHA-256"}</span>
-                                        <code>{info.sha256.clone()}</code>
-                                    </div>
+                    <div class="meta-strip meta-strip-compact">
+                        <div class="meta-item meta-item-wide">
+                            <span class="summary-label">{"File"}</span>
+                            <code>{file_path}</code>
+                        </div>
+                        <div class="meta-item">
+                            <span class="summary-label">{"Size"}</span>
+                            <strong>{file_size}</strong>
+                        </div>
+                        <div class="meta-item">
+                            <span class="summary-label">{"Offset"}</span>
+                            <strong>{format!("0x{:08X}", active_offset)}</strong>
+                        </div>
+                        <div class="meta-item">
+                            <span class="summary-label">{"Byte"}</span>
+                            <strong>{selected_hex}</strong>
+                        </div>
+                        <div class="meta-item">
+                            <span class="summary-label">{"ASCII"}</span>
+                            <strong>{selected_ascii}</strong>
+                        </div>
+                        <div class="meta-item">
+                            <span class="summary-label">{"Hits"}</span>
+                            <strong>{yara_hits.len()}</strong>
+                        </div>
+                        <div class="meta-item meta-item-wide">
+                            <span class="summary-label">{"Rule"}</span>
+                            <code>{selected_rule}</code>
+                        </div>
+                        <div class="meta-item meta-item-wide">
+                            <span class="summary-label">{"SHA-256"}</span>
+                            <code>{file_sha256}</code>
+                        </div>
+                    </div>
+
+                    <div class="viewport-layout">
+                        <div class="viewport-editor">
+                            <div class="workbench-head">
+                                <div>
+                                    <h2>{"Editor"}</h2>
+                                    <p>{"Hex editor stays visible all the time."}</p>
                                 </div>
-                            }
-                        } else {
-                            html! {
-                                <div class="empty-state empty-state-prominent">
-                                    {"No file is loaded yet. Open a binary to activate hex inspection, disassembly, YARA, XOR, and Base64 tools in this single view."}
+                                <div class="section-actions">
+                                    <span class="chip">{format!("Page offset 0x{:08X}", *hex_offset)}</span>
                                 </div>
-                            }
-                        }
-                    }
-                </section>
+                            </div>
+                            <HexView
+                                hex_page={(*hex_page).clone()}
+                                selected_byte={*selected_byte}
+                                on_byte_click={on_select_byte}
+                            />
+                        </div>
 
-                <section class="section">
-                    <div class="section-header">
-                        <div>
-                            <h2>{"Hex View"}</h2>
-                            <p>{"Browse the file contents and click a byte to move the active selection."}</p>
-                        </div>
-                        <div class="section-actions">
-                            <span class="chip">{format!("Page offset 0x{:08X}", *hex_offset)}</span>
-                            <button class="btn btn-small" onclick={on_prev_page} disabled={!has_file || *hex_offset == 0}>{"Page -"}</button>
-                            <button class="btn btn-small" onclick={on_next_page} disabled={!has_file}>{"Page +"}</button>
-                        </div>
-                    </div>
-                    <HexView
-                        hex_page={(*hex_page).clone()}
-                        selected_byte={*selected_byte}
-                        on_byte_click={on_select_byte}
-                    />
-                </section>
-
-                <section class="section">
-                    <div class="section-header">
-                        <div>
-                            <h2>{"Disassembly"}</h2>
-                            <p>{"Starts from the current selection, or the current page offset when nothing is selected."}</p>
-                        </div>
-                        <div class="section-actions">
-                            <span class="chip">{format!("Target 0x{:08X}", active_offset)}</span>
-                            <button class="btn btn-small" onclick={on_run_disasm.clone()} disabled={!has_file}>{"Refresh"}</button>
-                        </div>
-                    </div>
-                    <DisasmPanel
-                        rows={(*disasm_rows).clone()}
-                        has_file={has_file}
-                        target_offset={active_offset}
-                    />
-                </section>
-
-                <section class="section">
-                    <div class="section-header">
-                        <div>
-                            <h2>{"YARA"}</h2>
-                            <p>{"Edit rules and review matches without switching tabs."}</p>
-                        </div>
-                        <div class="section-actions">
-                            <span class="chip">{format!("{} match(es)", yara_hits.len())}</span>
-                            <button class="btn btn-small" onclick={on_scan} disabled={!has_file}>{"Scan"}</button>
+                        <div class="viewport-disasm">
+                            <div class="workbench-head">
+                                <div>
+                                    <h2>{"Disassembly"}</h2>
+                                    <p>{"Selection or current offset."}</p>
+                                </div>
+                                <div class="section-actions">
+                                    <span class="chip">{format!("{}", disasm_rows.len())}</span>
+                                    <button class="btn btn-small" onclick={on_run_disasm.clone()} disabled={!has_file}>{"Refresh"}</button>
+                                </div>
+                            </div>
+                            <DisasmPanel
+                                rows={(*disasm_rows).clone()}
+                                has_file={has_file}
+                                target_offset={active_offset}
+                            />
                         </div>
                     </div>
 
-                    <label class="field-label" for="yara-rules">{"Rules"}</label>
-                    <textarea
-                        id="yara-rules"
-                        class="text-editor"
-                        value={(*yara_rules_src).clone()}
-                        oninput={{
-                            let yara_rules_src = yara_rules_src.clone();
-                            Callback::from(move |event: InputEvent| {
-                                if let Some(input) = event.target_dyn_into::<web_sys::HtmlTextAreaElement>() {
-                                    yara_rules_src.set(input.value());
-                                }
-                            })
-                        }}
-                    />
+                    <div class="tool-grid">
+                        <div class="tool-panel tool-panel-yara">
+                            <div class="workbench-head">
+                                <div>
+                                    <h2>{"YARA"}</h2>
+                                    <p>{"Rules and matches."}</p>
+                                </div>
+                                <div class="section-actions">
+                                    <button class="btn btn-small" onclick={on_scan} disabled={!has_file}>{"Scan"}</button>
+                                </div>
+                            </div>
 
-                    <div class="subsection">
-                        <h3>{"Matches"}</h3>
-                        {
-                            if !has_file {
-                                html! { <div class="empty-state">{"Load a file before running a YARA scan."}</div> }
-                            } else if yara_hits.is_empty() {
-                                html! { <div class="empty-state">{"No YARA matches yet. Run the scan to populate this table."}</div> }
-                            } else {
-                                html! {
-                                    <div class="table-wrap">
-                                        <table class="result-table">
-                                            <thead>
+                            <textarea
+                                id="yara-rules"
+                                class="text-editor text-editor-tight"
+                                value={(*yara_rules_src).clone()}
+                                oninput={{
+                                    let yara_rules_src = yara_rules_src.clone();
+                                    Callback::from(move |event: InputEvent| {
+                                        if let Some(input) = event.target_dyn_into::<web_sys::HtmlTextAreaElement>() {
+                                            yara_rules_src.set(input.value());
+                                        }
+                                    })
+                                }}
+                            />
+
+                            <div class="table-wrap tool-fill">
+                                <table class="result-table">
+                                    <thead>
+                                        <tr>
+                                            <th>{"Rule"}</th>
+                                            <th>{"Offset"}</th>
+                                            <th>{"Length"}</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        { for yara_hits.iter().map(|hit| {
+                                            html! {
                                                 <tr>
-                                                    <th>{"Rule"}</th>
-                                                    <th>{"Namespace"}</th>
-                                                    <th>{"Pattern"}</th>
-                                                    <th>{"Offset"}</th>
-                                                    <th>{"Length"}</th>
+                                                    <td>{&hit.rule_name}</td>
+                                                    <td class="mono-accent">{format!("0x{:X}", hit.offset)}</td>
+                                                    <td>{hit.length}</td>
                                                 </tr>
-                                            </thead>
-                                            <tbody>
-                                                { for yara_hits.iter().map(|hit| {
-                                                    html! {
-                                                        <tr>
-                                                            <td>{&hit.rule_name}</td>
-                                                            <td class="mono-dim">{&hit.namespace}</td>
-                                                            <td class="mono-dim">{&hit.pattern_name}</td>
-                                                            <td class="mono-accent">{format!("0x{:X}", hit.offset)}</td>
-                                                            <td>{hit.length}</td>
-                                                        </tr>
-                                                    }
-                                                }) }
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                }
-                            }
-                        }
-                    </div>
-                </section>
-
-                <section class="section">
-                    <div class="section-header">
-                        <div>
-                            <h2>{"XOR Decoder"}</h2>
-                            <p>{"Decode the current region or brute-force likely single-byte keys."}</p>
+                                            }
+                                        }) }
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
-                    </div>
 
-                    <div class="control-row">
-                        <label class="field-inline" for="xor-key">{"Key (hex)"}</label>
-                        <input
-                            id="xor-key"
-                            class="text-input"
-                            value={(*xor_key_hex).clone()}
-                            oninput={{
-                                let xor_key_hex = xor_key_hex.clone();
-                                Callback::from(move |event: InputEvent| {
-                                    if let Some(input) = event.target_dyn_into::<web_sys::HtmlInputElement>() {
-                                        xor_key_hex.set(input.value());
-                                    }
-                                })
-                            }}
-                        />
-                        <button class="btn btn-small" onclick={on_xor_decode} disabled={!has_file}>{"Decode Region"}</button>
-                        <button class="btn btn-small" onclick={on_xor_brute} disabled={!has_file}>{"Brute Force"}</button>
-                    </div>
+                        <div class="tool-panel">
+                            <div class="workbench-head">
+                                <div>
+                                    <h2>{"XOR"}</h2>
+                                    <p>{"Decode and brute force."}</p>
+                                </div>
+                            </div>
 
-                    <div class="subsection">
-                        <h3>{"Decoded Output"}</h3>
-                        {
-                            if xor_result_hex.is_empty() {
-                                html! { <div class="empty-state">{"Decoded bytes will appear here after a successful XOR decode."}</div> }
-                            } else {
-                                html! { <pre class="output-block">{(*xor_result_hex).clone()}</pre> }
-                            }
-                        }
-                    </div>
+                            <div class="control-row">
+                                <label class="field-inline" for="xor-key">{"Key"}</label>
+                                <input
+                                    id="xor-key"
+                                    class="text-input"
+                                    value={(*xor_key_hex).clone()}
+                                    oninput={{
+                                        let xor_key_hex = xor_key_hex.clone();
+                                        Callback::from(move |event: InputEvent| {
+                                            if let Some(input) = event.target_dyn_into::<web_sys::HtmlInputElement>() {
+                                                xor_key_hex.set(input.value());
+                                            }
+                                        })
+                                    }}
+                                />
+                                <button class="btn btn-small" onclick={on_xor_decode} disabled={!has_file}>{"Decode"}</button>
+                                <button class="btn btn-small" onclick={on_xor_brute} disabled={!has_file}>{"Brute"}</button>
+                            </div>
 
-                    <div class="subsection">
-                        <h3>{"Candidates"}</h3>
-                        {
-                            if xor_candidates.is_empty() {
-                                html! { <div class="empty-state">{"Brute-force candidates will be listed here."}</div> }
-                            } else {
-                                html! {
-                                    <div class="table-wrap">
-                                        <table class="result-table">
-                                            <thead>
+                            <pre class="output-block tool-output">{(*xor_result_hex).clone()}</pre>
+
+                            <div class="table-wrap tool-fill">
+                                <table class="result-table">
+                                    <thead>
+                                        <tr>
+                                            <th>{"Key"}</th>
+                                            <th>{"Score"}</th>
+                                            <th>{"Preview"}</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        { for xor_candidates.iter().map(|candidate| {
+                                            html! {
                                                 <tr>
-                                                    <th>{"Key"}</th>
-                                                    <th>{"ASCII Score"}</th>
-                                                    <th>{"Preview"}</th>
+                                                    <td class="mono-accent">{format!("0x{:02X}", candidate.key)}</td>
+                                                    <td>{format!("{:.1}%", candidate.ascii_score * 100.0)}</td>
+                                                    <td class="mono-dim">{&candidate.preview}</td>
                                                 </tr>
-                                            </thead>
-                                            <tbody>
-                                                { for xor_candidates.iter().map(|candidate| {
-                                                    html! {
-                                                        <tr>
-                                                            <td class="mono-accent">{format!("0x{:02X}", candidate.key)}</td>
-                                                            <td>{format!("{:.1}%", candidate.ascii_score * 100.0)}</td>
-                                                            <td class="mono-dim">{&candidate.preview}</td>
-                                                        </tr>
-                                                    }
-                                                }) }
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                }
-                            }
-                        }
-                    </div>
-                </section>
-
-                <section class="section">
-                    <div class="section-header">
-                        <div>
-                            <h2>{"Base64"}</h2>
-                            <p>{"Encode from the active offset or decode pasted Base64 back into hex."}</p>
+                                            }
+                                        }) }
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
-                        <div class="section-actions">
-                            <button class="btn btn-small" onclick={on_b64_encode} disabled={!has_file}>{"Encode Region"}</button>
-                            <button class="btn btn-small" onclick={on_b64_decode}>{"Decode Input"}</button>
+
+                        <div class="tool-panel">
+                            <div class="workbench-head">
+                                <div>
+                                    <h2>{"Base64"}</h2>
+                                    <p>{"Encode and decode."}</p>
+                                </div>
+                                <div class="section-actions">
+                                    <button class="btn btn-small" onclick={on_b64_encode} disabled={!has_file}>{"Encode"}</button>
+                                    <button class="btn btn-small" onclick={on_b64_decode}>{"Decode"}</button>
+                                </div>
+                            </div>
+
+                            <textarea
+                                id="b64-input"
+                                class="text-editor text-editor-tight"
+                                value={(*b64_input).clone()}
+                                oninput={{
+                                    let b64_input = b64_input.clone();
+                                    Callback::from(move |event: InputEvent| {
+                                        if let Some(input) = event.target_dyn_into::<web_sys::HtmlTextAreaElement>() {
+                                            b64_input.set(input.value());
+                                        }
+                                    })
+                                }}
+                            />
+
+                            <textarea
+                                id="b64-output"
+                                class="text-editor text-editor-tight tool-fill"
+                                readonly=true
+                                value={(*b64_output).clone()}
+                            />
                         </div>
                     </div>
-
-                    <label class="field-label" for="b64-input">{"Base64 Input"}</label>
-                    <textarea
-                        id="b64-input"
-                        class="text-editor text-editor-compact"
-                        value={(*b64_input).clone()}
-                        oninput={{
-                            let b64_input = b64_input.clone();
-                            Callback::from(move |event: InputEvent| {
-                                if let Some(input) = event.target_dyn_into::<web_sys::HtmlTextAreaElement>() {
-                                    b64_input.set(input.value());
-                                }
-                            })
-                        }}
-                    />
-
-                    <label class="field-label" for="b64-output">{"Hex Output"}</label>
-                    <textarea
-                        id="b64-output"
-                        class="text-editor text-editor-compact"
-                        readonly=true
-                        value={(*b64_output).clone()}
-                    />
                 </section>
             </main>
 
