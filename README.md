@@ -146,7 +146,7 @@ See the [LICENSE](./LICENSE) file for more information.
 
 ## Download Machine Learning Malware And Benign Database
 - Newest database:
-- **PE Benign Database (204k+):** [Download Link](https://drive.google.com/file/d/1I0AhYzyrfzk12c7QQ41wA3zRmUftnX1a/)
+- **PE Benign Database (204k+):** [Download Link]
 - Old database (with false negative and false positives):
 - **PE Malware Database (53k+):** [Download Link](https://drive.google.com/file/d/1QwdxdwX_nH-oF-5hVTkbTuFkrwUfR0-h)
 - **PE Benign Database (204k+):** [Download Link](https://drive.google.com/file/d/1dbi9F8c05TaQZFBztZUixt5chlKbKtsd)
