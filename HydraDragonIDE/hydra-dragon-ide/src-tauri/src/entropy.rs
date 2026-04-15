@@ -13,7 +13,7 @@ pub struct EntropyBlock {
 }
 
 /// Classify an entropy value into a human-readable category.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum EntropyClass {
     /// Very low — likely zeroed/padding (< 1.0).
     Zeroed,

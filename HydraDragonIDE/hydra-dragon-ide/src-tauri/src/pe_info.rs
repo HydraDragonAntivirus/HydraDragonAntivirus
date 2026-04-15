@@ -129,12 +129,23 @@ fn parse_pe(data: &[u8], pe: goblin::pe::PE) -> Result<ParsedHeaders, String> {
     }
 
     // ── Exports ────────────────────────────────────────────────────────────
+    let export_ordinal_base = pe.export_data
+        .as_ref()
+        .map(|data| data.export_directory_table.ordinal_base)
+        .unwrap_or(0);
+
     let mut exports = Vec::new();
-    for exp in &pe.exports {
+    for (index, exp) in pe.exports.iter().enumerate() {
+        let ordinal = pe.export_data
+            .as_ref()
+            .and_then(|data| data.export_ordinal_table.get(index))
+            .map(|ordinal| export_ordinal_base + u32::from(*ordinal))
+            .unwrap_or(export_ordinal_base + index as u32);
+
         exports.push(ExportEntry {
             name:    exp.name.map(|n| n.to_string()),
             offset:  exp.offset.map(|o| format!("0x{:X}", o)).unwrap_or_default(),
-            ordinal: exp.ordinal as u32,
+            ordinal,
         });
     }
 
