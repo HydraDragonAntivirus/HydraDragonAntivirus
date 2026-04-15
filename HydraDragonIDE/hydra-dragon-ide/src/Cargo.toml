@@ -1,0 +1,30 @@
+[package]
+name = "hydradragonide-ui"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+path = "src/lib.rs"
+
+[[bin]]
+name = "hydradragonide-ui"
+path = "src/main.rs"
+
+[dependencies]
+yew = { version = "0.23", features = ["csr"] }
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+js-sys = "0.3"
+web-sys = { version = "0.3", features = [
+    "Window", "Document", "Element", "HtmlElement",
+    "HtmlTextAreaElement", "HtmlInputElement", "HtmlSelectElement",
+    "Event", "MouseEvent", "InputEvent", "KeyboardEvent",
+    "ScrollToOptions", "console", "DomRect", "CssStyleDeclaration"
+] }
+serde = { version = "1.0", features = ["derive"] }
+serde-wasm-bindgen = "0.6"
+serde_json = "1.0"
+log = "0.4"
+wasm-logger = "0.2"
+gloo-utils = "0.3"

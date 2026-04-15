@@ -66,6 +66,7 @@ def parse_threat_line(
     """
     Parse a line like:
       domain,ref1 | ref2 | ref3
+      domain,ref1 | ref2,123
       domain,sub1 | sub2,ref1 | ref2,123
     Return:
       (domain or None, [reference strings...], format_name, subdomains, popularity)
@@ -111,6 +112,16 @@ def parse_threat_line(
                 refs.append(rr)
         return domain, refs, "popularity", subdomains, popularity
 
+    if len(parts) >= 3 and parts[2].strip().isdigit():
+        domain = parts[0].strip().lower()
+        refs_part = parts[1].strip()
+        popularity = parts[2].strip()
+        for r in refs_part.split("|"):
+            rr = r.strip()
+            if rr:
+                refs.append(rr)
+        return domain, refs, "popularity_simple", "", popularity
+
     if len(parts) >= 3 and parts[0].strip().isdigit():
         domain = parts[1].strip().lower()
         refs_part = parts[2].strip()
@@ -139,6 +150,8 @@ def rewrite_line_with_ids(
     ids_part = " | ".join(str(i) for i in ref_ids)
     if format_name == "popularity":
         return f"{domain},{subdomains},{ids_part},{popularity}\n"
+    if format_name == "popularity_simple":
+        return f"{domain},{ids_part},{popularity}\n"
     if not ref_ids:
         return f"{domain}\n"
     return f"{domain},{ids_part}\n"

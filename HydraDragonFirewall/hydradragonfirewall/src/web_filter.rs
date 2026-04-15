@@ -490,7 +490,9 @@ impl WebFilter {
         let is_ipv4 = filename.contains("IPv4");
         let is_ipv6 = filename.contains("IPv6");
         let is_domain = filename.contains("Domain") || filename.contains("SubDomain");
-        let is_popularity_whitelist = filename.contains("DomainsPopularityWhiteList");
+        let is_popularity_subdomain_whitelist = filename.contains("SubDomainsPopularityWhiteList");
+        let is_popularity_domain_whitelist =
+            filename.contains("DomainsPopularityWhiteList") && !is_popularity_subdomain_whitelist;
         // Temporary vectors to hold data before locking
         let mut ips_v4 = Vec::new();
         let mut ips_v6 = Vec::new();
@@ -503,27 +505,25 @@ impl WebFilter {
                 Err(_) => continue,
             };
 
-            if is_popularity_whitelist {
-                let Some(domain_str) = record.get(0) else {
-                    continue;
-                };
-                let domain = domain_str.trim().to_lowercase();
-                if domain.is_empty() {
-                    continue;
-                }
-
-                popular_domains.push(domain);
-
-                if let Some(subdomains_field) = record.get(1) {
-                    for subdomain in subdomains_field.split('|') {
-                        let subdomain = subdomain.trim().to_lowercase();
-                        if !subdomain.is_empty() {
-                            domains.push(subdomain);
-                        }
+            if is_popularity_domain_whitelist {
+                if let Some(domain_str) = record.get(0) {
+                    let domain = domain_str.trim().to_lowercase();
+                    if !domain.is_empty() {
+                        popular_domains.push(domain);
+                        count += 1;
                     }
                 }
+                continue;
+            }
 
-                count += 1;
+            if is_popularity_subdomain_whitelist {
+                if let Some(subdomain_str) = record.get(0) {
+                    let subdomain = subdomain_str.trim().to_lowercase();
+                    if !subdomain.is_empty() {
+                        domains.push(subdomain);
+                        count += 1;
+                    }
+                }
                 continue;
             }
 
@@ -731,19 +731,21 @@ mod tests {
         ));
         fs::create_dir_all(&tmp_base).unwrap();
 
-        let popularity_path = tmp_base.join("DomainsPopularityWhiteList.optimized.csv");
+        let popularity_domain_path = tmp_base.join("DomainsPopularityWhiteList.optimized.csv");
+        let popularity_subdomain_path =
+            tmp_base.join("SubDomainsPopularityWhiteList.optimized.csv");
         let malware_path = tmp_base.join("MalwareDomains.optimized.csv");
 
-        fs::write(
-            &popularity_path,
-            b"trusted.example,login.trusted.example | mail.trusted.example,1,42\n",
-        )
-        .unwrap();
+        fs::write(&popularity_domain_path, b"trusted.example,1,42\n").unwrap();
+        fs::write(&popularity_subdomain_path, b"login.trusted.example,2,42\n").unwrap();
         fs::write(&malware_path, b"foo.trusted.example,1\nblocked.example,1\n").unwrap();
 
         let _ = filter
-            .load_csv(&popularity_path)
-            .expect("Failed to load popularity whitelist");
+            .load_csv(&popularity_domain_path)
+            .expect("Failed to load popularity domain whitelist");
+        let _ = filter
+            .load_csv(&popularity_subdomain_path)
+            .expect("Failed to load popularity subdomain whitelist");
         let _ = filter
             .load_csv(&malware_path)
             .expect("Failed to load malware blocklist");
@@ -762,7 +764,8 @@ mod tests {
             .expect("Unrelated malware domains should stay blocked");
         assert!(malware_block.contains("blocked.example"));
 
-        let _ = fs::remove_file(&popularity_path);
+        let _ = fs::remove_file(&popularity_domain_path);
+        let _ = fs::remove_file(&popularity_subdomain_path);
         let _ = fs::remove_file(&malware_path);
         let _ = fs::remove_dir(&tmp_base);
     }
