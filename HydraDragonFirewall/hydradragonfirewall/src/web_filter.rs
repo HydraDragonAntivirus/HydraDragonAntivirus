@@ -21,6 +21,7 @@ pub struct WebFilter {
     ipv4_whitelist: Arc<RwLock<HashSet<Ipv4Addr>>>,
     ipv6_whitelist: Arc<RwLock<HashSet<Ipv6Addr>>>,
     domain_whitelist: Arc<RwLock<HashSet<String>>>,
+    popular_domain_whitelist: Arc<RwLock<HashSet<String>>>,
 
     /// Blocked hostname patterns (supports wildcards like *.facebook.com)
     blocked_hostnames: Arc<RwLock<Vec<String>>>,
@@ -57,6 +58,7 @@ impl WebFilter {
                 .cloned()
                 .collect(),
             )),
+            popular_domain_whitelist: Arc::new(RwLock::new(HashSet::new())),
 
             blocked_hostnames: Arc::new(RwLock::new(Vec::new())),
             blocked_url_patterns: Arc::new(RwLock::new(Vec::new())),
@@ -93,6 +95,10 @@ impl WebFilter {
             return None;
         }
 
+        if self.is_popularity_whitelisted(&hostname_lower) {
+            return None;
+        }
+
         // 1. Check domain blocklist (exact match)
         if self
             .domain_blocklist
@@ -111,6 +117,24 @@ impl WebFilter {
         }
 
         None
+    }
+
+    fn is_popularity_whitelisted(&self, hostname: &str) -> bool {
+        let popular_domains = self.popular_domain_whitelist.read().unwrap();
+        let mut candidate = hostname;
+
+        loop {
+            if popular_domains.contains(candidate) {
+                return true;
+            }
+
+            let Some(dot_pos) = candidate.find('.') else {
+                break;
+            };
+            candidate = &candidate[dot_pos + 1..];
+        }
+
+        false
     }
 
     /// Check if a URL matches any blocked patterns
@@ -466,16 +490,42 @@ impl WebFilter {
         let is_ipv4 = filename.contains("IPv4");
         let is_ipv6 = filename.contains("IPv6");
         let is_domain = filename.contains("Domain") || filename.contains("SubDomain");
+        let is_popularity_whitelist = filename.contains("DomainsPopularityWhiteList");
         // Temporary vectors to hold data before locking
         let mut ips_v4 = Vec::new();
         let mut ips_v6 = Vec::new();
         let mut domains = Vec::new();
+        let mut popular_domains = Vec::new();
 
         for result in rdr.records() {
             let record = match result {
                 Ok(r) => r,
                 Err(_) => continue,
             };
+
+            if is_popularity_whitelist {
+                let Some(domain_str) = record.get(0) else {
+                    continue;
+                };
+                let domain = domain_str.trim().to_lowercase();
+                if domain.is_empty() {
+                    continue;
+                }
+
+                popular_domains.push(domain);
+
+                if let Some(subdomains_field) = record.get(1) {
+                    for subdomain in subdomains_field.split('|') {
+                        let subdomain = subdomain.trim().to_lowercase();
+                        if !subdomain.is_empty() {
+                            domains.push(subdomain);
+                        }
+                    }
+                }
+
+                count += 1;
+                continue;
+            }
 
             // In headerless "optimized" CSVs:
             // Column 0 = Address/Domain
@@ -526,6 +576,12 @@ impl WebFilter {
             }
             if !domains.is_empty() {
                 self.domain_whitelist.write().unwrap().extend(domains);
+            }
+            if !popular_domains.is_empty() {
+                self.popular_domain_whitelist
+                    .write()
+                    .unwrap()
+                    .extend(popular_domains);
             }
         } else {
             if !ips_v4.is_empty() {
@@ -658,6 +714,55 @@ mod tests {
 
         // Clean up the temporary folder; ignore errors
         let _ = fs::remove_file(&whitelist_path);
+        let _ = fs::remove_file(&malware_path);
+        let _ = fs::remove_dir(&tmp_base);
+    }
+
+    #[test]
+    fn test_popularity_whitelist_covers_subdomains() {
+        let filter = WebFilter::new();
+
+        let tmp_base = std::env::temp_dir().join(format!(
+            "hdf_wf_popularity_test_{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_millis()
+        ));
+        fs::create_dir_all(&tmp_base).unwrap();
+
+        let popularity_path = tmp_base.join("DomainsPopularityWhiteList.optimized.csv");
+        let malware_path = tmp_base.join("MalwareDomains.optimized.csv");
+
+        fs::write(
+            &popularity_path,
+            b"trusted.example,login.trusted.example | mail.trusted.example,1,42\n",
+        )
+        .unwrap();
+        fs::write(&malware_path, b"foo.trusted.example,1\nblocked.example,1\n").unwrap();
+
+        let _ = filter
+            .load_csv(&popularity_path)
+            .expect("Failed to load popularity whitelist");
+        let _ = filter
+            .load_csv(&malware_path)
+            .expect("Failed to load malware blocklist");
+
+        assert!(
+            filter.check_hostname("foo.trusted.example").is_none(),
+            "Popularity whitelist domains must cover subdomains"
+        );
+        assert!(
+            filter.check_hostname("login.trusted.example").is_none(),
+            "Explicit popularity subdomains must be whitelisted"
+        );
+
+        let malware_block = filter
+            .check_hostname("blocked.example")
+            .expect("Unrelated malware domains should stay blocked");
+        assert!(malware_block.contains("blocked.example"));
+
+        let _ = fs::remove_file(&popularity_path);
         let _ = fs::remove_file(&malware_path);
         let _ = fs::remove_dir(&tmp_base);
     }

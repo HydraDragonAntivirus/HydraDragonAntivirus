@@ -14,10 +14,17 @@ Usage:
     python reference_optimizer.py --dir path/to/rules
 """
 
+import csv
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-SKIP_NAMES = {"urlhaus.txt", "listed_email_365.txt"}
+SKIP_NAMES = {
+    "urlhaus.txt",
+    "listed_email_365.txt",
+    "top-1m.csv",
+    "builtwith-top1m-20250121.csv",
+    "tranco_pl9gj.csv",
+}
 
 # -----------------------
 # ReferenceRegistry
@@ -52,53 +59,88 @@ class ReferenceRegistry:
 # -----------------------
 # CSV parsing helpers
 # -----------------------
-def parse_threat_line(line: str, is_first_line: bool = False) -> Tuple[Optional[str], List[str]]:
+def parse_threat_line(
+    line: str,
+    is_first_line: bool = False,
+) -> Tuple[Optional[str], List[str], str, str, str]:
     """
     Parse a line like:
       domain,ref1 | ref2 | ref3
-    Return (domain or None, [reference strings...])
+      domain,sub1 | sub2,ref1 | ref2,123
+    Return:
+      (domain or None, [reference strings...], format_name, subdomains, popularity)
 
     Args:
         line: The line to parse
         is_first_line: If True, check if this looks like a CSV header and skip it
     """
     if not line:
-        return None, []
+        return None, [], "skip", "", ""
     s = line.strip()
     if not s or s.startswith("#"):
-        return None, []
+        return None, [], "skip", "", ""
 
-    # Skip CSV header line if it's the first line and looks like a header
-    if is_first_line and "," in s:
-        parts = s.split(",", 1)
-        first_col = parts[0].strip().lower()
-        # Check if first column looks like a header name
-        if first_col in {"entry", "domain", "threat", "indicator", "ip", "address"}:
-            return None, []
-        # Also check if second column looks like a header
-        if len(parts) > 1:
-            second_col = parts[1].strip().lower()
-            if second_col in {"reference", "references", "source", "description"}:
-                return None, []
+    parts = [part.strip() for part in next(csv.reader([line]))]
+    if not parts:
+        return None, [], "skip", "", ""
 
-    parts = s.split(",", 1)
-    domain = parts[0].strip().lower()
+    first_col = parts[0].lower()
+    second_col = parts[1].lower() if len(parts) > 1 else ""
+    third_col = parts[2].lower() if len(parts) > 2 else ""
+    fourth_col = parts[3].lower() if len(parts) > 3 else ""
+
+    if is_first_line:
+        if (
+            first_col in {"entry", "domain", "threat", "indicator", "ip", "address"} or
+            second_col in {"reference", "references", "source", "description"} or
+            (first_col in {"domain", "entry"} and second_col == "subdomains" and third_col in {"reference", "references", "source"}) or
+            (first_col == "popularity" and second_col in {"domain", "entry"}) or
+            (third_col in {"reference", "references"} and fourth_col == "popularity")
+        ):
+            return None, [], "skip", "", ""
 
     refs: List[str] = []
-    if len(parts) > 1:
-        refs_part = parts[1]
-        # split by '|' and strip
+    if len(parts) >= 4 and parts[3].strip().isdigit():
+        domain = parts[0].strip().lower()
+        subdomains = parts[1].strip()
+        refs_part = parts[2].strip()
+        popularity = parts[3].strip()
         for r in refs_part.split("|"):
             rr = r.strip()
             if rr:
                 refs.append(rr)
-    return domain, refs
+        return domain, refs, "popularity", subdomains, popularity
 
-def rewrite_line_with_ids(domain: str, ref_ids: List[int]) -> str:
-    # Format: domain,id1 | id2 | id3
+    if len(parts) >= 3 and parts[0].strip().isdigit():
+        domain = parts[1].strip().lower()
+        refs_part = parts[2].strip()
+        for r in refs_part.split("|"):
+            rr = r.strip()
+            if rr:
+                refs.append(rr)
+        return domain, refs, "ranked", "", parts[0].strip()
+
+    domain = parts[0].strip().lower()
+    refs_part = parts[1].strip() if len(parts) > 1 else ""
+    for r in refs_part.split("|"):
+        rr = r.strip()
+        if rr:
+            refs.append(rr)
+    return domain, refs, "standard", "", ""
+
+
+def rewrite_line_with_ids(
+    domain: str,
+    ref_ids: List[int],
+    format_name: str,
+    subdomains: str = "",
+    popularity: str = "",
+) -> str:
+    ids_part = " | ".join(str(i) for i in ref_ids)
+    if format_name == "popularity":
+        return f"{domain},{subdomains},{ids_part},{popularity}\n"
     if not ref_ids:
         return f"{domain}\n"
-    ids_part = " | ".join(str(i) for i in ref_ids)
     return f"{domain},{ids_part}\n"
 
 # -----------------------
@@ -124,7 +166,7 @@ def build_registry_and_rewrite(input_dir: Path, out_dir: Path):
     for p in files:
         with p.open("r", encoding="utf-8", errors="ignore") as f:
             for line_num, raw in enumerate(f):
-                domain, refs = parse_threat_line(raw, is_first_line=(line_num == 0))
+                domain, refs, _, _, _ = parse_threat_line(raw, is_first_line=(line_num == 0))
                 if not domain:
                     continue
                 for r in refs:
@@ -145,7 +187,10 @@ def build_registry_and_rewrite(input_dir: Path, out_dir: Path):
         with p.open("r", encoding="utf-8", errors="ignore") as fin, \
              outp.open("w", encoding="utf-8") as fout:
             for line_num, raw in enumerate(fin):
-                domain, refs = parse_threat_line(raw, is_first_line=(line_num == 0))
+                domain, refs, format_name, subdomains, popularity = parse_threat_line(
+                    raw,
+                    is_first_line=(line_num == 0),
+                )
                 if not domain:
                     fout.write("\n")  # preserve blank/comment lines as blank
                     continue
@@ -154,7 +199,7 @@ def build_registry_and_rewrite(input_dir: Path, out_dir: Path):
                     rid = registry.register(r)  # should exist already
                     if rid is not None:
                         ref_ids.append(rid)
-                fout.write(rewrite_line_with_ids(domain, ref_ids))
+                fout.write(rewrite_line_with_ids(domain, ref_ids, format_name, subdomains, popularity))
         print(f"  {p.name} -> {outp.name}")
 
     print("Done.")

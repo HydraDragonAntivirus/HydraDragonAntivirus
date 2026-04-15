@@ -1,0 +1,9 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "HydraDragonIDE default capabilities",
+  "windows": ["main"],
+  "permissions": [
+    "core:default"
+  ]
+}

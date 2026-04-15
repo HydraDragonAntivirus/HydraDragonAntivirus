@@ -1,0 +1,33 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "HydraDragonIDE",
+  "version": "0.1.0",
+  "identifier": "com.hydradragon.ide",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:1420",
+    "beforeDevCommand": "trunk serve --port 1420",
+    "beforeBuildCommand": "trunk build --release"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "HydraDragonIDE — Static Analysis Engine",
+        "width": 1600,
+        "height": 960,
+        "minWidth": 900,
+        "minHeight": 600,
+        "decorations": true,
+        "transparent": false
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": []
+  }
+}
