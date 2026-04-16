@@ -41,6 +41,8 @@ HKLM\SYSTEM\CurrentControlSet\Services\MBRFilter
 # Sanctum fs_minifilter driver service key
 # ---------------------------------------------------------------------------
 HKLM\SYSTEM\CurrentControlSet\Services\fs_minifilter
+HKLM\SYSTEM\CurrentControlSet\Services\sanctum
+HKLM\SYSTEM\CurrentControlSet\Services\edrdrv
 
 # ---------------------------------------------------------------------------
 # Winlogon Shell value - tampering here enables persistence via shell hijack.

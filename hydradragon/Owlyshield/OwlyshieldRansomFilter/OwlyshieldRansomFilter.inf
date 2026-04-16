@@ -10,7 +10,7 @@ Signature   = "$Windows NT$"
 Class = "ActivityMonitor"
 ClassGuid = {b86dff51-a31e-4bac-b3cf-e8cfe75c9fc2}
 Provider    = %ManufacturerName%
-DriverVer = 04/16/2026,21.46.33.163
+DriverVer = 04/17/2026,1.57.13.747
 CatalogFile = OwlyshieldRansomFilter.cat
 PnpLockdown = 1
 

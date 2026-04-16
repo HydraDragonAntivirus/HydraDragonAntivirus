@@ -20,6 +20,8 @@ c:\windows\system32\tasks\hydradragonantivirus
 c:\windows\system32\edrpm64.dll
 c:\windows\system32\edrpm32.dll
 c:\windows\system32\edrmm.dll
+c:\windows\system32\drivers\sanctum.sys
+c:\windows\system32\drivers\edrdrv.sys
 
 # IMPORTANT: This is converted to hardcoded path after install but at start it's not
 # \desktop\sanctum\
