@@ -1271,10 +1271,10 @@ impl SdkRegistry {
             Ok(rule_file) => {
                 let rule_count = rule_file.rules.len();
                 self.rules = Self::sanitize_rules(rule_file.rules);
-                println!("[SDK] Loaded {} rules from rules.yaml", rule_count);
+                println!("[SDK] Loaded {} rules from rules/rules.yaml", rule_count);
             }
             Err(e) => {
-                eprintln!("[SDK] Failed to load rules.yaml: {}", e);
+                eprintln!("[SDK] Failed to load rules/rules.yaml: {}", e);
             }
         }
     }

@@ -29,11 +29,9 @@ pub struct BodyChangerRule {
 }
 
 fn body_changers_path() -> std::path::PathBuf {
-    std::env::current_exe()
-        .ok()
-        .and_then(|p| p.parent().map(|d| d.to_path_buf()))
-        .unwrap_or_else(|| std::path::PathBuf::from("."))
-        .join("body_changers.json")
+    let dir = std::path::PathBuf::from("json");
+    let _ = std::fs::create_dir_all(&dir);
+    dir.join("body_changers.json")
 }
 
 fn firewall_data_dir() -> std::path::PathBuf {
@@ -389,11 +387,18 @@ fn resolve_owlyshield_report_file(requested_path: Option<&str>) -> Option<std::p
 
 #[tauri::command]
 async fn list_owlyshield_rules_files() -> OwlyshieldRulesDirectoryView {
-    #[cfg(target_os = "windows")]
-    if let Some(dir) = get_owlyshield_rules_dir() {
-        let selected_path = resolve_rules_file_from_registry_dir(&dir)
-            .map(|path| path.to_string_lossy().to_string());
-        let files = list_owlyshield_rule_files(&dir)
+    let dir = {
+        #[cfg(target_os = "windows")]
+        { get_owlyshield_rules_dir().unwrap_or_else(|| std::path::PathBuf::from("rules")) }
+        #[cfg(not(target_os = "windows"))]
+        { std::path::PathBuf::from("rules") }
+    };
+
+    let selected_path = resolve_rules_file_from_registry_dir(&dir)
+        .map(|path| path.to_string_lossy().to_string());
+    
+    let files = if dir.is_dir() {
+        list_owlyshield_rule_files(&dir)
             .into_iter()
             .map(|path| {
                 let path_string = path.to_string_lossy().to_string();
@@ -407,36 +412,25 @@ async fn list_owlyshield_rules_files() -> OwlyshieldRulesDirectoryView {
                     path: path_string,
                 }
             })
-            .collect();
+            .collect()
+    } else {
+        Vec::new()
+    };
 
-        return OwlyshieldRulesDirectoryView {
-            directory: dir.to_string_lossy().to_string(),
-            selected_path,
-            files,
-        };
+    // If no files found in the dir, add a virtual entry for the expected local path
+    let mut files = files;
+    if files.is_empty() {
+        let local_path = dir.join("owlyshield_rules.yaml");
+        files.push(OwlyshieldRulesFileEntry {
+            name: "owlyshield_rules.yaml".to_string(),
+            path: local_path.to_string_lossy().to_string(),
+            selected: true,
+        });
     }
 
-    let local_path = std::path::PathBuf::from("owlyshield_rules.yaml");
-    let selected_path = local_path
-        .is_file()
-        .then(|| local_path.to_string_lossy().to_string());
-    let files = selected_path
-        .as_ref()
-        .map(|path| {
-            vec![OwlyshieldRulesFileEntry {
-                name: "owlyshield_rules.yaml".to_string(),
-                path: path.clone(),
-                selected: true,
-            }]
-        })
-        .unwrap_or_default();
-
     OwlyshieldRulesDirectoryView {
-        directory: std::env::current_dir()
-            .unwrap_or_else(|_| std::path::PathBuf::from("."))
-            .to_string_lossy()
-            .to_string(),
-        selected_path,
+        directory: dir.to_string_lossy().to_string(),
+        selected_path: selected_path.or_else(|| Some(dir.join("owlyshield_rules.yaml").to_string_lossy().to_string())),
         files,
     }
 }
@@ -528,14 +522,26 @@ async fn list_owlyshield_report_files() -> OwlyshieldReportsDirectoryView {
 
 #[tauri::command]
 async fn get_owlyshield_rules_raw(path: Option<String>) -> String {
-    #[cfg(target_os = "windows")]
-    if let Some(path) = resolve_owlyshield_rule_file(path.as_deref()) {
+    if let Some(p) = path {
+        if let Ok(content) = std::fs::read_to_string(p) {
+            return content;
+        }
+    }
+
+    let dir = {
+        #[cfg(target_os = "windows")]
+        { get_owlyshield_rules_dir().unwrap_or_else(|| std::path::PathBuf::from("rules")) }
+        #[cfg(not(target_os = "windows"))]
+        { std::path::PathBuf::from("rules") }
+    };
+
+    if let Some(path) = resolve_rules_file_from_registry_dir(&dir) {
         if let Ok(content) = std::fs::read_to_string(&path) {
             return content;
         }
     }
 
-    let local_path = "owlyshield_rules.yaml";
+    let local_path = dir.join("owlyshield_rules.yaml");
     std::fs::read_to_string(local_path).unwrap_or_default()
 }
 
@@ -622,21 +628,19 @@ async fn list_firewall_quarantine_files() -> FirewallQuarantineDirectoryView {
 
 #[tauri::command]
 async fn save_owlyshield_rules_raw(content: String, path: Option<String>) -> Result<(), String> {
-    #[cfg(target_os = "windows")]
-    {
-        if let Some(path) = resolve_owlyshield_rule_file(path.as_deref()) {
-            return std::fs::write(&path, content).map_err(|e| e.to_string());
-        }
-
-        if let Some(dir) = get_owlyshield_rules_dir() {
-            if dir.is_dir() {
-                let path = dir.join("owlyshield_rules.yaml");
-                return std::fs::write(&path, content).map_err(|e| e.to_string());
-            }
-        }
+    if let Some(p) = path {
+        return std::fs::write(p, content).map_err(|e| e.to_string());
     }
 
-    let local_path = "owlyshield_rules.yaml";
+    let dir = {
+        #[cfg(target_os = "windows")]
+        { get_owlyshield_rules_dir().unwrap_or_else(|| std::path::PathBuf::from("rules")) }
+        #[cfg(not(target_os = "windows"))]
+        { std::path::PathBuf::from("rules") }
+    };
+
+    let _ = std::fs::create_dir_all(&dir);
+    let local_path = dir.join("owlyshield_rules.yaml");
     std::fs::write(local_path, content).map_err(|e| e.to_string())
 }
 
