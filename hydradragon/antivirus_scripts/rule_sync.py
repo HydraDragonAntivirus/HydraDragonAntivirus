@@ -23,7 +23,6 @@ def get_user_profile_paths():
 
     paths['desktop'] = get_path(CSIDL_DESKTOP)
     paths['appdata_roaming'] = get_path(CSIDL_APPDATA)
-    paths['appdata_local'] = get_path(CSIDL_LOCAL_APPDATA)
     
     return paths
 
@@ -33,13 +32,26 @@ def sync_dynamic_protection_rules():
     paths = get_user_profile_paths()
     
     dynamic_paths = []
-    if paths.get('desktop'): dynamic_paths.append(paths['desktop'])
-    if paths.get('appdata_roaming'): dynamic_paths.append(paths['appdata_roaming'])
-    if paths.get('appdata_local'): dynamic_paths.append(paths['appdata_local'])
     
-    # Include Nuitka Bytecode Path
-    if NUITKA_BYTECODE_DIR:
-        dynamic_paths.append(NUITKA_BYTECODE_DIR)
+    # Auto-integrate Sanctum paths
+    if paths.get('desktop'):
+        dynamic_paths.append(os.path.join(paths['desktop'], "sanctum"))
+    if paths.get('appdata_roaming'):
+        dynamic_paths.append(os.path.join(paths['appdata_roaming'], "sanctum"))
+
+    # Auto-integrate explicitly dropped OpenEDR and Sanctum system32 paths
+    windir = os.environ.get('WINDIR', r'C:\Windows')
+    system32 = os.path.join(windir, 'System32')
+    drivers_dir = os.path.join(system32, 'drivers')
+
+    dynamic_paths.extend([
+        os.path.join(system32, "sanctum.dll"),
+        os.path.join(drivers_dir, "sanctum.sys"),
+        os.path.join(drivers_dir, "edrdrv.sys"),
+        os.path.join(system32, "edrpm64.dll"),
+        os.path.join(system32, "edrpm32.dll"),
+        os.path.join(system32, "edrmm.dll")
+    ])
 
     if not dynamic_paths:
         logger.warning("[INIT] No valid dynamic paths detected for synchronization.")
@@ -61,11 +73,9 @@ def sync_dynamic_protection_rules():
             cleaned_lines = []
             for line in lines:
                 strip_line = line.strip().lower()
-                # Check if line is a dynamic path (ends with trailing slash for folders)
+                # Check if line is a dynamic path
                 is_old_dynamic = False
                 if strip_line.startswith("c:\\users\\") and ("desktop" in strip_line or "appdata" in strip_line):
-                    is_old_dynamic = True
-                if "nuitka_deobfuscate\\build\\bytecode" in strip_line:
                     is_old_dynamic = True
                 
                 if is_old_dynamic:
@@ -79,8 +89,9 @@ def sync_dynamic_protection_rules():
                     f.write('\n')
                 f.write("# --- Dynamic Protection Rules (Auto-Sync) ---\n")
                 for path in dynamic_paths:
-                    # Enforce trailing slash for folder protection coverage
-                    rule_line = path if path.endswith('\\') else f"{path}\\"
+                    rule_line = path
+                    if not path.endswith('\\') and not (path.lower().endswith('.dll') or path.lower().endswith('.sys')):
+                        rule_line = f"{path}\\"
                     f.write(f"{rule_line}\n")
             
             logger.info(f"[INIT] Updated rules in: {rule_file}")

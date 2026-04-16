@@ -1281,7 +1281,7 @@ impl FirewallEngine {
     }
 
     pub fn load_settings() -> Option<FirewallSettings> {
-        let path = PathBuf::from("settings.json");
+        let path = PathBuf::from("json/settings.json");
         if let Ok(content) = fs::read_to_string(&path) {
             serde_json::from_str(&content).ok()
         } else {
@@ -1696,7 +1696,8 @@ impl FirewallEngine {
         }
 
         if let Ok(content) = serde_json::to_string_pretty(&settings) {
-            let _ = fs::write("settings.json", content);
+            let _ = fs::create_dir_all("json");
+            let _ = fs::write("json/settings.json", content);
         }
     }
 
@@ -4047,7 +4048,7 @@ impl FirewallEngine {
                 return content;
             }
         }
-        std::fs::read_to_string("rules.yaml").unwrap_or_default()
+        std::fs::read_to_string("rules/rules.yaml").unwrap_or_default()
     }
 
     pub fn save_rules_raw(&self, content: String) -> Result<(), String> {
@@ -4058,7 +4059,8 @@ impl FirewallEngine {
         if let Some(path) = self.get_sdk_rules_path_from_registry() {
             return std::fs::write(&path, content).map_err(|e| e.to_string());
         }
-        std::fs::write("rules.yaml", content).map_err(|e| e.to_string())
+        let _ = std::fs::create_dir_all("rules");
+        std::fs::write("rules/rules.yaml", content).map_err(|e| e.to_string())
     }
 
     #[cfg(target_os = "windows")]

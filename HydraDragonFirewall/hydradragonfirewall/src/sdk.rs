@@ -1267,7 +1267,7 @@ impl SdkRegistry {
         }
 
         // Load from rules.yaml if it exists
-        match SdkRuleFile::load_from_file("rules.yaml") {
+        match SdkRuleFile::load_from_file("rules/rules.yaml") {
             Ok(rule_file) => {
                 let rule_count = rule_file.rules.len();
                 self.rules = Self::sanitize_rules(rule_file.rules);

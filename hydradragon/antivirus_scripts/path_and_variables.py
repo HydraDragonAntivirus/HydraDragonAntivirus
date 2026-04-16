@@ -120,6 +120,8 @@ npm_pkg_extracted_dir = os.path.join(data_dir, "npm_pkg_extracted")
 asar_dir = os.path.join(data_dir, "asar")
 un_confuser_ex_extracted_dir = os.path.join(data_dir, "UnConfuserEx_extracted")
 nuitka_dir = os.path.join(data_dir, "nuitka")
+nuitka_deobfuscate_dir = os.path.join(data_dir, "nuitka_deobfuscate")
+nuitka_bytecode_dir = os.path.join(nuitka_deobfuscate_dir, "build", "bytecode")
 ole2_dir = os.path.join(data_dir, "ole2")
 vmprotect_unpacked_dir = os.path.join(data_dir, "vmprotect_unpacked")
 python_source_code_dir = os.path.join(data_dir, "python_sourcecode")
@@ -311,7 +313,3 @@ RULE_FILES = [
     os.path.join(PROTECTION_RULES_BASE, "Owlyshield", "FSFilter", "default_rules.txt"),
     os.path.join(PROTECTION_RULES_BASE, "Owlyshield", "ProcessProtection", "default_rules.txt")
 ]
-
-# Nuitka Deobfuscator Bytecode Output
-NUITKA_DEOBFUSCATE_DIR = os.path.join(script_dir, "python_hook_backend", "new", "nuitka_deobfuscate")
-NUITKA_BYTECODE_DIR = os.path.join(NUITKA_DEOBFUSCATE_DIR, "build", "bytecode")
