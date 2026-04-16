@@ -67,6 +67,37 @@ FSProcessPostReadSafe(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECT
 BOOLEAN
 FSShouldIgnorePyasWhitelistPath(_In_ PCUNICODE_STRING Path);
 
+// FIX: Helper to create a 'RW'-tagged NonPaged copy of a UNICODE_STRING.
+// RecordNewProcess takes ownership of the PUNICODE_STRING it receives and
+// later frees it with `delete` -> ExFreePoolWithTag(ptr, 'RW').
+// SeLocateProcessImageName allocates from PagedPool with a system tag,
+// so passing its result directly causes a pool-tag mismatch on free
+// (silent heap corruption -> eventual bugcheck 0x13a).
+// This function copies the string into a single NonPaged, 'RW'-tagged
+// allocation and returns an owning pointer.  Caller must free the
+// original SeLocateProcessImageName buffer after this succeeds.
+static PUNICODE_STRING
+FSCopyUnicodeStringForRecordNewProcess(_In_ PUNICODE_STRING Source)
+{
+    if (Source == NULL || Source->Buffer == NULL || Source->Length == 0)
+        return NULL;
+
+    USHORT allocLen = Source->Length + sizeof(WCHAR);
+    PUNICODE_STRING copy = (PUNICODE_STRING)ExAllocatePool2(
+        POOL_FLAG_NON_PAGED,
+        sizeof(UNICODE_STRING) + allocLen,
+        'RW');
+    if (copy == NULL)
+        return NULL;
+
+    copy->Buffer = (PWCH)((PUCHAR)copy + sizeof(UNICODE_STRING));
+    copy->Length = Source->Length;
+    copy->MaximumLength = allocLen;
+    RtlCopyMemory(copy->Buffer, Source->Buffer, Source->Length);
+    copy->Buffer[copy->Length / sizeof(WCHAR)] = L'\0';
+    return copy;
+}
+
 static BOOLEAN
 FSShouldBypassReadTelemetry(_In_ PFLT_CALLBACK_DATA Data)
 {
@@ -1636,36 +1667,55 @@ FSProcessPreOperation(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECT
             hr = SeLocateProcessImageName(process, &procPath);
             if (NT_SUCCESS(hr) && procPath != NULL)
             {
-                gid = driverData->RecordNewProcess(procPath, newItem->PID, 0);
-                isGidFound = TRUE;
-                DbgPrint("!!! FsFilter: DISCOVERED untracked process in PreOp. PID: %u, Path: %wZ, GID: %llu\n",
-                         newItem->PID, procPath, gid);
-
-                // Inform usermode about this late process discovery so the PID/GID map stays in sync.
-                PIRP_ENTRY discoveryEntry = new IRP_ENTRY();
-                if (discoveryEntry != NULL)
-                {
-                    PDRIVER_MESSAGE discoveryMsg = &discoveryEntry->data;
-                    discoveryMsg->PID = newItem->PID;
-                    discoveryMsg->Gid = gid;
-                    discoveryMsg->IRP_OP = IRP_PROCESS_CREATE;
-
-                    USHORT copyLen = (procPath->Length < (MAX_FILE_NAME_SIZE - sizeof(WCHAR)))
-                                         ? procPath->Length
-                                         : (MAX_FILE_NAME_SIZE - sizeof(WCHAR));
-                    RtlCopyMemory(discoveryEntry->Buffer, procPath->Buffer, copyLen);
-                    discoveryEntry->Buffer[copyLen / sizeof(WCHAR)] = L'\0';
-                    discoveryEntry->filePath.Length = copyLen;
-                    discoveryEntry->filePath.MaximumLength = MAX_FILE_NAME_SIZE;
-                    discoveryEntry->filePath.Buffer = discoveryEntry->Buffer;
-
-                    if (!driverData->AddIrpMessage(discoveryEntry))
-                    {
-                        delete discoveryEntry;
-                    }
-                }
-
+                // FIX Bug#1+#2: SeLocateProcessImageName allocates from PagedPool
+                // with a system tag. RecordNewProcess takes ownership and later
+                // frees with `delete` (tag 'RW'). Passing the original pointer
+                // causes (a) pool-tag mismatch on free and (b) the old code also
+                // called ExFreePool(procPath) here which was a DOUBLE-FREE.
+                // Solution: copy into a 'RW'-tagged NonPaged allocation, free the
+                // original, and pass the copy. Do NOT free the copy — RecordNewProcess owns it.
+                PUNICODE_STRING procPathCopy = FSCopyUnicodeStringForRecordNewProcess(procPath);
+                // Free the original SeLocateProcessImageName buffer immediately.
                 ExFreePool(procPath);
+                procPath = NULL;
+
+                if (procPathCopy != NULL)
+                {
+                    gid = driverData->RecordNewProcess(procPathCopy, newItem->PID, 0);
+                    isGidFound = TRUE;
+                    DbgPrint("!!! FsFilter: DISCOVERED untracked process in PreOp. PID: %u, GID: %llu\n",
+                             newItem->PID, gid);
+
+                    // Inform usermode about this late process discovery so the PID/GID map stays in sync.
+                    PIRP_ENTRY discoveryEntry = new IRP_ENTRY();
+                    if (discoveryEntry != NULL)
+                    {
+                        PDRIVER_MESSAGE discoveryMsg = &discoveryEntry->data;
+                        discoveryMsg->PID = newItem->PID;
+                        discoveryMsg->Gid = gid;
+                        discoveryMsg->IRP_OP = IRP_PROCESS_CREATE;
+
+                        USHORT copyLen = (procPathCopy->Length < (MAX_FILE_NAME_SIZE - sizeof(WCHAR)))
+                                             ? procPathCopy->Length
+                                             : (MAX_FILE_NAME_SIZE - sizeof(WCHAR));
+                        RtlCopyMemory(discoveryEntry->Buffer, procPathCopy->Buffer, copyLen);
+                        discoveryEntry->Buffer[copyLen / sizeof(WCHAR)] = L'\0';
+                        discoveryEntry->filePath.Length = copyLen;
+                        discoveryEntry->filePath.MaximumLength = MAX_FILE_NAME_SIZE;
+                        discoveryEntry->filePath.Buffer = discoveryEntry->Buffer;
+
+                        if (!driverData->AddIrpMessage(discoveryEntry))
+                        {
+                            delete discoveryEntry;
+                        }
+                    }
+                    // NOTE: procPathCopy is now owned by RecordNewProcess. Do NOT free it.
+                }
+            }
+            else if (procPath != NULL)
+            {
+                ExFreePool(procPath);
+                procPath = NULL;
             }
             ObDereferenceObject(process);
         }
@@ -2098,9 +2148,21 @@ FSProcessCreateIrp(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECTS F
             PUNICODE_STRING procPath = NULL;
             hr = SeLocateProcessImageName(process, &procPath);
             if (NT_SUCCESS(hr) && procPath != NULL) {
-                gid = driverData->RecordNewProcess(procPath, newItem->PID, 0);
-                isGidFound = TRUE;
-                DbgPrint("!!! FsFilter: DISCOVERED untracked process in PostCreate. PID: %u, Path: %wZ, GID: %llu\n", newItem->PID, procPath, gid);
+                // FIX Bug#2: Same tag mismatch as PreOp discovery.
+                // Copy into 'RW'-tagged NonPaged allocation for RecordNewProcess.
+                PUNICODE_STRING procPathCopy = FSCopyUnicodeStringForRecordNewProcess(procPath);
+                ExFreePool(procPath);
+                procPath = NULL;
+
+                if (procPathCopy != NULL) {
+                    gid = driverData->RecordNewProcess(procPathCopy, newItem->PID, 0);
+                    isGidFound = TRUE;
+                    DbgPrint("!!! FsFilter: DISCOVERED untracked process in PostCreate. PID: %u, GID: %llu\n", newItem->PID, gid);
+                    // NOTE: procPathCopy is now owned by RecordNewProcess. Do NOT free.
+                }
+            } else if (procPath != NULL) {
+                ExFreePool(procPath);
+                procPath = NULL;
             }
             ObDereferenceObject(process);
         }
@@ -2941,8 +3003,27 @@ static VOID AddRemProcessRoutineCore(HANDLE ParentId, HANDLE ProcessId, BOOLEAN 
         record_process:
         DbgPrint("!!! FsFilter: New Process, process: %wZ , pid: %d.\n", procName, (ULONG)(ULONG_PTR)ProcessId);
 
+        // FIX Bug#4: When mustFreeProcName==FALSE, procName is a borrowed pointer
+        // to CreateInfo->ImageFileName which becomes invalid after this callback
+        // returns. RecordNewProcess takes permanent ownership and later frees with
+        // delete (tag 'RW'). We must ALWAYS pass a properly-tagged, owned copy.
+        PUNICODE_STRING procNameForRecord = procName;
+        if (!mustFreeProcName && procName != NULL) {
+            procNameForRecord = FSCopyUnicodeStringForRecordNewProcess(procName);
+            if (procNameForRecord == NULL) {
+                // Allocation failed, cannot record this process.
+                if (parentName != NULL)
+                    ExFreePoolWithTag(parentName, 'RW');
+                if (procCmdLine != NULL)
+                    ExFreePoolWithTag(procCmdLine, 'RW');
+                return;
+            }
+            procName = procNameForRecord;  // update for IRP_ENTRY copy below
+            mustFreeProcName = TRUE;       // now we own it (but RecordNewProcess will take it)
+        }
+
         // ALWAYS record the process and send message to usermode
-        ULONGLONG gid = driverData->RecordNewProcess(procName, (ULONG)(ULONG_PTR)ProcessId, (ULONG)(ULONG_PTR)ParentId);
+        ULONGLONG gid = driverData->RecordNewProcess(procNameForRecord, (ULONG)(ULONG_PTR)ProcessId, (ULONG)(ULONG_PTR)ParentId);
 
         // Send creation message to usermode
         PIRP_ENTRY newEntry = new IRP_ENTRY();
