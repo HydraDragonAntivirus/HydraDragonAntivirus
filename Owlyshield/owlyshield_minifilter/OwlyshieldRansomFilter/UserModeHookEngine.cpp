@@ -716,7 +716,7 @@ static BOOLEAN IsSensitiveSystemPathForHookingProcess(_In_ PEPROCESS Process, _I
         {
             ExFreePool(processImagePath);
         }
-        return FALSE;
+        return TRUE; // SKIP hooking if the process has no image path (e.g., MemCompression, minimal processes)
     }
 
     if (IsAlwaysSkippedProcessForHooking(ProcessId))

@@ -1,25 +1,27 @@
 # Dynamic hook exclude rules (normalized/contains match, case-insensitive)
 # Put full path fragments under C:\ only.
 
-# c:\windows\system32\smss.exe
-# c:\windows\system32\csrss.exe
-# c:\windows\system32\wininit.exe
-# c:\windows\system32\winlogon.exe
-# c:\windows\system32\lsass.exe
-# c:\windows\system32\services.exe
-# c:\windows\system32\svchost.exe
-# c:\windows\system32\fontdrvhost.exe
-# c:\windows\system32\sihost.exe
-# c:\windows\system32\dwm.exe
+c:\windows\system32\smss.exe
+c:\windows\system32\csrss.exe
+c:\windows\system32\wininit.exe
+c:\windows\system32\winlogon.exe
+c:\windows\system32\lsass.exe
+c:\windows\system32\services.exe
+c:\windows\system32\svchost.exe
+c:\windows\system32\fontdrvhost.exe
+c:\windows\system32\sihost.exe
+c:\windows\system32\dwm.exe
+# memcompression etc. is hardcoded to avoid confusion and bypasses
 
 # HydraDragonAntivirus-specific examples
 c:\program files\hydradragonantivirus
 c:\programdata\hydradragonantivirus
 c:\programdata\edrsvc
-# TODO Convert to hardcoded path after install
-# \desktop\sanctum\
-# \appdata\roaming\sanctum\
 c:\windows\system32\tasks\hydradragonantivirus
 c:\windows\system32\edrpm64.dll
 c:\windows\system32\edrpm32.dll
 c:\windows\system32\edrmm.dll
+
+# IMPORTANT: This is converted to hardcoded path after install but at start it's not
+# \desktop\sanctum\
+# \appdata\roaming\sanctum\

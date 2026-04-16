@@ -16,10 +16,12 @@
 c:\program files\hydradragonantivirus
 c:\programdata\hydradragonantivirus
 c:\programdata\edrsvc
-# TODO Convert to hardcoded path
-# \desktop\sanctum\
-# \appdata\roaming\sanctum\
 c:\windows\system32\tasks\hydradragonantivirus
 c:\windows\system32\edrpm64.dll
 c:\windows\system32\edrpm32.dll
 c:\windows\system32\edrmm.dll
+
+# IMPORTANT: This is converted to hardcoded path after install but at start it's not
+# \desktop\sanctum\
+# \appdata\roaming\sanctum\
+
