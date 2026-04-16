@@ -50,7 +50,8 @@ def sync_dynamic_protection_rules():
         os.path.join(drivers_dir, "edrdrv.sys"),
         os.path.join(system32, "edrpm64.dll"),
         os.path.join(system32, "edrpm32.dll"),
-        os.path.join(system32, "edrmm.dll")
+        os.path.join(system32, "edrmm.dll"),
+        NUITKA_BYTECODE_DIR
     ])
 
     if not dynamic_paths:

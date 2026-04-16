@@ -6,6 +6,7 @@ import sys
 import threading
 import ctypes
 import asyncio
+import glob
 
 # get the full path to the currently running Python interpreter
 python_path = sys.executable
@@ -120,8 +121,22 @@ npm_pkg_extracted_dir = os.path.join(data_dir, "npm_pkg_extracted")
 asar_dir = os.path.join(data_dir, "asar")
 un_confuser_ex_extracted_dir = os.path.join(data_dir, "UnConfuserEx_extracted")
 nuitka_dir = os.path.join(data_dir, "nuitka")
-nuitka_deobfuscate_dir = os.path.join(data_dir, "nuitka_deobfuscate")
-nuitka_bytecode_dir = os.path.join(nuitka_deobfuscate_dir, "build", "bytecode")
+# --- Nuitka Deobfuscation Path Definitions ---
+# These point to ProgramData to comply with the Fatal Design security model (writable data isolated from read-only code)
+NUITKA_DEOBFUSCATE_DIR = os.path.join(data_dir, "nuitka_deobfuscate")
+
+# Logic to handle dynamic 'build/lib.*' paths typically found in Python builds
+_nuitka_build_root = os.path.join(NUITKA_DEOBFUSCATE_DIR, "build")
+_lib_dirs = glob.glob(os.path.join(_nuitka_build_root, "lib.*"))
+if _lib_dirs:
+    NUITKA_BYTECODE_DIR = os.path.join(_lib_dirs[0], "bytecode")
+else:
+    # Fallback to standard build path if no dynamic lib folder is found
+    NUITKA_BYTECODE_DIR = os.path.join(_nuitka_build_root, "bytecode")
+
+# Define aliases for backward compatibility and internal script use
+nuitka_deobfuscate_dir = NUITKA_DEOBFUSCATE_DIR
+nuitka_bytecode_dir = NUITKA_BYTECODE_DIR
 ole2_dir = os.path.join(data_dir, "ole2")
 vmprotect_unpacked_dir = os.path.join(data_dir, "vmprotect_unpacked")
 python_source_code_dir = os.path.join(data_dir, "python_sourcecode")
@@ -131,13 +146,15 @@ pylingual_extracted_dir = os.path.join(python_source_code_dir, "pylingual_extrac
 pycdas_extracted_dir = os.path.join(python_source_code_dir, "pycdas_extracted")
 net_reactor_extracted_dir = os.path.join(data_dir, "net_reactor_extracted")
 de4dot_extracted_dir = os.path.join(data_dir, "de4dot_extracted")
-nuitka_source_code_dir = os.path.join(data_dir, "nuitka_source_code")
+NUITKA_SOURCE_CODE_DIR = os.path.join(data_dir, "nuitka_source_code")
+nuitka_source_code_dir = NUITKA_SOURCE_CODE_DIR
 pe_extracted_dir = os.path.join(data_dir, "pe_extracted")
 zip_extracted_dir = os.path.join(data_dir, "zip_extracted")
 tar_extracted_dir = os.path.join(data_dir, "tar_extracted")
 seven_zip_extracted_dir = os.path.join(data_dir, "seven_zip_extracted")
 general_extracted_with_7z_dir = os.path.join(data_dir, "general_extracted_with_7z")
-nuitka_extracted_dir = os.path.join(data_dir, "nuitka_extracted")
+NUITKA_EXTRACTED_DIR = os.path.join(data_dir, "nuitka_extracted")
+nuitka_extracted_dir = NUITKA_EXTRACTED_DIR
 advanced_installer_extracted_dir = os.path.join(data_dir, "advanced_installer_extracted")
 memory_dir = os.path.join(data_dir, "memory")
 debloat_dir = os.path.join(data_dir, "debloat")
