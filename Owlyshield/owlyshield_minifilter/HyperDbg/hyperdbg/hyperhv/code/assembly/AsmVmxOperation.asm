@@ -1,5 +1,5 @@
 PUBLIC AsmEnableVmxOperation
-PUBLIC AsmVmxVmcall
+PUBLIC AsmIntelVmxVmcall
 PUBLIC AsmHypervVmcall
 PUBLIC AsmVmfunc
 
@@ -19,7 +19,7 @@ AsmEnableVmxOperation ENDP
 
 ;------------------------------------------------------------------------
 
-AsmVmxVmcall PROC
+AsmIntelVmxVmcall PROC
 
     pushfq
 
@@ -37,7 +37,7 @@ AsmVmxVmcall PROC
     popfq
     ret                             ; Return type is NTSTATUS and it's on RAX from the previous function, no need to change anything
 
-AsmVmxVmcall ENDP
+AsmIntelVmxVmcall ENDP
 
 ;------------------------------------------------------------------------
 

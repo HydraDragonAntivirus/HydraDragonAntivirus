@@ -1554,3 +1554,30 @@ HvHandleTrapFlag()
         }
     }
 }
+
+/**
+ * @brief Dispatcher for VMM calls (Intel VMX or AMD SVM)
+ */
+NTSTATUS
+AsmVmxVmcall(unsigned long long VmcallNumber,
+             unsigned long long OptionalParam1,
+             unsigned long long OptionalParam2,
+             long long          OptionalParam3)
+{
+    int CpuInfo[4];
+    __cpuid(CpuInfo, 0);
+
+    //
+    // Check for AMD Vendor
+    // EBX: 'Auth', EDX: 'enti', ECX: 'cAMD' (AuthenticAMD)
+    //
+    if (CpuInfo[1] == 0x68747541)
+    {
+        return AsmSvmVmmcall(VmcallNumber, OptionalParam1, OptionalParam2, OptionalParam3);
+    }
+
+    //
+    // Default to Intel VMX
+    //
+    return AsmIntelVmxVmcall(VmcallNumber, OptionalParam1, OptionalParam2, OptionalParam3);
+}

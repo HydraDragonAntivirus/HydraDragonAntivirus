@@ -37,10 +37,29 @@ extern void inline AsmRestoreToVmxOffState();
  * @param OptionalParam3
  * @return NTSTATUS
  */
-extern NTSTATUS inline AsmVmxVmcall(unsigned long long VmcallNumber,
-                                    unsigned long long OptionalParam1,
-                                    unsigned long long OptionalParam2,
-                                    long long          OptionalParam3);
+extern NTSTATUS AsmVmxVmcall(unsigned long long VmcallNumber,
+                             unsigned long long OptionalParam1,
+                             unsigned long long OptionalParam2,
+                             long long          OptionalParam3);
+
+extern NTSTATUS AsmIntelVmxVmcall(unsigned long long VmcallNumber,
+                                  unsigned long long OptionalParam1,
+                                  unsigned long long OptionalParam2,
+                                  long long          OptionalParam3);
+
+/**
+ * @brief Request AMD SVM Vmmcall
+ *
+ * @param VmcallNumber
+ * @param OptionalParam1
+ * @param OptionalParam2
+ * @param OptionalParam3
+ * @return NTSTATUS
+ */
+extern NTSTATUS AsmSvmVmmcall(unsigned long long VmcallNumber,
+                              unsigned long long OptionalParam1,
+                              unsigned long long OptionalParam2,
+                              long long          OptionalParam3);
 
 /**
  * @brief Hyper-v vmcall handler
