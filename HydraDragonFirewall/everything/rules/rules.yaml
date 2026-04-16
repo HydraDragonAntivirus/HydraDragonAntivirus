@@ -45,7 +45,7 @@ rules:
   # Monitor Local Network Traffic (Features 8, 21, 25, 26)
   - name: "Ask Local Network Access"
     description: "Prompts user when accessing local network"
-    enabled: false
+    enabled: true
     protocol: tcp
     action: ask
     localhost_type: private_c
