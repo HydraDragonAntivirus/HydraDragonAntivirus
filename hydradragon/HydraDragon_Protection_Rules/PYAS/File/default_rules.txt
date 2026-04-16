@@ -31,10 +31,11 @@ c:\programdata\edrsvc
 c:\windows\system32\sanctum.dll
 
 # ---------------------------------------------------------------------------
-# Sanctum user-profile data (per-user AppData - matched as a suffix rule
+# Sanctum user-profile data (per-user AppData and Desktop - matched as a suffix rule
 # because the username segment of the path is not known at authoring time)
 # ---------------------------------------------------------------------------
 # \appdata\roaming\sanctum\
+# \desktop\sanctum\
 
 # ---------------------------------------------------------------------------
 # Scheduled task entry
