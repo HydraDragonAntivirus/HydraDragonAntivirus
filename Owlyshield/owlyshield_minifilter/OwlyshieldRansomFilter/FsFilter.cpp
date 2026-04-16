@@ -1628,30 +1628,50 @@ FSProcessPreOperation(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECT
         // --- START DISCOVERY LOGIC ---
         // If the PID is not tracked, it might be a process that was already running 
         // when the driver loaded. Let's try to discover it now.
-                // Inform usermode about this new process discovery
+        PEPROCESS process = NULL;
+        hr = PsLookupProcessByProcessId((HANDLE)newItem->PID, &process);
+        if (NT_SUCCESS(hr))
+        {
+            PUNICODE_STRING procPath = NULL;
+            hr = SeLocateProcessImageName(process, &procPath);
+            if (NT_SUCCESS(hr) && procPath != NULL)
+            {
+                gid = driverData->RecordNewProcess(procPath, newItem->PID, 0);
+                isGidFound = TRUE;
+                DbgPrint("!!! FsFilter: DISCOVERED untracked process in PreOp. PID: %u, Path: %wZ, GID: %llu\n",
+                         newItem->PID, procPath, gid);
+
+                // Inform usermode about this late process discovery so the PID/GID map stays in sync.
                 PIRP_ENTRY discoveryEntry = new IRP_ENTRY();
-                if (discoveryEntry != NULL) {
+                if (discoveryEntry != NULL)
+                {
                     PDRIVER_MESSAGE discoveryMsg = &discoveryEntry->data;
                     discoveryMsg->PID = newItem->PID;
                     discoveryMsg->Gid = gid;
-                    discoveryMsg->IRP_OP = IRP_PROCESS_CREATE; // Treat as a creation event
+                    discoveryMsg->IRP_OP = IRP_PROCESS_CREATE;
 
-                    USHORT copyLen = (procPath->Length < MAX_FILE_NAME_SIZE) ? procPath->Length : (MAX_FILE_NAME_SIZE - sizeof(WCHAR));
+                    USHORT copyLen = (procPath->Length < (MAX_FILE_NAME_SIZE - sizeof(WCHAR)))
+                                         ? procPath->Length
+                                         : (MAX_FILE_NAME_SIZE - sizeof(WCHAR));
                     RtlCopyMemory(discoveryEntry->Buffer, procPath->Buffer, copyLen);
-                    discoveryEntry->Buffer[copyLen / 2] = L'\0';
+                    discoveryEntry->Buffer[copyLen / sizeof(WCHAR)] = L'\0';
                     discoveryEntry->filePath.Length = copyLen;
                     discoveryEntry->filePath.MaximumLength = MAX_FILE_NAME_SIZE;
                     discoveryEntry->filePath.Buffer = discoveryEntry->Buffer;
 
-                    if (!driverData->AddIrpMessage(discoveryEntry)) {
+                    if (!driverData->AddIrpMessage(discoveryEntry))
+                    {
                         delete discoveryEntry;
                     }
                 }
+
+                ExFreePool(procPath);
             }
             ObDereferenceObject(process);
         }
 
-        if (!isGidFound) {
+        if (!isGidFound)
+        {
             if (IS_DEBUG_IRP)
                 DbgPrint("!!! FsFilter: Item does not have a gid, skipping after discovery attempt\n");
             FltReleaseFileNameInformation(nameInfo);

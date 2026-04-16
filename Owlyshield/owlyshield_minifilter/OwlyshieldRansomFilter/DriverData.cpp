@@ -69,6 +69,92 @@ VOID DriverData::ClearVolumeCache() {
     KeReleaseSpinLock(&volumeCacheLock, oldIrql);
 }
 
+NTSTATUS DriverData::AddVolumeDosName(PFLT_VOLUME volume, PUNICODE_STRING dosName) {
+    if (volume == NULL || dosName == NULL || dosName->Buffer == NULL || dosName->Length == 0) {
+        return STATUS_INVALID_PARAMETER;
+    }
+
+    PUNICODE_STRING cachedName =
+        (PUNICODE_STRING)ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeof(UNICODE_STRING), 'RW');
+    if (cachedName == NULL) {
+        return STATUS_INSUFFICIENT_RESOURCES;
+    }
+
+    cachedName->MaximumLength = dosName->Length + sizeof(WCHAR);
+    cachedName->Buffer =
+        (PWCHAR)ExAllocatePool2(POOL_FLAG_NON_PAGED, cachedName->MaximumLength, 'RW');
+    if (cachedName->Buffer == NULL) {
+        ExFreePoolWithTag(cachedName, 'RW');
+        return STATUS_INSUFFICIENT_RESOURCES;
+    }
+
+    cachedName->Length = dosName->Length;
+    RtlCopyMemory(cachedName->Buffer, dosName->Buffer, dosName->Length);
+    cachedName->Buffer[cachedName->Length / sizeof(WCHAR)] = L'\0';
+
+    KIRQL oldIrql;
+    KeAcquireSpinLock(&volumeCacheLock, &oldIrql);
+
+    HANDLE previousValue = VolumeToDosName.insertNode((ULONGLONG)(ULONG_PTR)volume, cachedName);
+
+    KeReleaseSpinLock(&volumeCacheLock, oldIrql);
+
+    if (previousValue != NULL && previousValue != cachedName) {
+        FreeCachedUnicodeString(previousValue);
+    }
+
+    return STATUS_SUCCESS;
+}
+
+NTSTATUS DriverData::GetVolumeDosName(PFLT_VOLUME volume, PUNICODE_STRING outDosName) {
+    if (volume == NULL || outDosName == NULL) {
+        return STATUS_INVALID_PARAMETER;
+    }
+
+    RtlZeroMemory(outDosName, sizeof(*outDosName));
+
+    KIRQL oldIrql;
+    KeAcquireSpinLock(&volumeCacheLock, &oldIrql);
+
+    PUNICODE_STRING cachedName =
+        (PUNICODE_STRING)VolumeToDosName.get((ULONGLONG)(ULONG_PTR)volume);
+
+    if (cachedName == NULL || cachedName->Buffer == NULL || cachedName->Length == 0) {
+        KeReleaseSpinLock(&volumeCacheLock, oldIrql);
+        return STATUS_NOT_FOUND;
+    }
+
+    USHORT copyLength = cachedName->Length;
+    KeReleaseSpinLock(&volumeCacheLock, oldIrql);
+
+    outDosName->MaximumLength = copyLength + sizeof(WCHAR);
+    outDosName->Buffer =
+        (PWCHAR)ExAllocatePool2(POOL_FLAG_NON_PAGED, outDosName->MaximumLength, 'RW');
+    if (outDosName->Buffer == NULL) {
+        outDosName->MaximumLength = 0;
+        return STATUS_INSUFFICIENT_RESOURCES;
+    }
+
+    KeAcquireSpinLock(&volumeCacheLock, &oldIrql);
+
+    cachedName = (PUNICODE_STRING)VolumeToDosName.get((ULONGLONG)(ULONG_PTR)volume);
+    if (cachedName == NULL || cachedName->Buffer == NULL || cachedName->Length == 0 ||
+        cachedName->Length > copyLength) {
+        KeReleaseSpinLock(&volumeCacheLock, oldIrql);
+        ExFreePool(outDosName->Buffer);
+        outDosName->Buffer = NULL;
+        outDosName->MaximumLength = 0;
+        return STATUS_NOT_FOUND;
+    }
+
+    outDosName->Length = cachedName->Length;
+    RtlCopyMemory(outDosName->Buffer, cachedName->Buffer, cachedName->Length);
+    KeReleaseSpinLock(&volumeCacheLock, oldIrql);
+
+    outDosName->Buffer[outDosName->Length / sizeof(WCHAR)] = L'\0';
+    return STATUS_SUCCESS;
+}
+
 //#######################################################################################
 //# Quarantine Path Handling
 //#######################################################################################

@@ -930,6 +930,12 @@ OwlyVmmInitialize(VOID)
         return STATUS_SUCCESS;
     }
 
+    // Resolve transparent-mode syscall numbers before enabling the Intel VMM backend.
+    // Doing this after VmFuncInitVmm() can re-enter VMM callback paths while the backend
+    // is only partially initialized, which is stack-sensitive on some hosts.
+    g_OwlyTransparentResolvedSyscallCount =
+        OwlyPopulateTransparentSyscallNumbers(&transparentModeRequest.SystemCallNumbersInformation);
+
     initResult = VmFuncInitVmm(&callbacks);
     if (!initResult)
     {
@@ -970,8 +976,6 @@ OwlyVmmInitialize(VOID)
     OwlyForwardKernelEvent(OWLY_VMM_RAW_EVENT_BASE + 0x7Eu, OwlyGetVmmInitializedEventName(), 0, 0);
 
     transparentModeRequest.IsHide = TRUE;
-    g_OwlyTransparentResolvedSyscallCount =
-        OwlyPopulateTransparentSyscallNumbers(&transparentModeRequest.SystemCallNumbersInformation);
     g_OwlyTransparentAttempted = TRUE;
     g_OwlyHyperEvadeInitialized = TransparentHideDebuggerWrapper(&transparentModeRequest);
     if (!g_OwlyHyperEvadeInitialized)
