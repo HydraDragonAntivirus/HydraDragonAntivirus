@@ -3,7 +3,6 @@ import ctypes
 from .path_and_variables import (
     logger,
     RULE_FILES,
-    NUITKA_BYTECODE_DIR,
     CSIDL_DESKTOP,
     CSIDL_APPDATA,
     CSIDL_LOCAL_APPDATA
@@ -51,7 +50,6 @@ def sync_dynamic_protection_rules():
         os.path.join(system32, "edrpm64.dll"),
         os.path.join(system32, "edrpm32.dll"),
         os.path.join(system32, "edrmm.dll"),
-        NUITKA_BYTECODE_DIR
     ])
 
     if not dynamic_paths:
