@@ -356,34 +356,7 @@ fn collect_owlyshield_report_files(dir: &std::path::Path) -> Vec<std::path::Path
     report_files
 }
 
-#[cfg(target_os = "windows")]
-fn resolve_report_file_from_registry_dir(dir: &std::path::Path) -> Option<std::path::PathBuf> {
-    collect_owlyshield_report_files(dir).into_iter().next()
-}
 
-#[cfg(target_os = "windows")]
-fn resolve_owlyshield_rule_file(requested_path: Option<&str>) -> Option<std::path::PathBuf> {
-    if let Some(path) = requested_path {
-        let requested = std::path::PathBuf::from(path);
-        if requested.is_file() {
-            return Some(requested);
-        }
-    }
-
-    get_owlyshield_rules_dir().and_then(|dir| resolve_rules_file_from_registry_dir(&dir))
-}
-
-#[cfg(target_os = "windows")]
-fn resolve_owlyshield_report_file(requested_path: Option<&str>) -> Option<std::path::PathBuf> {
-    if let Some(path) = requested_path {
-        let requested = std::path::PathBuf::from(path);
-        if requested.is_file() {
-            return Some(requested);
-        }
-    }
-
-    get_owlyshield_reports_dir().and_then(|dir| resolve_report_file_from_registry_dir(&dir))
-}
 
 #[tauri::command]
 async fn list_owlyshield_rules_files() -> OwlyshieldRulesDirectoryView {
@@ -437,55 +410,20 @@ async fn list_owlyshield_rules_files() -> OwlyshieldRulesDirectoryView {
 
 #[tauri::command]
 async fn list_owlyshield_report_files() -> OwlyshieldReportsDirectoryView {
-    #[cfg(target_os = "windows")]
-    if let Some(dir) = get_owlyshield_reports_dir() {
-        let selected_path = resolve_report_file_from_registry_dir(&dir)
-            .map(|path| path.to_string_lossy().to_string());
-        let files = collect_owlyshield_report_files(&dir)
-            .into_iter()
-            .map(|path| {
-                let metadata = std::fs::metadata(&path).ok();
-                let modified_ts = metadata
-                    .as_ref()
-                    .and_then(|meta| meta.modified().ok())
-                    .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
-                    .map(|duration| duration.as_secs());
-                let size_bytes = metadata.map(|meta| meta.len()).unwrap_or_default();
-                let path_string = path.to_string_lossy().to_string();
+    let dir = {
+        #[cfg(target_os = "windows")]
+        { get_owlyshield_reports_dir().unwrap_or_else(|| std::path::PathBuf::from("reports")) }
+        #[cfg(not(target_os = "windows"))]
+        { std::path::PathBuf::from("reports") }
+    };
 
-                OwlyshieldReportFileEntry {
-                    name: path
-                        .file_name()
-                        .and_then(|name| name.to_str())
-                        .unwrap_or("report")
-                        .to_string(),
-                    selected: selected_path.as_deref() == Some(path_string.as_str()),
-                    path: path_string,
-                    modified_ts,
-                    size_bytes,
-                }
-            })
-            .collect();
-
-        return OwlyshieldReportsDirectoryView {
-            directory: dir.to_string_lossy().to_string(),
-            selected_path,
-            files,
-        };
-    }
-
-    let local_dir = std::path::PathBuf::from("reports");
-    let selected_path = local_dir
-        .is_dir()
-        .then(|| {
-            collect_owlyshield_report_files(&local_dir)
-                .into_iter()
-                .next()
-        })
-        .flatten()
+    let selected_path = collect_owlyshield_report_files(&dir)
+        .into_iter()
+        .next()
         .map(|path| path.to_string_lossy().to_string());
-    let files = if local_dir.is_dir() {
-        collect_owlyshield_report_files(&local_dir)
+    
+    let files = if dir.is_dir() {
+        collect_owlyshield_report_files(&dir)
             .into_iter()
             .map(|path| {
                 let metadata = std::fs::metadata(&path).ok();
@@ -496,6 +434,7 @@ async fn list_owlyshield_report_files() -> OwlyshieldReportsDirectoryView {
                     .map(|duration| duration.as_secs());
                 let size_bytes = metadata.map(|meta| meta.len()).unwrap_or_default();
                 let path_string = path.to_string_lossy().to_string();
+
                 OwlyshieldReportFileEntry {
                     name: path
                         .file_name()
@@ -514,7 +453,7 @@ async fn list_owlyshield_report_files() -> OwlyshieldReportsDirectoryView {
     };
 
     OwlyshieldReportsDirectoryView {
-        directory: local_dir.to_string_lossy().to_string(),
+        directory: dir.to_string_lossy().to_string(),
         selected_path,
         files,
     }
@@ -547,20 +486,23 @@ async fn get_owlyshield_rules_raw(path: Option<String>) -> String {
 
 #[tauri::command]
 async fn get_owlyshield_report_raw(path: Option<String>) -> String {
-    #[cfg(target_os = "windows")]
-    if let Some(path) = resolve_owlyshield_report_file(path.as_deref()) {
-        if let Ok(content) = std::fs::read_to_string(&path) {
+    if let Some(p) = path {
+        if let Ok(content) = std::fs::read_to_string(p) {
             return content;
         }
     }
 
-    let local_dir = std::path::PathBuf::from("reports");
-    if local_dir.is_dir()
-        && let Some(path) = collect_owlyshield_report_files(&local_dir)
-            .into_iter()
-            .next()
-    {
-        return std::fs::read_to_string(path).unwrap_or_default();
+    let dir = {
+        #[cfg(target_os = "windows")]
+        { get_owlyshield_reports_dir().unwrap_or_else(|| std::path::PathBuf::from("reports")) }
+        #[cfg(not(target_os = "windows"))]
+        { std::path::PathBuf::from("reports") }
+    };
+
+    if let Some(path) = collect_owlyshield_report_files(&dir).into_iter().next() {
+        if let Ok(content) = std::fs::read_to_string(path) {
+            return content;
+        }
     }
 
     String::new()
