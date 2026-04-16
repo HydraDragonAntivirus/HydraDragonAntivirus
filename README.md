@@ -322,7 +322,7 @@ See the [LICENSE](./LICENSE) file for more information.
 - As you may notice, with the introduction of OpenEDR, the proportion of YARA has decreased significantly, and C++ has become the second most prominent language in the repository.
 
 **Q: Does this collect data?**
-- No. We can allow GridinSoft and many other companies to collect data. Unlike other companies, they freely allow the use of their cloud, but I'm not allowing that.
+- OpenEDR sending telemetry to valkyrie to detect more malware.
 
 **Q: How do I use it?**
 - Just run the shortcut from the desktop, then run advanced dynamic and static analysis on a file.
