@@ -177,19 +177,16 @@ VmmLoop:
     ;  CR0, CR3, CR4, DR7, CPL = 0
     ;  ES.sel, CS.sel, SS.sel, DS.sel
 
-    ; #VMEXIT occured.
-    ; First, save the guest registers immediately to the stack to prevent corruption.
+    ; #VMEXIT occured, save the guest state to the guest VMCB:
+    ; (HSAVE restored RAX to GuestVmcbPa)
+    vmsave rax
+
+    ; Restore Host's GS.Base, FS.Base, TR, and LDTR from the refreshed Host VMCB.
+    mov rax, [rsp + 8] ; RAX -> HostVmcbPa
+    vmload rax
+
+    ; On #VMEXIT we have the guest context, so save it to the stack:
     MULTIPUSH
-
-    ; Now that guest registers are safe on the stack, we can use RAX as a scratchpad.
-    ; [rsp + GPR_CONTEXT_SIZE + 0]  -> GuestVmcbPa
-    ; [rsp + GPR_CONTEXT_SIZE + 8]  -> HostVmcbPa
-
-    mov rax, [rsp + GPR_CONTEXT_SIZE] ; RAX -> GuestVmcbPa
-    vmsave rax ; Save guest state (FS/GS/TR/LDTR)
-
-    mov rax, [rsp + GPR_CONTEXT_SIZE + 8] ; RAX -> HostVmcbPa
-    vmload rax ; Restore host state (FS/GS/TR/LDTR)
 
     sub rsp, 32 ; Homing space for the x64 call convention
     call SvmVmexitHandler ; VMM_STATUS SvmVmexitHandler(PRIVATE_VM_DATA* Private, GuestContext* Context)
