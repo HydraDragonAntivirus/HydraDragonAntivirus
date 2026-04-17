@@ -2,5 +2,5 @@ pefile
 numpy
 esprima
 tqdm
-capstone
+r2pipe
 logly

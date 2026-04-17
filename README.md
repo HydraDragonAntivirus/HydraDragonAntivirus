@@ -251,6 +251,7 @@ See the [LICENSE](./LICENSE) file for more information.
 - https://github.com/GuardianN06/SourceUndefender
 - https://github.com/Lil-House/Pyarmor-Static-Unpack-1shot
 - https://github.com/HydraDragonAntivirus/HydraDragonPythonReverser
+- https://github.com/radareorg/radare2/releases/tag/6.1.4
 
 - I used these projects to decompile (with a current custom database of Detect-It-Easy).
 

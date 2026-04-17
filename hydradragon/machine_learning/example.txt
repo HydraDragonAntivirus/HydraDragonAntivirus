@@ -1,2 +1,9 @@
 py -3.12 train_pefile.py --reset --benign-dir=C:\Users\semae\OneDrive\Belgeler\usbdosyalar\data2 --malicious-dir=C:\Users\semae\OneDrive\Belgeler\usbdosyalar\datamaliciousorder
 py- 3.12 train_javascript.py --reset --benign-dir=C:\Users\semae\OneDrive\Belgeler\usbdosyalar\javascript\data2 --malicious-dir=C:\Users\semae\OneDrive\Belgeler\usbdosyalar\javascript\datamaliciousorder
+
+# test
+py -3.12 train_pefile.py --reset --benign-dir=C:\Users\semae\OneDrive\Belgeler\usbdosyalar\data2small --malicious-dir=C:\Users\semae\OneDrive\Belgeler\usbdosyalar\datamalicioussmall
+
+# Test and verify
+pytest test_train_pefile.py -v
+For view pickle:github.com/jonathanciapetti/picklevw
