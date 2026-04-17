@@ -371,7 +371,7 @@ So I'm not againist closed source if you able to protect source code without fal
 
 ### Credits:
 - All credits goes to Emirhan Uçan (yes it's one man project)
-- Thanks to Hacı Murad for collecting and compiling some machine learning signatures.
+- Thanks to Hacı Murad for collecting and compiling some machine learning signatures (https://github.com/hacimurad41). 
 
 ## Extraction and Decompilation Directories
 
