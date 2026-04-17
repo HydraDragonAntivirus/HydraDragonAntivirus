@@ -70,20 +70,7 @@ TransparentHandleSystemCallHook(GUEST_REGS * Regs)
         return;
     }
 
-    PCHAR  CallingProcess = g_Callbacks.CommonGetProcessNameFromProcessControlBlock(PsGetCurrentProcess());
-    UINT64 Context        = Regs->rax;
-
-    //
-    // Skip the transparent mitigations of system calls when the caller process
-    // is a Windows process that should receive unmodified data
-    //
-    for (ULONG i = 0; i < (sizeof(TRANSPARENT_WIN_PROCESS_IGNORE) / sizeof(TRANSPARENT_WIN_PROCESS_IGNORE[0])); i++)
-    {
-        if (strstr(CallingProcess, TRANSPARENT_WIN_PROCESS_IGNORE[i]))
-        {
-            return;
-        }
-    }
+    UINT64 Context = Regs->rax;
 
     if (Context == g_SystemCallNumbersInformation.SysNtQuerySystemInformation ||
         Context == g_SystemCallNumbersInformation.SysNtQuerySystemInformationEx)
