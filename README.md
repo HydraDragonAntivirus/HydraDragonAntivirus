@@ -372,8 +372,8 @@ So I'm not againist closed source if you able to protect source code without fal
 ### Credits:
 - All credits goes to Emirhan Uçan (yes it's one man project)
 - Thanks to Hacı Murad for collecting and compiling some machine learning signatures (https://github.com/hacimurad41). 
-- Thanks to Yusuf testing HyperVisior on Intel https://github.com/caymazyusuf72.
-
+- Thanks to Yusuf testing HyperVisior on Intel (https://github.com/caymazyusuf72).
+- Thanks to Emrah for .agents folder (https://github.com/emrahd0732).
 ## Extraction and Decompilation Directories
 
 This document describes all the output directories used by the executalbe analysis tool for various extraction, decompilation, and unpacking operations.
