@@ -177,7 +177,6 @@ SvmVmexitHandler(_In_ SVM::PRIVATE_VM_DATA* Private, _In_ GuestContext* Context)
         return SVM::VMM_STATUS::VMM_SHUTDOWN;
     }
 
-    __svm_vmload(reinterpret_cast<size_t>(Private->VmmStack.Layout.InitialStack.HostVmcbPa));
     Context->Rax = Private->Guest.StateSaveArea.Rax;
 
     switch (Private->Guest.ControlArea.ExitCode)
