@@ -204,4 +204,17 @@ VmmExit:
     jmp rbx
 SvmVmmRun ENDP
 
+AsmSvmVmmcall PROC PUBLIC
+    ; RCX: VMMCALL ID
+    ; RDX: Arg1
+    ; R8:  Arg2
+    ; R9:  Arg3
+    mov rax, rcx
+    mov rcx, rdx
+    mov rdx, r8
+    mov r8, r9
+    vmmcall
+    ret
+AsmSvmVmmcall ENDP
+
 END
