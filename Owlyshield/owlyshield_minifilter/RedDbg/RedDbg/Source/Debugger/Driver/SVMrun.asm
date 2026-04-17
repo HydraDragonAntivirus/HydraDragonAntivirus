@@ -158,16 +158,9 @@ SvmVmmRun PROC PUBLIC
     ; RSP + 8  -> PVOID HostVmcbPa
     ; RSP + 16 -> PRIVATE_VM_DATA* Private
 
-    ; Shield the VMM transition from external interrupts and NMIs.
-    clgi
-
 VmmLoop:
-    ; Refresh the Host's State-Save area in the Host VMCB before entry.
-    ; This ensures that even if GS/FS/TR were changed by the OS, we return to the latest state.
-    mov rax, [rsp + 8] ; RAX -> HostVmcbPa
-    vmsave rax
-
     mov rax, [rsp] ; RAX -> GuestVmcbPa
+
     vmload rax ; Load previously saved guest state
     vmrun rax
     ; Registers restored by the host's values:
@@ -178,10 +171,11 @@ VmmLoop:
     ;  ES.sel, CS.sel, SS.sel, DS.sel
 
     ; #VMEXIT occured, save the guest state to the guest VMCB:
-    ; (HSAVE restored RAX to GuestVmcbPa)
-    vmsave rax
+    vmsave rax ; RAX was restored to host's state (RAX -> GuestVmcbPa)
 
-    ; Restore Host's GS.Base, FS.Base, TR, and LDTR from the refreshed Host VMCB.
+    ; Restore Host's GS.Base, FS.Base, TR, and LDTR from the Host VMCB.
+    ; Without this, the VMM runs with the Guest's GS.Base, which triggers
+    ; recursive #PF loops when calling standard kernel functions.
     mov rax, [rsp + 8] ; RAX -> HostVmcbPa
     vmload rax
 
