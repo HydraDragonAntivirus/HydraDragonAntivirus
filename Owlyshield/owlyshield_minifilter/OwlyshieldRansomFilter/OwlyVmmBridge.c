@@ -920,9 +920,14 @@ OwlyVmmInitialize(VOID)
         g_OwlyVmmInitStatus = STATUS_SUCCESS;
         OwlyForwardKernelEvent(OWLY_VMM_RAW_EVENT_BASE + 0x7Eu, OwlyGetVmmInitializedEventName(), 0, 0);
 
+        // Initialize HyperEvade structs for AMD backend to prevent Double Fault on SYSCALL trapping
+        transparentModeRequest.IsHide = TRUE;
+        g_OwlyTransparentResolvedSyscallCount =
+            OwlyPopulateTransparentSyscallNumbers(&transparentModeRequest.SystemCallNumbersInformation);
         g_OwlyTransparentAttempted = TRUE;
-        g_OwlyHyperEvadeInitialized = TRUE;
-        g_OwlyTransparentLastStatus = STATUS_SUCCESS;
+        g_OwlyHyperEvadeInitialized = TransparentHideDebuggerWrapper(&transparentModeRequest);
+        g_OwlyTransparentLastStatus = g_OwlyHyperEvadeInitialized ? STATUS_SUCCESS : STATUS_UNSUCCESSFUL;
+
         OwlyForwardKernelEvent(OWLY_VMM_RAW_HYPEREVADE_BASE + 0x7Fu,
                                L"TRANSPARENT_MODE_ACTIVE",
                                (ULONG_PTR)(ULONG)g_OwlyTransparentLastStatus,
