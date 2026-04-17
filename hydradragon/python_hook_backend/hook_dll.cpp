@@ -833,35 +833,6 @@ tPyUnicode_AsUTF8 pPyUnicode_AsUTF8 = nullptr;
 unsigned char g_originalBytes[14];
 void* g_targetAddr = nullptr;
 
-// 1. Generic Pattern Scanner
-void* FindNuitkaUnmarshal(const char* moduleName) {
-    HMODULE hModule = GetModuleHandleA(moduleName);
-    if (!hModule) return nullptr;
-
-    MODULEINFO modInfo;
-    if (!GetModuleInformation(GetCurrentProcess(), hModule, &modInfo, sizeof(MODULEINFO)))
-        return nullptr;
-
-    unsigned char* start = (unsigned char*)modInfo.lpBaseOfDll;
-    size_t size = modInfo.SizeOfImage;
-
-    // Pattern for Nuitka's Unmarshal function (Generic x64)
-    const unsigned char pattern[] = { 0x40, 0x53, 0x48, 0x83, 0xEC, 0x20, 0x48, 0x8B, 0xDA, 0x48, 0x8B, 0xD1, 0x48, 0x8B, 0x0D };
-    const size_t patternLen = 15;
-
-    for (size_t i = 0; i < size - patternLen; i++) {
-        bool found = true;
-        for (size_t j = 0; j < patternLen; j++) {
-            if (pattern[j] != start[i + j]) {
-                found = false;
-                break;
-            }
-        }
-        if (found) return (void*)&start[i];
-    }
-    return nullptr;
-}
-
 // 2. The Hook Trampoline
 void PlaceTrampoline(void* target, void* detour) {
     g_targetAddr = target;
