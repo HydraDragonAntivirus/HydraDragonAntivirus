@@ -173,12 +173,6 @@ VmmLoop:
     ; #VMEXIT occured, save the guest state to the guest VMCB:
     vmsave rax ; RAX was restored to host's state (RAX -> GuestVmcbPa)
 
-    ; Restore Host's GS.Base, FS.Base, TR, and LDTR from the Host VMCB.
-    ; Without this, the VMM runs with the Guest's GS.Base, which triggers
-    ; recursive #PF loops when calling standard kernel functions.
-    mov rax, [rsp + 8] ; RAX -> HostVmcbPa
-    vmload rax
-
     ; On #VMEXIT we have the guest context, so save it to the stack:
     MULTIPUSH
 
