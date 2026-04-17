@@ -899,10 +899,6 @@ OwlyVmmInitialize(VOID)
     g_OwlyTransparentLastStatus = STATUS_NOT_SUPPORTED;
     g_OwlyTransparentResolvedSyscallCount = 0;
 
-    transparentModeRequest.IsHide = TRUE;
-    g_OwlyTransparentResolvedSyscallCount =
-        OwlyPopulateTransparentSyscallNumbers(&transparentModeRequest.SystemCallNumbersInformation);
-
     if (OwlyAmdVmmShouldUseBackend())
     {
         NTSTATUS amdStatus = OwlyAmdVmmInitialize(&g_OwlyVmmLastError);
@@ -924,6 +920,10 @@ OwlyVmmInitialize(VOID)
         g_OwlyVmmInitStatus = STATUS_SUCCESS;
         OwlyForwardKernelEvent(OWLY_VMM_RAW_EVENT_BASE + 0x7Eu, OwlyGetVmmInitializedEventName(), 0, 0);
 
+        // Initialize HyperEvade structs for AMD backend to prevent Double Fault on SYSCALL trapping
+        transparentModeRequest.IsHide = TRUE;
+        g_OwlyTransparentResolvedSyscallCount =
+            OwlyPopulateTransparentSyscallNumbers(&transparentModeRequest.SystemCallNumbersInformation);
         g_OwlyTransparentAttempted = TRUE;
         g_OwlyHyperEvadeInitialized = TransparentHideDebuggerWrapper(&transparentModeRequest);
         g_OwlyTransparentLastStatus = g_OwlyHyperEvadeInitialized ? STATUS_SUCCESS : STATUS_UNSUCCESSFUL;
@@ -935,6 +935,11 @@ OwlyVmmInitialize(VOID)
         return STATUS_SUCCESS;
     }
 
+    // Resolve transparent-mode syscall numbers before enabling the Intel VMM backend.
+    // Doing this after VmFuncInitVmm() can re-enter VMM callback paths while the backend
+    // is only partially initialized, which is stack-sensitive on some hosts.
+    g_OwlyTransparentResolvedSyscallCount =
+        OwlyPopulateTransparentSyscallNumbers(&transparentModeRequest.SystemCallNumbersInformation);
 
     initResult = VmFuncInitVmm(&callbacks);
     if (!initResult)
