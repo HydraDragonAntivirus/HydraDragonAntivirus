@@ -4,6 +4,17 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 VisualStudioVersion = 17.13.35931.197 d17.13
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "OwlyshieldRansomFilter", "OwlyshieldRansomFilter\OwlyshieldRansomFilter.vcxproj", "{DF8682E7-17C1-4450-A68C-D7CEF8780D8F}"
+	ProjectSection(ProjectDependencies) = postProject
+		{B226530A-14B1-40AC-B82E-D9057400E7EE} = {B226530A-14B1-40AC-B82E-D9057400E7EE}
+		{BB17323A-2460-4AE1-8AFE-B367400B934F} = {BB17323A-2460-4AE1-8AFE-B367400B934F}
+		{9FA45E25-DAEB-4C2D-806C-7908A180195D} = {9FA45E25-DAEB-4C2D-806C-7908A180195D}
+	EndProjectSection
+EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "hyperevade", "HyperDbg\hyperdbg\hyperevade\hyperevade.vcxproj", "{B226530A-14B1-40AC-B82E-D9057400E7EE}"
+EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "hyperhv", "HyperDbg\hyperdbg\hyperhv\hyperhv.vcxproj", "{BB17323A-2460-4AE1-8AFE-B367400B934F}"
+EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "hypertrace", "HyperDbg\hyperdbg\hypertrace\hypertrace.vcxproj", "{9FA45E25-DAEB-4C2D-806C-7908A180195D}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{D289F655-3416-4C39-97D1-9EC964BA43FF}"
 	ProjectSection(SolutionItems) = preProject
@@ -27,6 +38,36 @@ Global
 		Release|x86 = Release|x86
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{B226530A-14B1-40AC-B82E-D9057400E7EE}.Debug|ARM.ActiveCfg = Debug|x64
+		{B226530A-14B1-40AC-B82E-D9057400E7EE}.Debug|ARM64.ActiveCfg = Debug|x64
+		{B226530A-14B1-40AC-B82E-D9057400E7EE}.Debug|x64.ActiveCfg = Debug|x64
+		{B226530A-14B1-40AC-B82E-D9057400E7EE}.Debug|x64.Build.0 = Debug|x64
+		{B226530A-14B1-40AC-B82E-D9057400E7EE}.Debug|x86.ActiveCfg = Debug|x64
+		{B226530A-14B1-40AC-B82E-D9057400E7EE}.Release|ARM.ActiveCfg = Release|x64
+		{B226530A-14B1-40AC-B82E-D9057400E7EE}.Release|ARM64.ActiveCfg = Release|x64
+		{B226530A-14B1-40AC-B82E-D9057400E7EE}.Release|x64.ActiveCfg = Release|x64
+		{B226530A-14B1-40AC-B82E-D9057400E7EE}.Release|x64.Build.0 = Release|x64
+		{B226530A-14B1-40AC-B82E-D9057400E7EE}.Release|x86.ActiveCfg = Release|x64
+		{BB17323A-2460-4AE1-8AFE-B367400B934F}.Debug|ARM.ActiveCfg = Debug|x64
+		{BB17323A-2460-4AE1-8AFE-B367400B934F}.Debug|ARM64.ActiveCfg = Debug|x64
+		{BB17323A-2460-4AE1-8AFE-B367400B934F}.Debug|x64.ActiveCfg = Debug|x64
+		{BB17323A-2460-4AE1-8AFE-B367400B934F}.Debug|x64.Build.0 = Debug|x64
+		{BB17323A-2460-4AE1-8AFE-B367400B934F}.Debug|x86.ActiveCfg = Debug|x64
+		{BB17323A-2460-4AE1-8AFE-B367400B934F}.Release|ARM.ActiveCfg = Release|x64
+		{BB17323A-2460-4AE1-8AFE-B367400B934F}.Release|ARM64.ActiveCfg = Release|x64
+		{BB17323A-2460-4AE1-8AFE-B367400B934F}.Release|x64.ActiveCfg = Release|x64
+		{BB17323A-2460-4AE1-8AFE-B367400B934F}.Release|x64.Build.0 = Release|x64
+		{BB17323A-2460-4AE1-8AFE-B367400B934F}.Release|x86.ActiveCfg = Release|x64
+		{9FA45E25-DAEB-4C2D-806C-7908A180195D}.Debug|ARM.ActiveCfg = Debug|x64
+		{9FA45E25-DAEB-4C2D-806C-7908A180195D}.Debug|ARM64.ActiveCfg = Debug|x64
+		{9FA45E25-DAEB-4C2D-806C-7908A180195D}.Debug|x64.ActiveCfg = Debug|x64
+		{9FA45E25-DAEB-4C2D-806C-7908A180195D}.Debug|x64.Build.0 = Debug|x64
+		{9FA45E25-DAEB-4C2D-806C-7908A180195D}.Debug|x86.ActiveCfg = Debug|x64
+		{9FA45E25-DAEB-4C2D-806C-7908A180195D}.Release|ARM.ActiveCfg = Release|x64
+		{9FA45E25-DAEB-4C2D-806C-7908A180195D}.Release|ARM64.ActiveCfg = Release|x64
+		{9FA45E25-DAEB-4C2D-806C-7908A180195D}.Release|x64.ActiveCfg = Release|x64
+		{9FA45E25-DAEB-4C2D-806C-7908A180195D}.Release|x64.Build.0 = Release|x64
+		{9FA45E25-DAEB-4C2D-806C-7908A180195D}.Release|x86.ActiveCfg = Release|x64
 		{DF8682E7-17C1-4450-A68C-D7CEF8780D8F}.Debug|ARM.ActiveCfg = Debug|ARM
 		{DF8682E7-17C1-4450-A68C-D7CEF8780D8F}.Debug|ARM.Build.0 = Debug|ARM
 		{DF8682E7-17C1-4450-A68C-D7CEF8780D8F}.Debug|ARM.Deploy.0 = Debug|ARM
