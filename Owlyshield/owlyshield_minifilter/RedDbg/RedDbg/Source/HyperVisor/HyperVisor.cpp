@@ -137,7 +137,7 @@ void HyperVisorSvm::FillVmcbSegmentAttributes(
 
 bool HyperVisorSvm::VirtualizeProcessor()
 {
-    volatile bool IsVirtualized = false;
+    static volatile bool IsVirtualized = false;
     IsVirtualized = false;
     CONTEXT Context = {};
     Context.ContextFlags = CONTEXT_ALL;

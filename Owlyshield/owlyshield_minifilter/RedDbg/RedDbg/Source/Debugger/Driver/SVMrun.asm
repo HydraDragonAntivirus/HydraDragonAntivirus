@@ -81,16 +81,16 @@ POPAXMM MACRO
     movaps xmm3, [rsp + 3 * sizeof(OWORD)]
     movaps xmm4, [rsp + 4 * sizeof(OWORD)]
     movaps xmm5, [rsp + 5 * sizeof(OWORD)]
-    movaps xmm6, [rsp + 6 * sizeof(OWORD)]
-    movaps xmm7, [rsp + 7 * sizeof(OWORD)]
-    movaps xmm8, [rsp + 8 * sizeof(OWORD)]
-    movaps xmm9, [rsp + 9 * sizeof(OWORD)]
-    movaps xmm10, [rsp + 10 * sizeof(OWORD)]
-    movaps xmm11, [rsp + 11 * sizeof(OWORD)]
-    movaps xmm12, [rsp + 12 * sizeof(OWORD)]
-    movaps xmm13, [rsp + 13 * sizeof(OWORD)]
-    movaps xmm14, [rsp + 14 * sizeof(OWORD)]
-    movaps xmm15, [rsp + 15 * sizeof(OWORD)]
+    movaps xmm6, [rsp + 0 * sizeof(OWORD)]
+    movaps xmm7, [rsp + 1 * sizeof(OWORD)]
+    movaps xmm8, [rsp + 2 * sizeof(OWORD)]
+    movaps xmm9, [rsp + 3 * sizeof(OWORD)]
+    movaps xmm10, [rsp + 4 * sizeof(OWORD)]
+    movaps xmm11, [rsp + 5 * sizeof(OWORD)]
+    movaps xmm12, [rsp + 0 * sizeof(OWORD)]
+    movaps xmm13, [rsp + 1 * sizeof(OWORD)]
+    movaps xmm14, [rsp + 2 * sizeof(OWORD)]
+    movaps xmm15, [rsp + 3 * sizeof(OWORD)]
     add rsp, XMM_CONTEXT_SIZE
 ENDM
 
@@ -121,16 +121,16 @@ POPAYMM MACRO
     vmovdqu ymm3, ymmword ptr [rsp + 3 * sizeof(YMMWORD)]
     vmovdqu ymm4, ymmword ptr [rsp + 4 * sizeof(YMMWORD)]
     vmovdqu ymm5, ymmword ptr [rsp + 5 * sizeof(YMMWORD)]
-    vmovdqu ymm6, ymmword ptr [rsp + 6 * sizeof(YMMWORD)]
-    vmovdqu ymm7, ymmword ptr [rsp + 7 * sizeof(YMMWORD)]
-    vmovdqu ymm8, ymmword ptr [rsp + 8 * sizeof(YMMWORD)]
-    vmovdqu ymm9, ymmword ptr [rsp + 9 * sizeof(YMMWORD)]
-    vmovdqu ymm10, ymmword ptr [rsp + 10 * sizeof(YMMWORD)]
-    vmovdqu ymm11, ymmword ptr [rsp + 11 * sizeof(YMMWORD)]
-    vmovdqu ymm12, ymmword ptr [rsp + 12 * sizeof(YMMWORD)]
-    vmovdqu ymm13, ymmword ptr [rsp + 13 * sizeof(YMMWORD)]
-    vmovdqu ymm14, ymmword ptr [rsp + 14 * sizeof(YMMWORD)]
-    vmovdqu ymm15, ymmword ptr [rsp + 15 * sizeof(YMMWORD)]
+    vmovdqu ymm6, ymmword ptr [rsp + 0 * sizeof(YMMWORD)]
+    vmovdqu ymm7, ymmword ptr [rsp + 1 * sizeof(YMMWORD)]
+    vmovdqu ymm8, ymmword ptr [rsp + 2 * sizeof(YMMWORD)]
+    vmovdqu ymm9, ymmword ptr [rsp + 3 * sizeof(YMMWORD)]
+    vmovdqu ymm10, ymmword ptr [rsp + 4 * sizeof(YMMWORD)]
+    vmovdqu ymm11, ymmword ptr [rsp + 5 * sizeof(YMMWORD)]
+    vmovdqu ymm12, ymmword ptr [rsp + 0 * sizeof(YMMWORD)]
+    vmovdqu ymm13, ymmword ptr [rsp + 1 * sizeof(YMMWORD)]
+    vmovdqu ymm14, ymmword ptr [rsp + 2 * sizeof(YMMWORD)]
+    vmovdqu ymm15, ymmword ptr [rsp + 3 * sizeof(YMMWORD)]
     add rsp, YMM_CONTEXT_SIZE
 ENDM
 
@@ -203,18 +203,5 @@ VmmExit:
     mov ecx, CPUID_VMM_SHUTDOWN ; Signature that says about the VM shutdown
     jmp rbx
 SvmVmmRun ENDP
-
-AsmSvmVmmcall PROC PUBLIC
-    ; RCX: VMMCALL ID
-    ; RDX: Arg1
-    ; R8:  Arg2
-    ; R9:  Arg3
-    mov rax, rcx
-    mov rcx, rdx
-    mov rdx, r8
-    mov r8, r9
-    vmmcall
-    ret
-AsmSvmVmmcall ENDP
 
 END
