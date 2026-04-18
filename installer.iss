@@ -55,12 +55,6 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 ; HydraDragon main files
 Source: "C:\Users\seame\OneDrive\Belgeler\HydraDragonAntivirus\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs;
 
-; Standalone Hypervisor Files
-Source: "Owlyshield\owlyshield_minifilter\RedDbg\RedDbg\x64\ReleaseX64Kernel\RedDbgDrv.sys"; DestDir: "{app}\hydradragon\Owlyshield\RedDbg"; Flags: ignoreversion
-Source: "Owlyshield\owlyshield_minifilter\RedDbg\RedDbg\RedDbg.inf"; DestDir: "{app}\hydradragon\Owlyshield\RedDbg"; Flags: ignoreversion
-Source: "Owlyshield\owlyshield_minifilter\HyperDbg\hyperdbg\build\bin\release\hyperhv.sys"; DestDir: "{app}\hydradragon\Owlyshield\HyperDbg"; Flags: ignoreversion
-Source: "Owlyshield\owlyshield_minifilter\HyperDbg\hyperdbg\hyperhv\hyperhv.inf"; DestDir: "{app}\hydradragon\Owlyshield\HyperDbg"; Flags: ignoreversion
-
 ; External dependencies
 Source: "C:\Users\seame\OneDrive\Belgeler\hydratempinstall\7z2600-x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\seame\OneDrive\Belgeler\hydratempinstall\VC_redist.x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
@@ -84,8 +78,6 @@ Name: "{app}\hydradragon\Owlyshield\utils"
 Name: "{app}\hydradragon\Owlyshield\log"; Flags: uninsneveruninstall
 Name: "{app}\hydradragon\Owlyshield\config"; Flags: uninsneveruninstall
 Name: "{app}\hydradragon\Owlyshield\config\threats"; Flags: uninsneveruninstall
-Name: "{app}\hydradragon\Owlyshield\RedDbg"
-Name: "{app}\hydradragon\Owlyshield\HyperDbg"
 Name: "{app}\hydradragon\HydraDragonAV\engines\clamav"
 Name: "{app}\hydradragon\suricata"
 Name: "{app}\nodejs"
