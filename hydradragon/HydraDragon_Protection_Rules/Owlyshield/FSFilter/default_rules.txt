@@ -23,6 +23,9 @@ c:\windows\system32\edrpm32.dll
 c:\windows\system32\edrmm.dll
 c:\windows\system32\drivers\sanctum.sys
 c:\windows\system32\drivers\edrdrv.sys
+c:\windows\system32\drivers\OwlyshieldRansomFilter.sys
+c:\windows\system32\drivers\RedDbg.sys
+c:\windows\system32\drivers\HyperDbg.sys
 
 # IMPORTANT: This is converted to hardcoded path after install but at start it's not
 # \desktop\sanctum\

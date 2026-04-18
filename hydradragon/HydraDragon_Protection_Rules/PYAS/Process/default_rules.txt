@@ -29,4 +29,7 @@ c:\programdata\hydradragonantivirus
 c:\programdata\edrsvc
 c:\windows\system32\drivers\sanctum.sys
 c:\windows\system32\drivers\edrdrv.sys
+c:\windows\system32\drivers\OwlyshieldRansomFilter.sys
+c:\windows\system32\drivers\RedDbg.sys
+c:\windows\system32\drivers\HyperDbg.sys
 

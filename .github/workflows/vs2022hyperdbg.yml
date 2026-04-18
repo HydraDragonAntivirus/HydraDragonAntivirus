@@ -2,13 +2,11 @@ name: vs2022hyperdbg-ci
 
 on:
   push:
-    branches:
-      - master
-      - dev
-    tags:
-      - 'v*'
-      
+    branches: ["**"]
+    tags: ["v*"]
   pull_request:
+    branches: ["**"]
+  workflow_dispatch:
 env:
   # WDK for Windows 11, version 25H2
   WDK_URL: https://go.microsoft.com/fwlink/?linkid=2335869

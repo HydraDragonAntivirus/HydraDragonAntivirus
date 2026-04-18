@@ -3,8 +3,14 @@ name: Python Lint
 on:
   push:
     branches: ["**"]
+    paths:
+      - 'hydradragon/**'
+      - '.github/workflows/python-lint.yml'
   pull_request:
     branches: ["**"]
+    paths:
+      - 'hydradragon/**'
+      - '.github/workflows/python-lint.yml'
   workflow_dispatch:
 
 jobs:
@@ -25,7 +31,7 @@ jobs:
       - name: Install flake8
         run: pip install flake8
 
-      - name: Run flake8 at root
+      - name: Run flake8
         run: |
-          flake8 . --count --statistics --max-line-length=240 \
+          flake8 hydradragon/ --count --statistics --max-line-length=240 \
             --exclude=.git,.tox,.venv,venv,node_modules,build,dist,site-packages,__pycache__

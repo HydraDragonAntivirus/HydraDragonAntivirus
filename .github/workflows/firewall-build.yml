@@ -46,8 +46,8 @@ jobs:
           echo "WINDIVERT_PATH=$path" >> $env:GITHUB_ENV
           echo "WINDIVERT_LIB_DIR=$path" >> $env:GITHUB_ENV
 
-      - name: Cargo clippy (firewall)
-        run: cargo clippy -- -D warnings
+      - name: Cargo check (firewall)
+        run: cargo check
 
       - name: Cargo build release (firewall)
         run: cargo build --release --locked

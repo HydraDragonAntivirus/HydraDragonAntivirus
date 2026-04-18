@@ -26,6 +26,9 @@
 HKLM\SOFTWARE\OwlyShield
 HKLM\SYSTEM\CurrentControlSet\Services\owlyshield_ransom
 HKLM\SYSTEM\CurrentControlSet\Services\SimplePYASProtection
+HKLM\SYSTEM\CurrentControlSet\Services\RedDbg
+HKLM\SYSTEM\CurrentControlSet\Services\HyperDbg
+HKLM\SYSTEM\CurrentControlSet\Services\hyperhv
 
 # ---------------------------------------------------------------------------
 # Sanctum / PPL runner service keys
