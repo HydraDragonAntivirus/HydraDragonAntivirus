@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Created by SharpDevelop.
  * User: Bogdan
  * Date: 22.01.2011
@@ -221,7 +221,7 @@ namespace Mega_Dumper
 
                 string newdirname = Path.Combine(DirName, "Dumps");
                 Directory.CreateDirectory(newdirname);
-                int ImageBase = Convert.ToInt32(lvmodules.Items[lvmodules.SelectedIndices[0]].SubItems[1].Text, 16);
+                uint ImageBase = Convert.ToUInt32(lvmodules.Items[lvmodules.SelectedIndices[0]].SubItems[1].Text, 16);
                 string moduleName = lvmodules.Items[lvmodules.SelectedIndices[0]].SubItems[0].Text;
 
                 bool isok;
@@ -250,7 +250,7 @@ namespace Mega_Dumper
                 bool ShouldFixrawsize = false;
 
                 _ = ReadProcessMemory(hProcess, (uint)(ImageBase + 0x03C), InfoKeep, 4, ref BytesRead);
-                int PEOffset = BitConverter.ToInt32(InfoKeep, 0);
+                uint PEOffset = BitConverter.ToUInt32(InfoKeep, 0);
 
                 try
                 {
@@ -263,19 +263,19 @@ namespace Mega_Dumper
                     isok = ReadProcessMemory(hProcess, (uint)ImageBase, PeHeader, (uint)sizetocopy, ref BytesRead);
                     offset += rawaddress;
 
-                    nrofsection = BitConverter.ToInt16(PeHeader, PEOffset + 0x06);
-                    int sectionalignment = BitConverter.ToInt32(PeHeader, PEOffset + 0x038);
-                    filealignment = BitConverter.ToInt32(PeHeader, PEOffset + 0x03C);
+                    uint nrofsection = (uint)BitConverter.ToInt16(PeHeader, (int)PEOffset + 0x06);
+                    uint sectionalignment = BitConverter.ToUInt32(PeHeader, (int)PEOffset + 0x038);
+                    filealignment = (int)BitConverter.ToUInt32(PeHeader, (int)PEOffset + 0x03C);
 
-                    int sizeofimage = BitConverter.ToInt32(PeHeader, PEOffset + 0x050);
+                    uint sizeofimage = BitConverter.ToUInt32(PeHeader, (int)PEOffset + 0x050);
 
-                    int calculatedimagesize = BitConverter.ToInt32(PeHeader, PEOffset + 0x0F8 + 012);
+                    uint calculatedimagesize = BitConverter.ToUInt32(PeHeader, (int)PEOffset + 0x0F8 + 012);
 
                     for (int i = 0; i < nrofsection; i++)
                     {
-                        int virtualsize = BitConverter.ToInt32(PeHeader, PEOffset + 0x0F8 + (0x28 * i) + 08);
-                        int toadd = virtualsize % sectionalignment;
-                        if (toadd != 0) toadd = sectionalignment - toadd;
+                        uint virtualsize = BitConverter.ToUInt32(PeHeader, (int)PEOffset + 0x0F8 + (0x28 * i) + 08);
+                        uint toadd = virtualsize % (uint)sectionalignment;
+                        if (toadd != 0) toadd = (uint)sectionalignment - toadd;
                         calculatedimagesize = calculatedimagesize + virtualsize + toadd;
                     }
 
@@ -290,16 +290,16 @@ namespace Mega_Dumper
 
                 for (int i = 0; i < nrofsection; i++)
                 {
-                    int rawsize, virtualsize, virtualAddress;
+                    uint rawsize, virtualsize, virtualAddress;
                     for (int l = 0; l < nrofsection; l++)
                     {
-                        rawsize = BitConverter.ToInt32(Dump, PEOffset + 0x0F8 + (0x28 * l) + 16);
-                        virtualsize = BitConverter.ToInt32(Dump, PEOffset + 0x0F8 + (0x28 * l) + 08);
-                        _ = BitConverter.ToInt32(Dump, PEOffset + 0x0F8 + (0x28 * l) + 012);
+                        rawsize = BitConverter.ToUInt32(Dump, (int)PEOffset + 0x0F8 + (0x28 * l) + 16);
+                        virtualsize = BitConverter.ToUInt32(Dump, (int)PEOffset + 0x0F8 + (0x28 * l) + 08);
+                        _ = BitConverter.ToUInt32(Dump, (int)PEOffset + 0x0F8 + (0x28 * l) + 012);
 
                         // RawSize = Virtual Size rounded on FileAlligment
-                        int calcrawsize = virtualsize % filealignment;
-                        if (calcrawsize != 0) calcrawsize = filealignment - calcrawsize;
+                        uint calcrawsize = virtualsize % (uint)filealignment;
+                        if (calcrawsize != 0) calcrawsize = (uint)filealignment - calcrawsize;
                         calcrawsize = virtualsize + calcrawsize;
 
                         if (calcrawsize != 0 && rawsize != calcrawsize && rawsize != virtualsize)
@@ -309,10 +309,10 @@ namespace Mega_Dumper
                         }
                     }
 
-                    rawsize = BitConverter.ToInt32(Dump, PEOffset + 0x0F8 + (0x28 * i) + 16);
-                    virtualsize = BitConverter.ToInt32(Dump, PEOffset + 0x0F8 + (0x28 * i) + 08);
+                    rawsize = BitConverter.ToUInt32(Dump, (int)PEOffset + 0x0F8 + (0x28 * i) + 16);
+                    virtualsize = BitConverter.ToUInt32(Dump, (int)PEOffset + 0x0F8 + (0x28 * i) + 08);
                     // RawSize = Virtual Size rounded on FileAlligment
-                    virtualAddress = BitConverter.ToInt32(Dump, PEOffset + 0x0F8 + (0x28 * i) + 012);
+                    virtualAddress = BitConverter.ToUInt32(Dump, (int)PEOffset + 0x0F8 + (0x28 * i) + 012);
 
                     if (ShouldFixrawsize)
                     {
@@ -516,7 +516,7 @@ namespace Mega_Dumper
             if (lvmodules.SelectedIndices.Count > 0)
             {
                 string libaddress = lvmodules.Items[lvmodules.SelectedIndices[0]].SubItems[1].Text;
-                IntPtr libaddressptr = (IntPtr)Convert.ToInt32(libaddress, 16);
+                IntPtr libaddressptr = (IntPtr)Convert.ToUInt32(libaddress, 16);
                 if (!ProcModule.FreeLibraryInternal((uint)procid, libaddressptr, out string error))
                 {
                     label2.ForeColor = Color.Red;
@@ -543,8 +543,8 @@ namespace Mega_Dumper
             if (lvmodules.SelectedIndices.Count > 0)
             {
                 string strmodulename = lvmodules.Items[lvmodules.SelectedIndices[0]].SubItems[0].Text;
-                int baseaddress = int.Parse(lvmodules.Items[lvmodules.SelectedIndices[0]].SubItems[1].Text, NumberStyles.HexNumber);
-                int modulesize = int.Parse(lvmodules.Items[lvmodules.SelectedIndices[0]].SubItems[2].Text, NumberStyles.HexNumber);
+                uint baseaddress = uint.Parse(lvmodules.Items[lvmodules.SelectedIndices[0]].SubItems[1].Text, NumberStyles.HexNumber);
+                uint modulesize = uint.Parse(lvmodules.Items[lvmodules.SelectedIndices[0]].SubItems[2].Text, NumberStyles.HexNumber);
                 MegaDumper.DetectAntidumps detectanti = new(procid, strmodulename, baseaddress, modulesize);
                 detectanti.Show();
             }

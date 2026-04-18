@@ -2081,8 +2081,8 @@ namespace Mega_Dumper
                                         if (!ReadProcessMemoryW(hProcess, peOffsetAddr, infokeep, (UIntPtr)4, out BytesRead))
                                             continue;
 
-                                        int PEOffset = BitConverter.ToInt32(infokeep, 0);
-                                        if (PEOffset <= 0)
+                                        uint PEOffset = BitConverter.ToUInt32(infokeep, 0);
+                                        if (PEOffset == 0 || PEOffset > 0x1000) // Sanity check
                                             continue;
 
                                         // ensure PEOffset falls within our local buffer first, else read from remote
@@ -2098,18 +2098,18 @@ namespace Mega_Dumper
                                                 bool isNetAssembly = false;
 
                                                 // --- SAFELY obtain e_lfanew (PE header offset) ---
-                                                int e_lfanew = -1;
+                                                uint e_lfanew = 0;
                                                 // try read from local buffer if available
                                                 if (k + 0x3C + 4 <= safeByteCount)
                                                 {
-                                                    e_lfanew = BitConverter.ToInt32(onepage, k + 0x3C);
+                                                    e_lfanew = BitConverter.ToUInt32(onepage, k + 0x3C);
                                                 }
                                                 else
                                                 {
                                                     // fallback: read 4 bytes from remote process at (j + k + 0x3C)
                                                     if (!ReadProcessMemoryW(hProcess, j + (ulong)k + 0x03CUL, infokeep, (UIntPtr)4, out BytesRead))
                                                         continue;
-                                                    e_lfanew = BitConverter.ToInt32(infokeep, 0);
+                                                    e_lfanew = BitConverter.ToUInt32(infokeep, 0);
                                                 }
 
                                                 if (e_lfanew <= 0)
@@ -2141,35 +2141,35 @@ namespace Mega_Dumper
                                                     continue;
 
                                                 // --- SAFELY read NumberOfSections and SizeOfOptionalHeader ---
-                                                int numberOfSections = 0;
-                                                short sizeOfOptionalHeader = 0;
+                                                uint numberOfSections = 0;
+                                                uint sizeOfOptionalHeader = 0;
 
                                                 // NumberOfSections is at offset +6 from PE signature (i.e. e_lfanew + 6)
                                                 if (peSigLocalIndex >= 0 && (peSigLocalIndex + 8) <= safeByteCount)
                                                 {
-                                                    numberOfSections = BitConverter.ToInt16(onepage, (int)peSigLocalIndex + 6);
+                                                    numberOfSections = (uint)BitConverter.ToInt16(onepage, (int)peSigLocalIndex + 6);
                                                 }
                                                 else
                                                 {
                                                     if (!ReadProcessMemoryW(hProcess, j + (ulong)k + (ulong)e_lfanew + 6UL, infokeep, (UIntPtr)2, out BytesRead))
                                                         continue;
-                                                    numberOfSections = BitConverter.ToInt16(infokeep, 0);
+                                                    numberOfSections = (uint)BitConverter.ToInt16(infokeep, 0);
                                                 }
 
                                                 // SizeOfOptionalHeader is at offset 20 from PE signature (e_lfanew + 20)
                                                 if (peSigLocalIndex >= 0 && (peSigLocalIndex + 22) <= safeByteCount)
                                                 {
-                                                    sizeOfOptionalHeader = BitConverter.ToInt16(onepage, (int)peSigLocalIndex + 20);
+                                                    sizeOfOptionalHeader = (uint)BitConverter.ToInt16(onepage, (int)peSigLocalIndex + 20);
                                                 }
                                                 else
                                                 {
                                                     if (!ReadProcessMemoryW(hProcess, j + (ulong)k + (ulong)e_lfanew + 20UL, infokeep, (UIntPtr)2, out BytesRead))
                                                         continue;
-                                                    sizeOfOptionalHeader = BitConverter.ToInt16(infokeep, 0);
+                                                    sizeOfOptionalHeader = (uint)BitConverter.ToInt16(infokeep, 0);
                                                 }
 
                                                 // sanity checks
-                                                if (numberOfSections <= 0 || numberOfSections >= 100)
+                                                if (numberOfSections == 0 || numberOfSections >= 100)
                                                     continue;
 
                                                 // Restore CheckAdvancedPEStructure call to get isNetAssembly status
@@ -2265,26 +2265,26 @@ namespace Mega_Dumper
                                                         string filename = "";
 
                                                         // calculate right size of image
-                                                        int sizeofimage = BitConverter.ToInt32(PeHeader, PEOffset + 0x050);
+                                                        uint sizeofimage = BitConverter.ToUInt32(PeHeader, (int)PEOffset + 0x050);
 
                                                         // CHANGE: Correctly initialize calculatedimagesize from PE Header's SizeOfHeaders field.
                                                         // Offset 60 from OptionalHeader start (24) = 84 (0x54)
-                                                        int sizeOfHeaders = BitConverter.ToInt32(PeHeader, PEOffset + 0x54);
-                                                        int calculatedimagesize = sizeOfHeaders;
+                                                        uint sizeOfHeaders = BitConverter.ToUInt32(PeHeader, (int)PEOffset + 0x54);
+                                                        uint calculatedimagesize = sizeOfHeaders;
 
-                                                        int rawsize, rawAddress, virtualsize, virtualAddress = 0;
+                                                        uint rawsize, rawAddress, virtualsize, virtualAddress = 0;
 
                                                         for (int i = 0; i < nrofsection; i++)
                                                         {
-                                                            virtualsize = sections[i].virtual_size;
-                                                            virtualAddress = sections[i].virtual_address;
+                                                            virtualsize = (uint)sections[i].virtual_size;
+                                                            virtualAddress = (uint)sections[i].virtual_address;
 
-                                                            int toadd = virtualsize % sectionalignment;
+                                                            uint toadd = virtualsize % sectionalignment;
                                                             if (toadd != 0) toadd = sectionalignment - toadd;
 
                                                             // Correctly calculate total size by finding the end of the last section
 
-                                                            int sectionEnd = virtualAddress + virtualsize + toadd;
+                                                            uint sectionEnd = virtualAddress + virtualsize + toadd;
                                                             if (sectionEnd > calculatedimagesize)
                                                                 calculatedimagesize = sectionEnd;
                                                         }
