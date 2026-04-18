@@ -7,12 +7,8 @@ on:
       - dev
     tags:
       - 'v*'
-    paths:
-      - 'Owlyshield/owlyshield_minifilter/HyperDbg/**'
       
   pull_request:
-    paths:
-      - 'Owlyshield/owlyshield_minifilter/HyperDbg/**'
 env:
   # WDK for Windows 11, version 25H2
   WDK_URL: https://go.microsoft.com/fwlink/?linkid=2335869

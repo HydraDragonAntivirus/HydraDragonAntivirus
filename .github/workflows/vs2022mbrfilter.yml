@@ -7,12 +7,8 @@ on:
       - dev
     tags:
       - 'v*'
-    paths:
-      - 'MBRFilter/**'
       
   pull_request:
-    paths:
-      - 'MBRFilter/**'
 env:
   # WDK for Windows 11, version 25H2
   WDK_URL: https://go.microsoft.com/fwlink/?linkid=2335869

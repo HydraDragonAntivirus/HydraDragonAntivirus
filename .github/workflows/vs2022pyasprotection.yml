@@ -7,12 +7,8 @@ on:
       - dev
     tags:
       - 'v*'
-    paths:
-      - 'PYAS_Protection/**'
       
   pull_request:
-    paths:
-      - 'PYAS_Protection/**'
 env:
   # WDK for Windows 11, version 25H2
   WDK_URL: https://go.microsoft.com/fwlink/?linkid=2335869
