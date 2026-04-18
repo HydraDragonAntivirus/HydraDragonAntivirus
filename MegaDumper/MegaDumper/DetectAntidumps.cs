@@ -1,4 +1,4 @@
-/*
+﻿/*
  * Created by SharpDevelop.
  * User: Bogdan
  * Date: 01.05.2011
@@ -19,11 +19,11 @@ namespace MegaDumper
     public partial class DetectAntidumps : Form
     {
         private readonly string strmodulename;
-        private readonly uint baseaddress;
-        private readonly uint modulesize;
+        private readonly int baseaddress;
+        private readonly int modulesize;
         public int procid;
 
-        public DetectAntidumps(int prid, string strmn, uint ba, uint ms)
+        public DetectAntidumps(int prid, string strmn, int ba, int ms)
         {
             strmodulename = strmn;
             baseaddress = ba;
@@ -238,16 +238,16 @@ uint dwLength);
                 isok = ReadProcessMemory(hProcess, (IntPtr)baseaddress, onepage, (uint)onepage.Length, ref BytesRead);
                 if (isok && ReadProcessMemory(hProcess, (IntPtr)(baseaddress + 0x03C), infokeep, 4, ref BytesRead))
                 {
-                    uint PEOffset = BitConverter.ToUInt32(infokeep, 0);
+                    int PEOffset = BitConverter.ToInt32(infokeep, 0);
                     if (PEOffset > 0 && (PEOffset + 0x0120) < onepage.Length)
                     {
                         if (ReadProcessMemory(hProcess, (IntPtr)(baseaddress + PEOffset), infokeep, 2, ref BytesRead))
                         {
-                            uint nrofsection = (uint)BitConverter.ToInt16(onepage, (int)PEOffset + 0x06);
+                            int nrofsection = BitConverter.ToInt16(onepage, PEOffset + 0x06);
                             if (nrofsection > 0)
                             {
-                                uint virtualsize = BitConverter.ToUInt32(onepage, (int)PEOffset + 0x0F8 + (0x28 * 0) + 08);
-                                uint virtualAddress = BitConverter.ToUInt32(onepage, (int)PEOffset + 0x0F8 + (0x28 * 0) + 012);
+                                int virtualsize = BitConverter.ToInt32(onepage, PEOffset + 0x0F8 + (0x28 * 0) + 08);
+                                int virtualAddress = BitConverter.ToInt32(onepage, PEOffset + 0x0F8 + (0x28 * 0) + 012);
                                 byte[] firstsection = new byte[virtualsize];
 
                                 if (ReadProcessMemory(hProcess, (IntPtr)(baseaddress + virtualAddress),
