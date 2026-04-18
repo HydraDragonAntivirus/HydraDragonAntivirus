@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Created by SharpDevelop.
  * User: Bogdan
  * Date: 22.01.2011
@@ -221,7 +221,7 @@ namespace Mega_Dumper
 
                 string newdirname = Path.Combine(DirName, "Dumps");
                 Directory.CreateDirectory(newdirname);
-                int ImageBase = Convert.ToInt32(lvmodules.Items[lvmodules.SelectedIndices[0]].SubItems[1].Text, 16);
+                int ImageBase = unchecked((int)Convert.ToInt64(lvmodules.Items[lvmodules.SelectedIndices[0]].SubItems[1].Text, 16));
                 string moduleName = lvmodules.Items[lvmodules.SelectedIndices[0]].SubItems[0].Text;
 
                 bool isok;
@@ -516,7 +516,7 @@ namespace Mega_Dumper
             if (lvmodules.SelectedIndices.Count > 0)
             {
                 string libaddress = lvmodules.Items[lvmodules.SelectedIndices[0]].SubItems[1].Text;
-                IntPtr libaddressptr = (IntPtr)Convert.ToInt32(libaddress, 16);
+                IntPtr libaddressptr = (IntPtr)unchecked((int)Convert.ToInt64(libaddress, 16));
                 if (!ProcModule.FreeLibraryInternal((uint)procid, libaddressptr, out string error))
                 {
                     label2.ForeColor = Color.Red;
@@ -543,8 +543,8 @@ namespace Mega_Dumper
             if (lvmodules.SelectedIndices.Count > 0)
             {
                 string strmodulename = lvmodules.Items[lvmodules.SelectedIndices[0]].SubItems[0].Text;
-                int baseaddress = int.Parse(lvmodules.Items[lvmodules.SelectedIndices[0]].SubItems[1].Text, NumberStyles.HexNumber);
-                int modulesize = int.Parse(lvmodules.Items[lvmodules.SelectedIndices[0]].SubItems[2].Text, NumberStyles.HexNumber);
+                int baseaddress = unchecked((int)long.Parse(lvmodules.Items[lvmodules.SelectedIndices[0]].SubItems[1].Text, NumberStyles.HexNumber));
+                int modulesize = unchecked((int)long.Parse(lvmodules.Items[lvmodules.SelectedIndices[0]].SubItems[2].Text, NumberStyles.HexNumber));
                 MegaDumper.DetectAntidumps detectanti = new(procid, strmodulename, baseaddress, modulesize);
                 detectanti.Show();
             }
