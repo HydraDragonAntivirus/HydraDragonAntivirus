@@ -8,7 +8,7 @@
 
 BOOLEAN Log::LogInitialize()
 {
-	MessageBufferInformation = (struct _LOG_BUFFER_INFORMATION*)ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeof(_LOG_BUFFER_INFORMATION) * 2, 'Lbg1');
+	MessageBufferInformation = (struct _LOG_BUFFER_INFORMATION*)ExAllocatePool(NonPagedPool, sizeof(_LOG_BUFFER_INFORMATION) * 2);
 
 	if (!MessageBufferInformation) { KdPrint(("Message %p", MessageBufferInformation)); return FALSE; }
 
@@ -20,8 +20,8 @@ BOOLEAN Log::LogInitialize()
 		KeInitializeSpinLock(&MessageBufferInformation[i].BufferLock);
 		KeInitializeSpinLock(&MessageBufferInformation[i].BufferLockForNonImmMessage);
 
-		MessageBufferInformation[i].BufferStartAddress = ExAllocatePool2(POOL_FLAG_NON_PAGED, LogBufferSize, 'Lbg2');
-		MessageBufferInformation[i].BufferForMultipleNonImmediateMessage = ExAllocatePool2(POOL_FLAG_NON_PAGED, PacketChunkSize, 'Lbg3');
+		MessageBufferInformation[i].BufferStartAddress = ExAllocatePool(NonPagedPool, LogBufferSize);
+		MessageBufferInformation[i].BufferForMultipleNonImmediateMessage = ExAllocatePool(NonPagedPool, PacketChunkSize);
 
 		if (!MessageBufferInformation[i].BufferStartAddress)
 		{
@@ -75,13 +75,12 @@ BOOLEAN Log::LogSendBuffer(UINT32 OperationCode, PVOID Buffer, UINT32 BufferLeng
 	}
 
 	IsSvmRoot ? Spinlock.SpinlockUnlock((LONG*)&SvmRootLoggingLock) : KeReleaseSpinLock(&MessageBufferInformation[Index].BufferLock, OldIRQL);
-return TRUE;
 }
 
 BOOLEAN Log::LogReadBuffer(BOOLEAN IsSvmRoot, PVOID BufferToSaveMessage, UINT32 * ReturnedLength) 
 {
 
-	KIRQL OldIRQL = 0; UINT32 Index;
+	KIRQL OldIRQL; UINT32 Index;
 
 	if (IsSvmRoot) { Index = 1; Spinlock.SpinlockLock((LONG*)&SvmRootLoggingLock); }
 	else { Index = 0; KeAcquireSpinLock(&MessageBufferInformation[Index].BufferLock, &OldIRQL); }
@@ -113,7 +112,7 @@ BOOLEAN Log::LogReadBuffer(BOOLEAN IsSvmRoot, PVOID BufferToSaveMessage, UINT32 
 
 BOOLEAN Log::LogCheckForNewMessage(BOOLEAN IsSvmRoot)
 {
-	UINT32 Index;
+	KIRQL OldIRQL; UINT32 Index;
 
 	IsSvmRoot ? Index = 1 : Index = 0;
 
@@ -127,7 +126,16 @@ BOOLEAN Log::LogCheckForNewMessage(BOOLEAN IsSvmRoot)
 
 BOOLEAN Log::LogSendMessageToQueue(UINT32 OperationCode, BOOLEAN IsImmediateMessage, BOOLEAN ShowCurrentSystemTime, const char* Fmt, ...)
 {
-	UNREFERENCED_PARAMETER(OperationCode); UNREFERENCED_PARAMETER(IsImmediateMessage); UNREFERENCED_PARAMETER(ShowCurrentSystemTime); UNREFERENCED_PARAMETER(Fmt); BOOLEAN IsSvmRootMode;
+	BOOLEAN Result;
+	va_list ArgList;
+	size_t WrittenSize;
+	UINT32 Index;
+	KIRQL OldIRQL;
+	BOOLEAN IsSvmRootMode;
+	int SprintfResult = 0;
+	char LogMessage[PacketChunkSize];
+	char TempMessage[PacketChunkSize];
+	char TimeBuffer[20] = { 0 };
 
 	// Set Vmx State
 	// IsSvmRootMode = false;//GuestState[KeGetCurrentProcessorNumber()].IsOnVmxRootMode;
@@ -283,9 +291,9 @@ namespace Cwrapper
 
 NTSTATUS Log::LogRegisterIrpBasedNotification(PDEVICE_OBJECT DeviceObject, PIRP Irp)
 {
-	UNREFERENCED_PARAMETER(DeviceObject);
 	PNOTIFY_RECORD NotifyRecord;
 	PIO_STACK_LOCATION IrpStack;
+	KIRQL OOldIrql;
 	PREGISTER_EVENT RegisterEvent;
 
 	if (GlobalNotifyRecord == NULL)
@@ -293,7 +301,7 @@ NTSTATUS Log::LogRegisterIrpBasedNotification(PDEVICE_OBJECT DeviceObject, PIRP 
 		IrpStack = IoGetCurrentIrpStackLocation(Irp);
 		RegisterEvent = (PREGISTER_EVENT)Irp->AssociatedIrp.SystemBuffer;
 
-		NotifyRecord = (PNOTIFY_RECORD)ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeof(NOTIFY_RECORD), POOLTAG);
+		NotifyRecord = (PNOTIFY_RECORD)ExAllocatePoolWithQuotaTag(NonPagedPool, sizeof(NOTIFY_RECORD), POOLTAG);
 
 		if (NULL == NotifyRecord) {
 			return  STATUS_INSUFFICIENT_RESOURCES;
@@ -323,17 +331,17 @@ NTSTATUS Log::LogRegisterIrpBasedNotification(PDEVICE_OBJECT DeviceObject, PIRP 
 
 NTSTATUS Log::LogRegisterEventBasedNotification(PDEVICE_OBJECT DeviceObject, PIRP Irp)
 {
-	UNREFERENCED_PARAMETER(DeviceObject);
 	PNOTIFY_RECORD NotifyRecord;
 	NTSTATUS Status;
 	PIO_STACK_LOCATION IrpStack;
 	PREGISTER_EVENT RegisterEvent;
+	KIRQL OldIrql;
 
 	IrpStack = IoGetCurrentIrpStackLocation(Irp);
 	RegisterEvent = (PREGISTER_EVENT)Irp->AssociatedIrp.SystemBuffer;
 
 	// Allocate a record and save all the event context.
-	NotifyRecord = (PNOTIFY_RECORD)ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeof(NOTIFY_RECORD), POOLTAG);
+	NotifyRecord = (PNOTIFY_RECORD)ExAllocatePoolWithQuotaTag(NonPagedPool, sizeof(NOTIFY_RECORD), POOLTAG);
 
 	if (NULL == NotifyRecord) { return  STATUS_INSUFFICIENT_RESOURCES; }
 

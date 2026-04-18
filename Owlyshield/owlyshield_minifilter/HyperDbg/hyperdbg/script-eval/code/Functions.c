@@ -2012,3 +2012,39 @@ ScriptEngineFunctionEventTraceStepIn()
 
 #endif // SCRIPT_ENGINE_KERNEL_MODE
 }
+
+/**
+ * @brief Implementation of lbr_start function
+ *
+ * @return VOID
+ */
+VOID
+ScriptEngineFunctionLbrStart()
+{
+#ifdef SCRIPT_ENGINE_USER_MODE
+    ShowMessages("err, it's not possible to call lbr_start function in the user-mode\n");
+#endif // SCRIPT_ENGINE_USER_MODE
+
+#ifdef SCRIPT_ENGINE_KERNEL_MODE
+
+    HyperTraceStartLbr(VmFuncVmxGetCurrentExecutionMode());
+
+#endif // SCRIPT_ENGINE_KERNEL_MODE
+}
+
+/**
+ * @brief Implementation of lbr_stop function
+ *
+ * @return VOID
+ */
+VOID
+ScriptEngineFunctionLbrStop()
+{
+#ifdef SCRIPT_ENGINE_USER_MODE
+    ShowMessages("err, it's not possible to call lbr_stop function in the user-mode\n");
+#endif // SCRIPT_ENGINE_USER_MODE
+
+#ifdef SCRIPT_ENGINE_KERNEL_MODE
+    HyperTraceStopLbr(VmFuncVmxGetCurrentExecutionMode());
+#endif // SCRIPT_ENGINE_KERNEL_MODE
+}

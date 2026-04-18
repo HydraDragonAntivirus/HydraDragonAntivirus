@@ -477,6 +477,9 @@ typedef std::map<std::string, COMMAND_DETAIL> CommandType;
 #define DEBUGGER_COMMAND_SMI_ATTRIBUTES \
     DEBUGGER_COMMAND_ATTRIBUTE_LOCAL_COMMAND_IN_DEBUGGER_MODE
 
+#define DEBUGGER_COMMAND_LBR_ATTRIBUTES \
+    DEBUGGER_COMMAND_ATTRIBUTE_LOCAL_COMMAND_IN_DEBUGGER_MODE
+
 //////////////////////////////////////////////////
 //             Command Functions                //
 //////////////////////////////////////////////////
@@ -762,6 +765,9 @@ CommandIdt(vector<CommandToken> CommandTokens, string Command);
 
 VOID
 CommandSmi(vector<CommandToken> CommandTokens, string Command);
+
+VOID
+CommandLbr(vector<CommandToken> CommandTokens, string Command);
 
 //
 // hwdbg commands

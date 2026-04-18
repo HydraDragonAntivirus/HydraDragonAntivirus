@@ -1,0 +1,239 @@
+- name: DESCRIPTOR_CODE_AND_DATA_TYPE
+  short_description: Code- and Data-Segment Descriptor Types
+  long_description: |
+    When the S (descriptor type) flag in a segment descriptor is set, the descriptor is for either a code or a data
+    segment. The highest order bit of the type field (bit 11 of the second double word of the segment descriptor) then
+    determines whether the descriptor is for a data segment (clear) or a code segment (set).
+    For data segments, the three low-order bits of the type field (bits 8, 9, and 10) are interpreted as accessed (A),
+    write-enable (W), and expansion-direction (E). See Table 3-1 for a description of the encoding of the bits in the
+    type field for code and data segments. Data segments can be read-only or read/write segments, depending on the
+    setting of the write-enable bit.
+  children_name_with_prefix: DESCRIPTOR_TYPE
+  todo: Bitfields?
+  type: group
+  size: 32
+  reference: Vol3A[3.4.5.1(Code- and Data-Segment Descriptor Types)]
+  fields:
+    # Descriptor type: Data
+
+  - value: 0
+    short_name: DATA_R
+    long_name: DATA_READ_ONLY
+    description: Read-Only.
+
+  - value: 1
+    short_name: DATA_RA
+    long_name: DATA_READ_ONLY_ACCESSED
+    description: Data Read-Only, accessed.
+
+  - value: 2
+    short_name: DATA_RW
+    long_name: DATA_READ_WRITE
+    description: Data Read/Write.
+
+  - value: 3
+    short_name: DATA_RWA
+    long_name: DATA_READ_WRITE_ACCESSED
+    description: Data Read/Write, accessed.
+
+  - value: 4
+    short_name: DATA_RE
+    long_name: DATA_READ_ONLY_EXPAND_DOWN
+    description: Data Read-Only, expand-down.
+
+  - value: 5
+    short_name: DATA_REA
+    long_name: DATA_READ_ONLY_EXPAND_DOWN_ACCESSED
+    description: Data Read-Only, expand-down, accessed.
+
+  - value: 6
+    short_name: DATA_RWE
+    long_name: DATA_READ_WRITE_EXPAND_DOWN
+    description: Data Read/Write, expand-down.
+
+  - value: 7
+    short_name: DATA_RWEA
+    long_name: DATA_READ_WRITE_EXPAND_DOWN_ACCESSED
+    description: Data Read/Write, expand-down, accessed.
+
+    # Descriptor type: Code
+
+  - value: 8
+    short_name: CODE_E
+    long_name: CODE_EXECUTE_ONLY
+    description: Code Execute-Only.
+
+  - value: 9
+    short_name: CODE_EA
+    long_name: CODE_EXECUTE_ONLY_ACCESSED
+    description: Code Execute-Only, accessed.
+
+  - value: 10
+    short_name: CODE_ER
+    long_name: CODE_EXECUTE_READ
+    description: Code Execute/Read.
+
+  - value: 11
+    short_name: CODE_ERA
+    long_name: CODE_EXECUTE_READ_ACCESSED
+    description: Code Execute/Read, accessed.
+
+  - value: 12
+    short_name: CODE_EC
+    long_name: CODE_EXECUTE_ONLY_CONFORMING
+    description: Code Execute-Only, conforming.
+
+  - value: 13
+    short_name: CODE_ECA
+    long_name: CODE_EXECUTE_ONLY_CONFORMING_ACCESSED
+    description: Code Execute-Only, conforming, accessed.
+
+  - value: 14
+    short_name: CODE_ERC
+    long_name: CODE_EXECUTE_READ_CONFORMING
+    description: Code Execute/Read, conforming.
+
+  - value: 15
+    short_name: CODE_ERCA
+    long_name: CODE_EXECUTE_READ_CONFORMING_ACCESSED
+    description: Code Execute/Read, conforming, accessed.
+
+- name: DESCRIPTOR_SYSTEM_TYPE
+  short_description: System Descriptor Types
+  long_description: |
+    When the S (descriptor type) flag in a segment descriptor is clear, the descriptor type is a system descriptor. The
+    processor recognizes the following types of system descriptors:
+
+    - Local descriptor-table (LDT) segment descriptor.
+
+    - Task-state segment (TSS) descriptor.
+
+    - Call-gate descriptor.
+
+    - Interrupt-gate descriptor.
+
+    - Trap-gate descriptor.
+
+    - Task-gate descriptor.
+
+    These descriptor types fall into two categories: system-segment descriptors and gate descriptors. Systemsegment
+    descriptors point to system segments (LDT and TSS segments). Gate descriptors are in themselves
+    “gates,” which hold pointers to procedure entry points in code segments (call, interrupt, and trap gates) or which
+    hold segment selectors for TSS’s (task gates).
+  children_name_with_prefix: DESCRIPTOR_TYPE
+  todo: Bitfields?
+  type: group
+  size: 32
+  reference: Vol3A[3.5(SYSTEM DESCRIPTOR TYPES)]
+  fields:
+  - value: 0
+    name: RESERVED_1
+    description: |
+      - 32-Bit Mode: Reserved
+
+      - IA-32e Mode: Reserved
+
+  - value: 1
+    name: TSS_16_AVAILABLE
+    description: |
+      - 32-Bit Mode: 16-bit TSS (Available)
+
+      - IA-32e Mode: Reserved
+
+  - value: 2
+    name: LDT
+    description: |
+      - 32-Bit Mode: LDT
+
+      - IA-32e Mode: LDT
+
+  - value: 3
+    name: TSS_16_BUSY
+    description: |
+      - 32-Bit Mode: 16-bit TSS (Busy)
+
+      - IA-32e Mode: Reserved
+
+  - value: 4
+    name: CALL_GATE_16
+    description: |
+      - 32-Bit Mode: 16-bit Call Gate
+
+      - IA-32e Mode: Reserved
+
+  - value: 5
+    name: TASK_GATE
+    description: |
+      - 32-Bit Mode: Task Gate
+
+      - IA-32e Mode: Reserved
+
+  - value: 6
+    name: INTERRUPT_GATE_16
+    description: |
+      - 32-Bit Mode: 16-bit Interrupt Gate
+
+      - IA-32e Mode: Reserved
+
+  - value: 7
+    name: TRAP_GATE_16
+    description: |
+      - 32-Bit Mode: 16-bit Trap Gate
+
+      - IA-32e Mode: Reserved
+
+  - value: 8
+    name: RESERVED_2
+    description: |
+      - 32-Bit Mode: Reserved
+
+      - IA-32e Mode: Reserved
+
+  - value: 9
+    name: TSS_AVAILABLE
+    description: |
+      - 32-Bit Mode: 32-bit TSS (Available)
+
+      - IA-32e Mode: 64-bit TSS (Available)
+
+  - value: 10
+    name: RESERVED_3
+    description: |
+      - 32-Bit Mode: Reserved
+
+      - IA-32e Mode: Reserved
+
+  - value: 11
+    name: TSS_BUSY
+    description: |
+      - 32-Bit Mode: 32-bit TSS (Busy)
+
+      - IA-32e Mode: 64-bit TSS (Busy)
+
+  - value: 12
+    name: CALL_GATE
+    description: |
+      - 32-Bit Mode: 32-bit Call Gate
+
+      - IA-32e Mode: 64-bit Call Gate
+
+  - value: 13
+    name: RESERVED_4
+    description: |
+      - 32-Bit Mode: Reserved
+
+      - IA-32e Mode: Reserved
+
+  - value: 14
+    name: INTERRUPT_GATE
+    description: |
+      - 32-Bit Mode: 32-bit Interrupt Gate
+
+      - IA-32e Mode: 64-bit Interrupt Gate
+
+  - value: 15
+    name: TRAP_GATE
+    description: |
+      - 32-Bit Mode: 32-bit Trap Gate
+
+      - IA-32e Mode: 64-bit Trap Gate

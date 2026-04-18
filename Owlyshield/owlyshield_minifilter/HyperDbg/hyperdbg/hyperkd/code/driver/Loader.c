@@ -11,6 +11,59 @@
 #include "pch.h"
 
 /**
+ * @brief Initialize the hyper trace module
+ *
+ * @return BOOLEAN
+ */
+BOOLEAN
+LoaderInitHyperTrace()
+{
+    HYPERTRACE_CALLBACKS HyperTraceCallbacks = {0};
+
+    //
+    // *** Fill the callbacks for using hypertrace ***
+    //
+
+    //
+    // Fill the callbacks for using hyperlog in hypertrace
+    // We use the callbacks directly to avoid two calls to the same function
+    //
+    HyperTraceCallbacks.LogCallbackPrepareAndSendMessageToQueueWrapper = LogCallbackPrepareAndSendMessageToQueueWrapper;
+    HyperTraceCallbacks.LogCallbackSendMessageToQueue                  = LogCallbackSendMessageToQueue;
+    HyperTraceCallbacks.LogCallbackSendBuffer                          = LogCallbackSendBuffer;
+    HyperTraceCallbacks.LogCallbackCheckIfBufferIsFull                 = LogCallbackCheckIfBufferIsFull;
+
+    //
+    // Memory callbacks
+    //
+    HyperTraceCallbacks.CheckAccessValidityAndSafety               = CheckAccessValidityAndSafety;
+    HyperTraceCallbacks.MemoryMapperReadMemorySafeOnTargetProcess  = MemoryMapperReadMemorySafeOnTargetProcess;
+    HyperTraceCallbacks.MemoryMapperWriteMemorySafeOnTargetProcess = MemoryMapperWriteMemorySafeOnTargetProcess;
+
+    //
+    // Common callbacks
+    //
+    HyperTraceCallbacks.CommonGetProcessNameFromProcessControlBlock = CommonGetProcessNameFromProcessControlBlock;
+
+    //
+    // Initialize hypertrace module
+    //
+    if (HyperTraceInitCallback(&HyperTraceCallbacks))
+    {
+        LogDebugInfo("HyperDbg's hypertrace loaded successfully");
+        return TRUE;
+    }
+    else
+    {
+        //
+        // We won't fail the loading just because of hypertrace, so we just log the error and continue without loading hypertrace
+        //
+        LogDebugInfo("Err, HyperDbg's hypertrace was not loaded");
+        return FALSE;
+    }
+}
+
+/**
  * @brief Initialize the VMM and Debugger
  *
  * @return BOOLEAN
@@ -20,7 +73,6 @@ LoaderInitVmmAndDebugger()
 {
     MESSAGE_TRACING_CALLBACKS MsgTracingCallbacks = {0};
     VMM_CALLBACKS             VmmCallbacks        = {0};
-    HYPERTRACE_CALLBACKS      HyperTraceCallbacks = {0};
 
     //
     // Allow to server IOCTL
@@ -71,31 +123,6 @@ LoaderInitVmmAndDebugger()
     VmmCallbacks.InterceptionCallbackTriggerCr3ProcessChange = ProcessTriggerCr3ProcessChange;
 
     //
-    // *** Fill the callbacks for using hypertrace ***
-    //
-
-    //
-    // Fill the callbacks for using hyperlog in hypertrace
-    // We use the callbacks directly to avoid two calls to the same function
-    //
-    HyperTraceCallbacks.LogCallbackPrepareAndSendMessageToQueueWrapper = LogCallbackPrepareAndSendMessageToQueueWrapper;
-    HyperTraceCallbacks.LogCallbackSendMessageToQueue                  = LogCallbackSendMessageToQueue;
-    HyperTraceCallbacks.LogCallbackSendBuffer                          = LogCallbackSendBuffer;
-    HyperTraceCallbacks.LogCallbackCheckIfBufferIsFull                 = LogCallbackCheckIfBufferIsFull;
-
-    //
-    // Memory callbacks
-    //
-    HyperTraceCallbacks.CheckAccessValidityAndSafety               = CheckAccessValidityAndSafety;
-    HyperTraceCallbacks.MemoryMapperReadMemorySafeOnTargetProcess  = MemoryMapperReadMemorySafeOnTargetProcess;
-    HyperTraceCallbacks.MemoryMapperWriteMemorySafeOnTargetProcess = MemoryMapperWriteMemorySafeOnTargetProcess;
-
-    //
-    // Common callbacks
-    //
-    HyperTraceCallbacks.CommonGetProcessNameFromProcessControlBlock = CommonGetProcessNameFromProcessControlBlock;
-
-    //
     // Initialize message tracer
     //
     if (LogInitialize(&MsgTracingCallbacks))
@@ -118,23 +145,6 @@ LoaderInitVmmAndDebugger()
                 // Set the variable so no one else can get a handle anymore
                 //
                 g_HandleInUse = TRUE;
-
-                //
-                // Initialize hypertrace module
-                //
-                /*
-                if (HyperTraceInit(&HyperTraceCallbacks))
-                {
-                    LogDebugInfo("HyperDbg's hypertrace loaded successfully");
-                }
-                else
-                {
-                    //
-                    // We won't fail the loading just because of hypertrace, so we just log the error and continue without loading hypertrace
-                    //
-                    LogDebugInfo("Err, HyperDbg's hypertrace was not loaded");
-                }
-                */
 
                 return TRUE;
             }

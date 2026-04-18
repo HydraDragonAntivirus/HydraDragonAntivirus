@@ -1,0 +1,334 @@
+? {
+
+  //
+  // Test case activation
+  //
+  test_case50 = 1;
+  test_case51 = 1;
+  test_case52 = 1;
+  test_case53 = 1;
+  test_case54 = 1;
+  test_case55 = 1;
+  test_case56 = 1;
+  test_case57 = 1;
+  test_case58 = 1;
+  test_case59 = 1;
+
+  //
+  // Test case configuration
+  //
+  current_test_case = 0n49;
+
+  //
+  // Make the environment ready 
+  //
+  .variable_equal_to_55 = 0x55;
+
+  /* ======================================================================= */
+
+  //
+  // Test case 50 (strcmp)
+  //
+  current_test_case = current_test_case + 1;
+
+  do {
+
+    if (test_case50 != 1) {
+      break;
+    }
+
+    if (strcmp($pname, $pname) == 0) {
+      // printf("two strings are same\n");
+    } else {
+      printf("test case %d was failed\n", current_test_case);
+      break;
+    }
+
+    printf("test case %d was successful\n", current_test_case);
+
+  }
+  while (0);
+
+  /* ======================================================================= */
+
+  //
+  // Test case 51 (signed comparison)
+  //
+  current_test_case = current_test_case + 1;
+
+  do {
+
+    if (test_case51 != 1) {
+      break;
+    }
+
+    if (-1 > 0) {
+      // printf("-1 is greater than 0\n");
+      printf("test case %d was failed\n", current_test_case);
+      break;
+    }
+
+    printf("test case ");
+    printf("%d was successful\n", current_test_case);
+
+  }
+  while (0);
+
+  /* ======================================================================= */
+
+  //
+  // Test case 52 (strlen with strings as input)
+  //
+  current_test_case = current_test_case + 1;
+
+  do {
+
+    if (test_case52 != 1) {
+      break;
+    }
+
+    if (strlen("12345") == 5) {
+      // printf("length of string is equal to %d", strlen("12345"));
+      printf("test case %d was successful\n", current_test_case);
+    } else {
+      printf("test case %d was failed\n", current_test_case);
+      break;
+    }
+
+  }
+  while (0);
+
+  /* ======================================================================= */
+
+  //
+  // Test case 53 (strcmp with strings as input)
+  //
+  current_test_case = current_test_case + 1;
+
+  do {
+
+    if (test_case53 != 1) {
+      break;
+    }
+
+    if (strcmp("123", "123") == 0) {
+      // printf("two strings are same");
+      printf("test case %d was successful\n", current_test_case);
+    } else {
+      // printf("two strings are not same");
+      printf("test case %d was failed\n", current_test_case);
+      break;
+
+    }
+
+  }
+  while (0);
+
+  /* ======================================================================= */
+
+  //
+  // Test case 54 (strcmp with pointer and string as input)
+  //
+  current_test_case = current_test_case + 1;
+
+  do {
+
+    if (test_case54 != 1) {
+      break;
+    }
+
+    //
+    // In the kernel-mode, the process name is 16-bit buffer, but in
+    // the user-mode it's a complete buffer of name so the name is not
+    // truncated
+    //
+    if (@rip == 0) {
+
+      if (strcmp($pname, "hyperdbg-cli.exe") != 0) {
+        // printf("two strings are not same");
+        printf("test case %d was failed\n", current_test_case);
+        break;
+      } else {
+        // printf("two strings are same");
+        printf("test case %d was successful\n", current_test_case);
+      }
+    } else {
+      if (strcmp($pname, "hyperdbg-cli.e") != 0) {
+        // printf("two strings are not same");
+        printf("test case %d was failed\n", current_test_case);
+        break;
+      } else {
+        // printf("two strings are same");
+        printf("test case %d was successful\n", current_test_case);
+      }
+    }
+
+  }
+  while (0);
+
+  /* ======================================================================= */
+
+  //
+  // Test case 55 (memcmp with strings as input)
+  //
+  current_test_case = current_test_case + 1;
+
+  do {
+
+    if (test_case55 != 1) {
+      break;
+    }
+
+    ret = memcmp("ABcD", "ABCD", 3);
+
+    if (ret > 0) {
+      // printf("str1 > str2");
+      printf("test case %d was successful\n", current_test_case);
+    }
+    elsif(ret < 0) {
+      // printf("str1 < str2");
+      printf("test case %d was failed\n", current_test_case);
+      break;
+    }
+    else {
+      // printf("str1 = str2");
+      printf("test case %d was failed\n", current_test_case);
+      break;
+    }
+
+  }
+  while (0);
+
+  /* ======================================================================= */
+
+  //
+  // Test case 56 (memcmp with string and pointer as input)
+  //
+  current_test_case = current_test_case + 1;
+
+  do {
+
+    if (test_case56 != 1) {
+      break;
+    }
+
+    ret = memcmp("ABCD", $pname, 3);
+
+    if (ret > 0) {
+      // printf("str1 > str2");
+      printf("test case %d was failed\n", current_test_case);
+      break;
+
+    }
+    elsif(ret < 0) {
+      // printf("str1 < str2");
+      printf("test case %d was successful\n", current_test_case);
+    }
+    else {
+      // printf("str1 = str2");
+      printf("test case %d was failed\n", current_test_case);
+      break;
+    }
+
+  }
+  while (0);
+
+  /* ======================================================================= */
+
+  //
+  // Test case 57 (memcmp with strings as input)
+  //
+  current_test_case = current_test_case + 1;
+
+  do {
+
+    if (test_case57 != 1) {
+      break;
+    }
+
+    ret = memcmp("hyperdbg", "hyperdbg", strlen("hyperdbg"));
+
+    if (ret > 0) {
+      // printf("str1 > str2");
+      printf("test case %d was failed\n", current_test_case);
+      break;
+    }
+    elsif(ret < 0) {
+      // printf("str1 < str2");
+      printf("test case %d was failed\n", current_test_case);
+      break;
+    }
+    else {
+      // printf("str1 = str2");
+      printf("test case %d was successful\n", current_test_case);
+    }
+
+  }
+  while (0);
+
+  /* ======================================================================= */
+
+  //
+  // Test case 58 (wcslen with string as input)
+  //
+  current_test_case = current_test_case + 1;
+
+  do {
+
+    if (test_case58 != 1) {
+      break;
+    }
+
+    ret = wcslen(L"012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789");
+
+    if (wcslen(L"1234") == 4) {
+      // printf("wcslen is: %x\n", ret);
+      printf("test case %d was successful\n", current_test_case);
+    } else {
+      printf("test case %d was failed\n", current_test_case);
+      break;
+
+    }
+  }
+  while (0);
+
+  /* ======================================================================= */
+
+  //
+  // Test case 59 (wcslen with string as input in a nested if)
+  //
+  current_test_case = current_test_case + 1;
+
+  do {
+
+    if (test_case59 != 1) {
+      break;
+    }
+
+    if (wcscmp(L"string 1", L"string 1") == 0) {
+      // printf("the two string are same");
+
+      if (wcscmp(L"string 1", $pname) == 0) {
+        // printf("the two string are same");
+        printf("test case %d was failed\n", current_test_case);
+        break;
+
+      } else {
+        // printf("the two string are not same");
+        printf("test case %d was successful\n", current_test_case);
+
+      }
+
+    } else {
+      // printf("the two string are not same");
+      printf("test case %d was failed\n", current_test_case);
+      break;
+
+    }
+
+  }
+  while (0);
+
+  /* ======================================================================= */
+
+}

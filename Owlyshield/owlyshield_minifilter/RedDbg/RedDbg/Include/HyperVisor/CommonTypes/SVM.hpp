@@ -1,7 +1,7 @@
 #pragma once
 #include "PTE.hpp"
 #include "Registers.hpp"
-#include <ntifs.h>
+#include <ntddk.h>
 
 namespace SVM
 {

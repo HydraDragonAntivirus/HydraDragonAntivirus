@@ -43,7 +43,6 @@
 // Scope definitions
 //
 #define HYPERDBG_KERNEL_MODE
-#define HYPERDBG_STATIC_LINK
 #define HYPERDBG_HYPEREVADE
 
 //

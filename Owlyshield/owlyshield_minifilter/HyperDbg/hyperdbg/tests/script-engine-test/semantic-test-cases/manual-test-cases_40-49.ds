@@ -1,0 +1,328 @@
+? {
+
+  //
+  // Test case activation
+  //
+  test_case40 = 1;
+  test_case41 = 1;
+  test_case42 = 1;
+  test_case43 = 1;
+  test_case44 = 1;
+  test_case45 = 1;
+  test_case46 = 1;
+  test_case47 = 1;
+  test_case48 = 1;
+  test_case49 = 1;
+
+  //
+  // Test case configuration
+  //
+  current_test_case = 0n39;
+
+  //
+  // Make the environment ready 
+  //
+  .variable_equal_to_55 = 0x55;
+
+  /* ======================================================================= */
+
+  //
+  // Test case 40 (assignments)
+  //
+  current_test_case = current_test_case + 1;
+
+  do {
+
+    if (test_case40 != 1) {
+      break;
+    }
+
+    .temp_rax_holder = @rax;
+
+    result = & .variable_equal_to_55;
+
+    @rax = .temp_rax_holder;
+
+    if (dq(result) != 55) {
+      printf("test case %d was failed\n", current_test_case);
+      break;
+    }
+
+    result = &(.variable_equal_to_55);
+
+    // printf("result : %llx\n", *result);
+
+    if ( * result != 55) {
+      printf("test case %d was failed\n", current_test_case);
+      break;
+    }
+
+    printf("test case %d was successful\n", current_test_case);
+
+  }
+  while (0);
+
+  /* ======================================================================= */
+
+  //
+  // Test case 41 (keywords db)
+  //
+  current_test_case = current_test_case + 1;
+
+  do {
+
+    if (test_case41 != 1) {
+      break;
+    }
+
+    temp_holder = 0xffffffffffffffff;
+    temp_holder2 = & temp_holder;
+
+    if (db(temp_holder2) > ff) {
+      printf("test case %d was failed\n", current_test_case);
+      break;
+    }
+
+    // printf("result : %llx\n", db(temp_holder2));
+
+    printf("test case %d was successful\n", current_test_case);
+
+  }
+  while (0);
+
+  /* ======================================================================= */
+
+  //
+  // Test case 42 (keywords dd)
+  //
+  current_test_case = current_test_case + 1;
+
+  do {
+
+    if (test_case42 != 1) {
+      break;
+    }
+
+    temp_holder = 0xffffffffffffffff;
+    temp_holder2 = & temp_holder;
+
+    if (dd(temp_holder2) != ffffffff) {
+      printf("test case %d was failed\n", current_test_case);
+      break;
+    }
+
+    // printf("result : %llx\n", dd(temp_holder2));
+
+    printf("test case %d was successful\n", current_test_case);
+
+  }
+  while (0);
+
+  /* ======================================================================= */
+
+  //
+  // Test case 43 (keywords dq)
+  //
+  current_test_case = current_test_case + 1;
+
+  do {
+
+    if (test_case43 != 1) {
+      break;
+    }
+
+    temp_holder = 0xffffffffffffffff;
+    temp_holder2 = & temp_holder;
+
+    if (dq(temp_holder2) > ffffffffffffffff) {
+      printf("test case %d was failed\n", current_test_case);
+      break;
+    }
+
+    // printf("result : %llx\n", dq(temp_holder2));
+
+    printf("test case %d was successful\n", current_test_case);
+
+  }
+  while (0);
+
+  /* ======================================================================= */
+
+  //
+  // Test case 44 (keywords poi)
+  //
+  current_test_case = current_test_case + 1;
+
+  do {
+
+    if (test_case44 != 1) {
+      break;
+    }
+
+    temp_holder = 0xfffffff1ffffffff;
+    temp_holder2 = & temp_holder;
+
+    if (poi(temp_holder2) != 0xfffffff1ffffffff) {
+      printf("test case %d was failed\n", current_test_case);
+      break;
+    }
+
+    // printf("result : %llx\n", poi(temp_holder2));
+
+    printf("test case %d was successful\n", current_test_case);
+
+  }
+  while (0);
+
+  /* ======================================================================= */
+
+  //
+  // Test case 45 (keywords dw)
+  //
+  current_test_case = current_test_case + 1;
+
+  do {
+
+    if (test_case45 != 1) {
+      break;
+    }
+
+    temp_holder = 0xffffffffffffffff;
+    temp_holder2 = & temp_holder;
+
+    // printf("result : %llx\n", dw(temp_holder2));
+
+    if (dw(temp_holder2) != 0xffff) {
+      printf("test case %d was failed\n", current_test_case);
+      break;
+    }
+
+    printf("test case %d was successful\n", current_test_case);
+
+  }
+  while (0);
+
+  /* ======================================================================= */
+
+  //
+  // Test case 46 (keywords low)
+  //
+  current_test_case = current_test_case + 1;
+
+  do {
+
+    if (test_case46 != 1) {
+      break;
+    }
+
+    temp_holder = 0xffffffffffffffff;
+    temp_holder2 = & temp_holder;
+
+    // printf("result : %llx\n", low(temp_holder2));
+
+    if (low(temp_holder2) != 0xffff) {
+      printf("test case %d was failed\n", current_test_case);
+      break;
+    }
+
+    printf("test case %d was successful\n", current_test_case);
+
+  }
+  while (0);
+
+  /* ======================================================================= */
+
+  //
+  // Test case 47 (keywords hi)
+  //
+  current_test_case = current_test_case + 1;
+
+  do {
+
+    if (test_case47 != 1) {
+      break;
+    }
+
+    temp_holder = 0x123456789abcdef;
+    temp_holder2 = & temp_holder;
+
+    // printf("result : %llx\n", hi(temp_holder2));
+
+    if (hi(temp_holder2) != 89ab) {
+      printf("test case %d was failed\n", current_test_case);
+      break;
+    }
+
+    printf("test case %d was successful\n", current_test_case);
+
+  }
+  while (0);
+
+  /* ======================================================================= */
+
+  //
+  // Test case 48 (keywords not, neg)
+  //
+  current_test_case = current_test_case + 1;
+
+  do {
+
+    if (test_case48 != 1) {
+      break;
+    }
+
+    temp_holder = 0x123456789abcdef;
+    temp_holder2 = 0x800;
+
+    // printf("result : %llx\n", not(temp_holder));
+    // printf("result : %llx\n", neg(temp_holder2));
+
+    if (not(temp_holder) != FEDCBA9876543210 && neg(temp_holder2) == FFFFFFFFFFFFF800 && not(temp_holder2) == FFFFFFFFFFFFF7ff) {
+      printf("test case %d was failed\n", current_test_case);
+      break;
+    }
+
+    printf("test case %d was successful\n", current_test_case);
+
+  }
+  while (0);
+
+  /* ======================================================================= */
+
+  //
+  // Test case 49 (keywords in a complex statement)
+  //
+  current_test_case = current_test_case + 1;
+
+  do {
+
+    if (test_case49 != 1) {
+      break;
+    }
+
+    .temp_holder = 0x123456789abcdef;
+    .temp_holder2 = & .temp_holder;
+    was_successful = 0;
+
+    for (i = 10; i <= 12; i++) {
+      if (low(.temp_holder2) + 5 * 2 + i == dw(.temp_holder2) + 5 * 2 + i && db(.temp_holder2) == ef) {
+        was_successful = 1;
+        break;
+      }
+
+    }
+
+    if (was_successful) {
+
+      printf("test case %d was successful\n", current_test_case);
+    } else {
+      printf("test case %d was failed\n", current_test_case);
+
+    }
+
+  }
+  while (0);
+
+  /* ======================================================================= */
+
+}

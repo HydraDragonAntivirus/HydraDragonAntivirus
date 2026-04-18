@@ -1,0 +1,305 @@
+? {
+
+  //
+  // test case 22 is okay to be failed in the user-mode, it should work on kernel-mode
+  //
+
+  //
+  // Test case activation
+  //
+  test_case20 = 1;
+  test_case21 = 1;
+  test_case22 = 1;
+  test_case23 = 1;
+  test_case24 = 1;
+  test_case25 = 1;
+  test_case26 = 1;
+  test_case27 = 1;
+  test_case28 = 1;
+  test_case29 = 1;
+
+  //
+  // Test case configuration
+  //
+  current_test_case = 0n19;
+
+  //
+  // Make the environment ready 
+  //
+  .variable_equal_to_55 = 0x55;
+
+  /* ======================================================================= */
+
+  //
+  // Test case 20 (spinlock_lock)
+  //
+  current_test_case = current_test_case + 1;
+
+  do {
+
+    if (test_case20 != 1) {
+      break;
+    }
+
+    spinlock_was_acquired_successfully = 0;
+    .test_lock = 0;
+    test_lock = 0;
+
+    spinlock_lock( & .test_lock);
+    spinlock_lock( & test_lock);
+
+    if (test_lock == 1 && .test_lock == 1) {
+      spinlock_was_acquired_successfully = .variable_equal_to_55;
+    }
+
+    spinlock_unlock( & .test_lock);
+    spinlock_unlock( & test_lock);
+
+    if (test_lock == 0 && .test_lock == 0) {
+      spinlock_was_acquired_successfully = spinlock_was_acquired_successfully + 8 - 7;
+    }
+
+    if (spinlock_was_acquired_successfully == 56) {
+      printf("test case %d was successful\n", current_test_case);
+    } else {
+      printf("test case %d was failed\n", current_test_case);
+    }
+
+  }
+  while (0);
+
+  /* ======================================================================= */
+
+  //
+  // Test case 21 (spinlock_lock_custom_wait)
+  //
+  current_test_case = current_test_case + 1;
+
+  do {
+
+    if (test_case21 != 1) {
+      break;
+    }
+
+    spinlock_was_acquired_successfully = 0;
+    .test_lock = 0;
+    test_lock = 0;
+
+    spinlock_lock_custom_wait( & .test_lock, .variable_equal_to_55);
+    spinlock_lock_custom_wait( & test_lock, .variable_equal_to_55);
+
+    if (test_lock == 1 && .test_lock == 1) {
+      spinlock_was_acquired_successfully = .variable_equal_to_55;
+    }
+
+    spinlock_unlock( & .test_lock);
+    spinlock_unlock( & test_lock);
+
+    if (test_lock == 0 && .test_lock == 0) {
+      spinlock_was_acquired_successfully = spinlock_was_acquired_successfully + 8 - 6;
+    }
+
+    if (spinlock_was_acquired_successfully == 57) {
+      printf("test case %d was successful\n", current_test_case);
+    } else {
+      printf("test case %d was failed\n", current_test_case);
+    }
+
+  }
+  while (0);
+
+  /* ======================================================================= */
+
+  //
+  // Test case 22 (virtual_to_physical)
+  //
+  current_test_case = current_test_case + 1;
+
+  do {
+
+    if (test_case22 != 1) {
+      break;
+    }
+
+    if (virtual_to_physical(nt!ExAllocatePoolWithTag) != 0) {
+      printf("test case %d was successful\n", current_test_case);
+    } else {
+      printf("test case %d was failed\n", current_test_case);
+    }
+
+  }
+  while (0);
+
+  /* ======================================================================= */
+
+  //
+  // Test case 23 (strlen)
+  //
+  current_test_case = current_test_case + 1;
+
+  do {
+
+    if (test_case23 != 1) {
+      break;
+    }
+
+    ed(@rsp - 8, 0x00414141);
+    ed(@rsp - 8 - 4, 0x42424242);
+    ed(@rsp - 8 - 8, 0x43434343);
+    ed(@rsp - 8 - 8 - 4, 0x44444444);
+
+    result_of_strlen = strlen(@rsp - 8 - 8 - 4);
+
+    if (result_of_strlen == f) {
+      printf("test case %d was successful\n", current_test_case);
+    } else {
+      printf("test case %d was failed\n", current_test_case);
+    }
+  }
+  while (0);
+
+  /* ======================================================================= */
+
+  //
+  // Test case 24 (wcslen)
+  //
+  current_test_case = current_test_case + 1;
+
+  do {
+
+    if (test_case24 != 1) {
+      break;
+    }
+
+    ed(@rsp - 8, 0x00000041);
+    ed(@rsp - 8 - 4, 0x00420042);
+    ed(@rsp - 8 - 8, 0x00430043);
+    ed(@rsp - 8 - 8 - 4, 0x00440044);
+
+    result_of_wcslen = wcslen(@rsp - 8 - 8 - 4);
+
+    // printf("result_of_wcslen is : %x\n",result_of_wcslen);
+
+    if (result_of_wcslen == 7) {
+      printf("test case %d was successful\n", current_test_case);
+    } else {
+      printf("test case %d was failed\n", current_test_case);
+    }
+  }
+  while (0);
+
+  /* ======================================================================= */
+
+  //
+  // Test case 25 (strlen)
+  //
+  current_test_case = current_test_case + 1;
+
+  do {
+
+    if (test_case25 != 1) {
+      break;
+    }
+
+    ed(@rsp - 8, 0x00414141);
+    ed(@rsp - 8 - 4, 0x42424242);
+    ed(@rsp - 8 - 8, 0x43434343);
+    ed(@rsp - 8 - 8 - 4, 0x44444444);
+
+    if (strlen(@rsp - 8 - 8 - 4) == f) {
+      printf("test case %d was successful\n", current_test_case);
+    } else {
+      printf("test case %d was failed\n", current_test_case);
+    }
+  }
+  while (0);
+
+  /* ======================================================================= */
+
+  //
+  // Test case 26 (wcslen)
+  //
+  current_test_case = current_test_case + 1;
+
+  do {
+
+    if (test_case26 != 1) {
+      break;
+    }
+
+    ed(@rsp - 8, 0x00000041);
+    ed(@rsp - 8 - 4, 0x00420042);
+    ed(@rsp - 8 - 8, 0x00430043);
+    ed(@rsp - 8 - 8 - 4, 0x00440044);
+
+    if (7 + 10 == wcslen(@rsp - 8 - 8 - 4) + 10) {
+      printf("test case %d was successful\n", current_test_case);
+    } else {
+      printf("test case %d was failed\n", current_test_case);
+    }
+  }
+  while (0);
+
+  /* ======================================================================= */
+
+  //
+  // Test case 27 (event_disable)
+  //
+  current_test_case = current_test_case + 1;
+
+  do {
+
+    if (test_case27 != 1) {
+      break;
+    }
+
+    event_disable(@rsp + 220);
+
+    printf("test case %d was successful\n", current_test_case);
+
+  }
+  while (0);
+
+  /* ======================================================================= */
+
+  //
+  // Test case 28 (event_enable)
+  //
+  current_test_case = current_test_case + 1;
+
+  do {
+
+    if (test_case28 != 1) {
+      break;
+    }
+
+    event_enable(@rsp + 220);
+
+    printf("test case %d was successful\n", current_test_case);
+
+  }
+  while (0);
+
+  /* ======================================================================= */
+
+  //
+  // Test case 29 (pause)
+  //
+  current_test_case = current_test_case + 1;
+
+  do {
+
+    if (test_case29 != 1) {
+      break;
+    }
+
+    pause();
+
+    printf("test case %d was successful\n", current_test_case);
+
+  }
+  while (0);
+
+  /* ======================================================================= */
+
+}

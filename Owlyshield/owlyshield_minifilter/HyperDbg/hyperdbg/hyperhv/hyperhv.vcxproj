@@ -26,7 +26,7 @@
     <TargetVersion>Windows10</TargetVersion>
     <UseDebugLibraries>true</UseDebugLibraries>
     <PlatformToolset>WindowsKernelModeDriver10.0</PlatformToolset>
-    <ConfigurationType>StaticLibrary</ConfigurationType>
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
     <DriverType>KMDF</DriverType>
     <DriverTargetPlatform>Universal</DriverTargetPlatform>
     <SpectreMitigation>false</SpectreMitigation>
@@ -36,7 +36,7 @@
     <TargetVersion>Windows10</TargetVersion>
     <UseDebugLibraries>false</UseDebugLibraries>
     <PlatformToolset>WindowsKernelModeDriver10.0</PlatformToolset>
-    <ConfigurationType>StaticLibrary</ConfigurationType>
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
     <DriverType>KMDF</DriverType>
     <DriverTargetPlatform>Universal</DriverTargetPlatform>
     <SpectreMitigation>false</SpectreMitigation>
@@ -50,29 +50,24 @@
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
-  <PropertyGroup>
-    <HyperDbgRootDir>$([System.IO.Path]::GetFullPath('$(ProjectDir)..\'))</HyperDbgRootDir>
-    <HyperDbgHasZydis Condition="Exists('$(ProjectDir)..\\dependencies\\zydis\\msvc\\Zydis.sln')">true</HyperDbgHasZydis>
-    <SolutionDir Condition="'$(SolutionDir)'==''">$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\'))</SolutionDir>
-  </PropertyGroup>
   <PropertyGroup />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='debug|x64'">
     <DebuggerFlavor>DbgengKernelDebugger</DebuggerFlavor>
     <Inf2CatUseLocalTime>true</Inf2CatUseLocalTime>
-    <OutDir>$(HyperDbgRootDir)build\bin\$(Configuration)\</OutDir>
-    <IntDir>$(HyperDbgRootDir)build\obj\$(ProjectName)\$(Platform)\$(Configuration)\</IntDir>
+    <OutDir>$(SolutionDir)build\bin\$(Configuration)\</OutDir>
+    <IntDir>$(SolutionDir)build\obj\$(ProjectName)\$(Platform)\$(Configuration)\</IntDir>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='release|x64'">
     <DebuggerFlavor>DbgengKernelDebugger</DebuggerFlavor>
     <Inf2CatUseLocalTime>true</Inf2CatUseLocalTime>
-    <OutDir>$(HyperDbgRootDir)build\bin\$(Configuration)\</OutDir>
+    <OutDir>$(SolutionDir)build\bin\$(Configuration)\</OutDir>
     <EnableInf2cat>false</EnableInf2cat>
-    <IntDir>$(HyperDbgRootDir)build\obj\$(ProjectName)\$(Platform)\$(Configuration)\</IntDir>
+    <IntDir>$(SolutionDir)build\obj\$(ProjectName)\$(Platform)\$(Configuration)\</IntDir>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='debug|x64'">
     <ClCompile>
       <TreatWarningAsError>true</TreatWarningAsError>
-      <AdditionalIncludeDirectories>$(HyperDbgRootDir)include;$(ProjectDir)header;$(ProjectDir)code;$(ProjectDir);$(HyperDbgRootDir)dependencies;$(HyperDbgRootDir)script-eval;$(HyperDbgRootDir)dependencies\zydis\include;$(HyperDbgRootDir)dependencies\zydis\dependencies\zycore\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(SolutionDir)\include;$(ProjectDir)header;$(ProjectDir)code;$(ProjectDir);$(SolutionDir)dependencies;$(SolutionDir)\script-eval;$(SolutionDir)dependencies\zydis\include;$(SolutionDir)dependencies\zydis\dependencies\zycore\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <WppEnabled>false</WppEnabled>
       <WppTraceFunction>HypervisorTraceLevelMessage(LEVEL,FLAGS,MSG,...)</WppTraceFunction>
       <PrecompiledHeader>Create</PrecompiledHeader>
@@ -87,7 +82,7 @@
       <EntryPointSymbol>
       </EntryPointSymbol>
       <AdditionalLibraryDirectories>%(AdditionalDependencies)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>%(AdditionalDependencies);$(HyperDbgRootDir)libraries\zydis\kernel\Zycore.lib;$(HyperDbgRootDir)libraries\zydis\kernel\Zydis.lib;$(HyperDbgRootDir)build\bin\$(Configuration)\hyperevade.lib</AdditionalDependencies>
+      <AdditionalDependencies>%(AdditionalDependencies);$(SolutionDir)libraries\zydis\kernel\Zycore.lib;$(SolutionDir)libraries\zydis\kernel\Zydis.lib;$(SolutionDir)build\bin\$(Configuration)\hyperevade.lib</AdditionalDependencies>
       <NoEntryPoint>true</NoEntryPoint>
       <ModuleDefinitionFile>hyperhv.def</ModuleDefinitionFile>
     </Link>
@@ -95,8 +90,7 @@
       <FileDigestAlgorithm>SHA256</FileDigestAlgorithm>
     </DriverSign>
     <PreBuildEvent>
-      <Command Condition="'$(HyperDbgHasZydis)'=='true'">msbuild "$(HyperDbgRootDir)dependencies\zydis\msvc\Zydis.sln" /m /p:Configuration="Release Kernel" /p:Platform=$(Platform) /target:zydis /target:zycore /p:OutDir="$(HyperDbgRootDir)libraries\zydis\kernel"</Command>
-      <Message Condition="'$(HyperDbgHasZydis)'!='true'">Skipping Zydis prebuild because HyperDbg dependencies\\zydis is missing in this workspace.</Message>
+      <Command>msbuild "$(SolutionDir)dependencies\zydis\msvc\Zydis.sln" /m /p:Configuration="Release Kernel" /p:Platform=$(Platform) /target:zydis /target:zycore /p:OutDir="$(SolutionDir)libraries\zydis\kernel"</Command>
     </PreBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='release|x64'">
@@ -104,13 +98,13 @@
       <EntryPointSymbol>
       </EntryPointSymbol>
       <TreatLinkerWarningAsErrors>true</TreatLinkerWarningAsErrors>
-      <AdditionalDependencies>%(AdditionalDependencies);$(KernelBufferOverflowLib);$(DDK_LIB_PATH)ntoskrnl.lib;$(DDK_LIB_PATH)hal.lib;$(DDK_LIB_PATH)wmilib.lib;$(KMDF_LIB_PATH)$(KMDF_VER_PATH)\WdfLdr.lib;$(KMDF_LIB_PATH)$(KMDF_VER_PATH)\WdfDriverEntry.lib;$(HyperDbgRootDir)libraries\zydis\kernel\Zycore.lib;$(HyperDbgRootDir)libraries\zydis\kernel\Zydis.lib;$(HyperDbgRootDir)build\bin\$(Configuration)\hyperevade.lib</AdditionalDependencies>
+      <AdditionalDependencies>%(AdditionalDependencies);$(KernelBufferOverflowLib);$(DDK_LIB_PATH)ntoskrnl.lib;$(DDK_LIB_PATH)hal.lib;$(DDK_LIB_PATH)wmilib.lib;$(KMDF_LIB_PATH)$(KMDF_VER_PATH)\WdfLdr.lib;$(KMDF_LIB_PATH)$(KMDF_VER_PATH)\WdfDriverEntry.lib;$(SolutionDir)libraries\zydis\kernel\Zycore.lib;$(SolutionDir)libraries\zydis\kernel\Zydis.lib;$(SolutionDir)build\bin\$(Configuration)\hyperevade.lib</AdditionalDependencies>
       <NoEntryPoint>true</NoEntryPoint>
       <ModuleDefinitionFile>hyperhv.def</ModuleDefinitionFile>
     </Link>
     <ClCompile>
       <TreatWarningAsError>true</TreatWarningAsError>
-      <AdditionalIncludeDirectories>$(HyperDbgRootDir)include;$(ProjectDir)header;$(ProjectDir)code;$(ProjectDir);$(HyperDbgRootDir)dependencies;$(HyperDbgRootDir)script-eval;$(HyperDbgRootDir)dependencies\zydis\include;$(HyperDbgRootDir)dependencies\zydis\dependencies\zycore\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(SolutionDir)\include;$(ProjectDir)header;$(ProjectDir)code;$(ProjectDir);$(SolutionDir)dependencies;$(SolutionDir)\script-eval;$(SolutionDir)dependencies\zydis\include;$(SolutionDir)dependencies\zydis\dependencies\zycore\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <WppEnabled>false</WppEnabled>
       <WppTraceFunction>HypervisorTraceLevelMessage(LEVEL,FLAGS,MSG,...)</WppTraceFunction>
       <PrecompiledHeader>Create</PrecompiledHeader>
@@ -125,8 +119,7 @@
       <FileDigestAlgorithm>SHA256</FileDigestAlgorithm>
     </DriverSign>
     <PreBuildEvent>
-      <Command Condition="'$(HyperDbgHasZydis)'=='true'">msbuild "$(HyperDbgRootDir)dependencies\zydis\msvc\Zydis.sln" /m /p:Configuration="Release Kernel" /p:Platform=$(Platform) /target:zydis /target:zycore /p:OutDir="$(HyperDbgRootDir)libraries\zydis\kernel"</Command>
-      <Message Condition="'$(HyperDbgHasZydis)'!='true'">Skipping Zydis prebuild because HyperDbg dependencies\\zydis is missing in this workspace.</Message>
+      <Command>msbuild "$(SolutionDir)dependencies\zydis\msvc\Zydis.sln" /m /p:Configuration="Release Kernel" /p:Platform=$(Platform) /target:zydis /target:zycore /p:OutDir="$(SolutionDir)libraries\zydis\kernel"</Command>
     </PreBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>

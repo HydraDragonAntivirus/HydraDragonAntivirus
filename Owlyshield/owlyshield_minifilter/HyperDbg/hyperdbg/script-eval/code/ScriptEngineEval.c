@@ -736,6 +736,18 @@ ScriptEngineExecute(PGUEST_REGS                      GuestRegs,
                                   GuestRegs);
         break;
 
+    case FUNC_LBR_START:
+
+        ScriptEngineFunctionLbrStart();
+
+        break;
+
+    case FUNC_LBR_STOP:
+
+        ScriptEngineFunctionLbrStop();
+
+        break;
+
     case FUNC_FLUSH:
 
         ScriptEngineFunctionFlush();

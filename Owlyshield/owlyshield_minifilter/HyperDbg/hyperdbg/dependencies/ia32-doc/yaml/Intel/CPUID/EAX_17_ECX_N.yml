@@ -1,0 +1,37 @@
+- short_name: EAX_17_ECX_N
+  long_name: EAX_17_ECX_N
+  description: System-On-Chip Vendor Attribute Enumeration Sub-leaves (EAX = 17H, ECX > MaxSOCID_Index).
+  note: Leaf 17H output depends on the initial value in ECX.
+  type: struct
+  fields:
+  - name: EAX
+    type: bitfield
+    size: 32
+    fields:
+    - bit: 0-31
+      name: RESERVED
+      description: Reserved = 0.
+
+  - name: EBX
+    type: bitfield
+    size: 32
+    fields:
+    - bit: 0-31
+      name: RESERVED
+      description: Reserved = 0.
+
+  - name: ECX
+    type: bitfield
+    size: 32
+    fields:
+    - bit: 0-31
+      name: RESERVED
+      description: Reserved = 0.
+
+  - name: EDX
+    type: bitfield
+    size: 32
+    fields:
+    - bit: 0-31
+      name: RESERVED
+      description: Reserved = 0.

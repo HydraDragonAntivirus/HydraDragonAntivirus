@@ -209,6 +209,11 @@ DebuggerInitialize()
     }
 
     //
+    // Initialize the HyperTrace (if supported by the processor)
+    //
+    LoaderInitHyperTrace();
+
+    //
     // Pre-allocate pools for possible EPT hooks
     //
     ConfigureEptHookReservePreallocatedPoolsForEptHooks(MAXIMUM_NUMBER_OF_INITIAL_PREALLOCATED_EPT_HOOKS);
@@ -267,6 +272,11 @@ DebuggerUninitialize()
     {
         DebuggerClearAllEvents(FALSE, FALSE);
     }
+
+    //
+    // Unitialize the HyperTrace (if it was initialized)
+    //
+    HyperTraceUninit();
 
     //
     // Uninitialize kernel debugger

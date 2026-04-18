@@ -50,24 +50,9 @@ SyscallCallbackInitialize()
         }
 
         //
-        // Transparent mode depends on syscall vm-exits being enabled on all
-        // processors. The !syscall debugger path normally does this through the
-        // event layer; the direct OwlyShield bridge must do it here.
-        //
-        ConfigureEnableEferSyscallEventsOnAllProcessors();
-
-        //
         // Allocate buffer for the syscall callback trap flag state
         //
         g_SyscallCallbackTrapFlagState = (SYSCALL_CALLBACK_TRAP_FLAG_STATE *)PlatformMemAllocateZeroedNonPagedPool(sizeof(SYSCALL_CALLBACK_TRAP_FLAG_STATE));
-        if (g_SyscallCallbackTrapFlagState == NULL)
-        {
-            ConfigureDisableEferSyscallEventsOnAllProcessors();
-            ConfigureEptHookUnHookSingleAddress((UINT64)(Msr.Flags + 3),
-                                                (UINT64)NULL,
-                                                (UINT32)(ULONG_PTR)PsGetCurrentProcessId());
-            return FALSE;
-        }
 
         //
         // Intercept trap flags #DBs and #BPs for the syscall callback
@@ -111,25 +96,14 @@ SyscallCallbackUninitialize()
         BroadcastDisableDbAndBpExitingAllCores();
 
         //
-        // Disable syscall vm-exits that were enabled for transparent mode.
-        //
-        ConfigureDisableEferSyscallEventsOnAllProcessors();
-
-        //
         // Free the buffer for the syscall callback trap flag state
         //
-        if (g_SyscallCallbackTrapFlagState != NULL)
-        {
-            PlatformMemFreePool(g_SyscallCallbackTrapFlagState);
-            g_SyscallCallbackTrapFlagState = NULL;
-        }
+        PlatformMemFreePool(g_SyscallCallbackTrapFlagState);
 
         MSR Msr   = {0};
         Msr.Flags = __readmsr(IA32_LSTAR);
 
-        if (!ConfigureEptHookUnHookSingleAddress((UINT64)(Msr.Flags + 3),
-                                                 (UINT64)NULL,
-                                                 (UINT32)(ULONG_PTR)PsGetCurrentProcessId()))
+        if (!ConfigureEptHookUnHookSingleAddress((UINT64)(Msr.Flags + 3), (UINT64)NULL, (UINT32)(ULONG_PTR)PsGetCurrentProcessId()))
         {
             LogInfo("Error while removing the EPT hook from windows syscall handler at address 0x%p+3", Msr.Flags);
 

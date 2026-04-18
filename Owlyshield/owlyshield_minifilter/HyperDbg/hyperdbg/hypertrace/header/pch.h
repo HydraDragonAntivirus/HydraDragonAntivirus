@@ -9,7 +9,6 @@
  * @copyright This project is released under the GNU Public License v3.
  *
  */
-
 #pragma once
 
 #define _NO_CRT_STDIO_INLINE
@@ -36,8 +35,12 @@
 // Scope definitions
 //
 #define HYPERDBG_KERNEL_MODE
-#define HYPERDBG_STATIC_LINK
 #define HYPERDBG_HYPERTRACE
+
+//
+// Add ia32-doc
+//
+#include "ia32-doc/out/ia32.h"
 
 //
 // Unload function (to be called when the driver is unloaded)

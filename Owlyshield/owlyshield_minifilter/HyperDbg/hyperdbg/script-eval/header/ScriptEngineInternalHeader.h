@@ -263,6 +263,12 @@ ScriptEngineFunctionEventTraceInstrumentationStep();
 VOID
 ScriptEngineFunctionEventTraceStepIn();
 
+VOID
+ScriptEngineFunctionLbrStart();
+
+VOID
+ScriptEngineFunctionLbrStop();
+
 UINT64
 ScriptEngineFunctionStrcmp(const char * Address1, const char * Address2);
 

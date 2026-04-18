@@ -10,9 +10,7 @@
  */
 #pragma once
 
-#ifdef HYPERDBG_STATIC_LINK
-#    define IMPORT_EXPORT_VMM
-#elif defined(HYPERDBG_VMM)
+#ifdef HYPERDBG_VMM
 #    define IMPORT_EXPORT_VMM __declspec(dllexport)
 #else
 #    define IMPORT_EXPORT_VMM __declspec(dllimport)

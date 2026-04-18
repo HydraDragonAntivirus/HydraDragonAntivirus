@@ -1,0 +1,553 @@
+- name: ACCESS_RIGHTS
+  description: Segment access rights.
+  type: bitfield
+  size: 32
+  reference: Vol2A[3.2(Instructions (A-L) | LAR—Load Access Rights Byte)]
+  fields:
+  - bit: 8-11
+    short_name: TYPE
+    long_name: TYPE
+    short_description: Type field
+    long_description: |
+      Indicates the segment or gate type and specifies the kinds of access that can be made to the
+      segment and the direction of growth. The interpretation of this field depends on whether the
+      descriptor type flag specifies an application (code or data) descriptor or a system descriptor. The
+      encoding of the type field is different for code, data, and system descriptors.
+    see: Vol3A[3.4.5.1(Code- and Data-Segment Descriptor Types)]
+
+  - bit: 12
+    short_name: S_FLAG
+    long_name: DESCRIPTOR_TYPE
+    alternative_name: DESCRIPTOR_TYPE
+    short_description: S (descriptor type) flag
+    long_description: |
+      Specifies whether the segment descriptor is for a system segment (S flag is clear) or a code or data
+      segment (S flag is set).
+
+  - bit: 13-14
+    short_name: DPL
+    long_name: DESCRIPTOR_PRIVILEGE_LEVEL
+    short_description: DPL (descriptor privilege level) field
+    long_description: |
+      Specifies the privilege level of the segment. The privilege level can range from 0 to 3, with 0 being
+      the most privileged level. The DPL is used to control access to the segment. See Section 5.5, “Privilege
+      Levels”, for a description of the relationship of the DPL to the CPL of the executing code
+      segment and the RPL of a segment selector.
+
+  - bit: 15
+    short_name: P
+    long_name: PRESENT
+    alternative_name: PRESENT # WDK
+    short_description: P (segment-present) flag
+    long_description: |
+      Indicates whether the segment is present in memory (set) or not present (clear). If this flag is clear,
+      the processor generates a segment-not-present exception (#NP) when a segment selector that
+      points to the segment descriptor is loaded into a segment register. Memory management software
+      can use this flag to control which segments are actually loaded into physical memory at a given
+      time. It offers a control in addition to paging for managing virtual memory.
+
+  - bit: 20
+    short_name: AVAILABLE
+    long_name: AVAILABLE_BIT
+    alternative_name: SYSTEM # WDK
+    short_description: Available bit
+    long_description: |
+      Bit 20 of the second doubleword of the segment descriptor is available for use by system software.
+
+  - bit: 21
+    short_name: L
+    long_name: LONG_MODE
+    alternative_name: LONG_MODE
+    short_description: L (64-bit code segment) flag
+    long_description: |
+      In IA-32e mode, bit 21 of the second doubleword of the segment descriptor indicates whether a
+      code segment contains native 64-bit code. A value of 1 indicates instructions in this code segment
+      are executed in 64-bit mode. A value of 0 indicates the instructions in this code segment are
+      executed in compatibility mode. If L-bit is set, then D-bit must be cleared. When not in IA-32e mode
+      or for non-code segments, bit 21 is reserved and should always be set to 0.
+
+  - bit: 22
+    short_name: DB
+    long_name: DEFAULT_BIG
+    alternative_name: DEFAULT_BIG # WDK
+    short_description: D/B (default operation size/default stack pointer size and/or upper bound) flag
+    long_description: |
+      Performs different functions depending on whether the segment descriptor is an executable code
+      segment, an expand-down data segment, or a stack segment. (This flag should always be set to 1
+      for 32-bit code and data segments and to 0 for 16-bit code and data segments.)
+
+      - Executable code segment. The flag is called the D flag and it indicates the default length for
+        effective addresses and operands referenced by instructions in the segment. If the flag is set,
+        32-bit addresses and 32-bit or 8-bit operands are assumed; if it is clear, 16-bit addresses and
+        16-bit or 8-bit operands are assumed.
+        The instruction prefix 66H can be used to select an operand size other than the default, and the
+        prefix 67H can be used select an address size other than the default.
+
+      - Stack segment (data segment pointed to by the SS register). The flag is called the B (big)
+        flag and it specifies the size of the stack pointer used for implicit stack operations (such as
+        pushes, pops, and calls). If the flag is set, a 32-bit stack pointer is used, which is stored in the
+        32-bit ESP register; if the flag is clear, a 16-bit stack pointer is used, which is stored in the 16-
+        bit SP register. If the stack segment is set up to be an expand-down data segment (described in
+        the next paragraph), the B flag also specifies the upper bound of the stack segment.
+
+      - Expand-down data segment. The flag is called the B flag and it specifies the upper bound of
+        the segment. If the flag is set, the upper bound is FFFFFFFFH (4 GBytes); if the flag is clear, the
+        upper bound is FFFFH (64 KBytes).
+
+  - bit: 23
+    short_name: G
+    long_name: GRANULARITY
+    alternative_name: GRANULARITY # WDK
+    short_description: G (granularity) flag
+    long_description: |
+      Determines the scaling of the segment limit field. When the granularity flag is clear, the segment
+      limit is interpreted in byte units; when flag is set, the segment limit is interpreted in 4-KByte units.
+      (This flag does not affect the granularity of the base address; it is always byte granular.) When the
+      granularity flag is set, the twelve least significant bits of an offset are not tested when checking the
+      offset against the segment limit. For example, when the granularity flag is set, a limit of 0 results in
+      valid offsets from 0 to 4095.
+
+#
+# Used for GDT/LDT/IDT/TSS.
+#
+
+- name: DESCRIPTOR_32
+  short_description: General Segment Descriptor (32-bit)
+  long_description: |
+    A segment descriptor is a data structure in a GDT or LDT that provides the processor with the size and location of
+    a segment, as well as access control and status information. Segment descriptors are typically created by
+    compilers, linkers, loaders, or the operating system or executive, but not application programs.
+  type: struct
+  size: 32
+  see:
+  - Vol3A[5.2(FIELDS AND FLAGS USED FOR SEGMENT-LEVEL AND PAGE-LEVEL PROTECTION)]
+  - Vol3A[5.2.1(Code-Segment Descriptor in 64-bit Mode)]
+  - Vol3A[5.8.3(Call Gates)]
+  - Vol3A[6.11(IDT DESCRIPTORS)]
+  - Vol3A[6.14.1(64-Bit Mode IDT)]
+  - Vol3A[7.2.2(TSS Descriptor)]
+  - Vol3A[7.2.3(TSS Descriptor in 64-bit mode)]
+  - Vol3A[7.2.5(Task-Gate Descriptor)]
+  reference: Vol3A[3.4.5(Segment Descriptors)]
+  fields:
+  - size: 16
+    short_name: LIMIT_LOW
+    long_name: SEGMENT_LIMIT_LOW
+    short_description: |
+      Segment limit field (15:00)
+    long_description: |
+      Specifies the size of the segment. The processor puts together the two segment limit fields to form
+      a 20-bit value. The processor interprets the segment limit in one of two ways, depending on the
+      setting of the G (granularity) flag:
+
+      - If the granularity flag is clear, the segment size can range from 1 byte to 1 MByte, in byte increments.
+
+      - If the granularity flag is set, the segment size can range from 4 KBytes to 4 GBytes, in 4-KByte
+        increments.
+
+      The processor uses the segment limit in two different ways, depending on whether the segment is
+      an expand-up or an expand-down segment. For expand-up segments, the offset
+      in a logical address can range from 0 to the segment limit. Offsets greater than the segment limit
+      generate general-protection exceptions (#GP, for all segments other than SS) or stack-fault exceptions
+      (#SS for the SS segment). For expand-down segments, the segment limit has the reverse
+      function; the offset can range from the segment limit plus 1 to FFFFFFFFH or FFFFH, depending on
+      the setting of the B flag. Offsets less than or equal to the segment limit generate general-protection
+      exceptions or stack-fault exceptions. Decreasing the value in the segment limit field for an expanddown
+      segment allocates new memory at the bottom of the segment's address space, rather than at
+      the top. IA-32 architecture stacks always grow downwards, making this mechanism convenient for
+      expandable stacks.
+    see: Vol3A[3.4.5.1(Code- and Data-Segment Descriptor Types)]
+
+  - size: 16
+    short_name: BASE_LOW
+    long_name: BASE_ADDRESS_LOW
+    short_description: |
+      Base address field (15:00)
+    long_description: |
+      Defines the location of byte 0 of the segment within the 4-GByte linear address space. The
+      processor puts together the three base address fields to form a single 32-bit value. Segment base
+      addresses should be aligned to 16-byte boundaries. Although 16-byte alignment is not required,
+      this alignment allows programs to maximize performance by aligning code and data on 16-byte
+      boundaries.
+
+  - size: 32
+    type: bitfield
+    name: ''
+    description: Segment descriptor fields.
+    fields:
+    - bit: 0-7
+      short_name: BASE_MIDDLE
+      long_name: BASE_ADDRESS_MIDDLE
+      description: |
+        Base address field (23:16); see description of $BASE_LOW for more details.
+
+    - bit: 8-11
+      short_name: TYPE
+      long_name: TYPE
+      short_description: Type field
+      long_description: |
+        Indicates the segment or gate type and specifies the kinds of access that can be made to the
+        segment and the direction of growth. The interpretation of this field depends on whether the
+        descriptor type flag specifies an application (code or data) descriptor or a system descriptor. The
+        encoding of the type field is different for code, data, and system descriptors.
+      see: Vol3A[3.4.5.1(Code- and Data-Segment Descriptor Types)]
+
+    - bit: 12
+      short_name: S_FLAG
+      long_name: DESCRIPTOR_TYPE
+      alternative_name: DESCRIPTOR_TYPE
+      short_description: S (descriptor type) flag
+      long_description: |
+        Specifies whether the segment descriptor is for a system segment (S flag is clear) or a code or data
+        segment (S flag is set).
+
+    - bit: 13-14
+      short_name: DPL
+      long_name: DESCRIPTOR_PRIVILEGE_LEVEL
+      short_description: DPL (descriptor privilege level) field
+      long_description: |
+        Specifies the privilege level of the segment. The privilege level can range from 0 to 3, with 0 being
+        the most privileged level. The DPL is used to control access to the segment. See Section 5.5, “Privilege
+        Levels”, for a description of the relationship of the DPL to the CPL of the executing code
+        segment and the RPL of a segment selector.
+
+    - bit: 15
+      short_name: P
+      long_name: PRESENT
+      alternative_name: PRESENT # WDK
+      short_description: P (segment-present) flag
+      long_description: |
+        Indicates whether the segment is present in memory (set) or not present (clear). If this flag is clear,
+        the processor generates a segment-not-present exception (#NP) when a segment selector that
+        points to the segment descriptor is loaded into a segment register. Memory management software
+        can use this flag to control which segments are actually loaded into physical memory at a given
+        time. It offers a control in addition to paging for managing virtual memory.
+
+    - bit: 16-19
+      short_name: LIMIT_HIGH
+      long_name: SEGMENT_LIMIT_HIGH
+      description: Segment limit field (19:16); see description of $LIMIT_LOW for more details.
+
+    - bit: 20
+      short_name: AVL
+      long_name: AVAILABLE_BIT
+      alternative_name: SYSTEM # WDK
+      short_description: Available bit
+      long_description: |
+        Bit 20 of the second doubleword of the segment descriptor is available for use by system software.
+
+    - bit: 21
+      short_name: L
+      long_name: LONG_MODE
+      alternative_name: LONG_MODE
+      short_description: L (64-bit code segment) flag
+      long_description: |
+        In IA-32e mode, bit 21 of the second doubleword of the segment descriptor indicates whether a
+        code segment contains native 64-bit code. A value of 1 indicates instructions in this code segment
+        are executed in 64-bit mode. A value of 0 indicates the instructions in this code segment are
+        executed in compatibility mode. If L-bit is set, then D-bit must be cleared. When not in IA-32e mode
+        or for non-code segments, bit 21 is reserved and should always be set to 0.
+
+    - bit: 22
+      short_name: DB
+      long_name: DEFAULT_BIG
+      alternative_name: DEFAULT_BIG # WDK
+      short_description: D/B (default operation size/default stack pointer size and/or upper bound) flag
+      long_description: |
+        Performs different functions depending on whether the segment descriptor is an executable code
+        segment, an expand-down data segment, or a stack segment. (This flag should always be set to 1
+        for 32-bit code and data segments and to 0 for 16-bit code and data segments.)
+
+        - Executable code segment. The flag is called the D flag and it indicates the default length for
+          effective addresses and operands referenced by instructions in the segment. If the flag is set,
+          32-bit addresses and 32-bit or 8-bit operands are assumed; if it is clear, 16-bit addresses and
+          16-bit or 8-bit operands are assumed.
+          The instruction prefix 66H can be used to select an operand size other than the default, and the
+          prefix 67H can be used select an address size other than the default.
+
+        - Stack segment (data segment pointed to by the SS register). The flag is called the B (big)
+          flag and it specifies the size of the stack pointer used for implicit stack operations (such as
+          pushes, pops, and calls). If the flag is set, a 32-bit stack pointer is used, which is stored in the
+          32-bit ESP register; if the flag is clear, a 16-bit stack pointer is used, which is stored in the 16-
+          bit SP register. If the stack segment is set up to be an expand-down data segment (described in
+          the next paragraph), the B flag also specifies the upper bound of the stack segment.
+
+        - Expand-down data segment. The flag is called the B flag and it specifies the upper bound of
+          the segment. If the flag is set, the upper bound is FFFFFFFFH (4 GBytes); if the flag is clear, the
+          upper bound is FFFFH (64 KBytes).
+
+    - bit: 23
+      short_name: G
+      long_name: GRANULARITY
+      alternative_name: GRANULARITY # WDK
+      short_description: G (granularity) flag
+      long_description: |
+        Determines the scaling of the segment limit field. When the granularity flag is clear, the segment
+        limit is interpreted in byte units; when flag is set, the segment limit is interpreted in 4-KByte units.
+        (This flag does not affect the granularity of the base address; it is always byte granular.) When the
+        granularity flag is set, the twelve least significant bits of an offset are not tested when checking the
+        offset against the segment limit. For example, when the granularity flag is set, a limit of 0 results in
+        valid offsets from 0 to 4095.
+
+    - bit: 24-31
+      short_name: BASE_HIGH
+      long_name: BASE_ADDRESS_HIGH
+      description: |
+        Base address field (31:24); see description of $BASE_LOW for more details.
+
+#
+# Copy-paste of SEGMENT_DESCRIPTOR_32 + BASE_UPPER + MUST_BE_ZERO
+#
+
+- name: DESCRIPTOR_64
+  short_description: General Segment Descriptor (64-bit)
+  long_description: |
+    A segment descriptor is a data structure in a GDT or LDT that provides the processor with the size and location of
+    a segment, as well as access control and status information. Segment descriptors are typically created by
+    compilers, linkers, loaders, or the operating system or executive, but not application programs.
+  type: struct
+  size: 64
+  reference: Vol3A[3.4.5(Segment Descriptors)]
+  fields:
+  - size: 16
+    short_name: LIMIT_LOW
+    long_name: SEGMENT_LIMIT_LOW
+    short_description: |
+      Segment limit field (15:00)
+    long_description: |
+      Specifies the size of the segment. The processor puts together the two segment limit fields to form
+      a 20-bit value. The processor interprets the segment limit in one of two ways, depending on the
+      setting of the G (granularity) flag:
+
+      - If the granularity flag is clear, the segment size can range from 1 byte to 1 MByte, in byte increments.
+
+      - If the granularity flag is set, the segment size can range from 4 KBytes to 4 GBytes, in 4-KByte
+        increments.
+
+      The processor uses the segment limit in two different ways, depending on whether the segment is
+      an expand-up or an expand-down segment. For expand-up segments, the offset
+      in a logical address can range from 0 to the segment limit. Offsets greater than the segment limit
+      generate general-protection exceptions (#GP, for all segments other than SS) or stack-fault exceptions
+      (#SS for the SS segment). For expand-down segments, the segment limit has the reverse
+      function; the offset can range from the segment limit plus 1 to FFFFFFFFH or FFFFH, depending on
+      the setting of the B flag. Offsets less than or equal to the segment limit generate general-protection
+      exceptions or stack-fault exceptions. Decreasing the value in the segment limit field for an expanddown
+      segment allocates new memory at the bottom of the segment's address space, rather than at
+      the top. IA-32 architecture stacks always grow downwards, making this mechanism convenient for
+      expandable stacks.
+    see: Vol3A[3.4.5.1(Code- and Data-Segment Descriptor Types)]
+
+  - size: 16
+    short_name: BASE_LOW
+    long_name: BASE_ADDRESS_LOW
+    short_description: |
+      Base address field (15:00)
+    long_description: |
+      Defines the location of byte 0 of the segment within the 4-GByte linear address space. The
+      processor puts together the three base address fields to form a single 32-bit value. Segment base
+      addresses should be aligned to 16-byte boundaries. Although 16-byte alignment is not required,
+      this alignment allows programs to maximize performance by aligning code and data on 16-byte
+      boundaries.
+
+  - size: 32
+    type: bitfield
+    name: ''
+    description: Segment descriptor fields.
+    fields:
+    - bit: 0-7
+      short_name: BASE_MIDDLE
+      long_name: BASE_ADDRESS_MIDDLE
+      description: |
+        Base address field (23:16); see description of $BASE_LOW for more details.
+
+    - bit: 8-11
+      short_name: TYPE
+      long_name: TYPE
+      short_description: Type field
+      long_description: |
+        Indicates the segment or gate type and specifies the kinds of access that can be made to the
+        segment and the direction of growth. The interpretation of this field depends on whether the
+        descriptor type flag specifies an application (code or data) descriptor or a system descriptor. The
+        encoding of the type field is different for code, data, and system descriptors.
+      see: Vol3A[3.4.5.1(Code- and Data-Segment Descriptor Types)]
+
+    - bit: 12
+      short_name: S_FLAG
+      long_name: DESCRIPTOR_TYPE
+      alternative_name: DESCRIPTOR_TYPE
+      short_description: S (descriptor type) flag
+      long_description: |
+        Specifies whether the segment descriptor is for a system segment (S flag is clear) or a code or data
+        segment (S flag is set).
+
+    - bit: 13-14
+      short_name: DPL
+      long_name: DESCRIPTOR_PRIVILEGE_LEVEL
+      short_description: DPL (descriptor privilege level) field
+      long_description: |
+        Specifies the privilege level of the segment. The privilege level can range from 0 to 3, with 0 being
+        the most privileged level. The DPL is used to control access to the segment. See Section 5.5, “Privilege
+        Levels”, for a description of the relationship of the DPL to the CPL of the executing code
+        segment and the RPL of a segment selector.
+
+    - bit: 15
+      short_name: P
+      long_name: PRESENT
+      alternative_name: PRESENT # WDK
+      short_description: P (segment-present) flag
+      long_description: |
+        Indicates whether the segment is present in memory (set) or not present (clear). If this flag is clear,
+        the processor generates a segment-not-present exception (#NP) when a segment selector that
+        points to the segment descriptor is loaded into a segment register. Memory management software
+        can use this flag to control which segments are actually loaded into physical memory at a given
+        time. It offers a control in addition to paging for managing virtual memory.
+
+    - bit: 16-19
+      short_name: LIMIT_HIGH
+      long_name: SEGMENT_LIMIT_HIGH
+      description: Segment limit field (19:16); see description of $LIMIT_LOW for more details.
+
+    - bit: 20
+      short_name: AVAILABLE
+      long_name: AVAILABLE_BIT
+      alternative_name: SYSTEM # WDK
+      short_description: Available bit
+      long_description: |
+        Bit 20 of the second doubleword of the segment descriptor is available for use by system software.
+
+    - bit: 21
+      short_name: L
+      long_name: LONG_MODE
+      alternative_name: LONG_MODE
+      short_description: L (64-bit code segment) flag
+      long_description: |
+        In IA-32e mode, bit 21 of the second doubleword of the segment descriptor indicates whether a
+        code segment contains native 64-bit code. A value of 1 indicates instructions in this code segment
+        are executed in 64-bit mode. A value of 0 indicates the instructions in this code segment are
+        executed in compatibility mode. If L-bit is set, then D-bit must be cleared. When not in IA-32e mode
+        or for non-code segments, bit 21 is reserved and should always be set to 0.
+
+    - bit: 22
+      short_name: DB
+      long_name: DEFAULT_BIG
+      alternative_name: DEFAULT_BIG # WDK
+      short_description: D/B (default operation size/default stack pointer size and/or upper bound) flag
+      long_description: |
+        Performs different functions depending on whether the segment descriptor is an executable code
+        segment, an expand-down data segment, or a stack segment. (This flag should always be set to 1
+        for 32-bit code and data segments and to 0 for 16-bit code and data segments.)
+
+        - Executable code segment. The flag is called the D flag and it indicates the default length for
+          effective addresses and operands referenced by instructions in the segment. If the flag is set,
+          32-bit addresses and 32-bit or 8-bit operands are assumed; if it is clear, 16-bit addresses and
+          16-bit or 8-bit operands are assumed.
+          The instruction prefix 66H can be used to select an operand size other than the default, and the
+          prefix 67H can be used select an address size other than the default.
+
+        - Stack segment (data segment pointed to by the SS register). The flag is called the B (big)
+          flag and it specifies the size of the stack pointer used for implicit stack operations (such as
+          pushes, pops, and calls). If the flag is set, a 32-bit stack pointer is used, which is stored in the
+          32-bit ESP register; if the flag is clear, a 16-bit stack pointer is used, which is stored in the 16-
+          bit SP register. If the stack segment is set up to be an expand-down data segment (described in
+          the next paragraph), the B flag also specifies the upper bound of the stack segment.
+
+        - Expand-down data segment. The flag is called the B flag and it specifies the upper bound of
+          the segment. If the flag is set, the upper bound is FFFFFFFFH (4 GBytes); if the flag is clear, the
+          upper bound is FFFFH (64 KBytes).
+
+    - bit: 23
+      short_name: G
+      long_name: GRANULARITY
+      alternative_name: GRANULARITY # WDK
+      short_description: G (granularity) flag
+      long_description: |
+        Determines the scaling of the segment limit field. When the granularity flag is clear, the segment
+        limit is interpreted in byte units; when flag is set, the segment limit is interpreted in 4-KByte units.
+        (This flag does not affect the granularity of the base address; it is always byte granular.) When the
+        granularity flag is set, the twelve least significant bits of an offset are not tested when checking the
+        offset against the segment limit. For example, when the granularity flag is set, a limit of 0 results in
+        valid offsets from 0 to 4095.
+
+    - bit: 24-31
+      short_name: BASE_HIGH
+      long_name: BASE_ADDRESS_HIGH
+      description: |
+        Base address field (31:24); see description of $BASE_LOW for more details.
+
+  - size: 32
+    short_name: BASE_UPPER
+    long_name: BASE_ADDRESS_UPPER
+    description: |
+      Base address field (32:63); see description of $BASE_LOW for more details.
+
+  - size: 32
+    short_name: MUST_BE_ZERO
+    long_name: MUST_BE_ZERO
+    description: This field must be set to zero.
+
+#
+# Used for IDT
+#
+
+- name: DESCRIPTOR_INTERRUPT_GATE_64
+  description: Interrupt Gate Descriptor (64-bit)
+  reference: Vol3A[6.14.1(64-Bit Mode IDT)]
+  type: struct
+  size: 128
+  fields:
+  - size: 16
+    name: OFFSET_LOW
+    description: Offset to procedure entry point (15:00).
+
+  - size: 16
+    name: SEGMENT_SELECTOR
+    description: Segment selector for destination code segment.
+
+  - size: 32
+    name: ''
+    type: bitfield
+    fields:
+    - bit: 0-2
+      name: INTERRUPT_STACK_TABLE
+      description: Index into the TSS Interrupt Stack Table.
+    
+    - bit: 3-7
+      name: MUST_BE_ZERO_0
+      description: This field must be set to zero.
+      
+    - bit: 8-11
+      name: TYPE
+      description: Indicates the segment or gate type.
+
+    - bit: 12
+      name: MUST_BE_ZERO_1
+      description: This field must be set to zero.
+    
+    - bit: 13-14
+      name: DESCRIPTOR_PRIVILEGE_LEVEL
+      description: Specifies the segment privilege level.
+
+    - bit: 15
+      name: PRESENT
+      description: Indicates whether the segment is present in memory (set) or not present (clear).
+    
+    - bit: 16-31
+      name: OFFSET_MIDDLE
+      description: Offset to procedure entry point (31:16).
+
+  - size: 32
+    name: OFFSET_HIGH
+    description: Offset to procedure entry point (63:32).
+  
+  - size: 32
+    name: RESERVED
+
+#
+# DESCRIPTOR_TYPE values.
+#
+
+- value: 0
+  name: DESCRIPTOR_TYPE_SYSTEM
+
+- value: 1
+  name: DESCRIPTOR_TYPE_CODE_OR_DATA

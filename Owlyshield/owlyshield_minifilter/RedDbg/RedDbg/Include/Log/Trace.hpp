@@ -124,9 +124,6 @@ public:
 	void AcceptGraphMessage(File& objFile);
 	void AcceptGraphCycleFoldingMessage(File& objFile);
 
-	uint64_t MainBuffer = 0;
-	void AcceptCombineBufferRipMessage(File& objFile, uint64_t _MainBuffer);
-
 	void TraceRip(_In_ SVM::PRIVATE_VM_DATA* Private);
 	void TraceMnemonic(_In_ SVM::PRIVATE_VM_DATA* Private);
 

@@ -1,0 +1,1192 @@
+- name: VMCS
+  description: Format of the VMCS Region
+  long_description: |
+    A logical processor uses virtual-machine control data structures (VMCSs) while it is in VMX operation. These
+    manage transitions into and out of VMX non-root operation (VM entries and VM exits) as well as processor behavior
+    in VMX non-root operation. This structure is manipulated by the new instructions VMCLEAR, VMPTRLD, VMREAD,
+    and VMWRITE.
+
+    A VMCS region comprises up to 4-KBytes. The exact size is implementation specific and can be determined
+    by consulting the VMX capability MSR IA32_VMX_BASIC.
+  type: struct
+  size: 32768
+  reference: Vol3C[24.2(FORMAT OF THE VMCS REGION)]
+  fields:
+  - type: bitfield
+    size: 32
+    fields:
+      - bit: 0-30
+        name: REVISION_ID
+        short_description: VMCS revision identifier.
+        long_description: |
+          Processors that maintain VMCS data in different formats (see below) use different VMCS revision identifiers.
+          These identifiers enable software to avoid using a VMCS region formatted for one processor on a processor
+          that uses a different format.
+
+          Software should write the VMCS revision identifier to the VMCS region before using that region for a VMCS. The
+          VMCS revision identifier is never written by the processor; VMPTRLD fails if its operand references a VMCS region
+          whose VMCS revision identifier differs from that used by the processor.
+
+          Software can discover the VMCS revision identifier that a processor uses by reading the VMX capability
+          MSR IA32_VMX_BASIC.
+        see:
+        - Vol3C[24.6.2(Processor-Based VM-Execution Controls)]
+        - Vol3D[A.1(BASIC VMX INFORMATION)]
+
+      - bit: 31
+        name: SHADOW_VMCS_INDICATOR
+        short_description: Shadow-VMCS indicator.
+        long_description: |
+          Software should clear or set the shadow-VMCS indicator depending on whether the VMCS is to be an ordinary
+          VMCS or a shadow VMCS. VMPTRLD fails if the shadow-VMCS indicator is set and the processor does not support
+          the 1-setting of the "VMCS shadowing" VM-execution control. Software can discover support for this setting
+          by reading the VMX capability MSR IA32_VMX_PROCBASED_CTLS2.
+        see:
+        - Vol3C[24.10(VMCS TYPES ORDINARY AND SHADOW)]
+
+  - size: 32
+    name: ABORT_INDICATOR
+    short_description: VMX-abort indicator.
+    long_description: |
+      The contents of these bits do not
+      control processor operation in any way. A logical processor writes a non-zero value into these bits if a VMX abort
+      occurs. Software may also write into this field.
+    see: Vol3D[27.7(VMX Aborts)]
+
+  - size: '?'
+    name: DATA
+    short_description: VMCS data (implementation-specific format).
+    long_description: |
+      These parts of the VMCS control VMX non-root operation and the VMX transitions.
+
+      The format of these data is implementation-specific. To ensure proper behavior in VMX operation,
+      software should maintain the VMCS region and related structures in writeback cacheable memory. Future
+      implementations may allow or require a different memory type. Software should consult the VMX capability MSR
+      IA32_VMX_BASIC.
+    see:
+    - Vol3C[24.11.4(Software Access to Related Structures)]
+    - Vol3D[A.1(BASIC VMX INFORMATION)]
+
+- name: VMXON
+  description: Format of the VMXON Region
+  long_description: |
+    Before executing VMXON, software allocates a region of memory that the logical processor uses to support
+    VMX operation. This region is called the VMXON region.
+
+    A VMXON region comprises up to 4-KBytes. The exact size is implementation specific and can be determined
+    by consulting the VMX capability MSR IA32_VMX_BASIC.
+  type: struct
+  size: 32768
+  reference: Vol3C[24.11.5(VMXON Region)]
+  fields:
+  - type: bitfield
+    size: 32
+    fields:
+      - bit: 0-30
+        name: REVISION_ID
+        short_description: VMCS revision identifier.
+        long_description: |
+          Before executing VMXON, software should write the VMCS revision identifier to the VMXON region.
+          (Specifically, it should write the 31-bit VMCS revision identifier to bits 30:0 of the first 4 bytes of
+          the VMXON region; bit 31 should be cleared to 0.)
+        see:
+        - VMCS
+        - Vol3C[24.2(FORMAT OF THE VMCS REGION)]
+        - Vol3C[24.11.5(VMXON Region)]
+
+      - bit: 31
+        name: MUST_BE_ZERO
+        description: Bit 31 is always 0.
+
+  - size: '?'
+    name: DATA
+    short_description: VMXON data (implementation-specific format).
+    long_description: |
+      The format of these data is implementation-specific. To ensure proper behavior in VMX operation,
+      software should not access or modify the VMXON region of a logical processor between execution of VMXON and
+      VMXOFF on that logical processor. Doing otherwise may lead to unpredictable behavior.
+    see:
+    - Vol3C[24.11.4(Software Access to Related Structures)]
+    - Vol3D[A.1(BASIC VMX INFORMATION)]
+
+#
+# reference: Vol3D[B(Appendix B)]
+#
+
+- name: VMCS_FIELDS
+  short_description: VMCS (VM Control Structure).
+  long_description: |
+    Every component of the VMCS is encoded by a 32-bit field that can be used by VMREAD and VMWRITE.
+    This enumerates all fields in the VMCS and their encodings. Fields are grouped by width (16-bit, 32-bit,
+    etc.) and type (guest-state, host-state, etc.).
+  children_name_with_prefix: VMCS
+  type: group
+  reference: Vol3D[B(APPENDIX B FIELD ENCODING IN VMCS)]
+  fields:
+  - name: COMPONENT_ENCODING
+    tag: OPTIONAL
+    type: bitfield
+    size: 16
+    reference: Vol3C[24.11.2(VMREAD, VMWRITE, and Encodings of VMCS Fields)]
+    fields:
+    - bit: 0
+      name: ACCESS_TYPE
+      description: |
+        Access type (0 = full; 1 = high); must be full for 16-bit, 32-bit, and natural-width fields.
+
+    - bit: 1-9
+      name: INDEX
+      description: |
+        Index.
+
+    - bit: 10-11
+      name: TYPE
+      description: |
+        Type:
+
+        0: control
+
+        1: VM-exit information
+
+        2: guest state
+
+        3: host state
+
+    - bit: 12
+      name: MUST_BE_ZERO
+      description: |
+        Reserved (must be 0).
+
+    - bit: 13-14
+      name: WIDTH
+      description: |
+        Width:
+
+        0: 16-bit
+
+        1: 64-bit
+
+        2: 32-bit
+
+        3: natural-width
+
+  - name: 16_BIT
+    description: 16-Bit Fields.
+    # children_name_with_prefix: 16
+    type: group
+    reference: Vol3D[B.1(16-BIT FIELDS)]
+    fields:
+    - name: 16_BIT_CONTROL_FIELDS
+      description: 16-Bit Control Fields.
+      children_name_with_prefix: CTRL
+      type: group
+      fields:
+      - value: 0x0000
+        short_name: VPID
+        long_name: VIRTUAL_PROCESSOR_IDENTIFIER
+        alternative_name: VIRTUAL_PROCESSOR_IDENTIFIER
+        description: Virtual-processor identifier (VPID).
+        remarks: |
+          This field exists only on processors that support the 1-setting of the “enable VPID” VM-execution control.
+
+      - value: 0x0002
+        short_name: POSTED_INTR_NOTIFY_VECTOR
+        long_name: POSTED_INTERRUPT_NOTIFICATION_VECTOR
+        description: Posted-interrupt notification vector.
+        remarks: |
+          This field exists only on processors that support the 1-setting of the “process posted interrupts” VM-execution control.
+
+      - value: 0x0004
+        short_name: EPTP_INDEX
+        long_name: EPTP_INDEX
+        description: EPTP index.
+        remarks: |
+          This field exists only on processors that support the 1-setting of the “EPT-violation #VE” VM-execution control.
+
+      - value: 0x0006
+        short_name: HLAT_PREFIX_SIZE
+        long_name: HLAT_PREFIX_SIZE
+        description: HLAT prefix size.
+        remarks: |
+          This field exists only on processors that support the 1-setting of the “enable HLAT” VM-execution control.
+      
+      - value: 0x0008
+        short_name: LAST_PID_PTR_INDEX
+        long_name: LAST_PID_POINTER_INDEX
+        description: Last PID-pointer index.
+        remarks: |
+          This field exists only on processors that support the 1-setting of the “IPI virtualization” VM-execution control
+
+    - name: 16_BIT_GUEST_STATE_FIELDS
+      description: 16-Bit Guest-State Fields.
+      children_name_with_prefix: GUEST
+      type: group
+      fields:
+      - value: 0x0800
+        short_name: ES_SEL
+        long_name: ES_SELECTOR
+        description: Guest ES selector.
+
+      - value: 0x0802
+        short_name: CS_SEL
+        long_name: CS_SELECTOR
+        description: Guest CS selector.
+
+      - value: 0x0804
+        short_name: SS_SEL
+        long_name: SS_SELECTOR
+        description: Guest SS selector.
+
+      - value: 0x0806
+        short_name: DS_SEL
+        long_name: DS_SELECTOR
+        description: Guest DS selector.
+
+      - value: 0x0808
+        short_name: FS_SEL
+        long_name: FS_SELECTOR
+        description: Guest FS selector.
+
+      - value: 0x080A
+        short_name: GS_SEL
+        long_name: GS_SELECTOR
+        description: Guest GS selector.
+
+      - value: 0x080C
+        short_name: LDTR_SEL
+        long_name: LDTR_SELECTOR
+        description: Guest LDTR selector.
+
+      - value: 0x080E
+        short_name: TR_SEL
+        long_name: TR_SELECTOR
+        description: Guest TR selector.
+
+      - value: 0x0810
+        short_name: INTR_STATUS
+        long_name: INTERRUPT_STATUS
+        description: Guest interrupt status.
+        remarks: |
+          This field exists only on processors that support the 1-setting of the “virtual-interrupt delivery” VM-execution control.
+
+      - value: 0x0812
+        short_name: PML_INDEX
+        long_name: PML_INDEX
+        description: PML index.
+        remarks: |
+          This field exists only on processors that support the 1-setting of the “enable PML” VM-execution control.
+      
+      - value: 0x0814
+        short_name: UINV
+        long_name: UINV
+        description: UINV.
+        remarks: |
+          This field exists only on processors that support the 1-setting of either the “clear UINV” VM-exit control or the “load UINV” VM-entry
+          control.
+
+    - name: 16_BIT_HOST_STATE_FIELDS
+      description: 16-Bit Host-State Fields.
+      children_name_with_prefix: HOST
+      type: group
+      fields:
+      - value: 0x0C00
+        short_name: ES_SEL
+        long_name: ES_SELECTOR
+        description: Host ES selector.
+
+      - value: 0x0C02
+        short_name: CS_SEL
+        long_name: CS_SELECTOR
+        description: Host CS selector.
+
+      - value: 0x0C04
+        short_name: SS_SEL
+        long_name: SS_SELECTOR
+        description: Host SS selector.
+
+      - value: 0x0C06
+        short_name: DS_SEL
+        long_name: DS_SELECTOR
+        description: Host DS selector.
+
+      - value: 0x0C08
+        short_name: FS_SEL
+        long_name: FS_SELECTOR
+        description: Host FS selector.
+
+      - value: 0x0C0A
+        short_name: GS_SEL
+        long_name: GS_SELECTOR
+        description: Host GS selector.
+
+      - value: 0x0C0C
+        short_name: TR_SEL
+        long_name: TR_SELECTOR
+        description: Host TR selector.
+
+  - name: 64_BIT
+    description: 64-Bit Fields.
+    # children_name_with_prefix: 64
+    type: group
+    reference: Vol3D[B.2(64-BIT FIELDS)]
+    fields:
+      - name: 64_BIT_CONTROL_FIELDS
+        description: 64-Bit Control Fields.
+        children_name_with_prefix: CTRL
+        type: group
+        fields:
+        - value: 0x2000
+          short_name: IO_BITMAP_A
+          long_name: IO_BITMAP_A_ADDRESS
+          description: Address of I/O bitmap A.
+
+        - value: 0x2002
+          short_name: IO_BITMAP_B
+          long_name: IO_BITMAP_B_ADDRESS
+          description: Address of I/O bitmap B.
+
+        #
+        # Optional
+        #
+
+        - value: 0x2004
+          short_name: MSR_BITMAP
+          long_name: MSR_BITMAP_ADDRESS
+          description: Address of MSR bitmaps.
+
+        - value: 0x2006
+          short_name: VMEXIT_MSR_STORE
+          long_name: VMEXIT_MSR_STORE_ADDRESS
+          description: VM-exit MSR-store address.
+
+        - value: 0x2008
+          short_name: VMEXIT_MSR_LOAD
+          long_name: VMEXIT_MSR_LOAD_ADDRESS
+          description: VM-exit MSR-load address.
+
+        - value: 0x200A
+          short_name: VMENTRY_MSR_LOAD
+          long_name: VMENTRY_MSR_LOAD_ADDRESS
+          description: VM-entry MSR-load address.
+
+        - value: 0x200C
+          short_name: EXEC_VMCS_PTR
+          long_name: EXECUTIVE_VMCS_POINTER
+          description: Executive-VMCS pointer.
+
+        - value: 0x200E
+          short_name: PML_ADDR
+          long_name: PML_ADDRESS
+          description: PML address.
+
+        - value: 0x2010
+          short_name: TSC_OFFSET
+          long_name: TSC_OFFSET
+          description: TSC offset.
+
+        - value: 0x2012
+          short_name: VAPIC_PAGEADDR
+          long_name: VIRTUAL_APIC_ADDRESS
+          description: Virtual-APIC address.
+
+        - value: 0x2014
+          short_name: APIC_ACCESSADDR
+          long_name: APIC_ACCESS_ADDRESS
+          description: APIC-access address.
+
+        - value: 0x2016
+          short_name: POSTED_INTR_DESC
+          long_name: POSTED_INTERRUPT_DESCRIPTOR_ADDRESS
+          description: Posted-interrupt descriptor address
+
+        - value: 0x2018
+          short_name: VMFUNC_CTRLS
+          long_name: VMFUNC_CONTROLS
+          description: VM-function controls.
+
+        - value: 0x201A
+          short_name: EPTP
+          long_name: EPT_POINTER
+          description: EPT pointer.
+
+        - value: 0x201C
+          short_name: EOI_BITMAP_0
+          long_name: EOI_EXIT_BITMAP_0
+          description: EOI-exit bitmap 0.
+
+        - value: 0x201E
+          short_name: EOI_BITMAP_1
+          long_name: EOI_EXIT_BITMAP_1
+          description: EOI-exit bitmap 1.
+
+        - value: 0x2020
+          short_name: EOI_BITMAP_2
+          long_name: EOI_EXIT_BITMAP_2
+          description: EOI-exit bitmap 2.
+
+        - value: 0x2022
+          short_name: EOI_BITMAP_3
+          long_name: EOI_EXIT_BITMAP_3
+          description: EOI-exit bitmap 3.
+
+        - value: 0x2024
+          short_name: EPTP_LIST
+          long_name: EPT_POINTER_LIST_ADDRESS
+          description: EPTP-list address.
+
+        - value: 0x2026
+          short_name: VMREAD_BITMAP
+          long_name: VMREAD_BITMAP_ADDRESS
+          description: VMREAD-bitmap address.
+
+        - value: 0x2028
+          short_name: VMWRITE_BITMAP
+          long_name: VMWRITE_BITMAP_ADDRESS
+          description: VMWRITE-bitmap address.
+
+        - value: 0x202A
+          short_name: VIRTXCPT_INFO_ADDR
+          long_name: VIRTUALIZATION_EXCEPTION_INFORMATION_ADDRESS
+          description: Virtualization-exception information address.
+
+        - value: 0x202C
+          short_name: XSS_EXITING_BITMAP
+          long_name: XSS_EXITING_BITMAP
+          description: XSS-exiting bitmap.
+
+        - value: 0x202E
+          short_name: ENCLS_EXITING_BITMAP
+          long_name: ENCLS_EXITING_BITMAP
+          description: ENCLS-exiting bitmap.
+
+        - value: 0x2030
+          short_name: SPP_TABLE_POINTER
+          long_name: SUB_PAGE_PERMISSION_TABLE_POINTER
+          description: Sub-page-permission-table pointer.
+
+        - value: 0x2032
+          short_name: TSC_MULTIPLIER
+          long_name: TSC_MULTIPLIER
+          description: TSC multiplier.
+
+        - value: 0x2034
+          short_name: PROC_EXEC3
+          long_name: TERTIARY_PROCESSOR_BASED_VM_EXECUTION_CONTROLS
+          description: Tertiary processor-based VM-execution controls.
+
+        - value: 0x2036
+          short_name: ENCLV_EXITING_BITMAP
+          long_name: ENCLV_EXITING_BITMAP
+          description: ENCLV-exiting bitmap.
+        
+        - value: 0x2038
+          short_name: LOW_PASID_DIR_ADDR
+          long_name: LOW_PASID_DIRECTORY_ADDRESS
+          description: Low PASID directory address.
+        
+        - value: 0x203A
+          short_name: HIGH_PASID_DIR_ADDR
+          long_name: HIGH_PASID_DIRECTORY_ADDRESS
+          description: High PASID directory address.
+        
+        - value: 0x203C
+          short_name: SHARED_EPTP
+          long_name: SHARED_EPT_POINTER
+          description: Shared EPT pointer.
+        
+        - value: 0x203E
+          short_name: PCONFIG_BITMAP
+          long_name: PCONFIG_EXITING_BITMAP
+          description: PCONFIG-exiting bitmap.
+
+        - value: 0x2040
+          short_name: HLATP
+          long_name: HLAT_POINTER
+          description: Hypervisor-managed linear-address translation pointer.
+        
+        - value: 0x2042
+          short_name: PID_PTR_TABLE
+          long_name: PID_POINTER_TABLE_ADDRESS
+          description: PID-pointer table address.
+
+        - value: 0x2044
+          short_name: SECONDARY_EXIT
+          long_name: SECONDARY_VMEXIT_CONTROLS
+          description: Secondary VM-exit controls.
+        
+        - value: 0x204A
+          short_name: SPEC_CTRL_MASK
+          long_name: IA32_SPEC_CTRL_MASK
+          description: IA32_SPEC_CTRL mask.
+        
+        - value: 0x204C
+          short_name: SPEC_CTRL_SHADOW
+          long_name: IA32_SPEC_CTRL_SHADOW
+          description: IA32_SPEC_CTRL shadow.
+
+      - name: 64_BIT_READ_ONLY_DATA_FIELDS
+        description: 64-Bit Read-Only Data Field.
+        # children_name_with_prefix: RO
+        type: group
+        fields:
+        - value: 0x2400
+          short_name: GUEST_PHYS_ADDR
+          long_name: GUEST_PHYSICAL_ADDRESS
+          description: Guest-physical address.
+
+      - name: 64_BIT_GUEST_STATE_FIELDS
+        description: 64-Bit Guest-State Fields.
+        children_name_with_prefix: GUEST
+        type: group
+        fields:
+        - value: 0x2800
+          short_name: VMCS_LINK_PTR
+          long_name: VMCS_LINK_POINTER
+          description: VMCS link pointer.
+
+        - value: 0x2802
+          short_name: DEBUGCTL
+          long_name: DEBUGCTL
+          description: Guest IA32_DEBUGCTL.
+
+        - value: 0x2804
+          short_name: PAT
+          long_name: PAT
+          description: Guest IA32_PAT.
+
+        - value: 0x2806
+          short_name: EFER
+          long_name: EFER
+          description: Guest IA32_EFER.
+
+        - value: 0x2808
+          short_name: PERF_GLOBAL_CTRL
+          long_name: PERF_GLOBAL_CTRL
+          description: Guest IA32_PERF_GLOBAL_CTRL.
+
+        - value: 0x280A
+          short_name: PDPTE0
+          long_name: PDPTE0
+          description: Guest PDPTE0.
+
+        - value: 0x280C
+          short_name: PDPTE1
+          long_name: PDPTE1
+          description: Guest PDPTE1.
+
+        - value: 0x280E
+          short_name: PDPTE2
+          long_name: PDPTE2
+          description: Guest PDPTE2.
+
+        - value: 0x2810
+          short_name: PDPTE3
+          long_name: PDPTE3
+          description: Guest PDPTE3.
+
+        - value: 0x2812
+          short_name: BNDCFGS
+          long_name: BNDCFGS
+          description: Guest IA32_BNDCFGS.
+
+        - value: 0x2814
+          short_name: RTIT_CTL
+          long_name: RTIT_CTL
+          description: Guest IA32_RTIT_CTL.
+
+        - value: 0x2816
+          short_name: LBR_CTL
+          long_name: LBR_CTL
+          description: Guest IA32_LBR_CTL.
+
+        - value: 0x2818
+          short_name: PKRS
+          long_name: PKRS
+          description: Guest IA32_PKRS
+
+      - name: 64_BIT_HOST_STATE_FIELDS
+        description: 64-Bit Host-State Fields.
+        children_name_with_prefix: HOST
+        type: group
+        fields:
+        - value: 0x2C00
+          short_name: PAT
+          long_name: PAT
+          description: Host IA32_PAT.
+
+        - value: 0x2C02
+          short_name: EFER
+          long_name: EFER
+          description: Host IA32_EFER.
+
+        - value: 0x2C04
+          short_name: PERF_GLOBAL_CTRL
+          long_name: PERF_GLOBAL_CTRL
+          description: Host IA32_PERF_GLOBAL_CTRL.
+
+        - value: 0x2C06
+          short_name: PKRS
+          long_name: PKRS
+          description: Host IA32_PKRS
+
+  - name: 32_BIT
+    description: 32-Bit Fields.
+    # children_name_with_prefix: 32
+    type: group
+    reference: Vol3D[B.3(32-BIT FIELDS)]
+    fields:
+      - name: 32_BIT_CONTROL_FIELDS
+        description: 32-Bit Control Fields.
+        children_name_with_prefix: CTRL
+        type: group
+        fields:
+        - value: 0x4000
+          short_name: PIN_EXEC
+          long_name: PIN_BASED_VM_EXECUTION_CONTROLS
+          description: Pin-based VM-execution controls.
+
+        - value: 0x4002
+          short_name: PROC_EXEC
+          long_name: PROCESSOR_BASED_VM_EXECUTION_CONTROLS
+          description: Primary processor-based VM-execution controls.
+
+        - value: 0x4004
+          short_name: EXCEPTION_BITMAP
+          long_name: EXCEPTION_BITMAP
+          description: Exception bitmap.
+
+        - value: 0x4006
+          short_name: PAGEFAULT_ERROR_MASK
+          long_name: PAGEFAULT_ERROR_CODE_MASK
+          description: Page-fault error-code mask.
+
+        - value: 0x4008
+          short_name: PAGEFAULT_ERROR_MATCH
+          long_name: PAGEFAULT_ERROR_CODE_MATCH
+          description: Page-fault error-code match.
+
+        - value: 0x400A
+          short_name: CR3_TARGET_COUNT
+          long_name: CR3_TARGET_COUNT
+          description: CR3-target count.
+
+        - value: 0x400C
+          short_name: PRIMARY_EXIT
+          long_name: PRIMARY_VMEXIT_CONTROLS
+          description: Primary VM-exit controls.
+
+        - value: 0x400E
+          short_name: EXIT_MSR_STORE_COUNT
+          long_name: VMEXIT_MSR_STORE_COUNT
+          description: VM-exit MSR-store count.
+
+        - value: 0x4010
+          short_name: EXIT_MSR_LOAD_COUNT
+          long_name: VMEXIT_MSR_LOAD_COUNT
+          description: VM-exit MSR-load count.
+
+        - value: 0x4012
+          short_name: ENTRY
+          long_name: VMENTRY_CONTROLS
+          description: VM-entry controls.
+
+        - value: 0x4014
+          short_name: ENTRY_MSR_LOAD_COUNT
+          long_name: VMENTRY_MSR_LOAD_COUNT
+          description: VM-entry MSR-load count.
+
+        - value: 0x4016
+          short_name: ENTRY_INTERRUPTION_INFO
+          long_name: VMENTRY_INTERRUPTION_INFORMATION_FIELD
+          description: VM-entry interruption-information field.
+
+        - value: 0x4018
+          short_name: ENTRY_EXCEPTION_ERRCODE
+          long_name: VMENTRY_EXCEPTION_ERROR_CODE
+          description: VM-entry exception error code.
+
+        - value: 0x401A
+          short_name: ENTRY_INSTR_LENGTH
+          long_name: VMENTRY_INSTRUCTION_LENGTH
+          description: VM-entry instruction length.
+
+        - value: 0x401C
+          short_name: TPR_THRESHOLD
+          long_name: TPR_THRESHOLD
+          description: TPR threshold.
+
+        - value: 0x401E
+          short_name: PROC_EXEC2
+          long_name: SECONDARY_PROCESSOR_BASED_VM_EXECUTION_CONTROLS
+          description: Secondary processor-based VM-execution controls.
+
+        - value: 0x4020
+          short_name: PLE_GAP
+          long_name: PLE_GAP
+          description: PLE_Gap.
+
+        - value: 0x4022
+          short_name: PLE_WINDOW
+          long_name: PLE_WINDOW
+          description: PLE_Window.
+
+      - name: 32_BIT_READ_ONLY_DATA_FIELDS
+        description: 32-Bit Read-Only Data Fields.
+        # children_name_with_prefix: RO
+        type: group
+        fields:
+        - value: 0x4400
+          short_name: VM_INSTR_ERROR
+          long_name: VM_INSTRUCTION_ERROR
+          description: VM-instruction error.
+
+        - value: 0x4402
+          short_name: EXIT_REASON
+          long_name: EXIT_REASON # todo: VMEXIT_REASON?
+          description: Exit reason.
+
+        - value: 0x4404
+          short_name: EXIT_INTERRUPTION_INFO
+          long_name: VMEXIT_INTERRUPTION_INFORMATION
+          description: VM-exit interruption information.
+
+        - value: 0x4406
+          short_name: EXIT_INTERRUPTION_ERROR_CODE
+          long_name: VMEXIT_INTERRUPTION_ERROR_CODE
+          description: VM-exit interruption error code.
+
+        - value: 0x4408
+          short_name: IDT_VECTORING_INFO
+          long_name: IDT_VECTORING_INFORMATION
+          description: IDT-vectoring information field.
+
+        - value: 0x440A
+          short_name: IDT_VECTORING_ERROR_CODE
+          long_name: IDT_VECTORING_ERROR_CODE
+          description: IDT-vectoring error code.
+
+        - value: 0x440C
+          short_name: EXIT_INSTR_LENGTH
+          long_name: VMEXIT_INSTRUCTION_LENGTH
+          description: VM-exit instruction length.
+
+        - value: 0x440E
+          short_name: EXIT_INSTR_INFO
+          long_name: VMEXIT_INSTRUCTION_INFO
+          description: VM-exit instruction information.
+
+      - name: 32_BIT_GUEST_STATE_FIELDS
+        description: 32-Bit Guest-State Fields.
+        children_name_with_prefix: GUEST
+        type: group
+        fields:
+        - value: 0x4800
+          short_name: ES_LIMIT
+          long_name: ES_LIMIT
+          description: Guest ES limit.
+
+        - value: 0x4802
+          short_name: CS_LIMIT
+          long_name: CS_LIMIT
+          description: Guest CS limit.
+
+        - value: 0x4804
+          short_name: SS_LIMIT
+          long_name: SS_LIMIT
+          description: Guest SS limit.
+
+        - value: 0x4806
+          short_name: DS_LIMIT
+          long_name: DS_LIMIT
+          description: Guest DS limit.
+
+        - value: 0x4808
+          short_name: FS_LIMIT
+          long_name: FS_LIMIT
+          description: Guest FS limit.
+
+        - value: 0x480A
+          short_name: GS_LIMIT
+          long_name: GS_LIMIT
+          description: Guest GS limit.
+
+        - value: 0x480C
+          short_name: LDTR_LIMIT
+          long_name: LDTR_LIMIT
+          description: Guest LDTR limit.
+
+        - value: 0x480E
+          short_name: TR_LIMIT
+          long_name: TR_LIMIT
+          description: Guest TR limit.
+
+        - value: 0x4810
+          short_name: GDTR_LIMIT
+          long_name: GDTR_LIMIT
+          description: Guest GDTR limit.
+
+        - value: 0x4812
+          short_name: IDTR_LIMIT
+          long_name: IDTR_LIMIT
+          description: Guest IDTR limit.
+
+        - value: 0x4814
+          short_name: ES_ACCESS_RIGHTS
+          long_name: ES_ACCESS_RIGHTS
+          description: Guest ES access rights.
+
+        - value: 0x4816
+          short_name: CS_ACCESS_RIGHTS
+          long_name: CS_ACCESS_RIGHTS
+          description: Guest CS access rights.
+
+        - value: 0x4818
+          short_name: SS_ACCESS_RIGHTS
+          long_name: SS_ACCESS_RIGHTS
+          description: Guest SS access rights.
+
+        - value: 0x481A
+          short_name: DS_ACCESS_RIGHTS
+          long_name: DS_ACCESS_RIGHTS
+          description: Guest DS access rights.
+
+        - value: 0x481C
+          short_name: FS_ACCESS_RIGHTS
+          long_name: FS_ACCESS_RIGHTS
+          description: Guest FS access rights.
+
+        - value: 0x481E
+          short_name: GS_ACCESS_RIGHTS
+          long_name: GS_ACCESS_RIGHTS
+          description: Guest GS access rights.
+
+        - value: 0x4820
+          short_name: LDTR_ACCESS_RIGHTS
+          long_name: LDTR_ACCESS_RIGHTS
+          description: Guest LDTR access rights.
+
+        - value: 0x4822
+          short_name: TR_ACCESS_RIGHTS
+          long_name: TR_ACCESS_RIGHTS
+          description: Guest TR access rights.
+
+        - value: 0x4824
+          short_name: INTERRUPTIBILITY_STATE
+          long_name: INTERRUPTIBILITY_STATE
+          description: Guest interruptibility state.
+
+        - value: 0x4826
+          short_name: ACTIVITY_STATE
+          long_name: ACTIVITY_STATE
+          description: Guest activity state.
+
+        - value: 0x4828
+          short_name: SMBASE
+          long_name: SMBASE
+          description: Guest SMBASE.
+
+        - value: 0x482A
+          short_name: SYSENTER_CS
+          long_name: SYSENTER_CS
+          description: Guest IA32_SYSENTER_CS.
+
+        - value: 0x482E
+          short_name: PREEMPT_TIMER_VALUE
+          long_name: VMX_PREEMPTION_TIMER_VALUE
+          description: VMX-preemption timer value.
+
+      - name: 32_BIT_HOST_STATE_FIELDS
+        description: 32-Bit Host-State Field.
+        children_name_with_prefix: HOST
+        type: group
+        fields:
+        - value: 0x4C00
+          short_name: SYSENTER_CS
+          long_name: SYSENTER_CS
+          description: Host IA32_SYSENTER_CS.
+
+  - name: NATURAL_WIDTH
+    description: Natural-Width Fields.
+    # ChildrenNameWithPrefix:
+    type: group
+    reference: Vol3D[B.4(NATURAL-WIDTH FIELDS)]
+    fields:
+      - name: NATURAL_WIDTH_CONTROL_FIELDS
+        description: Natural-Width Control Fields
+        children_name_with_prefix: CTRL
+        type: group
+        fields:
+        - value: 0x6000
+          short_name: CR0_MASK
+          long_name: CR0_GUEST_HOST_MASK
+          description: CR0 guest/host mask.
+
+        - value: 0x6002
+          short_name: CR4_MASK
+          long_name: CR4_GUEST_HOST_MASK
+          description: CR4 guest/host mask.
+
+        - value: 0x6004
+          short_name: CR0_READ_SHADOW
+          long_name: CR0_READ_SHADOW
+          description: CR0 read shadow.
+
+        - value: 0x6006
+          short_name: CR4_READ_SHADOW
+          long_name: CR4_READ_SHADOW
+          description: CR4 read shadow.
+
+        - value: 0x6008
+          short_name: CR3_TARGET_VAL0
+          long_name: CR3_TARGET_VALUE_0
+          description: CR3-target value 0.
+
+        - value: 0x600A
+          short_name: CR3_TARGET_VAL1
+          long_name: CR3_TARGET_VALUE_1
+          description: CR3-target value 1.
+
+        - value: 0x600C
+          short_name: CR3_TARGET_VAL2
+          long_name: CR3_TARGET_VALUE_2
+          description: CR3-target value 2.
+
+        - value: 0x600E
+          short_name: CR3_TARGET_VAL3
+          long_name: CR3_TARGET_VALUE_3
+          description: CR3-target value 3.
+
+      - name: NATURAL_WIDTH_READ_ONLY_DATA_FIELDS
+        description: Natural-Width Read-Only Data Fields.
+        # children_name_with_prefix: RO
+        type: group
+        fields:
+        - value: 0x6400
+          short_name: EXIT_QUALIFICATION
+          long_name: EXIT_QUALIFICATION
+          description: Exit qualification.
+
+        - value: 0x6402
+          short_name: IO_RCX
+          long_name: IO_RCX
+          description: I/O RCX.
+
+        - value: 0x6404
+          short_name: IO_RSI
+          long_name: IO_RSI
+          description: I/O RSI.
+
+        - value: 0x6406
+          short_name: IO_RDI
+          long_name: IO_RDI
+          description: I/O RDI.
+
+        - value: 0x6408
+          short_name: IO_RIP
+          long_name: IO_RIP
+          description: I/O RIP.
+
+        - value: 0x640A
+          short_name: EXIT_GUEST_LINEAR_ADDR
+          long_name: EXIT_GUEST_LINEAR_ADDRESS
+          description: Guest-linear address.
+
+      - name: NATURAL_WIDTH_GUEST_STATE_FIELDS
+        description: Natural-Width Guest-State Fields.
+        children_name_with_prefix: GUEST
+        type: group
+        fields:
+        - value: 0x6800
+          short_name: CR0
+          long_name: CR0
+          description: Guest CR0.
+
+        - value: 0x6802
+          short_name: CR3
+          long_name: CR3
+          description: Guest CR3.
+
+        - value: 0x6804
+          short_name: CR4
+          long_name: CR4
+          description: Guest CR4.
+
+        - value: 0x6806
+          short_name: ES_BASE
+          long_name: ES_BASE
+          description: Guest ES base.
+
+        - value: 0x6808
+          short_name: CS_BASE
+          long_name: CS_BASE
+          description: Guest CS base.
+
+        - value: 0x680A
+          short_name: SS_BASE
+          long_name: SS_BASE
+          description: Guest SS base.
+
+        - value: 0x680C
+          short_name: DS_BASE
+          long_name: DS_BASE
+          description: Guest DS base.
+
+        - value: 0x680E
+          short_name: FS_BASE
+          long_name: FS_BASE
+          description: Guest FS base.
+
+        - value: 0x6810
+          short_name: GS_BASE
+          long_name: GS_BASE
+          description: Guest GS base.
+
+        - value: 0x6812
+          short_name: LDTR_BASE
+          long_name: LDTR_BASE
+          description: Guest LDTR base.
+
+        - value: 0x6814
+          short_name: TR_BASE
+          long_name: TR_BASE
+          description: Guest TR base.
+
+        - value: 0x6816
+          short_name: GDTR_BASE
+          long_name: GDTR_BASE
+          description: Guest GDTR base.
+
+        - value: 0x6818
+          short_name: IDTR_BASE
+          long_name: IDTR_BASE
+          description: Guest IDTR base.
+
+        - value: 0x681A
+          short_name: DR7
+          long_name: DR7
+          description: Guest DR7.
+
+        - value: 0x681C
+          short_name: RSP
+          long_name: RSP
+          description: Guest RSP.
+
+        - value: 0x681E
+          short_name: RIP
+          long_name: RIP
+          description: Guest RIP.
+
+        - value: 0x6820
+          short_name: RFLAGS
+          long_name: RFLAGS
+          description: Guest RFLAGS.
+
+        - value: 0x6822
+          short_name: PENDING_DEBUG_EXCEPTIONS
+          long_name: PENDING_DEBUG_EXCEPTIONS
+          description: Guest pending debug exceptions.
+
+        - value: 0x6824
+          short_name: SYSENTER_ESP
+          long_name: SYSENTER_ESP
+          description: Guest IA32_SYSENTER_ESP.
+
+        - value: 0x6826
+          short_name: SYSENTER_EIP
+          long_name: SYSENTER_EIP
+          description: Guest IA32_SYSENTER_EIP.
+
+        - value: 0x6828
+          short_name: S_CET
+          long_name: S_CET
+          description: Guest IA32_S_CET.
+
+        - value: 0x682A
+          short_name: SSP
+          long_name: SSP
+          description: Guest SSP.
+
+        - value: 0x682C
+          short_name: INTERRUPT_SSP_TABLE_ADDR
+          long_name: INTERRUPT_SSP_TABLE_ADDR
+          description: Guest IA32_INTERRUPT_SSP_TABLE_ADDR.
+
+      - name: NATURAL_WIDTH_HOST_STATE_FIELDS
+        description: Natural-Width Host-State Fields.
+        children_name_with_prefix: HOST
+        type: group
+        fields:
+        - value: 0x6C00
+          short_name: CR0
+          long_name: CR0
+          description: Host CR0.
+
+        - value: 0x6C02
+          short_name: CR3
+          long_name: CR3
+          description: Host CR3.
+
+        - value: 0x6C04
+          short_name: CR4
+          long_name: CR4
+          description: Host CR4.
+
+        - value: 0x6C06
+          short_name: FS_BASE
+          long_name: FS_BASE
+          description: Host FS base.
+
+        - value: 0x6C08
+          short_name: GS_BASE
+          long_name: GS_BASE
+          description: Host GS base.
+
+        - value: 0x6C0A
+          short_name: TR_BASE
+          long_name: TR_BASE
+          description: Host TR base.
+
+        - value: 0x6C0C
+          short_name: GDTR_BASE
+          long_name: GDTR_BASE
+          description: Host GDTR base.
+
+        - value: 0x6C0E
+          short_name: IDTR_BASE
+          long_name: IDTR_BASE
+          description: Host IDTR base.
+
+        - value: 0x6C10
+          short_name: SYSENTER_ESP
+          long_name: SYSENTER_ESP
+          description: Host IA32_SYSENTER_ESP.
+
+        - value: 0x6C12
+          short_name: SYSENTER_EIP
+          long_name: SYSENTER_EIP
+          description: Host IA32_SYSENTER_EIP.
+
+        - value: 0x6C14
+          short_name: RSP
+          long_name: RSP
+          description: Host RSP.
+
+        - value: 0x6C16
+          short_name: RIP
+          long_name: RIP
+          description: Host RIP.
+
+        - value: 0x6C18
+          short_name: S_CET
+          long_name: S_CET
+          description: Host IA32_S_CET.
+
+        - value: 0x6C1A
+          short_name: SSP
+          long_name: SSP
+          description: Host SSP.
+
+        - value: 0x6C1C
+          short_name: INTERRUPT_SSP_TABLE_ADDR
+          long_name: INTERRUPT_SSP_TABLE_ADDR
+          description: Host IA32_INTERRUPT_SSP_TABLE_ADDR.

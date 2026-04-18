@@ -1,0 +1,271 @@
+? {
+
+  //
+  // Test case activation
+  //
+  test_case0 = 1;
+  test_case1 = 1;
+  test_case2 = 1;
+  test_case3 = 1;
+  test_case4 = 1;
+  test_case5 = 1;
+  test_case6 = 1;
+  test_case7 = 1;
+  test_case8 = 1;
+  test_case9 = 1;
+
+  //
+  // Test case configuration
+  //
+  current_test_case = 0n0;
+
+  //
+  // Make the environment ready 
+  //
+  .variable_equal_to_55 = 0x55;
+
+  /* ======================================================================= */
+
+  //
+  // Test case 0 (simple prints)
+  //
+  // current_test_case = current_test_case + 1;
+
+  do {
+
+    if (test_case0 != 1) {
+      current_test_case = current_test_case + 1;
+      break;
+    }
+
+    printf("test case %d was successful\n", current_test_case);
+
+  }
+  while (0);
+
+  //
+  // Restore the .variable_equal_to_55 to 0x55;
+  //
+  .variable_equal_to_55 = 0x55;
+
+  /* ======================================================================= */
+
+  //
+  // Test case 1,2 (interlocked_compare_exchange)
+  //
+  current_test_case = current_test_case + 1;
+
+  do {
+
+    if (test_case1 != 1) {
+      current_test_case = current_test_case + 1;
+      break;
+    }
+
+    test = interlocked_compare_exchange( & .variable_equal_to_55, 0x85, 0x55);
+    if (test == 55) {
+
+      printf("test case %d was successful\n", current_test_case);
+
+      current_test_case = current_test_case + 1;
+
+      if (test_case2 != 1) {
+        break;
+      }
+      if (.variable_equal_to_55 == 0x85) {
+
+        printf("test case %d was successful\n", current_test_case);
+      } else {
+        printf("test case %d was failed\n", current_test_case);
+
+      }
+    } else {
+      printf("test case %d was failed\n", current_test_case);
+    }
+
+  }
+  while (0);
+
+  //
+  // Restore the .variable_equal_to_55 to 0x55;
+  //
+  .variable_equal_to_55 = 0x55;
+
+  /* ======================================================================= */
+
+  //
+  // Test case 3, 4 (interlocked_compare_exchange)
+  //
+  current_test_case = current_test_case + 1;
+
+  do {
+
+    if (test_case3 != 1) {
+      current_test_case = current_test_case + 1;
+      break;
+    }
+    if (interlocked_compare_exchange( & .variable_equal_to_55, 0x85, 0x55) == 55) {
+
+      printf("test case %d was successful\n", current_test_case);
+
+      current_test_case = current_test_case + 1;
+
+      if (test_case4 != 1) {
+        break;
+      }
+
+      if (.variable_equal_to_55 == 0x85) {
+
+        printf("test case %d was successful\n", current_test_case);
+      } else {
+        printf("test case %d was failed\n", current_test_case);
+
+      }
+    } else {
+      printf("test case %d was failed\n", current_test_case);
+    }
+
+  }
+  while (0);
+
+  //
+  // Restore the .variable_equal_to_55 to 0x55;
+  //
+  .variable_equal_to_55 = 0x55;
+
+  /* ======================================================================= */
+
+  //
+  // Test case 5 (check_address)
+  //
+  current_test_case = current_test_case + 1;
+
+  do {
+
+    if (test_case5 != 1) {
+      break;
+    }
+
+    test = check_address(@rsp);
+
+    if (test != 0) {
+      printf("test case %d was successful\n", current_test_case);
+    } else {
+      printf("test case %d was failed\n", current_test_case);
+    }
+
+  }
+  while (0);
+
+  /* ======================================================================= */
+
+  //
+  // Test case 6 (check_address)
+  //
+  current_test_case = current_test_case + 1;
+
+  do {
+
+    if (test_case6 != 1) {
+      break;
+    }
+
+    if (check_address(@rsp) == 1) {
+      printf("test case %d was successful\n", current_test_case);
+    } else {
+      printf("test case %d was failed\n", current_test_case);
+    }
+
+  }
+  while (0);
+
+  /* ======================================================================= */
+
+  //
+  // Test case 7 (check_address)
+  //
+  current_test_case = current_test_case + 1;
+
+  do {
+
+    if (test_case7 != 1) {
+      break;
+    }
+
+    if (check_address(@rsp)) {
+      printf("test case %d was successful\n", current_test_case);
+    } else {
+      printf("test case %d was failed\n", current_test_case);
+    }
+  }
+  while (0);
+
+  /* ======================================================================= */
+
+  //
+  // Test case 8 (interlocked_exchange)
+  //
+  current_test_case = current_test_case + 1;
+
+  do {
+
+    if (test_case8 != 1) {
+      break;
+    }
+
+    .my_interlocked_var = 0x85;
+    result = interlocked_exchange( & .my_interlocked_var, .variable_equal_to_55);
+
+    if (.my_interlocked_var == 0x55 && result == 0x85) {
+      printf("test case %d was successful\n", current_test_case);
+    } else {
+      printf("test case %d was failed\n", current_test_case);
+    }
+
+  }
+  while (0);
+
+  /* ======================================================================= */
+
+  //
+  // Test case 9 (interlocked_compare_exchange)
+  //
+  current_test_case = current_test_case + 1;
+
+  do {
+
+    if (test_case9 != 1) {
+      break;
+    }
+
+    temp_counter = 66;
+    for (i = 0; i <= .variable_equal_to_55; i++) {
+      temp_counter = temp_counter + 1;
+      // printf("temp_counter : %llx\n", temp_counter);
+    }
+
+    if (temp_counter == 0x55) {
+      printf("test case %d was failed\n", current_test_case);
+
+    }
+    elsif(temp_counter == 0x66) {
+      printf("test case %d was failed\n", current_test_case);
+    } else {
+
+      if (temp_counter == 0x77) {
+        printf("test case %d was failed\n", current_test_case);
+
+      }
+      elsif(temp_counter == 0xbc) {
+        printf("test case %d was successful\n", current_test_case);
+      } else {
+        printf("test case %d was failed\n", current_test_case);
+      }
+    }
+
+  }
+  while (0);
+
+  /* ======================================================================= */
+
+}

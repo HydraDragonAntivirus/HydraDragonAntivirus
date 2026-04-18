@@ -11,32 +11,6 @@
  */
 #include "pch.h"
 
-BOOLEAN
-TransparentReportOwlyEvent(_In_ const OWLY_HYPERDBG_EVENT_DETAILS * EventDetails)
-{
-    if (EventDetails == NULL || g_Callbacks.ReportOwlyEvent == NULL)
-    {
-        return FALSE;
-    }
-
-    return g_Callbacks.ReportOwlyEvent(EventDetails);
-}
-
-VOID
-TransparentInitializeOwlyEvent(_Out_ POWLY_HYPERDBG_EVENT_DETAILS EventDetails, _In_ UINT32 RawEventType,
-                               _In_opt_ const WCHAR * EventName)
-{
-    UINT32 currentProcessId = (UINT32)(ULONG_PTR)PsGetCurrentProcessId();
-
-    RtlZeroMemory(EventDetails, sizeof(*EventDetails));
-    EventDetails->RawEventType = RawEventType;
-    EventDetails->SourceProcessId = currentProcessId;
-    EventDetails->TargetProcessId = currentProcessId;
-    EventDetails->ThreadId = (UINT32)(ULONG_PTR)PsGetCurrentThreadId();
-    EventDetails->OperationStatus = STATUS_SUCCESS;
-    EventDetails->EventName = EventName;
-}
-
 /**
  * @brief Hide debugger on transparent-mode (activate transparent-mode)
  *
@@ -49,8 +23,6 @@ BOOLEAN
 TransparentHideDebugger(HYPEREVADE_CALLBACKS *                        HyperevadeCallbacks,
                         DEBUGGER_HIDE_AND_TRANSPARENT_DEBUGGER_MODE * TransparentModeRequest)
 {
-    OWLY_HYPERDBG_EVENT_DETAILS eventDetails;
-
     //
     // Check if any of the required callbacks are NULL
     //
@@ -70,12 +42,6 @@ TransparentHideDebugger(HYPEREVADE_CALLBACKS *                        Hyperevade
     // Save the callbacks
     //
     RtlCopyMemory(&g_Callbacks, HyperevadeCallbacks, sizeof(HYPEREVADE_CALLBACKS));
-
-    TransparentInitializeOwlyEvent(&eventDetails,
-                                   OWLY_VMM_RAW_HYPEREVADE_BASE + 1u,
-                                   L"TRANSPARENT_HIDE_DEBUGGER");
-    eventDetails.MemoryAddress = (UINT64)(ULONG_PTR)TransparentModeRequest;
-    (VOID)TransparentReportOwlyEvent(&eventDetails);
 
     //
     // Check whether the transparent-mode was already initialized or not
@@ -122,13 +88,6 @@ TransparentHideDebugger(HYPEREVADE_CALLBACKS *                        Hyperevade
 BOOLEAN
 TransparentUnhideDebugger()
 {
-    OWLY_HYPERDBG_EVENT_DETAILS eventDetails;
-
-    TransparentInitializeOwlyEvent(&eventDetails,
-                                   OWLY_VMM_RAW_HYPEREVADE_BASE + 2u,
-                                   L"TRANSPARENT_UNHIDE_DEBUGGER");
-    (VOID)TransparentReportOwlyEvent(&eventDetails);
-
     if (g_TransparentMode)
     {
         //

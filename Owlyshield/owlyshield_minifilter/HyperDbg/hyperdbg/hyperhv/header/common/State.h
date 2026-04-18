@@ -134,8 +134,8 @@ typedef struct _VMM_EPT_PAGE_TABLE
 
     /**
      * @brief Tracks dynamic 2MB->4KB splits for this EPT table.
-     * @details Each item stores a direct VA to the split PML1 page and the
-     * corresponding PML2 entry it services.
+     * NOTE: Each item stores a direct VA to the split PML1 page and the corresponding PML2 entry it services.
+     *
      */
     LIST_ENTRY DynamicSplitList;
 

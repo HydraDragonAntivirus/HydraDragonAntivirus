@@ -1,0 +1,434 @@
+? {
+
+  //
+  // Test case activation
+  //
+  test_case60 = 1;
+  test_case61 = 1;
+  test_case62 = 1;
+  test_case63 = 1;
+  test_case64 = 1;
+  test_case65 = 1;
+  test_case66 = 1;
+  test_case67 = 1;
+  test_case68 = 1;
+  test_case69 = 1;
+
+  //
+  // Test case configuration
+  //
+  current_test_case = 0n59;
+
+  //
+  // Make the environment ready 
+  //
+  variable_equal_to_55 = 0x55;
+
+  /* ======================================================================= */
+
+  //
+  // Test case 60 (function definition)
+  //
+  current_test_case = current_test_case + 1;
+
+  //
+  // Create a global variable
+  //
+  .my_test_func_global_var = 12;
+
+  void my_func_test(int var1, int var2, int var3) {
+    // printf("var1 is equal to : %llx\n", var1);
+    // printf("var2 is equal to : %llx\n", var2);
+    // printf("var3 is equal to : %llx\n", var3);
+    .my_test_func_global_var = .my_test_func_global_var + var1 - var2;
+    return;
+    printf("this statement is never shown!\n");
+  }
+
+  do {
+
+    if (test_case60 != 1) {
+      break;
+    }
+
+    my_func_test(1, 2, 3);
+
+    // printf(".my_test_func_global_var is equal to : %llx\n", .my_test_func_global_var);
+    if (.my_test_func_global_var == 11) {
+      printf("test case %d was successful\n", current_test_case);
+    } else {
+      printf("test case %d was failed\n", current_test_case);
+      break;
+    }
+
+  }
+  while (0);
+
+  /* ======================================================================= */
+
+  //
+  // Test case 61 (function in for loop)
+  //
+  current_test_case = current_test_case + 1;
+
+  //
+  // Create a global variable
+  //
+  .my_test_func_global_var2 = 18;
+
+  void my_func_test2(int var1) {
+    .my_test_func_global_var2 = .my_test_func_global_var2 + var1;
+  }
+
+  do {
+
+    if (test_case61 != 1) {
+      break;
+    }
+
+    for (i = 0; i < 10; i++) {
+      my_func_test2(i);
+    }
+
+    // printf(".my_test_func_global_var2 is equal to : %llx\n", .my_test_func_global_var2);
+    if (.my_test_func_global_var2 == 90) {
+      printf("test case %d was successful\n", current_test_case);
+    } else {
+      printf("test case %d was failed\n", current_test_case);
+      break;
+    }
+
+  }
+  while (0);
+
+  /* ======================================================================= */
+
+  //
+  // Test case 62 (returning from a function)
+  //
+  current_test_case = current_test_case + 1;
+
+  int my_func_test3(int var1) {
+    return 55 + var1;
+  }
+
+  do {
+
+    if (test_case62 != 1) {
+      break;
+    }
+
+    val = 0;
+    for (int i = 0; i < 3; i++) {
+      val = my_func_test3(i + val);
+    }
+
+    // printf("val is equal to : %llx\n", val);
+    if (val == 102) {
+      printf("test case %d was successful\n", current_test_case);
+    } else {
+      printf("test case %d was failed\n", current_test_case);
+      break;
+    }
+
+  }
+  while (0);
+
+  /* ======================================================================= */
+
+  //
+  // Test case 63 (multiple functions)
+  //
+  current_test_case = current_test_case + 1;
+
+  int my_func1(int var1) {
+    result = var1 + 1;
+    // printf("my_func1 %d\n", result);
+    return result;
+  }
+
+  int my_func2(int var1) {
+    result = var1 * 2;
+    // printf("my_func2 %d\n", result);
+    return result;
+  }
+
+  int my_func3(int var1) {
+    result = var1 * 2;
+    // printf("my_func3 %d\n", result);
+    return result;
+  }
+
+  int my_func4(int var1) {
+    result = my_func1(var1) + my_func2(var1) + my_func3(var1);
+    // printf("my_func4 %d\n", result);
+    return result;
+  }
+
+  do {
+
+    if (test_case63 != 1) {
+      break;
+    }
+
+    myval = my_func4(2);
+
+    // printf("myval equals to %d\n", myval);
+
+    if (myval == 0n11) {
+      printf("test case %d was successful\n", current_test_case);
+    } else {
+      printf("test case %d was failed\n", current_test_case);
+      break;
+    }
+
+  }
+  while (0);
+
+  /* ======================================================================= */
+
+  //
+  // Test case 64 (Recursive Fibonacci)
+  //
+  current_test_case = current_test_case + 1;
+
+  int my_func_recursive(int var1) {
+
+    if (var1 == 0) {
+      return 0;
+    }
+    if (var1 == 1) {
+      return 1;
+    }
+
+    return my_func_recursive(var1 - 1) + my_func_recursive(var1 - 2);
+  }
+
+  do {
+
+    if (test_case64 != 1) {
+      break;
+    }
+
+    myval = my_func_recursive(0n15);
+
+    // printf("Recursive Fibonacci equals to %d\n", myval);
+
+    if (myval == 0n610) {
+      printf("test case %d was successful\n", current_test_case);
+    } else {
+      printf("test case %d was failed\n", current_test_case);
+      break;
+    }
+
+  }
+  while (0);
+
+  /* ======================================================================= */
+
+  //
+  // Test case 65 (Iterative Fibonacci)
+  //
+  current_test_case = current_test_case + 1;
+
+  int iterative_fibonaccimy_func(int varn) {
+
+    varf0 = 0;
+    varf1 = 1;
+    varfn = 0; // comment
+
+    if (varn == 0) {
+      return varf0;
+    }
+    if (varn == 1) {
+      return varf1;
+    }
+
+    i = 0;
+
+    for (i = 2; i <= varn; i++) {
+      varfn = varf0 + varf1;
+      varf0 = varf1;
+      varf1 = varfn;
+    }
+    return varfn;
+  }
+
+  do {
+
+    if (test_case65 != 1) {
+      break;
+    }
+
+    myval2 = iterative_fibonaccimy_func(0n15);
+
+    printf("Iterative Fibonacci equals to %d\n", myval2);
+
+    if (myval2 == 0n610) {
+      printf("test case %d was successful\n", current_test_case);
+    } else {
+      printf("test case %d was failed\n", current_test_case);
+      break;
+    }
+
+  }
+  while (0);
+
+  /* ======================================================================= */
+
+  //
+  // Test case 66 (Wide-char string comparison within function)
+  //
+  current_test_case = current_test_case + 1;
+
+  int check_string() {
+
+    varf0 = wcsncmp(L"Test Me String 2", L"Test WString", 4);
+
+    if (varf0 == 0) {
+      return 22;
+    } else {
+      return 0;
+    }
+
+    return varf0;
+  }
+
+  do {
+
+    if (test_case66 != 1) {
+      break;
+    }
+
+    myval3 = check_string();
+
+    // printf("Result of testing string equals to %x\n", check_string());
+
+    if (myval3 == 22) {
+      printf("test case %d was successful\n", current_test_case);
+    } else {
+      printf("test case %d was failed\n", current_test_case);
+      break;
+    }
+
+  }
+  while (0);
+
+  /* ======================================================================= */
+
+  //
+  // Test case 67 (ASCII string comparison within function)
+  //
+  current_test_case = current_test_case + 1;
+
+  int check_string2() {
+
+    varf0 = strncmp("Test Me String 2", "Test WString", 5);
+
+    if (varf0 == 0) {
+      return 44;
+    } else {
+      return 0;
+    }
+
+    return varf0;
+  }
+
+  do {
+
+    if (test_case67 != 1) {
+      break;
+    }
+
+    myval4 = check_string2();
+
+    // printf("Result of testing string equals to %x\n", check_string2());
+
+    if (myval4 == 44) {
+      printf("test case %d was successful\n", current_test_case);
+    } else {
+      printf("test case %d was failed\n", current_test_case);
+      break;
+    }
+
+  }
+  while (0);
+
+  /* ======================================================================= */
+
+  //
+  // Test case 68 (memcpy with variables)
+  //
+  current_test_case = current_test_case + 1;
+
+  int memcpy_func(int test1, int test2) {
+
+    my_var_1 = 123456;
+    my_var_2 = 0;
+    memcpy( & my_var_2, & my_var_1, 8);
+
+    if (my_var_2 == 123456) {
+      return 37;
+    } else {
+      return 14;
+    }
+  }
+
+  do {
+
+    if (test_case68 != 1) {
+      break;
+    }
+
+    myval5 = memcpy_func(12, 85);
+
+    // printf("Result of memcpy variables equals to %x\n", myval5);
+
+    if (myval5 == 37) {
+      printf("test case %d was successful\n", current_test_case);
+    } else {
+      printf("test case %d was failed\n", current_test_case);
+      break;
+    }
+
+  }
+  while (0);
+
+  /* ======================================================================= */
+
+  //
+  // Test case 69 (Factorial)
+  //
+  current_test_case = current_test_case + 1;
+
+  int factorial(int n) {
+    if (n == 0 || n == 1) {
+      return 1;
+    } else {
+      return n * factorial(n - 1);
+    }
+  }
+
+  do {
+
+    if (test_case69 != 1) {
+      break;
+    }
+
+    myval6 = factorial(0n10);
+
+    printf("Result of Factorial equals to %d\n", myval6);
+
+    if (myval6 == 0n3628800) {
+      printf("test case %d was successful\n", current_test_case);
+    } else {
+      printf("test case %d was failed\n", current_test_case);
+      break;
+    }
+
+  }
+  while (0);
+
+  /* ======================================================================= */
+
+}

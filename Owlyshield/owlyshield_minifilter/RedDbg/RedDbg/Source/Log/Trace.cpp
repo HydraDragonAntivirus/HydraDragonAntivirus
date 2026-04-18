@@ -2,16 +2,6 @@
 
 #include <ntstrsafe.h>
 #include <intrin.h>
-
-namespace
-{
-	static PVOID
-	TraceAllocateNonPaged(_In_ SIZE_T size, _In_ ULONG tag)
-	{
-		return ExAllocatePool2(POOL_FLAG_NON_PAGED, size, tag);
-	}
-}
-
 GraphVizLanguage objGraphVizLanguage;
 
 void RtlInt64ToCharArray(_In_ uint64_t number, IN ULONG Base, _Out_ CHAR* hexString, _In_ size_t hexStringSize)
@@ -117,29 +107,17 @@ void RtlInt64ToCharExsitingArray(_In_ uint64_t number, IN ULONG Base, _Out_ CHAR
 template<typename Type>
 void TraceMessage<Type>::write_front(const void* Data, const size_t SizeOfData)
 {
-	PUCHAR currentWrite = reinterpret_cast<PUCHAR>(CurrentWriteIndex);
-	PUCHAR bufferEnd = reinterpret_cast<PUCHAR>(End);
-
-	if (SizeOfData > 0 && currentWrite != nullptr && bufferEnd != nullptr && currentWrite + SizeOfData <= bufferEnd)
+	//memcpy((void*)(CurrentWriteIndex), (const void*)Data, (size_t)SizeOfData); CurrentWriteIndex += SizeOfData; DataWritten += SizeOfData;
+	if (CurrentWriteIndex < End && CurrentWriteIndex + SizeOfData < End && SizeOfData > 0)
 	{
-		memcpy(currentWrite, Data, SizeOfData);
-		currentWrite += SizeOfData;
-		CurrentWriteIndex = reinterpret_cast<Type*>(currentWrite);
-		DataWritten += SizeOfData;
+		memcpy((void*)(CurrentWriteIndex), (const void*)Data, (size_t)SizeOfData); CurrentWriteIndex += SizeOfData; DataWritten += SizeOfData;
 	}
 }
 
 template<typename Type>
 void TraceMessage<Type>::clear()
 {
-	if (Start != nullptr && AllSize != 0)
-	{
-		memset(Start, 0, AllSize);
-	}
-
-	DataWritten = 0;
-	Size = 0;
-	CurrentWriteIndex = Start;
+	memset(Start, 0, AllSize);  DataWritten = 0; Size = 0; CurrentWriteIndex = Start;
 }
 
 template<typename Type>
@@ -152,15 +130,11 @@ size_t TraceMessage<Type>::size(const size_t SizeOfData)
 template<typename Type>
 int TraceMessage<Type>::find(const uint64_t Val, const size_t SizeOfData)
 {
-	PUCHAR localCursor = reinterpret_cast<PUCHAR>(Start);
-	PUCHAR writeCursor = reinterpret_cast<PUCHAR>(CurrentWriteIndex);
-
-	for (; localCursor < writeCursor; localCursor += SizeOfData)
+	for (Type* LocalCWI = Start; LocalCWI < CurrentWriteIndex; LocalCWI += SizeOfData)
 	{
-		Type* currentValue = reinterpret_cast<Type*>(localCursor);
-		if (*currentValue == Val)
+		if (*LocalCWI == Val)
 		{
-			return *currentValue;
+			return *LocalCWI;
 		}
 	}
 	return -1;
@@ -171,11 +145,11 @@ char* AttachString(char* buffer, char* string_to_attach)
 	size_t buffer_size = strlen(buffer);
 	size_t string_size = strlen(string_to_attach);
 	PCH new_buffer =
-		static_cast<PCH>(TraceAllocateNonPaged(buffer_size + string_size + 1, 'sTrR')); // allocate memory for combined string
+		(PCH)ExAllocatePool(NonPagedPoolNx, buffer_size + string_size + 1); // allocate memory for combined string
 	if (new_buffer != nullptr)
 	{
-		strcpy_s(new_buffer, buffer_size + string_size + 1, buffer); // copy original buffer to new buffer
-		strcat_s(new_buffer, buffer_size + string_size + 1, string_to_attach); // append string to new buffer
+		strcpy_s(new_buffer, sizeof(buffer), buffer); // copy original buffer to new buffer
+		strcat_s(new_buffer, sizeof(string_to_attach), string_to_attach); // append string to new buffer
 		return new_buffer;
 	}
 	else { return nullptr; }
@@ -199,7 +173,7 @@ void Trace::AcceptRipMessage(File& objFile)
 				totalSize += sizeof(uint64_t) * 2; // Space for Address
 			}
 
-			PCH ValuesBuffer = static_cast<PCH>(TraceAllocateNonPaged((totalSize != 0) ? totalSize : 1, 'rTrR'));
+			PCH ValuesBuffer = (PCH)ExAllocatePool(NonPagedPoolNx, totalSize);
 			if (ValuesBuffer != nullptr)
 			{
 				uint64_t* LocalCWI = CircleOfRips[Arc].Start;
@@ -208,14 +182,14 @@ void Trace::AcceptRipMessage(File& objFile)
 
 				for (uint64_t Rip = 0; Rip < CircleOfRips[Arc].size(sizeof(uint64_t)); ++Rip)
 				{
-					size_t Length = 0; UNREFERENCED_PARAMETER(Length);
+					size_t Length = 0;
 					RtlInt64ToCharExsitingArray(*LocalCWI, 16, (PCH)ValuesCWI, Length);
 					ValuesLen += strlen(ValuesCWI);
 					ValuesCWI = (PCH)(uint64_t(ValuesCWI) + strlen(ValuesCWI));
 
-					++LocalCWI;
+					LocalCWI += sizeof(uint64_t);
 				}
-				objFile.WriteFile(ValuesBuffer, (ULONG)ValuesLen);
+				objFile.WriteFile(ValuesBuffer, ValuesLen);
 
 				KdPrint(("Fin\n"));
 				ExFreePool(ValuesBuffer);
@@ -224,7 +198,7 @@ void Trace::AcceptRipMessage(File& objFile)
 			CircleOfRips[Arc].clear();
 			CircleOfRips[Arc].Reading = false;
 		}
-		if (Arc == Arcs - 1) { Arc = 0; }
+		if (Arc == 15) { Arc = 0; }
 		else { ++Arc; }
 	}
 }
@@ -254,13 +228,13 @@ void Trace::AcceptMnemonicMessage(File& objFile)
 				}
 			}
 
-			PCH ValuesBuffer = static_cast<PCH>(TraceAllocateNonPaged((totalSize != 0) ? totalSize : 1, 'mTrR'));
+			PCH ValuesBuffer = (PCH)ExAllocatePool(NonPagedPoolNx, totalSize);
 			if (ValuesBuffer != nullptr)
 			{
 				Mnemonic* LocalCWI = CircleOfMnemonics[Arc].Start;
 				PCH ValuesCWI = ValuesBuffer;
 				size_t ValuesLen = 0;
-				size_t Length = 0; UNREFERENCED_PARAMETER(Length);
+				size_t Length = 0;
 
 				for (uint64_t cMnemonic = 0; cMnemonic < CircleOfMnemonics[Arc].size(sizeof(Mnemonic)); ++cMnemonic)
 				{
@@ -294,10 +268,10 @@ void Trace::AcceptMnemonicMessage(File& objFile)
 					ValuesCWI = (PCH)(uint64_t(ValuesCWI) + strlen(EndCharacters));
 					ValuesLen += strlen(EndCharacters);
 
-					++LocalCWI;
+					LocalCWI += sizeof(Mnemonic);
 				}
 
-				objFile.WriteFile(ValuesBuffer, (ULONG)ValuesLen);
+				objFile.WriteFile(ValuesBuffer, ValuesLen);
 
 				KdPrint(("Fin\n"));
 				ExFreePool(ValuesBuffer);
@@ -306,11 +280,11 @@ void Trace::AcceptMnemonicMessage(File& objFile)
 			CircleOfMnemonics[Arc].clear();
 			CircleOfMnemonics[Arc].Reading = false;
 		}
-		if (Arc == Arcs - 1) { Arc = 0; }
+		if (Arc == 15) { Arc = 0; }
 		else { ++Arc; }
 	}
 }
-bool GraphEntry = false;
+bool Entry = false;
 void Trace::AcceptGraphMessage(File& objFile)
 {
 	int Arc = 0;
@@ -319,37 +293,30 @@ void Trace::AcceptGraphMessage(File& objFile)
 		if (CircleOfMnemonics[Arc].Reading)
 		{
 			KdPrint(("Data written %p and ARC IS %x\n", CircleOfMnemonics[Arc].size(sizeof(Mnemonic)), Arc));
+			//auto addr = (CircleOfMnemonics[Arc].End)->Address;
+			//KdPrint(("Last addr %p\n", addr));
 
-			size_t numMnemonics = CircleOfMnemonics[Arc].size(sizeof(Mnemonic));
-			// Safe buffer: ~512 bytes per mnemonic for GraphViz output, capped at 8 MB
-			size_t safeBufferSize = 1024 + (numMnemonics * 512);
-			const size_t MAX_GRAPH_BUFFER = 8 * 1024 * 1024;
-			if (safeBufferSize > MAX_GRAPH_BUFFER) { safeBufferSize = MAX_GRAPH_BUFFER; }
-
-			PCH ValuesBuffer = static_cast<PCH>(TraceAllocateNonPaged(safeBufferSize, 'gTrR'));
+			PCH ValuesBuffer = (PCH)ExAllocatePool(NonPagedPoolNx, 4294967296);
+			RtlZeroMemory(ValuesBuffer, 4294967296);
 			if (ValuesBuffer != nullptr)
 			{
-				RtlZeroMemory(ValuesBuffer, safeBufferSize);
 				Mnemonic* LocalCWI = CircleOfMnemonics[Arc].Start;
 				PCH ValuesCWI = ValuesBuffer;
 				size_t ValuesLen = 0;
-				size_t Length = 0; UNREFERENCED_PARAMETER(Length);
+				size_t Length = 0;
 				CHAR NameOfGraph[] = "test";
 
-				if (!GraphEntry)
+				if (!Entry)
 				{
 					EntryPointOfGraphVizLanguage(ValuesCWI, NameOfGraph, ValuesLen);
 					NodeAttributesOfDigraph(ValuesCWI, ValuesLen);
-					GraphEntry = true;
+					Entry = true;
 				}
 
-				for (uint64_t cMnemonic = 0; cMnemonic < numMnemonics; ++cMnemonic)
+				for (uint64_t cMnemonic = 0; cMnemonic < CircleOfMnemonics[Arc].size(sizeof(Mnemonic)); ++cMnemonic)
 				{
-					// Bounds check: ensure room for next graph entry
-					if (ValuesLen + 1024 > safeBufferSize) { break; }
-
 					Mnemonic* EndOfGraph = LocalCWI;
-					Mnemonic* StartOfNextGraph = EndOfGraph + 1;
+					Mnemonic* StartOfNextGraph = EndOfGraph + sizeof(Mnemonic);
 
 					if (LocalCWI->Graph == true && StartOfNextGraph->Address != 0)
 					{
@@ -357,33 +324,31 @@ void Trace::AcceptGraphMessage(File& objFile)
 						{
 							for (int64_t Index = cMnemonic; Index > 0; --Index)
 							{
-								--TempLocalCWI;
-								if (TempLocalCWI->Graph == true) { ++TempLocalCWI; break; }
+								TempLocalCWI -= sizeof(Mnemonic);
+								if (TempLocalCWI->Graph == true) { TempLocalCWI += sizeof(Mnemonic); break; }
 							}
 						}
 						Mnemonic* StartOfGraph = TempLocalCWI;
 
 						Mnemonic* TempNextGraph = StartOfNextGraph;
 						{
-							for (uint64_t Index = cMnemonic + 1; Index < numMnemonics; ++Index)
+							for (int64_t Index = cMnemonic + 1; Index < CircleOfMnemonics[Arc].size(sizeof(Mnemonic)); ++Index)
 							{
-								++TempNextGraph;
-								if (TempNextGraph->Graph == true) { --TempNextGraph; break; }
+								TempNextGraph += sizeof(Mnemonic);
+								if (TempNextGraph->Graph == true) { TempNextGraph -= sizeof(Mnemonic); break; }
 							}
 						}
 						Mnemonic* EndOfNextGraph = TempNextGraph;
 
-						if (((EndOfGraph + 1) <= CircleOfMnemonics[Arc].End))
+						if (((EndOfGraph + sizeof(Mnemonic)) <= CircleOfMnemonics[Arc].End))
 						{
 							size_t LenOut = 0;
 							SpecificNodeAdd(ValuesCWI, StartOfGraph->Address, 16, ValuesLen, LenOut);
 
 							{
 								SpecificNodeEntryLabel(ValuesCWI, ValuesLen);
-								for (Mnemonic* PMnemonic = StartOfGraph; PMnemonic <= EndOfGraph; ++PMnemonic)
+								for (Mnemonic* PMnemonic = StartOfGraph; PMnemonic <= EndOfGraph; PMnemonic += sizeof(Mnemonic))
 								{
-									if (ValuesLen + 512 > safeBufferSize) { break; }
-
 									STRCATADDR(ValuesCWI, PMnemonic->Address, 16, LenOut, ValuesLen);
 
 									STRCAT(ValuesCWI, ": ", ValuesLen);
@@ -394,15 +359,15 @@ void Trace::AcceptGraphMessage(File& objFile)
 									ZydisFormatter Formatter;
 									ZydisFormatterInit(&Formatter, ZYDIS_FORMATTER_STYLE_INTEL);
 
-									ZydisDecodedInstruction GraphInstr;
-									ZydisDecodedOperand GraphOps[ZYDIS_MAX_OPERAND_COUNT];
+									ZydisDecodedInstruction Instruction;
+									ZydisDecodedOperand Operands[ZYDIS_MAX_OPERAND_COUNT];
 
 									ZydisDecoderDecodeFull(&Decoder,
-										(const void*)PMnemonic->Opcodes, PMnemonic->Length, &GraphInstr,
-										GraphOps);
+										(const void*)PMnemonic->Opcodes, PMnemonic->Length, &Instruction,
+										Operands);
 
 									ZydisFormatterFormatInstruction(
-										&Formatter, &GraphInstr, GraphOps, GraphInstr.operand_count_visible, ValuesCWI,
+										&Formatter, &Instruction, Operands, Instruction.operand_count_visible, ValuesCWI,
 										128, PMnemonic->Address, NULL);
 
 									ValuesLen += strlen(ValuesCWI);
@@ -418,10 +383,8 @@ void Trace::AcceptGraphMessage(File& objFile)
 
 							{
 								SpecificNodeEntryLabel(ValuesCWI, ValuesLen);
-								for (Mnemonic* PMnemonic = StartOfNextGraph; PMnemonic < EndOfNextGraph; ++PMnemonic)
+								for (Mnemonic* PMnemonic = StartOfNextGraph; PMnemonic < EndOfNextGraph; PMnemonic += sizeof(Mnemonic))
 								{
-									if (ValuesLen + 512 > safeBufferSize) { break; }
-
 									STRCATADDR(ValuesCWI, PMnemonic->Address, 16, LenOut, ValuesLen);
 
 									STRCAT(ValuesCWI, ": ", ValuesLen);
@@ -432,15 +395,15 @@ void Trace::AcceptGraphMessage(File& objFile)
 									ZydisFormatter Formatter;
 									ZydisFormatterInit(&Formatter, ZYDIS_FORMATTER_STYLE_INTEL);
 
-									ZydisDecodedInstruction GraphInstr;
-									ZydisDecodedOperand GraphOps[ZYDIS_MAX_OPERAND_COUNT];
+									ZydisDecodedInstruction Instruction;
+									ZydisDecodedOperand Operands[ZYDIS_MAX_OPERAND_COUNT];
 
 									ZydisDecoderDecodeFull(&Decoder,
-										(const void*)PMnemonic->Opcodes, PMnemonic->Length, &GraphInstr,
-										GraphOps);
+										(const void*)PMnemonic->Opcodes, PMnemonic->Length, &Instruction,
+										Operands);
 
 									ZydisFormatterFormatInstruction(
-										&Formatter, &GraphInstr, GraphOps, GraphInstr.operand_count_visible, ValuesCWI,
+										&Formatter, &Instruction, Operands, Instruction.operand_count_visible, ValuesCWI,
 										128, PMnemonic->Address, NULL);
 
 									ValuesLen += strlen(ValuesCWI);
@@ -457,13 +420,14 @@ void Trace::AcceptGraphMessage(File& objFile)
 							strcat_s((PCH)ValuesCWI, sizeof("\n"), "\n");
 							ValuesCWI = (PCH)(uint64_t(ValuesCWI) + strlen(ValuesCWI));
 							ValuesLen += strlen("\n");
+							//STRCAT(ValuesCWI, "\n", ValuesLen);
 						}
 					}
-					++LocalCWI;
+					LocalCWI += sizeof(Mnemonic);
 				}
 				if (EoF) { STRCAT(ValuesCWI, objGraphVizLanguage.EndOfdigraph, ValuesLen); EoF = false; }
 
-				objFile.WriteFile(ValuesBuffer, (ULONG)ValuesLen);
+				objFile.WriteFile(ValuesBuffer, ValuesLen);
 
 				KdPrint(("Fin\n"));
 				ExFreePool(ValuesBuffer);
@@ -471,14 +435,14 @@ void Trace::AcceptGraphMessage(File& objFile)
 			CircleOfMnemonics[Arc].clear();
 			CircleOfMnemonics[Arc].Reading = false;
 		}
-		if (Arc == Arcs - 1) { Arc = 0; }
+		if (Arc == 15) { Arc = 0; }
 		else { ++Arc; }
 	}
 }
 
 void Trace::AcceptGraphCycleFoldingMessage(File& objFile)
 {
-	bool CycleEntry = false;
+	bool Entry = false;
 	int Arc = 0;
 	std::unordered_set<Mnemonic, MyHashFunction> CycleFolding;
 	for (;;)
@@ -498,36 +462,26 @@ void Trace::AcceptGraphCycleFoldingMessage(File& objFile)
 			}
 			KdPrint(("CircleOfMnemonics after CycleFolding Data written %p and ARC IS %x\n", CircleOfMnemonics[Arc].size(sizeof(Mnemonic)), Arc));
 
-			size_t numMnemonics = CircleOfMnemonics[Arc].size(sizeof(Mnemonic));
-			// Safe buffer: ~512 bytes per mnemonic for GraphViz output, capped at 8 MB
-			size_t safeBufferSize = 1024 + (numMnemonics * 512);
-			const size_t MAX_GRAPH_BUFFER = 8 * 1024 * 1024;
-			if (safeBufferSize > MAX_GRAPH_BUFFER) { safeBufferSize = MAX_GRAPH_BUFFER; }
-
-			PCH ValuesBuffer = static_cast<PCH>(TraceAllocateNonPaged(safeBufferSize, 'cTrR'));
+			PCH ValuesBuffer = (PCH)ExAllocatePool(NonPagedPoolNx, 4294967296);
 			if (ValuesBuffer != nullptr)
 			{
-				RtlZeroMemory(ValuesBuffer, safeBufferSize);
 				Mnemonic* LocalCWI = CircleOfMnemonics[Arc].Start;
 				PCH ValuesCWI = ValuesBuffer;
 				size_t ValuesLen = 0;
-				size_t Length = 0; UNREFERENCED_PARAMETER(Length);
+				size_t Length = 0;
 				CHAR NameOfGraph[] = "test";
 
-				if (!CycleEntry)
+				if (!Entry)
 				{
 					EntryPointOfGraphVizLanguage(ValuesCWI, NameOfGraph, ValuesLen);
 					NodeAttributesOfDigraph(ValuesCWI, ValuesLen);
-					CycleEntry = true;
+					Entry = true;
 				}
 
-				for (uint64_t cMnemonic = 0; cMnemonic < numMnemonics; ++cMnemonic)
+				for (uint64_t cMnemonic = 0; cMnemonic < CircleOfMnemonics[Arc].size(sizeof(Mnemonic)); ++cMnemonic)
 				{
-					// Bounds check: ensure room for next graph entry
-					if (ValuesLen + 1024 > safeBufferSize) { break; }
-
 					Mnemonic* EndOfGraph = LocalCWI;
-					Mnemonic* StartOfNextGraph = EndOfGraph + 1;
+					Mnemonic* StartOfNextGraph = EndOfGraph + sizeof(Mnemonic);
 
 					if (LocalCWI->Graph == true && StartOfNextGraph->Address != 0)
 					{
@@ -535,33 +489,31 @@ void Trace::AcceptGraphCycleFoldingMessage(File& objFile)
 						{
 							for (int64_t Index = cMnemonic; Index > 0; --Index)
 							{
-								--TempLocalCWI;
-								if (TempLocalCWI->Graph == true) { ++TempLocalCWI; break; }
+								TempLocalCWI -= sizeof(Mnemonic);
+								if (TempLocalCWI->Graph == true) { TempLocalCWI += sizeof(Mnemonic); break; }
 							}
 						}
 						Mnemonic* StartOfGraph = TempLocalCWI;
 
 						Mnemonic* TempNextGraph = StartOfNextGraph;
 						{
-							for (uint64_t Index = cMnemonic + 1; Index < numMnemonics; ++Index)
+							for (int64_t Index = cMnemonic + 1; Index < CircleOfMnemonics[Arc].size(sizeof(Mnemonic)); ++Index)
 							{
-								++TempNextGraph;
-								if (TempNextGraph->Graph == true) { --TempNextGraph; break; }
+								TempNextGraph += sizeof(Mnemonic);
+								if (TempNextGraph->Graph == true) { TempNextGraph -= sizeof(Mnemonic); break; }
 							}
 						}
 						Mnemonic* EndOfNextGraph = TempNextGraph;
 
-						if (((EndOfGraph + 1) <= CircleOfMnemonics[Arc].End))
+						if (((EndOfGraph + sizeof(Mnemonic)) <= CircleOfMnemonics[Arc].End))
 						{
 							size_t LenOut = 0;
 							SpecificNodeAdd(ValuesCWI, StartOfGraph->Address, 16, ValuesLen, LenOut);
 
 							{
 								SpecificNodeEntryLabel(ValuesCWI, ValuesLen);
-								for (Mnemonic* PMnemonic = StartOfGraph; PMnemonic <= EndOfGraph; ++PMnemonic)
+								for (Mnemonic* PMnemonic = StartOfGraph; PMnemonic <= EndOfGraph; PMnemonic += sizeof(Mnemonic))
 								{
-									if (ValuesLen + 512 > safeBufferSize) { break; }
-
 									STRCATADDR(ValuesCWI, PMnemonic->Address, 16, LenOut, ValuesLen);
 
 									STRCAT(ValuesCWI, ": ", ValuesLen);
@@ -572,15 +524,15 @@ void Trace::AcceptGraphCycleFoldingMessage(File& objFile)
 									ZydisFormatter Formatter;
 									ZydisFormatterInit(&Formatter, ZYDIS_FORMATTER_STYLE_INTEL);
 
-									ZydisDecodedInstruction CycleInstr;
-									ZydisDecodedOperand CycleOps[ZYDIS_MAX_OPERAND_COUNT];
+									ZydisDecodedInstruction Instruction;
+									ZydisDecodedOperand Operands[ZYDIS_MAX_OPERAND_COUNT];
 
 									ZydisDecoderDecodeFull(&Decoder,
-										(const void*)PMnemonic->Opcodes, PMnemonic->Length, &CycleInstr,
-										CycleOps);
+										(const void*)PMnemonic->Opcodes, PMnemonic->Length, &Instruction,
+										Operands);
 
 									ZydisFormatterFormatInstruction(
-										&Formatter, &CycleInstr, CycleOps, CycleInstr.operand_count_visible, ValuesCWI,
+										&Formatter, &Instruction, Operands, Instruction.operand_count_visible, ValuesCWI,
 										128, PMnemonic->Address, NULL);
 
 									ValuesLen += strlen(ValuesCWI);
@@ -596,10 +548,8 @@ void Trace::AcceptGraphCycleFoldingMessage(File& objFile)
 
 							{
 								SpecificNodeEntryLabel(ValuesCWI, ValuesLen);
-								for (Mnemonic* PMnemonic = StartOfNextGraph; PMnemonic < EndOfNextGraph; ++PMnemonic)
+								for (Mnemonic* PMnemonic = StartOfNextGraph; PMnemonic < EndOfNextGraph; PMnemonic += sizeof(Mnemonic))
 								{
-									if (ValuesLen + 512 > safeBufferSize) { break; }
-
 									STRCATADDR(ValuesCWI, PMnemonic->Address, 16, LenOut, ValuesLen);
 
 									STRCAT(ValuesCWI, ": ", ValuesLen);
@@ -610,15 +560,15 @@ void Trace::AcceptGraphCycleFoldingMessage(File& objFile)
 									ZydisFormatter Formatter;
 									ZydisFormatterInit(&Formatter, ZYDIS_FORMATTER_STYLE_INTEL);
 
-									ZydisDecodedInstruction CycleInstr;
-									ZydisDecodedOperand CycleOps[ZYDIS_MAX_OPERAND_COUNT];
+									ZydisDecodedInstruction Instruction;
+									ZydisDecodedOperand Operands[ZYDIS_MAX_OPERAND_COUNT];
 
 									ZydisDecoderDecodeFull(&Decoder,
-										(const void*)PMnemonic->Opcodes, PMnemonic->Length, &CycleInstr,
-										CycleOps);
+										(const void*)PMnemonic->Opcodes, PMnemonic->Length, &Instruction,
+										Operands);
 
 									ZydisFormatterFormatInstruction(
-										&Formatter, &CycleInstr, CycleOps, CycleInstr.operand_count_visible, ValuesCWI,
+										&Formatter, &Instruction, Operands, Instruction.operand_count_visible, ValuesCWI,
 										128, PMnemonic->Address, NULL);
 
 									ValuesLen += strlen(ValuesCWI);
@@ -637,11 +587,11 @@ void Trace::AcceptGraphCycleFoldingMessage(File& objFile)
 							ValuesLen += strlen("\n");
 						}
 					}
-					++LocalCWI;
+					LocalCWI += sizeof(Mnemonic);
 				}
 				STRCAT(ValuesCWI, objGraphVizLanguage.EndOfdigraph, ValuesLen);
 
-				objFile.WriteFile(ValuesBuffer, (ULONG)ValuesLen);
+				objFile.WriteFile(ValuesBuffer, ValuesLen);
 
 				KdPrint(("Fin\n"));
 				ExFreePool(ValuesBuffer);
@@ -651,7 +601,7 @@ void Trace::AcceptGraphCycleFoldingMessage(File& objFile)
 			CycleFolding.clear();
 			CircleOfMnemonics[Arc].Reading = false;
 		}
-		if (Arc == Arcs - 1) { Arc = 0; }
+		if (Arc == 15) { Arc = 0; }
 		else { ++Arc; }
 	}
 }
@@ -663,14 +613,14 @@ bool Trace::TraceInitializeRip()
 		TraceMessage<uint64_t> objTraceRip;
 		CircleOfRips.push_back(objTraceRip);
 
-		CircleOfRips[Arc].Start = static_cast<uint64_t*>(TraceAllocateNonPaged(BufferSize, 'rTrR'));
+		CircleOfRips[Arc].Start = (uint64_t*)ExAllocatePool(NonPagedPoolNx, BufferSize);
 
 		if (CircleOfRips[Arc].Start == nullptr) { return false; }
 		RtlZeroMemory(CircleOfRips[Arc].Start, BufferSize);
 
 		CircleOfRips[Arc].AllSize = BufferSize;
 		CircleOfRips[Arc].CurrentWriteIndex = CircleOfRips[Arc].Start;
-		CircleOfRips[Arc].End = reinterpret_cast<uint64_t*>(reinterpret_cast<PUCHAR>(CircleOfRips[Arc].Start) + BufferSize);
+		CircleOfRips[Arc].End = CircleOfRips[Arc].Start + BufferSize;
 	}
 
 	return true;
@@ -686,85 +636,67 @@ bool Trace::TraceInitializeMnemonic()
 		TraceMessage<Mnemonic> objTraceMnemonic;
 		CircleOfMnemonics.push_back(objTraceMnemonic);
 
-		CircleOfMnemonics[Arc].Start = static_cast<Mnemonic*>(TraceAllocateNonPaged(BufferSize, 'mTrR'));
+		CircleOfMnemonics[Arc].Start = (Mnemonic*)ExAllocatePool(NonPagedPoolNx, BufferSize);
 		if (CircleOfMnemonics[Arc].Start == nullptr) { return false; }
 		RtlZeroMemory(CircleOfMnemonics[Arc].Start, BufferSize);
 
 		CircleOfMnemonics[Arc].AllSize = BufferSize;
 		CircleOfMnemonics[Arc].CurrentWriteIndex = CircleOfMnemonics[Arc].Start;
-		CircleOfMnemonics[Arc].End =
-			reinterpret_cast<Mnemonic*>(reinterpret_cast<PUCHAR>(CircleOfMnemonics[Arc].Start) + BufferSize);
+		CircleOfMnemonics[Arc].End = CircleOfMnemonics[Arc].Start + BufferSize;
 	}
 
-	TranslationNumber.Start = static_cast<AddressTranslateMap*>(TraceAllocateNonPaged(MainNodesBytes, 'aTrR'));
+	TranslationNumber.Start = (AddressTranslateMap*)ExAllocatePool(NonPagedPoolNx, MainNodesBytes);
 	if (TranslationNumber.Start == nullptr) { return false; }
 	RtlZeroMemory(TranslationNumber.Start, MainNodesBytes);
 
 	TranslationNumber.AllSize = MainNodesBytes;
 	TranslationNumber.CurrentWriteIndex = TranslationNumber.Start;
-	TranslationNumber.End =
-		reinterpret_cast<AddressTranslateMap*>(reinterpret_cast<PUCHAR>(TranslationNumber.Start) + MainNodesBytes);
+	TranslationNumber.End = TranslationNumber.Start + MainNodesBytes;
 
-	Instruction = static_cast<ZydisDecodedInstruction*>(TraceAllocateNonPaged(sizeof(ZydisDecodedInstruction), 'ZIsr'));
-	if (Instruction == nullptr) { return false; }
+	Instruction = (ZydisDecodedInstruction*)ExAllocatePoolWithTag(NonPagedPoolNx, sizeof(ZydisDecodedInstruction), 'ZIsr');
 	RtlZeroMemory(Instruction, sizeof(ZydisDecodedInstruction));
 
-	DecoderMinimal = static_cast<ZydisDecoder*>(TraceAllocateNonPaged(sizeof(ZydisDecoder), 'DecM'));
-	if (DecoderMinimal == nullptr) { return false; }
+	DecoderMinimal = (ZydisDecoder*)ExAllocatePoolWithTag(NonPagedPoolNx, sizeof(ZydisDecoder), 'DecM');
 	RtlZeroMemory(DecoderMinimal, sizeof(ZydisDecoder));
 	DecoderMinimal->decoder_mode = ZYDIS_DECODER_MODE_MINIMAL;
 	DecoderMinimal->machine_mode = ZYDIS_MACHINE_MODE_LONG_64;
 	DecoderMinimal->stack_width = ZYDIS_STACK_WIDTH_64;
 
-	DecoderFull = static_cast<ZydisDecoder*>(TraceAllocateNonPaged(sizeof(ZydisDecoder), 'DecF'));
-	if (DecoderFull == nullptr) { return false; }
+	DecoderFull = (ZydisDecoder*)ExAllocatePoolWithTag(NonPagedPoolNx, sizeof(ZydisDecoder), 'DecF');
 	RtlZeroMemory(DecoderFull, sizeof(ZydisDecoder));
 	ZydisDecoderInit(DecoderFull, ZYDIS_MACHINE_MODE_LONG_64, ZYDIS_STACK_WIDTH_64);
 
-	Operands = static_cast<ZydisDecodedOperand*>(
-		TraceAllocateNonPaged(sizeof(ZydisDecodedOperand) * ZYDIS_MAX_OPERAND_COUNT, 'Oper'));
-	if (Operands == nullptr) { return false; }
+	Operands = (ZydisDecodedOperand*)ExAllocatePoolWithTag(NonPagedPoolNx, sizeof(ZydisDecodedOperand) * ZYDIS_MAX_OPERAND_COUNT, 'Oper');
 	RtlZeroMemory(Operands, sizeof(ZydisDecodedOperand) * ZYDIS_MAX_OPERAND_COUNT);
 
-	edges = static_cast<GraphNode*>(TraceAllocateNonPaged(sizeof(GraphNode) * MAX_NODES, 'EDGS'));
-	if (edges == nullptr) { return false; }
+	edges = (GraphNode*)ExAllocatePoolWithTag(NonPagedPoolNx, (sizeof(GraphNode) * MAX_NODES), 'EDGS');
 	RtlZeroMemory(edges, (sizeof(GraphNode) * MAX_NODES));
-	adjList = static_cast<uint64_t**>(TraceAllocateNonPaged(sizeof(uint64_t*) * MAX_NODES, 'adLF'));
-	if (adjList == nullptr) { return false; }
+	adjList = (uint64_t**)ExAllocatePoolWithTag(NonPagedPoolNx, (sizeof(uint64_t) * MAX_NODES), 'adLF');
 	RtlZeroMemory(adjList, (sizeof(uint64_t) * MAX_NODES));
-	adjListT = static_cast<uint64_t**>(TraceAllocateNonPaged(sizeof(uint64_t*) * MAX_NODES, 'adLT'));
-	if (adjListT == nullptr) { return false; }
+	adjListT = (uint64_t**)ExAllocatePoolWithTag(NonPagedPoolNx, (sizeof(uint64_t) * MAX_NODES), 'adLT');
 	RtlZeroMemory(adjListT, (sizeof(uint64_t) * MAX_NODES));
 
 	for (uint64_t i = 0; i < MAX_NODES; ++i) {
-		adjList[i] = static_cast<uint64_t*>(TraceAllocateNonPaged(sizeof(uint64_t) * MAX_NODES, '2DMA'));
-		if (adjList[i] == nullptr) { return false; }
+		adjList[i] = (uint64_t*)ExAllocatePoolWithTag(NonPagedPoolNx, (sizeof(uint64_t) * MAX_NODES), '2DMA');
 		RtlZeroMemory(adjList[i], (sizeof(uint64_t) * MAX_NODES));
-		adjListT[i] = static_cast<uint64_t*>(TraceAllocateNonPaged(sizeof(uint64_t) * MAX_NODES, '2DMT'));
-		if (adjListT[i] == nullptr) { return false; }
+		adjListT[i] = (uint64_t*)ExAllocatePoolWithTag(NonPagedPoolNx, (sizeof(uint64_t) * MAX_NODES), '2DMT');
 		RtlZeroMemory(adjListT[i], (sizeof(uint64_t) * MAX_NODES));
 	}
 
-	adjListSize = static_cast<uint64_t*>(TraceAllocateNonPaged(sizeof(uint64_t) * MAX_NODES, 'adjF'));
-	if (adjListSize == nullptr) { return false; }
+	adjListSize = (uint64_t*)ExAllocatePoolWithTag(NonPagedPoolNx, (sizeof(uint64_t) * MAX_NODES), 'adjF');
 	RtlZeroMemory(adjListSize, (sizeof(uint64_t) * MAX_NODES));
-	adjListTSize = static_cast<uint64_t*>(TraceAllocateNonPaged(sizeof(uint64_t) * MAX_NODES, 'adjT'));
-	if (adjListTSize == nullptr) { return false; }
+	adjListTSize = (uint64_t*)ExAllocatePoolWithTag(NonPagedPoolNx, (sizeof(uint64_t) * MAX_NODES), 'adjT');
 	RtlZeroMemory(adjListTSize, (sizeof(uint64_t) * MAX_NODES));
 
-	visited = static_cast<int64_t*>(TraceAllocateNonPaged(sizeof(int64_t) * MAX_NODES, 'Vist'));
-	if (visited == nullptr) { return false; }
+	visited = (int64_t*)ExAllocatePoolWithTag(NonPagedPoolNx, (sizeof(int64_t) * MAX_NODES), 'Vist');
 	RtlZeroMemory(visited, (sizeof(int64_t) * MAX_NODES));
 
-	postOrder = static_cast<uint64_t*>(TraceAllocateNonPaged(sizeof(uint64_t) * MAX_NODES, 'Post'));
-	if (postOrder == nullptr) { return false; }
+	postOrder = (uint64_t*)ExAllocatePoolWithTag(NonPagedPoolNx, (sizeof(uint64_t) * MAX_NODES), 'Post');
 	RtlZeroMemory(postOrder, (sizeof(uint64_t) * MAX_NODES));
-	component = static_cast<uint64_t*>(TraceAllocateNonPaged(sizeof(uint64_t) * MAX_NODES, 'Comp'));
-	if (component == nullptr) { return false; }
+	component = (uint64_t*)ExAllocatePoolWithTag(NonPagedPoolNx, (sizeof(uint64_t) * MAX_NODES), 'Comp');
 	RtlZeroMemory(component, (sizeof(uint64_t) * MAX_NODES));
 
-	MainGraphs = static_cast<uint64_t*>(TraceAllocateNonPaged(sizeof(uint64_t) * MAX_NODES, 'Mai>'));
-	if (MainGraphs == nullptr) { return false; }
+	MainGraphs = (uint64_t*)ExAllocatePoolWithTag(NonPagedPoolNx, (sizeof(uint64_t) * MAX_NODES), 'Mai>');
 	RtlZeroMemory(MainGraphs, (sizeof(uint64_t) * MAX_NODES));
 
 	translationMap = new std::unordered_map<uint64_t, uint64_t>;
@@ -780,14 +712,13 @@ void Trace::TraceRip(_In_ SVM::PRIVATE_VM_DATA* Private)
 	if (gArc == (Arcs / 2 - 1))
 	{
 		gArc = 0;
-		CircleOfRips[gArc].write_front(CircleOfRips[Arcs / 2 - 1].Start, CircleOfRips[Arcs / 2 - 1].DataWritten);
+		CircleOfRips[gArc].write_front(CircleOfRips[Arcs / 2 - 1].Start, CircleOfRips[Arcs / 2 - 1].size(sizeof(uint64_t)));
 		CircleOfRips[Arcs / 2 - 1].clear();
 	}
 
 	if (!CircleOfRips[gArc].Reading)
 	{
-		size_t remainingSpace = (size_t)(reinterpret_cast<PUCHAR>(CircleOfRips[gArc].End) -
-		                                 reinterpret_cast<PUCHAR>(CircleOfRips[gArc].CurrentWriteIndex));
+		size_t remainingSpace = (size_t)(CircleOfRips[gArc].End - CircleOfRips[gArc].CurrentWriteIndex);
 
 		if (sizeof(uint64_t) <= remainingSpace)
 		{
@@ -971,9 +902,12 @@ void Trace::KosarajuAlgorithm(uint64_t numNodes, uint64_t numEdges)
 			uint64_t componentIndex = 0;
 			dfs2(adjListT, numNodes, node, visited, component, &componentIndex);
 
+			size_t LenOut = 0;
+
 			if (componentIndex >= 2)
 			{
-				KdPrint(("Algo | High addr: %p\n", GetOriginalTransVal(component[componentIndex - 1])));
+				uint64_t HighAddr = GetOriginalTransVal(component[componentIndex - 1]);
+				KdPrint(("Algo | High addr: %p\n", HighAddr));
 				/*
 				ZydisDecoderDecodeFull(
 					DecoderFull,
@@ -1023,11 +957,9 @@ void Trace::InitCycle()
 	if (CircleOfMnemonics[gArc].size(sizeof(Mnemonic)) > 1 && CircleOfMnemonics[gArc].size(sizeof(Mnemonic)) < MAX_NODES)
 	{
 		int numEdges = 0;
-		for (int MnemGrIndex = 0; MnemGrIndex < (int)CircleOfMnemonics[gArc].size(sizeof(Mnemonic)); ++MnemGrIndex)
+		for (int MnemGrIndex = 0; MnemGrIndex <= CircleOfMnemonics[gArc].size(sizeof(Mnemonic)); ++MnemGrIndex)
 		{
-			Mnemonic* LocalCWI = reinterpret_cast<Mnemonic*>(
-				reinterpret_cast<PUCHAR>(CircleOfMnemonics[gArc].CurrentWriteIndex) -
-				(sizeof(Mnemonic) * (MnemGrIndex + 1)));
+			Mnemonic* LocalCWI = CircleOfMnemonics[gArc].CurrentWriteIndex - (sizeof(Mnemonic) * MnemGrIndex);
 			if (LocalCWI->Graph)
 			{
 				if (numEdges < 2)
@@ -1087,8 +1019,7 @@ void Trace::CircleOfMnemonicsFiller(_In_ uint64_t Rip, _In_ SVM::PRIVATE_VM_DATA
 {
 	if (!CircleOfMnemonics[gArc].Reading)
 	{
-		size_t remainingSpace = (size_t)(reinterpret_cast<PUCHAR>(CircleOfMnemonics[gArc].End) -
-		                                 reinterpret_cast<PUCHAR>(CircleOfMnemonics[gArc].CurrentWriteIndex));
+		size_t remainingSpace = (size_t)(CircleOfMnemonics[gArc].End - CircleOfMnemonics[gArc].CurrentWriteIndex);
 		size_t remainingSize = remainingSpace / sizeof(Mnemonic);
 		remainingSize = remainingSize;
 
@@ -1106,7 +1037,7 @@ void Trace::CircleOfMnemonicsFiller(_In_ uint64_t Rip, _In_ SVM::PRIVATE_VM_DATA
 		else
 		{
 			CircleOfMnemonics[gArc].Reading = true;
-			if (gArc != Arcs - 1)
+			if (gArc != 15)
 			{
 				++gArc;
 				Mnemonic objMnemonic = MnemonicCreator(Rip, Private);
@@ -1162,5 +1093,3 @@ void Trace::TraceMnemonic(_In_ SVM::PRIVATE_VM_DATA* Private)
 void Trace::TraceRipFinalization() { for (auto& Arc : CircleOfRips) { if (Arc.DataWritten > 0) { Arc.Reading = true; } } }
 
 void Trace::TraceMnemonicFinalization() { for (auto& Arc : CircleOfMnemonics) { if (Arc.DataWritten > 0) { Arc.Reading = true; } } EoF = true; }
-
-void Trace::AcceptCombineBufferRipMessage(File& objFile, uint64_t _MainBuffer) { UNREFERENCED_PARAMETER(objFile); UNREFERENCED_PARAMETER(_MainBuffer); }

@@ -309,6 +309,9 @@ CommandIdtHelp();
 VOID
 CommandSmiHelp();
 
+VOID
+CommandLbrHelp();
+
 //
 // hwdbg commands
 //

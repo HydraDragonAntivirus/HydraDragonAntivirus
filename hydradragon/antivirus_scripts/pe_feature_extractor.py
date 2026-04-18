@@ -543,7 +543,7 @@ class PEFeatureExtractor:
           - xref_count                   : total cross-references (calls + jumps)
           - r2_string_count              : strings found in data sections
 
-        Files over 10 MB are skipped to avoid analysis timeouts.
+        Files over 50 MB are skipped to avoid analysis timeouts.
         Degrades gracefully if r2pipe / radare2 is not installed.
         """
         r2_features = {
@@ -562,7 +562,7 @@ class PEFeatureExtractor:
             return r2_features
 
         try:
-            if os.path.getsize(file_path) > 10 * 1024 * 1024:  # 10 MB cap
+            if os.path.getsize(file_path) > 50 * 1024 * 1024:  # 10 MB cap
                 r2_features['error'] = 'file_too_large'
                 return r2_features
 

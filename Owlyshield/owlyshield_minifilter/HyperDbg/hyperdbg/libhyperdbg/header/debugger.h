@@ -61,6 +61,7 @@
 #define DEBUGGER_SYNCRONIZATION_OBJECT_KERNEL_DEBUGGER_PCIDEVINFO_RESULT                   0x1d
 #define DEBUGGER_SYNCRONIZATION_OBJECT_KERNEL_DEBUGGER_IDT_ENTRIES                         0x1e
 #define DEBUGGER_SYNCRONIZATION_OBJECT_KERNEL_DEBUGGER_SMI_OPERATION_RESULT                0x1f
+#define DEBUGGER_SYNCRONIZATION_OBJECT_KERNEL_DEBUGGER_HYPERTRACE_OPERATION_RESULT         0x20
 
 //////////////////////////////////////////////////
 //               Event Details                  //

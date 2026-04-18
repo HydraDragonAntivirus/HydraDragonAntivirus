@@ -569,6 +569,31 @@ ShowErrorMessage(UINT32 Error)
                      Error);
         break;
 
+    case DEBUGGER_ERROR_HYPERTRACE_NOT_INITIALIZED:
+        ShowMessages("err, the HyperTrace module is not initialized (%x)\n",
+                     Error);
+        break;
+
+    case DEBUGGER_ERROR_INVALID_HYPERTRACE_OPERATION_TYPE:
+        ShowMessages("err, invalid HyperTrace operation type is specified (%x)\n",
+                     Error);
+        break;
+
+    case DEBUGGER_ERROR_LBR_ALREADY_ENABLED:
+        ShowMessages("err, LBR is already enabled (%x)\n",
+                     Error);
+        break;
+
+    case DEBUGGER_ERROR_LBR_ALREADY_DISABLED:
+        ShowMessages("err, LBR is already disabled (%x)\n",
+                     Error);
+        break;
+
+    case DEBUGGER_ERROR_LBR_NOT_SUPPORTED:
+        ShowMessages("err, LBR is not supported on this processor (%x)\n",
+                     Error);
+        break;
+
     default:
         ShowMessages("err, error not found (%x)\n",
                      Error);

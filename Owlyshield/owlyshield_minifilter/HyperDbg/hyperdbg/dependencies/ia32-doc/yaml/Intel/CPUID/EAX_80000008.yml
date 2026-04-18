@@ -1,0 +1,48 @@
+- value: 0x80000008
+  short_name: EXTENDED_VIRT_PHYS_ADDRESS_SIZE
+  long_name: EXTENDED_VIRTUAL_PHYSICAL_ADDRESS_SIZE
+  description: Extended Function CPUID Information.
+
+- short_name: EAX_80000008
+  long_name: EAX_80000008
+  type: struct
+  fields:
+  - name: EAX
+    description: Linear/Physical Address size.
+    type: bitfield
+    size: 32
+    fields:
+    - bit: 0-7
+      name: NUMBER_OF_PHYSICAL_ADDRESS_BITS
+      description: Number of Physical Address Bits.
+      Notes: |
+        If CPUID.80000008H:EAX[7:0] is supported, the maximum physical address number supported should
+        come from this field.
+
+    - bit: 8-15
+      name: NUMBER_OF_LINEAR_ADDRESS_BITS
+      description: Number of Linear Address Bits.
+
+  - name: EBX
+    type: bitfield
+    size: 32
+    fields:
+    - bit: 0-31
+      name: RESERVED
+      description: EBX is reserved.
+
+  - name: ECX
+    type: bitfield
+    size: 32
+    fields:
+    - bit: 0-31
+      name: RESERVED
+      description: ECX is reserved.
+
+  - name: EDX
+    type: bitfield
+    size: 32
+    fields:
+    - bit: 0-31
+      name: RESERVED
+      description: EDX is reserved.

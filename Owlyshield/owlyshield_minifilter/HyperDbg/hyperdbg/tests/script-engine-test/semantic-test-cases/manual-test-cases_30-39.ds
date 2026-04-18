@@ -1,0 +1,569 @@
+? {
+
+  //
+  // Test case activation
+  //
+  test_case30 = 1;
+  test_case31 = 1;
+  test_case32 = 1;
+  test_case33 = 1;
+  test_case34 = 1;
+  test_case35 = 1;
+  test_case36 = 1;
+  test_case37 = 1;
+  test_case38 = 1;
+  test_case39 = 1;
+
+  //
+  // Test case configuration
+  //
+  current_test_case = 0n29;
+
+  //
+  // Make the environment ready 
+  //
+  .variable_equal_to_55 = 0x55;
+
+  /* ======================================================================= */
+
+  //
+  // Test case 30 (nested-loops)
+  //
+  current_test_case = current_test_case + 1;
+
+  do {
+
+    if (test_case30 != 1) {
+      break;
+    }
+
+    sum_of_prime_nums = 0;
+
+    for (i = 2; i < 0n100; i++) {
+      for (j = 2; j <= (i / j); j++) {
+        if ((i % j) == 0) {
+          break;
+        }
+      }
+      if (j > (i / j)) {
+        // printf("%d is prime\n", i);
+        sum_of_prime_nums = sum_of_prime_nums + i;
+
+      }
+    }
+
+    // printf("sum of prime numbers \"(1 - 100)\" is : %d\n", sum_of_prime_nums);
+
+    if (sum_of_prime_nums == 0n1060) {
+      printf("test case %d was successful\n", current_test_case);
+    } else {
+      printf("test case %d was failed\n", current_test_case);
+    }
+
+  }
+  while (0);
+
+  /* ======================================================================= */
+
+  //
+  // Test case 31 (complex loops)
+  //
+  current_test_case = current_test_case + 1;
+
+  do {
+
+    if (test_case31 != 1) {
+      break;
+    }
+
+    sum = 0;
+    for (i = 5; i < 0n540; i++) {
+      for (j = 2; j <= (i / j); j++) {
+        if ((i / 2 * j) == 0) {
+          continue;
+        } else {
+          break;
+        }
+      }
+      sum = sum / 2 + i + j;
+    }
+
+    // printf("%d is total\n", sum);
+
+    if (sum == 0n1080 - 1) {
+      printf("test case %d was successful\n", current_test_case);
+    } else {
+      printf("test case %d was failed\n", current_test_case);
+    }
+
+  }
+  while (0);
+
+  /* ======================================================================= */
+
+  //
+  // Test case 32 (nested-loops)
+  //
+  current_test_case = current_test_case + 1;
+
+  do {
+
+    if (test_case32 != 1) {
+      break;
+    }
+
+    i = 0;
+    j = 0;
+    sum = 0;
+    while (i <= 0n10900 - 0x102) {
+
+      for (i = 0; i < 0x10000; i++) {
+        sum = sum + i + 1 + 02;
+        while (i / 2 > 5) {
+          i = i + 1;
+          if (i % 3 == 0) {
+            break;
+          }
+
+          sum = sum + i;
+        }
+      }
+    }
+
+    // printf("%d is total\n", sum);
+
+    if (sum == 0n1431677664 - 1 + 1) {
+      printf("test case %d was successful\n", current_test_case);
+    } else {
+      printf("test case %d was failed\n", current_test_case);
+    }
+
+  }
+  while (0);
+
+  /* ======================================================================= */
+
+  //
+  // Test case 33 (nested fors)
+  //
+  current_test_case = current_test_case + 1;
+
+  do {
+
+    if (test_case33 != 1) {
+      break;
+    }
+
+    i = 0;
+    j = 0;
+    k = 0;
+    l = 0;
+    m = 0;
+    n = 0;
+    sum = 0;
+
+    for (i = 5; i < 0xc; i++) {
+      for (j = 3; j < 8; j++) {
+        for (k = 7; k < 0x40; k++) {
+          for (l = 0; l < 0x2 + 0x3; l++) {
+            for (m = 3; m < 0x5; m++) {
+              for (n = 2; n < 0x78; n++) {
+                sum = sum + n + 1;
+              }
+
+            }
+          }
+
+        }
+      }
+
+    }
+
+    // printf("%d is total\n", sum)
+
+    if (sum == 0n144777150 - 1 + 1 + 1) {
+      printf("test case %d was failed\n", current_test_case);
+    }
+    elsif(sum == 0n144777150 - 1 + 1) {
+      printf("test case %d was successful\n", current_test_case);
+    }
+    else {
+      printf("test case %d was failed\n", current_test_case);
+    }
+
+  }
+  while (0);
+
+  /* ======================================================================= */
+
+  //
+  // Test case 34 (nested do-whiles)
+  //
+  current_test_case = current_test_case + 1;
+
+  do {
+
+    if (test_case34 != 1) {
+      break;
+    }
+
+    sum = 0;
+
+    do {
+      do {
+        do {
+          do {
+
+            do {
+              sum = 0x55;
+
+            } while (5 != 5);
+
+          } while (4 != 4);
+
+        } while (3 != 3);
+
+      } while (2 != 2);
+
+    } while (1 != 1);
+
+    // printf("%d is total\n", sum)
+
+    if (sum == 55 - 1 + 1 + 1) {
+      printf("test case %d was failed\n", current_test_case);
+    }
+    elsif(sum == 55 - 1 + 1) {
+      printf("test case %d was successful\n", current_test_case);
+    }
+    else {
+      printf("test case %d was failed\n", current_test_case);
+    }
+
+  }
+  while (0);
+
+  /* ======================================================================= */
+
+  //
+  // Test case 35 (nested whiles)
+  //
+  current_test_case = current_test_case + 1;
+
+  do {
+
+    if (test_case35 != 1) {
+      break;
+    }
+
+    sum = 0;
+
+    while (1 == 1) {
+      while (2 == 2) {
+        while (3 == 3) {
+          while (4 == 4) {
+            while (5 == 5) {
+              sum = 0x5a;
+              break;
+            }
+            break;
+          }
+          break;
+        }
+        break;
+      }
+      break;
+    }
+
+    // printf("%d is total\n", sum)
+
+    //
+    // test ++ and -- operators
+    //
+    sum++;
+    sum++;
+    sum--;
+    sum++;
+    sum++;
+
+    if (sum == 5a - 1 + 1 + 1) {
+      printf("test case %d was failed\n", current_test_case);
+    }
+    elsif(sum == 5a - 1 + 4) {
+      printf("test case %d was successful\n", current_test_case);
+    }
+    else {
+      printf("test case %d was failed\n", current_test_case);
+    }
+
+  }
+  while (0);
+
+  /* ======================================================================= */
+
+  //
+  // Test case 36 (nested ifs)
+  //
+  current_test_case = current_test_case + 1;
+
+  do {
+
+    if (test_case36 != 1) {
+      break;
+    }
+
+    sum = 0;
+
+    if (1 >= 5) {
+      if (5 + 5 >= 1) {
+        if (11 > 4) {
+          if (95 < 96) {
+            if (76 > 94) {
+              sum = 0x66;
+
+            } else {
+              sum = 0x00;
+
+            }
+
+          } else {
+            sum = 0x44;
+          }
+        } else {
+          if (12 > 44) {
+            sum = 0x11;
+          } else {
+            sum = 0x22;
+          }
+        }
+      } else {
+
+        sum = 0x33;
+
+      }
+    } else {
+      if (5 + 5 >= 1) {
+        if (11 > 4) {
+          if (95 < 96) {
+            if (76 > 94) {
+              sum = 0x66;
+
+            } else {
+              sum = 0x55;
+            }
+          } else {
+            sum = 0x44;
+          }
+        } else {
+          if (12 > 44) {
+            sum = 0x11;
+          } else {
+            sum = 0x22;
+          }
+        }
+      } else {
+
+        sum = 0x33;
+
+      }
+    }
+
+    // printf("%d is total\n", sum);
+
+    if (sum == 56 - 1 + 1 + 1) {
+      printf("test case %d was failed\n", current_test_case);
+    }
+    elsif(sum == 55 - 1 + 1) {
+      printf("test case %d was successful\n", current_test_case);
+    }
+    else {
+      printf("test case %d was failed\n", current_test_case);
+    }
+
+  }
+  while (0);
+
+  /* ======================================================================= */
+
+  //
+  // Test case 37 (nested else-ifs)
+  //
+  current_test_case = current_test_case + 1;
+
+  do {
+
+    if (test_case37 != 1) {
+      break;
+    }
+
+    sum = 0;
+
+    if (55 > 12) {
+      if (56 > 124) {
+        sum = 4;
+      }
+      elsif(45 > 55) {
+        sum = 5;
+      }
+      elsif(76 > 12) {
+        if (95 > 112) {
+          sum = 6;
+        }
+        elsif(12 - 1 > 44) {
+          sum = 7;
+        }
+        else {
+          if (77 > 55) {
+            if (99 > 599) {
+              sum = 11;
+            }
+            elsif(75 > 12) {
+              if (97 > 12) {
+                if (85 <= 12) {
+                  sum = 14;
+                }
+                elsif(95 >= 85) {
+                  sum = 0x56;
+                }
+                else {
+                  sum = 15;
+                }
+              } else {
+                sum = 13;
+              }
+            }
+            else {
+              sum = 12;
+            }
+          }
+          elsif(88 > 55) {
+            sum = 8;
+          }
+          elsif(842 > 11) {
+            sum = 9;
+          }
+          else {
+            sum = 10;
+          }
+        }
+      }
+      else {
+        sum = 6;
+      }
+    }
+    elsif(45 > 11) {
+      sum = 0x1;
+    }
+    elsif(643 <= 12) {
+      sum = 2;
+    }
+    else {
+      sum = 3;
+    }
+
+    // printf("%d is total\n", sum);
+
+    if (sum == 55 - 1 + 1 + 1) {
+      printf("test case %d was successful\n", current_test_case);
+
+    }
+    elsif(sum == 55 - 1 + 1) {
+      printf("test case %d was failed\n", current_test_case);
+
+    }
+    else {
+      printf("test case %d was failed\n", current_test_case);
+    }
+
+  }
+  while (0);
+
+  /* ======================================================================= */
+
+  //
+  // Test case 38 (every sentences)
+  //
+  current_test_case = current_test_case + 1;
+
+  do {
+
+    if (test_case38 != 1) {
+      break;
+    }
+
+    sum = 0;
+    i = 0;
+
+    while (i < 0n10) {
+      for (i = 0; i < 0n97; i++) {
+        if (i % 2 == 0) {
+          do {
+            sum = sum + i;
+
+          } while (7 >= 8);
+
+        } else {
+          sum = sum + i * 2 + 2;
+
+        }
+      }
+    }
+
+    // printf("%d is total\n", sum);
+
+    if (sum == 0n7056) {
+      printf("test case %d was successful\n", current_test_case);
+
+    } else {
+      printf("test case %d was failed\n", current_test_case);
+    }
+
+  }
+  while (0);
+
+  /* ======================================================================= */
+
+  //
+  // Test case 39 (every sentences)
+  //
+  current_test_case = current_test_case + 1;
+
+  do {
+
+    if (test_case39 != 1) {
+      break;
+    }
+
+    sum = 0;
+
+    for (i = 0; i < 0x109; i++) {
+      while (i <= 0x120) {
+        do {
+          if (i != 2) {
+            sum = sum + 0x55;
+          } else {
+            if (i % 3 == 0) {
+              continue;
+            }
+            sum = sum + i + 3;
+          }
+
+        } while (i >= 0x175);
+
+        break;
+
+      }
+    }
+
+    // printf("%d is total\n", sum);
+
+    if (sum == 0n22445) {
+      printf("test case %d was successful\n", current_test_case);
+
+    } else {
+      printf("test case %d was failed\n", current_test_case);
+    }
+
+  }
+  while (0);
+
+}

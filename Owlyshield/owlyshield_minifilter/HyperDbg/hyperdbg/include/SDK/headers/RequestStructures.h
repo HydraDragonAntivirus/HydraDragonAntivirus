@@ -1265,6 +1265,38 @@ typedef struct _SMI_OPERATION_PACKETS
  */
 
 /**
+ * @brief Perform actions related to HyperTrace
+ *
+ */
+typedef enum _HYPERTRACE_OPERATION_REQUEST_TYPE
+{
+    HYPERTRACE_LBR_OPERATION_REQUEST_TYPE_ENABLE,
+    HYPERTRACE_LBR_OPERATION_REQUEST_TYPE_DISABLE,
+
+} HYPERTRACE_OPERATION_REQUEST_TYPE;
+
+/**
+ * @brief The structure of HyperTrace result packet in HyperDbg
+ *
+ */
+typedef struct _HYPERTRACE_OPERATION_PACKETS
+{
+    HYPERTRACE_OPERATION_REQUEST_TYPE HyperTraceOperationType;
+    UINT32                            KernelStatus;
+
+} HYPERTRACE_OPERATION_PACKETS, *PHYPERTRACE_OPERATION_PACKETS;
+
+/**
+ * @brief Debugger size of HYPERTRACE_OPERATION_PACKETS
+ *
+ */
+#define SIZEOF_HYPERTRACE_OPERATION_PACKETS \
+    sizeof(HYPERTRACE_OPERATION_PACKETS)
+
+/* ==============================================================================================
+ */
+
+/**
  * @brief Maximum number of IDT entries
  *
  */

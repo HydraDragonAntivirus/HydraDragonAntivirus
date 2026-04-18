@@ -147,14 +147,14 @@ typedef struct _VMM_EPT_DYNAMIC_SPLIT
     EPT_PML1_ENTRY PML1[VMM_EPT_PML1E_COUNT];
 
     /**
-     * @brief The pointer to the 2MB entry in the page table which this split is servicing.
+     * @brief The pointer to the 2MB entry in the page table which this split is servicing
      *
      */
     union
     {
         PEPT_PML2_ENTRY   Entry;
         PEPT_PML2_POINTER Pointer;
-    } u;
+    } Fields;
 
     /**
      * @brief Linked list entries for each dynamic split

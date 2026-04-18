@@ -70,6 +70,7 @@ ListeningSerialPortInDebugger()
     PDEBUGGER_SHORT_CIRCUITING_EVENT             ShortCircuitingPacket;
     PDEBUGGER_READ_PAGE_TABLE_ENTRIES_DETAILS    PtePacket;
     PSMI_OPERATION_PACKETS                       SmiOperationPacket;
+    PHYPERTRACE_OPERATION_PACKETS                HyperTraceOperationPacket;
     PDEBUGGER_PAGE_IN_REQUEST                    PageinPacket;
     PDEBUGGER_VA2PA_AND_PA2VA_COMMANDS           Va2paPa2vaPacket;
     PDEBUGGEE_BP_LIST_OR_MODIFY_PACKET           ListOrModifyBreakpointPacket;
@@ -1003,6 +1004,27 @@ StartAgain:
             // Signal the event relating to receiving result of SMI operation
             //
             DbgReceivedKernelResponse(DEBUGGER_SYNCRONIZATION_OBJECT_KERNEL_DEBUGGER_SMI_OPERATION_RESULT);
+
+            break;
+
+        case DEBUGGER_REMOTE_PACKET_REQUESTED_ACTION_DEBUGGEE_RESULT_HYPERTRACE_OPERATION_REQUESTS:
+
+            HyperTraceOperationPacket = (HYPERTRACE_OPERATION_PACKETS *)(((CHAR *)TheActualPacket) + sizeof(DEBUGGER_REMOTE_PACKET));
+
+            //
+            // Get the address and size of the caller
+            //
+            DbgWaitGetKernelRequestData(DEBUGGER_SYNCRONIZATION_OBJECT_KERNEL_DEBUGGER_HYPERTRACE_OPERATION_RESULT, &CallerAddress, &CallerSize);
+
+            //
+            // Copy the memory buffer for the caller
+            //
+            memcpy(CallerAddress, HyperTraceOperationPacket, CallerSize);
+
+            //
+            // Signal the event relating to receiving result of HyperTrace operation
+            //
+            DbgReceivedKernelResponse(DEBUGGER_SYNCRONIZATION_OBJECT_KERNEL_DEBUGGER_HYPERTRACE_OPERATION_RESULT);
 
             break;
 

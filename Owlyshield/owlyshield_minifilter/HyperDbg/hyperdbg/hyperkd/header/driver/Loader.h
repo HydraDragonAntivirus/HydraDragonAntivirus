@@ -19,5 +19,8 @@
 BOOLEAN
 LoaderInitVmmAndDebugger();
 
+BOOLEAN
+LoaderInitHyperTrace();
+
 VOID
 LoaderUninitializeLogTracer();

@@ -1,11 +1,22 @@
 ---
 name: Bug report
-about: Create a report to help us improve
-title: ''
-labels: ''
+about: Create a report to help us improve HydraDragon
+title: '[BUG] '
+labels: bug
 assignees: ''
 
 ---
+
+**Note: Feature Requests**
+> 🚀 **Feature requests belong in Discussions!**
+> To keep our issue tracker focused on bugs and stability, we ask that you submit all feature requests and ideas through the [Discussions](https://github.com/semae/HydraDragonAntivirus/discussions) tab. Issues opened for feature requests may be closed and redirected there.
+
+---
+
+**Note on Contributions**
+HydraDragon is a community-driven project. As resources and developer time are limited, we encourage you to contribute by submitting pull requests (PRs) whenever possible. While we will address issues created by users, we greatly appreciate your efforts to resolve issues independently.
+
+Thank you for reporting bugs and for your contributions! ❤️
 
 **Describe the bug**
 A clear and concise description of what the bug is.
@@ -24,15 +35,10 @@ A clear and concise description of what you expected to happen.
 If applicable, add screenshots to help explain your problem.
 
 **Desktop (please complete the following information):**
- - OS: [e.g. iOS]
- - Browser [e.g. chrome, safari]
- - Version [e.g. 22]
-
-**Smartphone (please complete the following information):**
- - Device: [e.g. iPhone6]
- - OS: [e.g. iOS8.1]
- - Browser [e.g. stock browser, safari]
- - Version [e.g. 22]
+ - OS: [e.g. Win 10 1909]
+ - Processor [e.g. Intel i7 6820HQ]
+ - Version/Commit: [e.g. 0.1]
+ - Environment: [e.g. VMWare Nested Virtualization, Physical Machine]
 
 **Additional context**
 Add any other context about the problem here.

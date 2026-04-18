@@ -21,7 +21,6 @@ Environment:
 #include "Regedit.h"
 #include "ProcessProtection.h"
 #include "UserModeHookEngine.h"
-#include "OwlyVmmBridge.h"
 #include "RootkitDetector.h"
 
 #pragma prefast(disable : __WARNING_ENCODE_MEMBER_FUNCTION_POINTER, "Not valid for kernel mode drivers")
@@ -857,50 +856,6 @@ Return Value:
         DbgPrint("!!! FsFilter: Failed to initialize user-mode hook engine: 0x%X (non-fatal)\n", status);
     }
 
-    // 2. Initialize RedDbg hypervisor subsystem on an independent DRIVER_OBJECT.
-    // RedDbgDriverEntry remains the actual initialization entrypoint; the
-    // standalone wrapper simply prevents the minifilter's dispatch table from
-    // being repurposed for RedDbg's control device.
-    status = RedDbgStartStandaloneControlDriver();
-    if (!NT_SUCCESS(status))
-    {
-        DbgPrint("!!! FsFilter: RedDbgStartStandaloneControlDriver failed: 0x%X (non-fatal)\n", status);
-    }
-    else
-    {
-        DbgPrint("!!! FsFilter: RedDbg hypervisor initialized successfully\n");
-    }
-
-    // 3. Initialize the VMM monitoring backend.
-    //
-    // Live KD sessions already own low-level debug/NMI plumbing. On AMD, bringing
-    // up the Owly/HyperDbg VMM while KD is attached has been observed to surface
-    // as NMI_HARDWARE_FAILURE bugchecks, so we skip only the VMM backend in that
-    // specific configuration while leaving the rest of the monitoring stack alive.
-    if (FSIsKernelDebuggerAttached())
-    {
-        DbgPrint("!!! FsFilter: Kernel debugger attached; skipping OwlyVmm initialization for this boot\n");
-    }
-    else
-    {
-        status = OwlyVmmInitialize();
-        if (!NT_SUCCESS(status))
-        {
-            if (status == STATUS_NOT_SUPPORTED)
-            {
-                DbgPrint("!!! FsFilter: VMM initialization skipped (HyperDbg components unavailable, not linked, or unsupported on this target)\n");
-            }
-            else
-            {
-                DbgPrint("!!! FsFilter: VMM initialization failed: 0x%X (non-fatal)\n", status);
-            }
-        }
-        else
-        {
-            DbgPrint("!!! FsFilter: VMM monitoring core initialized\n");
-        }
-    }
-
     DbgPrint("!!! FsFilter: Enumerating existing processes for initial process baseline\n");
     EnumerateExistingProcesses();
 
@@ -1310,12 +1265,6 @@ Return Value:
 
     UserModeHookEngineCleanup();
     FSCleanupPyasWhitelistRules();
-
-    // VMM Cleanup
-    OwlyVmmUninitialize();
-
-    // RedDbg control-device cleanup
-    RedDbgStopStandaloneControlDriver();
 
     // Registry Cleanup
     RegeditUnloadDriver();

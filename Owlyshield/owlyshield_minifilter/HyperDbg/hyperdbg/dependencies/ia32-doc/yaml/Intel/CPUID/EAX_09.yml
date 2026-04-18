@@ -1,0 +1,43 @@
+- value: 0x09
+  short_name: DIRECT_CACHE_ACCESS_INFO
+  long_name: DIRECT_CACHE_ACCESS_INFORMATION
+  short_description: Direct Cache Access Information Leaf
+  long_description: |
+    When CPUID executes with EAX set to 09H, the processor returns information about Direct Cache Access capabilities.
+
+- short_name: EAX_09
+  long_name: EAX_09
+  todo: Long names
+  type: struct
+  fields:
+  - name: EAX
+    type: bitfield
+    size: 32
+    fields:
+    - bit: 0-31
+      name: IA32_PLATFORM_DCA_CAP
+      description: Value of bits [31:0] of IA32_PLATFORM_DCA_CAP MSR (address 1F8H).
+
+  - name: EBX
+    type: bitfield
+    size: 32
+    fields:
+    - bit: 0-31
+      name: RESERVED
+      description: EBX is reserved.
+
+  - name: ECX
+    type: bitfield
+    size: 32
+    fields:
+    - bit: 0-31
+      name: RESERVED
+      description: ECX is reserved.
+
+  - name: EDX
+    type: bitfield
+    size: 32
+    fields:
+    - bit: 0-31
+      name: RESERVED
+      description: EDX is reserved.

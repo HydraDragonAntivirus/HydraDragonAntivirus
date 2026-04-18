@@ -32,14 +32,10 @@ VmxAllocateVmxonRegion(VIRTUAL_MACHINE_STATE * VCpu)
 
 #ifdef ENV_WINDOWS
     //
-    // Memory allocation routines are invalid above DISPATCH_LEVEL.
-    // Do not raise IRQL here; fail safely instead of risking a bugcheck.
+    // at IRQL > DISPATCH_LEVEL memory allocation routines don't work
     //
     if (KeGetCurrentIrql() > DISPATCH_LEVEL)
-    {
-        LogError("Err, invalid IRQL for VMXON allocation (CurrentIrql=%lu)", (ULONG)KeGetCurrentIrql());
-        return FALSE;
-    }
+        KeRaiseIrqlToDpcLevel();
 #endif // ENV_WINDOWS
 
     //
@@ -115,14 +111,10 @@ VmxAllocateVmcsRegion(VIRTUAL_MACHINE_STATE * VCpu)
 
 #ifdef ENV_WINDOWS
     //
-    // Memory allocation routines are invalid above DISPATCH_LEVEL.
-    // Do not raise IRQL here; fail safely instead of risking a bugcheck.
+    // at IRQL > DISPATCH_LEVEL memory allocation routines don't work
     //
     if (KeGetCurrentIrql() > DISPATCH_LEVEL)
-    {
-        LogError("Err, invalid IRQL for VMCS allocation (CurrentIrql=%lu)", (ULONG)KeGetCurrentIrql());
-        return FALSE;
-    }
+        KeRaiseIrqlToDpcLevel();
 #endif // ENV_WINDOWS
 
     //

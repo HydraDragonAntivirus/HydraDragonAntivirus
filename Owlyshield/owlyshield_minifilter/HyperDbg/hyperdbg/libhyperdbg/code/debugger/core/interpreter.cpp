@@ -1629,6 +1629,8 @@ InitializeCommandsDictionary()
 
     g_CommandsList["!smi"] = {&CommandSmi, &CommandSmiHelp, DEBUGGER_COMMAND_SMI_ATTRIBUTES};
 
+    g_CommandsList["!lbr"] = {&CommandLbr, &CommandLbrHelp, DEBUGGER_COMMAND_LBR_ATTRIBUTES};
+
     //
     // hwdbg commands
     //
