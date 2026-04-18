@@ -1,9 +1,78 @@
 #include "Communication.h"
 #include "FsFilter.h"
-#include "OwlyVmmBridge.h"
 #include "ProcessProtection.h" // OnKernelApiEvent - called by HookDeviceControl
 #include "UserModeHookEngine.h"
 #include <ntstrsafe.h>
+
+// IOCTL for Hypervisor communication
+#define IOCTL_REGISTER_OWLY_CALLBACK CTL_CODE(FILE_DEVICE_UNKNOWN, 0x815, METHOD_BUFFERED, FILE_ANY_ACCESS)
+
+typedef struct _OWLY_HV_COMM_DATA {
+    ULONG Magic;           // 0x4F574C59 ('OWLY')
+    PVOID CallbackRoutine; // PHYPERDBG_OWLY_EVENT_CALLBACK
+} OWLY_HV_COMM_DATA, *POWLY_HV_COMM_DATA;
+
+static PDEVICE_OBJECT g_HvDeviceObject = NULL;
+static PFILE_OBJECT g_HvFileObject = NULL;
+
+// Callback from Hypervisor (Intel/AMD)
+static VOID NTAPI OwlyHypervisorCallback(PVOID EventDetails) {
+    // Process hypervisor events (TRAP_EXECUTION, etc.)
+    DbgPrint("!!! Owlyshield: Received event from Hypervisor at %p\n", EventDetails);
+}
+
+NTSTATUS InitVmmCommunication() {
+    UNICODE_STRING intelDevName = RTL_CONSTANT_STRING(L"\\Device\\HyperDbgDebuggerDevice");
+    UNICODE_STRING amdDevName = RTL_CONSTANT_STRING(L"\\Device\\RedDbgCore");
+    NTSTATUS status;
+
+    // Try Intel first
+    status = IoGetDeviceObjectPointer(&intelDevName, FILE_ALL_ACCESS, &g_HvFileObject, &g_HvDeviceObject);
+    if (!NT_SUCCESS(status)) {
+        // Try AMD
+        status = IoGetDeviceObjectPointer(&amdDevName, FILE_ALL_ACCESS, &g_HvFileObject, &g_HvDeviceObject);
+    }
+
+    if (NT_SUCCESS(status)) {
+        DbgPrint("!!! Owlyshield: Found standalone Hypervisor device. Registering callback...\n");
+
+        OWLY_HV_COMM_DATA commData = { 0 };
+        commData.Magic = 0x4F574C59;
+        commData.CallbackRoutine = (PVOID)OwlyHypervisorCallback;
+
+        KEVENT event;
+        KeInitializeEvent(&event, NotificationEvent, FALSE);
+
+        PIRP irp = IoBuildDeviceIoControlRequest(IOCTL_REGISTER_OWLY_CALLBACK,
+                                                g_HvDeviceObject,
+                                                &commData, sizeof(commData),
+                                                NULL, 0,
+                                                FALSE, &event, NULL);
+        if (irp) {
+            status = IoCallDriver(g_HvDeviceObject, irp);
+            if (status == STATUS_PENDING) {
+                KeWaitForSingleObject(&event, Executive, KernelMode, FALSE, NULL);
+                status = irp->IoStatus.Status;
+            }
+        } else {
+            status = STATUS_INSUFFICIENT_RESOURCES;
+        }
+
+        if (NT_SUCCESS(status)) {
+            DbgPrint("!!! Owlyshield: Registered callback with standalone Hypervisor successfully.\n");
+        } else {
+            DbgPrint("!!! Owlyshield: Failed to register callback: 0x%X\n", status);
+            ObDereferenceObject(g_HvFileObject);
+            g_HvFileObject = NULL;
+            g_HvDeviceObject = NULL;
+        }
+    } else {
+        DbgPrint("!!! Owlyshield: No standalone Hypervisor found (Intel/AMD).\n");
+    }
+
+    return status;
+}
+
 
 // IoCreateDriver is an undocumented ntoskrnl export - not declared in any WDK
 // header.  Resolve it dynamically via MmGetSystemRoutineAddress (the same
@@ -1260,7 +1329,6 @@ RWFNewMessage(IN PVOID PortCookie, IN PVOID InputBuffer, IN ULONG InputBufferLen
         {
             driverData->setPID(message->pid);
             driverData->setSystemRootPath(message->path);
-            OwlyVmmReplayStateEvents();
             commHandle->CommClosed = FALSE;
             return STATUS_SUCCESS;
         }

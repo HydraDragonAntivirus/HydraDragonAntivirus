@@ -32,7 +32,7 @@ constexpr unsigned int CPUID_VMM_SHUTDOWN = HyperSign;
 class HyperVisorSvm {
 private:
 	CpuVendor GetCpuVendor();
-	bool VirtualizeProcessor();
+	bool VirtualizeProcessor(unsigned int ProcessorNumber);
 	bool DevirtualizeProcessor(__out PVOID& PrivateVmData);
 
 	PVOID AllocPhys(
@@ -52,6 +52,7 @@ private:
 	_SvmVmmRun SvmVmmRun; _Interceptions Interceptions;
 public:
 	PVOID PSvmVmmRun = nullptr, PInterceptions = nullptr;
+	static inline SVM::PRIVATE_VM_DATA* g_ProcessorVmData[64]{};
 public:
 	bool DevirtualizeAllProcessors();
 	bool VirtualizeAllProcessors();

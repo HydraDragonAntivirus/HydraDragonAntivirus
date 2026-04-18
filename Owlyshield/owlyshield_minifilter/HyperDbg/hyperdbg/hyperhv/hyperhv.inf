@@ -1,0 +1,50 @@
+;
+; hyperhv.inf
+;
+
+[Version]
+Signature="$WINDOWS NT$"
+Class=System
+ClassGuid={4d36e97d-e325-11ce-bfc1-08002be10318}
+Provider=%ManufacturerName%
+DriverVer=
+CatalogFile=hyperhv.cat
+PnpLockdown=1
+
+[DestinationDirs]
+DefaultDestDir = 13
+
+[SourceDisksNames]
+1 = %DiskName%,,,""
+
+[SourceDisksFiles]
+hyperhv.sys  = 1,,
+
+[Manufacturer]
+%ManufacturerName%=Standard,NT$ARCH$
+
+[Standard.NT$ARCH$]
+%hyperhv.DeviceDesc%=hyperhv_Device, Root\hyperhv
+
+[hyperhv_Device.NT]
+CopyFiles=Drivers_Dir
+
+[Drivers_Dir]
+hyperhv.sys
+
+[hyperhv_Device.NT.Services]
+AddService = hyperhv,%SPSVCINST_ASSOCSERVICE%, hyperhv_Service_Inst
+
+[hyperhv_Service_Inst]
+DisplayName    = %hyperhv.SVCDESC%
+ServiceType    = 1               ; SERVICE_KERNEL_DRIVER
+StartType      = 3               ; SERVICE_DEMAND_START
+ErrorControl   = 1               ; SERVICE_ERROR_NORMAL
+ServiceBinary  = %13%\hyperhv.sys
+
+[Strings]
+SPSVCINST_ASSOCSERVICE= 0x00000002
+ManufacturerName="HyperDbg"
+DiskName = "hyperhv Installation Disk"
+hyperhv.DeviceDesc = "HyperDbg Intel Hypervisor"
+hyperhv.SVCDESC = "HyperDbg Hypervisor Service"

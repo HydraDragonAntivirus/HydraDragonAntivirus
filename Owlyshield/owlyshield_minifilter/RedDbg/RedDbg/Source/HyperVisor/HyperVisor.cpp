@@ -132,7 +132,7 @@ void HyperVisorSvm::FillVmcbSegmentAttributes(
     Attribute->Bitmap.Granularity = Descriptor->Generic.Granularity;
 }
 
-bool HyperVisorSvm::VirtualizeProcessor()
+bool HyperVisorSvm::VirtualizeProcessor(unsigned int ProcessorNumber)
 {
     static volatile bool IsVirtualized = false;
     IsVirtualized = false;
@@ -148,6 +148,9 @@ bool HyperVisorSvm::VirtualizeProcessor()
     __writemsr(static_cast<unsigned long>(AMD::AMD_MSR::MSR_EFER), Efer.Value);
 
     SVM::PRIVATE_VM_DATA* Private = reinterpret_cast<SVM::PRIVATE_VM_DATA*>(AllocPhys(sizeof(*Private)));
+    if (ProcessorNumber < 64) {
+        g_ProcessorVmData[ProcessorNumber] = Private;
+    }
 
     // Callback
     Interceptions = reinterpret_cast<_Interceptions>(PInterceptions);
@@ -225,8 +228,7 @@ bool HyperVisorSvm::VirtualizeAllProcessors()
 {
     struct Callback_ {
         static bool inForEachCpu(void* Arg, unsigned int ProcessorNumber) {
-            UNREFERENCED_PARAMETER(ProcessorNumber);
-            return static_cast<HyperVisorSvm*>(Arg)->VirtualizeProcessor();
+            return static_cast<HyperVisorSvm*>(Arg)->VirtualizeProcessor(ProcessorNumber);
         }
         static bool inSystemContext(void* Arg) {
             return Callable::ForEachCpu(&Callback_::inForEachCpu, Arg);

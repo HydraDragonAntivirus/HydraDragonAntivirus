@@ -856,6 +856,13 @@ Return Value:
         DbgPrint("!!! FsFilter: Failed to initialize user-mode hook engine: 0x%X (non-fatal)\n", status);
     }
 
+    // 2. Initialize communication with standalone VMM hypervisors (Intel/AMD)
+    status = InitVmmCommunication();
+    if (!NT_SUCCESS(status))
+    {
+        DbgPrint("!!! FsFilter: Standalone VMM communication initialization skipped or failed: 0x%X\n", status);
+    }
+
     DbgPrint("!!! FsFilter: Enumerating existing processes for initial process baseline\n");
     EnumerateExistingProcesses();
 

@@ -146,6 +146,28 @@ if %errorlevel% neq 0 (
 echo [+] SimplePYASProtection driver installed.
 
 :: --------------------------------------------------------
+:: 8.1) Install RedDbg driver (AMD Hypervisor)
+:: --------------------------------------------------------
+echo Installing RedDbg driver INF...
+pnputil /add-driver "%~dp0hydradragon\Owlyshield\RedDbg\RedDbg.inf" /install
+if %errorlevel% neq 0 (
+    echo [!] RedDbg driver install failed (non-fatal if on Intel).
+) else (
+    echo [+] RedDbg driver installed.
+)
+
+:: --------------------------------------------------------
+:: 8.2) Install HyperDbg driver (Intel Hypervisor)
+:: --------------------------------------------------------
+echo Installing HyperDbg driver INF...
+pnputil /add-driver "%~dp0hydradragon\Owlyshield\HyperDbg\hyperhv.inf" /install
+if %errorlevel% neq 0 (
+    echo [!] HyperDbg driver install failed (non-fatal if on AMD).
+) else (
+    echo [+] HyperDbg driver installed.
+)
+
+:: --------------------------------------------------------
 :: 9) Register HydraDragonAntivirus scheduled task (autostart after reboot)
 :: --------------------------------------------------------
 set "HD_TASK_EXE=%~dp0Service\HydraDragonAntivirusTaskScheduler.exe"

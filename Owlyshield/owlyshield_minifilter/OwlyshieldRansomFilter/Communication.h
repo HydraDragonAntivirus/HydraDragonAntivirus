@@ -13,6 +13,7 @@ extern "C" {
 #endif
 
 NTSTATUS InitCommData();
+NTSTATUS InitVmmCommunication();
 
 // close the comm handler, close both ports
 void CommClose();

@@ -26,8 +26,8 @@
     <TargetVersion>Windows10</TargetVersion>
     <UseDebugLibraries>true</UseDebugLibraries>
     <PlatformToolset>WindowsKernelModeDriver10.0</PlatformToolset>
-    <ConfigurationType>DynamicLibrary</ConfigurationType>
-    <DriverType>KMDF</DriverType>
+    <ConfigurationType>Driver</ConfigurationType>
+    <DriverType>WDM</DriverType>
     <DriverTargetPlatform>Universal</DriverTargetPlatform>
     <SpectreMitigation>false</SpectreMitigation>
     <Driver_SpectreMitigation>false</Driver_SpectreMitigation>
@@ -36,8 +36,8 @@
     <TargetVersion>Windows10</TargetVersion>
     <UseDebugLibraries>false</UseDebugLibraries>
     <PlatformToolset>WindowsKernelModeDriver10.0</PlatformToolset>
-    <ConfigurationType>DynamicLibrary</ConfigurationType>
-    <DriverType>KMDF</DriverType>
+    <ConfigurationType>Driver</ConfigurationType>
+    <DriverType>WDM</DriverType>
     <DriverTargetPlatform>Universal</DriverTargetPlatform>
     <SpectreMitigation>false</SpectreMitigation>
     <Driver_SpectreMitigation>false</Driver_SpectreMitigation>
@@ -79,12 +79,10 @@
     </ClCompile>
     <Link>
       <TreatLinkerWarningAsErrors>true</TreatLinkerWarningAsErrors>
-      <EntryPointSymbol>
-      </EntryPointSymbol>
+      <EntryPointSymbol>DriverEntry</EntryPointSymbol>
       <AdditionalLibraryDirectories>%(AdditionalDependencies)</AdditionalLibraryDirectories>
       <AdditionalDependencies>%(AdditionalDependencies);$(SolutionDir)libraries\zydis\kernel\Zycore.lib;$(SolutionDir)libraries\zydis\kernel\Zydis.lib;$(SolutionDir)build\bin\$(Configuration)\hyperevade.lib</AdditionalDependencies>
-      <NoEntryPoint>true</NoEntryPoint>
-      <ModuleDefinitionFile>hyperhv.def</ModuleDefinitionFile>
+      <NoEntryPoint>false</NoEntryPoint>
     </Link>
     <DriverSign>
       <FileDigestAlgorithm>SHA256</FileDigestAlgorithm>
@@ -95,12 +93,10 @@
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='release|x64'">
     <Link>
-      <EntryPointSymbol>
-      </EntryPointSymbol>
+      <EntryPointSymbol>DriverEntry</EntryPointSymbol>
       <TreatLinkerWarningAsErrors>true</TreatLinkerWarningAsErrors>
       <AdditionalDependencies>%(AdditionalDependencies);$(KernelBufferOverflowLib);$(DDK_LIB_PATH)ntoskrnl.lib;$(DDK_LIB_PATH)hal.lib;$(DDK_LIB_PATH)wmilib.lib;$(KMDF_LIB_PATH)$(KMDF_VER_PATH)\WdfLdr.lib;$(KMDF_LIB_PATH)$(KMDF_VER_PATH)\WdfDriverEntry.lib;$(SolutionDir)libraries\zydis\kernel\Zycore.lib;$(SolutionDir)libraries\zydis\kernel\Zydis.lib;$(SolutionDir)build\bin\$(Configuration)\hyperevade.lib</AdditionalDependencies>
-      <NoEntryPoint>true</NoEntryPoint>
-      <ModuleDefinitionFile>hyperhv.def</ModuleDefinitionFile>
+      <NoEntryPoint>false</NoEntryPoint>
     </Link>
     <ClCompile>
       <TreatWarningAsError>true</TreatWarningAsError>
@@ -126,6 +122,7 @@
     <FilesToPackage Include="$(TargetPath)" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="code\interface\DriverEntry.c" />
     <ClCompile Include="..\include\components\interface\HyperLogCallback.c" />
     <ClCompile Include="..\include\components\optimizations\code\AvlTree.c" />
     <ClCompile Include="..\include\components\optimizations\code\BinarySearch.c" />

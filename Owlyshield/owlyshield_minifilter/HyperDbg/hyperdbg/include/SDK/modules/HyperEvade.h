@@ -10,6 +10,7 @@
  *
  */
 #pragma once
+#include "../headers/BasicTypes.h"
 
 //////////////////////////////////////////////////
 //			     Callback Types                 //

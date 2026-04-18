@@ -27,6 +27,9 @@ jobs:
         PLATFORM: [x64]
 
     steps:
+    - name: Enable long paths
+      run: git config --global core.longpaths true
+
     - name: Checkout repository
       uses: actions/checkout@v4
       with:

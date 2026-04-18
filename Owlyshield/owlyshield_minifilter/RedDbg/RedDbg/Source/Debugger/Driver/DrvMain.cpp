@@ -386,6 +386,30 @@ NTSTATUS DrvCreate(PDEVICE_OBJECT DeviceObject, PIRP Irp)
 	return STATUS_SUCCESS;
 }
 
+#define IOCTL_REGISTER_OWLY_CALLBACK CTL_CODE(FILE_DEVICE_UNKNOWN, 0x815, METHOD_BUFFERED, FILE_ANY_ACCESS)
+
+typedef struct _OWLY_HV_COMM_DATA {
+    ULONG Magic;           // 0x4F574C59 ('OWLY')
+    PVOID CallbackRoutine; // PHYPERDBG_OWLY_EVENT_CALLBACK
+} OWLY_HV_COMM_DATA, *POWLY_HV_COMM_DATA;
+
+PVOID g_OwlyCallback = NULL;
+HANDLE g_PollingThreadHandle = NULL;
+BOOLEAN g_StopPolling = FALSE;
+
+VOID PollingThread(PVOID Context) {
+    UNREFERENCED_PARAMETER(Context);
+    while (!g_StopPolling) {
+        if (g_OwlyCallback != NULL) {
+            // TODO: Read trace ring buffers and pass to g_OwlyCallback
+        }
+        LARGE_INTEGER interval;
+        interval.QuadPart = -1000000; // 100ms
+        KeDelayExecutionThread(KernelMode, FALSE, &interval);
+    }
+    PsTerminateSystemThread(STATUS_SUCCESS);
+}
+
 NTSTATUS DrvDispatchIoControl(PDEVICE_OBJECT DeviceObject, PIRP Irp)
 {
 	PIO_STACK_LOCATION IrpStack;
@@ -397,6 +421,29 @@ NTSTATUS DrvDispatchIoControl(PDEVICE_OBJECT DeviceObject, PIRP Irp)
 
 	switch (IrpStack->Parameters.DeviceIoControl.IoControlCode)
 	{
+    case IOCTL_REGISTER_OWLY_CALLBACK:
+    {
+        if (Irp->RequestorMode != KernelMode) {
+            Status = STATUS_ACCESS_DENIED;
+            break;
+        }
+        if (IrpStack->Parameters.DeviceIoControl.InputBufferLength >= sizeof(OWLY_HV_COMM_DATA)) {
+            POWLY_HV_COMM_DATA commData = (POWLY_HV_COMM_DATA)Irp->AssociatedIrp.SystemBuffer;
+            if (commData->Magic == 0x4F574C59) {
+                g_OwlyCallback = commData->CallbackRoutine;
+                DbgPrint("!!! RedDbg: Registered Owlyshield callback at %p\n", g_OwlyCallback);
+                
+                if (g_PollingThreadHandle == NULL) {
+                    PsCreateSystemThread(&g_PollingThreadHandle, THREAD_ALL_ACCESS, NULL, NULL, NULL, PollingThread, NULL);
+                }
+            } else {
+                Status = STATUS_INVALID_PARAMETER;
+            }
+        } else {
+            Status = STATUS_BUFFER_TOO_SMALL;
+        }
+        break;
+    }
 	case IOCTL_REGISTER_EVENT:
 	{
 		if (IrpStack->Parameters.DeviceIoControl.InputBufferLength < SIZEOF_REGISTER_EVENT || Irp->AssociatedIrp.SystemBuffer == NULL) {
@@ -540,12 +587,12 @@ extern "C" NTSTATUS DriverEntry(_In_ PDRIVER_OBJECT DriverObject, PUNICODE_STRIN
 	PDEVICE_OBJECT DeviceObject = NULL; UNICODE_STRING DriverName, DosDeviceName;
 	__crt_init();
 
-	if (!objLog.LogInitialize()) { DbgPrint("[*] Log buffer is not initialized !\n"); DbgBreakPoint(); }
-	if (!objTrace.TraceInitializeMnemonic()) { DbgPrint("[*] Trace buffer is not initialized !\n"); DbgBreakPoint(); }
-	if (!SvmExitCodesAllocator()) { DbgPrint("[*] SvmExitCodesAllocator buffer is not initialized !\n"); DbgBreakPoint(); }
+	if (!objLog.LogInitialize()) { DbgPrint("[*] Log buffer is not initialized !\n"); }
+	if (!objTrace.TraceInitializeMnemonic()) { DbgPrint("[*] Trace buffer is not initialized !\n"); }
+	if (!SvmExitCodesAllocator()) { DbgPrint("[*] SvmExitCodesAllocator buffer is not initialized !\n"); }
 
-	RtlInitUnicodeString(&DriverName, L"\\Device\\MyHypervisorDevice");
-	RtlInitUnicodeString(&DosDeviceName, L"\\DosDevices\\MyHypervisorDevice");
+	RtlInitUnicodeString(&DriverName, L"\\Device\\RedDbgCore");
+	RtlInitUnicodeString(&DosDeviceName, L"\\DosDevices\\RedDbgCore");
 	
 	Ntstatus = IoCreateDevice(DriverObject, 0, &DriverName, FILE_DEVICE_UNKNOWN, FILE_DEVICE_SECURE_OPEN, FALSE, &DeviceObject);
 	if (Ntstatus == STATUS_SUCCESS)
