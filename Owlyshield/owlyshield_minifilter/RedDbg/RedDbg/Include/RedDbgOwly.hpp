@@ -1,5 +1,5 @@
 #pragma once
-#include <ntddk.h>
+#include <ntifs.h>
 
 // Matches OwlyshieldRansomFilter definition
 typedef struct _OWLY_HV_EVENT_DETAILS

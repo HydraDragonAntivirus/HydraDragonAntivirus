@@ -1,4 +1,4 @@
-#include "Log/Trace.hpp"
+﻿#include "Log/Trace.hpp"
 
 #include <ntstrsafe.h>
 #include <intrin.h>
@@ -145,7 +145,7 @@ char* AttachString(char* buffer, char* string_to_attach)
 	size_t buffer_size = strlen(buffer);
 	size_t string_size = strlen(string_to_attach);
 	PCH new_buffer =
-		(PCH)ExAllocatePool(NonPagedPoolNx, buffer_size + string_size + 1); // allocate memory for combined string
+		(PCH)ExAllocatePool2(POOL_FLAG_NON_PAGED, buffer_size + string_size + 1, 'goL#'); // allocate memory for combined string
 	if (new_buffer != nullptr)
 	{
 		strcpy_s(new_buffer, sizeof(buffer), buffer); // copy original buffer to new buffer
@@ -173,7 +173,7 @@ void Trace::AcceptRipMessage(File& objFile)
 				totalSize += sizeof(uint64_t) * 2; // Space for Address
 			}
 
-			PCH ValuesBuffer = (PCH)ExAllocatePool(NonPagedPoolNx, totalSize);
+			PCH ValuesBuffer = (PCH)ExAllocatePool2(POOL_FLAG_NON_PAGED, totalSize, 'goL#');
 			if (ValuesBuffer != nullptr)
 			{
 				uint64_t* LocalCWI = CircleOfRips[Arc].Start;
@@ -189,7 +189,7 @@ void Trace::AcceptRipMessage(File& objFile)
 
 					LocalCWI += sizeof(uint64_t);
 				}
-				objFile.WriteFile(ValuesBuffer, ValuesLen);
+				objFile.WriteFile(ValuesBuffer, (ULONG)ValuesLen);
 
 				KdPrint(("Fin\n"));
 				ExFreePool(ValuesBuffer);
@@ -228,7 +228,7 @@ void Trace::AcceptMnemonicMessage(File& objFile)
 				}
 			}
 
-			PCH ValuesBuffer = (PCH)ExAllocatePool(NonPagedPoolNx, totalSize);
+			PCH ValuesBuffer = (PCH)ExAllocatePool2(POOL_FLAG_NON_PAGED, totalSize, 'goL#');
 			if (ValuesBuffer != nullptr)
 			{
 				Mnemonic* LocalCWI = CircleOfMnemonics[Arc].Start;
@@ -271,7 +271,7 @@ void Trace::AcceptMnemonicMessage(File& objFile)
 					LocalCWI += sizeof(Mnemonic);
 				}
 
-				objFile.WriteFile(ValuesBuffer, ValuesLen);
+				objFile.WriteFile(ValuesBuffer, (ULONG)ValuesLen);
 
 				KdPrint(("Fin\n"));
 				ExFreePool(ValuesBuffer);
@@ -296,14 +296,14 @@ void Trace::AcceptGraphMessage(File& objFile)
 			//auto addr = (CircleOfMnemonics[Arc].End)->Address;
 			//KdPrint(("Last addr %p\n", addr));
 
-			PCH ValuesBuffer = (PCH)ExAllocatePool(NonPagedPoolNx, 4294967296);
+			PCH ValuesBuffer = (PCH)ExAllocatePool2(POOL_FLAG_NON_PAGED, 4294967296, 'goL#');
 			RtlZeroMemory(ValuesBuffer, 4294967296);
 			if (ValuesBuffer != nullptr)
 			{
 				Mnemonic* LocalCWI = CircleOfMnemonics[Arc].Start;
 				PCH ValuesCWI = ValuesBuffer;
 				size_t ValuesLen = 0;
-				size_t Length = 0;
+				// size_t Length = 0;
 				CHAR NameOfGraph[] = "test";
 
 				if (!Entry)
@@ -332,7 +332,7 @@ void Trace::AcceptGraphMessage(File& objFile)
 
 						Mnemonic* TempNextGraph = StartOfNextGraph;
 						{
-							for (int64_t Index = cMnemonic + 1; Index < CircleOfMnemonics[Arc].size(sizeof(Mnemonic)); ++Index)
+							for (int64_t Index = (int64_t)cMnemonic + 1; Index < (int64_t)CircleOfMnemonics[Arc].size(sizeof(Mnemonic)); ++Index)
 							{
 								TempNextGraph += sizeof(Mnemonic);
 								if (TempNextGraph->Graph == true) { TempNextGraph -= sizeof(Mnemonic); break; }
@@ -359,15 +359,15 @@ void Trace::AcceptGraphMessage(File& objFile)
 									ZydisFormatter Formatter;
 									ZydisFormatterInit(&Formatter, ZYDIS_FORMATTER_STYLE_INTEL);
 
-									ZydisDecodedInstruction Instruction;
-									ZydisDecodedOperand Operands[ZYDIS_MAX_OPERAND_COUNT];
+									ZydisDecodedInstruction LocalInstruction;
+									ZydisDecodedOperand LocalOperands[ZYDIS_MAX_OPERAND_COUNT];
 
 									ZydisDecoderDecodeFull(&Decoder,
-										(const void*)PMnemonic->Opcodes, PMnemonic->Length, &Instruction,
-										Operands);
+										(const void*)PMnemonic->Opcodes, PMnemonic->Length, &LocalInstruction,
+										LocalOperands);
 
 									ZydisFormatterFormatInstruction(
-										&Formatter, &Instruction, Operands, Instruction.operand_count_visible, ValuesCWI,
+										&Formatter, &LocalInstruction, LocalOperands, LocalInstruction.operand_count_visible, ValuesCWI,
 										128, PMnemonic->Address, NULL);
 
 									ValuesLen += strlen(ValuesCWI);
@@ -395,15 +395,15 @@ void Trace::AcceptGraphMessage(File& objFile)
 									ZydisFormatter Formatter;
 									ZydisFormatterInit(&Formatter, ZYDIS_FORMATTER_STYLE_INTEL);
 
-									ZydisDecodedInstruction Instruction;
-									ZydisDecodedOperand Operands[ZYDIS_MAX_OPERAND_COUNT];
+									ZydisDecodedInstruction LocalInstruction;
+									ZydisDecodedOperand LocalOperands[ZYDIS_MAX_OPERAND_COUNT];
 
 									ZydisDecoderDecodeFull(&Decoder,
-										(const void*)PMnemonic->Opcodes, PMnemonic->Length, &Instruction,
-										Operands);
+										(const void*)PMnemonic->Opcodes, PMnemonic->Length, &LocalInstruction,
+										LocalOperands);
 
 									ZydisFormatterFormatInstruction(
-										&Formatter, &Instruction, Operands, Instruction.operand_count_visible, ValuesCWI,
+										&Formatter, &LocalInstruction, LocalOperands, LocalInstruction.operand_count_visible, ValuesCWI,
 										128, PMnemonic->Address, NULL);
 
 									ValuesLen += strlen(ValuesCWI);
@@ -427,7 +427,7 @@ void Trace::AcceptGraphMessage(File& objFile)
 				}
 				if (EoF) { STRCAT(ValuesCWI, objGraphVizLanguage.EndOfdigraph, ValuesLen); EoF = false; }
 
-				objFile.WriteFile(ValuesBuffer, ValuesLen);
+				objFile.WriteFile(ValuesBuffer, (ULONG)ValuesLen);
 
 				KdPrint(("Fin\n"));
 				ExFreePool(ValuesBuffer);
@@ -442,7 +442,7 @@ void Trace::AcceptGraphMessage(File& objFile)
 
 void Trace::AcceptGraphCycleFoldingMessage(File& objFile)
 {
-	bool Entry = false;
+	bool TraceEntry = false;
 	int Arc = 0;
 	std::unordered_set<Mnemonic, MyHashFunction> CycleFolding;
 	for (;;)
@@ -462,20 +462,20 @@ void Trace::AcceptGraphCycleFoldingMessage(File& objFile)
 			}
 			KdPrint(("CircleOfMnemonics after CycleFolding Data written %p and ARC IS %x\n", CircleOfMnemonics[Arc].size(sizeof(Mnemonic)), Arc));
 
-			PCH ValuesBuffer = (PCH)ExAllocatePool(NonPagedPoolNx, 4294967296);
+			PCH ValuesBuffer = (PCH)ExAllocatePool2(POOL_FLAG_NON_PAGED, 4294967296, 'goL#');
 			if (ValuesBuffer != nullptr)
 			{
 				Mnemonic* LocalCWI = CircleOfMnemonics[Arc].Start;
 				PCH ValuesCWI = ValuesBuffer;
 				size_t ValuesLen = 0;
-				size_t Length = 0;
+				// size_t Length = 0;
 				CHAR NameOfGraph[] = "test";
 
-				if (!Entry)
+				if (!TraceEntry)
 				{
 					EntryPointOfGraphVizLanguage(ValuesCWI, NameOfGraph, ValuesLen);
 					NodeAttributesOfDigraph(ValuesCWI, ValuesLen);
-					Entry = true;
+					TraceEntry = true;
 				}
 
 				for (uint64_t cMnemonic = 0; cMnemonic < CircleOfMnemonics[Arc].size(sizeof(Mnemonic)); ++cMnemonic)
@@ -497,7 +497,7 @@ void Trace::AcceptGraphCycleFoldingMessage(File& objFile)
 
 						Mnemonic* TempNextGraph = StartOfNextGraph;
 						{
-							for (int64_t Index = cMnemonic + 1; Index < CircleOfMnemonics[Arc].size(sizeof(Mnemonic)); ++Index)
+							for (int64_t Index = (int64_t)cMnemonic + 1; Index < (int64_t)CircleOfMnemonics[Arc].size(sizeof(Mnemonic)); ++Index)
 							{
 								TempNextGraph += sizeof(Mnemonic);
 								if (TempNextGraph->Graph == true) { TempNextGraph -= sizeof(Mnemonic); break; }
@@ -524,15 +524,15 @@ void Trace::AcceptGraphCycleFoldingMessage(File& objFile)
 									ZydisFormatter Formatter;
 									ZydisFormatterInit(&Formatter, ZYDIS_FORMATTER_STYLE_INTEL);
 
-									ZydisDecodedInstruction Instruction;
-									ZydisDecodedOperand Operands[ZYDIS_MAX_OPERAND_COUNT];
+									ZydisDecodedInstruction LocalInstruction;
+									ZydisDecodedOperand LocalOperands[ZYDIS_MAX_OPERAND_COUNT];
 
 									ZydisDecoderDecodeFull(&Decoder,
-										(const void*)PMnemonic->Opcodes, PMnemonic->Length, &Instruction,
-										Operands);
+										(const void*)PMnemonic->Opcodes, PMnemonic->Length, &LocalInstruction,
+										LocalOperands);
 
 									ZydisFormatterFormatInstruction(
-										&Formatter, &Instruction, Operands, Instruction.operand_count_visible, ValuesCWI,
+										&Formatter, &LocalInstruction, LocalOperands, LocalInstruction.operand_count_visible, ValuesCWI,
 										128, PMnemonic->Address, NULL);
 
 									ValuesLen += strlen(ValuesCWI);
@@ -560,15 +560,15 @@ void Trace::AcceptGraphCycleFoldingMessage(File& objFile)
 									ZydisFormatter Formatter;
 									ZydisFormatterInit(&Formatter, ZYDIS_FORMATTER_STYLE_INTEL);
 
-									ZydisDecodedInstruction Instruction;
-									ZydisDecodedOperand Operands[ZYDIS_MAX_OPERAND_COUNT];
+									ZydisDecodedInstruction LocalInstruction;
+									ZydisDecodedOperand LocalOperands[ZYDIS_MAX_OPERAND_COUNT];
 
 									ZydisDecoderDecodeFull(&Decoder,
-										(const void*)PMnemonic->Opcodes, PMnemonic->Length, &Instruction,
-										Operands);
+										(const void*)PMnemonic->Opcodes, PMnemonic->Length, &LocalInstruction,
+										LocalOperands);
 
 									ZydisFormatterFormatInstruction(
-										&Formatter, &Instruction, Operands, Instruction.operand_count_visible, ValuesCWI,
+										&Formatter, &LocalInstruction, LocalOperands, LocalInstruction.operand_count_visible, ValuesCWI,
 										128, PMnemonic->Address, NULL);
 
 									ValuesLen += strlen(ValuesCWI);
@@ -591,7 +591,7 @@ void Trace::AcceptGraphCycleFoldingMessage(File& objFile)
 				}
 				STRCAT(ValuesCWI, objGraphVizLanguage.EndOfdigraph, ValuesLen);
 
-				objFile.WriteFile(ValuesBuffer, ValuesLen);
+				objFile.WriteFile(ValuesBuffer, (ULONG)ValuesLen);
 
 				KdPrint(("Fin\n"));
 				ExFreePool(ValuesBuffer);
@@ -613,7 +613,7 @@ bool Trace::TraceInitializeRip()
 		TraceMessage<uint64_t> objTraceRip;
 		CircleOfRips.push_back(objTraceRip);
 
-		CircleOfRips[Arc].Start = (uint64_t*)ExAllocatePool(NonPagedPoolNx, BufferSize);
+		CircleOfRips[Arc].Start = (uint64_t*)ExAllocatePool2(POOL_FLAG_NON_PAGED, BufferSize, 'RipS');
 
 		if (CircleOfRips[Arc].Start == nullptr) { return false; }
 		RtlZeroMemory(CircleOfRips[Arc].Start, BufferSize);
@@ -636,7 +636,7 @@ bool Trace::TraceInitializeMnemonic()
 		TraceMessage<Mnemonic> objTraceMnemonic;
 		CircleOfMnemonics.push_back(objTraceMnemonic);
 
-		CircleOfMnemonics[Arc].Start = (Mnemonic*)ExAllocatePool(NonPagedPoolNx, BufferSize);
+		CircleOfMnemonics[Arc].Start = (Mnemonic*)ExAllocatePool2(POOL_FLAG_NON_PAGED, BufferSize, 'MneS');
 		if (CircleOfMnemonics[Arc].Start == nullptr) { return false; }
 		RtlZeroMemory(CircleOfMnemonics[Arc].Start, BufferSize);
 
@@ -645,7 +645,7 @@ bool Trace::TraceInitializeMnemonic()
 		CircleOfMnemonics[Arc].End = CircleOfMnemonics[Arc].Start + BufferSize;
 	}
 
-	TranslationNumber.Start = (AddressTranslateMap*)ExAllocatePool(NonPagedPoolNx, MainNodesBytes);
+	TranslationNumber.Start = (AddressTranslateMap*)ExAllocatePool2(POOL_FLAG_NON_PAGED, MainNodesBytes, 'TraS');
 	if (TranslationNumber.Start == nullptr) { return false; }
 	RtlZeroMemory(TranslationNumber.Start, MainNodesBytes);
 
@@ -653,50 +653,50 @@ bool Trace::TraceInitializeMnemonic()
 	TranslationNumber.CurrentWriteIndex = TranslationNumber.Start;
 	TranslationNumber.End = TranslationNumber.Start + MainNodesBytes;
 
-	Instruction = (ZydisDecodedInstruction*)ExAllocatePoolWithTag(NonPagedPoolNx, sizeof(ZydisDecodedInstruction), 'ZIsr');
+	Instruction = (ZydisDecodedInstruction*)ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeof(ZydisDecodedInstruction), 'ZIsr');
 	RtlZeroMemory(Instruction, sizeof(ZydisDecodedInstruction));
 
-	DecoderMinimal = (ZydisDecoder*)ExAllocatePoolWithTag(NonPagedPoolNx, sizeof(ZydisDecoder), 'DecM');
+	DecoderMinimal = (ZydisDecoder*)ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeof(ZydisDecoder), 'DecM');
 	RtlZeroMemory(DecoderMinimal, sizeof(ZydisDecoder));
 	DecoderMinimal->decoder_mode = ZYDIS_DECODER_MODE_MINIMAL;
 	DecoderMinimal->machine_mode = ZYDIS_MACHINE_MODE_LONG_64;
 	DecoderMinimal->stack_width = ZYDIS_STACK_WIDTH_64;
 
-	DecoderFull = (ZydisDecoder*)ExAllocatePoolWithTag(NonPagedPoolNx, sizeof(ZydisDecoder), 'DecF');
+	DecoderFull = (ZydisDecoder*)ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeof(ZydisDecoder), 'DecF');
 	RtlZeroMemory(DecoderFull, sizeof(ZydisDecoder));
 	ZydisDecoderInit(DecoderFull, ZYDIS_MACHINE_MODE_LONG_64, ZYDIS_STACK_WIDTH_64);
 
-	Operands = (ZydisDecodedOperand*)ExAllocatePoolWithTag(NonPagedPoolNx, sizeof(ZydisDecodedOperand) * ZYDIS_MAX_OPERAND_COUNT, 'Oper');
+	Operands = (ZydisDecodedOperand*)ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeof(ZydisDecodedOperand) * ZYDIS_MAX_OPERAND_COUNT, 'Oper');
 	RtlZeroMemory(Operands, sizeof(ZydisDecodedOperand) * ZYDIS_MAX_OPERAND_COUNT);
 
-	edges = (GraphNode*)ExAllocatePoolWithTag(NonPagedPoolNx, (sizeof(GraphNode) * MAX_NODES), 'EDGS');
+	edges = (GraphNode*)ExAllocatePool2(POOL_FLAG_NON_PAGED, (sizeof(GraphNode) * MAX_NODES), 'EDGS');
 	RtlZeroMemory(edges, (sizeof(GraphNode) * MAX_NODES));
-	adjList = (uint64_t**)ExAllocatePoolWithTag(NonPagedPoolNx, (sizeof(uint64_t) * MAX_NODES), 'adLF');
+	adjList = (uint64_t**)ExAllocatePool2(POOL_FLAG_NON_PAGED, (sizeof(uint64_t) * MAX_NODES), 'adLF');
 	RtlZeroMemory(adjList, (sizeof(uint64_t) * MAX_NODES));
-	adjListT = (uint64_t**)ExAllocatePoolWithTag(NonPagedPoolNx, (sizeof(uint64_t) * MAX_NODES), 'adLT');
+	adjListT = (uint64_t**)ExAllocatePool2(POOL_FLAG_NON_PAGED, (sizeof(uint64_t) * MAX_NODES), 'adLT');
 	RtlZeroMemory(adjListT, (sizeof(uint64_t) * MAX_NODES));
 
 	for (uint64_t i = 0; i < MAX_NODES; ++i) {
-		adjList[i] = (uint64_t*)ExAllocatePoolWithTag(NonPagedPoolNx, (sizeof(uint64_t) * MAX_NODES), '2DMA');
+		adjList[i] = (uint64_t*)ExAllocatePool2(POOL_FLAG_NON_PAGED, (sizeof(uint64_t) * MAX_NODES), '2DMA');
 		RtlZeroMemory(adjList[i], (sizeof(uint64_t) * MAX_NODES));
-		adjListT[i] = (uint64_t*)ExAllocatePoolWithTag(NonPagedPoolNx, (sizeof(uint64_t) * MAX_NODES), '2DMT');
+		adjListT[i] = (uint64_t*)ExAllocatePool2(POOL_FLAG_NON_PAGED, (sizeof(uint64_t) * MAX_NODES), '2DMT');
 		RtlZeroMemory(adjListT[i], (sizeof(uint64_t) * MAX_NODES));
 	}
 
-	adjListSize = (uint64_t*)ExAllocatePoolWithTag(NonPagedPoolNx, (sizeof(uint64_t) * MAX_NODES), 'adjF');
+	adjListSize = (uint64_t*)ExAllocatePool2(POOL_FLAG_NON_PAGED, (sizeof(uint64_t) * MAX_NODES), 'adjF');
 	RtlZeroMemory(adjListSize, (sizeof(uint64_t) * MAX_NODES));
-	adjListTSize = (uint64_t*)ExAllocatePoolWithTag(NonPagedPoolNx, (sizeof(uint64_t) * MAX_NODES), 'adjT');
+	adjListTSize = (uint64_t*)ExAllocatePool2(POOL_FLAG_NON_PAGED, (sizeof(uint64_t) * MAX_NODES), 'adjT');
 	RtlZeroMemory(adjListTSize, (sizeof(uint64_t) * MAX_NODES));
 
-	visited = (int64_t*)ExAllocatePoolWithTag(NonPagedPoolNx, (sizeof(int64_t) * MAX_NODES), 'Vist');
+	visited = (int64_t*)ExAllocatePool2(POOL_FLAG_NON_PAGED, (sizeof(int64_t) * MAX_NODES), 'Vist');
 	RtlZeroMemory(visited, (sizeof(int64_t) * MAX_NODES));
 
-	postOrder = (uint64_t*)ExAllocatePoolWithTag(NonPagedPoolNx, (sizeof(uint64_t) * MAX_NODES), 'Post');
+	postOrder = (uint64_t*)ExAllocatePool2(POOL_FLAG_NON_PAGED, (sizeof(uint64_t) * MAX_NODES), 'Post');
 	RtlZeroMemory(postOrder, (sizeof(uint64_t) * MAX_NODES));
-	component = (uint64_t*)ExAllocatePoolWithTag(NonPagedPoolNx, (sizeof(uint64_t) * MAX_NODES), 'Comp');
+	component = (uint64_t*)ExAllocatePool2(POOL_FLAG_NON_PAGED, (sizeof(uint64_t) * MAX_NODES), 'Comp');
 	RtlZeroMemory(component, (sizeof(uint64_t) * MAX_NODES));
 
-	MainGraphs = (uint64_t*)ExAllocatePoolWithTag(NonPagedPoolNx, (sizeof(uint64_t) * MAX_NODES), 'Mai>');
+	MainGraphs = (uint64_t*)ExAllocatePool2(POOL_FLAG_NON_PAGED, (sizeof(uint64_t) * MAX_NODES), 'Mai>');
 	RtlZeroMemory(MainGraphs, (sizeof(uint64_t) * MAX_NODES));
 
 	translationMap = new std::unordered_map<uint64_t, uint64_t>;
@@ -902,11 +902,12 @@ void Trace::KosarajuAlgorithm(uint64_t numNodes, uint64_t numEdges)
 			uint64_t componentIndex = 0;
 			dfs2(adjListT, numNodes, node, visited, component, &componentIndex);
 
-			size_t LenOut = 0;
+			// size_t LenOut = 0;
 
 			if (componentIndex >= 2)
 			{
 				uint64_t HighAddr = GetOriginalTransVal(component[componentIndex - 1]);
+				UNREFERENCED_PARAMETER(HighAddr);
 				KdPrint(("Algo | High addr: %p\n", HighAddr));
 				/*
 				ZydisDecoderDecodeFull(

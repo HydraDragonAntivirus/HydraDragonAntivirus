@@ -5,7 +5,7 @@
 #include "Log/GraphViz/GraphVizLanguage.hpp"
 #include "Log/File.hpp"
 
-#include <ntddk.h>
+#include <ntifs.h>
 #include <vector>
 #include <unordered_map>
 #include <unordered_set>
@@ -109,6 +109,9 @@ private:
 
 	void InitCycle();
 	void addEdge(uint64_t** _adjList, uint64_t from, uint64_t to, uint64_t* size);
+	void dfs1(uint64_t** _adjList, uint64_t numNodes, uint64_t node, int64_t* _visited, uint64_t* _postOrder, uint64_t* index);
+	void dfs2(uint64_t** _adjListT, uint64_t numNodes, uint64_t node, int64_t* _visited, uint64_t* _component, uint64_t* componentIndex);
+	void KosarajuAlgorithm(uint64_t numNodes, uint64_t numEdges);
 public:
 	bool Exit = false;
 	bool EoF = false;

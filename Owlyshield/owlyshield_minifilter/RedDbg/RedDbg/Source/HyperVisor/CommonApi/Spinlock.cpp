@@ -1,6 +1,6 @@
 #include "HyperVisor/CommonApi/Spinlock.hpp"
 
-#include <ntddk.h>
+#include <ntifs.h>
 
 //----------------------------------------------------------------------------------------------
 BOOLEAN Spinlock::SpinlockTryLock(volatile LONG * Lock) { return (!(*Lock) && !_interlockedbittestandset(Lock, 0)); }

@@ -7,7 +7,7 @@ Module Name:
 Abstract:
 
     This is the main module of the FsFilter miniFilter driver.
-    
+
     UPDATED: Replaced process hooking path with hypervisor/VMM monitoring
              and proper Windows notification callbacks.
 
@@ -18,10 +18,11 @@ Environment:
 --*/
 
 #include "FsFilter.h"
-#include "Regedit.h"
 #include "ProcessProtection.h"
-#include "UserModeHookEngine.h"
+#include "Regedit.h"
 #include "RootkitDetector.h"
+#include "UserModeHookEngine.h"
+
 
 #pragma prefast(disable : __WARNING_ENCODE_MEMBER_FUNCTION_POINTER, "Not valid for kernel mode drivers")
 
@@ -46,17 +47,9 @@ EXTERN_C_END
 // Forward declarations for new callback functions
 //
 
-VOID ThreadCreationCallback(
-    _In_ HANDLE ProcessId,
-    _In_ HANDLE ThreadId,
-    _In_ BOOLEAN Create
-);
+VOID ThreadCreationCallback(_In_ HANDLE ProcessId, _In_ HANDLE ThreadId, _In_ BOOLEAN Create);
 
-VOID ImageLoadCallback(
-    _In_opt_ PUNICODE_STRING FullImageName,
-    _In_ HANDLE ProcessId,
-    _In_ PIMAGE_INFO ImageInfo
-);
+VOID ImageLoadCallback(_In_opt_ PUNICODE_STRING FullImageName, _In_ HANDLE ProcessId, _In_ PIMAGE_INFO ImageInfo);
 
 // FIX: Forward declaration added because it is used before definition
 FLT_POSTOP_CALLBACK_STATUS
@@ -75,17 +68,14 @@ FSShouldIgnorePyasWhitelistPath(_In_ PCUNICODE_STRING Path);
 // This function copies the string into a single NonPaged, 'RW'-tagged
 // allocation and returns an owning pointer.  Caller must free the
 // original SeLocateProcessImageName buffer after this succeeds.
-static PUNICODE_STRING
-FSCopyUnicodeStringForRecordNewProcess(_In_ PUNICODE_STRING Source)
+static PUNICODE_STRING FSCopyUnicodeStringForRecordNewProcess(_In_ PUNICODE_STRING Source)
 {
     if (Source == NULL || Source->Buffer == NULL || Source->Length == 0)
         return NULL;
 
     USHORT allocLen = Source->Length + sizeof(WCHAR);
-    PUNICODE_STRING copy = (PUNICODE_STRING)ExAllocatePool2(
-        POOL_FLAG_NON_PAGED,
-        sizeof(UNICODE_STRING) + allocLen,
-        'RW');
+    PUNICODE_STRING copy =
+        (PUNICODE_STRING)ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeof(UNICODE_STRING) + allocLen, 'RW');
     if (copy == NULL)
         return NULL;
 
@@ -97,8 +87,7 @@ FSCopyUnicodeStringForRecordNewProcess(_In_ PUNICODE_STRING Source)
     return copy;
 }
 
-static BOOLEAN
-FSShouldBypassReadTelemetry(_In_ PFLT_CALLBACK_DATA Data)
+static BOOLEAN FSShouldBypassReadTelemetry(_In_ PFLT_CALLBACK_DATA Data)
 {
     ULONG requestorPid;
     PEPROCESS requestorProcess = NULL;
@@ -127,9 +116,8 @@ FSShouldBypassReadTelemetry(_In_ PFLT_CALLBACK_DATA Data)
     if (NT_SUCCESS(PsLookupProcessByProcessId((HANDLE)(ULONG_PTR)requestorPid, &requestorProcess)))
     {
         UCHAR *processName = PsGetProcessImageFileName(requestorProcess);
-        if (processName != NULL &&
-            (_stricmp((const char *)processName, "MemCompression") == 0 ||
-             _stricmp((const char *)processName, "System") == 0))
+        if (processName != NULL && (_stricmp((const char *)processName, "MemCompression") == 0 ||
+                                    _stricmp((const char *)processName, "System") == 0))
         {
             ObDereferenceObject(requestorProcess);
             return TRUE;
@@ -141,18 +129,12 @@ FSShouldBypassReadTelemetry(_In_ PFLT_CALLBACK_DATA Data)
     return FALSE;
 }
 
-static BOOLEAN
-FSIsKernelDebuggerAttached(VOID)
-{
-    return (KD_DEBUGGER_ENABLED != FALSE && KD_DEBUGGER_NOT_PRESENT == FALSE);
-}
-
 // CDO Dispatch Routines
 // HookDevice* dispatch functions are now in Communication.cpp.
 // Use InitHookNotifyDevice() / CleanupHookNotifyDevice() instead.
 
 // g_HookDeviceObject removed: hook device owned by Communication.cpp
-static PDRIVER_OBJECT g_DriverObject = NULL;   // set in DriverEntry
+static PDRIVER_OBJECT g_DriverObject = NULL;         // set in DriverEntry
 static PDEVICE_OBJECT g_WorkItemDeviceObject = NULL; // dedicated CDO for IoAllocateWorkItem
 
 // Public definition of g_DeviceObject — extern-declared in Regedit.cpp so that
@@ -168,20 +150,20 @@ static BOOLEAN g_ImageNotifyRegistered = FALSE;
 // Work item used to offload UserModeHookProcess from ImageLoadCallback.
 // ImageLoadCallback runs in a loader lock path; calling heavy kernel operations
 // (KeStackAttachProcess, ZwAllocateVirtualMemory, ZwCreateFile) directly causes freezes.
-typedef struct _HOOK_PROCESS_WORK_ITEM {
-    PIO_WORKITEM WorkItem;   // <-- handle, not embedded struct
-    ULONG        ProcessId;
+typedef struct _HOOK_PROCESS_WORK_ITEM
+{
+    PIO_WORKITEM WorkItem; // <-- handle, not embedded struct
+    ULONG ProcessId;
 } HOOK_PROCESS_WORK_ITEM, *PHOOK_PROCESS_WORK_ITEM;
 
-static VOID HookProcessWorkItemRoutine(
-    _In_ PDEVICE_OBJECT DeviceObject,
-    _In_opt_ PVOID Parameter)
+static VOID HookProcessWorkItemRoutine(_In_ PDEVICE_OBJECT DeviceObject, _In_opt_ PVOID Parameter)
 {
     UNREFERENCED_PARAMETER(DeviceObject);
     PHOOK_PROCESS_WORK_ITEM ctx = (PHOOK_PROCESS_WORK_ITEM)Parameter;
-    if (ctx == NULL) return;
+    if (ctx == NULL)
+        return;
 
-    (VOID)UserModeHookProcess(ctx->ProcessId);
+    (VOID) UserModeHookProcess(ctx->ProcessId);
 
     IoFreeWorkItem(ctx->WorkItem); // free the IO_WORKITEM first
     ExFreePoolWithTag(ctx, 'wHuM');
@@ -220,8 +202,8 @@ static VOID FSEnsurePyasRuleMutex(VOID)
         // WINNER: We have exclusive rights to initialize.
         // Initialize the global mutex directly in-place. No memcpy!
         ExInitializeFastMutex(&g_PyasWhitelistRules.Mutex);
-        
-        KeMemoryBarrier(); // Ensure all FAST_MUTEX bytes are visible globally
+
+        KeMemoryBarrier();              // Ensure all FAST_MUTEX bytes are visible globally
         InterlockedExchange(pState, 2); // Publish ready state
         return;
     }
@@ -306,8 +288,7 @@ static NTSTATUS FSEnsurePyasRuleCapacityForSet(_Inout_ PPYAS_WHITELIST_RULE_SET 
 }
 
 static NTSTATUS FSAddPyasWhitelistRuleNormalizedToSet(_Inout_ PPYAS_WHITELIST_RULE_SET RuleSet,
-                                                      _In_reads_(RuleChars) PCWSTR RuleText,
-                                                      _In_ SIZE_T RuleChars)
+                                                      _In_reads_(RuleChars) PCWSTR RuleText, _In_ SIZE_T RuleChars)
 {
     WCHAR normalizedLine[PYAS_RULE_MAX_LINE_CHARS];
     SIZE_T lineLen = 0;
@@ -318,11 +299,7 @@ static NTSTATUS FSAddPyasWhitelistRuleNormalizedToSet(_Inout_ PPYAS_WHITELIST_RU
         return STATUS_INVALID_PARAMETER;
     }
 
-    if (!OwlyNormalizeRuleLineForMatch(RuleText,
-                                       RuleChars,
-                                       normalizedLine,
-                                       RTL_NUMBER_OF(normalizedLine),
-                                       FALSE,
+    if (!OwlyNormalizeRuleLineForMatch(RuleText, RuleChars, normalizedLine, RTL_NUMBER_OF(normalizedLine), FALSE,
                                        &lineLen) ||
         lineLen == 0)
     {
@@ -361,8 +338,7 @@ static NTSTATUS FSAddPyasWhitelistRuleNormalizedToSet(_Inout_ PPYAS_WHITELIST_RU
 }
 
 static NTSTATUS FSAppendPyasRulesFromBufferToSet(_Inout_ PPYAS_WHITELIST_RULE_SET RuleSet,
-                                                 _In_reads_bytes_(BytesRead) PUCHAR Buffer,
-                                                 _In_ ULONG BytesRead)
+                                                 _In_reads_bytes_(BytesRead) PUCHAR Buffer, _In_ ULONG BytesRead)
 {
     if (RuleSet == NULL)
     {
@@ -386,7 +362,7 @@ static NTSTATUS FSAppendPyasRulesFromBufferToSet(_Inout_ PPYAS_WHITELIST_RULE_SE
             {
                 if (i > start)
                 {
-                    (VOID)FSAddPyasWhitelistRuleNormalizedToSet(RuleSet, &utf16Buffer[start], i - start);
+                    (VOID) FSAddPyasWhitelistRuleNormalizedToSet(RuleSet, &utf16Buffer[start], i - start);
                 }
                 start = i + 1;
             }
@@ -410,7 +386,7 @@ static NTSTATUS FSAppendPyasRulesFromBufferToSet(_Inout_ PPYAS_WHITELIST_RULE_SE
                         lineBuffer[lineLen++] = (WCHAR)Buffer[j];
                     }
                     lineBuffer[lineLen] = L'\0';
-                    (VOID)FSAddPyasWhitelistRuleNormalizedToSet(RuleSet, lineBuffer, lineLen);
+                    (VOID) FSAddPyasWhitelistRuleNormalizedToSet(RuleSet, lineBuffer, lineLen);
                 }
                 start = i + 1;
             }
@@ -443,28 +419,15 @@ static NTSTATUS FSLoadPyasWhitelistRulesFromFileToSet(_Inout_ PPYAS_WHITELIST_RU
 
     InitializeObjectAttributes(&oa, (PUNICODE_STRING)FilePath, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
     RtlZeroMemory(&ioStatus, sizeof(ioStatus));
-    status = ZwCreateFile(&fileHandle,
-                          GENERIC_READ,
-                          &oa,
-                          &ioStatus,
-                          NULL,
-                          FILE_ATTRIBUTE_NORMAL,
-                          FILE_SHARE_READ,
-                          FILE_OPEN,
-                          FILE_SYNCHRONOUS_IO_NONALERT,
-                          NULL,
-                          0);
+    status = ZwCreateFile(&fileHandle, GENERIC_READ, &oa, &ioStatus, NULL, FILE_ATTRIBUTE_NORMAL, FILE_SHARE_READ,
+                          FILE_OPEN, FILE_SYNCHRONOUS_IO_NONALERT, NULL, 0);
     if (!NT_SUCCESS(status))
     {
         return status;
     }
 
     RtlZeroMemory(&fileInfo, sizeof(fileInfo));
-    status = ZwQueryInformationFile(fileHandle,
-                                    &ioStatus,
-                                    &fileInfo,
-                                    sizeof(fileInfo),
-                                    FileStandardInformation);
+    status = ZwQueryInformationFile(fileHandle, &ioStatus, &fileInfo, sizeof(fileInfo), FileStandardInformation);
     if (!NT_SUCCESS(status))
     {
         ZwClose(fileHandle);
@@ -487,18 +450,10 @@ static NTSTATUS FSLoadPyasWhitelistRulesFromFileToSet(_Inout_ PPYAS_WHITELIST_RU
     RtlZeroMemory(buffer, bufferSize);
 
     RtlZeroMemory(&ioStatus, sizeof(ioStatus));
-    status = ZwReadFile(fileHandle,
-                        NULL,
-                        NULL,
-                        NULL,
-                        &ioStatus,
-                        buffer,
-                        bufferSize,
-                        NULL,
-                        NULL);
+    status = ZwReadFile(fileHandle, NULL, NULL, NULL, &ioStatus, buffer, bufferSize, NULL, NULL);
     if (NT_SUCCESS(status))
     {
-        (VOID)FSAppendPyasRulesFromBufferToSet(RuleSet, buffer, (ULONG)ioStatus.Information);
+        (VOID) FSAppendPyasRulesFromBufferToSet(RuleSet, buffer, (ULONG)ioStatus.Information);
     }
 
     ExFreePoolWithTag(buffer, PYAS_RULE_POOL_TAG);
@@ -689,7 +644,7 @@ Return Value:
     //
     //  Register with filter manager.
     //
-    
+
     // -----------------------------------------------------------------------
     // Hook notification device (\Device\OwlyshieldHook) is created by
     // Communication.cpp::InitHookNotifyDevice() via IoCreateDriver().
@@ -715,9 +670,8 @@ Return Value:
     // pass to IoAllocateWorkItem (which references it to pin the driver).
     if (NT_SUCCESS(status))
     {
-        NTSTATUS cdoStatus = IoCreateDevice(DriverObject, 0, NULL,
-                                             FILE_DEVICE_UNKNOWN, 0, FALSE,
-                                             &g_WorkItemDeviceObject);
+        NTSTATUS cdoStatus =
+            IoCreateDevice(DriverObject, 0, NULL, FILE_DEVICE_UNKNOWN, 0, FALSE, &g_WorkItemDeviceObject);
         if (!NT_SUCCESS(cdoStatus))
         {
             DbgPrint("!!! FsFilter: IoCreateDevice for work-item CDO failed 0x%X (non-fatal)\n", cdoStatus);
@@ -800,7 +754,8 @@ Return Value:
     status = PsSetCreateProcessNotifyRoutineEx(AddRemProcessRoutineEx, FALSE);
     if (!NT_SUCCESS(status))
     {
-        DbgPrint("!!! FsFilter: PsSetCreateProcessNotifyRoutineEx failed: %#010x, falling back to legacy callback.\n", status);
+        DbgPrint("!!! FsFilter: PsSetCreateProcessNotifyRoutineEx failed: %#010x, falling back to legacy callback.\n",
+                 status);
         status = PsSetCreateProcessNotifyRoutine(AddRemProcessRoutineLegacy, FALSE);
         if (!NT_SUCCESS(status))
         {
@@ -821,13 +776,14 @@ Return Value:
     }
 
     DbgPrint("loaded scanner successfully");
-    
+
     // Initialize Registry Protection
     RegeditDriverEntry();
 
     // Initialize Process Protection (ObRegisterCallbacks for termination detection)
     status = InitProcessProtection();
-    if (!NT_SUCCESS(status)) {
+    if (!NT_SUCCESS(status))
+    {
         DbgPrint("!!! FsFilter: InitProcessProtection failed: 0x%X (non-fatal, continuing)\n", status);
         // Don't fail driver load - this is an enhancement, not critical
     }
@@ -906,10 +862,11 @@ Return Value:
     // ====================================================================
     // End of monitoring initialization
     // ====================================================================
-    
+
     // Initialize Rootkit Detector
     RootkitDetectorInitialize();
-    if (g_WorkItemDeviceObject != NULL) {
+    if (g_WorkItemDeviceObject != NULL)
+    {
         RootkitDetectorSetDeviceObject(g_WorkItemDeviceObject);
     }
     DbgPrint("!!! FsFilter: Rootkit detection engine initialized\n");
@@ -922,22 +879,20 @@ Return Value:
 // Detects remote thread injection
 //
 
-VOID ThreadCreationCallback(
-    _In_ HANDLE ProcessId,
-    _In_ HANDLE ThreadId,
-    _In_ BOOLEAN Create
-)
+VOID ThreadCreationCallback(_In_ HANDLE ProcessId, _In_ HANDLE ThreadId, _In_ BOOLEAN Create)
 {
     UNREFERENCED_PARAMETER(ThreadId);
-    
-    if (!Create) {
+
+    if (!Create)
+    {
         return; // Only monitor thread creation, not termination
     }
-    
-    if (driverData == NULL || driverData->isFilterClosed()) {
+
+    if (driverData == NULL || driverData->isFilterClosed())
+    {
         return;
     }
-    
+
     HANDLE currentPid = PsGetCurrentProcessId();
     {
         ULONG correlatedSourcePid = 0;
@@ -954,25 +909,23 @@ VOID ThreadCreationCallback(
             return;
         }
     }
-    
+
     // If the thread is being created in a different process, this is remote thread injection
-    if (currentPid != ProcessId) {
+    if (currentPid != ProcessId)
+    {
         DbgPrint("!!! FsFilter: Remote thread creation detected!\n");
-        DbgPrint("!!!   Source PID: %lu -> Target PID: %lu, Thread ID: %lu\n",
-                 (ULONG)(ULONG_PTR)currentPid,
-                 (ULONG)(ULONG_PTR)ProcessId,
-                 (ULONG)(ULONG_PTR)ThreadId);
-        
+        DbgPrint("!!!   Source PID: %lu -> Target PID: %lu, Thread ID: %lu\n", (ULONG)(ULONG_PTR)currentPid,
+                 (ULONG)(ULONG_PTR)ProcessId, (ULONG)(ULONG_PTR)ThreadId);
+
         // Check if either process is monitored
         BOOLEAN sourceFound = FALSE;
         BOOLEAN targetFound = FALSE;
         ULONGLONG sourceGid = driverData->GetProcessGid((ULONG)(ULONG_PTR)currentPid, &sourceFound);
         ULONGLONG targetGid = driverData->GetProcessGid((ULONG)(ULONG_PTR)ProcessId, &targetFound);
-        
-        if (sourceFound || targetFound) {
-            NTSTATUS onThreadStatus = OnThreadCreation((ULONG)(ULONG_PTR)currentPid,
-                                                      (ULONG)(ULONG_PTR)ProcessId,
-                                                      NULL);
+
+        if (sourceFound || targetFound)
+        {
+            NTSTATUS onThreadStatus = OnThreadCreation((ULONG)(ULONG_PTR)currentPid, (ULONG)(ULONG_PTR)ProcessId, NULL);
             if (NT_SUCCESS(onThreadStatus))
             {
                 return;
@@ -980,22 +933,26 @@ VOID ThreadCreationCallback(
 
             // Log to usermode via dedicated remote-thread callback opcode
             PIRP_ENTRY newEntry = new IRP_ENTRY();
-            if (newEntry != NULL) {
+            if (newEntry != NULL)
+            {
                 PDRIVER_MESSAGE newItem = &newEntry->data;
                 newItem->IRP_OP = IRP_KERNEL_REMOTE_THREAD; // 13
-                
+
                 // Attribute to the attacker (source process)
-                if (sourceFound) {
+                if (sourceFound)
+                {
                     newItem->PID = (ULONG)(ULONG_PTR)currentPid;
                     newItem->Gid = sourceGid;
-                } else {
+                }
+                else
+                {
                     newItem->PID = (ULONG)(ULONG_PTR)ProcessId;
                     newItem->Gid = targetGid;
                 }
-                
+
                 newItem->AttackerPID = (ULONG)(ULONG_PTR)currentPid;
                 newItem->AttackerGid = sourceFound ? sourceGid : 0;
-                
+
                 // Fill in kernel event info
                 newItem->KernelEventInfo.EventType = IRP_KERNEL_REMOTE_THREAD;
                 newItem->KernelEventInfo.SourceProcessId = (ULONG)(ULONG_PTR)currentPid;
@@ -1005,11 +962,12 @@ VOID ThreadCreationCallback(
                 newItem->KernelEventInfo.RawArgument1 = (ULONG_PTR)ThreadId;
                 newItem->KernelEventInfo.AccessMask = 0x0002; // PROCESS_CREATE_THREAD
                 newItem->KernelEventInfo.OperationStatus = STATUS_SUCCESS;
-                (VOID)RtlStringCchCopyW(newItem->KernelEventInfo.ObjectName,
-                                        RTL_NUMBER_OF(newItem->KernelEventInfo.ObjectName),
-                                        L"IRP_KERNEL_REMOTE_THREAD");
-                
-                if (!driverData->AddIrpMessage(newEntry)) {
+                (VOID)
+                    RtlStringCchCopyW(newItem->KernelEventInfo.ObjectName,
+                                      RTL_NUMBER_OF(newItem->KernelEventInfo.ObjectName), L"IRP_KERNEL_REMOTE_THREAD");
+
+                if (!driverData->AddIrpMessage(newEntry))
+                {
                     delete newEntry;
                 }
             }
@@ -1037,7 +995,6 @@ VOID ImageLoadCallback(_In_opt_ PUNICODE_STRING FullImageName, _In_ HANDLE Proce
         return;
     }
 
-
     if (driverData == NULL || driverData->isFilterClosed())
     {
         return;
@@ -1059,7 +1016,7 @@ VOID ImageLoadCallback(_In_opt_ PUNICODE_STRING FullImageName, _In_ HANDLE Proce
     if (isProcessImage)
     {
         BOOLEAN found = FALSE;
-        (VOID)driverData->GetProcessGid((ULONG)(ULONG_PTR)ProcessId, &found);
+        (VOID) driverData->GetProcessGid((ULONG)(ULONG_PTR)ProcessId, &found);
         if (found)
         {
             //
@@ -1080,12 +1037,14 @@ VOID ImageLoadCallback(_In_opt_ PUNICODE_STRING FullImageName, _In_ HANDLE Proce
                 {
                     // IoAllocateWorkItem pins the driver via DeviceObject reference count
                     ctx->WorkItem = IoAllocateWorkItem(g_WorkItemDeviceObject);
-                    if (ctx->WorkItem == NULL) {
+                    if (ctx->WorkItem == NULL)
+                    {
                         ExFreePoolWithTag(ctx, 'wHuM');
-                    } else {
+                    }
+                    else
+                    {
                         ctx->ProcessId = (ULONG)(ULONG_PTR)ProcessId;
-                        IoQueueWorkItem(ctx->WorkItem, HookProcessWorkItemRoutine,
-                                        DelayedWorkQueue, ctx);
+                        IoQueueWorkItem(ctx->WorkItem, HookProcessWorkItemRoutine, DelayedWorkQueue, ctx);
                     }
                 }
             }
@@ -1121,8 +1080,7 @@ VOID EnumerateExistingProcesses(VOID)
             return;
         }
 
-        status = g_fnZwQuerySystemInformation(SystemProcessInformationLocal,
-                                              buffer, bufferSize, &returnLength);
+        status = g_fnZwQuerySystemInformation(SystemProcessInformationLocal, buffer, bufferSize, &returnLength);
         if (status != STATUS_INFO_LENGTH_MISMATCH)
             break;
 
@@ -1151,10 +1109,8 @@ VOID EnumerateExistingProcesses(VOID)
         {
             // Allocate a UNICODE_STRING copy for RecordNewProcess (it takes ownership)
             USHORT allocLen = entry->ImageName.Length + sizeof(WCHAR);
-            PUNICODE_STRING procName = (PUNICODE_STRING)ExAllocatePool2(
-                POOL_FLAG_NON_PAGED,
-                sizeof(UNICODE_STRING) + allocLen,
-                'RW');
+            PUNICODE_STRING procName =
+                (PUNICODE_STRING)ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeof(UNICODE_STRING) + allocLen, 'RW');
 
             if (procName != NULL)
             {
@@ -1166,7 +1122,7 @@ VOID EnumerateExistingProcesses(VOID)
 
                 // No loader lock here; call directly at PASSIVE_LEVEL
                 ULONGLONG gid = driverData->RecordNewProcess(procName, pidNum, parentPid);
-                (VOID)UserModeHookProcess(pidNum); // direct call, safe here
+                (VOID) UserModeHookProcess(pidNum); // direct call, safe here
 
                 PIRP_ENTRY newEntry = new IRP_ENTRY();
                 if (newEntry != NULL)
@@ -1177,16 +1133,15 @@ VOID EnumerateExistingProcesses(VOID)
                     newEntry->data.IRP_OP = IRP_PROCESS_CREATE;
 
                     PCWSTR srcPath2 = procName->Buffer;
-                    USHORT srcLen2  = procName->Length;
-                    WCHAR  dosPathBuf2[MAX_FILE_NAME_LENGTH] = {0};
-                    if (srcPath2 != NULL &&
-                        NtPathToDosPath(srcPath2, dosPathBuf2, RTL_NUMBER_OF(dosPathBuf2))) {
+                    USHORT srcLen2 = procName->Length;
+                    WCHAR dosPathBuf2[MAX_FILE_NAME_LENGTH] = {0};
+                    if (srcPath2 != NULL && NtPathToDosPath(srcPath2, dosPathBuf2, RTL_NUMBER_OF(dosPathBuf2)))
+                    {
                         srcPath2 = dosPathBuf2;
-                        srcLen2  = (USHORT)(wcslen(dosPathBuf2) * sizeof(WCHAR));
+                        srcLen2 = (USHORT)(wcslen(dosPathBuf2) * sizeof(WCHAR));
                     }
-                    USHORT copyLen = (srcLen2 < MAX_FILE_NAME_SIZE - sizeof(WCHAR))
-                                         ? srcLen2
-                                         : (MAX_FILE_NAME_SIZE - sizeof(WCHAR));
+                    USHORT copyLen =
+                        (srcLen2 < MAX_FILE_NAME_SIZE - sizeof(WCHAR)) ? srcLen2 : (MAX_FILE_NAME_SIZE - sizeof(WCHAR));
 
                     RtlCopyMemory(newEntry->Buffer, srcPath2, copyLen);
                     newEntry->Buffer[copyLen / sizeof(WCHAR)] = L'\0';
@@ -1212,7 +1167,7 @@ VOID EnumerateExistingProcesses(VOID)
 }
 
 NTSTATUS
- FSUnloadDriver(_In_ FLT_FILTER_UNLOAD_FLAGS Flags)
+FSUnloadDriver(_In_ FLT_FILTER_UNLOAD_FLAGS Flags)
 /*++
 
 Routine Description:
@@ -1240,27 +1195,34 @@ Return Value:
 
     // Stop new activity first, then detach callbacks to avoid concurrent work
     // while teardown is in progress.
-    if (driverData) {
+    if (driverData)
+    {
         driverData->setFilterStop();
     }
 
-    if (g_ImageNotifyRegistered) {
+    if (g_ImageNotifyRegistered)
+    {
         NTSTATUS rmImageStatus = PsRemoveLoadImageNotifyRoutine(ImageLoadCallback);
         DbgPrint("!!! FsFilter: PsRemoveLoadImageNotifyRoutine => 0x%X\n", rmImageStatus);
         g_ImageNotifyRegistered = FALSE;
     }
 
-    if (g_ThreadNotifyRegistered) {
+    if (g_ThreadNotifyRegistered)
+    {
         NTSTATUS rmThreadStatus = PsRemoveCreateThreadNotifyRoutine(ThreadCreationCallback);
         DbgPrint("!!! FsFilter: PsRemoveCreateThreadNotifyRoutine => 0x%X\n", rmThreadStatus);
         g_ThreadNotifyRegistered = FALSE;
     }
 
-    if (g_ProcessNotifyRegistered) {
+    if (g_ProcessNotifyRegistered)
+    {
         NTSTATUS rmProcStatus;
-        if (g_UseLegacyProcessNotify) {
+        if (g_UseLegacyProcessNotify)
+        {
             rmProcStatus = PsSetCreateProcessNotifyRoutine(AddRemProcessRoutineLegacy, TRUE);
-        } else {
+        }
+        else
+        {
             rmProcStatus = PsSetCreateProcessNotifyRoutineEx(AddRemProcessRoutineEx, TRUE);
         }
         DbgPrint("!!! FsFilter: Process notify unregister => 0x%X\n", rmProcStatus);
@@ -1281,8 +1243,10 @@ Return Value:
     RootkitDetectorCleanup();
 
     // Close Communication
-    if (commHandle) {
-        if (!IsCommClosed()) {
+    if (commHandle)
+    {
+        if (!IsCommClosed())
+        {
             CommClose();
         }
 
@@ -1294,13 +1258,15 @@ Return Value:
     }
 
     // Cleanup DriverData
-    if (driverData) {
+    if (driverData)
+    {
         delete driverData;
         driverData = NULL;
     }
-    
+
     // Delete the dedicated work-item CDO before hook device teardown
-    if (g_WorkItemDeviceObject != NULL) {
+    if (g_WorkItemDeviceObject != NULL)
+    {
         IoDeleteDevice(g_WorkItemDeviceObject);
         g_WorkItemDeviceObject = NULL;
     }
@@ -1365,7 +1331,7 @@ STATUS_FLT_DO_NOT_ATTACH - do not attach
         if (NT_SUCCESS(hr))
         {
             // Pre-populate the cache for this volume
-            (VOID)driverData->AddVolumeDosName(FltObjects->Volume, &volumeData);
+            (VOID) driverData->AddVolumeDosName(FltObjects->Volume, &volumeData);
             ExFreePool(volumeData.Buffer);
         }
     }
@@ -1504,7 +1470,7 @@ Arguments:
     {
         return FLT_PREOP_SUCCESS_WITH_CALLBACK;
     }
-    
+
     hr = FSProcessPreOperation(Data, FltObjects, CompletionContext);
     if (hr == FLT_PREOP_SUCCESS_WITH_CALLBACK || hr == FLT_PREOP_COMPLETE)
         return (FLT_PREOP_CALLBACK_STATUS)hr;
@@ -1514,7 +1480,7 @@ Arguments:
 
 NTSTATUS
 FSProcessPreOperation(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECTS FltObjects,
-                       _Flt_CompletionContext_Outptr_ PVOID *CompletionContext)
+                      _Flt_CompletionContext_Outptr_ PVOID *CompletionContext)
 {
     // NO COMMUNICATION CHECK (kept same as original)
     if (driverData->isFilterClosed() || IsCommClosed())
@@ -1568,17 +1534,23 @@ FSProcessPreOperation(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECT
     }
 
     // Check if the file is in the quarantine directory
-    if (driverData->IsPathInQuarantineDir(FilePath)) {
+    if (driverData->IsPathInQuarantineDir(FilePath))
+    {
         // If the requesting process is NOT the trusted Owlyshield process
-        if (FltGetRequestorProcessId(Data) != driverData->getPID()) {
-            DbgPrint("!!! FsFilter: Blocking access to quarantine folder for untrusted process (PID: %u)\n", FltGetRequestorProcessId(Data));
+        if (FltGetRequestorProcessId(Data) != driverData->getPID())
+        {
+            DbgPrint("!!! FsFilter: Blocking access to quarantine folder for untrusted process (PID: %u)\n",
+                     FltGetRequestorProcessId(Data));
             FltReleaseFileNameInformation(nameInfo);
             delete newEntry;
             Data->IoStatus.Status = STATUS_ACCESS_DENIED;
             Data->IoStatus.Information = 0;
             return FLT_PREOP_COMPLETE; // Block the operation
-        } else {
-            DbgPrint("!!! FsFilter: Allowing access to quarantine folder for trusted Owlyshield process (PID: %u)\n", FltGetRequestorProcessId(Data));
+        }
+        else
+        {
+            DbgPrint("!!! FsFilter: Allowing access to quarantine folder for trusted Owlyshield process (PID: %u)\n",
+                     FltGetRequestorProcessId(Data));
             // Allow Owlyshield to perform operations on files in quarantine
             // We still need to release nameInfo and delete newEntry if we're not going to process it further
             FltReleaseFileNameInformation(nameInfo);
@@ -1594,7 +1566,8 @@ FSProcessPreOperation(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECT
     }
 
     // --- KERNEL-MODE PATH BLOCKING ---
-    if (driverData->IsPathBlocked(FilePath)) {
+    if (driverData->IsPathBlocked(FilePath))
+    {
         DbgPrint("!!! FsFilter: BLOCKING access to path: %wZ (Kernel-Mode Block)\n", FilePath);
         FltReleaseFileNameInformation(nameInfo);
         delete newEntry;
@@ -1613,7 +1586,7 @@ FSProcessPreOperation(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECT
     if (gid == 0 || !isGidFound)
     {
         // --- START DISCOVERY LOGIC ---
-        // If the PID is not tracked, it might be a process that was already running 
+        // If the PID is not tracked, it might be a process that was already running
         // when the driver loaded. Let's try to discover it now.
         PEPROCESS process = NULL;
         hr = PsLookupProcessByProcessId((HANDLE)newItem->PID, &process);
@@ -1639,8 +1612,8 @@ FSProcessPreOperation(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECT
                 {
                     gid = driverData->RecordNewProcess(procPathCopy, newItem->PID, 0);
                     isGidFound = TRUE;
-                    DbgPrint("!!! FsFilter: DISCOVERED untracked process in PreOp. PID: %u, GID: %llu\n",
-                             newItem->PID, gid);
+                    DbgPrint("!!! FsFilter: DISCOVERED untracked process in PreOp. PID: %u, GID: %llu\n", newItem->PID,
+                             gid);
 
                     // Inform usermode about this late process discovery so the PID/GID map stays in sync.
                     PIRP_ENTRY discoveryEntry = new IRP_ENTRY();
@@ -1754,7 +1727,6 @@ FSProcessPreOperation(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECT
         break;
     case IRP_MJ_WRITE: {
         newItem->IRP_OP = IRP_WRITE;
-
 
         if (Data->Iopb->Parameters.Write.Length == 0) // no data to write
         {
@@ -1930,7 +1902,7 @@ FSProcessPreOperation(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECT
                 }
             }
             FltReleaseFileNameInformation(nameInfo);
-        } // end rename
+        }    // end rename
         else // not rename or delete (set info)
         {
             // Note: nameInfo was not released outside the switch block, so we release it here if we abandon the IRP
@@ -2012,11 +1984,13 @@ Return Value:
     else if (Data->Iopb->MajorFunction == IRP_MJ_READ)
     {
         // FIX: Ensure CompletionContext exists before using it
-        if (CompletionContext == nullptr) {
-             return FLT_POSTOP_FINISHED_PROCESSING;
+        if (CompletionContext == nullptr)
+        {
+            return FLT_POSTOP_FINISHED_PROCESSING;
         }
 
-        if (FSShouldBypassReadTelemetry(Data)) {
+        if (FSShouldBypassReadTelemetry(Data))
+        {
             delete (PIRP_ENTRY)CompletionContext;
             return FLT_POSTOP_FINISHED_PROCESSING;
         }
@@ -2025,23 +1999,23 @@ Return Value:
         {
             // FIX: 'newEntry' is undefined here. We delete the context passed in.
             delete (PIRP_ENTRY)CompletionContext;
-            
+
             // FIX: Must return POSTOP status, not PREOP status
             return FLT_POSTOP_FINISHED_PROCESSING;
         }
-        
-        // FIX: In PostOp, we don't assign *CompletionContext = ... 
-        // We simply pass the existing CompletionContext to our helper function.
-        // *CompletionContext = newEntry; 
 
-        // DEBUG LOG ONLY IF NOT IN RECURSIVE CONTEXT
-        // FIX: Ensure IS_DEBUG_IRP is defined in your header
-        #ifdef IS_DEBUG_IRP
+// FIX: In PostOp, we don't assign *CompletionContext = ...
+// We simply pass the existing CompletionContext to our helper function.
+// *CompletionContext = newEntry;
+
+// DEBUG LOG ONLY IF NOT IN RECURSIVE CONTEXT
+// FIX: Ensure IS_DEBUG_IRP is defined in your header
+#ifdef IS_DEBUG_IRP
         if (!KeIsExecutingDpc()) // prevent recursion in DPC or debug trap
             DbgPrint("FsFilter: IRP READ WITH CALLBACK! ****************** \n");
-        #endif
+#endif
 
-        // FIX: Removed early 'return FLT_PREOP_SUCCESS_WITH_CALLBACK' here 
+        // FIX: Removed early 'return FLT_PREOP_SUCCESS_WITH_CALLBACK' here
         // so the code below can actually execute.
 
         // return FLT_POSTOP_FINISHED_PROCESSING;
@@ -2100,30 +2074,37 @@ FSProcessCreateIrp(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECTS F
         // --- START DISCOVERY LOGIC ---
         PEPROCESS process = NULL;
         hr = PsLookupProcessByProcessId((HANDLE)newItem->PID, &process);
-        if (NT_SUCCESS(hr)) {
+        if (NT_SUCCESS(hr))
+        {
             PUNICODE_STRING procPath = NULL;
             hr = SeLocateProcessImageName(process, &procPath);
-            if (NT_SUCCESS(hr) && procPath != NULL) {
+            if (NT_SUCCESS(hr) && procPath != NULL)
+            {
                 // FIX Bug#2: Same tag mismatch as PreOp discovery.
                 // Copy into 'RW'-tagged NonPaged allocation for RecordNewProcess.
                 PUNICODE_STRING procPathCopy = FSCopyUnicodeStringForRecordNewProcess(procPath);
                 ExFreePool(procPath);
                 procPath = NULL;
 
-                if (procPathCopy != NULL) {
+                if (procPathCopy != NULL)
+                {
                     gid = driverData->RecordNewProcess(procPathCopy, newItem->PID, 0);
                     isGidFound = TRUE;
-                    DbgPrint("!!! FsFilter: DISCOVERED untracked process in PostCreate. PID: %u, GID: %llu\n", newItem->PID, gid);
+                    DbgPrint("!!! FsFilter: DISCOVERED untracked process in PostCreate. PID: %u, GID: %llu\n",
+                             newItem->PID, gid);
                     // NOTE: procPathCopy is now owned by RecordNewProcess. Do NOT free.
                 }
-            } else if (procPath != NULL) {
+            }
+            else if (procPath != NULL)
+            {
                 ExFreePool(procPath);
                 procPath = NULL;
             }
             ObDereferenceObject(process);
         }
 
-        if (!isGidFound) {
+        if (!isGidFound)
+        {
             // DbgPrint("!!! FsFilter: Item does not have a gid, skipping\n");
             FltReleaseFileNameInformation(nameInfo);
             delete newEntry;
@@ -2132,8 +2113,9 @@ FSProcessCreateIrp(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECTS F
     }
     newItem->Gid = gid;
     if (IS_DEBUG_IRP)
-        DbgPrint("!!! FsFilter: Registring new irp for Gid: %llu with pid: %d\n", gid,
-                 newItem->PID); // TODO: incase it doesnt exist we can add it with our method that checks for system process
+        DbgPrint(
+            "!!! FsFilter: Registring new irp for Gid: %llu with pid: %d\n", gid,
+            newItem->PID); // TODO: incase it doesnt exist we can add it with our method that checks for system process
 
     // get file id
     hr = CopyFileIdInfo(Data, newItem);
@@ -2334,7 +2316,8 @@ FSProcessPostReadSafe(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECT
 
     NTSTATUS status = STATUS_SUCCESS;
     PIRP_ENTRY entry = (PIRP_ENTRY)CompletionContext;
-    if (entry == nullptr) {
+    if (entry == nullptr)
+    {
         return FLT_POSTOP_FINISHED_PROCESSING;
     }
     if (FSShouldBypassReadTelemetry(Data))
@@ -2356,7 +2339,7 @@ FSProcessPostReadSafe(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECT
             BOOLEAN fpuStateSaved = FALSE;
             NTSTATUS fpStatus = KeSaveFloatingPointState(&floatingSave);
 
-            if(NT_SUCCESS(fpStatus))
+            if (NT_SUCCESS(fpStatus))
             {
                 fpuStateSaved = TRUE;
                 __try
@@ -2395,7 +2378,6 @@ FSProcessPostReadSafe(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECT
             // If we reached here, either status was not SUCCESS, or AddIrpMessage failed.
             // In either case, fall through to delete entry.
         } // End of if (ReadBuffer != NULL)
-
     }
     entry->data.isEntropyCalc = FALSE;
     entry->data.Entropy = 0;
@@ -2477,7 +2459,7 @@ FSEntrySetFileName(CONST PFLT_VOLUME Volume, PFLT_FILE_NAME_INFORMATION nameInfo
     if (!NT_SUCCESS(hr))
     {
         // Not in cache, try to resolve it once.
-        // NOTE: IoVolumeDeviceToDosName can re-enter the filter. 
+        // NOTE: IoVolumeDeviceToDosName can re-enter the filter.
         // The cache breaks infinite recursion as the second entry for the same volume will hit GetVolumeDosName.
         hr = FltGetDiskDeviceObject(Volume, &devObject);
         if (NT_SUCCESS(hr) && devObject != NULL && !KeAreAllApcsDisabled())
@@ -2486,7 +2468,7 @@ FSEntrySetFileName(CONST PFLT_VOLUME Volume, PFLT_FILE_NAME_INFORMATION nameInfo
             if (NT_SUCCESS(hr))
             {
                 // Store in cache for future use
-                (VOID)driverData->AddVolumeDosName(Volume, &volumeData);
+                (VOID) driverData->AddVolumeDosName(Volume, &volumeData);
             }
         }
         else
@@ -2522,13 +2504,15 @@ FSEntrySetFileName(CONST PFLT_VOLUME Volume, PFLT_FILE_NAME_INFORMATION nameInfo
     }
 
 cleanup:
-    // We always free volumeData here because GetVolumeDosName returns a copy 
+    // We always free volumeData here because GetVolumeDosName returns a copy
     // and IoVolumeDeviceToDosName allocates a new buffer.
-    if (volumeData.Buffer != NULL) {
+    if (volumeData.Buffer != NULL)
+    {
         ExFreePool(volumeData.Buffer);
     }
 
-    if (devObject) {
+    if (devObject)
+    {
         ObDereferenceObject(devObject);
     }
     return hr;
@@ -2681,35 +2665,21 @@ NTSTATUS QuarantineFileByPath(PUNICODE_STRING FilePath)
     RtlInitUnicodeString(&quarantineDir, L"\\??\\C:\\ProgramData\\HydraDragonAntivirus\\Quarantine");
 
     // Create quarantine directory if it doesn't exist
-    InitializeObjectAttributes(&objAttribs, &quarantineDir,
-                              OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
+    InitializeObjectAttributes(&objAttribs, &quarantineDir, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
 
-    status = ZwCreateFile(&destHandle,
-                         GENERIC_WRITE | SYNCHRONIZE,
-                         &objAttribs,
-                         &ioStatus,
-                         NULL,
-                         FILE_ATTRIBUTE_DIRECTORY,
-                         FILE_SHARE_READ | FILE_SHARE_WRITE,
-                         FILE_OPEN_IF,
-                         FILE_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT,
-                         NULL,
-                         0);
+    status = ZwCreateFile(&destHandle, GENERIC_WRITE | SYNCHRONIZE, &objAttribs, &ioStatus, NULL,
+                          FILE_ATTRIBUTE_DIRECTORY, FILE_SHARE_READ | FILE_SHARE_WRITE, FILE_OPEN_IF,
+                          FILE_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT, NULL, 0);
 
     // DON'T close destHandle here! We need it for the relative rename.
     // if (destHandle != NULL)
     //    ZwClose(destHandle);
 
     // Open the source file
-    InitializeObjectAttributes(&objAttribs, FilePath,
-                              OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
+    InitializeObjectAttributes(&objAttribs, FilePath, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
 
-    status = ZwOpenFile(&sourceHandle,
-                       DELETE | SYNCHRONIZE,
-                       &objAttribs,
-                       &ioStatus,
-                       FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-                       FILE_SYNCHRONOUS_IO_NONALERT);
+    status = ZwOpenFile(&sourceHandle, DELETE | SYNCHRONIZE, &objAttribs, &ioStatus,
+                        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, FILE_SYNCHRONOUS_IO_NONALERT);
 
     if (!NT_SUCCESS(status))
     {
@@ -2750,8 +2720,8 @@ NTSTATUS QuarantineFileByPath(PUNICODE_STRING FilePath)
     // Prepare rename information
     // We only need the size of the FILE_RENAME_INFORMATION + the relative filename
     ULONG renameInfoSize = sizeof(FILE_RENAME_INFORMATION) + filename.Length;
-    PFILE_RENAME_INFORMATION renameInfo = (PFILE_RENAME_INFORMATION)
-        ExAllocatePool2(POOL_FLAG_NON_PAGED, renameInfoSize, 'RW');
+    PFILE_RENAME_INFORMATION renameInfo =
+        (PFILE_RENAME_INFORMATION)ExAllocatePool2(POOL_FLAG_NON_PAGED, renameInfoSize, 'RW');
 
     if (renameInfo == NULL)
     {
@@ -2762,18 +2732,14 @@ NTSTATUS QuarantineFileByPath(PUNICODE_STRING FilePath)
 
     renameInfo->ReplaceIfExists = TRUE;
     // Set the root directory to our open handle to the Quarantine folder!
-    renameInfo->RootDirectory = destHandle; 
+    renameInfo->RootDirectory = destHandle;
     renameInfo->FileNameLength = filename.Length;
-    
+
     // ONLY copy the filename (e.g., "Code.exe"), not the full path
     RtlCopyMemory(renameInfo->FileName, filename.Buffer, filename.Length);
 
     // Move the file to quarantine
-    status = ZwSetInformationFile(sourceHandle,
-                                 &ioStatus,
-                                 renameInfo,
-                                 renameInfoSize,
-                                 FileRenameInformation);
+    status = ZwSetInformationFile(sourceHandle, &ioStatus, renameInfo, renameInfoSize, FileRenameInformation);
 
     ExFreePoolWithTag(renameInfo, 'RW');
     ZwClose(sourceHandle);
@@ -2798,21 +2764,20 @@ NTSTATUS QuarantineFileByPath(PUNICODE_STRING FilePath)
         RtlInitUnicodeString(&quarantinedExtension, L".quarantined");
         RtlAppendUnicodeStringToString(&newQuarantinedFileName, &quarantinedExtension);
 
-        InitializeObjectAttributes(&quarantinedObjAttr, &destPath,
-                                  OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
+        InitializeObjectAttributes(&quarantinedObjAttr, &destPath, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL,
+                                   NULL);
 
-        NTSTATUS openQuarantinedStatus = ZwOpenFile(&quarantinedFileHandle,
-                                                   FILE_ALL_ACCESS, // Need write access to rename
-                                                   &quarantinedObjAttr,
-                                                   &ioStatus,
-                                                   FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-                                                   FILE_SYNCHRONOUS_IO_NONALERT);
+        NTSTATUS openQuarantinedStatus =
+            ZwOpenFile(&quarantinedFileHandle,
+                       FILE_ALL_ACCESS, // Need write access to rename
+                       &quarantinedObjAttr, &ioStatus, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                       FILE_SYNCHRONOUS_IO_NONALERT);
 
         if (NT_SUCCESS(openQuarantinedStatus))
         {
             ULONG newRenameInfoSize = sizeof(FILE_RENAME_INFORMATION) + newQuarantinedFileName.Length;
-            PFILE_RENAME_INFORMATION newRenameInfo = (PFILE_RENAME_INFORMATION)
-                ExAllocatePool2(POOL_FLAG_NON_PAGED, newRenameInfoSize, 'RW');
+            PFILE_RENAME_INFORMATION newRenameInfo =
+                (PFILE_RENAME_INFORMATION)ExAllocatePool2(POOL_FLAG_NON_PAGED, newRenameInfoSize, 'RW');
 
             if (newRenameInfo != NULL)
             {
@@ -2821,11 +2786,8 @@ NTSTATUS QuarantineFileByPath(PUNICODE_STRING FilePath)
                 newRenameInfo->FileNameLength = newQuarantinedFileName.Length;
                 RtlCopyMemory(newRenameInfo->FileName, newQuarantinedFileName.Buffer, newQuarantinedFileName.Length);
 
-                NTSTATUS renameStatus = ZwSetInformationFile(quarantinedFileHandle,
-                                                            &ioStatus,
-                                                            newRenameInfo,
-                                                            newRenameInfoSize,
-                                                            FileRenameInformation);
+                NTSTATUS renameStatus = ZwSetInformationFile(quarantinedFileHandle, &ioStatus, newRenameInfo,
+                                                             newRenameInfoSize, FileRenameInformation);
                 if (NT_SUCCESS(renameStatus))
                 {
                     DbgPrint("!!! FsFilter: Quarantined file renamed to: %wZ\n", &newQuarantinedFileName);
@@ -2856,7 +2818,8 @@ NTSTATUS QuarantineFileByPath(PUNICODE_STRING FilePath)
 }
 
 // new code process recording
-static VOID AddRemProcessRoutineCore(HANDLE ParentId, HANDLE ProcessId, BOOLEAN Create, PPS_CREATE_NOTIFY_INFO CreateInfo)
+static VOID AddRemProcessRoutineCore(HANDLE ParentId, HANDLE ProcessId, BOOLEAN Create,
+                                     PPS_CREATE_NOTIFY_INFO CreateInfo)
 {
     // FIX: Add early safety check for commHandle
     if (commHandle == NULL || commHandle->CommClosed)
@@ -2889,36 +2852,42 @@ static VOID AddRemProcessRoutineCore(HANDLE ParentId, HANDLE ProcessId, BOOLEAN 
 
         // Declare all locals up-front so they are in scope for both the normal
         // path and the early-fallback goto path below.
-        PUNICODE_STRING procName      = NULL;
-        PUNICODE_STRING parentName    = NULL;
-        PUNICODE_STRING procCmdLine   = NULL;
-        BOOLEAN         mustFreeProcName = TRUE;  // FALSE when procName is a borrowed pointer
+        PUNICODE_STRING procName = NULL;
+        PUNICODE_STRING parentName = NULL;
+        PUNICODE_STRING procCmdLine = NULL;
+        BOOLEAN mustFreeProcName = TRUE; // FALSE when procName is a borrowed pointer
 
         // Use minimal rights; on failure, still record using CreateInfo data
         ULONG openRights = PROCESS_QUERY_LIMITED_INFORMATION;
 
         hr = ZwOpenProcess(&procHandleParent, openRights, &objAttribs, &clientIdParent);
-        if (!NT_SUCCESS(hr)) {
+        if (!NT_SUCCESS(hr))
+        {
             DbgPrint("!!! FsFilter: Failed to open parent process (non-fatal): %#010x.\n", hr);
-            procHandleParent = NULL;  // continue without parent name
+            procHandleParent = NULL; // continue without parent name
         }
 
         hr = ZwOpenProcess(&procHandleProcess, openRights, &objAttribs, &clientIdProcess);
-        if (!NT_SUCCESS(hr)) {
+        if (!NT_SUCCESS(hr))
+        {
             DbgPrint("!!! FsFilter: Failed to open process (non-fatal): %#010x.\n", hr);
-            if (procHandleParent) ZwClose(procHandleParent);
+            if (procHandleParent)
+                ZwClose(procHandleParent);
 
             // Even if the process is already dead (STATUS_INVALID_CID,
             // STATUS_PROCESS_IS_TERMINATING, etc.) we still want to record and
             // forward it for scanning — the executable image is still on disk and
             // may be malware. Use the name the kernel already captured in CreateInfo.
-            if (CreateInfo && CreateInfo->ImageFileName) {
-                procName = const_cast<PUNICODE_STRING>(CreateInfo->ImageFileName);  // borrowed pointer, don't free
+            if (CreateInfo && CreateInfo->ImageFileName)
+            {
+                procName = const_cast<PUNICODE_STRING>(CreateInfo->ImageFileName); // borrowed pointer, don't free
                 mustFreeProcName = FALSE;
-            } else {
-                return;  // no name at all, truly nothing to record
             }
-            goto record_process;  // skip the GetProcessNameByHandle calls
+            else
+            {
+                return; // no name at all, truly nothing to record
+            }
+            goto record_process; // skip the GetProcessNameByHandle calls
         }
 
         if (procHandleParent != NULL)
@@ -2949,14 +2918,15 @@ static VOID AddRemProcessRoutineCore(HANDLE ParentId, HANDLE ProcessId, BOOLEAN 
 
         // In legacy callback path, command line is not provided by CreateInfo.
         // Best-effort fallback: query ProcessCommandLineInformation directly.
-        if (CreateInfo == NULL) {
-            (VOID)GetProcessCommandLineByHandle(procHandleProcess, &procCmdLine);
+        if (CreateInfo == NULL)
+        {
+            (VOID) GetProcessCommandLineByHandle(procHandleProcess, &procCmdLine);
         }
 
         // procHandleParent was already closed inside the if-block above
         ZwClose(procHandleProcess);
 
-        record_process:
+    record_process:
         DbgPrint("!!! FsFilter: New Process, process: %wZ , pid: %d.\n", procName, (ULONG)(ULONG_PTR)ProcessId);
 
         // FIX Bug#4: When mustFreeProcName==FALSE, procName is a borrowed pointer
@@ -2964,9 +2934,11 @@ static VOID AddRemProcessRoutineCore(HANDLE ParentId, HANDLE ProcessId, BOOLEAN 
         // returns. RecordNewProcess takes permanent ownership and later frees with
         // delete (tag 'RW'). We must ALWAYS pass a properly-tagged, owned copy.
         PUNICODE_STRING procNameForRecord = procName;
-        if (!mustFreeProcName && procName != NULL) {
+        if (!mustFreeProcName && procName != NULL)
+        {
             procNameForRecord = FSCopyUnicodeStringForRecordNewProcess(procName);
-            if (procNameForRecord == NULL) {
+            if (procNameForRecord == NULL)
+            {
                 // Allocation failed, cannot record this process.
                 if (parentName != NULL)
                     ExFreePoolWithTag(parentName, 'RW');
@@ -2974,23 +2946,26 @@ static VOID AddRemProcessRoutineCore(HANDLE ParentId, HANDLE ProcessId, BOOLEAN 
                     ExFreePoolWithTag(procCmdLine, 'RW');
                 return;
             }
-            procName = procNameForRecord;  // update for IRP_ENTRY copy below
-            mustFreeProcName = TRUE;       // now we own it (but RecordNewProcess will take it)
+            procName = procNameForRecord; // update for IRP_ENTRY copy below
+            mustFreeProcName = TRUE;      // now we own it (but RecordNewProcess will take it)
         }
 
         // ALWAYS record the process and send message to usermode
-        ULONGLONG gid = driverData->RecordNewProcess(procNameForRecord, (ULONG)(ULONG_PTR)ProcessId, (ULONG)(ULONG_PTR)ParentId);
+        ULONGLONG gid =
+            driverData->RecordNewProcess(procNameForRecord, (ULONG)(ULONG_PTR)ProcessId, (ULONG)(ULONG_PTR)ParentId);
 
         // Send creation message to usermode
         PIRP_ENTRY newEntry = new IRP_ENTRY();
-        if (newEntry != NULL) {
+        if (newEntry != NULL)
+        {
             PDRIVER_MESSAGE newItem = &newEntry->data;
             newItem->PID = (ULONG)(ULONG_PTR)ProcessId;
             newItem->Gid = gid;
             newItem->ParentPid = (ULONG)(ULONG_PTR)ParentId;
             newItem->IRP_OP = IRP_PROCESS_CREATE;
 
-            if (procName != NULL) {
+            if (procName != NULL)
+            {
                 // Try to convert NT device path (\Device\HarddiskVolumeX\...) to DOS
                 // drive-letter path (C:\...) so usermode sees a consistent format.
                 PCWSTR srcPath = procName->Buffer;
@@ -3013,26 +2988,25 @@ static VOID AddRemProcessRoutineCore(HANDLE ParentId, HANDLE ProcessId, BOOLEAN 
                 }
             }
 
-            if (CreateInfo &&
-                CreateInfo->CommandLine &&
-                CreateInfo->CommandLine->Buffer &&
-                CreateInfo->CommandLine->Length > 0) {
+            if (CreateInfo && CreateInfo->CommandLine && CreateInfo->CommandLine->Buffer &&
+                CreateInfo->CommandLine->Length > 0)
+            {
                 USHORT cmdCopyLen = (CreateInfo->CommandLine->Length < MAX_FILE_NAME_SIZE)
-                    ? CreateInfo->CommandLine->Length
-                    : (MAX_FILE_NAME_SIZE - sizeof(WCHAR));
+                                        ? CreateInfo->CommandLine->Length
+                                        : (MAX_FILE_NAME_SIZE - sizeof(WCHAR));
                 RtlCopyMemory(newItem->CommandLine, CreateInfo->CommandLine->Buffer, cmdCopyLen);
                 newItem->CommandLine[cmdCopyLen / sizeof(WCHAR)] = L'\0';
-            } else if (procCmdLine != NULL &&
-                       procCmdLine->Buffer != NULL &&
-                       procCmdLine->Length > 0) {
-                USHORT cmdCopyLen = (procCmdLine->Length < MAX_FILE_NAME_SIZE)
-                    ? procCmdLine->Length
-                    : (MAX_FILE_NAME_SIZE - sizeof(WCHAR));
+            }
+            else if (procCmdLine != NULL && procCmdLine->Buffer != NULL && procCmdLine->Length > 0)
+            {
+                USHORT cmdCopyLen = (procCmdLine->Length < MAX_FILE_NAME_SIZE) ? procCmdLine->Length
+                                                                               : (MAX_FILE_NAME_SIZE - sizeof(WCHAR));
                 RtlCopyMemory(newItem->CommandLine, procCmdLine->Buffer, cmdCopyLen);
                 newItem->CommandLine[cmdCopyLen / sizeof(WCHAR)] = L'\0';
             }
 
-            if (!driverData->AddIrpMessage(newEntry)) {
+            if (!driverData->AddIrpMessage(newEntry))
+            {
                 delete newEntry;
             }
         }
@@ -3047,7 +3021,7 @@ static VOID AddRemProcessRoutineCore(HANDLE ParentId, HANDLE ProcessId, BOOLEAN 
     {
         DbgPrint("!!! FsFilter: Terminate Process, Process: %d pid\n", (ULONG)(ULONG_PTR)ProcessId);
 
-        (VOID)UserModeUnhookProcess((ULONG)(ULONG_PTR)ProcessId);
+        (VOID) UserModeUnhookProcess((ULONG)(ULONG_PTR)ProcessId);
         // Always notifies usermode, Gid=0 signals "untracked process died"
         BOOLEAN found = FALSE;
         ULONGLONG gid = driverData->GetProcessGid((ULONG)(ULONG_PTR)ProcessId, &found);
@@ -3055,12 +3029,14 @@ static VOID AddRemProcessRoutineCore(HANDLE ParentId, HANDLE ProcessId, BOOLEAN 
         // Always send terminate — even if we didn't track this PID, usermode must
         // be able to clear any stale state it may have for this PID.
         PIRP_ENTRY newEntry = new IRP_ENTRY();
-        if (newEntry != NULL) {
+        if (newEntry != NULL)
+        {
             PDRIVER_MESSAGE newItem = &newEntry->data;
-            newItem->PID  = (ULONG)(ULONG_PTR)ProcessId;
-            newItem->Gid  = found ? gid : 0ULL;   // 0 = sentinel "not in our table"
+            newItem->PID = (ULONG)(ULONG_PTR)ProcessId;
+            newItem->Gid = found ? gid : 0ULL; // 0 = sentinel "not in our table"
             newItem->IRP_OP = IRP_PROCESS_TERMINATE;
-            if (!driverData->AddIrpMessage(newEntry)) {
+            if (!driverData->AddIrpMessage(newEntry))
+            {
                 delete newEntry;
             }
         }
@@ -3068,8 +3044,8 @@ static VOID AddRemProcessRoutineCore(HANDLE ParentId, HANDLE ProcessId, BOOLEAN 
     }
 }
 
-_Use_decl_annotations_
-VOID AddRemProcessRoutineEx(PEPROCESS Process, HANDLE ProcessId, PPS_CREATE_NOTIFY_INFO CreateInfo)
+_Use_decl_annotations_ VOID AddRemProcessRoutineEx(PEPROCESS Process, HANDLE ProcessId,
+                                                   PPS_CREATE_NOTIFY_INFO CreateInfo)
 {
     UNREFERENCED_PARAMETER(Process);
     BOOLEAN isCreate = (CreateInfo != NULL);
@@ -3077,8 +3053,7 @@ VOID AddRemProcessRoutineEx(PEPROCESS Process, HANDLE ProcessId, PPS_CREATE_NOTI
     AddRemProcessRoutineCore(parentId, ProcessId, isCreate, CreateInfo);
 }
 
-_Use_decl_annotations_
-VOID AddRemProcessRoutineLegacy(HANDLE ParentId, HANDLE ProcessId, BOOLEAN Create)
+_Use_decl_annotations_ VOID AddRemProcessRoutineLegacy(HANDLE ParentId, HANDLE ProcessId, BOOLEAN Create)
 {
     AddRemProcessRoutineCore(ParentId, ProcessId, Create, NULL);
 }
@@ -3112,19 +3087,21 @@ NTSTATUS FsFilter_HookDeviceControl_UNUSED(PDEVICE_OBJECT DeviceObject, PIRP Irp
     NTSTATUS status = STATUS_SUCCESS;
     ULONG bytesWritten = 0;
 
-    typedef struct _HOOK_EVENT_DATA_WIRE80 {
+    typedef struct _HOOK_EVENT_DATA_WIRE80
+    {
         ULONG EventType;
         ULONG ProcessId;
         CHAR FunctionName[64];
         ULONG_PTR Arg1;
     } HOOK_EVENT_DATA_WIRE80, *PHOOK_EVENT_DATA_WIRE80;
-    
+
     if (irpSp->Parameters.DeviceIoControl.IoControlCode == IOCTL_REPORT_HOOK_EVENT)
     {
         if (irpSp->Parameters.DeviceIoControl.InputBufferLength >= sizeof(HOOK_EVENT_DATA_WIRE80))
         {
             PVOID rawBuffer = Irp->AssociatedIrp.SystemBuffer;
-            if (rawBuffer) {
+            if (rawBuffer)
+            {
                 ULONG eventType = 0;
                 ULONG processId = 0;
                 PCWSTR incomingWideName = NULL;
@@ -3133,7 +3110,7 @@ NTSTATUS FsFilter_HookDeviceControl_UNUSED(PDEVICE_OBJECT DeviceObject, PIRP Irp
                 ULONG_PTR rawArg3 = 0;
                 ULONG_PTR rawArg4 = 0;
                 WCHAR convertedIncomingName[64] = {0};
-    
+
                 if (irpSp->Parameters.DeviceIoControl.InputBufferLength >= sizeof(HOOK_EVENT_DATA))
                 {
                     PHOOK_EVENT_DATA eventData = (PHOOK_EVENT_DATA)rawBuffer;
@@ -3169,14 +3146,16 @@ NTSTATUS FsFilter_HookDeviceControl_UNUSED(PDEVICE_OBJECT DeviceObject, PIRP Irp
                     rawArg2 = 0;
                     rawArg3 = 0;
                     rawArg4 = 0;
-                    if (eventData80->FunctionName[0] != '\0') {
+                    if (eventData80->FunctionName[0] != '\0')
+                    {
                         ANSI_STRING asFunc;
                         UNICODE_STRING usFunc;
                         RtlInitAnsiString(&asFunc, eventData80->FunctionName);
                         usFunc.Buffer = convertedIncomingName;
                         usFunc.Length = 0;
                         usFunc.MaximumLength = sizeof(convertedIncomingName);
-                        if (NT_SUCCESS(RtlAnsiStringToUnicodeString(&usFunc, &asFunc, FALSE))) {
+                        if (NT_SUCCESS(RtlAnsiStringToUnicodeString(&usFunc, &asFunc, FALSE)))
+                        {
                             convertedIncomingName[(RTL_NUMBER_OF(convertedIncomingName) - 1)] = L'\0';
                             incomingWideName = convertedIncomingName;
                         }
@@ -3195,10 +3174,12 @@ NTSTATUS FsFilter_HookDeviceControl_UNUSED(PDEVICE_OBJECT DeviceObject, PIRP Irp
 
                 // Prefer fully-qualified module!function labels.
                 // If incoming payload is unqualified (e.g. only module stem), resolve by EventId.
-                if (incomingQualified) {
+                if (incomingQualified)
+                {
                     functionName = incomingWideName;
-                } else if (ResolveHookNameByEventId(eventType, resolvedHookName, RTL_NUMBER_OF(resolvedHookName)) &&
-                           resolvedHookName[0] != L'\0')
+                }
+                else if (ResolveHookNameByEventId(eventType, resolvedHookName, RTL_NUMBER_OF(resolvedHookName)) &&
+                         resolvedHookName[0] != L'\0')
                 {
                     functionName = resolvedHookName;
                 }
@@ -3211,28 +3192,26 @@ NTSTATUS FsFilter_HookDeviceControl_UNUSED(PDEVICE_OBJECT DeviceObject, PIRP Irp
                     functionName = L"";
                 }
 
-                DbgPrint("FsFilter: API HOOKING EVENT RawType=%lu Name=%ws SourcePid=%lu TargetPid=%lu Arg1=0x%p Arg2=0x%p Arg3=0x%p Arg4=0x%p\n",
-                         eventType,
-                         functionName ? functionName : L"",
-                         processId,
-                         processId,
-                         (PVOID)rawArg1,
-                         (PVOID)rawArg2,
-                         (PVOID)rawArg3,
-                         (PVOID)rawArg4);
-                
+                DbgPrint("FsFilter: API HOOKING EVENT RawType=%lu Name=%ws SourcePid=%lu TargetPid=%lu Arg1=0x%p "
+                         "Arg2=0x%p Arg3=0x%p Arg4=0x%p\n",
+                         eventType, functionName ? functionName : L"", processId, processId, (PVOID)rawArg1,
+                         (PVOID)rawArg2, (PVOID)rawArg3, (PVOID)rawArg4);
+
                 // Preserve raw event type and hook arguments; classification is normalized in ProcessProtection.
-                OnKernelApiEvent(IRP_USERMODE_HOOK_EVENT, eventType, processId, processId, functionName, rawArg1, rawArg2, rawArg3, rawArg4);
+                OnKernelApiEvent(IRP_USERMODE_HOOK_EVENT, eventType, processId, processId, functionName, rawArg1,
+                                 rawArg2, rawArg3, rawArg4);
             }
         }
-        else {
+        else
+        {
             status = STATUS_BUFFER_TOO_SMALL;
         }
     }
-    else {
+    else
+    {
         status = STATUS_INVALID_DEVICE_REQUEST;
     }
-    
+
     Irp->IoStatus.Status = status;
     Irp->IoStatus.Information = bytesWritten;
     IoCompleteRequest(Irp, IO_NO_INCREMENT);

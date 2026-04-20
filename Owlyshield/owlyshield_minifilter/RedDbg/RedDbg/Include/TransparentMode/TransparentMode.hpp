@@ -2,7 +2,7 @@
 #include "HyperVisor/CommonTypes/CPUID.hpp"
 #include "Debugger/Driver/GuestContext.hpp"
 
-#include <ntddk.h>
+#include <ntifs.h>
 
 class Transparent {
 public:

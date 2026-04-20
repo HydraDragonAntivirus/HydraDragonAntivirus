@@ -2,7 +2,7 @@
 #include "Log/Log.hpp"
 #include "HyperVisor/CommonApi/Spinlock.hpp"
 
-#include <ntddk.h>
+#include <ntifs.h>
 
 class Log {
 private:

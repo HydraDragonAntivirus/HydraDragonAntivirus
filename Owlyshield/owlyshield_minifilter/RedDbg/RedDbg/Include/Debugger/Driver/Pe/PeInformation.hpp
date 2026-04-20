@@ -1,6 +1,6 @@
 #pragma once
 #include "PeStruct.hpp"
-#include <ntddk.h>
+#include <ntifs.h>
 
 class PEInformation
 {

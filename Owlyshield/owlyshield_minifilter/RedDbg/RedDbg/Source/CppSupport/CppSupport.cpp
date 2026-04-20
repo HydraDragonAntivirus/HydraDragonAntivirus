@@ -116,30 +116,30 @@ constexpr unsigned long CrtPoolTag = 'TRC_';
 
 void* __cdecl operator new(size_t Size)
 {
-    //KdPrint(("%X\n", Size));
-    void* Pointer = ExAllocatePoolWithTag(NonPagedPool, Size, CrtPoolTag);
+    void* Pointer = ExAllocatePool2(POOL_FLAG_NON_PAGED, Size, CrtPoolTag);
     if (Pointer) RtlZeroMemory(Pointer, Size);
-    //KdPrint(("%p\n", Pointer));
     return Pointer;
 }
 
 void* __cdecl operator new(size_t Size, POOL_TYPE PoolType)
 {
-    void* Pointer = ExAllocatePoolWithTag(PoolType, Size, CrtPoolTag);
+    ULONG_PTR Flags = (PoolType & PagedPool) ? POOL_FLAG_PAGED : POOL_FLAG_NON_PAGED;
+    void* Pointer = ExAllocatePool2(Flags, Size, CrtPoolTag);
     if (Pointer) RtlZeroMemory(Pointer, Size);
     return Pointer;
 }
 
 void* __cdecl operator new[](size_t Size)
 {
-    void* Pointer = ExAllocatePoolWithTag(NonPagedPool, Size, CrtPoolTag);
+    void* Pointer = ExAllocatePool2(POOL_FLAG_NON_PAGED, Size, CrtPoolTag);
     if (Pointer) RtlZeroMemory(Pointer, Size);
     return Pointer;
 }
 
 void* __cdecl operator new[](size_t Size, POOL_TYPE PoolType)
 {
-    void* Pointer = ExAllocatePoolWithTag(PoolType, Size, CrtPoolTag);
+    ULONG_PTR Flags = (PoolType & PagedPool) ? POOL_FLAG_PAGED : POOL_FLAG_NON_PAGED;
+    void* Pointer = ExAllocatePool2(Flags, Size, CrtPoolTag);
     if (Pointer) RtlZeroMemory(Pointer, Size);
     return Pointer;
 }

@@ -63,7 +63,7 @@
     </DriverSign>
     <ClCompile>
       <AdditionalIncludeDirectories>$(ProjectDir)Source/Deps/zydis/dependencies/zycore/include;$(ProjectDir)Source/Deps/zydis/include;$(ProjectDir)Include/Deps;$(ProjectDir)Include;$(ProjectDir)..\..\HyperDbg\hyperdbg\dependencies\zydis\include;$(ProjectDir)..\..\HyperDbg\hyperdbg\dependencies\zydis\dependencies\zycore\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-      <PreprocessorDefinitions>ZYAN_NO_LIBC;ZYDIS_NO_LIBC;ZYCORE_STATIC_BUILD;ZYDIS_STATIC_BUILD;POOL_NX_OPTIN=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>NTSTRSAFE_LIB;ZYAN_NO_LIBC;ZYDIS_NO_LIBC;ZYCORE_STATIC_BUILD;ZYDIS_STATIC_BUILD;POOL_NX_OPTIN=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <LanguageStandard>stdcpplatest</LanguageStandard>
       <TreatWarningAsError>false</TreatWarningAsError>
       <InlineFunctionExpansion>AnySuitable</InlineFunctionExpansion>
@@ -74,11 +74,11 @@
     </ClCompile>
     <Link>
       <AdditionalLibraryDirectories>$(ProjectDir)Source/Deps/zydis/msvc/bin/$(ConfigurationName);$(ProjectDir)..\..\HyperDbg\hyperdbg\libraries\zydis\kernel;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>Zydis.lib;Zycore.lib;%(AdditionalDependencies);$(KernelBufferOverflowLib);$(DDK_LIB_PATH)ntoskrnl.lib;$(DDK_LIB_PATH)hal.lib;$(DDK_LIB_PATH)wmilib.lib</AdditionalDependencies>
+      <AdditionalDependencies>$(DDK_LIB_PATH)ntstrsafe.lib;Zydis.lib;Zycore.lib;%(AdditionalDependencies);$(KernelBufferOverflowLib);$(DDK_LIB_PATH)ntoskrnl.lib;$(DDK_LIB_PATH)hal.lib;$(DDK_LIB_PATH)wmilib.lib</AdditionalDependencies>
       <TreatLinkerWarningAsErrors>false</TreatLinkerWarningAsErrors>
     </Link>
     <PreBuildEvent>
-      <Command>msbuild "$(ProjectDir)Source/Deps/zydis/msvc/Zydis.sln" /m /p:Configuration="Release Kernel" /p:Platform=$(Platform) /target:zydis /target:zycore /p:OutDir="$(ProjectDir)Source/Deps/zydis/msvc/bin/$(ConfigurationName)"</Command>
+      <Command>msbuild "$(ProjectDir)Source/Deps/zydis/msvc/Zydis.sln" /m /p:Configuration="Release Kernel" /p:Platform=$(Platform) /target:zydis /target:zycore /p:OutDir="$(ProjectDir)Source/Deps/zydis/msvc/bin/$(ConfigurationName)\\"</Command>
     </PreBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='ReleaseX64Kernel|x64'">
@@ -87,7 +87,7 @@
     </DriverSign>
     <ClCompile>
       <AdditionalIncludeDirectories>$(ProjectDir)Source/Deps/zydis/dependencies/zycore/include;$(ProjectDir)Source/Deps/zydis/include;$(ProjectDir)Include/Deps;$(ProjectDir)Include;$(ProjectDir)..\..\HyperDbg\hyperdbg\dependencies\zydis\include;$(ProjectDir)..\..\HyperDbg\hyperdbg\dependencies\zydis\dependencies\zycore\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-      <PreprocessorDefinitions>ZYAN_NO_LIBC;ZYDIS_NO_LIBC;ZYCORE_STATIC_BUILD;ZYDIS_STATIC_BUILD;POOL_NX_OPTIN=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>NTSTRSAFE_LIB;ZYAN_NO_LIBC;ZYDIS_NO_LIBC;ZYCORE_STATIC_BUILD;ZYDIS_STATIC_BUILD;POOL_NX_OPTIN=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <TreatWarningAsError>false</TreatWarningAsError>
       <LanguageStandard>stdcpplatest</LanguageStandard>
       <IntrinsicFunctions>true</IntrinsicFunctions>
@@ -97,11 +97,11 @@
     </ClCompile>
     <Link>
       <AdditionalLibraryDirectories>$(ProjectDir)Source/Deps/zydis/msvc/bin/$(ConfigurationName);$(ProjectDir)..\..\HyperDbg\hyperdbg\libraries\zydis\kernel;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>Zydis.lib;Zycore.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>$(DDK_LIB_PATH)ntstrsafe.lib;Zydis.lib;Zycore.lib;%(AdditionalDependencies);$(KernelBufferOverflowLib);$(DDK_LIB_PATH)ntoskrnl.lib;$(DDK_LIB_PATH)hal.lib;$(DDK_LIB_PATH)wmilib.lib</AdditionalDependencies>
       <TreatLinkerWarningAsErrors>false</TreatLinkerWarningAsErrors>
     </Link>
     <PreBuildEvent>
-      <Command>msbuild "$(ProjectDir)Source/Deps/zydis/msvc/Zydis.sln" /m /p:Configuration="Release Kernel" /p:Platform=$(Platform) /target:zydis /target:zycore /p:OutDir="$(ProjectDir)Source/Deps/zydis/msvc/bin/$(ConfigurationName)"</Command>
+      <Command>msbuild "$(ProjectDir)Source/Deps/zydis/msvc/Zydis.sln" /m /p:Configuration="Release Kernel" /p:Platform=$(Platform) /target:zydis /target:zycore /p:OutDir="$(ProjectDir)Source/Deps/zydis/msvc/bin/$(ConfigurationName)\\"</Command>
     </PreBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>

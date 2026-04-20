@@ -1,4 +1,4 @@
-#include <ntddk.h>
+#include <ntifs.h>
 
 #include "Debugger/Driver/GuestContext.hpp"
 #include "Zydis/Zydis.h"
@@ -396,7 +396,6 @@ typedef struct _OWLY_HV_COMM_DATA {
     PVOID CallbackRoutine; // PHYPERDBG_OWLY_EVENT_CALLBACK
 } OWLY_HV_COMM_DATA, *POWLY_HV_COMM_DATA;
 
-PVOID g_OwlyCallback = NULL;
 HANDLE g_PollingThreadHandle = NULL;
 BOOLEAN g_StopPolling = FALSE;
 
@@ -451,7 +450,7 @@ NTSTATUS DrvDispatchIoControl(PDEVICE_OBJECT DeviceObject, PIRP Irp)
         if (IrpStack->Parameters.DeviceIoControl.InputBufferLength >= sizeof(OWLY_HV_COMM_DATA)) {
             POWLY_HV_COMM_DATA commData = (POWLY_HV_COMM_DATA)Irp->AssociatedIrp.SystemBuffer;
             if (commData->Magic == 0x4F574C59) {
-                g_OwlyCallback = commData->CallbackRoutine;
+                g_OwlyCallback = (POWLY_HV_CALLBACK)commData->CallbackRoutine;
                 DbgPrint("!!! RedDbg: Registered Owlyshield callback at %p\n", g_OwlyCallback);
                 
                 if (g_PollingThreadHandle == NULL) {

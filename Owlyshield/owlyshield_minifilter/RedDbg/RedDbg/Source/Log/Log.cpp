@@ -1,8 +1,7 @@
 #include "Log/Logger.hpp"
 
-#include <ntddk.h>
-#include <cstdarg>
-#include <stdio.h>
+#include <ntifs.h>
+#include <ntstrsafe.h>
 
 #include "General.hpp"
 
@@ -20,8 +19,8 @@ BOOLEAN Log::LogInitialize()
 		KeInitializeSpinLock(&MessageBufferInformation[i].BufferLock);
 		KeInitializeSpinLock(&MessageBufferInformation[i].BufferLockForNonImmMessage);
 
-		MessageBufferInformation[i].BufferStartAddress = ExAllocatePool2(POOL_FLAG_NON_PAGED, LogBufferSize, 'goL#');
-		MessageBufferInformation[i].BufferForMultipleNonImmediateMessage = ExAllocatePool2(POOL_FLAG_NON_PAGED, PacketChunkSize, 'goL#');
+	MessageBufferInformation[i].BufferStartAddress = ExAllocatePool2(POOL_FLAG_NON_PAGED, LogBufferSize, 'BSta');
+	MessageBufferInformation[i].BufferForMultipleNonImmediateMessage = ExAllocatePool2(POOL_FLAG_NON_PAGED, PacketChunkSize, 'BNim');
 
 		if (!MessageBufferInformation[i].BufferStartAddress)
 		{
@@ -75,12 +74,13 @@ BOOLEAN Log::LogSendBuffer(UINT32 OperationCode, PVOID Buffer, UINT32 BufferLeng
 	}
 
 	IsSvmRoot ? Spinlock.SpinlockUnlock((LONG*)&SvmRootLoggingLock) : KeReleaseSpinLock(&MessageBufferInformation[Index].BufferLock, OldIRQL);
+	return TRUE;
 }
 
 BOOLEAN Log::LogReadBuffer(BOOLEAN IsSvmRoot, PVOID BufferToSaveMessage, UINT32 * ReturnedLength) 
 {
 
-	KIRQL OldIRQL; UINT32 Index;
+	KIRQL OldIRQL = 0; UINT32 Index;
 
 	if (IsSvmRoot) { Index = 1; Spinlock.SpinlockLock((LONG*)&SvmRootLoggingLock); }
 	else { Index = 0; KeAcquireSpinLock(&MessageBufferInformation[Index].BufferLock, &OldIRQL); }
@@ -112,7 +112,8 @@ BOOLEAN Log::LogReadBuffer(BOOLEAN IsSvmRoot, PVOID BufferToSaveMessage, UINT32 
 
 BOOLEAN Log::LogCheckForNewMessage(BOOLEAN IsSvmRoot)
 {
-	KIRQL OldIRQL; UINT32 Index;
+	// KIRQL OldIRQL; (Removed as unreferenced)
+	UINT32 Index;
 
 	IsSvmRoot ? Index = 1 : Index = 0;
 
@@ -130,9 +131,9 @@ BOOLEAN Log::LogSendMessageToQueue(UINT32 OperationCode, BOOLEAN IsImmediateMess
 	va_list ArgList;
 	size_t WrittenSize;
 	UINT32 Index;
-	KIRQL OldIRQL;
+	KIRQL OldIRQL = 0;
 	BOOLEAN IsSvmRootMode;
-	int SprintfResult = 0;
+	// int SprintfResult = 0; (Removed as unreferenced)
 	char LogMessage[PacketChunkSize];
 	char TempMessage[PacketChunkSize];
 	char TimeBuffer[20] = { 0 };
@@ -145,10 +146,10 @@ BOOLEAN Log::LogSendMessageToQueue(UINT32 OperationCode, BOOLEAN IsImmediateMess
 	{
 		va_start(ArgList, Fmt);
 
-		SprintfResult = vsprintf_s(LogMessage, PacketChunkSize - 1, Fmt, ArgList);
+		NTSTATUS Status = RtlStringCchVPrintfA(LogMessage, PacketChunkSize - 1, Fmt, ArgList);
 		va_end(ArgList);
 
-		if (SprintfResult == -1) { return FALSE; }
+		if (!NT_SUCCESS(Status)) { return FALSE; }
 
 		TIME_FIELDS TimeFields;
 		LARGE_INTEGER SystemTime, LocalTime;
@@ -156,34 +157,34 @@ BOOLEAN Log::LogSendMessageToQueue(UINT32 OperationCode, BOOLEAN IsImmediateMess
 		ExSystemTimeToLocalTime(&SystemTime, &LocalTime);
 		RtlTimeToTimeFields(&LocalTime, &TimeFields);
 
-		sprintf_s(TimeBuffer, RTL_NUMBER_OF(TimeBuffer), "%02hd:%02hd:%02hd.%03hd", TimeFields.Hour,
+		RtlStringCchPrintfA(TimeBuffer, RTL_NUMBER_OF(TimeBuffer), "%02hd:%02hd:%02hd.%03hd", TimeFields.Hour,
 			TimeFields.Minute, TimeFields.Second,
 			TimeFields.Milliseconds);
 
 		// Append time with previous message
-		SprintfResult = sprintf_s(LogMessage, PacketChunkSize - 1, "(%s - core : %d - vmx-root? %s)\t %s",
+		Status = RtlStringCchPrintfA(LogMessage, PacketChunkSize - 1, "(%s - core : %d - vmx-root? %s)\t %s",
 			TimeBuffer, KeGetCurrentProcessorNumberEx(0), IsSvmRootMode ? "yes" : "no", TempMessage);
 
-		if (SprintfResult == -1) { return FALSE; }
+		if (!NT_SUCCESS(Status)) { return FALSE; }
 	}
 	else
 	{
 		va_start(ArgList, Fmt);
 
-		SprintfResult = vsprintf_s(LogMessage, PacketChunkSize - 1, Fmt, ArgList);
+		NTSTATUS Status = RtlStringCchVPrintfA(LogMessage, PacketChunkSize - 1, Fmt, ArgList);
 		va_end(ArgList);
 
-		if (SprintfResult == -1) { return FALSE; }
+		if (!NT_SUCCESS(Status)) { return FALSE; }
 	}
 
-	WrittenSize = strnlen_s(LogMessage, PacketChunkSize - 1);
+	RtlStringCchLengthA(LogMessage, PacketChunkSize - 1, &WrittenSize);
 
 	if (LogMessage[0] == '\0') { return FALSE; }
 
 	if (IsImmediateMessage) 
 	{ 
 		BufferIsReady = TRUE; 
-		LogSendBuffer(OperationCode, LogMessage, WrittenSize);
+		LogSendBuffer(OperationCode, LogMessage, (UINT32)WrittenSize);
 		RtlZeroMemory(LogMessage, sizeof(LogMessage));
 	}
 	else
@@ -208,14 +209,13 @@ BOOLEAN Log::LogSendMessageToQueue(UINT32 OperationCode, BOOLEAN IsImmediateMess
 		RtlCopyBytes(PVOID(UINT64(MessageBufferInformation[Index].BufferForMultipleNonImmediateMessage) +
 			MessageBufferInformation[Index].CurrentLengthOfNonImmBuffer), LogMessage, WrittenSize);
 
-		MessageBufferInformation[Index].CurrentLengthOfNonImmBuffer += WrittenSize;
+		MessageBufferInformation[Index].CurrentLengthOfNonImmBuffer += (UINT32)WrittenSize;
 
 		if (IsSvmRootMode) { Spinlock.SpinlockUnlock((LONG*)&SvmRootLoggingLockForNonImmBuffers); }
 		else { KeReleaseSpinLock(&MessageBufferInformation[Index].BufferLockForNonImmMessage, OldIRQL); }
 
 		return Result;
 	}
-	*/
 	return 1;
 }
 
@@ -290,9 +290,9 @@ namespace Cwrapper
 
 NTSTATUS Log::LogRegisterIrpBasedNotification(PDEVICE_OBJECT DeviceObject, PIRP Irp)
 {
+	UNREFERENCED_PARAMETER(DeviceObject);
 	PNOTIFY_RECORD NotifyRecord;
 	PIO_STACK_LOCATION IrpStack;
-	KIRQL OOldIrql;
 	PREGISTER_EVENT RegisterEvent;
 
 	if (GlobalNotifyRecord == NULL)
@@ -300,7 +300,7 @@ NTSTATUS Log::LogRegisterIrpBasedNotification(PDEVICE_OBJECT DeviceObject, PIRP 
 		IrpStack = IoGetCurrentIrpStackLocation(Irp);
 		RegisterEvent = (PREGISTER_EVENT)Irp->AssociatedIrp.SystemBuffer;
 
-		NotifyRecord = (PNOTIFY_RECORD)ExAllocatePoolWithQuotaTag(NonPagedPool, sizeof(NOTIFY_RECORD), POOLTAG);
+		NotifyRecord = (PNOTIFY_RECORD)ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeof(NOTIFY_RECORD), POOLTAG);
 
 		if (NULL == NotifyRecord) {
 			return  STATUS_INSUFFICIENT_RESOURCES;
@@ -330,17 +330,17 @@ NTSTATUS Log::LogRegisterIrpBasedNotification(PDEVICE_OBJECT DeviceObject, PIRP 
 
 NTSTATUS Log::LogRegisterEventBasedNotification(PDEVICE_OBJECT DeviceObject, PIRP Irp)
 {
+	UNREFERENCED_PARAMETER(DeviceObject);
 	PNOTIFY_RECORD NotifyRecord;
 	NTSTATUS Status;
 	PIO_STACK_LOCATION IrpStack;
 	PREGISTER_EVENT RegisterEvent;
-	KIRQL OldIrql;
 
 	IrpStack = IoGetCurrentIrpStackLocation(Irp);
 	RegisterEvent = (PREGISTER_EVENT)Irp->AssociatedIrp.SystemBuffer;
 
 	// Allocate a record and save all the event context.
-	NotifyRecord = (PNOTIFY_RECORD)ExAllocatePoolWithQuotaTag(NonPagedPool, sizeof(NOTIFY_RECORD), POOLTAG);
+	NotifyRecord = (PNOTIFY_RECORD)ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeof(NOTIFY_RECORD), POOLTAG);
 
 	if (NULL == NotifyRecord) { return  STATUS_INSUFFICIENT_RESOURCES; }
 
@@ -361,8 +361,10 @@ NTSTATUS Log::LogRegisterEventBasedNotification(PDEVICE_OBJECT DeviceObject, PIR
 		NULL
 	);
 
-	if (!NT_SUCCESS(Status)) 
-	{ ExFreePoolWithTag(NotifyRecord, POOLTAG); return Status; }
+	if (!NT_SUCCESS(Status))
+	{
+		ExFreePoolWithTag(NotifyRecord, POOLTAG); return Status;
+	}
 
 	// Insert dpc to the queue
 	KeInsertQueueDpc(&NotifyRecord->Dpc, NotifyRecord, NULL);

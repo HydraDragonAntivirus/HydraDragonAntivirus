@@ -1,5 +1,5 @@
 #pragma once
-#include <ntddk.h>
+#include <ntifs.h>
 
 #define STRCAT(dest, src, Len) \
     strcat_s((PCH)dest, sizeof(src), src); \

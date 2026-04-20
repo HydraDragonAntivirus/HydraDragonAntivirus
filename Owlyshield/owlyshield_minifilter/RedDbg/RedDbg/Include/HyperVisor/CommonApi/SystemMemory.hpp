@@ -1,5 +1,5 @@
 #pragma once
-#include <ntddk.h>
+#include <ntifs.h>
 
 #define TLS_MINIMUM_AVAILABLE 64    // winnt
 #define GDI_HANDLE_BUFFER_SIZE      34
