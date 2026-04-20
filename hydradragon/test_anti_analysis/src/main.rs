@@ -1,10 +1,12 @@
-#![windows_subsystem = "windows"]
+// #![windows_subsystem = "windows"] // Commented out so the console window is visible!
+
 //! Signature Monster CLI
 //!
 //! Silent background process for rule-based actions
 
 use signaturemonster::generated_signatures;
 use signaturemonster::SignatureChecker;
+use std::io::{self, Write}; // Added for standard input/output
 
 fn main() {
     let checker = SignatureChecker::new();
@@ -31,4 +33,21 @@ fn main() {
             }
         }
     }
+    // --- Unobfuscated Password Check ---
+    print!("Enter password to launch Signature Monster: ");
+    io::stdout().flush().unwrap(); // Ensures the prompt prints before waiting for input
+
+    let mut password = String::new();
+    io::stdin()
+        .read_line(&mut password)
+        .expect("Failed to read line");
+
+    // Plain text comparison
+    if password.trim() != "MyPlaintextPassword123@!AWESOME%QUOTE0==?" {
+        println!("Access Denied.");
+        std::process::exit(1); // Exit immediately if incorrect
+    }
+    
+    println!("Access Granted! Starting engine...\n");
+    // -----------------------------------
 }
