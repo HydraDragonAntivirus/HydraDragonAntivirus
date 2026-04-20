@@ -1204,11 +1204,61 @@ class BodySynthesizer:
         return next((a for a in attrs if a in ITER_ATTRS), attrs[0] if attrs else None)
 
     # ------------------------------------------------------------------
+    # Raw metadata fallback — paste everything we recovered
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _body_metadata_fallback(func: FunctionDefNode) -> list[str]:
+        """Dump all recovered metadata fragments as raw literals.
+        Output is NOT guaranteed to be valid Python — that's intentional.
+        The goal is data preservation over syntactic correctness."""
+        lines: list[str] = []
+        lines.append(f"# === RAW METADATA for {func.name!r} ===")
+
+        if func.messages:
+            lines.append("# --- messages ---")
+            for msg in func.messages:
+                lines.append(repr(msg))
+
+        if func.string_hints:
+            lines.append("# --- string hints ---")
+            for hint in func.string_hints:
+                lines.append(repr(hint))
+
+        if func.literals:
+            lines.append("# --- literals ---")
+            for lit in func.literals:
+                lines.append(repr(lit))
+
+        if func.tuples:
+            lines.append("# --- tuples ---")
+            for tup in func.tuples:
+                lines.append(repr(tup))
+
+        if func.dict_hints:
+            lines.append("# --- dicts ---")
+            for d in func.dict_hints:
+                lines.append(repr(d))
+
+        if func.annotations:
+            lines.append("# --- annotations ---")
+            for k, v in func.annotations.items():
+                lines.append(f"{k}: {v}")
+
+        if not lines or len(lines) <= 1:
+            lines.append("pass  # no metadata recovered")
+
+        return lines
+
+    # ------------------------------------------------------------------
     # Individual body builders
     # ------------------------------------------------------------------
 
     @staticmethod
     def _body_abstract(func: FunctionDefNode) -> list[str]:
+        fallback = BodySynthesizer._body_metadata_fallback(func)
+        if len(fallback) > 1:
+            return fallback
         return [
             "raise NotImplementedError(",
             f'    f"{{type(self).__name__}} must implement {func.name!r}"',
@@ -1607,7 +1657,10 @@ class BodySynthesizer:
                 "    raise TypeError('No callable configured')",
                 f"return self.{callable_attr}({args_str})",
             ]
-        return ["raise NotImplementedError('__call__ not implemented')"]
+        fallback = BodySynthesizer._body_metadata_fallback(func)
+        if len(fallback) > 1:
+            return fallback
+        return ["pass  # __call__ — no metadata recovered"]
 
     @staticmethod
     def _body_copy(
@@ -2310,16 +2363,20 @@ class BodySynthesizer:
                         else:
                             lines.append(f"self._process_constant({hint!r})")
 
-        # 3. Fallback
+        # 3. Fallback — dump ALL raw metadata
         if not lines:
             if func.is_method and non_self:
                 for arg in non_self[:3]:
                     lines.append(f"self._{arg} = {arg}")
-            else:
+            # Always append recovered metadata regardless
+            metadata = BodySynthesizer._body_metadata_fallback(func)
+            if len(metadata) > 1:  # more than just the header
+                lines.extend(metadata)
+            elif not lines:
                 if attrs:
                     lines.append(f"return self.{attrs[0]}")
                 else:
-                    lines.append("pass")
+                    lines.append("pass  # no metadata recovered")
 
         return lines
 
@@ -2438,6 +2495,7 @@ class OmniDecompiler:
         self.has_threading:    bool                                      = False
         self.has_logging:      bool                                      = False
         self.has_warnings:     bool                                      = False
+        self.unclaimed_items:  list[Any]                                  = []
 
     # ------------------------------------------------------------------
     # Node factories
@@ -2797,6 +2855,8 @@ class OmniDecompiler:
 
         if self.current_function and text not in DECORATOR_NAMES:
             self._record_target_hint(self.current_function, "string", text)
+        elif text and not self.current_function and text not in DECORATOR_NAMES and text not in META_FIELD_NAMES:
+            self.unclaimed_items.append(text)
 
     # ------------------------------------------------------------------
     # Pass 1 — main loop
@@ -2863,6 +2923,20 @@ class OmniDecompiler:
 
             if isinstance(item, str) and item:
                 self._dispatch_string(items, index, item, pending)
+                continue
+
+            # Anything not consumed above is unclaimed raw data
+            self.unclaimed_items.append(item)
+
+        # Flush any leftover pending data that was never consumed
+        if pending.dicts:
+            self.unclaimed_items.extend(pending.dicts)
+        if pending.tuples:
+            self.unclaimed_items.extend(pending.tuples)
+        if pending.literals:
+            self.unclaimed_items.extend(pending.literals)
+        if pending.docstring:
+            self.unclaimed_items.append(pending.docstring)
 
     # ------------------------------------------------------------------
     # Pass 2 helpers
@@ -3257,6 +3331,15 @@ def generate_omni_source(decompiler: OmniDecompiler, section_name: str) -> str:
         lines.append("")
         lines.extend(cls_node.render(0).rstrip().splitlines())
         lines.append("")
+
+    # --- unclaimed raw data from blob ---
+    if decompiler.unclaimed_items:
+        lines.append("")
+        lines.append("# ===========================================================================")
+        lines.append("# UNCLAIMED RAW DATA — items not assigned to any class or function")
+        lines.append("# ===========================================================================")
+        for idx, item in enumerate(decompiler.unclaimed_items):
+            lines.append(f"_raw_{idx} = {repr(item)}")
 
     return "\n".join(lines).rstrip() + "\n"
 
