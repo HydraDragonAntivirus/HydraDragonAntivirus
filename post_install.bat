@@ -146,6 +146,12 @@ if %errorlevel% neq 0 (
 echo [+] SimplePYASProtection driver installed.
 
 :: --------------------------------------------------------
+:: 8.0) Trust RedDbg/HyperDbg test certificates
+:: --------------------------------------------------------
+call :trust_driver_cert_if_exists "%~dp0hydradragon\Owlyshield\RedDbg\RedDbgDrv.cer" "RedDbg"
+call :trust_driver_cert_if_exists "%~dp0hydradragon\Owlyshield\HyperDbg\hyperhv.cer" "HyperDbg"
+
+:: --------------------------------------------------------
 :: 8.1) Install RedDbg driver (AMD Hypervisor)
 :: --------------------------------------------------------
 echo Installing RedDbg driver INF...
@@ -260,4 +266,26 @@ if errorlevel 1 (
 ) else (
     echo [+] Optional feature disable requested: %~1
 )
+exit /b 0
+
+:trust_driver_cert_if_exists
+if not exist "%~1" (
+    echo [*] Test certificate not found for %~2, skipping import.
+    exit /b 0
+)
+
+echo [*] Importing %~2 test certificate...
+certutil -addstore -f Root "%~1" >nul 2>&1
+if errorlevel 1 (
+    echo [!] Failed to import %~2 certificate into the Root store.
+    exit /b 0
+)
+
+certutil -addstore -f TrustedPublisher "%~1" >nul 2>&1
+if errorlevel 1 (
+    echo [!] Failed to import %~2 certificate into the TrustedPublisher store.
+    exit /b 0
+)
+
+echo [+] %~2 test certificate imported.
 exit /b 0
