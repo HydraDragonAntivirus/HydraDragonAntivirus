@@ -22,6 +22,13 @@ if /I "%POSTINSTALL_STAGE%"=="after-hypervisor-reboot" (
     echo [*] Continuing post-install after hypervisor/VBS reboot...
 ) else (
     call :prepare_hypervisor_stack
+    if "%TESTSIGNING_ENABLE_FAILED%"=="1" (
+        echo [!] Test signing mode could not be enabled.
+        echo [!] Secure Boot may be blocking test-signed RedDbg/HyperDbg drivers.
+        echo [!] Disable Secure Boot or use production-signed driver packages.
+        pause
+        exit /b
+    )
     if "%HYPERVISOR_REBOOT_REQUIRED%"=="1" (
         echo [*] Hypervisor/VBS settings were changed. A reboot is required before driver installation.
         echo [*] Scheduling post-install continuation after reboot...
@@ -220,6 +227,7 @@ goto :eof
 
 :prepare_hypervisor_stack
 set "HYPERVISOR_REBOOT_REQUIRED=0"
+set "TESTSIGNING_ENABLE_FAILED=0"
 echo [*] Disabling VBS/HVCI/Hyper-V features for hypervisor-based testing compatibility...
 echo [*] Note: this only refers to Windows Hyper-V/VBS settings used by this installer.
 echo [*] It is separate from the hypervisor material documented in the wiki or other folders.
@@ -230,11 +238,16 @@ call :mark_reboot_if_feature_enabled Microsoft-Hyper-V-All
 call :mark_reboot_if_feature_enabled Microsoft-Hyper-V-Hypervisor
 call :mark_reboot_if_feature_enabled VirtualMachinePlatform
 call :mark_reboot_if_feature_enabled HypervisorPlatform
+call :mark_reboot_if_testsigning_disabled
 
 reg add "HKLM\SYSTEM\CurrentControlSet\Control\DeviceGuard" /v EnableVirtualizationBasedSecurity /t REG_DWORD /d 0 /f >nul 2>&1
 reg add "HKLM\SYSTEM\CurrentControlSet\Control\DeviceGuard\Scenarios\HypervisorEnforcedCodeIntegrity" /v Enabled /t REG_DWORD /d 0 /f >nul 2>&1
 bcdedit /set hypervisorlaunchtype off >nul 2>&1
 bcdedit /set vsmlaunchtype off >nul 2>&1
+bcdedit /set testsigning on >nul 2>&1
+if errorlevel 1 (
+    set "TESTSIGNING_ENABLE_FAILED=1"
+)
 
 call :disable_feature_if_present Microsoft-Hyper-V-All
 call :disable_feature_if_present Microsoft-Hyper-V-Hypervisor
@@ -246,6 +259,14 @@ if "%HYPERVISOR_REBOOT_REQUIRED%"=="1" (
 ) else (
     echo [+] Hypervisor-conflicting Windows settings already appear disabled.
 )
+exit /b 0
+
+:mark_reboot_if_testsigning_disabled
+set "TESTSIGNING_STATE="
+for /f "tokens=2" %%A in ('bcdedit /enum {current} ^| findstr /i "testsigning"') do (
+    set "TESTSIGNING_STATE=%%A"
+)
+if /I not "%TESTSIGNING_STATE%"=="Yes" if /I not "%TESTSIGNING_STATE%"=="Evet" set "HYPERVISOR_REBOOT_REQUIRED=1"
 exit /b 0
 
 :mark_reboot_if_reg_enabled
