@@ -273,7 +273,7 @@ int main()
 	std::unique_ptr<DRIVER> Driver; Driver = std::make_unique<DRIVER>();
 	std::string Wait;
 
-	Driver->LoadDriver((LPTSTR)L"C:\\RedDbgDrv.sys", (LPTSTR)L"RedTracer", (LPTSTR)L"RedTracer", SERVICE_DEMAND_START);
+	Driver->LoadDriver((LPTSTR)L"C:\\RedDbgDrv.sys", (LPTSTR)L"RedDbg", (LPTSTR)L"RedDbg", SERVICE_DEMAND_START);
 	std::cout << "Driver Started!" << std::endl;
 
 	HANDLE hDriver = CreateFileA("\\\\.\\MyHypervisorDevice",

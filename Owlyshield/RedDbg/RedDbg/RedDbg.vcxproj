@@ -50,12 +50,14 @@
     <IncludePath>$(VC_IncludePath);$(IncludePath)</IncludePath>
     <Inf2CatUseLocalTime>true</Inf2CatUseLocalTime>
     <EnableClangTidyCodeAnalysis>true</EnableClangTidyCodeAnalysis>
+    <TargetName>RedDbgDrv</TargetName>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='ReleaseX64Kernel|x64'">
     <DebuggerFlavor>DbgengKernelDebugger</DebuggerFlavor>
     <IncludePath>$(VC_IncludePath);$(IncludePath)</IncludePath>
     <Inf2CatUseLocalTime>true</Inf2CatUseLocalTime>
     <EnableClangTidyCodeAnalysis>true</EnableClangTidyCodeAnalysis>
+    <TargetName>RedDbgDrv</TargetName>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='DebugX64Kernel|x64'">
     <DriverSign>
@@ -105,7 +107,10 @@
     </PreBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <Inf Include="RedDbg.inf" />
+    <Inf Include="RedDbg.inf">
+      <DateStamp>04/20/2026</DateStamp>
+      <TimeStamp>0.18.1.0</TimeStamp>
+    </Inf>
   </ItemGroup>
   <ItemGroup>
     <FilesToPackage Include="$(TargetPath)" />

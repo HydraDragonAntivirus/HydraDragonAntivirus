@@ -46,7 +46,7 @@ c:\windows\system32\tasks\hydradragonantivirus
 # Kernel-mode driver binaries
 # ---------------------------------------------------------------------------
 c:\windows\system32\drivers\owlyshieldransomfilter.sys
-c:\windows\system32\drivers\reddbg.sys
+c:\windows\system32\drivers\RedDbgDrv.sys
 c:\windows\system32\drivers\hyperhv.sys
 c:\windows\system32\drivers\simplepyasprotection.sys
 c:\windows\system32\drivers\mbrfilter.sys

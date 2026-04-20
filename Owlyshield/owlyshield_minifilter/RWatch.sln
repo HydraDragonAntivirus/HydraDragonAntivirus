@@ -5,13 +5,13 @@ VisualStudioVersion = 17.13.35931.197 d17.13
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "OwlyshieldRansomFilter", "OwlyshieldRansomFilter\OwlyshieldRansomFilter.vcxproj", "{DF8682E7-17C1-4450-A68C-D7CEF8780D8F}"
 EndProject
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "hyperevade", "HyperDbg\hyperdbg\hyperevade\hyperevade.vcxproj", "{B226530A-14B1-40AC-B82E-D9057400E7EE}"
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "hyperevade", "..\HyperDbg\hyperdbg\hyperevade\hyperevade.vcxproj", "{B226530A-14B1-40AC-B82E-D9057400E7EE}"
 EndProject
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "hyperhv", "HyperDbg\hyperdbg\hyperhv\hyperhv.vcxproj", "{BB17323A-2460-4AE1-8AFE-B367400B934F}"
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "hyperhv", "..\HyperDbg\hyperdbg\hyperhv\hyperhv.vcxproj", "{BB17323A-2460-4AE1-8AFE-B367400B934F}"
 EndProject
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "hypertrace", "HyperDbg\hyperdbg\hypertrace\hypertrace.vcxproj", "{9FA45E25-DAEB-4C2D-806C-7908A180195D}"
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "hypertrace", "..\HyperDbg\hyperdbg\hypertrace\hypertrace.vcxproj", "{9FA45E25-DAEB-4C2D-806C-7908A180195D}"
 EndProject
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "RedDbgDrv", "RedDbg\RedDbg\RedDbg.vcxproj", "{93BDA9EC-BD6B-4D64-9DA8-FFAEB20F4332}"
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "RedDbgDrv", "..\RedDbg\RedDbg\RedDbg.vcxproj", "{93BDA9EC-BD6B-4D64-9DA8-FFAEB20F4332}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{D289F655-3416-4C39-97D1-9EC964BA43FF}"
 	ProjectSection(SolutionItems) = preProject
