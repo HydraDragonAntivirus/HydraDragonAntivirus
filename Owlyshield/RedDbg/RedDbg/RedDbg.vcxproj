@@ -107,7 +107,7 @@
     </PreBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <Inf Include="RedDbg.inf">
+    <Inf Include="RedDbgDrv.inf">
       <DateStamp>04/20/2026</DateStamp>
       <TimeStamp>0.18.1.0</TimeStamp>
     </Inf>

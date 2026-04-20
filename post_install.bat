@@ -149,7 +149,7 @@ echo [+] SimplePYASProtection driver installed.
 :: 8.1) Install RedDbg driver (AMD Hypervisor)
 :: --------------------------------------------------------
 echo Installing RedDbg driver INF...
-pnputil /add-driver "%~dp0hydradragon\Owlyshield\RedDbg\RedDbg.inf" /install
+pnputil /add-driver "%~dp0hydradragon\Owlyshield\RedDbg\RedDbgDrv.inf" /install
 if %errorlevel% neq 0 (
     echo [!] RedDbg driver install failed (non-fatal if on Intel).
 ) else (

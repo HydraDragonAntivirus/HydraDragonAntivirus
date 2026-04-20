@@ -72,7 +72,7 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
-    <Inf Include="RedDbg.inf">
+    <Inf Include="RedDbgDrv.inf">
       <Filter>Driver Files</Filter>
     </Inf>
   </ItemGroup>
