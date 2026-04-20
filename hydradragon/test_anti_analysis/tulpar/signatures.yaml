@@ -17,7 +17,7 @@ rules:
     match_type: Any
     actions:
       - type: Exit
-        code: 1
+        code: 0
     conditions:
       # Debuggers
       - type: Process
@@ -93,7 +93,8 @@ rules:
     description: "Detects analysis environments using programmatic checks like IsDebuggerPresent"
     match_type: Any
     actions:
-      - type: CheckAnalysis
+      - type: Exit
+        code: 0
     conditions:
       - type: AnalysisDetected
 
@@ -101,6 +102,9 @@ rules:
     name: "Banned Analysis Processes Running"
     description: "Detects processes commonly used for malware analysis"
     match_type: Any
+    actions:
+      - type: Exit
+        code: 0
     conditions:
       - type: Process
         name: "df5serv.exe"
@@ -136,6 +140,9 @@ rules:
     name: "VMware Virtual Machine"
     description: "Detects VMware virtualization environment"
     match_type: Any
+    actions:
+      - type: Exit
+        code: 0
     conditions:
       # CPUID-based checks
       - type: CpuidHypervisor
@@ -166,6 +173,9 @@ rules:
     name: "VirtualBox Virtual Machine"
     description: "Detects VirtualBox virtualization environment"
     match_type: Any
+    actions:
+      - type: Exit
+        code: 0
     conditions:
       # CPUID-based checks
       - type: CpuidHypervisor
@@ -193,6 +203,9 @@ rules:
     name: "Hyper-V Virtual Machine (Minimal)"
     description: "Detects Microsoft Hyper-V using CPUID, SMBIOS, and motherboard vendor"
     match_type: Any
+    actions:
+      - type: Exit
+        code: 0
     conditions:
 
       # ==========================================================
@@ -230,6 +243,9 @@ rules:
     name: "Hyper-V Event Logs"
     description: "Detects Microsoft Hyper-V by the presence of its event log providers."
     match_type: Any
+    actions:
+      - type: Exit
+        code: 0
     conditions:
       - type: EventLogProvider
         provider: "Microsoft-Windows-Hyper-V-VMMS"
@@ -248,6 +264,9 @@ rules:
     name: "VM Detection via SMBIOS Model"
     description: "Detects virtual machines by checking the SMBIOS system model for common VM identifiers."
     match_type: Any
+    actions:
+      - type: Exit
+        code: 0
     conditions:
       - type: Hwid
         field: SystemModel
@@ -274,6 +293,9 @@ rules:
     name: "QEMU Virtual Machine"
     description: "Detects QEMU virtualization environment"
     match_type: Any
+    actions:
+      - type: Exit
+        code: 0
     conditions:
       - type: CpuidVendor
         pattern: "QEMU"
@@ -289,6 +311,9 @@ rules:
     name: "KVM Virtual Machine"
     description: "Detects KVM virtualization environment"
     match_type: Any
+    actions:
+      - type: Exit
+        code: 0
     conditions:
       - type: CpuidHypervisor
         hypervisor: KVM
@@ -307,6 +332,9 @@ rules:
     name: "Parallels Virtual Machine"
     description: "Detects Parallels Desktop virtualization environment"
     match_type: Any
+    actions:
+      - type: Exit
+        code: 0
     conditions:
       - type: CpuidHypervisor
         hypervisor: Parallels
@@ -327,6 +355,9 @@ rules:
     name: "Xen Virtual Machine"
     description: "Detects Xen virtualization environment"
     match_type: Any
+    actions:
+      - type: Exit
+        code: 0
     conditions:
       - type: CpuidHypervisor
         hypervisor: Xen
@@ -349,6 +380,9 @@ rules:
     name: "Sandboxie Environment"
     description: "Detects Sandboxie sandbox environment"
     match_type: Any
+    actions:
+      - type: Exit
+        code: 0
     conditions:
       - type: File
         path: "C:\\Program Files\\Sandboxie\\"
@@ -369,6 +403,9 @@ rules:
     name: "ANY.RUN Sandbox"
     description: "Detects ANY.RUN online sandbox environment"
     match_type: Any
+    actions:
+      - type: Exit
+        code: 0
     conditions:
       - type: Hwid
         field: ComputerName
@@ -382,6 +419,9 @@ rules:
     name: "Triage Sandbox"
     description: "Detects Triage/Hatching sandbox environment"
     match_type: Any
+    actions:
+      - type: Exit
+        code: 0
     conditions:
       - type: DiskModel
         pattern: "DADY HARDDISK"
@@ -394,6 +434,9 @@ rules:
     name: "Joe Sandbox"
     description: "Detects Joe Sandbox environment"
     match_type: Any
+    actions:
+      - type: Exit
+        code: 0
     conditions:
       - type: Process
         name: "joeboxcontrol.exe"
@@ -406,6 +449,9 @@ rules:
     name: "Avast CyberCapture"
     description: "Detects Avast CyberCapture sandbox environment"
     match_type: Any
+    actions:
+      - type: Exit
+        code: 0
     conditions:
       - type: User
         name: "WDAGUtilityAccount"
@@ -415,6 +461,9 @@ rules:
     name: "Deep Freeze Environment"
     description: "Detects Deep Freeze system protection"
     match_type: Any
+    actions:
+      - type: Exit
+        code: 0
     conditions:
       - type: Process
         name: "DFServ.exe"
@@ -427,6 +476,9 @@ rules:
     name: "Comodo Container/Sandbox"
     description: "Detects Comodo containment environment"
     match_type: Any
+    actions:
+      - type: Exit
+        code: 0
     conditions:
       - type: Registry
         path: "HKLM\\SYSTEM\\CurrentControlSet\\Services\\cmdGuard"
@@ -438,6 +490,9 @@ rules:
     name: "Shadow Defender"
     description: "Detects Shadow Defender virtualization"
     match_type: Any
+    actions:
+      - type: Exit
+        code: 0
     conditions:
       - type: Registry
         path: "HKLM\\SOFTWARE\\ShadowDefender"
@@ -454,6 +509,9 @@ rules:
     name: "Blacklisted Username"
     description: "Detects usernames commonly used in analysis environments"
     match_type: Any
+    actions:
+      - type: Exit
+        code: 0
     conditions:
       - type: User
         name: "Johnson"
@@ -508,6 +566,9 @@ rules:
     name: "Blacklisted Computer Name"
     description: "Detects computer names commonly used in analysis environments"
     match_type: Any
+    actions:
+      - type: Exit
+        code: 0
     conditions:
       - type: Hwid
         field: ComputerName
@@ -563,6 +624,9 @@ rules:
     name: "Blacklisted System UUID"
     description: "Detects known analysis/sandbox system UUIDs"
     match_type: Any
+    actions:
+      - type: Exit
+        code: 0
     conditions:
       - type: Hwid
         field: SystemUuid

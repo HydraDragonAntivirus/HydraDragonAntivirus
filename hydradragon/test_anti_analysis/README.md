@@ -298,4 +298,4 @@ This SDK is a modern Rust reimplementation of the detection techniques from the 
 
 ## License
 
-AGPLv3
+GPLv2
