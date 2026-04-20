@@ -130,6 +130,10 @@ pub enum IrpMajorOp {
     IrpRootkitTerminateProcess,
     IrpRootkitFileMove,
     IrpRootkitGeneric,
+
+    // Named Pipe Operations (Kernel + Usermode)
+    IrpNamedPipeCreate,
+    IrpNamedPipeWrite,
 }
 
 impl IrpMajorOp {
@@ -164,6 +168,8 @@ impl IrpMajorOp {
             25 => IrpMajorOp::IrpRootkitTerminateProcess,
             26 => IrpMajorOp::IrpRootkitFileMove,
             27 => IrpMajorOp::IrpRootkitGeneric,
+            28 => IrpMajorOp::IrpNamedPipeCreate,
+            29 => IrpMajorOp::IrpNamedPipeWrite,
 
             _ => IrpMajorOp::IrpNone,
         }
@@ -331,6 +337,9 @@ pub struct KernelEventInfo {
 
     // Access control details
     pub access_mask: u32, // Requested access rights
+
+    // NEW: Raw binary payload (e.g. for Named Pipes)
+    pub bin_payload: Vec<u8>,
 
     // Operation result
     pub operation_status: i32, // NTSTATUS of the operation

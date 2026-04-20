@@ -601,7 +601,44 @@ pub enum ContentEncoding {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ContentMatchData {
     pub pattern: String,
+    #[serde(default)]
+    pub is_regex: bool,
+    #[serde(default)]
     pub encoding: ContentEncoding,
+}
+
+impl ContentMatchData {
+    pub fn matches(&self, cache: &Arc<RwLock<HashMap<String, Regex>>>, data: &[u8]) -> bool {
+        let Some(decoded) = self.encoding.decode(data) else {
+            return false;
+        };
+        let text = String::from_utf8_lossy(&decoded);
+
+        if self.is_regex {
+            let p = if !self.pattern.starts_with("(?i)") {
+                format!("(?i){}", self.pattern)
+            } else {
+                self.pattern.clone()
+            };
+
+            if let Ok(cache_map) = cache.read() {
+                if let Some(re) = cache_map.get(&p) {
+                    return re.is_match(&text);
+                }
+            }
+
+            if let Ok(re) = Regex::new(&p) {
+                if let Ok(mut cache_map) = cache.write() {
+                    cache_map.insert(p.clone(), re.clone());
+                }
+                re.is_match(&text)
+            } else {
+                false
+            }
+        } else {
+            text.to_lowercase().contains(&self.pattern.to_lowercase())
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
@@ -1462,6 +1499,12 @@ pub struct NamedConditionGroup {
     pub registry_operations: Vec<String>,
     #[serde(default)]
     pub registry_value_data_patterns: Vec<String>,
+    #[serde(default)]
+    pub pipe_names: Vec<String>,
+    #[serde(default)]
+    pub pipe_operations: Vec<String>, // "create", "write"
+    #[serde(default)]
+    pub pipe_payloads: Vec<ContentMatchData>,
     #[serde(default)]
     pub network_indicators: Vec<String>,
     #[serde(default)]

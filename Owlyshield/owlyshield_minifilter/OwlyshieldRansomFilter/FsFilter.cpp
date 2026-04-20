@@ -1482,15 +1482,72 @@ NTSTATUS
 FSProcessPreOperation(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECTS FltObjects,
                       _Flt_CompletionContext_Outptr_ PVOID *CompletionContext)
 {
-    // NO COMMUNICATION CHECK (kept same as original)
-    if (driverData->isFilterClosed() || IsCommClosed())
+    NTSTATUS hr = FLT_PREOP_SUCCESS_NO_CALLBACK;
+    BOOLEAN isNamedPipe = (FltObjects->Volume != NULL && Data->Iopb->TargetFileObject != NULL && 
+                          Data->Iopb->TargetFileObject->DeviceObject != NULL &&
+                          Data->Iopb->TargetFileObject->DeviceObject->DeviceType == FILE_DEVICE_NAMED_PIPE);
+
+    // --- NAMED PIPE DETECTION ---
+    if (isNamedPipe)
     {
-        // Debug logging is commented out or controlled by IS_DEBUG_IRP
-        // DbgPrint("!!! FsFilter: Filter is closed or Port is closed, skipping data\n"); // Keeping user's DbgPrint
-        // here
+        PIRP_ENTRY pipeEntry = new IRP_ENTRY();
+        if (pipeEntry != NULL)
+        {
+            PDRIVER_MESSAGE pipeMsg = &pipeEntry->data;
+            pipeMsg->PID = FltGetRequestorProcessId(Data);
+            pipeMsg->Gid = driverData->GetProcessGid(pipeMsg->PID, NULL);
+            
+            // Get pipe name
+            PFLT_FILE_NAME_INFORMATION nameInfo;
+            if (NT_SUCCESS(FltGetFileNameInformation(Data, FLT_FILE_NAME_OPENED | FLT_FILE_NAME_QUERY_ALWAYS_ALLOW_CACHE_LOOKUP, &nameInfo)))
+            {
+                USHORT copyLen = (nameInfo->Name.Length < (MAX_FILE_NAME_SIZE - sizeof(WCHAR)))
+                                     ? nameInfo->Name.Length
+                                     : (MAX_FILE_NAME_SIZE - sizeof(WCHAR));
+                RtlCopyMemory(pipeEntry->Buffer, nameInfo->Name.Buffer, copyLen);
+                pipeEntry->Buffer[copyLen / sizeof(WCHAR)] = L'\0';
+                FltReleaseFileNameInformation(nameInfo);
+            }
+
+            if (Data->Iopb->MajorFunction == IRP_MJ_CREATE)
+            {
+                pipeMsg->IRP_OP = IRP_NAMED_PIPE_CREATE;
+                // Store path in ObjectName for behavior engine matching
+                RtlCopyMemory(pipeMsg->KernelEventInfo.ObjectName, pipeEntry->Buffer, sizeof(pipeMsg->KernelEventInfo.ObjectName));
+            }
+            else if (Data->Iopb->MajorFunction == IRP_MJ_WRITE)
+            {
+                pipeMsg->IRP_OP = IRP_NAMED_PIPE_WRITE;
+                
+                // Capture Payload
+                PVOID writeBuffer = NULL;
+                if (Data->Iopb->Parameters.Write.MdlAddress == NULL) {
+                    writeBuffer = Data->Iopb->Parameters.Write.WriteBuffer;
+                } else {
+                    writeBuffer = MmGetSystemAddressForMdlSafe(Data->Iopb->Parameters.Write.MdlAddress, NormalPagePriority | MdlMappingNoExecute);
+                }
+
+                if (writeBuffer != NULL)
+                {
+                    ULONG captureLen = (Data->Iopb->Parameters.Write.Length < 512) ? Data->Iopb->Parameters.Write.Length : 512;
+                    // Store binary payload in ObjectName buffer (which is 1024 bytes raw)
+                    RtlCopyMemory(pipeMsg->KernelEventInfo.ObjectName, writeBuffer, captureLen);
+                    pipeMsg->KernelEventInfo.RawArgument1 = captureLen; // Store actual captured length
+                }
+            }
+            else
+            {
+                delete pipeEntry;
+                return FLT_PREOP_SUCCESS_NO_CALLBACK;
+            }
+
+            if (!driverData->AddIrpMessage(pipeEntry))
+            {
+                delete pipeEntry;
+            }
+        }
         return FLT_PREOP_SUCCESS_NO_CALLBACK;
     }
-    NTSTATUS hr = FLT_PREOP_SUCCESS_NO_CALLBACK;
 
     PFLT_FILE_NAME_INFORMATION nameInfo;
     hr = FltGetFileNameInformation(Data, FLT_FILE_NAME_OPENED | FLT_FILE_NAME_QUERY_ALWAYS_ALLOW_CACHE_LOOKUP,

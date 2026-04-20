@@ -306,6 +306,8 @@ pub struct IrpOperationRecord {
     pub bytes_transferred: u64,
     pub target_pid: u32,       // NEW: For operations targeting another process
     pub function_name: String, // NEW: For generic API hooks - which function was called
+    pub pipe_name: String,     // NEW: For Named Pipe detect
+    pub pipe_payload: Vec<u8>, // NEW: For Named Pipe payload detect
 }
 
 /// Hypervisor event operation details for detailed tracking and forensics
@@ -346,6 +348,10 @@ pub struct IrpStatistics {
     pub process_terminate_attempt_count: u64,
 
     pub hypervisor_event_count: u64, // Normalized hypervisor event count
+
+    // Named Pipe operations
+    pub pipe_create_count: u64,
+    pub pipe_write_count: u64,
 
     // Bytes transferred
     pub total_bytes_read: u64,
@@ -1246,6 +1252,19 @@ impl ProcessBehaviorState {
                 event_name.clone()
             } else {
                 normalized_kernel_api.clone()
+            },
+            pipe_name: if matches!(irp_op, 28 | 29) {
+                msg.kernel_event_info
+                    .object_name
+                    .trim_matches('\0')
+                    .to_string()
+            } else {
+                String::new()
+            },
+            pipe_payload: if irp_op == 29 {
+                msg.kernel_event_info.bin_payload.clone()
+            } else {
+                Vec::new()
             },
         };
 
@@ -5468,6 +5487,54 @@ impl BehaviorEngine {
                                 "[BehaviorEngine] Condition '{}' - Command line match for PID {}: {}",
                                 cond_name, state.pid, cmdline_lc
                             ));
+                        }
+                    }
+                }
+                if !matched && !cond_group.pipe_names.is_empty() {
+                    let is_pipe_op = matches!(irp_op, 28 | 29); // IRP_NAMED_PIPE_CREATE, IRP_NAMED_PIPE_WRITE
+                    if is_pipe_op {
+                        let pipe_name = msg
+                            .kernel_event_info
+                            .object_name
+                            .trim_matches('\0')
+                            .to_string();
+                        let name_match = cond_group.pipe_names.iter().any(|pattern| {
+                            Self::matches_pattern_internal(&self.regex_cache, pattern, &pipe_name)
+                        });
+
+                        if name_match {
+                            let op_match = if cond_group.pipe_operations.is_empty() {
+                                true
+                            } else {
+                                let current_op = if *irp_op == 28 { "create" } else { "write" };
+                                cond_group.pipe_operations.iter().any(|op| {
+                                    op.eq_ignore_ascii_case(current_op)
+                                })
+                            };
+
+                            if op_match {
+                                let payload_match = if cond_group.pipe_payloads.is_empty() {
+                                    true
+                                } else if *irp_op == 29 {
+                                    cond_group
+                                        .pipe_payloads
+                                        .iter()
+                                        .any(|pm| pm.matches(&self.regex_cache, &msg.kernel_event_info.bin_payload))
+                                } else {
+                                    false
+                                };
+
+                                if payload_match {
+                                    matched = true;
+                                    Logging::info(&format!(
+                                        "[BehaviorEngine] Condition '{}' - Named pipe match for PID {}: {} ({})",
+                                        cond_name,
+                                        state.pid,
+                                        pipe_name,
+                                        if *irp_op == 28 { "create" } else { "write" }
+                                    ));
+                                }
+                            }
                         }
                     }
                 }

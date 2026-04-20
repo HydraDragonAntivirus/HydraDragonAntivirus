@@ -369,6 +369,10 @@ enum IRP_MAJOR_OP
     // Single normalized opcode reserved for real VMM/HyperDbg-origin events.
     // Do not use this for ProcessProtection/FsFilter kernel API signals.
     IRP_HYPERVISOR_EVENT,
+
+    // Named Pipe Operations (Kernel + Usermode)
+    IRP_NAMED_PIPE_CREATE = 28,
+    IRP_NAMED_PIPE_WRITE = 29,
 };
 
 // Distinct raw kernel/process-protection event ids (kept in 13..19 range).

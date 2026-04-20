@@ -743,6 +743,17 @@ impl CKernelEventInfo {
             raw_argument4: self.raw_argument4,
             object_name,
             access_mask: self.access_mask,
+            bin_payload: if self.event_type == 29 {
+                // For Named Pipe Writes, the ObjectName buffer contains raw binary payload.
+                // raw_argument1 contains the captured length (up to 512).
+                let len = self.raw_argument1 as usize;
+                let capture_len = if len > 512 { 512 } else { len };
+                let ptr = self.object_name.as_ptr() as *const u8;
+                let slice = unsafe { std::slice::from_raw_parts(ptr, capture_len) };
+                slice.to_vec()
+            } else {
+                Vec::new()
+            },
             operation_status: self.operation_status,
         }
     }
