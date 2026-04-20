@@ -12,11 +12,11 @@ env:
   WDK_URL: https://go.microsoft.com/fwlink/?linkid=2335869
   
   # Path to the solution file relative to the root of the project.
-  SOLUTION_FILE_PATH: Owlyshield/owlyshield_minifilter/RedDbg/RedDbg/RedDbg.sln
+  SOLUTION_FILE_PATH: Owlyshield/RedDbg/RedDbg/RedDbg.sln
 
   RELEASE_ZIP_FILE_NAME: reddbg
 
-  BUILD_BIN_DIR: ./Owlyshield/owlyshield_minifilter/RedDbg/RedDbg/x64/
+  BUILD_BIN_DIR: ./Owlyshield/RedDbg/RedDbg/x64/
 
 jobs:
   win-amd64-build:

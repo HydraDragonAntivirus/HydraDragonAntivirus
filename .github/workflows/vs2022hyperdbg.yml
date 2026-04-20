@@ -12,11 +12,11 @@ env:
   WDK_URL: https://go.microsoft.com/fwlink/?linkid=2335869
   
   # Path to the solution file relative to the root of the project.
-  SOLUTION_FILE_PATH: Owlyshield/owlyshield_minifilter/HyperDbg/hyperdbg/hyperdbg.sln
+  SOLUTION_FILE_PATH: Owlyshield/HyperDbg/hyperdbg/hyperdbg.sln
 
   RELEASE_ZIP_FILE_NAME: hyperdbg
 
-  BUILD_BIN_DIR: ./Owlyshield/owlyshield_minifilter/HyperDbg/hyperdbg/build/bin/
+  BUILD_BIN_DIR: ./Owlyshield/HyperDbg/hyperdbg/build/bin/
 
 jobs:
   win-amd64-build:
