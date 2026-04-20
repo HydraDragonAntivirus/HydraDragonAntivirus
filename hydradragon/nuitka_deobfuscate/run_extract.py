@@ -14,6 +14,7 @@ from __future__ import annotations
 import os
 import sys
 import struct
+import json
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import re
@@ -563,8 +564,11 @@ def process_section(
         except Exception:
             pass
 
+    section_items_metadata = []
+
     for i, root_item in enumerate(items):
         item_id = f"{i:04d}"
+        item_info = {"id": item_id, "type": type(root_item).__name__}
 
         if (
             is_marshaled_bytecode_section
@@ -591,28 +595,29 @@ def process_section(
                 count_pyc += 1
             except Exception:
                 pass
+            
+            item_info["action"] = "bytecode_extracted"
+            section_items_metadata.append(item_info)
             continue
 
         discovered_code = []
         recursive_find_code(root_item, discovered_code, set(), magic_int)
-        primary_code = discovered_code[0] if discovered_code else None
-        primary_code_label = extract_code_label(primary_code) if primary_code else None
-
+        
         if discovered_code:
             for j, code_obj in enumerate(discovered_code):
                 try:
                     raw_bytes = marshal.dumps(code_obj, python_version=target_ver_tuple)
                     path_str = extract_path_from_code(code_obj)
-                    item_id = f"{i:04d}_{j:02d}"
+                    sub_id = f"{i:04d}_{j:02d}"
                     code_label = extract_code_label(code_obj)
 
                     if path_str and "<" not in path_str:
                         recovered_path = sanitize_filename(path_str)
                         dest = out_dir / 'pyc' / recovered_path.replace('.py', '.pyc')
                     elif code_label:
-                        dest = out_dir / 'pyc' / clean_section / f"{code_label}_{item_id}.pyc"
+                        dest = out_dir / 'pyc' / clean_section / f"{code_label}_{sub_id}.pyc"
                     else:
-                        dest = out_dir / 'pyc' / clean_section / f"bytecode_{item_id}.pyc"
+                        dest = out_dir / 'pyc' / clean_section / f"bytecode_{sub_id}.pyc"
 
                     dest.parent.mkdir(parents=True, exist_ok=True)
                     dest.write_bytes(header + raw_bytes)
@@ -620,26 +625,25 @@ def process_section(
                     count_pyc += 1
                 except Exception:
                     pass
-
-        meta_dir = out_dir / "_metadata" / clean_section
-        meta_dir.mkdir(parents=True, exist_ok=True)
-        try:
+            item_info["action"] = "code_objects_extracted"
+        else:
             if isinstance(root_item, (bytes, bytearray)):
-                is_code_tag = root_item[:1] in MARSHAL_VERSION_HINT_TAGS
-                if is_code_tag:
-                    obj = try_load_code_object(root_item, 0, magic_int)
-                    code_label = extract_code_label(obj) if obj is not None else primary_code_label
-                    base_name = f"{code_label}_{item_id}" if code_label else f"item_{item_id}"
-                    (meta_dir / f"{base_name}.pyc").write_bytes(header + bytes(root_item))
-                else:
-                    base_name = f"{primary_code_label}_{item_id}" if primary_code_label else f"item_{item_id}"
-                    (meta_dir / f"{base_name}.bin").write_bytes(root_item)
+                item_info["data_preview"] = root_item[:64].hex()
+                item_info["size"] = len(root_item)
             else:
-                base_name = f"{primary_code_label}_{item_id}" if primary_code_label else f"item_{item_id}"
-                (meta_dir / f"{base_name}.txt").write_text(
-                    repr(root_item[:200]), encoding='utf-8', errors='replace'
-                )
+                item_info["repr"] = repr(root_item)[:200]
             count_other += 1
+        
+        section_items_metadata.append(item_info)
+
+    # WRITE UNITED METADATA
+    if section_items_metadata:
+        meta_dir = out_dir / "_metadata"
+        meta_dir.mkdir(parents=True, exist_ok=True)
+        meta_file = meta_dir / f"{clean_section}_metadata.json"
+        try:
+            meta_file.write_text(json.dumps(section_items_metadata, indent=2), encoding='utf-8')
+            recovered_file_paths.append(str(meta_file))
         except Exception:
             pass
 
@@ -751,7 +755,14 @@ def extract_blob(blob_path: Path | str, output_dir: Path | str, target_version: 
             print(f"  {name}")
         return ExtractionResult(0, 0, 0, 0, output_dir, [])
 
-    out_dir = output_dir
+    base_out = output_dir / args.blob.stem
+    out_dir = base_out
+    counter = 1
+    while out_dir.exists() and any(out_dir.iterdir()):
+        out_dir = output_dir / f"{args.blob.stem}_{counter}"
+        counter += 1
+
+    print(f"[*] Output directory      : {out_dir}")
     out_dir.mkdir(parents=True, exist_ok=True)
     header = get_pyc_header(target_ver_str)
     magic_int = get_magic_int(target_ver_str)
