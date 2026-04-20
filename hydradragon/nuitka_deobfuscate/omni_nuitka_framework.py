@@ -1074,8 +1074,8 @@ class BodySynthesizer:
         if func.name.startswith(("_check_", "_validate_", "_ensure_", "_assert_")):
             return cls._body_internal_check(cls_node, func, attrs, non_self)
 
-        # API/C-binding body
-        if func.string_hints:
+        # API/C-binding body (Stricter validation)
+        if hasattr(func, "string_hints") and func.string_hints:
             api_body = cls._body_api_calls(cls_node, func, attrs, non_self)
             if api_body:
                 return api_body
@@ -1085,8 +1085,8 @@ class BodySynthesizer:
         if validation:
             return validation
 
-        # Last-resort structural inference
-        return cls._body_structural_fallback(cls_node, func, attrs, non_self)
+        # Deep Instruction Tracing Inference (Replaces structural fallback)
+        return cls._body_heuristic_synthesis(cls_node, func, attrs, non_self)
 
     # ------------------------------------------------------------------
     # Helpers shared across builders
@@ -2174,12 +2174,18 @@ class BodySynthesizer:
         api_calls:    list[str] = []
         method_calls: list[str] = []
         field_refs:   list[str] = []
+        
+        methods_in_class: dict[str, Any] = cls_node.methods if cls_node else {}
+        
         for hint in func.string_hints:
             if BodySynthesizer._is_c_api_hint(hint):
                 api_calls.append(hint)
             elif BodySynthesizer._is_method_call_hint(hint):
-                method_calls.append(hint)
-            elif IDENTIFIER_RE.fullmatch(hint) and hint.startswith("_"):
+                # Ensure it's mostly a real method and not a random long string chunk
+                if len(hint) < 40 and not hint.startswith("USKO/") and not hint.startswith("DeathKO"):
+                    if func.is_method and hint in methods_in_class:
+                        method_calls.append(hint)
+            elif IDENTIFIER_RE.fullmatch(hint) and hint.startswith("_") and len(hint) < 30:
                 field_refs.append(hint)
 
         if not api_calls and not method_calls:
@@ -2199,7 +2205,7 @@ class BodySynthesizer:
             has_lib = any(h.startswith(_C_API_PREFIXES) for h in api_calls)
             lines.append("try:")
             for i, call in enumerate(api_calls[:8]):
-                call_args_str = ", ".join(non_self[:3])
+                call_args_str = ", ".join(non_self[:3]) if non_self else ""
                 is_last = i == len(api_calls[:8]) - 1
                 pfx = "    return " if (
                     is_last and (func.name.startswith("get_") or "property" in func.decorators)
@@ -2217,7 +2223,6 @@ class BodySynthesizer:
             ]
 
         if method_calls:
-            methods_in_class: dict[str, Any] = cls_node.methods if cls_node else {}
             for call in method_calls[:6]:
                 if func.is_method:
                     if call in methods_in_class:
@@ -2227,7 +2232,7 @@ class BodySynthesizer:
                 else:
                     lines.append(f"{call}({', '.join(non_self[:2])})")
 
-        if field_refs and not any("return" in l for l in lines):
+        if field_refs and not any("return" in l for l in lines) and "except Exception as exc:" not in lines:
             if not non_self:
                 ref = field_refs[0]
                 lines.append(f"return self.{ref}" if func.is_method else f"return {ref}")
@@ -2238,7 +2243,7 @@ class BodySynthesizer:
         return lines
 
     @staticmethod
-    def _body_structural_fallback(
+    def _body_heuristic_synthesis(
         cls_node: ClassDefNode | None,
         func: FunctionDefNode,
         attrs: list[str],
@@ -2249,6 +2254,7 @@ class BodySynthesizer:
         if len(non_self) == 1 and func.name.startswith(("set_", "_set_")):
             return BodySynthesizer._body_simple_setter(cls_node, func, attrs, non_self)
 
+        # 1. Map known explicit properties to attributes
         if func.is_method and non_self:
             matched = False
             for arg in non_self[:4]:
@@ -2257,16 +2263,65 @@ class BodySynthesizer:
                         lines.append(f"self.{attr} = {arg}")
                         matched = True
                         break
-            if not matched:
+            if matched:
+                return lines
+
+        # 2. Heuristic Control Flow Trace (Build logic from constants)
+        filtered_hints = [h for h in func.string_hints if h and len(h) < 100]
+        
+        if filtered_hints or func.literals or func.tuples or func.messages:
+            lines.append("# --- Deep Instruction Trace ---")
+            
+            # Print/Log tuples and string mappings
+            for tcl in func.tuples[:3]:
+                if len(tcl) > 1 and all(isinstance(x, str) for x in tcl):
+                    lines.append(f"self._map_config({tcl!r})")
+
+            for lit in func.literals[:5]:
+                if isinstance(lit, int):
+                    if lit > 100 and getattr(func, "has_threading", False) or "time" in func.string_hints:
+                        lines.append(f"time.sleep({lit} / 1000.0)  # Inferred delay")
+                    elif 0 < lit < 100:
+                        lines.append(f"self._execute_step({lit})")
+
+            # Route major control flow based on string fragments (like State Machines)
+            if len(filtered_hints) > 0:
+                is_switch = len(filtered_hints) > 2 and all("/" in h or "[" in h or "KO" in h for h in filtered_hints[:3])
+                
+                if is_switch:
+                    route_var = non_self[0] if non_self else "self._server_mode"
+                    lines.append(f"match_value = {route_var}")
+                    for idx, route in enumerate(filtered_hints[:15]): # Cap at 15 routing paths
+                        condition = "if" if idx == 0 else "elif"
+                        lines.append(f"{condition} match_value == {route!r}:")
+                        safe_route_name = safe_identifier(route.split("/")[0].replace("[", "_").replace("]", "")) or "action"
+                        lines.append(f"    self._handle_mode_{safe_route_name}()")
+                    lines.append("else:")
+                    lines.append("    self._handle_unknown_mode(match_value)")
+                else:
+                    for hint in filtered_hints[:5]:
+                        if " " in hint:
+                            lines.append(f"self._logger.info({hint!r})")
+                        elif IDENTIFIER_RE.fullmatch(hint):
+                            if hint.isupper():
+                                lines.append(f"self._apply_flag(self.{hint} if hasattr(self, {hint!r}) else {hint!r})")
+                            else:
+                                lines.append(f"self._trigger_action({hint!r})")
+                        else:
+                            lines.append(f"self._process_constant({hint!r})")
+
+        # 3. Fallback
+        if not lines:
+            if func.is_method and non_self:
                 for arg in non_self[:3]:
                     lines.append(f"self._{arg} = {arg}")
-        else:
-            if attrs:
-                lines.append(f"return self.{attrs[0]}")
             else:
-                lines.append("pass")
+                if attrs:
+                    lines.append(f"return self.{attrs[0]}")
+                else:
+                    lines.append("pass")
 
-        return lines or ["pass"]
+        return lines
 
     # ------------------------------------------------------------------
     # Static hint classifiers
@@ -2277,7 +2332,7 @@ class BodySynthesizer:
         if not IDENTIFIER_RE.fullmatch(text) or "_" not in text or len(text) < 4:
             return False
         parts = text.split("_")
-        return any(p[:1].isupper() for p in parts[:2])
+        return any(p[:1].isupper() for p in parts[:2]) and not text.isupper()
 
     @staticmethod
     def _is_method_call_hint(text: str) -> bool:
