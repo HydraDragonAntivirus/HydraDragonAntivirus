@@ -105,7 +105,6 @@ HANDLE inline PeReader::GetContentOfDll(
 		if (hFile == INVALID_HANDLE_VALUE)
 		{
 			printf("[-] An error occured when trying to open the PE file !\n");
-			CloseHandle(hFile);
 			return nullptr;
 		}
 
@@ -117,27 +116,27 @@ HANDLE inline PeReader::GetContentOfDll(
 			return nullptr;
 		}
 
-		const HANDLE hFileContent = VirtualAlloc(NULL, dFileSize, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
-		if (hFileContent == INVALID_HANDLE_VALUE)
+		LPVOID pFileContent = VirtualAlloc(nullptr, dFileSize, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+		if (pFileContent == nullptr)
 		{
 			printf("[-] An error occured when trying to allocate memory for the PE file content !\n");
 			CloseHandle(hFile);
-			CloseHandle(hFileContent);
 			return nullptr;
 		}
 
-		const BOOL bFileRead = ReadFile(hFile, hFileContent, dFileSize, nullptr, nullptr);
+		DWORD dBytesRead = 0;
+		const BOOL bFileRead = ReadFile(hFile, pFileContent, dFileSize, &dBytesRead, nullptr);
 		if (!bFileRead)
 		{
 			printf("[-] An error occured when trying to read the PE file content !\n");
 			CloseHandle(hFile);
-			if (hFileContent != nullptr) CloseHandle(hFileContent);
+			VirtualFree(pFileContent, 0, MEM_RELEASE);
 
 			return nullptr;
 		}
 
 		CloseHandle(hFile);
-		return hFileContent;
+		return pFileContent;
 	}
 	else if (Method == 2)
 	{
@@ -154,6 +153,8 @@ HANDLE inline PeReader::GetContentOfDll(
 		}
 		return hFile;
 	}
+
+	return nullptr;
 }
 
 PEInformation PeReader::ParseImageOfDll32(
