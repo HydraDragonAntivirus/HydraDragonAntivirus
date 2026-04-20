@@ -1,15 +1,9 @@
-﻿
+
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.13.35931.197 d17.13
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "OwlyshieldRansomFilter", "OwlyshieldRansomFilter\OwlyshieldRansomFilter.vcxproj", "{DF8682E7-17C1-4450-A68C-D7CEF8780D8F}"
-	ProjectSection(ProjectDependencies) = postProject
-		{B226530A-14B1-40AC-B82E-D9057400E7EE} = {B226530A-14B1-40AC-B82E-D9057400E7EE}
-		{BB17323A-2460-4AE1-8AFE-B367400B934F} = {BB17323A-2460-4AE1-8AFE-B367400B934F}
-		{9FA45E25-DAEB-4C2D-806C-7908A180195D} = {9FA45E25-DAEB-4C2D-806C-7908A180195D}
-		{93BDA9EC-BD6B-4D64-9DA8-FFAEB20F4332} = {93BDA9EC-BD6B-4D64-9DA8-FFAEB20F4332}
-	EndProjectSection
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "hyperevade", "HyperDbg\hyperdbg\hyperevade\hyperevade.vcxproj", "{B226530A-14B1-40AC-B82E-D9057400E7EE}"
 EndProject

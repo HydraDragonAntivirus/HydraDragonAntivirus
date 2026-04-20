@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Project DefaultTargets="Build" ToolsVersion="12.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup Label="ProjectConfigurations">
     <ProjectConfiguration Include="debug|x64">
@@ -51,16 +51,17 @@
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup />
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='debug|x64'">
     <DebuggerFlavor>DbgengKernelDebugger</DebuggerFlavor>
     <Inf2CatUseLocalTime>true</Inf2CatUseLocalTime>
     <OutDir>$(SolutionDir)build\bin\$(Configuration)\</OutDir>
+    <TargetName>HyperDbg</TargetName>
     <IntDir>$(SolutionDir)build\obj\$(ProjectName)\$(Platform)\$(Configuration)\</IntDir>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='release|x64'">
     <DebuggerFlavor>DbgengKernelDebugger</DebuggerFlavor>
     <Inf2CatUseLocalTime>true</Inf2CatUseLocalTime>
     <OutDir>$(SolutionDir)build\bin\$(Configuration)\</OutDir>
+    <TargetName>HyperDbg</TargetName>
     <EnableInf2cat>false</EnableInf2cat>
     <IntDir>$(SolutionDir)build\obj\$(ProjectName)\$(Platform)\$(Configuration)\</IntDir>
   </PropertyGroup>

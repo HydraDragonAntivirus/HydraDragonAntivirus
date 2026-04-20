@@ -1,4 +1,4 @@
-#include <ntifs.h>
+#include <ntddk.h>
 #include <intrin.h>
 
 #include "HyperVisor/CommonApi/MemoryUtils.hpp"

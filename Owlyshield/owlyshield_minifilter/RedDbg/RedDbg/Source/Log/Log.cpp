@@ -8,7 +8,7 @@
 
 BOOLEAN Log::LogInitialize()
 {
-	MessageBufferInformation = (struct _LOG_BUFFER_INFORMATION*)ExAllocatePool(NonPagedPool, sizeof(_LOG_BUFFER_INFORMATION) * 2);
+	MessageBufferInformation = (PLOG_BUFFER_INFORMATION)ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeof(LOG_BUFFER_INFORMATION) * 2, 'goL#');
 
 	if (!MessageBufferInformation) { KdPrint(("Message %p", MessageBufferInformation)); return FALSE; }
 
@@ -20,8 +20,8 @@ BOOLEAN Log::LogInitialize()
 		KeInitializeSpinLock(&MessageBufferInformation[i].BufferLock);
 		KeInitializeSpinLock(&MessageBufferInformation[i].BufferLockForNonImmMessage);
 
-		MessageBufferInformation[i].BufferStartAddress = ExAllocatePool(NonPagedPool, LogBufferSize);
-		MessageBufferInformation[i].BufferForMultipleNonImmediateMessage = ExAllocatePool(NonPagedPool, PacketChunkSize);
+		MessageBufferInformation[i].BufferStartAddress = ExAllocatePool2(POOL_FLAG_NON_PAGED, LogBufferSize, 'goL#');
+		MessageBufferInformation[i].BufferForMultipleNonImmediateMessage = ExAllocatePool2(POOL_FLAG_NON_PAGED, PacketChunkSize, 'goL#');
 
 		if (!MessageBufferInformation[i].BufferStartAddress)
 		{
@@ -141,7 +141,6 @@ BOOLEAN Log::LogSendMessageToQueue(UINT32 OperationCode, BOOLEAN IsImmediateMess
 	// IsSvmRootMode = false;//GuestState[KeGetCurrentProcessorNumber()].IsOnVmxRootMode;
 	
 	IsSvmRootMode = true;
-	/*
 	if (ShowCurrentSystemTime)
 	{
 		va_start(ArgList, Fmt);

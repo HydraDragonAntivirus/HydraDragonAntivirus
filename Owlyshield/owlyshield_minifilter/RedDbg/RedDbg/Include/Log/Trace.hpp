@@ -108,13 +108,18 @@ private:
 	uint64_t GetOriginalTransVal(uint64_t Val);
 
 	void InitCycle();
-	void KosarajuAlgorithm(uint64_t numNodes, uint64_t numEdges);
-	void dfs2(uint64_t** _adjListT, uint64_t numNodes, uint64_t node, int64_t* _visited, uint64_t* _component, uint64_t* componentIndex);
-	void dfs1(uint64_t** _adjList, uint64_t numNodes, uint64_t node, int64_t* _visited, uint64_t* _postOrder, uint64_t* index);
 	void addEdge(uint64_t** _adjList, uint64_t from, uint64_t to, uint64_t* size);
 public:
 	bool Exit = false;
 	bool EoF = false;
+
+	// Added for Owlyshield polling
+	TraceMessage<Mnemonic>* GetMnemonicsArc(int index) {
+		if (index >= 0 && index < (int)CircleOfMnemonics.size()) {
+			return &CircleOfMnemonics[index];
+		}
+		return nullptr;
+	}
 
 	bool TraceInitializeRip();
 	bool TraceInitializeMnemonic();

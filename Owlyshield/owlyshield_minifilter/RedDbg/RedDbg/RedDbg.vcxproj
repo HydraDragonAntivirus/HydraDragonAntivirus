@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Project DefaultTargets="Build" ToolsVersion="12.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup Label="ProjectConfigurations">
     <ProjectConfiguration Include="DebugX64Kernel|x64">
@@ -77,6 +77,9 @@
       <AdditionalDependencies>Zydis.lib;Zycore.lib;%(AdditionalDependencies);$(KernelBufferOverflowLib);$(DDK_LIB_PATH)ntoskrnl.lib;$(DDK_LIB_PATH)hal.lib;$(DDK_LIB_PATH)wmilib.lib</AdditionalDependencies>
       <TreatLinkerWarningAsErrors>false</TreatLinkerWarningAsErrors>
     </Link>
+    <PreBuildEvent>
+      <Command>msbuild "$(ProjectDir)Source/Deps/zydis/msvc/Zydis.sln" /m /p:Configuration="Release Kernel" /p:Platform=$(Platform) /target:zydis /target:zycore /p:OutDir="$(ProjectDir)Source/Deps/zydis/msvc/bin/$(ConfigurationName)"</Command>
+    </PreBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='ReleaseX64Kernel|x64'">
     <DriverSign>
@@ -97,6 +100,9 @@
       <AdditionalDependencies>Zydis.lib;Zycore.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <TreatLinkerWarningAsErrors>false</TreatLinkerWarningAsErrors>
     </Link>
+    <PreBuildEvent>
+      <Command>msbuild "$(ProjectDir)Source/Deps/zydis/msvc/Zydis.sln" /m /p:Configuration="Release Kernel" /p:Platform=$(Platform) /target:zydis /target:zycore /p:OutDir="$(ProjectDir)Source/Deps/zydis/msvc/bin/$(ConfigurationName)"</Command>
+    </PreBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
     <Inf Include="RedDbg.inf" />

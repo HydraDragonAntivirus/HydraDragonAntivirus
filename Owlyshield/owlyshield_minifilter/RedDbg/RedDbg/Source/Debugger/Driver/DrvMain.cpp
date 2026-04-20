@@ -12,6 +12,9 @@
 #include <memory.h>
 #include <stdio.h>
 #include <vector>
+#include "RedDbgOwly.hpp"
+
+POWLY_HV_CALLBACK g_OwlyCallback = NULL;
 
 HyperVisorSvm objHyperVisorSvm;
 Log objLog;
@@ -401,7 +404,25 @@ VOID PollingThread(PVOID Context) {
     UNREFERENCED_PARAMETER(Context);
     while (!g_StopPolling) {
         if (g_OwlyCallback != NULL) {
-            // TODO: Read trace ring buffers and pass to g_OwlyCallback
+            for (int i = 0; i < 52; i++) { // Arcs = 52
+                TraceMessage<Mnemonic>* arc = objTrace.GetMnemonicsArc(i);
+                if (arc && arc->Reading) {
+                    size_t numEvents = arc->size(sizeof(Mnemonic));
+                    Mnemonic* events = arc->Start;
+                    for (size_t j = 0; j < numEvents; j++) {
+                        OWLY_HV_EVENT_DETAILS details = {0};
+                        details.RawEventType = 1; // Generic instruction trace for now
+                        details.MemoryAddress = (PVOID)events[j].Address;
+                        details.MemorySize = events[j].Length;
+                        details.CoreId = i; // Map arc to core if possible
+                        
+                        // Call the registered callback
+                        g_OwlyCallback(&details);
+                    }
+                    arc->clear();
+                    arc->Reading = false;
+                }
+            }
         }
         LARGE_INTEGER interval;
         interval.QuadPart = -1000000; // 100ms
@@ -561,7 +582,7 @@ NTSTATUS DrvClose(PDEVICE_OBJECT DeviceObject, PIRP Irp)
 
 bool SvmExitCodesAllocator()
 {
-	DecoderMinimal = (ZydisDecoder*)ExAllocatePool(NonPagedPoolNx, sizeof(ZydisDecoder));
+	DecoderMinimal = (ZydisDecoder*)ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeof(ZydisDecoder), 'DdyZ');
 	if (DecoderMinimal != nullptr)
 	{
 		RtlZeroMemory(DecoderMinimal, sizeof(ZydisDecoder));
@@ -569,7 +590,7 @@ bool SvmExitCodesAllocator()
 		DecoderMinimal->machine_mode = ZYDIS_MACHINE_MODE_LONG_64;
 		DecoderMinimal->stack_width = ZYDIS_STACK_WIDTH_64;
 
-		Instruction = (ZydisDecodedInstruction*)ExAllocatePool(NonPagedPoolNx, sizeof(ZydisDecodedInstruction));
+		Instruction = (ZydisDecodedInstruction*)ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeof(ZydisDecodedInstruction), 'IdyZ');
 		if (Instruction != nullptr)
 		{
 			RtlZeroMemory(Instruction, sizeof(ZydisDecodedInstruction));
