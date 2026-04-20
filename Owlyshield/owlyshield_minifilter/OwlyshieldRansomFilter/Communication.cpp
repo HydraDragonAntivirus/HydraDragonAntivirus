@@ -22,7 +22,7 @@ static VOID NTAPI OwlyHypervisorCallback(PVOID EventDetails) {
 }
 
 NTSTATUS InitVmmCommunication() {
-    UNICODE_STRING intelDevName = RTL_CONSTANT_STRING(L"\\Device\\HyperDbgDebuggerDevice");
+    UNICODE_STRING intelDevName = RTL_CONSTANT_STRING(L"\\Device\\hyperhv");
     UNICODE_STRING amdDevName = RTL_CONSTANT_STRING(L"\\Device\\RedDbgCore");
     NTSTATUS status;
 

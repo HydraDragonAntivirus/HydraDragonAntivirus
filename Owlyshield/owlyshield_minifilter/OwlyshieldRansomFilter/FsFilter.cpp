@@ -564,9 +564,9 @@ CONST FLT_REGISTRATION FilterRegistration = {
 //
 ////////////////////////////////////////////////////////////////////////////
 
-extern "C" NTSTATUS RedDbgDriverEntry(_In_ PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegisterPath);
-extern "C" NTSTATUS RedDbgStartStandaloneControlDriver(VOID);
-extern "C" VOID RedDbgStopStandaloneControlDriver(VOID);
+
+extern "C" int __crt_init();
+extern "C" void __crt_deinit();
 
 NTSTATUS
 DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
@@ -595,9 +595,9 @@ Return Value:
     NTSTATUS status;
 
     // Store DriverObject globally so IoAllocateWorkItem can reference it later.
-    // FltMgr attaches a device object to this driver after FltRegisterFilter,
-    // making DriverObject->DeviceObject valid for the driver's lifetime.
     g_DriverObject = DriverObject;
+
+    __crt_init();
 
     //
     // --- FIX: Initialize required function pointers FIRST and verify. ---
@@ -1189,9 +1189,9 @@ Return Value:
 {
     UNREFERENCED_PARAMETER(Flags);
 
-    PAGED_CODE();
-
     DbgPrint("FsFilter: Unloading driver\n");
+
+    __crt_deinit();
 
     // Stop new activity first, then detach callbacks to avoid concurrent work
     // while teardown is in progress.

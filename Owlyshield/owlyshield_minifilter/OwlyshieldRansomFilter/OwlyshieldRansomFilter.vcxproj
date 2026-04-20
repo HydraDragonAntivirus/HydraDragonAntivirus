@@ -67,12 +67,12 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="CppSupport.cpp" />
     <ClCompile Include="KernelCommon.cpp" />
     <ClCompile Include="KernelString.cpp" />
     <ClCompile Include="RootkitDetector.cpp" />
     <ClCompile Include="ShanonEntropy.cpp" />
     <ClCompile Include="UserModeHookEngine.cpp" />
-    <ClCompile Include="..\RedDbg\RedDbg\Source\CppSupport\CppSupport.cpp" />
     <ResourceCompile Include="FsFilter.rc" />
     <ClCompile Include="FsFilter.cpp" />
     <ClCompile Include="Communication.cpp" />
@@ -308,20 +308,21 @@
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <Link>
-      <AdditionalLibraryDirectories>$(OwlyOptionalRedDbgLibDirs);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>$(OwlyOptionalRedDbgDeps)fltmgr.lib;$(DDK_LIB_PATH)\libcntpr.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>fltmgr.lib;$(DDK_LIB_PATH)\libcntpr.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <AdditionalOptions>/INTEGRITYCHECK %(AdditionalOptions)</AdditionalOptions>
       <TreatLinkerWarningAsErrors>true</TreatLinkerWarningAsErrors>
       <LinkTimeCodeGeneration>UseLinkTimeCodeGeneration</LinkTimeCodeGeneration>
+      <MergeSections>.CRT=.rdata</MergeSections>
     </Link>
     <ClCompile>
       <WarningLevel>Level4</WarningLevel>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
       <TreatWarningAsError>false</TreatWarningAsError>
-      <AdditionalIncludeDirectories>$(OwlyOptionalRedDbgIncludeDirs)$(ProjectDir)..\HyperDbg\hyperdbg\include;$(ProjectDir)..\HyperDbg\hyperdbg\dependencies\zydis\include;$(ProjectDir)..\HyperDbg\hyperdbg\dependencies\zydis\dependencies\zycore\include;$(ProjectDir)..\RedDbg\RedDbg\Include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir)..\SharedDefs;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <ProgramDataBaseFileName>$(IntDir)OwlyshieldRansomFilter-Debug-x64.pdb</ProgramDataBaseFileName>
       <ForceSynchronousPdbWrites>true</ForceSynchronousPdbWrites>
-      <PreprocessorDefinitions>$(OwlyOptionalRedDbgDefines)POOL_NX_OPTIN=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>POOL_NX_OPTIN=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <LanguageStandard_C>stdc11</LanguageStandard_C>
       <Optimization>MaxSpeed</Optimization>
@@ -334,46 +335,49 @@
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='DebugApp|x64'">
     <Link>
-      <AdditionalLibraryDirectories>$(OwlyOptionalRedDbgLibDirs);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>$(OwlyOptionalRedDbgDeps)fltmgr.lib;$(DDK_LIB_PATH)\libcntpr.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>fltmgr.lib;$(DDK_LIB_PATH)\libcntpr.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <TreatLinkerWarningAsErrors>true</TreatLinkerWarningAsErrors>
+      <MergeSections>.CRT=.rdata</MergeSections>
     </Link>
     <ClCompile>
       <WarningLevel>Level4</WarningLevel>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
       <TreatWarningAsError>false</TreatWarningAsError>
-      <AdditionalIncludeDirectories>$(OwlyOptionalRedDbgIncludeDirs)$(ProjectDir)..\HyperDbg\hyperdbg\include;$(ProjectDir)..\HyperDbg\hyperdbg\dependencies\zydis\include;$(ProjectDir)..\HyperDbg\hyperdbg\dependencies\zydis\dependencies\zycore\include;$(ProjectDir)..\RedDbg\RedDbg\Include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir)..\SharedDefs;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <ProgramDataBaseFileName>$(IntDir)OwlyshieldRansomFilter-DebugApp-x64.pdb</ProgramDataBaseFileName>
       <ForceSynchronousPdbWrites>true</ForceSynchronousPdbWrites>
-      <PreprocessorDefinitions>$(OwlyOptionalRedDbgDefines)POOL_NX_OPTIN=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>POOL_NX_OPTIN=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <LanguageStandard>stdcpp17</LanguageStandard>
     </ClCompile>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug App|x64'">
     <Link>
-      <AdditionalLibraryDirectories>$(OwlyOptionalRedDbgLibDirs);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>$(OwlyOptionalRedDbgDeps)fltmgr.lib;$(DDK_LIB_PATH)\libcntpr.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>fltmgr.lib;$(DDK_LIB_PATH)\libcntpr.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <TreatLinkerWarningAsErrors>true</TreatLinkerWarningAsErrors>
     </Link>
     <ClCompile>
       <WarningLevel>Level4</WarningLevel>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
       <TreatWarningAsError>false</TreatWarningAsError>
-      <AdditionalIncludeDirectories>$(OwlyOptionalRedDbgIncludeDirs)$(ProjectDir)..\HyperDbg\hyperdbg\include;$(ProjectDir)..\HyperDbg\hyperdbg\dependencies\zydis\include;$(ProjectDir)..\HyperDbg\hyperdbg\dependencies\zydis\dependencies\zycore\include;$(ProjectDir)..\RedDbg\RedDbg\Include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir)..\SharedDefs;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <ProgramDataBaseFileName>$(IntDir)OwlyshieldRansomFilter-Debug-App-x64.pdb</ProgramDataBaseFileName>
       <ForceSynchronousPdbWrites>true</ForceSynchronousPdbWrites>
-      <PreprocessorDefinitions>$(OwlyOptionalRedDbgDefines)POOL_NX_OPTIN=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>POOL_NX_OPTIN=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <LanguageStandard>stdcpp17</LanguageStandard>
     </ClCompile>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <Link>
-      <AdditionalLibraryDirectories>$(OwlyOptionalRedDbgLibDirs);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>$(OwlyOptionalRedDbgDeps)fltmgr.lib;$(DDK_LIB_PATH)\libcntpr.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>fltmgr.lib;$(DDK_LIB_PATH)\libcntpr.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <AdditionalOptions>/INTEGRITYCHECK %(AdditionalOptions)</AdditionalOptions>
+      <TreatLinkerWarningAsErrors>true</TreatLinkerWarningAsErrors>
+      <MergeSections>.CRT=.rdata</MergeSections>
     </Link>
     <ClCompile>
-      <AdditionalIncludeDirectories>$(OwlyOptionalRedDbgIncludeDirs)$(ProjectDir)..\HyperDbg\hyperdbg\include;$(ProjectDir)..\HyperDbg\hyperdbg\dependencies\zydis\include;$(ProjectDir)..\HyperDbg\hyperdbg\dependencies\zydis\dependencies\zycore\include;$(ProjectDir)..\RedDbg\RedDbg\Include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir)..\SharedDefs;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <ProgramDataBaseFileName>$(IntDir)OwlyshieldRansomFilter-Release-x64.pdb</ProgramDataBaseFileName>
       <ForceSynchronousPdbWrites>true</ForceSynchronousPdbWrites>
       <PreprocessorDefinitions>POOL_NX_OPTIN=1;__DATE__="Jan 01 1970";__TIME__="00:00:00";%(PreprocessorDefinitions)</PreprocessorDefinitions>

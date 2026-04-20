@@ -31,7 +31,7 @@ NTSTATUS DrvDispatchDeviceControl(PDEVICE_OBJECT DeviceObject, PIRP Irp) {
             POWLY_HV_COMM_DATA commData = (POWLY_HV_COMM_DATA)Irp->AssociatedIrp.SystemBuffer;
             if (commData->Magic == 0x4F574C59) {
                 g_OwlyCallback = commData->CallbackRoutine;
-                DbgPrint("!!! HyperDbg: Registered Owlyshield callback at %p\n", g_OwlyCallback);
+                DbgPrint("!!! hyperhv: Registered Owlyshield callback at %p\n", g_OwlyCallback);
             } else {
                 status = STATUS_INVALID_PARAMETER;
             }
@@ -49,19 +49,19 @@ NTSTATUS DrvDispatchDeviceControl(PDEVICE_OBJECT DeviceObject, PIRP Irp) {
 }
 
 VOID DrvUnload(PDRIVER_OBJECT DriverObject) {
-    UNICODE_STRING symLink = RTL_CONSTANT_STRING(L"\\DosDevices\\HyperDbgDebuggerDevice");
+    UNICODE_STRING symLink = RTL_CONSTANT_STRING(L"\\DosDevices\\hyperhv");
     IoDeleteSymbolicLink(&symLink);
     if (DriverObject->DeviceObject) {
         IoDeleteDevice(DriverObject->DeviceObject);
     }
-    DbgPrint("!!! HyperDbg: Standalone driver unloaded.\n");
+    DbgPrint("!!! hyperhv: Standalone driver unloaded.\n");
 }
 
 NTSTATUS DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath) {
     UNREFERENCED_PARAMETER(RegistryPath);
     NTSTATUS status;
-    UNICODE_STRING devName = RTL_CONSTANT_STRING(L"\\Device\\HyperDbgDebuggerDevice");
-    UNICODE_STRING symLink = RTL_CONSTANT_STRING(L"\\DosDevices\\HyperDbgDebuggerDevice");
+    UNICODE_STRING devName = RTL_CONSTANT_STRING(L"\\Device\\hyperhv");
+    UNICODE_STRING symLink = RTL_CONSTANT_STRING(L"\\DosDevices\\hyperhv");
     PDEVICE_OBJECT deviceObject = NULL;
 
     DriverObject->DriverUnload = DrvUnload;
@@ -71,7 +71,7 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath) 
 
     status = IoCreateDevice(DriverObject, 0, &devName, FILE_DEVICE_UNKNOWN, FILE_DEVICE_SECURE_OPEN, FALSE, &deviceObject);
     if (!NT_SUCCESS(status)) {
-        DbgPrint("!!! HyperDbg: IoCreateDevice failed: 0x%X\n", status);
+        DbgPrint("!!! hyperhv: IoCreateDevice failed: 0x%X\n", status);
         return status;
     }
 
@@ -80,11 +80,11 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath) 
 
     status = IoCreateSymbolicLink(&symLink, &devName);
     if (!NT_SUCCESS(status)) {
-        DbgPrint("!!! HyperDbg: IoCreateSymbolicLink failed: 0x%X\n", status);
+        DbgPrint("!!! hyperhv: IoCreateSymbolicLink failed: 0x%X\n", status);
         IoDeleteDevice(deviceObject);
         return status;
     }
 
-    DbgPrint("!!! HyperDbg: Standalone driver loaded successfully.\n");
+    DbgPrint("!!! hyperhv: Standalone driver loaded successfully.\n");
     return STATUS_SUCCESS;
 }
