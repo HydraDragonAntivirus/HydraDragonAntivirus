@@ -53,6 +53,8 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='debug|x64'">
     <DebuggerFlavor>DbgengKernelDebugger</DebuggerFlavor>
     <Inf2CatUseLocalTime>true</Inf2CatUseLocalTime>
+    <EnableInf2cat>true</EnableInf2cat>
+    <SkipPackageVerification>true</SkipPackageVerification>
     <OutDir>$(SolutionDir)build\bin\$(Configuration)\</OutDir>
     <TargetName>hyperhv</TargetName>
     <IntDir>$(SolutionDir)build\obj\$(ProjectName)\$(Platform)\$(Configuration)\</IntDir>
@@ -62,7 +64,8 @@
     <Inf2CatUseLocalTime>true</Inf2CatUseLocalTime>
     <OutDir>$(SolutionDir)build\bin\$(Configuration)\</OutDir>
     <TargetName>hyperhv</TargetName>
-    <EnableInf2cat>false</EnableInf2cat>
+    <EnableInf2cat>true</EnableInf2cat>
+    <SkipPackageVerification>true</SkipPackageVerification>
     <IntDir>$(SolutionDir)build\obj\$(ProjectName)\$(Platform)\$(Configuration)\</IntDir>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='debug|x64'">
@@ -121,6 +124,12 @@
       <Command>msbuild "$(SolutionDir)dependencies\zydis\msvc\Zydis.sln" /m /p:Configuration="Release Kernel" /p:Platform=$(Platform) /target:zydis /target:zycore /p:OutDir="$(SolutionDir)libraries\zydis\kernel"</Command>
     </PreBuildEvent>
   </ItemDefinitionGroup>
+  <ItemGroup>
+    <Inf Include="hyperhv.inf">
+      <DateStamp>04/20/2026</DateStamp>
+      <TimeStamp>0.18.1.0</TimeStamp>
+    </Inf>
+  </ItemGroup>
   <ItemGroup>
     <FilesToPackage Include="$(TargetPath)" />
   </ItemGroup>
