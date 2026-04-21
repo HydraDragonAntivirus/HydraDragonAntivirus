@@ -8,11 +8,11 @@ Class=System
 ClassGuid={4d36e97d-e325-11ce-bfc1-08002be10318}
 Provider=%ManufacturerName%
 DriverVer=04/20/2026,0.18.1.0
-CatalogFile=hyperhv.cat
-PnpLockdown=1
 
 [DestinationDirs]
-DefaultDestDir = 13
+DefaultDestDir = 12
+DriverFiles = 12
+DriverFiles.Del = 12
 
 [SourceDisksNames]
 1 = %DiskName%,,,""
@@ -20,27 +20,33 @@ DefaultDestDir = 13
 [SourceDisksFiles]
 hyperhv.sys  = 1,,
 
-[Manufacturer]
-%ManufacturerName%=Standard,NT$ARCH$
+[DefaultInstall.ntamd64]
+OptionDesc = %hyperhv.DeviceDesc%
+CopyFiles = DriverFiles
 
-[Standard.NT$ARCH$]
-%hyperhv.DeviceDesc%=hyperhv_Device, Root\hyperhv
+[DefaultInstall.ntamd64.Services]
+AddService = hyperhv,%SPSVCINST_ASSOCSERVICE%,hyperhv_Service_Inst
 
-[hyperhv_Device.NT]
-CopyFiles=Drivers_Dir
+[DefaultUninstall.ntamd64]
+LegacyUninstall = 1
+DelFiles = DriverFiles.Del
 
-[Drivers_Dir]
+[DefaultUninstall.ntamd64.Services]
+DelService = hyperhv,0x200
+
+[DriverFiles]
 hyperhv.sys
 
-[hyperhv_Device.NT.Services]
-AddService = hyperhv,%SPSVCINST_ASSOCSERVICE%, hyperhv_Service_Inst
+[DriverFiles.Del]
+hyperhv.sys
 
 [hyperhv_Service_Inst]
 DisplayName    = %hyperhv.SVCDESC%
+Description    = %hyperhv.SVCDESC%
 ServiceType    = 1               ; SERVICE_KERNEL_DRIVER
 StartType      = 3               ; SERVICE_DEMAND_START
 ErrorControl   = 1               ; SERVICE_ERROR_NORMAL
-ServiceBinary  = %13%\hyperhv.sys
+ServiceBinary  = %12%\hyperhv.sys
 
 [Strings]
 SPSVCINST_ASSOCSERVICE= 0x00000002

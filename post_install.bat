@@ -162,7 +162,7 @@ call :trust_driver_cert_if_exists "%~dp0hydradragon\Owlyshield\HyperDbg\hyperhv.
 :: 8.1) Install RedDbg driver (AMD Hypervisor)
 :: --------------------------------------------------------
 echo Installing RedDbg driver INF...
-pnputil /add-driver "%~dp0hydradragon\Owlyshield\RedDbg\RedDbgDrv.inf" /install
+rundll32.exe setupapi.dll,InstallHinfSection DefaultInstall 132 "%~dp0hydradragon\Owlyshield\RedDbg\RedDbgDrv.inf"
 if %errorlevel% neq 0 (
     echo [!] RedDbg driver install failed (non-fatal if on Intel).
 ) else (
@@ -173,7 +173,7 @@ if %errorlevel% neq 0 (
 :: 8.2) Install HyperDbg driver (Intel Hypervisor)
 :: --------------------------------------------------------
 echo Installing HyperDbg driver INF...
-pnputil /add-driver "%~dp0hydradragon\Owlyshield\HyperDbg\hyperhv.inf" /install
+rundll32.exe setupapi.dll,InstallHinfSection DefaultInstall 132 "%~dp0hydradragon\Owlyshield\HyperDbg\hyperhv.inf"
 if %errorlevel% neq 0 (
     echo [!] HyperDbg driver install failed (non-fatal if on AMD).
 ) else (

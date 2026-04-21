@@ -8,12 +8,11 @@ Class=System
 ClassGuid={4d36e97d-e325-11ce-bfc1-08002be10318}
 Provider=%ManufacturerName%
 DriverVer = 04/20/2026,0.18.1.0
-CatalogFile=RedDbgDrv.cat
-PnpLockdown=1
 
 [DestinationDirs]
 DefaultDestDir = 12
-Drivers_Dir = 12
+DriverFiles = 12
+DriverFiles.Del = 12
 
 [SourceDisksNames]
 1 = %DiskName%,,,""
@@ -21,23 +20,29 @@ Drivers_Dir = 12
 [SourceDisksFiles]
 RedDbgDrv.sys = 1,,
 
-[Manufacturer]
-%ManufacturerName%=Standard,NTamd64
+[DefaultInstall.ntamd64]
+OptionDesc = %RedDbg.DeviceDesc%
+CopyFiles = DriverFiles
 
-[Standard.NTamd64]
-%RedDbg.DeviceDesc%=RedDbg_Device, Root\RedDbg
+[DefaultInstall.ntamd64.Services]
+AddService = RedDbg,%SPSVCINST_ASSOCSERVICE%,RedDbg_Service_Inst
 
-[RedDbg_Device.NT]
-CopyFiles=Drivers_Dir
+[DefaultUninstall.ntamd64]
+LegacyUninstall = 1
+DelFiles = DriverFiles.Del
 
-[Drivers_Dir]
+[DefaultUninstall.ntamd64.Services]
+DelService = RedDbg,0x200
+
+[DriverFiles]
 RedDbgDrv.sys
 
-[RedDbg_Device.NT.Services]
-AddService = RedDbg,%SPSVCINST_ASSOCSERVICE%,RedDbg_Service_Inst
+[DriverFiles.Del]
+RedDbgDrv.sys
 
 [RedDbg_Service_Inst]
 DisplayName   = %RedDbg.SVCDESC%
+Description   = %RedDbg.SVCDESC%
 ServiceType   = 1
 StartType     = 3
 ErrorControl  = 1
