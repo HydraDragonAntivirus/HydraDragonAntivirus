@@ -5346,7 +5346,7 @@ def decompile_nbc_text_to_source(text: str) -> str:
 
 def decompile_nbc_file(input_path: str | Path, output_path: str | Path | None = None) -> Path:
     src_path = Path(input_path)
-    dest_path = Path(output_path) if output_path is not None else Path(str(src_path) + ".py")
+    dest_path = Path(output_path) if output_path is not None else src_path.with_suffix(".py")
     dest_path.parent.mkdir(parents=True, exist_ok=True)
     source = decompile_nbc_text_to_source(src_path.read_text(encoding="utf-8", errors="replace"))
     dest_path.write_text(source, encoding="utf-8")
@@ -5358,7 +5358,7 @@ def decompile_nbc_path(input_path: str | Path, output_path: str | Path | None = 
     if src_path.is_file():
         dest_path = Path(output_path) if output_path is not None else None
         if dest_path is not None and (dest_path.exists() and dest_path.is_dir() or not dest_path.suffix):
-            dest_path = dest_path / f"{src_path.name}.py"
+            dest_path = dest_path / src_path.with_suffix(".py").name
         dest = decompile_nbc_file(src_path, dest_path)
         print(f"[*] Decompiled {src_path.name} -> {dest}")
         return 1
@@ -5374,7 +5374,7 @@ def decompile_nbc_path(input_path: str | Path, output_path: str | Path | None = 
     written = 0
     for nbc_path in nbc_files:
         rel = nbc_path.relative_to(src_path)
-        dest = output_root / Path(str(rel) + ".py")
+        dest = output_root / rel.with_suffix(".py")
         decompile_nbc_file(nbc_path, dest)
         written += 1
     return written
