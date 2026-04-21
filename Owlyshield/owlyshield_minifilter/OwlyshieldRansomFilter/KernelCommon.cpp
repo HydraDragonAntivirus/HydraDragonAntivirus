@@ -1,7 +1,8 @@
 #include "KernelCommon.h"
 #include <intrin.h>
 
-// CRT string handling stubs for missing WDK symbols
+// Keep the kernel CRT declarations available, but avoid ntstrsafe formatting here:
+// ntstrsafe's VPrintf path calls back into _vsnwprintf, which re-enters this shim.
 #include <ntstrsafe.h>
 
 #pragma warning(push)
@@ -13,20 +14,36 @@ extern "C" int __cdecl __stdio_common_vswprintf(
     UNREFERENCED_PARAMETER(options);
     UNREFERENCED_PARAMETER(locale);
 
-    if (buffer == nullptr || count == 0)
+    if (buffer == nullptr || count == 0 || format == nullptr)
     {
         return -1;
     }
 #pragma warning(pop)
 
-    NTSTATUS status = RtlStringCchVPrintfW(buffer, count, format, arglist);
-    if (NT_SUCCESS(status) || status == STATUS_BUFFER_OVERFLOW)
+    buffer[0] = L'\0';
+
+    __try
     {
-        size_t len = 0;
-        RtlStringCchLengthW(buffer, count, &len);
-        return static_cast<int>(len);
+        // Mirror the legacy null-termination behavior expected by the UCRT helper.
+#pragma warning(push)
+#pragma warning(disable: 4996)
+        int result = _vsnwprintf(buffer, count - 1, format, arglist);
+#pragma warning(pop)
+
+        if ((result < 0) || (static_cast<size_t>(result) >= count))
+        {
+            buffer[count - 1] = L'\0';
+            return -1;
+        }
+
+        buffer[result] = L'\0';
+        return result;
     }
-    return -1;
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        buffer[0] = L'\0';
+        return -1;
+    }
 }
 
 // FIXME: add count param for copy length, MAX_FILE_NAME_LENGTH - 1 is default value
