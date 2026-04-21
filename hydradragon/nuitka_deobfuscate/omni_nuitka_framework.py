@@ -9,6 +9,8 @@ exception-hierarchy reconstruction.
 
 from __future__ import annotations
 
+import argparse
+import ast
 import functools
 import importlib
 import keyword
@@ -3469,9 +3471,11 @@ class OmniNuitkaCompactEmitter:
         return cls._TYPE_CODE.get(type(value), "?")
 
     @staticmethod
-    def _short_repr(value: Any, cap: int = 120) -> str:
+    def _short_repr(value: Any, cap: int | None = None) -> str:
         text = repr(value)
-        return text if len(text) <= cap else text[: cap - 3] + "..."
+        if cap is None or len(text) <= cap:
+            return text
+        return text[: cap - 3] + "..."
 
     @classmethod
     def _emit_constants(cls, raw_constants: list[Any], out: list[str]) -> None:
@@ -3672,24 +3676,701 @@ def generate_omni_source(
 
 
 # ---------------------------------------------------------------------------
-# CLI entry point
+# NBC -> Python decompiler
 # ---------------------------------------------------------------------------
 
-def main() -> int:
+@dataclass
+class NbcParsedConstant:
+    index: int
+    type_code: str
+    raw: str
+    value: Any
+    truncated: bool = False
+
+
+@dataclass
+class NbcFunctionSignature:
+    qualname: str
+    args: list[str]
+
+
+@dataclass
+class NbcOpsBlock:
+    va: str
+    qualname: str | None = None
+    ops: list[str] = field(default_factory=list)
+
+
+@dataclass
+class NbcForensicsBlock:
+    qualname: str
+    notes: list[str] = field(default_factory=list)
+    adjacent: list[tuple[int, str, str]] = field(default_factory=list)
+    mentions: list[tuple[int, str, str]] = field(default_factory=list)
+
+
+@dataclass
+class ParsedNbcModule:
+    module_name: str = "__module__"
+    python_version: tuple[int, int] = field(default_factory=lambda: sys.version_info[:2])
+    entry_va: str | None = None
+    constants: list[NbcParsedConstant] = field(default_factory=list)
+    imports: list[str] = field(default_factory=list)
+    functions: list[NbcFunctionSignature] = field(default_factory=list)
+    ops_blocks: list[NbcOpsBlock] = field(default_factory=list)
+    forensic_blocks: list[NbcForensicsBlock] = field(default_factory=list)
+    global_no_ops: list[str] = field(default_factory=list)
+
+    def raw_constants(self) -> list[Any]:
+        return [const.value for const in self.constants]
+
+
+@dataclass
+class _NbcFunctionRecord:
+    qualname: str
+    name: str
+    class_name: str | None
+    args: list[str]
+    ops_block: NbcOpsBlock | None = None
+    forensic_block: NbcForensicsBlock | None = None
+
+
+def _parse_nbc_version(text: str) -> tuple[int, int]:
+    match = re.match(r"^\s*(\d+)\.(\d+)\s*$", text)
+    if not match:
+        return sys.version_info[:2]
+    return int(match.group(1)), int(match.group(2))
+
+
+def _placeholder_from_nbc_literal(type_code: str, raw: str) -> Any:
+    preview = raw.strip()
+    if type_code == "n":
+        return None
+    if type_code == "t":
+        return True
+    if type_code == "F":
+        return False
+    if type_code == "s":
+        text = preview
+        if text[:1] in {"'", '"'}:
+            text = text[1:]
+        return f"{text.rstrip('.')}..."
+    if type_code in {"b", "B"}:
+        text = preview
+        if text.startswith(("b'", 'b"')):
+            text = text[2:]
+        elif text[:1] in {"'", '"'}:
+            text = text[1:]
+        return text.rstrip(".").encode("utf-8", errors="replace") + b"..."
+    return f"<NBC {type_code} {preview}>"
+
+
+def _parse_nbc_constant_value(type_code: str, raw: str) -> tuple[Any, bool]:
+    text = raw.strip()
+    if type_code == "n":
+        return None, False
+    if type_code == "t":
+        return True, False
+    if type_code == "F":
+        return False, False
+    try:
+        return ast.literal_eval(text), False
+    except Exception:
+        return _placeholder_from_nbc_literal(type_code, text), True
+
+
+def parse_nbc_text(text: str) -> ParsedNbcModule:
+    module = ParsedNbcModule()
+    state: str | None = None
+    current_ops: NbcOpsBlock | None = None
+    current_forensic: NbcForensicsBlock | None = None
+    forensic_mode: str | None = None
+
+    for raw_line in text.splitlines():
+        line = raw_line.rstrip("\n\r")
+        stripped = line.strip()
+
+        if not stripped:
+            continue
+        if stripped.startswith("#"):
+            continue
+        if stripped.startswith("@MOD "):
+            module.module_name = stripped[5:].strip() or "__module__"
+            state = None
+            continue
+        if stripped.startswith("@VER "):
+            module.python_version = _parse_nbc_version(stripped[5:])
+            state = None
+            continue
+        if stripped.startswith("@ENTRY "):
+            module.entry_va = stripped[7:].strip() or None
+            state = None
+            continue
+        if stripped.startswith("@CONSTS "):
+            state = "consts"
+            continue
+        if stripped == "@IMPORTS":
+            state = "imports"
+            continue
+        if stripped == "@FUNCS_DETECTED":
+            state = "funcs"
+            continue
+        if stripped.startswith("@FORENSICS"):
+            state = "forensics"
+            current_forensic = None
+            forensic_mode = None
+            continue
+        if stripped.startswith("@OPS "):
+            match = re.match(r"^@OPS\s+(0x[0-9A-Fa-f]+)(?:\s+#\s*(.+))?$", stripped)
+            if match:
+                current_ops = NbcOpsBlock(
+                    va=match.group(1),
+                    qualname=match.group(2).strip() if match.group(2) else None,
+                )
+                module.ops_blocks.append(current_ops)
+                state = "ops"
+            else:
+                state = None
+            continue
+        if stripped.startswith("@NO_OPS"):
+            suffix = stripped[len("@NO_OPS"):].strip()
+            if suffix:
+                current_forensic = NbcForensicsBlock(qualname=suffix)
+                module.forensic_blocks.append(current_forensic)
+                forensic_mode = None
+                state = "forensic_block"
+            else:
+                module.global_no_ops = []
+                state = "global_no_ops"
+            continue
+
+        if state == "consts":
+            match = re.match(r"^\s*(\d+)\s+(\S)\s+(.*)$", line)
+            if not match:
+                continue
+            index = int(match.group(1))
+            type_code = match.group(2)
+            raw_value = match.group(3)
+            value, truncated = _parse_nbc_constant_value(type_code, raw_value)
+            while len(module.constants) <= index:
+                module.constants.append(
+                    NbcParsedConstant(
+                        index=len(module.constants),
+                        type_code="?",
+                        raw="None",
+                        value=None,
+                        truncated=False,
+                    )
+                )
+            module.constants[index] = NbcParsedConstant(
+                index=index,
+                type_code=type_code,
+                raw=raw_value,
+                value=value,
+                truncated=truncated,
+            )
+            continue
+
+        if state == "imports":
+            module.imports.append(stripped)
+            continue
+
+        if state == "funcs":
+            match = re.match(r"^([A-Za-z_][A-Za-z0-9_.<>]*)\((.*)\)$", stripped)
+            if not match:
+                continue
+            args = [part.strip() for part in match.group(2).split(",") if part.strip()]
+            module.functions.append(NbcFunctionSignature(match.group(1), args))
+            continue
+
+        if state == "ops" and current_ops is not None:
+            current_ops.ops.append(stripped)
+            continue
+
+        if state == "global_no_ops":
+            module.global_no_ops.append(stripped)
+            continue
+
+        if state == "forensic_block" and current_forensic is not None:
+            if stripped == "adjacent:":
+                forensic_mode = "adjacent"
+                continue
+            if stripped == "mentions:":
+                forensic_mode = "mentions"
+                continue
+            match = re.match(r"^c\[(\d+)\]\s+(\S)\s+(.*)$", stripped)
+            if forensic_mode == "adjacent" and match:
+                current_forensic.adjacent.append(
+                    (int(match.group(1)), match.group(2), match.group(3))
+                )
+                continue
+            if forensic_mode == "mentions" and match:
+                current_forensic.mentions.append(
+                    (int(match.group(1)), match.group(2), match.group(3))
+                )
+                continue
+            current_forensic.notes.append(stripped)
+
+    return module
+
+
+def parse_nbc_file(path: str | Path) -> ParsedNbcModule:
+    nbc_path = Path(path)
+    return parse_nbc_text(nbc_path.read_text(encoding="utf-8", errors="replace"))
+
+
+class NbcSourceDecompiler:
+    def __init__(self, module: ParsedNbcModule):
+        self.module = module
+        self.const_by_index = {const.index: const for const in module.constants}
+        self.va_to_qualname = {
+            block.va.lower(): block.qualname
+            for block in module.ops_blocks
+            if block.qualname
+        }
+        self.unresolved_constants: set[int] = set()
+        self.helper_usage: set[str] = set()
+        self._records = self._build_records()
+        self._rendered_records = self._render_records()
+
+    def _split_qualname(self, qualname: str) -> tuple[str | None, str]:
+        cleaned = qualname.replace(".<locals>.", ".")
+        parts = [part for part in cleaned.split(".") if part and part != "<locals>"]
+        if not parts:
+            return None, "recovered_function"
+        for index, part in enumerate(parts[:-1]):
+            if part[:1].isupper():
+                return part, parts[-1]
+        return None, parts[-1]
+
+    def _safe_name(self, name: str, fallback: str) -> str:
+        safe = safe_identifier(name)
+        if safe:
+            return safe
+        candidate = re.sub(r"[^A-Za-z0-9_]", "_", name).strip("_")
+        if not candidate:
+            candidate = fallback
+        if candidate[:1].isdigit():
+            candidate = f"n_{candidate}"
+        return candidate
+
+    def _safe_args(self, args: list[str], is_method: bool) -> list[str]:
+        safe_args: list[str] = []
+        for index, arg in enumerate(args):
+            prefix = ""
+            base = arg
+            if arg.startswith("**"):
+                prefix, base = "**", arg[2:]
+            elif arg.startswith("*"):
+                prefix, base = "*", arg[1:]
+            if base == ".0":
+                base = "iterable"
+            safe = self._safe_name(base, f"arg_{index}")
+            safe_args.append(prefix + safe)
+        if is_method and (not safe_args or safe_args[0] not in {"self", "cls"}):
+            safe_args.insert(0, "self")
+        return safe_args
+
+    def _ensure_record(
+        self,
+        records: "OrderedDict[str, _NbcFunctionRecord]",
+        qualname: str,
+        args: list[str] | None = None,
+    ) -> _NbcFunctionRecord:
+        if qualname not in records:
+            class_name, name = self._split_qualname(qualname)
+            records[qualname] = _NbcFunctionRecord(
+                qualname=qualname,
+                name=self._safe_name(name, "recovered_function"),
+                class_name=self._safe_name(class_name, "RecoveredClass") if class_name else None,
+                args=self._safe_args(args or [], bool(class_name)),
+            )
+        elif args:
+            current = records[qualname]
+            if not current.args:
+                current.args = self._safe_args(args, bool(current.class_name))
+        return records[qualname]
+
+    def _build_records(self) -> "OrderedDict[str, _NbcFunctionRecord]":
+        records: "OrderedDict[str, _NbcFunctionRecord]" = OrderedDict()
+        qualnamed_blocks = [block for block in self.module.ops_blocks if block.qualname]
+        unlabeled_blocks = [
+            block for block in self.module.ops_blocks
+            if not block.qualname and block.va.lower() != (self.module.entry_va or "").lower()
+        ]
+        used_qualnames = {block.qualname for block in qualnamed_blocks if block.qualname}
+        unused_signatures = [
+            sig for sig in self.module.functions
+            if sig.qualname not in used_qualnames
+        ]
+        for block, signature in zip(unlabeled_blocks, unused_signatures):
+            block.qualname = signature.qualname
+
+        for signature in self.module.functions:
+            self._ensure_record(records, signature.qualname, signature.args)
+        for block in self.module.ops_blocks:
+            if not block.qualname:
+                continue
+            self._ensure_record(records, block.qualname).ops_block = block
+        for forensic in self.module.forensic_blocks:
+            self._ensure_record(records, forensic.qualname).forensic_block = forensic
+
+        return records
+
+    def _const_expr(self, index: int | None) -> str:
+        if index is None:
+            return "..."
+        const = self.const_by_index.get(index)
+        if const is None:
+            self.unresolved_constants.add(index)
+            return f"_NBC_CONST_{index}"
+        if const.truncated:
+            self.unresolved_constants.add(index)
+            return f"_NBC_CONST_{index}"
+        return literal_source(const.value)
+
+    def _resolve_local_call(self, target: str, current_record: _NbcFunctionRecord) -> str | None:
+        va = target[3:].strip().lower()
+        qualname = self.va_to_qualname.get(va)
+        if not qualname:
+            return None
+        class_name, name = self._split_qualname(qualname)
+        safe_name = self._safe_name(name, "recovered_function")
+        if class_name and current_record.class_name == self._safe_name(class_name, "RecoveredClass"):
+            return f"self.{safe_name}"
+        if class_name:
+            return f"{self._safe_name(class_name, 'RecoveredClass')}.{safe_name}"
+        return safe_name
+
+    def _call_expr(self, target: str, args: list[str], current_record: _NbcFunctionRecord) -> str:
+        arg_text = ", ".join(args)
+        sep = ", " if arg_text else ""
+
+        if target.startswith("capi:"):
+            self.helper_usage.add("capi")
+            return f"_nbc_capi({target[5:]!r}{sep}{arg_text})"
+        if target.startswith("r#"):
+            self.helper_usage.add("runtime")
+            return f"_nbc_runtime({target!r}{sep}{arg_text})"
+        if target.startswith("fn@"):
+            resolved = self._resolve_local_call(target, current_record)
+            if resolved:
+                return f"{resolved}({arg_text})" if arg_text else f"{resolved}()"
+            self.helper_usage.add("local")
+            return f"_nbc_local_call({target!r}{sep}{arg_text})"
+        if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*", target):
+            return f"{target}({arg_text})" if arg_text else f"{target}()"
+
+        self.helper_usage.add("runtime")
+        return f"_nbc_runtime({target!r}{sep}{arg_text})"
+
+    def _parse_op(self, line: str) -> tuple[str, Any]:
+        op = line.split(";", 1)[0].strip()
+        if not op:
+            return "RAW", line.strip()
+        if op.startswith(":"):
+            return "LABEL", op[1:]
+        match = re.match(r"^L\s+c\[(\d+)\]$", op)
+        if match:
+            return "LOAD", int(match.group(1))
+        match = re.match(r"^C\s+(.+)$", op)
+        if match:
+            return "CALL", match.group(1).strip()
+        match = re.match(r"^J_(EQ|NE)\s+(?:c\[(\d+)\]|\?)\s+(\S+)$", op)
+        if match:
+            return f"J_{match.group(1)}", (
+                int(match.group(2)) if match.group(2) is not None else None,
+                match.group(3),
+            )
+        match = re.match(r"^J\s+(\S+)$", op)
+        if match:
+            return "J", match.group(1)
+        if op == "RET":
+            return "RET", None
+        return "RAW", op
+
+    def _next_significant(self, parsed_ops: list[tuple[str, Any]], start: int) -> tuple[str, Any] | None:
+        for kind, data in parsed_ops[start:]:
+            if kind != "LABEL":
+                return kind, data
+        return None
+
+    def _render_ops_body(self, record: _NbcFunctionRecord) -> list[str]:
+        if not record.ops_block:
+            return []
+
+        body: list[str] = []
+        pending_consts: list[str] = []
+        parsed_ops = [self._parse_op(op) for op in record.ops_block.ops]
+        skip_next_ret = False
+
+        for index, (kind, data) in enumerate(parsed_ops):
+            if skip_next_ret and kind == "RET":
+                skip_next_ret = False
+                continue
+
+            if kind == "LABEL":
+                body.append(f"# label {data}")
+                continue
+
+            if kind == "LOAD":
+                pending_consts.append(self._const_expr(data))
+                continue
+
+            if kind == "CALL":
+                expr = self._call_expr(data, pending_consts, record)
+                pending_consts = []
+                next_item = self._next_significant(parsed_ops, index + 1)
+                if next_item and next_item[0] == "RET":
+                    body.append(f"return {expr}")
+                    skip_next_ret = True
+                else:
+                    body.append(expr)
+                continue
+
+            if kind in {"J_EQ", "J_NE"}:
+                const_index, label = data
+                cmp_expr = self._const_expr(const_index)
+                self.helper_usage.add("compare")
+                negate = "not " if kind == "J_NE" else ""
+                body.append(f"# if {negate}_nbc_compare({cmp_expr}): goto {label}")
+                continue
+
+            if kind == "J":
+                body.append(f"# goto {data}")
+                continue
+
+            if kind == "RET":
+                if pending_consts:
+                    if len(pending_consts) == 1:
+                        body.append(f"return {pending_consts[0]}")
+                    else:
+                        body.append(f"return ({', '.join(pending_consts)})")
+                    pending_consts = []
+                elif not body or not body[-1].lstrip().startswith("return "):
+                    body.append("return None")
+                continue
+
+            body.append(f"# {data}")
+
+        if pending_consts:
+            if len(pending_consts) == 1:
+                body.append(f"return {pending_consts[0]}")
+            else:
+                body.append(f"return ({', '.join(pending_consts)})")
+        if not body:
+            body.append("...")
+        elif all(line.startswith("#") for line in body):
+            body.append("...")
+        return body
+
+    def _render_forensic_body(self, record: _NbcFunctionRecord) -> list[str]:
+        block = record.forensic_block
+        if block is None:
+            return []
+        body = [
+            '"""Recovered from NBC forensic hints; the static @OPS walk did not reach this body."""'
+        ]
+        for note in block.notes:
+            body.append(f"# {note}")
+        for idx, _type_code, raw in block.adjacent[:12]:
+            body.append(f"# nearby c[{idx}] = {raw}")
+        for idx, _type_code, raw in block.mentions[:12]:
+            body.append(f"# mention c[{idx}] = {raw}")
+        body.append("...")
+        return body
+
+    def _render_record_body(self, record: _NbcFunctionRecord) -> list[str]:
+        body = self._render_ops_body(record)
+        if body:
+            return body
+        body = self._render_forensic_body(record)
+        if body:
+            return body
+        return ['"""Signature recovered from NBC only."""', "..."]
+
+    def _render_records(self) -> "OrderedDict[str, list[str]]":
+        rendered: "OrderedDict[str, list[str]]" = OrderedDict()
+        for qualname, record in self._records.items():
+            rendered[qualname] = self._render_record_body(record)
+        return rendered
+
+    def _render_signature(self, record: _NbcFunctionRecord) -> str:
+        args = record.args or (["self"] if record.class_name else [])
+        return f"def {record.name}({', '.join(args)}):"
+
+    def render(self) -> str:
+        lines: list[str] = []
+        lines.append('"""')
+        lines.append(f"Best-effort Python reconstruction from NBC for module {self.module.module_name}.")
+        lines.append("This file was rebuilt from the compact Nuitka pseudo-bytecode format.")
+        if self.module.global_no_ops:
+            lines.append("Native @OPS were incomplete or absent for at least part of this module.")
+        lines.append('"""')
+        lines.append("")
+        lines.append("from __future__ import annotations")
+        lines.append("")
+
+        seen_imports: set[str] = set()
+        for import_line in self.module.imports:
+            if import_line not in seen_imports:
+                lines.append(import_line)
+                seen_imports.add(import_line)
+
+        if self.helper_usage and "from typing import Any" not in seen_imports:
+            lines.append("from typing import Any")
+            seen_imports.add("from typing import Any")
+
+        if seen_imports:
+            lines.append("")
+
+        if self.unresolved_constants:
+            lines.append("# Truncated / unresolved literals preserved from the NBC payload")
+            for index in sorted(self.unresolved_constants):
+                const = self.const_by_index.get(index)
+                raw = const.raw if const else "<missing>"
+                lines.append(f"_NBC_CONST_{index} = {raw!r}")
+            lines.append("")
+
+        if self.helper_usage:
+            lines.append("def _nbc_runtime(name: str, *args: Any) -> Any:")
+            lines.append("    return {'runtime_helper': name, 'args': args}")
+            lines.append("")
+            if "capi" in self.helper_usage:
+                lines.append("def _nbc_capi(name: str, *args: Any) -> Any:")
+                lines.append("    return {'python_c_api': name, 'args': args}")
+                lines.append("")
+            if "local" in self.helper_usage:
+                lines.append("def _nbc_local_call(name: str, *args: Any) -> Any:")
+                lines.append("    return {'local_call': name, 'args': args}")
+                lines.append("")
+            if "compare" in self.helper_usage:
+                lines.append("def _nbc_compare(value: Any) -> bool:")
+                lines.append("    return bool(value)")
+                lines.append("")
+
+        if self.module.global_no_ops:
+            lines.append("# Global NBC notes")
+            for entry in self.module.global_no_ops:
+                lines.append(f"# {entry}")
+            lines.append("")
+
+        classes: "OrderedDict[str, list[_NbcFunctionRecord]]" = OrderedDict()
+        free_funcs: list[_NbcFunctionRecord] = []
+        for qualname, record in self._records.items():
+            if record.class_name:
+                classes.setdefault(record.class_name, []).append(record)
+            else:
+                free_funcs.append(record)
+
+        entry_block = next(
+            (
+                block for block in self.module.ops_blocks
+                if not block.qualname and block.va.lower() == (self.module.entry_va or "").lower()
+            ),
+            None,
+        )
+        if entry_block is not None:
+            lines.append("# Module entry NBC ops")
+            for op in entry_block.ops:
+                lines.append(f"# {op}")
+            lines.append("")
+
+        for record in free_funcs:
+            lines.append(self._render_signature(record))
+            lines.extend(f"    {line}" for line in self._rendered_records[record.qualname])
+            lines.append("")
+
+        for class_name, methods in classes.items():
+            lines.append(f"class {class_name}:")
+            if not methods:
+                lines.append("    pass")
+                lines.append("")
+                continue
+            for method in methods:
+                lines.append("")
+                lines.append(f"    {self._render_signature(method)}")
+                lines.extend(f"        {line}" for line in self._rendered_records[method.qualname])
+            lines.append("")
+
+        if not free_funcs and not classes:
+            lines.append("pass")
+            lines.append("")
+
+        return "\n".join(lines).rstrip() + "\n"
+
+
+def decompile_nbc_text_to_source(text: str) -> str:
+    parsed = parse_nbc_text(text)
+    nbc_source = NbcSourceDecompiler(parsed).render()
+
+    # If there is no native @OPS data, the constants-only reconstructor may
+    # still produce a cleaner module body. Keep the NBC decompiler as the
+    # primary path whenever real op blocks exist.
+    if parsed.ops_blocks:
+        return nbc_source
+
+    try:
+        artifact = reconstruct_module_artifacts(parsed.module_name, parsed.raw_constants())
+    except Exception:
+        return nbc_source
+
+    if _count_reconstructed_blocks(artifact.source) > _count_reconstructed_blocks(nbc_source):
+        return artifact.source
+    return nbc_source
+
+
+def decompile_nbc_file(input_path: str | Path, output_path: str | Path | None = None) -> Path:
+    src_path = Path(input_path)
+    dest_path = Path(output_path) if output_path is not None else Path(str(src_path) + ".py")
+    dest_path.parent.mkdir(parents=True, exist_ok=True)
+    source = decompile_nbc_text_to_source(src_path.read_text(encoding="utf-8", errors="replace"))
+    dest_path.write_text(source, encoding="utf-8")
+    return dest_path
+
+
+def decompile_nbc_path(input_path: str | Path, output_path: str | Path | None = None) -> int:
+    src_path = Path(input_path)
+    if src_path.is_file():
+        dest_path = Path(output_path) if output_path is not None else None
+        if dest_path is not None and (dest_path.exists() and dest_path.is_dir() or not dest_path.suffix):
+            dest_path = dest_path / f"{src_path.name}.py"
+        dest = decompile_nbc_file(src_path, dest_path)
+        print(f"[*] Decompiled {src_path.name} -> {dest}")
+        return 1
+
+    if not src_path.is_dir():
+        raise FileNotFoundError(src_path)
+
+    nbc_files = sorted(src_path.rglob("*.nbc"))
+    if not nbc_files:
+        return 0
+
+    output_root = Path(output_path) if output_path is not None else src_path
+    written = 0
+    for nbc_path in nbc_files:
+        rel = nbc_path.relative_to(src_path)
+        dest = output_root / Path(str(rel) + ".py")
+        decompile_nbc_file(nbc_path, dest)
+        written += 1
+    return written
+
+
+def reconstruct_blob_file(blob_path: str | Path, output_dir: str | Path) -> int:
     try:
         import nuitka_deobfuscate  # type: ignore[import-untyped]
     except ImportError:
         print("[-] Nuitka deobfuscate extension missing.")
         return 1
 
-    blob_path = Path("rcdata_10_3.bin")
+    blob_path = Path(blob_path)
     if not blob_path.exists():
         print(f"[-] Blob not found: {blob_path}")
         return 1
 
-    raw      = blob_path.read_bytes()
+    raw = blob_path.read_bytes()
     sections = nuitka_deobfuscate.decode_blob(raw)
-    out_dir  = Path("restore_deep_ultra") / "reconstructed_source_v13_omni"
+    out_dir = Path(output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
     count = 0
@@ -3708,7 +4389,7 @@ def main() -> int:
         if "class " not in source and "def " not in source:
             continue
         safe_name = re.sub(r'[<>:"/\\|?*\x00]', "_", section_name).strip("._") or "section"
-        out_file  = out_dir / f"{safe_name}.py"
+        out_file = out_dir / f"{safe_name}.py"
         out_file.write_text(source, encoding="utf-8")
         if artifact.nbc_text:
             out_file.with_suffix(".nbc").write_text(artifact.nbc_text, encoding="utf-8")
@@ -3720,6 +4401,47 @@ def main() -> int:
 
     print(f"\n[*] Reconstructed {count} file(s) -> {out_dir}")
     return 0
+
+
+# ---------------------------------------------------------------------------
+# CLI entry point
+# ---------------------------------------------------------------------------
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        description="Reconstruct Python from Nuitka constants blobs or .nbc files."
+    )
+    parser.add_argument(
+        "input",
+        nargs="?",
+        default="rcdata_10_3.bin",
+        help="Input blob (.bin) or .nbc file or a directory containing .nbc files.",
+    )
+    parser.add_argument(
+        "-o",
+        "--output",
+        default=None,
+        help="Output file or directory. For .nbc files the default is <file>.nbc.py.",
+    )
+    args = parser.parse_args(argv)
+
+    input_path = Path(args.input)
+    output_path = Path(args.output) if args.output else None
+
+    try:
+        if input_path.suffix.lower() == ".nbc" or input_path.is_dir():
+            written = decompile_nbc_path(input_path, output_path)
+            if written == 0:
+                print(f"[-] No .nbc files found in {input_path}")
+                return 1
+            print(f"[*] Decompiled {written} NBC file(s)")
+            return 0
+
+        out_dir = output_path or (Path("restore_deep_ultra") / "reconstructed_source_v13_omni")
+        return reconstruct_blob_file(input_path, out_dir)
+    except FileNotFoundError:
+        print(f"[-] Input not found: {input_path}")
+        return 1
 
 
 if __name__ == "__main__":
