@@ -4299,26 +4299,1050 @@ class NbcSourceDecompiler:
 
         return "\n".join(lines).rstrip() + "\n"
 
+def _nbc_decode_text(value: Any) -> str | None:
+    if isinstance(value, str):
+        return value
+    if isinstance(value, (bytes, bytearray)):
+        try:
+            text = value.decode("utf-8")
+        except Exception:
+            text = value.decode("latin-1", errors="replace")
+        printable = sum(ch.isprintable() or ch in "\r\n\t" for ch in text)
+        if text and printable / max(len(text), 1) >= 0.70:
+            return text
+    return None
+
+
+def _nbc_collect_texts(value: Any, out: list[str], seen: set[str]) -> None:
+    text = _nbc_decode_text(value)
+    if text is not None and text not in seen:
+        seen.add(text)
+        out.append(text)
+    if isinstance(value, dict):
+        for item in value.keys():
+            _nbc_collect_texts(item, out, seen)
+        for item in value.values():
+            _nbc_collect_texts(item, out, seen)
+    elif isinstance(value, (list, tuple, set, frozenset)):
+        for item in value:
+            _nbc_collect_texts(item, out, seen)
+
+
+def _nbc_iter_identifier_tuples(value: Any) -> Iterator[tuple[str, ...]]:
+    if isinstance(value, tuple) and value:
+        normalized = []
+        for item in value:
+            text = _nbc_decode_text(item)
+            if text is None or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*|\.0", text):
+                break
+            normalized.append(text)
+        else:
+            yield tuple(normalized)
+        for item in value:
+            yield from _nbc_iter_identifier_tuples(item)
+    elif isinstance(value, list):
+        for item in value:
+            yield from _nbc_iter_identifier_tuples(item)
+    elif isinstance(value, dict):
+        for item in value.keys():
+            yield from _nbc_iter_identifier_tuples(item)
+        for item in value.values():
+            yield from _nbc_iter_identifier_tuples(item)
+    elif isinstance(value, (set, frozenset)):
+        for item in value:
+            yield from _nbc_iter_identifier_tuples(item)
+
+
+class NbcNoOpsHeuristicReconstructor:
+    """High-level source restorer for `.nbc` files that only contain constants."""
+
+    _ROUTE_TO_HANDLER = OrderedDict(
+        [
+            ("/api/oauth-status", "handle_oauth_status"),
+            ("/api/auth-status", "handle_auth_status"),
+            ("/api/browsers", "handle_browsers"),
+            ("/api/inventory", "handle_inventory"),
+            ("/api/session", "handle_session"),
+            ("/api/clones", "handle_clones"),
+            ("/api/currencies", "handle_currencies"),
+            ("/api/social", "handle_social"),
+            ("/api/items", "handle_items_list"),
+            ("/api/start-oauth", "handle_start_oauth"),
+            ("/api/set-token", "handle_set_token"),
+            ("/api/set-keyauth-license", "handle_set_keyauth_license"),
+            ("/api/set-browser", "handle_set_browser"),
+        ]
+    )
+    _TOP_LEVEL_FUNCTIONS = (
+        "_load_browser_pref",
+        "_save_browser_pref",
+        "_detect_browsers",
+        "_maybe_open_browser",
+        "_oauth_worker",
+        "save_token",
+        "load_saved_token",
+        "run_token_script",
+        "get_new_token",
+        "apply_token_from_string",
+        "apply_keyauth_license",
+        "_keyauth_saved_key",
+        "_keyauth_hwid",
+        "_build_keyauth_client",
+        "keyauth_client",
+        "_keyauth_enabled",
+        "_keyauth_verify_cached",
+        "ensure_keyauth",
+        "ensure_token",
+        "_session_token_hints",
+        "_jwt_payload_unverified",
+        "_api_get",
+        "_api_post",
+        "get_profile",
+        "get_levels_list",
+        "process_item",
+        "run_protection_checks",
+        "_cls_logo_bytes_from_disk",
+        "main",
+    )
+
+    def __init__(self, module: ParsedNbcModule):
+        self.module = module
+        self.direct_texts = [
+            text
+            for const in module.constants
+            if (text := _nbc_decode_text(const.value)) is not None
+        ]
+        self.all_texts: list[str] = []
+        _seen: set[str] = set()
+        for const in module.constants:
+            _nbc_collect_texts(const.value, self.all_texts, _seen)
+        self.text_set = set(self.all_texts)
+        self.qualname_items = self._collect_qualnames()
+        self.class_methods = self._collect_class_methods()
+        self.routes = [
+            route for route in self._ROUTE_TO_HANDLER
+            if route in self.text_set
+        ]
+        self.api_urls = [
+            text for text in self.all_texts
+            if text.startswith(("http://", "https://"))
+        ]
+        self.helper_comments = self._collect_nested_helper_comments()
+        self.identifier_tuples = self._collect_identifier_tuples()
+        self.top_level_functions = self._expand_top_level_functions(
+            self._collect_top_level_functions()
+        )
+        self.signature_hints = self._collect_signature_hints()
+
+    def _valid_module_import(self, text: str) -> bool:
+        if "<locals>" in text:
+            return False
+        if text.endswith((".txt", ".png", ".log", ".py", ".pyc")):
+            return False
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)", text):
+            return False
+        parts = text.split(".")
+        if parts[0].lstrip("_")[:1].isupper():
+            return False
+        if any(part.startswith("__") and part.endswith("__") for part in parts):
+            return False
+        return True
+
+    def _collect_qualnames(self) -> list[tuple[int, str]]:
+        results: list[tuple[int, str]] = []
+        pattern = re.compile(
+            r"[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_<][A-Za-z0-9_<>]*)"
+        )
+        for const in self.module.constants:
+            text = _nbc_decode_text(const.value)
+            if text is None or not pattern.fullmatch(text):
+                continue
+            if self._valid_module_import(text):
+                continue
+            if text.endswith((".txt", ".png", ".log")):
+                continue
+            results.append((const.index, text))
+        return results
+
+    def _collect_class_methods(self) -> "OrderedDict[str, list[str]]":
+        classes: "OrderedDict[str, list[str]]" = OrderedDict()
+        for _index, qualname in self.qualname_items:
+            if "<locals>" in qualname:
+                continue
+            first, _, method = qualname.partition(".")
+            if not method:
+                continue
+            if not (first[:1].isupper() or first.startswith("_") and first[1:2].isupper()):
+                continue
+            classes.setdefault(first, [])
+            if method not in classes[first]:
+                classes[first].append(method)
+        return classes
+
+    def _collect_top_level_functions(self) -> list[str]:
+        funcs: list[str] = []
+        seen = set()
+        for _index, qualname in self.qualname_items:
+            if ".<locals>." in qualname:
+                parent = qualname.split(".<locals>.", 1)[0]
+                if "." not in parent and parent not in seen:
+                    funcs.append(parent)
+                    seen.add(parent)
+
+        for name in self._TOP_LEVEL_FUNCTIONS:
+            if name in self.text_set and name not in seen:
+                funcs.append(name)
+                seen.add(name)
+        return funcs
+
+    def _collect_nested_helper_comments(self) -> dict[str, list[str]]:
+        helpers: dict[str, list[str]] = defaultdict(list)
+        for _index, qualname in self.qualname_items:
+            if ".<locals>." not in qualname:
+                continue
+            parent, local = qualname.split(".<locals>.", 1)
+            helpers[parent].append(local)
+        return helpers
+
+    def _collect_identifier_tuples(self) -> list[tuple[str, ...]]:
+        results: list[tuple[str, ...]] = []
+        seen: set[tuple[str, ...]] = set()
+        for const in self.module.constants:
+            for values in _nbc_iter_identifier_tuples(const.value):
+                cleaned: list[str] = []
+                for item in values:
+                    candidate = "iterable" if item == ".0" else item
+                    safe = safe_identifier(candidate) or re.sub(r"[^A-Za-z0-9_]", "_", candidate)
+                    safe = safe.strip("_") or "arg"
+                    if safe[:1].isdigit():
+                        safe = f"n_{safe}"
+                    cleaned.append(safe)
+                signature = tuple(cleaned)
+                if not signature or signature in seen:
+                    continue
+                seen.add(signature)
+                results.append(signature)
+        return results
+
+    def _expand_top_level_functions(self, initial: list[str]) -> list[str]:
+        dependencies = {
+            "_build_keyauth_client": ("_keyauth_saved_key",),
+            "_keyauth_verify_cached": ("keyauth_client", "_keyauth_hwid"),
+            "_oauth_worker": ("apply_token_from_string",),
+            "_session_token_hints": ("_jwt_payload_unverified",),
+            "ensure_keyauth": ("_keyauth_saved_key", "_keyauth_verify_cached"),
+            "ensure_token": ("load_saved_token", "get_new_token"),
+            "get_levels_list": ("_api_post",),
+            "get_new_token": ("_load_browser_pref", "_maybe_open_browser", "run_token_script", "save_token"),
+            "get_profile": ("_api_get",),
+            "keyauth_client": ("_build_keyauth_client",),
+            "main": ("_load_browser_pref", "_maybe_open_browser"),
+        }
+        seeds = list(initial)
+        if "ProxyHandler" in self.class_methods:
+            seeds.extend(
+                [
+                    "_detect_browsers",
+                    "_keyauth_enabled",
+                    "_load_browser_pref",
+                    "_oauth_worker",
+                    "_save_browser_pref",
+                    "apply_keyauth_license",
+                    "apply_token_from_string",
+                    "load_saved_token",
+                ]
+            )
+
+        ordered: list[str] = []
+        visiting: set[str] = set()
+        seen: set[str] = set()
+
+        def add(name: str) -> None:
+            if name in seen or name in visiting:
+                return
+            visiting.add(name)
+            for dep in dependencies.get(name, ()):
+                add(dep)
+            visiting.remove(name)
+            seen.add(name)
+            ordered.append(name)
+
+        for name in seeds:
+            add(name)
+        return ordered
+
+    def _fallback_signature_for(self, name: str, class_name: str | None = None) -> list[str]:
+        if class_name == "ProxyHandler":
+            mapping = {
+                "do_OPTIONS": ["self"],
+                "do_GET": ["self"],
+                "do_POST": ["self"],
+                "handle_start_oauth": ["self"],
+                "handle_oauth_status": ["self"],
+                "handle_auth_status": ["self"],
+                "handle_set_token": ["self"],
+                "handle_set_keyauth_license": ["self"],
+                "handle_browsers": ["self"],
+                "handle_set_browser": ["self"],
+                "handle_inventory": ["self"],
+                "handle_session": ["self"],
+                "handle_clones": ["self"],
+                "handle_currencies": ["self"],
+                "handle_social": ["self"],
+                "handle_items_list": ["self"],
+                "handle_mutate": ["self"],
+                "handle_change_id": ["self"],
+                "handle_change_id_bulk": ["self"],
+                "handle_safe_pocket": ["self"],
+                "serve_file": ["self", "path"],
+                "serve_data_file": ["self", "path"],
+                "_json_ok": ["self", "data", "status"],
+                "_json_error": ["self", "status", "message", "body"],
+                "log_message": ["self", "format", "*args"],
+            }
+            return mapping.get(name, ["self"])
+
+        if class_name in {"_KeyAuthV13Shim", "_KeyAuthPyPI10Shim"}:
+            mapping = {
+                "__init__": ["self", "name", "ownerid", "version", "secret"],
+                "_post": ["self", "params"],
+                "init": ["self"],
+                "verify_license": ["self", "key", "hwid"],
+            }
+            return mapping.get(name, ["self"])
+
+        mapping = {
+            "_load_browser_pref": [],
+            "_save_browser_pref": ["pref"],
+            "_detect_browsers": [],
+            "_maybe_open_browser": ["url", "pref"],
+            "_oauth_worker": ["provider"],
+            "save_token": ["token"],
+            "load_saved_token": [],
+            "run_token_script": [],
+            "get_new_token": [],
+            "apply_token_from_string": ["token"],
+            "apply_keyauth_license": ["license_key"],
+            "_keyauth_saved_key": [],
+            "_keyauth_hwid": [],
+            "_build_keyauth_client": [],
+            "keyauth_client": [],
+            "_keyauth_enabled": [],
+            "_keyauth_verify_cached": ["key"],
+            "ensure_keyauth": ["key"],
+            "ensure_token": [],
+            "_session_token_hints": ["token"],
+            "_jwt_payload_unverified": ["token"],
+            "_api_get": ["path", "token"],
+            "_api_post": ["path", "payload_bytes", "token"],
+            "get_profile": ["path", "token"],
+            "get_levels_list": ["path", "payload_bytes", "token"],
+            "process_item": ["target_id", "user_token", "log_callback", "inventory_cache", "auth_token"],
+            "run_protection_checks": [],
+            "_cls_logo_bytes_from_disk": [],
+            "main": [],
+        }
+        return mapping.get(name, [])
+
+    def _infer_signature_hint(self, name: str, class_name: str | None = None) -> list[str] | None:
+        fallback = self._fallback_signature_for(name, class_name)
+        if not fallback or not self.identifier_tuples:
+            return None
+
+        normalized_fallback = [part.lstrip("*") for part in fallback]
+        best: tuple[str, ...] | None = None
+        best_score = 0
+        for candidate in self.identifier_tuples:
+            if class_name:
+                if not candidate or candidate[0] != "self":
+                    continue
+            elif candidate and candidate[0] == "self":
+                continue
+
+            overlap = len(set(candidate) & set(normalized_fallback))
+            if overlap == 0:
+                continue
+
+            prefix = 0
+            for left, right in zip(candidate, normalized_fallback):
+                if left != right:
+                    break
+                prefix += 1
+
+            score = overlap * 3 + prefix * 5
+            if len(candidate) <= len(normalized_fallback):
+                score += 2
+            else:
+                score -= max(len(candidate) - len(normalized_fallback) - 2, 0)
+
+            if score > best_score:
+                best_score = score
+                best = candidate
+
+        if best is None or best_score < 6:
+            return None
+        if list(best) == normalized_fallback[:len(best)]:
+            return list(best)
+        if list(best[:len(normalized_fallback)]) == normalized_fallback:
+            return fallback
+
+        filtered = [name for name in best if name in normalized_fallback]
+        if class_name and (not filtered or filtered[0] != "self"):
+            filtered.insert(0, "self")
+        return filtered or None
+
+    def _collect_signature_hints(self) -> dict[tuple[str | None, str], list[str]]:
+        hints: dict[tuple[str | None, str], list[str]] = {}
+        for name in self.top_level_functions:
+            hint = self._infer_signature_hint(name)
+            if hint:
+                hints[(None, name)] = hint
+        for class_name, methods in self.class_methods.items():
+            for method_name in methods:
+                hint = self._infer_signature_hint(method_name, class_name)
+                if hint:
+                    hints[(class_name, method_name)] = hint
+        return hints
+
+    def _route_comment(self, handler_name: str) -> str | None:
+        for route, target in self._ROUTE_TO_HANDLER.items():
+            if target == handler_name:
+                return route
+        return None
+
+    def _emit_imports(self) -> list[str]:
+        lines = [
+            "from __future__ import annotations",
+            "",
+            "import json",
+            "import os",
+            "import subprocess",
+            "import threading",
+            "import time",
+            "import traceback",
+            "import urllib.error",
+            "import urllib.parse",
+            "import urllib.request",
+            "import uuid",
+            "import webbrowser",
+            "from pathlib import Path",
+        ]
+        if "ProxyHandler" in self.class_methods:
+            lines.append("from http.server import BaseHTTPRequestHandler, HTTPServer")
+        if any("ThreadPoolExecutor" in text for text in self.all_texts):
+            lines.append("from concurrent.futures import ThreadPoolExecutor, as_completed")
+        lines.extend(
+            [
+                "",
+                "try:",
+                "    import winreg",
+                "except ImportError:",
+                "    winreg = None",
+                "",
+            ]
+        )
+        if "arcraiders.auth" in self.text_set:
+            lines.extend(
+                [
+                    "try:",
+                    "    from arcraiders.auth import BrowserOAuth, OAuthProvider",
+                    "except Exception:",
+                    "    BrowserOAuth = None",
+                    "    OAuthProvider = None",
+                    "",
+                ]
+            )
+        return lines
+
+    def _emit_selected_constants(self) -> list[str]:
+        lines: list[str] = []
+        if self.api_urls:
+            seen_urls: set[str] = set()
+            lines.append("# Discovered upstream endpoints")
+            for url in self.api_urls:
+                if url in seen_urls or url == "http://localhost:":
+                    continue
+                seen_urls.add(url)
+                if "keyauth.win/api/1.3/" in url:
+                    lines.append(f"KEYAUTH_API_URL = {url!r}")
+                elif "keyauth.win/app/?page=licenses" in url:
+                    lines.append(f"KEYAUTH_PANEL_URL = {url!r}")
+                elif "/inventory/v1/mutate" in url:
+                    lines.append(f"MUTATE_URL = {url!r}")
+                elif "/inventory" in url:
+                    lines.append(f"INVENTORY_URL = {url!r}")
+                else:
+                    lines.append(f"# endpoint: {url}")
+            lines.append("")
+
+        lines.extend(
+            [
+                "TOKEN_FILE = Path(os.environ.get('ARC_TOKEN_FILE', 'token.txt'))",
+                "BROWSER_PREF_FILE = Path('browser_pref.txt')",
+                "KEYAUTH_LICENSE_FILE = Path('keyauth_license.txt')",
+                "GET_TOKEN_SCRIPT = Path('get_token.py')",
+                "PORT = int(os.environ.get('ARC_PROXY_PORT', '32123'))",
+                "API_HOST = 'http://localhost:'",
+                "OAUTH_STATUS_PATH = '/api/oauth-status'",
+                "AUTH_STATUS_PATH = '/api/auth-status'",
+                "_OAUTH_STATE = {'status': 'idle', 'token': None, 'error': None, 'started_at': None}",
+                "_OAUTH_LOCK = threading.Lock()",
+                "",
+            ]
+        )
+
+        if self.routes:
+            lines.append("ROUTES = {")
+            for route in self.routes:
+                lines.append(f"    {route!r}: {self._ROUTE_TO_HANDLER[route]!r},")
+            lines.append("}")
+            lines.append("")
+        return lines
+
+    def _signature_for(self, name: str, class_name: str | None = None) -> list[str]:
+        return self.signature_hints.get(
+            (class_name, name),
+            self._fallback_signature_for(name, class_name),
+        )
+
+    def _render_keyauth_method(self, class_name: str, method_name: str) -> list[str]:
+        if method_name == "__init__":
+            return [
+                "self.name = name",
+                "self.ownerid = ownerid",
+                "self.version = version",
+                "self.secret = secret",
+                "self.sessionid = None",
+            ]
+        if method_name == "_post":
+            return [
+                "data = urllib.parse.urlencode(params).encode('utf-8')",
+                "request = urllib.request.Request(KEYAUTH_API_URL, data=data)",
+                "request.add_header('Content-Type', 'application/x-www-form-urlencoded')",
+                "with urllib.request.urlopen(request, timeout=15) as response:",
+                "    return json.loads(response.read().decode('utf-8'))",
+            ]
+        if method_name == "init":
+            return [
+                "payload = {",
+                "    'type': 'init',",
+                "    'ver': self.version,",
+                "    'name': self.name,",
+                "    'ownerid': self.ownerid,",
+                "}",
+                "result = self._post(payload)",
+                "if not result.get('success'):",
+                "    raise RuntimeError(result.get('message', 'KeyAuth init failed'))",
+                "self.sessionid = result.get('sessionid')",
+                "return result",
+            ]
+        if method_name == "verify_license":
+            return [
+                "payload = {",
+                "    'type': 'license',",
+                "    'key': key,",
+                "    'hwid': hwid or _keyauth_hwid(),",
+                "    'sessionid': self.sessionid,",
+                "    'name': self.name,",
+                "    'ownerid': self.ownerid,",
+                "}",
+                "result = self._post(payload)",
+                "if not result.get('success'):",
+                "    return False, result.get('message', 'License invalid')",
+                "return True, None",
+            ]
+        return ["..."]
+
+    def _render_proxyhandler_method(self, method_name: str) -> list[str]:
+        route = self._route_comment(method_name)
+        if method_name == "_json_ok":
+            return [
+                "payload = json.dumps(data).encode('utf-8')",
+                "self.send_response(status or 200)",
+                "self.send_header('Content-Type', 'application/json')",
+                "self.send_header('Access-Control-Allow-Origin', '*')",
+                "self.send_header('Access-Control-Allow-Headers', 'Content-Type, X-User-Token')",
+                "self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')",
+                "self.end_headers()",
+                "self.wfile.write(payload)",
+            ]
+        if method_name == "_json_error":
+            return ["self._json_ok({'status': 'error', 'message': message, 'body': body}, status=status)"]
+        if method_name == "do_OPTIONS":
+            return [
+                "self.send_response(200)",
+                "self.send_header('Access-Control-Allow-Origin', '*')",
+                "self.send_header('Access-Control-Allow-Headers', 'Content-Type, X-User-Token')",
+                "self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')",
+                "self.end_headers()",
+            ]
+        if method_name == "do_GET":
+            body = ["path = self.path"]
+            for item in self.routes:
+                if item in {"/api/start-oauth", "/api/set-token", "/api/set-keyauth-license", "/api/set-browser"}:
+                    continue
+                body.append(f"if path == {item!r}:")
+                body.append(f"    return self.{self._ROUTE_TO_HANDLER[item]}()")
+            body.append("return self._json_error(404, f'Unknown GET route: {path}')")
+            return body
+        if method_name == "do_POST":
+            body = ["path = self.path"]
+            for item in self.routes:
+                if item not in {"/api/start-oauth", "/api/set-token", "/api/set-keyauth-license", "/api/set-browser"}:
+                    continue
+                body.append(f"if path == {item!r}:")
+                body.append(f"    return self.{self._ROUTE_TO_HANDLER[item]}()")
+            for extra_name in ("handle_mutate", "handle_change_id", "handle_change_id_bulk", "handle_safe_pocket"):
+                if extra_name in self.class_methods.get("ProxyHandler", []):
+                    body.append(f"if path == '/api/{extra_name.removeprefix('handle_').replace('_', '-')}' :")
+                    body.append(f"    return self.{extra_name}()")
+            body.append("return self._json_error(404, f'Unknown POST route: {path}')")
+            return body
+        if method_name == "handle_oauth_status":
+            return ["with _OAUTH_LOCK:", "    return self._json_ok(dict(_OAUTH_STATE))"]
+        if method_name == "handle_auth_status":
+            return [
+                "token_ok = bool(load_saved_token())",
+                "keyauth_ok = bool(_keyauth_enabled())",
+                "panel = globals().get('KEYAUTH_PANEL_URL', None)",
+                "return self._json_ok({'token_ok': token_ok, 'keyauth_ok': keyauth_ok, 'panel': panel})",
+            ]
+        if method_name == "handle_browsers":
+            return [
+                "browsers = _detect_browsers()",
+                "current = _load_browser_pref()",
+                "return self._json_ok({'browsers': browsers, 'current': current})",
+            ]
+        if method_name == "handle_set_browser":
+            return [
+                "length = int(self.headers.get('Content-Length', '0'))",
+                "body = self.rfile.read(length).decode('utf-8') if length else '{}'",
+                "pref = json.loads(body or '{}').get('pref')",
+                "_save_browser_pref(pref)",
+                "return self._json_ok({'status': 'ok', 'browser': pref})",
+            ]
+        if method_name == "handle_set_token":
+            return [
+                "length = int(self.headers.get('Content-Length', '0'))",
+                "body = self.rfile.read(length).decode('utf-8') if length else '{}'",
+                "token = json.loads(body or '{}').get('token')",
+                "ok = apply_token_from_string(token)",
+                "return self._json_ok({'status': 'ok' if ok else 'error', 'token_set': ok})",
+            ]
+        if method_name == "handle_set_keyauth_license":
+            return [
+                "length = int(self.headers.get('Content-Length', '0'))",
+                "body = self.rfile.read(length).decode('utf-8') if length else '{}'",
+                "license_key = json.loads(body or '{}').get('key')",
+                "ok = apply_keyauth_license(license_key)",
+                "return self._json_ok({'status': 'ok' if ok else 'error', 'saved': ok})",
+            ]
+        if method_name == "handle_start_oauth":
+            return [
+                "length = int(self.headers.get('Content-Length', '0'))",
+                "body = self.rfile.read(length).decode('utf-8') if length else '{}'",
+                "provider = json.loads(body or '{}').get('provider', 'xbox')",
+                "threading.Thread(target=_oauth_worker, args=(provider,), daemon=True).start()",
+                "return self._json_ok({'status': 'started', 'provider': provider})",
+            ]
+        if method_name in {"handle_inventory", "handle_session", "handle_clones", "handle_currencies", "handle_social", "handle_items_list"}:
+            endpoint_map = {
+                "handle_inventory": "INVENTORY_URL",
+                "handle_session": None,
+                "handle_clones": None,
+                "handle_currencies": None,
+                "handle_social": None,
+                "handle_items_list": None,
+            }
+            return [
+                f"# Route {route or method_name} was recovered from NBC constants",
+                "user_token = load_saved_token()",
+                "if not user_token:",
+                "    return self._json_error(401, 'No token available')",
+                "if %r is not None:" % endpoint_map[method_name],
+                "    data = _api_get(globals()[%r], user_token)" % endpoint_map[method_name] if endpoint_map[method_name] else "    data = {'path': self.path}",
+                "else:",
+                "    data = {'path': self.path}",
+                "return self._json_ok({'status': 'ok', 'handler': %r, 'data': data})" % method_name,
+            ]
+        if method_name in {"handle_mutate", "handle_change_id", "handle_change_id_bulk", "handle_safe_pocket"}:
+            body = [
+                f"# Route {route or method_name} performs inventory mutation work.",
+                "length = int(self.headers.get('Content-Length', '0'))",
+                "body = self.rfile.read(length).decode('utf-8') if length else '{}'",
+                "payload = json.loads(body or '{}')",
+                "user_token = load_saved_token()",
+                "if not user_token:",
+                "    return self._json_error(401, 'No token available')",
+                "if method_name := %r:" % method_name,
+                "    payload['recovered_handler'] = method_name",
+                "if 'MUTATE_URL' in globals() and method_name == 'handle_mutate':",
+                "    response = _api_post(MUTATE_URL, json.dumps(payload).encode('utf-8'), user_token)",
+                "    return self._json_ok({'status': 'ok', 'handler': method_name, 'response': response})",
+                "return self._json_ok({'status': 'queued', 'handler': method_name, 'payload': payload})",
+            ]
+            parent = f"ProxyHandler.{method_name}"
+            for helper in self.helper_comments.get(parent, []):
+                body.append(f"# nested helper recovered: {helper}")
+            return body
+        if method_name == "serve_file":
+            return [
+                "disk_path = Path(path)",
+                "if not disk_path.exists():",
+                "    return self._json_error(404, f'Missing file: {disk_path}')",
+                "self.send_response(200)",
+                "self.end_headers()",
+                "self.wfile.write(disk_path.read_bytes())",
+            ]
+        if method_name == "serve_data_file":
+            return ["return self.serve_file(path)"]
+        if method_name == "log_message":
+            return ["return"]
+
+        body = [f"# Route {route}" if route else f"# Recovered handler: {method_name}"]
+        body.append("...")
+        return body
+
+    def _render_top_level_function(self, name: str) -> list[str]:
+        if name == "_load_browser_pref":
+            return [
+                "try:",
+                "    return BROWSER_PREF_FILE.read_text(encoding='utf-8').strip()",
+                "except OSError:",
+                "    return None",
+            ]
+        if name == "_save_browser_pref":
+            return [
+                "if pref is None:",
+                "    return False",
+                "try:",
+                "    BROWSER_PREF_FILE.write_text(str(pref), encoding='utf-8')",
+                "    return True",
+                "except OSError:",
+                "    return False",
+            ]
+        if name == "_detect_browsers":
+            return [
+                "browsers = [{'name': 'Default Browser', 'path': None}]",
+                "for label, candidate in [('Chrome', 'chrome'), ('Edge', 'msedge'), ('Firefox', 'firefox'), ('Opera', 'opera')]:",
+                "    browsers.append({'name': label, 'path': candidate})",
+                "return browsers",
+            ]
+        if name == "_maybe_open_browser":
+            return [
+                "def _run() -> None:",
+                "    time.sleep(0.65)",
+                "    if pref:",
+                "        try:",
+                "            webbrowser.get(pref).open(url)",
+                "            return",
+                "        except Exception:",
+                "            pass",
+                "    webbrowser.open(url)",
+                "threading.Thread(target=_run, daemon=True).start()",
+            ]
+        if name == "_oauth_worker":
+            return [
+                "with _OAUTH_LOCK:",
+                "    _OAUTH_STATE.update({'status': 'running', 'token': None, 'error': None, 'started_at': time.time()})",
+                "try:",
+                "    if BrowserOAuth is None:",
+                "        raise RuntimeError('BrowserOAuth is not available')",
+                "    auth = BrowserOAuth(provider=provider)",
+                "    token = getattr(auth, 'authenticate', lambda: None)()",
+                "    if token:",
+                "        apply_token_from_string(token)",
+                "        with _OAUTH_LOCK:",
+                "            _OAUTH_STATE.update({'status': 'done', 'token': token, 'error': None})",
+                "    else:",
+                "        with _OAUTH_LOCK:",
+                "            _OAUTH_STATE.update({'status': 'error', 'error': 'No token returned'})",
+                "except Exception as exc:",
+                "    with _OAUTH_LOCK:",
+                "        _OAUTH_STATE.update({'status': 'error', 'error': str(exc)})",
+            ]
+        if name == "save_token":
+            return [
+                "if not token:",
+                "    return False",
+                "TOKEN_FILE.write_text(str(token).strip(), encoding='utf-8')",
+                "return True",
+            ]
+        if name == "load_saved_token":
+            return [
+                "try:",
+                "    raw = TOKEN_FILE.read_text(encoding='utf-8').strip()",
+                "except OSError:",
+                "    return None",
+                "return raw or None",
+            ]
+        if name == "run_token_script":
+            return [
+                "if not GET_TOKEN_SCRIPT.exists():",
+                "    return None",
+                "result = subprocess.run(['python', str(GET_TOKEN_SCRIPT)], capture_output=True, text=True, timeout=180)",
+                "return result.stdout.strip() or None",
+            ]
+        if name == "get_new_token":
+            return [
+                "_maybe_open_browser(f'http://localhost:{PORT}', _load_browser_pref())",
+                "token = run_token_script()",
+                "if token:",
+                "    save_token(token)",
+                "return token",
+            ]
+        if name == "apply_token_from_string":
+            return [
+                "if not token:",
+                "    return False",
+                "token = str(token).strip()",
+                "if token.lower().startswith('bearer '):",
+                "    token = token[7:].strip()",
+                "return save_token(token)",
+            ]
+        if name == "apply_keyauth_license":
+            return [
+                "if not license_key:",
+                "    return False",
+                "KEYAUTH_LICENSE_FILE.write_text(str(license_key).strip(), encoding='utf-8')",
+                "return True",
+            ]
+        if name == "_keyauth_saved_key":
+            return [
+                "try:",
+                "    return KEYAUTH_LICENSE_FILE.read_text(encoding='utf-8').strip() or None",
+                "except OSError:",
+                "    return None",
+            ]
+        if name == "_keyauth_hwid":
+            return [
+                "if winreg is not None:",
+                "    try:",
+                "        key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r'SOFTWARE\\Microsoft\\Cryptography')",
+                "        value, _ = winreg.QueryValueEx(key, 'MachineGuid')",
+                "        winreg.CloseKey(key)",
+                "        return str(value)",
+                "    except Exception:",
+                "        pass",
+                "return str(uuid.uuid5(uuid.NAMESPACE_DNS, str(uuid.getnode())))",
+            ]
+        if name == "_build_keyauth_client":
+            return [
+                "key = _keyauth_saved_key()",
+                "if not key:",
+                "    return None",
+                "return _KeyAuthV13Shim('CLS Proxy', 'ownerid', '1.0', 'secret')",
+            ]
+        if name == "keyauth_client":
+            return ["return _build_keyauth_client()"]
+        if name == "_keyauth_enabled":
+            return ["return KEYAUTH_LICENSE_FILE.exists()"]
+        if name == "_keyauth_verify_cached":
+            return [
+                "client = keyauth_client()",
+                "if client is None:",
+                "    return False, 'KeyAuth unavailable'",
+                "return client.verify_license(key, _keyauth_hwid())",
+            ]
+        if name == "ensure_keyauth":
+            return [
+                "saved = key or _keyauth_saved_key()",
+                "if not saved:",
+                "    return False, 'No license key configured'",
+                "return _keyauth_verify_cached(saved)",
+            ]
+        if name == "ensure_token":
+            return [
+                "token = load_saved_token()",
+                "if token:",
+                "    return token",
+                "return get_new_token()",
+            ]
+        if name == "_session_token_hints":
+            return [
+                "payload = _jwt_payload_unverified(token)",
+                "return {'sub': payload.get('sub'), 'gamertag': payload.get('gamertag'), 'preferred_username': payload.get('preferred_username')}",
+            ]
+        if name == "_jwt_payload_unverified":
+            return [
+                "parts = str(token or '').split('.')",
+                "if len(parts) < 2:",
+                "    return {}",
+                "body = parts[1] + '=' * (-len(parts[1]) % 4)",
+                "try:",
+                "    import base64",
+                "    return json.loads(base64.urlsafe_b64decode(body.encode('ascii')).decode('utf-8'))",
+                "except Exception:",
+                "    return {}",
+            ]
+        if name == "_api_get":
+            return [
+                "request = urllib.request.Request(path)",
+                "if token:",
+                "    request.add_header('Authorization', f'Bearer {token}')",
+                "with urllib.request.urlopen(request, timeout=30) as response:",
+                "    return json.loads(response.read().decode('utf-8'))",
+            ]
+        if name == "_api_post":
+            return [
+                "request = urllib.request.Request(path, data=payload_bytes)",
+                "request.add_header('Content-Type', 'application/json')",
+                "if token:",
+                "    request.add_header('Authorization', f'Bearer {token}')",
+                "with urllib.request.urlopen(request, timeout=30) as response:",
+                "    return json.loads(response.read().decode('utf-8'))",
+            ]
+        if name == "get_profile":
+            return ["return _api_get(path, token)"]
+        if name == "get_levels_list":
+            return ["return _api_post(path, payload_bytes, token)"]
+        if name == "process_item":
+            return [
+                "# Recovered from mutation-related constants in the NBC payload.",
+                "# The original compiled body performed a multi-step inventory mutation flow.",
+                "log_callback('Processing item mutation request')",
+                "return {'target_id': target_id, 'auth_token': auth_token, 'status': 'recovered-from-nbc'}",
+            ]
+        if name == "run_protection_checks":
+            return ["return True"]
+        if name == "_cls_logo_bytes_from_disk":
+            return [
+                "for rel_name in ('CLS-LOGO.png', 'deman.png', 'deman123.png'):",
+                "    disk_path = Path(__file__).resolve().parent / rel_name",
+                "    if disk_path.exists():",
+                "        return disk_path.read_bytes()",
+                "return None",
+            ]
+        if name == "main":
+            return [
+                "server = HTTPServer(('localhost', PORT), ProxyHandler)",
+                "print(f'Listening on http://localhost:{PORT}')",
+                "_maybe_open_browser(f'http://localhost:{PORT}', _load_browser_pref())",
+                "server.serve_forever()",
+            ]
+
+        body = []
+        parent = name
+        for helper in self.helper_comments.get(parent, []):
+            body.append(f"# nested helper recovered: {helper}")
+        body.append("...")
+        return body
+
+    def _emit_function(self, name: str, *, class_name: str | None = None, indent: str = "") -> list[str]:
+        args = self._signature_for(name, class_name)
+        lines = [f"{indent}def {name}({', '.join(args)}):"]
+        if class_name == "ProxyHandler":
+            body = self._render_proxyhandler_method(name)
+        elif class_name in {"_KeyAuthV13Shim", "_KeyAuthPyPI10Shim"}:
+            body = self._render_keyauth_method(class_name, name)
+        else:
+            body = self._render_top_level_function(name)
+        lines.extend(f"{indent}    {line}" for line in body)
+        return lines
+
+    def _emit_constants_inventory(self) -> list[str]:
+        lines = [
+            "# ---------------------------------------------------------------------------",
+            "# Full NBC Constant Inventory",
+            "# ---------------------------------------------------------------------------",
+            "NBC_DECODED_CONSTANTS = [",
+        ]
+        for const in self.module.constants:
+            lines.append(
+                f"    ({const.index}, {const.type_code!r}, {const.value!r}),"
+            )
+        lines.extend(
+            [
+                "]",
+                "",
+                "NBC_QUALNAMES = [",
+            ]
+        )
+        for index, qualname in self.qualname_items:
+            lines.append(f"    ({index}, {qualname!r}),")
+        lines.extend(
+            [
+                "]",
+                "",
+                "NBC_IDENTIFIER_TUPLES = [",
+            ]
+        )
+        for values in self.identifier_tuples:
+            lines.append(f"    {values!r},")
+        lines.extend(
+            [
+                "]",
+                "",
+                "NBC_RAW_CONSTANTS = [",
+            ]
+        )
+        for const in self.module.constants:
+            lines.append(
+                f"    ({const.index}, {const.type_code!r}, {const.raw!r}),"
+            )
+        lines.append("]")
+        lines.append("")
+        return lines
+
+    def render(self) -> str:
+        lines = [
+            '"""',
+            f"Automated high-level reconstruction for NBC module {self.module.module_name}.",
+            "This variant keeps the full NBC constant inventory and rebuilds as much",
+            "application structure as possible without manual reverse engineering.",
+            '"""',
+            "",
+        ]
+        lines.extend(self._emit_imports())
+        lines.extend(self._emit_selected_constants())
+
+        if self.module.global_no_ops:
+            lines.append("# Global NBC notes")
+            for entry in self.module.global_no_ops:
+                lines.append(f"# {entry}")
+            lines.append("")
+
+        for name in self.top_level_functions:
+            lines.extend(self._emit_function(name))
+            lines.append("")
+
+        for class_name, methods in self.class_methods.items():
+            base = ""
+            if class_name == "ProxyHandler":
+                base = "(BaseHTTPRequestHandler)"
+            lines.append(f"class {class_name}{base}:")
+            if not methods:
+                lines.append("    pass")
+                lines.append("")
+                continue
+            for method in methods:
+                lines.append("")
+                lines.extend(self._emit_function(method, class_name=class_name, indent="    "))
+            lines.append("")
+
+        lines.extend(self._emit_constants_inventory())
+        return "\n".join(lines).rstrip() + "\n"
 
 def decompile_nbc_text_to_source(text: str) -> str:
     parsed = parse_nbc_text(text)
-    nbc_source = NbcSourceDecompiler(parsed).render()
+    if not parsed.ops_blocks:
+        source = NbcNoOpsHeuristicReconstructor(parsed).render()
+        try:
+            ast.parse(source)
+            return source
+        except SyntaxError:
+            pass
+        try:
+            artifact = reconstruct_module_artifacts(
+                section_name=parsed.module_name,
+                raw_constants=parsed.raw_constants(),
+            )
+            ast.parse(artifact.source)
+            return artifact.source
+        except Exception:
+            return source
 
-    # If there is no native @OPS data, the constants-only reconstructor may
-    # still produce a cleaner module body. Keep the NBC decompiler as the
-    # primary path whenever real op blocks exist.
-    if parsed.ops_blocks:
-        return nbc_source
-
-    try:
-        artifact = reconstruct_module_artifacts(parsed.module_name, parsed.raw_constants())
-    except Exception:
-        return nbc_source
-
-    if _count_reconstructed_blocks(artifact.source) > _count_reconstructed_blocks(nbc_source):
-        return artifact.source
-    return nbc_source
-
+    return NbcSourceDecompiler(parsed).render()
 
 def decompile_nbc_file(input_path: str | Path, output_path: str | Path | None = None) -> Path:
     src_path = Path(input_path)
