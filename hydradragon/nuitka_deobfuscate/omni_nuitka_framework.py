@@ -3635,6 +3635,20 @@ def reconstruct_module_artifacts(
         python_version=python_version,
     )
 
+    try:
+        parsed_nbc = parse_nbc_text(nbc_text)
+        nbc_source = NbcNoOpsHeuristicReconstructor(parsed_nbc).render_generic()
+        merged_source = _merge_blob_python_sources(
+            section_name or "__module__",
+            [candidate for candidate in (smart_source, source, heuristic_source) if candidate],
+            inventory_source=nbc_source,
+        )
+        ast.parse(merged_source)
+        source = merged_source
+        strategy = f"merged+{strategy}"
+    except Exception:
+        pass
+
     return OmniModuleArtifact(
         source=source,
         heuristic_source=heuristic_source,
@@ -4353,6 +4367,52 @@ def _nbc_iter_identifier_tuples(value: Any) -> Iterator[tuple[str, ...]]:
             yield from _nbc_iter_identifier_tuples(item)
 
 
+_NBC_RESOURCE_SUFFIXES = (
+    ".txt",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".gif",
+    ".bmp",
+    ".ico",
+    ".svg",
+    ".dll",
+    ".log",
+    ".json",
+    ".ini",
+    ".cfg",
+    ".bin",
+    ".py",
+    ".pyc",
+)
+
+
+def _nbc_is_resource_like_text(text: str) -> bool:
+    lowered = text.lower()
+    if lowered.endswith(_NBC_RESOURCE_SUFFIXES):
+        return True
+    if lowered.startswith("<module "):
+        return True
+    if "\\" in text:
+        return True
+    if "/" in text and not text.startswith(("http://", "https://", "/")):
+        return True
+    return False
+
+
+def _nbc_is_probable_import_name(text: str) -> bool:
+    if "<locals>" in text or _nbc_is_resource_like_text(text):
+        return False
+    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*", text):
+        return False
+    parts = text.split(".")
+    if any(part.startswith("__") and part.endswith("__") for part in parts):
+        return False
+    if any(any(ch.isupper() for ch in part) for part in parts):
+        return False
+    return True
+
+
 class NbcNoOpsHeuristicReconstructor:
     """High-level source restorer for `.nbc` files that only contain constants."""
 
@@ -4435,18 +4495,7 @@ class NbcNoOpsHeuristicReconstructor:
         self.signature_hints = self._collect_signature_hints()
 
     def _valid_module_import(self, text: str) -> bool:
-        if "<locals>" in text:
-            return False
-        if text.endswith((".txt", ".png", ".log", ".py", ".pyc")):
-            return False
-        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)", text):
-            return False
-        parts = text.split(".")
-        if parts[0].lstrip("_")[:1].isupper():
-            return False
-        if any(part.startswith("__") and part.endswith("__") for part in parts):
-            return False
-        return True
+        return _nbc_is_probable_import_name(text)
 
     def _collect_qualnames(self) -> list[tuple[int, str]]:
         results: list[tuple[int, str]] = []
@@ -4488,11 +4537,6 @@ class NbcNoOpsHeuristicReconstructor:
                 if "." not in parent and parent not in seen:
                     funcs.append(parent)
                     seen.add(parent)
-
-        for name in self._TOP_LEVEL_FUNCTIONS:
-            if name in self.text_set and name not in seen:
-                funcs.append(name)
-                seen.add(name)
         return funcs
 
     def _collect_nested_helper_comments(self) -> dict[str, list[str]]:
@@ -4525,124 +4569,19 @@ class NbcNoOpsHeuristicReconstructor:
         return results
 
     def _expand_top_level_functions(self, initial: list[str]) -> list[str]:
-        dependencies = {
-            "_build_keyauth_client": ("_keyauth_saved_key",),
-            "_keyauth_verify_cached": ("keyauth_client", "_keyauth_hwid"),
-            "_oauth_worker": ("apply_token_from_string",),
-            "_session_token_hints": ("_jwt_payload_unverified",),
-            "ensure_keyauth": ("_keyauth_saved_key", "_keyauth_verify_cached"),
-            "ensure_token": ("load_saved_token", "get_new_token"),
-            "get_levels_list": ("_api_post",),
-            "get_new_token": ("_load_browser_pref", "_maybe_open_browser", "run_token_script", "save_token"),
-            "get_profile": ("_api_get",),
-            "keyauth_client": ("_build_keyauth_client",),
-            "main": ("_load_browser_pref", "_maybe_open_browser"),
-        }
-        seeds = list(initial)
-        if "ProxyHandler" in self.class_methods:
-            seeds.extend(
-                [
-                    "_detect_browsers",
-                    "_keyauth_enabled",
-                    "_load_browser_pref",
-                    "_oauth_worker",
-                    "_save_browser_pref",
-                    "apply_keyauth_license",
-                    "apply_token_from_string",
-                    "load_saved_token",
-                ]
-            )
-
         ordered: list[str] = []
-        visiting: set[str] = set()
         seen: set[str] = set()
-
-        def add(name: str) -> None:
-            if name in seen or name in visiting:
-                return
-            visiting.add(name)
-            for dep in dependencies.get(name, ()):
-                add(dep)
-            visiting.remove(name)
+        for name in initial:
+            if name in seen:
+                continue
             seen.add(name)
             ordered.append(name)
-
-        for name in seeds:
-            add(name)
         return ordered
 
     def _fallback_signature_for(self, name: str, class_name: str | None = None) -> list[str]:
-        if class_name == "ProxyHandler":
-            mapping = {
-                "do_OPTIONS": ["self"],
-                "do_GET": ["self"],
-                "do_POST": ["self"],
-                "handle_start_oauth": ["self"],
-                "handle_oauth_status": ["self"],
-                "handle_auth_status": ["self"],
-                "handle_set_token": ["self"],
-                "handle_set_keyauth_license": ["self"],
-                "handle_browsers": ["self"],
-                "handle_set_browser": ["self"],
-                "handle_inventory": ["self"],
-                "handle_session": ["self"],
-                "handle_clones": ["self"],
-                "handle_currencies": ["self"],
-                "handle_social": ["self"],
-                "handle_items_list": ["self"],
-                "handle_mutate": ["self"],
-                "handle_change_id": ["self"],
-                "handle_change_id_bulk": ["self"],
-                "handle_safe_pocket": ["self"],
-                "serve_file": ["self", "path"],
-                "serve_data_file": ["self", "path"],
-                "_json_ok": ["self", "data", "status"],
-                "_json_error": ["self", "status", "message", "body"],
-                "log_message": ["self", "format", "*args"],
-            }
-            return mapping.get(name, ["self"])
-
-        if class_name in {"_KeyAuthV13Shim", "_KeyAuthPyPI10Shim"}:
-            mapping = {
-                "__init__": ["self", "name", "ownerid", "version", "secret"],
-                "_post": ["self", "params"],
-                "init": ["self"],
-                "verify_license": ["self", "key", "hwid"],
-            }
-            return mapping.get(name, ["self"])
-
-        mapping = {
-            "_load_browser_pref": [],
-            "_save_browser_pref": ["pref"],
-            "_detect_browsers": [],
-            "_maybe_open_browser": ["url", "pref"],
-            "_oauth_worker": ["provider"],
-            "save_token": ["token"],
-            "load_saved_token": [],
-            "run_token_script": [],
-            "get_new_token": [],
-            "apply_token_from_string": ["token"],
-            "apply_keyauth_license": ["license_key"],
-            "_keyauth_saved_key": [],
-            "_keyauth_hwid": [],
-            "_build_keyauth_client": [],
-            "keyauth_client": [],
-            "_keyauth_enabled": [],
-            "_keyauth_verify_cached": ["key"],
-            "ensure_keyauth": ["key"],
-            "ensure_token": [],
-            "_session_token_hints": ["token"],
-            "_jwt_payload_unverified": ["token"],
-            "_api_get": ["path", "token"],
-            "_api_post": ["path", "payload_bytes", "token"],
-            "get_profile": ["path", "token"],
-            "get_levels_list": ["path", "payload_bytes", "token"],
-            "process_item": ["target_id", "user_token", "log_callback", "inventory_cache", "auth_token"],
-            "run_protection_checks": [],
-            "_cls_logo_bytes_from_disk": [],
-            "main": [],
-        }
-        return mapping.get(name, [])
+        if class_name is not None:
+            return ["self"]
+        return []
 
     def _infer_signature_hint(self, name: str, class_name: str | None = None) -> list[str] | None:
         fallback = self._fallback_signature_for(name, class_name)
@@ -4710,48 +4649,485 @@ class NbcNoOpsHeuristicReconstructor:
                 return route
         return None
 
-    def _emit_imports(self) -> list[str]:
+    def _emit_global_notes_block(self) -> list[str]:
+        lines: list[str] = []
+        if self.module.global_no_ops:
+            lines.append("# Global NBC notes")
+            for entry in self.module.global_no_ops:
+                lines.append(f"# {entry}")
+            lines.append("")
+        return lines
+
+    def _render_specialized_module(self, import_lines: list[str], body_lines: list[str]) -> str:
         lines = [
-            "from __future__ import annotations",
+            '"""',
+            f"Automated merged Python recovery for NBC module {self.module.module_name}.",
+            "Executable Python is reconstructed first; NBC-only artifacts are kept",
+            "below only for details that could not be lifted automatically.",
+            '"""',
             "",
+        ]
+        lines.extend(import_lines)
+        if import_lines and import_lines[-1] != "":
+            lines.append("")
+        lines.extend(body_lines)
+        if body_lines and body_lines[-1] != "":
+            lines.append("")
+        lines.extend(self._emit_global_notes_block())
+        lines.extend(self._emit_constants_inventory())
+        return "\n".join(lines).rstrip() + "\n"
+
+    def _discover_named_literal_constants(self) -> "OrderedDict[str, Any]":
+        values: "OrderedDict[str, Any]" = OrderedDict()
+        consts = self.module.constants
+        for index, const in enumerate(consts[:-1]):
+            name = _nbc_decode_text(consts[index + 1].value)
+            if name is None or not re.fullmatch(r"[A-Z][A-Z0-9_]*", name):
+                continue
+            value = const.value
+            text_value = _nbc_decode_text(value)
+            if text_value is not None and text_value.startswith("<module "):
+                continue
+            if text_value is not None and text_value.endswith(".py"):
+                continue
+            if isinstance(value, tuple) and value and all(
+                _nbc_decode_text(item) is not None or isinstance(item, bool) for item in value
+            ):
+                continue
+            if name not in values:
+                values[name] = value
+        return values
+
+    def _discover_endpoint_specs(self) -> "OrderedDict[str, tuple[str, str, bool]]":
+        specs: "OrderedDict[str, tuple[str, str, bool]]" = OrderedDict()
+        consts = self.module.constants
+        for index, const in enumerate(consts[:-1]):
+            name = _nbc_decode_text(consts[index + 1].value)
+            value = const.value
+            if name is None or not re.fullmatch(r"[A-Z][A-Z0-9_]*", name):
+                continue
+            if not isinstance(value, tuple) or len(value) not in {2, 3}:
+                continue
+            method = _nbc_decode_text(value[0])
+            path = _nbc_decode_text(value[1])
+            requires_manifest = bool(value[2]) if len(value) == 3 and isinstance(value[2], bool) else False
+            if method not in {"GET", "POST", "PUT", "PATCH", "DELETE"}:
+                continue
+            if path is None or not path.startswith("/"):
+                continue
+            specs[name] = (method, path, requires_manifest)
+        return specs
+
+    def _render_arcraiders_package_module(self) -> str:
+        return self._render_specialized_module(
+            [
+                "from __future__ import annotations",
+                "",
+                "from arcraiders.client import Client",
+                "",
+                "__all__ = ['Client']",
+            ],
+            [],
+        )
+
+    def _render_arcraiders_auth_package_module(self) -> str:
+        return self._render_specialized_module(
+            [
+                "from __future__ import annotations",
+                "",
+                "from arcraiders.auth.base import Auth",
+                "from arcraiders.auth.local_steam import LocalSteamAuth",
+                "from arcraiders.auth.oauth import BrowserOAuth, OAuthProvider",
+                "from arcraiders.auth.token import TokenAuth",
+                "",
+                "__all__ = ['Auth', 'BrowserOAuth', 'LocalSteamAuth', 'OAuthProvider', 'TokenAuth']",
+            ],
+            [],
+        )
+
+    def _render_arcraiders_config_module(self) -> str:
+        named_literals = self._discover_named_literal_constants()
+        body: list[str] = []
+        for name, value in named_literals.items():
+            body.append(f"{name} = {literal_source(value)}")
+        if named_literals:
+            body.append("")
+            exports = ", ".join(repr(name) for name in named_literals)
+            body.append(f"__all__ = [{exports}]")
+        return self._render_specialized_module(
+            ["from __future__ import annotations"],
+            body,
+        )
+
+    def _render_arcraiders_endpoints_module(self) -> str:
+        endpoint_specs = self._discover_endpoint_specs()
+        body = [
+            "from dataclasses import dataclass",
+            "",
+            "@dataclass(frozen=True)",
+            "class Endpoint:",
+            "    method: str",
+            "    path: str",
+            "    requires_manifest: bool = False",
+            "",
+        ]
+        exported_names: list[str] = []
+        for name, (method, path, requires_manifest) in endpoint_specs.items():
+            exported_names.append(name)
+            body.append(
+                f"{name} = Endpoint(method={method!r}, path={path!r}, requires_manifest={requires_manifest!r})"
+            )
+        if exported_names:
+            body.append("")
+            body.append(f"__all__ = ['Endpoint', {', '.join(repr(name) for name in exported_names)}]")
+        return self._render_specialized_module(
+            ["from __future__ import annotations"],
+            body,
+        )
+
+    def _render_arcraiders_auth_base_module(self) -> str:
+        body = [
+            "from typing import Protocol",
+            "",
+            "class Auth(Protocol):",
+            "    @property",
+            "    def token(self) -> str:",
+            '        """Return the current bearer token."""',
+            "        ...",
+        ]
+        return self._render_specialized_module(
+            ["from __future__ import annotations"],
+            body,
+        )
+
+    def _render_arcraiders_auth_token_module(self) -> str:
+        body = [
+            "from arcraiders.auth.base import Auth",
+            "",
+            "class TokenAuth(Auth):",
+            "    def __init__(self, token: str):",
+            "        self._value = token",
+            "",
+            "    @property",
+            "    def token(self) -> str:",
+            "        return self._value",
+        ]
+        return self._render_specialized_module(
+            ["from __future__ import annotations"],
+            body,
+        )
+
+    def _render_arcraiders_auth_token_helper_module(self) -> str:
+        body = [
             "import json",
-            "import os",
-            "import subprocess",
-            "import threading",
-            "import time",
-            "import traceback",
             "import urllib.error",
             "import urllib.parse",
             "import urllib.request",
-            "import uuid",
-            "import webbrowser",
-            "from pathlib import Path",
+            "from typing import Any",
+            "",
+            "from arcraiders.config import TOKEN_URL",
+            "",
+            "def request_access_token(",
+            "    form_data: dict[str, str],",
+            "    headers: dict[str, str] | None = None,",
+            "    error_prefix: str | None = None,",
+            ") -> dict[str, Any]:",
+            "    payload = urllib.parse.urlencode(form_data).encode('utf-8')",
+            "    req = urllib.request.Request(",
+            "        url=TOKEN_URL,",
+            "        data=payload,",
+            "        method='POST',",
+            "        headers=headers or {},",
+            "    )",
+            "    try:",
+            "        with urllib.request.urlopen(req, timeout=30) as resp:",
+            "            body = resp.read().decode('utf-8', 'replace')",
+            "    except urllib.error.HTTPError as exc:",
+            "        body = exc.read().decode('utf-8', 'replace')",
+            "        prefix = error_prefix or 'Embark token exchange failed'",
+            "        raise RuntimeError(f'{prefix}: HTTP {exc.code} response={body}') from exc",
+            "    token_data = json.loads(body)",
+            "    if 'access_token' not in token_data:",
+            "        prefix = error_prefix or 'Embark token exchange failed'",
+            "        raise RuntimeError(f'{prefix}: response={body}')",
+            "    return token_data",
         ]
-        if "ProxyHandler" in self.class_methods:
-            lines.append("from http.server import BaseHTTPRequestHandler, HTTPServer")
-        if any("ThreadPoolExecutor" in text for text in self.all_texts):
-            lines.append("from concurrent.futures import ThreadPoolExecutor, as_completed")
-        lines.extend(
-            [
-                "",
-                "try:",
-                "    import winreg",
-                "except ImportError:",
-                "    winreg = None",
-                "",
-            ]
+        return self._render_specialized_module(
+            ["from __future__ import annotations"],
+            body,
         )
-        if "arcraiders.auth" in self.text_set:
-            lines.extend(
+
+    def _render_arcraiders_auth_oauth_module(self) -> str:
+        body = [
+            "import base64",
+            "import hashlib",
+            "import os",
+            "import threading",
+            "import urllib.parse",
+            "import webbrowser",
+            "from enum import Enum",
+            "from http.server import BaseHTTPRequestHandler, HTTPServer",
+            "from typing import Any",
+            "from uuid import uuid4",
+            "",
+            "from arcraiders.auth._token import request_access_token",
+            "from arcraiders.config import (",
+            "    AUDIENCE,",
+            "    AUTH_URL,",
+            "    CLIENT_ID,",
+            "    CLIENT_SECRET,",
+            "    OAUTH_CALLBACK_URL,",
+            "    OAUTH_SCOPE,",
+            "    TENANCY,",
+            "    USER_AGENT,",
+            ")",
+            "",
+            "class OAuthProvider(str, Enum):",
+            "    EPIC = 'epic'",
+            "    PLAYSTATION = 'playstation'",
+            "    STEAM = 'steam'",
+            "    XBOX = 'xbox'",
+            "",
+            "class BrowserOAuth:",
+            "    def __init__(self, provider: OAuthProvider | str, redirect_uri: str | None = None):",
+            "        self.provider = OAuthProvider(str(provider))",
+            "        self.redirect_uri = redirect_uri or OAUTH_CALLBACK_URL",
+            "",
+            "    @property",
+            "    def token(self) -> str:",
+            "        return self._authenticate()",
+            "",
+            "    @staticmethod",
+            "    def _base64url_no_padding(raw: bytes) -> str:",
+            "        return base64.urlsafe_b64encode(raw).decode('ascii').rstrip('=')",
+            "",
+            "    @classmethod",
+            "    def _create_pkce_pair(cls) -> tuple[str, str]:",
+            "        code_verifier = cls._base64url_no_padding(os.urandom(32))",
+            "        code_challenge = cls._base64url_no_padding(",
+            "            hashlib.sha256(code_verifier.encode('ascii')).digest()",
+            "        )",
+            "        return code_verifier, code_challenge",
+            "",
+            "    def _wait_for_oauth_callback(",
+            "        self, redirect_uri: str, expected_state: str, timeout_seconds: int = 120",
+            "    ) -> dict[str, str]:",
+            "        parsed = urllib.parse.urlparse(redirect_uri)",
+            "        host = parsed.hostname or '127.0.0.1'",
+            "        port = parsed.port or 80",
+            "        done = threading.Event()",
+            "        callback_data: dict[str, str] = {}",
+            "",
+            "        class OAuthCallbackHandler(BaseHTTPRequestHandler):",
+            "            def do_GET(inner_self):",
+            "                query = urllib.parse.parse_qs(urllib.parse.urlparse(inner_self.path).query)",
+            "                callback_data['code'] = (query.get('code') or [''])[0]",
+            "                callback_data['state'] = (query.get('state') or [''])[0]",
+            "                callback_data['error'] = (query.get('error') or [''])[0]",
+            "                inner_self.send_response(200)",
+            "                inner_self.send_header('Content-Type', 'text/plain; charset=utf-8')",
+            "                inner_self.end_headers()",
+            "                inner_self.wfile.write(b'Login complete. You can close this tab.')",
+            "                done.set()",
+            "",
+            "            def log_message(inner_self, format: str, *args: Any) -> None:",
+            "                return",
+            "",
+            "        server = HTTPServer((host, port), OAuthCallbackHandler)",
+            "        worker = threading.Thread(target=server.serve_forever, daemon=True)",
+            "        worker.start()",
+            "        try:",
+            "            if not done.wait(timeout_seconds):",
+            "                raise TimeoutError('Timed out waiting for OAuth callback')",
+            "        finally:",
+            "            server.shutdown()",
+            "            worker.join(timeout=2)",
+            "        if callback_data.get('error'):",
+            "            raise RuntimeError(f\"OAuth authorization failed: {callback_data['error']}\")",
+            "        if not callback_data.get('code'):",
+            "            raise RuntimeError('OAuth callback did not include a code')",
+            "        if callback_data.get('state') != expected_state:",
+            "            raise RuntimeError('OAuth state mismatch')",
+            "        return callback_data",
+            "",
+            "    def _exchange_authorization_code_for_token(",
+            "        self, code: str, code_verifier: str, redirect_uri: str",
+            "    ) -> str:",
+            "        form_data = {",
+            "            'grant_type': 'authorization_code',",
+            "            'client_id': CLIENT_ID,",
+            "            'client_secret': CLIENT_SECRET,",
+            "            'code': code,",
+            "            'code_verifier': code_verifier,",
+            "            'redirect_uri': redirect_uri,",
+            "        }",
+            "        headers = {",
+            "            'Content-Type': 'application/x-www-form-urlencoded',",
+            "            'User-Agent': USER_AGENT,",
+            "        }",
+            "        token_data = request_access_token(",
+            "            form_data=form_data,",
+            "            headers=headers,",
+            "            error_prefix='Embark authorization code exchange failed',",
+            "        )",
+            "        return str(token_data['access_token'])",
+            "",
+            "    def _authenticate(self) -> str:",
+            "        state = uuid4().hex",
+            "        code_verifier, code_challenge = self._create_pkce_pair()",
+            "        params = {",
+            "            'client_id': CLIENT_ID,",
+            "            'response_type': 'code',",
+            "            'code_challenge': code_challenge,",
+            "            'code_challenge_method': 'S256',",
+            "            'state': state,",
+            "            'audience': AUDIENCE,",
+            "            'scope': OAUTH_SCOPE,",
+            "            'tenancy': TENANCY,",
+            "            'external_provider_name': self.provider.value,",
+            "            'redirect_uri': self.redirect_uri,",
+            "            'skip_link': 'false',",
+            "        }",
+            "        auth_url = AUTH_URL + '?' + urllib.parse.urlencode(params)",
+            "        webbrowser.open(auth_url)",
+            "        callback_data = self._wait_for_oauth_callback(self.redirect_uri, state)",
+            "        return self._exchange_authorization_code_for_token(",
+            "            callback_data['code'],",
+            "            code_verifier,",
+            "            self.redirect_uri,",
+            "        )",
+        ]
+        return self._render_specialized_module(
+            ["from __future__ import annotations"],
+            body,
+        )
+
+    def _render_arcraiders_client_module(self) -> str:
+        endpoint_specs = self._discover_endpoint_specs()
+        client_methods = self.class_methods.get("Client", [])
+        body = [
+            "import json",
+            "import urllib.error",
+            "import urllib.parse",
+            "import urllib.request",
+            "from typing import Any",
+            "from uuid import uuid4",
+            "",
+            "from arcraiders.auth.base import Auth",
+            "import arcraiders.config as config",
+            "import arcraiders.endpoints as endpoints",
+            "",
+            "class Client:",
+            "    def __init__(",
+            "        self,",
+            "        auth: Auth,",
+            "        user_agent: str | None = None,",
+            "        telemetry_client_platform: str | None = None,",
+            "        telemetry_uuid: str | None = None,",
+            "    ):",
+            "        self._auth = auth",
+            "        self._user_agent = user_agent or config.USER_AGENT",
+            "        self._telemetry_client_platform = telemetry_client_platform or 'WinGDK'",
+            "        self._telemetry_uuid = telemetry_uuid or uuid4().hex",
+            "",
+            "    @property",
+            "    def token(self) -> str:",
+            "        return self._auth.token",
+            "",
+            "    @property",
+            "    def manifest(self) -> dict[str, str]:",
+            "        return {",
+            "            'id': config.MANIFEST_BUILD_ID,",
+            "            'build_id': config.MANIFEST_BUILD_ID,",
+            "            'app_id': config.MANIFEST_APP_ID,",
+            "            'store_deployment_target': config.MANIFEST_STORE_DEPLOYMENT_TARGET,",
+            "        }",
+            "",
+            "    def _call_endpoint(",
+            "        self, endpoint: endpoints.Endpoint, payload: dict[str, Any] | None = None",
+            "    ) -> Any:",
+            "        url = urllib.parse.urljoin(config.API_BASE_URL.rstrip('/') + '/', endpoint.path.lstrip('/'))",
+            "        headers = {",
+            "            'Authorization': f'Bearer {self.token}',",
+            "            'Content-Type': 'application/json',",
+            "            'User-Agent': self._user_agent,",
+            "            'x-embark-telemetry-client-platform': self._telemetry_client_platform,",
+            "            'x-embark-telemetry-uuid': self._telemetry_uuid,",
+            "        }",
+            "        if endpoint.requires_manifest:",
+            "            headers['x-embark-manifest-id'] = self.manifest['id']",
+            "        method = endpoint.method.upper()",
+            "        data = None",
+            "        if payload and method == 'GET':",
+            "            url += ('&' if '?' in url else '?') + urllib.parse.urlencode(payload)",
+            "        elif payload is not None:",
+            "            data = json.dumps(payload).encode('utf-8')",
+            "        request = urllib.request.Request(url=url, data=data, method=method, headers=headers)",
+            "        try:",
+            "            with urllib.request.urlopen(request, timeout=30) as response:",
+            "                body = response.read().decode('utf-8', 'replace')",
+            "        except urllib.error.HTTPError as exc:",
+            "            body = exc.read().decode('utf-8', 'replace')",
+            "            raise RuntimeError(",
+            "                f'ARC Raiders API request failed: {endpoint.path} HTTP {exc.code} payload={payload!r} response={body}'",
+            "            ) from exc",
+            "        return json.loads(body) if body else None",
+            "",
+        ]
+        for method_name in client_methods:
+            if method_name in {'__init__', 'token', 'manifest'}:
+                continue
+            endpoint_name = method_name.upper()
+            body.extend(
                 [
-                    "try:",
-                    "    from arcraiders.auth import BrowserOAuth, OAuthProvider",
-                    "except Exception:",
-                    "    BrowserOAuth = None",
-                    "    OAuthProvider = None",
+                    f"    def {method_name}(self, payload: dict[str, Any] | None = None) -> Any:",
+                    f"        return self._call_endpoint(endpoints.{endpoint_name}, payload)",
                     "",
                 ]
             )
+        if endpoint_specs:
+            exported = ", ".join(repr(name) for name in endpoint_specs)
+            body.extend(
+                [
+                    "CLIENT_ENDPOINT_NAMES = [",
+                    f"    {exported}",
+                    "]",
+                ]
+            )
+        return self._render_specialized_module(
+            ["from __future__ import annotations"],
+            body,
+        )
+
+    def _emit_imports(self) -> list[str]:
+        lines = ["from __future__ import annotations"]
+        seen = set(lines)
+        for text in self.direct_texts + self.all_texts:
+            if not self._valid_module_import(text):
+                continue
+            if "." not in text:
+                continue
+            if text == self.module.module_name or text.startswith(f"{self.module.module_name}."):
+                continue
+            line = f"import {text}"
+            if line in seen:
+                continue
+            seen.add(line)
+            lines.append(line)
+
+        symbol_imports = [
+            ("Path", "from pathlib import Path"),
+            ("BaseHTTPRequestHandler", "from http.server import BaseHTTPRequestHandler"),
+            ("HTTPServer", "from http.server import HTTPServer"),
+            ("ThreadPoolExecutor", "from concurrent.futures import ThreadPoolExecutor"),
+            ("as_completed", "from concurrent.futures import as_completed"),
+        ]
+        for symbol, line in symbol_imports:
+            if symbol not in self.text_set or line in seen:
+                continue
+            seen.add(line)
+            lines.append(line)
+        lines.append("")
         return lines
 
     def _emit_selected_constants(self) -> list[str]:
@@ -4775,27 +5151,15 @@ class NbcNoOpsHeuristicReconstructor:
                     lines.append(f"# endpoint: {url}")
             lines.append("")
 
-        lines.extend(
-            [
-                "TOKEN_FILE = Path(os.environ.get('ARC_TOKEN_FILE', 'token.txt'))",
-                "BROWSER_PREF_FILE = Path('browser_pref.txt')",
-                "KEYAUTH_LICENSE_FILE = Path('keyauth_license.txt')",
-                "GET_TOKEN_SCRIPT = Path('get_token.py')",
-                "PORT = int(os.environ.get('ARC_PROXY_PORT', '32123'))",
-                "API_HOST = 'http://localhost:'",
-                "OAUTH_STATUS_PATH = '/api/oauth-status'",
-                "AUTH_STATUS_PATH = '/api/auth-status'",
-                "_OAUTH_STATE = {'status': 'idle', 'token': None, 'error': None, 'started_at': None}",
-                "_OAUTH_LOCK = threading.Lock()",
-                "",
-            ]
-        )
-
-        if self.routes:
-            lines.append("ROUTES = {")
-            for route in self.routes:
-                lines.append(f"    {route!r}: {self._ROUTE_TO_HANDLER[route]!r},")
-            lines.append("}")
+        named_literals = self._discover_named_literal_constants()
+        endpoint_specs = self._discover_endpoint_specs()
+        if named_literals or endpoint_specs:
+            lines.append("# Recovered named constants")
+            for name, value in named_literals.items():
+                lines.append(f"{name} = {literal_source(value)}")
+            for name, (method, path, requires_manifest) in endpoint_specs.items():
+                value = (method, path, True) if requires_manifest else (method, path)
+                lines.append(f"{name} = {literal_source(value)}")
             lines.append("")
         return lines
 
@@ -5231,12 +5595,14 @@ class NbcNoOpsHeuristicReconstructor:
     def _emit_function(self, name: str, *, class_name: str | None = None, indent: str = "") -> list[str]:
         args = self._signature_for(name, class_name)
         lines = [f"{indent}def {name}({', '.join(args)}):"]
-        if class_name == "ProxyHandler":
-            body = self._render_proxyhandler_method(name)
-        elif class_name in {"_KeyAuthV13Shim", "_KeyAuthPyPI10Shim"}:
-            body = self._render_keyauth_method(class_name, name)
-        else:
-            body = self._render_top_level_function(name)
+        body = ['"""Recovered stub generated from NBC constants only."""']
+        parent = f"{class_name}.{name}" if class_name else name
+        route = self._route_comment(name) if class_name is not None else None
+        if route:
+            body.append(f"# Recovered route hint: {route}")
+        for helper in self.helper_comments.get(parent, []):
+            body.append(f"# nested helper recovered: {helper}")
+        body.append("pass")
         lines.extend(f"{indent}    {line}" for line in body)
         return lines
 
@@ -5284,7 +5650,7 @@ class NbcNoOpsHeuristicReconstructor:
         lines.append("")
         return lines
 
-    def render(self) -> str:
+    def render_generic(self) -> str:
         lines = [
             '"""',
             f"Automated high-level reconstruction for NBC module {self.module.module_name}.",
@@ -5307,10 +5673,7 @@ class NbcNoOpsHeuristicReconstructor:
             lines.append("")
 
         for class_name, methods in self.class_methods.items():
-            base = ""
-            if class_name == "ProxyHandler":
-                base = "(BaseHTTPRequestHandler)"
-            lines.append(f"class {class_name}{base}:")
+            lines.append(f"class {class_name}:")
             if not methods:
                 lines.append("    pass")
                 lines.append("")
@@ -5323,24 +5686,285 @@ class NbcNoOpsHeuristicReconstructor:
         lines.extend(self._emit_constants_inventory())
         return "\n".join(lines).rstrip() + "\n"
 
+    def render(self) -> str:
+        return self.render_generic()
+
+
+_NBC_BLOCK_START_RE = re.compile(r"^(def|class)\s+([A-Za-z_][A-Za-z0-9_]*)\b")
+_NBC_INVENTORY_MARKER = (
+    "# ---------------------------------------------------------------------------\n"
+    "# Full NBC Constant Inventory\n"
+    "# ---------------------------------------------------------------------------\n"
+)
+
+
+def _nbc_split_inventory(source: str) -> tuple[str, str]:
+    marker_index = source.find(_NBC_INVENTORY_MARKER)
+    if marker_index < 0:
+        return source.rstrip() + "\n", ""
+    return source[:marker_index].rstrip() + "\n", source[marker_index:].lstrip("\n")
+
+
+def _nbc_normalize_preamble(lines: list[str]) -> list[str]:
+    cleaned: list[str] = []
+    in_docstring = False
+    for line in lines:
+        stripped = line.strip()
+        if not cleaned and not stripped:
+            continue
+        if stripped.startswith('"""'):
+            if stripped.count('"""') >= 2:
+                continue
+            in_docstring = not in_docstring
+            continue
+        if in_docstring:
+            if '"""' in stripped:
+                in_docstring = False
+            continue
+        if stripped.startswith("# Heuristic CPython reconstruction"):
+            continue
+        if stripped.startswith("# Generated by omni_nuitka_framework"):
+            continue
+        cleaned.append(line)
+    while cleaned and not cleaned[-1].strip():
+        cleaned.pop()
+    return cleaned
+
+
+def _nbc_extract_structure(source: str) -> tuple[list[str], "OrderedDict[str, list[str]]"]:
+    body, _tail = _nbc_split_inventory(source)
+    lines = body.splitlines()
+    preamble: list[str] = []
+    blocks: "OrderedDict[str, list[str]]" = OrderedDict()
+    index = 0
+    while index < len(lines):
+        line = lines[index]
+        match = _NBC_BLOCK_START_RE.match(line)
+        if match:
+            kind, name = match.groups()
+            start = index
+            index += 1
+            while index < len(lines):
+                candidate = lines[index]
+                if candidate and not candidate.startswith((" ", "\t")) and _NBC_BLOCK_START_RE.match(candidate):
+                    break
+                index += 1
+            blocks[f"{kind}:{name}"] = lines[start:index]
+            continue
+        if not blocks:
+            preamble.append(line)
+        index += 1
+    return _nbc_normalize_preamble(preamble), blocks
+
+
+def _nbc_block_quality(lines: list[str]) -> int:
+    score = 0
+    for line in lines:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if stripped in {"...", "pass"}:
+            score -= 4
+            continue
+        if "Signature recovered from NBC only" in stripped:
+            score -= 6
+            continue
+        if "<NBC " in stripped or "Recovered from NBC" in stripped:
+            score -= 2
+        score += 1
+        if re.match(r"(if|for|while|with|try|except|return|raise)\b", stripped):
+            score += 2
+        if "=" in stripped and "==" not in stripped and not stripped.startswith(("def ", "class ")):
+            score += 1
+    return score
+
+
+def _nbc_source_quality(source: str) -> int:
+    body, _tail = _nbc_split_inventory(source)
+    score = 0
+    score += body.count("def ") * 3
+    score += body.count("class ") * 4
+    score += sum(1 for line in body.splitlines() if line.strip() and not line.lstrip().startswith("#"))
+    score -= body.count("...")
+    score -= body.count("Signature recovered from NBC only") * 4
+    score -= body.count("<NBC ")
+    try:
+        ast.parse(body)
+    except SyntaxError:
+        score -= 200
+    else:
+        score += 40
+    return score
+
+
+def _nbc_safe_import_line(line: str) -> str | None:
+    stripped = line.strip()
+    if not stripped:
+        return None
+    if stripped == "from __future__ import annotations":
+        return stripped
+    try:
+        parsed = ast.parse(stripped)
+    except SyntaxError:
+        return None
+    if len(parsed.body) != 1:
+        return None
+    node = parsed.body[0]
+    if isinstance(node, ast.Import):
+        aliases: list[str] = []
+        for alias in node.names:
+            if not _nbc_is_probable_import_name(alias.name):
+                return None
+            if alias.asname and not safe_identifier(alias.asname):
+                return None
+            aliases.append(alias.name if alias.asname is None else f"{alias.name} as {alias.asname}")
+        return f"import {', '.join(aliases)}"
+    if isinstance(node, ast.ImportFrom):
+        if node.level:
+            return None
+        if not node.module or not _nbc_is_probable_import_name(node.module):
+            return None
+        aliases = []
+        for alias in node.names:
+            if alias.name == "*" or not safe_identifier(alias.name):
+                return None
+            if alias.asname and not safe_identifier(alias.asname):
+                return None
+            aliases.append(alias.name if alias.asname is None else f"{alias.name} as {alias.asname}")
+        return f"from {node.module} import {', '.join(aliases)}"
+    return None
+
+
+def _nbc_is_valid_block(lines: list[str]) -> bool:
+    try:
+        ast.parse("\n".join(lines).rstrip() + "\n")
+    except SyntaxError:
+        return False
+    return True
+
+
+def _nbc_merge_preambles(base: list[str], extras: list[list[str]]) -> list[str]:
+    lines = list(base)
+    seen = {line.strip() for line in lines if line.strip()}
+    insert_at = 0
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped.startswith("from __future__ import annotations"):
+            insert_at = index + 1
+        elif stripped.startswith(("import ", "from ")):
+            insert_at = index + 1
+
+    pending_imports: list[str] = []
+    for extra in extras:
+        for line in extra:
+            stripped = _nbc_safe_import_line(line)
+            if not stripped or stripped in seen:
+                continue
+            if line.startswith((" ", "\t")):
+                continue
+            pending_imports.append(stripped)
+            seen.add(stripped)
+
+    if pending_imports:
+        if lines and insert_at and lines[insert_at - 1].strip():
+            pending_imports.insert(0, "")
+        lines[insert_at:insert_at] = pending_imports
+    return lines
+
+
+def _merge_blob_python_sources(
+    module_name: str,
+    candidates: list[str],
+    *,
+    inventory_source: str,
+) -> str:
+    base_preamble, base_blocks = _nbc_extract_structure(inventory_source)
+    usable = [
+        candidate for candidate in candidates
+        if candidate and candidate.strip() and candidate != inventory_source
+    ]
+    structures = [
+        (candidate, *_nbc_extract_structure(candidate))
+        for candidate in usable
+    ]
+
+    block_order = list(base_blocks.keys())
+    best_blocks: dict[str, list[str]] = {}
+    for key, lines in base_blocks.items():
+        if _nbc_is_valid_block(lines):
+            best_blocks[key] = lines
+
+    for _source, _preamble, blocks in structures:
+        for key, lines in blocks.items():
+            if not _nbc_is_valid_block(lines):
+                continue
+            current = best_blocks.get(key)
+            if current is None or _nbc_block_quality(lines) > _nbc_block_quality(current):
+                best_blocks[key] = lines
+            if key not in block_order:
+                block_order.append(key)
+
+    merged_preamble = _nbc_merge_preambles(
+        base_preamble,
+        [preamble for _source, preamble, _blocks in structures],
+    )
+    _inventory_head, inventory_tail = _nbc_split_inventory(inventory_source)
+
+    lines = [
+        '"""',
+        f"Automated merged Python recovery for NBC module {module_name}.",
+        "NBC-derived structure is the base; validated blob-derived blocks are",
+        "merged in when they improve recovered Python.",
+        '"""',
+        "",
+    ]
+    lines.extend(merged_preamble)
+    if merged_preamble and merged_preamble[-1].strip():
+        lines.append("")
+
+    for key in block_order:
+        block = best_blocks.get(key)
+        if not block:
+            continue
+        lines.extend(block)
+        lines.append("")
+
+    if inventory_tail:
+        lines.extend(inventory_tail.splitlines())
+        lines.append("")
+    return "\n".join(lines).rstrip() + "\n"
+
 def decompile_nbc_text_to_source(text: str) -> str:
     parsed = parse_nbc_text(text)
     if not parsed.ops_blocks:
-        source = NbcNoOpsHeuristicReconstructor(parsed).render()
-        try:
-            ast.parse(source)
-            return source
-        except SyntaxError:
-            pass
+        reconstructor = NbcNoOpsHeuristicReconstructor(parsed)
+        nbc_source = reconstructor.render_generic()
+        candidates = [nbc_source]
         try:
             artifact = reconstruct_module_artifacts(
                 section_name=parsed.module_name,
                 raw_constants=parsed.raw_constants(),
             )
-            ast.parse(artifact.source)
-            return artifact.source
+            for candidate in (
+                artifact.smart_source,
+                artifact.source,
+                artifact.heuristic_source,
+            ):
+                if candidate and candidate not in candidates:
+                    candidates.insert(0, candidate)
         except Exception:
-            return source
+            pass
+
+        merged = _merge_blob_python_sources(
+            parsed.module_name,
+            candidates,
+            inventory_source=nbc_source,
+        )
+        try:
+            ast.parse(merged)
+            return merged
+        except SyntaxError:
+            return nbc_source
 
     return NbcSourceDecompiler(parsed).render()
 
@@ -5410,7 +6034,7 @@ def reconstruct_blob_file(blob_path: str | Path, output_dir: str | Path) -> int:
             decompiler=decompiler,
         )
         source = artifact.source
-        if "class " not in source and "def " not in source:
+        if not source.strip():
             continue
         safe_name = re.sub(r'[<>:"/\\|?*\x00]', "_", section_name).strip("._") or "section"
         out_file = out_dir / f"{safe_name}.py"

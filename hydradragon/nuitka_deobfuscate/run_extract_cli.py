@@ -554,7 +554,7 @@ def process_section(
             omp.run_pass_1_structural_mapping(items)
             omp.run_pass_2_ast_synthesis()
             source = generate_omni_source(omp, section_name, raw_constants=list(items))
-            if 'class ' in source or 'def ' in source:
+            if source.strip():
                 safe_name = re.sub(r'[<>:"/\\|?*\x00]', '_', section_name)[:80]
                 omni_out = out_dir / 'omni_reconstructed'
                 omni_out.mkdir(parents=True, exist_ok=True)
