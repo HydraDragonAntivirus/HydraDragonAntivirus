@@ -536,6 +536,7 @@ def process_section(
     magic_int: int | None,
     OmniDecompiler,
     generate_omni_source,
+    generate_omni_nbc,
 ) -> tuple[int, int, int]:
     clean_section = (
         section_name
@@ -552,12 +553,16 @@ def process_section(
             omp = OmniDecompiler()
             omp.run_pass_1_structural_mapping(items)
             omp.run_pass_2_ast_synthesis()
-            source = generate_omni_source(omp, section_name)
-            if 'class ' in source and 'def ' in source:
+            source = generate_omni_source(omp, section_name, raw_constants=list(items))
+            if 'class ' in source or 'def ' in source:
                 safe_name = re.sub(r'[<>:"/\\|?*\x00]', '_', section_name)[:80]
                 omni_out = out_dir / 'omni_reconstructed'
                 omni_out.mkdir(parents=True, exist_ok=True)
-                (omni_out / f'{safe_name}.py').write_text(source, encoding='utf-8')
+                target_py_path = omni_out / f'{safe_name}.py'
+                target_py_path.write_text(source, encoding='utf-8')
+                if generate_omni_nbc:
+                    nbc_text = generate_omni_nbc(omp, section_name, list(items))
+                    target_py_path.with_suffix('.nbc').write_text(nbc_text, encoding='utf-8')
                 omni_count += 1
         except Exception:
             pass
@@ -721,11 +726,12 @@ def main(argv=None) -> int:
         return 1
 
     try:
-        from omni_nuitka_framework import OmniDecompiler, generate_omni_source
+        from omni_nuitka_framework import OmniDecompiler, generate_omni_source, generate_omni_nbc
     except ImportError:
         print("[!] Warning: omni_nuitka_framework.py missing. Bytecode extraction only.")
         OmniDecompiler = None
         generate_omni_source = None
+        generate_omni_nbc = None
 
     # -------------------------------------------------------------------------
     # Decode sections
@@ -816,6 +822,7 @@ def main(argv=None) -> int:
                     magic_int,
                     OmniDecompiler,
                     generate_omni_source,
+                    generate_omni_nbc,
                 )
                 for section_name, items in work_items
             ]

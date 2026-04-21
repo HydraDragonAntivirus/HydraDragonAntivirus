@@ -10,6 +10,7 @@ exception-hierarchy reconstruction.
 from __future__ import annotations
 
 import functools
+import importlib
 import keyword
 import re
 import sys
@@ -3178,7 +3179,7 @@ def _iter_import_lines(decompiler: OmniDecompiler) -> Iterator[str]:
     yield from third
 
 
-def generate_omni_source(decompiler: OmniDecompiler, section_name: str) -> str:
+def _generate_heuristic_omni_source(decompiler: OmniDecompiler, section_name: str) -> str:
     lines: list[str] = []
 
     # --- module docstring ---
@@ -3344,6 +3345,332 @@ def generate_omni_source(decompiler: OmniDecompiler, section_name: str) -> str:
     return "\n".join(lines).rstrip() + "\n"
 
 
+@dataclass
+class OmniModuleArtifact:
+    source: str
+    heuristic_source: str
+    strategy: str
+    nbc_text: str | None = None
+    smart_source: str | None = None
+
+
+def _count_reconstructed_blocks(source: str) -> int:
+    return source.count("\ndef ") + source.count("\nasync def ") + source.count("\nclass ")
+
+
+def _has_python_structure(source: str) -> bool:
+    return any(token in source for token in ("def ", "async def ", "class ", "import "))
+
+
+@functools.lru_cache(maxsize=1)
+def _load_v7_smart_reconstructor():
+    candidates: list[str] = []
+    if __package__:
+        candidates.append(f"{__package__}.nuitkalizator_v7_2")
+    candidates.append("nuitkalizator_v7_2")
+
+    for module_name in candidates:
+        try:
+            module = importlib.import_module(module_name)
+        except Exception:
+            continue
+        reconstructor = getattr(module, "StaticalySmartReconstructor", None)
+        if reconstructor is not None:
+            return reconstructor
+    return None
+
+
+def _is_module_name_candidate(value: Any) -> bool:
+    if not isinstance(value, str) or len(value) < 2 or len(value) > 80:
+        return False
+    if value.endswith((".py", ".pyc")):
+        return False
+    if value.startswith("__") and value.endswith("__"):
+        return False
+    return bool(
+        re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*", value)
+    )
+
+
+def _is_identifier_tuple(value: Any) -> bool:
+    return bool(
+        isinstance(value, tuple)
+        and value
+        and all(
+            isinstance(item, str)
+            and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", item)
+            for item in value
+        )
+    )
+
+
+def _infer_signature_candidates(raw_constants: list[Any]) -> list[tuple[str, list[str]]]:
+    name_positions: list[tuple[int, str]] = []
+    tuple_positions: list[tuple[int, tuple[str, ...]]] = []
+    seen_names: set[str] = set()
+
+    for index, value in enumerate(raw_constants):
+        if (
+            isinstance(value, str)
+            and len(value) >= 3
+            and re.fullmatch(r"[a-z_][a-z0-9_]*", value)
+            and value not in {"self", "cls", "args", "kwargs"}
+            and value not in seen_names
+        ):
+            seen_names.add(value)
+            name_positions.append((index, value))
+        elif _is_identifier_tuple(value):
+            tuple_positions.append((index, tuple(value)))
+
+    limit = min(len(name_positions), len(tuple_positions))
+    pairs: list[tuple[str, list[str]]] = []
+    for offset in range(limit):
+        _, name = name_positions[offset]
+        _, args = tuple_positions[offset]
+        pairs.append((name, list(args)))
+    return pairs
+
+
+def _collect_code_object_specs(value: Any, out: list[dict[str, Any]]) -> None:
+    if isinstance(value, dict):
+        if value.get("_type") == "CodeObject":
+            out.append(value)
+        for child in value.values():
+            _collect_code_object_specs(child, out)
+        return
+    if isinstance(value, (list, tuple, set, frozenset)):
+        for child in value:
+            _collect_code_object_specs(child, out)
+
+
+class OmniNuitkaCompactEmitter:
+    """Compact constants-first module summary for LLM-assisted reconstruction."""
+
+    _TYPE_CODE = {
+        type(None): "n",
+        bool: "t",
+        int: "i",
+        float: "f",
+        complex: "c",
+        str: "s",
+        bytes: "b",
+        bytearray: "B",
+        tuple: "T",
+        list: "L",
+        dict: "D",
+        set: "S",
+        frozenset: "P",
+    }
+
+    @classmethod
+    def _type_code(cls, value: Any) -> str:
+        if value is False:
+            return "F"
+        return cls._TYPE_CODE.get(type(value), "?")
+
+    @staticmethod
+    def _short_repr(value: Any, cap: int = 120) -> str:
+        text = repr(value)
+        return text if len(text) <= cap else text[: cap - 3] + "..."
+
+    @classmethod
+    def _emit_constants(cls, raw_constants: list[Any], out: list[str]) -> None:
+        out.append(f"@CONSTS {len(raw_constants)}")
+        for index, value in enumerate(raw_constants):
+            out.append(f"  {index} {cls._type_code(value)} {cls._short_repr(value)}")
+
+    @classmethod
+    def _emit_imports(
+        cls,
+        decompiler: OmniDecompiler,
+        raw_constants: list[Any],
+        out: list[str],
+    ) -> None:
+        lines: list[str] = []
+        seen: set[str] = set()
+
+        for line in _iter_import_lines(decompiler):
+            if line and line not in seen:
+                lines.append(line)
+                seen.add(line)
+
+        stdlib = set(getattr(sys, "stdlib_module_names", ()))
+        for index, value in enumerate(raw_constants):
+            if not _is_module_name_candidate(value):
+                continue
+            nxt = raw_constants[index + 1] if index + 1 < len(raw_constants) else None
+            if _is_identifier_tuple(nxt):
+                line = f"from {value} import {', '.join(nxt)}"
+            elif "." in value or value in stdlib:
+                line = f"import {value}"
+            else:
+                continue
+            if line not in seen:
+                lines.append(line)
+                seen.add(line)
+
+        if not lines:
+            return
+
+        out.append("@IMPORTS")
+        for line in lines:
+            out.append(f"  {line}")
+
+    @classmethod
+    def _emit_funcs_detected(
+        cls,
+        decompiler: OmniDecompiler,
+        raw_constants: list[Any],
+        out: list[str],
+    ) -> None:
+        signatures: list[tuple[str, list[str]]] = []
+        seen: set[tuple[str, tuple[str, ...]]] = set()
+
+        for func in decompiler.functions.values():
+            sig = (func.name, tuple(func.args))
+            if sig not in seen:
+                signatures.append((func.name, list(func.args)))
+                seen.add(sig)
+
+        for cls_node in decompiler.classes.values():
+            for func in cls_node.methods.values():
+                qualname = f"{cls_node.name}.{func.name}"
+                sig = (qualname, tuple(func.args))
+                if sig not in seen:
+                    signatures.append((qualname, list(func.args)))
+                    seen.add(sig)
+
+        for name, args in _infer_signature_candidates(raw_constants):
+            sig = (name, tuple(args))
+            if sig not in seen:
+                signatures.append((name, args))
+                seen.add(sig)
+
+        if not signatures:
+            return
+
+        out.append("@FUNCS_DETECTED")
+        for name, args in signatures[:80]:
+            out.append(f"  {name}({', '.join(args)})")
+
+    @classmethod
+    def render(
+        cls,
+        section_name: str,
+        raw_constants: list[Any],
+        decompiler: OmniDecompiler,
+        python_version: tuple[int, int] | None = None,
+    ) -> str:
+        version = python_version or sys.version_info[:2]
+        out = [
+            "# Nuitka static reconstruction (compact). Feed to an LLM.",
+            "# c[N]=mod_consts[N]   no native @OPS block was available in this standalone OMNI run.",
+            "",
+            f"@MOD {section_name or '__module__'}",
+            f"@VER {version[0]}.{version[1]}",
+            "",
+        ]
+        cls._emit_constants(raw_constants, out)
+        out.append("")
+        cls._emit_imports(decompiler, raw_constants, out)
+        out.append("")
+        cls._emit_funcs_detected(decompiler, raw_constants, out)
+        out.append("")
+        out.append("@NO_OPS")
+        out.append("  reason: omni_nuitka_framework only had decoded constants for this module;")
+        out.append("          no PE/module-table/native disassembly context was supplied.")
+        out.append("  consequence: signatures, imports and literals are grounded; exact")
+        out.append("               compiled function bodies still need native-code tracing.")
+        return "\n".join(out).rstrip() + "\n"
+
+
+def reconstruct_module_artifacts(
+    section_name: str,
+    raw_constants: list[Any] | tuple[Any, ...],
+    *,
+    decompiler: OmniDecompiler | None = None,
+    python_version: tuple[int, int] | None = None,
+) -> OmniModuleArtifact:
+    constants = list(raw_constants)
+    code_objects: list[dict[str, Any]] = []
+    for item in constants:
+        _collect_code_object_specs(item, code_objects)
+
+    if decompiler is None:
+        decompiler = OmniDecompiler()
+        decompiler.run_pass_1_structural_mapping(constants)
+        decompiler.run_pass_2_ast_synthesis()
+
+    heuristic_source = _generate_heuristic_omni_source(decompiler, section_name)
+
+    smart_source: str | None = None
+    smart_reconstructor = _load_v7_smart_reconstructor()
+    if smart_reconstructor is not None and constants:
+        try:
+            smart_source = smart_reconstructor(
+                module_name=section_name or "__module__",
+                constants=constants,
+                code_objects=code_objects,
+            ).render()
+        except Exception:
+            smart_source = None
+
+    source = heuristic_source
+    strategy = "heuristic"
+    if smart_source and _has_python_structure(smart_source):
+        smart_units = _count_reconstructed_blocks(smart_source)
+        heuristic_units = _count_reconstructed_blocks(heuristic_source)
+        if smart_units > heuristic_units or not _has_python_structure(heuristic_source):
+            source = smart_source
+            strategy = "smart"
+
+    nbc_text = OmniNuitkaCompactEmitter.render(
+        section_name=section_name,
+        raw_constants=constants,
+        decompiler=decompiler,
+        python_version=python_version,
+    )
+
+    return OmniModuleArtifact(
+        source=source,
+        heuristic_source=heuristic_source,
+        strategy=strategy,
+        nbc_text=nbc_text,
+        smart_source=smart_source,
+    )
+
+
+def generate_omni_nbc(
+    decompiler: OmniDecompiler,
+    section_name: str,
+    raw_constants: list[Any] | tuple[Any, ...],
+    python_version: tuple[int, int] | None = None,
+) -> str:
+    return OmniNuitkaCompactEmitter.render(
+        section_name=section_name,
+        raw_constants=list(raw_constants),
+        decompiler=decompiler,
+        python_version=python_version,
+    )
+
+
+def generate_omni_source(
+    decompiler: OmniDecompiler,
+    section_name: str,
+    raw_constants: list[Any] | tuple[Any, ...] | None = None,
+    python_version: tuple[int, int] | None = None,
+    prefer_full: bool = True,
+) -> str:
+    if prefer_full and raw_constants is not None:
+        return reconstruct_module_artifacts(
+            section_name=section_name,
+            raw_constants=raw_constants,
+            decompiler=decompiler,
+            python_version=python_version,
+        ).source
+    return _generate_heuristic_omni_source(decompiler, section_name)
+
+
 # ---------------------------------------------------------------------------
 # CLI entry point
 # ---------------------------------------------------------------------------
@@ -3372,14 +3699,24 @@ def main() -> int:
         decompiler = OmniDecompiler()
         decompiler.run_pass_1_structural_mapping(items)
         decompiler.run_pass_2_ast_synthesis()
-        source = generate_omni_source(decompiler, section_name)
+        artifact = reconstruct_module_artifacts(
+            section_name=section_name,
+            raw_constants=list(items),
+            decompiler=decompiler,
+        )
+        source = artifact.source
         if "class " not in source and "def " not in source:
             continue
         safe_name = re.sub(r'[<>:"/\\|?*\x00]', "_", section_name).strip("._") or "section"
         out_file  = out_dir / f"{safe_name}.py"
         out_file.write_text(source, encoding="utf-8")
+        if artifact.nbc_text:
+            out_file.with_suffix(".nbc").write_text(artifact.nbc_text, encoding="utf-8")
         count += 1
-        print(f"  [{count:4d}] {safe_name}.py  ({source.count(chr(10))} lines)")
+        print(
+            f"  [{count:4d}] {safe_name}.py  "
+            f"({source.count(chr(10))} lines, strategy={artifact.strategy})"
+        )
 
     print(f"\n[*] Reconstructed {count} file(s) -> {out_dir}")
     return 0
