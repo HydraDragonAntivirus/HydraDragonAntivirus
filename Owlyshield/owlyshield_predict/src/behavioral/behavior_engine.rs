@@ -875,6 +875,103 @@ fn is_file_data_irp(irp_op: &IrpMajorOp) -> bool {
     )
 }
 
+const RECENT_WRITTEN_PAYLOAD_RETENTION_SECS: u64 = 300;
+const RECENT_WRITTEN_PAYLOAD_MAX_TRACKED: usize = 128;
+
+fn is_launchable_payload_extension(ext: &str) -> bool {
+    matches!(
+        normalize_extension_token(ext).as_str(),
+        "exe"
+            | "com"
+            | "scr"
+            | "dll"
+            | "bat"
+            | "cmd"
+            | "ps1"
+            | "vbs"
+            | "vbe"
+            | "js"
+            | "jse"
+            | "wsf"
+            | "wsh"
+            | "hta"
+            | "cpl"
+            | "pif"
+    )
+}
+
+fn is_write_or_create_like_file_operation(
+    irp_op: &IrpMajorOp,
+    file_change: Option<FileChangeInfo>,
+) -> bool {
+    matches!(
+        (irp_op, file_change),
+        (IrpMajorOp::IrpWrite, _)
+            | (IrpMajorOp::IrpCreate, _)
+            | (IrpMajorOp::IrpSetInfo, Some(FileChangeInfo::ChangeWrite))
+            | (
+                IrpMajorOp::IrpSetInfo,
+                Some(FileChangeInfo::ChangeOverwriteFile)
+            )
+            | (IrpMajorOp::IrpSetInfo, Some(FileChangeInfo::ChangeNewFile))
+            | (
+                IrpMajorOp::IrpSetInfo,
+                Some(FileChangeInfo::ChangeRenameFile)
+            )
+            | (
+                IrpMajorOp::IrpSetInfo,
+                Some(FileChangeInfo::ChangeExtensionChanged)
+            )
+    )
+}
+
+fn extract_path_extension(path: &str) -> String {
+    let path = normalize_path_separators(path);
+    let last_sep = path.rfind('/').unwrap_or(0);
+    let Some(last_dot) = path.rfind('.') else {
+        return String::new();
+    };
+    if last_dot <= last_sep {
+        return String::new();
+    }
+    normalize_extension_token(&path[last_dot + 1..])
+}
+
+fn is_cmdline_path_boundary_byte(byte: u8) -> bool {
+    byte.is_ascii_whitespace() || matches!(byte, b'"' | b'\'' | b'=' | b',' | b';' | b'(' | b')')
+}
+
+fn cmdline_contains_candidate_path(cmdline_norm: &str, candidate_path: &str) -> bool {
+    let candidate_norm = normalize_path_separators(candidate_path);
+    if candidate_norm.is_empty() {
+        return false;
+    }
+
+    let mut variants = vec![candidate_norm.clone()];
+    let stripped = strip_drive_prefix(&candidate_norm);
+    if !stripped.is_empty() && stripped != candidate_norm {
+        variants.push(stripped);
+    }
+
+    for variant in variants {
+        let mut search_offset = 0usize;
+        while let Some(rel_pos) = cmdline_norm[search_offset..].find(&variant) {
+            let abs_pos = search_offset + rel_pos;
+            let before_ok =
+                abs_pos == 0 || is_cmdline_path_boundary_byte(cmdline_norm.as_bytes()[abs_pos - 1]);
+            let after_pos = abs_pos + variant.len();
+            let after_ok = after_pos == cmdline_norm.len()
+                || is_cmdline_path_boundary_byte(cmdline_norm.as_bytes()[after_pos]);
+            if before_ok && after_ok {
+                return true;
+            }
+            search_offset = abs_pos + variant.len();
+        }
+    }
+
+    false
+}
+
 fn is_plain_pattern(pattern: &str) -> bool {
     let trimmed = pattern.trim();
     !trimmed.is_empty()
@@ -1083,6 +1180,7 @@ pub struct ProcessBehaviorState {
     pub browsed_paths_tracker: HashMap<String, SystemTime>,
     pub accessed_paths_tracker: HashSet<String>,
     pub staged_files_written: HashMap<PathBuf, SystemTime>,
+    pub recent_written_payloads: HashMap<String, SystemTime>,
     pub terminated_processes: HashSet<String>,
     pub self_terminated_processes: HashSet<String>,
     pub detected_apis: HashSet<String>,
@@ -1173,6 +1271,7 @@ impl ProcessBehaviorState {
         state.command_line = String::new();
         state.self_terminated_processes = HashSet::new();
         state.terminated_processes = HashSet::new();
+        state.recent_written_payloads = HashMap::new();
         state.detected_apis = HashSet::new();
         state.satisfied_named_conditions = HashSet::new();
         state.condition_match_counts = HashMap::new();
@@ -1858,7 +1957,7 @@ impl BehaviorEngine {
                                         history.pop_front();
                                     }
                                     history.push_back(pkt.clone());
-                                    
+
                                     // BEHAVIOR RULE MATCHING
                                     let mut matched_any = false;
                                     {
@@ -1869,10 +1968,10 @@ impl BehaviorEngine {
                                                     "[BEHAVIOR RULE MATCH] PID {} matched network condition in rule '{}': {} -> {}",
                                                     pid, rule.name, pkt.src_ip, pkt.dst_ip
                                                 ));
-                                                
+
                                                 if rule.response.status_access_denied || rule.response.quarantine || rule.response.kill_and_remove || rule.response.terminate_process {
                                                     let mut blocked = blocked_exes.write().unwrap();
-                                                    
+
                                                     let reason = if rule.response.change_request_body.is_some() || rule.response.change_response_body.is_some() {
                                                         format!("Rule [{}] matched (Replacement suggested)", rule.name)
                                                     } else {
@@ -1886,7 +1985,7 @@ impl BehaviorEngine {
                                                         reason,
                                                     });
                                                 }
-                                                
+
                                                 if let Some(ref hostname) = pkt.hostname {
                                                     let _replaced = rule.apply_replacement(hostname);
                                                 }
@@ -1996,7 +2095,10 @@ impl BehaviorEngine {
         }
 
         let target_pid = event["target"]["pid"].as_u64().unwrap_or(0) as u32;
-        let remote_ip = event["connection"]["remote"]["ip"].as_str().unwrap_or("").trim();
+        let remote_ip = event["connection"]["remote"]["ip"]
+            .as_str()
+            .unwrap_or("")
+            .trim();
         let remote_port = event["connection"]["remote"]["port"].as_u64().unwrap_or(0) as u16;
 
         let mut aliases = vec![format!(
@@ -2583,6 +2685,158 @@ impl BehaviorEngine {
             || cond_group.detect_extension_changes
             || cond_group.detect_non_whitelisted_extensions
             || cond_group.detect_known_to_unknown_extension_change
+    }
+
+    fn prune_recent_written_payloads(state: &mut ProcessBehaviorState, now: SystemTime) {
+        state.recent_written_payloads.retain(|_, seen_at| {
+            now.duration_since(*seen_at)
+                .map(|age| age.as_secs() <= RECENT_WRITTEN_PAYLOAD_RETENTION_SECS)
+                .unwrap_or(true)
+        });
+
+        if state.recent_written_payloads.len() <= RECENT_WRITTEN_PAYLOAD_MAX_TRACKED {
+            return;
+        }
+
+        let mut entries: Vec<(String, SystemTime)> = state
+            .recent_written_payloads
+            .iter()
+            .map(|(path, seen_at)| (path.clone(), *seen_at))
+            .collect();
+        entries.sort_by_key(|(_, seen_at)| *seen_at);
+
+        let to_remove = entries
+            .len()
+            .saturating_sub(RECENT_WRITTEN_PAYLOAD_MAX_TRACKED);
+        for (path, _) in entries.into_iter().take(to_remove) {
+            state.recent_written_payloads.remove(&path);
+        }
+    }
+
+    fn remember_recent_written_payload(
+        state: &mut ProcessBehaviorState,
+        filepath: &str,
+        event_extension: &str,
+        file_change: Option<FileChangeInfo>,
+        irp_op: &IrpMajorOp,
+        is_directory_event: bool,
+        now: SystemTime,
+    ) {
+        Self::prune_recent_written_payloads(state, now);
+
+        if filepath.is_empty() || is_directory_event {
+            return;
+        }
+
+        let normalized_path = normalize_path_separators(&filepath.to_lowercase());
+
+        if is_delete_like_file_operation(irp_op, file_change) {
+            state.recent_written_payloads.remove(&normalized_path);
+            return;
+        }
+
+        if !is_launchable_payload_extension(event_extension)
+            || !is_write_or_create_like_file_operation(irp_op, file_change)
+        {
+            return;
+        }
+
+        state.recent_written_payloads.insert(normalized_path, now);
+        Self::prune_recent_written_payloads(state, now);
+    }
+
+    fn recent_payload_path_matches_filters(
+        cache: &Arc<RwLock<HashMap<String, Regex>>>,
+        cond_group: &NamedConditionGroup,
+        candidate_path: &str,
+    ) -> bool {
+        let has_path_filters = !cond_group.file_paths.is_empty()
+            || !cond_group.staging_paths.is_empty()
+            || !cond_group.browsed_paths.is_empty()
+            || !cond_group.sensitive_paths.is_empty()
+            || !cond_group.persistence_locations.is_empty();
+
+        if has_path_filters {
+            let path_variants = build_path_variants(candidate_path, candidate_path);
+            let path_ok = cond_group
+                .file_paths
+                .iter()
+                .chain(cond_group.staging_paths.iter())
+                .chain(cond_group.browsed_paths.iter())
+                .chain(cond_group.sensitive_paths.iter())
+                .chain(cond_group.persistence_locations.iter())
+                .any(|pattern| {
+                    let pattern_norm = pattern.replace("\\", "/");
+                    let pattern_norm_stripped = strip_drive_prefix(&pattern_norm);
+                    path_variants.iter().any(|variant| {
+                        Self::matches_pattern_internal(cache, &pattern_norm, variant)
+                            || Self::matches_pattern_internal(
+                                cache,
+                                &pattern_norm_stripped,
+                                variant,
+                            )
+                    })
+                });
+            if !path_ok {
+                return false;
+            }
+        }
+
+        if cond_group.file_extensions.is_empty() {
+            return true;
+        }
+
+        let ext = extract_path_extension(candidate_path);
+        if ext.is_empty() {
+            return false;
+        }
+        let ext_with_dot = format!(".{}", ext);
+        cond_group
+            .file_extensions
+            .iter()
+            .any(|pattern| Self::extension_pattern_matches(cache, pattern, &ext, &ext_with_dot))
+    }
+
+    fn match_recently_written_payload_launch(
+        cache: &Arc<RwLock<HashMap<String, Regex>>>,
+        state: &mut ProcessBehaviorState,
+        cond_group: &NamedConditionGroup,
+        child_path: &str,
+        child_cmdline: &str,
+        now: SystemTime,
+    ) -> Option<String> {
+        Self::prune_recent_written_payloads(state, now);
+        if state.recent_written_payloads.is_empty() {
+            return None;
+        }
+
+        let current_image = canonical_behavior_path(&state.exe_path.to_string_lossy());
+        let child_image = canonical_behavior_path(child_path);
+        let child_cmdline_norm = normalize_path_separators(&child_cmdline.to_lowercase());
+
+        let mut candidates: Vec<String> = state.recent_written_payloads.keys().cloned().collect();
+        candidates.sort();
+
+        for candidate in candidates {
+            let candidate_norm = normalize_path_separators(&candidate.to_lowercase());
+            let candidate_canon = canonical_behavior_path(&candidate_norm);
+            if candidate_canon.is_empty() || candidate_canon == current_image {
+                continue;
+            }
+            if !Self::recent_payload_path_matches_filters(cache, cond_group, &candidate_norm) {
+                continue;
+            }
+
+            let direct_child_match = !child_image.is_empty() && child_image == candidate_canon;
+            let cmdline_match = !child_cmdline_norm.is_empty()
+                && cmdline_contains_candidate_path(&child_cmdline_norm, &candidate_norm);
+
+            if direct_child_match || cmdline_match {
+                return Some(candidate_norm);
+            }
+        }
+
+        None
     }
 
     fn is_probable_artifact_path(value: &str) -> bool {
@@ -4440,6 +4694,19 @@ impl BehaviorEngine {
         } else {
             None
         };
+        let is_directory_event = matches!(event_file_change, Some(FileChangeInfo::OpenDirectory));
+
+        if let Some(state) = self.process_states.get_mut(&gid) {
+            Self::remember_recent_written_payload(
+                state,
+                filepath,
+                &event_extension,
+                event_file_change,
+                irp_op,
+                is_directory_event,
+                now,
+            );
+        }
 
         let network_activity_observed = self.pid_has_network_activity(msg.pid);
 
@@ -4469,10 +4736,12 @@ impl BehaviorEngine {
                 }
 
                 let mut matched = false;
+                let mut matched_artifact_path: Option<String> = None;
                 let has_cmdline_requirements = !cond_group.cmdline_keywords.is_empty()
                     || !cond_group.cmdline_patterns.is_empty();
                 let process_context_requirement_count = [
                     !cond_group.created_processes.is_empty(),
+                    cond_group.detect_recently_written_payload_launch,
                     !cond_group.process_names.is_empty(),
                     !cond_group.parent_names.is_empty(),
                     has_cmdline_requirements,
@@ -4943,7 +5212,6 @@ impl BehaviorEngine {
 
                 let file_change = event_file_change;
                 let file_event_irp = is_file_data_irp(irp_op);
-                let is_directory_event = matches!(file_change, Some(FileChangeInfo::OpenDirectory));
 
                 let current_file_op = match *irp_op {
                     IrpMajorOp::IrpRead => Some("read"),
@@ -4987,6 +5255,8 @@ impl BehaviorEngine {
                     || cond_group.detect_extension_changes
                     || cond_group.detect_non_whitelisted_extensions
                     || cond_group.detect_known_to_unknown_extension_change;
+                let skip_direct_file_path_matching =
+                    cond_group.detect_recently_written_payload_launch;
 
                 let same_file_requirements_ok = (!cond_group.require_same_file_read
                     || precord.has_read_file_id(&msg.file_id_id))
@@ -5035,6 +5305,7 @@ impl BehaviorEngine {
                 // Path-only conditions: match on path filters when no extension-specific matcher is requested.
                 if !matched
                     && file_event_irp
+                    && !skip_direct_file_path_matching
                     && has_path_filters
                     && !has_extension_conditions
                     && file_op_allowed
@@ -5077,6 +5348,7 @@ impl BehaviorEngine {
                 // File-operation-only conditions (no path or extension constraints) should still accumulate.
                 if !matched
                     && file_event_irp
+                    && !skip_direct_file_path_matching
                     && !cond_group.file_operations.is_empty()
                     && !has_path_filters
                     && !has_extension_conditions
@@ -5101,6 +5373,7 @@ impl BehaviorEngine {
 
                 if !matched
                     && file_event_irp
+                    && !skip_direct_file_path_matching
                     && has_extension_conditions
                     && file_op_allowed
                     && !is_directory_event
@@ -5374,6 +5647,24 @@ impl BehaviorEngine {
                         })
                     };
 
+                    let recent_payload_ok = if !cond_group.detect_recently_written_payload_launch {
+                        true
+                    } else if *irp_op != IrpMajorOp::IrpProcessCreate {
+                        false
+                    } else if let Some(payload_path) = Self::match_recently_written_payload_launch(
+                        &self.regex_cache,
+                        state,
+                        cond_group,
+                        &msg.filepathstr,
+                        &msg.runtime_features.command_line,
+                        now,
+                    ) {
+                        matched_artifact_path = Some(payload_path);
+                        true
+                    } else {
+                        false
+                    };
+
                     let process_name_ok = if cond_group.process_names.is_empty() {
                         true
                     } else {
@@ -5402,7 +5693,9 @@ impl BehaviorEngine {
                         })
                     };
 
-                    let cmdline_source = if !cond_group.created_processes.is_empty() {
+                    let cmdline_source = if !cond_group.created_processes.is_empty()
+                        || cond_group.detect_recently_written_payload_launch
+                    {
                         msg.runtime_features.command_line.to_lowercase()
                     } else {
                         state.command_line.to_lowercase()
@@ -5428,13 +5721,16 @@ impl BehaviorEngine {
                     let network_ok = !cond_group.has_network_activity || network_activity_observed;
 
                     if created_process_ok
+                        && recent_payload_ok
                         && process_name_ok
                         && parent_ok
                         && cmdline_ok
                         && network_ok
                     {
                         matched = true;
-                        let subject = if !cond_group.created_processes.is_empty() {
+                        let subject = if let Some(payload_path) = matched_artifact_path.as_ref() {
+                            payload_path.clone()
+                        } else if !cond_group.created_processes.is_empty() {
                             child_name.clone()
                         } else if !process_name_lc.is_empty() {
                             process_name_lc.clone()
@@ -5448,6 +5744,27 @@ impl BehaviorEngine {
                             cond_name, state.pid, subject
                         ));
                     }
+                }
+
+                if !matched
+                    && !conjunctive_process_context
+                    && cond_group.detect_recently_written_payload_launch
+                    && *irp_op == IrpMajorOp::IrpProcessCreate
+                    && let Some(payload_path) = Self::match_recently_written_payload_launch(
+                        &self.regex_cache,
+                        state,
+                        cond_group,
+                        &msg.filepathstr,
+                        &msg.runtime_features.command_line,
+                        now,
+                    )
+                {
+                    matched = true;
+                    matched_artifact_path = Some(payload_path.clone());
+                    Logging::info(&format!(
+                        "[BehaviorEngine] Condition '{}' - Recently written payload launched by PID {}: {}",
+                        cond_name, state.pid, payload_path
+                    ));
                 }
 
                 if !matched && !conjunctive_process_context && !cond_group.parent_names.is_empty() {
@@ -5472,7 +5789,13 @@ impl BehaviorEngine {
                 }
 
                 if !matched && !conjunctive_process_context && has_cmdline_requirements {
-                    let cmdline_lc = state.command_line.to_lowercase();
+                    let cmdline_lc = if cond_group.detect_recently_written_payload_launch
+                        || !cond_group.created_processes.is_empty()
+                    {
+                        msg.runtime_features.command_line.to_lowercase()
+                    } else {
+                        state.command_line.to_lowercase()
+                    };
                     if !cmdline_lc.is_empty() {
                         let keyword_hit = cond_group.cmdline_keywords.iter().any(|kw| {
                             Self::matches_pattern_internal(&self.regex_cache, kw, &cmdline_lc)
@@ -5507,19 +5830,22 @@ impl BehaviorEngine {
                                 true
                             } else {
                                 let current_op = if *irp_op == 28 { "create" } else { "write" };
-                                cond_group.pipe_operations.iter().any(|op| {
-                                    op.eq_ignore_ascii_case(current_op)
-                                })
+                                cond_group
+                                    .pipe_operations
+                                    .iter()
+                                    .any(|op| op.eq_ignore_ascii_case(current_op))
                             };
 
                             if op_match {
                                 let payload_match = if cond_group.pipe_payloads.is_empty() {
                                     true
                                 } else if *irp_op == 29 {
-                                    cond_group
-                                        .pipe_payloads
-                                        .iter()
-                                        .any(|pm| pm.matches(&self.regex_cache, &msg.kernel_event_info.bin_payload))
+                                    cond_group.pipe_payloads.iter().any(|pm| {
+                                        pm.matches(
+                                            &self.regex_cache,
+                                            &msg.kernel_event_info.bin_payload,
+                                        )
+                                    })
                                 } else {
                                     false
                                 };
@@ -5718,7 +6044,9 @@ impl BehaviorEngine {
 
                 if matched {
                     let scoped_name = Self::scoped_condition_name(rule, cond_name);
-                    let match_key = if !filepath.is_empty() {
+                    let match_key = if let Some(path) = matched_artifact_path.as_ref() {
+                        path.clone()
+                    } else if !filepath.is_empty() {
                         filepath.to_string()
                     } else if !msg.filepathstr.is_empty() {
                         msg.filepathstr.to_lowercase().replace("\\", "/")

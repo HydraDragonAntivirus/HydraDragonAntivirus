@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use serde_yaml::Value as YamlValue;
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, OnceLock, RwLock};
 
 // =============================================================================
 // HELPER FUNCTIONS & DEFAULTS
@@ -20,6 +20,80 @@ pub fn default_true() -> bool {
     true
 }
 
+#[cfg(target_os = "windows")]
+fn wide_ptr_len(ptr: *const u16) -> usize {
+    let mut len = 0usize;
+    unsafe {
+        while !ptr.is_null() && *ptr.add(len) != 0 {
+            len += 1;
+        }
+    }
+    len
+}
+
+#[cfg(target_os = "windows")]
+fn get_known_folder_path(folder_id: &windows::core::GUID) -> Option<String> {
+    use std::ffi::{OsString, c_void};
+    use std::os::windows::ffi::OsStringExt;
+    use std::slice;
+    use windows::Win32::System::Com::CoTaskMemFree;
+    use windows::Win32::UI::Shell::SHGetKnownFolderPath;
+
+    unsafe {
+        let mut path_ptr: windows::core::PWSTR = std::ptr::null_mut();
+        let result = SHGetKnownFolderPath(folder_id, 0, std::ptr::null_mut(), &mut path_ptr);
+        if result != 0 || path_ptr.is_null() {
+            CoTaskMemFree(path_ptr as *const c_void);
+            return None;
+        }
+
+        let len = wide_ptr_len(path_ptr);
+        let path_slice = slice::from_raw_parts(path_ptr, len);
+        let path = OsString::from_wide(path_slice)
+            .to_string_lossy()
+            .into_owned();
+        CoTaskMemFree(path_ptr as *const c_void);
+        Some(path)
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn resolve_special_environment_variable(var_name: &str) -> Option<String> {
+    use windows::Win32::UI::Shell::{
+        FOLDERID_CommonStartup, FOLDERID_Desktop, FOLDERID_Downloads, FOLDERID_Startup,
+    };
+
+    static CACHE: OnceLock<HashMap<&'static str, Option<String>>> = OnceLock::new();
+
+    let cache = CACHE.get_or_init(|| {
+        let mut map = HashMap::new();
+        map.insert(
+            "KNOWNFOLDER_DESKTOP",
+            get_known_folder_path(&FOLDERID_Desktop),
+        );
+        map.insert(
+            "KNOWNFOLDER_DOWNLOADS",
+            get_known_folder_path(&FOLDERID_Downloads),
+        );
+        map.insert(
+            "KNOWNFOLDER_STARTUP",
+            get_known_folder_path(&FOLDERID_Startup),
+        );
+        map.insert(
+            "KNOWNFOLDER_COMMONSTARTUP",
+            get_known_folder_path(&FOLDERID_CommonStartup),
+        );
+        map
+    });
+
+    cache.get(var_name).cloned().flatten()
+}
+
+#[cfg(not(target_os = "windows"))]
+fn resolve_special_environment_variable(_var_name: &str) -> Option<String> {
+    None
+}
+
 pub fn expand_environment_variables(text: &str) -> String {
     if !text.contains('%') {
         return text.to_string();
@@ -29,10 +103,14 @@ pub fn expand_environment_variables(text: &str) -> String {
         Err(_) => return text.to_string(),
     };
     re.replace_all(text, |caps: &regex::Captures| {
-        let var_name = &caps[1].to_uppercase();
-        match std::env::var(var_name) {
-            Ok(val) => val,
-            Err(_) => caps[0].to_string(),
+        let var_name = caps[1].to_uppercase();
+        if let Some(val) = std::env::var(&var_name)
+            .ok()
+            .or_else(|| resolve_special_environment_variable(&var_name))
+        {
+            val
+        } else {
+            caps[0].to_string()
         }
     })
     .to_string()
@@ -1535,6 +1613,8 @@ pub struct NamedConditionGroup {
     pub terminated_processes: Vec<String>,
     #[serde(default)]
     pub created_processes: Vec<String>,
+    #[serde(default)]
+    pub detect_recently_written_payload_launch: bool,
     #[serde(default)]
     pub detect_self_termination: bool,
     #[serde(default)]

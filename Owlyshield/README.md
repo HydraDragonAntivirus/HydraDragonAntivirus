@@ -1,6 +1,6 @@
 <div id="top"></div>
 
-Translations (obsolete):
+Translations (obsolete and not supported anymore):
 
 - Chinese: / 中文: <a href=./translations/README_CN.md>README_CN</a>
 - Español: <a href=./translations/README_ES.md>README_ES</a>
@@ -51,7 +51,7 @@ Although Owlyshield is a framework designed to be customized and extended, it al
 - [x] Advanced novelty detection with autoencoders (commercial version),
 - [x] Ransomware protection in real-time on Windows using XGBoost,
 - [x] Novelty detection with embedded training on both Linux (+IoT) and Windows,
-- [ ] Auto-configuration of SELinux to automatically protect exposed applications.
+- [ ] Auto-configuration of SELinux to automatically protect exposed applications. (not planned anymore)
 
 
 <p align="center">
@@ -72,7 +72,7 @@ Owlyshield provides a powerful solution for detecting and responding to threats 
 
 ## :arrow_forward: 2 minutes install
 
-Installation instructions for Owlyshield can be found in the Releases section of the project's GitHub repository. For usage instructions, please refer to the project's Wiki or see the Contributing section if you prefer to build Owlyshield yourself. Don't forget to build with "cargo build --release --features service,novelty,malware,hydradragon,behavior_engine,firewall,sanctum" for novelty, hydradragon, realtime-learning, behavior-engine, firewall, sanctum and more functionality. **Note: The firewall is now an optional feature and must be explicitly enabled.**
+Installation instructions for Owlyshield can be found in the Releases section of the project's GitHub repository. For usage instructions, please refer to the project's Wiki or see the Contributing section if you prefer to build Owlyshield yourself. Build with `cargo build --release --features novelty,malware,hydradragon,behavior_engine,firewall,sanctum` for novelty, hydradragon, realtime-learning, behavior-engine, firewall, sanctum and more functionality, then launch HydraDragon through `HydraDragonAntivirusLauncher` instead of a `service` build. **Important:** if you compile or run in service mode, Windows resolves `%APPDATA%`, `%LOCALAPPDATA%`, `%USERPROFILE%`, `%TEMP%` and similar environment values in the service account context, which can break user-targeted path logic and make wiki instructions that rely on those env values inaccurate. **Note: The firewall is now an optional feature and must be explicitly enabled.**
  
  ## TensorFlow Lite C/C++ source
 
