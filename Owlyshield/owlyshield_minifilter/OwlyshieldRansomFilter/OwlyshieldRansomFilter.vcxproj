@@ -322,7 +322,7 @@
       <AdditionalIncludeDirectories>$(ProjectDir)..\SharedDefs;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <ProgramDataBaseFileName>$(IntDir)OwlyshieldRansomFilter-Debug-x64.pdb</ProgramDataBaseFileName>
       <ForceSynchronousPdbWrites>true</ForceSynchronousPdbWrites>
-      <PreprocessorDefinitions>POOL_NX_OPTIN=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>_NO_CRT_STDIO_INLINE;POOL_NX_OPTIN=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <LanguageStandard_C>stdc11</LanguageStandard_C>
       <Optimization>MaxSpeed</Optimization>
@@ -347,7 +347,7 @@
       <AdditionalIncludeDirectories>$(ProjectDir)..\SharedDefs;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <ProgramDataBaseFileName>$(IntDir)OwlyshieldRansomFilter-DebugApp-x64.pdb</ProgramDataBaseFileName>
       <ForceSynchronousPdbWrites>true</ForceSynchronousPdbWrites>
-      <PreprocessorDefinitions>POOL_NX_OPTIN=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>_NO_CRT_STDIO_INLINE;POOL_NX_OPTIN=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <LanguageStandard>stdcpp17</LanguageStandard>
     </ClCompile>
   </ItemDefinitionGroup>
@@ -364,7 +364,7 @@
       <AdditionalIncludeDirectories>$(ProjectDir)..\SharedDefs;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <ProgramDataBaseFileName>$(IntDir)OwlyshieldRansomFilter-Debug-App-x64.pdb</ProgramDataBaseFileName>
       <ForceSynchronousPdbWrites>true</ForceSynchronousPdbWrites>
-      <PreprocessorDefinitions>POOL_NX_OPTIN=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>_NO_CRT_STDIO_INLINE;POOL_NX_OPTIN=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <LanguageStandard>stdcpp17</LanguageStandard>
     </ClCompile>
   </ItemDefinitionGroup>
@@ -380,7 +380,7 @@
       <AdditionalIncludeDirectories>$(ProjectDir)..\SharedDefs;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <ProgramDataBaseFileName>$(IntDir)OwlyshieldRansomFilter-Release-x64.pdb</ProgramDataBaseFileName>
       <ForceSynchronousPdbWrites>true</ForceSynchronousPdbWrites>
-      <PreprocessorDefinitions>POOL_NX_OPTIN=1;__DATE__="Jan 01 1970";__TIME__="00:00:00";%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>_NO_CRT_STDIO_INLINE;POOL_NX_OPTIN=1;__DATE__="Jan 01 1970";__TIME__="00:00:00";%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <LanguageStandard_C>stdc11</LanguageStandard_C>
       <Optimization>MaxSpeed</Optimization>
