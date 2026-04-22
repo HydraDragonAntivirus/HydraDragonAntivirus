@@ -149,7 +149,7 @@ fn spawn_child_ppl_process() {
     // start the process
     let mut process_info = PROCESS_INFORMATION::default();
     // todo update this
-    let path: Vec<u16> = r"C:\Users\flux\AppData\Roaming\Sanctum\etw_consumer.exe"
+    let path: Vec<u16> = r"C:\Program Files\HydraDragonAntivirus\hydradragon\Sanctum\etw_consumer.exe"
         .encode_utf16()
         .chain(std::iter::once(0))
         .collect();

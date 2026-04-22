@@ -59,9 +59,7 @@ pub fn inject_edr_dll(pid: u64) -> Result<(), ProcessErrors> {
     };
 
     // Allocate memory for the path to the DLL
-    // todo needs moving to an admin location
-    let username = get_logged_in_username().unwrap();
-    let base_path = format!("C:\\Users\\{username}\\AppData\\Roaming\\");
+    let base_path = "C:\\Program Files\\HydraDragonAntivirus\\hydradragon\\";
     let dll_path = format!("{}{}\0", base_path, SANCTUM_DLL_RELATIVE_PATH);
     let path_len = dll_path.len();
 

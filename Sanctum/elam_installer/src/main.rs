@@ -36,8 +36,8 @@ fn main() {
 
     // The resulting buffer for a wide string conversion
     let mut path: Vec<u16> = vec![];
-    // The formatted path including the users username
-    let path_with_username = format!(r"C:\Users\{}\AppData\Roaming\Sanctum\sanctum.sys", username);
+    // The formatted path
+    let path_with_username = String::from(r"C:\Program Files\HydraDragonAntivirus\hydradragon\Sanctum\sanctum.sys");
 
     // Encode the formatted string as utf16, into the path buffer
     path_with_username.encode_utf16().for_each(|c| path.push(c));
@@ -151,11 +151,8 @@ fn svc_bin_path() -> Vec<u16> {
 
     // The resulting buffer for a wide string conversion
     let mut path: Vec<u16> = vec![];
-    // The formatted path including the users username
-    let path_with_username = format!(
-        "C:\\Users\\{}\\AppData\\Roaming\\Sanctum\\sanctum_ppl_runner.exe",
-        username
-    );
+    // The formatted path
+    let path_with_username = String::from("C:\\Program Files\\HydraDragonAntivirus\\hydradragon\\Sanctum\\sanctum_ppl_runner.exe");
 
     // Encode the formatted string as utf16, into the path buffer
     path_with_username.encode_utf16().for_each(|c| path.push(c));
@@ -193,11 +190,8 @@ fn create_event_source_key() -> windows::core::Result<()> {
         }
 
         let value_name = to_wstring("EventMessageFile");
-        let username = get_logged_on_user_or_panic();
-        let exe_path = to_wstring(&format!(
-            "C:\\Users\\{}\\AppData\\Roaming\\Sanctum\\sanctum_ppl_runner.exe",
-            username
-        ));
+        let _username = get_logged_on_user_or_panic(); // Not really needed if we don't use it, but left for context if other things need it
+        let exe_path = to_wstring("C:\\Program Files\\HydraDragonAntivirus\\hydradragon\\Sanctum\\sanctum_ppl_runner.exe");
 
         let exe_bytes: &[u8] = std::slice::from_raw_parts(
             exe_path.as_ptr() as *const u8,
