@@ -20,7 +20,7 @@ from collections import OrderedDict, defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
 from textwrap import indent as _indent
-from typing import Any, Callable, Iterator
+from typing import Any, Callable, Iterable, Iterator
 
 
 # ---------------------------------------------------------------------------
@@ -3364,6 +3364,75 @@ def _has_python_structure(source: str) -> bool:
     return any(token in source for token in ("def ", "async def ", "class ", "import "))
 
 
+_MARSHAL_CODE_TAG_BYTES = (b"\xf3", b"\xe3", b"c")
+
+
+def _is_live_code_object(value: Any) -> bool:
+    return hasattr(value, "co_code") or hasattr(value, "co_code_adaptive")
+
+
+def _iter_marshaled_bytecode_payloads(
+    value: Any,
+    *,
+    _seen: set[int] | None = None,
+    _depth: int = 0,
+) -> Iterator[Any]:
+    if _depth > 20:
+        return
+
+    if isinstance(value, (bytes, bytearray)):
+        if len(value) >= 16 and value[:1] in _MARSHAL_CODE_TAG_BYTES:
+            yield bytes(value)
+        return
+
+    if _is_live_code_object(value):
+        yield value
+        for child in getattr(value, "co_consts", ()) or ():
+            yield from _iter_marshaled_bytecode_payloads(
+                child,
+                _seen=_seen,
+                _depth=_depth + 1,
+            )
+        return
+
+    if isinstance(value, (str, int, float, complex, bool, type(None))):
+        return
+
+    if _seen is None:
+        _seen = set()
+    obj_id = id(value)
+    if obj_id in _seen:
+        return
+    _seen.add(obj_id)
+
+    if isinstance(value, dict):
+        for child in value.keys():
+            yield from _iter_marshaled_bytecode_payloads(
+                child,
+                _seen=_seen,
+                _depth=_depth + 1,
+            )
+        for child in value.values():
+            yield from _iter_marshaled_bytecode_payloads(
+                child,
+                _seen=_seen,
+                _depth=_depth + 1,
+            )
+        return
+
+    if isinstance(value, (list, tuple, set, frozenset)):
+        for child in value:
+            yield from _iter_marshaled_bytecode_payloads(
+                child,
+                _seen=_seen,
+                _depth=_depth + 1,
+            )
+
+
+def _contains_marshaled_bytecode_payload(raw_values: Iterable[Any]) -> bool:
+    return any(True for _ in _iter_marshaled_bytecode_payloads(raw_values))
+
+
 def _is_marshaled_bytecode_section_name(
     section_name: str,
     raw_values: Iterable[Any] | None = None,
@@ -3372,12 +3441,7 @@ def _is_marshaled_bytecode_section_name(
         return False
     if raw_values is None:
         return True
-    return any(
-        isinstance(item, (bytes, bytearray))
-        and len(item) >= 16
-        and item[:1] in (b"\xf3", b"\xe3", b"c")
-        for item in raw_values
-    )
+    return _contains_marshaled_bytecode_payload(raw_values)
 
 
 @functools.lru_cache(maxsize=1)
@@ -5717,7 +5781,7 @@ class NbcNoOpsHeuristicReconstructor:
         return self.render_generic()
 
 
-_NBC_BLOCK_START_RE = re.compile(r"^(def|class)\s+([A-Za-z_][A-Za-z0-9_]*)\b")
+_NBC_BLOCK_START_RE = re.compile(r"^(async\s+def|def|class)\s+([A-Za-z_][A-Za-z0-9_]*)\b")
 _NBC_INVENTORY_MARKER = (
     "# ---------------------------------------------------------------------------\n"
     "# Full NBC Constant Inventory\n"
@@ -5758,30 +5822,188 @@ def _nbc_normalize_preamble(lines: list[str]) -> list[str]:
     return cleaned
 
 
-def _nbc_extract_structure(source: str) -> tuple[list[str], "OrderedDict[str, list[str]]"]:
+def _nbc_statement_block_key(lines: list[str], index: int) -> str:
+    for line in lines:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        slug = re.sub(r"[^A-Za-z0-9_]+", "_", stripped).strip("_").lower()[:80]
+        if slug:
+            return f"stmt:{slug}"
+    return f"stmt:{index:04d}"
+
+
+def _nbc_unique_block_key(
+    blocks: "OrderedDict[str, list[str]]",
+    key: str,
+) -> str:
+    if key not in blocks:
+        return key
+    suffix = 1
+    while f"{key}#{suffix}" in blocks:
+        suffix += 1
+    return f"{key}#{suffix}"
+
+
+def _nbc_append_statement_block(
+    blocks: "OrderedDict[str, list[str]]",
+    lines: list[str],
+    index: int,
+) -> int:
+    if not any(line.strip() for line in lines):
+        return index
+    key = _nbc_unique_block_key(blocks, _nbc_statement_block_key(lines, index))
+    blocks[key] = lines
+    return index + 1
+
+
+def _nbc_extract_structure_ast(
+    source: str,
+) -> tuple[list[str], "OrderedDict[str, list[str]]"] | None:
+    body, _tail = _nbc_split_inventory(source)
+    lines = body.splitlines()
+    try:
+        module = ast.parse(body)
+    except SyntaxError:
+        return None
+
+    def _node_start(node: ast.AST) -> int:
+        start = max(0, getattr(node, "lineno", 1) - 1)
+        decorator_starts = [
+            max(0, getattr(decorator, "lineno", 1) - 1)
+            for decorator in getattr(node, "decorator_list", ()) or ()
+            if getattr(decorator, "lineno", None)
+        ]
+        if decorator_starts:
+            start = min([start, *decorator_starts])
+        return start
+
+    first_structural_start = None
+    for node in module.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            first_structural_start = _node_start(node)
+            break
+
+    if first_structural_start is None:
+        return _nbc_normalize_preamble(lines), OrderedDict()
+
+    preamble: list[str] = lines[:first_structural_start]
+    blocks: "OrderedDict[str, list[str]]" = OrderedDict()
+    statement_index = 0
+    cursor = first_structural_start
+
+    for node in module.body:
+        start = _node_start(node)
+        if start < first_structural_start:
+            continue
+        end = max(start + 1, getattr(node, "end_lineno", start + 1))
+
+        gap = lines[cursor:start]
+        if gap:
+            if any(line.strip() and not line.lstrip().startswith("#") for line in gap):
+                statement_index = _nbc_append_statement_block(blocks, gap, statement_index)
+            else:
+                start = cursor
+
+        block_lines = lines[start:end]
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            key = f"def:{node.name}"
+        elif isinstance(node, ast.ClassDef):
+            key = f"class:{node.name}"
+        else:
+            key = _nbc_statement_block_key(block_lines, statement_index)
+            statement_index += 1
+
+        blocks[_nbc_unique_block_key(blocks, key)] = block_lines
+        cursor = end
+
+    trailing = lines[cursor:]
+    if not blocks:
+        preamble = lines
+    elif trailing:
+        if any(line.strip() and not line.lstrip().startswith("#") for line in trailing):
+            _nbc_append_statement_block(blocks, trailing, statement_index)
+        elif any(line.strip() for line in trailing):
+            last_key = next(reversed(blocks))
+            blocks[last_key] = blocks[last_key] + trailing
+
+    return _nbc_normalize_preamble(preamble), blocks
+
+
+def _nbc_extract_structure_fallback(
+    source: str,
+) -> tuple[list[str], "OrderedDict[str, list[str]]"]:
     body, _tail = _nbc_split_inventory(source)
     lines = body.splitlines()
     preamble: list[str] = []
     blocks: "OrderedDict[str, list[str]]" = OrderedDict()
     index = 0
+    statement_index = 0
+
     while index < len(lines):
         line = lines[index]
         match = _NBC_BLOCK_START_RE.match(line)
+        start = index
+
+        if not match and line and not line.startswith((" ", "\t")) and line.lstrip().startswith("@"):
+            probe = index + 1
+            while probe < len(lines):
+                candidate = lines[probe]
+                if candidate and not candidate.startswith((" ", "\t")) and candidate.lstrip().startswith("@"):
+                    probe += 1
+                    continue
+                break
+            if probe < len(lines):
+                match = _NBC_BLOCK_START_RE.match(lines[probe])
+            if match:
+                start = index
+                index = probe
+
         if match:
             kind, name = match.groups()
+            if kind == "async def":
+                kind = "def"
+            index += 1
+            while index < len(lines):
+                candidate = lines[index]
+                if candidate and not candidate.startswith((" ", "\t")):
+                    if _NBC_BLOCK_START_RE.match(candidate) or candidate.lstrip().startswith("@"):
+                        break
+                index += 1
+            blocks[_nbc_unique_block_key(blocks, f"{kind}:{name}")] = lines[start:index]
+            continue
+
+        if not blocks:
+            preamble.append(line)
+            index += 1
+            continue
+
+        if line and not line.startswith((" ", "\t")):
             start = index
             index += 1
             while index < len(lines):
                 candidate = lines[index]
-                if candidate and not candidate.startswith((" ", "\t")) and _NBC_BLOCK_START_RE.match(candidate):
-                    break
+                if candidate and not candidate.startswith((" ", "\t")):
+                    if _NBC_BLOCK_START_RE.match(candidate) or candidate.lstrip().startswith("@"):
+                        break
                 index += 1
-            blocks[f"{kind}:{name}"] = lines[start:index]
+            statement_index = _nbc_append_statement_block(
+                blocks,
+                lines[start:index],
+                statement_index,
+            )
             continue
-        if not blocks:
-            preamble.append(line)
+
         index += 1
+
     return _nbc_normalize_preamble(preamble), blocks
+
+
+def _nbc_extract_structure(source: str) -> tuple[list[str], "OrderedDict[str, list[str]]"]:
+    extracted = _nbc_extract_structure_ast(source)
+    if extracted is not None:
+        return extracted
+    return _nbc_extract_structure_fallback(source)
 
 
 def _nbc_block_quality(lines: list[str]) -> int:

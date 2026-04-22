@@ -46,14 +46,98 @@ DISCOVERED_SECTION_PATTERN = re.compile(r"^discovered_(.+?)_at_\d+$")
 MARSHAL_PYC_PATH_PATTERN = re.compile(rb"([A-Za-z0-9_./\\-]{1,260}\.py)")
 
 
-def is_marshaled_bytecode_section_items(section_name: str, items) -> bool:
+def _is_live_code_object(value) -> bool:
+    return (
+        type(value).__name__ == 'code'
+        or type(value).__name__.startswith('Code')
+        or hasattr(value, 'co_code')
+        or hasattr(value, 'co_code_adaptive')
+    )
+
+
+def _iter_marshaled_bytecode_payloads(
+    value,
+    magic_int: int | None = None,
+    _seen=None,
+    _depth: int = 0,
+):
+    if _depth > 20:
+        return
+
+    if isinstance(value, (bytes, bytearray)):
+        payload = bytes(value)
+        if len(payload) >= 16 and payload[:1] in MARSHAL_VERSION_HINT_TAGS:
+            if (
+                guess_version_from_marshal_bytes(payload) is not None
+                or payload[:1] in MARSHAL_CODE_TAGS
+                or (
+                    magic_int is not None
+                    and (
+                        looks_like_code_header(payload, 0, magic_int)
+                        or try_detect_code_object(payload, 0, magic_int) is not None
+                    )
+                )
+            ):
+                yield payload
+        return
+
+    if _is_live_code_object(value):
+        yield value
+        for child in getattr(value, 'co_consts', ()) or ():
+            yield from _iter_marshaled_bytecode_payloads(
+                child,
+                magic_int=magic_int,
+                _seen=_seen,
+                _depth=_depth + 1,
+            )
+        return
+
+    if isinstance(value, (str, int, float, complex, bool, type(None))):
+        return
+
+    if _seen is None:
+        _seen = set()
+    obj_id = id(value)
+    if obj_id in _seen:
+        return
+    _seen.add(obj_id)
+
+    if isinstance(value, dict):
+        for child in value.keys():
+            yield from _iter_marshaled_bytecode_payloads(
+                child,
+                magic_int=magic_int,
+                _seen=_seen,
+                _depth=_depth + 1,
+            )
+        for child in value.values():
+            yield from _iter_marshaled_bytecode_payloads(
+                child,
+                magic_int=magic_int,
+                _seen=_seen,
+                _depth=_depth + 1,
+            )
+        return
+
+    if isinstance(value, (list, tuple, set, frozenset)):
+        for child in value:
+            yield from _iter_marshaled_bytecode_payloads(
+                child,
+                magic_int=magic_int,
+                _seen=_seen,
+                _depth=_depth + 1,
+            )
+
+
+def is_marshaled_bytecode_section_items(
+    section_name: str,
+    items,
+    magic_int: int | None = None,
+) -> bool:
     if section_name.strip(".").lower() != "bytecode":
         return False
     return any(
-        isinstance(item, (bytes, bytearray))
-        and len(item) >= 16
-        and item[:1] in MARSHAL_VERSION_HINT_TAGS
-        for item in items
+        True for _ in _iter_marshaled_bytecode_payloads(items, magic_int=magic_int)
     )
 
 
@@ -554,7 +638,11 @@ def process_section(
         .replace(".", "_")
         .strip("_")
     )
-    is_marshaled_bytecode_section = is_marshaled_bytecode_section_items(section_name, items)
+    is_marshaled_bytecode_section = is_marshaled_bytecode_section_items(
+        section_name,
+        items,
+        magic_int,
+    )
     count_pyc = 0
     count_other = 0
     omni_count = 0
@@ -784,7 +872,11 @@ def main(argv=None) -> int:
     # This is the primary extraction path for Nuitka binaries.
     # =========================================================================
     raw_code_objects = []
-    if is_marshaled_bytecode_section_items("bytecode", sections.get("bytecode") or []):
+    if is_marshaled_bytecode_section_items(
+        "bytecode",
+        sections.get("bytecode") or [],
+        magic_int,
+    ):
         print("[*] Pass 1: Raw blob scan skipped (bytecode section already provides marshalled code).")
     else:
         print("[*] Pass 1: Raw blob scan for embedded marshal code objects...")
