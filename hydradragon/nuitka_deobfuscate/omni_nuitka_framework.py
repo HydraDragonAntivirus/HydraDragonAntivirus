@@ -3364,6 +3364,22 @@ def _has_python_structure(source: str) -> bool:
     return any(token in source for token in ("def ", "async def ", "class ", "import "))
 
 
+def _is_marshaled_bytecode_section_name(
+    section_name: str,
+    raw_values: Iterable[Any] | None = None,
+) -> bool:
+    if section_name.strip(".").lower() != "bytecode":
+        return False
+    if raw_values is None:
+        return True
+    return any(
+        isinstance(item, (bytes, bytearray))
+        and len(item) >= 16
+        and item[:1] in (b"\xf3", b"\xe3", b"c")
+        for item in raw_values
+    )
+
+
 @functools.lru_cache(maxsize=1)
 def _load_v7_smart_reconstructor():
     candidates: list[str] = []
@@ -3595,6 +3611,15 @@ def reconstruct_module_artifacts(
     decompiler: OmniDecompiler | None = None,
     python_version: tuple[int, int] | None = None,
 ) -> OmniModuleArtifact:
+    if _is_marshaled_bytecode_section_name(section_name, raw_constants):
+        return OmniModuleArtifact(
+            source="",
+            heuristic_source="",
+            strategy="bytecode-only",
+            nbc_text=None,
+            smart_source=None,
+        )
+
     constants = list(raw_constants)
     code_objects: list[dict[str, Any]] = []
     for item in constants:
@@ -3679,6 +3704,8 @@ def generate_omni_source(
     python_version: tuple[int, int] | None = None,
     prefer_full: bool = True,
 ) -> str:
+    if raw_constants is not None and _is_marshaled_bytecode_section_name(section_name, raw_constants):
+        return ""
     if prefer_full and raw_constants is not None:
         return reconstruct_module_artifacts(
             section_name=section_name,
@@ -6024,6 +6051,8 @@ def reconstruct_blob_file(blob_path: str | Path, output_dir: str | Path) -> int:
     count = 0
     for section_name, items in sections.items():
         if not items:
+            continue
+        if _is_marshaled_bytecode_section_name(section_name, items):
             continue
         decompiler = OmniDecompiler()
         decompiler.run_pass_1_structural_mapping(items)

@@ -46,6 +46,17 @@ DISCOVERED_SECTION_PATTERN = re.compile(r"^discovered_(.+?)_at_\d+$")
 MARSHAL_PYC_PATH_PATTERN = re.compile(rb"([A-Za-z0-9_./\\-]{1,260}\.py)")
 
 
+def is_marshaled_bytecode_section_items(section_name: str, items) -> bool:
+    if section_name.strip(".").lower() != "bytecode":
+        return False
+    return any(
+        isinstance(item, (bytes, bytearray))
+        and len(item) >= 16
+        and item[:1] in MARSHAL_VERSION_HINT_TAGS
+        for item in items
+    )
+
+
 # ============================================================================
 # PYC HEADER
 # ============================================================================
@@ -543,12 +554,12 @@ def process_section(
         .replace(".", "_")
         .strip("_")
     )
-    is_marshaled_bytecode_section = section_name.strip(".").lower() == "bytecode"
+    is_marshaled_bytecode_section = is_marshaled_bytecode_section_items(section_name, items)
     count_pyc = 0
     count_other = 0
     omni_count = 0
 
-    if OmniDecompiler:
+    if OmniDecompiler and not is_marshaled_bytecode_section:
         try:
             omp = OmniDecompiler()
             omp.run_pass_1_structural_mapping(items)
@@ -773,7 +784,7 @@ def main(argv=None) -> int:
     # This is the primary extraction path for Nuitka binaries.
     # =========================================================================
     raw_code_objects = []
-    if sections.get("bytecode"):
+    if is_marshaled_bytecode_section_items("bytecode", sections.get("bytecode") or []):
         print("[*] Pass 1: Raw blob scan skipped (bytecode section already provides marshalled code).")
     else:
         print("[*] Pass 1: Raw blob scan for embedded marshal code objects...")
