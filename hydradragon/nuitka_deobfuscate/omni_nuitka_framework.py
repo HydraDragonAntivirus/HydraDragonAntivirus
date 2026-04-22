@@ -4568,7 +4568,9 @@ class NbcNoOpsHeuristicReconstructor:
         for const in module.constants:
             _nbc_collect_texts(const.value, self.all_texts, _seen)
         self.text_set = set(self.all_texts)
+        self.code_objects = self._collect_code_objects()
         self.qualname_items = self._collect_qualnames()
+        self.exact_signatures = self._collect_exact_signatures()
         self.class_methods = self._collect_class_methods()
         self.routes = [
             route for route in self._ROUTE_TO_HANDLER
@@ -4588,6 +4590,94 @@ class NbcNoOpsHeuristicReconstructor:
     def _valid_module_import(self, text: str) -> bool:
         return _nbc_is_probable_import_name(text)
 
+    def _looks_like_class_name(self, text: str) -> bool:
+        tail = text.lstrip("_")
+        return bool(
+            tail
+            and safe_identifier(text)
+            and not tail.isupper()
+            and tail[:1].isupper()
+            and any(ch.islower() for ch in tail[1:])
+        )
+
+    def _split_qualified_name(self, qualname: str) -> tuple[str | None, str | None]:
+        cleaned = str(qualname or "").replace(".<locals>.", ".").strip(".")
+        if not cleaned or cleaned in {"<module>", "__module__"}:
+            return None, None
+        parts = [part for part in cleaned.split(".") if part and part != "<locals>"]
+        if not parts:
+            return None, None
+        leaf = safe_identifier(parts[-1])
+        if not leaf or parts[-1].startswith("<"):
+            return None, None
+        if len(parts) == 1:
+            return None, leaf
+        if self._looks_like_class_name(parts[0]):
+            return parts[0], leaf
+        return None, None
+
+    def _normalize_signature_args(
+        self,
+        args: Iterable[Any],
+        class_name: str | None = None,
+    ) -> list[str]:
+        normalized: list[str] = []
+        seen: set[str] = set()
+
+        for index, value in enumerate(args):
+            text = value if isinstance(value, str) else _nbc_decode_text(value)
+            if text is None:
+                text = f"arg_{index}"
+
+            prefix = ""
+            if text.startswith("**"):
+                prefix, text = "**", text[2:]
+            elif text.startswith("*"):
+                prefix, text = "*", text[1:]
+
+            if text == ".0":
+                text = "iterable"
+
+            safe = safe_identifier(text) or re.sub(r"[^A-Za-z0-9_]", "_", text)
+            safe = safe.strip("_") or f"arg_{index}"
+            if safe[:1].isdigit():
+                safe = f"n_{safe}"
+            if safe in seen and prefix == "":
+                safe = f"{safe}_{index}"
+            seen.add(safe)
+            normalized.append(prefix + safe)
+
+        if class_name and (not normalized or normalized[0] not in {"self", "cls"}):
+            normalized.insert(0, "self")
+        return normalized
+
+    def _collect_code_objects(self) -> list[dict[str, Any]]:
+        results: list[dict[str, Any]] = []
+        for const in self.module.constants:
+            _collect_code_object_specs(const.value, results)
+        return results
+
+    def _collect_exact_signatures(self) -> "OrderedDict[tuple[str | None, str], list[str]]":
+        signatures: "OrderedDict[tuple[str | None, str], list[str]]" = OrderedDict()
+
+        def add(qualname: str, args: Iterable[Any]) -> None:
+            class_name, name = self._split_qualified_name(qualname)
+            if not name:
+                return
+            normalized = self._normalize_signature_args(args, class_name)
+            key = (class_name, name)
+            current = signatures.get(key)
+            if current is None or len(normalized) > len(current):
+                signatures[key] = normalized
+
+        for signature in self.module.functions:
+            add(signature.qualname, signature.args)
+        for code_obj in self.code_objects:
+            qualname = str(code_obj.get("qualname") or code_obj.get("name") or "")
+            add(qualname, code_obj.get("args") or ())
+
+        return signatures
+
     def _collect_qualnames(self) -> list[tuple[int, str]]:
         results: list[tuple[int, str]] = []
         pattern = re.compile(
@@ -4606,28 +4696,36 @@ class NbcNoOpsHeuristicReconstructor:
 
     def _collect_class_methods(self) -> "OrderedDict[str, list[str]]":
         classes: "OrderedDict[str, list[str]]" = OrderedDict()
+        for (class_name, method_name), _args in self.exact_signatures.items():
+            if not class_name:
+                continue
+            classes.setdefault(class_name, [])
+            if method_name not in classes[class_name]:
+                classes[class_name].append(method_name)
         for _index, qualname in self.qualname_items:
-            if "<locals>" in qualname:
+            class_name, method = self._split_qualified_name(qualname)
+            if not class_name or not method:
                 continue
-            first, _, method = qualname.partition(".")
-            if not method:
-                continue
-            if not (first[:1].isupper() or first.startswith("_") and first[1:2].isupper()):
-                continue
-            classes.setdefault(first, [])
-            if method not in classes[first]:
-                classes[first].append(method)
+            classes.setdefault(class_name, [])
+            if method not in classes[class_name]:
+                classes[class_name].append(method)
         return classes
 
     def _collect_top_level_functions(self) -> list[str]:
         funcs: list[str] = []
         seen = set()
+        for (class_name, name), _args in self.exact_signatures.items():
+            if class_name or name in seen:
+                continue
+            funcs.append(name)
+            seen.add(name)
         for _index, qualname in self.qualname_items:
             if ".<locals>." in qualname:
                 parent = qualname.split(".<locals>.", 1)[0]
-                if "." not in parent and parent not in seen:
-                    funcs.append(parent)
-                    seen.add(parent)
+                class_name, name = self._split_qualified_name(parent)
+                if class_name is None and name and name not in seen:
+                    funcs.append(name)
+                    seen.add(name)
         return funcs
 
     def _collect_nested_helper_comments(self) -> dict[str, list[str]]:
@@ -4722,13 +4820,17 @@ class NbcNoOpsHeuristicReconstructor:
         return filtered or None
 
     def _collect_signature_hints(self) -> dict[tuple[str | None, str], list[str]]:
-        hints: dict[tuple[str | None, str], list[str]] = {}
+        hints: dict[tuple[str | None, str], list[str]] = dict(self.exact_signatures)
         for name in self.top_level_functions:
+            if (None, name) in hints:
+                continue
             hint = self._infer_signature_hint(name)
             if hint:
                 hints[(None, name)] = hint
         for class_name, methods in self.class_methods.items():
             for method_name in methods:
+                if (class_name, method_name) in hints:
+                    continue
                 hint = self._infer_signature_hint(method_name, class_name)
                 if hint:
                     hints[(class_name, method_name)] = hint
@@ -4780,6 +4882,13 @@ class NbcNoOpsHeuristicReconstructor:
             if text_value is not None and text_value.startswith("<module "):
                 continue
             if text_value is not None and text_value.endswith(".py"):
+                continue
+            if (
+                text_value is not None
+                and safe_identifier(text_value)
+                and not text_value.startswith(("http://", "https://"))
+                and text_value.lower() != name.lower()
+            ):
                 continue
             if isinstance(value, tuple) and value and all(
                 _nbc_decode_text(item) is not None or isinstance(item, bool) for item in value
@@ -5193,6 +5302,12 @@ class NbcNoOpsHeuristicReconstructor:
     def _emit_imports(self) -> list[str]:
         lines = ["from __future__ import annotations"]
         seen = set(lines)
+        for import_line in self.module.imports:
+            normalized = _nbc_safe_import_line(import_line)
+            if not normalized or normalized in seen:
+                continue
+            seen.add(normalized)
+            lines.append(normalized)
         for text in self.direct_texts + self.all_texts:
             if not self._valid_module_import(text):
                 continue
@@ -5226,20 +5341,13 @@ class NbcNoOpsHeuristicReconstructor:
         if self.api_urls:
             seen_urls: set[str] = set()
             lines.append("# Discovered upstream endpoints")
+            lines.append("DISCOVERED_URLS = [")
             for url in self.api_urls:
                 if url in seen_urls or url == "http://localhost:":
                     continue
                 seen_urls.add(url)
-                if "keyauth.win/api/1.3/" in url:
-                    lines.append(f"KEYAUTH_API_URL = {url!r}")
-                elif "keyauth.win/app/?page=licenses" in url:
-                    lines.append(f"KEYAUTH_PANEL_URL = {url!r}")
-                elif "/inventory/v1/mutate" in url:
-                    lines.append(f"MUTATE_URL = {url!r}")
-                elif "/inventory" in url:
-                    lines.append(f"INVENTORY_URL = {url!r}")
-                else:
-                    lines.append(f"# endpoint: {url}")
+                lines.append(f"    {url!r},")
+            lines.append("]")
             lines.append("")
 
         named_literals = self._discover_named_literal_constants()

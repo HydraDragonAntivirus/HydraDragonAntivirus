@@ -631,6 +631,7 @@ def process_section(
     OmniDecompiler,
     generate_omni_source,
     generate_omni_nbc,
+    emit_pyc: bool = False,
 ) -> tuple[int, int, int, list[str]]:
     clean_section = (
         section_name
@@ -686,22 +687,25 @@ def process_section(
             if guessed_path:
                 guessed_label = Path(guessed_path).stem
 
-            if guessed_path:
-                dest = out_dir / 'pyc' / sanitize_filename(guessed_path).replace('.py', '.pyc')
-            elif guessed_label:
-                dest = out_dir / 'pyc' / clean_section / f"{guessed_label}_{item_id}.pyc"
-            else:
-                dest = out_dir / 'pyc' / clean_section / f"bytecode_{item_id}.pyc"
+            item_info["detected_code_path"] = guessed_path
+            if emit_pyc:
+                if guessed_path:
+                    dest = out_dir / 'pyc' / sanitize_filename(guessed_path).replace('.py', '.pyc')
+                elif guessed_label:
+                    dest = out_dir / 'pyc' / clean_section / f"{guessed_label}_{item_id}.pyc"
+                else:
+                    dest = out_dir / 'pyc' / clean_section / f"bytecode_{item_id}.pyc"
 
-            try:
-                dest.parent.mkdir(parents=True, exist_ok=True)
-                dest.write_bytes(header + bytes(root_item))
-                recovered_file_paths.append(str(dest))
-                count_pyc += 1
-            except Exception:
-                pass
-            
-            item_info["action"] = "bytecode_extracted"
+                try:
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    dest.write_bytes(header + bytes(root_item))
+                    recovered_file_paths.append(str(dest))
+                    count_pyc += 1
+                except Exception:
+                    pass
+                item_info["action"] = "bytecode_extracted"
+            else:
+                item_info["action"] = "bytecode_detected"
             section_items_metadata.append(item_info)
             continue
 
@@ -709,28 +713,36 @@ def process_section(
         recursive_find_code(root_item, discovered_code, set(), magic_int)
         
         if discovered_code:
-            for j, code_obj in enumerate(discovered_code):
-                try:
-                    raw_bytes = marshal.dumps(code_obj, python_version=target_ver_tuple)
-                    path_str = extract_path_from_code(code_obj)
-                    sub_id = f"{i:04d}_{j:02d}"
-                    code_label = extract_code_label(code_obj)
+            item_info["code_object_count"] = len(discovered_code)
+            item_info["detected_code_paths"] = [
+                path for path in (extract_path_from_code(code_obj) for code_obj in discovered_code)
+                if path and "<" not in path
+            ][:16]
+            if emit_pyc:
+                for j, code_obj in enumerate(discovered_code):
+                    try:
+                        raw_bytes = marshal.dumps(code_obj, python_version=target_ver_tuple)
+                        path_str = extract_path_from_code(code_obj)
+                        sub_id = f"{i:04d}_{j:02d}"
+                        code_label = extract_code_label(code_obj)
 
-                    if path_str and "<" not in path_str:
-                        recovered_path = sanitize_filename(path_str)
-                        dest = out_dir / 'pyc' / recovered_path.replace('.py', '.pyc')
-                    elif code_label:
-                        dest = out_dir / 'pyc' / clean_section / f"{code_label}_{sub_id}.pyc"
-                    else:
-                        dest = out_dir / 'pyc' / clean_section / f"bytecode_{sub_id}.pyc"
+                        if path_str and "<" not in path_str:
+                            recovered_path = sanitize_filename(path_str)
+                            dest = out_dir / 'pyc' / recovered_path.replace('.py', '.pyc')
+                        elif code_label:
+                            dest = out_dir / 'pyc' / clean_section / f"{code_label}_{sub_id}.pyc"
+                        else:
+                            dest = out_dir / 'pyc' / clean_section / f"bytecode_{sub_id}.pyc"
 
-                    dest.parent.mkdir(parents=True, exist_ok=True)
-                    dest.write_bytes(header + raw_bytes)
-                    recovered_file_paths.append(str(dest))
-                    count_pyc += 1
-                except Exception:
-                    pass
-            item_info["action"] = "code_objects_extracted"
+                        dest.parent.mkdir(parents=True, exist_ok=True)
+                        dest.write_bytes(header + raw_bytes)
+                        recovered_file_paths.append(str(dest))
+                        count_pyc += 1
+                    except Exception:
+                        pass
+                item_info["action"] = "code_objects_extracted"
+            else:
+                item_info["action"] = "code_objects_detected"
         else:
             if isinstance(root_item, (bytes, bytearray)):
                 item_info["data_preview"] = root_item[:64].hex()
@@ -770,7 +782,13 @@ class ExtractionResult:
     output_dir: Path
     recovered_files: list[str]
 
-def extract_blob(blob_path: Path | str, output_dir: Path | str, target_version: str | tuple[int, int] | None = None, list_only: bool = False) -> ExtractionResult | None:
+def extract_blob(
+    blob_path: Path | str,
+    output_dir: Path | str,
+    target_version: str | tuple[int, int] | None = None,
+    list_only: bool = False,
+    emit_pyc: bool = False,
+) -> ExtractionResult | None:
     blob_path = Path(blob_path)
     output_dir = Path(output_dir)
 
@@ -861,11 +879,11 @@ def extract_blob(blob_path: Path | str, output_dir: Path | str, target_version: 
             print(f"  {name}")
         return ExtractionResult(0, 0, 0, 0, output_dir, [])
 
-    base_out = output_dir / args.blob.stem
+    base_out = output_dir / blob_path.stem
     out_dir = base_out
     counter = 1
     while out_dir.exists() and any(out_dir.iterdir()):
-        out_dir = output_dir / f"{args.blob.stem}_{counter}"
+        out_dir = output_dir / f"{blob_path.stem}_{counter}"
         counter += 1
 
     print(f"[*] Output directory      : {out_dir}")
@@ -884,16 +902,19 @@ def extract_blob(blob_path: Path | str, output_dir: Path | str, target_version: 
     # This is the primary extraction path for Nuitka binaries.
     # =========================================================================
     raw_code_objects = []
-    if is_marshaled_bytecode_section_items(
-        "bytecode",
-        sections.get("bytecode") or [],
-        magic_int,
-    ):
-        print("[*] Pass 1: Raw blob scan skipped (.bytecode section already provides marshalled code).")
+    if emit_pyc:
+        if is_marshaled_bytecode_section_items(
+            "bytecode",
+            sections.get("bytecode") or [],
+            magic_int,
+        ):
+            print("[*] Pass 1: Raw blob scan skipped (.bytecode section already provides marshalled code).")
+        else:
+            print("[*] Pass 1: Raw blob scan for embedded marshal code objects...")
+            raw_code_objects = raw_scan_for_code_objects(raw, target_ver_str)
+            print(f"[*] Raw scan found {len(raw_code_objects)} code object(s) in blob.")
     else:
-        print("[*] Pass 1: Raw blob scan for embedded marshal code objects...")
-        raw_code_objects = raw_scan_for_code_objects(raw, target_ver_str)
-        print(f"[*] Raw scan found {len(raw_code_objects)} code object(s) in blob.")
+        print("[*] Pass 1: Raw blob scan skipped (emit_pyc=False; focusing on non-.pyc recovery).")
 
     for offset, code_obj in raw_code_objects:
         try:
@@ -939,6 +960,7 @@ def extract_blob(blob_path: Path | str, output_dir: Path | str, target_version: 
                     OmniDecompiler,
                     generate_omni_source,
                     generate_omni_nbc,
+                    emit_pyc,
                 )
                 for section_name, items in work_items
             ]
@@ -955,8 +977,12 @@ def extract_blob(blob_path: Path | str, output_dir: Path | str, target_version: 
     # =========================================================================
     print(f"\n[!] Orchestration Complete!")
     print(f"    Target version  : Python {target_ver_str}")
-    print(f"    Raw scan hits   : {len(raw_code_objects)} code objects found in blob")
-    print(f"    Bytecode (.pyc) : {count_pyc} modules extracted")
+    if emit_pyc:
+        print(f"    Raw scan hits   : {len(raw_code_objects)} code objects found in blob")
+        print(f"    Bytecode (.pyc) : {count_pyc} modules extracted")
+    else:
+        print("    Raw scan hits   : disabled by default")
+        print(f"    Bytecode (.pyc) : {count_pyc} modules extracted (default disabled)")
     print(f"    Metadata items  : {count_other}")
     if OmniDecompiler:
         print(f"    OMNI recon      : {sc} Python reconstructions")
