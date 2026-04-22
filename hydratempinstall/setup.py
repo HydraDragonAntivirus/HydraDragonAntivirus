@@ -103,7 +103,7 @@ CLEAN_VM_PY_PATH = HYDRADRAGON_PATH / "Sanctum" / "clean_vm" / "installer_clean_
 CLEAN_VM_FOLDER = HYDRADRAGON_PATH / "Sanctum" / "clean_vm"
 SANCTUM_APPDATA_PATH = HYDRADRAGON_PATH / "Sanctum" / "appdata"
 SANCTUM_ROOT_PATH = HYDRADRAGON_PATH / "Sanctum"
-ROAMING_SANCTUM = Path(os.environ.get("APPDATA", "")) / "Sanctum"
+LEGACY_ROAMING_SANCTUM = Path(os.environ["APPDATA"]) / "Sanctum" if os.environ.get("APPDATA") else None
 
 def _get_folder_path(csidl: int) -> str:
     """Return a Unicode folder path for the given CSIDL using SHGetFolderPathW."""
@@ -122,7 +122,7 @@ def get_desktop() -> Path:
         log.warning("SHGetFolderPathW failed, falling back to user home Desktop: %s", e)
         return Path(os.path.expanduser("~")) / "Desktop"
 
-DESKTOP_SANCTUM = get_desktop() / "sanctum"
+LEGACY_DESKTOP_SANCTUM = get_desktop() / "sanctum"
 
 # ----------------------
 # Helpers
@@ -354,6 +354,38 @@ def safe_copy_dir(src: Path, dst: Path) -> int:
     except Exception as e:
         log.exception("shutil copy failed: %s", e)
         return 1
+
+def migrate_sanctum_tree(src: Optional[Path], label: str) -> int:
+    """
+    Merge a Sanctum tree into the installed Program Files location, then remove
+    the source tree once the copy succeeds.
+    """
+    if src is None:
+        log.info("%s path unavailable. Skipping.", label)
+        return 0
+    if not src.exists():
+        log.info("%s not found. Skipping.", label)
+        return 0
+
+    try:
+        if src.resolve() == SANCTUM_ROOT_PATH.resolve():
+            log.info("%s already points to the installed Sanctum folder. Skipping.", label)
+            return 0
+    except Exception:
+        pass
+
+    log.info("Merging %s into %s", src, SANCTUM_ROOT_PATH)
+    rc = safe_copy_dir(src, SANCTUM_ROOT_PATH)
+    if rc != 0:
+        log.error("Failed to merge %s into installed Sanctum (rc=%d).", label, rc)
+        return rc
+
+    rc_del = safe_delete_dir(src)
+    if rc_del != 0:
+        log.warning("Merged %s but failed to remove the original tree.", label)
+        return rc_del
+
+    return 0
 
 def ensure_path_includes(directory: Path) -> bool:
     """
@@ -590,35 +622,23 @@ def main():
     else:
         log.info("clean_vm folder not found. Skipping.")
 
-    # 10. Copy Sanctum\appdata to %APPDATA%\Sanctum and remove it
+    # 10. Merge packaged Sanctum\appdata into the installed Sanctum folder
     if SANCTUM_APPDATA_PATH.exists():
-        log.info("Copying Sanctum\\appdata to %s", ROAMING_SANCTUM)
-        rc = safe_copy_dir(SANCTUM_APPDATA_PATH, ROAMING_SANCTUM)
-        if rc == 0:
-            rc_del = safe_delete_dir(SANCTUM_APPDATA_PATH)
-            if rc_del != 0:
-                log.warning("Failed to remove Sanctum\\appdata after copy.")
-                errors.append(("sanctum appdata delete", rc_del))
-        else:
-            log.error("Failed to copy Sanctum\\appdata (rc=%d). Original left intact.", rc)
-            errors.append(("sanctum appdata copy", rc))
+        rc = migrate_sanctum_tree(SANCTUM_APPDATA_PATH, "Sanctum\\appdata")
+        if rc != 0:
+            errors.append(("sanctum packaged appdata migrate", rc))
     else:
         log.info("Sanctum\\appdata folder not found. Skipping.")
 
-    # 11. Copy entire Sanctum folder to Desktop and remove original
-    if SANCTUM_ROOT_PATH.exists():
-        log.info("Copying Sanctum folder to Desktop: %s", DESKTOP_SANCTUM)
-        rc = safe_copy_dir(SANCTUM_ROOT_PATH, DESKTOP_SANCTUM)
-        if rc == 0:
-            rc_del = safe_delete_dir(SANCTUM_ROOT_PATH)
-            if rc_del != 0:
-                log.warning("Failed to remove original Sanctum folder.")
-                errors.append(("sanctum root delete", rc_del))
-        else:
-            log.error("Failed to copy Sanctum root (rc=%d)", rc)
-            errors.append(("sanctum root copy", rc))
-    else:
-        log.info("Sanctum folder not found. Skipping.")
+    # 11. Pull any legacy %APPDATA%\Sanctum tree back into Program Files
+    rc = migrate_sanctum_tree(LEGACY_ROAMING_SANCTUM, "legacy %APPDATA%\\Sanctum")
+    if rc != 0:
+        errors.append(("legacy sanctum appdata migrate", rc))
+
+    # 12. Pull any legacy Desktop\sanctum tree back into Program Files
+    rc = migrate_sanctum_tree(LEGACY_DESKTOP_SANCTUM, "legacy Desktop\\sanctum")
+    if rc != 0:
+        errors.append(("legacy sanctum desktop migrate", rc))
 
     # ------------------------------
     # Python / Development environment setup
@@ -630,7 +650,7 @@ def main():
         errors.append(("missing root path", 1))
         summary_and_exit(errors)
 
-    # 12. Create Python virtual environment inside HydraDragonAntivirus folder
+    # 13. Create Python virtual environment inside HydraDragonAntivirus folder
     venv_dir = HYDRADRAGON_ROOT_PATH / "venv"
     try:
         import venv as venv_module  # type: ignore

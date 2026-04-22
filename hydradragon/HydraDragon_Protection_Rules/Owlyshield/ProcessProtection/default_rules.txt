@@ -26,7 +26,6 @@ c:\windows\system32\drivers\OwlyshieldRansomFilter.sys
 c:\windows\system32\drivers\RedDbg.sys
 c:\windows\system32\drivers\hyperhv.sys
 
-# IMPORTANT: This is converted to hardcoded path after install but at start it's not
-# \desktop\sanctum\
-# \appdata\roaming\sanctum\
+# Sanctum install directory
+c:\program files\hydradragonantivirus\hydradragon\sanctum
 

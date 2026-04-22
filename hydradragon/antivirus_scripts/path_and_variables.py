@@ -13,8 +13,12 @@ python_path = sys.executable
 
 # Resolve system drive path
 system_drive = os.getenv("SystemDrive", "C:") + os.sep
-# Resolve Program Files directory via environment (fallback to standard path)
-program_files = os.getenv("ProgramFiles", os.path.join(system_drive, "Program Files"))
+# Resolve Program Files directory via environment (prefer 64-bit Program Files when available)
+program_files = (
+    os.getenv("ProgramW6432")
+    or os.getenv("ProgramFiles")
+    or os.path.join(system_drive, "Program Files")
+)
 # Resolve ProgramData directory via environment (fallback to standard path)
 program_data = os.getenv("ProgramData", os.path.join(system_drive, "ProgramData"))
 # Get SystemRoot (usually C:\Windows)

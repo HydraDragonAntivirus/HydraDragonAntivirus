@@ -159,15 +159,14 @@ Must be build in release mode to match the signing script - if you wanna build i
 
 Now to finish off, we want to move the binaries into the guest VM and run things!
 
-1) Move `um_engine.exe`, `elam_installer`, `app` (gui) into ~Desktop\sanctum
-2) Move `sanctum.sys` & `sanctum_ppl_runner.exe` into %AppData%\Sanctum
+1) Move `um_engine.exe`, `elam_installer`, `app` (gui), `sanctum.sys`, and `sanctum_ppl_runner.exe` into `C:\Program Files\HydraDragonAntivirus\hydradragon\Sanctum`
 3) Move `sanctum.dll` into `C:\Windows\System32`
 4) In an admin powershell terminal:
-   1) cd ~Desktop\sanctum
+   1) cd "C:\Program Files\HydraDragonAntivirus\hydradragon\Sanctum"
    2) `.\elam_installer.exe` - this should work and now prompt you to reboot.
 5) Reboot
 6) In an admin powershell terminal:
-   1) cd ~Desktop\sanctum
+   1) cd "C:\Program Files\HydraDragonAntivirus\hydradragon\Sanctum"
    2) `.\elam_installer.exe` - this time no prompt to reboot
    3) `sc.exe start sanctum_ppl_runner` - This should run your PPL service. If you have issues, check Event Viewer, or go to Services -> sanctum_ppl_runner and start it from there (may give more verbose error messages)
 7) Run um_engine as admin

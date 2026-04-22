@@ -42,14 +42,16 @@ if /I "%POSTINSTALL_STAGE%"=="after-hypervisor-reboot" (
 :: --------------------------------------------------------
 :: 3) Environment setup
 :: --------------------------------------------------------
-set "DESKTOP_SANCTUM=%USERPROFILE%\Desktop\sanctum"
+set "PROGRAM_FILES_ROOT=%ProgramW6432%"
+if not defined PROGRAM_FILES_ROOT set "PROGRAM_FILES_ROOT=%ProgramFiles%"
+if not defined PROGRAM_FILES_ROOT set "PROGRAM_FILES_ROOT=C:\Program Files"
+set "SANCTUM_DIR=%PROGRAM_FILES_ROOT%\HydraDragonAntivirus\hydradragon\Sanctum"
 
-echo [*] Desktop sanctum path: %DESKTOP_SANCTUM%
+echo [*] Sanctum install path: %SANCTUM_DIR%
 
 :: --------------------------------------------------------
-:: 4) Check %APPDATA%\Sanctum and auto-download missing files
+:: 4) Check installed Sanctum folder and auto-download missing files
 :: --------------------------------------------------------
-set "SANCTUM_DIR=%APPDATA%\Sanctum"
 set "FILE1=ioc_list.txt"
 set "FILE2=config.cfg"
 
@@ -106,7 +108,7 @@ echo [+] All required Sanctum files are present.
 :: --------------------------------------------------------
 :: 5) Run ELAM installer first (if exists)
 :: --------------------------------------------------------
-set "ELAM_EXE=%DESKTOP_SANCTUM%\elam_installer.exe"
+set "ELAM_EXE=%SANCTUM_DIR%\elam_installer.exe"
 
 if exist "%ELAM_EXE%" (
     echo [*] Running ELAM installer: "%ELAM_EXE%"

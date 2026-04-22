@@ -8,29 +8,19 @@ If (-not ([Security.Principal.WindowsPrincipal] `
     exit 1
 }
 
-# 1) Create %AppData%\Sanctum
-$appDataDir = Join-Path $env:APPDATA 'Sanctum'
-if (Test-Path $appDataDir) {
-    Write-Host "Directory '$appDataDir' already exists. Exiting." -ForegroundColor Yellow
-    exit 1
+# 1) Ensure Sanctum exists under Program Files
+$programFilesRoot = if ($env:ProgramW6432) { $env:ProgramW6432 } elseif ($env:ProgramFiles) { $env:ProgramFiles } else { 'C:\Program Files' }
+$sanctumDir = Join-Path $programFilesRoot 'HydraDragonAntivirus\hydradragon\Sanctum'
+if (Test-Path $sanctumDir) {
+    Write-Host "Directory '$sanctumDir' already exists." -ForegroundColor Yellow
 } else {
-    New-Item -Path $appDataDir -ItemType Directory -Force | Out-Null
-    Write-Host "Created directory: $appDataDir"
+    New-Item -Path $sanctumDir -ItemType Directory -Force | Out-Null
+    Write-Host "Created directory: $sanctumDir"
 }
 
-# 2) Create ~/Desktop/sanctum
-$desktopDir = Join-Path ([Environment]::GetFolderPath('Desktop')) 'sanctum'
-if (Test-Path $desktopDir) {
-    Write-Host "Directory '$desktopDir' already exists. Exiting." -ForegroundColor Yellow
-    exit 1
-} else {
-    New-Item -Path $desktopDir -ItemType Directory -Force | Out-Null
-    Write-Host "Created directory: $desktopDir"
-}
-
-# 3) Download iocs
+# 2) Download iocs
 $githubUrl    = 'https://raw.githubusercontent.com/0xflux/Sanctum/refs/heads/main/clean_files/ioc_list.txt'
-$outFilePath  = Join-Path $appDataDir 'ioc_list.txt'
+$outFilePath  = Join-Path $sanctumDir 'ioc_list.txt'
 
 Write-Host "Downloading from $githubUrl to $outFilePath..."
 try {
@@ -43,7 +33,7 @@ try {
 
 # 3) Download config
 $githubUrl    = 'https://raw.githubusercontent.com/0xflux/Sanctum/refs/heads/main/clean_files/config.cfg'
-$outFilePath  = Join-Path $appDataDir 'config.cfg'
+$outFilePath  = Join-Path $sanctumDir 'config.cfg'
 
 Write-Host "Downloading from $githubUrl to $outFilePath..."
 try {
@@ -59,4 +49,4 @@ bcdedit /set TESTSIGNING ON
 bcdedit /debug ON
 bcdedit /dbgsettings serial debugport:1 baudrate:115200
 
-Write-Host 'Clean VM setup complete. Created %AppData%\Sanctum and ~Desktop\sanctum. Please follow the remaining instructions to install.' -ForegroundColor Green
+Write-Host "Clean VM setup complete. Sanctum is ready at $sanctumDir. Please follow the remaining instructions to install." -ForegroundColor Green

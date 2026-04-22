@@ -118,25 +118,14 @@ def _sync_path_is_under(prefix: str, candidate: str) -> bool:
 def _sync_is_protected_path(candidate_path: str) -> bool:
     candidate = _sync_normalize_path_for_compare(candidate_path)
 
-    program_files = os.environ.get("PROGRAMFILES") or r"C:\Program Files"
+    program_files = (
+        os.environ.get("PROGRAMW6432")
+        or os.environ.get("PROGRAMFILES")
+        or r"C:\Program Files"
+    )
     pf_hda = os.path.join(program_files, "HydraDragonAntivirus")
     if _sync_path_is_under(pf_hda, candidate):
         return True
-
-    appdata = os.environ.get("APPDATA")
-    if appdata:
-        app_sanctum = os.path.join(appdata, "Sanctum")
-        if _sync_path_is_under(app_sanctum, candidate):
-            return True
-
-    try:
-        desktop = _sync_get_folder_path(CSIDL_DESKTOPDIRECTORY)
-    except Exception:
-        desktop = None
-    if desktop:
-        desktop_sanctum = os.path.join(desktop, "Sanctum")
-        if _sync_path_is_under(desktop_sanctum, candidate):
-            return True
 
     return False
 

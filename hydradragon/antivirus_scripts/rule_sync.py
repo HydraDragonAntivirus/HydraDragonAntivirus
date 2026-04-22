@@ -1,44 +1,24 @@
 import os
-import ctypes
 from .path_and_variables import (
     logger,
-    RULE_FILES,
-    CSIDL_DESKTOP,
-    CSIDL_APPDATA,
-    CSIDL_LOCAL_APPDATA
+    RULE_FILES
 )
 
-def get_user_profile_paths():
-    """Detect current user profile paths using Windows API."""
-    MAX_PATH = 260
-    paths = {}
-    
-    # helper for SHGetSpecialFolderPathW
-    def get_path(csidl):
-        buf = ctypes.create_unicode_buffer(MAX_PATH)
-        if ctypes.windll.shell32.SHGetSpecialFolderPathW(None, buf, csidl, False):
-            return buf.value
-        return None
-
-    paths['desktop'] = get_path(CSIDL_DESKTOP)
-    paths['appdata_roaming'] = get_path(CSIDL_APPDATA)
-    
-    return paths
+def get_sanctum_install_path():
+    """Return the installed Sanctum directory under Program Files."""
+    program_files = (
+        os.environ.get("ProgramW6432")
+        or os.environ.get("ProgramFiles")
+        or r"C:\Program Files"
+    )
+    return os.path.join(program_files, "HydraDragonAntivirus", "hydradragon", "Sanctum")
 
 def sync_dynamic_protection_rules():
-    """Detect current user profile paths and update protection rules."""
+    """Detect the installed Sanctum paths and update protection rules."""
     logger.info("[INIT] Synchronizing dynamic protection rules...")
-    paths = get_user_profile_paths()
-    
-    dynamic_paths = []
-    
-    # Auto-integrate Sanctum paths
-    if paths.get('desktop'):
-        dynamic_paths.append(os.path.join(paths['desktop'], "sanctum"))
-    if paths.get('appdata_roaming'):
-        dynamic_paths.append(os.path.join(paths['appdata_roaming'], "sanctum"))
+    dynamic_paths = [get_sanctum_install_path()]
 
-    # Auto-integrate explicitly dropped OpenEDR and Sanctum system32 paths
+    # Auto-integrate the installed Sanctum tree plus dropped System32 components.
     windir = os.environ.get('WINDIR', r'C:\Windows')
     system32 = os.path.join(windir, 'System32')
     drivers_dir = os.path.join(system32, 'drivers')
@@ -58,6 +38,12 @@ def sync_dynamic_protection_rules():
 
     # Standardize to lower for comparison
     dynamic_paths = [p.lower() for p in dynamic_paths]
+    dynamic_rule_lines = set()
+    for path in dynamic_paths:
+        rule_line = path
+        if not path.endswith('\\') and not (path.endswith('.dll') or path.endswith('.sys')):
+            rule_line = f"{path}\\"
+        dynamic_rule_lines.add(rule_line)
 
     for rule_file in RULE_FILES:
         try:
@@ -72,11 +58,18 @@ def sync_dynamic_protection_rules():
             cleaned_lines = []
             for line in lines:
                 strip_line = line.strip().lower()
-                # Check if line is a dynamic path
-                is_old_dynamic = False
-                if strip_line.startswith("c:\\users\\") and ("desktop" in strip_line or "appdata" in strip_line):
-                    is_old_dynamic = True
-                
+                is_old_dynamic = (
+                    strip_line == "# --- dynamic protection rules (auto-sync) ---"
+                    or strip_line in dynamic_rule_lines
+                    or (
+                        strip_line.startswith("c:\\users\\")
+                        and (
+                            "\\desktop\\sanctum" in strip_line
+                            or "\\appdata\\" in strip_line and "\\sanctum" in strip_line
+                        )
+                    )
+                )
+
                 if is_old_dynamic:
                     continue
                 cleaned_lines.append(line)

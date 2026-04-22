@@ -168,25 +168,12 @@ fn path_is_under(prefix: &Path, candidate: &Path) -> bool {
 fn is_protected_path(candidate_path: &str) -> bool {
     let candidate = PathBuf::from(candidate_path);
 
-    let program_files =
-        std::env::var("ProgramFiles").unwrap_or_else(|_| r"C:\Program Files".to_string());
+    let program_files = std::env::var("ProgramW6432")
+        .or_else(|_| std::env::var("ProgramFiles"))
+        .unwrap_or_else(|_| r"C:\Program Files".to_string());
     let pf_hda = PathBuf::from(program_files).join("HydraDragonAntivirus");
     if path_is_under(&pf_hda, &candidate) {
         return true;
-    }
-
-    if let Ok(appdata) = std::env::var("APPDATA") {
-        let sanctum = PathBuf::from(appdata).join("Sanctum");
-        if path_is_under(&sanctum, &candidate) {
-            return true;
-        }
-    }
-
-    if let Ok(user_profile) = std::env::var("USERPROFILE") {
-        let desktop_sanctum = PathBuf::from(user_profile).join("Desktop").join("Sanctum");
-        if path_is_under(&desktop_sanctum, &candidate) {
-            return true;
-        }
     }
 
     false

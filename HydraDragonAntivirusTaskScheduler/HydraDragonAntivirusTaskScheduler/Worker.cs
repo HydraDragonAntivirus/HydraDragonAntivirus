@@ -25,19 +25,22 @@ namespace HydraDragonAntivirusTaskScheduler
             await Task.Yield();
 
             // --------------------------------------------------
-            // Desktop sanctum initialization phase
+            // Installed Sanctum initialization phase
             // --------------------------------------------------
             try
             {
-                string desktopSanctum = Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.Desktop),
-                    "sanctum"
+                string sanctumInstallPath = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+                    "HydraDragonAntivirus",
+                    "hydradragon",
+                    "Sanctum"
                 );
-                Environment.SetEnvironmentVariable("DESKTOP_SANCTUM", desktopSanctum);
+                Environment.SetEnvironmentVariable("SANCTUM_HOME", sanctumInstallPath);
+                Environment.SetEnvironmentVariable("DESKTOP_SANCTUM", sanctumInstallPath);
 
-                _logger.LogInformation("Sanctum path set to: {path}", desktopSanctum);
+                _logger.LogInformation("Sanctum path set to installed location: {path}", sanctumInstallPath);
 
-                await RunSanctumSequenceAsync(desktopSanctum, stoppingToken);
+                await RunSanctumSequenceAsync(sanctumInstallPath, stoppingToken);
             }
             catch (Exception ex)
             {

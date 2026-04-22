@@ -296,7 +296,7 @@ def main():
     logger.info(f"[INIT] Python: {sys.version}")
     logger.info(f"[INIT] CWD: {os.getcwd()}")
 
-    # Synchronize dynamic protection rules (Desktop, AppData, etc.) on start
+    # Synchronize dynamic protection rules (installed Sanctum path, System32 drivers, etc.) on start
     try:
         sync_dynamic_protection_rules()
     except Exception as e:

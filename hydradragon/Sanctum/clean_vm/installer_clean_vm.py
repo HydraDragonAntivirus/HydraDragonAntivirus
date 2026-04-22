@@ -58,8 +58,8 @@ def get_special_folder(csidl):
 def create_directory(path, description):
     """Create a directory if it doesn't exist."""
     if path.exists():
-        print(f"WARNING: Directory '{path}' already exists.", file=sys.stderr)
-        return False
+        print(f"INFO: Directory already exists: {path}")
+        return True
     
     try:
         path.mkdir(parents=True, exist_ok=False)
@@ -120,30 +120,20 @@ def main():
     
     errors = []
     
-    # 1. Create %AppData%\Sanctum
-    appdata = os.environ.get("APPDATA")
-    if not appdata:
-        print("ERROR: APPDATA environment variable not found.", file=sys.stderr)
-        sys.exit(1)
-    
-    appdata_sanctum = Path(appdata) / "Sanctum"
-    if not create_directory(appdata_sanctum, "%AppData%\\Sanctum"):
-        errors.append("AppData Sanctum directory creation")
-    
-    # 2. Create ~/Desktop/sanctum
-    # Use CSIDL_DESKTOPDIRECTORY (0x0010) to get Desktop folder
-    try:
-        desktop_path = get_special_folder(0x0010)
-        desktop_sanctum = Path(desktop_path) / "sanctum"
-    except Exception as e:
-        print(f"WARNING: Failed to get Desktop path via Shell API: {e}", file=sys.stderr)
-        # Fallback to user profile
-        desktop_sanctum = Path.home() / "Desktop" / "sanctum"
-    
-    if not create_directory(desktop_sanctum, "Desktop\\sanctum"):
-        errors.append("Desktop sanctum directory creation")
+    # 1. Ensure the installed Sanctum folder exists under Program Files
+    program_files = (
+        os.environ.get("ProgramW6432")
+        or os.environ.get("ProgramFiles")
+        or r"C:\Program Files"
+    )
+    sanctum_install_dir = Path(program_files) / "HydraDragonAntivirus" / "hydradragon" / "Sanctum"
+    if not create_directory(
+        sanctum_install_dir,
+        r"C:\Program Files\HydraDragonAntivirus\hydradragon\Sanctum"
+    ):
+        errors.append("Installed Sanctum directory creation")
 
-    # 3. Dynamic System32 Deployment (EDR DLL)
+    # 2. Dynamic System32 Deployment (EDR DLL)
     print("\nDeploying EDR component to System32...")
     # Dynamic source: Relies on repo structure: Sanctum/System32/sanctum.dll
     base_dir = Path(__file__).parent.absolute()
@@ -171,11 +161,11 @@ def main():
     else:
         print(f"WARNING: Source DLL not found at {local_dll_source}. Skipping deployment.", file=sys.stderr)
 
-    # 4. Configure BCD settings
+    # 3. Configure BCD settings
     if not configure_bcd():
         errors.append("BCD configuration")
 
-    # 5. Summary
+    # 4. Summary
     print("\n" + "=" * 70)
     if errors:
         print("⚠ Setup completed with warnings/errors:")
@@ -186,8 +176,7 @@ def main():
     else:
         print("✓ Clean VM setup complete!")
         print(f"\nCreated directories:")
-        print(f"  - {appdata_sanctum}")
-        print(f"  - {desktop_sanctum}")
+        print(f"  - {sanctum_install_dir}")
         print("\nPlease follow the remaining instructions to complete installation.")
         print("=" * 70)
         sys.exit(0)
