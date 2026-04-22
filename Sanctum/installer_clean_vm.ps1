@@ -18,30 +18,22 @@ if (Test-Path $sanctumDir) {
     Write-Host "Created directory: $sanctumDir"
 }
 
-# 2) Download iocs
-$githubUrl    = 'https://raw.githubusercontent.com/0xflux/Sanctum/refs/heads/main/clean_files/ioc_list.txt'
-$outFilePath  = Join-Path $sanctumDir 'ioc_list.txt'
+# 2) Trust local files (IOCs and Configurations) already copied during installation.
+$iocFilePath   = Join-Path $sanctumDir 'clean_files\ioc_list.txt'
+$configFilePath= Join-Path $sanctumDir 'clean_files\config.cfg'
 
-Write-Host "Downloading from $githubUrl to $outFilePath..."
-try {
-    Invoke-WebRequest -Uri $githubUrl -OutFile $outFilePath -UseBasicParsing
-    Write-Host 'Download completed successfully.' -ForegroundColor Green
-} catch {
-    Write-Error "Failed to download file: $_"
-    exit 1
+if (Test-Path $iocFilePath) {
+    Write-Host "Local ioc_list.txt found at $iocFilePath." -ForegroundColor Green
+    Copy-Item -Path $iocFilePath -Destination (Join-Path $sanctumDir 'ioc_list.txt') -Force
+} else {
+    Write-Host "WARNING: Local ioc_list.txt NOT found at $iocFilePath." -ForegroundColor Yellow
 }
 
-# 3) Download config
-$githubUrl    = 'https://raw.githubusercontent.com/0xflux/Sanctum/refs/heads/main/clean_files/config.cfg'
-$outFilePath  = Join-Path $sanctumDir 'config.cfg'
-
-Write-Host "Downloading from $githubUrl to $outFilePath..."
-try {
-    Invoke-WebRequest -Uri $githubUrl -OutFile $outFilePath -UseBasicParsing
-    Write-Host 'Download completed successfully.' -ForegroundColor Green
-} catch {
-    Write-Error "Failed to download file: $_"
-    exit 1
+if (Test-Path $configFilePath) {
+    Write-Host "Local config.cfg found at $configFilePath." -ForegroundColor Green
+    Copy-Item -Path $configFilePath -Destination (Join-Path $sanctumDir 'config.cfg') -Force
+} else {
+    Write-Host "WARNING: Local config.cfg NOT found at $configFilePath." -ForegroundColor Yellow
 }
 
 Write-Host "Configuring BCD for test-signing and kernel debug..."

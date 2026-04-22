@@ -55,7 +55,6 @@ echo [*] Sanctum install path: %SANCTUM_DIR%
 set "FILE1=ioc_list.txt"
 set "FILE2=config.cfg"
 
-set "URL_BASE=https://raw.githubusercontent.com/0xflux/Sanctum/refs/heads/main/clean_files"
 
 echo [*] Checking Sanctum directory: "%SANCTUM_DIR%"
 
@@ -77,14 +76,14 @@ echo [*] Checking required files...
 if exist "%SANCTUM_DIR%\%FILE1%" (
     echo [+] Found: %FILE1%
 ) else (
-    echo [!] Missing %FILE1%, downloading...
-    powershell -Command "(New-Object Net.WebClient).DownloadFile('%URL_BASE%/%FILE1%', '%SANCTUM_DIR%\%FILE1%')"
+    echo [!] Missing %FILE1%, copying from clean_files...
+    copy /Y "%SANCTUM_DIR%\clean_files\%FILE1%" "%SANCTUM_DIR%\%FILE1%" >nul
     if not exist "%SANCTUM_DIR%\%FILE1%" (
-        echo [!] ERROR: Failed to download %FILE1%
+        echo [!] ERROR: Failed to copy %FILE1% from clean_files
         pause
         exit /b
     )
-    echo [+] Downloaded %FILE1%
+    echo [+] Copied %FILE1% from clean_files
 )
 
 :: ----------------------------
@@ -93,14 +92,14 @@ if exist "%SANCTUM_DIR%\%FILE1%" (
 if exist "%SANCTUM_DIR%\%FILE2%" (
     echo [+] Found: %FILE2%
 ) else (
-    echo [!] Missing %FILE2%, downloading...
-    powershell -Command "(New-Object Net.WebClient).DownloadFile('%URL_BASE%/%FILE2%', '%SANCTUM_DIR%\%FILE2%')"
+    echo [!] Missing %FILE2%, copying from clean_files...
+    copy /Y "%SANCTUM_DIR%\clean_files\%FILE2%" "%SANCTUM_DIR%\%FILE2%" >nul
     if not exist "%SANCTUM_DIR%\%FILE2%" (
-        echo [!] ERROR: Failed to download %FILE2%
+        echo [!] ERROR: Failed to copy %FILE2% from clean_files
         pause
         exit /b
     )
-    echo [+] Downloaded %FILE2%
+    echo [+] Copied %FILE2% from clean_files
 )
 
 echo [+] All required Sanctum files are present.
