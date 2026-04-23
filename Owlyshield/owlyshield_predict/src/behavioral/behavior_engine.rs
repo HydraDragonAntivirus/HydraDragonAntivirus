@@ -5814,7 +5814,10 @@ impl BehaviorEngine {
                     }
                 }
                 if !matched && !cond_group.pipe_names.is_empty() {
-                    let is_pipe_op = matches!(irp_op, 28 | 29); // IRP_NAMED_PIPE_CREATE, IRP_NAMED_PIPE_WRITE
+                    let is_pipe_op = matches!(
+                        irp_op,
+                        IrpMajorOp::IrpNamedPipeCreate | IrpMajorOp::IrpNamedPipeWrite
+                    );
                     if is_pipe_op {
                         let pipe_name = msg
                             .kernel_event_info
@@ -5829,7 +5832,11 @@ impl BehaviorEngine {
                             let op_match = if cond_group.pipe_operations.is_empty() {
                                 true
                             } else {
-                                let current_op = if *irp_op == 28 { "create" } else { "write" };
+                                let current_op = if *irp_op == IrpMajorOp::IrpNamedPipeCreate {
+                                    "create"
+                                } else {
+                                    "write"
+                                };
                                 cond_group
                                     .pipe_operations
                                     .iter()
@@ -5839,7 +5846,7 @@ impl BehaviorEngine {
                             if op_match {
                                 let payload_match = if cond_group.pipe_payloads.is_empty() {
                                     true
-                                } else if *irp_op == 29 {
+                                } else if *irp_op == IrpMajorOp::IrpNamedPipeWrite {
                                     cond_group.pipe_payloads.iter().any(|pm| {
                                         pm.matches(
                                             &self.regex_cache,
@@ -5857,7 +5864,11 @@ impl BehaviorEngine {
                                         cond_name,
                                         state.pid,
                                         pipe_name,
-                                        if *irp_op == 28 { "create" } else { "write" }
+                                        if *irp_op == IrpMajorOp::IrpNamedPipeCreate {
+                                            "create"
+                                        } else {
+                                            "write"
+                                        }
                                     ));
                                 }
                             }

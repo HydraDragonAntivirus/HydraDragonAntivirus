@@ -36,23 +36,23 @@ fn get_known_folder_path(folder_id: &windows::core::GUID) -> Option<String> {
     use std::ffi::{OsString, c_void};
     use std::os::windows::ffi::OsStringExt;
     use std::slice;
+    use windows::Win32::Foundation::HANDLE;
     use windows::Win32::System::Com::CoTaskMemFree;
-    use windows::Win32::UI::Shell::SHGetKnownFolderPath;
+    use windows::Win32::UI::Shell::{KNOWN_FOLDER_FLAG, SHGetKnownFolderPath};
 
     unsafe {
-        let mut path_ptr: windows::core::PWSTR = std::ptr::null_mut();
-        let result = SHGetKnownFolderPath(folder_id, 0, std::ptr::null_mut(), &mut path_ptr);
-        if result != 0 || path_ptr.is_null() {
-            CoTaskMemFree(path_ptr as *const c_void);
+        let path_ptr =
+            SHGetKnownFolderPath(folder_id, KNOWN_FOLDER_FLAG(0), HANDLE::default()).ok()?;
+        if path_ptr.is_null() {
             return None;
         }
 
-        let len = wide_ptr_len(path_ptr);
-        let path_slice = slice::from_raw_parts(path_ptr, len);
+        let len = wide_ptr_len(path_ptr.0);
+        let path_slice = slice::from_raw_parts(path_ptr.0, len);
         let path = OsString::from_wide(path_slice)
             .to_string_lossy()
             .into_owned();
-        CoTaskMemFree(path_ptr as *const c_void);
+        CoTaskMemFree(Some(path_ptr.0 as *const c_void));
         Some(path)
     }
 }
