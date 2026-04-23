@@ -7,6 +7,7 @@
 #include "Scanner\ScanService.h"
 #include "FileSystem\FileFsEnumContext.h"
 #include "FileSystem\FileFs.h"
+#include "FileSystem\MemoryFs.h"
 
 StringW AnsiToUnicode(__in StringA * str)
 {
@@ -98,6 +99,16 @@ HRESULT WINAPI CreateClassObject(__in REFCLSID rclsid, __in DWORD dwClsContext, 
 	{
 		*ppv = static_cast<IVirtualFs*>(new CFileFs());
 		return S_OK;
+	}
+
+	else if (IsEqualCLSID(rclsid, CLSID_CMemoryFs) &&
+		(IsEqualIID(riid, __uuidof(IMemoryFs)) || IsEqualIID(riid, __uuidof(IVirtualFs))))
+	{
+		CMemoryFs * memoryFs = new CMemoryFs();
+		if (memoryFs == NULL) return E_OUTOFMEMORY;
+		HRESULT hr = memoryFs->QueryInterface(riid, ppv);
+		memoryFs->Release();
+		return hr;
 	}
 
 	return E_NOINTERFACE;

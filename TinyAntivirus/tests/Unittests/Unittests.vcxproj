@@ -163,6 +163,7 @@
     <ClCompile Include="FileFsEnum_unittest.cpp" />
     <ClCompile Include="FileFsStream_unittest.cpp" />
     <ClCompile Include="FileFs_unittest.cpp" />
+    <ClCompile Include="MemoryFs_unittest.cpp" />
     <ClCompile Include="main.cpp" />
   </ItemGroup>
   <ItemGroup>

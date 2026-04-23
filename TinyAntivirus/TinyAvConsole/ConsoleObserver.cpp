@@ -139,6 +139,11 @@ HRESULT WINAPI CConsoleObserver::OnPostClean(__in IVirtualFs * file, __in IFsEnu
 			m_FailedCnt++;
 			break;
 
+		case VirusQuarantined:
+			printf("Quarantined \n");
+			m_RemovedCnt++;
+			break;
+
 		case VirusDeleted:
 			printf("Deleted \n");
 			m_RemovedCnt++;

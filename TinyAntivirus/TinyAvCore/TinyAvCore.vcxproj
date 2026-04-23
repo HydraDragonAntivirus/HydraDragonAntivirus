@@ -45,6 +45,8 @@
     <ClInclude Include="FileSystem\FileFsEnum.h" />
     <ClInclude Include="FileSystem\FileFsEnumContext.h" />
     <ClInclude Include="FileSystem\FileFsStream.h" />
+    <ClInclude Include="FileSystem\MemoryFs.h" />
+    <ClInclude Include="FileSystem\Win32FileApi.h" />
     <ClInclude Include="FileSystem\zip\UnzipHelper.h" />
     <ClInclude Include="FileSystem\zip\ZipFs.h" />
     <ClInclude Include="FileSystem\zip\ZipFsAttribute.h" />
@@ -75,6 +77,8 @@
     <ClCompile Include="FileSystem\FileFsEnum.cpp" />
     <ClCompile Include="FileSystem\FileFsEnumContext.cpp" />
     <ClCompile Include="FileSystem\FileFsStream.cpp" />
+    <ClCompile Include="FileSystem\MemoryFs.cpp" />
+    <ClCompile Include="FileSystem\Win32FileApi.cpp" />
     <ClCompile Include="FileSystem\zip\UnzipHelper.cpp" />
     <ClCompile Include="FileSystem\zip\ZipFs.cpp" />
     <ClCompile Include="FileSystem\zip\ZipFsAttribute.cpp" />

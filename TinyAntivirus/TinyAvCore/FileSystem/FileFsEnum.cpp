@@ -133,11 +133,37 @@ HRESULT WINAPI CFileFsEnum::Enum(__in IFsEnumContext *context)
 	BSTR	searchPattern = NULL;
 	BSTR	searchContainerPath = NULL;
 	IVirtualFs * searchContainer = NULL;
+	ULONG searchContainerType = IVirtualFs::unknown;
 	int		maxDepth = context->GetMaxDepth();
 
 	if (FAILED(context->GetSearchContainer((IVirtualFs**)&searchContainer)) ||
-		FAILED(context->GetSearchPattern(&searchPattern)) ||
-		FAILED(searchContainer->GetFullPath(&searchContainerPath)))
+		FAILED(context->GetSearchPattern(&searchPattern)))
+	{
+		if (searchContainer) searchContainer->Release();
+		if (searchContainerPath) SysFreeString(searchContainerPath);
+		if (searchPattern) SysFreeString(searchPattern);
+		return E_FAIL;
+	}
+
+	if (FAILED(searchContainer->GetFsType(&searchContainerType)))
+	{
+		if (searchContainer) searchContainer->Release();
+		if (searchPattern) SysFreeString(searchPattern);
+		return E_FAIL;
+	}
+
+	// Memory-backed virtual files can be scanned directly without walking the host file system.
+	if (searchContainerType == IVirtualFs::memory)
+	{
+		InitArchiveObservers();
+		hr = OnFileFound(searchContainer, context, context->GetDepth());
+		CleanupArchiveObservers();
+		if (searchContainer) searchContainer->Release();
+		if (searchPattern) SysFreeString(searchPattern);
+		return hr;
+	}
+
+	if (FAILED(searchContainer->GetFullPath(&searchContainerPath)))
 	{
 		if (searchContainer) searchContainer->Release();
 		if (searchContainerPath) SysFreeString(searchContainerPath);
@@ -445,6 +471,7 @@ HRESULT CFileFsEnum::CheckDeferredDeletion(__in IVirtualFs * container, __in IVi
 			return S_OK;
 
 		case IVirtualFs::basic:
+		case IVirtualFs::memory:
 			return S_OK;
 		default:
 			return E_NOT_VALID_STATE;

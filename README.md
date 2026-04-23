@@ -165,7 +165,7 @@ See the [LICENSE](./LICENSE) file for more information.
 
 ## Guide to compiling from source
 - Build documentation is being split into component pages.
-- TinyAntivirus (VS2022 build + Sality engine notes): [docs/wiki/TinyAntivirus.md](docs/wiki/TinyAntivirus.md)
+- TinyAntivirus (VS2022 build + Sality engine notes): [TinyAntivirus wiki](https://github.com/HydraDragonAntivirus/HydraDragonAntivirus/wiki/TinyAntivirus)
 - More component-specific pages will be added over time.
 
 ## Ghidra Source Code

@@ -10,6 +10,7 @@ IVirtualFs : public IUnknown
     unknown = 1,
     basic   = 1 << 1,
     archive = 1 << 2,
+    memory  = 1 << 3,
     };
 
     enum IFsObjectFlags {
@@ -128,3 +129,19 @@ public:
     END_INTERFACE
 };
 
+MIDL_INTERFACE("472078E2-5A92-4D81-B877-F10EAC11E8E7")
+IMemoryFs : public IVirtualFs
+{
+public:
+    BEGIN_INTERFACE
+
+    virtual HRESULT WINAPI SetBuffer(__in_bcount_opt(bufferSize) LPCVOID buffer, __in ULONG bufferSize) = 0;
+
+    virtual HRESULT WINAPI GetBuffer(__out_bcount_part_opt(bufferSize, *copiedSize) LPVOID buffer,
+        __in ULONG bufferSize,
+        __out_opt ULONG *copiedSize) = 0;
+
+    virtual HRESULT WINAPI GetBufferSize(__out ULARGE_INTEGER *bufferSize) = 0;
+
+    END_INTERFACE
+};

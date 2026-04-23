@@ -1,4 +1,5 @@
 #include "FileFsStream.h"
+#include "Win32FileApi.h"
 
 CFileFsStream::CFileFsStream()
 {
@@ -52,17 +53,21 @@ HRESULT WINAPI CFileFsStream::Read(
 		distanceToMove.QuadPart = m_currentPos.QuadPart;
 		if (readSize) *readSize = bufferSize;
 
-		if (FALSE == SetFilePointerEx(m_hFile, distanceToMove, (PLARGE_INTEGER)NULL, FILE_BEGIN))
+		HRESULT hr = tinyav::win32fs::Seek(m_hFile, distanceToMove, FILE_BEGIN, NULL);
+		if (FAILED(hr))
 		{
-			return HRESULT_FROM_WIN32(GetLastError());
+			return hr;
 		}
 	}
 	else
 	{
-		if (!ReadFile(m_hFile, buffer, bufferSize, &r, NULL))
+		DWORD bytesRead = 0;
+		HRESULT hr = tinyav::win32fs::Read(m_hFile, buffer, bufferSize, &bytesRead);
+		if (FAILED(hr))
 		{
-			return HRESULT_FROM_WIN32(GetLastError());
+			return hr;
 		}
+		r = bytesRead;
 
 		if (r)
 		{
@@ -98,10 +103,13 @@ HRESULT WINAPI CFileFsStream::Write(
 	if (buffer == NULL || bufferSize == 0) return E_INVALIDARG;
 
 	// write to disk
-	if (!WriteFile(m_hFile, buffer, bufferSize, &w, NULL))
+	DWORD bytesWritten = 0;
+	HRESULT hr = tinyav::win32fs::Write(m_hFile, buffer, bufferSize, &bytesWritten);
+	if (FAILED(hr))
 	{
-		return HRESULT_FROM_WIN32(GetLastError());
+		return hr;
 	}
+	w = bytesWritten;
 
 	// update cache
 	if ((m_cachePos.QuadPart < m_currentPos.QuadPart) &&
@@ -163,11 +171,7 @@ HRESULT WINAPI CFileFsStream::Seek(
 		return E_INVALIDARG;
 	}
 
-	HRESULT hr = S_OK;
-	if (FALSE == SetFilePointerEx(m_hFile, distanceToMove, (PLARGE_INTEGER)&m_currentPos, dwMoveMethod))
-	{
-		hr = HRESULT_FROM_WIN32(GetLastError());
-	}
+	HRESULT hr = tinyav::win32fs::Seek(m_hFile, distanceToMove, dwMoveMethod, &m_currentPos);
 
 	if (SUCCEEDED(hr))
 	{
@@ -187,22 +191,22 @@ void WINAPI CFileFsStream::SetFileHandle(__in void* const handle)
 	if (m_hFile != NULL && m_hFile != INVALID_HANDLE_VALUE)
 	{
 		// Init cache
-		SetFilePointer(m_hFile, 0, NULL, FILE_BEGIN);
-		DWORD r;
-		if (ReadFile(m_hFile, m_cache, DEFAULT_MAX_CACHE_SIZE, &r, NULL) && r > 0)
+		tinyav::win32fs::SeekToBegin(m_hFile);
+		DWORD r = 0;
+		if (SUCCEEDED(tinyav::win32fs::Read(m_hFile, m_cache, DEFAULT_MAX_CACHE_SIZE, &r)) && r > 0)
 		{
 			m_cacheSize = (size_t)r;
 		}
 		ZeroMemory(&m_cachePos, sizeof(m_cachePos));
-		SetFilePointer(m_hFile, 0, NULL, FILE_BEGIN);
+		tinyav::win32fs::SeekToBegin(m_hFile);
 	}
 }
 
 HRESULT WINAPI CFileFsStream::Shrink(void)
 {
 	if (m_hFile == NULL || m_hFile == INVALID_HANDLE_VALUE) return E_NOT_VALID_STATE;
-	if (!SetEndOfFile(m_hFile))
-		return HRESULT_FROM_WIN32(GetLastError());
+	HRESULT hr = tinyav::win32fs::ShrinkToCurrentPosition(m_hFile);
+	if (FAILED(hr)) return hr;
 
 	if ((m_cachePos.QuadPart <= m_currentPos.QuadPart) &&
 		(m_currentPos.QuadPart < m_cachePos.QuadPart + m_cacheSize))

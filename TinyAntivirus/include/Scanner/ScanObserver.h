@@ -15,13 +15,17 @@ enum CleanResult
 {
 	DonotClean = 1,
 	CleanVirusSucceeded,
+	RepairVirusSucceeded = CleanVirusSucceeded,
 	CleanVirusDenied,
+	VirusQuarantined,
 	VirusDeleted,
 };
 
 enum ScanAction
 {
-	KillVirus = 1,
+	RepairVirus = 1,
+	KillVirus = RepairVirus,
+	QuarantineVirus,
 	DeleteVirus,
 	LeaveVirus,
 };

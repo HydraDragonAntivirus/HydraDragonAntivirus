@@ -25,7 +25,7 @@ This project is released under the [GPL2](COPYING) [license](LICENSE).
 * Build dependencies and the solution: `ci\\windows\\build_appveyor.bat x64 Release`
 * Open `TinyAntivirus.sln` in Visual Studio 2022 if you want to debug or build manually after the dependency step
 * Release output is generated under `x64\\Release\\` for `x64` builds and `Release\\` for `Win32` builds
-* Additional notes for this component live in [`../docs/wiki/TinyAntivirus.md`](../docs/wiki/TinyAntivirus.md)
+* Additional notes for this component live in the project wiki: [TinyAntivirus wiki](https://github.com/HydraDragonAntivirus/HydraDragonAntivirus/wiki/TinyAntivirus)
 * If TinyAntivirus is used as a vendored directory inside HydraDragon, make sure `libs\\googletest\\googletest` and `libs\\zlib` contain the actual upstream sources because nested `.gitmodules` are not activated automatically by the parent repository
 
 ## Quick start
@@ -52,7 +52,7 @@ TinyAvConsole.exe [options]
 
 You may scan all directories and files by using default values.
 
-**Example:** Scan for all files (include ZIP files) to detect and disinfect virus.
+**Example:** Scan for all files, including ZIP archives, to detect and disinfect virus.
 ZIP files which contain virus will be deleted.
 ```
 C:\build>TinyAvConsole.exe -d C:\sample
@@ -87,7 +87,7 @@ C:\build>
 
 If you want to contribute, please pick up something from our [Github issues](https://github.com/develbranch/TinyAntivirus/issues).
 
-The current local roadmap lives in [`../docs/wiki/TinyAntivirus.md#future-roadmap`](../docs/wiki/TinyAntivirus.md#future-roadmap).
+The current roadmap lives in the project wiki page for TinyAntivirus.
 
 I have only one Sality sample to develop Sality killer module. I think there are many variant types of this file infector. Please send me samples which TinyAv can not detect or other kinds of polymorphic viruses. Thank you.
 

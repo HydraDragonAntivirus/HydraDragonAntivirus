@@ -1,4 +1,5 @@
 #include "FileFsAttribute.h"
+#include "Win32FileApi.h"
 
 CFileFsAttribute::CFileFsAttribute()
 {
@@ -117,11 +118,12 @@ HRESULT WINAPI CFileFsAttribute::SetTime(
 
 	if (m_handle == NULL || m_handle == INVALID_HANDLE_VALUE)
 	{
-		HANDLE hFile = CreateFileW(m_fileName.c_str(), FILE_WRITE_ATTRIBUTES,
+		HANDLE hFile = INVALID_HANDLE_VALUE;
+		hr = tinyav::win32fs::OpenFile(m_fileName.c_str(), FILE_WRITE_ATTRIBUTES,
 			FILE_SHARE_READ | FILE_SHARE_DELETE | FILE_SHARE_WRITE,
-			NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+			OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, &hFile);
 
-		if (hFile != INVALID_HANDLE_VALUE)
+		if (SUCCEEDED(hr))
 		{
 			if (SetFileTime(hFile, lpCreationTime, lpLastAccessTime, lpLastWriteTime))
 				hr = S_OK;
@@ -129,10 +131,10 @@ HRESULT WINAPI CFileFsAttribute::SetTime(
 			{
 				hr = HRESULT_FROM_WIN32(GetLastError());
 			}
-			CloseHandle(hFile);
+			tinyav::win32fs::CloseFile(&hFile);
 			return hr;
 		}
-		return HRESULT_FROM_WIN32(GetLastError());
+		return hr;
 	}
 	else
 	{
@@ -152,9 +154,7 @@ HRESULT WINAPI CFileFsAttribute::SetFilePath(__in LPCWSTR lpFilePath, __in_opt v
 
 HRESULT WINAPI CFileFsAttribute::QueryAttributes(void)
 {
-	HANDLE hFind = FindFirstFileW(m_fileName.c_str(), &m_wfd);
-	m_bInited = (hFind != INVALID_HANDLE_VALUE);
-	HRESULT hr = m_bInited ? S_OK : HRESULT_FROM_WIN32(GetLastError());
-	FindClose(hFind);
+	HRESULT hr = tinyav::win32fs::QueryAttributes(m_fileName.c_str(), &m_wfd);
+	m_bInited = SUCCEEDED(hr);
 	return hr;
 }

@@ -1,6 +1,7 @@
 #include "FileFs.h"
 #include "FileFsAttribute.h"
 #include "FileFsStream.h"
+#include "Win32FileApi.h"
 
 CFileFs::CFileFs()
 {
@@ -44,10 +45,10 @@ CFileFs::~CFileFs()
 
 	if (fullPath)
 	{
-		if (!DeleteFileW(fullPath))
+		if (FAILED(tinyav::win32fs::DeleteFilePath(fullPath)))
 		{
 			// delete when the system restarts. 
-			MoveFileExW(fullPath, NULL, MOVEFILE_DELAY_UNTIL_REBOOT);
+			tinyav::win32fs::DelayDeleteUntilReboot(fullPath);
 		}
 		SysFreeString(fullPath);
 	}
@@ -150,11 +151,8 @@ HRESULT WINAPI CFileFs::Create(__in LPCWSTR lpFileName, __in ULONG const flags)
 			{
 				dwFlagsAndAttributes |= FILE_FLAG_SEQUENTIAL_SCAN;
 
-				m_handle = CreateFileW(fullPath, dwDesiredAccess, dwShareMode,
-					NULL, dwCreationDisposition, dwFlagsAndAttributes, NULL);
-
-				if (m_handle == INVALID_HANDLE_VALUE)
-					hr = HRESULT_FROM_WIN32(GetLastError());
+				hr = tinyav::win32fs::OpenFile(fullPath, dwDesiredAccess, dwShareMode,
+					dwCreationDisposition, dwFlagsAndAttributes, &m_handle);
 
 				if (SUCCEEDED(hr))
 					m_stream->SetFileHandle((void*)m_handle);
@@ -177,10 +175,7 @@ HRESULT WINAPI CFileFs::Close(void)
 	HRESULT hr = S_OK;
 	if (m_handle != INVALID_HANDLE_VALUE && m_handle != NULL)
 	{
-		if (!CloseHandle(m_handle))
-			hr = HRESULT_FROM_WIN32(GetLastError());
-		else
-			hr = S_OK;
+		hr = tinyav::win32fs::CloseFile(&m_handle);
 	}
 
 	m_handle = INVALID_HANDLE_VALUE;
