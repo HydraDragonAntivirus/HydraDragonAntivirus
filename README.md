@@ -164,7 +164,9 @@ See the [LICENSE](./LICENSE) file for more information.
 - Then delete results.pkl and rename ml_definitions.pkl to results.pkl to consolidate the pickled data.
 
 ## Guide to compiling from source
-- This very complex task. I need create wiki for that. Please contact me.
+- Build documentation is being split into component pages.
+- TinyAntivirus (VS2022 build + Sality engine notes): [docs/wiki/TinyAntivirus.md](docs/wiki/TinyAntivirus.md)
+- More component-specific pages will be added over time.
 
 ## Ghidra Source Code
 - I now using 12.0.4: https://ghidra-sre.org/

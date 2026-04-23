@@ -3,6 +3,8 @@
 #include <Windows.h>
 #include <Unknwn.h>
 #include <InitGuid.h>
+#include <algorithm>
+#include <string>
 #include <vector>
 #include <stack>
 #include <list>

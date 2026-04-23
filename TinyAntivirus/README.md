@@ -5,7 +5,7 @@ TinyAntivirus
 [![License](https://img.shields.io/badge/license-gpl2-blue.svg)](LICENSE)
 ![Platform](https://img.shields.io/badge/platform-windows-lightgrey.svg)
 
-**TinyAntivirus (TinyAv)** is an open source antivirus engine designed for detecting polymorphic virus and disinfecting it. Now, TinyAv can detect and disinfect Sality polymorphic virus. In the future, I will deveplop some modules for removing other polymorphic viruses, such as Virut or Polip.
+**TinyAntivirus (TinyAv)** is an open source antivirus engine designed to detect polymorphic viruses and disinfect them. Inside this repository it is kept as a specialized engine for Sality-style file infectors. The current `SalityKiller` module detects and disinfects `W32.Sality.PE`.
 
 ## License
 
@@ -13,15 +13,25 @@ This project is released under the [GPL2](COPYING) [license](LICENSE).
 
 ## Requirements
 
-* Microsoft Visual Studio 2015
+* Visual Studio 2022 with Desktop development with C++
+* Windows 10/11 SDK
+* CMake 3.20 or newer
+* Available source trees for `libs\googletest\googletest` and `libs\zlib`
 * [zlib 1.2.8](http://www.zlib.net) or newer
 * [unicorn-engine 0.9](http://www.unicorn-engine.org/)
 
+## Build with Visual Studio 2022
+
+* Build dependencies and the solution: `ci\\windows\\build_appveyor.bat x64 Release`
+* Open `TinyAntivirus.sln` in Visual Studio 2022 if you want to debug or build manually after the dependency step
+* Release output is generated under `x64\\Release\\` for `x64` builds and `Release\\` for `Win32` builds
+* Additional notes for this component live in [`../docs/wiki/TinyAntivirus.md`](../docs/wiki/TinyAntivirus.md)
+* If TinyAntivirus is used as a vendored directory inside HydraDragon, make sure `libs\\googletest\\googletest` and `libs\\zlib` contain the actual upstream sources because nested `.gitmodules` are not activated automatically by the parent repository
+
 ## Quick start
 
-* Clone the repository: `git clone https://github.com/develbranch/TinyAntivirus.git`.
-* Build: Core engine, Console and scan module.
-* You can see `Release` Directory. Change the `Release` directory and run `TinyAvConsole.exe`.
+* Build `TinyAvCore`, `TinyAvConsole`, and `SalityKiller`.
+* Change into the output directory and run `TinyAvConsole.exe`.
 
 ## Usage
 
@@ -77,7 +87,7 @@ C:\build>
 
 If you want to contribute, please pick up something from our [Github issues](https://github.com/develbranch/TinyAntivirus/issues).
 
-I also maintain a list of more problems in a [TODO list](https://github.com/develbranch/TinyAntivirus/wiki/TODO).
+The current local roadmap lives in [`../docs/wiki/TinyAntivirus.md#future-roadmap`](../docs/wiki/TinyAntivirus.md#future-roadmap).
 
 I have only one Sality sample to develop Sality killer module. I think there are many variant types of this file infector. Please send me samples which TinyAv can not detect or other kinds of polymorphic viruses. Thank you.
 
