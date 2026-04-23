@@ -485,6 +485,12 @@ FodyWeavers.xsd
 # Local History for Visual Studio Code
 .history/
 
+# TinyAntivirus third-party dependency builds
+/TinyAntivirus/libs/googletest/googletest/build/
+/TinyAntivirus/libs/googletest/googletest/build-*/
+/TinyAntivirus/libs/zlib/build/
+/TinyAntivirus/libs/zlib/build-*/
+
 # Windows Installer files from build outputs
 *.cab
 # *.msi
