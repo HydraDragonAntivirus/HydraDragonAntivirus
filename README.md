@@ -266,6 +266,11 @@ See the [LICENSE](./LICENSE) file for more information.
 
 - I used these projects for EDR (Notice newest forks added to main repo instead of other repo).
 
+- https://github.com/Cisco-Talos/clamav
+- https://github.com/develbranch/TinyAntivirus
+
+- I used these projects for Antivirus
+
 - https://github.com/HydraDragonAntivirus/MBRFilter
 
 - I used this project for MBR Protection.
