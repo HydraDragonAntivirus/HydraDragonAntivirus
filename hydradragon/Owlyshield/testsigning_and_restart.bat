@@ -24,9 +24,6 @@ bcdedit /set testsigning on
 bcdedit /debug on
 bcdedit /dbgsettings serial debugport:1 baudrate:115200
 
-echo [*] Creating Owlyshield Service...
-sc create "Owlyshield Service" binPath= "\"C:\Program Files\HydraDragonAntivirus\hydradragon\Owlyshield\Owlyshield Service\owlyshield_ransom.exe\"" start= demand
-
 echo [*] Restarting system in 5 seconds...
 shutdown -r -t 5
 endlocal
