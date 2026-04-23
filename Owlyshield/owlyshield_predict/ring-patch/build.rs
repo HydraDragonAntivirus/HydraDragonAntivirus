@@ -380,12 +380,39 @@ fn build_c_code(target: &Target, pregenerated: PathBuf, out_dir: &Path) {
     // the user doesn't need to install the assembler. On other platforms we
     // assume the C compiler also assembles.
     if use_pregenerated && target.os() == WINDOWS {
+        let pregenerated_tmp = pregenerated.join("tmp");
+        let mut used_pregenerated_tmp = false;
+
         // The pregenerated object files always use ".obj" as the extension,
         // even when the C/C++ compiler outputs files with the ".o" extension.
+        //
+        // Some vendored copies of ring include the intermediate NASM/YASM
+        // sources in `pregenerated/tmp` but omit the final `.obj` files. When
+        // that happens, fall back to assembling those `.asm` files instead of
+        // panicking on a missing pregenerated object.
         asm_srcs = asm_srcs
-            .iter()
-            .map(|src| obj_path(&pregenerated, src.as_path(), "obj"))
+            .into_iter()
+            .map(|src| {
+                let obj = obj_path(&pregenerated, src.as_path(), "obj");
+                if obj.is_file() {
+                    obj
+                } else {
+                    let asm = pregenerated_tmp.join(src.file_name().unwrap());
+                    if asm.is_file() {
+                        used_pregenerated_tmp = true;
+                        asm
+                    } else {
+                        obj
+                    }
+                }
+            })
             .collect::<Vec<_>>();
+
+        if used_pregenerated_tmp {
+            println!(
+                "cargo:warning=ring-patch: missing pregenerated Windows .obj files; assembling from pregenerated/tmp instead"
+            );
+        }
     }
 
     let core_srcs = sources_for_arch(target.arch())
