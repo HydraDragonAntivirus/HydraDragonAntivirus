@@ -5,7 +5,11 @@ TinyAntivirus
 [![License](https://img.shields.io/badge/license-gpl2-blue.svg)](LICENSE)
 ![Platform](https://img.shields.io/badge/platform-windows-lightgrey.svg)
 
-**TinyAntivirus (TinyAv)** is an open source antivirus engine designed to detect polymorphic viruses and disinfect them. Inside this repository it is kept as a specialized engine for Sality-style file infectors. The current `SalityKiller` module detects and disinfects `W32.Sality.PE`.
+**TinyAntivirus (TinyAv)** is an open source antivirus engine designed to detect polymorphic viruses and disinfect them. Inside this repository it is kept as a specialized engine for Sality-style file infectors and advanced heuristics via **MinimalOpenHeuristics (MOH)**. The current `SalityKiller` module detects and disinfects `W32.Sality.PE`.
+
+> [!NOTE]
+> The engine is named "Tiny" and its components "Minimal" to reflect the lightweight design philosophy, but this does not imply limited capability. MinimalOpenHeuristics is a robust engine for deep file analysis.
+
 
 ## License
 
@@ -57,9 +61,8 @@ ZIP files which contain virus will be deleted.
 ```
 C:\build>TinyAvConsole.exe -d C:\sample
 ------------------------------------------------------
-TinyAntivirus version 0.1
-Copyright (C) 2016, Quang Nguyen. All rights reserved.
-Website: http://develbranch.com
+TinyAntivirus version 0.2
+Copyright (C) 2026, Emirhan Ucan. All rights reserved.
 ------------------------------------------------------
 Scanning ...
 C:\sample\calc.EXE
@@ -93,6 +96,4 @@ I have only one Sality sample to develop Sality killer module. I think there are
 
 ## Author
 
-[Quang Nguyễn](https://github.com/quangnh89)
-
-Blog: [develbranch.com](https://develbranch.com)
+[Emirhan Ucan](https://github.com/HydraDragonAntivirus)

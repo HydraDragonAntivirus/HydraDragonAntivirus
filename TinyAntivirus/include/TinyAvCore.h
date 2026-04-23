@@ -3,7 +3,7 @@
 #include "Module/Module.h"
 #include "Scanner/ScanModule.h"
 #include "FileType/PEFile.h"
-#include "Heuristics/MvmPeHeuristics.h"
+#include "Heuristics/MohPeHeuristics.h"
 #include "Emulator/Emulator.h"
 #include "Module/ModuleManager.h"
 #include "Scanner/Scanner.h"
@@ -28,6 +28,16 @@ extern "C"
 	@return: HRESULT on success, or other value on failure.
 	*/
 	HRESULT WINAPI CreateClassObject(__in REFCLSID rclsid, __in DWORD dwClsContext, __in REFIID riid, __out LPVOID *ppv);
+
+	// Core API (Ported logic)
+	__int64 WINAPI CoreInit();
+	__int64 WINAPI CoreInitEx(__int64 a1);
+	__int64 WINAPI CoreUninit();
+	__int64 WINAPI CoreSet(__int64 instance, signed int id, __int64 value1, __int64 value2);
+	__int64 WINAPI CoreGet();
+	__int64 WINAPI CoreGetBuildNumber();
+	void* WINAPI CoreGetLastOpenError();
+
 
 #ifdef __cplusplus
 }

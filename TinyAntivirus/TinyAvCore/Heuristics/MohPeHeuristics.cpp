@@ -1,4 +1,4 @@
-#include "../../include/Heuristics/MvmPeHeuristics.h"
+#include "../../include/Heuristics/MohPeHeuristics.h"
 #include "../../include/FileSystem/FsStream.h"
 #include <string.h>
 
@@ -62,7 +62,7 @@ namespace
 			descriptor.FirstThunk == 0;
 	}
 
-	void MarkFlag(__inout MVM_PE_HEURISTIC_RESULT *result, __in const ULONG flag, __in const ULONG score)
+	void MarkFlag(__inout Moh_PE_HEURISTIC_RESULT *result, __in const ULONG flag, __in const ULONG score)
 	{
 		if (result == NULL) return;
 		if (!TEST_FLAG(result->flags, flag))
@@ -208,7 +208,7 @@ namespace
 		__in IPeFile *peFile,
 		__in IFsStream *stream,
 		__in const IMAGE_NT_HEADERS32& peHeader,
-		__inout MVM_PE_HEURISTIC_RESULT *result)
+		__inout Moh_PE_HEURISTIC_RESULT *result)
 	{
 		if (peFile == NULL || stream == NULL || result == NULL) return;
 
@@ -284,21 +284,21 @@ namespace
 			state.executionCount >= 9 &&
 			state.stagingCount >= 3)
 		{
-			MarkFlag(result, MvmPeHeuristicSuspiciousImportMix, 4);
+			MarkFlag(result, MohPeHeuristicSuspiciousImportMix, 4);
 		}
 
 		if ((state.dllCount <= 2 && state.hasLoadLibraryFamily) ||
 			state.hasSingleUrlmonDownloadImport ||
 			state.hasSingleShellExecuteImport)
 		{
-			MarkFlag(result, MvmPeHeuristicLoaderImports, 2);
+			MarkFlag(result, MohPeHeuristicLoaderImports, 2);
 		}
 
 		if ((state.hasUrlDownloadToFile && state.hasShellExecute) ||
 			(state.hasUrlDownloadToFile && state.hasCreateProcess) ||
 			(state.hasShellExecute && state.hasCreateRemoteThread))
 		{
-			MarkFlag(result, MvmPeHeuristicNetworkExecutionImports, 3);
+			MarkFlag(result, MohPeHeuristicNetworkExecutionImports, 3);
 		}
 	}
 
@@ -353,7 +353,7 @@ namespace
 		__in IPeFile *peFile,
 		__in IFsStream *stream,
 		__in const UINT stubRva,
-		__inout MVM_PE_HEURISTIC_RESULT *result)
+		__inout Moh_PE_HEURISTIC_RESULT *result)
 	{
 		if (peFile == NULL || stream == NULL || result == NULL) return;
 
@@ -373,7 +373,7 @@ namespace
 		{
 			if (stub[i] == 0xE8 || (stub[i] == 0xFF && stub[i + 1] == 0x15))
 			{
-				MarkFlag(result, MvmPeHeuristicEntrypointLoaderStub, 2);
+				MarkFlag(result, MohPeHeuristicEntrypointLoaderStub, 2);
 				return;
 			}
 		}
@@ -383,7 +383,7 @@ namespace
 		__in IPeFile *peFile,
 		__in IFsStream *stream,
 		__in const IMAGE_NT_HEADERS32& peHeader,
-		__inout MVM_PE_HEURISTIC_RESULT *result)
+		__inout Moh_PE_HEURISTIC_RESULT *result)
 	{
 		if (peFile == NULL || stream == NULL || result == NULL) return;
 
@@ -408,7 +408,7 @@ namespace
 
 		if (entrySectionIndex == sectionCount - 1 && HasWritableExecutableCode(lastSection))
 		{
-			MarkFlag(result, MvmPeHeuristicWritableExecutableLastSection, 2);
+			MarkFlag(result, MohPeHeuristicWritableExecutableLastSection, 2);
 		}
 
 		BYTE entryBytes[256] = {};
@@ -427,7 +427,7 @@ namespace
 			if (!IsRvaInsideSection(targetRva, lastSection))
 				continue;
 
-			MarkFlag(result, MvmPeHeuristicEntrypointToLastSection, 4);
+			MarkFlag(result, MohPeHeuristicEntrypointToLastSection, 4);
 			if (offset == 0)
 				AnalyzeEntrypointStub(peFile, stream, targetRva, result);
 			return;
@@ -435,7 +435,7 @@ namespace
 	}
 }
 
-HRESULT WINAPI AnalyzeMvmPeHeuristics(__in IPeFile *peFile, __out MVM_PE_HEURISTIC_RESULT *result)
+HRESULT WINAPI AnalyzeMohPeHeuristics(__in IPeFile *peFile, __out Moh_PE_HEURISTIC_RESULT *result)
 {
 	if (peFile == NULL || result == NULL) return E_INVALIDARG;
 
@@ -456,12 +456,12 @@ HRESULT WINAPI AnalyzeMvmPeHeuristics(__in IPeFile *peFile, __out MVM_PE_HEURIST
 
 	stream->Release();
 
-	bool hasImportMix = TEST_FLAG(result->flags, MvmPeHeuristicSuspiciousImportMix);
-	bool hasLoaderImports = TEST_FLAG(result->flags, MvmPeHeuristicLoaderImports);
-	bool hasNetworkImports = TEST_FLAG(result->flags, MvmPeHeuristicNetworkExecutionImports);
-	bool hasLastSectionJump = TEST_FLAG(result->flags, MvmPeHeuristicEntrypointToLastSection);
-	bool hasWritableExecLastSection = TEST_FLAG(result->flags, MvmPeHeuristicWritableExecutableLastSection);
-	bool hasEntrypointStub = TEST_FLAG(result->flags, MvmPeHeuristicEntrypointLoaderStub);
+	bool hasImportMix = TEST_FLAG(result->flags, MohPeHeuristicSuspiciousImportMix);
+	bool hasLoaderImports = TEST_FLAG(result->flags, MohPeHeuristicLoaderImports);
+	bool hasNetworkImports = TEST_FLAG(result->flags, MohPeHeuristicNetworkExecutionImports);
+	bool hasLastSectionJump = TEST_FLAG(result->flags, MohPeHeuristicEntrypointToLastSection);
+	bool hasWritableExecLastSection = TEST_FLAG(result->flags, MohPeHeuristicWritableExecutableLastSection);
+	bool hasEntrypointStub = TEST_FLAG(result->flags, MohPeHeuristicEntrypointLoaderStub);
 
 	result->detected = hasImportMix ||
 		hasLastSectionJump ||

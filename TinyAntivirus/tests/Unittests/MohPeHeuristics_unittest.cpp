@@ -196,7 +196,7 @@ namespace
 		return image;
 	}
 
-	void AnalyzeImage(const std::vector<unsigned char>& image, MVM_PE_HEURISTIC_RESULT *result)
+	void AnalyzeImage(const std::vector<unsigned char>& image, Moh_PE_HEURISTIC_RESULT *result)
 	{
 		ASSERT_NE(nullptr, result);
 
@@ -211,7 +211,7 @@ namespace
 		ASSERT_HRESULT_SUCCEEDED(memoryFs->SetBuffer(image.data(), static_cast<ULONG>(image.size())));
 		ASSERT_HRESULT_SUCCEEDED(parser->CheckType(memoryFs, &matched));
 		ASSERT_TRUE(matched);
-		ASSERT_HRESULT_SUCCEEDED(AnalyzeMvmPeHeuristics(parser, result));
+		ASSERT_HRESULT_SUCCEEDED(AnalyzeMohPeHeuristics(parser, result));
 
 		parser->ReleaseCurrentFile();
 		parser->Release();
@@ -219,7 +219,7 @@ namespace
 	}
 }
 
-TEST(MvmPeHeuristics, DetectsImportMix)
+TEST(MohPeHeuristics, DetectsImportMix)
 {
 	std::vector<IMPORT_LIBRARY_SPEC> imports = {
 		{
@@ -241,30 +241,30 @@ TEST(MvmPeHeuristics, DetectsImportMix)
 		".data",
 		IMAGE_SCN_CNT_INITIALIZED_DATA | IMAGE_SCN_MEM_READ | IMAGE_SCN_MEM_WRITE);
 
-	MVM_PE_HEURISTIC_RESULT result = {};
+	Moh_PE_HEURISTIC_RESULT result = {};
 	AnalyzeImage(image, &result);
 	ASSERT_TRUE(result.detected);
-	ASSERT_TRUE(TEST_FLAG(result.flags, MvmPeHeuristicSuspiciousImportMix));
-	ASSERT_TRUE(TEST_FLAG(result.flags, MvmPeHeuristicLoaderImports));
+	ASSERT_TRUE(TEST_FLAG(result.flags, MohPeHeuristicSuspiciousImportMix));
+	ASSERT_TRUE(TEST_FLAG(result.flags, MohPeHeuristicLoaderImports));
 }
 
-TEST(MvmPeHeuristics, DetectsEntrypointJumpIntoSuspiciousLastSection)
+TEST(MohPeHeuristics, DetectsEntrypointJumpIntoSuspiciousLastSection)
 {
 	std::vector<unsigned char> image = BuildPeImage(
 		{},
 		{ 0xE9, 0xFB, 0x0F, 0x00, 0x00 },
 		{ 0x55, 0x8B, 0xEC, 0x81, 0xEC, 0x20, 0x00, 0x00, 0x00, 0xFF, 0x15, 0x00, 0x10, 0x40, 0x00, 0xC3 },
-		".mvm",
+		".Moh",
 		IMAGE_SCN_CNT_CODE | IMAGE_SCN_MEM_EXECUTE | IMAGE_SCN_MEM_READ | IMAGE_SCN_MEM_WRITE);
 
-	MVM_PE_HEURISTIC_RESULT result = {};
+	Moh_PE_HEURISTIC_RESULT result = {};
 	AnalyzeImage(image, &result);
 	ASSERT_TRUE(result.detected);
-	ASSERT_TRUE(TEST_FLAG(result.flags, MvmPeHeuristicEntrypointToLastSection));
-	ASSERT_TRUE(TEST_FLAG(result.flags, MvmPeHeuristicEntrypointLoaderStub));
+	ASSERT_TRUE(TEST_FLAG(result.flags, MohPeHeuristicEntrypointToLastSection));
+	ASSERT_TRUE(TEST_FLAG(result.flags, MohPeHeuristicEntrypointLoaderStub));
 }
 
-TEST(MvmPeHeuristics, IgnoresBenignImports)
+TEST(MohPeHeuristics, IgnoresBenignImports)
 {
 	std::vector<IMPORT_LIBRARY_SPEC> imports = {
 		{ "user32.dll", { "MessageBoxA" } },
@@ -279,9 +279,9 @@ TEST(MvmPeHeuristics, IgnoresBenignImports)
 		".data",
 		IMAGE_SCN_CNT_INITIALIZED_DATA | IMAGE_SCN_MEM_READ | IMAGE_SCN_MEM_WRITE);
 
-	MVM_PE_HEURISTIC_RESULT result = {};
+	Moh_PE_HEURISTIC_RESULT result = {};
 	AnalyzeImage(image, &result);
 	ASSERT_FALSE(result.detected);
-	ASSERT_FALSE(TEST_FLAG(result.flags, MvmPeHeuristicSuspiciousImportMix));
-	ASSERT_FALSE(TEST_FLAG(result.flags, MvmPeHeuristicEntrypointToLastSection));
+	ASSERT_FALSE(TEST_FLAG(result.flags, MohPeHeuristicSuspiciousImportMix));
+	ASSERT_FALSE(TEST_FLAG(result.flags, MohPeHeuristicEntrypointToLastSection));
 }

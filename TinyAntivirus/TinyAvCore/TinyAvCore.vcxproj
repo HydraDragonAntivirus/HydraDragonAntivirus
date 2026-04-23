@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Project DefaultTargets="Build" ToolsVersion="Current" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup Label="ProjectConfigurations">
     <ProjectConfiguration Include="Debug|Win32">
@@ -28,7 +28,7 @@
     <ClInclude Include="..\include\FileSystem\FsStream.h" />
     <ClInclude Include="..\include\FileType\FileType.h" />
     <ClInclude Include="..\include\FileType\PEFile.h" />
-    <ClInclude Include="..\include\Heuristics\MvmPeHeuristics.h" />
+    <ClInclude Include="..\include\Heuristics\MohPeHeuristics.h" />
     <ClInclude Include="..\include\Module\Module.h" />
     <ClInclude Include="..\include\Module\ModuleManager.h" />
     <ClInclude Include="..\include\RefCount.h" />
@@ -85,10 +85,11 @@
     <ClCompile Include="FileSystem\zip\ZipFsAttribute.cpp" />
     <ClCompile Include="FileSystem\zip\ZipFsEnum.cpp" />
     <ClCompile Include="FileType\PeFileParser.cpp" />
-    <ClCompile Include="Heuristics\MvmPeHeuristics.cpp" />
+    <ClCompile Include="Heuristics\MohPeHeuristics.cpp" />
     <ClCompile Include="Module\ModuleMgrService.cpp" />
     <ClCompile Include="Scanner\ScanService.cpp" />
     <ClCompile Include="Utils.cpp" />
+    <ClCompile Include="CoreApi.cpp" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <ProjectGuid>{6A881F9E-4BC9-4F5B-A5DD-20626F66F5E3}</ProjectGuid>

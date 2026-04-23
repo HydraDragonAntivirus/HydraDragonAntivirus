@@ -1,6 +1,6 @@
 #include <windows.h>
 #include <TinyAvCore.h>
-#include "MvmPeScanModule.h"
+#include "MohPeScanModule.h"
 
 #if defined DEBUG || defined _DEBUG
 #include <crtdbg.h>
@@ -50,7 +50,7 @@ extern "C"
 
 		if (IsEqualIID(riid, __uuidof(IModule)))
 		{
-			*ppv = static_cast<IModule*>(new CMvmPeScanModule());
+			*ppv = static_cast<IModule*>(new CMohPeScanModule());
 			return S_OK;
 		}
 

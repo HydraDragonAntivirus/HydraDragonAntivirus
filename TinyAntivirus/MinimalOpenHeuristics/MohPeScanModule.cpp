@@ -1,4 +1,4 @@
-#include "MvmPeScanModule.h"
+#include "MohPeScanModule.h"
 
 extern HMODULE g_hMod;
 
@@ -6,25 +6,25 @@ namespace
 {
 	LPCWSTR GetHeuristicName(__in const ULONG flags)
 	{
-		if (TEST_FLAG(flags, MvmPeHeuristicEntrypointToLastSection))
-			return L"HEUR:Win32.MVM.SectionJump";
+		if (TEST_FLAG(flags, MohPeHeuristicEntrypointToLastSection))
+			return L"HEUR:Win32.Moh.SectionJump";
 
-		if (TEST_FLAG(flags, MvmPeHeuristicSuspiciousImportMix))
-			return L"HEUR:Win32.MVM.ImportMix";
+		if (TEST_FLAG(flags, MohPeHeuristicSuspiciousImportMix))
+			return L"HEUR:Win32.Moh.ImportMix";
 
-		return L"HEUR:Win32.MVM.Suspicious";
+		return L"HEUR:Win32.Moh.Suspicious";
 	}
 }
 
-CMvmPeScanModule::CMvmPeScanModule()
+CMohPeScanModule::CMohPeScanModule()
 {
 	m_info.handle = g_hMod;
 	m_info.type = ScanModule;
-	wcscpy_s(m_info.name, MAX_NAME, L"HEUR:Win32.MVM.PE");
+	wcscpy_s(m_info.name, MAX_NAME, L"HEUR:Win32.Moh.PE");
 	m_parser = NULL;
 }
 
-CMvmPeScanModule::~CMvmPeScanModule()
+CMohPeScanModule::~CMohPeScanModule()
 {
 	if (m_parser)
 	{
@@ -33,7 +33,7 @@ CMvmPeScanModule::~CMvmPeScanModule()
 	}
 }
 
-HRESULT WINAPI CMvmPeScanModule::QueryInterface(__in REFIID riid, __out void **ppvObject)
+HRESULT WINAPI CMohPeScanModule::QueryInterface(__in REFIID riid, __out void **ppvObject)
 {
 	if (ppvObject == NULL) return E_INVALIDARG;
 
@@ -48,31 +48,31 @@ HRESULT WINAPI CMvmPeScanModule::QueryInterface(__in REFIID riid, __out void **p
 	return E_NOINTERFACE;
 }
 
-HRESULT WINAPI CMvmPeScanModule::GetModuleInfo(__out MODULE_INFO *scanInfo)
+HRESULT WINAPI CMohPeScanModule::GetModuleInfo(__out MODULE_INFO *scanInfo)
 {
 	if (scanInfo == NULL) return E_INVALIDARG;
 	*scanInfo = m_info;
 	return S_OK;
 }
 
-ModuleType WINAPI CMvmPeScanModule::GetType(void)
+ModuleType WINAPI CMohPeScanModule::GetType(void)
 {
 	return m_info.type;
 }
 
-HRESULT WINAPI CMvmPeScanModule::GetName(__out BSTR *name)
+HRESULT WINAPI CMohPeScanModule::GetName(__out BSTR *name)
 {
 	if (name == NULL) return E_INVALIDARG;
 	*name = SysAllocString(m_info.name);
 	return (*name == NULL) ? E_OUTOFMEMORY : S_OK;
 }
 
-HRESULT WINAPI CMvmPeScanModule::OnScanInitialize(void)
+HRESULT WINAPI CMohPeScanModule::OnScanInitialize(void)
 {
 	return CreateClassObject(CLSID_CPeFileParser, 0, __uuidof(IPeFile), (LPVOID*)&m_parser);
 }
 
-HRESULT WINAPI CMvmPeScanModule::Scan(__in IVirtualFs *file, __in IFsEnumContext *context, __in IScanObserver *observer)
+HRESULT WINAPI CMohPeScanModule::Scan(__in IVirtualFs *file, __in IFsEnumContext *context, __in IScanObserver *observer)
 {
 	if (file == NULL || context == NULL || observer == NULL) return E_INVALIDARG;
 	if (m_parser == NULL) return E_NOT_VALID_STATE;
@@ -93,8 +93,8 @@ HRESULT WINAPI CMvmPeScanModule::Scan(__in IVirtualFs *file, __in IFsEnumContext
 		return hr;
 	}
 
-	MVM_PE_HEURISTIC_RESULT heuristicResult = {};
-	hr = AnalyzeMvmPeHeuristics(m_parser, &heuristicResult);
+	Moh_PE_HEURISTIC_RESULT heuristicResult = {};
+	hr = AnalyzeMohPeHeuristics(m_parser, &heuristicResult);
 	if (FAILED(hr))
 	{
 		hr = S_OK;
@@ -123,7 +123,7 @@ Exit:
 	return hr;
 }
 
-HRESULT WINAPI CMvmPeScanModule::OnScanShutdown(void)
+HRESULT WINAPI CMohPeScanModule::OnScanShutdown(void)
 {
 	if (m_parser)
 	{

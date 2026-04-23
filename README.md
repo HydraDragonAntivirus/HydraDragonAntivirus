@@ -269,7 +269,7 @@ See the [LICENSE](./LICENSE) file for more information.
 - I used these projects for EDR (Notice newest forks added to main repo instead of other repo).
 
 - https://github.com/Cisco-Talos/clamav
-- https://github.com/develbranch/TinyAntivirus
+- https://github.com/HydraDragonAntivirus/HydraDragonAntivirus/tree/main/TinyAntivirus (MinimalOpenHeuristics - MOH)
 
 - I used these projects for Antivirus
 
@@ -280,6 +280,7 @@ See the [LICENSE](./LICENSE) file for more information.
 - https://github.com/HydraDragonAntivirus/PYAS_Protection
 
 - I used these projects to protect the antivirus.
+
 
 - https://github.com/clamwin/python-clamav
 

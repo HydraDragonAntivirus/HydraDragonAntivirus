@@ -2,17 +2,17 @@
 #include <InitGuid.h>
 #include <TinyAvCore.h>
 
-class CMvmPeScanModule :
+class CMohPeScanModule :
 	public CRefCount,
 	public IScanModule
 {
 protected:
 	MODULE_INFO m_info;
 	IPeFile *m_parser;
-	virtual ~CMvmPeScanModule();
+	virtual ~CMohPeScanModule();
 
 public:
-	CMvmPeScanModule();
+	CMohPeScanModule();
 
 	DECLARE_REF_COUNT();
 
