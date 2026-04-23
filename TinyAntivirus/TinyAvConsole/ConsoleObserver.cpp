@@ -128,6 +128,10 @@ HRESULT WINAPI CConsoleObserver::OnPostClean(__in IVirtualFs * file, __in IFsEnu
 	{
 		switch (result->cleanResult)
 		{
+		case DonotClean:
+			printf("Detected \n");
+			break;
+
 		case CleanVirusSucceeded:
 			printf("Disinfected \n");
 			m_bRescan = TRUE;

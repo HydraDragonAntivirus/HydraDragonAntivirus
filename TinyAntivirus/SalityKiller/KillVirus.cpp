@@ -144,17 +144,17 @@ HRESULT WINAPI CKillVirus::Scan(__in IVirtualFs * file, __in IFsEnumContext * co
 	}
 
 	wcscpy_s(m_scanResult.malwareName, MAX_NAME, m_info.name); // get virus name
+	hr = observer->OnPreClean(file, context, &m_scanResult);   // notify observer before cleaning file
+	if (FAILED(hr)) goto Exit;  // leave it alone!
 
 	// check scan context
 	if (TEST_FLAG(context->GetFlags(), IFsEnumContext::Disinfect) == FALSE) // Scan virus only
 	{
-		m_scanResult.cleanResult = CleanVirusDenied;
+		m_scanResult.action = LeaveVirus;
+		m_scanResult.cleanResult = DonotClean;
 		hr = S_OK;
 		goto Exit;
 	}
-
-	hr = observer->OnPreClean(file, context, &m_scanResult);   // notify observer before cleaning file
-	if (FAILED(hr)) goto Exit;  // leave it alone!
 
 	ULONG fsType;
 	hr = file->GetFsType(&fsType);

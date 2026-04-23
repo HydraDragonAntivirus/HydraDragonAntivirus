@@ -3,6 +3,7 @@
 #include "Module/Module.h"
 #include "Scanner/ScanModule.h"
 #include "FileType/PEFile.h"
+#include "Heuristics/MvmPeHeuristics.h"
 #include "Emulator/Emulator.h"
 #include "Module/ModuleManager.h"
 #include "Scanner/Scanner.h"

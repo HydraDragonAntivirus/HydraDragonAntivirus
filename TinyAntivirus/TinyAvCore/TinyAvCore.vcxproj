@@ -28,6 +28,7 @@
     <ClInclude Include="..\include\FileSystem\FsStream.h" />
     <ClInclude Include="..\include\FileType\FileType.h" />
     <ClInclude Include="..\include\FileType\PEFile.h" />
+    <ClInclude Include="..\include\Heuristics\MvmPeHeuristics.h" />
     <ClInclude Include="..\include\Module\Module.h" />
     <ClInclude Include="..\include\Module\ModuleManager.h" />
     <ClInclude Include="..\include\RefCount.h" />
@@ -84,6 +85,7 @@
     <ClCompile Include="FileSystem\zip\ZipFsAttribute.cpp" />
     <ClCompile Include="FileSystem\zip\ZipFsEnum.cpp" />
     <ClCompile Include="FileType\PeFileParser.cpp" />
+    <ClCompile Include="Heuristics\MvmPeHeuristics.cpp" />
     <ClCompile Include="Module\ModuleMgrService.cpp" />
     <ClCompile Include="Scanner\ScanService.cpp" />
     <ClCompile Include="Utils.cpp" />
