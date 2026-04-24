@@ -30,7 +30,14 @@ namespace
 		}
 
 		if (resetAfterLoad)
-			ASSERT_HRESULT_SUCCEEDED(engine->Reset());
+		{
+			hr = engine->Reset();
+			if (FAILED(hr))
+			{
+				engine->Release();
+				return hr;
+			}
+		}
 
 		hr = CreateClassObject(CLSID_CMemoryFs, 0, __uuidof(IMemoryFs), (LPVOID*)&memoryFs);
 		if (FAILED(hr))

@@ -69,7 +69,7 @@ TinyAvConsole.exe -d C:\sample -A 2 -D 4 -m k
 
 If you want to load the reverse-engineered signature set from this repo directly, point `-g` to `TinyAntivirus\decompile`. TinyAv will now enumerate and load every parseable signature container it recognizes in that directory, not just the historical `xlmrd/orice` trio.
 
-Important: in the current `0.2` build, loading these databases makes them visible to TinyAv and to the MOS plugin initialization path, but **actual `xlmrd/orice` signature execution is still not implemented**. MOS detections therefore remain heuristic-only until that runtime is ported.
+In the current `0.2` build, loading these databases activates MOS runtime matching as well as the conservative PE heuristics. If the Unicorn runtime is not present, `SalityKiller` quietly disables itself and MOS detection still continues.
 
 **Example:** Scan for all files, including ZIP archives, to detect and disinfect malware.
 ZIP files which contain malware can still be removed if repair is not possible.
@@ -88,6 +88,7 @@ Copyright (C) 2026, Emirhan Ucan.
 [MOS]   4. 7zip [IndexedBinary] - C:\repo\TinyAntivirus\decompile\7zip.xmd
 [MOS]   5. aitok [AVXS] - C:\repo\TinyAntivirus\decompile\aitok.cvd
 [MOS]   ...
+[MOS] Signature runtime matching (xlmrd/orice) is ACTIVE.
 Scanning ...
 C:\sample\calc.EXE
         HEUR:Win32.MOS.SectionJump (MinimalOpenSignatures)

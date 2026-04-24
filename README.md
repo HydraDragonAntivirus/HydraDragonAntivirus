@@ -170,6 +170,8 @@ See the [LICENSE](./LICENSE) file for more information.
 
 - TinyAntivirus is the focused polymorphic-virus engine in this repo.
 - It currently combines `SalityKiller` with `MinimalOpenSignatures (MOS)`.
+- `-g <decompile>` now loads MOS signature databases and enables runtime matching.
+- If `unicorn.dll` is not available, `SalityKiller` quietly skips emulator-based disinfection and MOS detection still runs.
 - ZIP extracting is already present in HydraDragonAntivirus.
 - Original upstream TinyAntivirus attribution remains with `develbranch.com` / `quangnh89`.
 - HydraDragon `0.2` integration and later extensions are by Emirhan Ucan.

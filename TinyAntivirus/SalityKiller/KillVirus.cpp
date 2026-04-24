@@ -3,6 +3,26 @@
 extern HMODULE g_hMod;
 const ULONGLONG g_maxInsCount = 1000 * 1000 * 1000;
 
+namespace
+{
+	bool IsUnicornRuntimeAvailable()
+	{
+		HMODULE unicornModule = LoadLibraryW(L"unicorn.dll");
+		if (unicornModule == NULL)
+			return false;
+
+		FreeLibrary(unicornModule);
+		return true;
+	}
+
+	bool IsSoftEmulatorFailure(__in const DWORD errorCode)
+	{
+		return errorCode == IEmulObserver::EmulatorIsNotFound ||
+			errorCode == IEmulObserver::EmulatorIsNotRunable ||
+			errorCode == IEmulObserver::EmulatorInternalError;
+	}
+}
+
 CKillVirus::CKillVirus()
 {
 	m_info.handle = g_hMod;
@@ -16,6 +36,7 @@ CKillVirus::CKillVirus()
 	m_dwOepCodeSize = 0;
 	m_OepAddr = 0;
 	m_emulErrCode = 0;
+	m_emulatorRuntimeAvailable = true;
 }
 
 CKillVirus::~CKillVirus()
@@ -83,6 +104,10 @@ HRESULT WINAPI CKillVirus::GetName(__out BSTR *name)
 
 HRESULT WINAPI CKillVirus::OnScanInitialize(void)
 {
+	m_emulatorRuntimeAvailable = IsUnicornRuntimeAvailable();
+	if (!m_emulatorRuntimeAvailable)
+		return S_OK;
+
 	HRESULT hr = CreateClassObject(CLSID_CPeFileParser, 0, __uuidof(IPeFile), (LPVOID*)&m_parser);
 	if (FAILED(hr)) return hr;
 
@@ -108,6 +133,9 @@ HRESULT WINAPI CKillVirus::OnScanInitialize(void)
 
 HRESULT WINAPI CKillVirus::Scan(__in IVirtualFs * file, __in IFsEnumContext * context, __in IScanObserver * observer)
 {
+	if (!m_emulatorRuntimeAvailable)
+		return S_OK;
+
 	BOOL isMatched = FALSE;
 	HRESULT hr;
 	if (m_OepCode)
@@ -134,8 +162,20 @@ HRESULT WINAPI CKillVirus::Scan(__in IVirtualFs * file, __in IFsEnumContext * co
 	// emulate code from entry point to end of section
 	hr = m_emul->EmulatePeFile(m_parser, 0, IEmulator::FromEntryPoint, 0);
 
-	// emulator reports error
-	if (m_emulErrCode) observer->OnError(m_emulErrCode);
+	// Emulation failures on arbitrary PE files should not surface as scan
+	// errors. SalityKiller is a specialist module, so soft emulator failures
+	// simply mean "skip this file" and leave the rest of the engine running.
+	if (m_emulErrCode == IEmulObserver::EmulatorIsNotFound ||
+		m_emulErrCode == IEmulObserver::EmulatorIsNotRunable)
+	{
+		m_emulatorRuntimeAvailable = false;
+	}
+
+	if (FAILED(hr) && IsSoftEmulatorFailure(m_emulErrCode))
+	{
+		hr = S_OK;
+		goto Exit;
+	}
 
 	if (FAILED(hr) ||
 		(m_scanResult.scanResult != VirusDetected))

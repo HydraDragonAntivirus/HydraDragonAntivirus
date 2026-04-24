@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <bcrypt.h>
 #include <cctype>
+#include <strsafe.h>
 #include <string>
 #include <vector>
 

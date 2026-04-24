@@ -229,6 +229,14 @@ namespace
 		return false;
 	}
 
+	HRESULT EnsureSignatureEngine()
+	{
+		if (g_pSignatureEngine != NULL)
+			return S_OK;
+
+		return CreateMosSignatureEngine(&g_pSignatureEngine);
+	}
+
 	HRESULT AddLoadedScanModules()
 	{
 		if (g_pModuleMgr == NULL || g_pScanner == NULL)
@@ -521,6 +529,12 @@ __int64 WINAPI CoreReloadSharedSignatures()
 		return 0;
 	}
 
+	if (FAILED(EnsureSignatureEngine()))
+	{
+		SetCoreError(ERROR_GEN_FAILURE);
+		return 0;
+	}
+
 	return TryLoadSignatureSet(sharedSource) ? 1 : 0;
 }
 
@@ -612,10 +626,12 @@ HRESULT WINAPI CreateMosSignatureEngine(IMosSignatureEngine** ppEngine)
 
 IMosSignatureEngine* WINAPI CoreGetSignatureEngine()
 {
+	if (g_pSignatureEngine == NULL)
+		EnsureSignatureEngine();
+
 	if (g_pSignatureEngine)
 		g_pSignatureEngine->AddRef();
 	return g_pSignatureEngine;
 }
 
 }
-
