@@ -1,3 +1,0 @@
-LIBRARY
-	EXPORTS
-	CreateModuleObject @1

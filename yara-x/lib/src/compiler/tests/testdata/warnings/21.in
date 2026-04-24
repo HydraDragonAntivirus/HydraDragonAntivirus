@@ -1,3 +1,0 @@
-rule test {
-  condition: not 2+2
-}

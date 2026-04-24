@@ -1,3 +1,0 @@
-rule test {
-  condition: for any i in (0..1): ( 1 )
-}

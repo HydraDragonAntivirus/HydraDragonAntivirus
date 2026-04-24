@@ -1,6 +1,0 @@
-rule test {
-  strings:
-    $a = /foo/i nocase
-  condition: 
-    $a
-}

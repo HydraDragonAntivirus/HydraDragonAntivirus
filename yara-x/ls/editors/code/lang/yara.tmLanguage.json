@@ -1,8 +1,0 @@
-{
-  "fileTypes": [
-    "yara",
-    "yar"
-  ],
-  "name": "YARA",
-  "scopeName": "source.yara"
-}

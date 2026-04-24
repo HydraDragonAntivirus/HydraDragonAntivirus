@@ -1,5 +1,0 @@
-import "test_proto2"
-
-rule test {
-	condition: test_proto2.array_bool[0] == 1
-}

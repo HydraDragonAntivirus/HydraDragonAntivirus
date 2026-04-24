@@ -1,7 +1,0 @@
-rule test_1 {
-  condition: true
-}
-
-rule test_2 {
-  condition: test_1
-}

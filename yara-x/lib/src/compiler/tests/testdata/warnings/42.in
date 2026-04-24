@@ -1,7 +1,0 @@
-rule ambiguous {
- strings:
-   $a = "foo"
-   $b = "bar"
- condition:
-    0 of them
-}

@@ -1,7 +1,0 @@
-rule test {
-  strings:
-    $a = "foo"
-    $b = "bar"
-  condition:
-    all of ($*) at 0
-}

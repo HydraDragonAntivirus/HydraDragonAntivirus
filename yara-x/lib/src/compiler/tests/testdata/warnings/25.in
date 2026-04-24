@@ -1,5 +1,0 @@
-// constant-folding required
-rule test {
-  condition:
-    true or false
-}

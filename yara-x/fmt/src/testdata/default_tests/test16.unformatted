@@ -1,9 +1,0 @@
-import "test" // Comment
-// Comment
-rule test {
-  condition:true
-}
-// Comment
-rule test2 {
-  condition: true
-}                                   

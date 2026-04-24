@@ -1,6 +1,0 @@
-rule test {
-  strings: 
-    $a = "foo"
-  condition: 
-    for any of them: ( 1 )
-}

@@ -1,4 +1,0 @@
-import "test"// Comment
-rule test {
-strings: $a = "foo"
-condition:true}

@@ -1,7 +1,0 @@
-rule test :
-  tag1 // Lorem ipsum
-  tag2 // Lorem ipsum
-{
-  condition:
-    true
-}

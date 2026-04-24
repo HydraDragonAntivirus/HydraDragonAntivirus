@@ -1,4 +1,0 @@
-global private rule test {
-  condition:
-    true
-}

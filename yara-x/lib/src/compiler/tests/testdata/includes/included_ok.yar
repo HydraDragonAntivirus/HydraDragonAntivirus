@@ -1,4 +1,0 @@
-rule included {
-    condition:
-        true
-}
