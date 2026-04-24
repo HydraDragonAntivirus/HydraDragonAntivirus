@@ -196,7 +196,7 @@ namespace
 		return image;
 	}
 
-	void AnalyzeImage(const std::vector<unsigned char>& image, Moh_PE_HEURISTIC_RESULT *result)
+	void AnalyzeImage(const std::vector<unsigned char>& image, MOS_PE_SIGNATURE_RESULT *result)
 	{
 		ASSERT_NE(nullptr, result);
 
@@ -211,7 +211,7 @@ namespace
 		ASSERT_HRESULT_SUCCEEDED(memoryFs->SetBuffer(image.data(), static_cast<ULONG>(image.size())));
 		ASSERT_HRESULT_SUCCEEDED(parser->CheckType(memoryFs, &matched));
 		ASSERT_TRUE(matched);
-		ASSERT_HRESULT_SUCCEEDED(AnalyzeMohPeHeuristics(parser, result));
+		ASSERT_HRESULT_SUCCEEDED(AnalyzeMosPeSignatures(parser, result));
 
 		parser->ReleaseCurrentFile();
 		parser->Release();
@@ -219,7 +219,7 @@ namespace
 	}
 }
 
-TEST(MohPeHeuristics, DetectsImportMix)
+TEST(MosPeSignatures, DetectsImportMix)
 {
 	std::vector<IMPORT_LIBRARY_SPEC> imports = {
 		{
@@ -241,30 +241,31 @@ TEST(MohPeHeuristics, DetectsImportMix)
 		".data",
 		IMAGE_SCN_CNT_INITIALIZED_DATA | IMAGE_SCN_MEM_READ | IMAGE_SCN_MEM_WRITE);
 
-	Moh_PE_HEURISTIC_RESULT result = {};
+	MOS_PE_SIGNATURE_RESULT result = {};
 	AnalyzeImage(image, &result);
 	ASSERT_TRUE(result.detected);
-	ASSERT_TRUE(TEST_FLAG(result.flags, MohPeHeuristicSuspiciousImportMix));
-	ASSERT_TRUE(TEST_FLAG(result.flags, MohPeHeuristicLoaderImports));
+	ASSERT_TRUE(TEST_FLAG(result.flags, MosPeSignatureSuspiciousImportMix));
+	ASSERT_TRUE(TEST_FLAG(result.flags, MosPeSignatureLoaderImports));
 }
 
-TEST(MohPeHeuristics, DetectsEntrypointJumpIntoSuspiciousLastSection)
+TEST(MosPeSignatures, DetectsEntrypointJumpIntoSuspiciousLastSection)
 {
 	std::vector<unsigned char> image = BuildPeImage(
 		{},
 		{ 0xE9, 0xFB, 0x0F, 0x00, 0x00 },
 		{ 0x55, 0x8B, 0xEC, 0x81, 0xEC, 0x20, 0x00, 0x00, 0x00, 0xFF, 0x15, 0x00, 0x10, 0x40, 0x00, 0xC3 },
-		".Moh",
+		".MOS",
 		IMAGE_SCN_CNT_CODE | IMAGE_SCN_MEM_EXECUTE | IMAGE_SCN_MEM_READ | IMAGE_SCN_MEM_WRITE);
 
-	Moh_PE_HEURISTIC_RESULT result = {};
+	MOS_PE_SIGNATURE_RESULT result = {};
 	AnalyzeImage(image, &result);
 	ASSERT_TRUE(result.detected);
-	ASSERT_TRUE(TEST_FLAG(result.flags, MohPeHeuristicEntrypointToLastSection));
-	ASSERT_TRUE(TEST_FLAG(result.flags, MohPeHeuristicEntrypointLoaderStub));
+	ASSERT_TRUE(TEST_FLAG(result.flags, MosPeSignatureEntrypointToLastSection));
+	ASSERT_TRUE(TEST_FLAG(result.flags, MosPeSignatureEntrypointLoaderStub));
+	ASSERT_FALSE(TEST_FLAG(result.flags, MosPeSignatureLoaderImports));
 }
 
-TEST(MohPeHeuristics, IgnoresBenignImports)
+TEST(MosPeSignatures, IgnoresBenignImports)
 {
 	std::vector<IMPORT_LIBRARY_SPEC> imports = {
 		{ "user32.dll", { "MessageBoxA" } },
@@ -279,9 +280,46 @@ TEST(MohPeHeuristics, IgnoresBenignImports)
 		".data",
 		IMAGE_SCN_CNT_INITIALIZED_DATA | IMAGE_SCN_MEM_READ | IMAGE_SCN_MEM_WRITE);
 
-	Moh_PE_HEURISTIC_RESULT result = {};
+	MOS_PE_SIGNATURE_RESULT result = {};
 	AnalyzeImage(image, &result);
 	ASSERT_FALSE(result.detected);
-	ASSERT_FALSE(TEST_FLAG(result.flags, MohPeHeuristicSuspiciousImportMix));
-	ASSERT_FALSE(TEST_FLAG(result.flags, MohPeHeuristicEntrypointToLastSection));
+	ASSERT_FALSE(TEST_FLAG(result.flags, MosPeSignatureSuspiciousImportMix));
+	ASSERT_FALSE(TEST_FLAG(result.flags, MosPeSignatureEntrypointToLastSection));
+}
+
+TEST(MosPeSignatures, IgnoresLoaderOnlyImports)
+{
+	std::vector<IMPORT_LIBRARY_SPEC> imports = {
+		{ "kernel32.dll", { "LoadLibraryA", "GetProcAddress" } },
+		{ "advapi32.dll", { "RegOpenKeyExA" } }
+	};
+
+	std::vector<unsigned char> image = BuildPeImage(
+		imports,
+		{ 0xC3 },
+		{ 0x90, 0x90, 0xC3 },
+		".data",
+		IMAGE_SCN_CNT_INITIALIZED_DATA | IMAGE_SCN_MEM_READ | IMAGE_SCN_MEM_WRITE);
+
+	MOS_PE_SIGNATURE_RESULT result = {};
+	AnalyzeImage(image, &result);
+	ASSERT_FALSE(result.detected);
+	ASSERT_TRUE(TEST_FLAG(result.flags, MosPeSignatureLoaderImports));
+	ASSERT_FALSE(TEST_FLAG(result.flags, MosPeSignatureSuspiciousImportMix));
+}
+
+TEST(MosPeSignatures, IgnoresDriverStylePageSection)
+{
+	std::vector<unsigned char> image = BuildPeImage(
+		{},
+		{ 0xE9, 0xFB, 0x0F, 0x00, 0x00 },
+		{ 0x55, 0x8B, 0xEC, 0x83, 0xEC, 0x08, 0xC3 },
+		"PAGE",
+		IMAGE_SCN_CNT_CODE | IMAGE_SCN_MEM_EXECUTE | IMAGE_SCN_MEM_READ | IMAGE_SCN_MEM_WRITE);
+
+	MOS_PE_SIGNATURE_RESULT result = {};
+	AnalyzeImage(image, &result);
+	ASSERT_FALSE(result.detected);
+	ASSERT_FALSE(TEST_FLAG(result.flags, MosPeSignatureEntrypointToLastSection));
+	ASSERT_FALSE(TEST_FLAG(result.flags, MosPeSignatureWritableExecutableLastSection));
 }

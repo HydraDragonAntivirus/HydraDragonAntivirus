@@ -62,7 +62,31 @@ namespace
 			descriptor.FirstThunk == 0;
 	}
 
-	void MarkFlag(__inout Moh_PE_HEURISTIC_RESULT *result, __in const ULONG flag, __in const ULONG score)
+	static const char * const kCommonSectionNames[] =
+	{
+		".text",
+		".data",
+		".rdata",
+		".idata",
+		".edata",
+		".pdata",
+		".xdata",
+		".rsrc",
+		".reloc",
+		".tls",
+		".bss",
+		".crt",
+		".didat",
+		".gfids",
+		".sxdata",
+		".00cfg",
+		"PAGE",
+		"PAGED",
+		"INIT",
+		"POOLCODE",
+	};
+
+	void MarkFlag(__inout MOS_PE_SIGNATURE_RESULT *result, __in const ULONG flag, __in const ULONG score)
 	{
 		if (result == NULL) return;
 		if (!TEST_FLAG(result->flags, flag))
@@ -104,10 +128,7 @@ namespace
 	bool IsCommonSectionName(__in const IMAGE_SECTION_HEADER& sectionHeader)
 	{
 		StringA name = GetSectionName(sectionHeader);
-		return EqualsInsensitive(name, ".text") ||
-			EqualsInsensitive(name, ".data") ||
-			EqualsInsensitive(name, ".rsrc") ||
-			EqualsInsensitive(name, ".reloc");
+		return MatchesAnyStem(name, kCommonSectionNames, _countof(kCommonSectionNames));
 	}
 
 	UINT GetSectionEndRva(__in const IMAGE_SECTION_HEADER& sectionHeader)
@@ -208,7 +229,7 @@ namespace
 		__in IPeFile *peFile,
 		__in IFsStream *stream,
 		__in const IMAGE_NT_HEADERS32& peHeader,
-		__inout Moh_PE_HEURISTIC_RESULT *result)
+		__inout MOS_PE_SIGNATURE_RESULT *result)
 	{
 		if (peFile == NULL || stream == NULL || result == NULL) return;
 
@@ -284,21 +305,21 @@ namespace
 			state.executionCount >= 9 &&
 			state.stagingCount >= 3)
 		{
-			MarkFlag(result, MohPeHeuristicSuspiciousImportMix, 4);
+			MarkFlag(result, MosPeSignatureSuspiciousImportMix, 4);
 		}
 
 		if ((state.dllCount <= 2 && state.hasLoadLibraryFamily) ||
 			state.hasSingleUrlmonDownloadImport ||
 			state.hasSingleShellExecuteImport)
 		{
-			MarkFlag(result, MohPeHeuristicLoaderImports, 2);
+			MarkFlag(result, MosPeSignatureLoaderImports, 2);
 		}
 
 		if ((state.hasUrlDownloadToFile && state.hasShellExecute) ||
 			(state.hasUrlDownloadToFile && state.hasCreateProcess) ||
 			(state.hasShellExecute && state.hasCreateRemoteThread))
 		{
-			MarkFlag(result, MohPeHeuristicNetworkExecutionImports, 3);
+			MarkFlag(result, MosPeSignatureNetworkExecutionImports, 3);
 		}
 	}
 
@@ -353,7 +374,7 @@ namespace
 		__in IPeFile *peFile,
 		__in IFsStream *stream,
 		__in const UINT stubRva,
-		__inout Moh_PE_HEURISTIC_RESULT *result)
+		__inout MOS_PE_SIGNATURE_RESULT *result)
 	{
 		if (peFile == NULL || stream == NULL || result == NULL) return;
 
@@ -373,7 +394,7 @@ namespace
 		{
 			if (stub[i] == 0xE8 || (stub[i] == 0xFF && stub[i + 1] == 0x15))
 			{
-				MarkFlag(result, MohPeHeuristicEntrypointLoaderStub, 2);
+				MarkFlag(result, MosPeSignatureEntrypointLoaderStub, 2);
 				return;
 			}
 		}
@@ -383,7 +404,7 @@ namespace
 		__in IPeFile *peFile,
 		__in IFsStream *stream,
 		__in const IMAGE_NT_HEADERS32& peHeader,
-		__inout Moh_PE_HEURISTIC_RESULT *result)
+		__inout MOS_PE_SIGNATURE_RESULT *result)
 	{
 		if (peFile == NULL || stream == NULL || result == NULL) return;
 
@@ -406,10 +427,10 @@ namespace
 		if (IsCommonSectionName(lastSection))
 			return;
 
-		if (entrySectionIndex == sectionCount - 1 && HasWritableExecutableCode(lastSection))
-		{
-			MarkFlag(result, MohPeHeuristicWritableExecutableLastSection, 2);
-		}
+		if (!HasWritableExecutableCode(lastSection))
+			return;
+
+		MarkFlag(result, MosPeSignatureWritableExecutableLastSection, 2);
 
 		BYTE entryBytes[256] = {};
 		ULONG bytesRead = 0;
@@ -427,7 +448,7 @@ namespace
 			if (!IsRvaInsideSection(targetRva, lastSection))
 				continue;
 
-			MarkFlag(result, MohPeHeuristicEntrypointToLastSection, 4);
+			MarkFlag(result, MosPeSignatureEntrypointToLastSection, 4);
 			if (offset == 0)
 				AnalyzeEntrypointStub(peFile, stream, targetRva, result);
 			return;
@@ -435,7 +456,7 @@ namespace
 	}
 }
 
-HRESULT WINAPI AnalyzeMohPeHeuristics(__in IPeFile *peFile, __out Moh_PE_HEURISTIC_RESULT *result)
+HRESULT WINAPI AnalyzeMosPeSignatures(__in IPeFile *peFile, __out MOS_PE_SIGNATURE_RESULT *result)
 {
 	if (peFile == NULL || result == NULL) return E_INVALIDARG;
 
@@ -456,19 +477,21 @@ HRESULT WINAPI AnalyzeMohPeHeuristics(__in IPeFile *peFile, __out Moh_PE_HEURIST
 
 	stream->Release();
 
-	bool hasImportMix = TEST_FLAG(result->flags, MohPeHeuristicSuspiciousImportMix);
-	bool hasLoaderImports = TEST_FLAG(result->flags, MohPeHeuristicLoaderImports);
-	bool hasNetworkImports = TEST_FLAG(result->flags, MohPeHeuristicNetworkExecutionImports);
-	bool hasLastSectionJump = TEST_FLAG(result->flags, MohPeHeuristicEntrypointToLastSection);
-	bool hasWritableExecLastSection = TEST_FLAG(result->flags, MohPeHeuristicWritableExecutableLastSection);
-	bool hasEntrypointStub = TEST_FLAG(result->flags, MohPeHeuristicEntrypointLoaderStub);
+	bool hasImportMix = TEST_FLAG(result->flags, MosPeSignatureSuspiciousImportMix);
+	bool hasLoaderImports = TEST_FLAG(result->flags, MosPeSignatureLoaderImports);
+	bool hasNetworkImports = TEST_FLAG(result->flags, MosPeSignatureNetworkExecutionImports);
+	bool hasLastSectionJump = TEST_FLAG(result->flags, MosPeSignatureEntrypointToLastSection);
+	bool hasWritableExecLastSection = TEST_FLAG(result->flags, MosPeSignatureWritableExecutableLastSection);
+	bool hasEntrypointStub = TEST_FLAG(result->flags, MosPeSignatureEntrypointLoaderStub);
+
+	const bool hasSectionComposite = hasLastSectionJump &&
+		hasWritableExecLastSection &&
+		(hasEntrypointStub || hasLoaderImports || hasNetworkImports);
+	const bool hasLoaderComposite = hasLoaderImports && (hasNetworkImports || hasSectionComposite);
 
 	result->detected = hasImportMix ||
-		hasLastSectionJump ||
-		(hasNetworkImports && (hasLoaderImports || hasEntrypointStub || hasWritableExecLastSection)) ||
-		(hasEntrypointStub && (hasLoaderImports || hasWritableExecLastSection)) ||
-		(hasWritableExecLastSection && hasLoaderImports) ||
-		(result->score >= 6);
+		hasLoaderComposite ||
+		hasSectionComposite;
 
 	return S_OK;
 }

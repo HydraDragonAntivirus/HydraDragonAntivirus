@@ -5,10 +5,13 @@ TinyAntivirus
 [![License](https://img.shields.io/badge/license-gpl2-blue.svg)](LICENSE)
 ![Platform](https://img.shields.io/badge/platform-windows-lightgrey.svg)
 
-**TinyAntivirus (TinyAv)** is an open source antivirus engine designed to detect polymorphic viruses and disinfect them. Inside this repository it is kept as a specialized engine for Sality-style file infectors and advanced heuristics via **MinimalOpenHeuristics (MOH)**. The current `SalityKiller` module detects and disinfects `W32.Sality.PE`.
+**TinyAntivirus (TinyAv)** is an open source antivirus engine designed to detect polymorphic viruses and disinfect them. Inside this repository it is kept as a specialized engine for Sality-style file infectors and conservative PE detection via **MinimalOpenSignatures (MOS)**. The current `SalityKiller` module detects and disinfects `W32.Sality.PE`, while MOS adds PE signature and heuristic coverage without treating every unusual file as malicious.
 
 > [!NOTE]
-> The engine is named "Tiny" and its components "Minimal" to reflect the lightweight design philosophy, but this does not imply limited capability. MinimalOpenHeuristics is a robust engine for deep file analysis.
+> The engine is named "Tiny" and its components "Minimal" to reflect the lightweight design philosophy, but this does not imply limited capability. MinimalOpenSignatures is a full antivirus engine component for focused PE analysis, not a deliberately weak scanner.
+
+> [!IMPORTANT]
+> Original TinyAntivirus copyright and upstream authorship remain attributed to `develbranch.com` / `quangnh89`. The HydraDragon `0.2` integration, MOS work, VS2022 updates, and later extensions are credited separately to Emirhan Ucan.
 
 
 ## License
@@ -34,40 +37,64 @@ This project is released under the [GPL2](COPYING) [license](LICENSE).
 
 ## Quick start
 
-* Build `TinyAvCore`, `TinyAvConsole`, and `SalityKiller`.
+* Build `TinyAvCore`, `TinyAvConsole`, `SalityKiller`, and `MinimalOpenSignatures`.
 * Change into the output directory and run `TinyAvConsole.exe`.
 
 ## Usage
 
-```
-TinyAvConsole.exe [options]
-
+```text
+TinyAvConsole.exe -d <path> [options]
 ```
 | Option   |      Meaning      |  Default value |
 |----------|-------------|:------:|
-| -e | plug-in directory | current directory |
+| -e | plug-in directory | executable directory |
+| -g | signature file or directory (all parseable DB containers such as `.cvd`, `.ivd`, `.rvd`, `.xmd`) | optional |
 | -A | Archive scan depth | -1 : any depth|
 | -D | scan depth | -1 : any depth |
-| -d | path to scan |  |
+| -d | path to scan | required |
 | -p | file pattern | \*.\* |
 | -s | max file size in bytes| 10 \* 1024 \* 1024 (10 MB) |
 | -m | Scan mode: Kill-virus (k) or Scan-only(s) | Kill-virus (k) |
 | -h | Show usage ||
 
-You may scan all directories and files by using default values.
+ZIP scanning already exists in TinyAntivirus. Additional archive formats like `RAR`, `7z`, `gzip`, and `cab` are still future work.
 
-**Example:** Scan for all files, including ZIP archives, to detect and disinfect virus.
-ZIP files which contain virus will be deleted.
+Typical examples:
+
+```text
+TinyAvConsole.exe -d C:\sample -m s
+TinyAvConsole.exe -d C:\sample -g C:\repo\TinyAntivirus\decompile -m s
+TinyAvConsole.exe -d C:\sample -A 2 -D 4 -m k
 ```
-C:\build>TinyAvConsole.exe -d C:\sample
+
+If you want to load the reverse-engineered signature set from this repo directly, point `-g` to `TinyAntivirus\decompile`. TinyAv will now enumerate and load every parseable signature container it recognizes in that directory, not just the historical `xlmrd/orice` trio.
+
+Important: in the current `0.2` build, loading these databases makes them visible to TinyAv and to the MOS plugin initialization path, but **actual `xlmrd/orice` signature execution is still not implemented**. MOS detections therefore remain heuristic-only until that runtime is ported.
+
+**Example:** Scan for all files, including ZIP archives, to detect and disinfect malware.
+ZIP files which contain malware can still be removed if repair is not possible.
+```text
+C:\build>TinyAvConsole.exe -d C:\sample -g C:\repo\TinyAntivirus\decompile
 ------------------------------------------------------
 TinyAntivirus version 0.2
-Copyright (C) 2026, Emirhan Ucan. All rights reserved.
+Copyright (C) 2016, develbranch.com.
+Copyright (C) 2026, Emirhan Ucan.
 ------------------------------------------------------
+[MOS] Loading signatures from C:\repo\TinyAntivirus\decompile... Success
+[MOS] Loaded signature databases: 900+
+[MOS]   1. xlmrd [CVD] - C:\repo\TinyAntivirus\decompile\xlmrd.cvd
+[MOS]   2. xlmrd [IndexedBinary] - C:\repo\TinyAntivirus\decompile\xlmrd.ivd
+[MOS]   3. orice [IndexedBinary] - C:\repo\TinyAntivirus\decompile\orice.rvd
+[MOS]   4. 7zip [IndexedBinary] - C:\repo\TinyAntivirus\decompile\7zip.xmd
+[MOS]   5. aitok [AVXS] - C:\repo\TinyAntivirus\decompile\aitok.cvd
+[MOS]   ...
 Scanning ...
 C:\sample\calc.EXE
+        HEUR:Win32.MOS.SectionJump (MinimalOpenSignatures)
+C:\sample\virus.EXE
         W32.Sality.PE Disinfected
 C:\sample\container.zip                                                 OK
+
 C:\sample\container.zip>DiskView.exe                                    OK
 C:\sample\container.zip>DMON.SYS                                        OK
 C:\sample\container.zip>sub_container.zip                               OK
@@ -94,6 +121,8 @@ The current roadmap lives in the project wiki page for TinyAntivirus.
 
 I have only one Sality sample to develop Sality killer module. I think there are many variant types of this file infector. Please send me samples which TinyAv can not detect or other kinds of polymorphic viruses. Thank you.
 
-## Author
+## Credits
 
-[Emirhan Ucan](https://github.com/HydraDragonAntivirus)
+Original upstream TinyAntivirus: [develbranch / quangnh89](https://github.com/develbranch/TinyAntivirus)
+
+HydraDragon integration, TinyAntivirus 0.2 updates, MOS work, and VS2022 maintenance: [Emirhan Ucan](https://github.com/HydraDragonAntivirus)

@@ -4,36 +4,44 @@ extern HMODULE g_hMod;
 
 namespace
 {
-	LPCWSTR GetHeuristicName(__in const ULONG flags)
+	LPCWSTR GetSignatureName(__in const ULONG flags)
 	{
-		if (TEST_FLAG(flags, MohPeHeuristicEntrypointToLastSection))
-			return L"HEUR:Win32.Moh.SectionJump";
+		if (TEST_FLAG(flags, MosPeSignatureEntrypointToLastSection))
+			return L"HEUR:Win32.MOS.SectionJump";
 
-		if (TEST_FLAG(flags, MohPeHeuristicSuspiciousImportMix))
-			return L"HEUR:Win32.Moh.ImportMix";
+		if (TEST_FLAG(flags, MosPeSignatureSuspiciousImportMix))
+			return L"HEUR:Win32.MOS.ImportMix";
 
-		return L"HEUR:Win32.Moh.Suspicious";
+		return L"HEUR:Win32.MOS.Suspicious";
 	}
 }
 
-CMohPeScanModule::CMohPeScanModule()
+CMosPeScanModule::CMosPeScanModule()
 {
 	m_info.handle = g_hMod;
 	m_info.type = ScanModule;
-	wcscpy_s(m_info.name, MAX_NAME, L"HEUR:Win32.Moh.PE");
+	wcscpy_s(m_info.name, MAX_NAME, L"MinimalOpenSignatures");
 	m_parser = NULL;
+	m_sigEngine = NULL;
 }
 
-CMohPeScanModule::~CMohPeScanModule()
+
+CMosPeScanModule::~CMosPeScanModule()
 {
 	if (m_parser)
 	{
 		m_parser->Release();
 		m_parser = NULL;
 	}
+
+	if (m_sigEngine)
+	{
+		m_sigEngine->Release();
+		m_sigEngine = NULL;
+	}
 }
 
-HRESULT WINAPI CMohPeScanModule::QueryInterface(__in REFIID riid, __out void **ppvObject)
+HRESULT WINAPI CMosPeScanModule::QueryInterface(__in REFIID riid, __out void **ppvObject)
 {
 	if (ppvObject == NULL) return E_INVALIDARG;
 
@@ -48,31 +56,44 @@ HRESULT WINAPI CMohPeScanModule::QueryInterface(__in REFIID riid, __out void **p
 	return E_NOINTERFACE;
 }
 
-HRESULT WINAPI CMohPeScanModule::GetModuleInfo(__out MODULE_INFO *scanInfo)
+HRESULT WINAPI CMosPeScanModule::GetModuleInfo(__out MODULE_INFO *scanInfo)
 {
 	if (scanInfo == NULL) return E_INVALIDARG;
 	*scanInfo = m_info;
 	return S_OK;
 }
 
-ModuleType WINAPI CMohPeScanModule::GetType(void)
+ModuleType WINAPI CMosPeScanModule::GetType(void)
 {
 	return m_info.type;
 }
 
-HRESULT WINAPI CMohPeScanModule::GetName(__out BSTR *name)
+HRESULT WINAPI CMosPeScanModule::GetName(__out BSTR *name)
 {
 	if (name == NULL) return E_INVALIDARG;
 	*name = SysAllocString(m_info.name);
 	return (*name == NULL) ? E_OUTOFMEMORY : S_OK;
 }
 
-HRESULT WINAPI CMohPeScanModule::OnScanInitialize(void)
+HRESULT WINAPI CMosPeScanModule::OnScanInitialize(void)
 {
-	return CreateClassObject(CLSID_CPeFileParser, 0, __uuidof(IPeFile), (LPVOID*)&m_parser);
+	HRESULT hr = CreateClassObject(CLSID_CPeFileParser, 0, __uuidof(IPeFile), (LPVOID*)&m_parser);
+	if (FAILED(hr))
+		return hr;
+
+	// TinyAvCore is currently linked statically into both the console and the
+	// plug-in, so reload the shared signature source here to mirror what the
+	// launcher loaded before the module started scanning.
+	CoreReloadSharedSignatures();
+	
+	if (m_sigEngine) m_sigEngine->Release();
+	m_sigEngine = CoreGetSignatureEngine();
+	
+	return S_OK;
 }
 
-HRESULT WINAPI CMohPeScanModule::Scan(__in IVirtualFs *file, __in IFsEnumContext *context, __in IScanObserver *observer)
+
+HRESULT WINAPI CMosPeScanModule::Scan(__in IVirtualFs *file, __in IFsEnumContext *context, __in IScanObserver *observer)
 {
 	if (file == NULL || context == NULL || observer == NULL) return E_INVALIDARG;
 	if (m_parser == NULL) return E_NOT_VALID_STATE;
@@ -93,22 +114,30 @@ HRESULT WINAPI CMohPeScanModule::Scan(__in IVirtualFs *file, __in IFsEnumContext
 		return hr;
 	}
 
-	Moh_PE_HEURISTIC_RESULT heuristicResult = {};
-	hr = AnalyzeMohPeHeuristics(m_parser, &heuristicResult);
-	if (FAILED(hr))
+	MOS_PE_SIGNATURE_RESULT signatureResult = {};
+	hr = AnalyzeMosPeSignatures(m_parser, &signatureResult);
+	if (SUCCEEDED(hr) && signatureResult.detected)
 	{
-		hr = S_OK;
-		goto Exit;
+		scanResult.scanResult = VirusDetected;
+		wcscpy_s(scanResult.malwareName, MAX_NAME, GetSignatureName(signatureResult.flags));
+		goto Report;
 	}
 
-	if (!heuristicResult.detected)
+	// Runtime signature matching for xlmrd/orice
+	if (m_sigEngine)
 	{
-		hr = S_OK;
-		goto Exit;
+		hr = m_sigEngine->Match(file, scanResult.malwareName, MAX_NAME);
+		if (hr == S_OK)
+		{
+			scanResult.scanResult = VirusDetected;
+			goto Report;
+		}
 	}
 
-	scanResult.scanResult = VirusDetected;
-	wcscpy_s(scanResult.malwareName, MAX_NAME, GetHeuristicName(heuristicResult.flags));
+	hr = S_OK;
+	goto Exit;
+
+Report:
 
 	hr = observer->OnPreClean(file, context, &scanResult);
 	if (FAILED(hr)) goto Exit;
@@ -123,7 +152,7 @@ Exit:
 	return hr;
 }
 
-HRESULT WINAPI CMohPeScanModule::OnScanShutdown(void)
+HRESULT WINAPI CMosPeScanModule::OnScanShutdown(void)
 {
 	if (m_parser)
 	{

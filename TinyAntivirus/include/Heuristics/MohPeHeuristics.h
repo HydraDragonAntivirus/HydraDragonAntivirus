@@ -2,18 +2,18 @@
 #include "../TinyAvBase.h"
 #include "../FileType/PEFile.h"
 
-enum MohPeHeuristicFlags
+enum MosPeSignatureFlags
 {
-	MohPeHeuristicNone = 0,
-	MohPeHeuristicSuspiciousImportMix = 1 << 0,
-	MohPeHeuristicLoaderImports = 1 << 1,
-	MohPeHeuristicNetworkExecutionImports = 1 << 2,
-	MohPeHeuristicEntrypointToLastSection = 1 << 3,
-	MohPeHeuristicWritableExecutableLastSection = 1 << 4,
-	MohPeHeuristicEntrypointLoaderStub = 1 << 5,
+	MosPeSignatureNone = 0,
+	MosPeSignatureSuspiciousImportMix = 1 << 0,
+	MosPeSignatureLoaderImports = 1 << 1,
+	MosPeSignatureNetworkExecutionImports = 1 << 2,
+	MosPeSignatureEntrypointToLastSection = 1 << 3,
+	MosPeSignatureWritableExecutableLastSection = 1 << 4,
+	MosPeSignatureEntrypointLoaderStub = 1 << 5,
 };
 
-typedef struct Moh_PE_HEURISTIC_RESULT
+typedef struct MOS_PE_SIGNATURE_RESULT
 {
 	ULONG flags;
 	ULONG score;
@@ -22,6 +22,6 @@ typedef struct Moh_PE_HEURISTIC_RESULT
 	UINT entrySectionIndex;
 	UINT lastSectionIndex;
 	BOOL detected;
-} Moh_PE_HEURISTIC_RESULT, *LPMoh_PE_HEURISTIC_RESULT;
+} MOS_PE_SIGNATURE_RESULT, *LPMOS_PE_SIGNATURE_RESULT;
 
-HRESULT WINAPI AnalyzeMohPeHeuristics(__in IPeFile *peFile, __out Moh_PE_HEURISTIC_RESULT *result);
+HRESULT WINAPI AnalyzeMosPeSignatures(__in IPeFile *peFile, __out MOS_PE_SIGNATURE_RESULT *result);

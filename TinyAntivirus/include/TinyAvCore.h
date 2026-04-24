@@ -4,12 +4,15 @@
 #include "Scanner/ScanModule.h"
 #include "FileType/PEFile.h"
 #include "Heuristics/MohPeHeuristics.h"
+#include "Heuristics/MohSignatureEngine.h"
 #include "Emulator/Emulator.h"
 #include "Module/ModuleManager.h"
 #include "Scanner/Scanner.h"
+#include "Scanner/SignatureDatabase.h"
 #include "FileSystem/FsObject.h"
 #include "FileSystem/FsEnum.h"
 #include <unicorn/unicorn.h>
+
 
 #ifdef __cplusplus
 extern "C"
@@ -29,14 +32,36 @@ extern "C"
 	*/
 	HRESULT WINAPI CreateClassObject(__in REFCLSID rclsid, __in DWORD dwClsContext, __in REFIID riid, __out LPVOID *ppv);
 
-	// Core API (Ported logic)
+	// Core API surface for TinyAntivirusEngine.
 	__int64 WINAPI CoreInit();
+	__int64 WINAPI CoreInit2(__m128i *a1);
+	__int64 WINAPI CoreInit3(__int64 a1);
+	__int64 WINAPI CoreInit4_0(__m128i *a1, __int64 a2);
+	__int64 WINAPI CoreInit5(int a1, __int64 a2, __int64 a3, __int64 a4);
 	__int64 WINAPI CoreInitEx(__int64 a1);
 	__int64 WINAPI CoreUninit();
+	__int64 WINAPI CoreNewInstance();
+	__int64 WINAPI CoreDeleteInstance();
 	__int64 WINAPI CoreSet(__int64 instance, signed int id, __int64 value1, __int64 value2);
 	__int64 WINAPI CoreGet();
 	__int64 WINAPI CoreGetBuildNumber();
+	__int64 WINAPI CoreUtf16_8(unsigned __int16 *a1, __int64 a2, unsigned int a3);
+	__int64 WINAPI CoreUtf8_16(unsigned char *a1, unsigned short *a2, unsigned int a3);
+	__int64 WINAPI CoreLoadSignatures(const WCHAR* path);
+	__int64 WINAPI CoreReloadSharedSignatures();
+	__int64 WINAPI CoreGetLoadedSignatureCount();
+	__int64 WINAPI CoreGetLoadedSignatureType(unsigned int index);
+	__int64 WINAPI CoreCopyLoadedSignatureName(unsigned int index, WCHAR* buffer, unsigned int capacity);
+	__int64 WINAPI CoreCopyLoadedSignatureSourcePath(unsigned int index, WCHAR* buffer, unsigned int capacity);
+	__int64 WINAPI CoreCopySharedSignatureSourcePath(WCHAR* buffer, unsigned int capacity);
+
 	void* WINAPI CoreGetLastOpenError();
+	HRESULT CreateMosSignatureEngine(IMosSignatureEngine** ppEngine);
+	IMosSignatureEngine* WINAPI CoreGetSignatureEngine();
+
+
+
+
 
 
 #ifdef __cplusplus
@@ -72,3 +97,8 @@ DEFINE_GUID(CLSID_CFileFs,
 // {8F522F53-E753-4CEC-8B57-8B4DCC89F25A}
 DEFINE_GUID(CLSID_CMemoryFs,
 	0x8f522f53, 0xe753, 0x4cec, 0x8b, 0x57, 0x8b, 0x4d, 0xcc, 0x89, 0xf2, 0x5a);
+
+// {3E4A2B1C-1234-4A3C-9A8B-C7D6E5F4A3B2}
+DEFINE_GUID(CLSID_CMosPeScanModule,
+	0x3e4a2b1c, 0x1234, 0x4a3c, 0x9a, 0x8b, 0xc7, 0xd6, 0xe5, 0xf4, 0xa3, 0xb2);
+

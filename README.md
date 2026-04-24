@@ -168,6 +168,30 @@ See the [LICENSE](./LICENSE) file for more information.
 - TinyAntivirus (VS2022 build + Sality engine notes): [TinyAntivirus wiki](https://github.com/HydraDragonAntivirus/HydraDragonAntivirus/wiki/TinyAntivirus)
 - More component-specific pages will be added over time.
 
+### TinyAntivirus 0.2
+
+- TinyAntivirus is the focused polymorphic-virus engine in this repo.
+- It currently combines `SalityKiller` with `MinimalOpenSignatures (MOS)`.
+- ZIP scanning is already present in TinyAntivirus.
+- Original upstream TinyAntivirus attribution remains with `develbranch.com` / `quangnh89`.
+- HydraDragon `0.2` integration and later extensions are by Emirhan Ucan.
+
+Quick usage:
+
+```text
+TinyAvConsole.exe -d C:\sample -m s
+TinyAvConsole.exe -d C:\sample -g C:\repo\TinyAntivirus\decompile -m s
+TinyAvConsole.exe -d C:\sample -A 2 -D 4 -m k
+```
+
+Common options:
+
+- `-d` target path to scan
+- `-m s` detect only
+- `-m k` disinfect mode
+- `-A` archive depth
+- `-D` directory depth
+
 ## Ghidra Source Code
 - I now using 12.0.4: https://ghidra-sre.org/
 
@@ -269,9 +293,10 @@ See the [LICENSE](./LICENSE) file for more information.
 - I used these projects for EDR (Notice newest forks added to main repo instead of other repo).
 
 - https://github.com/Cisco-Talos/clamav
-- https://github.com/HydraDragonAntivirus/HydraDragonAntivirus/tree/main/TinyAntivirus (MinimalOpenHeuristics - MOH)
+- https://github.com/develbranch/TinyAntivirus
 
 - I used these projects for Antivirus
+
 
 - https://github.com/HydraDragonAntivirus/MBRFilter
 

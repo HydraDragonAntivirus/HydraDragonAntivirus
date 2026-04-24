@@ -50,7 +50,7 @@ extern "C"
 
 		if (IsEqualIID(riid, __uuidof(IModule)))
 		{
-			*ppv = static_cast<IModule*>(new CMohPeScanModule());
+			*ppv = static_cast<IModule*>(new CMosPeScanModule());
 			return S_OK;
 		}
 

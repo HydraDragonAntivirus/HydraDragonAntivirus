@@ -165,7 +165,9 @@
     <ClCompile Include="FileFs_unittest.cpp" />
     <ClCompile Include="MemoryFs_unittest.cpp" />
     <ClCompile Include="MohPeHeuristics_unittest.cpp" />
+    <ClCompile Include="CoreApi_unittest.cpp" />
     <ClCompile Include="main.cpp" />
+
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\TinyAvCore\TinyAvCore.vcxproj">

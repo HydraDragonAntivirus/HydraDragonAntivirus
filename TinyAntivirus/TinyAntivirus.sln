@@ -9,7 +9,7 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "TinyAvConsole", "TinyAvCons
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "SalityKiller", "SalityKiller\SalityKiller.vcxproj", "{29F78C28-341C-4D6F-BE65-2CD559672A56}"
 EndProject
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "MinimalOpenHeuristics", "MinimalOpenHeuristics\MinimalOpenHeuristics.vcxproj", "{D1AECB48-30CF-4FA3-9FA6-1BEB59FE3C8F}"
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "MinimalOpenSignatures", "MinimalOpenHeuristics\MinimalOpenHeuristics.vcxproj", "{D1AECB48-30CF-4FA3-9FA6-1BEB59FE3C8F}"
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Unittests", "tests\Unittests\Unittests.vcxproj", "{39BBD212-79B1-4527-8D62-194A6A8428A8}"
 EndProject
