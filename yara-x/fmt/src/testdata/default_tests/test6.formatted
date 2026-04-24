@@ -1,0 +1,5 @@
+rule test3 {
+  condition:
+    true
+}
+include "test3"

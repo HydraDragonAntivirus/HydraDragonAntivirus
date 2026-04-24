@@ -1,0 +1,14 @@
+rule test {
+      /*
+         Comment
+      */
+      condition:true
+}
+
+/* Comment */ rule test_2 {
+      condition:true
+}
+
+rule test_3 {
+      condition: /* Comment */ true
+}

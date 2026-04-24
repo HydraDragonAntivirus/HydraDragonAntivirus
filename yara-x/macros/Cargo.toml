@@ -1,0 +1,18 @@
+[package]
+name = "yara-x-macros"
+description = "Procedural macros used by the yara-x crate"
+license.workspace = true
+homepage.workspace = true
+repository.workspace = true
+edition.workspace = true
+version.workspace = true
+rust-version.workspace = true
+
+[lib]
+proc-macro = true
+
+[dependencies]
+darling = "0.20.11"
+syn = { version = "2.0.103", features = ["full", "derive", "parsing", "visit"] }
+quote = "1.0"
+proc-macro2 = "1.0.95"

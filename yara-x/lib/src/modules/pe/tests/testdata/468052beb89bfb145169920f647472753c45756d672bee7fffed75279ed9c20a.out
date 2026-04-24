@@ -1,0 +1,805 @@
+is_pe: true
+machine: MACHINE_AMD64
+subsystem: SUBSYSTEM_WINDOWS_GUI
+os_version:
+    major: 10
+    minor: 0
+subsystem_version:
+    major: 10
+    minor: 0
+image_version:
+    major: 10
+    minor: 0
+linker_version:
+    major: 14
+    minor: 20
+opthdr_magic: IMAGE_NT_OPTIONAL_HDR64_MAGIC
+characteristics: 0x22  # EXECUTABLE_IMAGE | LARGE_ADDRESS_AWARE
+dll_characteristics: 0xc160  # HIGH_ENTROPY_VA | DYNAMIC_BASE | NX_COMPAT | GUARD_CF | TERMINAL_SERVER_AWARE
+timestamp: 93198170  # 1972-12-14 16:22:50 UTC
+image_base: 0x7ff7518b0000
+checksum: 115556
+base_of_code: 0x1000
+entry_point: 0x4280
+entry_point_raw: 0x4e80
+section_alignment: 0x1000
+file_alignment: 0x200
+loader_flags: 0x0
+size_of_optional_header: 0xf0
+size_of_code: 0x6600
+size_of_initialized_data: 0x5a00
+size_of_uninitialized_data: 0x0
+size_of_image: 0x11000
+size_of_headers: 0x400
+size_of_stack_reserve: 0x80000
+size_of_stack_commit: 0x4000
+size_of_heap_reserve: 0x100000
+size_of_heap_commit: 0x1000
+pointer_to_symbol_table: 0x0
+win32_version_value: 0
+number_of_symbols: 0
+number_of_rva_and_sizes: 16
+number_of_sections: 7
+number_of_imported_functions: 0
+number_of_delayed_imported_functions: 0
+number_of_resources: 203
+number_of_version_infos: 0
+number_of_imports: 0
+number_of_delayed_imports: 0
+number_of_exports: 0
+number_of_signatures: 0
+rich_signature:
+    offset: 0x80
+    length: 0x50
+    key: 4190983425
+    raw_data: "E4\xa3\xaa\x01U\xcd\xf9\x01U\xcd\xf9\x01U\xcd\xf9\x15>\xcc\xf8\x03U\xcd\xf9\x15>\xce\xf8\x03U\xcd\xf9\x08-^\xf9:U\xcd\xf9\x01U\xcc\xf9\x95U\xcd\xf9\x15>\xc0\xf8\rU\xcd\xf9\x15>\xc9\xf8\rU\xcd\xf9\x15>2\xf9\x00U\xcd\xf9\x15>\xcf\xf8\x00U\xcd\xf9"
+    clear_data: "DanS\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x14k\x01\x01\x02\x00\x00\x00\x14k\x03\x01\x02\x00\x00\x00\tx\x93\x00;\x00\x00\x00\x00\x00\x01\x00\x94\x00\x00\x00\x14k\r\x01\x0c\x00\x00\x00\x14k\x04\x01\x0c\x00\x00\x00\x14k\xff\x00\x01\x00\x00\x00\x14k\x02\x01\x01\x00\x00\x00"
+    tools:
+      - toolid: 257
+        version: 27412
+        times: 2
+      - toolid: 259
+        version: 27412
+        times: 2
+      - toolid: 147
+        version: 30729
+        times: 59
+      - toolid: 1
+        version: 0
+        times: 148
+      - toolid: 269
+        version: 27412
+        times: 12
+      - toolid: 260
+        version: 27412
+        times: 12
+      - toolid: 255
+        version: 27412
+        times: 1
+      - toolid: 258
+        version: 27412
+        times: 1
+sections:
+  - name: ".text"
+    full_name: ".text"
+    characteristics: 0x60000020  # SECTION_MEM_READ | SECTION_MEM_WRITE | SECTION_SCALE_INDEX
+    raw_data_size: 0x6600
+    raw_data_offset: 0x400
+    virtual_address: 0x1000
+    virtual_size: 0x657d
+    pointer_to_relocations: 0x0
+    pointer_to_line_numbers: 0x0
+    number_of_relocations: 0
+    number_of_line_numbers: 0
+  - name: ".rdata"
+    full_name: ".rdata"
+    characteristics: 0x40000040
+    raw_data_size: 0x3a00
+    raw_data_offset: 0x6a00
+    virtual_address: 0x8000
+    virtual_size: 0x38e2
+    pointer_to_relocations: 0x0
+    pointer_to_line_numbers: 0x0
+    number_of_relocations: 0
+    number_of_line_numbers: 0
+  - name: ".data"
+    full_name: ".data"
+    characteristics: 0xc0000040
+    raw_data_size: 0x200
+    raw_data_offset: 0xa400
+    virtual_address: 0xc000
+    virtual_size: 0x888
+    pointer_to_relocations: 0x0
+    pointer_to_line_numbers: 0x0
+    number_of_relocations: 0
+    number_of_line_numbers: 0
+  - name: ".pdata"
+    full_name: ".pdata"
+    characteristics: 0x40000040
+    raw_data_size: 0x800
+    raw_data_offset: 0xa600
+    virtual_address: 0xd000
+    virtual_size: 0x69c
+    pointer_to_relocations: 0x0
+    pointer_to_line_numbers: 0x0
+    number_of_relocations: 0
+    number_of_line_numbers: 0
+  - name: ".didat"
+    full_name: ".didat"
+    characteristics: 0xc0000040
+    raw_data_size: 0x200
+    raw_data_offset: 0xae00
+    virtual_address: 0xe000
+    virtual_size: 0x30
+    pointer_to_relocations: 0x0
+    pointer_to_line_numbers: 0x0
+    number_of_relocations: 0
+    number_of_line_numbers: 0
+  - name: ".rsrc"
+    full_name: ".rsrc"
+    characteristics: 0x40000040
+    raw_data_size: 0xa00
+    raw_data_offset: 0xb000
+    virtual_address: 0xf000
+    virtual_size: 0x820
+    pointer_to_relocations: 0x0
+    pointer_to_line_numbers: 0x0
+    number_of_relocations: 0
+    number_of_line_numbers: 0
+  - name: ".reloc"
+    full_name: ".reloc"
+    characteristics: 0x42000040
+    raw_data_size: 0x200
+    raw_data_offset: 0xba00
+    virtual_address: 0x10000
+    virtual_size: 0x6c
+    pointer_to_relocations: 0x0
+    pointer_to_line_numbers: 0x0
+    number_of_relocations: 0
+    number_of_line_numbers: 0
+data_directories:
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0xa2e0
+    size: 0x26c
+  - virtual_address: 0xf000
+    size: 0x820
+  - virtual_address: 0xd000
+    size: 0x69c
+  - virtual_address: 0xbc00
+    size: 0x2410
+  - virtual_address: 0x10000
+    size: 0x6c
+  - virtual_address: 0x9130
+    size: 0x54
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x8190
+    size: 0x118
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x8330
+    size: 0x4e0
+  - virtual_address: 0xa1d8
+    size: 0x40
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x0
+    size: 0x0
+resource_timestamp: 0  # 1970-01-01 00:00:00 UTC
+resource_version:
+    major: 31648
+    minor: 41354
+resources:
+  - length: 0x7ffdc3
+    rva: 0x783b6000
+    type: RESOURCE_TYPE_MENU
+  - length: 0x7ffd
+    rva: 0xa18a7b30
+    type: 0
+  - length: 0x7ffd
+    rva: 0xa18f282e
+    type: 162480
+  - length: 0x33300000
+    rva: 0x7ffda18a
+    type: RESOURCE_TYPE_RCDATA
+  - length: 0x7ffd
+    rva: 0xc42d3330
+    type: 0
+  - length: 0x7ffd
+    rva: 0xc3783930
+    type: 1486848
+  - length: 0x1010101
+    rva: 0xffffffff
+    type: 1552384
+  - length: 0x7ffd
+    rva: 0xa18a83f0
+    type: 1139792
+  - length: 0x7ffd
+    rva: 0xa18a7dc0
+    type: 1065552
+  - length: 0x7ffd
+    rva: 0xa198a3a0
+    type: 1383992
+  - length: 0x7ffd
+    rva: 0xa18f282e
+    type: 1036020
+  - length: 0xff
+    rva: 0xffffffff
+    type: 1818587694
+  - length: 0x7ffd
+    rva: 0xa3cb5090
+    type: 1685353280
+  - length: 0x7ffdc4
+    rva: 0x2d333000
+    type: RESOURCE_TYPE_CURSOR
+  - length: 0x7ffdc3
+    rva: 0x783b6000
+    type: RESOURCE_TYPE_MENU
+  - length: 0x7ffd
+    rva: 0xa18f282e
+    type: 84832
+  - length: 0x33300000
+    rva: 0x7ffda18a
+    type: RESOURCE_TYPE_RCDATA
+  - length: 0x7ffd
+    rva: 0xc42d3330
+    type: 0
+  - length: 0x7ffd
+    rva: 0xc42ef960
+    type: 842240
+  - length: 0x60022f
+    rva: 0x2aace5e0
+    type: 918528
+  - length: 0x7ffd
+    rva: 0xa18a83f0
+    type: 657648
+  - length: 0x7ffd
+    rva: 0xa18a7dc0
+    type: 565216
+  - length: 0x7ffd
+    rva: 0xa18f282e
+    type: 544016
+  - length: 0xff
+    rva: 0xffffffff
+    type: 1818587694
+  - length: 0x7ffd
+    rva: 0xa3cb5090
+    type: 1685353280
+  - length: 0x7ffd
+    rva: 0xa3cb5090
+    type: 1685353280
+  - length: 0x3c500000
+    rva: 0x7ffdc378
+  - length: 0x7ffdc3
+    rva: 0x783b6000
+    type: RESOURCE_TYPE_MENU
+  - length: 0x7ffd
+    rva: 0xa18a7b30
+    type: 0
+  - length: 0x7ffd
+    rva: 0xa18f282e
+    type: 30240
+  - length: 0x33300000
+    rva: 0x7ffda18a
+    type: RESOURCE_TYPE_RCDATA
+  - length: 0x7ffd
+    rva: 0xc42d3330
+    type: 0
+  - length: 0x7ffd
+    rva: 0xa3cb5090
+    type: 1317376
+  - length: 0x100000
+    rva: 0x43564548
+    type: 1220608
+  - length: 0x7ffd
+    rva: 0xa18a7dc0
+    type: 37664
+  - length: 0x7ffd
+    rva: 0xa18f282e
+    type: 29568
+  - length: 0x3
+    rva: 0x905a4d
+    type: 1150506
+  - length: 0xff
+    rva: 0xffffffff
+    type: 1818587694
+  - length: 0x7ffdc3
+    rva: 0x783b6000
+    type: RESOURCE_TYPE_MENU
+  - length: 0x7ffd
+    rva: 0xa18f282e
+    type: 281824
+  - length: 0x33300000
+    rva: 0x7ffda18a
+    type: RESOURCE_TYPE_RCDATA
+  - length: 0x7ffd
+    rva: 0xc42d3330
+    type: 0
+  - length: 0x200
+    rva: 0x16a000
+    type: 397312
+  - length: 0x7ffd
+    rva: 0xa18a83f0
+    type: 304216
+  - length: 0x7ffd
+    rva: 0xa18a7dc0
+    type: 303936
+  - length: 0x7ffd
+    rva: 0xa18f282e
+    type: 290940
+  - length: 0xff
+    rva: 0xffffffff
+    type: 1818587694
+  - length: 0x7ffd
+    rva: 0xbb282ca0
+    type: 0
+  - length: 0x7ffd
+    rva: 0xb03ab178
+    type: 0
+  - length: 0x7ffd
+    rva: 0xa18a7ba0
+  - length: 0x7ffda1
+    rva: 0x8a7ba000
+    type: 49710
+  - length: 0x7ffdc3
+    rva: 0x783b6000
+    type: RESOURCE_TYPE_MENU
+  - length: 0x7ffd
+    rva: 0xa18a7b30
+    type: 0
+  - length: 0x7ffd
+    rva: 0xa18f282e
+    type: 336462347
+  - length: 0x7ffd
+    rva: 0xa18f282e
+    type: 5136
+  - length: 0x33300000
+    rva: 0x7ffda18a
+    type: RESOURCE_TYPE_RCDATA
+  - length: 0x7ffd
+    rva: 0xc42d3330
+    type: 0
+  - length: 0x7ffd
+    rva: 0xa18a7dc0
+    type: 8208
+  - length: 0x7ffd
+    rva: 0xa18f282e
+    type: 4059
+  - length: 0x3
+    rva: 0x905a4d
+    type: 5224
+  - length: 0x7ffd
+    rva: 0xa3d8bc20
+    type: 1720
+  - length: 0x7ffd
+    rva: 0xa3cb5090
+    type: 432
+  - length: 0xff
+    rva: 0xffffffff
+    type: 1818587694
+  - length: 0x7ffd
+    rva: 0xa3cb982a
+    type: 32
+  - length: 0x7ffdc3
+    rva: 0x783b6000
+    type: RESOURCE_TYPE_MENU
+  - length: 0x11e28211
+    rva: 0x6f64adc5
+    type: 336462347
+  - length: 0x7ffd
+    rva: 0xa18f282e
+    type: 152160
+  - length: 0x33300000
+    rva: 0x7ffda18a
+    type: RESOURCE_TYPE_RCDATA
+  - length: 0x7ffd
+    rva: 0xc42d3330
+    type: 0
+  - length: 0x7ffd
+    rva: 0xa18a83f0
+    type: 169432
+  - length: 0x7ffd
+    rva: 0xa18a7dc0
+    type: 169152
+  - length: 0x7ffd
+    rva: 0xc42b2450
+    type: 188872
+  - length: 0x7ffd
+    rva: 0xa18f282e
+    type: 152283
+  - length: 0x7ffd
+    rva: 0xba4f43b7
+    type: 35214
+  - length: 0xff
+    rva: 0xffffffff
+    type: 1818587694
+  - length: 0x2e400000
+    rva: 0x40000000
+    type: 290431350
+  - length: 0x7ffdc3
+    rva: 0x783b6000
+    type: RESOURCE_TYPE_MENU
+  - length: 0x7ffd
+    rva: 0xa18f282e
+    type: 139968
+  - length: 0x33300000
+    rva: 0x7ffda18a
+    type: RESOURCE_TYPE_RCDATA
+  - length: 0x7ffd
+    rva: 0xc42d3330
+    type: 0
+  - length: 0x7ffd
+    rva: 0xa18a7dc0
+    type: 391776
+  - length: 0x7ffd
+    rva: 0xc42b2450
+    type: 447088
+  - length: 0x7ffd
+    rva: 0xa18f282e
+    type: 378395
+  - length: 0xff
+    rva: 0xffffffff
+    type: 1818587694
+  - length: 0x7ffd
+    rva: 0xc42b2450
+    type: 1080325235
+  - length: 0x7ffd
+    rva: 0xa3cb5090
+    type: 1685353280
+  - length: 0x7ffd
+    rva: 0xa3cb5090
+    type: 1685353280
+  - length: 0x7ffd
+    rva: 0xa3cb5090
+    type: 1852798053
+  - length: 0x7ffd
+    rva: 0xa3cb5090
+    type: 1818851136
+  - length: 0x7ffd
+    rva: 0xc42b2450
+    type: 1081370223
+  - length: 0x7ffd
+    rva: 0xc42b2450
+    type: 1081370223
+  - length: 0x7ffd
+    rva: 0xa3cb5090
+    type: 1952870259
+  - length: 0x7ffd
+    rva: 0xc42b2450
+    type: 1081370223
+  - length: 0x7ffd
+    rva: 0xa3cb5090
+    type: 1818323059
+  - length: 0x7ffd
+    rva: 0xc42b2450
+    type: 1081370223
+  - length: 0x7ffd
+    rva: 0xc42b2450
+    type: 1081370223
+  - length: 0x7ffd
+    rva: 0xc42b2450
+    type: 1081370223
+  - length: 0x7ffd
+    rva: 0xc42b2450
+    type: 1081370223
+  - length: 0x7ffd
+    rva: 0xa3cb5090
+    type: 1853321070
+  - length: 0x7ffd
+    rva: 0xc42b2450
+    type: 1081370223
+  - length: 0x7ffd
+    rva: 0xa3cb5090
+    type: 1952870259
+  - length: 0x7ffd
+    rva: 0xa3cb5090
+    type: 1886602342
+  - length: 0x7ffd
+    rva: 0xa3cb5090
+    type: 1952870259
+  - length: 0x7ffd
+    rva: 0xc42b2450
+    type: 1081370223
+  - length: 0x7ffd
+    rva: 0xa3cb5090
+    type: 1952870259
+  - length: 0x7ffd
+    rva: 0xc42b2450
+    type: 1081370223
+  - length: 0x7ffd
+    rva: 0xc42b2450
+    type: 1078211439
+  - length: 0x7ffd
+    rva: 0xc42b2450
+    type: 1078211439
+  - length: 0x7ffd
+    rva: 0xa3cb5090
+    type: 1144221545
+  - length: 0x7ffd
+    rva: 0xa3cb5090
+    type: 1919247465
+  - length: 0x7ffd
+    rva: 0xa3cb5090
+    type: 1919251570
+  - length: 0x3000007f
+    rva: 0xfdc37841
+  - length: 0x7ffd
+    rva: 0xa18a7ba0
+    type: RESOURCE_TYPE_FONTDIR
+  - length: 0x7ffd
+    rva: 0xa18a7ba0
+    type: RESOURCE_TYPE_FONT
+  - length: 0x33300000
+    rva: 0x7ffda18a
+    type: RESOURCE_TYPE_RCDATA
+  - length: 0x33300000
+    rva: 0x7ffda18a
+    type: RESOURCE_TYPE_RCDATA
+  - length: 0x7ffd
+    rva: 0xa18a7ba0
+    type: RESOURCE_TYPE_FONT
+  - length: 0x33300000
+    rva: 0x7ffda18a
+    type: RESOURCE_TYPE_RCDATA
+  - length: 0x33300000
+    rva: 0x7ffda18a
+    type: RESOURCE_TYPE_RCDATA
+  - length: 0x33300000
+    rva: 0x7ffda18a
+    type: RESOURCE_TYPE_RCDATA
+  - length: 0x7ffd
+    rva: 0xa18a7ba0
+    type: RESOURCE_TYPE_DIALOG
+  - length: 0x7ffd
+    rva: 0xa18a7ba0
+    type: RESOURCE_TYPE_FONT
+  - length: 0x7ffd
+    rva: 0xa18a7ba0
+    type: RESOURCE_TYPE_FONT
+  - length: 0x7ffd
+    rva: 0xa18a7ba0
+    type: RESOURCE_TYPE_FONT
+  - length: 0x7ffd
+    rva: 0xa18a7ba0
+    type: RESOURCE_TYPE_FONT
+  - length: 0x33300000
+    rva: 0x7ffda18a
+    type: RESOURCE_TYPE_ACCELERATOR
+  - length: 0x33300000
+    rva: 0x7ffda18a
+    type: RESOURCE_TYPE_RCDATA
+  - length: 0x7ffdc4
+    rva: 0x2d333000
+    type: 13
+  - length: 0x7ffdc4
+    rva: 0x2d333000
+    type: 15
+  - length: 0x7ffdc4
+    rva: 0x2d333000
+    type: 15
+  - length: 0x7ffdc4
+    rva: 0x2d333000
+    type: 15
+  - length: 0x7ffdc4
+    rva: 0x2d333000
+    type: 15
+  - length: 0x7ffd
+    rva: 0xa18a7ba0
+    type: RESOURCE_TYPE_DIALOG
+  - length: 0x7ffd
+    rva: 0xa18a7ba0
+    type: RESOURCE_TYPE_FONT
+  - length: 0x7ffd
+    rva: 0xa18a7ba0
+    type: RESOURCE_TYPE_FONT
+  - length: 0x7ffd
+    rva: 0xa18a7ba0
+    type: RESOURCE_TYPE_FONT
+  - length: 0x7ffd
+    rva: 0xa18a7ba0
+    type: RESOURCE_TYPE_FONT
+  - length: 0x33300000
+    rva: 0x7ffda18a
+    type: RESOURCE_TYPE_ACCELERATOR
+  - length: 0x33300000
+    rva: 0x7ffda18a
+    type: RESOURCE_TYPE_RCDATA
+  - length: 0x7ffdc4
+    rva: 0x2d333000
+    type: 13
+  - length: 0x7ffdc4
+    rva: 0x2d333000
+    type: 15
+  - length: 0x7ffdc4
+    rva: 0x2d333000
+    type: 15
+  - length: 0x7ffdc4
+    rva: 0x2d333000
+    type: 15
+  - length: 0x7ffdc4
+    rva: 0x2d333000
+    type: 15
+  - length: 0x7ffdc3
+    rva: 0x783b6000
+    type: RESOURCE_TYPE_MENU
+  - length: 0x7ffd
+    rva: 0xa18f282e
+    type: 12960
+  - length: 0x33300000
+    rva: 0x7ffda18a
+    type: RESOURCE_TYPE_RCDATA
+  - length: 0x7ffd
+    rva: 0xc42d3330
+    type: 0
+  - length: 0x7ffd
+    rva: 0xa18a83f0
+    type: 345272
+  - length: 0x7ffd
+    rva: 0xa18a7dc0
+    type: 300064
+  - length: 0x7ffd
+    rva: 0xc42ef960
+    type: 448752
+  - length: 0x7ffd
+    rva: 0xa18f282e
+    type: 293427
+  - length: 0xff
+    rva: 0xffffffff
+    type: 1818587694
+  - length: 0x7ffd
+    rva: 0xa3cb5090
+    type: 1685353280
+  - length: 0x7ffd
+    rva: 0xc37841f0
+    type: 1091704238
+  - length: 0x1
+    rva: 0x6000151e
+  - length: 0x7ffdc3
+    rva: 0x783b6000
+    type: RESOURCE_TYPE_MENU
+  - length: 0x7ffd
+    rva: 0xa18f282e
+    type: 112432
+  - length: 0x33300000
+    rva: 0x7ffda18a
+    type: RESOURCE_TYPE_RCDATA
+  - length: 0x7ffd
+    rva: 0xc42d3330
+    type: 0
+  - length: 0x7ffd
+    rva: 0xa18a7dc0
+    type: 120944
+  - length: 0x7ffd
+    rva: 0xa18f282e
+    type: 113027
+  - length: 0x7ffd
+    rva: 0xba4559e6
+    type: 32118
+  - length: 0x7ffd
+    rva: 0xba561dc8
+    type: 1824
+  - length: 0x7ffd
+    rva: 0xba4f43b7
+    type: 11504
+  - length: 0x3
+    rva: 0x905a4d
+    type: 1032
+  - length: 0xff
+    rva: 0xffffffff
+    type: 1818587694
+  - length: 0x7ffdc3
+    rva: 0x783b6000
+    type: RESOURCE_TYPE_MENU
+  - length: 0x7ffd
+    rva: 0xa18f282e
+    type: 111008
+  - length: 0x33300000
+    rva: 0x7ffda18a
+    type: RESOURCE_TYPE_RCDATA
+  - length: 0x7ffd
+    rva: 0xc42d3330
+    type: 0
+  - length: 0x7ffd
+    rva: 0xa3cb5090
+    type: 1961984
+  - length: 0x7ffd
+    rva: 0xa18a7dc0
+    type: 1472496
+  - length: 0x7ffd
+    rva: 0xc42b2450
+    type: 1698140
+  - length: 0x7ffd
+    rva: 0xa18f282e
+    type: 1399868
+  - length: 0xff
+    rva: 0xffffffff
+    type: 1818587694
+  - length: 0x404075
+    rva: 0x7043656e
+    type: 60670
+  - length: 0x404075
+    rva: 0x7043656e
+    type: 15789823
+  - length: 0x7ffd
+    rva: 0xa3cb5090
+    type: 1685353280
+  - length: 0x7ffd
+    rva: 0xa3cb5090
+    type: 1685353280
+  - length: 0x7ffd
+    rva: 0xa3cb5090
+    type: 1685353280
+  - length: 0x7ffd
+    rva: 0xc42b2450
+    type: 1080325235
+  - length: 0x7ffd
+    rva: 0xa3cb5090
+    type: 1685353280
+  - length: 0x7ffd
+    rva: 0xc42b2450
+    type: 1080325235
+  - length: 0x7ffd
+    rva: 0xa3cb5090
+    type: 1685353280
+  - length: 0x7ffd
+    rva: 0xa3cb5090
+    type: 1685353280
+  - length: 0x2000007f
+    rva: 0xfda3d8bc
+  - length: 0x7ffdc3
+    rva: 0x783b6000
+    type: 258
+  - length: 0x7ffdc4
+    rva: 0x2d333000
+    type: 288
+  - length: 0x7ffd
+    rva: 0xc37839e0
+    type: 46080
+  - length: 0x7ffd
+    rva: 0xc3783a60
+    type: 45184
+  - length: 0x7ffd
+    rva: 0xc3783960
+    type: 17920
+  - length: 0x7ffda1
+    rva: 0x8a7ba000
+    type: RESOURCE_TYPE_FONT
+  - length: 0x3000007f
+    rva: 0xfda18a7b
+    type: 65280
+  - length: 0x7ffd
+    rva: 0xc37838e0
+    type: 61440
+  - length: 0x7ffd
+    rva: 0xc37838e0
+    type: 0
+  - length: 0x7f
+    rva: 0xfdc42d33
+    type: 63488
+  - length: 0x7ffdc3
+    rva: 0x783a7000
+    type: 18176
+  - length: 0x31343266
+    rva: 0x38346166
+    type: 0
+  - length: 0x7ffd
+    rva: 0xc42b2450
+    type: 63488
+  - length: 0x7ffd
+    rva: 0xc3783ae0
+    type: 16960
+  - length: 0x7ffda1
+    rva: 0x8a7ba000
+    type: 128
+  - length: 0x7ffd
+    rva: 0xc3783b60
+    type: 4096
+is_signed: false
+overlay:
+    offset: 0xbc00
+    size: 0x4a2d4

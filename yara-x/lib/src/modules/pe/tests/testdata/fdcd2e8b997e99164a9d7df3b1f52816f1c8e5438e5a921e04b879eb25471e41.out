@@ -1,0 +1,542 @@
+is_pe: true
+machine: MACHINE_AMD64
+subsystem: SUBSYSTEM_WINDOWS_GUI
+os_version:
+    major: 4
+    minor: 0
+subsystem_version:
+    major: 5
+    minor: 2
+image_version:
+    major: 0
+    minor: 0
+linker_version:
+    major: 8
+    minor: 0
+opthdr_magic: IMAGE_NT_OPTIONAL_HDR64_MAGIC
+characteristics: 0x2022  # EXECUTABLE_IMAGE | LARGE_ADDRESS_AWARE | DLL
+dll_characteristics: 0x0
+timestamp: 1348452037  # 2012-09-24 02:00:37 UTC
+image_base: 0x10000000
+checksum: 150385
+base_of_code: 0x1000
+entry_point: 0x6be0
+entry_point_raw: 0x77e0
+dll_name: "Rockey4ND.dll"
+export_timestamp: 1348452037  # 2012-09-24 02:00:37 UTC
+section_alignment: 0x1000
+file_alignment: 0x200
+loader_flags: 0x0
+size_of_optional_header: 0xf0
+size_of_code: 0x10400
+size_of_initialized_data: 0xbe00
+size_of_uninitialized_data: 0x0
+size_of_image: 0x20000
+size_of_headers: 0x400
+size_of_stack_reserve: 0x100000
+size_of_stack_commit: 0x1000
+size_of_heap_reserve: 0x100000
+size_of_heap_commit: 0x1000
+pointer_to_symbol_table: 0x0
+win32_version_value: 0
+number_of_symbols: 0
+number_of_rva_and_sizes: 16
+number_of_sections: 6
+number_of_imported_functions: 91
+number_of_delayed_imported_functions: 0
+number_of_resources: 1
+number_of_version_infos: 7
+number_of_imports: 3
+number_of_delayed_imports: 0
+number_of_exports: 1
+number_of_signatures: 1
+version_info:
+    "FileDescription": "Rockey4ND_X64 DLL"
+    "FileVersion": "1, 4, 12, 813"
+    "InternalName": "Rockey4ND_X64_ DLL"
+    "LegalCopyright": "Copyright (C) 2002-2012 Feitian Technologies Co., Ltd. "
+    "OriginalFilename": "Rockey4ND_X64.DLL"
+    "ProductName": "Rockey4ND_X64_ DLL"
+    "ProductVersion": "1, 4, 12, 813"
+version_info_list:
+  - key: "FileDescription"
+    value: "Rockey4ND_X64 DLL"
+  - key: "FileVersion"
+    value: "1, 4, 12, 813"
+  - key: "InternalName"
+    value: "Rockey4ND_X64_ DLL"
+  - key: "LegalCopyright"
+    value: "Copyright (C) 2002-2012 Feitian Technologies Co., Ltd. "
+  - key: "OriginalFilename"
+    value: "Rockey4ND_X64.DLL"
+  - key: "ProductName"
+    value: "Rockey4ND_X64_ DLL"
+  - key: "ProductVersion"
+    value: "1, 4, 12, 813"
+rich_signature:
+    offset: 0x80
+    length: 0x60
+    key: 1121423077
+    raw_data: "\xa1\xef\xb9\x11\xe5\x8e\xd7B\xe5\x8e\xd7B\xe5\x8e\xd7B\xc2H\xaaB\xe2\x8e\xd7B\xc2H\xb9B\xc4\x8e\xd7B\xc2H\xbaB\xbc\x8e\xd7Bz\x86\xacB\xe1\x8e\xd7B\x93\x13\xacB\xe6\x8e\xd7B\xe5\x8e\xd6B\x89\x8e\xd7B\xc2H\xa5B\xe0\x8e\xd7B\xc2H\xadB\xe4\x8e\xd7B\xc2H\xabB\xe4\x8e\xd7B\xc2H\xafB\xe4\x8e\xd7B"
+    clear_data: "DanS\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\'\xc6}\x00\x07\x00\x00\x00\'\xc6n\x00!\x00\x00\x00\'\xc6m\x00Y\x00\x00\x00\x9f\x08{\x00\x04\x00\x00\x00v\x9d{\x00\x03\x00\x00\x00\x00\x00\x01\x00l\x00\x00\x00\'\xc6r\x00\x05\x00\x00\x00\'\xc6z\x00\x01\x00\x00\x00\'\xc6|\x00\x01\x00\x00\x00\'\xc6x\x00\x01\x00\x00\x00"
+    tools:
+      - toolid: 125
+        version: 50727
+        times: 7
+      - toolid: 110
+        version: 50727
+        times: 33
+      - toolid: 109
+        version: 50727
+        times: 89
+      - toolid: 123
+        version: 2207
+        times: 4
+      - toolid: 123
+        version: 40310
+        times: 3
+      - toolid: 1
+        version: 0
+        times: 108
+      - toolid: 114
+        version: 50727
+        times: 5
+      - toolid: 122
+        version: 50727
+        times: 1
+      - toolid: 124
+        version: 50727
+        times: 1
+      - toolid: 120
+        version: 50727
+        times: 1
+pdb_path: "h:\\r4\\bin\\x64\\Rockey4ND_X64.pdb"
+sections:
+  - name: ".text"
+    full_name: ".text"
+    characteristics: 0x60000020  # SECTION_MEM_READ | SECTION_MEM_WRITE | SECTION_SCALE_INDEX
+    raw_data_size: 0x10400
+    raw_data_offset: 0x400
+    virtual_address: 0x1000
+    virtual_size: 0x1028e
+    pointer_to_relocations: 0x0
+    pointer_to_line_numbers: 0x0
+    number_of_relocations: 0
+    number_of_line_numbers: 0
+  - name: ".rdata"
+    full_name: ".rdata"
+    characteristics: 0x40000040
+    raw_data_size: 0x3a00
+    raw_data_offset: 0x10800
+    virtual_address: 0x12000
+    virtual_size: 0x3967
+    pointer_to_relocations: 0x0
+    pointer_to_line_numbers: 0x0
+    number_of_relocations: 0
+    number_of_line_numbers: 0
+  - name: ".data"
+    full_name: ".data"
+    characteristics: 0xc0000040
+    raw_data_size: 0x1600
+    raw_data_offset: 0x14200
+    virtual_address: 0x16000
+    virtual_size: 0x6b00
+    pointer_to_relocations: 0x0
+    pointer_to_line_numbers: 0x0
+    number_of_relocations: 0
+    number_of_line_numbers: 0
+  - name: ".pdata"
+    full_name: ".pdata"
+    characteristics: 0x40000040
+    raw_data_size: 0x1000
+    raw_data_offset: 0x15800
+    virtual_address: 0x1d000
+    virtual_size: 0xff0
+    pointer_to_relocations: 0x0
+    pointer_to_line_numbers: 0x0
+    number_of_relocations: 0
+    number_of_line_numbers: 0
+  - name: ".rsrc"
+    full_name: ".rsrc"
+    characteristics: 0x40000040
+    raw_data_size: 0x400
+    raw_data_offset: 0x16800
+    virtual_address: 0x1e000
+    virtual_size: 0x378
+    pointer_to_relocations: 0x0
+    pointer_to_line_numbers: 0x0
+    number_of_relocations: 0
+    number_of_line_numbers: 0
+  - name: ".reloc"
+    full_name: ".reloc"
+    characteristics: 0x42000040
+    raw_data_size: 0x400
+    raw_data_offset: 0x16c00
+    virtual_address: 0x1f000
+    virtual_size: 0x2f0
+    pointer_to_relocations: 0x0
+    pointer_to_line_numbers: 0x0
+    number_of_relocations: 0
+    number_of_line_numbers: 0
+data_directories:
+  - virtual_address: 0x15920
+    size: 0x47
+  - virtual_address: 0x14f08
+    size: 0x50
+  - virtual_address: 0x1e000
+    size: 0x378
+  - virtual_address: 0x1d000
+    size: 0xff0
+  - virtual_address: 0x17000
+    size: 0x17d0
+  - virtual_address: 0x1f000
+    size: 0x110
+  - virtual_address: 0x12370
+    size: 0x1c
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x12000
+    size: 0x2f0
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x0
+    size: 0x0
+resource_timestamp: 0  # 1970-01-01 00:00:00 UTC
+resource_version:
+    major: 0
+    minor: 0
+resources:
+  - length: 0x314
+    rva: 0x1e060
+    offset: 0x16860
+    type: RESOURCE_TYPE_VERSION
+    id: 1
+    language: 2052
+import_details:
+  - library_name: "KERNEL32.dll"
+    number_of_functions: 78
+    functions:
+      - name: "CloseHandle"
+        rva: 0x12050
+      - name: "OpenFileMappingA"
+        rva: 0x12058
+      - name: "InitializeCriticalSection"
+        rva: 0x12060
+      - name: "GetCurrentThreadId"
+        rva: 0x12068
+      - name: "GetVersionExA"
+        rva: 0x12070
+      - name: "CreateMutexA"
+        rva: 0x12078
+      - name: "ReleaseMutex"
+        rva: 0x12080
+      - name: "CreateFileMappingA"
+        rva: 0x12088
+      - name: "EnterCriticalSection"
+        rva: 0x12090
+      - name: "GetLastError"
+        rva: 0x12098
+      - name: "LeaveCriticalSection"
+        rva: 0x120a0
+      - name: "Sleep"
+        rva: 0x120a8
+      - name: "GetTickCount"
+        rva: 0x120b0
+      - name: "UnmapViewOfFile"
+        rva: 0x120b8
+      - name: "MapViewOfFile"
+        rva: 0x120c0
+      - name: "WaitForSingleObject"
+        rva: 0x120c8
+      - name: "CreateFileA"
+        rva: 0x120d0
+      - name: "FlushFileBuffers"
+        rva: 0x120d8
+      - name: "FlsSetValue"
+        rva: 0x120e0
+      - name: "GetCommandLineA"
+        rva: 0x120e8
+      - name: "HeapFree"
+        rva: 0x120f0
+      - name: "HeapAlloc"
+        rva: 0x120f8
+      - name: "GetProcessHeap"
+        rva: 0x12100
+      - name: "TerminateProcess"
+        rva: 0x12108
+      - name: "GetCurrentProcess"
+        rva: 0x12110
+      - name: "UnhandledExceptionFilter"
+        rva: 0x12118
+      - name: "SetUnhandledExceptionFilter"
+        rva: 0x12120
+      - name: "IsDebuggerPresent"
+        rva: 0x12128
+      - name: "RtlVirtualUnwind"
+        rva: 0x12130
+      - name: "RtlLookupFunctionEntry"
+        rva: 0x12138
+      - name: "RtlCaptureContext"
+        rva: 0x12140
+      - name: "RtlUnwindEx"
+        rva: 0x12148
+      - name: "GetProcAddress"
+        rva: 0x12150
+      - name: "GetModuleHandleA"
+        rva: 0x12158
+      - name: "FlsGetValue"
+        rva: 0x12160
+      - name: "TlsFree"
+        rva: 0x12168
+      - name: "FlsFree"
+        rva: 0x12170
+      - name: "SetLastError"
+        rva: 0x12178
+      - name: "TlsSetValue"
+        rva: 0x12180
+      - name: "FlsAlloc"
+        rva: 0x12188
+      - name: "HeapSize"
+        rva: 0x12190
+      - name: "ExitProcess"
+        rva: 0x12198
+      - name: "HeapSetInformation"
+        rva: 0x121a0
+      - name: "HeapCreate"
+        rva: 0x121a8
+      - name: "HeapDestroy"
+        rva: 0x121b0
+      - name: "SetHandleCount"
+        rva: 0x121b8
+      - name: "GetStdHandle"
+        rva: 0x121c0
+      - name: "GetFileType"
+        rva: 0x121c8
+      - name: "GetStartupInfoA"
+        rva: 0x121d0
+      - name: "DeleteCriticalSection"
+        rva: 0x121d8
+      - name: "GetModuleFileNameA"
+        rva: 0x121e0
+      - name: "FreeEnvironmentStringsA"
+        rva: 0x121e8
+      - name: "GetEnvironmentStrings"
+        rva: 0x121f0
+      - name: "FreeEnvironmentStringsW"
+        rva: 0x121f8
+      - name: "WideCharToMultiByte"
+        rva: 0x12200
+      - name: "GetEnvironmentStringsW"
+        rva: 0x12208
+      - name: "QueryPerformanceCounter"
+        rva: 0x12210
+      - name: "GetCurrentProcessId"
+        rva: 0x12218
+      - name: "GetSystemTimeAsFileTime"
+        rva: 0x12220
+      - name: "SetFilePointer"
+        rva: 0x12228
+      - name: "WriteFile"
+        rva: 0x12230
+      - name: "GetConsoleCP"
+        rva: 0x12238
+      - name: "GetConsoleMode"
+        rva: 0x12240
+      - name: "GetCPInfo"
+        rva: 0x12248
+      - name: "GetACP"
+        rva: 0x12250
+      - name: "GetOEMCP"
+        rva: 0x12258
+      - name: "HeapReAlloc"
+        rva: 0x12260
+      - name: "LoadLibraryA"
+        rva: 0x12268
+      - name: "SetStdHandle"
+        rva: 0x12270
+      - name: "WriteConsoleA"
+        rva: 0x12278
+      - name: "GetConsoleOutputCP"
+        rva: 0x12280
+      - name: "WriteConsoleW"
+        rva: 0x12288
+      - name: "MultiByteToWideChar"
+        rva: 0x12290
+      - name: "LCMapStringA"
+        rva: 0x12298
+      - name: "LCMapStringW"
+        rva: 0x122a0
+      - name: "GetStringTypeA"
+        rva: 0x122a8
+      - name: "GetStringTypeW"
+        rva: 0x122b0
+      - name: "GetLocaleInfoA"
+        rva: 0x122b8
+  - library_name: "HID.DLL"
+    number_of_functions: 9
+    functions:
+      - name: "HidD_GetHidGuid"
+        rva: 0x12000
+      - name: "HidD_GetAttributes"
+        rva: 0x12008
+      - name: "HidD_SetFeature"
+        rva: 0x12010
+      - name: "HidD_FreePreparsedData"
+        rva: 0x12018
+      - name: "HidD_GetFeature"
+        rva: 0x12020
+      - name: "HidP_GetCaps"
+        rva: 0x12028
+      - name: "HidD_GetProductString"
+        rva: 0x12030
+      - name: "HidD_FlushQueue"
+        rva: 0x12038
+      - name: "HidD_GetPreparsedData"
+        rva: 0x12040
+  - library_name: "SETUPAPI.dll"
+    number_of_functions: 4
+    functions:
+      - name: "SetupDiGetDeviceInterfaceDetailA"
+        rva: 0x122c8
+      - name: "SetupDiDestroyDeviceInfoList"
+        rva: 0x122d0
+      - name: "SetupDiGetClassDevsA"
+        rva: 0x122d8
+      - name: "SetupDiEnumDeviceInterfaces"
+        rva: 0x122e0
+export_details:
+  - name: "Rockey"
+    ordinal: 1
+    rva: 0x5f30
+    offset: 0x5330
+is_signed: true
+signatures:
+  - subject: "/C=CN/ST=Beijing,China/L=Beijing,China/O=Feitian Technologies Co., Ltd./OU=Digital ID Class 3 - Microsoft Software Validation v2/CN=Feitian Technologies Co., Ltd."
+    issuer: "/C=US/O=VeriSign, Inc./OU=VeriSign Trust Network/OU=Terms of use at https://www.verisign.com/rpa (c)09/CN=VeriSign Class 3 Code Signing 2009-2 CA"
+    thumbprint: "8da58c274e5e1027929a16e8ca84c21f202e4e71"
+    version: 3
+    algorithm: "sha1WithRSAEncryption"
+    algorithm_oid: "1.2.840.113549.1.1.5"
+    serial: "2d:b7:d0:7d:62:33:55:2f:85:e5:69:0e:44:6b:1c:2c"
+    not_before: 1273881600  # 2010-05-15 00:00:00 UTC
+    not_after: 1370131199  # 2013-06-01 23:59:59 UTC
+    verified: true
+    digest_alg: "sha1"
+    digest: "40c10a1fbb3df6e90f4b92d9145bbfcdba4e2535"
+    file_digest: "40c10a1fbb3df6e90f4b92d9145bbfcdba4e2535"
+    number_of_certificates: 5
+    number_of_countersignatures: 1
+    signer_info:
+        digest: "36df36fd27073446fc75f1919f94efcefc16afb3"
+        digest_alg: "sha1"
+        chain:
+          - issuer: "/C=US/O=VeriSign, Inc./OU=VeriSign Trust Network/OU=Terms of use at https://www.verisign.com/rpa (c)09/CN=VeriSign Class 3 Code Signing 2009-2 CA"
+            subject: "/C=CN/ST=Beijing,China/L=Beijing,China/O=Feitian Technologies Co., Ltd./OU=Digital ID Class 3 - Microsoft Software Validation v2/CN=Feitian Technologies Co., Ltd."
+            thumbprint: "8da58c274e5e1027929a16e8ca84c21f202e4e71"
+            version: 3
+            algorithm: "sha1WithRSAEncryption"
+            algorithm_oid: "1.2.840.113549.1.1.5"
+            serial: "2d:b7:d0:7d:62:33:55:2f:85:e5:69:0e:44:6b:1c:2c"
+            not_before: 1273881600  # 2010-05-15 00:00:00 UTC
+            not_after: 1370131199  # 2013-06-01 23:59:59 UTC
+          - issuer: "/C=US/O=VeriSign, Inc./OU=Class 3 Public Primary Certification Authority"
+            subject: "/C=US/O=VeriSign, Inc./OU=VeriSign Trust Network/OU=Terms of use at https://www.verisign.com/rpa (c)09/CN=VeriSign Class 3 Code Signing 2009-2 CA"
+            thumbprint: "12d4872bc3ef019e7e0b6f132480ae29db5b1ca3"
+            version: 3
+            algorithm: "sha1WithRSAEncryption"
+            algorithm_oid: "1.2.840.113549.1.1.5"
+            serial: "65:52:26:e1:b2:2e:18:e1:59:0f:29:85:ac:22:e7:5c"
+            not_before: 1242864000  # 2009-05-21 00:00:00 UTC
+            not_after: 1558396799  # 2019-05-20 23:59:59 UTC
+          - issuer: "/C=US/O=VeriSign, Inc./OU=Class 3 Public Primary Certification Authority"
+            subject: "/C=US/O=VeriSign, Inc./OU=Class 3 Public Primary Certification Authority"
+            thumbprint: "742c3192e607e424eb4549542be1bbc53e6174e2"
+            version: 1
+            algorithm: "md2WithRSAEncryption"
+            algorithm_oid: "1.2.840.113549.1.1.2"
+            serial: "70:ba:e4:1d:10:d9:29:34:b6:38:ca:7b:03:cc:ba:bf"
+            not_before: 822873600  # 1996-01-29 00:00:00 UTC
+            not_after: 1848787199  # 2028-08-01 23:59:59 UTC
+    certificates:
+      - issuer: "/C=US/O=VeriSign, Inc./OU=Class 3 Public Primary Certification Authority"
+        subject: "/C=US/O=VeriSign, Inc./OU=Class 3 Public Primary Certification Authority"
+        thumbprint: "742c3192e607e424eb4549542be1bbc53e6174e2"
+        version: 1
+        algorithm: "md2WithRSAEncryption"
+        algorithm_oid: "1.2.840.113549.1.1.2"
+        serial: "70:ba:e4:1d:10:d9:29:34:b6:38:ca:7b:03:cc:ba:bf"
+        not_before: 822873600  # 1996-01-29 00:00:00 UTC
+        not_after: 1848787199  # 2028-08-01 23:59:59 UTC
+      - issuer: "/C=US/O=VeriSign, Inc./CN=VeriSign Time Stamping Services CA"
+        subject: "/C=US/O=Symantec Corporation/CN=Symantec Time Stamping Services Signer - G3"
+        thumbprint: "8fd99d63fb3afbd534a4f6e31dacd27f59504021"
+        version: 3
+        algorithm: "sha1WithRSAEncryption"
+        algorithm_oid: "1.2.840.113549.1.1.5"
+        serial: "79:a2:a5:85:f9:d1:15:42:13:d9:b8:3e:f6:b6:8d:ed"
+        not_before: 1335830400  # 2012-05-01 00:00:00 UTC
+        not_after: 1356998399  # 2012-12-31 23:59:59 UTC
+      - issuer: "/C=ZA/ST=Western Cape/L=Durbanville/O=Thawte/OU=Thawte Certification/CN=Thawte Timestamping CA"
+        subject: "/C=US/O=VeriSign, Inc./CN=VeriSign Time Stamping Services CA"
+        thumbprint: "f46ac0c6efbb8c6a14f55f09e2d37df4c0de012d"
+        version: 3
+        algorithm: "sha1WithRSAEncryption"
+        algorithm_oid: "1.2.840.113549.1.1.5"
+        serial: "47:bf:19:95:df:8d:52:46:43:f7:db:6d:48:0d:31:a4"
+        not_before: 1070496000  # 2003-12-04 00:00:00 UTC
+        not_after: 1386115199  # 2013-12-03 23:59:59 UTC
+      - issuer: "/C=US/O=VeriSign, Inc./OU=Class 3 Public Primary Certification Authority"
+        subject: "/C=US/O=VeriSign, Inc./OU=VeriSign Trust Network/OU=Terms of use at https://www.verisign.com/rpa (c)09/CN=VeriSign Class 3 Code Signing 2009-2 CA"
+        thumbprint: "12d4872bc3ef019e7e0b6f132480ae29db5b1ca3"
+        version: 3
+        algorithm: "sha1WithRSAEncryption"
+        algorithm_oid: "1.2.840.113549.1.1.5"
+        serial: "65:52:26:e1:b2:2e:18:e1:59:0f:29:85:ac:22:e7:5c"
+        not_before: 1242864000  # 2009-05-21 00:00:00 UTC
+        not_after: 1558396799  # 2019-05-20 23:59:59 UTC
+      - issuer: "/C=US/O=VeriSign, Inc./OU=VeriSign Trust Network/OU=Terms of use at https://www.verisign.com/rpa (c)09/CN=VeriSign Class 3 Code Signing 2009-2 CA"
+        subject: "/C=CN/ST=Beijing,China/L=Beijing,China/O=Feitian Technologies Co., Ltd./OU=Digital ID Class 3 - Microsoft Software Validation v2/CN=Feitian Technologies Co., Ltd."
+        thumbprint: "8da58c274e5e1027929a16e8ca84c21f202e4e71"
+        version: 3
+        algorithm: "sha1WithRSAEncryption"
+        algorithm_oid: "1.2.840.113549.1.1.5"
+        serial: "2d:b7:d0:7d:62:33:55:2f:85:e5:69:0e:44:6b:1c:2c"
+        not_before: 1273881600  # 2010-05-15 00:00:00 UTC
+        not_after: 1370131199  # 2013-06-01 23:59:59 UTC
+    countersignatures:
+      - verified: true
+        sign_time: 1350891308  # 2012-10-22 07:35:08 UTC
+        digest: "3da1b686d82d3caa44ddbc0d59fdc2dc10a2b512"
+        digest_alg: "sha1"
+        chain:
+          - issuer: "/C=US/O=VeriSign, Inc./CN=VeriSign Time Stamping Services CA"
+            subject: "/C=US/O=Symantec Corporation/CN=Symantec Time Stamping Services Signer - G3"
+            thumbprint: "8fd99d63fb3afbd534a4f6e31dacd27f59504021"
+            version: 3
+            algorithm: "sha1WithRSAEncryption"
+            algorithm_oid: "1.2.840.113549.1.1.5"
+            serial: "79:a2:a5:85:f9:d1:15:42:13:d9:b8:3e:f6:b6:8d:ed"
+            not_before: 1335830400  # 2012-05-01 00:00:00 UTC
+            not_after: 1356998399  # 2012-12-31 23:59:59 UTC
+          - issuer: "/C=ZA/ST=Western Cape/L=Durbanville/O=Thawte/OU=Thawte Certification/CN=Thawte Timestamping CA"
+            subject: "/C=US/O=VeriSign, Inc./CN=VeriSign Time Stamping Services CA"
+            thumbprint: "f46ac0c6efbb8c6a14f55f09e2d37df4c0de012d"
+            version: 3
+            algorithm: "sha1WithRSAEncryption"
+            algorithm_oid: "1.2.840.113549.1.1.5"
+            serial: "47:bf:19:95:df:8d:52:46:43:f7:db:6d:48:0d:31:a4"
+            not_before: 1070496000  # 2003-12-04 00:00:00 UTC
+            not_after: 1386115199  # 2013-12-03 23:59:59 UTC
+overlay:
+    offset: 0x17000
+    size: 0x17d0

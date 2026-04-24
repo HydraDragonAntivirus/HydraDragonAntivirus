@@ -1,0 +1,261 @@
+is_pe: true
+machine: MACHINE_I386
+subsystem: SUBSYSTEM_WINDOWS_GUI
+os_version:
+    major: 4
+    minor: 0
+subsystem_version:
+    major: 4
+    minor: 0
+image_version:
+    major: 0
+    minor: 0
+linker_version:
+    major: 2
+    minor: 25
+opthdr_magic: IMAGE_NT_OPTIONAL_HDR32_MAGIC
+characteristics: 0xa18e  # EXECUTABLE_IMAGE | LINE_NUMS_STRIPPED | LOCAL_SYMS_STRIPPED | BYTES_REVERSED_LO | MACHINE_32BIT | DLL | BYTES_REVERSED_HI
+dll_characteristics: 0x1
+timestamp: 708992537  # 1992-06-19 22:22:17 UTC
+image_base: 0x800000
+checksum: 0
+base_of_code: 0x1000
+base_of_data: 0x3000
+entry_point: 0x1498
+entry_point_raw: 0x2098
+section_alignment: 0x1000
+file_alignment: 0x200
+loader_flags: 0x0
+size_of_optional_header: 0xe0
+size_of_code: 0x1200
+size_of_initialized_data: 0xc00
+size_of_uninitialized_data: 0x0
+size_of_image: 0x9000
+size_of_headers: 0x400
+size_of_stack_reserve: 0x0
+size_of_stack_commit: 0x0
+size_of_heap_reserve: 0x100000
+size_of_heap_commit: 0x1000
+pointer_to_symbol_table: 0x0
+win32_version_value: 0
+number_of_symbols: 0
+number_of_rva_and_sizes: 16
+number_of_sections: 7
+number_of_imported_functions: 28
+number_of_delayed_imported_functions: 0
+number_of_resources: 3
+number_of_version_infos: 0
+number_of_imports: 5
+number_of_delayed_imports: 0
+number_of_exports: 0
+number_of_signatures: 0
+sections:
+  - name: "CODE"
+    full_name: "CODE"
+    characteristics: 0x60000020  # SECTION_MEM_READ | SECTION_MEM_WRITE | SECTION_SCALE_INDEX
+    raw_data_size: 0x1200
+    raw_data_offset: 0x400
+    virtual_address: 0x1000
+    virtual_size: 0x10c0
+    pointer_to_relocations: 0x0
+    pointer_to_line_numbers: 0x0
+    number_of_relocations: 0
+    number_of_line_numbers: 0
+  - name: "DATA"
+    full_name: "DATA"
+    characteristics: 0xc0000040
+    raw_data_size: 0x200
+    raw_data_offset: 0x1600
+    virtual_address: 0x3000
+    virtual_size: 0xa4
+    pointer_to_relocations: 0x0
+    pointer_to_line_numbers: 0x0
+    number_of_relocations: 0
+    number_of_line_numbers: 0
+  - name: "BSS"
+    full_name: "BSS"
+    characteristics: 0xc0000000
+    raw_data_size: 0x0
+    raw_data_offset: 0x1800
+    virtual_address: 0x4000
+    virtual_size: 0x7f5
+    pointer_to_relocations: 0x0
+    pointer_to_line_numbers: 0x0
+    number_of_relocations: 0
+    number_of_line_numbers: 0
+  - name: ".idata"
+    full_name: ".idata"
+    characteristics: 0xc0000040
+    raw_data_size: 0x400
+    raw_data_offset: 0x1800
+    virtual_address: 0x5000
+    virtual_size: 0x312
+    pointer_to_relocations: 0x0
+    pointer_to_line_numbers: 0x0
+    number_of_relocations: 0
+    number_of_line_numbers: 0
+  - name: ".rdata"
+    full_name: ".rdata"
+    characteristics: 0x50000040
+    raw_data_size: 0x200
+    raw_data_offset: 0x1c00
+    virtual_address: 0x6000
+    virtual_size: 0x13
+    pointer_to_relocations: 0x0
+    pointer_to_line_numbers: 0x0
+    number_of_relocations: 0
+    number_of_line_numbers: 0
+  - name: ".reloc"
+    full_name: ".reloc"
+    characteristics: 0x50000040
+    raw_data_size: 0x200
+    raw_data_offset: 0x1e00
+    virtual_address: 0x7000
+    virtual_size: 0x1d8
+    pointer_to_relocations: 0x0
+    pointer_to_line_numbers: 0x0
+    number_of_relocations: 0
+    number_of_line_numbers: 0
+  - name: ".rsrc"
+    full_name: ".rsrc"
+    characteristics: 0x50000040
+    raw_data_size: 0x200
+    raw_data_offset: 0x2000
+    virtual_address: 0x8000
+    virtual_size: 0x200
+    pointer_to_relocations: 0x0
+    pointer_to_line_numbers: 0x0
+    number_of_relocations: 0
+    number_of_line_numbers: 0
+data_directories:
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x5000
+    size: 0x312
+  - virtual_address: 0x8000
+    size: 0x200
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x7000
+    size: 0x1d8
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x6000
+    size: 0x13
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x0
+    size: 0x0
+resource_timestamp: 1116228524  # 2005-05-16 07:28:44 UTC
+resource_version:
+    major: 0
+    minor: 0
+resources:
+  - length: 0x28
+    rva: 0x80f8
+    offset: 0x20f8
+    type: RESOURCE_TYPE_RCDATA
+    language: 0
+    name_string: "D\x00E\x00S\x00C\x00R\x00I\x00P\x00T\x00I\x00O\x00N\x00"
+  - length: 0x10
+    rva: 0x8120
+    offset: 0x2120
+    type: RESOURCE_TYPE_RCDATA
+    language: 0
+    name_string: "D\x00V\x00C\x00L\x00A\x00L\x00"
+  - length: 0x3c
+    rva: 0x8130
+    offset: 0x2130
+    type: RESOURCE_TYPE_RCDATA
+    language: 0
+    name_string: "P\x00A\x00C\x00K\x00A\x00G\x00E\x00I\x00N\x00F\x00O\x00"
+import_details:
+  - library_name: "kernel32.dll"
+    number_of_functions: 15
+    functions:
+      - name: "DeleteCriticalSection"
+        rva: 0x5078
+      - name: "LeaveCriticalSection"
+        rva: 0x507c
+      - name: "EnterCriticalSection"
+        rva: 0x5080
+      - name: "VirtualFree"
+        rva: 0x5084
+      - name: "LocalFree"
+        rva: 0x5088
+      - name: "GetCurrentThreadId"
+        rva: 0x508c
+      - name: "GetStartupInfoA"
+        rva: 0x5090
+      - name: "GetCommandLineA"
+        rva: 0x5094
+      - name: "FreeLibrary"
+        rva: 0x5098
+      - name: "ExitProcess"
+        rva: 0x509c
+      - name: "WriteFile"
+        rva: 0x50a0
+      - name: "UnhandledExceptionFilter"
+        rva: 0x50a4
+      - name: "RtlUnwind"
+        rva: 0x50a8
+      - name: "RaiseException"
+        rva: 0x50ac
+      - name: "GetStdHandle"
+        rva: 0x50b0
+  - library_name: "user32.dll"
+    number_of_functions: 2
+    functions:
+      - name: "GetKeyboardType"
+        rva: 0x50b8
+      - name: "MessageBoxA"
+        rva: 0x50bc
+  - library_name: "advapi32.dll"
+    number_of_functions: 3
+    functions:
+      - name: "RegQueryValueExA"
+        rva: 0x50c4
+      - name: "RegOpenKeyExA"
+        rva: 0x50c8
+      - name: "RegCloseKey"
+        rva: 0x50cc
+  - library_name: "kernel32.dll"
+    number_of_functions: 6
+    functions:
+      - name: "TlsSetValue"
+        rva: 0x50d4
+      - name: "TlsGetValue"
+        rva: 0x50d8
+      - name: "TlsFree"
+        rva: 0x50dc
+      - name: "TlsAlloc"
+        rva: 0x50e0
+      - name: "LocalFree"
+        rva: 0x50e4
+      - name: "LocalAlloc"
+        rva: 0x50e8
+  - library_name: "kernel32.dll"
+    number_of_functions: 2
+    functions:
+      - name: "LoadLibraryA"
+        rva: 0x50f0
+      - name: "GetModuleFileNameA"
+        rva: 0x50f4
+is_signed: false
+overlay:
+    offset: 0x0
+    size: 0x0

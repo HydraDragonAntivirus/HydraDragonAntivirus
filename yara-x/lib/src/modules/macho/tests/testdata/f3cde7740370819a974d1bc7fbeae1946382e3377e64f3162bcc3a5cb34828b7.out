@@ -1,0 +1,585 @@
+magic: 0xcffaedfe
+cputype: 0x100000c
+cpusubtype: 0x0
+filetype: 1
+ncmds: 34
+sizeofcmds: 2088
+flags: 0x2000
+reserved: 0
+number_of_segments: 1
+symtab:
+    symoff: 2800
+    nsyms: 54
+    stroff: 3664
+    strsize: 1536
+    entries:
+      - "ltmp0"
+      - "l_.str.12.hello, world"
+      - "l_OBJC_CLASS_REF_$_NSString"
+      - "ltmp1"
+      - "ltmp2"
+      - "ltmp3"
+      - "ltmp4"
+      - "ltmp5"
+      - "l_entry_point"
+      - "ltmp6"
+      - "ltmp7"
+      - "ltmp8"
+      - "l_llvm.swift_module_hash"
+      - "ltmp9"
+      - "ltmp10"
+      - "_$s4test4str2So8NSStringCvp"
+      - "_$sSo8NSStringCML"
+      - "_$sSo8NSStringCMa"
+      - "___swift_reflection_version"
+      - "__swift_FORCE_LOAD_$_swiftCoreFoundation_$_test"
+      - "__swift_FORCE_LOAD_$_swiftDarwin_$_test"
+      - "__swift_FORCE_LOAD_$_swiftDispatch_$_test"
+      - "__swift_FORCE_LOAD_$_swiftFoundation_$_test"
+      - "__swift_FORCE_LOAD_$_swiftIOKit_$_test"
+      - "__swift_FORCE_LOAD_$_swiftObjectiveC_$_test"
+      - "__swift_FORCE_LOAD_$_swiftXPC_$_test"
+      - "__swift_FORCE_LOAD_$_swift_Builtin_float_$_test"
+      - "__swift_FORCE_LOAD_$_swift_errno_$_test"
+      - "__swift_FORCE_LOAD_$_swift_math_$_test"
+      - "__swift_FORCE_LOAD_$_swift_signal_$_test"
+      - "__swift_FORCE_LOAD_$_swift_stdio_$_test"
+      - "__swift_FORCE_LOAD_$_swift_time_$_test"
+      - "__swift_FORCE_LOAD_$_swiftsys_time_$_test"
+      - "__swift_FORCE_LOAD_$_swiftunistd_$_test"
+      - "_main"
+      - "_$sSo8NSStringC10FoundationE13stringLiteralABs12StaticStringV_tcfC"
+      - "_OBJC_CLASS_$_NSString"
+      - "__swift_FORCE_LOAD_$_swiftCoreFoundation"
+      - "__swift_FORCE_LOAD_$_swiftDarwin"
+      - "__swift_FORCE_LOAD_$_swiftDispatch"
+      - "__swift_FORCE_LOAD_$_swiftFoundation"
+      - "__swift_FORCE_LOAD_$_swiftIOKit"
+      - "__swift_FORCE_LOAD_$_swiftObjectiveC"
+      - "__swift_FORCE_LOAD_$_swiftXPC"
+      - "__swift_FORCE_LOAD_$_swift_Builtin_float"
+      - "__swift_FORCE_LOAD_$_swift_errno"
+      - "__swift_FORCE_LOAD_$_swift_math"
+      - "__swift_FORCE_LOAD_$_swift_signal"
+      - "__swift_FORCE_LOAD_$_swift_stdio"
+      - "__swift_FORCE_LOAD_$_swift_time"
+      - "__swift_FORCE_LOAD_$_swiftsys_time"
+      - "__swift_FORCE_LOAD_$_swiftunistd"
+      - "_objc_opt_self"
+      - "_swift_getObjCClassMetadata"
+    nlists:
+      - n_strx: 1517
+        n_type: 14
+        n_sect: 1
+        n_desc: 0
+        n_value: 0
+      - n_strx: 1242
+        n_type: 14
+        n_sect: 3
+        n_desc: 0
+        n_value: 188
+      - n_strx: 1099
+        n_type: 14
+        n_sect: 5
+        n_desc: 0
+        n_value: 216
+      - n_strx: 1511
+        n_type: 14
+        n_sect: 2
+        n_desc: 0
+        n_value: 416
+      - n_strx: 1505
+        n_type: 14
+        n_sect: 3
+        n_desc: 0
+        n_value: 188
+      - n_strx: 1499
+        n_type: 14
+        n_sect: 4
+        n_desc: 0
+        n_value: 208
+      - n_strx: 1493
+        n_type: 14
+        n_sect: 5
+        n_desc: 0
+        n_value: 216
+      - n_strx: 1487
+        n_type: 14
+        n_sect: 6
+        n_desc: 0
+        n_value: 224
+      - n_strx: 624
+        n_type: 14
+        n_sect: 6
+        n_desc: 32
+        n_value: 224
+      - n_strx: 1481
+        n_type: 14
+        n_sect: 7
+        n_desc: 0
+        n_value: 232
+      - n_strx: 1475
+        n_type: 14
+        n_sect: 8
+        n_desc: 0
+        n_value: 352
+      - n_strx: 1469
+        n_type: 14
+        n_sect: 9
+        n_desc: 0
+        n_value: 354
+      - n_strx: 1016
+        n_type: 14
+        n_sect: 9
+        n_desc: 32
+        n_value: 354
+      - n_strx: 1463
+        n_type: 14
+        n_sect: 10
+        n_desc: 0
+        n_value: 370
+      - n_strx: 1523
+        n_type: 14
+        n_sect: 11
+        n_desc: 0
+        n_value: 384
+      - n_strx: 711
+        n_type: 31
+        n_sect: 2
+        n_desc: 32
+        n_value: 416
+      - n_strx: 1311
+        n_type: 31
+        n_sect: 4
+        n_desc: 128
+        n_value: 208
+      - n_strx: 1293
+        n_type: 31
+        n_sect: 1
+        n_desc: 128
+        n_value: 88
+      - n_strx: 883
+        n_type: 31
+        n_sect: 8
+        n_desc: 160
+        n_value: 352
+      - n_strx: 212
+        n_type: 31
+        n_sect: 7
+        n_desc: 160
+        n_value: 320
+      - n_strx: 260
+        n_type: 31
+        n_sect: 7
+        n_desc: 160
+        n_value: 304
+      - n_strx: 380
+        n_type: 31
+        n_sect: 7
+        n_desc: 160
+        n_value: 328
+      - n_strx: 168
+        n_type: 31
+        n_sect: 7
+        n_desc: 160
+        n_value: 232
+      - n_strx: 1
+        n_type: 31
+        n_sect: 7
+        n_desc: 160
+        n_value: 344
+      - n_strx: 543
+        n_type: 31
+        n_sect: 7
+        n_desc: 160
+        n_value: 312
+      - n_strx: 587
+        n_type: 31
+        n_sect: 7
+        n_desc: 160
+        n_value: 336
+      - n_strx: 40
+        n_type: 31
+        n_sect: 7
+        n_desc: 160
+        n_value: 296
+      - n_strx: 88
+        n_type: 31
+        n_sect: 7
+        n_desc: 160
+        n_value: 240
+      - n_strx: 341
+        n_type: 31
+        n_sect: 7
+        n_desc: 160
+        n_value: 288
+      - n_strx: 300
+        n_type: 31
+        n_sect: 7
+        n_desc: 160
+        n_value: 256
+      - n_strx: 128
+        n_type: 31
+        n_sect: 7
+        n_desc: 160
+        n_value: 264
+      - n_strx: 422
+        n_type: 31
+        n_sect: 7
+        n_desc: 160
+        n_value: 272
+      - n_strx: 461
+        n_type: 31
+        n_sect: 7
+        n_desc: 160
+        n_value: 248
+      - n_strx: 503
+        n_type: 31
+        n_sect: 7
+        n_desc: 160
+        n_value: 280
+      - n_strx: 944
+        n_type: 15
+        n_sect: 1
+        n_desc: 32
+        n_value: 0
+      - n_strx: 1329
+        n_type: 1
+        n_sect: 0
+        n_desc: 0
+        n_value: 0
+      - n_strx: 1076
+        n_type: 1
+        n_sect: 0
+        n_desc: 0
+        n_value: 0
+      - n_strx: 842
+        n_type: 1
+        n_sect: 0
+        n_desc: 64
+        n_value: 0
+      - n_strx: 911
+        n_type: 1
+        n_sect: 0
+        n_desc: 64
+        n_value: 0
+      - n_strx: 1041
+        n_type: 1
+        n_sect: 0
+        n_desc: 64
+        n_value: 0
+      - n_strx: 805
+        n_type: 1
+        n_sect: 0
+        n_desc: 64
+        n_value: 0
+      - n_strx: 638
+        n_type: 1
+        n_sect: 0
+        n_desc: 64
+        n_value: 0
+      - n_strx: 1396
+        n_type: 1
+        n_sect: 0
+        n_desc: 64
+        n_value: 0
+      - n_strx: 1433
+        n_type: 1
+        n_sect: 0
+        n_desc: 64
+        n_value: 0
+      - n_strx: 670
+        n_type: 1
+        n_sect: 0
+        n_desc: 64
+        n_value: 0
+      - n_strx: 739
+        n_type: 1
+        n_sect: 0
+        n_desc: 64
+        n_value: 0
+      - n_strx: 984
+        n_type: 1
+        n_sect: 0
+        n_desc: 64
+        n_value: 0
+      - n_strx: 950
+        n_type: 1
+        n_sect: 0
+        n_desc: 64
+        n_value: 0
+      - n_strx: 772
+        n_type: 1
+        n_sect: 0
+        n_desc: 64
+        n_value: 0
+      - n_strx: 1142
+        n_type: 1
+        n_sect: 0
+        n_desc: 64
+        n_value: 0
+      - n_strx: 1174
+        n_type: 1
+        n_sect: 0
+        n_desc: 64
+        n_value: 0
+      - n_strx: 1209
+        n_type: 1
+        n_sect: 0
+        n_desc: 64
+        n_value: 0
+      - n_strx: 1127
+        n_type: 1
+        n_sect: 0
+        n_desc: 0
+        n_value: 0
+      - n_strx: 1265
+        n_type: 1
+        n_sect: 0
+        n_desc: 0
+        n_value: 0
+dysymtab:
+    ilocalsym: 0
+    nlocalsym: 15
+    iextdefsym: 15
+    nextdefsym: 20
+    tocoff: 35
+    ntoc: 19
+    modtaboff: 0
+    nmodtab: 0
+    extrefsymoff: 0
+    nextrefsyms: 0
+    indirectsymoff: 0
+    nindirectsyms: 0
+    extreloff: 0
+    nextrel: 0
+    locreloff: 0
+    nlocrel: 0
+segments:
+  - segname: ""
+    vmaddr: 0x0
+    vmsize: 0x1a8
+    fileoff: 2120
+    filesize: 416
+    maxprot: 0x7
+    initprot: 0x7
+    nsects: 11
+    flags: 0x0
+    sections:
+      - segname: "__TEXT"
+        sectname: "__text"
+        addr: 0x0
+        size: 0xbc
+        offset: 2120
+        align: 2
+        reloff: 2536
+        nreloc: 14
+        flags: 0x80000400
+        reserved1: 0
+        reserved2: 0
+        reserved3: 0
+      - segname: "__DATA"
+        sectname: "__common"
+        addr: 0x1a0
+        size: 0x8
+        offset: 0
+        align: 3
+        reloff: 0
+        nreloc: 0
+        flags: 0x1
+        reserved1: 0
+        reserved2: 0
+        reserved3: 0
+      - segname: "__TEXT"
+        sectname: "__cstring"
+        addr: 0xbc
+        size: 0xd
+        offset: 2308
+        align: 0
+        reloff: 0
+        nreloc: 0
+        flags: 0x2
+        reserved1: 0
+        reserved2: 0
+        reserved3: 0
+      - segname: "__DATA"
+        sectname: "__data"
+        addr: 0xd0
+        size: 0x8
+        offset: 2328
+        align: 3
+        reloff: 0
+        nreloc: 0
+        flags: 0x0
+        reserved1: 0
+        reserved2: 0
+        reserved3: 0
+      - segname: "__DATA"
+        sectname: "__objc_classrefs"
+        addr: 0xd8
+        size: 0x8
+        offset: 2336
+        align: 3
+        reloff: 2648
+        nreloc: 1
+        flags: 0x10000000
+        reserved1: 0
+        reserved2: 0
+        reserved3: 0
+      - segname: "__TEXT"
+        sectname: "__swift5_entry"
+        addr: 0xe0
+        size: 0x8
+        offset: 2344
+        align: 2
+        reloff: 2656
+        nreloc: 2
+        flags: 0x10000000
+        reserved1: 0
+        reserved2: 0
+        reserved3: 0
+      - segname: "__DATA"
+        sectname: "__const"
+        addr: 0xe8
+        size: 0x78
+        offset: 2352
+        align: 3
+        reloff: 2672
+        nreloc: 15
+        flags: 0x0
+        reserved1: 0
+        reserved2: 0
+        reserved3: 0
+      - segname: "__TEXT"
+        sectname: "__const"
+        addr: 0x160
+        size: 0x2
+        offset: 2472
+        align: 1
+        reloff: 0
+        nreloc: 0
+        flags: 0x0
+        reserved1: 0
+        reserved2: 0
+        reserved3: 0
+      - segname: "__LLVM"
+        sectname: "__swift_modhash"
+        addr: 0x162
+        size: 0x10
+        offset: 2474
+        align: 0
+        reloff: 0
+        nreloc: 0
+        flags: 0x0
+        reserved1: 0
+        reserved2: 0
+        reserved3: 0
+      - segname: "__DATA"
+        sectname: "__objc_imageinfo"
+        addr: 0x172
+        size: 0x8
+        offset: 2490
+        align: 0
+        reloff: 0
+        nreloc: 0
+        flags: 0x10000000
+        reserved1: 0
+        reserved2: 0
+        reserved3: 0
+      - segname: "__LD"
+        sectname: "__compact_unwind"
+        addr: 0x180
+        size: 0x20
+        offset: 2504
+        align: 3
+        reloff: 2792
+        nreloc: 1
+        flags: 0x2000000
+        reserved1: 0
+        reserved2: 0
+        reserved3: 0
+build_version:
+    platform: 1
+    minos: "15.0.0"
+    sdk: "15.1.0"
+    ntools: 0
+exports:
+  - "_$s4test4str2So8NSStringCvp"
+  - "_$sSo8NSStringCML"
+  - "_$sSo8NSStringCMa"
+  - "___swift_reflection_version"
+  - "__swift_FORCE_LOAD_$_swiftCoreFoundation_$_test"
+  - "__swift_FORCE_LOAD_$_swiftDarwin_$_test"
+  - "__swift_FORCE_LOAD_$_swiftDispatch_$_test"
+  - "__swift_FORCE_LOAD_$_swiftFoundation_$_test"
+  - "__swift_FORCE_LOAD_$_swiftIOKit_$_test"
+  - "__swift_FORCE_LOAD_$_swiftObjectiveC_$_test"
+  - "__swift_FORCE_LOAD_$_swiftXPC_$_test"
+  - "__swift_FORCE_LOAD_$_swift_Builtin_float_$_test"
+  - "__swift_FORCE_LOAD_$_swift_errno_$_test"
+  - "__swift_FORCE_LOAD_$_swift_math_$_test"
+  - "__swift_FORCE_LOAD_$_swift_signal_$_test"
+  - "__swift_FORCE_LOAD_$_swift_stdio_$_test"
+  - "__swift_FORCE_LOAD_$_swift_time_$_test"
+  - "__swift_FORCE_LOAD_$_swiftsys_time_$_test"
+  - "__swift_FORCE_LOAD_$_swiftunistd_$_test"
+  - "_main"
+imports:
+  - "_$sSo8NSStringC10FoundationE13stringLiteralABs12StaticStringV_tcfC"
+  - "_OBJC_CLASS_$_NSString"
+  - "__swift_FORCE_LOAD_$_swiftCoreFoundation"
+  - "__swift_FORCE_LOAD_$_swiftDarwin"
+  - "__swift_FORCE_LOAD_$_swiftDispatch"
+  - "__swift_FORCE_LOAD_$_swiftFoundation"
+  - "__swift_FORCE_LOAD_$_swiftIOKit"
+  - "__swift_FORCE_LOAD_$_swiftObjectiveC"
+  - "__swift_FORCE_LOAD_$_swiftXPC"
+  - "__swift_FORCE_LOAD_$_swift_Builtin_float"
+  - "__swift_FORCE_LOAD_$_swift_errno"
+  - "__swift_FORCE_LOAD_$_swift_math"
+  - "__swift_FORCE_LOAD_$_swift_signal"
+  - "__swift_FORCE_LOAD_$_swift_stdio"
+  - "__swift_FORCE_LOAD_$_swift_time"
+  - "__swift_FORCE_LOAD_$_swiftsys_time"
+  - "__swift_FORCE_LOAD_$_swiftunistd"
+  - "_objc_opt_self"
+  - "_swift_getObjCClassMetadata"
+linker_options:
+  - "-lswiftFoundation"
+  - "-framework"
+  - "Foundation"
+  - "-lswiftCore"
+  - "-lswift_errno"
+  - "-lswiftsys_time"
+  - "-lswift_signal"
+  - "-lswift_stdio"
+  - "-lswift_time"
+  - "-lswiftunistd"
+  - "-lswift_math"
+  - "-lswift_Builtin_float"
+  - "-lswift_StringProcessing"
+  - "-lswift_Concurrency"
+  - "-lswiftSystem"
+  - "-lswiftDarwin"
+  - "-lswiftObservation"
+  - "-lswiftObjectiveC"
+  - "-lswiftCoreFoundation"
+  - "-framework"
+  - "CoreFoundation"
+  - "-lswiftDispatch"
+  - "-framework"
+  - "Combine"
+  - "-framework"
+  - "CoreServices"
+  - "-framework"
+  - "Security"
+  - "-lswiftXPC"
+  - "-framework"
+  - "CFNetwork"
+  - "-framework"
+  - "DiskArbitration"
+  - "-lswiftIOKit"
+  - "-framework"
+  - "IOKit"
+  - "-lswiftSwiftOnoneSupport"
+  - "-lobjc"

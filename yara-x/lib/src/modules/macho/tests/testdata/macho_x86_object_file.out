@@ -1,0 +1,62 @@
+magic: 0xcefaedfe
+cputype: 0x7
+cpusubtype: 0x3
+filetype: 1
+ncmds: 3
+sizeofcmds: 228
+flags: 0x2000
+number_of_segments: 1
+symtab:
+    symoff: 328
+    nsyms: 1
+    stroff: 340
+    strsize: 16
+    entries:
+      - "__Z9factoriali"
+    nlists:
+      - n_strx: 1
+        n_type: 15
+        n_sect: 1
+        n_desc: 0
+        n_value: 0
+dysymtab:
+    ilocalsym: 0
+    nlocalsym: 0
+    iextdefsym: 0
+    nextdefsym: 1
+    tocoff: 1
+    ntoc: 0
+    modtaboff: 0
+    nmodtab: 0
+    extrefsymoff: 0
+    nextrefsyms: 0
+    indirectsymoff: 0
+    nindirectsyms: 0
+    extreloff: 0
+    nextrel: 0
+    locreloff: 0
+    nlocrel: 0
+segments:
+  - segname: ""
+    vmaddr: 0x0
+    vmsize: 0x48
+    fileoff: 256
+    filesize: 72
+    maxprot: 0x7
+    initprot: 0x7
+    nsects: 1
+    flags: 0x0
+    sections:
+      - segname: "__TEXT"
+        sectname: "__text"
+        addr: 0x0
+        size: 0x48
+        offset: 256
+        align: 4
+        reloff: 0
+        nreloc: 0
+        flags: 0x80000400
+        reserved1: 0
+        reserved2: 0
+exports:
+  - "__Z9factoriali"

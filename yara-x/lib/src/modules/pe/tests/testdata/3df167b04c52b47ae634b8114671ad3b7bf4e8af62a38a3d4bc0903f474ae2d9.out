@@ -1,0 +1,1195 @@
+is_pe: true
+machine: MACHINE_I386
+subsystem: SUBSYSTEM_WINDOWS_GUI
+os_version:
+    major: 5
+    minor: 0
+subsystem_version:
+    major: 5
+    minor: 0
+image_version:
+    major: 0
+    minor: 0
+linker_version:
+    major: 9
+    minor: 0
+opthdr_magic: 0
+characteristics: 0x102  # EXECUTABLE_IMAGE | MACHINE_32BIT
+dll_characteristics: 0x8140  # DYNAMIC_BASE | NX_COMPAT | TERMINAL_SERVER_AWARE
+timestamp: 1496750700  # 2017-06-06 12:05:00 UTC
+image_base: 0x400000
+checksum: 612191
+base_of_code: 0x1000
+base_of_data: 0x5e000
+entry_point: 0x3a547
+entry_point_raw: 0x3b147
+section_alignment: 0x1000
+file_alignment: 0x200
+loader_flags: 0x0
+size_of_optional_header: 0xe0
+size_of_code: 0x5c600
+size_of_initialized_data: 0x2a600
+size_of_uninitialized_data: 0x0
+size_of_image: 0x8f000
+size_of_headers: 0x400
+size_of_stack_reserve: 0x100000
+size_of_stack_commit: 0x1000
+size_of_heap_reserve: 0x100000
+size_of_heap_commit: 0x1000
+pointer_to_symbol_table: 0x0
+win32_version_value: 0
+number_of_symbols: 0
+number_of_rva_and_sizes: 16
+number_of_sections: 5
+number_of_imported_functions: 287
+number_of_delayed_imported_functions: 0
+number_of_resources: 25
+number_of_version_infos: 8
+number_of_imports: 14
+number_of_delayed_imports: 0
+number_of_exports: 0
+number_of_signatures: 2
+version_info:
+    "CompanyName": "360.cn"
+    "FileDescription": "360软件管家迅雷下载支持安全代理程序"
+    "FileVersion": "1, 0, 0, 1090"
+    "InternalName": "SecurityProxy.exe"
+    "LegalCopyright": "(C) 360.cn All Rights Reserved."
+    "OriginalFilename": "SecurityProxy.exe"
+    "ProductName": "360软件管家"
+    "ProductVersion": "1, 0, 0, 1090"
+version_info_list:
+  - key: "CompanyName"
+    value: "360.cn"
+  - key: "FileDescription"
+    value: "360软件管家迅雷下载支持安全代理程序"
+  - key: "FileVersion"
+    value: "1, 0, 0, 1090"
+  - key: "InternalName"
+    value: "SecurityProxy.exe"
+  - key: "LegalCopyright"
+    value: "(C) 360.cn All Rights Reserved."
+  - key: "OriginalFilename"
+    value: "SecurityProxy.exe"
+  - key: "ProductName"
+    value: "360软件管家"
+  - key: "ProductVersion"
+    value: "1, 0, 0, 1090"
+rich_signature:
+    offset: 0x80
+    length: 0x60
+    key: 2151320631
+    raw_data: "s\xedT\xd37\x8c:\x807\x8c:\x807\x8c:\x80\x8a\xc3\xac\x804\x8c:\x80>\xf4\xaf\x80*\x8c:\x80>\xf4\xb9\x80\x84\x8c:\x80>\xf4\xbe\x80l\x8c:\x80\x10JW\x800\x8c:\x80\x10JA\x80\x10\x8c:\x807\x8c;\x80\xb4\x8d:\x80>\xf4\xb0\x80\x1c\x8c:\x80)\xde\xae\x806\x8c:\x80>\xf4\xab\x806\x8c:\x80"
+    clear_data: "DanS\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xbdO\x96\x00\x03\x00\x00\x00\tx\x95\x00\x1d\x00\x00\x00\tx\x83\x00\xb3\x00\x00\x00\tx\x84\x00[\x00\x00\x00\'\xc6m\x00\x07\x00\x00\x00\'\xc6{\x00\'\x00\x00\x00\x00\x00\x01\x00\x83\x01\x00\x00\tx\x8a\x00+\x00\x00\x00\x1eR\x94\x00\x01\x00\x00\x00\tx\x91\x00\x01\x00\x00\x00"
+    tools:
+      - toolid: 150
+        version: 20413
+        times: 3
+      - toolid: 149
+        version: 30729
+        times: 29
+      - toolid: 131
+        version: 30729
+        times: 179
+      - toolid: 132
+        version: 30729
+        times: 91
+      - toolid: 109
+        version: 50727
+        times: 7
+      - toolid: 123
+        version: 50727
+        times: 39
+      - toolid: 1
+        version: 0
+        times: 387
+      - toolid: 138
+        version: 30729
+        times: 43
+      - toolid: 148
+        version: 21022
+        times: 1
+      - toolid: 145
+        version: 30729
+        times: 1
+pdb_path: "C:\\vmagent_new\\bin\\joblist\\170654\\out\\Release\\SecurityProxy.pdb"
+sections:
+  - name: ".text"
+    full_name: ".text"
+    characteristics: 0x60000020  # SECTION_MEM_READ | SECTION_MEM_WRITE | SECTION_SCALE_INDEX
+    raw_data_size: 0x5c600
+    raw_data_offset: 0x400
+    virtual_address: 0x1000
+    virtual_size: 0x5c430
+    pointer_to_relocations: 0x0
+    pointer_to_line_numbers: 0x0
+    number_of_relocations: 0
+    number_of_line_numbers: 0
+  - name: ".rdata"
+    full_name: ".rdata"
+    characteristics: 0x40000040
+    raw_data_size: 0x12600
+    raw_data_offset: 0x5ca00
+    virtual_address: 0x5e000
+    virtual_size: 0x12404
+    pointer_to_relocations: 0x0
+    pointer_to_line_numbers: 0x0
+    number_of_relocations: 0
+    number_of_line_numbers: 0
+  - name: ".data"
+    full_name: ".data"
+    characteristics: 0xc0000040
+    raw_data_size: 0x4600
+    raw_data_offset: 0x6f000
+    virtual_address: 0x71000
+    virtual_size: 0x8048
+    pointer_to_relocations: 0x0
+    pointer_to_line_numbers: 0x0
+    number_of_relocations: 0
+    number_of_line_numbers: 0
+  - name: ".rsrc"
+    full_name: ".rsrc"
+    characteristics: 0x40000040
+    raw_data_size: 0xc600
+    raw_data_offset: 0x73600
+    virtual_address: 0x7a000
+    virtual_size: 0xc448
+    pointer_to_relocations: 0x0
+    pointer_to_line_numbers: 0x0
+    number_of_relocations: 0
+    number_of_line_numbers: 0
+  - name: ".reloc"
+    full_name: ".reloc"
+    characteristics: 0x42000040
+    raw_data_size: 0x7400
+    raw_data_offset: 0x7fc00
+    virtual_address: 0x87000
+    virtual_size: 0x733e
+    pointer_to_relocations: 0x0
+    pointer_to_line_numbers: 0x0
+    number_of_relocations: 0
+    number_of_line_numbers: 0
+data_directories:
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x6ea74
+    size: 0x12c
+  - virtual_address: 0x7a000
+    size: 0xc448
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x87298
+    size: 0x35c8
+  - virtual_address: 0x87000
+    size: 0x5734
+  - virtual_address: 0x5e880
+    size: 0x1c
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x66458
+    size: 0x40
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x5e000
+    size: 0x4b4
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x0
+    size: 0x0
+resource_timestamp: 0  # 1970-01-01 00:00:00 UTC
+resource_version:
+    major: 4
+    minor: 0
+resources:
+  - length: 0x2e8
+    rva: 0x7a598
+    offset: 0x73b98
+    type: RESOURCE_TYPE_ICON
+    id: 1
+    language: 2052
+  - length: 0x128
+    rva: 0x7a880
+    offset: 0x73e80
+    type: RESOURCE_TYPE_ICON
+    id: 2
+    language: 2052
+  - length: 0xea8
+    rva: 0x7a9a8
+    offset: 0x73fa8
+    type: RESOURCE_TYPE_ICON
+    id: 3
+    language: 2052
+  - length: 0x8a8
+    rva: 0x7b850
+    offset: 0x74e50
+    type: RESOURCE_TYPE_ICON
+    id: 4
+    language: 2052
+  - length: 0x568
+    rva: 0x7c0f8
+    offset: 0x756f8
+    type: RESOURCE_TYPE_ICON
+    id: 5
+    language: 2052
+  - length: 0x25a8
+    rva: 0x7c660
+    offset: 0x75c60
+    type: RESOURCE_TYPE_ICON
+    id: 6
+    language: 2052
+  - length: 0x10a8
+    rva: 0x7ec08
+    offset: 0x78208
+    type: RESOURCE_TYPE_ICON
+    id: 7
+    language: 2052
+  - length: 0x468
+    rva: 0x7fcb0
+    offset: 0x792b0
+    type: RESOURCE_TYPE_ICON
+    id: 8
+    language: 2052
+  - length: 0x2e8
+    rva: 0x80118
+    offset: 0x79718
+    type: RESOURCE_TYPE_ICON
+    id: 9
+    language: 2052
+  - length: 0x128
+    rva: 0x80400
+    offset: 0x79a00
+    type: RESOURCE_TYPE_ICON
+    id: 10
+    language: 2052
+  - length: 0xea8
+    rva: 0x80528
+    offset: 0x79b28
+    type: RESOURCE_TYPE_ICON
+    id: 11
+    language: 2052
+  - length: 0x8a8
+    rva: 0x813d0
+    offset: 0x7a9d0
+    type: RESOURCE_TYPE_ICON
+    id: 12
+    language: 2052
+  - length: 0x568
+    rva: 0x81c78
+    offset: 0x7b278
+    type: RESOURCE_TYPE_ICON
+    id: 13
+    language: 2052
+  - length: 0x25a8
+    rva: 0x821e0
+    offset: 0x7b7e0
+    type: RESOURCE_TYPE_ICON
+    id: 14
+    language: 2052
+  - length: 0x10a8
+    rva: 0x84788
+    offset: 0x7dd88
+    type: RESOURCE_TYPE_ICON
+    id: 15
+    language: 2052
+  - length: 0x468
+    rva: 0x85830
+    offset: 0x7ee30
+    type: RESOURCE_TYPE_ICON
+    id: 16
+    language: 2052
+  - length: 0x50
+    rva: 0x85c98
+    offset: 0x7f298
+    type: RESOURCE_TYPE_MENU
+    id: 109
+    language: 2052
+  - length: 0x134
+    rva: 0x85ce8
+    offset: 0x7f2e8
+    type: RESOURCE_TYPE_DIALOG
+    id: 103
+    language: 2052
+  - length: 0x54
+    rva: 0x85e1c
+    offset: 0x7f41c
+    type: RESOURCE_TYPE_STRING
+    id: 7
+    language: 2052
+  - length: 0x10
+    rva: 0x85e70
+    offset: 0x7f470
+    type: RESOURCE_TYPE_ACCELERATOR
+    id: 109
+    language: 2052
+  - length: 0x80
+    rva: 0x85e80
+    offset: 0x7f480
+    type: RESOURCE_TYPE_RCDATA
+    id: 864
+    language: 1033
+  - length: 0x76
+    rva: 0x85f00
+    offset: 0x7f500
+    type: RESOURCE_TYPE_GROUP_ICON
+    id: 107
+    language: 2052
+  - length: 0x76
+    rva: 0x85f78
+    offset: 0x7f578
+    type: RESOURCE_TYPE_GROUP_ICON
+    id: 108
+    language: 2052
+  - length: 0x2fc
+    rva: 0x85ff0
+    offset: 0x7f5f0
+    type: RESOURCE_TYPE_VERSION
+    id: 1
+    language: 2052
+  - length: 0x15a
+    rva: 0x862ec
+    offset: 0x7f8ec
+    type: RESOURCE_TYPE_MANIFEST
+    id: 1
+    language: 1033
+import_details:
+  - library_name: "KERNEL32.dll"
+    number_of_functions: 153
+    functions:
+      - name: "GlobalUnlock"
+        rva: 0x5e060
+      - name: "TerminateProcess"
+        rva: 0x5e064
+      - name: "MulDiv"
+        rva: 0x5e068
+      - name: "lstrcmpW"
+        rva: 0x5e06c
+      - name: "SetFileAttributesW"
+        rva: 0x5e070
+      - name: "DeleteFileW"
+        rva: 0x5e074
+      - name: "GetFileSize"
+        rva: 0x5e078
+      - name: "ReadFile"
+        rva: 0x5e07c
+      - name: "CreateToolhelp32Snapshot"
+        rva: 0x5e080
+      - name: "Process32FirstW"
+        rva: 0x5e084
+      - name: "Process32NextW"
+        rva: 0x5e088
+      - name: "GlobalFree"
+        rva: 0x5e08c
+      - name: "OpenThread"
+        rva: 0x5e090
+      - name: "CreateFileMappingW"
+        rva: 0x5e094
+      - name: "GetModuleHandleExW"
+        rva: 0x5e098
+      - name: "lstrcpynW"
+        rva: 0x5e09c
+      - name: "InterlockedCompareExchange"
+        rva: 0x5e0a0
+      - name: "GetLogicalDriveStringsW"
+        rva: 0x5e0a4
+      - name: "GetFileSizeEx"
+        rva: 0x5e0a8
+      - name: "CreateFileA"
+        rva: 0x5e0ac
+      - name: "FindFirstFileW"
+        rva: 0x5e0b0
+      - name: "FindNextFileW"
+        rva: 0x5e0b4
+      - name: "FindClose"
+        rva: 0x5e0b8
+      - name: "RemoveDirectoryW"
+        rva: 0x5e0bc
+      - name: "GetLongPathNameW"
+        rva: 0x5e0c0
+      - name: "IsBadReadPtr"
+        rva: 0x5e0c4
+      - name: "DeviceIoControl"
+        rva: 0x5e0c8
+      - name: "HeapAlloc"
+        rva: 0x5e0cc
+      - name: "GetProcessHeap"
+        rva: 0x5e0d0
+      - name: "HeapFree"
+        rva: 0x5e0d4
+      - name: "LocalFree"
+        rva: 0x5e0d8
+      - name: "SystemTimeToFileTime"
+        rva: 0x5e0dc
+      - name: "SetFilePointerEx"
+        rva: 0x5e0e0
+      - name: "GetLocalTime"
+        rva: 0x5e0e4
+      - name: "SetUnhandledExceptionFilter"
+        rva: 0x5e0e8
+      - name: "VirtualProtect"
+        rva: 0x5e0ec
+      - name: "GetThreadLocale"
+        rva: 0x5e0f0
+      - name: "SetThreadLocale"
+        rva: 0x5e0f4
+      - name: "SetErrorMode"
+        rva: 0x5e0f8
+      - name: "LoadLibraryExW"
+        rva: 0x5e0fc
+      - name: "lstrcmpiW"
+        rva: 0x5e100
+      - name: "GetModuleHandleW"
+        rva: 0x5e104
+      - name: "WriteConsoleW"
+        rva: 0x5e108
+      - name: "GetConsoleOutputCP"
+        rva: 0x5e10c
+      - name: "WriteConsoleA"
+        rva: 0x5e110
+      - name: "GetModuleHandleA"
+        rva: 0x5e114
+      - name: "SetStdHandle"
+        rva: 0x5e118
+      - name: "FlushFileBuffers"
+        rva: 0x5e11c
+      - name: "GetLocaleInfoW"
+        rva: 0x5e120
+      - name: "GetConsoleMode"
+        rva: 0x5e124
+      - name: "GetConsoleCP"
+        rva: 0x5e128
+      - name: "IsValidLocale"
+        rva: 0x5e12c
+      - name: "EnumSystemLocalesA"
+        rva: 0x5e130
+      - name: "GetLocaleInfoA"
+        rva: 0x5e134
+      - name: "GetUserDefaultLCID"
+        rva: 0x5e138
+      - name: "GlobalLock"
+        rva: 0x5e13c
+      - name: "GetStringTypeA"
+        rva: 0x5e140
+      - name: "InitializeCriticalSectionAndSpinCount"
+        rva: 0x5e144
+      - name: "QueryPerformanceCounter"
+        rva: 0x5e148
+      - name: "GetStartupInfoA"
+        rva: 0x5e14c
+      - name: "GetFileType"
+        rva: 0x5e150
+      - name: "SetHandleCount"
+        rva: 0x5e154
+      - name: "GetEnvironmentStringsW"
+        rva: 0x5e158
+      - name: "FreeEnvironmentStringsW"
+        rva: 0x5e15c
+      - name: "IsValidCodePage"
+        rva: 0x5e160
+      - name: "GetOEMCP"
+        rva: 0x5e164
+      - name: "GetACP"
+        rva: 0x5e168
+      - name: "GetModuleFileNameA"
+        rva: 0x5e16c
+      - name: "GetStdHandle"
+        rva: 0x5e170
+      - name: "HeapCreate"
+        rva: 0x5e174
+      - name: "GetStringTypeW"
+        rva: 0x5e178
+      - name: "LCMapStringW"
+        rva: 0x5e17c
+      - name: "LCMapStringA"
+        rva: 0x5e180
+      - name: "GetCPInfo"
+        rva: 0x5e184
+      - name: "RtlUnwind"
+        rva: 0x5e188
+      - name: "GetStartupInfoW"
+        rva: 0x5e18c
+      - name: "IsDebuggerPresent"
+        rva: 0x5e190
+      - name: "UnhandledExceptionFilter"
+        rva: 0x5e194
+      - name: "CreateThread"
+        rva: 0x5e198
+      - name: "ExitThread"
+        rva: 0x5e19c
+      - name: "TlsFree"
+        rva: 0x5e1a0
+      - name: "DeleteAtom"
+        rva: 0x5e1a4
+      - name: "FindAtomW"
+        rva: 0x5e1a8
+      - name: "TlsAlloc"
+        rva: 0x5e1ac
+      - name: "GlobalAlloc"
+        rva: 0x5e1b0
+      - name: "CreateProcessW"
+        rva: 0x5e1b4
+      - name: "Sleep"
+        rva: 0x5e1b8
+      - name: "CreateEventW"
+        rva: 0x5e1bc
+      - name: "SetEvent"
+        rva: 0x5e1c0
+      - name: "SetCurrentDirectoryW"
+        rva: 0x5e1c4
+      - name: "GetCurrentDirectoryW"
+        rva: 0x5e1c8
+      - name: "GetTickCount"
+        rva: 0x5e1cc
+      - name: "WriteFile"
+        rva: 0x5e1d0
+      - name: "OutputDebugStringW"
+        rva: 0x5e1d4
+      - name: "CreateFileW"
+        rva: 0x5e1d8
+      - name: "lstrlenW"
+        rva: 0x5e1dc
+      - name: "CreateMutexW"
+        rva: 0x5e1e0
+      - name: "MoveFileExW"
+        rva: 0x5e1e4
+      - name: "GetCommandLineW"
+        rva: 0x5e1e8
+      - name: "ExitProcess"
+        rva: 0x5e1ec
+      - name: "WaitForSingleObject"
+        rva: 0x5e1f0
+      - name: "OpenProcess"
+        rva: 0x5e1f4
+      - name: "GetCurrentProcessId"
+        rva: 0x5e1f8
+      - name: "FreeLibrary"
+        rva: 0x5e1fc
+      - name: "GetProcAddress"
+        rva: 0x5e200
+      - name: "RaiseException"
+        rva: 0x5e204
+      - name: "SetLastError"
+        rva: 0x5e208
+      - name: "FlushViewOfFile"
+        rva: 0x5e20c
+      - name: "FlushInstructionCache"
+        rva: 0x5e210
+      - name: "GetCurrentProcess"
+        rva: 0x5e214
+      - name: "GetCurrentThreadId"
+        rva: 0x5e218
+      - name: "WideCharToMultiByte"
+        rva: 0x5e21c
+      - name: "FindResourceExW"
+        rva: 0x5e220
+      - name: "FindResourceW"
+        rva: 0x5e224
+      - name: "LoadResource"
+        rva: 0x5e228
+      - name: "LockResource"
+        rva: 0x5e22c
+      - name: "SizeofResource"
+        rva: 0x5e230
+      - name: "GetLastError"
+        rva: 0x5e234
+      - name: "MultiByteToWideChar"
+        rva: 0x5e238
+      - name: "lstrlenA"
+        rva: 0x5e23c
+      - name: "LeaveCriticalSection"
+        rva: 0x5e240
+      - name: "EnterCriticalSection"
+        rva: 0x5e244
+      - name: "DeleteCriticalSection"
+        rva: 0x5e248
+      - name: "OpenFileMappingW"
+        rva: 0x5e24c
+      - name: "SetFilePointer"
+        rva: 0x5e250
+      - name: "MapViewOfFile"
+        rva: 0x5e254
+      - name: "SetEndOfFile"
+        rva: 0x5e258
+      - name: "CloseHandle"
+        rva: 0x5e25c
+      - name: "UnmapViewOfFile"
+        rva: 0x5e260
+      - name: "ReleaseMutex"
+        rva: 0x5e264
+      - name: "AddAtomW"
+        rva: 0x5e268
+      - name: "GetAtomNameW"
+        rva: 0x5e26c
+      - name: "TlsSetValue"
+        rva: 0x5e270
+      - name: "TlsGetValue"
+        rva: 0x5e274
+      - name: "GetSystemTime"
+        rva: 0x5e278
+      - name: "FormatMessageW"
+        rva: 0x5e27c
+      - name: "LocalFileTimeToFileTime"
+        rva: 0x5e280
+      - name: "GetSystemTimeAsFileTime"
+        rva: 0x5e284
+      - name: "InterlockedExchange"
+        rva: 0x5e288
+      - name: "HeapSize"
+        rva: 0x5e28c
+      - name: "HeapReAlloc"
+        rva: 0x5e290
+      - name: "HeapDestroy"
+        rva: 0x5e294
+      - name: "VirtualAlloc"
+        rva: 0x5e298
+      - name: "VirtualFree"
+        rva: 0x5e29c
+      - name: "IsProcessorFeaturePresent"
+        rva: 0x5e2a0
+      - name: "LoadLibraryA"
+        rva: 0x5e2a4
+      - name: "GetPrivateProfileIntW"
+        rva: 0x5e2a8
+      - name: "GetPrivateProfileStringW"
+        rva: 0x5e2ac
+      - name: "LoadLibraryW"
+        rva: 0x5e2b0
+      - name: "InterlockedIncrement"
+        rva: 0x5e2b4
+      - name: "InterlockedDecrement"
+        rva: 0x5e2b8
+      - name: "InitializeCriticalSection"
+        rva: 0x5e2bc
+      - name: "GetModuleFileNameW"
+        rva: 0x5e2c0
+  - library_name: "USER32.dll"
+    number_of_functions: 57
+    functions:
+      - name: "SetWindowPos"
+        rva: 0x5e360
+      - name: "GetMessageW"
+        rva: 0x5e364
+      - name: "TranslateMessage"
+        rva: 0x5e368
+      - name: "DispatchMessageW"
+        rva: 0x5e36c
+      - name: "CharNextW"
+        rva: 0x5e370
+      - name: "SendMessageW"
+        rva: 0x5e374
+      - name: "GetClientRect"
+        rva: 0x5e378
+      - name: "IsRectEmpty"
+        rva: 0x5e37c
+      - name: "GetDesktopWindow"
+        rva: 0x5e380
+      - name: "SendNotifyMessageW"
+        rva: 0x5e384
+      - name: "IsWindow"
+        rva: 0x5e388
+      - name: "IsWindowVisible"
+        rva: 0x5e38c
+      - name: "SendMessageTimeoutW"
+        rva: 0x5e390
+      - name: "DestroyAcceleratorTable"
+        rva: 0x5e394
+      - name: "ReleaseDC"
+        rva: 0x5e398
+      - name: "GetDC"
+        rva: 0x5e39c
+      - name: "InvalidateRect"
+        rva: 0x5e3a0
+      - name: "InvalidateRgn"
+        rva: 0x5e3a4
+      - name: "PostQuitMessage"
+        rva: 0x5e3a8
+      - name: "RegisterClassExW"
+        rva: 0x5e3ac
+      - name: "GetClassInfoExW"
+        rva: 0x5e3b0
+      - name: "UnregisterClassA"
+        rva: 0x5e3b4
+      - name: "GetWindowThreadProcessId"
+        rva: 0x5e3b8
+      - name: "FindWindowExW"
+        rva: 0x5e3bc
+      - name: "FindWindowW"
+        rva: 0x5e3c0
+      - name: "FillRect"
+        rva: 0x5e3c4
+      - name: "LoadCursorW"
+        rva: 0x5e3c8
+      - name: "DefWindowProcW"
+        rva: 0x5e3cc
+      - name: "DestroyWindow"
+        rva: 0x5e3d0
+      - name: "ReleaseCapture"
+        rva: 0x5e3d4
+      - name: "SetWindowLongW"
+        rva: 0x5e3d8
+      - name: "GetWindowLongW"
+        rva: 0x5e3dc
+      - name: "CreateWindowExW"
+        rva: 0x5e3e0
+      - name: "CallWindowProcW"
+        rva: 0x5e3e4
+      - name: "ShowWindow"
+        rva: 0x5e3e8
+      - name: "MessageBoxW"
+        rva: 0x5e3ec
+      - name: "RegisterWindowMessageW"
+        rva: 0x5e3f0
+      - name: "GetWindowTextLengthW"
+        rva: 0x5e3f4
+      - name: "GetWindowTextW"
+        rva: 0x5e3f8
+      - name: "SetWindowTextW"
+        rva: 0x5e3fc
+      - name: "BeginPaint"
+        rva: 0x5e400
+      - name: "EndPaint"
+        rva: 0x5e404
+      - name: "IsChild"
+        rva: 0x5e408
+      - name: "GetFocus"
+        rva: 0x5e40c
+      - name: "SetFocus"
+        rva: 0x5e410
+      - name: "GetWindow"
+        rva: 0x5e414
+      - name: "GetDlgItem"
+        rva: 0x5e418
+      - name: "GetClassNameW"
+        rva: 0x5e41c
+      - name: "GetSysColor"
+        rva: 0x5e420
+      - name: "SetCapture"
+        rva: 0x5e424
+      - name: "RedrawWindow"
+        rva: 0x5e428
+      - name: "CreateAcceleratorTableW"
+        rva: 0x5e42c
+      - name: "ClientToScreen"
+        rva: 0x5e430
+      - name: "GetParent"
+        rva: 0x5e434
+      - name: "ScreenToClient"
+        rva: 0x5e438
+      - name: "MoveWindow"
+        rva: 0x5e43c
+      - name: "UpdateWindow"
+        rva: 0x5e440
+  - library_name: "GDI32.dll"
+    number_of_functions: 10
+    functions:
+      - name: "DeleteObject"
+        rva: 0x5e02c
+      - name: "CreateSolidBrush"
+        rva: 0x5e030
+      - name: "CreateCompatibleDC"
+        rva: 0x5e034
+      - name: "CreateCompatibleBitmap"
+        rva: 0x5e038
+      - name: "SelectObject"
+        rva: 0x5e03c
+      - name: "GetDeviceCaps"
+        rva: 0x5e040
+      - name: "BitBlt"
+        rva: 0x5e044
+      - name: "DeleteDC"
+        rva: 0x5e048
+      - name: "GetStockObject"
+        rva: 0x5e04c
+      - name: "GetObjectW"
+        rva: 0x5e050
+  - library_name: "ADVAPI32.dll"
+    number_of_functions: 10
+    functions:
+      - name: "RegQueryValueExW"
+        rva: 0x5e000
+      - name: "RegDeleteValueW"
+        rva: 0x5e004
+      - name: "RegCreateKeyExW"
+        rva: 0x5e008
+      - name: "RegSetValueExW"
+        rva: 0x5e00c
+      - name: "RegOpenKeyExW"
+        rva: 0x5e010
+      - name: "RegEnumKeyExW"
+        rva: 0x5e014
+      - name: "RegQueryInfoKeyW"
+        rva: 0x5e018
+      - name: "RegCloseKey"
+        rva: 0x5e01c
+      - name: "RegDeleteKeyW"
+        rva: 0x5e020
+      - name: "RegQueryValueExA"
+        rva: 0x5e024
+  - library_name: "SHELL32.dll"
+    number_of_functions: 4
+    functions:
+      - name: "SHGetSpecialFolderPathW"
+        rva: 0x5e310
+      - name: "ShellExecuteW"
+        rva: 0x5e314
+      - name: "ord165"
+        ordinal: 165
+        rva: 0x5e318
+      - name: "SHGetFolderPathW"
+        rva: 0x5e31c
+  - library_name: "ole32.dll"
+    number_of_functions: 15
+    functions:
+      - name: "CLSIDFromString"
+        rva: 0x5e468
+      - name: "CLSIDFromProgID"
+        rva: 0x5e46c
+      - name: "OleInitialize"
+        rva: 0x5e470
+      - name: "CoTaskMemFree"
+        rva: 0x5e474
+      - name: "CoTaskMemRealloc"
+        rva: 0x5e478
+      - name: "CoTaskMemAlloc"
+        rva: 0x5e47c
+      - name: "CoInitialize"
+        rva: 0x5e480
+      - name: "CoUninitialize"
+        rva: 0x5e484
+      - name: "CreateStreamOnHGlobal"
+        rva: 0x5e488
+      - name: "CoUnmarshalInterface"
+        rva: 0x5e48c
+      - name: "StringFromGUID2"
+        rva: 0x5e490
+      - name: "OleLockRunning"
+        rva: 0x5e494
+      - name: "CoGetClassObject"
+        rva: 0x5e498
+      - name: "OleUninitialize"
+        rva: 0x5e49c
+      - name: "CoCreateInstance"
+        rva: 0x5e4a0
+  - library_name: "OLEAUT32.dll"
+    number_of_functions: 13
+    functions:
+      - name: "SysStringByteLen"
+        ordinal: 149
+        rva: 0x5e2d0
+      - name: "VariantCopy"
+        ordinal: 10
+        rva: 0x5e2d4
+      - name: "SysStringLen"
+        ordinal: 7
+        rva: 0x5e2d8
+      - name: "OleCreateFontIndirect"
+        ordinal: 420
+        rva: 0x5e2dc
+      - name: "LoadRegTypeLib"
+        ordinal: 162
+        rva: 0x5e2e0
+      - name: "SysAllocStringByteLen"
+        ordinal: 150
+        rva: 0x5e2e4
+      - name: "SysAllocStringLen"
+        ordinal: 4
+        rva: 0x5e2e8
+      - name: "VariantClear"
+        ordinal: 9
+        rva: 0x5e2ec
+      - name: "SysAllocString"
+        ordinal: 2
+        rva: 0x5e2f0
+      - name: "SysFreeString"
+        ordinal: 6
+        rva: 0x5e2f4
+      - name: "VarUI4FromStr"
+        ordinal: 277
+        rva: 0x5e2f8
+      - name: "VariantInit"
+        ordinal: 8
+        rva: 0x5e2fc
+      - name: "LoadTypeLib"
+        ordinal: 161
+        rva: 0x5e300
+  - library_name: "SHLWAPI.dll"
+    number_of_functions: 14
+    functions:
+      - name: "PathRemoveExtensionW"
+        rva: 0x5e324
+      - name: "StrToIntW"
+        rva: 0x5e328
+      - name: "PathAppendW"
+        rva: 0x5e32c
+      - name: "PathCombineW"
+        rva: 0x5e330
+      - name: "PathIsDirectoryW"
+        rva: 0x5e334
+      - name: "PathRemoveFileSpecW"
+        rva: 0x5e338
+      - name: "PathIsPrefixW"
+        rva: 0x5e33c
+      - name: "PathRemoveBackslashW"
+        rva: 0x5e340
+      - name: "PathCanonicalizeW"
+        rva: 0x5e344
+      - name: "PathIsRootW"
+        rva: 0x5e348
+      - name: "StrStrIW"
+        rva: 0x5e34c
+      - name: "PathFindFileNameW"
+        rva: 0x5e350
+      - name: "PathAddBackslashW"
+        rva: 0x5e354
+      - name: "PathFileExistsW"
+        rva: 0x5e358
+  - library_name: "OLEACC.dll"
+    number_of_functions: 1
+    functions:
+      - name: "LresultFromObject"
+        rva: 0x5e2c8
+  - library_name: "IMM32.dll"
+    number_of_functions: 1
+    functions:
+      - name: "ImmDisableIME"
+        rva: 0x5e058
+  - library_name: "urlmon.dll"
+    number_of_functions: 2
+    functions:
+      - name: "ObtainUserAgentString"
+        rva: 0x5e4a8
+      - name: "UrlMkSetSessionOption"
+        rva: 0x5e4ac
+  - library_name: "WININET.dll"
+    number_of_functions: 3
+    functions:
+      - name: "InternetSetCookieW"
+        rva: 0x5e458
+      - name: "InternetSetOptionW"
+        rva: 0x5e45c
+      - name: "InternetSetCookieExW"
+        rva: 0x5e460
+  - library_name: "PSAPI.DLL"
+    number_of_functions: 1
+    functions:
+      - name: "GetModuleFileNameExW"
+        rva: 0x5e308
+  - library_name: "VERSION.dll"
+    number_of_functions: 3
+    functions:
+      - name: "GetFileVersionInfoSizeW"
+        rva: 0x5e448
+      - name: "GetFileVersionInfoW"
+        rva: 0x5e44c
+      - name: "VerQueryValueW"
+        rva: 0x5e450
+is_signed: false
+signatures:
+  - subject: "/C=CN/ST=Beijing/L=Beijing/O=Qihoo 360 Software (Beijing) Company Limited/OU=Tech. Dev. Dept./CN=Qihoo 360 Software (Beijing) Company Limited"
+    issuer: "/C=US/O=VeriSign, Inc./OU=VeriSign Trust Network/OU=Terms of use at https://www.verisign.com/rpa (c)10/CN=VeriSign Class 3 Code Signing 2010 CA"
+    thumbprint: "d4fb2982268b592e3cd46fa78194e71418297741"
+    version: 3
+    algorithm: "sha1WithRSAEncryption"
+    algorithm_oid: "1.2.840.113549.1.1.5"
+    serial: "26:27:9f:0f:2f:11:97:0d:cc:f6:3e:ba:88:f2:d4:c4"
+    not_before: 1452038400  # 2016-01-06 00:00:00 UTC
+    not_after: 1553817599  # 2019-03-28 23:59:59 UTC
+    verified: false
+    digest_alg: "sha1"
+    digest: "1ffb27849b984afa4c04999845c7fb8737f7bbdc"
+    file_digest: "940c804dac4e254bb2be71e5b0c4246ac684b002"
+    number_of_certificates: 4
+    number_of_countersignatures: 1
+    signer_info:
+        program_name: "360安全中心"
+        more_info: "http://www.360.cn "
+        digest: "909a40b6ee5af908c0663412696473bdce46738f"
+        digest_alg: "sha1"
+        chain:
+          - issuer: "/C=US/O=VeriSign, Inc./OU=VeriSign Trust Network/OU=Terms of use at https://www.verisign.com/rpa (c)10/CN=VeriSign Class 3 Code Signing 2010 CA"
+            subject: "/C=CN/ST=Beijing/L=Beijing/O=Qihoo 360 Software (Beijing) Company Limited/OU=Tech. Dev. Dept./CN=Qihoo 360 Software (Beijing) Company Limited"
+            thumbprint: "d4fb2982268b592e3cd46fa78194e71418297741"
+            version: 3
+            algorithm: "sha1WithRSAEncryption"
+            algorithm_oid: "1.2.840.113549.1.1.5"
+            serial: "26:27:9f:0f:2f:11:97:0d:cc:f6:3e:ba:88:f2:d4:c4"
+            not_before: 1452038400  # 2016-01-06 00:00:00 UTC
+            not_after: 1553817599  # 2019-03-28 23:59:59 UTC
+          - issuer: "/C=US/O=VeriSign, Inc./OU=VeriSign Trust Network/OU=(c) 2006 VeriSign, Inc. - For authorized use only/CN=VeriSign Class 3 Public Primary Certification Authority - G5"
+            subject: "/C=US/O=VeriSign, Inc./OU=VeriSign Trust Network/OU=Terms of use at https://www.verisign.com/rpa (c)10/CN=VeriSign Class 3 Code Signing 2010 CA"
+            thumbprint: "495847a93187cfb8c71f840cb7b41497ad95c64f"
+            version: 3
+            algorithm: "sha1WithRSAEncryption"
+            algorithm_oid: "1.2.840.113549.1.1.5"
+            serial: "52:00:e5:aa:25:56:fc:1a:86:ed:96:c9:d4:4b:33:c7"
+            not_before: 1265587200  # 2010-02-08 00:00:00 UTC
+            not_after: 1581119999  # 2020-02-07 23:59:59 UTC
+    certificates:
+      - issuer: "/C=BE/O=GlobalSign nv-sa/OU=Root CA/CN=GlobalSign Root CA"
+        subject: "/C=BE/O=GlobalSign nv-sa/CN=GlobalSign Timestamping CA - G2"
+        thumbprint: "c0e49d2d7d90a5cd427f02d9125694d5d6ec5b71"
+        version: 3
+        algorithm: "sha1WithRSAEncryption"
+        algorithm_oid: "1.2.840.113549.1.1.5"
+        serial: "04:00:00:00:00:01:2f:4e:e1:52:d7"
+        not_before: 1302688800  # 2011-04-13 10:00:00 UTC
+        not_after: 1832673600  # 2028-01-28 12:00:00 UTC
+      - issuer: "/C=BE/O=GlobalSign nv-sa/CN=GlobalSign Timestamping CA - G2"
+        subject: "/C=SG/O=GMO GlobalSign Pte Ltd/CN=GlobalSign TSA for MS Authenticode - G2"
+        thumbprint: "63b82fab61f583909695050b00249c502933ec79"
+        version: 3
+        algorithm: "sha1WithRSAEncryption"
+        algorithm_oid: "1.2.840.113549.1.1.5"
+        serial: "11:21:d6:99:a7:64:97:3e:f1:f8:42:7e:e9:19:cc:53:41:14"
+        not_before: 1464048000  # 2016-05-24 00:00:00 UTC
+        not_after: 1813795200  # 2027-06-24 00:00:00 UTC
+      - issuer: "/C=US/O=VeriSign, Inc./OU=VeriSign Trust Network/OU=Terms of use at https://www.verisign.com/rpa (c)10/CN=VeriSign Class 3 Code Signing 2010 CA"
+        subject: "/C=CN/ST=Beijing/L=Beijing/O=Qihoo 360 Software (Beijing) Company Limited/OU=Tech. Dev. Dept./CN=Qihoo 360 Software (Beijing) Company Limited"
+        thumbprint: "d4fb2982268b592e3cd46fa78194e71418297741"
+        version: 3
+        algorithm: "sha1WithRSAEncryption"
+        algorithm_oid: "1.2.840.113549.1.1.5"
+        serial: "26:27:9f:0f:2f:11:97:0d:cc:f6:3e:ba:88:f2:d4:c4"
+        not_before: 1452038400  # 2016-01-06 00:00:00 UTC
+        not_after: 1553817599  # 2019-03-28 23:59:59 UTC
+      - issuer: "/C=US/O=VeriSign, Inc./OU=VeriSign Trust Network/OU=(c) 2006 VeriSign, Inc. - For authorized use only/CN=VeriSign Class 3 Public Primary Certification Authority - G5"
+        subject: "/C=US/O=VeriSign, Inc./OU=VeriSign Trust Network/OU=Terms of use at https://www.verisign.com/rpa (c)10/CN=VeriSign Class 3 Code Signing 2010 CA"
+        thumbprint: "495847a93187cfb8c71f840cb7b41497ad95c64f"
+        version: 3
+        algorithm: "sha1WithRSAEncryption"
+        algorithm_oid: "1.2.840.113549.1.1.5"
+        serial: "52:00:e5:aa:25:56:fc:1a:86:ed:96:c9:d4:4b:33:c7"
+        not_before: 1265587200  # 2010-02-08 00:00:00 UTC
+        not_after: 1581119999  # 2020-02-07 23:59:59 UTC
+    countersignatures:
+      - verified: true
+        sign_time: 1496750728  # 2017-06-06 12:05:28 UTC
+        digest: "d23bbbf06acfd49e4977b65a2f2704320edebf9a"
+        digest_alg: "sha1"
+        chain:
+          - issuer: "/C=BE/O=GlobalSign nv-sa/CN=GlobalSign Timestamping CA - G2"
+            subject: "/C=SG/O=GMO GlobalSign Pte Ltd/CN=GlobalSign TSA for MS Authenticode - G2"
+            thumbprint: "63b82fab61f583909695050b00249c502933ec79"
+            version: 3
+            algorithm: "sha1WithRSAEncryption"
+            algorithm_oid: "1.2.840.113549.1.1.5"
+            serial: "11:21:d6:99:a7:64:97:3e:f1:f8:42:7e:e9:19:cc:53:41:14"
+            not_before: 1464048000  # 2016-05-24 00:00:00 UTC
+            not_after: 1813795200  # 2027-06-24 00:00:00 UTC
+          - issuer: "/C=BE/O=GlobalSign nv-sa/OU=Root CA/CN=GlobalSign Root CA"
+            subject: "/C=BE/O=GlobalSign nv-sa/CN=GlobalSign Timestamping CA - G2"
+            thumbprint: "c0e49d2d7d90a5cd427f02d9125694d5d6ec5b71"
+            version: 3
+            algorithm: "sha1WithRSAEncryption"
+            algorithm_oid: "1.2.840.113549.1.1.5"
+            serial: "04:00:00:00:00:01:2f:4e:e1:52:d7"
+            not_before: 1302688800  # 2011-04-13 10:00:00 UTC
+            not_after: 1832673600  # 2028-01-28 12:00:00 UTC
+  - subject: "/C=CN/ST=Beijing/L=Beijing/O=Qihoo 360 Software (Beijing) Company Limited/OU=Tech. Dev. Dept./CN=Qihoo 360 Software (Beijing) Company Limited"
+    issuer: "/C=US/O=Symantec Corporation/OU=Symantec Trust Network/CN=Symantec Class 3 SHA256 Code Signing CA"
+    thumbprint: "978859ce5698f2bfade1129401cf70856be738d3"
+    version: 3
+    algorithm: "sha256WithRSAEncryption"
+    algorithm_oid: "1.2.840.113549.1.1.11"
+    serial: "23:38:91:61:e4:5a:21:8b:d2:4e:6e:85:9a:e1:11:53"
+    not_before: 1451260800  # 2015-12-28 00:00:00 UTC
+    not_after: 1553817599  # 2019-03-28 23:59:59 UTC
+    verified: false
+    digest_alg: "sha256"
+    digest: "c5e0311281c6c29511662aad17d8d3dff9d8d9344e500a31a948ce1887e54fd9"
+    file_digest: "f80578990228a607e446a1c6307a63a43a15a2a64a97d84a3890cb37d69c19d9"
+    number_of_certificates: 4
+    number_of_countersignatures: 1
+    signer_info:
+        program_name: "360安全中心"
+        more_info: "http://www.360.cn "
+        digest: "a8fba4b57dca9d46d4a45fe7d1cbd9395ec1e92d88348944ff634ef1b43773b2"
+        digest_alg: "sha256"
+        chain:
+          - issuer: "/C=US/O=Symantec Corporation/OU=Symantec Trust Network/CN=Symantec Class 3 SHA256 Code Signing CA"
+            subject: "/C=CN/ST=Beijing/L=Beijing/O=Qihoo 360 Software (Beijing) Company Limited/OU=Tech. Dev. Dept./CN=Qihoo 360 Software (Beijing) Company Limited"
+            thumbprint: "978859ce5698f2bfade1129401cf70856be738d3"
+            version: 3
+            algorithm: "sha256WithRSAEncryption"
+            algorithm_oid: "1.2.840.113549.1.1.11"
+            serial: "23:38:91:61:e4:5a:21:8b:d2:4e:6e:85:9a:e1:11:53"
+            not_before: 1451260800  # 2015-12-28 00:00:00 UTC
+            not_after: 1553817599  # 2019-03-28 23:59:59 UTC
+          - issuer: "/C=US/O=VeriSign, Inc./OU=VeriSign Trust Network/OU=(c) 2006 VeriSign, Inc. - For authorized use only/CN=VeriSign Class 3 Public Primary Certification Authority - G5"
+            subject: "/C=US/O=Symantec Corporation/OU=Symantec Trust Network/CN=Symantec Class 3 SHA256 Code Signing CA"
+            thumbprint: "007790f6561dad89b0bcd85585762495e358f8a5"
+            version: 3
+            algorithm: "sha256WithRSAEncryption"
+            algorithm_oid: "1.2.840.113549.1.1.11"
+            serial: "3d:78:d7:f9:76:49:60:b2:61:7d:f4:f0:1e:ca:86:2a"
+            not_before: 1386633600  # 2013-12-10 00:00:00 UTC
+            not_after: 1702166399  # 2023-12-09 23:59:59 UTC
+    certificates:
+      - issuer: "/C=US/O=Symantec Corporation/OU=Symantec Trust Network/CN=Symantec Class 3 SHA256 Code Signing CA"
+        subject: "/C=CN/ST=Beijing/L=Beijing/O=Qihoo 360 Software (Beijing) Company Limited/OU=Tech. Dev. Dept./CN=Qihoo 360 Software (Beijing) Company Limited"
+        thumbprint: "978859ce5698f2bfade1129401cf70856be738d3"
+        version: 3
+        algorithm: "sha256WithRSAEncryption"
+        algorithm_oid: "1.2.840.113549.1.1.11"
+        serial: "23:38:91:61:e4:5a:21:8b:d2:4e:6e:85:9a:e1:11:53"
+        not_before: 1451260800  # 2015-12-28 00:00:00 UTC
+        not_after: 1553817599  # 2019-03-28 23:59:59 UTC
+      - issuer: "/C=US/O=VeriSign, Inc./OU=VeriSign Trust Network/OU=(c) 2006 VeriSign, Inc. - For authorized use only/CN=VeriSign Class 3 Public Primary Certification Authority - G5"
+        subject: "/C=US/O=Symantec Corporation/OU=Symantec Trust Network/CN=Symantec Class 3 SHA256 Code Signing CA"
+        thumbprint: "007790f6561dad89b0bcd85585762495e358f8a5"
+        version: 3
+        algorithm: "sha256WithRSAEncryption"
+        algorithm_oid: "1.2.840.113549.1.1.11"
+        serial: "3d:78:d7:f9:76:49:60:b2:61:7d:f4:f0:1e:ca:86:2a"
+        not_before: 1386633600  # 2013-12-10 00:00:00 UTC
+        not_after: 1702166399  # 2023-12-09 23:59:59 UTC
+      - issuer: "/C=US/O=VeriSign, Inc./OU=VeriSign Trust Network/OU=(c) 2008 VeriSign, Inc. - For authorized use only/CN=VeriSign Universal Root Certification Authority"
+        subject: "/C=US/O=Symantec Corporation/OU=Symantec Trust Network/CN=Symantec SHA256 TimeStamping CA"
+        thumbprint: "6fc9edb5e00ab64151c1cdfcac74ad2c7b7e3be4"
+        version: 3
+        algorithm: "sha256WithRSAEncryption"
+        algorithm_oid: "1.2.840.113549.1.1.11"
+        serial: "7b:05:b1:d4:49:68:51:44:f7:c9:89:d2:9c:19:9d:12"
+        not_before: 1452556800  # 2016-01-12 00:00:00 UTC
+        not_after: 1925942399  # 2031-01-11 23:59:59 UTC
+      - issuer: "/C=US/O=Symantec Corporation/OU=Symantec Trust Network/CN=Symantec SHA256 TimeStamping CA"
+        subject: "/C=US/O=Symantec Corporation/OU=Symantec Trust Network/CN=Symantec SHA256 TimeStamping Signer - G2"
+        thumbprint: "625aec3ae4eda1d169c4ee909e85b3bbc61076d3"
+        version: 3
+        algorithm: "sha256WithRSAEncryption"
+        algorithm_oid: "1.2.840.113549.1.1.11"
+        serial: "54:58:f2:aa:d7:41:d6:44:bc:84:a9:7b:a0:96:52:e6"
+        not_before: 1483315200  # 2017-01-02 00:00:00 UTC
+        not_after: 1838246399  # 2028-04-01 23:59:59 UTC
+    countersignatures:
+      - verified: true
+        sign_time: 1496750730  # 2017-06-06 12:05:30 UTC
+        digest: "0cff52d085d9af7f5476eae6d50bbf2f79931d5135dddbf4a182b80a5bfb3ff1"
+        digest_alg: "sha256"
+        chain:
+          - issuer: "/C=US/O=Symantec Corporation/OU=Symantec Trust Network/CN=Symantec SHA256 TimeStamping CA"
+            subject: "/C=US/O=Symantec Corporation/OU=Symantec Trust Network/CN=Symantec SHA256 TimeStamping Signer - G2"
+            thumbprint: "625aec3ae4eda1d169c4ee909e85b3bbc61076d3"
+            version: 3
+            algorithm: "sha256WithRSAEncryption"
+            algorithm_oid: "1.2.840.113549.1.1.11"
+            serial: "54:58:f2:aa:d7:41:d6:44:bc:84:a9:7b:a0:96:52:e6"
+            not_before: 1483315200  # 2017-01-02 00:00:00 UTC
+            not_after: 1838246399  # 2028-04-01 23:59:59 UTC
+          - issuer: "/C=US/O=VeriSign, Inc./OU=VeriSign Trust Network/OU=(c) 2008 VeriSign, Inc. - For authorized use only/CN=VeriSign Universal Root Certification Authority"
+            subject: "/C=US/O=Symantec Corporation/OU=Symantec Trust Network/CN=Symantec SHA256 TimeStamping CA"
+            thumbprint: "6fc9edb5e00ab64151c1cdfcac74ad2c7b7e3be4"
+            version: 3
+            algorithm: "sha256WithRSAEncryption"
+            algorithm_oid: "1.2.840.113549.1.1.11"
+            serial: "7b:05:b1:d4:49:68:51:44:f7:c9:89:d2:9c:19:9d:12"
+            not_before: 1452556800  # 2016-01-12 00:00:00 UTC
+            not_after: 1925942399  # 2031-01-11 23:59:59 UTC
+overlay:
+    offset: 0x87000
+    size: 0x3860

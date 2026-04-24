@@ -1,0 +1,517 @@
+is_pe: true
+machine: MACHINE_AMD64
+subsystem: SUBSYSTEM_WINDOWS_CUI
+os_version:
+    major: 5
+    minor: 2
+subsystem_version:
+    major: 5
+    minor: 2
+image_version:
+    major: 0
+    minor: 0
+linker_version:
+    major: 10
+    minor: 0
+opthdr_magic: IMAGE_NT_OPTIONAL_HDR64_MAGIC
+characteristics: 0x22  # EXECUTABLE_IMAGE | LARGE_ADDRESS_AWARE
+dll_characteristics: 0x8140  # DYNAMIC_BASE | NX_COMPAT | TERMINAL_SERVER_AWARE
+timestamp: 1642150359  # 2022-01-14 08:52:39 UTC
+image_base: 0x140000000
+checksum: 119600
+base_of_code: 0x1000
+entry_point: 0x2e40
+entry_point_raw: 0x3a40
+section_alignment: 0x1000
+file_alignment: 0x200
+loader_flags: 0x0
+size_of_optional_header: 0xf0
+size_of_code: 0xf800
+size_of_initialized_data: 0x7000
+size_of_uninitialized_data: 0x0
+size_of_image: 0x1c000
+size_of_headers: 0x400
+size_of_stack_reserve: 0x100000
+size_of_stack_commit: 0x1000
+size_of_heap_reserve: 0x100000
+size_of_heap_commit: 0x1000
+pointer_to_symbol_table: 0x0
+win32_version_value: 0
+number_of_symbols: 0
+number_of_rva_and_sizes: 16
+number_of_sections: 6
+number_of_imported_functions: 86
+number_of_delayed_imported_functions: 0
+number_of_resources: 3
+number_of_version_infos: 14
+number_of_imports: 1
+number_of_delayed_imports: 0
+number_of_exports: 0
+number_of_signatures: 1
+version_info:
+    "CompanyName": "Quality First Software GmbH"
+    "FileDescription": "Start helper tool for Webswing and QF-Test 7.1.1"
+    "FileVersion": "7.1.1.0"
+    "LegalCopyright": "Copyright © 2024 Quality First Software GmbH"
+    "OriginalFilename": "qfsut.exe"
+    "ProductName": "QF-Test 7.1.1"
+    "ProductVersion": "7.1.1.0"
+version_info_list:
+  - key: "CompanyName"
+    value: "Quality First Software GmbH"
+  - key: "FileDescription"
+    value: "Start-Hilfsprogramm für Webswing und QF-Test 7.1.1"
+  - key: "FileVersion"
+    value: "7.1.1.0"
+  - key: "LegalCopyright"
+    value: "Copyright © 2024 Quality First Software GmbH"
+  - key: "OriginalFilename"
+    value: "qfsut.exe"
+  - key: "ProductName"
+    value: "QF-Test 7.1.1"
+  - key: "ProductVersion"
+    value: "7.1.1.0"
+  - key: "CompanyName"
+    value: "Quality First Software GmbH"
+  - key: "FileDescription"
+    value: "Start helper tool for Webswing and QF-Test 7.1.1"
+  - key: "FileVersion"
+    value: "7.1.1.0"
+  - key: "LegalCopyright"
+    value: "Copyright © 2024 Quality First Software GmbH"
+  - key: "OriginalFilename"
+    value: "qfsut.exe"
+  - key: "ProductName"
+    value: "QF-Test 7.1.1"
+  - key: "ProductVersion"
+    value: "7.1.1.0"
+rich_signature:
+    offset: 0x80
+    length: 0x48
+    key: 3573433955
+    raw_data: "\'\'\x90\x87cF\xfe\xd4cF\xfe\xd4cF\xfe\xd4\xf0\x08f\xd4gF\xfe\xd4x\xdbU\xd4GF\xfe\xd4x\xdb`\xd4iF\xfe\xd4j>m\xd4fF\xfe\xd4cF\xff\xd4\x04F\xfe\xd4x\xdbT\xd4\xefF\xfe\xd4x\xdbc\xd4bF\xfe\xd4"
+    clear_data: "DanS\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x93N\x98\x00\x04\x00\x00\x00\x1b\x9d\xab\x00$\x00\x00\x00\x1b\x9d\x9e\x00\n\x00\x00\x00\tx\x93\x00\x05\x00\x00\x00\x00\x00\x01\x00g\x00\x00\x00\x1b\x9d\xaa\x00\x8c\x00\x00\x00\x1b\x9d\x9d\x00\x01\x00\x00\x00"
+    tools:
+      - toolid: 152
+        version: 20115
+        times: 4
+      - toolid: 171
+        version: 40219
+        times: 36
+      - toolid: 158
+        version: 40219
+        times: 10
+      - toolid: 147
+        version: 30729
+        times: 5
+      - toolid: 1
+        version: 0
+        times: 103
+      - toolid: 170
+        version: 40219
+        times: 140
+      - toolid: 157
+        version: 40219
+        times: 1
+sections:
+  - name: ".text"
+    full_name: ".text"
+    characteristics: 0x60000020  # SECTION_MEM_READ | SECTION_MEM_WRITE | SECTION_SCALE_INDEX
+    raw_data_size: 0xf800
+    raw_data_offset: 0x400
+    virtual_address: 0x1000
+    virtual_size: 0xf73e
+    pointer_to_relocations: 0x0
+    pointer_to_line_numbers: 0x0
+    number_of_relocations: 0
+    number_of_line_numbers: 0
+  - name: ".rdata"
+    full_name: ".rdata"
+    characteristics: 0x40000040
+    raw_data_size: 0x3c00
+    raw_data_offset: 0xfc00
+    virtual_address: 0x11000
+    virtual_size: 0x3ae8
+    pointer_to_relocations: 0x0
+    pointer_to_line_numbers: 0x0
+    number_of_relocations: 0
+    number_of_line_numbers: 0
+  - name: ".data"
+    full_name: ".data"
+    characteristics: 0xc0000040
+    raw_data_size: 0x1800
+    raw_data_offset: 0x13800
+    virtual_address: 0x15000
+    virtual_size: 0x39c4
+    pointer_to_relocations: 0x0
+    pointer_to_line_numbers: 0x0
+    number_of_relocations: 0
+    number_of_line_numbers: 0
+  - name: ".pdata"
+    full_name: ".pdata"
+    characteristics: 0x40000040
+    raw_data_size: 0xe00
+    raw_data_offset: 0x15000
+    virtual_address: 0x19000
+    virtual_size: 0xc30
+    pointer_to_relocations: 0x0
+    pointer_to_line_numbers: 0x0
+    number_of_relocations: 0
+    number_of_line_numbers: 0
+  - name: ".rsrc"
+    full_name: ".rsrc"
+    characteristics: 0x40000040
+    raw_data_size: 0xa00
+    raw_data_offset: 0x15e00
+    virtual_address: 0x1a000
+    virtual_size: 0x84e
+    pointer_to_relocations: 0x0
+    pointer_to_line_numbers: 0x0
+    number_of_relocations: 0
+    number_of_line_numbers: 0
+  - name: ".reloc"
+    full_name: ".reloc"
+    characteristics: 0x42000040
+    raw_data_size: 0x400
+    raw_data_offset: 0x16800
+    virtual_address: 0x1b000
+    virtual_size: 0x35c
+    pointer_to_relocations: 0x0
+    pointer_to_line_numbers: 0x0
+    number_of_relocations: 0
+    number_of_line_numbers: 0
+data_directories:
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x141b0
+    size: 0x28
+  - virtual_address: 0x1a000
+    size: 0x84e
+  - virtual_address: 0x19000
+    size: 0xc30
+  - virtual_address: 0x16c00
+    size: 0x1938
+  - virtual_address: 0x1b000
+    size: 0x1b4
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x11000
+    size: 0x2b8
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x0
+    size: 0x0
+resource_timestamp: 0  # 1970-01-01 00:00:00 UTC
+resource_version:
+    major: 4
+    minor: 0
+resources:
+  - length: 0x320
+    rva: 0x1a0b8
+    offset: 0x15eb8
+    type: RESOURCE_TYPE_VERSION
+    id: 1
+    language: 1031
+  - length: 0x31c
+    rva: 0x1a3d8
+    offset: 0x161d8
+    type: RESOURCE_TYPE_VERSION
+    id: 1
+    language: 1033
+  - length: 0x15a
+    rva: 0x1a6f4
+    offset: 0x164f4
+    type: RESOURCE_TYPE_MANIFEST
+    id: 1
+    language: 1033
+import_details:
+  - library_name: "KERNEL32.dll"
+    number_of_functions: 86
+    functions:
+      - name: "FindClose"
+        rva: 0x11000
+      - name: "GetModuleFileNameA"
+        rva: 0x11008
+      - name: "HeapAlloc"
+        rva: 0x11010
+      - name: "GetLastError"
+        rva: 0x11018
+      - name: "HeapFree"
+        rva: 0x11020
+      - name: "GetFullPathNameA"
+        rva: 0x11028
+      - name: "EnterCriticalSection"
+        rva: 0x11030
+      - name: "LeaveCriticalSection"
+        rva: 0x11038
+      - name: "FileTimeToSystemTime"
+        rva: 0x11040
+      - name: "FileTimeToLocalFileTime"
+        rva: 0x11048
+      - name: "GetDriveTypeA"
+        rva: 0x11050
+      - name: "FindFirstFileExA"
+        rva: 0x11058
+      - name: "GetProcAddress"
+        rva: 0x11060
+      - name: "GetModuleHandleW"
+        rva: 0x11068
+      - name: "ExitProcess"
+        rva: 0x11070
+      - name: "DecodePointer"
+        rva: 0x11078
+      - name: "GetCommandLineA"
+        rva: 0x11080
+      - name: "RtlUnwindEx"
+        rva: 0x11088
+      - name: "SetHandleCount"
+        rva: 0x11090
+      - name: "GetStdHandle"
+        rva: 0x11098
+      - name: "InitializeCriticalSectionAndSpinCount"
+        rva: 0x110a0
+      - name: "GetFileType"
+        rva: 0x110a8
+      - name: "GetStartupInfoW"
+        rva: 0x110b0
+      - name: "DeleteCriticalSection"
+        rva: 0x110b8
+      - name: "UnhandledExceptionFilter"
+        rva: 0x110c0
+      - name: "SetUnhandledExceptionFilter"
+        rva: 0x110c8
+      - name: "IsDebuggerPresent"
+        rva: 0x110d0
+      - name: "RtlVirtualUnwind"
+        rva: 0x110d8
+      - name: "RtlLookupFunctionEntry"
+        rva: 0x110e0
+      - name: "RtlCaptureContext"
+        rva: 0x110e8
+      - name: "EncodePointer"
+        rva: 0x110f0
+      - name: "TerminateProcess"
+        rva: 0x110f8
+      - name: "GetCurrentProcess"
+        rva: 0x11100
+      - name: "WriteFile"
+        rva: 0x11108
+      - name: "GetModuleFileNameW"
+        rva: 0x11110
+      - name: "HeapSetInformation"
+        rva: 0x11118
+      - name: "GetVersion"
+        rva: 0x11120
+      - name: "HeapCreate"
+        rva: 0x11128
+      - name: "GetDriveTypeW"
+        rva: 0x11130
+      - name: "WideCharToMultiByte"
+        rva: 0x11138
+      - name: "GetConsoleCP"
+        rva: 0x11140
+      - name: "GetConsoleMode"
+        rva: 0x11148
+      - name: "FlushFileBuffers"
+        rva: 0x11150
+      - name: "Sleep"
+        rva: 0x11158
+      - name: "CloseHandle"
+        rva: 0x11160
+      - name: "GetFileInformationByHandle"
+        rva: 0x11168
+      - name: "PeekNamedPipe"
+        rva: 0x11170
+      - name: "CreateFileA"
+        rva: 0x11178
+      - name: "GetCurrentDirectoryW"
+        rva: 0x11180
+      - name: "GetCPInfo"
+        rva: 0x11188
+      - name: "GetACP"
+        rva: 0x11190
+      - name: "GetOEMCP"
+        rva: 0x11198
+      - name: "IsValidCodePage"
+        rva: 0x111a0
+      - name: "FlsGetValue"
+        rva: 0x111a8
+      - name: "FlsSetValue"
+        rva: 0x111b0
+      - name: "FlsFree"
+        rva: 0x111b8
+      - name: "SetLastError"
+        rva: 0x111c0
+      - name: "GetCurrentThreadId"
+        rva: 0x111c8
+      - name: "FlsAlloc"
+        rva: 0x111d0
+      - name: "LCMapStringW"
+        rva: 0x111d8
+      - name: "MultiByteToWideChar"
+        rva: 0x111e0
+      - name: "SetFilePointer"
+        rva: 0x111e8
+      - name: "LoadLibraryW"
+        rva: 0x111f0
+      - name: "FreeEnvironmentStringsW"
+        rva: 0x111f8
+      - name: "GetEnvironmentStringsW"
+        rva: 0x11200
+      - name: "QueryPerformanceCounter"
+        rva: 0x11208
+      - name: "GetTickCount"
+        rva: 0x11210
+      - name: "GetCurrentProcessId"
+        rva: 0x11218
+      - name: "GetSystemTimeAsFileTime"
+        rva: 0x11220
+      - name: "CompareStringW"
+        rva: 0x11228
+      - name: "SetEnvironmentVariableA"
+        rva: 0x11230
+      - name: "WriteConsoleW"
+        rva: 0x11238
+      - name: "SetStdHandle"
+        rva: 0x11240
+      - name: "HeapReAlloc"
+        rva: 0x11248
+      - name: "SetEndOfFile"
+        rva: 0x11250
+      - name: "GetProcessHeap"
+        rva: 0x11258
+      - name: "ReadFile"
+        rva: 0x11260
+      - name: "GetTimeZoneInformation"
+        rva: 0x11268
+      - name: "GetStringTypeW"
+        rva: 0x11270
+      - name: "HeapSize"
+        rva: 0x11278
+      - name: "CreateFileW"
+        rva: 0x11280
+      - name: "SetEnvironmentVariableW"
+        rva: 0x11288
+      - name: "GetExitCodeProcess"
+        rva: 0x11290
+      - name: "WaitForSingleObject"
+        rva: 0x11298
+      - name: "CreateProcessA"
+        rva: 0x112a0
+      - name: "GetFileAttributesA"
+        rva: 0x112a8
+is_signed: true
+signatures:
+  - subject: "/C=DE/ST=Bayern/L=Geretsried/O=Quality First Software GmbH/serialNumber=HRB 140833/CN=Quality First Software GmbH/businessCategory=Private Organization/jurisdictionL=München/jurisdictionST=Bayern/jurisdictionC=DE"
+    issuer: "/C=US/ST=Texas/L=Houston/O=SSL Corp/CN=SSL.com EV Code Signing Intermediate CA ECC R2"
+    thumbprint: "6a63f4e957aa5867f33916e8f57019c2b9987478"
+    version: 3
+    algorithm: "ecdsa-with-SHA384"
+    algorithm_oid: "1.2.840.10045.4.3.3"
+    serial: "45:53:b4:49:3b:42:23:e9:f7:56:9d:fd:73:09:c4:23"
+    not_before: 1694439952  # 2023-09-11 13:45:52 UTC
+    not_after: 1720705552  # 2024-07-11 13:45:52 UTC
+    verified: true
+    digest_alg: "sha384"
+    digest: "98fac37de4e8498bd8873304491f8d5b4039730c010843c0d38c798d302557cf2eea5da1702a2fb774c9e19a6d8b7d8c"
+    file_digest: "98fac37de4e8498bd8873304491f8d5b4039730c010843c0d38c798d302557cf2eea5da1702a2fb774c9e19a6d8b7d8c"
+    number_of_certificates: 4
+    number_of_countersignatures: 1
+    signer_info:
+        digest: "37315748c44fd60ad332a3f3c42fe87fea16e6fa2ef15131e030a00815ed6d8b64118afe2e7dedece6b9741d1fc8be8c"
+        digest_alg: "sha384"
+        chain:
+          - issuer: "/C=US/ST=Texas/L=Houston/O=SSL Corp/CN=SSL.com EV Code Signing Intermediate CA ECC R2"
+            subject: "/C=DE/ST=Bayern/L=Geretsried/O=Quality First Software GmbH/serialNumber=HRB 140833/CN=Quality First Software GmbH/businessCategory=Private Organization/jurisdictionL=München/jurisdictionST=Bayern/jurisdictionC=DE"
+            thumbprint: "6a63f4e957aa5867f33916e8f57019c2b9987478"
+            version: 3
+            algorithm: "ecdsa-with-SHA384"
+            algorithm_oid: "1.2.840.10045.4.3.3"
+            serial: "45:53:b4:49:3b:42:23:e9:f7:56:9d:fd:73:09:c4:23"
+            not_before: 1694439952  # 2023-09-11 13:45:52 UTC
+            not_after: 1720705552  # 2024-07-11 13:45:52 UTC
+          - issuer: "/C=US/ST=Texas/L=Houston/O=SSL Corporation/CN=SSL.com EV Root Certification Authority ECC"
+            subject: "/C=US/ST=Texas/L=Houston/O=SSL Corp/CN=SSL.com EV Code Signing Intermediate CA ECC R2"
+            thumbprint: "7dc509cc760f073ee038040507c27858402d3b19"
+            version: 3
+            algorithm: "ecdsa-with-SHA384"
+            algorithm_oid: "1.2.840.10045.4.3.3"
+            serial: "6e:dd:4f:25:e7:31:7d:39:81:57:31:34:cf:c1:dc:a0"
+            not_before: 1551987465  # 2019-03-07 19:37:45 UTC
+            not_after: 2025027465  # 2034-03-03 19:37:45 UTC
+    certificates:
+      - issuer: "/C=US/ST=Texas/L=Houston/O=SSL Corporation/CN=SSL.com EV Root Certification Authority ECC"
+        subject: "/C=US/ST=Texas/L=Houston/O=SSL Corp/CN=SSL.com EV Code Signing Intermediate CA ECC R2"
+        thumbprint: "7dc509cc760f073ee038040507c27858402d3b19"
+        version: 3
+        algorithm: "ecdsa-with-SHA384"
+        algorithm_oid: "1.2.840.10045.4.3.3"
+        serial: "6e:dd:4f:25:e7:31:7d:39:81:57:31:34:cf:c1:dc:a0"
+        not_before: 1551987465  # 2019-03-07 19:37:45 UTC
+        not_after: 2025027465  # 2034-03-03 19:37:45 UTC
+      - issuer: "/C=US/ST=Texas/L=Houston/O=SSL Corp/CN=SSL.com EV Code Signing Intermediate CA ECC R2"
+        subject: "/C=DE/ST=Bayern/L=Geretsried/O=Quality First Software GmbH/serialNumber=HRB 140833/CN=Quality First Software GmbH/businessCategory=Private Organization/jurisdictionL=München/jurisdictionST=Bayern/jurisdictionC=DE"
+        thumbprint: "6a63f4e957aa5867f33916e8f57019c2b9987478"
+        version: 3
+        algorithm: "ecdsa-with-SHA384"
+        algorithm_oid: "1.2.840.10045.4.3.3"
+        serial: "45:53:b4:49:3b:42:23:e9:f7:56:9d:fd:73:09:c4:23"
+        not_before: 1694439952  # 2023-09-11 13:45:52 UTC
+        not_after: 1720705552  # 2024-07-11 13:45:52 UTC
+      - issuer: "/C=US/ST=Texas/L=Houston/O=SSL Corp/CN=SSL.com Timestamping Issuing RSA CA R1"
+        subject: "/C=US/ST=Texas/L=Houston/O=SSL Corp/CN=SSL.com Timestamping Unit 2022"
+        thumbprint: "aac9f9414b41c33a2dff9d8f4bd25244305489b2"
+        version: 3
+        algorithm: "sha256WithRSAEncryption"
+        algorithm_oid: "1.2.840.113549.1.1.11"
+        serial: "1a:d6:08:a7:d6:34:b5:cd:de:97:cb:a3:cc:f0:d0:4b"
+        not_before: 1670610651  # 2022-12-09 18:30:51 UTC
+        not_after: 1985970650  # 2032-12-06 18:30:50 UTC
+      - issuer: "/C=US/ST=Texas/L=Houston/O=SSL Corporation/CN=SSL.com Root Certification Authority RSA"
+        subject: "/C=US/ST=Texas/L=Houston/O=SSL Corp/CN=SSL.com Timestamping Issuing RSA CA R1"
+        thumbprint: "84dc2f563a1aaa690c468f3b56ef2d63aec7ca39"
+        version: 3
+        algorithm: "sha256WithRSAEncryption"
+        algorithm_oid: "1.2.840.113549.1.1.11"
+        serial: "6d:52:18:70:87:e8:23:4d:85:60:00:d0:80:8f:93:56"
+        not_before: 1573671005  # 2019-11-13 18:50:05 UTC
+        not_after: 2046970205  # 2034-11-12 18:50:05 UTC
+    countersignatures:
+      - verified: true
+        sign_time: 1708954610  # 2024-02-26 13:36:50 UTC
+        digest: "ebbcb9430ee128c3126285d91988aa775cc579091e3fbbd07290d93cd42f6623"
+        digest_alg: "sha256"
+        chain:
+          - issuer: "/C=US/ST=Texas/L=Houston/O=SSL Corp/CN=SSL.com Timestamping Issuing RSA CA R1"
+            subject: "/C=US/ST=Texas/L=Houston/O=SSL Corp/CN=SSL.com Timestamping Unit 2022"
+            thumbprint: "aac9f9414b41c33a2dff9d8f4bd25244305489b2"
+            version: 3
+            algorithm: "sha256WithRSAEncryption"
+            algorithm_oid: "1.2.840.113549.1.1.11"
+            serial: "1a:d6:08:a7:d6:34:b5:cd:de:97:cb:a3:cc:f0:d0:4b"
+            not_before: 1670610651  # 2022-12-09 18:30:51 UTC
+            not_after: 1985970650  # 2032-12-06 18:30:50 UTC
+          - issuer: "/C=US/ST=Texas/L=Houston/O=SSL Corporation/CN=SSL.com Root Certification Authority RSA"
+            subject: "/C=US/ST=Texas/L=Houston/O=SSL Corp/CN=SSL.com Timestamping Issuing RSA CA R1"
+            thumbprint: "84dc2f563a1aaa690c468f3b56ef2d63aec7ca39"
+            version: 3
+            algorithm: "sha256WithRSAEncryption"
+            algorithm_oid: "1.2.840.113549.1.1.11"
+            serial: "6d:52:18:70:87:e8:23:4d:85:60:00:d0:80:8f:93:56"
+            not_before: 1573671005  # 2019-11-13 18:50:05 UTC
+            not_after: 2046970205  # 2034-11-12 18:50:05 UTC
+overlay:
+    offset: 0x16c00
+    size: 0x1938

@@ -1,0 +1,198 @@
+is_pe: true
+machine: MACHINE_AMD64
+subsystem: SUBSYSTEM_WINDOWS_CUI
+os_version:
+    major: 4
+    minor: 0
+subsystem_version:
+    major: 5
+    minor: 2
+image_version:
+    major: 0
+    minor: 0
+linker_version:
+    major: 2
+    minor: 41
+opthdr_magic: IMAGE_NT_OPTIONAL_HDR64_MAGIC
+characteristics: 0x2026  # EXECUTABLE_IMAGE | LINE_NUMS_STRIPPED | LARGE_ADDRESS_AWARE | DLL
+dll_characteristics: 0x160  # HIGH_ENTROPY_VA | DYNAMIC_BASE | NX_COMPAT
+timestamp: 1706933973  # 2024-02-03 04:19:33 UTC
+image_base: 0x2fc4c0000
+checksum: 1317510
+base_of_code: 0x1000
+entry_point: 0x892
+entry_point_raw: 0x1292
+section_alignment: 0x1000
+file_alignment: 0x200
+loader_flags: 0x0
+size_of_optional_header: 0xf0
+size_of_code: 0x116400
+size_of_initialized_data: 0x135800
+size_of_uninitialized_data: 0x200
+size_of_image: 0x146000
+size_of_headers: 0x600
+size_of_stack_reserve: 0x200000
+size_of_stack_commit: 0x1000
+size_of_heap_reserve: 0x100000
+size_of_heap_commit: 0x1000
+pointer_to_symbol_table: 0x137a00
+win32_version_value: 0
+number_of_symbols: 1220
+number_of_rva_and_sizes: 16
+number_of_sections: 10
+number_of_imported_functions: 0
+number_of_delayed_imported_functions: 0
+number_of_resources: 0
+number_of_version_infos: 0
+number_of_imports: 0
+number_of_delayed_imports: 0
+number_of_exports: 0
+number_of_signatures: 0
+sections:
+  - name: ".text"
+    full_name: ".text"
+    characteristics: 0x60000060  # SECTION_MEM_READ | SECTION_MEM_WRITE | SECTION_SCALE_INDEX
+    raw_data_size: 0x116400
+    raw_data_offset: 0x600
+    virtual_address: 0x1000
+    virtual_size: 0x116208
+    pointer_to_relocations: 0x0
+    pointer_to_line_numbers: 0x0
+    number_of_relocations: 0
+    number_of_line_numbers: 0
+  - name: ".data"
+    full_name: ".data"
+    characteristics: 0xc0000040
+    raw_data_size: 0x1ce00
+    raw_data_offset: 0x116a00
+    virtual_address: 0x118000
+    virtual_size: 0x1cd30
+    pointer_to_relocations: 0x0
+    pointer_to_line_numbers: 0x0
+    number_of_relocations: 0
+    number_of_line_numbers: 0
+  - name: ".rdata"
+    full_name: ".rdata"
+    characteristics: 0x40000040
+    raw_data_size: 0xa00
+    raw_data_offset: 0x133800
+    virtual_address: 0x135000
+    virtual_size: 0x960
+    pointer_to_relocations: 0x0
+    pointer_to_line_numbers: 0x0
+    number_of_relocations: 0
+    number_of_line_numbers: 0
+  - name: "/4"
+    full_name: "/4"
+    characteristics: 0xc0000040
+    raw_data_size: 0x200
+    raw_data_offset: 0x134200
+    virtual_address: 0x136000
+    virtual_size: 0x4
+    pointer_to_relocations: 0x0
+    pointer_to_line_numbers: 0x0
+    number_of_relocations: 0
+    number_of_line_numbers: 0
+  - name: ".pdata"
+    full_name: ".pdata"
+    characteristics: 0x40000040
+    raw_data_size: 0x400
+    raw_data_offset: 0x134400
+    virtual_address: 0x137000
+    virtual_size: 0x2a0
+    pointer_to_relocations: 0x0
+    pointer_to_line_numbers: 0x0
+    number_of_relocations: 0
+    number_of_line_numbers: 0
+  - name: ".xdata"
+    full_name: ".xdata"
+    characteristics: 0x40000040
+    raw_data_size: 0x400
+    raw_data_offset: 0x134800
+    virtual_address: 0x138000
+    virtual_size: 0x2e4
+    pointer_to_relocations: 0x0
+    pointer_to_line_numbers: 0x0
+    number_of_relocations: 0
+    number_of_line_numbers: 0
+  - name: ".bss"
+    full_name: ".bss"
+    characteristics: 0xc0000080
+    raw_data_size: 0x0
+    raw_data_offset: 0x0
+    virtual_address: 0x139000
+    virtual_size: 0x198
+    pointer_to_relocations: 0x0
+    pointer_to_line_numbers: 0x0
+    number_of_relocations: 0
+    number_of_line_numbers: 0
+  - name: ".edata"
+    full_name: ".edata"
+    characteristics: 0x40000040
+    raw_data_size: 0x200
+    raw_data_offset: 0x134c00
+    virtual_address: 0x13a000
+    virtual_size: 0x3f
+    pointer_to_relocations: 0x0
+    pointer_to_line_numbers: 0x0
+    number_of_relocations: 0
+    number_of_line_numbers: 0
+  - name: ".idata"
+    full_name: ".idata"
+    characteristics: 0xc0000040
+    raw_data_size: 0xa00
+    raw_data_offset: 0x134e00
+    virtual_address: 0x13b000
+    virtual_size: 0x8b0
+    pointer_to_relocations: 0x0
+    pointer_to_line_numbers: 0x0
+    number_of_relocations: 0
+    number_of_line_numbers: 0
+  - name: ".CRT"
+    full_name: ".CRT"
+    characteristics: 0xc0000040
+    raw_data_size: 0x200
+    raw_data_offset: 0x135800
+    virtual_address: 0x13c000
+    virtual_size: 0x58
+    pointer_to_relocations: 0x0
+    pointer_to_line_numbers: 0x0
+    number_of_relocations: 0
+    number_of_line_numbers: 0
+data_directories:
+  - virtual_address: 0x13a000
+    size: 0x3f
+  - virtual_address: 0x13b000
+    size: 0x8b0
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x137000
+    size: 0x2a0
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x13e000
+    size: 0x78
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x135060
+    size: 0x28
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x13b258
+    size: 0x1a0
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x0
+    size: 0x0
+is_signed: false
+overlay:
+    offset: 0x0
+    size: 0x0

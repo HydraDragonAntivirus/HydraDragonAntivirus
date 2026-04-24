@@ -1,0 +1,675 @@
+is_pe: true
+machine: MACHINE_AMD64
+subsystem: SUBSYSTEM_WINDOWS_GUI
+os_version:
+    major: 4
+    minor: 0
+subsystem_version:
+    major: 4
+    minor: 0
+image_version:
+    major: 1
+    minor: 0
+linker_version:
+    major: 2
+    minor: 51
+opthdr_magic: IMAGE_NT_OPTIONAL_HDR64_MAGIC
+characteristics: 0x2f  # RELOCS_STRIPPED | EXECUTABLE_IMAGE | LINE_NUMS_STRIPPED | LOCAL_SYMS_STRIPPED | LARGE_ADDRESS_AWARE
+dll_characteristics: 0x0
+timestamp: 0  # 1970-01-01 00:00:00 UTC
+image_base: 0x400000
+checksum: 138527
+base_of_code: 0x1000
+entry_point: 0xdbc0
+entry_point_raw: 0xe7c0
+section_alignment: 0x1000
+file_alignment: 0x200
+loader_flags: 0x0
+size_of_optional_header: 0xf0
+size_of_code: 0xf9d0
+size_of_initialized_data: 0x1324
+size_of_uninitialized_data: 0x3d80
+size_of_image: 0x1e000
+size_of_headers: 0x400
+size_of_stack_reserve: 0x1000000
+size_of_stack_commit: 0x1000
+size_of_heap_reserve: 0x100000
+size_of_heap_commit: 0x1000
+pointer_to_symbol_table: 0x14a00
+win32_version_value: 0
+number_of_symbols: 0
+number_of_rva_and_sizes: 16
+number_of_sections: 7
+number_of_imported_functions: 119
+number_of_delayed_imported_functions: 0
+number_of_resources: 8
+number_of_version_infos: 0
+number_of_imports: 7
+number_of_delayed_imports: 0
+number_of_exports: 0
+number_of_signatures: 2
+sections:
+  - name: ".text"
+    full_name: ".text"
+    characteristics: 0x60000020  # SECTION_MEM_READ | SECTION_MEM_WRITE | SECTION_SCALE_INDEX
+    raw_data_size: 0xfa00
+    raw_data_offset: 0x400
+    virtual_address: 0x1000
+    virtual_size: 0xf9d0
+    pointer_to_relocations: 0x0
+    pointer_to_line_numbers: 0x0
+    number_of_relocations: 0
+    number_of_line_numbers: 0
+  - name: ".data"
+    full_name: ".data"
+    characteristics: 0xc0000040
+    raw_data_size: 0x1400
+    raw_data_offset: 0xfe00
+    virtual_address: 0x11000
+    virtual_size: 0x1324
+    pointer_to_relocations: 0x0
+    pointer_to_line_numbers: 0x0
+    number_of_relocations: 0
+    number_of_line_numbers: 0
+  - name: ".bss"
+    full_name: ".bss"
+    characteristics: 0xc0000080
+    raw_data_size: 0x0
+    raw_data_offset: 0x0
+    virtual_address: 0x13000
+    virtual_size: 0x3d80
+    pointer_to_relocations: 0x0
+    pointer_to_line_numbers: 0x0
+    number_of_relocations: 0
+    number_of_line_numbers: 0
+  - name: ".CRT"
+    full_name: ".CRT"
+    characteristics: 0x2000000
+    raw_data_size: 0x200
+    raw_data_offset: 0x11200
+    virtual_address: 0x17000
+    virtual_size: 0x8
+    pointer_to_relocations: 0x0
+    pointer_to_line_numbers: 0x0
+    number_of_relocations: 0
+    number_of_line_numbers: 0
+  - name: ".idata"
+    full_name: ".idata"
+    characteristics: 0xc0000040
+    raw_data_size: 0x1200
+    raw_data_offset: 0x11400
+    virtual_address: 0x18000
+    virtual_size: 0x1188
+    pointer_to_relocations: 0x0
+    pointer_to_line_numbers: 0x0
+    number_of_relocations: 0
+    number_of_line_numbers: 0
+  - name: ".rsrc"
+    full_name: ".rsrc"
+    characteristics: 0xc0000040
+    raw_data_size: 0x2200
+    raw_data_offset: 0x12600
+    virtual_address: 0x1a000
+    virtual_size: 0x2110
+    pointer_to_relocations: 0x0
+    pointer_to_line_numbers: 0x0
+    number_of_relocations: 0
+    number_of_line_numbers: 0
+  - name: "/4"
+    full_name: ".gnu_debuglink"
+    characteristics: 0x2000000
+    raw_data_size: 0x200
+    raw_data_offset: 0x14800
+    virtual_address: 0x1d000
+    virtual_size: 0x14
+    pointer_to_relocations: 0x0
+    pointer_to_line_numbers: 0x0
+    number_of_relocations: 0
+    number_of_line_numbers: 0
+data_directories:
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x18000
+    size: 0xa0
+  - virtual_address: 0x1a000
+    size: 0x2110
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x14a18
+    size: 0x3450
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x18490
+    size: 0x3f0
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x0
+    size: 0x0
+resource_timestamp: 0  # 1970-01-01 00:00:00 UTC
+resource_version:
+    major: 0
+    minor: 0
+resources:
+  - length: 0x128
+    rva: 0x1a230
+    offset: 0x12830
+    type: RESOURCE_TYPE_ICON
+    id: 1
+    language: 0
+  - length: 0x568
+    rva: 0x1a358
+    offset: 0x12958
+    type: RESOURCE_TYPE_ICON
+    id: 2
+    language: 0
+  - length: 0x2e8
+    rva: 0x1a8c0
+    offset: 0x12ec0
+    type: RESOURCE_TYPE_ICON
+    id: 3
+    language: 0
+  - length: 0x8a8
+    rva: 0x1aba8
+    offset: 0x131a8
+    type: RESOURCE_TYPE_ICON
+    id: 4
+    language: 0
+  - length: 0x3e6
+    rva: 0x1b450
+    offset: 0x13a50
+    type: RESOURCE_TYPE_DIALOG
+    language: 2055
+    name_string: "U\x00N\x00I\x00N\x00S\x00T\x00D\x00L\x00G\x00"
+  - length: 0x282
+    rva: 0x1b838
+    offset: 0x13e38
+    type: RESOURCE_TYPE_DIALOG
+    language: 2055
+    name_string: "U\x00N\x00I\x00N\x00S\x00T\x00R\x00E\x00P\x00A\x00I\x00R\x00"
+  - length: 0x3e
+    rva: 0x1babc
+    offset: 0x140bc
+    type: RESOURCE_TYPE_GROUP_ICON
+    language: 0
+    name_string: "M\x00A\x00I\x00N\x00I\x00C\x00O\x00N\x00"
+  - length: 0x613
+    rva: 0x1bafc
+    offset: 0x140fc
+    type: RESOURCE_TYPE_MANIFEST
+    id: 1
+    language: 2055
+import_details:
+  - library_name: "advapi32.dll"
+    number_of_functions: 4
+    functions:
+      - name: "RegCloseKey"
+        rva: 0x18490
+      - name: "RegDeleteKeyA"
+        rva: 0x18498
+      - name: "RegOpenKeyExA"
+        rva: 0x184a0
+      - name: "RegQueryValueExA"
+        rva: 0x184a8
+  - library_name: "comctl32.dll"
+    number_of_functions: 1
+    functions:
+      - name: "InitCommonControls"
+        rva: 0x184b8
+  - library_name: "gdi32.dll"
+    number_of_functions: 5
+    functions:
+      - name: "CreateFontA"
+        rva: 0x184c8
+      - name: "CreateSolidBrush"
+        rva: 0x184d0
+      - name: "DeleteObject"
+        rva: 0x184d8
+      - name: "SetBkColor"
+        rva: 0x184e0
+      - name: "SetTextColor"
+        rva: 0x184e8
+  - library_name: "kernel32.dll"
+    number_of_functions: 83
+    functions:
+      - name: "AddVectoredExceptionHandler"
+        rva: 0x184f8
+      - name: "CloseHandle"
+        rva: 0x18500
+      - name: "CreateDirectoryA"
+        rva: 0x18508
+      - name: "CreateEventA"
+        rva: 0x18510
+      - name: "CreateFileA"
+        rva: 0x18518
+      - name: "CreateThread"
+        rva: 0x18520
+      - name: "DeleteCriticalSection"
+        rva: 0x18528
+      - name: "DeleteFileA"
+        rva: 0x18530
+      - name: "EnterCriticalSection"
+        rva: 0x18538
+      - name: "EnumResourceLanguagesA"
+        rva: 0x18540
+      - name: "EnumResourceNamesA"
+        rva: 0x18548
+      - name: "EnumResourceTypesA"
+        rva: 0x18550
+      - name: "ExitProcess"
+        rva: 0x18558
+      - name: "ExitThread"
+        rva: 0x18560
+      - name: "FileTimeToDosDateTime"
+        rva: 0x18568
+      - name: "FileTimeToLocalFileTime"
+        rva: 0x18570
+      - name: "FindClose"
+        rva: 0x18578
+      - name: "FindFirstFileA"
+        rva: 0x18580
+      - name: "FindNextFileA"
+        rva: 0x18588
+      - name: "FindResourceA"
+        rva: 0x18590
+      - name: "FindResourceExA"
+        rva: 0x18598
+      - name: "FreeLibrary"
+        rva: 0x185a0
+      - name: "FreeResource"
+        rva: 0x185a8
+      - name: "GetCommandLineA"
+        rva: 0x185b0
+      - name: "GetConsoleMode"
+        rva: 0x185b8
+      - name: "GetConsoleOutputCP"
+        rva: 0x185c0
+      - name: "GetCurrentProcess"
+        rva: 0x185c8
+      - name: "GetCurrentProcessId"
+        rva: 0x185d0
+      - name: "GetCurrentThreadId"
+        rva: 0x185d8
+      - name: "GetEnvironmentVariableA"
+        rva: 0x185e0
+      - name: "GetFileAttributesA"
+        rva: 0x185e8
+      - name: "GetFileType"
+        rva: 0x185f0
+      - name: "GetLastError"
+        rva: 0x185f8
+      - name: "GetModuleFileNameA"
+        rva: 0x18600
+      - name: "GetModuleHandleA"
+        rva: 0x18608
+      - name: "GetPrivateProfileIntA"
+        rva: 0x18610
+      - name: "GetPrivateProfileStringA"
+        rva: 0x18618
+      - name: "GetProcAddress"
+        rva: 0x18620
+      - name: "GetProcessHeap"
+        rva: 0x18628
+      - name: "GetStartupInfoA"
+        rva: 0x18630
+      - name: "GetStdHandle"
+        rva: 0x18638
+      - name: "GetTempFileNameA"
+        rva: 0x18640
+      - name: "GetTempPathA"
+        rva: 0x18648
+      - name: "GetThreadPriority"
+        rva: 0x18650
+      - name: "GetTickCount"
+        rva: 0x18658
+      - name: "GetVersionExA"
+        rva: 0x18660
+      - name: "GetWindowsDirectoryA"
+        rva: 0x18668
+      - name: "HeapAlloc"
+        rva: 0x18670
+      - name: "HeapFree"
+        rva: 0x18678
+      - name: "InitializeCriticalSection"
+        rva: 0x18680
+      - name: "LeaveCriticalSection"
+        rva: 0x18688
+      - name: "LoadLibraryA"
+        rva: 0x18690
+      - name: "LoadResource"
+        rva: 0x18698
+      - name: "LocalAlloc"
+        rva: 0x186a0
+      - name: "LocalFree"
+        rva: 0x186a8
+      - name: "LockResource"
+        rva: 0x186b0
+      - name: "MoveFileA"
+        rva: 0x186b8
+      - name: "MultiByteToWideChar"
+        rva: 0x186c0
+      - name: "ReadFile"
+        rva: 0x186c8
+      - name: "ReadProcessMemory"
+        rva: 0x186d0
+      - name: "RemoveDirectoryA"
+        rva: 0x186d8
+      - name: "ResetEvent"
+        rva: 0x186e0
+      - name: "ResumeThread"
+        rva: 0x186e8
+      - name: "SetCurrentDirectoryA"
+        rva: 0x186f0
+      - name: "SetEvent"
+        rva: 0x186f8
+      - name: "SetFilePointer"
+        rva: 0x18700
+      - name: "SetLastError"
+        rva: 0x18708
+      - name: "SetThreadPriority"
+        rva: 0x18710
+      - name: "SizeofResource"
+        rva: 0x18718
+      - name: "Sleep"
+        rva: 0x18720
+      - name: "SuspendThread"
+        rva: 0x18728
+      - name: "TerminateThread"
+        rva: 0x18730
+      - name: "TlsAlloc"
+        rva: 0x18738
+      - name: "TlsGetValue"
+        rva: 0x18740
+      - name: "TlsSetValue"
+        rva: 0x18748
+      - name: "TryEnterCriticalSection"
+        rva: 0x18750
+      - name: "VirtualQuery"
+        rva: 0x18758
+      - name: "WaitForSingleObject"
+        rva: 0x18760
+      - name: "WideCharToMultiByte"
+        rva: 0x18768
+      - name: "WinExec"
+        rva: 0x18770
+      - name: "WriteFile"
+        rva: 0x18778
+      - name: "_lclose"
+        rva: 0x18780
+      - name: "_lopen"
+        rva: 0x18788
+  - library_name: "ole32.dll"
+    number_of_functions: 3
+    functions:
+      - name: "CoCreateInstance"
+        rva: 0x18798
+      - name: "OleInitialize"
+        rva: 0x187a0
+      - name: "OleUninitialize"
+        rva: 0x187a8
+  - library_name: "oleaut32.dll"
+    number_of_functions: 3
+    functions:
+      - name: "SysAllocStringLen"
+        rva: 0x187b8
+      - name: "SysFreeString"
+        rva: 0x187c0
+      - name: "SysReAllocStringLen"
+        rva: 0x187c8
+  - library_name: "user32.dll"
+    number_of_functions: 20
+    functions:
+      - name: "CharLowerBuffW"
+        rva: 0x187d8
+      - name: "CharPrevA"
+        rva: 0x187e0
+      - name: "CharUpperA"
+        rva: 0x187e8
+      - name: "CharUpperBuffW"
+        rva: 0x187f0
+      - name: "DialogBoxParamA"
+        rva: 0x187f8
+      - name: "DispatchMessageA"
+        rva: 0x18800
+      - name: "EndDialog"
+        rva: 0x18808
+      - name: "FindWindowA"
+        rva: 0x18810
+      - name: "GetDesktopWindow"
+        rva: 0x18818
+      - name: "GetSysColor"
+        rva: 0x18820
+      - name: "GetSystemMetrics"
+        rva: 0x18828
+      - name: "GetWindowRect"
+        rva: 0x18830
+      - name: "MessageBeep"
+        rva: 0x18838
+      - name: "MessageBoxA"
+        rva: 0x18840
+      - name: "MoveWindow"
+        rva: 0x18848
+      - name: "PeekMessageA"
+        rva: 0x18850
+      - name: "PostMessageA"
+        rva: 0x18858
+      - name: "SendDlgItemMessageA"
+        rva: 0x18860
+      - name: "SetDlgItemTextA"
+        rva: 0x18868
+      - name: "TranslateMessage"
+        rva: 0x18870
+is_signed: true
+signatures:
+  - subject: "/C=CH/ST=Bern/L=Bolligen/O=Ghisler Software GmbH/OU=Development/CN=Ghisler Software GmbH"
+    issuer: "/C=US/O=VeriSign, Inc./OU=VeriSign Trust Network/OU=Terms of use at https://www.verisign.com/rpa (c)10/CN=VeriSign Class 3 Code Signing 2010 CA"
+    thumbprint: "88c56839d75f5ecbf0f1c7614c6c916cde2b4055"
+    version: 3
+    algorithm: "sha1WithRSAEncryption"
+    algorithm_oid: "1.2.840.113549.1.1.5"
+    serial: "03:6c:61:75:7a:92:3f:50:c8:2e:b6:aa:18:d2:1f:c6"
+    not_before: 1473379200  # 2016-09-09 00:00:00 UTC
+    not_after: 1495756799  # 2017-05-25 23:59:59 UTC
+    verified: true
+    digest_alg: "sha1"
+    digest: "7383d4bc5c4eb4c78f0358a815886ff643d71728"
+    file_digest: "7383d4bc5c4eb4c78f0358a815886ff643d71728"
+    number_of_certificates: 4
+    number_of_countersignatures: 1
+    signer_info:
+        digest: "859e095a7acb33b439b554bcef8e463b137e891e"
+        digest_alg: "sha1"
+        chain:
+          - issuer: "/C=US/O=VeriSign, Inc./OU=VeriSign Trust Network/OU=Terms of use at https://www.verisign.com/rpa (c)10/CN=VeriSign Class 3 Code Signing 2010 CA"
+            subject: "/C=CH/ST=Bern/L=Bolligen/O=Ghisler Software GmbH/OU=Development/CN=Ghisler Software GmbH"
+            thumbprint: "88c56839d75f5ecbf0f1c7614c6c916cde2b4055"
+            version: 3
+            algorithm: "sha1WithRSAEncryption"
+            algorithm_oid: "1.2.840.113549.1.1.5"
+            serial: "03:6c:61:75:7a:92:3f:50:c8:2e:b6:aa:18:d2:1f:c6"
+            not_before: 1473379200  # 2016-09-09 00:00:00 UTC
+            not_after: 1495756799  # 2017-05-25 23:59:59 UTC
+          - issuer: "/C=US/O=VeriSign, Inc./OU=VeriSign Trust Network/OU=(c) 2006 VeriSign, Inc. - For authorized use only/CN=VeriSign Class 3 Public Primary Certification Authority - G5"
+            subject: "/C=US/O=VeriSign, Inc./OU=VeriSign Trust Network/OU=Terms of use at https://www.verisign.com/rpa (c)10/CN=VeriSign Class 3 Code Signing 2010 CA"
+            thumbprint: "495847a93187cfb8c71f840cb7b41497ad95c64f"
+            version: 3
+            algorithm: "sha1WithRSAEncryption"
+            algorithm_oid: "1.2.840.113549.1.1.5"
+            serial: "52:00:e5:aa:25:56:fc:1a:86:ed:96:c9:d4:4b:33:c7"
+            not_before: 1265587200  # 2010-02-08 00:00:00 UTC
+            not_after: 1581119999  # 2020-02-07 23:59:59 UTC
+    certificates:
+      - issuer: "/C=ZA/ST=Western Cape/L=Durbanville/O=Thawte/OU=Thawte Certification/CN=Thawte Timestamping CA"
+        subject: "/C=US/O=Symantec Corporation/CN=Symantec Time Stamping Services CA - G2"
+        thumbprint: "6c07453ffdda08b83707c09b82fb3d15f35336b1"
+        version: 3
+        algorithm: "sha1WithRSAEncryption"
+        algorithm_oid: "1.2.840.113549.1.1.5"
+        serial: "7e:93:eb:fb:7c:c6:4e:59:ea:4b:9a:77:d4:06:fc:3b"
+        not_before: 1356048000  # 2012-12-21 00:00:00 UTC
+        not_after: 1609372799  # 2020-12-30 23:59:59 UTC
+      - issuer: "/C=US/O=Symantec Corporation/CN=Symantec Time Stamping Services CA - G2"
+        subject: "/C=US/O=Symantec Corporation/CN=Symantec Time Stamping Services Signer - G4"
+        thumbprint: "65439929b67973eb192d6ff243e6767adf0834e4"
+        version: 3
+        algorithm: "sha1WithRSAEncryption"
+        algorithm_oid: "1.2.840.113549.1.1.5"
+        serial: "0e:cf:f4:38:c8:fe:bf:35:6e:04:d8:6a:98:1b:1a:50"
+        not_before: 1350518400  # 2012-10-18 00:00:00 UTC
+        not_after: 1609286399  # 2020-12-29 23:59:59 UTC
+      - issuer: "/C=US/O=VeriSign, Inc./OU=VeriSign Trust Network/OU=Terms of use at https://www.verisign.com/rpa (c)10/CN=VeriSign Class 3 Code Signing 2010 CA"
+        subject: "/C=CH/ST=Bern/L=Bolligen/O=Ghisler Software GmbH/OU=Development/CN=Ghisler Software GmbH"
+        thumbprint: "88c56839d75f5ecbf0f1c7614c6c916cde2b4055"
+        version: 3
+        algorithm: "sha1WithRSAEncryption"
+        algorithm_oid: "1.2.840.113549.1.1.5"
+        serial: "03:6c:61:75:7a:92:3f:50:c8:2e:b6:aa:18:d2:1f:c6"
+        not_before: 1473379200  # 2016-09-09 00:00:00 UTC
+        not_after: 1495756799  # 2017-05-25 23:59:59 UTC
+      - issuer: "/C=US/O=VeriSign, Inc./OU=VeriSign Trust Network/OU=(c) 2006 VeriSign, Inc. - For authorized use only/CN=VeriSign Class 3 Public Primary Certification Authority - G5"
+        subject: "/C=US/O=VeriSign, Inc./OU=VeriSign Trust Network/OU=Terms of use at https://www.verisign.com/rpa (c)10/CN=VeriSign Class 3 Code Signing 2010 CA"
+        thumbprint: "495847a93187cfb8c71f840cb7b41497ad95c64f"
+        version: 3
+        algorithm: "sha1WithRSAEncryption"
+        algorithm_oid: "1.2.840.113549.1.1.5"
+        serial: "52:00:e5:aa:25:56:fc:1a:86:ed:96:c9:d4:4b:33:c7"
+        not_before: 1265587200  # 2010-02-08 00:00:00 UTC
+        not_after: 1581119999  # 2020-02-07 23:59:59 UTC
+    countersignatures:
+      - verified: true
+        sign_time: 1474471603  # 2016-09-21 15:26:43 UTC
+        digest: "3ac2b9de4c7d90dc44aae8277d512e789de4c818"
+        digest_alg: "sha1"
+        chain:
+          - issuer: "/C=US/O=Symantec Corporation/CN=Symantec Time Stamping Services CA - G2"
+            subject: "/C=US/O=Symantec Corporation/CN=Symantec Time Stamping Services Signer - G4"
+            thumbprint: "65439929b67973eb192d6ff243e6767adf0834e4"
+            version: 3
+            algorithm: "sha1WithRSAEncryption"
+            algorithm_oid: "1.2.840.113549.1.1.5"
+            serial: "0e:cf:f4:38:c8:fe:bf:35:6e:04:d8:6a:98:1b:1a:50"
+            not_before: 1350518400  # 2012-10-18 00:00:00 UTC
+            not_after: 1609286399  # 2020-12-29 23:59:59 UTC
+          - issuer: "/C=ZA/ST=Western Cape/L=Durbanville/O=Thawte/OU=Thawte Certification/CN=Thawte Timestamping CA"
+            subject: "/C=US/O=Symantec Corporation/CN=Symantec Time Stamping Services CA - G2"
+            thumbprint: "6c07453ffdda08b83707c09b82fb3d15f35336b1"
+            version: 3
+            algorithm: "sha1WithRSAEncryption"
+            algorithm_oid: "1.2.840.113549.1.1.5"
+            serial: "7e:93:eb:fb:7c:c6:4e:59:ea:4b:9a:77:d4:06:fc:3b"
+            not_before: 1356048000  # 2012-12-21 00:00:00 UTC
+            not_after: 1609372799  # 2020-12-30 23:59:59 UTC
+  - subject: "/C=CH/ST=Bern/L=Bolligen/O=Ghisler Software GmbH/OU=Development/CN=Ghisler Software GmbH"
+    issuer: "/C=US/O=Symantec Corporation/OU=Symantec Trust Network/CN=Symantec Class 3 SHA256 Code Signing CA"
+    thumbprint: "2ed9c2b73335c44fe37b3a9553292a5a754850a4"
+    version: 3
+    algorithm: "sha256WithRSAEncryption"
+    algorithm_oid: "1.2.840.113549.1.1.11"
+    serial: "1a:f2:6d:2b:4d:e7:eb:bb:26:05:fd:83:cc:b1:f4:ad"
+    not_before: 1464134400  # 2016-05-25 00:00:00 UTC
+    not_after: 1495756799  # 2017-05-25 23:59:59 UTC
+    verified: true
+    digest_alg: "sha256"
+    digest: "b43e10921c479054beeb47518aa62be7f90d45f5e65791681ec687ecb294d502"
+    file_digest: "b43e10921c479054beeb47518aa62be7f90d45f5e65791681ec687ecb294d502"
+    number_of_certificates: 4
+    number_of_countersignatures: 1
+    signer_info:
+        digest: "1a4bf55ecca0449d26287a98008c5f31500f4c5fe54d710a9830fefe91f6c1d6"
+        digest_alg: "sha256"
+        chain:
+          - issuer: "/C=US/O=Symantec Corporation/OU=Symantec Trust Network/CN=Symantec Class 3 SHA256 Code Signing CA"
+            subject: "/C=CH/ST=Bern/L=Bolligen/O=Ghisler Software GmbH/OU=Development/CN=Ghisler Software GmbH"
+            thumbprint: "2ed9c2b73335c44fe37b3a9553292a5a754850a4"
+            version: 3
+            algorithm: "sha256WithRSAEncryption"
+            algorithm_oid: "1.2.840.113549.1.1.11"
+            serial: "1a:f2:6d:2b:4d:e7:eb:bb:26:05:fd:83:cc:b1:f4:ad"
+            not_before: 1464134400  # 2016-05-25 00:00:00 UTC
+            not_after: 1495756799  # 2017-05-25 23:59:59 UTC
+          - issuer: "/C=US/O=VeriSign, Inc./OU=VeriSign Trust Network/OU=(c) 2006 VeriSign, Inc. - For authorized use only/CN=VeriSign Class 3 Public Primary Certification Authority - G5"
+            subject: "/C=US/O=Symantec Corporation/OU=Symantec Trust Network/CN=Symantec Class 3 SHA256 Code Signing CA"
+            thumbprint: "007790f6561dad89b0bcd85585762495e358f8a5"
+            version: 3
+            algorithm: "sha256WithRSAEncryption"
+            algorithm_oid: "1.2.840.113549.1.1.11"
+            serial: "3d:78:d7:f9:76:49:60:b2:61:7d:f4:f0:1e:ca:86:2a"
+            not_before: 1386633600  # 2013-12-10 00:00:00 UTC
+            not_after: 1702166399  # 2023-12-09 23:59:59 UTC
+    certificates:
+      - issuer: "/C=US/O=Symantec Corporation/OU=Symantec Trust Network/CN=Symantec Class 3 SHA256 Code Signing CA"
+        subject: "/C=CH/ST=Bern/L=Bolligen/O=Ghisler Software GmbH/OU=Development/CN=Ghisler Software GmbH"
+        thumbprint: "2ed9c2b73335c44fe37b3a9553292a5a754850a4"
+        version: 3
+        algorithm: "sha256WithRSAEncryption"
+        algorithm_oid: "1.2.840.113549.1.1.11"
+        serial: "1a:f2:6d:2b:4d:e7:eb:bb:26:05:fd:83:cc:b1:f4:ad"
+        not_before: 1464134400  # 2016-05-25 00:00:00 UTC
+        not_after: 1495756799  # 2017-05-25 23:59:59 UTC
+      - issuer: "/C=US/O=VeriSign, Inc./OU=VeriSign Trust Network/OU=(c) 2006 VeriSign, Inc. - For authorized use only/CN=VeriSign Class 3 Public Primary Certification Authority - G5"
+        subject: "/C=US/O=Symantec Corporation/OU=Symantec Trust Network/CN=Symantec Class 3 SHA256 Code Signing CA"
+        thumbprint: "007790f6561dad89b0bcd85585762495e358f8a5"
+        version: 3
+        algorithm: "sha256WithRSAEncryption"
+        algorithm_oid: "1.2.840.113549.1.1.11"
+        serial: "3d:78:d7:f9:76:49:60:b2:61:7d:f4:f0:1e:ca:86:2a"
+        not_before: 1386633600  # 2013-12-10 00:00:00 UTC
+        not_after: 1702166399  # 2023-12-09 23:59:59 UTC
+      - issuer: "/C=US/O=VeriSign, Inc./OU=VeriSign Trust Network/OU=(c) 2008 VeriSign, Inc. - For authorized use only/CN=VeriSign Universal Root Certification Authority"
+        subject: "/C=US/O=Symantec Corporation/OU=Symantec Trust Network/CN=Symantec SHA256 TimeStamping CA"
+        thumbprint: "6fc9edb5e00ab64151c1cdfcac74ad2c7b7e3be4"
+        version: 3
+        algorithm: "sha256WithRSAEncryption"
+        algorithm_oid: "1.2.840.113549.1.1.11"
+        serial: "7b:05:b1:d4:49:68:51:44:f7:c9:89:d2:9c:19:9d:12"
+        not_before: 1452556800  # 2016-01-12 00:00:00 UTC
+        not_after: 1925942399  # 2031-01-11 23:59:59 UTC
+      - issuer: "/C=US/O=Symantec Corporation/OU=Symantec Trust Network/CN=Symantec SHA256 TimeStamping CA"
+        subject: "/C=US/O=Symantec Corporation/OU=Symantec Trust Network/CN=Symantec SHA256 TimeStamping Signer - G1"
+        thumbprint: "87cecc250809894434d4be53ce840f6f9dbd4b06"
+        version: 3
+        algorithm: "sha256WithRSAEncryption"
+        algorithm_oid: "1.2.840.113549.1.1.11"
+        serial: "54:f3:7d:a1:71:67:51:bc:6a:8d:0a:d2:74:b2:8b:13"
+        not_before: 1452556800  # 2016-01-12 00:00:00 UTC
+        not_after: 1807487999  # 2027-04-11 23:59:59 UTC
+    countersignatures:
+      - verified: true
+        sign_time: 1474471604  # 2016-09-21 15:26:44 UTC
+        digest: "e879962bab47112346d0be7e25ed1d8251a89594ee22ab16ddeed0faeb6c0de0"
+        digest_alg: "sha256"
+        chain:
+          - issuer: "/C=US/O=Symantec Corporation/OU=Symantec Trust Network/CN=Symantec SHA256 TimeStamping CA"
+            subject: "/C=US/O=Symantec Corporation/OU=Symantec Trust Network/CN=Symantec SHA256 TimeStamping Signer - G1"
+            thumbprint: "87cecc250809894434d4be53ce840f6f9dbd4b06"
+            version: 3
+            algorithm: "sha256WithRSAEncryption"
+            algorithm_oid: "1.2.840.113549.1.1.11"
+            serial: "54:f3:7d:a1:71:67:51:bc:6a:8d:0a:d2:74:b2:8b:13"
+            not_before: 1452556800  # 2016-01-12 00:00:00 UTC
+            not_after: 1807487999  # 2027-04-11 23:59:59 UTC
+          - issuer: "/C=US/O=VeriSign, Inc./OU=VeriSign Trust Network/OU=(c) 2008 VeriSign, Inc. - For authorized use only/CN=VeriSign Universal Root Certification Authority"
+            subject: "/C=US/O=Symantec Corporation/OU=Symantec Trust Network/CN=Symantec SHA256 TimeStamping CA"
+            thumbprint: "6fc9edb5e00ab64151c1cdfcac74ad2c7b7e3be4"
+            version: 3
+            algorithm: "sha256WithRSAEncryption"
+            algorithm_oid: "1.2.840.113549.1.1.11"
+            serial: "7b:05:b1:d4:49:68:51:44:f7:c9:89:d2:9c:19:9d:12"
+            not_before: 1452556800  # 2016-01-12 00:00:00 UTC
+            not_after: 1925942399  # 2031-01-11 23:59:59 UTC
+overlay:
+    offset: 0x14a00
+    size: 0x3468

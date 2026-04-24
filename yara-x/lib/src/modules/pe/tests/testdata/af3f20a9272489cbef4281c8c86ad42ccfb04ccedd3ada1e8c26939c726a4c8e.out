@@ -1,0 +1,151 @@
+is_pe: true
+machine: MACHINE_AMD64
+subsystem: SUBSYSTEM_EFI_APPLICATION
+os_version:
+    major: 0
+    minor: 0
+subsystem_version:
+    major: 0
+    minor: 0
+image_version:
+    major: 1
+    minor: 0
+linker_version:
+    major: 2
+    minor: 20
+opthdr_magic: IMAGE_NT_OPTIONAL_HDR64_MAGIC
+characteristics: 0x206  # EXECUTABLE_IMAGE | LINE_NUMS_STRIPPED | DEBUG_STRIPPED
+dll_characteristics: 0x0
+timestamp: 0  # 1970-01-01 00:00:00 UTC
+image_base: 0x1000000
+checksum: 3991994
+base_of_code: 0x200
+entry_point: 0x3c152a
+entry_point_raw: 0x3c152a
+section_alignment: 0x20
+file_alignment: 0x20
+loader_flags: 0x0
+size_of_optional_header: 0xa0
+size_of_code: 0x26b3e00
+size_of_initialized_data: 0x0
+size_of_uninitialized_data: 0x0
+size_of_image: 0x26b4000
+size_of_headers: 0x200
+size_of_stack_reserve: 0x0
+size_of_stack_commit: 0x0
+size_of_heap_reserve: 0x0
+size_of_heap_commit: 0x0
+pointer_to_symbol_table: 0x0
+win32_version_value: 0
+number_of_symbols: 1
+number_of_rva_and_sizes: 6
+number_of_sections: 4
+number_of_imported_functions: 0
+number_of_delayed_imported_functions: 0
+number_of_resources: 0
+number_of_version_infos: 0
+number_of_imports: 0
+number_of_delayed_imports: 0
+number_of_exports: 0
+number_of_signatures: 1
+sections:
+  - name: ".setup"
+    full_name: ".setup"
+    characteristics: 0x60500020  # SECTION_MEM_READ | SECTION_MEM_WRITE | SECTION_SCALE_INDEX
+    raw_data_size: 0x37c0
+    raw_data_offset: 0x200
+    virtual_address: 0x200
+    virtual_size: 0x37c0
+    pointer_to_relocations: 0x0
+    pointer_to_line_numbers: 0x0
+    number_of_relocations: 0
+    number_of_line_numbers: 0
+  - name: ".reloc"
+    full_name: ".reloc"
+    characteristics: 0x42100040
+    raw_data_size: 0x20
+    raw_data_offset: 0x39c0
+    virtual_address: 0x39c0
+    virtual_size: 0x20
+    pointer_to_relocations: 0x0
+    pointer_to_line_numbers: 0x0
+    number_of_relocations: 0
+    number_of_line_numbers: 0
+  - name: ".compat"
+    full_name: ".compat"
+    characteristics: 0x42100040
+    raw_data_size: 0x20
+    raw_data_offset: 0x39e0
+    virtual_address: 0x39e0
+    virtual_size: 0x20
+    pointer_to_relocations: 0x0
+    pointer_to_line_numbers: 0x0
+    number_of_relocations: 0
+    number_of_line_numbers: 0
+  - name: ".text"
+    full_name: ".text"
+    characteristics: 0x60500020  # SECTION_MEM_READ | SECTION_MEM_WRITE | SECTION_SCALE_INDEX
+    raw_data_size: 0x3c4320
+    raw_data_offset: 0x3a00
+    virtual_address: 0x3a00
+    virtual_size: 0x26b0600
+    pointer_to_relocations: 0x0
+    pointer_to_line_numbers: 0x0
+    number_of_relocations: 0
+    number_of_line_numbers: 0
+data_directories:
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x3c7d20
+    size: 0xb10
+  - virtual_address: 0x0
+    size: 0x0
+is_signed: true
+signatures:
+  - subject: "/C=AT/O=Security Coding Factory GmbH/OU=Security Coding Factory Certificate Authority/CN=Security Coding Factory Software CA"
+    issuer: "/C=AT/O=Security Coding Factory GmbH/OU=Security Coding Factory Certificate Authority/CN=Security Coding Factory Software CA"
+    thumbprint: "5c8abbb5a8c8ce282d080578c150b83371933df0"
+    version: 3
+    algorithm: "sha256WithRSAEncryption"
+    algorithm_oid: "1.2.840.113549.1.1.11"
+    serial: "01"
+    not_before: 1615365865  # 2021-03-10 08:44:25 UTC
+    not_after: 2246431465  # 2041-03-09 08:44:25 UTC
+    verified: true
+    digest_alg: "sha256"
+    digest: "2a344e5a930211be79c3d2a867d8923d154af27c9be0f8e5b6fd7a5411934375"
+    file_digest: "2a344e5a930211be79c3d2a867d8923d154af27c9be0f8e5b6fd7a5411934375"
+    number_of_certificates: 1
+    number_of_countersignatures: 0
+    signer_info:
+        digest: "b34a9982f9ff7e33ae6be914e87df63f4623274e01557fd1cc567606fda4c659"
+        digest_alg: "sha256"
+        chain:
+          - issuer: "/C=AT/O=Security Coding Factory GmbH/OU=Security Coding Factory Certificate Authority/CN=Security Coding Factory Software CA"
+            subject: "/C=AT/O=Security Coding Factory GmbH/OU=Security Coding Factory Certificate Authority/CN=Security Coding Factory Software CA"
+            thumbprint: "5c8abbb5a8c8ce282d080578c150b83371933df0"
+            version: 3
+            algorithm: "sha256WithRSAEncryption"
+            algorithm_oid: "1.2.840.113549.1.1.11"
+            serial: "01"
+            not_before: 1615365865  # 2021-03-10 08:44:25 UTC
+            not_after: 2246431465  # 2041-03-09 08:44:25 UTC
+    certificates:
+      - issuer: "/C=AT/O=Security Coding Factory GmbH/OU=Security Coding Factory Certificate Authority/CN=Security Coding Factory Software CA"
+        subject: "/C=AT/O=Security Coding Factory GmbH/OU=Security Coding Factory Certificate Authority/CN=Security Coding Factory Software CA"
+        thumbprint: "5c8abbb5a8c8ce282d080578c150b83371933df0"
+        version: 3
+        algorithm: "sha256WithRSAEncryption"
+        algorithm_oid: "1.2.840.113549.1.1.11"
+        serial: "01"
+        not_before: 1615365865  # 2021-03-10 08:44:25 UTC
+        not_after: 2246431465  # 2041-03-09 08:44:25 UTC
+overlay:
+    offset: 0x3c7d20
+    size: 0xb10

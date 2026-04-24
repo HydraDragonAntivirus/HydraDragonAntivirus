@@ -1,0 +1,16 @@
+.DS_Store
+.env
+.idea
+.pytest_cache
+.vscode
+*.profdata
+*.profraw
+*.swp
+target
+js-wasm/dist
+js-wasm/pkg
+macros/target
+site/node_modules
+site/public
+site/resources
+__pycache__

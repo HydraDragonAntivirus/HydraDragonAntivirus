@@ -1,0 +1,231 @@
+is_pe: true
+machine: MACHINE_I386
+subsystem: SUBSYSTEM_WINDOWS_CUI
+os_version:
+    major: 4
+    minor: 0
+subsystem_version:
+    major: 4
+    minor: 0
+image_version:
+    major: 0
+    minor: 0
+linker_version:
+    major: 6
+    minor: 0
+opthdr_magic: IMAGE_NT_OPTIONAL_HDR32_MAGIC
+characteristics: 0x10f  # RELOCS_STRIPPED | EXECUTABLE_IMAGE | LINE_NUMS_STRIPPED | LOCAL_SYMS_STRIPPED | MACHINE_32BIT
+dll_characteristics: 0x0
+timestamp: 1524722207  # 2018-04-26 05:56:47 UTC
+image_base: 0x400000
+checksum: 0
+base_of_code: 0x400
+base_of_data: 0xa00
+entry_point: 0x400
+entry_point_raw: 0x400
+section_alignment: 0x200
+file_alignment: 0x200
+loader_flags: 0x0
+size_of_optional_header: 0xe0
+size_of_code: 0x600
+size_of_initialized_data: 0x800
+size_of_uninitialized_data: 0x0
+size_of_image: 0x1200
+size_of_headers: 0x400
+size_of_stack_reserve: 0x100000
+size_of_stack_commit: 0x1000
+size_of_heap_reserve: 0x100000
+size_of_heap_commit: 0x1000
+pointer_to_symbol_table: 0x0
+win32_version_value: 0
+number_of_symbols: 0
+number_of_rva_and_sizes: 16
+number_of_sections: 3
+number_of_imported_functions: 17
+number_of_delayed_imported_functions: 14
+number_of_resources: 0
+number_of_version_infos: 0
+number_of_imports: 1
+number_of_delayed_imports: 6
+number_of_exports: 0
+number_of_signatures: 0
+rich_signature:
+    offset: 0x80
+    length: 0x30
+    key: 2308599217
+    raw_data: "\xf5\x0c\xf4\xda\xb1m\x9a\x89\xb1m\x9a\x89\xb1m\x9a\x89\xb1m\x9a\x89\xb3m\x9a\x89\xd3r\x89\x89\xb2m\x9a\x89\xb1m\x9b\x89\xafm\x9a\x89Yr\x91\x89\xb5m\x9a\x89"
+    clear_data: "DanS\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02\x00\x00\x00b\x1f\x13\x00\x03\x00\x00\x00\x00\x00\x01\x00\x1e\x00\x00\x00\xe8\x1f\x0b\x00\x04\x00\x00\x00"
+    tools:
+      - toolid: 0
+        version: 0
+        times: 2
+      - toolid: 19
+        version: 8034
+        times: 3
+      - toolid: 1
+        version: 0
+        times: 30
+      - toolid: 11
+        version: 8168
+        times: 4
+sections:
+  - name: ".text"
+    full_name: ".text"
+    characteristics: 0x60000020  # SECTION_MEM_READ | SECTION_MEM_WRITE | SECTION_SCALE_INDEX
+    raw_data_size: 0x600
+    raw_data_offset: 0x400
+    virtual_address: 0x400
+    virtual_size: 0x58b
+    pointer_to_relocations: 0x0
+    pointer_to_line_numbers: 0x0
+    number_of_relocations: 0
+    number_of_line_numbers: 0
+  - name: ".rdata"
+    full_name: ".rdata"
+    characteristics: 0x40000040
+    raw_data_size: 0x600
+    raw_data_offset: 0xa00
+    virtual_address: 0xa00
+    virtual_size: 0x454
+    pointer_to_relocations: 0x0
+    pointer_to_line_numbers: 0x0
+    number_of_relocations: 0
+    number_of_line_numbers: 0
+  - name: ".data"
+    full_name: ".data"
+    characteristics: 0xc0000040
+    raw_data_size: 0x200
+    raw_data_offset: 0x1000
+    virtual_address: 0x1000
+    virtual_size: 0xfc
+    pointer_to_relocations: 0x0
+    pointer_to_line_numbers: 0x0
+    number_of_relocations: 0
+    number_of_line_numbers: 0
+data_directories:
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0xcc4
+    size: 0x28
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0xa00
+    size: 0x48
+  - virtual_address: 0xaac
+    size: 0xe0
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x0
+    size: 0x0
+import_details:
+  - library_name: "KERNEL32.dll"
+    number_of_functions: 17
+    functions:
+      - name: "GetModuleHandleA"
+        rva: 0xa00
+      - name: "ReadFile"
+        rva: 0xa04
+      - name: "GetStdHandle"
+        rva: 0xa08
+      - name: "CloseHandle"
+        rva: 0xa0c
+      - name: "SetThreadPriority"
+        rva: 0xa10
+      - name: "CreateThread"
+        rva: 0xa14
+      - name: "WriteFile"
+        rva: 0xa18
+      - name: "WaitForSingleObject"
+        rva: 0xa1c
+      - name: "CreateEventA"
+        rva: 0xa20
+      - name: "Sleep"
+        rva: 0xa24
+      - name: "GetProcAddress"
+        rva: 0xa28
+      - name: "FreeLibrary"
+        rva: 0xa2c
+      - name: "LocalAlloc"
+        rva: 0xa30
+      - name: "InterlockedExchange"
+        rva: 0xa34
+      - name: "RaiseException"
+        rva: 0xa38
+      - name: "GetLastError"
+        rva: 0xa3c
+      - name: "LoadLibraryA"
+        rva: 0xa40
+delayed_import_details:
+  - library_name: "USER32.dll"
+    number_of_functions: 2
+    functions:
+      - name: "CreateMenu"
+        rva: 0x10ac
+      - name: "DestroyMenu"
+        rva: 0x10b0
+  - library_name: "GDI32.dll"
+    number_of_functions: 2
+    functions:
+      - name: "DeleteObject"
+        rva: 0x10a0
+      - name: "CreateBitmap"
+        rva: 0x10a4
+  - library_name: "ADVAPI32.dll"
+    number_of_functions: 3
+    functions:
+      - name: "RegOpenKeyExA"
+        rva: 0x1084
+      - name: "RegCloseKey"
+        rva: 0x1088
+      - name: "RegQueryValueExA"
+        rva: 0x108c
+  - library_name: "ole32.dll"
+    number_of_functions: 1
+    functions:
+      - name: "OleInitialize"
+        rva: 0x10cc
+  - library_name: "COMCTL32.dll"
+    number_of_functions: 2
+    functions:
+      - name: "ord17"
+        ordinal: 17
+        rva: 0x1094
+      - name: "InitCommonControlsEx"
+        rva: 0x1098
+  - library_name: "WS2_32.dll"
+    number_of_functions: 4
+    functions:
+      - name: "WSAStartup"
+        ordinal: 115
+        rva: 0x10b8
+      - name: "closesocket"
+        ordinal: 3
+        rva: 0x10bc
+      - name: "connect"
+        ordinal: 4
+        rva: 0x10c0
+      - name: "socket"
+        ordinal: 23
+        rva: 0x10c4
+is_signed: false
+overlay:
+    offset: 0x0
+    size: 0x0

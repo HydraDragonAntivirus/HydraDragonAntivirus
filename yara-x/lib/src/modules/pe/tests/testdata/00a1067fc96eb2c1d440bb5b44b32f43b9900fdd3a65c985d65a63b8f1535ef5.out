@@ -1,0 +1,464 @@
+is_pe: true
+machine: MACHINE_AMD64
+subsystem: SUBSYSTEM_WINDOWS_GUI
+os_version:
+    major: 5
+    minor: 2
+subsystem_version:
+    major: 5
+    minor: 2
+image_version:
+    major: 0
+    minor: 0
+linker_version:
+    major: 14
+    minor: 0
+opthdr_magic: IMAGE_NT_OPTIONAL_HDR64_MAGIC
+characteristics: 0x23  # RELOCS_STRIPPED | EXECUTABLE_IMAGE | LARGE_ADDRESS_AWARE
+dll_characteristics: 0x8120  # HIGH_ENTROPY_VA | NX_COMPAT | TERMINAL_SERVER_AWARE
+timestamp: 1527751881  # 2018-05-31 07:31:21 UTC
+image_base: 0x140000000
+checksum: 121515
+base_of_code: 0x1000
+entry_point: 0x948
+entry_point_raw: 0x1548
+section_alignment: 0x1000
+file_alignment: 0x200
+loader_flags: 0x0
+size_of_optional_header: 0xf0
+size_of_code: 0xa000
+size_of_initialized_data: 0xbe00
+size_of_uninitialized_data: 0x0
+size_of_image: 0x19000
+size_of_headers: 0x400
+size_of_stack_reserve: 0x100000
+size_of_stack_commit: 0x1000
+size_of_heap_reserve: 0x100000
+size_of_heap_commit: 0x1000
+pointer_to_symbol_table: 0x0
+win32_version_value: 0
+number_of_symbols: 0
+number_of_rva_and_sizes: 16
+number_of_sections: 6
+number_of_imported_functions: 72
+number_of_delayed_imported_functions: 0
+number_of_resources: 2
+number_of_version_infos: 0
+number_of_imports: 1
+number_of_delayed_imports: 0
+number_of_exports: 0
+number_of_signatures: 1
+rich_signature:
+    offset: 0x80
+    length: 0x70
+    key: 1468968837
+    raw_data: "\xc1\xce\xe0\x04\x85\xaf\x8eW\x85\xaf\x8eW\x85\xaf\x8eW13\x7fW\x81\xaf\x8eW13}W\xfd\xaf\x8eW13|W\x88\xaf\x8eW\xbe\xf1\x8dV\x82\xaf\x8eW\xbe\xf1\x8bV\x99\xaf\x8eW\xbe\xf1\x8aV\x97\xaf\x8eW\x8c\xd7\x1dW\x86\xaf\x8eW\x85\xaf\x8fW\xd9\xaf\x8eW\x12\xf1\x8bV\x87\xaf\x8eW\x17\xf1qW\x84\xaf\x8eW\x85\xaf\x19W\x84\xaf\x8eW\x12\xf1\x8cV\x84\xaf\x8eW"
+    clear_data: "DanS\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xb4\x9c\xf1\x00\x04\x00\x00\x00\xb4\x9c\xf3\x00x\x00\x00\x00\xb4\x9c\xf2\x00\r\x00\x00\x00;^\x03\x01\x07\x00\x00\x00;^\x05\x01\x1c\x00\x00\x00;^\x04\x01\x12\x00\x00\x00\tx\x93\x00\x03\x00\x00\x00\x00\x00\x01\x00\\\x00\x00\x00\x97^\x05\x01\x02\x00\x00\x00\x92^\xff\x00\x01\x00\x00\x00\x00\x00\x97\x00\x01\x00\x00\x00\x97^\x02\x01\x01\x00\x00\x00"
+    tools:
+      - toolid: 241
+        version: 40116
+        times: 4
+      - toolid: 243
+        version: 40116
+        times: 120
+      - toolid: 242
+        version: 40116
+        times: 13
+      - toolid: 259
+        version: 24123
+        times: 7
+      - toolid: 261
+        version: 24123
+        times: 28
+      - toolid: 260
+        version: 24123
+        times: 18
+      - toolid: 147
+        version: 30729
+        times: 3
+      - toolid: 1
+        version: 0
+        times: 92
+      - toolid: 261
+        version: 24215
+        times: 2
+      - toolid: 255
+        version: 24210
+        times: 1
+      - toolid: 151
+        version: 0
+        times: 1
+      - toolid: 258
+        version: 24215
+        times: 1
+pdb_path: "D:\\MyProject\\StreetPlayer\\ExtraProgram\\KillPot\\x64\\Release\\KillPot64.pdb"
+sections:
+  - name: ".text"
+    full_name: ".text"
+    characteristics: 0x60000020  # SECTION_MEM_READ | SECTION_MEM_WRITE | SECTION_SCALE_INDEX
+    raw_data_size: 0xa000
+    raw_data_offset: 0x400
+    virtual_address: 0x1000
+    virtual_size: 0x9e10
+    pointer_to_relocations: 0x0
+    pointer_to_line_numbers: 0x0
+    number_of_relocations: 0
+    number_of_line_numbers: 0
+  - name: ".rdata"
+    full_name: ".rdata"
+    characteristics: 0x40000040
+    raw_data_size: 0x8c00
+    raw_data_offset: 0xa400
+    virtual_address: 0xb000
+    virtual_size: 0x8a78
+    pointer_to_relocations: 0x0
+    pointer_to_line_numbers: 0x0
+    number_of_relocations: 0
+    number_of_line_numbers: 0
+  - name: ".data"
+    full_name: ".data"
+    characteristics: 0xc0000040
+    raw_data_size: 0xa00
+    raw_data_offset: 0x13000
+    virtual_address: 0x14000
+    virtual_size: 0x1bc8
+    pointer_to_relocations: 0x0
+    pointer_to_line_numbers: 0x0
+    number_of_relocations: 0
+    number_of_line_numbers: 0
+  - name: ".pdata"
+    full_name: ".pdata"
+    characteristics: 0x40000040
+    raw_data_size: 0xc00
+    raw_data_offset: 0x13a00
+    virtual_address: 0x16000
+    virtual_size: 0xbdc
+    pointer_to_relocations: 0x0
+    pointer_to_line_numbers: 0x0
+    number_of_relocations: 0
+    number_of_line_numbers: 0
+  - name: ".gfids"
+    full_name: ".gfids"
+    characteristics: 0x40000040
+    raw_data_size: 0x200
+    raw_data_offset: 0x14600
+    virtual_address: 0x17000
+    virtual_size: 0xa0
+    pointer_to_relocations: 0x0
+    pointer_to_line_numbers: 0x0
+    number_of_relocations: 0
+    number_of_line_numbers: 0
+  - name: ".rsrc"
+    full_name: ".rsrc"
+    characteristics: 0x40000040
+    raw_data_size: 0x800
+    raw_data_offset: 0x14800
+    virtual_address: 0x18000
+    virtual_size: 0x7d8
+    pointer_to_relocations: 0x0
+    pointer_to_line_numbers: 0x0
+    number_of_relocations: 0
+    number_of_line_numbers: 0
+data_directories:
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x132b4
+    size: 0x28
+  - virtual_address: 0x18000
+    size: 0x7d8
+  - virtual_address: 0x16000
+    size: 0xbdc
+  - virtual_address: 0x15000
+    size: 0x17b8
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x12480
+    size: 0x54
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x124e0
+    size: 0x94
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0xb000
+    size: 0x248
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x0
+    size: 0x0
+resource_timestamp: 0  # 1970-01-01 00:00:00 UTC
+resource_version:
+    major: 0
+    minor: 0
+resources:
+  - length: 0x383
+    rva: 0x18450
+    offset: 0x14c50
+    type: RESOURCE_TYPE_MANIFEST
+    id: 1
+    language: 1033
+  - length: 0x3db
+    rva: 0x18070
+    offset: 0x14870
+    type: RESOURCE_TYPE_MANIFEST
+    id: 1
+    language: 1042
+import_details:
+  - library_name: "KERNEL32.dll"
+    number_of_functions: 72
+    functions:
+      - name: "OpenProcess"
+        rva: 0xb000
+      - name: "TerminateProcess"
+        rva: 0xb008
+      - name: "GetExitCodeProcess"
+        rva: 0xb010
+      - name: "CloseHandle"
+        rva: 0xb018
+      - name: "CreateToolhelp32Snapshot"
+        rva: 0xb020
+      - name: "Process32FirstW"
+        rva: 0xb028
+      - name: "Process32NextW"
+        rva: 0xb030
+      - name: "Module32FirstW"
+        rva: 0xb038
+      - name: "Module32NextW"
+        rva: 0xb040
+      - name: "RtlCaptureContext"
+        rva: 0xb048
+      - name: "RtlLookupFunctionEntry"
+        rva: 0xb050
+      - name: "RtlVirtualUnwind"
+        rva: 0xb058
+      - name: "UnhandledExceptionFilter"
+        rva: 0xb060
+      - name: "SetUnhandledExceptionFilter"
+        rva: 0xb068
+      - name: "GetCurrentProcess"
+        rva: 0xb070
+      - name: "IsProcessorFeaturePresent"
+        rva: 0xb078
+      - name: "QueryPerformanceCounter"
+        rva: 0xb080
+      - name: "GetCurrentProcessId"
+        rva: 0xb088
+      - name: "GetCurrentThreadId"
+        rva: 0xb090
+      - name: "GetSystemTimeAsFileTime"
+        rva: 0xb098
+      - name: "InitializeSListHead"
+        rva: 0xb0a0
+      - name: "IsDebuggerPresent"
+        rva: 0xb0a8
+      - name: "GetStartupInfoW"
+        rva: 0xb0b0
+      - name: "GetModuleHandleW"
+        rva: 0xb0b8
+      - name: "RtlUnwindEx"
+        rva: 0xb0c0
+      - name: "GetLastError"
+        rva: 0xb0c8
+      - name: "SetLastError"
+        rva: 0xb0d0
+      - name: "EnterCriticalSection"
+        rva: 0xb0d8
+      - name: "LeaveCriticalSection"
+        rva: 0xb0e0
+      - name: "DeleteCriticalSection"
+        rva: 0xb0e8
+      - name: "InitializeCriticalSectionAndSpinCount"
+        rva: 0xb0f0
+      - name: "TlsAlloc"
+        rva: 0xb0f8
+      - name: "TlsGetValue"
+        rva: 0xb100
+      - name: "TlsSetValue"
+        rva: 0xb108
+      - name: "TlsFree"
+        rva: 0xb110
+      - name: "FreeLibrary"
+        rva: 0xb118
+      - name: "GetProcAddress"
+        rva: 0xb120
+      - name: "LoadLibraryExW"
+        rva: 0xb128
+      - name: "GetStdHandle"
+        rva: 0xb130
+      - name: "WriteFile"
+        rva: 0xb138
+      - name: "GetModuleFileNameW"
+        rva: 0xb140
+      - name: "MultiByteToWideChar"
+        rva: 0xb148
+      - name: "WideCharToMultiByte"
+        rva: 0xb150
+      - name: "ExitProcess"
+        rva: 0xb158
+      - name: "GetModuleHandleExW"
+        rva: 0xb160
+      - name: "GetACP"
+        rva: 0xb168
+      - name: "HeapFree"
+        rva: 0xb170
+      - name: "HeapAlloc"
+        rva: 0xb178
+      - name: "FindClose"
+        rva: 0xb180
+      - name: "FindFirstFileExW"
+        rva: 0xb188
+      - name: "FindNextFileW"
+        rva: 0xb190
+      - name: "IsValidCodePage"
+        rva: 0xb198
+      - name: "GetOEMCP"
+        rva: 0xb1a0
+      - name: "GetCPInfo"
+        rva: 0xb1a8
+      - name: "GetCommandLineA"
+        rva: 0xb1b0
+      - name: "GetCommandLineW"
+        rva: 0xb1b8
+      - name: "GetEnvironmentStringsW"
+        rva: 0xb1c0
+      - name: "FreeEnvironmentStringsW"
+        rva: 0xb1c8
+      - name: "LCMapStringW"
+        rva: 0xb1d0
+      - name: "SetStdHandle"
+        rva: 0xb1d8
+      - name: "GetFileType"
+        rva: 0xb1e0
+      - name: "GetStringTypeW"
+        rva: 0xb1e8
+      - name: "GetProcessHeap"
+        rva: 0xb1f0
+      - name: "HeapSize"
+        rva: 0xb1f8
+      - name: "HeapReAlloc"
+        rva: 0xb200
+      - name: "FlushFileBuffers"
+        rva: 0xb208
+      - name: "GetConsoleCP"
+        rva: 0xb210
+      - name: "GetConsoleMode"
+        rva: 0xb218
+      - name: "SetFilePointerEx"
+        rva: 0xb220
+      - name: "WriteConsoleW"
+        rva: 0xb228
+      - name: "CreateFileW"
+        rva: 0xb230
+      - name: "RaiseException"
+        rva: 0xb238
+is_signed: true
+signatures:
+  - subject: "/C=KR/ST=Jeju-do/L=Jeju-si/O=Kakao corp./CN=Kakao corp."
+    issuer: "/C=US/O=Symantec Corporation/OU=Symantec Trust Network/CN=Symantec Class 3 SHA256 Code Signing CA"
+    thumbprint: "3cdab4a20d8b7df798159e227ac98aaf6977f93b"
+    version: 3
+    algorithm: "sha256WithRSAEncryption"
+    algorithm_oid: "1.2.840.113549.1.1.11"
+    serial: "71:d8:85:b4:fe:8c:c7:14:7b:ef:a5:33:62:8e:e3:31"
+    not_before: 1509580800  # 2017-11-02 00:00:00 UTC
+    not_after: 1549065599  # 2019-02-01 23:59:59 UTC
+    verified: true
+    digest_alg: "md5"
+    digest: "3f3e2ded38ad379857f6dcc42ed85854"
+    file_digest: "3f3e2ded38ad379857f6dcc42ed85854"
+    number_of_certificates: 4
+    number_of_countersignatures: 1
+    signer_info:
+        program_name: "PotPlayer"
+        more_info: "http://potplayer.daum.net "
+        digest: "d4d1962645fb5a5beb8d20c3d50105a8"
+        digest_alg: "md5"
+        chain:
+          - issuer: "/C=US/O=Symantec Corporation/OU=Symantec Trust Network/CN=Symantec Class 3 SHA256 Code Signing CA"
+            subject: "/C=KR/ST=Jeju-do/L=Jeju-si/O=Kakao corp./CN=Kakao corp."
+            thumbprint: "3cdab4a20d8b7df798159e227ac98aaf6977f93b"
+            version: 3
+            algorithm: "sha256WithRSAEncryption"
+            algorithm_oid: "1.2.840.113549.1.1.11"
+            serial: "71:d8:85:b4:fe:8c:c7:14:7b:ef:a5:33:62:8e:e3:31"
+            not_before: 1509580800  # 2017-11-02 00:00:00 UTC
+            not_after: 1549065599  # 2019-02-01 23:59:59 UTC
+          - issuer: "/C=US/O=VeriSign, Inc./OU=VeriSign Trust Network/OU=(c) 2006 VeriSign, Inc. - For authorized use only/CN=VeriSign Class 3 Public Primary Certification Authority - G5"
+            subject: "/C=US/O=Symantec Corporation/OU=Symantec Trust Network/CN=Symantec Class 3 SHA256 Code Signing CA"
+            thumbprint: "007790f6561dad89b0bcd85585762495e358f8a5"
+            version: 3
+            algorithm: "sha256WithRSAEncryption"
+            algorithm_oid: "1.2.840.113549.1.1.11"
+            serial: "3d:78:d7:f9:76:49:60:b2:61:7d:f4:f0:1e:ca:86:2a"
+            not_before: 1386633600  # 2013-12-10 00:00:00 UTC
+            not_after: 1702166399  # 2023-12-09 23:59:59 UTC
+    certificates:
+      - issuer: "/C=ZA/ST=Western Cape/L=Durbanville/O=Thawte/OU=Thawte Certification/CN=Thawte Timestamping CA"
+        subject: "/C=US/O=Symantec Corporation/CN=Symantec Time Stamping Services CA - G2"
+        thumbprint: "6c07453ffdda08b83707c09b82fb3d15f35336b1"
+        version: 3
+        algorithm: "sha1WithRSAEncryption"
+        algorithm_oid: "1.2.840.113549.1.1.5"
+        serial: "7e:93:eb:fb:7c:c6:4e:59:ea:4b:9a:77:d4:06:fc:3b"
+        not_before: 1356048000  # 2012-12-21 00:00:00 UTC
+        not_after: 1609372799  # 2020-12-30 23:59:59 UTC
+      - issuer: "/C=US/O=Symantec Corporation/CN=Symantec Time Stamping Services CA - G2"
+        subject: "/C=US/O=Symantec Corporation/CN=Symantec Time Stamping Services Signer - G4"
+        thumbprint: "65439929b67973eb192d6ff243e6767adf0834e4"
+        version: 3
+        algorithm: "sha1WithRSAEncryption"
+        algorithm_oid: "1.2.840.113549.1.1.5"
+        serial: "0e:cf:f4:38:c8:fe:bf:35:6e:04:d8:6a:98:1b:1a:50"
+        not_before: 1350518400  # 2012-10-18 00:00:00 UTC
+        not_after: 1609286399  # 2020-12-29 23:59:59 UTC
+      - issuer: "/C=US/O=Symantec Corporation/OU=Symantec Trust Network/CN=Symantec Class 3 SHA256 Code Signing CA"
+        subject: "/C=KR/ST=Jeju-do/L=Jeju-si/O=Kakao corp./CN=Kakao corp."
+        thumbprint: "3cdab4a20d8b7df798159e227ac98aaf6977f93b"
+        version: 3
+        algorithm: "sha256WithRSAEncryption"
+        algorithm_oid: "1.2.840.113549.1.1.11"
+        serial: "71:d8:85:b4:fe:8c:c7:14:7b:ef:a5:33:62:8e:e3:31"
+        not_before: 1509580800  # 2017-11-02 00:00:00 UTC
+        not_after: 1549065599  # 2019-02-01 23:59:59 UTC
+      - issuer: "/C=US/O=VeriSign, Inc./OU=VeriSign Trust Network/OU=(c) 2006 VeriSign, Inc. - For authorized use only/CN=VeriSign Class 3 Public Primary Certification Authority - G5"
+        subject: "/C=US/O=Symantec Corporation/OU=Symantec Trust Network/CN=Symantec Class 3 SHA256 Code Signing CA"
+        thumbprint: "007790f6561dad89b0bcd85585762495e358f8a5"
+        version: 3
+        algorithm: "sha256WithRSAEncryption"
+        algorithm_oid: "1.2.840.113549.1.1.11"
+        serial: "3d:78:d7:f9:76:49:60:b2:61:7d:f4:f0:1e:ca:86:2a"
+        not_before: 1386633600  # 2013-12-10 00:00:00 UTC
+        not_after: 1702166399  # 2023-12-09 23:59:59 UTC
+    countersignatures:
+      - verified: true
+        sign_time: 1527751928  # 2018-05-31 07:32:08 UTC
+        digest: "c7aaa562bef28b00380e0b416297e3e7777d3d2e"
+        digest_alg: "sha1"
+        chain:
+          - issuer: "/C=US/O=Symantec Corporation/CN=Symantec Time Stamping Services CA - G2"
+            subject: "/C=US/O=Symantec Corporation/CN=Symantec Time Stamping Services Signer - G4"
+            thumbprint: "65439929b67973eb192d6ff243e6767adf0834e4"
+            version: 3
+            algorithm: "sha1WithRSAEncryption"
+            algorithm_oid: "1.2.840.113549.1.1.5"
+            serial: "0e:cf:f4:38:c8:fe:bf:35:6e:04:d8:6a:98:1b:1a:50"
+            not_before: 1350518400  # 2012-10-18 00:00:00 UTC
+            not_after: 1609286399  # 2020-12-29 23:59:59 UTC
+          - issuer: "/C=ZA/ST=Western Cape/L=Durbanville/O=Thawte/OU=Thawte Certification/CN=Thawte Timestamping CA"
+            subject: "/C=US/O=Symantec Corporation/CN=Symantec Time Stamping Services CA - G2"
+            thumbprint: "6c07453ffdda08b83707c09b82fb3d15f35336b1"
+            version: 3
+            algorithm: "sha1WithRSAEncryption"
+            algorithm_oid: "1.2.840.113549.1.1.5"
+            serial: "7e:93:eb:fb:7c:c6:4e:59:ea:4b:9a:77:d4:06:fc:3b"
+            not_before: 1356048000  # 2012-12-21 00:00:00 UTC
+            not_after: 1609372799  # 2020-12-30 23:59:59 UTC
+overlay:
+    offset: 0x15000
+    size: 0x17b8

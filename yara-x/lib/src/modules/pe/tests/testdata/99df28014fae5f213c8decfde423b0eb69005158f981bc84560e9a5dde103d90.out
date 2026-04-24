@@ -1,0 +1,269 @@
+is_pe: true
+machine: MACHINE_I386
+subsystem: SUBSYSTEM_WINDOWS_CUI
+os_version:
+    major: 4
+    minor: 0
+subsystem_version:
+    major: 4
+    minor: 0
+image_version:
+    major: 1
+    minor: 0
+linker_version:
+    major: 2
+    minor: 26
+opthdr_magic: IMAGE_NT_OPTIONAL_HDR32_MAGIC
+characteristics: 0x30f  # RELOCS_STRIPPED | EXECUTABLE_IMAGE | LINE_NUMS_STRIPPED | LOCAL_SYMS_STRIPPED | MACHINE_32BIT | DEBUG_STRIPPED
+dll_characteristics: 0x0
+timestamp: 1459377848  # 2016-03-30 22:44:08 UTC
+image_base: 0x400000
+checksum: 43228
+base_of_code: 0x1000
+base_of_data: 0x3000
+entry_point: 0x14e0
+entry_point_raw: 0x14e0
+section_alignment: 0x1000
+file_alignment: 0x1000
+loader_flags: 0x0
+size_of_optional_header: 0xe0
+size_of_code: 0x2000
+size_of_initialized_data: 0x7000
+size_of_uninitialized_data: 0x1000
+size_of_image: 0x9000
+size_of_headers: 0x1000
+size_of_stack_reserve: 0x200000
+size_of_stack_commit: 0x1000
+size_of_heap_reserve: 0x100000
+size_of_heap_commit: 0x1000
+pointer_to_symbol_table: 0x0
+win32_version_value: 0
+number_of_symbols: 0
+number_of_rva_and_sizes: 16
+number_of_sections: 7
+number_of_imported_functions: 48
+number_of_delayed_imported_functions: 0
+number_of_resources: 0
+number_of_version_infos: 0
+number_of_imports: 2
+number_of_delayed_imports: 0
+number_of_exports: 0
+number_of_signatures: 0
+sections:
+  - name: ".text"
+    full_name: ".text"
+    characteristics: 0x60500060  # SECTION_MEM_READ | SECTION_MEM_WRITE | SECTION_SCALE_INDEX
+    raw_data_size: 0x2000
+    raw_data_offset: 0x1000
+    virtual_address: 0x1000
+    virtual_size: 0x1774
+    pointer_to_relocations: 0x0
+    pointer_to_line_numbers: 0x0
+    number_of_relocations: 0
+    number_of_line_numbers: 0
+  - name: ".data"
+    full_name: ".data"
+    characteristics: 0xc0300040
+    raw_data_size: 0x1000
+    raw_data_offset: 0x3000
+    virtual_address: 0x3000
+    virtual_size: 0x30
+    pointer_to_relocations: 0x0
+    pointer_to_line_numbers: 0x0
+    number_of_relocations: 0
+    number_of_line_numbers: 0
+  - name: ".rdata"
+    full_name: ".rdata"
+    characteristics: 0x40300040
+    raw_data_size: 0x1000
+    raw_data_offset: 0x4000
+    virtual_address: 0x4000
+    virtual_size: 0x550
+    pointer_to_relocations: 0x0
+    pointer_to_line_numbers: 0x0
+    number_of_relocations: 0
+    number_of_line_numbers: 0
+  - name: ".bss"
+    full_name: ".bss"
+    characteristics: 0xc0600080
+    raw_data_size: 0x0
+    raw_data_offset: 0x0
+    virtual_address: 0x5000
+    virtual_size: 0x400
+    pointer_to_relocations: 0x0
+    pointer_to_line_numbers: 0x0
+    number_of_relocations: 0
+    number_of_line_numbers: 0
+  - name: ".idata"
+    full_name: ".idata"
+    characteristics: 0xc0300040
+    raw_data_size: 0x1000
+    raw_data_offset: 0x5000
+    virtual_address: 0x6000
+    virtual_size: 0x590
+    pointer_to_relocations: 0x0
+    pointer_to_line_numbers: 0x0
+    number_of_relocations: 0
+    number_of_line_numbers: 0
+  - name: ".CRT"
+    full_name: ".CRT"
+    characteristics: 0xc0300040
+    raw_data_size: 0x1000
+    raw_data_offset: 0x6000
+    virtual_address: 0x7000
+    virtual_size: 0x34
+    pointer_to_relocations: 0x0
+    pointer_to_line_numbers: 0x0
+    number_of_relocations: 0
+    number_of_line_numbers: 0
+  - name: ".tls"
+    full_name: ".tls"
+    characteristics: 0xc0300040
+    raw_data_size: 0x1000
+    raw_data_offset: 0x7000
+    virtual_address: 0x8000
+    virtual_size: 0x20
+    pointer_to_relocations: 0x0
+    pointer_to_line_numbers: 0x0
+    number_of_relocations: 0
+    number_of_line_numbers: 0
+data_directories:
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x6000
+    size: 0x590
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x8004
+    size: 0x18
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x6104
+    size: 0xc8
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x0
+    size: 0x0
+import_details:
+  - library_name: "KERNEL32.dll"
+    number_of_functions: 21
+    functions:
+      - name: "DeleteCriticalSection"
+        rva: 0x6104
+      - name: "EnterCriticalSection"
+        rva: 0x6108
+      - name: "GetCurrentProcess"
+        rva: 0x610c
+      - name: "GetCurrentProcessId"
+        rva: 0x6110
+      - name: "GetCurrentThreadId"
+        rva: 0x6114
+      - name: "GetLastError"
+        rva: 0x6118
+      - name: "GetModuleHandleA"
+        rva: 0x611c
+      - name: "GetProcAddress"
+        rva: 0x6120
+      - name: "GetStartupInfoA"
+        rva: 0x6124
+      - name: "GetSystemTimeAsFileTime"
+        rva: 0x6128
+      - name: "GetTickCount"
+        rva: 0x612c
+      - name: "InitializeCriticalSection"
+        rva: 0x6130
+      - name: "LeaveCriticalSection"
+        rva: 0x6134
+      - name: "QueryPerformanceCounter"
+        rva: 0x6138
+      - name: "SetUnhandledExceptionFilter"
+        rva: 0x613c
+      - name: "Sleep"
+        rva: 0x6140
+      - name: "TerminateProcess"
+        rva: 0x6144
+      - name: "TlsGetValue"
+        rva: 0x6148
+      - name: "UnhandledExceptionFilter"
+        rva: 0x614c
+      - name: "VirtualProtect"
+        rva: 0x6150
+      - name: "VirtualQuery"
+        rva: 0x6154
+  - library_name: "msvcrt.dll"
+    number_of_functions: 27
+    functions:
+      - name: "__dllonexit"
+        rva: 0x615c
+      - name: "__getmainargs"
+        rva: 0x6160
+      - name: "__initenv"
+        rva: 0x6164
+      - name: "__lconv_init"
+        rva: 0x6168
+      - name: "__set_app_type"
+        rva: 0x616c
+      - name: "__setusermatherr"
+        rva: 0x6170
+      - name: "_acmdln"
+        rva: 0x6174
+      - name: "_amsg_exit"
+        rva: 0x6178
+      - name: "_cexit"
+        rva: 0x617c
+      - name: "_fmode"
+        rva: 0x6180
+      - name: "_initterm"
+        rva: 0x6184
+      - name: "_iob"
+        rva: 0x6188
+      - name: "_lock"
+        rva: 0x618c
+      - name: "_onexit"
+        rva: 0x6190
+      - name: "calloc"
+        rva: 0x6194
+      - name: "exit"
+        rva: 0x6198
+      - name: "fprintf"
+        rva: 0x619c
+      - name: "free"
+        rva: 0x61a0
+      - name: "fwrite"
+        rva: 0x61a4
+      - name: "malloc"
+        rva: 0x61a8
+      - name: "memcpy"
+        rva: 0x61ac
+      - name: "signal"
+        rva: 0x61b0
+      - name: "strlen"
+        rva: 0x61b4
+      - name: "strncmp"
+        rva: 0x61b8
+      - name: "_unlock"
+        rva: 0x61bc
+      - name: "abort"
+        rva: 0x61c0
+      - name: "vfprintf"
+        rva: 0x61c4
+is_signed: false
+overlay:
+    offset: 0x8000
+    size: 0x7

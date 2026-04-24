@@ -1,0 +1,352 @@
+[package]
+name = "yara-x"
+description = """
+A pure Rust implementation of YARA.
+"""
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+readme.workspace = true
+license.workspace = true
+homepage.workspace = true
+repository.workspace = true
+keywords.workspace = true
+rust-version.workspace = true
+
+# Exclude test files from the package published to crates.io, as there's a
+# limit of 10MB for the total package size.
+exclude = [
+    "src/modules/**/*.zip",
+    "src/modules/**/*.out"
+]
+
+# Configuration for docs.rs.
+[package.metadata.docs.rs]
+# While generating the documentation for doc.rs all features are enabled
+all-features = true
+# Pass "docsrs" config to rustdoc while generating documentation for doc.rs
+rustdoc-args = ["--cfg", "docsrs"]
+
+[features]
+# Enables constant folding. When constant folding is enabled, expressions
+# like `2+2+2` and `true or false`, whose value can be determined at compile
+# time, will be reduced to its final value, instead of producing code that
+# actually computes the expression.
+constant-folding = []
+
+# Enables the use of exact atoms for speeding up matches. Exact atoms are those
+# that don't require further verification, the sole presence of the atom
+# indicates that the pattern containing the atom matches. For instance, in
+# pattern /abc(d|e)/, the atom "abcd" is an exact atom, by finding the atom
+# "abcd" we can be sure that the whole regexp matches. However, the atom "abc"
+# is not exact, finding "abc" is not enough, the regexp must be evaluated in
+# order to verify if it matches. If this feature is not enabled exact atoms are
+# treated as standard (non-exact) atoms. This is enabled by default.
+exact-atoms = []
+
+# Enables the use of FastVM for matching regular expression, as an alternative
+# to PikeVM. This feature is enabled by default, and its purpose is disabling
+# the fast regexp matching mechanism for testing purposes.
+fast-regexp = []
+
+# Enables the generation of Rust code from .proto files. This feature is enabled
+# by default. When disabled, the build process will use pre-generated Rust files
+# found in the source tree, instead of generating them at build time.
+generate-proto-code = [
+    "dep:protobuf-codegen",
+    "dep:protobuf-parse",
+    "dep:yara-x-proto"
+]
+
+# Enables the generation of documentation for module fields and functions. This
+# requires the `protoc` feature because it relies on `protoc`'s ability to
+# extract documentation comments from .proto files, something that the pure-Rust
+# parser in the `protobuf_codegen` crate can't do.
+#
+# This feature is disabled by default.
+generate-module-docs = ["protoc"]
+
+# Uses the `inventory` crate (https://github.com/dtolnay/inventory) instead
+# of `linkme` (https://github.com/dtolnay/linkme) for tracking WASM exports.
+#
+# This feature is disabled by default.
+inventory = ["dep:inventory"]
+
+# Whether to use protoc for parsing and compiling .proto files. By default,
+# .proto files are parsed and compiled by the pure-Rust compiler implemented
+# by the `protobuf_codegen` crate. With this feature you can change this
+# behavio and use `protoc`, the official Protocol Buffer compiler. You'll need
+# to have protoc installed in your system, together with the protoc-gen-rust
+# plugin. Follow the instructions in: https://lib.rs/crates/protobuf-codegen3
+protoc = []
+
+# Uses the `linkme` crate (https://github.com/dtolnay/linkme) instead
+# of `inventory`  (https://github.com/dtolnay/inventory) for tracking WASM
+# exports.
+#
+# This feature is enabled by default.
+linkme = ["dep:linkme"]
+
+# Enables debug logs.
+logging = ["dep:log", "dep:quanta"]
+
+# When enabled, the serialization of compiled rules include native code for
+# the platform in which the rules where compiled. This reduces the load time,
+# as the native code is already included in the serialized rules and doesn't
+# need to be generated. In the other hand, it increases the size of the
+# serialized rules. If rules that were serialized with native code for one
+# platform are deserialized in a different platform, the native code included
+# in the serialized rules is ignored and generated again for the current
+# platform.
+#
+# This feature is disabled by default.
+native-code-serialization = []
+
+# Enables parallel compilation of WASM code. When compiling large number of
+# rules this noticeable reduces compilation time. However, this creates new
+# threads, which can be problematic in some scenarios. See:
+# https://github.com/VirusTotal/yara-x/issues/182
+#
+# This feature is disabled by default.
+parallel-compilation = ["wasmtime/parallel-compilation"]
+
+# Enables rules profiling. When this is enabled together with `logging` the
+# logs will contain information about the most expensive rules after each
+# scan. Notice that profiling itself has a noticeable impact on performance.
+rules-profiling = ["logging", "dep:quanta"]
+
+crypto = [
+    "dep:const-oid",
+    "dep:der-parser",
+    "dep:digest",
+    "dep:dsa",
+    "dep:ecdsa",
+    "dep:md2",
+    "dep:md-5",
+    "dep:p256",
+    "dep:p384",
+    "dep:rsa",
+    "dep:sha1",
+    "dep:sha2",
+    "dep:x509-parser",
+]
+
+# Features for enabling/disabling modules.
+#
+# For each module we have a `<module name>-module` feature that controls whether
+# a given module is built or not. For instance, if the feature `foo-module` is
+# enabled, the module `foo` will be built into YARA.
+
+# The `console` module exports functions for printing text from YARA rules.
+console-module = []
+
+# The `crx` module parses Chrome Extension files.
+crx-module = [
+    "crypto",
+    "dep:nom",
+    "dep:zip",
+]
+
+# The `cuckoo` module parses behaviour reports from the Cuckoo Sandbox
+# https://cuckoosandbox.org/
+#
+# The use of this module is currently discouraged. It is here for backward
+# compatibility with YARA, but it won't be actively maintained or improved as
+# the Cuckoo Sandbox seems to be abandoned since 2017.
+cuckoo-module = []
+
+# The `dex` module parses DEX files.
+dex-module = [
+    "dep:nom",
+    "dep:sha1",
+    "dep:simd-adler32",
+    "dep:simd_cesu8"
+]
+
+# The `dotnet` module parses .NET files.
+dotnet-module = [
+    "pe-module",
+    "dep:nom",
+    "dep:uuid",
+]
+
+# The `elf` module parses ELF files.
+elf-module = [
+    "dep:nom",
+    "dep:md-5",
+]
+
+# The `hash` module provides functions for computing md5, sha1, sha-256,
+# crc32 and checksum.
+hash-module = [
+    "dep:md-5",
+    "dep:sha1",
+    "dep:sha2",
+    "dep:crc32fast",
+]
+
+# The `lnk` module parses LNK files.
+lnk-module = [
+    "dep:uuid",
+    "dep:nom",
+]
+
+# The `macho` module parses Mach-O files.
+macho-module = [
+    "crypto",
+    "dep:nom",
+    "dep:roxmltree",
+]
+
+# The `magic` allows recognizing file types based on the output of the
+# Unix `file` command. This feature is disabled by default.
+magic-module = [
+    "dep:magic"
+]
+
+# The `math` module.
+math-module = []
+
+# The `pe` module parses PE files.
+pe-module = [
+    "crypto",
+    "dep:nom",
+]
+
+# The `string` modules offer some functions for parsing strings as integers,
+# determining a string length, etc.
+string-module = []
+
+# Test modules to be used only in test cases.
+test_proto2-module = []
+test_proto3-module = []
+
+# The `time` module allows you to retrieve epoch in seconds that can be used in
+# conditions of a rule to check against other epoch time.
+time-module = []
+
+# The `vt` module is a VirusTotal-specific module that provides access to
+# the metadata that VirusTotal has about the scanned file.
+vt-module = [
+    "dep:ipnet",
+    "dep:psl",
+]
+
+# Enables all the default modules.
+default-modules = [
+    "console-module",
+    "crx-module",
+    "cuckoo-module",
+    "dex-module",
+    "dotnet-module",
+    "elf-module",
+    "macho-module",
+    "math-module",
+    "hash-module",
+    "pe-module",
+    "string-module",
+    "time-module",
+    "lnk-module",
+    "test_proto2-module",
+    "test_proto3-module",
+    "vt-module",
+]
+
+# Features that are enabled by default.
+default = [
+    "constant-folding",
+    "default-modules",
+    "exact-atoms",
+    "fast-regexp",
+    "generate-proto-code",
+    "inventory",
+]
+
+[dependencies]
+aho-corasick = { workspace = true, features = ["logging"] }
+annotate-snippets = { workspace = true }
+anyhow = { workspace = true }
+hex = { workspace = true }
+base64 = { workspace = true }
+bincode = { workspace = true, features = ["serde"] }
+bitflags = { workspace = true, features = ["serde"] }
+bitvec = { workspace = true }
+bstr = { workspace = true, features = ["serde"] }
+const-oid = { workspace = true, optional = true, features = ["db"] }
+crc32fast = { workspace = true, optional = true }
+der-parser = { workspace = true, optional = true, features = ["bigint"] }
+digest = { workspace = true, optional = true }
+dsa = { workspace = true, optional = true }
+ecdsa = { workspace = true, optional = true }
+memmap2 = { workspace = true }
+indexmap = { workspace = true, features = ["serde"] }
+intaglio = { workspace = true }
+inventory = { workspace = true, optional = true }
+ipnet = { workspace = true, optional = true }
+itertools = { workspace = true }
+linkme = { workspace = true, optional = true }
+log = { workspace = true, optional = true }
+md2 = { workspace = true, optional = true, features = ["oid"] }
+md-5 = { workspace = true, optional = true, features = ["oid"] }
+sha1 = { workspace = true, optional = true, features = ["oid"] }
+sha2 = { workspace = true, optional = true, features = ["oid"] }
+magic = { workspace = true, optional = true }
+memchr = { workspace = true }
+nom = { workspace = true, optional = true }
+num-derive = { workspace = true }
+num-traits = { workspace = true }
+p384 = { workspace = true, optional = true, features = ["ecdsa"] }
+p256 = { workspace = true, optional = true, features = ["ecdsa"] }
+protobuf = { workspace = true }
+psl = { workspace = true, optional = true }
+quanta = { workspace = true, optional = true }
+rustc-hash = { workspace = true }
+regex = { workspace = true }
+regex-syntax = { workspace = true }
+regex-automata = { workspace = true }
+roxmltree = { workspace = true, optional = true }
+rsa = { workspace = true, optional = true }
+smallvec = { workspace = true, features = ["serde"] }
+serde = { workspace = true, features = ["rc"] }
+serde_json = { workspace = true, features = ["preserve_order"] }
+strum_macros = { workspace = true }
+thiserror = { workspace = true }
+uuid = { workspace = true, optional = true }
+walrus = { workspace = true }
+x509-parser = { workspace = true, optional = true }
+yara-x-macros = { workspace = true }
+yara-x-parser = { workspace = true, features = ["serde"] }
+zip = { workspace = true, optional = true, features = ["deflate"] }
+simd-adler32 = {workspace = true, optional = true}
+simd_cesu8 = {workspace = true, optional = true}
+
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
+wasmtime = { workspace = true, default-features = false, features = [
+    "cranelift",
+    "runtime",
+] }
+
+[target.'cfg(target_family = "wasm")'.dependencies]
+js-sys = "0.3.90"
+wasm-bindgen = { workspace = true }
+# When compiling for WASM the `js` feature is needed. The dependency chain for
+# getrandom is: dsa -> num-bigint-dig -> rand -> rand_core -> getrandom. When
+# `dsa` gets upgraded to a newer version this may not be required anymore.
+getrandom = { version = "0.2.17", features = ["js"]}
+
+[build-dependencies]
+anyhow = { workspace = true }
+globwalk = { workspace = true }
+protobuf = { workspace = true }
+protobuf-codegen = { workspace = true, optional = true }
+protobuf-parse = { workspace = true, optional = true }
+yara-x-proto = { workspace = true, optional = true }
+
+[dev-dependencies]
+globwalk = { workspace = true }
+goldenfile = { workspace = true }
+ihex = { workspace = true }
+pretty_assertions = { workspace = true }
+rayon = { workspace = true }
+yara-x-proto-yaml = { workspace = true }
+zip = { workspace = true }

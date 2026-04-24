@@ -1,0 +1,24 @@
+[build-system]
+requires = ["maturin>=1.0"]
+build-backend = "maturin"
+
+[project]
+name = "yara-x"
+description = "Python bindings for YARA-X"
+dynamic = ["version"]
+requires-python = ">=3.9"
+readme = "README.md"
+keywords = ["pattern-matching", "cybersecurity", "forensics", "malware", "yara"]
+classifiers = [
+    "Programming Language :: Rust",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Programming Language :: Python :: Implementation :: PyPy",
+    "License :: OSI Approved :: BSD License",
+]
+
+[project.urls]
+homepage = "https://virustotal.github.io/yara-x"
+repository = "https://github.com/VirusTotal/yara-x.git"
+
+[tool.maturin]
+features = ["pyo3/extension-module"]

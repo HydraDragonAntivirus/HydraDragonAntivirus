@@ -1,0 +1,76 @@
+[package]
+name = "yara-x-capi"
+description = """
+A C API for the YARA-X library.
+"""
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+readme.workspace = true
+license.workspace = true
+homepage.workspace = true
+repository.workspace = true
+
+[features]
+# The `capi` feature is required by `cargo-c`.
+default = ["capi"]
+capi = []
+
+# When enabled, the serialization of compiled rules include native code for
+# the platform in which the rules where compiled. This reduces the load time,
+# as the native code is already included in the serialized rules and doesn't
+# need to be generated. In the other hand, it increases the size of the
+# serialized rules. If rules that were serialized with native code for one
+# platform are deserialized in a different platform, the native code included
+# in the serialized rules is ignored and generated again for the current
+# platform.
+#
+# This feature is disabled by default.
+native-code-serialization = ["yara-x/native-code-serialization"]
+
+# Enables parallel compilation of WASM code. When compiling large number of
+# rules this noticeable reduces compilation time. However, this creates new
+# threads, which can be problematic in some scenarios. See:
+# https://github.com/VirusTotal/yara-x/issues/182
+#
+# This feature is disabled by default.
+parallel-compilation = ["yara-x/parallel-compilation"]
+
+# Enables rules profiling.
+#
+# This feature is disabled by default.
+rules-profiling = ["yara-x/rules-profiling"]
+
+# Enables the `magic` module.
+#
+# This feature is disabled by default.
+magic-module = ["yara-x/magic-module"]
+
+[lib]
+name = "yara_x_capi"
+crate-type = ["staticlib", "cdylib"]
+
+[dependencies]
+serde_json = { workspace = true }
+yara-x = { workspace = true }
+
+[build-dependencies]
+cbindgen = { workspace = true }
+
+[dev-dependencies]
+assert-call = { workspace = true }
+
+
+# This section is used by `cargo-c` for generating the header and library
+# files. Use:
+#
+# cargo cbuild --package yara-x-capi
+#
+[package.metadata.capi.header]
+# Name of the header file, without the `.h` extension.
+name = "yara_x"
+# Install the header into a subdirectory with the name of the crate. This
+# is enabled by default, pass `false` or "" to disable it.
+subdirectory = ""
+# Generate the header file with `cbindgen`.
+generation = true

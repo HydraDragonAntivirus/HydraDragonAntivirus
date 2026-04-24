@@ -1,0 +1,259 @@
+use std::borrow::Cow;
+use std::collections::HashMap;
+use std::collections::hash_map::Entry;
+use std::fs;
+use std::fs::File;
+use std::io::Write;
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+use anyhow::Context;
+use clap::{Arg, ArgAction, ArgMatches, Command, arg, value_parser};
+use yansi::Color::{Green, Red, Yellow};
+use yansi::Paint;
+use yara_x::Patch;
+
+use crate::commands::{
+    compilation_args, compile_rules, path_with_namespace_parser,
+};
+use crate::config::Config;
+use crate::walk::Message;
+use crate::walk::StateComponent;
+use crate::{help, walk};
+
+pub fn fix() -> Command {
+    super::command("fix")
+        .about("Utilities for fixing source code")
+        .arg_required_else_help(true)
+        .subcommand(fix_encoding())
+        .subcommand(fix_warnings())
+}
+
+pub fn fix_encoding() -> Command {
+    super::command("encoding")
+        .about("Convert source files to UTF-8")
+        .long_about(help::FIX_ENCODING_LONG_HELP)
+        .arg(
+            arg!(<RULES_PATH>)
+                .help("Path to YARA source file or directory")
+                .value_parser(value_parser!(PathBuf)),
+        )
+        // Keep options sorted alphabetically by their long name.
+        // For instance, --bar goes before --foo.
+        .arg(arg!(-d - -"dry-run").help("Don't modify source files"))
+        .arg(
+            arg!(-f --filter <PATTERN>)
+                .help("Check files that match the given pattern only")
+                .long_help(help::FILTER_LONG_HELP)
+                .action(ArgAction::Append),
+        )
+        .arg(
+            arg!(-r - -"recursive"[MAX_DEPTH])
+                .help("Walk directories recursively up to a given depth")
+                .long_help(help::RECURSIVE_LONG_HELP)
+                .default_missing_value("1000")
+                .require_equals(true)
+                .value_parser(value_parser!(usize)),
+        )
+        .arg(
+            arg!(-p --"threads" <NUM_THREADS>)
+                .help("Use the given number of threads")
+                .long_help(help::THREADS_LONG_HELP)
+                .required(false)
+                .value_parser(value_parser!(u8).range(1..)),
+        )
+}
+
+pub fn fix_warnings() -> Command {
+    super::command("warnings")
+        .about("Automatically fix warnings")
+        .long_about(help::FIX_WARNINGS_LONG_HELP)
+        .arg(
+            Arg::new("[NAMESPACE:]RULES_PATH")
+                .required(true)
+                .help("Path to a YARA source file or directory (optionally prefixed with a namespace)")
+                .value_parser(path_with_namespace_parser)
+                .action(ArgAction::Append)
+        )
+        .args(compilation_args())
+}
+
+pub fn exec_fix(args: &ArgMatches, config: &Config) -> anyhow::Result<()> {
+    match args.subcommand() {
+        Some(("encoding", args)) => exec_fix_encoding(args, config),
+        Some(("warnings", args)) => exec_fix_warnings(args, config),
+        _ => unreachable!(),
+    }
+}
+
+pub fn exec_fix_encoding(
+    args: &ArgMatches,
+    _config: &Config,
+) -> anyhow::Result<()> {
+    let rules_path = args.get_one::<PathBuf>("RULES_PATH").unwrap();
+    let filters = args.get_many::<String>("filter");
+    let dry_run = args.get_flag("dry-run");
+    let recursive = args.get_one::<usize>("recursive");
+    let num_threads = args.get_one::<u8>("threads");
+
+    let mut w = walk::ParWalker::path(rules_path);
+
+    w.max_depth(*recursive.unwrap_or(&0));
+
+    if let Some(num_threads) = num_threads {
+        w.num_threads(*num_threads);
+    }
+
+    if let Some(filters) = filters {
+        for filter in filters {
+            w.filter(filter);
+        }
+    } else {
+        // Default filters are `**/*.yar` and `**/*.yara`.
+        w.filter("**/*.yar").filter("**/*.yara");
+    }
+
+    w.walk(
+        FixEncodingState::new(),
+        // Initialization
+        |_, _| {},
+        // Action
+        |state, output, file_path, _| {
+            let src = fs::read(&file_path).with_context(|| {
+                format!("can not read `{}`", file_path.display())
+            })?;
+
+            // Detect the original encoding.
+            let mut detector = chardetng::EncodingDetector::new();
+            detector.feed(src.as_slice(), true);
+
+            // Decode the source file as UTF-8. `invalid_chars` will be true
+            // if some character could not be encoded as UTF-8 and was replaced
+            // by the replacement character.
+            let (src_utf8, encoding, invalid_chars) =
+                detector.guess(None, true).decode(src.as_slice());
+
+            // Re-write the source as UTF-8, except if --dry-run was used or
+            // the original source was not modified at all.
+            if !dry_run && matches!(src_utf8, Cow::Owned(_)) {
+                fs::write(&file_path, src_utf8.as_bytes())?;
+                state.files_modified.fetch_add(1, Ordering::Relaxed);
+            }
+
+            output.send(Message::Info(format!(
+                "{:>14} {}",
+                encoding
+                    .name()
+                    .paint(if invalid_chars { Yellow } else { Green })
+                    .bold(),
+                file_path.display()
+            )))?;
+
+            Ok(())
+        },
+        // Finalization
+        |_, _| {},
+        // Walk done
+        |_| {},
+        // Error handling
+        |err, output| {
+            let _ = output.send(Message::Error(format!(
+                "{} {}",
+                "error:".paint(Red).bold(),
+                err
+            )));
+
+            Ok(())
+        },
+    )
+    .unwrap();
+
+    Ok(())
+}
+
+pub fn exec_fix_warnings(
+    args: &ArgMatches,
+    config: &Config,
+) -> anyhow::Result<()> {
+    let rules_path = args
+        .get_many::<(Option<String>, PathBuf)>("[NAMESPACE:]RULES_PATH")
+        .unwrap();
+
+    let rules = compile_rules(rules_path, args, config)?;
+
+    let mut patches_per_origin = HashMap::new();
+    let mut num_warnings = 0;
+    let mut num_warnings_with_patch = 0;
+    let mut counted;
+
+    // Create a map where keys are file paths (stored in patch.origin), and
+    // values are a list of patches that must be applied to that file. Patches
+    // are ordered by their starting positions in the file.
+    for warning in rules.warnings() {
+        num_warnings += 1;
+        counted = false;
+        for patch in warning.patches() {
+            if !counted {
+                num_warnings_with_patch += 1;
+                counted = true;
+            }
+            match patches_per_origin.entry(patch.origin().unwrap()) {
+                Entry::Occupied(mut entry) => {
+                    let patches: &mut Vec<Patch> = entry.get_mut();
+                    patches.push(patch);
+                    patches.sort_by_key(|patch| patch.span().start());
+                }
+                Entry::Vacant(entry) => {
+                    entry.insert(vec![patch]);
+                }
+            }
+        }
+    }
+
+    for (origin, patches) in &patches_per_origin {
+        let input = fs::read(origin)?;
+        let mut output = File::create(origin)?;
+        let mut input_pos = 0;
+        for patch in patches {
+            let warning_span = patch.span();
+            // Write all bytes from the current position, to the offset where
+            // the replaced text starts.
+            output.write_all(&input[input_pos..warning_span.start()])?;
+            // Write the replacement.
+            output.write_all(patch.replacement().as_bytes())?;
+            // Now the current position is the offset where the replaced text
+            // ends.
+            input_pos = warning_span.end();
+        }
+        output.write_all(&input[input_pos..])?;
+    }
+
+    println!(
+        "{num_warnings_with_patch} out of {num_warnings} warning(s) fixed, {} file(s) modified",
+        patches_per_origin.len()
+    );
+
+    Ok(())
+}
+
+#[derive(Debug)]
+struct FixEncodingState {
+    files_modified: AtomicUsize,
+}
+
+impl FixEncodingState {
+    fn new() -> Self {
+        Self { files_modified: AtomicUsize::new(0) }
+    }
+}
+
+impl StateComponent for FixEncodingState {
+    fn draw(&self, _width: usize) -> String {
+        let modified = format!(
+            "{} file(s) modified.",
+            self.files_modified.load(Ordering::Relaxed)
+        );
+
+        format!("{}", modified.paint(Green).bold())
+    }
+}

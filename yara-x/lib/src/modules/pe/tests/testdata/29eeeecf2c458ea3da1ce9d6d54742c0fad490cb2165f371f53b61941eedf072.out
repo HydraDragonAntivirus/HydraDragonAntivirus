@@ -1,0 +1,1383 @@
+is_pe: true
+machine: MACHINE_I386
+subsystem: SUBSYSTEM_WINDOWS_GUI
+os_version:
+    major: 4
+    minor: 0
+subsystem_version:
+    major: 4
+    minor: 0
+image_version:
+    major: 6
+    minor: 0
+linker_version:
+    major: 8
+    minor: 0
+opthdr_magic: IMAGE_NT_OPTIONAL_HDR32_MAGIC
+characteristics: 0x102  # EXECUTABLE_IMAGE | MACHINE_32BIT
+dll_characteristics: 0x8140  # DYNAMIC_BASE | NX_COMPAT | TERMINAL_SERVER_AWARE
+timestamp: 1621233906  # 2021-05-17 06:45:06 UTC
+image_base: 0x1000000
+checksum: 462075
+base_of_code: 0x1000
+base_of_data: 0x55000
+entry_point: 0x4c28e
+entry_point_raw: 0x4ce8e
+section_alignment: 0x1000
+file_alignment: 0x200
+loader_flags: 0x0
+size_of_optional_header: 0xe0
+size_of_code: 0x53200
+size_of_initialized_data: 0x1d400
+size_of_uninitialized_data: 0x0
+size_of_image: 0x75000
+size_of_headers: 0x400
+size_of_stack_reserve: 0x40000
+size_of_stack_commit: 0x2000
+size_of_heap_reserve: 0x100000
+size_of_heap_commit: 0x1000
+pointer_to_symbol_table: 0x0
+win32_version_value: 0
+number_of_symbols: 0
+number_of_rva_and_sizes: 32
+number_of_sections: 5
+number_of_imported_functions: 353
+number_of_delayed_imported_functions: 0
+number_of_resources: 72
+number_of_version_infos: 9
+number_of_imports: 10
+number_of_delayed_imports: 0
+number_of_exports: 0
+number_of_signatures: 0
+version_info:
+    "CompanyName": "Ladislav Zezula"
+    "FileDescription": "Interactive File System API Test"
+    "FileVersion": "2, 7, 0, 601"
+    "InternalName": "FileTest"
+    "LegalCopyright": "Copyright © 2004 - 2018 Ladislav Zezula"
+    "LegalTrademarks": "http://www.zezula.net"
+    "OriginalFilename": "FileTest.exe"
+    "ProductName": "FileTest"
+    "ProductVersion": "2, 7, 0, 601"
+version_info_list:
+  - key: "CompanyName"
+    value: "Ladislav Zezula"
+  - key: "FileDescription"
+    value: "Interactive File System API Test"
+  - key: "FileVersion"
+    value: "2, 7, 0, 601"
+  - key: "InternalName"
+    value: "FileTest"
+  - key: "LegalCopyright"
+    value: "Copyright © 2004 - 2018 Ladislav Zezula"
+  - key: "LegalTrademarks"
+    value: "http://www.zezula.net"
+  - key: "OriginalFilename"
+    value: "FileTest.exe"
+  - key: "ProductName"
+    value: "FileTest"
+  - key: "ProductVersion"
+    value: "2, 7, 0, 601"
+rich_signature:
+    offset: 0x80
+    length: 0x58
+    key: 1852233515
+    raw_data: "o\xb6\x08=+\xd7fn+\xd7fn+\xd7fn\x0c\x11\x1bn!\xd7fn\x0c\x11\x1dn/\xd7fn\x0c\x11\x0bnb\xd7fnr\xf4un:\xd7fn+\xd7gn\x82\xd6fn\x0c\x11\x08n\x15\xd7fn\x0c\x11\x18n*\xd7fn\x0c\x11\x1an*\xd7fn\x0c\x11\x1en*\xd7fn"
+    clear_data: "DanS\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\'\xc6}\x00\n\x00\x00\x00\'\xc6{\x00\x04\x00\x00\x00\'\xc6m\x00I\x00\x00\x00Y#\x13\x00\x11\x00\x00\x00\x00\x00\x01\x00\xa9\x01\x00\x00\'\xc6n\x00>\x00\x00\x00\'\xc6~\x00\x01\x00\x00\x00\'\xc6|\x00\x01\x00\x00\x00\'\xc6x\x00\x01\x00\x00\x00"
+    tools:
+      - toolid: 125
+        version: 50727
+        times: 10
+      - toolid: 123
+        version: 50727
+        times: 4
+      - toolid: 109
+        version: 50727
+        times: 73
+      - toolid: 19
+        version: 9049
+        times: 17
+      - toolid: 1
+        version: 0
+        times: 425
+      - toolid: 110
+        version: 50727
+        times: 62
+      - toolid: 126
+        version: 50727
+        times: 1
+      - toolid: 124
+        version: 50727
+        times: 1
+      - toolid: 120
+        version: 50727
+        times: 1
+pdb_path: "FileTest.pdb"
+sections:
+  - name: ".text"
+    full_name: ".text"
+    characteristics: 0x60000020  # SECTION_MEM_READ | SECTION_MEM_WRITE | SECTION_SCALE_INDEX
+    raw_data_size: 0x53200
+    raw_data_offset: 0x400
+    virtual_address: 0x1000
+    virtual_size: 0x53170
+    pointer_to_relocations: 0x0
+    pointer_to_line_numbers: 0x0
+    number_of_relocations: 0
+    number_of_line_numbers: 0
+  - name: ".data"
+    full_name: ".data"
+    characteristics: 0xc0000040
+    raw_data_size: 0xa000
+    raw_data_offset: 0x53600
+    virtual_address: 0x55000
+    virtual_size: 0xa67c
+    pointer_to_relocations: 0x0
+    pointer_to_line_numbers: 0x0
+    number_of_relocations: 0
+    number_of_line_numbers: 0
+  - name: ".tls"
+    full_name: ".tls"
+    characteristics: 0xc0000040
+    raw_data_size: 0x200
+    raw_data_offset: 0x5d600
+    virtual_address: 0x60000
+    virtual_size: 0x9
+    pointer_to_relocations: 0x0
+    pointer_to_line_numbers: 0x0
+    number_of_relocations: 0
+    number_of_line_numbers: 0
+  - name: ".rsrc"
+    full_name: ".rsrc"
+    characteristics: 0x40000040
+    raw_data_size: 0xe600
+    raw_data_offset: 0x5d800
+    virtual_address: 0x61000
+    virtual_size: 0xe548
+    pointer_to_relocations: 0x0
+    pointer_to_line_numbers: 0x0
+    number_of_relocations: 0
+    number_of_line_numbers: 0
+  - name: ".reloc"
+    full_name: ".reloc"
+    characteristics: 0x42000040
+    raw_data_size: 0x4400
+    raw_data_offset: 0x6be00
+    virtual_address: 0x70000
+    virtual_size: 0x43fa
+    pointer_to_relocations: 0x0
+    pointer_to_line_numbers: 0x0
+    number_of_relocations: 0
+    number_of_line_numbers: 0
+data_directories:
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x52164
+    size: 0xdc
+  - virtual_address: 0x61000
+    size: 0xe548
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x70000
+    size: 0x3718
+  - virtual_address: 0x15e0
+    size: 0x1c
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x325b0
+    size: 0x18
+  - virtual_address: 0x32568
+    size: 0x40
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x1000
+    size: 0x5ac
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x0
+    size: 0x0
+resource_timestamp: 0  # 1970-01-01 00:00:00 UTC
+resource_version:
+    major: 0
+    minor: 0
+resources:
+  - length: 0x2
+    rva: 0x6df90
+    offset: 0x6a790
+    id: 106
+    language: 1033
+    type_string: "A\x00F\x00X\x00_\x00D\x00I\x00A\x00L\x00O\x00G\x00_\x00L\x00A\x00Y\x00O\x00U\x00T\x00"
+  - length: 0x2
+    rva: 0x6df88
+    offset: 0x6a788
+    id: 107
+    language: 1033
+    type_string: "A\x00F\x00X\x00_\x00D\x00I\x00A\x00L\x00O\x00G\x00_\x00L\x00A\x00Y\x00O\x00U\x00T\x00"
+  - length: 0x2
+    rva: 0x6dfa0
+    offset: 0x6a7a0
+    id: 111
+    language: 1033
+    type_string: "A\x00F\x00X\x00_\x00D\x00I\x00A\x00L\x00O\x00G\x00_\x00L\x00A\x00Y\x00O\x00U\x00T\x00"
+  - length: 0x2
+    rva: 0x6df98
+    offset: 0x6a798
+    id: 112
+    language: 1033
+    type_string: "A\x00F\x00X\x00_\x00D\x00I\x00A\x00L\x00O\x00G\x00_\x00L\x00A\x00Y\x00O\x00U\x00T\x00"
+  - length: 0x2
+    rva: 0x6df80
+    offset: 0x6a780
+    id: 114
+    language: 1033
+    type_string: "A\x00F\x00X\x00_\x00D\x00I\x00A\x00L\x00O\x00G\x00_\x00L\x00A\x00Y\x00O\x00U\x00T\x00"
+  - length: 0x668
+    rva: 0x625b0
+    offset: 0x5edb0
+    type: RESOURCE_TYPE_ICON
+    id: 1
+    language: 0
+  - length: 0x128
+    rva: 0x62c18
+    offset: 0x5f418
+    type: RESOURCE_TYPE_ICON
+    id: 2
+    language: 0
+  - length: 0x2e8
+    rva: 0x62d40
+    offset: 0x5f540
+    type: RESOURCE_TYPE_ICON
+    id: 3
+    language: 0
+  - length: 0x568
+    rva: 0x63028
+    offset: 0x5f828
+    type: RESOURCE_TYPE_ICON
+    id: 4
+    language: 0
+  - length: 0x8a8
+    rva: 0x63590
+    offset: 0x5fd90
+    type: RESOURCE_TYPE_ICON
+    id: 5
+    language: 0
+  - length: 0xea8
+    rva: 0x63e38
+    offset: 0x60638
+    type: RESOURCE_TYPE_ICON
+    id: 6
+    language: 0
+  - length: 0x128
+    rva: 0x64d40
+    offset: 0x61540
+    type: RESOURCE_TYPE_ICON
+    id: 7
+    language: 0
+  - length: 0x568
+    rva: 0x64e68
+    offset: 0x61668
+    type: RESOURCE_TYPE_ICON
+    id: 8
+    language: 0
+  - length: 0x128
+    rva: 0x653f8
+    offset: 0x61bf8
+    type: RESOURCE_TYPE_ICON
+    id: 9
+    language: 0
+  - length: 0x568
+    rva: 0x65520
+    offset: 0x61d20
+    type: RESOURCE_TYPE_ICON
+    id: 10
+    language: 0
+  - length: 0x128
+    rva: 0x65ab0
+    offset: 0x622b0
+    type: RESOURCE_TYPE_ICON
+    id: 11
+    language: 0
+  - length: 0x568
+    rva: 0x65bd8
+    offset: 0x623d8
+    type: RESOURCE_TYPE_ICON
+    id: 12
+    language: 0
+  - length: 0x128
+    rva: 0x66168
+    offset: 0x62968
+    type: RESOURCE_TYPE_ICON
+    id: 13
+    language: 0
+  - length: 0x568
+    rva: 0x66290
+    offset: 0x62a90
+    type: RESOURCE_TYPE_ICON
+    id: 14
+    language: 0
+  - length: 0x468
+    rva: 0x66820
+    offset: 0x63020
+    type: RESOURCE_TYPE_ICON
+    id: 15
+    language: 0
+  - length: 0xf8
+    rva: 0x67018
+    offset: 0x63818
+    type: RESOURCE_TYPE_MENU
+    id: 123
+    language: 1033
+  - length: 0xa4
+    rva: 0x67110
+    offset: 0x63910
+    type: RESOURCE_TYPE_MENU
+    id: 129
+    language: 1033
+  - length: 0x288
+    rva: 0x671b8
+    offset: 0x639b8
+    type: RESOURCE_TYPE_MENU
+    id: 139
+    language: 1033
+  - length: 0x138
+    rva: 0x67440
+    offset: 0x63c40
+    type: RESOURCE_TYPE_MENU
+    id: 141
+    language: 1033
+  - length: 0x88
+    rva: 0x67578
+    offset: 0x63d78
+    type: RESOURCE_TYPE_MENU
+    id: 144
+    language: 1033
+  - length: 0x80
+    rva: 0x676a0
+    offset: 0x63ea0
+    type: RESOURCE_TYPE_MENU
+    id: 145
+    language: 1033
+  - length: 0x9c
+    rva: 0x67600
+    offset: 0x63e00
+    type: RESOURCE_TYPE_MENU
+    id: 146
+    language: 1033
+  - length: 0x528
+    rva: 0x677d8
+    offset: 0x63fd8
+    type: RESOURCE_TYPE_DIALOG
+    id: 102
+    language: 1033
+  - length: 0x794
+    rva: 0x67d00
+    offset: 0x64500
+    type: RESOURCE_TYPE_DIALOG
+    id: 103
+    language: 1033
+  - length: 0x9a0
+    rva: 0x68498
+    offset: 0x64c98
+    type: RESOURCE_TYPE_DIALOG
+    id: 104
+    language: 1033
+  - length: 0x5aa
+    rva: 0x68e38
+    offset: 0x65638
+    type: RESOURCE_TYPE_DIALOG
+    id: 105
+    language: 1033
+  - length: 0x940
+    rva: 0x6bb30
+    offset: 0x68330
+    type: RESOURCE_TYPE_DIALOG
+    id: 106
+    language: 1033
+  - length: 0x87c
+    rva: 0x693e8
+    offset: 0x65be8
+    type: RESOURCE_TYPE_DIALOG
+    id: 107
+    language: 1033
+  - length: 0x434
+    rva: 0x69c68
+    offset: 0x66468
+    type: RESOURCE_TYPE_DIALOG
+    id: 108
+    language: 1033
+  - length: 0x3a0
+    rva: 0x6a0a0
+    offset: 0x668a0
+    type: RESOURCE_TYPE_DIALOG
+    id: 109
+    language: 1033
+  - length: 0x2fc
+    rva: 0x6a440
+    offset: 0x66c40
+    type: RESOURCE_TYPE_DIALOG
+    id: 110
+    language: 1033
+  - length: 0x458
+    rva: 0x6a740
+    offset: 0x66f40
+    type: RESOURCE_TYPE_DIALOG
+    id: 111
+    language: 1033
+  - length: 0x608
+    rva: 0x6ab98
+    offset: 0x67398
+    type: RESOURCE_TYPE_DIALOG
+    id: 112
+    language: 1033
+  - length: 0x284
+    rva: 0x6b1a0
+    offset: 0x679a0
+    type: RESOURCE_TYPE_DIALOG
+    id: 113
+    language: 1033
+  - length: 0x5dc
+    rva: 0x6ca10
+    offset: 0x69210
+    type: RESOURCE_TYPE_DIALOG
+    id: 114
+    language: 1033
+  - length: 0xf0
+    rva: 0x6dc00
+    offset: 0x6a400
+    type: RESOURCE_TYPE_DIALOG
+    id: 118
+    language: 1033
+  - length: 0x10a
+    rva: 0x6b428
+    offset: 0x67c28
+    type: RESOURCE_TYPE_DIALOG
+    id: 119
+    language: 1033
+  - length: 0x1c4
+    rva: 0x6b538
+    offset: 0x67d38
+    type: RESOURCE_TYPE_DIALOG
+    id: 124
+    language: 1033
+  - length: 0x214
+    rva: 0x6b700
+    offset: 0x67f00
+    type: RESOURCE_TYPE_DIALOG
+    id: 128
+    language: 1033
+  - length: 0xb4
+    rva: 0x67720
+    offset: 0x63f20
+    type: RESOURCE_TYPE_DIALOG
+    id: 132
+    language: 1033
+  - length: 0x212
+    rva: 0x6b918
+    offset: 0x68118
+    type: RESOURCE_TYPE_DIALOG
+    id: 133
+    language: 1033
+  - length: 0xd6
+    rva: 0x6c470
+    offset: 0x68c70
+    type: RESOURCE_TYPE_DIALOG
+    id: 137
+    language: 1033
+  - length: 0x1d2
+    rva: 0x6c548
+    offset: 0x68d48
+    type: RESOURCE_TYPE_DIALOG
+    id: 138
+    language: 1033
+  - length: 0x138
+    rva: 0x6c720
+    offset: 0x68f20
+    type: RESOURCE_TYPE_DIALOG
+    id: 140
+    language: 1033
+  - length: 0x1b6
+    rva: 0x6c858
+    offset: 0x69058
+    type: RESOURCE_TYPE_DIALOG
+    id: 143
+    language: 1033
+  - length: 0x31e
+    rva: 0x6cff0
+    offset: 0x697f0
+    type: RESOURCE_TYPE_DIALOG
+    id: 144
+    language: 1033
+  - length: 0x33a
+    rva: 0x6d310
+    offset: 0x69b10
+    type: RESOURCE_TYPE_DIALOG
+    id: 145
+    language: 1033
+  - length: 0x326
+    rva: 0x6d650
+    offset: 0x69e50
+    type: RESOURCE_TYPE_DIALOG
+    id: 146
+    language: 1033
+  - length: 0x288
+    rva: 0x6d978
+    offset: 0x6a178
+    type: RESOURCE_TYPE_DIALOG
+    id: 147
+    language: 1033
+  - length: 0x3e
+    rva: 0x6f508
+    offset: 0x6bd08
+    type: RESOURCE_TYPE_STRING
+    id: 10
+    language: 1033
+  - length: 0x3c8
+    rva: 0x6dfa8
+    offset: 0x6a7a8
+    type: RESOURCE_TYPE_STRING
+    id: 251
+    language: 1033
+  - length: 0x2be
+    rva: 0x6e370
+    offset: 0x6ab70
+    type: RESOURCE_TYPE_STRING
+    id: 252
+    language: 1033
+  - length: 0x42a
+    rva: 0x6e630
+    offset: 0x6ae30
+    type: RESOURCE_TYPE_STRING
+    id: 253
+    language: 1033
+  - length: 0x2c6
+    rva: 0x6ea60
+    offset: 0x6b260
+    type: RESOURCE_TYPE_STRING
+    id: 254
+    language: 1033
+  - length: 0x5a4
+    rva: 0x6ed28
+    offset: 0x6b528
+    type: RESOURCE_TYPE_STRING
+    id: 255
+    language: 1033
+  - length: 0x238
+    rva: 0x6f2d0
+    offset: 0x6bad0
+    type: RESOURCE_TYPE_STRING
+    id: 256
+    language: 1033
+  - length: 0x8
+    rva: 0x61eb0
+    offset: 0x5e6b0
+    type: RESOURCE_TYPE_ACCELERATOR
+    id: 121
+    language: 0
+  - length: 0x5a
+    rva: 0x64ce0
+    offset: 0x614e0
+    type: RESOURCE_TYPE_GROUP_ICON
+    id: 101
+    language: 0
+  - length: 0x22
+    rva: 0x653d0
+    offset: 0x61bd0
+    type: RESOURCE_TYPE_GROUP_ICON
+    id: 125
+    language: 0
+  - length: 0x22
+    rva: 0x65a88
+    offset: 0x62288
+    type: RESOURCE_TYPE_GROUP_ICON
+    id: 126
+    language: 0
+  - length: 0x22
+    rva: 0x66140
+    offset: 0x62940
+    type: RESOURCE_TYPE_GROUP_ICON
+    id: 127
+    language: 0
+  - length: 0x22
+    rva: 0x667f8
+    offset: 0x62ff8
+    type: RESOURCE_TYPE_GROUP_ICON
+    id: 140
+    language: 0
+  - length: 0x14
+    rva: 0x66c88
+    offset: 0x63488
+    type: RESOURCE_TYPE_GROUP_ICON
+    id: 143
+    language: 0
+  - length: 0x378
+    rva: 0x66ca0
+    offset: 0x634a0
+    type: RESOURCE_TYPE_VERSION
+    id: 1
+    language: 1033
+  - length: 0x6f3
+    rva: 0x61eb8
+    offset: 0x5e6b8
+    type: RESOURCE_TYPE_MANIFEST
+    id: 1
+    language: 0
+  - length: 0x11a
+    rva: 0x6de60
+    offset: 0x6a660
+    type: 240
+    id: 103
+    language: 1033
+  - length: 0x16b
+    rva: 0x6dcf0
+    offset: 0x6a4f0
+    type: 240
+    id: 104
+    language: 1033
+import_details:
+  - library_name: "ADVAPI32.dll"
+    number_of_functions: 35
+    functions:
+      - name: "GetUserNameW"
+        rva: 0x1000
+      - name: "OpenProcessToken"
+        rva: 0x1004
+      - name: "OpenThreadToken"
+        rva: 0x1008
+      - name: "RegCloseKey"
+        rva: 0x100c
+      - name: "RegQueryValueExW"
+        rva: 0x1010
+      - name: "RegOpenKeyExW"
+        rva: 0x1014
+      - name: "GetSidSubAuthority"
+        rva: 0x1018
+      - name: "GetSidIdentifierAuthority"
+        rva: 0x101c
+      - name: "GetSidSubAuthorityCount"
+        rva: 0x1020
+      - name: "GetTokenInformation"
+        rva: 0x1024
+      - name: "LookupPrivilegeNameW"
+        rva: 0x1028
+      - name: "AdjustTokenPrivileges"
+        rva: 0x102c
+      - name: "LookupPrivilegeValueW"
+        rva: 0x1030
+      - name: "FreeSid"
+        rva: 0x1034
+      - name: "SetTokenInformation"
+        rva: 0x1038
+      - name: "AllocateAndInitializeSid"
+        rva: 0x103c
+      - name: "RegSetValueExW"
+        rva: 0x1040
+      - name: "CopySid"
+        rva: 0x1044
+      - name: "GetLengthSid"
+        rva: 0x1048
+      - name: "InitializeAcl"
+        rva: 0x104c
+      - name: "AddAccessAllowedAce"
+        rva: 0x1050
+      - name: "AddAccessDeniedAce"
+        rva: 0x1054
+      - name: "AddAuditAccessAce"
+        rva: 0x1058
+      - name: "GetAce"
+        rva: 0x105c
+      - name: "LookupAccountSidW"
+        rva: 0x1060
+      - name: "LookupAccountNameW"
+        rva: 0x1064
+      - name: "SetSecurityDescriptorSacl"
+        rva: 0x1068
+      - name: "SetSecurityDescriptorDacl"
+        rva: 0x106c
+      - name: "SetSecurityDescriptorGroup"
+        rva: 0x1070
+      - name: "SetSecurityDescriptorOwner"
+        rva: 0x1074
+      - name: "InitializeSecurityDescriptor"
+        rva: 0x1078
+      - name: "GetSecurityDescriptorSacl"
+        rva: 0x107c
+      - name: "GetSecurityDescriptorDacl"
+        rva: 0x1080
+      - name: "GetSecurityDescriptorGroup"
+        rva: 0x1084
+      - name: "GetSecurityDescriptorOwner"
+        rva: 0x1088
+  - library_name: "KERNEL32.dll"
+    number_of_functions: 85
+    functions:
+      - name: "InitializeCriticalSection"
+        rva: 0x10d8
+      - name: "LockResource"
+        rva: 0x10dc
+      - name: "LoadResource"
+        rva: 0x10e0
+      - name: "FindResourceW"
+        rva: 0x10e4
+      - name: "DeleteCriticalSection"
+        rva: 0x10e8
+      - name: "WaitForSingleObject"
+        rva: 0x10ec
+      - name: "CreateEventW"
+        rva: 0x10f0
+      - name: "WaitForMultipleObjects"
+        rva: 0x10f4
+      - name: "LeaveCriticalSection"
+        rva: 0x10f8
+      - name: "EnterCriticalSection"
+        rva: 0x10fc
+      - name: "GetCurrentProcess"
+        rva: 0x1100
+      - name: "GetCurrentThread"
+        rva: 0x1104
+      - name: "GetProcessHeap"
+        rva: 0x1108
+      - name: "HeapReAlloc"
+        rva: 0x110c
+      - name: "MultiByteToWideChar"
+        rva: 0x1110
+      - name: "SetCurrentDirectoryW"
+        rva: 0x1114
+      - name: "CreateDirectoryW"
+        rva: 0x1118
+      - name: "GetOverlappedResult"
+        rva: 0x111c
+      - name: "LockFile"
+        rva: 0x1120
+      - name: "UnlockFile"
+        rva: 0x1124
+      - name: "SetFilePointer"
+        rva: 0x1128
+      - name: "SetEndOfFile"
+        rva: 0x112c
+      - name: "MoveFileExW"
+        rva: 0x1130
+      - name: "GetFileAttributesW"
+        rva: 0x1134
+      - name: "FlushFileBuffers"
+        rva: 0x1138
+      - name: "DeleteFileW"
+        rva: 0x113c
+      - name: "OpenProcess"
+        rva: 0x1140
+      - name: "GlobalFree"
+        rva: 0x1144
+      - name: "GlobalUnlock"
+        rva: 0x1148
+      - name: "GlobalLock"
+        rva: 0x114c
+      - name: "GlobalAlloc"
+        rva: 0x1150
+      - name: "GlobalReAlloc"
+        rva: 0x1154
+      - name: "GlobalSize"
+        rva: 0x1158
+      - name: "LoadLibraryW"
+        rva: 0x115c
+      - name: "FreeLibrary"
+        rva: 0x1160
+      - name: "EnumResourceNamesW"
+        rva: 0x1164
+      - name: "SetEvent"
+        rva: 0x1168
+      - name: "CreateThread"
+        rva: 0x116c
+      - name: "GetModuleFileNameW"
+        rva: 0x1170
+      - name: "GetFileTime"
+        rva: 0x1174
+      - name: "VirtualAlloc"
+        rva: 0x1178
+      - name: "SetFileTime"
+        rva: 0x117c
+      - name: "VirtualFree"
+        rva: 0x1180
+      - name: "GetTickCount"
+        rva: 0x1184
+      - name: "ReadFile"
+        rva: 0x1188
+      - name: "HeapAlloc"
+        rva: 0x118c
+      - name: "LocalFileTimeToFileTime"
+        rva: 0x1190
+      - name: "SystemTimeToFileTime"
+        rva: 0x1194
+      - name: "InterlockedExchange"
+        rva: 0x1198
+      - name: "Sleep"
+        rva: 0x119c
+      - name: "InterlockedCompareExchange"
+        rva: 0x11a0
+      - name: "GetStartupInfoW"
+        rva: 0x11a4
+      - name: "OutputDebugStringA"
+        rva: 0x11a8
+      - name: "RtlUnwind"
+        rva: 0x11ac
+      - name: "SetUnhandledExceptionFilter"
+        rva: 0x11b0
+      - name: "GetModuleHandleA"
+        rva: 0x11b4
+      - name: "QueryPerformanceCounter"
+        rva: 0x11b8
+      - name: "GetCurrentThreadId"
+        rva: 0x11bc
+      - name: "GetCurrentProcessId"
+        rva: 0x11c0
+      - name: "TerminateProcess"
+        rva: 0x11c4
+      - name: "UnhandledExceptionFilter"
+        rva: 0x11c8
+      - name: "GetVersionExW"
+        rva: 0x11cc
+      - name: "FormatMessageW"
+        rva: 0x11d0
+      - name: "GetSystemTimeAsFileTime"
+        rva: 0x11d4
+      - name: "FreeResource"
+        rva: 0x11d8
+      - name: "SizeofResource"
+        rva: 0x11dc
+      - name: "WideCharToMultiByte"
+        rva: 0x11e0
+      - name: "WriteFile"
+        rva: 0x11e4
+      - name: "HeapFree"
+        rva: 0x11e8
+      - name: "CloseHandle"
+        rva: 0x11ec
+      - name: "GetModuleHandleW"
+        rva: 0x11f0
+      - name: "GetProcAddress"
+        rva: 0x11f4
+      - name: "SetLastError"
+        rva: 0x11f8
+      - name: "GetFileSize"
+        rva: 0x11fc
+      - name: "DeviceIoControl"
+        rva: 0x1200
+      - name: "GetLastError"
+        rva: 0x1204
+      - name: "GetCurrentDirectoryW"
+        rva: 0x1208
+      - name: "CreateFileW"
+        rva: 0x120c
+      - name: "EnumTimeFormatsW"
+        rva: 0x1210
+      - name: "EnumDateFormatsW"
+        rva: 0x1214
+      - name: "FileTimeToLocalFileTime"
+        rva: 0x1218
+      - name: "FileTimeToSystemTime"
+        rva: 0x121c
+      - name: "GetTimeFormatW"
+        rva: 0x1220
+      - name: "GetDateFormatW"
+        rva: 0x1224
+      - name: "GetLocaleInfoW"
+        rva: 0x1228
+  - library_name: "GDI32.dll"
+    number_of_functions: 11
+    functions:
+      - name: "TextOutW"
+        rva: 0x10a8
+      - name: "GetTextExtentPoint32W"
+        rva: 0x10ac
+      - name: "SetTextAlign"
+        rva: 0x10b0
+      - name: "SetBkColor"
+        rva: 0x10b4
+      - name: "ExtTextOutW"
+        rva: 0x10b8
+      - name: "SetTextColor"
+        rva: 0x10bc
+      - name: "CreateFontIndirectW"
+        rva: 0x10c0
+      - name: "GetStockObject"
+        rva: 0x10c4
+      - name: "SelectObject"
+        rva: 0x10c8
+      - name: "GetTextMetricsW"
+        rva: 0x10cc
+      - name: "GetObjectW"
+        rva: 0x10d0
+  - library_name: "USER32.dll"
+    number_of_functions: 107
+    functions:
+      - name: "GetTopWindow"
+        rva: 0x1244
+      - name: "GetDlgItemTextW"
+        rva: 0x1248
+      - name: "CloseClipboard"
+        rva: 0x124c
+      - name: "SetClipboardData"
+        rva: 0x1250
+      - name: "EmptyClipboard"
+        rva: 0x1254
+      - name: "OpenClipboard"
+        rva: 0x1258
+      - name: "ClientToScreen"
+        rva: 0x125c
+      - name: "GetFocus"
+        rva: 0x1260
+      - name: "IsWindowVisible"
+        rva: 0x1264
+      - name: "EnableMenuItem"
+        rva: 0x1268
+      - name: "GetSubMenu"
+        rva: 0x126c
+      - name: "ScreenToClient"
+        rva: 0x1270
+      - name: "GetDlgItemInt"
+        rva: 0x1274
+      - name: "GetClipboardData"
+        rva: 0x1278
+      - name: "IsClipboardFormatAvailable"
+        rva: 0x127c
+      - name: "ReleaseDC"
+        rva: 0x1280
+      - name: "GetDC"
+        rva: 0x1284
+      - name: "SetScrollInfo"
+        rva: 0x1288
+      - name: "ShowCaret"
+        rva: 0x128c
+      - name: "SetCaretPos"
+        rva: 0x1290
+      - name: "CreateCaret"
+        rva: 0x1294
+      - name: "DestroyCaret"
+        rva: 0x1298
+      - name: "GetClassNameW"
+        rva: 0x129c
+      - name: "ReleaseCapture"
+        rva: 0x12a0
+      - name: "GetTabbedTextExtentW"
+        rva: 0x12a4
+      - name: "SetCapture"
+        rva: 0x12a8
+      - name: "GetScrollInfo"
+        rva: 0x12ac
+      - name: "EndPaint"
+        rva: 0x12b0
+      - name: "TabbedTextOutW"
+        rva: 0x12b4
+      - name: "IntersectRect"
+        rva: 0x12b8
+      - name: "BeginPaint"
+        rva: 0x12bc
+      - name: "DefWindowProcW"
+        rva: 0x12c0
+      - name: "RegisterClassExW"
+        rva: 0x12c4
+      - name: "LoadCursorW"
+        rva: 0x12c8
+      - name: "GetClassInfoExW"
+        rva: 0x12cc
+      - name: "LoadImageW"
+        rva: 0x12d0
+      - name: "LoadMenuW"
+        rva: 0x12d4
+      - name: "TrackPopupMenu"
+        rva: 0x12d8
+      - name: "SetForegroundWindow"
+        rva: 0x12dc
+      - name: "LoadAcceleratorsW"
+        rva: 0x12e0
+      - name: "CreateDialogParamW"
+        rva: 0x12e4
+      - name: "ShowWindow"
+        rva: 0x12e8
+      - name: "IsWindow"
+        rva: 0x12ec
+      - name: "TranslateAcceleratorW"
+        rva: 0x12f0
+      - name: "TranslateMessage"
+        rva: 0x12f4
+      - name: "IsWindowEnabled"
+        rva: 0x12f8
+      - name: "GetClientRect"
+        rva: 0x12fc
+      - name: "LoadStringA"
+        rva: 0x1300
+      - name: "CreateWindowExW"
+        rva: 0x1304
+      - name: "HideCaret"
+        rva: 0x1308
+      - name: "GetWindow"
+        rva: 0x130c
+      - name: "CreateCursor"
+        rva: 0x1310
+      - name: "SetCursor"
+        rva: 0x1314
+      - name: "CallWindowProcW"
+        rva: 0x1318
+      - name: "CreateDialogIndirectParamW"
+        rva: 0x131c
+      - name: "SendDlgItemMessageA"
+        rva: 0x1320
+      - name: "DialogBoxIndirectParamW"
+        rva: 0x1324
+      - name: "FillRect"
+        rva: 0x1328
+      - name: "DeleteMenu"
+        rva: 0x132c
+      - name: "MessageBeep"
+        rva: 0x1330
+      - name: "DrawTextExW"
+        rva: 0x1334
+      - name: "BeginDeferWindowPos"
+        rva: 0x1338
+      - name: "DeferWindowPos"
+        rva: 0x133c
+      - name: "EndDeferWindowPos"
+        rva: 0x1340
+      - name: "LoadIconW"
+        rva: 0x1344
+      - name: "DispatchMessageW"
+        rva: 0x1348
+      - name: "DestroyAcceleratorTable"
+        rva: 0x134c
+      - name: "GetParent"
+        rva: 0x1350
+      - name: "IsDialogMessageW"
+        rva: 0x1354
+      - name: "GetAsyncKeyState"
+        rva: 0x1358
+      - name: "DestroyWindow"
+        rva: 0x135c
+      - name: "GetCursorPos"
+        rva: 0x1360
+      - name: "GetActiveWindow"
+        rva: 0x1364
+      - name: "PtInRect"
+        rva: 0x1368
+      - name: "GetSystemMenu"
+        rva: 0x136c
+      - name: "GetMenuItemCount"
+        rva: 0x1370
+      - name: "GetMenuItemInfoW"
+        rva: 0x1374
+      - name: "LoadStringW"
+        rva: 0x1378
+      - name: "InsertMenuW"
+        rva: 0x137c
+      - name: "MapDialogRect"
+        rva: 0x1380
+      - name: "GetSystemMetrics"
+        rva: 0x1384
+      - name: "SystemParametersInfoW"
+        rva: 0x1388
+      - name: "KillTimer"
+        rva: 0x138c
+      - name: "SetWindowPos"
+        rva: 0x1390
+      - name: "GetWindowRect"
+        rva: 0x1394
+      - name: "InvalidateRect"
+        rva: 0x1398
+      - name: "CheckDlgButton"
+        rva: 0x139c
+      - name: "SetWindowTextA"
+        rva: 0x13a0
+      - name: "SetDlgItemTextW"
+        rva: 0x13a4
+      - name: "GetWindowTextLengthW"
+        rva: 0x13a8
+      - name: "SetFocus"
+        rva: 0x13ac
+      - name: "GetWindowTextA"
+        rva: 0x13b0
+      - name: "GetWindowTextW"
+        rva: 0x13b4
+      - name: "IsDlgButtonChecked"
+        rva: 0x13b8
+      - name: "EnableWindow"
+        rva: 0x13bc
+      - name: "CharUpperW"
+        rva: 0x13c0
+      - name: "DialogBoxParamW"
+        rva: 0x13c4
+      - name: "SetWindowTextW"
+        rva: 0x13c8
+      - name: "EndDialog"
+        rva: 0x13cc
+      - name: "GetDlgItem"
+        rva: 0x13d0
+      - name: "PostMessageW"
+        rva: 0x13d4
+      - name: "GetWindowLongW"
+        rva: 0x13d8
+      - name: "SetWindowLongW"
+        rva: 0x13dc
+      - name: "SendMessageW"
+        rva: 0x13e0
+      - name: "IsCharAlphaW"
+        rva: 0x13e4
+      - name: "GetMessageW"
+        rva: 0x13e8
+      - name: "SetTimer"
+        rva: 0x13ec
+  - library_name: "msvcrt.dll"
+    number_of_functions: 52
+    functions:
+      - name: "_controlfp"
+        rva: 0x1410
+      - name: "?terminate@@YAXXZ"
+        rva: 0x1414
+      - name: "_wcsnicmp"
+        rva: 0x1418
+      - name: "wcsstr"
+        rva: 0x141c
+      - name: "_wcsicmp"
+        rva: 0x1420
+      - name: "_vsnwprintf"
+        rva: 0x1424
+      - name: "_wcsrev"
+        rva: 0x1428
+      - name: "memset"
+        rva: 0x142c
+      - name: "isxdigit"
+        rva: 0x1430
+      - name: "memcpy"
+        rva: 0x1434
+      - name: "wcschr"
+        rva: 0x1438
+      - name: "_vsnprintf"
+        rva: 0x143c
+      - name: "??0exception@@QAE@ABQBD@Z"
+        rva: 0x1440
+      - name: "wcstoul"
+        rva: 0x1444
+      - name: "wcsncmp"
+        rva: 0x1448
+      - name: "?what@exception@@UBEPBDXZ"
+        rva: 0x144c
+      - name: "??1exception@@UAE@XZ"
+        rva: 0x1450
+      - name: "??0exception@@QAE@ABV0@@Z"
+        rva: 0x1454
+      - name: "_CxxThrowException"
+        rva: 0x1458
+      - name: "??0exception@@QAE@XZ"
+        rva: 0x145c
+      - name: "wcsrchr"
+        rva: 0x1460
+      - name: "rand"
+        rva: 0x1464
+      - name: "srand"
+        rva: 0x1468
+      - name: "toupper"
+        rva: 0x146c
+      - name: "memmove"
+        rva: 0x1470
+      - name: "isalpha"
+        rva: 0x1474
+      - name: "__wargv"
+        rva: 0x1478
+      - name: "__argc"
+        rva: 0x147c
+      - name: "__CxxFrameHandler"
+        rva: 0x1480
+      - name: "_errno"
+        rva: 0x1484
+      - name: "free"
+        rva: 0x1488
+      - name: "_onexit"
+        rva: 0x148c
+      - name: "_lock"
+        rva: 0x1490
+      - name: "__dllonexit"
+        rva: 0x1494
+      - name: "_unlock"
+        rva: 0x1498
+      - name: "??1type_info@@UAE@XZ"
+        rva: 0x149c
+      - name: "__set_app_type"
+        rva: 0x14a0
+      - name: "__p__fmode"
+        rva: 0x14a4
+      - name: "__p__commode"
+        rva: 0x14a8
+      - name: "_adjust_fdiv"
+        rva: 0x14ac
+      - name: "__setusermatherr"
+        rva: 0x14b0
+      - name: "_amsg_exit"
+        rva: 0x14b4
+      - name: "_initterm"
+        rva: 0x14b8
+      - name: "_wcmdln"
+        rva: 0x14bc
+      - name: "exit"
+        rva: 0x14c0
+      - name: "_XcptFilter"
+        rva: 0x14c4
+      - name: "_exit"
+        rva: 0x14c8
+      - name: "_cexit"
+        rva: 0x14cc
+      - name: "__wgetmainargs"
+        rva: 0x14d0
+      - name: "malloc"
+        rva: 0x14d4
+      - name: "_callnewh"
+        rva: 0x14d8
+      - name: "wcstol"
+        rva: 0x14dc
+  - library_name: "COMCTL32.dll"
+    number_of_functions: 5
+    functions:
+      - name: "CreatePropertySheetPageW"
+        rva: 0x1090
+      - name: "ord17"
+        ordinal: 17
+        rva: 0x1094
+      - name: "ImageList_ReplaceIcon"
+        rva: 0x1098
+      - name: "ImageList_Create"
+        rva: 0x109c
+      - name: "PropertySheetW"
+        rva: 0x10a0
+  - library_name: "ntdll.dll"
+    number_of_functions: 49
+    functions:
+      - name: "RtlCreateUnicodeString"
+        rva: 0x14e4
+      - name: "RtlFreeUnicodeString"
+        rva: 0x14e8
+      - name: "NtOpenDirectoryObject"
+        rva: 0x14ec
+      - name: "RtlDecompressBuffer"
+        rva: 0x14f0
+      - name: "NtDeviceIoControlFile"
+        rva: 0x14f4
+      - name: "RtlReAllocateHeap"
+        rva: 0x14f8
+      - name: "NtOpenSymbolicLinkObject"
+        rva: 0x14fc
+      - name: "NtQuerySymbolicLinkObject"
+        rva: 0x1500
+      - name: "NtCreateSymbolicLinkObject"
+        rva: 0x1504
+      - name: "NtQuerySecurityObject"
+        rva: 0x1508
+      - name: "NtSetEaFile"
+        rva: 0x150c
+      - name: "NtQueryEaFile"
+        rva: 0x1510
+      - name: "NtQueryVolumeInformationFile"
+        rva: 0x1514
+      - name: "NtSetVolumeInformationFile"
+        rva: 0x1518
+      - name: "RtlCompareUnicodeString"
+        rva: 0x151c
+      - name: "NtQuerySystemInformation"
+        rva: 0x1520
+      - name: "NtQueryInformationProcess"
+        rva: 0x1524
+      - name: "NtDeleteFile"
+        rva: 0x1528
+      - name: "NtSetInformationFile"
+        rva: 0x152c
+      - name: "RtlAllocateAndInitializeSid"
+        rva: 0x1530
+      - name: "RtlLengthSid"
+        rva: 0x1534
+      - name: "RtlCreateAcl"
+        rva: 0x1538
+      - name: "RtlAddAccessAllowedAce"
+        rva: 0x153c
+      - name: "RtlSetDaclSecurityDescriptor"
+        rva: 0x1540
+      - name: "RtlFreeSid"
+        rva: 0x1544
+      - name: "NtOpenProcessToken"
+        rva: 0x1548
+      - name: "NtQueryInformationToken"
+        rva: 0x154c
+      - name: "RtlAllocateHeap"
+        rva: 0x1550
+      - name: "RtlCreateSecurityDescriptor"
+        rva: 0x1554
+      - name: "RtlSetOwnerSecurityDescriptor"
+        rva: 0x1558
+      - name: "NtSetSecurityObject"
+        rva: 0x155c
+      - name: "RtlFreeHeap"
+        rva: 0x1560
+      - name: "NtFsControlFile"
+        rva: 0x1564
+      - name: "NtQueryAttributesFile"
+        rva: 0x1568
+      - name: "NtQueryDirectoryFile"
+        rva: 0x156c
+      - name: "NtQueryInformationFile"
+        rva: 0x1570
+      - name: "NtMapViewOfSection"
+        rva: 0x1574
+      - name: "NtCreateSection"
+        rva: 0x1578
+      - name: "NtOpenSection"
+        rva: 0x157c
+      - name: "NtUnmapViewOfSection"
+        rva: 0x1580
+      - name: "NtUnlockFile"
+        rva: 0x1584
+      - name: "NtLockFile"
+        rva: 0x1588
+      - name: "NtWriteFile"
+        rva: 0x158c
+      - name: "NtReadFile"
+        rva: 0x1590
+      - name: "RtlNtStatusToDosError"
+        rva: 0x1594
+      - name: "NtOpenFile"
+        rva: 0x1598
+      - name: "RtlInitUnicodeString"
+        rva: 0x159c
+      - name: "NtCreateFile"
+        rva: 0x15a0
+      - name: "NtClose"
+        rva: 0x15a4
+  - library_name: "SHELL32.dll"
+    number_of_functions: 4
+    functions:
+      - name: "SHGetMalloc"
+        rva: 0x1230
+      - name: "SHGetPathFromIDListW"
+        rva: 0x1234
+      - name: "SHBrowseForFolderW"
+        rva: 0x1238
+      - name: "ShellExecuteW"
+        rva: 0x123c
+  - library_name: "comdlg32.dll"
+    number_of_functions: 2
+    functions:
+      - name: "GetSaveFileNameW"
+        rva: 0x1404
+      - name: "GetOpenFileNameW"
+        rva: 0x1408
+  - library_name: "VERSION.dll"
+    number_of_functions: 3
+    functions:
+      - name: "GetFileVersionInfoW"
+        rva: 0x13f4
+      - name: "GetFileVersionInfoSizeW"
+        rva: 0x13f8
+      - name: "VerQueryValueW"
+        rva: 0x13fc
+is_signed: false
+overlay:
+    offset: 0x0
+    size: 0x0

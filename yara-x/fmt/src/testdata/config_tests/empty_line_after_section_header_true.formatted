@@ -1,0 +1,17 @@
+rule test {
+  /*
+      Comment
+  */
+
+  meta:
+
+    a = "b"
+
+  strings:
+
+    $a = "b"
+
+  condition:
+
+    $a
+}

@@ -1,0 +1,767 @@
+is_pe: true
+machine: MACHINE_I386
+subsystem: SUBSYSTEM_WINDOWS_GUI
+os_version:
+    major: 4
+    minor: 0
+subsystem_version:
+    major: 4
+    minor: 0
+image_version:
+    major: 0
+    minor: 0
+linker_version:
+    major: 8
+    minor: 0
+opthdr_magic: IMAGE_NT_OPTIONAL_HDR32_MAGIC
+characteristics: 0x2102  # EXECUTABLE_IMAGE | MACHINE_32BIT | DLL
+dll_characteristics: 0x0
+timestamp: 1231923061  # 2009-01-14 08:51:01 UTC
+image_base: 0x10000000
+checksum: 336327
+base_of_code: 0x1000
+base_of_data: 0x2b000
+entry_point: 0x1bef2
+entry_point_raw: 0x1bef2
+dll_name: "Core.DLL"
+export_timestamp: 1231923061  # 2009-01-14 08:51:01 UTC
+section_alignment: 0x1000
+file_alignment: 0x1000
+loader_flags: 0x0
+size_of_optional_header: 0xe0
+size_of_code: 0x2a000
+size_of_initialized_data: 0x17000
+size_of_uninitialized_data: 0x0
+size_of_image: 0x44000
+size_of_headers: 0x1000
+size_of_stack_reserve: 0x100000
+size_of_stack_commit: 0x1000
+size_of_heap_reserve: 0x100000
+size_of_heap_commit: 0x1000
+pointer_to_symbol_table: 0x0
+win32_version_value: 0
+number_of_symbols: 0
+number_of_rva_and_sizes: 16
+number_of_sections: 5
+number_of_imported_functions: 190
+number_of_delayed_imported_functions: 0
+number_of_resources: 4
+number_of_version_infos: 8
+number_of_imports: 9
+number_of_delayed_imports: 0
+number_of_exports: 4
+number_of_signatures: 1
+version_info:
+    "CompanyName": "Disk Software Ltd."
+    "FileDescription": "Core lib of astroburn application"
+    "FileVersion": "1.0.9.0"
+    "InternalName": "Core.dll"
+    "LegalCopyright": "(c) Disk Software Ltd.  All rights reserved."
+    "OriginalFilename": "Core.dll"
+    "ProductName": "Astroburn"
+    "ProductVersion": "1.0.9.0"
+version_info_list:
+  - key: "CompanyName"
+    value: "Disk Software Ltd."
+  - key: "FileDescription"
+    value: "Core lib of astroburn application"
+  - key: "FileVersion"
+    value: "1.0.9.0"
+  - key: "InternalName"
+    value: "Core.dll"
+  - key: "LegalCopyright"
+    value: "(c) Disk Software Ltd.  All rights reserved."
+  - key: "OriginalFilename"
+    value: "Core.dll"
+  - key: "ProductName"
+    value: "Astroburn"
+  - key: "ProductVersion"
+    value: "1.0.9.0"
+rich_signature:
+    offset: 0x80
+    length: 0x60
+    key: 3002618938
+    raw_data: "~5\x96\xe1:T\xf8\xb2:T\xf8\xb2:T\xf8\xb2\xf9[\xa5\xb26T\xf8\xb2\x1d\x92\x85\xb2#T\xf8\xb2\xf9[\xa7\xb29T\xf8\xb2\x1d\x92\x83\xb2=T\xf8\xb2:T\xf9\xb2\xdaT\xf8\xb2\x1d\x92\x95\xb2\xb3T\xf8\xb2\x1d\x92\x96\xb2vT\xf8\xb2\x1d\x92\x82\xb2;T\xf8\xb2\x1d\x92\x84\xb2;T\xf8\xb2\x1d\x92\x80\xb2;T\xf8\xb2"
+    clear_data: "DanS\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xc3\x0f]\x00\x0c\x00\x00\x00\'\xc6}\x00\x19\x00\x00\x00\xc3\x0f_\x00\x03\x00\x00\x00\'\xc6{\x00\x07\x00\x00\x00\x00\x00\x01\x00\xe0\x00\x00\x00\'\xc6m\x00\x89\x00\x00\x00\'\xc6n\x00L\x00\x00\x00\'\xc6z\x00\x01\x00\x00\x00\'\xc6|\x00\x01\x00\x00\x00\'\xc6x\x00\x01\x00\x00\x00"
+    tools:
+      - toolid: 93
+        version: 4035
+        times: 12
+      - toolid: 125
+        version: 50727
+        times: 25
+      - toolid: 95
+        version: 4035
+        times: 3
+      - toolid: 123
+        version: 50727
+        times: 7
+      - toolid: 1
+        version: 0
+        times: 224
+      - toolid: 109
+        version: 50727
+        times: 137
+      - toolid: 110
+        version: 50727
+        times: 76
+      - toolid: 122
+        version: 50727
+        times: 1
+      - toolid: 124
+        version: 50727
+        times: 1
+      - toolid: 120
+        version: 50727
+        times: 1
+pdb_path: "d:\\Projects\\astroburn\\bin\\Release\\Core.pdb"
+sections:
+  - name: ".text"
+    full_name: ".text"
+    characteristics: 0x60000020  # SECTION_MEM_READ | SECTION_MEM_WRITE | SECTION_SCALE_INDEX
+    raw_data_size: 0x2a000
+    raw_data_offset: 0x1000
+    virtual_address: 0x1000
+    virtual_size: 0x29f21
+    pointer_to_relocations: 0x0
+    pointer_to_line_numbers: 0x0
+    number_of_relocations: 0
+    number_of_line_numbers: 0
+  - name: ".rdata"
+    full_name: ".rdata"
+    characteristics: 0x40000040
+    raw_data_size: 0x9000
+    raw_data_offset: 0x2b000
+    virtual_address: 0x2b000
+    virtual_size: 0x80f1
+    pointer_to_relocations: 0x0
+    pointer_to_line_numbers: 0x0
+    number_of_relocations: 0
+    number_of_line_numbers: 0
+  - name: ".data"
+    full_name: ".data"
+    characteristics: 0xc0000040
+    raw_data_size: 0x3000
+    raw_data_offset: 0x34000
+    virtual_address: 0x34000
+    virtual_size: 0x4464
+    pointer_to_relocations: 0x0
+    pointer_to_line_numbers: 0x0
+    number_of_relocations: 0
+    number_of_line_numbers: 0
+  - name: ".rsrc"
+    full_name: ".rsrc"
+    characteristics: 0x40000040
+    raw_data_size: 0x7000
+    raw_data_offset: 0x37000
+    virtual_address: 0x39000
+    virtual_size: 0x6bbc
+    pointer_to_relocations: 0x0
+    pointer_to_line_numbers: 0x0
+    number_of_relocations: 0
+    number_of_line_numbers: 0
+  - name: ".reloc"
+    full_name: ".reloc"
+    characteristics: 0x42000040
+    raw_data_size: 0x4000
+    raw_data_offset: 0x3e000
+    virtual_address: 0x40000
+    virtual_size: 0x36e6
+    pointer_to_relocations: 0x0
+    pointer_to_line_numbers: 0x0
+    number_of_relocations: 0
+    number_of_line_numbers: 0
+data_directories:
+  - virtual_address: 0x33050
+    size: 0xa1
+  - virtual_address: 0x31c74
+    size: 0xc8
+  - virtual_address: 0x39000
+    size: 0x6bbc
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x42000
+    size: 0x10b0
+  - virtual_address: 0x40000
+    size: 0x2690
+  - virtual_address: 0x2b370
+    size: 0x1c
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x2e428
+    size: 0x40
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x2b000
+    size: 0x31c
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x0
+    size: 0x0
+resource_timestamp: 0  # 1970-01-01 00:00:00 UTC
+resource_version:
+    major: 4
+    minor: 0
+resources:
+  - length: 0x66e4
+    rva: 0x39140
+    offset: 0x37140
+    id: 1
+    language: 1049
+    type_string: "T\x00Y\x00P\x00E\x00L\x00I\x00B\x00"
+  - length: 0x28
+    rva: 0x3f824
+    offset: 0x3d824
+    type: RESOURCE_TYPE_STRING
+    id: 7
+    language: 1049
+  - length: 0x318
+    rva: 0x3f84c
+    offset: 0x3d84c
+    type: RESOURCE_TYPE_VERSION
+    id: 1
+    language: 1049
+  - length: 0x56
+    rva: 0x3fb64
+    offset: 0x3db64
+    type: RESOURCE_TYPE_MANIFEST
+    id: 2
+    language: 1033
+import_details:
+  - library_name: "StarBurn.dll"
+    number_of_functions: 44
+    functions:
+      - name: "StarBurn_SetFastReadTOC"
+        rva: 0x2b21c
+      - name: "StarBurn_CdvdBurnerGrabber_GetSpeeds"
+        rva: 0x2b220
+      - name: "StarBurn_CdvdBurnerGrabber_SetSpeeds"
+        rva: 0x2b224
+      - name: "StarBurn_Destroy"
+        rva: 0x2b228
+      - name: "StarBurn_CdvdBurnerGrabber_ProbeSupportedWriteModes"
+        rva: 0x2b22c
+      - name: "StarBurn_CdvdBurnerGrabber_GetAdvancedSupportedMediaFormats"
+        rva: 0x2b230
+      - name: "StarBurn_CdvdBurnerGrabber_TrackAtOnceFromFile"
+        rva: 0x2b234
+      - name: "StarBurn_CdvdBurnerGrabber_GetBUP"
+        rva: 0x2b238
+      - name: "StarBurn_CdvdBurnerGrabber_SetBUP"
+        rva: 0x2b23c
+      - name: "StarBurn_CdvdBurnerGrabber_SendOPC"
+        rva: 0x2b240
+      - name: "StarBurn_GetFastReadTOC"
+        rva: 0x2b244
+      - name: "StarBurn_CdvdBurnerGrabber_GetLastTrack"
+        rva: 0x2b248
+      - name: "StarBurn_CdvdBurnerGrabber_GrabTrack"
+        rva: 0x2b24c
+      - name: "StarBurn_CdvdBurnerGrabber_CreateExEx"
+        rva: 0x2b250
+      - name: "StarBurn_UDF2_ImpVolumeCreate"
+        rva: 0x2b254
+      - name: "StarBurn_UDF2_ImpVolumeImport"
+        rva: 0x2b258
+      - name: "StarBurn_CdvdBurnerGrabber_Lock"
+        rva: 0x2b25c
+      - name: "StarBurn_CdvdBurnerGrabber_Blank"
+        rva: 0x2b260
+      - name: "StarBurn_CdvdBurnerGrabber_Release"
+        rva: 0x2b264
+      - name: "StarBurn_CdvdBurnerGrabber_Eject"
+        rva: 0x2b268
+      - name: "StarBurn_UpStartEx"
+        rva: 0x2b26c
+      - name: "StarBurn_DownShut"
+        rva: 0x2b270
+      - name: "StarBurn_UDF2_DirectoryRootCreate"
+        rva: 0x2b274
+      - name: "StarBurn_CdvdBurnerGrabber_GetTOCInformation"
+        rva: 0x2b278
+      - name: "StarBurn_CdvdBurnerGrabber_GetDiscFileSystem"
+        rva: 0x2b27c
+      - name: "StarBurn_CdvdBurnerGrabber_GetInsertedDiscType"
+        rva: 0x2b280
+      - name: "StarBurn_CdvdBurnerGrabber_TestUnitReady"
+        rva: 0x2b284
+      - name: "StarBurn_GetDeviceNameByDeviceAddress"
+        rva: 0x2b288
+      - name: "StarBurn_CdvdBurnerGrabber_GetDeviceInformation"
+        rva: 0x2b28c
+      - name: "StarBurn_CdvdBurnerGrabber_GetTrackInformation"
+        rva: 0x2b290
+      - name: "StarBurn_CdvdBurnerGrabber_ExecuteGeneric"
+        rva: 0x2b294
+      - name: "StarBurn_CdvdBurnerGrabber_Read10"
+        rva: 0x2b298
+      - name: "StarBurn_CdvdBurnerGrabber_Cancel"
+        rva: 0x2b29c
+      - name: "StarBurn_CdvdBurnerGrabber_ReadCooked"
+        rva: 0x2b2a0
+      - name: "StarBurn_CdvdBurnerGrabber_TrackAtOnceFromPipeEx"
+        rva: 0x2b2a4
+      - name: "StarBurn_CdvdBurnerGrabber_CloseSession"
+        rva: 0x2b2a8
+      - name: "StarBurn_CdvdBurnerGrabber_DiscBasicInformation_Create"
+        rva: 0x2b2ac
+      - name: "StarBurn_CdvdBurnerGrabber_DiscBasicInformation_Destroy"
+        rva: 0x2b2b0
+      - name: "StarBurn_CdvdBurnerGrabber_Read"
+        rva: 0x2b2b4
+      - name: "StarBurn_GetAudioFileStreamSizeInUCHARs"
+        rva: 0x2b2b8
+      - name: "StarBurn_CdvdBurnerGrabber_Create"
+        rva: 0x2b2bc
+      - name: "StarBurn_CdvdBurnerGrabber_CreateEx"
+        rva: 0x2b2c0
+      - name: "StarBurn_FindDevice"
+        rva: 0x2b2c4
+      - name: "StarBurn_IsAudioFileSupported"
+        rva: 0x2b2c8
+  - library_name: "imgengine.dll"
+    number_of_functions: 7
+    functions:
+      - name: "ord6"
+        ordinal: 6
+        rva: 0x2b2e4
+      - name: "ord4"
+        ordinal: 4
+        rva: 0x2b2e8
+      - name: "ord2"
+        ordinal: 2
+        rva: 0x2b2ec
+      - name: "ord8"
+        ordinal: 8
+        rva: 0x2b2f0
+      - name: "ord3"
+        ordinal: 3
+        rva: 0x2b2f4
+      - name: "ord7"
+        ordinal: 7
+        rva: 0x2b2f8
+      - name: "ord5"
+        ordinal: 5
+        rva: 0x2b2fc
+  - library_name: "GrabHlp.dll"
+    number_of_functions: 1
+    functions:
+      - name: "ord1"
+        ordinal: 1
+        rva: 0x2b03c
+  - library_name: "KERNEL32.dll"
+    number_of_functions: 100
+    functions:
+      - name: "HeapDestroy"
+        rva: 0x2b044
+      - name: "HeapCreate"
+        rva: 0x2b048
+      - name: "ExitProcess"
+        rva: 0x2b04c
+      - name: "GetStdHandle"
+        rva: 0x2b050
+      - name: "GetModuleFileNameA"
+        rva: 0x2b054
+      - name: "GetCPInfo"
+        rva: 0x2b058
+      - name: "GetACP"
+        rva: 0x2b05c
+      - name: "GetOEMCP"
+        rva: 0x2b060
+      - name: "IsValidCodePage"
+        rva: 0x2b064
+      - name: "HeapSize"
+        rva: 0x2b068
+      - name: "LCMapStringA"
+        rva: 0x2b06c
+      - name: "LCMapStringW"
+        rva: 0x2b070
+      - name: "Sleep"
+        rva: 0x2b074
+      - name: "SetHandleCount"
+        rva: 0x2b078
+      - name: "GetFileType"
+        rva: 0x2b07c
+      - name: "GetStartupInfoA"
+        rva: 0x2b080
+      - name: "CreateFileA"
+        rva: 0x2b084
+      - name: "FlushFileBuffers"
+        rva: 0x2b088
+      - name: "WriteConsoleW"
+        rva: 0x2b08c
+      - name: "GetConsoleOutputCP"
+        rva: 0x2b090
+      - name: "WriteConsoleA"
+        rva: 0x2b094
+      - name: "SetStdHandle"
+        rva: 0x2b098
+      - name: "GetDriveTypeA"
+        rva: 0x2b09c
+      - name: "GetCurrentDirectoryA"
+        rva: 0x2b0a0
+      - name: "GetLocaleInfoA"
+        rva: 0x2b0a4
+      - name: "GetStringTypeW"
+        rva: 0x2b0a8
+      - name: "GetStringTypeA"
+        rva: 0x2b0ac
+      - name: "LoadLibraryA"
+        rva: 0x2b0b0
+      - name: "InterlockedExchange"
+        rva: 0x2b0b4
+      - name: "GetConsoleMode"
+        rva: 0x2b0b8
+      - name: "GetConsoleCP"
+        rva: 0x2b0bc
+      - name: "SetFilePointer"
+        rva: 0x2b0c0
+      - name: "GetCurrentProcessId"
+        rva: 0x2b0c4
+      - name: "GetTickCount"
+        rva: 0x2b0c8
+      - name: "QueryPerformanceCounter"
+        rva: 0x2b0cc
+      - name: "GetEnvironmentStringsW"
+        rva: 0x2b0d0
+      - name: "FreeEnvironmentStringsW"
+        rva: 0x2b0d4
+      - name: "GetEnvironmentStrings"
+        rva: 0x2b0d8
+      - name: "GetCurrentProcess"
+        rva: 0x2b0dc
+      - name: "MultiByteToWideChar"
+        rva: 0x2b0e0
+      - name: "GetVolumeInformationW"
+        rva: 0x2b0e4
+      - name: "lstrlenA"
+        rva: 0x2b0e8
+      - name: "QueryDosDeviceA"
+        rva: 0x2b0ec
+      - name: "CloseHandle"
+        rva: 0x2b0f0
+      - name: "WaitForSingleObject"
+        rva: 0x2b0f4
+      - name: "lstrlenW"
+        rva: 0x2b0f8
+      - name: "RaiseException"
+        rva: 0x2b0fc
+      - name: "InitializeCriticalSection"
+        rva: 0x2b100
+      - name: "DeleteCriticalSection"
+        rva: 0x2b104
+      - name: "SizeofResource"
+        rva: 0x2b108
+      - name: "LockResource"
+        rva: 0x2b10c
+      - name: "LoadResource"
+        rva: 0x2b110
+      - name: "FindResourceW"
+        rva: 0x2b114
+      - name: "FindResourceExW"
+        rva: 0x2b118
+      - name: "GetLastError"
+        rva: 0x2b11c
+      - name: "LocalFree"
+        rva: 0x2b120
+      - name: "LocalAlloc"
+        rva: 0x2b124
+      - name: "FreeLibrary"
+        rva: 0x2b128
+      - name: "GetProcAddress"
+        rva: 0x2b12c
+      - name: "LoadLibraryW"
+        rva: 0x2b130
+      - name: "EnterCriticalSection"
+        rva: 0x2b134
+      - name: "LeaveCriticalSection"
+        rva: 0x2b138
+      - name: "lstrcmpiW"
+        rva: 0x2b13c
+      - name: "InterlockedIncrement"
+        rva: 0x2b140
+      - name: "InterlockedDecrement"
+        rva: 0x2b144
+      - name: "GetModuleFileNameW"
+        rva: 0x2b148
+      - name: "LoadLibraryExW"
+        rva: 0x2b14c
+      - name: "GetModuleHandleW"
+        rva: 0x2b150
+      - name: "WideCharToMultiByte"
+        rva: 0x2b154
+      - name: "SetThreadLocale"
+        rva: 0x2b158
+      - name: "GetThreadLocale"
+        rva: 0x2b15c
+      - name: "VirtualFree"
+        rva: 0x2b160
+      - name: "VirtualAlloc"
+        rva: 0x2b164
+      - name: "WriteFile"
+        rva: 0x2b168
+      - name: "CreateThread"
+        rva: 0x2b16c
+      - name: "CreatePipe"
+        rva: 0x2b170
+      - name: "DeleteFileW"
+        rva: 0x2b174
+      - name: "CreateFileW"
+        rva: 0x2b178
+      - name: "HeapAlloc"
+        rva: 0x2b17c
+      - name: "GetProcessHeap"
+        rva: 0x2b180
+      - name: "SetCurrentDirectoryW"
+        rva: 0x2b184
+      - name: "TerminateProcess"
+        rva: 0x2b188
+      - name: "UnhandledExceptionFilter"
+        rva: 0x2b18c
+      - name: "SetUnhandledExceptionFilter"
+        rva: 0x2b190
+      - name: "IsDebuggerPresent"
+        rva: 0x2b194
+      - name: "RtlUnwind"
+        rva: 0x2b198
+      - name: "HeapFree"
+        rva: 0x2b19c
+      - name: "HeapReAlloc"
+        rva: 0x2b1a0
+      - name: "GetFullPathNameW"
+        rva: 0x2b1a4
+      - name: "GetSystemTimeAsFileTime"
+        rva: 0x2b1a8
+      - name: "GetCurrentThreadId"
+        rva: 0x2b1ac
+      - name: "GetCommandLineA"
+        rva: 0x2b1b0
+      - name: "GetVersionExA"
+        rva: 0x2b1b4
+      - name: "GetModuleHandleA"
+        rva: 0x2b1b8
+      - name: "TlsGetValue"
+        rva: 0x2b1bc
+      - name: "TlsAlloc"
+        rva: 0x2b1c0
+      - name: "TlsSetValue"
+        rva: 0x2b1c4
+      - name: "TlsFree"
+        rva: 0x2b1c8
+      - name: "SetLastError"
+        rva: 0x2b1cc
+      - name: "FreeEnvironmentStringsA"
+        rva: 0x2b1d0
+  - library_name: "USER32.dll"
+    number_of_functions: 4
+    functions:
+      - name: "CharLowerBuffW"
+        rva: 0x2b2d0
+      - name: "MessageBoxW"
+        rva: 0x2b2d4
+      - name: "UnregisterClassA"
+        rva: 0x2b2d8
+      - name: "CharNextW"
+        rva: 0x2b2dc
+  - library_name: "ADVAPI32.dll"
+    number_of_functions: 14
+    functions:
+      - name: "RegSetValueExW"
+        rva: 0x2b000
+      - name: "UnregisterTraceGuids"
+        rva: 0x2b004
+      - name: "TraceEvent"
+        rva: 0x2b008
+      - name: "RegDeleteKeyW"
+        rva: 0x2b00c
+      - name: "RegDeleteValueW"
+        rva: 0x2b010
+      - name: "RegCloseKey"
+        rva: 0x2b014
+      - name: "RegCreateKeyExW"
+        rva: 0x2b018
+      - name: "RegOpenKeyExW"
+        rva: 0x2b01c
+      - name: "RegQueryInfoKeyW"
+        rva: 0x2b020
+      - name: "RegEnumKeyExW"
+        rva: 0x2b024
+      - name: "GetTraceEnableFlags"
+        rva: 0x2b028
+      - name: "GetTraceEnableLevel"
+        rva: 0x2b02c
+      - name: "GetTraceLoggerHandle"
+        rva: 0x2b030
+      - name: "RegisterTraceGuidsW"
+        rva: 0x2b034
+  - library_name: "ole32.dll"
+    number_of_functions: 5
+    functions:
+      - name: "CoTaskMemRealloc"
+        rva: 0x2b304
+      - name: "CoCreateInstance"
+        rva: 0x2b308
+      - name: "CoTaskMemFree"
+        rva: 0x2b30c
+      - name: "StringFromGUID2"
+        rva: 0x2b310
+      - name: "CoTaskMemAlloc"
+        rva: 0x2b314
+  - library_name: "SHELL32.dll"
+    number_of_functions: 1
+    functions:
+      - name: "SHGetDiskFreeSpaceExW"
+        rva: 0x2b214
+  - library_name: "OLEAUT32.dll"
+    number_of_functions: 14
+    functions:
+      - name: "VarBstrCmp"
+        ordinal: 314
+        rva: 0x2b1d8
+      - name: "SysFreeString"
+        ordinal: 6
+        rva: 0x2b1dc
+      - name: "VariantClear"
+        ordinal: 9
+        rva: 0x2b1e0
+      - name: "SysAllocStringLen"
+        ordinal: 4
+        rva: 0x2b1e4
+      - name: "SysAllocString"
+        ordinal: 2
+        rva: 0x2b1e8
+      - name: "SysAllocStringByteLen"
+        ordinal: 150
+        rva: 0x2b1ec
+      - name: "SysStringByteLen"
+        ordinal: 149
+        rva: 0x2b1f0
+      - name: "SysStringLen"
+        ordinal: 7
+        rva: 0x2b1f4
+      - name: "VarUI4FromStr"
+        ordinal: 277
+        rva: 0x2b1f8
+      - name: "LoadRegTypeLib"
+        ordinal: 162
+        rva: 0x2b1fc
+      - name: "LoadTypeLib"
+        ordinal: 161
+        rva: 0x2b200
+      - name: "UnRegisterTypeLib"
+        ordinal: 186
+        rva: 0x2b204
+      - name: "RegisterTypeLib"
+        ordinal: 163
+        rva: 0x2b208
+      - name: "VarBstrCat"
+        ordinal: 313
+        rva: 0x2b20c
+export_details:
+  - name: "DllCanUnloadNow"
+    ordinal: 1
+    rva: 0xcfc0
+    offset: 0xcfc0
+  - name: "DllGetClassObject"
+    ordinal: 2
+    rva: 0xdb20
+    offset: 0xdb20
+  - name: "DllRegisterServer"
+    ordinal: 3
+    rva: 0xdc60
+    offset: 0xdc60
+  - name: "DllUnregisterServer"
+    ordinal: 4
+    rva: 0xdc70
+    offset: 0xdc70
+is_signed: true
+signatures:
+  - subject: "/C=KN/postalCode=KN/ST=Nevis/L=Charlestown/street=Main Street,Charlestown/O=Disk Software Ltd/CN=Disk Software Ltd"
+    issuer: "/C=US/ST=UT/L=Salt Lake City/O=The USERTRUST Network/OU=http://www.usertrust.com/CN=UTN-USERFirst-Object"
+    thumbprint: "0d7877f141bbdf56909690bdebfc5a873f62e7ce"
+    version: 3
+    algorithm: "sha1WithRSAEncryption"
+    algorithm_oid: "1.2.840.113549.1.1.5"
+    serial: "00:fc:cd:b2:29:ae:96:24:8f:45:b3:ad:45:52:9b:e0:94"
+    not_before: 1191542400  # 2007-10-05 00:00:00 UTC
+    not_after: 1286236799  # 2010-10-04 23:59:59 UTC
+    verified: true
+    digest_alg: "sha1WithRSAEncryption"
+    digest: "e321c9dd8338ff314891962f40acf6e412f52b02"
+    file_digest: "e321c9dd8338ff314891962f40acf6e412f52b02"
+    number_of_certificates: 3
+    number_of_countersignatures: 1
+    signer_info:
+        digest: "d5acb4c6e18a63bef1ec6381543d34c0a67931f4"
+        digest_alg: "sha1"
+        chain:
+          - issuer: "/C=US/ST=UT/L=Salt Lake City/O=The USERTRUST Network/OU=http://www.usertrust.com/CN=UTN-USERFirst-Object"
+            subject: "/C=KN/postalCode=KN/ST=Nevis/L=Charlestown/street=Main Street,Charlestown/O=Disk Software Ltd/CN=Disk Software Ltd"
+            thumbprint: "0d7877f141bbdf56909690bdebfc5a873f62e7ce"
+            version: 3
+            algorithm: "sha1WithRSAEncryption"
+            algorithm_oid: "1.2.840.113549.1.1.5"
+            serial: "00:fc:cd:b2:29:ae:96:24:8f:45:b3:ad:45:52:9b:e0:94"
+            not_before: 1191542400  # 2007-10-05 00:00:00 UTC
+            not_after: 1286236799  # 2010-10-04 23:59:59 UTC
+    certificates:
+      - issuer: "/C=US/ST=UT/L=Salt Lake City/O=The USERTRUST Network/OU=http://www.usertrust.com/CN=UTN-USERFirst-Object"
+        subject: "/C=KN/postalCode=KN/ST=Nevis/L=Charlestown/street=Main Street,Charlestown/O=Disk Software Ltd/CN=Disk Software Ltd"
+        thumbprint: "0d7877f141bbdf56909690bdebfc5a873f62e7ce"
+        version: 3
+        algorithm: "sha1WithRSAEncryption"
+        algorithm_oid: "1.2.840.113549.1.1.5"
+        serial: "00:fc:cd:b2:29:ae:96:24:8f:45:b3:ad:45:52:9b:e0:94"
+        not_before: 1191542400  # 2007-10-05 00:00:00 UTC
+        not_after: 1286236799  # 2010-10-04 23:59:59 UTC
+      - issuer: "/C=US/O=VeriSign, Inc./CN=VeriSign Time Stamping Services CA"
+        subject: "/C=US/O=VeriSign, Inc./CN=VeriSign Time Stamping Services Signer - G2"
+        thumbprint: "ada8aaa643ff7dc38dd40fa4c97ad559ff4846de"
+        version: 3
+        algorithm: "sha1WithRSAEncryption"
+        algorithm_oid: "1.2.840.113549.1.1.5"
+        serial: "38:25:d7:fa:f8:61:af:9e:f4:90:e7:26:b5:d6:5a:d5"
+        not_before: 1181865600  # 2007-06-15 00:00:00 UTC
+        not_after: 1339718399  # 2012-06-14 23:59:59 UTC
+      - issuer: "/C=ZA/ST=Western Cape/L=Durbanville/O=Thawte/OU=Thawte Certification/CN=Thawte Timestamping CA"
+        subject: "/C=US/O=VeriSign, Inc./CN=VeriSign Time Stamping Services CA"
+        thumbprint: "f46ac0c6efbb8c6a14f55f09e2d37df4c0de012d"
+        version: 3
+        algorithm: "sha1WithRSAEncryption"
+        algorithm_oid: "1.2.840.113549.1.1.5"
+        serial: "47:bf:19:95:df:8d:52:46:43:f7:db:6d:48:0d:31:a4"
+        not_before: 1070496000  # 2003-12-04 00:00:00 UTC
+        not_after: 1386115199  # 2013-12-03 23:59:59 UTC
+    countersignatures:
+      - verified: true
+        sign_time: 1231923084  # 2009-01-14 08:51:24 UTC
+        digest: "90da95d6824aca73a512f5b86929243d8acb2703"
+        digest_alg: "sha1"
+        chain:
+          - issuer: "/C=US/O=VeriSign, Inc./CN=VeriSign Time Stamping Services CA"
+            subject: "/C=US/O=VeriSign, Inc./CN=VeriSign Time Stamping Services Signer - G2"
+            thumbprint: "ada8aaa643ff7dc38dd40fa4c97ad559ff4846de"
+            version: 3
+            algorithm: "sha1WithRSAEncryption"
+            algorithm_oid: "1.2.840.113549.1.1.5"
+            serial: "38:25:d7:fa:f8:61:af:9e:f4:90:e7:26:b5:d6:5a:d5"
+            not_before: 1181865600  # 2007-06-15 00:00:00 UTC
+            not_after: 1339718399  # 2012-06-14 23:59:59 UTC
+          - issuer: "/C=ZA/ST=Western Cape/L=Durbanville/O=Thawte/OU=Thawte Certification/CN=Thawte Timestamping CA"
+            subject: "/C=US/O=VeriSign, Inc./CN=VeriSign Time Stamping Services CA"
+            thumbprint: "f46ac0c6efbb8c6a14f55f09e2d37df4c0de012d"
+            version: 3
+            algorithm: "sha1WithRSAEncryption"
+            algorithm_oid: "1.2.840.113549.1.1.5"
+            serial: "47:bf:19:95:df:8d:52:46:43:f7:db:6d:48:0d:31:a4"
+            not_before: 1070496000  # 2003-12-04 00:00:00 UTC
+            not_after: 1386115199  # 2013-12-03 23:59:59 UTC
+overlay:
+    offset: 0x42000
+    size: 0x10b0

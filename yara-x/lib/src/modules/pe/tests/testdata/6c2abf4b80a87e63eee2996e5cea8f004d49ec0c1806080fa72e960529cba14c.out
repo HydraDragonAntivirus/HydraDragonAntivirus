@@ -1,0 +1,122 @@
+is_pe: true
+machine: MACHINE_AMD64
+subsystem: SUBSYSTEM_EFI_BOOT_SERVICE_DRIVER
+os_version:
+    major: 0
+    minor: 0
+subsystem_version:
+    major: 0
+    minor: 0
+image_version:
+    major: 0
+    minor: 0
+linker_version:
+    major: 2
+    minor: 56
+opthdr_magic: IMAGE_NT_OPTIONAL_HDR64_MAGIC
+characteristics: 0x30e  # EXECUTABLE_IMAGE | LINE_NUMS_STRIPPED | LOCAL_SYMS_STRIPPED | MACHINE_32BIT | DEBUG_STRIPPED
+dll_characteristics: 0x0
+timestamp: 0  # 1970-01-01 00:00:00 UTC
+image_base: 0x0
+checksum: 30022
+base_of_code: 0x240
+entry_point: 0x41a
+entry_point_raw: 0x41a
+section_alignment: 0x20
+file_alignment: 0x20
+loader_flags: 0x0
+size_of_optional_header: 0xf0
+size_of_code: 0x0
+size_of_initialized_data: 0x0
+size_of_uninitialized_data: 0x0
+size_of_image: 0x7c0
+size_of_headers: 0x240
+size_of_stack_reserve: 0x0
+size_of_stack_commit: 0x0
+size_of_heap_reserve: 0x0
+size_of_heap_commit: 0x0
+pointer_to_symbol_table: 0x7c0
+win32_version_value: 0
+number_of_symbols: 0
+number_of_rva_and_sizes: 16
+number_of_sections: 3
+number_of_imported_functions: 0
+number_of_delayed_imported_functions: 0
+number_of_resources: 0
+number_of_version_infos: 0
+number_of_imports: 0
+number_of_delayed_imports: 0
+number_of_exports: 0
+number_of_signatures: 0
+pdb_path: "2AC71AF3-A338-495C-834E-977A6DD5C6FD"
+sections:
+  - name: ".text"
+    full_name: ".text"
+    characteristics: 0x60000020  # SECTION_MEM_READ | SECTION_MEM_WRITE | SECTION_SCALE_INDEX
+    raw_data_size: 0x4a0
+    raw_data_offset: 0x240
+    virtual_address: 0x240
+    virtual_size: 0x4a0
+    pointer_to_relocations: 0x0
+    pointer_to_line_numbers: 0x0
+    number_of_relocations: 0
+    number_of_line_numbers: 0
+  - name: ".data"
+    full_name: ".data"
+    characteristics: 0xe0000060  # SECTION_MEM_READ | SECTION_MEM_WRITE | SECTION_SCALE_INDEX
+    raw_data_size: 0x60
+    raw_data_offset: 0x6e0
+    virtual_address: 0x6e0
+    virtual_size: 0x80
+    pointer_to_relocations: 0x0
+    pointer_to_line_numbers: 0x0
+    number_of_relocations: 0
+    number_of_line_numbers: 0
+  - name: ".debug"
+    full_name: ".debug"
+    characteristics: 0x62000060  # SECTION_MEM_READ | SECTION_MEM_WRITE | SECTION_SCALE_INDEX
+    raw_data_size: 0x60
+    raw_data_offset: 0x760
+    virtual_address: 0x760
+    virtual_size: 0x55
+    pointer_to_relocations: 0x0
+    pointer_to_line_numbers: 0x0
+    number_of_relocations: 0
+    number_of_line_numbers: 0
+data_directories:
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x760
+    size: 0x55
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x0
+    size: 0x0
+is_signed: false
+overlay:
+    offset: 0x7c0
+    size: 0x4

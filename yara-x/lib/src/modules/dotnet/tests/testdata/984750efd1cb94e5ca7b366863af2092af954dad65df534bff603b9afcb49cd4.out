@@ -1,0 +1,2093 @@
+is_dotnet: true
+module_name: "System.Net.NameResolution.dll"
+version: "v4.0.30319"
+number_of_streams: 5
+number_of_guids: 1
+number_of_resources: 1
+number_of_classes: 31
+number_of_assembly_refs: 2
+number_of_modulerefs: 2
+number_of_user_strings: 45
+number_of_constants: 0
+number_of_field_offsets: 0
+streams:
+  - name: "#~"
+    offset: 0x2588
+    size: 0x1a7c
+  - name: "#Strings"
+    offset: 0x4004
+    size: 0x1b28
+  - name: "#US"
+    offset: 0x5b2c
+    size: 0x648
+  - name: "#GUID"
+    offset: 0x6174
+    size: 0x10
+  - name: "#Blob"
+    offset: 0x6184
+    size: 0x1328
+guids:
+  - "eb073d6d-392a-46fb-a695-d2b5b539fcfc"
+assembly:
+    name: "System.Net.NameResolution"
+    version:
+        major: 6
+        minor: 0
+        build_number: 0
+        revision_number: 0
+assembly_refs:
+  - name: "System.Private.CoreLib"
+    public_key_or_token: "|\xec\x85\xd7\xbe\xa7y\x8e"
+    version:
+        major: 6
+        minor: 0
+        build_number: 0
+        revision_number: 0
+  - name: "System.Net.Primitives"
+    public_key_or_token: "\xb0?_\x7f\x11\xd5\n:"
+    version:
+        major: 6
+        minor: 0
+        build_number: 0
+        revision_number: 0
+resources:
+  - offset: 0x209c
+    length: 0x3fe
+    name: "FxResources.System.Net.NameResolution.SR.resources"
+classes:
+  - fullname: "Microsoft.CodeAnalysis.EmbeddedAttribute"
+    name: "EmbeddedAttribute"
+    namespace: "Microsoft.CodeAnalysis"
+    visibility: "internal"
+    type: "class"
+    abstract: false
+    sealed: true
+    number_of_base_types: 1
+    number_of_generic_parameters: 0
+    number_of_methods: 1
+    base_types:
+      - "System.Attribute"
+    methods:
+      - name: ".ctor"
+        visibility: "public"
+        abstract: false
+        static: false
+        virtual: false
+        final: false
+        number_of_generic_parameters: 0
+        number_of_parameters: 0
+  - fullname: "System.Runtime.CompilerServices.NullableAttribute"
+    name: "NullableAttribute"
+    namespace: "System.Runtime.CompilerServices"
+    visibility: "internal"
+    type: "class"
+    abstract: false
+    sealed: true
+    number_of_base_types: 1
+    number_of_generic_parameters: 0
+    number_of_methods: 1
+    base_types:
+      - "System.Attribute"
+    methods:
+      - name: ".ctor"
+        visibility: "public"
+        abstract: false
+        static: false
+        virtual: false
+        final: false
+        number_of_generic_parameters: 0
+        number_of_parameters: 1
+        parameters:
+          - name: ""
+            type: "byte"
+  - fullname: "System.Runtime.CompilerServices.NullableContextAttribute"
+    name: "NullableContextAttribute"
+    namespace: "System.Runtime.CompilerServices"
+    visibility: "internal"
+    type: "class"
+    abstract: false
+    sealed: true
+    number_of_base_types: 1
+    number_of_generic_parameters: 0
+    number_of_methods: 1
+    base_types:
+      - "System.Attribute"
+    methods:
+      - name: ".ctor"
+        visibility: "public"
+        abstract: false
+        static: false
+        virtual: false
+        final: false
+        number_of_generic_parameters: 0
+        number_of_parameters: 1
+        parameters:
+          - name: ""
+            type: "byte"
+  - fullname: "System.Runtime.CompilerServices.NullablePublicOnlyAttribute"
+    name: "NullablePublicOnlyAttribute"
+    namespace: "System.Runtime.CompilerServices"
+    visibility: "internal"
+    type: "class"
+    abstract: false
+    sealed: true
+    number_of_base_types: 1
+    number_of_generic_parameters: 0
+    number_of_methods: 1
+    base_types:
+      - "System.Attribute"
+    methods:
+      - name: ".ctor"
+        visibility: "public"
+        abstract: false
+        static: false
+        virtual: false
+        final: false
+        number_of_generic_parameters: 0
+        number_of_parameters: 1
+        parameters:
+          - name: ""
+            type: "bool"
+  - fullname: "Interop"
+    name: "Interop"
+    visibility: "internal"
+    type: "class"
+    abstract: true
+    sealed: true
+    number_of_base_types: 1
+    number_of_generic_parameters: 0
+    number_of_methods: 0
+    base_types:
+      - "System.Object"
+  - fullname: "Interop.Kernel32"
+    name: "Kernel32"
+    namespace: "Interop"
+    visibility: "internal"
+    type: "class"
+    abstract: true
+    sealed: true
+    number_of_base_types: 1
+    number_of_generic_parameters: 0
+    number_of_methods: 1
+    base_types:
+      - "System.Object"
+    methods:
+      - name: "LoadLibraryEx"
+        visibility: "internal"
+        abstract: false
+        static: true
+        virtual: false
+        final: false
+        return_type: "IntPtr"
+        number_of_generic_parameters: 0
+        number_of_parameters: 3
+        parameters:
+          - name: ""
+            type: "string"
+          - name: ""
+            type: "IntPtr"
+          - name: ""
+            type: "int"
+  - fullname: "Interop.Winsock"
+    name: "Winsock"
+    namespace: "Interop"
+    visibility: "internal"
+    type: "class"
+    abstract: true
+    sealed: true
+    number_of_base_types: 1
+    number_of_generic_parameters: 0
+    number_of_methods: 13
+    base_types:
+      - "System.Object"
+    methods:
+      - name: "closesocket"
+        visibility: "internal"
+        abstract: false
+        static: true
+        virtual: false
+        final: false
+        return_type: "System.Net.Sockets.SocketError"
+        number_of_generic_parameters: 0
+        number_of_parameters: 1
+        parameters:
+          - name: ""
+            type: "IntPtr"
+      - name: "gethostname"
+        visibility: "internal"
+        abstract: false
+        static: true
+        virtual: false
+        final: false
+        return_type: "System.Net.Sockets.SocketError"
+        number_of_generic_parameters: 0
+        number_of_parameters: 2
+        parameters:
+          - name: ""
+            type: "Ptr<byte>"
+          - name: ""
+            type: "int"
+      - name: "GetNameInfoW"
+        visibility: "internal"
+        abstract: false
+        static: true
+        virtual: false
+        final: false
+        return_type: "System.Net.Sockets.SocketError"
+        number_of_generic_parameters: 0
+        number_of_parameters: 7
+        parameters:
+          - name: ""
+            type: "Ptr<byte>"
+          - name: ""
+            type: "int"
+          - name: ""
+            type: "Ptr<char>"
+          - name: ""
+            type: "int"
+          - name: ""
+            type: "Ptr<char>"
+          - name: ""
+            type: "int"
+          - name: ""
+            type: "int"
+      - name: "GetAddrInfoW"
+        visibility: "internal"
+        abstract: false
+        static: true
+        virtual: false
+        final: false
+        return_type: "int"
+        number_of_generic_parameters: 0
+        number_of_parameters: 4
+        parameters:
+          - name: ""
+            type: "string"
+          - name: ""
+            type: "string"
+          - name: ""
+            type: "Ptr<Interop.Winsock.AddressInfo>"
+          - name: ""
+            type: "Ptr<Ptr<Interop.Winsock.AddressInfo>>"
+      - name: "FreeAddrInfoW"
+        visibility: "internal"
+        abstract: false
+        static: true
+        virtual: false
+        final: false
+        return_type: "void"
+        number_of_generic_parameters: 0
+        number_of_parameters: 1
+        parameters:
+          - name: ""
+            type: "Ptr<Interop.Winsock.AddressInfo>"
+      - name: "EnsureInitialized"
+        visibility: "internal"
+        abstract: false
+        static: true
+        virtual: false
+        final: false
+        return_type: "void"
+        number_of_generic_parameters: 0
+        number_of_parameters: 0
+      - name: "WSAStartup"
+        visibility: "private"
+        abstract: false
+        static: true
+        virtual: false
+        final: false
+        return_type: "System.Net.Sockets.SocketError"
+        number_of_generic_parameters: 0
+        number_of_parameters: 2
+        parameters:
+          - name: ""
+            type: "short"
+          - name: ""
+            type: "Ptr<Interop.Winsock.WSAData>"
+      - name: "WSACleanup"
+        visibility: "private"
+        abstract: false
+        static: true
+        virtual: false
+        final: false
+        return_type: "System.Net.Sockets.SocketError"
+        number_of_generic_parameters: 0
+        number_of_parameters: 0
+      - name: "WSASocketW"
+        visibility: "internal"
+        abstract: false
+        static: true
+        virtual: false
+        final: false
+        return_type: "IntPtr"
+        number_of_generic_parameters: 0
+        number_of_parameters: 6
+        parameters:
+          - name: ""
+            type: "System.Net.Sockets.AddressFamily"
+          - name: ""
+            type: "System.Net.Internals.SocketType"
+          - name: ""
+            type: "int"
+          - name: ""
+            type: "IntPtr"
+          - name: ""
+            type: "int"
+          - name: ""
+            type: "int"
+      - name: "GetAddrInfoExW"
+        visibility: "internal"
+        abstract: false
+        static: true
+        virtual: false
+        final: false
+        return_type: "int"
+        number_of_generic_parameters: 0
+        number_of_parameters: 10
+        parameters:
+          - name: ""
+            type: "string"
+          - name: ""
+            type: "string"
+          - name: ""
+            type: "int"
+          - name: ""
+            type: "IntPtr"
+          - name: ""
+            type: "Ptr<Interop.Winsock.AddressInfoEx>"
+          - name: ""
+            type: "Ptr<Ptr<Interop.Winsock.AddressInfoEx>>"
+          - name: ""
+            type: "IntPtr"
+          - name: ""
+            type: "Ptr<System.Threading.NativeOverlapped>"
+          - name: ""
+            type: "FnPtr<void(int, int, Ptr<System.Threading.NativeOverlapped>)>"
+          - name: ""
+            type: "Ptr<IntPtr>"
+      - name: "GetAddrInfoExCancel"
+        visibility: "internal"
+        abstract: false
+        static: true
+        virtual: false
+        final: false
+        return_type: "int"
+        number_of_generic_parameters: 0
+        number_of_parameters: 1
+        parameters:
+          - name: ""
+            type: "Ptr<IntPtr>"
+      - name: "FreeAddrInfoExW"
+        visibility: "internal"
+        abstract: false
+        static: true
+        virtual: false
+        final: false
+        return_type: "void"
+        number_of_generic_parameters: 0
+        number_of_parameters: 1
+        parameters:
+          - name: ""
+            type: "Ptr<Interop.Winsock.AddressInfoEx>"
+      - name: "<EnsureInitialized>g__Initialize|8_0"
+        visibility: "internal"
+        abstract: false
+        static: true
+        virtual: false
+        final: false
+        return_type: "void"
+        number_of_generic_parameters: 0
+        number_of_parameters: 0
+  - fullname: "Interop.Winsock.AddressInfo"
+    name: "AddressInfo"
+    namespace: "Interop.Winsock"
+    visibility: "internal"
+    type: "class"
+    abstract: false
+    sealed: true
+    number_of_base_types: 1
+    number_of_generic_parameters: 0
+    number_of_methods: 0
+    base_types:
+      - "System.ValueType"
+  - fullname: "Interop.Winsock.WSAData"
+    name: "WSAData"
+    namespace: "Interop.Winsock"
+    visibility: "private"
+    type: "class"
+    abstract: false
+    sealed: true
+    number_of_base_types: 1
+    number_of_generic_parameters: 0
+    number_of_methods: 0
+    base_types:
+      - "System.ValueType"
+  - fullname: "Interop.Winsock.AddressInfoEx"
+    name: "AddressInfoEx"
+    namespace: "Interop.Winsock"
+    visibility: "internal"
+    type: "class"
+    abstract: false
+    sealed: true
+    number_of_base_types: 1
+    number_of_generic_parameters: 0
+    number_of_methods: 0
+    base_types:
+      - "System.ValueType"
+  - fullname: "FxResources.System.Net.NameResolution.SR"
+    name: "SR"
+    namespace: "FxResources.System.Net.NameResolution"
+    visibility: "internal"
+    type: "class"
+    abstract: true
+    sealed: true
+    number_of_base_types: 1
+    number_of_generic_parameters: 0
+    number_of_methods: 0
+    base_types:
+      - "System.Object"
+  - fullname: "Microsoft.Extensions.Internal.ValueStopwatch"
+    name: "ValueStopwatch"
+    namespace: "Microsoft.Extensions.Internal"
+    visibility: "internal"
+    type: "class"
+    abstract: false
+    sealed: true
+    number_of_base_types: 1
+    number_of_generic_parameters: 0
+    number_of_methods: 5
+    base_types:
+      - "System.ValueType"
+    methods:
+      - name: "get_IsActive"
+        visibility: "public"
+        abstract: false
+        static: false
+        virtual: false
+        final: false
+        return_type: "bool"
+        number_of_generic_parameters: 0
+        number_of_parameters: 0
+      - name: ".ctor"
+        visibility: "private"
+        abstract: false
+        static: false
+        virtual: false
+        final: false
+        number_of_generic_parameters: 0
+        number_of_parameters: 1
+        parameters:
+          - name: ""
+            type: "long"
+      - name: "StartNew"
+        visibility: "public"
+        abstract: false
+        static: true
+        virtual: false
+        final: false
+        return_type: "Microsoft.Extensions.Internal.ValueStopwatch"
+        number_of_generic_parameters: 0
+        number_of_parameters: 0
+      - name: "GetElapsedTime"
+        visibility: "public"
+        abstract: false
+        static: false
+        virtual: false
+        final: false
+        return_type: "System.TimeSpan"
+        number_of_generic_parameters: 0
+        number_of_parameters: 0
+      - name: ".cctor"
+        visibility: "private"
+        abstract: false
+        static: true
+        virtual: false
+        final: false
+        number_of_generic_parameters: 0
+        number_of_parameters: 0
+  - fullname: "System.SR"
+    name: "SR"
+    namespace: "System"
+    visibility: "internal"
+    type: "class"
+    abstract: true
+    sealed: true
+    number_of_base_types: 1
+    number_of_generic_parameters: 0
+    number_of_methods: 8
+    base_types:
+      - "System.Object"
+    methods:
+      - name: "UsingResourceKeys"
+        visibility: "private"
+        abstract: false
+        static: true
+        virtual: false
+        final: false
+        return_type: "bool"
+        number_of_generic_parameters: 0
+        number_of_parameters: 0
+      - name: "GetResourceString"
+        visibility: "internal"
+        abstract: false
+        static: true
+        virtual: false
+        final: false
+        return_type: "string"
+        number_of_generic_parameters: 0
+        number_of_parameters: 1
+        parameters:
+          - name: ""
+            type: "string"
+      - name: "Format"
+        visibility: "internal"
+        abstract: false
+        static: true
+        virtual: false
+        final: false
+        return_type: "string"
+        number_of_generic_parameters: 0
+        number_of_parameters: 2
+        parameters:
+          - name: ""
+            type: "string"
+          - name: ""
+            type: "object"
+      - name: "Format"
+        visibility: "internal"
+        abstract: false
+        static: true
+        virtual: false
+        final: false
+        return_type: "string"
+        number_of_generic_parameters: 0
+        number_of_parameters: 3
+        parameters:
+          - name: ""
+            type: "string"
+          - name: ""
+            type: "object"
+          - name: ""
+            type: "object"
+      - name: "get_ResourceManager"
+        visibility: "internal"
+        abstract: false
+        static: true
+        virtual: false
+        final: false
+        return_type: "System.Resources.ResourceManager"
+        number_of_generic_parameters: 0
+        number_of_parameters: 0
+      - name: "get_net_toolong"
+        visibility: "internal"
+        abstract: false
+        static: true
+        virtual: false
+        final: false
+        return_type: "string"
+        number_of_generic_parameters: 0
+        number_of_parameters: 0
+      - name: "get_net_invalid_ip_addr"
+        visibility: "internal"
+        abstract: false
+        static: true
+        virtual: false
+        final: false
+        return_type: "string"
+        number_of_generic_parameters: 0
+        number_of_parameters: 0
+      - name: ".cctor"
+        visibility: "private"
+        abstract: false
+        static: true
+        virtual: false
+        final: false
+        number_of_generic_parameters: 0
+        number_of_parameters: 0
+  - fullname: "System.Net.Dns"
+    name: "Dns"
+    namespace: "System.Net"
+    visibility: "public"
+    type: "class"
+    abstract: true
+    sealed: true
+    number_of_base_types: 1
+    number_of_generic_parameters: 0
+    number_of_methods: 21
+    base_types:
+      - "System.Object"
+    methods:
+      - name: "GetHostName"
+        visibility: "public"
+        abstract: false
+        static: true
+        virtual: false
+        final: false
+        return_type: "string"
+        number_of_generic_parameters: 0
+        number_of_parameters: 0
+      - name: "GetHostEntryAsync"
+        visibility: "public"
+        abstract: false
+        static: true
+        virtual: false
+        final: false
+        return_type: "System.Threading.Tasks.Task<System.Net.IPHostEntry>"
+        number_of_generic_parameters: 0
+        number_of_parameters: 2
+        parameters:
+          - name: ""
+            type: "string"
+          - name: ""
+            type: "System.Threading.CancellationToken"
+      - name: "GetHostEntryAsync"
+        visibility: "public"
+        abstract: false
+        static: true
+        virtual: false
+        final: false
+        return_type: "System.Threading.Tasks.Task<System.Net.IPHostEntry>"
+        number_of_generic_parameters: 0
+        number_of_parameters: 3
+        parameters:
+          - name: ""
+            type: "string"
+          - name: ""
+            type: "System.Net.Sockets.AddressFamily"
+          - name: ""
+            type: "System.Threading.CancellationToken"
+      - name: "GetHostAddresses"
+        visibility: "public"
+        abstract: false
+        static: true
+        virtual: false
+        final: false
+        return_type: "System.Net.IPAddress[]"
+        number_of_generic_parameters: 0
+        number_of_parameters: 1
+        parameters:
+          - name: ""
+            type: "string"
+      - name: "GetHostAddresses"
+        visibility: "public"
+        abstract: false
+        static: true
+        virtual: false
+        final: false
+        return_type: "System.Net.IPAddress[]"
+        number_of_generic_parameters: 0
+        number_of_parameters: 2
+        parameters:
+          - name: ""
+            type: "string"
+          - name: ""
+            type: "System.Net.Sockets.AddressFamily"
+      - name: "GetHostAddressesAsync"
+        visibility: "public"
+        abstract: false
+        static: true
+        virtual: false
+        final: false
+        return_type: "System.Threading.Tasks.Task<System.Net.IPAddress[]>"
+        number_of_generic_parameters: 0
+        number_of_parameters: 3
+        parameters:
+          - name: ""
+            type: "string"
+          - name: ""
+            type: "System.Net.Sockets.AddressFamily"
+          - name: ""
+            type: "System.Threading.CancellationToken"
+      - name: "GetHostEntryCore"
+        visibility: "private"
+        abstract: false
+        static: true
+        virtual: false
+        final: false
+        return_type: "System.Net.IPHostEntry"
+        number_of_generic_parameters: 0
+        number_of_parameters: 3
+        parameters:
+          - name: ""
+            type: "string"
+          - name: ""
+            type: "System.Net.Sockets.AddressFamily"
+          - name: ""
+            type: "Microsoft.Extensions.Internal.ValueStopwatch"
+      - name: "GetHostAddressesCore"
+        visibility: "private"
+        abstract: false
+        static: true
+        virtual: false
+        final: false
+        return_type: "System.Net.IPAddress[]"
+        number_of_generic_parameters: 0
+        number_of_parameters: 3
+        parameters:
+          - name: ""
+            type: "string"
+          - name: ""
+            type: "System.Net.Sockets.AddressFamily"
+          - name: "thisOrContextObject"
+            type: "Microsoft.Extensions.Internal.ValueStopwatch"
+      - name: "GetHostEntryOrAddressesCore"
+        visibility: "private"
+        abstract: false
+        static: true
+        virtual: false
+        final: false
+        return_type: "object"
+        number_of_generic_parameters: 0
+        number_of_parameters: 4
+        parameters:
+          - name: ""
+            type: "string"
+          - name: "thisOrContextObject"
+            type: "bool"
+          - name: "formattableString"
+            type: "System.Net.Sockets.AddressFamily"
+          - name: "memberName"
+            type: "Microsoft.Extensions.Internal.ValueStopwatch"
+      - name: "GetHostEntryCore"
+        visibility: "private"
+        abstract: false
+        static: true
+        virtual: false
+        final: false
+        return_type: "System.Net.IPHostEntry"
+        number_of_generic_parameters: 0
+        number_of_parameters: 3
+        parameters:
+          - name: ""
+            type: "System.Net.IPAddress"
+          - name: "thisOrContextObject"
+            type: "System.Net.Sockets.AddressFamily"
+          - name: "formattableString"
+            type: "Microsoft.Extensions.Internal.ValueStopwatch"
+      - name: "GetHostAddressesCore"
+        visibility: "private"
+        abstract: false
+        static: true
+        virtual: false
+        final: false
+        return_type: "System.Net.IPAddress[]"
+        number_of_generic_parameters: 0
+        number_of_parameters: 3
+        parameters:
+          - name: "thisOrContextObject"
+            type: "System.Net.IPAddress"
+          - name: "formattableString"
+            type: "System.Net.Sockets.AddressFamily"
+          - name: "memberName"
+            type: "Microsoft.Extensions.Internal.ValueStopwatch"
+      - name: "GetHostEntryOrAddressesCore"
+        visibility: "private"
+        abstract: false
+        static: true
+        virtual: false
+        final: false
+        return_type: "object"
+        number_of_generic_parameters: 0
+        number_of_parameters: 4
+        parameters:
+          - name: "thisOrContextObject"
+            type: "System.Net.IPAddress"
+          - name: "formattableString"
+            type: "bool"
+          - name: "memberName"
+            type: "System.Net.Sockets.AddressFamily"
+          - name: "thisOrContextObject"
+            type: "Microsoft.Extensions.Internal.ValueStopwatch"
+      - name: "GetHostEntryCoreAsync"
+        visibility: "private"
+        abstract: false
+        static: true
+        virtual: false
+        final: false
+        return_type: "System.Threading.Tasks.Task<System.Net.IPHostEntry>"
+        number_of_generic_parameters: 0
+        number_of_parameters: 5
+        parameters:
+          - name: "thisOrContextObject"
+            type: "string"
+          - name: "formattableString"
+            type: "bool"
+          - name: "memberName"
+            type: "bool"
+          - name: "thisOrContextObject"
+            type: "System.Net.Sockets.AddressFamily"
+          - name: "message"
+            type: "System.Threading.CancellationToken"
+      - name: "GetHostEntryOrAddressesCoreAsync"
+        visibility: "private"
+        abstract: false
+        static: true
+        virtual: false
+        final: false
+        return_type: "System.Threading.Tasks.Task"
+        number_of_generic_parameters: 0
+        number_of_parameters: 6
+        parameters:
+          - name: "thisOrContextObject"
+            type: "string"
+          - name: "formattableString"
+            type: "bool"
+          - name: "memberName"
+            type: "bool"
+          - name: "thisOrContextObject"
+            type: "bool"
+          - name: "message"
+            type: "System.Net.Sockets.AddressFamily"
+          - name: "memberName"
+            type: "System.Threading.CancellationToken"
+      - name: "GetAddrInfoWithTelemetryAsync"
+        visibility: "private"
+        abstract: false
+        static: true
+        virtual: false
+        final: false
+        return_type: "System.Threading.Tasks.Task<T>"
+        number_of_generic_parameters: 1
+        number_of_parameters: 4
+        generic_parameters:
+          - "T"
+        parameters:
+          - name: "thisOrContextObject"
+            type: "string"
+          - name: "formattableString"
+            type: "bool"
+          - name: "memberName"
+            type: "System.Net.Sockets.AddressFamily"
+          - name: "thisOrContextObject"
+            type: "System.Threading.CancellationToken"
+      - name: "CreateHostEntryForAddress"
+        visibility: "private"
+        abstract: false
+        static: true
+        virtual: false
+        final: false
+        return_type: "System.Net.IPHostEntry"
+        number_of_generic_parameters: 0
+        number_of_parameters: 1
+        parameters:
+          - name: "thisOrContextObject"
+            type: "System.Net.IPAddress"
+      - name: "ValidateHostName"
+        visibility: "private"
+        abstract: false
+        static: true
+        virtual: false
+        final: false
+        return_type: "void"
+        number_of_generic_parameters: 0
+        number_of_parameters: 1
+        parameters:
+          - name: "thisOrContextObject"
+            type: "string"
+      - name: "LogFailure"
+        visibility: "private"
+        abstract: false
+        static: true
+        virtual: false
+        final: false
+        return_type: "bool"
+        number_of_generic_parameters: 0
+        number_of_parameters: 1
+        parameters:
+          - name: "thisOrContextObject"
+            type: "Microsoft.Extensions.Internal.ValueStopwatch"
+      - name: "RunAsync"
+        visibility: "private"
+        abstract: false
+        static: true
+        virtual: false
+        final: false
+        return_type: "System.Threading.Tasks.Task<TResult>"
+        number_of_generic_parameters: 1
+        number_of_parameters: 3
+        generic_parameters:
+          - "TResult"
+        parameters:
+          - name: "thisOrContextObject"
+            type: "System.Func<object,Microsoft.Extensions.Internal.ValueStopwatch,TResult>"
+          - name: "formattableString"
+            type: "object"
+          - name: "memberName"
+            type: "System.Threading.CancellationToken"
+      - name: ".cctor"
+        visibility: "private"
+        abstract: false
+        static: true
+        virtual: false
+        final: false
+        number_of_generic_parameters: 0
+        number_of_parameters: 0
+      - name: "<GetAddrInfoWithTelemetryAsync>g__CompleteAsync|34_0"
+        visibility: "internal"
+        abstract: false
+        static: true
+        virtual: false
+        final: false
+        return_type: "System.Threading.Tasks.Task<T>"
+        number_of_generic_parameters: 1
+        number_of_parameters: 3
+        generic_parameters:
+          - "T"
+        parameters:
+          - name: "thisOrContextObject"
+            type: "System.Threading.Tasks.Task"
+          - name: "formattableString"
+            type: "string"
+          - name: "memberName"
+            type: "Microsoft.Extensions.Internal.ValueStopwatch"
+  - fullname: "System.Net.Dns.<>c"
+    name: "<>c"
+    namespace: "System.Net.Dns"
+    visibility: "private"
+    type: "class"
+    abstract: false
+    sealed: true
+    number_of_base_types: 1
+    number_of_generic_parameters: 0
+    number_of_methods: 5
+    base_types:
+      - "System.Object"
+    methods:
+      - name: ".cctor"
+        visibility: "private"
+        abstract: false
+        static: true
+        virtual: false
+        final: false
+        number_of_generic_parameters: 0
+        number_of_parameters: 0
+      - name: ".ctor"
+        visibility: "public"
+        abstract: false
+        static: false
+        virtual: false
+        final: false
+        number_of_generic_parameters: 0
+        number_of_parameters: 0
+      - name: "<GetHostEntryAsync>b__6_0"
+        visibility: "internal"
+        abstract: false
+        static: false
+        virtual: false
+        final: false
+        return_type: "void"
+        number_of_generic_parameters: 0
+        number_of_parameters: 2
+        parameters:
+          - name: "thisOrContextObject"
+            type: "System.Threading.Tasks.Task<System.Net.IPHostEntry>"
+          - name: "formattableString"
+            type: "object"
+      - name: "<GetHostEntryOrAddressesCoreAsync>b__33_0"
+        visibility: "internal"
+        abstract: false
+        static: false
+        virtual: false
+        final: false
+        return_type: "System.Net.IPAddress[]"
+        number_of_generic_parameters: 0
+        number_of_parameters: 2
+        parameters:
+          - name: "thisOrContextObject"
+            type: "object"
+          - name: "formattableString"
+            type: "Microsoft.Extensions.Internal.ValueStopwatch"
+      - name: "<GetHostEntryOrAddressesCoreAsync>b__33_1"
+        visibility: "internal"
+        abstract: false
+        static: false
+        virtual: false
+        final: false
+        return_type: "System.Net.IPHostEntry"
+        number_of_generic_parameters: 0
+        number_of_parameters: 2
+        parameters:
+          - name: "thisOrContextObject"
+            type: "object"
+          - name: "formattableString"
+            type: "Microsoft.Extensions.Internal.ValueStopwatch"
+  - fullname: "System.Net.Dns.<>c__DisplayClass39_0"
+    name: "<>c__DisplayClass39_0"
+    namespace: "System.Net.Dns"
+    visibility: "private"
+    type: "class"
+    abstract: false
+    sealed: true
+    number_of_base_types: 1
+    number_of_generic_parameters: 1
+    number_of_methods: 2
+    base_types:
+      - "System.Object"
+    generic_parameters:
+      - "TResult"
+    methods:
+      - name: ".ctor"
+        visibility: "public"
+        abstract: false
+        static: false
+        virtual: false
+        final: false
+        number_of_generic_parameters: 0
+        number_of_parameters: 0
+      - name: "<RunAsync>b__0"
+        visibility: "internal"
+        abstract: false
+        static: false
+        virtual: false
+        final: false
+        return_type: "TResult"
+        number_of_generic_parameters: 0
+        number_of_parameters: 2
+        parameters:
+          - name: "thisOrContextObject"
+            type: "System.Threading.Tasks.Task"
+          - name: "formattableString"
+            type: "object"
+  - fullname: "System.Net.Dns.<>c__39"
+    name: "<>c__39"
+    namespace: "System.Net.Dns"
+    visibility: "private"
+    type: "class"
+    abstract: false
+    sealed: true
+    number_of_base_types: 1
+    number_of_generic_parameters: 1
+    number_of_methods: 3
+    base_types:
+      - "System.Object"
+    generic_parameters:
+      - "TResult"
+    methods:
+      - name: ".cctor"
+        visibility: "private"
+        abstract: false
+        static: true
+        virtual: false
+        final: false
+        number_of_generic_parameters: 0
+        number_of_parameters: 0
+      - name: ".ctor"
+        visibility: "public"
+        abstract: false
+        static: false
+        virtual: false
+        final: false
+        number_of_generic_parameters: 0
+        number_of_parameters: 0
+      - name: "<RunAsync>b__39_1"
+        visibility: "internal"
+        abstract: false
+        static: false
+        virtual: false
+        final: false
+        return_type: "void"
+        number_of_generic_parameters: 0
+        number_of_parameters: 2
+        parameters:
+          - name: "thisOrContextObject"
+            type: "System.Threading.Tasks.Task<TResult>"
+          - name: "formattableString"
+            type: "object"
+  - fullname: "System.Net.Dns.<<GetAddrInfoWithTelemetryAsync>g__CompleteAsync|34_0>d"
+    name: "<<GetAddrInfoWithTelemetryAsync>g__CompleteAsync|34_0>d"
+    namespace: "System.Net.Dns"
+    visibility: "private"
+    type: "class"
+    abstract: false
+    sealed: true
+    number_of_base_types: 2
+    number_of_generic_parameters: 1
+    number_of_methods: 2
+    base_types:
+      - "System.ValueType"
+      - "System.Runtime.CompilerServices.IAsyncStateMachine"
+    generic_parameters:
+      - "T"
+    methods:
+      - name: "MoveNext"
+        visibility: "private"
+        abstract: false
+        static: false
+        virtual: true
+        final: true
+        return_type: "void"
+        number_of_generic_parameters: 0
+        number_of_parameters: 0
+      - name: "SetStateMachine"
+        visibility: "private"
+        abstract: false
+        static: false
+        virtual: true
+        final: true
+        return_type: "void"
+        number_of_generic_parameters: 0
+        number_of_parameters: 1
+        parameters:
+          - name: "thisOrContextObject"
+            type: "System.Runtime.CompilerServices.IAsyncStateMachine"
+  - fullname: "System.Net.IPHostEntry"
+    name: "IPHostEntry"
+    namespace: "System.Net"
+    visibility: "public"
+    type: "class"
+    abstract: false
+    sealed: false
+    number_of_base_types: 1
+    number_of_generic_parameters: 0
+    number_of_methods: 6
+    base_types:
+      - "System.Object"
+    methods:
+      - name: "get_HostName"
+        visibility: "public"
+        abstract: false
+        static: false
+        virtual: false
+        final: false
+        return_type: "string"
+        number_of_generic_parameters: 0
+        number_of_parameters: 0
+      - name: "set_HostName"
+        visibility: "public"
+        abstract: false
+        static: false
+        virtual: false
+        final: false
+        return_type: "void"
+        number_of_generic_parameters: 0
+        number_of_parameters: 1
+        parameters:
+          - name: "thisOrContextObject"
+            type: "string"
+      - name: "set_Aliases"
+        visibility: "public"
+        abstract: false
+        static: false
+        virtual: false
+        final: false
+        return_type: "void"
+        number_of_generic_parameters: 0
+        number_of_parameters: 1
+        parameters:
+          - name: "thisOrContextObject"
+            type: "string[]"
+      - name: "get_AddressList"
+        visibility: "public"
+        abstract: false
+        static: false
+        virtual: false
+        final: false
+        return_type: "System.Net.IPAddress[]"
+        number_of_generic_parameters: 0
+        number_of_parameters: 0
+      - name: "set_AddressList"
+        visibility: "public"
+        abstract: false
+        static: false
+        virtual: false
+        final: false
+        return_type: "void"
+        number_of_generic_parameters: 0
+        number_of_parameters: 1
+        parameters:
+          - name: "thisOrContextObject"
+            type: "System.Net.IPAddress[]"
+      - name: ".ctor"
+        visibility: "public"
+        abstract: false
+        static: false
+        virtual: false
+        final: false
+        number_of_generic_parameters: 0
+        number_of_parameters: 0
+  - fullname: "System.Net.NetEventSource"
+    name: "NetEventSource"
+    namespace: "System.Net"
+    visibility: "internal"
+    type: "class"
+    abstract: false
+    sealed: true
+    number_of_base_types: 1
+    number_of_generic_parameters: 0
+    number_of_methods: 12
+    base_types:
+      - "System.Diagnostics.Tracing.EventSource"
+    methods:
+      - name: "Info"
+        visibility: "public"
+        abstract: false
+        static: true
+        virtual: false
+        final: false
+        return_type: "void"
+        number_of_generic_parameters: 0
+        number_of_parameters: 3
+        parameters:
+          - name: "thisOrContextObject"
+            type: "object"
+          - name: "formattableString"
+            type: "System.FormattableString"
+          - name: "memberName"
+            type: "string"
+      - name: "Info"
+        visibility: "public"
+        abstract: false
+        static: true
+        virtual: false
+        final: false
+        return_type: "void"
+        number_of_generic_parameters: 0
+        number_of_parameters: 3
+        parameters:
+          - name: "thisOrContextObject"
+            type: "object"
+          - name: "message"
+            type: "object"
+          - name: "memberName"
+            type: "string"
+      - name: "Info"
+        visibility: "private"
+        abstract: false
+        static: false
+        virtual: false
+        final: false
+        return_type: "void"
+        number_of_generic_parameters: 0
+        number_of_parameters: 3
+        parameters:
+          - name: "thisOrContextObject"
+            type: "string"
+          - name: "memberName"
+            type: "string"
+          - name: "message"
+            type: "string"
+      - name: "Error"
+        visibility: "public"
+        abstract: false
+        static: true
+        virtual: false
+        final: false
+        return_type: "void"
+        number_of_generic_parameters: 0
+        number_of_parameters: 3
+        parameters:
+          - name: "thisOrContextObject"
+            type: "object"
+          - name: "formattableString"
+            type: "System.FormattableString"
+          - name: "memberName"
+            type: "string"
+      - name: "Error"
+        visibility: "public"
+        abstract: false
+        static: true
+        virtual: false
+        final: false
+        return_type: "void"
+        number_of_generic_parameters: 0
+        number_of_parameters: 3
+        parameters:
+          - name: "thisOrContextObject"
+            type: "object"
+          - name: "message"
+            type: "object"
+          - name: "memberName"
+            type: "string"
+      - name: "ErrorMessage"
+        visibility: "private"
+        abstract: false
+        static: false
+        virtual: false
+        final: false
+        return_type: "void"
+        number_of_generic_parameters: 0
+        number_of_parameters: 3
+        parameters:
+          - name: "thisOrContextObject"
+            type: "string"
+          - name: "memberName"
+            type: "string"
+          - name: "message"
+            type: "string"
+      - name: "IdOf"
+        visibility: "public"
+        abstract: false
+        static: true
+        virtual: false
+        final: false
+        return_type: "string"
+        number_of_generic_parameters: 0
+        number_of_parameters: 1
+        parameters:
+          - name: "value"
+            type: "object"
+      - name: "GetHashCode"
+        visibility: "public"
+        abstract: false
+        static: true
+        virtual: false
+        final: false
+        return_type: "int"
+        number_of_generic_parameters: 0
+        number_of_parameters: 1
+        parameters:
+          - name: "value"
+            type: "object"
+      - name: "Format"
+        visibility: "public"
+        abstract: false
+        static: true
+        virtual: false
+        final: false
+        return_type: "object"
+        number_of_generic_parameters: 0
+        number_of_parameters: 1
+        parameters:
+          - name: "value"
+            type: "object"
+      - name: "Format"
+        visibility: "private"
+        abstract: false
+        static: true
+        virtual: false
+        final: false
+        return_type: "string"
+        number_of_generic_parameters: 0
+        number_of_parameters: 1
+        parameters:
+          - name: "s"
+            type: "System.FormattableString"
+      - name: ".ctor"
+        visibility: "public"
+        abstract: false
+        static: false
+        virtual: false
+        final: false
+        number_of_generic_parameters: 0
+        number_of_parameters: 0
+      - name: ".cctor"
+        visibility: "private"
+        abstract: false
+        static: true
+        virtual: false
+        final: false
+        number_of_generic_parameters: 0
+        number_of_parameters: 0
+  - fullname: "System.Net.NetEventSource.Keywords"
+    name: "Keywords"
+    namespace: "System.Net.NetEventSource"
+    visibility: "public"
+    type: "class"
+    abstract: true
+    sealed: true
+    number_of_base_types: 1
+    number_of_generic_parameters: 0
+    number_of_methods: 0
+    base_types:
+      - "System.Object"
+  - fullname: "System.Net.NameResolutionTelemetry"
+    name: "NameResolutionTelemetry"
+    namespace: "System.Net"
+    visibility: "internal"
+    type: "class"
+    abstract: false
+    sealed: true
+    number_of_base_types: 1
+    number_of_generic_parameters: 0
+    number_of_methods: 10
+    base_types:
+      - "System.Diagnostics.Tracing.EventSource"
+    methods:
+      - name: "OnEventCommand"
+        visibility: "protected"
+        abstract: false
+        static: false
+        virtual: true
+        final: false
+        return_type: "void"
+        number_of_generic_parameters: 0
+        number_of_parameters: 1
+        parameters:
+          - name: "command"
+            type: "System.Diagnostics.Tracing.EventCommandEventArgs"
+      - name: "ResolutionStart"
+        visibility: "private"
+        abstract: false
+        static: false
+        virtual: false
+        final: false
+        return_type: "void"
+        number_of_generic_parameters: 0
+        number_of_parameters: 1
+        parameters:
+          - name: "hostNameOrAddress"
+            type: "string"
+      - name: "ResolutionStop"
+        visibility: "private"
+        abstract: false
+        static: false
+        virtual: false
+        final: false
+        return_type: "void"
+        number_of_generic_parameters: 0
+        number_of_parameters: 0
+      - name: "ResolutionFailed"
+        visibility: "private"
+        abstract: false
+        static: false
+        virtual: false
+        final: false
+        return_type: "void"
+        number_of_generic_parameters: 0
+        number_of_parameters: 0
+      - name: "BeforeResolution"
+        visibility: "public"
+        abstract: false
+        static: false
+        virtual: false
+        final: false
+        return_type: "Microsoft.Extensions.Internal.ValueStopwatch"
+        number_of_generic_parameters: 0
+        number_of_parameters: 1
+        parameters:
+          - name: "hostNameOrAddress"
+            type: "object"
+      - name: "AfterResolution"
+        visibility: "public"
+        abstract: false
+        static: false
+        virtual: false
+        final: false
+        return_type: "void"
+        number_of_generic_parameters: 0
+        number_of_parameters: 2
+        parameters:
+          - name: "stopwatch"
+            type: "Microsoft.Extensions.Internal.ValueStopwatch"
+          - name: "successful"
+            type: "bool"
+      - name: ".ctor"
+        visibility: "public"
+        abstract: false
+        static: false
+        virtual: false
+        final: false
+        number_of_generic_parameters: 0
+        number_of_parameters: 0
+      - name: ".cctor"
+        visibility: "private"
+        abstract: false
+        static: true
+        virtual: false
+        final: false
+        number_of_generic_parameters: 0
+        number_of_parameters: 0
+      - name: "<OnEventCommand>b__9_0"
+        visibility: "private"
+        abstract: false
+        static: false
+        virtual: false
+        final: false
+        return_type: "double"
+        number_of_generic_parameters: 0
+        number_of_parameters: 0
+      - name: "<OnEventCommand>b__9_1"
+        visibility: "private"
+        abstract: false
+        static: false
+        virtual: false
+        final: false
+        return_type: "double"
+        number_of_generic_parameters: 0
+        number_of_parameters: 0
+  - fullname: "System.Net.SocketProtocolSupportPal"
+    name: "SocketProtocolSupportPal"
+    namespace: "System.Net"
+    visibility: "internal"
+    type: "class"
+    abstract: true
+    sealed: true
+    number_of_base_types: 1
+    number_of_generic_parameters: 0
+    number_of_methods: 4
+    base_types:
+      - "System.Object"
+    methods:
+      - name: "get_OSSupportsIPv6"
+        visibility: "public"
+        abstract: false
+        static: true
+        virtual: false
+        final: false
+        return_type: "bool"
+        number_of_generic_parameters: 0
+        number_of_parameters: 0
+      - name: "IsIPv6Disabled"
+        visibility: "private"
+        abstract: false
+        static: true
+        virtual: false
+        final: false
+        return_type: "bool"
+        number_of_generic_parameters: 0
+        number_of_parameters: 0
+      - name: "IsSupported"
+        visibility: "private"
+        abstract: false
+        static: true
+        virtual: false
+        final: false
+        return_type: "bool"
+        number_of_generic_parameters: 0
+        number_of_parameters: 1
+        parameters:
+          - name: ""
+            type: "System.Net.Sockets.AddressFamily"
+      - name: ".cctor"
+        visibility: "private"
+        abstract: false
+        static: true
+        virtual: false
+        final: false
+        number_of_generic_parameters: 0
+        number_of_parameters: 0
+  - fullname: "System.Net.NameResolutionPal"
+    name: "NameResolutionPal"
+    namespace: "System.Net"
+    visibility: "internal"
+    type: "class"
+    abstract: true
+    sealed: true
+    number_of_base_types: 1
+    number_of_generic_parameters: 0
+    number_of_methods: 12
+    base_types:
+      - "System.Object"
+    methods:
+      - name: "get_SupportsGetAddrInfoAsync"
+        visibility: "public"
+        abstract: false
+        static: true
+        virtual: false
+        final: false
+        return_type: "bool"
+        number_of_generic_parameters: 0
+        number_of_parameters: 0
+      - name: "TryGetAddrInfo"
+        visibility: "public"
+        abstract: false
+        static: true
+        virtual: false
+        final: false
+        return_type: "System.Net.Sockets.SocketError"
+        number_of_generic_parameters: 0
+        number_of_parameters: 7
+        parameters:
+          - name: ""
+            type: "string"
+          - name: ""
+            type: "bool"
+          - name: ""
+            type: "System.Net.Sockets.AddressFamily"
+          - name: ""
+            type: "ref string"
+          - name: ""
+            type: "ref string[]"
+          - name: ""
+            type: "ref System.Net.IPAddress[]"
+          - name: ""
+            type: "ref int"
+      - name: "TryGetNameInfo"
+        visibility: "public"
+        abstract: false
+        static: true
+        virtual: false
+        final: false
+        return_type: "string"
+        number_of_generic_parameters: 0
+        number_of_parameters: 3
+        parameters:
+          - name: ""
+            type: "System.Net.IPAddress"
+          - name: ""
+            type: "ref System.Net.Sockets.SocketError"
+          - name: ""
+            type: "ref int"
+      - name: "GetHostName"
+        visibility: "public"
+        abstract: false
+        static: true
+        virtual: false
+        final: false
+        return_type: "string"
+        number_of_generic_parameters: 0
+        number_of_parameters: 0
+      - name: "GetAddrInfoAsync"
+        visibility: "public"
+        abstract: false
+        static: true
+        virtual: false
+        final: false
+        return_type: "System.Threading.Tasks.Task"
+        number_of_generic_parameters: 0
+        number_of_parameters: 4
+        parameters:
+          - name: ""
+            type: "string"
+          - name: ""
+            type: "bool"
+          - name: ""
+            type: "System.Net.Sockets.AddressFamily"
+          - name: "P_3"
+            type: "System.Threading.CancellationToken"
+      - name: "GetAddressInfoExCallback"
+        visibility: "private"
+        abstract: false
+        static: true
+        virtual: false
+        final: false
+        return_type: "void"
+        number_of_generic_parameters: 0
+        number_of_parameters: 3
+        parameters:
+          - name: ""
+            type: "int"
+          - name: ""
+            type: "int"
+          - name: ""
+            type: "Ptr<System.Threading.NativeOverlapped>"
+      - name: "ProcessResult"
+        visibility: "private"
+        abstract: false
+        static: true
+        virtual: false
+        final: false
+        return_type: "void"
+        number_of_generic_parameters: 0
+        number_of_parameters: 2
+        parameters:
+          - name: ""
+            type: "System.Net.Sockets.SocketError"
+          - name: ""
+            type: "Ptr<System.Net.NameResolutionPal.GetAddrInfoExContext>"
+      - name: "ParseAddressInfo"
+        visibility: "private"
+        abstract: false
+        static: true
+        virtual: false
+        final: false
+        return_type: "System.Net.IPAddress[]"
+        number_of_generic_parameters: 0
+        number_of_parameters: 3
+        parameters:
+          - name: ""
+            type: "Ptr<Interop.Winsock.AddressInfo>"
+          - name: ""
+            type: "bool"
+          - name: ""
+            type: "ref string"
+      - name: "ParseAddressInfoEx"
+        visibility: "private"
+        abstract: false
+        static: true
+        virtual: false
+        final: false
+        return_type: "System.Net.IPAddress[]"
+        number_of_generic_parameters: 0
+        number_of_parameters: 3
+        parameters:
+          - name: ""
+            type: "Ptr<Interop.Winsock.AddressInfoEx>"
+          - name: ""
+            type: "bool"
+          - name: "P_2"
+            type: "ref string"
+      - name: "CreateIPv4Address"
+        visibility: "private"
+        abstract: false
+        static: true
+        virtual: false
+        final: false
+        return_type: "System.Net.IPAddress"
+        number_of_generic_parameters: 0
+        number_of_parameters: 1
+        parameters:
+          - name: ""
+            type: "System.ReadOnlySpan<byte>"
+      - name: "CreateIPv6Address"
+        visibility: "private"
+        abstract: false
+        static: true
+        virtual: false
+        final: false
+        return_type: "System.Net.IPAddress"
+        number_of_generic_parameters: 0
+        number_of_parameters: 1
+        parameters:
+          - name: ""
+            type: "System.ReadOnlySpan<byte>"
+      - name: "<get_SupportsGetAddrInfoAsync>g__Initialize|2_0"
+        visibility: "internal"
+        abstract: false
+        static: true
+        virtual: false
+        final: false
+        return_type: "void"
+        number_of_generic_parameters: 0
+        number_of_parameters: 0
+  - fullname: "System.Net.NameResolutionPal.GetAddrInfoExState"
+    name: "GetAddrInfoExState"
+    namespace: "System.Net.NameResolutionPal"
+    visibility: "private"
+    type: "class"
+    abstract: false
+    sealed: true
+    number_of_base_types: 2
+    number_of_generic_parameters: 0
+    number_of_methods: 12
+    base_types:
+      - "Microsoft.Win32.SafeHandles.SafeHandleZeroOrMinusOneIsInvalid"
+      - "System.Threading.IThreadPoolWorkItem"
+    methods:
+      - name: ".ctor"
+        visibility: "public"
+        abstract: false
+        static: false
+        virtual: false
+        final: false
+        number_of_generic_parameters: 0
+        number_of_parameters: 2
+        parameters:
+          - name: ""
+            type: "string"
+          - name: "P_1"
+            type: "bool"
+      - name: "get_HostName"
+        visibility: "public"
+        abstract: false
+        static: false
+        virtual: false
+        final: false
+        return_type: "string"
+        number_of_generic_parameters: 0
+        number_of_parameters: 0
+      - name: "get_JustAddresses"
+        visibility: "public"
+        abstract: false
+        static: false
+        virtual: false
+        final: false
+        return_type: "bool"
+        number_of_generic_parameters: 0
+        number_of_parameters: 0
+      - name: "get_Task"
+        visibility: "public"
+        abstract: false
+        static: false
+        virtual: false
+        final: false
+        return_type: "System.Threading.Tasks.Task"
+        number_of_generic_parameters: 0
+        number_of_parameters: 0
+      - name: "get_Context"
+        visibility: "internal"
+        abstract: false
+        static: false
+        virtual: false
+        final: false
+        return_type: "Ptr<System.Net.NameResolutionPal.GetAddrInfoExContext>"
+        number_of_generic_parameters: 0
+        number_of_parameters: 0
+      - name: "RegisterForCancellation"
+        visibility: "public"
+        abstract: false
+        static: false
+        virtual: false
+        final: false
+        return_type: "void"
+        number_of_generic_parameters: 0
+        number_of_parameters: 1
+        parameters:
+          - name: ""
+            type: "System.Threading.CancellationToken"
+      - name: "UnregisterAndGetCancellationToken"
+        visibility: "public"
+        abstract: false
+        static: false
+        virtual: false
+        final: false
+        return_type: "System.Threading.CancellationToken"
+        number_of_generic_parameters: 0
+        number_of_parameters: 0
+      - name: "SetResult"
+        visibility: "public"
+        abstract: false
+        static: false
+        virtual: false
+        final: false
+        return_type: "void"
+        number_of_generic_parameters: 0
+        number_of_parameters: 1
+        parameters:
+          - name: ""
+            type: "object"
+      - name: "System.Threading.IThreadPoolWorkItem.Execute"
+        visibility: "private"
+        abstract: false
+        static: false
+        virtual: true
+        final: true
+        return_type: "void"
+        number_of_generic_parameters: 0
+        number_of_parameters: 0
+      - name: "FromHandleAndFree"
+        visibility: "public"
+        abstract: false
+        static: true
+        virtual: false
+        final: false
+        return_type: "System.Net.NameResolutionPal.GetAddrInfoExState"
+        number_of_generic_parameters: 0
+        number_of_parameters: 1
+        parameters:
+          - name: ""
+            type: "IntPtr"
+      - name: "ReleaseHandle"
+        visibility: "protected"
+        abstract: false
+        static: false
+        virtual: true
+        final: false
+        return_type: "bool"
+        number_of_generic_parameters: 0
+        number_of_parameters: 0
+      - name: "CreateHandle"
+        visibility: "private"
+        abstract: false
+        static: false
+        virtual: false
+        final: false
+        return_type: "IntPtr"
+        number_of_generic_parameters: 0
+        number_of_parameters: 0
+  - fullname: "System.Net.NameResolutionPal.GetAddrInfoExState.<>c"
+    name: "<>c"
+    namespace: "System.Net.NameResolutionPal.GetAddrInfoExState"
+    visibility: "private"
+    type: "class"
+    abstract: false
+    sealed: true
+    number_of_base_types: 1
+    number_of_generic_parameters: 0
+    number_of_methods: 3
+    base_types:
+      - "System.Object"
+    methods:
+      - name: ".cctor"
+        visibility: "private"
+        abstract: false
+        static: true
+        virtual: false
+        final: false
+        number_of_generic_parameters: 0
+        number_of_parameters: 0
+      - name: ".ctor"
+        visibility: "public"
+        abstract: false
+        static: false
+        virtual: false
+        final: false
+        number_of_generic_parameters: 0
+        number_of_parameters: 0
+      - name: "<RegisterForCancellation>b__16_0"
+        visibility: "internal"
+        abstract: false
+        static: false
+        virtual: false
+        final: false
+        return_type: "void"
+        number_of_generic_parameters: 0
+        number_of_parameters: 1
+        parameters:
+          - name: ""
+            type: "object"
+  - fullname: "System.Net.NameResolutionPal.GetAddrInfoExContext"
+    name: "GetAddrInfoExContext"
+    namespace: "System.Net.NameResolutionPal"
+    visibility: "private"
+    type: "class"
+    abstract: false
+    sealed: true
+    number_of_base_types: 1
+    number_of_generic_parameters: 0
+    number_of_methods: 2
+    base_types:
+      - "System.ValueType"
+    methods:
+      - name: "AllocateContext"
+        visibility: "public"
+        abstract: false
+        static: true
+        virtual: false
+        final: false
+        return_type: "Ptr<System.Net.NameResolutionPal.GetAddrInfoExContext>"
+        number_of_generic_parameters: 0
+        number_of_parameters: 0
+      - name: "FreeContext"
+        visibility: "public"
+        abstract: false
+        static: true
+        virtual: false
+        final: false
+        return_type: "void"
+        number_of_generic_parameters: 0
+        number_of_parameters: 1
+        parameters:
+          - name: ""
+            type: "Ptr<System.Net.NameResolutionPal.GetAddrInfoExContext>"
+  - fullname: "System.Net.SocketAddressPal"
+    name: "SocketAddressPal"
+    namespace: "System.Net"
+    visibility: "internal"
+    type: "class"
+    abstract: true
+    sealed: true
+    number_of_base_types: 1
+    number_of_generic_parameters: 0
+    number_of_methods: 2
+    base_types:
+      - "System.Object"
+    methods:
+      - name: "GetIPv4Address"
+        visibility: "public"
+        abstract: false
+        static: true
+        virtual: false
+        final: false
+        return_type: "uint"
+        number_of_generic_parameters: 0
+        number_of_parameters: 1
+        parameters:
+          - name: ""
+            type: "System.ReadOnlySpan<byte>"
+      - name: "GetIPv6Address"
+        visibility: "public"
+        abstract: false
+        static: true
+        virtual: false
+        final: false
+        return_type: "void"
+        number_of_generic_parameters: 0
+        number_of_parameters: 3
+        parameters:
+          - name: ""
+            type: "System.ReadOnlySpan<byte>"
+          - name: "P_1"
+            type: "System.Span<byte>"
+          - name: "P_2"
+            type: "ref uint"
+  - fullname: "System.Net.Sockets.AddressInfoHints"
+    name: "AddressInfoHints"
+    namespace: "System.Net.Sockets"
+    visibility: "internal"
+    type: "class"
+    abstract: false
+    sealed: true
+    number_of_base_types: 1
+    number_of_generic_parameters: 0
+    number_of_methods: 0
+    base_types:
+      - "System.Enum"
+  - fullname: "System.Net.Internals.SocketType"
+    name: "SocketType"
+    namespace: "System.Net.Internals"
+    visibility: "internal"
+    type: "class"
+    abstract: false
+    sealed: true
+    number_of_base_types: 1
+    number_of_generic_parameters: 0
+    number_of_methods: 0
+    base_types:
+      - "System.Enum"
+  - fullname: "System.Net.Internals.SocketExceptionFactory"
+    name: "SocketExceptionFactory"
+    namespace: "System.Net.Internals"
+    visibility: "internal"
+    type: "class"
+    abstract: true
+    sealed: true
+    number_of_base_types: 1
+    number_of_generic_parameters: 0
+    number_of_methods: 1
+    base_types:
+      - "System.Object"
+    methods:
+      - name: "CreateSocketException"
+        visibility: "public"
+        abstract: false
+        static: true
+        virtual: false
+        final: false
+        return_type: "System.Net.Sockets.SocketException"
+        number_of_generic_parameters: 0
+        number_of_parameters: 2
+        parameters:
+          - name: "P_0"
+            type: "System.Net.Sockets.SocketError"
+          - name: "P_1"
+            type: "int"
+user_strings:
+  - "A\x00n\x00 \x00u\x00n\x00i\x00n\x00i\x00t\x00i\x00a\x00l\x00i\x00z\x00e\x00d\x00,\x00 \x00o\x00r\x00 \x00\'\x00d\x00e\x00f\x00a\x00u\x00l\x00t\x00\'\x00,\x00 \x00V\x00a\x00l\x00u\x00e\x00S\x00t\x00o\x00p\x00w\x00a\x00t\x00c\x00h\x00 \x00c\x00a\x00n\x00n\x00o\x00t\x00 \x00b\x00e\x00 \x00u\x00s\x00e\x00d\x00 \x00t\x00o\x00 \x00g\x00e\x00t\x00 \x00e\x00l\x00a\x00p\x00s\x00e\x00d\x00 \x00t\x00i\x00m\x00e\x00.\x00"
+  - ",\x00 \x00"
+  - "n\x00e\x00t\x00_\x00t\x00o\x00o\x00l\x00o\x00n\x00g\x00"
+  - "n\x00e\x00t\x00_\x00i\x00n\x00v\x00a\x00l\x00i\x00d\x00_\x00i\x00p\x00_\x00a\x00d\x00d\x00r\x00"
+  - "S\x00y\x00s\x00t\x00e\x00m\x00.\x00R\x00e\x00s\x00o\x00u\x00r\x00c\x00e\x00s\x00.\x00U\x00s\x00e\x00S\x00y\x00s\x00t\x00e\x00m\x00R\x00e\x00s\x00o\x00u\x00r\x00c\x00e\x00K\x00e\x00y\x00s\x00"
+  - "G\x00e\x00t\x00H\x00o\x00s\x00t\x00N\x00a\x00m\x00e\x00"
+  - "h\x00o\x00s\x00t\x00N\x00a\x00m\x00e\x00O\x00r\x00A\x00d\x00d\x00r\x00e\x00s\x00s\x00"
+  - "I\x00n\x00v\x00a\x00l\x00i\x00d\x00 \x00a\x00d\x00d\x00r\x00e\x00s\x00s\x00 \x00\'\x00{\x000\x00}\x00\'\x00"
+  - "G\x00e\x00t\x00H\x00o\x00s\x00t\x00A\x00d\x00d\x00r\x00e\x00s\x00s\x00e\x00s\x00"
+  - "{\x000\x00}\x00 \x00D\x00N\x00S\x00 \x00l\x00o\x00o\x00k\x00u\x00p\x00 \x00f\x00a\x00i\x00l\x00e\x00d\x00 \x00w\x00i\x00t\x00h\x00 \x00{\x001\x00}\x00"
+  - "G\x00e\x00t\x00H\x00o\x00s\x00t\x00E\x00n\x00t\x00r\x00y\x00O\x00r\x00A\x00d\x00d\x00r\x00e\x00s\x00s\x00e\x00s\x00C\x00o\x00r\x00e\x00"
+  - "f\x00o\x00r\x00w\x00a\x00r\x00d\x00 \x00l\x00o\x00o\x00k\x00u\x00p\x00 \x00f\x00o\x00r\x00 \x00\'\x00{\x000\x00}\x00\'\x00 \x00f\x00a\x00i\x00l\x00e\x00d\x00 \x00w\x00i\x00t\x00h\x00 \x00{\x001\x00}\x00"
+  - "h\x00o\x00s\x00t\x00N\x00a\x00m\x00e\x00"
+  - "G\x00e\x00t\x00H\x00o\x00s\x00t\x00E\x00n\x00t\x00r\x00y\x00O\x00r\x00A\x00d\x00d\x00r\x00e\x00s\x00s\x00e\x00s\x00C\x00o\x00r\x00e\x00A\x00s\x00y\x00n\x00c\x00"
+  - "{\x000\x00}\x00 \x00w\x00i\x00t\x00h\x00 \x00{\x001\x00}\x00 \x00e\x00n\x00t\x00r\x00i\x00e\x00s\x00"
+  - "G\x00e\x00t\x00H\x00o\x00s\x00t\x00E\x00n\x00t\x00r\x00y\x00A\x00s\x00y\x00n\x00c\x00"
+  - "{\x000\x00}\x00 \x00D\x00N\x00S\x00 \x00l\x00o\x00o\x00k\x00u\x00p\x00 \x00w\x00a\x00s\x00 \x00c\x00a\x00n\x00c\x00e\x00l\x00e\x00d\x00"
+  - "(\x00?\x00)\x00"
+  - "(\x00n\x00u\x00l\x00l\x00)\x00"
+  - "#\x00"
+  - "[\x00"
+  - "]\x00"
+  - "(\x00"
+  - ")\x00"
+  - ":\x00"
+  - "(\x000\x00x\x00"
+  - "X\x00"
+  - "0\x00x\x00"
+  - "d\x00n\x00s\x00-\x00l\x00o\x00o\x00k\x00u\x00p\x00s\x00-\x00r\x00e\x00q\x00u\x00e\x00s\x00t\x00e\x00d\x00"
+  - "D\x00N\x00S\x00 \x00L\x00o\x00o\x00k\x00u\x00p\x00s\x00 \x00R\x00e\x00q\x00u\x00e\x00s\x00t\x00e\x00d\x00"
+  - "c\x00u\x00r\x00r\x00e\x00n\x00t\x00-\x00d\x00n\x00s\x00-\x00l\x00o\x00o\x00k\x00u\x00p\x00s\x00"
+  - "C\x00u\x00r\x00r\x00e\x00n\x00t\x00 \x00D\x00N\x00S\x00 \x00L\x00o\x00o\x00k\x00u\x00p\x00s\x00"
+  - "d\x00n\x00s\x00-\x00l\x00o\x00o\x00k\x00u\x00p\x00s\x00-\x00d\x00u\x00r\x00a\x00t\x00i\x00o\x00n\x00"
+  - "A\x00v\x00e\x00r\x00a\x00g\x00e\x00 \x00D\x00N\x00S\x00 \x00L\x00o\x00o\x00k\x00u\x00p\x00 \x00D\x00u\x00r\x00a\x00t\x00i\x00o\x00n\x00"
+  - "m\x00s\x00"
+  - "S\x00y\x00s\x00t\x00e\x00m\x00.\x00N\x00e\x00t\x00.\x00D\x00i\x00s\x00a\x00b\x00l\x00e\x00I\x00P\x00v\x006\x00"
+  - "D\x00O\x00T\x00N\x00E\x00T\x00_\x00S\x00Y\x00S\x00T\x00E\x00M\x00_\x00N\x00E\x00T\x00_\x00D\x00I\x00S\x00A\x00B\x00L\x00E\x00I\x00P\x00V\x006\x00"
+  - "1\x00"
+  - "t\x00r\x00u\x00e\x00"
+  - "G\x00e\x00t\x00H\x00o\x00s\x00t\x00N\x00a\x00m\x00e\x00 \x00f\x00a\x00i\x00l\x00e\x00d\x00 \x00w\x00i\x00t\x00h\x00 \x00{\x000\x00}\x00"
+  - "N\x00O\x00N\x00N\x00U\x00L\x00L\x00S\x00E\x00N\x00T\x00I\x00N\x00E\x00L\x00"
+  - "w\x00s\x002\x00_\x003\x002\x00.\x00d\x00l\x00l\x00"
+  - "G\x00e\x00t\x00A\x00d\x00d\x00r\x00I\x00n\x00f\x00o\x00E\x00x\x00C\x00a\x00n\x00c\x00e\x00l\x00"
+  - "G\x00e\x00t\x00A\x00d\x00d\x00r\x00I\x00n\x00f\x00o\x00E\x00x\x00C\x00a\x00n\x00c\x00e\x00l\x00 \x00r\x00e\x00t\x00u\x00r\x00n\x00e\x00d\x00 \x00e\x00r\x00r\x00o\x00r\x00 \x00{\x000\x00}\x00"
+  - "R\x00e\x00g\x00i\x00s\x00t\x00e\x00r\x00F\x00o\x00r\x00C\x00a\x00n\x00c\x00e\x00l\x00l\x00a\x00t\x00i\x00o\x00n\x00"
+modulerefs:
+  - "kernel32.dll"
+  - "ws2_32.dll"

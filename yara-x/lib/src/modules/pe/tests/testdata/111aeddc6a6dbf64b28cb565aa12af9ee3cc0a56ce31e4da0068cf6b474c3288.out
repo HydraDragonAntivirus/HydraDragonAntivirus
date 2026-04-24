@@ -1,0 +1,735 @@
+is_pe: true
+machine: MACHINE_I386
+subsystem: SUBSYSTEM_WINDOWS_GUI
+os_version:
+    major: 5
+    minor: 1
+subsystem_version:
+    major: 4
+    minor: 0
+image_version:
+    major: 5
+    minor: 1
+linker_version:
+    major: 7
+    minor: 0
+opthdr_magic: IMAGE_NT_OPTIONAL_HDR32_MAGIC
+characteristics: 0x10f  # RELOCS_STRIPPED | EXECUTABLE_IMAGE | LINE_NUMS_STRIPPED | LOCAL_SYMS_STRIPPED | MACHINE_32BIT
+dll_characteristics: 0x8000  # TERMINAL_SERVER_AWARE
+timestamp: 998098977  # 2001-08-18 01:42:57 UTC
+image_base: 0x1000000
+checksum: 330575
+base_of_code: 0x1000
+base_of_data: 0xa000
+entry_point: 0x4e5e
+entry_point_raw: 0x5a5e
+section_alignment: 0x1000
+file_alignment: 0x200
+loader_flags: 0x0
+size_of_optional_header: 0xe0
+size_of_code: 0x8800
+size_of_initialized_data: 0x3c200
+size_of_uninitialized_data: 0x0
+size_of_image: 0x48000
+size_of_headers: 0x400
+size_of_stack_reserve: 0x40000
+size_of_stack_commit: 0x1000
+size_of_heap_reserve: 0x100000
+size_of_heap_commit: 0x1000
+pointer_to_symbol_table: 0x0
+win32_version_value: 0
+number_of_symbols: 0
+number_of_rva_and_sizes: 16
+number_of_sections: 3
+number_of_imported_functions: 126
+number_of_delayed_imported_functions: 0
+number_of_resources: 31
+number_of_version_infos: 8
+number_of_imports: 6
+number_of_delayed_imports: 0
+number_of_exports: 0
+number_of_signatures: 1
+version_info:
+    "CompanyName": "Microsoft Corporation"
+    "FileDescription": "DirectX 9.0 Web setup"
+    "FileVersion": "9.29.1962.0"
+    "InternalName": "DXWebSetup"
+    "LegalCopyright": "Copyright (c) Microsoft Corporation. All rights reserved."
+    "OriginalFilename": "dxwebsetup.exe"
+    "ProductName": "Microsoft® Windows® Operating System"
+    "ProductVersion": "9.29.1962.0"
+version_info_list:
+  - key: "CompanyName"
+    value: "Microsoft Corporation"
+  - key: "FileDescription"
+    value: "DirectX 9.0 Web setup"
+  - key: "FileVersion"
+    value: "9.29.1962.0"
+  - key: "InternalName"
+    value: "DXWebSetup"
+  - key: "LegalCopyright"
+    value: "Copyright (c) Microsoft Corporation. All rights reserved."
+  - key: "OriginalFilename"
+    value: "dxwebsetup.exe"
+  - key: "ProductName"
+    value: "Microsoft® Windows® Operating System"
+  - key: "ProductVersion"
+    value: "9.29.1962.0"
+rich_signature:
+    offset: 0x80
+    length: 0x38
+    key: 2278776681
+    raw_data: "->\xbd\xd4i_\xd3\x87i_\xd3\x87i_\xd3\x87\x93|\xca\x87d_\xd3\x87i_\xd2\x87\x17_\xd3\x87\xfe|\x96\x87h_\xd3\x87\xb3|\xcf\x87q_\xd3\x87\x93|\xee\x87h_\xd3\x87"
+    clear_data: "DanS\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xfa#\x19\x00\r\x00\x00\x00\x00\x00\x01\x00~\x00\x00\x00\x97#E\x00\x01\x00\x00\x00\xda#\x1c\x00\x18\x00\x00\x00\xfa#=\x00\x01\x00\x00\x00"
+    tools:
+      - toolid: 25
+        version: 9210
+        times: 13
+      - toolid: 1
+        version: 0
+        times: 126
+      - toolid: 69
+        version: 9111
+        times: 1
+      - toolid: 28
+        version: 9178
+        times: 24
+      - toolid: 61
+        version: 9210
+        times: 1
+pdb_path: "wextract.pdb"
+sections:
+  - name: ".text"
+    full_name: ".text"
+    characteristics: 0x60000020  # SECTION_MEM_READ | SECTION_MEM_WRITE | SECTION_SCALE_INDEX
+    raw_data_size: 0x8800
+    raw_data_offset: 0x400
+    virtual_address: 0x1000
+    virtual_size: 0x861a
+    pointer_to_relocations: 0x0
+    pointer_to_line_numbers: 0x0
+    number_of_relocations: 0
+    number_of_line_numbers: 0
+  - name: ".data"
+    full_name: ".data"
+    characteristics: 0xc0000040
+    raw_data_size: 0x400
+    raw_data_offset: 0x8c00
+    virtual_address: 0xa000
+    virtual_size: 0x1be4
+    pointer_to_relocations: 0x0
+    pointer_to_line_numbers: 0x0
+    number_of_relocations: 0
+    number_of_line_numbers: 0
+  - name: ".rsrc"
+    full_name: ".rsrc"
+    characteristics: 0x40000040
+    raw_data_size: 0x3be00
+    raw_data_offset: 0x9000
+    virtual_address: 0xc000
+    virtual_size: 0x3c000
+    pointer_to_relocations: 0x0
+    pointer_to_line_numbers: 0x0
+    number_of_relocations: 0
+    number_of_line_numbers: 0
+data_directories:
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x8ab0
+    size: 0x8c
+  - virtual_address: 0xc000
+    size: 0x3bd88
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x44e00
+    size: 0x1758
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x1210
+    size: 0x1c
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x1000
+    size: 0x210
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x0
+    size: 0x0
+  - virtual_address: 0x0
+    size: 0x0
+resource_timestamp: 1773781709  # 2026-03-17 21:08:29 UTC
+resource_version:
+    major: 4
+    minor: 0
+resources:
+  - length: 0x2e1a
+    rva: 0xc7a0
+    offset: 0x97a0
+    id: 3001
+    language: 1033
+    type_string: "A\x00V\x00I\x00"
+  - length: 0x2e8
+    rva: 0xf5bc
+    offset: 0xc5bc
+    type: RESOURCE_TYPE_ICON
+    id: 1
+    language: 1033
+  - length: 0x128
+    rva: 0xf8a4
+    offset: 0xc8a4
+    type: RESOURCE_TYPE_ICON
+    id: 2
+    language: 1033
+  - length: 0x2cc
+    rva: 0xf9cc
+    offset: 0xc9cc
+    type: RESOURCE_TYPE_DIALOG
+    id: 2001
+    language: 1033
+  - length: 0x18a
+    rva: 0xfc98
+    offset: 0xcc98
+    type: RESOURCE_TYPE_DIALOG
+    id: 2002
+    language: 1033
+  - length: 0x140
+    rva: 0xfe24
+    offset: 0xce24
+    type: RESOURCE_TYPE_DIALOG
+    id: 2003
+    language: 1033
+  - length: 0x196
+    rva: 0xff64
+    offset: 0xcf64
+    type: RESOURCE_TYPE_DIALOG
+    id: 2004
+    language: 1033
+  - length: 0x10e
+    rva: 0x100fc
+    offset: 0xd0fc
+    type: RESOURCE_TYPE_DIALOG
+    id: 2005
+    language: 1033
+  - length: 0xfa
+    rva: 0x1020c
+    offset: 0xd20c
+    type: RESOURCE_TYPE_DIALOG
+    id: 2006
+    language: 1033
+  - length: 0x8c
+    rva: 0x10308
+    offset: 0xd308
+    type: RESOURCE_TYPE_STRING
+    id: 63
+    language: 1033
+  - length: 0x520
+    rva: 0x10394
+    offset: 0xd394
+    type: RESOURCE_TYPE_STRING
+    id: 76
+    language: 1033
+  - length: 0x5cc
+    rva: 0x108b4
+    offset: 0xd8b4
+    type: RESOURCE_TYPE_STRING
+    id: 77
+    language: 1033
+  - length: 0x4b0
+    rva: 0x10e80
+    offset: 0xde80
+    type: RESOURCE_TYPE_STRING
+    id: 80
+    language: 1033
+  - length: 0x44a
+    rva: 0x11330
+    offset: 0xe330
+    type: RESOURCE_TYPE_STRING
+    id: 83
+    language: 1033
+  - length: 0x3ce
+    rva: 0x1177c
+    offset: 0xe77c
+    type: RESOURCE_TYPE_STRING
+    id: 85
+    language: 1033
+  - length: 0x1e
+    rva: 0x11b4c
+    offset: 0xeb4c
+    type: RESOURCE_TYPE_RCDATA
+    language: 1033
+    name_string: "A\x00D\x00M\x00Q\x00C\x00M\x00D\x00"
+  - length: 0x35de5
+    rva: 0x11b6c
+    offset: 0xeb6c
+    type: RESOURCE_TYPE_RCDATA
+    language: 1033
+    name_string: "C\x00A\x00B\x00I\x00N\x00E\x00T\x00"
+  - length: 0x4
+    rva: 0x47954
+    offset: 0x44954
+    type: RESOURCE_TYPE_RCDATA
+    language: 1033
+    name_string: "E\x00X\x00T\x00R\x00A\x00C\x00T\x00O\x00P\x00T\x00"
+  - length: 0x24
+    rva: 0x47958
+    offset: 0x44958
+    type: RESOURCE_TYPE_RCDATA
+    language: 1033
+    name_string: "F\x00I\x00L\x00E\x00S\x00I\x00Z\x00E\x00S\x00"
+  - length: 0x7
+    rva: 0x4797c
+    offset: 0x4497c
+    type: RESOURCE_TYPE_RCDATA
+    language: 1033
+    name_string: "F\x00I\x00N\x00I\x00S\x00H\x00M\x00S\x00G\x00"
+  - length: 0x7
+    rva: 0x47984
+    offset: 0x44984
+    type: RESOURCE_TYPE_RCDATA
+    language: 1033
+    name_string: "L\x00I\x00C\x00E\x00N\x00S\x00E\x00"
+  - length: 0x4
+    rva: 0x4798c
+    offset: 0x4498c
+    type: RESOURCE_TYPE_RCDATA
+    language: 1033
+    name_string: "P\x00A\x00C\x00K\x00I\x00N\x00S\x00T\x00S\x00P\x00A\x00C\x00E\x00"
+  - length: 0x7
+    rva: 0x47990
+    offset: 0x44990
+    type: RESOURCE_TYPE_RCDATA
+    language: 1033
+    name_string: "P\x00O\x00S\x00T\x00R\x00U\x00N\x00P\x00R\x00O\x00G\x00R\x00A\x00M\x00"
+  - length: 0x4
+    rva: 0x47998
+    offset: 0x44998
+    type: RESOURCE_TYPE_RCDATA
+    language: 1033
+    name_string: "R\x00E\x00B\x00O\x00O\x00T\x00"
+  - length: 0xf
+    rva: 0x4799c
+    offset: 0x4499c
+    type: RESOURCE_TYPE_RCDATA
+    language: 1033
+    name_string: "R\x00U\x00N\x00P\x00R\x00O\x00G\x00R\x00A\x00M\x00"
+  - length: 0x4
+    rva: 0x479ac
+    offset: 0x449ac
+    type: RESOURCE_TYPE_RCDATA
+    language: 1033
+    name_string: "S\x00H\x00O\x00W\x00W\x00I\x00N\x00D\x00O\x00W\x00"
+  - length: 0x16
+    rva: 0x479b0
+    offset: 0x449b0
+    type: RESOURCE_TYPE_RCDATA
+    language: 1033
+    name_string: "T\x00I\x00T\x00L\x00E\x00"
+  - length: 0x7
+    rva: 0x479c8
+    offset: 0x449c8
+    type: RESOURCE_TYPE_RCDATA
+    language: 1033
+    name_string: "U\x00P\x00R\x00O\x00M\x00P\x00T\x00"
+  - length: 0x1e
+    rva: 0x479d0
+    offset: 0x449d0
+    type: RESOURCE_TYPE_RCDATA
+    language: 1033
+    name_string: "U\x00S\x00R\x00Q\x00C\x00M\x00D\x00"
+  - length: 0x22
+    rva: 0x479f0
+    offset: 0x449f0
+    type: RESOURCE_TYPE_GROUP_ICON
+    id: 3000
+    language: 1033
+  - length: 0x374
+    rva: 0x47a14
+    offset: 0x44a14
+    type: RESOURCE_TYPE_VERSION
+    id: 1
+    language: 1033
+import_details:
+  - library_name: "ADVAPI32.dll"
+    number_of_functions: 14
+    functions:
+      - name: "FreeSid"
+        rva: 0x1000
+      - name: "AllocateAndInitializeSid"
+        rva: 0x1004
+      - name: "EqualSid"
+        rva: 0x1008
+      - name: "GetTokenInformation"
+        rva: 0x100c
+      - name: "OpenProcessToken"
+        rva: 0x1010
+      - name: "AdjustTokenPrivileges"
+        rva: 0x1014
+      - name: "LookupPrivilegeValueA"
+        rva: 0x1018
+      - name: "RegCloseKey"
+        rva: 0x101c
+      - name: "RegDeleteValueA"
+        rva: 0x1020
+      - name: "RegOpenKeyExA"
+        rva: 0x1024
+      - name: "RegSetValueExA"
+        rva: 0x1028
+      - name: "RegQueryValueExA"
+        rva: 0x102c
+      - name: "RegCreateKeyExA"
+        rva: 0x1030
+      - name: "RegQueryInfoKeyA"
+        rva: 0x1034
+  - library_name: "KERNEL32.dll"
+    number_of_functions: 76
+    functions:
+      - name: "LocalFree"
+        rva: 0x104c
+      - name: "LocalAlloc"
+        rva: 0x1050
+      - name: "GetLastError"
+        rva: 0x1054
+      - name: "GetCurrentProcess"
+        rva: 0x1058
+      - name: "GetModuleFileNameA"
+        rva: 0x105c
+      - name: "lstrlenA"
+        rva: 0x1060
+      - name: "GetSystemDirectoryA"
+        rva: 0x1064
+      - name: "RemoveDirectoryA"
+        rva: 0x1068
+      - name: "FindClose"
+        rva: 0x106c
+      - name: "FindNextFileA"
+        rva: 0x1070
+      - name: "DeleteFileA"
+        rva: 0x1074
+      - name: "SetFileAttributesA"
+        rva: 0x1078
+      - name: "lstrcmpA"
+        rva: 0x107c
+      - name: "FindFirstFileA"
+        rva: 0x1080
+      - name: "lstrcatA"
+        rva: 0x1084
+      - name: "lstrcpyA"
+        rva: 0x1088
+      - name: "_lclose"
+        rva: 0x108c
+      - name: "_llseek"
+        rva: 0x1090
+      - name: "_lopen"
+        rva: 0x1094
+      - name: "WritePrivateProfileStringA"
+        rva: 0x1098
+      - name: "GetWindowsDirectoryA"
+        rva: 0x109c
+      - name: "CreateDirectoryA"
+        rva: 0x10a0
+      - name: "GetFileAttributesA"
+        rva: 0x10a4
+      - name: "ExpandEnvironmentStringsA"
+        rva: 0x10a8
+      - name: "IsDBCSLeadByte"
+        rva: 0x10ac
+      - name: "GetShortPathNameA"
+        rva: 0x10b0
+      - name: "GetPrivateProfileStringA"
+        rva: 0x10b4
+      - name: "GetPrivateProfileIntA"
+        rva: 0x10b8
+      - name: "lstrcmpiA"
+        rva: 0x10bc
+      - name: "GetProcAddress"
+        rva: 0x10c0
+      - name: "GlobalUnlock"
+        rva: 0x10c4
+      - name: "GlobalLock"
+        rva: 0x10c8
+      - name: "GlobalAlloc"
+        rva: 0x10cc
+      - name: "FreeResource"
+        rva: 0x10d0
+      - name: "CloseHandle"
+        rva: 0x10d4
+      - name: "LoadResource"
+        rva: 0x10d8
+      - name: "SizeofResource"
+        rva: 0x10dc
+      - name: "FindResourceA"
+        rva: 0x10e0
+      - name: "ReadFile"
+        rva: 0x10e4
+      - name: "WriteFile"
+        rva: 0x10e8
+      - name: "SetFilePointer"
+        rva: 0x10ec
+      - name: "SetFileTime"
+        rva: 0x10f0
+      - name: "LocalFileTimeToFileTime"
+        rva: 0x10f4
+      - name: "DosDateTimeToFileTime"
+        rva: 0x10f8
+      - name: "SetCurrentDirectoryA"
+        rva: 0x10fc
+      - name: "GetTempFileNameA"
+        rva: 0x1100
+      - name: "ExitProcess"
+        rva: 0x1104
+      - name: "CreateFileA"
+        rva: 0x1108
+      - name: "LoadLibraryExA"
+        rva: 0x110c
+      - name: "lstrcpynA"
+        rva: 0x1110
+      - name: "GetVolumeInformationA"
+        rva: 0x1114
+      - name: "FormatMessageA"
+        rva: 0x1118
+      - name: "GetCurrentDirectoryA"
+        rva: 0x111c
+      - name: "GetVersionExA"
+        rva: 0x1120
+      - name: "GetExitCodeProcess"
+        rva: 0x1124
+      - name: "WaitForSingleObject"
+        rva: 0x1128
+      - name: "CreateProcessA"
+        rva: 0x112c
+      - name: "GetTempPathA"
+        rva: 0x1130
+      - name: "GetSystemInfo"
+        rva: 0x1134
+      - name: "CreateMutexA"
+        rva: 0x1138
+      - name: "SetEvent"
+        rva: 0x113c
+      - name: "CreateEventA"
+        rva: 0x1140
+      - name: "CreateThread"
+        rva: 0x1144
+      - name: "ResetEvent"
+        rva: 0x1148
+      - name: "TerminateThread"
+        rva: 0x114c
+      - name: "GetDriveTypeA"
+        rva: 0x1150
+      - name: "GetModuleHandleA"
+        rva: 0x1154
+      - name: "GetStartupInfoA"
+        rva: 0x1158
+      - name: "GetCommandLineA"
+        rva: 0x115c
+      - name: "LockResource"
+        rva: 0x1160
+      - name: "LoadLibraryA"
+        rva: 0x1164
+      - name: "GetDiskFreeSpaceA"
+        rva: 0x1168
+      - name: "MulDiv"
+        rva: 0x116c
+      - name: "EnumResourceLanguagesA"
+        rva: 0x1170
+      - name: "FreeLibrary"
+        rva: 0x1174
+      - name: "GlobalFree"
+        rva: 0x1178
+  - library_name: "GDI32.dll"
+    number_of_functions: 1
+    functions:
+      - name: "GetDeviceCaps"
+        rva: 0x1044
+  - library_name: "USER32.dll"
+    number_of_functions: 31
+    functions:
+      - name: "ExitWindowsEx"
+        rva: 0x1180
+      - name: "wsprintfA"
+        rva: 0x1184
+      - name: "CharNextA"
+        rva: 0x1188
+      - name: "CharUpperA"
+        rva: 0x118c
+      - name: "CharPrevA"
+        rva: 0x1190
+      - name: "SetWindowLongA"
+        rva: 0x1194
+      - name: "GetWindowLongA"
+        rva: 0x1198
+      - name: "CallWindowProcA"
+        rva: 0x119c
+      - name: "DispatchMessageA"
+        rva: 0x11a0
+      - name: "MsgWaitForMultipleObjects"
+        rva: 0x11a4
+      - name: "PeekMessageA"
+        rva: 0x11a8
+      - name: "SendMessageA"
+        rva: 0x11ac
+      - name: "SetWindowPos"
+        rva: 0x11b0
+      - name: "ReleaseDC"
+        rva: 0x11b4
+      - name: "GetDC"
+        rva: 0x11b8
+      - name: "GetWindowRect"
+        rva: 0x11bc
+      - name: "SendDlgItemMessageA"
+        rva: 0x11c0
+      - name: "GetDlgItem"
+        rva: 0x11c4
+      - name: "SetForegroundWindow"
+        rva: 0x11c8
+      - name: "SetWindowTextA"
+        rva: 0x11cc
+      - name: "MessageBoxA"
+        rva: 0x11d0
+      - name: "DialogBoxIndirectParamA"
+        rva: 0x11d4
+      - name: "ShowWindow"
+        rva: 0x11d8
+      - name: "EnableWindow"
+        rva: 0x11dc
+      - name: "GetDlgItemTextA"
+        rva: 0x11e0
+      - name: "EndDialog"
+        rva: 0x11e4
+      - name: "GetDesktopWindow"
+        rva: 0x11e8
+      - name: "MessageBeep"
+        rva: 0x11ec
+      - name: "SetDlgItemTextA"
+        rva: 0x11f0
+      - name: "LoadStringA"
+        rva: 0x11f4
+      - name: "GetSystemMetrics"
+        rva: 0x11f8
+  - library_name: "COMCTL32.dll"
+    number_of_functions: 1
+    functions:
+      - name: "ord17"
+        ordinal: 17
+        rva: 0x103c
+  - library_name: "VERSION.dll"
+    number_of_functions: 3
+    functions:
+      - name: "GetFileVersionInfoA"
+        rva: 0x1200
+      - name: "VerQueryValueA"
+        rva: 0x1204
+      - name: "GetFileVersionInfoSizeA"
+        rva: 0x1208
+is_signed: true
+signatures:
+  - subject: "/C=US/ST=Washington/L=Redmond/O=Microsoft Corporation/OU=MOPR/CN=Microsoft Corporation"
+    issuer: "/C=US/ST=Washington/L=Redmond/O=Microsoft Corporation/CN=Microsoft Code Signing PCA"
+    thumbprint: "9617094a1cfb59ae7c1f7dfdb6739e4e7c40508f"
+    version: 3
+    algorithm: "sha1WithRSAEncryption"
+    algorithm_oid: "1.2.840.113549.1.1.5"
+    serial: "61:01:cf:3e:00:00:00:00:00:0f"
+    not_before: 1260225629  # 2009-12-07 22:40:29 UTC
+    not_after: 1299537629  # 2011-03-07 22:40:29 UTC
+    verified: true
+    digest_alg: "sha1"
+    digest: "47b88536046e466d2f58b318fd1843f0b84b28d3"
+    file_digest: "47b88536046e466d2f58b318fd1843f0b84b28d3"
+    number_of_certificates: 4
+    number_of_countersignatures: 1
+    signer_info:
+        program_name: "DirectX SDK"
+        more_info: "http://www.microsoft.com/DirectX"
+        digest: "44238f27912fcf43d31b231b3615db4f4cd51eb6"
+        digest_alg: "sha1"
+        chain:
+          - issuer: "/C=US/ST=Washington/L=Redmond/O=Microsoft Corporation/CN=Microsoft Code Signing PCA"
+            subject: "/C=US/ST=Washington/L=Redmond/O=Microsoft Corporation/OU=MOPR/CN=Microsoft Corporation"
+            thumbprint: "9617094a1cfb59ae7c1f7dfdb6739e4e7c40508f"
+            version: 3
+            algorithm: "sha1WithRSAEncryption"
+            algorithm_oid: "1.2.840.113549.1.1.5"
+            serial: "61:01:cf:3e:00:00:00:00:00:0f"
+            not_before: 1260225629  # 2009-12-07 22:40:29 UTC
+            not_after: 1299537629  # 2011-03-07 22:40:29 UTC
+          - issuer: "/OU=Copyright (c) 1997 Microsoft Corp./OU=Microsoft Corporation/CN=Microsoft Root Authority"
+            subject: "/C=US/ST=Washington/L=Redmond/O=Microsoft Corporation/CN=Microsoft Code Signing PCA"
+            thumbprint: "3036e3b25b88a55b86fc90e6e9eaad5081445166"
+            version: 3
+            algorithm: "sha1WithRSAEncryption"
+            algorithm_oid: "1.3.14.3.2.29"
+            serial: "2e:ab:11:dc:50:ff:5c:9d:cb:c0"
+            not_before: 1187821862  # 2007-08-22 22:31:02 UTC
+            not_after: 1345878000  # 2012-08-25 07:00:00 UTC
+    certificates:
+      - issuer: "/OU=Copyright (c) 1997 Microsoft Corp./OU=Microsoft Corporation/CN=Microsoft Root Authority"
+        subject: "/C=US/ST=Washington/L=Redmond/O=Microsoft Corporation/CN=Microsoft Code Signing PCA"
+        thumbprint: "3036e3b25b88a55b86fc90e6e9eaad5081445166"
+        version: 3
+        algorithm: "sha1WithRSAEncryption"
+        algorithm_oid: "1.3.14.3.2.29"
+        serial: "2e:ab:11:dc:50:ff:5c:9d:cb:c0"
+        not_before: 1187821862  # 2007-08-22 22:31:02 UTC
+        not_after: 1345878000  # 2012-08-25 07:00:00 UTC
+      - issuer: "/C=US/ST=Washington/L=Redmond/O=Microsoft Corporation/CN=Microsoft Code Signing PCA"
+        subject: "/C=US/ST=Washington/L=Redmond/O=Microsoft Corporation/OU=MOPR/CN=Microsoft Corporation"
+        thumbprint: "9617094a1cfb59ae7c1f7dfdb6739e4e7c40508f"
+        version: 3
+        algorithm: "sha1WithRSAEncryption"
+        algorithm_oid: "1.2.840.113549.1.1.5"
+        serial: "61:01:cf:3e:00:00:00:00:00:0f"
+        not_before: 1260225629  # 2009-12-07 22:40:29 UTC
+        not_after: 1299537629  # 2011-03-07 22:40:29 UTC
+      - issuer: "/OU=Copyright (c) 1997 Microsoft Corp./OU=Microsoft Corporation/CN=Microsoft Root Authority"
+        subject: "/C=US/ST=Washington/L=Redmond/O=Microsoft Corporation/CN=Microsoft Timestamping PCA"
+        thumbprint: "3ea99a60058275e0ed83b892a909449f8c33b245"
+        version: 3
+        algorithm: "sha1WithRSAEncryption"
+        algorithm_oid: "1.2.840.113549.1.1.5"
+        serial: "6a:0b:99:4f:c0:00:25:ab:11:db:45:1f:58:7a:67:a2"
+        not_before: 1158368687  # 2006-09-16 01:04:47 UTC
+        not_after: 1568530800  # 2019-09-15 07:00:00 UTC
+      - issuer: "/C=US/ST=Washington/L=Redmond/O=Microsoft Corporation/CN=Microsoft Timestamping PCA"
+        subject: "/C=US/ST=Washington/L=Redmond/O=Microsoft Corporation/OU=MOPR/OU=nCipher DSE ESN:85D3-305C-5BCF/CN=Microsoft Time-Stamp Service"
+        thumbprint: "4d6f357f0e6434da97b1afc540fb6fdd0e85a89f"
+        version: 3
+        algorithm: "sha1WithRSAEncryption"
+        algorithm_oid: "1.2.840.113549.1.1.5"
+        serial: "61:05:a2:30:00:00:00:00:00:08"
+        not_before: 1217012475  # 2008-07-25 19:01:15 UTC
+        not_after: 1374779475  # 2013-07-25 19:11:15 UTC
+    countersignatures:
+      - verified: true
+        sign_time: 1275479951  # 2010-06-02 11:59:11 UTC
+        digest: "8816bffcc2a048cf661dc8d8b32648bdc20ab06e"
+        digest_alg: "sha1"
+        chain:
+          - issuer: "/C=US/ST=Washington/L=Redmond/O=Microsoft Corporation/CN=Microsoft Timestamping PCA"
+            subject: "/C=US/ST=Washington/L=Redmond/O=Microsoft Corporation/OU=MOPR/OU=nCipher DSE ESN:85D3-305C-5BCF/CN=Microsoft Time-Stamp Service"
+            thumbprint: "4d6f357f0e6434da97b1afc540fb6fdd0e85a89f"
+            version: 3
+            algorithm: "sha1WithRSAEncryption"
+            algorithm_oid: "1.2.840.113549.1.1.5"
+            serial: "61:05:a2:30:00:00:00:00:00:08"
+            not_before: 1217012475  # 2008-07-25 19:01:15 UTC
+            not_after: 1374779475  # 2013-07-25 19:11:15 UTC
+          - issuer: "/OU=Copyright (c) 1997 Microsoft Corp./OU=Microsoft Corporation/CN=Microsoft Root Authority"
+            subject: "/C=US/ST=Washington/L=Redmond/O=Microsoft Corporation/CN=Microsoft Timestamping PCA"
+            thumbprint: "3ea99a60058275e0ed83b892a909449f8c33b245"
+            version: 3
+            algorithm: "sha1WithRSAEncryption"
+            algorithm_oid: "1.2.840.113549.1.1.5"
+            serial: "6a:0b:99:4f:c0:00:25:ab:11:db:45:1f:58:7a:67:a2"
+            not_before: 1158368687  # 2006-09-16 01:04:47 UTC
+            not_after: 1568530800  # 2019-09-15 07:00:00 UTC
+overlay:
+    offset: 0x44e00
+    size: 0x1758
