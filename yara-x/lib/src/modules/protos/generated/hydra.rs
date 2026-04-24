@@ -367,6 +367,1955 @@ impl ::protobuf::reflect::ProtobufValue for Section {
     type RuntimeType = ::protobuf::reflect::rt::RuntimeTypeMessage<Self>;
 }
 
+// @@protoc_insertion_point(message:yara.hydra.PeMl)
+#[derive(PartialEq,Clone,Default,Debug)]
+pub struct PeMl {
+    // message fields
+    // @@protoc_insertion_point(field:yara.hydra.PeMl.size_of_optional_header)
+    pub size_of_optional_header: ::std::option::Option<u32>,
+    // @@protoc_insertion_point(field:yara.hydra.PeMl.major_linker_version)
+    pub major_linker_version: ::std::option::Option<u32>,
+    // @@protoc_insertion_point(field:yara.hydra.PeMl.minor_linker_version)
+    pub minor_linker_version: ::std::option::Option<u32>,
+    // @@protoc_insertion_point(field:yara.hydra.PeMl.size_of_code)
+    pub size_of_code: ::std::option::Option<u32>,
+    // @@protoc_insertion_point(field:yara.hydra.PeMl.size_of_initialized_data)
+    pub size_of_initialized_data: ::std::option::Option<u32>,
+    // @@protoc_insertion_point(field:yara.hydra.PeMl.size_of_uninitialized_data)
+    pub size_of_uninitialized_data: ::std::option::Option<u32>,
+    // @@protoc_insertion_point(field:yara.hydra.PeMl.address_of_entry_point)
+    pub address_of_entry_point: ::std::option::Option<u32>,
+    // @@protoc_insertion_point(field:yara.hydra.PeMl.base_of_code)
+    pub base_of_code: ::std::option::Option<u32>,
+    // @@protoc_insertion_point(field:yara.hydra.PeMl.base_of_data)
+    pub base_of_data: ::std::option::Option<u32>,
+    // @@protoc_insertion_point(field:yara.hydra.PeMl.image_base)
+    pub image_base: ::std::option::Option<u64>,
+    // @@protoc_insertion_point(field:yara.hydra.PeMl.section_alignment)
+    pub section_alignment: ::std::option::Option<u32>,
+    // @@protoc_insertion_point(field:yara.hydra.PeMl.file_alignment)
+    pub file_alignment: ::std::option::Option<u32>,
+    // @@protoc_insertion_point(field:yara.hydra.PeMl.major_operating_system_version)
+    pub major_operating_system_version: ::std::option::Option<u32>,
+    // @@protoc_insertion_point(field:yara.hydra.PeMl.minor_operating_system_version)
+    pub minor_operating_system_version: ::std::option::Option<u32>,
+    // @@protoc_insertion_point(field:yara.hydra.PeMl.major_image_version)
+    pub major_image_version: ::std::option::Option<u32>,
+    // @@protoc_insertion_point(field:yara.hydra.PeMl.minor_image_version)
+    pub minor_image_version: ::std::option::Option<u32>,
+    // @@protoc_insertion_point(field:yara.hydra.PeMl.major_subsystem_version)
+    pub major_subsystem_version: ::std::option::Option<u32>,
+    // @@protoc_insertion_point(field:yara.hydra.PeMl.minor_subsystem_version)
+    pub minor_subsystem_version: ::std::option::Option<u32>,
+    // @@protoc_insertion_point(field:yara.hydra.PeMl.size_of_image)
+    pub size_of_image: ::std::option::Option<u32>,
+    // @@protoc_insertion_point(field:yara.hydra.PeMl.size_of_headers)
+    pub size_of_headers: ::std::option::Option<u32>,
+    // @@protoc_insertion_point(field:yara.hydra.PeMl.check_sum)
+    pub check_sum: ::std::option::Option<u32>,
+    // @@protoc_insertion_point(field:yara.hydra.PeMl.subsystem)
+    pub subsystem: ::std::option::Option<u32>,
+    // @@protoc_insertion_point(field:yara.hydra.PeMl.dll_characteristics)
+    pub dll_characteristics: ::std::option::Option<u32>,
+    // @@protoc_insertion_point(field:yara.hydra.PeMl.size_of_stack_reserve)
+    pub size_of_stack_reserve: ::std::option::Option<u64>,
+    // @@protoc_insertion_point(field:yara.hydra.PeMl.size_of_stack_commit)
+    pub size_of_stack_commit: ::std::option::Option<u64>,
+    // @@protoc_insertion_point(field:yara.hydra.PeMl.size_of_heap_reserve)
+    pub size_of_heap_reserve: ::std::option::Option<u64>,
+    // @@protoc_insertion_point(field:yara.hydra.PeMl.size_of_heap_commit)
+    pub size_of_heap_commit: ::std::option::Option<u64>,
+    // @@protoc_insertion_point(field:yara.hydra.PeMl.loader_flags)
+    pub loader_flags: ::std::option::Option<u32>,
+    // @@protoc_insertion_point(field:yara.hydra.PeMl.number_of_rva_and_sizes)
+    pub number_of_rva_and_sizes: ::std::option::Option<u32>,
+    // @@protoc_insertion_point(field:yara.hydra.PeMl.entropy)
+    pub entropy: ::std::option::Option<f64>,
+    // @@protoc_insertion_point(field:yara.hydra.PeMl.overlay_size)
+    pub overlay_size: ::std::option::Option<u32>,
+    // @@protoc_insertion_point(field:yara.hydra.PeMl.overlay_entropy)
+    pub overlay_entropy: ::std::option::Option<f64>,
+    // @@protoc_insertion_point(field:yara.hydra.PeMl.imports_count)
+    pub imports_count: ::std::option::Option<u32>,
+    // @@protoc_insertion_point(field:yara.hydra.PeMl.exports_count)
+    pub exports_count: ::std::option::Option<u32>,
+    // @@protoc_insertion_point(field:yara.hydra.PeMl.resources_count)
+    pub resources_count: ::std::option::Option<u32>,
+    // @@protoc_insertion_point(field:yara.hydra.PeMl.debug_count)
+    pub debug_count: ::std::option::Option<u32>,
+    // @@protoc_insertion_point(field:yara.hydra.PeMl.sections_count)
+    pub sections_count: ::std::option::Option<u32>,
+    // @@protoc_insertion_point(field:yara.hydra.PeMl.tls_callbacks_count)
+    pub tls_callbacks_count: ::std::option::Option<u32>,
+    // @@protoc_insertion_point(field:yara.hydra.PeMl.delay_imports_count)
+    pub delay_imports_count: ::std::option::Option<u32>,
+    // @@protoc_insertion_point(field:yara.hydra.PeMl.bound_imports_count)
+    pub bound_imports_count: ::std::option::Option<u32>,
+    // @@protoc_insertion_point(field:yara.hydra.PeMl.certificates_count)
+    pub certificates_count: ::std::option::Option<u32>,
+    // @@protoc_insertion_point(field:yara.hydra.PeMl.ep_instructions_count)
+    pub ep_instructions_count: ::std::option::Option<u32>,
+    // @@protoc_insertion_point(field:yara.hydra.PeMl.is_wx_last_section)
+    pub is_wx_last_section: ::std::option::Option<bool>,
+    // @@protoc_insertion_point(field:yara.hydra.PeMl.missing_standard_sections)
+    pub missing_standard_sections: ::std::option::Option<u32>,
+    // special fields
+    // @@protoc_insertion_point(special_field:yara.hydra.PeMl.special_fields)
+    pub special_fields: ::protobuf::SpecialFields,
+}
+
+impl<'a> ::std::default::Default for &'a PeMl {
+    fn default() -> &'a PeMl {
+        <PeMl as ::protobuf::Message>::default_instance()
+    }
+}
+
+impl PeMl {
+    pub fn new() -> PeMl {
+        ::std::default::Default::default()
+    }
+
+    // optional uint32 size_of_optional_header = 1;
+
+    pub fn size_of_optional_header(&self) -> u32 {
+        self.size_of_optional_header.unwrap_or(0)
+    }
+
+    pub fn clear_size_of_optional_header(&mut self) {
+        self.size_of_optional_header = ::std::option::Option::None;
+    }
+
+    pub fn has_size_of_optional_header(&self) -> bool {
+        self.size_of_optional_header.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_size_of_optional_header(&mut self, v: u32) {
+        self.size_of_optional_header = ::std::option::Option::Some(v);
+    }
+
+    // optional uint32 major_linker_version = 2;
+
+    pub fn major_linker_version(&self) -> u32 {
+        self.major_linker_version.unwrap_or(0)
+    }
+
+    pub fn clear_major_linker_version(&mut self) {
+        self.major_linker_version = ::std::option::Option::None;
+    }
+
+    pub fn has_major_linker_version(&self) -> bool {
+        self.major_linker_version.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_major_linker_version(&mut self, v: u32) {
+        self.major_linker_version = ::std::option::Option::Some(v);
+    }
+
+    // optional uint32 minor_linker_version = 3;
+
+    pub fn minor_linker_version(&self) -> u32 {
+        self.minor_linker_version.unwrap_or(0)
+    }
+
+    pub fn clear_minor_linker_version(&mut self) {
+        self.minor_linker_version = ::std::option::Option::None;
+    }
+
+    pub fn has_minor_linker_version(&self) -> bool {
+        self.minor_linker_version.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_minor_linker_version(&mut self, v: u32) {
+        self.minor_linker_version = ::std::option::Option::Some(v);
+    }
+
+    // optional uint32 size_of_code = 4;
+
+    pub fn size_of_code(&self) -> u32 {
+        self.size_of_code.unwrap_or(0)
+    }
+
+    pub fn clear_size_of_code(&mut self) {
+        self.size_of_code = ::std::option::Option::None;
+    }
+
+    pub fn has_size_of_code(&self) -> bool {
+        self.size_of_code.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_size_of_code(&mut self, v: u32) {
+        self.size_of_code = ::std::option::Option::Some(v);
+    }
+
+    // optional uint32 size_of_initialized_data = 5;
+
+    pub fn size_of_initialized_data(&self) -> u32 {
+        self.size_of_initialized_data.unwrap_or(0)
+    }
+
+    pub fn clear_size_of_initialized_data(&mut self) {
+        self.size_of_initialized_data = ::std::option::Option::None;
+    }
+
+    pub fn has_size_of_initialized_data(&self) -> bool {
+        self.size_of_initialized_data.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_size_of_initialized_data(&mut self, v: u32) {
+        self.size_of_initialized_data = ::std::option::Option::Some(v);
+    }
+
+    // optional uint32 size_of_uninitialized_data = 6;
+
+    pub fn size_of_uninitialized_data(&self) -> u32 {
+        self.size_of_uninitialized_data.unwrap_or(0)
+    }
+
+    pub fn clear_size_of_uninitialized_data(&mut self) {
+        self.size_of_uninitialized_data = ::std::option::Option::None;
+    }
+
+    pub fn has_size_of_uninitialized_data(&self) -> bool {
+        self.size_of_uninitialized_data.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_size_of_uninitialized_data(&mut self, v: u32) {
+        self.size_of_uninitialized_data = ::std::option::Option::Some(v);
+    }
+
+    // optional uint32 address_of_entry_point = 7;
+
+    pub fn address_of_entry_point(&self) -> u32 {
+        self.address_of_entry_point.unwrap_or(0)
+    }
+
+    pub fn clear_address_of_entry_point(&mut self) {
+        self.address_of_entry_point = ::std::option::Option::None;
+    }
+
+    pub fn has_address_of_entry_point(&self) -> bool {
+        self.address_of_entry_point.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_address_of_entry_point(&mut self, v: u32) {
+        self.address_of_entry_point = ::std::option::Option::Some(v);
+    }
+
+    // optional uint32 base_of_code = 8;
+
+    pub fn base_of_code(&self) -> u32 {
+        self.base_of_code.unwrap_or(0)
+    }
+
+    pub fn clear_base_of_code(&mut self) {
+        self.base_of_code = ::std::option::Option::None;
+    }
+
+    pub fn has_base_of_code(&self) -> bool {
+        self.base_of_code.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_base_of_code(&mut self, v: u32) {
+        self.base_of_code = ::std::option::Option::Some(v);
+    }
+
+    // optional uint32 base_of_data = 9;
+
+    pub fn base_of_data(&self) -> u32 {
+        self.base_of_data.unwrap_or(0)
+    }
+
+    pub fn clear_base_of_data(&mut self) {
+        self.base_of_data = ::std::option::Option::None;
+    }
+
+    pub fn has_base_of_data(&self) -> bool {
+        self.base_of_data.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_base_of_data(&mut self, v: u32) {
+        self.base_of_data = ::std::option::Option::Some(v);
+    }
+
+    // optional uint64 image_base = 10;
+
+    pub fn image_base(&self) -> u64 {
+        self.image_base.unwrap_or(0)
+    }
+
+    pub fn clear_image_base(&mut self) {
+        self.image_base = ::std::option::Option::None;
+    }
+
+    pub fn has_image_base(&self) -> bool {
+        self.image_base.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_image_base(&mut self, v: u64) {
+        self.image_base = ::std::option::Option::Some(v);
+    }
+
+    // optional uint32 section_alignment = 11;
+
+    pub fn section_alignment(&self) -> u32 {
+        self.section_alignment.unwrap_or(0)
+    }
+
+    pub fn clear_section_alignment(&mut self) {
+        self.section_alignment = ::std::option::Option::None;
+    }
+
+    pub fn has_section_alignment(&self) -> bool {
+        self.section_alignment.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_section_alignment(&mut self, v: u32) {
+        self.section_alignment = ::std::option::Option::Some(v);
+    }
+
+    // optional uint32 file_alignment = 12;
+
+    pub fn file_alignment(&self) -> u32 {
+        self.file_alignment.unwrap_or(0)
+    }
+
+    pub fn clear_file_alignment(&mut self) {
+        self.file_alignment = ::std::option::Option::None;
+    }
+
+    pub fn has_file_alignment(&self) -> bool {
+        self.file_alignment.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_file_alignment(&mut self, v: u32) {
+        self.file_alignment = ::std::option::Option::Some(v);
+    }
+
+    // optional uint32 major_operating_system_version = 13;
+
+    pub fn major_operating_system_version(&self) -> u32 {
+        self.major_operating_system_version.unwrap_or(0)
+    }
+
+    pub fn clear_major_operating_system_version(&mut self) {
+        self.major_operating_system_version = ::std::option::Option::None;
+    }
+
+    pub fn has_major_operating_system_version(&self) -> bool {
+        self.major_operating_system_version.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_major_operating_system_version(&mut self, v: u32) {
+        self.major_operating_system_version = ::std::option::Option::Some(v);
+    }
+
+    // optional uint32 minor_operating_system_version = 14;
+
+    pub fn minor_operating_system_version(&self) -> u32 {
+        self.minor_operating_system_version.unwrap_or(0)
+    }
+
+    pub fn clear_minor_operating_system_version(&mut self) {
+        self.minor_operating_system_version = ::std::option::Option::None;
+    }
+
+    pub fn has_minor_operating_system_version(&self) -> bool {
+        self.minor_operating_system_version.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_minor_operating_system_version(&mut self, v: u32) {
+        self.minor_operating_system_version = ::std::option::Option::Some(v);
+    }
+
+    // optional uint32 major_image_version = 15;
+
+    pub fn major_image_version(&self) -> u32 {
+        self.major_image_version.unwrap_or(0)
+    }
+
+    pub fn clear_major_image_version(&mut self) {
+        self.major_image_version = ::std::option::Option::None;
+    }
+
+    pub fn has_major_image_version(&self) -> bool {
+        self.major_image_version.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_major_image_version(&mut self, v: u32) {
+        self.major_image_version = ::std::option::Option::Some(v);
+    }
+
+    // optional uint32 minor_image_version = 16;
+
+    pub fn minor_image_version(&self) -> u32 {
+        self.minor_image_version.unwrap_or(0)
+    }
+
+    pub fn clear_minor_image_version(&mut self) {
+        self.minor_image_version = ::std::option::Option::None;
+    }
+
+    pub fn has_minor_image_version(&self) -> bool {
+        self.minor_image_version.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_minor_image_version(&mut self, v: u32) {
+        self.minor_image_version = ::std::option::Option::Some(v);
+    }
+
+    // optional uint32 major_subsystem_version = 17;
+
+    pub fn major_subsystem_version(&self) -> u32 {
+        self.major_subsystem_version.unwrap_or(0)
+    }
+
+    pub fn clear_major_subsystem_version(&mut self) {
+        self.major_subsystem_version = ::std::option::Option::None;
+    }
+
+    pub fn has_major_subsystem_version(&self) -> bool {
+        self.major_subsystem_version.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_major_subsystem_version(&mut self, v: u32) {
+        self.major_subsystem_version = ::std::option::Option::Some(v);
+    }
+
+    // optional uint32 minor_subsystem_version = 18;
+
+    pub fn minor_subsystem_version(&self) -> u32 {
+        self.minor_subsystem_version.unwrap_or(0)
+    }
+
+    pub fn clear_minor_subsystem_version(&mut self) {
+        self.minor_subsystem_version = ::std::option::Option::None;
+    }
+
+    pub fn has_minor_subsystem_version(&self) -> bool {
+        self.minor_subsystem_version.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_minor_subsystem_version(&mut self, v: u32) {
+        self.minor_subsystem_version = ::std::option::Option::Some(v);
+    }
+
+    // optional uint32 size_of_image = 19;
+
+    pub fn size_of_image(&self) -> u32 {
+        self.size_of_image.unwrap_or(0)
+    }
+
+    pub fn clear_size_of_image(&mut self) {
+        self.size_of_image = ::std::option::Option::None;
+    }
+
+    pub fn has_size_of_image(&self) -> bool {
+        self.size_of_image.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_size_of_image(&mut self, v: u32) {
+        self.size_of_image = ::std::option::Option::Some(v);
+    }
+
+    // optional uint32 size_of_headers = 20;
+
+    pub fn size_of_headers(&self) -> u32 {
+        self.size_of_headers.unwrap_or(0)
+    }
+
+    pub fn clear_size_of_headers(&mut self) {
+        self.size_of_headers = ::std::option::Option::None;
+    }
+
+    pub fn has_size_of_headers(&self) -> bool {
+        self.size_of_headers.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_size_of_headers(&mut self, v: u32) {
+        self.size_of_headers = ::std::option::Option::Some(v);
+    }
+
+    // optional uint32 check_sum = 21;
+
+    pub fn check_sum(&self) -> u32 {
+        self.check_sum.unwrap_or(0)
+    }
+
+    pub fn clear_check_sum(&mut self) {
+        self.check_sum = ::std::option::Option::None;
+    }
+
+    pub fn has_check_sum(&self) -> bool {
+        self.check_sum.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_check_sum(&mut self, v: u32) {
+        self.check_sum = ::std::option::Option::Some(v);
+    }
+
+    // optional uint32 subsystem = 22;
+
+    pub fn subsystem(&self) -> u32 {
+        self.subsystem.unwrap_or(0)
+    }
+
+    pub fn clear_subsystem(&mut self) {
+        self.subsystem = ::std::option::Option::None;
+    }
+
+    pub fn has_subsystem(&self) -> bool {
+        self.subsystem.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_subsystem(&mut self, v: u32) {
+        self.subsystem = ::std::option::Option::Some(v);
+    }
+
+    // optional uint32 dll_characteristics = 23;
+
+    pub fn dll_characteristics(&self) -> u32 {
+        self.dll_characteristics.unwrap_or(0)
+    }
+
+    pub fn clear_dll_characteristics(&mut self) {
+        self.dll_characteristics = ::std::option::Option::None;
+    }
+
+    pub fn has_dll_characteristics(&self) -> bool {
+        self.dll_characteristics.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_dll_characteristics(&mut self, v: u32) {
+        self.dll_characteristics = ::std::option::Option::Some(v);
+    }
+
+    // optional uint64 size_of_stack_reserve = 24;
+
+    pub fn size_of_stack_reserve(&self) -> u64 {
+        self.size_of_stack_reserve.unwrap_or(0)
+    }
+
+    pub fn clear_size_of_stack_reserve(&mut self) {
+        self.size_of_stack_reserve = ::std::option::Option::None;
+    }
+
+    pub fn has_size_of_stack_reserve(&self) -> bool {
+        self.size_of_stack_reserve.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_size_of_stack_reserve(&mut self, v: u64) {
+        self.size_of_stack_reserve = ::std::option::Option::Some(v);
+    }
+
+    // optional uint64 size_of_stack_commit = 25;
+
+    pub fn size_of_stack_commit(&self) -> u64 {
+        self.size_of_stack_commit.unwrap_or(0)
+    }
+
+    pub fn clear_size_of_stack_commit(&mut self) {
+        self.size_of_stack_commit = ::std::option::Option::None;
+    }
+
+    pub fn has_size_of_stack_commit(&self) -> bool {
+        self.size_of_stack_commit.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_size_of_stack_commit(&mut self, v: u64) {
+        self.size_of_stack_commit = ::std::option::Option::Some(v);
+    }
+
+    // optional uint64 size_of_heap_reserve = 26;
+
+    pub fn size_of_heap_reserve(&self) -> u64 {
+        self.size_of_heap_reserve.unwrap_or(0)
+    }
+
+    pub fn clear_size_of_heap_reserve(&mut self) {
+        self.size_of_heap_reserve = ::std::option::Option::None;
+    }
+
+    pub fn has_size_of_heap_reserve(&self) -> bool {
+        self.size_of_heap_reserve.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_size_of_heap_reserve(&mut self, v: u64) {
+        self.size_of_heap_reserve = ::std::option::Option::Some(v);
+    }
+
+    // optional uint64 size_of_heap_commit = 27;
+
+    pub fn size_of_heap_commit(&self) -> u64 {
+        self.size_of_heap_commit.unwrap_or(0)
+    }
+
+    pub fn clear_size_of_heap_commit(&mut self) {
+        self.size_of_heap_commit = ::std::option::Option::None;
+    }
+
+    pub fn has_size_of_heap_commit(&self) -> bool {
+        self.size_of_heap_commit.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_size_of_heap_commit(&mut self, v: u64) {
+        self.size_of_heap_commit = ::std::option::Option::Some(v);
+    }
+
+    // optional uint32 loader_flags = 28;
+
+    pub fn loader_flags(&self) -> u32 {
+        self.loader_flags.unwrap_or(0)
+    }
+
+    pub fn clear_loader_flags(&mut self) {
+        self.loader_flags = ::std::option::Option::None;
+    }
+
+    pub fn has_loader_flags(&self) -> bool {
+        self.loader_flags.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_loader_flags(&mut self, v: u32) {
+        self.loader_flags = ::std::option::Option::Some(v);
+    }
+
+    // optional uint32 number_of_rva_and_sizes = 29;
+
+    pub fn number_of_rva_and_sizes(&self) -> u32 {
+        self.number_of_rva_and_sizes.unwrap_or(0)
+    }
+
+    pub fn clear_number_of_rva_and_sizes(&mut self) {
+        self.number_of_rva_and_sizes = ::std::option::Option::None;
+    }
+
+    pub fn has_number_of_rva_and_sizes(&self) -> bool {
+        self.number_of_rva_and_sizes.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_number_of_rva_and_sizes(&mut self, v: u32) {
+        self.number_of_rva_and_sizes = ::std::option::Option::Some(v);
+    }
+
+    // optional double entropy = 30;
+
+    pub fn entropy(&self) -> f64 {
+        self.entropy.unwrap_or(0.)
+    }
+
+    pub fn clear_entropy(&mut self) {
+        self.entropy = ::std::option::Option::None;
+    }
+
+    pub fn has_entropy(&self) -> bool {
+        self.entropy.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_entropy(&mut self, v: f64) {
+        self.entropy = ::std::option::Option::Some(v);
+    }
+
+    // optional uint32 overlay_size = 31;
+
+    pub fn overlay_size(&self) -> u32 {
+        self.overlay_size.unwrap_or(0)
+    }
+
+    pub fn clear_overlay_size(&mut self) {
+        self.overlay_size = ::std::option::Option::None;
+    }
+
+    pub fn has_overlay_size(&self) -> bool {
+        self.overlay_size.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_overlay_size(&mut self, v: u32) {
+        self.overlay_size = ::std::option::Option::Some(v);
+    }
+
+    // optional double overlay_entropy = 32;
+
+    pub fn overlay_entropy(&self) -> f64 {
+        self.overlay_entropy.unwrap_or(0.)
+    }
+
+    pub fn clear_overlay_entropy(&mut self) {
+        self.overlay_entropy = ::std::option::Option::None;
+    }
+
+    pub fn has_overlay_entropy(&self) -> bool {
+        self.overlay_entropy.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_overlay_entropy(&mut self, v: f64) {
+        self.overlay_entropy = ::std::option::Option::Some(v);
+    }
+
+    // optional uint32 imports_count = 33;
+
+    pub fn imports_count(&self) -> u32 {
+        self.imports_count.unwrap_or(0)
+    }
+
+    pub fn clear_imports_count(&mut self) {
+        self.imports_count = ::std::option::Option::None;
+    }
+
+    pub fn has_imports_count(&self) -> bool {
+        self.imports_count.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_imports_count(&mut self, v: u32) {
+        self.imports_count = ::std::option::Option::Some(v);
+    }
+
+    // optional uint32 exports_count = 34;
+
+    pub fn exports_count(&self) -> u32 {
+        self.exports_count.unwrap_or(0)
+    }
+
+    pub fn clear_exports_count(&mut self) {
+        self.exports_count = ::std::option::Option::None;
+    }
+
+    pub fn has_exports_count(&self) -> bool {
+        self.exports_count.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_exports_count(&mut self, v: u32) {
+        self.exports_count = ::std::option::Option::Some(v);
+    }
+
+    // optional uint32 resources_count = 35;
+
+    pub fn resources_count(&self) -> u32 {
+        self.resources_count.unwrap_or(0)
+    }
+
+    pub fn clear_resources_count(&mut self) {
+        self.resources_count = ::std::option::Option::None;
+    }
+
+    pub fn has_resources_count(&self) -> bool {
+        self.resources_count.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_resources_count(&mut self, v: u32) {
+        self.resources_count = ::std::option::Option::Some(v);
+    }
+
+    // optional uint32 debug_count = 36;
+
+    pub fn debug_count(&self) -> u32 {
+        self.debug_count.unwrap_or(0)
+    }
+
+    pub fn clear_debug_count(&mut self) {
+        self.debug_count = ::std::option::Option::None;
+    }
+
+    pub fn has_debug_count(&self) -> bool {
+        self.debug_count.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_debug_count(&mut self, v: u32) {
+        self.debug_count = ::std::option::Option::Some(v);
+    }
+
+    // optional uint32 sections_count = 37;
+
+    pub fn sections_count(&self) -> u32 {
+        self.sections_count.unwrap_or(0)
+    }
+
+    pub fn clear_sections_count(&mut self) {
+        self.sections_count = ::std::option::Option::None;
+    }
+
+    pub fn has_sections_count(&self) -> bool {
+        self.sections_count.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_sections_count(&mut self, v: u32) {
+        self.sections_count = ::std::option::Option::Some(v);
+    }
+
+    // optional uint32 tls_callbacks_count = 38;
+
+    pub fn tls_callbacks_count(&self) -> u32 {
+        self.tls_callbacks_count.unwrap_or(0)
+    }
+
+    pub fn clear_tls_callbacks_count(&mut self) {
+        self.tls_callbacks_count = ::std::option::Option::None;
+    }
+
+    pub fn has_tls_callbacks_count(&self) -> bool {
+        self.tls_callbacks_count.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_tls_callbacks_count(&mut self, v: u32) {
+        self.tls_callbacks_count = ::std::option::Option::Some(v);
+    }
+
+    // optional uint32 delay_imports_count = 39;
+
+    pub fn delay_imports_count(&self) -> u32 {
+        self.delay_imports_count.unwrap_or(0)
+    }
+
+    pub fn clear_delay_imports_count(&mut self) {
+        self.delay_imports_count = ::std::option::Option::None;
+    }
+
+    pub fn has_delay_imports_count(&self) -> bool {
+        self.delay_imports_count.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_delay_imports_count(&mut self, v: u32) {
+        self.delay_imports_count = ::std::option::Option::Some(v);
+    }
+
+    // optional uint32 bound_imports_count = 40;
+
+    pub fn bound_imports_count(&self) -> u32 {
+        self.bound_imports_count.unwrap_or(0)
+    }
+
+    pub fn clear_bound_imports_count(&mut self) {
+        self.bound_imports_count = ::std::option::Option::None;
+    }
+
+    pub fn has_bound_imports_count(&self) -> bool {
+        self.bound_imports_count.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_bound_imports_count(&mut self, v: u32) {
+        self.bound_imports_count = ::std::option::Option::Some(v);
+    }
+
+    // optional uint32 certificates_count = 41;
+
+    pub fn certificates_count(&self) -> u32 {
+        self.certificates_count.unwrap_or(0)
+    }
+
+    pub fn clear_certificates_count(&mut self) {
+        self.certificates_count = ::std::option::Option::None;
+    }
+
+    pub fn has_certificates_count(&self) -> bool {
+        self.certificates_count.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_certificates_count(&mut self, v: u32) {
+        self.certificates_count = ::std::option::Option::Some(v);
+    }
+
+    // optional uint32 ep_instructions_count = 42;
+
+    pub fn ep_instructions_count(&self) -> u32 {
+        self.ep_instructions_count.unwrap_or(0)
+    }
+
+    pub fn clear_ep_instructions_count(&mut self) {
+        self.ep_instructions_count = ::std::option::Option::None;
+    }
+
+    pub fn has_ep_instructions_count(&self) -> bool {
+        self.ep_instructions_count.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_ep_instructions_count(&mut self, v: u32) {
+        self.ep_instructions_count = ::std::option::Option::Some(v);
+    }
+
+    // optional bool is_wx_last_section = 43;
+
+    pub fn is_wx_last_section(&self) -> bool {
+        self.is_wx_last_section.unwrap_or(false)
+    }
+
+    pub fn clear_is_wx_last_section(&mut self) {
+        self.is_wx_last_section = ::std::option::Option::None;
+    }
+
+    pub fn has_is_wx_last_section(&self) -> bool {
+        self.is_wx_last_section.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_is_wx_last_section(&mut self, v: bool) {
+        self.is_wx_last_section = ::std::option::Option::Some(v);
+    }
+
+    // optional uint32 missing_standard_sections = 44;
+
+    pub fn missing_standard_sections(&self) -> u32 {
+        self.missing_standard_sections.unwrap_or(0)
+    }
+
+    pub fn clear_missing_standard_sections(&mut self) {
+        self.missing_standard_sections = ::std::option::Option::None;
+    }
+
+    pub fn has_missing_standard_sections(&self) -> bool {
+        self.missing_standard_sections.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_missing_standard_sections(&mut self, v: u32) {
+        self.missing_standard_sections = ::std::option::Option::Some(v);
+    }
+
+    fn generated_message_descriptor_data() -> ::protobuf::reflect::GeneratedMessageDescriptorData {
+        let mut fields = ::std::vec::Vec::with_capacity(44);
+        let mut oneofs = ::std::vec::Vec::with_capacity(0);
+        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
+            "size_of_optional_header",
+            |m: &PeMl| { &m.size_of_optional_header },
+            |m: &mut PeMl| { &mut m.size_of_optional_header },
+        ));
+        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
+            "major_linker_version",
+            |m: &PeMl| { &m.major_linker_version },
+            |m: &mut PeMl| { &mut m.major_linker_version },
+        ));
+        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
+            "minor_linker_version",
+            |m: &PeMl| { &m.minor_linker_version },
+            |m: &mut PeMl| { &mut m.minor_linker_version },
+        ));
+        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
+            "size_of_code",
+            |m: &PeMl| { &m.size_of_code },
+            |m: &mut PeMl| { &mut m.size_of_code },
+        ));
+        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
+            "size_of_initialized_data",
+            |m: &PeMl| { &m.size_of_initialized_data },
+            |m: &mut PeMl| { &mut m.size_of_initialized_data },
+        ));
+        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
+            "size_of_uninitialized_data",
+            |m: &PeMl| { &m.size_of_uninitialized_data },
+            |m: &mut PeMl| { &mut m.size_of_uninitialized_data },
+        ));
+        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
+            "address_of_entry_point",
+            |m: &PeMl| { &m.address_of_entry_point },
+            |m: &mut PeMl| { &mut m.address_of_entry_point },
+        ));
+        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
+            "base_of_code",
+            |m: &PeMl| { &m.base_of_code },
+            |m: &mut PeMl| { &mut m.base_of_code },
+        ));
+        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
+            "base_of_data",
+            |m: &PeMl| { &m.base_of_data },
+            |m: &mut PeMl| { &mut m.base_of_data },
+        ));
+        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
+            "image_base",
+            |m: &PeMl| { &m.image_base },
+            |m: &mut PeMl| { &mut m.image_base },
+        ));
+        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
+            "section_alignment",
+            |m: &PeMl| { &m.section_alignment },
+            |m: &mut PeMl| { &mut m.section_alignment },
+        ));
+        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
+            "file_alignment",
+            |m: &PeMl| { &m.file_alignment },
+            |m: &mut PeMl| { &mut m.file_alignment },
+        ));
+        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
+            "major_operating_system_version",
+            |m: &PeMl| { &m.major_operating_system_version },
+            |m: &mut PeMl| { &mut m.major_operating_system_version },
+        ));
+        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
+            "minor_operating_system_version",
+            |m: &PeMl| { &m.minor_operating_system_version },
+            |m: &mut PeMl| { &mut m.minor_operating_system_version },
+        ));
+        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
+            "major_image_version",
+            |m: &PeMl| { &m.major_image_version },
+            |m: &mut PeMl| { &mut m.major_image_version },
+        ));
+        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
+            "minor_image_version",
+            |m: &PeMl| { &m.minor_image_version },
+            |m: &mut PeMl| { &mut m.minor_image_version },
+        ));
+        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
+            "major_subsystem_version",
+            |m: &PeMl| { &m.major_subsystem_version },
+            |m: &mut PeMl| { &mut m.major_subsystem_version },
+        ));
+        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
+            "minor_subsystem_version",
+            |m: &PeMl| { &m.minor_subsystem_version },
+            |m: &mut PeMl| { &mut m.minor_subsystem_version },
+        ));
+        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
+            "size_of_image",
+            |m: &PeMl| { &m.size_of_image },
+            |m: &mut PeMl| { &mut m.size_of_image },
+        ));
+        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
+            "size_of_headers",
+            |m: &PeMl| { &m.size_of_headers },
+            |m: &mut PeMl| { &mut m.size_of_headers },
+        ));
+        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
+            "check_sum",
+            |m: &PeMl| { &m.check_sum },
+            |m: &mut PeMl| { &mut m.check_sum },
+        ));
+        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
+            "subsystem",
+            |m: &PeMl| { &m.subsystem },
+            |m: &mut PeMl| { &mut m.subsystem },
+        ));
+        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
+            "dll_characteristics",
+            |m: &PeMl| { &m.dll_characteristics },
+            |m: &mut PeMl| { &mut m.dll_characteristics },
+        ));
+        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
+            "size_of_stack_reserve",
+            |m: &PeMl| { &m.size_of_stack_reserve },
+            |m: &mut PeMl| { &mut m.size_of_stack_reserve },
+        ));
+        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
+            "size_of_stack_commit",
+            |m: &PeMl| { &m.size_of_stack_commit },
+            |m: &mut PeMl| { &mut m.size_of_stack_commit },
+        ));
+        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
+            "size_of_heap_reserve",
+            |m: &PeMl| { &m.size_of_heap_reserve },
+            |m: &mut PeMl| { &mut m.size_of_heap_reserve },
+        ));
+        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
+            "size_of_heap_commit",
+            |m: &PeMl| { &m.size_of_heap_commit },
+            |m: &mut PeMl| { &mut m.size_of_heap_commit },
+        ));
+        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
+            "loader_flags",
+            |m: &PeMl| { &m.loader_flags },
+            |m: &mut PeMl| { &mut m.loader_flags },
+        ));
+        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
+            "number_of_rva_and_sizes",
+            |m: &PeMl| { &m.number_of_rva_and_sizes },
+            |m: &mut PeMl| { &mut m.number_of_rva_and_sizes },
+        ));
+        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
+            "entropy",
+            |m: &PeMl| { &m.entropy },
+            |m: &mut PeMl| { &mut m.entropy },
+        ));
+        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
+            "overlay_size",
+            |m: &PeMl| { &m.overlay_size },
+            |m: &mut PeMl| { &mut m.overlay_size },
+        ));
+        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
+            "overlay_entropy",
+            |m: &PeMl| { &m.overlay_entropy },
+            |m: &mut PeMl| { &mut m.overlay_entropy },
+        ));
+        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
+            "imports_count",
+            |m: &PeMl| { &m.imports_count },
+            |m: &mut PeMl| { &mut m.imports_count },
+        ));
+        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
+            "exports_count",
+            |m: &PeMl| { &m.exports_count },
+            |m: &mut PeMl| { &mut m.exports_count },
+        ));
+        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
+            "resources_count",
+            |m: &PeMl| { &m.resources_count },
+            |m: &mut PeMl| { &mut m.resources_count },
+        ));
+        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
+            "debug_count",
+            |m: &PeMl| { &m.debug_count },
+            |m: &mut PeMl| { &mut m.debug_count },
+        ));
+        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
+            "sections_count",
+            |m: &PeMl| { &m.sections_count },
+            |m: &mut PeMl| { &mut m.sections_count },
+        ));
+        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
+            "tls_callbacks_count",
+            |m: &PeMl| { &m.tls_callbacks_count },
+            |m: &mut PeMl| { &mut m.tls_callbacks_count },
+        ));
+        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
+            "delay_imports_count",
+            |m: &PeMl| { &m.delay_imports_count },
+            |m: &mut PeMl| { &mut m.delay_imports_count },
+        ));
+        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
+            "bound_imports_count",
+            |m: &PeMl| { &m.bound_imports_count },
+            |m: &mut PeMl| { &mut m.bound_imports_count },
+        ));
+        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
+            "certificates_count",
+            |m: &PeMl| { &m.certificates_count },
+            |m: &mut PeMl| { &mut m.certificates_count },
+        ));
+        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
+            "ep_instructions_count",
+            |m: &PeMl| { &m.ep_instructions_count },
+            |m: &mut PeMl| { &mut m.ep_instructions_count },
+        ));
+        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
+            "is_wx_last_section",
+            |m: &PeMl| { &m.is_wx_last_section },
+            |m: &mut PeMl| { &mut m.is_wx_last_section },
+        ));
+        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
+            "missing_standard_sections",
+            |m: &PeMl| { &m.missing_standard_sections },
+            |m: &mut PeMl| { &mut m.missing_standard_sections },
+        ));
+        ::protobuf::reflect::GeneratedMessageDescriptorData::new_2::<PeMl>(
+            "PeMl",
+            fields,
+            oneofs,
+        )
+    }
+}
+
+impl ::protobuf::Message for PeMl {
+    const NAME: &'static str = "PeMl";
+
+    fn is_initialized(&self) -> bool {
+        true
+    }
+
+    fn merge_from(&mut self, is: &mut ::protobuf::CodedInputStream<'_>) -> ::protobuf::Result<()> {
+        while let Some(tag) = is.read_raw_tag_or_eof()? {
+            match tag {
+                8 => {
+                    self.size_of_optional_header = ::std::option::Option::Some(is.read_uint32()?);
+                },
+                16 => {
+                    self.major_linker_version = ::std::option::Option::Some(is.read_uint32()?);
+                },
+                24 => {
+                    self.minor_linker_version = ::std::option::Option::Some(is.read_uint32()?);
+                },
+                32 => {
+                    self.size_of_code = ::std::option::Option::Some(is.read_uint32()?);
+                },
+                40 => {
+                    self.size_of_initialized_data = ::std::option::Option::Some(is.read_uint32()?);
+                },
+                48 => {
+                    self.size_of_uninitialized_data = ::std::option::Option::Some(is.read_uint32()?);
+                },
+                56 => {
+                    self.address_of_entry_point = ::std::option::Option::Some(is.read_uint32()?);
+                },
+                64 => {
+                    self.base_of_code = ::std::option::Option::Some(is.read_uint32()?);
+                },
+                72 => {
+                    self.base_of_data = ::std::option::Option::Some(is.read_uint32()?);
+                },
+                80 => {
+                    self.image_base = ::std::option::Option::Some(is.read_uint64()?);
+                },
+                88 => {
+                    self.section_alignment = ::std::option::Option::Some(is.read_uint32()?);
+                },
+                96 => {
+                    self.file_alignment = ::std::option::Option::Some(is.read_uint32()?);
+                },
+                104 => {
+                    self.major_operating_system_version = ::std::option::Option::Some(is.read_uint32()?);
+                },
+                112 => {
+                    self.minor_operating_system_version = ::std::option::Option::Some(is.read_uint32()?);
+                },
+                120 => {
+                    self.major_image_version = ::std::option::Option::Some(is.read_uint32()?);
+                },
+                128 => {
+                    self.minor_image_version = ::std::option::Option::Some(is.read_uint32()?);
+                },
+                136 => {
+                    self.major_subsystem_version = ::std::option::Option::Some(is.read_uint32()?);
+                },
+                144 => {
+                    self.minor_subsystem_version = ::std::option::Option::Some(is.read_uint32()?);
+                },
+                152 => {
+                    self.size_of_image = ::std::option::Option::Some(is.read_uint32()?);
+                },
+                160 => {
+                    self.size_of_headers = ::std::option::Option::Some(is.read_uint32()?);
+                },
+                168 => {
+                    self.check_sum = ::std::option::Option::Some(is.read_uint32()?);
+                },
+                176 => {
+                    self.subsystem = ::std::option::Option::Some(is.read_uint32()?);
+                },
+                184 => {
+                    self.dll_characteristics = ::std::option::Option::Some(is.read_uint32()?);
+                },
+                192 => {
+                    self.size_of_stack_reserve = ::std::option::Option::Some(is.read_uint64()?);
+                },
+                200 => {
+                    self.size_of_stack_commit = ::std::option::Option::Some(is.read_uint64()?);
+                },
+                208 => {
+                    self.size_of_heap_reserve = ::std::option::Option::Some(is.read_uint64()?);
+                },
+                216 => {
+                    self.size_of_heap_commit = ::std::option::Option::Some(is.read_uint64()?);
+                },
+                224 => {
+                    self.loader_flags = ::std::option::Option::Some(is.read_uint32()?);
+                },
+                232 => {
+                    self.number_of_rva_and_sizes = ::std::option::Option::Some(is.read_uint32()?);
+                },
+                241 => {
+                    self.entropy = ::std::option::Option::Some(is.read_double()?);
+                },
+                248 => {
+                    self.overlay_size = ::std::option::Option::Some(is.read_uint32()?);
+                },
+                257 => {
+                    self.overlay_entropy = ::std::option::Option::Some(is.read_double()?);
+                },
+                264 => {
+                    self.imports_count = ::std::option::Option::Some(is.read_uint32()?);
+                },
+                272 => {
+                    self.exports_count = ::std::option::Option::Some(is.read_uint32()?);
+                },
+                280 => {
+                    self.resources_count = ::std::option::Option::Some(is.read_uint32()?);
+                },
+                288 => {
+                    self.debug_count = ::std::option::Option::Some(is.read_uint32()?);
+                },
+                296 => {
+                    self.sections_count = ::std::option::Option::Some(is.read_uint32()?);
+                },
+                304 => {
+                    self.tls_callbacks_count = ::std::option::Option::Some(is.read_uint32()?);
+                },
+                312 => {
+                    self.delay_imports_count = ::std::option::Option::Some(is.read_uint32()?);
+                },
+                320 => {
+                    self.bound_imports_count = ::std::option::Option::Some(is.read_uint32()?);
+                },
+                328 => {
+                    self.certificates_count = ::std::option::Option::Some(is.read_uint32()?);
+                },
+                336 => {
+                    self.ep_instructions_count = ::std::option::Option::Some(is.read_uint32()?);
+                },
+                344 => {
+                    self.is_wx_last_section = ::std::option::Option::Some(is.read_bool()?);
+                },
+                352 => {
+                    self.missing_standard_sections = ::std::option::Option::Some(is.read_uint32()?);
+                },
+                tag => {
+                    ::protobuf::rt::read_unknown_or_skip_group(tag, is, self.special_fields.mut_unknown_fields())?;
+                },
+            };
+        }
+        ::std::result::Result::Ok(())
+    }
+
+    // Compute sizes of nested messages
+    #[allow(unused_variables)]
+    fn compute_size(&self) -> u64 {
+        let mut my_size = 0;
+        if let Some(v) = self.size_of_optional_header {
+            my_size += ::protobuf::rt::uint32_size(1, v);
+        }
+        if let Some(v) = self.major_linker_version {
+            my_size += ::protobuf::rt::uint32_size(2, v);
+        }
+        if let Some(v) = self.minor_linker_version {
+            my_size += ::protobuf::rt::uint32_size(3, v);
+        }
+        if let Some(v) = self.size_of_code {
+            my_size += ::protobuf::rt::uint32_size(4, v);
+        }
+        if let Some(v) = self.size_of_initialized_data {
+            my_size += ::protobuf::rt::uint32_size(5, v);
+        }
+        if let Some(v) = self.size_of_uninitialized_data {
+            my_size += ::protobuf::rt::uint32_size(6, v);
+        }
+        if let Some(v) = self.address_of_entry_point {
+            my_size += ::protobuf::rt::uint32_size(7, v);
+        }
+        if let Some(v) = self.base_of_code {
+            my_size += ::protobuf::rt::uint32_size(8, v);
+        }
+        if let Some(v) = self.base_of_data {
+            my_size += ::protobuf::rt::uint32_size(9, v);
+        }
+        if let Some(v) = self.image_base {
+            my_size += ::protobuf::rt::uint64_size(10, v);
+        }
+        if let Some(v) = self.section_alignment {
+            my_size += ::protobuf::rt::uint32_size(11, v);
+        }
+        if let Some(v) = self.file_alignment {
+            my_size += ::protobuf::rt::uint32_size(12, v);
+        }
+        if let Some(v) = self.major_operating_system_version {
+            my_size += ::protobuf::rt::uint32_size(13, v);
+        }
+        if let Some(v) = self.minor_operating_system_version {
+            my_size += ::protobuf::rt::uint32_size(14, v);
+        }
+        if let Some(v) = self.major_image_version {
+            my_size += ::protobuf::rt::uint32_size(15, v);
+        }
+        if let Some(v) = self.minor_image_version {
+            my_size += ::protobuf::rt::uint32_size(16, v);
+        }
+        if let Some(v) = self.major_subsystem_version {
+            my_size += ::protobuf::rt::uint32_size(17, v);
+        }
+        if let Some(v) = self.minor_subsystem_version {
+            my_size += ::protobuf::rt::uint32_size(18, v);
+        }
+        if let Some(v) = self.size_of_image {
+            my_size += ::protobuf::rt::uint32_size(19, v);
+        }
+        if let Some(v) = self.size_of_headers {
+            my_size += ::protobuf::rt::uint32_size(20, v);
+        }
+        if let Some(v) = self.check_sum {
+            my_size += ::protobuf::rt::uint32_size(21, v);
+        }
+        if let Some(v) = self.subsystem {
+            my_size += ::protobuf::rt::uint32_size(22, v);
+        }
+        if let Some(v) = self.dll_characteristics {
+            my_size += ::protobuf::rt::uint32_size(23, v);
+        }
+        if let Some(v) = self.size_of_stack_reserve {
+            my_size += ::protobuf::rt::uint64_size(24, v);
+        }
+        if let Some(v) = self.size_of_stack_commit {
+            my_size += ::protobuf::rt::uint64_size(25, v);
+        }
+        if let Some(v) = self.size_of_heap_reserve {
+            my_size += ::protobuf::rt::uint64_size(26, v);
+        }
+        if let Some(v) = self.size_of_heap_commit {
+            my_size += ::protobuf::rt::uint64_size(27, v);
+        }
+        if let Some(v) = self.loader_flags {
+            my_size += ::protobuf::rt::uint32_size(28, v);
+        }
+        if let Some(v) = self.number_of_rva_and_sizes {
+            my_size += ::protobuf::rt::uint32_size(29, v);
+        }
+        if let Some(v) = self.entropy {
+            my_size += 2 + 8;
+        }
+        if let Some(v) = self.overlay_size {
+            my_size += ::protobuf::rt::uint32_size(31, v);
+        }
+        if let Some(v) = self.overlay_entropy {
+            my_size += 2 + 8;
+        }
+        if let Some(v) = self.imports_count {
+            my_size += ::protobuf::rt::uint32_size(33, v);
+        }
+        if let Some(v) = self.exports_count {
+            my_size += ::protobuf::rt::uint32_size(34, v);
+        }
+        if let Some(v) = self.resources_count {
+            my_size += ::protobuf::rt::uint32_size(35, v);
+        }
+        if let Some(v) = self.debug_count {
+            my_size += ::protobuf::rt::uint32_size(36, v);
+        }
+        if let Some(v) = self.sections_count {
+            my_size += ::protobuf::rt::uint32_size(37, v);
+        }
+        if let Some(v) = self.tls_callbacks_count {
+            my_size += ::protobuf::rt::uint32_size(38, v);
+        }
+        if let Some(v) = self.delay_imports_count {
+            my_size += ::protobuf::rt::uint32_size(39, v);
+        }
+        if let Some(v) = self.bound_imports_count {
+            my_size += ::protobuf::rt::uint32_size(40, v);
+        }
+        if let Some(v) = self.certificates_count {
+            my_size += ::protobuf::rt::uint32_size(41, v);
+        }
+        if let Some(v) = self.ep_instructions_count {
+            my_size += ::protobuf::rt::uint32_size(42, v);
+        }
+        if let Some(v) = self.is_wx_last_section {
+            my_size += 2 + 1;
+        }
+        if let Some(v) = self.missing_standard_sections {
+            my_size += ::protobuf::rt::uint32_size(44, v);
+        }
+        my_size += ::protobuf::rt::unknown_fields_size(self.special_fields.unknown_fields());
+        self.special_fields.cached_size().set(my_size as u32);
+        my_size
+    }
+
+    fn write_to_with_cached_sizes(&self, os: &mut ::protobuf::CodedOutputStream<'_>) -> ::protobuf::Result<()> {
+        if let Some(v) = self.size_of_optional_header {
+            os.write_uint32(1, v)?;
+        }
+        if let Some(v) = self.major_linker_version {
+            os.write_uint32(2, v)?;
+        }
+        if let Some(v) = self.minor_linker_version {
+            os.write_uint32(3, v)?;
+        }
+        if let Some(v) = self.size_of_code {
+            os.write_uint32(4, v)?;
+        }
+        if let Some(v) = self.size_of_initialized_data {
+            os.write_uint32(5, v)?;
+        }
+        if let Some(v) = self.size_of_uninitialized_data {
+            os.write_uint32(6, v)?;
+        }
+        if let Some(v) = self.address_of_entry_point {
+            os.write_uint32(7, v)?;
+        }
+        if let Some(v) = self.base_of_code {
+            os.write_uint32(8, v)?;
+        }
+        if let Some(v) = self.base_of_data {
+            os.write_uint32(9, v)?;
+        }
+        if let Some(v) = self.image_base {
+            os.write_uint64(10, v)?;
+        }
+        if let Some(v) = self.section_alignment {
+            os.write_uint32(11, v)?;
+        }
+        if let Some(v) = self.file_alignment {
+            os.write_uint32(12, v)?;
+        }
+        if let Some(v) = self.major_operating_system_version {
+            os.write_uint32(13, v)?;
+        }
+        if let Some(v) = self.minor_operating_system_version {
+            os.write_uint32(14, v)?;
+        }
+        if let Some(v) = self.major_image_version {
+            os.write_uint32(15, v)?;
+        }
+        if let Some(v) = self.minor_image_version {
+            os.write_uint32(16, v)?;
+        }
+        if let Some(v) = self.major_subsystem_version {
+            os.write_uint32(17, v)?;
+        }
+        if let Some(v) = self.minor_subsystem_version {
+            os.write_uint32(18, v)?;
+        }
+        if let Some(v) = self.size_of_image {
+            os.write_uint32(19, v)?;
+        }
+        if let Some(v) = self.size_of_headers {
+            os.write_uint32(20, v)?;
+        }
+        if let Some(v) = self.check_sum {
+            os.write_uint32(21, v)?;
+        }
+        if let Some(v) = self.subsystem {
+            os.write_uint32(22, v)?;
+        }
+        if let Some(v) = self.dll_characteristics {
+            os.write_uint32(23, v)?;
+        }
+        if let Some(v) = self.size_of_stack_reserve {
+            os.write_uint64(24, v)?;
+        }
+        if let Some(v) = self.size_of_stack_commit {
+            os.write_uint64(25, v)?;
+        }
+        if let Some(v) = self.size_of_heap_reserve {
+            os.write_uint64(26, v)?;
+        }
+        if let Some(v) = self.size_of_heap_commit {
+            os.write_uint64(27, v)?;
+        }
+        if let Some(v) = self.loader_flags {
+            os.write_uint32(28, v)?;
+        }
+        if let Some(v) = self.number_of_rva_and_sizes {
+            os.write_uint32(29, v)?;
+        }
+        if let Some(v) = self.entropy {
+            os.write_double(30, v)?;
+        }
+        if let Some(v) = self.overlay_size {
+            os.write_uint32(31, v)?;
+        }
+        if let Some(v) = self.overlay_entropy {
+            os.write_double(32, v)?;
+        }
+        if let Some(v) = self.imports_count {
+            os.write_uint32(33, v)?;
+        }
+        if let Some(v) = self.exports_count {
+            os.write_uint32(34, v)?;
+        }
+        if let Some(v) = self.resources_count {
+            os.write_uint32(35, v)?;
+        }
+        if let Some(v) = self.debug_count {
+            os.write_uint32(36, v)?;
+        }
+        if let Some(v) = self.sections_count {
+            os.write_uint32(37, v)?;
+        }
+        if let Some(v) = self.tls_callbacks_count {
+            os.write_uint32(38, v)?;
+        }
+        if let Some(v) = self.delay_imports_count {
+            os.write_uint32(39, v)?;
+        }
+        if let Some(v) = self.bound_imports_count {
+            os.write_uint32(40, v)?;
+        }
+        if let Some(v) = self.certificates_count {
+            os.write_uint32(41, v)?;
+        }
+        if let Some(v) = self.ep_instructions_count {
+            os.write_uint32(42, v)?;
+        }
+        if let Some(v) = self.is_wx_last_section {
+            os.write_bool(43, v)?;
+        }
+        if let Some(v) = self.missing_standard_sections {
+            os.write_uint32(44, v)?;
+        }
+        os.write_unknown_fields(self.special_fields.unknown_fields())?;
+        ::std::result::Result::Ok(())
+    }
+
+    fn special_fields(&self) -> &::protobuf::SpecialFields {
+        &self.special_fields
+    }
+
+    fn mut_special_fields(&mut self) -> &mut ::protobuf::SpecialFields {
+        &mut self.special_fields
+    }
+
+    fn new() -> PeMl {
+        PeMl::new()
+    }
+
+    fn clear(&mut self) {
+        self.size_of_optional_header = ::std::option::Option::None;
+        self.major_linker_version = ::std::option::Option::None;
+        self.minor_linker_version = ::std::option::Option::None;
+        self.size_of_code = ::std::option::Option::None;
+        self.size_of_initialized_data = ::std::option::Option::None;
+        self.size_of_uninitialized_data = ::std::option::Option::None;
+        self.address_of_entry_point = ::std::option::Option::None;
+        self.base_of_code = ::std::option::Option::None;
+        self.base_of_data = ::std::option::Option::None;
+        self.image_base = ::std::option::Option::None;
+        self.section_alignment = ::std::option::Option::None;
+        self.file_alignment = ::std::option::Option::None;
+        self.major_operating_system_version = ::std::option::Option::None;
+        self.minor_operating_system_version = ::std::option::Option::None;
+        self.major_image_version = ::std::option::Option::None;
+        self.minor_image_version = ::std::option::Option::None;
+        self.major_subsystem_version = ::std::option::Option::None;
+        self.minor_subsystem_version = ::std::option::Option::None;
+        self.size_of_image = ::std::option::Option::None;
+        self.size_of_headers = ::std::option::Option::None;
+        self.check_sum = ::std::option::Option::None;
+        self.subsystem = ::std::option::Option::None;
+        self.dll_characteristics = ::std::option::Option::None;
+        self.size_of_stack_reserve = ::std::option::Option::None;
+        self.size_of_stack_commit = ::std::option::Option::None;
+        self.size_of_heap_reserve = ::std::option::Option::None;
+        self.size_of_heap_commit = ::std::option::Option::None;
+        self.loader_flags = ::std::option::Option::None;
+        self.number_of_rva_and_sizes = ::std::option::Option::None;
+        self.entropy = ::std::option::Option::None;
+        self.overlay_size = ::std::option::Option::None;
+        self.overlay_entropy = ::std::option::Option::None;
+        self.imports_count = ::std::option::Option::None;
+        self.exports_count = ::std::option::Option::None;
+        self.resources_count = ::std::option::Option::None;
+        self.debug_count = ::std::option::Option::None;
+        self.sections_count = ::std::option::Option::None;
+        self.tls_callbacks_count = ::std::option::Option::None;
+        self.delay_imports_count = ::std::option::Option::None;
+        self.bound_imports_count = ::std::option::Option::None;
+        self.certificates_count = ::std::option::Option::None;
+        self.ep_instructions_count = ::std::option::Option::None;
+        self.is_wx_last_section = ::std::option::Option::None;
+        self.missing_standard_sections = ::std::option::Option::None;
+        self.special_fields.clear();
+    }
+
+    fn default_instance() -> &'static PeMl {
+        static instance: PeMl = PeMl {
+            size_of_optional_header: ::std::option::Option::None,
+            major_linker_version: ::std::option::Option::None,
+            minor_linker_version: ::std::option::Option::None,
+            size_of_code: ::std::option::Option::None,
+            size_of_initialized_data: ::std::option::Option::None,
+            size_of_uninitialized_data: ::std::option::Option::None,
+            address_of_entry_point: ::std::option::Option::None,
+            base_of_code: ::std::option::Option::None,
+            base_of_data: ::std::option::Option::None,
+            image_base: ::std::option::Option::None,
+            section_alignment: ::std::option::Option::None,
+            file_alignment: ::std::option::Option::None,
+            major_operating_system_version: ::std::option::Option::None,
+            minor_operating_system_version: ::std::option::Option::None,
+            major_image_version: ::std::option::Option::None,
+            minor_image_version: ::std::option::Option::None,
+            major_subsystem_version: ::std::option::Option::None,
+            minor_subsystem_version: ::std::option::Option::None,
+            size_of_image: ::std::option::Option::None,
+            size_of_headers: ::std::option::Option::None,
+            check_sum: ::std::option::Option::None,
+            subsystem: ::std::option::Option::None,
+            dll_characteristics: ::std::option::Option::None,
+            size_of_stack_reserve: ::std::option::Option::None,
+            size_of_stack_commit: ::std::option::Option::None,
+            size_of_heap_reserve: ::std::option::Option::None,
+            size_of_heap_commit: ::std::option::Option::None,
+            loader_flags: ::std::option::Option::None,
+            number_of_rva_and_sizes: ::std::option::Option::None,
+            entropy: ::std::option::Option::None,
+            overlay_size: ::std::option::Option::None,
+            overlay_entropy: ::std::option::Option::None,
+            imports_count: ::std::option::Option::None,
+            exports_count: ::std::option::Option::None,
+            resources_count: ::std::option::Option::None,
+            debug_count: ::std::option::Option::None,
+            sections_count: ::std::option::Option::None,
+            tls_callbacks_count: ::std::option::Option::None,
+            delay_imports_count: ::std::option::Option::None,
+            bound_imports_count: ::std::option::Option::None,
+            certificates_count: ::std::option::Option::None,
+            ep_instructions_count: ::std::option::Option::None,
+            is_wx_last_section: ::std::option::Option::None,
+            missing_standard_sections: ::std::option::Option::None,
+            special_fields: ::protobuf::SpecialFields::new(),
+        };
+        &instance
+    }
+}
+
+impl ::protobuf::MessageFull for PeMl {
+    fn descriptor() -> ::protobuf::reflect::MessageDescriptor {
+        static descriptor: ::protobuf::rt::Lazy<::protobuf::reflect::MessageDescriptor> = ::protobuf::rt::Lazy::new();
+        descriptor.get(|| file_descriptor().message_by_package_relative_name("PeMl").unwrap()).clone()
+    }
+}
+
+impl ::std::fmt::Display for PeMl {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        ::protobuf::text_format::fmt(self, f)
+    }
+}
+
+impl ::protobuf::reflect::ProtobufValue for PeMl {
+    type RuntimeType = ::protobuf::reflect::rt::RuntimeTypeMessage<Self>;
+}
+
+// @@protoc_insertion_point(message:yara.hydra.EmulationTelemetry)
+#[derive(PartialEq,Clone,Default,Debug)]
+pub struct EmulationTelemetry {
+    // message fields
+    // @@protoc_insertion_point(field:yara.hydra.EmulationTelemetry.executed_apis)
+    pub executed_apis: ::std::vec::Vec<::std::string::String>,
+    // @@protoc_insertion_point(field:yara.hydra.EmulationTelemetry.mapped_addresses)
+    pub mapped_addresses: ::std::vec::Vec<u64>,
+    // @@protoc_insertion_point(field:yara.hydra.EmulationTelemetry.self_modifying_code_detected)
+    pub self_modifying_code_detected: ::std::option::Option<bool>,
+    // @@protoc_insertion_point(field:yara.hydra.EmulationTelemetry.executed_instructions)
+    pub executed_instructions: ::std::option::Option<u32>,
+    // special fields
+    // @@protoc_insertion_point(special_field:yara.hydra.EmulationTelemetry.special_fields)
+    pub special_fields: ::protobuf::SpecialFields,
+}
+
+impl<'a> ::std::default::Default for &'a EmulationTelemetry {
+    fn default() -> &'a EmulationTelemetry {
+        <EmulationTelemetry as ::protobuf::Message>::default_instance()
+    }
+}
+
+impl EmulationTelemetry {
+    pub fn new() -> EmulationTelemetry {
+        ::std::default::Default::default()
+    }
+
+    // optional bool self_modifying_code_detected = 3;
+
+    pub fn self_modifying_code_detected(&self) -> bool {
+        self.self_modifying_code_detected.unwrap_or(false)
+    }
+
+    pub fn clear_self_modifying_code_detected(&mut self) {
+        self.self_modifying_code_detected = ::std::option::Option::None;
+    }
+
+    pub fn has_self_modifying_code_detected(&self) -> bool {
+        self.self_modifying_code_detected.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_self_modifying_code_detected(&mut self, v: bool) {
+        self.self_modifying_code_detected = ::std::option::Option::Some(v);
+    }
+
+    // optional uint32 executed_instructions = 4;
+
+    pub fn executed_instructions(&self) -> u32 {
+        self.executed_instructions.unwrap_or(0)
+    }
+
+    pub fn clear_executed_instructions(&mut self) {
+        self.executed_instructions = ::std::option::Option::None;
+    }
+
+    pub fn has_executed_instructions(&self) -> bool {
+        self.executed_instructions.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_executed_instructions(&mut self, v: u32) {
+        self.executed_instructions = ::std::option::Option::Some(v);
+    }
+
+    fn generated_message_descriptor_data() -> ::protobuf::reflect::GeneratedMessageDescriptorData {
+        let mut fields = ::std::vec::Vec::with_capacity(4);
+        let mut oneofs = ::std::vec::Vec::with_capacity(0);
+        fields.push(::protobuf::reflect::rt::v2::make_vec_simpler_accessor::<_, _>(
+            "executed_apis",
+            |m: &EmulationTelemetry| { &m.executed_apis },
+            |m: &mut EmulationTelemetry| { &mut m.executed_apis },
+        ));
+        fields.push(::protobuf::reflect::rt::v2::make_vec_simpler_accessor::<_, _>(
+            "mapped_addresses",
+            |m: &EmulationTelemetry| { &m.mapped_addresses },
+            |m: &mut EmulationTelemetry| { &mut m.mapped_addresses },
+        ));
+        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
+            "self_modifying_code_detected",
+            |m: &EmulationTelemetry| { &m.self_modifying_code_detected },
+            |m: &mut EmulationTelemetry| { &mut m.self_modifying_code_detected },
+        ));
+        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
+            "executed_instructions",
+            |m: &EmulationTelemetry| { &m.executed_instructions },
+            |m: &mut EmulationTelemetry| { &mut m.executed_instructions },
+        ));
+        ::protobuf::reflect::GeneratedMessageDescriptorData::new_2::<EmulationTelemetry>(
+            "EmulationTelemetry",
+            fields,
+            oneofs,
+        )
+    }
+}
+
+impl ::protobuf::Message for EmulationTelemetry {
+    const NAME: &'static str = "EmulationTelemetry";
+
+    fn is_initialized(&self) -> bool {
+        true
+    }
+
+    fn merge_from(&mut self, is: &mut ::protobuf::CodedInputStream<'_>) -> ::protobuf::Result<()> {
+        while let Some(tag) = is.read_raw_tag_or_eof()? {
+            match tag {
+                10 => {
+                    self.executed_apis.push(is.read_string()?);
+                },
+                18 => {
+                    is.read_repeated_packed_uint64_into(&mut self.mapped_addresses)?;
+                },
+                16 => {
+                    self.mapped_addresses.push(is.read_uint64()?);
+                },
+                24 => {
+                    self.self_modifying_code_detected = ::std::option::Option::Some(is.read_bool()?);
+                },
+                32 => {
+                    self.executed_instructions = ::std::option::Option::Some(is.read_uint32()?);
+                },
+                tag => {
+                    ::protobuf::rt::read_unknown_or_skip_group(tag, is, self.special_fields.mut_unknown_fields())?;
+                },
+            };
+        }
+        ::std::result::Result::Ok(())
+    }
+
+    // Compute sizes of nested messages
+    #[allow(unused_variables)]
+    fn compute_size(&self) -> u64 {
+        let mut my_size = 0;
+        for value in &self.executed_apis {
+            my_size += ::protobuf::rt::string_size(1, &value);
+        };
+        for value in &self.mapped_addresses {
+            my_size += ::protobuf::rt::uint64_size(2, *value);
+        };
+        if let Some(v) = self.self_modifying_code_detected {
+            my_size += 1 + 1;
+        }
+        if let Some(v) = self.executed_instructions {
+            my_size += ::protobuf::rt::uint32_size(4, v);
+        }
+        my_size += ::protobuf::rt::unknown_fields_size(self.special_fields.unknown_fields());
+        self.special_fields.cached_size().set(my_size as u32);
+        my_size
+    }
+
+    fn write_to_with_cached_sizes(&self, os: &mut ::protobuf::CodedOutputStream<'_>) -> ::protobuf::Result<()> {
+        for v in &self.executed_apis {
+            os.write_string(1, &v)?;
+        };
+        for v in &self.mapped_addresses {
+            os.write_uint64(2, *v)?;
+        };
+        if let Some(v) = self.self_modifying_code_detected {
+            os.write_bool(3, v)?;
+        }
+        if let Some(v) = self.executed_instructions {
+            os.write_uint32(4, v)?;
+        }
+        os.write_unknown_fields(self.special_fields.unknown_fields())?;
+        ::std::result::Result::Ok(())
+    }
+
+    fn special_fields(&self) -> &::protobuf::SpecialFields {
+        &self.special_fields
+    }
+
+    fn mut_special_fields(&mut self) -> &mut ::protobuf::SpecialFields {
+        &mut self.special_fields
+    }
+
+    fn new() -> EmulationTelemetry {
+        EmulationTelemetry::new()
+    }
+
+    fn clear(&mut self) {
+        self.executed_apis.clear();
+        self.mapped_addresses.clear();
+        self.self_modifying_code_detected = ::std::option::Option::None;
+        self.executed_instructions = ::std::option::Option::None;
+        self.special_fields.clear();
+    }
+
+    fn default_instance() -> &'static EmulationTelemetry {
+        static instance: EmulationTelemetry = EmulationTelemetry {
+            executed_apis: ::std::vec::Vec::new(),
+            mapped_addresses: ::std::vec::Vec::new(),
+            self_modifying_code_detected: ::std::option::Option::None,
+            executed_instructions: ::std::option::Option::None,
+            special_fields: ::protobuf::SpecialFields::new(),
+        };
+        &instance
+    }
+}
+
+impl ::protobuf::MessageFull for EmulationTelemetry {
+    fn descriptor() -> ::protobuf::reflect::MessageDescriptor {
+        static descriptor: ::protobuf::rt::Lazy<::protobuf::reflect::MessageDescriptor> = ::protobuf::rt::Lazy::new();
+        descriptor.get(|| file_descriptor().message_by_package_relative_name("EmulationTelemetry").unwrap()).clone()
+    }
+}
+
+impl ::std::fmt::Display for EmulationTelemetry {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        ::protobuf::text_format::fmt(self, f)
+    }
+}
+
+impl ::protobuf::reflect::ProtobufValue for EmulationTelemetry {
+    type RuntimeType = ::protobuf::reflect::rt::RuntimeTypeMessage<Self>;
+}
+
 // @@protoc_insertion_point(message:yara.hydra.Pe)
 #[derive(PartialEq,Clone,Default,Debug)]
 pub struct Pe {
@@ -377,16 +2326,10 @@ pub struct Pe {
     pub sections: ::std::vec::Vec<Section>,
     // @@protoc_insertion_point(field:yara.hydra.Pe.has_suspicious_imports)
     pub has_suspicious_imports: ::std::option::Option<bool>,
-    // @@protoc_insertion_point(field:yara.hydra.Pe.ml_vector_size)
-    pub ml_vector_size: ::std::option::Option<u32>,
-    // @@protoc_insertion_point(field:yara.hydra.Pe.missing_standard_sections)
-    pub missing_standard_sections: ::std::option::Option<u32>,
-    // @@protoc_insertion_point(field:yara.hydra.Pe.overlay_size)
-    pub overlay_size: ::std::option::Option<u32>,
-    // @@protoc_insertion_point(field:yara.hydra.Pe.moh_family)
-    pub moh_family: ::std::option::Option<::std::string::String>,
-    // @@protoc_insertion_point(field:yara.hydra.Pe.emulated_apis)
-    pub emulated_apis: ::std::vec::Vec<::std::string::String>,
+    // @@protoc_insertion_point(field:yara.hydra.Pe.ml)
+    pub ml: ::protobuf::MessageField<PeMl>,
+    // @@protoc_insertion_point(field:yara.hydra.Pe.emulation)
+    pub emulation: ::protobuf::MessageField<EmulationTelemetry>,
     // special fields
     // @@protoc_insertion_point(special_field:yara.hydra.Pe.special_fields)
     pub special_fields: ::protobuf::SpecialFields,
@@ -441,101 +2384,8 @@ impl Pe {
         self.has_suspicious_imports = ::std::option::Option::Some(v);
     }
 
-    // optional uint32 ml_vector_size = 4;
-
-    pub fn ml_vector_size(&self) -> u32 {
-        self.ml_vector_size.unwrap_or(0)
-    }
-
-    pub fn clear_ml_vector_size(&mut self) {
-        self.ml_vector_size = ::std::option::Option::None;
-    }
-
-    pub fn has_ml_vector_size(&self) -> bool {
-        self.ml_vector_size.is_some()
-    }
-
-    // Param is passed by value, moved
-    pub fn set_ml_vector_size(&mut self, v: u32) {
-        self.ml_vector_size = ::std::option::Option::Some(v);
-    }
-
-    // optional uint32 missing_standard_sections = 5;
-
-    pub fn missing_standard_sections(&self) -> u32 {
-        self.missing_standard_sections.unwrap_or(0)
-    }
-
-    pub fn clear_missing_standard_sections(&mut self) {
-        self.missing_standard_sections = ::std::option::Option::None;
-    }
-
-    pub fn has_missing_standard_sections(&self) -> bool {
-        self.missing_standard_sections.is_some()
-    }
-
-    // Param is passed by value, moved
-    pub fn set_missing_standard_sections(&mut self, v: u32) {
-        self.missing_standard_sections = ::std::option::Option::Some(v);
-    }
-
-    // optional uint32 overlay_size = 7;
-
-    pub fn overlay_size(&self) -> u32 {
-        self.overlay_size.unwrap_or(0)
-    }
-
-    pub fn clear_overlay_size(&mut self) {
-        self.overlay_size = ::std::option::Option::None;
-    }
-
-    pub fn has_overlay_size(&self) -> bool {
-        self.overlay_size.is_some()
-    }
-
-    // Param is passed by value, moved
-    pub fn set_overlay_size(&mut self, v: u32) {
-        self.overlay_size = ::std::option::Option::Some(v);
-    }
-
-    // optional string moh_family = 8;
-
-    pub fn moh_family(&self) -> &str {
-        match self.moh_family.as_ref() {
-            Some(v) => v,
-            None => "",
-        }
-    }
-
-    pub fn clear_moh_family(&mut self) {
-        self.moh_family = ::std::option::Option::None;
-    }
-
-    pub fn has_moh_family(&self) -> bool {
-        self.moh_family.is_some()
-    }
-
-    // Param is passed by value, moved
-    pub fn set_moh_family(&mut self, v: ::std::string::String) {
-        self.moh_family = ::std::option::Option::Some(v);
-    }
-
-    // Mutable pointer to the field.
-    // If field is not initialized, it is initialized with default value first.
-    pub fn mut_moh_family(&mut self) -> &mut ::std::string::String {
-        if self.moh_family.is_none() {
-            self.moh_family = ::std::option::Option::Some(::std::string::String::new());
-        }
-        self.moh_family.as_mut().unwrap()
-    }
-
-    // Take field
-    pub fn take_moh_family(&mut self) -> ::std::string::String {
-        self.moh_family.take().unwrap_or_else(|| ::std::string::String::new())
-    }
-
     fn generated_message_descriptor_data() -> ::protobuf::reflect::GeneratedMessageDescriptorData {
-        let mut fields = ::std::vec::Vec::with_capacity(8);
+        let mut fields = ::std::vec::Vec::with_capacity(5);
         let mut oneofs = ::std::vec::Vec::with_capacity(0);
         fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
             "suspicious_score",
@@ -552,30 +2402,15 @@ impl Pe {
             |m: &Pe| { &m.has_suspicious_imports },
             |m: &mut Pe| { &mut m.has_suspicious_imports },
         ));
-        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
-            "ml_vector_size",
-            |m: &Pe| { &m.ml_vector_size },
-            |m: &mut Pe| { &mut m.ml_vector_size },
+        fields.push(::protobuf::reflect::rt::v2::make_message_field_accessor::<_, PeMl>(
+            "ml",
+            |m: &Pe| { &m.ml },
+            |m: &mut Pe| { &mut m.ml },
         ));
-        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
-            "missing_standard_sections",
-            |m: &Pe| { &m.missing_standard_sections },
-            |m: &mut Pe| { &mut m.missing_standard_sections },
-        ));
-        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
-            "overlay_size",
-            |m: &Pe| { &m.overlay_size },
-            |m: &mut Pe| { &mut m.overlay_size },
-        ));
-        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
-            "moh_family",
-            |m: &Pe| { &m.moh_family },
-            |m: &mut Pe| { &mut m.moh_family },
-        ));
-        fields.push(::protobuf::reflect::rt::v2::make_vec_simpler_accessor::<_, _>(
-            "emulated_apis",
-            |m: &Pe| { &m.emulated_apis },
-            |m: &mut Pe| { &mut m.emulated_apis },
+        fields.push(::protobuf::reflect::rt::v2::make_message_field_accessor::<_, EmulationTelemetry>(
+            "emulation",
+            |m: &Pe| { &m.emulation },
+            |m: &mut Pe| { &mut m.emulation },
         ));
         ::protobuf::reflect::GeneratedMessageDescriptorData::new_2::<Pe>(
             "Pe",
@@ -604,20 +2439,11 @@ impl ::protobuf::Message for Pe {
                 24 => {
                     self.has_suspicious_imports = ::std::option::Option::Some(is.read_bool()?);
                 },
-                32 => {
-                    self.ml_vector_size = ::std::option::Option::Some(is.read_uint32()?);
+                34 => {
+                    ::protobuf::rt::read_singular_message_into_field(is, &mut self.ml)?;
                 },
-                40 => {
-                    self.missing_standard_sections = ::std::option::Option::Some(is.read_uint32()?);
-                },
-                56 => {
-                    self.overlay_size = ::std::option::Option::Some(is.read_uint32()?);
-                },
-                66 => {
-                    self.moh_family = ::std::option::Option::Some(is.read_string()?);
-                },
-                74 => {
-                    self.emulated_apis.push(is.read_string()?);
+                42 => {
+                    ::protobuf::rt::read_singular_message_into_field(is, &mut self.emulation)?;
                 },
                 tag => {
                     ::protobuf::rt::read_unknown_or_skip_group(tag, is, self.special_fields.mut_unknown_fields())?;
@@ -641,21 +2467,14 @@ impl ::protobuf::Message for Pe {
         if let Some(v) = self.has_suspicious_imports {
             my_size += 1 + 1;
         }
-        if let Some(v) = self.ml_vector_size {
-            my_size += ::protobuf::rt::uint32_size(4, v);
+        if let Some(v) = self.ml.as_ref() {
+            let len = v.compute_size();
+            my_size += 1 + ::protobuf::rt::compute_raw_varint64_size(len) + len;
         }
-        if let Some(v) = self.missing_standard_sections {
-            my_size += ::protobuf::rt::uint32_size(5, v);
+        if let Some(v) = self.emulation.as_ref() {
+            let len = v.compute_size();
+            my_size += 1 + ::protobuf::rt::compute_raw_varint64_size(len) + len;
         }
-        if let Some(v) = self.overlay_size {
-            my_size += ::protobuf::rt::uint32_size(7, v);
-        }
-        if let Some(v) = self.moh_family.as_ref() {
-            my_size += ::protobuf::rt::string_size(8, &v);
-        }
-        for value in &self.emulated_apis {
-            my_size += ::protobuf::rt::string_size(9, &value);
-        };
         my_size += ::protobuf::rt::unknown_fields_size(self.special_fields.unknown_fields());
         self.special_fields.cached_size().set(my_size as u32);
         my_size
@@ -671,21 +2490,12 @@ impl ::protobuf::Message for Pe {
         if let Some(v) = self.has_suspicious_imports {
             os.write_bool(3, v)?;
         }
-        if let Some(v) = self.ml_vector_size {
-            os.write_uint32(4, v)?;
+        if let Some(v) = self.ml.as_ref() {
+            ::protobuf::rt::write_message_field_with_cached_size(4, v, os)?;
         }
-        if let Some(v) = self.missing_standard_sections {
-            os.write_uint32(5, v)?;
+        if let Some(v) = self.emulation.as_ref() {
+            ::protobuf::rt::write_message_field_with_cached_size(5, v, os)?;
         }
-        if let Some(v) = self.overlay_size {
-            os.write_uint32(7, v)?;
-        }
-        if let Some(v) = self.moh_family.as_ref() {
-            os.write_string(8, v)?;
-        }
-        for v in &self.emulated_apis {
-            os.write_string(9, &v)?;
-        };
         os.write_unknown_fields(self.special_fields.unknown_fields())?;
         ::std::result::Result::Ok(())
     }
@@ -706,11 +2516,8 @@ impl ::protobuf::Message for Pe {
         self.suspicious_score = ::std::option::Option::None;
         self.sections.clear();
         self.has_suspicious_imports = ::std::option::Option::None;
-        self.ml_vector_size = ::std::option::Option::None;
-        self.missing_standard_sections = ::std::option::Option::None;
-        self.overlay_size = ::std::option::Option::None;
-        self.moh_family = ::std::option::Option::None;
-        self.emulated_apis.clear();
+        self.ml.clear();
+        self.emulation.clear();
         self.special_fields.clear();
     }
 
@@ -719,11 +2526,8 @@ impl ::protobuf::Message for Pe {
             suspicious_score: ::std::option::Option::None,
             sections: ::std::vec::Vec::new(),
             has_suspicious_imports: ::std::option::Option::None,
-            ml_vector_size: ::std::option::Option::None,
-            missing_standard_sections: ::std::option::Option::None,
-            overlay_size: ::std::option::Option::None,
-            moh_family: ::std::option::Option::None,
-            emulated_apis: ::std::vec::Vec::new(),
+            ml: ::protobuf::MessageField::none(),
+            emulation: ::protobuf::MessageField::none(),
             special_fields: ::protobuf::SpecialFields::new(),
         };
         &instance
@@ -942,6 +2746,887 @@ impl ::protobuf::reflect::ProtobufValue for R2 {
     type RuntimeType = ::protobuf::reflect::rt::RuntimeTypeMessage<Self>;
 }
 
+// @@protoc_insertion_point(message:yara.hydra.JsMl)
+#[derive(PartialEq,Clone,Default,Debug)]
+pub struct JsMl {
+    // message fields
+    // @@protoc_insertion_point(field:yara.hydra.JsMl.file_size)
+    pub file_size: ::std::option::Option<u32>,
+    // @@protoc_insertion_point(field:yara.hydra.JsMl.entropy)
+    pub entropy: ::std::option::Option<f64>,
+    // @@protoc_insertion_point(field:yara.hydra.JsMl.function_count)
+    pub function_count: ::std::option::Option<u32>,
+    // @@protoc_insertion_point(field:yara.hydra.JsMl.variable_declarations)
+    pub variable_declarations: ::std::option::Option<u32>,
+    // @@protoc_insertion_point(field:yara.hydra.JsMl.eval_usage)
+    pub eval_usage: ::std::option::Option<u32>,
+    // @@protoc_insertion_point(field:yara.hydra.JsMl.try_catch_blocks)
+    pub try_catch_blocks: ::std::option::Option<u32>,
+    // @@protoc_insertion_point(field:yara.hydra.JsMl.loop_statements)
+    pub loop_statements: ::std::option::Option<u32>,
+    // @@protoc_insertion_point(field:yara.hydra.JsMl.conditional_statements)
+    pub conditional_statements: ::std::option::Option<u32>,
+    // @@protoc_insertion_point(field:yara.hydra.JsMl.obfuscation_score)
+    pub obfuscation_score: ::std::option::Option<u32>,
+    // @@protoc_insertion_point(field:yara.hydra.JsMl.is_likely_obfuscated)
+    pub is_likely_obfuscated: ::std::option::Option<bool>,
+    // @@protoc_insertion_point(field:yara.hydra.JsMl.hex_encoded_strings)
+    pub hex_encoded_strings: ::std::option::Option<u32>,
+    // @@protoc_insertion_point(field:yara.hydra.JsMl.unicode_encoded_strings)
+    pub unicode_encoded_strings: ::std::option::Option<u32>,
+    // @@protoc_insertion_point(field:yara.hydra.JsMl.base64_strings)
+    pub base64_strings: ::std::option::Option<u32>,
+    // @@protoc_insertion_point(field:yara.hydra.JsMl.suspicious_apis_count)
+    pub suspicious_apis_count: ::std::option::Option<u32>,
+    // @@protoc_insertion_point(field:yara.hydra.JsMl.crypto_references)
+    pub crypto_references: ::std::option::Option<u32>,
+    // @@protoc_insertion_point(field:yara.hydra.JsMl.network_operations)
+    pub network_operations: ::std::option::Option<u32>,
+    // @@protoc_insertion_point(field:yara.hydra.JsMl.file_system_operations)
+    pub file_system_operations: ::std::option::Option<u32>,
+    // @@protoc_insertion_point(field:yara.hydra.JsMl.registry_operations)
+    pub registry_operations: ::std::option::Option<u32>,
+    // @@protoc_insertion_point(field:yara.hydra.JsMl.process_operations)
+    pub process_operations: ::std::option::Option<u32>,
+    // @@protoc_insertion_point(field:yara.hydra.JsMl.total_strings)
+    pub total_strings: ::std::option::Option<u32>,
+    // @@protoc_insertion_point(field:yara.hydra.JsMl.total_lines)
+    pub total_lines: ::std::option::Option<u32>,
+    // special fields
+    // @@protoc_insertion_point(special_field:yara.hydra.JsMl.special_fields)
+    pub special_fields: ::protobuf::SpecialFields,
+}
+
+impl<'a> ::std::default::Default for &'a JsMl {
+    fn default() -> &'a JsMl {
+        <JsMl as ::protobuf::Message>::default_instance()
+    }
+}
+
+impl JsMl {
+    pub fn new() -> JsMl {
+        ::std::default::Default::default()
+    }
+
+    // optional uint32 file_size = 1;
+
+    pub fn file_size(&self) -> u32 {
+        self.file_size.unwrap_or(0)
+    }
+
+    pub fn clear_file_size(&mut self) {
+        self.file_size = ::std::option::Option::None;
+    }
+
+    pub fn has_file_size(&self) -> bool {
+        self.file_size.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_file_size(&mut self, v: u32) {
+        self.file_size = ::std::option::Option::Some(v);
+    }
+
+    // optional double entropy = 2;
+
+    pub fn entropy(&self) -> f64 {
+        self.entropy.unwrap_or(0.)
+    }
+
+    pub fn clear_entropy(&mut self) {
+        self.entropy = ::std::option::Option::None;
+    }
+
+    pub fn has_entropy(&self) -> bool {
+        self.entropy.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_entropy(&mut self, v: f64) {
+        self.entropy = ::std::option::Option::Some(v);
+    }
+
+    // optional uint32 function_count = 3;
+
+    pub fn function_count(&self) -> u32 {
+        self.function_count.unwrap_or(0)
+    }
+
+    pub fn clear_function_count(&mut self) {
+        self.function_count = ::std::option::Option::None;
+    }
+
+    pub fn has_function_count(&self) -> bool {
+        self.function_count.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_function_count(&mut self, v: u32) {
+        self.function_count = ::std::option::Option::Some(v);
+    }
+
+    // optional uint32 variable_declarations = 4;
+
+    pub fn variable_declarations(&self) -> u32 {
+        self.variable_declarations.unwrap_or(0)
+    }
+
+    pub fn clear_variable_declarations(&mut self) {
+        self.variable_declarations = ::std::option::Option::None;
+    }
+
+    pub fn has_variable_declarations(&self) -> bool {
+        self.variable_declarations.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_variable_declarations(&mut self, v: u32) {
+        self.variable_declarations = ::std::option::Option::Some(v);
+    }
+
+    // optional uint32 eval_usage = 5;
+
+    pub fn eval_usage(&self) -> u32 {
+        self.eval_usage.unwrap_or(0)
+    }
+
+    pub fn clear_eval_usage(&mut self) {
+        self.eval_usage = ::std::option::Option::None;
+    }
+
+    pub fn has_eval_usage(&self) -> bool {
+        self.eval_usage.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_eval_usage(&mut self, v: u32) {
+        self.eval_usage = ::std::option::Option::Some(v);
+    }
+
+    // optional uint32 try_catch_blocks = 6;
+
+    pub fn try_catch_blocks(&self) -> u32 {
+        self.try_catch_blocks.unwrap_or(0)
+    }
+
+    pub fn clear_try_catch_blocks(&mut self) {
+        self.try_catch_blocks = ::std::option::Option::None;
+    }
+
+    pub fn has_try_catch_blocks(&self) -> bool {
+        self.try_catch_blocks.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_try_catch_blocks(&mut self, v: u32) {
+        self.try_catch_blocks = ::std::option::Option::Some(v);
+    }
+
+    // optional uint32 loop_statements = 7;
+
+    pub fn loop_statements(&self) -> u32 {
+        self.loop_statements.unwrap_or(0)
+    }
+
+    pub fn clear_loop_statements(&mut self) {
+        self.loop_statements = ::std::option::Option::None;
+    }
+
+    pub fn has_loop_statements(&self) -> bool {
+        self.loop_statements.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_loop_statements(&mut self, v: u32) {
+        self.loop_statements = ::std::option::Option::Some(v);
+    }
+
+    // optional uint32 conditional_statements = 8;
+
+    pub fn conditional_statements(&self) -> u32 {
+        self.conditional_statements.unwrap_or(0)
+    }
+
+    pub fn clear_conditional_statements(&mut self) {
+        self.conditional_statements = ::std::option::Option::None;
+    }
+
+    pub fn has_conditional_statements(&self) -> bool {
+        self.conditional_statements.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_conditional_statements(&mut self, v: u32) {
+        self.conditional_statements = ::std::option::Option::Some(v);
+    }
+
+    // optional uint32 obfuscation_score = 9;
+
+    pub fn obfuscation_score(&self) -> u32 {
+        self.obfuscation_score.unwrap_or(0)
+    }
+
+    pub fn clear_obfuscation_score(&mut self) {
+        self.obfuscation_score = ::std::option::Option::None;
+    }
+
+    pub fn has_obfuscation_score(&self) -> bool {
+        self.obfuscation_score.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_obfuscation_score(&mut self, v: u32) {
+        self.obfuscation_score = ::std::option::Option::Some(v);
+    }
+
+    // optional bool is_likely_obfuscated = 10;
+
+    pub fn is_likely_obfuscated(&self) -> bool {
+        self.is_likely_obfuscated.unwrap_or(false)
+    }
+
+    pub fn clear_is_likely_obfuscated(&mut self) {
+        self.is_likely_obfuscated = ::std::option::Option::None;
+    }
+
+    pub fn has_is_likely_obfuscated(&self) -> bool {
+        self.is_likely_obfuscated.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_is_likely_obfuscated(&mut self, v: bool) {
+        self.is_likely_obfuscated = ::std::option::Option::Some(v);
+    }
+
+    // optional uint32 hex_encoded_strings = 11;
+
+    pub fn hex_encoded_strings(&self) -> u32 {
+        self.hex_encoded_strings.unwrap_or(0)
+    }
+
+    pub fn clear_hex_encoded_strings(&mut self) {
+        self.hex_encoded_strings = ::std::option::Option::None;
+    }
+
+    pub fn has_hex_encoded_strings(&self) -> bool {
+        self.hex_encoded_strings.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_hex_encoded_strings(&mut self, v: u32) {
+        self.hex_encoded_strings = ::std::option::Option::Some(v);
+    }
+
+    // optional uint32 unicode_encoded_strings = 12;
+
+    pub fn unicode_encoded_strings(&self) -> u32 {
+        self.unicode_encoded_strings.unwrap_or(0)
+    }
+
+    pub fn clear_unicode_encoded_strings(&mut self) {
+        self.unicode_encoded_strings = ::std::option::Option::None;
+    }
+
+    pub fn has_unicode_encoded_strings(&self) -> bool {
+        self.unicode_encoded_strings.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_unicode_encoded_strings(&mut self, v: u32) {
+        self.unicode_encoded_strings = ::std::option::Option::Some(v);
+    }
+
+    // optional uint32 base64_strings = 13;
+
+    pub fn base64_strings(&self) -> u32 {
+        self.base64_strings.unwrap_or(0)
+    }
+
+    pub fn clear_base64_strings(&mut self) {
+        self.base64_strings = ::std::option::Option::None;
+    }
+
+    pub fn has_base64_strings(&self) -> bool {
+        self.base64_strings.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_base64_strings(&mut self, v: u32) {
+        self.base64_strings = ::std::option::Option::Some(v);
+    }
+
+    // optional uint32 suspicious_apis_count = 14;
+
+    pub fn suspicious_apis_count(&self) -> u32 {
+        self.suspicious_apis_count.unwrap_or(0)
+    }
+
+    pub fn clear_suspicious_apis_count(&mut self) {
+        self.suspicious_apis_count = ::std::option::Option::None;
+    }
+
+    pub fn has_suspicious_apis_count(&self) -> bool {
+        self.suspicious_apis_count.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_suspicious_apis_count(&mut self, v: u32) {
+        self.suspicious_apis_count = ::std::option::Option::Some(v);
+    }
+
+    // optional uint32 crypto_references = 15;
+
+    pub fn crypto_references(&self) -> u32 {
+        self.crypto_references.unwrap_or(0)
+    }
+
+    pub fn clear_crypto_references(&mut self) {
+        self.crypto_references = ::std::option::Option::None;
+    }
+
+    pub fn has_crypto_references(&self) -> bool {
+        self.crypto_references.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_crypto_references(&mut self, v: u32) {
+        self.crypto_references = ::std::option::Option::Some(v);
+    }
+
+    // optional uint32 network_operations = 16;
+
+    pub fn network_operations(&self) -> u32 {
+        self.network_operations.unwrap_or(0)
+    }
+
+    pub fn clear_network_operations(&mut self) {
+        self.network_operations = ::std::option::Option::None;
+    }
+
+    pub fn has_network_operations(&self) -> bool {
+        self.network_operations.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_network_operations(&mut self, v: u32) {
+        self.network_operations = ::std::option::Option::Some(v);
+    }
+
+    // optional uint32 file_system_operations = 17;
+
+    pub fn file_system_operations(&self) -> u32 {
+        self.file_system_operations.unwrap_or(0)
+    }
+
+    pub fn clear_file_system_operations(&mut self) {
+        self.file_system_operations = ::std::option::Option::None;
+    }
+
+    pub fn has_file_system_operations(&self) -> bool {
+        self.file_system_operations.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_file_system_operations(&mut self, v: u32) {
+        self.file_system_operations = ::std::option::Option::Some(v);
+    }
+
+    // optional uint32 registry_operations = 18;
+
+    pub fn registry_operations(&self) -> u32 {
+        self.registry_operations.unwrap_or(0)
+    }
+
+    pub fn clear_registry_operations(&mut self) {
+        self.registry_operations = ::std::option::Option::None;
+    }
+
+    pub fn has_registry_operations(&self) -> bool {
+        self.registry_operations.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_registry_operations(&mut self, v: u32) {
+        self.registry_operations = ::std::option::Option::Some(v);
+    }
+
+    // optional uint32 process_operations = 19;
+
+    pub fn process_operations(&self) -> u32 {
+        self.process_operations.unwrap_or(0)
+    }
+
+    pub fn clear_process_operations(&mut self) {
+        self.process_operations = ::std::option::Option::None;
+    }
+
+    pub fn has_process_operations(&self) -> bool {
+        self.process_operations.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_process_operations(&mut self, v: u32) {
+        self.process_operations = ::std::option::Option::Some(v);
+    }
+
+    // optional uint32 total_strings = 20;
+
+    pub fn total_strings(&self) -> u32 {
+        self.total_strings.unwrap_or(0)
+    }
+
+    pub fn clear_total_strings(&mut self) {
+        self.total_strings = ::std::option::Option::None;
+    }
+
+    pub fn has_total_strings(&self) -> bool {
+        self.total_strings.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_total_strings(&mut self, v: u32) {
+        self.total_strings = ::std::option::Option::Some(v);
+    }
+
+    // optional uint32 total_lines = 21;
+
+    pub fn total_lines(&self) -> u32 {
+        self.total_lines.unwrap_or(0)
+    }
+
+    pub fn clear_total_lines(&mut self) {
+        self.total_lines = ::std::option::Option::None;
+    }
+
+    pub fn has_total_lines(&self) -> bool {
+        self.total_lines.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_total_lines(&mut self, v: u32) {
+        self.total_lines = ::std::option::Option::Some(v);
+    }
+
+    fn generated_message_descriptor_data() -> ::protobuf::reflect::GeneratedMessageDescriptorData {
+        let mut fields = ::std::vec::Vec::with_capacity(21);
+        let mut oneofs = ::std::vec::Vec::with_capacity(0);
+        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
+            "file_size",
+            |m: &JsMl| { &m.file_size },
+            |m: &mut JsMl| { &mut m.file_size },
+        ));
+        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
+            "entropy",
+            |m: &JsMl| { &m.entropy },
+            |m: &mut JsMl| { &mut m.entropy },
+        ));
+        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
+            "function_count",
+            |m: &JsMl| { &m.function_count },
+            |m: &mut JsMl| { &mut m.function_count },
+        ));
+        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
+            "variable_declarations",
+            |m: &JsMl| { &m.variable_declarations },
+            |m: &mut JsMl| { &mut m.variable_declarations },
+        ));
+        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
+            "eval_usage",
+            |m: &JsMl| { &m.eval_usage },
+            |m: &mut JsMl| { &mut m.eval_usage },
+        ));
+        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
+            "try_catch_blocks",
+            |m: &JsMl| { &m.try_catch_blocks },
+            |m: &mut JsMl| { &mut m.try_catch_blocks },
+        ));
+        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
+            "loop_statements",
+            |m: &JsMl| { &m.loop_statements },
+            |m: &mut JsMl| { &mut m.loop_statements },
+        ));
+        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
+            "conditional_statements",
+            |m: &JsMl| { &m.conditional_statements },
+            |m: &mut JsMl| { &mut m.conditional_statements },
+        ));
+        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
+            "obfuscation_score",
+            |m: &JsMl| { &m.obfuscation_score },
+            |m: &mut JsMl| { &mut m.obfuscation_score },
+        ));
+        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
+            "is_likely_obfuscated",
+            |m: &JsMl| { &m.is_likely_obfuscated },
+            |m: &mut JsMl| { &mut m.is_likely_obfuscated },
+        ));
+        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
+            "hex_encoded_strings",
+            |m: &JsMl| { &m.hex_encoded_strings },
+            |m: &mut JsMl| { &mut m.hex_encoded_strings },
+        ));
+        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
+            "unicode_encoded_strings",
+            |m: &JsMl| { &m.unicode_encoded_strings },
+            |m: &mut JsMl| { &mut m.unicode_encoded_strings },
+        ));
+        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
+            "base64_strings",
+            |m: &JsMl| { &m.base64_strings },
+            |m: &mut JsMl| { &mut m.base64_strings },
+        ));
+        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
+            "suspicious_apis_count",
+            |m: &JsMl| { &m.suspicious_apis_count },
+            |m: &mut JsMl| { &mut m.suspicious_apis_count },
+        ));
+        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
+            "crypto_references",
+            |m: &JsMl| { &m.crypto_references },
+            |m: &mut JsMl| { &mut m.crypto_references },
+        ));
+        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
+            "network_operations",
+            |m: &JsMl| { &m.network_operations },
+            |m: &mut JsMl| { &mut m.network_operations },
+        ));
+        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
+            "file_system_operations",
+            |m: &JsMl| { &m.file_system_operations },
+            |m: &mut JsMl| { &mut m.file_system_operations },
+        ));
+        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
+            "registry_operations",
+            |m: &JsMl| { &m.registry_operations },
+            |m: &mut JsMl| { &mut m.registry_operations },
+        ));
+        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
+            "process_operations",
+            |m: &JsMl| { &m.process_operations },
+            |m: &mut JsMl| { &mut m.process_operations },
+        ));
+        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
+            "total_strings",
+            |m: &JsMl| { &m.total_strings },
+            |m: &mut JsMl| { &mut m.total_strings },
+        ));
+        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
+            "total_lines",
+            |m: &JsMl| { &m.total_lines },
+            |m: &mut JsMl| { &mut m.total_lines },
+        ));
+        ::protobuf::reflect::GeneratedMessageDescriptorData::new_2::<JsMl>(
+            "JsMl",
+            fields,
+            oneofs,
+        )
+    }
+}
+
+impl ::protobuf::Message for JsMl {
+    const NAME: &'static str = "JsMl";
+
+    fn is_initialized(&self) -> bool {
+        true
+    }
+
+    fn merge_from(&mut self, is: &mut ::protobuf::CodedInputStream<'_>) -> ::protobuf::Result<()> {
+        while let Some(tag) = is.read_raw_tag_or_eof()? {
+            match tag {
+                8 => {
+                    self.file_size = ::std::option::Option::Some(is.read_uint32()?);
+                },
+                17 => {
+                    self.entropy = ::std::option::Option::Some(is.read_double()?);
+                },
+                24 => {
+                    self.function_count = ::std::option::Option::Some(is.read_uint32()?);
+                },
+                32 => {
+                    self.variable_declarations = ::std::option::Option::Some(is.read_uint32()?);
+                },
+                40 => {
+                    self.eval_usage = ::std::option::Option::Some(is.read_uint32()?);
+                },
+                48 => {
+                    self.try_catch_blocks = ::std::option::Option::Some(is.read_uint32()?);
+                },
+                56 => {
+                    self.loop_statements = ::std::option::Option::Some(is.read_uint32()?);
+                },
+                64 => {
+                    self.conditional_statements = ::std::option::Option::Some(is.read_uint32()?);
+                },
+                72 => {
+                    self.obfuscation_score = ::std::option::Option::Some(is.read_uint32()?);
+                },
+                80 => {
+                    self.is_likely_obfuscated = ::std::option::Option::Some(is.read_bool()?);
+                },
+                88 => {
+                    self.hex_encoded_strings = ::std::option::Option::Some(is.read_uint32()?);
+                },
+                96 => {
+                    self.unicode_encoded_strings = ::std::option::Option::Some(is.read_uint32()?);
+                },
+                104 => {
+                    self.base64_strings = ::std::option::Option::Some(is.read_uint32()?);
+                },
+                112 => {
+                    self.suspicious_apis_count = ::std::option::Option::Some(is.read_uint32()?);
+                },
+                120 => {
+                    self.crypto_references = ::std::option::Option::Some(is.read_uint32()?);
+                },
+                128 => {
+                    self.network_operations = ::std::option::Option::Some(is.read_uint32()?);
+                },
+                136 => {
+                    self.file_system_operations = ::std::option::Option::Some(is.read_uint32()?);
+                },
+                144 => {
+                    self.registry_operations = ::std::option::Option::Some(is.read_uint32()?);
+                },
+                152 => {
+                    self.process_operations = ::std::option::Option::Some(is.read_uint32()?);
+                },
+                160 => {
+                    self.total_strings = ::std::option::Option::Some(is.read_uint32()?);
+                },
+                168 => {
+                    self.total_lines = ::std::option::Option::Some(is.read_uint32()?);
+                },
+                tag => {
+                    ::protobuf::rt::read_unknown_or_skip_group(tag, is, self.special_fields.mut_unknown_fields())?;
+                },
+            };
+        }
+        ::std::result::Result::Ok(())
+    }
+
+    // Compute sizes of nested messages
+    #[allow(unused_variables)]
+    fn compute_size(&self) -> u64 {
+        let mut my_size = 0;
+        if let Some(v) = self.file_size {
+            my_size += ::protobuf::rt::uint32_size(1, v);
+        }
+        if let Some(v) = self.entropy {
+            my_size += 1 + 8;
+        }
+        if let Some(v) = self.function_count {
+            my_size += ::protobuf::rt::uint32_size(3, v);
+        }
+        if let Some(v) = self.variable_declarations {
+            my_size += ::protobuf::rt::uint32_size(4, v);
+        }
+        if let Some(v) = self.eval_usage {
+            my_size += ::protobuf::rt::uint32_size(5, v);
+        }
+        if let Some(v) = self.try_catch_blocks {
+            my_size += ::protobuf::rt::uint32_size(6, v);
+        }
+        if let Some(v) = self.loop_statements {
+            my_size += ::protobuf::rt::uint32_size(7, v);
+        }
+        if let Some(v) = self.conditional_statements {
+            my_size += ::protobuf::rt::uint32_size(8, v);
+        }
+        if let Some(v) = self.obfuscation_score {
+            my_size += ::protobuf::rt::uint32_size(9, v);
+        }
+        if let Some(v) = self.is_likely_obfuscated {
+            my_size += 1 + 1;
+        }
+        if let Some(v) = self.hex_encoded_strings {
+            my_size += ::protobuf::rt::uint32_size(11, v);
+        }
+        if let Some(v) = self.unicode_encoded_strings {
+            my_size += ::protobuf::rt::uint32_size(12, v);
+        }
+        if let Some(v) = self.base64_strings {
+            my_size += ::protobuf::rt::uint32_size(13, v);
+        }
+        if let Some(v) = self.suspicious_apis_count {
+            my_size += ::protobuf::rt::uint32_size(14, v);
+        }
+        if let Some(v) = self.crypto_references {
+            my_size += ::protobuf::rt::uint32_size(15, v);
+        }
+        if let Some(v) = self.network_operations {
+            my_size += ::protobuf::rt::uint32_size(16, v);
+        }
+        if let Some(v) = self.file_system_operations {
+            my_size += ::protobuf::rt::uint32_size(17, v);
+        }
+        if let Some(v) = self.registry_operations {
+            my_size += ::protobuf::rt::uint32_size(18, v);
+        }
+        if let Some(v) = self.process_operations {
+            my_size += ::protobuf::rt::uint32_size(19, v);
+        }
+        if let Some(v) = self.total_strings {
+            my_size += ::protobuf::rt::uint32_size(20, v);
+        }
+        if let Some(v) = self.total_lines {
+            my_size += ::protobuf::rt::uint32_size(21, v);
+        }
+        my_size += ::protobuf::rt::unknown_fields_size(self.special_fields.unknown_fields());
+        self.special_fields.cached_size().set(my_size as u32);
+        my_size
+    }
+
+    fn write_to_with_cached_sizes(&self, os: &mut ::protobuf::CodedOutputStream<'_>) -> ::protobuf::Result<()> {
+        if let Some(v) = self.file_size {
+            os.write_uint32(1, v)?;
+        }
+        if let Some(v) = self.entropy {
+            os.write_double(2, v)?;
+        }
+        if let Some(v) = self.function_count {
+            os.write_uint32(3, v)?;
+        }
+        if let Some(v) = self.variable_declarations {
+            os.write_uint32(4, v)?;
+        }
+        if let Some(v) = self.eval_usage {
+            os.write_uint32(5, v)?;
+        }
+        if let Some(v) = self.try_catch_blocks {
+            os.write_uint32(6, v)?;
+        }
+        if let Some(v) = self.loop_statements {
+            os.write_uint32(7, v)?;
+        }
+        if let Some(v) = self.conditional_statements {
+            os.write_uint32(8, v)?;
+        }
+        if let Some(v) = self.obfuscation_score {
+            os.write_uint32(9, v)?;
+        }
+        if let Some(v) = self.is_likely_obfuscated {
+            os.write_bool(10, v)?;
+        }
+        if let Some(v) = self.hex_encoded_strings {
+            os.write_uint32(11, v)?;
+        }
+        if let Some(v) = self.unicode_encoded_strings {
+            os.write_uint32(12, v)?;
+        }
+        if let Some(v) = self.base64_strings {
+            os.write_uint32(13, v)?;
+        }
+        if let Some(v) = self.suspicious_apis_count {
+            os.write_uint32(14, v)?;
+        }
+        if let Some(v) = self.crypto_references {
+            os.write_uint32(15, v)?;
+        }
+        if let Some(v) = self.network_operations {
+            os.write_uint32(16, v)?;
+        }
+        if let Some(v) = self.file_system_operations {
+            os.write_uint32(17, v)?;
+        }
+        if let Some(v) = self.registry_operations {
+            os.write_uint32(18, v)?;
+        }
+        if let Some(v) = self.process_operations {
+            os.write_uint32(19, v)?;
+        }
+        if let Some(v) = self.total_strings {
+            os.write_uint32(20, v)?;
+        }
+        if let Some(v) = self.total_lines {
+            os.write_uint32(21, v)?;
+        }
+        os.write_unknown_fields(self.special_fields.unknown_fields())?;
+        ::std::result::Result::Ok(())
+    }
+
+    fn special_fields(&self) -> &::protobuf::SpecialFields {
+        &self.special_fields
+    }
+
+    fn mut_special_fields(&mut self) -> &mut ::protobuf::SpecialFields {
+        &mut self.special_fields
+    }
+
+    fn new() -> JsMl {
+        JsMl::new()
+    }
+
+    fn clear(&mut self) {
+        self.file_size = ::std::option::Option::None;
+        self.entropy = ::std::option::Option::None;
+        self.function_count = ::std::option::Option::None;
+        self.variable_declarations = ::std::option::Option::None;
+        self.eval_usage = ::std::option::Option::None;
+        self.try_catch_blocks = ::std::option::Option::None;
+        self.loop_statements = ::std::option::Option::None;
+        self.conditional_statements = ::std::option::Option::None;
+        self.obfuscation_score = ::std::option::Option::None;
+        self.is_likely_obfuscated = ::std::option::Option::None;
+        self.hex_encoded_strings = ::std::option::Option::None;
+        self.unicode_encoded_strings = ::std::option::Option::None;
+        self.base64_strings = ::std::option::Option::None;
+        self.suspicious_apis_count = ::std::option::Option::None;
+        self.crypto_references = ::std::option::Option::None;
+        self.network_operations = ::std::option::Option::None;
+        self.file_system_operations = ::std::option::Option::None;
+        self.registry_operations = ::std::option::Option::None;
+        self.process_operations = ::std::option::Option::None;
+        self.total_strings = ::std::option::Option::None;
+        self.total_lines = ::std::option::Option::None;
+        self.special_fields.clear();
+    }
+
+    fn default_instance() -> &'static JsMl {
+        static instance: JsMl = JsMl {
+            file_size: ::std::option::Option::None,
+            entropy: ::std::option::Option::None,
+            function_count: ::std::option::Option::None,
+            variable_declarations: ::std::option::Option::None,
+            eval_usage: ::std::option::Option::None,
+            try_catch_blocks: ::std::option::Option::None,
+            loop_statements: ::std::option::Option::None,
+            conditional_statements: ::std::option::Option::None,
+            obfuscation_score: ::std::option::Option::None,
+            is_likely_obfuscated: ::std::option::Option::None,
+            hex_encoded_strings: ::std::option::Option::None,
+            unicode_encoded_strings: ::std::option::Option::None,
+            base64_strings: ::std::option::Option::None,
+            suspicious_apis_count: ::std::option::Option::None,
+            crypto_references: ::std::option::Option::None,
+            network_operations: ::std::option::Option::None,
+            file_system_operations: ::std::option::Option::None,
+            registry_operations: ::std::option::Option::None,
+            process_operations: ::std::option::Option::None,
+            total_strings: ::std::option::Option::None,
+            total_lines: ::std::option::Option::None,
+            special_fields: ::protobuf::SpecialFields::new(),
+        };
+        &instance
+    }
+}
+
+impl ::protobuf::MessageFull for JsMl {
+    fn descriptor() -> ::protobuf::reflect::MessageDescriptor {
+        static descriptor: ::protobuf::rt::Lazy<::protobuf::reflect::MessageDescriptor> = ::protobuf::rt::Lazy::new();
+        descriptor.get(|| file_descriptor().message_by_package_relative_name("JsMl").unwrap()).clone()
+    }
+}
+
+impl ::std::fmt::Display for JsMl {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        ::protobuf::text_format::fmt(self, f)
+    }
+}
+
+impl ::protobuf::reflect::ProtobufValue for JsMl {
+    type RuntimeType = ::protobuf::reflect::rt::RuntimeTypeMessage<Self>;
+}
+
 // @@protoc_insertion_point(message:yara.hydra.Js)
 #[derive(PartialEq,Clone,Default,Debug)]
 pub struct Js {
@@ -954,6 +3639,8 @@ pub struct Js {
     pub suspicious_apis: ::std::option::Option<u32>,
     // @@protoc_insertion_point(field:yara.hydra.Js.is_malicious)
     pub is_malicious: ::std::option::Option<bool>,
+    // @@protoc_insertion_point(field:yara.hydra.Js.ml)
+    pub ml: ::protobuf::MessageField<JsMl>,
     // special fields
     // @@protoc_insertion_point(special_field:yara.hydra.Js.special_fields)
     pub special_fields: ::protobuf::SpecialFields,
@@ -1047,7 +3734,7 @@ impl Js {
     }
 
     fn generated_message_descriptor_data() -> ::protobuf::reflect::GeneratedMessageDescriptorData {
-        let mut fields = ::std::vec::Vec::with_capacity(4);
+        let mut fields = ::std::vec::Vec::with_capacity(5);
         let mut oneofs = ::std::vec::Vec::with_capacity(0);
         fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
             "entropy",
@@ -1068,6 +3755,11 @@ impl Js {
             "is_malicious",
             |m: &Js| { &m.is_malicious },
             |m: &mut Js| { &mut m.is_malicious },
+        ));
+        fields.push(::protobuf::reflect::rt::v2::make_message_field_accessor::<_, JsMl>(
+            "ml",
+            |m: &Js| { &m.ml },
+            |m: &mut Js| { &mut m.ml },
         ));
         ::protobuf::reflect::GeneratedMessageDescriptorData::new_2::<Js>(
             "Js",
@@ -1099,6 +3791,9 @@ impl ::protobuf::Message for Js {
                 32 => {
                     self.is_malicious = ::std::option::Option::Some(is.read_bool()?);
                 },
+                42 => {
+                    ::protobuf::rt::read_singular_message_into_field(is, &mut self.ml)?;
+                },
                 tag => {
                     ::protobuf::rt::read_unknown_or_skip_group(tag, is, self.special_fields.mut_unknown_fields())?;
                 },
@@ -1123,6 +3818,10 @@ impl ::protobuf::Message for Js {
         if let Some(v) = self.is_malicious {
             my_size += 1 + 1;
         }
+        if let Some(v) = self.ml.as_ref() {
+            let len = v.compute_size();
+            my_size += 1 + ::protobuf::rt::compute_raw_varint64_size(len) + len;
+        }
         my_size += ::protobuf::rt::unknown_fields_size(self.special_fields.unknown_fields());
         self.special_fields.cached_size().set(my_size as u32);
         my_size
@@ -1140,6 +3839,9 @@ impl ::protobuf::Message for Js {
         }
         if let Some(v) = self.is_malicious {
             os.write_bool(4, v)?;
+        }
+        if let Some(v) = self.ml.as_ref() {
+            ::protobuf::rt::write_message_field_with_cached_size(5, v, os)?;
         }
         os.write_unknown_fields(self.special_fields.unknown_fields())?;
         ::std::result::Result::Ok(())
@@ -1162,6 +3864,7 @@ impl ::protobuf::Message for Js {
         self.obfuscation_tokens = ::std::option::Option::None;
         self.suspicious_apis = ::std::option::Option::None;
         self.is_malicious = ::std::option::Option::None;
+        self.ml.clear();
         self.special_fields.clear();
     }
 
@@ -1171,6 +3874,7 @@ impl ::protobuf::Message for Js {
             obfuscation_tokens: ::std::option::Option::None,
             suspicious_apis: ::std::option::Option::None,
             is_malicious: ::std::option::Option::None,
+            ml: ::protobuf::MessageField::none(),
             special_fields: ::protobuf::SpecialFields::new(),
         };
         &instance
@@ -1361,25 +4065,90 @@ static file_descriptor_proto_data: &'static [u8] = b"\
     \x02\x20\x01(\x01R\x07entropy\x12\x19\n\x08raw_size\x18\x03\x20\x01(\rR\
     \x07rawSize\x12!\n\x0cvirtual_size\x18\x04\x20\x01(\rR\x0bvirtualSize\
     \x12(\n\x0fcharacteristics\x18\x05\x20\x01(\rR\x0fcharacteristics\x12)\n\
-    \x10suspicious_score\x18\x06\x20\x01(\x01R\x0fsuspiciousScore\"\xdf\x02\
-    \n\x02Pe\x12)\n\x10suspicious_score\x18\x01\x20\x01(\x01R\x0fsuspiciousS\
-    core\x12/\n\x08sections\x18\x02\x20\x03(\x0b2\x13.yara.hydra.SectionR\
-    \x08sections\x124\n\x16has_suspicious_imports\x18\x03\x20\x01(\x08R\x14h\
-    asSuspiciousImports\x12$\n\x0eml_vector_size\x18\x04\x20\x01(\rR\x0cmlVe\
-    ctorSize\x12:\n\x19missing_standard_sections\x18\x05\x20\x01(\rR\x17miss\
-    ingStandardSections\x12!\n\x0coverlay_size\x18\x07\x20\x01(\rR\x0boverla\
-    ySize\x12\x1d\n\nmoh_family\x18\x08\x20\x01(\tR\tmohFamily\x12#\n\remula\
-    ted_apis\x18\t\x20\x03(\tR\x0cemulatedApis\"J\n\x02R2\x12\x1d\n\nep_opco\
-    des\x18\x01\x20\x01(\tR\tepOpcodes\x12%\n\x0ecfg_complexity\x18\x02\x20\
-    \x01(\rR\rcfgComplexity\"\x99\x01\n\x02Js\x12\x18\n\x07entropy\x18\x01\
-    \x20\x01(\x01R\x07entropy\x12-\n\x12obfuscation_tokens\x18\x02\x20\x01(\
-    \rR\x11obfuscationTokens\x12'\n\x0fsuspicious_apis\x18\x03\x20\x01(\rR\
-    \x0esuspiciousApis\x12!\n\x0cis_malicious\x18\x04\x20\x01(\x08R\x0bisMal\
-    icious\"g\n\x05Hydra\x12\x1e\n\x02pe\x18\x01\x20\x01(\x0b2\x0e.yara.hydr\
-    a.PeR\x02pe\x12\x1e\n\x02r2\x18\x02\x20\x01(\x0b2\x0e.yara.hydra.R2R\x02\
-    r2\x12\x1e\n\x02js\x18\x03\x20\x01(\x0b2\x0e.yara.hydra.JsR\x02jsB'\xfa\
-    \x92\x19#\n\x05hydra\x12\x05Hydra\x1a\x05hydra\"\x0chydra-moduleb\x06pro\
-    to2\
+    \x10suspicious_score\x18\x06\x20\x01(\x01R\x0fsuspiciousScore\"\xd1\x0f\
+    \n\x04PeMl\x125\n\x17size_of_optional_header\x18\x01\x20\x01(\rR\x14size\
+    OfOptionalHeader\x120\n\x14major_linker_version\x18\x02\x20\x01(\rR\x12m\
+    ajorLinkerVersion\x120\n\x14minor_linker_version\x18\x03\x20\x01(\rR\x12\
+    minorLinkerVersion\x12\x20\n\x0csize_of_code\x18\x04\x20\x01(\rR\nsizeOf\
+    Code\x127\n\x18size_of_initialized_data\x18\x05\x20\x01(\rR\x15sizeOfIni\
+    tializedData\x12;\n\x1asize_of_uninitialized_data\x18\x06\x20\x01(\rR\
+    \x17sizeOfUninitializedData\x123\n\x16address_of_entry_point\x18\x07\x20\
+    \x01(\rR\x13addressOfEntryPoint\x12\x20\n\x0cbase_of_code\x18\x08\x20\
+    \x01(\rR\nbaseOfCode\x12\x20\n\x0cbase_of_data\x18\t\x20\x01(\rR\nbaseOf\
+    Data\x12\x1d\n\nimage_base\x18\n\x20\x01(\x04R\timageBase\x12+\n\x11sect\
+    ion_alignment\x18\x0b\x20\x01(\rR\x10sectionAlignment\x12%\n\x0efile_ali\
+    gnment\x18\x0c\x20\x01(\rR\rfileAlignment\x12C\n\x1emajor_operating_syst\
+    em_version\x18\r\x20\x01(\rR\x1bmajorOperatingSystemVersion\x12C\n\x1emi\
+    nor_operating_system_version\x18\x0e\x20\x01(\rR\x1bminorOperatingSystem\
+    Version\x12.\n\x13major_image_version\x18\x0f\x20\x01(\rR\x11majorImageV\
+    ersion\x12.\n\x13minor_image_version\x18\x10\x20\x01(\rR\x11minorImageVe\
+    rsion\x126\n\x17major_subsystem_version\x18\x11\x20\x01(\rR\x15majorSubs\
+    ystemVersion\x126\n\x17minor_subsystem_version\x18\x12\x20\x01(\rR\x15mi\
+    norSubsystemVersion\x12\"\n\rsize_of_image\x18\x13\x20\x01(\rR\x0bsizeOf\
+    Image\x12&\n\x0fsize_of_headers\x18\x14\x20\x01(\rR\rsizeOfHeaders\x12\
+    \x1b\n\tcheck_sum\x18\x15\x20\x01(\rR\x08checkSum\x12\x1c\n\tsubsystem\
+    \x18\x16\x20\x01(\rR\tsubsystem\x12/\n\x13dll_characteristics\x18\x17\
+    \x20\x01(\rR\x12dllCharacteristics\x121\n\x15size_of_stack_reserve\x18\
+    \x18\x20\x01(\x04R\x12sizeOfStackReserve\x12/\n\x14size_of_stack_commit\
+    \x18\x19\x20\x01(\x04R\x11sizeOfStackCommit\x12/\n\x14size_of_heap_reser\
+    ve\x18\x1a\x20\x01(\x04R\x11sizeOfHeapReserve\x12-\n\x13size_of_heap_com\
+    mit\x18\x1b\x20\x01(\x04R\x10sizeOfHeapCommit\x12!\n\x0cloader_flags\x18\
+    \x1c\x20\x01(\rR\x0bloaderFlags\x124\n\x17number_of_rva_and_sizes\x18\
+    \x1d\x20\x01(\rR\x13numberOfRvaAndSizes\x12\x18\n\x07entropy\x18\x1e\x20\
+    \x01(\x01R\x07entropy\x12!\n\x0coverlay_size\x18\x1f\x20\x01(\rR\x0bover\
+    laySize\x12'\n\x0foverlay_entropy\x18\x20\x20\x01(\x01R\x0eoverlayEntrop\
+    y\x12#\n\rimports_count\x18!\x20\x01(\rR\x0cimportsCount\x12#\n\rexports\
+    _count\x18\"\x20\x01(\rR\x0cexportsCount\x12'\n\x0fresources_count\x18#\
+    \x20\x01(\rR\x0eresourcesCount\x12\x1f\n\x0bdebug_count\x18$\x20\x01(\rR\
+    \ndebugCount\x12%\n\x0esections_count\x18%\x20\x01(\rR\rsectionsCount\
+    \x12.\n\x13tls_callbacks_count\x18&\x20\x01(\rR\x11tlsCallbacksCount\x12\
+    .\n\x13delay_imports_count\x18'\x20\x01(\rR\x11delayImportsCount\x12.\n\
+    \x13bound_imports_count\x18(\x20\x01(\rR\x11boundImportsCount\x12-\n\x12\
+    certificates_count\x18)\x20\x01(\rR\x11certificatesCount\x122\n\x15ep_in\
+    structions_count\x18*\x20\x01(\rR\x13epInstructionsCount\x12+\n\x12is_wx\
+    _last_section\x18+\x20\x01(\x08R\x0fisWxLastSection\x12:\n\x19missing_st\
+    andard_sections\x18,\x20\x01(\rR\x17missingStandardSections\"\xda\x01\n\
+    \x12EmulationTelemetry\x12#\n\rexecuted_apis\x18\x01\x20\x03(\tR\x0cexec\
+    utedApis\x12)\n\x10mapped_addresses\x18\x02\x20\x03(\x04R\x0fmappedAddre\
+    sses\x12?\n\x1cself_modifying_code_detected\x18\x03\x20\x01(\x08R\x19sel\
+    fModifyingCodeDetected\x123\n\x15executed_instructions\x18\x04\x20\x01(\
+    \rR\x14executedInstructions\"\xf6\x01\n\x02Pe\x12)\n\x10suspicious_score\
+    \x18\x01\x20\x01(\x01R\x0fsuspiciousScore\x12/\n\x08sections\x18\x02\x20\
+    \x03(\x0b2\x13.yara.hydra.SectionR\x08sections\x124\n\x16has_suspicious_\
+    imports\x18\x03\x20\x01(\x08R\x14hasSuspiciousImports\x12\x20\n\x02ml\
+    \x18\x04\x20\x01(\x0b2\x10.yara.hydra.PeMlR\x02ml\x12<\n\temulation\x18\
+    \x05\x20\x01(\x0b2\x1e.yara.hydra.EmulationTelemetryR\temulation\"J\n\
+    \x02R2\x12\x1d\n\nep_opcodes\x18\x01\x20\x01(\tR\tepOpcodes\x12%\n\x0ecf\
+    g_complexity\x18\x02\x20\x01(\rR\rcfgComplexity\"\x9c\x07\n\x04JsMl\x12\
+    \x1b\n\tfile_size\x18\x01\x20\x01(\rR\x08fileSize\x12\x18\n\x07entropy\
+    \x18\x02\x20\x01(\x01R\x07entropy\x12%\n\x0efunction_count\x18\x03\x20\
+    \x01(\rR\rfunctionCount\x123\n\x15variable_declarations\x18\x04\x20\x01(\
+    \rR\x14variableDeclarations\x12\x1d\n\neval_usage\x18\x05\x20\x01(\rR\te\
+    valUsage\x12(\n\x10try_catch_blocks\x18\x06\x20\x01(\rR\x0etryCatchBlock\
+    s\x12'\n\x0floop_statements\x18\x07\x20\x01(\rR\x0eloopStatements\x125\n\
+    \x16conditional_statements\x18\x08\x20\x01(\rR\x15conditionalStatements\
+    \x12+\n\x11obfuscation_score\x18\t\x20\x01(\rR\x10obfuscationScore\x120\
+    \n\x14is_likely_obfuscated\x18\n\x20\x01(\x08R\x12isLikelyObfuscated\x12\
+    .\n\x13hex_encoded_strings\x18\x0b\x20\x01(\rR\x11hexEncodedStrings\x126\
+    \n\x17unicode_encoded_strings\x18\x0c\x20\x01(\rR\x15unicodeEncodedStrin\
+    gs\x12%\n\x0ebase64_strings\x18\r\x20\x01(\rR\rbase64Strings\x122\n\x15s\
+    uspicious_apis_count\x18\x0e\x20\x01(\rR\x13suspiciousApisCount\x12+\n\
+    \x11crypto_references\x18\x0f\x20\x01(\rR\x10cryptoReferences\x12-\n\x12\
+    network_operations\x18\x10\x20\x01(\rR\x11networkOperations\x124\n\x16fi\
+    le_system_operations\x18\x11\x20\x01(\rR\x14fileSystemOperations\x12/\n\
+    \x13registry_operations\x18\x12\x20\x01(\rR\x12registryOperations\x12-\n\
+    \x12process_operations\x18\x13\x20\x01(\rR\x11processOperations\x12#\n\r\
+    total_strings\x18\x14\x20\x01(\rR\x0ctotalStrings\x12\x1f\n\x0btotal_lin\
+    es\x18\x15\x20\x01(\rR\ntotalLines\"\xbb\x01\n\x02Js\x12\x18\n\x07entrop\
+    y\x18\x01\x20\x01(\x01R\x07entropy\x12-\n\x12obfuscation_tokens\x18\x02\
+    \x20\x01(\rR\x11obfuscationTokens\x12'\n\x0fsuspicious_apis\x18\x03\x20\
+    \x01(\rR\x0esuspiciousApis\x12!\n\x0cis_malicious\x18\x04\x20\x01(\x08R\
+    \x0bisMalicious\x12\x20\n\x02ml\x18\x05\x20\x01(\x0b2\x10.yara.hydra.JsM\
+    lR\x02ml\"g\n\x05Hydra\x12\x1e\n\x02pe\x18\x01\x20\x01(\x0b2\x0e.yara.hy\
+    dra.PeR\x02pe\x12\x1e\n\x02r2\x18\x02\x20\x01(\x0b2\x0e.yara.hydra.R2R\
+    \x02r2\x12\x1e\n\x02js\x18\x03\x20\x01(\x0b2\x0e.yara.hydra.JsR\x02jsB'\
+    \xfa\x92\x19#\n\x05hydra\x12\x05Hydra\x1a\x05hydra\"\x0chydra-moduleb\
+    \x06proto2\
 ";
 
 /// `FileDescriptorProto` object which was a source for this generated file
@@ -1398,10 +4167,13 @@ pub fn file_descriptor() -> &'static ::protobuf::reflect::FileDescriptor {
         let generated_file_descriptor = generated_file_descriptor_lazy.get(|| {
             let mut deps = ::std::vec::Vec::with_capacity(1);
             deps.push(super::yara::file_descriptor().clone());
-            let mut messages = ::std::vec::Vec::with_capacity(5);
+            let mut messages = ::std::vec::Vec::with_capacity(8);
             messages.push(Section::generated_message_descriptor_data());
+            messages.push(PeMl::generated_message_descriptor_data());
+            messages.push(EmulationTelemetry::generated_message_descriptor_data());
             messages.push(Pe::generated_message_descriptor_data());
             messages.push(R2::generated_message_descriptor_data());
+            messages.push(JsMl::generated_message_descriptor_data());
             messages.push(Js::generated_message_descriptor_data());
             messages.push(Hydra::generated_message_descriptor_data());
             let mut enums = ::std::vec::Vec::with_capacity(0);

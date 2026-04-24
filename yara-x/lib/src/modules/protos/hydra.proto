@@ -20,15 +20,73 @@ message Section {
   optional double suspicious_score = 6;
 }
 
+message PeMl {
+  // Optional Header
+  optional uint32 size_of_optional_header = 1;
+  optional uint32 major_linker_version = 2;
+  optional uint32 minor_linker_version = 3;
+  optional uint32 size_of_code = 4;
+  optional uint32 size_of_initialized_data = 5;
+  optional uint32 size_of_uninitialized_data = 6;
+  optional uint32 address_of_entry_point = 7;
+  optional uint32 base_of_code = 8;
+  optional uint32 base_of_data = 9;
+  optional uint64 image_base = 10;
+  optional uint32 section_alignment = 11;
+  optional uint32 file_alignment = 12;
+  optional uint32 major_operating_system_version = 13;
+  optional uint32 minor_operating_system_version = 14;
+  optional uint32 major_image_version = 15;
+  optional uint32 minor_image_version = 16;
+  optional uint32 major_subsystem_version = 17;
+  optional uint32 minor_subsystem_version = 18;
+  optional uint32 size_of_image = 19;
+  optional uint32 size_of_headers = 20;
+  optional uint32 check_sum = 21;
+  optional uint32 subsystem = 22;
+  optional uint32 dll_characteristics = 23;
+  optional uint64 size_of_stack_reserve = 24;
+  optional uint64 size_of_stack_commit = 25;
+  optional uint64 size_of_heap_reserve = 26;
+  optional uint64 size_of_heap_commit = 27;
+  optional uint32 loader_flags = 28;
+  optional uint32 number_of_rva_and_sizes = 29;
+
+  // Derived properties
+  optional double entropy = 30;
+  optional uint32 overlay_size = 31;
+  optional double overlay_entropy = 32;
+  
+  // Counts
+  optional uint32 imports_count = 33;
+  optional uint32 exports_count = 34;
+  optional uint32 resources_count = 35;
+  optional uint32 debug_count = 36;
+  optional uint32 sections_count = 37;
+  optional uint32 tls_callbacks_count = 38;
+  optional uint32 delay_imports_count = 39;
+  optional uint32 bound_imports_count = 40;
+  optional uint32 certificates_count = 41;
+
+  // Disassembly characteristics (approx)
+  optional uint32 ep_instructions_count = 42;
+  optional bool is_wx_last_section = 43;
+  optional uint32 missing_standard_sections = 44;
+}
+
+message EmulationTelemetry {
+  repeated string executed_apis = 1;
+  repeated uint64 mapped_addresses = 2;
+  optional bool self_modifying_code_detected = 3;
+  optional uint32 executed_instructions = 4;
+}
+
 message Pe {
   optional double suspicious_score = 1;
   repeated Section sections = 2;
   optional bool has_suspicious_imports = 3;
-  optional uint32 ml_vector_size = 4;
-  optional uint32 missing_standard_sections = 5;
-  optional uint32 overlay_size = 7;
-  optional string moh_family = 8;
-  repeated string emulated_apis = 9;
+  optional PeMl ml = 4;
+  optional EmulationTelemetry emulation = 5;
 }
 
 message R2 {
@@ -36,11 +94,44 @@ message R2 {
   optional uint32 cfg_complexity = 2;
 }
 
+message JsMl {
+  optional uint32 file_size = 1;
+  optional double entropy = 2;
+  
+  // Proxy AST properties
+  optional uint32 function_count = 3;
+  optional uint32 variable_declarations = 4;
+  optional uint32 eval_usage = 5;
+  optional uint32 try_catch_blocks = 6;
+  optional uint32 loop_statements = 7;
+  optional uint32 conditional_statements = 8;
+  
+  // Obfuscation and Security properties
+  optional uint32 obfuscation_score = 9;
+  optional bool is_likely_obfuscated = 10;
+  optional uint32 hex_encoded_strings = 11;
+  optional uint32 unicode_encoded_strings = 12;
+  optional uint32 base64_strings = 13;
+  
+  // Malware specific
+  optional uint32 suspicious_apis_count = 14;
+  optional uint32 crypto_references = 15;
+  optional uint32 network_operations = 16;
+  optional uint32 file_system_operations = 17;
+  optional uint32 registry_operations = 18;
+  optional uint32 process_operations = 19;
+  
+  // General metrics
+  optional uint32 total_strings = 20;
+  optional uint32 total_lines = 21;
+}
+
 message Js {
   optional double entropy = 1;
   optional uint32 obfuscation_tokens = 2;
   optional uint32 suspicious_apis = 3;
   optional bool is_malicious = 4;
+  optional JsMl ml = 5;
 }
 
 message Hydra {
