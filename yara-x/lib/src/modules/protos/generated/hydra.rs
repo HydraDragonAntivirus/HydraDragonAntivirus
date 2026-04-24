@@ -38,8 +38,6 @@ pub struct Section {
     pub virtual_size: ::std::option::Option<u32>,
     // @@protoc_insertion_point(field:yara.hydra.Section.characteristics)
     pub characteristics: ::std::option::Option<u32>,
-    // @@protoc_insertion_point(field:yara.hydra.Section.suspicious_score)
-    pub suspicious_score: ::std::option::Option<f64>,
     // special fields
     // @@protoc_insertion_point(special_field:yara.hydra.Section.special_fields)
     pub special_fields: ::protobuf::SpecialFields,
@@ -168,27 +166,8 @@ impl Section {
         self.characteristics = ::std::option::Option::Some(v);
     }
 
-    // optional double suspicious_score = 6;
-
-    pub fn suspicious_score(&self) -> f64 {
-        self.suspicious_score.unwrap_or(0.)
-    }
-
-    pub fn clear_suspicious_score(&mut self) {
-        self.suspicious_score = ::std::option::Option::None;
-    }
-
-    pub fn has_suspicious_score(&self) -> bool {
-        self.suspicious_score.is_some()
-    }
-
-    // Param is passed by value, moved
-    pub fn set_suspicious_score(&mut self, v: f64) {
-        self.suspicious_score = ::std::option::Option::Some(v);
-    }
-
     fn generated_message_descriptor_data() -> ::protobuf::reflect::GeneratedMessageDescriptorData {
-        let mut fields = ::std::vec::Vec::with_capacity(6);
+        let mut fields = ::std::vec::Vec::with_capacity(5);
         let mut oneofs = ::std::vec::Vec::with_capacity(0);
         fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
             "name",
@@ -214,11 +193,6 @@ impl Section {
             "characteristics",
             |m: &Section| { &m.characteristics },
             |m: &mut Section| { &mut m.characteristics },
-        ));
-        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
-            "suspicious_score",
-            |m: &Section| { &m.suspicious_score },
-            |m: &mut Section| { &mut m.suspicious_score },
         ));
         ::protobuf::reflect::GeneratedMessageDescriptorData::new_2::<Section>(
             "Section",
@@ -253,9 +227,6 @@ impl ::protobuf::Message for Section {
                 40 => {
                     self.characteristics = ::std::option::Option::Some(is.read_uint32()?);
                 },
-                49 => {
-                    self.suspicious_score = ::std::option::Option::Some(is.read_double()?);
-                },
                 tag => {
                     ::protobuf::rt::read_unknown_or_skip_group(tag, is, self.special_fields.mut_unknown_fields())?;
                 },
@@ -283,9 +254,6 @@ impl ::protobuf::Message for Section {
         if let Some(v) = self.characteristics {
             my_size += ::protobuf::rt::uint32_size(5, v);
         }
-        if let Some(v) = self.suspicious_score {
-            my_size += 1 + 8;
-        }
         my_size += ::protobuf::rt::unknown_fields_size(self.special_fields.unknown_fields());
         self.special_fields.cached_size().set(my_size as u32);
         my_size
@@ -306,9 +274,6 @@ impl ::protobuf::Message for Section {
         }
         if let Some(v) = self.characteristics {
             os.write_uint32(5, v)?;
-        }
-        if let Some(v) = self.suspicious_score {
-            os.write_double(6, v)?;
         }
         os.write_unknown_fields(self.special_fields.unknown_fields())?;
         ::std::result::Result::Ok(())
@@ -332,7 +297,6 @@ impl ::protobuf::Message for Section {
         self.raw_size = ::std::option::Option::None;
         self.virtual_size = ::std::option::Option::None;
         self.characteristics = ::std::option::Option::None;
-        self.suspicious_score = ::std::option::Option::None;
         self.special_fields.clear();
     }
 
@@ -343,7 +307,6 @@ impl ::protobuf::Message for Section {
             raw_size: ::std::option::Option::None,
             virtual_size: ::std::option::Option::None,
             characteristics: ::std::option::Option::None,
-            suspicious_score: ::std::option::Option::None,
             special_fields: ::protobuf::SpecialFields::new(),
         };
         &instance
@@ -455,10 +418,32 @@ pub struct PeMl {
     pub certificates_count: ::std::option::Option<u32>,
     // @@protoc_insertion_point(field:yara.hydra.PeMl.ep_instructions_count)
     pub ep_instructions_count: ::std::option::Option<u32>,
-    // @@protoc_insertion_point(field:yara.hydra.PeMl.is_wx_last_section)
-    pub is_wx_last_section: ::std::option::Option<bool>,
-    // @@protoc_insertion_point(field:yara.hydra.PeMl.missing_standard_sections)
-    pub missing_standard_sections: ::std::option::Option<u32>,
+    // @@protoc_insertion_point(field:yara.hydra.PeMl.ep_jump_count)
+    pub ep_jump_count: ::std::option::Option<u32>,
+    // @@protoc_insertion_point(field:yara.hydra.PeMl.ep_call_count)
+    pub ep_call_count: ::std::option::Option<u32>,
+    // @@protoc_insertion_point(field:yara.hydra.PeMl.ep_ret_count)
+    pub ep_ret_count: ::std::option::Option<u32>,
+    // @@protoc_insertion_point(field:yara.hydra.PeMl.ep_nop_count)
+    pub ep_nop_count: ::std::option::Option<u32>,
+    // @@protoc_insertion_point(field:yara.hydra.PeMl.ep_cpuid_count)
+    pub ep_cpuid_count: ::std::option::Option<u32>,
+    // @@protoc_insertion_point(field:yara.hydra.PeMl.ep_rdtsc_count)
+    pub ep_rdtsc_count: ::std::option::Option<u32>,
+    // @@protoc_insertion_point(field:yara.hydra.PeMl.last_section_characteristics)
+    pub last_section_characteristics: ::std::option::Option<u32>,
+    // @@protoc_insertion_point(field:yara.hydra.PeMl.cfg_total_instructions)
+    pub cfg_total_instructions: ::std::option::Option<u32>,
+    // @@protoc_insertion_point(field:yara.hydra.PeMl.cfg_jump_count)
+    pub cfg_jump_count: ::std::option::Option<u32>,
+    // @@protoc_insertion_point(field:yara.hydra.PeMl.cfg_call_count)
+    pub cfg_call_count: ::std::option::Option<u32>,
+    // @@protoc_insertion_point(field:yara.hydra.PeMl.cfg_ret_count)
+    pub cfg_ret_count: ::std::option::Option<u32>,
+    // @@protoc_insertion_point(field:yara.hydra.PeMl.rich_header_entries_count)
+    pub rich_header_entries_count: ::std::option::Option<u32>,
+    // @@protoc_insertion_point(field:yara.hydra.PeMl.rich_header_xor_key)
+    pub rich_header_xor_key: ::std::option::Option<u32>,
     // special fields
     // @@protoc_insertion_point(special_field:yara.hydra.PeMl.special_fields)
     pub special_fields: ::protobuf::SpecialFields,
@@ -1273,46 +1258,255 @@ impl PeMl {
         self.ep_instructions_count = ::std::option::Option::Some(v);
     }
 
-    // optional bool is_wx_last_section = 43;
+    // optional uint32 ep_jump_count = 43;
 
-    pub fn is_wx_last_section(&self) -> bool {
-        self.is_wx_last_section.unwrap_or(false)
+    pub fn ep_jump_count(&self) -> u32 {
+        self.ep_jump_count.unwrap_or(0)
     }
 
-    pub fn clear_is_wx_last_section(&mut self) {
-        self.is_wx_last_section = ::std::option::Option::None;
+    pub fn clear_ep_jump_count(&mut self) {
+        self.ep_jump_count = ::std::option::Option::None;
     }
 
-    pub fn has_is_wx_last_section(&self) -> bool {
-        self.is_wx_last_section.is_some()
-    }
-
-    // Param is passed by value, moved
-    pub fn set_is_wx_last_section(&mut self, v: bool) {
-        self.is_wx_last_section = ::std::option::Option::Some(v);
-    }
-
-    // optional uint32 missing_standard_sections = 44;
-
-    pub fn missing_standard_sections(&self) -> u32 {
-        self.missing_standard_sections.unwrap_or(0)
-    }
-
-    pub fn clear_missing_standard_sections(&mut self) {
-        self.missing_standard_sections = ::std::option::Option::None;
-    }
-
-    pub fn has_missing_standard_sections(&self) -> bool {
-        self.missing_standard_sections.is_some()
+    pub fn has_ep_jump_count(&self) -> bool {
+        self.ep_jump_count.is_some()
     }
 
     // Param is passed by value, moved
-    pub fn set_missing_standard_sections(&mut self, v: u32) {
-        self.missing_standard_sections = ::std::option::Option::Some(v);
+    pub fn set_ep_jump_count(&mut self, v: u32) {
+        self.ep_jump_count = ::std::option::Option::Some(v);
+    }
+
+    // optional uint32 ep_call_count = 44;
+
+    pub fn ep_call_count(&self) -> u32 {
+        self.ep_call_count.unwrap_or(0)
+    }
+
+    pub fn clear_ep_call_count(&mut self) {
+        self.ep_call_count = ::std::option::Option::None;
+    }
+
+    pub fn has_ep_call_count(&self) -> bool {
+        self.ep_call_count.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_ep_call_count(&mut self, v: u32) {
+        self.ep_call_count = ::std::option::Option::Some(v);
+    }
+
+    // optional uint32 ep_ret_count = 45;
+
+    pub fn ep_ret_count(&self) -> u32 {
+        self.ep_ret_count.unwrap_or(0)
+    }
+
+    pub fn clear_ep_ret_count(&mut self) {
+        self.ep_ret_count = ::std::option::Option::None;
+    }
+
+    pub fn has_ep_ret_count(&self) -> bool {
+        self.ep_ret_count.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_ep_ret_count(&mut self, v: u32) {
+        self.ep_ret_count = ::std::option::Option::Some(v);
+    }
+
+    // optional uint32 ep_nop_count = 46;
+
+    pub fn ep_nop_count(&self) -> u32 {
+        self.ep_nop_count.unwrap_or(0)
+    }
+
+    pub fn clear_ep_nop_count(&mut self) {
+        self.ep_nop_count = ::std::option::Option::None;
+    }
+
+    pub fn has_ep_nop_count(&self) -> bool {
+        self.ep_nop_count.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_ep_nop_count(&mut self, v: u32) {
+        self.ep_nop_count = ::std::option::Option::Some(v);
+    }
+
+    // optional uint32 ep_cpuid_count = 47;
+
+    pub fn ep_cpuid_count(&self) -> u32 {
+        self.ep_cpuid_count.unwrap_or(0)
+    }
+
+    pub fn clear_ep_cpuid_count(&mut self) {
+        self.ep_cpuid_count = ::std::option::Option::None;
+    }
+
+    pub fn has_ep_cpuid_count(&self) -> bool {
+        self.ep_cpuid_count.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_ep_cpuid_count(&mut self, v: u32) {
+        self.ep_cpuid_count = ::std::option::Option::Some(v);
+    }
+
+    // optional uint32 ep_rdtsc_count = 48;
+
+    pub fn ep_rdtsc_count(&self) -> u32 {
+        self.ep_rdtsc_count.unwrap_or(0)
+    }
+
+    pub fn clear_ep_rdtsc_count(&mut self) {
+        self.ep_rdtsc_count = ::std::option::Option::None;
+    }
+
+    pub fn has_ep_rdtsc_count(&self) -> bool {
+        self.ep_rdtsc_count.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_ep_rdtsc_count(&mut self, v: u32) {
+        self.ep_rdtsc_count = ::std::option::Option::Some(v);
+    }
+
+    // optional uint32 last_section_characteristics = 49;
+
+    pub fn last_section_characteristics(&self) -> u32 {
+        self.last_section_characteristics.unwrap_or(0)
+    }
+
+    pub fn clear_last_section_characteristics(&mut self) {
+        self.last_section_characteristics = ::std::option::Option::None;
+    }
+
+    pub fn has_last_section_characteristics(&self) -> bool {
+        self.last_section_characteristics.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_last_section_characteristics(&mut self, v: u32) {
+        self.last_section_characteristics = ::std::option::Option::Some(v);
+    }
+
+    // optional uint32 cfg_total_instructions = 50;
+
+    pub fn cfg_total_instructions(&self) -> u32 {
+        self.cfg_total_instructions.unwrap_or(0)
+    }
+
+    pub fn clear_cfg_total_instructions(&mut self) {
+        self.cfg_total_instructions = ::std::option::Option::None;
+    }
+
+    pub fn has_cfg_total_instructions(&self) -> bool {
+        self.cfg_total_instructions.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_cfg_total_instructions(&mut self, v: u32) {
+        self.cfg_total_instructions = ::std::option::Option::Some(v);
+    }
+
+    // optional uint32 cfg_jump_count = 51;
+
+    pub fn cfg_jump_count(&self) -> u32 {
+        self.cfg_jump_count.unwrap_or(0)
+    }
+
+    pub fn clear_cfg_jump_count(&mut self) {
+        self.cfg_jump_count = ::std::option::Option::None;
+    }
+
+    pub fn has_cfg_jump_count(&self) -> bool {
+        self.cfg_jump_count.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_cfg_jump_count(&mut self, v: u32) {
+        self.cfg_jump_count = ::std::option::Option::Some(v);
+    }
+
+    // optional uint32 cfg_call_count = 52;
+
+    pub fn cfg_call_count(&self) -> u32 {
+        self.cfg_call_count.unwrap_or(0)
+    }
+
+    pub fn clear_cfg_call_count(&mut self) {
+        self.cfg_call_count = ::std::option::Option::None;
+    }
+
+    pub fn has_cfg_call_count(&self) -> bool {
+        self.cfg_call_count.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_cfg_call_count(&mut self, v: u32) {
+        self.cfg_call_count = ::std::option::Option::Some(v);
+    }
+
+    // optional uint32 cfg_ret_count = 53;
+
+    pub fn cfg_ret_count(&self) -> u32 {
+        self.cfg_ret_count.unwrap_or(0)
+    }
+
+    pub fn clear_cfg_ret_count(&mut self) {
+        self.cfg_ret_count = ::std::option::Option::None;
+    }
+
+    pub fn has_cfg_ret_count(&self) -> bool {
+        self.cfg_ret_count.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_cfg_ret_count(&mut self, v: u32) {
+        self.cfg_ret_count = ::std::option::Option::Some(v);
+    }
+
+    // optional uint32 rich_header_entries_count = 54;
+
+    pub fn rich_header_entries_count(&self) -> u32 {
+        self.rich_header_entries_count.unwrap_or(0)
+    }
+
+    pub fn clear_rich_header_entries_count(&mut self) {
+        self.rich_header_entries_count = ::std::option::Option::None;
+    }
+
+    pub fn has_rich_header_entries_count(&self) -> bool {
+        self.rich_header_entries_count.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_rich_header_entries_count(&mut self, v: u32) {
+        self.rich_header_entries_count = ::std::option::Option::Some(v);
+    }
+
+    // optional uint32 rich_header_xor_key = 55;
+
+    pub fn rich_header_xor_key(&self) -> u32 {
+        self.rich_header_xor_key.unwrap_or(0)
+    }
+
+    pub fn clear_rich_header_xor_key(&mut self) {
+        self.rich_header_xor_key = ::std::option::Option::None;
+    }
+
+    pub fn has_rich_header_xor_key(&self) -> bool {
+        self.rich_header_xor_key.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_rich_header_xor_key(&mut self, v: u32) {
+        self.rich_header_xor_key = ::std::option::Option::Some(v);
     }
 
     fn generated_message_descriptor_data() -> ::protobuf::reflect::GeneratedMessageDescriptorData {
-        let mut fields = ::std::vec::Vec::with_capacity(44);
+        let mut fields = ::std::vec::Vec::with_capacity(55);
         let mut oneofs = ::std::vec::Vec::with_capacity(0);
         fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
             "size_of_optional_header",
@@ -1525,14 +1719,69 @@ impl PeMl {
             |m: &mut PeMl| { &mut m.ep_instructions_count },
         ));
         fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
-            "is_wx_last_section",
-            |m: &PeMl| { &m.is_wx_last_section },
-            |m: &mut PeMl| { &mut m.is_wx_last_section },
+            "ep_jump_count",
+            |m: &PeMl| { &m.ep_jump_count },
+            |m: &mut PeMl| { &mut m.ep_jump_count },
         ));
         fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
-            "missing_standard_sections",
-            |m: &PeMl| { &m.missing_standard_sections },
-            |m: &mut PeMl| { &mut m.missing_standard_sections },
+            "ep_call_count",
+            |m: &PeMl| { &m.ep_call_count },
+            |m: &mut PeMl| { &mut m.ep_call_count },
+        ));
+        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
+            "ep_ret_count",
+            |m: &PeMl| { &m.ep_ret_count },
+            |m: &mut PeMl| { &mut m.ep_ret_count },
+        ));
+        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
+            "ep_nop_count",
+            |m: &PeMl| { &m.ep_nop_count },
+            |m: &mut PeMl| { &mut m.ep_nop_count },
+        ));
+        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
+            "ep_cpuid_count",
+            |m: &PeMl| { &m.ep_cpuid_count },
+            |m: &mut PeMl| { &mut m.ep_cpuid_count },
+        ));
+        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
+            "ep_rdtsc_count",
+            |m: &PeMl| { &m.ep_rdtsc_count },
+            |m: &mut PeMl| { &mut m.ep_rdtsc_count },
+        ));
+        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
+            "last_section_characteristics",
+            |m: &PeMl| { &m.last_section_characteristics },
+            |m: &mut PeMl| { &mut m.last_section_characteristics },
+        ));
+        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
+            "cfg_total_instructions",
+            |m: &PeMl| { &m.cfg_total_instructions },
+            |m: &mut PeMl| { &mut m.cfg_total_instructions },
+        ));
+        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
+            "cfg_jump_count",
+            |m: &PeMl| { &m.cfg_jump_count },
+            |m: &mut PeMl| { &mut m.cfg_jump_count },
+        ));
+        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
+            "cfg_call_count",
+            |m: &PeMl| { &m.cfg_call_count },
+            |m: &mut PeMl| { &mut m.cfg_call_count },
+        ));
+        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
+            "cfg_ret_count",
+            |m: &PeMl| { &m.cfg_ret_count },
+            |m: &mut PeMl| { &mut m.cfg_ret_count },
+        ));
+        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
+            "rich_header_entries_count",
+            |m: &PeMl| { &m.rich_header_entries_count },
+            |m: &mut PeMl| { &mut m.rich_header_entries_count },
+        ));
+        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
+            "rich_header_xor_key",
+            |m: &PeMl| { &m.rich_header_xor_key },
+            |m: &mut PeMl| { &mut m.rich_header_xor_key },
         ));
         ::protobuf::reflect::GeneratedMessageDescriptorData::new_2::<PeMl>(
             "PeMl",
@@ -1679,10 +1928,43 @@ impl ::protobuf::Message for PeMl {
                     self.ep_instructions_count = ::std::option::Option::Some(is.read_uint32()?);
                 },
                 344 => {
-                    self.is_wx_last_section = ::std::option::Option::Some(is.read_bool()?);
+                    self.ep_jump_count = ::std::option::Option::Some(is.read_uint32()?);
                 },
                 352 => {
-                    self.missing_standard_sections = ::std::option::Option::Some(is.read_uint32()?);
+                    self.ep_call_count = ::std::option::Option::Some(is.read_uint32()?);
+                },
+                360 => {
+                    self.ep_ret_count = ::std::option::Option::Some(is.read_uint32()?);
+                },
+                368 => {
+                    self.ep_nop_count = ::std::option::Option::Some(is.read_uint32()?);
+                },
+                376 => {
+                    self.ep_cpuid_count = ::std::option::Option::Some(is.read_uint32()?);
+                },
+                384 => {
+                    self.ep_rdtsc_count = ::std::option::Option::Some(is.read_uint32()?);
+                },
+                392 => {
+                    self.last_section_characteristics = ::std::option::Option::Some(is.read_uint32()?);
+                },
+                400 => {
+                    self.cfg_total_instructions = ::std::option::Option::Some(is.read_uint32()?);
+                },
+                408 => {
+                    self.cfg_jump_count = ::std::option::Option::Some(is.read_uint32()?);
+                },
+                416 => {
+                    self.cfg_call_count = ::std::option::Option::Some(is.read_uint32()?);
+                },
+                424 => {
+                    self.cfg_ret_count = ::std::option::Option::Some(is.read_uint32()?);
+                },
+                432 => {
+                    self.rich_header_entries_count = ::std::option::Option::Some(is.read_uint32()?);
+                },
+                440 => {
+                    self.rich_header_xor_key = ::std::option::Option::Some(is.read_uint32()?);
                 },
                 tag => {
                     ::protobuf::rt::read_unknown_or_skip_group(tag, is, self.special_fields.mut_unknown_fields())?;
@@ -1822,11 +2104,44 @@ impl ::protobuf::Message for PeMl {
         if let Some(v) = self.ep_instructions_count {
             my_size += ::protobuf::rt::uint32_size(42, v);
         }
-        if let Some(v) = self.is_wx_last_section {
-            my_size += 2 + 1;
+        if let Some(v) = self.ep_jump_count {
+            my_size += ::protobuf::rt::uint32_size(43, v);
         }
-        if let Some(v) = self.missing_standard_sections {
+        if let Some(v) = self.ep_call_count {
             my_size += ::protobuf::rt::uint32_size(44, v);
+        }
+        if let Some(v) = self.ep_ret_count {
+            my_size += ::protobuf::rt::uint32_size(45, v);
+        }
+        if let Some(v) = self.ep_nop_count {
+            my_size += ::protobuf::rt::uint32_size(46, v);
+        }
+        if let Some(v) = self.ep_cpuid_count {
+            my_size += ::protobuf::rt::uint32_size(47, v);
+        }
+        if let Some(v) = self.ep_rdtsc_count {
+            my_size += ::protobuf::rt::uint32_size(48, v);
+        }
+        if let Some(v) = self.last_section_characteristics {
+            my_size += ::protobuf::rt::uint32_size(49, v);
+        }
+        if let Some(v) = self.cfg_total_instructions {
+            my_size += ::protobuf::rt::uint32_size(50, v);
+        }
+        if let Some(v) = self.cfg_jump_count {
+            my_size += ::protobuf::rt::uint32_size(51, v);
+        }
+        if let Some(v) = self.cfg_call_count {
+            my_size += ::protobuf::rt::uint32_size(52, v);
+        }
+        if let Some(v) = self.cfg_ret_count {
+            my_size += ::protobuf::rt::uint32_size(53, v);
+        }
+        if let Some(v) = self.rich_header_entries_count {
+            my_size += ::protobuf::rt::uint32_size(54, v);
+        }
+        if let Some(v) = self.rich_header_xor_key {
+            my_size += ::protobuf::rt::uint32_size(55, v);
         }
         my_size += ::protobuf::rt::unknown_fields_size(self.special_fields.unknown_fields());
         self.special_fields.cached_size().set(my_size as u32);
@@ -1960,11 +2275,44 @@ impl ::protobuf::Message for PeMl {
         if let Some(v) = self.ep_instructions_count {
             os.write_uint32(42, v)?;
         }
-        if let Some(v) = self.is_wx_last_section {
-            os.write_bool(43, v)?;
+        if let Some(v) = self.ep_jump_count {
+            os.write_uint32(43, v)?;
         }
-        if let Some(v) = self.missing_standard_sections {
+        if let Some(v) = self.ep_call_count {
             os.write_uint32(44, v)?;
+        }
+        if let Some(v) = self.ep_ret_count {
+            os.write_uint32(45, v)?;
+        }
+        if let Some(v) = self.ep_nop_count {
+            os.write_uint32(46, v)?;
+        }
+        if let Some(v) = self.ep_cpuid_count {
+            os.write_uint32(47, v)?;
+        }
+        if let Some(v) = self.ep_rdtsc_count {
+            os.write_uint32(48, v)?;
+        }
+        if let Some(v) = self.last_section_characteristics {
+            os.write_uint32(49, v)?;
+        }
+        if let Some(v) = self.cfg_total_instructions {
+            os.write_uint32(50, v)?;
+        }
+        if let Some(v) = self.cfg_jump_count {
+            os.write_uint32(51, v)?;
+        }
+        if let Some(v) = self.cfg_call_count {
+            os.write_uint32(52, v)?;
+        }
+        if let Some(v) = self.cfg_ret_count {
+            os.write_uint32(53, v)?;
+        }
+        if let Some(v) = self.rich_header_entries_count {
+            os.write_uint32(54, v)?;
+        }
+        if let Some(v) = self.rich_header_xor_key {
+            os.write_uint32(55, v)?;
         }
         os.write_unknown_fields(self.special_fields.unknown_fields())?;
         ::std::result::Result::Ok(())
@@ -2025,8 +2373,19 @@ impl ::protobuf::Message for PeMl {
         self.bound_imports_count = ::std::option::Option::None;
         self.certificates_count = ::std::option::Option::None;
         self.ep_instructions_count = ::std::option::Option::None;
-        self.is_wx_last_section = ::std::option::Option::None;
-        self.missing_standard_sections = ::std::option::Option::None;
+        self.ep_jump_count = ::std::option::Option::None;
+        self.ep_call_count = ::std::option::Option::None;
+        self.ep_ret_count = ::std::option::Option::None;
+        self.ep_nop_count = ::std::option::Option::None;
+        self.ep_cpuid_count = ::std::option::Option::None;
+        self.ep_rdtsc_count = ::std::option::Option::None;
+        self.last_section_characteristics = ::std::option::Option::None;
+        self.cfg_total_instructions = ::std::option::Option::None;
+        self.cfg_jump_count = ::std::option::Option::None;
+        self.cfg_call_count = ::std::option::Option::None;
+        self.cfg_ret_count = ::std::option::Option::None;
+        self.rich_header_entries_count = ::std::option::Option::None;
+        self.rich_header_xor_key = ::std::option::Option::None;
         self.special_fields.clear();
     }
 
@@ -2074,8 +2433,19 @@ impl ::protobuf::Message for PeMl {
             bound_imports_count: ::std::option::Option::None,
             certificates_count: ::std::option::Option::None,
             ep_instructions_count: ::std::option::Option::None,
-            is_wx_last_section: ::std::option::Option::None,
-            missing_standard_sections: ::std::option::Option::None,
+            ep_jump_count: ::std::option::Option::None,
+            ep_call_count: ::std::option::Option::None,
+            ep_ret_count: ::std::option::Option::None,
+            ep_nop_count: ::std::option::Option::None,
+            ep_cpuid_count: ::std::option::Option::None,
+            ep_rdtsc_count: ::std::option::Option::None,
+            last_section_characteristics: ::std::option::Option::None,
+            cfg_total_instructions: ::std::option::Option::None,
+            cfg_jump_count: ::std::option::Option::None,
+            cfg_call_count: ::std::option::Option::None,
+            cfg_ret_count: ::std::option::Option::None,
+            rich_header_entries_count: ::std::option::Option::None,
+            rich_header_xor_key: ::std::option::Option::None,
             special_fields: ::protobuf::SpecialFields::new(),
         };
         &instance
@@ -2103,14 +2473,16 @@ impl ::protobuf::reflect::ProtobufValue for PeMl {
 #[derive(PartialEq,Clone,Default,Debug)]
 pub struct EmulationTelemetry {
     // message fields
-    // @@protoc_insertion_point(field:yara.hydra.EmulationTelemetry.executed_apis)
-    pub executed_apis: ::std::vec::Vec<::std::string::String>,
-    // @@protoc_insertion_point(field:yara.hydra.EmulationTelemetry.mapped_addresses)
-    pub mapped_addresses: ::std::vec::Vec<u64>,
-    // @@protoc_insertion_point(field:yara.hydra.EmulationTelemetry.self_modifying_code_detected)
-    pub self_modifying_code_detected: ::std::option::Option<bool>,
     // @@protoc_insertion_point(field:yara.hydra.EmulationTelemetry.executed_instructions)
     pub executed_instructions: ::std::option::Option<u32>,
+    // @@protoc_insertion_point(field:yara.hydra.EmulationTelemetry.eax_final)
+    pub eax_final: ::std::option::Option<u32>,
+    // @@protoc_insertion_point(field:yara.hydra.EmulationTelemetry.ebx_final)
+    pub ebx_final: ::std::option::Option<u32>,
+    // @@protoc_insertion_point(field:yara.hydra.EmulationTelemetry.ecx_final)
+    pub ecx_final: ::std::option::Option<u32>,
+    // @@protoc_insertion_point(field:yara.hydra.EmulationTelemetry.edx_final)
+    pub edx_final: ::std::option::Option<u32>,
     // special fields
     // @@protoc_insertion_point(special_field:yara.hydra.EmulationTelemetry.special_fields)
     pub special_fields: ::protobuf::SpecialFields,
@@ -2127,26 +2499,7 @@ impl EmulationTelemetry {
         ::std::default::Default::default()
     }
 
-    // optional bool self_modifying_code_detected = 3;
-
-    pub fn self_modifying_code_detected(&self) -> bool {
-        self.self_modifying_code_detected.unwrap_or(false)
-    }
-
-    pub fn clear_self_modifying_code_detected(&mut self) {
-        self.self_modifying_code_detected = ::std::option::Option::None;
-    }
-
-    pub fn has_self_modifying_code_detected(&self) -> bool {
-        self.self_modifying_code_detected.is_some()
-    }
-
-    // Param is passed by value, moved
-    pub fn set_self_modifying_code_detected(&mut self, v: bool) {
-        self.self_modifying_code_detected = ::std::option::Option::Some(v);
-    }
-
-    // optional uint32 executed_instructions = 4;
+    // optional uint32 executed_instructions = 1;
 
     pub fn executed_instructions(&self) -> u32 {
         self.executed_instructions.unwrap_or(0)
@@ -2165,28 +2518,109 @@ impl EmulationTelemetry {
         self.executed_instructions = ::std::option::Option::Some(v);
     }
 
+    // optional uint32 eax_final = 2;
+
+    pub fn eax_final(&self) -> u32 {
+        self.eax_final.unwrap_or(0)
+    }
+
+    pub fn clear_eax_final(&mut self) {
+        self.eax_final = ::std::option::Option::None;
+    }
+
+    pub fn has_eax_final(&self) -> bool {
+        self.eax_final.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_eax_final(&mut self, v: u32) {
+        self.eax_final = ::std::option::Option::Some(v);
+    }
+
+    // optional uint32 ebx_final = 3;
+
+    pub fn ebx_final(&self) -> u32 {
+        self.ebx_final.unwrap_or(0)
+    }
+
+    pub fn clear_ebx_final(&mut self) {
+        self.ebx_final = ::std::option::Option::None;
+    }
+
+    pub fn has_ebx_final(&self) -> bool {
+        self.ebx_final.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_ebx_final(&mut self, v: u32) {
+        self.ebx_final = ::std::option::Option::Some(v);
+    }
+
+    // optional uint32 ecx_final = 4;
+
+    pub fn ecx_final(&self) -> u32 {
+        self.ecx_final.unwrap_or(0)
+    }
+
+    pub fn clear_ecx_final(&mut self) {
+        self.ecx_final = ::std::option::Option::None;
+    }
+
+    pub fn has_ecx_final(&self) -> bool {
+        self.ecx_final.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_ecx_final(&mut self, v: u32) {
+        self.ecx_final = ::std::option::Option::Some(v);
+    }
+
+    // optional uint32 edx_final = 5;
+
+    pub fn edx_final(&self) -> u32 {
+        self.edx_final.unwrap_or(0)
+    }
+
+    pub fn clear_edx_final(&mut self) {
+        self.edx_final = ::std::option::Option::None;
+    }
+
+    pub fn has_edx_final(&self) -> bool {
+        self.edx_final.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_edx_final(&mut self, v: u32) {
+        self.edx_final = ::std::option::Option::Some(v);
+    }
+
     fn generated_message_descriptor_data() -> ::protobuf::reflect::GeneratedMessageDescriptorData {
-        let mut fields = ::std::vec::Vec::with_capacity(4);
+        let mut fields = ::std::vec::Vec::with_capacity(5);
         let mut oneofs = ::std::vec::Vec::with_capacity(0);
-        fields.push(::protobuf::reflect::rt::v2::make_vec_simpler_accessor::<_, _>(
-            "executed_apis",
-            |m: &EmulationTelemetry| { &m.executed_apis },
-            |m: &mut EmulationTelemetry| { &mut m.executed_apis },
-        ));
-        fields.push(::protobuf::reflect::rt::v2::make_vec_simpler_accessor::<_, _>(
-            "mapped_addresses",
-            |m: &EmulationTelemetry| { &m.mapped_addresses },
-            |m: &mut EmulationTelemetry| { &mut m.mapped_addresses },
-        ));
-        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
-            "self_modifying_code_detected",
-            |m: &EmulationTelemetry| { &m.self_modifying_code_detected },
-            |m: &mut EmulationTelemetry| { &mut m.self_modifying_code_detected },
-        ));
         fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
             "executed_instructions",
             |m: &EmulationTelemetry| { &m.executed_instructions },
             |m: &mut EmulationTelemetry| { &mut m.executed_instructions },
+        ));
+        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
+            "eax_final",
+            |m: &EmulationTelemetry| { &m.eax_final },
+            |m: &mut EmulationTelemetry| { &mut m.eax_final },
+        ));
+        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
+            "ebx_final",
+            |m: &EmulationTelemetry| { &m.ebx_final },
+            |m: &mut EmulationTelemetry| { &mut m.ebx_final },
+        ));
+        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
+            "ecx_final",
+            |m: &EmulationTelemetry| { &m.ecx_final },
+            |m: &mut EmulationTelemetry| { &mut m.ecx_final },
+        ));
+        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
+            "edx_final",
+            |m: &EmulationTelemetry| { &m.edx_final },
+            |m: &mut EmulationTelemetry| { &mut m.edx_final },
         ));
         ::protobuf::reflect::GeneratedMessageDescriptorData::new_2::<EmulationTelemetry>(
             "EmulationTelemetry",
@@ -2206,20 +2640,20 @@ impl ::protobuf::Message for EmulationTelemetry {
     fn merge_from(&mut self, is: &mut ::protobuf::CodedInputStream<'_>) -> ::protobuf::Result<()> {
         while let Some(tag) = is.read_raw_tag_or_eof()? {
             match tag {
-                10 => {
-                    self.executed_apis.push(is.read_string()?);
-                },
-                18 => {
-                    is.read_repeated_packed_uint64_into(&mut self.mapped_addresses)?;
+                8 => {
+                    self.executed_instructions = ::std::option::Option::Some(is.read_uint32()?);
                 },
                 16 => {
-                    self.mapped_addresses.push(is.read_uint64()?);
+                    self.eax_final = ::std::option::Option::Some(is.read_uint32()?);
                 },
                 24 => {
-                    self.self_modifying_code_detected = ::std::option::Option::Some(is.read_bool()?);
+                    self.ebx_final = ::std::option::Option::Some(is.read_uint32()?);
                 },
                 32 => {
-                    self.executed_instructions = ::std::option::Option::Some(is.read_uint32()?);
+                    self.ecx_final = ::std::option::Option::Some(is.read_uint32()?);
+                },
+                40 => {
+                    self.edx_final = ::std::option::Option::Some(is.read_uint32()?);
                 },
                 tag => {
                     ::protobuf::rt::read_unknown_or_skip_group(tag, is, self.special_fields.mut_unknown_fields())?;
@@ -2233,17 +2667,20 @@ impl ::protobuf::Message for EmulationTelemetry {
     #[allow(unused_variables)]
     fn compute_size(&self) -> u64 {
         let mut my_size = 0;
-        for value in &self.executed_apis {
-            my_size += ::protobuf::rt::string_size(1, &value);
-        };
-        for value in &self.mapped_addresses {
-            my_size += ::protobuf::rt::uint64_size(2, *value);
-        };
-        if let Some(v) = self.self_modifying_code_detected {
-            my_size += 1 + 1;
-        }
         if let Some(v) = self.executed_instructions {
+            my_size += ::protobuf::rt::uint32_size(1, v);
+        }
+        if let Some(v) = self.eax_final {
+            my_size += ::protobuf::rt::uint32_size(2, v);
+        }
+        if let Some(v) = self.ebx_final {
+            my_size += ::protobuf::rt::uint32_size(3, v);
+        }
+        if let Some(v) = self.ecx_final {
             my_size += ::protobuf::rt::uint32_size(4, v);
+        }
+        if let Some(v) = self.edx_final {
+            my_size += ::protobuf::rt::uint32_size(5, v);
         }
         my_size += ::protobuf::rt::unknown_fields_size(self.special_fields.unknown_fields());
         self.special_fields.cached_size().set(my_size as u32);
@@ -2251,17 +2688,20 @@ impl ::protobuf::Message for EmulationTelemetry {
     }
 
     fn write_to_with_cached_sizes(&self, os: &mut ::protobuf::CodedOutputStream<'_>) -> ::protobuf::Result<()> {
-        for v in &self.executed_apis {
-            os.write_string(1, &v)?;
-        };
-        for v in &self.mapped_addresses {
-            os.write_uint64(2, *v)?;
-        };
-        if let Some(v) = self.self_modifying_code_detected {
-            os.write_bool(3, v)?;
-        }
         if let Some(v) = self.executed_instructions {
+            os.write_uint32(1, v)?;
+        }
+        if let Some(v) = self.eax_final {
+            os.write_uint32(2, v)?;
+        }
+        if let Some(v) = self.ebx_final {
+            os.write_uint32(3, v)?;
+        }
+        if let Some(v) = self.ecx_final {
             os.write_uint32(4, v)?;
+        }
+        if let Some(v) = self.edx_final {
+            os.write_uint32(5, v)?;
         }
         os.write_unknown_fields(self.special_fields.unknown_fields())?;
         ::std::result::Result::Ok(())
@@ -2280,19 +2720,21 @@ impl ::protobuf::Message for EmulationTelemetry {
     }
 
     fn clear(&mut self) {
-        self.executed_apis.clear();
-        self.mapped_addresses.clear();
-        self.self_modifying_code_detected = ::std::option::Option::None;
         self.executed_instructions = ::std::option::Option::None;
+        self.eax_final = ::std::option::Option::None;
+        self.ebx_final = ::std::option::Option::None;
+        self.ecx_final = ::std::option::Option::None;
+        self.edx_final = ::std::option::Option::None;
         self.special_fields.clear();
     }
 
     fn default_instance() -> &'static EmulationTelemetry {
         static instance: EmulationTelemetry = EmulationTelemetry {
-            executed_apis: ::std::vec::Vec::new(),
-            mapped_addresses: ::std::vec::Vec::new(),
-            self_modifying_code_detected: ::std::option::Option::None,
             executed_instructions: ::std::option::Option::None,
+            eax_final: ::std::option::Option::None,
+            ebx_final: ::std::option::Option::None,
+            ecx_final: ::std::option::Option::None,
+            edx_final: ::std::option::Option::None,
             special_fields: ::protobuf::SpecialFields::new(),
         };
         &instance
@@ -2320,16 +2762,16 @@ impl ::protobuf::reflect::ProtobufValue for EmulationTelemetry {
 #[derive(PartialEq,Clone,Default,Debug)]
 pub struct Pe {
     // message fields
-    // @@protoc_insertion_point(field:yara.hydra.Pe.suspicious_score)
-    pub suspicious_score: ::std::option::Option<f64>,
     // @@protoc_insertion_point(field:yara.hydra.Pe.sections)
     pub sections: ::std::vec::Vec<Section>,
-    // @@protoc_insertion_point(field:yara.hydra.Pe.has_suspicious_imports)
-    pub has_suspicious_imports: ::std::option::Option<bool>,
     // @@protoc_insertion_point(field:yara.hydra.Pe.ml)
     pub ml: ::protobuf::MessageField<PeMl>,
     // @@protoc_insertion_point(field:yara.hydra.Pe.emulation)
     pub emulation: ::protobuf::MessageField<EmulationTelemetry>,
+    // @@protoc_insertion_point(field:yara.hydra.Pe.import_dlls)
+    pub import_dlls: ::std::vec::Vec<::std::string::String>,
+    // @@protoc_insertion_point(field:yara.hydra.Pe.import_functions)
+    pub import_functions: ::std::vec::Vec<::std::string::String>,
     // special fields
     // @@protoc_insertion_point(special_field:yara.hydra.Pe.special_fields)
     pub special_fields: ::protobuf::SpecialFields,
@@ -2346,61 +2788,13 @@ impl Pe {
         ::std::default::Default::default()
     }
 
-    // optional double suspicious_score = 1;
-
-    pub fn suspicious_score(&self) -> f64 {
-        self.suspicious_score.unwrap_or(0.)
-    }
-
-    pub fn clear_suspicious_score(&mut self) {
-        self.suspicious_score = ::std::option::Option::None;
-    }
-
-    pub fn has_suspicious_score(&self) -> bool {
-        self.suspicious_score.is_some()
-    }
-
-    // Param is passed by value, moved
-    pub fn set_suspicious_score(&mut self, v: f64) {
-        self.suspicious_score = ::std::option::Option::Some(v);
-    }
-
-    // optional bool has_suspicious_imports = 3;
-
-    pub fn has_suspicious_imports(&self) -> bool {
-        self.has_suspicious_imports.unwrap_or(false)
-    }
-
-    pub fn clear_has_suspicious_imports(&mut self) {
-        self.has_suspicious_imports = ::std::option::Option::None;
-    }
-
-    pub fn has_has_suspicious_imports(&self) -> bool {
-        self.has_suspicious_imports.is_some()
-    }
-
-    // Param is passed by value, moved
-    pub fn set_has_suspicious_imports(&mut self, v: bool) {
-        self.has_suspicious_imports = ::std::option::Option::Some(v);
-    }
-
     fn generated_message_descriptor_data() -> ::protobuf::reflect::GeneratedMessageDescriptorData {
         let mut fields = ::std::vec::Vec::with_capacity(5);
         let mut oneofs = ::std::vec::Vec::with_capacity(0);
-        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
-            "suspicious_score",
-            |m: &Pe| { &m.suspicious_score },
-            |m: &mut Pe| { &mut m.suspicious_score },
-        ));
         fields.push(::protobuf::reflect::rt::v2::make_vec_simpler_accessor::<_, _>(
             "sections",
             |m: &Pe| { &m.sections },
             |m: &mut Pe| { &mut m.sections },
-        ));
-        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
-            "has_suspicious_imports",
-            |m: &Pe| { &m.has_suspicious_imports },
-            |m: &mut Pe| { &mut m.has_suspicious_imports },
         ));
         fields.push(::protobuf::reflect::rt::v2::make_message_field_accessor::<_, PeMl>(
             "ml",
@@ -2411,6 +2805,16 @@ impl Pe {
             "emulation",
             |m: &Pe| { &m.emulation },
             |m: &mut Pe| { &mut m.emulation },
+        ));
+        fields.push(::protobuf::reflect::rt::v2::make_vec_simpler_accessor::<_, _>(
+            "import_dlls",
+            |m: &Pe| { &m.import_dlls },
+            |m: &mut Pe| { &mut m.import_dlls },
+        ));
+        fields.push(::protobuf::reflect::rt::v2::make_vec_simpler_accessor::<_, _>(
+            "import_functions",
+            |m: &Pe| { &m.import_functions },
+            |m: &mut Pe| { &mut m.import_functions },
         ));
         ::protobuf::reflect::GeneratedMessageDescriptorData::new_2::<Pe>(
             "Pe",
@@ -2430,20 +2834,20 @@ impl ::protobuf::Message for Pe {
     fn merge_from(&mut self, is: &mut ::protobuf::CodedInputStream<'_>) -> ::protobuf::Result<()> {
         while let Some(tag) = is.read_raw_tag_or_eof()? {
             match tag {
-                9 => {
-                    self.suspicious_score = ::std::option::Option::Some(is.read_double()?);
-                },
-                18 => {
+                10 => {
                     self.sections.push(is.read_message()?);
                 },
-                24 => {
-                    self.has_suspicious_imports = ::std::option::Option::Some(is.read_bool()?);
-                },
-                34 => {
+                18 => {
                     ::protobuf::rt::read_singular_message_into_field(is, &mut self.ml)?;
                 },
-                42 => {
+                26 => {
                     ::protobuf::rt::read_singular_message_into_field(is, &mut self.emulation)?;
+                },
+                34 => {
+                    self.import_dlls.push(is.read_string()?);
+                },
+                42 => {
+                    self.import_functions.push(is.read_string()?);
                 },
                 tag => {
                     ::protobuf::rt::read_unknown_or_skip_group(tag, is, self.special_fields.mut_unknown_fields())?;
@@ -2457,16 +2861,10 @@ impl ::protobuf::Message for Pe {
     #[allow(unused_variables)]
     fn compute_size(&self) -> u64 {
         let mut my_size = 0;
-        if let Some(v) = self.suspicious_score {
-            my_size += 1 + 8;
-        }
         for value in &self.sections {
             let len = value.compute_size();
             my_size += 1 + ::protobuf::rt::compute_raw_varint64_size(len) + len;
         };
-        if let Some(v) = self.has_suspicious_imports {
-            my_size += 1 + 1;
-        }
         if let Some(v) = self.ml.as_ref() {
             let len = v.compute_size();
             my_size += 1 + ::protobuf::rt::compute_raw_varint64_size(len) + len;
@@ -2475,27 +2873,33 @@ impl ::protobuf::Message for Pe {
             let len = v.compute_size();
             my_size += 1 + ::protobuf::rt::compute_raw_varint64_size(len) + len;
         }
+        for value in &self.import_dlls {
+            my_size += ::protobuf::rt::string_size(4, &value);
+        };
+        for value in &self.import_functions {
+            my_size += ::protobuf::rt::string_size(5, &value);
+        };
         my_size += ::protobuf::rt::unknown_fields_size(self.special_fields.unknown_fields());
         self.special_fields.cached_size().set(my_size as u32);
         my_size
     }
 
     fn write_to_with_cached_sizes(&self, os: &mut ::protobuf::CodedOutputStream<'_>) -> ::protobuf::Result<()> {
-        if let Some(v) = self.suspicious_score {
-            os.write_double(1, v)?;
-        }
         for v in &self.sections {
-            ::protobuf::rt::write_message_field_with_cached_size(2, v, os)?;
+            ::protobuf::rt::write_message_field_with_cached_size(1, v, os)?;
         };
-        if let Some(v) = self.has_suspicious_imports {
-            os.write_bool(3, v)?;
-        }
         if let Some(v) = self.ml.as_ref() {
-            ::protobuf::rt::write_message_field_with_cached_size(4, v, os)?;
+            ::protobuf::rt::write_message_field_with_cached_size(2, v, os)?;
         }
         if let Some(v) = self.emulation.as_ref() {
-            ::protobuf::rt::write_message_field_with_cached_size(5, v, os)?;
+            ::protobuf::rt::write_message_field_with_cached_size(3, v, os)?;
         }
+        for v in &self.import_dlls {
+            os.write_string(4, &v)?;
+        };
+        for v in &self.import_functions {
+            os.write_string(5, &v)?;
+        };
         os.write_unknown_fields(self.special_fields.unknown_fields())?;
         ::std::result::Result::Ok(())
     }
@@ -2513,21 +2917,21 @@ impl ::protobuf::Message for Pe {
     }
 
     fn clear(&mut self) {
-        self.suspicious_score = ::std::option::Option::None;
         self.sections.clear();
-        self.has_suspicious_imports = ::std::option::Option::None;
         self.ml.clear();
         self.emulation.clear();
+        self.import_dlls.clear();
+        self.import_functions.clear();
         self.special_fields.clear();
     }
 
     fn default_instance() -> &'static Pe {
         static instance: Pe = Pe {
-            suspicious_score: ::std::option::Option::None,
             sections: ::std::vec::Vec::new(),
-            has_suspicious_imports: ::std::option::Option::None,
             ml: ::protobuf::MessageField::none(),
             emulation: ::protobuf::MessageField::none(),
+            import_dlls: ::std::vec::Vec::new(),
+            import_functions: ::std::vec::Vec::new(),
             special_fields: ::protobuf::SpecialFields::new(),
         };
         &instance
@@ -2551,201 +2955,6 @@ impl ::protobuf::reflect::ProtobufValue for Pe {
     type RuntimeType = ::protobuf::reflect::rt::RuntimeTypeMessage<Self>;
 }
 
-// @@protoc_insertion_point(message:yara.hydra.R2)
-#[derive(PartialEq,Clone,Default,Debug)]
-pub struct R2 {
-    // message fields
-    // @@protoc_insertion_point(field:yara.hydra.R2.ep_opcodes)
-    pub ep_opcodes: ::std::option::Option<::std::string::String>,
-    // @@protoc_insertion_point(field:yara.hydra.R2.cfg_complexity)
-    pub cfg_complexity: ::std::option::Option<u32>,
-    // special fields
-    // @@protoc_insertion_point(special_field:yara.hydra.R2.special_fields)
-    pub special_fields: ::protobuf::SpecialFields,
-}
-
-impl<'a> ::std::default::Default for &'a R2 {
-    fn default() -> &'a R2 {
-        <R2 as ::protobuf::Message>::default_instance()
-    }
-}
-
-impl R2 {
-    pub fn new() -> R2 {
-        ::std::default::Default::default()
-    }
-
-    // optional string ep_opcodes = 1;
-
-    pub fn ep_opcodes(&self) -> &str {
-        match self.ep_opcodes.as_ref() {
-            Some(v) => v,
-            None => "",
-        }
-    }
-
-    pub fn clear_ep_opcodes(&mut self) {
-        self.ep_opcodes = ::std::option::Option::None;
-    }
-
-    pub fn has_ep_opcodes(&self) -> bool {
-        self.ep_opcodes.is_some()
-    }
-
-    // Param is passed by value, moved
-    pub fn set_ep_opcodes(&mut self, v: ::std::string::String) {
-        self.ep_opcodes = ::std::option::Option::Some(v);
-    }
-
-    // Mutable pointer to the field.
-    // If field is not initialized, it is initialized with default value first.
-    pub fn mut_ep_opcodes(&mut self) -> &mut ::std::string::String {
-        if self.ep_opcodes.is_none() {
-            self.ep_opcodes = ::std::option::Option::Some(::std::string::String::new());
-        }
-        self.ep_opcodes.as_mut().unwrap()
-    }
-
-    // Take field
-    pub fn take_ep_opcodes(&mut self) -> ::std::string::String {
-        self.ep_opcodes.take().unwrap_or_else(|| ::std::string::String::new())
-    }
-
-    // optional uint32 cfg_complexity = 2;
-
-    pub fn cfg_complexity(&self) -> u32 {
-        self.cfg_complexity.unwrap_or(0)
-    }
-
-    pub fn clear_cfg_complexity(&mut self) {
-        self.cfg_complexity = ::std::option::Option::None;
-    }
-
-    pub fn has_cfg_complexity(&self) -> bool {
-        self.cfg_complexity.is_some()
-    }
-
-    // Param is passed by value, moved
-    pub fn set_cfg_complexity(&mut self, v: u32) {
-        self.cfg_complexity = ::std::option::Option::Some(v);
-    }
-
-    fn generated_message_descriptor_data() -> ::protobuf::reflect::GeneratedMessageDescriptorData {
-        let mut fields = ::std::vec::Vec::with_capacity(2);
-        let mut oneofs = ::std::vec::Vec::with_capacity(0);
-        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
-            "ep_opcodes",
-            |m: &R2| { &m.ep_opcodes },
-            |m: &mut R2| { &mut m.ep_opcodes },
-        ));
-        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
-            "cfg_complexity",
-            |m: &R2| { &m.cfg_complexity },
-            |m: &mut R2| { &mut m.cfg_complexity },
-        ));
-        ::protobuf::reflect::GeneratedMessageDescriptorData::new_2::<R2>(
-            "R2",
-            fields,
-            oneofs,
-        )
-    }
-}
-
-impl ::protobuf::Message for R2 {
-    const NAME: &'static str = "R2";
-
-    fn is_initialized(&self) -> bool {
-        true
-    }
-
-    fn merge_from(&mut self, is: &mut ::protobuf::CodedInputStream<'_>) -> ::protobuf::Result<()> {
-        while let Some(tag) = is.read_raw_tag_or_eof()? {
-            match tag {
-                10 => {
-                    self.ep_opcodes = ::std::option::Option::Some(is.read_string()?);
-                },
-                16 => {
-                    self.cfg_complexity = ::std::option::Option::Some(is.read_uint32()?);
-                },
-                tag => {
-                    ::protobuf::rt::read_unknown_or_skip_group(tag, is, self.special_fields.mut_unknown_fields())?;
-                },
-            };
-        }
-        ::std::result::Result::Ok(())
-    }
-
-    // Compute sizes of nested messages
-    #[allow(unused_variables)]
-    fn compute_size(&self) -> u64 {
-        let mut my_size = 0;
-        if let Some(v) = self.ep_opcodes.as_ref() {
-            my_size += ::protobuf::rt::string_size(1, &v);
-        }
-        if let Some(v) = self.cfg_complexity {
-            my_size += ::protobuf::rt::uint32_size(2, v);
-        }
-        my_size += ::protobuf::rt::unknown_fields_size(self.special_fields.unknown_fields());
-        self.special_fields.cached_size().set(my_size as u32);
-        my_size
-    }
-
-    fn write_to_with_cached_sizes(&self, os: &mut ::protobuf::CodedOutputStream<'_>) -> ::protobuf::Result<()> {
-        if let Some(v) = self.ep_opcodes.as_ref() {
-            os.write_string(1, v)?;
-        }
-        if let Some(v) = self.cfg_complexity {
-            os.write_uint32(2, v)?;
-        }
-        os.write_unknown_fields(self.special_fields.unknown_fields())?;
-        ::std::result::Result::Ok(())
-    }
-
-    fn special_fields(&self) -> &::protobuf::SpecialFields {
-        &self.special_fields
-    }
-
-    fn mut_special_fields(&mut self) -> &mut ::protobuf::SpecialFields {
-        &mut self.special_fields
-    }
-
-    fn new() -> R2 {
-        R2::new()
-    }
-
-    fn clear(&mut self) {
-        self.ep_opcodes = ::std::option::Option::None;
-        self.cfg_complexity = ::std::option::Option::None;
-        self.special_fields.clear();
-    }
-
-    fn default_instance() -> &'static R2 {
-        static instance: R2 = R2 {
-            ep_opcodes: ::std::option::Option::None,
-            cfg_complexity: ::std::option::Option::None,
-            special_fields: ::protobuf::SpecialFields::new(),
-        };
-        &instance
-    }
-}
-
-impl ::protobuf::MessageFull for R2 {
-    fn descriptor() -> ::protobuf::reflect::MessageDescriptor {
-        static descriptor: ::protobuf::rt::Lazy<::protobuf::reflect::MessageDescriptor> = ::protobuf::rt::Lazy::new();
-        descriptor.get(|| file_descriptor().message_by_package_relative_name("R2").unwrap()).clone()
-    }
-}
-
-impl ::std::fmt::Display for R2 {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        ::protobuf::text_format::fmt(self, f)
-    }
-}
-
-impl ::protobuf::reflect::ProtobufValue for R2 {
-    type RuntimeType = ::protobuf::reflect::rt::RuntimeTypeMessage<Self>;
-}
-
 // @@protoc_insertion_point(message:yara.hydra.JsMl)
 #[derive(PartialEq,Clone,Default,Debug)]
 pub struct JsMl {
@@ -2758,38 +2967,40 @@ pub struct JsMl {
     pub function_count: ::std::option::Option<u32>,
     // @@protoc_insertion_point(field:yara.hydra.JsMl.variable_declarations)
     pub variable_declarations: ::std::option::Option<u32>,
-    // @@protoc_insertion_point(field:yara.hydra.JsMl.eval_usage)
-    pub eval_usage: ::std::option::Option<u32>,
-    // @@protoc_insertion_point(field:yara.hydra.JsMl.try_catch_blocks)
-    pub try_catch_blocks: ::std::option::Option<u32>,
-    // @@protoc_insertion_point(field:yara.hydra.JsMl.loop_statements)
-    pub loop_statements: ::std::option::Option<u32>,
-    // @@protoc_insertion_point(field:yara.hydra.JsMl.conditional_statements)
-    pub conditional_statements: ::std::option::Option<u32>,
-    // @@protoc_insertion_point(field:yara.hydra.JsMl.obfuscation_score)
-    pub obfuscation_score: ::std::option::Option<u32>,
-    // @@protoc_insertion_point(field:yara.hydra.JsMl.is_likely_obfuscated)
-    pub is_likely_obfuscated: ::std::option::Option<bool>,
-    // @@protoc_insertion_point(field:yara.hydra.JsMl.hex_encoded_strings)
-    pub hex_encoded_strings: ::std::option::Option<u32>,
-    // @@protoc_insertion_point(field:yara.hydra.JsMl.unicode_encoded_strings)
-    pub unicode_encoded_strings: ::std::option::Option<u32>,
-    // @@protoc_insertion_point(field:yara.hydra.JsMl.base64_strings)
-    pub base64_strings: ::std::option::Option<u32>,
-    // @@protoc_insertion_point(field:yara.hydra.JsMl.suspicious_apis_count)
-    pub suspicious_apis_count: ::std::option::Option<u32>,
-    // @@protoc_insertion_point(field:yara.hydra.JsMl.crypto_references)
-    pub crypto_references: ::std::option::Option<u32>,
-    // @@protoc_insertion_point(field:yara.hydra.JsMl.network_operations)
-    pub network_operations: ::std::option::Option<u32>,
-    // @@protoc_insertion_point(field:yara.hydra.JsMl.file_system_operations)
-    pub file_system_operations: ::std::option::Option<u32>,
-    // @@protoc_insertion_point(field:yara.hydra.JsMl.registry_operations)
-    pub registry_operations: ::std::option::Option<u32>,
-    // @@protoc_insertion_point(field:yara.hydra.JsMl.process_operations)
-    pub process_operations: ::std::option::Option<u32>,
-    // @@protoc_insertion_point(field:yara.hydra.JsMl.total_strings)
-    pub total_strings: ::std::option::Option<u32>,
+    // @@protoc_insertion_point(field:yara.hydra.JsMl.eval_count)
+    pub eval_count: ::std::option::Option<u32>,
+    // @@protoc_insertion_point(field:yara.hydra.JsMl.try_catch_count)
+    pub try_catch_count: ::std::option::Option<u32>,
+    // @@protoc_insertion_point(field:yara.hydra.JsMl.loop_count)
+    pub loop_count: ::std::option::Option<u32>,
+    // @@protoc_insertion_point(field:yara.hydra.JsMl.conditional_count)
+    pub conditional_count: ::std::option::Option<u32>,
+    // @@protoc_insertion_point(field:yara.hydra.JsMl.hex_escape_count)
+    pub hex_escape_count: ::std::option::Option<u32>,
+    // @@protoc_insertion_point(field:yara.hydra.JsMl.unicode_escape_count)
+    pub unicode_escape_count: ::std::option::Option<u32>,
+    // @@protoc_insertion_point(field:yara.hydra.JsMl.base64_candidate_count)
+    pub base64_candidate_count: ::std::option::Option<u32>,
+    // @@protoc_insertion_point(field:yara.hydra.JsMl.fromcharcode_count)
+    pub fromcharcode_count: ::std::option::Option<u32>,
+    // @@protoc_insertion_point(field:yara.hydra.JsMl.eval_call_count)
+    pub eval_call_count: ::std::option::Option<u32>,
+    // @@protoc_insertion_point(field:yara.hydra.JsMl.wscript_shell_count)
+    pub wscript_shell_count: ::std::option::Option<u32>,
+    // @@protoc_insertion_point(field:yara.hydra.JsMl.activex_count)
+    pub activex_count: ::std::option::Option<u32>,
+    // @@protoc_insertion_point(field:yara.hydra.JsMl.adodb_stream_count)
+    pub adodb_stream_count: ::std::option::Option<u32>,
+    // @@protoc_insertion_point(field:yara.hydra.JsMl.http_reference_count)
+    pub http_reference_count: ::std::option::Option<u32>,
+    // @@protoc_insertion_point(field:yara.hydra.JsMl.xmlhttprequest_count)
+    pub xmlhttprequest_count: ::std::option::Option<u32>,
+    // @@protoc_insertion_point(field:yara.hydra.JsMl.fetch_count)
+    pub fetch_count: ::std::option::Option<u32>,
+    // @@protoc_insertion_point(field:yara.hydra.JsMl.high_entropy_identifiers_count)
+    pub high_entropy_identifiers_count: ::std::option::Option<u32>,
+    // @@protoc_insertion_point(field:yara.hydra.JsMl.avg_identifier_entropy)
+    pub avg_identifier_entropy: ::std::option::Option<f64>,
     // @@protoc_insertion_point(field:yara.hydra.JsMl.total_lines)
     pub total_lines: ::std::option::Option<u32>,
     // special fields
@@ -2884,311 +3095,330 @@ impl JsMl {
         self.variable_declarations = ::std::option::Option::Some(v);
     }
 
-    // optional uint32 eval_usage = 5;
+    // optional uint32 eval_count = 5;
 
-    pub fn eval_usage(&self) -> u32 {
-        self.eval_usage.unwrap_or(0)
+    pub fn eval_count(&self) -> u32 {
+        self.eval_count.unwrap_or(0)
     }
 
-    pub fn clear_eval_usage(&mut self) {
-        self.eval_usage = ::std::option::Option::None;
+    pub fn clear_eval_count(&mut self) {
+        self.eval_count = ::std::option::Option::None;
     }
 
-    pub fn has_eval_usage(&self) -> bool {
-        self.eval_usage.is_some()
-    }
-
-    // Param is passed by value, moved
-    pub fn set_eval_usage(&mut self, v: u32) {
-        self.eval_usage = ::std::option::Option::Some(v);
-    }
-
-    // optional uint32 try_catch_blocks = 6;
-
-    pub fn try_catch_blocks(&self) -> u32 {
-        self.try_catch_blocks.unwrap_or(0)
-    }
-
-    pub fn clear_try_catch_blocks(&mut self) {
-        self.try_catch_blocks = ::std::option::Option::None;
-    }
-
-    pub fn has_try_catch_blocks(&self) -> bool {
-        self.try_catch_blocks.is_some()
+    pub fn has_eval_count(&self) -> bool {
+        self.eval_count.is_some()
     }
 
     // Param is passed by value, moved
-    pub fn set_try_catch_blocks(&mut self, v: u32) {
-        self.try_catch_blocks = ::std::option::Option::Some(v);
+    pub fn set_eval_count(&mut self, v: u32) {
+        self.eval_count = ::std::option::Option::Some(v);
     }
 
-    // optional uint32 loop_statements = 7;
+    // optional uint32 try_catch_count = 6;
 
-    pub fn loop_statements(&self) -> u32 {
-        self.loop_statements.unwrap_or(0)
+    pub fn try_catch_count(&self) -> u32 {
+        self.try_catch_count.unwrap_or(0)
     }
 
-    pub fn clear_loop_statements(&mut self) {
-        self.loop_statements = ::std::option::Option::None;
+    pub fn clear_try_catch_count(&mut self) {
+        self.try_catch_count = ::std::option::Option::None;
     }
 
-    pub fn has_loop_statements(&self) -> bool {
-        self.loop_statements.is_some()
-    }
-
-    // Param is passed by value, moved
-    pub fn set_loop_statements(&mut self, v: u32) {
-        self.loop_statements = ::std::option::Option::Some(v);
-    }
-
-    // optional uint32 conditional_statements = 8;
-
-    pub fn conditional_statements(&self) -> u32 {
-        self.conditional_statements.unwrap_or(0)
-    }
-
-    pub fn clear_conditional_statements(&mut self) {
-        self.conditional_statements = ::std::option::Option::None;
-    }
-
-    pub fn has_conditional_statements(&self) -> bool {
-        self.conditional_statements.is_some()
+    pub fn has_try_catch_count(&self) -> bool {
+        self.try_catch_count.is_some()
     }
 
     // Param is passed by value, moved
-    pub fn set_conditional_statements(&mut self, v: u32) {
-        self.conditional_statements = ::std::option::Option::Some(v);
+    pub fn set_try_catch_count(&mut self, v: u32) {
+        self.try_catch_count = ::std::option::Option::Some(v);
     }
 
-    // optional uint32 obfuscation_score = 9;
+    // optional uint32 loop_count = 7;
 
-    pub fn obfuscation_score(&self) -> u32 {
-        self.obfuscation_score.unwrap_or(0)
+    pub fn loop_count(&self) -> u32 {
+        self.loop_count.unwrap_or(0)
     }
 
-    pub fn clear_obfuscation_score(&mut self) {
-        self.obfuscation_score = ::std::option::Option::None;
+    pub fn clear_loop_count(&mut self) {
+        self.loop_count = ::std::option::Option::None;
     }
 
-    pub fn has_obfuscation_score(&self) -> bool {
-        self.obfuscation_score.is_some()
-    }
-
-    // Param is passed by value, moved
-    pub fn set_obfuscation_score(&mut self, v: u32) {
-        self.obfuscation_score = ::std::option::Option::Some(v);
-    }
-
-    // optional bool is_likely_obfuscated = 10;
-
-    pub fn is_likely_obfuscated(&self) -> bool {
-        self.is_likely_obfuscated.unwrap_or(false)
-    }
-
-    pub fn clear_is_likely_obfuscated(&mut self) {
-        self.is_likely_obfuscated = ::std::option::Option::None;
-    }
-
-    pub fn has_is_likely_obfuscated(&self) -> bool {
-        self.is_likely_obfuscated.is_some()
+    pub fn has_loop_count(&self) -> bool {
+        self.loop_count.is_some()
     }
 
     // Param is passed by value, moved
-    pub fn set_is_likely_obfuscated(&mut self, v: bool) {
-        self.is_likely_obfuscated = ::std::option::Option::Some(v);
+    pub fn set_loop_count(&mut self, v: u32) {
+        self.loop_count = ::std::option::Option::Some(v);
     }
 
-    // optional uint32 hex_encoded_strings = 11;
+    // optional uint32 conditional_count = 8;
 
-    pub fn hex_encoded_strings(&self) -> u32 {
-        self.hex_encoded_strings.unwrap_or(0)
+    pub fn conditional_count(&self) -> u32 {
+        self.conditional_count.unwrap_or(0)
     }
 
-    pub fn clear_hex_encoded_strings(&mut self) {
-        self.hex_encoded_strings = ::std::option::Option::None;
+    pub fn clear_conditional_count(&mut self) {
+        self.conditional_count = ::std::option::Option::None;
     }
 
-    pub fn has_hex_encoded_strings(&self) -> bool {
-        self.hex_encoded_strings.is_some()
-    }
-
-    // Param is passed by value, moved
-    pub fn set_hex_encoded_strings(&mut self, v: u32) {
-        self.hex_encoded_strings = ::std::option::Option::Some(v);
-    }
-
-    // optional uint32 unicode_encoded_strings = 12;
-
-    pub fn unicode_encoded_strings(&self) -> u32 {
-        self.unicode_encoded_strings.unwrap_or(0)
-    }
-
-    pub fn clear_unicode_encoded_strings(&mut self) {
-        self.unicode_encoded_strings = ::std::option::Option::None;
-    }
-
-    pub fn has_unicode_encoded_strings(&self) -> bool {
-        self.unicode_encoded_strings.is_some()
+    pub fn has_conditional_count(&self) -> bool {
+        self.conditional_count.is_some()
     }
 
     // Param is passed by value, moved
-    pub fn set_unicode_encoded_strings(&mut self, v: u32) {
-        self.unicode_encoded_strings = ::std::option::Option::Some(v);
+    pub fn set_conditional_count(&mut self, v: u32) {
+        self.conditional_count = ::std::option::Option::Some(v);
     }
 
-    // optional uint32 base64_strings = 13;
+    // optional uint32 hex_escape_count = 9;
 
-    pub fn base64_strings(&self) -> u32 {
-        self.base64_strings.unwrap_or(0)
+    pub fn hex_escape_count(&self) -> u32 {
+        self.hex_escape_count.unwrap_or(0)
     }
 
-    pub fn clear_base64_strings(&mut self) {
-        self.base64_strings = ::std::option::Option::None;
+    pub fn clear_hex_escape_count(&mut self) {
+        self.hex_escape_count = ::std::option::Option::None;
     }
 
-    pub fn has_base64_strings(&self) -> bool {
-        self.base64_strings.is_some()
-    }
-
-    // Param is passed by value, moved
-    pub fn set_base64_strings(&mut self, v: u32) {
-        self.base64_strings = ::std::option::Option::Some(v);
-    }
-
-    // optional uint32 suspicious_apis_count = 14;
-
-    pub fn suspicious_apis_count(&self) -> u32 {
-        self.suspicious_apis_count.unwrap_or(0)
-    }
-
-    pub fn clear_suspicious_apis_count(&mut self) {
-        self.suspicious_apis_count = ::std::option::Option::None;
-    }
-
-    pub fn has_suspicious_apis_count(&self) -> bool {
-        self.suspicious_apis_count.is_some()
+    pub fn has_hex_escape_count(&self) -> bool {
+        self.hex_escape_count.is_some()
     }
 
     // Param is passed by value, moved
-    pub fn set_suspicious_apis_count(&mut self, v: u32) {
-        self.suspicious_apis_count = ::std::option::Option::Some(v);
+    pub fn set_hex_escape_count(&mut self, v: u32) {
+        self.hex_escape_count = ::std::option::Option::Some(v);
     }
 
-    // optional uint32 crypto_references = 15;
+    // optional uint32 unicode_escape_count = 10;
 
-    pub fn crypto_references(&self) -> u32 {
-        self.crypto_references.unwrap_or(0)
+    pub fn unicode_escape_count(&self) -> u32 {
+        self.unicode_escape_count.unwrap_or(0)
     }
 
-    pub fn clear_crypto_references(&mut self) {
-        self.crypto_references = ::std::option::Option::None;
+    pub fn clear_unicode_escape_count(&mut self) {
+        self.unicode_escape_count = ::std::option::Option::None;
     }
 
-    pub fn has_crypto_references(&self) -> bool {
-        self.crypto_references.is_some()
-    }
-
-    // Param is passed by value, moved
-    pub fn set_crypto_references(&mut self, v: u32) {
-        self.crypto_references = ::std::option::Option::Some(v);
-    }
-
-    // optional uint32 network_operations = 16;
-
-    pub fn network_operations(&self) -> u32 {
-        self.network_operations.unwrap_or(0)
-    }
-
-    pub fn clear_network_operations(&mut self) {
-        self.network_operations = ::std::option::Option::None;
-    }
-
-    pub fn has_network_operations(&self) -> bool {
-        self.network_operations.is_some()
+    pub fn has_unicode_escape_count(&self) -> bool {
+        self.unicode_escape_count.is_some()
     }
 
     // Param is passed by value, moved
-    pub fn set_network_operations(&mut self, v: u32) {
-        self.network_operations = ::std::option::Option::Some(v);
+    pub fn set_unicode_escape_count(&mut self, v: u32) {
+        self.unicode_escape_count = ::std::option::Option::Some(v);
     }
 
-    // optional uint32 file_system_operations = 17;
+    // optional uint32 base64_candidate_count = 11;
 
-    pub fn file_system_operations(&self) -> u32 {
-        self.file_system_operations.unwrap_or(0)
+    pub fn base64_candidate_count(&self) -> u32 {
+        self.base64_candidate_count.unwrap_or(0)
     }
 
-    pub fn clear_file_system_operations(&mut self) {
-        self.file_system_operations = ::std::option::Option::None;
+    pub fn clear_base64_candidate_count(&mut self) {
+        self.base64_candidate_count = ::std::option::Option::None;
     }
 
-    pub fn has_file_system_operations(&self) -> bool {
-        self.file_system_operations.is_some()
-    }
-
-    // Param is passed by value, moved
-    pub fn set_file_system_operations(&mut self, v: u32) {
-        self.file_system_operations = ::std::option::Option::Some(v);
-    }
-
-    // optional uint32 registry_operations = 18;
-
-    pub fn registry_operations(&self) -> u32 {
-        self.registry_operations.unwrap_or(0)
-    }
-
-    pub fn clear_registry_operations(&mut self) {
-        self.registry_operations = ::std::option::Option::None;
-    }
-
-    pub fn has_registry_operations(&self) -> bool {
-        self.registry_operations.is_some()
+    pub fn has_base64_candidate_count(&self) -> bool {
+        self.base64_candidate_count.is_some()
     }
 
     // Param is passed by value, moved
-    pub fn set_registry_operations(&mut self, v: u32) {
-        self.registry_operations = ::std::option::Option::Some(v);
+    pub fn set_base64_candidate_count(&mut self, v: u32) {
+        self.base64_candidate_count = ::std::option::Option::Some(v);
     }
 
-    // optional uint32 process_operations = 19;
+    // optional uint32 fromcharcode_count = 12;
 
-    pub fn process_operations(&self) -> u32 {
-        self.process_operations.unwrap_or(0)
+    pub fn fromcharcode_count(&self) -> u32 {
+        self.fromcharcode_count.unwrap_or(0)
     }
 
-    pub fn clear_process_operations(&mut self) {
-        self.process_operations = ::std::option::Option::None;
+    pub fn clear_fromcharcode_count(&mut self) {
+        self.fromcharcode_count = ::std::option::Option::None;
     }
 
-    pub fn has_process_operations(&self) -> bool {
-        self.process_operations.is_some()
-    }
-
-    // Param is passed by value, moved
-    pub fn set_process_operations(&mut self, v: u32) {
-        self.process_operations = ::std::option::Option::Some(v);
-    }
-
-    // optional uint32 total_strings = 20;
-
-    pub fn total_strings(&self) -> u32 {
-        self.total_strings.unwrap_or(0)
-    }
-
-    pub fn clear_total_strings(&mut self) {
-        self.total_strings = ::std::option::Option::None;
-    }
-
-    pub fn has_total_strings(&self) -> bool {
-        self.total_strings.is_some()
+    pub fn has_fromcharcode_count(&self) -> bool {
+        self.fromcharcode_count.is_some()
     }
 
     // Param is passed by value, moved
-    pub fn set_total_strings(&mut self, v: u32) {
-        self.total_strings = ::std::option::Option::Some(v);
+    pub fn set_fromcharcode_count(&mut self, v: u32) {
+        self.fromcharcode_count = ::std::option::Option::Some(v);
     }
 
-    // optional uint32 total_lines = 21;
+    // optional uint32 eval_call_count = 13;
+
+    pub fn eval_call_count(&self) -> u32 {
+        self.eval_call_count.unwrap_or(0)
+    }
+
+    pub fn clear_eval_call_count(&mut self) {
+        self.eval_call_count = ::std::option::Option::None;
+    }
+
+    pub fn has_eval_call_count(&self) -> bool {
+        self.eval_call_count.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_eval_call_count(&mut self, v: u32) {
+        self.eval_call_count = ::std::option::Option::Some(v);
+    }
+
+    // optional uint32 wscript_shell_count = 14;
+
+    pub fn wscript_shell_count(&self) -> u32 {
+        self.wscript_shell_count.unwrap_or(0)
+    }
+
+    pub fn clear_wscript_shell_count(&mut self) {
+        self.wscript_shell_count = ::std::option::Option::None;
+    }
+
+    pub fn has_wscript_shell_count(&self) -> bool {
+        self.wscript_shell_count.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_wscript_shell_count(&mut self, v: u32) {
+        self.wscript_shell_count = ::std::option::Option::Some(v);
+    }
+
+    // optional uint32 activex_count = 15;
+
+    pub fn activex_count(&self) -> u32 {
+        self.activex_count.unwrap_or(0)
+    }
+
+    pub fn clear_activex_count(&mut self) {
+        self.activex_count = ::std::option::Option::None;
+    }
+
+    pub fn has_activex_count(&self) -> bool {
+        self.activex_count.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_activex_count(&mut self, v: u32) {
+        self.activex_count = ::std::option::Option::Some(v);
+    }
+
+    // optional uint32 adodb_stream_count = 16;
+
+    pub fn adodb_stream_count(&self) -> u32 {
+        self.adodb_stream_count.unwrap_or(0)
+    }
+
+    pub fn clear_adodb_stream_count(&mut self) {
+        self.adodb_stream_count = ::std::option::Option::None;
+    }
+
+    pub fn has_adodb_stream_count(&self) -> bool {
+        self.adodb_stream_count.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_adodb_stream_count(&mut self, v: u32) {
+        self.adodb_stream_count = ::std::option::Option::Some(v);
+    }
+
+    // optional uint32 http_reference_count = 17;
+
+    pub fn http_reference_count(&self) -> u32 {
+        self.http_reference_count.unwrap_or(0)
+    }
+
+    pub fn clear_http_reference_count(&mut self) {
+        self.http_reference_count = ::std::option::Option::None;
+    }
+
+    pub fn has_http_reference_count(&self) -> bool {
+        self.http_reference_count.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_http_reference_count(&mut self, v: u32) {
+        self.http_reference_count = ::std::option::Option::Some(v);
+    }
+
+    // optional uint32 xmlhttprequest_count = 18;
+
+    pub fn xmlhttprequest_count(&self) -> u32 {
+        self.xmlhttprequest_count.unwrap_or(0)
+    }
+
+    pub fn clear_xmlhttprequest_count(&mut self) {
+        self.xmlhttprequest_count = ::std::option::Option::None;
+    }
+
+    pub fn has_xmlhttprequest_count(&self) -> bool {
+        self.xmlhttprequest_count.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_xmlhttprequest_count(&mut self, v: u32) {
+        self.xmlhttprequest_count = ::std::option::Option::Some(v);
+    }
+
+    // optional uint32 fetch_count = 19;
+
+    pub fn fetch_count(&self) -> u32 {
+        self.fetch_count.unwrap_or(0)
+    }
+
+    pub fn clear_fetch_count(&mut self) {
+        self.fetch_count = ::std::option::Option::None;
+    }
+
+    pub fn has_fetch_count(&self) -> bool {
+        self.fetch_count.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_fetch_count(&mut self, v: u32) {
+        self.fetch_count = ::std::option::Option::Some(v);
+    }
+
+    // optional uint32 high_entropy_identifiers_count = 20;
+
+    pub fn high_entropy_identifiers_count(&self) -> u32 {
+        self.high_entropy_identifiers_count.unwrap_or(0)
+    }
+
+    pub fn clear_high_entropy_identifiers_count(&mut self) {
+        self.high_entropy_identifiers_count = ::std::option::Option::None;
+    }
+
+    pub fn has_high_entropy_identifiers_count(&self) -> bool {
+        self.high_entropy_identifiers_count.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_high_entropy_identifiers_count(&mut self, v: u32) {
+        self.high_entropy_identifiers_count = ::std::option::Option::Some(v);
+    }
+
+    // optional double avg_identifier_entropy = 21;
+
+    pub fn avg_identifier_entropy(&self) -> f64 {
+        self.avg_identifier_entropy.unwrap_or(0.)
+    }
+
+    pub fn clear_avg_identifier_entropy(&mut self) {
+        self.avg_identifier_entropy = ::std::option::Option::None;
+    }
+
+    pub fn has_avg_identifier_entropy(&self) -> bool {
+        self.avg_identifier_entropy.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_avg_identifier_entropy(&mut self, v: f64) {
+        self.avg_identifier_entropy = ::std::option::Option::Some(v);
+    }
+
+    // optional uint32 total_lines = 22;
 
     pub fn total_lines(&self) -> u32 {
         self.total_lines.unwrap_or(0)
@@ -3208,7 +3438,7 @@ impl JsMl {
     }
 
     fn generated_message_descriptor_data() -> ::protobuf::reflect::GeneratedMessageDescriptorData {
-        let mut fields = ::std::vec::Vec::with_capacity(21);
+        let mut fields = ::std::vec::Vec::with_capacity(22);
         let mut oneofs = ::std::vec::Vec::with_capacity(0);
         fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
             "file_size",
@@ -3231,84 +3461,89 @@ impl JsMl {
             |m: &mut JsMl| { &mut m.variable_declarations },
         ));
         fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
-            "eval_usage",
-            |m: &JsMl| { &m.eval_usage },
-            |m: &mut JsMl| { &mut m.eval_usage },
+            "eval_count",
+            |m: &JsMl| { &m.eval_count },
+            |m: &mut JsMl| { &mut m.eval_count },
         ));
         fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
-            "try_catch_blocks",
-            |m: &JsMl| { &m.try_catch_blocks },
-            |m: &mut JsMl| { &mut m.try_catch_blocks },
+            "try_catch_count",
+            |m: &JsMl| { &m.try_catch_count },
+            |m: &mut JsMl| { &mut m.try_catch_count },
         ));
         fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
-            "loop_statements",
-            |m: &JsMl| { &m.loop_statements },
-            |m: &mut JsMl| { &mut m.loop_statements },
+            "loop_count",
+            |m: &JsMl| { &m.loop_count },
+            |m: &mut JsMl| { &mut m.loop_count },
         ));
         fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
-            "conditional_statements",
-            |m: &JsMl| { &m.conditional_statements },
-            |m: &mut JsMl| { &mut m.conditional_statements },
+            "conditional_count",
+            |m: &JsMl| { &m.conditional_count },
+            |m: &mut JsMl| { &mut m.conditional_count },
         ));
         fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
-            "obfuscation_score",
-            |m: &JsMl| { &m.obfuscation_score },
-            |m: &mut JsMl| { &mut m.obfuscation_score },
+            "hex_escape_count",
+            |m: &JsMl| { &m.hex_escape_count },
+            |m: &mut JsMl| { &mut m.hex_escape_count },
         ));
         fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
-            "is_likely_obfuscated",
-            |m: &JsMl| { &m.is_likely_obfuscated },
-            |m: &mut JsMl| { &mut m.is_likely_obfuscated },
+            "unicode_escape_count",
+            |m: &JsMl| { &m.unicode_escape_count },
+            |m: &mut JsMl| { &mut m.unicode_escape_count },
         ));
         fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
-            "hex_encoded_strings",
-            |m: &JsMl| { &m.hex_encoded_strings },
-            |m: &mut JsMl| { &mut m.hex_encoded_strings },
+            "base64_candidate_count",
+            |m: &JsMl| { &m.base64_candidate_count },
+            |m: &mut JsMl| { &mut m.base64_candidate_count },
         ));
         fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
-            "unicode_encoded_strings",
-            |m: &JsMl| { &m.unicode_encoded_strings },
-            |m: &mut JsMl| { &mut m.unicode_encoded_strings },
+            "fromcharcode_count",
+            |m: &JsMl| { &m.fromcharcode_count },
+            |m: &mut JsMl| { &mut m.fromcharcode_count },
         ));
         fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
-            "base64_strings",
-            |m: &JsMl| { &m.base64_strings },
-            |m: &mut JsMl| { &mut m.base64_strings },
+            "eval_call_count",
+            |m: &JsMl| { &m.eval_call_count },
+            |m: &mut JsMl| { &mut m.eval_call_count },
         ));
         fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
-            "suspicious_apis_count",
-            |m: &JsMl| { &m.suspicious_apis_count },
-            |m: &mut JsMl| { &mut m.suspicious_apis_count },
+            "wscript_shell_count",
+            |m: &JsMl| { &m.wscript_shell_count },
+            |m: &mut JsMl| { &mut m.wscript_shell_count },
         ));
         fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
-            "crypto_references",
-            |m: &JsMl| { &m.crypto_references },
-            |m: &mut JsMl| { &mut m.crypto_references },
+            "activex_count",
+            |m: &JsMl| { &m.activex_count },
+            |m: &mut JsMl| { &mut m.activex_count },
         ));
         fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
-            "network_operations",
-            |m: &JsMl| { &m.network_operations },
-            |m: &mut JsMl| { &mut m.network_operations },
+            "adodb_stream_count",
+            |m: &JsMl| { &m.adodb_stream_count },
+            |m: &mut JsMl| { &mut m.adodb_stream_count },
         ));
         fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
-            "file_system_operations",
-            |m: &JsMl| { &m.file_system_operations },
-            |m: &mut JsMl| { &mut m.file_system_operations },
+            "http_reference_count",
+            |m: &JsMl| { &m.http_reference_count },
+            |m: &mut JsMl| { &mut m.http_reference_count },
         ));
         fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
-            "registry_operations",
-            |m: &JsMl| { &m.registry_operations },
-            |m: &mut JsMl| { &mut m.registry_operations },
+            "xmlhttprequest_count",
+            |m: &JsMl| { &m.xmlhttprequest_count },
+            |m: &mut JsMl| { &mut m.xmlhttprequest_count },
         ));
         fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
-            "process_operations",
-            |m: &JsMl| { &m.process_operations },
-            |m: &mut JsMl| { &mut m.process_operations },
+            "fetch_count",
+            |m: &JsMl| { &m.fetch_count },
+            |m: &mut JsMl| { &mut m.fetch_count },
         ));
         fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
-            "total_strings",
-            |m: &JsMl| { &m.total_strings },
-            |m: &mut JsMl| { &mut m.total_strings },
+            "high_entropy_identifiers_count",
+            |m: &JsMl| { &m.high_entropy_identifiers_count },
+            |m: &mut JsMl| { &mut m.high_entropy_identifiers_count },
+        ));
+        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
+            "avg_identifier_entropy",
+            |m: &JsMl| { &m.avg_identifier_entropy },
+            |m: &mut JsMl| { &mut m.avg_identifier_entropy },
         ));
         fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
             "total_lines",
@@ -3346,54 +3581,57 @@ impl ::protobuf::Message for JsMl {
                     self.variable_declarations = ::std::option::Option::Some(is.read_uint32()?);
                 },
                 40 => {
-                    self.eval_usage = ::std::option::Option::Some(is.read_uint32()?);
+                    self.eval_count = ::std::option::Option::Some(is.read_uint32()?);
                 },
                 48 => {
-                    self.try_catch_blocks = ::std::option::Option::Some(is.read_uint32()?);
+                    self.try_catch_count = ::std::option::Option::Some(is.read_uint32()?);
                 },
                 56 => {
-                    self.loop_statements = ::std::option::Option::Some(is.read_uint32()?);
+                    self.loop_count = ::std::option::Option::Some(is.read_uint32()?);
                 },
                 64 => {
-                    self.conditional_statements = ::std::option::Option::Some(is.read_uint32()?);
+                    self.conditional_count = ::std::option::Option::Some(is.read_uint32()?);
                 },
                 72 => {
-                    self.obfuscation_score = ::std::option::Option::Some(is.read_uint32()?);
+                    self.hex_escape_count = ::std::option::Option::Some(is.read_uint32()?);
                 },
                 80 => {
-                    self.is_likely_obfuscated = ::std::option::Option::Some(is.read_bool()?);
+                    self.unicode_escape_count = ::std::option::Option::Some(is.read_uint32()?);
                 },
                 88 => {
-                    self.hex_encoded_strings = ::std::option::Option::Some(is.read_uint32()?);
+                    self.base64_candidate_count = ::std::option::Option::Some(is.read_uint32()?);
                 },
                 96 => {
-                    self.unicode_encoded_strings = ::std::option::Option::Some(is.read_uint32()?);
+                    self.fromcharcode_count = ::std::option::Option::Some(is.read_uint32()?);
                 },
                 104 => {
-                    self.base64_strings = ::std::option::Option::Some(is.read_uint32()?);
+                    self.eval_call_count = ::std::option::Option::Some(is.read_uint32()?);
                 },
                 112 => {
-                    self.suspicious_apis_count = ::std::option::Option::Some(is.read_uint32()?);
+                    self.wscript_shell_count = ::std::option::Option::Some(is.read_uint32()?);
                 },
                 120 => {
-                    self.crypto_references = ::std::option::Option::Some(is.read_uint32()?);
+                    self.activex_count = ::std::option::Option::Some(is.read_uint32()?);
                 },
                 128 => {
-                    self.network_operations = ::std::option::Option::Some(is.read_uint32()?);
+                    self.adodb_stream_count = ::std::option::Option::Some(is.read_uint32()?);
                 },
                 136 => {
-                    self.file_system_operations = ::std::option::Option::Some(is.read_uint32()?);
+                    self.http_reference_count = ::std::option::Option::Some(is.read_uint32()?);
                 },
                 144 => {
-                    self.registry_operations = ::std::option::Option::Some(is.read_uint32()?);
+                    self.xmlhttprequest_count = ::std::option::Option::Some(is.read_uint32()?);
                 },
                 152 => {
-                    self.process_operations = ::std::option::Option::Some(is.read_uint32()?);
+                    self.fetch_count = ::std::option::Option::Some(is.read_uint32()?);
                 },
                 160 => {
-                    self.total_strings = ::std::option::Option::Some(is.read_uint32()?);
+                    self.high_entropy_identifiers_count = ::std::option::Option::Some(is.read_uint32()?);
                 },
-                168 => {
+                169 => {
+                    self.avg_identifier_entropy = ::std::option::Option::Some(is.read_double()?);
+                },
+                176 => {
                     self.total_lines = ::std::option::Option::Some(is.read_uint32()?);
                 },
                 tag => {
@@ -3420,56 +3658,59 @@ impl ::protobuf::Message for JsMl {
         if let Some(v) = self.variable_declarations {
             my_size += ::protobuf::rt::uint32_size(4, v);
         }
-        if let Some(v) = self.eval_usage {
+        if let Some(v) = self.eval_count {
             my_size += ::protobuf::rt::uint32_size(5, v);
         }
-        if let Some(v) = self.try_catch_blocks {
+        if let Some(v) = self.try_catch_count {
             my_size += ::protobuf::rt::uint32_size(6, v);
         }
-        if let Some(v) = self.loop_statements {
+        if let Some(v) = self.loop_count {
             my_size += ::protobuf::rt::uint32_size(7, v);
         }
-        if let Some(v) = self.conditional_statements {
+        if let Some(v) = self.conditional_count {
             my_size += ::protobuf::rt::uint32_size(8, v);
         }
-        if let Some(v) = self.obfuscation_score {
+        if let Some(v) = self.hex_escape_count {
             my_size += ::protobuf::rt::uint32_size(9, v);
         }
-        if let Some(v) = self.is_likely_obfuscated {
-            my_size += 1 + 1;
+        if let Some(v) = self.unicode_escape_count {
+            my_size += ::protobuf::rt::uint32_size(10, v);
         }
-        if let Some(v) = self.hex_encoded_strings {
+        if let Some(v) = self.base64_candidate_count {
             my_size += ::protobuf::rt::uint32_size(11, v);
         }
-        if let Some(v) = self.unicode_encoded_strings {
+        if let Some(v) = self.fromcharcode_count {
             my_size += ::protobuf::rt::uint32_size(12, v);
         }
-        if let Some(v) = self.base64_strings {
+        if let Some(v) = self.eval_call_count {
             my_size += ::protobuf::rt::uint32_size(13, v);
         }
-        if let Some(v) = self.suspicious_apis_count {
+        if let Some(v) = self.wscript_shell_count {
             my_size += ::protobuf::rt::uint32_size(14, v);
         }
-        if let Some(v) = self.crypto_references {
+        if let Some(v) = self.activex_count {
             my_size += ::protobuf::rt::uint32_size(15, v);
         }
-        if let Some(v) = self.network_operations {
+        if let Some(v) = self.adodb_stream_count {
             my_size += ::protobuf::rt::uint32_size(16, v);
         }
-        if let Some(v) = self.file_system_operations {
+        if let Some(v) = self.http_reference_count {
             my_size += ::protobuf::rt::uint32_size(17, v);
         }
-        if let Some(v) = self.registry_operations {
+        if let Some(v) = self.xmlhttprequest_count {
             my_size += ::protobuf::rt::uint32_size(18, v);
         }
-        if let Some(v) = self.process_operations {
+        if let Some(v) = self.fetch_count {
             my_size += ::protobuf::rt::uint32_size(19, v);
         }
-        if let Some(v) = self.total_strings {
+        if let Some(v) = self.high_entropy_identifiers_count {
             my_size += ::protobuf::rt::uint32_size(20, v);
         }
+        if let Some(v) = self.avg_identifier_entropy {
+            my_size += 2 + 8;
+        }
         if let Some(v) = self.total_lines {
-            my_size += ::protobuf::rt::uint32_size(21, v);
+            my_size += ::protobuf::rt::uint32_size(22, v);
         }
         my_size += ::protobuf::rt::unknown_fields_size(self.special_fields.unknown_fields());
         self.special_fields.cached_size().set(my_size as u32);
@@ -3489,56 +3730,59 @@ impl ::protobuf::Message for JsMl {
         if let Some(v) = self.variable_declarations {
             os.write_uint32(4, v)?;
         }
-        if let Some(v) = self.eval_usage {
+        if let Some(v) = self.eval_count {
             os.write_uint32(5, v)?;
         }
-        if let Some(v) = self.try_catch_blocks {
+        if let Some(v) = self.try_catch_count {
             os.write_uint32(6, v)?;
         }
-        if let Some(v) = self.loop_statements {
+        if let Some(v) = self.loop_count {
             os.write_uint32(7, v)?;
         }
-        if let Some(v) = self.conditional_statements {
+        if let Some(v) = self.conditional_count {
             os.write_uint32(8, v)?;
         }
-        if let Some(v) = self.obfuscation_score {
+        if let Some(v) = self.hex_escape_count {
             os.write_uint32(9, v)?;
         }
-        if let Some(v) = self.is_likely_obfuscated {
-            os.write_bool(10, v)?;
+        if let Some(v) = self.unicode_escape_count {
+            os.write_uint32(10, v)?;
         }
-        if let Some(v) = self.hex_encoded_strings {
+        if let Some(v) = self.base64_candidate_count {
             os.write_uint32(11, v)?;
         }
-        if let Some(v) = self.unicode_encoded_strings {
+        if let Some(v) = self.fromcharcode_count {
             os.write_uint32(12, v)?;
         }
-        if let Some(v) = self.base64_strings {
+        if let Some(v) = self.eval_call_count {
             os.write_uint32(13, v)?;
         }
-        if let Some(v) = self.suspicious_apis_count {
+        if let Some(v) = self.wscript_shell_count {
             os.write_uint32(14, v)?;
         }
-        if let Some(v) = self.crypto_references {
+        if let Some(v) = self.activex_count {
             os.write_uint32(15, v)?;
         }
-        if let Some(v) = self.network_operations {
+        if let Some(v) = self.adodb_stream_count {
             os.write_uint32(16, v)?;
         }
-        if let Some(v) = self.file_system_operations {
+        if let Some(v) = self.http_reference_count {
             os.write_uint32(17, v)?;
         }
-        if let Some(v) = self.registry_operations {
+        if let Some(v) = self.xmlhttprequest_count {
             os.write_uint32(18, v)?;
         }
-        if let Some(v) = self.process_operations {
+        if let Some(v) = self.fetch_count {
             os.write_uint32(19, v)?;
         }
-        if let Some(v) = self.total_strings {
+        if let Some(v) = self.high_entropy_identifiers_count {
             os.write_uint32(20, v)?;
         }
+        if let Some(v) = self.avg_identifier_entropy {
+            os.write_double(21, v)?;
+        }
         if let Some(v) = self.total_lines {
-            os.write_uint32(21, v)?;
+            os.write_uint32(22, v)?;
         }
         os.write_unknown_fields(self.special_fields.unknown_fields())?;
         ::std::result::Result::Ok(())
@@ -3561,22 +3805,23 @@ impl ::protobuf::Message for JsMl {
         self.entropy = ::std::option::Option::None;
         self.function_count = ::std::option::Option::None;
         self.variable_declarations = ::std::option::Option::None;
-        self.eval_usage = ::std::option::Option::None;
-        self.try_catch_blocks = ::std::option::Option::None;
-        self.loop_statements = ::std::option::Option::None;
-        self.conditional_statements = ::std::option::Option::None;
-        self.obfuscation_score = ::std::option::Option::None;
-        self.is_likely_obfuscated = ::std::option::Option::None;
-        self.hex_encoded_strings = ::std::option::Option::None;
-        self.unicode_encoded_strings = ::std::option::Option::None;
-        self.base64_strings = ::std::option::Option::None;
-        self.suspicious_apis_count = ::std::option::Option::None;
-        self.crypto_references = ::std::option::Option::None;
-        self.network_operations = ::std::option::Option::None;
-        self.file_system_operations = ::std::option::Option::None;
-        self.registry_operations = ::std::option::Option::None;
-        self.process_operations = ::std::option::Option::None;
-        self.total_strings = ::std::option::Option::None;
+        self.eval_count = ::std::option::Option::None;
+        self.try_catch_count = ::std::option::Option::None;
+        self.loop_count = ::std::option::Option::None;
+        self.conditional_count = ::std::option::Option::None;
+        self.hex_escape_count = ::std::option::Option::None;
+        self.unicode_escape_count = ::std::option::Option::None;
+        self.base64_candidate_count = ::std::option::Option::None;
+        self.fromcharcode_count = ::std::option::Option::None;
+        self.eval_call_count = ::std::option::Option::None;
+        self.wscript_shell_count = ::std::option::Option::None;
+        self.activex_count = ::std::option::Option::None;
+        self.adodb_stream_count = ::std::option::Option::None;
+        self.http_reference_count = ::std::option::Option::None;
+        self.xmlhttprequest_count = ::std::option::Option::None;
+        self.fetch_count = ::std::option::Option::None;
+        self.high_entropy_identifiers_count = ::std::option::Option::None;
+        self.avg_identifier_entropy = ::std::option::Option::None;
         self.total_lines = ::std::option::Option::None;
         self.special_fields.clear();
     }
@@ -3587,22 +3832,23 @@ impl ::protobuf::Message for JsMl {
             entropy: ::std::option::Option::None,
             function_count: ::std::option::Option::None,
             variable_declarations: ::std::option::Option::None,
-            eval_usage: ::std::option::Option::None,
-            try_catch_blocks: ::std::option::Option::None,
-            loop_statements: ::std::option::Option::None,
-            conditional_statements: ::std::option::Option::None,
-            obfuscation_score: ::std::option::Option::None,
-            is_likely_obfuscated: ::std::option::Option::None,
-            hex_encoded_strings: ::std::option::Option::None,
-            unicode_encoded_strings: ::std::option::Option::None,
-            base64_strings: ::std::option::Option::None,
-            suspicious_apis_count: ::std::option::Option::None,
-            crypto_references: ::std::option::Option::None,
-            network_operations: ::std::option::Option::None,
-            file_system_operations: ::std::option::Option::None,
-            registry_operations: ::std::option::Option::None,
-            process_operations: ::std::option::Option::None,
-            total_strings: ::std::option::Option::None,
+            eval_count: ::std::option::Option::None,
+            try_catch_count: ::std::option::Option::None,
+            loop_count: ::std::option::Option::None,
+            conditional_count: ::std::option::Option::None,
+            hex_escape_count: ::std::option::Option::None,
+            unicode_escape_count: ::std::option::Option::None,
+            base64_candidate_count: ::std::option::Option::None,
+            fromcharcode_count: ::std::option::Option::None,
+            eval_call_count: ::std::option::Option::None,
+            wscript_shell_count: ::std::option::Option::None,
+            activex_count: ::std::option::Option::None,
+            adodb_stream_count: ::std::option::Option::None,
+            http_reference_count: ::std::option::Option::None,
+            xmlhttprequest_count: ::std::option::Option::None,
+            fetch_count: ::std::option::Option::None,
+            high_entropy_identifiers_count: ::std::option::Option::None,
+            avg_identifier_entropy: ::std::option::Option::None,
             total_lines: ::std::option::Option::None,
             special_fields: ::protobuf::SpecialFields::new(),
         };
@@ -3631,14 +3877,6 @@ impl ::protobuf::reflect::ProtobufValue for JsMl {
 #[derive(PartialEq,Clone,Default,Debug)]
 pub struct Js {
     // message fields
-    // @@protoc_insertion_point(field:yara.hydra.Js.entropy)
-    pub entropy: ::std::option::Option<f64>,
-    // @@protoc_insertion_point(field:yara.hydra.Js.obfuscation_tokens)
-    pub obfuscation_tokens: ::std::option::Option<u32>,
-    // @@protoc_insertion_point(field:yara.hydra.Js.suspicious_apis)
-    pub suspicious_apis: ::std::option::Option<u32>,
-    // @@protoc_insertion_point(field:yara.hydra.Js.is_malicious)
-    pub is_malicious: ::std::option::Option<bool>,
     // @@protoc_insertion_point(field:yara.hydra.Js.ml)
     pub ml: ::protobuf::MessageField<JsMl>,
     // special fields
@@ -3657,105 +3895,9 @@ impl Js {
         ::std::default::Default::default()
     }
 
-    // optional double entropy = 1;
-
-    pub fn entropy(&self) -> f64 {
-        self.entropy.unwrap_or(0.)
-    }
-
-    pub fn clear_entropy(&mut self) {
-        self.entropy = ::std::option::Option::None;
-    }
-
-    pub fn has_entropy(&self) -> bool {
-        self.entropy.is_some()
-    }
-
-    // Param is passed by value, moved
-    pub fn set_entropy(&mut self, v: f64) {
-        self.entropy = ::std::option::Option::Some(v);
-    }
-
-    // optional uint32 obfuscation_tokens = 2;
-
-    pub fn obfuscation_tokens(&self) -> u32 {
-        self.obfuscation_tokens.unwrap_or(0)
-    }
-
-    pub fn clear_obfuscation_tokens(&mut self) {
-        self.obfuscation_tokens = ::std::option::Option::None;
-    }
-
-    pub fn has_obfuscation_tokens(&self) -> bool {
-        self.obfuscation_tokens.is_some()
-    }
-
-    // Param is passed by value, moved
-    pub fn set_obfuscation_tokens(&mut self, v: u32) {
-        self.obfuscation_tokens = ::std::option::Option::Some(v);
-    }
-
-    // optional uint32 suspicious_apis = 3;
-
-    pub fn suspicious_apis(&self) -> u32 {
-        self.suspicious_apis.unwrap_or(0)
-    }
-
-    pub fn clear_suspicious_apis(&mut self) {
-        self.suspicious_apis = ::std::option::Option::None;
-    }
-
-    pub fn has_suspicious_apis(&self) -> bool {
-        self.suspicious_apis.is_some()
-    }
-
-    // Param is passed by value, moved
-    pub fn set_suspicious_apis(&mut self, v: u32) {
-        self.suspicious_apis = ::std::option::Option::Some(v);
-    }
-
-    // optional bool is_malicious = 4;
-
-    pub fn is_malicious(&self) -> bool {
-        self.is_malicious.unwrap_or(false)
-    }
-
-    pub fn clear_is_malicious(&mut self) {
-        self.is_malicious = ::std::option::Option::None;
-    }
-
-    pub fn has_is_malicious(&self) -> bool {
-        self.is_malicious.is_some()
-    }
-
-    // Param is passed by value, moved
-    pub fn set_is_malicious(&mut self, v: bool) {
-        self.is_malicious = ::std::option::Option::Some(v);
-    }
-
     fn generated_message_descriptor_data() -> ::protobuf::reflect::GeneratedMessageDescriptorData {
-        let mut fields = ::std::vec::Vec::with_capacity(5);
+        let mut fields = ::std::vec::Vec::with_capacity(1);
         let mut oneofs = ::std::vec::Vec::with_capacity(0);
-        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
-            "entropy",
-            |m: &Js| { &m.entropy },
-            |m: &mut Js| { &mut m.entropy },
-        ));
-        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
-            "obfuscation_tokens",
-            |m: &Js| { &m.obfuscation_tokens },
-            |m: &mut Js| { &mut m.obfuscation_tokens },
-        ));
-        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
-            "suspicious_apis",
-            |m: &Js| { &m.suspicious_apis },
-            |m: &mut Js| { &mut m.suspicious_apis },
-        ));
-        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
-            "is_malicious",
-            |m: &Js| { &m.is_malicious },
-            |m: &mut Js| { &mut m.is_malicious },
-        ));
         fields.push(::protobuf::reflect::rt::v2::make_message_field_accessor::<_, JsMl>(
             "ml",
             |m: &Js| { &m.ml },
@@ -3779,19 +3921,7 @@ impl ::protobuf::Message for Js {
     fn merge_from(&mut self, is: &mut ::protobuf::CodedInputStream<'_>) -> ::protobuf::Result<()> {
         while let Some(tag) = is.read_raw_tag_or_eof()? {
             match tag {
-                9 => {
-                    self.entropy = ::std::option::Option::Some(is.read_double()?);
-                },
-                16 => {
-                    self.obfuscation_tokens = ::std::option::Option::Some(is.read_uint32()?);
-                },
-                24 => {
-                    self.suspicious_apis = ::std::option::Option::Some(is.read_uint32()?);
-                },
-                32 => {
-                    self.is_malicious = ::std::option::Option::Some(is.read_bool()?);
-                },
-                42 => {
+                10 => {
                     ::protobuf::rt::read_singular_message_into_field(is, &mut self.ml)?;
                 },
                 tag => {
@@ -3806,18 +3936,6 @@ impl ::protobuf::Message for Js {
     #[allow(unused_variables)]
     fn compute_size(&self) -> u64 {
         let mut my_size = 0;
-        if let Some(v) = self.entropy {
-            my_size += 1 + 8;
-        }
-        if let Some(v) = self.obfuscation_tokens {
-            my_size += ::protobuf::rt::uint32_size(2, v);
-        }
-        if let Some(v) = self.suspicious_apis {
-            my_size += ::protobuf::rt::uint32_size(3, v);
-        }
-        if let Some(v) = self.is_malicious {
-            my_size += 1 + 1;
-        }
         if let Some(v) = self.ml.as_ref() {
             let len = v.compute_size();
             my_size += 1 + ::protobuf::rt::compute_raw_varint64_size(len) + len;
@@ -3828,20 +3946,8 @@ impl ::protobuf::Message for Js {
     }
 
     fn write_to_with_cached_sizes(&self, os: &mut ::protobuf::CodedOutputStream<'_>) -> ::protobuf::Result<()> {
-        if let Some(v) = self.entropy {
-            os.write_double(1, v)?;
-        }
-        if let Some(v) = self.obfuscation_tokens {
-            os.write_uint32(2, v)?;
-        }
-        if let Some(v) = self.suspicious_apis {
-            os.write_uint32(3, v)?;
-        }
-        if let Some(v) = self.is_malicious {
-            os.write_bool(4, v)?;
-        }
         if let Some(v) = self.ml.as_ref() {
-            ::protobuf::rt::write_message_field_with_cached_size(5, v, os)?;
+            ::protobuf::rt::write_message_field_with_cached_size(1, v, os)?;
         }
         os.write_unknown_fields(self.special_fields.unknown_fields())?;
         ::std::result::Result::Ok(())
@@ -3860,20 +3966,12 @@ impl ::protobuf::Message for Js {
     }
 
     fn clear(&mut self) {
-        self.entropy = ::std::option::Option::None;
-        self.obfuscation_tokens = ::std::option::Option::None;
-        self.suspicious_apis = ::std::option::Option::None;
-        self.is_malicious = ::std::option::Option::None;
         self.ml.clear();
         self.special_fields.clear();
     }
 
     fn default_instance() -> &'static Js {
         static instance: Js = Js {
-            entropy: ::std::option::Option::None,
-            obfuscation_tokens: ::std::option::Option::None,
-            suspicious_apis: ::std::option::Option::None,
-            is_malicious: ::std::option::Option::None,
             ml: ::protobuf::MessageField::none(),
             special_fields: ::protobuf::SpecialFields::new(),
         };
@@ -3904,8 +4002,6 @@ pub struct Hydra {
     // message fields
     // @@protoc_insertion_point(field:yara.hydra.Hydra.pe)
     pub pe: ::protobuf::MessageField<Pe>,
-    // @@protoc_insertion_point(field:yara.hydra.Hydra.r2)
-    pub r2: ::protobuf::MessageField<R2>,
     // @@protoc_insertion_point(field:yara.hydra.Hydra.js)
     pub js: ::protobuf::MessageField<Js>,
     // special fields
@@ -3925,17 +4021,12 @@ impl Hydra {
     }
 
     fn generated_message_descriptor_data() -> ::protobuf::reflect::GeneratedMessageDescriptorData {
-        let mut fields = ::std::vec::Vec::with_capacity(3);
+        let mut fields = ::std::vec::Vec::with_capacity(2);
         let mut oneofs = ::std::vec::Vec::with_capacity(0);
         fields.push(::protobuf::reflect::rt::v2::make_message_field_accessor::<_, Pe>(
             "pe",
             |m: &Hydra| { &m.pe },
             |m: &mut Hydra| { &mut m.pe },
-        ));
-        fields.push(::protobuf::reflect::rt::v2::make_message_field_accessor::<_, R2>(
-            "r2",
-            |m: &Hydra| { &m.r2 },
-            |m: &mut Hydra| { &mut m.r2 },
         ));
         fields.push(::protobuf::reflect::rt::v2::make_message_field_accessor::<_, Js>(
             "js",
@@ -3964,9 +4055,6 @@ impl ::protobuf::Message for Hydra {
                     ::protobuf::rt::read_singular_message_into_field(is, &mut self.pe)?;
                 },
                 18 => {
-                    ::protobuf::rt::read_singular_message_into_field(is, &mut self.r2)?;
-                },
-                26 => {
                     ::protobuf::rt::read_singular_message_into_field(is, &mut self.js)?;
                 },
                 tag => {
@@ -3985,10 +4073,6 @@ impl ::protobuf::Message for Hydra {
             let len = v.compute_size();
             my_size += 1 + ::protobuf::rt::compute_raw_varint64_size(len) + len;
         }
-        if let Some(v) = self.r2.as_ref() {
-            let len = v.compute_size();
-            my_size += 1 + ::protobuf::rt::compute_raw_varint64_size(len) + len;
-        }
         if let Some(v) = self.js.as_ref() {
             let len = v.compute_size();
             my_size += 1 + ::protobuf::rt::compute_raw_varint64_size(len) + len;
@@ -4002,11 +4086,8 @@ impl ::protobuf::Message for Hydra {
         if let Some(v) = self.pe.as_ref() {
             ::protobuf::rt::write_message_field_with_cached_size(1, v, os)?;
         }
-        if let Some(v) = self.r2.as_ref() {
-            ::protobuf::rt::write_message_field_with_cached_size(2, v, os)?;
-        }
         if let Some(v) = self.js.as_ref() {
-            ::protobuf::rt::write_message_field_with_cached_size(3, v, os)?;
+            ::protobuf::rt::write_message_field_with_cached_size(2, v, os)?;
         }
         os.write_unknown_fields(self.special_fields.unknown_fields())?;
         ::std::result::Result::Ok(())
@@ -4026,7 +4107,6 @@ impl ::protobuf::Message for Hydra {
 
     fn clear(&mut self) {
         self.pe.clear();
-        self.r2.clear();
         self.js.clear();
         self.special_fields.clear();
     }
@@ -4034,7 +4114,6 @@ impl ::protobuf::Message for Hydra {
     fn default_instance() -> &'static Hydra {
         static instance: Hydra = Hydra {
             pe: ::protobuf::MessageField::none(),
-            r2: ::protobuf::MessageField::none(),
             js: ::protobuf::MessageField::none(),
             special_fields: ::protobuf::SpecialFields::new(),
         };
@@ -4060,34 +4139,33 @@ impl ::protobuf::reflect::ProtobufValue for Hydra {
 }
 
 static file_descriptor_proto_data: &'static [u8] = b"\
-    \n\x0bhydra.proto\x12\nyara.hydra\x1a\nyara.proto\"\xca\x01\n\x07Section\
+    \n\x0bhydra.proto\x12\nyara.hydra\x1a\nyara.proto\"\x9f\x01\n\x07Section\
     \x12\x12\n\x04name\x18\x01\x20\x01(\tR\x04name\x12\x18\n\x07entropy\x18\
     \x02\x20\x01(\x01R\x07entropy\x12\x19\n\x08raw_size\x18\x03\x20\x01(\rR\
     \x07rawSize\x12!\n\x0cvirtual_size\x18\x04\x20\x01(\rR\x0bvirtualSize\
-    \x12(\n\x0fcharacteristics\x18\x05\x20\x01(\rR\x0fcharacteristics\x12)\n\
-    \x10suspicious_score\x18\x06\x20\x01(\x01R\x0fsuspiciousScore\"\xd1\x0f\
-    \n\x04PeMl\x125\n\x17size_of_optional_header\x18\x01\x20\x01(\rR\x14size\
-    OfOptionalHeader\x120\n\x14major_linker_version\x18\x02\x20\x01(\rR\x12m\
-    ajorLinkerVersion\x120\n\x14minor_linker_version\x18\x03\x20\x01(\rR\x12\
-    minorLinkerVersion\x12\x20\n\x0csize_of_code\x18\x04\x20\x01(\rR\nsizeOf\
-    Code\x127\n\x18size_of_initialized_data\x18\x05\x20\x01(\rR\x15sizeOfIni\
-    tializedData\x12;\n\x1asize_of_uninitialized_data\x18\x06\x20\x01(\rR\
-    \x17sizeOfUninitializedData\x123\n\x16address_of_entry_point\x18\x07\x20\
-    \x01(\rR\x13addressOfEntryPoint\x12\x20\n\x0cbase_of_code\x18\x08\x20\
-    \x01(\rR\nbaseOfCode\x12\x20\n\x0cbase_of_data\x18\t\x20\x01(\rR\nbaseOf\
-    Data\x12\x1d\n\nimage_base\x18\n\x20\x01(\x04R\timageBase\x12+\n\x11sect\
-    ion_alignment\x18\x0b\x20\x01(\rR\x10sectionAlignment\x12%\n\x0efile_ali\
-    gnment\x18\x0c\x20\x01(\rR\rfileAlignment\x12C\n\x1emajor_operating_syst\
-    em_version\x18\r\x20\x01(\rR\x1bmajorOperatingSystemVersion\x12C\n\x1emi\
-    nor_operating_system_version\x18\x0e\x20\x01(\rR\x1bminorOperatingSystem\
-    Version\x12.\n\x13major_image_version\x18\x0f\x20\x01(\rR\x11majorImageV\
-    ersion\x12.\n\x13minor_image_version\x18\x10\x20\x01(\rR\x11minorImageVe\
-    rsion\x126\n\x17major_subsystem_version\x18\x11\x20\x01(\rR\x15majorSubs\
-    ystemVersion\x126\n\x17minor_subsystem_version\x18\x12\x20\x01(\rR\x15mi\
-    norSubsystemVersion\x12\"\n\rsize_of_image\x18\x13\x20\x01(\rR\x0bsizeOf\
-    Image\x12&\n\x0fsize_of_headers\x18\x14\x20\x01(\rR\rsizeOfHeaders\x12\
-    \x1b\n\tcheck_sum\x18\x15\x20\x01(\rR\x08checkSum\x12\x1c\n\tsubsystem\
-    \x18\x16\x20\x01(\rR\tsubsystem\x12/\n\x13dll_characteristics\x18\x17\
+    \x12(\n\x0fcharacteristics\x18\x05\x20\x01(\rR\x0fcharacteristics\"\x92\
+    \x13\n\x04PeMl\x125\n\x17size_of_optional_header\x18\x01\x20\x01(\rR\x14\
+    sizeOfOptionalHeader\x120\n\x14major_linker_version\x18\x02\x20\x01(\rR\
+    \x12majorLinkerVersion\x120\n\x14minor_linker_version\x18\x03\x20\x01(\r\
+    R\x12minorLinkerVersion\x12\x20\n\x0csize_of_code\x18\x04\x20\x01(\rR\ns\
+    izeOfCode\x127\n\x18size_of_initialized_data\x18\x05\x20\x01(\rR\x15size\
+    OfInitializedData\x12;\n\x1asize_of_uninitialized_data\x18\x06\x20\x01(\
+    \rR\x17sizeOfUninitializedData\x123\n\x16address_of_entry_point\x18\x07\
+    \x20\x01(\rR\x13addressOfEntryPoint\x12\x20\n\x0cbase_of_code\x18\x08\
+    \x20\x01(\rR\nbaseOfCode\x12\x20\n\x0cbase_of_data\x18\t\x20\x01(\rR\nba\
+    seOfData\x12\x1d\n\nimage_base\x18\n\x20\x01(\x04R\timageBase\x12+\n\x11\
+    section_alignment\x18\x0b\x20\x01(\rR\x10sectionAlignment\x12%\n\x0efile\
+    _alignment\x18\x0c\x20\x01(\rR\rfileAlignment\x12C\n\x1emajor_operating_\
+    system_version\x18\r\x20\x01(\rR\x1bmajorOperatingSystemVersion\x12C\n\
+    \x1eminor_operating_system_version\x18\x0e\x20\x01(\rR\x1bminorOperating\
+    SystemVersion\x12.\n\x13major_image_version\x18\x0f\x20\x01(\rR\x11major\
+    ImageVersion\x12.\n\x13minor_image_version\x18\x10\x20\x01(\rR\x11minorI\
+    mageVersion\x126\n\x17major_subsystem_version\x18\x11\x20\x01(\rR\x15maj\
+    orSubsystemVersion\x126\n\x17minor_subsystem_version\x18\x12\x20\x01(\rR\
+    \x15minorSubsystemVersion\x12\"\n\rsize_of_image\x18\x13\x20\x01(\rR\x0b\
+    sizeOfImage\x12&\n\x0fsize_of_headers\x18\x14\x20\x01(\rR\rsizeOfHeaders\
+    \x12\x1b\n\tcheck_sum\x18\x15\x20\x01(\rR\x08checkSum\x12\x1c\n\tsubsyst\
+    em\x18\x16\x20\x01(\rR\tsubsystem\x12/\n\x13dll_characteristics\x18\x17\
     \x20\x01(\rR\x12dllCharacteristics\x121\n\x15size_of_stack_reserve\x18\
     \x18\x20\x01(\x04R\x12sizeOfStackReserve\x12/\n\x14size_of_stack_commit\
     \x18\x19\x20\x01(\x04R\x11sizeOfStackCommit\x12/\n\x14size_of_heap_reser\
@@ -4105,50 +4183,53 @@ static file_descriptor_proto_data: &'static [u8] = b"\
     .\n\x13delay_imports_count\x18'\x20\x01(\rR\x11delayImportsCount\x12.\n\
     \x13bound_imports_count\x18(\x20\x01(\rR\x11boundImportsCount\x12-\n\x12\
     certificates_count\x18)\x20\x01(\rR\x11certificatesCount\x122\n\x15ep_in\
-    structions_count\x18*\x20\x01(\rR\x13epInstructionsCount\x12+\n\x12is_wx\
-    _last_section\x18+\x20\x01(\x08R\x0fisWxLastSection\x12:\n\x19missing_st\
-    andard_sections\x18,\x20\x01(\rR\x17missingStandardSections\"\xda\x01\n\
-    \x12EmulationTelemetry\x12#\n\rexecuted_apis\x18\x01\x20\x03(\tR\x0cexec\
-    utedApis\x12)\n\x10mapped_addresses\x18\x02\x20\x03(\x04R\x0fmappedAddre\
-    sses\x12?\n\x1cself_modifying_code_detected\x18\x03\x20\x01(\x08R\x19sel\
-    fModifyingCodeDetected\x123\n\x15executed_instructions\x18\x04\x20\x01(\
-    \rR\x14executedInstructions\"\xf6\x01\n\x02Pe\x12)\n\x10suspicious_score\
-    \x18\x01\x20\x01(\x01R\x0fsuspiciousScore\x12/\n\x08sections\x18\x02\x20\
-    \x03(\x0b2\x13.yara.hydra.SectionR\x08sections\x124\n\x16has_suspicious_\
-    imports\x18\x03\x20\x01(\x08R\x14hasSuspiciousImports\x12\x20\n\x02ml\
-    \x18\x04\x20\x01(\x0b2\x10.yara.hydra.PeMlR\x02ml\x12<\n\temulation\x18\
-    \x05\x20\x01(\x0b2\x1e.yara.hydra.EmulationTelemetryR\temulation\"J\n\
-    \x02R2\x12\x1d\n\nep_opcodes\x18\x01\x20\x01(\tR\tepOpcodes\x12%\n\x0ecf\
-    g_complexity\x18\x02\x20\x01(\rR\rcfgComplexity\"\x9c\x07\n\x04JsMl\x12\
-    \x1b\n\tfile_size\x18\x01\x20\x01(\rR\x08fileSize\x12\x18\n\x07entropy\
-    \x18\x02\x20\x01(\x01R\x07entropy\x12%\n\x0efunction_count\x18\x03\x20\
-    \x01(\rR\rfunctionCount\x123\n\x15variable_declarations\x18\x04\x20\x01(\
-    \rR\x14variableDeclarations\x12\x1d\n\neval_usage\x18\x05\x20\x01(\rR\te\
-    valUsage\x12(\n\x10try_catch_blocks\x18\x06\x20\x01(\rR\x0etryCatchBlock\
-    s\x12'\n\x0floop_statements\x18\x07\x20\x01(\rR\x0eloopStatements\x125\n\
-    \x16conditional_statements\x18\x08\x20\x01(\rR\x15conditionalStatements\
-    \x12+\n\x11obfuscation_score\x18\t\x20\x01(\rR\x10obfuscationScore\x120\
-    \n\x14is_likely_obfuscated\x18\n\x20\x01(\x08R\x12isLikelyObfuscated\x12\
-    .\n\x13hex_encoded_strings\x18\x0b\x20\x01(\rR\x11hexEncodedStrings\x126\
-    \n\x17unicode_encoded_strings\x18\x0c\x20\x01(\rR\x15unicodeEncodedStrin\
-    gs\x12%\n\x0ebase64_strings\x18\r\x20\x01(\rR\rbase64Strings\x122\n\x15s\
-    uspicious_apis_count\x18\x0e\x20\x01(\rR\x13suspiciousApisCount\x12+\n\
-    \x11crypto_references\x18\x0f\x20\x01(\rR\x10cryptoReferences\x12-\n\x12\
-    network_operations\x18\x10\x20\x01(\rR\x11networkOperations\x124\n\x16fi\
-    le_system_operations\x18\x11\x20\x01(\rR\x14fileSystemOperations\x12/\n\
-    \x13registry_operations\x18\x12\x20\x01(\rR\x12registryOperations\x12-\n\
-    \x12process_operations\x18\x13\x20\x01(\rR\x11processOperations\x12#\n\r\
-    total_strings\x18\x14\x20\x01(\rR\x0ctotalStrings\x12\x1f\n\x0btotal_lin\
-    es\x18\x15\x20\x01(\rR\ntotalLines\"\xbb\x01\n\x02Js\x12\x18\n\x07entrop\
-    y\x18\x01\x20\x01(\x01R\x07entropy\x12-\n\x12obfuscation_tokens\x18\x02\
-    \x20\x01(\rR\x11obfuscationTokens\x12'\n\x0fsuspicious_apis\x18\x03\x20\
-    \x01(\rR\x0esuspiciousApis\x12!\n\x0cis_malicious\x18\x04\x20\x01(\x08R\
-    \x0bisMalicious\x12\x20\n\x02ml\x18\x05\x20\x01(\x0b2\x10.yara.hydra.JsM\
-    lR\x02ml\"g\n\x05Hydra\x12\x1e\n\x02pe\x18\x01\x20\x01(\x0b2\x0e.yara.hy\
-    dra.PeR\x02pe\x12\x1e\n\x02r2\x18\x02\x20\x01(\x0b2\x0e.yara.hydra.R2R\
-    \x02r2\x12\x1e\n\x02js\x18\x03\x20\x01(\x0b2\x0e.yara.hydra.JsR\x02jsB'\
-    \xfa\x92\x19#\n\x05hydra\x12\x05Hydra\x1a\x05hydra\"\x0chydra-moduleb\
-    \x06proto2\
+    structions_count\x18*\x20\x01(\rR\x13epInstructionsCount\x12\"\n\rep_jum\
+    p_count\x18+\x20\x01(\rR\x0bepJumpCount\x12\"\n\rep_call_count\x18,\x20\
+    \x01(\rR\x0bepCallCount\x12\x20\n\x0cep_ret_count\x18-\x20\x01(\rR\nepRe\
+    tCount\x12\x20\n\x0cep_nop_count\x18.\x20\x01(\rR\nepNopCount\x12$\n\x0e\
+    ep_cpuid_count\x18/\x20\x01(\rR\x0cepCpuidCount\x12$\n\x0eep_rdtsc_count\
+    \x180\x20\x01(\rR\x0cepRdtscCount\x12@\n\x1clast_section_characteristics\
+    \x181\x20\x01(\rR\x1alastSectionCharacteristics\x124\n\x16cfg_total_inst\
+    ructions\x182\x20\x01(\rR\x14cfgTotalInstructions\x12$\n\x0ecfg_jump_cou\
+    nt\x183\x20\x01(\rR\x0ccfgJumpCount\x12$\n\x0ecfg_call_count\x184\x20\
+    \x01(\rR\x0ccfgCallCount\x12\"\n\rcfg_ret_count\x185\x20\x01(\rR\x0bcfgR\
+    etCount\x129\n\x19rich_header_entries_count\x186\x20\x01(\rR\x16richHead\
+    erEntriesCount\x12-\n\x13rich_header_xor_key\x187\x20\x01(\rR\x10richHea\
+    derXorKey\"\xbd\x01\n\x12EmulationTelemetry\x123\n\x15executed_instructi\
+    ons\x18\x01\x20\x01(\rR\x14executedInstructions\x12\x1b\n\teax_final\x18\
+    \x02\x20\x01(\rR\x08eaxFinal\x12\x1b\n\tebx_final\x18\x03\x20\x01(\rR\
+    \x08ebxFinal\x12\x1b\n\tecx_final\x18\x04\x20\x01(\rR\x08ecxFinal\x12\
+    \x1b\n\tedx_final\x18\x05\x20\x01(\rR\x08edxFinal\"\xe1\x01\n\x02Pe\x12/\
+    \n\x08sections\x18\x01\x20\x03(\x0b2\x13.yara.hydra.SectionR\x08sections\
+    \x12\x20\n\x02ml\x18\x02\x20\x01(\x0b2\x10.yara.hydra.PeMlR\x02ml\x12<\n\
+    \temulation\x18\x03\x20\x01(\x0b2\x1e.yara.hydra.EmulationTelemetryR\tem\
+    ulation\x12\x1f\n\x0bimport_dlls\x18\x04\x20\x03(\tR\nimportDlls\x12)\n\
+    \x10import_functions\x18\x05\x20\x03(\tR\x0fimportFunctions\"\xba\x07\n\
+    \x04JsMl\x12\x1b\n\tfile_size\x18\x01\x20\x01(\rR\x08fileSize\x12\x18\n\
+    \x07entropy\x18\x02\x20\x01(\x01R\x07entropy\x12%\n\x0efunction_count\
+    \x18\x03\x20\x01(\rR\rfunctionCount\x123\n\x15variable_declarations\x18\
+    \x04\x20\x01(\rR\x14variableDeclarations\x12\x1d\n\neval_count\x18\x05\
+    \x20\x01(\rR\tevalCount\x12&\n\x0ftry_catch_count\x18\x06\x20\x01(\rR\rt\
+    ryCatchCount\x12\x1d\n\nloop_count\x18\x07\x20\x01(\rR\tloopCount\x12+\n\
+    \x11conditional_count\x18\x08\x20\x01(\rR\x10conditionalCount\x12(\n\x10\
+    hex_escape_count\x18\t\x20\x01(\rR\x0ehexEscapeCount\x120\n\x14unicode_e\
+    scape_count\x18\n\x20\x01(\rR\x12unicodeEscapeCount\x124\n\x16base64_can\
+    didate_count\x18\x0b\x20\x01(\rR\x14base64CandidateCount\x12-\n\x12fromc\
+    harcode_count\x18\x0c\x20\x01(\rR\x11fromcharcodeCount\x12&\n\x0feval_ca\
+    ll_count\x18\r\x20\x01(\rR\revalCallCount\x12.\n\x13wscript_shell_count\
+    \x18\x0e\x20\x01(\rR\x11wscriptShellCount\x12#\n\ractivex_count\x18\x0f\
+    \x20\x01(\rR\x0cactivexCount\x12,\n\x12adodb_stream_count\x18\x10\x20\
+    \x01(\rR\x10adodbStreamCount\x120\n\x14http_reference_count\x18\x11\x20\
+    \x01(\rR\x12httpReferenceCount\x121\n\x14xmlhttprequest_count\x18\x12\
+    \x20\x01(\rR\x13xmlhttprequestCount\x12\x1f\n\x0bfetch_count\x18\x13\x20\
+    \x01(\rR\nfetchCount\x12C\n\x1ehigh_entropy_identifiers_count\x18\x14\
+    \x20\x01(\rR\x1bhighEntropyIdentifiersCount\x124\n\x16avg_identifier_ent\
+    ropy\x18\x15\x20\x01(\x01R\x14avgIdentifierEntropy\x12\x1f\n\x0btotal_li\
+    nes\x18\x16\x20\x01(\rR\ntotalLines\"&\n\x02Js\x12\x20\n\x02ml\x18\x01\
+    \x20\x01(\x0b2\x10.yara.hydra.JsMlR\x02ml\"G\n\x05Hydra\x12\x1e\n\x02pe\
+    \x18\x01\x20\x01(\x0b2\x0e.yara.hydra.PeR\x02pe\x12\x1e\n\x02js\x18\x02\
+    \x20\x01(\x0b2\x0e.yara.hydra.JsR\x02jsB'\xfa\x92\x19#\n\x05hydra\x12\
+    \x05Hydra\x1a\x05hydra\"\x0chydra-moduleb\x06proto2\
 ";
 
 /// `FileDescriptorProto` object which was a source for this generated file
@@ -4167,12 +4248,11 @@ pub fn file_descriptor() -> &'static ::protobuf::reflect::FileDescriptor {
         let generated_file_descriptor = generated_file_descriptor_lazy.get(|| {
             let mut deps = ::std::vec::Vec::with_capacity(1);
             deps.push(super::yara::file_descriptor().clone());
-            let mut messages = ::std::vec::Vec::with_capacity(8);
+            let mut messages = ::std::vec::Vec::with_capacity(7);
             messages.push(Section::generated_message_descriptor_data());
             messages.push(PeMl::generated_message_descriptor_data());
             messages.push(EmulationTelemetry::generated_message_descriptor_data());
             messages.push(Pe::generated_message_descriptor_data());
-            messages.push(R2::generated_message_descriptor_data());
             messages.push(JsMl::generated_message_descriptor_data());
             messages.push(Js::generated_message_descriptor_data());
             messages.push(Hydra::generated_message_descriptor_data());
