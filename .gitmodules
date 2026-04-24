@@ -1,8 +1,0 @@
-[submodule "TinyAntivirus/libs/googletest/googletest"]
-	path = TinyAntivirus/libs/googletest/googletest
-	url = https://github.com/google/googletest.git
-	ignore = untracked
-[submodule "TinyAntivirus/libs/zlib"]
-	path = TinyAntivirus/libs/zlib
-	url = https://github.com/madler/zlib.git
-	ignore = untracked

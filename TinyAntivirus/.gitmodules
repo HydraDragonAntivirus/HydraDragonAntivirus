@@ -1,6 +1,0 @@
-[submodule "libs/googletest"]
-	path = libs/googletest
-	url = https://github.com/google/googletest.git
-[submodule "libs/zlib"]
-	path = libs/zlib
-	url = https://github.com/madler/zlib.git
