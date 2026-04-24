@@ -63,6 +63,7 @@ This project does not aim to replace your primary daily antivirus solution.
 - The project prioritizes deeper analysis over speed.
 - The goal is long-term detection improvement rather than quick but shallow detection.
 - This does NOT mean the project achieves a 99% detection rate — it reflects the development philosophy only.
+- This antivirus not only uses his best signatures but almost every new signatures. That's why it's heavy.
 
 ---
 
@@ -141,9 +142,6 @@ At this stage:
 This project is licensed under the **GNU General Public License v2.0** (GPLv2).  
 See the [LICENSE](./LICENSE) file for more information.
 
- 
-
-
 ## Download Machine Learning Malware And Benign Database
 - Newest database:
 - **PE Benign Database (202k+):** [Download Link](https://drive.google.com/file/d/1lRSCTCqlBROIZW-NAufvqedlfWS5sXY-)
@@ -172,7 +170,7 @@ See the [LICENSE](./LICENSE) file for more information.
 
 - TinyAntivirus is the focused polymorphic-virus engine in this repo.
 - It currently combines `SalityKiller` with `MinimalOpenSignatures (MOS)`.
-- ZIP scanning is already present in TinyAntivirus.
+- ZIP extracting is already present in HydraDragonAntivirus.
 - Original upstream TinyAntivirus attribution remains with `develbranch.com` / `quangnh89`.
 - HydraDragon `0.2` integration and later extensions are by Emirhan Ucan.
 

@@ -36,6 +36,9 @@
     <ClCompile Include="MohPeHeuristics_unittest.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="MohSignatureEngine_unittest.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="CoreApi_unittest.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
