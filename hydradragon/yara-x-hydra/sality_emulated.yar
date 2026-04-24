@@ -4,7 +4,7 @@ import "hydra"
 rule Win32_Sality_Emulated {
     meta:
         description = "Detects Sality using Hydra native emulation and PE features"
-        author = "HydraDragon"
+        author = "Emirhan Ucan"
         malware_family = "Win32.Sality"
     
     condition:
@@ -12,10 +12,10 @@ rule Win32_Sality_Emulated {
         pe.is_pe and
         
         // 2. DLLs commonly seen in Sality droppers (especially those packed with WiX Toolset)
-        pe.imports("cabinet.dll") and
-        pe.imports("crypt32.dll") and
-        pe.imports("wininet.dll") and
-        
+        pe.imports("cabinet.dll") > 0 and
+        pe.imports("crypt32.dll") > 0 and
+        pe.imports("wininet.dll") > 0 and
+
         // 3. Section check specific to Sality droppers
         for any section in pe.sections : (
             section.name == ".wixburn"
