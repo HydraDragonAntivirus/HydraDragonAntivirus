@@ -120,6 +120,9 @@ zip = { version = "8.2.0", default-features = false }
 simd-adler32 = "0.3.8"
 simd_cesu8 = "1.1.1"
 assert-call = "0.1.2"
+iced-x86 = "1.21.0"
+goblin = "0.10.5"
+unicorn-engine = "2.1.5"
 
 # Special profile that builds a release binary with link-time optimization.
 # Compiling with this profile takes a while, but the resulting binary is

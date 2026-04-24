@@ -1,0 +1,50 @@
+syntax = "proto2";
+
+import "yara.proto";
+
+package yara.hydra;
+
+option (yara.module_options) = {
+  name: "hydra"
+  root_message: "Hydra"
+  rust_module: "hydra"
+  cargo_feature: "hydra-module"
+};
+
+message Section {
+  optional string name = 1;
+  optional double entropy = 2;
+  optional uint32 raw_size = 3;
+  optional uint32 virtual_size = 4;
+  optional uint32 characteristics = 5;
+  optional double suspicious_score = 6;
+}
+
+message Pe {
+  optional double suspicious_score = 1;
+  repeated Section sections = 2;
+  optional bool has_suspicious_imports = 3;
+  optional uint32 ml_vector_size = 4;
+  optional uint32 missing_standard_sections = 5;
+  optional uint32 overlay_size = 7;
+  optional string moh_family = 8;
+  repeated string emulated_apis = 9;
+}
+
+message R2 {
+  optional string ep_opcodes = 1;
+  optional uint32 cfg_complexity = 2;
+}
+
+message Js {
+  optional double entropy = 1;
+  optional uint32 obfuscation_tokens = 2;
+  optional uint32 suspicious_apis = 3;
+  optional bool is_malicious = 4;
+}
+
+message Hydra {
+  optional Pe pe = 1;
+  optional R2 r2 = 2;
+  optional Js js = 3;
+}

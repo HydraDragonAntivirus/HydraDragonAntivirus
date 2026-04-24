@@ -13,6 +13,8 @@ mod dotnet;
 mod elf;
 #[cfg(feature = "hash-module")]
 mod hash;
+#[cfg(feature = "hydra-module")]
+mod hydra;
 #[cfg(feature = "lnk-module")]
 mod lnk;
 #[cfg(feature = "macho-module")]

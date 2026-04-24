@@ -14,6 +14,8 @@ add_module!(modules, "dotnet", dotnet, "dotnet.Dotnet", Some("dotnet"), Some(dot
 add_module!(modules, "elf", elf, "elf.ELF", Some("elf"), Some(elf::__main__ as MainFn));
 #[cfg(feature = "hash-module")]
 add_module!(modules, "hash", hash, "hash.Hash", Some("hash"), Some(hash::__main__ as MainFn));
+#[cfg(feature = "hydra-module")]
+add_module!(modules, "hydra", hydra, "Hydra", Some("hydra"), Some(hydra::__main__ as MainFn));
 #[cfg(feature = "lnk-module")]
 add_module!(modules, "lnk", lnk, "lnk.Lnk", Some("lnk"), Some(lnk::__main__ as MainFn));
 #[cfg(feature = "macho-module")]

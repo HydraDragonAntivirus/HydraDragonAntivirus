@@ -230,6 +230,11 @@ pub mod mods {
     /// Data structure returned by the `pe` module.
     pub use super::protos::pe::PE;
 
+    /// Data structures defined by the `hydra` module.
+    pub use super::protos::hydra;
+    /// Data structure returned by the `hydra` module.
+    pub use super::protos::hydra::Hydra;
+
     /// A data structure containing the data returned by all modules.
     pub use super::protos::mods::Modules;
 
@@ -317,6 +322,7 @@ pub mod mods {
         info.lnk = protobuf::MessageField(invoke::<Lnk>(data));
         info.crx = protobuf::MessageField(invoke::<Crx>(data));
         info.dex = protobuf::MessageField(invoke::<Dex>(data));
+        info.hydra = protobuf::MessageField(invoke::<Hydra>(data));
         info
     }
 

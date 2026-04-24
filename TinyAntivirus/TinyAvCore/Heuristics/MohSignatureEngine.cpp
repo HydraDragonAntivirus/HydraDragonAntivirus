@@ -29,32 +29,32 @@ namespace
 
 	static const HASH_SIGNATURE kKnownBadHashes[] =
 	{
-		{ "0340bf518edbb125861b256d48d0ea0d0299f1e59925d9a3a83542de7df52805", L"Trojan.Autorun.GenericKD.73146644" },
-		{ "ec22cd7644dcd27c1adb8e80d5329e131585d3f6fc73d630a35198757aea1ff4", L"Trojan.Autorun.GenericKD.73149665" },
-		{ "ed602d697d88ff92ea93e475fe6778bf0d76cd852ff26e16c58ffa2a5d38546f", L"Trojan.Agent.EICV" },
-		{ "51cf85f0909adb4c6b6473126e86916877768b1a1233cca35c189529e226cb43", L"Trojan.GenericKD.46147426" },
-		{ "f48dc4349b17c5db231be8e38c6e9aa55993614d3ecce977526d872dfe38a50d", L"Trojan.GenericKD.72853156.56" },
-		{ "167f0edc67b20ae1e05d58657918af5d08693bb7e31edb2d90538aac2734ecdc", L"Trojan.GenericKD.72853156.614" },
-		{ "5db47f309805f27fa0d5b4ee07087a023e4e620955baabb5e3863671aecd3c3d", L"Application.InstallMon.1" },
-		{ "06369245f90d7cb0b51739cb9acae1479bbd8412389d05731587043dda17b8b7", L"Win32.Floxif.A.53" },
-		{ "936cbb4029aed04b504442340b2cca832cd53d08ad7f463bd9effdc7c70bc9b1", L"Win32.Floxif.A.54" },
-		{ "94416f9124b9da268b6f977cdc60a3848209d75238d487a597a96805c0618604", L"Ransom.VirLock.100.35.1" },
-		{ "42c3e9f7abee29096efad14a0d99e58d0f9f1bf2aee23ee0c0f92069d690a359", L"Trojan.GenericKD.73090062.2.1" },
-		{ "7b0b524939b546bf9ac84f8af3eea669520d1410bc1de97a8d9058b19244a92f", L"Worm.VB.AND" },
-		{ "d94d1e819fc104afc753978cac062e125d4bcbc4b0b6515c8424d082c4f9f461", L"Worm.VB.AND.1" },
-		{ "d6925f0a0e0971aeca6a82e106a542d52d477e3f6a906b549039fc0d367d1539", L"Backdoor.Hangup.B.27.1" },
-		{ "364c9a49926bb7e14755d7bd035e8b53759d05c2db3122487aef817c0aaa626a", L"Backdoor.Padodor.BJ.417.1" },
-		{ "cba0ddf85a82b37683cc6e08f63462741156a8616bab30b83e4029d4aab3fbb0", L"Backdoor.Padodor.BJ.651.1" },
-		{ "5c97f5877152b45d2a6f25b6d50a8d5153c7388e7345589ae626f59279a220b1", L"Backdoor.Padodor.BJ.656.1" },
-		{ "43bb5e80d8ab8ae95c0da2063cba0a1595b8b84ec8c018cf504029acf2857099", L"Backdoor.Padodor.BJ.68.1" },
-		{ "3cba52d8982a58f23e8d91507e3291641ba04933bef363aa90fda1e2ed2323e0", L"Backdoor.Padodor.BJ.752.1" },
-		{ "979a271970938dbc84814888d5b501b94e80752eda1296aa9d78c45ba5acc62f", L"Trojan.ShellObject.ruZ.aGV9gJb.10.2" },
-		{ "614e7b919f33cc88bbac99e34718c97ab9b6d41745096352dc840995d90ee471", L"Trojan.Agent.DQQO.147.2" },
-		{ "621bd32743434a7b244ba0eb01eb974a9f8debc452e04062e9d907ec27546c4b", L"Trojan.Agent.FRPG" },
-		{ "b71185964e9cf345c553be78399b7d779af499f2c40299f450e1ff69ce80aa5c", L"Win32.Neshta.A.4" },
-		{ "c2151d4eca5fb07279bc740e0dc9c31b45d933d2100b5ec115f838907a6708cb", L"Win32.Sality.3" },
-		{ "d125e5841cc4146ad3e3f21d97a7a5176bf0fb65fac19a6642e9e014f1cbd7e4", L"Win32.Sality.3.2" },
-		{ "6607cf792b083f99fa7addb8d9c6c261cf597297b4d3be2d99429de6d4d956d5", L"AutorunINF.Recex.1.1C7C33CC" },
+		{ "0340bf518edbb125861b256d48d0ea0d0299f1e59925d9a3a83542de7df52805", L"KnownSample.Trojan.Autorun.1" },
+		{ "ec22cd7644dcd27c1adb8e80d5329e131585d3f6fc73d630a35198757aea1ff4", L"KnownSample.Trojan.Autorun.2" },
+		{ "ed602d697d88ff92ea93e475fe6778bf0d76cd852ff26e16c58ffa2a5d38546f", L"KnownSample.Trojan.Agent.1" },
+		{ "51cf85f0909adb4c6b6473126e86916877768b1a1233cca35c189529e226cb43", L"KnownSample.Trojan.Generic.1" },
+		{ "f48dc4349b17c5db231be8e38c6e9aa55993614d3ecce977526d872dfe38a50d", L"KnownSample.Trojan.Generic.2" },
+		{ "167f0edc67b20ae1e05d58657918af5d08693bb7e31edb2d90538aac2734ecdc", L"KnownSample.Trojan.Generic.3" },
+		{ "5db47f309805f27fa0d5b4ee07087a023e4e620955baabb5e3863671aecd3c3d", L"KnownSample.Application.InstallMon.1" },
+		{ "06369245f90d7cb0b51739cb9acae1479bbd8412389d05731587043dda17b8b7", L"KnownSample.Win32.Floxif.1" },
+		{ "936cbb4029aed04b504442340b2cca832cd53d08ad7f463bd9effdc7c70bc9b1", L"KnownSample.Win32.Floxif.2" },
+		{ "94416f9124b9da268b6f977cdc60a3848209d75238d487a597a96805c0618604", L"KnownSample.Ransom.VirLock.1" },
+		{ "42c3e9f7abee29096efad14a0d99e58d0f9f1bf2aee23ee0c0f92069d690a359", L"KnownSample.Trojan.Generic.4" },
+		{ "7b0b524939b546bf9ac84f8af3eea669520d1410bc1de97a8d9058b19244a92f", L"KnownSample.Worm.VB.AND.1" },
+		{ "d94d1e819fc104afc753978cac062e125d4bcbc4b0b6515c8424d082c4f9f461", L"KnownSample.Worm.VB.AND.2" },
+		{ "d6925f0a0e0971aeca6a82e106a542d52d477e3f6a906b549039fc0d367d1539", L"KnownSample.Backdoor.Hangup.1" },
+		{ "364c9a49926bb7e14755d7bd035e8b53759d05c2db3122487aef817c0aaa626a", L"KnownSample.Backdoor.Padodor.1" },
+		{ "cba0ddf85a82b37683cc6e08f63462741156a8616bab30b83e4029d4aab3fbb0", L"KnownSample.Backdoor.Padodor.2" },
+		{ "5c97f5877152b45d2a6f25b6d50a8d5153c7388e7345589ae626f59279a220b1", L"KnownSample.Backdoor.Padodor.3" },
+		{ "43bb5e80d8ab8ae95c0da2063cba0a1595b8b84ec8c018cf504029acf2857099", L"KnownSample.Backdoor.Padodor.4" },
+		{ "3cba52d8982a58f23e8d91507e3291641ba04933bef363aa90fda1e2ed2323e0", L"KnownSample.Backdoor.Padodor.5" },
+		{ "979a271970938dbc84814888d5b501b94e80752eda1296aa9d78c45ba5acc62f", L"KnownSample.Trojan.ShellObject.1" },
+		{ "614e7b919f33cc88bbac99e34718c97ab9b6d41745096352dc840995d90ee471", L"KnownSample.Trojan.Agent.2" },
+		{ "621bd32743434a7b244ba0eb01eb974a9f8debc452e04062e9d907ec27546c4b", L"KnownSample.Trojan.Agent.3" },
+		{ "b71185964e9cf345c553be78399b7d779af499f2c40299f450e1ff69ce80aa5c", L"KnownSample.Win32.Neshta.1" },
+		{ "c2151d4eca5fb07279bc740e0dc9c31b45d933d2100b5ec115f838907a6708cb", L"KnownSample.Win32.Sality.1" },
+		{ "d125e5841cc4146ad3e3f21d97a7a5176bf0fb65fac19a6642e9e014f1cbd7e4", L"KnownSample.Win32.Sality.2" },
+		{ "6607cf792b083f99fa7addb8d9c6c261cf597297b4d3be2d99429de6d4d956d5", L"KnownSample.AutorunINF.Recex.1" },
 	};
 
 	std::string ToLowerAscii(const std::string& value)
@@ -143,6 +143,20 @@ namespace
 		}
 
 		return count > 0;
+	}
+
+	bool VectorContainsAnyInsensitive(
+		__in const std::vector<std::string>& values,
+		__in_ecount(count) const char* const* needles,
+		__in const size_t count)
+	{
+		for (size_t i = 0; i < count; ++i)
+		{
+			if (VectorContainsInsensitive(values, needles[i]))
+				return true;
+		}
+
+		return false;
 	}
 
 	bool ReadWholeFile(__in IVirtualFs* file, __out std::vector<unsigned char>* data)
@@ -714,6 +728,57 @@ namespace
 
 		return false;
 	}
+
+	bool MatchNormalizedPeHeuristic(
+		__in const MOS_PE_PROFILE& peProfile,
+		__out_bcount(maxName) WCHAR* malwareName,
+		__in const size_t maxName)
+	{
+		if (!peProfile.isPe)
+			return false;
+
+		int suspiciousScore = 0;
+
+		static const char* const kSuspiciousSections[] = {
+			"upx0", "upx1", "upx2", ".vmp0", ".vmp1", ".aspack", ".enigma", ".themida"
+		};
+		if (VectorContainsAnyInsensitive(peProfile.sectionNames, kSuspiciousSections, _countof(kSuspiciousSections)))
+			suspiciousScore += 2;
+
+		if (!VectorContainsInsensitive(peProfile.sectionNames, ".rdata") && 
+			!VectorContainsInsensitive(peProfile.sectionNames, ".idata"))
+			suspiciousScore += 1;
+
+		if (peProfile.lastSectionWritableExecutable)
+			suspiciousScore += 2;
+
+		if (peProfile.overlaySize >= 1024 * 1024)
+			suspiciousScore += 1;
+
+		static const char* const kSuspiciousImports[] = {
+			"virtualalloc", "virtualallocex", "createremotethread", 
+			"writeprocessmemory", "readprocessmemory", "urldownloadtofilea",
+			"urldownloadtofilew", "winexec", "shellexecutea", "shellexecutew",
+			"getprocaddress", "loadlibrarya", "isdebuggerpresent", "setwindowshookex"
+		};
+		
+		int suspiciousImportCount = 0;
+		for (size_t i = 0; i < _countof(kSuspiciousImports); ++i)
+		{
+			if (VectorContainsInsensitive(peProfile.importFunctions, kSuspiciousImports[i]))
+				suspiciousImportCount++;
+		}
+
+		if (suspiciousImportCount >= 3)
+			suspiciousScore += 2;
+
+		if (suspiciousScore >= 5)
+		{
+			return CopyVerdict(L"Heur.BZC.Generic.SuspiciousPE", malwareName, maxName);
+		}
+
+		return false;
+	}
 }
 
 class CMosSignatureEngine :
@@ -797,7 +862,8 @@ public:
 			MatchSalityRule(peProfile, malwareName, maxName) ||
 			MatchVBAndRule(peProfile, malwareName, maxName) ||
 			MatchAutorunDriverServiceRule(peProfile, malwareName, maxName) ||
-			MatchPackedOverlayRule(peProfile, malwareName, maxName))
+			MatchPackedOverlayRule(peProfile, malwareName, maxName) ||
+			MatchNormalizedPeHeuristic(peProfile, malwareName, maxName))
 		{
 			return S_OK;
 		}
