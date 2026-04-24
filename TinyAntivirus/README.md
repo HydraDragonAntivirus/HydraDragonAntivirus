@@ -9,6 +9,7 @@ TinyAntivirus
 
 > [!NOTE]
 > The engine is named "Tiny" and its components "Minimal" to reflect the lightweight design philosophy, but this does not imply limited capability. MinimalOpenSignatures is a full antivirus engine component for focused PE analysis, not a deliberately weak scanner.
+> _new_instance/_set/_get/_setO not fully ported.
 
 > [!IMPORTANT]
 > Original TinyAntivirus copyright and upstream authorship remain attributed to `develbranch.com` / `quangnh89`. The HydraDragon `0.2` integration, MOS work, VS2022 updates, and later extensions are credited separately to Emirhan Ucan.
