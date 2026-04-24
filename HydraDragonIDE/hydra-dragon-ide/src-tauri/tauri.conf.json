@@ -1,0 +1,29 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "HydraDragonIDE",
+  "version": "0.1.0",
+  "identifier": "com.hydradragon.ide",
+  "build": {
+    "beforeDevCommand": "trunk serve --port 1420 --open false",
+    "beforeBuildCommand": "trunk build",
+    "devUrl": "http://127.0.0.1:1420",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "HydraDragonIDE",
+        "width": 1600,
+        "height": 980,
+        "resizable": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all"
+  }
+}
