@@ -34,18 +34,15 @@ VOID SendAlertWorker(PVOID Context);
 // entry/unload (call from your DriverEntry/DriverUnload)
 NTSTATUS FileDriverEntry()
 {
-    NTSTATUS status = InitializeProtectionRules();
-    if (!NT_SUCCESS(status)) {
-        DbgPrint("[Self-Defense] Failed to preload protection rules: 0x%X\n", status);
-    }
+    NTSTATUS status = ProtectFileByObRegisterCallbacks();
 
-    status = ProtectFileByObRegisterCallbacks();
     if (NT_SUCCESS(status)) {
         DbgPrint("[Self-Defense] File protection initialized\n");
     }
     else {
         DbgPrint("[Self-Defense] ProtectFileByObRegisterCallbacks failed: 0x%X\n", status);
     }
+
     return status;
 }
 
