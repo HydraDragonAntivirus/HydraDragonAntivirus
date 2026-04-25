@@ -268,10 +268,14 @@ See the [LICENSE](./LICENSE) file for more information.
 
 - https://github.com/Cisco-Talos/clamav
 - https://github.com/develbranch/TinyAntivirus
-- https://github.com/VirusTotal/yara-x
+- https://github.com/87owo/PYAS
 
 - I used these projects for Antivirus
 
+- https://github.com/VirusTotal/yara-x
+- https://github.com/VirusTotal/yara
+
+- I used these projects for signature-based detection
 
 - https://github.com/HydraDragonAntivirus/MBRFilter
 
