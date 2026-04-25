@@ -6368,22 +6368,45 @@ def reconstruct_blob_file(blob_path: str | Path, output_dir: str | Path) -> int:
         print("[-] Nuitka deobfuscate extension missing.")
         return 1
 
+    # Local import to avoid circular dependencies if any
+    try:
+        import list_modules
+    except ImportError:
+        # Fallback to local directory if not in path
+        sys.path.append(str(Path(__file__).parent))
+        import list_modules
+
     blob_path = Path(blob_path)
     if not blob_path.exists():
         print(f"[-] Blob not found: {blob_path}")
         return 1
 
     raw = blob_path.read_bytes()
-    sections = nuitka_deobfuscate.decode_blob(raw)
+    
+    # Use list_modules for robust name solving (handles commercial protection)
+    print(f"[*] Solving module names using list_modules library...")
+    modules_metadata = list_modules.parse_module_names(raw)
+    
     out_dir = Path(output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
     count = 0
-    for section_name, items in sections.items():
-        if not items:
+    for meta in modules_metadata:
+        section_name = meta["name"]
+        
+        # Skip bytecode chunks as we are reconstructing source
+        if meta["is_bytecode"]:
             continue
+            
+        # Decode constants at the specific offset discovered by list_modules
+        items = nuitka_deobfuscate.decode_at_offset(raw, meta["offset"])
+        
+        if not items or not isinstance(items, (list, tuple)):
+            continue
+            
         if _is_marshaled_bytecode_section_name(section_name, items):
             continue
+
         decompiler = OmniDecompiler()
         decompiler.run_pass_1_structural_mapping(items)
         decompiler.run_pass_2_ast_synthesis()
@@ -6395,14 +6418,20 @@ def reconstruct_blob_file(blob_path: str | Path, output_dir: str | Path) -> int:
         source = artifact.source
         if not source.strip():
             continue
+            
+        # Clean name for filesystem
         safe_name = re.sub(r'[<>:"/\\|?*\x00]', "_", section_name).strip("._") or "section"
         out_file = out_dir / f"{safe_name}.py"
+        
+        # Ensure subdirectories exist for package names like 'numpy.core'
+        out_file.parent.mkdir(parents=True, exist_ok=True)
+        
         out_file.write_text(source, encoding="utf-8")
         if artifact.nbc_text:
             out_file.with_suffix(".nbc").write_text(artifact.nbc_text, encoding="utf-8")
         count += 1
         print(
-            f"  [{count:4d}] {safe_name}.py  "
+            f"  [{count:4d}] {section_name:<50}  "
             f"({source.count(chr(10))} lines, strategy={artifact.strategy})"
         )
 
