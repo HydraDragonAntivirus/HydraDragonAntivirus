@@ -5,7 +5,6 @@ CConsoleObserver::CConsoleObserver()
 {
 	m_bRescan = FALSE;
 	m_bVirusDetected = FALSE;
-	m_objectOpen = FALSE;
 	m_TotalFileCnt = 0;
 	m_TotalObjectCnt = 0;
 	m_DetectedCnt = 0;
@@ -43,7 +42,6 @@ HRESULT WINAPI CConsoleObserver::OnScanStarted(__in IFsEnumContext * context)
 	m_DetectedCnt = 0;
 	m_RemovedCnt = 0;
 	m_FailedCnt = 0;
-	m_objectOpen = FALSE;
 	return S_OK;
 }
 
@@ -72,10 +70,8 @@ HRESULT WINAPI CConsoleObserver::OnScanStopping(__in IFsEnumContext * context)
 HRESULT WINAPI CConsoleObserver::OnPreScan(__in IVirtualFs * file, __in IFsEnumContext * context)
 {
 	m_error = FALSE;
-	if (m_objectOpen || m_bRescan) return S_OK;
-
-	m_objectOpen = TRUE;
 	m_TotalObjectCnt++;
+	if (m_bRescan) return S_OK;
 	BSTR fullPath = NULL;
 	ULONG fsType;
 	if (SUCCEEDED(file->GetFsType(&fsType)) &&
@@ -114,7 +110,6 @@ HRESULT WINAPI CConsoleObserver::OnAllScanFinished(__in IVirtualFs * file, __in 
 	m_bVirusDetected = FALSE;
 	m_bRescan = FALSE;
 	m_error = FALSE;
-	m_objectOpen = FALSE;
 	return S_OK;
 }
 
@@ -133,10 +128,6 @@ HRESULT WINAPI CConsoleObserver::OnPostClean(__in IVirtualFs * file, __in IFsEnu
 	{
 		switch (result->cleanResult)
 		{
-		case DonotClean:
-			printf("Detected \n");
-			break;
-
 		case CleanVirusSucceeded:
 			printf("Disinfected \n");
 			m_bRescan = TRUE;

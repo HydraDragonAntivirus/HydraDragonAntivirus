@@ -1,4 +1,4 @@
-
+﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.0.31903.59
@@ -8,8 +8,6 @@ EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "TinyAvConsole", "TinyAvConsole\TinyAvConsole.vcxproj", "{63FACD86-7D04-4F8F-BC85-FECB879E8389}"
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "SalityKiller", "SalityKiller\SalityKiller.vcxproj", "{29F78C28-341C-4D6F-BE65-2CD559672A56}"
-EndProject
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "MinimalOpenSignatures", "MinimalOpenHeuristics\MinimalOpenHeuristics.vcxproj", "{D1AECB48-30CF-4FA3-9FA6-1BEB59FE3C8F}"
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Unittests", "tests\Unittests\Unittests.vcxproj", "{39BBD212-79B1-4527-8D62-194A6A8428A8}"
 EndProject
@@ -45,14 +43,6 @@ Global
 		{29F78C28-341C-4D6F-BE65-2CD559672A56}.Release|x64.Build.0 = Release|x64
 		{29F78C28-341C-4D6F-BE65-2CD559672A56}.Release|x86.ActiveCfg = Release|Win32
 		{29F78C28-341C-4D6F-BE65-2CD559672A56}.Release|x86.Build.0 = Release|Win32
-		{D1AECB48-30CF-4FA3-9FA6-1BEB59FE3C8F}.Debug|x64.ActiveCfg = Debug|x64
-		{D1AECB48-30CF-4FA3-9FA6-1BEB59FE3C8F}.Debug|x64.Build.0 = Debug|x64
-		{D1AECB48-30CF-4FA3-9FA6-1BEB59FE3C8F}.Debug|x86.ActiveCfg = Debug|Win32
-		{D1AECB48-30CF-4FA3-9FA6-1BEB59FE3C8F}.Debug|x86.Build.0 = Debug|Win32
-		{D1AECB48-30CF-4FA3-9FA6-1BEB59FE3C8F}.Release|x64.ActiveCfg = Release|x64
-		{D1AECB48-30CF-4FA3-9FA6-1BEB59FE3C8F}.Release|x64.Build.0 = Release|x64
-		{D1AECB48-30CF-4FA3-9FA6-1BEB59FE3C8F}.Release|x86.ActiveCfg = Release|Win32
-		{D1AECB48-30CF-4FA3-9FA6-1BEB59FE3C8F}.Release|x86.Build.0 = Release|Win32
 		{39BBD212-79B1-4527-8D62-194A6A8428A8}.Debug|x64.ActiveCfg = Debug|x64
 		{39BBD212-79B1-4527-8D62-194A6A8428A8}.Debug|x64.Build.0 = Debug|x64
 		{39BBD212-79B1-4527-8D62-194A6A8428A8}.Debug|x86.ActiveCfg = Debug|Win32

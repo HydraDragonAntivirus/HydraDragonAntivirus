@@ -259,7 +259,7 @@ HRESULT WINAPI CScanService::OnFileFound(__in IVirtualFs *file, __in IFsEnumCont
 	UNREFERENCED_PARAMETER(currentDepth);
 	HRESULT hr = S_OK;
 	size_t i, n;
-	n = m_ScanModules.size();
+	n = m_Observers.size();
 	for (i = 0; i < n; )
 	{
 		hr = m_ScanModules[i]->Scan(file, context, this);

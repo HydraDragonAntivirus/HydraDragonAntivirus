@@ -20,7 +20,6 @@ Set-Location (Resolve-Path (Join-Path $PSScriptRoot '..\..'))
 $projects = @(
     'TinyAvCore\TinyAvCore.vcxproj',
     'TinyAvConsole\TinyAvConsole.vcxproj',
-    'MinimalOpenHeuristics\MinimalOpenHeuristics.vcxproj',
     'SalityKiller\SalityKiller.vcxproj',
     'tests\Unittests\Unittests.vcxproj'
 )

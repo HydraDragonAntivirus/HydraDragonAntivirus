@@ -22,7 +22,6 @@ protected:
 	IPeFile *   m_parser;
 	IEmulator * m_emul;
 	DWORD		m_emulErrCode;
-	bool        m_emulatorRuntimeAvailable;
 	virtual ~CKillVirus();
 
 public:

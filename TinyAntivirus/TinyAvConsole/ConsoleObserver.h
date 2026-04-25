@@ -9,7 +9,6 @@ protected:
 	BOOL m_bVirusDetected;
 	BOOL m_bRescan;
 	BOOL m_error;
-	BOOL m_objectOpen;
 	ULONGLONG m_TotalFileCnt;
 	ULONGLONG m_TotalObjectCnt;
 	ULONGLONG m_DetectedCnt;
