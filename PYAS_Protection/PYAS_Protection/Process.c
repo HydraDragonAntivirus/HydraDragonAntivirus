@@ -17,6 +17,47 @@ static POB_CALLBACK_REGISTRATION g_ObReg = NULL;
 static POB_OPERATION_REGISTRATION g_OpReg = NULL;
 
 //
+// --- Process trust cache for ProtectBoot / malware-style checks ---
+//
+// This intentionally uses PID-based cache entries, not cached PEPROCESS
+// pointers. That avoids stale referenced object bugs and keeps unload simple.
+//
+#define TRUST_CACHE_SIZE 64
+#define TRUST_CACHE_TTL_SEC 10
+
+typedef struct _TRUST_CACHE_ENTRY {
+    HANDLE ProcessId;
+    BOOLEAN IsTrusted;
+    LARGE_INTEGER CacheTime;
+} TRUST_CACHE_ENTRY, *PTRUST_CACHE_ENTRY;
+
+static TRUST_CACHE_ENTRY g_TrustCache[TRUST_CACHE_SIZE];
+static FAST_MUTEX g_TrustCacheLock;
+static BOOLEAN g_TrustCacheInitialized = FALSE;
+static BOOLEAN g_ProtectedPidTrackingInitialized = FALSE;
+
+static VOID InitializeTrustCache(VOID)
+{
+    if (!g_TrustCacheInitialized)
+    {
+        RtlZeroMemory(g_TrustCache, sizeof(g_TrustCache));
+        ExInitializeFastMutex(&g_TrustCacheLock);
+        g_TrustCacheInitialized = TRUE;
+    }
+}
+
+static VOID CleanupTrustCache(VOID)
+{
+    if (!g_TrustCacheInitialized)
+        return;
+
+    ExAcquireFastMutex(&g_TrustCacheLock);
+    RtlZeroMemory(g_TrustCache, sizeof(g_TrustCache));
+    ExReleaseFastMutex(&g_TrustCacheLock);
+}
+
+
+//
 // --- Driver Entry and Unload ---
 //
 
@@ -51,6 +92,9 @@ NTSTATUS ProcessDriverUnload() {
         ExFreePoolWithTag(g_ObReg, 'gObR');
         g_ObReg = NULL;
     }
+
+    g_ProtectedPidTrackingInitialized = FALSE;
+    CleanupTrustCache();
 
     // Clean up the protected PID list
     KLOCK_QUEUE_HANDLE lockHandle;
@@ -95,6 +139,8 @@ NTSTATUS ProtectProcess(void)
     // Init list/spinlock
     InitializeListHead(&g_ProtectedPidsList);
     KeInitializeSpinLock(&g_ProtectedPidsLock);
+    g_ProtectedPidTrackingInitialized = TRUE;
+    InitializeTrustCache();
 
     // Register process notify
     // The second parameter FALSE indicates registration.
@@ -411,6 +457,130 @@ BOOLEAN IsSystemProcess(PEPROCESS Process) {
 
     return FALSE;
 }
+
+
+//
+// IsProcessTrusted
+//
+// Shared trust decision used by ProtectBoot.cpp and any future malware-style
+// blocking logic. This keeps the same public function name, but unites it with
+// this driver's existing process tracking and dynamic process rules.
+//
+BOOLEAN IsProcessTrusted(_In_ HANDLE ProcessId)
+{
+    ULONG_PTR pidValue = (ULONG_PTR)ProcessId;
+
+    //
+    // Always trust Idle/System. Kernel-mode callers are already skipped by
+    // ProtectBoot, but this keeps the helper safe for other call sites too.
+    //
+    if (ProcessId == (HANDLE)0 || ProcessId == (HANDLE)4)
+        return TRUE;
+
+    //
+    // This helper may query process image paths and uses FAST_MUTEX.
+    // Keep it PASSIVE_LEVEL only.
+    //
+    if (KeGetCurrentIrql() != PASSIVE_LEVEL)
+        return FALSE;
+
+    //
+    // A process already tracked as protected by this driver is trusted.
+    // This covers PYAS/HydraDragon protected processes once they are observed
+    // by CreateProcessNotifyRoutine.
+    //
+    if (g_ProtectedPidTrackingInitialized && IsProtectedProcessByPid(ProcessId))
+        return TRUE;
+
+    ULONG hash = ((ULONG)pidValue) & (TRUST_CACHE_SIZE - 1);
+
+    if (g_TrustCacheInitialized)
+    {
+        ExAcquireFastMutex(&g_TrustCacheLock);
+
+        if (g_TrustCache[hash].ProcessId == ProcessId)
+        {
+            LARGE_INTEGER now;
+            KeQuerySystemTime(&now);
+
+            if ((now.QuadPart - g_TrustCache[hash].CacheTime.QuadPart) <
+                (TRUST_CACHE_TTL_SEC * 10000000LL))
+            {
+                BOOLEAN cachedResult = g_TrustCache[hash].IsTrusted;
+                ExReleaseFastMutex(&g_TrustCacheLock);
+                return cachedResult;
+            }
+        }
+
+        ExReleaseFastMutex(&g_TrustCacheLock);
+    }
+
+    PEPROCESS process = NULL;
+    NTSTATUS status = PsLookupProcessByProcessId(ProcessId, &process);
+    if (!NT_SUCCESS(status) || process == NULL)
+        return FALSE;
+
+    BOOLEAN isTrusted = FALSE;
+
+    //
+    // Trust core Windows subsystem processes using the existing recursion-safe
+    // helper. This does not open handles.
+    //
+    if (IsSystemProcess(process))
+    {
+        isTrusted = TRUE;
+        goto UpdateCacheAndExit;
+    }
+
+    PUNICODE_STRING imagePath = NULL;
+    status = SeLocateProcessImageName(process, &imagePath);
+
+    if (NT_SUCCESS(status) && imagePath && imagePath->Buffer)
+    {
+        NormalizeDevicePathToDos(imagePath);
+
+        //
+        // Hard trust for your product directory, matching the existing rule
+        // engine's hardcoded root style.
+        //
+        if (ContainsSubstringInsensitive(
+                imagePath->Buffer,
+                L"\\??\\C:\\Program Files\\HydraDragonAntivirus"))
+        {
+            isTrusted = TRUE;
+            goto UpdateCacheAndExit;
+        }
+
+        //
+        // Unite trust with your current dynamic Process rules.
+        // If the executable path is in the Process ruleset, treat it as trusted
+        // for ProtectBoot's dangerous-disk-IOCTL decision.
+        //
+        if (IsPathProtectedByType(imagePath->Buffer, RuleTypeProcess))
+        {
+            isTrusted = TRUE;
+            goto UpdateCacheAndExit;
+        }
+    }
+
+UpdateCacheAndExit:
+
+    if (g_TrustCacheInitialized)
+    {
+        ExAcquireFastMutex(&g_TrustCacheLock);
+        g_TrustCache[hash].ProcessId = ProcessId;
+        g_TrustCache[hash].IsTrusted = isTrusted;
+        KeQuerySystemTime(&g_TrustCache[hash].CacheTime);
+        ExReleaseFastMutex(&g_TrustCacheLock);
+    }
+
+    if (imagePath)
+        ExFreePool(imagePath);
+
+    ObDereferenceObject(process);
+    return isTrusted;
+}
+
 
 // Case-insensitive check to see if 'Source' string ENDS WITH 'Pattern'.
 BOOLEAN UnicodeStringEndsWithInsensitive(PUNICODE_STRING Source, PCWSTR Pattern) {

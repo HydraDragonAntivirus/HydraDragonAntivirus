@@ -155,6 +155,11 @@ BOOLEAN IsSystemProcess(
     _In_ PEPROCESS Process
 );
 
+
+BOOLEAN IsProcessTrusted(
+    _In_ HANDLE ProcessId
+);
+
 BOOLEAN UnicodeStringEndsWithInsensitive(
     _In_ PUNICODE_STRING Source,
     _In_ PCWSTR Pattern
