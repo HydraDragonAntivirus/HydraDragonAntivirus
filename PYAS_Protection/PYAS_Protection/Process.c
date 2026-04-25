@@ -29,7 +29,7 @@ typedef struct _TRUST_CACHE_ENTRY {
     HANDLE ProcessId;
     BOOLEAN IsTrusted;
     LARGE_INTEGER CacheTime;
-} TRUST_CACHE_ENTRY, *PTRUST_CACHE_ENTRY;
+} TRUST_CACHE_ENTRY, * PTRUST_CACHE_ENTRY;
 
 static TRUST_CACHE_ENTRY g_TrustCache[TRUST_CACHE_SIZE];
 static FAST_MUTEX g_TrustCacheLock;
@@ -170,15 +170,15 @@ NTSTATUS ProtectProcess(void)
     }
 
     // Fill g_OpReg: Operation 0 - Process Handle Operations
-    g_OpReg[0].ObjectType  = PsProcessType;
-    g_OpReg[0].Operations  = OB_OPERATION_HANDLE_CREATE | OB_OPERATION_HANDLE_DUPLICATE;
-    g_OpReg[0].PreOperation  = preCall;
+    g_OpReg[0].ObjectType = PsProcessType;
+    g_OpReg[0].Operations = OB_OPERATION_HANDLE_CREATE | OB_OPERATION_HANDLE_DUPLICATE;
+    g_OpReg[0].PreOperation = preCall;
     g_OpReg[0].PostOperation = NULL;
 
     // Fill g_OpReg: Operation 1 - Thread Handle Operations
-    g_OpReg[1].ObjectType  = PsThreadType;
-    g_OpReg[1].Operations  = OB_OPERATION_HANDLE_CREATE | OB_OPERATION_HANDLE_DUPLICATE;
-    g_OpReg[1].PreOperation  = threadPreCall;
+    g_OpReg[1].ObjectType = PsThreadType;
+    g_OpReg[1].Operations = OB_OPERATION_HANDLE_CREATE | OB_OPERATION_HANDLE_DUPLICATE;
+    g_OpReg[1].PreOperation = threadPreCall;
     g_OpReg[1].PostOperation = NULL;
 
     // Fill g_ObReg
@@ -271,7 +271,7 @@ OB_PREOP_CALLBACK_STATUS preCall(
         return OB_PREOP_SUCCESS;
 
     PEPROCESS currentProc = PsGetCurrentProcess();
-    PEPROCESS targetProc  = (PEPROCESS)pOperationInformation->Object;
+    PEPROCESS targetProc = (PEPROCESS)pOperationInformation->Object;
 
     // 2. POINTER EQUALITY CHECK
     if (currentProc == targetProc)
@@ -337,7 +337,7 @@ OB_PREOP_CALLBACK_STATUS threadPreCall(
     HANDLE callerPid = PsGetProcessId(currentProc);
 
     PETHREAD targetThread = (PETHREAD)pOperationInformation->Object;
-    PEPROCESS targetProc  = PsGetThreadProcess(targetThread);
+    PEPROCESS targetProc = PsGetThreadProcess(targetThread);
 
     if (!targetProc)
         return OB_PREOP_SUCCESS;
@@ -446,11 +446,11 @@ BOOLEAN IsSystemProcess(PEPROCESS Process) {
 
     if (processName) {
         // Use case-insensitive ASCII comparison (_stricmp is available in kernel)
-        if (_stricmp((char*)processName, "csrss.exe")    == 0 ||
-            _stricmp((char*)processName, "lsass.exe")    == 0 ||
+        if (_stricmp((char*)processName, "csrss.exe") == 0 ||
+            _stricmp((char*)processName, "lsass.exe") == 0 ||
             _stricmp((char*)processName, "services.exe") == 0 ||
-            _stricmp((char*)processName, "wininit.exe")  == 0 ||
-            _stricmp((char*)processName, "smss.exe")     == 0) {
+            _stricmp((char*)processName, "wininit.exe") == 0 ||
+            _stricmp((char*)processName, "smss.exe") == 0) {
             return TRUE;
         }
     }
@@ -521,6 +521,7 @@ BOOLEAN IsProcessTrusted(_In_ HANDLE ProcessId)
         return FALSE;
 
     BOOLEAN isTrusted = FALSE;
+    PUNICODE_STRING imagePath = NULL;
 
     //
     // Trust core Windows subsystem processes using the existing recursion-safe
@@ -532,7 +533,6 @@ BOOLEAN IsProcessTrusted(_In_ HANDLE ProcessId)
         goto UpdateCacheAndExit;
     }
 
-    PUNICODE_STRING imagePath = NULL;
     status = SeLocateProcessImageName(process, &imagePath);
 
     if (NT_SUCCESS(status) && imagePath && imagePath->Buffer)
@@ -544,8 +544,8 @@ BOOLEAN IsProcessTrusted(_In_ HANDLE ProcessId)
         // engine's hardcoded root style.
         //
         if (ContainsSubstringInsensitive(
-                imagePath->Buffer,
-                L"\\??\\C:\\Program Files\\HydraDragonAntivirus"))
+            imagePath->Buffer,
+            L"\\??\\C:\\Program Files\\HydraDragonAntivirus"))
         {
             isTrusted = TRUE;
             goto UpdateCacheAndExit;
@@ -593,9 +593,9 @@ BOOLEAN UnicodeStringEndsWithInsensitive(PUNICODE_STRING Source, PCWSTR Pattern)
 
     // Create a temporary UNICODE_STRING for the suffix of the source string
     UNICODE_STRING sourceSuffix;
-    sourceSuffix.Length        = patternString.Length;
+    sourceSuffix.Length = patternString.Length;
     sourceSuffix.MaximumLength = patternString.Length;
-    sourceSuffix.Buffer        = (PWCH)((PCHAR)Source->Buffer + Source->Length - patternString.Length);
+    sourceSuffix.Buffer = (PWCH)((PCHAR)Source->Buffer + Source->Length - patternString.Length);
 
     // Compare case-insensitively
     return (RtlCompareUnicodeString(&sourceSuffix, &patternString, TRUE) == 0);
@@ -612,7 +612,7 @@ NTSTATUS QueueProcessAlertToUserMode(
 )
 {
     PPROCESS_ALERT_WORK_ITEM workItem;
-    PUNICODE_STRING targetPath   = NULL;
+    PUNICODE_STRING targetPath = NULL;
     PUNICODE_STRING attackerPath = NULL;
     NTSTATUS status;
 
@@ -631,7 +631,7 @@ NTSTATUS QueueProcessAlertToUserMode(
     status = SeLocateProcessImageName(TargetProcess, &targetPath);
     if (NT_SUCCESS(status) && targetPath && targetPath->Buffer && targetPath->Length > 0)
     {
-        workItem->TargetPath.Length        = targetPath->Length;
+        workItem->TargetPath.Length = targetPath->Length;
         workItem->TargetPath.MaximumLength = targetPath->Length + sizeof(WCHAR);
         workItem->TargetPath.Buffer = (PWCHAR)ExAllocatePool2(
             POOL_FLAG_NON_PAGED,
@@ -643,11 +643,11 @@ NTSTATUS QueueProcessAlertToUserMode(
         {
             RtlCopyMemory(workItem->TargetPath.Buffer, targetPath->Buffer, targetPath->Length);
             workItem->TargetPath.Buffer[targetPath->Length / sizeof(WCHAR)] = L'\0';
-            
+
             // Normalize path for user-mode reporting
             UNICODE_STRING uTarget;
-            uTarget.Buffer        = workItem->TargetPath.Buffer;
-            uTarget.Length        = workItem->TargetPath.Length;
+            uTarget.Buffer = workItem->TargetPath.Buffer;
+            uTarget.Length = workItem->TargetPath.Length;
             uTarget.MaximumLength = workItem->TargetPath.MaximumLength;
             NormalizeDevicePathToDos(&uTarget);
             workItem->TargetPath.Length = uTarget.Length;
@@ -657,7 +657,7 @@ NTSTATUS QueueProcessAlertToUserMode(
     status = SeLocateProcessImageName(AttackerProcess, &attackerPath);
     if (NT_SUCCESS(status) && attackerPath && attackerPath->Buffer && attackerPath->Length > 0)
     {
-        workItem->AttackerPath.Length        = attackerPath->Length;
+        workItem->AttackerPath.Length = attackerPath->Length;
         workItem->AttackerPath.MaximumLength = attackerPath->Length + sizeof(WCHAR);
         workItem->AttackerPath.Buffer = (PWCHAR)ExAllocatePool2(
             POOL_FLAG_NON_PAGED,
@@ -672,8 +672,8 @@ NTSTATUS QueueProcessAlertToUserMode(
 
             // Normalize path for user-mode reporting
             UNICODE_STRING uAttacker;
-            uAttacker.Buffer        = workItem->AttackerPath.Buffer;
-            uAttacker.Length        = workItem->AttackerPath.Length;
+            uAttacker.Buffer = workItem->AttackerPath.Buffer;
+            uAttacker.Length = workItem->AttackerPath.Length;
             uAttacker.MaximumLength = workItem->AttackerPath.MaximumLength;
             NormalizeDevicePathToDos(&uAttacker);
             workItem->AttackerPath.Length = uAttacker.Length;
@@ -685,7 +685,7 @@ NTSTATUS QueueProcessAlertToUserMode(
     if (attackerPath) ExFreePool(attackerPath);
 
     // Copy PIDs and attack type
-    workItem->TargetPid   = PsGetProcessId(TargetProcess);
+    workItem->TargetPid = PsGetProcessId(TargetProcess);
     workItem->AttackerPid = PsGetProcessId(AttackerProcess);
     // RtlStringCbCopyW ensures null termination within bounds
     RtlStringCbCopyW(workItem->AttackType, sizeof(workItem->AttackType), AttackType);
@@ -712,7 +712,7 @@ VOID ProcessAlertWorker(PVOID Context)
         return;
 
     // Use safe pointer checks
-    PCWSTR targetName   = workItem->TargetPath.Buffer   ? workItem->TargetPath.Buffer   : L"Unknown";
+    PCWSTR targetName = workItem->TargetPath.Buffer ? workItem->TargetPath.Buffer : L"Unknown";
     PCWSTR attackerName = workItem->AttackerPath.Buffer ? workItem->AttackerPath.Buffer : L"Unknown";
 
     // Escape the paths for valid JSON
