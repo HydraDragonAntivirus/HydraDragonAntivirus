@@ -4,12 +4,33 @@
 
 #define FLT_TAG 'xulF'
 
+VOID DriverUnload(PDRIVER_OBJECT DriverObject) {
+    UNREFERENCED_PARAMETER(DriverObject);
+    
+    KdPrintEx((DPFLTR_IHVDRIVER_ID, DPFLTR_INFO_LEVEL, "[i] Unloading Sanctum Minifilter...\n"));
+    
+    // Cleanup Comms
+    UninitComms();
+    
+    // Unregister filter
+    if (g_filter != NULL) {
+        FltUnregisterFilter(g_filter);
+        g_filter = NULL;
+    }
+}
+
 NTSTATUS DriverEntry(
 	PDRIVER_OBJECT driver_object, 
 	PUNICODE_STRING registry_path
 ) {
 
 	UNREFERENCED_PARAMETER(registry_path);
+
+#if DBG
+    driver_object->DriverUnload = DriverUnload;
+#else
+    driver_object->DriverUnload = NULL;
+#endif
 
 	//
 	// Register the minifilter with the OS

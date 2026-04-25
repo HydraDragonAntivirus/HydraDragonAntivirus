@@ -922,7 +922,11 @@ NTSTATUS DriverEntry(IN PDRIVER_OBJECT DriverObject, IN PUNICODE_STRING Registry
     DriverObject->MajorFunction[IRP_MJ_PNP] = MBRFDispatchPnp;
     DriverObject->MajorFunction[IRP_MJ_DEVICE_CONTROL] = MBRFDevControl;
     DriverObject->DriverExtension->AddDevice = MBRFAddDevice;
+#if DBG
+    DriverObject->DriverUnload = MBRFUnload;
+#else
     DriverObject->DriverUnload = NULL;
+#endif
 
     return STATUS_SUCCESS;
 }

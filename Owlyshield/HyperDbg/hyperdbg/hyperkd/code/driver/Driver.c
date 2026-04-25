@@ -67,7 +67,11 @@ DriverEntry(
         DriverObject->MajorFunction[IRP_MJ_WRITE]          = DrvWrite;
         DriverObject->MajorFunction[IRP_MJ_DEVICE_CONTROL] = DrvDispatchIoControl;
 
+#if DBG
         DriverObject->DriverUnload = DrvUnload;
+#else
+        DriverObject->DriverUnload = NULL;
+#endif
         IoCreateSymbolicLink(&DosDeviceName, &DriverName);
     }
 

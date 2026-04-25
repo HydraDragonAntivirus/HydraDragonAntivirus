@@ -64,7 +64,11 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath) 
     UNICODE_STRING symLink = RTL_CONSTANT_STRING(L"\\DosDevices\\hyperhv");
     PDEVICE_OBJECT deviceObject = NULL;
 
+#if DBG
     DriverObject->DriverUnload = DrvUnload;
+#else
+    DriverObject->DriverUnload = NULL;
+#endif
     DriverObject->MajorFunction[IRP_MJ_CREATE] = DrvDispatchCreateClose;
     DriverObject->MajorFunction[IRP_MJ_CLOSE] = DrvDispatchCreateClose;
     DriverObject->MajorFunction[IRP_MJ_DEVICE_CONTROL] = DrvDispatchDeviceControl;

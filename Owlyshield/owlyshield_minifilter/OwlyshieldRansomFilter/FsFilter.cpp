@@ -56,6 +56,9 @@ FLT_POSTOP_CALLBACK_STATUS
 FSProcessPostReadSafe(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECTS FltObjects,
                       _In_opt_ PVOID CompletionContext, _In_ FLT_POST_OPERATION_FLAGS Flags);
 
+VOID
+DriverUnload(PDRIVER_OBJECT DriverObject);
+
 BOOLEAN
 FSShouldIgnorePyasWhitelistPath(_In_ PCUNICODE_STRING Path);
 
@@ -796,6 +799,12 @@ Return Value:
     // Load PYAS whitelist rules once at startup; FsFilter uses these to ignore incoming whitelist scope.
     FSLoadPyasWhitelistRules();
 
+#if DBG
+    DriverObject->DriverUnload = DriverUnload;
+#else
+    DriverObject->DriverUnload = NULL;
+#endif
+
     // ====================================================================
     // Initialize monitoring systems
     // - Hypervisor/VMM monitoring backend
@@ -1164,6 +1173,14 @@ VOID EnumerateExistingProcesses(VOID)
     }
 
     ExFreePoolWithTag(buffer, 'EPrW');
+}
+
+VOID
+DriverUnload(PDRIVER_OBJECT DriverObject)
+{
+    UNREFERENCED_PARAMETER(DriverObject);
+    // Call the minifilter unload logic (flags = 0)
+    (VOID) FSUnloadDriver(0);
 }
 
 NTSTATUS

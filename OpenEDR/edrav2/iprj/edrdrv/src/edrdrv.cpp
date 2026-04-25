@@ -161,7 +161,11 @@ EXTERN_C NTSTATUS DriverEntry(_In_ PDRIVER_OBJECT pDriverObject, _In_ PUNICODE_S
 	__try
 	{
 		g_pCommonData->pDriverObject = pDriverObject;
+#if DBG
 		g_pCommonData->pDriverObject->DriverUnload = unloadDriver;
+#else
+		g_pCommonData->pDriverObject->DriverUnload = NULL;
+#endif
 		IFERR_RET(g_pCommonData->usRegistryPath.assign(pusRegistryPath));
 
 		log::initialize();
@@ -188,8 +192,6 @@ EXTERN_C NTSTATUS DriverEntry(_In_ PDRIVER_OBJECT pDriverObject, _In_ PUNICODE_S
 		IFERR_RET(dllinj::initialize(), "Can't initialize DLL injector\r\n");
 
 		g_pCommonData->pfnSaveDriverUnload = g_pCommonData->pDriverObject->DriverUnload;
-		if (!g_pCommonData->fDisableSelfProtection)
-			g_pCommonData->pDriverObject->DriverUnload = nullptr;
 
 		LOGINFO1("Loading config...\r\n");
 		IFERR_LOG(loadMainConfigFromRegistry(), "Can't load config.\r\n");

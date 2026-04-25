@@ -622,7 +622,11 @@ extern "C" NTSTATUS DriverEntry(_In_ PDRIVER_OBJECT DriverObject, PUNICODE_STRIN
 		DriverObject->MajorFunction[IRP_MJ_CLOSE] = DrvClose;
 		DriverObject->MajorFunction[IRP_MJ_CREATE] = DrvCreate;
 		DriverObject->MajorFunction[IRP_MJ_DEVICE_CONTROL] = DrvDispatchIoControl;
+#if DBG
 		DriverObject->DriverUnload = DrvUnload;
+#else
+		DriverObject->DriverUnload = NULL;
+#endif
 		IoCreateSymbolicLink(&DosDeviceName, &DriverName);
 	}
 
