@@ -428,71 +428,105 @@ BOOLEAN IsProtectedProcessByPath(PEPROCESS Process) {
     return result;
 }
 
-// RECURSION SAFE FIX: Checks if a process is System using PID and Safe Name Check.
-// Uses PsGetProcessImageFileName which is recursion-safe (doesn't open handles).
-BOOLEAN IsSystemProcess(PEPROCESS Process) {
-    HANDLE pid = PsGetProcessId(Process);
 
-    // 1. Check for Standard System PIDs
-    // PID 4 is always the "System" process. PID 0 is Idle.
-    if (pid == (HANDLE)4 || pid == (HANDLE)0) {
-        return TRUE;
-    }
+static
+BOOLEAN
+IsHardcodedTrustedProcessPath(
+    _In_ PCWSTR ImagePath
+)
+{
+    if (!ImagePath)
+        return FALSE;
 
-    // 2. Check for Critical Subsystem Processes (csrss, lsass, etc.)
-    // We CANNOT use OpenProcess/OpenToken here (recursion risk).
-    // We use PsGetProcessImageFileName which simply reads the EPROCESS structure.
-    UCHAR* processName = PsGetProcessImageFileName(Process);
+    static const PCWSTR kTrustedHardcodedPaths[] = {
+        L"\\??\\C:\\Windows\\System32\\csrss.exe",
+        L"\\??\\C:\\Windows\\System32\\lsass.exe",
+        L"\\??\\C:\\Windows\\System32\\services.exe",
+        L"\\??\\C:\\Windows\\System32\\wininit.exe",
+        L"\\??\\C:\\Windows\\System32\\smss.exe",
+        L"\\??\\C:\\Windows\\System32\\winlogon.exe",
+        L"\\??\\C:\\Windows\\System32\\svchost.exe",
 
-    if (processName) {
-        // Use case-insensitive ASCII comparison (_stricmp is available in kernel)
-        if (_stricmp((char*)processName, "csrss.exe") == 0 ||
-            _stricmp((char*)processName, "lsass.exe") == 0 ||
-            _stricmp((char*)processName, "services.exe") == 0 ||
-            _stricmp((char*)processName, "wininit.exe") == 0 ||
-            _stricmp((char*)processName, "smss.exe") == 0) {
+        L"\\??\\C:\\Program Files\\HydraDragonAntivirus\\hydradragon\\Owlyshield\\Owlyshield Service\\owlyshield_ransom.exe"
+    };
+
+    for (ULONG i = 0; i < ARRAYSIZE(kTrustedHardcodedPaths); ++i)
+    {
+        if (_wcsicmp(ImagePath, kTrustedHardcodedPaths[i]) == 0)
             return TRUE;
-        }
     }
 
     return FALSE;
 }
 
+// HARD-CODED ONLY:
+// Checks if a process is trusted system/product process using only:
+//   - PID 0 / PID 4
+//   - exact hardcoded full-path matches
+//
+// No basename checks.
+// No PsGetProcessImageFileName trust.
+// No dynamic process rules.
+// No protected-PID trust.
+//
+BOOLEAN IsSystemProcess(PEPROCESS Process)
+{
+    if (!Process)
+        return FALSE;
+
+    HANDLE pid = PsGetProcessId(Process);
+
+    if (pid == (HANDLE)4 || pid == (HANDLE)0)
+        return TRUE;
+
+    if (KeGetCurrentIrql() != PASSIVE_LEVEL)
+        return FALSE;
+
+    PUNICODE_STRING imagePath = NULL;
+    NTSTATUS status = SeLocateProcessImageName(Process, &imagePath);
+
+    if (!NT_SUCCESS(status) || !imagePath || !imagePath->Buffer)
+    {
+        if (imagePath)
+            ExFreePool(imagePath);
+
+        return FALSE;
+    }
+
+    NormalizeDevicePathToDos(imagePath);
+
+    BOOLEAN result = IsHardcodedTrustedProcessPath(imagePath->Buffer);
+
+    ExFreePool(imagePath);
+    return result;
+}
+
+
 
 //
 // IsProcessTrusted
 //
-// Shared trust decision used by ProtectBoot.cpp and any future malware-style
-// blocking logic. This keeps the same public function name, but unites it with
-// this driver's existing process tracking and dynamic process rules.
+// HARD-CODED ONLY trust decision for ProtectBoot and malware-style blocking.
+//
+// Trust sources:
+//   - PID 0 / PID 4
+//   - exact full path in IsHardcodedTrustedProcessPath()
+//
+// Explicitly removed:
+//   - basename-only trust
+//   - protected PID list trust
+//   - dynamic Process ruleset trust
+//   - wildcard trust
 //
 BOOLEAN IsProcessTrusted(_In_ HANDLE ProcessId)
 {
-    ULONG_PTR pidValue = (ULONG_PTR)ProcessId;
-
-    //
-    // Always trust Idle/System. Kernel-mode callers are already skipped by
-    // ProtectBoot, but this keeps the helper safe for other call sites too.
-    //
     if (ProcessId == (HANDLE)0 || ProcessId == (HANDLE)4)
         return TRUE;
 
-    //
-    // This helper may query process image paths and uses FAST_MUTEX.
-    // Keep it PASSIVE_LEVEL only.
-    //
     if (KeGetCurrentIrql() != PASSIVE_LEVEL)
         return FALSE;
 
-    //
-    // A process already tracked as protected by this driver is trusted.
-    // This covers PYAS/HydraDragon protected processes once they are observed
-    // by CreateProcessNotifyRoutine.
-    //
-    if (g_ProtectedPidTrackingInitialized && IsProtectedProcessByPid(ProcessId))
-        return TRUE;
-
-    ULONG hash = ((ULONG)pidValue) & (TRUST_CACHE_SIZE - 1);
+    ULONG hash = ((ULONG)(ULONG_PTR)ProcessId) & (TRUST_CACHE_SIZE - 1);
 
     if (g_TrustCacheInitialized)
     {
@@ -520,50 +554,16 @@ BOOLEAN IsProcessTrusted(_In_ HANDLE ProcessId)
     if (!NT_SUCCESS(status) || process == NULL)
         return FALSE;
 
-    BOOLEAN isTrusted = FALSE;
     PUNICODE_STRING imagePath = NULL;
-
-    //
-    // Trust core Windows subsystem processes using the existing recursion-safe
-    // helper. This does not open handles.
-    //
-    if (IsSystemProcess(process))
-    {
-        isTrusted = TRUE;
-        goto UpdateCacheAndExit;
-    }
-
     status = SeLocateProcessImageName(process, &imagePath);
+
+    BOOLEAN isTrusted = FALSE;
 
     if (NT_SUCCESS(status) && imagePath && imagePath->Buffer)
     {
         NormalizeDevicePathToDos(imagePath);
-
-        //
-        // Hard trust for your product directory, matching the existing rule
-        // engine's hardcoded root style.
-        //
-        if (ContainsSubstringInsensitive(
-            imagePath->Buffer,
-            L"\\??\\C:\\Program Files\\HydraDragonAntivirus"))
-        {
-            isTrusted = TRUE;
-            goto UpdateCacheAndExit;
-        }
-
-        //
-        // Unite trust with your current dynamic Process rules.
-        // If the executable path is in the Process ruleset, treat it as trusted
-        // for ProtectBoot's dangerous-disk-IOCTL decision.
-        //
-        if (IsPathProtectedByType(imagePath->Buffer, RuleTypeProcess))
-        {
-            isTrusted = TRUE;
-            goto UpdateCacheAndExit;
-        }
+        isTrusted = IsHardcodedTrustedProcessPath(imagePath->Buffer);
     }
-
-UpdateCacheAndExit:
 
     if (g_TrustCacheInitialized)
     {
@@ -580,6 +580,7 @@ UpdateCacheAndExit:
     ObDereferenceObject(process);
     return isTrusted;
 }
+
 
 
 // Case-insensitive check to see if 'Source' string ENDS WITH 'Pattern'.
