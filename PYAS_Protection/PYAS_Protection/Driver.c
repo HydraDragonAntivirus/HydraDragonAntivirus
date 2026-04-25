@@ -12,6 +12,9 @@ static BOOLEAN g_PipeUnavailableLogged = FALSE;
 #define RULE_LOAD_DELAY_SECONDS 10
 static volatile LONG g_RuleLoadThreadStarted = 0;
 
+static VOID RuleLoadWorker(_In_opt_ PVOID Context);
+static VOID DriverUnload(_In_ PDRIVER_OBJECT DriverObject);
+
 // Shared pipe alert function with retry logic
 
 // --- Helper: Validate Pipe Server Process ---
@@ -124,7 +127,10 @@ static BOOLEAN IsValidPipeServerProcess(HANDLE PipeHandle)
                         }
 
                         UNICODE_STRING expectedRemaining;
-                        RtlInitUnicodeString(&expectedRemaining, L"\\Program Files\\HydraDragonAntivirus\\hydradragon\\Owlyshield\\Owlyshield Service\\owlyshield_ransom.exe");
+                        RtlInitUnicodeString(
+                            &expectedRemaining,
+                            L"\\Program Files\\HydraDragonAntivirus\\hydradragon\\Owlyshield\\Owlyshield Service\\owlyshield_ransom.exe"
+                        );
 
                         if (RtlCompareUnicodeString(&remainingPart, &expectedRemaining, TRUE) == 0)
                         {
@@ -304,7 +310,7 @@ BOOLEAN BypassCheckSign(PDRIVER_OBJECT pDriverObject)
 // system boot thread from blocking in synchronous file I/O while rules are
 // loaded from disk.
 // ---------------------------------------------------------------------------
-VOID RuleLoadWorker(_In_opt_ PVOID Context)
+static VOID RuleLoadWorker(_In_opt_ PVOID Context)
 {
     UNREFERENCED_PARAMETER(Context);
 
@@ -384,7 +390,7 @@ VOID DriverReinitCallback(
     }
     else
     {
-        g_RuleLoadThreadStarted = 0;
+        InterlockedExchange(&g_RuleLoadThreadStarted, 0);
         DbgPrint("[SimplePYAS] PsCreateSystemThread for rule loader failed: 0x%X\n", status);
     }
 }
@@ -397,6 +403,17 @@ NTSTATUS DriverEntry(
 {
     UNREFERENCED_PARAMETER(pRegistryString);
 
+    //
+    // Make unload reachable for demand-start/dev builds.
+    // For boot-start production builds, unload may never be used, but assigning
+    // it here avoids a hidden leak during test cycles.
+    //
+    #if DBG
+    pDriverObj->DriverUnload = DriverUnload;
+    #else
+        pDriverObj->DriverUnload = NULL;
+    #endif
+
     BypassCheckSign(pDriverObj);
 
 #if _WIN64
@@ -407,26 +424,65 @@ NTSTATUS DriverEntry(
     ldr->Flags |= 0x20;
 #endif
 
-    // Register callbacks — NO file I/O in any of these calls.
-    ProcessDriverEntry();
-    FileDriverEntry();
-    RegeditDriverEntry();
+    //
+    // Register callbacks. These functions must not perform synchronous rule-file
+    // I/O. Dynamic rule loading is deferred below.
+    //
+    NTSTATUS status;
 
-    // Defer rule loading (file I/O) until after the filesystem is ready.
-    // DriverReinitCallback is called by the kernel once IoInitSystem completes.
+    status = ProcessDriverEntry();
+    if (!NT_SUCCESS(status))
+    {
+        DbgPrint("[SimplePYAS] ProcessDriverEntry failed: 0x%X\n", status);
+        return status;
+    }
+
+    status = FileDriverEntry();
+    if (!NT_SUCCESS(status))
+    {
+        DbgPrint("[SimplePYAS] FileDriverEntry failed: 0x%X\n", status);
+        ProcessDriverUnload();
+        return status;
+    }
+
+    status = RegeditDriverEntry();
+    if (!NT_SUCCESS(status))
+    {
+        DbgPrint("[SimplePYAS] RegeditDriverEntry failed: 0x%X\n", status);
+        FileUnloadDriver();
+        ProcessDriverUnload();
+        return status;
+    }
+
+    //
+    // Defer rule loading. DriverReinitCallback does not read files directly;
+    // it creates RuleLoadWorker, which waits briefly and then calls
+    // InitializeProtectionRules().
+    //
     IoRegisterDriverReinitialization(pDriverObj, DriverReinitCallback, NULL);
 
-    DbgPrint("[SimplePYAS] DriverEntry complete - rule loading deferred to reinit callback\n");
+    DbgPrint("[SimplePYAS] DriverEntry complete - rule loading deferred to delayed worker\n");
 
     return STATUS_SUCCESS;
 }
 
 // DriverUnload
-NTSTATUS DriverUnload(_In_ PDRIVER_OBJECT pDriverObj)
+static VOID DriverUnload(_In_ PDRIVER_OBJECT pDriverObj)
 {
     UNREFERENCED_PARAMETER(pDriverObj);
-    ProcessDriverUnload();
-    FileUnloadDriver();
+
+    DbgPrint("[SimplePYAS] DriverUnload started\n");
+
     RegeditUnloadDriver();
-    return STATUS_SUCCESS;
+    FileUnloadDriver();
+    ProcessDriverUnload();
+
+    //
+    // FileUnloadDriver already calls CleanupProtectionRules(), but calling it
+    // here as well is safe because CleanupProtectionRules() is idempotent in
+    // your implementation.
+    //
+    CleanupProtectionRules();
+
+    DbgPrint("[SimplePYAS] DriverUnload complete\n");
 }
