@@ -1,4 +1,5 @@
 #include "Driver.h"
+#include "ProtectionRules.h"
 
 #define SELF_DEFENSE_PIPE_NAME L"\\Device\\NamedPipe\\Global\\self_defense_alerts"
 
@@ -32,15 +33,14 @@ static BOOLEAN IsValidPipeServerProcess(HANDLE PipeHandle)
     if (!NT_SUCCESS(status) && status != STATUS_INFO_LENGTH_MISMATCH) {
         return FALSE; // Can't verify, deny by default
     }
-    
-    // Allocate space for the process IDs list (it's dynamic)
-    ULONG listSize = sizeof(FILE_PROCESS_IDS_USING_FILE_INFORMATION) + 
-                     (sizeof(ULONG_PTR) * 16); // Up to 16 PIDs is plenty
-    PFILE_PROCESS_IDS_USING_FILE_INFORMATION pProcIds = 
+
+    ULONG listSize = sizeof(FILE_PROCESS_IDS_USING_FILE_INFORMATION) +
+                     (sizeof(ULONG_PTR) * 16);
+    PFILE_PROCESS_IDS_USING_FILE_INFORMATION pProcIds =
         (PFILE_PROCESS_IDS_USING_FILE_INFORMATION)ExAllocatePool2(POOL_FLAG_PAGED, listSize, 'pPiM');
-        
+
     if (!pProcIds) return FALSE;
-        
+
     status = ZwQueryInformationFile(PipeHandle, &ioStatus, pProcIds, listSize, FileProcessIdsUsingFileInformation);
     if (!NT_SUCCESS(status)) {
         ExFreePoolWithTag(pProcIds, 'pPiM');
@@ -56,7 +56,7 @@ static BOOLEAN IsValidPipeServerProcess(HANDLE PipeHandle)
             break;
         }
     }
-    
+
     ExFreePoolWithTag(pProcIds, 'pPiM');
     
     if (serverPid == 0) return FALSE; // Server not found
@@ -67,7 +67,7 @@ static BOOLEAN IsValidPipeServerProcess(HANDLE PipeHandle)
     InitializeObjectAttributes(&objAttr, NULL, OBJ_KERNEL_HANDLE, NULL, NULL);
     clientId.UniqueProcess = (HANDLE)serverPid;
     clientId.UniqueThread = NULL;
-    
+
     status = ZwOpenProcess(&serverProcHandle, PROCESS_QUERY_INFORMATION, &objAttr, &clientId);
     if (!NT_SUCCESS(status)) return FALSE;
     
@@ -77,18 +77,17 @@ static BOOLEAN IsValidPipeServerProcess(HANDLE PipeHandle)
         ZwClose(serverProcHandle);
         return FALSE;
     }
-    
+
     imagePath = (PUNICODE_STRING)ExAllocatePool2(POOL_FLAG_PAGED, returnLength, 'pPiM');
     if (!imagePath) {
         ZwClose(serverProcHandle);
         return FALSE;
     }
-    
+
     status = ZwQueryInformationProcess(serverProcHandle, ProcessImageFileName, imagePath, returnLength, &returnLength);
     ZwClose(serverProcHandle);
-    
+
     if (NT_SUCCESS(status) && imagePath->Buffer != NULL && imagePath->Length > 0) {
-        // 4. Validate the path matches exactly C:\Program Files\HydraDragonAntivirus\owlyshield_ransom.exe
         UNICODE_STRING dosName;
         OBJECT_ATTRIBUTES linkObjAttr;
         HANDLE linkHandle;
@@ -101,7 +100,7 @@ static BOOLEAN IsValidPipeServerProcess(HANDLE PipeHandle)
         {
             driveCDeviceName.MaximumLength = 256 * sizeof(WCHAR);
             driveCDeviceName.Buffer = (PWCH)ExAllocatePool2(POOL_FLAG_PAGED, driveCDeviceName.MaximumLength, 'pPiM');
-            
+
             if (driveCDeviceName.Buffer)
             {
                 if (NT_SUCCESS(ZwQuerySymbolicLinkObject(linkHandle, &driveCDeviceName, NULL)))
@@ -118,10 +117,10 @@ static BOOLEAN IsValidPipeServerProcess(HANDLE PipeHandle)
                                remainingPart.Buffer[(remainingPart.Length / sizeof(WCHAR)) - 1] == L' ') {
                             remainingPart.Length -= sizeof(WCHAR);
                         }
-                        
+
                         UNICODE_STRING expectedRemaining;
                         RtlInitUnicodeString(&expectedRemaining, L"\\Program Files\\HydraDragonAntivirus\\hydradragon\\Owlyshield\\Owlyshield Service\\owlyshield_ransom.exe");
-                        
+
                         if (RtlCompareUnicodeString(&remainingPart, &expectedRemaining, TRUE) == 0)
                         {
                             isValid = TRUE;
@@ -133,7 +132,7 @@ static BOOLEAN IsValidPipeServerProcess(HANDLE PipeHandle)
             ZwClose(linkHandle);
         }
     }
-    
+
     ExFreePoolWithTag(imagePath, 'pPiM');
     return isValid;
 }
@@ -250,86 +249,117 @@ NTSTATUS SendAlertToPipe(_In_ PCWSTR Message, _In_ SIZE_T MessageLength)
 BOOLEAN BypassCheckSign(PDRIVER_OBJECT pDriverObject)
 {
 #ifdef _WIN64
-	typedef struct _KLDR_DATA_TABLE_ENTRY
-	{
-		LIST_ENTRY listEntry;
-		ULONG64 __Undefined1;
-		ULONG64 __Undefined2;
-		ULONG64 __Undefined3;
-		ULONG64 NonPagedDebugInfo;
-		ULONG64 DllBase;
-		ULONG64 EntryPoint;
-		ULONG SizeOfImage;
-		UNICODE_STRING path;
-		UNICODE_STRING name;
-		ULONG   Flags;
-		USHORT  LoadCount;
-		USHORT  __Undefined5;
-		ULONG64 __Undefined6;
-		ULONG   CheckSum;
-		ULONG   __padding1;
-		ULONG   TimeDateStamp;
-		ULONG   __padding2;
-	} KLDR_DATA_TABLE_ENTRY, * PKLDR_DATA_TABLE_ENTRY;
+    typedef struct _KLDR_DATA_TABLE_ENTRY
+    {
+        LIST_ENTRY listEntry;
+        ULONG64 __Undefined1;
+        ULONG64 __Undefined2;
+        ULONG64 __Undefined3;
+        ULONG64 NonPagedDebugInfo;
+        ULONG64 DllBase;
+        ULONG64 EntryPoint;
+        ULONG SizeOfImage;
+        UNICODE_STRING path;
+        UNICODE_STRING name;
+        ULONG   Flags;
+        USHORT  LoadCount;
+        USHORT  __Undefined5;
+        ULONG64 __Undefined6;
+        ULONG   CheckSum;
+        ULONG   __padding1;
+        ULONG   TimeDateStamp;
+        ULONG   __padding2;
+    } KLDR_DATA_TABLE_ENTRY, * PKLDR_DATA_TABLE_ENTRY;
 #else
-	typedef struct _KLDR_DATA_TABLE_ENTRY
-	{
-		LIST_ENTRY listEntry;
-		ULONG unknown1;
-		ULONG unknown2;
-		ULONG unknown3;
-		ULONG unknown4;
-		ULONG unknown5;
-		ULONG unknown6;
-		ULONG unknown7;
-		UNICODE_STRING path;
-		UNICODE_STRING name;
-		ULONG   Flags;
-	} KLDR_DATA_TABLE_ENTRY, * PKLDR_DATA_TABLE_ENTRY;
+    typedef struct _KLDR_DATA_TABLE_ENTRY
+    {
+        LIST_ENTRY listEntry;
+        ULONG unknown1;
+        ULONG unknown2;
+        ULONG unknown3;
+        ULONG unknown4;
+        ULONG unknown5;
+        ULONG unknown6;
+        ULONG unknown7;
+        UNICODE_STRING path;
+        UNICODE_STRING name;
+        ULONG   Flags;
+    } KLDR_DATA_TABLE_ENTRY, * PKLDR_DATA_TABLE_ENTRY;
 #endif
 
-	PKLDR_DATA_TABLE_ENTRY pLdrData = (PKLDR_DATA_TABLE_ENTRY)pDriverObject->DriverSection;
-	pLdrData->Flags |= 0x20;
+    PKLDR_DATA_TABLE_ENTRY pLdrData = (PKLDR_DATA_TABLE_ENTRY)pDriverObject->DriverSection;
+    pLdrData->Flags |= 0x20;
+    return TRUE;
+}
 
-	return TRUE;
+// ---------------------------------------------------------------------------
+// DriverReinitCallback
+//
+// Called by the kernel after all boot-start drivers have loaded and the I/O
+// subsystem (including NTFS) is fully initialized.  This is the ONLY safe
+// place to perform file I/O from a boot-start driver.
+// ---------------------------------------------------------------------------
+VOID DriverReinitCallback(
+    _In_ PDRIVER_OBJECT DriverObject,
+    _In_opt_ PVOID Context,
+    _In_ ULONG Count)
+{
+    UNREFERENCED_PARAMETER(DriverObject);
+    UNREFERENCED_PARAMETER(Context);
+    UNREFERENCED_PARAMETER(Count);
+
+    DbgPrint("[SimplePYAS] DriverReinitCallback fired (I/O system ready) - loading rules\n");
+
+    // Safe to do file I/O here: filesystem is fully mounted.
+    NTSTATUS status = InitializeProtectionRules();
+    if (NT_SUCCESS(status))
+    {
+        DbgPrint("[SimplePYAS] Protection rules loaded successfully\n");
+    }
+    else
+    {
+        DbgPrint("[SimplePYAS] Protection rules load failed: 0x%X (hardcoded paths still protected)\n", status);
+    }
 }
 
 // DriverEntry
 NTSTATUS DriverEntry(
-	_In_ PDRIVER_OBJECT pDriverObj,
-	_In_ PUNICODE_STRING pRegistryString
+    _In_ PDRIVER_OBJECT pDriverObj,
+    _In_ PUNICODE_STRING pRegistryString
 )
 {
-	UNREFERENCED_PARAMETER(pRegistryString);
+    UNREFERENCED_PARAMETER(pRegistryString);
 
-	BypassCheckSign(pDriverObj);
-	//pDriverObj->DriverUnload = DriverUnload;
+    BypassCheckSign(pDriverObj);
 
 #if _WIN64
-	PLDR_DATA_TABLE_ENTRY64 ldr = (PLDR_DATA_TABLE_ENTRY64)pDriverObj->DriverSection;
-	ldr->Flags |= 0x20;
+    PLDR_DATA_TABLE_ENTRY64 ldr = (PLDR_DATA_TABLE_ENTRY64)pDriverObj->DriverSection;
+    ldr->Flags |= 0x20;
 #else
-	PLDR_DATA_TABLE_ENTRY32 ldr = (PLDR_DATA_TABLE_ENTRY32)pDriverObj->DriverSection;
-	ldr->Flags |= 0x20;
+    PLDR_DATA_TABLE_ENTRY32 ldr = (PLDR_DATA_TABLE_ENTRY32)pDriverObj->DriverSection;
+    ldr->Flags |= 0x20;
 #endif
 
-	// Initialize core modules
-	ProcessDriverEntry();
-	FileDriverEntry();
-	RegeditDriverEntry();
+    // Register callbacks — NO file I/O in any of these calls.
+    ProcessDriverEntry();
+    FileDriverEntry();
+    RegeditDriverEntry();
 
-	return STATUS_SUCCESS;
+    // Defer rule loading (file I/O) until after the filesystem is ready.
+    // DriverReinitCallback is called by the kernel once IoInitSystem completes.
+    IoRegisterDriverReinitialization(pDriverObj, DriverReinitCallback, NULL);
+
+    DbgPrint("[SimplePYAS] DriverEntry complete - rule loading deferred to reinit callback\n");
+
+    return STATUS_SUCCESS;
 }
 
 // DriverUnload
-//NTSTATUS DriverUnload(_In_ PDRIVER_OBJECT pDriverObj)
-//{
-//	UNREFERENCED_PARAMETER(pDriverObj);
-//
-//	// Cleanup other modules
-//  ProcessDriverUnload();
-//	FileUnloadDriver();
-//	RegeditUnloadDriver();
-//
-//	return STATUS_SUCCESS;
-//}
+NTSTATUS DriverUnload(_In_ PDRIVER_OBJECT pDriverObj)
+{
+    UNREFERENCED_PARAMETER(pDriverObj);
+    ProcessDriverUnload();
+    FileUnloadDriver();
+    RegeditUnloadDriver();
+    return STATUS_SUCCESS;
+}

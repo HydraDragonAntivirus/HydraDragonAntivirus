@@ -16,6 +16,7 @@ ZwQueryInformationProcess(
     _In_ ULONG ProcessInformationLength,
     _Out_opt_ PULONG ReturnLength
 );
+
 #if _WIN64
 // 64-bit LDR_DATA_TABLE_ENTRY structure
 typedef struct _LDR_DATA_TABLE_ENTRY64
@@ -76,7 +77,13 @@ typedef struct _LDR_DATA_TABLE_ENTRY32
 NTSTATUS DriverEntry(_In_ PDRIVER_OBJECT pDriverObj, _In_ PUNICODE_STRING pRegistryPath);
 //NTSTATUS DriverUnload(_In_ PDRIVER_OBJECT pDriverObj);
 
-// Existing modules
+// Post-boot reinitialization callback (called when filesystem is ready)
+VOID DriverReinitCallback(
+    _In_ PDRIVER_OBJECT DriverObject,
+    _In_opt_ PVOID Context,
+    _In_ ULONG Count);
+
+// Module entry/unload
 NTSTATUS ProcessDriverEntry();
 NTSTATUS ProcessDriverUnload();
 NTSTATUS FileDriverEntry();

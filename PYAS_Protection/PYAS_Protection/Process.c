@@ -80,11 +80,11 @@ NTSTATUS ProtectProcess(void)
 {
     NTSTATUS status = STATUS_SUCCESS;
 
-    // Load dynamic protection rules once so runtime checks rely on disk-based configuration.
-    status = InitializeProtectionRules();
-    if (!NT_SUCCESS(status)) {
-        DbgPrint("[Process-Protection] Failed to preload protection rules: 0x%X\n", status);
-    }
+    // DO NOT call InitializeProtectionRules() here.
+    // It performs synchronous file I/O (ZwReadFile) which deadlocks the boot
+    // thread because NTFS is not yet initialized when DriverEntry runs.
+    // Rule loading is deferred to DriverReinitCallback via
+    // IoRegisterDriverReinitialization in Driver.c.
 
     // Safety: ensure called at PASSIVE_LEVEL
     if (KeGetCurrentIrql() != PASSIVE_LEVEL) {
@@ -124,15 +124,15 @@ NTSTATUS ProtectProcess(void)
     }
 
     // Fill g_OpReg: Operation 0 - Process Handle Operations
-    g_OpReg[0].ObjectType = PsProcessType;
-    g_OpReg[0].Operations = OB_OPERATION_HANDLE_CREATE | OB_OPERATION_HANDLE_DUPLICATE;
-    g_OpReg[0].PreOperation = preCall;
+    g_OpReg[0].ObjectType  = PsProcessType;
+    g_OpReg[0].Operations  = OB_OPERATION_HANDLE_CREATE | OB_OPERATION_HANDLE_DUPLICATE;
+    g_OpReg[0].PreOperation  = preCall;
     g_OpReg[0].PostOperation = NULL;
 
     // Fill g_OpReg: Operation 1 - Thread Handle Operations
-    g_OpReg[1].ObjectType = PsThreadType;
-    g_OpReg[1].Operations = OB_OPERATION_HANDLE_CREATE | OB_OPERATION_HANDLE_DUPLICATE;
-    g_OpReg[1].PreOperation = threadPreCall;
+    g_OpReg[1].ObjectType  = PsThreadType;
+    g_OpReg[1].Operations  = OB_OPERATION_HANDLE_CREATE | OB_OPERATION_HANDLE_DUPLICATE;
+    g_OpReg[1].PreOperation  = threadPreCall;
     g_OpReg[1].PostOperation = NULL;
 
     // Fill g_ObReg
@@ -225,7 +225,7 @@ OB_PREOP_CALLBACK_STATUS preCall(
         return OB_PREOP_SUCCESS;
 
     PEPROCESS currentProc = PsGetCurrentProcess();
-    PEPROCESS targetProc = (PEPROCESS)pOperationInformation->Object;
+    PEPROCESS targetProc  = (PEPROCESS)pOperationInformation->Object;
 
     // 2. POINTER EQUALITY CHECK
     if (currentProc == targetProc)
@@ -241,9 +241,8 @@ OB_PREOP_CALLBACK_STATUS preCall(
     // 4. SYSTEM PROCESS CHECK (Improved for CSRSS compatibility)
     // Must be done WITHOUT opening handles to avoid recursion.
     // Checks both PID 0/4 and critical system process names.
-    if (IsSystemProcess(currentProc)) {
+    if (IsSystemProcess(currentProc))
         return OB_PREOP_SUCCESS;
-    }
 
     BOOLEAN callerIsProtected = IsProtectedProcessByPid(callerPid);
     BOOLEAN targetIsProtected = IsProtectedProcessByPid(targetPid);
@@ -292,7 +291,7 @@ OB_PREOP_CALLBACK_STATUS threadPreCall(
     HANDLE callerPid = PsGetProcessId(currentProc);
 
     PETHREAD targetThread = (PETHREAD)pOperationInformation->Object;
-    PEPROCESS targetProc = PsGetThreadProcess(targetThread);
+    PEPROCESS targetProc  = PsGetThreadProcess(targetThread);
 
     if (!targetProc)
         return OB_PREOP_SUCCESS;
@@ -304,9 +303,8 @@ OB_PREOP_CALLBACK_STATUS threadPreCall(
         return OB_PREOP_SUCCESS;
 
     // 3. SYSTEM PROCESS CHECK
-    if (IsSystemProcess(currentProc)) {
+    if (IsSystemProcess(currentProc))
         return OB_PREOP_SUCCESS;
-    }
 
     BOOLEAN callerIsProtected = IsProtectedProcessByPid(callerPid);
     BOOLEAN targetIsProtected = IsProtectedProcessByPid(targetPid);
@@ -402,11 +400,11 @@ BOOLEAN IsSystemProcess(PEPROCESS Process) {
 
     if (processName) {
         // Use case-insensitive ASCII comparison (_stricmp is available in kernel)
-        if (_stricmp((char*)processName, "csrss.exe") == 0 ||
-            _stricmp((char*)processName, "lsass.exe") == 0 ||
+        if (_stricmp((char*)processName, "csrss.exe")    == 0 ||
+            _stricmp((char*)processName, "lsass.exe")    == 0 ||
             _stricmp((char*)processName, "services.exe") == 0 ||
-            _stricmp((char*)processName, "wininit.exe") == 0 ||
-            _stricmp((char*)processName, "smss.exe") == 0) {
+            _stricmp((char*)processName, "wininit.exe")  == 0 ||
+            _stricmp((char*)processName, "smss.exe")     == 0) {
             return TRUE;
         }
     }
@@ -425,9 +423,9 @@ BOOLEAN UnicodeStringEndsWithInsensitive(PUNICODE_STRING Source, PCWSTR Pattern)
 
     // Create a temporary UNICODE_STRING for the suffix of the source string
     UNICODE_STRING sourceSuffix;
-    sourceSuffix.Length = patternString.Length;
+    sourceSuffix.Length        = patternString.Length;
     sourceSuffix.MaximumLength = patternString.Length;
-    sourceSuffix.Buffer = (PWCH)((PCHAR)Source->Buffer + Source->Length - patternString.Length);
+    sourceSuffix.Buffer        = (PWCH)((PCHAR)Source->Buffer + Source->Length - patternString.Length);
 
     // Compare case-insensitively
     return (RtlCompareUnicodeString(&sourceSuffix, &patternString, TRUE) == 0);
@@ -444,7 +442,7 @@ NTSTATUS QueueProcessAlertToUserMode(
 )
 {
     PPROCESS_ALERT_WORK_ITEM workItem;
-    PUNICODE_STRING targetPath = NULL;
+    PUNICODE_STRING targetPath   = NULL;
     PUNICODE_STRING attackerPath = NULL;
     NTSTATUS status;
 
@@ -463,7 +461,7 @@ NTSTATUS QueueProcessAlertToUserMode(
     status = SeLocateProcessImageName(TargetProcess, &targetPath);
     if (NT_SUCCESS(status) && targetPath && targetPath->Buffer && targetPath->Length > 0)
     {
-        workItem->TargetPath.Length = targetPath->Length;
+        workItem->TargetPath.Length        = targetPath->Length;
         workItem->TargetPath.MaximumLength = targetPath->Length + sizeof(WCHAR);
         workItem->TargetPath.Buffer = (PWCHAR)ExAllocatePool2(
             POOL_FLAG_NON_PAGED,
@@ -478,8 +476,8 @@ NTSTATUS QueueProcessAlertToUserMode(
             
             // Normalize path for user-mode reporting
             UNICODE_STRING uTarget;
-            uTarget.Buffer = workItem->TargetPath.Buffer;
-            uTarget.Length = workItem->TargetPath.Length;
+            uTarget.Buffer        = workItem->TargetPath.Buffer;
+            uTarget.Length        = workItem->TargetPath.Length;
             uTarget.MaximumLength = workItem->TargetPath.MaximumLength;
             NormalizeDevicePathToDos(&uTarget);
             workItem->TargetPath.Length = uTarget.Length;
@@ -489,7 +487,7 @@ NTSTATUS QueueProcessAlertToUserMode(
     status = SeLocateProcessImageName(AttackerProcess, &attackerPath);
     if (NT_SUCCESS(status) && attackerPath && attackerPath->Buffer && attackerPath->Length > 0)
     {
-        workItem->AttackerPath.Length = attackerPath->Length;
+        workItem->AttackerPath.Length        = attackerPath->Length;
         workItem->AttackerPath.MaximumLength = attackerPath->Length + sizeof(WCHAR);
         workItem->AttackerPath.Buffer = (PWCHAR)ExAllocatePool2(
             POOL_FLAG_NON_PAGED,
@@ -504,8 +502,8 @@ NTSTATUS QueueProcessAlertToUserMode(
 
             // Normalize path for user-mode reporting
             UNICODE_STRING uAttacker;
-            uAttacker.Buffer = workItem->AttackerPath.Buffer;
-            uAttacker.Length = workItem->AttackerPath.Length;
+            uAttacker.Buffer        = workItem->AttackerPath.Buffer;
+            uAttacker.Length        = workItem->AttackerPath.Length;
             uAttacker.MaximumLength = workItem->AttackerPath.MaximumLength;
             NormalizeDevicePathToDos(&uAttacker);
             workItem->AttackerPath.Length = uAttacker.Length;
@@ -513,13 +511,11 @@ NTSTATUS QueueProcessAlertToUserMode(
     }
 
     // Free the allocated paths from SeLocateProcessImageName
-    if (targetPath)
-        ExFreePool(targetPath);
-    if (attackerPath)
-        ExFreePool(attackerPath);
+    if (targetPath)   ExFreePool(targetPath);
+    if (attackerPath) ExFreePool(attackerPath);
 
     // Copy PIDs and attack type
-    workItem->TargetPid = PsGetProcessId(TargetProcess);
+    workItem->TargetPid   = PsGetProcessId(TargetProcess);
     workItem->AttackerPid = PsGetProcessId(AttackerProcess);
     // RtlStringCbCopyW ensures null termination within bounds
     RtlStringCbCopyW(workItem->AttackType, sizeof(workItem->AttackType), AttackType);
@@ -546,7 +542,7 @@ VOID ProcessAlertWorker(PVOID Context)
         return;
 
     // Use safe pointer checks
-    PCWSTR targetName = workItem->TargetPath.Buffer ? workItem->TargetPath.Buffer : L"Unknown";
+    PCWSTR targetName   = workItem->TargetPath.Buffer   ? workItem->TargetPath.Buffer   : L"Unknown";
     PCWSTR attackerName = workItem->AttackerPath.Buffer ? workItem->AttackerPath.Buffer : L"Unknown";
 
     // Escape the paths for valid JSON
@@ -587,10 +583,8 @@ VOID ProcessAlertWorker(PVOID Context)
     }
 
     // Free allocated strings
-    if (workItem->TargetPath.Buffer)
-        ExFreePool(workItem->TargetPath.Buffer);
-    if (workItem->AttackerPath.Buffer)
-        ExFreePool(workItem->AttackerPath.Buffer);
+    if (workItem->TargetPath.Buffer)   ExFreePool(workItem->TargetPath.Buffer);
+    if (workItem->AttackerPath.Buffer) ExFreePool(workItem->AttackerPath.Buffer);
 
     ExFreePoolWithTag(workItem, 'crpA');
 }

@@ -82,9 +82,9 @@ static BOOLEAN ValidateAndNormalizeRegistryRule(
     {
         if (_wcsnicmp(RuleText, kHiveMap[i].UserPrefix, kHiveMap[i].UserPrefixLen) == 0)
         {
-            PCWSTR subpath    = RuleText + kHiveMap[i].UserPrefixLen;
-            SIZE_T kernelLen  = wcslen(kHiveMap[i].KernelPrefix);
-            SIZE_T subLen     = wcslen(subpath);
+            PCWSTR subpath   = RuleText + kHiveMap[i].UserPrefixLen;
+            SIZE_T kernelLen = wcslen(kHiveMap[i].KernelPrefix);
+            SIZE_T subLen    = wcslen(subpath);
 
             if (kernelLen + subLen + 1 > OutBufferChars)
             {
@@ -98,7 +98,7 @@ static BOOLEAN ValidateAndNormalizeRegistryRule(
         }
     }
 
-    DbgPrint("[ProtectionRules] Rejected registry rule  -  must start with HKLM\\, HKCU\\, "
+    DbgPrint("[ProtectionRules] Rejected registry rule - must start with HKLM\\, HKCU\\, "
              "HKCR\\, HKCC\\, HKU\\ or \\REGISTRY\\: %ws\n", RuleText);
     return FALSE;
 }
@@ -134,9 +134,7 @@ static BOOLEAN ValidateFileProcessRule(_In_ PCWSTR RuleText)
 
     /* NT device namespace prefix: \??\ */
     if (len >= 4 && _wcsnicmp(RuleText, L"\\??\\", 4) == 0)
-    {
         return TRUE;
-    }
 
     // Suffix / relative path (user-profile, driver subpaths, etc.)
     if (RuleText[0] == L'\\')
@@ -144,14 +142,14 @@ static BOOLEAN ValidateFileProcessRule(_In_ PCWSTR RuleText)
         // Reject if it starts with \REGISTRY\  -  that belongs in the Registry ruleset
         if (_wcsnicmp(RuleText, L"\\REGISTRY\\", 10) == 0)
         {
-            DbgPrint("[ProtectionRules] Rejected file/process rule  -  "
+            DbgPrint("[ProtectionRules] Rejected file/process rule - "
                      "\\REGISTRY\\ paths belong in the Registry ruleset: %ws\n", RuleText);
             return FALSE;
         }
         return TRUE;
     }
 
-    DbgPrint("[ProtectionRules] Rejected file/process rule  -  must start with a drive letter "
+    DbgPrint("[ProtectionRules] Rejected file/process rule - must start with a drive letter "
              "(C:\\), \\??\\ or \\ : %ws\n", RuleText);
     return FALSE;
 }
@@ -163,22 +161,16 @@ static BOOLEAN ValidateFileProcessRule(_In_ PCWSTR RuleText)
 static NTSTATUS EnsureRuleCapacity(PPROTECTION_RULE_SET RuleSet, ULONG RequiredCount)
 {
     if (RuleSet->Capacity >= RequiredCount)
-    {
         return STATUS_SUCCESS;
-    }
 
     ULONG newCapacity = (RuleSet->Capacity == 0) ? 8 : RuleSet->Capacity * 2;
     if (newCapacity < RequiredCount)
-    {
         newCapacity = RequiredCount;
-    }
 
     SIZE_T allocSize = sizeof(PWSTR) * newCapacity;
     PWSTR* newArray  = (PWSTR*)ExAllocatePool2(POOL_FLAG_NON_PAGED, allocSize, RULE_POOL_TAG);
     if (!newArray)
-    {
         return STATUS_INSUFFICIENT_RESOURCES;
-    }
 
     RtlZeroMemory(newArray, allocSize);
     if (RuleSet->Rules && RuleSet->Count > 0)
@@ -210,9 +202,7 @@ static NTSTATUS AddRuleString(
     _In_    RULE_TYPE            RuleType)
 {
     if (!RuleSet || !RuleText || CharacterCount == 0)
-    {
         return STATUS_SUCCESS;
-    }
 
     // ------------------------------------------------------------------
     // 1. Trim leading whitespace
@@ -221,9 +211,7 @@ static NTSTATUS AddRuleString(
     SIZE_T end   = CharacterCount;
 
     while (start < end && (RuleText[start] == L' ' || RuleText[start] == L'\t'))
-    {
         start++;
-    }
 
     // ------------------------------------------------------------------
     // 2. Strip comments (# or //)
@@ -243,9 +231,7 @@ static NTSTATUS AddRuleString(
         }
     }
     if (commentPos != (SIZE_T)-1)
-    {
         end = commentPos;
-    }
 
     // ------------------------------------------------------------------
     // 3. Trim trailing whitespace and stray quote characters
@@ -260,22 +246,17 @@ static NTSTATUS AddRuleString(
     }
 
     if (end <= start)
-    {
         return STATUS_SUCCESS; // empty / comment-only line
-    }
 
     // ------------------------------------------------------------------
     // 4. Build a temporary null-terminated copy, normalising forward
     //    slashes to backslashes while copying.
     // ------------------------------------------------------------------
     SIZE_T rawLen  = end - start;
-    // For registry rules, leave room for potential prefix expansion
     SIZE_T tmpSize = (rawLen + REGISTRY_PREFIX_EXPANSION_MAX + 1) * sizeof(WCHAR);
     PWCHAR tempBuf = (PWCHAR)ExAllocatePool2(POOL_FLAG_NON_PAGED, tmpSize, RULE_POOL_TAG);
     if (!tempBuf)
-    {
         return STATUS_INSUFFICIENT_RESOURCES;
-    }
 
     RtlZeroMemory(tempBuf, tmpSize);
     for (SIZE_T i = 0; i < rawLen; ++i)
@@ -394,9 +375,7 @@ static VOID FreeRuleSet(PPROTECTION_RULE_SET RuleSet)
     }
 
     if (RuleSet->Rules)
-    {
         ExFreePoolWithTag(RuleSet->Rules, RULE_POOL_TAG);
-    }
 
     RtlZeroMemory(RuleSet, sizeof(PROTECTION_RULE_SET));
 }
@@ -404,18 +383,12 @@ static VOID FreeRuleSet(PPROTECTION_RULE_SET RuleSet)
 static BOOLEAN IsDotDirectory(PUNICODE_STRING FileName)
 {
     if (!FileName || !FileName->Buffer)
-    {
         return TRUE;
-    }
     if (FileName->Length == sizeof(WCHAR) && FileName->Buffer[0] == L'.')
-    {
         return TRUE;
-    }
     if (FileName->Length == 2 * sizeof(WCHAR) &&
         FileName->Buffer[0] == L'.' && FileName->Buffer[1] == L'.')
-    {
         return TRUE;
-    }
     return FALSE;
 }
 
@@ -431,9 +404,7 @@ static NTSTATUS AppendRulesFromBuffer(
     _In_    RULE_TYPE            RuleType)
 {
     if (!Buffer || BytesRead < 2)
-    {
         return STATUS_SUCCESS;
-    }
 
     // Detect UTF-16 LE BOM (0xFF 0xFE)
     BOOLEAN isUtf16LE = (Buffer[0] == 0xFF && Buffer[1] == 0xFE);
@@ -461,17 +432,13 @@ static NTSTATUS AppendRulesFromBuffer(
                     while (lineLen > 0 && (utf16Buffer[lineStart + lineLen - 1] == L' '  ||
                                            utf16Buffer[lineStart + lineLen - 1] == L'\t' ||
                                            utf16Buffer[lineStart + lineLen - 1] == L'\r'))
-                    {
                         lineLen--;
-                    }
 
                     // Trim leading whitespace
                     ULONG leading = 0;
                     while (leading < lineLen && (utf16Buffer[lineStart + leading] == L' ' ||
                                                  utf16Buffer[lineStart + leading] == L'\t'))
-                    {
                         leading++;
-                    }
 
                     if (lineLen > leading)
                     {
@@ -512,16 +479,12 @@ static NTSTATUS AppendRulesFromBuffer(
                 while (lineLen > 0 && (Buffer[lineStart + lineLen - 1] == ' '  ||
                                        Buffer[lineStart + lineLen - 1] == '\t' ||
                                        Buffer[lineStart + lineLen - 1] == '\r'))
-                {
                     lineLen--;
-                }
 
                 ULONG leading = 0;
                 while (leading < lineLen && (Buffer[lineStart + leading] == ' '  ||
                                              Buffer[lineStart + leading] == '\t'))
-                {
                     leading++;
-                }
 
                 if (lineLen > leading)
                 {
@@ -532,9 +495,7 @@ static NTSTATUS AppendRulesFromBuffer(
                     if (ruleBuffer)
                     {
                         for (ULONG j = 0; j < lineLen; j++)
-                        {
                             ruleBuffer[j] = (WCHAR)Buffer[lineStart + leading + j];
-                        }
                         ruleBuffer[lineLen] = L'\0';
                         AddRuleString(RuleSet, ruleBuffer, lineLen, RuleType);
                         ExFreePoolWithTag(ruleBuffer, RULE_POOL_TAG);
@@ -598,9 +559,9 @@ static NTSTATUS LoadRulesFromFilePath(
     _Inout_ PPROTECTION_RULE_SET RuleSet,
     _In_ RULE_TYPE            RuleType)
 {
-    IO_STATUS_BLOCK ioStatus        = { 0 };
+    IO_STATUS_BLOCK ioStatus = { 0 };
     OBJECT_ATTRIBUTES objectAttributes;
-    HANDLE fileHandle               = NULL;
+    HANDLE fileHandle = NULL;
     NTSTATUS status;
 
     InitializeObjectAttributes(
@@ -624,9 +585,7 @@ static NTSTATUS LoadRulesFromFilePath(
         0);
 
     if (!NT_SUCCESS(status))
-    {
         return status;
-    }
 
     FILE_STANDARD_INFORMATION fileInfo = { 0 };
     status = ZwQueryInformationFile(
@@ -668,9 +627,7 @@ static NTSTATUS LoadRulesFromFilePath(
         NULL, NULL);
 
     if (NT_SUCCESS(status))
-    {
         status = AppendRulesFromBuffer(RuleSet, buffer, (ULONG)ioStatus.Information, RuleType);
-    }
 
     ExFreePoolWithTag(buffer, RULE_POOL_TAG);
     ZwClose(fileHandle);
@@ -687,8 +644,8 @@ static NTSTATUS LoadRulesFromDirectorySpecific(
     _Inout_ PPROTECTION_RULE_SET RuleSet,
     _In_    RULE_TYPE            RuleType)
 {
-    HANDLE dirHandle              = NULL;
-    IO_STATUS_BLOCK ioStatus      = { 0 };
+    HANDLE dirHandle         = NULL;
+    IO_STATUS_BLOCK ioStatus = { 0 };
     UNICODE_STRING directoryPath;
     OBJECT_ATTRIBUTES objectAttributes;
     NTSTATUS status;
@@ -718,9 +675,7 @@ static NTSTATUS LoadRulesFromDirectorySpecific(
         0);
 
     if (!NT_SUCCESS(status))
-    {
         return status;
-    }
 
     ULONG bufferSize = 4096;
     PFILE_DIRECTORY_INFORMATION dirInfo =
@@ -752,9 +707,7 @@ static NTSTATUS LoadRulesFromDirectorySpecific(
         }
 
         if (!NT_SUCCESS(status))
-        {
             break;
-        }
 
         restartScan = FALSE;
 
@@ -792,15 +745,11 @@ static NTSTATUS LoadRulesFromDirectorySpecific(
                 ExFreePoolWithTag(fullPathBuffer, RULE_POOL_TAG);
 
                 if (!NT_SUCCESS(loadStatus))
-                {
                     status = loadStatus;
-                }
             }
 
             if (current->NextEntryOffset == 0)
-            {
                 break;
-            }
             current = (PFILE_DIRECTORY_INFORMATION)((PUCHAR)current + current->NextEntryOffset);
         }
     }
@@ -815,6 +764,13 @@ Cleanup:
 // Public API
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// InitializeProtectionRules
+//
+// Loads rules from disk.  MUST only be called from DriverReinitCallback (or
+// later), never from DriverEntry.  The filesystem is not available during
+// DriverEntry for a boot-start driver.
+// ---------------------------------------------------------------------------
 NTSTATUS InitializeProtectionRules()
 {
     if (!g_RuleMutexInitialized)
@@ -845,51 +801,49 @@ NTSTATUS InitializeProtectionRules()
 VOID CleanupProtectionRules()
 {
     if (!g_RuleMutexInitialized)
-    {
         return;
-    }
 
     ExAcquireFastMutex(&g_RuleMutex);
     for (int i = 0; i < RuleTypeMax; i++)
-    {
         FreeRuleSet(&g_RuleSets[i]);
-    }
     g_RulesLoaded = FALSE;
     ExReleaseFastMutex(&g_RuleMutex);
 }
 
+// ---------------------------------------------------------------------------
+// IsPathProtectedByType
+//
+// NOTE: If rules have not yet been loaded (before DriverReinitCallback fires),
+// only the hardcoded roots are enforced.  This is intentional — calling
+// InitializeProtectionRules() here would perform file I/O at an arbitrary
+// IRQL/context and recreate the boot deadlock.
+// ---------------------------------------------------------------------------
 BOOLEAN IsPathProtectedByType(_In_ PCWSTR Path, _In_ RULE_TYPE RuleType)
 {
     if (!Path || (LONG)RuleType < 0 || RuleType >= RuleTypeMax)
-    {
         return FALSE;
-    }
 
     // Kernel-enforced base paths  -  protect the HydraDragonAntivirus install
     // directory regardless of what rule files say.
     static const PCWSTR kHardcodedRoots[] = {
-        L"\\Program Files\\HydraDragonAntivirus",
         L"\\??\\C:\\Program Files\\HydraDragonAntivirus"
     };
 
     for (ULONG i = 0; i < ARRAYSIZE(kHardcodedRoots); ++i)
     {
         if (ContainsSubstringInsensitive(Path, kHardcodedRoots[i]))
-        {
             return TRUE;
-        }
     }
+
+    // Rules not loaded yet — only hardcoded paths are protected until
+    // DriverReinitCallback fires and calls InitializeProtectionRules().
+    // DO NOT call InitializeProtectionRules() here: it performs file I/O
+    // and will deadlock if called at the wrong time or IRQL.
+    if (!g_RulesLoaded)
+        return FALSE;
 
     if (!g_RuleMutexInitialized)
-    {
-        ExInitializeFastMutex(&g_RuleMutex);
-        g_RuleMutexInitialized = TRUE;
-    }
-
-    if (!g_RulesLoaded)
-    {
-        InitializeProtectionRules();
-    }
+        return FALSE;
 
     ExAcquireFastMutex(&g_RuleMutex);
 
