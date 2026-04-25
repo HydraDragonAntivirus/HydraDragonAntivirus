@@ -34,6 +34,10 @@ VOID SendAlertWorker(PVOID Context);
 // entry/unload (call from your DriverEntry/DriverUnload)
 NTSTATUS FileDriverEntry()
 {
+    // Do NOT call InitializeProtectionRules() here.
+    // FileDriverEntry() runs from DriverEntry during boot driver initialization,
+    // and InitializeProtectionRules() performs synchronous file I/O.
+    // Rules are loaded later by DriverReinitCallback -> RuleLoadWorker.
     NTSTATUS status = ProtectFileByObRegisterCallbacks();
 
     if (NT_SUCCESS(status)) {
@@ -45,6 +49,7 @@ NTSTATUS FileDriverEntry()
 
     return status;
 }
+
 
 VOID FileUnloadDriver()
 {
@@ -187,7 +192,7 @@ OB_PREOP_CALLBACK_STATUS PreCallBack(
     }
 
     UNICODE_STRING fileName = nameInfo->Name;
-    
+
     // Normalize path to ensure consistency with rules
     NormalizeDevicePathToDos(&fileName);
 

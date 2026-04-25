@@ -7,6 +7,11 @@
 static BOOLEAN g_PipeAvailable = FALSE;
 static BOOLEAN g_PipeUnavailableLogged = FALSE;
 
+// Rule loading is intentionally moved to a delayed system thread so the boot
+// initialization thread is never blocked by synchronous ZwReadFile/ZwCreateFile.
+#define RULE_LOAD_DELAY_SECONDS 10
+static volatile LONG g_RuleLoadThreadStarted = 0;
+
 // Shared pipe alert function with retry logic
 
 // --- Helper: Validate Pipe Server Process ---
@@ -19,7 +24,7 @@ static BOOLEAN IsValidPipeServerProcess(HANDLE PipeHandle)
     HANDLE serverProcHandle = NULL;
     ULONG returnLength = 0;
     PUNICODE_STRING imagePath = NULL;
-    
+
     // 1. Get process IDs using the pipe (should just be the server and us)
     status = ZwQueryInformationFile(
         PipeHandle,
@@ -28,14 +33,14 @@ static BOOLEAN IsValidPipeServerProcess(HANDLE PipeHandle)
         sizeof(procIds),
         FileProcessIdsUsingFileInformation
     );
-    
+
     // Only proceed if exactly one other process (the server) has it open, or we can get list
     if (!NT_SUCCESS(status) && status != STATUS_INFO_LENGTH_MISMATCH) {
         return FALSE; // Can't verify, deny by default
     }
 
     ULONG listSize = sizeof(FILE_PROCESS_IDS_USING_FILE_INFORMATION) +
-                     (sizeof(ULONG_PTR) * 16);
+        (sizeof(ULONG_PTR) * 16);
     PFILE_PROCESS_IDS_USING_FILE_INFORMATION pProcIds =
         (PFILE_PROCESS_IDS_USING_FILE_INFORMATION)ExAllocatePool2(POOL_FLAG_PAGED, listSize, 'pPiM');
 
@@ -46,7 +51,7 @@ static BOOLEAN IsValidPipeServerProcess(HANDLE PipeHandle)
         ExFreePoolWithTag(pProcIds, 'pPiM');
         return FALSE;
     }
-    
+
     // Find a PID that is not our own (the system process)
     ULONG_PTR serverPid = 0;
     ULONG_PTR currentPid = (ULONG_PTR)PsGetCurrentProcessId();
@@ -58,9 +63,9 @@ static BOOLEAN IsValidPipeServerProcess(HANDLE PipeHandle)
     }
 
     ExFreePoolWithTag(pProcIds, 'pPiM');
-    
+
     if (serverPid == 0) return FALSE; // Server not found
-    
+
     // 2. Open the server process
     OBJECT_ATTRIBUTES objAttr;
     CLIENT_ID clientId;
@@ -70,7 +75,7 @@ static BOOLEAN IsValidPipeServerProcess(HANDLE PipeHandle)
 
     status = ZwOpenProcess(&serverProcHandle, PROCESS_QUERY_INFORMATION, &objAttr, &clientId);
     if (!NT_SUCCESS(status)) return FALSE;
-    
+
     // 3. Query the image path
     status = ZwQueryInformationProcess(serverProcHandle, ProcessImageFileName, NULL, 0, &returnLength);
     if (status != STATUS_INFO_LENGTH_MISMATCH || returnLength == 0) {
@@ -91,7 +96,7 @@ static BOOLEAN IsValidPipeServerProcess(HANDLE PipeHandle)
         UNICODE_STRING dosName;
         OBJECT_ATTRIBUTES linkObjAttr;
         HANDLE linkHandle;
-        UNICODE_STRING driveCDeviceName = {0};
+        UNICODE_STRING driveCDeviceName = { 0 };
 
         RtlInitUnicodeString(&dosName, L"\\??\\C:");
         InitializeObjectAttributes(&linkObjAttr, &dosName, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
@@ -111,10 +116,10 @@ static BOOLEAN IsValidPipeServerProcess(HANDLE PipeHandle)
                         remainingPart.Buffer = (PWCH)((PUCHAR)imagePath->Buffer + driveCDeviceName.Length);
                         remainingPart.Length = imagePath->Length - driveCDeviceName.Length;
                         remainingPart.MaximumLength = remainingPart.Length;
-                        
+
                         // Normalize by trimming trailing spaces
-                        while (remainingPart.Length >= sizeof(WCHAR) && 
-                               remainingPart.Buffer[(remainingPart.Length / sizeof(WCHAR)) - 1] == L' ') {
+                        while (remainingPart.Length >= sizeof(WCHAR) &&
+                            remainingPart.Buffer[(remainingPart.Length / sizeof(WCHAR)) - 1] == L' ') {
                             remainingPart.Length -= sizeof(WCHAR);
                         }
 
@@ -293,11 +298,46 @@ BOOLEAN BypassCheckSign(PDRIVER_OBJECT pDriverObject)
 }
 
 // ---------------------------------------------------------------------------
+// RuleLoadWorker
+//
+// Runs outside DriverEntry / boot driver initialization. This prevents the
+// system boot thread from blocking in synchronous file I/O while rules are
+// loaded from disk.
+// ---------------------------------------------------------------------------
+VOID RuleLoadWorker(_In_opt_ PVOID Context)
+{
+    UNREFERENCED_PARAMETER(Context);
+
+    LARGE_INTEGER delay;
+    delay.QuadPart = -((LONGLONG)RULE_LOAD_DELAY_SECONDS * 1000LL * 1000LL * 10LL);
+
+    DbgPrint("[SimplePYAS] RuleLoadWorker started - delaying %d seconds before loading rules\n",
+        RULE_LOAD_DELAY_SECONDS);
+
+    KeDelayExecutionThread(KernelMode, FALSE, &delay);
+
+    DbgPrint("[SimplePYAS] RuleLoadWorker loading protection rules now\n");
+
+    NTSTATUS status = InitializeProtectionRules();
+    if (NT_SUCCESS(status))
+    {
+        DbgPrint("[SimplePYAS] Protection rules loaded successfully from worker thread\n");
+    }
+    else
+    {
+        DbgPrint("[SimplePYAS] Protection rules load failed in worker: 0x%X (hardcoded paths still protected)\n",
+            status);
+    }
+
+    PsTerminateSystemThread(status);
+}
+
+// ---------------------------------------------------------------------------
 // DriverReinitCallback
 //
-// Called by the kernel after all boot-start drivers have loaded and the I/O
-// subsystem (including NTFS) is fully initialized.  This is the ONLY safe
-// place to perform file I/O from a boot-start driver.
+// Called after boot-start driver initialization. Do NOT load rule files
+// directly here; schedule a worker thread instead so IoInitSystem / DriverEntry
+// can continue even if filesystem reads are slow or blocked.
 // ---------------------------------------------------------------------------
 VOID DriverReinitCallback(
     _In_ PDRIVER_OBJECT DriverObject,
@@ -308,17 +348,44 @@ VOID DriverReinitCallback(
     UNREFERENCED_PARAMETER(Context);
     UNREFERENCED_PARAMETER(Count);
 
-    DbgPrint("[SimplePYAS] DriverReinitCallback fired (I/O system ready) - loading rules\n");
+    DbgPrint("[SimplePYAS] DriverReinitCallback fired - scheduling delayed rule loader\n");
 
-    // Safe to do file I/O here: filesystem is fully mounted.
-    NTSTATUS status = InitializeProtectionRules();
+    if (InterlockedCompareExchange(&g_RuleLoadThreadStarted, 1, 0) != 0)
+    {
+        DbgPrint("[SimplePYAS] Rule loader thread already scheduled; skipping duplicate callback\n");
+        return;
+    }
+
+    HANDLE threadHandle = NULL;
+    OBJECT_ATTRIBUTES objectAttributes;
+
+    InitializeObjectAttributes(
+        &objectAttributes,
+        NULL,
+        OBJ_KERNEL_HANDLE,
+        NULL,
+        NULL
+    );
+
+    NTSTATUS status = PsCreateSystemThread(
+        &threadHandle,
+        THREAD_ALL_ACCESS,
+        &objectAttributes,
+        NULL,
+        NULL,
+        RuleLoadWorker,
+        NULL
+    );
+
     if (NT_SUCCESS(status))
     {
-        DbgPrint("[SimplePYAS] Protection rules loaded successfully\n");
+        ZwClose(threadHandle);
+        DbgPrint("[SimplePYAS] Rule loader system thread created\n");
     }
     else
     {
-        DbgPrint("[SimplePYAS] Protection rules load failed: 0x%X (hardcoded paths still protected)\n", status);
+        g_RuleLoadThreadStarted = 0;
+        DbgPrint("[SimplePYAS] PsCreateSystemThread for rule loader failed: 0x%X\n", status);
     }
 }
 
