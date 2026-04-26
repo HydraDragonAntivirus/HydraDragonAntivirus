@@ -182,7 +182,7 @@ See the [LICENSE](./LICENSE) file for more information.
  - https://github.com/Yamato-Security/hayabusa/releases/tag/v3.8.1 (hayabusa-3.8.1-win-x64.zip)
 
  ## IMPORTANT
-  - **Vulnerable Drivers & Post-Infection Risk**: This project utilizes drivers like `WinDivert`, `PYAS_Protection`, and `OwlyshieldRansomFilter`. These drivers are currently unsigned or vulnerable, which prevents the use of **ELAM (Early Launch Anti-Malware)** as a bootstrap security solution (Even if Sanctum exists it's not signed). 
+  - **Vulnerable Drivers & Post-Infection Risk**: This project utilizes drivers like `WinDivert`. These drivers are currently vulnerable. If you see this driver abused you probably infected.
  - **The "Fatal Design" Assumption**: By default, this project assumes your system is **clean** at the time of installation. It is NOT designed to clean or repair an already infected system.
  - **Zero Responsibility**: If you install this on a system that is already compromised, resident malware may exploit these drivers or the centralized dependency structure (Python/Node.js) to escalate or persist. The developer is not responsible for any damage in a post-infection scenario.
 
