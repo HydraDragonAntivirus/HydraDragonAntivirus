@@ -595,6 +595,189 @@ class ModuleReconstructor:
         
         output_path.write_text("\n".join(content), encoding='utf-8', errors='ignore')
 
+
+
+# =============================================================================
+# FROZEN MODULE DUMPER
+# =============================================================================
+def dump_frozen_modules(recon, source_dir, hook_log):
+    """Dump code objects from CPython's frozen-module table without importing them.
+
+    This is intentionally not an import hook and not a source-file copier.  It
+    only uses _imp's frozen-module table that already exists in the current
+    interpreter.  If a protected/embedded module is present there, it can be
+    dumped even when it is not visible as a normal .py source file.
+    """
+    try:
+        import _imp
+        import types
+        import dis as _dis
+        import io as _io
+    except Exception as e:
+        try: hook_log(f"[FROZEN] unavailable: {e}\n")
+        except Exception: pass
+        return 0
+
+    def safe_name(name):
+        return name.replace('.', '_').replace('<', '_').replace('>', '_').replace(':', '_').replace('\\', '_').replace('/', '_')
+
+    def disassemble(code_obj):
+        try:
+            buf = _io.StringIO()
+            _dis.dis(code_obj, file=buf)
+            return buf.getvalue()
+        except Exception as e:
+            return f"<disassembly failed: {e}>\n"
+
+    def emit_code_metadata(code_obj, prefix="# "):
+        lines = []
+        try:
+            lines.append(f"{prefix}co_name={code_obj.co_name!r}")
+            lines.append(f"{prefix}co_qualname={getattr(code_obj, 'co_qualname', code_obj.co_name)!r}")
+            lines.append(f"{prefix}co_filename={code_obj.co_filename!r}")
+            lines.append(f"{prefix}co_firstlineno={code_obj.co_firstlineno!r}")
+            lines.append(f"{prefix}co_argcount={getattr(code_obj, 'co_argcount', None)!r}")
+            lines.append(f"{prefix}co_kwonlyargcount={getattr(code_obj, 'co_kwonlyargcount', None)!r}")
+            lines.append(f"{prefix}co_nlocals={getattr(code_obj, 'co_nlocals', None)!r}")
+            lines.append(f"{prefix}co_varnames={getattr(code_obj, 'co_varnames', ())!r}")
+            lines.append(f"{prefix}co_names={getattr(code_obj, 'co_names', ())!r}")
+            const_preview = []
+            for c in getattr(code_obj, 'co_consts', ()): 
+                if isinstance(c, types.CodeType):
+                    const_preview.append(f"<code {c.co_name}>")
+                else:
+                    r = repr(c)
+                    if len(r) > 300:
+                        r = r[:300] + '...'
+                    const_preview.append(r)
+            lines.append(f"{prefix}co_consts={const_preview!r}")
+        except Exception as e:
+            lines.append(f"{prefix}metadata failed: {e}")
+        return "\n".join(lines)
+
+    def nested_code_objects(code_obj, seen=None):
+        if seen is None:
+            seen = set()
+        out = []
+        ident = id(code_obj)
+        if ident in seen:
+            return out
+        seen.add(ident)
+        for c in getattr(code_obj, 'co_consts', ()): 
+            if isinstance(c, types.CodeType):
+                out.append(c)
+                out.extend(nested_code_objects(c, seen))
+        return out
+
+    names = []
+    try:
+        getter = getattr(_imp, '_frozen_module_names', None)
+        if getter:
+            names = list(getter())
+    except Exception as e:
+        try: hook_log(f"[FROZEN] _frozen_module_names failed: {e}\n")
+        except Exception: pass
+        names = []
+
+    # Also include frozen modules already visible in sys.modules. This does not
+    # import anything; it only adds names that are already loaded.
+    try:
+        for name, mod in list(sys.modules.items()):
+            try:
+                spec = getattr(mod, '__spec__', None)
+                origin = getattr(spec, 'origin', None) if spec else None
+                loader = getattr(spec, 'loader', None) if spec else None
+                loader_name = type(loader).__name__ if loader is not None else ''
+                if origin == 'frozen' or loader_name == 'FrozenImporter' or _imp.is_frozen(name):
+                    names.append(name)
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    names = sorted(set(n for n in names if isinstance(n, str) and n))
+    try:
+        hook_log(f"[FROZEN] candidate names: {len(names)}\n")
+        like = [n for n in names if 'crack' in n.lower() or 'v5' in n.lower()]
+        hook_log(f"[FROZEN] crack/v5-like candidate names: {like}\n")
+    except Exception:
+        pass
+
+    frozen_dir = source_dir / "FROZEN_MODULES"
+    try:
+        frozen_dir.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        pass
+
+    dumped = 0
+    for name in names:
+        if name == '__hook__' or name.startswith('__hook__.'):
+            continue
+        try:
+            if not _imp.is_frozen(name):
+                continue
+        except Exception:
+            pass
+        try:
+            code_obj = _imp.get_frozen_object(name)
+        except Exception as e:
+            try: hook_log(f"[FROZEN ERR] get_frozen_object({name!r}): {e}\n")
+            except Exception: pass
+            continue
+        if not isinstance(code_obj, types.CodeType):
+            try: hook_log(f"[FROZEN SKIP] {name}: object is {type(code_obj)}\n")
+            except Exception: pass
+            continue
+
+        safe = safe_name(name)
+        content = []
+        content.append('\"\"\"')
+        content.append(f"Frozen module: {name}")
+        content.append("Source type: _imp frozen code object")
+        content.append("Note: no original .py source is available through normal inspect/getsource.")
+        content.append('\"\"\"')
+        content.append("")
+        content.append("# ===== FROZEN MODULE CODE OBJECT METADATA =====")
+        content.append(emit_code_metadata(code_obj))
+        content.append("")
+        content.append("# ===== BEST-EFFORT PSEUDO SOURCE =====")
+        try:
+            content.append(recon.decompiler.decompile_code(code_obj))
+        except Exception as e:
+            content.append(f"# decompile failed: {e}")
+            content.append("pass")
+        content.append("")
+        content.append("FROZEN_DISASSEMBLY = " + repr(disassemble(code_obj)))
+
+        nested = nested_code_objects(code_obj)
+        if nested:
+            content.append("")
+            content.append("# ===== NESTED CODE OBJECTS =====")
+            for idx, nested_code in enumerate(nested, 1):
+                content.append(f"\n# --- nested code object {idx}: {nested_code.co_name} ---")
+                content.append(emit_code_metadata(nested_code))
+                content.append("NESTED_DISASSEMBLY_%d = " % idx + repr(disassemble(nested_code)))
+
+        data = "\n".join(content)
+        try:
+            (frozen_dir / f"{safe}.py").write_text(data, encoding='utf-8', errors='replace')
+            # Also create the normal top-level reconstructed file only if the
+            # regular sys.modules pass did not already create one.
+            top = source_dir / f"{safe}.py"
+            if not top.exists():
+                top.write_text(data, encoding='utf-8', errors='replace')
+            dumped += 1
+            try: hook_log(f"[FROZEN OK] Dumped frozen module: {name}\n")
+            except Exception: pass
+        except Exception as e:
+            try: hook_log(f"[FROZEN ERR] write {name}: {e}\n")
+            except Exception: pass
+
+    try: hook_log(f"[FROZEN] dumped={dumped}\n")
+    except Exception: pass
+    return dumped
+
+
 # =============================================================================
 # HELPER: GET NEXT INCREMENTAL PATH
 # =============================================================================
@@ -765,10 +948,19 @@ def run_decompiler():
                 error_count += 1
                 hook_log(f"[ERR] Error processing {name}: {str(e)}\n")
 
+        frozen_dumped = 0
+        try:
+            write_marker(progress_path, "phase=frozen_scan\nprocessed={processed}\nerrors={errors}\n".format(processed=processed_count, errors=error_count))
+            frozen_dumped = dump_frozen_modules(recon, source_dir, hook_log)
+        except Exception as e:
+            error_count += 1
+            hook_log(f"[FROZEN ERR] frozen scan crashed: {e}\n")
+
         hook_log("\n" + "=" * 60 + "\n--- FINISHED ---\n")
         hook_log(f"Output location: {backup_dir}\n")
         hook_log(f"Processed: {processed_count} modules\nErrors: {error_count}\n")
         hook_log(f"Compiled code blocks: {len(recon.compiled_modules)}\n")
+        hook_log(f"Frozen modules dumped: {frozen_dumped}\n")
         write_marker(
             progress_path,
             "phase=finished\nprocessed={processed}\nerrors={errors}\ncompiled={compiled}\n".format(
