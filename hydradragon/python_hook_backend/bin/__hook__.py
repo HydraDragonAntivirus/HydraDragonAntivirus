@@ -779,6 +779,285 @@ def dump_frozen_modules(recon, source_dir, hook_log):
 
 
 # =============================================================================
+# LOCKED MODULE SPEC PROBE (NO IMPORT / NO TARGET NAMES)
+# =============================================================================
+def probe_locked_module_specs(module_names, recon, source_dir, hook_log):
+    """Probe finder/spec/loader data for locked module names without importing.
+
+    This is generic: it uses every current sys.meta_path finder and only calls
+    find_spec/find_module plus optional loader get_source/get_code. It does not
+    execute the module, does not force import it, does not parse __main__, and
+    does not filter by target-name substrings. This is the useful layer when an
+    import lock exists but sys.modules has no module object.
+    """
+    try:
+        import types
+        import dis as _dis
+        import io as _io
+        import inspect as _inspect
+    except Exception as e:
+        try: hook_log(f"[SPEC_PROBE] unavailable: {e}\n")
+        except Exception: pass
+        return 0
+
+    def safe_filename(name):
+        return str(name).replace('.', '_').replace('<', '_').replace('>', '_').replace(':', '_').replace('\\', '_').replace('/', '_')
+
+    def disassemble(code_obj):
+        try:
+            buf = _io.StringIO()
+            _dis.dis(code_obj, file=buf)
+            return buf.getvalue()
+        except Exception as e:
+            return f"<disassembly failed: {e}>\n"
+
+    def code_metadata(code_obj, prefix="# "):
+        lines = []
+        try:
+            lines.append(f"{prefix}co_name={code_obj.co_name!r}")
+            lines.append(f"{prefix}co_qualname={getattr(code_obj, 'co_qualname', code_obj.co_name)!r}")
+            lines.append(f"{prefix}co_filename={code_obj.co_filename!r}")
+            lines.append(f"{prefix}co_firstlineno={code_obj.co_firstlineno!r}")
+            lines.append(f"{prefix}co_argcount={getattr(code_obj, 'co_argcount', None)!r}")
+            lines.append(f"{prefix}co_kwonlyargcount={getattr(code_obj, 'co_kwonlyargcount', None)!r}")
+            lines.append(f"{prefix}co_nlocals={getattr(code_obj, 'co_nlocals', None)!r}")
+            lines.append(f"{prefix}co_varnames={getattr(code_obj, 'co_varnames', ())!r}")
+            lines.append(f"{prefix}co_names={getattr(code_obj, 'co_names', ())!r}")
+            const_preview = []
+            for c in getattr(code_obj, 'co_consts', ()):
+                if isinstance(c, types.CodeType):
+                    const_preview.append(f"<code {c.co_name}>")
+                else:
+                    r = repr(c)
+                    if len(r) > 300:
+                        r = r[:300] + '...'
+                    const_preview.append(r)
+            lines.append(f"{prefix}co_consts={const_preview!r}")
+        except Exception as e:
+            lines.append(f"{prefix}metadata failed: {e}")
+        return "\n".join(lines)
+
+    def nested_code_objects(code_obj, seen=None):
+        if seen is None:
+            seen = set()
+        out = []
+        ident = id(code_obj)
+        if ident in seen:
+            return out
+        seen.add(ident)
+        for c in getattr(code_obj, 'co_consts', ()):
+            if isinstance(c, types.CodeType):
+                out.append(c)
+                out.extend(nested_code_objects(c, seen))
+        return out
+
+    names = sorted(set(str(n) for n in (module_names or []) if isinstance(n, str) and n and n != '__hook__' and not n.startswith('__hook__.')))
+    try: hook_log(f"[SPEC_PROBE] names={names!r}\n")
+    except Exception: pass
+    if not names:
+        return 0
+
+    spec_dir = source_dir / "LOCKED_MODULE_SPECS"
+    try:
+        spec_dir.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        pass
+
+    dumped = 0
+    meta_path = []
+    try:
+        meta_path = list(sys.meta_path)
+    except Exception:
+        meta_path = []
+
+    for name in names:
+        if name in sys.modules and sys.modules.get(name) is not None:
+            try: hook_log(f"[SPEC_PROBE SKIP] {name!r}: already in sys.modules\n")
+            except Exception: pass
+            continue
+
+        finder_reports = []
+        found_any = False
+        wrote_any = False
+
+        for idx, finder in enumerate(meta_path):
+            finder_type = type(finder).__module__ + "." + type(finder).__name__
+            spec = None
+            err = None
+            try:
+                if hasattr(finder, 'find_spec'):
+                    spec = finder.find_spec(name, None, None)
+                elif hasattr(finder, 'find_module'):
+                    loader = finder.find_module(name, None)
+                    if loader is not None:
+                        spec = type('LegacySpecRecord', (), {})()
+                        spec.name = name
+                        spec.loader = loader
+                        spec.origin = getattr(loader, 'path', None)
+                        spec.has_location = bool(getattr(loader, 'path', None))
+                        spec.submodule_search_locations = None
+            except BaseException as e:
+                err = repr(e)
+
+            loader = getattr(spec, 'loader', None) if spec is not None else None
+            origin = getattr(spec, 'origin', None) if spec is not None else None
+            has_location = getattr(spec, 'has_location', None) if spec is not None else None
+            subloc = getattr(spec, 'submodule_search_locations', None) if spec is not None else None
+            loader_type = (type(loader).__module__ + "." + type(loader).__name__) if loader is not None else None
+            finder_reports.append({
+                'index': idx,
+                'finder_type': finder_type,
+                'error': err,
+                'spec_found': spec is not None,
+                'origin': origin,
+                'has_location': has_location,
+                'submodule_search_locations': repr(subloc),
+                'loader_type': loader_type,
+                'loader_repr': repr(loader)[:500],
+            })
+
+            try:
+                hook_log(f"[SPEC_PROBE FINDER] name={name!r} idx={idx} finder={finder_type!r} found={spec is not None} origin={origin!r} loader={loader_type!r} err={err}\n")
+            except Exception:
+                pass
+
+            if spec is None or loader is None:
+                continue
+
+            found_any = True
+            source_text = None
+            code_obj = None
+            source_error = None
+            code_error = None
+
+            # get_source is passive for normal loaders. If the loader refuses,
+            # keep the error in metadata.
+            try:
+                if hasattr(loader, 'get_source'):
+                    source_text = loader.get_source(name)
+            except BaseException as e:
+                source_error = repr(e)
+
+            # get_code returns the code object without exec_module for normal
+            # Python loaders, frozen loaders, and many custom importers.
+            try:
+                if hasattr(loader, 'get_code'):
+                    code_obj = loader.get_code(name)
+            except BaseException as e:
+                code_error = repr(e)
+
+            content = []
+            content.append('\"\"\"')
+            content.append(f"Locked module spec probe: {name}")
+            content.append("Source type: finder/spec/loader probe, no import execution")
+            content.append(f"Finder: {finder_type}")
+            content.append(f"Loader: {loader_type}")
+            content.append(f"Origin: {origin!r}")
+            content.append(f"Has location: {has_location!r}")
+            content.append(f"Submodule search locations: {subloc!r}")
+            content.append(f"get_source_error: {source_error!r}")
+            content.append(f"get_code_error: {code_error!r}")
+            content.append('\"\"\"')
+            content.append("")
+
+            if isinstance(source_text, str):
+                content.append("# ===== LOADER GET_SOURCE RESULT =====")
+                content.append(source_text)
+                content.append("")
+                wrote_any = True
+
+            if isinstance(code_obj, types.CodeType):
+                content.append("# ===== LOADER GET_CODE METADATA =====")
+                content.append(code_metadata(code_obj))
+                content.append("")
+                content.append("# ===== BEST-EFFORT PSEUDO SOURCE =====")
+                try:
+                    content.append(recon.decompiler.decompile_code(code_obj))
+                except Exception as e:
+                    content.append(f"# decompile failed: {e}")
+                    content.append("pass")
+                content.append("")
+                content.append("LOCKED_SPEC_DISASSEMBLY = " + repr(disassemble(code_obj)))
+                nested = nested_code_objects(code_obj)
+                if nested:
+                    content.append("")
+                    content.append("# ===== NESTED CODE OBJECTS =====")
+                    for nidx, nested_code in enumerate(nested, 1):
+                        content.append(f"\n# --- nested code object {nidx}: {nested_code.co_name} ---")
+                        content.append(code_metadata(nested_code))
+                        content.append("NESTED_DISASSEMBLY_%d = " % nidx + repr(disassemble(nested_code)))
+                wrote_any = True
+
+            if not wrote_any:
+                content.append("# No source/code was returned by this loader.")
+                content.append(f"SPEC_OBJECT_REPR = {repr(spec)!r}")
+                content.append(f"LOADER_OBJECT_REPR = {repr(loader)!r}")
+                # Pull non-callable/simple loader attributes for diagnostics.
+                attrs = []
+                try:
+                    for attr_name in sorted(set(dir(loader))):
+                        if attr_name.startswith('__'):
+                            continue
+                        try:
+                            val = getattr(loader, attr_name)
+                        except Exception as e:
+                            attrs.append((attr_name, f"<error: {e}>"))
+                            continue
+                        if callable(val):
+                            continue
+                        r = repr(val)
+                        if len(r) > 1000:
+                            r = r[:1000] + '...'
+                        attrs.append((attr_name, r))
+                except Exception as e:
+                    attrs.append(("<loader-dir-error>", repr(e)))
+                content.append("LOADER_NONCALLABLE_ATTRS = " + repr(attrs))
+
+            data = "\n".join(content)
+            safe = safe_filename(name)
+            out_path = spec_dir / f"{safe}.py"
+            try:
+                out_path.write_text(data, encoding='utf-8', errors='replace')
+                top_path = source_dir / f"{safe}.py"
+                if not top_path.exists() and wrote_any:
+                    top_path.write_text(data, encoding='utf-8', errors='replace')
+                dumped += 1
+                try: hook_log(f"[SPEC_PROBE OK] name={name!r} finder={finder_type!r} wrote={out_path} has_source={isinstance(source_text, str)} has_code={isinstance(code_obj, types.CodeType)}\n")
+                except Exception: pass
+            except Exception as e:
+                try: hook_log(f"[SPEC_PROBE ERR] name={name!r} write failed: {e}\n")
+                except Exception: pass
+
+            # One successful spec file is enough for this name. If it had no
+            # code/source, continue to other finders in case a later finder can
+            # provide more.
+            if wrote_any:
+                break
+
+        if not found_any:
+            # Write a report even when no finder knows this locked name.
+            safe = safe_filename(name)
+            try:
+                report = []
+                report.append('\"\"\"')
+                report.append(f"Locked module spec probe: {name}")
+                report.append("No sys.meta_path finder returned a spec.")
+                report.append('\"\"\"')
+                report.append("")
+                report.append("FINDER_REPORTS = " + repr(finder_reports))
+                (spec_dir / f"{safe}__NO_SPEC.txt").write_text("\n".join(report), encoding='utf-8', errors='replace')
+                try: hook_log(f"[SPEC_PROBE NO_SPEC] name={name!r}\n")
+                except Exception: pass
+            except Exception as e:
+                try: hook_log(f"[SPEC_PROBE NO_SPEC_ERR] name={name!r}: {e}\n")
+                except Exception: pass
+
+    try: hook_log(f"[SPEC_PROBE] dumped={dumped}\n")
+    except Exception: pass
+    return dumped
+
+
+# =============================================================================
 # IMPORT LOCK DIAGNOSTICS / FORCE UNLOCK
 # =============================================================================
 def _iter_import_module_locks():
@@ -1163,10 +1442,19 @@ def run_decompiler():
 
         # Generic import-lock diagnostics and requested force-unlock pass.
         # No target-name matching, no waiting, no forced imports.
+        locked_names_before_force = []
+        spec_probe_dumped = 0
         try:
-            log_import_module_locks(hook_log, "BEFORE_FORCE")
+            locked_names_before_force = log_import_module_locks(hook_log, "BEFORE_FORCE")
         except Exception as e:
             try: hook_log(f"[MODULE_LOCKS BEFORE_FORCE] diagnostic failed: {e}\n")
+            except Exception: pass
+
+        try:
+            spec_probe_dumped = probe_locked_module_specs(locked_names_before_force, recon, source_dir, hook_log)
+        except Exception as e:
+            error_count += 1
+            try: hook_log(f"[SPEC_PROBE] crashed: {e}\n")
             except Exception: pass
 
         forced_locks = 0
@@ -1225,6 +1513,10 @@ def run_decompiler():
         hook_log(f"Processed: {processed_count} modules\nErrors: {error_count}\n")
         hook_log(f"Compiled code blocks: {len(recon.compiled_modules)}\n")
         hook_log(f"Frozen modules dumped: {frozen_dumped}\n")
+        try:
+            hook_log(f"Locked spec probes dumped: {spec_probe_dumped}\n")
+        except Exception:
+            pass
         try:
             hook_log(f"Import locks force-cleared: {forced_locks}\n")
         except Exception:
