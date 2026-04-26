@@ -11,8 +11,8 @@ python yarGen.py -g "C:\Users\semae\OneDrive\Belgeler\usbdosyalar\data2" -c -i b
 python yarGen.py -g "C:\Users\semae\OneDrive\Belgeler\usbdosyalar\javascript\data2" -c -i benign_javascript_data2
 
 // --- datamaliciousorder (PE): Generate YARA rules + export strings -> machine_learning_pe.yar ---
-python yarGen.py -m "C:\Users\semae\OneDrive\Belgeler\usbdosyalar\datamaliciousorder" --excludegood --meaningful-words-only --nofilesize --nosimple -r "https://github.com/HydraDragonAntivirus" -l "AGPLv3" -a "HydraDragonAntivirus" -e "C:\Users\semae\OneDrive\Belgeler\usbdosyalar\datamaliciousorder_strings" -o "C:\Users\semae\OneDrive\Belgeler\usbdosyalar\machine_learning_pe.yar"
+python yarGen.py -m "C:\Users\semae\OneDrive\Belgeler\usbdosyalar\datamaliciousorder" --excludegood --meaningful-words-only --nofilesize --nosimple -r "https://github.com/HydraDragonAntivirus" -l "GPLv2" -a "HydraDragonAntivirus" -e "C:\Users\semae\OneDrive\Belgeler\usbdosyalar\datamaliciousorder_strings" -o "C:\Users\semae\OneDrive\Belgeler\usbdosyalar\machine_learning_pe.yar"
 
 // --- javascript/datamaliciousorder (JS): Generate YARA rules + export strings -> machine_learning_js.yar ---
-python yarGen.py -m "C:\Users\semae\OneDrive\Belgeler\usbdosyalar\javascript\datamaliciousorder" --excludegood --meaningful-words-only --nofilesize --nosimple -r "https://github.com/HydraDragonAntivirus" -l "AGPLv3" -a "HydraDragonAntivirus" -e "C:\Users\semae\OneDrive\Belgeler\usbdosyalar\javascript_datamaliciousorder_strings" -o "C:\Users\semae\OneDrive\Belgeler\usbdosyalar\machine_learning_js.yar"
+python yarGen.py -m "C:\Users\semae\OneDrive\Belgeler\usbdosyalar\javascript\datamaliciousorder" --excludegood --meaningful-words-only --nofilesize --nosimple -r "https://github.com/HydraDragonAntivirus" -l "GPLv2" -a "HydraDragonAntivirus" -e "C:\Users\semae\OneDrive\Belgeler\usbdosyalar\javascript_datamaliciousorder_strings" -o "C:\Users\semae\OneDrive\Belgeler\usbdosyalar\machine_learning_js.yar"
 

@@ -27,7 +27,6 @@ use crate::config::Param;
 use crate::driver_com::Buf;
 use crate::threathandling::LinuxThreatHandler;
 use crate::watchlist::WatchList;
-use crate::whitelist;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
@@ -68,11 +67,7 @@ pub async fn run() -> Result<(), anyhow::Error> {
     if cfg!(feature = "replay") {
         println!("Replay Driver Messages");
         let config = config::Config::new();
-        let whitelist = whitelist::WhiteList::from(
-            &Path::new(&config[Param::ConfigPath]).join(Path::new("exclusions.txt")),
-        )
-        .unwrap();
-        let mut worker = Worker::new_replay(&config, &whitelist);
+        let mut worker = Worker::new_replay(&config);
 
         let filename =
             &Path::new(&config[Param::RealTimeLearningPath]).join(Path::new("drivermessages.txt"));
@@ -133,11 +128,6 @@ pub async fn run() -> Result<(), anyhow::Error> {
 
             //NEW
             thread::spawn(move || {
-                let whitelist = whitelist::WhiteList::from(
-                    &Path::new(&config[Param::ConfigPath]).join(Path::new("exclusions.txt")),
-                )
-                .expect("Cannot open exclusions.txt");
-                whitelist.refresh_periodically();
 
                 if cfg!(feature = "novelty") {
                     let watchlist = WatchList::from(
@@ -153,7 +143,6 @@ pub async fn run() -> Result<(), anyhow::Error> {
 
                 if cfg!(feature = "malware") {
                     worker = worker
-                        .whitelist(&whitelist)
                         .process_record_handler(Box::new(ProcessRecordHandlerLive::new(
                             &config,
                             Box::new(LinuxThreatHandler::default()),

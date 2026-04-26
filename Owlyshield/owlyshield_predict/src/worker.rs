@@ -311,7 +311,7 @@ pub mod process_record_handling {
                     self.config[Param::RealTimeLearningPath]
                 );
                 println!(
-                    "\nPlease update {}\\exclusions.txt if it's a false positive",
+                    "",
                     self.config[Param::ConfigPath]
                 );
 
@@ -404,7 +404,7 @@ pub mod process_record_handling {
                         self.config[Param::RealTimeLearningPath]
                     );
                     println!(
-                        "\nPlease update {}\\exclusions.txt if it's a false positive",
+                        "",
                         self.config[Param::ConfigPath]
                     );
 
@@ -729,7 +729,6 @@ pub mod worker_instance {
     use crate::threat_handler::ThreatHandler;
     #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
     use crate::utils::validate_pipe_client;
-    use crate::whitelist::WhiteList;
     use crate::worker::process_record_handling::{
         ExePathReplay, Exepath, ProcessRecordHandlerReplay, ProcessRecordIOHandler,
     };
@@ -883,7 +882,6 @@ pub mod worker_instance {
 
     pub struct Worker<'a> {
         pub config: &'a Config,
-        whitelist: Option<&'a WhiteList>,
         process_records: ProcessRecords,
         process_record_handler: Option<Box<dyn ProcessRecordIOHandler + 'a>>,
         exepath_handler: Box<dyn Exepath>,
@@ -1762,7 +1760,6 @@ pub mod worker_instance {
         ) -> Self {
             Worker {
                 config,
-                whitelist: None,
                 process_records: ProcessRecords::new(),
                 process_record_handler: None,
                 exepath_handler: Box::<ExepathLive>::default(),
@@ -1996,10 +1993,6 @@ pub mod worker_instance {
             }
         }
 
-        pub fn whitelist(mut self, whitelist: &'a WhiteList) -> Worker<'a> {
-            self.whitelist = Some(whitelist);
-            self
-        }
 
         pub fn process_record_handler(
             mut self,
@@ -2516,13 +2509,11 @@ pub mod worker_instance {
 
         pub fn new_replay(
             config: &'a Config,
-            whitelist: &'a WhiteList,
             #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
             app_settings: AppSettings,
         ) -> Worker<'a> {
             Worker {
                 config,
-                whitelist: Some(whitelist),
                 process_records: ProcessRecords::new(),
                 process_record_handler: Some(Box::new(ProcessRecordHandlerReplay::new(config))),
                 exepath_handler: Box::<ExePathReplay>::default(),

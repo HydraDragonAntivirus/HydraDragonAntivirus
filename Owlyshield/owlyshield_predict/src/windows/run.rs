@@ -23,7 +23,7 @@ use crate::watchlist::WatchList;
 use crate::{
     CDriverMsgs, Connectors, Driver, ExepathLive, IOMessage, IOMsgPostProcessorMqtt,
     IOMsgPostProcessorRPC, IOMsgPostProcessorWriter, Logging, ProcessRecordHandlerLive,
-    ProcessRecordHandlerNovelty, Worker, config, whitelist,
+    ProcessRecordHandlerNovelty, Worker, config,
 };
 
 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
@@ -294,10 +294,6 @@ pub fn run() {
     if cfg!(feature = "replay") {
         println!("Replay Driver Messages");
 
-        let whitelist = whitelist::WhiteList::from(
-            &Path::new(&config[Param::ConfigPath]).join(Path::new("exclusions.txt")),
-        )
-        .unwrap();
 
         // For replay we load a separate AppSettings instance if behavior engine is enabled
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
@@ -306,9 +302,9 @@ pub fn run() {
 
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
         let mut worker =
-            Worker::new_replay(&config, &whitelist, app_settings_replay).driver(driver.clone());
+            Worker::new_replay(&config, app_settings_replay).driver(driver.clone());
         #[cfg(not(all(target_os = "windows", feature = "behavior_engine")))]
-        let mut worker = Worker::new_replay(&config, &whitelist);
+        let mut worker = Worker::new_replay(&config);
 
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
         {
@@ -395,12 +391,6 @@ pub fn run() {
         let thread_app_settings = app_settings; // moved into thread
         let thread_driver = driver.clone();
         thread::spawn(move || {
-            let whitelist = whitelist::WhiteList::from(
-                &Path::new(&thread_config[Param::ConfigPath]).join(Path::new("exclusions.txt")),
-            )
-            .expect("Cannot open exclusions.txt");
-
-            whitelist.refresh_periodically();
 
             #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
             let mut worker =
@@ -422,7 +412,6 @@ pub fn run() {
 
             if cfg!(feature = "malware") {
                 worker = worker
-                    .whitelist(&whitelist)
                     .process_record_handler(Box::new(ProcessRecordHandlerLive::new(
                         &thread_config,
                         Box::new(win_threat_handler.clone()),

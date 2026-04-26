@@ -27,7 +27,6 @@ pub mod shared_def;
 pub mod threat_handler;
 pub mod utils;
 pub mod watchlist;
-pub mod whitelist;
 pub mod whitelist_loader;
 pub mod worker;
 
