@@ -23,6 +23,63 @@ static NTSTATUS CompleteIrp(_Inout_ PIRP Irp, _In_ NTSTATUS Status, _In_ ULONG_P
     return Status;
 }
 
+
+#define SANCTUM_RULE_LOADER_PATH \
+    L"\\??\\C:\\Program Files\\HydraDragonAntivirus\\hydradragon\\Owlyshield\\Sanctum\\AppData\\sanctum_ppl_runner.exe"
+
+static BOOLEAN IsTrustedRuleIoctlCaller(VOID)
+{
+    if (KeGetCurrentIrql() != PASSIVE_LEVEL)
+    {
+        DbgPrint("[SimplePYAS] Rule-control caller rejected: wrong IRQL %u\n",
+            (ULONG)KeGetCurrentIrql());
+        return FALSE;
+    }
+
+    PEPROCESS process = NULL;
+    HANDLE pid = PsGetCurrentProcessId();
+    NTSTATUS status = PsLookupProcessByProcessId(pid, &process);
+    if (!NT_SUCCESS(status) || process == NULL)
+    {
+        DbgPrint("[SimplePYAS] Rule-control caller rejected: PsLookupProcessByProcessId(%p) failed 0x%X\n",
+            pid,
+            status);
+        return FALSE;
+    }
+
+    PUNICODE_STRING imagePath = NULL;
+    status = SeLocateProcessImageName(process, &imagePath);
+
+    BOOLEAN trusted = FALSE;
+    if (NT_SUCCESS(status) && imagePath && imagePath->Buffer && imagePath->Length > 0)
+    {
+        NormalizeDevicePathToDos(imagePath);
+
+        UNICODE_STRING expectedPath;
+        RtlInitUnicodeString(&expectedPath, SANCTUM_RULE_LOADER_PATH);
+
+        trusted = RtlEqualUnicodeString(imagePath, &expectedPath, TRUE);
+        if (!trusted)
+        {
+            DbgPrint("[SimplePYAS] Rule-control caller rejected: pid=%p image=%wZ\n",
+                pid,
+                imagePath);
+        }
+    }
+    else
+    {
+        DbgPrint("[SimplePYAS] Rule-control caller rejected: SeLocateProcessImageName(%p) failed 0x%X\n",
+            pid,
+            status);
+    }
+
+    if (imagePath)
+        ExFreePool(imagePath);
+
+    ObDereferenceObject(process);
+    return trusted;
+}
+
 static NTSTATUS CreateControlDevice(_In_ PDRIVER_OBJECT DriverObject)
 {
     UNICODE_STRING deviceName;
@@ -93,6 +150,16 @@ static VOID DeleteControlDevice(VOID)
 NTSTATUS HydraDragonCreateClose(_In_ PDEVICE_OBJECT DeviceObject, _Inout_ PIRP Irp)
 {
     UNREFERENCED_PARAMETER(DeviceObject);
+
+    PIO_STACK_LOCATION stack = IoGetCurrentIrpStackLocation(Irp);
+    if (stack && stack->MajorFunction == IRP_MJ_CREATE)
+    {
+        if (!IsTrustedRuleIoctlCaller())
+        {
+            return CompleteIrp(Irp, STATUS_ACCESS_DENIED, 0);
+        }
+    }
+
     return CompleteIrp(Irp, STATUS_SUCCESS, 0);
 }
 
@@ -109,6 +176,12 @@ NTSTATUS HydraDragonDeviceControl(_In_ PDEVICE_OBJECT DeviceObject, _Inout_ PIRP
     switch (controlCode)
     {
     case IOCTL_HYDRADRAGON_SET_RULES:
+        if (!IsTrustedRuleIoctlCaller())
+        {
+            status = STATUS_ACCESS_DENIED;
+            break;
+        }
+
         if (systemBuffer == NULL || inputLength < sizeof(HYDRADRAGON_RULE_BLOB))
         {
             status = STATUS_INVALID_PARAMETER;
@@ -127,8 +200,14 @@ NTSTATUS HydraDragonDeviceControl(_In_ PDEVICE_OBJECT DeviceObject, _Inout_ PIRP
         break;
 
     case IOCTL_HYDRADRAGON_CLEAR_RULES:
+        if (!IsTrustedRuleIoctlCaller())
+        {
+            status = STATUS_ACCESS_DENIED;
+            break;
+        }
+
         CleanupProtectionRules();
-        DbgPrint("[SimplePYAS] Protection rules cleared by user-mode IOCTL\n");
+        DbgPrint("[SimplePYAS] Protection rules cleared by trusted Sanctum PPL runner IOCTL\n");
         status = STATUS_SUCCESS;
         break;
 

@@ -445,8 +445,6 @@ IsHardcodedTrustedProcessPath(
         L"\\??\\C:\\Windows\\System32\\smss.exe",
         L"\\??\\C:\\Windows\\System32\\winlogon.exe",
         L"\\??\\C:\\Windows\\System32\\svchost.exe",
-
-        L"\\??\\C:\\Program Files\\HydraDragonAntivirus\\hydradragon\\Owlyshield\\Owlyshield Service\\owlyshield_ransom.exe"
     };
 
     for (ULONG i = 0; i < ARRAYSIZE(kTrustedHardcodedPaths); ++i)

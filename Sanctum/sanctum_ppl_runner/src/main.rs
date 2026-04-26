@@ -7,6 +7,7 @@ use std::{
 };
 
 use logging::{EventID, event_log};
+use rules::refresh_hydradragon_protection_rules;
 use tracing::start_threat_intel_trace;
 use windows::{
     Win32::{
@@ -34,6 +35,7 @@ use windows::{
 mod ipc;
 mod logging;
 mod registry;
+mod rules;
 mod tracing;
 
 static SERVICE_STOP: AtomicBool = AtomicBool::new(false);
@@ -67,6 +69,19 @@ fn run_service(h_status: SERVICE_STATUS_HANDLE) {
             EventID::Info,
         );
 
+        match refresh_hydradragon_protection_rules() {
+            Ok(()) => event_log(
+                "HydraDragon protection rules loaded into kernel driver.",
+                EVENTLOG_INFORMATION_TYPE,
+                EventID::Info,
+            ),
+            Err(e) => event_log(
+                &format!("HydraDragon protection rule load failed: {e}"),
+                EVENTLOG_ERROR_TYPE,
+                EventID::GeneralError,
+            ),
+        };
+
         // start tracing session; we spawn this in its own os thread as it is blocking
         std::thread::spawn(|| {
             start_threat_intel_trace();
@@ -83,7 +98,6 @@ fn run_service(h_status: SERVICE_STATUS_HANDLE) {
         update_service_status(h_status, SERVICE_STOPPED.0);
     }
 }
-
 /// Spawns a child process as Protected Process Light.
 ///
 /// **Note** The child process MUST be signed with the ELAM certificate, and any DLLs it relies upon must either
