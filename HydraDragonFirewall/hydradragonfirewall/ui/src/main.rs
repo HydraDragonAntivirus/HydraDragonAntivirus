@@ -3938,8 +3938,8 @@ fn AlertWindow(
              </div>
              <div class="alert-window-body">
                  {move || pending_app.get().map(|app| {
-                     let n1 = app.name.clone(); let n2 = app.name.clone(); let n3 = app.name.clone(); let n4 = app.name.clone(); let n5 = app.name.clone();
-                     let res1 = resolve_decision_internal.clone(); let res2 = resolve_decision_internal.clone(); let res3 = resolve_decision_internal.clone(); let res4 = resolve_decision_internal.clone(); let res5 = resolve_decision_internal.clone();
+                     let n1 = app.name.clone(); let n2 = app.name.clone(); let n5 = app.name.clone();
+                     let res1 = resolve_decision_internal.clone(); let res2 = resolve_decision_internal.clone(); let res5 = resolve_decision_internal.clone();
                      let is_registry_alert = app.alert_kind.as_deref() == Some("registry");
                      let is_owlyshield_alert = app.alert_source.as_deref() == Some("owlyshield");
                      let is_browser_mitm_prompt = app.alert_source.as_deref() == Some("browser_mitm")
@@ -4020,7 +4020,7 @@ fn AlertWindow(
                      };
                      let description = if is_owlyshield_alert && !is_browser_mitm_prompt && !is_website_alert {
                          format!(
-                             "{} Choose DENY to return access denied only, TERMINATE to stop the process, or QUARANTINE to stop and quarantine it.",
+                             "{} Choose DENY to block access, ONCE to allow this session only, or TRUST to always allow.",
                              description
                          )
                      } else {
@@ -4140,7 +4140,7 @@ fn AlertWindow(
                                  view! {
                                      <>
                                          <button class="alert-btn session" on:click={let p = app.path.clone(); move |_| res1(n1.clone(), p.clone(), "allow_once".to_string())}> "ALLOW MITM ONCE" </button>
-                                         <button class="alert-btn quarantine" on:click={let p = app.path.clone(); move |_| res4(n4.clone(), p.clone(), "allow_always_no_mitm".to_string())}> "NO MITM" </button>
+                                         <button class="alert-btn quarantine" on:click={let p = app.path.clone(); move |_| res5(n5.clone(), p.clone(), "allow_always_no_mitm".to_string())}> "NO MITM" </button>
                                          <button class="alert-btn always" on:click={let p = app.path.clone(); move |_| res2(n2.clone(), p.clone(), "allow_always".to_string())}> "ALLOW MITM" </button>
                                      </>
                                  }.into_view()
@@ -4148,8 +4148,6 @@ fn AlertWindow(
                                  view! {
                                      <>
                                          <button class="alert-btn block" on:click={let p = app.path.clone(); move |_| res5(n5.clone(), p.clone(), "deny".to_string())}> "DENY" </button>
-                                         <button class="alert-btn block" on:click={let p = app.path.clone(); move |_| res3(n3.clone(), p.clone(), "block".to_string())}> "TERMINATE" </button>
-                                         <button class="alert-btn quarantine" on:click={let p = app.path.clone(); move |_| res4(n4.clone(), p.clone(), "quarantine".to_string())}> "QUARANTINE" </button>
                                          <button class="alert-btn session" on:click={let p = app.path.clone(); move |_| res1(n1.clone(), p.clone(), "allow_once".to_string())}> "ONCE" </button>
                                          <button class="alert-btn always" on:click={let p = app.path.clone(); let decision = always_decision.clone(); move |_| res2(n2.clone(), p.clone(), decision.clone())}> {always_label} </button>
                                      </>

@@ -6,6 +6,7 @@
 - Very easy to download executable by clicking download button instead of finding correct release from github.
 - SourceForge collects telemetry for download results.
 - Project link: https://sourceforge.net/projects/hydradragonantivirus/
+- I don't have Github Actions on Github feature anymore so it's not very different for me.
 
 <h1>Hydra Dragon Antivirus</h1>
 
