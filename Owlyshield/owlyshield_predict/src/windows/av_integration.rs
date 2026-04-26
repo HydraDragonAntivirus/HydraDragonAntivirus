@@ -15,7 +15,6 @@ use windows::Win32::Storage::FileSystem::{
     CreateFileA, FILE_ATTRIBUTE_NORMAL, FILE_GENERIC_WRITE, FILE_SHARE_NONE, FlushFileBuffers,
     OPEN_EXISTING, PIPE_ACCESS_DUPLEX, PIPE_ACCESS_INBOUND, ReadFile, WriteFile,
 };
-use windows::Win32::System::IO::DeviceIoControl;
 use windows::Win32::System::Pipes::{
     ConnectNamedPipe, CreateNamedPipeA, DisconnectNamedPipe, PIPE_READMODE_BYTE,
     PIPE_READMODE_MESSAGE, PIPE_TYPE_BYTE, PIPE_TYPE_MESSAGE, PIPE_UNLIMITED_INSTANCES, PIPE_WAIT,
@@ -40,21 +39,6 @@ const PIPE_AV_TO_EDR: &str = r"\\.\pipe\Global\hydradragon_to_owlyshield";
 const PIPE_EDR_TO_AV: &str = r"\\.\pipe\Global\owlyshield_to_hydradragon";
 const PIPE_MBR_ALERT: &str = r"\\.\pipe\Global\mbr_filter_alerts";
 const PIPE_SELF_DEFENSE_ALERT: &str = r"\\.\pipe\Global\self_defense_alerts";
-
-// --- HydraDragon kernel rule-control device ---
-// Must match Driver.h in the fixed no-delay driver package.
-const HYDRADRAGON_RULE_DEVICE: &str = r"\\.\HydraDragonProtection";
-const HYDRADRAGON_RULES_BASE_DIR: &str =
-    r"C:\Program Files\HydraDragonAntivirus\hydradragon\HydraDragon_Protection_Rules\PYAS";
-const HYDRADRAGON_RULE_BLOB_MAGIC: u32 = 0x4859_4452; // 'HYDR'
-const HYDRADRAGON_RULE_BLOB_VERSION: u32 = 1;
-const HYDRADRAGON_RULES_FLAG_UTF16LE: u32 = 0x0000_0001;
-const MAX_RULE_BLOB_SECTION_SIZE: usize = 256 * 1024;
-
-// CTL_CODE(FILE_DEVICE_UNKNOWN, 0x801, METHOD_BUFFERED, FILE_WRITE_DATA)
-const IOCTL_HYDRADRAGON_SET_RULES: u32 = 0x22A004;
-#[allow(dead_code)]
-const IOCTL_HYDRADRAGON_CLEAR_RULES: u32 = 0x22A008;
 
 const BUFFER_SIZE: u32 = 8192;
 const PIPE_READ_BUFFER_SIZE: u32 = 65536;
@@ -230,199 +214,6 @@ fn decode_utf16le_message(data: &[u8]) -> String {
     String::from_utf16_lossy(&words)
         .trim_end_matches('\0')
         .to_string()
-}
-
-fn decode_rule_file_text(path: &Path) -> Result<String, String> {
-    let bytes = std::fs::read(path)
-        .map_err(|e| format!("failed to read rule file {}: {}", path.display(), e))?;
-
-    if bytes.is_empty() {
-        return Ok(String::new());
-    }
-
-    // UTF-16 LE BOM
-    if bytes.len() >= 2 && bytes[0] == 0xFF && bytes[1] == 0xFE {
-        let usable_len = (bytes.len() - 2) & !1;
-        let mut words = Vec::with_capacity(usable_len / 2);
-        for chunk in bytes[2..2 + usable_len].chunks_exact(2) {
-            words.push(u16::from_le_bytes([chunk[0], chunk[1]]));
-        }
-        return Ok(String::from_utf16_lossy(&words));
-    }
-
-    // UTF-16 BE BOM
-    if bytes.len() >= 2 && bytes[0] == 0xFE && bytes[1] == 0xFF {
-        let usable_len = (bytes.len() - 2) & !1;
-        let mut words = Vec::with_capacity(usable_len / 2);
-        for chunk in bytes[2..2 + usable_len].chunks_exact(2) {
-            words.push(u16::from_be_bytes([chunk[0], chunk[1]]));
-        }
-        return Ok(String::from_utf16_lossy(&words));
-    }
-
-    Ok(String::from_utf8_lossy(&bytes).to_string())
-}
-
-fn read_hydradragon_rule_category(dir: &Path) -> Result<String, String> {
-    if !dir.exists() {
-        Logging::warning(&format!(
-            "[ProtectionRules] Rule directory does not exist, treating as empty: {}",
-            dir.display()
-        ));
-        return Ok(String::new());
-    }
-
-    let mut files = Vec::new();
-    let entries = std::fs::read_dir(dir)
-        .map_err(|e| format!("failed to enumerate rule directory {}: {}", dir.display(), e))?;
-
-    for entry in entries {
-        let entry = entry.map_err(|e| {
-            format!(
-                "failed to read an entry from rule directory {}: {}",
-                dir.display(),
-                e
-            )
-        })?;
-
-        let file_type = entry.file_type().map_err(|e| {
-            format!(
-                "failed to query rule entry type {}: {}",
-                entry.path().display(),
-                e
-            )
-        })?;
-
-        if file_type.is_file() {
-            files.push(entry.path());
-        }
-    }
-
-    files.sort();
-
-    let mut combined = String::new();
-    for file in files {
-        let text = decode_rule_file_text(&file)?;
-        combined.push_str(&text);
-        if !combined.ends_with('\n') {
-            combined.push('\n');
-        }
-    }
-
-    Ok(combined)
-}
-
-fn append_utf16le_text(out: &mut Vec<u8>, text: &str) {
-    for word in text.encode_utf16() {
-        out.extend_from_slice(&word.to_le_bytes());
-    }
-}
-
-fn append_u32_le(out: &mut Vec<u8>, value: u32) {
-    out.extend_from_slice(&value.to_le_bytes());
-}
-
-fn checked_rule_section_len(name: &str, bytes: usize) -> Result<u32, String> {
-    if bytes > MAX_RULE_BLOB_SECTION_SIZE {
-        return Err(format!(
-            "{} rules section is too large: {} bytes > {} bytes",
-            name, bytes, MAX_RULE_BLOB_SECTION_SIZE
-        ));
-    }
-
-    u32::try_from(bytes).map_err(|_| format!("{} rules section length overflow", name))
-}
-
-/// Loads HydraDragon protection rules from disk in user mode and sends them to the fixed driver.
-///
-/// This replaces the old kernel-side delayed rule loader. Call it after the driver has been
-/// started and after the rule folders are available on disk. Failure is non-fatal so the
-/// service can continue running and retry later from an admin/service action if needed.
-pub fn refresh_hydradragon_protection_rules() -> Result<(), String> {
-    let base = Path::new(HYDRADRAGON_RULES_BASE_DIR);
-
-    let process_rules = read_hydradragon_rule_category(&base.join("Process"))?;
-    let file_rules = read_hydradragon_rule_category(&base.join("File"))?;
-    let registry_rules = read_hydradragon_rule_category(&base.join("Registry"))?;
-
-    let process_len = process_rules.encode_utf16().count() * 2;
-    let file_len = file_rules.encode_utf16().count() * 2;
-    let registry_len = registry_rules.encode_utf16().count() * 2;
-
-    let process_bytes = checked_rule_section_len("Process", process_len)?;
-    let file_bytes = checked_rule_section_len("File", file_len)?;
-    let registry_bytes = checked_rule_section_len("Registry", registry_len)?;
-
-    let mut payload = Vec::with_capacity(24 + process_len + file_len + registry_len);
-    append_u32_le(&mut payload, HYDRADRAGON_RULE_BLOB_MAGIC);
-    append_u32_le(&mut payload, HYDRADRAGON_RULE_BLOB_VERSION);
-    append_u32_le(&mut payload, HYDRADRAGON_RULES_FLAG_UTF16LE);
-    append_u32_le(&mut payload, process_bytes);
-    append_u32_le(&mut payload, file_bytes);
-    append_u32_le(&mut payload, registry_bytes);
-    append_utf16le_text(&mut payload, &process_rules);
-    append_utf16le_text(&mut payload, &file_rules);
-    append_utf16le_text(&mut payload, &registry_rules);
-
-    unsafe {
-        let device_name = CString::new(HYDRADRAGON_RULE_DEVICE)
-            .map_err(|e| format!("invalid HydraDragon rule device name: {}", e))?;
-        let pcstr = PCSTR(device_name.as_ptr() as *const u8);
-
-        let device = CreateFileA(
-            pcstr,
-            FILE_GENERIC_WRITE.0,
-            FILE_SHARE_NONE,
-            None,
-            OPEN_EXISTING,
-            FILE_ATTRIBUTE_NORMAL,
-            HANDLE::default(),
-        )
-        .map_err(|e| {
-            format!(
-                "failed to open HydraDragon rule device {}: {:?}, GetLastError={:?}",
-                HYDRADRAGON_RULE_DEVICE,
-                e,
-                GetLastError()
-            )
-        })?;
-
-        if device.is_invalid() {
-            return Err(format!(
-                "CreateFileA returned invalid HydraDragon rule device handle, GetLastError={:?}",
-                GetLastError()
-            ));
-        }
-
-        let mut bytes_returned = 0u32;
-        let ok = DeviceIoControl(
-            device,
-            IOCTL_HYDRADRAGON_SET_RULES,
-            Some(payload.as_ptr().cast()),
-            payload.len() as u32,
-            None,
-            0,
-            Some(&mut bytes_returned as *mut u32),
-            None,
-        );
-
-        let err = GetLastError();
-        let _ = CloseHandle(device);
-
-        if !ok.as_bool() {
-            return Err(format!(
-                "DeviceIoControl(IOCTL_HYDRADRAGON_SET_RULES) failed: GetLastError={:?}",
-                err
-            ));
-        }
-    }
-
-    Logging::info(&format!(
-        "[ProtectionRules] Loaded rules into driver: process={} bytes, file={} bytes, registry={} bytes",
-        process_bytes, file_bytes, registry_bytes
-    ));
-
-    Ok(())
 }
 
 fn parse_av_threat_event(message: &str) -> Result<AVThreatEvent, String> {
@@ -998,13 +789,6 @@ impl<'a> AVIntegration<'a> {
     pub fn new(config: &'a Config, predictor_malware: PredictorMalware<'a>) -> Self {
         // <-- MODIFIED: Takes a borrow
         let (internal_scan_tx, internal_scan_rx) = channel::<EDRScanRequest>();
-
-        if let Err(e) = refresh_hydradragon_protection_rules() {
-            Logging::warning(&format!(
-                "[ProtectionRules] Initial rule load failed; protection will use built-in rules until retry: {}",
-                e
-            ));
-        }
 
         let scan_request_handle = thread::spawn(move || {
             scan_request_server_loop(internal_scan_rx);
