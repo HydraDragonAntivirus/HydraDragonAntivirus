@@ -467,7 +467,6 @@ class LiteInjector:
                 ok, exit_code = self._wait_thread_exit(h_st, 5000, "Start"); k32.CloseHandle(h_st)
                 if ok and exit_code == 0:
                     self.log(f"SUCCESS: {name} hooked and running.")
-                    if exe: threading.Thread(target=self.post_injection_analysis, args=(exe, baseline_dump_idx), daemon=True).start()
                 elif not ok:
                     self.log(f"ERROR: HydraStartHook thread timed out (possible deadlock in target).")
                 else:
