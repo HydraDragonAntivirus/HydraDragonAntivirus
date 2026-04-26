@@ -45,6 +45,14 @@ Breaking changes, bugs, and incomplete features should be expected.
 
 ## Important Notes & Limitations
 
+### Switching To SourceForge
+- This project no longer hosted on Github. Don't create issues at here.
+- Reason: My account is limited on Github for second time.
+**Why SourceForge?**:
+- There is no 100MB limits on SourceForge.
+- Very easy to download executable by clicking download button instead of finding correct release from github.
+- SourceForge collects telemetry for download results.
+
 ### Project Scope
 
 HydraDragon is a local antivirus project currently under active and experimental development.
@@ -52,7 +60,7 @@ HydraDragon is a local antivirus project currently under active and experimental
 - It operates locally on the system.
 - It is intended for research, learning, and malware analysis experimentation.
 
-This project does not aim to replace your primary daily antivirus solution.
+This project does not aim to replace your primary daily antivirus solution.7
 
 ---
 
