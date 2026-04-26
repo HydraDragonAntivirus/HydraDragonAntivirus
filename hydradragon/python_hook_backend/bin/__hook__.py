@@ -698,8 +698,7 @@ def dump_frozen_modules(recon, source_dir, hook_log):
     names = sorted(set(n for n in names if isinstance(n, str) and n))
     try:
         hook_log(f"[FROZEN] candidate names: {len(names)}\n")
-        like = [n for n in names if 'crack' in n.lower() or 'v5' in n.lower()]
-        hook_log(f"[FROZEN] crack/v5-like candidate names: {like}\n")
+        hook_log(f"[FROZEN] candidate names list: {names!r}\n")
     except Exception:
         pass
 
@@ -777,6 +776,210 @@ def dump_frozen_modules(recon, source_dir, hook_log):
     except Exception: pass
     return dumped
 
+
+
+# =============================================================================
+# IMPORT LOCK DIAGNOSTICS / FORCE UNLOCK
+# =============================================================================
+def _iter_import_module_locks():
+    """Return [(name, lock_obj, weakref_or_obj)] for importlib's private module locks."""
+    try:
+        import importlib._bootstrap as _bootstrap
+        locks = getattr(_bootstrap, '_module_locks', {})
+        items = list(locks.items()) if hasattr(locks, 'items') else []
+    except Exception:
+        return []
+
+    out = []
+    for name, ref in items:
+        try:
+            lock = ref() if callable(ref) else ref
+        except Exception:
+            lock = None
+        out.append((str(name), lock, ref))
+    return out
+
+
+def log_import_module_locks(hook_log, label):
+    """Generic module-lock report. No target-name matching and no waiting."""
+    entries = _iter_import_module_locks()
+    try:
+        hook_log(f"[MODULE_LOCKS {label}] count={len(entries)}\n")
+    except Exception:
+        pass
+
+    names = []
+    for name, lock, ref in entries:
+        names.append(name)
+        try:
+            in_sys = name in sys.modules
+            mod = sys.modules.get(name)
+            hook_log(
+                f"[MODULE_LOCK {label}] name={name!r} "
+                f"alive={lock is not None} "
+                f"in_sys_modules={in_sys} "
+                f"module_is_none={mod is None} "
+                f"lock_type={type(lock).__name__ if lock is not None else None!r} "
+                f"owner={getattr(lock, 'owner', None)!r} "
+                f"count={getattr(lock, 'count', None)!r} "
+                f"waiters={getattr(lock, 'waiters', None)!r}\n"
+            )
+        except Exception as e:
+            try: hook_log(f"[MODULE_LOCK {label}] name={name!r} diagnostic failed: {e}\n")
+            except Exception: pass
+    return names
+
+
+def force_unlock_import_module_locks(hook_log):
+    """Force-clear importlib private module locks once, generically.
+
+    This does not import any module and does not synthesize source. It only
+    clears importlib._bootstrap._module_locks entries that exist at dump time.
+    It is intentionally aggressive because the caller requested force unlock.
+    """
+    try:
+        import importlib._bootstrap as _bootstrap
+        import _thread
+        locks = getattr(_bootstrap, '_module_locks', {})
+        current_tid = _thread.get_ident()
+    except Exception as e:
+        try: hook_log(f"[MODULE_LOCK_FORCE] unavailable: {e}\n")
+        except Exception: pass
+        return 0
+
+    if not hasattr(locks, 'items'):
+        try: hook_log("[MODULE_LOCK_FORCE] _module_locks is not dict-like\n")
+        except Exception: pass
+        return 0
+
+    forced = 0
+    for name, ref in list(locks.items()):
+        name_s = str(name)
+        if name_s == '__hook__' or name_s.startswith('__hook__.'):
+            continue
+
+        try:
+            lock = ref() if callable(ref) else ref
+        except Exception:
+            lock = None
+
+        before_owner = getattr(lock, 'owner', None) if lock is not None else None
+        before_count = getattr(lock, 'count', None) if lock is not None else None
+        before_waiters = getattr(lock, 'waiters', None) if lock is not None else None
+        in_sys = name_s in sys.modules
+        module_is_none = sys.modules.get(name_s) is None
+
+        api_released = 0
+        api_error = None
+        direct_error = None
+        wake_error = None
+        pop_error = None
+
+        # If this worker owns the lock, use the normal release path first.
+        # Releasing a lock owned by a different thread normally raises, so the
+        # requested force path below directly clears private fields too.
+        try:
+            if lock is not None and before_owner == current_tid:
+                limit = int(before_count or 1) + 1
+                for _ in range(max(1, min(limit, 100))):
+                    try:
+                        lock.release()
+                        api_released += 1
+                    except Exception as e:
+                        api_error = repr(e)
+                        break
+        except Exception as e:
+            api_error = repr(e)
+
+        # Aggressive private-field clear. This is what actually breaks a stale
+        # or foreign-thread lock; use only because this hook runs inside a dump.
+        try:
+            if lock is not None:
+                try: setattr(lock, 'owner', None)
+                except Exception: pass
+                try: setattr(lock, 'count', 0)
+                except Exception: pass
+                try: setattr(lock, 'waiters', 0)
+                except Exception: pass
+        except Exception as e:
+            direct_error = repr(e)
+
+        # Wake any waiters if the wakeup lock is currently locked.
+        try:
+            wakeup = getattr(lock, 'wakeup', None) if lock is not None else None
+            if wakeup is not None and hasattr(wakeup, 'locked') and wakeup.locked():
+                try:
+                    wakeup.release()
+                except Exception as e:
+                    wake_error = repr(e)
+        except Exception as e:
+            wake_error = repr(e)
+
+        try:
+            try:
+                locks.pop(name, None)
+            except AttributeError:
+                del locks[name]
+            popped = True
+        except Exception as e:
+            popped = False
+            pop_error = repr(e)
+
+        forced += 1
+        try:
+            hook_log(
+                f"[MODULE_LOCK_FORCE] name={name_s!r} "
+                f"in_sys_modules={in_sys} module_is_none={module_is_none} "
+                f"owner_before={before_owner!r} count_before={before_count!r} waiters_before={before_waiters!r} "
+                f"api_released={api_released} popped={popped} "
+                f"api_error={api_error} direct_error={direct_error} wake_error={wake_error} pop_error={pop_error}\n"
+            )
+        except Exception:
+            pass
+
+    try: hook_log(f"[MODULE_LOCK_FORCE] forced={forced}\n")
+    except Exception: pass
+    return forced
+
+
+def process_new_sys_modules_once(recon, processed_names, hook_log):
+    """One immediate rescan after lock clearing. No waiting and no imports."""
+    processed = 0
+    errors = 0
+    for name, mod in list(sys.modules.items()):
+        if name in processed_names:
+            continue
+        if not mod:
+            continue
+        if name == '__hook__' or str(name).startswith('__hook__.'):
+            continue
+        if name == '__main__':
+            try:
+                if hasattr(mod, '__file__') and mod.__file__:
+                    if '__hook__' in mod.__file__ or 'hook_backend' in mod.__file__:
+                        continue
+            except Exception:
+                pass
+        is_potential_main = False
+        try:
+            if hasattr(mod, '__file__') and mod.__file__:
+                file_path = mod.__file__
+                if '__hook__' not in file_path and 'hook_backend' not in file_path:
+                    is_potential_main = (name == '__main__')
+        except Exception:
+            pass
+        try:
+            recon.process_module(name, mod, is_potential_main)
+            processed_names.add(name)
+            processed += 1
+            hook_log(f"[OK] Processed after unlock: {name}\n")
+        except Exception as e:
+            errors += 1
+            try: hook_log(f"[ERR] Error processing after unlock {name}: {e}\n")
+            except Exception: pass
+    try: hook_log(f"[MODULE_RESCAN_AFTER_UNLOCK] processed={processed} errors={errors}\n")
+    except Exception: pass
+    return processed, errors
 
 # =============================================================================
 # HELPER: GET NEXT INCREMENTAL PATH
@@ -896,6 +1099,7 @@ def run_decompiler():
 
         processed_count = 0
         error_count = 0
+        processed_names = set()
 
         for idx, (name, mod) in enumerate(targets, 1):
             if idx == 1 or idx % 25 == 0 or idx == total_targets:
@@ -942,6 +1146,7 @@ def run_decompiler():
 
             try:
                 recon.process_module(name, mod, is_potential_main)
+                processed_names.add(name)
                 processed_count += 1
                 hook_log(f"[OK] Processed: {name}\n")
             except Exception as e:
@@ -956,44 +1161,57 @@ def run_decompiler():
             error_count += 1
             hook_log(f"[FROZEN ERR] frozen scan crashed: {e}\n")
 
-        # Final diagnostics only.  Do NOT wait here and do NOT force-import
-        # anything.  _module_locks can prove a name was requested by importlib,
-        # but the lock does not contain module source or a module object.
+        # Generic import-lock diagnostics and requested force-unlock pass.
+        # No target-name matching, no waiting, no forced imports.
         try:
-            crack_like_modules = sorted(
-                name for name in sys.modules
-                if 'crack' in str(name).lower() or 'v5' in str(name).lower()
-            )
-            hook_log(f"[FINAL CHECK] crack/v5-like sys.modules: {crack_like_modules}\n")
+            log_import_module_locks(hook_log, "BEFORE_FORCE")
+        except Exception as e:
+            try: hook_log(f"[MODULE_LOCKS BEFORE_FORCE] diagnostic failed: {e}\n")
+            except Exception: pass
+
+        forced_locks = 0
+        try:
+            forced_locks = force_unlock_import_module_locks(hook_log)
+        except Exception as e:
+            error_count += 1
+            try: hook_log(f"[MODULE_LOCK_FORCE] crashed: {e}\n")
+            except Exception: pass
+
+        try:
+            log_import_module_locks(hook_log, "AFTER_FORCE")
+        except Exception as e:
+            try: hook_log(f"[MODULE_LOCKS AFTER_FORCE] diagnostic failed: {e}\n")
+            except Exception: pass
+
+        try:
+            extra_processed, extra_errors = process_new_sys_modules_once(recon, processed_names, hook_log)
+            processed_count += extra_processed
+            error_count += extra_errors
+        except Exception as e:
+            error_count += 1
+            try: hook_log(f"[MODULE_RESCAN_AFTER_UNLOCK] crashed: {e}\n")
+            except Exception: pass
+
+        # Generic final snapshots.  These intentionally report all names, not
+        # a hard-coded target substring.
+        try:
+            module_names = sorted(str(name) for name in sys.modules.keys())
+            hook_log(f"[FINAL CHECK] sys.modules count={len(module_names)}\n")
+            hook_log(f"[FINAL CHECK] sys.modules names={module_names!r}\n")
         except Exception as e:
             try: hook_log(f"[FINAL CHECK] sys.modules diagnostic failed: {e}\n")
             except Exception: pass
 
         try:
-            import importlib._bootstrap as _bootstrap
-            locks = getattr(_bootstrap, '_module_locks', {})
-            lock_names = sorted(str(name) for name in getattr(locks, 'keys', lambda: [])())
-            crack_like_locks = [
-                name for name in lock_names
-                if 'crack' in name.lower() or 'v5' in name.lower()
-            ]
-            hook_log(f"[FINAL CHECK] crack/v5-like module_locks: {crack_like_locks}\n")
+            lock_names = log_import_module_locks(hook_log, "FINAL")
         except Exception as e:
-            try: hook_log(f"[FINAL CHECK] module_locks diagnostic failed: {e}\n")
+            lock_names = []
+            try: hook_log(f"[FINAL CHECK] final module-lock diagnostic failed: {e}\n")
             except Exception: pass
 
         try:
             import _imp
-            names_to_check = set()
-            try:
-                names_to_check.update(crack_like_modules)
-            except Exception:
-                pass
-            try:
-                names_to_check.update(crack_like_locks)
-            except Exception:
-                pass
-            for n in sorted(names_to_check):
+            for n in sorted(set(lock_names)):
                 try:
                     hook_log(f"[FINAL CHECK] _imp.is_frozen({n!r})={_imp.is_frozen(n)}\n")
                 except Exception as e:
@@ -1007,6 +1225,10 @@ def run_decompiler():
         hook_log(f"Processed: {processed_count} modules\nErrors: {error_count}\n")
         hook_log(f"Compiled code blocks: {len(recon.compiled_modules)}\n")
         hook_log(f"Frozen modules dumped: {frozen_dumped}\n")
+        try:
+            hook_log(f"Import locks force-cleared: {forced_locks}\n")
+        except Exception:
+            pass
         write_marker(
             progress_path,
             "phase=finished\nprocessed={processed}\nerrors={errors}\ncompiled={compiled}\n".format(
