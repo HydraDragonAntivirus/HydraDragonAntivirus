@@ -38,6 +38,9 @@ NTSTATUS InitProcessProtection();
 // Uninitialize process protection callbacks (call during driver unload)
 VOID UninitProcessProtection();
 VOID ReloadProcessProtectionExcludeRules(VOID);
+NTSTATUS SetProcessProtectionExcludeRulesFromBuffer(
+    _In_reads_bytes_(BytesRead) PUCHAR Buffer,
+    _In_ ULONG BytesRead);
 
 // ===================================================================
 // Process Event Detection Functions

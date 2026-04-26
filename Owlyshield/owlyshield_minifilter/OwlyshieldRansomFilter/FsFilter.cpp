@@ -526,6 +526,45 @@ VOID FSReloadPyasWhitelistRules(VOID)
     FSLoadPyasWhitelistRules();
 }
 
+NTSTATUS FSSetPyasWhitelistRulesFromBuffer(
+    _In_reads_bytes_(BytesRead) PUCHAR Buffer,
+    _In_ ULONG BytesRead)
+{
+    PYAS_WHITELIST_RULE_SET stagedRules = {0};
+    NTSTATUS status;
+
+    if (Buffer == NULL || BytesRead == 0 || BytesRead > PYAS_RULE_MAX_FILE_SIZE)
+    {
+        return STATUS_INVALID_PARAMETER;
+    }
+
+    FSEnsurePyasRuleMutex();
+
+    status = FSAppendPyasRulesFromBufferToSet(&stagedRules, Buffer, BytesRead);
+    if (!NT_SUCCESS(status))
+    {
+        FSFreePyasRuleSetStorage(&stagedRules);
+        return status;
+    }
+
+    ExAcquireFastMutex(&g_PyasWhitelistRules.Mutex);
+    FSFreePyasWhitelistRulesUnlocked();
+
+    g_PyasWhitelistRules.Rules = stagedRules.Rules;
+    g_PyasWhitelistRules.Count = stagedRules.Count;
+    g_PyasWhitelistRules.Capacity = stagedRules.Capacity;
+    g_PyasWhitelistRules.Loaded = TRUE;
+
+    stagedRules.Rules = NULL;
+    stagedRules.Count = 0;
+    stagedRules.Capacity = 0;
+
+    ExReleaseFastMutex(&g_PyasWhitelistRules.Mutex);
+    FSFreePyasRuleSetStorage(&stagedRules);
+
+    return STATUS_SUCCESS;
+}
+
 //
 //  Constant FLT_REGISTRATION structure for our filter.
 //  initializes the callback routines our filter wants to register

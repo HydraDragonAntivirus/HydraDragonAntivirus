@@ -4,6 +4,21 @@
 #include "UserModeHookEngine.h"
 #include <ntstrsafe.h>
 
+#ifdef OWLY_HAS_EMBEDDED_HOOK_RULE_LOADER
+extern "C" NTSTATUS SetHookExcludeRulesFromBuffer(
+    _In_reads_bytes_(BytesRead) PUCHAR Buffer,
+    _In_ ULONG BytesRead);
+#else
+static NTSTATUS SetHookExcludeRulesFromBuffer(
+    _In_reads_bytes_(BytesRead) PUCHAR Buffer,
+    _In_ ULONG BytesRead)
+{
+    UNREFERENCED_PARAMETER(Buffer);
+    UNREFERENCED_PARAMETER(BytesRead);
+    return STATUS_NOT_IMPLEMENTED;
+}
+#endif
+
 // IOCTL for Hypervisor communication
 #define IOCTL_REGISTER_OWLY_CALLBACK CTL_CODE(FILE_DEVICE_UNKNOWN, 0x815, METHOD_BUFFERED, FILE_ANY_ACCESS)
 
@@ -232,6 +247,56 @@ static BOOLEAN IsSanctumAntimalwareLightCaller(
     }
 
     return allowed;
+}
+
+static NTSTATUS ValidateOwlyRuleBlob(
+    _In_ PVOID InputBuffer,
+    _In_ ULONG InputBufferLength,
+    _In_ ULONG ExpectedType,
+    _Outptr_result_bytebuffer_(*RuleBytes) PUCHAR *RuleBuffer,
+    _Out_ PULONG RuleBytes)
+{
+    POWLY_RULE_BLOB_MESSAGE blob;
+    ULONG headerSize;
+    SIZE_T requiredSize;
+
+    if (RuleBuffer == NULL || RuleBytes == NULL)
+    {
+        return STATUS_INVALID_PARAMETER;
+    }
+
+    *RuleBuffer = NULL;
+    *RuleBytes = 0;
+
+    headerSize = FIELD_OFFSET(OWLY_RULE_BLOB_MESSAGE, rule_data);
+    if (InputBuffer == NULL || InputBufferLength < headerSize)
+    {
+        return STATUS_INVALID_BUFFER_SIZE;
+    }
+
+    blob = (POWLY_RULE_BLOB_MESSAGE)InputBuffer;
+    if (blob->type != ExpectedType ||
+        blob->magic != OWLY_RULE_BLOB_MAGIC ||
+        blob->version != OWLY_RULE_BLOB_VERSION ||
+        blob->flags != OWLY_RULE_BLOB_FLAG_UTF16LE)
+    {
+        return STATUS_INVALID_PARAMETER;
+    }
+
+    if (blob->rule_bytes == 0 || blob->rule_bytes > OWLY_RULE_BLOB_MAX_BYTES)
+    {
+        return STATUS_INVALID_BUFFER_SIZE;
+    }
+
+    requiredSize = (SIZE_T)headerSize + (SIZE_T)blob->rule_bytes;
+    if (requiredSize > InputBufferLength)
+    {
+        return STATUS_BUFFER_TOO_SMALL;
+    }
+
+    *RuleBuffer = blob->rule_data;
+    *RuleBytes = blob->rule_bytes;
+    return STATUS_SUCCESS;
 }
 
 // Callback from Hypervisor (Intel/AMD)
@@ -1359,13 +1424,60 @@ RWFNewMessage(IN PVOID PortCookie, IN PVOID InputBuffer, IN ULONG InputBufferLen
               IN ULONG OutputBufferLength, OUT PULONG ReturnOutputBufferLength)
 {
     UNREFERENCED_PARAMETER(PortCookie);
-    UNREFERENCED_PARAMETER(InputBufferLength);
-
     *ReturnOutputBufferLength = 0;
 
     COM_MESSAGE *message = static_cast<COM_MESSAGE *>(InputBuffer);
     if (message == NULL)
         return STATUS_INTERNAL_ERROR; // failed message type
+
+    if (message->type == MESSAGE_SET_OWLY_FSFILTER_RULES)
+    {
+        PUCHAR ruleBuffer = NULL;
+        ULONG ruleBytes = 0;
+        NTSTATUS status = ValidateOwlyRuleBlob(
+            InputBuffer,
+            InputBufferLength,
+            MESSAGE_SET_OWLY_FSFILTER_RULES,
+            &ruleBuffer,
+            &ruleBytes);
+        if (!NT_SUCCESS(status))
+        {
+            return status;
+        }
+        return FSSetPyasWhitelistRulesFromBuffer(ruleBuffer, ruleBytes);
+    }
+    else if (message->type == MESSAGE_SET_OWLY_PROCESS_PROTECTION_RULES)
+    {
+        PUCHAR ruleBuffer = NULL;
+        ULONG ruleBytes = 0;
+        NTSTATUS status = ValidateOwlyRuleBlob(
+            InputBuffer,
+            InputBufferLength,
+            MESSAGE_SET_OWLY_PROCESS_PROTECTION_RULES,
+            &ruleBuffer,
+            &ruleBytes);
+        if (!NT_SUCCESS(status))
+        {
+            return status;
+        }
+        return SetProcessProtectionExcludeRulesFromBuffer(ruleBuffer, ruleBytes);
+    }
+    else if (message->type == MESSAGE_SET_OWLY_DYNAMIC_HOOK_EXCLUDE_RULES)
+    {
+        PUCHAR ruleBuffer = NULL;
+        ULONG ruleBytes = 0;
+        NTSTATUS status = ValidateOwlyRuleBlob(
+            InputBuffer,
+            InputBufferLength,
+            MESSAGE_SET_OWLY_DYNAMIC_HOOK_EXCLUDE_RULES,
+            &ruleBuffer,
+            &ruleBytes);
+        if (!NT_SUCCESS(status))
+        {
+            return status;
+        }
+        return SetHookExcludeRulesFromBuffer(ruleBuffer, ruleBytes);
+    }
 
     if (message->type == MESSAGE_ADD_SCAN_DIRECTORY)
     {

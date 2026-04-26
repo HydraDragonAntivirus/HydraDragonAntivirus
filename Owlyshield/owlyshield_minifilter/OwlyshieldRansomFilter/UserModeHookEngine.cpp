@@ -293,6 +293,24 @@ static VOID FreeHookExcludeRulesUnlocked(VOID)
     g_HookExcludeRules.Capacity = 0;
 }
 
+extern "C" NTSTATUS SetHookExcludeRulesFromBuffer(
+    _In_reads_bytes_(BytesRead) PUCHAR Buffer,
+    _In_ ULONG BytesRead)
+{
+    if (Buffer == NULL || BytesRead == 0 || BytesRead > (256 * 1024))
+        return STATUS_INVALID_PARAMETER;
+
+    EnsureHookExcludeRuleMutex();
+
+    ExAcquireFastMutex(&g_HookExcludeRules.Mutex);
+    FreeHookExcludeRulesUnlocked();
+    NTSTATUS status = AppendHookExcludeRulesFromBufferUnlocked(Buffer, BytesRead);
+    g_HookExcludeRules.Loaded = NT_SUCCESS(status);
+    ExReleaseFastMutex(&g_HookExcludeRules.Mutex);
+
+    return status;
+}
+
 static NTSTATUS EnsureHookExcludeRuleCapacityUnlocked(_In_ ULONG RequiredCount)
 {
     PWSTR *newArray;

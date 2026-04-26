@@ -7,7 +7,6 @@ use std::{
 };
 
 use logging::{EventID, event_log};
-use rules::refresh_hydradragon_protection_rules;
 use tracing::start_threat_intel_trace;
 use windows::{
     Win32::{
@@ -32,10 +31,12 @@ use windows::{
     core::{PCWSTR, PWSTR},
 };
 
+mod hardcoded_rules;
 mod ipc;
 mod logging;
+mod openedr_control;
+mod owlyshield_control;
 mod registry;
-mod rules;
 mod tracing;
 
 static SERVICE_STOP: AtomicBool = AtomicBool::new(false);
@@ -68,19 +69,7 @@ fn run_service(h_status: SERVICE_STATUS_HANDLE) {
             EVENTLOG_INFORMATION_TYPE,
             EventID::Info,
         );
-
-        match refresh_hydradragon_protection_rules() {
-            Ok(()) => event_log(
-                "HydraDragon protection rules loaded into kernel driver.",
-                EVENTLOG_INFORMATION_TYPE,
-                EventID::Info,
-            ),
-            Err(e) => event_log(
-                &format!("HydraDragon protection rule load failed: {e}"),
-                EVENTLOG_ERROR_TYPE,
-                EventID::GeneralError,
-            ),
-        };
+        bootstrap_protected_driver_control();
 
         // start tracing session; we spawn this in its own os thread as it is blocking
         std::thread::spawn(|| {
@@ -98,6 +87,7 @@ fn run_service(h_status: SERVICE_STATUS_HANDLE) {
         update_service_status(h_status, SERVICE_STOPPED.0);
     }
 }
+
 /// Spawns a child process as Protected Process Light.
 ///
 /// **Note** The child process MUST be signed with the ELAM certificate, and any DLLs it relies upon must either
@@ -251,4 +241,58 @@ fn svc_name() -> Vec<u16> {
     svc_name.push(0);
 
     svc_name
+}
+
+fn bootstrap_protected_driver_control() {
+    match hardcoded_rules::refresh_hydradragon_protection_rules_from_embedded() {
+        Ok(()) => event_log(
+            "HydraDragon/Owlyshield protection rules loaded from Sanctum embedded defaults.",
+            EVENTLOG_INFORMATION_TYPE,
+            EventID::Info,
+        ),
+        Err(e) => event_log(
+            &format!("Failed to load embedded HydraDragon/Owlyshield protection rules: {}", e),
+            EVENTLOG_ERROR_TYPE,
+            EventID::GeneralError,
+        ),
+    }
+
+    match owlyshield_control::register_owlyshield_from_sanctum() {
+        Ok(()) => event_log(
+            "Owlyshield driver communication registered from Sanctum PPL runner.",
+            EVENTLOG_INFORMATION_TYPE,
+            EventID::Info,
+        ),
+        Err(e) => event_log(
+            &format!("Owlyshield Sanctum registration failed: {}", e),
+            EVENTLOG_ERROR_TYPE,
+            EventID::GeneralError,
+        ),
+    }
+
+    match owlyshield_control::push_embedded_owlyshield_rules_from_sanctum() {
+        Ok(()) => event_log(
+            "Owlyshield embedded rules pushed from Sanctum PPL runner.",
+            EVENTLOG_INFORMATION_TYPE,
+            EventID::Info,
+        ),
+        Err(e) => event_log(
+            &format!("Owlyshield embedded rule push failed: {}", e),
+            EVENTLOG_ERROR_TYPE,
+            EventID::GeneralError,
+        ),
+    }
+
+    match openedr_control::activate_openedr_monitoring() {
+        Ok(()) => event_log(
+            "OpenEDR monitoring activation requested by Sanctum.",
+            EVENTLOG_INFORMATION_TYPE,
+            EventID::Info,
+        ),
+        Err(e) => event_log(
+            &format!("OpenEDR monitoring activation failed: {}", e),
+            EVENTLOG_ERROR_TYPE,
+            EventID::GeneralError,
+        ),
+    }
 }

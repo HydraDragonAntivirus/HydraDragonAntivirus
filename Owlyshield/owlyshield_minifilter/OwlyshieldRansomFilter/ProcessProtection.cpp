@@ -388,6 +388,31 @@ VOID ReloadProcessProtectionExcludeRules(VOID)
     EnsureProcessProtectionExcludeRulesLoaded();
 }
 
+NTSTATUS SetProcessProtectionExcludeRulesFromBuffer(
+    _In_reads_bytes_(BytesRead) PUCHAR Buffer,
+    _In_ ULONG BytesRead)
+{
+    NTSTATUS status;
+
+    if (Buffer == NULL || BytesRead == 0 || BytesRead > PROCESS_PROTECTION_RULE_MAX_FILE_SIZE)
+    {
+        return STATUS_INVALID_PARAMETER;
+    }
+
+    EnsureProcessProtectionRuleMutex();
+
+    ExAcquireFastMutex(&g_ProcessProtectionExcludeRules.Mutex);
+    FreeProcessProtectionExcludeRulesUnlocked();
+
+    status = AppendProcessProtectionExcludeRulesFromBufferUnlocked(Buffer, BytesRead);
+    g_ProcessProtectionExcludeRules.Loaded = NT_SUCCESS(status);
+
+    ExReleaseFastMutex(&g_ProcessProtectionExcludeRules.Mutex);
+    InterlockedExchange(&g_ProcessProtectionExcludeLoadState, NT_SUCCESS(status) ? 2 : 0);
+
+    return status;
+}
+
 static BOOLEAN IsNormalizedPathExcludedByProcessProtectionRules(_In_ PCUNICODE_STRING NormalizedPath)
 {
     BOOLEAN matched = FALSE;

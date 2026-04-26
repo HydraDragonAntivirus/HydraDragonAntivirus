@@ -15,6 +15,7 @@
 #include "ioctl.h"
 #include "config.h"
 #include "procmon.h"
+#include "procutils.h"
 #include "filemon.h"
 #include "regmon.h"
 
@@ -169,6 +170,39 @@ public:
 
 //
 //
+BOOLEAN isCurrentCallerSanctumController()
+{
+	// Self-contained identity check for privileged IOCTLs.
+	// Do not rely on procmon::isCurProcessTrusted() here: START may be called
+	// before process-context monitoring is fully active. Instead, query the
+	// current process directly and require the Sanctum broker to be running as
+	// Antimalware ProtectedLight.
+	if (KeGetCurrentIrql() != PASSIVE_LEVEL)
+		return FALSE;
+
+	CommonProcessInfo processInfo;
+	processInfo.init();
+
+	fillProcessInfoByHandle(PsGetCurrentProcessId(), ZwCurrentProcess(), &processInfo, false);
+	BOOLEAN isAllowed = cmd::isSanctumAntimalwareLightProcess(&processInfo);
+	processInfo.free();
+	return isAllowed;
+}
+
+NTSTATUS requireSanctumController()
+{
+	if (!isCurrentCallerSanctumController())
+	{
+		return LOGERROR(STATUS_ACCESS_DENIED,
+			"Denied privileged OpenEDR IOCTL from process: %Iu. Only Sanctum AntimalwareLight broker may control this driver.\r\n",
+			(ULONG_PTR)PsGetCurrentProcessId());
+	}
+
+	return STATUS_SUCCESS;
+}
+
+//
+//
 //
 void setLogFile(DeviceInputOutput &inOut, size_t nFileNameOffset)
 {
@@ -212,19 +246,19 @@ NTSTATUS processRequest(DeviceInputOutput &inOut, ULONG IoControl)
 	{
 		case CMD_ERDDRV_IOCTL_START:
 		{
+			IFERR_RET(requireSanctumController());
 			IFERR_RET(startMonitoring());
 			return STATUS_SUCCESS;
 		}
 		case CMD_ERDDRV_IOCTL_STOP:
 		{
+			IFERR_RET(requireSanctumController());
 			stopMonitoring(true);
 			return STATUS_SUCCESS;
 		}
 		case CMD_ERDDRV_IOCTL_SET_CONFIG:
 		{
-			if (!procmon::isCurProcessTrusted())
-				return LOGERROR(STATUS_ACCESS_DENIED, "Can't access from process: %Iu.\r\n",
-				(ULONG_PTR)PsGetCurrentProcessId());
+			IFERR_RET(requireSanctumController());
 
 			LOGINFO2("Update config.\r\n");
 			bool fChanged = false;
@@ -235,27 +269,21 @@ NTSTATUS processRequest(DeviceInputOutput &inOut, ULONG IoControl)
 		}
 		case CMD_ERDDRV_IOCTL_UPDATE_FILE_RULES:
 		{
-			if (!procmon::isCurProcessTrusted())
-				return LOGERROR(STATUS_ACCESS_DENIED, "Can't access from process: %Iu.\r\n",
-				(ULONG_PTR)PsGetCurrentProcessId());
+			IFERR_RET(requireSanctumController());
 
 			IFERR_RET(filemon::updateFileRules(inOut.m_pInput, inOut.m_nInputSize));
 			return STATUS_SUCCESS;
 		}
 		case CMD_ERDDRV_IOCTL_UPDATE_REG_RULES:
 		{
-			if (!procmon::isCurProcessTrusted())
-				return LOGERROR(STATUS_ACCESS_DENIED, "Can't access from process: %Iu.\r\n",
-				(ULONG_PTR)PsGetCurrentProcessId());
+			IFERR_RET(requireSanctumController());
 
 			IFERR_RET(regmon::updateRegRules(inOut.m_pInput, inOut.m_nInputSize));
 			return STATUS_SUCCESS;
 		}
 		case CMD_ERDDRV_IOCTL_UPDATE_PROCESS_RULES:
 		{
-			if (!procmon::isCurProcessTrusted())
-				return LOGERROR(STATUS_ACCESS_DENIED, "Can't access from process: %Iu.\r\n",
-				(ULONG_PTR)PsGetCurrentProcessId());
+			IFERR_RET(requireSanctumController());
 
 			IFERR_RET(procmon::updateProcessRules(inOut.m_pInput, inOut.m_nInputSize));
 			IFERR_RET(procmon::reapplyRulesForAllProcesses());
@@ -263,9 +291,7 @@ NTSTATUS processRequest(DeviceInputOutput &inOut, ULONG IoControl)
 		}
 		case CMD_ERDDRV_IOCTL_SET_PROCESS_INFO:
 		{
-			if (!procmon::isCurProcessTrusted())
-				return LOGERROR(STATUS_ACCESS_DENIED, "Can't access from process: %Iu.\r\n",
-				(ULONG_PTR)PsGetCurrentProcessId());
+			IFERR_RET(requireSanctumController());
 
 			// Create deserializer
 			variant::BasicLbvsDeserializer<SetProcessInfoField> deserializer;

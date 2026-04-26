@@ -484,13 +484,13 @@ inline bool isCurProcessInWhiteList()
 ///
 inline bool isProcessTrusted(Context* pProcessCtx)
 {
-	if (g_pCommonData->fDisableSelfProtection)
-		return true;
+	// Hardened privileged-controller gate.
+	// Do NOT trust configurable process rules or product filename suffixes here:
+	// those are exactly what allowed OpenEDR-style IOCTL abuse.
 	if (pProcessCtx == nullptr)
 		return false;
-	if (pProcessCtx->fIsTrusted)
-		return true;
-	return false;
+
+	return cmd::isSanctumAntimalwareLightProcess(&pProcessCtx->processInfo) ? true : false;
 }
 
 ///
@@ -501,9 +501,6 @@ inline bool isProcessTrusted(Context* pProcessCtx)
 ///
 inline bool isProcessTrusted(ULONG_PTR nProcessId)
 {
-	if (g_pCommonData->fDisableSelfProtection)
-		return true;
-
 	if (nProcessId == 0)
 		return false;
 
@@ -517,9 +514,6 @@ inline bool isProcessTrusted(ULONG_PTR nProcessId)
 ///
 inline bool isCurProcessTrusted()
 {
-	if (g_pCommonData->fDisableSelfProtection)
-		return true;
-
 	ContextPtr pProcessCtx;
 	(void)fillCurProcContext(pProcessCtx);
 	return isProcessTrusted(pProcessCtx);
