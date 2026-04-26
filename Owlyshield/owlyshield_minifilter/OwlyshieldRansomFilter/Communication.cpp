@@ -15,6 +15,225 @@ typedef struct _OWLY_HV_COMM_DATA {
 static PDEVICE_OBJECT g_HvDeviceObject = NULL;
 static PFILE_OBJECT g_HvFileObject = NULL;
 
+
+// Only the ELAM-backed Sanctum PPL service is allowed to own the user-mode
+// communication channel to this driver. Owlyshield UI/service code should talk
+// to Sanctum, and Sanctum can broker the driver connection from its protected
+// antimalware-light context.
+#define SANCTUM_PPL_RUNNER_DOS_PATH \
+    L"C:\\Program Files\\HydraDragonAntivirus\\hydradragon\\Owlyshield\\Sanctum\\AppData\\sanctum_ppl_runner.exe"
+#define SANCTUM_PPL_RUNNER_NT_PATH \
+    L"\\??\\C:\\Program Files\\HydraDragonAntivirus\\hydradragon\\Owlyshield\\Sanctum\\AppData\\sanctum_ppl_runner.exe"
+
+#define PS_PROTECTED_TYPE_PROTECTED_LIGHT 1
+#define PS_PROTECTED_SIGNER_ANTIMALWARE   3
+
+typedef UCHAR(NTAPI *PPS_GET_PROCESS_PROTECTION)(_In_ PEPROCESS Process);
+static PPS_GET_PROCESS_PROTECTION g_PsGetProcessProtection = NULL;
+
+static PPS_GET_PROCESS_PROTECTION ResolvePsGetProcessProtection(VOID)
+{
+    if (g_PsGetProcessProtection == NULL)
+    {
+        UNICODE_STRING routineName;
+        RtlInitUnicodeString(&routineName, L"PsGetProcessProtection");
+        g_PsGetProcessProtection =
+            (PPS_GET_PROCESS_PROTECTION)MmGetSystemRoutineAddress(&routineName);
+    }
+
+    return g_PsGetProcessProtection;
+}
+
+static BOOLEAN IsAntimalwareProtectedLightProcess(_In_ PEPROCESS Process)
+{
+    PPS_GET_PROCESS_PROTECTION fnGetProtection = ResolvePsGetProcessProtection();
+    UCHAR protection;
+    UCHAR type;
+    UCHAR signer;
+
+    if (Process == NULL || fnGetProtection == NULL)
+    {
+        return FALSE;
+    }
+
+    protection = fnGetProtection(Process);
+    type = protection & 0x07;
+    signer = (protection >> 4) & 0x0F;
+
+    return (type == PS_PROTECTED_TYPE_PROTECTED_LIGHT &&
+            signer == PS_PROTECTED_SIGNER_ANTIMALWARE);
+}
+
+static PUNICODE_STRING QueryCurrentProcessImagePath(VOID)
+{
+    NTSTATUS status;
+    HANDLE procHandle = NULL;
+    ULONG returnLength = 0;
+    PUNICODE_STRING imagePath = NULL;
+
+    if (ZwQueryInformationProcess == NULL)
+    {
+        return NULL;
+    }
+
+    status = ObOpenObjectByPointer(
+        PsGetCurrentProcess(),
+        OBJ_KERNEL_HANDLE,
+        NULL,
+        0,
+        *PsProcessType,
+        KernelMode,
+        &procHandle);
+    if (!NT_SUCCESS(status))
+    {
+        return NULL;
+    }
+
+    status = ZwQueryInformationProcess(
+        procHandle,
+        ProcessImageFileName,
+        NULL,
+        0,
+        &returnLength);
+    if (status != STATUS_INFO_LENGTH_MISMATCH || returnLength == 0)
+    {
+        ZwClose(procHandle);
+        return NULL;
+    }
+
+    imagePath = (PUNICODE_STRING)ExAllocatePool2(
+        POOL_FLAG_NON_PAGED,
+        returnLength,
+        'cRwO');
+    if (imagePath == NULL)
+    {
+        ZwClose(procHandle);
+        return NULL;
+    }
+
+    RtlZeroMemory(imagePath, returnLength);
+    status = ZwQueryInformationProcess(
+        procHandle,
+        ProcessImageFileName,
+        imagePath,
+        returnLength,
+        &returnLength);
+    ZwClose(procHandle);
+
+    if (!NT_SUCCESS(status) ||
+        imagePath->Buffer == NULL ||
+        imagePath->Length == 0)
+    {
+        ExFreePoolWithTag(imagePath, 'cRwO');
+        return NULL;
+    }
+
+    return imagePath;
+}
+
+static BOOLEAN CopyUnicodeStringToNullTerminatedBuffer(
+    _In_ PCUNICODE_STRING Source,
+    _Out_writes_z_(OutCch) PWCHAR OutBuffer,
+    _In_ SIZE_T OutCch)
+{
+    SIZE_T charsToCopy;
+
+    if (Source == NULL || Source->Buffer == NULL || OutBuffer == NULL || OutCch == 0)
+    {
+        return FALSE;
+    }
+
+    charsToCopy = Source->Length / sizeof(WCHAR);
+    if (charsToCopy >= OutCch)
+    {
+        charsToCopy = OutCch - 1;
+    }
+
+    if (charsToCopy == 0)
+    {
+        OutBuffer[0] = L'\0';
+        return FALSE;
+    }
+
+    RtlCopyMemory(OutBuffer, Source->Buffer, charsToCopy * sizeof(WCHAR));
+    OutBuffer[charsToCopy] = L'\0';
+    return TRUE;
+}
+
+static BOOLEAN IsExactSanctumRunnerPath(_In_ PCUNICODE_STRING ImagePath)
+{
+    WCHAR imageBuffer[MAX_FILE_NAME_LENGTH] = {0};
+    WCHAR dosPathBuffer[MAX_FILE_NAME_LENGTH] = {0};
+
+    if (!CopyUnicodeStringToNullTerminatedBuffer(
+            ImagePath,
+            imageBuffer,
+            RTL_NUMBER_OF(imageBuffer)))
+    {
+        return FALSE;
+    }
+
+    // Already-normalized NT Win32 path, e.g. \??\C:\...
+    if (_wcsicmp(imageBuffer, SANCTUM_PPL_RUNNER_NT_PATH) == 0)
+    {
+        return TRUE;
+    }
+
+    // Already DOS path, e.g. C:\...
+    if (_wcsicmp(imageBuffer, SANCTUM_PPL_RUNNER_DOS_PATH) == 0)
+    {
+        return TRUE;
+    }
+
+    // Common SeLocateProcessImageName / ProcessImageFileName form:
+    // \Device\HarddiskVolumeX\...
+    if (NtPathToDosPath(imageBuffer, dosPathBuffer, RTL_NUMBER_OF(dosPathBuffer)) &&
+        _wcsicmp(dosPathBuffer, SANCTUM_PPL_RUNNER_DOS_PATH) == 0)
+    {
+        return TRUE;
+    }
+
+    return FALSE;
+}
+
+static BOOLEAN IsSanctumAntimalwareLightCaller(
+    _Outptr_result_maybenull_ PUNICODE_STRING *OutImagePath)
+{
+    PEPROCESS process = PsGetCurrentProcess();
+    PUNICODE_STRING imagePath = NULL;
+    BOOLEAN allowed = FALSE;
+
+    if (OutImagePath != NULL)
+    {
+        *OutImagePath = NULL;
+    }
+
+    if (!IsAntimalwareProtectedLightProcess(process))
+    {
+        DbgPrint("!!! FsFilter: RWFConnect - caller is not Antimalware ProtectedLight; rejecting\n");
+        return FALSE;
+    }
+
+    imagePath = QueryCurrentProcessImagePath();
+    if (imagePath == NULL)
+    {
+        DbgPrint("!!! FsFilter: RWFConnect - cannot query protected caller image path; rejecting\n");
+        return FALSE;
+    }
+
+    allowed = IsExactSanctumRunnerPath(imagePath);
+    if (OutImagePath != NULL)
+    {
+        *OutImagePath = imagePath;
+    }
+    else
+    {
+        ExFreePoolWithTag(imagePath, 'cRwO');
+    }
+
+    return allowed;
+}
+
 // Callback from Hypervisor (Intel/AMD)
 static VOID NTAPI OwlyHypervisorCallback(PVOID EventDetails) {
     // Process hypervisor events (TRAP_EXECUTION, etc.)
@@ -873,16 +1092,10 @@ NTSTATUS InitCommData()
         return status;
     }
 
-    //
-    // Relax the DACL so the user application can connect without admin rights.
-    //
-    status = RtlSetDaclSecurityDescriptor(sd, TRUE, NULL, FALSE);
-    if (!NT_SUCCESS(status))
-    {
-        DbgPrint("!!! FsFilter: RtlSetDaclSecurityDescriptor failed: 0x%X\n", status);
-        FltFreeSecurityDescriptor(sd);
-        return status;
-    }
+    // Keep the default Filter Manager security descriptor. Do NOT install a
+    // NULL DACL here. The connect callback below performs the final identity
+    // check, but the object ACL should still reject low-privilege opens before
+    // they reach RWFConnect.
 
     InitializeObjectAttributes(
         &oa,
@@ -952,113 +1165,29 @@ RWFConnect(_In_ PFLT_PORT ClientPort, _In_opt_ PVOID ServerPortCookie,
 
     FLT_ASSERT(commHandle->ClientPort == NULL);
 
+
     //
-    // --- Connection hardening: only allow owlyshield_ransom.exe from the
-    //     HydraDragonAntivirus installation directory to connect. ---
-    //
-    // The kernel sees NT-format paths. We resolve \??\C: to its device name
-    // and ensure the path is exactly on the C: drive as requested.
+    // --- Connection hardening ------------------------------------------------
+    // Only the exact Sanctum PPL runner may register/connect to the minifilter
+    // communication port, and it must be running as Antimalware ProtectedLight
+    // (the runtime equivalent of SERVICE_LAUNCH_PROTECTED_ANTIMALWARE_LIGHT).
+    // owlyshield_ransom.exe should not connect directly; it should communicate
+    // with Sanctum, and Sanctum owns the privileged driver channel.
+    // ------------------------------------------------------------------------
     //
 
-    NTSTATUS status;
-    HANDLE procHandle = NULL;
-    ULONG returnLength = 0;
     PUNICODE_STRING imagePath = NULL;
-    BOOLEAN allowed = FALSE;
-
-    // Open a kernel handle to the calling process
-    status = ObOpenObjectByPointer(
-        PsGetCurrentProcess(), OBJ_KERNEL_HANDLE, NULL,
-        0, *PsProcessType, KernelMode, &procHandle);
-    if (!NT_SUCCESS(status))
+    if (!IsSanctumAntimalwareLightCaller(&imagePath))
     {
-        DbgPrint("!!! FsFilter: RWFConnect - ObOpenObjectByPointer failed 0x%X, rejecting connection\n", status);
-        return STATUS_ACCESS_DENIED;
-    }
-
-    // Query the image path length first
-    status = ZwQueryInformationProcess(
-        procHandle, ProcessImageFileName, NULL, 0, &returnLength);
-    if (status != STATUS_INFO_LENGTH_MISMATCH || returnLength == 0)
-    {
-        ZwClose(procHandle);
-        DbgPrint("!!! FsFilter: RWFConnect - cannot query process image path, rejecting connection\n");
-        return STATUS_ACCESS_DENIED;
-    }
-
-    imagePath = (PUNICODE_STRING)ExAllocatePool2(
-        POOL_FLAG_NON_PAGED, returnLength, 'cRwO');
-    if (imagePath == NULL)
-    {
-        ZwClose(procHandle);
-        DbgPrint("!!! FsFilter: RWFConnect - allocation failed, rejecting connection\n");
-        return STATUS_ACCESS_DENIED;
-    }
-
-    status = ZwQueryInformationProcess(
-        procHandle, ProcessImageFileName, imagePath, returnLength, &returnLength);
-    ZwClose(procHandle);
-
-    if (!NT_SUCCESS(status) || imagePath->Buffer == NULL || imagePath->Length == 0)
-    {
-        ExFreePoolWithTag(imagePath, 'cRwO');
-        DbgPrint("!!! FsFilter: RWFConnect - ZwQueryInformationProcess failed 0x%X, rejecting connection\n", status);
-        return STATUS_ACCESS_DENIED;
-    }
-
-    // Use a helper to check if the path is strictly on the C: drive and matches exactly
-    UNICODE_STRING dosName;
-    OBJECT_ATTRIBUTES linkObjAttr;
-    HANDLE linkHandle;
-    UNICODE_STRING driveCDeviceName = {0};
-
-    RtlInitUnicodeString(&dosName, L"\\??\\C:");
-    InitializeObjectAttributes(&linkObjAttr, &dosName, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
-
-    if (NT_SUCCESS(ZwOpenSymbolicLinkObject(&linkHandle, SYMBOLIC_LINK_QUERY, &linkObjAttr)))
-    {
-        driveCDeviceName.MaximumLength = 256 * sizeof(WCHAR);
-        driveCDeviceName.Buffer = (PWCH)ExAllocatePool2(POOL_FLAG_PAGED, driveCDeviceName.MaximumLength, 'cRwO');
-        
-        if (driveCDeviceName.Buffer)
+        if (imagePath != NULL)
         {
-            if (NT_SUCCESS(ZwQuerySymbolicLinkObject(linkHandle, &driveCDeviceName, NULL)))
-            {
-                if (RtlPrefixUnicodeString(&driveCDeviceName, imagePath, TRUE))
-                {
-                    UNICODE_STRING remainingPart;
-                    remainingPart.Buffer = (PWCH)((PUCHAR)imagePath->Buffer + driveCDeviceName.Length);
-                    remainingPart.Length = imagePath->Length - driveCDeviceName.Length;
-                    remainingPart.MaximumLength = remainingPart.Length;
-                    
-                    // Normalize by trimming trailing spaces
-                    while (remainingPart.Length >= sizeof(WCHAR) && 
-                           remainingPart.Buffer[(remainingPart.Length / sizeof(WCHAR)) - 1] == L' ') {
-                        remainingPart.Length -= sizeof(WCHAR);
-                    }
-                    
-                    UNICODE_STRING expectedRemaining;
-                    RtlInitUnicodeString(&expectedRemaining, L"\\Program Files\\HydraDragonAntivirus\\hydradragon\\Owlyshield\\Owlyshield Service\\owlyshield_ransom.exe");
-                    
-                    if (RtlCompareUnicodeString(&remainingPart, &expectedRemaining, TRUE) == 0)
-                    {
-                        allowed = TRUE;
-                    }
-                }
-            }
-            ExFreePoolWithTag(driveCDeviceName.Buffer, 'cRwO');
+            DbgPrint("!!! FsFilter: RWFConnect - REJECTED connection from: %wZ\n", imagePath);
+            ExFreePoolWithTag(imagePath, 'cRwO');
         }
-        ZwClose(linkHandle);
-    }
-
-    if (!allowed)
-    {
-        DbgPrint("!!! FsFilter: RWFConnect - REJECTED connection from: %wZ\n", imagePath);
-        ExFreePoolWithTag(imagePath, 'cRwO');
         return STATUS_ACCESS_DENIED;
     }
 
-    DbgPrint("!!! FsFilter: RWFConnect - ACCEPTED connection from: %wZ\n", imagePath);
+    DbgPrint("!!! FsFilter: RWFConnect - ACCEPTED Sanctum AntimalwareLight connection from: %wZ\n", imagePath);
     ExFreePoolWithTag(imagePath, 'cRwO');
 
     //
