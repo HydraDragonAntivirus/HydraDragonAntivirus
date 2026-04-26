@@ -125,10 +125,9 @@ NTSTATUS ProtectProcess(void)
     NTSTATUS status = STATUS_SUCCESS;
 
     // DO NOT call InitializeProtectionRules() here.
-    // It performs synchronous file I/O (ZwReadFile) which deadlocks the boot
-    // thread because NTFS is not yet initialized when DriverEntry runs.
-    // Rule loading is deferred to DriverReinitCallback via
-    // IoRegisterDriverReinitialization in Driver.c.
+    // Dynamic rules are pushed by the user-mode service through
+    // IOCTL_HYDRADRAGON_SET_RULES. This keeps DriverEntry and callbacks free
+    // from synchronous disk I/O.
 
     // Safety: ensure called at PASSIVE_LEVEL
     if (KeGetCurrentIrql() != PASSIVE_LEVEL) {

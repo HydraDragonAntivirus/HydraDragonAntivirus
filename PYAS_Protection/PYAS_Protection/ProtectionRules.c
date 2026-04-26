@@ -1,10 +1,23 @@
+#include "Driver.h"
 #include "ProtectionRules.h"
 #include "Driver_Common.h"
 #include <ntstrsafe.h>
 
-// Native directory path for loading rule files
-#define RULE_DIRECTORY L"\\??\\C:\\Program Files\\HydraDragonAntivirus\\hydradragon\\HydraDragon_Protection_Rules\\PYAS\\"
-#define MAX_RULE_FILE_SIZE (64 * 1024) // 64KB safety cap for a single rule file
+#define MAX_RULE_BLOB_SECTION_SIZE (256 * 1024) // per rule category, from user mode
+
+static PROTECTION_RULE_SET g_RuleSets[RuleTypeMax] = { 0 };
+static FAST_MUTEX g_RuleMutex;
+static BOOLEAN g_RuleMutexInitialized = FALSE;
+static BOOLEAN g_RulesLoaded = FALSE;
+
+static VOID EnsureRuleMutexInitialized(VOID)
+{
+    if (!g_RuleMutexInitialized)
+    {
+        ExInitializeFastMutex(&g_RuleMutex);
+        g_RuleMutexInitialized = TRUE;
+    }
+}
 
 // Maximum extra chars added when expanding a hive prefix (HKCR\ -> \REGISTRY\MACHINE\SOFTWARE\CLASSES\)
 #define REGISTRY_PREFIX_EXPANSION_MAX 64
@@ -13,12 +26,6 @@ static PROTECTION_RULE_SET g_RuleSets[RuleTypeMax] = { 0 };
 static FAST_MUTEX g_RuleMutex;
 static BOOLEAN g_RuleMutexInitialized = FALSE;
 static BOOLEAN g_RulesLoaded = FALSE;
-
-static const PCWSTR kRuleSubDirs[RuleTypeMax] = {
-    L"Process\\",
-    L"File\\",
-    L"Registry\\"
-};
 
 // ---------------------------------------------------------------------------
 // Registry hive prefix table
@@ -551,251 +558,202 @@ VOID NormalizeDevicePathToDos(PUNICODE_STRING Path)
     }
 }
 
+
 // ---------------------------------------------------------------------------
-// LoadRulesFromFilePath  -  read a single rule file and append its contents.
+// AppendRulesFromWideBlock
+//
+// Parses UTF-16LE text without requiring a BOM. This is the preferred format
+// for IOCTL_HYDRADRAGON_SET_RULES because user mode can concatenate rule files
+// into process/file/registry blocks and pass lengths in bytes.
 // ---------------------------------------------------------------------------
-static NTSTATUS LoadRulesFromFilePath(
-    _In_ PUNICODE_STRING      FilePath,
+static NTSTATUS AppendRulesFromWideBlock(
     _Inout_ PPROTECTION_RULE_SET RuleSet,
-    _In_ RULE_TYPE            RuleType)
+    _In_reads_bytes_(BytesRead) PUCHAR Buffer,
+    _In_ ULONG BytesRead,
+    _In_ RULE_TYPE RuleType)
 {
-    IO_STATUS_BLOCK ioStatus = { 0 };
-    OBJECT_ATTRIBUTES objectAttributes;
-    HANDLE fileHandle = NULL;
-    NTSTATUS status;
+    if (!RuleSet || !Buffer || BytesRead == 0)
+        return STATUS_SUCCESS;
 
-    InitializeObjectAttributes(
-        &objectAttributes,
-        FilePath,
-        OBJ_KERNEL_HANDLE | OBJ_CASE_INSENSITIVE,
-        NULL,
-        NULL);
+    if ((BytesRead % sizeof(WCHAR)) != 0)
+        return STATUS_INVALID_PARAMETER;
 
-    status = ZwCreateFile(
-        &fileHandle,
-        GENERIC_READ,
-        &objectAttributes,
-        &ioStatus,
-        NULL,
-        FILE_ATTRIBUTE_NORMAL,
-        FILE_SHARE_READ,
-        FILE_OPEN,
-        FILE_SYNCHRONOUS_IO_NONALERT,
-        NULL,
-        0);
+    PWCHAR text = (PWCHAR)Buffer;
+    ULONG chars = BytesRead / sizeof(WCHAR);
+    ULONG lineStart = 0;
 
-    if (!NT_SUCCESS(status))
-        return status;
+    if (chars > 0 && text[0] == 0xFEFF)
+        lineStart = 1;
 
-    FILE_STANDARD_INFORMATION fileInfo = { 0 };
-    status = ZwQueryInformationFile(
-        fileHandle,
-        &ioStatus,
-        &fileInfo,
-        sizeof(fileInfo),
-        FileStandardInformation);
-
-    if (!NT_SUCCESS(status))
+    for (ULONG i = lineStart; i <= chars; ++i)
     {
-        ZwClose(fileHandle);
-        return status;
+        BOOLEAN isDelim = (i == chars) || text[i] == L'\n' || text[i] == L'\r';
+        if (!isDelim)
+            continue;
+
+        if (i > lineStart)
+        {
+            ULONG lineLen = i - lineStart;
+            NTSTATUS status = AddRuleString(RuleSet, &text[lineStart], lineLen, RuleType);
+            if (!NT_SUCCESS(status))
+                return status;
+        }
+
+        if (i < chars && text[i] == L'\r' && (i + 1) < chars && text[i + 1] == L'\n')
+        {
+            ++i;
+        }
+
+        lineStart = i + 1;
     }
 
-    if (fileInfo.EndOfFile.QuadPart <= 0 ||
-        fileInfo.EndOfFile.QuadPart > MAX_RULE_FILE_SIZE)
-    {
-        ZwClose(fileHandle);
-        return STATUS_INVALID_BUFFER_SIZE;
-    }
-
-    ULONG bufferSize = (ULONG)fileInfo.EndOfFile.QuadPart;
-    PUCHAR buffer    = (PUCHAR)ExAllocatePool2(POOL_FLAG_NON_PAGED, bufferSize, RULE_POOL_TAG);
-    if (!buffer)
-    {
-        ZwClose(fileHandle);
-        return STATUS_INSUFFICIENT_RESOURCES;
-    }
-
-    RtlZeroMemory(buffer, bufferSize);
-
-    status = ZwReadFile(
-        fileHandle,
-        NULL, NULL, NULL,
-        &ioStatus,
-        buffer,
-        bufferSize,
-        NULL, NULL);
-
-    if (NT_SUCCESS(status))
-        status = AppendRulesFromBuffer(RuleSet, buffer, (ULONG)ioStatus.Information, RuleType);
-
-    ExFreePoolWithTag(buffer, RULE_POOL_TAG);
-    ZwClose(fileHandle);
-    return status;
+    return STATUS_SUCCESS;
 }
 
-// ---------------------------------------------------------------------------
-// LoadRulesFromDirectorySpecific  -  enumerate all files in a subdirectory and
-// load each as a rule file.  RuleType is derived from the loop index in
-// InitializeProtectionRules and forwarded through the call chain.
-// ---------------------------------------------------------------------------
-static NTSTATUS LoadRulesFromDirectorySpecific(
-    _In_    PCWSTR               SubDirectory,
+static NTSTATUS AppendRulesFromUserBlock(
     _Inout_ PPROTECTION_RULE_SET RuleSet,
-    _In_    RULE_TYPE            RuleType)
+    _In_reads_bytes_(BytesRead) PUCHAR Buffer,
+    _In_ ULONG BytesRead,
+    _In_ RULE_TYPE RuleType,
+    _In_ BOOLEAN IsUtf16Le)
 {
-    HANDLE dirHandle         = NULL;
-    IO_STATUS_BLOCK ioStatus = { 0 };
-    UNICODE_STRING directoryPath;
-    OBJECT_ATTRIBUTES objectAttributes;
-    NTSTATUS status;
+    if (BytesRead == 0)
+        return STATUS_SUCCESS;
 
-    WCHAR fullDirPath[256];
-    RtlStringCbPrintfW(fullDirPath, sizeof(fullDirPath), L"%s%s", RULE_DIRECTORY, SubDirectory);
+    if (BytesRead > MAX_RULE_BLOB_SECTION_SIZE)
+        return STATUS_INVALID_BUFFER_SIZE;
 
-    RtlInitUnicodeString(&directoryPath, fullDirPath);
-    InitializeObjectAttributes(
-        &objectAttributes,
-        &directoryPath,
-        OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE,
-        NULL,
-        NULL);
+    if (IsUtf16Le)
+        return AppendRulesFromWideBlock(RuleSet, Buffer, BytesRead, RuleType);
 
-    status = ZwCreateFile(
-        &dirHandle,
-        FILE_LIST_DIRECTORY | SYNCHRONIZE,
-        &objectAttributes,
-        &ioStatus,
-        NULL,
-        FILE_ATTRIBUTE_DIRECTORY,
-        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-        FILE_OPEN,
-        FILE_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT,
-        NULL,
-        0);
+    return AppendRulesFromBuffer(RuleSet, Buffer, BytesRead, RuleType);
+}
 
-    if (!NT_SUCCESS(status))
-        return status;
-
-    ULONG bufferSize = 4096;
-    PFILE_DIRECTORY_INFORMATION dirInfo =
-        (PFILE_DIRECTORY_INFORMATION)ExAllocatePool2(POOL_FLAG_NON_PAGED, bufferSize, RULE_POOL_TAG);
-    if (!dirInfo)
-    {
-        ZwClose(dirHandle);
-        return STATUS_INSUFFICIENT_RESOURCES;
-    }
-
-    BOOLEAN restartScan = TRUE;
-    while (TRUE)
-    {
-        status = ZwQueryDirectoryFile(
-            dirHandle,
-            NULL, NULL, NULL,
-            &ioStatus,
-            dirInfo,
-            bufferSize,
-            FileDirectoryInformation,
-            TRUE,
-            NULL,
-            restartScan);
-
-        if (status == STATUS_NO_MORE_FILES)
-        {
-            status = STATUS_SUCCESS;
-            break;
-        }
-
-        if (!NT_SUCCESS(status))
-            break;
-
-        restartScan = FALSE;
-
-        PFILE_DIRECTORY_INFORMATION current = dirInfo;
-        while (TRUE)
-        {
-            UNICODE_STRING fileName;
-            fileName.Buffer        = current->FileName;
-            fileName.Length        = (USHORT)current->FileNameLength;
-            fileName.MaximumLength = (USHORT)current->FileNameLength;
-
-            if (!IsDotDirectory(&fileName) &&
-                !(current->FileAttributes & FILE_ATTRIBUTE_DIRECTORY))
-            {
-                USHORT fullLength     = directoryPath.Length + fileName.Length + sizeof(WCHAR);
-                PWCHAR fullPathBuffer = (PWCHAR)ExAllocatePool2(
-                    POOL_FLAG_NON_PAGED, fullLength, RULE_POOL_TAG);
-                if (!fullPathBuffer)
-                {
-                    status = STATUS_INSUFFICIENT_RESOURCES;
-                    goto Cleanup;
-                }
-
-                RtlCopyMemory(fullPathBuffer, directoryPath.Buffer, directoryPath.Length);
-                RtlCopyMemory((PUCHAR)fullPathBuffer + directoryPath.Length,
-                              fileName.Buffer, fileName.Length);
-                fullPathBuffer[(fullLength / sizeof(WCHAR)) - 1] = L'\0';
-
-                UNICODE_STRING fullPath;
-                fullPath.Buffer        = fullPathBuffer;
-                fullPath.Length        = fullLength - sizeof(WCHAR);
-                fullPath.MaximumLength = fullLength;
-
-                NTSTATUS loadStatus = LoadRulesFromFilePath(&fullPath, RuleSet, RuleType);
-                ExFreePoolWithTag(fullPathBuffer, RULE_POOL_TAG);
-
-                if (!NT_SUCCESS(loadStatus))
-                    status = loadStatus;
-            }
-
-            if (current->NextEntryOffset == 0)
-                break;
-            current = (PFILE_DIRECTORY_INFORMATION)((PUCHAR)current + current->NextEntryOffset);
-        }
-    }
-
-Cleanup:
-    ExFreePoolWithTag(dirInfo, RULE_POOL_TAG);
-    ZwClose(dirHandle);
-    return status;
+static VOID FreeLocalRuleSets(_Inout_updates_(RuleTypeMax) PROTECTION_RULE_SET RuleSets[RuleTypeMax])
+{
+    for (int i = 0; i < RuleTypeMax; ++i)
+        FreeRuleSet(&RuleSets[i]);
 }
 
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
-// ---------------------------------------------------------------------------
-// InitializeProtectionRules
-//
-// Loads rules from disk.  MUST only be called from DriverReinitCallback (or
-// later), never from DriverEntry.  The filesystem is not available during
-// DriverEntry for a boot-start driver.
-// ---------------------------------------------------------------------------
 NTSTATUS InitializeProtectionRules()
 {
-    if (!g_RuleMutexInitialized)
+    //
+    // Legacy no-op. Disk-backed rule loading from a boot/start kernel driver was
+    // removed intentionally. Use IOCTL_HYDRADRAGON_SET_RULES from the
+    // HydraDragon user-mode service after the filesystem is available.
+    //
+    EnsureRuleMutexInitialized();
+    DbgPrint("[ProtectionRules] InitializeProtectionRules is a no-op; use rule IOCTL\n");
+    return STATUS_SUCCESS;
+}
+
+NTSTATUS SetProtectionRulesFromUserBuffer(
+    _In_reads_bytes_(InputLength) PVOID InputBuffer,
+    _In_ ULONG InputLength)
+{
+    if (KeGetCurrentIrql() != PASSIVE_LEVEL)
+        return STATUS_INVALID_LEVEL;
+
+    if (!InputBuffer || InputLength < sizeof(HYDRADRAGON_RULE_BLOB))
+        return STATUS_INVALID_PARAMETER;
+
+    PHYDRADRAGON_RULE_BLOB header = (PHYDRADRAGON_RULE_BLOB)InputBuffer;
+
+    if (header->Magic != HYDRADRAGON_RULE_BLOB_MAGIC ||
+        header->Version != HYDRADRAGON_RULE_BLOB_VERSION)
     {
-        ExInitializeFastMutex(&g_RuleMutex);
-        g_RuleMutexInitialized = TRUE;
+        return STATUS_INVALID_PARAMETER;
     }
+
+    if ((header->Flags & ~HYDRADRAGON_RULES_FLAG_UTF16LE) != 0)
+        return STATUS_INVALID_PARAMETER;
+
+    if (header->ProcessRulesBytes > MAX_RULE_BLOB_SECTION_SIZE ||
+        header->FileRulesBytes > MAX_RULE_BLOB_SECTION_SIZE ||
+        header->RegistryRulesBytes > MAX_RULE_BLOB_SECTION_SIZE)
+    {
+        return STATUS_INVALID_BUFFER_SIZE;
+    }
+
+    SIZE_T total = sizeof(HYDRADRAGON_RULE_BLOB);
+    total += (SIZE_T)header->ProcessRulesBytes;
+    total += (SIZE_T)header->FileRulesBytes;
+    total += (SIZE_T)header->RegistryRulesBytes;
+
+    if (total > InputLength)
+        return STATUS_INVALID_BUFFER_SIZE;
+
+    PROTECTION_RULE_SET newRuleSets[RuleTypeMax] = { 0 };
+    PUCHAR cursor = (PUCHAR)(header + 1);
+    BOOLEAN isUtf16Le = ((header->Flags & HYDRADRAGON_RULES_FLAG_UTF16LE) != 0);
+    NTSTATUS status;
+
+    status = AppendRulesFromUserBlock(
+        &newRuleSets[RuleTypeProcess],
+        cursor,
+        header->ProcessRulesBytes,
+        RuleTypeProcess,
+        isUtf16Le);
+    if (!NT_SUCCESS(status))
+        goto Fail;
+
+    cursor += header->ProcessRulesBytes;
+
+    status = AppendRulesFromUserBlock(
+        &newRuleSets[RuleTypeFile],
+        cursor,
+        header->FileRulesBytes,
+        RuleTypeFile,
+        isUtf16Le);
+    if (!NT_SUCCESS(status))
+        goto Fail;
+
+    cursor += header->FileRulesBytes;
+
+    status = AppendRulesFromUserBlock(
+        &newRuleSets[RuleTypeRegistry],
+        cursor,
+        header->RegistryRulesBytes,
+        RuleTypeRegistry,
+        isUtf16Le);
+    if (!NT_SUCCESS(status))
+        goto Fail;
+
+    EnsureRuleMutexInitialized();
 
     ExAcquireFastMutex(&g_RuleMutex);
 
-    if (g_RulesLoaded)
-    {
-        ExReleaseFastMutex(&g_RuleMutex);
-        return STATUS_SUCCESS;
-    }
-
-    for (int i = 0; i < RuleTypeMax; i++)
-    {
+    for (int i = 0; i < RuleTypeMax; ++i)
         FreeRuleSet(&g_RuleSets[i]);
-        LoadRulesFromDirectorySpecific(kRuleSubDirs[i], &g_RuleSets[i], (RULE_TYPE)i);
+
+    for (int i = 0; i < RuleTypeMax; ++i)
+    {
+        g_RuleSets[i] = newRuleSets[i];
+        RtlZeroMemory(&newRuleSets[i], sizeof(PROTECTION_RULE_SET));
     }
 
     g_RulesLoaded = TRUE;
+
+    ULONG processCount = g_RuleSets[RuleTypeProcess].Count;
+    ULONG fileCount = g_RuleSets[RuleTypeFile].Count;
+    ULONG registryCount = g_RuleSets[RuleTypeRegistry].Count;
+
     ExReleaseFastMutex(&g_RuleMutex);
+
+    DbgPrint("[ProtectionRules] Installed rules: process=%lu file=%lu registry=%lu\n",
+        processCount,
+        fileCount,
+        registryCount);
+
     return STATUS_SUCCESS;
+
+Fail:
+    FreeLocalRuleSets(newRuleSets);
+    return status;
 }
 
 VOID CleanupProtectionRules()
@@ -810,21 +768,34 @@ VOID CleanupProtectionRules()
     ExReleaseFastMutex(&g_RuleMutex);
 }
 
+BOOLEAN AreProtectionRulesLoaded()
+{
+    return g_RulesLoaded;
+}
+
+ULONG GetProtectionRuleCount(_In_ RULE_TYPE RuleType)
+{
+    if ((LONG)RuleType < 0 || RuleType >= RuleTypeMax || !g_RuleMutexInitialized)
+        return 0;
+
+    ExAcquireFastMutex(&g_RuleMutex);
+    ULONG count = g_RuleSets[RuleType].Count;
+    ExReleaseFastMutex(&g_RuleMutex);
+    return count;
+}
+
 // ---------------------------------------------------------------------------
 // IsPathProtectedByType
 //
-// NOTE: If rules have not yet been loaded (before DriverReinitCallback fires),
-// only the hardcoded roots are enforced.  This is intentional — calling
-// InitializeProtectionRules() here would perform file I/O at an arbitrary
-// IRQL/context and recreate the boot deadlock.
+// If user-mode rules have not been sent yet, only the hardcoded product root is
+// protected. The rule check never performs disk I/O and can safely run from
+// process/file/registry callbacks.
 // ---------------------------------------------------------------------------
 BOOLEAN IsPathProtectedByType(_In_ PCWSTR Path, _In_ RULE_TYPE RuleType)
 {
     if (!Path || (LONG)RuleType < 0 || RuleType >= RuleTypeMax)
         return FALSE;
 
-    // Kernel-enforced base paths  -  protect the HydraDragonAntivirus install
-    // directory regardless of what rule files say.
     static const PCWSTR kHardcodedRoots[] = {
         L"\\??\\C:\\Program Files\\HydraDragonAntivirus"
     };
@@ -835,14 +806,7 @@ BOOLEAN IsPathProtectedByType(_In_ PCWSTR Path, _In_ RULE_TYPE RuleType)
             return TRUE;
     }
 
-    // Rules not loaded yet — only hardcoded paths are protected until
-    // DriverReinitCallback fires and calls InitializeProtectionRules().
-    // DO NOT call InitializeProtectionRules() here: it performs file I/O
-    // and will deadlock if called at the wrong time or IRQL.
-    if (!g_RulesLoaded)
-        return FALSE;
-
-    if (!g_RuleMutexInitialized)
+    if (!g_RulesLoaded || !g_RuleMutexInitialized)
         return FALSE;
 
     ExAcquireFastMutex(&g_RuleMutex);
@@ -865,6 +829,5 @@ BOOLEAN IsPathProtectedByType(_In_ PCWSTR Path, _In_ RULE_TYPE RuleType)
 
 BOOLEAN IsPathProtected(_In_ PCWSTR Path)
 {
-    // Legacy support: default to File rules
     return IsPathProtectedByType(Path, RuleTypeFile);
 }

@@ -1,9 +1,39 @@
 #pragma once
 #include <ntifs.h>
+#include <devioctl.h>
 
 #ifndef PROCESS_QUERY_INFORMATION
 #define PROCESS_QUERY_INFORMATION 0x0400
 #endif
+
+#define HYDRADRAGON_DEVICE_NAME      L"\\Device\\HydraDragonProtection"
+#define HYDRADRAGON_DOS_DEVICE_NAME  L"\\DosDevices\\HydraDragonProtection"
+
+#define HYDRADRAGON_RULE_BLOB_MAGIC   0x48594452UL // 'HYDR'
+#define HYDRADRAGON_RULE_BLOB_VERSION 1
+
+// If set, each rules block in HYDRADRAGON_RULE_BLOB is UTF-16LE text without
+// requiring a BOM. If clear, blocks are parsed as UTF-8/ASCII, or UTF-16 only
+// when a BOM exists in the block.
+#define HYDRADRAGON_RULES_FLAG_UTF16LE 0x00000001UL
+
+#define IOCTL_HYDRADRAGON_SET_RULES   CTL_CODE(FILE_DEVICE_UNKNOWN, 0x801, METHOD_BUFFERED, FILE_WRITE_DATA)
+#define IOCTL_HYDRADRAGON_CLEAR_RULES CTL_CODE(FILE_DEVICE_UNKNOWN, 0x802, METHOD_BUFFERED, FILE_WRITE_DATA)
+
+// METHOD_BUFFERED payload for IOCTL_HYDRADRAGON_SET_RULES:
+//   HYDRADRAGON_RULE_BLOB header
+//   ProcessRulesBytes bytes of process rules text
+//   FileRulesBytes bytes of file rules text
+//   RegistryRulesBytes bytes of registry rules text
+// Blocks are newline-delimited rule files concatenated by user mode.
+typedef struct _HYDRADRAGON_RULE_BLOB {
+    ULONG Magic;
+    ULONG Version;
+    ULONG Flags;
+    ULONG ProcessRulesBytes;
+    ULONG FileRulesBytes;
+    ULONG RegistryRulesBytes;
+} HYDRADRAGON_RULE_BLOB, *PHYDRADRAGON_RULE_BLOB;
 
 // Define ZwQueryInformationProcess if missing
 NTSYSAPI
@@ -73,15 +103,8 @@ typedef struct _LDR_DATA_TABLE_ENTRY32
 } LDR_DATA_TABLE_ENTRY32, * PLDR_DATA_TABLE_ENTRY32;
 #endif
 
-// Core driver entry/unload
+// Core driver entry
 NTSTATUS DriverEntry(_In_ PDRIVER_OBJECT pDriverObj, _In_ PUNICODE_STRING pRegistryPath);
-//NTSTATUS DriverUnload(_In_ PDRIVER_OBJECT pDriverObj);
-
-// Post-boot reinitialization callback (called when filesystem is ready)
-VOID DriverReinitCallback(
-    _In_ PDRIVER_OBJECT DriverObject,
-    _In_opt_ PVOID Context,
-    _In_ ULONG Count);
 
 // Module entry/unload
 NTSTATUS ProcessDriverEntry();
@@ -90,6 +113,10 @@ NTSTATUS FileDriverEntry();
 VOID FileUnloadDriver();
 NTSTATUS RegeditDriverEntry();
 NTSTATUS RegeditUnloadDriver();
+
+// Dispatch routines for the rule-control device
+NTSTATUS HydraDragonCreateClose(_In_ PDEVICE_OBJECT DeviceObject, _Inout_ PIRP Irp);
+NTSTATUS HydraDragonDeviceControl(_In_ PDEVICE_OBJECT DeviceObject, _Inout_ PIRP Irp);
 
 // Shared alert helper
 NTSTATUS SendAlertToPipe(_In_ PCWSTR Message, _In_ SIZE_T MessageLength);

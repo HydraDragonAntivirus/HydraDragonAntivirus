@@ -7,17 +7,139 @@
 static BOOLEAN g_PipeAvailable = FALSE;
 static BOOLEAN g_PipeUnavailableLogged = FALSE;
 
-// Rule loading is intentionally moved to a delayed system thread so the boot
-// initialization thread is never blocked by synchronous ZwReadFile/ZwCreateFile.
-#define RULE_LOAD_DELAY_SECONDS 10
-static volatile LONG g_RuleLoadThreadStarted = 0;
+static PDEVICE_OBJECT g_ControlDeviceObject = NULL;
+static UNICODE_STRING g_ControlSymbolicLink;
+static BOOLEAN g_ControlSymbolicLinkCreated = FALSE;
 
-static VOID RuleLoadWorker(_In_opt_ PVOID Context);
 static VOID DriverUnload(_In_ PDRIVER_OBJECT DriverObject);
+static NTSTATUS CreateControlDevice(_In_ PDRIVER_OBJECT DriverObject);
+static VOID DeleteControlDevice(VOID);
 
-// Shared pipe alert function with retry logic
+static NTSTATUS CompleteIrp(_Inout_ PIRP Irp, _In_ NTSTATUS Status, _In_ ULONG_PTR Information)
+{
+    Irp->IoStatus.Status = Status;
+    Irp->IoStatus.Information = Information;
+    IoCompleteRequest(Irp, IO_NO_INCREMENT);
+    return Status;
+}
 
-// --- Helper: Validate Pipe Server Process ---
+static NTSTATUS CreateControlDevice(_In_ PDRIVER_OBJECT DriverObject)
+{
+    UNICODE_STRING deviceName;
+    NTSTATUS status;
+
+    RtlInitUnicodeString(&deviceName, HYDRADRAGON_DEVICE_NAME);
+    RtlInitUnicodeString(&g_ControlSymbolicLink, HYDRADRAGON_DOS_DEVICE_NAME);
+
+    status = IoCreateDevice(
+        DriverObject,
+        0,
+        &deviceName,
+        FILE_DEVICE_UNKNOWN,
+        FILE_DEVICE_SECURE_OPEN,
+        FALSE,
+        &g_ControlDeviceObject
+    );
+
+    if (!NT_SUCCESS(status))
+    {
+        g_ControlDeviceObject = NULL;
+        DbgPrint("[SimplePYAS] IoCreateDevice failed: 0x%X\n", status);
+        return status;
+    }
+
+    g_ControlDeviceObject->Flags |= DO_BUFFERED_IO;
+
+    // Remove a stale link from a previous test crash, then recreate it.
+    IoDeleteSymbolicLink(&g_ControlSymbolicLink);
+
+    status = IoCreateSymbolicLink(&g_ControlSymbolicLink, &deviceName);
+    if (!NT_SUCCESS(status))
+    {
+        DbgPrint("[SimplePYAS] IoCreateSymbolicLink failed: 0x%X\n", status);
+        IoDeleteDevice(g_ControlDeviceObject);
+        g_ControlDeviceObject = NULL;
+        return status;
+    }
+
+    g_ControlSymbolicLinkCreated = TRUE;
+
+    DriverObject->MajorFunction[IRP_MJ_CREATE] = HydraDragonCreateClose;
+    DriverObject->MajorFunction[IRP_MJ_CLOSE] = HydraDragonCreateClose;
+    DriverObject->MajorFunction[IRP_MJ_CLEANUP] = HydraDragonCreateClose;
+    DriverObject->MajorFunction[IRP_MJ_DEVICE_CONTROL] = HydraDragonDeviceControl;
+
+    g_ControlDeviceObject->Flags &= ~DO_DEVICE_INITIALIZING;
+
+    DbgPrint("[SimplePYAS] Rule-control device created: %ws\n", HYDRADRAGON_DOS_DEVICE_NAME);
+    return STATUS_SUCCESS;
+}
+
+static VOID DeleteControlDevice(VOID)
+{
+    if (g_ControlSymbolicLinkCreated)
+    {
+        IoDeleteSymbolicLink(&g_ControlSymbolicLink);
+        g_ControlSymbolicLinkCreated = FALSE;
+    }
+
+    if (g_ControlDeviceObject)
+    {
+        IoDeleteDevice(g_ControlDeviceObject);
+        g_ControlDeviceObject = NULL;
+    }
+}
+
+NTSTATUS HydraDragonCreateClose(_In_ PDEVICE_OBJECT DeviceObject, _Inout_ PIRP Irp)
+{
+    UNREFERENCED_PARAMETER(DeviceObject);
+    return CompleteIrp(Irp, STATUS_SUCCESS, 0);
+}
+
+NTSTATUS HydraDragonDeviceControl(_In_ PDEVICE_OBJECT DeviceObject, _Inout_ PIRP Irp)
+{
+    UNREFERENCED_PARAMETER(DeviceObject);
+
+    PIO_STACK_LOCATION stack = IoGetCurrentIrpStackLocation(Irp);
+    ULONG controlCode = stack->Parameters.DeviceIoControl.IoControlCode;
+    ULONG inputLength = stack->Parameters.DeviceIoControl.InputBufferLength;
+    PVOID systemBuffer = Irp->AssociatedIrp.SystemBuffer;
+    NTSTATUS status;
+
+    switch (controlCode)
+    {
+    case IOCTL_HYDRADRAGON_SET_RULES:
+        if (systemBuffer == NULL || inputLength < sizeof(HYDRADRAGON_RULE_BLOB))
+        {
+            status = STATUS_INVALID_PARAMETER;
+            break;
+        }
+
+        status = SetProtectionRulesFromUserBuffer(systemBuffer, inputLength);
+        if (NT_SUCCESS(status))
+        {
+            DbgPrint("[SimplePYAS] Protection rules updated from user-mode IOCTL\n");
+        }
+        else
+        {
+            DbgPrint("[SimplePYAS] Rule update IOCTL failed: 0x%X\n", status);
+        }
+        break;
+
+    case IOCTL_HYDRADRAGON_CLEAR_RULES:
+        CleanupProtectionRules();
+        DbgPrint("[SimplePYAS] Protection rules cleared by user-mode IOCTL\n");
+        status = STATUS_SUCCESS;
+        break;
+
+    default:
+        status = STATUS_INVALID_DEVICE_REQUEST;
+        break;
+    }
+
+    return CompleteIrp(Irp, status, 0);
+}
+
 static BOOLEAN IsValidPipeServerProcess(HANDLE PipeHandle)
 {
     NTSTATUS status;
@@ -155,9 +277,6 @@ NTSTATUS SendAlertToPipe(_In_ PCWSTR Message, _In_ SIZE_T MessageLength)
     OBJECT_ATTRIBUTES objAttr;
     UNICODE_STRING pipeName;
     NTSTATUS status;
-    LARGE_INTEGER delay;
-    const ULONG MAX_RETRIES = 180;  // Retry for 3 minutes (180 seconds) for slow Python startup
-    ULONG attempt;
 
     RtlInitUnicodeString(&pipeName, SELF_DEFENSE_PIPE_NAME);
 
@@ -169,230 +288,65 @@ NTSTATUS SendAlertToPipe(_In_ PCWSTR Message, _In_ SIZE_T MessageLength)
         NULL
     );
 
-    // Retry loop to handle startup race condition (kernel starts before Python)
-    for (attempt = 0; attempt < MAX_RETRIES; attempt++)
-    {
-        status = ZwCreateFile(
-            &pipeHandle,
-            FILE_WRITE_DATA | SYNCHRONIZE,
-            &objAttr,
-            &ioStatusBlock,
-            NULL,
-            FILE_ATTRIBUTE_NORMAL,
-            0,
-            FILE_OPEN,
-            FILE_SYNCHRONOUS_IO_NONALERT | FILE_NON_DIRECTORY_FILE,
-            NULL,
-            0
-        );
-
-        if (NT_SUCCESS(status))
-        {
-            // Validate the pipe server process before writing
-            if (!IsValidPipeServerProcess(pipeHandle)) {
-                DbgPrint("[SendAlertToPipe] Pipe connected but server process validation failed! Alert dropped to prevent interception.\r\n");
-                ZwClose(pipeHandle);
-                return STATUS_ACCESS_DENIED; // Security failure: DO NOT send alert
-            }
-
-            // Log once when pipe becomes available
-            if (!g_PipeAvailable)
-            {
-                DbgPrint("[SendAlertToPipe] Pipe connection established and verified to legitimate user-mode listener\r\n");
-                g_PipeAvailable = TRUE;
-                g_PipeUnavailableLogged = FALSE;
-            }
-
-            // Successfully opened pipe and validated server, now write the alert
-            status = ZwWriteFile(
-                pipeHandle,
-                NULL,
-                NULL,
-                NULL,
-                &ioStatusBlock,
-                (PVOID)Message,
-                (ULONG)MessageLength,
-                NULL,
-                NULL
-            );
-
-            ZwClose(pipeHandle);
-            return status;
-        }
-
-        // If pipe doesn't exist or is unavailable, retry after a short delay
-        if (status == STATUS_OBJECT_NAME_NOT_FOUND || status == STATUS_PIPE_NOT_AVAILABLE || status == STATUS_PENDING)
-        {
-            // Only retry if not the last attempt
-            if (attempt < MAX_RETRIES - 1)
-            {
-                // Wait 1 second before retrying (negative = relative time, units of 100ns)
-                // Python startup can be slow, so we give it plenty of time
-                delay.QuadPart = -1000LL * 10000LL;  // 1000ms = 1 second
-                KeDelayExecutionThread(KernelMode, FALSE, &delay);
-                continue;
-            }
-            else
-            {
-                // Last attempt failed, log once and silently drop further alerts
-                // This is expected during system startup before Python initializes
-                if (!g_PipeUnavailableLogged)
-                {
-                    DbgPrint("[SendAlertToPipe] Unable to connect to user-mode listener after %d retries - alerts will be dropped until pipe is available\r\n", MAX_RETRIES);
-                    g_PipeUnavailableLogged = TRUE;
-                    g_PipeAvailable = FALSE;
-                }
-                return STATUS_SUCCESS;
-            }
-        }
-        else
-        {
-            // Some other error (not pipe-related), return immediately
-            return status;
-        }
-    }
-
-    // Should never reach here, but return success to avoid error spam
-    return STATUS_SUCCESS;
-}
-
-// Bypass driver signature enforcement
-BOOLEAN BypassCheckSign(PDRIVER_OBJECT pDriverObject)
-{
-#ifdef _WIN64
-    typedef struct _KLDR_DATA_TABLE_ENTRY
-    {
-        LIST_ENTRY listEntry;
-        ULONG64 __Undefined1;
-        ULONG64 __Undefined2;
-        ULONG64 __Undefined3;
-        ULONG64 NonPagedDebugInfo;
-        ULONG64 DllBase;
-        ULONG64 EntryPoint;
-        ULONG SizeOfImage;
-        UNICODE_STRING path;
-        UNICODE_STRING name;
-        ULONG   Flags;
-        USHORT  LoadCount;
-        USHORT  __Undefined5;
-        ULONG64 __Undefined6;
-        ULONG   CheckSum;
-        ULONG   __padding1;
-        ULONG   TimeDateStamp;
-        ULONG   __padding2;
-    } KLDR_DATA_TABLE_ENTRY, * PKLDR_DATA_TABLE_ENTRY;
-#else
-    typedef struct _KLDR_DATA_TABLE_ENTRY
-    {
-        LIST_ENTRY listEntry;
-        ULONG unknown1;
-        ULONG unknown2;
-        ULONG unknown3;
-        ULONG unknown4;
-        ULONG unknown5;
-        ULONG unknown6;
-        ULONG unknown7;
-        UNICODE_STRING path;
-        UNICODE_STRING name;
-        ULONG   Flags;
-    } KLDR_DATA_TABLE_ENTRY, * PKLDR_DATA_TABLE_ENTRY;
-#endif
-
-    PKLDR_DATA_TABLE_ENTRY pLdrData = (PKLDR_DATA_TABLE_ENTRY)pDriverObject->DriverSection;
-    pLdrData->Flags |= 0x20;
-    return TRUE;
-}
-
-// ---------------------------------------------------------------------------
-// RuleLoadWorker
-//
-// Runs outside DriverEntry / boot driver initialization. This prevents the
-// system boot thread from blocking in synchronous file I/O while rules are
-// loaded from disk.
-// ---------------------------------------------------------------------------
-static VOID RuleLoadWorker(_In_opt_ PVOID Context)
-{
-    UNREFERENCED_PARAMETER(Context);
-
-    LARGE_INTEGER delay;
-    delay.QuadPart = -((LONGLONG)RULE_LOAD_DELAY_SECONDS * 1000LL * 1000LL * 10LL);
-
-    DbgPrint("[SimplePYAS] RuleLoadWorker started - delaying %d seconds before loading rules\n",
-        RULE_LOAD_DELAY_SECONDS);
-
-    KeDelayExecutionThread(KernelMode, FALSE, &delay);
-
-    DbgPrint("[SimplePYAS] RuleLoadWorker loading protection rules now\n");
-
-    NTSTATUS status = InitializeProtectionRules();
-    if (NT_SUCCESS(status))
-    {
-        DbgPrint("[SimplePYAS] Protection rules loaded successfully from worker thread\n");
-    }
-    else
-    {
-        DbgPrint("[SimplePYAS] Protection rules load failed in worker: 0x%X (hardcoded paths still protected)\n",
-            status);
-    }
-
-    PsTerminateSystemThread(status);
-}
-
-// ---------------------------------------------------------------------------
-// DriverReinitCallback
-//
-// Called after boot-start driver initialization. Do NOT load rule files
-// directly here; schedule a worker thread instead so IoInitSystem / DriverEntry
-// can continue even if filesystem reads are slow or blocked.
-// ---------------------------------------------------------------------------
-VOID DriverReinitCallback(
-    _In_ PDRIVER_OBJECT DriverObject,
-    _In_opt_ PVOID Context,
-    _In_ ULONG Count)
-{
-    UNREFERENCED_PARAMETER(DriverObject);
-    UNREFERENCED_PARAMETER(Context);
-    UNREFERENCED_PARAMETER(Count);
-
-    DbgPrint("[SimplePYAS] DriverReinitCallback fired - scheduling delayed rule loader\n");
-
-    if (InterlockedCompareExchange(&g_RuleLoadThreadStarted, 1, 0) != 0)
-    {
-        DbgPrint("[SimplePYAS] Rule loader thread already scheduled; skipping duplicate callback\n");
-        return;
-    }
-
-    HANDLE threadHandle = NULL;
-    OBJECT_ATTRIBUTES objectAttributes;
-
-    InitializeObjectAttributes(
-        &objectAttributes,
+    //
+    // Do not wait/retry here. Alert workers must never stall boot or block a
+    // callback path just because the user-mode listener is not available yet.
+    // A single best-effort write is enough; user mode can reconnect later.
+    //
+    status = ZwCreateFile(
+        &pipeHandle,
+        FILE_WRITE_DATA | SYNCHRONIZE,
+        &objAttr,
+        &ioStatusBlock,
         NULL,
-        OBJ_KERNEL_HANDLE,
+        FILE_ATTRIBUTE_NORMAL,
+        0,
+        FILE_OPEN,
+        FILE_SYNCHRONOUS_IO_NONALERT | FILE_NON_DIRECTORY_FILE,
+        NULL,
+        0
+    );
+
+    if (!NT_SUCCESS(status))
+    {
+        if (!g_PipeUnavailableLogged)
+        {
+            DbgPrint("[SendAlertToPipe] User-mode listener unavailable: 0x%X; dropping alert\n", status);
+            g_PipeUnavailableLogged = TRUE;
+            g_PipeAvailable = FALSE;
+        }
+
+        return STATUS_SUCCESS;
+    }
+
+    if (!IsValidPipeServerProcess(pipeHandle))
+    {
+        DbgPrint("[SendAlertToPipe] Pipe connected but server process validation failed; alert dropped\n");
+        ZwClose(pipeHandle);
+        return STATUS_ACCESS_DENIED;
+    }
+
+    if (!g_PipeAvailable)
+    {
+        DbgPrint("[SendAlertToPipe] Pipe connection established and verified\n");
+        g_PipeAvailable = TRUE;
+        g_PipeUnavailableLogged = FALSE;
+    }
+
+    status = ZwWriteFile(
+        pipeHandle,
+        NULL,
+        NULL,
+        NULL,
+        &ioStatusBlock,
+        (PVOID)Message,
+        (ULONG)MessageLength,
         NULL,
         NULL
     );
 
-    NTSTATUS status = PsCreateSystemThread(
-        &threadHandle,
-        THREAD_ALL_ACCESS,
-        &objectAttributes,
-        NULL,
-        NULL,
-        RuleLoadWorker,
-        NULL
-    );
-
-    if (NT_SUCCESS(status))
-    {
-        ZwClose(threadHandle);
-        DbgPrint("[SimplePYAS] Rule loader system thread created\n");
-    }
-    else
-    {
-        InterlockedExchange(&g_RuleLoadThreadStarted, 0);
-        DbgPrint("[SimplePYAS] PsCreateSystemThread for rule loader failed: 0x%X\n", status);
-    }
+    ZwClose(pipeHandle);
+    return status;
 }
 
 // DriverEntry
@@ -403,37 +357,28 @@ NTSTATUS DriverEntry(
 {
     UNREFERENCED_PARAMETER(pRegistryString);
 
-    //
-    // Make unload reachable for demand-start/dev builds.
-    // For boot-start production builds, unload may never be used, but assigning
-    // it here avoids a hidden leak during test cycles.
-    //
-    #if DBG
+#if DBG
     pDriverObj->DriverUnload = DriverUnload;
-    #else
-        pDriverObj->DriverUnload = NULL;
-    #endif
-
-    BypassCheckSign(pDriverObj);
-
-#if _WIN64
-    PLDR_DATA_TABLE_ENTRY64 ldr = (PLDR_DATA_TABLE_ENTRY64)pDriverObj->DriverSection;
-    ldr->Flags |= 0x20;
 #else
-    PLDR_DATA_TABLE_ENTRY32 ldr = (PLDR_DATA_TABLE_ENTRY32)pDriverObj->DriverSection;
-    ldr->Flags |= 0x20;
+    pDriverObj->DriverUnload = NULL;
 #endif
 
     //
-    // Register callbacks. These functions must not perform synchronous rule-file
-    // I/O. Dynamic rule loading is deferred below.
+    // Do not patch loader/signature fields here. Production drivers should be
+    // signed correctly instead of mutating undocumented loader state.
     //
-    NTSTATUS status;
+
+    NTSTATUS status = CreateControlDevice(pDriverObj);
+    if (!NT_SUCCESS(status))
+    {
+        return status;
+    }
 
     status = ProcessDriverEntry();
     if (!NT_SUCCESS(status))
     {
         DbgPrint("[SimplePYAS] ProcessDriverEntry failed: 0x%X\n", status);
+        DeleteControlDevice();
         return status;
     }
 
@@ -442,6 +387,7 @@ NTSTATUS DriverEntry(
     {
         DbgPrint("[SimplePYAS] FileDriverEntry failed: 0x%X\n", status);
         ProcessDriverUnload();
+        DeleteControlDevice();
         return status;
     }
 
@@ -451,17 +397,16 @@ NTSTATUS DriverEntry(
         DbgPrint("[SimplePYAS] RegeditDriverEntry failed: 0x%X\n", status);
         FileUnloadDriver();
         ProcessDriverUnload();
+        DeleteControlDevice();
         return status;
     }
 
     //
-    // Defer rule loading. DriverReinitCallback does not read files directly;
-    // it creates RuleLoadWorker, which waits briefly and then calls
-    // InitializeProtectionRules().
+    // No delayed rule loader, no boot-time C: file I/O.
+    // Rules must be sent by the HydraDragon user-mode service through
+    // IOCTL_HYDRADRAGON_SET_RULES after it has read and validated the files.
     //
-    IoRegisterDriverReinitialization(pDriverObj, DriverReinitCallback, NULL);
-
-    DbgPrint("[SimplePYAS] DriverEntry complete - rule loading deferred to delayed worker\n");
+    DbgPrint("[SimplePYAS] DriverEntry complete - waiting for user-mode rule IOCTL\n");
 
     return STATUS_SUCCESS;
 }
@@ -477,12 +422,8 @@ static VOID DriverUnload(_In_ PDRIVER_OBJECT pDriverObj)
     FileUnloadDriver();
     ProcessDriverUnload();
 
-    //
-    // FileUnloadDriver already calls CleanupProtectionRules(), but calling it
-    // here as well is safe because CleanupProtectionRules() is idempotent in
-    // your implementation.
-    //
     CleanupProtectionRules();
+    DeleteControlDevice();
 
     DbgPrint("[SimplePYAS] DriverUnload complete\n");
 }

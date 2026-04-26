@@ -1,6 +1,6 @@
 // File.c - Self-Defense Protection with User-Mode Alerting (uses CXX_FileProtectX64.h
 #include "Driver.h"
-#include "Driver_File.h"   // your header with OBJECT_TYPE_TEMP and related typedefs
+#include "Driver_File.h"
 #include "Driver_Common.h" // Include common helpers
 #include "ProtectionRules.h"
 
@@ -18,7 +18,6 @@ typedef struct _ALERT_WORK_ITEM {
 
 // forward declarations
 NTSTATUS ProtectFileByObRegisterCallbacks(VOID);
-VOID EnableObType(POBJECT_TYPE ObjectType);
 OB_PREOP_CALLBACK_STATUS PreCallBack(
     PVOID RegistrationContext,
     POB_PRE_OPERATION_INFORMATION OperationInformation
@@ -34,20 +33,24 @@ VOID SendAlertWorker(PVOID Context);
 // entry/unload (call from your DriverEntry/DriverUnload)
 NTSTATUS FileDriverEntry()
 {
-    // Do NOT call InitializeProtectionRules() here.
-    // FileDriverEntry() runs from DriverEntry during boot driver initialization,
-    // and InitializeProtectionRules() performs synchronous file I/O.
-    // Rules are loaded later by DriverReinitCallback -> RuleLoadWorker.
+    // Do NOT load rule files here. Dynamic rules are pushed later by the
+    // user-mode service through IOCTL_HYDRADRAGON_SET_RULES.
+    //
+    // Also do not patch IoFileObjectType internals. If this OS build does not
+    // support file object callbacks, file self-defense must be implemented in
+    // the minifilter path instead of forcing undocumented object-type flags.
     NTSTATUS status = ProtectFileByObRegisterCallbacks();
 
     if (NT_SUCCESS(status)) {
-        DbgPrint("[Self-Defense] File protection initialized\n");
-    }
-    else {
-        DbgPrint("[Self-Defense] ProtectFileByObRegisterCallbacks failed: 0x%X\n", status);
+        DbgPrint("[Self-Defense] File object callback initialized\n");
+        return STATUS_SUCCESS;
     }
 
-    return status;
+    DbgPrint("[Self-Defense] File object callback unavailable: 0x%X. "
+             "Continue without undocumented IoFileObjectType patch; use minifilter for file rules.\n",
+             status);
+
+    return STATUS_SUCCESS;
 }
 
 
@@ -62,51 +65,11 @@ VOID FileUnloadDriver()
     DbgPrint("[Self-Defense] FileDriver Unloaded\n");
 }
 
-// --- EnableObType: use the provided OBJECT_TYPE_TEMP layout to set SupportsObjectCallbacks ---
-// WARNING: This manipulates undocumented internals. Risk of incompatibility on some Windows builds.
-VOID EnableObType(POBJECT_TYPE ObjectType)
-{
-    if (!ObjectType) {
-        DbgPrint("[Self-Defense] EnableObType: NULL ObjectType\n");
-        return;
-    }
-
-    //
-    // Validate that the pointer looks sane by attempting to read a few offsets safely.
-    // We avoid structured exceptions here; instead we perform basic pointer checks.
-    //
-    __try {
-        // Cast to your provided temp struct which contains TypeInfo
-        POBJECT_TYPE_TEMP pTemp = (POBJECT_TYPE_TEMP)ObjectType;
-
-        // Basic validation: ensure the Name.Buffer pointer is reasonably aligned/non-NULL or not completely bogus.
-        // This isn't perfect but can reduce chance of arbitrarily writing to bad memory.
-        // This check is conservative: if both are NULL we still proceed but log a warning.
-        if (pTemp->Name.Buffer == NULL && pTemp->DefaultObject == NULL) {
-            DbgPrint("[Self-Defense] EnableObType: object type fields appear NULL (continuing with caution)\n");
-        }
-
-        // Now set the SupportsObjectCallbacks bit in TypeInfo.
-        // The union with bitfield exists in OBJECT_TYPE_INITIALIZER in your header.
-        // Set the bit safely:
-        pTemp->TypeInfo.Flags.SupportsObjectCallbacks = 1;
-
-        DbgPrint("[Self-Defense] EnableObType: Set SupportsObjectCallbacks=1 for object type at %p\n", ObjectType);
-    }
-    __except (EXCEPTION_EXECUTE_HANDLER) {
-        DbgPrint("[Self-Defense] EnableObType: exception while attempting to set SupportsObjectCallbacks\n");
-        // If an exception occurs, do not propagate; leave as-is.
-    }
-}
-
 NTSTATUS ProtectFileByObRegisterCallbacks()
 {
     OB_CALLBACK_REGISTRATION callBackReg;
     OB_OPERATION_REGISTRATION operationReg;
     NTSTATUS status;
-
-    // Try to enable callbacks on IoFileObjectType (best-effort; may be unnecessary on some OS builds)
-    EnableObType(*IoFileObjectType);
 
     RtlZeroMemory(&callBackReg, sizeof(callBackReg));
     RtlZeroMemory(&operationReg, sizeof(operationReg));
@@ -114,7 +77,7 @@ NTSTATUS ProtectFileByObRegisterCallbacks()
     callBackReg.Version = ObGetFilterVersion();
     callBackReg.OperationRegistrationCount = 1;
     callBackReg.RegistrationContext = NULL;
-    RtlInitUnicodeString(&callBackReg.Altitude, L"321000");
+    RtlInitUnicodeString(&callBackReg.Altitude, L"321001");
 
     operationReg.ObjectType = IoFileObjectType;
     operationReg.Operations = OB_OPERATION_HANDLE_CREATE | OB_OPERATION_HANDLE_DUPLICATE;
