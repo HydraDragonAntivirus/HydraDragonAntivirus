@@ -956,6 +956,52 @@ def run_decompiler():
             error_count += 1
             hook_log(f"[FROZEN ERR] frozen scan crashed: {e}\n")
 
+        # Final diagnostics only.  Do NOT wait here and do NOT force-import
+        # anything.  _module_locks can prove a name was requested by importlib,
+        # but the lock does not contain module source or a module object.
+        try:
+            crack_like_modules = sorted(
+                name for name in sys.modules
+                if 'crack' in str(name).lower() or 'v5' in str(name).lower()
+            )
+            hook_log(f"[FINAL CHECK] crack/v5-like sys.modules: {crack_like_modules}\n")
+        except Exception as e:
+            try: hook_log(f"[FINAL CHECK] sys.modules diagnostic failed: {e}\n")
+            except Exception: pass
+
+        try:
+            import importlib._bootstrap as _bootstrap
+            locks = getattr(_bootstrap, '_module_locks', {})
+            lock_names = sorted(str(name) for name in getattr(locks, 'keys', lambda: [])())
+            crack_like_locks = [
+                name for name in lock_names
+                if 'crack' in name.lower() or 'v5' in name.lower()
+            ]
+            hook_log(f"[FINAL CHECK] crack/v5-like module_locks: {crack_like_locks}\n")
+        except Exception as e:
+            try: hook_log(f"[FINAL CHECK] module_locks diagnostic failed: {e}\n")
+            except Exception: pass
+
+        try:
+            import _imp
+            names_to_check = set()
+            try:
+                names_to_check.update(crack_like_modules)
+            except Exception:
+                pass
+            try:
+                names_to_check.update(crack_like_locks)
+            except Exception:
+                pass
+            for n in sorted(names_to_check):
+                try:
+                    hook_log(f"[FINAL CHECK] _imp.is_frozen({n!r})={_imp.is_frozen(n)}\n")
+                except Exception as e:
+                    hook_log(f"[FINAL CHECK] _imp.is_frozen({n!r}) failed: {e}\n")
+        except Exception as e:
+            try: hook_log(f"[FINAL CHECK] _imp diagnostic failed: {e}\n")
+            except Exception: pass
+
         hook_log("\n" + "=" * 60 + "\n--- FINISHED ---\n")
         hook_log(f"Output location: {backup_dir}\n")
         hook_log(f"Processed: {processed_count} modules\nErrors: {error_count}\n")
