@@ -1,6 +1,53 @@
 #include "Driver.h"
 #include "ProtectionRules.h"
 
+// Runtime process-protection level values.
+// SERVICE_LAUNCH_PROTECTED_ANTIMALWARE_LIGHT maps to:
+//   Type   = PsProtectedTypeProtectedLight (1)
+//   Signer = PsProtectedSignerAntimalware  (3)
+// We resolve PsGetProcessProtection dynamically to avoid depending on private
+// EPROCESS offsets or fragile structure layouts.
+#define PS_PROTECTED_TYPE_PROTECTED_LIGHT 1
+#define PS_PROTECTED_SIGNER_ANTIMALWARE   3
+
+typedef UCHAR (*PFN_PS_GET_PROCESS_PROTECTION)(
+    _In_ PEPROCESS Process
+    );
+
+static PFN_PS_GET_PROCESS_PROTECTION g_PsGetProcessProtection = NULL;
+
+static UCHAR GetProcessProtectionLevel(_In_ PEPROCESS Process)
+{
+    if (!Process)
+        return 0;
+
+    if (!g_PsGetProcessProtection)
+    {
+        UNICODE_STRING routineName;
+        RtlInitUnicodeString(&routineName, L"PsGetProcessProtection");
+        g_PsGetProcessProtection =
+            (PFN_PS_GET_PROCESS_PROTECTION)MmGetSystemRoutineAddress(&routineName);
+    }
+
+    if (!g_PsGetProcessProtection)
+    {
+        DbgPrint("[SimplePYAS] PsGetProcessProtection is unavailable; denying rule-control caller\n");
+        return 0;
+    }
+
+    return g_PsGetProcessProtection(Process);
+}
+
+static BOOLEAN IsAntimalwareProtectedLightProcess(_In_ PEPROCESS Process)
+{
+    UCHAR level = GetProcessProtectionLevel(Process);
+    UCHAR type = level & 0x07;
+    UCHAR signer = (level >> 4) & 0x0F;
+
+    return (type == PS_PROTECTED_TYPE_PROTECTED_LIGHT &&
+            signer == PS_PROTECTED_SIGNER_ANTIMALWARE);
+}
+
 #define SELF_DEFENSE_PIPE_NAME L"\\Device\\NamedPipe\\Global\\self_defense_alerts"
 
 // Track if pipe is available (to avoid log spam)
@@ -44,6 +91,14 @@ static BOOLEAN IsTrustedRuleIoctlCaller(VOID)
         DbgPrint("[SimplePYAS] Rule-control caller rejected: PsLookupProcessByProcessId(%p) failed 0x%X\n",
             pid,
             status);
+        return FALSE;
+    }
+
+    if (!IsAntimalwareProtectedLightProcess(process))
+    {
+        DbgPrint("[SimplePYAS] Rule-control caller rejected: pid=%p is not SERVICE_LAUNCH_PROTECTED_ANTIMALWARE_LIGHT\n",
+            pid);
+        ObDereferenceObject(process);
         return FALSE;
     }
 
