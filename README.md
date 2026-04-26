@@ -1,3 +1,12 @@
+# Switching To SourceForge
+- This project no longer hosted on Github. Don't create issues at here.
+- Reason: My account is limited on Github for second time.
+**Why SourceForge?**:
+- There is no 100MB limits on SourceForge.
+- Very easy to download executable by clicking download button instead of finding correct release from github.
+- SourceForge collects telemetry for download results.
+- Project link: https://sourceforge.net/projects/hydradragonantivirus/
+
 <h1>Hydra Dragon Antivirus</h1>
 
 <p>
@@ -44,14 +53,6 @@ Breaking changes, bugs, and incomplete features should be expected.
 </p>
 
 ## Important Notes & Limitations
-
-### Switching To SourceForge
-- This project no longer hosted on Github. Don't create issues at here.
-- Reason: My account is limited on Github for second time.
-**Why SourceForge?**:
-- There is no 100MB limits on SourceForge.
-- Very easy to download executable by clicking download button instead of finding correct release from github.
-- SourceForge collects telemetry for download results.
 
 ### Project Scope
 
