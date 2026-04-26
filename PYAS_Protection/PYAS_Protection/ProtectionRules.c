@@ -22,10 +22,6 @@ static VOID EnsureRuleMutexInitialized(VOID)
 // Maximum extra chars added when expanding a hive prefix (HKCR\ -> \REGISTRY\MACHINE\SOFTWARE\CLASSES\)
 #define REGISTRY_PREFIX_EXPANSION_MAX 64
 
-static PROTECTION_RULE_SET g_RuleSets[RuleTypeMax] = { 0 };
-static FAST_MUTEX g_RuleMutex;
-static BOOLEAN g_RuleMutexInitialized = FALSE;
-static BOOLEAN g_RulesLoaded = FALSE;
 
 // ---------------------------------------------------------------------------
 // Registry hive prefix table
