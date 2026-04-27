@@ -5,7 +5,7 @@ namespace HydraDragonAntivirusLauncher
     public class Worker(ILogger<Worker> logger) : BackgroundService
     {
         private readonly ILogger<Worker> _logger = logger;
-        private Process? _childProcess;  // Python EDR
+        private Process? _childProcess;  // Python Engine
         private Process? _avProcess;    // C++ Engine
 
         // Restart supervision settings
