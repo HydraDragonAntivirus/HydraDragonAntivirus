@@ -31,6 +31,7 @@ use windows::{
     core::{PCWSTR, PWSTR},
 };
 
+mod driver_control;
 mod hardcoded_rules;
 mod ipc;
 mod logging;
@@ -69,6 +70,10 @@ fn run_service(h_status: SERVICE_STATUS_HANDLE) {
             EVENTLOG_INFORMATION_TYPE,
             EventID::Info,
         );
+
+        // Start all critical security drivers
+        driver_control::start_security_drivers();
+
         bootstrap_protected_driver_control();
 
         // start tracing session; we spawn this in its own os thread as it is blocking
@@ -76,8 +81,8 @@ fn run_service(h_status: SERVICE_STATUS_HANDLE) {
             start_threat_intel_trace();
         });
 
-        // spawn child PPL - n.b. this is no longer used.
-        // spawn_child_ppl_process();
+        // spawn Owlyshield Ransom as a PPL child process
+        spawn_owlyshield_ransom_process();
 
         // event loop
         while !SERVICE_STOP.load(Ordering::SeqCst) {
@@ -93,7 +98,7 @@ fn run_service(h_status: SERVICE_STATUS_HANDLE) {
 /// **Note** The child process MUST be signed with the ELAM certificate, and any DLLs it relies upon must either
 /// be signed correctly by Microsoft including the pagehashes in the signature, or signed by the ELAM certificate used
 /// to sign this, and the child process.
-fn spawn_child_ppl_process() {
+fn spawn_owlyshield_ransom_process() {
     let mut startup_info = STARTUPINFOEXW::default();
     startup_info.StartupInfo.cb = size_of::<STARTUPINFOEXW>() as u32;
     let mut attribute_size_list: usize = 0;
@@ -152,8 +157,7 @@ fn spawn_child_ppl_process() {
 
     // start the process
     let mut process_info = PROCESS_INFORMATION::default();
-    // todo update this
-    let path: Vec<u16> = r"C:\Program Files\HydraDragonAntivirus\hydradragon\Sanctum\etw_consumer.exe"
+    let path: Vec<u16> = r"C:\Program Files\HydraDragonAntivirus\hydradragon\Owlyshield\Owlyshield Service\owlyshield_ransom.exe"
         .encode_utf16()
         .chain(std::iter::once(0))
         .collect();
