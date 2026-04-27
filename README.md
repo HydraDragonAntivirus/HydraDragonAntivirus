@@ -1,7 +1,7 @@
 # Switching To SourceForge
 - This project no longer hosted on Github. Don't create issues at here.
 - Reason: My account is limited on Github second time for no reason.
-**Why SourceForge?**:
+ **Why SourceForge?**:
 - There is no 100MB limits on SourceForge.
 - Very easy to download executable by clicking download button instead of finding correct release from github.
 - SourceForge collects telemetry for download results.
