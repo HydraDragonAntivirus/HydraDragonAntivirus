@@ -37,6 +37,7 @@ mod ipc;
 mod logging;
 mod openedr_control;
 mod owlyshield_control;
+mod pyas_control;
 mod registry;
 mod tracing;
 
@@ -248,7 +249,7 @@ fn svc_name() -> Vec<u16> {
 }
 
 fn bootstrap_protected_driver_control() {
-    match hardcoded_rules::refresh_hydradragon_protection_rules_from_embedded() {
+    match pyas_control::refresh_hydradragon_protection_rules_from_embedded() {
         Ok(()) => event_log(
             "HydraDragon/Owlyshield protection rules loaded from Sanctum embedded defaults.",
             EVENTLOG_INFORMATION_TYPE,
