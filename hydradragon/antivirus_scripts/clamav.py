@@ -6,33 +6,34 @@
 
 import os
 import asyncio
-from ctypes import (
-    CDLL, Structure, POINTER, c_uint, c_int, c_char_p, c_ulong,
-    c_void_p, byref, WinDLL
-)
+from ctypes import CDLL, Structure, POINTER, c_uint, c_int, c_char_p, c_ulong, c_void_p, byref, WinDLL
 from .hydra_logger import logger
+
 
 # --- helpers ---
 def _to_bytes_or_none(value):
     if isinstance(value, bytes):
         return value
     if isinstance(value, str):
-        return value.encode('utf-8')
+        return value.encode("utf-8")
     raise TypeError(f"Cannot convert {type(value)} to bytes")
+
 
 # --- ctypes types ---
 cl_engine_p = c_void_p
 c_char_pp = POINTER(c_char_p)
 c_ulong_p = POINTER(c_ulong)
 
+
 class cl_scan_options(Structure):
     _fields_ = [
-        ('general', c_uint),
-        ('parse', c_uint),
-        ('heuristic', c_uint),
-        ('mail', c_uint),
-        ('dev', c_uint),
+        ("general", c_uint),
+        ("parse", c_uint),
+        ("heuristic", c_uint),
+        ("mail", c_uint),
+        ("dev", c_uint),
     ]
+
 
 # --- constants ---
 CL_CLEAN = 0
@@ -41,13 +42,14 @@ CL_SUCCESS = 0
 CL_DB_STDOPT = 0
 
 # Scan Options
-CL_SCAN_GENERAL_HEURISTICS = (1 << 2)
+CL_SCAN_GENERAL_HEURISTICS = 1 << 2
 
 # Error codes
 CL_EMEM = 2
 CL_EOPEN = 3
 CL_EMALFDB = 4
 CL_EPARSE = 5
+
 
 def _setup_lib_prototypes(lib, libfile):
     """Safely set up libclamav prototypes with detailed error logging.
@@ -84,20 +86,15 @@ def _setup_lib_prototypes(lib, libfile):
             return False
 
     # define prototypes (mark critical functions required)
-    _safe_define('cl_init', (c_uint,), c_int, required=True)
-    _safe_define('cl_engine_new', None, cl_engine_p, required=True)
-    _safe_define('cl_engine_free', (cl_engine_p,), c_int, required=True)
-    _safe_define('cl_load', (c_char_p, cl_engine_p, POINTER(c_uint), c_uint), c_int, required=True)
-    _safe_define('cl_engine_compile', (cl_engine_p,), c_int, required=True)
-    _safe_define('cl_engine_set_num', (cl_engine_p, c_uint, c_ulong), c_int, required=False)
-    _safe_define(
-        'cl_scanfile',
-        (c_char_p, POINTER(c_char_p), c_ulong_p, cl_engine_p, POINTER(cl_scan_options)),
-        c_int,
-        required=True
-    )
-    _safe_define('cl_retver', None, c_char_p, required=False)
-    _safe_define('cl_strerror', (c_int,), c_char_p, required=False)
+    _safe_define("cl_init", (c_uint,), c_int, required=True)
+    _safe_define("cl_engine_new", None, cl_engine_p, required=True)
+    _safe_define("cl_engine_free", (cl_engine_p,), c_int, required=True)
+    _safe_define("cl_load", (c_char_p, cl_engine_p, POINTER(c_uint), c_uint), c_int, required=True)
+    _safe_define("cl_engine_compile", (cl_engine_p,), c_int, required=True)
+    _safe_define("cl_engine_set_num", (cl_engine_p, c_uint, c_ulong), c_int, required=False)
+    _safe_define("cl_scanfile", (c_char_p, POINTER(c_char_p), c_ulong_p, cl_engine_p, POINTER(cl_scan_options)), c_int, required=True)
+    _safe_define("cl_retver", None, c_char_p, required=False)
+    _safe_define("cl_strerror", (c_int,), c_char_p, required=False)
 
     if missing_required:
         logger.error(f"Prototype verification failed for {libfile} (missing required symbols).")
@@ -105,6 +102,7 @@ def _setup_lib_prototypes(lib, libfile):
 
     logger.debug(f"Finished setting up prototypes for {libfile}")
     return True
+
 
 # --- loader ---
 def load_clamav(libpath, try_add_dll_dir=True):
@@ -134,7 +132,7 @@ def load_clamav(libpath, try_add_dll_dir=True):
                 logger.warning(f"os.add_dll_directory failed: {e}")
 
         last_err = None
-        for loader_name, loader in (('CDLL', CDLL), ('WinDLL', WinDLL)):
+        for loader_name, loader in (("CDLL", CDLL), ("WinDLL", WinDLL)):
             lib = None
             try:
                 logger.debug(f"Attempting to load {libpath} using {loader_name}")
@@ -171,6 +169,7 @@ def load_clamav(libpath, try_add_dll_dir=True):
         logger.debug(f"Restoring original CWD to: {original_cwd}")
         os.chdir(original_cwd)
 
+
 # --- Scanner class with ASYNC initialization ---
 class Scanner:
     """
@@ -192,16 +191,15 @@ class Scanner:
         scanner = Scanner(libclamav_path, dbpath)
     """
 
-    def __init__(self, libclamav_path, dbpath=None, autoreload=False,
-                 dboptions=CL_DB_STDOPT, engine_options=None, _skip_init=False):
+    def __init__(self, libclamav_path, dbpath=None, autoreload=False, dboptions=CL_DB_STDOPT, engine_options=None, _skip_init=False):
         """
         DO NOT call this directly for async code!
         Use Scanner.create_async() instead.
         """
         self.libclamav = None
         self.engine = None
-        self.libclamav_path = libclamav_path # Store path
-        self.dbpath = dbpath # Store path
+        self.libclamav_path = libclamav_path  # Store path
+        self.dbpath = dbpath  # Store path
         self.autoreload = autoreload
         self.dboptions = dboptions
         self.engine_options = engine_options or self.def_engine_options()
@@ -210,7 +208,7 @@ class Scanner:
         self._is_ready = False
         self._init_in_progress = False
         self._init_stage = "Not started"  # Track current initialization stage
-        self.ready_event = asyncio.Event() # Event to signal initialization completion
+        self.ready_event = asyncio.Event()  # Event to signal initialization completion
         self._initialization_task = None
         self._init_success = False
         self._init_error = None
@@ -225,16 +223,14 @@ class Scanner:
         if self._init_sync(libclamav_path, dbpath):
             self._init_success = True
             self._is_ready = True
-            self.ready_event.set() # Set ready for sync init
+            self.ready_event.set()  # Set ready for sync init
         else:
             logger.error("Scanner initialization failed")
             self._init_success = False
-            self.ready_event.set() # Set 'done', but 'failed'
+            self.ready_event.set()  # Set 'done', but 'failed'
 
     @classmethod
-    async def create_async(cls, libclamav_path, dbpath=None, autoreload=False,
-                           dboptions=CL_DB_STDOPT, engine_options=None,
-                           progress_log_interval=5):
+    async def create_async(cls, libclamav_path, dbpath=None, autoreload=False, dboptions=CL_DB_STDOPT, engine_options=None, progress_log_interval=5):
         """
         Async factory method to create Scanner instance (FIRE AND FORGET).
 
@@ -255,18 +251,14 @@ class Scanner:
 
         # Start progress logging task if enabled
         if progress_log_interval > 0:
-            scanner._progress_task = asyncio.create_task(
-                scanner._log_init_progress(progress_log_interval)
-            )
+            scanner._progress_task = asyncio.create_task(scanner._log_init_progress(progress_log_interval))
 
         # Start the background initialization task (FIRE AND FORGET)
         scanner._init_in_progress = True
         scanner._init_stage = "Starting"
-        scanner._initialization_task = asyncio.create_task(
-            scanner._init_async_task(libclamav_path, dbpath)
-        )
+        scanner._initialization_task = asyncio.create_task(scanner._init_async_task(libclamav_path, dbpath))
 
-        return scanner # IMMEDIATE RETURN
+        return scanner  # IMMEDIATE RETURN
 
     async def _log_init_progress(self, interval):
         """Background task to log initialization progress"""
@@ -286,7 +278,7 @@ class Scanner:
                 return False
 
             dll_dir = os.path.dirname(os.path.abspath(libclamav_path))
-            
+
             # Change CWD to DLL directory and keep it for subsequent steps
             logger.debug(f"Changing CWD to: {dll_dir}")
             os.chdir(dll_dir)
@@ -295,7 +287,7 @@ class Scanner:
             if not self.libclamav:
                 self._init_error = "Failed to load libclamav DLL"
                 return False
-            
+
             return True
         except Exception as e:
             self._init_error = f"Library load exception: {e}"
@@ -317,7 +309,7 @@ class Scanner:
         """Step 3: Load database only (CWD already set by _load_library_only)"""
         try:
             dll_dir = os.path.dirname(os.path.abspath(self.libclamav_path))
-            
+
             # Resolve DB path
             if not os.path.isabs(dbpath):
                 dbpath = os.path.normpath(os.path.join(dll_dir, dbpath))
@@ -327,12 +319,12 @@ class Scanner:
                 return False
 
             self.dbpath = dbpath
-            
+
             # This is the slow part - but we're already in a thread
             if not self.loadDB():
                 self._init_error = "Failed to load database"
                 return False
-            
+
             return True
         except Exception as e:
             self._init_error = f"DB load exception: {e}"
@@ -341,55 +333,44 @@ class Scanner:
     async def _init_async_task(self, libclamav_path, dbpath):
         """Internal task to run blocking init in a thread and set ready event."""
         original_cwd = os.getcwd()
-        
+
         try:
             logger.debug("Running background initialization (no timeout)...")
             self._init_stage = "Loading library"
 
             loop = asyncio.get_event_loop()
-            
+
             # Step 1: Load library (changes CWD to DLL directory)
             self._init_stage = "Loading DLL"
-            success_step1 = await loop.run_in_executor(
-                None,
-                self._load_library_only,
-                libclamav_path
-            )
-            
+            success_step1 = await loop.run_in_executor(None, self._load_library_only, libclamav_path)
+
             if not success_step1:
                 logger.error("ClamAV library loading failed (background)")
                 self._init_success = False
                 self._init_error = self._init_error or "Library loading failed"
                 self._init_stage = "Failed at library load"
                 return
-            
+
             # Small yield to event loop
             await asyncio.sleep(0.01)
-            
+
             # Step 2: Initialize ClamAV (CWD already correct from step 1)
             self._init_stage = "Initializing ClamAV"
-            success_step2 = await loop.run_in_executor(
-                None,
-                self._init_clamav_only
-            )
-            
+            success_step2 = await loop.run_in_executor(None, self._init_clamav_only)
+
             if not success_step2:
                 logger.error("ClamAV initialization failed (background)")
                 self._init_success = False
                 self._init_error = self._init_error or "ClamAV init failed"
                 self._init_stage = "Failed at cl_init"
                 return
-            
+
             # Small yield to event loop
             await asyncio.sleep(0.01)
-            
+
             # Step 3: Load database (CWD still correct from step 1)
             self._init_stage = "Loading signatures"
-            success_step3 = await loop.run_in_executor(
-                None,
-                self._load_db_only,
-                dbpath
-            )
+            success_step3 = await loop.run_in_executor(None, self._load_db_only, dbpath)
 
             if success_step3:
                 logger.info("ClamAV scanner initialized successfully (background)")
@@ -411,7 +392,7 @@ class Scanner:
             # CRITICAL: Restore original CWD after ALL initialization is done
             os.chdir(original_cwd)
             logger.debug(f"Restored CWD to {original_cwd}")
-            
+
             # Signal that initialization (or attempt) is complete
             self._init_in_progress = False
             self.ready_event.set()
@@ -425,7 +406,7 @@ class Scanner:
     # --- _init_sync safety ---
     def _init_sync(self, libclamav_path, dbpath):
         original_cwd = os.getcwd()
-        
+
         try:
             self._init_stage = "Checking library path"
             if not os.path.exists(libclamav_path):
@@ -435,7 +416,7 @@ class Scanner:
                 return False
 
             dll_dir = os.path.dirname(os.path.abspath(libclamav_path))
-            
+
             # Change CWD to DLL directory for entire sync init
             logger.debug(f"Changing CWD to {dll_dir} for sync initialization")
             os.chdir(dll_dir)
@@ -489,20 +470,20 @@ class Scanner:
     @staticmethod
     def def_engine_options():
         return {
-            0: 512*1024*1024,  # CL_ENGINE_MAX_SCANSIZE
-            1: 512*1024*1024,  # CL_ENGINE_MAX_FILESIZE
-            2: 50,             # CL_ENGINE_MAX_RECURSION
-            3: 2000            # CL_ENGINE_MAX_FILES
+            0: 512 * 1024 * 1024,  # CL_ENGINE_MAX_SCANSIZE
+            1: 512 * 1024 * 1024,  # CL_ENGINE_MAX_FILESIZE
+            2: 50,  # CL_ENGINE_MAX_RECURSION
+            3: 2000,  # CL_ENGINE_MAX_FILES
         }
 
     def get_error_message(self, error_code):
-        if not self.libclamav or not hasattr(self.libclamav, 'cl_strerror'):
+        if not self.libclamav or not hasattr(self.libclamav, "cl_strerror"):
             return f"Error code: {error_code}"
 
         try:
             err_msg = self.libclamav.cl_strerror(error_code)
             if err_msg:
-                return err_msg.decode('utf-8', errors='ignore')
+                return err_msg.decode("utf-8", errors="ignore")
         except Exception:
             pass
 
@@ -662,13 +643,7 @@ class Scanner:
             scan_opts.general = CL_SCAN_GENERAL_HEURISTICS
 
             # Call cl_scanfile
-            ret = self.libclamav.cl_scanfile(
-                fname_b,
-                byref(virname_pp),
-                byref(bytes_scanned),
-                self.engine,
-                byref(scan_opts)
-            )
+            ret = self.libclamav.cl_scanfile(fname_b, byref(virname_pp), byref(bytes_scanned), self.engine, byref(scan_opts))
 
             # Process results
             if ret == CL_CLEAN:

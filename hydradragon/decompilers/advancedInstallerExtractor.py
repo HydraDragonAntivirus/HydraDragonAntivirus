@@ -5,10 +5,11 @@ import struct
 import os
 import logging as logger
 
-#inspired by https://aluigi.altervista.org/bms/advanced_installer.bms
-#with some additionaly reverse engeneering, quite heursitic (footer search, xor guessing etc)
-#licence: public domain
+# inspired by https://aluigi.altervista.org/bms/advanced_installer.bms
+# with some additionaly reverse engeneering, quite heursitic (footer search, xor guessing etc)
+# licence: public domain
 # https://gist.github.com/KasparNagu/9ee02cb62d81d9e4c7a833518a710d6e
+
 
 class AdvancedInstallerFileInfo:
     def __init__(self, name, size, offset, xorSize):
@@ -31,9 +32,9 @@ class AdvancedInstallerFileReader:
 
     def xorFF(self, block):
         if isinstance(block, str):
-            return "".join([chr(ord(i) ^ 0xff) for i in block])
+            return "".join([chr(ord(i) ^ 0xFF) for i in block])
         else:
-            return bytes([i ^ 0xff for i in block])
+            return bytes([i ^ 0xFF for i in block])
 
     def read(self, size=None):
         if size is None:
@@ -98,8 +99,7 @@ class AdvancedInstallerReader:
         # Try different unpacking strategies based on actual footer structure
         try:
             # Original format - try first
-            offset, self.nfiles, _, offset1, self.info_off, file_off, hexhash, _, name = struct.unpack(
-                "<llllll32sl12s", footer)
+            offset, self.nfiles, _, offset1, self.info_off, file_off, hexhash, _, name = struct.unpack("<llllll32sl12s", footer)
         except struct.error:
             try:
                 # Alternative format without the last name field
@@ -126,11 +126,7 @@ class AdvancedInstallerReader:
                     name = b""
 
         if self.debug:
-            self.debug.write(
-                "offset=%d files=%d offset1=%d  info_off=%d file_off=%d hexhash=%s name=%s\n" % (offset, self.nfiles,
-                                                                                                 offset1, self.info_off,
-                                                                                                 file_off, hexhash,
-                                                                                                 name))
+            self.debug.write("offset=%d files=%d offset1=%d  info_off=%d file_off=%d hexhash=%s name=%s\n" % (offset, self.nfiles, offset1, self.info_off, file_off, hexhash, name))
 
     def read_info(self):
         self.read_footer()
@@ -144,20 +140,19 @@ class AdvancedInstallerReader:
                 break
             _, _, xor_flag, size, offset, namesize = struct.unpack("<llllll", info)
             if self.debug:
-                self.debug.write(
-                    " size=%d offset=%d namesize=%d xor_flag=0x%x\n" % (size, offset, namesize, xor_flag))
+                self.debug.write(" size=%d offset=%d namesize=%d xor_flag=0x%x\n" % (size, offset, namesize, xor_flag))
             if 0 < namesize < 0xFFFF:
                 name_data = self.filehandle.read(namesize * 2)
                 if len(name_data) == namesize * 2:
                     try:
                         name = name_data.decode("UTF-16LE")
                         # Remove null terminator if present
-                        name = name.rstrip('\x00')
+                        name = name.rstrip("\x00")
                     except UnicodeDecodeError:
                         # Fallback to UTF-16BE or raw bytes
                         try:
                             name = name_data.decode("UTF-16BE")
-                            name = name.rstrip('\x00')
+                            name = name.rstrip("\x00")
                         except UnicodeDecodeError:
                             name = "file_%d.bin" % i
                     if self.debug:

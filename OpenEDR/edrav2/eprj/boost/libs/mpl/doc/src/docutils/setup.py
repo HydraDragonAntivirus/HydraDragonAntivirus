@@ -7,7 +7,6 @@
 # http://www.boost.org/LICENSE_1_0.txt)
 
 
-import sys, os
 from distutils.core import setup
 
 setup(

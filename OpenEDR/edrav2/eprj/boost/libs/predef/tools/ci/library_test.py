@@ -7,7 +7,6 @@
 # http://www.boost.org/LICENSE_1_0.txt)
 
 import os.path
-import shutil
 import sys
 from common import toolset_info, main, utils, script_common, ci_cli, set_arg
 

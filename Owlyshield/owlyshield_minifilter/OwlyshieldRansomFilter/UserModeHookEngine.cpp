@@ -209,6 +209,9 @@ static volatile LONG g_HookExcludeLoadState = 0;
 static volatile LONG64 g_HookExcludeFailRetryTime = 0;
 #define HOOK_EXCLUDE_RETRY_INTERVAL_100NS (30LL * 10000000LL) // 30 seconds
 
+static NTSTATUS AppendHookExcludeRulesFromBufferUnlocked(_In_reads_bytes_(BytesRead) PUCHAR Buffer,
+                                                         _In_ ULONG BytesRead);
+
 static VOID CloseHookNotifyHandleSafe(_Inout_ PHANDLE Handle)
 {
     if (Handle == NULL || *Handle == NULL)

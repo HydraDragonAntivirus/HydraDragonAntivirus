@@ -4,7 +4,6 @@ import sys
 import json
 import argparse
 import functools
-from struct import pack, unpack
 from binary_reader import BinaryReader
 from binary_writer import BinaryWriter
 from subprocess import Popen, PIPE

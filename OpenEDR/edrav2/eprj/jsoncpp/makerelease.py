@@ -25,7 +25,6 @@ import os.path
 import subprocess
 import sys
 import doxybuild
-import subprocess
 import xml.etree.ElementTree as ElementTree
 import shutil
 import urllib2

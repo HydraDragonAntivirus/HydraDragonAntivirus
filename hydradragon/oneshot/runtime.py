@@ -99,9 +99,7 @@ class RuntimeInfo:
         self.part_3 = bytes_sub(data, var_a1 + 0x20, part_3_len)
 
     def calc_aes_key(self) -> bytes:
-        return hashlib.md5(
-            self.part_1 + self.part_2 + self.part_3 + GLOBAL_CERT
-        ).digest()
+        return hashlib.md5(self.part_1 + self.part_2 + self.part_3 + GLOBAL_CERT).digest()
 
     def mix_str_aes_nonce(self) -> bytes:
         return self.part_3[:12]

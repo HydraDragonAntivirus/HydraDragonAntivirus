@@ -4,7 +4,6 @@ import sys
 import re
 from collections import defaultdict, OrderedDict
 from matplotlib.patches import Rectangle
-from matplotlib.lines import Line2D
 from matplotlib.text import Text
 from matplotlib.font_manager import FontProperties
 import matplotlib.pyplot as plt

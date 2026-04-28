@@ -8,6 +8,7 @@ All notification functions converted to async. Blocking operations (Win32 pipe w
 MD5 computation, desktop notifications) are executed in the default threadpool via
 asyncio.to_thread to keep the event loop responsive.
 """
+
 import json
 import win32file
 import pywintypes
@@ -15,14 +16,7 @@ import asyncio
 from datetime import datetime, timezone
 from typing import Optional
 from .hydra_logger import logger
-from .path_and_variables import (
-    malicious_hashes,
-    malicious_hashes_lock,
-    PIPE_AV_TO_EDR,
-    owlyshield_ransom_exe
-)
-import win32process
-import os
+from .path_and_variables import malicious_hashes, malicious_hashes_lock, PIPE_AV_TO_EDR, owlyshield_ransom_exe
 import time
 from .utils_and_helpers import compute_md5, validate_pipe_peer
 
@@ -40,45 +34,38 @@ def _sync_write_pipe(message_bytes: bytes) -> None:
     _OPEN_RETRIES = 5
     _RETRY_DELAY = 1.0
     _WAIT_TIMEOUT_MS = 5000
-    
+
     handle = None
     for attempt in range(_OPEN_RETRIES):
         try:
             # Wait for pipe to be available if busy
             try:
                 import win32pipe
+
                 win32pipe.WaitNamedPipe(PIPE_AV_TO_EDR, _WAIT_TIMEOUT_MS)
             except pywintypes.error:
-                pass # Continue to CreateFile which might fail with 2 (not found) or 231 (busy)
+                pass  # Continue to CreateFile which might fail with 2 (not found) or 231 (busy)
 
-            handle = win32file.CreateFile(
-                PIPE_AV_TO_EDR,
-                win32file.GENERIC_WRITE,
-                0,
-                None,
-                win32file.OPEN_EXISTING,
-                0,
-                None
-            )
-            
+            handle = win32file.CreateFile(PIPE_AV_TO_EDR, win32file.GENERIC_WRITE, 0, None, win32file.OPEN_EXISTING, 0, None)
+
             # Validate server
             if not validate_pipe_peer(handle, owlyshield_ransom_exe, is_server=False, logger=logger):
                 logger.error(f"Rejected unauthorized EDR pipe server for {PIPE_AV_TO_EDR}")
                 win32file.CloseHandle(handle)
                 handle = None
-                return # Security rejection, don't retry
+                return  # Security rejection, don't retry
 
             win32file.WriteFile(handle, message_bytes)
-            return # Success
-            
+            return  # Success
+
         except pywintypes.error as e:
-            if e.winerror == 2: # File not found (server not running)
+            if e.winerror == 2:  # File not found (server not running)
                 if attempt < _OPEN_RETRIES - 1:
                     time.sleep(_RETRY_DELAY)
                     continue
                 else:
                     raise
-            elif e.winerror == 231: # Pipe is busy
+            elif e.winerror == 231:  # Pipe is busy
                 if attempt < _OPEN_RETRIES - 1:
                     time.sleep(_RETRY_DELAY)
                     continue
@@ -95,17 +82,19 @@ def _sync_write_pipe(message_bytes: bytes) -> None:
                 pass
 
 
-async def _send_av_event_to_edr(file_path: str,
-                                virus_name: str,
-                                # MODIFIED: Added detection_type parameter
-                                detection_type: str = "signature",
-                                action: str = "kill_and_quarantine",
-                                pid: Optional[int] = None,
-                                main_file_path: Optional[str] = None) -> None:
+async def _send_av_event_to_edr(
+    file_path: str,
+    virus_name: str,
+    # MODIFIED: Added detection_type parameter
+    detection_type: str = "signature",
+    action: str = "kill_and_quarantine",
+    pid: Optional[int] = None,
+    main_file_path: Optional[str] = None,
+) -> None:
     """
     (Internal) Async: Connects to the Owlyshield EDR pipe and sends a threat event.
     Offloads blocking pipe operations to a thread.
-    
+
     Args:
         file_path: Path to the threat file
         virus_name: Name of the detected threat
@@ -118,9 +107,9 @@ async def _send_av_event_to_edr(file_path: str,
     if action not in ["kill_and_quarantine", "kill_only", "monitor"]:
         logger.warning(f"Invalid action '{action}' for EDR event, defaulting to 'kill_and_quarantine'")
         action = "kill_and_quarantine"
-    
+
     event = {
-        "timestamp": datetime.now(timezone.utc).isoformat(timespec='seconds'),
+        "timestamp": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "file_path": str(file_path),
         "virus_name": str(virus_name),
         "is_malicious": True,
@@ -128,7 +117,7 @@ async def _send_av_event_to_edr(file_path: str,
         "detection_type": detection_type,
         "action_required": action,
         "pid": pid,
-        "gid": None
+        "gid": None,
     }
 
     if main_file_path:
@@ -149,17 +138,18 @@ async def _send_av_event_to_edr(file_path: str,
     except Exception as e:
         logger.error(f"Unexpected error sending threat event to EDR: {e}")
 
+
 async def _send_to_edr(
     target_path: str,
     threat_name: str,
     # MODIFIED: Added detection_type
     detection_type: str = "signature",
     action: str = "kill_and_quarantine",
-    main_file_path: Optional[str] = None
+    main_file_path: Optional[str] = None,
 ) -> None:
     """
     Async helper to forward to EDR.
-    
+
     Args:
         target_path: Path to the threat file
         threat_name: Name of the detected threat
@@ -171,7 +161,7 @@ async def _send_to_edr(
     if action not in ["kill_and_quarantine", "kill_only", "monitor"]:
         logger.warning(f"Invalid action '{action}', defaulting to 'kill_and_quarantine'")
         action = "kill_and_quarantine"
-    
+
     try:
         await _send_av_event_to_edr(
             target_path,
@@ -179,27 +169,24 @@ async def _send_to_edr(
             # MODIFIED: Pass detection_type
             detection_type=detection_type,
             action=action,
-            main_file_path=main_file_path
+            main_file_path=main_file_path,
         )
     except TypeError:
         # Defensive fallback
         try:
-            await _send_av_event_to_edr(
-                target_path, 
-                threat_name, 
-                detection_type=detection_type, 
-                action=action
-            )
+            await _send_av_event_to_edr(target_path, threat_name, detection_type=detection_type, action=action)
         except Exception as e:
             logger.exception(f"Failed to forward to EDR (fallback): {e}")
     except Exception as e:
         logger.exception(f"Failed forwarding to EDR: {e}")
+
 
 async def _add_malicious_hash(file_path: str, virus_name: str) -> None:
     """
     Compute MD5 hash of file and add it with its associated virus name to the global tracking dict.
     Offloads compute_md5 and dict update to a thread to avoid blocking.
     """
+
     def _sync_compute_and_store(fp: str, vname: str):
         try:
             file_hash = compute_md5(fp)
@@ -212,7 +199,9 @@ async def _add_malicious_hash(file_path: str, virus_name: str) -> None:
 
     await asyncio.to_thread(_sync_compute_and_store, file_path, virus_name)
 
+
 # --- Notification Functions (Now fully async) ---
+
 
 async def notify_user(file_path, virus_name, engine_detected, main_file_path: Optional[str] = None) -> None:
     try:
@@ -220,11 +209,11 @@ async def notify_user(file_path, virus_name, engine_detected, main_file_path: Op
         logger.critical(notification_message)
         await _add_malicious_hash(file_path, virus_name)
         await _send_to_edr(
-            file_path, 
-            virus_name, 
-            detection_type="malware", # MODIFIED
-            action="kill_and_quarantine", 
-            main_file_path=main_file_path
+            file_path,
+            virus_name,
+            detection_type="malware",  # MODIFIED
+            action="kill_and_quarantine",
+            main_file_path=main_file_path,
         )
     except Exception as e:
         logger.exception(f"notify_user failed: {e}")
@@ -236,11 +225,11 @@ async def notify_user_pua(file_path, virus_name, engine_detected, main_file_path
         logger.critical(notification_message)
         await _add_malicious_hash(file_path, virus_name)
         await _send_to_edr(
-            file_path, 
-            virus_name, 
-            detection_type="pua", # MODIFIED: Set detection_type to "pua"
-            action="kill_and_quarantine", 
-            main_file_path=main_file_path
+            file_path,
+            virus_name,
+            detection_type="pua",  # MODIFIED: Set detection_type to "pua"
+            action="kill_and_quarantine",
+            main_file_path=main_file_path,
         )
     except Exception as e:
         logger.exception(f"notify_user_pua failed: {e}")
@@ -248,20 +237,14 @@ async def notify_user_pua(file_path, virus_name, engine_detected, main_file_path
 
 async def notify_user_hayabusa_critical(event_log, rule_title, details, computer) -> None:
     try:
-        notification_message = (
-            f"CRITICAL event detected by Hayabusa:\n"
-            f"Computer: {computer}\n"
-            f"Event Log: {event_log}\n"
-            f"Rule: {rule_title}\n"
-            f"Details: {details}"
-        )
+        notification_message = f"CRITICAL event detected by Hayabusa:\nComputer: {computer}\nEvent Log: {event_log}\nRule: {rule_title}\nDetails: {details}"
         logger.critical(notification_message)
         threat_name = f"Hayabusa Critical: {rule_title}"
         await _send_to_edr(
-            event_log, 
-            threat_name, 
-            detection_type="hayabusa", # MODIFIED
-            action="kill_and_quarantine"
+            event_log,
+            threat_name,
+            detection_type="hayabusa",  # MODIFIED
+            action="kill_and_quarantine",
         )
     except Exception as e:
         logger.exception(f"notify_user_hayabusa_critical failed: {e}")
@@ -273,11 +256,11 @@ async def notify_user_for_malicious_source_code(file_path, virus_name, main_file
         logger.error(notification_message)
         await _add_malicious_hash(file_path, virus_name)
         await _send_to_edr(
-            file_path, 
-            virus_name, 
-            detection_type="monitor_source_code", # MODIFIED
-            action="monitor", # This action is now handled by Rust
-            main_file_path=main_file_path
+            file_path,
+            virus_name,
+            detection_type="monitor_source_code",  # MODIFIED
+            action="monitor",  # This action is now handled by Rust
+            main_file_path=main_file_path,
         )
     except Exception as e:
         logger.exception(f"notify_user_for_malicious_source_code failed: {e}")
@@ -285,16 +268,15 @@ async def notify_user_for_malicious_source_code(file_path, virus_name, main_file
 
 async def notify_user_size_warning(file_path, archive_type, virus_name, main_file_path: Optional[str] = None) -> None:
     try:
-        notification_message = (f"{archive_type} file {file_path} is smaller than 20MB but contains a large file "
-                                f"which might be suspicious. Virus Name: {virus_name}")
+        notification_message = f"{archive_type} file {file_path} is smaller than 20MB but contains a large file which might be suspicious. Virus Name: {virus_name}"
         logger.critical(notification_message)
         await _add_malicious_hash(file_path, virus_name)
         await _send_to_edr(
-            file_path, 
-            virus_name, 
-            detection_type="monitor_size", # MODIFIED
-            action="monitor", 
-            main_file_path=main_file_path
+            file_path,
+            virus_name,
+            detection_type="monitor_size",  # MODIFIED
+            action="monitor",
+            main_file_path=main_file_path,
         )
     except Exception as e:
         logger.exception(f"notify_user_size_warning failed: {e}")
@@ -302,17 +284,15 @@ async def notify_user_size_warning(file_path, archive_type, virus_name, main_fil
 
 async def notify_user_susp_archive_file_name_warning(file_path, archive_type, virus_name, main_file_path: Optional[str] = None) -> None:
     try:
-        notification_message = (
-            f"The filename in the {archive_type} archive '{file_path}' contains a suspicious pattern: {virus_name}."
-        )
+        notification_message = f"The filename in the {archive_type} archive '{file_path}' contains a suspicious pattern: {virus_name}."
         logger.critical(notification_message)
         await _add_malicious_hash(file_path, virus_name)
         await _send_to_edr(
-            file_path, 
-            virus_name, 
-            detection_type="monitor_archive_name", # MODIFIED
-            action="monitor", 
-            main_file_path=main_file_path
+            file_path,
+            virus_name,
+            detection_type="monitor_archive_name",  # MODIFIED
+            action="monitor",
+            main_file_path=main_file_path,
         )
     except Exception as e:
         logger.exception(f"notify_user_susp_archive_file_name_warning failed: {e}")
@@ -324,11 +304,11 @@ async def notify_user_susp_name(file_path, virus_name, main_file_path: Optional[
         logger.critical(notification_message)
         await _add_malicious_hash(file_path, virus_name)
         await _send_to_edr(
-            file_path, 
-            virus_name, 
-            detection_type="monitor_suspicious_name", # MODIFIED
-            action="monitor", 
-            main_file_path=main_file_path
+            file_path,
+            virus_name,
+            detection_type="monitor_suspicious_name",  # MODIFIED
+            action="monitor",
+            main_file_path=main_file_path,
         )
     except Exception as e:
         logger.exception(f"notify_user_susp_name failed: {e}")
@@ -340,11 +320,11 @@ async def notify_user_scr(file_path, virus_name, main_file_path: Optional[str] =
         logger.critical(f"ALERT: {notification_message}")
         await _add_malicious_hash(file_path, virus_name)
         await _send_to_edr(
-            file_path, 
-            virus_name, 
-            detection_type="scr_file", # MODIFIED
-            action="kill_and_quarantine", 
-            main_file_path=main_file_path
+            file_path,
+            virus_name,
+            detection_type="scr_file",  # MODIFIED
+            action="kill_and_quarantine",
+            main_file_path=main_file_path,
         )
     except Exception as e:
         logger.exception(f"notify_user_scr failed: {e}")
@@ -352,20 +332,15 @@ async def notify_user_scr(file_path, virus_name, main_file_path: Optional[str] =
 
 async def notify_user_for_detected_fake_system_file(file_path, file_name, virus_name, main_file_path: Optional[str] = None) -> None:
     try:
-        notification_message = (
-            f"Fake system file detected:\n"
-            f"File Path: {file_path}\n"
-            f"File Name: {file_name}\n"
-            f"Threat: {virus_name}"
-        )
+        notification_message = f"Fake system file detected:\nFile Path: {file_path}\nFile Name: {file_name}\nThreat: {virus_name}"
         logger.critical(notification_message)
         await _add_malicious_hash(file_path, virus_name)
         await _send_to_edr(
-            file_path, 
-            virus_name, 
-            detection_type="fake_system_file", # MODIFIED
-            action="kill_and_quarantine", 
-            main_file_path=main_file_path
+            file_path,
+            virus_name,
+            detection_type="fake_system_file",  # MODIFIED
+            action="kill_and_quarantine",
+            main_file_path=main_file_path,
         )
     except Exception as e:
         logger.exception(f"notify_user_for_detected_fake_system_file failed: {e}")
@@ -377,11 +352,11 @@ async def notify_user_invalid(file_path, virus_name, main_file_path: Optional[st
         logger.critical(notification_message)
         await _add_malicious_hash(file_path, virus_name)
         await _send_to_edr(
-            file_path, 
-            virus_name, 
-            detection_type="monitor_invalid_sig", # MODIFIED
-            action="monitor", 
-            main_file_path=main_file_path
+            file_path,
+            virus_name,
+            detection_type="monitor_invalid_sig",  # MODIFIED
+            action="monitor",
+            main_file_path=main_file_path,
         )
     except Exception as e:
         logger.exception(f"notify_user_invalid failed: {e}")
@@ -393,11 +368,11 @@ async def notify_user_fake_size(file_path, virus_name, main_file_path: Optional[
         logger.critical(notification_message)
         await _add_malicious_hash(file_path, virus_name)
         await _send_to_edr(
-            file_path, 
-            virus_name, 
-            detection_type="monitor_fake_size", # MODIFIED
-            action="monitor", 
-            main_file_path=main_file_path
+            file_path,
+            virus_name,
+            detection_type="monitor_fake_size",  # MODIFIED
+            action="monitor",
+            main_file_path=main_file_path,
         )
     except Exception as e:
         logger.exception(f"notify_user_fake_size failed: {e}")
@@ -410,11 +385,11 @@ async def notify_user_startup(file_path, message, main_file_path: Optional[str] 
         virus_name = f"Startup Alert: {message}"
         await _add_malicious_hash(file_path, virus_name)
         await _send_to_edr(
-            file_path, 
-            virus_name, 
-            detection_type="startup_alert", # MODIFIED
-            action="kill_and_quarantine", 
-            main_file_path=main_file_path
+            file_path,
+            virus_name,
+            detection_type="startup_alert",  # MODIFIED
+            action="kill_and_quarantine",
+            main_file_path=main_file_path,
         )
     except Exception as e:
         logger.exception(f"notify_user_startup failed: {e}")
@@ -426,11 +401,11 @@ async def notify_user_exela_stealer_v2(file_path, virus_name, main_file_path: Op
         logger.critical(notification_message)
         await _add_malicious_hash(file_path, virus_name)
         await _send_to_edr(
-            file_path, 
-            virus_name, 
-            detection_type="malware_stealer", # MODIFIED
-            action="kill_and_quarantine", 
-            main_file_path=main_file_path
+            file_path,
+            virus_name,
+            detection_type="malware_stealer",  # MODIFIED
+            action="kill_and_quarantine",
+            main_file_path=main_file_path,
         )
     except Exception as e:
         logger.exception(f"notify_user_exela_stealer_v2 failed: {e}")
@@ -442,22 +417,17 @@ async def notify_user_hosts(file_path, virus_name, main_file_path: Optional[str]
         logger.critical(notification_message)
         await _add_malicious_hash(file_path, virus_name)
         await _send_to_edr(
-            file_path, 
-            virus_name, 
-            detection_type="monitor_hosts_file", # MODIFIED
-            action="monitor", 
-            main_file_path=main_file_path
+            file_path,
+            virus_name,
+            detection_type="monitor_hosts_file",  # MODIFIED
+            action="monitor",
+            main_file_path=main_file_path,
         )
     except Exception as e:
         logger.exception(f"notify_user_hosts failed: {e}")
 
 
-async def notify_user_for_web(domain: Optional[str] = None,
-                              ipv4_address: Optional[str] = None,
-                              ipv6_address: Optional[str] = None,
-                              url: Optional[str] = None,
-                              file_path: Optional[str] = None,
-                              detection_type: Optional[str] = None) -> None:
+async def notify_user_for_web(domain: Optional[str] = None, ipv4_address: Optional[str] = None, ipv6_address: Optional[str] = None, url: Optional[str] = None, file_path: Optional[str] = None, detection_type: Optional[str] = None) -> None:
     """
     Lightweight web notification. If file_path is provided, add to EDR as a file event.
     """
@@ -485,10 +455,10 @@ async def notify_user_for_web(domain: Optional[str] = None,
             try:
                 await _add_malicious_hash(file_path, threat_name)
                 await _send_to_edr(
-                    file_path, 
-                    threat_name, 
-                    detection_type=f"web_threat_{detection_type or 'generic'}", # MODIFIED
-                    action="kill_and_quarantine"
+                    file_path,
+                    threat_name,
+                    detection_type=f"web_threat_{detection_type or 'generic'}",  # MODIFIED
+                    action="kill_and_quarantine",
                 )
             except Exception:
                 logger.exception(f"Failed to forward web alert to EDR for {file_path}")
@@ -498,13 +468,7 @@ async def notify_user_for_web(domain: Optional[str] = None,
 
 
 async def notify_user_for_web_source(
-    domain: Optional[str] = None,
-    ipv4_address: Optional[str] = None,
-    ipv6_address: Optional[str] = None,
-    url: Optional[str] = None,
-    file_path: Optional[str] = None,
-    detection_type: Optional[str] = None,
-    main_file_path: Optional[str] = None
+    domain: Optional[str] = None, ipv4_address: Optional[str] = None, ipv6_address: Optional[str] = None, url: Optional[str] = None, file_path: Optional[str] = None, detection_type: Optional[str] = None, main_file_path: Optional[str] = None
 ) -> None:
     """
     Web notification that includes source file context.
@@ -541,11 +505,11 @@ async def notify_user_for_web_source(
             await _add_malicious_hash(edr_file_param, threat_name)
             # forward with main_file_path included where available
             await _send_to_edr(
-                edr_file_param, 
-                threat_name, 
-                detection_type=f"web_threat_source_{detection_type or 'generic'}", # MODIFIED
-                action="kill_only", 
-                main_file_path=main_file_path
+                edr_file_param,
+                threat_name,
+                detection_type=f"web_threat_source_{detection_type or 'generic'}",  # MODIFIED
+                action="kill_only",
+                main_file_path=main_file_path,
             )
         except Exception:
             logger.exception(f"Failed to forward web alert to EDR for {edr_file_param}")
@@ -561,11 +525,11 @@ async def notify_user_for_detected_hips_file(file_path, src_ip, alert_line, stat
         virus_name = f"HIPS Alert: {alert_line}"
         await _add_malicious_hash(file_path, virus_name)
         await _send_to_edr(
-            file_path, 
-            virus_name, 
-            detection_type="hips_file", # MODIFIED
-            action="kill_and_quarantine", 
-            main_file_path=main_file_path
+            file_path,
+            virus_name,
+            detection_type="hips_file",  # MODIFIED
+            action="kill_and_quarantine",
+            main_file_path=main_file_path,
         )
     except Exception as e:
         logger.exception(f"notify_user_for_detected_hips_file failed: {e}")
@@ -577,19 +541,13 @@ async def notify_user_duplicate(file_path, file_hash: str, known_virus_name: str
     Still forwards to EDR for tracking.
     """
     try:
-        notification_message = (
-            f"Duplicate malicious file detected:\n"
-            f"File: {file_path}\n"
-            f"Hash: {file_hash[:16]}...\n"
-            f"Previously identified as: {known_virus_name}\n"
-            f"Action: Skipped scanning (already known malware)"
-        )
+        notification_message = f"Duplicate malicious file detected:\nFile: {file_path}\nHash: {file_hash[:16]}...\nPreviously identified as: {known_virus_name}\nAction: Skipped scanning (already known malware)"
         logger.warning(notification_message)
         await _send_to_edr(
-            file_path, 
-            f"Duplicate: {known_virus_name}", 
-            detection_type="duplicate_malware", # MODIFIED
-            action="kill_and_quarantine"
+            file_path,
+            f"Duplicate: {known_virus_name}",
+            detection_type="duplicate_malware",  # MODIFIED
+            action="kill_and_quarantine",
         )
     except Exception as e:
         logger.exception(f"notify_user_duplicate failed: {e}")
@@ -602,11 +560,11 @@ async def notify_user_for_uefi(file_path, virus_name, main_file_path: Optional[s
         logger.critical(notification_message)
         await _add_malicious_hash(file_path, virus_name)
         await _send_to_edr(
-            file_path, 
-            virus_name, 
-            detection_type="uefi_malware", # MODIFIED
-            action="kill_and_quarantine", 
-            main_file_path=main_file_path
+            file_path,
+            virus_name,
+            detection_type="uefi_malware",  # MODIFIED
+            action="kill_and_quarantine",
+            main_file_path=main_file_path,
         )
     except Exception as e:
         logger.exception(f"notify_user_for_uefi failed: {e}")

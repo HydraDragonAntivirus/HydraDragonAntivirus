@@ -19,17 +19,17 @@ import sys
 from collections import OrderedDict, defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
-from textwrap import indent as _indent
-from typing import Any, Callable, Iterable, Iterator
+from typing import Any, Iterable, Iterator
 
 
 # ---------------------------------------------------------------------------
 # Nuitka packed-signature tags
 # ---------------------------------------------------------------------------
 
+
 class NuitkaTags:
-    ARG         = "a"
-    USER_DEF    = "u"
+    ARG = "a"
+    USER_DEF = "u"
     PRIVATE_DEF = "p"
     OBJECT_TYPE = "O"
 
@@ -37,6 +37,7 @@ class NuitkaTags:
 # ---------------------------------------------------------------------------
 # Primitive coercion helpers
 # ---------------------------------------------------------------------------
+
 
 def b2s_safe(val: Any) -> str:
     if val is None:
@@ -72,8 +73,7 @@ def literal_source(value: Any) -> str:
     if isinstance(value, list):
         return repr(_trim_sequence(list(tuple_texts(value)), "..."))
     if isinstance(value, dict):
-        cleaned = {b2s_safe(k): (b2s_safe(v) if isinstance(v, (bytes, bytearray)) else v)
-                   for k, v in list(value.items())[:20]}
+        cleaned = {b2s_safe(k): (b2s_safe(v) if isinstance(v, (bytes, bytearray)) else v) for k, v in list(value.items())[:20]}
         return repr(cleaned)
     return repr(value)
 
@@ -87,6 +87,7 @@ def tuple_texts(value: Any) -> tuple[Any, ...]:
 # ---------------------------------------------------------------------------
 # Annotation helpers
 # ---------------------------------------------------------------------------
+
 
 def is_annotation_dict(d: Any) -> bool:
     if not isinstance(d, dict) or not d or len(d) > 25:
@@ -126,6 +127,7 @@ def decode_annotation_blob(d: dict[Any, Any]) -> OrderedDict[str, str]:
 # Packed-signature parser
 # ---------------------------------------------------------------------------
 
+
 def parse_nuitka_packed_signature(
     raw: bytes | str,
 ) -> tuple[list[str], list[str], dict[str, str]]:
@@ -157,101 +159,307 @@ def parse_nuitka_packed_signature(
 # Compiled regexes & frozen constant sets
 # ---------------------------------------------------------------------------
 
-IDENTIFIER_RE    = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
-CLASS_NAME_RE    = re.compile(r"^_?[A-Z][A-Za-z0-9_]*$")
-IMPORT_PATH_RE   = re.compile(r"^[a-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)+$")
-METHOD_REF_RE    = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)$")
+IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+CLASS_NAME_RE = re.compile(r"^_?[A-Z][A-Za-z0-9_]*$")
+IMPORT_PATH_RE = re.compile(r"^[a-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)+$")
+METHOD_REF_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)$")
 HTTP_ENDPOINT_RE = re.compile(r"https?://[A-Za-z0-9]|/functions/[A-Za-z0-9_]")
-LOG_RE           = re.compile(r"\b(log|logger|logging|debug|info|warning|error|critical)\b", re.I)
-PARAM_RE         = re.compile(r":param\s+(\w+):")
-RETURN_RE        = re.compile(r":returns?:\s*(.*)")
-RAISES_RE        = re.compile(r":raises?\s+(\w+):")
+LOG_RE = re.compile(r"\b(log|logger|logging|debug|info|warning|error|critical)\b", re.I)
+PARAM_RE = re.compile(r":param\s+(\w+):")
+RETURN_RE = re.compile(r":returns?:\s*(.*)")
+RAISES_RE = re.compile(r":raises?\s+(\w+):")
 
-DECORATOR_NAMES: frozenset[str] = frozenset(
-    {"property", "abstractmethod", "staticmethod", "classmethod", "overload"}
+DECORATOR_NAMES: frozenset[str] = frozenset({"property", "abstractmethod", "staticmethod", "classmethod", "overload"})
+META_FIELD_NAMES: frozenset[str] = frozenset(
+    {
+        "__prepare__",
+        "__qualname__",
+        "__firstlineno__",
+        "__static_attributes__",
+        "__orig_bases__",
+        "__getitem__",
+        "metaclass",
+        "annotations",
+        "origin",
+        "has_location",
+        "__module__",
+    }
 )
-META_FIELD_NAMES: frozenset[str] = frozenset({
-    "__prepare__", "__qualname__", "__firstlineno__", "__static_attributes__",
-    "__orig_bases__", "__getitem__", "metaclass", "annotations", "origin",
-    "has_location", "__module__",
-})
-KNOWN_METHOD_NAMES: frozenset[str] = frozenset({
-    "__init__", "__new__", "__repr__", "__str__", "__bytes__",
-    "__eq__", "__ne__", "__lt__", "__le__", "__gt__", "__ge__",
-    "__hash__", "__reduce__", "__reduce_ex__", "__getstate__", "__setstate__",
-    "__iter__", "__next__", "__len__", "__bool__", "__contains__",
-    "__copy__", "__deepcopy__", "__enter__", "__exit__",
-    "__getattr__", "__setattr__", "__delattr__", "__getitem__",
-    "__setitem__", "__delitem__", "__call__",
-    "prepare", "copy", "clone", "close", "json",
-    "value", "name", "type_id", "_packed", "_init_without_validation",
-    "register_hook", "deregister_hook", "send", "receive",
-    "read", "write", "flush", "seek", "tell",
-    "connect", "disconnect", "reconnect",
-    "encode", "decode", "serialize", "deserialize",
-    "validate", "parse", "format", "render",
-})
+KNOWN_METHOD_NAMES: frozenset[str] = frozenset(
+    {
+        "__init__",
+        "__new__",
+        "__repr__",
+        "__str__",
+        "__bytes__",
+        "__eq__",
+        "__ne__",
+        "__lt__",
+        "__le__",
+        "__gt__",
+        "__ge__",
+        "__hash__",
+        "__reduce__",
+        "__reduce_ex__",
+        "__getstate__",
+        "__setstate__",
+        "__iter__",
+        "__next__",
+        "__len__",
+        "__bool__",
+        "__contains__",
+        "__copy__",
+        "__deepcopy__",
+        "__enter__",
+        "__exit__",
+        "__getattr__",
+        "__setattr__",
+        "__delattr__",
+        "__getitem__",
+        "__setitem__",
+        "__delitem__",
+        "__call__",
+        "prepare",
+        "copy",
+        "clone",
+        "close",
+        "json",
+        "value",
+        "name",
+        "type_id",
+        "_packed",
+        "_init_without_validation",
+        "register_hook",
+        "deregister_hook",
+        "send",
+        "receive",
+        "read",
+        "write",
+        "flush",
+        "seek",
+        "tell",
+        "connect",
+        "disconnect",
+        "reconnect",
+        "encode",
+        "decode",
+        "serialize",
+        "deserialize",
+        "validate",
+        "parse",
+        "format",
+        "render",
+    }
+)
 KNOWN_METHOD_PREFIXES: tuple[str, ...] = (
-    "prepare_", "register_", "deregister_", "iter_", "get_", "set_",
-    "raise_", "encode_", "decode_", "_encode_", "_get_", "_init_",
-    "add_", "remove_", "clear_", "reset_", "is_", "has_", "can_",
-    "on_", "do_", "handle_", "process_", "build_", "make_", "create_",
-    "update_", "delete_", "fetch_", "load_", "save_", "dump_",
-    "_build_", "_make_", "_create_", "_process_", "_handle_",
-    "_validate_", "_parse_", "_format_", "_check_", "_ensure_",
+    "prepare_",
+    "register_",
+    "deregister_",
+    "iter_",
+    "get_",
+    "set_",
+    "raise_",
+    "encode_",
+    "decode_",
+    "_encode_",
+    "_get_",
+    "_init_",
+    "add_",
+    "remove_",
+    "clear_",
+    "reset_",
+    "is_",
+    "has_",
+    "can_",
+    "on_",
+    "do_",
+    "handle_",
+    "process_",
+    "build_",
+    "make_",
+    "create_",
+    "update_",
+    "delete_",
+    "fetch_",
+    "load_",
+    "save_",
+    "dump_",
+    "_build_",
+    "_make_",
+    "_create_",
+    "_process_",
+    "_handle_",
+    "_validate_",
+    "_parse_",
+    "_format_",
+    "_check_",
+    "_ensure_",
 )
-KNOWN_BASE_NAMES: frozenset[str] = frozenset({
-    "Exception", "Warning", "ValueError", "TypeError", "RuntimeError",
-    "ConnectionError", "LookupError", "MessageDefect", "IncompleteRead",
-    "OSError", "IOError", "KeyError", "IndexError", "AttributeError",
-    "NotImplementedError", "StopIteration", "GeneratorExit", "TimeoutError",
-})
-NOISE_CLASS_NAMES: frozenset[str] = frozenset({
-    "ABCMeta", "Callable", "Iterable", "Mapping", "OrderedDict", "Path",
-    "Sequence", "defaultdict",
-})
-WEAK_TOPLEVEL_FUNCTION_NAMES: frozenset[str] = frozenset({
-    "self", "cls", "url", "warn", "reason", "conn", "header", "headers",
-    "body", "json", "data", "params", "value", "type", "origin", "message",
-    "status", "host", "path", "replace", "warnings", "lstrip",
-})
+KNOWN_BASE_NAMES: frozenset[str] = frozenset(
+    {
+        "Exception",
+        "Warning",
+        "ValueError",
+        "TypeError",
+        "RuntimeError",
+        "ConnectionError",
+        "LookupError",
+        "MessageDefect",
+        "IncompleteRead",
+        "OSError",
+        "IOError",
+        "KeyError",
+        "IndexError",
+        "AttributeError",
+        "NotImplementedError",
+        "StopIteration",
+        "GeneratorExit",
+        "TimeoutError",
+    }
+)
+NOISE_CLASS_NAMES: frozenset[str] = frozenset(
+    {
+        "ABCMeta",
+        "Callable",
+        "Iterable",
+        "Mapping",
+        "OrderedDict",
+        "Path",
+        "Sequence",
+        "defaultdict",
+    }
+)
+WEAK_TOPLEVEL_FUNCTION_NAMES: frozenset[str] = frozenset(
+    {
+        "self",
+        "cls",
+        "url",
+        "warn",
+        "reason",
+        "conn",
+        "header",
+        "headers",
+        "body",
+        "json",
+        "data",
+        "params",
+        "value",
+        "type",
+        "origin",
+        "message",
+        "status",
+        "host",
+        "path",
+        "replace",
+        "warnings",
+        "lstrip",
+    }
+)
 MODULE_DOCSTRING_HINTS: tuple[str, ...] = (
-    "module", "package", "utilities", "helpers", "exceptions",
-    "tools", "support", "constants", "provides", "implements",
+    "module",
+    "package",
+    "utilities",
+    "helpers",
+    "exceptions",
+    "tools",
+    "support",
+    "constants",
+    "provides",
+    "implements",
 )
 MODULE_DOCSTRING_BAD_PREFIXES: tuple[str, ...] = (
-    "build ", "parse ", "return ", "create ", "construct ", "convert ",
-    "serialize ", "deserialize ", "encode ", "decode ", "represent ",
-    "initialize ", "prepare ", "register ", "deregister ",
+    "build ",
+    "parse ",
+    "return ",
+    "create ",
+    "construct ",
+    "convert ",
+    "serialize ",
+    "deserialize ",
+    "encode ",
+    "decode ",
+    "represent ",
+    "initialize ",
+    "prepare ",
+    "register ",
+    "deregister ",
     "max retries exceeded",
 )
 _C_API_PREFIXES: tuple[str, ...] = (
-    "SSL_", "X509_", "EVP_", "BIO_", "OBJ_", "ASN1_", "PEM_",
-    "PKCS", "RSA_", "EC_", "DH_", "HMAC_", "AES_", "SHA",
+    "SSL_",
+    "X509_",
+    "EVP_",
+    "BIO_",
+    "OBJ_",
+    "ASN1_",
+    "PEM_",
+    "PKCS",
+    "RSA_",
+    "EC_",
+    "DH_",
+    "HMAC_",
+    "AES_",
+    "SHA",
 )
-TYPING_NAMES: frozenset[str] = frozenset({
-    "Any", "Callable", "Mapping", "Iterable", "Sequence",
-    "Optional", "Union", "List", "Dict", "Tuple", "Set",
-    "Type", "ClassVar", "Final", "Literal", "overload",
-    "Generator", "Iterator", "AsyncIterator", "Awaitable",
-})
+TYPING_NAMES: frozenset[str] = frozenset(
+    {
+        "Any",
+        "Callable",
+        "Mapping",
+        "Iterable",
+        "Sequence",
+        "Optional",
+        "Union",
+        "List",
+        "Dict",
+        "Tuple",
+        "Set",
+        "Type",
+        "ClassVar",
+        "Final",
+        "Literal",
+        "overload",
+        "Generator",
+        "Iterator",
+        "AsyncIterator",
+        "Awaitable",
+    }
+)
 LOCK_ATTRS: frozenset[str] = frozenset({"_lock", "_mutex", "_rlock", "_semaphore"})
 ITER_ATTRS: frozenset[str] = frozenset({"_items", "_data", "_buffer", "_queue", "_list", "_entries"})
-NETWORK_HINTS: frozenset[str] = frozenset({
-    "timeout", "retry", "redirect", "response", "request",
-    "socket", "connection", "stream", "chunk", "content",
-})
+NETWORK_HINTS: frozenset[str] = frozenset(
+    {
+        "timeout",
+        "retry",
+        "redirect",
+        "response",
+        "request",
+        "socket",
+        "connection",
+        "stream",
+        "chunk",
+        "content",
+    }
+)
 
 # Python built-in type names useful for isinstance checks
 _BUILTIN_TYPES: dict[str, str] = {
-    "str": "str", "int": "int", "float": "float", "bool": "bool",
-    "bytes": "bytes", "list": "list", "dict": "dict", "tuple": "tuple",
-    "set": "set", "frozenset": "frozenset",
+    "str": "str",
+    "int": "int",
+    "float": "float",
+    "bool": "bool",
+    "bytes": "bytes",
+    "list": "list",
+    "dict": "dict",
+    "tuple": "tuple",
+    "set": "set",
+    "frozenset": "frozenset",
 }
 
 # ---------------------------------------------------------------------------
 # Text classification helpers
 # ---------------------------------------------------------------------------
+
 
 def clean_docstring(text: Any) -> str | None:
     s = str(text).strip()
@@ -278,11 +486,16 @@ def normalize_annotation_text(value: Any) -> str | None:
     if not text:
         return None
     _map = {
-        "typing.Any": "Any", "typing.Optional": "Optional",
-        "typing.Callable": "Callable", "typing.Mapping": "Mapping",
-        "typing.Iterable": "Iterable", "typing.Sequence": "Sequence",
-        "typing.List": "List", "typing.Dict": "Dict",
-        "typing.Tuple": "Tuple", "typing.Union": "Union",
+        "typing.Any": "Any",
+        "typing.Optional": "Optional",
+        "typing.Callable": "Callable",
+        "typing.Mapping": "Mapping",
+        "typing.Iterable": "Iterable",
+        "typing.Sequence": "Sequence",
+        "typing.List": "List",
+        "typing.Dict": "Dict",
+        "typing.Tuple": "Tuple",
+        "typing.Union": "Union",
         "typing.Type": "Type",
     }
     return _map.get(text, text)
@@ -304,12 +517,7 @@ def is_probable_import_path(text: Any) -> bool:
 
 
 def is_probable_class_name(text: Any) -> bool:
-    return (
-        isinstance(text, str)
-        and bool(CLASS_NAME_RE.fullmatch(text))
-        and text not in DECORATOR_NAMES
-        and text not in NOISE_CLASS_NAMES
-    )
+    return isinstance(text, str) and bool(CLASS_NAME_RE.fullmatch(text)) and text not in DECORATOR_NAMES and text not in NOISE_CLASS_NAMES
 
 
 def is_probable_method_name(text: Any) -> bool:
@@ -357,7 +565,7 @@ def should_render_constant(name: Any) -> bool:
 
 def _score_window(items: list[Any], start: int, length: int) -> int:
     score = 0
-    window = items[start: start + length]
+    window = items[start : start + length]
     if any(isinstance(x, dict) and is_annotation_dict(x) for x in window):
         score += 2
     if any(isinstance(x, tuple) and 0 < len(x) <= 12 for x in window):
@@ -372,6 +580,7 @@ def _score_window(items: list[Any], start: int, length: int) -> int:
 # ---------------------------------------------------------------------------
 # Docstring synthesizer
 # ---------------------------------------------------------------------------
+
 
 class DocstringSynthesizer:
     """
@@ -424,10 +633,7 @@ class DocstringSynthesizer:
         lines.append(summary)
 
         # --- longer description from long string hints ---
-        long_hints = [
-            h for h in string_hints
-            if len(h) > 60 and " " in h and not is_probable_endpoint(h)
-        ]
+        long_hints = [h for h in string_hints if len(h) > 60 and " " in h and not is_probable_endpoint(h)]
         if long_hints:
             lines.append("")
             lines.append(long_hints[0].strip())
@@ -536,7 +742,7 @@ def _return_description(method_name: str, return_type: str) -> str:
         target = method_name.split("_", 1)[-1].replace("_", " ")
         return f"The current value of {target}."
     if method_name.startswith("is_") or method_name.startswith("has_"):
-        return f"True if the condition holds, False otherwise."
+        return "True if the condition holds, False otherwise."
     if method_name in {"__iter__", "iter"}:
         return "An iterator over the contained elements."
     if method_name in {"__len__", "size", "count"}:
@@ -561,60 +767,60 @@ def _return_description(method_name: str, return_type: str) -> str:
 def _method_summary(name: str, args: list[str], return_type: str | None) -> str:
     non_self = [a for a in args if a not in {"self", "cls"}]
     mapping: dict[str, str] = {
-        "__init__":        "Initialise a new instance.",
-        "__repr__":        "Return an unambiguous string representation.",
-        "__str__":         "Return a human-readable string representation.",
-        "__bytes__":       "Return the binary encoding of this object.",
-        "__len__":         "Return the number of contained elements.",
-        "__bool__":        "Return the truth value of this object.",
-        "__iter__":        "Return an iterator over the contained elements.",
-        "__next__":        "Return the next element, raising StopIteration when exhausted.",
-        "__contains__":    "Return True if the element is present.",
-        "__enter__":       "Enter the runtime context for this object.",
-        "__exit__":        "Exit the runtime context, suppressing exceptions if appropriate.",
-        "__eq__":          "Return True if this instance equals *other*.",
-        "__ne__":          "Return True if this instance does not equal *other*.",
-        "__hash__":        "Return a hash of this instance suitable for dict keys.",
-        "__lt__":          "Return True if this instance is less than *other*.",
-        "__le__":          "Return True if this instance is less than or equal to *other*.",
-        "__gt__":          "Return True if this instance is greater than *other*.",
-        "__ge__":          "Return True if this instance is greater than or equal to *other*.",
-        "__reduce__":      "Return state for pickling.",
-        "__getstate__":    "Return the instance state for serialisation.",
-        "__setstate__":    "Restore the instance from serialised state.",
-        "__copy__":        "Return a shallow copy.",
-        "__deepcopy__":    "Return a deep copy.",
-        "__call__":        "Call this object as a function.",
-        "__getattr__":     "Called when an attribute is not found through normal means.",
-        "__setattr__":     "Set the named attribute on the object.",
-        "__delattr__":     "Delete the named attribute.",
-        "__getitem__":     "Return the value at the given key or index.",
-        "__setitem__":     "Set the value at the given key or index.",
-        "__delitem__":     "Delete the value at the given key or index.",
-        "close":           "Release all resources held by this object.",
-        "connect":         "Establish the underlying connection.",
-        "disconnect":      "Terminate the underlying connection.",
-        "reconnect":       "Close and reopen the underlying connection.",
-        "send":            "Send data over the connection.",
-        "receive":         "Receive data from the connection.",
-        "read":            "Read and return data.",
-        "write":           "Write data.",
-        "flush":           "Flush any buffered data to the underlying sink.",
-        "encode":          "Encode this object to bytes.",
-        "decode":          "Decode bytes into a Python object.",
-        "serialize":       "Serialise this object to a portable representation.",
-        "deserialize":     "Restore an object from its serialised form.",
-        "validate":        "Validate the data and raise on the first violation.",
-        "copy":            "Return a shallow copy of this object.",
-        "clone":           "Return an independent copy of this object.",
-        "register_hook":   "Register a callable as a hook for the given event.",
+        "__init__": "Initialise a new instance.",
+        "__repr__": "Return an unambiguous string representation.",
+        "__str__": "Return a human-readable string representation.",
+        "__bytes__": "Return the binary encoding of this object.",
+        "__len__": "Return the number of contained elements.",
+        "__bool__": "Return the truth value of this object.",
+        "__iter__": "Return an iterator over the contained elements.",
+        "__next__": "Return the next element, raising StopIteration when exhausted.",
+        "__contains__": "Return True if the element is present.",
+        "__enter__": "Enter the runtime context for this object.",
+        "__exit__": "Exit the runtime context, suppressing exceptions if appropriate.",
+        "__eq__": "Return True if this instance equals *other*.",
+        "__ne__": "Return True if this instance does not equal *other*.",
+        "__hash__": "Return a hash of this instance suitable for dict keys.",
+        "__lt__": "Return True if this instance is less than *other*.",
+        "__le__": "Return True if this instance is less than or equal to *other*.",
+        "__gt__": "Return True if this instance is greater than *other*.",
+        "__ge__": "Return True if this instance is greater than or equal to *other*.",
+        "__reduce__": "Return state for pickling.",
+        "__getstate__": "Return the instance state for serialisation.",
+        "__setstate__": "Restore the instance from serialised state.",
+        "__copy__": "Return a shallow copy.",
+        "__deepcopy__": "Return a deep copy.",
+        "__call__": "Call this object as a function.",
+        "__getattr__": "Called when an attribute is not found through normal means.",
+        "__setattr__": "Set the named attribute on the object.",
+        "__delattr__": "Delete the named attribute.",
+        "__getitem__": "Return the value at the given key or index.",
+        "__setitem__": "Set the value at the given key or index.",
+        "__delitem__": "Delete the value at the given key or index.",
+        "close": "Release all resources held by this object.",
+        "connect": "Establish the underlying connection.",
+        "disconnect": "Terminate the underlying connection.",
+        "reconnect": "Close and reopen the underlying connection.",
+        "send": "Send data over the connection.",
+        "receive": "Receive data from the connection.",
+        "read": "Read and return data.",
+        "write": "Write data.",
+        "flush": "Flush any buffered data to the underlying sink.",
+        "encode": "Encode this object to bytes.",
+        "decode": "Decode bytes into a Python object.",
+        "serialize": "Serialise this object to a portable representation.",
+        "deserialize": "Restore an object from its serialised form.",
+        "validate": "Validate the data and raise on the first violation.",
+        "copy": "Return a shallow copy of this object.",
+        "clone": "Return an independent copy of this object.",
+        "register_hook": "Register a callable as a hook for the given event.",
         "deregister_hook": "Remove a previously registered hook for the given event.",
-        "prepare":         "Prepare the object for dispatch.",
+        "prepare": "Prepare the object for dispatch.",
     }
     if name in mapping:
         return mapping[name]
     if name.startswith("prepare_"):
-        target = name[len("prepare_"):].replace("_", " ")
+        target = name[len("prepare_") :].replace("_", " ")
         return f"Prepare the {target} field for transmission."
     if name.startswith("get_"):
         target = name[4:].replace("_", " ")
@@ -679,55 +885,56 @@ def _parse_raise_messages(messages: list[str]) -> list[tuple[str, str]]:
 # Type inferencer
 # ---------------------------------------------------------------------------
 
+
 class TypeInferencer:
     """Infer Python type annotations from attribute names and hint patterns."""
 
     _ATTR_TYPE_MAP: dict[str, str] = {
-        "_value":        "Any",
-        "_name":         "str",
-        "_host":         "str",
-        "_port":         "int",
-        "_timeout":      "float | None",
-        "_maxsize":      "int",
-        "_block":        "bool",
-        "_headers":      "dict[str, str]",
-        "_cookies":      "dict[str, str]",
-        "_url":          "str",
-        "_method":       "str",
-        "_body":         "bytes | None",
-        "_data":         "bytes | None",
-        "_encoding":     "str",
-        "_errors":       "str",
-        "_lock":         "threading.Lock",
-        "_rlock":        "threading.RLock",
-        "_items":        "list[Any]",
-        "_entries":      "list[Any]",
-        "_buffer":       "bytearray",
-        "_queue":        "Any",
-        "_socket":       "Any",
-        "_lib":          "Any",
-        "_ffi":          "Any",
-        "_ptr":          "Any",
-        "_handle":       "Any",
-        "_pool":         "Any",
-        "_hooks":        "dict[str, list[Callable[..., Any]]]",
-        "_session":      "Any",
-        "_cert":         "Any",
-        "_key":          "Any",
-        "_ca_certs":     "str | None",
-        "_ssl_context":  "Any",
-        "_type_id":      "int",
-        "_version":      "int",
-        "_code":         "int",
-        "_status":       "int",
-        "_reason":       "str",
-        "_content":      "bytes",
-        "_text":         "str",
-        "_json":         "Any",
-        "_stream":       "bool",
-        "_chunk_size":   "int | None",
-        "_redirect":     "bool",
-        "_max_redirects":"int",
+        "_value": "Any",
+        "_name": "str",
+        "_host": "str",
+        "_port": "int",
+        "_timeout": "float | None",
+        "_maxsize": "int",
+        "_block": "bool",
+        "_headers": "dict[str, str]",
+        "_cookies": "dict[str, str]",
+        "_url": "str",
+        "_method": "str",
+        "_body": "bytes | None",
+        "_data": "bytes | None",
+        "_encoding": "str",
+        "_errors": "str",
+        "_lock": "threading.Lock",
+        "_rlock": "threading.RLock",
+        "_items": "list[Any]",
+        "_entries": "list[Any]",
+        "_buffer": "bytearray",
+        "_queue": "Any",
+        "_socket": "Any",
+        "_lib": "Any",
+        "_ffi": "Any",
+        "_ptr": "Any",
+        "_handle": "Any",
+        "_pool": "Any",
+        "_hooks": "dict[str, list[Callable[..., Any]]]",
+        "_session": "Any",
+        "_cert": "Any",
+        "_key": "Any",
+        "_ca_certs": "str | None",
+        "_ssl_context": "Any",
+        "_type_id": "int",
+        "_version": "int",
+        "_code": "int",
+        "_status": "int",
+        "_reason": "str",
+        "_content": "bytes",
+        "_text": "str",
+        "_json": "Any",
+        "_stream": "bool",
+        "_chunk_size": "int | None",
+        "_redirect": "bool",
+        "_max_redirects": "int",
     }
 
     @classmethod
@@ -759,22 +966,23 @@ class TypeInferencer:
 # AST nodes
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class FunctionDefNode:
-    name:         str
-    is_method:    bool                       = False
-    args:         list[str]                  = field(default_factory=list)
-    annotations:  OrderedDict[str, str]      = field(default_factory=OrderedDict)
-    return_type:  str | None                 = None
-    decorators:   list[str]                  = field(default_factory=list)
-    docstring:    str | None                 = None
-    messages:     list[str]                  = field(default_factory=list)
-    string_hints: list[str]                  = field(default_factory=list)
-    tuples:       list[tuple[Any, ...]]      = field(default_factory=list)
-    dict_hints:   list[dict[str, Any]]       = field(default_factory=list)
-    literals:     list[Any]                  = field(default_factory=list)
-    body_lines:   list[str]                  = field(default_factory=list)
-    line_hint:    int | None                 = None
+    name: str
+    is_method: bool = False
+    args: list[str] = field(default_factory=list)
+    annotations: OrderedDict[str, str] = field(default_factory=OrderedDict)
+    return_type: str | None = None
+    decorators: list[str] = field(default_factory=list)
+    docstring: str | None = None
+    messages: list[str] = field(default_factory=list)
+    string_hints: list[str] = field(default_factory=list)
+    tuples: list[tuple[Any, ...]] = field(default_factory=list)
+    dict_hints: list[dict[str, Any]] = field(default_factory=list)
+    literals: list[Any] = field(default_factory=list)
+    body_lines: list[str] = field(default_factory=list)
+    line_hint: int | None = None
 
     def reset_hints(self) -> None:
         self.messages.clear()
@@ -826,13 +1034,13 @@ class FunctionDefNode:
 
 @dataclass
 class ClassDefNode:
-    name:       str
-    bases:      list[str]                         = field(default_factory=list)
-    docstring:  str | None                        = None
-    slots:      tuple[str, ...] | None            = None
-    attributes: set[str]                          = field(default_factory=set)
-    constants:  OrderedDict[str, str]             = field(default_factory=OrderedDict)
-    methods:    OrderedDict[str, FunctionDefNode] = field(default_factory=OrderedDict)
+    name: str
+    bases: list[str] = field(default_factory=list)
+    docstring: str | None = None
+    slots: tuple[str, ...] | None = None
+    attributes: set[str] = field(default_factory=set)
+    constants: OrderedDict[str, str] = field(default_factory=OrderedDict)
+    methods: OrderedDict[str, FunctionDefNode] = field(default_factory=OrderedDict)
 
     def render(self, indent: int = 0) -> str:
         pad = "    " * indent
@@ -879,31 +1087,33 @@ class ClassDefNode:
 # Pending state
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class _PendingState:
-    docstring:   str | None            = None
+    docstring: str | None = None
     annotations: dict[str, str] | None = None
-    decorators:  list[str]             = field(default_factory=list)
-    args:        list[str] | None      = None
-    line:        int | None            = None
-    dicts:       list[Any]             = field(default_factory=list)
-    tuples:      list[Any]             = field(default_factory=list)
-    literals:    list[Any]             = field(default_factory=list)
+    decorators: list[str] = field(default_factory=list)
+    args: list[str] | None = None
+    line: int | None = None
+    dicts: list[Any] = field(default_factory=list)
+    tuples: list[Any] = field(default_factory=list)
+    literals: list[Any] = field(default_factory=list)
 
     def reset(self) -> None:
-        self.docstring   = None
+        self.docstring = None
         self.annotations = None
-        self.decorators  = []
-        self.args        = None
-        self.line        = None
-        self.dicts       = []
-        self.tuples      = []
-        self.literals    = []
+        self.decorators = []
+        self.args = None
+        self.line = None
+        self.dicts = []
+        self.tuples = []
+        self.literals = []
 
 
 # ---------------------------------------------------------------------------
 # Body Synthesizer — the core logic engine
 # ---------------------------------------------------------------------------
+
 
 class BodySynthesizer:
     """
@@ -921,8 +1131,8 @@ class BodySynthesizer:
     def build(
         cls,
         cls_node: ClassDefNode | None,
-        func:     FunctionDefNode,
-        attrs:    list[str],
+        func: FunctionDefNode,
+        attrs: list[str],
     ) -> list[str]:
         non_self = [a for a in func.args if a not in {"self", "cls"}]
 
@@ -1037,9 +1247,7 @@ class BodySynthesizer:
             return cls._body_prepare_field(cls_node, func, attrs, non_self)
 
         if func.name == "value" and "property" in func.decorators:
-            return ["return self._value"] if "_value" in attrs else (
-                [f"return self.{attrs[0]}"] if attrs else ["return None"]
-            )
+            return ["return self._value"] if "_value" in attrs else ([f"return self.{attrs[0]}"] if attrs else ["return None"])
 
         if "property" in func.decorators:
             return cls._body_property_getter(cls_node, func, attrs)
@@ -1104,42 +1312,42 @@ class BodySynthesizer:
             if "must be string" in lower or "must be a byte string" in lower or "must be str" in lower:
                 lines += [
                     f"if not isinstance({primary}, (str, bytes)):",
-                    f'    raise TypeError({msg!r})',
+                    f"    raise TypeError({msg!r})",
                 ]
             elif "must be a name" in lower:
                 lines += [
                     f"if not isinstance({primary}, Name):",
-                    f'    raise TypeError({msg!r})',
+                    f"    raise TypeError({msg!r})",
                 ]
             elif "must be an objectidentifier" in lower:
                 lines += [
                     f"if not isinstance({primary}, ObjectIdentifier):",
-                    f'    raise TypeError({msg!r})',
+                    f"    raise TypeError({msg!r})",
                 ]
             elif "must be an integer" in lower or "must be int" in lower:
                 lines += [
                     f"if not isinstance({primary}, int):",
-                    f'    raise TypeError({msg!r})',
+                    f"    raise TypeError({msg!r})",
                 ]
             elif "must be a float" in lower or "must be numeric" in lower:
                 lines += [
                     f"if not isinstance({primary}, (int, float)):",
-                    f'    raise TypeError({msg!r})',
+                    f"    raise TypeError({msg!r})",
                 ]
             elif "must be a list" in lower or "must be a sequence" in lower:
                 lines += [
                     f"if not isinstance({primary}, (list, tuple)):",
-                    f'    raise TypeError({msg!r})',
+                    f"    raise TypeError({msg!r})",
                 ]
             elif "must be a dict" in lower or "must be a mapping" in lower:
                 lines += [
                     f"if not isinstance({primary}, dict):",
-                    f'    raise TypeError({msg!r})',
+                    f"    raise TypeError({msg!r})",
                 ]
             elif "must be callable" in lower:
                 lines += [
                     f"if not callable({primary}):",
-                    f'    raise TypeError({msg!r})',
+                    f"    raise TypeError({msg!r})",
                 ]
             elif "must be an instance of" in lower:
                 # Try to extract the class name
@@ -1147,29 +1355,29 @@ class BodySynthesizer:
                 cls_name = m.group(1) if m else "object"
                 lines += [
                     f"if not isinstance({primary}, {cls_name}):",
-                    f'    raise TypeError({msg!r})',
+                    f"    raise TypeError({msg!r})",
                 ]
             elif "unsupported" in lower or lower.startswith("invalid ") or "not valid" in lower:
                 lines += [
                     f"if {primary} not in self._SUPPORTED:",
-                    f'    raise ValueError({msg!r})',
+                    f"    raise ValueError({msg!r})",
                 ]
             elif "deprecated" in lower:
                 lines.append(f"warnings.warn({msg!r}, DeprecationWarning, stacklevel=2)")
             elif "already open" in lower:
                 lines += [
                     "if self._is_open:",
-                    f'    raise RuntimeError({msg!r})',
+                    f"    raise RuntimeError({msg!r})",
                 ]
             elif "already closed" in lower or "not open" in lower:
                 lines += [
                     "if not self._is_open:",
-                    f'    raise RuntimeError({msg!r})',
+                    f"    raise RuntimeError({msg!r})",
                 ]
             elif "timeout" in lower:
                 lines += [
                     f"if {primary} is not None and {primary} < 0:",
-                    f'    raise ValueError({msg!r})',
+                    f"    raise ValueError({msg!r})",
                 ]
         return lines
 
@@ -1179,11 +1387,7 @@ class BodySynthesizer:
             return
         remaining: list[str] = []
         for msg in func.messages:
-            if (
-                not func.docstring
-                and len(msg) > 30
-                and ("\n" in msg or ":param" in msg or ":return" in msg)
-            ):
+            if not func.docstring and len(msg) > 30 and ("\n" in msg or ":param" in msg or ":return" in msg):
                 func.docstring = clean_docstring(msg)
             else:
                 remaining.append(msg)
@@ -1276,7 +1480,6 @@ class BodySynthesizer:
         non_self: list[str],
     ) -> list[str]:
         lines: list[str] = []
-        cls_name = cls_node.name if cls_node else "object"
 
         # super().__init__() for subclasses
         bases = cls_node.bases if cls_node else []
@@ -1341,7 +1544,7 @@ class BodySynthesizer:
 
         # logger if hints suggest it
         if any(LOG_RE.search(h) for h in func.string_hints):
-            lines.append(f"self._logger = logging.getLogger(__name__)")
+            lines.append("self._logger = logging.getLogger(__name__)")
 
         if not lines:
             lines.append("pass")
@@ -1383,7 +1586,7 @@ class BodySynthesizer:
         lines += ["except Exception:", "    pass"]
         lock = next((a for a in attrs if a in LOCK_ATTRS), None)
         if lock:
-            lines.append(f"finally:")
+            lines.append("finally:")
             lines.append(f"    self.{lock}.release()")
         lines.append("return False  # do not suppress exceptions")
         return lines
@@ -1405,8 +1608,8 @@ class BodySynthesizer:
         func: FunctionDefNode,
         attrs: list[str],
     ) -> list[str]:
-        idx_attr   = next((a for a in attrs if "index" in a or "_pos" in a or "_cursor" in a), None)
-        coll       = BodySynthesizer._iter_attr(attrs)
+        idx_attr = next((a for a in attrs if "index" in a or "_pos" in a or "_cursor" in a), None)
+        coll = BodySynthesizer._iter_attr(attrs)
         lines: list[str] = []
         if idx_attr and coll:
             lines = [
@@ -1418,10 +1621,10 @@ class BodySynthesizer:
             ]
         elif coll:
             lines = [
-                f"try:",
+                "try:",
                 f"    return next(self._{coll.lstrip('_')}_iter)",
-                f"except StopIteration:",
-                f"    raise",
+                "except StopIteration:",
+                "    raise",
             ]
         else:
             lines = ["raise StopIteration"]
@@ -1438,10 +1641,9 @@ class BodySynthesizer:
             return [f'return f"<{cls_name}>"']
         field_parts = ", ".join(f"{a.lstrip('_')}={{self.{a}!r}}" for a in attrs[:6])
         return [
-            f'return (',
-            f'    f"{cls_name}('
-            f'{field_parts}"',
-            f')',
+            "return (",
+            f'    f"{cls_name}({field_parts}"',
+            ")",
         ]
 
     @staticmethod
@@ -1553,11 +1755,11 @@ class BodySynthesizer:
         if not attrs:
             return ["return hash(id(self))"]
         members = ", ".join(f"self.{a}" for a in attrs[:4])
-        suffix  = "," if len(attrs[:4]) == 1 else ""
+        suffix = "," if len(attrs[:4]) == 1 else ""
         return [
-            f"return hash((",
+            "return hash((",
             f"    {members}{suffix}",
-            f"))",
+            "))",
         ]
 
     @staticmethod
@@ -1567,13 +1769,12 @@ class BodySynthesizer:
         attrs: list[str],
         non_self: list[str],
     ) -> list[str]:
-        cls_name = cls_node.name if cls_node else "object"
         if func.name == "__reduce__":
             if attrs:
                 members = ", ".join(f"self.{a}" for a in attrs[:4])
-                suffix  = "," if len(attrs[:4]) == 1 else ""
+                suffix = "," if len(attrs[:4]) == 1 else ""
                 return [f"return (self.__class__, ({members}{suffix}))"]
-            return [f"return (self.__class__, ())"]
+            return ["return (self.__class__, ())"]
         if func.name == "__getstate__":
             if attrs:
                 items = ", ".join(f"{a.lstrip('_')!r}: self.{a}" for a in attrs[:8])
@@ -1598,7 +1799,7 @@ class BodySynthesizer:
         coll = BodySynthesizer._iter_attr(attrs)
         if coll:
             return [f"return {item} in self.{coll}"]
-        return [f"return False"]
+        return ["return False"]
 
     @staticmethod
     def _body_getitem(
@@ -1607,7 +1808,7 @@ class BodySynthesizer:
         attrs: list[str],
         non_self: list[str],
     ) -> list[str]:
-        key  = non_self[0] if non_self else "key"
+        key = non_self[0] if non_self else "key"
         coll = BodySynthesizer._iter_attr(attrs)
         if coll:
             return [f"return self.{coll}[{key}]"]
@@ -1620,9 +1821,9 @@ class BodySynthesizer:
         attrs: list[str],
         non_self: list[str],
     ) -> list[str]:
-        key   = non_self[0] if non_self else "key"
+        key = non_self[0] if non_self else "key"
         value = non_self[1] if len(non_self) > 1 else "value"
-        coll  = BodySynthesizer._iter_attr(attrs)
+        coll = BodySynthesizer._iter_attr(attrs)
         if coll:
             return [f"self.{coll}[{key}] = {value}"]
         return ["pass"]
@@ -1634,13 +1835,13 @@ class BodySynthesizer:
         attrs: list[str],
         non_self: list[str],
     ) -> list[str]:
-        key  = non_self[0] if non_self else "key"
+        key = non_self[0] if non_self else "key"
         coll = BodySynthesizer._iter_attr(attrs)
         if coll:
             return [
-                f"try:",
+                "try:",
                 f"    del self.{coll}[{key}]",
-                f"except (KeyError, IndexError) as exc:",
+                "except (KeyError, IndexError) as exc:",
                 f"    raise KeyError({key}) from exc",
             ]
         return [f"raise KeyError({key})"]
@@ -1677,9 +1878,9 @@ class BodySynthesizer:
             return [
                 f"return {cls_name}(",
                 f"    {kwargs},",
-                f")",
+                ")",
             ]
-        return [f"import copy", f"return copy.copy(self)"]
+        return ["import copy", "return copy.copy(self)"]
 
     @staticmethod
     def _body_register_hook() -> list[str]:
@@ -1737,10 +1938,10 @@ class BodySynthesizer:
         timeout_attr = next((a for a in attrs if "timeout" in a), None)
         lines: list[str] = [
             "import socket as _socket",
-            f"sock = _socket.create_connection(",
+            "sock = _socket.create_connection(",
             f"    (self.{host_attr}, self.{port_attr}),",
             f"    timeout=self.{timeout_attr}," if timeout_attr else "    timeout=None,",
-            f")",
+            ")",
         ]
         if sock_attr:
             lines.append(f"self.{sock_attr} = sock")
@@ -1786,7 +1987,7 @@ class BodySynthesizer:
     ) -> list[str]:
         size_arg = next((a for a in non_self if "size" in a or "amt" in a or "n" == a), None)
         sock_attr = next((a for a in attrs if "socket" in a or "conn" in a or "stream" in a), None)
-        buf_attr  = next((a for a in attrs if "buffer" in a or "buf" in a), None)
+        buf_attr = next((a for a in attrs if "buffer" in a or "buf" in a), None)
         lines: list[str] = []
         if buf_attr:
             if size_arg:
@@ -1821,7 +2022,7 @@ class BodySynthesizer:
         func: FunctionDefNode,
         attrs: list[str],
     ) -> list[str]:
-        buf_attr  = next((a for a in attrs if "buffer" in a or "buf" in a), None)
+        buf_attr = next((a for a in attrs if "buffer" in a or "buf" in a), None)
         sock_attr = next((a for a in attrs if "socket" in a or "conn" in a or "stream" in a), None)
         if buf_attr and sock_attr:
             return [
@@ -1899,7 +2100,7 @@ class BodySynthesizer:
         arg_set = set(func.args)
         lines: list[str] = []
         for helper in helpers:
-            suffix = helper[len("prepare_"):]
+            suffix = helper[len("prepare_") :]
             call_args: list[str] = []
             if suffix in arg_set:
                 call_args.append(suffix)
@@ -1917,7 +2118,7 @@ class BodySynthesizer:
         attrs: list[str],
         non_self: list[str],
     ) -> list[str]:
-        suffix = func.name[len("prepare_"):]
+        suffix = func.name[len("prepare_") :]
         lines: list[str] = []
         if suffix in non_self:
             if suffix == "url":
@@ -1934,7 +2135,7 @@ class BodySynthesizer:
                 ]
             elif suffix == "headers":
                 lines = [
-                    f"self.headers = {{}}",
+                    "self.headers = {}",
                     f"if {suffix}:",
                     f"    self.headers.update({suffix})",
                 ]
@@ -1962,21 +2163,21 @@ class BodySynthesizer:
                     f"if callable({suffix}):",
                     f"    {suffix}(self)",
                     f"elif isinstance({suffix}, tuple) and len({suffix}) == 2:",
-                    f"    import base64 as _b64",
+                    "    import base64 as _b64",
                     f"    user, pw = {suffix}",
-                    f"    token = _b64.b64encode(f'{{user}}:{{pw}}'.encode()).decode()",
-                    f"    self.headers['Authorization'] = f'Basic {{token}}'",
+                    "    token = _b64.b64encode(f'{user}:{pw}'.encode()).decode()",
+                    "    self.headers['Authorization'] = f'Basic {token}'",
                 ]
             elif suffix == "hooks":
                 lines = [
                     "self.hooks = {}",
                     f"if {suffix}:",
                     f"    for event, hk in {suffix}.items():",
-                    f"        if callable(hk):",
-                    f"            self.register_hook(event, hk)",
-                    f"        elif hasattr(hk, '__iter__'):",
-                    f"            for fn in hk:",
-                    f"                self.register_hook(event, fn)",
+                    "        if callable(hk):",
+                    "            self.register_hook(event, hk)",
+                    "        elif hasattr(hk, '__iter__'):",
+                    "            for fn in hk:",
+                    "                self.register_hook(event, fn)",
                 ]
             else:
                 lines = [f"self.{suffix} = {suffix}"]
@@ -2018,7 +2219,7 @@ class BodySynthesizer:
         non_self: list[str],
     ) -> list[str]:
         suffix = func.name.split("set_", 1)[-1]
-        arg    = non_self[0]
+        arg = non_self[0]
         validation = BodySynthesizer._validation_lines(func, non_self)
         lines = list(validation)
         target = f"_{suffix}" if f"_{suffix}" in attrs else suffix
@@ -2053,8 +2254,8 @@ class BodySynthesizer:
         non_self: list[str],
     ) -> list[str]:
         suffix = func.name.split("_", 1)[-1]
-        arg    = non_self[0] if non_self else "item"
-        coll   = next(
+        arg = non_self[0] if non_self else "item"
+        coll = next(
             (a for a in attrs if suffix in a or "items" in a or "list" in a or "entries" in a),
             None,
         )
@@ -2085,17 +2286,17 @@ class BodySynthesizer:
         non_self: list[str],
     ) -> list[str]:
         suffix = func.name.split("_", 1)[-1]
-        arg    = non_self[0] if non_self else "item"
-        coll   = next(
+        arg = non_self[0] if non_self else "item"
+        coll = next(
             (a for a in attrs if suffix in a or "items" in a or "list" in a or "entries" in a),
             None,
         )
         if coll:
             return [
-                f"try:",
+                "try:",
                 f"    self.{coll}.remove({arg})",
-                f"except ValueError:",
-                f"    pass",
+                "except ValueError:",
+                "    pass",
             ]
         return [f"self._{suffix}s.remove({arg})"]
 
@@ -2169,13 +2370,13 @@ class BodySynthesizer:
         lines = list(validation)
         if any(NETWORK_HINTS & {a for a in func.string_hints}):
             lines += [
-                f"import urllib.request as _req",
+                "import urllib.request as _req",
                 f"with _req.urlopen({path_arg}) as resp:",
-                f"    return resp.read()",
+                "    return resp.read()",
             ]
         else:
             lines += [
-                f"from pathlib import Path as _Path",
+                "from pathlib import Path as _Path",
                 f"data = _Path({path_arg}).read_bytes()",
                 "return data",
             ]
@@ -2194,11 +2395,11 @@ class BodySynthesizer:
         val_attr = "_value" if "_value" in attrs else (attrs[0] if attrs else None)
         if val_attr:
             lines += [
-                f"from pathlib import Path as _Path",
+                "from pathlib import Path as _Path",
                 f"_Path({path_arg}).write_bytes(",
                 f"    self.{val_attr} if isinstance(self.{val_attr}, (bytes, bytearray))",
                 f"    else str(self.{val_attr}).encode('utf-8')",
-                f")",
+                ")",
             ]
         else:
             lines.append("pass")
@@ -2227,12 +2428,12 @@ class BodySynthesizer:
         attrs: list[str],
         non_self: list[str],
     ) -> list[str]:
-        api_calls:    list[str] = []
+        api_calls: list[str] = []
         method_calls: list[str] = []
-        field_refs:   list[str] = []
-        
+        field_refs: list[str] = []
+
         methods_in_class: dict[str, Any] = cls_node.methods if cls_node else {}
-        
+
         for hint in func.string_hints:
             if BodySynthesizer._is_c_api_hint(hint):
                 api_calls.append(hint)
@@ -2263,9 +2464,7 @@ class BodySynthesizer:
             for i, call in enumerate(api_calls[:8]):
                 call_args_str = ", ".join(non_self[:3]) if non_self else ""
                 is_last = i == len(api_calls[:8]) - 1
-                pfx = "    return " if (
-                    is_last and (func.name.startswith("get_") or "property" in func.decorators)
-                ) else "    "
+                pfx = "    return " if (is_last and (func.name.startswith("get_") or "property" in func.decorators)) else "    "
                 if has_lib:
                     target = "self._lib" if func.is_method else "lib"
                     lines.append(f"{pfx}{target}.{call}({call_args_str})")
@@ -2274,7 +2473,7 @@ class BodySynthesizer:
             lines += [
                 "except Exception as exc:",
                 "    raise RuntimeError(",
-                f'        f"C-extension call failed: {{exc}}"',
+                '        f"C-extension call failed: {exc}"',
                 "    ) from exc",
             ]
 
@@ -2324,10 +2523,10 @@ class BodySynthesizer:
 
         # 2. Heuristic Control Flow Trace (Build logic from constants)
         filtered_hints = [h for h in func.string_hints if h and len(h) < 100]
-        
+
         if filtered_hints or func.literals or func.tuples or func.messages:
             lines.append("# --- Deep Instruction Trace ---")
-            
+
             # Print/Log tuples and string mappings
             for tcl in func.tuples[:3]:
                 if len(tcl) > 1 and all(isinstance(x, str) for x in tcl):
@@ -2343,11 +2542,11 @@ class BodySynthesizer:
             # Route major control flow based on string fragments (like State Machines)
             if len(filtered_hints) > 0:
                 is_switch = len(filtered_hints) > 2 and all("/" in h or "[" in h or "KO" in h for h in filtered_hints[:3])
-                
+
                 if is_switch:
                     route_var = non_self[0] if non_self else "self._server_mode"
                     lines.append(f"match_value = {route_var}")
-                    for idx, route in enumerate(filtered_hints[:15]): # Cap at 15 routing paths
+                    for idx, route in enumerate(filtered_hints[:15]):  # Cap at 15 routing paths
                         condition = "if" if idx == 0 else "elif"
                         lines.append(f"{condition} match_value == {route!r}:")
                         safe_route_name = safe_identifier(route.split("/")[0].replace("[", "_").replace("]", "")) or "action"
@@ -2404,16 +2603,29 @@ class BodySynthesizer:
         return (
             len(text) < 100
             and "\n" not in text
-            and any(kw in lower for kw in (
-                "must be", "invalid", "unsupported", "error", "failed",
-                "cannot", "expected", "should be", "not a valid", "is not", "deprecated",
-            ))
+            and any(
+                kw in lower
+                for kw in (
+                    "must be",
+                    "invalid",
+                    "unsupported",
+                    "error",
+                    "failed",
+                    "cannot",
+                    "expected",
+                    "should be",
+                    "not a valid",
+                    "is not",
+                    "deprecated",
+                )
+            )
         )
 
 
 # ---------------------------------------------------------------------------
 # Property-setter synthesizer
 # ---------------------------------------------------------------------------
+
 
 class PropertySetterSynthesizer:
     """
@@ -2430,9 +2642,7 @@ class PropertySetterSynthesizer:
             if mname.startswith("__"):
                 continue
             setter_name = f"{mname}"  # same name, different decorator
-            if setter_name in cls_node.methods and any(
-                "setter" in d for d in cls_node.methods[setter_name].decorators
-            ):
+            if setter_name in cls_node.methods and any("setter" in d for d in cls_node.methods[setter_name].decorators):
                 continue
             # Find the backing attr
             backing = f"_{mname}"
@@ -2442,15 +2652,15 @@ class PropertySetterSynthesizer:
                 continue
             ann = TypeInferencer.infer(backing)
             setter = FunctionDefNode(
-                name        = setter_name,
-                is_method   = True,
-                args        = ["self", "value"],
-                annotations = OrderedDict({"value": ann}),
-                decorators  = [f"{setter_name}.setter"],
-                docstring   = f"Set {mname.replace('_', ' ')}.",
-                body_lines  = [
+                name=setter_name,
+                is_method=True,
+                args=["self", "value"],
+                annotations=OrderedDict({"value": ann}),
+                decorators=[f"{setter_name}.setter"],
+                docstring=f"Set {mname.replace('_', ' ')}.",
+                body_lines=[
                     f"if value is self.{backing}:",
-                    f"    return",
+                    "    return",
                     f"self.{backing} = value",
                 ],
             )
@@ -2468,10 +2678,10 @@ class PropertySetterSynthesizer:
             cls_node.methods = ordered
 
 
-
 # ---------------------------------------------------------------------------
 # Main decompiler engine
 # ---------------------------------------------------------------------------
+
 
 class OmniDecompiler:
     """
@@ -2482,23 +2692,23 @@ class OmniDecompiler:
     """
 
     def __init__(self) -> None:
-        self.classes:          OrderedDict[str, ClassDefNode]          = OrderedDict()
-        self.functions:        OrderedDict[str, FunctionDefNode]        = OrderedDict()
-        self.module_constants: OrderedDict[str, str]                    = OrderedDict()
-        self.imports:          OrderedDict[str, None]                   = OrderedDict()
-        self.from_imports:     OrderedDict[str, OrderedDict[str, None]] = OrderedDict()
-        self.api_endpoints:    set[str]                                  = set()
-        self.images:           OrderedDict[str, int]                    = OrderedDict()
-        self.vk_table:         OrderedDict[str, Any]                    = OrderedDict()
-        self.module_docstring: str | None                                = None
-        self.class_candidates: set[str]                                  = set()
-        self.current_class:    str | None                                = None
-        self.current_function: FunctionDefNode | None                    = None
-        self.last_item_name:   str | None                                = None
-        self.has_threading:    bool                                      = False
-        self.has_logging:      bool                                      = False
-        self.has_warnings:     bool                                      = False
-        self.unclaimed_items:  list[Any]                                  = []
+        self.classes: OrderedDict[str, ClassDefNode] = OrderedDict()
+        self.functions: OrderedDict[str, FunctionDefNode] = OrderedDict()
+        self.module_constants: OrderedDict[str, str] = OrderedDict()
+        self.imports: OrderedDict[str, None] = OrderedDict()
+        self.from_imports: OrderedDict[str, OrderedDict[str, None]] = OrderedDict()
+        self.api_endpoints: set[str] = set()
+        self.images: OrderedDict[str, int] = OrderedDict()
+        self.vk_table: OrderedDict[str, Any] = OrderedDict()
+        self.module_docstring: str | None = None
+        self.class_candidates: set[str] = set()
+        self.current_class: str | None = None
+        self.current_function: FunctionDefNode | None = None
+        self.last_item_name: str | None = None
+        self.has_threading: bool = False
+        self.has_logging: bool = False
+        self.has_warnings: bool = False
+        self.unclaimed_items: list[Any] = []
 
     # ------------------------------------------------------------------
     # Node factories
@@ -2521,7 +2731,7 @@ class OmniDecompiler:
         return self.functions[func_name]
 
     def ensure_method(self, cls_name: str | None, method_name: str | None) -> FunctionDefNode | None:
-        cls_node    = self.ensure_class(cls_name)
+        cls_node = self.ensure_class(cls_name)
         method_name = safe_identifier(method_name)
         if cls_node is None or not method_name:
             return None
@@ -2548,10 +2758,7 @@ class OmniDecompiler:
     def _collect_class_candidates(self, items: list[Any]) -> set[str]:
         scores: defaultdict[str, int] = defaultdict(int)
         for index, item in enumerate(items):
-            text = (
-                b2s_safe(item) if isinstance(item, (bytes, bytearray))
-                else (item if isinstance(item, str) else None)
-            )
+            text = b2s_safe(item) if isinstance(item, (bytes, bytearray)) else (item if isinstance(item, str) else None)
             if not isinstance(text, str):
                 continue
             match = METHOD_REF_RE.fullmatch(text)
@@ -2563,16 +2770,10 @@ class OmniDecompiler:
             if not is_probable_class_name(text):
                 continue
             score = _score_window(items, index + 1, 10)
-            window = items[index + 1: index + 10]
-            if any(
-                isinstance(x, (bytes, bytearray, str)) and b2s_safe(x) in META_FIELD_NAMES | DECORATOR_NAMES
-                for x in window
-            ):
+            window = items[index + 1 : index + 10]
+            if any(isinstance(x, (bytes, bytearray, str)) and b2s_safe(x) in META_FIELD_NAMES | DECORATOR_NAMES for x in window):
                 score += 2
-            if any(
-                isinstance(x, (bytes, bytearray, str)) and is_probable_method_name(b2s_safe(x))
-                for x in window
-            ):
+            if any(isinstance(x, (bytes, bytearray, str)) and is_probable_method_name(b2s_safe(x)) for x in window):
                 score += 2
             if score >= 3:
                 scores[text] += score
@@ -2580,7 +2781,7 @@ class OmniDecompiler:
 
     def _hydrate_class_metadata(self, items: list[Any], index: int, cls_node: ClassDefNode) -> None:
         if not cls_node.docstring:
-            for offset, candidate in enumerate(items[index + 1: index + 8], start=1):
+            for offset, candidate in enumerate(items[index + 1 : index + 8], start=1):
                 if isinstance(candidate, (bytes, bytearray, str)):
                     txt = b2s_safe(candidate)
                     if txt in self.class_candidates and txt != cls_node.name:
@@ -2591,20 +2792,13 @@ class OmniDecompiler:
                     cls_node.docstring = clean_docstring(candidate)
                     break
         if not cls_node.bases:
-            for candidate in reversed(items[max(0, index - 3): index]):
-                txt = (
-                    b2s_safe(candidate) if isinstance(candidate, (bytes, bytearray))
-                    else (candidate if isinstance(candidate, str) else None)
-                )
+            for candidate in reversed(items[max(0, index - 3) : index]):
+                txt = b2s_safe(candidate) if isinstance(candidate, (bytes, bytearray)) else (candidate if isinstance(candidate, str) else None)
                 if not isinstance(txt, str):
                     continue
                 if txt in {"ABCMeta", "Callable", "Mapping"}:
                     continue
-                if txt in KNOWN_BASE_NAMES or (
-                    is_probable_class_name(txt)
-                    and txt not in self.class_candidates
-                    and txt != cls_node.name
-                ):
+                if txt in KNOWN_BASE_NAMES or (is_probable_class_name(txt) and txt not in self.class_candidates and txt != cls_node.name):
                     cls_node.bases.append(txt)
                     break
 
@@ -2637,11 +2831,8 @@ class OmniDecompiler:
             return False
         if index > 4 or not is_probable_module_docstring(text):
             return False
-        window = items[index + 1: index + 6]
-        return "\n" in text or any(
-            isinstance(x, (bytes, bytearray, str)) and is_probable_import_path(b2s_safe(x))
-            for x in window
-        )
+        window = items[index + 1 : index + 6]
+        return "\n" in text or any(isinstance(x, (bytes, bytearray, str)) and is_probable_import_path(b2s_safe(x)) for x in window)
 
     # ------------------------------------------------------------------
     # Hint recording
@@ -2678,10 +2869,7 @@ class OmniDecompiler:
 
     @staticmethod
     def _trim_dict(value: dict[Any, Any]) -> dict[str, Any]:
-        return {
-            b2s_safe(k): (b2s_safe(v) if isinstance(v, (bytes, bytearray)) else v)
-            for k, v in list(value.items())[:20]
-        }
+        return {b2s_safe(k): (b2s_safe(v) if isinstance(v, (bytes, bytearray)) else v) for k, v in list(value.items())[:20]}
 
     # ------------------------------------------------------------------
     # Normalization
@@ -2711,12 +2899,10 @@ class OmniDecompiler:
     def _apply_pending(self, func: FunctionDefNode | None, pending: _PendingState) -> None:
         if func is None:
             return
-        ann  = self._normalize_annotations(pending.annotations)
+        ann = self._normalize_annotations(pending.annotations)
         explicit_args = self._normalize_args(pending.args, method=func.is_method)
         if not explicit_args and ann:
-            explicit_args = self._normalize_args(
-                [n for n in ann if n != "return"], method=func.is_method
-            )
+            explicit_args = self._normalize_args([n for n in ann if n != "return"], method=func.is_method)
         if explicit_args:
             func.args = explicit_args
         if ann:
@@ -2753,7 +2939,7 @@ class OmniDecompiler:
                     continue
                 func = self.ensure_method(owner, match.group(2))
                 self.current_function = None
-                self.current_class    = owner
+                self.current_class = owner
                 self.current_function = func
                 self._apply_pending(func, pending)
                 pending.reset()
@@ -2778,7 +2964,7 @@ class OmniDecompiler:
             if is_probable_class_name(owner):
                 func = self.ensure_method(owner, method_ref.group(2))
                 self.current_function = None
-                self.current_class    = owner
+                self.current_class = owner
                 self.current_function = func
                 self._apply_pending(func, pending)
                 pending.reset()
@@ -2786,24 +2972,21 @@ class OmniDecompiler:
 
         if text in self.class_candidates:
             cls_node = self.ensure_class(text)
-            self.current_class    = text
+            self.current_class = text
             self.current_function = None
             if cls_node:
                 self._hydrate_class_metadata(items, index, cls_node)
                 if pending.docstring and not cls_node.docstring:
                     cls_node.docstring = clean_docstring(pending.docstring)
-                    pending.docstring  = None
+                    pending.docstring = None
             return
 
         if is_probable_import_path(text):
             names: list[str] | None = None
             if index + 1 < len(items) and isinstance(items[index + 1], tuple):
-                names = [
-                    n for n in tuple_texts(items[index + 1])
-                    if isinstance(n, str) and safe_identifier(n)
-                ]
+                names = [n for n in tuple_texts(items[index + 1]) if isinstance(n, str) and safe_identifier(n)]
             self.record_import(text, names)
-            self.current_class    = None
+            self.current_class = None
             self.current_function = None
             if "threading" in text:
                 self.has_threading = True
@@ -2819,13 +3002,7 @@ class OmniDecompiler:
                 self.module_constants[text] = literal_source(nxt)
             return
 
-        if (
-            self.current_class
-            and text.startswith("_")
-            and not text.startswith("__")
-            and len(text) > 1
-            and not self._looks_like_method_block(items, index, text)
-        ):
+        if self.current_class and text.startswith("_") and not text.startswith("__") and len(text) > 1 and not self._looks_like_method_block(items, index, text):
             cls_node = self.classes.get(self.current_class)
             if cls_node:
                 cls_node.attributes.add(text)
@@ -2904,9 +3081,7 @@ class OmniDecompiler:
                 if self.last_item_name == "__slots__" and self.current_class:
                     cls_node = self.classes.get(self.current_class)
                     if cls_node:
-                        cls_node.slots = tuple(
-                            x for x in decoded if isinstance(x, str) and safe_identifier(x)
-                        )
+                        cls_node.slots = tuple(x for x in decoded if isinstance(x, str) and safe_identifier(x))
                 elif all(isinstance(x, str) and safe_identifier(x) for x in decoded) and 0 < len(decoded) <= 12:
                     pending.args = list(decoded)
                 if self.current_function:
@@ -3014,14 +3189,14 @@ class OmniDecompiler:
     def _enrich_docstring(self, cls_node: ClassDefNode | None, func: FunctionDefNode) -> None:
         """Replace or supplement docstring using DocstringSynthesizer."""
         synth = DocstringSynthesizer.from_hints(
-            name         = func.name,
-            args         = func.args,
-            annotations  = dict(func.annotations),
-            return_type  = func.return_type,
-            messages     = func.messages,
-            string_hints = func.string_hints,
-            existing_doc = func.docstring,
-            is_method    = func.is_method,
+            name=func.name,
+            args=func.args,
+            annotations=dict(func.annotations),
+            return_type=func.return_type,
+            messages=func.messages,
+            string_hints=func.string_hints,
+            existing_doc=func.docstring,
+            is_method=func.is_method,
         )
         if synth and (not func.docstring or len(func.docstring) < 20):
             func.docstring = synth
@@ -3053,10 +3228,7 @@ class OmniDecompiler:
         if not cls_node.methods and not cls_node.attributes and not cls_node.docstring:
             return False
         imported = self._imported_symbol_names()
-        meaningful = sum(
-            1 for f in cls_node.methods.values()
-            if f.annotations or f.decorators or self._has_meaningful_body(f)
-        )
+        meaningful = sum(1 for f in cls_node.methods.values() if f.annotations or f.decorators or self._has_meaningful_body(f))
         if cls_node.name in imported and not cls_node.attributes and not cls_node.constants:
             if meaningful <= 1:
                 return False
@@ -3105,8 +3277,7 @@ class OmniDecompiler:
             func.return_type = TypeInferencer.infer("_value")
         elif name.startswith("is_") or name.startswith("has_") or name.startswith("can_"):
             func.return_type = "bool"
-        elif name in {"__init__", "__del__", "close", "flush", "write", "send",
-                      "prepare", "__setstate__", "set_", "add_", "remove_"}:
+        elif name in {"__init__", "__del__", "close", "flush", "write", "send", "prepare", "__setstate__", "set_", "add_", "remove_"}:
             func.return_type = "None"
 
     # ------------------------------------------------------------------
@@ -3156,10 +3327,11 @@ class OmniDecompiler:
 # Source generator
 # ---------------------------------------------------------------------------
 
+
 def _iter_import_lines(decompiler: OmniDecompiler) -> Iterator[str]:
     stdlib = set(sys.stdlib_module_names) if hasattr(sys, "stdlib_module_names") else set()
 
-    from_lines:  list[str] = []
+    from_lines: list[str] = []
     plain_lines: list[str] = []
 
     for module_path, names in decompiler.from_imports.items():
@@ -3170,9 +3342,9 @@ def _iter_import_lines(decompiler: OmniDecompiler) -> Iterator[str]:
             plain_lines.append(f"import {module_path}")
 
     all_lines = sorted(set(from_lines + plain_lines))
-    top_mod   = lambda s: s.split()[1].split(".")[0]
+    top_mod = lambda s: s.split()[1].split(".")[0]
 
-    std   = [l for l in all_lines if top_mod(l) in stdlib]
+    std = [l for l in all_lines if top_mod(l) in stdlib]
     third = [l for l in all_lines if top_mod(l) not in stdlib]
 
     yield from std
@@ -3197,7 +3369,7 @@ def _generate_heuristic_omni_source(decompiler: OmniDecompiler, section_name: st
     lines.append("from __future__ import annotations")
     lines.append("")
     lines.append(f"# Heuristic CPython reconstruction for: {section_name}")
-    lines.append(f"# Generated by omni_nuitka_framework — do not edit by hand.")
+    lines.append("# Generated by omni_nuitka_framework — do not edit by hand.")
     lines.append("")
 
     # --- typing imports ---
@@ -3220,17 +3392,11 @@ def _generate_heuristic_omni_source(decompiler: OmniDecompiler, section_name: st
             used_typing["Any"] = None
 
     # Add Self if used
-    needs_self = any(
-        f.return_type in {"Self"}
-        for f in all_funcs
-    )
+    needs_self = any(f.return_type in {"Self"} for f in all_funcs)
     if needs_self:
         used_typing["Self"] = None  # type: ignore[assignment]
 
-    if "Any" not in used_typing and any(
-        "Any" in (func.return_type or "") or any("Any" in v for v in func.annotations.values())
-        for func in all_funcs
-    ):
+    if "Any" not in used_typing and any("Any" in (func.return_type or "") or any("Any" in v for v in func.annotations.values()) for func in all_funcs):
         used_typing["Any"] = None
 
     if used_typing:
@@ -3303,10 +3469,7 @@ def _generate_heuristic_omni_source(decompiler: OmniDecompiler, section_name: st
                 lines.append(f"{name} = {value}")
 
     # --- __all__ ---
-    public_names = (
-        [n for n in decompiler.functions if not n.startswith("_")]
-        + [n for n in decompiler.classes if not n.startswith("_")]
-    )
+    public_names = [n for n in decompiler.functions if not n.startswith("_")] + [n for n in decompiler.classes if not n.startswith("_")]
     if public_names:
         lines.append("")
         parts = ", ".join(f"{n!r}" for n in sorted(public_names))
@@ -3469,21 +3632,11 @@ def _is_module_name_candidate(value: Any) -> bool:
         return False
     if value.startswith("__") and value.endswith("__"):
         return False
-    return bool(
-        re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*", value)
-    )
+    return bool(re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*", value))
 
 
 def _is_identifier_tuple(value: Any) -> bool:
-    return bool(
-        isinstance(value, tuple)
-        and value
-        and all(
-            isinstance(item, str)
-            and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", item)
-            for item in value
-        )
-    )
+    return bool(isinstance(value, tuple) and value and all(isinstance(item, str) and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", item) for item in value))
 
 
 def _infer_signature_candidates(raw_constants: list[Any]) -> list[tuple[str, list[str]]]:
@@ -3492,13 +3645,7 @@ def _infer_signature_candidates(raw_constants: list[Any]) -> list[tuple[str, lis
     seen_names: set[str] = set()
 
     for index, value in enumerate(raw_constants):
-        if (
-            isinstance(value, str)
-            and len(value) >= 3
-            and re.fullmatch(r"[a-z_][a-z0-9_]*", value)
-            and value not in {"self", "cls", "args", "kwargs"}
-            and value not in seen_names
-        ):
+        if isinstance(value, str) and len(value) >= 3 and re.fullmatch(r"[a-z_][a-z0-9_]*", value) and value not in {"self", "cls", "args", "kwargs"} and value not in seen_names:
             seen_names.add(value)
             name_positions.append((index, value))
         elif _is_identifier_tuple(value):
@@ -3784,6 +3931,7 @@ def generate_omni_source(
 # NBC -> Python decompiler
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class NbcParsedConstant:
     index: int
@@ -3938,7 +4086,7 @@ def parse_nbc_text(text: str) -> ParsedNbcModule:
                 state = None
             continue
         if stripped.startswith("@NO_OPS"):
-            suffix = stripped[len("@NO_OPS"):].strip()
+            suffix = stripped[len("@NO_OPS") :].strip()
             if suffix:
                 current_forensic = NbcForensicsBlock(qualname=suffix)
                 module.forensic_blocks.append(current_forensic)
@@ -4005,14 +4153,10 @@ def parse_nbc_text(text: str) -> ParsedNbcModule:
                 continue
             match = re.match(r"^c\[(\d+)\]\s+(\S)\s+(.*)$", stripped)
             if forensic_mode == "adjacent" and match:
-                current_forensic.adjacent.append(
-                    (int(match.group(1)), match.group(2), match.group(3))
-                )
+                current_forensic.adjacent.append((int(match.group(1)), match.group(2), match.group(3)))
                 continue
             if forensic_mode == "mentions" and match:
-                current_forensic.mentions.append(
-                    (int(match.group(1)), match.group(2), match.group(3))
-                )
+                current_forensic.mentions.append((int(match.group(1)), match.group(2), match.group(3)))
                 continue
             current_forensic.notes.append(stripped)
 
@@ -4028,11 +4172,7 @@ class NbcSourceDecompiler:
     def __init__(self, module: ParsedNbcModule):
         self.module = module
         self.const_by_index = {const.index: const for const in module.constants}
-        self.va_to_qualname = {
-            block.va.lower(): block.qualname
-            for block in module.ops_blocks
-            if block.qualname
-        }
+        self.va_to_qualname = {block.va.lower(): block.qualname for block in module.ops_blocks if block.qualname}
         self.unresolved_constants: set[int] = set()
         self.helper_usage: set[str] = set()
         self._records = self._build_records()
@@ -4099,15 +4239,9 @@ class NbcSourceDecompiler:
     def _build_records(self) -> "OrderedDict[str, _NbcFunctionRecord]":
         records: "OrderedDict[str, _NbcFunctionRecord]" = OrderedDict()
         qualnamed_blocks = [block for block in self.module.ops_blocks if block.qualname]
-        unlabeled_blocks = [
-            block for block in self.module.ops_blocks
-            if not block.qualname and block.va.lower() != (self.module.entry_va or "").lower()
-        ]
+        unlabeled_blocks = [block for block in self.module.ops_blocks if not block.qualname and block.va.lower() != (self.module.entry_va or "").lower()]
         used_qualnames = {block.qualname for block in qualnamed_blocks if block.qualname}
-        unused_signatures = [
-            sig for sig in self.module.functions
-            if sig.qualname not in used_qualnames
-        ]
+        unused_signatures = [sig for sig in self.module.functions if sig.qualname not in used_qualnames]
         for block, signature in zip(unlabeled_blocks, unused_signatures):
             block.qualname = signature.qualname
 
@@ -4273,9 +4407,7 @@ class NbcSourceDecompiler:
         block = record.forensic_block
         if block is None:
             return []
-        body = [
-            '"""Recovered from NBC forensic hints; the static @OPS walk did not reach this body."""'
-        ]
+        body = ['"""Recovered from NBC forensic hints; the static @OPS walk did not reach this body."""']
         for note in block.notes:
             body.append(f"# {note}")
         for idx, _type_code, raw in block.adjacent[:12]:
@@ -4369,10 +4501,7 @@ class NbcSourceDecompiler:
                 free_funcs.append(record)
 
         entry_block = next(
-            (
-                block for block in self.module.ops_blocks
-                if not block.qualname and block.va.lower() == (self.module.entry_va or "").lower()
-            ),
+            (block for block in self.module.ops_blocks if not block.qualname and block.va.lower() == (self.module.entry_va or "").lower()),
             None,
         )
         if entry_block is not None:
@@ -4403,6 +4532,7 @@ class NbcSourceDecompiler:
             lines.append("")
 
         return "\n".join(lines).rstrip() + "\n"
+
 
 def _nbc_decode_text(value: Any) -> str | None:
     if isinstance(value, str):
@@ -4558,11 +4688,7 @@ class NbcNoOpsHeuristicReconstructor:
 
     def __init__(self, module: ParsedNbcModule):
         self.module = module
-        self.direct_texts = [
-            text
-            for const in module.constants
-            if (text := _nbc_decode_text(const.value)) is not None
-        ]
+        self.direct_texts = [text for const in module.constants if (text := _nbc_decode_text(const.value)) is not None]
         self.all_texts: list[str] = []
         _seen: set[str] = set()
         for const in module.constants:
@@ -4572,19 +4698,11 @@ class NbcNoOpsHeuristicReconstructor:
         self.qualname_items = self._collect_qualnames()
         self.exact_signatures = self._collect_exact_signatures()
         self.class_methods = self._collect_class_methods()
-        self.routes = [
-            route for route in self._ROUTE_TO_HANDLER
-            if route in self.text_set
-        ]
-        self.api_urls = [
-            text for text in self.all_texts
-            if text.startswith(("http://", "https://"))
-        ]
+        self.routes = [route for route in self._ROUTE_TO_HANDLER if route in self.text_set]
+        self.api_urls = [text for text in self.all_texts if text.startswith(("http://", "https://"))]
         self.helper_comments = self._collect_nested_helper_comments()
         self.identifier_tuples = self._collect_identifier_tuples()
-        self.top_level_functions = self._expand_top_level_functions(
-            self._collect_top_level_functions()
-        )
+        self.top_level_functions = self._expand_top_level_functions(self._collect_top_level_functions())
         self.signature_hints = self._collect_signature_hints()
 
     def _valid_module_import(self, text: str) -> bool:
@@ -4592,13 +4710,7 @@ class NbcNoOpsHeuristicReconstructor:
 
     def _looks_like_class_name(self, text: str) -> bool:
         tail = text.lstrip("_")
-        return bool(
-            tail
-            and safe_identifier(text)
-            and not tail.isupper()
-            and tail[:1].isupper()
-            and any(ch.islower() for ch in tail[1:])
-        )
+        return bool(tail and safe_identifier(text) and not tail.isupper() and tail[:1].isupper() and any(ch.islower() for ch in tail[1:]))
 
     def _split_qualified_name(self, qualname: str) -> tuple[str | None, str | None]:
         cleaned = str(qualname or "").replace(".<locals>.", ".").strip(".")
@@ -4680,9 +4792,7 @@ class NbcNoOpsHeuristicReconstructor:
 
     def _collect_qualnames(self) -> list[tuple[int, str]]:
         results: list[tuple[int, str]] = []
-        pattern = re.compile(
-            r"[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_<][A-Za-z0-9_<>]*)"
-        )
+        pattern = re.compile(r"[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_<][A-Za-z0-9_<>]*)")
         for const in self.module.constants:
             text = _nbc_decode_text(const.value)
             if text is None or not pattern.fullmatch(text):
@@ -4809,9 +4919,9 @@ class NbcNoOpsHeuristicReconstructor:
 
         if best is None or best_score < 6:
             return None
-        if list(best) == normalized_fallback[:len(best)]:
+        if list(best) == normalized_fallback[: len(best)]:
             return list(best)
-        if list(best[:len(normalized_fallback)]) == normalized_fallback:
+        if list(best[: len(normalized_fallback)]) == normalized_fallback:
             return fallback
 
         filtered = [name for name in best if name in normalized_fallback]
@@ -4883,16 +4993,9 @@ class NbcNoOpsHeuristicReconstructor:
                 continue
             if text_value is not None and text_value.endswith(".py"):
                 continue
-            if (
-                text_value is not None
-                and safe_identifier(text_value)
-                and not text_value.startswith(("http://", "https://"))
-                and text_value.lower() != name.lower()
-            ):
+            if text_value is not None and safe_identifier(text_value) and not text_value.startswith(("http://", "https://")) and text_value.lower() != name.lower():
                 continue
-            if isinstance(value, tuple) and value and all(
-                _nbc_decode_text(item) is not None or isinstance(item, bool) for item in value
-            ):
+            if isinstance(value, tuple) and value and all(_nbc_decode_text(item) is not None or isinstance(item, bool) for item in value):
                 continue
             if name not in values:
                 values[name] = value
@@ -4974,9 +5077,7 @@ class NbcNoOpsHeuristicReconstructor:
         exported_names: list[str] = []
         for name, (method, path, requires_manifest) in endpoint_specs.items():
             exported_names.append(name)
-            body.append(
-                f"{name} = Endpoint(method={method!r}, path={path!r}, requires_manifest={requires_manifest!r})"
-            )
+            body.append(f"{name} = Endpoint(method={method!r}, path={path!r}, requires_manifest={requires_manifest!r})")
         if exported_names:
             body.append("")
             body.append(f"__all__ = ['Endpoint', {', '.join(repr(name) for name in exported_names)}]")
@@ -5275,7 +5376,7 @@ class NbcNoOpsHeuristicReconstructor:
             "",
         ]
         for method_name in client_methods:
-            if method_name in {'__init__', 'token', 'manifest'}:
+            if method_name in {"__init__", "token", "manifest"}:
                 continue
             endpoint_name = method_name.upper()
             body.extend(
@@ -5813,9 +5914,7 @@ class NbcNoOpsHeuristicReconstructor:
             "NBC_DECODED_CONSTANTS = [",
         ]
         for const in self.module.constants:
-            lines.append(
-                f"    ({const.index}, {const.type_code!r}, {const.value!r}),"
-            )
+            lines.append(f"    ({const.index}, {const.type_code!r}, {const.value!r}),")
         lines.extend(
             [
                 "]",
@@ -5842,9 +5941,7 @@ class NbcNoOpsHeuristicReconstructor:
             ]
         )
         for const in self.module.constants:
-            lines.append(
-                f"    ({const.index}, {const.type_code!r}, {const.raw!r}),"
-            )
+            lines.append(f"    ({const.index}, {const.type_code!r}, {const.raw!r}),")
         lines.append("]")
         lines.append("")
         return lines
@@ -5890,11 +5987,7 @@ class NbcNoOpsHeuristicReconstructor:
 
 
 _NBC_BLOCK_START_RE = re.compile(r"^(async\s+def|def|class)\s+([A-Za-z_][A-Za-z0-9_]*)\b")
-_NBC_INVENTORY_MARKER = (
-    "# ---------------------------------------------------------------------------\n"
-    "# Full NBC Constant Inventory\n"
-    "# ---------------------------------------------------------------------------\n"
-)
+_NBC_INVENTORY_MARKER = "# ---------------------------------------------------------------------------\n# Full NBC Constant Inventory\n# ---------------------------------------------------------------------------\n"
 
 
 def _nbc_split_inventory(source: str) -> tuple[str, str]:
@@ -5977,11 +6070,7 @@ def _nbc_extract_structure_ast(
 
     def _node_start(node: ast.AST) -> int:
         start = max(0, getattr(node, "lineno", 1) - 1)
-        decorator_starts = [
-            max(0, getattr(decorator, "lineno", 1) - 1)
-            for decorator in getattr(node, "decorator_list", ()) or ()
-            if getattr(decorator, "lineno", None)
-        ]
+        decorator_starts = [max(0, getattr(decorator, "lineno", 1) - 1) for decorator in getattr(node, "decorator_list", ()) or () if getattr(decorator, "lineno", None)]
         if decorator_starts:
             start = min([start, *decorator_starts])
         return start
@@ -6236,14 +6325,8 @@ def _merge_blob_python_sources(
     inventory_source: str,
 ) -> str:
     base_preamble, base_blocks = _nbc_extract_structure(inventory_source)
-    usable = [
-        candidate for candidate in candidates
-        if candidate and candidate.strip() and candidate != inventory_source
-    ]
-    structures = [
-        (candidate, *_nbc_extract_structure(candidate))
-        for candidate in usable
-    ]
+    usable = [candidate for candidate in candidates if candidate and candidate.strip() and candidate != inventory_source]
+    structures = [(candidate, *_nbc_extract_structure(candidate)) for candidate in usable]
 
     block_order = list(base_blocks.keys())
     best_blocks: dict[str, list[str]] = {}
@@ -6291,6 +6374,7 @@ def _merge_blob_python_sources(
         lines.append("")
     return "\n".join(lines).rstrip() + "\n"
 
+
 def decompile_nbc_text_to_source(text: str) -> str:
     parsed = parse_nbc_text(text)
     if not parsed.ops_blocks:
@@ -6324,6 +6408,7 @@ def decompile_nbc_text_to_source(text: str) -> str:
             return nbc_source
 
     return NbcSourceDecompiler(parsed).render()
+
 
 def decompile_nbc_file(input_path: str | Path, output_path: str | Path | None = None) -> Path:
     src_path = Path(input_path)
@@ -6382,28 +6467,28 @@ def reconstruct_blob_file(blob_path: str | Path, output_dir: str | Path) -> int:
         return 1
 
     raw = blob_path.read_bytes()
-    
+
     # Use list_modules for robust name solving (handles commercial protection)
-    print(f"[*] Solving module names using list_modules library...")
+    print("[*] Solving module names using list_modules library...")
     modules_metadata = list_modules.parse_module_names(raw)
-    
+
     out_dir = Path(output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
     count = 0
     for meta in modules_metadata:
         section_name = meta["name"]
-        
+
         # Skip bytecode chunks as we are reconstructing source
         if meta["is_bytecode"]:
             continue
-            
+
         # Decode constants at the specific offset discovered by list_modules
         items = nuitka_deobfuscate.decode_at_offset(raw, meta["offset"])
-        
+
         if not items or not isinstance(items, (list, tuple)):
             continue
-            
+
         if _is_marshaled_bytecode_section_name(section_name, items):
             continue
 
@@ -6418,22 +6503,19 @@ def reconstruct_blob_file(blob_path: str | Path, output_dir: str | Path) -> int:
         source = artifact.source
         if not source.strip():
             continue
-            
+
         # Clean name for filesystem
         safe_name = re.sub(r'[<>:"/\\|?*\x00]', "_", section_name).strip("._") or "section"
         out_file = out_dir / f"{safe_name}.py"
-        
+
         # Ensure subdirectories exist for package names like 'numpy.core'
         out_file.parent.mkdir(parents=True, exist_ok=True)
-        
+
         out_file.write_text(source, encoding="utf-8")
         if artifact.nbc_text:
             out_file.with_suffix(".nbc").write_text(artifact.nbc_text, encoding="utf-8")
         count += 1
-        print(
-            f"  [{count:4d}] {section_name:<50}  "
-            f"({source.count(chr(10))} lines, strategy={artifact.strategy})"
-        )
+        print(f"  [{count:4d}] {section_name:<50}  ({source.count(chr(10))} lines, strategy={artifact.strategy})")
 
     print(f"\n[*] Reconstructed {count} file(s) -> {out_dir}")
     return 0
@@ -6443,10 +6525,9 @@ def reconstruct_blob_file(blob_path: str | Path, output_dir: str | Path) -> int:
 # CLI entry point
 # ---------------------------------------------------------------------------
 
+
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(
-        description="Reconstruct Python from Nuitka constants blobs or .nbc files."
-    )
+    parser = argparse.ArgumentParser(description="Reconstruct Python from Nuitka constants blobs or .nbc files.")
     parser.add_argument(
         "input",
         nargs="?",

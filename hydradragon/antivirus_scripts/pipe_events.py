@@ -23,6 +23,7 @@ from .utils_and_helpers import validate_pipe_peer
 # NT Path Normalization
 # ============================================================================#
 
+
 def _sync_normalize_nt_path(nt_path: str) -> str:
     """
     Normalize NT device path to standard Windows path (synchronous).
@@ -33,25 +34,25 @@ def _sync_normalize_nt_path(nt_path: str) -> str:
 
     try:
         # Already a normal path
-        if ':' in nt_path and not nt_path.startswith('\\Device\\'):
+        if ":" in nt_path and not nt_path.startswith("\\Device\\"):
             return os.path.normpath(nt_path)
 
         # Handle NT device paths like \Device\HarddiskVolume3\...
-        if nt_path.startswith('\\Device\\HarddiskVolume'):
-            parts = nt_path.split('\\', 3)
+        if nt_path.startswith("\\Device\\HarddiskVolume"):
+            parts = nt_path.split("\\", 3)
             if len(parts) < 4:
                 logger.warning(f"Invalid NT path format: {nt_path}")
                 return nt_path
 
-            volume_device = '\\'.join(parts[:3])  # \Device\HarddiskVolume3
+            volume_device = "\\".join(parts[:3])  # \Device\HarddiskVolume3
             relative_path = parts[3]  # Program Files\...
 
             # Get all logical drives
-            drives = win32api.GetLogicalDriveStrings().split('\x00')[:-1]
+            drives = win32api.GetLogicalDriveStrings().split("\x00")[:-1]
             for drive in drives:
                 try:
-                    drive_letter = drive.rstrip('\\')
-                    nt_device = win32file.QueryDosDevice(drive_letter.rstrip(':'))
+                    drive_letter = drive.rstrip("\\")
+                    nt_device = win32file.QueryDosDevice(drive_letter.rstrip(":"))
 
                     if nt_device and nt_device[0] == volume_device:
                         normalized = os.path.join(drive_letter, relative_path)
@@ -64,7 +65,7 @@ def _sync_normalize_nt_path(nt_path: str) -> str:
             return nt_path
 
         # Handle \??\ format
-        elif nt_path.startswith('\\??\\'):
+        elif nt_path.startswith("\\??\\"):
             normalized = nt_path[4:]
             logger.debug(f"Normalized \\??\\ path: {nt_path} -> {normalized}")
             return os.path.normpath(normalized)
@@ -89,6 +90,7 @@ async def normalize_nt_path(nt_path: str) -> str:
 CSIDL_DESKTOPDIRECTORY = 0x0010
 SHGFP_TYPE_CURRENT = 0
 SHGetFolderPathW = ctypes.windll.shell32.SHGetFolderPathW
+
 
 # -------------------------
 # Synchronous low-level helpers (kept sync and invoked via to_thread)
@@ -118,16 +120,13 @@ def _sync_path_is_under(prefix: str, candidate: str) -> bool:
 def _sync_is_protected_path(candidate_path: str) -> bool:
     candidate = _sync_normalize_path_for_compare(candidate_path)
 
-    program_files = (
-        os.environ.get("PROGRAMW6432")
-        or os.environ.get("PROGRAMFILES")
-        or r"C:\Program Files"
-    )
+    program_files = os.environ.get("PROGRAMW6432") or os.environ.get("PROGRAMFILES") or r"C:\Program Files"
     pf_hda = os.path.join(program_files, "HydraDragonAntivirus")
     if _sync_path_is_under(pf_hda, candidate):
         return True
 
     return False
+
 
 # -------------------------
 # Async wrappers for helpers (every top-level function is async)
@@ -143,6 +142,7 @@ async def _is_protected_path(candidate_path: str) -> bool:
 # ============================================================================#
 # Threat event processing (AV -> EDR)
 # ============================================================================#
+
 
 async def _process_threat_event(event: Any) -> None:
     """
@@ -270,15 +270,9 @@ async def monitor_threat_events_from_av(pipe_name: str = PIPE_AV_TO_EDR) -> None
                         logger.info(f"[EDR] Received threat event: {event.get('file_path')}")
 
                         # Schedule processing on event loop
-                        future = asyncio.run_coroutine_threadsafe(
-                            _process_threat_event(event),
-                            loop
-                        )
+                        future = asyncio.run_coroutine_threadsafe(_process_threat_event(event), loop)
                         # Don't wait for result to avoid blocking, but add callback for errors
-                        future.add_done_callback(lambda f:
-                            logger.error(f"Error in _process_threat_event: {f.exception()}")
-                            if f.exception() else None
-                        )
+                        future.add_done_callback(lambda f: logger.error(f"Error in _process_threat_event: {f.exception()}") if f.exception() else None)
                     except Exception as e:
                         logger.error(f"[EDR] Error processing threat event: {e}")
 
@@ -297,9 +291,11 @@ async def monitor_threat_events_from_av(pipe_name: str = PIPE_AV_TO_EDR) -> None
     thread.start()
     logger.info("[EDR] AV->EDR pipe listener started in dedicated thread")
 
+
 # ============================================================================#
 # Integration Startup
 # ============================================================================#
+
 
 async def start_all_pipe_listeners():
     """
@@ -318,4 +314,3 @@ async def start_all_pipe_listeners():
     logger.info(f"[PIPE-START] After yield - Task states: task1.done()={task1.done()}")
 
     return [task1]
-

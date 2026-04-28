@@ -1,5 +1,6 @@
 import ast
 
+
 class FunctionOrderChecker(ast.NodeVisitor):
     def __init__(self):
         self.function_defs = {}
@@ -19,6 +20,7 @@ class FunctionOrderChecker(ast.NodeVisitor):
                 self.issues.append((node.func.id, call_line, def_line))
         self.generic_visit(node)
 
+
 def check_function_order(file_path):
     with open(file_path, "r", encoding="utf-8") as file:
         source_code = file.read()
@@ -34,6 +36,7 @@ def check_function_order(file_path):
     else:
         print("No function order issues detected.")
 
+
 # Example usage
-file_path = 'antivirus.py'
+file_path = "antivirus.py"
 check_function_order(file_path)

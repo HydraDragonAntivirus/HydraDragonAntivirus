@@ -1,3 +1,7 @@
+#include "framework.h"
+
+#include <yara.h>
+
 //yara.cpp
 const char* getErrorMessage(int errorCode) {
     switch (errorCode) {

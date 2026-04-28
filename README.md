@@ -1,11 +1,6 @@
-# Switching To GitLab
-- This project no longer hosted on Github. Don't create issues at here.
-- Reason: My account is limited on Github second time for no reason.
-- Project link: https://gitlab.com/hydradragonav/hydradragonav
+# Hydra Dragon Antivirus
 
-<h1>Hydra Dragon Antivirus</h1>
-
-<p>
+<p align="center">
   <img
     width="1024"
     height="1024"
@@ -14,7 +9,7 @@
   />
 </p>
 
-<p>
+<p align="center">
   <img
     src="hydradragon/assets/HydraDragonAVGUI.png"
     width="1080"
@@ -22,7 +17,7 @@
   />
 </p>
 
-<p>
+<p align="center">
   <img
     src="hydradragon/assets/sanctum-cover.webp"
     width="1024"
@@ -30,7 +25,7 @@
   />
 </p>
 
-<p>
+<p align="center">
   <img
     src="hydradragon/assets/OpenEDR.jpg"
     width="1024"
@@ -52,12 +47,12 @@ Breaking changes, bugs, and incomplete features should be expected.
 
 ### Project Scope
 
-HydraDragon is a local antivirus project currently under active and experimental development.
+HydraDragon is a local antivirus (except Xcitium cloud) project currently under active and experimental development.
 
 - It operates locally on the system.
 - It is intended for research, learning, and malware analysis experimentation.
 
-This project does not aim to replace your primary daily antivirus solution.7
+This project does not aim to replace your primary daily antivirus solution.
 
 ---
 
@@ -135,7 +130,7 @@ C:\ProgramData\HydraDragonAntivirus\Quarantine
 
 ## Description
 At this stage:
-- The application works **locally only**.
+- The application works **locally only (Except Xcitium cloud)**.
 - Features may be incomplete or unstable.
 - Breaking changes may occur without prior notice.
 - This project is **not production-ready** and should be used for development and testing purposes only.
@@ -188,7 +183,7 @@ See the [LICENSE](./LICENSE) file for more information.
 
  ## IMPORTANT
   - **Vulnerable Drivers & Post-Infection Risk**: This project utilizes drivers like `WinDivert`. These drivers are currently vulnerable. If you see this driver abused you probably infected.
- - **The "Fatal Design" Assumption**: By default, this project assumes your system is **clean** at the time of installation. It is NOT designed to clean or repair an already infected system.
+ - **Post-Infection Scenario**: By default, this project assumes your system is **clean** at the time of installation. It is NOT designed to clean or repair an already infected system.
  - **Zero Responsibility**: If you install this on a system that is already compromised, resident malware may exploit these drivers or the centralized dependency structure (Python/Node.js) to escalate or persist. The developer is not responsible for any damage in a post-infection scenario.
 
  ### How an Attack is Possible (Threat Model)

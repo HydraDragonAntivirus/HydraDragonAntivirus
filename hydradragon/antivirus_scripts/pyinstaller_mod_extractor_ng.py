@@ -5,7 +5,7 @@ E-mail : extremecoders(at)hotmail(dot)com
 Web    : https://0xec.blogspot.com
 Url    : https://github.com/pyinstxtractor/pyinstxtractor-ng
 
-This script extracts a pyinstaller generated executable file. 
+This script extracts a pyinstaller generated executable file.
 Uses the xdis library to unmarshal code objects, hence you should
 be able to decompile an executable from any Python version without
 being restricted to use the same version of Python for running the
@@ -20,7 +20,7 @@ These modifications are also licensed under GPLv3+.
 See article: https://samplepedia.cc/sample/8c9d9150efa35278afcb23f2af4c4babcc4dd55acd9e839bed4c04cb5a8d9c3f/81/solution/52/view/
 
 Samples:
-* 09474277051fc387a9b43f7f08a9bf4f6817c24768719b21f9f7163d9c5c8f74 
+* 09474277051fc387a9b43f7f08a9bf4f6817c24768719b21f9f7163d9c5c8f74
 * 8c9d9150efa35278afcb23f2af4c4babcc4dd55acd9e839bed4c04cb5a8d9c3f
 
 """
@@ -30,7 +30,6 @@ from .hydra_logger import logger
 import os
 import zlib
 import struct
-import re
 import marshal
 import pefile
 
@@ -41,57 +40,55 @@ from Crypto.Util import Counter
 
 from xdis.unmarshal import load_code
 
+
 def pycHeader2Magic(header):
     header = bytearray(header)
     magicNumber = bytearray(header[:2])
     return magicNumber[1] << 8 | magicNumber[0]
+
 
 def find_pyinstaller_magic(filename):
     logger.info("[+] Testing cookie locations, this may take a bit ...")
     try:
         pe = pefile.PE(filename)
         overlay_offset = pe.get_overlay_data_start_offset()
-        
+
         if overlay_offset is None:
             logger.info("[ERROR] No PE overlay found")
             return None
-        
+
     except:
         logger.info("[ERROR] Could not parse as PE file")
         return None
-    
-    with open(filename, 'rb') as f:
+
+    with open(filename, "rb") as f:
         data = f.read()
-    
+
     # Search from the overlay start to the end of file
     for i in range(overlay_offset, len(data) - 32):
         try:
             # Try to parse as a cookie structure
             # 8 bytes magic + 4 bytes pkg_len + 4 bytes toc_offset + 4 bytes toc_len + 4 bytes pyver
-            pkg_len = struct.unpack('!I', data[i+8:i+12])[0]
-            toc_offset = struct.unpack('!I', data[i+12:i+16])[0]
-            toc_len = struct.unpack('!I', data[i+16:i+20])[0]
-            pyver = struct.unpack('!I', data[i+20:i+24])[0]
-            
+            pkg_len = struct.unpack("!I", data[i + 8 : i + 12])[0]
+            toc_offset = struct.unpack("!I", data[i + 12 : i + 16])[0]
+            toc_len = struct.unpack("!I", data[i + 16 : i + 20])[0]
+            pyver = struct.unpack("!I", data[i + 20 : i + 24])[0]
+
             # Validate the structure
-            if (0 < pkg_len < len(data) and 
-                0 < toc_offset < pkg_len and 
-                0 < toc_len < pkg_len and
-                20 <= pyver <= 400):
+            if 0 < pkg_len < len(data) and 0 < toc_offset < pkg_len and 0 < toc_len < pkg_len and 20 <= pyver <= 400:
                 # This looks like a valid cookie, extract the 8-byte magic
-                magic = data[i:i+8]
+                magic = data[i : i + 8]
                 logger.info(f"[+] Found valid cookie at: 0x{i:x}")
                 return magic
         except:
             continue
-    
+
     logger.info("[DEBUG] No valid magic found in overlay")
     return None
 
+
 class CTOCEntry:
-    def __init__(
-        self, position, cmprsdDataSize, uncmprsdDataSize, cmprsFlag, typeCmprsData, name
-    ):
+    def __init__(self, position, cmprsdDataSize, uncmprsdDataSize, cmprsFlag, typeCmprsData, name):
         self.position = position
         self.cmprsdDataSize = cmprsdDataSize
         self.uncmprsdDataSize = uncmprsdDataSize
@@ -99,10 +96,11 @@ class CTOCEntry:
         self.typeCmprsData = typeCmprsData
         self.name = name
 
+
 class PyInstArchive:
     PYINST20_COOKIE_SIZE = 24  # For pyinstaller 2.0
     PYINST21_COOKIE_SIZE = 24 + 64  # For pyinstaller 2.1+
-    
+
     def __init__(self, path):
         self.filePath = path
         self.pycMagic = b"\0" * 4
@@ -160,9 +158,7 @@ class PyInstArchive:
                 break
 
         if self.cookiePos == -1:
-            logger.error(
-                "[!] Error: Missing cookie, unsupported pyinstaller version or not a pyinstaller archive"
-            )
+            logger.error("[!] Error: Missing cookie, unsupported pyinstaller version or not a pyinstaller archive")
             return False
 
         self.fPtr.seek(self.cookiePos + self.PYINST20_COOKIE_SIZE, os.SEEK_SET)
@@ -182,37 +178,23 @@ class PyInstArchive:
                 self.fPtr.seek(self.cookiePos, os.SEEK_SET)
 
                 # Read CArchive cookie
-                (magic, lengthofPackage, toc, tocLen, pyver) = struct.unpack(
-                    "!8siiii", self.fPtr.read(self.PYINST20_COOKIE_SIZE)
-                )
+                (magic, lengthofPackage, toc, tocLen, pyver) = struct.unpack("!8siiii", self.fPtr.read(self.PYINST20_COOKIE_SIZE))
 
             elif self.pyinstVer == 21:
                 self.fPtr.seek(self.cookiePos, os.SEEK_SET)
 
                 # Read CArchive cookie
-                (magic, lengthofPackage, toc, tocLen, pyver, pylibname) = struct.unpack(
-                    "!8sIIii64s", self.fPtr.read(self.PYINST21_COOKIE_SIZE)
-                )
+                (magic, lengthofPackage, toc, tocLen, pyver, pylibname) = struct.unpack("!8sIIii64s", self.fPtr.read(self.PYINST21_COOKIE_SIZE))
 
         except:
             logger.error("[!] Error: The file is not a pyinstaller archive")
             return False
 
-        self.pymaj, self.pymin = (
-            (pyver // 100, pyver % 100) if pyver >= 100 else (pyver // 10, pyver % 10)
-        )
+        self.pymaj, self.pymin = (pyver // 100, pyver % 100) if pyver >= 100 else (pyver // 10, pyver % 10)
         logger.info("[+] Python version: {0}.{1}".format(self.pymaj, self.pymin))
 
         # Additional data after the cookie
-        tailBytes = (
-            self.fileSize
-            - self.cookiePos
-            - (
-                self.PYINST20_COOKIE_SIZE
-                if self.pyinstVer == 20
-                else self.PYINST21_COOKIE_SIZE
-            )
-        )
+        tailBytes = self.fileSize - self.cookiePos - (self.PYINST20_COOKIE_SIZE if self.pyinstVer == 20 else self.PYINST21_COOKIE_SIZE)
 
         # Overlay is the data appended at the end of the PE
         self.overlaySize = lengthofPackage + tailBytes
@@ -242,15 +224,13 @@ class PyInstArchive:
                 cmprsFlag,
                 typeCmprsData,
                 name,
-            ) = struct.unpack(
-                "!IIIBc{0}s".format(entrySize - nameLen), self.fPtr.read(entrySize - 4)
-            )
+            ) = struct.unpack("!IIIBc{0}s".format(entrySize - nameLen), self.fPtr.read(entrySize - 4))
 
             try:
                 name = name.decode("utf-8").rstrip("\0")
             except UnicodeDecodeError:
                 newName = str(uniquename())
-                logger.info('[!] Warning: File name {0} contains invalid bytes. Using random name {1}'.format(name, newName))
+                logger.info("[!] Warning: File name {0} contains invalid bytes. Using random name {1}".format(name, newName))
                 name = newName
 
             # Prevent writing outside the extraction directory
@@ -259,11 +239,7 @@ class PyInstArchive:
 
             if len(name) == 0:
                 name = str(uniquename())
-                logger.info(
-                    "[!] Warning: Found an unamed file in CArchive. Using random name {0}".format(
-                        name
-                    )
-                )
+                logger.info("[!] Warning: Found an unamed file in CArchive. Using random name {0}".format(name))
 
             self.tocList.append(
                 CTOCEntry(
@@ -280,15 +256,9 @@ class PyInstArchive:
         logger.info("[+] Found {0} files in CArchive".format(len(self.tocList)))
 
     def _writeRawData(self, filepath, data):
-        nm = (
-            filepath.replace("\\", os.path.sep)
-            .replace("/", os.path.sep)
-            .replace("..", "__")
-        )
+        nm = filepath.replace("\\", os.path.sep).replace("/", os.path.sep).replace("..", "__")
         nmDir = os.path.dirname(nm)
-        if nmDir != "" and not os.path.exists(
-            nmDir
-        ):  # Check if path exists, create if not
+        if nmDir != "" and not os.path.exists(nmDir):  # Check if path exists, create if not
             os.makedirs(nmDir)
 
         with open(nm, "wb") as f:
@@ -296,9 +266,7 @@ class PyInstArchive:
 
     def extractFiles(self, one_dir):
         logger.info("[+] Beginning extraction...please standby")
-        extractionDir = os.path.join(
-            os.getcwd(), os.path.basename(self.filePath) + "_extracted"
-        )
+        extractionDir = os.path.join(os.getcwd(), os.path.basename(self.filePath) + "_extracted")
 
         if not os.path.exists(extractionDir):
             os.mkdir(extractionDir)
@@ -351,9 +319,7 @@ class PyInstArchive:
                     self._writeRawData(entry.name + ".pyc", data)
 
                     if entry.name.endswith("_crypto_key"):
-                        logger.info(
-                            "[+] Detected _crypto_key file, saving key for automatic decryption"
-                        )
+                        logger.info("[+] Detected _crypto_key file, saving key for automatic decryption")
                         # This is a pyc file with a header (8,12, or 16 bytes)
                         # Extract the code object after the header
                         self.cryptoKeyFileData = self._extractCryptoKeyObject(data)
@@ -367,9 +333,7 @@ class PyInstArchive:
                     self._writePyc(entry.name + ".pyc", data)
 
                     if entry.name.endswith("_crypto_key"):
-                        logger.info(
-                            "[+] Detected _crypto_key file, saving key for automatic decryption"
-                        )
+                        logger.info("[+] Detected _crypto_key file, saving key for automatic decryption")
                         # This is a plain code object without a header
                         self.cryptoKeyFileData = data
 
@@ -444,7 +408,7 @@ class PyInstArchive:
         elif aes_mode == "cfb":
             # Pyinstaller < 4.0 uses AES in CFB mode
             cipher = AES.new(key, AES.MODE_CFB, iv)
-            return cipher.decrypt(ct[CRYPT_BLOCK_SIZE:])            
+            return cipher.decrypt(ct[CRYPT_BLOCK_SIZE:])
 
     def extract_xor_keys_from_pyc(self, pyc_path):
         """
@@ -452,28 +416,28 @@ class PyInstArchive:
         Returns a tuple of (key1, key2) as bytes, or (None, None) if not found.
         """
         try:
-            with open(pyc_path, 'rb') as f:
+            with open(pyc_path, "rb") as f:
                 # Skip the pyc header (16 bytes for Python 3.7+)
                 f.read(16)
-                
+
                 # Load the code object
                 code = marshal.load(f)
-            
+
             # Find the ZlibArchiveReader class
             for const in code.co_consts:
-                if hasattr(const, 'co_name') and const.co_name == 'ZlibArchiveReader':
+                if hasattr(const, "co_name") and const.co_name == "ZlibArchiveReader":
                     # Found the class, now find the extract method
                     for class_const in const.co_consts:
-                        if hasattr(class_const, 'co_name') and class_const.co_name == 'extract':
+                        if hasattr(class_const, "co_name") and class_const.co_name == "extract":
                             # Found extract method, collect all XOR keys from genexpr
                             xor_keys = []
                             for extract_const in class_const.co_consts:
-                                if hasattr(extract_const, 'co_name') and extract_const.co_name == '<genexpr>':
+                                if hasattr(extract_const, "co_name") and extract_const.co_name == "<genexpr>":
                                     # Check if this genexpr has a bytes constant (the XOR key)
                                     for genexpr_const in extract_const.co_consts:
                                         if isinstance(genexpr_const, bytes) and len(genexpr_const) > 0:
                                             xor_keys.append(genexpr_const)
-                            
+
                             if len(xor_keys) >= 2:
                                 logger.info(f"[+] Found XOR key 1: {xor_keys[0]}")
                                 logger.info(f"[+] Found XOR key 2: {xor_keys[1]}")
@@ -486,8 +450,9 @@ class PyInstArchive:
         except Exception as e:
             logger.info(f"[!] Error extracting XOR keys: {e}")
             import traceback
+
             traceback.print_exc()
-        
+
         return None, None
 
     def _extractPyz(self, name, one_dir):
@@ -497,10 +462,10 @@ class PyInstArchive:
         # Try to extract XOR keys from pyimod01_archive.pyc
         pyimod_path = "pyimod01_archive.pyc"
         xor_key1, xor_key2 = None, None
-        
+
         if os.path.exists(pyimod_path):
             xor_key1, xor_key2 = self.extract_xor_keys_from_pyc(pyimod_path)
-        
+
         if not xor_key1 or not xor_key2:
             logger.info("[!] Could not extract XOR keys from pyimod01_archive.pyc")
             logger.info("[!] Attempting extraction without XOR decryption...")
@@ -526,7 +491,7 @@ class PyInstArchive:
 
             if type(toc) == list:
                 toc = dict(toc)
-            
+
             for key in toc.keys():
                 (ispkg, pos, length) = toc[key]
                 f.seek(pos, os.SEEK_SET)
@@ -543,24 +508,24 @@ class PyInstArchive:
 
                 try:
                     data = f.read(length)
-                    
+
                     # Apply XOR decryption if keys were found
                     if xor_key1 and xor_key2:
                         # Step 1: XOR with first key
                         data = bytes(b ^ xor_key1[i % len(xor_key1)] for i, b in enumerate(data))
-                        
+
                         # Step 2: Decompress
                         data = zlib.decompress(data)
-                        
+
                         # Step 3: XOR with second key
                         data = bytes(b ^ xor_key2[i % len(xor_key2)] for i, b in enumerate(data))
-                        
+
                         # Step 4: Reverse
                         data = data[::-1]
                     else:
                         # Try standard decompression without XOR
                         data = zlib.decompress(data)
-                    
+
                     self._writePyc(filePath, data)
                 except Exception as e:
                     logger.info(f"[!] Error extracting {filePath}: {e}")

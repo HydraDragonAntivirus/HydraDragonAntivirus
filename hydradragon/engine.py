@@ -18,19 +18,10 @@ if main_dir not in sys.path:
 from hydradragon.antivirus_scripts.antivirus import logger
 
 # --- Import paths ---
-from hydradragon.antivirus_scripts.path_and_variables import (
-    freshclam_path,
-    hayabusa_path,
-    clamav_file_paths,
-    clamav_folder
-)
+from hydradragon.antivirus_scripts.path_and_variables import freshclam_path, hayabusa_path, clamav_file_paths, clamav_folder
 
 # --- Import necessary functions from antivirus script ---
-from hydradragon.antivirus_scripts.antivirus import (
-    start_real_time_protection_async,
-    reload_clamav_database,
-    get_latest_clamav_def_time
-)
+from hydradragon.antivirus_scripts.antivirus import start_real_time_protection_async, reload_clamav_database, get_latest_clamav_def_time
 
 from hydradragon.antivirus_scripts.rule_sync import sync_dynamic_protection_rules
 
@@ -39,36 +30,29 @@ from hydradragon.antivirus_scripts.rule_sync import sync_dynamic_protection_rule
 # ==============================================================================
 
 # Bounded thread pool to prevent thread exhaustion
-_THREAD_POOL = concurrent.futures.ThreadPoolExecutor(
-    max_workers=50,
-    thread_name_prefix="HydraWorker"
-)
+_THREAD_POOL = concurrent.futures.ThreadPoolExecutor(max_workers=50, thread_name_prefix="HydraWorker")
 logger.info("[INIT] Created bounded thread pool (max_workers=50)")
 
 # ==============================================================================
 # Async to Thread Helper
 # ==============================================================================
 
+
 async def async_to_thread(func, *args, operation_name="UNKNOWN", timeout=300, **kwargs):
     """Run blocking function in thread pool."""
     loop = asyncio.get_running_loop()
-    return await asyncio.wait_for(
-        loop.run_in_executor(_THREAD_POOL, lambda: func(*args, **kwargs)),
-        timeout=timeout
-    )
+    return await asyncio.wait_for(loop.run_in_executor(_THREAD_POOL, lambda: func(*args, **kwargs)), timeout=timeout)
+
 
 # ==============================================================================
 # Exception Handling
 # ==============================================================================
 
 
-
-
-
-
 # ==============================================================================
 # Definition Updates
 # ==============================================================================
+
 
 async def update_definitions_clamav_async():
     """Checks and updates ClamAV virus definitions if older than 12 hours."""
@@ -80,11 +64,7 @@ async def update_definitions_clamav_async():
             return False
 
         # Check if definitions are older than 12 hours
-        needs_update = any(
-            not os.path.exists(fp) or
-            (datetime.now() - datetime.fromtimestamp(os.path.getmtime(fp))) > timedelta(hours=12)
-            for fp in clamav_file_paths
-        )
+        needs_update = any(not os.path.exists(fp) or (datetime.now() - datetime.fromtimestamp(os.path.getmtime(fp))) > timedelta(hours=12) for fp in clamav_file_paths)
 
         if needs_update:
             logger.info("[UPDATES] Definitions older than 12h. Running freshclam...")
@@ -93,34 +73,22 @@ async def update_definitions_clamav_async():
                 logger.error("[UPDATES] clamav_folder path missing")
                 return False
 
-            process = await asyncio.create_subprocess_exec(
-                freshclam_path,
-                cwd=clamav_folder,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
+            process = await asyncio.create_subprocess_exec(freshclam_path, cwd=clamav_folder, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
 
             try:
-                stdout, stderr = await asyncio.wait_for(
-                    process.communicate(),
-                    timeout=1500
-                )
+                stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=1500)
 
                 if stdout:
-                    for line in stdout.decode('utf-8', errors='ignore').splitlines():
+                    for line in stdout.decode("utf-8", errors="ignore").splitlines():
                         logger.info(f"[freshclam] {line}")
                 if stderr:
-                    for line in stderr.decode('utf-8', errors='ignore').splitlines():
+                    for line in stderr.decode("utf-8", errors="ignore").splitlines():
                         logger.warning(f"[freshclam ERR] {line}")
 
                 if process.returncode == 0:
                     logger.info("[UPDATES] Reloading ClamAV database...")
 
-                    await async_to_thread(
-                        reload_clamav_database,
-                        operation_name="DATABASE_RELOAD",
-                        timeout=120
-                    )
+                    await async_to_thread(reload_clamav_database, operation_name="DATABASE_RELOAD", timeout=120)
 
                     logger.info("[UPDATES] ✓ ClamAV definitions updated")
                     return True
@@ -151,25 +119,16 @@ async def update_definitions_hayabusa_async():
             logger.error(f"[UPDATES] Hayabusa not found at: {hayabusa_path}")
             return False
 
-        process = await asyncio.create_subprocess_exec(
-            hayabusa_path,
-            "update-rules",
-            cwd=os.path.dirname(hayabusa_path),
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
+        process = await asyncio.create_subprocess_exec(hayabusa_path, "update-rules", cwd=os.path.dirname(hayabusa_path), stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
 
         try:
-            stdout, stderr = await asyncio.wait_for(
-                process.communicate(),
-                timeout=1500
-            )
+            stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=1500)
 
             if stdout:
-                for line in stdout.decode('utf-8', errors='ignore').splitlines():
+                for line in stdout.decode("utf-8", errors="ignore").splitlines():
                     logger.info(f"[Hayabusa] {line}")
             if stderr:
-                for line in stderr.decode('utf-8', errors='ignore').splitlines():
+                for line in stderr.decode("utf-8", errors="ignore").splitlines():
                     logger.warning(f"[Hayabusa ERR] {line}")
 
             if process.returncode == 0:
@@ -195,11 +154,7 @@ async def update_definitions_async():
     logger.info("[UPDATES] Starting definition update")
 
     try:
-        results = await asyncio.gather(
-            update_definitions_clamav_async(),
-            update_definitions_hayabusa_async(),
-            return_exceptions=True
-        )
+        results = await asyncio.gather(update_definitions_clamav_async(), update_definitions_hayabusa_async(), return_exceptions=True)
 
         clamav_result, hayabusa_result = results
 
@@ -220,7 +175,7 @@ async def run_periodic_updates_async(update_interval_sec: int = 7200):
     First update runs immediately on startup.
     Default: 7200s (2 hours)
     """
-    logger.info(f"[UPDATES] Starting periodic updates (interval: {update_interval_sec/3600:.1f}h)")
+    logger.info(f"[UPDATES] Starting periodic updates (interval: {update_interval_sec / 3600:.1f}h)")
 
     # Run first update immediately
     try:
@@ -246,9 +201,11 @@ async def run_periodic_updates_async(update_interval_sec: int = 7200):
         except Exception as e:
             logger.exception(f"[UPDATES] Error in update #{update_count}: {e}")
 
+
 # ==============================================================================
 # Main Entry Point
 # ==============================================================================
+
 
 async def main_async():
     """Main async entry point that runs all tasks concurrently."""
@@ -277,11 +234,7 @@ async def main_async():
 
     # Wait for all tasks
     try:
-        await asyncio.gather(
-            rtp_task,
-            updates_task,
-            return_exceptions=True
-        )
+        await asyncio.gather(rtp_task, updates_task, return_exceptions=True)
     except asyncio.CancelledError:
         logger.info("[INIT] Main tasks cancelled")
         raise

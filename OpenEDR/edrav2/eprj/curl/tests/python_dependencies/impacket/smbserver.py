@@ -2344,7 +2344,7 @@ class SMBCommands:
                     jtr_dump_path = smbServer.getJTRdumpPath()
                     ntlm_hash_data = outputToJohnFormat( connData['CHALLENGE_MESSAGE']['challenge'], authenticateMessage['user_name'], authenticateMessage['domain_name'], authenticateMessage['lanman'], authenticateMessage['ntlm'] )
                     smbServer.log(ntlm_hash_data['hash_string'])
-                    if jtr_dump_path is not '':
+                    if jtr_dump_path != '':
                         writeJohnOutputToFile(ntlm_hash_data['hash_string'], ntlm_hash_data['hash_version'], jtr_dump_path)
                 except:
                     smbServer.log("Could not write NTLM Hashes to the specified JTR_Dump_Path %s" % jtr_dump_path)
@@ -2375,7 +2375,7 @@ class SMBCommands:
                 jtr_dump_path = smbServer.getJTRdumpPath()
                 ntlm_hash_data = outputToJohnFormat( '', sessionSetupData['Account'], sessionSetupData['PrimaryDomain'], sessionSetupData['AnsiPwd'], sessionSetupData['UnicodePwd'] )
                 smbServer.log(ntlm_hash_data['hash_string'])
-                if jtr_dump_path is not '':
+                if jtr_dump_path != '':
                     writeJohnOutputToFile(ntlm_hash_data['hash_string'], ntlm_hash_data['hash_version'], jtr_dump_path)
             except:
                 smbServer.log("Could not write NTLM Hashes to the specified JTR_Dump_Path %s" % jtr_dump_path)
@@ -2687,7 +2687,7 @@ class SMB2Commands:
                 jtr_dump_path = smbServer.getJTRdumpPath()
                 ntlm_hash_data = outputToJohnFormat( connData['CHALLENGE_MESSAGE']['challenge'], authenticateMessage['user_name'], authenticateMessage['domain_name'], authenticateMessage['lanman'], authenticateMessage['ntlm'] )
                 smbServer.log(ntlm_hash_data['hash_string'])
-                if jtr_dump_path is not '':
+                if jtr_dump_path != '':
                     writeJohnOutputToFile(ntlm_hash_data['hash_string'], ntlm_hash_data['hash_version'], jtr_dump_path)
             except:
                 smbServer.log("Could not write NTLM Hashes to the specified JTR_Dump_Path %s" % jtr_dump_path)
@@ -4153,7 +4153,7 @@ smb.SMB.TRANS_TRANSACT_NMPIPE          :self.__smbTransHandler.transactNamedPipe
 
         # Process the credentials
         credentials_fname = self.__serverConfig.get('global','credentials_file')
-        if credentials_fname is not "":
+        if credentials_fname != "":
             cred = open(credentials_fname)
             line = cred.readline()
             while line:

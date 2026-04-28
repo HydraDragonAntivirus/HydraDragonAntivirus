@@ -15,6 +15,9 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="..\..\libs\googletest\googletest\googletest\src\gtest-all.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="FileFsStream_unittest.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>

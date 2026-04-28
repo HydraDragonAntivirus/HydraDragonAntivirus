@@ -14,7 +14,7 @@
 #include <cctype>
 
 // YARA Headers
-#include "yara/yara.h"
+#include <yara.h>
 
 namespace fs = std::filesystem;
 

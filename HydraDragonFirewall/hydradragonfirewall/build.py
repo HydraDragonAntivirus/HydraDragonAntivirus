@@ -18,28 +18,64 @@ import sys
 from pathlib import Path
 
 # ── Colours ────────────────────────────────────────────────────────────────────
-CYAN    = "\033[96m"
-YELLOW  = "\033[93m"
-GREEN   = "\033[92m"
-RED     = "\033[91m"
+CYAN = "\033[96m"
+YELLOW = "\033[93m"
+GREEN = "\033[92m"
+RED = "\033[91m"
 MAGENTA = "\033[95m"
-GRAY    = "\033[90m"
-RESET   = "\033[0m"
+GRAY = "\033[90m"
+RESET = "\033[0m"
 
-def cyan(s):    return f"{CYAN}{s}{RESET}"
-def yellow(s):  return f"{YELLOW}{s}{RESET}"
-def green(s):   return f"{GREEN}{s}{RESET}"
-def red(s):     return f"{RED}{s}{RESET}"
-def magenta(s): return f"{MAGENTA}{s}{RESET}"
-def gray(s):    return f"{GRAY}{s}{RESET}"
 
-def header(msg): print(cyan("=" * 48)); print(cyan(f"  {msg}")); print(cyan("=" * 48))
-def step(n, msg): print(yellow(f"\n[{n}] {msg}"))
-def ok(msg):   print(green(f"      {msg}"))
-def warn(msg): print(yellow(f"  WARNING: {msg}"))
-def fail(msg): print(red(f"  ERROR: {msg}")); sys.exit(1)
+def cyan(s):
+    return f"{CYAN}{s}{RESET}"
+
+
+def yellow(s):
+    return f"{YELLOW}{s}{RESET}"
+
+
+def green(s):
+    return f"{GREEN}{s}{RESET}"
+
+
+def red(s):
+    return f"{RED}{s}{RESET}"
+
+
+def magenta(s):
+    return f"{MAGENTA}{s}{RESET}"
+
+
+def gray(s):
+    return f"{GRAY}{s}{RESET}"
+
+
+def header(msg):
+    print(cyan("=" * 48))
+    print(cyan(f"  {msg}"))
+    print(cyan("=" * 48))
+
+
+def step(n, msg):
+    print(yellow(f"\n[{n}] {msg}"))
+
+
+def ok(msg):
+    print(green(f"      {msg}"))
+
+
+def warn(msg):
+    print(yellow(f"  WARNING: {msg}"))
+
+
+def fail(msg):
+    print(red(f"  ERROR: {msg}"))
+    sys.exit(1)
+
 
 # ── Dependency checks ──────────────────────────────────────────────────────────
+
 
 def prompt_install(name: str, install_cmd: list) -> None:
     """Ask the user whether to install a missing tool."""
@@ -59,6 +95,7 @@ def prompt_install(name: str, install_cmd: list) -> None:
         fail(f"`{name}` still not found after install — restart your terminal and re-run.")
     ok(f"`{name}` installed: {shutil.which(name)}")
 
+
 def check_tool(name: str, install_cmd: list) -> str:
     """Return the full path to `name`, prompting to install if missing."""
     path = shutil.which(name)
@@ -67,23 +104,22 @@ def check_tool(name: str, install_cmd: list) -> str:
         return path
     prompt_install(name, install_cmd)
 
+
 def check_rustup_target(target: str):
-    result = subprocess.run(
-        ["rustup", "target", "list", "--installed"],
-        capture_output=True, text=True
-    )
+    result = subprocess.run(["rustup", "target", "list", "--installed"], capture_output=True, text=True)
     if target in result.stdout:
         print(gray(f"      rustup target {target} already installed"))
         return
     print(yellow(f"      Installing rustup target {target}..."))
     run(["rustup", "target", "add", target])
 
+
 def check_dependencies():
     step("0/4", "Checking dependencies...")
 
-    check_tool("cargo",   ["winget", "install", "Rustlang.Rustup"])
-    check_tool("rustup",  ["winget", "install", "Rustlang.Rustup"])
-    check_tool("trunk",   ["cargo", "install", "trunk"])
+    check_tool("cargo", ["winget", "install", "Rustlang.Rustup"])
+    check_tool("rustup", ["winget", "install", "Rustlang.Rustup"])
+    check_tool("trunk", ["cargo", "install", "trunk"])
 
     # Tauri CLI is optional — only needed for `cargo tauri dev/build`.
     # This script calls `cargo build` directly, but warn if it's missing.
@@ -101,13 +137,16 @@ def check_dependencies():
     check_rustup_target("wasm32-unknown-unknown")
     ok("All required dependencies present.")
 
+
 # ── Helpers ────────────────────────────────────────────────────────────────────
+
 
 def run(cmd: list, cwd: Path = None, env: dict = None):
     merged_env = {**os.environ, **(env or {})}
     result = subprocess.run(cmd, cwd=cwd, env=merged_env)
     if result.returncode != 0:
         fail(f"Command failed (exit {result.returncode}): {' '.join(str(c) for c in cmd)}")
+
 
 def robust_copy(src: Path, dst: Path):
     if src.exists():
@@ -120,21 +159,24 @@ def robust_copy(src: Path, dst: Path):
     else:
         warn(f"Source not found: {src}")
 
+
 # ── Build steps ────────────────────────────────────────────────────────────────
 
+
 def build_ui(script_dir: Path, release: bool):
-    step("1/4", f"Building UI with Trunk ({ 'release' if release else 'debug' })...")
+    step("1/4", f"Building UI with Trunk ({'release' if release else 'debug'})...")
     ui_dir = script_dir / "ui"
     dist_dir = script_dir / "dist"
     if not ui_dir.exists():
         fail(f"UI directory not found: {ui_dir}")
-    
+
     cmd = ["trunk", "build", "--dist", str(dist_dir)]
     if release:
         cmd.append("--release")
-    
+
     run(cmd, cwd=ui_dir)
     ok("UI build complete!")
+
 
 def build_rust(script_dir: Path, release: bool, windivert_path: Path):
     flag = "release" if release else "debug"
@@ -152,11 +194,12 @@ def build_rust(script_dir: Path, release: bool, windivert_path: Path):
         cmd,
         cwd=script_dir,
         env={
-            "WINDIVERT_PATH":       str(windivert_path),
+            "WINDIVERT_PATH": str(windivert_path),
             "WINDIVERT_DLL_OUTPUT": str(target_dir),
-        }
+        },
     )
     ok("Rust build complete!")
+
 
 def copy_windivert(script_dir: Path, release: bool, windivert_path: Path):
     step("3/4", "Copying WinDivert runtime files...")
@@ -170,17 +213,19 @@ def copy_windivert(script_dir: Path, release: bool, windivert_path: Path):
     robust_copy(exe_src, windivert_path / "hydradragonfirewall.exe")
     robust_copy(dll_src, windivert_path / "hydradragonfirewall.dll")
 
+
 # ── Entry point ────────────────────────────────────────────────────────────────
+
 
 def main():
     parser = argparse.ArgumentParser(description="HydraDragon Firewall Build Script")
     parser.add_argument("--release", action="store_true", help="Build in release mode")
-    parser.add_argument("--run",     action="store_true", help="Launch the app after building")
+    parser.add_argument("--run", action="store_true", help="Launch the app after building")
     args = parser.parse_args()
 
     header("HydraDragon Firewall Build System")
 
-    script_dir    = Path(__file__).resolve().parent
+    script_dir = Path(__file__).resolve().parent
     windivert_path = (script_dir / ".." / "everything").resolve()
 
     if not windivert_path.exists():
@@ -196,12 +241,7 @@ def main():
 
     lib_file = windivert_path / "WinDivert.lib"
     if not lib_file.exists():
-        fail(
-            f"WinDivert.lib not found in: {windivert_path}\n"
-            "  The folder exists but is missing the import library.\n"
-            "  Download the WinDivert x64 package and copy WinDivert.lib,\n"
-            "  WinDivert.dll and WinDivert64.sys into that folder."
-        )
+        fail(f"WinDivert.lib not found in: {windivert_path}\n  The folder exists but is missing the import library.\n  Download the WinDivert x64 package and copy WinDivert.lib,\n  WinDivert.dll and WinDivert64.sys into that folder.")
 
     check_dependencies()
     build_ui(script_dir, args.release)
@@ -225,4 +265,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-    

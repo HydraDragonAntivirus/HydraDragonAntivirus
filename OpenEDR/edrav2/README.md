@@ -11,9 +11,6 @@ This project has been updated to build natively using **Visual Studio 2022**. A 
 The master build script is located in the Visual Studio 2022 solution directory:
 `build\vs2022\build_all.cmd`
 
-> [!WARNING]
-> **Clean Build Behavior**: Running `build_all.cmd` will automatically delete the old `out/` directory (`rd /s /q out`) before starting the build process. This is mandatory to ensure compilation consistency and prevent stale object file contamination, but it will remove all existing build artifacts and logs.
-
 #### 1. Full Dependency Rebuild (`--full`)
 
 If you are cloning the repository for the first time or if you have modified third-party libraries in the `eprj` directory, you **must** build the dependencies first. This can take several minutes (15-25m).

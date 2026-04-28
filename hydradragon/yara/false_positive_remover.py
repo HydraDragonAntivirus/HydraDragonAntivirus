@@ -40,56 +40,24 @@ except ImportError:
 
 LOG_FILE = "removal.log"
 
+
 def build_cli_parser():
     """Builds the command-line interface for the script."""
-    parser = OptionParser(
-        usage="%prog -y <YARA_PATH> -f <BENIGN_FILES_DIR> [options]",
-        description="Identifies false positive rules by scanning benign files, then removes those rules from the source."
-    )
-    parser.add_option(
-        "-y", "--yara-path",
-        dest="yara_path",
-        help="Required: Path to the YARA file or directory to scan and clean."
-    )
-    parser.add_option(
-        "-f", "--false-positives-dir",
-        dest="fp_path",
-        help="Required: Path to the directory of benign files to scan for false positives."
-    )
-    parser.add_option(
-        "-s", "--subdirectories",
-        action="store_true",
-        default=False,
-        help="If --yara-path is a directory, recurse into its subdirectories."
-    )
-    parser.add_option(
-        "-w", "--workers",
-        dest="workers",
-        type="int",
-        default=os.cpu_count(),
-        help=f"Number of parallel processes to use for scanning. (Default: {os.cpu_count()})"
-    )
-    parser.add_option(
-        "--from-log",
-        action="store_true",
-        dest="from_log",
-        default=False,
-        help="Skip scanning. Read already-identified FP rules from removal.log and remove them directly."
-    )
-    parser.add_option(
-        "--skip-yara-files",
-        action="store_true",
-        dest="skip_yara_files",
-        default=False,
-        help="Skip .yar, .yara, and .yrc files when scanning the benign files directory."
-    )
+    parser = OptionParser(usage="%prog -y <YARA_PATH> -f <BENIGN_FILES_DIR> [options]", description="Identifies false positive rules by scanning benign files, then removes those rules from the source.")
+    parser.add_option("-y", "--yara-path", dest="yara_path", help="Required: Path to the YARA file or directory to scan and clean.")
+    parser.add_option("-f", "--false-positives-dir", dest="fp_path", help="Required: Path to the directory of benign files to scan for false positives.")
+    parser.add_option("-s", "--subdirectories", action="store_true", default=False, help="If --yara-path is a directory, recurse into its subdirectories.")
+    parser.add_option("-w", "--workers", dest="workers", type="int", default=os.cpu_count(), help=f"Number of parallel processes to use for scanning. (Default: {os.cpu_count()})")
+    parser.add_option("--from-log", action="store_true", dest="from_log", default=False, help="Skip scanning. Read already-identified FP rules from removal.log and remove them directly.")
+    parser.add_option("--skip-yara-files", action="store_true", dest="skip_yara_files", default=False, help="Skip .yar, .yara, and .yrc files when scanning the benign files directory.")
     return parser
+
 
 def log_message(message):
     """Logs a message to the console and the log file."""
     print(message)
     try:
-        with open(LOG_FILE, "a", encoding='utf-8') as f:
+        with open(LOG_FILE, "a", encoding="utf-8") as f:
             f.write(f"[{datetime.datetime.now()}] {message}\n")
     except IOError as e:
         print(f"Error: Could not write to log file {LOG_FILE}: {e}")
@@ -98,6 +66,7 @@ def log_message(message):
 def is_yara_artifact(filepath):
     """Return True when the path looks like a YARA source or compiled rule file."""
     return os.path.splitext(filepath)[1].lower() in (".yar", ".yara", ".yrc")
+
 
 def get_scan_entrypoint(yara_path, recursive):
     """
@@ -122,11 +91,12 @@ def get_scan_entrypoint(yara_path, recursive):
     if not yara_files:
         return None, None
 
-    temp_file = tempfile.NamedTemporaryFile(mode='w', delete=False, suffix=".yar", encoding='utf-8')
+    temp_file = tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".yar", encoding="utf-8")
     for yf in yara_files:
         temp_file.write(f'include "{yf}"\n')
     temp_file.close()
     return temp_file.name, temp_file
+
 
 def scan_file(rules_path, file_to_scan):
     """
@@ -145,12 +115,13 @@ def scan_file(rules_path, file_to_scan):
         pass
     return matching_rules, file_to_scan
 
+
 def generate_fp_rules_from_scan(scan_entrypoint_path, benign_files_dir, num_workers, skip_yara_files=False):
     """
     Scans a directory of benign files in parallel and returns the names of all matching rules.
     """
     fp_rule_names = set()
-    
+
     # 1. Collect all benign files to be scanned
     benign_files = []
     skipped_yara_files = 0
@@ -170,12 +141,12 @@ def generate_fp_rules_from_scan(scan_entrypoint_path, benign_files_dir, num_work
         log_message(f"Skipped {skipped_yara_files} YARA file(s) in the benign files directory.")
 
     log_message(f"Scanning {len(benign_files)} benign files with {num_workers} workers...")
-    
+
     # 2. Use ProcessPoolExecutor to scan files in parallel
     with ProcessPoolExecutor(max_workers=num_workers) as executor:
         # Submit all scan jobs
         futures = [executor.submit(scan_file, scan_entrypoint_path, bf) for bf in benign_files]
-        
+
         # Process results as they complete with a progress bar
         for future in tqdm(as_completed(futures), total=len(benign_files), desc="Scanning Benign Files"):
             try:
@@ -190,41 +161,43 @@ def generate_fp_rules_from_scan(scan_entrypoint_path, benign_files_dir, num_work
 
     return fp_rule_names
 
+
 def find_rule_end_index(content, start_index):
     """Finds the matching closing brace for a rule block, ignoring braces in strings."""
     try:
-        first_brace_index = content.index('{', start_index)
+        first_brace_index = content.index("{", start_index)
     except ValueError:
-        return -1 
+        return -1
 
     brace_level = 1
     in_string = False
-    string_char = ''
+    string_char = ""
 
     for i in range(first_brace_index + 1, len(content)):
         char = content[i]
-        prev_char = content[i-1]
+        prev_char = content[i - 1]
 
         if in_string:
-            if char == string_char and prev_char != '\\':
+            if char == string_char and prev_char != "\\":
                 in_string = False
         else:
             if char in ('"', "'"):
                 in_string = True
                 string_char = char
-            elif char == '{':
+            elif char == "{":
                 brace_level += 1
-            elif char == '}':
+            elif char == "}":
                 brace_level -= 1
 
         if brace_level == 0:
             return i + 1
     return -1
 
+
 def process_yara_file(filepath, rules_to_remove):
     """Reads a YARA file, removes the specified rules, and overwrites the file."""
     try:
-        with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
+        with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
             original_content = f.read()
     except Exception as e:
         log_message(f"Error: Could not read file {filepath}. Skipping. Details: {e}")
@@ -244,21 +217,22 @@ def process_yara_file(filepath, rules_to_remove):
                 rules_removed_in_file += 1
             else:
                 log_message(f"Warning: Could not find matching closing brace for rule '{rule_name}' in {filepath}. Skipping.")
-    
+
     if rules_removed_in_file > 0:
         log_message(f"INFO: Marked {rules_removed_in_file} rule(s) for removal from {filepath}")
         try:
-            with open(filepath, 'w', encoding='utf-8', errors='ignore') as f:
+            with open(filepath, "w", encoding="utf-8", errors="ignore") as f:
                 f.write(modified_content)
         except Exception as e:
             log_message(f"Error: Could not write changes to {filepath}. Details: {e}")
+
 
 def parse_fp_rules_from_log(log_path):
     """Parses the removal.log file and extracts all identified FP rule names."""
     fp_rules = set()
     pattern = re.compile(r"Identified FP: Rule '([^']+)'")
     try:
-        with open(log_path, 'r', encoding='utf-8') as f:
+        with open(log_path, "r", encoding="utf-8") as f:
             for line in f:
                 match = pattern.search(line)
                 if match:
@@ -279,13 +253,13 @@ def main():
     if not opts.from_log and not opts.fp_path:
         parser.print_help()
         sys.exit(1)
-        
 
     log_message("--- YARA False Positive Remover Started ---")
 
     yara_path = opts.yara_path
     if not os.path.exists(yara_path):
-        log_message(f"Error: YARA path does not exist: '{yara_path}'"); sys.exit(1)
+        log_message(f"Error: YARA path does not exist: '{yara_path}'")
+        sys.exit(1)
     # Check benign files path only if NOT using --from-log
     if not opts.from_log:
         if not os.path.isdir(opts.fp_path):
@@ -307,11 +281,13 @@ def main():
             if opts.subdirectories:
                 for root, _, files in os.walk(yara_path):
                     for f in files:
-                        if f.endswith((".yar", ".yara")): files_to_clean.append(os.path.join(root, f))
+                        if f.endswith((".yar", ".yara")):
+                            files_to_clean.append(os.path.join(root, f))
             else:
                 for f in os.listdir(yara_path):
                     fp = os.path.join(yara_path, f)
-                    if os.path.isfile(fp) and f.endswith((".yar", ".yara")): files_to_clean.append(fp)
+                    if os.path.isfile(fp) and f.endswith((".yar", ".yara")):
+                        files_to_clean.append(fp)
         log_message(f"Cleaning {len(files_to_clean)} YARA file(s)...")
         for f in tqdm(files_to_clean, desc="Cleaning YARA Files"):
             process_yara_file(f, false_positive_rules)
@@ -320,8 +296,9 @@ def main():
 
     scan_entrypoint, temp_file_obj = get_scan_entrypoint(yara_path, opts.subdirectories)
     if not scan_entrypoint:
-        log_message(f"Error: No .yar or .yara files found in '{yara_path}'. Aborting."); sys.exit(1)
-    
+        log_message(f"Error: No .yar or .yara files found in '{yara_path}'. Aborting.")
+        sys.exit(1)
+
     false_positive_rules = set()
     try:
         # 1. Generate the set of false positive rule names by scanning benign files in parallel
@@ -346,21 +323,24 @@ def main():
     files_to_clean = []
     if os.path.isfile(yara_path):
         files_to_clean.append(yara_path)
-    else: # is a directory
+    else:  # is a directory
         if opts.subdirectories:
             for root, _, files in os.walk(yara_path):
                 for f in files:
-                    if f.endswith((".yar", ".yara")): files_to_clean.append(os.path.join(root, f))
+                    if f.endswith((".yar", ".yara")):
+                        files_to_clean.append(os.path.join(root, f))
         else:
             for f in os.listdir(yara_path):
                 fp = os.path.join(yara_path, f)
-                if os.path.isfile(fp) and f.endswith((".yar", ".yara")): files_to_clean.append(fp)
+                if os.path.isfile(fp) and f.endswith((".yar", ".yara")):
+                    files_to_clean.append(fp)
 
     log_message(f"Cleaning {len(files_to_clean)} YARA file(s)...")
     for f in tqdm(files_to_clean, desc="Cleaning YARA Files"):
         process_yara_file(f, false_positive_rules)
 
     log_message("--- YARA False Positive Remover Finished ---")
+
 
 if __name__ == "__main__":
     main()

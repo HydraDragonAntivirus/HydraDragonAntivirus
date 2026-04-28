@@ -70,7 +70,7 @@ class DocProcessorOptions(object):
                 for category_ in DOC_TYPES
             )
 
-        setattr(DocProcessorOptions, f'comments', property(comments_getter, comments_setter))
+        setattr(DocProcessorOptions, 'comments', property(comments_getter, comments_setter))
 
         #
         # Create common property getter/setter for *_prefer_alternative_names.

@@ -1,17 +1,18 @@
 import os
 from .Parser.parse_v8cache import parse_v8cache_file, parse_disassembled_file
-#from .Simplify.global_scope_replace import replace_global_scope
+# from .Simplify.global_scope_replace import replace_global_scope
+
 
 def disassemble(in_file, input_is_disassembled, disassembler):
-    out_name = 'disasm.tmp'
+    out_name = "disasm.tmp"
     view8_dir = os.path.dirname(os.path.abspath(__file__))
-    
+
     if input_is_disassembled:
         out_name = in_file
     else:
         # Disassemble the file
         parse_v8cache_file(in_file, out_name, view8_dir, disassembler)
-    
+
     return parse_disassembled_file(out_name)
 
 

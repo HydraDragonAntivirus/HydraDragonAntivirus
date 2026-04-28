@@ -45,8 +45,8 @@ class TranslateBytecode:
 
         for line in code:
             self.offset = line.line_num
-            self.operator, *self.args = line.v8_instruction.split(' ', 1)
-            self.operator = self.operator.split('.')[0]
+            self.operator, *self.args = line.v8_instruction.split(" ", 1)
+            self.operator = self.operator.split(".")[0]
             self.args = self.args[0].split(", ") if self.args else []
             line.translated = operands.get(self.operator, operands["Not Found"])(self)
             line.translated = line.translated.replace("<this>", "this")

@@ -22,15 +22,18 @@ from pathlib import Path
 try:
     # Try to set UTF-8 mode for stdout/stderr
     import io
+
     if isinstance(sys.stdout, io.TextIOWrapper):
-        sys.stdout.reconfigure(encoding='utf-8')
+        sys.stdout.reconfigure(encoding="utf-8")
     if isinstance(sys.stderr, io.TextIOWrapper):
-        sys.stderr.reconfigure(encoding='utf-8')
+        sys.stderr.reconfigure(encoding="utf-8")
 except Exception:
     # Fallback: replace stdout/stderr with UTF-8 versions
     import codecs
-    sys.stdout = codecs.getwriter('utf-8')(sys.stdout.buffer, 'ignore')
-    sys.stderr = codecs.getwriter('utf-8')(sys.stderr.buffer, 'ignore')
+
+    sys.stdout = codecs.getwriter("utf-8")(sys.stdout.buffer, "ignore")
+    sys.stderr = codecs.getwriter("utf-8")(sys.stderr.buffer, "ignore")
+
 
 # ----------------------
 # Administrator check
@@ -42,9 +45,11 @@ def is_admin():
     except Exception:
         return False
 
+
 if not is_admin():
     print("ERROR: This script must be run as Administrator.", file=sys.stderr)
     sys.exit(1)
+
 
 # ----------------------
 # Helper functions
@@ -55,12 +60,13 @@ def get_special_folder(csidl):
     ctypes.windll.shell32.SHGetFolderPathW(None, csidl, None, 0, buf)
     return buf.value
 
+
 def create_directory(path, description):
     """Create a directory if it doesn't exist."""
     if path.exists():
         print(f"INFO: Directory already exists: {path}")
         return True
-    
+
     try:
         path.mkdir(parents=True, exist_ok=False)
         print(f"✓ Created directory: {path}")
@@ -69,17 +75,13 @@ def create_directory(path, description):
         print(f"ERROR: Failed to create {description}: {e}", file=sys.stderr)
         return False
 
+
 def configure_bcd():
     """Configure BCD settings for test-signing and kernel debug."""
     print("\nConfiguring BCD for test-signing and kernel debug...")
-    
-    commands = [
-        (["bcdedit", "/set", "TESTSIGNING", "ON"], "Enable test signing"),
-        (["bcdedit", "/debug", "ON"], "Enable debug mode"),
-        (["bcdedit", "/dbgsettings", "serial", "debugport:1", "baudrate:115200"], 
-         "Configure debug settings")
-    ]
-    
+
+    commands = [(["bcdedit", "/set", "TESTSIGNING", "ON"], "Enable test signing"), (["bcdedit", "/debug", "ON"], "Enable debug mode"), (["bcdedit", "/dbgsettings", "serial", "debugport:1", "baudrate:115200"], "Configure debug settings")]
+
     success = True
     for cmd, desc in commands:
         try:
@@ -88,9 +90,9 @@ def configure_bcd():
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
-                encoding='utf-8',      # ← FIXED: explicit UTF-8 encoding
-                errors='ignore',
-                check=False
+                encoding="utf-8",  # ← FIXED: explicit UTF-8 encoding
+                errors="ignore",
+                check=False,
             )
             if result.returncode == 0:
                 print(f"✓ {desc}")
@@ -105,8 +107,9 @@ def configure_bcd():
         except Exception as e:
             print(f"ERROR: Failed to configure {desc}: {e}", file=sys.stderr)
             success = False
-    
+
     return success
+
 
 # ----------------------
 # Main execution
@@ -117,20 +120,13 @@ def main():
     print("Clean VM Installer - Sanctum Setup")
     print("=" * 70)
     print()
-    
+
     errors = []
-    
+
     # 1. Ensure the installed Sanctum folder exists under Program Files
-    program_files = (
-        os.environ.get("ProgramW6432")
-        or os.environ.get("ProgramFiles")
-        or r"C:\Program Files"
-    )
+    program_files = os.environ.get("ProgramW6432") or os.environ.get("ProgramFiles") or r"C:\Program Files"
     sanctum_install_dir = Path(program_files) / "HydraDragonAntivirus" / "hydradragon" / "Sanctum"
-    if not create_directory(
-        sanctum_install_dir,
-        r"C:\Program Files\HydraDragonAntivirus\hydradragon\Sanctum"
-    ):
+    if not create_directory(sanctum_install_dir, r"C:\Program Files\HydraDragonAntivirus\hydradragon\Sanctum"):
         errors.append("Installed Sanctum directory creation")
 
     # 2. Dynamic System32 Deployment (EDR DLL)
@@ -138,9 +134,9 @@ def main():
     # Dynamic source: Relies on repo structure: Sanctum/System32/sanctum.dll
     base_dir = Path(__file__).parent.absolute()
     local_dll_source = base_dir / "System32" / "sanctum.dll"
-    
+
     # Target: Real Windows System32
-    win_system32 = Path(os.environ['SystemRoot']) / "System32"
+    win_system32 = Path(os.environ["SystemRoot"]) / "System32"
     final_dest = win_system32 / "sanctum.dll"
 
     if local_dll_source.exists():
@@ -148,9 +144,9 @@ def main():
         try:
             # Disable WOW64 Redirection to ensure we hit 64-bit System32
             ctypes.windll.kernel32.Wow64DisableWow64FsRedirection(ctypes.byref(prev_value))
-            
+
             shutil.copy2(str(local_dll_source), str(final_dest))
-            
+
             # Re-enable Redirection
             ctypes.windll.kernel32.Wow64RevertWow64FsRedirection(prev_value)
             print(f"✓ Successfully deployed: {final_dest}")
@@ -175,11 +171,12 @@ def main():
         sys.exit(1)
     else:
         print("✓ Clean VM setup complete!")
-        print(f"\nCreated directories:")
+        print("\nCreated directories:")
         print(f"  - {sanctum_install_dir}")
         print("\nPlease follow the remaining instructions to complete installation.")
         print("=" * 70)
         sys.exit(0)
+
 
 if __name__ == "__main__":
     main()

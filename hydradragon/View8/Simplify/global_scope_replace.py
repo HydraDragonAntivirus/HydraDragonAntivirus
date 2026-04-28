@@ -7,7 +7,7 @@ def replace_global_scope(all_functions):
     scope_counts = defaultdict(int)
 
     # Regex pattern to match Scope[num][num] = value
-    pattern = re.compile(r'Scope\[(\d+)\]\[(\d+)\] = (\S+)')
+    pattern = re.compile(r"Scope\[(\d+)\]\[(\d+)\] = (\S+)")
 
     # First pass: Find all unique Scope assignments
     for func in all_functions.values():
@@ -32,9 +32,6 @@ def replace_global_scope(all_functions):
             new_line = line_obj.decompiled
             for key, count in scope_counts.items():
                 if count == 1 and scope_assignments[key] is not None:
-                    scope_pattern = re.escape(f'Scope[{key[0]}][{key[1]}]')
+                    scope_pattern = re.escape(f"Scope[{key[0]}][{key[1]}]")
                     new_line = re.sub(scope_pattern, scope_assignments[key], new_line)
             line_obj.decompiled = new_line
-
-
-

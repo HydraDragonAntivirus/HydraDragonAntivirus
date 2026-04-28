@@ -310,10 +310,7 @@ pub mod process_record_handling {
                     "\nSee {}\\threats for details.",
                     self.config[Param::RealTimeLearningPath]
                 );
-                println!(
-                    "",
-                    self.config[Param::ConfigPath]
-                );
+                println!("{}", self.config[Param::ConfigPath]);
 
                 let kill_policy = self.config.get_kill_policy();
                 let heuristic_hard_remediation = precord.appname.contains("TEST-OLRANSOM")
@@ -403,10 +400,7 @@ pub mod process_record_handling {
                         "\nSee {}\\threats for details.",
                         self.config[Param::RealTimeLearningPath]
                     );
-                    println!(
-                        "",
-                        self.config[Param::ConfigPath]
-                    );
+                    println!("{}", self.config[Param::ConfigPath]);
 
                     let threat_info = ThreatInfo {
                         threat_type_label: "Ransomware",

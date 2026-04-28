@@ -57,8 +57,9 @@ ZIP files which contain virus will be deleted.
 ```
 C:\build>TinyAvConsole.exe -d C:\sample
 ------------------------------------------------------
-TinyAntivirus version 0.1
+TinyAntivirus version 0.2
 Copyright (C) 2016, Quang Nguyen. All rights reserved.
+Copyright (C) 2026, Emirhan Ucan. All rights reserved.
 Website: http://develbranch.com
 ------------------------------------------------------
 Scanning ...
@@ -96,3 +97,7 @@ I have only one Sality sample to develop Sality killer module. I think there are
 [Quang Nguyễn](https://github.com/quangnh89)
 
 Blog: [develbranch.com](https://develbranch.com)
+
+## Maintainer
+
+Emirhan Ucan

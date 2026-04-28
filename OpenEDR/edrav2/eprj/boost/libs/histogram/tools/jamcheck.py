@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-import sys
 import glob
 import os
 import re

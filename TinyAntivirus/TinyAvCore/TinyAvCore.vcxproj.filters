@@ -152,6 +152,51 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="..\libs\zlib\adler32.c">
+      <Filter>Source Files\FileSystem\zip</Filter>
+    </ClCompile>
+    <ClCompile Include="..\libs\zlib\compress.c">
+      <Filter>Source Files\FileSystem\zip</Filter>
+    </ClCompile>
+    <ClCompile Include="..\libs\zlib\crc32.c">
+      <Filter>Source Files\FileSystem\zip</Filter>
+    </ClCompile>
+    <ClCompile Include="..\libs\zlib\deflate.c">
+      <Filter>Source Files\FileSystem\zip</Filter>
+    </ClCompile>
+    <ClCompile Include="..\libs\zlib\gzclose.c">
+      <Filter>Source Files\FileSystem\zip</Filter>
+    </ClCompile>
+    <ClCompile Include="..\libs\zlib\gzlib.c">
+      <Filter>Source Files\FileSystem\zip</Filter>
+    </ClCompile>
+    <ClCompile Include="..\libs\zlib\gzread.c">
+      <Filter>Source Files\FileSystem\zip</Filter>
+    </ClCompile>
+    <ClCompile Include="..\libs\zlib\gzwrite.c">
+      <Filter>Source Files\FileSystem\zip</Filter>
+    </ClCompile>
+    <ClCompile Include="..\libs\zlib\infback.c">
+      <Filter>Source Files\FileSystem\zip</Filter>
+    </ClCompile>
+    <ClCompile Include="..\libs\zlib\inffast.c">
+      <Filter>Source Files\FileSystem\zip</Filter>
+    </ClCompile>
+    <ClCompile Include="..\libs\zlib\inflate.c">
+      <Filter>Source Files\FileSystem\zip</Filter>
+    </ClCompile>
+    <ClCompile Include="..\libs\zlib\inftrees.c">
+      <Filter>Source Files\FileSystem\zip</Filter>
+    </ClCompile>
+    <ClCompile Include="..\libs\zlib\trees.c">
+      <Filter>Source Files\FileSystem\zip</Filter>
+    </ClCompile>
+    <ClCompile Include="..\libs\zlib\uncompr.c">
+      <Filter>Source Files\FileSystem\zip</Filter>
+    </ClCompile>
+    <ClCompile Include="..\libs\zlib\zutil.c">
+      <Filter>Source Files\FileSystem\zip</Filter>
+    </ClCompile>
     <ClCompile Include="Emulator\PeEmulator.cpp">
       <Filter>Source Files\Emulator</Filter>
     </ClCompile>

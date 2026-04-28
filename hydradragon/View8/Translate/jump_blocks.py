@@ -90,7 +90,7 @@ class JumpBlocks:
     def handle_continue(self, range_start, range_end):
         try:
             near_loop_end = self.get_relative_offset(range_end, -4)
-        except Exception as e:
+        except Exception:
             return
 
         statement = "continue"
@@ -119,7 +119,7 @@ class JumpBlocks:
             self.jump_done(continue_jump)
 
     def handle_loop(self, loop):
-        if loop.type != 'Loop':
+        if loop.type != "Loop":
             return False
 
         # Wrap loop start and end in while (true) { }
@@ -166,7 +166,7 @@ class JumpBlocks:
 
         while case:
             # Translate case line
-            self.code[case.start].translated = f'\n}}\n{case.case_line}\n{{\n' + self.code[case.start].translated
+            self.code[case.start].translated = f"\n}}\n{case.case_line}\n{{\n" + self.code[case.start].translated
 
             # Check for existence of case break
             # Since we shifted jumps one step back will shift also case start witch is the end of last case
@@ -193,7 +193,7 @@ class JumpBlocks:
 
         # Handle switch with default case
         if len(switch_end) == 2:
-            self.code[switch_end[0]].translated += '\n}\ndefault:\n{\n'
+            self.code[switch_end[0]].translated += "\n}\ndefault:\n{\n"
             end = self.close_section(switch_end[0], switch_end[1])
             self.handle_break(switch_end[0], self.get_relative_offset(end, -1))
             return True
@@ -201,7 +201,7 @@ class JumpBlocks:
         # if len(switch_end) > 1:
         #     print(f"v8 len of switch end {len(switch_end)} {switch_end} {swt.last_case_start}")
 
-        self.code[switch_end[-2]].translated += '\n}\ndefault:\n{\n'
+        self.code[switch_end[-2]].translated += "\n}\ndefault:\n{\n"
         end = self.close_section(switch_end[-2], switch_end[-1])
         self.handle_break(switch_end[-2], end)
 
@@ -216,10 +216,10 @@ class JumpBlocks:
             return False
 
         # Collect all 'If' jump cases within the switch jump's range
-        cases = [c for c in self.jump_table['If'].values() if swt.start <= c.start <= swt.end <= c.end]
+        cases = [c for c in self.jump_table["If"].values() if swt.start <= c.start <= swt.end <= c.end]
 
         # Identify the default case as a 'Jump' right after the last case's start
-        default_case = self.jump_table['Jump'].get(self.get_relative_offset(cases[-1].start, 1), None)
+        default_case = self.jump_table["Jump"].get(self.get_relative_offset(cases[-1].start, 1), None)
 
         # Validate that there are at least two distinct end values among the cases and that a default case exists
         if len(set(c.end for c in cases)) < 2 or not default_case or swt.end < default_case.start:
@@ -256,7 +256,7 @@ class JumpBlocks:
                 switch_end |= self.handle_break(self.get_relative_offset(prev_case_start, 1), case.end)
 
             # Close the current case block and prepare for the next
-            self.code[case.end].translated += (case_line + "{\n")
+            self.code[case.end].translated += case_line + "{\n"
             prev_case_start = case.end
             case_line = "\n}\n"
 
@@ -278,22 +278,19 @@ class JumpBlocks:
         last_if = jmp
 
         # Check for nested if statements
-        while self.jump_table['If'].get(last_if.end, last_if) != last_if:
-            if self.jump_table['If'].get(last_if.end, last_if).start == self.jump_table['If'].get(last_if.end, last_if).end:
+        while self.jump_table["If"].get(last_if.end, last_if) != last_if:
+            if self.jump_table["If"].get(last_if.end, last_if).start == self.jump_table["If"].get(last_if.end, last_if).end:
                 break
-            last_if = self.jump_table['If'].get(last_if.end, last_if)
+            last_if = self.jump_table["If"].get(last_if.end, last_if)
 
         # Check for multiple && if's by looking for an else jump
-        else_jump = self.jump_table['Jump'].get(last_if.end, None)
+        else_jump = self.jump_table["Jump"].get(last_if.end, None)
         if else_jump:
             # Return the maximum (last) 'If' jump ending where the else jump starts
-            last_if = max(
-                (j for j in self.jump_table['If'].values() if j.end == else_jump.start),
-                key=lambda x: x.start
-            )
+            last_if = max((j for j in self.jump_table["If"].values() if j.end == else_jump.start), key=lambda x: x.start)
 
         # if last_if just skips a jump (far jump) change last_if.end to the end og the jump
-        if far_jump := self.jump_table['Jump'].get(self.get_relative_offset(last_if.start, 1), None):
+        if far_jump := self.jump_table["Jump"].get(self.get_relative_offset(last_if.start, 1), None):
             last_if.end = far_jump.end
             self.jump_done(far_jump)
 
@@ -334,7 +331,7 @@ class JumpBlocks:
 
         last_if = self.get_last_if_in_statement(first_if)
 
-        all_if = [i for i in self.jump_table['If'].values() if first_if.start <= i.start <= last_if.start and i.start != i.end]
+        all_if = [i for i in self.jump_table["If"].values() if first_if.start <= i.start <= last_if.start and i.start != i.end]
         and_or_table = self.get_or_and_table(all_if, last_if)
 
         last_statement = "if"
@@ -353,7 +350,7 @@ class JumpBlocks:
         self.code[last_if.start].translated += "\n{"
 
         # Handle the else part if there is an else_jump
-        else_jump = self.jump_table['Jump'].get(last_if.end, None)
+        else_jump = self.jump_table["Jump"].get(last_if.end, None)
         if else_jump and else_jump.start != else_jump.end:
             self.code[else_jump.start].translated += "\n}\nelse\n{"
             self.close_section(else_jump.start, else_jump.end)
@@ -395,7 +392,7 @@ class JumpBlocks:
         self.code_list.insert(0, CodeLine(translated="{"))
         i = 0
         while i < len(self.code_list):
-            lines = self.code_list[i].translated.split('\n')
+            lines = self.code_list[i].translated.split("\n")
             if len(lines) > 1:
                 self.code_list[i].translated = lines[0]
                 for line in lines[1:]:
@@ -407,11 +404,7 @@ class JumpBlocks:
         self.code_list.append(CodeLine(translated="}"))
 
     def convert(self):
-        jump_type_handle = {"Loop": self.handle_loop,
-                            "Exception": self.handle_exception,
-                            "IntSwitch": self.handle_int_switch,
-                            "If": self.handle_if,
-                            "Jump": self.handle_jump}
+        jump_type_handle = {"Loop": self.handle_loop, "Exception": self.handle_exception, "IntSwitch": self.handle_int_switch, "If": self.handle_if, "Jump": self.handle_jump}
 
         jump_list = self.get_all_jump_list()
         self.remove_if_js_receiver()

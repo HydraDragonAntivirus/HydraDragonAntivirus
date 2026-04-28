@@ -15,22 +15,83 @@ set "CrashpadRoot=%EdrRoot%\eprj\crashpad"
 set "FirewallProjectDir=%RepoRoot%\HydraDragonFirewall\hydradragonfirewall"
 set "FirewallTargetDir=%FirewallProjectDir%\target\release"
 set "WinDivertDir=%RepoRoot%\HydraDragonFirewall\everything"
-set "vcvarsall=%ProgramFiles%\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvarsall.bat"
+set "vcvarsall="
+if exist "%ScriptDir%\vcvarsall.bat" set "vcvarsall=%ScriptDir%\vcvarsall.bat"
+if exist "%ScriptDir%\vcvarsall.cmd" set "vcvarsall=%ScriptDir%\vcvarsall.cmd"
 
-if not exist "%vcvarsall%" (
-    echo Error: Could not find Visual Studio 2022 Build Tools.
-    echo Searched path: %vcvarsall%
-    exit /b 1
+if not defined vcvarsall (
+    if exist "%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" (
+        for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do (
+            set "VSInstallDir=%%i"
+            if exist "!VSInstallDir!\VC\Auxiliary\Build\vcvarsall.bat" set "vcvarsall=!VSInstallDir!\VC\Auxiliary\Build\vcvarsall.bat"
+            if exist "!VSInstallDir!\VC\Auxiliary\Build\vcvarsall.cmd" set "vcvarsall=!VSInstallDir!\VC\Auxiliary\Build\vcvarsall.cmd"
+        )
+    )
 )
 
-echo [INFO] Cleaning "%OutDir%" to remove stale build outputs...
-if exist "%OutDir%" rd /s /q "%OutDir%"
-if exist "%OutDir%" (
-    echo [ERROR] Failed to remove "%OutDir%".
-    exit /b 1
+if not defined vcvarsall (
+    for %%P in (Community Professional Enterprise BuildTools) do (
+        if not defined vcvarsall (
+            if exist "%ProgramFiles%\Microsoft Visual Studio\2022\%%P\VC\Auxiliary\Build\vcvarsall.bat" set "vcvarsall=%ProgramFiles%\Microsoft Visual Studio\2022\%%P\VC\Auxiliary\Build\vcvarsall.bat"
+            if exist "%ProgramFiles(x86)%\Microsoft Visual Studio\2022\%%P\VC\Auxiliary\Build\vcvarsall.bat" set "vcvarsall=%ProgramFiles(x86)%\Microsoft Visual Studio\2022\%%P\VC\Auxiliary\Build\vcvarsall.bat"
+        )
+    )
 )
 
-if /I "%~1"=="--full" (
+set "NeedsVcvars=1"
+if defined VSCMD_ARG_TGT_ARCH (
+    if /i "%VSCMD_ARG_TGT_ARCH%"=="x64" (
+        echo [INFO] x64 environment already active.
+        set "NeedsVcvars=0"
+    )
+)
+
+if "!NeedsVcvars!"=="1" (
+    if not defined vcvarsall (
+        echo [ERROR] Could not find vcvarsall.bat/cmd. Please run this script from an x64 Native Tools Command Prompt or install VS 2022.
+        exit /b 1
+    )
+    echo [INFO] Initializing Visual Studio 2022 x64 Environment...
+    call "!vcvarsall!" x64
+    if errorlevel 1 (
+        echo [ERROR] Failed to initialize Visual Studio 2022 x64 environment.
+        exit /b !errorlevel!
+    )
+)
+
+rem Cleaning will be handled by the --clean flag or within the build flow if needed.
+
+set "DoFullBuild="
+set "DoClean="
+set "BuildConfig=Release"
+
+:ParseArgs
+if "%~1"=="" goto :ArgsDone
+if /I "%~1"=="--full" set "DoFullBuild=1"
+if /I "%~1"=="--clean" set "DoClean=1"
+if /I "%~1"=="--debug" set "BuildConfig=Debug"
+if /I "%~1"=="--release" set "BuildConfig=Release"
+shift
+goto :ParseArgs
+:ArgsDone
+
+if defined DoClean (
+    echo [INFO] Cleaning build artifacts...
+    if exist "%OutDir%" rd /s /q "%OutDir%"
+    if exist "%OutDir%" (
+        echo [ERROR] Failed to remove "%OutDir%".
+        exit /b 1
+    )
+    echo [SUCCESS] Clean completed successfully.
+    if not defined DoFullBuild exit /b 0
+)
+
+if defined DoFullBuild (
+    if not defined DoClean (
+        echo [INFO] Cleaning "%OutDir%" to remove stale build outputs...
+        if exist "%OutDir%" rd /s /q "%OutDir%"
+    )
+    
     echo [INFO] Full rebuild requested. Building external dependencies...
 
     pushd "%EdrRoot%"
@@ -64,15 +125,8 @@ if /I "%~1"=="--full" (
     echo [INFO] Skipping external dependency builds... Run with "--full" to rebuild dependencies and HydraDragonFirewall.
 )
 
-echo [INFO] Initializing Visual Studio 2022 x64 Environment...
-call "%vcvarsall%" x64
-if errorlevel 1 (
-    echo [ERROR] Failed to initialize Visual Studio 2022 x64 environment.
-    exit /b !errorlevel!
-)
-
-echo [INFO] Building HydraDragon EDR Solution...
-msbuild "%SolutionPath%" /p:Configuration=Release /p:Platform=x64 /t:Build /m:1
+echo [INFO] Building HydraDragon EDR Solution (!BuildConfig!)...
+msbuild "%SolutionPath%" /p:Configuration=!BuildConfig! /p:Platform=x64 /t:Build /m:1
 if errorlevel 1 (
     echo [ERROR] Build failed! errorlevel: !errorlevel!
     exit /b !errorlevel!

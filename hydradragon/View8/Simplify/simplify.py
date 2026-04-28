@@ -7,17 +7,9 @@ def get_block_type(idx, lines):
     if idx == 0:
         return "function"
 
-    first_block_line = lines[idx-1].decompiled
+    first_block_line = lines[idx - 1].decompiled
 
-    block_types = {
-        "try": "try",
-        "catch": "catch",
-        "while": "loop",
-        "switch": "case",
-        "case": "case",
-        "if": "if",
-        "else": "else"
-    }
+    block_types = {"try": "try", "catch": "catch", "while": "loop", "switch": "case", "case": "case", "if": "if", "else": "else"}
 
     for keyword, block_type in block_types.items():
         if keyword in first_block_line:
@@ -60,15 +52,14 @@ def is_reg_defined_in_reg_value(reg, value):
     reg_len = len(reg)
     idx = value.find(reg)
     while idx != -1:
-        if idx + reg_len == len(value) or not value[idx+reg_len].isdigit():
+        if idx + reg_len == len(value) or not value[idx + reg_len].isdigit():
             return True
         idx = value.find(reg, idx + 1)
 
 
 def create_loop_reg_scope(prev_reg_scope):
     # Because loop regs can be overwritten during loop iteration we define prev scope as overwritten
-    reg_scope = {k: Register("", v.all_initialized_index[0], True) for k, v in prev_reg_scope.items() if
-                 not isinstance(v, int)}
+    reg_scope = {k: Register("", v.all_initialized_index[0], True) for k, v in prev_reg_scope.items() if not isinstance(v, int)}
     reg_scope["current_context"] = prev_reg_scope["current_context"]
     return reg_scope
 
@@ -106,16 +97,16 @@ class SimplifyCode:
         return line_obj.translated
 
     def add_simplified_line(self, line):
-        self.code[self.line_index].decompiled = '\t' * self.tab_level + line if line else ""
+        self.code[self.line_index].decompiled = "\t" * self.tab_level + line if line else ""
 
     def change_context(self, line, reg_scope):
         # Change current_context index
         if "PushContext" in line:
             reg_scope["current_context"] = function_context_stack.add_new_context(reg_scope["current_context"])
-            return f"ACCU = Scope[CURRENT-1]"
+            return "ACCU = Scope[CURRENT-1]"
         # "PopContext" in line
         reg_scope["current_context"] = function_context_stack.get_context(reg_scope["current_context"], 1)
-        return f"ACCU = Scope[CURRENT]"
+        return "ACCU = Scope[CURRENT]"
 
     def add_current_context_to_sub_function(self, line, reg_scope):
         # Inherit the current context to sub-function
@@ -124,7 +115,7 @@ class SimplifyCode:
             const_pool_index = int(match.group(1))
             if len(self.sfi.const_pool) > const_pool_index:
                 name = self.sfi.const_pool[const_pool_index]
-                function_context_stack.add_function_context(name, reg_scope['current_context'])
+                function_context_stack.add_function_context(name, reg_scope["current_context"])
             else:
                 print("Error: ConstPool idx", const_pool_index, "out of range.", len(self.sfi.const_pool))
         else:
@@ -132,7 +123,7 @@ class SimplifyCode:
         return line.replace(" new func ", " ")
 
     def handle_context_diff(self, block_type, reg_scope, prev_reg_scope):
-        block_last_line = self.code[self.line_index-1].decompiled.strip()
+        block_last_line = self.code[self.line_index - 1].decompiled.strip()
         if block_type == "else" and not block_last_line.startswith(("return", "break", "continue")):
             prev_reg_scope["current_context"] = reg_scope.get("current_context")
 
@@ -147,7 +138,7 @@ class SimplifyCode:
             # Handles cases like CURRENT-1, r1-2
 
             scope_start, steps = scope.split("-")
-            start_context = reg_scope['current_context']
+            start_context = reg_scope["current_context"]
 
             if scope_start in reg_scope:
                 start_context = get_context_idx_from_var(reg_scope[scope_start])
@@ -254,7 +245,5 @@ def simplify_translated_bytecode(sfi, code):
     simplify = SimplifyCode(code, sfi)
     regs = {"current_context": function_context_stack.get_func_context(sfi.name, sfi.declarer)}
     simplify.simplify_block(regs)
-    if simplify.line_index != len(code) -1:
-        print(f"Warning! failed to decompile {sfi.name} stopped after {simplify.line_index}/{len(code)-1}")
-
-
+    if simplify.line_index != len(code) - 1:
+        print(f"Warning! failed to decompile {sfi.name} stopped after {simplify.line_index}/{len(code) - 1}")

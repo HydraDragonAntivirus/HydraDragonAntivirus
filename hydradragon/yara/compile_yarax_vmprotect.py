@@ -1,8 +1,9 @@
 import yara_x
 
+
 def compile_yara_rule(rule_path):
     try:
-        with open(rule_path, 'r', encoding='utf-8') as f:
+        with open(rule_path, "r", encoding="utf-8") as f:
             rule = f.read()
         compiled_rule = yara_x.compile(rule)
         return compiled_rule
@@ -13,13 +14,15 @@ def compile_yara_rule(rule_path):
         print("Error compiling YARA rule: ", e)
         return None
 
+
 def save_compiled_rule(compiled_rule, output_path):
     try:
-        with open(output_path, 'wb') as f:
+        with open(output_path, "wb") as f:
             compiled_rule.serialize_into(f)
         print(f"Compiled rule saved to '{output_path}'")
     except Exception as e:
         print("Error saving compiled rule: ", e)
+
 
 def main():
     rule_path = "vmprotect.yar"
@@ -32,6 +35,7 @@ def main():
 
     save_compiled_rule(compiled_rule, output_path)
     print("YARA rule compiled and saved successfully.")
+
 
 if __name__ == "__main__":
     main()

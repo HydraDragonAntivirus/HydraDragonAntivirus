@@ -55,11 +55,14 @@ def create_sanitized_yara_copy(input_path: Path) -> tuple[Path, int]:
     os.close(fd)
     sanitized_path = Path(temp_name)
 
-    with input_path.open("r", encoding="utf-8", errors="replace") as source, sanitized_path.open(
-        "w",
-        encoding="utf-8",
-        newline="",
-    ) as destination:
+    with (
+        input_path.open("r", encoding="utf-8", errors="replace") as source,
+        sanitized_path.open(
+            "w",
+            encoding="utf-8",
+            newline="",
+        ) as destination,
+    ):
         for line in source:
             match = RULE_DECL_RE.match(line)
             if not match:

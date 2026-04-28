@@ -95,6 +95,11 @@ exclude = [
     ".tox",
     ".venv",
     ".vscode",
+    "OpenEDR/edrav2/eprj",
+    "Owlyshield/HyperDbg",
+    "Owlyshield/RedDbg",
+    "Owlyshield/owlyshield_minifilter/ia32-doc",
+    "Owlyshield/owlyshield_predict/ring-patch",
     "__pypackages__",
     "_build",
     "buck-out",
@@ -109,7 +114,7 @@ line-length = 240
 indent-width = 4
 
 [tool.ruff.lint]
-select = ["E4", "E7", "E9", "F"]
+select = ["E9", "F"]
 ignore = []
 
 [tool.ruff.format]

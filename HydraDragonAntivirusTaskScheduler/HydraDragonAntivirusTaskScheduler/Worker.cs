@@ -117,6 +117,7 @@ namespace HydraDragonAntivirusTaskScheduler
             string hydraDragonLauncherPath = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
                 "HydraDragonAntivirus",
+                "HydraDragonAntivirusLauncher",
                 "HydraDragonAntivirusLauncher.exe"
             );
 

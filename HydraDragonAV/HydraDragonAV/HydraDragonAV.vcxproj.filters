@@ -27,9 +27,18 @@
     <ClInclude Include="HydraDragonAV.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="ClamAVScanner.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="HydraDragonAV.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="ClamAVScanner.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="yara.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
@@ -40,6 +49,9 @@
   </ItemGroup>
   <ItemGroup>
     <Image Include="HydraDragonAV.ico">
+      <Filter>Resource Files</Filter>
+    </Image>
+    <Image Include="small.ico">
       <Filter>Resource Files</Filter>
     </Image>
     <Image Include="..\x64\Debug\assets\icon.ico">

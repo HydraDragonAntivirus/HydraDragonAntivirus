@@ -14,7 +14,6 @@ Options:
 from __future__ import annotations
 import argparse
 import logging
-import locale
 import os
 import shutil
 import subprocess
@@ -29,15 +28,17 @@ from ctypes import wintypes
 try:
     # Try to set UTF-8 mode for stdout/stderr
     import io
+
     if isinstance(sys.stdout, io.TextIOWrapper):
-        sys.stdout.reconfigure(encoding='utf-8')
+        sys.stdout.reconfigure(encoding="utf-8")
     if isinstance(sys.stderr, io.TextIOWrapper):
-        sys.stderr.reconfigure(encoding='utf-8')
+        sys.stderr.reconfigure(encoding="utf-8")
 except Exception:
     # Fallback: replace stdout/stderr with UTF-8 versions
     import codecs
-    sys.stdout = codecs.getwriter('utf-8')(sys.stdout.buffer, 'replace')
-    sys.stderr = codecs.getwriter('utf-8')(sys.stderr.buffer, 'replace')
+
+    sys.stdout = codecs.getwriter("utf-8")(sys.stdout.buffer, "replace")
+    sys.stderr = codecs.getwriter("utf-8")(sys.stderr.buffer, "replace")
 
 # ----------------------
 # CLI / configuration
@@ -81,6 +82,7 @@ if os.name != "nt":
     log.error("This script targets Windows only. Aborting.")
     sys.exit(2)
 
+
 # ----------------------
 # Path configuration (mirror your batch)
 # ----------------------
@@ -90,6 +92,7 @@ def get_env_programw6432() -> Path:
         log.error("Neither ProgramW6432 nor ProgramFiles defined. Using C:\\Program Files as fallback.")
         programw6432 = r"C:\Program Files"
     return Path(programw6432)
+
 
 PROGRAMW6432 = get_env_programw6432()
 HYDRADRAGON_ROOT_PATH = PROGRAMW6432 / "HydraDragonAntivirus"
@@ -105,6 +108,7 @@ SANCTUM_APPDATA_PATH = HYDRADRAGON_PATH / "Sanctum" / "appdata"
 SANCTUM_ROOT_PATH = HYDRADRAGON_PATH / "Sanctum"
 LEGACY_ROAMING_SANCTUM = Path(os.environ["APPDATA"]) / "Sanctum" if os.environ.get("APPDATA") else None
 
+
 def _get_folder_path(csidl: int) -> str:
     """Return a Unicode folder path for the given CSIDL using SHGetFolderPathW."""
     buf = ctypes.create_unicode_buffer(wintypes.MAX_PATH)
@@ -112,6 +116,7 @@ def _get_folder_path(csidl: int) -> str:
     if res != 0:
         raise OSError(f"SHGetFolderPathW failed with code {res}")
     return buf.value
+
 
 def get_desktop() -> Path:
     """Return Path of current user's Desktop folder. Falls back to ~/Desktop on error."""
@@ -122,7 +127,9 @@ def get_desktop() -> Path:
         log.warning("SHGetFolderPathW failed, falling back to user home Desktop: %s", e)
         return Path(os.path.expanduser("~")) / "Desktop"
 
+
 LEGACY_DESKTOP_SANCTUM = get_desktop() / "sanctum"
+
 
 # ----------------------
 # Helpers
@@ -164,22 +171,13 @@ def run_cmd(
         try:
             # Use text=True with explicit encoding and error handling
             # This prevents subprocess from using cp1254 encoding internally
-            proc = subprocess.run(
-                cmd, 
-                check=False, 
-                shell=use_shell,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                encoding='utf-8',
-                errors='ignore'
-            )
+            proc = subprocess.run(cmd, check=False, shell=use_shell, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="ignore")
             last_rc = proc.returncode
-            
+
             # stdout and stderr are already decoded strings
             out = proc.stdout or ""
             err = proc.stderr or ""
-            
+
             # Combine output for logging
             combined_output = ""
             if out:
@@ -188,7 +186,7 @@ def run_cmd(
                 if combined_output:
                     combined_output += "\n"
                 combined_output += "STDERR:\n" + err
-            
+
             if combined_output:
                 if last_rc not in success_codes or always_log_output:
                     log.info("%s output (rc=%d):\n%s", description, last_rc, combined_output)
@@ -210,13 +208,7 @@ def run_cmd(
                     log.info("Clearing npm cache (force) before retry.")
                     npm_exe = shutil.which("npm.cmd") or shutil.which("npm")
                     if npm_exe and not DRY_RUN:
-                        subprocess.run(
-                            [npm_exe, "cache", "clean", "--force"], 
-                            check=False,
-                            text=True,
-                            encoding='utf-8',
-                            errors='replace'
-                        )
+                        subprocess.run([npm_exe, "cache", "clean", "--force"], check=False, text=True, encoding="utf-8", errors="replace")
                 except Exception:
                     log.exception("npm cache clear failed (ignored).")
             log.info("Waiting %d seconds before retry...", retry_delay)
@@ -225,6 +217,7 @@ def run_cmd(
     log.error("%s failed after %d attempts (last rc=%d).", description, retries, last_rc)
     return last_rc
 
+
 def ensure_parent(path: Path):
     parent = path.parent
     if not parent.exists():
@@ -232,6 +225,7 @@ def ensure_parent(path: Path):
             log.info("DRY RUN - would create parent dir: %s", parent)
         else:
             parent.mkdir(parents=True, exist_ok=True)
+
 
 def safe_delete_dir(target: Path) -> int:
     """
@@ -268,10 +262,12 @@ def safe_delete_dir(target: Path) -> int:
         try:
             ps_cmd = [
                 "powershell",
-                "-NoProfile", "-NonInteractive",
-                "-ExecutionPolicy", "Bypass",
+                "-NoProfile",
+                "-NonInteractive",
+                "-ExecutionPolicy",
+                "Bypass",
                 "-Command",
-                f"[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; Try {{ Remove-Item -LiteralPath '{str(target)}' -Recurse -Force -ErrorAction Stop; exit 0 }} Catch {{ exit 1 }}"
+                f"[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; Try {{ Remove-Item -LiteralPath '{str(target)}' -Recurse -Force -ErrorAction Stop; exit 0 }} Catch {{ exit 1 }}",
             ]
             rc = run_cmd(ps_cmd, f"PowerShell Remove-Item {target}", retries=1, retry_delay=0)
             if rc == 0:
@@ -305,6 +301,7 @@ def safe_delete_dir(target: Path) -> int:
 
     log.error("Failed to remove directory after %d attempts: %s", MAX_RETRIES, target)
     return 1
+
 
 def safe_copy_dir(src: Path, dst: Path) -> int:
     """
@@ -355,6 +352,7 @@ def safe_copy_dir(src: Path, dst: Path) -> int:
         log.exception("shutil copy failed: %s", e)
         return 1
 
+
 def migrate_sanctum_tree(src: Optional[Path], label: str) -> int:
     """
     Merge a Sanctum tree into the installed Program Files location, then remove
@@ -387,6 +385,7 @@ def migrate_sanctum_tree(src: Optional[Path], label: str) -> int:
 
     return 0
 
+
 def ensure_path_includes(directory: Path) -> bool:
     """
     Ensure a directory is in PATH for the current process.
@@ -395,11 +394,11 @@ def ensure_path_includes(directory: Path) -> bool:
     if not directory.exists():
         log.warning("Directory %s does not exist", directory)
         return False
-    
+
     # Get current PATH
     current_path = os.environ.get("PATH", "")
     dir_str = str(directory)
-    
+
     # Check if already in PATH (case-insensitive on Windows)
     if dir_str.lower() not in current_path.lower():
         log.info("Adding to PATH: %s", dir_str)
@@ -411,12 +410,14 @@ def ensure_path_includes(directory: Path) -> bool:
         log.debug("Already in PATH: %s", dir_str)
         return True
 
+
 def ensure_nodejs_in_path():
     """
     Ensure Node.js bin directory is in PATH for the current process.
     This fixes the 'node is not recognized' error during npm operations.
     """
     return ensure_path_includes(NODEJS_PATH)
+
 
 def verify_node_accessible():
     """
@@ -427,12 +428,7 @@ def verify_node_accessible():
     if node_exe:
         log.info("node.exe found at: %s", node_exe)
         try:
-            result = subprocess.run(
-                [node_exe, "--version"],
-                capture_output=True,
-                text=True,
-                check=False
-            )
+            result = subprocess.run([node_exe, "--version"], capture_output=True, text=True, check=False)
             if result.returncode == 0:
                 log.info("Node.js version: %s", result.stdout.strip())
                 return True
@@ -445,6 +441,7 @@ def verify_node_accessible():
     else:
         log.error("node.exe not found in PATH")
         return False
+
 
 # ----------------------
 # Main workflow
@@ -467,6 +464,7 @@ def summary_and_exit(errors: List[tuple]):
     else:
         log.info("Setup completed successfully.")
         sys.exit(0)
+
 
 def main():
     errors: List[tuple] = []
@@ -541,7 +539,7 @@ def main():
             errors.append(("database copy", rc))
     else:
         log.info("database directory not found.")
- 
+
     # 6. Update ClamAV virus definitions with retry
     freshclam = CLAMAV_DIR / "freshclam.exe"
     if freshclam.exists():
@@ -550,11 +548,10 @@ def main():
         try:
             os.chdir(str(CLAMAV_DIR))
             log.info(f"Changed directory to: {CLAMAV_DIR}")
-            
+
             # Run freshclam
-            rc = run_cmd([str(freshclam)], "ClamAV virus definitions update", 
-                          retries=MAX_RETRIES, retry_delay=RETRY_DELAY, always_log_output=True)
-            
+            rc = run_cmd([str(freshclam)], "ClamAV virus definitions update", retries=MAX_RETRIES, retry_delay=RETRY_DELAY, always_log_output=True)
+
             if rc != 0:
                 log.warning("freshclam returned rc=%d", rc)
                 errors.append(("freshclam", rc))
@@ -579,13 +576,7 @@ def main():
         try:
             os.chdir(str(HAYABUSA_DIR))
             log.info("Changed directory to: %s", HAYABUSA_DIR)
-            rc = run_cmd(
-                [str(HAYABUSA_EXE), "update-rules"],
-                "Hayabusa rules update",
-                retries=MAX_RETRIES,
-                retry_delay=RETRY_DELAY,
-                always_log_output=True
-            )
+            rc = run_cmd([str(HAYABUSA_EXE), "update-rules"], "Hayabusa rules update", retries=MAX_RETRIES, retry_delay=RETRY_DELAY, always_log_output=True)
             if rc != 0:
                 log.warning("Hayabusa update-rules returned rc=%d", rc)
                 errors.append(("hayabusa update-rules", rc))
@@ -654,6 +645,7 @@ def main():
     venv_dir = HYDRADRAGON_ROOT_PATH / "venv"
     try:
         import venv as venv_module  # type: ignore
+
         if not venv_dir.exists():
             log.info("Creating virtual environment at %s", venv_dir)
             if DRY_RUN:
@@ -705,13 +697,13 @@ def main():
     pyproject = HYDRADRAGON_ROOT_PATH / "pyproject.toml"
     if pyproject.exists() and poetry_available:
         log.info("pyproject.toml found at: %s", pyproject)
-        
+
         # Change to the project directory for Poetry operations
         original_cwd = os.getcwd()
         try:
             os.chdir(str(HYDRADRAGON_ROOT_PATH))
             log.info("Changed directory to: %s", HYDRADRAGON_ROOT_PATH)
-            
+
             # Ensure poetry installs into the current venv
             config_cmd = f'"{activate_bat}" && poetry config virtualenvs.create false'
             rc = run_cmd(config_cmd, "poetry config virtualenvs.create false")
@@ -741,18 +733,18 @@ def main():
     # NPM PACKAGES INSTALLATION
     # ------------------------------
     log.info("Installing npm packages...")
-    
+
     # CRITICAL: Ensure Node.js is in PATH
     if not ensure_nodejs_in_path():
         log.error("Failed to add Node.js to PATH")
         errors.append(("nodejs path setup", 1))
-    
+
     if not verify_node_accessible():
         log.error("Node.js is not accessible. NPM package installations will likely fail.")
         log.error("Please verify Node.js is properly installed at: %s", NODEJS_PATH)
         errors.append(("nodejs verification", 1))
         # Continue anyway in case npm.cmd can work without direct node access
-    
+
     npm_cmd_path = shutil.which("npm.cmd") or shutil.which("npm")
     if not npm_cmd_path:
         alt_npm = NODEJS_PATH / "npm.cmd"
@@ -775,12 +767,12 @@ def main():
     rc = npm_run(["install", "-g", "asar"], "asar installation")
     if rc != 0:
         errors.append(("asar install", rc))
-    
+
     # 18. webcrack
     rc = npm_run(["install", "-g", "webcrack"], "webcrack installation")
     if rc != 0:
         errors.append(("webcrack install", rc))
-    
+
     # 19. nexe_unpacker
     rc = npm_run(["install", "-g", "nexe_unpacker"], "nexe_unpacker installation")
     if rc != 0:
@@ -807,6 +799,7 @@ def main():
         log.info("HydraDragon pkg-unpacker folder not found, skipping npm build.")
 
     summary_and_exit(errors)
+
 
 if __name__ == "__main__":
     main()

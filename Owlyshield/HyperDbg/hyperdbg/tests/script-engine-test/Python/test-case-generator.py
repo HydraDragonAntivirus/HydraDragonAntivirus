@@ -1,4 +1,3 @@
-from os import write
 import random
 
 depth = 0

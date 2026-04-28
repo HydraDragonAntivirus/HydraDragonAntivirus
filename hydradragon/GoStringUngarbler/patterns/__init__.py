@@ -18,11 +18,4 @@ from .base_pattern import GarblerPattern, STACK_STRING_DECRYPTION, SPLIT_STRING_
 from .x64_pattern import GarblerPatternX64
 from .x86_pattern import GarblerPatternX86
 
-__all__ = [
-    'GarblerPattern',
-    'GarblerPatternX64',
-    'GarblerPatternX86',
-    'STACK_STRING_DECRYPTION',
-    'SPLIT_STRING_DECRYPTION',
-    'SEED_STRING_DECRYPTION'
-]
+__all__ = ["GarblerPattern", "GarblerPatternX64", "GarblerPatternX86", "STACK_STRING_DECRYPTION", "SPLIT_STRING_DECRYPTION", "SEED_STRING_DECRYPTION"]

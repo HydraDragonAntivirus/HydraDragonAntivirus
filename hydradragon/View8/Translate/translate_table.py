@@ -2,12 +2,13 @@ import ast
 
 
 def expand_reg_list(reg_rang):
-    reg_range_split = reg_rang.split('-')
+    reg_range_split = reg_rang.split("-")
     start = reg_range_split[0][1:]
     end = reg_range_split[1][1:]
     if "this" in start or "this" in end:
         return ["<this>"]
-    return ['r' + str(i) for i in range(int(start), int(end) + 1, 1)]
+    return ["r" + str(i) for i in range(int(start), int(end) + 1, 1)]
+
 
 def expand_reg_list_spread(reg_rang):
     regs = expand_reg_list(reg_rang)
@@ -16,17 +17,9 @@ def expand_reg_list_spread(reg_rang):
     else:
         return f"{', '.join(regs[:-1])}, ...{regs[-1]}"
 
+
 def get_typeof_value(typeof_num):
-    typeof_dict = {
-        "#0": "number",
-        "#1": "string",
-        "#2": "symbol",
-        "#3": "boolean",
-        "#4": "bigint",
-        "#5": "undefined",
-        "#6": "function",
-        "#7": "object"
-        }
+    typeof_dict = {"#0": "number", "#1": "string", "#2": "symbol", "#3": "boolean", "#4": "bigint", "#5": "undefined", "#6": "function", "#7": "object"}
     return typeof_dict.get(typeof_num, typeof_num)
 
 
@@ -46,7 +39,7 @@ def invoke_intrinsic(args):
 
 
 def add_jump_blocks(obj, type_):
-    jump_to = int(obj.args[-1].split(' ')[-1][:-1])
+    jump_to = int(obj.args[-1].split(" ")[-1][:-1])
 
     if jump_to < obj.offset:
         obj.add_jump_to_table(jump_type="Loop", start=jump_to, end=obj.offset)
@@ -56,7 +49,7 @@ def add_jump_blocks(obj, type_):
 
 def add_switch_on(obj):
     line = ",".join(obj.args)
-    dic = ast.literal_eval(line[line.find("{"):].replace("@", ""))
+    dic = ast.literal_eval(line[line.find("{") :].replace("@", ""))
     # sort by jump to
     sorted_dic = sorted(dic.items(), key=lambda x: x[1])
     prev_case_start = obj.offset
@@ -80,29 +73,21 @@ def get_scope_id(args):
         return f"CURRENT-{args[2][1:-1]}"
     return f"{args[0]}-{args[2][1:-1]}"
 
+
 # https://github.com/v8/v8/blob/main/src/regexp/regexp-flags.h
 def parse_regex_flags(flags_num: int) -> str:
     flags = ""
-    mapping = {
-        0b00000001: "g",
-        0b00000010: "i",
-        0b00000100: "m",
-        0b00001000: "s",
-        0b00010000: "u",
-        0b00100000: "y",
-        0b01000000: "d",
-        0b10000000: "v"
-    }
+    mapping = {0b00000001: "g", 0b00000010: "i", 0b00000100: "m", 0b00001000: "s", 0b00010000: "u", 0b00100000: "y", 0b01000000: "d", 0b10000000: "v"}
     for flag, char in mapping.items():
         if flags_num & flag:
             flags += char
     return flags
 
+
 operands = {
     #################
     # call operands #
     #################
-
     "CallProperty": lambda obj: f"ACCU = {obj.args[0]}({', '.join(expand_reg_list(obj.args[1])[1:])})",
     "CallProperty0": lambda obj: f"ACCU = {obj.args[0]}()",
     "CallProperty1": lambda obj: f"ACCU = {obj.args[0]}({obj.args[2]})",
@@ -118,26 +103,22 @@ operands = {
     "InvokeIntrinsic": lambda obj: invoke_intrinsic(obj.args),
     "Construct": lambda obj: f"ACCU = new {obj.args[0]}({', '.join(expand_reg_list(obj.args[1]))})",
     "ConstructWithSpread": lambda obj: f"ACCU = new {obj.args[0]}({expand_reg_list_spread(obj.args[1])})",
-
     ###################
     # Create operands #
     ###################
-
-    "CreateEmptyArrayLiteral": lambda obj: f"ACCU = []",
+    "CreateEmptyArrayLiteral": lambda obj: "ACCU = []",
     "CreateEmptyObjectLiteral": lambda obj: f"ACCU = {'{}'}",
     "CreateArrayLiteral": lambda obj: f"ACCU = ConstPool{obj.args[0]}",
     "CreateObjectLiteral": lambda obj: f"ACCU = ConstPool{obj.args[0]}",
     "CreateRegExpLiteral": lambda obj: f"ACCU = /ConstPool{obj.args[0]}/{parse_regex_flags(int(obj.args[2][1:]))}",
-    "CreateArrayFromIterable": lambda obj: f"ACCU = Array.from(ACCU)",
+    "CreateArrayFromIterable": lambda obj: "ACCU = Array.from(ACCU)",
     "CreateClosure": lambda obj: f"ACCU = new func ConstPool{obj.args[0]}",
     "CreateRestParameter": lambda obj: "ACCU = ...",
     "CreateMappedArguments": lambda obj: "ACCU = Array.map(a0)",
-    "CreateUnmappedArguments": lambda obj: f"ACCU = unmapped(a0)",
-
+    "CreateUnmappedArguments": lambda obj: "ACCU = unmapped(a0)",
     #################
     # Jump operands #
     #################
-
     "Jump": lambda obj: add_jump_blocks(obj, "Jump") or "",
     "JumpLoop": lambda obj: add_jump_blocks(obj, "JumpLoop") or "",
     "JumpIfTrue": lambda obj: add_jump_blocks(obj, "If") or "if (ACCU)",
@@ -150,7 +131,6 @@ operands = {
     "JumpIfToBooleanTrue": lambda obj: add_jump_blocks(obj, "If") or "if (ACCU)",
     "JumpIfToBooleanFalse": lambda obj: add_jump_blocks(obj, "If") or "if (!ACCU)",
     "JumpIfJSReceiver": lambda obj: add_jump_blocks(obj, "IfJSReceiver") or "if (JumpIfJSReceiver(ACCU))",
-
     "JumpConstant": lambda obj: add_jump_blocks(obj, "Jump") or "",
     "JumpLoopConstant": lambda obj: add_jump_blocks(obj, "JumpLoop") or "",
     "JumpIfTrueConstant": lambda obj: add_jump_blocks(obj, "If") or "if (ACCU)",
@@ -163,34 +143,32 @@ operands = {
     "JumpIfToBooleanTrueConstant": lambda obj: add_jump_blocks(obj, "If") or "if (ACCU)",
     "JumpIfToBooleanFalseConstant": lambda obj: add_jump_blocks(obj, "If") or "if (!ACCU)",
     "JumpIfJSReceiverConstant": lambda obj: add_jump_blocks(obj, "IfJSReceiver") or "if (!JumpIfJSReceiver(ACCU))",
-
     #################
     # Load operands #
     #################
-
-    'LdaZero': lambda obj: f"ACCU = 0",
-    'LdaUndefined': lambda obj: f"ACCU = undefined",
-    'LdaTrue': lambda obj: f"ACCU = true",
-    'LdaFalse': lambda obj: f"ACCU = false",
-    'LdaNull': lambda obj: f"ACCU = null",
-    'LdaSmi': lambda obj: f"ACCU = {obj.args[0][1:-1]}",
+    "LdaZero": lambda obj: "ACCU = 0",
+    "LdaUndefined": lambda obj: "ACCU = undefined",
+    "LdaTrue": lambda obj: "ACCU = true",
+    "LdaFalse": lambda obj: "ACCU = false",
+    "LdaNull": lambda obj: "ACCU = null",
+    "LdaSmi": lambda obj: f"ACCU = {obj.args[0][1:-1]}",
     "Ldar": lambda obj: f"ACCU = {obj.args[0]}",
-    "Ldar0": lambda obj: f"ACCU = r0",
-    "Ldar1": lambda obj: f"ACCU = r1",
-    "Ldar2": lambda obj: f"ACCU = r2",
-    "Ldar3": lambda obj: f"ACCU = r3",
-    "Ldar4": lambda obj: f"ACCU = r4",
-    "Ldar5": lambda obj: f"ACCU = r5",
-    "Ldar6": lambda obj: f"ACCU = r6",
-    "Ldar7": lambda obj: f"ACCU = r7",
-    "Ldar8": lambda obj: f"ACCU = r8",
-    "Ldar9": lambda obj: f"ACCU = r9",
-    "Ldar10": lambda obj: f"ACCU = r10",
-    "Ldar11": lambda obj: f"ACCU = r11",
-    "Ldar12": lambda obj: f"ACCU = r12",
-    "Ldar13": lambda obj: f"ACCU = r13",
-    "Ldar14": lambda obj: f"ACCU = r14",
-    "Ldar15": lambda obj: f"ACCU = r15",
+    "Ldar0": lambda obj: "ACCU = r0",
+    "Ldar1": lambda obj: "ACCU = r1",
+    "Ldar2": lambda obj: "ACCU = r2",
+    "Ldar3": lambda obj: "ACCU = r3",
+    "Ldar4": lambda obj: "ACCU = r4",
+    "Ldar5": lambda obj: "ACCU = r5",
+    "Ldar6": lambda obj: "ACCU = r6",
+    "Ldar7": lambda obj: "ACCU = r7",
+    "Ldar8": lambda obj: "ACCU = r8",
+    "Ldar9": lambda obj: "ACCU = r9",
+    "Ldar10": lambda obj: "ACCU = r10",
+    "Ldar11": lambda obj: "ACCU = r11",
+    "Ldar12": lambda obj: "ACCU = r12",
+    "Ldar13": lambda obj: "ACCU = r13",
+    "Ldar14": lambda obj: "ACCU = r14",
+    "Ldar15": lambda obj: "ACCU = r15",
     "LdaGlobalInsideTypeof": lambda obj: f"ACCU = ConstPool{obj.args[0]}",
     "LdaGlobal": lambda obj: f"ACCU = ConstPool{obj.args[0]}",
     "LdaLookupGlobalSlot": lambda obj: f"ACCU = ConstPool{obj.args[0]}",
@@ -206,31 +184,28 @@ operands = {
     "GetTemplateObject": lambda obj: f"ACCU = ConstPool{obj.args[0]}",
     "LdaKeyedProperty": lambda obj: f"ACCU = {obj.args[0]}[ACCU]",
     "LdaCurrentContextSlot": lambda obj: f"ACCU = Scope[CURRENT]{obj.args[0]}",
-    'LdaImmutableCurrentContextSlot': lambda obj: f"ACCU = Scope[CURRENT]{obj.args[0]}",
+    "LdaImmutableCurrentContextSlot": lambda obj: f"ACCU = Scope[CURRENT]{obj.args[0]}",
     "LdaImmutableContextSlot": lambda obj: f"ACCU = Scope[{get_scope_id(obj.args)}]{obj.args[1]}",
-
-
     #################
     # Star operands #
     #################
-
-    "Star0": lambda obj: f"r0 = ACCU",
-    "Star1": lambda obj: f"r1 = ACCU",
-    "Star2": lambda obj: f"r2 = ACCU",
-    "Star3": lambda obj: f"r3 = ACCU",
-    "Star4": lambda obj: f"r4 = ACCU",
-    "Star5": lambda obj: f"r5 = ACCU",
-    "Star6": lambda obj: f"r6 = ACCU",
-    "Star7": lambda obj: f"r7 = ACCU",
-    "Star8": lambda obj: f"r8 = ACCU",
-    "Star9": lambda obj: f"r9 = ACCU",
-    "Star10": lambda obj: f"r10 = ACCU",
-    "Star11": lambda obj: f"r11 = ACCU",
-    "Star12": lambda obj: f"r12 = ACCU",
-    "Star13": lambda obj: f"r13 = ACCU",
-    "Star14": lambda obj: f"r14 = ACCU",
-    "Star15": lambda obj: f"r15 = ACCU",
-    'Star': lambda obj: f"{obj.args[0]} = ACCU",
+    "Star0": lambda obj: "r0 = ACCU",
+    "Star1": lambda obj: "r1 = ACCU",
+    "Star2": lambda obj: "r2 = ACCU",
+    "Star3": lambda obj: "r3 = ACCU",
+    "Star4": lambda obj: "r4 = ACCU",
+    "Star5": lambda obj: "r5 = ACCU",
+    "Star6": lambda obj: "r6 = ACCU",
+    "Star7": lambda obj: "r7 = ACCU",
+    "Star8": lambda obj: "r8 = ACCU",
+    "Star9": lambda obj: "r9 = ACCU",
+    "Star10": lambda obj: "r10 = ACCU",
+    "Star11": lambda obj: "r11 = ACCU",
+    "Star12": lambda obj: "r12 = ACCU",
+    "Star13": lambda obj: "r13 = ACCU",
+    "Star14": lambda obj: "r14 = ACCU",
+    "Star15": lambda obj: "r15 = ACCU",
+    "Star": lambda obj: f"{obj.args[0]} = ACCU",
     "StaGlobal": lambda obj: f"ConstPool{obj.args[0]} = ACCU",
     "StaLookupSlot": lambda obj: f"ConstPool{obj.args[0]} = ACCU",
     "StaContextSlot": lambda obj: f"Scope[{get_scope_id(obj.args)}]{obj.args[1]} = ACCU",
@@ -247,11 +222,9 @@ operands = {
     "DefineNamedOwnProperty": lambda obj: f"{obj.args[0]}[LiteralConstPool{obj.args[1]}] = ACCU",
     "DefineKeyedOwnPropertyInLiteral": lambda obj: f"{obj.args[0]}[{obj.args[1]}] = ACCU",
     "DefineKeyedOwnProperty": lambda obj: f"{obj.args[0]}[{obj.args[1]}] = ACCU",
-
     #################
     # Test operands #
     #################
-
     "TestEqual": lambda obj: f"ACCU = {obj.args[0]} == ACCU",
     "TestEqualStrict": lambda obj: f"ACCU = {obj.args[0]} === ACCU",
     "TestGreaterThan": lambda obj: f"ACCU = {obj.args[0]} > ACCU",
@@ -261,45 +234,40 @@ operands = {
     "TestIn": lambda obj: f"ACCU = {obj.args[0]} in ACCU",
     "TestInstanceOf": lambda obj: f"ACCU = {obj.args[0]} instanceof ACCU",
     "TestReferenceEqual": lambda obj: f"ACCU = {obj.args[0]} === ACCU",
-    "TestUndetectable": lambda obj: f"ACCU = ACCU == null",
-    "TestTypeOf": lambda obj: f"ACCU = typeof(ACCU) == \"{get_typeof_value(obj.args[0])}\"",
-    "TestNull": lambda obj: f"ACCU = ACCU === null",
-    "TestUndefined": lambda obj: f"ACCU = ACCU === undefined",
-
+    "TestUndetectable": lambda obj: "ACCU = ACCU == null",
+    "TestTypeOf": lambda obj: f'ACCU = typeof(ACCU) == "{get_typeof_value(obj.args[0])}"',
+    "TestNull": lambda obj: "ACCU = ACCU === null",
+    "TestUndefined": lambda obj: "ACCU = ACCU === undefined",
     ###############
     # To operands #
     ###############
-
-    "ToString": lambda obj: f"ACCU = String(ACCU)",
-    "ToNumeric": lambda obj: f"ACCU = Number(ACCU)",
-    "ToNumber": lambda obj: f"ACCU = Number(ACCU)",
-    "ToObject": lambda obj: f"ACCU = ToObject(ACCU)",
-    "ToName": lambda obj: f"ACCU = ToName(ACCU)",
-    "ToBooleanLogicalNot": lambda obj: f"ACCU = !(ACCU)",
+    "ToString": lambda obj: "ACCU = String(ACCU)",
+    "ToNumeric": lambda obj: "ACCU = Number(ACCU)",
+    "ToNumber": lambda obj: "ACCU = Number(ACCU)",
+    "ToObject": lambda obj: "ACCU = ToObject(ACCU)",
+    "ToName": lambda obj: "ACCU = ToName(ACCU)",
+    "ToBooleanLogicalNot": lambda obj: "ACCU = !(ACCU)",
     "CloneObject": lambda obj: f"ACCU = {'{'} ...{obj.args[0]} {'}'}",
-
     #######################
     # Arithmetic operands #
     #######################
-
     "Add": lambda obj: f"ACCU = ({obj.args[0]} + ACCU)",
-    "Inc": lambda obj: f"ACCU++",
+    "Inc": lambda obj: "ACCU++",
     "Sub": lambda obj: f"ACCU = ({obj.args[0]} - ACCU)",
-    "Dec": lambda obj: f"ACCU--",
+    "Dec": lambda obj: "ACCU--",
     "Mod": lambda obj: f"ACCU = ({obj.args[0]} % ACCU)",
     "Mul": lambda obj: f"ACCU = ({obj.args[0]} * ACCU)",
     "Exp": lambda obj: f"ACCU = ({obj.args[0]} ** ACCU)",
     "Div": lambda obj: f"ACCU = ({obj.args[0]} / ACCU)",
-    "Negate": lambda obj: f"ACCU = (-ACCU)",
-    "LogicalNot": lambda obj: f"ACCU = !(ACCU)",
+    "Negate": lambda obj: "ACCU = (-ACCU)",
+    "LogicalNot": lambda obj: "ACCU = !(ACCU)",
     "BitwiseXor": lambda obj: f"ACCU = ({obj.args[0]} ^ ACCU)",
     "BitwiseOr": lambda obj: f"ACCU = ({obj.args[0]} | ACCU)",
     "BitwiseAnd": lambda obj: f"ACCU = ({obj.args[0]} & ACCU)",
-    "BitwiseNot": lambda obj: f"ACCU = ~(ACCU)",
+    "BitwiseNot": lambda obj: "ACCU = ~(ACCU)",
     "ShiftRightLogical": lambda obj: f"ACCU = ({obj.args[0]} >>> ACCU)",
     "ShiftRight": lambda obj: f"ACCU = ({obj.args[0]} >> ACCU)",
     "ShiftLeft": lambda obj: f"ACCU = ({obj.args[0]} << ACCU)",
-
     "AddSmi": lambda obj: f"ACCU = (ACCU + {obj.args[0][1:-1]})",
     "SubSmi": lambda obj: f"ACCU = (ACCU - {obj.args[0][1:-1]})",
     "ModSmi": lambda obj: f"ACCU = (ACCU % {obj.args[0][1:-1]})",
@@ -309,70 +277,59 @@ operands = {
     "BitwiseXorSmi": lambda obj: f"ACCU = (ACCU ^ {obj.args[0][1:-1]})",
     "BitwiseOrSmi": lambda obj: f"ACCU = (ACCU | {obj.args[0][1:-1]})",
     "BitwiseAndSmi": lambda obj: f"ACCU = (ACCU & {obj.args[0][1:-1]})",
-    "BitwiseNotSmi": lambda obj: f"ACCU = ~(ACCU)",
+    "BitwiseNotSmi": lambda obj: "ACCU = ~(ACCU)",
     "ShiftRightLogicalSmi": lambda obj: f"ACCU = (ACCU >>> {obj.args[0][1:-1]})",
     "ShiftRightSmi": lambda obj: f"ACCU = (ACCU >> {obj.args[0][1:-1]})",
     "ShiftLeftSmi": lambda obj: f"ACCU = (ACCU << {obj.args[0][1:-1]})",
-
     ##################
     # throw operands #
     ##################
-
     "Throw": lambda obj: "throw ACCU",
-    "ReThrow": lambda obj: "throw ACCU", # TODO: used in try-finally block
+    "ReThrow": lambda obj: "throw ACCU",  # TODO: used in try-finally block
     "ThrowSuperNotCalledIfHole": lambda obj: "",
     "ThrowSuperAlreadyCalledIfNotHole": lambda obj: "",
     "ThrowIfNotSuperConstructor": lambda obj: "",
     "ThrowSymbolIteratorInvalid": lambda obj: "",
     "ThrowReferenceErrorIfHole": lambda obj: "",  # f"// ThrowReferenceErrorIfHole ConstPool{obj.args[0]}",
-
     #################
     # more operands #
     #################
-
     "Mov": lambda obj: f"{obj.args[1]} = {obj.args[0]}",
-    "Return": lambda obj: f"return ACCU",
-    "TypeOf": lambda obj: f"ACCU = typeof(ACCU)",
+    "Return": lambda obj: "return ACCU",
+    "TypeOf": lambda obj: "ACCU = typeof(ACCU)",
     "GetIterator": lambda obj: f"ACCU = GetIterator({obj.args[0]})",
     "GetSuperConstructor": lambda obj: f"{obj.args[0]} = super",
     "DeletePropertySloppy": lambda obj: f"delete {obj.args[0]}[ACCU]",
     "DeletePropertyStrict": lambda obj: f"delete {obj.args[0]}[ACCU]",
-
     ###################
     # ignore operands #
     ###################
-
-    "SuspendGenerator": lambda obj: f"",
-    "ResumeGenerator": lambda obj: f"",
-    "SetPendingMessage": lambda obj: f"",
+    "SuspendGenerator": lambda obj: "",
+    "ResumeGenerator": lambda obj: "",
+    "SetPendingMessage": lambda obj: "",
     "SwitchOnGeneratorState": lambda obj: "",
     "SwitchOnSmiNoFeedback": lambda obj: add_switch_on(obj) or "",
-    "LdaTheHole": lambda obj: f"ACCU = null",
-    "Debugger": lambda obj: f"debugger",
-
+    "LdaTheHole": lambda obj: "ACCU = null",
+    "Debugger": lambda obj: "debugger",
     ###################
     # context operands #
     ###################
-
-    "PopContext": lambda obj: f"PopContext()",
+    "PopContext": lambda obj: "PopContext()",
     "PushContext": lambda obj: f"{obj.args[0]} = ACCU",
-    "CreateFunctionContext": lambda obj: f"ACCU = PushContext(\"Function\")",
-    "CreateBlockContext": lambda obj: f"ACCU = PushContext(\"Block\")",
-    "CreateCatchContext": lambda obj: f"ACCU = PushContext(\"Catch\")",
-    "CreateEvalContext": lambda obj: f"ACCU = PushContext(\"Eval\")",
-    "CreateWithContext": lambda obj: f"ACCU = PushContext(\"With\")",
-
+    "CreateFunctionContext": lambda obj: 'ACCU = PushContext("Function")',
+    "CreateBlockContext": lambda obj: 'ACCU = PushContext("Block")',
+    "CreateCatchContext": lambda obj: 'ACCU = PushContext("Catch")',
+    "CreateEvalContext": lambda obj: 'ACCU = PushContext("Eval")',
+    "CreateWithContext": lambda obj: 'ACCU = PushContext("With")',
     ############
     # for loop #
     ############
     "ForInEnumerate": lambda obj: f"{obj.args[0]} = Generator(ACCU)",
-    "ForInPrepare": lambda obj: f"",
+    "ForInPrepare": lambda obj: "",
     "ForInContinue": lambda obj: f"ACCU = GeneratorContinue({obj.args[0]})",
     "ForInNext": lambda obj: f"ACCU = {obj.args[0]}.next().value",
     "ForInStep": lambda obj: f"ACCU = GeneratorStep({obj.args[0]})",
-
     "Not Found": lambda obj: input(f"Operator {obj.operator} was not found in table") and f"//{obj.operator})",
-
 }
 
 # more operators to add

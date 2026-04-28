@@ -9,18 +9,21 @@ with open("ALLOW_DOMAIN.txt", "r") as allow_domain_file:
     allow_domains = allow_domain_file.read().splitlines()
 
 # Select single-dot domains from ALLOW_DOMAIN.txt and add a leading dot
-allow_domains = [f".{domain}" for domain in allow_domains if domain.count('.') == 1]
+allow_domains = [f".{domain}" for domain in allow_domains if domain.count(".") == 1]
+
 
 # Function to get the top-level domain
 def get_top_level_domain(domain):
-    parts = domain.split('.')
+    parts = domain.split(".")
     if len(parts) >= 2:
         return f".{parts[-2]}.{parts[-1]}"
     return domain
 
+
 # Create output files
 open("ALLOW_DOMAIN_output.txt", "w").close()
 open("Domains_output.txt", "w").close()
+
 
 # Domain processing function
 def process_domains(start_index, end_index):
@@ -34,6 +37,7 @@ def process_domains(start_index, end_index):
             with open("Domains_output.txt", "a") as domains_output_file:
                 domains_output_file.write(domain + "\n")
 
+
 # Start time
 start_time = time.time()
 
@@ -44,7 +48,7 @@ with concurrent.futures.ThreadPoolExecutor() as executor:
     for i in range(0, len(domains), batch_size):
         end_index = min(i + batch_size, len(domains))
         futures.append(executor.submit(process_domains, i, end_index))
-    
+
     for i, future in enumerate(concurrent.futures.as_completed(futures)):
         future.result()
         if (i + 1) % (1000 // batch_size) == 0:
@@ -55,7 +59,7 @@ with concurrent.futures.ThreadPoolExecutor() as executor:
             avg_time_per_domain = elapsed_time / processed_domains
             remaining_time = avg_time_per_domain * remaining_domains
             remaining_hours = remaining_time / 3600
-            
+
             print(f"{processed_domains} domains processed. Estimated remaining time: {remaining_hours:.2f} hours.")
 
 print("Processing complete.")

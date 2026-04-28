@@ -26,6 +26,7 @@ SKIP_NAMES = {
     "tranco_pl9gj.csv",
 }
 
+
 # -----------------------
 # ReferenceRegistry
 # -----------------------
@@ -55,6 +56,7 @@ class ReferenceRegistry:
         with path.open("w", encoding="utf-8") as f:
             for rid in sorted(self.id_to_ref.keys()):
                 f.write(f"{rid}\t{self.id_to_ref[rid]}\n")
+
 
 # -----------------------
 # CSV parsing helpers
@@ -92,11 +94,11 @@ def parse_threat_line(
 
     if is_first_line:
         if (
-            first_col in {"entry", "domain", "threat", "indicator", "ip", "address"} or
-            second_col in {"reference", "references", "source", "description"} or
-            (first_col in {"domain", "entry"} and second_col == "subdomains" and third_col in {"reference", "references", "source"}) or
-            (first_col == "popularity" and second_col in {"domain", "entry"}) or
-            (third_col in {"reference", "references"} and fourth_col == "popularity")
+            first_col in {"entry", "domain", "threat", "indicator", "ip", "address"}
+            or second_col in {"reference", "references", "source", "description"}
+            or (first_col in {"domain", "entry"} and second_col == "subdomains" and third_col in {"reference", "references", "source"})
+            or (first_col == "popularity" and second_col in {"domain", "entry"})
+            or (third_col in {"reference", "references"} and fourth_col == "popularity")
         ):
             return None, [], "skip", "", ""
 
@@ -156,6 +158,7 @@ def rewrite_line_with_ids(
         return f"{domain}\n"
     return f"{domain},{ids_part}\n"
 
+
 # -----------------------
 # Main optimizer
 # -----------------------
@@ -166,9 +169,7 @@ def build_registry_and_rewrite(input_dir: Path, out_dir: Path):
     out_dir.mkdir(parents=True, exist_ok=True)
 
     # Collect input files: csv or txt, skip defined names
-    files = sorted([p for p in input_dir.iterdir()
-                    if p.is_file() and p.suffix.lower() in {'.csv', '.txt'}
-                    and p.name.lower() not in SKIP_NAMES])
+    files = sorted([p for p in input_dir.iterdir() if p.is_file() and p.suffix.lower() in {".csv", ".txt"} and p.name.lower() not in SKIP_NAMES])
 
     if not files:
         print("No CSV/TXT files to process (after skipping).")
@@ -197,8 +198,7 @@ def build_registry_and_rewrite(input_dir: Path, out_dir: Path):
     print("Rewriting files with reference IDs...")
     for p in files:
         outp = out_dir / (p.stem + ".optimized.csv")
-        with p.open("r", encoding="utf-8", errors="ignore") as fin, \
-             outp.open("w", encoding="utf-8") as fout:
+        with p.open("r", encoding="utf-8", errors="ignore") as fin, outp.open("w", encoding="utf-8") as fout:
             for line_num, raw in enumerate(fin):
                 domain, refs, format_name, subdomains, popularity = parse_threat_line(
                     raw,
@@ -217,16 +217,18 @@ def build_registry_and_rewrite(input_dir: Path, out_dir: Path):
 
     print("Done.")
 
+
 # -----------------------
 # CLI
 # -----------------------
 def main():
-    ap = argparse = __import__('argparse').ArgumentParser(description="Reference optimizer")
+    ap = __import__("argparse").ArgumentParser(description="Reference optimizer")
     ap.add_argument("--dir", "-d", type=str, default=".", help="Directory with CSV/TXT rule files")
     ap.add_argument("--out", "-o", type=str, default="ref_out", help="Output directory for references + optimized files")
     args = ap.parse_args()
 
     build_registry_and_rewrite(Path(args.dir), Path(args.out))
+
 
 if __name__ == "__main__":
     main()

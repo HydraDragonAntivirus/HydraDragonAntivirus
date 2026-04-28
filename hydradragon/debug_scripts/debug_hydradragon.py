@@ -12,12 +12,13 @@ import signal
 import traceback
 
 # ---- CONFIG ----
-THREAD_MONITOR_INTERVAL = 15       # Optional thread monitor interval
-ENABLE_THREAD_MONITOR = False      # Enable if you want to monitor threads
+THREAD_MONITOR_INTERVAL = 15  # Optional thread monitor interval
+ENABLE_THREAD_MONITOR = False  # Enable if you want to monitor threads
 
 # ---- Import the operation tracer ----
 try:
     import operation_tracer
+
     print("[Launcher] Operation tracer imported.")
 except Exception as e:
     print("[Launcher] CRITICAL ERROR: could not import operation_tracer:", e, file=sys.stderr)
@@ -25,6 +26,7 @@ except Exception as e:
 
 # --- Simple thread monitor (Optional, can be noisy with tracing) ---
 if ENABLE_THREAD_MONITOR:
+
     def monitor_threads():
         try:
             while True:
@@ -43,6 +45,8 @@ else:
 
 # --- Cleanup function (ensures tracing is stopped) ---
 _cleanup_called = False
+
+
 def _cleanup():
     global _cleanup_called
     if _cleanup_called:
@@ -56,13 +60,16 @@ def _cleanup():
         traceback.print_exc(file=sys.stderr)
     print("[Launcher] Cleanup finished.")
 
+
 atexit.register(_cleanup)
+
 
 # --- Signal handling ---
 def _signal_handler(sig, frame):
     print(f"[Launcher] Signal {sig} received, initiating cleanup and exit...")
     _cleanup()
     sys.exit(1 if sig == signal.SIGTERM else 0)
+
 
 signal.signal(signal.SIGINT, _signal_handler)
 try:
@@ -82,6 +89,7 @@ if __name__ == "__main__":
         # Import HydraDragon main after tracing is active
         print("[Launcher] Importing hydradragon.engine.main...")
         from hydradragon.engine import main as hydra_main
+
         print("[Launcher] Import successful.")
         # Run the main application
         print("[Launcher] --- Starting HydraDragon main() ---")

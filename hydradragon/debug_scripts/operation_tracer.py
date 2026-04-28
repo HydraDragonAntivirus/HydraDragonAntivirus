@@ -29,6 +29,7 @@ _TARGET_MODULES = {
     # add more names here if you want
 }
 
+
 def trace_calls(frame, event, arg):
     """Trace function for sys.settrace and threading.settrace."""
     global _log_counter

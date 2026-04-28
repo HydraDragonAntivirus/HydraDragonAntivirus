@@ -1,11 +1,5 @@
 #include "UnzipHelper.h"
 
-#ifdef _DEBUG
-#pragma comment(lib, "zlibstaticd.lib")
-#else
-#pragma comment(lib, "zlibstatic.lib")
-#endif // _DEBUG
-
 static void TranslateOpenMode(__in int mode, __out ULONG *creationMode)
 {
 	*creationMode = 0;

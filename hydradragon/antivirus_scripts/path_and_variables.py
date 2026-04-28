@@ -14,11 +14,7 @@ python_path = sys.executable
 # Resolve system drive path
 system_drive = os.getenv("SystemDrive", "C:") + os.sep
 # Resolve Program Files directory via environment (prefer 64-bit Program Files when available)
-program_files = (
-    os.getenv("ProgramW6432")
-    or os.getenv("ProgramFiles")
-    or os.path.join(system_drive, "Program Files")
-)
+program_files = os.getenv("ProgramW6432") or os.getenv("ProgramFiles") or os.path.join(system_drive, "Program Files")
 # Resolve ProgramData directory via environment (fallback to standard path)
 program_data = os.getenv("ProgramData", os.path.join(system_drive, "ProgramData"))
 # Get SystemRoot (usually C:\Windows)
@@ -28,8 +24,8 @@ system32_dir = os.getenv("System32", os.path.join(system_root, "System32"))
 
 # --- CSIDL Constants for User Paths ---
 CSIDL_DESKTOP = 0x0000
-CSIDL_APPDATA = 0x001a        # Roaming
-CSIDL_LOCAL_APPDATA = 0x001c  # Local
+CSIDL_APPDATA = 0x001A  # Roaming
+CSIDL_LOCAL_APPDATA = 0x001C  # Local
 
 # Hydra Dragon Antivirus base folder path (read-only installation files)
 hydra_dragon_antivirus_dir = os.path.join(program_files, "HydraDragonAntivirus")
@@ -55,8 +51,8 @@ hook_dll_32_path = os.path.join(script_dir, "hook32.dll")
 hook_dll_64_path = os.path.join(script_dir, "hook64.dll")
 hook_py_path = os.path.join(script_dir, "__hook__.py")
 unlicense_dir = os.path.join(script_dir, "unlicense")
-unlicense_path  = os.path.join(unlicense_dir, "unlicense.exe")
-unlicense_x64_path  = os.path.join(unlicense_dir, "unlicense-x64.exe")
+unlicense_path = os.path.join(unlicense_dir, "unlicense.exe")
+unlicense_x64_path = os.path.join(unlicense_dir, "unlicense-x64.exe")
 hayabusa_dir = os.path.join(script_dir, "hayabusa")
 pkg_unpacker_dir = os.path.join(script_dir, "pkg-unpacker")
 hayabusa_path = os.path.join(hayabusa_dir, "hayabusa-3.8.1-win-x64.exe")
@@ -73,7 +69,7 @@ un_confuser_ex_path = os.path.join(un_confuser_ex_dir, "UnConfuserEx.exe")
 cicdec_dir = os.path.join(script_dir, "cicdec")
 cicdec_path = os.path.join(cicdec_dir, "cicdec.exe")
 net_reactor_slayer_dir = os.path.join(script_dir, "NETReactorSlayer-windows")
-net_reactor_slayer_x64_cli_path  = os.path.join(net_reactor_slayer_dir, "NETReactorSlayer-x64.CLI.exe")
+net_reactor_slayer_x64_cli_path = os.path.join(net_reactor_slayer_dir, "NETReactorSlayer-x64.CLI.exe")
 known_extensions_dir = os.path.join(script_dir, "known_extensions")
 owlyshield_dir = os.path.join(script_dir, "Owlyshield")
 owlyshield_service_dir = os.path.join(owlyshield_dir, "Owlyshield Service")
@@ -247,10 +243,7 @@ seven_zip_folder = os.path.join(program_files, "7-Zip")
 # ClamAV file paths and configurations
 freshclam_path = os.path.join(clamav_folder, "freshclam.exe")
 clamav_database_directory_path = os.path.join(clamav_folder, "database")
-clamav_file_paths = [
-    os.path.join(clamav_database_directory_path, "daily.cvd"),
-    os.path.join(clamav_database_directory_path, "daily.cld")
-]
+clamav_file_paths = [os.path.join(clamav_database_directory_path, "daily.cvd"), os.path.join(clamav_database_directory_path, "daily.cld")]
 
 # 7-Zip executable path
 seven_zip_path = os.path.join(seven_zip_folder, "7z.exe")
@@ -270,34 +263,27 @@ malicious_hashes_lock = asyncio.Lock()
 scan_and_warn_lock = asyncio.Lock()
 
 # Thread-safe map of original input -> list of decompiled artifacts produced by Ghidra
-decompile_outputs = {}               # maps abs_input_path -> [artifact_path, ...]
+decompile_outputs = {}  # maps abs_input_path -> [artifact_path, ...]
 decompile_outputs_lock = threading.Lock()
 
-uefi_100kb_paths = [
-    r'EFI\Microsoft\Boot\SecureBootRecovery.efi'
-]
+uefi_100kb_paths = [r"EFI\Microsoft\Boot\SecureBootRecovery.efi"]
 
-uefi_paths = [
-    r'EFI\Microsoft\Boot\bootmgfw.efi',
-    r'EFI\Microsoft\Boot\bootmgr.efi',
-    r'EFI\Microsoft\Boot\memtest.efi',
-    r'EFI\Boot\bootx64.efi'
-]
+uefi_paths = [r"EFI\Microsoft\Boot\bootmgfw.efi", r"EFI\Microsoft\Boot\bootmgr.efi", r"EFI\Microsoft\Boot\memtest.efi", r"EFI\Boot\bootx64.efi"]
 
 # tuning knobs
-RAW_PREVIEW_LEN = 128 # how many raw bytes to log for inspection
+RAW_PREVIEW_LEN = 128  # how many raw bytes to log for inspection
 READ_BUFFER_SIZE = 65536
 
 # Config
-_WAIT_TIMEOUT_MS = 5000        # WaitNamedPipe timeout when opening (ms)
-_OPEN_RETRIES = 10             # retries for opening the pipe
-_RETRY_DELAY = 0.5             # seconds between open retries
+_WAIT_TIMEOUT_MS = 5000  # WaitNamedPipe timeout when opening (ms)
+_OPEN_RETRIES = 10  # retries for opening the pipe
+_RETRY_DELAY = 0.5  # seconds between open retries
 
 # Internal queue other code will push scan requests into
 _SCAN_REQUEST_SEND_QUEUE: "asyncio.Queue[dict]" = asyncio.Queue()
 
 # Pipe 1: HydraDragonAV engine
-PIPE_HYDRADRAGON_AV = r'\\.\pipe\HydraDragonAV'
+PIPE_HYDRADRAGON_AV = r"\\.\pipe\HydraDragonAV"
 
 # Pipe 2: HydraDragon SENDS threat events TO Owlyshield (Owlyshield receives)
 PIPE_AV_TO_EDR = r"\\.\pipe\Global\hydradragon_to_owlyshield"
@@ -308,11 +294,12 @@ PIPE_EDR_TO_AV = r"\\.\pipe\Global\owlyshield_to_hydradragon"
 # Pipe 4: HydraDragon AV forwards artifacts to the Firewall (Firewall receives)
 PIPE_AV_TO_FIREWALL = r"\\.\pipe\HydraDragonFirewall"
 
+
 def get_startup_paths():
     """Return a tuple of (user_startup, common_startup) using ctypes Windows API."""
     MAX_PATH = 260
-    CSIDL_STARTUP = 0x0A       # User startup
-    CSIDL_COMMON_STARTUP = 0x19 # Common startup
+    CSIDL_STARTUP = 0x0A  # User startup
+    CSIDL_COMMON_STARTUP = 0x19  # Common startup
 
     buf_user = ctypes.create_unicode_buffer(MAX_PATH)
     buf_common = ctypes.create_unicode_buffer(MAX_PATH)
@@ -321,6 +308,7 @@ def get_startup_paths():
     ctypes.windll.shell32.SHGetSpecialFolderPathW(None, buf_common, CSIDL_COMMON_STARTUP, False)
 
     return buf_user.value, buf_common.value
+
 
 # Explicit hardcoded paths for peer validation
 OWLYSHIELD_RANSOM_EXE = owlyshield_ransom_exe
@@ -332,5 +320,5 @@ RULE_FILES = [
     os.path.join(PROTECTION_RULES_BASE, "PYAS", "File", "default_rules.txt"),
     os.path.join(PROTECTION_RULES_BASE, "Owlyshield", "DynamicHook", "default_rules.txt"),
     os.path.join(PROTECTION_RULES_BASE, "Owlyshield", "FSFilter", "default_rules.txt"),
-    os.path.join(PROTECTION_RULES_BASE, "Owlyshield", "ProcessProtection", "default_rules.txt")
+    os.path.join(PROTECTION_RULES_BASE, "Owlyshield", "ProcessProtection", "default_rules.txt"),
 ]

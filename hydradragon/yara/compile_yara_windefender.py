@@ -1,5 +1,6 @@
 import yara
 
+
 def compile_yara_rule(rule_path):
     try:
         compiled_rule = yara.compile(filepath=rule_path)
@@ -11,12 +12,14 @@ def compile_yara_rule(rule_path):
         print("Error compiling YARA rule:", e)
         return None
 
+
 def save_compiled_rule(compiled_rule, output_path):
     try:
         compiled_rule.save(output_path)
         print(f"Compiled rule saved to '{output_path}'")
     except Exception as e:
         print("Error saving compiled rule:", e)
+
 
 def main():
     rule_path = "WindowsDefender.yar"
@@ -29,6 +32,7 @@ def main():
 
     save_compiled_rule(compiled_rule, output_path)
     print("YARA rule compiled and saved successfully.")
+
 
 if __name__ == "__main__":
     main()

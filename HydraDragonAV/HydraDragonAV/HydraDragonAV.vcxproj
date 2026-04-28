@@ -125,6 +125,7 @@
       <PreprocessorDefinitions>SFML_STATIC;NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <AdditionalIncludeDirectories>.</AdditionalIncludeDirectories>
+      <LanguageStandard>stdcpp17</LanguageStandard>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -134,6 +135,18 @@
       <UACExecutionLevel>RequireAdministrator</UACExecutionLevel>
       <AdditionalLibraryDirectories>%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <AdditionalDependencies>%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <AdditionalIncludeDirectories>$(ProjectDir)libyara\include;$(ProjectDir)libyara;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>_CRT_SECURE_NO_WARNINGS;_CRT_NONSTDC_NO_WARNINGS;HAVE_STRLCPY=0;HAVE_STRLCAT=0;HAVE_MEMMEM=0;HAVE_WINCRYPT_H;HASH_MODULE;DOTNET_MODULE;MACHO_MODULE;DEX_MODULE;BUCKETS_128;USE_WINDOWS_PROC;YR_DEBUG_VERBOSITY=0;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <LanguageStandard>stdcpp17</LanguageStandard>
+      <LanguageStandard_C>stdc17</LanguageStandard_C>
+      <DisableSpecificWarnings>4146;%(DisableSpecificWarnings)</DisableSpecificWarnings>
+    </ClCompile>
+    <Link>
+      <AdditionalDependencies>Advapi32.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
@@ -147,6 +160,25 @@
     <ClCompile Include="HydraDragonAV.cpp" />
     <ClCompile Include="ClamAVScanner.cpp" />
     <ClCompile Include="yara.cpp" />
+    <ClCompile Include="libyara\*.c" />
+    <ClCompile Include="libyara\proc\windows.c" />
+    <ClCompile Include="libyara\modules\console\console.c" />
+    <ClCompile Include="libyara\modules\dex\dex.c" />
+    <ClCompile Include="libyara\modules\dotnet\dotnet.c" />
+    <ClCompile Include="libyara\modules\elf\elf.c" />
+    <ClCompile Include="libyara\modules\hash\hash.c">
+      <ObjectFileName>$(IntDir)libyara_modules_hash.obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="libyara\modules\macho\macho.c" />
+    <ClCompile Include="libyara\modules\math\math.c" />
+    <ClCompile Include="libyara\modules\pe\pe.c" />
+    <ClCompile Include="libyara\modules\pe\pe_utils.c" />
+    <ClCompile Include="libyara\modules\string\string.c" />
+    <ClCompile Include="libyara\modules\tests\tests.c" />
+    <ClCompile Include="libyara\modules\time\time.c" />
+    <ClCompile Include="libyara\tlshc\tlsh.c" />
+    <ClCompile Include="libyara\tlshc\tlsh_impl.c" />
+    <ClCompile Include="libyara\tlshc\tlsh_util.c" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="HydraDragonAV.rc" />
@@ -154,6 +186,7 @@
   <ItemGroup>
     <Image Include="..\x64\Debug\assets\icon.ico" />
     <Image Include="HydraDragonAV.ico" />
+    <Image Include="small.ico" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

@@ -9,17 +9,18 @@ import typing
 import struct
 from pathlib import Path
 import marshal
-import sys,inspect,types
+import sys
 import inspect
+import types
 import opcode
 import os
 import traceback
 
 LOAD_GLOBAL = opcode.opmap["LOAD_GLOBAL"]
-RETURN_OPCODE = opcode.opmap["RETURN_VALUE"].to_bytes(2, byteorder='little') # Convert to bytes so it can be added to bytes easier later on
+RETURN_OPCODE = opcode.opmap["RETURN_VALUE"].to_bytes(2, byteorder="little")  # Convert to bytes so it can be added to bytes easier later on
 SETUP_FINALLY = opcode.opmap["SETUP_FINALLY"]
 EXTENDED_ARG = opcode.opmap["EXTENDED_ARG"]
-OPCODE_SIZE = 2 # can differ in older/newer versions
+OPCODE_SIZE = 2  # can differ in older/newer versions
 JUMP_FORWARD = opcode.opmap["JUMP_FORWARD"]
 
 # All absolute jumps
@@ -33,48 +34,53 @@ JUMP_IF_TRUE_OR_POP = opcode.opmap.get("JUMP_IF_TRUE_OR_POP")
 absolute_jumps = [JUMP_ABSOLUTE, CONTINUE_LOOP, POP_JUMP_IF_FALSE, POP_JUMP_IF_TRUE, JUMP_IF_FALSE_OR_POP, JUMP_IF_TRUE_OR_POP]
 # TODO more documentation
 
-code_attrs = [ # ordered correctly by types.CodeType type creation
-        'co_argcount',
-        'co_posonlyargcount',
-        'co_kwonlyargcount',
-        'co_nlocals',
-        'co_stacksize',
-        'co_flags',
-        'co_code',
-        'co_consts',
-        'co_names',
-        'co_varnames',
-        'co_filename',
-        'co_name',
-        'co_firstlineno',
-        'co_lnotab',
-        'co_freevars',
-        'co_cellvars'
+code_attrs = [  # ordered correctly by types.CodeType type creation
+    "co_argcount",
+    "co_posonlyargcount",
+    "co_kwonlyargcount",
+    "co_nlocals",
+    "co_stacksize",
+    "co_flags",
+    "co_code",
+    "co_consts",
+    "co_names",
+    "co_varnames",
+    "co_filename",
+    "co_name",
+    "co_firstlineno",
+    "co_lnotab",
+    "co_freevars",
+    "co_cellvars",
 ]
 
 if sys.version_info.major < 3 or (sys.version_info.major == 3 and sys.version_info.minor < 8):
-    code_attrs.remove('co_posonlyargcount')
+    code_attrs.remove("co_posonlyargcount")
 
 double_jump = True if sys.version_info.major == 3 and sys.version_info.minor >= 10 else False
 
+
 def get_magic():
-    if sys.version_info >= (3,4):
+    if sys.version_info >= (3, 4):
         from importlib.util import MAGIC_NUMBER
+
         return MAGIC_NUMBER
     else:
         import imp
+
         return imp.get_magic()
+
 
 MAGIC_NUMBER = get_magic()
 
 
-started_exiting=False
+started_exiting = False
 
-def execute_code_obj(obj:types.CodeType):    
+
+def execute_code_obj(obj: types.CodeType):
     def a():
         pass
-    a.__code__ = obj
 
+    a.__code__ = obj
 
     number_of_regular_arguments = obj.co_argcount
     if sys.version_info.major > 3 or (sys.version_info.major == 3 and sys.version_info.minor > 7):
@@ -82,14 +88,15 @@ def execute_code_obj(obj:types.CodeType):
         number_of_regular_arguments -= obj.co_posonlyargcount
     else:
         args = []
-    
-    kwargs = {obj.co_varnames[-i]:i for i in range(obj.co_kwonlyargcount)}
+
+    kwargs = {obj.co_varnames[-i]: i for i in range(obj.co_kwonlyargcount)}
     args.extend([i for i in range(number_of_regular_arguments - obj.co_kwonlyargcount)])
-    
+
     try:
         a(*args, **kwargs)
     except:
         pass
+
 
 def find_first_opcode(co: bytes, op_code: int):
     for i in range(0, len(co), 2):
@@ -103,18 +110,20 @@ def get_arg_bytes(co: bytes, op_code_index: int) -> bytearray:
     This function calculate the argument of a call while considering the EXTENDED_ARG opcodes that may come before that
     """
     result = bytearray()
-    result.append(co[op_code_index+1])
+    result.append(co[op_code_index + 1])
 
     checked_opcode = op_code_index - 2
     while checked_opcode >= 0 and co[checked_opcode] == EXTENDED_ARG:
         result.insert(0, co[checked_opcode + 1])
-        checked_opcode-=2
+        checked_opcode -= 2
     return result
 
-def calculate_arg(co: bytes, op_code_index: int) -> int:
-    return int.from_bytes(get_arg_bytes(co, op_code_index), 'big')
 
-def calculate_extended_args(arg: int): # This function will calculate the necessary extended_args needed
+def calculate_arg(co: bytes, op_code_index: int) -> int:
+    return int.from_bytes(get_arg_bytes(co, op_code_index), "big")
+
+
+def calculate_extended_args(arg: int):  # This function will calculate the necessary extended_args needed
     """
     EXTENDED_ARG logic:
     - Its opcode shifts left by 8, and adds it to the next opcode
@@ -132,19 +141,20 @@ def calculate_extended_args(arg: int): # This function will calculate the necess
                 extended_arg >>= 8
             else:
                 extended_args.append(extended_arg)
-                extended_args.reverse() # reverse because we appended in the order
-                                        # of most recent EXTENDED_ARG (the one closest to
-                                        # the actual opcode) to the least recent EXTENDED_ARG
-                                        # (the one farthest from the actual opcode)
+                extended_args.reverse()  # reverse because we appended in the order
+                # of most recent EXTENDED_ARG (the one closest to
+                # the actual opcode) to the least recent EXTENDED_ARG
+                # (the one farthest from the actual opcode)
                 break
 
         new_arg = arg & 255
     return extended_args, new_arg
 
+
 def get_flags(flags):
     names = []
     for i in range(32):
-        flag = 1<<i
+        flag = 1 << i
         if flags & flag:
             names.append(flag)
             flags ^= flag
@@ -152,6 +162,7 @@ def get_flags(flags):
                 break
 
     return names
+
 
 def flag_to_num(flags, exclude=[]):
     real = 0
@@ -161,9 +172,11 @@ def flag_to_num(flags, exclude=[]):
 
     return real
 
+
 def remove_async(flags: int) -> int:
     flag_lst = get_flags(flags)
-    return flag_to_num(flag_lst, [128, 256, 512]) # all coroutine flags
+    return flag_to_num(flag_lst, [128, 256, 512])  # all coroutine flags
+
 
 def handle_under_armor(obj: types.CodeType):
     # TODO make handling EXTENDED_ARG a function
@@ -195,54 +208,49 @@ def handle_under_armor(obj: types.CodeType):
     new_names = tuple(n for n in obj.co_names if n != "__armor__")
     return copy_code_obj(obj, co_code=obj.co_code[:jumping_arg], co_names=new_names)
 
+
 def output_code(obj):
     if isinstance(obj, types.CodeType):
         if obj.co_name == "protect_pytransform":
+
             def fake():
                 pass
 
             return fake.__code__
-            
+
         obj = copy_code_obj(
             obj,
             co_names=tuple(output_code(name) for name in obj.co_names),
             co_varnames=tuple(output_code(name) for name in obj.co_varnames),
             co_freevars=tuple(output_code(name) for name in obj.co_freevars),
             co_cellvars=tuple(output_code(name) for name in obj.co_cellvars),
-            co_consts=tuple(output_code(name) for name in obj.co_consts)
+            co_consts=tuple(output_code(name) for name in obj.co_consts),
         )
 
         # TODO I think there is a bug here because the prints are really weird.
-        if "pytransform" in obj.co_freevars :
+        if "pytransform" in obj.co_freevars:
             #  obj.co_name not in ["<lambda>", 'check_obfuscated_script', 'check_mod_pytransform']:
             pass
         elif "__armor__" in obj.co_names:
             # TODO I don't know when a function uses __armor__ but we should find it and add tests
             obj = handle_under_armor(obj)
 
-        elif "__armor_enter__" in obj.co_names: 
+        elif "__armor_enter__" in obj.co_names:
             obj = handle_armor_enter(obj)
         else:
             pass
     return obj
 
+
 def handle_armor_enter(obj: types.CodeType):
 
-    load_enter_function = b"".join(
-        i.to_bytes(1, byteorder="big")
-        for i in [LOAD_GLOBAL, obj.co_names.index("__armor_enter__")]
-    )
+    load_enter_function = b"".join(i.to_bytes(1, byteorder="big") for i in [LOAD_GLOBAL, obj.co_names.index("__armor_enter__")])
     pop_top_start = obj.co_code.find(load_enter_function) + 4
 
-    load_exit_function = b"".join(
-        i.to_bytes(1, byteorder="big")
-        for i in [LOAD_GLOBAL, obj.co_names.index("__armor_exit__")]
-    )
+    load_exit_function = b"".join(i.to_bytes(1, byteorder="big") for i in [LOAD_GLOBAL, obj.co_names.index("__armor_exit__")])
     fake_exit = obj.co_code.find(load_exit_function) - 2
 
-    new_code = (
-        obj.co_code[:pop_top_start] + RETURN_OPCODE + obj.co_code[pop_top_start + 2 :]
-    )  # replace the pop_top after __pyarmor_enter__ to return
+    new_code = obj.co_code[:pop_top_start] + RETURN_OPCODE + obj.co_code[pop_top_start + 2 :]  # replace the pop_top after __pyarmor_enter__ to return
     old_freevars = obj.co_freevars
     old_flags = obj.co_flags
 
@@ -254,9 +262,7 @@ def handle_armor_enter(obj: types.CodeType):
         print(e)
 
     obj = copy_code_obj(obj, co_code=obj.co_code, co_freevars=old_freevars, co_flags=old_flags)
-    names = tuple(
-        n for n in obj.co_names if not n.startswith("__armor")
-    )  # remove the pyarmor functions
+    names = tuple(n for n in obj.co_names if not n.startswith("__armor"))  # remove the pyarmor functions
     raw_code = obj.co_code
 
     try_start = find_first_opcode(obj.co_code, SETUP_FINALLY)
@@ -267,9 +273,7 @@ def handle_armor_enter(obj: types.CodeType):
     raw_code = raw_code[: try_start + size]
 
     raw_code = raw_code[try_start + 2 :]
-    raw_code += (
-        RETURN_OPCODE  # add return # TODO this adds return none to everything? what?
-    )
+    raw_code += RETURN_OPCODE  # add return # TODO this adds return none to everything? what?
 
     raw_code = bytearray(raw_code)
     i = 0
@@ -278,9 +282,9 @@ def handle_armor_enter(obj: types.CodeType):
         if op in absolute_jumps:
             argument = calculate_arg(raw_code, i)
 
-            while raw_code[i-2] == EXTENDED_ARG: # Remove the preceding extended arguments, we add our custom ones later on
-                raw_code.pop(i-2) # opcode
-                raw_code.pop(i-2) # arguments
+            while raw_code[i - 2] == EXTENDED_ARG:  # Remove the preceding extended arguments, we add our custom ones later on
+                raw_code.pop(i - 2)  # opcode
+                raw_code.pop(i - 2)  # arguments
 
                 i -= 2
                 op = raw_code[i]
@@ -289,9 +293,7 @@ def handle_armor_enter(obj: types.CodeType):
                 argument *= 2
 
             if argument == fake_exit:
-                raw_code[i] = opcode.opmap[
-                    "RETURN_VALUE"
-                ]  # Got to use this because the variable is converted to bytes
+                raw_code[i] = opcode.opmap["RETURN_VALUE"]  # Got to use this because the variable is converted to bytes
                 continue
 
             new_arg = argument - (try_start + 2)
@@ -300,9 +302,7 @@ def handle_armor_enter(obj: types.CodeType):
 
             for extended_arg in extended_args:
                 raw_code.insert(i, EXTENDED_ARG)
-                raw_code.insert(
-                    i + 1, extended_arg if not double_jump else extended_arg // 2
-                )
+                raw_code.insert(i + 1, extended_arg if not double_jump else extended_arg // 2)
                 i += 2
 
             raw_code[i + 1] = new_arg if not double_jump else new_arg // 2
@@ -314,10 +314,10 @@ def handle_armor_enter(obj: types.CodeType):
     return copy_code_obj(obj, co_names=names, co_code=raw_code)
 
 
-
 def _pack_uint32(val):
-    """ Convert integer to 32-bit little-endian bytes """
+    """Convert integer to 32-bit little-endian bytes"""
     return struct.pack("<I", val)
+
 
 def code_to_bytecode(code, mtime=0, source_size=0):
     """
@@ -334,7 +334,7 @@ def code_to_bytecode(code, mtime=0, source_size=0):
 
     # Handle extra 32-bit field in header from Python 3.7 onwards
     # See: https://www.python.org/dev/peps/pep-0552
-    if sys.version_info >= (3,7):
+    if sys.version_info >= (3, 7):
         # Blank bit field value to indicate traditional pyc header
         data.extend(_pack_uint32(0))
 
@@ -342,16 +342,18 @@ def code_to_bytecode(code, mtime=0, source_size=0):
 
     # Handle extra 32-bit field for source size from Python 3.2 onwards
     # See: https://www.python.org/dev/peps/pep-3147/
-    if sys.version_info >= (3,2):
+    if sys.version_info >= (3, 2):
         data.extend(_pack_uint32(source_size))
 
     data.extend(marshal.dumps(code))
 
     return data
 
+
 def orig_or_new(func):
     sig = inspect.signature(func)
     kwarg_params = list(sig.parameters.keys())
+
     @wraps(func)
     def wrapee(orig, **kwargs):
         binding = sig.bind_partial(**kwargs)
@@ -368,47 +370,51 @@ def orig_or_new(func):
     wrapee.__signature__ = sig
     return wrapee
 
+
 def array_to_params(names_array):
     return [inspect.Parameter(name, inspect.Parameter.KEYWORD_ONLY, default=None) for name in names_array]
+
 
 def sig_from_array(names_array):
     def decor(f):
         sig = inspect.Signature(parameters=array_to_params(names_array))
+
         @wraps(f)
         def wrappe(**kwargs):
             bound = sig.bind(**kwargs)
             bound.apply_defaults()
             return f(**bound.kwargs)
+
         wrappe.__signature__ = sig
         return wrappe
+
     return decor
+
 
 @orig_or_new
 @sig_from_array(code_attrs)
-def copy_code_obj(
-    **kwargs
-    ):
+def copy_code_obj(**kwargs):
     """
     create a copy of code object with different paramters.
     If a parameter is None then the default is the previous code object values
     """
     args = [kwargs[name] for name in code_attrs]
-    return types.CodeType(
-        *args
-    )
+    return types.CodeType(*args)
 
 
-def marshal_to_pyc(file_path:typing.Union[str, Path], code:types.CodeType):
+def marshal_to_pyc(file_path: typing.Union[str, Path], code: types.CodeType):
     file_path = str(file_path)
     pyc_code = code_to_bytecode(code)
-    with open(file_path, 'wb') as f:
+    with open(file_path, "wb") as f:
         f.write(pyc_code)
+
 
 print("Preparation completed")
 print("Initializing the hook")
 
 triggered = False
 current_dir_scanned = False
+
 
 def find_modules(directory):
     for filename in os.listdir(directory):
@@ -430,8 +436,9 @@ def find_modules(directory):
                         code = file.read()
                     exec(code)
 
+
 def log(event, arg):
-    if event == "marshal.loads" and not globals()["triggered"] and b"frozen" in arg[0]: # We have to use globals() because we're inside an audit hook
+    if event == "marshal.loads" and not globals()["triggered"] and b"frozen" in arg[0]:  # We have to use globals() because we're inside an audit hook
         try:
             globals()["triggered"] = True
             print("Hook triggered")
@@ -443,13 +450,13 @@ def log(event, arg):
             print("Code object successfully loaded, decrypting and removing pyarmor from it now")
             code = output_code(code)
             print("Successfully unpacked the file, saving to disk now")
-            filename = code.co_filename.replace("<frozen ", '').replace(">", '')
+            filename = code.co_filename.replace("<frozen ", "").replace(">", "")
             if filename.endswith(".pyc"):
                 pass
             elif filename.endswith(".py"):
-                filename += 'c'
+                filename += "c"
             else:
-                filename += '.pyc'
+                filename += ".pyc"
 
             curr_dir = DUMP_DIR
             for directory in filename.split(".")[:-2]:
@@ -458,7 +465,7 @@ def log(event, arg):
 
             filename = ".".join(filename.split(".")[-2:])
 
-            marshal_to_pyc(curr_dir/filename, code)
+            marshal_to_pyc(curr_dir / filename, code)
 
             if not globals()["current_dir_scanned"]:
                 find_modules(".")
@@ -466,10 +473,11 @@ def log(event, arg):
 
                 print("Saved, exiting now so the protected program doesn't run.")
                 os.kill(os.getpid(), 9)
-        except Exception as e:
+        except Exception:
             print(traceback.format_exc())
             os.kill(os.getpid(), 9)
-        
+
+
 sys.addaudithook(log)
 print("Hook installed")
 filename = sys.argv[1] if len(sys.argv) > 1 else None

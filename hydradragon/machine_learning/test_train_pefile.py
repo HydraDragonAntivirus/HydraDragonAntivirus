@@ -16,16 +16,13 @@ Run with:
 from __future__ import annotations
 
 import hashlib
-import io
 import json
 import os
 import pickle
-import struct
 import sys
-import tempfile
 import types
 from pathlib import Path
-from unittest.mock import MagicMock, Mock, call, patch
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
@@ -34,9 +31,11 @@ import pytest
 # Stub out third-party dependencies that may not be installed in CI
 # ---------------------------------------------------------------------------
 
+
 def _make_stub(name: str) -> types.ModuleType:
     m = types.ModuleType(name)
     return m
+
 
 for _dep in ("hydra_logger", "tqdm", "capstone", "pefile", "r2pipe"):
     if _dep not in sys.modules:
@@ -70,6 +69,7 @@ import train_pefile as tp  # noqa: E402
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_mz_bytes(size: int = 512) -> bytes:
     """Return a fake MZ-header binary of the given size."""
@@ -151,6 +151,7 @@ def _minimal_features(is_malicious: bool = True) -> dict:
 # Fixtures
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture()
 def extractor():
     return tp.PEFeatureExtractor()
@@ -179,6 +180,7 @@ def data_processor(tmp_path):
 # 1. PEFeatureExtractor._calculate_entropy
 # ===========================================================================
 
+
 class TestCalculateEntropy:
     def test_empty_returns_zero(self, extractor):
         assert extractor._calculate_entropy(b"") == 0.0
@@ -190,7 +192,7 @@ class TestCalculateEntropy:
         assert abs(e - 8.0) < 0.01
 
     def test_single_byte_zero_entropy(self, extractor):
-        data = b"\xAA" * 1024
+        data = b"\xaa" * 1024
         assert extractor._calculate_entropy(data) == 0.0
 
     def test_returns_float(self, extractor):
@@ -199,6 +201,7 @@ class TestCalculateEntropy:
 
     def test_high_entropy_random_like(self, extractor):
         import os as _os
+
         data = _os.urandom(4096)
         e = extractor._calculate_entropy(data)
         assert e > 7.0
@@ -207,6 +210,7 @@ class TestCalculateEntropy:
 # ===========================================================================
 # 2. PEFeatureExtractor.disassemble_all_sections
 # ===========================================================================
+
 
 class TestDisassembleAllSections:
     def _make_pe(self, machine=0x014C):
@@ -259,8 +263,10 @@ class TestDisassembleAllSections:
         pe.sections = [section]
 
         # Fake instructions: 3 mov, 5 add
-        instr_add = MagicMock(); instr_add.mnemonic = "add"
-        instr_mov = MagicMock(); instr_mov.mnemonic = "mov"
+        instr_add = MagicMock()
+        instr_add.mnemonic = "add"
+        instr_mov = MagicMock()
+        instr_mov.mnemonic = "mov"
         instrs = [instr_add] * 5 + [instr_mov] * 3
 
         cs_mock = MagicMock()
@@ -285,6 +291,7 @@ class TestDisassembleAllSections:
 # ===========================================================================
 # 3. PEFeatureExtractor.analyze_with_radare2
 # ===========================================================================
+
 
 class TestAnalyzeWithRadare2:
     """All r2pipe interaction is fully mocked."""
@@ -319,8 +326,7 @@ class TestAnalyzeWithRadare2:
 
     def test_file_too_large_skipped(self, extractor, tmp_path):
         f = _make_temp_mz(tmp_path, size=512)
-        with patch.object(tp, "_R2PIPE_AVAILABLE", True), \
-             patch("os.path.getsize", return_value=11 * 1024 * 1024):
+        with patch.object(tp, "_R2PIPE_AVAILABLE", True), patch("os.path.getsize", return_value=11 * 1024 * 1024):
             result = extractor.analyze_with_radare2(str(f))
         assert result["error"] == "file_too_large"
         assert result["r2_analysis_success"] is False
@@ -328,9 +334,7 @@ class TestAnalyzeWithRadare2:
     def test_file_at_exactly_10mb_not_skipped(self, extractor, tmp_path):
         f = _make_temp_mz(tmp_path)
         r2 = self._make_r2()
-        with patch.object(tp, "_R2PIPE_AVAILABLE", True), \
-             patch("os.path.getsize", return_value=10 * 1024 * 1024), \
-             patch.object(tp, "r2pipe") as mock_r2pipe:
+        with patch.object(tp, "_R2PIPE_AVAILABLE", True), patch("os.path.getsize", return_value=10 * 1024 * 1024), patch.object(tp, "r2pipe") as mock_r2pipe:
             mock_r2pipe.open.return_value = r2
             result = extractor.analyze_with_radare2(str(f))
         # Should proceed (10 MB is not > 10 MB)
@@ -342,15 +346,13 @@ class TestAnalyzeWithRadare2:
     def test_success_all_fields_populated(self, extractor, tmp_path):
         f = _make_temp_mz(tmp_path)
         r2 = self._make_r2()
-        with patch.object(tp, "_R2PIPE_AVAILABLE", True), \
-             patch("os.path.getsize", return_value=1024), \
-             patch.object(tp, "r2pipe") as mock_r2pipe:
+        with patch.object(tp, "_R2PIPE_AVAILABLE", True), patch("os.path.getsize", return_value=1024), patch.object(tp, "r2pipe") as mock_r2pipe:
             mock_r2pipe.open.return_value = r2
             result = extractor.analyze_with_radare2(str(f))
 
         assert result["r2_analysis_success"] is True
         assert result["function_count"] == 3
-        assert result["basic_block_count"] == 12         # 4+6+2
+        assert result["basic_block_count"] == 12  # 4+6+2
         assert abs(result["avg_basic_blocks_per_function"] - 4.0) < 0.01
         assert abs(result["cyclomatic_complexity_mean"] - 2.0) < 0.01
         assert result["xref_count"] == 2
@@ -360,11 +362,8 @@ class TestAnalyzeWithRadare2:
     def test_invalid_aflc_response_defaults_to_zero(self, extractor, tmp_path):
         f = _make_temp_mz(tmp_path)
         r2 = self._make_r2()
-        r2.cmd.side_effect = lambda c: "" if c == "aflc" else \
-            {"aa": "", "axl": ""}.get(c, "")
-        with patch.object(tp, "_R2PIPE_AVAILABLE", True), \
-             patch("os.path.getsize", return_value=1024), \
-             patch.object(tp, "r2pipe") as mock_r2pipe:
+        r2.cmd.side_effect = lambda c: "" if c == "aflc" else {"aa": "", "axl": ""}.get(c, "")
+        with patch.object(tp, "_R2PIPE_AVAILABLE", True), patch("os.path.getsize", return_value=1024), patch.object(tp, "r2pipe") as mock_r2pipe:
             mock_r2pipe.open.return_value = r2
             result = extractor.analyze_with_radare2(str(f))
         assert result["function_count"] == 0
@@ -372,11 +371,8 @@ class TestAnalyzeWithRadare2:
     def test_empty_function_list(self, extractor, tmp_path):
         f = _make_temp_mz(tmp_path)
         r2 = self._make_r2()
-        r2.cmdj.side_effect = lambda c: [] if c == "aflj" else \
-            [{"string": "s"}] if c == "izj" else []
-        with patch.object(tp, "_R2PIPE_AVAILABLE", True), \
-             patch("os.path.getsize", return_value=1024), \
-             patch.object(tp, "r2pipe") as mock_r2pipe:
+        r2.cmdj.side_effect = lambda c: [] if c == "aflj" else [{"string": "s"}] if c == "izj" else []
+        with patch.object(tp, "_R2PIPE_AVAILABLE", True), patch("os.path.getsize", return_value=1024), patch.object(tp, "r2pipe") as mock_r2pipe:
             mock_r2pipe.open.return_value = r2
             result = extractor.analyze_with_radare2(str(f))
         assert result["basic_block_count"] == 0
@@ -387,18 +383,14 @@ class TestAnalyzeWithRadare2:
         f = _make_temp_mz(tmp_path)
         r2 = self._make_r2()
         r2.cmd.side_effect = lambda c: {"aa": "", "aflc": "1", "axl": ""}.get(c, "")
-        with patch.object(tp, "_R2PIPE_AVAILABLE", True), \
-             patch("os.path.getsize", return_value=1024), \
-             patch.object(tp, "r2pipe") as mock_r2pipe:
+        with patch.object(tp, "_R2PIPE_AVAILABLE", True), patch("os.path.getsize", return_value=1024), patch.object(tp, "r2pipe") as mock_r2pipe:
             mock_r2pipe.open.return_value = r2
             result = extractor.analyze_with_radare2(str(f))
         assert result["xref_count"] == 0
 
     def test_r2pipe_open_exception_caught(self, extractor, tmp_path):
         f = _make_temp_mz(tmp_path)
-        with patch.object(tp, "_R2PIPE_AVAILABLE", True), \
-             patch("os.path.getsize", return_value=1024), \
-             patch.object(tp, "r2pipe") as mock_r2pipe:
+        with patch.object(tp, "_R2PIPE_AVAILABLE", True), patch("os.path.getsize", return_value=1024), patch.object(tp, "r2pipe") as mock_r2pipe:
             mock_r2pipe.open.side_effect = OSError("radare2 not found")
             result = extractor.analyze_with_radare2(str(f))
         assert result["r2_analysis_success"] is False
@@ -408,9 +400,7 @@ class TestAnalyzeWithRadare2:
         f = _make_temp_mz(tmp_path)
         r2 = MagicMock()
         r2.cmd.side_effect = RuntimeError("pipe broke")
-        with patch.object(tp, "_R2PIPE_AVAILABLE", True), \
-             patch("os.path.getsize", return_value=1024), \
-             patch.object(tp, "r2pipe") as mock_r2pipe:
+        with patch.object(tp, "_R2PIPE_AVAILABLE", True), patch("os.path.getsize", return_value=1024), patch.object(tp, "r2pipe") as mock_r2pipe:
             mock_r2pipe.open.return_value = r2
             result = extractor.analyze_with_radare2(str(f))
         assert result["r2_analysis_success"] is False
@@ -420,9 +410,7 @@ class TestAnalyzeWithRadare2:
         f = _make_temp_mz(tmp_path)
         r2 = self._make_r2()
         r2.quit.side_effect = Exception("quit failed")
-        with patch.object(tp, "_R2PIPE_AVAILABLE", True), \
-             patch("os.path.getsize", return_value=1024), \
-             patch.object(tp, "r2pipe") as mock_r2pipe:
+        with patch.object(tp, "_R2PIPE_AVAILABLE", True), patch("os.path.getsize", return_value=1024), patch.object(tp, "r2pipe") as mock_r2pipe:
             mock_r2pipe.open.return_value = r2
             result = extractor.analyze_with_radare2(str(f))
         # Should still succeed despite quit() raising
@@ -439,9 +427,7 @@ class TestAnalyzeWithRadare2:
             captured_path_at_open.append(os.environ.get("PATH", ""))
             return r2
 
-        with patch.object(tp, "_R2PIPE_AVAILABLE", True), \
-             patch("os.path.getsize", return_value=1024), \
-             patch.object(tp, "r2pipe") as mock_r2pipe:
+        with patch.object(tp, "_R2PIPE_AVAILABLE", True), patch("os.path.getsize", return_value=1024), patch.object(tp, "r2pipe") as mock_r2pipe:
             mock_r2pipe.open.side_effect = fake_open
             extractor.analyze_with_radare2(str(f))
 
@@ -455,9 +441,7 @@ class TestAnalyzeWithRadare2:
         r2 = self._make_r2()
         original_path = os.environ.get("PATH", "")
 
-        with patch.object(tp, "_R2PIPE_AVAILABLE", True), \
-             patch("os.path.getsize", return_value=1024), \
-             patch.object(tp, "r2pipe") as mock_r2pipe:
+        with patch.object(tp, "_R2PIPE_AVAILABLE", True), patch("os.path.getsize", return_value=1024), patch.object(tp, "r2pipe") as mock_r2pipe:
             mock_r2pipe.open.return_value = r2
             extractor.analyze_with_radare2(str(f))
 
@@ -467,9 +451,7 @@ class TestAnalyzeWithRadare2:
         f = _make_temp_mz(tmp_path)
         original_path = os.environ.get("PATH", "")
 
-        with patch.object(tp, "_R2PIPE_AVAILABLE", True), \
-             patch("os.path.getsize", return_value=1024), \
-             patch.object(tp, "r2pipe") as mock_r2pipe:
+        with patch.object(tp, "_R2PIPE_AVAILABLE", True), patch("os.path.getsize", return_value=1024), patch.object(tp, "r2pipe") as mock_r2pipe:
             mock_r2pipe.open.side_effect = OSError("no r2")
             extractor.analyze_with_radare2(str(f))
 
@@ -481,9 +463,7 @@ class TestAnalyzeWithRadare2:
         r2.cmd.side_effect = RuntimeError("dead pipe")
         original_path = os.environ.get("PATH", "")
 
-        with patch.object(tp, "_R2PIPE_AVAILABLE", True), \
-             patch("os.path.getsize", return_value=1024), \
-             patch.object(tp, "r2pipe") as mock_r2pipe:
+        with patch.object(tp, "_R2PIPE_AVAILABLE", True), patch("os.path.getsize", return_value=1024), patch.object(tp, "r2pipe") as mock_r2pipe:
             mock_r2pipe.open.return_value = r2
             extractor.analyze_with_radare2(str(f))
 
@@ -495,9 +475,7 @@ class TestAnalyzeWithRadare2:
         r2.quit.side_effect = Exception("quit error")
         original_path = os.environ.get("PATH", "")
 
-        with patch.object(tp, "_R2PIPE_AVAILABLE", True), \
-             patch("os.path.getsize", return_value=1024), \
-             patch.object(tp, "r2pipe") as mock_r2pipe:
+        with patch.object(tp, "_R2PIPE_AVAILABLE", True), patch("os.path.getsize", return_value=1024), patch.object(tp, "r2pipe") as mock_r2pipe:
             mock_r2pipe.open.return_value = r2
             extractor.analyze_with_radare2(str(f))
 
@@ -508,14 +486,13 @@ class TestAnalyzeWithRadare2:
 # 4. features_to_numeric — vector contract
 # ===========================================================================
 
+
 class TestFeaturesToNumeric:
     EXPECTED_LEN = 45  # 38 PE + 7 r2
 
     def test_vector_length(self, data_processor):
         vec = data_processor.features_to_numeric(_minimal_features())
-        assert len(vec) == self.EXPECTED_LEN, (
-            f"Expected {self.EXPECTED_LEN} features, got {len(vec)}"
-        )
+        assert len(vec) == self.EXPECTED_LEN, f"Expected {self.EXPECTED_LEN} features, got {len(vec)}"
 
     def test_vector_dtype_float32(self, data_processor):
         vec = data_processor.features_to_numeric(_minimal_features())
@@ -604,6 +581,7 @@ class TestFeaturesToNumeric:
 # 5. DataProcessor._get_file_md5
 # ===========================================================================
 
+
 class TestGetFileMd5:
     def test_valid_mz_returns_md5_and_true(self, data_processor, tmp_path):
         f = _make_temp_mz(tmp_path)
@@ -641,6 +619,7 @@ class TestGetFileMd5:
 # 6. DataProcessor._move
 # ===========================================================================
 
+
 class TestMove:
     def test_moves_file_to_dest(self, data_processor, tmp_path):
         src = _make_temp_mz(tmp_path, name="move_me.exe")
@@ -676,6 +655,7 @@ class TestMove:
 # 7. DataProcessor._append_vector_and_index
 # ===========================================================================
 
+
 class TestAppendVectorAndIndex:
     def test_writes_binary_vector(self, data_processor):
         feat = _minimal_features(is_malicious=True)
@@ -686,7 +666,7 @@ class TestAppendVectorAndIndex:
 
     def test_writes_jsonl_index_entry(self, data_processor):
         feat = _minimal_features(is_malicious=False)
-        entry = data_processor._append_vector_and_index(feat)
+        data_processor._append_vector_and_index(feat)
         lines = data_processor.index_path.read_text(encoding="utf-8").strip().splitlines()
         assert len(lines) == 1
         obj = json.loads(lines[0])
@@ -736,6 +716,7 @@ class TestAppendVectorAndIndex:
 # 8. DataProcessor._process_one
 # ===========================================================================
 
+
 class TestProcessOne:
     def _make_args(self, file_path, rank=1, is_malicious=True, md5="abc"):
         return (file_path, rank, is_malicious, md5)
@@ -743,8 +724,7 @@ class TestProcessOne:
     def test_success_returns_features_with_file_info(self, data_processor, tmp_path):
         f = _make_temp_mz(tmp_path)
         feat = _minimal_features()
-        with patch.object(data_processor.pe_extractor, "extract_numeric_features",
-                          return_value=feat):
+        with patch.object(data_processor.pe_extractor, "extract_numeric_features", return_value=feat):
             result = data_processor._process_one(self._make_args(f))
         assert result is not None
         assert "file_info" in result
@@ -753,30 +733,26 @@ class TestProcessOne:
 
     def test_extractor_returns_none_gives_none(self, data_processor, tmp_path):
         f = _make_temp_mz(tmp_path)
-        with patch.object(data_processor.pe_extractor, "extract_numeric_features",
-                          return_value=None):
+        with patch.object(data_processor.pe_extractor, "extract_numeric_features", return_value=None):
             result = data_processor._process_one(self._make_args(f))
         assert result is None
 
     def test_permission_error_retried_then_none(self, data_processor, tmp_path):
         f = _make_temp_mz(tmp_path)
-        with patch.object(data_processor.pe_extractor, "extract_numeric_features",
-                          side_effect=PermissionError("locked")):
+        with patch.object(data_processor.pe_extractor, "extract_numeric_features", side_effect=PermissionError("locked")):
             result = data_processor._process_one(self._make_args(f))
         assert result is None
 
     def test_unexpected_exception_returns_none(self, data_processor, tmp_path):
         f = _make_temp_mz(tmp_path)
-        with patch.object(data_processor.pe_extractor, "extract_numeric_features",
-                          side_effect=ValueError("oops")):
+        with patch.object(data_processor.pe_extractor, "extract_numeric_features", side_effect=ValueError("oops")):
             result = data_processor._process_one(self._make_args(f))
         assert result is None
 
     def test_file_info_size_populated(self, data_processor, tmp_path):
         f = _make_temp_mz(tmp_path, size=1024)
         feat = _minimal_features()
-        with patch.object(data_processor.pe_extractor, "extract_numeric_features",
-                          return_value=feat):
+        with patch.object(data_processor.pe_extractor, "extract_numeric_features", return_value=feat):
             result = data_processor._process_one(self._make_args(f))
         assert result["file_info"]["size"] == 1024
 
@@ -784,6 +760,7 @@ class TestProcessOne:
 # ===========================================================================
 # 9. DataProcessor._run_global_prefilter
 # ===========================================================================
+
 
 class TestRunGlobalPrefilter:
     def test_non_pe_files_excluded(self, data_processor, tmp_path):
@@ -829,6 +806,7 @@ class TestRunGlobalPrefilter:
 # 10. DataProcessor.process_dir
 # ===========================================================================
 
+
 class TestProcessDir:
     def _make_task(self, tmp_path, name="sample.exe"):
         f = _make_temp_mz(tmp_path, name=name)
@@ -844,8 +822,7 @@ class TestProcessDir:
         feat = _minimal_features()
         feat["file_info"]["md5"] = task[1]
 
-        with patch.object(data_processor, "_process_one", return_value=feat), \
-             patch("train_pefile.ProcessPoolExecutor") as MockExec:
+        with patch.object(data_processor, "_process_one", return_value=feat), patch("train_pefile.ProcessPoolExecutor") as MockExec:
             # Make map() behave synchronously
             MockExec.return_value.__enter__.return_value.map.return_value = iter([feat])
             data_processor.process_dir(is_malicious=True, prefiltered_tasks=[task])
@@ -867,23 +844,18 @@ class TestProcessDir:
 # 11. DataProcessor.process_dataset (smoke test)
 # ===========================================================================
 
+
 class TestProcessDataset:
     def test_summary_json_created(self, data_processor, tmp_path):
         # No files in either directory → trivial run
-        with patch.object(data_processor, "_run_global_prefilter",
-                          return_value=([], [])), \
-             patch.object(data_processor, "process_dir",
-                          return_value=data_processor._new_label_stats()):
+        with patch.object(data_processor, "_run_global_prefilter", return_value=([], [])), patch.object(data_processor, "process_dir", return_value=data_processor._new_label_stats()):
             data_processor.process_dataset()
 
         summary_files = list(data_processor.output_dir.glob("summary.json"))
         assert len(summary_files) == 1
 
     def test_summary_has_required_keys(self, data_processor):
-        with patch.object(data_processor, "_run_global_prefilter",
-                          return_value=([], [])), \
-             patch.object(data_processor, "process_dir",
-                          return_value=data_processor._new_label_stats()):
+        with patch.object(data_processor, "_run_global_prefilter", return_value=([], [])), patch.object(data_processor, "process_dir", return_value=data_processor._new_label_stats()):
             data_processor.process_dataset()
 
         summary_path = data_processor.output_dir / "summary.json"
@@ -894,15 +866,14 @@ class TestProcessDataset:
     def test_reset_clears_existing_files(self, tmp_path):
         mal_dir = tmp_path / "mal"
         ben_dir = tmp_path / "ben"
-        mal_dir.mkdir(); ben_dir.mkdir()
+        mal_dir.mkdir()
+        ben_dir.mkdir()
 
-        dp1 = tp.DataProcessor(str(mal_dir), str(ben_dir),
-                                out_dir_prefix=str(tmp_path / "out"), reset=False)
+        dp1 = tp.DataProcessor(str(mal_dir), str(ben_dir), out_dir_prefix=str(tmp_path / "out"), reset=False)
         # Write something to the bin
         dp1.bin_path.write_bytes(b"\xff" * 64)
 
-        dp2 = tp.DataProcessor(str(mal_dir), str(ben_dir),
-                                out_dir_prefix=str(tmp_path / "out"), reset=True)
+        dp2 = tp.DataProcessor(str(mal_dir), str(ben_dir), out_dir_prefix=str(tmp_path / "out"), reset=True)
         # After reset the new bin should be empty
         assert dp2.bin_path.read_bytes() == b""
 
@@ -910,6 +881,7 @@ class TestProcessDataset:
 # ===========================================================================
 # 12. _load_seen_md5s / resume support
 # ===========================================================================
+
 
 class TestLoadSeenMd5s:
     def test_loads_existing_index(self, data_processor):
@@ -919,10 +891,7 @@ class TestLoadSeenMd5s:
         assert seen.get("deadbeef") == "malicious"
 
     def test_skips_malformed_lines(self, data_processor):
-        data_processor.index_path.write_text(
-            '{"md5":"aaa","label":"benign"}\nnot json\n{"md5":"bbb","label":"malicious"}\n',
-            encoding="utf-8"
-        )
+        data_processor.index_path.write_text('{"md5":"aaa","label":"benign"}\nnot json\n{"md5":"bbb","label":"malicious"}\n', encoding="utf-8")
         seen = data_processor._load_seen_md5s()
         assert "aaa" in seen
         assert "bbb" in seen

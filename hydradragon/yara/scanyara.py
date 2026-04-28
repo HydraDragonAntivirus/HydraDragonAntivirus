@@ -1,8 +1,9 @@
 import re
 
+
 def extract_yara_strings(yara_file, excluded_rules_path, output_file):
     try:
-        with open(excluded_rules_path, "r", encoding='latin-1') as file:
+        with open(excluded_rules_path, "r", encoding="latin-1") as file:
             excluded_rules_content = file.read()
         print("YARA Excluded Rules Definitions loaded!")
         print("Excluded rules:", excluded_rules_content)
@@ -10,12 +11,12 @@ def extract_yara_strings(yara_file, excluded_rules_path, output_file):
         print(f"Excluded rules file '{excluded_rules_path}' not found. Exiting...")
         return
 
-    rule_pattern = re.compile(r'rule\s+(\w+)\s*\{([\s\S]+?)\}', re.MULTILINE)
+    rule_pattern = re.compile(r"rule\s+(\w+)\s*\{([\s\S]+?)\}", re.MULTILINE)
     string_pattern = re.compile(r'\$[a-zA-Z0-9_]+\s*=\s*"([^"]+)"')
-    condition_pattern = re.compile(r'condition:\s*(.*?)\s*\n\s*any\s+of\s+them', re.IGNORECASE)
+    condition_pattern = re.compile(r"condition:\s*(.*?)\s*\n\s*any\s+of\s+them", re.IGNORECASE)
 
     try:
-        with open(yara_file, 'r', encoding='latin-1') as f:
+        with open(yara_file, "r", encoding="latin-1") as f:
             yara_content = f.read()
         print(f"Reading YARA file '{yara_file}'...")
     except FileNotFoundError:
@@ -46,7 +47,7 @@ def extract_yara_strings(yara_file, excluded_rules_path, output_file):
 
     if strings_to_write:
         try:
-            with open(output_file, 'w', encoding='latin-1') as f:
+            with open(output_file, "w", encoding="latin-1") as f:
                 for rule_name, strings_found in strings_to_write:
                     f.write(f"Rule '{rule_name}':\n")
                     for string in strings_found:
@@ -58,8 +59,9 @@ def extract_yara_strings(yara_file, excluded_rules_path, output_file):
     else:
         print("No strings found or no valid output. Exiting...")
 
-yara_file = 'compiled_rule.yar'
-excluded_rules_path = 'excluded_rules.txt'
-output_file = 'yarastrings.txt'
+
+yara_file = "compiled_rule.yar"
+excluded_rules_path = "excluded_rules.txt"
+output_file = "yarastrings.txt"
 
 extract_yara_strings(yara_file, excluded_rules_path, output_file)

@@ -3,9 +3,10 @@
 use std::collections::HashMap;
 use std::ffi::CString;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 use windows::core::PCSTR;
@@ -26,7 +27,7 @@ use crate::config::Config;
 use crate::driver_com::Driver;
 use crate::logging::Logging;
 use crate::process::ProcessRecord;
-use crate::shared_def::IOMessage;
+use crate::shared_def::{FileChangeInfo, IOMessage, IrpMajorOp};
 use crate::signature_verification::verify_signature;
 use crate::threat_handler::ThreatHandler;
 use crate::utils::validate_pipe_client;
@@ -44,6 +45,8 @@ const BUFFER_SIZE: u32 = 8192;
 const PIPE_READ_BUFFER_SIZE: u32 = 65536;
 #[allow(dead_code)] // Silencing warning, this is used by the (currently) unused send_threat_to_edr
 const CONNECT_TIMEOUT_MS: u32 = 900_000; // 900s - adjust as needed
+const TINYAV_SCAN_DEBOUNCE: Duration = Duration::from_secs(10);
+const TINYAV_RECENT_SCAN_LIMIT: usize = 4096;
 
 /// Action to take when a threat is detected
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Default)]
@@ -203,6 +206,226 @@ fn normalize_nt_path(nt_path: &str) -> String {
     }
 
     normalized.trim_end_matches('\0').to_string()
+}
+
+fn is_new_file_event(iomsg: &IOMessage) -> bool {
+    IrpMajorOp::from_byte(iomsg.irp_op) == IrpMajorOp::IrpCreate
+        && num::FromPrimitive::from_u8(iomsg.file_change) == Some(FileChangeInfo::ChangeNewFile)
+}
+
+fn scan_target_for_iomsg(iomsg: &IOMessage, precord: &ProcessRecord) -> PathBuf {
+    if is_new_file_event(iomsg) && !iomsg.filepathstr.trim().is_empty() {
+        return PathBuf::from(normalize_nt_path(&iomsg.filepathstr));
+    }
+
+    precord.exepath.clone()
+}
+
+fn push_tinyav_candidate(candidates: &mut Vec<PathBuf>, candidate: PathBuf) {
+    if !candidates.iter().any(|existing| existing == &candidate) {
+        candidates.push(candidate);
+    }
+}
+
+fn push_tinyav_layout_candidates(candidates: &mut Vec<PathBuf>, root: &Path) {
+    push_tinyav_candidate(
+        candidates,
+        root.join("TinyAntivirus")
+            .join("x64")
+            .join("Release")
+            .join("TinyAvConsole.exe"),
+    );
+    push_tinyav_candidate(
+        candidates,
+        root.join("TinyAntivirus")
+            .join("TinyAvConsole")
+            .join("x64")
+            .join("Release")
+            .join("TinyAvConsole.exe"),
+    );
+    push_tinyav_candidate(
+        candidates,
+        root.join("TinyAntivirus")
+            .join("Release")
+            .join("TinyAvConsole.exe"),
+    );
+    push_tinyav_candidate(
+        candidates,
+        root.join("TinyAntivirus")
+            .join("TinyAvConsole")
+            .join("Release")
+            .join("TinyAvConsole.exe"),
+    );
+    push_tinyav_candidate(
+        candidates,
+        root.join("TinyAntivirus").join("TinyAvConsole.exe"),
+    );
+    push_tinyav_candidate(candidates, root.join("TinyAvConsole.exe"));
+}
+
+fn resolve_tinyav_console_path() -> Option<PathBuf> {
+    for var in [
+        "HYDRADRAGON_TINYAV_CONSOLE",
+        "TINYAV_CONSOLE",
+        "TINYAV_CONSOLE_PATH",
+    ] {
+        if let Ok(value) = std::env::var(var) {
+            let path = PathBuf::from(value);
+            if path.is_file() {
+                return Some(path);
+            }
+        }
+    }
+
+    let mut candidates = Vec::new();
+
+    if let Ok(current_exe) = std::env::current_exe()
+        && let Some(exe_dir) = current_exe.parent()
+    {
+        for ancestor in exe_dir.ancestors() {
+            push_tinyav_layout_candidates(&mut candidates, ancestor);
+        }
+    }
+
+    if let Ok(current_dir) = std::env::current_dir() {
+        for ancestor in current_dir.ancestors() {
+            push_tinyav_layout_candidates(&mut candidates, ancestor);
+        }
+    }
+
+    let program_files = std::env::var("ProgramW6432")
+        .or_else(|_| std::env::var("ProgramFiles"))
+        .unwrap_or_else(|_| r"C:\Program Files".to_string());
+    push_tinyav_layout_candidates(
+        &mut candidates,
+        &PathBuf::from(program_files).join("HydraDragonAntivirus"),
+    );
+
+    candidates.into_iter().find(|candidate| candidate.is_file())
+}
+
+fn wait_until_tinyav_target_is_ready(path: &Path) -> bool {
+    let mut previous_len = None;
+    let mut stable_observations = 0;
+
+    for _ in 0..12 {
+        if let Ok(metadata) = path.metadata()
+            && metadata.is_file()
+        {
+            let len = metadata.len();
+            if previous_len == Some(len) {
+                stable_observations += 1;
+                if stable_observations >= 2 {
+                    return true;
+                }
+            } else {
+                previous_len = Some(len);
+                stable_observations = 0;
+            }
+        }
+
+        thread::sleep(Duration::from_millis(250));
+    }
+
+    path.is_file()
+}
+
+fn tinyav_detected_count(output_text: &str) -> Option<u64> {
+    for line in output_text.lines() {
+        let trimmed = line.trim_start();
+        if let Some(rest) = trimmed.strip_prefix("Detected") {
+            let digits: String = rest
+                .chars()
+                .skip_while(|ch| !ch.is_ascii_digit())
+                .take_while(|ch| ch.is_ascii_digit())
+                .collect();
+            if !digits.is_empty() {
+                return digits.parse::<u64>().ok();
+            }
+        }
+    }
+
+    None
+}
+
+fn run_tinyav_scan(tinyav_console: PathBuf, file_path: PathBuf) {
+    if !wait_until_tinyav_target_is_ready(&file_path) {
+        Logging::debug(&format!(
+            "[TinyAV] Skipping new-file scan because target is not ready: {}",
+            file_path.display()
+        ));
+        return;
+    }
+
+    let Some(scan_dir) = file_path.parent().map(Path::to_path_buf) else {
+        Logging::debug(&format!(
+            "[TinyAV] Skipping new-file scan because no parent directory exists: {}",
+            file_path.display()
+        ));
+        return;
+    };
+    let Some(file_name) = file_path.file_name().map(|name| name.to_os_string()) else {
+        Logging::debug(&format!(
+            "[TinyAV] Skipping new-file scan because no file name exists: {}",
+            file_path.display()
+        ));
+        return;
+    };
+
+    Logging::info(&format!(
+        "[TinyAV] Scanning new file detected by Owlyshield: {}",
+        file_path.display()
+    ));
+
+    let mut command = Command::new(&tinyav_console);
+    command
+        .arg("-d")
+        .arg(&scan_dir)
+        .arg("-p")
+        .arg(&file_name)
+        .arg("-D")
+        .arg("0")
+        .arg("-m")
+        .arg("s");
+
+    if let Some(tinyav_dir) = tinyav_console.parent() {
+        command.current_dir(tinyav_dir);
+    }
+
+    match command.output() {
+        Ok(output) => {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let combined = format!("{stdout}\n{stderr}");
+            let detected = tinyav_detected_count(&combined).unwrap_or(0);
+
+            if detected > 0 {
+                Logging::warning(&format!(
+                    "[TinyAV] Detected {} file(s) while scanning {}",
+                    detected,
+                    file_path.display()
+                ));
+            } else if output.status.success() {
+                Logging::debug(&format!(
+                    "[TinyAV] New-file scan clean: {}",
+                    file_path.display()
+                ));
+            } else {
+                Logging::error(&format!(
+                    "[TinyAV] Scan exited with status {:?} for {}. stderr={}",
+                    output.status.code(),
+                    file_path.display(),
+                    stderr.trim()
+                ));
+            }
+        }
+        Err(e) => Logging::error(&format!(
+            "[TinyAV] Failed to launch {} for {}: {}",
+            tinyav_console.display(),
+            file_path.display(),
+            e
+        )),
+    }
 }
 
 fn decode_utf16le_message(data: &[u8]) -> String {
@@ -748,6 +971,8 @@ pub struct AVIntegration<'a> {
     predictor_malware: PredictorMalware<'a>,
     internal_scan_tx: Sender<EDRScanRequest>,
     signature_cache: HashMap<String, FileSignatureStatus>,
+    tinyav_recent_scans: HashMap<String, Instant>,
+    tinyav_missing_logged: bool,
     yara_rules: Option<yara_x::Rules>,
     _scan_request_handle: thread::JoinHandle<()>,
     _av_to_edr_listener_handle: thread::JoinHandle<()>,
@@ -802,6 +1027,8 @@ impl<'a> AVIntegration<'a> {
             predictor_malware,
             internal_scan_tx,
             signature_cache: HashMap::new(),
+            tinyav_recent_scans: HashMap::new(),
+            tinyav_missing_logged: false,
             yara_rules: load_yara_x_rules(),
             _scan_request_handle: scan_request_handle,
             _av_to_edr_listener_handle: av_to_edr_listener_handle,
@@ -909,14 +1136,17 @@ impl<'a> AVIntegration<'a> {
 
     /// Called by kernel/event handling to queue internal requests (no external client)
     pub fn queue_file_event(&mut self, iomsg: &IOMessage, precord: &ProcessRecord) {
-        let file_path = precord.exepath.to_string_lossy().to_string();
-        let signature_status = self.get_or_compute_signature_status(&file_path, &precord.exepath);
+        self.queue_tinyav_scan_for_new_file(iomsg);
+
+        let scan_target = scan_target_for_iomsg(iomsg, precord);
+        let file_path = scan_target.to_string_lossy().to_string();
+        let signature_status = self.get_or_compute_signature_status(&file_path, &scan_target);
 
         let mut yara_x_matches = Vec::new();
         let mut is_vmprotect = false;
 
         if let Some(rules) = &self.yara_rules {
-            if let Ok(data) = std::fs::read(&precord.exepath) {
+            if let Ok(data) = std::fs::read(&scan_target) {
                 let mut scanner = yara_x::Scanner::new(rules);
                 if let Ok(scan_results) = scanner.scan(&data) {
                     for matching_rule in scan_results.matching_rules() {
@@ -944,6 +1174,55 @@ impl<'a> AVIntegration<'a> {
 
         if let Err(e) = self.internal_scan_tx.send(request) {
             Logging::error(&format!("Failed to send internal scan request: {}", e));
+        }
+    }
+
+    fn queue_tinyav_scan_for_new_file(&mut self, iomsg: &IOMessage) {
+        if !is_new_file_event(iomsg) || iomsg.filepathstr.trim().is_empty() {
+            return;
+        }
+
+        let normalized_path = normalize_nt_path(&iomsg.filepathstr);
+        if normalized_path.trim().is_empty() || is_protected_path(&normalized_path) {
+            return;
+        }
+
+        let file_path = PathBuf::from(&normalized_path);
+        if file_path.file_name().is_none() {
+            return;
+        }
+
+        let now = Instant::now();
+        self.tinyav_recent_scans
+            .retain(|_, last_seen| now.duration_since(*last_seen) <= TINYAV_SCAN_DEBOUNCE);
+
+        let scan_key = normalize_path_for_compare(&normalized_path);
+        if let Some(last_seen) = self.tinyav_recent_scans.get(&scan_key)
+            && now.duration_since(*last_seen) <= TINYAV_SCAN_DEBOUNCE
+        {
+            return;
+        }
+
+        if self.tinyav_recent_scans.len() >= TINYAV_RECENT_SCAN_LIMIT {
+            self.tinyav_recent_scans.clear();
+        }
+        self.tinyav_recent_scans.insert(scan_key, now);
+
+        let Some(tinyav_console) = resolve_tinyav_console_path() else {
+            if !self.tinyav_missing_logged {
+                Logging::warning(
+                    "[TinyAV] TinyAvConsole.exe was not found; set HYDRADRAGON_TINYAV_CONSOLE or install TinyAntivirus beside HydraDragonAntivirus",
+                );
+                self.tinyav_missing_logged = true;
+            }
+            return;
+        };
+
+        if let Err(e) = thread::Builder::new()
+            .name("tinyav_new_file_scan".to_string())
+            .spawn(move || run_tinyav_scan(tinyav_console, file_path))
+        {
+            Logging::error(&format!("[TinyAV] Failed to spawn scan worker: {}", e));
         }
     }
 

@@ -26,7 +26,7 @@ def get_next_line(file):
 
 def parse_array(lines, func_name):
     if "Start " not in (line := next(lines)):
-        raise Exception(f"Error got line \"{line}\" not Start Array")
+        raise Exception(f'Error got line "{line}" not Start Array')
     const_list = parse_const_array(lines, func_name)
     array_literal = "[" + ", ".join(const_list) + "]"
     while "End " not in (line := next(lines)):
@@ -38,7 +38,7 @@ def parse_array(lines, func_name):
 
 def parse_object(lines, func_name):
     if "Start " not in (line := next(lines)):
-        raise Exception(f"Error got line \"{line}\" not Start Object")
+        raise Exception(f'Error got line "{line}" not Start Object')
     const_list = iter(parse_const_array(lines, func_name)[1:])
     object_literal = "{" + ", ".join([f"{key}: {value}" for key, value in zip(const_list, const_list)]) + "}"
     while "End " not in (line := next(lines)):
@@ -70,17 +70,17 @@ def parse_const_line(lines, func_name):
         raise ValueError(f"Invalid constant line format: {var_line}")
 
     idx_range, address, value = match.groups()
-    var_idx = int(idx_range.split('-')[-1]) + 1
+    var_idx = int(idx_range.split("-")[-1]) + 1
 
     if not address:
         return var_idx, value
     if value == "<null>":
         return var_idx, "null"
     if value.startswith("<String"):
-        value = value.split("#", 1)[-1].rstrip('> ').replace('"', '\\"')
+        value = value.split("#", 1)[-1].rstrip("> ").replace('"', '\\"')
         return var_idx, f'"{value}"'
     if value.startswith("<SharedFunctionInfo"):
-        value = value.split(" ", 1)[-1].rstrip('> ') if " " in value else ""
+        value = value.split(" ", 1)[-1].rstrip("> ") if " " in value else ""
         return var_idx, parse_shared_function_info(lines, value, func_name)
     if value.startswith("<ArrayBoilerplateDescription") or value.startswith("<FixedArray"):
         return var_idx, parse_array(lines, func_name)
@@ -90,7 +90,7 @@ def parse_const_line(lines, func_name):
         return var_idx, "null"
     if value.startswith("<BigInt"):
         return var_idx, parse("<BigInt {}>", value)[0] + "n"
-    return var_idx, value.rstrip('>').split(" ", 1)[-1]
+    return var_idx, value.rstrip(">").split(" ", 1)[-1]
 
 
 def parse_const_array(lines, func_name):
@@ -156,13 +156,13 @@ def parse_start_position(line):
 def parse_shared_function_info(lines, name, declarer=None):
     sfi = SharedFunctionInfo()
     sfi.declarer = declarer
-    sfi.name = 'func_unknown'
+    sfi.name = "func_unknown"
     while (line := next(lines)) not in ("End SharedFunctionInfo", None):
         if "- kind: " in line:
             sfi.kind = parse("- kind: {}", line)[0]
         if "- start position: " in line:
             start_position = parse_start_position(line)
-            sfi.name = f'func_{(name or "unknown")}_{start_position}'
+            sfi.name = f"func_{(name or 'unknown')}_{start_position}"
         if "Parameter count" in line:
             sfi.argument_count = parse_parameter_count(line)
         elif "Register count" in line:
@@ -191,5 +191,5 @@ def parse_file(file="test.txt"):
     return all_functions
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     parse_file()

@@ -34,21 +34,21 @@ class DocCProcessor(DocProcessor):
 
     def process_group(self, doc: DocGroup) -> None:
         if self.opt.group_comments and doc.long_description or self.opt.group_defgroup:
-            self.print(f'/**')
+            self.print('/**')
             self.print_details(doc)
 
             if self.opt.group_defgroup:
-                self.print(f' * @{{')
-            self.print(f' */')
+                self.print(' * @{')
+            self.print(' */')
 
         self.process(doc.fields)
 
         if self.opt.group_defgroup:
-            self.print(f'/**')
-            self.print(f' * @}}')
-            self.print(f' */')
+            self.print('/**')
+            self.print(' * @}')
+            self.print(' */')
 
-        self.print(f'')
+        self.print('')
 
     def process_definition(self, doc: DocDefinition) -> None:
         #
@@ -62,10 +62,10 @@ class DocCProcessor(DocProcessor):
             # Do not print empty line for the first element.
             #
             if next(filter(lambda field: isinstance(field, DocDefinition), doc.parent.fields)) != doc:
-                self.print(f'')
-            self.print(f'/**')
+                self.print('')
+            self.print('/**')
             self.print_details(doc)
-            self.print(f' */')
+            self.print(' */')
 
         align = self.opt.align if self.opt.definition_no_indent else \
                 self.align_indent_adjusted
@@ -80,15 +80,15 @@ class DocCProcessor(DocProcessor):
     def process_enum(self, doc: DocEnum) -> None:
         if self.opt.enum_as_define:
             if self.opt.enum_comments and doc.long_description:
-                self.print(f'/**')
+                self.print('/**')
                 self.print_details(doc)
 
                 #
                 # Create defgroup for this group of definitions (enum).
                 #
                 if self.opt.group_defgroup:
-                    self.print(f' * @{{')
-                self.print(f' */')
+                    self.print(' * @{')
+                self.print(' */')
 
             for field in doc.fields:
                 assert field.type in [ DOC_DEFINITION, DOC_ENUM_FIELD ]
@@ -101,16 +101,16 @@ class DocCProcessor(DocProcessor):
                 self.process_definition(definition_field)
 
             if self.opt.group_defgroup:
-                self.print(f'/**')
-                self.print(f' * @}}')
-                self.print(f' */')
+                self.print('/**')
+                self.print(' * @}')
+                self.print(' */')
         else:
             self._typedef_nesting += 1
 
             if self.opt.enum_comments and doc.long_description:
-                self.print(f'/**')
+                self.print('/**')
                 self.print_details(doc, treat_description_as_short=True)
-                self.print(f' */')
+                self.print(' */')
 
             optional_curly_brace = ' {' if not self.opt.brace_on_next_line else ''
             optional_typedef = ''
@@ -125,7 +125,7 @@ class DocCProcessor(DocProcessor):
 
             self.print(f'{optional_typedef}enum{optional_name_begin}{optional_curly_brace}')
             if self.opt.brace_on_next_line:
-                self.print(f'{{')
+                self.print('{')
 
             with self.indent:
                 for field in doc.fields:
@@ -144,7 +144,7 @@ class DocCProcessor(DocProcessor):
 
             self._typedef_nesting -= 1
 
-        self.print(f'')
+        self.print('')
 
     def process_enum_field(self, doc: DocEnumField) -> None:
         name = self.make_name(doc)
@@ -154,10 +154,10 @@ class DocCProcessor(DocProcessor):
             # Do not print empty line for the first element.
             #
             if next(filter(lambda field: isinstance(field, DocEnumField), doc.parent.fields)) != doc:
-                self.print(f'')
-            self.print(f'/**')
+                self.print('')
+            self.print('/**')
             self.print_details(doc)
-            self.print(f' */')
+            self.print(' */')
 
         value = f'0x{doc.value:08X}'
 
@@ -169,12 +169,12 @@ class DocCProcessor(DocProcessor):
         self._typedef_nesting += 1
 
         if self.opt.struct_comments and doc.long_description:
-            self.print(f'/**')
+            self.print('/**')
             self.print_details(doc, treat_description_as_short=True)
-            self.print(f' */')
+            self.print(' */')
 
         if doc.tag == 'Packed':
-            self.print(f'#pragma pack(push, 1)')
+            self.print('#pragma pack(push, 1)')
 
         has_name = doc.short_name or doc.long_name
         optional_curly_brace = ' {' if not self.opt.brace_on_next_line else ''
@@ -190,7 +190,7 @@ class DocCProcessor(DocProcessor):
 
         self.print(f'{optional_typedef}struct{optional_name_begin}{optional_curly_brace}')
         if self.opt.brace_on_next_line:
-            self.print(f'{{')
+            self.print('{')
 
         with self.indent:
             for field in doc.fields:
@@ -213,12 +213,12 @@ class DocCProcessor(DocProcessor):
                 )
                 self.print(f'}} {name};')
             else:
-                self.print(f'}};')
+                self.print('};')
 
         if doc.tag == 'Packed':
-            self.print(f'#pragma pack(pop)')
+            self.print('#pragma pack(pop)')
 
-        self.print(f'')
+        self.print('')
 
         self._typedef_nesting -= 1
 
@@ -228,16 +228,16 @@ class DocCProcessor(DocProcessor):
             # Do not print empty line for the first element.
             #
             if next(iter(doc.parent.fields)) != doc:
-                self.print(f'')
-            self.print(f'/**')
+                self.print('')
+            self.print('/**')
             self.print_details(doc)
-            self.print(f' */')
+            self.print(' */')
 
         size_type, size_type_array = self.make_size_type(doc.size)
         self.print(f'{size_type} {self.make_name(doc)}{size_type_array};')
 
         if doc.fields:
-            self.print(f'')
+            self.print('')
             self.process(doc.fields)
 
     def process_bitfield(self, doc: DocBitfield) -> None:
@@ -245,9 +245,9 @@ class DocCProcessor(DocProcessor):
             self._typedef_nesting += 1
 
             if self.opt.bitfield_comments and doc.long_description:
-                self.print(f'/**')
+                self.print('/**')
                 self.print_details(doc, treat_description_as_short=True)
-                self.print(f' */')
+                self.print(' */')
 
             has_name = doc.short_name or doc.long_name
             optional_curly_brace = ' {' if not self.opt.brace_on_next_line else ''
@@ -273,7 +273,7 @@ class DocCProcessor(DocProcessor):
             if has_name:
                 self.print(f'{optional_typedef}union{optional_name_begin}{optional_curly_brace}')
                 if self.opt.brace_on_next_line:
-                    self.print(f'{{')
+                    self.print('{')
             else:
                 #
                 # If the bitfield is unnamed, do not double-indent the struct.
@@ -283,7 +283,7 @@ class DocCProcessor(DocProcessor):
             with self.indent:
                 self.print(f'struct{optional_curly_brace}')
                 if self.opt.brace_on_next_line:
-                    self.print(f'{{')
+                    self.print('{')
 
                 with self.indent:
                     assert self._bitfield_position is None
@@ -313,13 +313,13 @@ class DocCProcessor(DocProcessor):
                     self._bitfield_position = None
                     self._bitfield_reserved_count = None
 
-                self.print(f'}};')
+                self.print('};')
 
                 #
                 # Print "Flags" member (only for named bitfields).
                 #
                 if has_name:
-                    self.print(f'')
+                    self.print('')
                     self.print(f'{self.make_size_type(doc.size)[0]} {self.opt.bitfield_field_flags_name};')
 
             #
@@ -345,7 +345,7 @@ class DocCProcessor(DocProcessor):
                 if isinstance(field, DocBitfieldField):
                     self.process_bitfield_field(field)
 
-        self.print(f'')
+        self.print('')
 
     def process_bitfield_field(self, doc: DocBitfieldField) -> None:
         bit_from, bit_to = doc.bit
@@ -371,11 +371,11 @@ class DocCProcessor(DocProcessor):
             bit_length = bit_to - self._bitfield_position
             if self.opt.bitfield_field_comments and doc.long_description:
                 if self._bitfield_position > 0:
-                    self.print(f'')
+                    self.print('')
 
-                self.print(f'/**')
+                self.print('/**')
                 self.print_details(doc)
-                self.print(f' */')
+                self.print(' */')
 
             self.print(
                 f'{self.make_size_type(doc.parent.size)[0]} {self.make_name(doc):<{self.align_indent_adjusted}}: '
@@ -439,12 +439,12 @@ class DocCProcessor(DocProcessor):
         self._typedef_nesting += 1
 
         if self.opt.struct_comments and doc.long_description:
-            self.print(f'/**')
+            self.print('/**')
             self.print_details(doc, treat_description_as_short=True)
-            self.print(f' */')
+            self.print(' */')
 
         if doc.tag == 'Packed':
-            self.print(f'#pragma pack(push, 1)')
+            self.print('#pragma pack(push, 1)')
 
         has_name = doc.short_name or doc.long_name
         optional_curly_brace = ' {' if not self.opt.brace_on_next_line else ''
@@ -452,7 +452,7 @@ class DocCProcessor(DocProcessor):
 
         self.print(f'{optional_typedef}struct{optional_curly_brace}')
         if self.opt.brace_on_next_line:
-            self.print(f'{{')
+            self.print('{')
 
         with self.indent:
             for field in doc.fields:
@@ -475,12 +475,12 @@ class DocCProcessor(DocProcessor):
                 )
                 self.print(f'}} {name};')
             else:
-                self.print(f'}};')
+                self.print('};')
 
         if doc.tag == 'Packed':
-            self.print(f'#pragma pack(pop)')
+            self.print('#pragma pack(pop)')
 
-        self.print(f'')
+        self.print('')
 
         self._typedef_nesting -= 1
 
@@ -490,16 +490,16 @@ class DocCProcessor(DocProcessor):
             # Do not print empty line for the first element.
             #
             if next(iter(doc.parent.fields)) != doc:
-                self.print(f'')
-            self.print(f'/**')
+                self.print('')
+            self.print('/**')
             self.print_details(doc)
-            self.print(f' */')
+            self.print(' */')
 
         size_type, size_type_array = self.make_size_type(doc.size)
         self.print(f'{size_type} {self.make_name(doc)}{size_type_array};')
 
         if doc.fields:
-            self.print(f'')
+            self.print('')
             self.process(doc.fields)
 
     #                                                                                                                  #
@@ -550,7 +550,7 @@ class DocCProcessor(DocProcessor):
             # Delimit @defgroup and long_description with empty line.
             #
             if print_short_description or print_defgroup:
-                self.print(f' *')
+                self.print(' *')
 
             if isinstance(doc, DocBitfieldField) and self.opt.bitfield_field_long_description_with_bit_range:
                 bit_from, bit_to = doc.bit
@@ -578,7 +578,7 @@ class DocCProcessor(DocProcessor):
         # Delimit description (above) from details with empty line.
         #
         if any([print_note, print_remarks, print_see, print_reference]):
-            self.print(f' *')
+            self.print(' *')
 
         if print_note:
             note = self.make_multiline_comment(doc.note, '@note ')
@@ -660,8 +660,8 @@ class DocCProcessor(DocProcessor):
         result = lines[0]
 
         if len(lines) > 1:
-            result += f'\n'
-            result += f'\n'.join([ f' *{indent_text}{line}' for line in lines[1:] ])
+            result += '\n'
+            result += '\n'.join([ f' *{indent_text}{line}' for line in lines[1:] ])
 
         return result
 

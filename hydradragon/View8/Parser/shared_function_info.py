@@ -25,15 +25,10 @@ class SharedFunctionInfo:
         self.kind = None
 
     def is_fully_parsed(self):
-        return all(
-            value is not None for value in [
-                self.argument_count, self.register_count,
-                self.const_pool, self.exception_table, self.code
-            ]
-        )
+        return all(value is not None for value in [self.argument_count, self.register_count, self.const_pool, self.exception_table, self.code])
 
     def create_function_header(self):
-        parameters = ', '.join([f'a{i}' for i in range(int(self.argument_count) - 1)])
+        parameters = ", ".join([f"a{i}" for i in range(int(self.argument_count) - 1)])
         if self.kind == "AsyncFunction":
             return f"async function {self.name}({parameters})"
         elif self.kind == "GeneratorFunction":
@@ -52,17 +47,13 @@ class SharedFunctionInfo:
     def replace_const_pool(self):
         def unescape(var):
             if var.startswith('"') and var.endswith('"'):
-                return var[1:-1].replace('\\\\', '\\')
+                return var[1:-1].replace("\\\\", "\\")
             else:
                 return var
 
         replacements = {}
-        replacements.update({
-            f"LiteralConstPool[{idx}]": var for idx, var in enumerate(self.const_pool)
-        })
-        replacements.update({
-            f"ConstPool[{idx}]": unescape(var) for idx, var in enumerate(self.const_pool)
-        })
+        replacements.update({f"LiteralConstPool[{idx}]": var for idx, var in enumerate(self.const_pool)})
+        replacements.update({f"ConstPool[{idx}]": unescape(var) for idx, var in enumerate(self.const_pool)})
         for line in self.code:
             if not line.visible:
                 continue
@@ -75,19 +66,19 @@ class SharedFunctionInfo:
         self.replace_const_pool()
 
     def export(self, export_v8code=False, export_translated=False, export_decompiled=True):
-        export_func = self.create_function_header() + '\n'
+        export_func = self.create_function_header() + "\n"
         for line in self.code:
             if (not line.visible or not line.decompiled) and not export_v8code and not export_translated:
                 continue
 
             export_line = ""
             if export_v8code:
-                export_line += f'{line.line_num:<6}'
-                export_line += f'{line.v8_instruction:<50}'
+                export_line += f"{line.line_num:<6}"
+                export_line += f"{line.v8_instruction:<50}"
             if export_translated:
-                export_line += f'{line.translated:<60}'
+                export_line += f"{line.translated:<60}"
             if export_decompiled:
-                export_line += f'{line.decompiled}' * line.visible
+                export_line += f"{line.decompiled}" * line.visible
             if export_line:
-                export_func += export_line + '\n'
+                export_func += export_line + "\n"
         return export_func

@@ -12,6 +12,7 @@ import macholib.MachO
 from androguard.misc import AnalyzeAPK
 from androguard.core.apk import APK
 
+
 def is_protector_from_output(die_output: str) -> Union[str, bool]:
     """
     Strict protector detection: only extract explicit 'Protector: ...' lines.
@@ -23,7 +24,7 @@ def is_protector_from_output(die_output: str) -> Union[str, bool]:
         return False
 
     try:
-        m = re.search(r'Protector:\s*([^\r\n(]+)(?:\(([^)]+)\))?', die_output)
+        m = re.search(r"Protector:\s*([^\r\n(]+)(?:\(([^)]+)\))?", die_output)
         if not m:
             logger.info("No explicit 'Protector:' line found in DIE output.")
             return False
@@ -38,6 +39,7 @@ def is_protector_from_output(die_output: str) -> Union[str, bool]:
         logger.error(f"Regex error while scanning for Protector: lines: {e}")
         return False
 
+
 def is_go_garble_from_output(die_output):
     """
     Check if the DIE output indicates a Go garbled file.
@@ -48,6 +50,7 @@ def is_go_garble_from_output(die_output):
         logger.info("DIE output indicates a garbled Go file.")
         return True
     return False
+
 
 def is_nexe_file_from_output(die_output):
     """
@@ -60,6 +63,7 @@ def is_nexe_file_from_output(die_output):
         return True
     return False
 
+
 def is_pyc_file_from_output(die_output):
     """
     Check if the DIE output indicates a Python compiled module (.pyc file).
@@ -70,11 +74,13 @@ def is_pyc_file_from_output(die_output):
         return True
     return False
 
+
 def is_pyarmor_archive_from_output(data: bytes) -> bool:
     """
     Returns True if the file content is a PyArmor-protected .pyc file, False otherwise.
     """
-    return data.startswith(b'PY00') and b'__pyarmor__' in data
+    return data.startswith(b"PY00") and b"__pyarmor__" in data
+
 
 def is_themida_from_output(die_output):
     """
@@ -87,9 +93,7 @@ def is_themida_from_output(die_output):
 
     s = die_output.strip()
 
-    if "Protector: Themida/Winlicense (2.XX)" in s or \
-       "Protector: Themida/Winlicense (3.XX)" in s:
-
+    if "Protector: Themida/Winlicense (2.XX)" in s or "Protector: Themida/Winlicense (3.XX)" in s:
         if "PE32" in s:
             logger.info("DIE output indicates PE32 protected with Themida/WinLicense.")
             return "PE32 Themida"
@@ -98,6 +102,7 @@ def is_themida_from_output(die_output):
             return "PE64 Themida"
 
     return None
+
 
 def is_vm_protect_from_output(die_output):
     """
@@ -124,6 +129,7 @@ def is_vm_protect_from_output(die_output):
         return True
 
     return False
+
 
 def is_pe_file_from_output(die_output: str, file_path: str) -> Union[bool, str]:
     """
@@ -161,12 +167,14 @@ def is_pe_file_from_output(die_output: str, file_path: str) -> Union[bool, str]:
     except pefile.PEFormatError:
         return False
 
+
 def is_cx_freeze_file_from_output(die_output):
     """Checks if DIE output indicates a cx_Freeze file."""
     if die_output and ("Packer: cx_Freeze(5.x+)" in die_output):
         logger.info("DIE output indicates a cx_Freeze file.")
         return True
     return False
+
 
 def is_advanced_installer_file_from_output(die_output):
     """Checks if DIE output indicates a Advanced Installer file."""
@@ -175,6 +183,7 @@ def is_advanced_installer_file_from_output(die_output):
         return True
     return False
 
+
 def is_clickteam_installer_file_from_output(die_output):
     """Checks if DIE output indicates a Advanced Installer file."""
     if die_output and ("ClickTeam" in die_output):
@@ -182,12 +191,14 @@ def is_clickteam_installer_file_from_output(die_output):
         return True
     return False
 
+
 def is_autoit_file_from_output(die_output):
     """Checks if DIE output indicates a AutoIt file."""
     if die_output and ("AutoIt" in die_output):
         logger.info("DIE output indicates a AutoIt file.")
         return True
     return False
+
 
 def is_jsc_from_output(die_output: str) -> Optional[str]:
     """
@@ -227,17 +238,17 @@ def is_jsc_from_output(die_output: str) -> Optional[str]:
     # Attempt to find a explicit bytenode-style version: (v9.4.146.24) or v9.4.146.24
     version = None
     # look for "(vX.Y.Z.W" or "vX.Y.Z.W" possibly followed by " x64"/" x86"
-    m = re.search(r'\(v(\d+\.\d+\.\d+\.\d+)\s*(x86|x64)?\)', s)
+    m = re.search(r"\(v(\d+\.\d+\.\d+\.\d+)\s*(x86|x64)?\)", s)
     if m:
         version = m.group(1)
         # arch_in_paren = m.group(2)
     else:
-        m = re.search(r'\bv(\d+\.\d+\.\d+\.\d+)\b', s)
+        m = re.search(r"\bv(\d+\.\d+\.\d+\.\d+)\b", s)
         if m:
             version = m.group(1)
         # also check "V8 Version" occurrences
         if not version:
-            m2 = re.search(r'V8 Version\s+(\d+\.\d+\.\d+\.\d+)', s)
+            m2 = re.search(r"V8 Version\s+(\d+\.\d+\.\d+\.\d+)", s)
             if m2:
                 version = m2.group(1)
 
@@ -248,7 +259,7 @@ def is_jsc_from_output(die_output: str) -> Optional[str]:
         # find position of version and scan nearby characters
         pos = s.find(version)
         if pos != -1:
-            window = s[max(0, pos - 60): pos + 60]
+            window = s[max(0, pos - 60) : pos + 60]
             if "x64" in window:
                 arch = "x64"
             elif "x86" in window:
@@ -275,6 +286,7 @@ def is_jsc_from_output(die_output: str) -> Optional[str]:
     logger.info("DIE output indicates JavaScript Compiled/Bytenode (.JSC) but no version/arch could be determined.")
     return "JSC (unknown version)"
 
+
 def is_npm_from_output(die_output):
     """
     Case-sensitive check: return True if die_output contains the exact tokens
@@ -292,6 +304,7 @@ def is_npm_from_output(die_output):
         return True
 
     return False
+
 
 def is_asar_archive_from_output(die_output):
     """
@@ -315,12 +328,14 @@ def is_asar_archive_from_output(die_output):
 
     return False
 
+
 def is_installshield_file_from_output(die_output):
     """Checks if DIE output indicates a Install Shield file."""
     if die_output and ("InstallShield" in die_output):
         logger.info("DIE output indicates a Install Shield file.")
         return True
     return False
+
 
 def is_nsis_from_output(die_output: str) -> bool:
     """Checks if DIE output indicates an NSIS installer file."""
@@ -331,7 +346,7 @@ def is_nsis_from_output(die_output: str) -> bool:
     # Look for NSIS installer signatures in the output
     indicators = [
         "Nullsoft Scriptable Install System",  # e.g. Installer: Nullsoft Scriptable Install System(2.46-Unicode)[lzma]
-        "Data: NSIS data"
+        "Data: NSIS data",
     ]
 
     if any(indicator in die_output for indicator in indicators):
@@ -339,6 +354,7 @@ def is_nsis_from_output(die_output: str) -> bool:
         return True
 
     return False
+
 
 def is_elf_file_from_output(die_output: str, file_path: str) -> bool:
     """
@@ -359,7 +375,7 @@ def is_elf_file_from_output(die_output: str, file_path: str) -> bool:
 
         # Cross-validate using pyelftools
         try:
-            with open(file_path, 'rb') as f:
+            with open(file_path, "rb") as f:
                 elf_file = ELFFile(f)
                 # Basic validation - check if we can read the header
                 header = elf_file.header
@@ -371,7 +387,7 @@ def is_elf_file_from_output(die_output: str, file_path: str) -> bool:
 
     # If DIE doesn't say ELF, try pyelftools directly
     try:
-        with open(file_path, 'rb') as f:
+        with open(file_path, "rb") as f:
             elf_file = ELFFile(f)
             header = elf_file.header
             logger.info("pyelftools detected an ELF file even though DIE did not.")
@@ -379,10 +395,8 @@ def is_elf_file_from_output(die_output: str, file_path: str) -> bool:
     except (ELFError, IOError, ValueError):
         return False
 
-def is_apk_file_from_output(
-    die_output: str,
-    file_path: str
-) -> Union[bool, str, Tuple[object, list, object]]:
+
+def is_apk_file_from_output(die_output: str, file_path: str) -> Union[bool, str, Tuple[object, list, object]]:
     """
     Determines whether the given file is an APK by checking DIE's detection result,
     then validating it via Androguard (AnalyzeAPK).
@@ -429,6 +443,7 @@ def is_apk_file_from_output(
 
         return "Broken APK"
 
+
 def is_enigma1_virtual_box(die_output):
     """
     Checks if DIE output indicates the Enigma Virutal Box.
@@ -439,6 +454,7 @@ def is_enigma1_virtual_box(die_output):
         return True
 
     return False
+
 
 def is_macho_file_from_output(die_output: str, file_path: str) -> bool:
     """
@@ -482,6 +498,7 @@ def is_macho_file_from_output(die_output: str, file_path: str) -> bool:
     except (IOError, ValueError, struct.error, IndexError, Exception):
         return False
 
+
 def is_dotnet_file_from_output(die_output):
     """
     Checks whether the DIE output indicates a .NET executable file.
@@ -520,7 +537,7 @@ def is_dotnet_file_from_output(die_output):
             return "Already Deobfuscated"
 
         # 2) Specific Obfuscar protector
-        obfuscar_match = re.search(r'Protector:\s*Obfuscar(?:\(([^)]+)\))?', die_output)
+        obfuscar_match = re.search(r"Protector:\s*Obfuscar(?:\(([^)]+)\))?", die_output)
         if obfuscar_match:
             version = obfuscar_match.group(1)
             result = f"Protector: Obfuscar({version})" if version else "Protector: Obfuscar"
@@ -528,7 +545,7 @@ def is_dotnet_file_from_output(die_output):
             return result
 
         # 3) Specific ConfuserEx protector
-        confuser_match = re.search(r'Protector:\s*ConfuserEx(?:\(([^)]+)\))?', die_output, re.IGNORECASE)
+        confuser_match = re.search(r"Protector:\s*ConfuserEx(?:\(([^)]+)\))?", die_output, re.IGNORECASE)
         if confuser_match:
             version = confuser_match.group(1)
             result = f"Protector: ConfuserEx({version})" if version else "Protector: ConfuserEx"
@@ -536,15 +553,15 @@ def is_dotnet_file_from_output(die_output):
             return result
 
         # 4) Specific .NET Reactor protector (version 6.X only)
-        reactor_match = re.search(r'Protector:\s*\.NET\s*Reactor\(6\.\d+\)', die_output, re.IGNORECASE)
+        reactor_match = re.search(r"Protector:\s*\.NET\s*Reactor\(6\.\d+\)", die_output, re.IGNORECASE)
         if reactor_match:
-            version = reactor_match.group(0).split('(')[1].rstrip(')')
+            version = reactor_match.group(0).split("(")[1].rstrip(")")
             result = f"Protector: .NET Reactor({version})"
             logger.info(f"DIE output indicates a .NET assembly protected with {result}.")
             return result
 
         # 5) Generic Protector marker - capture the full line
-        line_match = re.search(r'^Protector:.*$', die_output, re.MULTILINE)
+        line_match = re.search(r"^Protector:.*$", die_output, re.MULTILINE)
         if line_match:
             marker = line_match.group(0).strip()
             logger.info(f"DIE output indicates .NET assembly requiring de4dot: {marker}.")
@@ -567,6 +584,7 @@ def is_dotnet_file_from_output(die_output):
     except Exception as e:
         logger.error(f"Unexpected error in is_dotnet_file_from_output: {e}")
         return None
+
 
 def is_file_fully_unknown(die_output: str) -> bool:
     """
@@ -591,6 +609,7 @@ def is_file_fully_unknown(die_output: str) -> bool:
     else:
         return False
 
+
 def is_packed_from_output(die_output):
     """
     Check if the DIE output indicates a packed/protected binary.
@@ -611,37 +630,29 @@ def is_packed_from_output(die_output):
     # Specific packer signatures based on your YARA rules only
     packer_signatures = {
         # UPX variants
-        'UPX': ['UPX', 'UPX0', 'UPX1', 'UPX2', 'UPX!', 'upX'],
-
+        "UPX": ["UPX", "UPX0", "UPX1", "UPX2", "UPX!", "upX"],
         # ASPack
-        'ASPACK': ['.aspack', '.adata'],
-
+        "ASPACK": [".aspack", ".adata"],
         # FSG (Fast Small Good)
-        'FSG': ['FSG'],
-
+        "FSG": ["FSG"],
         # PECompact
-        'PECOMPACT': ['PECompact', 'PECompact2'],
-
+        "PECOMPACT": ["PECompact", "PECompact2"],
         # Upack
-        'UPACK': ['Upack'],
-
+        "UPACK": ["Upack"],
         # PEtite
-        'PETITE': ['.petite', 'petite'],
-
+        "PETITE": [".petite", "petite"],
         # MEW (Magic Executable Wizard)
-        'MEW': ['MEW'],
-
+        "MEW": ["MEW"],
         # YZPack
-        'YZPACK': ['.yzpack', '.yzpack2'],
-
+        "YZPACK": [".yzpack", ".yzpack2"],
         # MPRESS
-        'MPRESS': ['.MPRESS1', '.MPRESS2']
+        "MPRESS": [".MPRESS1", ".MPRESS2"],
     }
 
     detected_packer = None
 
     # Case-sensitive "Packer:" indicator first
-    if 'Packer:' in s:
+    if "Packer:" in s:
         detected_packer = "GENERIC"
     else:
         # Check for specific packer signatures from your YARA rules
@@ -667,6 +678,7 @@ def is_packed_from_output(die_output):
 
     return None
 
+
 def is_packer_upx_output(die_output):
     """
     Checks if DIE output indicates that the file is packed with UPX.
@@ -678,12 +690,14 @@ def is_packer_upx_output(die_output):
 
     return False
 
+
 def is_jar_file_from_output(die_output):
     """Checks if DIE output indicates a JAR file (Java archive)."""
     if die_output and "Virtual machine: JVM" in die_output:
         logger.info("DIE output indicates a JAR file.")
         return True
     return False
+
 
 def is_java_class_from_output(die_output):
     """
@@ -694,6 +708,7 @@ def is_java_class_from_output(die_output):
         logger.info("DIE output indicates a Java class file.")
         return True
     return False
+
 
 def shannon_entropy(data: bytes) -> float:
     if not data:
@@ -711,11 +726,12 @@ def shannon_entropy(data: bytes) -> float:
 
     return entropy
 
+
 def is_plain_text(
     data: bytes,
     null_byte_threshold: float = 0.01,
     max_control_ratio: float = 0.05,
-    max_entropy: float = 7.9,   # binary often > 7.9
+    max_entropy: float = 7.9,  # binary often > 7.9
 ) -> bool:
     if not data:
         return True
@@ -740,10 +756,7 @@ def is_plain_text(
         decoded = data.decode("latin-1")
 
     # 3) Control character ratio (except whitespace)
-    control_chars = sum(
-        (ord(c) < 32 and c not in "\n\r\t\f\b")
-        for c in decoded
-    )
+    control_chars = sum((ord(c) < 32 and c not in "\n\r\t\f\b") for c in decoded)
 
     if control_chars / len(decoded) > max_control_ratio:
         return False
@@ -754,6 +767,7 @@ def is_plain_text(
 
     return True
 
+
 def is_plain_text_file_from_output(die_output):
     """
     Checks if the DIE output does indicate plain text, suggesting it is plain text data.
@@ -762,6 +776,7 @@ def is_plain_text_file_from_output(die_output):
         logger.info("DIE output does not contain plain text; identified as non-plain text data.")
         return True
     return False
+
 
 def is_7z_file_from_output(die_output: str) -> bool:
     """
@@ -773,6 +788,7 @@ def is_7z_file_from_output(die_output: str) -> bool:
         return True
 
     return False
+
 
 def is_pyinstaller_archive_from_output(die_output):
     """
@@ -786,6 +802,7 @@ def is_pyinstaller_archive_from_output(die_output):
 
     return False
 
+
 def is_microsoft_compound_file_from_output(die_output: str) -> bool:
     """
     Check if DIE output indicates a Microsoft Compound File (OLE2).
@@ -796,19 +813,9 @@ def is_microsoft_compound_file_from_output(die_output: str) -> bool:
     Returns:
         True if the file is an OLE2/Microsoft Office file
     """
-    ole_indicators = [
-        'Microsoft Compound File',
-        'OLE',
-        'MS Office',
-        'Word',
-        'Excel',
-        'PowerPoint',
-        '.doc',
-        '.xls',
-        '.ppt',
-        'Composite Document File'
-    ]
+    ole_indicators = ["Microsoft Compound File", "OLE", "MS Office", "Word", "Excel", "PowerPoint", ".doc", ".xls", ".ppt", "Composite Document File"]
     return any(indicator.lower() in die_output.lower() for indicator in ole_indicators)
+
 
 def is_nuitka_file_from_output(die_output):
     """
@@ -831,6 +838,7 @@ def is_nuitka_file_from_output(die_output):
     else:
         return None
 
+
 def is_compiled_autohotkey_file_from_output(die_output):
     """
     Check if the DIE output indicates a compiled AutoHotkey executable.
@@ -849,6 +857,7 @@ def is_compiled_autohotkey_file_from_output(die_output):
 
     return False
 
+
 def is_inno_setup_file_from_output(die_output):
     """
     Check if the DIE output indicates an Inno Setup installer.
@@ -856,9 +865,7 @@ def is_inno_setup_file_from_output(die_output):
       - "Data: Inno Setup Installer data"
       - "Installer: Inno Setup Module"
     """
-    if die_output and \
-       "Data: Inno Setup Installer data" in die_output and \
-       "Installer: Inno Setup Module" in die_output:
+    if die_output and "Data: Inno Setup Installer data" in die_output and "Installer: Inno Setup Module" in die_output:
         logger.info("DIE output indicates an Inno Setup installer.")
         return True
 

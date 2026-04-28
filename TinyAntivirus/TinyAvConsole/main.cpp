@@ -35,8 +35,9 @@ void Usage(void)
 void PrintWelcome()
 {
 	puts("--------------------------------------------------------------------------");
-	puts("TinyAntivirus version 0.1");
+	puts("TinyAntivirus version 0.2");
 	puts("Copyright (C) 2016, Quang Nguyen. All rights reserved.");
+	puts("Copyright (C) 2026, Emirhan Ucan. All rights reserved.");
 	puts("TinyAntivirus comes with ABSOLUTELY NO WARRANTY");
 	puts("This is free software, and you are welcome to redistribute it under ");
 	puts("certain conditions.");

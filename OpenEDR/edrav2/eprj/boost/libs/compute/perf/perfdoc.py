@@ -8,7 +8,6 @@
 # See http://boostorg.github.com/compute for more information.
 
 import os
-import sys
 import pylab
 
 from perf import run_benchmark

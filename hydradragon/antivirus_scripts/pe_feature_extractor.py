@@ -2,11 +2,13 @@ import os
 import capstone
 import pefile
 import numpy as np
-from typing import Optional, Dict, Any, List
+from pathlib import Path
+from typing import Dict, Any, List, Optional
 from .hydra_logger import logger
 
 try:
     import r2pipe
+
     _R2PIPE_AVAILABLE = True
 except ImportError:
     _R2PIPE_AVAILABLE = False
@@ -14,6 +16,7 @@ except ImportError:
 # Path to the bundled radare2 binary shipped with HydraDragonAntivirus
 _R2_DIR = Path(r"C:\Program Files\HydraDragonAntivirus\hydradragon\radare2")
 _R2_EXECUTABLE = _R2_DIR / "r2.exe"
+
 
 class PEFeatureExtractor:
     def __init__(self):
@@ -39,25 +42,16 @@ class PEFeatureExtractor:
         Disassembles all sections of the PE file using Capstone and returns
         instruction counts and a packing heuristic for each section and the file overall.
         """
-        analysis = {
-            'overall_analysis': {
-                'total_instructions': 0,
-                'add_count': 0,
-                'mov_count': 0,
-                'is_likely_packed': None
-            },
-            'sections': {},
-            'error': None
-        }
+        analysis = {"overall_analysis": {"total_instructions": 0, "add_count": 0, "mov_count": 0, "is_likely_packed": None}, "sections": {}, "error": None}
 
         try:
             # Determine architecture for Capstone
-            if pe.FILE_HEADER.Machine == pefile.MACHINE_TYPE['IMAGE_FILE_MACHINE_I386']:
+            if pe.FILE_HEADER.Machine == pefile.MACHINE_TYPE["IMAGE_FILE_MACHINE_I386"]:
                 md = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_32)
-            elif pe.FILE_HEADER.Machine == pefile.MACHINE_TYPE['IMAGE_FILE_MACHINE_AMD64']:
+            elif pe.FILE_HEADER.Machine == pefile.MACHINE_TYPE["IMAGE_FILE_MACHINE_AMD64"]:
                 md = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_64)
             else:
-                analysis['error'] = "Unsupported architecture."
+                analysis["error"] = "Unsupported architecture."
                 return analysis
 
             total_add_count = 0
@@ -66,7 +60,7 @@ class PEFeatureExtractor:
 
             # Disassemble each section individually
             for section in pe.sections:
-                section_name = section.Name.decode(errors='ignore').strip('\x00')
+                section_name = section.Name.decode(errors="ignore").strip("\x00")
                 code = section.get_data()
                 base_address = pe.OPTIONAL_HEADER.ImageBase + section.VirtualAddress
 
@@ -74,13 +68,7 @@ class PEFeatureExtractor:
                 total_instructions_in_section = 0
 
                 if not code:
-                    analysis['sections'][section_name] = {
-                        'instruction_counts': {},
-                        'total_instructions': 0,
-                        'add_count': 0,
-                        'mov_count': 0,
-                        'is_likely_packed': False
-                    }
+                    analysis["sections"][section_name] = {"instruction_counts": {}, "total_instructions": 0, "add_count": 0, "mov_count": 0, "is_likely_packed": False}
                     continue
 
                 instructions = md.disasm(code, base_address)
@@ -90,8 +78,8 @@ class PEFeatureExtractor:
                     instruction_counts[mnemonic] = instruction_counts.get(mnemonic, 0) + 1
                     total_instructions_in_section += 1
 
-                add_count = instruction_counts.get('add', 0)
-                mov_count = instruction_counts.get('mov', 0)
+                add_count = instruction_counts.get("add", 0)
+                mov_count = instruction_counts.get("mov", 0)
 
                 # Aggregate counts for overall file analysis
                 total_add_count += add_count
@@ -99,23 +87,23 @@ class PEFeatureExtractor:
                 grand_total_instructions += total_instructions_in_section
 
                 # Per-section packing analysis
-                analysis['sections'][section_name] = {
-                    'instruction_counts': instruction_counts,
-                    'total_instructions': total_instructions_in_section,
-                    'add_count': add_count,
-                    'mov_count': mov_count,
-                    'is_likely_packed': add_count > mov_count if total_instructions_in_section > 0 else False
+                analysis["sections"][section_name] = {
+                    "instruction_counts": instruction_counts,
+                    "total_instructions": total_instructions_in_section,
+                    "add_count": add_count,
+                    "mov_count": mov_count,
+                    "is_likely_packed": add_count > mov_count if total_instructions_in_section > 0 else False,
                 }
 
             # Populate the overall, file-wide analysis
-            analysis['overall_analysis']['total_instructions'] = grand_total_instructions
-            analysis['overall_analysis']['add_count'] = total_add_count
-            analysis['overall_analysis']['mov_count'] = total_mov_count
-            analysis['overall_analysis']['is_likely_packed'] = total_add_count > total_mov_count if grand_total_instructions > 0 else False
+            analysis["overall_analysis"]["total_instructions"] = grand_total_instructions
+            analysis["overall_analysis"]["add_count"] = total_add_count
+            analysis["overall_analysis"]["mov_count"] = total_mov_count
+            analysis["overall_analysis"]["is_likely_packed"] = total_add_count > total_mov_count if grand_total_instructions > 0 else False
 
         except Exception as e:
             logger.error(f"Capstone disassembly failed: {e}")
-            analysis['error'] = str(e)
+            analysis["error"] = str(e)
 
         return analysis
 
@@ -123,43 +111,31 @@ class PEFeatureExtractor:
         """Extract comprehensive section data including entropy."""
         raw_data = section.get_data()
         return {
-            'name': section.Name.decode(errors='ignore').strip('\x00'),
-            'virtual_size': section.Misc_VirtualSize,
-            'virtual_address': section.VirtualAddress,
-            'raw_size': section.SizeOfRawData,
-            'pointer_to_raw_data': section.PointerToRawData,
-            'characteristics': section.Characteristics,
-            'entropy': self._calculate_entropy(raw_data),
-            'raw_data_size': len(raw_data) if raw_data else 0
+            "name": section.Name.decode(errors="ignore").strip("\x00"),
+            "virtual_size": section.Misc_VirtualSize,
+            "virtual_address": section.VirtualAddress,
+            "raw_size": section.SizeOfRawData,
+            "pointer_to_raw_data": section.PointerToRawData,
+            "characteristics": section.Characteristics,
+            "entropy": self._calculate_entropy(raw_data),
+            "raw_data_size": len(raw_data) if raw_data else 0,
         }
 
     def extract_imports(self, pe) -> List[Dict[str, Any]]:
         """Extract detailed import information."""
         imports = []
-        if hasattr(pe, 'DIRECTORY_ENTRY_IMPORT'):
+        if hasattr(pe, "DIRECTORY_ENTRY_IMPORT"):
             for entry in pe.DIRECTORY_ENTRY_IMPORT:
-                dll_imports = {
-                    'dll_name': entry.dll.decode() if entry.dll else None,
-                    'imports': [{
-                        'name': imp.name.decode() if imp.name else None,
-                        'address': imp.address,
-                        'ordinal': imp.ordinal
-                    } for imp in entry.imports]
-                }
+                dll_imports = {"dll_name": entry.dll.decode() if entry.dll else None, "imports": [{"name": imp.name.decode() if imp.name else None, "address": imp.address, "ordinal": imp.ordinal} for imp in entry.imports]}
                 imports.append(dll_imports)
         return imports
 
     def extract_exports(self, pe) -> List[Dict[str, Any]]:
         """Extract detailed export information."""
         exports = []
-        if hasattr(pe, 'DIRECTORY_ENTRY_EXPORT'):
+        if hasattr(pe, "DIRECTORY_ENTRY_EXPORT"):
             for exp in pe.DIRECTORY_ENTRY_EXPORT.symbols:
-                export_info = {
-                    'name': exp.name.decode() if exp.name else None,
-                    'address': exp.address,
-                    'ordinal': exp.ordinal,
-                    'forwarder': exp.forwarder.decode() if exp.forwarder else None
-                }
+                export_info = {"name": exp.name.decode() if exp.name else None, "address": exp.address, "ordinal": exp.ordinal, "forwarder": exp.forwarder.decode() if exp.forwarder else None}
                 exports.append(export_info)
         return exports
 
@@ -185,23 +161,23 @@ class PEFeatureExtractor:
         try:
             tls_callbacks = {}
             # Check if the PE file has a TLS directory
-            if hasattr(pe, 'DIRECTORY_ENTRY_TLS'):
+            if hasattr(pe, "DIRECTORY_ENTRY_TLS"):
                 tls = pe.DIRECTORY_ENTRY_TLS.struct
                 tls_callbacks = {
-                    'start_address_raw_data': tls.StartAddressOfRawData,
-                    'end_address_raw_data': tls.EndAddressOfRawData,
-                    'address_of_index': tls.AddressOfIndex,
-                    'address_of_callbacks': tls.AddressOfCallBacks,
-                    'size_of_zero_fill': tls.SizeOfZeroFill,
-                    'characteristics': tls.Characteristics,
-                    'callbacks': []
+                    "start_address_raw_data": tls.StartAddressOfRawData,
+                    "end_address_raw_data": tls.EndAddressOfRawData,
+                    "address_of_index": tls.AddressOfIndex,
+                    "address_of_callbacks": tls.AddressOfCallBacks,
+                    "size_of_zero_fill": tls.SizeOfZeroFill,
+                    "characteristics": tls.Characteristics,
+                    "callbacks": [],
                 }
 
                 # If there are callbacks, extract their addresses
                 if tls.AddressOfCallBacks:
                     callback_array = self._get_callback_addresses(pe, tls.AddressOfCallBacks)
                     if callback_array:
-                        tls_callbacks['callbacks'] = callback_array
+                        tls_callbacks["callbacks"] = callback_array
 
             return tls_callbacks
         except Exception as e:
@@ -212,19 +188,19 @@ class PEFeatureExtractor:
         """Analyze DOS stub program."""
         try:
             dos_stub = {
-                'exists': False,
-                'size': 0,
-                'entropy': 0.0,
+                "exists": False,
+                "size": 0,
+                "entropy": 0.0,
             }
 
-            if hasattr(pe, 'DOS_HEADER'):
+            if hasattr(pe, "DOS_HEADER"):
                 stub_offset = pe.DOS_HEADER.e_lfanew - 64  # Typical DOS stub starts after DOS header
                 if stub_offset > 0:
-                    dos_stub_data = pe.__data__[64:pe.DOS_HEADER.e_lfanew]
+                    dos_stub_data = pe.__data__[64 : pe.DOS_HEADER.e_lfanew]
                     if dos_stub_data:
-                        dos_stub['exists'] = True
-                        dos_stub['size'] = len(dos_stub_data)
-                        dos_stub['entropy'] = self._calculate_entropy(dos_stub_data)
+                        dos_stub["exists"] = True
+                        dos_stub["size"] = len(dos_stub_data)
+                        dos_stub["entropy"] = self._calculate_entropy(dos_stub_data)
 
             return dos_stub
         except Exception as e:
@@ -235,21 +211,21 @@ class PEFeatureExtractor:
         """Analyze security certificates."""
         try:
             cert_info = {}
-            if hasattr(pe, 'DIRECTORY_ENTRY_SECURITY'):
-                cert_info['virtual_address'] = pe.DIRECTORY_ENTRY_SECURITY.VirtualAddress
-                cert_info['size'] = pe.DIRECTORY_ENTRY_SECURITY.Size
+            if hasattr(pe, "DIRECTORY_ENTRY_SECURITY"):
+                cert_info["virtual_address"] = pe.DIRECTORY_ENTRY_SECURITY.VirtualAddress
+                cert_info["size"] = pe.DIRECTORY_ENTRY_SECURITY.Size
 
                 # Extract certificate attributes if available
-                if hasattr(pe, 'VS_FIXEDFILEINFO'):
-                    cert_info['fixed_file_info'] = {
-                        'signature': pe.VS_FIXEDFILEINFO.Signature,
-                        'struct_version': pe.VS_FIXEDFILEINFO.StrucVersion,
-                        'file_version': f"{pe.VS_FIXEDFILEINFO.FileVersionMS >> 16}.{pe.VS_FIXEDFILEINFO.FileVersionMS & 0xFFFF}.{pe.VS_FIXEDFILEINFO.FileVersionLS >> 16}.{pe.VS_FIXEDFILEINFO.FileVersionLS & 0xFFFF}",
-                        'product_version': f"{pe.VS_FIXEDFILEINFO.ProductVersionMS >> 16}.{pe.VS_FIXEDFILEINFO.ProductVersionMS & 0xFFFF}.{pe.VS_FIXEDFILEINFO.ProductVersionLS >> 16}.{pe.VS_FIXEDFILEINFO.ProductVersionLS & 0xFFFF}",
-                        'file_flags': pe.VS_FIXEDFILEINFO.FileFlags,
-                        'file_os': pe.VS_FIXEDFILEINFO.FileOS,
-                        'file_type': pe.VS_FIXEDFILEINFO.FileType,
-                        'file_subtype': pe.VS_FIXEDFILEINFO.FileSubtype,
+                if hasattr(pe, "VS_FIXEDFILEINFO"):
+                    cert_info["fixed_file_info"] = {
+                        "signature": pe.VS_FIXEDFILEINFO.Signature,
+                        "struct_version": pe.VS_FIXEDFILEINFO.StrucVersion,
+                        "file_version": f"{pe.VS_FIXEDFILEINFO.FileVersionMS >> 16}.{pe.VS_FIXEDFILEINFO.FileVersionMS & 0xFFFF}.{pe.VS_FIXEDFILEINFO.FileVersionLS >> 16}.{pe.VS_FIXEDFILEINFO.FileVersionLS & 0xFFFF}",
+                        "product_version": f"{pe.VS_FIXEDFILEINFO.ProductVersionMS >> 16}.{pe.VS_FIXEDFILEINFO.ProductVersionMS & 0xFFFF}.{pe.VS_FIXEDFILEINFO.ProductVersionLS >> 16}.{pe.VS_FIXEDFILEINFO.ProductVersionLS & 0xFFFF}",
+                        "file_flags": pe.VS_FIXEDFILEINFO.FileFlags,
+                        "file_os": pe.VS_FIXEDFILEINFO.FileOS,
+                        "file_type": pe.VS_FIXEDFILEINFO.FileType,
+                        "file_subtype": pe.VS_FIXEDFILEINFO.FileSubtype,
                     }
 
             return cert_info
@@ -261,27 +237,27 @@ class PEFeatureExtractor:
         """Analyze delay-load imports with error handling for missing attributes."""
         try:
             delay_imports = []
-            if hasattr(pe, 'DIRECTORY_ENTRY_DELAY_IMPORT'):
+            if hasattr(pe, "DIRECTORY_ENTRY_DELAY_IMPORT"):
                 for entry in pe.DIRECTORY_ENTRY_DELAY_IMPORT:
                     imports = []
                     for imp in entry.imports:
                         import_info = {
-                            'name': imp.name.decode() if imp.name else None,
-                            'address': imp.address,
-                            'ordinal': imp.ordinal,
+                            "name": imp.name.decode() if imp.name else None,
+                            "address": imp.address,
+                            "ordinal": imp.ordinal,
                         }
                         imports.append(import_info)
 
                     delay_import = {
-                        'dll': entry.dll.decode() if entry.dll else None,
-                        'attributes': getattr(entry.struct, 'Attributes', None),  # Use getattr for safe access
-                        'name': getattr(entry.struct, 'Name', None),
-                        'handle': getattr(entry.struct, 'Handle', None),
-                        'iat': getattr(entry.struct, 'IAT', None),
-                        'bound_iat': getattr(entry.struct, 'BoundIAT', None),
-                        'unload_iat': getattr(entry.struct, 'UnloadIAT', None),
-                        'timestamp': getattr(entry.struct, 'TimeDateStamp', None),
-                        'imports': imports
+                        "dll": entry.dll.decode() if entry.dll else None,
+                        "attributes": getattr(entry.struct, "Attributes", None),  # Use getattr for safe access
+                        "name": getattr(entry.struct, "Name", None),
+                        "handle": getattr(entry.struct, "Handle", None),
+                        "iat": getattr(entry.struct, "IAT", None),
+                        "bound_iat": getattr(entry.struct, "BoundIAT", None),
+                        "unload_iat": getattr(entry.struct, "UnloadIAT", None),
+                        "timestamp": getattr(entry.struct, "TimeDateStamp", None),
+                        "imports": imports,
                     }
                     delay_imports.append(delay_import)
 
@@ -294,21 +270,21 @@ class PEFeatureExtractor:
         """Analyze load configuration."""
         try:
             load_config = {}
-            if hasattr(pe, 'DIRECTORY_ENTRY_LOAD_CONFIG'):
+            if hasattr(pe, "DIRECTORY_ENTRY_LOAD_CONFIG"):
                 config = pe.DIRECTORY_ENTRY_LOAD_CONFIG.struct
                 load_config = {
-                    'size': config.Size,
-                    'timestamp': config.TimeDateStamp,
-                    'major_version': config.MajorVersion,
-                    'minor_version': config.MinorVersion,
-                    'global_flags_clear': config.GlobalFlagsClear,
-                    'global_flags_set': config.GlobalFlagsSet,
-                    'critical_section_default_timeout': config.CriticalSectionDefaultTimeout,
-                    'decommit_free_block_threshold': config.DeCommitFreeBlockThreshold,
-                    'decommit_total_free_threshold': config.DeCommitTotalFreeThreshold,
-                    'security_cookie': config.SecurityCookie,
-                    'se_handler_table': config.SEHandlerTable,
-                    'se_handler_count': config.SEHandlerCount
+                    "size": config.Size,
+                    "timestamp": config.TimeDateStamp,
+                    "major_version": config.MajorVersion,
+                    "minor_version": config.MinorVersion,
+                    "global_flags_clear": config.GlobalFlagsClear,
+                    "global_flags_set": config.GlobalFlagsSet,
+                    "critical_section_default_timeout": config.CriticalSectionDefaultTimeout,
+                    "decommit_free_block_threshold": config.DeCommitFreeBlockThreshold,
+                    "decommit_total_free_threshold": config.DeCommitTotalFreeThreshold,
+                    "security_cookie": config.SecurityCookie,
+                    "se_handler_table": config.SEHandlerTable,
+                    "se_handler_count": config.SEHandlerCount,
                 }
 
             return load_config
@@ -320,7 +296,7 @@ class PEFeatureExtractor:
         """Analyze base relocations with summarized entries."""
         try:
             relocations = []
-            if hasattr(pe, 'DIRECTORY_ENTRY_BASERELOC'):
+            if hasattr(pe, "DIRECTORY_ENTRY_BASERELOC"):
                 for base_reloc in pe.DIRECTORY_ENTRY_BASERELOC:
                     # Summarize relocation entries
                     entry_types = {}
@@ -331,13 +307,13 @@ class PEFeatureExtractor:
                         offsets.append(entry.rva - base_reloc.struct.VirtualAddress)
 
                     reloc_info = {
-                        'virtual_address': base_reloc.struct.VirtualAddress,
-                        'size_of_block': base_reloc.struct.SizeOfBlock,
-                        'summary': {
-                            'total_entries': len(base_reloc.entries),
-                            'types': entry_types,  # Counts of each relocation type
-                            'offset_range': (min(offsets), max(offsets)) if offsets else None
-                        }
+                        "virtual_address": base_reloc.struct.VirtualAddress,
+                        "size_of_block": base_reloc.struct.SizeOfBlock,
+                        "summary": {
+                            "total_entries": len(base_reloc.entries),
+                            "types": entry_types,  # Counts of each relocation type
+                            "offset_range": (min(offsets), max(offsets)) if offsets else None,
+                        },
                     }
 
                     relocations.append(reloc_info)
@@ -351,22 +327,15 @@ class PEFeatureExtractor:
         """Analyze bound imports with robust error handling."""
         try:
             bound_imports = []
-            if hasattr(pe, 'DIRECTORY_ENTRY_BOUND_IMPORT'):
+            if hasattr(pe, "DIRECTORY_ENTRY_BOUND_IMPORT"):
                 for bound_imp in pe.DIRECTORY_ENTRY_BOUND_IMPORT:
-                    bound_import = {
-                        'name': bound_imp.name.decode() if bound_imp.name else None,
-                        'timestamp': bound_imp.struct.TimeDateStamp,
-                        'references': []
-                    }
+                    bound_import = {"name": bound_imp.name.decode() if bound_imp.name else None, "timestamp": bound_imp.struct.TimeDateStamp, "references": []}
 
                     # Check if `references` exists
-                    if hasattr(bound_imp, 'references') and bound_imp.references:
+                    if hasattr(bound_imp, "references") and bound_imp.references:
                         for ref in bound_imp.references:
-                            reference = {
-                                'name': ref.name.decode() if ref.name else None,
-                                'timestamp': getattr(ref.struct, 'TimeDateStamp', None)
-                            }
-                            bound_import['references'].append(reference)
+                            reference = {"name": ref.name.decode() if ref.name else None, "timestamp": getattr(ref.struct, "TimeDateStamp", None)}
+                            bound_import["references"].append(reference)
                     else:
                         logger.warning(f"Bound import {bound_import['name']} has no references.")
 
@@ -382,32 +351,32 @@ class PEFeatureExtractor:
         try:
             characteristics = {}
             for section in pe.sections:
-                section_name = section.Name.decode(errors='ignore').strip('\x00')
+                section_name = section.Name.decode(errors="ignore").strip("\x00")
                 flags = section.Characteristics
 
                 # Decode section characteristics flags
                 section_flags = {
-                    'CODE': bool(flags & 0x20),
-                    'INITIALIZED_DATA': bool(flags & 0x40),
-                    'UNINITIALIZED_DATA': bool(flags & 0x80),
-                    'MEM_DISCARDABLE': bool(flags & 0x2000000),
-                    'MEM_NOT_CACHED': bool(flags & 0x4000000),
-                    'MEM_NOT_PAGED': bool(flags & 0x8000000),
-                    'MEM_SHARED': bool(flags & 0x10000000),
-                    'MEM_EXECUTE': bool(flags & 0x20000000),
-                    'MEM_READ': bool(flags & 0x40000000),
-                    'MEM_WRITE': bool(flags & 0x80000000)
+                    "CODE": bool(flags & 0x20),
+                    "INITIALIZED_DATA": bool(flags & 0x40),
+                    "UNINITIALIZED_DATA": bool(flags & 0x80),
+                    "MEM_DISCARDABLE": bool(flags & 0x2000000),
+                    "MEM_NOT_CACHED": bool(flags & 0x4000000),
+                    "MEM_NOT_PAGED": bool(flags & 0x8000000),
+                    "MEM_SHARED": bool(flags & 0x10000000),
+                    "MEM_EXECUTE": bool(flags & 0x20000000),
+                    "MEM_READ": bool(flags & 0x40000000),
+                    "MEM_WRITE": bool(flags & 0x80000000),
                 }
 
                 characteristics[section_name] = {
-                    'flags': section_flags,
-                    'entropy': self._calculate_entropy(section.get_data()),
-                    'size_ratio': section.SizeOfRawData / pe.OPTIONAL_HEADER.SizeOfImage if pe.OPTIONAL_HEADER.SizeOfImage else 0,
-                    'pointer_to_raw_data': section.PointerToRawData,
-                    'pointer_to_relocations': section.PointerToRelocations,
-                    'pointer_to_line_numbers': section.PointerToLinenumbers,
-                    'number_of_relocations': section.NumberOfRelocations,
-                    'number_of_line_numbers': section.NumberOfLinenumbers,
+                    "flags": section_flags,
+                    "entropy": self._calculate_entropy(section.get_data()),
+                    "size_ratio": section.SizeOfRawData / pe.OPTIONAL_HEADER.SizeOfImage if pe.OPTIONAL_HEADER.SizeOfImage else 0,
+                    "pointer_to_raw_data": section.PointerToRawData,
+                    "pointer_to_relocations": section.PointerToRelocations,
+                    "pointer_to_line_numbers": section.PointerToLinenumbers,
+                    "number_of_relocations": section.NumberOfRelocations,
+                    "number_of_line_numbers": section.NumberOfLinenumbers,
                 }
 
             return characteristics
@@ -419,37 +388,37 @@ class PEFeatureExtractor:
         """Analyze extended header information."""
         try:
             headers = {
-                'dos_header': {
-                    'e_magic': pe.DOS_HEADER.e_magic,
-                    'e_cblp': pe.DOS_HEADER.e_cblp,
-                    'e_cp': pe.DOS_HEADER.e_cp,
-                    'e_crlc': pe.DOS_HEADER.e_crlc,
-                    'e_cparhdr': pe.DOS_HEADER.e_cparhdr,
-                    'e_minalloc': pe.DOS_HEADER.e_minalloc,
-                    'e_maxalloc': pe.DOS_HEADER.e_maxalloc,
-                    'e_ss': pe.DOS_HEADER.e_ss,
-                    'e_sp': pe.DOS_HEADER.e_sp,
-                    'e_csum': pe.DOS_HEADER.e_csum,
-                    'e_ip': pe.DOS_HEADER.e_ip,
-                    'e_cs': pe.DOS_HEADER.e_cs,
-                    'e_lfarlc': pe.DOS_HEADER.e_lfarlc,
-                    'e_ovno': pe.DOS_HEADER.e_ovno,
-                    'e_oemid': pe.DOS_HEADER.e_oemid,
-                    'e_oeminfo': pe.DOS_HEADER.e_oeminfo
+                "dos_header": {
+                    "e_magic": pe.DOS_HEADER.e_magic,
+                    "e_cblp": pe.DOS_HEADER.e_cblp,
+                    "e_cp": pe.DOS_HEADER.e_cp,
+                    "e_crlc": pe.DOS_HEADER.e_crlc,
+                    "e_cparhdr": pe.DOS_HEADER.e_cparhdr,
+                    "e_minalloc": pe.DOS_HEADER.e_minalloc,
+                    "e_maxalloc": pe.DOS_HEADER.e_maxalloc,
+                    "e_ss": pe.DOS_HEADER.e_ss,
+                    "e_sp": pe.DOS_HEADER.e_sp,
+                    "e_csum": pe.DOS_HEADER.e_csum,
+                    "e_ip": pe.DOS_HEADER.e_ip,
+                    "e_cs": pe.DOS_HEADER.e_cs,
+                    "e_lfarlc": pe.DOS_HEADER.e_lfarlc,
+                    "e_ovno": pe.DOS_HEADER.e_ovno,
+                    "e_oemid": pe.DOS_HEADER.e_oemid,
+                    "e_oeminfo": pe.DOS_HEADER.e_oeminfo,
                 },
-                'nt_headers': {}
+                "nt_headers": {},
             }
 
             # Ensure NT_HEADERS exists and contains FileHeader
-            if hasattr(pe, 'NT_HEADERS') and pe.NT_HEADERS is not None:
+            if hasattr(pe, "NT_HEADERS") and pe.NT_HEADERS is not None:
                 nt_headers = pe.NT_HEADERS
-                if hasattr(nt_headers, 'FileHeader'):
-                    headers['nt_headers'] = {
-                        'signature': nt_headers.Signature,
-                        'machine': nt_headers.FileHeader.Machine,
-                        'number_of_sections': nt_headers.FileHeader.NumberOfSections,
-                        'time_date_stamp': nt_headers.FileHeader.TimeDateStamp,
-                        'characteristics': nt_headers.FileHeader.Characteristics
+                if hasattr(nt_headers, "FileHeader"):
+                    headers["nt_headers"] = {
+                        "signature": nt_headers.Signature,
+                        "machine": nt_headers.FileHeader.Machine,
+                        "number_of_sections": nt_headers.FileHeader.NumberOfSections,
+                        "time_date_stamp": nt_headers.FileHeader.TimeDateStamp,
+                        "characteristics": nt_headers.FileHeader.Characteristics,
                     }
 
             return headers
@@ -468,27 +437,23 @@ class PEFeatureExtractor:
         """Analyze Rich header details."""
         try:
             rich_header = {}
-            if hasattr(pe, 'RICH_HEADER') and pe.RICH_HEADER is not None:
-                rich_header['checksum'] = getattr(pe.RICH_HEADER, 'checksum', None)
-                rich_header['values'] = self.serialize_data(pe.RICH_HEADER.values)
-                rich_header['clear_data'] = self.serialize_data(pe.RICH_HEADER.clear_data)
-                rich_header['key'] = self.serialize_data(pe.RICH_HEADER.key)
-                rich_header['raw_data'] = self.serialize_data(pe.RICH_HEADER.raw_data)
+            if hasattr(pe, "RICH_HEADER") and pe.RICH_HEADER is not None:
+                rich_header["checksum"] = getattr(pe.RICH_HEADER, "checksum", None)
+                rich_header["values"] = self.serialize_data(pe.RICH_HEADER.values)
+                rich_header["clear_data"] = self.serialize_data(pe.RICH_HEADER.clear_data)
+                rich_header["key"] = self.serialize_data(pe.RICH_HEADER.key)
+                rich_header["raw_data"] = self.serialize_data(pe.RICH_HEADER.raw_data)
 
                 # Decode CompID and build number information
                 compid_info = []
-                if rich_header['values']:
-                    for i in range(0, len(rich_header['values']), 2):
-                        if i + 1 < len(rich_header['values']):
-                            comp_id = rich_header['values'][i] >> 16
-                            build_number = rich_header['values'][i] & 0xFFFF
-                            count = rich_header['values'][i + 1]
-                            compid_info.append({
-                                'comp_id': comp_id,
-                                'build_number': build_number,
-                                'count': count
-                            })
-                rich_header['comp_id_info'] = compid_info
+                if rich_header["values"]:
+                    for i in range(0, len(rich_header["values"]), 2):
+                        if i + 1 < len(rich_header["values"]):
+                            comp_id = rich_header["values"][i] >> 16
+                            build_number = rich_header["values"][i] & 0xFFFF
+                            count = rich_header["values"][i + 1]
+                            compid_info.append({"comp_id": comp_id, "build_number": build_number, "count": count})
+                rich_header["comp_id_info"] = compid_info
 
             return rich_header
         except Exception as e:
@@ -498,16 +463,11 @@ class PEFeatureExtractor:
     def analyze_overlay(self, pe, file_path: str) -> Dict[str, Any]:
         """Analyze file overlay (data appended after the PE structure)."""
         try:
-            overlay_info = {
-                'exists': False,
-                'offset': 0,
-                'size': 0,
-                'entropy': 0.0
-            }
+            overlay_info = {"exists": False, "offset": 0, "size": 0, "entropy": 0.0}
 
             # Calculate the end of the PE structure
             if not pe.sections:
-                 return overlay_info
+                return overlay_info
 
             last_section = max(pe.sections, key=lambda s: s.PointerToRawData + s.SizeOfRawData)
             end_of_pe = last_section.PointerToRawData + last_section.SizeOfRawData
@@ -517,14 +477,14 @@ class PEFeatureExtractor:
 
             # Check for overlay
             if file_size > end_of_pe:
-                with open(file_path, 'rb') as f:
+                with open(file_path, "rb") as f:
                     f.seek(end_of_pe)
                     overlay_data = f.read()
 
-                    overlay_info['exists'] = True
-                    overlay_info['offset'] = end_of_pe
-                    overlay_info['size'] = len(overlay_data)
-                    overlay_info['entropy'] = self._calculate_entropy(overlay_data)
+                    overlay_info["exists"] = True
+                    overlay_info["offset"] = end_of_pe
+                    overlay_info["size"] = len(overlay_data)
+                    overlay_info["entropy"] = self._calculate_entropy(overlay_data)
 
             return overlay_info
         except Exception as e:
@@ -547,67 +507,60 @@ class PEFeatureExtractor:
         Degrades gracefully if r2pipe / radare2 is not installed.
         """
         r2_features = {
-            'function_count': 0,
-            'basic_block_count': 0,
-            'avg_basic_blocks_per_function': 0.0,
-            'cyclomatic_complexity_mean': 0.0,
-            'xref_count': 0,
-            'r2_string_count': 0,
-            'r2_analysis_success': False,
-            'error': None,
+            "function_count": 0,
+            "basic_block_count": 0,
+            "avg_basic_blocks_per_function": 0.0,
+            "cyclomatic_complexity_mean": 0.0,
+            "xref_count": 0,
+            "r2_string_count": 0,
+            "r2_analysis_success": False,
+            "error": None,
         }
 
         if not _R2PIPE_AVAILABLE:
-            r2_features['error'] = 'r2pipe_not_installed'
+            r2_features["error"] = "r2pipe_not_installed"
             return r2_features
 
         try:
             if os.path.getsize(file_path) > 50 * 1024 * 1024:  # 10 MB cap
-                r2_features['error'] = 'file_too_large'
+                r2_features["error"] = "file_too_large"
                 return r2_features
 
             # Inject bundled r2.exe dir into PATH so r2pipe finds it
             _saved_path = os.environ.get("PATH", "")
             os.environ["PATH"] = str(_R2_DIR) + os.pathsep + _saved_path
             try:
-                r2 = r2pipe.open(file_path, flags=['-2', '-e', 'anal.timeout=60'])
+                r2 = r2pipe.open(file_path, flags=["-2", "-e", "anal.timeout=60"])
             except Exception:
                 os.environ["PATH"] = _saved_path
                 raise
             try:
-                r2.cmd('aa')  # fast auto-analysis (signatures + call refs)
+                r2.cmd("aa")  # fast auto-analysis (signatures + call refs)
 
                 # ── Function count ─────────────────────────────────────────
-                raw_count = r2.cmd('aflc').strip()
+                raw_count = r2.cmd("aflc").strip()
                 try:
-                    r2_features['function_count'] = int(raw_count)
+                    r2_features["function_count"] = int(raw_count)
                 except ValueError:
-                    r2_features['function_count'] = 0
+                    r2_features["function_count"] = 0
 
                 # ── Per-function data (basic blocks + cyclomatic complexity) ─
-                funcs = r2.cmdj('aflj') or []
-                total_bbs = sum(f.get('nbbs', 0) for f in funcs)
-                r2_features['basic_block_count'] = total_bbs
-                r2_features['avg_basic_blocks_per_function'] = (
-                    float(total_bbs) / len(funcs) if funcs else 0.0
-                )
-                cc_values = [f.get('cc', 0) for f in funcs if f.get('cc') is not None]
-                r2_features['cyclomatic_complexity_mean'] = (
-                    float(np.mean(cc_values)) if cc_values else 0.0
-                )
+                funcs = r2.cmdj("aflj") or []
+                total_bbs = sum(f.get("nbbs", 0) for f in funcs)
+                r2_features["basic_block_count"] = total_bbs
+                r2_features["avg_basic_blocks_per_function"] = float(total_bbs) / len(funcs) if funcs else 0.0
+                cc_values = [f.get("cc", 0) for f in funcs if f.get("cc") is not None]
+                r2_features["cyclomatic_complexity_mean"] = float(np.mean(cc_values)) if cc_values else 0.0
 
                 # ── Cross-reference count ───────────────────────────────────
-                xrefs_raw = r2.cmd('axl').strip()
-                r2_features['xref_count'] = (
-                    len([ln for ln in xrefs_raw.splitlines() if ln.strip()])
-                    if xrefs_raw else 0
-                )
+                xrefs_raw = r2.cmd("axl").strip()
+                r2_features["xref_count"] = len([ln for ln in xrefs_raw.splitlines() if ln.strip()]) if xrefs_raw else 0
 
                 # ── Strings in data sections ────────────────────────────────
-                strings = r2.cmdj('izj') or []
-                r2_features['r2_string_count'] = len(strings)
+                strings = r2.cmdj("izj") or []
+                r2_features["r2_string_count"] = len(strings)
 
-                r2_features['r2_analysis_success'] = True
+                r2_features["r2_analysis_success"] = True
 
             finally:
                 try:
@@ -619,16 +572,17 @@ class PEFeatureExtractor:
 
         except Exception as e:
             logger.error(f"[r2] Analysis failed for {file_path}: {e}")
-            r2_features['error'] = str(e)
+            r2_features["error"] = str(e)
 
         return r2_features
+
+    def extract_numeric_features(self, file_path: str, rank: Optional[int] = None) -> Optional[Dict[str, Any]]:
         """
         Extract numeric features of a file using pefile.
         Ensures pefile.PE is closed even on exceptions to avoid leaking file handles on Windows.
         """
         pe = None
         try:
-
             try:
                 # Attempt to load PE file directly
                 pe = pefile.PE(file_path, fast_load=True)
@@ -646,133 +600,111 @@ class PEFeatureExtractor:
             # Extract features
             numeric_features = {
                 # Capstone analysis for packing
-                'section_disassembly': self.disassemble_all_sections(pe),
-
+                "section_disassembly": self.disassemble_all_sections(pe),
                 # Optional Header Features
-                'SizeOfOptionalHeader': pe.FILE_HEADER.SizeOfOptionalHeader,
-                'MajorLinkerVersion': pe.OPTIONAL_HEADER.MajorLinkerVersion,
-                'MinorLinkerVersion': pe.OPTIONAL_HEADER.MinorLinkerVersion,
-                'SizeOfCode': pe.OPTIONAL_HEADER.SizeOfCode,
-                'SizeOfInitializedData': pe.OPTIONAL_HEADER.SizeOfInitializedData,
-                'SizeOfUninitializedData': pe.OPTIONAL_HEADER.SizeOfUninitializedData,
-                'AddressOfEntryPoint': pe.OPTIONAL_HEADER.AddressOfEntryPoint,
-                'BaseOfCode': pe.OPTIONAL_HEADER.BaseOfCode,
-                'BaseOfData': getattr(pe.OPTIONAL_HEADER, 'BaseOfData', 0),
-                'ImageBase': pe.OPTIONAL_HEADER.ImageBase,
-                'SectionAlignment': pe.OPTIONAL_HEADER.SectionAlignment,
-                'FileAlignment': pe.OPTIONAL_HEADER.FileAlignment,
-                'MajorOperatingSystemVersion': pe.OPTIONAL_HEADER.MajorOperatingSystemVersion,
-                'MinorOperatingSystemVersion': pe.OPTIONAL_HEADER.MinorOperatingSystemVersion,
-                'MajorImageVersion': pe.OPTIONAL_HEADER.MajorImageVersion,
-                'MinorImageVersion': pe.OPTIONAL_HEADER.MinorImageVersion,
-                'MajorSubsystemVersion': pe.OPTIONAL_HEADER.MajorSubsystemVersion,
-                'MinorSubsystemVersion': pe.OPTIONAL_HEADER.MinorSubsystemVersion,
-                'SizeOfImage': pe.OPTIONAL_HEADER.SizeOfImage,
-                'SizeOfHeaders': pe.OPTIONAL_HEADER.SizeOfHeaders,
-                'CheckSum': pe.OPTIONAL_HEADER.CheckSum,
-                'Subsystem': pe.OPTIONAL_HEADER.Subsystem,
-                'DllCharacteristics': pe.OPTIONAL_HEADER.DllCharacteristics,
-                'SizeOfStackReserve': pe.OPTIONAL_HEADER.SizeOfStackReserve,
-                'SizeOfStackCommit': pe.OPTIONAL_HEADER.SizeOfStackCommit,
-                'SizeOfHeapReserve': pe.OPTIONAL_HEADER.SizeOfHeapReserve,
-                'SizeOfHeapCommit': pe.OPTIONAL_HEADER.SizeOfHeapCommit,
-                'LoaderFlags': pe.OPTIONAL_HEADER.LoaderFlags,
-                'NumberOfRvaAndSizes': pe.OPTIONAL_HEADER.NumberOfRvaAndSizes,
-
+                "SizeOfOptionalHeader": pe.FILE_HEADER.SizeOfOptionalHeader,
+                "MajorLinkerVersion": pe.OPTIONAL_HEADER.MajorLinkerVersion,
+                "MinorLinkerVersion": pe.OPTIONAL_HEADER.MinorLinkerVersion,
+                "SizeOfCode": pe.OPTIONAL_HEADER.SizeOfCode,
+                "SizeOfInitializedData": pe.OPTIONAL_HEADER.SizeOfInitializedData,
+                "SizeOfUninitializedData": pe.OPTIONAL_HEADER.SizeOfUninitializedData,
+                "AddressOfEntryPoint": pe.OPTIONAL_HEADER.AddressOfEntryPoint,
+                "BaseOfCode": pe.OPTIONAL_HEADER.BaseOfCode,
+                "BaseOfData": getattr(pe.OPTIONAL_HEADER, "BaseOfData", 0),
+                "ImageBase": pe.OPTIONAL_HEADER.ImageBase,
+                "SectionAlignment": pe.OPTIONAL_HEADER.SectionAlignment,
+                "FileAlignment": pe.OPTIONAL_HEADER.FileAlignment,
+                "MajorOperatingSystemVersion": pe.OPTIONAL_HEADER.MajorOperatingSystemVersion,
+                "MinorOperatingSystemVersion": pe.OPTIONAL_HEADER.MinorOperatingSystemVersion,
+                "MajorImageVersion": pe.OPTIONAL_HEADER.MajorImageVersion,
+                "MinorImageVersion": pe.OPTIONAL_HEADER.MinorImageVersion,
+                "MajorSubsystemVersion": pe.OPTIONAL_HEADER.MajorSubsystemVersion,
+                "MinorSubsystemVersion": pe.OPTIONAL_HEADER.MinorSubsystemVersion,
+                "SizeOfImage": pe.OPTIONAL_HEADER.SizeOfImage,
+                "SizeOfHeaders": pe.OPTIONAL_HEADER.SizeOfHeaders,
+                "CheckSum": pe.OPTIONAL_HEADER.CheckSum,
+                "Subsystem": pe.OPTIONAL_HEADER.Subsystem,
+                "DllCharacteristics": pe.OPTIONAL_HEADER.DllCharacteristics,
+                "SizeOfStackReserve": pe.OPTIONAL_HEADER.SizeOfStackReserve,
+                "SizeOfStackCommit": pe.OPTIONAL_HEADER.SizeOfStackCommit,
+                "SizeOfHeapReserve": pe.OPTIONAL_HEADER.SizeOfHeapReserve,
+                "SizeOfHeapCommit": pe.OPTIONAL_HEADER.SizeOfHeapCommit,
+                "LoaderFlags": pe.OPTIONAL_HEADER.LoaderFlags,
+                "NumberOfRvaAndSizes": pe.OPTIONAL_HEADER.NumberOfRvaAndSizes,
                 # Section Headers
-                'sections': [
+                "sections": [
                     {
-                        'name': section.Name.decode(errors='ignore').strip('\x00'),
-                        'virtual_size': section.Misc_VirtualSize,
-                        'virtual_address': section.VirtualAddress,
-                        'size_of_raw_data': section.SizeOfRawData,
-                        'pointer_to_raw_data': section.PointerToRawData,
-                        'characteristics': section.Characteristics,
+                        "name": section.Name.decode(errors="ignore").strip("\x00"),
+                        "virtual_size": section.Misc_VirtualSize,
+                        "virtual_address": section.VirtualAddress,
+                        "size_of_raw_data": section.SizeOfRawData,
+                        "pointer_to_raw_data": section.PointerToRawData,
+                        "characteristics": section.Characteristics,
                     }
                     for section in pe.sections
                 ],
-
                 # Imported Functions
-                'imports': [
-                    imp.name.decode(errors='ignore') if imp.name else "Unknown"
-                    for entry in getattr(pe, 'DIRECTORY_ENTRY_IMPORT', [])
-                    for imp in getattr(entry, 'imports', [])
-                ] if hasattr(pe, 'DIRECTORY_ENTRY_IMPORT') else [],
-
+                "imports": [imp.name.decode(errors="ignore") if imp.name else "Unknown" for entry in getattr(pe, "DIRECTORY_ENTRY_IMPORT", []) for imp in getattr(entry, "imports", [])] if hasattr(pe, "DIRECTORY_ENTRY_IMPORT") else [],
                 # Exported Functions
-                'exports': [
-                    exp.name.decode(errors='ignore') if exp.name else "Unknown"
-                    for exp in getattr(getattr(pe, 'DIRECTORY_ENTRY_EXPORT', None), 'symbols', [])
-                ] if hasattr(pe, 'DIRECTORY_ENTRY_EXPORT') else [],
-
+                "exports": [exp.name.decode(errors="ignore") if exp.name else "Unknown" for exp in getattr(getattr(pe, "DIRECTORY_ENTRY_EXPORT", None), "symbols", [])] if hasattr(pe, "DIRECTORY_ENTRY_EXPORT") else [],
                 # Resources
-                'resources': [
+                "resources": [
                     {
-                        'type_id': getattr(getattr(resource_type, 'struct', None), 'Id', None),
-                        'resource_id': getattr(getattr(resource_id, 'struct', None), 'Id', None),
-                        'lang_id': getattr(getattr(resource_lang, 'struct', None), 'Id', None),
-                        'size': getattr(getattr(resource_lang, 'data', None), 'Size', None),
-                        'codepage': getattr(getattr(resource_lang, 'data', None), 'CodePage', None),
+                        "type_id": getattr(getattr(resource_type, "struct", None), "Id", None),
+                        "resource_id": getattr(getattr(resource_id, "struct", None), "Id", None),
+                        "lang_id": getattr(getattr(resource_lang, "struct", None), "Id", None),
+                        "size": getattr(getattr(resource_lang, "data", None), "Size", None),
+                        "codepage": getattr(getattr(resource_lang, "data", None), "CodePage", None),
                     }
-                    for resource_type in
-                    (pe.DIRECTORY_ENTRY_RESOURCE.entries if hasattr(pe, 'DIRECTORY_ENTRY_RESOURCE') and hasattr(pe.DIRECTORY_ENTRY_RESOURCE, 'entries') else [])
-                    for resource_id in (resource_type.directory.entries if hasattr(resource_type, 'directory') else [])
-                    for resource_lang in (resource_id.directory.entries if hasattr(resource_id, 'directory') else [])
-                    if hasattr(resource_lang, 'data')
-                ] if hasattr(pe, 'DIRECTORY_ENTRY_RESOURCE') else [],
-
+                    for resource_type in (pe.DIRECTORY_ENTRY_RESOURCE.entries if hasattr(pe, "DIRECTORY_ENTRY_RESOURCE") and hasattr(pe.DIRECTORY_ENTRY_RESOURCE, "entries") else [])
+                    for resource_id in (resource_type.directory.entries if hasattr(resource_type, "directory") else [])
+                    for resource_lang in (resource_id.directory.entries if hasattr(resource_id, "directory") else [])
+                    if hasattr(resource_lang, "data")
+                ]
+                if hasattr(pe, "DIRECTORY_ENTRY_RESOURCE")
+                else [],
                 # Debug Information
-                'debug': [
+                "debug": [
                     {
-                        'type': debug.struct.Type,
-                        'timestamp': debug.struct.TimeDateStamp,
-                        'version': f"{debug.struct.MajorVersion}.{debug.struct.MinorVersion}",
-                        'size': debug.struct.SizeOfData,
+                        "type": debug.struct.Type,
+                        "timestamp": debug.struct.TimeDateStamp,
+                        "version": f"{debug.struct.MajorVersion}.{debug.struct.MinorVersion}",
+                        "size": debug.struct.SizeOfData,
                     }
-                    for debug in getattr(pe, 'DIRECTORY_ENTRY_DEBUG', [])
-                ] if hasattr(pe, 'DIRECTORY_ENTRY_DEBUG') else [],
-
+                    for debug in getattr(pe, "DIRECTORY_ENTRY_DEBUG", [])
+                ]
+                if hasattr(pe, "DIRECTORY_ENTRY_DEBUG")
+                else [],
                 # Certificates
-                'certificates': self.analyze_certificates(pe),  # Analyze certificates
-
+                "certificates": self.analyze_certificates(pe),  # Analyze certificates
                 # DOS Stub Analysis
-                'dos_stub': self.analyze_dos_stub(pe),  # DOS stub analysis here
-
+                "dos_stub": self.analyze_dos_stub(pe),  # DOS stub analysis here
                 # TLS Callbacks
-                'tls_callbacks': self.analyze_tls_callbacks(pe),  # TLS callback analysis here
-
+                "tls_callbacks": self.analyze_tls_callbacks(pe),  # TLS callback analysis here
                 # Delay Imports
-                'delay_imports': self.analyze_delay_imports(pe),  # Delay imports analysis here
-
+                "delay_imports": self.analyze_delay_imports(pe),  # Delay imports analysis here
                 # Load Config
-                'load_config': self.analyze_load_config(pe),  # Load config analysis here
-
+                "load_config": self.analyze_load_config(pe),  # Load config analysis here
                 # Bound Imports
-                'bound_imports': self.analyze_bound_imports(pe),  # Bound imports analysis here
-
+                "bound_imports": self.analyze_bound_imports(pe),  # Bound imports analysis here
                 # Section Characteristics
-                'section_characteristics': self.analyze_section_characteristics(pe),
+                "section_characteristics": self.analyze_section_characteristics(pe),
                 # Section characteristics analysis here
-
                 # Extended Headers
-                'extended_headers': self.analyze_extended_headers(pe),  # Extended headers analysis here
-
+                "extended_headers": self.analyze_extended_headers(pe),  # Extended headers analysis here
                 # Rich Header
-                'rich_header': self.analyze_rich_header(pe),  # Rich header analysis here
-
+                "rich_header": self.analyze_rich_header(pe),  # Rich header analysis here
                 # Overlay
-                'overlay': self.analyze_overlay(pe, file_path),  # Overlay analysis here
-
-                #Relocations
-                'relocations': self.analyze_relocations(pe), #Relocations analysis here
-
+                "overlay": self.analyze_overlay(pe, file_path),  # Overlay analysis here
+                # Relocations
+                "relocations": self.analyze_relocations(pe),  # Relocations analysis here
                 # radare2 deep static analysis (function graph, xrefs, CC, strings)
-                'radare2': self.analyze_with_radare2(file_path),
+                "radare2": self.analyze_with_radare2(file_path),
             }
 
             # Add numeric tag if provided
             if rank is not None:
-                numeric_features['numeric_tag'] = rank
+                numeric_features["numeric_tag"] = rank
 
             return numeric_features
 
@@ -787,9 +719,11 @@ class PEFeatureExtractor:
             except Exception:
                 logger.debug(f"Failed to close pe for {file_path}", exc_info=True)
 
+
 pe_extractor = PEFeatureExtractor()
 
 # --- PE Analysis and Feature Extraction Functions ---
+
 
 def calculate_vector_similarity(vec1: List[float], vec2: List[float]) -> float:
     """Calculates similarity between two numeric vectors using cosine similarity."""

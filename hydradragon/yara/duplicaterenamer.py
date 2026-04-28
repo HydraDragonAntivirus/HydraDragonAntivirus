@@ -4,6 +4,7 @@
 Automates YARA rule compilation and resolves duplicate identifiers by renaming the first duplicate occurrence.
 Handles cases where rule keywords may follow closing braces (e.g., `}rule`).
 """
+
 import os
 import re
 import subprocess
@@ -11,12 +12,7 @@ import sys
 
 
 def compile_yara(yarac_path, input_yar, output_rc):
-    result = subprocess.run(
-        [yarac_path, input_yar, output_rc],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True
-    )
+    result = subprocess.run([yarac_path, input_yar, output_rc], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     return result.stdout, result.stderr
 
 
@@ -27,12 +23,12 @@ def find_duplicate_identifiers(stderr):
 
 def rename_first_duplicate(yara_file, duplicates):
     # Match rule lines even if preceded by '}' or whitespace
-    rule_re = re.compile(r'^([\s\}]*?(?:private|global)?\s*rule\s+)([A-Za-z0-9_]+)(.*)$', re.IGNORECASE)
+    rule_re = re.compile(r"^([\s\}]*?(?:private|global)?\s*rule\s+)([A-Za-z0-9_]+)(.*)$", re.IGNORECASE)
     duplicates_lower = {d.lower() for d in duplicates}
     renamed = set()
     output_lines = []
 
-    with open(yara_file, 'r', encoding='utf-8', errors='ignore') as f:
+    with open(yara_file, "r", encoding="utf-8", errors="ignore") as f:
         for line in f:
             m = rule_re.match(line)
             if m:
@@ -52,7 +48,7 @@ def rename_first_duplicate(yara_file, duplicates):
                 # else: original or already handled
             output_lines.append(line)
 
-    with open(yara_file, 'w', encoding='utf-8', errors='ignore') as f:
+    with open(yara_file, "w", encoding="utf-8", errors="ignore") as f:
         f.writelines(output_lines)
 
     return renamed
@@ -60,13 +56,13 @@ def rename_first_duplicate(yara_file, duplicates):
 
 def main():
     cwd = os.getcwd()
-    yarac = os.path.join(cwd, 'yarac64.exe')
-    input_yara = 'babapro.yar' #Example
-    output_rc = 'babapro.yrc'
+    yarac = os.path.join(cwd, "yarac64.exe")
+    input_yara = "babapro.yar"  # Example
+    output_rc = "babapro.yrc"
 
     print(f"Compiling {input_yara}...")
     _, stderr = compile_yara(yarac, input_yara, output_rc)
-    if 'duplicated identifier' not in stderr:
+    if "duplicated identifier" not in stderr:
         print("No duplicates found. Compilation successful.")
         sys.exit(0)
 
@@ -79,7 +75,7 @@ def main():
 
     renamed = rename_first_duplicate(input_yara, duplicates)
     if renamed:
-        print(f"Renamed first duplicate for: {[name+'0' for name in renamed]}")
+        print(f"Renamed first duplicate for: {[name + '0' for name in renamed]}")
     else:
         print("No rules renamed.")
 
@@ -92,5 +88,6 @@ def main():
     else:
         print("Compilation succeeded after renaming duplicates.")
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     main()

@@ -75,12 +75,12 @@ def merge_headers(
         ]
 
     filtered = [
-        f'',
-        f'//',
+        '',
+        '//',
         f'// Header: {header}',
         *include_stack,
-        f'//',
-        f'',
+        '//',
+        '',
     ]
 
     # Copy over lines and recursively inline all headers.
@@ -112,11 +112,11 @@ def merge_sources(*, source_dir: Path, covered_headers: Set[Path]):
 
         # Print some comments to show where the code is from.
         output += [
-            f'',
-            f'//',
+            '',
+            '//',
             f'// Source file: {source_file}',
-            f'//',
-            f'',
+            '//',
+            '',
         ]
 
         # Read source file.

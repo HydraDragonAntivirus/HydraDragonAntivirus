@@ -12,16 +12,13 @@ from __future__ import annotations
 
 import argparse
 import dataclasses
-import hashlib
 import json
 import os
-import re
 import struct
-import sys
 import zlib
 from pathlib import Path
 from random import Random
-from typing import Any, Iterator, Optional
+from typing import Optional
 
 # ---------------------------------------------------------------------------
 # Dependencies & Fallbacks
@@ -29,12 +26,14 @@ from typing import Any, Iterator, Optional
 
 try:
     import pefile  # type: ignore
+
     HAS_PEFILE = True
 except ImportError:
     HAS_PEFILE = False
 
 try:
     import zstandard as zstd  # type: ignore
+
     HAS_ZSTD = True
 except ImportError:
     HAS_ZSTD = False
@@ -45,12 +44,16 @@ except ImportError:
 # ---------------------------------------------------------------------------
 
 ONEFILE_MAGICS = (b"KAX", b"KAY")
-class NuitkaError(Exception): pass
+
+
+class NuitkaError(Exception):
+    pass
 
 
 # ---------------------------------------------------------------------------
 # Protected Module-Name Decoding
 # ---------------------------------------------------------------------------
+
 
 def get_nuitka_mapping(seed: int = 27) -> list[int]:
     """Build a module-name decoding table for supported protected layouts."""
@@ -74,6 +77,7 @@ def decode_module_name(raw: bytes, seed: int = 27) -> str:
 # PE Utilities (Manual fallback for when pefile is missing)
 # ---------------------------------------------------------------------------
 
+
 @dataclasses.dataclass(frozen=True)
 class PESection:
     name: str
@@ -81,6 +85,7 @@ class PESection:
     raw_size: int
     virt_addr: int
     virt_size: int
+
 
 def parse_pe_sections_manual(buf: memoryview) -> list[PESection]:
     if len(buf) < 0x100 or buf[0:2].tobytes() != b"MZ":
@@ -93,7 +98,7 @@ def parse_pe_sections_manual(buf: memoryview) -> list[PESection]:
         num_sections = struct.unpack_from("<H", buf, coff_off + 2)[0]
         size_opt = struct.unpack_from("<H", buf, coff_off + 16)[0]
         sec_off = coff_off + 20 + size_opt
-        
+
         sections = []
         for i in range(num_sections):
             off = sec_off + i * 40
@@ -108,6 +113,7 @@ def parse_pe_sections_manual(buf: memoryview) -> list[PESection]:
 # ---------------------------------------------------------------------------
 # Constants Blob Extraction
 # ---------------------------------------------------------------------------
+
 
 def find_constants_blob(path_or_data: str | bytes | Path) -> tuple[bytes | Optional[bytes], str]:
     """
@@ -132,18 +138,18 @@ def find_constants_blob(path_or_data: str | bytes | Path) -> tuple[bytes | Optio
                             if len(chunk) >= 8:
                                 declared = struct.unpack_from("<I", chunk, 4)[0]
                                 if 8 + declared <= size:
-                                    actual_crc = zlib.crc32(chunk[8:8 + declared]) & 0xFFFFFFFF
+                                    actual_crc = zlib.crc32(chunk[8 : 8 + declared]) & 0xFFFFFFFF
                                     if actual_crc == struct.unpack_from("<I", chunk, 0)[0]:
-                                        return chunk[:8+declared], f"PE Resource (ID {res_id.id})"
-            
+                                        return chunk[: 8 + declared], f"PE Resource (ID {res_id.id})"
+
             for section in pe.sections:
                 raw_sec = data[section.PointerToRawData : section.PointerToRawData + section.SizeOfRawData]
                 if len(raw_sec) >= 8:
                     declared = struct.unpack_from("<I", raw_sec, 4)[0]
                     if 8 + declared <= len(raw_sec):
-                        actual_crc = zlib.crc32(raw_sec[8:8 + declared]) & 0xFFFFFFFF
+                        actual_crc = zlib.crc32(raw_sec[8 : 8 + declared]) & 0xFFFFFFFF
                         if actual_crc == struct.unpack_from("<I", raw_sec, 0)[0]:
-                            return raw_sec[:8+declared], f"PE Section {section.Name.decode().strip(chr(0))}"
+                            return raw_sec[: 8 + declared], f"PE Section {section.Name.decode().strip(chr(0))}"
         except Exception:
             pass
 
@@ -152,8 +158,8 @@ def find_constants_blob(path_or_data: str | bytes | Path) -> tuple[bytes | Optio
         stored_crc = struct.unpack_from("<I", data, off)[0]
         declared = struct.unpack_from("<I", data, off + 4)[0]
         if 1024 < declared < 256 * 1024 * 1024 and off + 8 + declared <= len(data):
-            if zlib.crc32(data[off+8:off+8+declared]) & 0xFFFFFFFF == stored_crc:
-                return data[off:off+8+declared], "Raw scan"
+            if zlib.crc32(data[off + 8 : off + 8 + declared]) & 0xFFFFFFFF == stored_crc:
+                return data[off : off + 8 + declared], "Raw scan"
 
     return None, "Not found"
 
@@ -167,7 +173,8 @@ def parse_module_names(blob: bytes) -> list[dict]:
 
     while offset < len(data) - 5:
         name_end = data.find(b"\x00", offset, min(offset + 512, len(data)))
-        if name_end == -1: break
+        if name_end == -1:
+            break
         raw_name = data[offset:name_end]
         offset = name_end + 1
         if offset + 4 > len(data):
@@ -185,15 +192,15 @@ def parse_module_names(blob: bytes) -> list[dict]:
         except UnicodeDecodeError:
             name = decode_module_name(raw_name) if is_enc else raw_name.decode("utf-8", errors="replace")
 
-        modules.append({
-            "name": name,
-            "size": chunk_size,
-            "offset": 8 + data_start, # absolute offset in original blob
-            "is_main": (name in ("__main__", "") or
-                        (not name.startswith("_") and "." not in name and
-                         not name.startswith("nuitka"))),
-            "is_bytecode": name == ".bytecode",
-        })
+        modules.append(
+            {
+                "name": name,
+                "size": chunk_size,
+                "offset": 8 + data_start,  # absolute offset in original blob
+                "is_main": (name in ("__main__", "") or (not name.startswith("_") and "." not in name and not name.startswith("nuitka"))),
+                "is_bytecode": name == ".bytecode",
+            }
+        )
     return modules
 
 
@@ -201,19 +208,24 @@ def parse_module_names(blob: bytes) -> list[dict]:
 # Onefile Extraction Logic (Nuthem)
 # ---------------------------------------------------------------------------
 
+
 def _u16le_cstr(data: memoryview, offset: int) -> tuple[str, int]:
     end = offset
     chars = []
     while end + 2 <= len(data):
         (u,) = struct.unpack_from("<H", data, end)
         end += 2
-        if u == 0: break
+        if u == 0:
+            break
         chars.append(u)
     return bytes(struct.pack("<" + "H" * len(chars), *chars)).decode("utf-16le", errors="replace"), end
 
+
 def _looks_like_relpath(p: str) -> bool:
-    if not p or ":" in p or p.startswith(("\\", "/")): return False
+    if not p or ":" in p or p.startswith(("\\", "/")):
+        return False
     return all(ord(c) >= 32 for c in p)
+
 
 def _safe_join(root: Path, rel: str) -> Path:
     rel = rel.replace("/", os.sep).replace("\\", os.sep).lstrip("\\/")
@@ -221,6 +233,7 @@ def _safe_join(root: Path, rel: str) -> Path:
     if root.resolve() not in out.parents and out != root.resolve():
         raise NuitkaError(f"Path traversal detected: {rel}")
     return out
+
 
 def _decompress_zstd(data: bytes, expected_size: Optional[int] = None) -> bytes:
     if not HAS_ZSTD:
@@ -238,11 +251,10 @@ def _decompress_zstd(data: bytes, expected_size: Optional[int] = None) -> bytes:
         except:
             raise NuitkaError(f"Zstd decompression failed: {e}")
 
+
 def parse_onefile_stream(stream: bytes, magic: bytes) -> list[tuple[str, bytes]]:
     data = memoryview(stream)
-    off = 0
-    out = []
-    
+
     # If KAY magic and doesn't look like per-file archive, it might be global stream
     if magic == b"KAY":
         try:
@@ -252,19 +264,21 @@ def parse_onefile_stream(stream: bytes, magic: bytes) -> list[tuple[str, bytes]]
         except:
             decompressed = _decompress_zstd(stream)
             return parse_onefile_entries(memoryview(decompressed), is_archive=False)
-    
+
     return parse_onefile_entries(data, is_archive=False)
+
 
 def parse_onefile_entries(data: memoryview, is_archive: bool) -> list[tuple[str, bytes]]:
     off = 0
     out = []
     while True:
         name, off = _u16le_cstr(data, off)
-        if not name: break
-        
+        if not name:
+            break
+
         file_size = struct.unpack_from("<Q", data, off)[0]
         off += 8
-        
+
         # Checksum detection heuristic
         # If we skip 4 bytes and the next 4 bytes are a valid archive size or MZ header...
         # Or if we just try both.
@@ -276,7 +290,7 @@ def parse_onefile_entries(data: memoryview, is_archive: bool) -> list[tuple[str,
             if off + 4 + arch_size <= len(data):
                 next_name_test, _ = _u16le_cstr(data, off + 4 + arch_size)
                 if not next_name_test or _looks_like_relpath(next_name_test):
-                    pass # Looks like no checksum
+                    pass  # Looks like no checksum
                 else:
                     has_checksum = True
             else:
@@ -287,65 +301,71 @@ def parse_onefile_entries(data: memoryview, is_archive: bool) -> list[tuple[str,
                 next_name_test, _ = _u16le_cstr(data, off + 4 + file_size)
                 if next_name_test and not _looks_like_relpath(next_name_test):
                     has_checksum = True
-        
-        if has_checksum: off += 4
-        
+
+        if has_checksum:
+            off += 4
+
         if is_archive:
             arch_size = struct.unpack_from("<I", data, off)[0]
             off += 4
-            content = _decompress_zstd(data[off:off+arch_size].tobytes(), expected_size=file_size)
+            content = _decompress_zstd(data[off : off + arch_size].tobytes(), expected_size=file_size)
             off += arch_size
         else:
-            content = data[off:off+file_size].tobytes()
+            content = data[off : off + file_size].tobytes()
             off += file_size
-        
+
         out.append((name, content))
     return out
+
 
 def extract_onefile(path: Path, out_dir: Path) -> dict:
     blob = path.read_bytes()
     buf = memoryview(blob)
-    
+
     sections = parse_pe_sections_manual(buf)
     if HAS_PEFILE:
         try:
             pe = pefile.PE(data=blob, fast_load=True)
             sections = [PESection(s.Name.decode().strip(chr(0)), s.PointerToRawData, s.SizeOfRawData, s.VirtualAddress, s.Misc_VirtualSize) for s in pe.sections]
-        except: pass
+        except:
+            pass
 
     candidates = []
     for s in sections:
-        if s.raw_ptr == 0: continue
+        if s.raw_ptr == 0:
+            continue
         chunk = blob[s.raw_ptr : s.raw_ptr + s.raw_size]
         for magic in ONEFILE_MAGICS:
             pos = chunk.find(magic)
             while pos != -1:
                 try:
-                    stream = chunk[pos + 3:]
+                    stream = chunk[pos + 3 :]
                     entries = parse_onefile_stream(stream, magic)
                     if entries:
                         candidates.append((len(entries), s.raw_ptr + pos, magic, entries))
-                except: pass
+                except:
+                    pass
                 pos = chunk.find(magic, pos + 1)
-    
+
     if not candidates:
         raise NuitkaError("No valid Onefile payload found.")
-    
+
     candidates.sort(key=lambda x: x[0], reverse=True)
     count, pos, magic, entries = candidates[0]
-    
+
     out_dir.mkdir(parents=True, exist_ok=True)
     for name, content in entries:
         target = _safe_join(out_dir, name)
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(content)
-        
+
     return {"count": count, "magic": magic.decode(), "pos": pos}
 
 
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
+
 
 def main():
     parser = argparse.ArgumentParser(description="Nuitka Module Lister & Onefile Extractor")
@@ -366,7 +386,7 @@ def main():
             if not args.json:
                 print(f"[*] Found Constants Blob via {src}")
                 for m in modules:
-                    print(f"  {m['name']:<50} {m['size']/1024:>7.1f} KB {'(Bytecode)' if m['is_bytecode'] else ''}")
+                    print(f"  {m['name']:<50} {m['size'] / 1024:>7.1f} KB {'(Bytecode)' if m['is_bytecode'] else ''}")
         else:
             if args.list:
                 print("[!] Constants blob not found.")
@@ -382,6 +402,7 @@ def main():
 
     if args.json:
         print(json.dumps(results, indent=2))
+
 
 if __name__ == "__main__":
     main()

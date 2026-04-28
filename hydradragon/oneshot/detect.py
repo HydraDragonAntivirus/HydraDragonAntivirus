@@ -11,11 +11,7 @@ def source_as_file(file_path: str) -> Union[List[bytes], None]:
     try:
         with open(file_path, "r") as f:
             co = compile(f.read(), "<str>", "exec")
-            data = [
-                i
-                for i in co.co_consts
-                if type(i) is bytes and i.startswith(b"PY00") and len(i) > 64
-            ]
+            data = [i for i in co.co_consts if type(i) is bytes and i.startswith(b"PY00") and len(i) > 64]
             return data
     except:
         return None
@@ -28,15 +24,7 @@ def source_as_lines(file_path: str) -> Union[List[bytes], None]:
             for line in f:
                 try:
                     co = compile(line, "<str>", "exec")
-                    data.extend(
-                        [
-                            i
-                            for i in co.co_consts
-                            if type(i) is bytes
-                            and i.startswith(b"PY00")
-                            and len(i) > 64
-                        ]
-                    )
+                    data.extend([i for i in co.co_consts if type(i) is bytes and i.startswith(b"PY00") and len(i) > 64])
                 except:
                     # ignore not compilable lines
                     pass
@@ -67,11 +55,7 @@ def find_data_from_bytes(data: bytes, max_count=-1) -> List[bytes]:
         # maybe followed by data for other Python versions or another part of BCC
         next_segment_offset = int.from_bytes(data[56:60], "little")
         data_next = data[next_segment_offset:]
-        while (
-            next_segment_offset != 0
-            and data_next.startswith(b"PY00")
-            and len(data_next) >= 64
-        ):
+        while next_segment_offset != 0 and data_next.startswith(b"PY00") and len(data_next) >= 64:
             header_len = int.from_bytes(data_next[28:32], "little")
             body_len = int.from_bytes(data_next[32:36], "little")
             complete_object_length = next_segment_offset + header_len + body_len
@@ -86,9 +70,7 @@ def find_data_from_bytes(data: bytes, max_count=-1) -> List[bytes]:
     return result
 
 
-def nuitka_package(
-    head: bytes, relative_path: str
-) -> Union[List[Tuple[str, bytes]], None]:
+def nuitka_package(head: bytes, relative_path: str) -> Union[List[Tuple[str, bytes]], None]:
     first_occurrence = head.find(b"PY00")
     if first_occurrence == -1:
         return None
@@ -109,9 +91,7 @@ def nuitka_package(
         if module_data:
             result.append(
                 (
-                    os.path.join(
-                        relative_path.rstrip("/\\") + ".1shot.ext", module_name
-                    ),
+                    os.path.join(relative_path.rstrip("/\\") + ".1shot.ext", module_name),
                     module_data[0],
                 )
             )
@@ -122,9 +102,7 @@ def nuitka_package(
     return None
 
 
-def detect_process(
-    file_path: str, relative_path: str
-) -> Union[List[Tuple[str, bytes]], None]:
+def detect_process(file_path: str, relative_path: str) -> Union[List[Tuple[str, bytes]], None]:
     """
     Returns a list of (relative_path, bytes_raw) tuples, or None.
     Do not raise exceptions.

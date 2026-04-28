@@ -10,11 +10,7 @@ for path in pathlib.Path(".").rglob("*.py"):
     except UnicodeDecodeError:
         text = path.read_text(encoding="latin-1")  # fallback for odd encodings
 
-    new_text = re.sub(
-        r"threading\.Thread\s*\((?![^)]*daemon\s*=)",
-        "threading.Thread(daemon=True, ",
-        text
-    )
+    new_text = re.sub(r"threading\.Thread\s*\((?![^)]*daemon\s*=)", "threading.Thread(daemon=True, ", text)
 
     if new_text != text:
         path.write_text(new_text, encoding="utf-8")

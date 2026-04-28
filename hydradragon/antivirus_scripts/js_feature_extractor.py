@@ -13,33 +13,35 @@ from .hydra_logger import logger
 FEATURE_VECTOR_SIZE = 51
 
 
-JAVASCRIPT_AST_NODE_TYPES = frozenset({
-    "ArrowFunctionExpression",
-    "AssignmentExpression",
-    "AwaitExpression",
-    "CallExpression",
-    "ClassDeclaration",
-    "DoWhileStatement",
-    "ExportAllDeclaration",
-    "ExportDefaultDeclaration",
-    "ExportNamedDeclaration",
-    "ForInStatement",
-    "ForOfStatement",
-    "ForStatement",
-    "FunctionDeclaration",
-    "FunctionExpression",
-    "IfStatement",
-    "ImportDeclaration",
-    "NewExpression",
-    "ReturnStatement",
-    "SwitchStatement",
-    "TaggedTemplateExpression",
-    "ThrowStatement",
-    "TryStatement",
-    "UpdateExpression",
-    "VariableDeclaration",
-    "WhileStatement",
-})
+JAVASCRIPT_AST_NODE_TYPES = frozenset(
+    {
+        "ArrowFunctionExpression",
+        "AssignmentExpression",
+        "AwaitExpression",
+        "CallExpression",
+        "ClassDeclaration",
+        "DoWhileStatement",
+        "ExportAllDeclaration",
+        "ExportDefaultDeclaration",
+        "ExportNamedDeclaration",
+        "ForInStatement",
+        "ForOfStatement",
+        "ForStatement",
+        "FunctionDeclaration",
+        "FunctionExpression",
+        "IfStatement",
+        "ImportDeclaration",
+        "NewExpression",
+        "ReturnStatement",
+        "SwitchStatement",
+        "TaggedTemplateExpression",
+        "ThrowStatement",
+        "TryStatement",
+        "UpdateExpression",
+        "VariableDeclaration",
+        "WhileStatement",
+    }
+)
 
 
 class JSFeatureExtractor:
@@ -74,7 +76,7 @@ class JSFeatureExtractor:
             r"atob|btoa",
             r"unescape|escape",
             r"charCodeAt",
-            r'\[[\"\'].*?[\"]\]\s*\(',
+            r"\[[\"\'].*?[\"]\]\s*\(",
         ]
 
         self.crypto_patterns = [
@@ -383,12 +385,7 @@ class JSFeatureExtractor:
                 patterns["suspicious_api_calls"] += code.count(api)
 
         patterns["suspicious_score"] = (
-            patterns["crypto_references"] * 2
-            + patterns["network_operations"] * 3
-            + patterns["file_system_operations"] * 4
-            + patterns["registry_operations"] * 5
-            + patterns["process_operations"] * 5
-            + patterns["suspicious_api_calls"] * 2
+            patterns["crypto_references"] * 2 + patterns["network_operations"] * 3 + patterns["file_system_operations"] * 4 + patterns["registry_operations"] * 5 + patterns["process_operations"] * 5 + patterns["suspicious_api_calls"] * 2
         )
 
         return patterns

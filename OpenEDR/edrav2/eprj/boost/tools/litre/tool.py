@@ -17,7 +17,6 @@ try: # if the user has set up docutils_root in his config, add it to the PYTHONP
                  , '%s/docutils/extras' % config.docutils_root]
 except: pass
 
-import docutils.writers
 import cplusplus
 import os
 

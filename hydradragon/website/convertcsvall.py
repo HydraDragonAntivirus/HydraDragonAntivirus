@@ -3,6 +3,7 @@ import csv
 import argparse
 from pathlib import Path
 
+
 def convert_txt_to_csv(input_file: Path, output_file: Path):
     """
     Reads a .txt file with one entry per line and converts it to a
@@ -15,31 +16,31 @@ def convert_txt_to_csv(input_file: Path, output_file: Path):
     entries = []
     # Statically set the reference value for all entries.
     reference = "Unknown"
-    
+
     print(f"Processing: {input_file.name} -> {output_file.name} (Reference: '{reference}')")
-    
+
     try:
         # Open the source file, ignoring potential encoding errors in large lists
-        with open(input_file, 'r', encoding='utf-8', errors='ignore') as f:
+        with open(input_file, "r", encoding="utf-8", errors="ignore") as f:
             for line in f:
                 entry = line.strip()
                 # Skip empty lines and lines that are comments
-                if entry and not entry.startswith('#'):
+                if entry and not entry.startswith("#"):
                     entries.append(entry)
-        
+
         if not entries:
             print(f"  -> No valid entries found in {input_file.name}. Skipping.")
             return
 
         # Write the collected data to the new CSV file
-        with open(output_file, 'w', encoding='utf-8', newline='') as f:
+        with open(output_file, "w", encoding="utf-8", newline="") as f:
             writer = csv.writer(f)
             # Write the CSV header
-            writer.writerow(['item', 'reference'])
+            writer.writerow(["item", "reference"])
             # Write the data rows
             for entry in entries:
                 writer.writerow([entry, reference])
-        
+
         print(f"  -> Successfully converted {len(entries)} entries.")
 
     except FileNotFoundError:
@@ -62,7 +63,7 @@ def batch_process_directory(input_dir: Path, output_dir: Path):
     print(f"Input directory:  '{input_dir.resolve()}'")
     print(f"Output directory: '{output_dir.resolve()}'\n")
 
-    found_files = list(input_dir.glob('*.txt'))
+    found_files = list(input_dir.glob("*.txt"))
 
     if not found_files:
         print(f"No .txt files found in '{input_dir.resolve()}'.")
@@ -70,9 +71,9 @@ def batch_process_directory(input_dir: Path, output_dir: Path):
 
     for txt_file in found_files:
         # Create the full path for the output file
-        output_filename = txt_file.with_suffix('.csv').name
+        output_filename = txt_file.with_suffix(".csv").name
         output_path = output_dir / output_filename
-        
+
         # Convert the current file
         convert_txt_to_csv(txt_file, output_path)
 
@@ -82,23 +83,11 @@ def batch_process_directory(input_dir: Path, output_dir: Path):
 if __name__ == "__main__":
     # Set up the command-line argument parser
     parser = argparse.ArgumentParser(
-        description='Convert all .txt files in a directory to .csv format.\n'
-                    'Each CSV will have an "item" column (the entry from the txt)\n'
-                    'and a "reference" column (statically set to "Unknown").',
-        formatter_class=argparse.RawTextHelpFormatter
+        description='Convert all .txt files in a directory to .csv format.\nEach CSV will have an "item" column (the entry from the txt)\nand a "reference" column (statically set to "Unknown").',
+        formatter_class=argparse.RawTextHelpFormatter,
     )
-    parser.add_argument(
-        '--input_dir',
-        type=str,
-        default='.',
-        help='Path to the directory with .txt files.\n(Default: the current directory)'
-    )
-    parser.add_argument(
-        '--output_dir',
-        type=str,
-        default='cleaned',
-        help='Path to the directory to save .csv files.\n(Default: a new folder named "cleaned")'
-    )
+    parser.add_argument("--input_dir", type=str, default=".", help="Path to the directory with .txt files.\n(Default: the current directory)")
+    parser.add_argument("--output_dir", type=str, default="cleaned", help='Path to the directory to save .csv files.\n(Default: a new folder named "cleaned")')
 
     args = parser.parse_args()
 

@@ -22,6 +22,30 @@ A basic wrapper for the GoStringUngarbler API.
 
 """
 
-from .patchers import *
-from .patterns import *
-from .ungarblers import *
+from .patchers import Function, Patch, Patcher, PatcherX64, PatcherX86
+from .patterns import (
+    GarblerPattern,
+    GarblerPatternX64,
+    GarblerPatternX86,
+    SEED_STRING_DECRYPTION,
+    SPLIT_STRING_DECRYPTION,
+    STACK_STRING_DECRYPTION,
+)
+from .ungarblers import GoStringUngarbler, GoStringUngarblerX64, GoStringUngarblerX86
+
+__all__ = [
+    "Function",
+    "Patch",
+    "Patcher",
+    "PatcherX64",
+    "PatcherX86",
+    "GarblerPattern",
+    "GarblerPatternX64",
+    "GarblerPatternX86",
+    "SEED_STRING_DECRYPTION",
+    "SPLIT_STRING_DECRYPTION",
+    "STACK_STRING_DECRYPTION",
+    "GoStringUngarbler",
+    "GoStringUngarblerX64",
+    "GoStringUngarblerX86",
+]

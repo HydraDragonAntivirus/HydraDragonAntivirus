@@ -18,10 +18,4 @@ from .base_patcher import Function, Patch, Patcher
 from .x64_patcher import PatcherX64
 from .x86_patcher import PatcherX86
 
-__all__ = [
-    'Function',
-    'Patch',
-    'Patcher',
-    'PatcherX64',
-    'PatcherX86'
-]
+__all__ = ["Function", "Patch", "Patcher", "PatcherX64", "PatcherX86"]

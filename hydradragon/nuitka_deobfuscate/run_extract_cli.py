@@ -35,24 +35,15 @@ MARSHAL_CODE_TAG_VALUES = (
     FLAG_REF | ord(TYPE_CODE),
 )
 MARSHAL_CODE_TAGS = tuple(bytes((value,)) for value in MARSHAL_CODE_TAG_VALUES)
-MARSHAL_CODE_TAG_PATTERN = re.compile(
-    b"[" + re.escape(bytes(MARSHAL_CODE_TAG_VALUES)) + b"]"
-)
+MARSHAL_CODE_TAG_PATTERN = re.compile(b"[" + re.escape(bytes(MARSHAL_CODE_TAG_VALUES)) + b"]")
 MARSHAL_VERSION_HINT_TAGS = (b"\xf3",) + MARSHAL_CODE_TAGS
-MARSHAL_VERSION_HINT_TAG_PATTERN = re.compile(
-    b"[" + re.escape(b"\xf3" + bytes(MARSHAL_CODE_TAG_VALUES)) + b"]"
-)
+MARSHAL_VERSION_HINT_TAG_PATTERN = re.compile(b"[" + re.escape(b"\xf3" + bytes(MARSHAL_CODE_TAG_VALUES)) + b"]")
 DISCOVERED_SECTION_PATTERN = re.compile(r"^discovered_(.+?)_at_\d+$")
 MARSHAL_PYC_PATH_PATTERN = re.compile(rb"([A-Za-z0-9_./\\-]{1,260}\.py)")
 
 
 def _is_live_code_object(value) -> bool:
-    return (
-        type(value).__name__ == 'code'
-        or type(value).__name__.startswith('Code')
-        or hasattr(value, 'co_code')
-        or hasattr(value, 'co_code_adaptive')
-    )
+    return type(value).__name__ == "code" or type(value).__name__.startswith("Code") or hasattr(value, "co_code") or hasattr(value, "co_code_adaptive")
 
 
 def _iter_marshaled_bytecode_payloads(
@@ -70,20 +61,14 @@ def _iter_marshaled_bytecode_payloads(
             if (
                 guess_version_from_marshal_bytes(payload) is not None
                 or payload[:1] in MARSHAL_CODE_TAGS
-                or (
-                    magic_int is not None
-                    and (
-                        looks_like_code_header(payload, 0, magic_int)
-                        or try_detect_code_object(payload, 0, magic_int) is not None
-                    )
-                )
+                or (magic_int is not None and (looks_like_code_header(payload, 0, magic_int) or try_detect_code_object(payload, 0, magic_int) is not None))
             ):
                 yield payload
         return
 
     if _is_live_code_object(value):
         yield value
-        for child in getattr(value, 'co_consts', ()) or ():
+        for child in getattr(value, "co_consts", ()) or ():
             yield from _iter_marshaled_bytecode_payloads(
                 child,
                 magic_int=magic_int,
@@ -136,27 +121,24 @@ def is_marshaled_bytecode_section_items(
 ) -> bool:
     if section_name.strip(".").lower() != "bytecode":
         return False
-    return any(
-        True for _ in _iter_marshaled_bytecode_payloads(items, magic_int=magic_int)
-    )
+    return any(True for _ in _iter_marshaled_bytecode_payloads(items, magic_int=magic_int))
 
 
 # ============================================================================
 # PYC HEADER
 # ============================================================================
 
+
 def get_pyc_header(version: str, timestamp: int = None, filesize: int = 0) -> bytes:
     """Generate a valid 16-byte .pyc header using xdis magic."""
     magic = by_version.get(version)
     if not magic:
-        raise ValueError(
-            f"xdis has no magic for Python {version}.\n"
-            f"Known: {sorted(by_version.keys())}"
-        )
+        raise ValueError(f"xdis has no magic for Python {version}.\nKnown: {sorted(by_version.keys())}")
     header = bytes(magic)
-    header += struct.pack("<I", 0)          # Bitfield (timestamp-based)
+    header += struct.pack("<I", 0)  # Bitfield (timestamp-based)
     if timestamp is None:
         import time
+
         timestamp = int(time.time())
     header += struct.pack("<I", timestamp)
     header += struct.pack("<I", filesize & 0xFFFFFFFF)
@@ -167,6 +149,7 @@ def get_pyc_header(version: str, timestamp: int = None, filesize: int = 0) -> by
 # VERSION HELPERS
 # ============================================================================
 
+
 def parse_version(ver_str: str) -> tuple:
     try:
         parts = ver_str.split(".")
@@ -174,9 +157,7 @@ def parse_version(ver_str: str) -> tuple:
             raise ValueError
         return int(parts[0]), int(parts[1])
     except (ValueError, AttributeError):
-        raise argparse.ArgumentTypeError(
-            f"Invalid version '{ver_str}'. Expected MAJOR.MINOR e.g. 3.13"
-        )
+        raise argparse.ArgumentTypeError(f"Invalid version '{ver_str}'. Expected MAJOR.MINOR e.g. 3.13")
 
 
 def get_magic_int(version: str | tuple[int, int]) -> int | None:
@@ -240,12 +221,7 @@ def guess_version_from_marshal_bytes(data: bytes) -> str | None:
 
 def _marshal_candidate_versions(version_hint: str | None) -> list[str]:
     versions = sorted(
-        {
-            version
-            for version in by_version
-            if re.fullmatch(r"\d+\.\d+", version)
-            and _xdis_version_sort_key(version) >= (3, 5)
-        },
+        {version for version in by_version if re.fullmatch(r"\d+\.\d+", version) and _xdis_version_sort_key(version) >= (3, 5)},
         key=_xdis_version_sort_key,
         reverse=True,
     )
@@ -253,14 +229,8 @@ def _marshal_candidate_versions(version_hint: str | None) -> list[str]:
     runtime_version = f"{sys.version_info.major}.{sys.version_info.minor}"
     if runtime_version in versions:
         runtime_key = _xdis_version_sort_key(runtime_version)
-        lower_or_equal = [
-            version for version in versions
-            if version != runtime_version and _xdis_version_sort_key(version) <= runtime_key
-        ]
-        higher = [
-            version for version in versions
-            if _xdis_version_sort_key(version) > runtime_key
-        ]
+        lower_or_equal = [version for version in versions if version != runtime_version and _xdis_version_sort_key(version) <= runtime_key]
+        higher = [version for version in versions if _xdis_version_sort_key(version) > runtime_key]
         versions = [runtime_version] + lower_or_equal + higher
 
     if version_hint is None:
@@ -268,14 +238,8 @@ def _marshal_candidate_versions(version_hint: str | None) -> list[str]:
 
     if version_hint.endswith("+"):
         lower_bound = _xdis_version_sort_key(version_hint[:-1])
-        prioritized = [
-            version for version in versions
-            if _xdis_version_sort_key(version) >= lower_bound
-        ]
-        fallback = [
-            version for version in versions
-            if _xdis_version_sort_key(version) < lower_bound
-        ]
+        prioritized = [version for version in versions if _xdis_version_sort_key(version) >= lower_bound]
+        fallback = [version for version in versions if _xdis_version_sort_key(version) < lower_bound]
         return prioritized + fallback
 
     if version_hint in versions:
@@ -295,16 +259,16 @@ class MemoryReader:
         if n < 0:
             n = len(self._data) - self._pos
         end = min(len(self._data), self._pos + n)
-        chunk = self._data[self._pos:end].tobytes()
+        chunk = self._data[self._pos : end].tobytes()
         self._pos = end
         return chunk
 
 
 def score_code_object(code_obj) -> int:
     score = 3
-    score += len(getattr(code_obj, 'co_consts', ()))
-    score += len(getattr(code_obj, 'co_varnames', ()))
-    score += int(bool(getattr(code_obj, 'co_filename', None)))
+    score += len(getattr(code_obj, "co_consts", ()))
+    score += len(getattr(code_obj, "co_varnames", ()))
+    score += int(bool(getattr(code_obj, "co_filename", None)))
     return score
 
 
@@ -323,7 +287,7 @@ def try_detect_code_object(
         return None
 
     name = type(obj).__name__
-    if name == 'code' or name.startswith('Code'):
+    if name == "code" or name.startswith("Code"):
         return obj
     return None
 
@@ -444,6 +408,7 @@ def detect_version_from_marshal(data: bytes) -> str | None:
 # FILENAME HELPERS
 # ============================================================================
 
+
 def sanitize_filename(filepath: str) -> str:
     filepath = filepath.replace("\\", "/")
     if ":" in filepath:
@@ -451,15 +416,15 @@ def sanitize_filename(filepath: str) -> str:
     filepath = filepath.lstrip("/")
     for p in ["module.", "nuitka_build/"]:
         if filepath.startswith(p):
-            filepath = filepath[len(p):]
+            filepath = filepath[len(p) :]
     return filepath
 
 
 def extract_path_from_code(code_obj) -> str | None:
     try:
-        if hasattr(code_obj, 'co_filename'):
+        if hasattr(code_obj, "co_filename"):
             return str(code_obj.co_filename)
-        if hasattr(code_obj, 'co_qualname'):
+        if hasattr(code_obj, "co_qualname"):
             return str(code_obj.co_qualname)
     except Exception:
         pass
@@ -468,19 +433,19 @@ def extract_path_from_code(code_obj) -> str | None:
 
 def extract_code_label(code_obj) -> str | None:
     try:
-        for attr in ('co_qualname', 'co_name', 'co_filename'):
+        for attr in ("co_qualname", "co_name", "co_filename"):
             value = getattr(code_obj, attr, None)
             if not value:
                 continue
             label = str(value).strip().replace("\\", "/")
             if not label:
                 continue
-            if attr == 'co_filename' and ":" in label:
+            if attr == "co_filename" and ":" in label:
                 label = label.split(":", 1)[1]
             label = label.lstrip("/")
             if label == "<module>":
                 label = "module"
-            if attr == 'co_filename':
+            if attr == "co_filename":
                 label = Path(label).stem or label
             label = re.sub(r'[<>:"/\\|?*\x00]+', "_", label).strip("._ ")
             if label:
@@ -494,7 +459,7 @@ def extract_path_from_marshaled_bytes(data: bytes | bytearray) -> str | None:
     try:
         candidates = []
         for match in MARSHAL_PYC_PATH_PATTERN.finditer(bytes(data)[:65536]):
-            candidate = match.group(1).decode('utf-8', errors='ignore').replace("\\", "/")
+            candidate = match.group(1).decode("utf-8", errors="ignore").replace("\\", "/")
             candidate = candidate.lstrip("./")
             if candidate:
                 candidates.append(candidate)
@@ -548,6 +513,7 @@ def normalize_decoded_sections(sections: dict) -> dict[str, tuple]:
 # RAW BLOB SCAN — finds bytecode embedded in Nuitka constants blobs
 # ============================================================================
 
+
 def raw_scan_for_code_objects(
     raw: bytes,
     python_version: str | tuple[int, int],
@@ -589,6 +555,7 @@ def raw_scan_for_code_objects(
 # SECTION-BASED CODE FINDER — for blobs that DO embed marshal bytes as items
 # ============================================================================
 
+
 def recursive_find_code(item, results, processed_ids, magic_int: int | None, depth=0):
     """
     Recursively search structured section items for code objects.
@@ -599,10 +566,10 @@ def recursive_find_code(item, results, processed_ids, magic_int: int | None, dep
         return
     processed_ids.add(id(item))
 
-    if type(item).__name__ == 'code' or type(item).__name__.startswith('Code'):
+    if type(item).__name__ == "code" or type(item).__name__.startswith("Code"):
         results.append(item)
         try:
-            for c in getattr(item, 'co_consts', []):
+            for c in getattr(item, "co_consts", []):
                 recursive_find_code(c, results, processed_ids, magic_int, depth + 1)
         except Exception:
             pass
@@ -634,11 +601,7 @@ def process_section(
     generate_omni_nbc,
     emit_pyc: bool = False,
 ) -> tuple[int, int, int]:
-    clean_section = (
-        section_name
-        .replace(".", "_")
-        .strip("_")
-    )
+    clean_section = section_name.replace(".", "_").strip("_")
     is_marshaled_bytecode_section = is_marshaled_bytecode_section_items(
         section_name,
         items,
@@ -655,14 +618,14 @@ def process_section(
             omp.run_pass_2_ast_synthesis()
             source = generate_omni_source(omp, section_name, raw_constants=list(items))
             if source.strip():
-                safe_name = re.sub(r'[<>:"/\\|?*\x00]', '_', section_name)[:80]
-                omni_out = out_dir / 'omni_reconstructed'
+                safe_name = re.sub(r'[<>:"/\\|?*\x00]', "_", section_name)[:80]
+                omni_out = out_dir / "omni_reconstructed"
                 omni_out.mkdir(parents=True, exist_ok=True)
-                target_py_path = omni_out / f'{safe_name}.py'
-                target_py_path.write_text(source, encoding='utf-8')
+                target_py_path = omni_out / f"{safe_name}.py"
+                target_py_path.write_text(source, encoding="utf-8")
                 if generate_omni_nbc:
                     nbc_text = generate_omni_nbc(omp, section_name, list(items))
-                    target_py_path.with_suffix('.nbc').write_text(nbc_text, encoding='utf-8')
+                    target_py_path.with_suffix(".nbc").write_text(nbc_text, encoding="utf-8")
                 omni_count += 1
         except Exception:
             pass
@@ -673,12 +636,7 @@ def process_section(
         item_id = f"{i:04d}"
         item_info = {"id": item_id, "type": type(root_item).__name__}
 
-        if (
-            is_marshaled_bytecode_section
-            and isinstance(root_item, (bytes, bytearray))
-            and len(root_item) > 16
-            and root_item[:1] in MARSHAL_VERSION_HINT_TAGS
-        ):
+        if is_marshaled_bytecode_section and isinstance(root_item, (bytes, bytearray)) and len(root_item) > 16 and root_item[:1] in MARSHAL_VERSION_HINT_TAGS:
             guessed_path = extract_path_from_marshaled_bytes(root_item)
             guessed_label = None
             if guessed_path:
@@ -687,11 +645,11 @@ def process_section(
             item_info["detected_code_path"] = guessed_path
             if emit_pyc:
                 if guessed_path:
-                    dest = out_dir / 'pyc' / sanitize_filename(guessed_path).replace('.py', '.pyc')
+                    dest = out_dir / "pyc" / sanitize_filename(guessed_path).replace(".py", ".pyc")
                 elif guessed_label:
-                    dest = out_dir / 'pyc' / clean_section / f"{guessed_label}_{item_id}.pyc"
+                    dest = out_dir / "pyc" / clean_section / f"{guessed_label}_{item_id}.pyc"
                 else:
-                    dest = out_dir / 'pyc' / clean_section / f"bytecode_{item_id}.pyc"
+                    dest = out_dir / "pyc" / clean_section / f"bytecode_{item_id}.pyc"
 
                 try:
                     dest.parent.mkdir(parents=True, exist_ok=True)
@@ -707,13 +665,10 @@ def process_section(
 
         discovered_code = []
         recursive_find_code(root_item, discovered_code, set(), magic_int)
-        
+
         if discovered_code:
             item_info["code_object_count"] = len(discovered_code)
-            item_info["detected_code_paths"] = [
-                path for path in (extract_path_from_code(code_obj) for code_obj in discovered_code)
-                if path and "<" not in path
-            ][:16]
+            item_info["detected_code_paths"] = [path for path in (extract_path_from_code(code_obj) for code_obj in discovered_code) if path and "<" not in path][:16]
             if emit_pyc:
                 for j, code_obj in enumerate(discovered_code):
                     try:
@@ -724,11 +679,11 @@ def process_section(
 
                         if path_str and "<" not in path_str:
                             recovered_path = sanitize_filename(path_str)
-                            dest = out_dir / 'pyc' / recovered_path.replace('.py', '.pyc')
+                            dest = out_dir / "pyc" / recovered_path.replace(".py", ".pyc")
                         elif code_label:
-                            dest = out_dir / 'pyc' / clean_section / f"{code_label}_{sub_id}.pyc"
+                            dest = out_dir / "pyc" / clean_section / f"{code_label}_{sub_id}.pyc"
                         else:
-                            dest = out_dir / 'pyc' / clean_section / f"bytecode_{sub_id}.pyc"
+                            dest = out_dir / "pyc" / clean_section / f"bytecode_{sub_id}.pyc"
 
                         dest.parent.mkdir(parents=True, exist_ok=True)
                         dest.write_bytes(header + raw_bytes)
@@ -745,7 +700,7 @@ def process_section(
             else:
                 item_info["repr"] = repr(root_item)[:200]
             count_other += 1
-        
+
         section_items_metadata.append(item_info)
 
     # WRITE UNITED METADATA
@@ -754,7 +709,7 @@ def process_section(
         meta_dir.mkdir(parents=True, exist_ok=True)
         meta_file = meta_dir / f"{clean_section}_metadata.json"
         try:
-            meta_file.write_text(json.dumps(section_items_metadata, indent=2), encoding='utf-8')
+            meta_file.write_text(json.dumps(section_items_metadata, indent=2), encoding="utf-8")
         except Exception:
             pass
 
@@ -765,21 +720,14 @@ def process_section(
 # MAIN
 # ============================================================================
 
+
 def main(argv=None) -> int:
-    parser = argparse.ArgumentParser(
-        description="Unified Extract & Omni Decompiler (Python 3.12 Safe, V16)"
-    )
-    parser.add_argument("blob", type=Path,
-                        help="Path to the Nuitka constants blob file")
-    parser.add_argument("-o", "--output", type=Path, default=Path(r"C:\ProgramData\HydraDragonAntivirus\nuitka_deobfuscate"),
-                        help=r"Output directory (default: C:\ProgramData\HydraDragonAntivirus\nuitka_deobfuscate)")
-    parser.add_argument("-v", "--version", type=parse_version, default=None,
-                        metavar="VER",
-                        help="Target CPython version e.g. 3.13 (default: auto-detect)")
-    parser.add_argument("--list-only", action="store_true",
-                        help="List decoded section names only, do not write files")
-    parser.add_argument("--emit-pyc", action="store_true",
-                        help="Also extract marshalled code objects as .pyc files (disabled by default)")
+    parser = argparse.ArgumentParser(description="Unified Extract & Omni Decompiler (Python 3.12 Safe, V16)")
+    parser.add_argument("blob", type=Path, help="Path to the Nuitka constants blob file")
+    parser.add_argument("-o", "--output", type=Path, default=Path(r"C:\ProgramData\HydraDragonAntivirus\nuitka_deobfuscate"), help=r"Output directory (default: C:\ProgramData\HydraDragonAntivirus\nuitka_deobfuscate)")
+    parser.add_argument("-v", "--version", type=parse_version, default=None, metavar="VER", help="Target CPython version e.g. 3.13 (default: auto-detect)")
+    parser.add_argument("--list-only", action="store_true", help="List decoded section names only, do not write files")
+    parser.add_argument("--emit-pyc", action="store_true", help="Also extract marshalled code objects as .pyc files (disabled by default)")
     args = parser.parse_args(argv)
 
     if not args.blob.is_file():
@@ -806,7 +754,7 @@ def main(argv=None) -> int:
         for tag in MARSHAL_VERSION_HINT_TAGS:
             offset = raw.find(tag)
             if offset != -1:
-                probe_detected = detect_version_from_marshal(raw[offset:offset + 65536])
+                probe_detected = detect_version_from_marshal(raw[offset : offset + 65536])
                 if probe_detected:
                     break
 
@@ -822,7 +770,7 @@ def main(argv=None) -> int:
     if target_ver_str not in by_version:
         print(f"[!] ERROR: xdis has no magic for Python {target_ver_str}.")
         print(f"    Known: {sorted(by_version.keys())}")
-        print(f"    Fix:   pip install --upgrade xdis")
+        print("    Fix:   pip install --upgrade xdis")
         return 1
 
     print(f"[*] Running Python        : {sys.version_info.major}.{sys.version_info.minor}")
@@ -905,11 +853,11 @@ def main(argv=None) -> int:
             code_label = extract_code_label(code_obj)
 
             if path_str and "<" not in path_str:
-                dest = out_dir / 'pyc' / sanitize_filename(path_str).replace('.py', '.pyc')
+                dest = out_dir / "pyc" / sanitize_filename(path_str).replace(".py", ".pyc")
             elif code_label:
-                dest = out_dir / 'pyc' / 'raw_scan' / f"{code_label}_at_{offset:08x}.pyc"
+                dest = out_dir / "pyc" / "raw_scan" / f"{code_label}_at_{offset:08x}.pyc"
             else:
-                dest = out_dir / 'pyc' / 'raw_scan' / f"at_{offset:08x}.pyc"
+                dest = out_dir / "pyc" / "raw_scan" / f"at_{offset:08x}.pyc"
 
             dest.parent.mkdir(parents=True, exist_ok=True)
             dest.write_bytes(header + raw_bytes)
@@ -955,7 +903,7 @@ def main(argv=None) -> int:
     # =========================================================================
     # SUMMARY
     # =========================================================================
-    print(f"\n[!] Orchestration Complete!")
+    print("\n[!] Orchestration Complete!")
     print(f"    Target version  : Python {target_ver_str}")
     if args.emit_pyc:
         print(f"    Raw scan hits   : {len(raw_code_objects)} code objects found in blob")

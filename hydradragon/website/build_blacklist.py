@@ -4,15 +4,17 @@ import msgpack
 from cuckoopy import CuckooFilter
 from tqdm import tqdm
 
-INPUT_FILE = "blacklist.txt"       # domain|category lines
+INPUT_FILE = "blacklist.txt"  # domain|category lines
 FILTER_FILE = "blacklist.cuckoo"
 INDEX_FILE = "categories.msgpack"
 META_FILE = "metadata.json"
+
 
 # Estimate capacity based on input size
 def count_lines(path):
     with open(path, "rb") as f:
         return sum(1 for _ in f)
+
 
 def build_filter():
     total = count_lines(INPUT_FILE)
@@ -47,6 +49,7 @@ def build_filter():
         json.dump(meta, f, indent=2)
 
     print(f"[+] Done: {len(categories)} entries saved")
+
 
 if __name__ == "__main__":
     build_filter()

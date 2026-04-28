@@ -63,7 +63,7 @@ pub fn compute_sha256(src: &Path) -> Result<String, QuarantineError> {
         hasher.update(&buffer[..read]);
     }
 
-    Ok(format!("{:x}", hasher.finalize()))
+    Ok(hex::encode(hasher.finalize()))
 }
 
 pub fn quarantine_file(

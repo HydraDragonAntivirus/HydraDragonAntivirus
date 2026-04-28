@@ -18,8 +18,4 @@ from .base_ungarbler import GoStringUngarbler
 from .x64_ungarbler import GoStringUngarblerX64
 from .x86_ungarbler import GoStringUngarblerX86
 
-__all__ = [
-    'GoStringUngarbler',
-    'GoStringUngarblerX64',
-    'GoStringUngarblerX86'
-]
+__all__ = ["GoStringUngarbler", "GoStringUngarblerX64", "GoStringUngarblerX86"]

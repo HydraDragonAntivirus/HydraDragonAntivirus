@@ -1,5 +1,4 @@
 import numpy as np
-import json
 from collections import defaultdict
 import os
 import re

@@ -1,5 +1,4 @@
 #include <gtest/gtest.h>
-#pragma comment(lib, "gtest.lib" )
 #pragma comment(lib, "TinyAvCore.lib" )
 #include <windows.h>
 #include <shlwapi.h>

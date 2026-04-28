@@ -1,4 +1,4 @@
-from PIL import Image, ImageEnhance, ImageFilter, ImageChops, ImageDraw
+from PIL import Image, ImageEnhance, ImageFilter, ImageDraw
 import math
 
 # Paths
@@ -9,6 +9,7 @@ unprotected_out = "hydradragon_unprotected.gif"
 # Load base image
 base = Image.open(src_path).convert("RGBA")
 w, h = base.size
+
 
 # Helper: create a radial glow layer
 def radial_glow(size, color=(0, 200, 255), intensity=1.0, radius_factor=0.6):
@@ -28,6 +29,7 @@ def radial_glow(size, color=(0, 200, 255), intensity=1.0, radius_factor=0.6):
 
     glow = glow.filter(ImageFilter.GaussianBlur(radius=int(max(8, max(w, h) * 0.02))))
     return glow
+
 
 # --- Protected (active, glowing) animation ---
 frames_prot = []

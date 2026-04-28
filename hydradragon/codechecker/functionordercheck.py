@@ -1,5 +1,5 @@
 import ast
-import re
+
 
 class FunctionOrderChecker(ast.NodeVisitor):
     def __init__(self):
@@ -22,6 +22,7 @@ class FunctionOrderChecker(ast.NodeVisitor):
             self.function_calls.append((func_name, node.lineno))
         self.generic_visit(node)
 
+
 def check_function_order(file_path):
     with open(file_path, "r", encoding="utf-8") as file:
         source_code = file.read()
@@ -34,7 +35,7 @@ def check_function_order(file_path):
     issues = []
     for func_name, call_line in checker.function_calls:
         # For method calls, we use the base name (before the dot)
-        base_func_name = func_name.split('.')[0]
+        base_func_name = func_name.split(".")[0]
         if base_func_name in checker.function_defs:
             def_line = checker.function_defs[base_func_name]
             if call_line < def_line:
@@ -47,7 +48,8 @@ def check_function_order(file_path):
     else:
         print("No function order issues detected.")
 
+
 # Example usage
-file_path = 'antivirus.py'
+file_path = "antivirus.py"
 check_function_order(file_path)
 # You can also check is he doesn't start with whiespace but it will cause not detect other problems like def open function detection which already defined in python

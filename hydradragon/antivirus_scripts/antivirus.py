@@ -13,7 +13,7 @@ from .hydra_logger import (
 
 from .path_and_variables import (
     script_dir,
-    PIPE_AV_TO_EDR,
+    PIPE_HYDRADRAGON_AV,
     PIPE_EDR_TO_AV,
     PIPE_AV_TO_FIREWALL,
     FIREWALL_EXE_PATH,
@@ -123,38 +123,25 @@ from .path_and_variables import (
     seven_zip_path,
     clamav_database_directory_path,
     antivirus_list_path,
-    yaraxtr_yrc_path
+    yaraxtr_yrc_path,
 )
 
 from .utils_and_helpers import validate_pipe_peer
 
 # Separate log files for different purposes
-stdout_console_log_file = os.path.join(
-    log_directory, "antivirusconsolestdout.log"
-)
-stderr_console_log_file = os.path.join(
-    log_directory, "antivirusconsolestderr.log"
-)
+stdout_console_log_file = os.path.join(log_directory, "antivirusconsolestdout.log")
+stderr_console_log_file = os.path.join(log_directory, "antivirusconsolestderr.log")
 
-pyarmor7_console_log_file = os.path.join(
-    log_directory, "antiviruspyarmor7.log"
-)
+pyarmor7_console_log_file = os.path.join(log_directory, "antiviruspyarmor7.log")
 
 # Redirect stdout to stdout console log
-sys.stdout = open(
-    stdout_console_log_file, "w", encoding="utf-8", errors="ignore"
-)
+sys.stdout = open(stdout_console_log_file, "w", encoding="utf-8", errors="ignore")
 
 # Redirect stderr to stderr console log
-sys.stderr = open(
-    stderr_console_log_file, "w", encoding="utf-8", errors="ignore"
-)
+sys.stderr = open(stderr_console_log_file, "w", encoding="utf-8", errors="ignore")
 
 # Logging for application initialization
-logger.debug(
-    "Application started at %s",
-    datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-)
+logger.debug("Application started at %s", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
 
 # Start timing total duration
 total_start_time = time.time()
@@ -162,26 +149,32 @@ total_start_time = time.time()
 # Measure and logger.debug time taken for each import
 start_time = time.time()
 import asyncio
+
 logger.debug(f"asyncio module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import aiofiles
+
 logger.debug(f"aiofiles module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import io
+
 logger.debug(f"io module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import contextlib
+
 logger.debug(f"contextlib module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import shutil
+
 logger.debug(f"shutil module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import subprocess
+
 logger.debug(f"subprocess module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
@@ -189,42 +182,52 @@ logger.debug(f"threading module loaded in {time.time() - start_time:.6f} seconds
 
 start_time = time.time()
 import re
+
 logger.debug(f"re module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import json
+
 logger.debug(f"json module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import esprima
+
 logger.debug(f"esprima module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import pickle
+
 logger.debug(f"pickle module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import pefile
+
 logger.debug(f"pefile module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import traceback
+
 logger.debug(f"traceback module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import pyzipper
+
 logger.debug(f"pyzipper module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import tarfile
+
 logger.debug(f"tarfile module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import yara_x
+
 logger.debug(f"yara_x module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import psutil
+
 logger.debug(f"psutil module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
@@ -232,170 +235,200 @@ import win32service
 import win32api
 import win32con
 import win32process
+
 logger.debug(f"win32service module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import win32serviceutil
+
 logger.debug(f"win32serviceutil module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from wmi import WMI
+
 logger.debug(f"wmi.WMI module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import pythoncom
+
 logger.debug(f"pythoncom module loaded in {time.time() - start_time:.6f} seconds")
 start_time = time.time()
 import ast
+
 logger.debug(f"ast module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import ctypes
+
 logger.debug(f"ctypes module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from ctypes import wintypes
+
 logger.debug(f"ctypes.wintypes module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import ipaddress
+
 logger.debug(f"ipaddress module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from urllib.parse import urlparse
+
 logger.debug(f"urllib.parse.urlparse module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import struct
+
 logger.debug(f"struct module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from importlib.util import MAGIC_NUMBER
+
 logger.debug(f"importlib.util.MAGIC_NUMBER module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import zlib
+
 logger.debug(f"zlib module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import marshal
+
 logger.debug(f"marshal module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import base64
+
 logger.debug(f"base64 module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from pathlib import Path, WindowsPath
+
 logger.debug(f"pathlib.Path module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import inspect
+
 logger.debug(f"inspect module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import py7zr
+
 logger.debug(f"py7zr module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import zstandard
+
 logger.debug(f"zstandard module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from elftools.elf.elffile import ELFFile
+
 logger.debug(f"elftools.elf.elffile, ELFFile module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import macholib.MachO
+
 logger.debug(f"macholib.MachO module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import macholib.mach_o
+
 logger.debug(f"macholib.mach_o module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from typing import Optional, Tuple, BinaryIO, Dict, Any, List, Set
+
 logger.debug(f"typing, Optional, Tuple, BinaryIO, Dict, Any, List and Set module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import types
+
 logger.debug(f"types module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+
 logger.debug(f"cryptography.hazmat.primitives.ciphers, Cipher, algorithms, modes module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import debloat.processor
+
 logger.debug(f"debloat modules loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import win32file
 import win32pipe
 import pywintypes
+
 logger.debug(f"pywin32 modules loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from oletools.olevba import VBA_Parser, TYPE_OLE, TYPE_OpenXML, TYPE_Word2003_XML, TYPE_MHTML
+
 logger.debug(f"oletools.olevba.VBA_Parser , TYPE_OLE, TYPE_OpenXML, TYPE_Word2003_XML, TYPE_MHTML loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from unipacker.core import Sample, UnpackerEngine, SimpleClient
+
 logger.debug(f"unipacker.core.Sample , UnpackerEngine, SimpleClient modules loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from GoStringUngarbler.gostringungarbler_lib import process_file_go
+
 logger.debug(f"GoStringUngarbler.gostringungarbler_lib.process_file_go module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from View8.view8 import disassemble, decompile, export_to_file
+
 logger.debug(f"view8.view8, disassemble, decompile, export_to_file modules loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from pylingual.main import main as pylingual_main
+
 logger.debug(f"pylingual.main.main module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from xdis.magics import by_version, magic2int
 from xdis.unmarshal import load_code as xdis_load_code
-logger.debug(
-    "xdis.magics.by_version, magic2int and xdis.unmarshal.load_code modules "
-    f"loaded in {time.time() - start_time:.6f} seconds"
-)
+
+logger.debug(f"xdis.magics.by_version, magic2int and xdis.unmarshal.load_code modules loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from oneshot.shot import run_oneshot_python
+
 logger.debug(f"oneshot.shot.run_oneshot_python module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from decompilers.sourceundefender import is_sourcedefender_file, unprotect_sourcedefender_file, get_sourcedefender_info
+
 logger.debug(f"decompilers.sourceundefender.unprotect_sourcedefender_file and is_sourcedefender_file, get_sourcedefender_info modules loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from decompilers.advancedInstallerExtractor import AdvancedInstallerReader
+
 logger.debug(f"decompilers.advancedInstallerExtractor.AdvancedInstallerReader module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from decompilers.vmprotectunpacker import unpack_pe  # noqa: E402
-logger.debug(
-    "decompilers.vmprotectunpacker.unpack_pe module loaded in "
-    f"{time.time() - start_time:.6f} seconds"
-)
+
+logger.debug(f"decompilers.vmprotectunpacker.unpack_pe module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from .utils_and_helpers import (  # noqa: E402
     compute_md5_via_text,
     compute_md5,
-    _norm
-)
-logger.debug(
-    "utils_and_helpers functions loaded in "
-    f"{time.time() - start_time:.6f} seconds"
+    _norm,
 )
 
+logger.debug(f"utils_and_helpers functions loaded in {time.time() - start_time:.6f} seconds")
+
 start_time = time.time()
-from . pyinstaller_mod_extractor_ng import (PyInstArchive # noqa: E402
+from .pyinstaller_mod_extractor_ng import (
+    PyInstArchive,  # noqa: E402
 )
+
 logger.debug(f"pyinstaller_mod_extractor_ng imported in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
@@ -437,17 +470,14 @@ from .detect_type import (  # noqa: E402
     is_java_class_from_output,
     is_plain_text,
     is_plain_text_file_from_output,
-    is_7z_file_from_output,
     is_pyinstaller_archive_from_output,
     is_microsoft_compound_file_from_output,
     is_nuitka_file_from_output,
     is_compiled_autohotkey_file_from_output,
-    is_inno_setup_file_from_output
+    is_inno_setup_file_from_output,
 )
-logger.debug(
-    "detect_type detection functions loaded in "
-    f"{time.time() - start_time:.6f} seconds"
-)
+
+logger.debug(f"detect_type detection functions loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from .notify_user import (  # noqa: E402
@@ -467,10 +497,8 @@ from .notify_user import (  # noqa: E402
     notify_user_for_uefi,
     notify_user_hayabusa_critical,
 )
-logger.debug(
-    "notify_user functions loaded in "
-    f"{time.time() - start_time:.6f} seconds"
-)
+
+logger.debug(f"notify_user functions loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from .pipe_events import (  # noqa: E402
@@ -479,10 +507,8 @@ from .pipe_events import (  # noqa: E402
     _is_protected_path,
     _sync_close_handle,
 )
-logger.debug(
-    "pipe_events functions loaded in "
-    f"{time.time() - start_time:.6f} seconds"
-)
+
+logger.debug(f"pipe_events functions loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from .pattern import (  # noqa: E402
@@ -491,16 +517,12 @@ from .pattern import (  # noqa: E402
     CHAINED_JOIN,
     B64_LITERAL,
 )
-logger.debug(
-    "pattern functions loaded in "
-    f"{time.time() - start_time:.6f} seconds"
-)
+
+logger.debug(f"pattern functions loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-from .pe_feature_extractor import (
-    pe_extractor,
-    calculate_vector_similarity
-)
+from .pe_feature_extractor import pe_extractor, calculate_vector_similarity
+
 logger.debug(f"pe_feature_extractor functions loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
@@ -508,6 +530,7 @@ from .py_source_hook import (
     hook_python_process,
     enable_debug_privilege as enable_hook_debug_privilege,
 )
+
 logger.debug(f"py_source_hook functions loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
@@ -526,21 +549,24 @@ startup_dirs = [user_startup, common_startup]
 deobfuscated_saved_paths: list[str] = []
 deobfuscated_paths_lock = threading.Lock()
 
+
 def service_exists(service_name):
-   """Check if a Windows service exists."""
-   try:
-       win32serviceutil.QueryServiceStatus(service_name)
-       return True
-   except win32service.error:
-       return False
+    """Check if a Windows service exists."""
+    try:
+        win32serviceutil.QueryServiceStatus(service_name)
+        return True
+    except win32service.error:
+        return False
+
 
 def is_service_running(service_name):
-   """Check if a Windows service is running."""
-   try:
-       status = win32serviceutil.QueryServiceStatus(service_name)[1]
-       return status == win32service.SERVICE_RUNNING
-   except win32service.error:
-       return False
+    """Check if a Windows service is running."""
+    try:
+        status = win32serviceutil.QueryServiceStatus(service_name)[1]
+        return status == win32service.SERVICE_RUNNING
+    except win32service.error:
+        return False
+
 
 # Regex for Suricata EVE JSON alerts (assuming EVE JSON format)
 # This will parse the JSON structure instead of text-based alerts
@@ -548,17 +574,17 @@ def parse_suricata_alert(json_line):
     """Parse Suricata EVE JSON alert format"""
     try:
         alert_data = json.loads(json_line)
-        if alert_data.get('event_type') == 'alert':
+        if alert_data.get("event_type") == "alert":
             # Suricata uses severity levels, convert to priority (lower number = higher priority)
-            severity = alert_data.get('alert', {}).get('severity', 3)
+            severity = alert_data.get("alert", {}).get("severity", 3)
             priority = severity  # Use severity as priority directly
 
-            src_ip = alert_data.get('src_ip', '')
-            dest_ip = alert_data.get('dest_ip', '')
+            src_ip = alert_data.get("src_ip", "")
+            dest_ip = alert_data.get("dest_ip", "")
 
             # Additional data that might be useful
-            signature = alert_data.get('alert', {}).get('signature', '')
-            category = alert_data.get('alert', {}).get('category', '')
+            signature = alert_data.get("alert", {}).get("signature", "")
+            category = alert_data.get("alert", {}).get("category", "")
 
             return priority, src_ip, dest_ip, signature, category
     except (json.JSONDecodeError, KeyError) as ex:
@@ -566,40 +592,74 @@ def parse_suricata_alert(json_line):
         return None, None, None, None, None
     return None, None, None, None, None
 
+
 drivers_path = os.path.join(system32_dir, "drivers")
-hosts_path = f'{drivers_path}\\hosts'
+hosts_path = f"{drivers_path}\\hosts"
 version_flag = f"-{sys.version_info.major}.{sys.version_info.minor}"
 
 # --- Global tracking sets ---
 seen_files = set()  # Tracks already-scanned (path, md5) tuples
 
-script_exts = {
-    '.vbs', '.vbe', '.js', '.jse', '.bat', '.url',
-    '.cmd', '.hta', '.ps1', '.psm1', '.wsf', '.wsb', '.sct'
-}
+script_exts = {".vbs", ".vbe", ".js", ".jse", ".bat", ".url", ".cmd", ".hta", ".ps1", ".psm1", ".wsf", ".wsb", ".sct"}
 
 # Known Enigma versions -> working evbunpack flags
 PACKER_FLAGS = {
     "11.00": ["-pe", "10_70"],
     "10.70": ["-pe", "10_70"],
-    "9.70":  ["-pe", "9_70"],
-    "7.80":  ["-pe", "7_80", "--legacy-fs"],
+    "9.70": ["-pe", "9_70"],
+    "7.80": ["-pe", "7_80", "--legacy-fs"],
 }
 
 # Base directories common to both lists
 MANAGED_DIRECTORIES = [
-    hydra_dragon_dumper_extracted_dir, enigma1_extracted_dir, inno_setup_unpacked_dir, themida_unpacked_dir, autohotkey_decompiled_dir,
-    vineflower_decompiled_dir, jar_extracted_dir, nuitka_dir, dotnet_dir, npm_pkg_extracted_dir, ole2_dir,
-    androguard_dir, asar_dir, obfuscar_dir, de4dot_extracted_dir, decompiled_jsc_dir,
-    net_reactor_extracted_dir, pyinstaller_extracted_dir, cx_freeze_extracted_dir, pyarmor8_and_9_extracted_dir,
-    pe_extracted_dir, zip_extracted_dir, tar_extracted_dir, pyarmor7_extracted_dir,
-    seven_zip_extracted_dir, general_extracted_with_7z_dir, nuitka_extracted_dir,
-    advanced_installer_extracted_dir, python_source_code_dir,
-    pylingual_extracted_dir, python_deobfuscated_dir, python_deobfuscated_marshal_pyc_dir,
-    pycdas_extracted_dir, nuitka_source_code_dir, memory_dir, debloat_dir,
-    resource_extractor_dir, ungarbler_dir, ungarbler_string_dir, html_extracted_dir, webcrack_javascript_deobfuscated_dir,
-    upx_extracted_dir, installshield_extracted_dir, autoit_extracted_dir, un_confuser_ex_extracted_dir,
-    decompiled_dir, vmprotect_unpacked_dir, jadx_decompiled_dir
+    hydra_dragon_dumper_extracted_dir,
+    enigma1_extracted_dir,
+    inno_setup_unpacked_dir,
+    themida_unpacked_dir,
+    autohotkey_decompiled_dir,
+    vineflower_decompiled_dir,
+    jar_extracted_dir,
+    nuitka_dir,
+    dotnet_dir,
+    npm_pkg_extracted_dir,
+    ole2_dir,
+    androguard_dir,
+    asar_dir,
+    obfuscar_dir,
+    de4dot_extracted_dir,
+    decompiled_jsc_dir,
+    net_reactor_extracted_dir,
+    pyinstaller_extracted_dir,
+    cx_freeze_extracted_dir,
+    pyarmor8_and_9_extracted_dir,
+    pe_extracted_dir,
+    zip_extracted_dir,
+    tar_extracted_dir,
+    pyarmor7_extracted_dir,
+    seven_zip_extracted_dir,
+    general_extracted_with_7z_dir,
+    nuitka_extracted_dir,
+    advanced_installer_extracted_dir,
+    python_source_code_dir,
+    pylingual_extracted_dir,
+    python_deobfuscated_dir,
+    python_deobfuscated_marshal_pyc_dir,
+    pycdas_extracted_dir,
+    nuitka_source_code_dir,
+    memory_dir,
+    debloat_dir,
+    resource_extractor_dir,
+    ungarbler_dir,
+    ungarbler_string_dir,
+    html_extracted_dir,
+    webcrack_javascript_deobfuscated_dir,
+    upx_extracted_dir,
+    installshield_extracted_dir,
+    autoit_extracted_dir,
+    un_confuser_ex_extracted_dir,
+    decompiled_dir,
+    vmprotect_unpacked_dir,
+    jadx_decompiled_dir,
 ]
 
 for make_directory in MANAGED_DIRECTORIES:
@@ -616,6 +676,7 @@ for make_directory in MANAGED_DIRECTORIES:
         logger.info(f"Created directory: {make_directory}")
     except Exception as e:
         logger.error(f"Failed to create directory '{make_directory}': {e}")
+
 
 def try_unpack_enigma1(input_exe: str) -> str | None:
     """
@@ -635,25 +696,17 @@ def try_unpack_enigma1(input_exe: str) -> str | None:
 
         cmd = ["evbunpack"] + flags + [input_exe, version_dir]
         logger.info(f"Trying Enigma protected v{version} flags: {flags}")
-        proc = subprocess.run(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True
-        )
+        proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
 
         if proc.returncode == 0:
             logger.info(f"Successfully unpacked with version {version} into {version_dir}")
             return version_dir
 
-        logger.error(
-            f"Attempt v{version} failed (exit {proc.returncode}). Output:\n{proc.stdout}"
-        )
+        logger.error(f"Attempt v{version} failed (exit {proc.returncode}). Output:\n{proc.stdout}")
 
-    logger.error(
-        f"All unpack attempts failed for {input_exe}. Tried versions: {', '.join(PACKER_FLAGS)}"
-    )
+    logger.error(f"All unpack attempts failed for {input_exe}. Tried versions: {', '.join(PACKER_FLAGS)}")
     return None
+
 
 def is_valid_ip(ip_string: str) -> bool:
     """
@@ -665,7 +718,7 @@ def is_valid_ip(ip_string: str) -> bool:
     original = ip_string
 
     # Check if it looks like a URL (has scheme)
-    if '://' in ip_string:
+    if "://" in ip_string:
         try:
             parsed = urlparse(ip_string)
             # Extract hostname/IP from netloc (handles port automatically)
@@ -677,14 +730,14 @@ def is_valid_ip(ip_string: str) -> bool:
 
     # --- strip off port if present (for non-URL cases) ---
     # IPv6 with brackets, e.g. "[2001:db8::1]:443"
-    elif ip_string.startswith('[') and ']' in ip_string:
-        ip_core, sep, port = ip_string.partition(']')
-        if sep and port.startswith(':') and port[1:].isdigit():
-            ip_string = ip_core.lstrip('[')
+    elif ip_string.startswith("[") and "]" in ip_string:
+        ip_core, sep, port = ip_string.partition("]")
+        if sep and port.startswith(":") and port[1:].isdigit():
+            ip_string = ip_core.lstrip("[")
             logger.debug(f"Stripped port from bracketed IPv6: {original!r} -> {ip_string!r}")
     # IPv4 or unbracketed IPv6: split on last colon only if it looks like a port
-    elif ip_string.count(':') == 1:
-        ip_part, port = ip_string.rsplit(':', 1)
+    elif ip_string.count(":") == 1:
+        ip_part, port = ip_string.rsplit(":", 1)
         if port.isdigit():
             ip_string = ip_part
             logger.debug(f"Stripped port from IPv4/unbracketed: {original!r} -> {ip_string!r}")
@@ -724,18 +777,19 @@ def is_valid_ip(ip_string: str) -> bool:
     logger.info(f"Valid public IPv{ip_obj.version} address: {ip_obj}")
     return True
 
+
 def sanitize_filename(filename: str) -> str:
     """
     Sanitize the filename by replacing invalid characters for Windows.
     """
     # Replace all invalid Windows filename characters with underscores
-    filename = re.sub(r'[<>:"/\\|?*]', '_', filename)
+    filename = re.sub(r'[<>:"/\\|?*]', "_", filename)
 
     # Replace control characters with underscores
-    filename = re.sub(r'[\x00-\x1f\x7f-\x9f]', '_', filename)
+    filename = re.sub(r"[\x00-\x1f\x7f-\x9f]", "_", filename)
 
     # Remove leading/trailing dots and spaces (Windows doesn't like these)
-    filename = filename.strip('. ')
+    filename = filename.strip(". ")
 
     # Handle empty filename
     if not filename:
@@ -746,6 +800,7 @@ def sanitize_filename(filename: str) -> str:
         filename = filename[:200]
 
     return filename
+
 
 async def ublock_detect(url):
     """
@@ -762,23 +817,25 @@ async def ublock_detect(url):
         return False
 
     # Apply exception: if the URL's domain includes "steamcommunity.com", ignore it.
-    if 'steamcommunity.com' in url:
+    if "steamcommunity.com" in url:
         return False
 
     return True
 
+
 def get_resource_name(entry):
     # Get the resource name, which might be a string or an ID
-    if hasattr(entry, 'name') and entry.name is not None:
+    if hasattr(entry, "name") and entry.name is not None:
         return str(entry.name)
     else:
         return str(entry.id)
+
 
 # Read the file types from extensions.txt with try-except
 fileTypes = []
 try:
     if os.path.exists(extensions_path):
-        with open(extensions_path, 'r') as ext_file:
+        with open(extensions_path, "r") as ext_file:
             fileTypes = [line.strip() for line in ext_file.readlines()]
 except Exception as ex:
     logger.info(f"Error reading {extensions_path}: {ex}")
@@ -786,6 +843,7 @@ except Exception as ex:
 logger.info(f"File types read from {extensions_path}: {fileTypes}")
 
 pe_file_paths = []  # List to store the PE file paths
+
 
 def get_unique_output_path(output_dir: Path, base_name) -> Path:
     """
@@ -823,38 +881,40 @@ def get_unique_output_path(output_dir: Path, base_name) -> Path:
 
     return candidate
 
+
 def advanced_installer_extractor(file_path):
-        """
-        Extract files from Advanced Installer archive.
+    """
+    Extract files from Advanced Installer archive.
 
-        Args:
-            file_path (str): Path to the Advanced Installer file
+    Args:
+        file_path (str): Path to the Advanced Installer file
 
-        Returns:
-            list: List of extracted file paths
-        """
-        extracted_files = []
+    Returns:
+        list: List of extracted file paths
+    """
+    extracted_files = []
 
-        with AdvancedInstallerReader(file_path, debug=logger) as ar:
-                for f in ar.infolist():
-                        logger.debug(f)
-                        path = f.name.replace("\\","/")
-                        full_path = os.path.join(advanced_installer_extracted_dir, path)
-                        dirname = os.path.dirname(full_path)
-                        if dirname:
-                                if not os.path.exists(dirname):
-                                        os.makedirs(dirname)
-                        with ar.open(f) as inf, open(full_path,"wb") as out:
-                                while True:
-                                         blk = inf.read(1<<16)
-                                         if len(blk) == 0:
-                                                 break
-                                         out.write(blk)
-                        extracted_files.append(full_path)
+    with AdvancedInstallerReader(file_path, debug=logger) as ar:
+        for f in ar.infolist():
+            logger.debug(f)
+            path = f.name.replace("\\", "/")
+            full_path = os.path.join(advanced_installer_extracted_dir, path)
+            dirname = os.path.dirname(full_path)
+            if dirname:
+                if not os.path.exists(dirname):
+                    os.makedirs(dirname)
+            with ar.open(f) as inf, open(full_path, "wb") as out:
+                while True:
+                    blk = inf.read(1 << 16)
+                    if len(blk) == 0:
+                        break
+                    out.write(blk)
+            extracted_files.append(full_path)
 
-                logger.debug(ar)
+        logger.debug(ar)
 
-        return extracted_files
+    return extracted_files
+
 
 def run_cicdec_unpacker(file_path):
     """
@@ -879,19 +939,8 @@ def run_cicdec_unpacker(file_path):
             folder_number += 1
 
         # run cicdec.exe: `cicdec.exe <ClickTeam file> [output dir]`
-        cmd = [
-            cicdec_path,
-            file_path,
-            output_dir
-        ]
-        result = subprocess.run(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            encoding="utf-8",
-            errors="ignore"
-        )
+        cmd = [cicdec_path, file_path, output_dir]
+        result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="ignore")
 
         if result.returncode != 0:
             logger.error(f"ClickTeam extraction failed ({result.returncode}): {result.stderr.strip()}")
@@ -904,6 +953,7 @@ def run_cicdec_unpacker(file_path):
         logger.error(f"Error extracting ClickTeam file {file_path}: {ex}")
         return None
 
+
 def analyze_file_with_die(file_path):
     """
     Runs Detect It Easy (DIE) on the given file once and returns the DIE output (plain text).
@@ -913,18 +963,15 @@ def analyze_file_with_die(file_path):
         logger.info(f"Analyzing file: {file_path} using Detect It Easy...")
 
         # Run the DIE command once with the -p flag for plain output
-        result = subprocess.run(
-            [detectiteasy_console_path, "-p", file_path],
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="ignore"
-        )
+        result = subprocess.run([detectiteasy_console_path, "-p", file_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="ignore")
 
         # Display the result using logging
         if result.stdout.strip():
-            logger.info(f"{'='*60}")
+            logger.info(f"{'=' * 60}")
             logger.info(f"DIE Analysis Result for: {Path(file_path).name}")
-            logger.info(f"{'='*60}")
+            logger.info(f"{'=' * 60}")
             logger.info(result.stdout)
-            logger.info(f"{'='*60}")
+            logger.info(f"{'=' * 60}")
         else:
             logger.error(f"No DIE output for {Path(file_path).name}")
             if result.stderr:
@@ -941,6 +988,7 @@ def analyze_file_with_die(file_path):
         logger.error(error_msg)
         return None
 
+
 def get_die_output_binary(path: str) -> str:
     """
     Returns die_output for a non plain text file, caching by content MD5.
@@ -955,6 +1003,7 @@ def get_die_output_binary(path: str) -> str:
     die_output = analyze_file_with_die(path)
     binary_die_cache[file_md5] = die_output
     return die_output
+
 
 def get_die_output(path: str) -> Tuple[str, bool]:
     """
@@ -979,6 +1028,7 @@ def get_die_output(path: str) -> Tuple[str, bool]:
     die_cache[file_md5] = (die_output, plain_text_flag)
     return die_output, plain_text_flag
 
+
 def debloat_pe_file(file_path):
     """
     Runs debloat.processor.process_pe on a PE file, writing all
@@ -992,7 +1042,7 @@ def debloat_pe_file(file_path):
 
         # Normalize paths
         file_path = Path(file_path)
-        base_dir  = Path(debloat_dir)
+        base_dir = Path(debloat_dir)
 
         # Build a unique output directory: debloat_dir/<stem>_<n>
         output_dir = base_dir / file_path.stem
@@ -1004,13 +1054,13 @@ def debloat_pe_file(file_path):
 
         # Load the PE into memory
         pe_data = file_path.read_bytes()
-        pe      = pefile.PE(data=pe_data, fast_load=True)
+        pe = pefile.PE(data=pe_data, fast_load=True)
 
         # Wrap logger.info so it accepts and ignores print-style kwargs
         def log_message(msg, *args, **kwargs):
             # Remove print-style arguments that logging doesn't support
-            kwargs.pop('end', None)
-            kwargs.pop('flush', None)
+            kwargs.pop("end", None)
+            kwargs.pop("flush", None)
             logger.info(msg, *args, **kwargs)
 
         # Debloat into our new directory
@@ -1018,8 +1068,8 @@ def debloat_pe_file(file_path):
             pe,
             log_message=log_message,
             last_ditch_processing=last_ditch_processing,
-            out_path=str(output_dir),   # pass the folder path
-            cert_preservation=True
+            out_path=str(output_dir),  # pass the folder path
+            cert_preservation=True,
         )
 
         # Verify that something landed in there
@@ -1033,21 +1083,25 @@ def debloat_pe_file(file_path):
     except Exception as ex:
         logger.error("Error during debloating of %s: %s", file_path, ex)
 
+
 def DecryptString(key, tag, nonce, _input):
     cipher = Cipher(algorithms.AES(key), modes.GCM(nonce, tag))
     decryptor = cipher.decryptor()
     decrypted_data = decryptor.update(_input) + decryptor.finalize()
     return decrypted_data.decode(errors="ignore")
 
+
 def add_base64_padding(b64_string):
     padding = len(b64_string) % 4
     if padding != 0:
-        b64_string += '=' * (4 - padding)
+        b64_string += "=" * (4 - padding)
     return b64_string
+
 
 def extract_base64_string(line):
     match = re.search(r"'([^']+)'|\"([^\"]+)\"", line)
     return match.group(1) or match.group(2) if match else None
+
 
 def decode_base64_from_line(line):
     """
@@ -1061,6 +1115,7 @@ def decode_base64_from_line(line):
     """
     base64_str = extract_base64_string(line)
     return base64.b64decode(add_base64_padding(base64_str))
+
 
 def save_to_file(file_path, content):
     """
@@ -1078,25 +1133,27 @@ def save_to_file(file_path, content):
     file_path = os.path.join(python_deobfuscated_dir, file_path)
 
     try:
-        with open(file_path, 'w', encoding='utf-8') as file:
+        with open(file_path, "w", encoding="utf-8") as file:
             file.write(content)
         return file_path
     except Exception as ex:
         logger.error(f"Error saving file {file_path}: {ex}")
         return None
 
+
 def decode_b64_import(match: re.Match) -> str:
     """Decode base64 constant to literal bytes or string repr."""
     raw = match.group(2)
     try:
-        data = __import__('base64').b64decode(raw)
+        data = __import__("base64").b64decode(raw)
         try:
-            s = data.decode('utf-8')
+            s = data.decode("utf-8")
             return repr(s)
         except UnicodeDecodeError:
             return repr(data)
     except Exception:
         return match.group(0)
+
 
 # --------------------------------------------------------------------------
 # Main scanner (stops after first detection)
@@ -1108,14 +1165,17 @@ def scan_code_for_links(decompiled_code, file_path, **flags):
     """
     return False
 
+
 def extract_ascii_strings(data):
     """Extract readable ASCII strings from binary data."""
-    return re.findall(r'[ -~]{4,}', data.decode('ascii', errors='ignore'))
+    return re.findall(r"[ -~]{4,}", data.decode("ascii", errors="ignore"))
+
 
 def save_extracted_strings(output_filename, extracted_strings):
     """Save extracted ASCII strings to a file."""
-    with open(output_filename, 'w', encoding='utf-8') as output_file:
+    with open(output_filename, "w", encoding="utf-8") as output_file:
         output_file.writelines(f"{line}\n" for line in extracted_strings)
+
 
 def extract_with_hydra(pid: str, output_dir: str) -> bool:
     """
@@ -1133,33 +1193,19 @@ def extract_with_hydra(pid: str, output_dir: str) -> bool:
         # HydraDragonDumper (Mega Dumper CLI) expected arguments:
         #   -pid <PID> -o <output_dir>
 
-        subprocess.run(
-            [
-                hydra_dragon_dumper_path,
-                "--pid",
-                pid,
-                "--output",
-                output_dir
-            ],
-            check=True
-        )
+        subprocess.run([hydra_dragon_dumper_path, "--pid", pid, "--output", output_dir], check=True)
 
-        logger.info(
-            f"HydraDragonDumper extraction complete for PID {pid} into {output_dir}"
-        )
+        logger.info(f"HydraDragonDumper extraction complete for PID {pid} into {output_dir}")
         return True
 
     except subprocess.CalledProcessError as e:
-        logger.error(
-            f"HydraDragonDumper extraction failed for PID {pid}: {e}"
-        )
+        logger.error(f"HydraDragonDumper extraction failed for PID {pid}: {e}")
         return False
 
     except FileNotFoundError:
-        logger.error(
-            f"HydraDragonDumper executable not found at: {hydra_dragon_dumper_path}"
-        )
+        logger.error(f"HydraDragonDumper executable not found at: {hydra_dragon_dumper_path}")
         return False
+
 
 def extract_with_unipacker(file_path):
     """
@@ -1219,10 +1265,12 @@ def extract_with_unipacker(file_path):
         logger.error(f"Unipacker extraction failed for {file_path}: {e}")
         return None
 
+
 def clear_pe_cache():
     """Clear the unified PE feature cache."""
     unified_pe_cache.clear()
     logger.info("Unified PE feature cache cleared")
+
 
 def get_cached_pe_features(file_path: str) -> Optional[Dict[str, Any]]:
     """
@@ -1259,6 +1307,7 @@ def get_cached_pe_features(file_path: str) -> Optional[Dict[str, Any]]:
         unified_pe_cache[file_md5] = None
         return None
 
+
 def scan_file_with_machine_learning_ai(file_path, threshold=0.86):
     """Scan a file for malicious activity using machine learning definitions loaded from pickle."""
     malware_definition = "Unknown"
@@ -1292,14 +1341,14 @@ def scan_file_with_machine_learning_ai(file_path, threshold=0.86):
 
             # Handle both string and dict cases
             if isinstance(info, dict):
-                malware_definition = info.get('file_name', 'Unknown')
-                rank = info.get('numeric_tag', 'N/A')
+                malware_definition = info.get("file_name", "Unknown")
+                rank = info.get("numeric_tag", "N/A")
             elif isinstance(info, str):
                 malware_definition = info
-                rank = 'N/A'
+                rank = "N/A"
             else:
                 malware_definition = str(info)
-                rank = 'N/A'
+                rank = "N/A"
 
             logger.critical(f"Malicious activity detected in {file_path}. Definition: {malware_definition}, similarity: {similarity}, rank: {rank}")
 
@@ -1311,7 +1360,7 @@ def scan_file_with_machine_learning_ai(file_path, threshold=0.86):
 
             # Handle both string and dict cases
             if isinstance(info, dict):
-                benign_definition = info.get('file_name', 'Unknown')
+                benign_definition = info.get("file_name", "Unknown")
             elif isinstance(info, str):
                 benign_definition = info
             else:
@@ -1329,6 +1378,7 @@ def scan_file_with_machine_learning_ai(file_path, threshold=0.86):
         return True, malware_definition, nearest_malicious_similarity
     else:
         return False, malware_definition, nearest_benign_similarity
+
 
 def restart_service(service_name, stop_only=False):
     """Restart or stop a Windows service using native service management."""
@@ -1375,6 +1425,7 @@ def restart_service(service_name, stop_only=False):
         logger.error(f"An error occurred while managing service '{service_name}': {ex}")
         return False
 
+
 class RealTimeWebProtectionHandler:
     """Stub handler kept for compatibility; it performs no work."""
 
@@ -1403,18 +1454,21 @@ class RealTimeWebProtectionObserver:
     async def begin_observing_async(self):
         return None
 
+
 web_protection_observer = None
 
 # --- Firewall web-scan delegation helpers ---
+
 
 def _validate_pipe_server(handle, expected_path: str) -> bool:
     """Verify that the pipe server is the expected executable."""
     try:
         import win32pipe
+
         server_pid = win32pipe.GetNamedPipeServerProcessId(handle)
         if server_pid == 0:
             return False
-            
+
         h_proc = win32api.OpenProcess(win32con.PROCESS_QUERY_INFORMATION | win32con.PROCESS_VM_READ, False, server_pid)
         try:
             exe_path = win32process.GetModuleFileNameEx(h_proc, 0)
@@ -1425,6 +1479,7 @@ def _validate_pipe_server(handle, expected_path: str) -> bool:
         logger.debug(f"Pipe server validation failed: {e}")
         return False
 
+
 def _sync_write_firewall_pipe(message: str) -> None:
     """
     Synchronous writer that pushes a UTF-8 message to the firewall pipe.
@@ -1433,13 +1488,14 @@ def _sync_write_firewall_pipe(message: str) -> None:
     _OPEN_RETRIES = 5
     _RETRY_DELAY = 1.0
     _WAIT_TIMEOUT_MS = 5000
-    
+
     handle = None
     for attempt in range(_OPEN_RETRIES):
         try:
             # Wait for pipe to be available if busy
             try:
                 import win32pipe
+
                 win32pipe.WaitNamedPipe(PIPE_AV_TO_FIREWALL, _WAIT_TIMEOUT_MS)
             except pywintypes.error:
                 pass
@@ -1453,19 +1509,19 @@ def _sync_write_firewall_pipe(message: str) -> None:
                 0,
                 None,
             )
-            
+
             # Validate server
             if not _validate_pipe_server(handle, FIREWALL_EXE_PATH):
                 logger.error(f"Rejected unauthorized Firewall pipe server for {PIPE_AV_TO_FIREWALL}")
                 win32file.CloseHandle(handle)
                 handle = None
                 return
-                
+
             win32file.WriteFile(handle, message.encode("utf-8"))
             win32file.FlushFileBuffers(handle)
             return
         except pywintypes.error as e:
-            if e.winerror in [2, 231]: # Not found or busy
+            if e.winerror in [2, 231]:  # Not found or busy
                 if attempt < _OPEN_RETRIES - 1:
                     time.sleep(_RETRY_DELAY)
                     continue
@@ -1487,9 +1543,7 @@ async def _send_firewall_web_payload(paths: List[str], origin: str) -> None:
     payload = {"origin": origin, "paths": paths}
     try:
         await asyncio.to_thread(_sync_write_firewall_pipe, json.dumps(payload))
-        logger.info(
-            f"[FirewallPipe] forwarded {len(paths)} artifact(s) from {origin} for web scan"
-        )
+        logger.info(f"[FirewallPipe] forwarded {len(paths)} artifact(s) from {origin} for web scan")
     except pywintypes.error as e:
         if getattr(e, "winerror", None) == 2:
             logger.warning("Firewall pipe is unavailable; skipping web-scan forwarding")
@@ -1512,9 +1566,7 @@ async def _send_hosts_snapshot_to_firewall(host_entries: List[str]) -> None:
     payload = {"origin": "hosts", "hosts": host_entries}
     try:
         await asyncio.to_thread(_sync_write_firewall_pipe, json.dumps(payload))
-        logger.info(
-            f"[FirewallPipe] forwarded {len(host_entries)} host entrie(s) for firewall validation"
-        )
+        logger.info(f"[FirewallPipe] forwarded {len(host_entries)} host entrie(s) for firewall validation")
     except pywintypes.error as e:
         if getattr(e, "winerror", None) == 2:
             logger.warning("Firewall pipe is unavailable; skipping hosts forwarding")
@@ -1548,6 +1600,7 @@ def dispatch_firewall_web_scan(paths: List[str], origin: str) -> None:
 
     loop.create_task(_forward_web_candidates_to_firewall(paths, origin))
 
+
 # Global variables for rules and ML
 yaraxtr_rules = None
 excluded_rules = None
@@ -1555,6 +1608,7 @@ malicious_numeric_features = []
 malicious_file_names = []
 benign_numeric_features = []
 benign_file_names = []
+
 
 def scan_yara(file_path):
     """
@@ -1565,13 +1619,13 @@ def scan_yara(file_path):
         logger.error(f"excluded_rules missing for {file_path}")
         return None, None, None
 
-    results = {'matched_rules': [], 'matched_results': [], 'is_vmprotect': False}
+    results = {"matched_rules": [], "matched_results": [], "is_vmprotect": False}
 
     try:
         if not os.path.exists(file_path):
             return None, None, None
 
-        with open(file_path, 'rb') as f:
+        with open(file_path, "rb") as f:
             data_content = f.read()
 
         if yaraxtr_rules:
@@ -1581,29 +1635,24 @@ def scan_yara(file_path):
 
             for rule in getattr(scan_results, "matching_rules", []) or []:
                 if rule.identifier not in excluded_rules:
-                    results['matched_rules'].append(rule.identifier)
+                    results["matched_rules"].append(rule.identifier)
                     # Simple extraction
-                    details = {
-                        'rule_name': rule.identifier,
-                        'rule_source': 'yaraxtr_rules',
-                        'tags': list(rule.tags) if hasattr(rule, 'tags') else [],
-                        'meta': dict(rule.metadata) if hasattr(rule, 'metadata') else {}
-                    }
-                    results['matched_results'].append(details)
+                    details = {"rule_name": rule.identifier, "rule_source": "yaraxtr_rules", "tags": list(rule.tags) if hasattr(rule, "tags") else [], "meta": dict(rule.metadata) if hasattr(rule, "metadata") else {}}
+                    results["matched_results"].append(details)
                     if rule.identifier == "INDICATOR_EXE_Packed_VMProtect":
-                        results['is_vmprotect'] = True
+                        results["is_vmprotect"] = True
 
             del scanner
             import gc
+
             gc.collect()
 
-        return (results['matched_rules'] if results['matched_rules'] else None,
-                results['matched_results'] if results['matched_results'] else None,
-                results['is_vmprotect'])
+        return (results["matched_rules"] if results["matched_rules"] else None, results["matched_results"] if results["matched_results"] else None, results["is_vmprotect"])
 
     except Exception as ex:
         logger.error(f"YARA-X scan error for {file_path}: {ex}")
         return None, None, None
+
 
 # ============================================================================#
 # C++ ENGINE (HydraDragonAV) PIPE CLIENT
@@ -1616,44 +1665,59 @@ def scan_with_hydradragon_engine(file_path):
     try:
         norm_path = os.path.abspath(file_path)
         request = json.dumps({"path": norm_path})
-        
+
         # Connect to C++ pipe
-        handle = win32file.CreateFile(
-            PIPE_HYDRADRAGON_AV,
-            win32file.GENERIC_READ | win32file.GENERIC_WRITE,
-            0, None, win32file.OPEN_EXISTING, 0, None
-        )
-        
+        handle = win32file.CreateFile(PIPE_HYDRADRAGON_AV, win32file.GENERIC_READ | win32file.GENERIC_WRITE, 0, None, win32file.OPEN_EXISTING, 0, None)
+
         # Write request
-        win32file.WriteFile(handle, request.encode('utf-8'))
-        
+        win32file.WriteFile(handle, request.encode("utf-8"))
+
         # Read response
         resp_data = win32file.ReadFile(handle, 65536)
         win32file.CloseHandle(handle)
-        
+
         if resp_data[0] == 0:
-            response = json.loads(resp_data[1].decode('utf-8'))
+            response = json.loads(resp_data[1].decode("utf-8"))
             if response.get("status") == "success":
                 malicious = response.get("malicious", False)
                 clamav_virus = response.get("clamav", "")
                 yara_matches = response.get("yara", [])
                 is_vmprotect = response.get("is_vmprotect", False)
-                
+
                 if malicious:
                     if clamav_virus:
                         return True, clamav_virus, "ClamAV", is_vmprotect
                     if yara_matches:
                         return True, yara_matches[0], "LegacyYARA", is_vmprotect
-                
+
         return False, "Clean", "", False
     except Exception as ex:
         # Expected if server not running or path inaccessible
         logger.debug(f"HydraDragonAV Pipe Error: {ex}")
         return False, "Error", "", False
 
+
+async def vmprotect_unpack(file_path: str) -> tuple[str | None, bool]:
+    try:
+        packed_data = await asyncio.to_thread(Path(file_path).read_bytes)
+        unpacked_data = await asyncio.to_thread(unpack_pe, packed_data)
+        if not unpacked_data:
+            return None, False
+
+        base_name, ext = os.path.splitext(os.path.basename(file_path))
+        unpacked_name = f"{base_name}_vmprotect_unpacked{ext}"
+        unpacked_path = os.path.join(vmprotect_unpacked_dir, unpacked_name)
+        await asyncio.to_thread(Path(unpacked_path).write_bytes, unpacked_data)
+        return unpacked_path, True
+    except Exception:
+        logger.debug(f"VMProtect unpack failed for {file_path}", exc_info=True)
+        return None, False
+
+
 def is_encrypted(zip_info):
     """Check if a ZIP entry is encrypted."""
     return zip_info.flag_bits & 0x1 != 0
+
 
 def contains_rlo_after_dot_with_extension_check(filename, fileTypes):
     """
@@ -1669,7 +1733,7 @@ def contains_rlo_after_dot_with_extension_check(filename, fileTypes):
     """
     try:
         # First check if there's an RLO character after a dot
-        if ".\u202E" not in filename:
+        if ".\u202e" not in filename:
             return False
         # If RLO found after dot, check if file has a known extension
         ext = os.path.splitext(filename)[1].lower()
@@ -1683,6 +1747,7 @@ def contains_rlo_after_dot_with_extension_check(filename, fileTypes):
     except Exception as ex:
         logger.error(f"Error checking RLO and extension for file {filename}: {ex}")
         return False
+
 
 def detect_suspicious_filename_patterns(filename, fileTypes, max_spaces=10):
     """
@@ -1699,63 +1764,53 @@ def detect_suspicious_filename_patterns(filename, fileTypes, max_spaces=10):
     Returns:
         dict: Detection results with attack types found
     """
-    results = {
-        'rlo_attack': False,
-        'excessive_spaces': False,
-        'multiple_extensions': False,
-        'suspicious': False,
-        'details': []
-    }
+    results = {"rlo_attack": False, "excessive_spaces": False, "multiple_extensions": False, "suspicious": False, "details": []}
 
     try:
         # Check for RLO attack
-        if ".\u202E" in filename:
+        if ".\u202e" in filename:
             ext = os.path.splitext(filename)[1].lower()
             if ext in fileTypes:
-                results['rlo_attack'] = True
-                results['details'].append(f"RLO character found after dot with known extension '{ext}'")
+                results["rlo_attack"] = True
+                results["details"].append(f"RLO character found after dot with known extension '{ext}'")
 
         # Check for excessive spaces (potential extension hiding)
-        if '  ' in filename:  # Start with double space check
+        if "  " in filename:  # Start with double space check
             space_count = 0
             max_consecutive_spaces = 0
 
             for char in filename:
-                if char == ' ':
+                if char == " ":
                     space_count += 1
                     max_consecutive_spaces = max(max_consecutive_spaces, space_count)
                 else:
                     space_count = 0
 
             if max_consecutive_spaces > max_spaces:
-                results['excessive_spaces'] = True
-                results['details'].append(f"Excessive spaces detected: {max_consecutive_spaces} consecutive spaces")
+                results["excessive_spaces"] = True
+                results["details"].append(f"Excessive spaces detected: {max_consecutive_spaces} consecutive spaces")
 
                 # Check if there's a hidden extension after the spaces
                 trimmed_filename = filename.rstrip()
                 if trimmed_filename != filename:
                     hidden_ext = os.path.splitext(trimmed_filename)[1].lower()
                     if hidden_ext in fileTypes:
-                        results['details'].append(f"Potential hidden extension: '{hidden_ext}'")
+                        results["details"].append(f"Potential hidden extension: '{hidden_ext}'")
 
         # Check for multiple extensions (only flag if more than 4 extensions)
-        parts = filename.split('.')
+        parts = filename.split(".")
         if len(parts) > 5:  # More than 4 extensions (5 parts = filename + 4 extensions)
-            extensions = ['.' + part.lower() for part in parts[1:]]
+            extensions = ["." + part.lower() for part in parts[1:]]
             known_extensions = [ext for ext in extensions if ext in fileTypes]
 
             if known_extensions:  # Only flag if there are known extensions
-                results['multiple_extensions'] = True
-                results['details'].append(f"Excessive extensions detected ({len(parts)-1} extensions): {known_extensions}")
+                results["multiple_extensions"] = True
+                results["details"].append(f"Excessive extensions detected ({len(parts) - 1} extensions): {known_extensions}")
 
         # Mark as suspicious if any attack detected
-        results['suspicious'] = any([
-            results['rlo_attack'],
-            results['excessive_spaces'],
-            results['multiple_extensions']
-        ])
+        results["suspicious"] = any([results["rlo_attack"], results["excessive_spaces"], results["multiple_extensions"]])
 
-        if results['suspicious']:
+        if results["suspicious"]:
             logger.critical(f"SUSPICIOUS FILENAME DETECTED: {filename} - {results['details']}")
 
         return results
@@ -1763,6 +1818,7 @@ def detect_suspicious_filename_patterns(filename, fileTypes, max_spaces=10):
     except Exception as ex:
         logger.error(f"Error analyzing filename {filename}: {ex}")
         return results
+
 
 class FileType:
     UNKNOWN = -1
@@ -1778,9 +1834,9 @@ class CompressionFlag:
 
 
 class NuitkaPayload:
-    MAGIC_KA = b'KA'
-    MAGIC_UNCOMPRESSED = ord('X')
-    MAGIC_COMPRESSED = ord('Y')
+    MAGIC_KA = b"KA"
+    MAGIC_UNCOMPRESSED = ord("X")
+    MAGIC_COMPRESSED = ord("Y")
 
     def _validate(self):
         """Validate payload magic and set compression flag"""
@@ -1801,7 +1857,6 @@ class NuitkaPayload:
         self.size = size
         self.compression = CompressionFlag.UNKNOWN
         self._validate()
-
 
     def get_stream(self) -> BinaryIO:
         """Get a file-like object for reading the payload"""
@@ -1842,12 +1897,12 @@ class NuitkaExtractor:
         """Find the Nuitka resource in PE file"""
         try:
             for entry in pe.DIRECTORY_ENTRY_RESOURCE.entries:
-                if hasattr(entry, 'directory'):
+                if hasattr(entry, "directory"):
                     for entry1 in entry.directory.entries:
                         if entry1.id == 27:  # Nuitka's resource ID
-                            if hasattr(entry1, 'directory'):
+                            if hasattr(entry1, "directory"):
                                 data_entry = entry1.directory.entries[0]
-                                if hasattr(data_entry, 'data'):
+                                if hasattr(data_entry, "data"):
                                     offset = pe.get_offset_from_rva(data_entry.data.struct.OffsetToData)
                                     size = data_entry.data.struct.Size
                                     return offset, size
@@ -1861,7 +1916,7 @@ class NuitkaExtractor:
             pe = pefile.PE(self.filepath, fast_load=False)
 
             # Find RT_RCDATA resource with ID 27
-            if not hasattr(pe, 'DIRECTORY_ENTRY_RESOURCE'):
+            if not hasattr(pe, "DIRECTORY_ENTRY_RESOURCE"):
                 logger.error("No resource directory found")
 
             offset, size = self._find_pe_resource(pe)
@@ -1869,7 +1924,7 @@ class NuitkaExtractor:
                 logger.error("No Nuitka payload found in PE resources")
 
             # Read the payload data
-            with open(self.filepath, 'rb') as f:
+            with open(self.filepath, "rb") as f:
                 f.seek(offset)
                 payload_data = f.read(size)
 
@@ -1881,16 +1936,15 @@ class NuitkaExtractor:
     def _extract_elf_payload(self) -> Optional[NuitkaPayload]:
         """Extract payload from ELF file"""
         try:
-            with open(self.filepath, 'rb') as f:
+            with open(self.filepath, "rb") as f:
                 elf = ELFFile(f)
 
                 # Find last section to locate appended data
-                last_section = max(elf.iter_sections(),
-                                 key=lambda s: s.header.sh_offset + s.header.sh_size)
+                last_section = max(elf.iter_sections(), key=lambda s: s.header.sh_offset + s.header.sh_size)
 
                 # Read trailer for payload size
                 f.seek(-8, io.SEEK_END)
-                payload_size = struct.unpack('<Q', f.read(8))[0]
+                payload_size = struct.unpack("<Q", f.read(8))[0]
 
                 # Read payload
                 payload_offset = last_section.header.sh_offset + last_section.sh_size
@@ -1911,11 +1965,11 @@ class NuitkaExtractor:
                 for cmd in header.commands:
                     if cmd[0].cmd in (macholib.mach_o.LC_SEGMENT, macholib.mach_o.LC_SEGMENT_64):
                         for section in cmd[1].sections:
-                            if section[0].decode('utf-8') == 'payload':
+                            if section[0].decode("utf-8") == "payload":
                                 offset = section[2]
                                 size = section[3]
 
-                                with open(self.filepath, 'rb') as f:
+                                with open(self.filepath, "rb") as f:
                                     f.seek(offset)
                                     payload_data = f.read(size)
                                     return NuitkaPayload(payload_data, offset, size)
@@ -1930,7 +1984,7 @@ class NuitkaExtractor:
         result = bytearray()
         while True:
             char = stream.read(2 if is_wide else 1)
-            if not char or char == b'\0' * len(char):
+            if not char or char == b"\0" * len(char):
                 break
             result.extend(char)
 
@@ -1938,7 +1992,7 @@ class NuitkaExtractor:
             return None
 
         try:
-            return result.decode('utf-16-le' if is_wide else 'utf-8')
+            return result.decode("utf-16-le" if is_wide else "utf-8")
         except UnicodeDecodeError:
             return None
 
@@ -1963,16 +2017,16 @@ class NuitkaExtractor:
                 if not size_data or len(size_data) != 8:
                     break
 
-                file_size = struct.unpack('<Q', size_data)[0]
+                file_size = struct.unpack("<Q", size_data)[0]
 
                 # Sanitize output path
-                safe_output_dir = str(self.output_dir).replace('..', '__')
+                safe_output_dir = str(self.output_dir).replace("..", "__")
                 outpath = os.path.join(safe_output_dir, filename)
                 os.makedirs(os.path.dirname(outpath), exist_ok=True)
 
                 # Extract file
                 try:
-                    with open(outpath, 'wb') as f:
+                    with open(outpath, "wb") as f:
                         remaining = file_size
                         while remaining > 0:
                             chunk_size = min(remaining, 8192)
@@ -2032,6 +2086,7 @@ class NuitkaExtractor:
 # --- NEWLY ADDED ASYNC ARCHIVE/ML FUNCTIONS ---
 # --------------------------------------------------------------------------
 
+
 async def scan_zip_file(file_path):
     """
     Scan a ZIP archive for:
@@ -2054,19 +2109,19 @@ async def scan_zip_file(file_path):
         entries = []
         malware_detected = False
 
-        with pyzipper.ZipFile(file_path, 'r') as zf:
+        with pyzipper.ZipFile(file_path, "r") as zf:
             for info in zf.infolist():
                 encrypted = bool(info.flag_bits & 0x1)
 
                 detection_result = detect_suspicious_filename_patterns(info.filename, fileTypes)
-                if detection_result['suspicious']:
+                if detection_result["suspicious"]:
                     # Build attack type string
                     attack_types = []
-                    if detection_result['rlo_attack']:
+                    if detection_result["rlo_attack"]:
                         attack_types.append("RLO")
-                    if detection_result['excessive_spaces']:
+                    if detection_result["excessive_spaces"]:
                         attack_types.append("Spaces")
-                    if detection_result['multiple_extensions']:
+                    if detection_result["multiple_extensions"]:
                         attack_types.append("MultiExt")
 
                     attack_string = "+".join(attack_types) if attack_types else "Generic"
@@ -2088,7 +2143,7 @@ async def scan_zip_file(file_path):
         if len(entries) == 1:
             fname, _, encrypted = entries[0]
             if not encrypted:
-                with pyzipper.ZipFile(file_path, 'r') as zf:
+                with pyzipper.ZipFile(file_path, "r") as zf:
                     snippet = zf.open(fname).read(4096)
                 decoded = snippet.decode("utf-8", errors="ignore").lower()
                 if is_plain_text_file_from_output(snippet) and "pass" in decoded:
@@ -2131,20 +2186,20 @@ async def scan_7z_file(file_path):
         entries = []
         malware_detected = False
 
-        with py7zr.SevenZipFile(file_path, mode='r') as archive:
+        with py7zr.SevenZipFile(file_path, mode="r") as archive:
             for entry in archive.list():
                 filename = entry.filename
                 encrypted = entry.is_encrypted
 
                 detection_result = detect_suspicious_filename_patterns(filename, fileTypes)
-                if detection_result['suspicious']:
+                if detection_result["suspicious"]:
                     # Build attack type string
                     attack_types = []
-                    if detection_result['rlo_attack']:
+                    if detection_result["rlo_attack"]:
                         attack_types.append("RLO")
-                    if detection_result['excessive_spaces']:
+                    if detection_result["excessive_spaces"]:
                         attack_types.append("Spaces")
-                    if detection_result['multiple_extensions']:
+                    if detection_result["multiple_extensions"]:
                         attack_types.append("MultiExt")
 
                     attack_string = "+".join(attack_types) if attack_types else "Generic"
@@ -2166,9 +2221,9 @@ async def scan_7z_file(file_path):
         if len(entries) == 1:
             fname, _, encrypted = entries[0]
             if not encrypted:
-                with py7zr.SevenZipFile(file_path, mode='r') as archive:
+                with py7zr.SevenZipFile(file_path, mode="r") as archive:
                     data_map = archive.read([fname])
-                    snippet = data_map.get(fname, b'')[:4096]
+                    snippet = data_map.get(fname, b"")[:4096]
                 decoded = snippet.decode("utf-8", errors="ignore").lower()
                 if is_plain_text_file_from_output(snippet) and "pass" in decoded:
                     await notify_user_size_warning(file_path, "7z", "HEUR:Win32.Susp.Encrypted.7z.SingleEntry")
@@ -2187,31 +2242,29 @@ async def scan_7z_file(file_path):
         logger.error(f"Error scanning 7z file: {file_path} {ex}")
         return False, "Clean"
 
+
 async def scan_tar_file(file_path):
     """Scan files within a tar archive."""
     try:
         tar_size = os.path.getsize(file_path)
 
-        with tarfile.open(file_path, 'r') as tar:
+        with tarfile.open(file_path, "r") as tar:
             for member in tar.getmembers():
                 detection_result = detect_suspicious_filename_patterns(member.name, fileTypes)
-                if detection_result['suspicious']:
+                if detection_result["suspicious"]:
                     # Build attack type string
                     attack_types = []
-                    if detection_result['rlo_attack']:
+                    if detection_result["rlo_attack"]:
                         attack_types.append("RLO")
-                    if detection_result['excessive_spaces']:
+                    if detection_result["excessive_spaces"]:
                         attack_types.append("Spaces")
-                    if detection_result['multiple_extensions']:
+                    if detection_result["multiple_extensions"]:
                         attack_types.append("MultiExt")
 
                     attack_string = "+".join(attack_types) if attack_types else "Generic"
                     virus_name = f"HEUR:{attack_string}.Susp.Name.TAR.gen"
 
-                    logger.critical(
-                        f"Filename '{member.name}' in archive '{file_path}' contains suspicious pattern(s): {attack_string} - "
-                        f"flagged as {virus_name}"
-                    )
+                    logger.critical(f"Filename '{member.name}' in archive '{file_path}' contains suspicious pattern(s): {attack_string} - flagged as {virus_name}")
                     await notify_user_susp_archive_file_name_warning(file_path, "TAR", virus_name)
 
                 if member.isreg():  # Check if it's a regular file
@@ -2240,6 +2293,7 @@ async def scan_tar_file(file_path):
     except Exception as ex:
         logger.error(f"Error scanning tar file: {file_path} - {ex}")
         return False, ""
+
 
 async def check_pe_file(file_path, signature_check, file_name):
     """
@@ -2270,6 +2324,7 @@ async def check_pe_file(file_path, signature_check, file_name):
         logger.error(f"Error checking PE file {file_path}: {ex}")
         return False
 
+
 def is_zip_file(file_path):
     """
     Return True if file_path is a valid ZIP (AES or standard), False otherwise.
@@ -2279,18 +2334,19 @@ def is_zip_file(file_path):
 
     try:
         # Try standard ZIP
-        with pyzipper.ZipFile(file_path, 'r'):
+        with pyzipper.ZipFile(file_path, "r"):
             return True
     except pyzipper.zipfile.BadZipFile:
         # Try AES ZIP
         try:
-            with pyzipper.AESZipFile(file_path, 'r'):
+            with pyzipper.AESZipFile(file_path, "r"):
                 return True
         except Exception:
             return False
     except Exception as e:
         logger.error(f"Unexpected error checking ZIP: {e}")
         return False
+
 
 async def scan_file_ml(
     file_path: str,
@@ -2343,12 +2399,8 @@ async def scan_file_ml(
         logger.error(err_msg)
         return False, "Clean", 0.0
 
-async def ml_fastpath_should_continue(
-    norm_path,
-    signature_check,
-    pe_file,
-    benign_threshold: float = 0.93
-) -> bool:
+
+async def ml_fastpath_should_continue(norm_path, signature_check, pe_file, benign_threshold: float = 0.93) -> bool:
     """
     ML fast-path:
       - Return False => ML marked benign or malicious -> EARLY EXIT (skip heavy scan)
@@ -2376,7 +2428,7 @@ async def ml_fastpath_should_continue(
     # ML detected malware -> notify and stop scanning
     if malware_found:
         if isinstance(virus_name, (list, tuple)):
-            virus_name = ''.join(virus_name)
+            virus_name = "".join(virus_name)
 
         logger.critical("ML detected malware in %s. Virus: %s (stopping full scan)", os.path.basename(norm_path), virus_name)
 
@@ -2393,11 +2445,13 @@ async def ml_fastpath_should_continue(
     # Otherwise (ML said Clean or gave no opinion) -> continue to full scan
     return True
 
+
 # Read the file and store the names in a list (ignoring empty lines)
 with open(system_file_names_path, "r") as f:
     fake_system_files = [line.strip() for line in f if line.strip()]
 
 # --- Synchronous helper to run in a thread ---
+
 
 def _sync_find_files_for_ips(src_ip, dst_ip):
     """
@@ -2410,7 +2464,7 @@ def _sync_find_files_for_ips(src_ip, dst_ip):
 
     found_files = []
     # Iterate over all running processes
-    for proc in psutil.process_iter(['pid', 'name', 'exe']):
+    for proc in psutil.process_iter(["pid", "name", "exe"]):
         try:
             # Get network connections for the process
             connections = proc.net_connections()
@@ -2418,7 +2472,7 @@ def _sync_find_files_for_ips(src_ip, dst_ip):
                 for conn in connections:
                     # Check if the remote address matches src_ip or dst_ip
                     if conn.raddr and (conn.raddr.ip == src_ip or conn.raddr.ip == dst_ip):
-                        file_path = proc.info.get('exe')
+                        file_path = proc.info.get("exe")
                         if file_path:
                             found_files.append(file_path)
                             # We found a match for this process, break inner loop
@@ -2439,6 +2493,7 @@ def _sync_find_files_for_ips(src_ip, dst_ip):
 
 # --- Asynchronous Public Functions ---
 
+
 async def convert_ip_to_file(src_ip, dst_ip, alert_line, status):
     """
     Convert IP addresses to associated file paths asynchronously.
@@ -2454,15 +2509,13 @@ async def convert_ip_to_file(src_ip, dst_ip, alert_line, status):
             logger.info(f"Detected file {file_path} associated with IP {src_ip} or {dst_ip}")
             # Only send critical alerts for non-info statuses
             if not status.startswith("Info"):
-                logger.critical(
-                    f"Detected file {file_path} associated with IP {src_ip} or {dst_ip}. "
-                    f"Alert Line: {alert_line}"
-                )
+                logger.critical(f"Detected file {file_path} associated with IP {src_ip} or {dst_ip}. Alert Line: {alert_line}")
                 # Await the asynchronous notification
                 await notify_user_for_detected_hips_file(file_path, src_ip, alert_line, status)
 
     except Exception as ex:
         logger.error(f"Unexpected error in convert_ip_to_file: {ex}")
+
 
 async def process_alert_data(priority, src_ip, dest_ip):
     try:
@@ -2471,9 +2524,9 @@ async def process_alert_data(priority, src_ip, dest_ip):
         logger.error(f"Error processing alert data: {ex}")
         return False
 
+
 def validate_paths():
-    for path, desc in [(suricata_exe_path, "Suricata executable"),
-                       (suricata_config_path, "Suricata config")]:
+    for path, desc in [(suricata_exe_path, "Suricata executable"), (suricata_config_path, "Suricata config")]:
         if not os.path.exists(path):
             logger.error(f"{desc} not found at: {path}")
             return False
@@ -2486,6 +2539,7 @@ def validate_paths():
         return False
     return True
 
+
 # ============================================================================#
 # Windows Suricata-compatible interface detection (Async)
 # ============================================================================#
@@ -2494,17 +2548,16 @@ def validate_paths():
 AF_UNSPEC = 0
 GAA_FLAG_INCLUDE_PREFIX = 0x00000010
 
-iphlpapi = ctypes.WinDLL('Iphlpapi.dll')
+iphlpapi = ctypes.WinDLL("Iphlpapi.dll")
 GetAdaptersAddresses = iphlpapi.GetAdaptersAddresses
-GetAdaptersAddresses.argtypes = [
-    wintypes.ULONG, wintypes.ULONG, wintypes.LPVOID,
-    wintypes.LPVOID, ctypes.POINTER(wintypes.ULONG)
-]
+GetAdaptersAddresses.argtypes = [wintypes.ULONG, wintypes.ULONG, wintypes.LPVOID, wintypes.LPVOID, ctypes.POINTER(wintypes.ULONG)]
 # We'll use a minimal adapters structure parsing approach: read the AdapterName and IfIndex fields.
 # This structure is large; to avoid crafting full struct we call the function twice to get needed buffer,
 # then parse the buffer using a simplified adapter structure only for necessary offsets.
 
 GetIfEntry = iphlpapi.GetIfEntry
+
+
 # MIB_IFROW struct
 class MIB_IFROW(ctypes.Structure):
     _fields_ = [
@@ -2531,10 +2584,13 @@ class MIB_IFROW(ctypes.Structure):
         ("dwOutErrors", wintypes.DWORD),
         ("dwOutQLen", wintypes.DWORD),
         ("dwDescrLen", wintypes.DWORD),
-        ("bDescr", ctypes.c_ubyte * 256)
+        ("bDescr", ctypes.c_ubyte * 256),
     ]
+
+
 GetIfEntry.argtypes = [ctypes.POINTER(MIB_IFROW)]
 GetIfEntry.restype = wintypes.DWORD
+
 
 # Helper: build mapping GUID -> IfIndex using GetAdaptersAddresses via ctypes.
 def _build_guid_to_index_map():
@@ -2545,13 +2601,13 @@ def _build_guid_to_index_map():
     if rv not in (0, 111, 122):
         logger.error("GetAdaptersAddresses initial call failed with error code %s", rv)
         return {}
-    
+
     if rv == 0:
         logger.debug("GetAdaptersAddresses returned success on initial call (unexpected, no adapters?)")
         return {}
-    
+
     logger.debug("GetAdaptersAddresses buffer size needed: %s bytes", size.value)
-    
+
     buf = ctypes.create_string_buffer(size.value)
     rv = GetAdaptersAddresses(AF_UNSPEC, GAA_FLAG_INCLUDE_PREFIX, None, ctypes.byref(buf), ctypes.byref(size))
     if rv != 0:
@@ -2570,26 +2626,27 @@ def _build_guid_to_index_map():
     # GUIDs have pattern like '{XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX}' or 'XXXXXXXX-XXXX-...'
     # find GUID-style occurrences in buffer
     guid_count = 0
-    for m in re.finditer(br'\{?[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\}?', data):
+    for m in re.finditer(rb"\{?[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\}?", data):
         guid_count += 1
         # try to find a nearby IfIndex (DWORD) by scanning ±200 bytes for a 4-byte little-endian value
         guid_bytes = m.group(0)
         # decode GUID in the common forms to normalized GUID without braces
-        guid = guid_bytes.decode(errors='ignore').strip('{}').upper()
+        guid = guid_bytes.decode(errors="ignore").strip("{}").upper()
         # crude attempt to find IfIndex in the next 200 bytes
         start = max(0, m.start() - 16)
         end = min(len(data), m.end() + 200)
         window = data[start:end]
         # search for a little-endian DWORD that looks like a reasonable IfIndex (1..1000)
         for i in range(0, max(0, len(window) - 4)):
-            val = int.from_bytes(window[i:i+4], 'little')
+            val = int.from_bytes(window[i : i + 4], "little")
             if 0 < val < 2000:
                 mapping[guid] = val
                 logger.debug("Mapped GUID %s -> IfIndex %s", guid, val)
                 break
-    
+
     logger.debug("Found %s GUIDs in buffer, successfully mapped %s", guid_count, len(mapping))
     return mapping
+
 
 # Fallback helper using WMI: get mapping from NIC GUID -> IfIndex property (Win32_NetworkAdapter has InterfaceIndex or Index)
 def _wmi_guid_to_index_map():
@@ -2602,10 +2659,10 @@ def _wmi_guid_to_index_map():
             adapter_count += 1
             # InterfaceIndex or NetConnectionID or Index
             # Some WMI instances provide 'InterfaceIndex'
-            idx = getattr(nic, 'InterfaceIndex', None) or getattr(nic, 'Index', None)
-            guid_raw = getattr(nic, 'GUID', None)
+            idx = getattr(nic, "InterfaceIndex", None) or getattr(nic, "Index", None)
+            guid_raw = getattr(nic, "GUID", None)
             if idx and guid_raw:
-                guid = str(guid_raw).strip('{}').upper()
+                guid = str(guid_raw).strip("{}").upper()
                 m[guid] = int(idx)
                 logger.debug("WMI mapped GUID %s -> IfIndex %s", guid, idx)
         logger.debug("WMI processed %s adapters, mapped %s with GUID+IfIndex", adapter_count, len(m))
@@ -2613,6 +2670,7 @@ def _wmi_guid_to_index_map():
     except Exception as ex:
         logger.error("WMI GUID mapping failed: %s", ex, exc_info=True)
         return {}
+
 
 # Helper to get MTU for a given IfIndex using GetIfEntry
 def get_mtu_for_ifindex(ifindex: int):
@@ -2627,6 +2685,7 @@ def get_mtu_for_ifindex(ifindex: int):
         # non-zero means failure; return None to indicate MTU couldn't be read
         logger.debug("GetIfEntry failed for IfIndex %s (error code=%s)", ifindex, rv)
         return None
+
 
 # ------------------ main async function ---------------------------------------------------
 async def get_suricata_interfaces():
@@ -2667,7 +2726,7 @@ async def get_suricata_interfaces():
             except Exception as ex:
                 logger.error("GetAdaptersAddresses mapping failed: %s", ex, exc_info=True)
                 guid_ifindex_map = {}
-            
+
             if not guid_ifindex_map:
                 logger.info("GetAdaptersAddresses mapping empty, trying WMI fallback...")
                 try:
@@ -2684,24 +2743,24 @@ async def get_suricata_interfaces():
             for nic in w.Win32_NetworkAdapter():
                 adapter_count += 1
                 try:
-                    net_enabled = getattr(nic, 'NetEnabled', None)
+                    net_enabled = getattr(nic, "NetEnabled", None)
                     # Prefer explicit GUID; fallback to regex
-                    guid_raw = getattr(nic, 'GUID', None)
+                    guid_raw = getattr(nic, "GUID", None)
                     if not guid_raw:
                         src = str(getattr(nic, "PNPDeviceID", "") or getattr(nic, "Name", ""))
-                        m = re.search(r'\{?[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\}?', src)
+                        m = re.search(r"\{?[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\}?", src)
                         if m:
                             guid_raw = m.group(0)
                     if not guid_raw:
                         # skip adapters without GUID
-                        logger.debug("Skipping adapter without GUID: %s", getattr(nic, 'Name', '<unknown>'))
+                        logger.debug("Skipping adapter without GUID: %s", getattr(nic, "Name", "<unknown>"))
                         continue
 
-                    guid = str(guid_raw).strip('{}').upper()
+                    guid = str(guid_raw).strip("{}").upper()
                     npf_name = rf"\\Device\\NPF_{{{guid}}}"
 
                     if net_enabled is False:
-                        logger.debug("Skipping adapter (disabled): %s (GUID: %s)", getattr(nic, 'Name', '<unknown>'), guid)
+                        logger.debug("Skipping adapter (disabled): %s (GUID: %s)", getattr(nic, "Name", "<unknown>"), guid)
                         continue
 
                     mtu = None
@@ -2711,7 +2770,7 @@ async def get_suricata_interfaces():
                     if ifindex is None:
                         logger.debug("No mapping found for GUID %s, trying WMI Index properties...", guid)
                         # try WMI properties Index or InterfaceIndex
-                        if_index = getattr(nic, 'InterfaceIndex', None) or getattr(nic, 'Index', None)
+                        if_index = getattr(nic, "InterfaceIndex", None) or getattr(nic, "Index", None)
                         if if_index:
                             try:
                                 mtu_val = get_mtu_for_ifindex(int(if_index))
@@ -2746,7 +2805,7 @@ async def get_suricata_interfaces():
                     }
                     interfaces.append(interface_info)
                     logger.debug("Added interface: %s | MTU=%s", guid, mtu)
-                    
+
                 except Exception as ex:
                     logger.exception("Error while processing adapter: %s", ex)
                     continue
@@ -2761,12 +2820,14 @@ async def get_suricata_interfaces():
 
     return await loop.run_in_executor(None, _worker)
 
+
 # ============================================================================#
 # Start Suricata on interface (Async)
 # ============================================================================#
 # On Windows, use CREATE_NEW_PROCESS_GROUP so terminate() works more predictably.
 CREATE_NEW_PROCESS_GROUP = 0x00000200
 CREATE_NO_WINDOW = 0x08000000
+
 
 async def start_suricata_on_interface(iface):
     if iface in running_processes:
@@ -2777,12 +2838,18 @@ async def start_suricata_on_interface(iface):
     # Use numeric index to override values inside list items.
     cmd = [
         suricata_exe_path,
-        "-c", suricata_config_path,
-        "-i", iface,
-        "--set", f"pcap.0.interface={iface}",        # pcap is a list; set the first entry's interface
-        "--set", "runmode=autofp",                   # top-level scalar is fine
-        "--set", "outputs.0.fast.enabled=yes",       # outputs[0] contains 'fast' in default suricata.yaml
-        "--set", "outputs.1.eve-log.enabled=yes"     # outputs[1] contains 'eve-log' in default suricata.yaml
+        "-c",
+        suricata_config_path,
+        "-i",
+        iface,
+        "--set",
+        f"pcap.0.interface={iface}",  # pcap is a list; set the first entry's interface
+        "--set",
+        "runmode=autofp",  # top-level scalar is fine
+        "--set",
+        "outputs.0.fast.enabled=yes",  # outputs[0] contains 'fast' in default suricata.yaml
+        "--set",
+        "outputs.1.eve-log.enabled=yes",  # outputs[1] contains 'eve-log' in default suricata.yaml
     ]
 
     logger.info("Starting Suricata on interface: %s", iface)
@@ -2799,12 +2866,7 @@ async def start_suricata_on_interface(iface):
             logger.exception("Stream reader error for %s: %s", prefix, ex)
 
     try:
-        proc = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            creationflags=CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW
-        )
+        proc = await asyncio.create_subprocess_exec(*cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, creationflags=CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW)
 
         # Pump stdout/stderr into logger so Suricata's own errors are visible.
         asyncio.create_task(_log_stream(proc.stdout, f"[suricata:{iface}][OUT]"))
@@ -2822,6 +2884,7 @@ async def start_suricata_on_interface(iface):
         logger.exception("Failed to start Suricata on %s: %s", iface, e)
         return None
 
+
 # ============================================================================#
 # Monitor interfaces (Async)
 # ============================================================================#
@@ -2836,7 +2899,7 @@ async def monitor_interfaces():
     logger.info("Starting Suricata interface monitor (keep all interfaces)...")
 
     # Track state across loops
-    last_known_npf_name = {}        # { guid: npf_name }
+    last_known_npf_name = {}  # { guid: npf_name }
 
     while True:
         try:
@@ -2851,11 +2914,7 @@ async def monitor_interfaces():
 
             # Log detected interfaces (debug-level)
             for iface in interfaces:
-                logger.debug(
-                    f"Detected interface: {iface['guid']} | "
-                    f"{iface.get('wmi_name')} | "
-                    f"MTU={iface.get('mtu')} | Reason={iface.get('reason')}"
-                )
+                logger.debug(f"Detected interface: {iface['guid']} | {iface.get('wmi_name')} | MTU={iface.get('mtu')} | Reason={iface.get('reason')}")
 
             # Start Suricata on new interfaces
             for iface in interfaces:
@@ -2880,16 +2939,14 @@ async def monitor_interfaces():
                 if not npf_name:
                     logger.debug(f"No NPF name known for GUID {guid}, skipping restart check")
                     continue
-                    
+
                 proc = running_processes.get(npf_name)
                 if not proc:
                     logger.debug(f"No process found for {npf_name}, skipping restart check")
                     continue
 
                 if proc.returncode is not None:  # process exited
-                    logger.warning(
-                        f"Suricata for {guid} exited with code {proc.returncode}; restarting..."
-                    )
+                    logger.warning(f"Suricata for {guid} exited with code {proc.returncode}; restarting...")
                     new_proc = await start_suricata_on_interface(npf_name)
                     if new_proc:
                         running_processes[npf_name] = new_proc
@@ -2901,10 +2958,7 @@ async def monitor_interfaces():
             current_guids = {iface["guid"] for iface in interfaces}
             inactive = [guid for guid in started_interfaces if guid not in current_guids]
             for guid in inactive:
-                logger.debug(
-                    f"Interface {guid} not currently detected, "
-                    f"but Suricata process will remain running."
-                )
+                logger.debug(f"Interface {guid} not currently detected, but Suricata process will remain running.")
 
             await asyncio.sleep(5)
 
@@ -2927,6 +2981,7 @@ async def monitor_interfaces():
             logger.error(f"Monitor interfaces error: {e}", exc_info=True)
             await asyncio.sleep(5)
 
+
 # ============================================================================#
 # Suricata callback (Async entry point)
 # ============================================================================#
@@ -2938,6 +2993,7 @@ async def suricata_callback():
     try:
         # Validate paths
         import os
+
         if not os.path.exists(suricata_exe_path):
             logger.error(f"Suricata executable not found: {suricata_exe_path}")
             return False
@@ -2949,10 +3005,7 @@ async def suricata_callback():
         logger.info("Starting Suricata interface monitor (async)...")
 
         # Start monitoring in background task
-        asyncio.create_task(
-            monitor_interfaces(),
-            name="SuricataMonitorTask"
-        )
+        asyncio.create_task(monitor_interfaces(), name="SuricataMonitorTask")
 
         logger.info("Suricata monitor started successfully")
         return True
@@ -2961,7 +3014,9 @@ async def suricata_callback():
         logger.error(f"Unexpected error starting Suricata: {ex}", exc_info=True)
         return False
 
+
 # ========== ASYNC SURICATA MONITORING ==========
+
 
 async def monitor_suricata_log_async():
     log_path = eve_log_path
@@ -2973,7 +3028,7 @@ async def monitor_suricata_log_async():
 
     logger.info("Log file found: %s", log_path)
 
-    async with aiofiles.open(log_path, 'r') as log_file:
+    async with aiofiles.open(log_path, "r") as log_file:
         await log_file.seek(0, os.SEEK_END)
         while True:
             try:
@@ -2999,6 +3054,7 @@ async def monitor_suricata_log_async():
                 logger.exception("Error while monitoring Suricata log: %s", ex)
                 await asyncio.sleep(1)
 
+
 # ---------------------------
 # Helper functions
 # ---------------------------
@@ -3010,18 +3066,20 @@ def to_float(x, default=0.0):
     except Exception:
         return float(default)
 
+
 def safe_len(x):
     try:
         return len(x) if x is not None else 0
     except Exception:
         return 0
 
+
 def section_entropy_stats(section_characteristics):
     entropies = []
     try:
         if isinstance(section_characteristics, dict):
             for v in section_characteristics.values():
-                e = v.get('entropy') if isinstance(v, dict) else None
+                e = v.get("entropy") if isinstance(v, dict) else None
                 if e is not None:
                     try:
                         entropies.append(float(e))
@@ -3034,6 +3092,7 @@ def section_entropy_stats(section_characteristics):
     mean = sum(entropies) / len(entropies)
     return float(mean), float(min(entropies)), float(max(entropies))
 
+
 def reloc_summary(relocs):
     try:
         total = 0
@@ -3042,12 +3101,13 @@ def reloc_summary(relocs):
             for r in relocs:
                 blocks += 1
                 try:
-                    total += int(r.get('summary', {}).get('total_entries', 0))
+                    total += int(r.get("summary", {}).get("total_entries", 0))
                 except Exception:
                     continue
         return total, blocks
     except Exception:
         return 0, 0
+
 
 def entry_to_numeric(entry: dict) -> Tuple[List[float], str]:
     if not isinstance(entry, dict):
@@ -3154,11 +3214,12 @@ def entry_to_numeric(entry: dict) -> Tuple[List[float], str]:
         float(num_bound_imports),
         float(num_debug_entries),
         float(cert_size),
-        float(has_rich)
+        float(has_rich),
     ]
 
     filename = (entry.get("file_info", {}) or {}).get("filename", "unknown")
     return numeric, filename
+
 
 def load_ml_definitions_pickle(malicious_path: str, benign_path: str) -> bool:
     """
@@ -3180,7 +3241,7 @@ def load_ml_definitions_pickle(malicious_path: str, benign_path: str) -> bool:
             logger.warning(f"ML definitions file not found: {filepath}. Skipping.")
             return
 
-        with open(filepath, 'rb') as f:
+        with open(filepath, "rb") as f:
             while True:
                 try:
                     entry = pickle.load(f)
@@ -3211,12 +3272,11 @@ def load_ml_definitions_pickle(malicious_path: str, benign_path: str) -> bool:
         logger.exception(f"Failed to load ML definitions: {e}")
         return False
 
+
 # Removed: scan_file_with_clamav (Merged into HydraDragonAV C++ engine)
 
-def scan_file_real_time_yara(
-    file_path: str,
-    signature_check: dict
-) -> Tuple[bool, str, str, bool]:
+
+def scan_file_real_time_yara(file_path: str, signature_check: dict) -> Tuple[bool, str, str, bool]:
     """
     Scan file with YARA only (blocking, no threads).
 
@@ -3232,9 +3292,7 @@ def scan_file_real_time_yara(
         if yara_match and yara_match not in ("Clean", ""):
             if sig_valid:
                 yara_match = f"{yara_match}.SIG"
-            logger.critical(
-                f"Infected file detected (YARA): {file_path} - Virus: {yara_match} - Result: {yara_result}"
-            )
+            logger.critical(f"Infected file detected (YARA): {file_path} - Virus: {yara_match} - Result: {yara_result}")
             return True, yara_match, "YARA", is_vmprotect
         else:
             logger.info(f"Scanned file with YARA: {file_path} - No viruses detected")
@@ -3245,13 +3303,7 @@ def scan_file_real_time_yara(
         return False, "Error", "", False
 
 
-def scan_file_real_time(
-    file_path: str,
-    signature_check: dict,
-    file_name: str,
-    die_output,
-    pe_file: bool = False
-) -> Tuple[bool, str, str, Optional[bool]]:
+def scan_file_real_time(file_path: str, signature_check: dict, file_name: str, die_output, pe_file: bool = False) -> Tuple[bool, str, str, Optional[bool]]:
     """
     Scan file in real-time using multiple engines in parallel (WITHOUT YARA).
     Stops all workers on first detection.
@@ -3262,10 +3314,10 @@ def scan_file_real_time(
 
     # Shared results and synchronization primitives
     results = {
-        'malware_found': False,
-        'virus_name': 'Clean',
-        'engine': '',
-        'is_vmprotect': False,
+        "malware_found": False,
+        "virus_name": "Clean",
+        "engine": "",
+        "is_vmprotect": False,
     }
     stop_event = threading.Event()
     thread_lock_real_time = threading.Lock()
@@ -3299,12 +3351,12 @@ def scan_file_real_time(
                 logger.critical(f"Infected file detected ({engine}): {file_path} - Virus: {virus_name}")
 
                 with thread_lock_real_time:
-                    if not results['malware_found']:
-                        results['malware_found'] = True
-                        results['virus_name'] = virus_name
-                        results['engine'] = engine
+                    if not results["malware_found"]:
+                        results["malware_found"] = True
+                        results["virus_name"] = virus_name
+                        results["engine"] = engine
                         if is_vmprotect:
-                            results['is_vmprotect'] = True
+                            results["is_vmprotect"] = True
                         stop_event.set()
         except Exception as ex:
             logger.debug(f"HydraDragonAV worker error: {ex}")
@@ -3313,9 +3365,6 @@ def scan_file_real_time(
         workers = [
             pe_scan_worker,
             cpp_scanner_worker,
-            tar_scan_worker,
-            zip_scan_worker,
-            sevenz_scan_worker
         ]
 
         threads = []
@@ -3325,15 +3374,16 @@ def scan_file_real_time(
             threads.append(t)
 
         with thread_lock_real_time:
-            if results['malware_found']:
-                return True, results['virus_name'], results['engine'], results['is_vmprotect']
+            if results["malware_found"]:
+                return True, results["virus_name"], results["engine"], results["is_vmprotect"]
             else:
                 logger.info(f"File is clean - no malware detected by any engine: {file_path}")
-                return False, "Clean", "", results['is_vmprotect']
+                return False, "Clean", "", results["is_vmprotect"]
 
     except Exception as ex:
         logger.error(f"An error occurred while scanning file: {file_path}. Error: {ex}")
         return False, "Error", "", False
+
 
 def get_next_project_name(base_name):
     """Generate the next available project name with an incremental suffix."""
@@ -3345,6 +3395,7 @@ def get_next_project_name(base_name):
     except Exception as ex:
         logger.error(f"An error occurred while generating project name: {ex}")
 
+
 def decompile_file(file_path, main_file_path=None, timeout=1500):
     """
     Run Ghidra analyzeHeadless with DecompileAndSave.java, remember produced artifacts
@@ -3354,11 +3405,11 @@ def decompile_file(file_path, main_file_path=None, timeout=1500):
         norm_path = os.path.abspath(file_path)
         logger.info(f"Decompiling file: {norm_path} (initiator: {main_file_path})")
 
-        analyze_headless_path = os.path.join(script_dir, 'ghidra', 'support', 'analyzeHeadless.bat')
+        analyze_headless_path = os.path.join(script_dir, "ghidra", "support", "analyzeHeadless.bat")
 
         # Generate project name
         try:
-            project_name = get_next_project_name('temporary')
+            project_name = get_next_project_name("temporary")
         except Exception as ex:
             logger.error(f"Failed to generate project name: {ex}")
             with decompile_outputs_lock:
@@ -3371,29 +3422,13 @@ def decompile_file(file_path, main_file_path=None, timeout=1500):
             pass
 
         # Prepare command
-        command = [
-            analyze_headless_path,
-            ghidra_projects_dir,
-            project_name,
-            '-import', norm_path,
-            '-postScript', 'DecompileAndSave.java',
-            '-scriptPath', ghidra_scripts_dir,
-            '-log', os.path.join(ghidra_logs_dir, 'analyze.log')
-        ]
+        command = [analyze_headless_path, ghidra_projects_dir, project_name, "-import", norm_path, "-postScript", "DecompileAndSave.java", "-scriptPath", ghidra_scripts_dir, "-log", os.path.join(ghidra_logs_dir, "analyze.log")]
 
         start_time = time.time()
 
         # Run Ghidra headless
         try:
-            result = subprocess.run(
-                command,
-                capture_output=True,
-                text=True,
-                encoding='utf-8',
-                errors='ignore',
-                timeout=timeout,
-                cwd=script_dir
-            )
+            result = subprocess.run(command, capture_output=True, text=True, encoding="utf-8", errors="ignore", timeout=timeout, cwd=script_dir)
         except subprocess.TimeoutExpired as te:
             logger.error(f"Ghidra analyzeHeadless timed out for {norm_path}: {te}")
             with decompile_outputs_lock:
@@ -3411,12 +3446,7 @@ def decompile_file(file_path, main_file_path=None, timeout=1500):
         logger.info(f"Decompilation completed successfully for: {norm_path}")
 
         # --- Find candidate artifact files ---
-        candidate_roots = [
-            os.path.join(script_dir, "decompiled"),
-            ghidra_projects_dir,
-            os.getcwd(),
-            ghidra_scripts_dir
-        ]
+        candidate_roots = [os.path.join(script_dir, "decompiled"), ghidra_projects_dir, os.getcwd(), ghidra_scripts_dir]
         candidate_roots = list(dict.fromkeys(p for p in candidate_roots if p))  # unique + keep order
 
         candidates = []
@@ -3435,7 +3465,7 @@ def decompile_file(file_path, main_file_path=None, timeout=1500):
                     score = 0
                     if "_analysis" in lname or lname.endswith("_analysis.txt"):
                         score += 200
-                    if lname.endswith(('.txt', '.c', '.cpp', '.asm', '.idb', '.bytes', '.json')):
+                    if lname.endswith((".txt", ".c", ".cpp", ".asm", ".idb", ".bytes", ".json")):
                         score += 50
                     if mtime >= (start_time - toler):
                         score += 100
@@ -3446,7 +3476,7 @@ def decompile_file(file_path, main_file_path=None, timeout=1500):
         if not candidates:
             for r, _, files in os.walk(script_dir):
                 for fname in files:
-                    if "_analysis" in fname.lower() and fname.lower().endswith('.txt'):
+                    if "_analysis" in fname.lower() and fname.lower().endswith(".txt"):
                         full = os.path.join(r, fname)
                         try:
                             mtime = os.path.getmtime(full)
@@ -3492,15 +3522,16 @@ def decompile_file(file_path, main_file_path=None, timeout=1500):
             pass
         return []
 
+
 def extract_original_norm_path_from_decompiled(file_path):
     try:
-        with open(file_path, 'r') as original_file:
+        with open(file_path, "r") as original_file:
             for line in original_file:
                 if line.startswith("// Original file:"):
-                    parts = line.split(':', 2)
+                    parts = line.split(":", 2)
                     # Construct the path without using an rf-string
                     drive_letter = parts[1].upper() + ":"
-                    path = parts[2].replace('/', '\\')
+                    path = parts[2].replace("/", "\\")
                     original_file_path = f"{drive_letter}\\{path}".strip()
 
                     # Log the extracted original file path
@@ -3512,6 +3543,7 @@ def extract_original_norm_path_from_decompiled(file_path):
         logger.error(f"An error occurred while extracting the original file path: {ex}")
         return None
 
+
 def clean_text(input_text):
     """
     Remove non-logger.infoable ASCII control characters from the input text.
@@ -3520,8 +3552,9 @@ def clean_text(input_text):
     :return: Cleaned text with control characters removed.
     """
     # Remove non-logger.infoable characters (ASCII 0-31 and 127)
-    cleaned_text = re.sub(r'[\x00-\x1F\x7F]+', '', input_text)
+    cleaned_text = re.sub(r"[\x00-\x1F\x7F]+", "", input_text)
     return cleaned_text
+
 
 def split_source_by_u_delimiter(source_code, base_name="initial_code", file_path=None, main_file_path=None):
     """
@@ -3535,12 +3568,9 @@ def split_source_by_u_delimiter(source_code, base_name="initial_code", file_path
 
     combined_preserve = re.compile(r"$^")
 
-    import_pattern = re.compile(
-        r'^\s*(import\s+[\w.,\s]+|from\s+[\w.]+\s+import\s+[\w.,\s*]+)',
-        re.MULTILINE
-    )
+    import_pattern = re.compile(r"^\s*(import\s+[\w.,\s]+|from\s+[\w.]+\s+import\s+[\w.,\s*]+)", re.MULTILINE)
 
-    imports_top = []   # <--- store imports separately
+    imports_top = []  # <--- store imports separately
     tokens = []
     extracted_links = []
 
@@ -3551,9 +3581,9 @@ def split_source_by_u_delimiter(source_code, base_name="initial_code", file_path
 
         start = 0
         for m in combined_preserve.finditer(line):
-            unprotected = line[start:m.start()]
-            if 'u' in unprotected:
-                parts = re.split(r'(u)', unprotected)
+            unprotected = line[start : m.start()]
+            if "u" in unprotected:
+                parts = re.split(r"(u)", unprotected)
                 tokens.extend([p for p in parts if p])
             elif unprotected:
                 tokens.append(unprotected)
@@ -3564,8 +3594,8 @@ def split_source_by_u_delimiter(source_code, base_name="initial_code", file_path
             start = m.end()
 
         tail = line[start:]
-        if 'u' in tail:
-            parts = re.split(r'(u)', tail)
+        if "u" in tail:
+            parts = re.split(r"(u)", tail)
             tokens.extend([p for p in parts if p])
         elif tail:
             tokens.append(tail)
@@ -3574,17 +3604,17 @@ def split_source_by_u_delimiter(source_code, base_name="initial_code", file_path
     i, n = 0, len(tokens)
     while i < n:
         t = tokens[i]
-        if t == 'u':
+        if t == "u":
             if i + 1 < n:
                 next_token = tokens[i + 1]
-                if next_token.startswith(('"', "'", 'http')):
-                    merged_tokens.append('u' + next_token)
+                if next_token.startswith(('"', "'", "http")):
+                    merged_tokens.append("u" + next_token)
                     i += 2
                 else:
-                    merged_tokens.append('u')
+                    merged_tokens.append("u")
                     i += 1
             else:
-                merged_tokens.append('u')
+                merged_tokens.append("u")
                 i += 1
         else:
             merged_tokens.append(t)
@@ -3616,20 +3646,16 @@ def split_source_by_u_delimiter(source_code, base_name="initial_code", file_path
 
     # --- Auto link scanning ---
     try:
-        if 'scan_code_for_links' in globals():
+        if "scan_code_for_links" in globals():
             logger.info("Running post-reconstruction link scan (nuitka_flag=True)...")
-            scan_code_for_links(
-                final_code_content,
-                full_path or file_path or base_name,
-                nuitka_flag=True,
-                main_file_path=main_file_path or file_path
-            )
+            scan_code_for_links(final_code_content, full_path or file_path or base_name, nuitka_flag=True, main_file_path=main_file_path or file_path)
         else:
             logger.warning("scan_code_for_links() not defined, skipping link scan.")
     except Exception as ex:
         logger.error(f"Error during scan_code_for_links: {ex}")
 
     return final_code_content
+
 
 def run_nuitka_deobfuscator(blob_path: str, main_file_path: Optional[str] = None) -> List[str]:
     """
@@ -3642,7 +3668,7 @@ def run_nuitka_deobfuscator(blob_path: str, main_file_path: Optional[str] = None
         return []
 
     if extract_blob is None:
-        logger.warning(f"[NuitkaDeobfuscate] extract_blob library not loaded.")
+        logger.warning("[NuitkaDeobfuscate] extract_blob library not loaded.")
         return []
 
     output_root = Path(nuitka_extracted_dir) / "nuitka_deobfuscate"
@@ -3652,24 +3678,14 @@ def run_nuitka_deobfuscator(blob_path: str, main_file_path: Optional[str] = None
     )
 
     try:
-        logger.info(
-            f"[NuitkaDeobfuscate] Running python native decoder for {blob_file} -> {output_dir}"
-        )
-        result = extract_blob(
-            blob_path=str(blob_file),
-            output_dir=str(output_dir),
-            target_version=None,
-            list_only=False
-        )
+        logger.info(f"[NuitkaDeobfuscate] Running python native decoder for {blob_file} -> {output_dir}")
+        result = extract_blob(blob_path=str(blob_file), output_dir=str(output_dir), target_version=None, list_only=False)
     except Exception as ex:
         logger.error(f"[NuitkaDeobfuscate] Failed during native extraction: {ex}")
         return []
 
     if not result:
-        logger.warning(
-            f"[NuitkaDeobfuscate] Decoder returned None or empty result "
-            f"for {blob_file}"
-        )
+        logger.warning(f"[NuitkaDeobfuscate] Decoder returned None or empty result for {blob_file}")
         return []
 
     recovered_files = result.recovered_files
@@ -3678,10 +3694,7 @@ def run_nuitka_deobfuscator(blob_path: str, main_file_path: Optional[str] = None
         logger.warning(f"[NuitkaDeobfuscate] No .py / .pyc outputs found for {blob_file}")
         return []
 
-    logger.info(
-        f"[NuitkaDeobfuscate] Recovered {len(recovered_files)} Python artifact(s) "
-        f"from {blob_file}"
-    )
+    logger.info(f"[NuitkaDeobfuscate] Recovered {len(recovered_files)} Python artifact(s) from {blob_file}")
 
     for recovered_path in recovered_files:
         if not recovered_path.lower().endswith(".py"):
@@ -3698,10 +3711,7 @@ def run_nuitka_deobfuscator(blob_path: str, main_file_path: Optional[str] = None
                     main_file_path=main_file_path or blob_path,
                 )
         except Exception as ex:
-            logger.error(
-                f"[NuitkaDeobfuscate] Failed to scan recovered source "
-                f"{recovered_path}: {ex}"
-            )
+            logger.error(f"[NuitkaDeobfuscate] Failed to scan recovered source {recovered_path}: {ex}")
 
     return recovered_files
 
@@ -3788,10 +3798,7 @@ def scan_rsrc_files(file_paths, main_file_path=None):
             logger.info(f"Saved extracted source code (no python.exe marker) to: {save_path}")
 
             # Perform Stage 2 reconstruction
-            stage2_output = split_source_by_u_delimiter(
-                cleaned_code,
-                file_path=largest_file
-            )
+            stage2_output = split_source_by_u_delimiter(cleaned_code, file_path=largest_file)
 
             # Scan for URLs/tokens with Nuitka flag + main file context
             scan_code_for_links(stage2_output, largest_file, nuitka_flag=True, main_file_path=main_file_path)
@@ -3819,9 +3826,9 @@ def scan_rsrc_files(file_paths, main_file_path=None):
         # Extract source content after marker
         line_with_marker = lines[source_index]
         marker_index = line_with_marker.find(found_marker)
-        remainder = line_with_marker[marker_index + len(found_marker):].lstrip()
+        remainder = line_with_marker[marker_index + len(found_marker) :].lstrip()
 
-        source_code_lines = ([remainder] if remainder else []) + lines[source_index + 1:]
+        source_code_lines = ([remainder] if remainder else []) + lines[source_index + 1 :]
         cleaned_source_code = [clean_text(line.rstrip()) for line in source_code_lines]
         decompiled_code = "\n".join(cleaned_source_code)
 
@@ -3849,6 +3856,7 @@ def scan_rsrc_files(file_paths, main_file_path=None):
         logger.error(f"Error during file scanning of {executable_file}: {ex}")
         return []
 
+
 def scan_directory_for_executables(directory):
     """
     Recursively scan a directory for .exe, .dll, .msi, and .kext files,
@@ -3865,7 +3873,7 @@ def scan_directory_for_executables(directory):
     # Look for .exe files first
     for root, _, files in os.walk(directory):
         for file in files:
-            if file.lower().endswith('.exe'):
+            if file.lower().endswith(".exe"):
                 file_path = os.path.join(root, file)
                 nuitka_type = check_file(file_path)
                 if nuitka_type:
@@ -3875,7 +3883,7 @@ def scan_directory_for_executables(directory):
     # If no .exe found, look for .dll files
     for root, _, files in os.walk(directory):
         for file in files:
-            if file.lower().endswith('.dll'):
+            if file.lower().endswith(".dll"):
                 file_path = os.path.join(root, file)
                 nuitka_type = check_file(file_path)
                 if nuitka_type:
@@ -3885,7 +3893,7 @@ def scan_directory_for_executables(directory):
     # Check for macOS kernel extensions (.kext files)
     for root, _, files in os.walk(directory):
         for file in files:
-            if file.lower().endswith('.kext'):
+            if file.lower().endswith(".kext"):
                 file_path = os.path.join(root, file)
                 nuitka_type = check_file(file_path)
                 if nuitka_type:
@@ -3895,7 +3903,7 @@ def scan_directory_for_executables(directory):
     # If none of the above, check other files
     for root, _, files in os.walk(directory):
         for file in files:
-            if not file.lower().endswith(('.exe', '.dll', '.kext')):
+            if not file.lower().endswith((".exe", ".dll", ".kext")):
                 file_path = os.path.join(root, file)
                 nuitka_type = check_file(file_path)
                 if nuitka_type:
@@ -3903,6 +3911,7 @@ def scan_directory_for_executables(directory):
                     return found_executables  # Stop scanning further as a Nuitka file is found
 
     return found_executables
+
 
 def extract_pyinstaller_archive(file_path):
     try:
@@ -3940,10 +3949,12 @@ def extract_pyinstaller_archive(file_path):
         logger.error(f"An error occurred while extracting PyInstaller archive {file_path}: {ex}")
         return None
 
+
 def is_exela_v2_payload(content):
     # Simple heuristic: check if keys/tag/nonce/encrypted_data appear in content
     keys = ["key = ", "tag = ", "nonce = ", "encrypted_data"]
     return all(k in content for k in keys)
+
 
 def extract_line(content, prefix):
     """
@@ -3959,6 +3970,7 @@ def extract_line(content, prefix):
     lines = [line for line in content.splitlines() if line.startswith(prefix)]
     return lines[0] if lines else None
 
+
 # Async Exela v2 processor — notifier awaited directly (async)
 async def process_exela_v2_payload(output_file: str, main_file_path: Optional[str] = None) -> bool:
     """
@@ -3968,7 +3980,7 @@ async def process_exela_v2_payload(output_file: str, main_file_path: Optional[st
     try:
         # Blocking file read -> thread
         def _read_file(path: str) -> str:
-            with open(path, 'r', encoding='utf-8') as f:
+            with open(path, "r", encoding="utf-8") as f:
                 return f.read()
 
         content = await asyncio.to_thread(_read_file, output_file)
@@ -3987,7 +3999,7 @@ async def process_exela_v2_payload(output_file: str, main_file_path: Optional[st
         # Decrypt first stage (CPU/blocking) in thread
         intermediate_data = await asyncio.to_thread(DecryptString, key, tag, nonce, encrypted_data)
 
-        saved_temp_file = await asyncio.to_thread(save_to_file, 'intermediate_data.py', intermediate_data)
+        saved_temp_file = await asyncio.to_thread(save_to_file, "intermediate_data.py", intermediate_data)
         if not saved_temp_file:
             logger.error("Failed to save intermediate data.")
             return False
@@ -4004,13 +4016,14 @@ async def process_exela_v2_payload(output_file: str, main_file_path: Optional[st
         final_decrypted_data = await asyncio.to_thread(DecryptString, key_2, tag_2, nonce_2, encrypted_data_2)
 
         # Save final source
-        source_code_path = await asyncio.to_thread(save_to_file, 'exela_stealer_last_stage.py', final_decrypted_data)
+        source_code_path = await asyncio.to_thread(save_to_file, "exela_stealer_last_stage.py", final_decrypted_data)
 
         if source_code_path:
             # Append to global list under lock (blocking) in thread
             def _append_deobfuscated(path: str):
                 with deobfuscated_paths_lock:
                     deobfuscated_saved_paths.append(path)
+
             await asyncio.to_thread(_append_deobfuscated, source_code_path)
             logger.info(f"Saved final Exela v2 source to {source_code_path} and appended to deobfuscated_saved_paths.")
 
@@ -4024,12 +4037,14 @@ async def process_exela_v2_payload(output_file: str, main_file_path: Optional[st
         logger.error(f"Error during Exela v2 payload processing: {ex}")
         return False
 
+
 def decode_zip(match: re.Match) -> str:
     """Decode one zip->chr join."""
     l1 = ast.literal_eval(match.group(1))
     l2 = ast.literal_eval(match.group(2))
-    decoded = ''.join(chr((x - y) % 128) for x, y in zip(l1, l2))
+    decoded = "".join(chr((x - y) % 128) for x, y in zip(l1, l2))
     return repr(decoded)
+
 
 def collapse_joins(src: str) -> str:
     """Iteratively collapse zip-join patterns until none remain."""
@@ -4038,6 +4053,7 @@ def collapse_joins(src: str) -> str:
         prev = src
         src = ZIP_JOIN.sub(decode_zip, src)
     return src
+
 
 def clean_source(src: str) -> str:
     # 1) Collapse chained string.join(...).join(...) of literals to single literal
@@ -4048,9 +4064,11 @@ def clean_source(src: str) -> str:
     src = B64_LITERAL.sub(decode_b64_import, src)
     return src
 
+
 def _xdis_version_sort_key(version: str) -> tuple[int, int]:
     major, minor = version.split(".", 1)
     return int(major), int(minor)
+
 
 def guess_version_from_marshal_bytes(data: bytes) -> str | None:
     """
@@ -4073,7 +4091,6 @@ def guess_version_from_marshal_bytes(data: bytes) -> str | None:
         argcount = struct.unpack_from("<I", data, 1)[0]
         posonlycount = struct.unpack_from("<I", data, 5)[0]
         kwonlycount = struct.unpack_from("<I", data, 9)[0]
-        nlocals = struct.unpack_from("<I", data, 13)[0]
         stacksize = struct.unpack_from("<I", data, 17)[0]
         flags = struct.unpack_from("<I", data, 21)[0]
 
@@ -4083,7 +4100,6 @@ def guess_version_from_marshal_bytes(data: bytes) -> str | None:
             # Re-read without posonlycount offset
             kwonlycount2 = struct.unpack_from("<I", data, 5)[0]
             nlocals2 = struct.unpack_from("<I", data, 9)[0]
-            flags2 = struct.unpack_from("<I", data, 17)[0]
             if kwonlycount2 <= 255 and nlocals2 <= 65535:
                 return "3.7"  # pre-3.8 layout
 
@@ -4106,14 +4122,10 @@ def guess_version_from_marshal_bytes(data: bytes) -> str | None:
     except Exception:
         return None
 
+
 def _marshal_candidate_versions(version_hint: str | None) -> list[str]:
     versions = sorted(
-        {
-            version
-            for version in by_version
-            if re.fullmatch(r"\d+\.\d+", version)
-            and _xdis_version_sort_key(version) >= (3, 5)
-        },
+        {version for version in by_version if re.fullmatch(r"\d+\.\d+", version) and _xdis_version_sort_key(version) >= (3, 5)},
         key=_xdis_version_sort_key,
         reverse=True,
     )
@@ -4121,14 +4133,8 @@ def _marshal_candidate_versions(version_hint: str | None) -> list[str]:
     runtime_version = f"{sys.version_info.major}.{sys.version_info.minor}"
     if runtime_version in versions:
         runtime_key = _xdis_version_sort_key(runtime_version)
-        lower_or_equal = [
-            version for version in versions
-            if version != runtime_version and _xdis_version_sort_key(version) <= runtime_key
-        ]
-        higher = [
-            version for version in versions
-            if _xdis_version_sort_key(version) > runtime_key
-        ]
+        lower_or_equal = [version for version in versions if version != runtime_version and _xdis_version_sort_key(version) <= runtime_key]
+        higher = [version for version in versions if _xdis_version_sort_key(version) > runtime_key]
         versions = [runtime_version] + lower_or_equal + higher
 
     if version_hint is None:
@@ -4136,14 +4142,8 @@ def _marshal_candidate_versions(version_hint: str | None) -> list[str]:
 
     if version_hint.endswith("+"):
         lower_bound = _xdis_version_sort_key(version_hint[:-1])
-        prioritized = [
-            version for version in versions
-            if _xdis_version_sort_key(version) >= lower_bound
-        ]
-        fallback = [
-            version for version in versions
-            if _xdis_version_sort_key(version) < lower_bound
-        ]
+        prioritized = [version for version in versions if _xdis_version_sort_key(version) >= lower_bound]
+        fallback = [version for version in versions if _xdis_version_sort_key(version) < lower_bound]
         return prioritized + fallback
 
     if version_hint in versions:
@@ -4151,15 +4151,14 @@ def _marshal_candidate_versions(version_hint: str | None) -> list[str]:
 
     return versions
 
+
 def _is_reasonably_printable_text(value: object, max_length: int) -> bool:
     if not isinstance(value, str) or not value or len(value) > max_length:
         return False
 
-    printable_count = sum(
-        1 for ch in value
-        if ch.isprintable() and ch != "\x00"
-    )
+    printable_count = sum(1 for ch in value if ch.isprintable() and ch != "\x00")
     return printable_count / len(value) >= 0.85
+
 
 def _score_marshaled_code_candidate(
     code_obj: object,
@@ -4213,6 +4212,7 @@ def _score_marshaled_code_candidate(
 
     return score
 
+
 def resolve_xdis_marshaled_code_versions(data: bytes) -> list[str]:
     version_hint = guess_version_from_marshal_bytes(data)
     scored_versions: list[tuple[int, str]] = []
@@ -4232,18 +4232,13 @@ def resolve_xdis_marshaled_code_versions(data: bytes) -> list[str]:
             continue
 
     if not scored_versions:
-        logger.error(
-            "[MARSHAL/XDIS] Could not resolve marshal blob version. "
-            f"Version hint was {version_hint!r}"
-        )
+        logger.error(f"[MARSHAL/XDIS] Could not resolve marshal blob version. Version hint was {version_hint!r}")
         return []
 
     scored_versions.sort(key=lambda item: item[0], reverse=True)
-    logger.info(
-        "[MARSHAL/XDIS] Candidate versions (top 5): "
-        f"{scored_versions[:5]} with hint {version_hint!r}"
-    )
+    logger.info(f"[MARSHAL/XDIS] Candidate versions (top 5): {scored_versions[:5]} with hint {version_hint!r}")
     return [version for _, version in scored_versions]
+
 
 def build_pyc_header_for_version(
     version: str,
@@ -4268,6 +4263,7 @@ def build_pyc_header_for_version(
         header += struct.pack("<I", source_size & 0xFFFFFFFF)
 
     return header
+
 
 def extract_marshal_code_from_source(source: str) -> tuple[bytes, list[str]] | None:
     """
@@ -4295,11 +4291,7 @@ def extract_marshal_code_from_source(source: str) -> tuple[bytes, list[str]] | N
                             return True
                     elif isinstance(func.value, ast.Call):
                         # Check if __import__('base64')
-                        if (
-                            isinstance(func.value.func, ast.Name)
-                            and func.value.func.id == "__import__"
-                            and len(func.value.args) == 1
-                        ):
+                        if isinstance(func.value.func, ast.Name) and func.value.func.id == "__import__" and len(func.value.args) == 1:
                             arg0 = func.value.args[0]
                             if isinstance(arg0, (ast.Str, ast.Constant)):
                                 val = arg0.s if hasattr(arg0, "s") else arg0.value
@@ -4344,10 +4336,7 @@ def extract_marshal_code_from_source(source: str) -> tuple[bytes, list[str]] | N
         def is_marshal_loads(self, func):
             # Handles marshal.loads or getattr(marshal, 'loads') style
             if isinstance(func, ast.Attribute):
-                if (
-                    (isinstance(func.value, ast.Name) and func.value.id == "marshal")
-                    and func.attr == "loads"
-                ):
+                if (isinstance(func.value, ast.Name) and func.value.id == "marshal") and func.attr == "loads":
                     return True
             return False
 
@@ -4375,6 +4364,7 @@ def extract_marshal_code_from_source(source: str) -> tuple[bytes, list[str]] | N
 
     logger.error("[!] marshal.loads pattern with base64 blob not found in AST")
     return None
+
 
 def decompile_pyc_with_pylingual(pyc_path: str) -> str | None:
     """
@@ -4441,22 +4431,13 @@ def decompile_pyc_with_pylingual(pyc_path: str) -> str | None:
 
             # Check if file is actually a valid .pyc file by reading magic number
             try:
-                with open(pyc_file, 'rb') as f:
+                with open(pyc_file, "rb") as f:
                     magic = f.read(4)
                     logger.info(f"[Pylingual] Magic number: {magic.hex()}")
             except Exception as magic_error:
                 logger.error(f"[Pylingual] Could not read magic number: {magic_error}")
 
-            pylingual_main(
-                files=[str(pyc_file)],
-                out_dir=output_path,
-                config_file=None,
-                version=None,
-                top_k=10,
-                trust_lnotab=False,
-                init_pyenv=False,
-                quiet=False
-            )
+            pylingual_main(files=[str(pyc_file)], out_dir=output_path, config_file=None, version=None, top_k=10, trust_lnotab=False, init_pyenv=False, quiet=False)
             logger.info(f"pylingual.main execution completed in {time.time() - start_time:.6f} seconds")
         except Exception as pylingual_error:
             logger.error(f"[Pylingual] pylingual_main failed: {pylingual_error}")
@@ -4514,17 +4495,9 @@ def codeobj_to_source(
 ) -> str:
     try:
         output_dir = Path(python_deobfuscated_marshal_pyc_dir)
-        if (
-            isinstance(codeobj, tuple)
-            and len(codeobj) == 2
-            and isinstance(codeobj[0], (bytes, bytearray))
-            and isinstance(codeobj[1], list)
-        ):
+        if isinstance(codeobj, tuple) and len(codeobj) == 2 and isinstance(codeobj[0], (bytes, bytearray)) and isinstance(codeobj[1], list):
             marshal_bytes = bytes(codeobj[0])
-            candidate_versions = [
-                version for version in codeobj[1]
-                if isinstance(version, str)
-            ]
+            candidate_versions = [version for version in codeobj[1] if isinstance(version, str)]
 
             for version in candidate_versions[:8]:
                 try:
@@ -4540,15 +4513,10 @@ def codeobj_to_source(
 
                     source = decompile_pyc_with_pylingual(str(pyc_path))
                     if source:
-                        logger.info(
-                            f"[MARSHAL/XDIS] Decompiled marshal blob using Python {version}"
-                        )
+                        logger.info(f"[MARSHAL/XDIS] Decompiled marshal blob using Python {version}")
                         return source
                 except Exception as version_error:
-                    logger.error(
-                        f"[MARSHAL/XDIS] Failed candidate version {version}: "
-                        f"{version_error}"
-                    )
+                    logger.error(f"[MARSHAL/XDIS] Failed candidate version {version}: {version_error}")
 
             for version in candidate_versions[:3]:
                 try:
@@ -4556,11 +4524,7 @@ def codeobj_to_source(
                         marshal_bytes,
                         magic2int(by_version[version]),
                     )
-                    native_code = (
-                        portable_code.to_native()
-                        if hasattr(portable_code, "to_native")
-                        else None
-                    )
+                    native_code = portable_code.to_native() if hasattr(portable_code, "to_native") else None
                     if isinstance(native_code, types.CodeType):
                         return codeobj_to_source(
                             native_code,
@@ -4593,6 +4557,7 @@ def codeobj_to_source(
     except Exception as e:
         logger.error(f"Error in codeobj_to_source: {e}")
         return "# Exception during decompilation"
+
 
 class ImportCleaner(ast.NodeTransformer):
     """
@@ -4680,7 +4645,7 @@ class ImportCleaner(ast.NodeTransformer):
 
     def clean_until_stable(self, source_code: str | Path, output_path: Path) -> Path:
         if isinstance(source_code, Path):
-            source_code = source_code.read_text(encoding='utf-8', errors='replace')
+            source_code = source_code.read_text(encoding="utf-8", errors="replace")
 
         prev_source = None
         current_source = source_code
@@ -4697,8 +4662,9 @@ class ImportCleaner(ast.NodeTransformer):
             prev_source = current_source
             current_source = ast.unparse(tree)
 
-        output_path.write_text(current_source, encoding='utf-8')
+        output_path.write_text(current_source, encoding="utf-8")
         return output_path
+
 
 def clean_syntax(source_code: str, max_attempts=20) -> str:
     def normalize_indentation(code: str) -> str:
@@ -4729,8 +4695,8 @@ def clean_syntax(source_code: str, max_attempts=20) -> str:
             lines.pop(lineno - 1)
 
             # ALSO remove orphaned identifiers (like `lambda_output`) if any
-            symbol = bad_line.split('=')[0].strip() if '=' in bad_line else bad_line
-            lines = [line for line in lines if symbol not in line or line.strip().startswith('#')]
+            symbol = bad_line.split("=")[0].strip() if "=" in bad_line else bad_line
+            lines = [line for line in lines if symbol not in line or line.strip().startswith("#")]
             attempt += 1
 
     cleaned_code = "\n".join(lines)
@@ -4740,6 +4706,7 @@ def clean_syntax(source_code: str, max_attempts=20) -> str:
     else:
         logger.info("[Clean Syntax] Could not fully clean code.")
         return cleaned_code
+
 
 # Robust exec-call detection
 def contains_exec_calls(code: str) -> bool:
@@ -4752,20 +4719,14 @@ def contains_exec_calls(code: str) -> bool:
         # Look only for Call nodes
         if isinstance(node, ast.Call):
             func = node.func
-            if isinstance(func, ast.Name) and func.id == 'exec':
+            if isinstance(func, ast.Name) and func.id == "exec":
                 return True
-            if isinstance(func, ast.Attribute) and func.attr == 'exec':
+            if isinstance(func, ast.Attribute) and func.attr == "exec":
                 return True
-            if (
-                isinstance(func, ast.Call)
-                and isinstance(func.func, ast.Name)
-                and func.func.id == 'getattr'
-                and len(func.args) >= 2
-                and isinstance(func.args[1], ast.Constant)
-                and func.args[1].value == 'exec'
-            ):
+            if isinstance(func, ast.Call) and isinstance(func.func, ast.Name) and func.func.id == "getattr" and len(func.args) >= 2 and isinstance(func.args[1], ast.Constant) and func.args[1].value == "exec":
                 return True
     return False
+
 
 def prune_ifs_and_write(output_path: Path, source_code: str) -> None:
     """
@@ -4790,10 +4751,8 @@ def prune_ifs_and_write(output_path: Path, source_code: str) -> None:
         # Optional: write cleaned original as fallback
         output_path.write_text(cleaned, encoding="utf-8")
 
-def process_pyarmor7(
-    target_path: str,
-    timeout: int = 600
-) -> List[str]:
+
+def process_pyarmor7(target_path: str, timeout: int = 600) -> List[str]:
     """
     Run bypass_pyarmor7.py directly (without Sandboxie) and collect unpacked files.
 
@@ -4835,11 +4794,7 @@ def process_pyarmor7(
     bypass_helper = str(bypass_pyarmor7_path)
 
     # Build command
-    cmd = [
-        python_path,
-        bypass_helper,
-        target_name
-    ]
+    cmd = [python_path, bypass_helper, target_name]
 
     logger.info(f"Running PyArmor7 bypass helper: {' '.join(cmd)}")
     logger.info(f"Working directory: {helper_cwd}")
@@ -4853,7 +4808,7 @@ def process_pyarmor7(
             capture_output=True,
             text=True,
             timeout=min(timeout, 120),  # Initial run timeout
-            creationflags=(subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
+            creationflags=(subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0),
         )
 
         # Log output
@@ -4907,8 +4862,7 @@ def process_pyarmor7(
                     continue
 
                 # Check if all files are stable
-                if all(stable_counts.get(str(p), 0) >= stable_threshold
-                       for p in all_files if p.is_file()):
+                if all(stable_counts.get(str(p), 0) >= stable_threshold for p in all_files if p.is_file()):
                     logger.info("Dump directory stabilized, collecting files.")
                     break
 
@@ -4952,6 +4906,7 @@ def process_pyarmor7(
     logger.info(f"Completed PyArmor7 unpack for {target_path}; {len(unpacked_files)} files extracted.")
     return unpacked_files
 
+
 def deobfuscate_file(transformed_path: Path, timeout: int = 600) -> Optional[Path]:
     """
     Run the AST-transformed script directly (no Sandboxie) and wait for it to
@@ -4965,8 +4920,8 @@ def deobfuscate_file(transformed_path: Path, timeout: int = 600) -> Optional[Pat
 
     # candidate locations where the transformed script might write the execs file
     candidates = [
-        transformed_path.parent / execs_filename,        # next to the transformed script
-        Path.cwd() / execs_filename,                     # current working directory
+        transformed_path.parent / execs_filename,  # next to the transformed script
+        Path.cwd() / execs_filename,  # current working directory
         Path(python_deobfuscated_dir) / execs_filename,  # configured output dir (if script writes here)
     ]
 
@@ -5049,6 +5004,7 @@ def deobfuscate_file(transformed_path: Path, timeout: int = 600) -> Optional[Pat
         logger.error(f"Failed to copy execs file: {copy_exc}")
         return None
 
+
 # Main loop: apply exec->file and remove unused imports, with stuck-detection
 def deobfuscate_until_clean(source_path: Path) -> Optional[Path]:
     source_path = Path(source_path)
@@ -5092,10 +5048,7 @@ def deobfuscate_until_clean(source_path: Path) -> Optional[Path]:
                             extracted_hash = compute_md5_via_text(extracted_src)
                             state2 = ("marshal", False, False, extracted_hash)
                             if state2 not in seen_hashes:
-                                new_path = get_unique_output_path(
-                                    Path(python_deobfuscated_dir),
-                                    f"{base_name[:8]}_d{depth}_m.py"
-                                )
+                                new_path = get_unique_output_path(Path(python_deobfuscated_dir), f"{base_name[:8]}_d{depth}_m.py")
                                 new_path.write_text(extracted_src, encoding="utf-8")
                                 logger.info(f"[MARSHAL] Extracted and wrote: {new_path}")
                                 next_queue.append((depth + 1, "marshal", False, False, new_path))
@@ -5111,13 +5064,8 @@ def deobfuscate_until_clean(source_path: Path) -> Optional[Path]:
                         ast.fix_missing_locations(tree)
 
                         cleaner = ImportCleaner()
-                        clean_output_path = get_unique_output_path(
-                            Path(python_deobfuscated_dir),
-                            f"{base_name[:8]}_d{depth}_importclean.py"
-                        )
-                        cleaned_source_path = cleaner.clean_until_stable(
-                            ast.unparse(tree), clean_output_path
-                        )
+                        clean_output_path = get_unique_output_path(Path(python_deobfuscated_dir), f"{base_name[:8]}_d{depth}_importclean.py")
+                        cleaned_source_path = cleaner.clean_until_stable(ast.unparse(tree), clean_output_path)
                         transformed = cleaned_source_path.read_text(encoding="utf-8", errors="replace")
                     except Exception as e:
                         logger.error(f"[AST] Transform failed on {candidate_path}: {e}")
@@ -5126,10 +5074,7 @@ def deobfuscate_until_clean(source_path: Path) -> Optional[Path]:
                     transformed_hash = compute_md5_via_text(transformed)
                     state3 = ("ast", False, True, transformed_hash)
                     if transformed_hash != content_hash and state3 not in seen_hashes:
-                        new_path = get_unique_output_path(
-                            Path(python_deobfuscated_dir),
-                            f"{base_name[:8]}_d{depth}_ast.py"
-                        )
+                        new_path = get_unique_output_path(Path(python_deobfuscated_dir), f"{base_name[:8]}_d{depth}_ast.py")
                         new_path.write_text(transformed, encoding="utf-8")
                         logger.info(f"[AST] Transformed and wrote: {new_path}")
                         # Mark offloaded=True because exec was moved to a file
@@ -5139,10 +5084,7 @@ def deobfuscate_until_clean(source_path: Path) -> Optional[Path]:
                 # Stage 3: clean_syntax
                 if not cleaned:
                     cleaned_code = clean_syntax(content)
-                    clean_path = get_unique_output_path(
-                        Path(python_deobfuscated_dir),
-                        f"{base_name[:8]}_d{depth}_clean.py"
-                    )
+                    clean_path = get_unique_output_path(Path(python_deobfuscated_dir), f"{base_name[:8]}_d{depth}_clean.py")
                     clean_path.write_text(cleaned_code, encoding="utf-8")
                     logger.debug(f"[CLEAN_SYNTAX] Wrote cleaned code to: {clean_path}")
 
@@ -5154,14 +5096,9 @@ def deobfuscate_until_clean(source_path: Path) -> Optional[Path]:
 
                         # Only finalize if exec truly gone and not offloaded
                         if not offloaded and not contains_exec_calls(clean_content) and "eval" not in clean_content:
-                            final_candidate = get_unique_output_path(
-                                Path(python_deobfuscated_dir),
-                                f"{base_name[:8]}_final.py"
-                            )
+                            final_candidate = get_unique_output_path(Path(python_deobfuscated_dir), f"{base_name[:8]}_final.py")
                             prune_ifs_and_write(final_candidate, clean_content)
-                            logger.info(
-                                f"[FINAL] No exec/eval found post-clean_syntax, saved: {final_candidate}"
-                            )
+                            logger.info(f"[FINAL] No exec/eval found post-clean_syntax, saved: {final_candidate}")
                             return final_candidate
 
                         next_queue.append((depth + 1, "clean", True, offloaded, clean_path))
@@ -5176,14 +5113,9 @@ def deobfuscate_until_clean(source_path: Path) -> Optional[Path]:
 
                     # Only finalize if from clean_syntax stage AND not offloaded, with no exec/eval
                     if stage_tag == "clean" and not offloaded and not contains_exec_calls(disk_text) and "eval" not in disk_text:
-                        final_candidate = get_unique_output_path(
-                            Path(python_deobfuscated_dir),
-                            f"{base_name[:8]}_final.py"
-                        )
+                        final_candidate = get_unique_output_path(Path(python_deobfuscated_dir), f"{base_name[:8]}_final.py")
                         prune_ifs_and_write(final_candidate, disk_text)
-                        logger.info(
-                            f"[FINAL] No exec/eval present post-clean, saved: {final_candidate}"
-                        )
+                        logger.info(f"[FINAL] No exec/eval present post-clean, saved: {final_candidate}")
                         return final_candidate
 
                     # Otherwise, treat candidate file itself as the processed result
@@ -5198,10 +5130,7 @@ def deobfuscate_until_clean(source_path: Path) -> Optional[Path]:
 
                     # If result is clean, prune and save final
                     if not contains_exec_calls(result) and "eval" not in result:
-                        final_candidate = get_unique_output_path(
-                            Path(python_deobfuscated_dir),
-                            f"{base_name[:8]}_final.py"
-                        )
+                        final_candidate = get_unique_output_path(Path(python_deobfuscated_dir), f"{base_name[:8]}_final.py")
                         prune_ifs_and_write(final_candidate, result)
                         logger.info(f"[FINAL_CANDIDATE] Clean code candidate saved: {final_candidate}")
                         return final_candidate
@@ -5228,6 +5157,7 @@ def deobfuscate_until_clean(source_path: Path) -> Optional[Path]:
     logger.info("No more clean code found; transformations exhausted.")
     return None
 
+
 def is_pyarmor_content(data: bytes) -> Tuple[bool, str]:
     """
     Inspect raw bytes and decide whether they look like a PyArmor-protected object.
@@ -5242,26 +5172,26 @@ def is_pyarmor_content(data: bytes) -> Tuple[bool, str]:
 
     # Quick `PY00` header check (common for embedded PYZ-style objects / pyc payloads)
     try:
-        if data.startswith(b'PY00'):
-            return True, 'PY00 header'
+        if data.startswith(b"PY00"):
+            return True, "PY00 header"
     except Exception:
         pass
 
     # Primary PyArmor marker used by detect_process in your code
-    if b'__pyarmor__' in data:
-        return True, '__pyarmor__ marker found'
+    if b"__pyarmor__" in data:
+        return True, "__pyarmor__ marker found"
 
     # Some PyArmor versions embed 'PYARMOR' or 'pyarmor' strings in the header/metadata
     # (case-insensitive check)
-    if b'PYARMOR' in data[:4096] or b'pyarmor' in data[:4096]:
-        return True, 'PYARMOR marker in header'
+    if b"PYARMOR" in data[:4096] or b"pyarmor" in data[:4096]:
+        return True, "PYARMOR marker in header"
 
     # Last resort: look for the PY00 magic somewhere near the beginning (not only at 0)
     # (helps for files with a short wrapper before the PY00)
-    if data[:65536].find(b'PY00') != -1:
-        return True, 'PY00 found in first 64KB'
+    if data[:65536].find(b"PY00") != -1:
+        return True, "PY00 found in first 64KB"
 
-    return False, ''
+    return False, ""
 
 
 def is_pyarmor_file(file_path: str, read_bytes: int = 64 * 1024) -> Tuple[bool, str]:
@@ -5279,12 +5209,13 @@ def is_pyarmor_file(file_path: str, read_bytes: int = 64 * 1024) -> Tuple[bool, 
         return False, "not a file"
 
     try:
-        with open(file_path, 'rb') as f:
+        with open(file_path, "rb") as f:
             head = f.read(read_bytes)
     except Exception as e:
         return False, f"read error: {e}"
 
     return is_pyarmor_content(head)
+
 
 def process_sourcedefender_payload(output_file):
     """
@@ -5302,9 +5233,9 @@ def process_sourcedefender_payload(output_file):
         # Attempt to unprotect the file
         result = unprotect_sourcedefender_file(output_file)
 
-        if result.get('success'):
-            output_saved = result.get('output_file')
-            version = result.get('version', 'unknown')
+        if result.get("success"):
+            output_saved = result.get("output_file")
+            version = result.get("version", "unknown")
 
             logger.info(f"[+] Successfully decrypted SourceDefender {version} protected file.")
             logger.info(f"[+] Decrypted file saved as: {output_saved}")
@@ -5337,6 +5268,7 @@ def process_sourcedefender_payload(output_file):
         logger.error(f"[!] Error processing SourceDefender payload: {ex}")
         return None
 
+
 # Async dispatch/driver — notifier awaited directly (async)
 async def process_decompiled_code(output_file: str, main_file_path: Optional[str] = None) -> bool:
     """
@@ -5360,6 +5292,7 @@ async def process_decompiled_code(output_file: str, main_file_path: Optional[str
                     def _append_path(p: str):
                         with deobfuscated_paths_lock:
                             deobfuscated_saved_paths.append(p)
+
                     await asyncio.to_thread(_append_path, extracted_file)
                     logger.info(f"Appended unpacked file to deobfuscated_saved_paths: {extracted_file}")
 
@@ -5391,7 +5324,7 @@ async def process_decompiled_code(output_file: str, main_file_path: Optional[str
 
         # Read content (blocking) in thread
         def _read_file(path: str) -> str:
-            with open(path, 'r', encoding='utf-8', errors='ignore') as f:
+            with open(path, "r", encoding="utf-8", errors="ignore") as f:
                 return f.read()
 
         content = await asyncio.to_thread(_read_file, output_file)
@@ -5407,7 +5340,7 @@ async def process_decompiled_code(output_file: str, main_file_path: Optional[str
                 return False
 
         # Quick heuristic: if there's no exec() it's likely not obfuscated
-        if 'exec(' not in content:
+        if "exec(" not in content:
             logger.info(f"[+] No exec() found in {output_file}, probably not obfuscated.")
             return False
 
@@ -5419,16 +5352,13 @@ async def process_decompiled_code(output_file: str, main_file_path: Optional[str
             def _append_deob(p: str):
                 with deobfuscated_paths_lock:
                     deobfuscated_saved_paths.append(p)
+
             await asyncio.to_thread(_append_deob, str(deobfuscated))
             logger.info(f"Appended deobfuscated path to deobfuscated_saved_paths: {deobfuscated}")
 
             # NOTIFIER IS ASYNC - await it directly
             try:
-                await notify_user_for_malicious_source_code(
-                    str(deobfuscated),
-                    "HEUR:Win32.Susp.Src.PYC.Python.Obfuscated.exec.gen",
-                    main_file_path=main_file_path
-                )
+                await notify_user_for_malicious_source_code(str(deobfuscated), "HEUR:Win32.Susp.Src.PYC.Python.Obfuscated.exec.gen", main_file_path=main_file_path)
                 return True
             except Exception as ex:
                 logger.error(f"Error while notifying user about malicious source: {ex}")
@@ -5441,6 +5371,7 @@ async def process_decompiled_code(output_file: str, main_file_path: Optional[str
     except Exception as ex:
         logger.error(f"[!] Error during payload dispatch: {ex}")
         return False
+
 
 def extract_and_return_pyinstaller(file_path):
     """
@@ -5467,6 +5398,7 @@ def extract_and_return_pyinstaller(file_path):
 
     return extracted_pyinstaller_file_paths, output_dir
 
+
 def extract_and_return_pyarmor(file_path: str, runtime_paths: List[str] = None) -> Tuple[List[str], str]:
     """
     Extract PyArmor-protected .pyc files and return decrypted outputs
@@ -5491,11 +5423,7 @@ def extract_and_return_pyarmor(file_path: str, runtime_paths: List[str] = None) 
         runtime_paths = []
 
     # Run the oneshot pure-Python decryption
-    run_oneshot_python(
-        directory=os.path.dirname(file_path),
-        runtime_paths=runtime_paths,
-        output_dir=pyarmor8_and_9_extracted_dir
-    )
+    run_oneshot_python(directory=os.path.dirname(file_path), runtime_paths=runtime_paths, output_dir=pyarmor8_and_9_extracted_dir)
 
     # Collect all decrypted files from pyarmor8_and_9_extracted_dir
     for root, _, files in os.walk(pyarmor8_and_9_extracted_dir):
@@ -5507,6 +5435,7 @@ def extract_and_return_pyarmor(file_path: str, runtime_paths: List[str] = None) 
 
     return pyarmor_files, main_decrypted_output
 
+
 def _try_jadx_decompile(file_path, main_file_path: Optional[str] = None) -> Optional[str]:
     """
     Attempt to decompile APK using JADX.
@@ -5517,7 +5446,7 @@ def _try_jadx_decompile(file_path, main_file_path: Optional[str] = None) -> Opti
         jadx_bin = os.path.join(jadx_dir, "bin", "jadx")
 
         # Use .bat for Windows, regular jadx for Unix
-        if os.name == 'nt':
+        if os.name == "nt":
             jadx_bin += ".bat"
 
         if not os.path.exists(jadx_bin):
@@ -5534,11 +5463,7 @@ def _try_jadx_decompile(file_path, main_file_path: Optional[str] = None) -> Opti
         output_dir = os.path.join(jadx_decompiled_dir, str(folder_number))
 
         # Build the JADX command
-        cmd = [
-            jadx_bin,
-            "-d", output_dir,
-            file_path
-        ]
+        cmd = [jadx_bin, "-d", output_dir, file_path]
 
         logger.info(f"Running JADX decompilation: {' '.join(cmd)}")
         subprocess.run(cmd, check=True, timeout=300)  # 5 minute timeout
@@ -5571,12 +5496,7 @@ def _try_androguard_decompile(file_path, main_file_path: Optional[str] = None) -
         os.makedirs(output_dir, exist_ok=True)
 
         # Build the command: androguard decompile -o <output_dir> <apk>
-        cmd = [
-            "androguard",
-            "decompile",
-            "-o", output_dir,
-            file_path
-        ]
+        cmd = ["androguard", "decompile", "-o", output_dir, file_path]
 
         logger.info(f"Running Androguard decompilation: {' '.join(cmd)}")
         subprocess.run(cmd, check=True, timeout=300)  # 5 minute timeout
@@ -5616,6 +5536,7 @@ def decompile_apk_file(file_path, main_file_path: Optional[str] = None):
     except Exception as ex:
         logger.error(f"Error decompiling APK {file_path}: {ex}")
 
+
 def decompile_dotnet_file(file_path, main_file_path: Optional[str] = None):
     """Decompile a .NET assembly using ILSpy."""
     try:
@@ -5629,11 +5550,7 @@ def decompile_dotnet_file(file_path, main_file_path: Optional[str] = None):
         os.makedirs(dotnet_output_dir, exist_ok=True)
 
         # Run ILSpy decompilation command
-        ilspy_command = [
-            ilspycmd_path,
-            "-o", dotnet_output_dir,
-            file_path
-        ]
+        ilspy_command = [ilspycmd_path, "-o", dotnet_output_dir, file_path]
         subprocess.run(ilspy_command, check=True)
         logger.info(f".NET content decompiled to {dotnet_output_dir}")
 
@@ -5641,6 +5558,7 @@ def decompile_dotnet_file(file_path, main_file_path: Optional[str] = None):
 
     except Exception as ex:
         logger.error(f"Error decompiling .NET file {file_path}: {ex}")
+
 
 def extract_npm_file(file_path):
     """
@@ -5663,11 +5581,7 @@ def extract_npm_file(file_path):
         os.makedirs(output_dir, exist_ok=True)
 
         # Run pkg-unpacker CLI: npm start -i <file_path> -o <output_dir>
-        unpack_command = [
-            "npm", "start",
-            "-i", str(file_path),
-            "-o", output_dir
-        ]
+        unpack_command = ["npm", "start", "-i", str(file_path), "-o", output_dir]
         subprocess.run(unpack_command, cwd=pkg_unpacker_dir, check=True)
         logger.info(f"Pkg binary extracted to {output_dir}")
 
@@ -5685,6 +5599,7 @@ def extract_npm_file(file_path):
     dispatch_firewall_web_scan(extracted_files, "npm_pkg_extract")
 
     return extracted_files
+
 
 def extract_asar_file(file_path):
     """
@@ -5705,12 +5620,7 @@ def extract_asar_file(file_path):
         os.makedirs(asar_output_dir, exist_ok=True)
 
         # Run asar extraction command
-        asar_command = [
-            "asar",
-            "extract",
-            file_path,
-            asar_output_dir
-        ]
+        asar_command = ["asar", "extract", file_path, asar_output_dir]
         subprocess.run(asar_command, check=True)
         logger.info(f"Asar archive extracted to {asar_output_dir}")
 
@@ -5724,6 +5634,7 @@ def extract_asar_file(file_path):
     except Exception as ex:
         logger.error(f"Error processing Asar file {file_path}: {ex}")
         return None
+
 
 def deobfuscate_webcrack_js(file_path) -> str:
     """
@@ -5744,12 +5655,7 @@ def deobfuscate_webcrack_js(file_path) -> str:
         os.makedirs(js_output_dir, exist_ok=True)
 
         # Run webcrack deobfuscation command
-        webcrack_command = [
-            "webcrack",
-            file_path,
-            "-o",
-            js_output_dir
-        ]
+        webcrack_command = ["webcrack", file_path, "-o", js_output_dir]
         subprocess.run(webcrack_command, check=True)
         logger.info(f"JavaScript deobfuscated to {js_output_dir}")
 
@@ -5766,33 +5672,35 @@ def deobfuscate_webcrack_js(file_path) -> str:
         return ""
 
 
-_JAVASCRIPT_AST_NODE_TYPES = frozenset({
-    "ArrowFunctionExpression",
-    "AssignmentExpression",
-    "AwaitExpression",
-    "CallExpression",
-    "ClassDeclaration",
-    "DoWhileStatement",
-    "ExportAllDeclaration",
-    "ExportDefaultDeclaration",
-    "ExportNamedDeclaration",
-    "ForInStatement",
-    "ForOfStatement",
-    "ForStatement",
-    "FunctionDeclaration",
-    "FunctionExpression",
-    "IfStatement",
-    "ImportDeclaration",
-    "NewExpression",
-    "ReturnStatement",
-    "SwitchStatement",
-    "TaggedTemplateExpression",
-    "ThrowStatement",
-    "TryStatement",
-    "UpdateExpression",
-    "VariableDeclaration",
-    "WhileStatement",
-})
+_JAVASCRIPT_AST_NODE_TYPES = frozenset(
+    {
+        "ArrowFunctionExpression",
+        "AssignmentExpression",
+        "AwaitExpression",
+        "CallExpression",
+        "ClassDeclaration",
+        "DoWhileStatement",
+        "ExportAllDeclaration",
+        "ExportDefaultDeclaration",
+        "ExportNamedDeclaration",
+        "ForInStatement",
+        "ForOfStatement",
+        "ForStatement",
+        "FunctionDeclaration",
+        "FunctionExpression",
+        "IfStatement",
+        "ImportDeclaration",
+        "NewExpression",
+        "ReturnStatement",
+        "SwitchStatement",
+        "TaggedTemplateExpression",
+        "ThrowStatement",
+        "TryStatement",
+        "UpdateExpression",
+        "VariableDeclaration",
+        "WhileStatement",
+    }
+)
 
 
 def _iter_esprima_nodes(node):
@@ -5848,6 +5756,7 @@ def is_javascript_source_by_ast(source_code: str) -> bool:
 
     return False
 
+
 def extract_all_files_with_7z(file_path, nsis_flag=False):
     """
     Extracts all files from an archive via 7-Zip CLI.
@@ -5868,20 +5777,10 @@ def extract_all_files_with_7z(file_path, nsis_flag=False):
         os.makedirs(output_dir, exist_ok=True)
 
         logger.info(f"Extracting {file_path} into {output_dir}...")
-        cmd = [
-            seven_zip_path, "x", file_path,
-            f"-o{output_dir}", "-y", "-snl", "-spe"
-        ]
-        proc = subprocess.run(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True, encoding="utf-8", errors="ignore"
-        )
+        cmd = [seven_zip_path, "x", file_path, f"-o{output_dir}", "-y", "-snl", "-spe"]
+        proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="ignore")
         if proc.returncode != 0:
-            logger.error(
-                f"7z extraction failed (code {proc.returncode}): {proc.stderr.strip()}"
-            )
+            logger.error(f"7z extraction failed (code {proc.returncode}): {proc.stderr.strip()}")
             return extracted_files
 
         # Collect all extracted file paths without inline NSIS web scanning
@@ -5895,6 +5794,7 @@ def extract_all_files_with_7z(file_path, nsis_flag=False):
         logger.error(f"Error during 7z extraction: {ex}")
         return extracted_files
 
+
 # Generic obfuscation decoder: reverse -> Base64 -> zlib
 def decode_blob(blob: str) -> str | None:
     """
@@ -5902,17 +5802,17 @@ def decode_blob(blob: str) -> str | None:
     Returns decoded string or None if failure.
     """
     try:
-        data = blob.encode('utf-8')
+        data = blob.encode("utf-8")
         # Try direct decode
         decoded = zlib.decompress(base64.b64decode(data))
-        return decoded.decode('utf-8', errors='replace')
+        return decoded.decode("utf-8", errors="replace")
     except Exception:
         pass
     try:
         # Try reversed
         data = data[::-1]
         decoded = zlib.decompress(base64.b64decode(data))
-        return decoded.decode('utf-8', errors='replace')
+        return decoded.decode("utf-8", errors="replace")
     except Exception:
         return None
 
@@ -5952,8 +5852,7 @@ def script_contains_obf(code: str) -> bool:
     """
     Heuristic to detect obfuscation: presence of large Base64 blobs and exec or decompress.
     """
-    if re.search(r"[rb]?'[A-Za-z0-9+/_-]{80,}=*'", code) and \
-       ("exec(" in code or "decompress" in code):
+    if re.search(r"[rb]?'[A-Za-z0-9+/_-]{80,}=*'", code) and ("exec(" in code or "decompress" in code):
         return True
     return False
 
@@ -5968,18 +5867,11 @@ class ExecToFileTransformer(ast.NodeTransformer):
     """
 
     def visit_Module(self, node: ast.Module) -> ast.Module:
-        already_injected = any(
-            isinstance(stmt, ast.Assign) and
-            any(isinstance(t, ast.Name) and t.id == "__exec_out" for t in stmt.targets)
-            for stmt in node.body
-        )
+        already_injected = any(isinstance(stmt, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "__exec_out" for t in stmt.targets) for stmt in node.body)
 
         if not already_injected:
             # Inject: import sys, pathlib
-            import_stmt = ast.Import(names=[
-                ast.alias(name="sys", asname=None),
-                ast.alias(name="pathlib", asname=None)
-            ])
+            import_stmt = ast.Import(names=[ast.alias(name="sys", asname=None), ast.alias(name="pathlib", asname=None)])
 
             # __exec_filename = str(Path(sys.argv[0]).with_name(Path(sys.argv[0]).stem + "_execs.py"))
             filename_assign = ast.Assign(
@@ -5990,70 +5882,39 @@ class ExecToFileTransformer(ast.NodeTransformer):
                         ast.Call(
                             func=ast.Attribute(
                                 value=ast.Call(
-                                    func=ast.Attribute(
-                                        value=ast.Name(id="pathlib", ctx=ast.Load()),
-                                        attr="Path", ctx=ast.Load()
-                                    ),
-                                    args=[
-                                        ast.Subscript(
-                                            value=ast.Attribute(
-                                                value=ast.Name(id="sys", ctx=ast.Load()),
-                                                attr="argv", ctx=ast.Load()
-                                            ),
-                                            slice=ast.Constant(value=0),
-                                            ctx=ast.Load()
-                                        )
-                                    ],
-                                    keywords=[]
+                                    func=ast.Attribute(value=ast.Name(id="pathlib", ctx=ast.Load()), attr="Path", ctx=ast.Load()),
+                                    args=[ast.Subscript(value=ast.Attribute(value=ast.Name(id="sys", ctx=ast.Load()), attr="argv", ctx=ast.Load()), slice=ast.Constant(value=0), ctx=ast.Load())],
+                                    keywords=[],
                                 ),
-                                attr="with_name", ctx=ast.Load()
+                                attr="with_name",
+                                ctx=ast.Load(),
                             ),
                             args=[
                                 ast.BinOp(
                                     left=ast.Attribute(
                                         value=ast.Call(
-                                            func=ast.Attribute(
-                                                value=ast.Name(id="pathlib", ctx=ast.Load()),
-                                                attr="Path", ctx=ast.Load()
-                                            ),
-                                            args=[
-                                                ast.Subscript(
-                                                    value=ast.Attribute(
-                                                        value=ast.Name(id="sys", ctx=ast.Load()),
-                                                        attr="argv", ctx=ast.Load()
-                                                    ),
-                                                    slice=ast.Constant(value=0),
-                                                    ctx=ast.Load()
-                                                )
-                                            ],
-                                            keywords=[]
+                                            func=ast.Attribute(value=ast.Name(id="pathlib", ctx=ast.Load()), attr="Path", ctx=ast.Load()),
+                                            args=[ast.Subscript(value=ast.Attribute(value=ast.Name(id="sys", ctx=ast.Load()), attr="argv", ctx=ast.Load()), slice=ast.Constant(value=0), ctx=ast.Load())],
+                                            keywords=[],
                                         ),
-                                        attr="stem", ctx=ast.Load()
+                                        attr="stem",
+                                        ctx=ast.Load(),
                                     ),
                                     op=ast.Add(),
-                                    right=ast.Constant(value="_execs.py")
+                                    right=ast.Constant(value="_execs.py"),
                                 )
                             ],
-                            keywords=[]
+                            keywords=[],
                         )
                     ],
-                    keywords=[]
-                )
+                    keywords=[],
+                ),
             )
 
             # __exec_out = open(__exec_filename, 'w', encoding='utf-8')
             file_assign = ast.Assign(
                 targets=[ast.Name(id="__exec_out", ctx=ast.Store())],
-                value=ast.Call(
-                    func=ast.Name(id="open", ctx=ast.Load()),
-                    args=[
-                        ast.Name(id="__exec_filename", ctx=ast.Load()),
-                        ast.Constant(value="w")
-                    ],
-                    keywords=[
-                        ast.keyword(arg="encoding", value=ast.Constant(value="utf-8"))
-                    ]
-                )
+                value=ast.Call(func=ast.Name(id="open", ctx=ast.Load()), args=[ast.Name(id="__exec_filename", ctx=ast.Load()), ast.Constant(value="w")], keywords=[ast.keyword(arg="encoding", value=ast.Constant(value="utf-8"))]),
             )
 
             # Insert at top
@@ -6067,77 +5928,33 @@ class ExecToFileTransformer(ast.NodeTransformer):
     def visit_Expr(self, node: ast.Expr) -> list[ast.AST] | ast.Expr:
         self.generic_visit(node)
 
-        if (
-            isinstance(node.value, ast.Call)
-            and isinstance(node.value.func, ast.Name)
-            and node.value.func.id == "exec"
-        ):
+        if isinstance(node.value, ast.Call) and isinstance(node.value.func, ast.Name) and node.value.func.id == "exec":
             code_arg = node.value.args[0] if node.value.args else ast.Constant(value="")
 
             # If compile(...), extract the source
-            if (
-                isinstance(code_arg, ast.Call)
-                and isinstance(code_arg.func, ast.Name)
-                and code_arg.func.id == "compile"
-                and len(code_arg.args) > 0
-            ):
+            if isinstance(code_arg, ast.Call) and isinstance(code_arg.func, ast.Name) and code_arg.func.id == "compile" and len(code_arg.args) > 0:
                 source_expr = code_arg.args[0]
             else:
                 source_expr = code_arg
 
-            assign_exec_val = ast.Assign(
-                targets=[ast.Name(id="__exec_val", ctx=ast.Store())],
-                value=source_expr
-            )
+            assign_exec_val = ast.Assign(targets=[ast.Name(id="__exec_val", ctx=ast.Store())], value=source_expr)
 
             strip_expr = ast.IfExp(
-                test=ast.Call(
-                    func=ast.Name(id="isinstance", ctx=ast.Load()),
-                    args=[
-                        ast.Name(id="__exec_val", ctx=ast.Load()),
-                        ast.Name(id="bytes", ctx=ast.Load())
-                    ],
-                    keywords=[]
-                ),
+                test=ast.Call(func=ast.Name(id="isinstance", ctx=ast.Load()), args=[ast.Name(id="__exec_val", ctx=ast.Load()), ast.Name(id="bytes", ctx=ast.Load())], keywords=[]),
                 body=ast.Call(
-                    func=ast.Attribute(
-                        value=ast.Call(
-                            func=ast.Attribute(
-                                value=ast.Name(id="__exec_val", ctx=ast.Load()),
-                                attr="decode", ctx=ast.Load()
-                            ),
-                            args=[ast.Constant(value="utf-8")],
-                            keywords=[]
-                        ),
-                        attr="rstrip", ctx=ast.Load()
-                    ),
+                    func=ast.Attribute(value=ast.Call(func=ast.Attribute(value=ast.Name(id="__exec_val", ctx=ast.Load()), attr="decode", ctx=ast.Load()), args=[ast.Constant(value="utf-8")], keywords=[]), attr="rstrip", ctx=ast.Load()),
                     args=[ast.Constant(value="\n")],
-                    keywords=[]
+                    keywords=[],
                 ),
-                orelse=ast.Call(
-                    func=ast.Attribute(
-                        value=ast.Name(id="__exec_val", ctx=ast.Load()),
-                        attr="rstrip", ctx=ast.Load()
-                    ),
-                    args=[ast.Constant(value="\n")],
-                    keywords=[]
-                )
+                orelse=ast.Call(func=ast.Attribute(value=ast.Name(id="__exec_val", ctx=ast.Load()), attr="rstrip", ctx=ast.Load()), args=[ast.Constant(value="\n")], keywords=[]),
             )
 
-            write_expr = ast.Expr(
-                value=ast.Call(
-                    func=ast.Attribute(
-                        value=ast.Name(id="__exec_out", ctx=ast.Load()),
-                        attr="write", ctx=ast.Load()
-                    ),
-                    args=[strip_expr],
-                    keywords=[]
-                )
-            )
+            write_expr = ast.Expr(value=ast.Call(func=ast.Attribute(value=ast.Name(id="__exec_out", ctx=ast.Load()), attr="write", ctx=ast.Load()), args=[strip_expr], keywords=[]))
 
             return [assign_exec_val, write_expr]
 
         return node
+
 
 # Generic normalization using literal_eval
 def normalize_code_text(raw_text: str) -> str:
@@ -6146,10 +5963,11 @@ def normalize_code_text(raw_text: str) -> str:
     except Exception:
         return raw_text
     if isinstance(val, (bytes, bytearray)):
-        return val.decode('utf-8', errors='ignore')
+        return val.decode("utf-8", errors="ignore")
     if isinstance(val, str):
         return val
     return raw_text
+
 
 def safe_eval_node(node):
     """
@@ -6194,36 +6012,39 @@ def safe_eval_node(node):
     else:
         logger.error(f"Unsupported AST node type: {ast.dump(node)}")
 
+
 def find_balanced_parens(s, start_idx):
     count = 0
     for i in range(start_idx, len(s)):
-        if s[i] == '(':
+        if s[i] == "(":
             count += 1
-        elif s[i] == ')':
+        elif s[i] == ")":
             count -= 1
             if count == 0:
-                return s[start_idx + 1:i], i
+                return s[start_idx + 1 : i], i
     return None, None
+
 
 def pack_uint32(val):
     return struct.pack("<I", val)
 
+
 class PruneIfs(ast.NodeTransformer):
     """Prune if statements with constant conditions."""
+
     def visit_If(self, node: ast.If):
         self.generic_visit(node)
         # handle tests like `if CONST:` or `if CONST == False:`
         if isinstance(node.test, ast.Constant):
             return node.body if node.test.value else []
-        if (isinstance(node.test, ast.Compare) \
-                and len(node.test.ops) == 1 \
-                and isinstance(node.test.comparators[0], ast.Constant)):
+        if isinstance(node.test, ast.Compare) and len(node.test.ops) == 1 and isinstance(node.test.comparators[0], ast.Constant):
             val = node.test.comparators[0].value
             if isinstance(node.test.ops[0], ast.Eq):
                 return node.body if val else []
             if isinstance(node.test.ops[0], ast.NotEq):
                 return node.orelse
         return node
+
 
 def run_pycdas_decompiler(file_path):
     """
@@ -6255,6 +6076,7 @@ def run_pycdas_decompiler(file_path):
     except Exception as e:
         logger.error(f"Error running pycdas: {e}")
         return None
+
 
 def deobfuscate_with_net_reactor(file_path, file_basename):
     """
@@ -6329,6 +6151,7 @@ def deobfuscate_with_net_reactor(file_path, file_basename):
     logger.error(f"Timeout: No deobfuscated file found after {max_wait_time} seconds")
     return None
 
+
 def deobfuscate_with_confuserex(file_path, file_basename, max_wait_time=1200):
     """
     Deobfuscate a .NET assembly protected with ConfuserEx using UnConfuserEx.exe.
@@ -6385,6 +6208,7 @@ def deobfuscate_with_confuserex(file_path, file_basename, max_wait_time=1200):
     logger.error(f"Timeout: No UnConfuserEx output found after {max_wait_time} seconds")
     return None
 
+
 def deobfuscate_with_obfuscar(file_path, file_basename):
     """
     Deobfuscate a .NET assembly protected with Obfuscar.
@@ -6438,6 +6262,7 @@ def deobfuscate_with_obfuscar(file_path, file_basename):
 
     return deobfuscated_file_path
 
+
 def extract_rcdata_resource(pe_path):
     try:
         pe = pefile.PE(pe_path)
@@ -6446,7 +6271,7 @@ def extract_rcdata_resource(pe_path):
         return None, []
 
     # Check if the PE file has any resources
-    if not hasattr(pe, 'DIRECTORY_ENTRY_RESOURCE'):
+    if not hasattr(pe, "DIRECTORY_ENTRY_RESOURCE"):
         logger.error("No resources found in this file.")
         return None, []
 
@@ -6454,28 +6279,25 @@ def extract_rcdata_resource(pe_path):
     all_extracted_files = []  # Store all extracted file paths for scanning
 
     # Ensure the output directory exists
-    output_dir = os.path.join(
-        nuitka_extracted_dir,
-        os.path.splitext(os.path.basename(pe_path))[0]
-    )
+    output_dir = os.path.join(nuitka_extracted_dir, os.path.splitext(os.path.basename(pe_path))[0])
     os.makedirs(output_dir, exist_ok=True)
 
     # Traverse the resource directory tree
     for resource_type in pe.DIRECTORY_ENTRY_RESOURCE.entries:
         type_name = get_resource_name(resource_type)
-        if not hasattr(resource_type, 'directory'):
+        if not hasattr(resource_type, "directory"):
             continue
 
         for resource_id in resource_type.directory.entries:
             res_id = get_resource_name(resource_id)
-            if not hasattr(resource_id, 'directory'):
+            if not hasattr(resource_id, "directory"):
                 continue
 
             for resource_lang in resource_id.directory.entries:
                 lang_id = resource_lang.id
                 data_rva = resource_lang.data.struct.OffsetToData
                 size = resource_lang.data.struct.Size
-                data = pe.get_memory_mapped_image()[data_rva:data_rva + size]
+                data = pe.get_memory_mapped_image()[data_rva : data_rva + size]
 
                 # Construct the filename: "<type>_<id>_<lang>.bin"
                 file_name = f"{type_name}_{res_id}_{lang_id}.bin"
@@ -6502,6 +6324,7 @@ def extract_rcdata_resource(pe_path):
     if first_rcdata_file is None:
         logger.info("No matching RCData resource (10_3_0.bin) found.")
     return first_rcdata_file, all_extracted_files
+
 
 def extract_nuitka_file(file_path, nuitka_type, main_file_path=None):
     """
@@ -6586,6 +6409,7 @@ def extract_nuitka_file(file_path, nuitka_type, main_file_path=None):
         logger.error(f"Unexpected error while extracting Nuitka file ({file_path}): {ex}")
         return None
 
+
 def extract_resources(pe_path, output_dir):
     """
     Extract resources from a PE file and scan each extracted file.
@@ -6601,7 +6425,7 @@ def extract_resources(pe_path, output_dir):
         return None
 
     # Check if the PE file has resources
-    if not hasattr(pe, 'DIRECTORY_ENTRY_RESOURCE'):
+    if not hasattr(pe, "DIRECTORY_ENTRY_RESOURCE"):
         return None
 
     os.makedirs(output_dir, exist_ok=True)
@@ -6610,19 +6434,19 @@ def extract_resources(pe_path, output_dir):
     # Traverse the resource directory
     for resource_type in pe.DIRECTORY_ENTRY_RESOURCE.entries:
         type_name = get_resource_name(resource_type)
-        if not hasattr(resource_type, 'directory'):
+        if not hasattr(resource_type, "directory"):
             continue
 
         for resource_id in resource_type.directory.entries:
             res_id = get_resource_name(resource_id)
-            if not hasattr(resource_id, 'directory'):
+            if not hasattr(resource_id, "directory"):
                 continue
 
             for resource_lang in resource_id.directory.entries:
                 lang_id = resource_lang.id
                 data_rva = resource_lang.data.struct.OffsetToData
                 size = resource_lang.data.struct.Size
-                data = pe.get_memory_mapped_image()[data_rva:data_rva + size]
+                data = pe.get_memory_mapped_image()[data_rva : data_rva + size]
 
                 # Create a filename: resourceType_resourceID_langID.bin
                 file_name = f"{type_name}_{res_id}_{lang_id}.bin"
@@ -6641,6 +6465,7 @@ def extract_resources(pe_path, output_dir):
 
     return extracted_files
 
+
 def run_vineflower_decompiler(file_path):
     """
     Uses vineflower to decompile the given JAR file.
@@ -6652,7 +6477,6 @@ def run_vineflower_decompiler(file_path):
       list[str] | None: List of paths to files in the decompiled output directory, or None on error.
     """
     try:
-
         # Build the path to vineflower.jar.
         base_name = os.path.splitext(os.path.basename(file_path))[0]
 
@@ -6666,14 +6490,7 @@ def run_vineflower_decompiler(file_path):
         Path(vineflower_output_dir).mkdir(parents=True, exist_ok=True)
 
         command = ["java", "-jar", vineflower_path, file_path, vineflower_output_dir]
-        result = subprocess.run(
-            command,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            encoding="utf-8",
-            errors="ignore"
-        )
+        result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="ignore")
 
         if result.returncode == 0:
             logger.info(f"vineflower decompilation successful to: {vineflower_output_dir}")
@@ -6689,6 +6506,7 @@ def run_vineflower_decompiler(file_path):
     except Exception as ex:
         logger.error(f"Error in run_vineflower_decompiler: {ex}")
         return None
+
 
 def run_jar_extractor(file_path, flag_vineflower):
     """
@@ -6709,15 +6527,7 @@ def run_jar_extractor(file_path, flag_vineflower):
         # Build the command to extract the JAR file using the JDK jar tool.
         # "jar xf" will extract the contents into the current working directory.
         jar_command = ["jar", "xf", file_path]
-        result = subprocess.run(
-            jar_command,
-            cwd=extracted_dir,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            encoding="utf-8",
-            errors="ignore"
-        )
+        result = subprocess.run(jar_command, cwd=extracted_dir, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="ignore")
 
         if result.returncode == 0:
             logger.info("JAR extraction completed successfully.")
@@ -6754,6 +6564,7 @@ def run_jar_extractor(file_path, flag_vineflower):
         logger.error(f"Error in run_jar_extractor: {ex}")
         return None
 
+
 def extract_inno_setup(file_path):
     """
     Extracts an Inno Setup installer using innounp-2.
@@ -6775,13 +6586,14 @@ def extract_inno_setup(file_path):
         # Run innounp-2 to extract files
         cmd = [
             inno_unpack_path,
-            "-x",               # extract files with full paths
-            "-b",               # batch mode (non-interactive)
-            "-u",               # use UTF-8 output (for filenames with unicode)
-            "-a",               # extract all copies of duplicate files
-            "-m",               # extract internal embedded files (such as license and uninstall.exe)
-            "-d", output_dir,   # output directory
-            file_path           # the installer to unpack
+            "-x",  # extract files with full paths
+            "-b",  # batch mode (non-interactive)
+            "-u",  # use UTF-8 output (for filenames with unicode)
+            "-a",  # extract all copies of duplicate files
+            "-m",  # extract internal embedded files (such as license and uninstall.exe)
+            "-d",
+            output_dir,  # output directory
+            file_path,  # the installer to unpack
         ]
 
         result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="ignore")
@@ -6813,6 +6625,7 @@ def extract_inno_setup(file_path):
     except Exception as ex:
         logger.error(f"Error extracting Inno Setup file {file_path}: {ex}")
         return None
+
 
 def decompile_ahk_exe(file_path):
     """
@@ -6848,7 +6661,7 @@ def decompile_ahk_exe(file_path):
                     for res in entry.directory.entries:
                         data_rva = res.directory.entries[0].data.struct.OffsetToData
                         size = res.directory.entries[0].data.struct.Size
-                        data = pe.get_memory_mapped_image()[data_rva:data_rva + size]
+                        data = pe.get_memory_mapped_image()[data_rva : data_rva + size]
                         with open(rc_output_path, "wb") as f:
                             f.write(data)
                         resource_extracted = True
@@ -6875,6 +6688,7 @@ def decompile_ahk_exe(file_path):
         logger.error(f"Failed to decompile AHK EXE {file_path}: {ex}")
         return None
 
+
 def extract_installshield(file_path):
     """
     Unpacks an InstallShield file using ISx.exe.
@@ -6898,19 +6712,8 @@ def extract_installshield(file_path):
             folder_number += 1
 
         # run ISx.exe: `ISx.exe <InstallShield file> [output dir]`
-        cmd = [
-            ISx_installshield_extractor_path,
-            file_path,
-            output_dir
-        ]
-        result = subprocess.run(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            encoding="utf-8",
-            errors="ignore"
-        )
+        cmd = [ISx_installshield_extractor_path, file_path, output_dir]
+        result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="ignore")
 
         if result.returncode != 0:
             logger.error(f"ISx extraction failed ({result.returncode}): {result.stderr.strip()}")
@@ -6922,6 +6725,7 @@ def extract_installshield(file_path):
     except Exception as ex:
         logger.error(f"Error extracting InstallShield file {file_path}: {ex}")
         return None
+
 
 def extract_autoit(file_path):
     """
@@ -6946,20 +6750,9 @@ def extract_autoit(file_path):
             folder_number += 1
 
         # Run autoit-ripper: `autoit-ripper <binary> <output_dir>`
-        cmd = [
-            "autoit-ripper",
-            file_path,
-            output_dir
-        ]
+        cmd = ["autoit-ripper", file_path, output_dir]
 
-        result = subprocess.run(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            encoding="utf-8",
-            errors="ignore"
-        )
+        result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="ignore")
 
         if result.returncode != 0:
             logger.error(f"autoit-ripper extraction failed ({result.returncode}): {result.stderr.strip()}")
@@ -6971,6 +6764,7 @@ def extract_autoit(file_path):
     except Exception as ex:
         logger.error(f"Error extracting AutoIt binary {file_path}: {ex}")
         return None
+
 
 def extract_upx(file_path):
     """
@@ -6997,18 +6791,12 @@ def extract_upx(file_path):
         # Run UPX to decompress
         cmd = [
             upx_path,
-            "-d",                 # decompress mode
+            "-d",  # decompress mode
             file_path,
-            "-o", output_path     # output file
+            "-o",
+            output_path,  # output file
         ]
-        result = subprocess.run(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            encoding="utf-8",
-            errors="ignore"
-        )
+        result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="ignore")
         if result.returncode != 0:
             logger.error(f"UPX unpack failed: {result.stderr.strip()}")
             return None
@@ -7019,6 +6807,7 @@ def extract_upx(file_path):
     except Exception as ex:
         logger.error(f"Error unpacking UPX file {file_path}: {ex}")
         return None
+
 
 def extract_pe_sections(file_path: str):
     try:
@@ -7035,7 +6824,7 @@ def extract_pe_sections(file_path: str):
         # Extract sections
         for section in pe.sections:
             # Get section name and clean it
-            section_name = section.Name.decode().strip('\x00')
+            section_name = section.Name.decode().strip("\x00")
             section_data = section.get_data()
 
             # Use the provided get_unique_output_path to generate a unique file name
@@ -7054,6 +6843,7 @@ def extract_pe_sections(file_path: str):
     except Exception as e:
         logger.error(f"An error occurred: {e}")
         return []  # Return an empty list in case of error
+
 
 def decompile_cx_freeze(executable_path):
     """
@@ -7079,7 +6869,7 @@ def decompile_cx_freeze(executable_path):
     extracted_pyc_path = os.path.join(cx_freeze_extracted_dir, target_pyc_name)
 
     try:
-        with pyzipper.AESZipFile(lib_zip_path, 'r') as zipf:
+        with pyzipper.AESZipFile(lib_zip_path, "r") as zipf:
             if target_pyc_name not in zipf.namelist():
                 logger.error("File '%s' not found in archive: %s", target_pyc_name, lib_zip_path)
                 return None
@@ -7094,6 +6884,7 @@ def decompile_cx_freeze(executable_path):
         return None
 
     return extracted_pyc_path
+
 
 def show_code_with_pylingual_pycdas(
     file_path: str,
@@ -7163,6 +6954,7 @@ def show_code_with_pylingual_pycdas(
         logger.error(f"Unexpected error in show_code_with_pylingual_pycdas for {file_path}: {ex}")
         return None, None
 
+
 def run_themida_unlicense(file_path, x64=False):
     """
     Runs Themida/WinLicense unpacker directly (no Sandboxie).
@@ -7187,17 +6979,11 @@ def run_themida_unlicense(file_path, x64=False):
         logger.info(f"Unlicense unpacking succeeded for {file_path}")
 
         # Expected unpacked file in same directory
-        unpacked_path = os.path.join(
-            os.path.dirname(file_path),
-            "unpacked_" + os.path.basename(file_path)
-        )
+        unpacked_path = os.path.join(os.path.dirname(file_path), "unpacked_" + os.path.basename(file_path))
 
         if os.path.isfile(unpacked_path):
             # Move unpacked file into themida_unpacked_dir with unique name
-            final_path = os.path.join(
-                themida_unpacked_dir,
-                "unpacked_" + os.path.basename(file_path)
-            )
+            final_path = os.path.join(themida_unpacked_dir, "unpacked_" + os.path.basename(file_path))
             if os.path.exists(final_path):
                 base, ext = os.path.splitext(final_path)
                 counter = 1
@@ -7253,19 +7039,15 @@ class VBADeobfuscator:
 
     def _decode_hex_strings(self, code: str) -> str:
         """Decode hex-encoded strings like &H41&H42&H43."""
-        pattern = r'(?:&H[0-9A-Fa-f]{2})+(?:&H[0-9A-Fa-f]{2})*'
+        pattern = r"(?:&H[0-9A-Fa-f]{2})+(?:&H[0-9A-Fa-f]{2})*"
 
         def replace_hex(match):
             hex_str = match.group(0)
-            hex_values = re.findall(r'&H([0-9A-Fa-f]{2})', hex_str)
+            hex_values = re.findall(r"&H([0-9A-Fa-f]{2})", hex_str)
             try:
-                decoded = ''.join(chr(int(h, 16)) for h in hex_values)
+                decoded = "".join(chr(int(h, 16)) for h in hex_values)
                 if decoded.isprintable():
-                    self.decoded_strings.append({
-                        'type': 'Hex',
-                        'encoded': hex_str,
-                        'decoded': decoded
-                    })
+                    self.decoded_strings.append({"type": "Hex", "encoded": hex_str, "decoded": decoded})
                     return f'"{decoded}"'
             except Exception:
                 pass
@@ -7281,13 +7063,9 @@ class VBADeobfuscator:
         def replace_base64(match):
             b64_str = match.group(1)
             try:
-                decoded = base64.b64decode(b64_str).decode('utf-8', errors='ignore')
+                decoded = base64.b64decode(b64_str).decode("utf-8", errors="ignore")
                 if len(decoded) > 3 and decoded.isprintable():
-                    self.decoded_strings.append({
-                        'type': 'Base64',
-                        'encoded': b64_str,
-                        'decoded': decoded
-                    })
+                    self.decoded_strings.append({"type": "Base64", "encoded": b64_str, "decoded": decoded})
                     return f'"{decoded}"'
             except Exception:
                 pass
@@ -7297,7 +7075,7 @@ class VBADeobfuscator:
 
     def _decode_chr_sequences(self, code: str) -> str:
         """Decode Chr() function sequences like Chr(65) & Chr(66) & Chr(67)."""
-        pattern = r'Chr[W$]?\s*\(\s*(\d+)\s*\)'
+        pattern = r"Chr[W$]?\s*\(\s*(\d+)\s*\)"
 
         def replace_chr(match):
             char_code = int(match.group(1))
@@ -7324,11 +7102,7 @@ class VBADeobfuscator:
         def replace_strreverse(match):
             original = match.group(1)
             reversed_str = original[::-1]
-            self.decoded_strings.append({
-                'type': 'StrReverse',
-                'encoded': original,
-                'decoded': reversed_str
-            })
+            self.decoded_strings.append({"type": "StrReverse", "encoded": original, "decoded": reversed_str})
             return f'"{reversed_str}"'
 
         return re.sub(pattern, replace_strreverse, code, flags=re.IGNORECASE)
@@ -7370,11 +7144,7 @@ class VBADeobfuscator:
             # Just show what it would produce
             parts = string.split(delimiter)
             if len(parts) > 1:
-                self.decoded_strings.append({
-                    'type': 'Split',
-                    'encoded': f'Split("{string}", "{delimiter}")',
-                    'decoded': str(parts)
-                })
+                self.decoded_strings.append({"type": "Split", "encoded": f'Split("{string}", "{delimiter}")', "decoded": str(parts)})
 
         re.sub(pattern, replace_split, code, flags=re.IGNORECASE)
         return code
@@ -7388,29 +7158,21 @@ class VBADeobfuscator:
             find = match.group(2)
             replace_with = match.group(3)
             result = original.replace(find, replace_with)
-            self.decoded_strings.append({
-                'type': 'Replace',
-                'encoded': f'Replace("{original}", "{find}", "{replace_with}")',
-                'decoded': result
-            })
+            self.decoded_strings.append({"type": "Replace", "encoded": f'Replace("{original}", "{find}", "{replace_with}")', "decoded": result})
             return f'"{result}"'
 
         return re.sub(pattern, replace_func, code, flags=re.IGNORECASE)
 
     def _decode_ascii_codes(self, code: str) -> str:
         """Decode arrays of ASCII codes like Array(65, 66, 67)."""
-        pattern = r'Array\s*\(\s*((?:\d+\s*,\s*)*\d+)\s*\)'
+        pattern = r"Array\s*\(\s*((?:\d+\s*,\s*)*\d+)\s*\)"
 
         def replace_array(match):
-            numbers = [int(n.strip()) for n in match.group(1).split(',')]
+            numbers = [int(n.strip()) for n in match.group(1).split(",")]
             try:
-                decoded = ''.join(chr(n) for n in numbers if 0 <= n <= 255)
+                decoded = "".join(chr(n) for n in numbers if 0 <= n <= 255)
                 if decoded.isprintable():
-                    self.decoded_strings.append({
-                        'type': 'ASCII Array',
-                        'encoded': match.group(0),
-                        'decoded': decoded
-                    })
+                    self.decoded_strings.append({"type": "ASCII Array", "encoded": match.group(0), "decoded": decoded})
                     return f'"{decoded}"'
             except Exception:
                 pass
@@ -7431,11 +7193,7 @@ class VBADeobfuscator:
                 # Try common Dridex decoding
                 decoded = self._try_dridex_decode(encoded)
                 if decoded:
-                    self.decoded_strings.append({
-                        'type': 'Dridex',
-                        'encoded': encoded,
-                        'decoded': decoded
-                    })
+                    self.decoded_strings.append({"type": "Dridex", "encoded": encoded, "decoded": decoded})
                     return f'"{decoded}"'
             return match.group(0)
 
@@ -7463,8 +7221,8 @@ class VBADeobfuscator:
             # Dridex typically uses XOR with a key
             # Try common keys
             for key in [0x42, 0x55, 0x7A, 0xFF]:
-                decoded = ''.join(chr(ord(c) ^ key) for c in s)
-                if decoded.isprintable() and ' ' in decoded:
+                decoded = "".join(chr(ord(c) ^ key) for c in s)
+                if decoded.isprintable() and " " in decoded:
                     return decoded
         except Exception:
             pass
@@ -7548,12 +7306,7 @@ class OLE2Handler:
 
     def _get_file_type(self, type_constant) -> str:
         """Convert type constant to readable string."""
-        type_map = {
-            TYPE_OLE: "OLE (MS Office 97-2003)",
-            TYPE_OpenXML: "OpenXML (MS Office 2007+)",
-            TYPE_Word2003_XML: "Word 2003 XML",
-            TYPE_MHTML: "MHTML"
-        }
+        type_map = {TYPE_OLE: "OLE (MS Office 97-2003)", TYPE_OpenXML: "OpenXML (MS Office 2007+)", TYPE_Word2003_XML: "Word 2003 XML", TYPE_MHTML: "MHTML"}
         return type_map.get(type_constant, "Unknown")
 
     def _extract_macros(self, vbaparser: VBA_Parser, output_dir: str) -> int:
@@ -7565,7 +7318,7 @@ class OLE2Handler:
         """
         macro_count = 0
 
-        for (filename, stream_path, vba_filename, vba_code) in vbaparser.extract_macros():
+        for filename, stream_path, vba_filename, vba_code in vbaparser.extract_macros():
             macro_count += 1
 
             # Create safe filename
@@ -7573,11 +7326,11 @@ class OLE2Handler:
             output_file = os.path.join(output_dir, f"macro_{macro_count}_{safe_name}.vba")
 
             # Save macro with metadata
-            with open(output_file, 'w', encoding='utf-8', errors='replace') as f:
+            with open(output_file, "w", encoding="utf-8", errors="replace") as f:
                 f.write(f"' Source File: {filename}\n")
                 f.write(f"' OLE Stream: {stream_path}\n")
                 f.write(f"' VBA Module: {vba_filename}\n")
-                f.write("'" + "="*70 + "\n\n")
+                f.write("'" + "=" * 70 + "\n\n")
                 f.write(vba_code)
 
             logger.info(f"Extracted macro to: {output_file}")
@@ -7599,20 +7352,12 @@ class OLE2Handler:
             # Save analysis results
             analysis_file = os.path.join(output_dir, "analysis_results.txt")
 
-            with open(analysis_file, 'w', encoding='utf-8', errors='replace') as f:
+            with open(analysis_file, "w", encoding="utf-8", errors="replace") as f:
                 f.write("VBA MACRO ANALYSIS RESULTS\n")
-                f.write("="*70 + "\n\n")
+                f.write("=" * 70 + "\n\n")
 
                 # Group results by type
-                categories = {
-                    'AutoExec': [],
-                    'Suspicious': [],
-                    'IOC': [],
-                    'Hex String': [],
-                    'Base64 String': [],
-                    'Dridex String': [],
-                    'VBA obfuscated Strings': []
-                }
+                categories = {"AutoExec": [], "Suspicious": [], "IOC": [], "Hex String": [], "Base64 String": [], "Dridex String": [], "VBA obfuscated Strings": []}
 
                 for kw_type, keyword, description in results:
                     if kw_type in categories:
@@ -7622,16 +7367,16 @@ class OLE2Handler:
                 for category, items in categories.items():
                     if items:
                         f.write(f"\n{category.upper()}\n")
-                        f.write("-"*70 + "\n")
+                        f.write("-" * 70 + "\n")
                         for keyword, description in items:
                             f.write(f"  Keyword: {keyword}\n")
                             f.write(f"  Description: {description}\n")
                             f.write("\n")
 
                 # Write statistics
-                f.write("\n" + "="*70 + "\n")
+                f.write("\n" + "=" * 70 + "\n")
                 f.write("STATISTICS\n")
-                f.write("="*70 + "\n")
+                f.write("=" * 70 + "\n")
                 f.write(f"AutoExec keywords: {vbaparser.nb_autoexec}\n")
                 f.write(f"Suspicious keywords: {vbaparser.nb_suspicious}\n")
                 f.write(f"IOCs: {vbaparser.nb_iocs}\n")
@@ -7663,10 +7408,10 @@ class OLE2Handler:
             if revealed_code:
                 output_file = os.path.join(output_dir, "deobfuscated_oletools.vba")
 
-                with open(output_file, 'w', encoding='utf-8', errors='replace') as f:
+                with open(output_file, "w", encoding="utf-8", errors="replace") as f:
                     f.write("' DEOBFUSCATED VBA MACRO CODE (oletools)\n")
                     f.write("' (Obfuscated strings replaced with decoded content)\n")
-                    f.write("'" + "="*70 + "\n\n")
+                    f.write("'" + "=" * 70 + "\n\n")
                     f.write(revealed_code)
 
                 logger.info(f"Deobfuscated code (oletools) saved to: {output_file}")
@@ -7679,7 +7424,7 @@ class OLE2Handler:
         """
         try:
             # Find all macro files
-            macro_files = [f for f in os.listdir(output_dir) if f.startswith('macro_') and f.endswith('.vba')]
+            macro_files = [f for f in os.listdir(output_dir) if f.startswith("macro_") and f.endswith(".vba")]
 
             if not macro_files:
                 return
@@ -7690,24 +7435,24 @@ class OLE2Handler:
 
             all_decoded = []
 
-            with open(advanced_output, 'w', encoding='utf-8', errors='replace') as out_f:
+            with open(advanced_output, "w", encoding="utf-8", errors="replace") as out_f:
                 out_f.write("' ADVANCED DEOBFUSCATED VBA MACRO CODE\n")
                 out_f.write("' (Multiple deobfuscation techniques applied)\n")
-                out_f.write("'" + "="*70 + "\n\n")
+                out_f.write("'" + "=" * 70 + "\n\n")
 
                 for macro_file in macro_files:
                     macro_path = os.path.join(output_dir, macro_file)
 
-                    with open(macro_path, 'r', encoding='utf-8', errors='replace') as in_f:
+                    with open(macro_path, "r", encoding="utf-8", errors="replace") as in_f:
                         vba_code = in_f.read()
 
                     # Apply deobfuscation
                     deobfuscated, decoded_strings = self.deobfuscator.deobfuscate(vba_code)
                     all_decoded.extend(decoded_strings)
 
-                    out_f.write(f"\n' {'='*70}\n")
+                    out_f.write(f"\n' {'=' * 70}\n")
                     out_f.write(f"' Source: {macro_file}\n")
-                    out_f.write(f"' {'='*70}\n\n")
+                    out_f.write(f"' {'=' * 70}\n\n")
                     out_f.write(deobfuscated)
                     out_f.write("\n\n")
 
@@ -7715,15 +7460,15 @@ class OLE2Handler:
 
             # Save decoded strings separately
             if all_decoded:
-                with open(decoded_strings_file, 'w', encoding='utf-8', errors='replace') as f:
+                with open(decoded_strings_file, "w", encoding="utf-8", errors="replace") as f:
                     f.write("DECODED STRINGS FROM VBA MACROS\n")
-                    f.write("="*70 + "\n\n")
+                    f.write("=" * 70 + "\n\n")
 
                     for item in all_decoded:
                         f.write(f"Type: {item['type']}\n")
                         f.write(f"Encoded: {item['encoded']}\n")
                         f.write(f"Decoded: {item['decoded']}\n")
-                        f.write("-"*70 + "\n")
+                        f.write("-" * 70 + "\n")
 
                 logger.info(f"Decoded strings saved to: {decoded_strings_file}")
                 logger.info(f"Total decoded strings: {len(all_decoded)}")
@@ -7744,23 +7489,23 @@ class OLE2Handler:
         iocs = []
 
         try:
-            with open(analysis_file, 'r', encoding='utf-8', errors='replace') as f:
+            with open(analysis_file, "r", encoding="utf-8", errors="replace") as f:
                 in_ioc_section = False
                 keyword = None
 
                 for line in f:
-                    if 'IOC' in line and '-'*50 in line:
+                    if "IOC" in line and "-" * 50 in line:
                         in_ioc_section = True
                         continue
 
                     if in_ioc_section:
-                        if line.startswith('\n') or '='*50 in line:
+                        if line.startswith("\n") or "=" * 50 in line:
                             break
 
-                        if 'Keyword:' in line:
-                            keyword = line.split('Keyword:', 1)[1].strip()
-                        elif 'Description:' in line and keyword:
-                            description = line.split('Description:', 1)[1].strip()
+                        if "Keyword:" in line:
+                            keyword = line.split("Keyword:", 1)[1].strip()
+                        elif "Description:" in line and keyword:
+                            description = line.split("Description:", 1)[1].strip()
                             iocs.append((description, keyword))
                             keyword = None
 
@@ -7769,9 +7514,11 @@ class OLE2Handler:
 
         return iocs
 
+
 def is_malicious_file(file_path, size_limit_kb):
-    """ Check if the file is less than the given size limit """
+    """Check if the file is less than the given size limit"""
     return os.path.getsize(file_path) < size_limit_kb * 1024
+
 
 def nexe_unpacker(file_path) -> list:
     """
@@ -7795,12 +7542,7 @@ def nexe_unpacker(file_path) -> list:
         os.makedirs(js_output_dir, exist_ok=True)
 
         # Run nexe_unpacker command to extract the JavaScript bundle
-        nexe_command = [
-            "nexe_unpacker",
-            file_path,
-            "-o",
-            js_output_dir
-        ]
+        nexe_command = ["nexe_unpacker", file_path, "-o", js_output_dir]
         subprocess.run(nexe_command, check=True)
         logger.info(f"nexe JavaScript extracted to {js_output_dir}")
 
@@ -7819,6 +7561,7 @@ def nexe_unpacker(file_path) -> list:
         logger.error(f"Error processing nexe file {file_path}: {ex}")
         return []
 
+
 async def check_hosts_file_for_blocked_antivirus() -> bool:
     """
     Forward the current hosts file contents to the firewall for centralized
@@ -7830,13 +7573,13 @@ async def check_hosts_file_for_blocked_antivirus() -> bool:
 
         def _read_hosts_entries() -> List[dict]:
             entries: List[dict] = []
-            with open(hosts_path, 'r', encoding='utf-8') as hf:
+            with open(hosts_path, "r", encoding="utf-8") as hf:
                 for raw in hf:
                     line = raw.strip()
-                    if not line or line.startswith('#'):
+                    if not line or line.startswith("#"):
                         continue
 
-                    parts = re.split(r'\s+', line)
+                    parts = re.split(r"\s+", line)
                     if len(parts) < 2:
                         continue
 
@@ -7856,6 +7599,7 @@ async def check_hosts_file_for_blocked_antivirus() -> bool:
         logger.error(f"Error reading hosts file: {ex}")
         return False
 
+
 def analyze_specific_process(process_name_or_path: str) -> Optional[str]:
     """
     Dump a process using HydraDragonDumper and return a dumped .exe according to:
@@ -7871,11 +7615,11 @@ def analyze_specific_process(process_name_or_path: str) -> Optional[str]:
 
         # Find matching processes
         matching_processes = []
-        for proc in psutil.process_iter(['pid', 'name', 'exe']):
+        for proc in psutil.process_iter(["pid", "name", "exe"]):
             try:
-                pname = proc.info.get('name')
+                pname = proc.info.get("name")
                 if pname and pname.lower() == process_name.lower():
-                    matching_processes.append((proc.info['pid'], proc.info.get('exe')))
+                    matching_processes.append((proc.info["pid"], proc.info.get("exe")))
             except (psutil.NoSuchProcess, psutil.AccessDenied):
                 continue
 
@@ -7904,7 +7648,7 @@ def analyze_specific_process(process_name_or_path: str) -> Optional[str]:
             if os.path.exists(pid_hydra_dir):
                 for fname in os.listdir(pid_hydra_dir):
                     full_path = os.path.join(pid_hydra_dir, fname)
-                    if os.path.isfile(full_path) and fname.lower().endswith('.exe'):
+                    if os.path.isfile(full_path) and fname.lower().endswith(".exe"):
                         logger.info(f"Returning .exe found in root of dump folder: {full_path}")
                         return full_path
 
@@ -7915,7 +7659,7 @@ def analyze_specific_process(process_name_or_path: str) -> Optional[str]:
                     sub_path = os.path.join(pid_hydra_dir, fname)
                     if os.path.isdir(sub_path):
                         lname = fname.lower()
-                        if lname.startswith('vdump_') or lname.startswith('rawdump_'):
+                        if lname.startswith("vdump_") or lname.startswith("rawdump_"):
                             dump_dirs.append(sub_path)
 
                 for d in dump_dirs:
@@ -7923,7 +7667,7 @@ def analyze_specific_process(process_name_or_path: str) -> Optional[str]:
                         preferred = None
                         fallback = None
 
-                        dump_prefix = os.path.basename(d).lower().split('_')[0]  # vdump or rawdump
+                        dump_prefix = os.path.basename(d).lower().split("_")[0]  # vdump or rawdump
 
                         for sf in os.listdir(d):
                             sf_full = os.path.join(d, sf)
@@ -7931,11 +7675,11 @@ def analyze_specific_process(process_name_or_path: str) -> Optional[str]:
                                 continue
 
                             sl = sf.lower()
-                            if sl.startswith(dump_prefix + '_') and sl.endswith('.exe'):
+                            if sl.startswith(dump_prefix + "_") and sl.endswith(".exe"):
                                 preferred = sf_full
                                 break
 
-                            if fallback is None and sl.endswith('.exe'):
+                            if fallback is None and sl.endswith(".exe"):
                                 fallback = sf_full
 
                         if preferred:
@@ -7962,28 +7706,32 @@ def analyze_specific_process(process_name_or_path: str) -> Optional[str]:
         logger.error(f"Overall error in analyze_specific_process: {overall_ex}")
         return None
 
+
 # --- Helper function for file reading ---
 def _open_and_read_lines_sync(norm_path: str) -> List[str]:
     """Synchronous helper to read file lines for asyncio.to_thread."""
     try:
-        with open(norm_path, 'r', encoding='utf-8') as f:
+        with open(norm_path, "r", encoding="utf-8") as f:
             return f.readlines()
     except Exception as e:
         logger.error(f"Failed to read text lines from {norm_path}: {e}")
         return []
 
+
 # --- Updated scan_and_warn with main_file_path propagation ---
-async def scan_and_warn(file_path,
-                  mega_optimization_with_anti_false_positive=True,
-                  flag_debloat=False,
-                  flag_obfuscar=False,
-                  flag_de4dot=False,
-                  flag_vineflower=False,
-                  nsis_flag=False,
-                  flag_confuserex=False,
-                  flag_vmprotect=False,
-                  main_file_path=None,
-                  owlyshield_signature_status=None):
+async def scan_and_warn(
+    file_path,
+    mega_optimization_with_anti_false_positive=True,
+    flag_debloat=False,
+    flag_obfuscar=False,
+    flag_de4dot=False,
+    flag_vineflower=False,
+    nsis_flag=False,
+    flag_confuserex=False,
+    flag_vmprotect=False,
+    main_file_path=None,
+    owlyshield_signature_status=None,
+):
     """
     Scans a file for potential issues with comprehensive threading for performance.
 
@@ -8016,11 +7764,7 @@ async def scan_and_warn(file_path,
                 "is_valid": is_trusted,
                 "no_signature": not is_signed,
                 "signature_status_issues": (not is_trusted) and is_signed,
-                "status": (
-                    "Valid"
-                    if is_trusted
-                    else ("No signature" if not is_signed else "Invalid signature (from Owlyshield)")
-                ),
+                "status": ("Valid" if is_trusted else ("No signature" if not is_signed else "Invalid signature (from Owlyshield)")),
                 "signer_name": signer_name,
             }
         die_output = ""
@@ -8119,13 +7863,13 @@ async def scan_and_warn(file_path,
         # --- CHECK IF FILE IS IN STARTUP ---
         if any(file_norm.startswith(os.path.normpath(d).lower()) for d in startup_dirs if d):
             malware_type = None
-            if file_norm.endswith('.wll') and pe_file:
+            if file_norm.endswith(".wll") and pe_file:
                 malware_type = "HEUR:Win32.Startup.DLLwithWLL.gen.Malware"
             else:
                 ext = Path(file_norm).suffix.lower()
                 if ext in script_exts:
                     malware_type = "HEUR:Win32.Startup.Script.gen.Malware"
-                elif ext in ('.dll', '.jar', '.msi', '.scr', '.hta'):
+                elif ext in (".dll", ".jar", ".msi", ".scr", ".hta"):
                     malware_type = "HEUR:Win32.Startup.Susp.Extension.gen.Malware"
 
             if malware_type:
@@ -8142,22 +7886,14 @@ async def scan_and_warn(file_path,
             in_100kb_group = any(_norm(p) in candidate_norm for p in (uefi_100kb_paths or []))
             if in_100kb_group and is_malicious_file(norm_path, 100):
                 logger.critical(f"UEFI (100kb) suspicious: {norm_path}")
-                await notify_user_for_uefi(
-                    norm_path,
-                    "HEUR:Win32.UEFI.SecureBootRecovery.gen.Malware",
-                    main_file_path=main_file_path
-                )
+                await notify_user_for_uefi(norm_path, "HEUR:Win32.UEFI.SecureBootRecovery.gen.Malware", main_file_path=main_file_path)
                 return True  # stop scanning here if detected
 
             # Check normal UEFI group
             in_uefi_group = any(_norm(p) in candidate_norm for p in (uefi_paths or []))
             if in_uefi_group and is_malicious_file(norm_path, 1024):
                 logger.critical(f"UEFI suspicious: {norm_path}")
-                await notify_user_for_uefi(
-                    norm_path,
-                    "HEUR:Win32.UEFI.ScreenLocker.Ransomware.gen.Malware",
-                    main_file_path=main_file_path
-                )
+                await notify_user_for_uefi(norm_path, "HEUR:Win32.UEFI.ScreenLocker.Ransomware.gen.Malware", main_file_path=main_file_path)
                 return True  # stop scanning here if detected
 
         except Exception as e:
@@ -8168,18 +7904,14 @@ async def scan_and_warn(file_path,
 
         # Shared data for tasks
         precomputed_sig = signature_check if signature_check.get("from_owlyshield") else None
-        thread_results = {
-            'signature_check': precomputed_sig,
-            'file_lines': [],
-            'dotnet_result': None
-        }
+        thread_results = {"signature_check": precomputed_sig, "file_lines": [], "dotnet_result": None}
 
         async def file_reading_thread():
             """Async Task: Reading file content as text"""
             try:
                 lines = await asyncio.to_thread(_open_and_read_lines_sync, norm_path)
                 with scan_and_warn_lock:
-                    thread_results['file_lines'] = lines
+                    thread_results["file_lines"] = lines
             except Exception as e:
                 logger.error(f"Failed to read text lines from {norm_path}: {e}")
 
@@ -8195,8 +7927,7 @@ async def scan_and_warn(file_path,
             flag_obfuscar = True
             logger.info(f"Flag set to True because '{norm_path}' is inside the Obfuscar directory.")
 
-        match = next((Path(p) for p in de4dot_extracted_dir
-                     if Path(p) in wrap_norm_path.parents), None)
+        match = next((Path(p) for p in de4dot_extracted_dir if Path(p) in wrap_norm_path.parents), None)
         if match and not flag_de4dot:
             flag_de4dot = True
             logger.info(f"Flag set to True because '{norm_path}' is inside the de4dot directory '{match}'")
@@ -8279,10 +8010,7 @@ async def scan_and_warn(file_path,
                                     content = f.read()
 
                                 # MODIFIED: Run sync scan_code_for_links in a thread as a task
-                                asyncio.create_task(asyncio.to_thread(
-                                    scan_code_for_links,
-                                    content, file_path_full, nexe_flag=True, main_file_path=main_file_path
-                                ))
+                                asyncio.create_task(asyncio.to_thread(scan_code_for_links, content, file_path_full, nexe_flag=True, main_file_path=main_file_path))
 
                                 # MODIFIED: Call async scan_and_warn as a new task
                                 asyncio.create_task(scan_and_warn(file_path_full, main_file_path=main_file_path))
@@ -8380,10 +8108,7 @@ async def scan_and_warn(file_path,
                             content = f.read()
 
                         # MODIFIED: Run sync scan_code_for_links in a thread as a task
-                        asyncio.create_task(asyncio.to_thread(
-                            scan_code_for_links,
-                            content, file_path_full, jsc_flag=True, main_file_path=main_file_path
-                        ))
+                        asyncio.create_task(asyncio.to_thread(scan_code_for_links, content, file_path_full, jsc_flag=True, main_file_path=main_file_path))
 
                         # MODIFIED: Call async scan_and_warn as a new task
                         asyncio.create_task(scan_and_warn(file_path_full, main_file_path=main_file_path))
@@ -8470,7 +8195,7 @@ async def scan_and_warn(file_path,
                         asyncio.create_task(asyncio.to_thread(decompile_dotnet_file, input_dir, main_file_path=main_file_path))
 
                 with scan_and_warn_lock:
-                    thread_results['dotnet_result'] = dotnet_result
+                    thread_results["dotnet_result"] = dotnet_result
             except Exception as e:
                 logger.error(f"Error in .NET analysis for {norm_path}: {e}")
 
@@ -8503,7 +8228,7 @@ async def scan_and_warn(file_path,
             dotnet_task,
             asyncio.create_task(cx_freeze_thread()),
             asyncio.create_task(nexe_thread()),
-            asyncio.create_task(vmprotect_detection()) # vmprotect_detection now handles its own logic
+            asyncio.create_task(vmprotect_detection()),  # vmprotect_detection now handles its own logic
         ]
 
         # FIXED: Wait for tasks to complete to fix flake8 error and address user feedback
@@ -8564,11 +8289,11 @@ async def scan_and_warn(file_path,
                     target_basename = os.path.basename(file_path).lower()
 
                     # Run blocking psutil iterator in a thread
-                    proc_list = await asyncio.to_thread(list, psutil.process_iter(['pid', 'name', 'exe']))
+                    proc_list = await asyncio.to_thread(list, psutil.process_iter(["pid", "name", "exe"]))
 
                     for proc in proc_list:
                         try:
-                            pname = proc.info.get('name')
+                            pname = proc.info.get("name")
                             if not pname:
                                 continue
 
@@ -8576,12 +8301,9 @@ async def scan_and_warn(file_path,
                                 protector = is_protector_from_output(die_output)
                                 if protector:
                                     # prefer the actual exe path for main_file_path if caller didn't provide one
-                                    resolved_main = main_file_path or proc.info.get('exe') or file_path
+                                    resolved_main = main_file_path or proc.info.get("exe") or file_path
 
-                                    logger.info(
-                                        f"Process {file_path} (PID {proc.info.get('pid')}) is protected: {protector}. "
-                                        "Queuing scan via scan_and_warn."
-                                    )
+                                    logger.info(f"Process {file_path} (PID {proc.info.get('pid')}) is protected: {protector}. Queuing scan via scan_and_warn.")
 
                                     # MODIFIED: Call async scan_and_warn as a new task
                                     asyncio.create_task(scan_and_warn(file_path, main_file_path=resolved_main))
@@ -8674,14 +8396,14 @@ async def scan_and_warn(file_path,
                             pylingual, pycdas = await asyncio.to_thread(show_code_with_pylingual_pycdas, file_path=norm_path)
 
                             if pylingual:
-                                for fname in pylingual: # MODIFIED: pylingual is a list
+                                for fname in pylingual:  # MODIFIED: pylingual is a list
                                     # MODIFIED: Call async scan_and_warn as a new task
                                     asyncio.create_task(scan_and_warn(file_path=fname, main_file_path=main_file_path))
                                     # MODIFIED: Run sync worker in a thread as a task
                                     asyncio.create_task(asyncio.to_thread(process_decompiled_code, fname, main_file_path=main_file_path))
 
                             if pycdas:
-                                for rname in pycdas: # MODIFIED: pycdas is a list
+                                for rname in pycdas:  # MODIFIED: pycdas is a list
                                     # MODIFIED: Call async scan_and_warn as a new task
                                     asyncio.create_task(scan_and_warn(file_path=rname, main_file_path=main_file_path))
 
@@ -8708,7 +8430,7 @@ async def scan_and_warn(file_path,
                 asyncio.create_task(inno_setup_thread()),
                 asyncio.create_task(go_garble_thread()),
                 asyncio.create_task(pyc_thread()),
-                asyncio.create_task(nsis_thread())
+                asyncio.create_task(nsis_thread()),
             ]
             # FIXED: Wait for tasks to complete to fix flake8 error and address user feedback
             await asyncio.gather(*binary_tasks)
@@ -8719,10 +8441,7 @@ async def scan_and_warn(file_path,
 
             # Wait for signature check to complete (needed for PE logic)
             await signature_task
-            signature_check = thread_results.get('signature_check', {
-                "is_valid": False,
-                "signature_status_issues": False
-            })
+            signature_check = thread_results.get("signature_check", {"is_valid": False, "signature_status_issues": False})
 
             if signature_check["signature_status_issues"] and not signature_check.get("no_signature"):
                 logger.critical(f"File '{norm_path}' has signature issues. Proceeding with further checks.")
@@ -8843,9 +8562,7 @@ async def scan_and_warn(file_path,
                         if optimized_norm_path:
                             logger.info(f"Debloated file saved at: {optimized_norm_path}")
                             # MODIFIED: Call async scan_and_warn as a new task
-                            asyncio.create_task(scan_and_warn(
-                                optimized_norm_path, flag_debloat=True, main_file_path=main_file_path
-                            ))
+                            asyncio.create_task(scan_and_warn(optimized_norm_path, flag_debloat=True, main_file_path=main_file_path))
                 except Exception as e:
                     logger.error(f"Error during debloating of {norm_path}: {e}")
 
@@ -8857,7 +8574,7 @@ async def scan_and_warn(file_path,
                 asyncio.create_task(resource_extraction_thread()),
                 asyncio.create_task(autohotkey_thread()),
                 asyncio.create_task(enigma1_virtual_box_thread()),
-                asyncio.create_task(debloat_thread())
+                asyncio.create_task(debloat_thread()),
             ]
             # FIXED: Wait for tasks to complete to fix flake8 error and address user feedback
             await asyncio.gather(*pe_tasks)
@@ -8867,7 +8584,7 @@ async def scan_and_warn(file_path,
         # Wait for dotnet analysis to complete (needed for obfuscation logic)
         await dotnet_task
 
-        dotnet_result = thread_results.get('dotnet_result')
+        dotnet_result = thread_results.get("dotnet_result")
 
         # .NET specific processing (tasks)
         async def dotnet_obfuscar_thread():
@@ -8877,9 +8594,7 @@ async def scan_and_warn(file_path,
                     deobfuscated_path = await asyncio.to_thread(deobfuscate_with_obfuscar, norm_path, file_name)
                     if deobfuscated_path:
                         # MODIFIED: Call async scan_and_warn as a new task
-                        asyncio.create_task(scan_and_warn(
-                            deobfuscated_path, flag_obfuscar=True, main_file_path=main_file_path
-                        ))
+                        asyncio.create_task(scan_and_warn(deobfuscated_path, flag_obfuscar=True, main_file_path=main_file_path))
             except Exception as e:
                 logger.error(f"Error in Obfuscar deobfuscation for {norm_path}: {e}")
 
@@ -8916,9 +8631,7 @@ async def scan_and_warn(file_path,
                     if jar_extractor_paths:
                         for jar_extractor_path in jar_extractor_paths:
                             # MODIFIED: Call async scan_and_warn as a new task
-                            asyncio.create_task(scan_and_warn(
-                                jar_extractor_path, flag_vineflower=True, main_file_path=main_file_path
-                            ))
+                            asyncio.create_task(scan_and_warn(jar_extractor_path, flag_vineflower=True, main_file_path=main_file_path))
             except Exception as e:
                 logger.error(f"Error in JAR analysis for {norm_path}: {e}")
 
@@ -8932,9 +8645,7 @@ async def scan_and_warn(file_path,
                         asyncio.create_task(scan_and_warn(decompiled_file, main_file_path=main_file_path))
 
                         # Task 2: scan_code_for_links with flag_vineflower (run sync in thread)
-                        asyncio.create_task(asyncio.to_thread(
-                            scan_code_for_links, file_path=decompiled_file, vineflower_flag=True
-                        ))
+                        asyncio.create_task(asyncio.to_thread(scan_code_for_links, file_path=decompiled_file, vineflower_flag=True))
                     else:
                         logger.info("No file returned from vineflower decompiler.")
             except Exception as e:
@@ -8960,9 +8671,7 @@ async def scan_and_warn(file_path,
                         asyncio.create_task(scan_and_warn(extracted_path, main_file_path=main_file_path))
 
                         # Task 2: Scan code for suspicious links (with OLE2 flag) (run sync in thread)
-                        asyncio.create_task(asyncio.to_thread(
-                            scan_code_for_links, "", extracted_path, ole2_flag=True, main_file_path=main_file_path
-                        ))
+                        asyncio.create_task(asyncio.to_thread(scan_code_for_links, "", extracted_path, ole2_flag=True, main_file_path=main_file_path))
 
                         logger.info("Spawned analysis tasks for extracted content")
                     else:
@@ -8984,7 +8693,6 @@ async def scan_and_warn(file_path,
                     asyncio.create_task(hook_python_process(norm_path))
             except Exception as e:
                 logger.error(f"Error in Nuitka analysis for {norm_path}: {e}")
-
 
         async def pyinstaller_thread():
             try:
@@ -9013,7 +8721,7 @@ async def scan_and_warn(file_path,
             asyncio.create_task(java_class_thread()),
             asyncio.create_task(ole2_handler_thread()),
             asyncio.create_task(nuitka_thread()),
-            asyncio.create_task(pyinstaller_thread())
+            asyncio.create_task(pyinstaller_thread()),
         ]
         # FIXED: Wait for tasks to complete to fix flake8 error and address user feedback
         await asyncio.gather(*additional_tasks)
@@ -9027,17 +8735,12 @@ async def scan_and_warn(file_path,
 
             # Wait for file reading to complete
             await file_read_task
-            javascript_source_flag = is_javascript_source_by_ast(
-                "".join(thread_results.get('file_lines') or [])
-            )
+            javascript_source_flag = is_javascript_source_by_ast("".join(thread_results.get("file_lines") or []))
 
         # If the file parses as JavaScript, deobfuscate it first.
         if javascript_source_flag:
             try:
-                logger.info(
-                    f"Detected JavaScript source via Esprima AST: {norm_path}, "
-                    "deobfuscating with Webcrack..."
-                )
+                logger.info(f"Detected JavaScript source via Esprima AST: {norm_path}, deobfuscating with Webcrack...")
                 output_dir = await asyncio.to_thread(deobfuscate_webcrack_js, norm_path)
 
                 if output_dir and os.path.exists(output_dir):
@@ -9053,10 +8756,7 @@ async def scan_and_warn(file_path,
                                     content = f.read()
 
                                 # Scan for links, IPs, domains, Discord webhooks (run sync in thread)
-                                asyncio.create_task(asyncio.to_thread(
-                                    scan_code_for_links,
-                                    content, file_path_full, javascript_deobfuscated_flag=True, main_file_path=main_file_path
-                                ))
+                                asyncio.create_task(asyncio.to_thread(scan_code_for_links, content, file_path_full, javascript_deobfuscated_flag=True, main_file_path=main_file_path))
 
                                 # Optional additional scanning/warnings
                                 # MODIFIED: Call async scan_and_warn as a new task
@@ -9079,9 +8779,9 @@ async def scan_and_warn(file_path,
             try:
                 file_size = os.path.getsize(norm_path)
                 if file_size > 100 * 1024 * 1024:  # File size > 100MB
-                    with open(norm_path, 'rb') as fake_file:
+                    with open(norm_path, "rb") as fake_file:
                         file_content_read = fake_file.read(100 * 1024 * 1024)
-                        if file_content_read == b'\x00' * 100 * 1024 * 1024:
+                        if file_content_read == b"\x00" * 100 * 1024 * 1024:
                             logger.critical(f"File {norm_path} is flagged as HEUR:FakeSize.gen")
                             fake_size = "HEUR:FakeSize.gen"
                             if signature_check and signature_check["is_valid"]:
@@ -9096,12 +8796,10 @@ async def scan_and_warn(file_path,
         # YARA REALTIME TASK
         async def realtime_malware_thread_yara(norm_path, signature_check, main_file_path, already_vmprotect_unpacked, vmprotect_unpacked_dir):
             try:
-                is_malicious, virus_names, engine_detected, is_vmprotect = await asyncio.to_thread(
-                    scan_file_real_time_yara, norm_path, signature_check
-                )
+                is_malicious, virus_names, engine_detected, is_vmprotect = await asyncio.to_thread(scan_file_real_time_yara, norm_path, signature_check)
 
                 if is_malicious:
-                    virus_name = ''.join(virus_names)
+                    virus_name = "".join(virus_names)
                     logger.critical(f"File {norm_path} is malicious. Virus: {virus_name}")
 
                     if virus_name.startswith("PUA."):
@@ -9144,16 +8842,12 @@ async def scan_and_warn(file_path,
             except Exception as e:
                 logger.error(f"Error in YARA real-time malware scan for {norm_path}: {e}")
 
-
         # NON-YARA REALTIME TASK
         async def realtime_malware_thread(norm_path, signature_check, file_name, die_output, pe_file, main_file_path):
             try:
-                is_malicious, virus_names, engine_detected, is_vmprotect = await asyncio.to_thread(
-                    scan_file_real_time,
-                    norm_path, signature_check, file_name, die_output, pe_file=pe_file
-                )
+                is_malicious, virus_names, engine_detected, is_vmprotect = await asyncio.to_thread(scan_file_real_time, norm_path, signature_check, file_name, die_output, pe_file=pe_file)
 
-                if is_vmprotect and not getattr(threading.current_thread(), 'is_unpacking_vmp', False):
+                if is_vmprotect and not getattr(threading.current_thread(), "is_unpacking_vmp", False):
                     logger.warning(f"VMProtect detected by HydraDragonAV in {norm_path}. Spawning unpacker.")
                     try:
                         unpacked_path, success = await vmprotect_unpack(norm_path)
@@ -9168,7 +8862,7 @@ async def scan_and_warn(file_path,
                         logger.error(f"Error unpacking VMProtect file {norm_path}: {e}")
 
                 if is_malicious:
-                    virus_name = ''.join(virus_names)
+                    virus_name = "".join(virus_names)
                     logger.critical(f"File {norm_path} is malicious. Virus: {virus_name}")
 
                     if virus_name.startswith("PUA."):
@@ -9187,13 +8881,13 @@ async def scan_and_warn(file_path,
         async def filename_detection_thread():
             try:
                 detection_result = detect_suspicious_filename_patterns(file_name, fileTypes)
-                if detection_result['suspicious']:
+                if detection_result["suspicious"]:
                     attack_types = []
-                    if detection_result['rlo_attack']:
+                    if detection_result["rlo_attack"]:
                         attack_types.append("RLO")
-                    if detection_result['excessive_spaces']:
+                    if detection_result["excessive_spaces"]:
                         attack_types.append("Spaces")
-                    if detection_result['multiple_extensions']:
+                    if detection_result["multiple_extensions"]:
                         attack_types.append("MultiExt")
 
                     virus_name = f"HEUR:Susp.Name.{'+'.join(attack_types)}.gen"
@@ -9219,7 +8913,7 @@ async def scan_and_warn(file_path,
             asyncio.create_task(realtime_malware_thread_yara(norm_path, signature_check, main_file_path, globals().get("already_vmprotect_unpacked"), vmprotect_unpacked_dir)),
             asyncio.create_task(realtime_malware_thread(norm_path, signature_check, file_name, die_output, pe_file, main_file_path)),
             asyncio.create_task(filename_detection_thread()),
-            asyncio.create_task(decompilation_postprocess_thread())
+            asyncio.create_task(decompilation_postprocess_thread()),
         ]
         # FIXED: Wait for tasks to complete to fix flake8 error and address user feedback
         await asyncio.gather(*common_tasks)
@@ -9237,6 +8931,7 @@ async def scan_and_warn(file_path,
     except Exception as ex:
         logger.error(f"Error scanning file {norm_path}: {ex}")
         return False
+
 
 # =========================
 # EDR -> AV (Scan Requests)
@@ -9280,6 +8975,7 @@ async def queue_scan_request(request_obj: dict) -> None:
     except Exception as e:
         logger.exception(f"[EDR->AV] queue_scan_request: unexpected error: {e}")
 
+
 # Synchronous helper used via asyncio.to_thread: tries to open the pipe for writing
 def _sync_open_pipe_for_write(timeout_ms: int = _WAIT_TIMEOUT_MS):
     """
@@ -9302,13 +8998,13 @@ def _sync_open_pipe_for_write(timeout_ms: int = _WAIT_TIMEOUT_MS):
             0,
             None,
         )
-        
+
         # Validation: Only allow EDR (owlyshield_ransom.exe) server
         if not validate_pipe_peer(handle, OWLYSHIELD_RANSOM_EXE, is_server=False, logger=logger):
             logger.warning("[AV] Rejected unauthorized EDR server in EDR-to-AV pipe")
             win32file.CloseHandle(handle)
             return None
-            
+
         return handle
     except Exception:
         # return None so async caller can retry; optionally log in caller
@@ -9350,9 +9046,7 @@ def _sync_write_and_close(handle, data_bytes: bytes) -> bool:
         return False
 
 
-async def send_scan_request_async(request_obj: dict,
-                                  open_retries: int = _OPEN_RETRIES,
-                                  retry_delay: float = _RETRY_DELAY) -> bool:
+async def send_scan_request_async(request_obj: dict, open_retries: int = _OPEN_RETRIES, retry_delay: float = _RETRY_DELAY) -> bool:
     """
     Async wrapper: open pipe in a thread, write in a thread, and always close via _sync_close_handle.
     """
@@ -9365,10 +9059,10 @@ async def send_scan_request_async(request_obj: dict,
             # We have a handle — perform write+close in a thread
             ok = await asyncio.to_thread(_sync_write_and_close, handle, data)
             if ok:
-                logger.info(f"[EDR->AV] Sent scan request: {request_obj.get('file_path')} (attempt {attempt+1})")
+                logger.info(f"[EDR->AV] Sent scan request: {request_obj.get('file_path')} (attempt {attempt + 1})")
                 return True
             else:
-                logger.debug(f"[EDR->AV] Write failed; will retry (attempt {attempt+1}/{open_retries})")
+                logger.debug(f"[EDR->AV] Write failed; will retry (attempt {attempt + 1}/{open_retries})")
                 continue
         else:
             # Try to capture more detailed error for logs (single failing CreateFile attempt)
@@ -9388,12 +9082,13 @@ async def send_scan_request_async(request_obj: dict,
                     None,
                 )
             except pywintypes.error as e:
-                logger.debug(f"[EDR->AV] CreateFile error winerror={getattr(e,'winerror',None)} - {e}")
+                logger.debug(f"[EDR->AV] CreateFile error winerror={getattr(e, 'winerror', None)} - {e}")
             except Exception:
                 pass
 
     logger.error(f"[EDR->AV] Giving up sending scan request after {open_retries} attempts: {request_obj}")
     return False
+
 
 # Drop-in monitor: run this at startup and call queue_scan_request(...) to send scans
 async def monitor_scan_requests_from_edr():
@@ -9411,14 +9106,16 @@ async def monitor_scan_requests_from_edr():
         except Exception as e:
             logger.exception(f"[EDR->AV] Sender loop error: {e}")
 
+
 # ==========================================
 # FIXED: Async Excluded Rules Loading
 # ==========================================
 
+
 async def load_excluded_rules_async():
     """Load excluded rules with aiofiles"""
     try:
-        async with aiofiles.open(excluded_rules_path, "r", encoding='utf-8') as f:
+        async with aiofiles.open(excluded_rules_path, "r", encoding="utf-8") as f:
             content = await f.read()
         rules = [line.strip() for line in content.splitlines() if line.strip()]
         logger.info(f"Loaded {len(rules)} excluded rules")
@@ -9427,9 +9124,11 @@ async def load_excluded_rules_async():
         logger.error(f"Failed to load excluded rules: {e}")
         return []
 
+
 # ==========================================
 # FIXED: Safe YARA-X Loader
 # ==========================================
+
 
 async def load_all_resources_async():
     """
@@ -9515,7 +9214,7 @@ async def load_all_resources_async():
     async def load_antivirus_list():
         global antivirus_domains_data
         try:
-            async with aiofiles.open(antivirus_list_path, 'r') as antivirus_file:
+            async with aiofiles.open(antivirus_list_path, "r") as antivirus_file:
                 lines = await antivirus_file.read()
                 antivirus_domains_data = lines.splitlines()
             logger.info("Antivirus List loaded successfully!")
@@ -9525,9 +9224,11 @@ async def load_all_resources_async():
     async def load_yaraxtr():
         global yaraxtr_rules
         try:
+
             def _load_yara_x():
-                with open(yaraxtr_yrc_path, 'rb') as f:
+                with open(yaraxtr_yrc_path, "rb") as f:
                     return yara_x.Rules.deserialize_from(f)
+
             yaraxtr_rules = await asyncio.to_thread(_load_yara_x)
             logger.info("YARA-X Rules loaded successfully!")
         except Exception as e:
@@ -9554,6 +9255,7 @@ async def load_all_resources_async():
     # Return immediately without waiting
     return {}
 
+
 async def parse_hayabusa_results(csv_file):
     """
     Parse Hayabusa CSV results and send notifications for critical alerts.
@@ -9579,12 +9281,7 @@ async def parse_hayabusa_results(csv_file):
                 logger.warning(f"[!] CRITICAL: {rule} | {details[:100]}")
 
                 try:
-                    await notify_user_hayabusa_critical(
-                        event_log=channel,
-                        rule_title=rule,
-                        details=details,
-                        computer=computer
-                    )
+                    await notify_user_hayabusa_critical(event_log=channel, rule_title=rule, details=details, computer=computer)
                 except Exception:
                     logger.exception("notify_user_hayabusa_critical failed")
 
@@ -9595,6 +9292,7 @@ async def parse_hayabusa_results(csv_file):
 
     except Exception:
         logger.exception(f"Error parsing Hayabusa results from {csv_file}")
+
 
 async def run_hayabusa_live_async():
     """
@@ -9618,20 +9316,21 @@ async def run_hayabusa_live_async():
                 hayabusa_path,
                 "csv-timeline",
                 "--no-wizard",
-                "--output", output_file,
-                "--profile", "standard",
-                "--min-level", "critical",
+                "--output",
+                output_file,
+                "--profile",
+                "standard",
+                "--min-level",
+                "critical",
                 "--live-analysis",
-                "--time-offset", "60s",  # Only scan events from last 60 seconds
-                "--quiet"  # Reduce output noise
+                "--time-offset",
+                "60s",  # Only scan events from last 60 seconds
+                "--quiet",  # Reduce output noise
             ]
             logger.info(f"Starting Hayabusa scan: {' '.join(cmd)}")
 
             # Run Hayabusa and let output go to redirected stdout/stderr
-            process = await asyncio.create_subprocess_exec(
-                *cmd,
-                cwd=os.path.dirname(hayabusa_path)
-            )
+            process = await asyncio.create_subprocess_exec(*cmd, cwd=os.path.dirname(hayabusa_path))
 
             # Wait for scan to complete
             rc = await process.wait()
@@ -9652,6 +9351,7 @@ async def run_hayabusa_live_async():
             raise
         except Exception:
             logger.exception("Unhandled exception in Hayabusa scan loop, restarting after short delay...")
+
 
 # --- start_real_time_protection_async ---
 async def start_real_time_protection_async():
@@ -9686,6 +9386,7 @@ async def start_real_time_protection_async():
 
     logger.info("All protection, resource, and Hayabusa tasks launched (fire-and-forget).")
 
+
 def run_de4dot(file_path):
     """
     Runs de4dot inside host.
@@ -9700,19 +9401,14 @@ def run_de4dot(file_path):
         input_dir = file_path
 
     # de4dot-x64.exe -r <input_dir> -ro <output_dir>
-    cmd = [
-        de4dot_cex_x64_path,
-        "-r",
-        input_dir,
-        "-ro",
-        de4dot_extracted_dir
-    ]
+    cmd = [de4dot_cex_x64_path, "-r", input_dir, "-ro", de4dot_extracted_dir]
 
     try:
         subprocess.run(cmd, check=True, encoding="utf-8", errors="ignore")
         logger.info(f"de4dot extraction succeeded for {input_dir} in sandbox DefaultBox")
     except subprocess.CalledProcessError as ex:
         logger.error(f"Failed to run de4dot on {input_dir} in sandbox DefaultBox: {ex}")
+
 
 # --- Helper Function ---
 def get_latest_clamav_def_time():

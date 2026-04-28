@@ -3,16 +3,11 @@ import shutil
 import math
 import chardet
 import subprocess
-import inspect
 import logging
-from pathlib import Path
 from tqdm import tqdm
 
 # -------------------- LOGGING --------------------
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s"
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 # -------------------- PATH SETUP --------------------
@@ -20,6 +15,7 @@ script_dir = os.path.dirname(os.path.abspath(__file__))
 
 detectiteasy_dir = os.path.join(script_dir, "detectiteasy")
 detectiteasy_console_path = os.path.join(detectiteasy_dir, "diec.exe")
+
 
 # -------------------- TEXT HEURISTICS --------------------
 def shannon_entropy(data: bytes) -> float:
@@ -68,10 +64,7 @@ def is_plain_text(
         decoded = data.decode("latin-1")
 
     # 3) Control characters (excluding whitespace)
-    control_chars = sum(
-        (ord(c) < 32 and c not in "\n\r\t\f\b")
-        for c in decoded
-    )
+    control_chars = sum((ord(c) < 32 and c not in "\n\r\t\f\b") for c in decoded)
 
     if control_chars / len(decoded) > max_control_ratio:
         return False
@@ -81,6 +74,7 @@ def is_plain_text(
         return False
 
     return True
+
 
 # -------------------- DETECT IT EASY --------------------
 def analyze_file_with_die(file_path: str) -> str | None:
@@ -107,6 +101,7 @@ def analyze_file_with_die(file_path: str) -> str | None:
 
     return None
 
+
 def is_plain_text_file_from_output(die_output):
     """
     Checks if the DIE output does indicate plain text, suggesting it is plain text data.
@@ -115,6 +110,7 @@ def is_plain_text_file_from_output(die_output):
         logger.info("DIE output does not contain plain text; identified as non-plain text data.")
         return True
     return False
+
 
 # -------------------- MAIN SCAN --------------------
 def scan_benign_dir(

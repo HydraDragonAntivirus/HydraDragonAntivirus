@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from xdis import Code3
 
-Code3.__eq__ = (
-    lambda self, o: isinstance(o, Code3)
+Code3.__eq__ = lambda self, o: (
+    isinstance(o, Code3)
     and self.co_argcount == o.co_argcount
     and self.co_nlocals == o.co_nlocals
     and self.co_flags == o.co_flags

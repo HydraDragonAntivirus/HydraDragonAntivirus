@@ -8,7 +8,7 @@
 #  http://www.boost.org/LICENSE_1_0.txt)9
 # ============================================================================
 
-import os, sys
+import os
 
 cmd = "doxygen_xml2qbk"
 cmd = cmd + " --xml xml/%s.xml"

@@ -20,6 +20,7 @@ from hydra_logger import logger
 
 try:
     import r2pipe
+
     _R2PIPE_AVAILABLE = True
 except ImportError:
     _R2PIPE_AVAILABLE = False
@@ -53,25 +54,16 @@ class PEFeatureExtractor:
         Disassembles all sections of the PE file using Capstone and returns
         instruction counts and a packing heuristic for each section and the file overall.
         """
-        analysis = {
-            'overall_analysis': {
-                'total_instructions': 0,
-                'add_count': 0,
-                'mov_count': 0,
-                'is_likely_packed': None
-            },
-            'sections': {},
-            'error': None
-        }
+        analysis = {"overall_analysis": {"total_instructions": 0, "add_count": 0, "mov_count": 0, "is_likely_packed": None}, "sections": {}, "error": None}
 
         try:
             # Determine architecture for Capstone
-            if pe.FILE_HEADER.Machine == pefile.MACHINE_TYPE['IMAGE_FILE_MACHINE_I386']:
+            if pe.FILE_HEADER.Machine == pefile.MACHINE_TYPE["IMAGE_FILE_MACHINE_I386"]:
                 md = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_32)
-            elif pe.FILE_HEADER.Machine == pefile.MACHINE_TYPE['IMAGE_FILE_MACHINE_AMD64']:
+            elif pe.FILE_HEADER.Machine == pefile.MACHINE_TYPE["IMAGE_FILE_MACHINE_AMD64"]:
                 md = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_64)
             else:
-                analysis['error'] = "Unsupported architecture."
+                analysis["error"] = "Unsupported architecture."
                 return analysis
 
             total_add_count = 0
@@ -80,7 +72,7 @@ class PEFeatureExtractor:
 
             # Disassemble each section individually
             for section in pe.sections:
-                section_name = section.Name.decode(errors='ignore').strip('\x00')
+                section_name = section.Name.decode(errors="ignore").strip("\x00")
                 code = section.get_data()
                 base_address = pe.OPTIONAL_HEADER.ImageBase + section.VirtualAddress
 
@@ -88,12 +80,12 @@ class PEFeatureExtractor:
                 total_instructions_in_section = 0
 
                 if not code:
-                    analysis['sections'][section_name] = {
+                    analysis["sections"][section_name] = {
                         # 'instruction_counts': {}, # too heavy to train
-                        'total_instructions': 0,
-                        'add_count': 0,
-                        'mov_count': 0,
-                        'is_likely_packed': False
+                        "total_instructions": 0,
+                        "add_count": 0,
+                        "mov_count": 0,
+                        "is_likely_packed": False,
                     }
                     continue
 
@@ -104,8 +96,8 @@ class PEFeatureExtractor:
                     instruction_counts[mnemonic] = instruction_counts.get(mnemonic, 0) + 1
                     total_instructions_in_section += 1
 
-                add_count = instruction_counts.get('add', 0)
-                mov_count = instruction_counts.get('mov', 0)
+                add_count = instruction_counts.get("add", 0)
+                mov_count = instruction_counts.get("mov", 0)
 
                 # Aggregate counts for overall file analysis
                 total_add_count += add_count
@@ -113,22 +105,22 @@ class PEFeatureExtractor:
                 grand_total_instructions += total_instructions_in_section
 
                 # Per-section packing analysis
-                analysis['sections'][section_name] = {
-                    'total_instructions': total_instructions_in_section,
-                    'add_count': add_count,
-                    'mov_count': mov_count,
-                    'is_likely_packed': add_count > mov_count if total_instructions_in_section > 0 else False
+                analysis["sections"][section_name] = {
+                    "total_instructions": total_instructions_in_section,
+                    "add_count": add_count,
+                    "mov_count": mov_count,
+                    "is_likely_packed": add_count > mov_count if total_instructions_in_section > 0 else False,
                 }
 
             # Populate the overall, file-wide analysis
-            analysis['overall_analysis']['total_instructions'] = grand_total_instructions
-            analysis['overall_analysis']['add_count'] = total_add_count
-            analysis['overall_analysis']['mov_count'] = total_mov_count
-            analysis['overall_analysis']['is_likely_packed'] = total_add_count > total_mov_count if grand_total_instructions > 0 else False
+            analysis["overall_analysis"]["total_instructions"] = grand_total_instructions
+            analysis["overall_analysis"]["add_count"] = total_add_count
+            analysis["overall_analysis"]["mov_count"] = total_mov_count
+            analysis["overall_analysis"]["is_likely_packed"] = total_add_count > total_mov_count if grand_total_instructions > 0 else False
 
         except Exception as e:
             logger.error(f"Capstone disassembly failed: {e}")
-            analysis['error'] = str(e)
+            analysis["error"] = str(e)
 
         return analysis
 
@@ -136,43 +128,31 @@ class PEFeatureExtractor:
         """Extract comprehensive section data including entropy."""
         raw_data = section.get_data()
         return {
-            'name': section.Name.decode(errors='ignore').strip('\x00'),
-            'virtual_size': section.Misc_VirtualSize,
-            'virtual_address': section.VirtualAddress,
-            'raw_size': section.SizeOfRawData,
-            'pointer_to_raw_data': section.PointerToRawData,
-            'characteristics': section.Characteristics,
-            'entropy': self._calculate_entropy(raw_data),
-            'raw_data_size': len(raw_data) if raw_data else 0
+            "name": section.Name.decode(errors="ignore").strip("\x00"),
+            "virtual_size": section.Misc_VirtualSize,
+            "virtual_address": section.VirtualAddress,
+            "raw_size": section.SizeOfRawData,
+            "pointer_to_raw_data": section.PointerToRawData,
+            "characteristics": section.Characteristics,
+            "entropy": self._calculate_entropy(raw_data),
+            "raw_data_size": len(raw_data) if raw_data else 0,
         }
 
     def extract_imports(self, pe) -> List[Dict[str, Any]]:
         """Extract detailed import information."""
         imports = []
-        if hasattr(pe, 'DIRECTORY_ENTRY_IMPORT'):
+        if hasattr(pe, "DIRECTORY_ENTRY_IMPORT"):
             for entry in pe.DIRECTORY_ENTRY_IMPORT:
-                dll_imports = {
-                    'dll_name': entry.dll.decode() if entry.dll else None,
-                    'imports': [{
-                        'name': imp.name.decode() if imp.name else None,
-                        'address': imp.address,
-                        'ordinal': imp.ordinal
-                    } for imp in entry.imports]
-                }
+                dll_imports = {"dll_name": entry.dll.decode() if entry.dll else None, "imports": [{"name": imp.name.decode() if imp.name else None, "address": imp.address, "ordinal": imp.ordinal} for imp in entry.imports]}
                 imports.append(dll_imports)
         return imports
 
     def extract_exports(self, pe) -> List[Dict[str, Any]]:
         """Extract detailed export information."""
         exports = []
-        if hasattr(pe, 'DIRECTORY_ENTRY_EXPORT'):
+        if hasattr(pe, "DIRECTORY_ENTRY_EXPORT"):
             for exp in pe.DIRECTORY_ENTRY_EXPORT.symbols:
-                export_info = {
-                    'name': exp.name.decode() if exp.name else None,
-                    'address': exp.address,
-                    'ordinal': exp.ordinal,
-                    'forwarder': exp.forwarder.decode() if exp.forwarder else None
-                }
+                export_info = {"name": exp.name.decode() if exp.name else None, "address": exp.address, "ordinal": exp.ordinal, "forwarder": exp.forwarder.decode() if exp.forwarder else None}
                 exports.append(export_info)
         return exports
 
@@ -198,23 +178,23 @@ class PEFeatureExtractor:
         try:
             tls_callbacks = {}
             # Check if the PE file has a TLS directory
-            if hasattr(pe, 'DIRECTORY_ENTRY_TLS'):
+            if hasattr(pe, "DIRECTORY_ENTRY_TLS"):
                 tls = pe.DIRECTORY_ENTRY_TLS.struct
                 tls_callbacks = {
-                    'start_address_raw_data': tls.StartAddressOfRawData,
-                    'end_address_raw_data': tls.EndAddressOfRawData,
-                    'address_of_index': tls.AddressOfIndex,
-                    'address_of_callbacks': tls.AddressOfCallBacks,
-                    'size_of_zero_fill': tls.SizeOfZeroFill,
-                    'characteristics': tls.Characteristics,
-                    'callbacks': []
+                    "start_address_raw_data": tls.StartAddressOfRawData,
+                    "end_address_raw_data": tls.EndAddressOfRawData,
+                    "address_of_index": tls.AddressOfIndex,
+                    "address_of_callbacks": tls.AddressOfCallBacks,
+                    "size_of_zero_fill": tls.SizeOfZeroFill,
+                    "characteristics": tls.Characteristics,
+                    "callbacks": [],
                 }
 
                 # If there are callbacks, extract their addresses
                 if tls.AddressOfCallBacks:
                     callback_array = self._get_callback_addresses(pe, tls.AddressOfCallBacks)
                     if callback_array:
-                        tls_callbacks['callbacks'] = callback_array
+                        tls_callbacks["callbacks"] = callback_array
 
             return tls_callbacks
         except Exception as e:
@@ -225,19 +205,19 @@ class PEFeatureExtractor:
         """Analyze DOS stub program."""
         try:
             dos_stub = {
-                'exists': False,
-                'size': 0,
-                'entropy': 0.0,
+                "exists": False,
+                "size": 0,
+                "entropy": 0.0,
             }
 
-            if hasattr(pe, 'DOS_HEADER'):
+            if hasattr(pe, "DOS_HEADER"):
                 stub_offset = pe.DOS_HEADER.e_lfanew - 64  # Typical DOS stub starts after DOS header
                 if stub_offset > 0:
-                    dos_stub_data = pe.__data__[64:pe.DOS_HEADER.e_lfanew]
+                    dos_stub_data = pe.__data__[64 : pe.DOS_HEADER.e_lfanew]
                     if dos_stub_data:
-                        dos_stub['exists'] = True
-                        dos_stub['size'] = len(dos_stub_data)
-                        dos_stub['entropy'] = self._calculate_entropy(dos_stub_data)
+                        dos_stub["exists"] = True
+                        dos_stub["size"] = len(dos_stub_data)
+                        dos_stub["entropy"] = self._calculate_entropy(dos_stub_data)
 
             return dos_stub
         except Exception as e:
@@ -248,31 +228,21 @@ class PEFeatureExtractor:
         """Analyze security certificates."""
         try:
             cert_info = {}
-            if hasattr(pe, 'DIRECTORY_ENTRY_SECURITY'):
-                cert_info['virtual_address'] = pe.DIRECTORY_ENTRY_SECURITY.VirtualAddress
-                cert_info['size'] = pe.DIRECTORY_ENTRY_SECURITY.Size
+            if hasattr(pe, "DIRECTORY_ENTRY_SECURITY"):
+                cert_info["virtual_address"] = pe.DIRECTORY_ENTRY_SECURITY.VirtualAddress
+                cert_info["size"] = pe.DIRECTORY_ENTRY_SECURITY.Size
 
                 # Extract certificate attributes if available
-                if hasattr(pe, 'VS_FIXEDFILEINFO'):
-                    cert_info['fixed_file_info'] = {
-                        'signature': pe.VS_FIXEDFILEINFO.Signature,
-                        'struct_version': pe.VS_FIXEDFILEINFO.StrucVersion,
-                        'file_version': (
-                            f"{pe.VS_FIXEDFILEINFO.FileVersionMS >> 16}"
-                            f".{pe.VS_FIXEDFILEINFO.FileVersionMS & 0xFFFF}"
-                            f".{pe.VS_FIXEDFILEINFO.FileVersionLS >> 16}"
-                            f".{pe.VS_FIXEDFILEINFO.FileVersionLS & 0xFFFF}"
-                        ),
-                        'product_version': (
-                            f"{pe.VS_FIXEDFILEINFO.ProductVersionMS >> 16}"
-                            f".{pe.VS_FIXEDFILEINFO.ProductVersionMS & 0xFFFF}"
-                            f".{pe.VS_FIXEDFILEINFO.ProductVersionLS >> 16}"
-                            f".{pe.VS_FIXEDFILEINFO.ProductVersionLS & 0xFFFF}"
-                        ),
-                        'file_flags': pe.VS_FIXEDFILEINFO.FileFlags,
-                        'file_os': pe.VS_FIXEDFILEINFO.FileOS,
-                        'file_type': pe.VS_FIXEDFILEINFO.FileType,
-                        'file_subtype': pe.VS_FIXEDFILEINFO.FileSubtype,
+                if hasattr(pe, "VS_FIXEDFILEINFO"):
+                    cert_info["fixed_file_info"] = {
+                        "signature": pe.VS_FIXEDFILEINFO.Signature,
+                        "struct_version": pe.VS_FIXEDFILEINFO.StrucVersion,
+                        "file_version": (f"{pe.VS_FIXEDFILEINFO.FileVersionMS >> 16}.{pe.VS_FIXEDFILEINFO.FileVersionMS & 0xFFFF}.{pe.VS_FIXEDFILEINFO.FileVersionLS >> 16}.{pe.VS_FIXEDFILEINFO.FileVersionLS & 0xFFFF}"),
+                        "product_version": (f"{pe.VS_FIXEDFILEINFO.ProductVersionMS >> 16}.{pe.VS_FIXEDFILEINFO.ProductVersionMS & 0xFFFF}.{pe.VS_FIXEDFILEINFO.ProductVersionLS >> 16}.{pe.VS_FIXEDFILEINFO.ProductVersionLS & 0xFFFF}"),
+                        "file_flags": pe.VS_FIXEDFILEINFO.FileFlags,
+                        "file_os": pe.VS_FIXEDFILEINFO.FileOS,
+                        "file_type": pe.VS_FIXEDFILEINFO.FileType,
+                        "file_subtype": pe.VS_FIXEDFILEINFO.FileSubtype,
                     }
 
             return cert_info
@@ -284,27 +254,27 @@ class PEFeatureExtractor:
         """Analyze delay-load imports with error handling for missing attributes."""
         try:
             delay_imports = []
-            if hasattr(pe, 'DIRECTORY_ENTRY_DELAY_IMPORT'):
+            if hasattr(pe, "DIRECTORY_ENTRY_DELAY_IMPORT"):
                 for entry in pe.DIRECTORY_ENTRY_DELAY_IMPORT:
                     imports = []
                     for imp in entry.imports:
                         import_info = {
-                            'name': imp.name.decode() if imp.name else None,
-                            'address': imp.address,
-                            'ordinal': imp.ordinal,
+                            "name": imp.name.decode() if imp.name else None,
+                            "address": imp.address,
+                            "ordinal": imp.ordinal,
                         }
                         imports.append(import_info)
 
                     delay_import = {
-                        'dll': entry.dll.decode() if entry.dll else None,
-                        'attributes': getattr(entry.struct, 'Attributes', None),  # Use getattr for safe access
-                        'name': getattr(entry.struct, 'Name', None),
-                        'handle': getattr(entry.struct, 'Handle', None),
-                        'iat': getattr(entry.struct, 'IAT', None),
-                        'bound_iat': getattr(entry.struct, 'BoundIAT', None),
-                        'unload_iat': getattr(entry.struct, 'UnloadIAT', None),
-                        'timestamp': getattr(entry.struct, 'TimeDateStamp', None),
-                        'imports': imports
+                        "dll": entry.dll.decode() if entry.dll else None,
+                        "attributes": getattr(entry.struct, "Attributes", None),  # Use getattr for safe access
+                        "name": getattr(entry.struct, "Name", None),
+                        "handle": getattr(entry.struct, "Handle", None),
+                        "iat": getattr(entry.struct, "IAT", None),
+                        "bound_iat": getattr(entry.struct, "BoundIAT", None),
+                        "unload_iat": getattr(entry.struct, "UnloadIAT", None),
+                        "timestamp": getattr(entry.struct, "TimeDateStamp", None),
+                        "imports": imports,
                     }
                     delay_imports.append(delay_import)
 
@@ -317,21 +287,21 @@ class PEFeatureExtractor:
         """Analyze load configuration."""
         try:
             load_config = {}
-            if hasattr(pe, 'DIRECTORY_ENTRY_LOAD_CONFIG'):
+            if hasattr(pe, "DIRECTORY_ENTRY_LOAD_CONFIG"):
                 config = pe.DIRECTORY_ENTRY_LOAD_CONFIG.struct
                 load_config = {
-                    'size': config.Size,
-                    'timestamp': config.TimeDateStamp,
-                    'major_version': config.MajorVersion,
-                    'minor_version': config.MinorVersion,
-                    'global_flags_clear': config.GlobalFlagsClear,
-                    'global_flags_set': config.GlobalFlagsSet,
-                    'critical_section_default_timeout': config.CriticalSectionDefaultTimeout,
-                    'decommit_free_block_threshold': config.DeCommitFreeBlockThreshold,
-                    'decommit_total_free_threshold': config.DeCommitTotalFreeThreshold,
-                    'security_cookie': config.SecurityCookie,
-                    'se_handler_table': config.SEHandlerTable,
-                    'se_handler_count': config.SEHandlerCount
+                    "size": config.Size,
+                    "timestamp": config.TimeDateStamp,
+                    "major_version": config.MajorVersion,
+                    "minor_version": config.MinorVersion,
+                    "global_flags_clear": config.GlobalFlagsClear,
+                    "global_flags_set": config.GlobalFlagsSet,
+                    "critical_section_default_timeout": config.CriticalSectionDefaultTimeout,
+                    "decommit_free_block_threshold": config.DeCommitFreeBlockThreshold,
+                    "decommit_total_free_threshold": config.DeCommitTotalFreeThreshold,
+                    "security_cookie": config.SecurityCookie,
+                    "se_handler_table": config.SEHandlerTable,
+                    "se_handler_count": config.SEHandlerCount,
                 }
 
             return load_config
@@ -343,7 +313,7 @@ class PEFeatureExtractor:
         """Analyze base relocations with summarized entries."""
         try:
             relocations = []
-            if hasattr(pe, 'DIRECTORY_ENTRY_BASERELOC'):
+            if hasattr(pe, "DIRECTORY_ENTRY_BASERELOC"):
                 for base_reloc in pe.DIRECTORY_ENTRY_BASERELOC:
                     # Summarize relocation entries
                     entry_types = {}
@@ -354,13 +324,13 @@ class PEFeatureExtractor:
                         offsets.append(entry.rva - base_reloc.struct.VirtualAddress)
 
                     reloc_info = {
-                        'virtual_address': base_reloc.struct.VirtualAddress,
-                        'size_of_block': base_reloc.struct.SizeOfBlock,
-                        'summary': {
-                            'total_entries': len(base_reloc.entries),
-                            'types': entry_types,  # Counts of each relocation type
-                            'offset_range': (min(offsets), max(offsets)) if offsets else None
-                        }
+                        "virtual_address": base_reloc.struct.VirtualAddress,
+                        "size_of_block": base_reloc.struct.SizeOfBlock,
+                        "summary": {
+                            "total_entries": len(base_reloc.entries),
+                            "types": entry_types,  # Counts of each relocation type
+                            "offset_range": (min(offsets), max(offsets)) if offsets else None,
+                        },
                     }
 
                     relocations.append(reloc_info)
@@ -374,22 +344,15 @@ class PEFeatureExtractor:
         """Analyze bound imports with robust error handling."""
         try:
             bound_imports = []
-            if hasattr(pe, 'DIRECTORY_ENTRY_BOUND_IMPORT'):
+            if hasattr(pe, "DIRECTORY_ENTRY_BOUND_IMPORT"):
                 for bound_imp in pe.DIRECTORY_ENTRY_BOUND_IMPORT:
-                    bound_import = {
-                        'name': bound_imp.name.decode() if bound_imp.name else None,
-                        'timestamp': bound_imp.struct.TimeDateStamp,
-                        'references': []
-                    }
+                    bound_import = {"name": bound_imp.name.decode() if bound_imp.name else None, "timestamp": bound_imp.struct.TimeDateStamp, "references": []}
 
                     # Check if `references` exists
-                    if hasattr(bound_imp, 'references') and bound_imp.references:
+                    if hasattr(bound_imp, "references") and bound_imp.references:
                         for ref in bound_imp.references:
-                            reference = {
-                                'name': ref.name.decode() if ref.name else None,
-                                'timestamp': getattr(ref.struct, 'TimeDateStamp', None)
-                            }
-                            bound_import['references'].append(reference)
+                            reference = {"name": ref.name.decode() if ref.name else None, "timestamp": getattr(ref.struct, "TimeDateStamp", None)}
+                            bound_import["references"].append(reference)
                     else:
                         logger.warning(f"Bound import {bound_import['name']} has no references.")
 
@@ -405,32 +368,32 @@ class PEFeatureExtractor:
         try:
             characteristics = {}
             for section in pe.sections:
-                section_name = section.Name.decode(errors='ignore').strip('\x00')
+                section_name = section.Name.decode(errors="ignore").strip("\x00")
                 flags = section.Characteristics
 
                 # Decode section characteristics flags
                 section_flags = {
-                    'CODE': bool(flags & 0x20),
-                    'INITIALIZED_DATA': bool(flags & 0x40),
-                    'UNINITIALIZED_DATA': bool(flags & 0x80),
-                    'MEM_DISCARDABLE': bool(flags & 0x2000000),
-                    'MEM_NOT_CACHED': bool(flags & 0x4000000),
-                    'MEM_NOT_PAGED': bool(flags & 0x8000000),
-                    'MEM_SHARED': bool(flags & 0x10000000),
-                    'MEM_EXECUTE': bool(flags & 0x20000000),
-                    'MEM_READ': bool(flags & 0x40000000),
-                    'MEM_WRITE': bool(flags & 0x80000000)
+                    "CODE": bool(flags & 0x20),
+                    "INITIALIZED_DATA": bool(flags & 0x40),
+                    "UNINITIALIZED_DATA": bool(flags & 0x80),
+                    "MEM_DISCARDABLE": bool(flags & 0x2000000),
+                    "MEM_NOT_CACHED": bool(flags & 0x4000000),
+                    "MEM_NOT_PAGED": bool(flags & 0x8000000),
+                    "MEM_SHARED": bool(flags & 0x10000000),
+                    "MEM_EXECUTE": bool(flags & 0x20000000),
+                    "MEM_READ": bool(flags & 0x40000000),
+                    "MEM_WRITE": bool(flags & 0x80000000),
                 }
 
                 characteristics[section_name] = {
-                    'flags': section_flags,
-                    'entropy': self._calculate_entropy(section.get_data()),
-                    'size_ratio': section.SizeOfRawData / pe.OPTIONAL_HEADER.SizeOfImage if pe.OPTIONAL_HEADER.SizeOfImage else 0,
-                    'pointer_to_raw_data': section.PointerToRawData,
-                    'pointer_to_relocations': section.PointerToRelocations,
-                    'pointer_to_line_numbers': section.PointerToLinenumbers,
-                    'number_of_relocations': section.NumberOfRelocations,
-                    'number_of_line_numbers': section.NumberOfLinenumbers,
+                    "flags": section_flags,
+                    "entropy": self._calculate_entropy(section.get_data()),
+                    "size_ratio": section.SizeOfRawData / pe.OPTIONAL_HEADER.SizeOfImage if pe.OPTIONAL_HEADER.SizeOfImage else 0,
+                    "pointer_to_raw_data": section.PointerToRawData,
+                    "pointer_to_relocations": section.PointerToRelocations,
+                    "pointer_to_line_numbers": section.PointerToLinenumbers,
+                    "number_of_relocations": section.NumberOfRelocations,
+                    "number_of_line_numbers": section.NumberOfLinenumbers,
                 }
 
             return characteristics
@@ -442,37 +405,37 @@ class PEFeatureExtractor:
         """Analyze extended header information."""
         try:
             headers = {
-                'dos_header': {
-                    'e_magic': pe.DOS_HEADER.e_magic,
-                    'e_cblp': pe.DOS_HEADER.e_cblp,
-                    'e_cp': pe.DOS_HEADER.e_cp,
-                    'e_crlc': pe.DOS_HEADER.e_crlc,
-                    'e_cparhdr': pe.DOS_HEADER.e_cparhdr,
-                    'e_minalloc': pe.DOS_HEADER.e_minalloc,
-                    'e_maxalloc': pe.DOS_HEADER.e_maxalloc,
-                    'e_ss': pe.DOS_HEADER.e_ss,
-                    'e_sp': pe.DOS_HEADER.e_sp,
-                    'e_csum': pe.DOS_HEADER.e_csum,
-                    'e_ip': pe.DOS_HEADER.e_ip,
-                    'e_cs': pe.DOS_HEADER.e_cs,
-                    'e_lfarlc': pe.DOS_HEADER.e_lfarlc,
-                    'e_ovno': pe.DOS_HEADER.e_ovno,
-                    'e_oemid': pe.DOS_HEADER.e_oemid,
-                    'e_oeminfo': pe.DOS_HEADER.e_oeminfo
+                "dos_header": {
+                    "e_magic": pe.DOS_HEADER.e_magic,
+                    "e_cblp": pe.DOS_HEADER.e_cblp,
+                    "e_cp": pe.DOS_HEADER.e_cp,
+                    "e_crlc": pe.DOS_HEADER.e_crlc,
+                    "e_cparhdr": pe.DOS_HEADER.e_cparhdr,
+                    "e_minalloc": pe.DOS_HEADER.e_minalloc,
+                    "e_maxalloc": pe.DOS_HEADER.e_maxalloc,
+                    "e_ss": pe.DOS_HEADER.e_ss,
+                    "e_sp": pe.DOS_HEADER.e_sp,
+                    "e_csum": pe.DOS_HEADER.e_csum,
+                    "e_ip": pe.DOS_HEADER.e_ip,
+                    "e_cs": pe.DOS_HEADER.e_cs,
+                    "e_lfarlc": pe.DOS_HEADER.e_lfarlc,
+                    "e_ovno": pe.DOS_HEADER.e_ovno,
+                    "e_oemid": pe.DOS_HEADER.e_oemid,
+                    "e_oeminfo": pe.DOS_HEADER.e_oeminfo,
                 },
-                'nt_headers': {}
+                "nt_headers": {},
             }
 
             # Ensure NT_HEADERS exists and contains FileHeader
-            if hasattr(pe, 'NT_HEADERS') and pe.NT_HEADERS is not None:
+            if hasattr(pe, "NT_HEADERS") and pe.NT_HEADERS is not None:
                 nt_headers = pe.NT_HEADERS
-                if hasattr(nt_headers, 'FileHeader'):
-                    headers['nt_headers'] = {
-                        'signature': nt_headers.Signature,
-                        'machine': nt_headers.FileHeader.Machine,
-                        'number_of_sections': nt_headers.FileHeader.NumberOfSections,
-                        'time_date_stamp': nt_headers.FileHeader.TimeDateStamp,
-                        'characteristics': nt_headers.FileHeader.Characteristics
+                if hasattr(nt_headers, "FileHeader"):
+                    headers["nt_headers"] = {
+                        "signature": nt_headers.Signature,
+                        "machine": nt_headers.FileHeader.Machine,
+                        "number_of_sections": nt_headers.FileHeader.NumberOfSections,
+                        "time_date_stamp": nt_headers.FileHeader.TimeDateStamp,
+                        "characteristics": nt_headers.FileHeader.Characteristics,
                     }
 
             return headers
@@ -491,27 +454,23 @@ class PEFeatureExtractor:
         """Analyze Rich header details."""
         try:
             rich_header = {}
-            if hasattr(pe, 'RICH_HEADER') and pe.RICH_HEADER is not None:
-                rich_header['checksum'] = getattr(pe.RICH_HEADER, 'checksum', None)
-                rich_header['values'] = self.serialize_data(pe.RICH_HEADER.values)
-                rich_header['clear_data'] = self.serialize_data(pe.RICH_HEADER.clear_data)
-                rich_header['key'] = self.serialize_data(pe.RICH_HEADER.key)
-                rich_header['raw_data'] = self.serialize_data(pe.RICH_HEADER.raw_data)
+            if hasattr(pe, "RICH_HEADER") and pe.RICH_HEADER is not None:
+                rich_header["checksum"] = getattr(pe.RICH_HEADER, "checksum", None)
+                rich_header["values"] = self.serialize_data(pe.RICH_HEADER.values)
+                rich_header["clear_data"] = self.serialize_data(pe.RICH_HEADER.clear_data)
+                rich_header["key"] = self.serialize_data(pe.RICH_HEADER.key)
+                rich_header["raw_data"] = self.serialize_data(pe.RICH_HEADER.raw_data)
 
                 # Decode CompID and build number information
                 compid_info = []
-                if rich_header['values']:
-                    for i in range(0, len(rich_header['values']), 2):
-                        if i + 1 < len(rich_header['values']):
-                            comp_id = rich_header['values'][i] >> 16
-                            build_number = rich_header['values'][i] & 0xFFFF
-                            count = rich_header['values'][i + 1]
-                            compid_info.append({
-                                'comp_id': comp_id,
-                                'build_number': build_number,
-                                'count': count
-                            })
-                rich_header['comp_id_info'] = compid_info
+                if rich_header["values"]:
+                    for i in range(0, len(rich_header["values"]), 2):
+                        if i + 1 < len(rich_header["values"]):
+                            comp_id = rich_header["values"][i] >> 16
+                            build_number = rich_header["values"][i] & 0xFFFF
+                            count = rich_header["values"][i + 1]
+                            compid_info.append({"comp_id": comp_id, "build_number": build_number, "count": count})
+                rich_header["comp_id_info"] = compid_info
 
             return rich_header
         except Exception as e:
@@ -521,12 +480,7 @@ class PEFeatureExtractor:
     def analyze_overlay(self, pe, file_path: str) -> Dict[str, Any]:
         """Analyze file overlay (data appended after the PE structure)."""
         try:
-            overlay_info = {
-                'exists': False,
-                'offset': 0,
-                'size': 0,
-                'entropy': 0.0
-            }
+            overlay_info = {"exists": False, "offset": 0, "size": 0, "entropy": 0.0}
 
             # Calculate the end of the PE structure
             if not pe.sections:
@@ -540,14 +494,14 @@ class PEFeatureExtractor:
 
             # Check for overlay
             if file_size > end_of_pe:
-                with open(file_path, 'rb') as f:
+                with open(file_path, "rb") as f:
                     f.seek(end_of_pe)
                     overlay_data = f.read()
 
-                    overlay_info['exists'] = True
-                    overlay_info['offset'] = end_of_pe
-                    overlay_info['size'] = len(overlay_data)
-                    overlay_info['entropy'] = self._calculate_entropy(overlay_data)
+                    overlay_info["exists"] = True
+                    overlay_info["offset"] = end_of_pe
+                    overlay_info["size"] = len(overlay_data)
+                    overlay_info["entropy"] = self._calculate_entropy(overlay_data)
 
             return overlay_info
         except Exception as e:
@@ -564,24 +518,24 @@ class PEFeatureExtractor:
         Files larger than 50 MB are skipped to avoid analysis timeouts.
         """
         r2_features = {
-            'function_count': 0,
-            'basic_block_count': 0,
-            'avg_basic_blocks_per_function': 0.0,
-            'cyclomatic_complexity_mean': 0.0,
-            'xref_count': 0,
-            'r2_string_count': 0,
-            'r2_analysis_success': False,
-            'error': None,
+            "function_count": 0,
+            "basic_block_count": 0,
+            "avg_basic_blocks_per_function": 0.0,
+            "cyclomatic_complexity_mean": 0.0,
+            "xref_count": 0,
+            "r2_string_count": 0,
+            "r2_analysis_success": False,
+            "error": None,
         }
 
         if not _R2PIPE_AVAILABLE:
-            r2_features['error'] = 'r2pipe_not_installed'
+            r2_features["error"] = "r2pipe_not_installed"
             return r2_features
 
         try:
             # Skip very large files — r2 analysis can take minutes on them
             if os.path.getsize(file_path) > 10 * 1024 * 1024:
-                r2_features['error'] = 'file_too_large'
+                r2_features["error"] = "file_too_large"
                 return r2_features
 
             # -2 suppresses the radare2 banner; anal.timeout limits runaway analysis
@@ -589,44 +543,37 @@ class PEFeatureExtractor:
             _saved_path = os.environ.get("PATH", "")
             os.environ["PATH"] = str(_R2_DIR) + os.pathsep + _saved_path
             try:
-                r2 = r2pipe.open(file_path, flags=['-2', '-e', 'anal.timeout=60'])
+                r2 = r2pipe.open(file_path, flags=["-2", "-e", "anal.timeout=60"])
             except Exception:
                 os.environ["PATH"] = _saved_path
                 raise
             try:
-                r2.cmd('aa')   # fast auto-analysis (signatures + call refs)
+                r2.cmd("aa")  # fast auto-analysis (signatures + call refs)
 
                 # ── Function count ─────────────────────────────────────────
-                raw_count = r2.cmd('aflc').strip()
+                raw_count = r2.cmd("aflc").strip()
                 try:
-                    r2_features['function_count'] = int(raw_count)
+                    r2_features["function_count"] = int(raw_count)
                 except ValueError:
-                    r2_features['function_count'] = 0
+                    r2_features["function_count"] = 0
 
                 # ── Per-function data (basic blocks + cyclomatic complexity) ─
-                funcs = r2.cmdj('aflj') or []
-                total_bbs = sum(f.get('nbbs', 0) for f in funcs)
-                r2_features['basic_block_count'] = total_bbs
-                r2_features['avg_basic_blocks_per_function'] = (
-                    float(total_bbs) / len(funcs) if funcs else 0.0
-                )
-                cc_values = [f.get('cc', 0) for f in funcs if f.get('cc') is not None]
-                r2_features['cyclomatic_complexity_mean'] = (
-                    float(np.mean(cc_values)) if cc_values else 0.0
-                )
+                funcs = r2.cmdj("aflj") or []
+                total_bbs = sum(f.get("nbbs", 0) for f in funcs)
+                r2_features["basic_block_count"] = total_bbs
+                r2_features["avg_basic_blocks_per_function"] = float(total_bbs) / len(funcs) if funcs else 0.0
+                cc_values = [f.get("cc", 0) for f in funcs if f.get("cc") is not None]
+                r2_features["cyclomatic_complexity_mean"] = float(np.mean(cc_values)) if cc_values else 0.0
 
                 # ── Cross-reference count ───────────────────────────────────
-                xrefs_raw = r2.cmd('axl').strip()
-                r2_features['xref_count'] = (
-                    len([ln for ln in xrefs_raw.splitlines() if ln.strip()])
-                    if xrefs_raw else 0
-                )
+                xrefs_raw = r2.cmd("axl").strip()
+                r2_features["xref_count"] = len([ln for ln in xrefs_raw.splitlines() if ln.strip()]) if xrefs_raw else 0
 
                 # ── Strings in data sections ────────────────────────────────
-                strings = r2.cmdj('izj') or []
-                r2_features['r2_string_count'] = len(strings)
+                strings = r2.cmdj("izj") or []
+                r2_features["r2_string_count"] = len(strings)
 
-                r2_features['r2_analysis_success'] = True
+                r2_features["r2_analysis_success"] = True
 
             finally:
                 try:
@@ -638,24 +585,22 @@ class PEFeatureExtractor:
 
         except Exception as e:
             logger.error(f"[r2] Analysis failed for {file_path}: {e}")
-            r2_features['error'] = str(e)
+            r2_features["error"] = str(e)
 
         return r2_features
 
-    def extract_numeric_features(
-        self, file_path: str,
-        rank: Optional[int] = None,
-        problematic_path: Optional[Path] = None
-    ) -> Optional[Dict[str, Any]]:
+    def extract_numeric_features(self, file_path: str, rank: Optional[int] = None, problematic_path: Optional[Path] = None) -> Optional[Dict[str, Any]]:
         """
         Extract numeric features of a file using pefile.
         Ensures pefile.PE is closed even on exceptions to avoid leaking file handles on Windows.
         If extraction fails and problematic_path is provided, moves the file there.
         """
+
         def _move_failed():
             if problematic_path:
                 try:
                     import shutil
+
                     dest = Path(problematic_path)
                     dest.mkdir(parents=True, exist_ok=True)
                     shutil.move(file_path, str(dest / Path(file_path).name))
@@ -683,137 +628,111 @@ class PEFeatureExtractor:
             # Extract features
             numeric_features = {
                 # Capstone analysis for packing
-                'section_disassembly': self.disassemble_all_sections(pe),
-
+                "section_disassembly": self.disassemble_all_sections(pe),
                 # Optional Header Features
-                'SizeOfOptionalHeader': pe.FILE_HEADER.SizeOfOptionalHeader,
-                'MajorLinkerVersion': pe.OPTIONAL_HEADER.MajorLinkerVersion,
-                'MinorLinkerVersion': pe.OPTIONAL_HEADER.MinorLinkerVersion,
-                'SizeOfCode': pe.OPTIONAL_HEADER.SizeOfCode,
-                'SizeOfInitializedData': pe.OPTIONAL_HEADER.SizeOfInitializedData,
-                'SizeOfUninitializedData': pe.OPTIONAL_HEADER.SizeOfUninitializedData,
-                'AddressOfEntryPoint': pe.OPTIONAL_HEADER.AddressOfEntryPoint,
-                'BaseOfCode': pe.OPTIONAL_HEADER.BaseOfCode,
-                'BaseOfData': getattr(pe.OPTIONAL_HEADER, 'BaseOfData', 0),
-                'ImageBase': pe.OPTIONAL_HEADER.ImageBase,
-                'SectionAlignment': pe.OPTIONAL_HEADER.SectionAlignment,
-                'FileAlignment': pe.OPTIONAL_HEADER.FileAlignment,
-                'MajorOperatingSystemVersion': pe.OPTIONAL_HEADER.MajorOperatingSystemVersion,
-                'MinorOperatingSystemVersion': pe.OPTIONAL_HEADER.MinorOperatingSystemVersion,
-                'MajorImageVersion': pe.OPTIONAL_HEADER.MajorImageVersion,
-                'MinorImageVersion': pe.OPTIONAL_HEADER.MinorImageVersion,
-                'MajorSubsystemVersion': pe.OPTIONAL_HEADER.MajorSubsystemVersion,
-                'MinorSubsystemVersion': pe.OPTIONAL_HEADER.MinorSubsystemVersion,
-                'SizeOfImage': pe.OPTIONAL_HEADER.SizeOfImage,
-                'SizeOfHeaders': pe.OPTIONAL_HEADER.SizeOfHeaders,
-                'CheckSum': pe.OPTIONAL_HEADER.CheckSum,
-                'Subsystem': pe.OPTIONAL_HEADER.Subsystem,
-                'DllCharacteristics': pe.OPTIONAL_HEADER.DllCharacteristics,
-                'SizeOfStackReserve': pe.OPTIONAL_HEADER.SizeOfStackReserve,
-                'SizeOfStackCommit': pe.OPTIONAL_HEADER.SizeOfStackCommit,
-                'SizeOfHeapReserve': pe.OPTIONAL_HEADER.SizeOfHeapReserve,
-                'SizeOfHeapCommit': pe.OPTIONAL_HEADER.SizeOfHeapCommit,
-                'LoaderFlags': pe.OPTIONAL_HEADER.LoaderFlags,
-                'NumberOfRvaAndSizes': pe.OPTIONAL_HEADER.NumberOfRvaAndSizes,
-
+                "SizeOfOptionalHeader": pe.FILE_HEADER.SizeOfOptionalHeader,
+                "MajorLinkerVersion": pe.OPTIONAL_HEADER.MajorLinkerVersion,
+                "MinorLinkerVersion": pe.OPTIONAL_HEADER.MinorLinkerVersion,
+                "SizeOfCode": pe.OPTIONAL_HEADER.SizeOfCode,
+                "SizeOfInitializedData": pe.OPTIONAL_HEADER.SizeOfInitializedData,
+                "SizeOfUninitializedData": pe.OPTIONAL_HEADER.SizeOfUninitializedData,
+                "AddressOfEntryPoint": pe.OPTIONAL_HEADER.AddressOfEntryPoint,
+                "BaseOfCode": pe.OPTIONAL_HEADER.BaseOfCode,
+                "BaseOfData": getattr(pe.OPTIONAL_HEADER, "BaseOfData", 0),
+                "ImageBase": pe.OPTIONAL_HEADER.ImageBase,
+                "SectionAlignment": pe.OPTIONAL_HEADER.SectionAlignment,
+                "FileAlignment": pe.OPTIONAL_HEADER.FileAlignment,
+                "MajorOperatingSystemVersion": pe.OPTIONAL_HEADER.MajorOperatingSystemVersion,
+                "MinorOperatingSystemVersion": pe.OPTIONAL_HEADER.MinorOperatingSystemVersion,
+                "MajorImageVersion": pe.OPTIONAL_HEADER.MajorImageVersion,
+                "MinorImageVersion": pe.OPTIONAL_HEADER.MinorImageVersion,
+                "MajorSubsystemVersion": pe.OPTIONAL_HEADER.MajorSubsystemVersion,
+                "MinorSubsystemVersion": pe.OPTIONAL_HEADER.MinorSubsystemVersion,
+                "SizeOfImage": pe.OPTIONAL_HEADER.SizeOfImage,
+                "SizeOfHeaders": pe.OPTIONAL_HEADER.SizeOfHeaders,
+                "CheckSum": pe.OPTIONAL_HEADER.CheckSum,
+                "Subsystem": pe.OPTIONAL_HEADER.Subsystem,
+                "DllCharacteristics": pe.OPTIONAL_HEADER.DllCharacteristics,
+                "SizeOfStackReserve": pe.OPTIONAL_HEADER.SizeOfStackReserve,
+                "SizeOfStackCommit": pe.OPTIONAL_HEADER.SizeOfStackCommit,
+                "SizeOfHeapReserve": pe.OPTIONAL_HEADER.SizeOfHeapReserve,
+                "SizeOfHeapCommit": pe.OPTIONAL_HEADER.SizeOfHeapCommit,
+                "LoaderFlags": pe.OPTIONAL_HEADER.LoaderFlags,
+                "NumberOfRvaAndSizes": pe.OPTIONAL_HEADER.NumberOfRvaAndSizes,
                 # Section Headers
-                'sections': [
+                "sections": [
                     {
-                        'name': section.Name.decode(errors='ignore').strip('\x00'),
-                        'virtual_size': section.Misc_VirtualSize,
-                        'virtual_address': section.VirtualAddress,
-                        'size_of_raw_data': section.SizeOfRawData,
-                        'pointer_to_raw_data': section.PointerToRawData,
-                        'characteristics': section.Characteristics,
+                        "name": section.Name.decode(errors="ignore").strip("\x00"),
+                        "virtual_size": section.Misc_VirtualSize,
+                        "virtual_address": section.VirtualAddress,
+                        "size_of_raw_data": section.SizeOfRawData,
+                        "pointer_to_raw_data": section.PointerToRawData,
+                        "characteristics": section.Characteristics,
                     }
                     for section in pe.sections
                 ],
-
                 # Imported Functions
-                'imports': [
-                    imp.name.decode(errors='ignore') if imp.name else "Unknown"
-                    for entry in getattr(pe, 'DIRECTORY_ENTRY_IMPORT', [])
-                    for imp in getattr(entry, 'imports', [])
-                ] if hasattr(pe, 'DIRECTORY_ENTRY_IMPORT') else [],
-
+                "imports": [imp.name.decode(errors="ignore") if imp.name else "Unknown" for entry in getattr(pe, "DIRECTORY_ENTRY_IMPORT", []) for imp in getattr(entry, "imports", [])] if hasattr(pe, "DIRECTORY_ENTRY_IMPORT") else [],
                 # Exported Functions
-                'exports': [
-                    exp.name.decode(errors='ignore') if exp.name else "Unknown"
-                    for exp in getattr(getattr(pe, 'DIRECTORY_ENTRY_EXPORT', None), 'symbols', [])
-                ] if hasattr(pe, 'DIRECTORY_ENTRY_EXPORT') else [],
-
+                "exports": [exp.name.decode(errors="ignore") if exp.name else "Unknown" for exp in getattr(getattr(pe, "DIRECTORY_ENTRY_EXPORT", None), "symbols", [])] if hasattr(pe, "DIRECTORY_ENTRY_EXPORT") else [],
                 # Resources
-                'resources': [
+                "resources": [
                     {
-                        'type_id': getattr(getattr(resource_type, 'struct', None), 'Id', None),
-                        'resource_id': getattr(getattr(resource_id, 'struct', None), 'Id', None),
-                        'lang_id': getattr(getattr(resource_lang, 'struct', None), 'Id', None),
-                        'size': getattr(getattr(resource_lang, 'data', None), 'Size', None),
-                        'codepage': getattr(getattr(resource_lang, 'data', None), 'CodePage', None),
+                        "type_id": getattr(getattr(resource_type, "struct", None), "Id", None),
+                        "resource_id": getattr(getattr(resource_id, "struct", None), "Id", None),
+                        "lang_id": getattr(getattr(resource_lang, "struct", None), "Id", None),
+                        "size": getattr(getattr(resource_lang, "data", None), "Size", None),
+                        "codepage": getattr(getattr(resource_lang, "data", None), "CodePage", None),
                     }
-                    for resource_type in (
-                        pe.DIRECTORY_ENTRY_RESOURCE.entries
-                        if hasattr(pe, 'DIRECTORY_ENTRY_RESOURCE')
-                        and hasattr(pe.DIRECTORY_ENTRY_RESOURCE, 'entries')
-                        else []
-                    )
-                    for resource_id in (resource_type.directory.entries if hasattr(resource_type, 'directory') else [])
-                    for resource_lang in (resource_id.directory.entries if hasattr(resource_id, 'directory') else [])
-                    if hasattr(resource_lang, 'data')
-                ] if hasattr(pe, 'DIRECTORY_ENTRY_RESOURCE') else [],
-
+                    for resource_type in (pe.DIRECTORY_ENTRY_RESOURCE.entries if hasattr(pe, "DIRECTORY_ENTRY_RESOURCE") and hasattr(pe.DIRECTORY_ENTRY_RESOURCE, "entries") else [])
+                    for resource_id in (resource_type.directory.entries if hasattr(resource_type, "directory") else [])
+                    for resource_lang in (resource_id.directory.entries if hasattr(resource_id, "directory") else [])
+                    if hasattr(resource_lang, "data")
+                ]
+                if hasattr(pe, "DIRECTORY_ENTRY_RESOURCE")
+                else [],
                 # Debug Information
-                'debug': [
+                "debug": [
                     {
-                        'type': debug.struct.Type,
-                        'timestamp': debug.struct.TimeDateStamp,
-                        'version': f"{debug.struct.MajorVersion}.{debug.struct.MinorVersion}",
-                        'size': debug.struct.SizeOfData,
+                        "type": debug.struct.Type,
+                        "timestamp": debug.struct.TimeDateStamp,
+                        "version": f"{debug.struct.MajorVersion}.{debug.struct.MinorVersion}",
+                        "size": debug.struct.SizeOfData,
                     }
-                    for debug in getattr(pe, 'DIRECTORY_ENTRY_DEBUG', [])
-                ] if hasattr(pe, 'DIRECTORY_ENTRY_DEBUG') else [],
-
+                    for debug in getattr(pe, "DIRECTORY_ENTRY_DEBUG", [])
+                ]
+                if hasattr(pe, "DIRECTORY_ENTRY_DEBUG")
+                else [],
                 # Certificates
-                'certificates': self.analyze_certificates(pe),  # Analyze certificates
-
+                "certificates": self.analyze_certificates(pe),  # Analyze certificates
                 # DOS Stub Analysis
-                'dos_stub': self.analyze_dos_stub(pe),  # DOS stub analysis here
-
+                "dos_stub": self.analyze_dos_stub(pe),  # DOS stub analysis here
                 # TLS Callbacks
-                'tls_callbacks': self.analyze_tls_callbacks(pe),  # TLS callback analysis here
-
+                "tls_callbacks": self.analyze_tls_callbacks(pe),  # TLS callback analysis here
                 # Delay Imports
-                'delay_imports': self.analyze_delay_imports(pe),  # Delay imports analysis here
-
+                "delay_imports": self.analyze_delay_imports(pe),  # Delay imports analysis here
                 # Load Config
-                'load_config': self.analyze_load_config(pe),  # Load config analysis here
-
+                "load_config": self.analyze_load_config(pe),  # Load config analysis here
                 # Bound Imports
-                'bound_imports': self.analyze_bound_imports(pe),  # Bound imports analysis here
-
+                "bound_imports": self.analyze_bound_imports(pe),  # Bound imports analysis here
                 # Section Characteristics
-                'section_characteristics': self.analyze_section_characteristics(pe),
+                "section_characteristics": self.analyze_section_characteristics(pe),
                 # Section characteristics analysis here
-
                 # Extended Headers
-                'extended_headers': self.analyze_extended_headers(pe),  # Extended headers analysis here
-
+                "extended_headers": self.analyze_extended_headers(pe),  # Extended headers analysis here
                 # Rich Header
-                'rich_header': self.analyze_rich_header(pe),  # Rich header analysis here
-
+                "rich_header": self.analyze_rich_header(pe),  # Rich header analysis here
                 # Overlay
-                'overlay': self.analyze_overlay(pe, file_path),  # Overlay analysis here
-
+                "overlay": self.analyze_overlay(pe, file_path),  # Overlay analysis here
                 # Relocations
-                'relocations': self.analyze_relocations(pe),  # Relocations analysis here
-
+                "relocations": self.analyze_relocations(pe),  # Relocations analysis here
                 # radare2 deep static analysis (function graph, xrefs, CC, strings)
-                'radare2': self.analyze_with_radare2(file_path),
+                "radare2": self.analyze_with_radare2(file_path),
             }
 
             # Add numeric tag if provided
             if rank is not None:
-                numeric_features['numeric_tag'] = rank
+                numeric_features["numeric_tag"] = rank
 
             return numeric_features
 
@@ -831,21 +750,23 @@ class PEFeatureExtractor:
 
 
 class DataProcessor:
-    def __init__(self,
-                 malicious_dir: str = 'datamaliciousorder',
-                 benign_dir: str = 'data2',
-                 out_dir_prefix: str = 'pe_features',
-                 bin_path: str = 'ml_vectors.bin',
-                 index_path: str = 'ml_index.jsonl',
-                 malicious_pickle_path: str = 'ml_definitions_malicious.pkl',
-                 benign_pickle_path: str = 'ml_definitions_benign.pkl',
-                 reset: bool = False):
+    def __init__(
+        self,
+        malicious_dir: str = "datamaliciousorder",
+        benign_dir: str = "data2",
+        out_dir_prefix: str = "pe_features",
+        bin_path: str = "ml_vectors.bin",
+        index_path: str = "ml_index.jsonl",
+        malicious_pickle_path: str = "ml_definitions_malicious.pkl",
+        benign_pickle_path: str = "ml_definitions_benign.pkl",
+        reset: bool = False,
+    ):
         self.malicious_dir = malicious_dir
         self.benign_dir = benign_dir
         self.pe_extractor = PEFeatureExtractor()
-        self.problematic_dir = Path('problematic_files')
-        self.duplicates_dir = Path('duplicate_files')
-        self.duplicate_malware_dir = Path('duplicate_malware')
+        self.problematic_dir = Path("problematic_files")
+        self.duplicates_dir = Path("duplicate_files")
+        self.duplicate_malware_dir = Path("duplicate_malware")
         self.output_dir = Path(f"{out_dir_prefix}_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
         self.output_dir.mkdir(exist_ok=True, parents=True)  # Ensure it exists before setting paths
         self.bin_path = self.output_dir / bin_path
@@ -865,14 +786,7 @@ class DataProcessor:
                     except OSError as e:
                         logger.error(f"Error deleting {p}: {e}")
 
-        for directory in [
-            self.problematic_dir / 'malicious',
-            self.problematic_dir / 'benign',
-            self.duplicates_dir / 'malicious',
-            self.duplicates_dir / 'benign',
-            self.duplicate_malware_dir,
-            self.output_dir
-        ]:
+        for directory in [self.problematic_dir / "malicious", self.problematic_dir / "benign", self.duplicates_dir / "malicious", self.duplicates_dir / "benign", self.duplicate_malware_dir, self.output_dir]:
             directory.mkdir(exist_ok=True, parents=True)
 
         # Ensure store exists and preload seen md5s (resume support)
@@ -887,27 +801,27 @@ class DataProcessor:
         # touch bin and index files if not present
         if not self.bin_path.exists():
             self.bin_path.parent.mkdir(parents=True, exist_ok=True)
-            self.bin_path.write_bytes(b'')  # create empty file
+            self.bin_path.write_bytes(b"")  # create empty file
         if not self.index_path.exists():
             self.index_path.parent.mkdir(parents=True, exist_ok=True)
-            self.index_path.write_text('', encoding='utf-8', errors='replace')
+            self.index_path.write_text("", encoding="utf-8", errors="replace")
         # ensure pickle exists (create empty file if missing)
         for p in [self.malicious_pickle_path, self.benign_pickle_path]:
             if not p.exists():
                 p.parent.mkdir(parents=True, exist_ok=True)
-                p.write_bytes(b'')
+                p.write_bytes(b"")
 
     def _load_seen_md5s(self) -> dict:
         seen = {}  # md5 -> label ("malicious" | "benign")
         try:
-            with open(self.index_path, 'r', encoding='utf-8', errors='replace') as idxf:
+            with open(self.index_path, "r", encoding="utf-8", errors="replace") as idxf:
                 for line in idxf:
                     if not line.strip():
                         continue
                     try:
                         obj = json.loads(line)
-                        md5 = obj.get('md5')
-                        label = obj.get('label')
+                        md5 = obj.get("md5")
+                        label = obj.get("label")
                         if md5:
                             seen[md5] = label
                     except Exception:
@@ -918,60 +832,33 @@ class DataProcessor:
         return seen
 
     def _new_label_stats(self) -> Dict[str, int]:
-        return {
-            'discovered': 0,
-            'queued': 0,
-            'inserted': 0,
-            'duplicates': 0,
-            'failed': 0,
-            'prefilter_duplicates': 0,
-            'prefilter_failed': 0,
-            'processing_duplicates': 0,
-            'processing_failed': 0,
-            'cross_label_duplicates': 0
-        }
+        return {"discovered": 0, "queued": 0, "inserted": 0, "duplicates": 0, "failed": 0, "prefilter_duplicates": 0, "prefilter_failed": 0, "processing_duplicates": 0, "processing_failed": 0, "cross_label_duplicates": 0}
 
     def _new_stats(self) -> Dict[str, Dict[str, int]]:
-        return {
-            'malicious': self._new_label_stats(),
-            'benign': self._new_label_stats()
-        }
+        return {"malicious": self._new_label_stats(), "benign": self._new_label_stats()}
 
     def _record_duplicate(self, label: str, stage: str, cross_label: bool = False) -> None:
         stats = self.stats[label]
-        stats['duplicates'] += 1
-        stats[f'{stage}_duplicates'] += 1
+        stats["duplicates"] += 1
+        stats[f"{stage}_duplicates"] += 1
         if cross_label:
-            stats['cross_label_duplicates'] += 1
+            stats["cross_label_duplicates"] += 1
 
     def _record_failure(self, label: str, stage: str) -> None:
         stats = self.stats[label]
-        stats['failed'] += 1
-        stats[f'{stage}_failed'] += 1
+        stats["failed"] += 1
+        stats[f"{stage}_failed"] += 1
 
     def _build_totals(self) -> Dict[str, int]:
-        keys = (
-            'discovered',
-            'queued',
-            'inserted',
-            'duplicates',
-            'failed',
-            'prefilter_duplicates',
-            'prefilter_failed',
-            'processing_duplicates',
-            'processing_failed',
-            'cross_label_duplicates'
-        )
-        return {
-            key: sum(label_stats[key] for label_stats in self.stats.values())
-            for key in keys
-        }
+        keys = ("discovered", "queued", "inserted", "duplicates", "failed", "prefilter_duplicates", "prefilter_failed", "processing_duplicates", "processing_failed", "cross_label_duplicates")
+        return {key: sum(label_stats[key] for label_stats in self.stats.values()) for key in keys}
 
     # --------------------------
     # Numeric conversion (same schema used previously)
     # --------------------------
     def features_to_numeric(self, entry: dict):
         """Convert features dict to numpy float32 vector (keeps same order as before)."""
+
         # replicate the same mapping you used previously — kept concise but identical semantics
         def to_float(x, default=0.0):
             try:
@@ -992,7 +879,7 @@ class DataProcessor:
             try:
                 if isinstance(section_characteristics, dict):
                     for v in section_characteristics.values():
-                        e = v.get('entropy') if isinstance(v, dict) else None
+                        e = v.get("entropy") if isinstance(v, dict) else None
                         if e is not None:
                             try:
                                 entropies.append(float(e))
@@ -1013,7 +900,7 @@ class DataProcessor:
                     for r in relocs:
                         blocks += 1
                         try:
-                            total += int(r.get('summary', {}).get('total_entries', 0))
+                            total += int(r.get("summary", {}).get("total_entries", 0))
                         except Exception:
                             continue
                 return total, blocks
@@ -1088,14 +975,14 @@ class DataProcessor:
         has_rich = int(bool(rich_header))
 
         # ── radare2 features ────────────────────────────────────────────────
-        r2 = entry.get('radare2', {}) or {}
-        r2_func_count = to_float(r2.get('function_count', 0))
-        r2_bb_count = to_float(r2.get('basic_block_count', 0))
-        r2_avg_bb_per_func = to_float(r2.get('avg_basic_blocks_per_function', 0.0))
-        r2_cc_mean = to_float(r2.get('cyclomatic_complexity_mean', 0.0))
-        r2_xref_count = to_float(r2.get('xref_count', 0))
-        r2_string_count = to_float(r2.get('r2_string_count', 0))
-        r2_success = float(bool(r2.get('r2_analysis_success', False)))
+        r2 = entry.get("radare2", {}) or {}
+        r2_func_count = to_float(r2.get("function_count", 0))
+        r2_bb_count = to_float(r2.get("basic_block_count", 0))
+        r2_avg_bb_per_func = to_float(r2.get("avg_basic_blocks_per_function", 0.0))
+        r2_cc_mean = to_float(r2.get("cyclomatic_complexity_mean", 0.0))
+        r2_xref_count = to_float(r2.get("xref_count", 0))
+        r2_string_count = to_float(r2.get("r2_string_count", 0))
+        r2_success = float(bool(r2.get("r2_analysis_success", False)))
 
         numeric = [
             size_of_optional_header,
@@ -1176,9 +1063,9 @@ class DataProcessor:
         max_retries = 6
         for attempt in range(1, max_retries + 1):
             try:
-                with open(file_path, 'rb') as f:
+                with open(file_path, "rb") as f:
                     header = f.read(2)
-                    if header != b'MZ':
+                    if header != b"MZ":
                         return None, False
 
                     # Back to start to read whole file for MD5
@@ -1199,7 +1086,7 @@ class DataProcessor:
         Worker function to process a single file. `args` expected to be (file_path, rank, is_malicious, md5).
         """
         file_path, rank, is_malicious, md5 = args
-        label = 'malicious' if is_malicious else 'benign'
+        label = "malicious" if is_malicious else "benign"
 
         MAX_RETRIES = 6
         for attempt in range(1, MAX_RETRIES + 1):
@@ -1208,13 +1095,7 @@ class DataProcessor:
                 problematic_dest = self.problematic_dir / label
                 features = self.pe_extractor.extract_numeric_features(str(file_path), rank, problematic_dest)
                 if features:
-                    features['file_info'] = {
-                        'filename': Path(file_path).name,
-                        'path': str(file_path),
-                        'md5': md5,
-                        'size': os.path.getsize(file_path),
-                        'is_malicious': bool(is_malicious)
-                    }
+                    features["file_info"] = {"filename": Path(file_path).name, "path": str(file_path), "md5": md5, "size": os.path.getsize(file_path), "is_malicious": bool(is_malicious)}
                     return features  # Success
                 else:
                     # Worker doesn't need to move here anymore, extractor did it.
@@ -1242,12 +1123,12 @@ class DataProcessor:
         AND append the full features dict to a streaming pickle file (results.pkl).
         Returns the index entry dict.
         """
-        fi = features.get('file_info', {})
-        md5 = fi.get('md5')
-        filename = fi.get('filename')
-        path = fi.get('path')
-        size = fi.get('size')
-        is_malicious = fi.get('is_malicious')
+        fi = features.get("file_info", {})
+        md5 = fi.get("md5")
+        filename = fi.get("filename")
+        path = fi.get("path")
+        size = fi.get("size")
+        is_malicious = fi.get("is_malicious")
         label = "malicious" if is_malicious else "benign"
 
         vec = self.features_to_numeric(features)
@@ -1256,35 +1137,24 @@ class DataProcessor:
         dtype_name = str(vec.dtype)
 
         # append to bin and index atomically-ish (open files and write)
-        with open(self.bin_path, 'ab') as bf:
+        with open(self.bin_path, "ab") as bf:
             offset = bf.tell()
             bf.write(vec_bytes)
 
-        index_entry = {
-            'md5': md5,
-            'label': label,
-            'filename': filename,
-            'path': path,
-            'size': size,
-            'offset': offset,
-            'vec_bytes_len': vec_bytes_len,
-            'dtype': dtype_name,
-            'vec_len': int(vec.size),
-            'timestamp': datetime.now().isoformat()
-        }
+        index_entry = {"md5": md5, "label": label, "filename": filename, "path": path, "size": size, "offset": offset, "vec_bytes_len": vec_bytes_len, "dtype": dtype_name, "vec_len": int(vec.size), "timestamp": datetime.now().isoformat()}
 
         # append index line
-        with open(self.index_path, 'a', encoding='utf-8', errors='replace') as idxf:
-            idxf.write(json.dumps(index_entry, ensure_ascii=False) + '\n')
+        with open(self.index_path, "a", encoding="utf-8", errors="replace") as idxf:
+            idxf.write(json.dumps(index_entry, ensure_ascii=False) + "\n")
 
         # additionally append full features dict to the correct pickle file
         pickle_path = self.malicious_pickle_path if is_malicious else self.benign_pickle_path
         try:
-            with open(pickle_path, 'ab') as pf:
+            with open(pickle_path, "ab") as pf:
                 # write the raw features dict as one pickle record
                 pickle.dump(features, pf, protocol=pickle.HIGHEST_PROTOCOL)
         except Exception as e:
-            safe_path = str(path).encode('utf-8', 'replace').decode('utf-8')
+            safe_path = str(path).encode("utf-8", "replace").decode("utf-8")
             logger.exception(f"Failed to append pickled features for {safe_path}: {e}")
 
         return index_entry
@@ -1297,10 +1167,10 @@ class DataProcessor:
         PRIORITY: Malicious set is 100% correct. If a benign file matches a malicious one, move the BENIGN file."""
         logger.info("Initializing Global MD5 Pre-filter Stage (Malicious Priority)...")
 
-        malicious_raw = [f for f in Path(self.malicious_dir).rglob('*') if f.is_file()]
-        benign_raw = [f for f in Path(self.benign_dir).rglob('*') if f.is_file()]
-        self.stats['malicious']['discovered'] = len(malicious_raw)
-        self.stats['benign']['discovered'] = len(benign_raw)
+        malicious_raw = [f for f in Path(self.malicious_dir).rglob("*") if f.is_file()]
+        benign_raw = [f for f in Path(self.benign_dir).rglob("*") if f.is_file()]
+        self.stats["malicious"]["discovered"] = len(malicious_raw)
+        self.stats["benign"]["discovered"] = len(benign_raw)
 
         # Sort Z-A to favor descriptive names
         malicious_raw.sort(key=lambda x: x.name, reverse=True)
@@ -1315,20 +1185,20 @@ class DataProcessor:
 
             if not is_pe:
                 logger.warning(f"File {f.name} is not a valid PE (no MZ header). Moving to problematic_files/malicious.")
-                self._record_failure('malicious', 'prefilter')
-                self._move(f, self.problematic_dir / 'malicious')
+                self._record_failure("malicious", "prefilter")
+                self._move(f, self.problematic_dir / "malicious")
                 continue
 
             if not md5:
                 logger.warning(f"Failed to hash malicious file {f}. Moving to problematic_files/malicious.")
-                self._record_failure('malicious', 'prefilter')
-                self._move(f, self.problematic_dir / 'malicious')
+                self._record_failure("malicious", "prefilter")
+                self._move(f, self.problematic_dir / "malicious")
                 continue
 
             # Intra-class duplicate check
             if md5 in self.seen or md5 in batch_malicious_md5s:
-                self._record_duplicate('malicious', 'prefilter')
-                self._move(f, self.duplicates_dir / 'malicious')
+                self._record_duplicate("malicious", "prefilter")
+                self._move(f, self.duplicates_dir / "malicious")
             else:
                 batch_malicious_md5s[md5] = f
                 final_malicious.append((f, md5))
@@ -1342,43 +1212,40 @@ class DataProcessor:
 
             if not is_pe:
                 logger.warning(f"File {f.name} is not a valid PE (no MZ header). Moving to problematic_files/benign.")
-                self._record_failure('benign', 'prefilter')
-                self._move(f, self.problematic_dir / 'benign')
+                self._record_failure("benign", "prefilter")
+                self._move(f, self.problematic_dir / "benign")
                 continue
 
             if not md5:
                 logger.warning(f"Failed to hash benign file {f}. Moving to problematic_files/benign.")
-                self._record_failure('benign', 'prefilter')
-                self._move(f, self.problematic_dir / 'benign')
+                self._record_failure("benign", "prefilter")
+                self._move(f, self.problematic_dir / "benign")
                 continue
 
             # Check for conflict with Malicious (Database or current batch)
             # If it's malicious, we move the BENIGN file to duplicate_malware
-            if (md5 in self.seen and self.seen[md5] == 'malicious') or (md5 in batch_malicious_md5s):
+            if (md5 in self.seen and self.seen[md5] == "malicious") or (md5 in batch_malicious_md5s):
                 logger.warning(f"Conflict: Benign {f.name} exists in Malicious set. Moving to duplicate_malware.")
-                self._record_duplicate('benign', 'prefilter', cross_label=True)
+                self._record_duplicate("benign", "prefilter", cross_label=True)
                 self._move(f, self.duplicate_malware_dir)
                 continue
 
             if md5 in self.seen or md5 in batch_benign_md5s:
-                self._record_duplicate('benign', 'prefilter')
-                self._move(f, self.duplicates_dir / 'benign')
+                self._record_duplicate("benign", "prefilter")
+                self._move(f, self.duplicates_dir / "benign")
             else:
                 batch_benign_md5s[md5] = f
                 final_benign.append((f, md5))
 
-        self.stats['malicious']['queued'] = len(final_malicious)
-        self.stats['benign']['queued'] = len(final_benign)
+        self.stats["malicious"]["queued"] = len(final_malicious)
+        self.stats["benign"]["queued"] = len(final_benign)
         return final_malicious, final_benign
 
     def process_dir(self, is_malicious: bool, prefiltered_tasks: List[Tuple[Path, str]]):
-        label = 'malicious' if is_malicious else 'benign'
+        label = "malicious" if is_malicious else "benign"
         stats = self.stats[label]
         if not prefiltered_tasks:
-            logger.warning(
-                f"[{label}] No files to process. "
-                f"Current totals: {stats['duplicates']:,} duplicates, {stats['failed']:,} failed."
-            )
+            logger.warning(f"[{label}] No files to process. Current totals: {stats['duplicates']:,} duplicates, {stats['failed']:,} failed.")
             return stats
 
         # Stage 3: Prepare tasks
@@ -1393,37 +1260,31 @@ class DataProcessor:
         # Stage 4: Process with ProcessPoolExecutor
         logger.info(f"[{label}] Stage 4/4: Processing with ProcessPoolExecutor (workers=auto)...")
         with ProcessPoolExecutor() as exe:
-            for i, feats in enumerate(tqdm(
-                    exe.map(self._process_one, tasks),
-                    total=total_files,
-                    desc=f"Processing {label}")):
+            for i, feats in enumerate(tqdm(exe.map(self._process_one, tasks), total=total_files, desc=f"Processing {label}")):
                 f_path = tasks[i][0]
 
                 if not feats:
                     processing_failed += 1
-                    self._record_failure(label, 'processing')
+                    self._record_failure(label, "processing")
                     # Note: worker already moved f_path to problematic_dir / label
                     continue
 
-                md5 = feats['file_info']['md5']
+                md5 = feats["file_info"]["md5"]
                 if md5 in self.seen:
                     # Late conflict handling
                     existing_label = self.seen[md5]
                     if existing_label != label:
-                        logger.warning(
-                            f"[{label}] Late label conflict: {f_path} is '{label}' "
-                            f"but MD5 already seen as '{existing_label}'"
-                        )
-                        if existing_label == 'malicious':
+                        logger.warning(f"[{label}] Late label conflict: {f_path} is '{label}' but MD5 already seen as '{existing_label}'")
+                        if existing_label == "malicious":
                             # Virus priority: move current benign to duplicate_malware
                             self._move(f_path, self.duplicate_malware_dir)
                         else:
                             # Current is malicious, existing was benign. Move to problematic/malicious.
                             self._move(f_path, self.problematic_dir / label)
-                        self._record_duplicate(label, 'processing', cross_label=True)
+                        self._record_duplicate(label, "processing", cross_label=True)
                     else:
                         # Existing is same label, move to duplicates/label
-                        self._record_duplicate(label, 'processing')
+                        self._record_duplicate(label, "processing")
                         self._move(f_path, self.duplicates_dir / label)
                     processing_duplicates += 1
                     continue
@@ -1435,18 +1296,15 @@ class DataProcessor:
                 try:
                     self._append_vector_and_index(feats)
                     inserted += 1
-                    stats['inserted'] += 1
+                    stats["inserted"] += 1
                 except Exception as e:
-                    safe_path = str(f_path).encode('utf-8', 'replace').decode('utf-8')
+                    safe_path = str(f_path).encode("utf-8", "replace").decode("utf-8")
                     logger.exception(f"Failed to append vector for {safe_path}: {e}")
                     processing_failed += 1
-                    self._record_failure(label, 'processing')
+                    self._record_failure(label, "processing")
                     self._move(f_path, self.problematic_dir / label)
 
-        logger.info(
-            f"[{label}] Finished: {stats['inserted']:,} inserted, {stats['duplicates']:,} duplicates, "
-            f"{stats['failed']:,} failed (queued: {total_files:,}, discovered: {stats['discovered']:,})"
-        )
+        logger.info(f"[{label}] Finished: {stats['inserted']:,} inserted, {stats['duplicates']:,} duplicates, {stats['failed']:,} failed (queued: {total_files:,}, discovered: {stats['discovered']:,})")
         return stats
 
     # --------------------------
@@ -1465,20 +1323,20 @@ class DataProcessor:
         totals = self._build_totals()
 
         summary = {
-            'timestamp': datetime.now().isoformat(),
-            'malicious_count': malicious_stats['inserted'],
-            'benign_count': benign_stats['inserted'],
-            'malicious_stats': dict(malicious_stats),
-            'benign_stats': dict(benign_stats),
-            'totals': totals,
-            'bin_path': str(self.bin_path),
-            'index_path': str(self.index_path),
-            'malicious_pickle_path': str(self.malicious_pickle_path),
-            'benign_pickle_path': str(self.benign_pickle_path)
+            "timestamp": datetime.now().isoformat(),
+            "malicious_count": malicious_stats["inserted"],
+            "benign_count": benign_stats["inserted"],
+            "malicious_stats": dict(malicious_stats),
+            "benign_stats": dict(benign_stats),
+            "totals": totals,
+            "bin_path": str(self.bin_path),
+            "index_path": str(self.index_path),
+            "malicious_pickle_path": str(self.malicious_pickle_path),
+            "benign_pickle_path": str(self.benign_pickle_path),
         }
 
-        output_file = self.output_dir / 'summary.json'
-        with open(output_file, 'w', encoding='utf-8', errors='replace') as f:
+        output_file = self.output_dir / "summary.json"
+        with open(output_file, "w", encoding="utf-8", errors="replace") as f:
             json.dump(summary, f, indent=2, ensure_ascii=False)
 
         logger.info(
@@ -1491,10 +1349,10 @@ class DataProcessor:
 
 
 def main():
-    parser = argparse.ArgumentParser(description='PE File Feature Extractor')
-    parser.add_argument('--malicious-dir', default='datamaliciousorder', help='Directory containing malicious PE files')
-    parser.add_argument('--benign-dir', default='data2', help='Directory containing benign PE files')
-    parser.add_argument('--reset', action='store_true', help='If set, reset the binary store and index files before processing.')
+    parser = argparse.ArgumentParser(description="PE File Feature Extractor")
+    parser.add_argument("--malicious-dir", default="datamaliciousorder", help="Directory containing malicious PE files")
+    parser.add_argument("--benign-dir", default="data2", help="Directory containing benign PE files")
+    parser.add_argument("--reset", action="store_true", help="If set, reset the binary store and index files before processing.")
     args = parser.parse_args()
 
     processor = DataProcessor(args.malicious_dir, args.benign_dir, reset=args.reset)

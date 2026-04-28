@@ -14,7 +14,6 @@
 # @copyright This project is released under the GNU Public License v3.
 #
 
-import random
 import re
 
 import cocotb

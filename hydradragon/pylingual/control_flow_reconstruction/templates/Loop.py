@@ -5,7 +5,6 @@ from ..utils import (
     T,
     N,
     with_instructions,
-    exact_instructions,
     has_no_lines,
     condense_mapping,
     defer_source_to,

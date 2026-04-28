@@ -13,10 +13,9 @@ import subprocess
 import tempfile
 import re
 
+
 def build_cli_parser():
-    parser = argparse.ArgumentParser(
-        description="Split YARA rules using yarac duplicated-identifier results."
-    )
+    parser = argparse.ArgumentParser(description="Split YARA rules using yarac duplicated-identifier results.")
     parser.add_argument("--input-file", dest="input_rules", required=True, help="Input YARA rules file to check.")
     parser.add_argument("-y", "--yarac", dest="yarac_path", default="yarac64.exe", help="Path to yarac64.exe (default: yarac64.exe).")
     parser.add_argument("--clean-file", dest="clean_file", default="clean_rules.yar", help="Output file for clean (non-problematic) rules.")
@@ -24,9 +23,9 @@ def build_cli_parser():
     parser.add_argument("--compiled-output", dest="compiled_output", default=None, help="Save the compiled YARA output to this file.")
     parser.add_argument("--save-warnings", dest="save_warnings", default=None, help="Save all yarac stdout/stderr to a text file.")
     parser.add_argument("-v", "--verbose", action="store_true", dest="verbose", help="Verbose output for debugging.")
-    parser.add_argument("--remove-first", action="store_true", dest="remove_first",
-                        help="Reverse mode: remove (move) the first occurrence(s) reported by yarac; keep later ones.")
+    parser.add_argument("--remove-first", action="store_true", dest="remove_first", help="Reverse mode: remove (move) the first occurrence(s) reported by yarac; keep later ones.")
     return parser
+
 
 def run_yarac(yarac_path, input_file, compiled_output, verbose=False):
     """Run yarac and return (stdout, stderr, returncode). Exits if yarac not found."""
@@ -41,7 +40,7 @@ def run_yarac(yarac_path, input_file, compiled_output, verbose=False):
     if verbose:
         print(f"[yarac] Running: {' '.join(cmd)}")
     try:
-        res = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='ignore')
+        res = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="ignore")
     except FileNotFoundError:
         print(f"Error: yarac executable not found at '{yarac_path}'.")
         sys.exit(1)
@@ -57,6 +56,7 @@ def run_yarac(yarac_path, input_file, compiled_output, verbose=False):
 
     return res.stdout or "", res.stderr or "", res.returncode
 
+
 def parse_yarac_for_duplicated_identifiers(stdout, stderr, verbose=False):
     """
     Parse yarac output for duplicated identifier errors.
@@ -65,10 +65,10 @@ def parse_yarac_for_duplicated_identifiers(stdout, stderr, verbose=False):
     dup_set = set()
     combined = (stdout or "") + "\n" + (stderr or "")
     p_quoted = re.compile(r'duplicat(?:e|ed)\s+identifier\s*"([^"]+)"', re.IGNORECASE)
-    p_unquoted = re.compile(r'duplicat(?:e|ed)\s+identifier\s+([A-Za-z_]\w*)', re.IGNORECASE)
+    p_unquoted = re.compile(r"duplicat(?:e|ed)\s+identifier\s+([A-Za-z_]\w*)", re.IGNORECASE)
 
     for line in combined.splitlines():
-        if 'duplicat' not in line.lower():
+        if "duplicat" not in line.lower():
             continue
         if verbose:
             print(f"[yarac parse] checking line: {line}")
@@ -89,12 +89,13 @@ def parse_yarac_for_duplicated_identifiers(stdout, stderr, verbose=False):
                     print(f"[yarac parse] found duplicated identifier (unquoted): {ident}")
     return dup_set
 
+
 def simple_split_rules(content):
     """
     Split YARA content into header + list of (rule_name, rule_text).
     Returns (header, rules_list). rules_list items are (name_or_None, full_text).
     """
-    parts = re.split(r'(\n\s*(?:private\s+|global\s+)?rule\s+)', content, flags=re.IGNORECASE)
+    parts = re.split(r"(\n\s*(?:private\s+|global\s+)?rule\s+)", content, flags=re.IGNORECASE)
     if len(parts) <= 1:
         return None
 
@@ -107,13 +108,14 @@ def simple_split_rules(content):
             body = parts[i + 1]
             full = decl + body
             bn = body.lstrip()
-            m = re.match(r'^([A-Za-z_]\w*)', bn)
+            m = re.match(r"^([A-Za-z_]\w*)", bn)
             name = m.group(1) if m else None
             rules.append((name, full))
             i += 2
         else:
             i += 1
     return header, rules
+
 
 def split_based_on_yarac(input_file, duplicated_identifiers, clean_file, problematic_file, remove_first=False, verbose=False):
     """
@@ -122,7 +124,7 @@ def split_based_on_yarac(input_file, duplicated_identifiers, clean_file, problem
     - If remove_first=True: move the first occurrence(s) and keep later ones.
     """
     try:
-        with open(input_file, 'r', encoding='utf-8', errors='ignore') as f:
+        with open(input_file, "r", encoding="utf-8", errors="ignore") as f:
             content = f.read()
     except FileNotFoundError:
         print(f"Error: input file '{input_file}' not found.")
@@ -132,9 +134,9 @@ def split_based_on_yarac(input_file, duplicated_identifiers, clean_file, problem
         if verbose:
             print("[split] no duplicated identifiers from yarac; copying entire input to clean file.")
         try:
-            with open(clean_file, 'w', encoding='utf-8', errors='ignore') as f:
+            with open(clean_file, "w", encoding="utf-8", errors="ignore") as f:
                 f.write(content)
-            open(problematic_file, 'w', encoding='utf-8', errors='ignore').close()
+            open(problematic_file, "w", encoding="utf-8", errors="ignore").close()
             print(f"Wrote clean file: {clean_file} (no duplicates detected)")
             print(f"Wrote problematic file (empty): {problematic_file}")
         except Exception as e:
@@ -146,9 +148,9 @@ def split_based_on_yarac(input_file, duplicated_identifiers, clean_file, problem
         if verbose:
             print("[split] no rules found; copying entire input to clean file.")
         try:
-            with open(clean_file, 'w', encoding='utf-8', errors='ignore') as f:
+            with open(clean_file, "w", encoding="utf-8", errors="ignore") as f:
                 f.write(content)
-            open(problematic_file, 'w', encoding='utf-8', errors='ignore').close()
+            open(problematic_file, "w", encoding="utf-8", errors="ignore").close()
             print(f"Wrote clean file: {clean_file} (no rules found)")
             return
         except Exception as e:
@@ -167,7 +169,7 @@ def split_based_on_yarac(input_file, duplicated_identifiers, clean_file, problem
     # Build regex patterns only for yarac-listed identifiers
     ident_patterns = {}
     for ident in duplicated_identifiers:
-        pattern = re.compile(r'(?<!\w){}\b|\${}(?=\W|$)'.format(re.escape(ident), re.escape(ident)))
+        pattern = re.compile(r"(?<!\w){}\b|\${}(?=\W|$)".format(re.escape(ident), re.escape(ident)))
         ident_patterns[ident] = pattern
 
     seen_rule_names = set()
@@ -190,7 +192,7 @@ def split_based_on_yarac(input_file, duplicated_identifiers, clean_file, problem
         # Quick check: does this rule contain any relevant identifiers at all?
         has_relevant = bool(idents_found)
 
-        name_conflict = (rule_name is not None and rule_name in seen_rule_names)
+        name_conflict = rule_name is not None and rule_name in seen_rule_names
         ident_conflict = any((ident in seen_identifiers) for ident in idents_found)
 
         if remove_first:
@@ -250,16 +252,17 @@ def split_based_on_yarac(input_file, duplicated_identifiers, clean_file, problem
 
     # Write outputs
     try:
-        with open(clean_file, 'w', encoding='utf-8', errors='ignore') as f:
-            f.write(''.join(clean_parts))
-        with open(problematic_file, 'w', encoding='utf-8', errors='ignore') as f:
-            f.write(''.join(prob_parts))
+        with open(clean_file, "w", encoding="utf-8", errors="ignore") as f:
+            f.write("".join(clean_parts))
+        with open(problematic_file, "w", encoding="utf-8", errors="ignore") as f:
+            f.write("".join(prob_parts))
     except Exception as e:
         print(f"Error writing output files: {e}")
         return
 
     print(f"Clean rules written: {clean_count}")
     print(f"Problematic rules written: {prob_count}")
+
 
 def main():
     parser = build_cli_parser()
@@ -276,7 +279,7 @@ def main():
 
     if args.save_warnings:
         try:
-            with open(args.save_warnings, 'w', encoding='utf-8', errors='ignore') as fw:
+            with open(args.save_warnings, "w", encoding="utf-8", errors="ignore") as fw:
                 fw.write("--- STDOUT ---\n")
                 fw.write(stdout)
                 fw.write("\n--- STDERR ---\n")
@@ -311,6 +314,7 @@ def main():
     print(f"Problematic file: {args.slow_file}")
     if args.save_warnings:
         print(f"Saved yarac output: {args.save_warnings}")
+
 
 if __name__ == "__main__":
     main()
