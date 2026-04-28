@@ -29,6 +29,9 @@ jobs:
     if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.update_lockfiles != 'true' }}
     runs-on: windows-latest
     steps:
+      - name: Enable Git long paths
+        run: git config --global core.longpaths true
+
       - uses: actions/checkout@v4
 
       - name: Set up Rust
@@ -104,6 +107,9 @@ jobs:
       run:
         working-directory: .
     steps:
+      - name: Enable Git long paths
+        run: git config --global core.longpaths true
+
       - uses: actions/checkout@v4
 
       - name: Set up Rust

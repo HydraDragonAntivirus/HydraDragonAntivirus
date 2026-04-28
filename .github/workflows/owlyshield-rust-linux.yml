@@ -48,6 +48,9 @@ jobs:
       run:
         working-directory: .
     steps:
+    - name: Enable Git long paths
+      run: git config --global core.longpaths true
+
     - uses: actions/checkout@v4
     - name: Set up Rust
       uses: dtolnay/rust-toolchain@stable
