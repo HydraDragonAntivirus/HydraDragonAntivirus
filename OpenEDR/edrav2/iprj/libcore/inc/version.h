@@ -24,7 +24,7 @@
 #endif // CMD_VERSION_MAJOR
 
 #ifndef CMD_VERSION_MINOR
-#define CMD_VERSION_MINOR 4
+#define CMD_VERSION_MINOR 6
 #endif // CMD_VERSION_MINOR
 
 #ifndef CMD_VERSION_REVISION
@@ -35,7 +35,7 @@
 #undef CMD_VERSION_SUFFIX
 #endif
 // Uncomment this line if version suffix is needed
-//#define CMD_VERSION_SUFFIX "alpha3"
+// #define CMD_VERSION_SUFFIX "alpha3"
 
 #ifdef CMD_VERSION_SUFFIX
 #define CMD_VERSION_SUFFIX_DELIMITER "-"
@@ -50,7 +50,7 @@
 
 #ifdef _DEBUG
 #define CMD_VERSION_TYPE "debug"
-#else 
+#else
 #define CMD_VERSION_TYPE "release"
 #endif // _DEBUG
 
@@ -61,9 +61,10 @@
 //
 // This version is used for formal operations
 //
-#define CMD_STD_VERSION STR(CMD_VERSION_MAJOR) "." STR(CMD_VERSION_MINOR) "." \
-	STR(CMD_VERSION_REVISION) "." STR(CMD_VERSION_BUILD) \
-	CMD_VERSION_SUFFIX_DELIMITER CMD_VERSION_SUFFIX
+#define CMD_STD_VERSION                                                        \
+  STR(CMD_VERSION_MAJOR)                                                       \
+  "." STR(CMD_VERSION_MINOR) "." STR(CMD_VERSION_REVISION) "." STR(            \
+      CMD_VERSION_BUILD) CMD_VERSION_SUFFIX_DELIMITER CMD_VERSION_SUFFIX
 
 //
 // This is just a user-friendly version
