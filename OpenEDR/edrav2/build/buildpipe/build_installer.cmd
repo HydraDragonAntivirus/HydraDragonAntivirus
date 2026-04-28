@@ -39,7 +39,7 @@ if not exist "%ScriptDir%\_Build_" mkdir "%ScriptDir%\_Build_"
 if not exist "%ScriptDir%\Logs" mkdir "%ScriptDir%\Logs"
 
 echo.>"%ScriptDir%\.buildinprocess"
-call :git || ((call :error "Cannot copy source files") & exit /b 1)
+call :git || ((call :error "Cannot prepare build workspace") & exit /b 1)
 
 call :setbuildinfo
 echo.Building %ver_full%
@@ -90,8 +90,8 @@ exit /b 0
 
 
 :git
-echo.Copying local source files...
-echo.Copying local source files...  2>&1 >>"%ScriptDir%\Logs\script.log"
+echo.Preparing build workspace...
+echo.Preparing build workspace...  2>&1 >>"%ScriptDir%\Logs\script.log"
 
 git -C "%RepoRoot%" rev-parse --is-inside-work-tree >"%ScriptDir%\Logs\git.log" 2>&1 || exit /b 1
 for /F %%I in ('git -C "%RepoRoot%" rev-parse HEAD') do set gitsha1=%%I

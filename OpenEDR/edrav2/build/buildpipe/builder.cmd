@@ -47,7 +47,7 @@ echo.>"%ScriptDir%\.buildinprocess"
 call :git_check
 if errorlevel 11 ((call :error "Cannot inspect source repository") & exit /b 1)
 if errorlevel 1 ((call :error "Cannot inspect source repository") & exit /b 1)
-call :git_download || ((call :error "Cannot copy source files") & exit /b 1)
+call :git_download || ((call :error "Cannot prepare build workspace") & exit /b 1)
 
 call :setbuildinfo
 echo.Building %ver_full%
@@ -124,8 +124,8 @@ pushd "%ScriptDir%"
 exit /b 0
 
 :git_download
-echo.Copying local source files...
-echo.Copying local source files...  2>&1 >>"%ScriptDir%\Logs\script.log"
+echo.Preparing build workspace...
+echo.Preparing build workspace...  2>&1 >>"%ScriptDir%\Logs\script.log"
 
 if exist "%ScriptDir%\_Build_\%product%" rmdir /q /s "%ScriptDir%\_Build_\%product%"
 

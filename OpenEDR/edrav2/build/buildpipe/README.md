@@ -23,7 +23,7 @@ OpenEDR\edrav2\out
 ## Script Flow
   * Checks whether another build is already running
   * Handles a previous failed build marker (_.error_)
-  * Copies the local _OpenEDR\edrav2_ tree into the temporary _Build_ folder
+  * Prepares an isolated _Build_ workspace from the local _OpenEDR\edrav2_ tree
   * Reads version data and writes _build_info.h_ plus _BuildInfo.wxi_
   * Builds binaries and setup projects
   * Runs unit tests where applicable
