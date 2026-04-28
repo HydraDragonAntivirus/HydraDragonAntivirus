@@ -1,7 +1,44 @@
-py -3.12 compile_valhalla-rules.py
-py -3.12 compile_yrc.py
-py -3.12 compile_yargen_machine_learning_pe.py
-py -3.12 compile_yargen_machine_learning_js.py
-py -3.12 compile_icewater.py
-py -3.12 compile_yarax.py
-py -3.12 compile_yara_windefender.py
+@echo off
+setlocal EnableExtensions
+
+set "YARA_X=yr.exe"
+set "YARAC=yarac64.exe"
+
+call :CompileYarac valhalla-rules.yar valhalla-rules.yrc || exit /b %ERRORLEVEL%
+call :CompileYarac clean_rules.yar clean_rules.yrc || exit /b %ERRORLEVEL%
+call :CompileYarac machine_learning_pe.yar machine_learning_pe.yrc || exit /b %ERRORLEVEL%
+call :CompileYarac machine_learning_js.yar machine_learning_js.yrc || exit /b %ERRORLEVEL%
+call :CompileYarac icewater.yar icewater.yrc || exit /b %ERRORLEVEL%
+call :CompileYaraX yaraxtr.yar yaraxtr.yrc || exit /b %ERRORLEVEL%
+call :CompileYarac WindowsDefender.yar WindowsDefender.yarc || exit /b %ERRORLEVEL%
+
+endlocal
+exit /b 0
+
+:CompileYarac
+if not exist "%~1" (
+    echo [ERROR] Missing input file: %~1
+    exit /b 1
+)
+echo [YARAC] %~1 -^> %~2
+"%YARAC%" "%~1" "%~2"
+if errorlevel 1 exit /b %ERRORLEVEL%
+if not exist "%~2" (
+    echo [ERROR] Missing output file after yarac64.exe: %~2
+    exit /b 1
+)
+exit /b 0
+
+:CompileYaraX
+if not exist "%~1" (
+    echo [ERROR] Missing input file: %~1
+    exit /b 1
+)
+echo [YARA-X] %~1 -^> %~2
+"%YARA_X%" compile --output "%~2" "%~1"
+if errorlevel 1 exit /b %ERRORLEVEL%
+if not exist "%~2" (
+    echo [ERROR] Missing output file after yr.exe: %~2
+    exit /b 1
+)
+exit /b 0

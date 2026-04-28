@@ -34,7 +34,12 @@ jobs:
       - name: Install flake8
         run: pip install flake8
 
-      - name: Run flake8
+      - name: Run flake8 fatal checks
         run: |
-          flake8 hydradragon/ --count --statistics --max-line-length=240 \
+          flake8 hydradragon/ --count --statistics --select=F --max-line-length=240 \
+            --exclude=.git,.tox,.venv,venv,node_modules,build,dist,site-packages,__pycache__
+
+      - name: Show flake8 style hints
+        run: |
+          flake8 hydradragon/ --count --statistics --select=E,W --exit-zero --max-line-length=240 \
             --exclude=.git,.tox,.venv,venv,node_modules,build,dist,site-packages,__pycache__

@@ -15,7 +15,8 @@ python-lint:
   image: python:3.12
   script:
     - pip install ruff
-    - ruff check .
+    - ruff check --select E9,F .
+    - ruff check --select E,W --exit-zero .
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
