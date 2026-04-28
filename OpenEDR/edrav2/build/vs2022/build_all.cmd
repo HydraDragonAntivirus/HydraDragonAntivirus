@@ -59,6 +59,20 @@ if "!NeedsVcvars!"=="1" (
     )
 )
 
+where cl >nul 2>nul
+if errorlevel 1 (
+    if not defined vcvarsall (
+        echo [ERROR] cl.exe is not available and vcvarsall.bat/cmd was not found.
+        exit /b 1
+    )
+    echo [WARN] x64 Visual Studio environment was marked active, but cl.exe was not found. Reinitializing...
+    call "!vcvarsall!" x64
+    if errorlevel 1 (
+        echo [ERROR] Failed to initialize Visual Studio 2022 x64 environment.
+        exit /b !errorlevel!
+    )
+)
+
 rem Cleaning will be handled by the --clean flag or within the build flow if needed.
 
 set "DoFullBuild="

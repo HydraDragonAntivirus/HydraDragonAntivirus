@@ -7,6 +7,7 @@ set "PATH=%NormalizedPath%"
 @set cmake=cmake -G "Visual Studio 17 2022"
 
 call :buildx64
+if %errorlevel% neq 0 exit /b %errorlevel%
 call :buildx86
 
 exit /b %errorlevel%
@@ -44,14 +45,16 @@ if %errorlevel% neq 0 exit /b %errorlevel%
 
 if not exist "out\win-Release-x64" mkdir "out\win-Release-x64"
 copy /Y build-x64\lib\Release\libcurl.lib out\win-Release-x64\
-copy /Y build-x64\lib\libcurl.dir\Release\libcurl.pdb out\win-Release-x64\
+if %errorlevel% neq 0 exit /b %errorlevel%
+if exist build-x64\lib\libcurl.dir\Release\libcurl.pdb copy /Y build-x64\lib\libcurl.dir\Release\libcurl.pdb out\win-Release-x64\
 
 cmake --build build-x64 --config Debug
 if %errorlevel% neq 0 exit /b %errorlevel%
 
 if not exist "out\win-Debug-x64" mkdir "out\win-Debug-x64"
 copy /Y build-x64\lib\Debug\libcurl-d.lib out\win-Debug-x64\
-copy /Y build-x64\lib\libcurl.dir\Debug\libcurl.pdb out\win-Debug-x64\
+if %errorlevel% neq 0 exit /b %errorlevel%
+if exist build-x64\lib\libcurl.dir\Debug\libcurl.pdb copy /Y build-x64\lib\libcurl.dir\Debug\libcurl.pdb out\win-Debug-x64\
 
 exit /b 0
 
@@ -88,13 +91,15 @@ if %errorlevel% neq 0 exit /b %errorlevel%
 
 if not exist "out\win-Release-Win32" mkdir "out\win-Release-Win32"
 copy /Y build-x86\lib\Release\libcurl.lib out\win-Release-Win32\
-copy /Y build-x86\lib\libcurl.dir\Release\libcurl.pdb out\win-Release-Win32\
+if %errorlevel% neq 0 exit /b %errorlevel%
+if exist build-x86\lib\libcurl.dir\Release\libcurl.pdb copy /Y build-x86\lib\libcurl.dir\Release\libcurl.pdb out\win-Release-Win32\
 
 cmake --build build-x86 --config Debug
 if %errorlevel% neq 0 exit /b %errorlevel%
 
 if not exist "out\win-Debug-Win32" mkdir "out\win-Debug-Win32"
 copy /Y build-x86\lib\Debug\libcurl-d.lib out\win-Debug-Win32\
-copy /Y build-x86\lib\libcurl.dir\Debug\libcurl.pdb out\win-Debug-Win32\
+if %errorlevel% neq 0 exit /b %errorlevel%
+if exist build-x86\lib\libcurl.dir\Debug\libcurl.pdb copy /Y build-x86\lib\libcurl.dir\Debug\libcurl.pdb out\win-Debug-Win32\
 
 exit /b 0
