@@ -3,7 +3,6 @@ rcdata_10_3.bin*
 
 # Comodo
 /HydraDragonFirewall/tests/COMODO/CLT
-/OpenEDR/edrav2/build/buildpipe/_Build_
 
 # Machine Learning Folder
 hydradragon/machine_learning/pe_features_*
