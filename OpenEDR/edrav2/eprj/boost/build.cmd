@@ -6,10 +6,10 @@
 ::     - wait and watch build_cmd.log
 ::     - after finish the lib subdirectory will contains *.lib and  *.pdb files
 @echo off
-setlocal EnableExtensions
+setlocal EnableExtensions DisableDelayedExpansion
 
 :: Execute from MSVC environment
-set "vcvarsall=%ProgramFiles%\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvarsall.bat"
+set "vcvarsall="
 set toolset_name=msvc-14.3
 
 :: Define build path
@@ -19,12 +19,12 @@ set "BoostBuildTmpDir=%BoostRootDir%\tmp"
 
 :: Declare b2 commandlines
 set LibrariesRestrictions= --with-system --with-chrono --with-thread --with-locale --with-filesystem --with-date_time --with-regex
-set BuildBoost=b2 stage toolset=%toolset_name% link=static debug-symbols=on debug-store=database --build-dir="%BoostBuildTmpDir%" --stagedir="%BoostRootDir%" --hash -a -d0 %LibrariesRestrictions% 
+set BuildBoost="%BoostRootDir%\b2.exe" stage toolset=%toolset_name% link=static debug-symbols=on debug-store=database --build-dir="%BoostBuildTmpDir%" --stagedir="%BoostRootDir%" --hash -a -d0 %LibrariesRestrictions%
 set BuildBoostMthreadRltshared=%BuildBoost% threading=multi runtime-link=shared
 set BuildBoostMthreadRltstatic=%BuildBoost% threading=multi runtime-link=static
 
-:: Call StartBuild with output to build_cmd.log
-call :StartBuild > build_cmd.log
+:: Call StartBuild directly so vcvarsall environment changes remain visible.
+call :StartBuild
 exit /b %errorlevel%
 
 :: Build boost
@@ -33,6 +33,9 @@ exit /b %errorlevel%
 echo Start Build
 echo LibrariesRestrictions: %LibrariesRestrictions%
 
+call :FindVcVars
+if errorlevel 1 exit /b %errorlevel%
+
 echo ----------------------------------------------------------
 echo build b2 tool
 echo ----------------------------------------------------------
@@ -40,7 +43,13 @@ echo ----------------------------------------------------------
 call "%vcvarsall%" x64
 if errorlevel 1 exit /b %errorlevel%
 
-call bootstrap.bat
+where cl >nul 2>nul
+if errorlevel 1 (
+	echo ERROR: cl.exe is not available after initializing Visual Studio x64 environment.
+	exit /b 1
+)
+
+call bootstrap.bat vc142
 if errorlevel 1 exit /b %errorlevel%
 @echo off
 
@@ -56,6 +65,11 @@ echo ----------------------------------------------------------
 setlocal
 call "%vcvarsall%" x86
 if errorlevel 1 exit /b %errorlevel%
+where cl >nul 2>nul
+if errorlevel 1 (
+	echo ERROR: cl.exe is not available after initializing Visual Studio x86 environment.
+	exit /b 1
+)
 %BuildBoostMthreadRltstatic% address-model=32 variant=debug
 if errorlevel 1 exit /b %errorlevel%
 %BuildBoostMthreadRltshared% address-model=32 variant=debug
@@ -73,6 +87,11 @@ echo ----------------------------------------------------------
 setlocal
 call "%vcvarsall%" x64
 if errorlevel 1 exit /b %errorlevel%
+where cl >nul 2>nul
+if errorlevel 1 (
+	echo ERROR: cl.exe is not available after initializing Visual Studio x64 environment.
+	exit /b 1
+)
 %BuildBoostMthreadRltstatic% address-model=64 variant=debug
 if errorlevel 1 exit /b %errorlevel%
 %BuildBoostMthreadRltshared% address-model=64 variant=debug
@@ -110,4 +129,36 @@ echo ----------------------------------------------------------
 echo Build is complete
 echo ----------------------------------------------------------
 
+exit /b 0
+
+:FindVcVars
+if defined vcvarsall (
+	if exist "%vcvarsall%" exit /b 0
+)
+
+set "VsWhere=%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe"
+if not exist "%VsWhere%" set "VsWhere=%ProgramFiles%\Microsoft Visual Studio\Installer\vswhere.exe"
+
+if exist "%VsWhere%" (
+	for /f "usebackq tokens=*" %%i in (`"%VsWhere%" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do (
+		if exist "%%i\VC\Auxiliary\Build\vcvarsall.bat" set "vcvarsall=%%i\VC\Auxiliary\Build\vcvarsall.bat"
+		if exist "%%i\VC\Auxiliary\Build\vcvarsall.cmd" set "vcvarsall=%%i\VC\Auxiliary\Build\vcvarsall.cmd"
+	)
+)
+
+if not defined vcvarsall (
+	for %%P in (BuildTools Community Professional Enterprise) do (
+		if not defined vcvarsall (
+			if exist "%ProgramFiles(x86)%\Microsoft Visual Studio\2022\%%P\VC\Auxiliary\Build\vcvarsall.bat" set "vcvarsall=%ProgramFiles(x86)%\Microsoft Visual Studio\2022\%%P\VC\Auxiliary\Build\vcvarsall.bat"
+			if exist "%ProgramFiles%\Microsoft Visual Studio\2022\%%P\VC\Auxiliary\Build\vcvarsall.bat" set "vcvarsall=%ProgramFiles%\Microsoft Visual Studio\2022\%%P\VC\Auxiliary\Build\vcvarsall.bat"
+		)
+	)
+)
+
+if not defined vcvarsall (
+	echo ERROR: Could not find Visual Studio 2022 vcvarsall.bat/cmd.
+	exit /b 1
+)
+
+echo Using Visual Studio environment: %vcvarsall%
 exit /b 0

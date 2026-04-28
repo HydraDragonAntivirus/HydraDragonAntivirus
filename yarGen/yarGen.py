@@ -146,6 +146,28 @@ MAX_RULE_NAME_LEN = 64
 
 KNOWN_IMPHASHES = {"a04dd9f5ee88d7774203e0a0cfa1b941": "PsExec", "2b8c9d9ab6fefc247adaf927e83dcea6": "RAR SFX variant"}
 
+# Maximum byte length for a YARA rule description value (64 KB).
+MAX_DESCRIPTION_BYTES = 64 * 1024  # 65 536 bytes
+
+
+def truncate_description(desc: str, max_bytes: int = MAX_DESCRIPTION_BYTES) -> str:
+    """Return *desc* truncated to *max_bytes* UTF-8 bytes.
+
+    Truncation is performed on a word boundary when possible so the resulting
+    string is still readable.  An ellipsis ("...") is appended to make it clear
+    that the text was cut.
+    """
+    encoded = desc.encode("utf-8")
+    if len(encoded) <= max_bytes:
+        return desc
+    # Reserve 3 bytes for the "..." suffix.
+    truncated_bytes = encoded[: max_bytes - 3]
+    truncated_str = truncated_bytes.decode("utf-8", errors="ignore")
+    # Try to cut at the last word boundary.
+    if " " in truncated_str:
+        truncated_str = truncated_str.rsplit(" ", 1)[0]
+    return truncated_str + "..."
+
 
 def get_abs_path(filename):
     return os.path.join(os.path.dirname(os.path.abspath(__file__)), filename)
@@ -631,8 +653,11 @@ def filter_string_set(string_set):
     for string in string_set:
         # Filter meaningful words based on the flag
         if args.meaningful_words_only:
+            # Strip the wide-string marker before tokenizing so that the
+            # actual content — not the "UTF16LE:" prefix — is evaluated.
+            tokenize_target = string[8:] if string.startswith("UTF16LE:") else string
             # Tokenize the string and check if it contains any meaningful word
-            tokens = word_tokenize(string)
+            tokens = word_tokenize(tokenize_target)
             contains_meaningful_word = any(word.lower() in nltk_words and len(word) >= 4 for word in tokens)
 
             # If no meaningful word is found, skip this string
@@ -1083,8 +1108,8 @@ def generate_general_condition(file_info):
             if imphash not in imphashes and imphash != "":
                 imphashes.append(imphash)
 
-        # If different magic headers are less than 5
-        if len(magic_headers) <= 5:
+        # If different magic headers are less than 5 (and at least one exists)
+        if 0 < len(magic_headers) <= 5:
             magic_string = " or ".join(get_uint_string(h) for h in magic_headers)
             if " or " in magic_string:
                 conditions.append("( {0} )".format(magic_string))
@@ -1219,7 +1244,7 @@ def generate_rules(file_strings, file_opcodes, super_rules, file_info, inverse_s
 
                 # Meta data -----------------------------------------------
                 rule += "   meta:\n"
-                rule += '      description = "%s - file %s"\n' % (prefix, file)
+                rule += '      description = "%s"\n' % truncate_description("%s - file %s" % (prefix, file))
                 rule += '      author = "%s"\n' % args.a
                 rule += '      reference = "%s"\n' % reference
                 rule += '      date = "%s"\n' % get_timestamp_basic()
@@ -1417,7 +1442,7 @@ def generate_rules(file_strings, file_opcodes, super_rules, file_info, inverse_s
                 # Print rule title
                 rule += "rule %s {\n" % rule_name
                 rule += "   meta:\n"
-                rule += '      description = "%s - from files %s"\n' % (prefix, file_listing)
+                rule += '      description = "%s"\n' % truncate_description("%s - from files %s" % (prefix, file_listing))
                 rule += '      author = "%s"\n' % args.a
                 rule += '      reference = "%s"\n' % reference
                 rule += '      date = "%s"\n' % get_timestamp_basic()
@@ -1477,7 +1502,13 @@ def generate_rules(file_strings, file_opcodes, super_rules, file_info, inverse_s
                     cond_op = " and all of ($op*)"
 
                 condition2 = "( {0} ){1}".format(cond_combined, cond_op)
-                conditions.append(" and ".join([condition_strings, condition2]))
+                # Only prepend general conditions when they are non-empty; joining
+                # an empty string with " and " would produce "and ( … )" which is
+                # invalid YARA syntax.
+                if condition_strings:
+                    conditions.append("{0} and {1}".format(condition_strings, condition2))
+                else:
+                    conditions.append(condition2)
 
                 # 3nd condition
                 # In memory detection base condition (no magic, no filesize)
@@ -1559,7 +1590,7 @@ def generate_rules(file_strings, file_opcodes, super_rules, file_info, inverse_s
 
                 # Meta data -----------------------------------------------
                 rule += "   meta:\n"
-                rule += '      description = "%s for anomaly detection - file %s"\n' % (prefix, fileName)
+                rule += '      description = "%s"\n' % truncate_description("%s for anomaly detection - file %s" % (prefix, fileName))
                 rule += '      author = "%s"\n' % args.a
                 rule += '      reference = "%s"\n' % reference
                 rule += '      date = "%s"\n' % get_timestamp_basic()
