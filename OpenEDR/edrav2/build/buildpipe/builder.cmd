@@ -176,14 +176,6 @@ set "type=%~2"
 rem set arch=%~3
 for %%I in ("%sln%") do set "sln_name=%%~nxI"
 
-echo.Building %type%^(x86^) for %sln_name%...
-echo.Building %type%^(x86^) for %sln_name%... 2>&1 >>"%ScriptDir%\Logs\script.log"
-if /I "%sln_name%"=="edrav2-install.sln" (
-  dotnet build "%sln%" -c %type% -p:Platform=x86 -nologo >>"%ScriptDir%\Logs\build.log" 2>&1 || exit /b 1
-) else (
-  %msbuild% "%sln%" /t:Build /p:Configuration=%type% /p:Platform=x86 /m:2 /p:CL_MPCount=2 /noconlog /fl /flp:LogFile="%ScriptDir%\Logs\build.log";append /nologo || exit /b 1
-)
-
 echo.Building %type%^(x64^) for %sln_name%...
 echo.Building %type%^(x64^) for %sln_name%... 2>&1 >>"%ScriptDir%\Logs\script.log"
 if /I "%sln_name%"=="edrav2-install.sln" (
