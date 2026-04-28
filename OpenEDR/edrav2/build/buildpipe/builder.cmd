@@ -88,6 +88,8 @@ call :pack Debug || ((call :error "Cannot pack binaries into archive") & exit /b
 
 call :unit_test
 
+call :publish_local_out || ((call :error "Cannot publish local build output") & exit /b 1)
+
 call :upload || ((call :error "Cannot upload files to SFTP") & exit /b 1)
 
 call :finalyze
@@ -296,6 +298,11 @@ if not exist %sftp% (
   echo.[WARN] SFTP tool not found: %sftp%. Skipping upload. >>"%ScriptDir%\Logs\script.log"
   exit /b 0
 )
+if "%sftphost%"=="{sftp_host}" (
+  echo.[WARN] SFTP settings are placeholders. Skipping upload.
+  echo.[WARN] SFTP settings are placeholders. Skipping upload. >>"%ScriptDir%\Logs\script.log"
+  exit /b 0
+)
 
 if exist %arc% %arc% a -ssw -r -tzip "%ScriptDir%\logs" "%ScriptDir%\logs\*.*" >nul 2>&1 && copy /b "%ScriptDir%\logs.zip" "%ScriptDir%\Upload\logs.zip" >nul 2>&1
 
@@ -309,6 +316,30 @@ if exist "%ScriptDir%\testserror.txt" set destdir=%destdir%_utfailed
 echo.put -r -- "%ScriptDir%\Upload" "repository/%product%/%destdir%">"%ScriptDir%\sftp.batch"
 echo.quit>>"%ScriptDir%\sftp.batch"
 %sftp% -P %sftpport% -l %sftpuser% -pw %sftppwd% -batch -bc -b "%ScriptDir%\sftp.batch" %sftphost% >"%ScriptDir%\Logs\sftp.log" 2>&1 || exit /b 1
+exit /b 0
+
+
+:publish_local_out
+set "src_out=%ScriptDir%\_Build_\edrav2\out"
+set "dst_out=%EdrRoot%\out"
+
+if not exist "%src_out%" (
+  echo.[WARN] Build output directory was not created: "%src_out%".
+  echo.[WARN] Build output directory was not created: "%src_out%". >>"%ScriptDir%\Logs\script.log"
+  exit /b 0
+)
+
+dir /b /a "%src_out%" >nul 2>&1 || (
+  echo.[WARN] Build output directory is empty: "%src_out%".
+  echo.[WARN] Build output directory is empty: "%src_out%". >>"%ScriptDir%\Logs\script.log"
+  exit /b 0
+)
+
+if not exist "%dst_out%" mkdir "%dst_out%"
+robocopy "%src_out%" "%dst_out%" /E /NFL /NDL /NJH /NJS /NP >>"%ScriptDir%\Logs\script.log" 2>&1
+if errorlevel 8 exit /b 1
+echo.[INFO] Build outputs copied to "%dst_out%".
+echo.[INFO] Build outputs copied to "%dst_out%". >>"%ScriptDir%\Logs\script.log"
 exit /b 0
 
 
@@ -381,6 +412,12 @@ echo.Sending mail "%subject%"... 2>&1 >>"%ScriptDir%\Logs\script.log"
 if not exist %mail% (
   echo.[WARN] Mail tool not found: %mail%. Skipping email.
   echo.[WARN] Mail tool not found: %mail%. Skipping email. >>"%ScriptDir%\Logs\script.log"
+  ENDLOCAL
+  goto :eof
+)
+if "%mailserver%"=="{mail_server}" (
+  echo.[WARN] Mail settings are placeholders. Skipping email.
+  echo.[WARN] Mail settings are placeholders. Skipping email. >>"%ScriptDir%\Logs\script.log"
   ENDLOCAL
   goto :eof
 )
