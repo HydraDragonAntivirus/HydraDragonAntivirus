@@ -16,7 +16,6 @@ description = "Build the usermode client for Sanctum."
 command = "cargo"
 args = ["build", "--release", "-p", "um_engine"]
 
-
 [tasks.clean-client]
 description = "Clean the usermode client for Sanctum."
 command = "cargo"
