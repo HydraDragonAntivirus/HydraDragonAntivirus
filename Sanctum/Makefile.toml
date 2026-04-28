@@ -16,6 +16,18 @@ description = "Build the usermode client for Sanctum."
 command = "cargo"
 args = ["build", "--release", "-p", "um_engine"]
 
+[tasks.build-driver]
+description = "Build and package the Sanctum kernel driver."
+cwd = "driver"
+command = "cargo"
+args = ["make", "default"]
+
+[tasks.build-driver-release]
+description = "Build and package the Sanctum kernel driver in release mode."
+cwd = "driver"
+command = "cargo"
+args = ["make", "release"]
+
 [tasks.clean-client]
 description = "Clean the usermode client for Sanctum."
 command = "cargo"

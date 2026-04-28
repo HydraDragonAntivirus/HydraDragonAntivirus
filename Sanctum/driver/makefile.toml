@@ -5,9 +5,14 @@ load_script = '''
 #!@rust
 //! ```cargo
 //! [dependencies]
-//! wdk-build = "0.3.0"
+//! wdk-build = "0.5.1"
 //! ```
 #![allow(unused_doc_comments)]
 
 wdk_build::cargo_make::load_rust_driver_makefile()?
 '''
+
+[tasks.release]
+description = "Build and package the Sanctum kernel driver in release mode."
+command = "cargo"
+args = ["make", "default", "--release"]
