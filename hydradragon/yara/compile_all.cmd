@@ -10,7 +10,7 @@ call :CompileYarac machine_learning_pe.yar machine_learning_pe.yrc || exit /b %E
 call :CompileYarac machine_learning_js.yar machine_learning_js.yrc || exit /b %ERRORLEVEL%
 call :CompileYarac icewater.yar icewater.yrc || exit /b %ERRORLEVEL%
 call :CompileYaraX yaraxtr.yar yaraxtr.yrc || exit /b %ERRORLEVEL%
-call :CompileYarac WindowsDefender.yar WindowsDefender.yarc || exit /b %ERRORLEVEL%
+call :CompileYarac WindowsDefender.yar WindowsDefender.yrc || exit /b %ERRORLEVEL%
 
 endlocal
 exit /b 0

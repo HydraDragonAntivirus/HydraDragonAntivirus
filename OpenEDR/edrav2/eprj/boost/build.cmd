@@ -23,6 +23,14 @@ set BuildBoost="%BoostRootDir%\b2.exe" stage toolset=%toolset_name% link=static 
 set BuildBoostMthreadRltshared=%BuildBoost% threading=multi runtime-link=shared
 set BuildBoostMthreadRltstatic=%BuildBoost% threading=multi runtime-link=static
 
+if /I not "%~1"=="--force" (
+	call :HavePrebuiltBoostLibs
+	if not errorlevel 1 (
+		echo [INFO] Boost libraries already exist. Skipping rebuild. Use build.cmd --force to rebuild Boost.
+		exit /b 0
+	)
+)
+
 :: Call StartBuild directly so vcvarsall environment changes remain visible.
 call :StartBuild
 exit /b %errorlevel%
@@ -161,4 +169,14 @@ if not defined vcvarsall (
 )
 
 echo Using Visual Studio environment: %vcvarsall%
+exit /b 0
+
+:HavePrebuiltBoostLibs
+if not exist "%BoostRootDir%\lib" exit /b 1
+
+for %%L in (system chrono thread locale filesystem date_time regex) do (
+	dir /b "%BoostRootDir%\lib\libboost_%%L-vc14*.lib" >nul 2>nul
+	if errorlevel 1 exit /b 1
+)
+
 exit /b 0

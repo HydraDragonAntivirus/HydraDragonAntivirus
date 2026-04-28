@@ -23,7 +23,7 @@ def save_compiled_rule(compiled_rule, output_path):
 
 def main():
     rule_path = "WindowsDefender.yar"
-    output_path = "WindowsDefender.yarc"
+    output_path = "WindowsDefender.yrc"
 
     compiled_rule = compile_yara_rule(rule_path)
     if compiled_rule is None:
