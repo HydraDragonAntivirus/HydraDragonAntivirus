@@ -4,16 +4,32 @@ pushd %~dp0
 set branch=
 set forcemode=false
 rem ========MSBuild settings======
-set vs_ver=2019
-if exist "%ProgramFiles(x86)%\Microsoft Visual Studio\%vs_ver%\Community\MSBuild\current\Bin\MSBuild.exe" (
-	set msbuild="%ProgramFiles(x86)%\Microsoft Visual Studio\%vs_ver%\Community\MSBuild\current\Bin\MSBuild.exe"
-) else set msbuild="%ProgramFiles(x86)%\Microsoft Visual Studio\%vs_ver%\Community\MSBuild\15.0\Bin\MSBuild.exe"
-set vsdevcmd="%ProgramFiles(x86)%\Microsoft Visual Studio\%vs_ver%\Community\Common7\Tools\VsDevCmd.bat"
+set vs_ver=2022
+set "vcvarsall="
+if exist "%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" (
+    for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do (
+        set "VSInstallDir=%%i"
+        if exist "!VSInstallDir!\VC\Auxiliary\Build\vcvarsall.bat" set "vcvarsall=!VSInstallDir!\VC\Auxiliary\Build\vcvarsall.bat"
+    )
+)
+if not defined vcvarsall (
+    for %%P in (Community Professional Enterprise BuildTools) do (
+        if not defined vcvarsall (
+            if exist "%ProgramFiles%\Microsoft Visual Studio\2022\%%P\VC\Auxiliary\Build\vcvarsall.bat" set "vcvarsall=%ProgramFiles%\Microsoft Visual Studio\2022\%%P\VC\Auxiliary\Build\vcvarsall.bat"
+        )
+    )
+)
+if not defined vcvarsall (
+    echo [ERROR] Visual Studio 2022 not found.
+    exit /b 1
+)
+set "vsdevcmd=!VSInstallDir!\Common7\Tools\VsDevCmd.bat"
+set msbuild=msbuild
 set CL=/Zm500
 rem ========Project settings=======
 set git_url=https://git.brk.nurd.com/common/edrav2.git
-set sln="%~dp0_Build_\edrav2\build\vs%vs_ver%\edrav2.sln"
-set inst_sln="%~dp0_Build_\edrav2\build\vs%vs_ver%\edrav2-install.sln"
+set "sln="%~dp0_Build_\edrav2\build\vs2022\edrav2.sln"
+set "inst_sln="%~dp0_Build_\edrav2\build\vs2022\edrav2-install.sln"
 set product=edrav2
 rem ========SFTP settings============
 set sftphost={sftp_host}
