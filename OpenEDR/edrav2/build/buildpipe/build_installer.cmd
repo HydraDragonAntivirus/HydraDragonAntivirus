@@ -28,18 +28,19 @@ if not defined vcvarsall (
 )
 set "vsdevcmd=%VSInstallDir%\Common7\Tools\VsDevCmd.bat"
 set "msbuild=msbuild"
-set "inst_sln=%ScriptDir%\_Build_\edrav2\build\vs2022\edrav2-install.sln"
-set "product=edrav2"
+set "inst_sln=%EdrRoot%\build\vs2022\edrav2-install.sln"
+set "VersionHeader=%EdrRoot%\iprj\libcore\inc\version.h"
+set "BuildInfoHeader=%EdrRoot%\iprj\libcore\inc\build_info.h"
+set "BuildInfoWxi=%EdrRoot%\iprj\installation\src\BuildInfo.wxi"
 set "CL=/Zm500"
 
 call :checkstate || exit /b 1
 
-
-if not exist "%ScriptDir%\_Build_" mkdir "%ScriptDir%\_Build_"
 if not exist "%ScriptDir%\Logs" mkdir "%ScriptDir%\Logs"
 
 echo.>"%ScriptDir%\.buildinprocess"
-call :git || ((call :error "Cannot prepare build workspace") & exit /b 1)
+call :git_check || ((call :error "Cannot inspect source repository") & exit /b 1)
+call :backup_generated_files || ((call :error "Cannot back up generated build metadata") & exit /b 1)
 
 call :setbuildinfo
 echo.Building %ver_full%
@@ -49,11 +50,12 @@ if not defined VSINSTALLDIR call "%vsdevcmd%" || exit /b 1
 REM Release
 rem call :build "%sln%" Release || ((call :error "Compillation failed") & exit /b 1)
 rem timeout /t 5 /NOBREAK
-echo.Place signed binaries into folders "%ScriptDir%\_Build_\edrav2\out\bin\win-Release-Win32" and "%ScriptDir%\_Build_\edrav2\out\bin\win-Release-x64"
+echo.Place signed binaries into folders "%EdrRoot%\out\bin\win-Release-Win32" and "%EdrRoot%\out\bin\win-Release-x64"
 pause
 call :build "%inst_sln%" Release || ((call :error "Compillation failed") & exit /b 1)
 timeout /t 5 /NOBREAK
-call :publish_local_out || ((call :error "Cannot publish local build output") & exit /b 1)
+call :verify_output
+call :restore_generated_files
 
 
 rem call :finalyze
@@ -89,17 +91,12 @@ if exist "%ScriptDir%\.buildinprocess" (
 exit /b 0
 
 
-:git
-echo.Preparing build workspace...
-echo.Preparing build workspace...  2>&1 >>"%ScriptDir%\Logs\script.log"
+:git_check
+echo.Checking local source state...
+echo.Checking local source state...  2>&1 >>"%ScriptDir%\Logs\script.log"
 
 git -C "%RepoRoot%" rev-parse --is-inside-work-tree >"%ScriptDir%\Logs\git.log" 2>&1 || exit /b 1
 for /F %%I in ('git -C "%RepoRoot%" rev-parse HEAD') do set gitsha1=%%I
-
-if exist "%ScriptDir%\_Build_\%product%" rmdir /q /s "%ScriptDir%\_Build_\%product%"
-
-robocopy "%EdrRoot%" "%ScriptDir%\_Build_\%product%" /E /XD "%ScriptDir%\_Build_" "%ScriptDir%\Logs" "%EdrRoot%\out" /XF "%ScriptDir%\.error" "%ScriptDir%\.buildinprocess" >>"%ScriptDir%\Logs\git.log" 2>&1
-if errorlevel 8 exit /b 1
 
 set gitshortsha1=%gitsha1:~0,8%
 
@@ -107,23 +104,40 @@ pushd "%ScriptDir%"
 exit /b 0
 
 
+:backup_generated_files
+set "GeneratedBackupDir=%ScriptDir%\Logs\generated_backup"
+if not exist "%GeneratedBackupDir%" mkdir "%GeneratedBackupDir%"
+copy /y "%BuildInfoHeader%" "%GeneratedBackupDir%\build_info.h" >nul || exit /b 1
+copy /y "%BuildInfoWxi%" "%GeneratedBackupDir%\BuildInfo.wxi" >nul || exit /b 1
+exit /b 0
+
+
+:restore_generated_files
+set "GeneratedBackupDir=%ScriptDir%\Logs\generated_backup"
+if not exist "%GeneratedBackupDir%" exit /b 0
+if exist "%GeneratedBackupDir%\build_info.h" copy /y "%GeneratedBackupDir%\build_info.h" "%BuildInfoHeader%" >nul 2>&1
+if exist "%GeneratedBackupDir%\BuildInfo.wxi" copy /y "%GeneratedBackupDir%\BuildInfo.wxi" "%BuildInfoWxi%" >nul 2>&1
+rmdir /q /s "%GeneratedBackupDir%" >nul 2>&1
+exit /b 0
+
+
 :setbuildinfo
 echo.Configuring build info... 2>&1 >>"%ScriptDir%\Logs\script.log"
 for /F "delims=b." %%I in ("%tag%") do set buildnum=%%I
 
-for /F "tokens=3" %%I in ('findstr /C:"#define CMD_VERSION_MAJOR" "%ScriptDir%\_Build_\edrav2\iprj\libcore\inc\version.h"') do SET ver_major=%%I
-for /F "tokens=3" %%I in ('findstr /C:"#define CMD_VERSION_MINOR" "%ScriptDir%\_Build_\edrav2\iprj\libcore\inc\version.h"') do SET ver_minor=%%I
-for /F "tokens=3" %%I in ('findstr /C:"#define CMD_VERSION_REVISION" "%ScriptDir%\_Build_\edrav2\iprj\libcore\inc\version.h"') do SET ver_rev=%%I
-for /F "tokens=3" %%I in ('findstr /C:"#define CMD_VERSION_SUFFIX " "%ScriptDir%\_Build_\edrav2\iprj\libcore\inc\version.h"') do SET ver_suff=%%~I
+for /F "tokens=3" %%I in ('findstr /C:"#define CMD_VERSION_MAJOR" "%VersionHeader%"') do SET ver_major=%%I
+for /F "tokens=3" %%I in ('findstr /C:"#define CMD_VERSION_MINOR" "%VersionHeader%"') do SET ver_minor=%%I
+for /F "tokens=3" %%I in ('findstr /C:"#define CMD_VERSION_REVISION" "%VersionHeader%"') do SET ver_rev=%%I
+for /F "tokens=3" %%I in ('findstr /C:"#define CMD_VERSION_SUFFIX " "%VersionHeader%"') do SET ver_suff=%%~I
 set ver_short=%ver_major%.%ver_minor%.%ver_rev%.%buildnum%
 if not "%ver_suff%"=="" (set ver_full=%ver_major%.%ver_minor%.%ver_rev%.%buildnum%-%ver_suff%) else set ver_full=%ver_major%.%ver_minor%.%ver_rev%.%buildnum%
 
 for /F "usebackq delims=" %%I in (`powershell -command "& {get-date -uformat '%%Y.%%m.%%d %%T'}"`) do set buildtime=%%I
 set extra_info=Commit: %gitshortsha1%, build time: %buildtime%
-echo.#define CMD_BUILD_EXTRA "%extra_info%">"%ScriptDir%\_Build_\edrav2\iprj\libcore\inc\build_info.h"
-echo.#define CMD_VERSION_BUILD %buildnum% >>"%ScriptDir%\_Build_\edrav2\iprj\libcore\inc\build_info.h"
+echo.#define CMD_BUILD_EXTRA "%extra_info%">"%BuildInfoHeader%"
+echo.#define CMD_VERSION_BUILD %buildnum% >>"%BuildInfoHeader%"
 
-set buildinfowxi="%ScriptDir%\_Build_\edrav2\iprj\installation\src\BuildInfo.wxi"
+set buildinfowxi="%BuildInfoWxi%"
 for /f %%i in ('powershell '{0:D12}' -f %buildnum%') do set hexbuildnum=%%i
 echo.^<?xml version="1.0" encoding="utf-8"?^>>%buildinfowxi%
 echo.^<Include^>>>%buildinfowxi%
@@ -165,11 +179,11 @@ exit /b 0
 :unit_test
 echo.Performing unit-testing:
 echo.Performing unit-testing: 2>&1 >>"%ScriptDir%\Logs\script.log"
-for /D %%I in ("%ScriptDir%\_Build_\edrav2\out\bin\*.*") do (
+for /D %%I in ("%EdrRoot%\out\bin\*.*") do (
   for %%J in ("%%~I\tests\*.exe") do (
     echo.     %%~nI\%%~nJ...
     echo.     %%~nI\%%~nJ... 2>&1 >>"%ScriptDir%\Logs\script.log"
-    if exist "%ScriptDir%\_Build_\edrav2\iprj\ats\scenarios\%%~nJ\data" pushd "%ScriptDir%\_Build_\edrav2\iprj\ats\scenarios\%%~nJ\data"
+    if exist "%EdrRoot%\iprj\ats\scenarios\%%~nJ\data" pushd "%EdrRoot%\iprj\ats\scenarios\%%~nJ\data"
     "%%~J" --out="%ScriptDir%\Logs\%%~nJ_%%~nI.log" >nul 2>&1 || (
         echo. Failed unit-test: %%~nI\%%~nJ >>"%ScriptDir%\testserror.txt"
         if not exist "%ScriptDir%\Logs\failed_ut" mkdir "%ScriptDir%\Logs\failed_ut"
@@ -178,31 +192,27 @@ for /D %%I in ("%ScriptDir%\_Build_\edrav2\out\bin\*.*") do (
   )
 )
 pushd "%ScriptDir%"
-for /R "%ScriptDir%\_Build_" %%I in (*.dmp) do echo.%%I>>"%ScriptDir%\testsdump.txt"
+for /R "%EdrRoot%\out" %%I in (*.dmp) do echo.%%I>>"%ScriptDir%\testsdump.txt"
 exit /b 0
 
 
-:publish_local_out
-set "src_out=%ScriptDir%\_Build_\edrav2\out"
+:verify_output
 set "dst_out=%EdrRoot%\out"
 
-if not exist "%src_out%" (
-  echo.[WARN] Build output directory was not created: "%src_out%".
-  echo.[WARN] Build output directory was not created: "%src_out%". >>"%ScriptDir%\Logs\script.log"
+if not exist "%dst_out%" (
+  echo.[WARN] Build output directory was not created: "%dst_out%".
+  echo.[WARN] Build output directory was not created: "%dst_out%". >>"%ScriptDir%\Logs\script.log"
   exit /b 0
 )
 
-dir /b /a "%src_out%" >nul 2>&1 || (
-  echo.[WARN] Build output directory is empty: "%src_out%".
-  echo.[WARN] Build output directory is empty: "%src_out%". >>"%ScriptDir%\Logs\script.log"
+dir /b /a "%dst_out%" >nul 2>&1 || (
+  echo.[WARN] Build output directory is empty: "%dst_out%".
+  echo.[WARN] Build output directory is empty: "%dst_out%". >>"%ScriptDir%\Logs\script.log"
   exit /b 0
 )
 
-if not exist "%dst_out%" mkdir "%dst_out%"
-robocopy "%src_out%" "%dst_out%" /E /NFL /NDL /NJH /NJS /NP >>"%ScriptDir%\Logs\script.log" 2>&1
-if errorlevel 8 exit /b 1
-echo.[INFO] Build outputs copied to "%dst_out%".
-echo.[INFO] Build outputs copied to "%dst_out%". >>"%ScriptDir%\Logs\script.log"
+echo.[INFO] Build outputs are in "%dst_out%".
+echo.[INFO] Build outputs are in "%dst_out%". >>"%ScriptDir%\Logs\script.log"
 exit /b 0
 
 
@@ -215,6 +225,7 @@ echo.>"%ScriptDir%\.error"
 echo.[ERRO]  %errmessage%
 echo.[ERRO]  %errmessage% 2>&1 >>"%ScriptDir%\Logs\script.log"
 del /q /f "%ScriptDir%\.buildinprocess" >nul 2>&1
+call :restore_generated_files
 ENDLOCAL
 goto :eof
 
@@ -231,9 +242,9 @@ goto :eof
 :cleanup
 echo.Cleaning up...
 cd "%ScriptDir%"
+call :restore_generated_files
 del /q /f "%ScriptDir%\*.txt" >nul 2>&1
 del /q /f "%ScriptDir%\.error" >nul 2>&1
-rmdir /q /s "%ScriptDir%\_Build_" >nul 2>&1
 rmdir /q /s "%ScriptDir%\Logs" >nul 2>&1
 del /q /f "%ScriptDir%\.buildinprocess"
 

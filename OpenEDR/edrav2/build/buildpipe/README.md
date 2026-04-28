@@ -3,7 +3,7 @@
 ## Overview
 Buildpipe builds the local EDRAv2 checkout. It uses only local files and leaves generated output in the checkout.
 
-Build output is copied back to:
+Build output is written directly to:
 
 ```
 OpenEDR\edrav2\out
@@ -23,12 +23,12 @@ OpenEDR\edrav2\out
 ## Script Flow
   * Checks whether another build is already running
   * Handles a previous failed build marker (_.error_)
-  * Prepares an isolated _Build_ workspace from the local _OpenEDR\edrav2_ tree
-  * Reads version data and writes _build_info.h_ plus _BuildInfo.wxi_
+  * Reads version data
+  * Temporarily writes _build_info.h_ plus _BuildInfo.wxi_ for the build, then restores their previous contents
   * Builds binaries and setup projects
   * Runs unit tests where applicable
-  * Copies generated output back to _OpenEDR\edrav2\out_
-  * Cleans temporary buildpipe folders on success
+  * Leaves generated output in _OpenEDR\edrav2\out_
+  * Cleans buildpipe logs and markers on success
 
 ## Error Handling
 In case of error on any stage:
