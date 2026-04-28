@@ -22,7 +22,7 @@ venv/
 .idea/
 .python-version
 poetry.toml
-test/
+# test/
 .DS_Store
 results/
 .vscode/
