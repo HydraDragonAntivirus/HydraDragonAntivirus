@@ -3,7 +3,7 @@ use std::ffi::CString;
 use windows::{
     core::PCSTR,
     Win32::{
-        Foundation::{BOOL, CloseHandle, GetLastError, HANDLE},
+        Foundation::{CloseHandle, GetLastError},
         Storage::FileSystem::{
             CreateFileA, FILE_ATTRIBUTE_NORMAL, FILE_GENERIC_WRITE, FILE_SHARE_NONE, OPEN_EXISTING,
         },
@@ -238,7 +238,7 @@ pub fn refresh_hydradragon_protection_rules_from_embedded() -> Result<(), String
             None,
             OPEN_EXISTING,
             FILE_ATTRIBUTE_NORMAL,
-            HANDLE::default(),
+            None,
         )
         .map_err(|e| {
             format!(
@@ -257,7 +257,7 @@ pub fn refresh_hydradragon_protection_rules_from_embedded() -> Result<(), String
         }
 
         let mut bytes_returned = 0u32;
-        let ok: BOOL = DeviceIoControl(
+        let ioctl_result = DeviceIoControl(
             device,
             IOCTL_HYDRADRAGON_SET_RULES,
             Some(payload.as_ptr().cast()),
@@ -271,12 +271,12 @@ pub fn refresh_hydradragon_protection_rules_from_embedded() -> Result<(), String
         let err = GetLastError();
         let _ = CloseHandle(device);
 
-        if !ok.as_bool() {
-            return Err(format!(
-                "DeviceIoControl(IOCTL_HYDRADRAGON_SET_RULES) failed: GetLastError={:?}",
-                err
-            ));
-        }
+        ioctl_result.map_err(|e| {
+            format!(
+                "DeviceIoControl(IOCTL_HYDRADRAGON_SET_RULES) failed: {:?}, GetLastError={:?}",
+                e, err
+            )
+        })?;
     }
 
     Ok(())

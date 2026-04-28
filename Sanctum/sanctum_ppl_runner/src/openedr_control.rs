@@ -14,7 +14,7 @@
 
 use std::ffi::CString;
 use windows::core::PCSTR;
-use windows::Win32::Foundation::{BOOL, CloseHandle, GetLastError, HANDLE};
+use windows::Win32::Foundation::{CloseHandle, GetLastError, HANDLE};
 use windows::Win32::Storage::FileSystem::{
     CreateFileA, FILE_ATTRIBUTE_NORMAL, FILE_GENERIC_READ, FILE_GENERIC_WRITE, FILE_SHARE_READ,
     FILE_SHARE_WRITE, OPEN_EXISTING,
@@ -55,7 +55,7 @@ fn open_openedr_device(device_path: &str) -> Result<HANDLE, String> {
             None,
             OPEN_EXISTING,
             FILE_ATTRIBUTE_NORMAL,
-            HANDLE::default(),
+            None,
         )
     }
     .map_err(|e| format!("CreateFileA({}) failed: {:?}", device_path, e))?;
@@ -97,7 +97,7 @@ pub fn send_openedr_ioctl_with_input(
         _ => (None, 0),
     };
 
-    let ok: BOOL = unsafe {
+    let ioctl_result = unsafe {
         DeviceIoControl(
             handle,
             ioctl_code,
@@ -113,12 +113,12 @@ pub fn send_openedr_ioctl_with_input(
     let last = unsafe { GetLastError() };
     let _ = unsafe { CloseHandle(handle) };
 
-    if !ok.as_bool() {
-        return Err(format!(
-            "DeviceIoControl({}, 0x{:08X}) failed; GetLastError={:?}",
-            ioctl_name, ioctl_code, last
-        ));
-    }
+    ioctl_result.map_err(|e| {
+        format!(
+            "DeviceIoControl({}, 0x{:08X}) failed: {:?}; GetLastError={:?}",
+            ioctl_name, ioctl_code, e, last
+        )
+    })?;
 
     Ok(())
 }

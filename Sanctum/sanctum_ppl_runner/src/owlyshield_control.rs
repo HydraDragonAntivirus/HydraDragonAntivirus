@@ -7,8 +7,8 @@
 use std::ffi::c_void;
 use std::sync::{Mutex, OnceLock};
 
-use windows::core::PCWSTR;
-use windows::Win32::Foundation::{CloseHandle, HANDLE, HRESULT};
+use windows::core::{HRESULT, PCWSTR};
+use windows::Win32::Foundation::{CloseHandle, HANDLE};
 
 use crate::hardcoded_rules::{
     OWLY_DYNAMIC_HOOK_EXCLUDE_RULES,

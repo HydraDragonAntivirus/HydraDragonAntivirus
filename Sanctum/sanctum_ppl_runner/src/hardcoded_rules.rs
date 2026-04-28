@@ -4,19 +4,6 @@
 //! reads mutable rule files from disk at runtime before updating privileged
 //! kernel rule state.
 
-use std::ffi::CString;
-
-use windows::{
-    core::PCSTR,
-    Win32::{
-        Foundation::{BOOL, CloseHandle, GetLastError, HANDLE},
-        Storage::FileSystem::{
-            CreateFileA, FILE_ATTRIBUTE_NORMAL, FILE_GENERIC_WRITE, FILE_SHARE_NONE, OPEN_EXISTING,
-        },
-        System::IO::DeviceIoControl,
-    },
-};
-
 pub const OWLY_FSFILTER_EXCLUDE_RULES: &str = r####"
 # Dynamic hook exclude rules (normalized/contains match, case-insensitive)
 # Put full path fragments under C:\ only.
