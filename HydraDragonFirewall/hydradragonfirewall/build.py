@@ -202,11 +202,11 @@ def build_rust(script_dir: Path, release: bool, windivert_path: Path):
 
 
 def firewall_deploy_dir(windivert_path: Path) -> Path:
-    """Deploy beside `everything`, under hydradragon/HydraDragonFirewall.
+    """Deploy beside `WinDivert`, under hydradragon/HydraDragonFirewall.
 
     Expected source layout:
       HydraDragonAntivirus/
-        everything/
+        WinDivert/
         HydraDragonFirewall/
 
     Deployment layout:
@@ -224,8 +224,8 @@ def copy_windivert(script_dir: Path, release: bool, windivert_path: Path):
         robust_copy(windivert_path / fname, target_dir / fname)
 
     # Mirror the firewall binaries to:
-    #   <parent of everything>/hydradragon/HydraDragonFirewall/
-    # Do not copy them into the everything/ folder.
+    #   <parent of WinDivert>/hydradragon/HydraDragonFirewall/
+    # Do not copy them into the WinDivert/ folder.
     deploy_dir = firewall_deploy_dir(windivert_path)
     deploy_dir.mkdir(parents=True, exist_ok=True)
 
@@ -247,17 +247,17 @@ def main():
     header("HydraDragon Firewall Build System")
 
     script_dir = Path(__file__).resolve().parent
-    windivert_path = (script_dir / ".." / "everything").resolve()
+    windivert_path = (script_dir / ".." / "WinDivert").resolve()
 
     if not windivert_path.exists():
         fail(
             f"WinDivert folder not found: {windivert_path}\n"
             "  Expected layout:\n"
             "    HydraDragonAntivirus/\n"
-            "      everything/          ← WinDivert.dll, WinDivert.lib, WinDivert64.sys\n"
+            "      WinDivert/          ← WinDivert.dll, WinDivert.lib, WinDivert64.sys\n"
             "      HydraDragonFirewall/ ← this script\n"
             "  Download WinDivert from https://reqrypt.org/windivert.html and place\n"
-            "  the x64 files in the `everything` folder, then re-run."
+            "  the x64 files in the `WinDivert` folder, then re-run."
         )
 
     lib_file = windivert_path / "WinDivert.lib"
