@@ -1,0 +1,11 @@
+group("test") {
+}
+
+group("gtest_main") {
+}
+
+group("gmock_main") {
+}
+
+group("test_test") {
+}

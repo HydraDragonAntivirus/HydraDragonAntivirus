@@ -147,6 +147,14 @@ if (crashpad_is_in_chromium || crashpad_is_in_fuchsia) {
     }
   }
 } else if (crashpad_is_standalone) {
+  group("edr_crashpad_libs") {
+    deps = [
+      "client:client",
+      "third_party/mini_chromium/mini_chromium/base:base",
+      "util:util",
+    ]
+  }
+} else if (crashpad_is_standalone && false) {
   test("crashpad_client_test") {
     deps = [
       "client:client_test",

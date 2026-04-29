@@ -4,7 +4,10 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-import _winreg
+try:
+  import _winreg
+except ImportError:
+  import winreg as _winreg
 import os
 import re
 import subprocess
@@ -44,7 +47,7 @@ def _FormatAsEnvironmentBlock(envvar_dict):
   CreateProcess() documentation for more details."""
   block = ''
   nul = '\0'
-  for key, value in envvar_dict.iteritems():
+  for key, value in envvar_dict.items():
     block += key + '=' + value + nul
   block += nul
   return block
@@ -72,6 +75,8 @@ def _GenerateEnvironmentFiles(install_dir, out_dir, script_path):
     popen = subprocess.Popen(
         args, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     variables, _ = popen.communicate()
+    if isinstance(variables, bytes):
+      variables = variables.decode('mbcs', 'replace')
     if popen.returncode != 0:
       raise Exception('"%s" failed with error %d' % (args, popen.returncode))
     env = _ExtractImportantEnvironment(variables)
@@ -79,7 +84,7 @@ def _GenerateEnvironmentFiles(install_dir, out_dir, script_path):
     env_block = _FormatAsEnvironmentBlock(env)
     basename = 'environment.' + arch
     with open(os.path.join(out_dir, basename), 'wb') as f:
-      f.write(env_block)
+      f.write(env_block.encode('mbcs'))
     result.append(basename)
   return result
 
@@ -90,7 +95,7 @@ def _GetEnvAsDict(arch):
   # for details, which is the format required for ninja). We convert to a dict
   # here. Drop last 2 NULs, one for list terminator, one for trailing vs.
   # separator.
-  pairs = open(arch).read()[:-2].split('\0')
+  pairs = open(arch, 'rb').read().decode('mbcs')[:-2].split('\0')
   kvs = [item.split('=', 1) for item in pairs]
   return dict(kvs)
 
@@ -118,11 +123,13 @@ class WinTool(object):
     args[0] = args[0].replace('/', '\\')
     link = subprocess.Popen(args, env=env, shell=True, stdout=subprocess.PIPE)
     out, _ = link.communicate()
+    if isinstance(out, bytes):
+      out = out.decode('mbcs', 'replace')
     for line in out.splitlines():
       if (not line.startswith('   Creating library ') and
           not line.startswith('Generating code') and
           not line.startswith('Finished generating code')):
-        print line
+        print(line)
     return link.returncode
 
   def ExecAsmWrapper(self, arch, *args):
@@ -131,12 +138,14 @@ class WinTool(object):
     popen = subprocess.Popen(args, env=env, shell=True,
                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     out, _ = popen.communicate()
+    if isinstance(out, bytes):
+      out = out.decode('mbcs', 'replace')
     for line in out.splitlines():
       if (not line.startswith('Copyright (C) Microsoft Corporation') and
           not line.startswith('Microsoft (R) Macro Assembler') and
           not line.startswith(' Assembling: ') and
           line):
-        print line
+        print(line)
     return popen.returncode
 
   def ExecGetVisualStudioData(self, outdir, toolchain_path):
@@ -159,6 +168,8 @@ class WinTool(object):
       if os.path.exists(vswhere_path):
         installation_path = subprocess.check_output(
             [vswhere_path, '-latest', '-property', 'installationPath']).strip()
+        if isinstance(installation_path, bytes):
+          installation_path = installation_path.decode('mbcs')
         if installation_path:
           return (installation_path,
                   os.path.join('VC', 'Auxiliary', 'Build', 'vcvarsall.bat'))
@@ -175,7 +186,7 @@ class WinTool(object):
     result = '''install_dir = "%s"
 x86_environment_file = "%s"
 x64_environment_file = "%s"''' % (install_dir, x86_file, x64_file)
-    print result
+    print(result)
     return 0
 
   def ExecStamp(self, path):

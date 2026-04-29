@@ -1,73 +1,90 @@
 @echo off
-@set vcvarsall="%ProgramFiles%\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvarsall.bat"
-@set cmake=cmake -G "Visual Studio 17 2022"
+setlocal EnableExtensions
+
+set "vcvarsall=%ProgramFiles%\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvarsall.bat"
+
+if not exist "%vcvarsall%" (
+    echo Visual Studio vcvarsall.bat not found: %vcvarsall%
+    exit /b 1
+)
 
 call :buildx64
+if errorlevel 1 exit /b %errorlevel%
+
 call :buildx86
+if errorlevel 1 exit /b %errorlevel%
 
-exit /b %errorlevel%
-
-:buildx64
-call %vcvarsall% x64
-setlocal
-
-%cmake% -Bcmake-build-x64 ^
- -DJSONCPP_WITH_TESTS=OFF ^
- -DJSONCPP_WITH_POST_BUILD_UNITTEST=OFF ^
- -DJSONCPP_WITH_PKGCONFIG_SUPPORT=OFF ^
- -DBUILD_SHARED_LIBS=OFF ^
- -DBUILD_STATIC_LIBS=ON ^
- -DCMAKE_CXX_FLAGS_RELEASE:STRING="/MT /Zi /O2 /Ob2 /DNDEBUG" ^
- -DCMAKE_CXX_FLAGS_DEBUG:STRING="/MTd /Zi /Ob0 /Od /RTC1" ^
- -DCMAKE_GENERATOR_PLATFORM=x64
-
-if %errorlevel% neq 0 exit /b %errorlevel%
-
-cmake --build cmake-build-x64 --config Release
-if %errorlevel% neq 0 exit /b %errorlevel%
-
-if not exist "build\x64\Release" mkdir "build\x64\Release"
-copy /Y cmake-build-x64\src\lib_json\Release\jsoncpp.lib build\x64\Release\jsoncpp_lib.lib
-copy /Y cmake-build-x64\src\lib_json\Release\jsoncpp.lib build\x64\Release\json_lib.lib
-
-cmake --build cmake-build-x64 --config Debug
-if %errorlevel% neq 0 exit /b %errorlevel%
-
-if not exist "build\x64\Debug" mkdir "build\x64\Debug"
-copy /Y cmake-build-x64\src\lib_json\Debug\jsoncpp.lib build\x64\Debug\jsoncpp_lib.lib
-copy /Y cmake-build-x64\src\lib_json\Debug\jsoncpp.lib build\x64\Debug\json_lib.lib
-
-endlocal
 exit /b 0
 
+:buildx64
+call "%vcvarsall%" x64
+if errorlevel 1 exit /b %errorlevel%
+
+call :buildconfig x64 Release x64 "/MT /Zi /O2 /Ob2 /DNDEBUG"
+if errorlevel 1 exit /b %errorlevel%
+
+call :buildconfig x64 Debug x64 "/MTd /Zi /Ob0 /Od /RTC1 /D_DEBUG"
+exit /b %errorlevel%
+
 :buildx86
-call %vcvarsall% x64_x86
+call "%vcvarsall%" x64_x86
+if errorlevel 1 exit /b %errorlevel%
+
+call :buildconfig Win32 Release Win32 "/MT /Zi /O2 /Ob2 /DNDEBUG"
+if errorlevel 1 exit /b %errorlevel%
+
+call :buildconfig Win32 Debug Win32 "/MTd /Zi /Ob0 /Od /RTC1 /D_DEBUG"
+exit /b %errorlevel%
+
+:buildconfig
 setlocal
+set "OBJDIR=build\manual-%~1-%~2"
+set "OUTDIR=build\%~3\%~2"
+set "CFLAGS=%~4"
 
-%cmake% -Bcmake-build-x86 -A Win32 ^
- -DJSONCPP_WITH_TESTS=OFF ^
- -DJSONCPP_WITH_POST_BUILD_UNITTEST=OFF ^
- -DJSONCPP_WITH_PKGCONFIG_SUPPORT=OFF ^
- -DBUILD_SHARED_LIBS=OFF ^
- -DBUILD_STATIC_LIBS=ON ^
- -DCMAKE_CXX_FLAGS_RELEASE:STRING="/MT /Zi /O2 /Ob2 /DNDEBUG" ^
- -DCMAKE_CXX_FLAGS_DEBUG:STRING="/MTd /Zi /Ob0 /Od /RTC1"
+echo Building JsonCpp %~3 %~2...
 
-if %errorlevel% neq 0 exit /b %errorlevel%
+if not exist "%OBJDIR%" mkdir "%OBJDIR%"
+if errorlevel 1 (
+    endlocal
+    exit /b 1
+)
 
-cmake --build cmake-build-x86 --config Release
-if %errorlevel% neq 0 exit /b %errorlevel%
+if not exist "%OUTDIR%" mkdir "%OUTDIR%"
+if errorlevel 1 (
+    endlocal
+    exit /b 1
+)
 
-if not exist "build\Win32\Release" mkdir "build\Win32\Release"
-copy /Y cmake-build-x86\src\lib_json\Release\jsoncpp.lib build\Win32\Release\jsoncpp_lib.lib
-copy /Y cmake-build-x86\src\lib_json\Release\jsoncpp.lib build\Win32\Release\json_lib.lib
+cl /nologo /c /std:c++14 /EHsc %CFLAGS% /Iinclude /Fo"%OBJDIR%\json_reader.obj" src\lib_json\json_reader.cpp
+if errorlevel 1 (
+    endlocal
+    exit /b 1
+)
 
-cmake --build cmake-build-x86 --config Debug
-if %errorlevel% neq 0 exit /b %errorlevel%
+cl /nologo /c /std:c++14 /EHsc %CFLAGS% /Iinclude /Fo"%OBJDIR%\json_value.obj" src\lib_json\json_value.cpp
+if errorlevel 1 (
+    endlocal
+    exit /b 1
+)
 
-if not exist "build\Win32\Debug" mkdir "build\Win32\Debug"
-copy /Y cmake-build-x86\src\lib_json\Debug\jsoncpp.lib build\Win32\Debug\jsoncpp_lib.lib
-copy /Y cmake-build-x86\src\lib_json\Debug\jsoncpp.lib build\Win32\Debug\json_lib.lib
+cl /nologo /c /std:c++14 /EHsc %CFLAGS% /Iinclude /Fo"%OBJDIR%\json_writer.obj" src\lib_json\json_writer.cpp
+if errorlevel 1 (
+    endlocal
+    exit /b 1
+)
+
+lib /nologo /OUT:"%OUTDIR%\jsoncpp_lib.lib" "%OBJDIR%\json_reader.obj" "%OBJDIR%\json_value.obj" "%OBJDIR%\json_writer.obj"
+if errorlevel 1 (
+    endlocal
+    exit /b 1
+)
+
+copy /Y "%OUTDIR%\jsoncpp_lib.lib" "%OUTDIR%\json_lib.lib"
+if errorlevel 1 (
+    endlocal
+    exit /b 1
+)
 
 endlocal
 exit /b 0
