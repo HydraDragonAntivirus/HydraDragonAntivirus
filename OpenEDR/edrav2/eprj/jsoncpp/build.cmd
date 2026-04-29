@@ -11,9 +11,6 @@ if not exist "%vcvarsall%" (
 call :buildx64
 if errorlevel 1 exit /b %errorlevel%
 
-call :buildx86
-if errorlevel 1 exit /b %errorlevel%
-
 exit /b 0
 
 :buildx64
@@ -24,16 +21,6 @@ call :buildconfig x64 Release x64 "/MT /Zi /O2 /Ob2 /DNDEBUG"
 if errorlevel 1 exit /b %errorlevel%
 
 call :buildconfig x64 Debug x64 "/MTd /Zi /Ob0 /Od /RTC1 /D_DEBUG"
-exit /b %errorlevel%
-
-:buildx86
-call "%vcvarsall%" x64_x86
-if errorlevel 1 exit /b %errorlevel%
-
-call :buildconfig Win32 Release Win32 "/MT /Zi /O2 /Ob2 /DNDEBUG"
-if errorlevel 1 exit /b %errorlevel%
-
-call :buildconfig Win32 Debug Win32 "/MTd /Zi /Ob0 /Od /RTC1 /D_DEBUG"
 exit /b %errorlevel%
 
 :buildconfig

@@ -206,7 +206,6 @@ if /I "%sln_name%"=="edrav2-install.sln" (
 ) else (
   call :ensure_libmicrohttpd %type% || exit /b 1
   call :build_detours %type% x64 || exit /b 1
-  call :build_detours %type% Win32 || exit /b 1
   "%msbuild%" "%sln%" /t:Build /p:Configuration=%type% /p:Platform=x64 /m:1 /nr:false /noconlog /fl /flp:LogFile="%ScriptDir%\Logs\build.log";append;verbosity=normal /nologo || exit /b 1
 )
 
