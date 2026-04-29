@@ -55,7 +55,7 @@ set "PATH=C:\src\depot_tools;%PATH%"
 cd /d "C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\hydradragon\View8\Disassembler"
 ```
 ```bat
-cl /nologo /EHsc /std:c++20 /Zc:__cplusplus /O2 /Ob3 /Oi /Ot /GL /MT /DNDEBUG /I"C:\src\depot_tools\v8" /I"C:\src\depot_tools\v8\include" v8dasm.cpp /Fe:v8dasm.exe /link /LTCG /LIBPATH:"C:\src\depot_tools\v8\out.gn\x64.release\obj" v8_monolith.lib winmm.lib dbghelp.lib shlwapi.lib ws2_32.lib advapi32.lib userenv.lib shell32.lib ole32.lib oleaut32.lib uuid.lib version.lib delayimp.lib
+cl /nologo /EHsc /std:c++20 /Zc:__cplusplus /O2 /Ob3 /Oi /Ot /GL /MT /DNDEBUG /I"C:\src\depot_tools\v8" /I"C:\src\depot_tools\v8\include" /I"C:\src\depot_tools\v8\out.gn\x64.release\gen\include" v8dasm.cpp /Fe:14.6.202.33.exe /link /LTCG /LIBPATH:"C:\src\depot_tools\v8\out.gn\x64.release\obj" v8_monolith.lib winmm.lib dbghelp.lib shlwapi.lib ws2_32.lib advapi32.lib userenv.lib shell32.lib ole32.lib oleaut32.lib uuid.lib version.lib delayimp.lib
 ```
 
 ## Copy exe to View8 Bin folder where view8.py expects it
