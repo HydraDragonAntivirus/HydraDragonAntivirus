@@ -7,17 +7,16 @@ HydraDragon Firewall Build Script
 Expected layout:
   HydraDragonAntivirus/
     hydradragon/
-      HydraDragonFirewall/                 deploy output goes here
+      HydraDragonFirewall/                 deploy folder; WinDivert already exists here
     HydraDragonFirewall/
-      WinDivert.dll
-      WinDivert.lib
-      WinDivert64.sys
       hydradragonfirewall/                 this build.py lives here
 
-Notes:
+Rules:
   - No `everything` folder.
   - No hardcoded absolute deploy path.
-  - WinDivert is NOT copied during deploy.
+  - No WinDivert copy.
+  - No WinDivert source-folder validation in HydraDragonFirewall project root.
+  - WINDIVERT_PATH points to the deploy folder because WinDivert is already there.
   - Only hydradragonfirewall.exe and hydradragonfirewall.dll are copied to deploy.
 """
 
@@ -157,25 +156,22 @@ def robust_copy(src: Path, dst: Path):
         warn(f"Source not found: {src}")
 
 
-def resolve_layout(script_dir: Path) -> tuple[Path, Path, Path, Path]:
+def resolve_layout(script_dir: Path) -> tuple[Path, Path, Path]:
     """
     build.py lives in:
       HydraDragonAntivirus/HydraDragonFirewall/hydradragonfirewall/build.py
 
     Derived:
-      project_dir:   HydraDragonAntivirus/HydraDragonFirewall
-      repo_root:     HydraDragonAntivirus
-      windivert_dir: HydraDragonAntivirus/HydraDragonFirewall
-      deploy_dir:    HydraDragonAntivirus/hydradragon/HydraDragonFirewall
+      project_dir: HydraDragonAntivirus/HydraDragonFirewall
+      repo_root:   HydraDragonAntivirus
+      deploy_dir:  HydraDragonAntivirus/hydradragon/HydraDragonFirewall
 
-    No absolute hardcoded deploy path.
-    No `everything`.
+    WinDivert is assumed to already exist in deploy_dir.
     """
     project_dir = script_dir.parent
     repo_root = project_dir.parent
-    windivert_dir = project_dir
     deploy_dir = repo_root / "hydradragon" / project_dir.name
-    return project_dir, repo_root, windivert_dir, deploy_dir
+    return project_dir, repo_root, deploy_dir
 
 
 def build_ui(script_dir: Path, release: bool):
@@ -195,7 +191,7 @@ def build_ui(script_dir: Path, release: bool):
     ok("UI build complete!")
 
 
-def build_rust(script_dir: Path, release: bool, windivert_dir: Path):
+def build_rust(script_dir: Path, release: bool, deploy_dir: Path):
     flag = "release" if release else "debug"
     step("2/4", f"Building Rust backend ({flag})...")
 
@@ -204,13 +200,13 @@ def build_rust(script_dir: Path, release: bool, windivert_dir: Path):
     if release:
         cmd.append("--release")
 
-    # WinDivert path is only passed to the build system.
-    # Nothing from WinDivert is copied by this script.
+    # WinDivert is already in deploy_dir. Use deploy_dir for the build env too.
+    # Do not validate/copy WinDivert in this script.
     run(
         cmd,
         cwd=script_dir,
         env={
-            "WINDIVERT_PATH": str(windivert_dir),
+            "WINDIVERT_PATH": str(deploy_dir),
             "WINDIVERT_DLL_OUTPUT": str(target_dir),
         },
     )
@@ -224,7 +220,6 @@ def deploy_firewall_only(script_dir: Path, release: bool, deploy_dir: Path):
     target_dir = script_dir / "target" / ("release" if release else "debug")
 
     # Do NOT copy WinDivert here.
-    # Only deploy firewall binaries.
     robust_copy(target_dir / "hydradragonfirewall.exe", deploy_dir / "hydradragonfirewall.exe")
     robust_copy(target_dir / "hydradragonfirewall.dll", deploy_dir / "hydradragonfirewall.dll")
 
@@ -238,21 +233,11 @@ def main():
     header("HydraDragon Firewall Build System")
 
     script_dir = Path(__file__).resolve().parent
-    project_dir, repo_root, windivert_dir, deploy_dir = resolve_layout(script_dir)
-
-    lib_file = windivert_dir / "WinDivert.lib"
-    if not lib_file.exists():
-        fail(
-            f"WinDivert.lib not found in: {windivert_dir}\n"
-            "Expected WinDivert files in the HydraDragonFirewall folder:\n"
-            f"  {windivert_dir / 'WinDivert.lib'}\n"
-            f"  {windivert_dir / 'WinDivert.dll'}\n"
-            f"  {windivert_dir / 'WinDivert64.sys'}\n"
-        )
+    project_dir, repo_root, deploy_dir = resolve_layout(script_dir)
 
     check_dependencies()
     build_ui(script_dir, args.release)
-    build_rust(script_dir, args.release, windivert_dir)
+    build_rust(script_dir, args.release, deploy_dir)
     deploy_firewall_only(script_dir, args.release, deploy_dir)
 
     target_dir = script_dir / "target" / ("release" if args.release else "debug")
@@ -262,7 +247,8 @@ def main():
     step("4/4", "Build Successful!")
     print(cyan(f"\n  Source dir:       {script_dir}"))
     print(cyan(f"  Project dir:      {project_dir}"))
-    print(cyan(f"  WinDivert path:   {windivert_dir}"))
+    print(cyan(f"  Repo root:        {repo_root}"))
+    print(cyan(f"  WinDivert path:   {deploy_dir}"))
     print(cyan(f"  Built executable: {built_exe}"))
     print(cyan(f"  Deploy folder:    {deploy_dir}"))
     print(cyan(f"  Deployed exe:     {deployed_exe}"))

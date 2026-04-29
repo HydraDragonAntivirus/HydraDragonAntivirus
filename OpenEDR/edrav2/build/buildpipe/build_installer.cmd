@@ -16,6 +16,12 @@ if exist "%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" (
         if exist "%%i\VC\Auxiliary\Build\vcvarsall.bat" set "vcvarsall=%%i\VC\Auxiliary\Build\vcvarsall.bat"
     )
 )
+for %%P in (Community Professional Enterprise) do (
+    if exist "%ProgramFiles%\Microsoft Visual Studio\2022\%%P\VC\Auxiliary\Build\vcvarsall.bat" (
+        set "VSInstallDir=%ProgramFiles%\Microsoft Visual Studio\2022\%%P"
+        set "vcvarsall=%ProgramFiles%\Microsoft Visual Studio\2022\%%P\VC\Auxiliary\Build\vcvarsall.bat"
+    )
+)
 if not defined vcvarsall (
     for %%P in (Community Professional Enterprise BuildTools) do (
         if not defined vcvarsall (
@@ -31,7 +37,9 @@ if not defined vcvarsall (
     exit /b 1
 )
 set "vsdevcmd=%VSInstallDir%\Common7\Tools\VsDevCmd.bat"
-set "msbuild=msbuild"
+set "msbuild=%VSInstallDir%\MSBuild\Current\Bin\amd64\MSBuild.exe"
+if not exist "%msbuild%" set "msbuild=%VSInstallDir%\MSBuild\Current\Bin\MSBuild.exe"
+if not exist "%msbuild%" set "msbuild=msbuild"
 set "inst_sln=%EdrRoot%\build\vs2022\edrav2-install.sln"
 set "VersionHeader=%EdrRoot%\iprj\libcore\inc\version.h"
 set "BuildInfoHeader=%EdrRoot%\iprj\libcore\inc\build_info.h"
@@ -42,7 +50,7 @@ call :checkstate || exit /b 1
 
 if not exist "%ScriptDir%\Logs" mkdir "%ScriptDir%\Logs"
 
-echo.>"%ScriptDir%\.buildinprocess"
+>"%ScriptDir%\.buildinprocess" echo running %DATE% %TIME%
 call :git_check || ((call :error "Cannot inspect source repository") & exit /b 1)
 call :backup_generated_files || ((call :error "Cannot back up generated build metadata") & exit /b 1)
 
@@ -88,8 +96,12 @@ if exist "%ScriptDir%\.error" (
 endlocal
 
 if exist "%ScriptDir%\.buildinprocess" (
-  echo.[ERRO] Build is already running
-  exit /b 1
+  for %%I in ("%ScriptDir%\.buildinprocess") do (
+    if %%~zI GTR 2 (
+      echo.[ERRO] Build is already running
+      exit /b 1
+    )
+  )
 )
 
 exit /b 0
@@ -165,7 +177,7 @@ echo.Building %type%^(x64^) for %sln_name%... 2>&1 >>"%ScriptDir%\Logs\script.lo
 if /I "%sln_name%"=="edrav2-install.sln" (
   dotnet build "%sln%" -c %type% -p:Platform=x64 -nologo --no-restore >>"%ScriptDir%\Logs\build.log" 2>&1 || exit /b 1
 ) else (
-  %msbuild% "%sln%" /t:Build /p:Configuration=%type% /p:Platform=x64 /m:2 /p:CL_MPCount=2 /noconlog /fl /flp:LogFile="%ScriptDir%\Logs\build.log";append /nologo || exit /b 1
+  "%msbuild%" "%sln%" /t:Build /p:Configuration=%type% /p:Platform=x64 /m:1 /nr:false /noconlog /fl /flp:LogFile="%ScriptDir%\Logs\build.log";append;verbosity=normal /nologo || exit /b 1
 )
 
 ENDLOCAL
@@ -220,7 +232,7 @@ cd "%ScriptDir%"
 echo.>"%ScriptDir%\.error"
 echo.[ERRO]  %errmessage%
 echo.[ERRO]  %errmessage% 2>&1 >>"%ScriptDir%\Logs\script.log"
-del /q /f "%ScriptDir%\.buildinprocess" >nul 2>&1
+echo.>"%ScriptDir%\.buildinprocess"
 call :restore_generated_files
 ENDLOCAL
 goto :eof
@@ -242,6 +254,6 @@ call :restore_generated_files
 del /q /f "%ScriptDir%\*.txt" >nul 2>&1
 del /q /f "%ScriptDir%\.error" >nul 2>&1
 rmdir /q /s "%ScriptDir%\Logs" >nul 2>&1
-del /q /f "%ScriptDir%\.buildinprocess"
+echo.>"%ScriptDir%\.buildinprocess"
 
 goto :eof

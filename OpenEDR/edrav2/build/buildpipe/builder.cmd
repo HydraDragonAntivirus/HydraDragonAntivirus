@@ -58,7 +58,7 @@ call :checkstate || exit /b 1
 
 if not exist "%ScriptDir%\Logs" mkdir "%ScriptDir%\Logs"
 
-echo.>"%ScriptDir%\.buildinprocess"
+>"%ScriptDir%\.buildinprocess" echo running %DATE% %TIME%
 call :git_check
 if errorlevel 11 ((call :error "Cannot inspect source repository") & exit /b 1)
 if errorlevel 1 ((call :error "Cannot inspect source repository") & exit /b 1)
@@ -114,8 +114,16 @@ if exist "%ScriptDir%\.error" (
 endlocal
 
 if exist "%ScriptDir%\.buildinprocess" (
-  echo.[ERRO] Build is already running
-  exit /b 1
+  for %%I in ("%ScriptDir%\.buildinprocess") do (
+    if %%~zI GTR 2 (
+      if "%forcemode%"=="true" (
+        call :cleanup
+      ) else (
+        echo.[ERRO] Build is already running
+        exit /b 1
+      )
+    )
+  )
 )
 
 exit /b 0
@@ -199,7 +207,7 @@ if /I "%sln_name%"=="edrav2-install.sln" (
   call :ensure_libmicrohttpd %type% || exit /b 1
   call :build_detours %type% x64 || exit /b 1
   call :build_detours %type% Win32 || exit /b 1
-  "%msbuild%" "%sln%" /t:Build /p:Configuration=%type% /p:Platform=x64 /m:1 /nr:false /noconlog /fl /flp:LogFile="%ScriptDir%\Logs\build.log";append /nologo || exit /b 1
+  "%msbuild%" "%sln%" /t:Build /p:Configuration=%type% /p:Platform=x64 /m:1 /nr:false /noconlog /fl /flp:LogFile="%ScriptDir%\Logs\build.log";append;verbosity=normal /nologo || exit /b 1
 )
 
 ENDLOCAL
@@ -212,7 +220,7 @@ set "type=%~1"
 set "platform=%~2"
 echo.Building detours %type%^(%platform%^)...
 echo.Building detours %type%^(%platform%^)... 2>&1 >>"%ScriptDir%\Logs\script.log"
-"%msbuild%" "%detours_vcxproj%" /t:Build /p:Configuration=%type% /p:Platform=%platform% /m:1 /noconlog /fl /flp:LogFile="%ScriptDir%\Logs\build.log";append /nologo || exit /b 1
+"%msbuild%" "%detours_vcxproj%" /t:Build /p:Configuration=%type% /p:Platform=%platform% /m:1 /nr:false /noconlog /fl /flp:LogFile="%ScriptDir%\Logs\build.log";append;verbosity=normal /nologo || exit /b 1
 ENDLOCAL
 exit /b 0
 
@@ -284,7 +292,7 @@ cd "%ScriptDir%"
 echo.>"%ScriptDir%\.error"
 echo.[ERRO]  %errmessage%
 echo.[ERRO]  %errmessage% 2>&1 >>"%ScriptDir%\Logs\script.log"
-del /q /f "%ScriptDir%\.buildinprocess" >nul 2>&1
+echo.>"%ScriptDir%\.buildinprocess"
 call :restore_generated_files
 ENDLOCAL
 goto :eof
@@ -306,6 +314,6 @@ call :restore_generated_files
 del /q /f "%ScriptDir%\*.txt" >nul 2>&1
 del /q /f "%ScriptDir%\.error" >nul 2>&1
 rmdir /q /s "%ScriptDir%\Logs" >nul 2>&1
-del /q /f "%ScriptDir%\.buildinprocess"
+echo.>"%ScriptDir%\.buildinprocess"
 
 goto :eof
