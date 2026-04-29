@@ -253,7 +253,7 @@ See the [LICENSE](./LICENSE) file for more information.
 - https://github.com/radareorg/radare2/releases/tag/6.1.4
 - https://github.com/DimaReverse/nuitka-static-unpacker
 
-- I used these projects to decompile (with a current custom database of Detect-It-Easy).
+- I used these projects to decompile (with a current custom database of Detect-It-Easy 3.10).
 
 - https://github.com/starhopp3r/ML-Antivirus
 - https://github.com/HydraDragonAntivirus/yarGen
