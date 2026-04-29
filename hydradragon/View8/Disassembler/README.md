@@ -1,14 +1,30 @@
-# View8 Disassembler Build
+# View8 Disassembler Build for V8 14.6.202.33
 
-> **Note:** `cl` is only available in **x64 Native Tools Command Prompt for VS 2022**. It will not work in normal CMD or PowerShell unless the one-line `cmd /c` command below calls `vcvars64.bat`.
+This document describes how to build a View8-compatible disassembler executable for V8 `14.6.202.33` on Windows.
 
-## Export the current local V8 patch
+> **Important:** `cl.exe` is available only inside **x64 Native Tools Command Prompt for VS 2022**. A normal CMD or PowerShell session will not find `cl` unless you initialize the MSVC environment first.
+
+---
+
+## 1. Export the current local V8 patch
+
+Run this if you changed the local V8 source and want to save the patch used for this disassembler build.
 
 ```bat
-cmd /c "cd /d c:\src\depot_tools\v8 && git diff HEAD > C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\hydradragon\View8\Disassembler\14.6.202.33.patch"
+cmd /c "cd /d C:\src\depot_tools\v8 && git diff HEAD > C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\hydradragon\View8\Disassembler\14.6.202.33.patch"
 ```
 
-## Required in: `c:\src\depot_tools\v8\out.gn\x64.release\args.gn`
+---
+
+## 2. Configure V8 build arguments
+
+Edit this file:
+
+```text
+C:\src\depot_tools\v8\out.gn\x64.release\args.gn
+```
+
+Use these arguments:
 
 ```gn
 dcheck_always_on = false
@@ -26,40 +42,137 @@ v8_enable_temporal_support = false
 treat_warnings_as_errors = false
 ```
 
-## Mandatory: Rebuild V8 after every args.gn change
+### Notes
 
-Changing `args.gn` has **no effect** until you re-run `gn gen` and `ninja`. The old `v8_monolith.lib` stays on disk with the old settings until you rebuild.
-
-**Always run the regenerate and build commands again after editing `args.gn`.**
+- `v8_enable_pointer_compression = false` must match the external embedder build. Do **not** compile `v8dasm.cpp` with `/DV8_COMPRESS_POINTERS` when this is false.
+- `v8_enable_disassembler = true` is required for bytecode/disassembly output.
+- `v8_enable_object_print = true` is useful for internal object printing/debugging.
+- `v8_monolithic = true` and `v8_static_library = true` are required for linking against `v8_monolith.lib`.
 
 ---
 
-## Regenerate GN files with the args.gn above
+## 3. Regenerate GN files and rebuild V8
+
+Changing `args.gn` has **no effect** until you rerun `gn gen` and rebuild. The old `v8_monolith.lib` remains on disk until `ninja` rebuilds it.
+
+Run this after every `args.gn` change:
 
 ```bat
 cmd /c "set ""PATH=C:\src\depot_tools;%PATH%"" && set ""DEPOT_TOOLS_WIN_TOOLCHAIN=0"" && cd /d C:\src\depot_tools\v8 && gn gen out.gn/x64.release && ninja -C out.gn/x64.release v8_monolith"
 ```
 
-## Build V8 monolith library
+---
 
-```bat
-cmd /c "set ""PATH=C:\src\depot_tools;%PATH%"" && set ""DEPOT_TOOLS_WIN_TOOLCHAIN=0"" && cd /d C:\src\depot_tools\v8 && gn gen out.gn/x64.release && ninja -C out.gn/x64.release v8_monolith"
-```
+## 4. Build the View8 disassembler executable
 
-## Build the real View8 disassembler executable from v8dasm.cpp using MSVC STL
+Open **x64 Native Tools Command Prompt for VS 2022**, then run:
 
 ```bat
 set "PATH=C:\src\depot_tools;%PATH%"
 ```
+
 ```bat
 cd /d "C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\hydradragon\View8\Disassembler"
 ```
+
+Compile `v8dasm.cpp`:
+
 ```bat
 cl /nologo /EHsc /std:c++20 /Zc:__cplusplus /O2 /Ob3 /Oi /Ot /GL /MT /DNDEBUG /I"C:\src\depot_tools\v8" /I"C:\src\depot_tools\v8\include" /I"C:\src\depot_tools\v8\out.gn\x64.release\gen\include" v8dasm.cpp /Fe:14.6.202.33.exe /link /LTCG /LIBPATH:"C:\src\depot_tools\v8\out.gn\x64.release\obj" v8_monolith.lib winmm.lib dbghelp.lib shlwapi.lib ws2_32.lib advapi32.lib userenv.lib shell32.lib ole32.lib oleaut32.lib uuid.lib version.lib delayimp.lib
 ```
 
-## Copy exe to View8 Bin folder where view8.py expects it
+Do **not** add these flags unless V8 was built with matching options:
 
 ```bat
-cmd /c "copy /Y C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\hydradragon\View8\Disassembler\v8dasm.exe C:\Users\semae\OneDrive\Belgeler\GitHub\View8\Bin\14.6.202.33.exe"
+/DV8_COMPRESS_POINTERS
+/DV8_ENABLE_SANDBOX
+```
+
+A mismatch can cause startup crashes such as:
+
+```text
+Embedder-vs-V8 build configuration mismatch.
+```
+
+---
+
+## 5. Copy the executable to View8's `Bin` folder
+
+The compile command above creates:
+
+```text
+14.6.202.33.exe
+```
+
+Copy that file into the View8 `Bin` folder:
+
+```bat
+cmd /c "copy /Y C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\hydradragon\View8\Disassembler\14.6.202.33.exe C:\Users\semae\OneDrive\Belgeler\GitHub\View8\Bin\14.6.202.33.exe"
+```
+
+---
+
+## 6. Test the disassembler directly
+
+Before using View8, test the executable by itself:
+
+```bat
+"C:\Users\semae\OneDrive\Belgeler\GitHub\View8\Bin\14.6.202.33.exe" "C:\Users\semae\OneDrive\Belgeler\main.jsc"
+```
+
+If this crashes, View8 will also fail. Fix the disassembler build first.
+
+---
+
+## 7. Use it with View8
+
+Run View8 with the custom disassembler path:
+
+```bat
+python view8.py "C:\Users\semae\OneDrive\Belgeler\main.jsc" "main.js" --path "C:\Users\semae\OneDrive\Belgeler\GitHub\View8\Bin\14.6.202.33.exe"
+```
+
+Optional export formats:
+
+```bat
+python view8.py "C:\Users\semae\OneDrive\Belgeler\main.jsc" "main.js" --path "C:\Users\semae\OneDrive\Belgeler\GitHub\View8\Bin\14.6.202.33.exe" -e v8_opcode translated decompiled
+```
+
+---
+
+## Troubleshooting
+
+### Error: `Embedder-vs-V8 build configuration mismatch`
+
+Your `cl` defines do not match the V8 library build.
+
+Example:
+
+```text
+On embedder side pointer compression is ENABLED while on V8 side it's DISABLED.
+```
+
+Fix: remove `/DV8_COMPRESS_POINTERS` from the `cl` command when `v8_enable_pointer_compression = false`.
+
+### Error: `Fatal error ... unreachable code`
+
+The disassembler started, but V8 crashed while consuming the cached bytecode. Possible causes:
+
+- The `.jsc` is not raw V8 cached bytecode.
+- The `.jsc` was generated by a different V8/Electron/Node build.
+- The producer used different V8 serialization/codegen flags.
+- The dummy source length/hash does not match the cached data.
+
+### Error: View8 says `output_file` is required
+
+View8 requires both input and output files:
+
+```bat
+python view8.py input.jsc output.js
+```
+
+Correct example:
+
+```bat
+python view8.py "C:\Users\semae\OneDrive\Belgeler\main.jsc" "main.js" --path "C:\Users\semae\OneDrive\Belgeler\GitHub\View8\Bin\14.6.202.33.exe"
 ```
