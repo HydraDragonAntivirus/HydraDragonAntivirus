@@ -6,4 +6,4 @@ cmd /c "cd /d c:\src\depot_tools\v8 && git diff HEAD > c:\Users\semae\OneDrive\B
 treat_warnings_as_errors = false
 
 :: Build V8.
-cmd /c "set PATH=c:\src\depot_tools;%PATH% && set DEPOT_TOOLS_WIN_TOOLCHAIN=0 && cd /d c:\src\depot_tools\v8 && ninja -C out.gn/x64.release"
+cmd /c "set PATH=c:\src\depot_tools;%PATH% && set DEPOT_TOOLS_WIN_TOOLCHAIN=0 && cd /d c:\src\depot_tools\v8 && ninja -C out.gn/x64.release v8_monolith"
