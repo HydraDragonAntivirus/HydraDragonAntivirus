@@ -7,6 +7,7 @@
     <UserSecretsId>dotnet-HydraDragonAntivirusTaskScheduler-bc82b4c5-98bb-495c-93b7-591e2457154c</UserSecretsId>
     <ApplicationIcon>HydraDragonAV.ico</ApplicationIcon>
     <PackageIcon>HydraDragonAVLogo.png</PackageIcon>
+    <Platforms>AnyCPU;x64</Platforms>
   </PropertyGroup>
 
   <ItemGroup>

@@ -250,7 +250,6 @@ See the [LICENSE](./LICENSE) file for more information.
 - https://github.com/HydraDragonAntivirus/MegaDumper 
 - https://github.com/GuardianN06/SourceUndefender
 - https://github.com/Lil-House/Pyarmor-Static-Unpack-1shot
-- https://github.com/HydraDragonAntivirus/HydraDragonPythonReverser
 - https://github.com/radareorg/radare2/releases/tag/6.1.4
 - https://github.com/DimaReverse/nuitka-static-unpacker
 

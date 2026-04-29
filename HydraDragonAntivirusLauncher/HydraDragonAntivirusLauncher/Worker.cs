@@ -12,6 +12,8 @@ namespace HydraDragonAntivirusLauncher
         private readonly bool _restartOnCrash = true;
         private readonly int _initialBackoffMs = 1000;
         private readonly int _maxBackoffMs = 20000;
+        private readonly string _programFiles =
+            Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
@@ -105,8 +107,7 @@ namespace HydraDragonAntivirusLauncher
         {
             if (_avProcess != null && !_avProcess.HasExited) return;
 
-            var programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
-            string avPath = Path.Combine(programFiles, "HydraDragonAntivirus", "hydradragon", "HydraDragonAV", "HydraDragonAV.exe");
+            string avPath = Path.Combine(_programFiles, "HydraDragonAntivirus", "hydradragon", "HydraDragonAV", "HydraDragonAV.exe");
 
             if (!File.Exists(avPath))
             {
@@ -119,7 +120,7 @@ namespace HydraDragonAntivirusLauncher
             var psi = new ProcessStartInfo
             {
                 FileName = avPath,
-                WorkingDirectory = Path.GetDirectoryName(avPath),
+                WorkingDirectory = Path.GetDirectoryName(avPath) ?? _programFiles,
                 UseShellExecute = false,
                 CreateNoWindow = true,
                 RedirectStandardOutput = true,
@@ -145,6 +146,7 @@ namespace HydraDragonAntivirusLauncher
                 if (!_avProcess.Start())
                 {
                     _logger.LogError("Failed to start HydraDragonAV (Process.Start returned false).");
+                    _avProcess.Dispose();
                     _avProcess = null;
                     return;
                 }
@@ -157,13 +159,16 @@ namespace HydraDragonAntivirusLauncher
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to start HydraDragonAV.");
+                _avProcess?.Dispose();
                 _avProcess = null;
             }
         }
 
         private void StartHydraDragon()
         {
-            string avPath = Path.Combine(programFiles, "HydraDragonAntivirus");
+            if (_childProcess != null && !_childProcess.HasExited) return;
+
+            string baseDir = Path.Combine(_programFiles, "HydraDragonAntivirus");
 
             // ------------------------
             // Start HydraDragon Core
@@ -219,6 +224,7 @@ namespace HydraDragonAntivirusLauncher
                 if (!_childProcess.Start())
                 {
                     _logger.LogError("Failed to start child process (Process.Start returned false).");
+                    _childProcess.Dispose();
                     _childProcess = null;
                     return;
                 }
@@ -231,6 +237,7 @@ namespace HydraDragonAntivirusLauncher
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to start HydraDragon child process.");
+                _childProcess?.Dispose();
                 _childProcess = null;
                 return;
             }

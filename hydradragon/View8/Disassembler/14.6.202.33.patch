@@ -80,6 +80,19 @@ index 1d89bff0779..6004a4496bd 100644
  }
  
  template <AccessMode mode, HeapObjectHeader::EncodedHalf part,
+diff --git a/src/objects/backing-store.cc b/src/objects/backing-store.cc
+index 251ddd3c131..5c9803f8e6e 100644
+--- a/src/objects/backing-store.cc
++++ b/src/objects/backing-store.cc
+@@ -310,7 +310,7 @@ std::unique_ptr<BackingStore> BackingStore::TryAllocateAndPartiallyCommitMemory(
+   // For accounting purposes, whether a GC was necessary.
+   bool did_retry = false;
+ 
+-  auto gc_retry = [&](const std::function<bool()>& fn) {
++  auto gc_retry = [&](HeapAllocator::CustomAllocationFunction fn) {
+     if (fn()) return true;
+     // Collect garbage and retry.
+     did_retry = true;
 diff --git a/src/objects/string.cc b/src/objects/string.cc
 index 47a88ad08a3..1b910c1192b 100644
 --- a/src/objects/string.cc

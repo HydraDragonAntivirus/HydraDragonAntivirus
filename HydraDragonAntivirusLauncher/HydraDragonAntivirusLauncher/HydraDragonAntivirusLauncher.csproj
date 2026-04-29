@@ -8,6 +8,7 @@
     <ApplicationIcon>HydraDragonAV.ico</ApplicationIcon>
     <NuGetAuditLevel>critical</NuGetAuditLevel>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <Platforms>AnyCPU;x64</Platforms>
   </PropertyGroup>
 
   <ItemGroup>

@@ -182,7 +182,4 @@ copy "$(TargetPath)" "$(TargetDir)\tests\" /Y
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>
-  <Target Name="Build32" AfterTargets="Build">
-    <MSBuild Condition="'$(Platform)'=='x64'" Projects="$(MSBuildProjectFile)" Properties="Platform=Win32;PlatFormTarget=x86;OutDir=$(CmdRootDir)\out\bin\$(CmdOutDirName)\" RunEachTargetSeparately="true" />
-  </Target>
 </Project>
