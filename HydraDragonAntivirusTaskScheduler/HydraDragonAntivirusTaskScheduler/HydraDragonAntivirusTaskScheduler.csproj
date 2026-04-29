@@ -8,6 +8,7 @@
     <ApplicationIcon>HydraDragonAV.ico</ApplicationIcon>
     <PackageIcon>HydraDragonAVLogo.png</PackageIcon>
     <Platforms>AnyCPU;x64</Platforms>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
   </PropertyGroup>
 
   <ItemGroup>
