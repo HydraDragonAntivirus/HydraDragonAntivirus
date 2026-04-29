@@ -43,6 +43,36 @@ This project is not production-ready.
 Breaking changes, bugs, and incomplete features should be expected.
 </p>
 
+## Compatibility with PCs
+
+This installer is designed to be used on clean or freshly formatted Windows PCs.
+
+For best results, install HydraDragon Antivirus only on systems where the required third-party components have not already been installed manually.
+
+### Important Notice
+
+Please do not run this installer if any of the following programs are already installed on your PC:
+
+- Python 3.12
+- Node.js
+- Npcap
+- ClamAV
+- Suricata
+- OpenEDR or related EDR components
+
+Installing HydraDragon Antivirus on a system where these components are already installed may cause version conflicts, path issues, service conflicts, or unexpected installer behavior.
+
+### Recommended Usage
+
+Use this installer on:
+
+- Fresh Windows installations
+- Clean test machines
+- Virtual machines
+- PCs without existing antivirus engine dependencies
+
+If you already have any of the required components installed, uninstall them first or use a clean Windows environment before installing HydraDragon Antivirus.
+
 ## Important Notes & Limitations
 
 ### Project Scope
