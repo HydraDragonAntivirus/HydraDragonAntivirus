@@ -35,3 +35,6 @@ py -3.12 false_positive_remover.py -y <YARA_DIR> -s --from-log
 python yara_utils_pro_cli.py -f rules/generated_rules.yar --fix-limits
 # For a whole directory (recursive)
 python yara_utils_pro_cli.py -d ./rules -r --fix-limits
+# For YARA-X
+Don't forget to create HydraDragonAntivirus\\hydradragon\\yara-x and move to yara-x files here
+

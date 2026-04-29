@@ -20,10 +20,10 @@ namespace fs = std::filesystem;
 
 // Paths
 #define PIPE_NAME L"\\\\.\\pipe\\HydraDragonAV"
-#define ENGINES_DIR L"C:\\Program Files\\HydraDragonAntivirus\\hydradragon\\HydraDragonAV\\engines\\clamav\\"
+#define ENGINES_DIR L"C:\\Program Files\\HydraDragonAntivirus\\hydradragon\\HydraDragonAV\\ClamAV\\"
 #define CLAMAV_DLL ENGINES_DIR L"libclamav.dll"
 #define CLAMAV_DB  ENGINES_DIR L"database"
-#define YARA_RULES_FOLDER L"C:\\Program Files\\HydraDragonAntivirus\\hydradragon\\signatures\\rules\\yara\\"
+#define YARA_RULES_FOLDER L"C:\\Program Files\\HydraDragonAntivirus\\hydradragon\\yara\\"
 
 // Scanner Global
 static std::unique_ptr<clamav::Scanner> g_clamavScanner;

@@ -167,7 +167,6 @@ pub(crate) mod threathandling;
 pub(crate) mod threathandling;
 mod utils;
 mod watchlist;
-mod whitelist;
 pub(crate) mod worker;
 
 #[cfg(feature = "service")]

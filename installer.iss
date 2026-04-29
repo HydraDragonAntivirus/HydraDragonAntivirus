@@ -78,7 +78,7 @@ Name: "{app}\hydradragon\Owlyshield\utils"
 Name: "{app}\hydradragon\Owlyshield\log"; Flags: uninsneveruninstall
 Name: "{app}\hydradragon\Owlyshield\config"; Flags: uninsneveruninstall
 Name: "{app}\hydradragon\Owlyshield\config\threats"; Flags: uninsneveruninstall
-Name: "{app}\hydradragon\HydraDragonAV\engines\clamav"
+Name: "{app}\hydradragon\HydraDragonAV\ClamAV"
 Name: "{app}\hydradragon\suricata"
 Name: "{app}\nodejs"
 Name: "{app}\python"

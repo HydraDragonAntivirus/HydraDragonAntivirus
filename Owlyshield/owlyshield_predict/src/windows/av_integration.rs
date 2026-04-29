@@ -5,7 +5,7 @@ use std::ffi::CString;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 #[cfg(windows)]
-use std::os::windows::io::AsRawHandle;
+use std::os::windows::io::{AsHandle, AsRawHandle};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -275,6 +275,10 @@ fn tinyav_detected_count(output_text: &str) -> Option<u64> {
     None
 }
 
+#[cfg(windows)]
+fn child_process_handle(child: &std::process::Child) -> HANDLE {
+    HANDLE(child.as_handle().as_raw_handle() as isize)
+}
 fn run_tinyav_scan(tinyav_console: PathBuf, file_path: PathBuf) {
     if !wait_until_tinyav_target_is_ready(&file_path) {
         Logging::debug(&format!(
@@ -325,7 +329,7 @@ fn run_tinyav_scan(tinyav_console: PathBuf, file_path: PathBuf) {
         Ok(mut child) => {
             #[cfg(windows)]
             unsafe {
-                if !SetPriorityClass(HANDLE(child.as_raw_handle()), HIGH_PRIORITY_CLASS).as_bool() {
+                if !SetPriorityClass(child_process_handle(&child), HIGH_PRIORITY_CLASS).as_bool() {
                     Logging::warning(&format!(
                         "[TinyAV] Failed to raise scan process priority for {}",
                         file_path.display()
@@ -925,7 +929,7 @@ pub struct AVIntegration<'a> {
 }
 
 fn load_yara_x_rules() -> Option<yara_x::Rules> {
-    let rules_folder = r"C:\Program Files\HydraDragonAntivirus\hydradragon\signatures\rules\yara\";
+    let rules_folder = r"C:\Program Files\HydraDragonAntivirus\hydradragon\yara-x\";
     if !std::path::Path::new(rules_folder).exists() {
         return None;
     }
