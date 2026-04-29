@@ -12,5 +12,6 @@ v8_enable_object_print = true
 
 # For Node.js builds
 v8_enable_pointer_compression = false
+v8_enable_temporal_support = false
 
 treat_warnings_as_errors = false

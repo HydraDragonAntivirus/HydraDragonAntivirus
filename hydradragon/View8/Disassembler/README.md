@@ -21,8 +21,8 @@ v8_use_external_startup_data = false
 v8_static_library = true
 v8_enable_disassembler = true
 v8_enable_object_print = true
-# For Node.js builds
 v8_enable_pointer_compression = false
+v8_enable_temporal_support = false
 treat_warnings_as_errors = false
 ```
 
@@ -43,13 +43,19 @@ cmd /c "set ""PATH=C:\src\depot_tools;%PATH%"" && set ""DEPOT_TOOLS_WIN_TOOLCHAI
 ## Build V8 monolith library
 
 ```bat
-cmd /c "set ""PATH=c:\src\depot_tools;%PATH%"" && set ""DEPOT_TOOLS_WIN_TOOLCHAIN=0"" && cd /d c:\src\depot_tools\v8 && ninja -C out.gn/x64.release v8_monolith"
+cmd /c "set ""PATH=C:\src\depot_tools;%PATH%"" && set ""DEPOT_TOOLS_WIN_TOOLCHAIN=0"" && cd /d C:\src\depot_tools\v8 && gn gen out.gn/x64.release && ninja -C out.gn/x64.release v8_monolith"
 ```
 
 ## Build the real View8 disassembler executable from v8dasm.cpp using MSVC STL
 
 ```bat
-cmd /c "call ^"C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat^" && set ^"PATH=C:\src\depot_tools;%PATH%^" && cd /d ^"C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\hydradragon\View8\Disassembler^" && cl /nologo /EHsc /std:c++20 /Zc:__cplusplus /O2 /Ob3 /Oi /Ot /GL /MT /DNDEBUG /I^"C:\src\depot_tools\v8^" /I^"C:\src\depot_tools\v8\include^" v8dasm.cpp /Fe:v8dasm.exe /link /LTCG /LIBPATH:^"C:\src\depot_tools\v8\out.gn\x64.release\obj^" v8_monolith.lib winmm.lib dbghelp.lib shlwapi.lib ws2_32.lib advapi32.lib userenv.lib shell32.lib ole32.lib oleaut32.lib uuid.lib version.lib delayimp.lib"
+set "PATH=C:\src\depot_tools;%PATH%"
+```
+```bat
+cd /d "C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\hydradragon\View8\Disassembler"
+```
+```bat
+cl /nologo /EHsc /std:c++20 /Zc:__cplusplus /O2 /Ob3 /Oi /Ot /GL /MT /DNDEBUG /I"C:\src\depot_tools\v8" /I"C:\src\depot_tools\v8\include" v8dasm.cpp /Fe:v8dasm.exe /link /LTCG /LIBPATH:"C:\src\depot_tools\v8\out.gn\x64.release\obj" v8_monolith.lib winmm.lib dbghelp.lib shlwapi.lib ws2_32.lib advapi32.lib userenv.lib shell32.lib ole32.lib oleaut32.lib uuid.lib version.lib delayimp.lib
 ```
 
 ## Copy exe to View8 Bin folder where view8.py expects it
