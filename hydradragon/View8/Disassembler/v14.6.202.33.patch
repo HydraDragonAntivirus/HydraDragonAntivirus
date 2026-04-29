@@ -45,7 +45,7 @@ index 6f1507c5ea9..e0829e2d6b1 100644
           << Cast<ObjectBoilerplateDescription>(*this)->capacity() << "]>";
 +      os << "\nStart ObjectBoilerplateDescription\n";
 +      Cast<ObjectBoilerplateDescription>(*this)
-+          .ObjectBoilerplateDescriptionPrint(os);
++          ->ObjectBoilerplateDescriptionPrint(os);
 +      os << "\nEnd ObjectBoilerplateDescription\n";
        break;
      case FIXED_DOUBLE_ARRAY_TYPE:
@@ -67,19 +67,6 @@ index 6f1507c5ea9..e0829e2d6b1 100644
        break;
      }
      case JS_MESSAGE_OBJECT_TYPE:
-diff --git a/src/heap/cppgc/heap-object-header.h b/src/heap/cppgc/heap-object-header.h
-index 1d89bff0779..6004a4496bd 100644
---- a/src/heap/cppgc/heap-object-header.h
-+++ b/src/heap/cppgc/heap-object-header.h
-@@ -354,7 +354,7 @@ uint16_t HeapObjectHeader::LoadEncoded() const {
-   if constexpr (mode == AccessMode::kNonAtomic) {
-     return half;
-   }
--  return std::atomic_ref(const_cast<uint16_t&>(half)).load(memory_order);
-+  return std::atomic_ref<uint16_t>(const_cast<uint16_t&>(half)).load(memory_order);
- }
- 
- template <AccessMode mode, HeapObjectHeader::EncodedHalf part,
 diff --git a/src/objects/string.cc b/src/objects/string.cc
 index 47a88ad08a3..1b910c1192b 100644
 --- a/src/objects/string.cc
