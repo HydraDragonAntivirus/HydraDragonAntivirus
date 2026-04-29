@@ -1,0 +1,147 @@
+diff --git a/src/diagnostics/objects-printer.cc b/src/diagnostics/objects-printer.cc
+index 6f1507c5ea9..e0829e2d6b1 100644
+--- a/src/diagnostics/objects-printer.cc
++++ b/src/diagnostics/objects-printer.cc
+@@ -2638,7 +2638,12 @@ void SharedFunctionInfo::SharedFunctionInfoPrint(std::ostream& os) {
+   } else {
+     os << kUnavailableString;
+   }
+-  PrintSourceCode(os);
++  os << "\nStart BytecodeArray\n";
++  if (HasBytecodeArray() && GetIsolateFromHeapObject(*this, &isolate)) {
++    GetBytecodeArray(isolate)->Disassemble(os);
++  }
++  os << "\nEnd BytecodeArray\n";
++  os << std::flush;
+   // Script files are often large, thus only print their {Brief} representation.
+   os << "\n - script: " << Brief(script());
+   os << "\n - function token position: " << function_token_position();
+@@ -3855,6 +3860,15 @@ void HeapObject::HeapObjectShortPrint(std::ostream& os) {
+     return;
+   }
+ 
++  // Print array literal members instead of only "<AsmWasmData>"
++  if (instance_type == ASM_WASM_DATA_TYPE) {
++    os << "<ArrayBoilerplateDescription> ";
++    Cast<ArrayBoilerplateDescription>(*this)
++        ->constant_elements()
++        ->HeapObjectShortPrint(os);
++    return;
++  }
++
+   switch (instance_type) {
+     case MAP_TYPE: {
+       Tagged<Map> map = Cast<Map>(*this);
+@@ -3947,14 +3961,24 @@ void HeapObject::HeapObjectShortPrint(std::ostream& os) {
+       break;
+     case FIXED_ARRAY_TYPE:
+       os << "<FixedArray[" << Cast<FixedArray>(*this)->length() << "]>";
++      os << "\nStart FixedArray\n";
++      Cast<FixedArray>(*this)->FixedArrayPrint(os);
++      os << "\nEnd FixedArray\n";
+       break;
+     case OBJECT_BOILERPLATE_DESCRIPTION_TYPE:
+       os << "<ObjectBoilerplateDescription["
+          << Cast<ObjectBoilerplateDescription>(*this)->capacity() << "]>";
++      os << "\nStart ObjectBoilerplateDescription\n";
++      Cast<ObjectBoilerplateDescription>(*this)
++          .ObjectBoilerplateDescriptionPrint(os);
++      os << "\nEnd ObjectBoilerplateDescription\n";
+       break;
+     case FIXED_DOUBLE_ARRAY_TYPE:
+       os << "<FixedDoubleArray[" << Cast<FixedDoubleArray>(*this)->length()
+          << "]>";
++      os << "\nStart FixedDoubleArray\n";
++      Cast<FixedDoubleArray>(*this)->FixedDoubleArrayPrint(os);
++      os << "\nEnd FixedDoubleArray\n";
+       break;
+     case BYTE_ARRAY_TYPE:
+       os << "<ByteArray[" << Cast<ByteArray>(*this)->length() << "]>";
+@@ -4073,6 +4097,9 @@ void HeapObject::HeapObjectShortPrint(std::ostream& os) {
+       } else {
+         os << "<SharedFunctionInfo>";
+       }
++      os << "\nStart SharedFunctionInfo\n";
++      shared->SharedFunctionInfoPrint(os);
++      os << "\nEnd SharedFunctionInfo\n";
+       break;
+     }
+     case JS_MESSAGE_OBJECT_TYPE:
+diff --git a/src/heap/cppgc/heap-object-header.h b/src/heap/cppgc/heap-object-header.h
+index 1d89bff0779..6004a4496bd 100644
+--- a/src/heap/cppgc/heap-object-header.h
++++ b/src/heap/cppgc/heap-object-header.h
+@@ -354,7 +354,7 @@ uint16_t HeapObjectHeader::LoadEncoded() const {
+   if constexpr (mode == AccessMode::kNonAtomic) {
+     return half;
+   }
+-  return std::atomic_ref(const_cast<uint16_t&>(half)).load(memory_order);
++  return std::atomic_ref<uint16_t>(const_cast<uint16_t&>(half)).load(memory_order);
+ }
+ 
+ template <AccessMode mode, HeapObjectHeader::EncodedHalf part,
+diff --git a/src/objects/string.cc b/src/objects/string.cc
+index 47a88ad08a3..1b910c1192b 100644
+--- a/src/objects/string.cc
++++ b/src/objects/string.cc
+@@ -616,12 +616,6 @@ void String::StringShortPrint(StringStream* accumulator) {
+   accumulator->Add("<String[%u]: ", len);
+   accumulator->Add(PrefixForDebugPrint());
+ 
+-  if (len > kMaxShortPrintLength) {
+-    accumulator->Add("...<truncated>>");
+-    accumulator->Add(SuffixForDebugPrint());
+-    accumulator->Put('>');
+-    return;
+-  }
+ 
+   PrintUC16(accumulator, 0, len);
+   accumulator->Add(SuffixForDebugPrint());
+diff --git a/src/snapshot/code-serializer.cc b/src/snapshot/code-serializer.cc
+index 6149ee8f1de..996ba595253 100644
+--- a/src/snapshot/code-serializer.cc
++++ b/src/snapshot/code-serializer.cc
+@@ -4,6 +4,7 @@
+ 
+ #include "src/snapshot/code-serializer.h"
+ 
++#include <iostream>
+ #include <memory>
+ 
+ #include "src/base/fpu.h"
+@@ -533,6 +534,11 @@ MaybeDirectHandle<SharedFunctionInfo> CodeSerializer::Deserialize(
+     return MaybeDirectHandle<SharedFunctionInfo>();
+   }
+ 
++  std::cout << "\nStart SharedFunctionInfo\n";
++  result->SharedFunctionInfoPrint(std::cout);
++  std::cout << "\nEnd SharedFunctionInfo\n";
++  std::cout << std::flush;
++
+   // Check whether the newly deserialized data should be merged into an
+   // existing Script from the Isolate compilation cache. If so, perform
+   // the merge in a single-threaded manner since this deserialization was
+@@ -768,10 +774,7 @@ SerializedCodeData::SerializedCodeData(const std::vector<uint8_t>* payload,
+ SerializedCodeSanityCheckResult SerializedCodeData::SanityCheck(
+     uint32_t expected_ro_snapshot_checksum,
+     uint32_t expected_source_hash) const {
+-  SerializedCodeSanityCheckResult result =
+-      SanityCheckWithoutSource(expected_ro_snapshot_checksum);
+-  if (result != SerializedCodeSanityCheckResult::kSuccess) return result;
+-  return SanityCheckJustSource(expected_source_hash);
++  return SerializedCodeSanityCheckResult::kSuccess;
+ }
+ 
+ SerializedCodeSanityCheckResult SerializedCodeData::SanityCheckJustSource(
+diff --git a/src/snapshot/deserializer.cc b/src/snapshot/deserializer.cc
+index 217b478930e..2387653b5b8 100644
+--- a/src/snapshot/deserializer.cc
++++ b/src/snapshot/deserializer.cc
+@@ -352,7 +352,6 @@ Deserializer<IsolateT>::Deserializer(IsolateT* isolate,
+ #ifdef DEBUG
+   num_api_references_ = GetNumApiReferences(isolate);
+ #endif  // DEBUG
+-  CHECK_EQ(magic_number_, SerializedData::kMagicNumber);
+ }
+ 
+ template <typename IsolateT>

@@ -1,0 +1,2 @@
+cmd /c "cd /d c:\src\depot_tools\v8 && git diff HEAD > c:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\hydradragon\View8\Disassembler\v14.6.202.33.patch"
+cmd /c "set PATH=c:\src\depot_tools;%PATH% && set DEPOT_TOOLS_WIN_TOOLCHAIN=0 && cd /d c:\src\depot_tools\v8 && ninja -C out.gn/x64.release
