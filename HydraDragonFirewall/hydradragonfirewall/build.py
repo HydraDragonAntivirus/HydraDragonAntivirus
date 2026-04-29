@@ -201,17 +201,38 @@ def build_rust(script_dir: Path, release: bool, windivert_path: Path):
     ok("Rust build complete!")
 
 
+def firewall_deploy_dir(windivert_path: Path) -> Path:
+    """Deploy beside `everything`, under hydradragon/HydraDragonFirewall.
+
+    Expected source layout:
+      HydraDragonAntivirus/
+        everything/
+        HydraDragonFirewall/
+
+    Deployment layout:
+      HydraDragonAntivirus/
+        hydradragon/
+          HydraDragonFirewall/
+    """
+    return windivert_path.parent / "hydradragon" / "HydraDragonFirewall"
+
+
 def copy_windivert(script_dir: Path, release: bool, windivert_path: Path):
     step("3/4", "Copying WinDivert runtime files...")
     target_dir = script_dir / "target" / ("release" if release else "debug")
     for fname in ["WinDivert.dll", "WinDivert64.sys"]:
         robust_copy(windivert_path / fname, target_dir / fname)
 
-    # Also mirror the exe into the everything/ folder for easy deployment
+    # Mirror the firewall binaries to:
+    #   <parent of everything>/hydradragon/HydraDragonFirewall/
+    # Do not copy them into the everything/ folder.
+    deploy_dir = firewall_deploy_dir(windivert_path)
+    deploy_dir.mkdir(parents=True, exist_ok=True)
+
     exe_src = target_dir / "hydradragonfirewall.exe"
     dll_src = target_dir / "hydradragonfirewall.dll"
-    robust_copy(exe_src, windivert_path / "hydradragonfirewall.exe")
-    robust_copy(dll_src, windivert_path / "hydradragonfirewall.dll")
+    robust_copy(exe_src, deploy_dir / "hydradragonfirewall.exe")
+    robust_copy(dll_src, deploy_dir / "hydradragonfirewall.dll")
 
 
 # ── Entry point ────────────────────────────────────────────────────────────────
@@ -250,9 +271,11 @@ def main():
 
     target_dir = script_dir / "target" / ("release" if args.release else "debug")
     exe = target_dir / "hydradragonfirewall.exe"
+    deployed_exe = firewall_deploy_dir(windivert_path) / "hydradragonfirewall.exe"
 
     step("4/4", "Build Successful!")
     print(cyan(f"\n  Executable: {exe}"))
+    print(cyan(f"  Deployed:   {deployed_exe}"))
     print(cyan("=" * 48))
     print(yellow("  IMPORTANT: Run the executable as Administrator"))
     print(yellow("  for WinDivert network capture to work!"))

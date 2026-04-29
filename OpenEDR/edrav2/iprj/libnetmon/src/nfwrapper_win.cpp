@@ -81,36 +81,10 @@ std::shared_ptr<ConnectionInfo> createConnectionInfo(
 std::vector<std::filesystem::path> getFirewallBridgeCandidates(const std::wstring& sExplicitPath)
 {
 	std::vector<std::filesystem::path> result;
-	if (!sExplicitPath.empty())
-		result.emplace_back(sExplicitPath);
 
-	const std::array<std::filesystem::path, 2> relativeCandidates = {
-		std::filesystem::path(LR"(HydraDragonFirewall\hydradragonfirewall\target\release\hydradragonfirewall.dll)"),
-		std::filesystem::path(LR"(HydraDragonFirewall\hydradragonfirewall\target\debug\hydradragonfirewall.dll)")
-	};
-
-	if (const auto currentExePath = getCurrentExecutablePath(); !currentExePath.empty())
-	{
-		std::filesystem::path exePath(currentExePath);
-		if (exePath.has_parent_path())
-		{
-			const auto exeDir = exePath.parent_path();
-
-			for (auto ancestor = exeDir; !ancestor.empty(); ancestor = ancestor.parent_path())
-			{
-				for (const auto& relativeCandidate : relativeCandidates)
-					result.emplace_back(ancestor / relativeCandidate);
-
-				if (ancestor == ancestor.root_path())
-					break;
-			}
-
-			result.emplace_back(exeDir / L"hydradragonfirewall.dll");
-		}
-	}
-
-	// Production candidate for installed deployments.
-	result.emplace_back(LR"(C:\Program Files\HydraDragonAntivirus\HydraDragonFirewall\hydradragonfirewall.dll)");
+	// Use only the fixed installed bridge path. Do not probe build folders,
+	// executable-relative paths, or alternate install layouts.
+	result.emplace_back(LR"(C:\Program Files\HydraDragonAntivirus\hydradragon\HydraDragonFirewall\hydradragonfirewall.dll)");
 
 	return result;
 }

@@ -197,7 +197,7 @@ See the [LICENSE](./LICENSE) file for more information.
  #### Proposed Mitigation: PPL-Enforced Driver Startup
  To mitigate "Post-Infection" triggers, the driver should be registered such that it **refuses to start** unless the process initiating the load is a verified **PPL (Protected Process Light)**. Since standard malware (even with Administrative privileges) cannot easily spoof or inject into a PPL process, this ensures that only the legitimate, hardened HydraDragon service can activate the driver's protection routines.
  
- - To prevent connection speed loss, make sure "late_blocking_mode" is set to true in C:\Program Files\HydraDragonAntivirus\HydraDragonFirewall\settings.json. This may cause malware to be detected slightly later.
+ - To prevent connection speed loss, make sure "late_blocking_mode" is set to true in C:\Program Files\HydraDragonAntivirus\hydradragon\HydraDragonFirewall\settings.json. This may cause malware to be detected slightly later.
 - For debugging, remember to set HKEY_LOCAL_MACHINE\SOFTWARE\Owlyshield\VERBOSE_LOGGING to 1.
 - Some kernel-level paths are hardcoded for extra protection, so do not modify them.
 - Accept the certificate trust dialog that Windows shows while the firewall is running.
