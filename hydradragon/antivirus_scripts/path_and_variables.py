@@ -11,16 +11,13 @@ import glob
 # get the full path to the currently running Python interpreter
 python_path = sys.executable
 
-# Resolve system drive path
-system_drive = os.getenv("SystemDrive", "C:") + os.sep
-# Resolve Program Files directory via environment (prefer 64-bit Program Files when available)
-program_files = os.getenv("ProgramW6432") or os.getenv("ProgramFiles") or os.path.join(system_drive, "Program Files")
-# Resolve ProgramData directory via environment (fallback to standard path)
-program_data = os.getenv("ProgramData", os.path.join(system_drive, "ProgramData"))
-# Get SystemRoot (usually C:\Windows)
-system_root = os.getenv("SystemRoot", os.path.join(system_drive, "Windows"))
-# Fallback to %SystemRoot%\System32 if %System32% is not set
-system32_dir = os.getenv("System32", os.path.join(system_root, "System32"))
+# Hardcoded Windows system paths
+system_drive = "C:\\"
+
+program_files = "C:\\Program Files"
+program_data = "C:\\ProgramData"
+system_root = "C:\\Windows"
+system32_dir = "C:\\Windows\\System32"
 
 # --- CSIDL Constants for User Paths ---
 CSIDL_DESKTOP = 0x0000
@@ -281,6 +278,9 @@ _RETRY_DELAY = 0.5  # seconds between open retries
 
 # Internal queue other code will push scan requests into
 _SCAN_REQUEST_SEND_QUEUE: "asyncio.Queue[dict]" = asyncio.Queue()
+
+# Path to the bundled radare2 binary shipped with HydraDragonAntivirus
+_R2_DIR = Path(r"C:\Program Files\HydraDragonAntivirus\hydradragon\radare2")
 
 # Pipe 1: HydraDragonAV engine
 PIPE_HYDRADRAGON_AV = r"\\.\pipe\HydraDragonAV"

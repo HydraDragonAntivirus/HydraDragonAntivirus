@@ -5,18 +5,8 @@ import numpy as np
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 from .hydra_logger import logger
-
-try:
-    import r2pipe
-
-    _R2PIPE_AVAILABLE = True
-except ImportError:
-    _R2PIPE_AVAILABLE = False
-
-# Path to the bundled radare2 binary shipped with HydraDragonAntivirus
-_R2_DIR = Path(r"C:\Program Files\HydraDragonAntivirus\hydradragon\radare2")
-_R2_EXECUTABLE = _R2_DIR / "r2.exe"
-
+import r2pipe
+from .path_and_variables import _R2_DIR
 
 class PEFeatureExtractor:
     def __init__(self):
