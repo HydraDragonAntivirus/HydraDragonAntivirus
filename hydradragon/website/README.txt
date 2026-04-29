@@ -14,3 +14,6 @@ IPv4BruteForce.txt comes from:
 https://list.rtbh.com.tr/
 listed_email_365.txt comes from:
 https://www.stopforumspam.com/downloads
+Current popularity reference: 
+tranco-list.eu/list/PL9GJ/1000000
+
