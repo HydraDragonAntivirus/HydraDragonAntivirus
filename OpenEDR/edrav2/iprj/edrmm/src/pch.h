@@ -18,7 +18,7 @@
 #include <mutex>
 #include <cwchar>
 #include <atomic>
+#include <chrono>
 
 
 #include <libcore/inc/edrmmapi.hpp>
-
