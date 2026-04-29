@@ -1,5 +1,5 @@
 diff --git a/src/diagnostics/objects-printer.cc b/src/diagnostics/objects-printer.cc
-index 6f1507c5ea9..e2ecad74bfd 100644
+index 6f1507c5ea9..6ccd4440d4b 100644
 --- a/src/diagnostics/objects-printer.cc
 +++ b/src/diagnostics/objects-printer.cc
 @@ -2638,7 +2638,12 @@ void SharedFunctionInfo::SharedFunctionInfoPrint(std::ostream& os) {
@@ -16,21 +16,23 @@ index 6f1507c5ea9..e2ecad74bfd 100644
    // Script files are often large, thus only print their {Brief} representation.
    os << "\n - script: " << Brief(script());
    os << "\n - function token position: " << function_token_position();
-@@ -3855,6 +3860,13 @@ void HeapObject::HeapObjectShortPrint(std::ostream& os) {
+@@ -3855,6 +3860,15 @@ void HeapObject::HeapObjectShortPrint(std::ostream& os) {
      return;
    }
  
 +  // Print array literal members instead of only "<AsmWasmData>"
 +  if (instance_type == ASM_WASM_DATA_TYPE) {
 +    os << "<ArrayBoilerplateDescription> ";
-+    ShortPrint(Cast<ArrayBoilerplateDescription>(*this)->constant_elements(), os);
++    Cast<HeapObject>(Cast<ArrayBoilerplateDescription>(*this)
++        ->constant_elements())
++        ->HeapObjectShortPrint(os);
 +    return;
 +  }
 +
    switch (instance_type) {
      case MAP_TYPE: {
        Tagged<Map> map = Cast<Map>(*this);
-@@ -3947,14 +3959,24 @@ void HeapObject::HeapObjectShortPrint(std::ostream& os) {
+@@ -3947,14 +3961,24 @@ void HeapObject::HeapObjectShortPrint(std::ostream& os) {
        break;
      case FIXED_ARRAY_TYPE:
        os << "<FixedArray[" << Cast<FixedArray>(*this)->length() << "]>";
@@ -55,7 +57,7 @@ index 6f1507c5ea9..e2ecad74bfd 100644
        break;
      case BYTE_ARRAY_TYPE:
        os << "<ByteArray[" << Cast<ByteArray>(*this)->length() << "]>";
-@@ -4073,6 +4095,9 @@ void HeapObject::HeapObjectShortPrint(std::ostream& os) {
+@@ -4073,6 +4097,9 @@ void HeapObject::HeapObjectShortPrint(std::ostream& os) {
        } else {
          os << "<SharedFunctionInfo>";
        }
