@@ -279,6 +279,7 @@ fn tinyav_detected_count(output_text: &str) -> Option<u64> {
 fn child_process_handle(child: &std::process::Child) -> HANDLE {
     HANDLE(child.as_handle().as_raw_handle() as isize)
 }
+
 fn run_tinyav_scan(tinyav_console: PathBuf, file_path: PathBuf) {
     if !wait_until_tinyav_target_is_ready(&file_path) {
         Logging::debug(&format!(
