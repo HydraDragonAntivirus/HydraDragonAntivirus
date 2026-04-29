@@ -5,7 +5,7 @@
 #define MyAppVersion "0.1.0"
 #define MyAppPublisher "Emirhan Ucan"
 #define MyAppURL "https://gitlab.com/hydradragonav/hydradragonav"
-#define MyAppExeName "HydraDragonAntivirusTaskScheduler\\HydraDragonAntivirusTaskScheduler.exe"
+#define MyAppExeName "hydradragon\\HydraDragonAntivirusTaskScheduler\\HydraDragonAntivirusTaskScheduler.exe"
 #define MyAppAssocName MyAppName + " File"
 #define MyAppAssocExt ".myp"
 #define MyAppAssocKey StringChange(MyAppAssocName, " ", "") + MyAppAssocExt

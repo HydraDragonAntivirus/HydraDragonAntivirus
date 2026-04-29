@@ -13,7 +13,7 @@
   debug: false
 
   allowlisted_apps:
-    - pattern: "C:/Program Files/HydraDragonAntivirus/HydraDragonFirewall/hydradragonfirewall.exe"
+    - pattern: "C:/Program Files/HydraDragonAntivirus/hydradragon/HydraDragonFirewall/hydradragonfirewall.exe"
       must_be_signed: false
       is_absolute: true
 
@@ -21,7 +21,7 @@
     ca_key_file_read:
       orderless: true
       file_paths:
-        - "C:\\Program Files\\HydraDragonAntivirus\\HydraDragonFirewall\\hydradragon_ca.key.der"
+        - "C:\\Program Files\\HydraDragonAntivirus\\hydraragon\\HydraDragonFirewall\\hydradragon_ca.key.der"
       file_operations:
         - read
       min_matches: 1

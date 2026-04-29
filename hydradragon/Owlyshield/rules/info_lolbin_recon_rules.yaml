@@ -327,7 +327,7 @@
       - condition: "lolbin_network_activity"
 
   allowlisted_apps:
-    - pattern: "C:/Program Files/HydraDragonAntivirus/HydraDragonFirewall/hydradragonfirewall.exe"
+    - pattern: "C:/Program Files/HydraDragonAntivirus/hydradragon/HydraDragonFirewall/hydradragonfirewall.exe"
       is_absolute: true
     - pattern: "C:/Windows/System32/svchost.exe"
       must_be_signed: true

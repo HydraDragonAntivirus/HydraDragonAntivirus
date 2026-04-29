@@ -3,7 +3,9 @@
 use std::collections::HashMap;
 use std::ffi::CString;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
+#[cfg(windows)]
+use std::os::windows::io::AsRawHandle;
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -21,6 +23,8 @@ use windows::Win32::System::Pipes::{
     PIPE_READMODE_MESSAGE, PIPE_TYPE_BYTE, PIPE_TYPE_MESSAGE, PIPE_UNLIMITED_INSTANCES, PIPE_WAIT,
     WaitNamedPipeA,
 };
+#[cfg(windows)]
+use windows::Win32::System::Threading::{SetPriorityClass, HIGH_PRIORITY_CLASS};
 
 use crate::actions_on_kill::{ActionsOnKill, ThreatInfo};
 use crate::config::Config;
@@ -47,6 +51,7 @@ const PIPE_READ_BUFFER_SIZE: u32 = 65536;
 const CONNECT_TIMEOUT_MS: u32 = 900_000; // 900s - adjust as needed
 const TINYAV_SCAN_DEBOUNCE: Duration = Duration::from_secs(10);
 const TINYAV_RECENT_SCAN_LIMIT: usize = 4096;
+const TINYAV_PREFERRED_INSTALL_PATH: &str = r"C:\Program Files\HydraDragonAntivirus\hydradragon\TinyAntivirus\TinyAVConsole.exe";
 
 /// Action to take when a threat is detected
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Default)]
@@ -221,87 +226,9 @@ fn scan_target_for_iomsg(iomsg: &IOMessage, precord: &ProcessRecord) -> PathBuf 
     precord.exepath.clone()
 }
 
-fn push_tinyav_candidate(candidates: &mut Vec<PathBuf>, candidate: PathBuf) {
-    if !candidates.iter().any(|existing| existing == &candidate) {
-        candidates.push(candidate);
-    }
-}
-
-fn push_tinyav_layout_candidates(candidates: &mut Vec<PathBuf>, root: &Path) {
-    push_tinyav_candidate(
-        candidates,
-        root.join("TinyAntivirus")
-            .join("x64")
-            .join("Release")
-            .join("TinyAvConsole.exe"),
-    );
-    push_tinyav_candidate(
-        candidates,
-        root.join("TinyAntivirus")
-            .join("TinyAvConsole")
-            .join("x64")
-            .join("Release")
-            .join("TinyAvConsole.exe"),
-    );
-    push_tinyav_candidate(
-        candidates,
-        root.join("TinyAntivirus")
-            .join("Release")
-            .join("TinyAvConsole.exe"),
-    );
-    push_tinyav_candidate(
-        candidates,
-        root.join("TinyAntivirus")
-            .join("TinyAvConsole")
-            .join("Release")
-            .join("TinyAvConsole.exe"),
-    );
-    push_tinyav_candidate(
-        candidates,
-        root.join("TinyAntivirus").join("TinyAvConsole.exe"),
-    );
-    push_tinyav_candidate(candidates, root.join("TinyAvConsole.exe"));
-}
-
 fn resolve_tinyav_console_path() -> Option<PathBuf> {
-    for var in [
-        "HYDRADRAGON_TINYAV_CONSOLE",
-        "TINYAV_CONSOLE",
-        "TINYAV_CONSOLE_PATH",
-    ] {
-        if let Ok(value) = std::env::var(var) {
-            let path = PathBuf::from(value);
-            if path.is_file() {
-                return Some(path);
-            }
-        }
-    }
-
-    let mut candidates = Vec::new();
-
-    if let Ok(current_exe) = std::env::current_exe()
-        && let Some(exe_dir) = current_exe.parent()
-    {
-        for ancestor in exe_dir.ancestors() {
-            push_tinyav_layout_candidates(&mut candidates, ancestor);
-        }
-    }
-
-    if let Ok(current_dir) = std::env::current_dir() {
-        for ancestor in current_dir.ancestors() {
-            push_tinyav_layout_candidates(&mut candidates, ancestor);
-        }
-    }
-
-    let program_files = std::env::var("ProgramW6432")
-        .or_else(|_| std::env::var("ProgramFiles"))
-        .unwrap_or_else(|_| r"C:\Program Files".to_string());
-    push_tinyav_layout_candidates(
-        &mut candidates,
-        &PathBuf::from(program_files).join("HydraDragonAntivirus"),
-    );
-
-    candidates.into_iter().find(|candidate| candidate.is_file())
+    let tinyav_path = PathBuf::from(TINYAV_PREFERRED_INSTALL_PATH);
+    tinyav_path.is_file().then_some(tinyav_path)
 }
 
 fn wait_until_tinyav_target_is_ready(path: &Path) -> bool {
@@ -386,13 +313,32 @@ fn run_tinyav_scan(tinyav_console: PathBuf, file_path: PathBuf) {
         .arg("-D")
         .arg("0")
         .arg("-m")
-        .arg("s");
+        .arg("k");
 
     if let Some(tinyav_dir) = tinyav_console.parent() {
         command.current_dir(tinyav_dir);
     }
 
-    match command.output() {
+    command.stdout(Stdio::piped()).stderr(Stdio::piped());
+
+    let output_result = match command.spawn() {
+        Ok(mut child) => {
+            #[cfg(windows)]
+            unsafe {
+                if !SetPriorityClass(HANDLE(child.as_raw_handle()), HIGH_PRIORITY_CLASS).as_bool() {
+                    Logging::warning(&format!(
+                        "[TinyAV] Failed to raise scan process priority for {}",
+                        file_path.display()
+                    ));
+                }
+            }
+
+            child.wait_with_output()
+        }
+        Err(e) => Err(e),
+    };
+
+    match output_result {
         Ok(output) => {
             let stdout = String::from_utf8_lossy(&output.stdout);
             let stderr = String::from_utf8_lossy(&output.stderr);
@@ -1210,9 +1156,10 @@ impl<'a> AVIntegration<'a> {
 
         let Some(tinyav_console) = resolve_tinyav_console_path() else {
             if !self.tinyav_missing_logged {
-                Logging::warning(
-                    "[TinyAV] TinyAvConsole.exe was not found; set HYDRADRAGON_TINYAV_CONSOLE or install TinyAntivirus beside HydraDragonAntivirus",
-                );
+                Logging::warning(&format!(
+                    "[TinyAV] TinyAvConsole.exe was not found at {}",
+                    TINYAV_PREFERRED_INSTALL_PATH
+                ));
                 self.tinyav_missing_logged = true;
             }
             return;

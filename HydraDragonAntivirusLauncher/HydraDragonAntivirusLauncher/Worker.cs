@@ -163,7 +163,7 @@ namespace HydraDragonAntivirusLauncher
 
         private void StartHydraDragon()
         {
-            var baseDir = AppDomain.CurrentDomain.BaseDirectory;
+            string avPath = Path.Combine(programFiles, "HydraDragonAntivirus");
 
             // ------------------------
             // Start HydraDragon Core

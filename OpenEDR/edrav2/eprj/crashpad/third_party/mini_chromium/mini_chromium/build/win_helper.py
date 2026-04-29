@@ -14,6 +14,20 @@ import subprocess
 import sys
 
 
+def _MergePath(existing, incoming):
+  """Merges PATH-like values while preserving the first occurrence order."""
+  result = []
+  seen = set()
+  for value in (existing, incoming):
+    for entry in value.split(os.pathsep):
+      key = entry.lower()
+      if key in seen:
+        continue
+      seen.add(key)
+      result.append(entry)
+  return os.pathsep.join(result)
+
+
 def _ExtractImportantEnvironment(output_of_set):
   """Extracts environment variables required for the toolchain to run from
   a textual dump output by the cmd.exe 'set' command."""
@@ -32,7 +46,11 @@ def _ExtractImportantEnvironment(output_of_set):
     for envvar in envvars_to_save:
       if re.match(envvar + '=', line.lower()):
         var, setting = line.split('=', 1)
-        env[var.upper()] = setting
+        key = var.upper()
+        if key == 'PATH' and key in env:
+          env[key] = _MergePath(env[key], setting)
+        else:
+          env[key] = setting
         break
   for required in ('SYSTEMROOT', 'TEMP', 'TMP'):
     if required not in env:

@@ -232,7 +232,7 @@ suricata_log_dir = os.path.join(suricata_dir, "log")
 eve_log_path = os.path.join(suricata_log_dir, "eve.json")
 suricata_config_path = os.path.join(suricata_dir, "suricata.yaml")
 suricata_exe_path = os.path.join(suricata_dir, "suricata.exe")
-firewall_exe_path = os.path.join(program_files, "HydraDragonAntivirus", "HydraDragonFirewall", "hydradragonfirewall.exe")
+firewall_exe_path = os.path.join(program_files, "HydraDragonAntivirus", "hydradragon", "HydraDragonFirewall", "hydradragonfirewall.exe")
 
 # ClamAV base folder path
 clamav_folder = os.path.join(program_files, "ClamAV")

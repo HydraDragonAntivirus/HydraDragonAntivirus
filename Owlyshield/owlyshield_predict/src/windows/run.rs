@@ -150,27 +150,9 @@ fn resolve_kernel_exclude_rule_paths() -> Option<KernelExcludeRulePaths> {
 
 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
 fn firewall_gui_path_candidates() -> Vec<PathBuf> {
-    let mut candidates = Vec::new();
-
-    for hydra_root in hydra_dragon_root_candidates() {
-        if let Some(install_root) = hydra_root.parent() {
-            push_unique_path(
-                &mut candidates,
-                install_root
-                    .join("HydraDragonFirewall")
-                    .join("hydradragonfirewall.exe"),
-            );
-        }
-
-        push_unique_path(
-            &mut candidates,
-            hydra_root
-                .join("HydraDragonFirewall")
-                .join("hydradragonfirewall.exe"),
-        );
-    }
-
-    candidates
+    vec![PathBuf::from(
+        r"C:\Program Files\HydraDragonAntivirus\hydradragon\HydraDragonFirewall\HydraDragonFirewall.exe",
+    )]
 }
 
 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]

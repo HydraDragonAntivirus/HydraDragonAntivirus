@@ -185,6 +185,7 @@ See the [LICENSE](./LICENSE) file for more information.
   - **Vulnerable Drivers & Post-Infection Risk**: This project utilizes drivers like `WinDivert`. These drivers are currently vulnerable. If you see this driver abused you probably infected.
  - **Post-Infection Scenario**: By default, this project assumes your system is **clean** at the time of installation. It is NOT designed to clean or repair an already infected system.
  - **Zero Responsibility**: If you install this on a system that is already compromised, resident malware may exploit these drivers or the centralized dependency structure (Python/Node.js) to escalate or persist. The developer is not responsible for any damage in a post-infection scenario.
+- **Don't Run in Safe Mode:** HydraDragonAntivirus is not compatible with Safe Mode, and running it there is strongly discouraged. To prevent malware from abusing Safe Mode, HydraDragonAntivirus includes a Safe Mode protection rule that detects attempts to enable Safe Mode boot options, modify related registry settings, or otherwise force the system to boot into Safe Mode.
 
  ### How an Attack is Possible (Threat Model)
  In a post-infection state, the malware already has **First Mover Advantage**. Because this project uses unsigned drivers and hardcoded paths (specifically in `PYAS_Protection` and `OwlyshieldRansomFilter`), an attacker can perform the following:

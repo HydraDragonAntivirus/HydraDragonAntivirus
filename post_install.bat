@@ -42,10 +42,8 @@ if /I "%POSTINSTALL_STAGE%"=="after-hypervisor-reboot" (
 :: --------------------------------------------------------
 :: 3) Environment setup
 :: --------------------------------------------------------
-set "PROGRAM_FILES_ROOT=%ProgramW6432%"
-if not defined PROGRAM_FILES_ROOT set "PROGRAM_FILES_ROOT=%ProgramFiles%"
-if not defined PROGRAM_FILES_ROOT set "PROGRAM_FILES_ROOT=C:\Program Files"
-set "SANCTUM_DIR=%PROGRAM_FILES_ROOT%\HydraDragonAntivirus\hydradragon\Sanctum"
+set "HYDRADRAGON_DIR=C:\Program Files\HydraDragonAntivirus\hydradragon"
+set "SANCTUM_DIR=%HYDRADRAGON_DIR%\Sanctum"
 
 echo [*] Sanctum install path: %SANCTUM_DIR%
 
@@ -121,7 +119,7 @@ if exist "%ELAM_EXE%" (
 :: 6) Install OwlyshieldRansomFilter driver
 :: --------------------------------------------------------
 echo Installing OwlyshieldRansomFilter driver INF...
-pnputil /add-driver "%~dp0hydradragon\Owlyshield\OwlyshieldRansomFilter\OwlyshieldRansomFilter.inf" /install
+pnputil /add-driver "%HYDRADRAGON_DIR%\Owlyshield\OwlyshieldRansomFilter\OwlyshieldRansomFilter.inf" /install
 if %errorlevel% neq 0 (
     echo [!] OwlyshieldRansomFilter driver install failed.
     pause
@@ -133,7 +131,7 @@ echo [+] OwlyshieldRansomFilter driver installed.
 :: 7) Install MBRFilter driver
 :: --------------------------------------------------------
 echo Installing MBRFilter driver INF...
-pnputil /add-driver "%~dp0hydradragon\MBRFilter\MBRFilter.inf" /install
+pnputil /add-driver "%HYDRADRAGON_DIR%\MBRFilter\MBRFilter.inf" /install
 if %errorlevel% neq 0 (
     echo [!] MBRFilter driver install failed.
     pause
@@ -145,7 +143,7 @@ echo [+] MBRFilter driver installed.
 :: 8) Install SimplePYASProtection driver
 :: --------------------------------------------------------
 echo Installing SimplePYASProtection driver INF...
-pnputil /add-driver "%~dp0hydradragon\SimplePYASProtection\SimplePYASProtection.inf" /install
+pnputil /add-driver "%HYDRADRAGON_DIR%\SimplePYASProtection\SimplePYASProtection.inf" /install
 if %errorlevel% neq 0 (
     echo [!] SimplePYASProtection driver install failed.
     pause
@@ -156,14 +154,14 @@ echo [+] SimplePYASProtection driver installed.
 :: --------------------------------------------------------
 :: 8.0) Trust RedDbg/HyperDbg test certificates
 :: --------------------------------------------------------
-call :trust_driver_cert_if_exists "%~dp0hydradragon\Owlyshield\RedDbg\RedDbgDrv.cer" "RedDbg"
-call :trust_driver_cert_if_exists "%~dp0hydradragon\Owlyshield\HyperDbg\hyperhv.cer" "HyperDbg"
+call :trust_driver_cert_if_exists "%HYDRADRAGON_DIR%\Owlyshield\RedDbg\RedDbgDrv.cer" "RedDbg"
+call :trust_driver_cert_if_exists "%HYDRADRAGON_DIR%\Owlyshield\HyperDbg\hyperhv.cer" "HyperDbg"
 
 :: --------------------------------------------------------
 :: 8.1) Install RedDbg driver (AMD Hypervisor)
 :: --------------------------------------------------------
 echo Installing RedDbg driver INF...
-rundll32.exe setupapi.dll,InstallHinfSection DefaultInstall 132 "%~dp0hydradragon\Owlyshield\RedDbg\RedDbgDrv.inf"
+rundll32.exe setupapi.dll,InstallHinfSection DefaultInstall 132 "%HYDRADRAGON_DIR%\Owlyshield\RedDbg\RedDbgDrv.inf"
 if %errorlevel% neq 0 (
     echo [!] RedDbg driver install failed (non-fatal if on Intel).
 ) else (
@@ -174,7 +172,7 @@ if %errorlevel% neq 0 (
 :: 8.2) Install HyperDbg driver (Intel Hypervisor)
 :: --------------------------------------------------------
 echo Installing HyperDbg driver INF...
-rundll32.exe setupapi.dll,InstallHinfSection DefaultInstall 132 "%~dp0hydradragon\Owlyshield\HyperDbg\hyperhv.inf"
+rundll32.exe setupapi.dll,InstallHinfSection DefaultInstall 132 "%HYDRADRAGON_DIR%\Owlyshield\HyperDbg\hyperhv.inf"
 if %errorlevel% neq 0 (
     echo [!] HyperDbg driver install failed (non-fatal if on AMD).
 ) else (
@@ -184,7 +182,7 @@ if %errorlevel% neq 0 (
 :: --------------------------------------------------------
 :: 9) Register HydraDragonAntivirus scheduled task (autostart after reboot)
 :: --------------------------------------------------------
-set "HD_TASK_EXE=%~dp0Service\HydraDragonAntivirusTaskScheduler.exe"
+set "HD_TASK_EXE=%HYDRADRAGON_DIR%\HydraDragonAntivirusTaskScheduler.exe\HydraDragonAntivirusTaskScheduler.exe"
 
 if exist "%HD_TASK_EXE%" (
     echo Checking for existing HydraDragonAntivirus scheduled task...
@@ -208,7 +206,7 @@ if %errorlevel% neq 0 (
 :: --------------------------------------------------------
 :: 10) Install OpenEDR service
 :: --------------------------------------------------------
-set "EDR_EXE=%~dp0OpenEDR\edrsvc.exe"
+set "EDR_EXE=%HYDRADRAGON_DIR%\OpenEDR\edrsvc.exe"
 if exist "%EDR_EXE%" (
     echo [*] Installing OpenEDR service...
     "%EDR_EXE%" install

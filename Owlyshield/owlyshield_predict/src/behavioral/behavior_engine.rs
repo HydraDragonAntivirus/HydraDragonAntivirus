@@ -1802,8 +1802,9 @@ impl BehaviorEngine {
                         continue;
                     }
 
-                    // Validation: Only allow HydraDragon Firewall
-                    if !unsafe { validate_pipe_client(handle, Some("hydradragonfirewall.exe"), false) } {
+                    // Validation: Only allow HydraDragon Firewall from the fixed install path.
+                    const HYDRADRAGON_FIREWALL_EXE: &str = r"C:\Program Files\HydraDragonAntivirus\hydradragon\HydraDragonFirewall\HydraDragonFirewall.exe";
+                    if !unsafe { validate_pipe_client(handle, Some(HYDRADRAGON_FIREWALL_EXE), false) } {
                         Logging::error("[HydraNetPipe] Rejected unauthorized client connection");
                         unsafe {
                             use windows::Win32::System::Pipes::DisconnectNamedPipe;
