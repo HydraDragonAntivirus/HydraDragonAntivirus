@@ -4,20 +4,33 @@
 """
 Reference optimizer / registry builder
 
-- Scans CSV files in a directory (default: current dir)
-- Skips explicitly excluded CSV file names
+- Scans ONLY .csv files in a directory (default: current dir)
+- Skips ALLOW*.csv files
+- Does NOT skip WhiteList*/whitelist CSV files
+- Skips:
+    - generated optimizer outputs: *.optimized.csv
+    - ALLOW*.csv
+    - huge ranking/source lists that are not reference rule files:
+      top-1m.csv, builtwith-top1m-20250121.csv, tranco_PL9GJ.csv
 - Extracts reference strings, assigns integer IDs (0,1,2,...)
 - Writes:
-    - references.txt   (human readable: id TAB reference)
+    - references.txt
     - For each input CSV: <basename>.optimized.csv with references replaced by IDs
+
 Usage:
-    python reference_optimizer.py --dir path/to/rules
+    python reference_optimizer.py
+    python reference_optimizer.py --dir path\to\rules --out path\to\ref_out
 """
 
+import argparse
 import csv
+import sys
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
+# Exact CSV names that should NOT be optimized.
+# IMPORTANT: WhiteList*/whitelist CSV files are intentionally NOT listed here.
+# ALLOW*.csv is skipped by prefix rule below.
 SKIP_NAMES = {
     "top-1m.csv",
     "builtwith-top1m-20250121.csv",
@@ -26,10 +39,45 @@ SKIP_NAMES = {
 
 
 # -----------------------
+# File selection
+# -----------------------
+def should_process_file(path: Path) -> bool:
+    """Return True only for CSV source files that should be optimized."""
+    name = path.name.lower()
+
+    if not path.is_file():
+        return False
+    if path.suffix.lower() != ".csv":
+        return False
+
+    # Never re-optimize output files from previous runs.
+    if name.endswith(".optimized.csv"):
+        return False
+
+    # Skip generated/temporary allow lists.
+    # Requested behavior: ALLOW*.csv should NOT be optimized.
+    if name.startswith("allow"):
+        return False
+
+    # Skip known huge ranking/source lists, not whitelist/rule files.
+    if name in SKIP_NAMES:
+        return False
+
+    return True
+
+
+def file_size_mb(path: Path) -> float:
+    try:
+        return path.stat().st_size / (1024 * 1024)
+    except OSError:
+        return 0.0
+
+
+# -----------------------
 # ReferenceRegistry
 # -----------------------
 class ReferenceRegistry:
-    """Map reference strings -> small integer IDs"""
+    """Map reference strings -> small integer IDs."""
 
     VERSION = 1
 
@@ -51,7 +99,7 @@ class ReferenceRegistry:
         return self.ref_to_id[key]
 
     def save_text(self, path: Path):
-        with path.open("w", encoding="utf-8") as f:
+        with path.open("w", encoding="utf-8", newline="") as f:
             for rid in sorted(self.id_to_ref.keys()):
                 f.write(f"{rid}\t{self.id_to_ref[rid]}\n")
 
@@ -59,29 +107,48 @@ class ReferenceRegistry:
 # -----------------------
 # CSV parsing helpers
 # -----------------------
+def split_csv_line(line: str) -> List[str]:
+    """
+    Fast CSV line splitter.
+    Most rule files are simple comma-separated rows without quoting; use a fast path.
+    If quoting is present, fall back to Python's csv module.
+    """
+    stripped = line.rstrip("\r\n")
+    if not stripped:
+        return []
+
+    if '"' not in stripped:
+        return [part.strip() for part in stripped.split(",")]
+
+    try:
+        return [part.strip() for part in next(csv.reader([stripped]))]
+    except csv.Error:
+        # Badly quoted line: use a conservative fallback instead of crashing.
+        return [part.strip() for part in stripped.split(",")]
+
+
 def parse_threat_line(
     line: str,
     is_first_line: bool = False,
 ) -> Tuple[Optional[str], List[str], str, str, str]:
     """
-    Parse a line like:
+    Parse rows like:
       domain,ref1 | ref2 | ref3
       domain,ref1 | ref2,123
       domain,sub1 | sub2,ref1 | ref2,123
+      rank,domain,ref1 | ref2
+
     Return:
       (domain or None, [reference strings...], format_name, subdomains, popularity)
-
-    Args:
-        line: The line to parse
-        is_first_line: If True, check if this looks like a CSV header and skip it
     """
     if not line:
         return None, [], "skip", "", ""
+
     s = line.strip()
     if not s or s.startswith("#"):
         return None, [], "skip", "", ""
 
-    parts = [part.strip() for part in next(csv.reader([line]))]
+    parts = split_csv_line(line)
     if not parts:
         return None, [], "skip", "", ""
 
@@ -101,6 +168,8 @@ def parse_threat_line(
             return None, [], "skip", "", ""
 
     refs: List[str] = []
+
+    # domain,subdomains,refs,popularity
     if len(parts) >= 4 and parts[3].strip().isdigit():
         domain = parts[0].strip().lower()
         subdomains = parts[1].strip()
@@ -112,6 +181,7 @@ def parse_threat_line(
                 refs.append(rr)
         return domain, refs, "popularity", subdomains, popularity
 
+    # domain,refs,popularity
     if len(parts) >= 3 and parts[2].strip().isdigit():
         domain = parts[0].strip().lower()
         refs_part = parts[1].strip()
@@ -122,6 +192,7 @@ def parse_threat_line(
                 refs.append(rr)
         return domain, refs, "popularity_simple", "", popularity
 
+    # rank,domain,refs
     if len(parts) >= 3 and parts[0].strip().isdigit():
         domain = parts[1].strip().lower()
         refs_part = parts[2].strip()
@@ -131,6 +202,7 @@ def parse_threat_line(
                 refs.append(rr)
         return domain, refs, "ranked", "", parts[0].strip()
 
+    # domain,refs
     domain = parts[0].strip().lower()
     refs_part = parts[1].strip() if len(parts) > 1 else ""
     for r in refs_part.split("|"):
@@ -148,10 +220,14 @@ def rewrite_line_with_ids(
     popularity: str = "",
 ) -> str:
     ids_part = " | ".join(str(i) for i in ref_ids)
+
     if format_name == "popularity":
         return f"{domain},{subdomains},{ids_part},{popularity}\n"
     if format_name == "popularity_simple":
         return f"{domain},{ids_part},{popularity}\n"
+    if format_name == "ranked":
+        # Keep the original rank/popularity in the first column.
+        return f"{popularity},{domain},{ids_part}\n" if ref_ids else f"{popularity},{domain}\n"
     if not ref_ids:
         return f"{domain}\n"
     return f"{domain},{ids_part}\n"
@@ -160,72 +236,100 @@ def rewrite_line_with_ids(
 # -----------------------
 # Main optimizer
 # -----------------------
-def build_registry_and_rewrite(input_dir: Path, out_dir: Path):
+def build_registry_and_rewrite(input_dir: Path, out_dir: Path, progress_every: int = 500_000):
     registry = ReferenceRegistry()
     input_dir = Path(input_dir)
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    # Collect input files: csv only, skip defined names
-    files = sorted([p for p in input_dir.iterdir() if p.is_file() and p.suffix.lower() == ".csv" and p.name.lower() not in SKIP_NAMES])
+    all_csv_files = sorted(p for p in input_dir.iterdir() if p.is_file() and p.suffix.lower() == ".csv")
+    files = [p for p in all_csv_files if should_process_file(p)]
+    skipped_files = [p for p in all_csv_files if not should_process_file(p)]
+
+    if skipped_files:
+        print(f"Skipped {len(skipped_files)} CSV file(s) from skip rules:", flush=True)
+        for p in skipped_files:
+            print(f"  {p.name}", flush=True)
 
     if not files:
-        print("No CSV files to process (after skipping).")
+        print("No CSV files to process after skip rules.", flush=True)
         return
 
-    # First pass: collect references and register
-    print(f"Scanning {len(files)} file(s) for references...")
-    for p in files:
-        with p.open("r", encoding="utf-8", errors="ignore") as f:
-            for line_num, raw in enumerate(f):
-                domain, refs, _, _, _ = parse_threat_line(raw, is_first_line=(line_num == 0))
+    print(f"Processing {len(files)} CSV file(s). WhiteList/whitelist and benign CSV files are included; ALLOW*.csv files are skipped.", flush=True)
+
+    # First pass: collect references and register.
+    print("Scanning references...", flush=True)
+    for idx, p in enumerate(files, start=1):
+        print(f"[{idx}/{len(files)}] Scanning {p.name} ({file_size_mb(p):.1f} MB)", flush=True)
+        with p.open("r", encoding="utf-8", errors="ignore", newline="") as f:
+            for line_num, raw in enumerate(f, start=1):
+                if progress_every > 0 and line_num % progress_every == 0:
+                    print(f"    {p.name}: {line_num:,} lines scanned", flush=True)
+
+                domain, refs, _, _, _ = parse_threat_line(raw, is_first_line=(line_num == 1))
                 if not domain:
                     continue
                 for r in refs:
                     registry.register(r)
 
     total_refs = len(registry.id_to_ref)
-    print(f"Collected {total_refs} unique references.")
+    print(f"Collected {total_refs} unique references.", flush=True)
 
-    # Save references list (human readable)
     refs_txt = out_dir / "references.txt"
     registry.save_text(refs_txt)
-    print(f"Wrote {refs_txt}")
+    print(f"Wrote {refs_txt}", flush=True)
 
-    # Second pass: rewrite files to .optimized.csv replacing refs with IDs
-    print("Rewriting files with reference IDs...")
-    for p in files:
+    # Second pass: rewrite files to .optimized.csv replacing refs with IDs.
+    print("Rewriting CSV files with reference IDs...", flush=True)
+    for idx, p in enumerate(files, start=1):
         outp = out_dir / (p.stem + ".optimized.csv")
-        with p.open("r", encoding="utf-8", errors="ignore") as fin, outp.open("w", encoding="utf-8") as fout:
-            for line_num, raw in enumerate(fin):
+        print(f"[{idx}/{len(files)}] Rewriting {p.name} -> {outp.name}", flush=True)
+
+        with p.open("r", encoding="utf-8", errors="ignore", newline="") as fin, outp.open("w", encoding="utf-8", newline="") as fout:
+            for line_num, raw in enumerate(fin, start=1):
+                if progress_every > 0 and line_num % progress_every == 0:
+                    print(f"    {p.name}: {line_num:,} lines rewritten", flush=True)
+
                 domain, refs, format_name, subdomains, popularity = parse_threat_line(
                     raw,
-                    is_first_line=(line_num == 0),
+                    is_first_line=(line_num == 1),
                 )
                 if not domain:
-                    fout.write("\n")  # preserve blank/comment lines as blank
+                    # Preserve comments/headers/blanks as blank lines, matching the old behavior.
+                    fout.write("\n")
                     continue
+
                 ref_ids = []
                 for r in refs:
-                    rid = registry.register(r)  # should exist already
+                    rid = registry.register(r)
                     if rid is not None:
                         ref_ids.append(rid)
-                fout.write(rewrite_line_with_ids(domain, ref_ids, format_name, subdomains, popularity))
-        print(f"  {p.name} -> {outp.name}")
 
-    print("Done.")
+                fout.write(rewrite_line_with_ids(domain, ref_ids, format_name, subdomains, popularity))
+
+    print("Done.", flush=True)
 
 
 # -----------------------
 # CLI
 # -----------------------
 def main():
-    ap = __import__("argparse").ArgumentParser(description="Reference optimizer")
-    ap.add_argument("--dir", "-d", type=str, default=".", help="Directory with CSV/TXT rule files")
-    ap.add_argument("--out", "-o", type=str, default="ref_out", help="Output directory for references + optimized files")
-    args = ap.parse_args()
+    parser = argparse.ArgumentParser(description="Reference optimizer - CSV only; skips ALLOW*.csv; keeps whitelist CSVs")
+    parser.add_argument("--dir", "-d", type=str, default=".", help="Directory with CSV rule files")
+    parser.add_argument("--out", "-o", type=str, default="ref_out", help="Output directory for references + optimized files")
+    parser.add_argument(
+        "--progress-every",
+        type=int,
+        default=500_000,
+        help="Print progress every N lines per file. Use 0 to disable line progress.",
+    )
+    args = parser.parse_args()
 
-    build_registry_and_rewrite(Path(args.dir), Path(args.out))
+    try:
+        build_registry_and_rewrite(Path(args.dir), Path(args.out), progress_every=args.progress_every)
+    except KeyboardInterrupt:
+        print("\nStopped by user with Ctrl+C.", file=sys.stderr, flush=True)
+        raise
 
 
 if __name__ == "__main__":
