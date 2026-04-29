@@ -6,6 +6,7 @@
 #define MyAppPublisher "Emirhan Ucan"
 #define MyAppURL "https://gitlab.com/hydradragonav/hydradragonav"
 #define MyAppExeName "hydradragon\\HydraDragonAntivirusTaskScheduler\\HydraDragonAntivirusTaskScheduler.exe"
+#define MyAppExeFile "HydraDragonAntivirusTaskScheduler.exe"
 #define MyAppAssocName MyAppName + " File"
 #define MyAppAssocExt ".myp"
 #define MyAppAssocKey StringChange(MyAppAssocName, " ", "") + MyAppAssocExt
@@ -65,7 +66,7 @@ Source: "C:\Users\semae\OneDrive\Belgeler\hydratempinstall\jre-8u481-windows-x64
 Source: "C:\Users\semae\OneDrive\Belgeler\hydratempinstall\jdk-21_windows-x64_bin.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\semae\OneDrive\Belgeler\hydratempinstall\windowsdesktop-runtime-8.0.25-win-x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\semae\OneDrive\Belgeler\hydratempinstall\windowsdesktop-runtime-9.0.14-win-x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
-; Node.js 22.22.0 (x64) MSI
+; Node.js 22.22.1 (x64) MSI
 Source: "C:\Users\semae\OneDrive\Belgeler\hydratempinstall\node-v22.22.1-x64.msi"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\semae\OneDrive\Belgeler\hydratempinstall\python-3.12.10-amd64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\semae\OneDrive\Belgeler\hydratempinstall\setup.py"; DestDir: "{tmp}"; Flags: deleteafterinstall
@@ -88,7 +89,7 @@ Root: HKA; Subkey: "Software\Classes\{#MyAppAssocExt}\OpenWithProgids"; ValueTyp
 Root: HKA; Subkey: "Software\Classes\{#MyAppAssocKey}"; ValueType: string; ValueName: ""; ValueData: "{#MyAppAssocName}"; Flags: uninsdeletekey
 Root: HKA; Subkey: "Software\Classes\{#MyAppAssocKey}\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\{#MyAppExeName},0"
 Root: HKA; Subkey: "Software\Classes\{#MyAppAssocKey}\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#MyAppExeName}"" ""%1"""
-Root: HKA; Subkey: "Software\Classes\Applications\{#MyAppExeName}\SupportedTypes"; ValueType: string; ValueName: ".myp"; ValueData: ""
+Root: HKA; Subkey: "Software\Classes\Applications\{#MyAppExeFile}\SupportedTypes"; ValueType: string; ValueName: ".myp"; ValueData: ""
 
 ; Owlyshield Registry Settings
 Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "NUM_VERSION"; ValueData: {#OwlyshieldVersion}; Flags: uninsdeletekey
@@ -104,17 +105,12 @@ Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "REAL
 Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "APP_ID"; ValueData: "{#OwlyshieldAppId}"; Flags: uninsdeletekey
 Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "LANGUAGE"; ValueData: "en-US"; Flags: uninsdeletekey
 Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "KILL_POLICY"; ValueData: "KILL_AND_QUARANTINE"; Flags: uninsdeletekey
-Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "TELEMETRY"; ValueData: 0; Flags: uninsdeletekey
+Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "TELEMETRY"; ValueData: "0"; Flags: uninsdeletekey
 Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "VERBOSE_LOGGING"; ValueData: "0"; Flags: uninsdeletekey
 Root: HKLM; Subkey: "SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce"; ValueType: string; ValueName: "OwlyshieldPostInstall"; ValueData: """{app}\post_install.bat"""
 
-Root: HKCU; Subkey: "Software\Classes\AppUserModelId\{#OwlyshieldAppId}"; 
-ValueType: string; ValueName: "DisplayName"; 
-ValueData: "HydraDragon Antivirus"; Flags: uninsdeletekey
-
-Root: HKCU; Subkey: "Software\Classes\AppUserModelId\{#OwlyshieldAppId}"; 
-ValueType: string; ValueName: "IconUri"; 
-ValueData: "{app}\hydradragon\assets\HydraDragonAV.ico"
+Root: HKCU; Subkey: "Software\Classes\AppUserModelId\{#OwlyshieldAppId}"; ValueType: string; ValueName: "DisplayName"; ValueData: "HydraDragon Antivirus"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\AppUserModelId\{#OwlyshieldAppId}"; ValueType: string; ValueName: "IconUri"; ValueData: "{app}\hydradragon\assets\HydraDragonAV.ico"; Flags: uninsdeletekey
 
 [Icons]
 Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\hydradragon\assets\HydraDragonAV.ico"; AppUserModelID: "{#OwlyshieldAppId}"; AppUserModelToastActivatorCLSID: "{#OwlyshieldAppId}"
@@ -143,22 +139,22 @@ Filename: "{tmp}\jdk-21_windows-x64_bin.exe"; Parameters: "/s"; Flags: shellexec
 Filename: "{tmp}\python-3.12.10-amd64.exe"; Parameters: "/quiet InstallAllUsers=1 PrependPath=1 Include_pip=1 TargetDir=""{app}\python"""; Flags: shellexec waituntilterminated
 
 ; ClamAV Installer (MSI - Silent Install)
-Filename: "{tmp}\clamav-1.5.2.win.x64.msi"; Parameters: "/quiet /norestart INSTALLDIR=""{app}\hydradragon\HydraDragonAV\engines\clamav"""; Flags: shellexec waituntilterminated
+Filename: "msiexec.exe"; Parameters: "/i ""{tmp}\clamav-1.5.2.win.x64.msi"" /quiet /norestart INSTALLDIR=""{app}\hydradragon\HydraDragonAV\engines\clamav"""; Flags: waituntilterminated
 
 ; Suricata Installer (MSI - Silent Install)
-Filename: "{tmp}\Suricata-7.0.14-1-64bit.msi"; Parameters: "/quiet /norestart INSTALLDIR=""{app}\hydradragon\suricata"""; Flags: shellexec waituntilterminated
+Filename: "msiexec.exe"; Parameters: "/i ""{tmp}\Suricata-7.0.14-1-64bit.msi"" /quiet /norestart INSTALLDIR=""{app}\hydradragon\suricata"""; Flags: waituntilterminated
 
 ; OpenEDR Installer (MSI - Silent Install)
-Filename: "{tmp}\openedr.msi"; Parameters: "/quiet /norestart"; Flags: shellexec waituntilterminated
+Filename: "msiexec.exe"; Parameters: "/i ""{tmp}\openedr.msi"" /quiet /norestart"; Flags: waituntilterminated
 
 ; Node.js 22.22.0 (silent)
-Filename: "{tmp}\node-v22.22.1-x64.msi"; Parameters: "/quiet /norestart INSTALLDIR=""{app}\nodejs"""; Flags: shellexec waituntilterminated
+Filename: "msiexec.exe"; Parameters: "/i ""{tmp}\node-v22.22.1-x64.msi"" /quiet /norestart INSTALLDIR=""{app}\nodejs"""; Flags: waituntilterminated
 
-; Npcap
-Filename: "{tmp}\npcap-1.85.exe"; Flags: shellexec waituntilterminated
+; Npcap silent install
+Filename: "{tmp}\npcap-1.85.exe"; Parameters: "/S /winpcap_mode=yes"; Flags: shellexec waituntilterminated
 
 ; Custom setup script
-Filename: "{tmp}\setup.py"; Flags: shellexec waituntilterminated
+Filename: "{app}\python\python.exe"; Parameters: """{tmp}\setup.py"""; Flags: waituntilterminated
 
 [UninstallRun]
 ; Disable test signing mode on uninstall
