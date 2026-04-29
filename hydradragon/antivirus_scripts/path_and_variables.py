@@ -280,7 +280,7 @@ _RETRY_DELAY = 0.5  # seconds between open retries
 _SCAN_REQUEST_SEND_QUEUE: "asyncio.Queue[dict]" = asyncio.Queue()
 
 # Path to the bundled radare2 binary shipped with HydraDragonAntivirus
-_R2_DIR = Path(r"C:\Program Files\HydraDragonAntivirus\hydradragon\radare2")
+_R2_DIR = os.path.join(script_dir, "radare2")
 
 # Pipe 1: HydraDragonAV engine
 PIPE_HYDRADRAGON_AV = r"\\.\pipe\HydraDragonAV"
