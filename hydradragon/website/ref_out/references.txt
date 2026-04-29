@@ -1,34 +1,10 @@
 0	Unknown
-1	net.ac
-2	2019";
-3	c898c0d0386c5d88911dea98281b5d6ae0b4118ba11f65ba75dcca5fea7656ad0.beer: Missing TLD
-4	2019";: Contains invalid characters
-5	: Contains invalid characters
-6	rtbh.com.tr(BruteForce)
-7	github.com/87owo/PYAS(Malware)
-8	github.com/T145/black-mirror(Malware)
-9	2018-07-02
-10	2016-01-14
-11	2016-01-16
-12	2019-04-02
-13	2016-08-01
-14	2017-03-17
-15	http://www.eomniform.com/OF5/nsplugins/OFMailNP.xpi
-16	https:/easytis-apac.com/new/css/mmde5u/admin@rud.es
-17	AJE.html
-18	50.87.147.115
-19	%20like%20Gecko)%20Chrome/86.0.4240.75%20Safari/537.36
-20	626
-21	773
-22	likeGeckoChrome/86.0.4240.75Safari/537.36
-23	%2021%20Sep%202023%2021:22:26%20PMeledmagarcia@hotmail.com
-24	%20September%204
-25	data:["https://scam.example.com/m1nxy/example"
-26	I will add the date of the last lookup.
-27	'example.com')
-28	github.com/T145/black-mirror(WhiteList)
-29	tranco-list.eu/list/PL9GJ/1000000
-30	github.com/maravento/blackweb(Malware)
-31	gist.github.com/0100110000100011(Malware)
-32	dangerous.domains(Malware)
-33	safer-networking.org(Malware)
+1	rtbh.com.tr(BruteForce)
+2	github.com/87owo/PYAS(Malware)
+3	github.com/T145/black-mirror(Malware)
+4	github.com/T145/black-mirror(WhiteList)
+5	tranco-list.eu/list/PL9GJ/1000000
+6	github.com/maravento/blackweb(Malware)
+7	gist.github.com/0100110000100011(Malware)
+8	dangerous.domains(Malware)
+9	safer-networking.org(Malware)

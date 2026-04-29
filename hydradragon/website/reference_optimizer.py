@@ -4,12 +4,12 @@
 """
 Reference optimizer / registry builder
 
-- Scans CSV/TXT files in a directory (default: current dir)
-- Skips urlhaus.txt and liste_email_365.txt (and listed_email_365.txt)
+- Scans CSV files in a directory (default: current dir)
+- Skips explicitly excluded CSV file names
 - Extracts reference strings, assigns integer IDs (0,1,2,...)
 - Writes:
     - references.txt   (human readable: id TAB reference)
-    - For each input CSV/TXT: <basename>.optimized.csv with references replaced by IDs
+    - For each input CSV: <basename>.optimized.csv with references replaced by IDs
 Usage:
     python reference_optimizer.py --dir path/to/rules
 """
@@ -19,8 +19,6 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 SKIP_NAMES = {
-    "urlhaus.txt",
-    "listed_email_365.txt",
     "top-1m.csv",
     "builtwith-top1m-20250121.csv",
     "tranco_pl9gj.csv",
@@ -168,11 +166,11 @@ def build_registry_and_rewrite(input_dir: Path, out_dir: Path):
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    # Collect input files: csv or txt, skip defined names
-    files = sorted([p for p in input_dir.iterdir() if p.is_file() and p.suffix.lower() in {".csv", ".txt"} and p.name.lower() not in SKIP_NAMES])
+    # Collect input files: csv only, skip defined names
+    files = sorted([p for p in input_dir.iterdir() if p.is_file() and p.suffix.lower() == ".csv" and p.name.lower() not in SKIP_NAMES])
 
     if not files:
-        print("No CSV/TXT files to process (after skipping).")
+        print("No CSV files to process (after skipping).")
         return
 
     # First pass: collect references and register
