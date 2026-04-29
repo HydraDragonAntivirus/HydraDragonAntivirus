@@ -280,7 +280,7 @@ See the [LICENSE](./LICENSE) file for more information.
 - https://github.com/HydraDragonAntivirus/MegaDumper 
 - https://github.com/GuardianN06/SourceUndefender
 - https://github.com/Lil-House/Pyarmor-Static-Unpack-1shot
-- https://github.com/radareorg/radare2/releases/tag/6.1.4
+- https://github.com/radareorg/radare2/releases/tag/6.1.4 (radare2-6.1.4-w64.zip)
 - https://github.com/DimaReverse/nuitka-static-unpacker
 
 - I used these projects to decompile (with a current custom database of Detect-It-Easy 3.10).
