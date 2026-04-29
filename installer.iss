@@ -69,7 +69,7 @@ Source: "C:\Users\seame\OneDrive\Belgeler\hydratempinstall\windowsdesktop-runtim
 Source: "C:\Users\seame\OneDrive\Belgeler\hydratempinstall\node-v22.22.1-x64.msi"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\seame\OneDrive\Belgeler\hydratempinstall\python-3.12.10-amd64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\seame\OneDrive\Belgeler\hydratempinstall\setup.py"; DestDir: "{tmp}"; Flags: deleteafterinstall
-# COMODO OpenEDR
+; COMODO OpenEDR
 Source: "C:\Users\seame\OneDrive\Belgeler\hydratempinstall\openedr.msi"; DestDir: "{tmp}"; Flags: deleteafterinstall
 
 [Dirs]
