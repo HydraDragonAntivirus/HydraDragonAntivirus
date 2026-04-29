@@ -37,6 +37,7 @@ copy /Y "w32\VS2019\Output\x64\libmicrohttpd.pdb" "lib\x86_64\VS2017\Release-sta
 rem x64 Debug
 if not exist "lib\x86_64\VS2017\Debug-static" mkdir "lib\x86_64\VS2017\Debug-static"
 copy /Y "w32\VS2019\Output\x64\libmicrohttpd_d.lib" "lib\x86_64\VS2017\Debug-static\libmicrohttpd.lib"
+copy /Y "w32\VS2019\Output\x64\libmicrohttpd_d.lib" "lib\x86_64\VS2017\Debug-static\libmicrohttpd_d.lib"
 copy /Y "w32\VS2019\Output\x64\libmicrohttpd_d.pdb" "lib\x86_64\VS2017\Debug-static\"
 
 rem x86 Release
@@ -47,6 +48,7 @@ copy /Y "w32\VS2019\Output\libmicrohttpd.pdb" "lib\x86\VS2017\Release-static\"
 rem x86 Debug
 if not exist "lib\x86\VS2017\Debug-static" mkdir "lib\x86\VS2017\Debug-static"
 copy /Y "w32\VS2019\Output\libmicrohttpd_d.lib" "lib\x86\VS2017\Debug-static\libmicrohttpd.lib"
+copy /Y "w32\VS2019\Output\libmicrohttpd_d.lib" "lib\x86\VS2017\Debug-static\libmicrohttpd_d.lib"
 copy /Y "w32\VS2019\Output\libmicrohttpd_d.pdb" "lib\x86\VS2017\Debug-static\"
 
 echo [INFO] libmicrohttpd build and organization completed successfully.

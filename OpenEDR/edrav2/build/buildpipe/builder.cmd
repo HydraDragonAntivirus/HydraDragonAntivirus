@@ -19,6 +19,12 @@ if exist "%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" (
         if exist "%%i\VC\Auxiliary\Build\vcvarsall.bat" set "vcvarsall=%%i\VC\Auxiliary\Build\vcvarsall.bat"
     )
 )
+for %%P in (Community Professional Enterprise) do (
+    if exist "%ProgramFiles%\Microsoft Visual Studio\2022\%%P\VC\Auxiliary\Build\vcvarsall.bat" (
+        set "VSInstallDir=%ProgramFiles%\Microsoft Visual Studio\2022\%%P"
+        set "vcvarsall=%ProgramFiles%\Microsoft Visual Studio\2022\%%P\VC\Auxiliary\Build\vcvarsall.bat"
+    )
+)
 if not defined vcvarsall (
     for %%P in (Community Professional Enterprise BuildTools) do (
         if not defined vcvarsall (
@@ -34,12 +40,15 @@ if not defined vcvarsall (
     exit /b 1
 )
 set "vsdevcmd=%VSInstallDir%\Common7\Tools\VsDevCmd.bat"
-set "msbuild=msbuild"
+set "msbuild=%VSInstallDir%\MSBuild\Current\Bin\amd64\MSBuild.exe"
+if not exist "%msbuild%" set "msbuild=%VSInstallDir%\MSBuild\Current\Bin\MSBuild.exe"
+if not exist "%msbuild%" set "msbuild=msbuild"
 set "CL=/Zm500"
 rem ========Project settings=======
 set "sln=%EdrRoot%\build\vs2022\edrav2.sln"
 set "inst_sln=%EdrRoot%\build\vs2022\edrav2-install.sln"
 set "detours_vcxproj=%EdrRoot%\eprj\detours\Detours.vcxproj"
+set "libmicrohttpd_build_cmd=%EdrRoot%\eprj\libmicrohttpd\build.cmd"
 set "VersionHeader=%EdrRoot%\iprj\libcore\inc\version.h"
 set "BuildInfoHeader=%EdrRoot%\iprj\libcore\inc\build_info.h"
 set "BuildInfoWxi=%EdrRoot%\iprj\installation\src\BuildInfo.wxi"
@@ -187,9 +196,10 @@ echo.Building %type%^(x64^) for %sln_name%... 2>&1 >>"%ScriptDir%\Logs\script.lo
 if /I "%sln_name%"=="edrav2-install.sln" (
   dotnet build "%sln%" -c %type% -p:Platform=x64 -nologo --no-restore >>"%ScriptDir%\Logs\build.log" 2>&1 || exit /b 1
 ) else (
+  call :ensure_libmicrohttpd %type% || exit /b 1
   call :build_detours %type% x64 || exit /b 1
   call :build_detours %type% Win32 || exit /b 1
-  %msbuild% "%sln%" /t:Build /p:Configuration=%type% /p:Platform=x64 /m:2 /p:CL_MPCount=2 /noconlog /fl /flp:LogFile="%ScriptDir%\Logs\build.log";append /nologo || exit /b 1
+  "%msbuild%" "%sln%" /t:Build /p:Configuration=%type% /p:Platform=x64 /m:1 /nr:false /noconlog /fl /flp:LogFile="%ScriptDir%\Logs\build.log";append /nologo || exit /b 1
 )
 
 ENDLOCAL
@@ -202,9 +212,28 @@ set "type=%~1"
 set "platform=%~2"
 echo.Building detours %type%^(%platform%^)...
 echo.Building detours %type%^(%platform%^)... 2>&1 >>"%ScriptDir%\Logs\script.log"
-%msbuild% "%detours_vcxproj%" /t:Build /p:Configuration=%type% /p:Platform=%platform% /m:1 /noconlog /fl /flp:LogFile="%ScriptDir%\Logs\build.log";append /nologo || exit /b 1
+"%msbuild%" "%detours_vcxproj%" /t:Build /p:Configuration=%type% /p:Platform=%platform% /m:1 /noconlog /fl /flp:LogFile="%ScriptDir%\Logs\build.log";append /nologo || exit /b 1
 ENDLOCAL
 exit /b 0
+
+
+:ensure_libmicrohttpd
+SETLOCAL
+set "type=%~1"
+set "need_libmicrohttpd=false"
+if /I "%type%"=="Debug" (
+  if not exist "%EdrRoot%\eprj\libmicrohttpd\lib\x86_64\VS2017\Debug-static\libmicrohttpd_d.lib" set "need_libmicrohttpd=true"
+) else (
+  if not exist "%EdrRoot%\eprj\libmicrohttpd\lib\x86_64\VS2017\Release-static\libmicrohttpd.lib" set "need_libmicrohttpd=true"
+)
+if /I "%need_libmicrohttpd%"=="false" (ENDLOCAL & exit /b 0)
+echo.Building libmicrohttpd %type% dependencies...
+echo.Building libmicrohttpd %type% dependencies... 2>&1 >>"%ScriptDir%\Logs\script.log"
+pushd "%EdrRoot%\eprj\libmicrohttpd" || (ENDLOCAL & exit /b 1)
+call "%libmicrohttpd_build_cmd%" >>"%ScriptDir%\Logs\build.log" 2>&1
+set "mhd_error=%errorlevel%"
+popd
+ENDLOCAL & exit /b %mhd_error%
 
 
 :unit_test
