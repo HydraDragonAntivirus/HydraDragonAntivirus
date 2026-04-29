@@ -3,11 +3,22 @@
 
 """
 HydraDragon Firewall Build Script
-Run as Administrator for WinDivert driver
-Usage:
-    python build.py              # debug build
-    python build.py --release    # release build
-    python build.py --release --run  # release build + launch
+
+Expected layout:
+  HydraDragonAntivirus/
+    hydradragon/
+      HydraDragonFirewall/                 deploy output goes here
+    HydraDragonFirewall/
+      WinDivert.dll
+      WinDivert.lib
+      WinDivert64.sys
+      hydradragonfirewall/                 this build.py lives here
+
+Notes:
+  - No `everything` folder.
+  - No hardcoded absolute deploy path.
+  - WinDivert is NOT copied during deploy.
+  - Only hydradragonfirewall.exe and hydradragonfirewall.dll are copied to deploy.
 """
 
 import argparse
@@ -17,7 +28,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-# ── Colours ────────────────────────────────────────────────────────────────────
 CYAN = "\033[96m"
 YELLOW = "\033[93m"
 GREEN = "\033[92m"
@@ -27,28 +37,12 @@ GRAY = "\033[90m"
 RESET = "\033[0m"
 
 
-def cyan(s):
-    return f"{CYAN}{s}{RESET}"
-
-
-def yellow(s):
-    return f"{YELLOW}{s}{RESET}"
-
-
-def green(s):
-    return f"{GREEN}{s}{RESET}"
-
-
-def red(s):
-    return f"{RED}{s}{RESET}"
-
-
-def magenta(s):
-    return f"{MAGENTA}{s}{RESET}"
-
-
-def gray(s):
-    return f"{GRAY}{s}{RESET}"
+def cyan(s): return f"{CYAN}{s}{RESET}"
+def yellow(s): return f"{YELLOW}{s}{RESET}"
+def green(s): return f"{GREEN}{s}{RESET}"
+def red(s): return f"{RED}{s}{RESET}"
+def magenta(s): return f"{MAGENTA}{s}{RESET}"
+def gray(s): return f"{GRAY}{s}{RESET}"
 
 
 def header(msg):
@@ -74,42 +68,54 @@ def fail(msg):
     sys.exit(1)
 
 
-# ── Dependency checks ──────────────────────────────────────────────────────────
+def run(cmd: list, cwd: Path = None, env: dict = None):
+    merged_env = {**os.environ, **(env or {})}
+    result = subprocess.run(cmd, cwd=cwd, env=merged_env)
+    if result.returncode != 0:
+        fail(f"Command failed (exit {result.returncode}): {' '.join(str(c) for c in cmd)}")
 
 
 def prompt_install(name: str, install_cmd: list) -> None:
-    """Ask the user whether to install a missing tool."""
     answer = input(f"\n  {yellow(f'`{name}` is not installed. Install it now? [Y/n]: ')}")
     answer = answer.strip().lower()
     if answer not in ("", "y", "yes"):
         fail(f"`{name}` is required. Install it manually and re-run.")
+
     print(yellow(f"      Running: {' '.join(install_cmd)}"))
     result = subprocess.run(install_cmd)
     if result.returncode != 0:
         fail(f"Installation of `{name}` failed.")
-    # Refresh PATH in-process for tools installed to ~/.cargo/bin
+
     cargo_bin = Path.home() / ".cargo" / "bin"
     if str(cargo_bin) not in os.environ.get("PATH", ""):
         os.environ["PATH"] = str(cargo_bin) + os.pathsep + os.environ.get("PATH", "")
+
     if not shutil.which(name):
-        fail(f"`{name}` still not found after install — restart your terminal and re-run.")
+        fail(f"`{name}` still not found after install - restart your terminal and re-run.")
+
     ok(f"`{name}` installed: {shutil.which(name)}")
 
 
 def check_tool(name: str, install_cmd: list) -> str:
-    """Return the full path to `name`, prompting to install if missing."""
     path = shutil.which(name)
     if path:
         print(gray(f"      {name} found: {path}"))
         return path
+
     prompt_install(name, install_cmd)
+    return shutil.which(name) or name
 
 
 def check_rustup_target(target: str):
-    result = subprocess.run(["rustup", "target", "list", "--installed"], capture_output=True, text=True)
+    result = subprocess.run(
+        ["rustup", "target", "list", "--installed"],
+        capture_output=True,
+        text=True,
+    )
     if target in result.stdout:
         print(gray(f"      rustup target {target} already installed"))
         return
+
     print(yellow(f"      Installing rustup target {target}..."))
     run(["rustup", "target", "add", target])
 
@@ -121,36 +127,27 @@ def check_dependencies():
     check_tool("rustup", ["winget", "install", "Rustlang.Rustup"])
     check_tool("trunk", ["cargo", "install", "trunk"])
 
-    # Tauri CLI is optional — only needed for `cargo tauri dev/build`.
-    # This script calls `cargo build` directly, but warn if it's missing.
     tauri_cli = shutil.which("cargo-tauri")
     if tauri_cli:
         print(gray(f"      cargo-tauri found: {tauri_cli}"))
     else:
-        answer = input(f"\n  {yellow('`cargo-tauri` is not installed. Install it now? [Y/n]: ')}").strip().lower()
+        answer = input(
+            f"\n  {yellow('`cargo-tauri` is not installed. Install it now? [Y/n]: ')}"
+        ).strip().lower()
         if answer in ("", "y", "yes"):
             run(["cargo", "install", "tauri-cli"])
             ok("cargo-tauri installed.")
         else:
-            warn("`cargo-tauri` skipped — `cargo tauri dev/build` won't work without it.")
+            warn("`cargo-tauri` skipped - `cargo tauri dev/build` will not work without it.")
 
     check_rustup_target("wasm32-unknown-unknown")
     ok("All required dependencies present.")
 
 
-# ── Helpers ────────────────────────────────────────────────────────────────────
-
-
-def run(cmd: list, cwd: Path = None, env: dict = None):
-    merged_env = {**os.environ, **(env or {})}
-    result = subprocess.run(cmd, cwd=cwd, env=merged_env)
-    if result.returncode != 0:
-        fail(f"Command failed (exit {result.returncode}): {' '.join(str(c) for c in cmd)}")
-
-
 def robust_copy(src: Path, dst: Path):
     if src.exists():
         try:
+            dst.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(src, dst)
             print(gray(f"      Copied {src.name} -> {dst}"))
         except Exception as e:
@@ -160,13 +157,33 @@ def robust_copy(src: Path, dst: Path):
         warn(f"Source not found: {src}")
 
 
-# ── Build steps ────────────────────────────────────────────────────────────────
+def resolve_layout(script_dir: Path) -> tuple[Path, Path, Path, Path]:
+    """
+    build.py lives in:
+      HydraDragonAntivirus/HydraDragonFirewall/hydradragonfirewall/build.py
+
+    Derived:
+      project_dir:   HydraDragonAntivirus/HydraDragonFirewall
+      repo_root:     HydraDragonAntivirus
+      windivert_dir: HydraDragonAntivirus/HydraDragonFirewall
+      deploy_dir:    HydraDragonAntivirus/hydradragon/HydraDragonFirewall
+
+    No absolute hardcoded deploy path.
+    No `everything`.
+    """
+    project_dir = script_dir.parent
+    repo_root = project_dir.parent
+    windivert_dir = project_dir
+    deploy_dir = repo_root / "hydradragon" / project_dir.name
+    return project_dir, repo_root, windivert_dir, deploy_dir
 
 
 def build_ui(script_dir: Path, release: bool):
     step("1/4", f"Building UI with Trunk ({'release' if release else 'debug'})...")
+
     ui_dir = script_dir / "ui"
     dist_dir = script_dir / "dist"
+
     if not ui_dir.exists():
         fail(f"UI directory not found: {ui_dir}")
 
@@ -178,112 +195,85 @@ def build_ui(script_dir: Path, release: bool):
     ok("UI build complete!")
 
 
-def build_rust(script_dir: Path, release: bool, windivert_path: Path):
+def build_rust(script_dir: Path, release: bool, windivert_dir: Path):
     flag = "release" if release else "debug"
     step("2/4", f"Building Rust backend ({flag})...")
 
-    # windivert-sys 0.10.x reads exactly these two vars:
-    #   WINDIVERT_PATH      — directory containing WinDivert.lib / WinDivert.dll
-    #   WINDIVERT_DLL_OUTPUT — where to copy the compiled DLL/sys (optional)
-    # WINDIVERT_LIB_DIR is NOT read by windivert-sys and was silently ignored.
     target_dir = script_dir / "target" / ("release" if release else "debug")
     cmd = ["cargo", "build"]
     if release:
         cmd.append("--release")
+
+    # WinDivert path is only passed to the build system.
+    # Nothing from WinDivert is copied by this script.
     run(
         cmd,
         cwd=script_dir,
         env={
-            "WINDIVERT_PATH": str(windivert_path),
+            "WINDIVERT_PATH": str(windivert_dir),
             "WINDIVERT_DLL_OUTPUT": str(target_dir),
         },
     )
+
     ok("Rust build complete!")
 
 
-def firewall_deploy_dir(windivert_path: Path) -> Path:
-    """Deploy beside `WinDivert`, under hydradragon/HydraDragonFirewall.
+def deploy_firewall_only(script_dir: Path, release: bool, deploy_dir: Path):
+    step("3/4", "Deploying firewall binaries only...")
 
-    Expected source layout:
-      HydraDragonAntivirus/
-        WinDivert/
-        HydraDragonFirewall/
-
-    Deployment layout:
-      HydraDragonAntivirus/
-        hydradragon/
-          HydraDragonFirewall/
-    """
-    return windivert_path.parent / "hydradragon" / "HydraDragonFirewall"
-
-
-def copy_windivert(script_dir: Path, release: bool, windivert_path: Path):
-    step("3/4", "Copying WinDivert runtime files...")
     target_dir = script_dir / "target" / ("release" if release else "debug")
-    for fname in ["WinDivert.dll", "WinDivert64.sys"]:
-        robust_copy(windivert_path / fname, target_dir / fname)
 
-    # Mirror the firewall binaries to:
-    #   <parent of WinDivert>/hydradragon/HydraDragonFirewall/
-    # Do not copy them into the WinDivert/ folder.
-    deploy_dir = firewall_deploy_dir(windivert_path)
-    deploy_dir.mkdir(parents=True, exist_ok=True)
-
-    exe_src = target_dir / "hydradragonfirewall.exe"
-    dll_src = target_dir / "hydradragonfirewall.dll"
-    robust_copy(exe_src, deploy_dir / "hydradragonfirewall.exe")
-    robust_copy(dll_src, deploy_dir / "hydradragonfirewall.dll")
-
-
-# ── Entry point ────────────────────────────────────────────────────────────────
+    # Do NOT copy WinDivert here.
+    # Only deploy firewall binaries.
+    robust_copy(target_dir / "hydradragonfirewall.exe", deploy_dir / "hydradragonfirewall.exe")
+    robust_copy(target_dir / "hydradragonfirewall.dll", deploy_dir / "hydradragonfirewall.dll")
 
 
 def main():
     parser = argparse.ArgumentParser(description="HydraDragon Firewall Build Script")
     parser.add_argument("--release", action="store_true", help="Build in release mode")
-    parser.add_argument("--run", action="store_true", help="Launch the app after building")
+    parser.add_argument("--run", action="store_true", help="Launch the deployed app after building")
     args = parser.parse_args()
 
     header("HydraDragon Firewall Build System")
 
     script_dir = Path(__file__).resolve().parent
-    windivert_path = (script_dir / ".." / "WinDivert").resolve()
+    project_dir, repo_root, windivert_dir, deploy_dir = resolve_layout(script_dir)
 
-    if not windivert_path.exists():
-        fail(
-            f"WinDivert folder not found: {windivert_path}\n"
-            "  Expected layout:\n"
-            "    HydraDragonAntivirus/\n"
-            "      WinDivert/          ← WinDivert.dll, WinDivert.lib, WinDivert64.sys\n"
-            "      HydraDragonFirewall/ ← this script\n"
-            "  Download WinDivert from https://reqrypt.org/windivert.html and place\n"
-            "  the x64 files in the `WinDivert` folder, then re-run."
-        )
-
-    lib_file = windivert_path / "WinDivert.lib"
+    lib_file = windivert_dir / "WinDivert.lib"
     if not lib_file.exists():
-        fail(f"WinDivert.lib not found in: {windivert_path}\n  The folder exists but is missing the import library.\n  Download the WinDivert x64 package and copy WinDivert.lib,\n  WinDivert.dll and WinDivert64.sys into that folder.")
+        fail(
+            f"WinDivert.lib not found in: {windivert_dir}\n"
+            "Expected WinDivert files in the HydraDragonFirewall folder:\n"
+            f"  {windivert_dir / 'WinDivert.lib'}\n"
+            f"  {windivert_dir / 'WinDivert.dll'}\n"
+            f"  {windivert_dir / 'WinDivert64.sys'}\n"
+        )
 
     check_dependencies()
     build_ui(script_dir, args.release)
-    build_rust(script_dir, args.release, windivert_path)
-    copy_windivert(script_dir, args.release, windivert_path)
+    build_rust(script_dir, args.release, windivert_dir)
+    deploy_firewall_only(script_dir, args.release, deploy_dir)
 
     target_dir = script_dir / "target" / ("release" if args.release else "debug")
-    exe = target_dir / "hydradragonfirewall.exe"
-    deployed_exe = firewall_deploy_dir(windivert_path) / "hydradragonfirewall.exe"
+    built_exe = target_dir / "hydradragonfirewall.exe"
+    deployed_exe = deploy_dir / "hydradragonfirewall.exe"
 
     step("4/4", "Build Successful!")
-    print(cyan(f"\n  Executable: {exe}"))
-    print(cyan(f"  Deployed:   {deployed_exe}"))
+    print(cyan(f"\n  Source dir:       {script_dir}"))
+    print(cyan(f"  Project dir:      {project_dir}"))
+    print(cyan(f"  WinDivert path:   {windivert_dir}"))
+    print(cyan(f"  Built executable: {built_exe}"))
+    print(cyan(f"  Deploy folder:    {deploy_dir}"))
+    print(cyan(f"  Deployed exe:     {deployed_exe}"))
     print(cyan("=" * 48))
     print(yellow("  IMPORTANT: Run the executable as Administrator"))
     print(yellow("  for WinDivert network capture to work!"))
     print(cyan("=" * 48))
 
     if args.run:
-        print(magenta("\n  Launching application (UAC prompt expected)..."))
-        os.startfile(str(exe))  # Windows ShellExecute — triggers UAC RunAs
+        print(magenta("\n  Launching deployed application (UAC prompt expected)..."))
+        os.startfile(str(deployed_exe))
 
 
 if __name__ == "__main__":
