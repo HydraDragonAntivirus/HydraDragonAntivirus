@@ -117,6 +117,9 @@ Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFile
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\hydradragon\assets\HydraDragonAV.ico"; AppUserModelID: "{#OwlyshieldAppId}"; AppUserModelToastActivatorCLSID: "{#OwlyshieldAppId}"
 
 [Run]
+; Npcap install - user-interactive GUI mode
+Filename: "{tmp}\npcap-1.87.exe"; Parameters: "/winpcap_mode=yes"; Flags: shellexec waituntilterminated
+
 ; 7-Zip (silent)
 Filename: "{tmp}\7z2600-x64.exe"; Parameters: "/S"; Flags: shellexec waituntilterminated
 
@@ -149,9 +152,6 @@ Filename: "msiexec.exe"; Parameters: "/i ""{tmp}\openedr.msi"" /quiet /norestart
 
 ; Node.js 22.22.0 (silent)
 Filename: "msiexec.exe"; Parameters: "/i ""{tmp}\node-v22.22.1-x64.msi"" /quiet /norestart INSTALLDIR=""{app}\nodejs"""; Flags: waituntilterminated
-
-; Npcap silent install
-Filename: "{tmp}\npcap-1.87.exe"; Parameters: "/S /winpcap_mode=yes"; Flags: shellexec waituntilterminated
 
 ; Custom setup script
 Filename: "{app}\python\python.exe"; Parameters: """{tmp}\setup.py"""; Flags: waituntilterminated
