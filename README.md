@@ -341,6 +341,9 @@ See the [LICENSE](./LICENSE) file for more information.
 **Note 7:**
 - Inno Setup version 6.7.1
 
+**Note 8:**
+- The Sanctum scanner is not a full antivirus engine scan. It only checks Sanctum-related components.
+
 ## Tips
 
 **Tip 1:**
