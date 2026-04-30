@@ -132,6 +132,7 @@ https://www.virustotal.com/gui/file/1ef6c1a4dfdc39b63bfe650ca81ab89510de6c0d3d7c
 
 ### Installation & Usage Notes
 
+- The installation process is not fully automated. Npcap, drivers, Firewall components, and some other dependencies may require manual approval during setup.
 - You must uninstall the software manually (auto-uninstaller is not functional).
 - Temporary ClamAV update errors during setup can be safely ignored.
 - If driver installation fails, disable Secure Boot and try again.
