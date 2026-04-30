@@ -137,7 +137,7 @@ https://www.virustotal.com/gui/file/1ef6c1a4dfdc39b63bfe650ca81ab89510de6c0d3d7c
 - Temporary ClamAV update errors during setup can be safely ignored.
 - If driver installation fails, disable Secure Boot and try again.
 - It is recommended to wait until the antivirus interface fully loads, even if some protections appear active.
-- You might need disable memory integrity:
+- To ensure the antivirus is fully functional, Memory Integrity must be disabled. Reference:
 https://github.com/adrianyy/kernelhook/issues/1
 
 ---
