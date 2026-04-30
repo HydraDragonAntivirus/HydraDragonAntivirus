@@ -151,7 +151,7 @@ Filename: "msiexec.exe"; Parameters: "/i ""{tmp}\openedr.msi"" /quiet /norestart
 Filename: "msiexec.exe"; Parameters: "/i ""{tmp}\node-v22.22.1-x64.msi"" /quiet /norestart INSTALLDIR=""{app}\nodejs"""; Flags: waituntilterminated
 
 ; Npcap silent install
-Filename: "{tmp}\npcap-1.85.exe"; Parameters: "/S /winpcap_mode=yes"; Flags: shellexec waituntilterminated
+Filename: "{tmp}\npcap-1.87.exe"; Parameters: "/S /winpcap_mode=yes"; Flags: shellexec waituntilterminated
 
 ; Custom setup script
 Filename: "{app}\python\python.exe"; Parameters: """{tmp}\setup.py"""; Flags: waituntilterminated
