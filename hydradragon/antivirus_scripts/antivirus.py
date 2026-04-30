@@ -30,6 +30,12 @@ from .path_and_variables import (
     unlicense_x64_path,
     webcrack_javascript_deobfuscated_dir,
     pkg_unpacker_dir,
+    nodejs_dir,
+    node_exe_path,
+    asar_cli_path,
+    webcrack_cli_path,
+    nexe_unpacker_cli_path,
+    pkg_unpacker_main_path,
     enigma1_extracted_dir,
     upx_path,
     upx_extracted_dir,
@@ -176,6 +182,25 @@ start_time = time.time()
 import subprocess
 
 logger.debug(f"subprocess module loaded in {time.time() - start_time:.6f} seconds")
+
+
+def _node_subprocess_env():
+    env = os.environ.copy()
+    current_path = env.get("PATH", "")
+    env["PATH"] = f"{nodejs_dir}{os.pathsep}{current_path}" if current_path else nodejs_dir
+    return env
+
+
+def _require_hardcoded_tool(tool_path, tool_name):
+    if not os.path.exists(tool_path):
+        raise FileNotFoundError(f"{tool_name} not found at {tool_path}")
+    return tool_path
+
+
+def _run_hardcoded_node_tool(command, description, cwd=None):
+    logger.debug("%s: %s", description, command)
+    subprocess.run(command, cwd=cwd, check=True, env=_node_subprocess_env())
+
 
 start_time = time.time()
 logger.debug(f"threading module loaded in {time.time() - start_time:.6f} seconds")
@@ -5580,9 +5605,11 @@ def extract_npm_file(file_path):
         output_dir = os.path.join(npm_pkg_extracted_dir, str(folder_number))
         os.makedirs(output_dir, exist_ok=True)
 
-        # Run pkg-unpacker CLI: npm start -i <file_path> -o <output_dir>
-        unpack_command = ["npm", "start", "-i", str(file_path), "-o", output_dir]
-        subprocess.run(unpack_command, cwd=pkg_unpacker_dir, check=True)
+        # Run the bundled pkg-unpacker entrypoint with the bundled Node runtime.
+        _require_hardcoded_tool(node_exe_path, "node.exe")
+        _require_hardcoded_tool(pkg_unpacker_main_path, "pkg-unpacker main.js")
+        unpack_command = [node_exe_path, pkg_unpacker_main_path, "-i", str(file_path), "-o", output_dir]
+        _run_hardcoded_node_tool(unpack_command, "pkg-unpacker extraction", cwd=pkg_unpacker_dir)
         logger.info(f"Pkg binary extracted to {output_dir}")
 
         # Collect extracted files without inline web scanning (firewall handles URLs)
@@ -5619,9 +5646,10 @@ def extract_asar_file(file_path):
         asar_output_dir = os.path.join(asar_dir, str(folder_number))
         os.makedirs(asar_output_dir, exist_ok=True)
 
-        # Run asar extraction command
-        asar_command = ["asar", "extract", file_path, asar_output_dir]
-        subprocess.run(asar_command, check=True)
+        # Run the bundled asar CLI.
+        _require_hardcoded_tool(asar_cli_path, "asar.cmd")
+        asar_command = [asar_cli_path, "extract", file_path, asar_output_dir]
+        _run_hardcoded_node_tool(asar_command, "asar extraction")
         logger.info(f"Asar archive extracted to {asar_output_dir}")
 
         dispatch_firewall_web_scan(_collect_files_under(asar_output_dir), "asar_extract")
@@ -5654,9 +5682,10 @@ def deobfuscate_webcrack_js(file_path) -> str:
         js_output_dir = os.path.join(webcrack_javascript_deobfuscated_dir, str(folder_number))
         os.makedirs(js_output_dir, exist_ok=True)
 
-        # Run webcrack deobfuscation command
-        webcrack_command = ["webcrack", file_path, "-o", js_output_dir]
-        subprocess.run(webcrack_command, check=True)
+        # Run the bundled webcrack CLI.
+        _require_hardcoded_tool(webcrack_cli_path, "webcrack.cmd")
+        webcrack_command = [webcrack_cli_path, file_path, "-o", js_output_dir]
+        _run_hardcoded_node_tool(webcrack_command, "webcrack deobfuscation")
         logger.info(f"JavaScript deobfuscated to {js_output_dir}")
 
         dispatch_firewall_web_scan(_collect_files_under(js_output_dir), "webcrack_deobfuscation")
@@ -7541,9 +7570,10 @@ def nexe_unpacker(file_path) -> list:
         js_output_dir = os.path.join(nexe_javascript_unpacked_dir, f"{base_filename}_{folder_number}")
         os.makedirs(js_output_dir, exist_ok=True)
 
-        # Run nexe_unpacker command to extract the JavaScript bundle
-        nexe_command = ["nexe_unpacker", file_path, "-o", js_output_dir]
-        subprocess.run(nexe_command, check=True)
+        # Run the bundled nexe_unpacker CLI.
+        _require_hardcoded_tool(nexe_unpacker_cli_path, "nexe_unpacker.cmd")
+        nexe_command = [nexe_unpacker_cli_path, file_path, "-o", js_output_dir]
+        _run_hardcoded_node_tool(nexe_command, "nexe_unpacker extraction")
         logger.info(f"nexe JavaScript extracted to {js_output_dir}")
 
         # Collect all extracted files from the output directory

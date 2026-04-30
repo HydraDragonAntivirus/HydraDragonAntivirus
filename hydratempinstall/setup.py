@@ -101,6 +101,8 @@ CLAMAV_DIR = HYDRADRAGON_PATH / "ClamAV"
 CONFIG_FILE = CLAMAV_DIR / "freshclam.conf"
 SURICATA_DIR = HYDRADRAGON_PATH / "Suricata"
 NODEJS_PATH = HYDRADRAGON_PATH / "nodejs"
+NODE_EXE_PATH = NODEJS_PATH / "node.exe"
+NPM_CMD_PATH = NODEJS_PATH / "npm.cmd"
 PKG_UNPACKER_DIR = HYDRADRAGON_PATH / "pkg-unpacker"
 CLEAN_VM_PY_PATH = HYDRADRAGON_PATH / "Sanctum" / "clean_vm" / "installer_clean_vm.py"
 CLEAN_VM_FOLDER = HYDRADRAGON_PATH / "Sanctum" / "clean_vm"
@@ -206,7 +208,7 @@ def run_cmd(
             if npm_clear_on_retry and "npm" in cmd_str_for_log:
                 try:
                     log.info("Clearing npm cache (force) before retry.")
-                    npm_exe = shutil.which("npm.cmd") or shutil.which("npm")
+                    npm_exe = str(NPM_CMD_PATH) if NPM_CMD_PATH.exists() else None
                     if npm_exe and not DRY_RUN:
                         subprocess.run([npm_exe, "cache", "clean", "--force"], check=False, text=True, encoding="utf-8", errors="replace")
                 except Exception:
@@ -411,36 +413,66 @@ def ensure_path_includes(directory: Path) -> bool:
         return True
 
 
-def ensure_nodejs_in_path():
-    """
-    Ensure Node.js bin directory is in PATH for the current process.
-    This fixes the 'node is not recognized' error during npm operations.
-    """
-    return ensure_path_includes(NODEJS_PATH)
+def get_venv_python(venv_dir: Path) -> Path:
+    """Return the Python executable that belongs to the venv."""
+    return venv_dir / "Scripts" / "python.exe"
 
 
-def verify_node_accessible():
+def ensure_venv_created(venv_dir: Path) -> Path:
     """
-    Verify that 'node' command is accessible.
-    Returns True if accessible, False otherwise.
+    Create the venv if it is missing and repair missing scripts without deleting
+    an existing venv.
     """
-    node_exe = shutil.which("node") or shutil.which("node.exe")
-    if node_exe:
-        log.info("node.exe found at: %s", node_exe)
-        try:
-            result = subprocess.run([node_exe, "--version"], capture_output=True, text=True, check=False)
-            if result.returncode == 0:
-                log.info("Node.js version: %s", result.stdout.strip())
-                return True
+    try:
+        import venv as venv_module  # type: ignore
+
+        venv_python = get_venv_python(venv_dir)
+        if not venv_dir.exists():
+            log.info("Creating virtual environment at %s", venv_dir)
+            if DRY_RUN:
+                log.info("DRY RUN - venv create skipped")
             else:
-                log.error("node --version failed with rc=%d", result.returncode)
-                return False
-        except Exception as e:
-            log.error("Failed to verify node: %s", e)
-            return False
-    else:
-        log.error("node.exe not found in PATH")
-        return False
+                venv_module.EnvBuilder(with_pip=True, clear=False).create(str(venv_dir))
+        elif not venv_python.exists():
+            log.warning("venv exists but %s is missing; repairing without removing the venv.", venv_python)
+            if DRY_RUN:
+                log.info("DRY RUN - venv repair skipped")
+            else:
+                venv_module.EnvBuilder(with_pip=True, clear=False).create(str(venv_dir))
+        else:
+            log.info("venv already exists at %s", venv_dir)
+    except Exception:
+        log.exception("Failed to create/repair venv via venv module. Falling back to py -3.12 -m venv")
+        pylauncher = shutil.which("py") or shutil.which("py.exe")
+        if not pylauncher:
+            raise
+        rc = run_cmd([pylauncher, "-3.12", "-m", "venv", str(venv_dir)], "Python venv creation (py -3.12 -m venv)")
+        if rc != 0:
+            raise RuntimeError(f"py -3.12 -m venv failed with rc={rc}")
+
+    venv_python = get_venv_python(venv_dir)
+    if DRY_RUN:
+        return venv_python
+    if not venv_python.exists():
+        raise FileNotFoundError(f"Virtual environment python.exe not found at {venv_python}")
+    return venv_python
+
+
+def resolve_node_tools() -> tuple[Optional[str], Optional[str], Optional[Path]]:
+    """
+    Find the bundled node.exe and npm.cmd. HydraDragon runtime code uses these
+    hardcoded paths, so setup must install npm tools into the bundled Node tree.
+    """
+    if NODE_EXE_PATH.exists() and NPM_CMD_PATH.exists():
+        ensure_path_includes(NODEJS_PATH)
+        log.info("Using bundled Node.js from %s", NODEJS_PATH)
+        return str(NODE_EXE_PATH), str(NPM_CMD_PATH), NODEJS_PATH
+
+    if not NODE_EXE_PATH.exists():
+        log.error("Bundled node.exe not found at %s", NODE_EXE_PATH)
+    if not NPM_CMD_PATH.exists():
+        log.error("Bundled npm.cmd not found at %s", NPM_CMD_PATH)
+    return None, None, NODEJS_PATH
 
 
 # ----------------------
@@ -568,7 +600,8 @@ def main():
 
     # 7. Update Hayabusa rules
     HAYABUSA_DIR = HYDRADRAGON_PATH / "hayabusa"
-    HAYABUSA_EXE = HAYABUSA_DIR / "hayabusa-3.7.0-win-x64.exe"
+    hayabusa_matches = sorted(HAYABUSA_DIR.glob("hayabusa-*-win-x64.exe")) if HAYABUSA_DIR.exists() else []
+    HAYABUSA_EXE = hayabusa_matches[-1] if hayabusa_matches else HAYABUSA_DIR / "hayabusa-3.8.1-win-x64.exe"
 
     if HAYABUSA_EXE.exists():
         # Change to Hayabusa directory so it can find its DLLs
@@ -586,7 +619,7 @@ def main():
             os.chdir(original_cwd)
             log.info("Restored directory to: %s", original_cwd)
     else:
-        log.warning("hayabusa-3.6.0-win-x64.exe not found at %s", HAYABUSA_EXE)
+        log.warning("No Hayabusa executable found at %s", HAYABUSA_DIR)
         log.info("Skipping Hayabusa rules update")
 
     # ------------------------------
@@ -644,46 +677,22 @@ def main():
     # 13. Create Python virtual environment inside HydraDragonAntivirus folder
     venv_dir = HYDRADRAGON_ROOT_PATH / "venv"
     try:
-        import venv as venv_module  # type: ignore
-
-        if not venv_dir.exists():
-            log.info("Creating virtual environment at %s", venv_dir)
-            if DRY_RUN:
-                log.info("DRY RUN - venv create skipped")
-            else:
-                venv_module.EnvBuilder(with_pip=True).create(str(venv_dir))
-        else:
-            log.info("venv already exists at %s", venv_dir)
-    except Exception:
-        log.exception("Failed to create venv via venv module. Falling back to py -3.12 -m venv")
-        # fallback: try subprocess py -3.12 -m venv
-        pylauncher = shutil.which("py") or shutil.which("py.exe")
-        if pylauncher:
-            rc = run_cmd([pylauncher, "-3.12", "-m", "venv", str(venv_dir)], "Python venv creation (py -3.12 -m venv)")
-            if rc != 0:
-                errors.append(("venv create", rc))
-                summary_and_exit(errors)
-        else:
-            errors.append(("venv create", 1))
-            summary_and_exit(errors)
-
-    # 13. Resolve venv activate script
-    activate_bat = venv_dir / "Scripts" / "activate.bat"
-    if not activate_bat.exists():
-        log.error("Virtual environment activate.bat not found at %s", activate_bat)
-        errors.append(("venv activate.bat missing", 1))
+        venv_python = ensure_venv_created(venv_dir)
+    except Exception as e:
+        log.exception("Failed to create or repair venv: %s", e)
+        errors.append(("venv create", 1))
         summary_and_exit(errors)
 
-    # 14. Upgrade pip in the venv using activate.bat
+    # 14. Upgrade pip in the venv by calling the venv interpreter directly.
     log.info("Upgrading pip in virtual environment...")
-    pip_cmd = f'"{activate_bat}" && python -m pip install --upgrade pip'
+    pip_cmd = [str(venv_python), "-m", "pip", "install", "--upgrade", "pip"]
     rc = run_cmd(pip_cmd, "pip upgrade", retries=MAX_RETRIES, retry_delay=RETRY_DELAY)
     if rc != 0:
         log.warning("pip upgrade returned rc=%s (continuing anyway)", rc)
 
     # 15. Install Poetry in the venv
     log.info("Installing Poetry in virtual environment...")
-    poetry_install_cmd = f'"{activate_bat}" && python -m pip install poetry'
+    poetry_install_cmd = [str(venv_python), "-m", "pip", "install", "poetry"]
     rc = run_cmd(poetry_install_cmd, "poetry installation", retries=MAX_RETRIES, retry_delay=RETRY_DELAY)
     if rc != 0:
         log.error("Failed to install Poetry. Poetry-based dependency installation will be skipped.")
@@ -704,14 +713,14 @@ def main():
             os.chdir(str(HYDRADRAGON_ROOT_PATH))
             log.info("Changed directory to: %s", HYDRADRAGON_ROOT_PATH)
 
-            # Ensure poetry installs into the current venv
-            config_cmd = f'"{activate_bat}" && poetry config virtualenvs.create false'
+            # Ensure Poetry installs dependencies into this venv.
+            config_cmd = [str(venv_python), "-m", "poetry", "config", "virtualenvs.create", "false"]
             rc = run_cmd(config_cmd, "poetry config virtualenvs.create false")
             if rc != 0:
                 log.warning("poetry config returned rc=%s", rc)
 
             # Run poetry install
-            install_deps_cmd = f'"{activate_bat}" && poetry install -vvv --no-interaction --no-ansi'
+            install_deps_cmd = [str(venv_python), "-m", "poetry", "install", "-vvv", "--no-interaction", "--no-ansi"]
             rc = run_cmd(
                 install_deps_cmd,
                 "Poetry dependency installation",
@@ -734,69 +743,66 @@ def main():
     # ------------------------------
     log.info("Installing npm packages...")
 
-    # CRITICAL: Ensure Node.js is in PATH
-    if not ensure_nodejs_in_path():
-        log.error("Failed to add Node.js to PATH")
-        errors.append(("nodejs path setup", 1))
-
-    if not verify_node_accessible():
-        log.error("Node.js is not accessible. NPM package installations will likely fail.")
-        log.error("Please verify Node.js is properly installed at: %s", NODEJS_PATH)
-        errors.append(("nodejs verification", 1))
-        # Continue anyway in case npm.cmd can work without direct node access
-
-    npm_cmd_path = shutil.which("npm.cmd") or shutil.which("npm")
-    if not npm_cmd_path:
-        alt_npm = NODEJS_PATH / "npm.cmd"
-        if alt_npm.exists():
-            npm_cmd_path = str(alt_npm)
-        else:
-            log.warning("npm not found in PATH or at expected %s. NPM installs will be skipped.", NODEJS_PATH)
-            npm_cmd_path = None
-
-    def npm_run(args_list: List[str], desc: str) -> int:
-        if not npm_cmd_path:
-            log.error("Skipping %s because npm is not available", desc)
-            return 1
-        # Construct command string with explicit PATH setting to include Node.js
-        nodejs_bin = str(NODEJS_PATH)
-        cmd = f'set "PATH={nodejs_bin};%PATH%" && "{npm_cmd_path}" {" ".join(args_list)}'
-        return run_cmd(cmd, desc, retries=MAX_RETRIES, retry_delay=RETRY_DELAY, npm_clear_on_retry=True)
-
-    # 17. asar
-    rc = npm_run(["install", "-g", "asar"], "asar installation")
-    if rc != 0:
-        errors.append(("asar install", rc))
-
-    # 18. webcrack
-    rc = npm_run(["install", "-g", "webcrack"], "webcrack installation")
-    if rc != 0:
-        errors.append(("webcrack install", rc))
-
-    # 19. nexe_unpacker
-    rc = npm_run(["install", "-g", "nexe_unpacker"], "nexe_unpacker installation")
-    if rc != 0:
-        errors.append(("nexe_unpacker install", rc))
-
-    # 20. pkg-unpacker build
-    if PKG_UNPACKER_DIR.exists():
-        log.info("Building pkg-unpacker in %s", PKG_UNPACKER_DIR)
-        # Save current directory
-        original_cwd = os.getcwd()
+    node_cmd_path, npm_cmd_path, nodejs_bin_path = resolve_node_tools()
+    if node_cmd_path and nodejs_bin_path:
         try:
-            os.chdir(str(PKG_UNPACKER_DIR))
-            rc = npm_run(["install"], "pkg-unpacker npm dependencies installation")
-            if rc != 0:
-                errors.append(("pkg-unpacker npm install", rc))
+            result = subprocess.run([node_cmd_path, "--version"], capture_output=True, text=True, check=False)
+            if result.returncode == 0:
+                log.info("Node.js version: %s", result.stdout.strip())
             else:
-                rc = npm_run(["run", "build"], "pkg-unpacker npm project build")
-                if rc != 0:
-                    errors.append(("pkg-unpacker npm build", rc))
-        finally:
-            # Restore original directory
-            os.chdir(original_cwd)
+                log.warning("node --version failed with rc=%d", result.returncode)
+        except Exception as e:
+            log.warning("Failed to verify node: %s", e)
+
+    if not npm_cmd_path:
+        log.error("Bundled npm is required at %s for Node-dependent tools.", NPM_CMD_PATH)
+        errors.append(("bundled nodejs/npm missing", 1))
     else:
-        log.info("HydraDragon pkg-unpacker folder not found, skipping npm build.")
+        def npm_run(args_list: List[str], desc: str) -> int:
+            # Construct command string with explicit PATH setting to include bundled Node.js.
+            nodejs_bin = str(nodejs_bin_path) if nodejs_bin_path else str(NODEJS_PATH)
+            npm_command = subprocess.list2cmdline([str(npm_cmd_path), *[str(arg) for arg in args_list]])
+            cmd = f'set "PATH={nodejs_bin};%PATH%" && {npm_command}'
+            return run_cmd(cmd, desc, retries=MAX_RETRIES, retry_delay=RETRY_DELAY, npm_clear_on_retry=True)
+
+        rc = npm_run(["config", "set", "prefix", str(NODEJS_PATH)], "npm bundled prefix config")
+        if rc != 0:
+            errors.append(("npm bundled prefix config", rc))
+
+        # 17. asar
+        rc = npm_run(["install", "-g", "asar"], "asar installation")
+        if rc != 0:
+            errors.append(("asar install", rc))
+
+        # 18. webcrack
+        rc = npm_run(["install", "-g", "webcrack"], "webcrack installation")
+        if rc != 0:
+            errors.append(("webcrack install", rc))
+
+        # 19. nexe_unpacker
+        rc = npm_run(["install", "-g", "nexe_unpacker"], "nexe_unpacker installation")
+        if rc != 0:
+            errors.append(("nexe_unpacker install", rc))
+
+        # 20. pkg-unpacker build
+        if PKG_UNPACKER_DIR.exists():
+            log.info("Building pkg-unpacker in %s", PKG_UNPACKER_DIR)
+            # Save current directory
+            original_cwd = os.getcwd()
+            try:
+                os.chdir(str(PKG_UNPACKER_DIR))
+                rc = npm_run(["install"], "pkg-unpacker npm dependencies installation")
+                if rc != 0:
+                    errors.append(("pkg-unpacker npm install", rc))
+                else:
+                    rc = npm_run(["run", "build"], "pkg-unpacker npm project build")
+                    if rc != 0:
+                        errors.append(("pkg-unpacker npm build", rc))
+            finally:
+                # Restore original directory
+                os.chdir(original_cwd)
+        else:
+            log.info("HydraDragon pkg-unpacker folder not found, skipping npm build.")
 
     summary_and_exit(errors)
 
