@@ -53,11 +53,28 @@ unlicense_x64_path = os.path.join(unlicense_dir, "unlicense-x64.exe")
 hayabusa_dir = os.path.join(script_dir, "hayabusa")
 pkg_unpacker_dir = os.path.join(script_dir, "pkg-unpacker")
 nodejs_dir = os.path.join(script_dir, "nodejs")
-node_exe_path = os.path.join(nodejs_dir, "node.exe")
-npm_cmd_path = os.path.join(nodejs_dir, "npm.cmd")
-asar_cli_path = os.path.join(nodejs_dir, "asar.cmd")
-webcrack_cli_path = os.path.join(nodejs_dir, "webcrack.cmd")
-nexe_unpacker_cli_path = os.path.join(nodejs_dir, "nexe_unpacker.cmd")
+
+
+def _resolve_nodejs_bin_dir():
+    direct_node = os.path.join(nodejs_dir, "node.exe")
+    direct_npm = os.path.join(nodejs_dir, "npm.cmd")
+    if os.path.exists(direct_node) and os.path.exists(direct_npm):
+        return nodejs_dir
+
+    for node_exe in sorted(glob.glob(os.path.join(nodejs_dir, "**", "node.exe"), recursive=True)):
+        candidate = os.path.dirname(node_exe)
+        if os.path.exists(os.path.join(candidate, "npm.cmd")):
+            return candidate
+
+    return nodejs_dir
+
+
+nodejs_bin_dir = _resolve_nodejs_bin_dir()
+node_exe_path = os.path.join(nodejs_bin_dir, "node.exe")
+npm_cmd_path = os.path.join(nodejs_bin_dir, "npm.cmd")
+asar_cli_path = os.path.join(nodejs_bin_dir, "asar.cmd")
+webcrack_cli_path = os.path.join(nodejs_bin_dir, "webcrack.cmd")
+nexe_unpacker_cli_path = os.path.join(nodejs_bin_dir, "nexe_unpacker.cmd")
 pkg_unpacker_main_path = os.path.join(pkg_unpacker_dir, "dist", "main.js")
 hayabusa_path = os.path.join(hayabusa_dir, "hayabusa-3.8.1-win-x64.exe")
 inno_unpack_dir = os.path.join(script_dir, "innounp-2")

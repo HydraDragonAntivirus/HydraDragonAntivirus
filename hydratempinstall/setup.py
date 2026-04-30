@@ -144,6 +144,7 @@ def run_cmd(
     npm_clear_on_retry: bool = False,
     success_exit_codes: Optional[Iterable[int]] = None,
     always_log_output: bool = False,
+    env: Optional[dict[str, str]] = None,
 ) -> int:
     """
     Run a command with retries. Capture stdout and stderr and decode safely.
@@ -153,6 +154,7 @@ def run_cmd(
     - npm_clear_on_retry: if True and command looks like npm, run npm cache clean between attempts.
     - success_exit_codes: iterable of ints considered success; default {0}. If any returned rc is in this set, function returns 0.
     - always_log_output: if True, log output at INFO level even for successful commands.
+    - env: optional subprocess environment override.
     Returns:
         0 on success (rc in success_exit_codes), non-zero last rc on failure.
     """
@@ -173,7 +175,7 @@ def run_cmd(
         try:
             # Use text=True with explicit encoding and error handling
             # This prevents subprocess from using cp1254 encoding internally
-            proc = subprocess.run(cmd, check=False, shell=use_shell, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="ignore")
+            proc = subprocess.run(cmd, check=False, shell=use_shell, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="ignore", env=env)
             last_rc = proc.returncode
 
             # stdout and stderr are already decoded strings
@@ -458,15 +460,48 @@ def ensure_venv_created(venv_dir: Path) -> Path:
     return venv_python
 
 
+def build_venv_command_env(venv_dir: Path) -> dict[str, str]:
+    """Build an environment that makes subprocess tools use the target venv."""
+    env = os.environ.copy()
+    venv_scripts = venv_dir / "Scripts"
+    current_path = env.get("PATH", "")
+    env["VIRTUAL_ENV"] = str(venv_dir)
+    env["PATH"] = f"{venv_scripts}{os.pathsep}{current_path}" if current_path else str(venv_scripts)
+    env["POETRY_VIRTUALENVS_CREATE"] = "false"
+    env["POETRY_VIRTUALENVS_USE_POETRY_PYTHON"] = "false"
+    env["POETRY_NO_INTERACTION"] = "1"
+    env.pop("PYTHONHOME", None)
+    return env
+
+
+def find_bundled_node_dir() -> Optional[Path]:
+    """Find node.exe/npm.cmd under the bundled nodejs tree."""
+    direct_node = NODEJS_PATH / "node.exe"
+    direct_npm = NODEJS_PATH / "npm.cmd"
+    if direct_node.exists() and direct_npm.exists():
+        return NODEJS_PATH
+
+    if not NODEJS_PATH.exists():
+        return None
+
+    for node_exe in NODEJS_PATH.rglob("node.exe"):
+        candidate = node_exe.parent
+        if (candidate / "npm.cmd").exists():
+            return candidate
+
+    return None
+
+
 def resolve_node_tools() -> tuple[Optional[str], Optional[str], Optional[Path]]:
     """
-    Find the bundled node.exe and npm.cmd. HydraDragon runtime code uses these
-    hardcoded paths, so setup must install npm tools into the bundled Node tree.
+    Find the bundled node.exe and npm.cmd. HydraDragon runtime code resolves
+    these from the hardcoded bundled nodejs tree, so setup must use that tree too.
     """
-    if NODE_EXE_PATH.exists() and NPM_CMD_PATH.exists():
-        ensure_path_includes(NODEJS_PATH)
-        log.info("Using bundled Node.js from %s", NODEJS_PATH)
-        return str(NODE_EXE_PATH), str(NPM_CMD_PATH), NODEJS_PATH
+    node_dir = find_bundled_node_dir()
+    if node_dir:
+        ensure_path_includes(node_dir)
+        log.info("Using bundled Node.js from %s", node_dir)
+        return str(node_dir / "node.exe"), str(node_dir / "npm.cmd"), node_dir
 
     if not NODE_EXE_PATH.exists():
         log.error("Bundled node.exe not found at %s", NODE_EXE_PATH)
@@ -678,6 +713,7 @@ def main():
     venv_dir = HYDRADRAGON_ROOT_PATH / "venv"
     try:
         venv_python = ensure_venv_created(venv_dir)
+        venv_env = build_venv_command_env(venv_dir)
     except Exception as e:
         log.exception("Failed to create or repair venv: %s", e)
         errors.append(("venv create", 1))
@@ -686,14 +722,14 @@ def main():
     # 14. Upgrade pip in the venv by calling the venv interpreter directly.
     log.info("Upgrading pip in virtual environment...")
     pip_cmd = [str(venv_python), "-m", "pip", "install", "--upgrade", "pip"]
-    rc = run_cmd(pip_cmd, "pip upgrade", retries=MAX_RETRIES, retry_delay=RETRY_DELAY)
+    rc = run_cmd(pip_cmd, "pip upgrade", retries=MAX_RETRIES, retry_delay=RETRY_DELAY, env=venv_env)
     if rc != 0:
         log.warning("pip upgrade returned rc=%s (continuing anyway)", rc)
 
     # 15. Install Poetry in the venv
     log.info("Installing Poetry in virtual environment...")
     poetry_install_cmd = [str(venv_python), "-m", "pip", "install", "poetry"]
-    rc = run_cmd(poetry_install_cmd, "poetry installation", retries=MAX_RETRIES, retry_delay=RETRY_DELAY)
+    rc = run_cmd(poetry_install_cmd, "poetry installation", retries=MAX_RETRIES, retry_delay=RETRY_DELAY, env=venv_env)
     if rc != 0:
         log.error("Failed to install Poetry. Poetry-based dependency installation will be skipped.")
         errors.append(("poetry install", rc))
@@ -715,9 +751,14 @@ def main():
 
             # Ensure Poetry installs dependencies into this venv.
             config_cmd = [str(venv_python), "-m", "poetry", "config", "virtualenvs.create", "false"]
-            rc = run_cmd(config_cmd, "poetry config virtualenvs.create false")
+            rc = run_cmd(config_cmd, "poetry config virtualenvs.create false", env=venv_env)
             if rc != 0:
                 log.warning("poetry config returned rc=%s", rc)
+
+            env_use_cmd = [str(venv_python), "-m", "poetry", "env", "use", str(venv_python)]
+            rc = run_cmd(env_use_cmd, "poetry env use venv python", env=venv_env)
+            if rc != 0:
+                log.warning("poetry env use returned rc=%s", rc)
 
             # Run poetry install
             install_deps_cmd = [str(venv_python), "-m", "poetry", "install", "-vvv", "--no-interaction", "--no-ansi"]
@@ -727,6 +768,7 @@ def main():
                 retries=MAX_RETRIES,
                 retry_delay=RETRY_DELAY,
                 always_log_output=True,
+                env=venv_env,
             )
             if rc != 0:
                 errors.append(("poetry install deps", rc))
@@ -765,7 +807,7 @@ def main():
             cmd = f'set "PATH={nodejs_bin};%PATH%" && {npm_command}'
             return run_cmd(cmd, desc, retries=MAX_RETRIES, retry_delay=RETRY_DELAY, npm_clear_on_retry=True)
 
-        rc = npm_run(["config", "set", "prefix", str(NODEJS_PATH)], "npm bundled prefix config")
+        rc = npm_run(["config", "set", "prefix", str(nodejs_bin_path or NODEJS_PATH)], "npm bundled prefix config")
         if rc != 0:
             errors.append(("npm bundled prefix config", rc))
 

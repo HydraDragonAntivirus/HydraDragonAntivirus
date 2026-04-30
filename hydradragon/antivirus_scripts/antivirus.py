@@ -31,6 +31,7 @@ from .path_and_variables import (
     webcrack_javascript_deobfuscated_dir,
     pkg_unpacker_dir,
     nodejs_dir,
+    nodejs_bin_dir,
     node_exe_path,
     asar_cli_path,
     webcrack_cli_path,
@@ -187,7 +188,8 @@ logger.debug(f"subprocess module loaded in {time.time() - start_time:.6f} second
 def _node_subprocess_env():
     env = os.environ.copy()
     current_path = env.get("PATH", "")
-    env["PATH"] = f"{nodejs_dir}{os.pathsep}{current_path}" if current_path else nodejs_dir
+    node_paths = os.pathsep.join([nodejs_bin_dir, nodejs_dir])
+    env["PATH"] = f"{node_paths}{os.pathsep}{current_path}" if current_path else node_paths
     return env
 
 
