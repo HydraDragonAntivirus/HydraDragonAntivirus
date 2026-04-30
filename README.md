@@ -43,11 +43,15 @@ This project is not production-ready.
 Breaking changes, bugs, and incomplete features should be expected.
 </p>
 
+## One Man Project
+
+- HydraDragon is a three-year independent open-source antivirus/EDR project built primarily by one developer.
+
 ## Compatibility with PCs
 
-This installer is designed to be used on clean or freshly formatted Windows PCs.
+- This installer is designed to be used on clean or freshly formatted Windows PCs.
 
-For best results, install HydraDragon Antivirus only on systems where the required third-party components have not already been installed manually.
+- For best results, install HydraDragon Antivirus only on systems where the required third-party components have not already been installed manually.
 
 ### Important Notice
 
@@ -165,7 +169,7 @@ At this stage:
 - Breaking changes may occur without prior notice.
 - This project is **not production-ready** and should be used for development and testing purposes only.
 
-- Dynamic and static analysis with Real Time Malware Analysis Platform for Windows, including open-source XDR (3 EDR projects), ClamAV, YARA-X, machine learning AI, behavioral analysis, Unpacker, Deobfuscator, Decompiler, website signatures, Ghidra, Suricata, Sigma, Kernel, Hypervisior based protection and much more than you can imagine.
+- Dynamic and static analysis with Real Time Malware Analysis with Antivirus for Windows, including open-source XDR (3 EDR projects), ClamAV, YARA-X, machine learning AI, behavioral analysis, Unpacker, Deobfuscator, Decompiler, website signatures, Ghidra, Suricata, Sigma, Kernel, Hypervisior based protection and much more than you can imagine.
 
 ## License
 
