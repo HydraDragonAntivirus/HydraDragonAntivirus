@@ -464,13 +464,27 @@ def build_venv_command_env(venv_dir: Path) -> dict[str, str]:
     """Build an environment that makes subprocess tools use the target venv."""
     env = os.environ.copy()
     venv_scripts = venv_dir / "Scripts"
+    poetry_cache_dir = HYDRADRAGON_ROOT_PATH / "poetry_cache"
+    poetry_config_dir = HYDRADRAGON_ROOT_PATH / "poetry_config"
+    poetry_virtualenvs_dir = poetry_cache_dir / "virtualenvs"
+    poetry_envs_toml = poetry_virtualenvs_dir / "envs.toml"
     current_path = env.get("PATH", "")
     env["VIRTUAL_ENV"] = str(venv_dir)
     env["PATH"] = f"{venv_scripts}{os.pathsep}{current_path}" if current_path else str(venv_scripts)
+    env["POETRY_CACHE_DIR"] = str(poetry_cache_dir)
+    env["POETRY_CONFIG_DIR"] = str(poetry_config_dir)
     env["POETRY_VIRTUALENVS_CREATE"] = "false"
     env["POETRY_VIRTUALENVS_USE_POETRY_PYTHON"] = "false"
     env["POETRY_NO_INTERACTION"] = "1"
     env.pop("PYTHONHOME", None)
+    if not DRY_RUN:
+        try:
+            poetry_virtualenvs_dir.mkdir(parents=True, exist_ok=True)
+            poetry_config_dir.mkdir(parents=True, exist_ok=True)
+            if not poetry_envs_toml.exists():
+                poetry_envs_toml.write_text("", encoding="utf-8")
+        except Exception as e:
+            log.warning("Failed to prepare Poetry cache/config directories: %s", e)
     return env
 
 
@@ -755,11 +769,6 @@ def main():
             if rc != 0:
                 log.warning("poetry config returned rc=%s", rc)
 
-            env_use_cmd = [str(venv_python), "-m", "poetry", "env", "use", str(venv_python)]
-            rc = run_cmd(env_use_cmd, "poetry env use venv python", env=venv_env)
-            if rc != 0:
-                log.warning("poetry env use returned rc=%s", rc)
-
             # Run poetry install
             install_deps_cmd = [str(venv_python), "-m", "poetry", "install", "-vvv", "--no-interaction", "--no-ansi"]
             rc = run_cmd(
@@ -771,7 +780,19 @@ def main():
                 env=venv_env,
             )
             if rc != 0:
-                errors.append(("poetry install deps", rc))
+                log.warning("Poetry dependency installation failed with rc=%s. Falling back to pip install .", rc)
+                pip_install_project_cmd = [str(venv_python), "-m", "pip", "install", "--upgrade", "."]
+                pip_rc = run_cmd(
+                    pip_install_project_cmd,
+                    "pip project dependency installation fallback",
+                    retries=MAX_RETRIES,
+                    retry_delay=RETRY_DELAY,
+                    always_log_output=True,
+                    env=venv_env,
+                )
+                if pip_rc != 0:
+                    errors.append(("poetry install deps", rc))
+                    errors.append(("pip install project fallback", pip_rc))
         finally:
             os.chdir(original_cwd)
             log.info("Restored directory to: %s", original_cwd)
