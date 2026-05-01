@@ -1547,7 +1547,7 @@ namespace Mega_Dumper
         [DllImport("advapi32.dll", CharSet = CharSet.Auto, SetLastError = true)]
         private static extern int SetSecurityInfo(int HANDLE, int SE_OBJECT_TYPE, int SECURITY_INFORMATION, int psidOwner, int psidGroup, IntPtr pDACL, IntPtr pSACL);
 
-        internal void EnableDebuggerPrivileges()
+        public void EnableDebuggerPrivileges()
         {
             try
             {
@@ -1900,8 +1900,10 @@ namespace Mega_Dumper
 
         public void SetDirectoriesPath(ref DUMP_DIRECTORIES dpmdirs)
         {
-            dpmdirs.dumps = Path.Combine("C:\\", "Dumps");
-            dpmdirs.nativedirname = dpmdirs.dumps; // dpmdirs.nativedirname = Path.Combine(dpmdirs.dumps, "Native");
+            if (string.IsNullOrEmpty(dpmdirs.root)) dpmdirs.root = Path.Combine("C:\\", "Dumps");
+            
+            dpmdirs.dumps = Path.Combine(dpmdirs.root, "dumps");
+            dpmdirs.nativedirname = Path.Combine(dpmdirs.dumps, "Native");
             dpmdirs.sysdirname = Path.Combine(dpmdirs.dumps, "System");
             dpmdirs.unknowndirname = Path.Combine(dpmdirs.dumps, "UnknownName");
         }
@@ -1978,6 +1980,7 @@ namespace Mega_Dumper
             bool isProcessDynamicallyManaged = false;
             try
             {
+                Console.WriteLine("[INFO] Checking if process is dynamically managed (CLR)...");
                 Mega_Dumper.ICorPublish publish = (Mega_Dumper.ICorPublish)new Mega_Dumper.CorpubPublish();
                 if (publish != null)
                 {
@@ -1987,8 +1990,9 @@ namespace Mega_Dumper
                         ppProcess.IsManaged(out isProcessDynamicallyManaged);
                     }
                 }
+                Console.WriteLine($"[INFO] Managed status: {isProcessDynamicallyManaged}");
             }
-            catch { }
+            catch (Exception ex) { Console.WriteLine($"[DEBUG] ICorPublish check failed: {ex.Message}"); }
 
             if (hProcess == IntPtr.Zero)
             {
@@ -2003,6 +2007,8 @@ namespace Mega_Dumper
             {
                 return "Failed to open selected process!";
             }
+
+            Console.WriteLine($"[INFO] Starting memory scan for PID {processId}...");
 
             try
             {
@@ -2037,6 +2043,9 @@ namespace Mega_Dumper
 
                 while (currentAddress < maxaddress && VirtualQueryEx(hProcess, AddrToIntPtr(currentAddress), out mbi, mbiSize) != 0)
                 {
+                    // Log progress occasionally
+                    if (currentAddress % 0x10000000 == 0) 
+                        Console.WriteLine($"[INFO] Scanning memory... Current Address: 0x{currentAddress:X16}");
                     // =================== FIX START ===================
                     // We are interested in committed memory that is not guarded and is accessible.
                     // The original check was flawed because it didn't use bitwise operations,
