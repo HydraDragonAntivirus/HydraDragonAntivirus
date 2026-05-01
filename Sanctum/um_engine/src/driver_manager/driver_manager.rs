@@ -1,6 +1,6 @@
 //! The main setup and more general functions for the driver manager module for the usermode engine
 
-use shared_no_std::constants::{DRIVER_UM_NAME, SANC_SYS_FILE_LOCATION, SVC_NAME};
+use shared_no_std::constants::{DRIVER_UM_NAME, HYDRADRAGON_DIR, SANC_SYS_FILE_LOCATION, SVC_NAME};
 use shared_std::driver_manager::DriverState;
 use std::{os::windows::ffi::OsStrExt, path::PathBuf};
 use windows::{
@@ -39,13 +39,7 @@ impl SanctumDriverManager {
         let device_um_symbolic_link_name = DRIVER_UM_NAME.to_u16_vec();
         let log = Log::new();
 
-        let appdata = match std::env::var("APPDATA") {
-            Ok(a) => a,
-            Err(e) => log.panic(&format!(
-                "Could not find App Data folder in environment variables. {e}"
-            )),
-        };
-        let sys_file_path: Vec<u16> = PathBuf::from(appdata)
+        let sys_file_path: Vec<u16> = PathBuf::from(HYDRADRAGON_DIR)
             .join(SANC_SYS_FILE_LOCATION)
             .as_os_str()
             .encode_wide()
@@ -54,14 +48,14 @@ impl SanctumDriverManager {
 
         let svc_name = SVC_NAME.to_u16_vec();
 
-        // check the sys file exists
-        // todo this eventually should be in the actual install directory under Windows
+        // check the sys file exists in the install directory
         let x = unsafe { GetFileAttributesW(PCWSTR::from_raw(sys_file_path.as_ptr())) };
         if x == INVALID_FILE_ATTRIBUTES {
             panic!(
-                "[-] Cannot find sanctum.sys. Err: {}. Ensure the driver file is at: {:?}",
+                "[-] Cannot find sanctum.sys. Err: {}. Ensure the driver file is at: {}\\{}",
                 unsafe { GetLastError().0 },
-                sys_file_path
+                HYDRADRAGON_DIR,
+                SANC_SYS_FILE_LOCATION,
             );
         }
 
