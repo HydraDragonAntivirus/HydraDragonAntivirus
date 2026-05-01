@@ -64,7 +64,7 @@ Source: "C:\Users\semae\OneDrive\Belgeler\hydratempinstall\clamav-1.5.2.win.x64.
 Source: "C:\Users\semae\OneDrive\Belgeler\hydratempinstall\npcap-1.87.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\semae\OneDrive\Belgeler\hydratempinstall\Suricata-7.0.14-1-64bit.msi"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\semae\OneDrive\Belgeler\hydratempinstall\jre-8u491-windows-x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
-Source: "C:\Users\semae\OneDrive\Belgeler\hydratempinstall\jdk-21_windows-x64_bin.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
+Source: "C:\Users\semae\OneDrive\Belgeler\hydratempinstall\jdk-25_windows-x64_bin.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\semae\OneDrive\Belgeler\hydratempinstall\windowsdesktop-runtime-8.0.25-win-x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\semae\OneDrive\Belgeler\hydratempinstall\windowsdesktop-runtime-9.0.14-win-x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 ; Node.js 22.22.1 (x64) MSI
