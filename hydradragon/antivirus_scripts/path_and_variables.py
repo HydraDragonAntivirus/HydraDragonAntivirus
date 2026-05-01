@@ -52,7 +52,7 @@ unlicense_path = os.path.join(unlicense_dir, "unlicense.exe")
 unlicense_x64_path = os.path.join(unlicense_dir, "unlicense-x64.exe")
 hayabusa_dir = os.path.join(script_dir, "hayabusa")
 pkg_unpacker_dir = os.path.join(script_dir, "pkg-unpacker")
-nodejs_dir = os.path.join(script_dir, "nodejs")
+nodejs_dir = os.path.join(hydra_dragon_antivirus_dir, "nodejs")
 
 
 def _resolve_nodejs_bin_dir():
