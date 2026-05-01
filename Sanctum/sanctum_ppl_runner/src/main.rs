@@ -1,6 +1,7 @@
 //! A service runner for the Protected Process Lite Antimalware which allows us to interact with ETW:TI
 
 use std::{
+    path::Path,
     sync::atomic::{AtomicBool, Ordering},
     thread::sleep,
     time::Duration,
@@ -14,10 +15,10 @@ use windows::{
         System::{
             EventLog::{EVENTLOG_ERROR_TYPE, EVENTLOG_INFORMATION_TYPE, EVENTLOG_SUCCESS},
             Services::{
-                RegisterServiceCtrlHandlerW, SERVICE_RUNNING, SERVICE_START_PENDING,
-                SERVICE_STATUS, SERVICE_STATUS_CURRENT_STATE, SERVICE_STATUS_HANDLE,
-                SERVICE_STOPPED, SERVICE_TABLE_ENTRYW, SERVICE_WIN32_OWN_PROCESS, SetServiceStatus,
-                StartServiceCtrlDispatcherW,
+                RegisterServiceCtrlHandlerW, SERVICE_CONTROL_STOP, SERVICE_RUNNING,
+                SERVICE_START_PENDING, SERVICE_STATUS, SERVICE_STATUS_CURRENT_STATE,
+                SERVICE_STATUS_HANDLE, SERVICE_STOPPED, SERVICE_TABLE_ENTRYW,
+                SERVICE_WIN32_OWN_PROCESS, SetServiceStatus, StartServiceCtrlDispatcherW,
             },
             Threading::{
                 CREATE_PROTECTED_PROCESS, CreateProcessW, EXTENDED_STARTUPINFO_PRESENT,
@@ -42,6 +43,8 @@ mod registry;
 mod tracing;
 
 static SERVICE_STOP: AtomicBool = AtomicBool::new(false);
+const EXPECTED_RUNNER_PATH: &str =
+    r"C:\Program Files\HydraDragonAntivirus\hydradragon\Sanctum\AppData\sanctum_ppl_runner.exe";
 
 /// The service entrypoint for the binary which will be run via powershell / persistence
 #[unsafe(no_mangle)]
@@ -223,6 +226,10 @@ unsafe fn update_service_status(h_status: SERVICE_STATUS_HANDLE, state: u32) {
 }
 
 fn main() {
+    if !is_started_from_expected_path() {
+        std::process::exit(1);
+    }
+
     let mut service_name: Vec<u16> = "SanctumPPLRunner\0".encode_utf16().collect();
 
     let service_table = [
@@ -236,6 +243,24 @@ fn main() {
     unsafe {
         StartServiceCtrlDispatcherW(service_table.as_ptr()).unwrap();
     }
+}
+
+fn is_started_from_expected_path() -> bool {
+    let Ok(current_exe) = std::env::current_exe() else {
+        return false;
+    };
+
+    normalize_windows_path(&current_exe) == normalize_windows_path(EXPECTED_RUNNER_PATH)
+}
+
+fn normalize_windows_path(path: impl AsRef<Path>) -> String {
+    let path = path.as_ref().to_string_lossy();
+    let path = path
+        .strip_prefix(r"\\?\")
+        .or_else(|| path.strip_prefix(r"\??\"))
+        .unwrap_or(&path);
+
+    path.trim_end_matches(['\\', '/']).to_ascii_lowercase()
 }
 
 fn svc_name() -> Vec<u16> {

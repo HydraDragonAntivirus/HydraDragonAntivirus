@@ -80,7 +80,7 @@ Name: "{app}\hydradragon\Owlyshield\utils"
 Name: "{app}\hydradragon\Owlyshield\log"; Flags: uninsneveruninstall
 Name: "{app}\hydradragon\Owlyshield\config"; Flags: uninsneveruninstall
 Name: "{app}\hydradragon\Owlyshield\config\threats"; Flags: uninsneveruninstall
-Name: "{app}\hydradragon\HydraDragonAV\ClamAV"
+Name: "{pf64}\ClamAV"
 Name: "{app}\hydradragon\suricata"
 Name: "{app}\nodejs"
 Name: "{app}\python"
@@ -140,7 +140,7 @@ Filename: "{tmp}\jdk-21_windows-x64_bin.exe"; Parameters: "/s"; Flags: shellexec
 Filename: "{tmp}\python-3.12.10-amd64.exe"; Parameters: "/quiet InstallAllUsers=1 PrependPath=1 Include_pip=1 TargetDir=""{app}\python"""; Flags: shellexec waituntilterminated
 
 ; ClamAV Installer (MSI - Silent Install)
-Filename: "msiexec.exe"; Parameters: "/i ""{tmp}\clamav-1.5.2.win.x64.msi"" /quiet /norestart INSTALLDIR=""{app}\hydradragon\HydraDragonAV\engines\clamav"""; Flags: waituntilterminated
+Filename: "msiexec.exe"; Parameters: "/i ""{tmp}\clamav-1.5.2.win.x64.msi"" /quiet /norestart"; Flags: waituntilterminated
 
 ; Suricata Installer (MSI - Silent Install)
 Filename: "msiexec.exe"; Parameters: "/i ""{tmp}\Suricata-7.0.14-1-64bit.msi"" /quiet /norestart INSTALLDIR=""{app}\hydradragon\suricata"""; Flags: waituntilterminated

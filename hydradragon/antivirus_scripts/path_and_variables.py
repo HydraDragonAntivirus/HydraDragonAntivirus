@@ -256,7 +256,7 @@ suricata_exe_path = os.path.join(suricata_dir, "suricata.exe")
 firewall_exe_path = os.path.join(program_files, "HydraDragonAntivirus", "hydradragon", "HydraDragonFirewall", "hydradragonfirewall.exe")
 
 # ClamAV base folder path
-clamav_folder = os.path.join(program_files, "ClamAV")
+clamav_folder = r"C:\Program Files\ClamAV"
 
 # 7-Zip base folder path
 seven_zip_folder = os.path.join(program_files, "7-Zip")
