@@ -7,6 +7,7 @@ pub static NT_DEVICE_NAME: &str = "\\Device\\SanctumEDR";
 pub static DOS_DEVICE_NAME: &str = "\\??\\SanctumEDR";
 pub static DRIVER_UM_NAME: &str = "\\\\.\\SanctumEDR"; // \\.\ sets device namespace
 
+pub static HYDRADRAGON_DIR: &str = r"C:\Program Files\HydraDragonAntivirus\hydradragon";
 pub static SYS_INSTALL_RELATIVE_LOC: &str = "sanctum.sys";
 pub static SVC_NAME: &str = "Sanctum";
 pub static PIPE_NAME: &str = r"\\.\pipe\sanctum_um_engine_pipe";
