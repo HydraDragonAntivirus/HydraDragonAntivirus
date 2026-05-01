@@ -97,7 +97,7 @@ def get_env_programw6432() -> Path:
 PROGRAMW6432 = get_env_programw6432()
 HYDRADRAGON_ROOT_PATH = PROGRAMW6432 / "HydraDragonAntivirus"
 HYDRADRAGON_PATH = HYDRADRAGON_ROOT_PATH / "hydradragon"
-CLAMAV_DIR = HYDRADRAGON_PATH / "ClamAV"
+CLAMAV_DIR = Path(r"C:\Program Files\ClamAV")
 CONFIG_FILE = CLAMAV_DIR / "freshclam.conf"
 SURICATA_DIR = HYDRADRAGON_PATH / "Suricata"
 NODEJS_PATH = HYDRADRAGON_PATH / "nodejs"
