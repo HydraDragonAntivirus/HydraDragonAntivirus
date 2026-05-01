@@ -128,7 +128,6 @@ from .path_and_variables import (
     suricata_config_path,
     suricata_exe_path,
     seven_zip_path,
-    clamav_database_directory_path,
     antivirus_list_path,
     yaraxtr_yrc_path,
 )
@@ -9444,18 +9443,5 @@ def run_de4dot(file_path):
 
 # --- Helper Function ---
 def get_latest_clamav_def_time():
-    """Checks the ClamAV database folder for the latest definition file time."""
-    try:
-        if not os.path.isdir(clamav_database_directory_path):
-            return "ClamAV DB Not Found"
-
-        files = [os.path.join(clamav_database_directory_path, f) for f in os.listdir(clamav_database_directory_path) if os.path.isfile(os.path.join(clamav_database_directory_path, f))]
-        if not files:
-            return "Definitions DB Empty"
-
-        latest_file = max(files, key=os.path.getmtime)
-        mod_time = os.path.getmtime(latest_file)
-        return f"Definitions: {datetime.fromtimestamp(mod_time).strftime('%Y-%m-%d %H:%M')}"
-    except Exception as e:
-        logger.error(f"Could not read ClamAV DB time: {e}")
-        return "Error Reading Definitions"
+    """ClamAV database state is owned by HydraDragonAV.exe."""
+    return "ClamAV managed by HydraDragonAV.exe"

@@ -8,10 +8,12 @@
 #include <sstream>
 #include <thread>
 #include <mutex>
+#include <chrono>
 #include <filesystem>
 #include <Windows.h>
 #include <algorithm>
 #include <cctype>
+#include <cwctype>
 
 // YARA Headers
 #include <yara.h>
@@ -20,14 +22,157 @@ namespace fs = std::filesystem;
 
 // Paths
 #define PIPE_NAME L"\\\\.\\pipe\\HydraDragonAV"
-#define ENGINES_DIR L"C:\\Program Files\\HydraDragonAntivirus\\hydradragon\\HydraDragonAV\\ClamAV\\"
+#define ENGINES_DIR L"C:\\Program Files\\ClamAV\\"
 #define CLAMAV_DLL ENGINES_DIR L"libclamav.dll"
 #define CLAMAV_DB  ENGINES_DIR L"database"
+#define FRESHCLAM_EXE ENGINES_DIR L"freshclam.exe"
 #define YARA_RULES_FOLDER L"C:\\Program Files\\HydraDragonAntivirus\\hydradragon\\yara\\"
 
 // Scanner Global
 static std::unique_ptr<clamav::Scanner> g_clamavScanner;
 static YR_RULES* g_yaraRules = nullptr;
+constexpr auto CLAMAV_UPDATE_INTERVAL = std::chrono::hours(2);
+constexpr auto CLAMAV_DEFINITION_MAX_AGE = std::chrono::hours(12);
+constexpr DWORD FRESHCLAM_TIMEOUT_MS = 1500u * 1000u;
+
+bool IsClamAvDatabaseStale() {
+    std::error_code ec;
+    const fs::path dbPath(CLAMAV_DB);
+    if (!fs::exists(dbPath, ec) || !fs::is_directory(dbPath, ec)) {
+        std::cerr << "[ClamAV] Database directory missing: " << dbPath.string() << std::endl;
+        return true;
+    }
+
+    bool foundDefinition = false;
+    fs::file_time_type latestDefinition{};
+    for (const auto& entry : fs::directory_iterator(dbPath, ec)) {
+        if (ec) {
+            std::cerr << "[ClamAV] Failed to enumerate database directory: " << ec.message() << std::endl;
+            return true;
+        }
+
+        std::error_code entryEc;
+        if (!entry.is_regular_file(entryEc)) {
+            continue;
+        }
+
+        std::wstring extension = entry.path().extension().wstring();
+        std::transform(extension.begin(), extension.end(), extension.begin(), [](wchar_t ch) {
+            return static_cast<wchar_t>(std::towlower(ch));
+        });
+
+        if (extension != L".cvd" && extension != L".cld") {
+            continue;
+        }
+
+        const auto writeTime = entry.last_write_time(entryEc);
+        if (entryEc) {
+            std::cerr << "[ClamAV] Failed to read definition timestamp: " << entry.path().string() << std::endl;
+            continue;
+        }
+
+        if (!foundDefinition || writeTime > latestDefinition) {
+            latestDefinition = writeTime;
+            foundDefinition = true;
+        }
+    }
+
+    if (!foundDefinition) {
+        std::cerr << "[ClamAV] No .cvd/.cld definition files found." << std::endl;
+        return true;
+    }
+
+    return latestDefinition + CLAMAV_DEFINITION_MAX_AGE < fs::file_time_type::clock::now();
+}
+
+bool RunFreshclam() {
+    std::error_code ec;
+    const fs::path freshclamPath(FRESHCLAM_EXE);
+    if (!fs::exists(freshclamPath, ec)) {
+        std::cerr << "[ClamAV] freshclam.exe not found: " << freshclamPath.string() << std::endl;
+        return false;
+    }
+
+    std::wstring applicationName = freshclamPath.wstring();
+    std::wstring commandLine = L"\"" + applicationName + L"\"";
+    std::vector<wchar_t> mutableCommandLine(commandLine.begin(), commandLine.end());
+    mutableCommandLine.push_back(L'\0');
+
+    STARTUPINFOW startupInfo{};
+    startupInfo.cb = sizeof(startupInfo);
+    PROCESS_INFORMATION processInfo{};
+
+    const BOOL created = CreateProcessW(
+        applicationName.c_str(),
+        mutableCommandLine.data(),
+        nullptr,
+        nullptr,
+        FALSE,
+        0,
+        nullptr,
+        ENGINES_DIR,
+        &startupInfo,
+        &processInfo);
+
+    if (!created) {
+        std::cerr << "[ClamAV] Failed to start freshclam.exe. Error: " << GetLastError() << std::endl;
+        return false;
+    }
+
+    const DWORD waitResult = WaitForSingleObject(processInfo.hProcess, FRESHCLAM_TIMEOUT_MS);
+    if (waitResult == WAIT_TIMEOUT) {
+        std::cerr << "[ClamAV] freshclam.exe timed out." << std::endl;
+        TerminateProcess(processInfo.hProcess, 1);
+        CloseHandle(processInfo.hThread);
+        CloseHandle(processInfo.hProcess);
+        return false;
+    }
+
+    DWORD exitCode = 1;
+    if (!GetExitCodeProcess(processInfo.hProcess, &exitCode)) {
+        std::cerr << "[ClamAV] Could not read freshclam.exe exit code. Error: " << GetLastError() << std::endl;
+    }
+
+    CloseHandle(processInfo.hThread);
+    CloseHandle(processInfo.hProcess);
+
+    if (exitCode != 0) {
+        std::cerr << "[ClamAV] freshclam.exe failed with code " << exitCode << std::endl;
+        return false;
+    }
+
+    std::cout << "[ClamAV] freshclam.exe completed successfully." << std::endl;
+    return true;
+}
+
+void UpdateClamAvDefinitionsIfNeeded() {
+    if (!IsClamAvDatabaseStale()) {
+        std::cout << "[ClamAV] Definitions are current." << std::endl;
+        return;
+    }
+
+    std::cout << "[ClamAV] Updating definitions via freshclam.exe..." << std::endl;
+    if (!RunFreshclam()) {
+        return;
+    }
+
+    if (g_clamavScanner && g_clamavScanner->IsReady()) {
+        if (g_clamavScanner->ReloadDatabase()) {
+            std::cout << "[ClamAV] Database reloaded after freshclam update." << std::endl;
+        } else {
+            std::cerr << "[ClamAV] Database reload failed after freshclam update." << std::endl;
+        }
+    }
+}
+
+void StartClamAvDefinitionUpdateThread() {
+    std::thread([]() {
+        while (true) {
+            std::this_thread::sleep_for(CLAMAV_UPDATE_INTERVAL);
+            UpdateClamAvDefinitionsIfNeeded();
+        }
+    }).detach();
+}
 
 // YARA Callback
 int yara_callback(YR_SCAN_CONTEXT* context, int message, void* message_data, void* user_data) {
@@ -172,8 +317,10 @@ int main() {
 
     // Initialize ClamAV
     std::cout << "[ClamAV] Initializing Scanner..." << std::endl;
+    UpdateClamAvDefinitionsIfNeeded();
     g_clamavScanner = clamav::Scanner::CreateAsync(CLAMAV_DLL, CLAMAV_DB);
-    
+    StartClamAvDefinitionUpdateThread();
+
     // We don't block main here; if a scan comes in before ready, ScanFile will handle it or wait
     
     while (true) {

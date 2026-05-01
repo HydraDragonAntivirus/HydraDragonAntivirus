@@ -5,7 +5,6 @@ import sys
 import os
 import asyncio
 import concurrent.futures
-from datetime import datetime, timedelta
 
 # Ensure the script's directory is the working directory
 main_dir = os.path.dirname(os.path.abspath(__file__))
@@ -18,10 +17,10 @@ if main_dir not in sys.path:
 from hydradragon.antivirus_scripts.antivirus import logger
 
 # --- Import paths ---
-from hydradragon.antivirus_scripts.path_and_variables import freshclam_path, hayabusa_path, clamav_file_paths, clamav_folder
+from hydradragon.antivirus_scripts.path_and_variables import hayabusa_path
 
 # --- Import necessary functions from antivirus script ---
-from hydradragon.antivirus_scripts.antivirus import start_real_time_protection_async, reload_clamav_database, get_latest_clamav_def_time
+from hydradragon.antivirus_scripts.antivirus import start_real_time_protection_async
 
 from hydradragon.antivirus_scripts.rule_sync import sync_dynamic_protection_rules
 
@@ -52,62 +51,6 @@ async def async_to_thread(func, *args, operation_name="UNKNOWN", timeout=300, **
 # ==============================================================================
 # Definition Updates
 # ==============================================================================
-
-
-async def update_definitions_clamav_async():
-    """Checks and updates ClamAV virus definitions if older than 12 hours."""
-    logger.info("[UPDATES] Checking ClamAV definitions...")
-
-    try:
-        if not os.path.exists(freshclam_path):
-            logger.error(f"[UPDATES] freshclam not found at '{freshclam_path}'")
-            return False
-
-        # Check if definitions are older than 12 hours
-        needs_update = any(not os.path.exists(fp) or (datetime.now() - datetime.fromtimestamp(os.path.getmtime(fp))) > timedelta(hours=12) for fp in clamav_file_paths)
-
-        if needs_update:
-            logger.info("[UPDATES] Definitions older than 12h. Running freshclam...")
-
-            if not clamav_folder:
-                logger.error("[UPDATES] clamav_folder path missing")
-                return False
-
-            process = await asyncio.create_subprocess_exec(freshclam_path, cwd=clamav_folder, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
-
-            try:
-                stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=1500)
-
-                if stdout:
-                    for line in stdout.decode("utf-8", errors="ignore").splitlines():
-                        logger.info(f"[freshclam] {line}")
-                if stderr:
-                    for line in stderr.decode("utf-8", errors="ignore").splitlines():
-                        logger.warning(f"[freshclam ERR] {line}")
-
-                if process.returncode == 0:
-                    logger.info("[UPDATES] Reloading ClamAV database...")
-
-                    await async_to_thread(reload_clamav_database, operation_name="DATABASE_RELOAD", timeout=120)
-
-                    logger.info("[UPDATES] ✓ ClamAV definitions updated")
-                    return True
-                else:
-                    logger.error(f"[UPDATES] ✗ freshclam failed (code {process.returncode})")
-                    return False
-
-            except asyncio.TimeoutError:
-                logger.error("[UPDATES] ✗ freshclam timed out")
-                process.kill()
-                await process.wait()
-                return False
-        else:
-            logger.info("[UPDATES] ✓ ClamAV definitions up to date")
-            return True
-
-    except Exception as e:
-        logger.exception(f"[UPDATES] ClamAV update failed: {e}")
-        return False
 
 
 async def update_definitions_hayabusa_async():
@@ -154,19 +97,14 @@ async def update_definitions_async():
     logger.info("[UPDATES] Starting definition update")
 
     try:
-        results = await asyncio.gather(update_definitions_clamav_async(), update_definitions_hayabusa_async(), return_exceptions=True)
-
-        clamav_result, hayabusa_result = results
-
-        if isinstance(clamav_result, Exception):
-            logger.error(f"[UPDATES] ClamAV exception: {clamav_result}")
+        hayabusa_result = await update_definitions_hayabusa_async()
         if isinstance(hayabusa_result, Exception):
             logger.error(f"[UPDATES] Hayabusa exception: {hayabusa_result}")
 
     except Exception as e:
         logger.exception(f"[UPDATES] Error during update: {e}")
     finally:
-        logger.info(f"[UPDATES] Update finished - {get_latest_clamav_def_time()}")
+        logger.info("[UPDATES] Update finished")
 
 
 async def run_periodic_updates_async(update_interval_sec: int = 7200):
