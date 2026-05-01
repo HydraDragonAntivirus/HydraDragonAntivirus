@@ -123,7 +123,6 @@ namespace Mega_Dumper
             public IntPtr BaseAddress;
             public IntPtr AllocationBase;
             public uint AllocationProtect;
-            public ushort PartitionId;
             public IntPtr RegionSize;
             public uint State;
             public uint Protect;
@@ -417,8 +416,9 @@ namespace Mega_Dumper
                 return "Error: Could not create or access the output directory. Please check permissions and path.";
             }
 
-            // The core dumping logic is already in DumpProcessLogic and is UI-agnostic.
-            string result = await Task.Run(() => DumpProcessLogic(processId, ddirs, true /* dumpNative */, true /* restoreFilename */));
+            // Execute directly. We are already in a Task if called from Program.cs or we can just block.
+            // Using Task.FromResult to keep the signature but avoiding internal Task.Run deadlock.
+            string result = DumpProcessLogic(processId, ddirs, true /* dumpNative */, true /* restoreFilename */);
             return result;
         }
 
@@ -1581,7 +1581,7 @@ namespace Mega_Dumper
 
             int selectedIndex = lvprocesslist.SelectedIndices[0];
             uint processId = Convert.ToUInt32(lvprocesslist.Items[selectedIndex].SubItems[1].Text);
-            string dirname = lvprocesslist.Items[selectedIndex].SubItems[4].Text;
+            string dirname = @"C:\Dumps"; // Always dump to C:\Dumps
             bool dumpNative = dumpNativeToolStripMenuItem.Checked;
             bool restoreFilename = !dontRestoreFilenameToolStripMenuItem.Checked;
 
@@ -1902,7 +1902,7 @@ namespace Mega_Dumper
         {
             if (string.IsNullOrEmpty(dpmdirs.root)) dpmdirs.root = Path.Combine("C:\\", "Dumps");
             
-            dpmdirs.dumps = Path.Combine(dpmdirs.root, "dumps");
+            dpmdirs.dumps = dpmdirs.root;
             dpmdirs.nativedirname = Path.Combine(dpmdirs.dumps, "Native");
             dpmdirs.sysdirname = Path.Combine(dpmdirs.dumps, "System");
             dpmdirs.unknowndirname = Path.Combine(dpmdirs.dumps, "UnknownName");
@@ -1978,9 +1978,9 @@ namespace Mega_Dumper
             // The Ultimate Heuristic: Ask the Windows kernel if this process dynamically booted the CLR!
             // Defeats FakeNet-NG (fake PE header) and Enigma (stripped PE header + manually mapped CLR).
             bool isProcessDynamicallyManaged = false;
+            Console.WriteLine("[INFO] Checking if process is dynamically managed (CLR)...");
             try
             {
-                Console.WriteLine("[INFO] Checking if process is dynamically managed (CLR)...");
                 Mega_Dumper.ICorPublish publish = (Mega_Dumper.ICorPublish)new Mega_Dumper.CorpubPublish();
                 if (publish != null)
                 {
@@ -1990,9 +1990,35 @@ namespace Mega_Dumper
                         ppProcess.IsManaged(out isProcessDynamicallyManaged);
                     }
                 }
-                Console.WriteLine($"[INFO] Managed status: {isProcessDynamicallyManaged}");
             }
-            catch (Exception ex) { Console.WriteLine($"[DEBUG] ICorPublish check failed: {ex.Message}"); }
+            catch (Exception ex) 
+            { 
+                Console.WriteLine($"[DEBUG] ICorPublish check failed: {ex.Message}. Falling back to kernel/module inspection..."); 
+            }
+
+            // Kernel/Module Inspection Fallback
+            if (!isProcessDynamicallyManaged)
+            {
+                try
+                {
+                    using (var proc = Process.GetProcessById((int)processId))
+                    {
+                        foreach (ProcessModule mod in proc.Modules)
+                        {
+                            string modName = mod.ModuleName.ToLower();
+                            if (modName == "clr.dll" || modName == "mscorlib.dll" || modName == "coreclr.dll" || modName == "mscoree.dll")
+                            {
+                                isProcessDynamicallyManaged = true;
+                                Console.WriteLine($"[INFO] Managed status: True (Detected {mod.ModuleName} in process modules)");
+                                break;
+                            }
+                        }
+                    }
+                }
+                catch (Exception modEx) { Console.WriteLine($"[DEBUG] Module inspection failed: {modEx.Message}"); }
+            }
+
+            Console.WriteLine($"[INFO] Managed status: {isProcessDynamicallyManaged}");
 
             if (hProcess == IntPtr.Zero)
             {
@@ -2041,10 +2067,12 @@ namespace Mega_Dumper
                 MEMORY_BASIC_INFORMATION mbi;
                 uint mbiSize = (uint)Marshal.SizeOf(typeof(MEMORY_BASIC_INFORMATION));
 
+                Console.WriteLine($"[INFO] Memory scan range: 0x{currentAddress:X16} - 0x{maxaddress:X16}");
+
                 while (currentAddress < maxaddress && VirtualQueryEx(hProcess, AddrToIntPtr(currentAddress), out mbi, mbiSize) != 0)
                 {
-                    // Log progress occasionally
-                    if (currentAddress % 0x10000000 == 0) 
+                    // Log progress more frequently for x64 (every 1GB)
+                    if (currentAddress % 0x40000000 == 0) 
                         Console.WriteLine($"[INFO] Scanning memory... Current Address: 0x{currentAddress:X16}");
                     // =================== FIX START ===================
                     // We are interested in committed memory that is not guarded and is accessible.
@@ -2091,8 +2119,17 @@ namespace Mega_Dumper
                                             continue;
 
                                         int PEOffset = BitConverter.ToInt32(infokeep, 0);
-                                        if (PEOffset <= 0)
+                                        if (PEOffset <= 0 || PEOffset > 0x1000)
                                             continue;
+
+                                        // Verify 'PE' signature before logging
+                                        byte[] peSig = new byte[4];
+                                        if (ReadProcessMemoryW(hProcess, j + (ulong)k + (ulong)PEOffset, peSig, (UIntPtr)4, out BytesRead) && 
+                                            peSig[0] == 0x50 && peSig[1] == 0x45)
+                                        {
+                                            Console.WriteLine($"[DEBUG] Found valid PE header at 0x{(j + (ulong)k):X16}");
+                                        }
+                                        else continue;
 
                                         // ensure PEOffset falls within our local buffer first, else read from remote
                                         if ((PEOffset + 0x0120) < pagesizeInt)
@@ -2192,7 +2229,7 @@ namespace Mega_Dumper
                                                 // Determine architecture and correct Metadata offset
                                                 ushort magic = 0;
                                                 // Read Magic bytes (PE Signature + 24 bytes = offset 24 in NT header)
-                                                if (ReadProcessMemoryW(hProcess, (j + (ulong)k + (ulong)PEOffset + 24UL), infokeep, (UIntPtr)2, out BytesRead))
+                                                if (ReadProcessMemoryW(hProcess, (j + (ulong)k + (ulong)e_lfanew + 24UL), infokeep, (UIntPtr)2, out BytesRead))
                                                     magic = BitConverter.ToUInt16(infokeep, 0);
 
                                                 bool isPE64 = (magic == 0x20B);
@@ -2200,19 +2237,14 @@ namespace Mega_Dumper
 
                                                 long NetMetadata = 0;
                                                 // read 8 bytes at CLR metadata pointer
-                                                ulong netMetaAddr = j + (ulong)k + (ulong)PEOffset + (ulong)metadataOffset;
+                                                ulong netMetaAddr = j + (ulong)k + (ulong)e_lfanew + (ulong)metadataOffset;
                                                 if (ReadProcessMemoryW(hProcess, netMetaAddr, infokeep, (UIntPtr)8, out BytesRead))
                                                     NetMetadata = BitConverter.ToInt64(infokeep, 0);
 
-                                                if (NetMetadata == 0 && isNetAssembly)
+                                                if (dumpNative || NetMetadata != 0 || isProcessDynamicallyManaged)
                                                 {
-                                                    NetMetadata = 1;
-                                                }
-
-                                                if (dumpNative || NetMetadata != 0)
-                                                {
-                                                    // Read entire PE header from memory in one operation to ensure consistency
-                                                    int peHeaderSize = Math.Max(pagesizeInt, PEOffset + 0x400); // Ensure we read enough data
+                                                    // For VMP, we prefer a raw header capture without heavy fixups at the dump stage.
+                                                    int peHeaderSize = Math.Max(pagesizeInt, e_lfanew + 0x400);
                                                     byte[] PeHeader = new byte[peHeaderSize];
                                                     if (!ReadProcessMemoryW(hProcess, j + (ulong)k, PeHeader, (UIntPtr)peHeaderSize, out BytesRead))
                                                         continue;
@@ -2224,7 +2256,7 @@ namespace Mega_Dumper
 
                                                     if (nrofsection > 0 && nrofsection < 100) // Sanity check for number of sections
                                                     {
-                                                        string dumpdir = "";
+                                                        string dumpdir = ddirs.dumps; // ALWAYS dump to the main directory
 
                                                         // Read section alignment values directly from memory to ensure accuracy
                                                         byte[] alignmentBytes = new byte[8];
@@ -2274,11 +2306,11 @@ namespace Mega_Dumper
                                                         string filename = "";
 
                                                         // calculate right size of image
-                                                        int sizeofimage = BitConverter.ToInt32(PeHeader, PEOffset + 0x050);
+                                                        int sizeofimage = BitConverter.ToInt32(PeHeader, e_lfanew + 0x050);
 
                                                         // CHANGE: Correctly initialize calculatedimagesize from PE Header's SizeOfHeaders field.
                                                         // Offset 60 from OptionalHeader start (24) = 84 (0x54)
-                                                        int sizeOfHeaders = BitConverter.ToInt32(PeHeader, PEOffset + 0x54);
+                                                        int sizeOfHeaders = BitConverter.ToInt32(PeHeader, e_lfanew + 0x54);
                                                         int calculatedimagesize = sizeOfHeaders;
 
                                                         int rawsize, rawAddress, virtualsize, virtualAddress = 0;
@@ -2315,8 +2347,32 @@ namespace Mega_Dumper
                                                             try
                                                             {
                                                                 byte[] rawdump = new byte[totalrawsize];
-                                                                // read rawdump from remote at base j+k
-                                                                isok = ReadProcessMemoryW(hProcess, j + (ulong)k, rawdump, (UIntPtr)rawdump.Length, out BytesRead);
+                                                                // --- PROPER RAW DUMP RECONSTRUCTION ---
+                                                                // Copy headers first
+                                                                int headersSize = BitConverter.ToInt32(PeHeader, e_lfanew + 0x54);
+                                                                if (headersSize > PeHeader.Length) headersSize = PeHeader.Length;
+                                                                Array.Copy(PeHeader, rawdump, Math.Min(headersSize, rawdump.Length));
+
+                                                                // Copy each section from its VirtualAddress to its PointerToRawData
+                                                                for (int s = 0; s < nrofsection; s++)
+                                                                {
+                                                                    int vAddress = sections[s].virtual_address;
+                                                                    int rAddress = sections[s].pointer_to_raw_data;
+                                                                    int rSize = sections[s].size_of_raw_data;
+
+                                                                    if (rSize == 0 || rAddress == 0) continue;
+
+                                                                    byte[] sectionData = new byte[rSize];
+                                                                    ReadProcessMemoryW(hProcess, j + (ulong)k + (ulong)vAddress, sectionData, (UIntPtr)rSize, out BytesRead);
+                                                                    
+                                                                    try
+                                                                    {
+                                                                        Array.Copy(sectionData, 0, rawdump, rAddress, rSize);
+                                                                    }
+                                                                    catch { }
+                                                                }
+                                                                isok = true;
+                                                                
                                                                 if (isok)
                                                                 {
                                                                     dumpdir = ddirs.dumps;
@@ -2334,7 +2390,7 @@ namespace Mega_Dumper
                                                                     {
                                                                         File.WriteAllBytes(filename, rawdump);
                                                                         sessionDumpedFiles.Add(filename);
-
+                                                                        Console.WriteLine($"[SUCCESS] Raw dumped: {Path.GetFileName(filename)}");
                                                                     }
                                                                     catch
                                                                     {
@@ -2347,9 +2403,42 @@ namespace Mega_Dumper
                                                             }
                                                         }
 
+                                                        // --- VMP ANTI-DUMP FIX: Calculate True SizeOfImage ---
+                                                        // VMP spoofs SizeOfImage to be artificially small or huge in memory.
+                                                        // We must find the highest section extent to allocate the correct buffer.
+                                                        long trueSizeOfImage = sizeofimage;
+                                                        for (int l = 0; l < nrofsection; l++)
+                                                        {
+                                                            long sectionExtent = (long)sections[l].virtual_address + sections[l].virtual_size;
+                                                            if (sectionExtent > trueSizeOfImage)
+                                                                trueSizeOfImage = sectionExtent;
+                                                        }
+                                                        
+                                                        // Align to page size to be safe
+                                                        trueSizeOfImage = (trueSizeOfImage + 0xFFF) & ~0xFFF;
+                                                        
+                                                        // Sane limit: Don't allocate more than 500MB for a single PE image
+                                                        if (trueSizeOfImage > 500 * 1024 * 1024)
+                                                            trueSizeOfImage = 500 * 1024 * 1024;
+                                                        
+                                                        if (trueSizeOfImage > sizeofimage)
+                                                        {
+                                                            Console.WriteLine($"[WARNING] Detected spoofed SizeOfImage! Fixing: {sizeofimage:X} -> {trueSizeOfImage:X}");
+                                                            sizeofimage = (int)trueSizeOfImage;
+                                                        }
+
                                                         // --- VDUMP BLOCK ---
-                                                        byte[] virtualdump = new byte[sizeofimage];
-                                                        Array.Copy(PeHeader, virtualdump, pagesizeInt);
+                                                        byte[] virtualdump = null;
+                                                        try 
+                                                        {
+                                                            virtualdump = new byte[sizeofimage];
+                                                            Array.Copy(PeHeader, virtualdump, Math.Min(PeHeader.Length, sizeofimage));
+                                                        }
+                                                        catch (OutOfMemoryException)
+                                                        {
+                                                            Console.WriteLine($"[ERROR] OutOfMemoryException when trying to allocate {sizeofimage} bytes for Virtual Dump. Skipping.");
+                                                            continue;
+                                                        }
 
                                                         int rightrawsize = 0;
                                                         for (int l = 0; l < nrofsection; l++)
@@ -2424,39 +2513,27 @@ namespace Mega_Dumper
                                                             rightrawsize = sizeofimage;
                                                         }
 
-                                                        FixImportandEntryPoint((long)(j + (ulong)k), virtualdump);
+                                                        // VMP Fix: DO NOT attempt to 'fix' the entry point or imports here.
+                                                        // Doing so breaks VMP's native initialization stubs.
+                                                        // FixImportandEntryPoint((long)(j + (ulong)k), virtualdump);
 
                                                         dumpdir = ddirs.dumps;
-
-                                                        filename = dumpdir + "\\vdump_" + (j + (ulong)k).ToString("X");
+                                                        filename = Path.Combine(dumpdir, "vdump_" + (j + (ulong)k).ToString("X") + (IsDll ? ".dll" : ".exe"));
+                                                        
                                                         if (File.Exists(filename))
-                                                            filename = dumpdir + "\\vdump" + CurrentCount.ToString() + "_" + (j + (ulong)k).ToString("X");
-
-                                                        if (IsDll)
-                                                            filename += ".dll";
-                                                        else
-                                                            filename += ".exe";
-
-                                                        FileStream fout = null;
+                                                            filename = Path.Combine(dumpdir, "vdump" + CurrentCount.ToString() + "_" + (j + (ulong)k).ToString("X") + (IsDll ? ".dll" : ".exe"));
 
                                                         try
                                                         {
-                                                            fout = new FileStream(filename, FileMode.Create);
-                                                        }
-                                                        catch
-                                                        {
-                                                            // Cannot show UI from background thread
-                                                        }
-
-                                                        if (fout != null)
-                                                        {
-                                                            if (rightrawsize > virtualdump.Length) rightrawsize = virtualdump.Length;
-
-                                                            fout.Write(virtualdump, 0, rightrawsize);
-                                                            fout.Close();
+                                                            using (FileStream fout = new FileStream(filename, FileMode.Create))
+                                                            {
+                                                                fout.Write(virtualdump, 0, Math.Min(rightrawsize, virtualdump.Length));
+                                                            }
                                                             sessionDumpedFiles.Add(filename);
-
+                                                            string netStatus = isNetAssembly ? "[.NET]" : "[Native]";
+                                                            Console.WriteLine($"[SUCCESS] Virtual dumped {netStatus}: {Path.GetFileName(filename)}");
                                                         }
+                                                        catch { }
                                                         CurrentCount++;
                                                     }
                                                 }
@@ -2486,6 +2563,8 @@ namespace Mega_Dumper
                     }
                 }
 
+                Console.WriteLine("[INFO] Memory scan completed successfully.");
+
                 // --- Renaming / Sorting Block ---
                 if (restoreFilename)
                 {
@@ -2501,67 +2580,100 @@ namespace Mega_Dumper
                                     try
                                     {
                                         byte[] header = new byte[0x400];
-                                        using (FileStream fs = new FileStream(fi.FullName, FileMode.Open, FileAccess.Read)) { fs.Read(header, 0, 0x400); }
+                                        using (FileStream fs = new FileStream(fi.FullName, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete)) 
+                                        { 
+                                            int read = fs.Read(header, 0, 0x400); 
+                                            if (read < 0x40) throw new Exception("File too small");
+                                        }
+
                                         int pe = BitConverter.ToInt32(header, 0x3C);
-                                        int opt = pe + 4 + 20;
-                                        bool is64 = BitConverter.ToUInt16(header, opt) == 0x20B;
-                                        int dataDir = opt + (is64 ? 112 : 96);
-                                        if (BitConverter.ToUInt32(header, dataDir + (14 * 8)) > 0) isDotNetFile = true;
+                                        if (pe > 0 && pe < 0x3C0)
+                                        {
+                                            int opt = pe + 4 + 20;
+                                            bool is64 = BitConverter.ToUInt16(header, opt) == 0x20B;
+                                            int dataDir = opt + (is64 ? 112 : 96);
+                                            
+                                            // Check 1: CLR Directory Index
+                                            if (dataDir + (14 * 8) + 4 < 0x400)
+                                            {
+                                                if (BitConverter.ToUInt32(header, dataDir + (14 * 8)) > 0) isDotNetFile = true;
+                                            }
+
+                                            // Check 2: BSJB Heuristic scan
+                                            if (!isDotNetFile)
+                                            {
+                                                for (int i = 0; i < 0x3FC; i++)
+                                                {
+                                                    if (header[i] == 0x42 && header[i+1] == 0x53 && header[i+2] == 0x4A && header[i+3] == 0x42)
+                                                    {
+                                                        isDotNetFile = true;
+                                                        Console.WriteLine($"[DEBUG] Heuristic .NET detection: Found BSJB at 0x{i:X} in {fi.Name}");
+                                                        break;
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                    catch (Exception ex) { Console.WriteLine($"[DEBUG] PE check failed for {fi.Name}: {ex.Message}"); }
+
+                                    // DYNAMIC RUNTIME OVERRIDE
+                                    if (isProcessDynamicallyManaged && !isDotNetFile) isDotNetFile = true;
+
+                                    string finalDir = targetDir;
+                                    bool isMicrosoft = false;
+                                    try 
+                                    {
+                                        FileVersionInfo info = FileVersionInfo.GetVersionInfo(fi.FullName);
+                                        
+                                        // If Microsoft -> System Folder
+                                        if (info.CompanyName?.IndexOf("microsoft corporation", StringComparison.OrdinalIgnoreCase) >= 0)
+                                        {
+                                            finalDir = ddirs.sysdirname;
+                                            isMicrosoft = true;
+                                        }
+                                        // If Not .NET and Not System -> Native Folder
+                                        else if (!isDotNetFile)
+                                        {
+                                            finalDir = ddirs.nativedirname;
+                                        }
+
+                                        if (!string.IsNullOrEmpty(info.OriginalFilename))
+                                        {
+                                            string safeName = string.Concat(info.OriginalFilename.Where(c => !Path.GetInvalidFileNameChars().Contains(c)));
+                                            string newFilename = Path.Combine(finalDir, safeName);
+                                            int count = 2;
+                                            while (File.Exists(newFilename))
+                                            {
+                                                string extension = Path.GetExtension(newFilename) ?? ".dll";
+                                                newFilename = Path.Combine(finalDir, $"{Path.GetFileNameWithoutExtension(safeName)}({count++}){extension}");
+                                            }
+                                            if (fi.FullName.ToLower() != newFilename.ToLower())
+                                            {
+                                                File.Move(fi.FullName, newFilename);
+                                                Console.WriteLine($"[DEBUG] Moved to {Path.GetFileName(finalDir)}: {fi.Name} -> {Path.GetFileName(newFilename)}");
+                                            }
+                                            continue;
+                                        }
+                                        else if (!isMicrosoft)
+                                        {
+                                            // No original name and not Microsoft -> Move to Unknown
+                                            finalDir = ddirs.unknowndirname;
+                                        }
                                     }
                                     catch { }
 
-                                    // DYNAMIC RUNTIME OVERRIDE
-                                    // Bypasses both Enigma/Themida (strips index 14) and FakeNet/Python loaders (spoofs index 14)
-                                    if (isProcessDynamicallyManaged && !isDotNetFile) 
+                                    // Fallback move
+                                    string fallbackPath = Path.Combine(finalDir, fi.Name);
+                                    if (fi.FullName.ToLower() != fallbackPath.ToLower())
                                     {
-                                        // It's a genuine decrypted Enigma .NET payload!
-                                        isDotNetFile = true;
-                                    }
-                                    else if (!isProcessDynamicallyManaged && isDotNetFile)
-                                    {
-                                        // It's a FakeNet python decoy natively fooling static scanners!
-                                        isDotNetFile = false;
-                                    }
-
-                                    FileVersionInfo info = FileVersionInfo.GetVersionInfo(fi.FullName);
-                                    string finalDir = targetDir;
-
-                                    // If Microsoft -> System Folder
-                                    if (info.CompanyName?.IndexOf("microsoft corporation", StringComparison.OrdinalIgnoreCase) >= 0)
-                                    {
-                                        finalDir = ddirs.sysdirname;
-                                    }
-                                    // If Not .NET and Not System -> Native Folder
-                                    else if (!isDotNetFile)
-                                    {
-                                        finalDir = ddirs.nativedirname;
-                                    }
-
-                                    if (!string.IsNullOrEmpty(info.OriginalFilename))
-                                    {
-                                        string safeName = string.Concat(info.OriginalFilename.Where(c => !Path.GetInvalidFileNameChars().Contains(c)));
-
-                                        string newFilename = Path.Combine(finalDir, safeName);
-
-                                        int count = 2;
-                                        while (File.Exists(newFilename))
-                                        {
-                                            string extension = Path.GetExtension(newFilename) ?? ".dll";
-                                            newFilename = Path.Combine(finalDir, $"{Path.GetFileNameWithoutExtension(safeName)}({count++}){extension}");
-                                        }
-                                        File.Move(fi.FullName, newFilename);
-                                    }
-                                    else {
-                                        // Force move all unnamed files (vdump/rawdump) to UnknownName folder
-                                        string newFilename = Path.Combine(ddirs.unknowndirname, fi.Name);
-                                        if (File.Exists(newFilename)) File.Delete(newFilename);
-                                        File.Move(fi.FullName, newFilename);
+                                        if (File.Exists(fallbackPath)) File.Delete(fallbackPath);
+                                        File.Move(fi.FullName, fallbackPath);
+                                        Console.WriteLine($"[DEBUG] Moved to {Path.GetFileName(finalDir)}: {fi.Name}");
                                     }
                                 }
-                                catch
-                                {
-                                    // If anything fails, leave it alone. 
-                                    // DO NOT force move to UnknownName.
+                                catch (Exception ex) 
+                                { 
+                                    Console.WriteLine($"[ERROR] Sorting failed for {fi.Name}: {ex.Message}"); 
                                 }
                             }
                         }
@@ -2570,6 +2682,7 @@ namespace Mega_Dumper
                     renameFiles(ddirs.dumps, ddirs.dumps);
                 }
 
+                Console.WriteLine($"[INFO] Returning dump result for {ddirs.dumps}...");
                 return (CurrentCount - 1) + " files dumped in directory " + ddirs.dumps;
             }
             finally
