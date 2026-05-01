@@ -63,7 +63,7 @@ Source: "C:\Users\semae\OneDrive\Belgeler\hydratempinstall\VC_redist.x64.exe"; D
 Source: "C:\Users\semae\OneDrive\Belgeler\hydratempinstall\clamav-1.5.2.win.x64.msi"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\semae\OneDrive\Belgeler\hydratempinstall\npcap-1.87.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\semae\OneDrive\Belgeler\hydratempinstall\Suricata-7.0.14-1-64bit.msi"; DestDir: "{tmp}"; Flags: deleteafterinstall
-Source: "C:\Users\semae\OneDrive\Belgeler\hydratempinstall\jre-8u481-windows-x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
+Source: "C:\Users\semae\OneDrive\Belgeler\hydratempinstall\jre-8u491-windows-x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\semae\OneDrive\Belgeler\hydratempinstall\jdk-21_windows-x64_bin.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\semae\OneDrive\Belgeler\hydratempinstall\windowsdesktop-runtime-8.0.25-win-x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\semae\OneDrive\Belgeler\hydratempinstall\windowsdesktop-runtime-9.0.14-win-x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
@@ -130,8 +130,8 @@ Filename: "{tmp}\windowsdesktop-runtime-8.0.25-win-x64.exe"; Parameters: "/insta
 ; Visual C++ Redistributable 2022 (silent, auto-install)
 Filename: "{tmp}\VC_redist.x64.exe"; Parameters: "/install /quiet /norestart"; Flags: shellexec waituntilterminated
 
-; JRE 8u481 (silent, updates enabled)
-Filename: "{tmp}\jre-8u481-windows-x64.exe"; Parameters: "/s INSTALL_SILENT=Enable AUTO_UPDATE=Enable WEB_JAVA=Disable SPONSORS=Disable"; Flags: shellexec waituntilterminated
+; JRE 8u491 (silent, updates enabled)
+Filename: "{tmp}\jre-8u491-windows-x64.exe"; Parameters: "/s INSTALL_SILENT=Enable AUTO_UPDATE=Enable WEB_JAVA=Disable SPONSORS=Disable"; Flags: shellexec waituntilterminated
 
 ; JDK 21 (silent, environment variables)
 Filename: "{tmp}\jdk-21_windows-x64_bin.exe"; Parameters: "/s"; Flags: shellexec waituntilterminated
