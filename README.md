@@ -204,7 +204,7 @@ See the [LICENSE](./LICENSE) file for more information.
 - I now using 12.0.4: https://ghidra-sre.org/
 
 ## Java Development Kit
-- Just look at https://www.oracle.com/java/technologies/downloads/#jdk21-windows
+- Just look at https://www.oracle.com/java/technologies/downloads/#jdk25-windows
 
 ## Setup
 - Setup file on release HydraDragonAntivirus.exe

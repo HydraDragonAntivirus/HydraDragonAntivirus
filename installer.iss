@@ -133,8 +133,8 @@ Filename: "{tmp}\VC_redist.x64.exe"; Parameters: "/install /quiet /norestart"; F
 ; JRE 8u491 (silent, updates enabled)
 Filename: "{tmp}\jre-8u491-windows-x64.exe"; Parameters: "/s INSTALL_SILENT=Enable AUTO_UPDATE=Enable WEB_JAVA=Disable SPONSORS=Disable"; Flags: shellexec waituntilterminated
 
-; JDK 21 (silent, environment variables)
-Filename: "{tmp}\jdk-21_windows-x64_bin.exe"; Parameters: "/s"; Flags: shellexec waituntilterminated
+; JDK 25 (silent, environment variables)
+Filename: "{tmp}\jdk-25_windows-x64_bin.exe"; Parameters: "/s"; Flags: shellexec waituntilterminated
 
 ; Python 3.12.10 amd64 (silent, all users, add to PATH, include pip, target directory)
 Filename: "{tmp}\python-3.12.10-amd64.exe"; Parameters: "/quiet InstallAllUsers=1 PrependPath=1 Include_pip=1 TargetDir=""{app}\python"""; Flags: shellexec waituntilterminated
