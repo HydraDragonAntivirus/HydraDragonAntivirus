@@ -3,13 +3,8 @@ name: dotnet-megadumper-ci
 on:
   push:
     branches: ["**"]
-    paths:
-      - 'MegaDumper/**'
-      - '.github/workflows/dotnet-megadumper.yml'
   pull_request:
     branches: ["**"]
-    paths:
-      - 'MegaDumper/**'
   workflow_dispatch:
 
 jobs:

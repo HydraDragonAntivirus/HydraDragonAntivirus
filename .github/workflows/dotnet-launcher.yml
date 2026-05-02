@@ -3,13 +3,8 @@ name: dotnet-launcher-ci
 on:
   push:
     branches: ["**"]
-    paths:
-      - 'HydraDragonAntivirusLauncher/**'
-      - '.github/workflows/dotnet-launcher.yml'
   pull_request:
     branches: ["**"]
-    paths:
-      - 'HydraDragonAntivirusLauncher/**'
   workflow_dispatch:
 
 jobs:

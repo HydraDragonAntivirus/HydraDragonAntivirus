@@ -3,13 +3,8 @@ name: dotnet-taskscheduler-ci
 on:
   push:
     branches: ["**"]
-    paths:
-      - 'HydraDragonAntivirusTaskScheduler/**'
-      - '.github/workflows/dotnet-taskscheduler.yml'
   pull_request:
     branches: ["**"]
-    paths:
-      - 'HydraDragonAntivirusTaskScheduler/**'
   workflow_dispatch:
 
 jobs:

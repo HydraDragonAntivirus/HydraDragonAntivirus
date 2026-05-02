@@ -3,13 +3,8 @@ name: vs2022hydradragonav-ci
 on:
   push:
     branches: ["**"]
-    paths:
-      - 'HydraDragonAV/**'
-      - '.github/workflows/vs2022hydradragonav.yml'
   pull_request:
     branches: ["**"]
-    paths:
-      - 'HydraDragonAV/**'
   workflow_dispatch:
 
 env:

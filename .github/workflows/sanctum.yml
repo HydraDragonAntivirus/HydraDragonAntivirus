@@ -3,13 +3,8 @@ name: Sanctum EDR CI
 on:
   push:
     branches: ["**"]
-    paths:
-      - 'Sanctum/**'
-      - '.github/workflows/sanctum.yml'
   pull_request:
     branches: ["**"]
-    paths:
-      - 'Sanctum/**'
   workflow_dispatch:
 
 permissions:
