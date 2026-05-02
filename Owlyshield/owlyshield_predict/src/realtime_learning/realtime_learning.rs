@@ -378,7 +378,7 @@ impl RealtimeLearningEngine {
             "{}/realtime_learning_full_{}.yaml",
             self.output_dir, timestamp
         );
-        #[cfg(feature = "behavior_engine")]
+        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
         let yaml_path = format!(
             "{}/realtime_learning_rules_{}.yaml",
             self.output_dir, timestamp
@@ -387,7 +387,7 @@ impl RealtimeLearningEngine {
         self.collector.export_to_json(&json_path)?;
         self.collector.export_to_csv(&csv_path)?;
         self.collector.export_to_yaml(&yaml_full_path)?;
-        #[cfg(feature = "behavior_engine")]
+        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
         self.collector.export_rules_to_yaml(&yaml_path)?;
 
         let (mal_count, ben_count) = self.collector.get_counts();

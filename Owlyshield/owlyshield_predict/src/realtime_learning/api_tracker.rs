@@ -49,7 +49,7 @@ pub struct ApiTracker {
     pub net_packets: Vec<PacketInfo>,
 
     // Sanctum EDR telemetry
-    #[cfg(feature = "sanctum")]
+    #[cfg(all(target_os = "windows", feature = "sanctum"))]
     pub sanctum_operations: SanctumOperationStats,
 
     // Timing information
@@ -59,7 +59,7 @@ pub struct ApiTracker {
     pub termination_time: Option<std::time::SystemTime>,
 }
 
-#[cfg(feature = "sanctum")]
+#[cfg(all(target_os = "windows", feature = "sanctum"))]
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct SanctumOperationStats {
     pub syscall_count: usize,
@@ -251,7 +251,7 @@ impl ApiTracker {
                 privileges_escalated: false,
             },
             kernel_operations: KernelOperationStats::default(),
-            #[cfg(feature = "sanctum")]
+            #[cfg(all(target_os = "windows", feature = "sanctum"))]
             sanctum_operations: SanctumOperationStats::default(),
             api_sequence: Vec::new(),
             operation_sequence: Vec::new(),
@@ -902,7 +902,7 @@ impl ApiTracker {
     }
 
     /// Track a Sanctum telemetry event
-    #[cfg(feature = "sanctum")]
+    #[cfg(all(target_os = "windows", feature = "sanctum"))]
     pub fn track_sanctum_event(&mut self, source: &str, function: &str, _args: &serde_json::Value) {
         self.sanctum_operations.syscall_count += 1;
         self.sanctum_operations.last_event = Some(function.to_string());

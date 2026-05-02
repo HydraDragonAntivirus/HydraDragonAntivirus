@@ -4,6 +4,16 @@
 extern crate num;
 extern crate num_derive;
 
+// --- Windows-Only Feature Enforcement ---
+#[cfg(all(feature = "firewall", not(target_os = "windows")))]
+compile_error!("The 'firewall' feature is only supported on Windows.");
+#[cfg(all(feature = "sanctum", not(target_os = "windows")))]
+compile_error!("The 'sanctum' feature is only supported on Windows.");
+#[cfg(all(feature = "hydradragon", not(target_os = "windows")))]
+compile_error!("The 'hydradragon' feature is only supported on Windows.");
+#[cfg(all(feature = "behavior_engine", not(target_os = "windows")))]
+compile_error!("The 'behavior_engine' feature is only supported on Windows.");
+
 #[cfg(all(target_os = "windows", feature = "hydradragon"))]
 use std::{env, path::Path, sync::OnceLock};
 

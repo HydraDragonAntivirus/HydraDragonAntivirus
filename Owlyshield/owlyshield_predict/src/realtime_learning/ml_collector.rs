@@ -2,7 +2,7 @@
 //!
 //! Collects comprehensive behavioral data for ML model training
 
-#[cfg(feature = "behavior_engine")]
+#[cfg(all(target_os = "windows", feature = "behavior_engine"))]
 use crate::behavioral::behavior_engine::{BehaviorRule, DetectionCondition, NamedConditionGroup};
 use crate::process::ProcessRecord;
 use crate::realtime_learning::api_tracker::{ApiTracker, OperationType};
@@ -148,16 +148,16 @@ pub struct MLFeatures {
 
     // Sanctum & Injection features
     pub injection_score: f32,
-    #[cfg(feature = "sanctum")]
+    #[cfg(all(target_os = "windows", feature = "sanctum"))]
     pub sanctum_syscall_count: f32,
-    #[cfg(feature = "sanctum")]
+    #[cfg(all(target_os = "windows", feature = "sanctum"))]
     pub sanctum_cross_process_handles: f32,
     pub kernel_telemetry_density: f32,
-    #[cfg(feature = "sanctum")]
+    #[cfg(all(target_os = "windows", feature = "sanctum"))]
     pub sanctum_shellcode_detected: f32,
-    #[cfg(feature = "sanctum")]
+    #[cfg(all(target_os = "windows", feature = "sanctum"))]
     pub sanctum_suspicious_hits_count: f32,
-    #[cfg(feature = "sanctum")]
+    #[cfg(all(target_os = "windows", feature = "sanctum"))]
     pub sanctum_detected: f32,
 }
 
@@ -178,15 +178,15 @@ pub struct RawBehaviorData {
     pub executable_telemetry: ExecutableTelemetry,
     #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
     pub net_packets: Vec<crate::behavioral::rule_types::PacketInfo>,
-    #[cfg(feature = "behavior_engine")]
+    #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
     pub rule_format_rule: BehaviorRule,
 
     // Sanctum telemetry
-    #[cfg(feature = "sanctum")]
+    #[cfg(all(target_os = "windows", feature = "sanctum"))]
     pub sanctum_syscall_count: usize,
-    #[cfg(feature = "sanctum")]
+    #[cfg(all(target_os = "windows", feature = "sanctum"))]
     pub sanctum_injection_score: f32,
-    #[cfg(feature = "sanctum")]
+    #[cfg(all(target_os = "windows", feature = "sanctum"))]
     pub sanctum_suspicious_hits: Vec<String>,
 }
 
@@ -303,11 +303,11 @@ impl MLCollector {
         // Add to appropriate collection
         if is_malicious {
             self.malicious_samples.push(sample);
-            #[cfg(feature = "behavior_engine")]
+            #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
             self.auto_export_latest_sample_yaml(true);
         } else {
             self.benign_samples.push(sample);
-            #[cfg(feature = "behavior_engine")]
+            #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
             self.auto_export_latest_sample_yaml(false);
         }
 
@@ -461,7 +461,7 @@ impl MLCollector {
             .map(|call| (call.name.clone(), format!("{:?}", call.category)))
             .collect();
 
-        #[cfg(feature = "behavior_engine")]
+        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
         let rule_format_rule = self.build_rule_format_rule(
             api_tracker,
             precord,
@@ -490,15 +490,15 @@ impl MLCollector {
             executable_telemetry,
             #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
             net_packets: api_tracker.net_packets.clone(),
-            #[cfg(feature = "behavior_engine")]
+            #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
             rule_format_rule,
 
             // Sanctum telemetry
-            #[cfg(feature = "sanctum")]
+            #[cfg(all(target_os = "windows", feature = "sanctum"))]
             sanctum_syscall_count: api_tracker.sanctum_operations.syscall_count,
-            #[cfg(feature = "sanctum")]
+            #[cfg(all(target_os = "windows", feature = "sanctum"))]
             sanctum_injection_score: api_tracker.sanctum_operations.injection_score,
-            #[cfg(feature = "sanctum")]
+            #[cfg(all(target_os = "windows", feature = "sanctum"))]
             sanctum_suspicious_hits: api_tracker
                 .sanctum_operations
                 .suspicious_syscall_hits
@@ -506,7 +506,7 @@ impl MLCollector {
         }
     }
 
-    #[cfg(feature = "behavior_engine")]
+    #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
     fn build_rule_format_rule(
         &self,
         api_tracker: &ApiTracker,
@@ -722,7 +722,7 @@ impl MLCollector {
         rule
     }
 
-    #[cfg(feature = "behavior_engine")]
+    #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
     fn sorted_strings(values: HashSet<String>) -> Vec<String> {
         let mut values: Vec<String> = values
             .into_iter()
@@ -732,28 +732,28 @@ impl MLCollector {
         values
     }
 
-    #[cfg(feature = "behavior_engine")]
+    #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
     fn sorted_u32(values: HashSet<u32>) -> Vec<u32> {
         let mut values: Vec<u32> = values.into_iter().collect();
         values.sort_unstable();
         values
     }
 
-    #[cfg(feature = "behavior_engine")]
+    #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
     fn sorted_u64(values: HashSet<u64>) -> Vec<u64> {
         let mut values: Vec<u64> = values.into_iter().collect();
         values.sort_unstable();
         values
     }
 
-    #[cfg(feature = "behavior_engine")]
+    #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
     fn sorted_i32(values: HashSet<i32>) -> Vec<i32> {
         let mut values: Vec<i32> = values.into_iter().collect();
         values.sort_unstable();
         values
     }
 
-    #[cfg(feature = "behavior_engine")]
+    #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
     fn split_registry_entry(entry: &str) -> (Option<&'static str>, String) {
         let trimmed = entry.trim();
         if let Some(rest) = trimmed.strip_prefix("REG_CREATE:") {
@@ -771,7 +771,7 @@ impl MLCollector {
         (None, trimmed.to_string())
     }
 
-    #[cfg(feature = "behavior_engine")]
+    #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
     fn insert_file_extension(extensions: &mut HashSet<String>, path: &str) {
         let Some(ext) = Path::new(path).extension().and_then(|value| value.to_str()) else {
             return;
@@ -783,7 +783,7 @@ impl MLCollector {
         extensions.insert(format!(".{}", ext.to_ascii_lowercase()));
     }
 
-    #[cfg(feature = "behavior_engine")]
+    #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
     fn extract_cmdline_keywords(command_line: &str) -> Vec<String> {
         let mut values = HashSet::new();
         let trimmed = command_line.trim();
@@ -1054,7 +1054,7 @@ impl MLCollector {
         serde_yaml::to_writer(file, &dataset).map_err(std::io::Error::other)
     }
 
-    #[cfg(feature = "behavior_engine")]
+    #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
     fn collected_rule_snapshots(&self) -> Vec<BehaviorRule> {
         let mut rules = Vec::new();
 
@@ -1080,14 +1080,14 @@ impl MLCollector {
         rules
     }
 
-    #[cfg(feature = "behavior_engine")]
+    #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
     pub fn export_rules_to_yaml(&self, output_path: &str) -> Result<(), std::io::Error> {
         let rules = self.collected_rule_snapshots();
         let file = File::create(output_path)?;
         serde_yaml::to_writer(file, &rules).map_err(std::io::Error::other)
     }
 
-    #[cfg(feature = "behavior_engine")]
+    #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
     fn sanitize_filename_component(value: &str) -> String {
         let sanitized: String = value
             .chars()
@@ -1101,7 +1101,7 @@ impl MLCollector {
         }
     }
 
-    #[cfg(feature = "behavior_engine")]
+    #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
     fn auto_export_latest_sample_yaml(&self, is_malicious: bool) {
         let sample = if is_malicious {
             self.malicious_samples.last()
@@ -1227,7 +1227,7 @@ impl MLCollector {
         let yaml_full_path = self
             .output_dir
             .join(format!("dataset_full_{}.yaml", timestamp));
-        #[cfg(feature = "behavior_engine")]
+        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
         let yaml_path = self
             .output_dir
             .join(format!("dataset_rules_{}.yaml", timestamp));
@@ -1235,7 +1235,7 @@ impl MLCollector {
         self.export_to_json(json_path.to_str().unwrap()).ok();
         self.export_to_csv(csv_path.to_str().unwrap()).ok();
         self.export_to_yaml(yaml_full_path.to_str().unwrap()).ok();
-        #[cfg(feature = "behavior_engine")]
+        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
         self.export_rules_to_yaml(yaml_path.to_str().unwrap()).ok();
     }
 
@@ -1462,13 +1462,13 @@ impl FeatureExtractor {
             network_diversity: api_tracker.internet_apis.len() as f32,
 
             // Sanctum & Injection features
-            #[cfg(feature = "sanctum")]
+            #[cfg(all(target_os = "windows", feature = "sanctum"))]
             injection_score: api_tracker.sanctum_operations.injection_score,
-            #[cfg(not(feature = "sanctum"))]
+            #[cfg(not(all(target_os = "windows", feature = "sanctum")))]
             injection_score: 0.0,
-            #[cfg(feature = "sanctum")]
+            #[cfg(all(target_os = "windows", feature = "sanctum"))]
             sanctum_syscall_count: api_tracker.sanctum_operations.syscall_count as f32,
-            #[cfg(feature = "sanctum")]
+            #[cfg(all(target_os = "windows", feature = "sanctum"))]
             sanctum_cross_process_handles: api_tracker.sanctum_operations.cross_process_handle_count
                 as f32,
             kernel_telemetry_density: if api_tracker.total_api_calls() > 0 {
@@ -1477,18 +1477,18 @@ impl FeatureExtractor {
             } else {
                 0.0
             },
-            #[cfg(feature = "sanctum")]
+            #[cfg(all(target_os = "windows", feature = "sanctum"))]
             sanctum_shellcode_detected: if api_tracker.sanctum_operations.shellcode_patterns_found {
                 1.0
             } else {
                 0.0
             },
-            #[cfg(feature = "sanctum")]
+            #[cfg(all(target_os = "windows", feature = "sanctum"))]
             sanctum_suspicious_hits_count: api_tracker
                 .sanctum_operations
                 .suspicious_syscall_hits
                 .len() as f32,
-            #[cfg(feature = "sanctum")]
+            #[cfg(all(target_os = "windows", feature = "sanctum"))]
             sanctum_detected: if api_tracker.sanctum_operations.is_detection {
                 1.0
             } else {

@@ -436,9 +436,9 @@ impl SystemReport {
         ));
 
         s.push_str("-- HydraDragon Integration (O24) --\n");
-        #[cfg(feature = "firewall")]
+        #[cfg(all(target_os = "windows", feature = "firewall"))]
         s.push_str(&format!("O24 - Firewall Status: Enabled\n"));
-        #[cfg(not(feature = "firewall"))]
+        #[cfg(not(all(target_os = "windows", feature = "firewall")))]
         s.push_str(&format!(
             "O24 - Firewall Status: Disabled (Feature-Gated)\n"
         ));

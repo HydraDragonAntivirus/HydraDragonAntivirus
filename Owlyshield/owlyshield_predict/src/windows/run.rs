@@ -437,7 +437,7 @@ pub fn run() {
             worker = worker.build();
 
             // Load behavior rules
-            #[cfg(feature = "behavior_engine")]
+            #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
             {
                 let rules_path = worker.app_settings.behavior_rules_path.clone();
                 Logging::info(&format!(

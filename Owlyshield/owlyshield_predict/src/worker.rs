@@ -930,7 +930,7 @@ pub mod worker_instance {
                 signatures_count,
                 rootkit_findings,
             );
-            #[cfg(feature = "firewall")]
+            #[cfg(all(target_os = "windows", feature = "firewall"))]
             let fw_net_details = self.behavior_engine.firewall_net_details.read().unwrap();
 
             // Collect process snapshots from behavior engine
@@ -1081,7 +1081,7 @@ pub mod worker_instance {
                 snapshot.detected_apis.sort();
                 snapshot.detected_apis.dedup();
 
-                #[cfg(feature = "firewall")]
+                #[cfg(all(target_os = "windows", feature = "firewall"))]
                 if let Some(targets) = fw_net_details.get(&state.pid) {
                     let mut network_targets = targets
                         .iter()
@@ -1168,19 +1168,19 @@ pub mod worker_instance {
 
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
         fn build_behavior_engine(config: &Config) -> BehaviorEngine {
-            #[cfg(feature = "firewall")]
+            #[cfg(all(target_os = "windows", feature = "firewall"))]
             static FIREWALL_PIPE_START: std::sync::Once = std::sync::Once::new();
-            #[cfg(feature = "sanctum")]
+            #[cfg(all(target_os = "windows", feature = "sanctum"))]
             static SANCTUM_PIPE_START: std::sync::Once = std::sync::Once::new();
             static OPENEDR_TAIL_START: std::sync::Once = std::sync::Once::new();
 
             let engine = BehaviorEngine::new();
             let openedr_candidates = Self::openedr_log_dir_candidates(config);
-            #[cfg(feature = "firewall")]
+            #[cfg(all(target_os = "windows", feature = "firewall"))]
             FIREWALL_PIPE_START.call_once(|| {
                 engine.start_firewall_pipe();
             });
-            #[cfg(feature = "sanctum")]
+            #[cfg(all(target_os = "windows", feature = "sanctum"))]
             SANCTUM_PIPE_START.call_once(|| {
                 Self::start_sanctum_telemetry_pipe(engine.clone());
             });
@@ -1610,11 +1610,11 @@ pub mod worker_instance {
             #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
             {
                 if let Some(state) = behavior_engine.process_states.get(&gid) {
-                    #[cfg(feature = "firewall")]
+                    #[cfg(all(target_os = "windows", feature = "firewall"))]
                     {
                         tracker.net_packets = state.net_packets.clone().into();
                     }
-                    #[cfg(feature = "sanctum")]
+                    #[cfg(all(target_os = "windows", feature = "sanctum"))]
                     {
                         tracker.sanctum_operations = state.sanctum_stats.clone();
                     }
@@ -2130,7 +2130,7 @@ pub mod worker_instance {
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
                 {
                     self.behavior_engine.process_states.remove(&gid);
-                    #[cfg(feature = "firewall")]
+                    #[cfg(all(target_os = "windows", feature = "firewall"))]
                     {
                         let mut firewall_pids =
                             self.behavior_engine.firewall_net_pids.write().unwrap();
@@ -2302,7 +2302,7 @@ pub mod worker_instance {
                 }
 
                 // --- THIRD: Sync behavior engine state to process_records ---
-                #[cfg(feature = "firewall")]
+                #[cfg(all(target_os = "windows", feature = "firewall"))]
                 self.sync_firewall_process_contexts();
                 for (gid, state) in self.behavior_engine.process_states.iter() {
                     if self.process_records.get_precord_by_gid(*gid).is_none() {
@@ -2422,7 +2422,7 @@ pub mod worker_instance {
                 }
 
                 // --- SIXTH: Check for Sanctum Detections (Worker-level Handling) ---
-                #[cfg(feature = "sanctum")]
+                #[cfg(all(target_os = "windows", feature = "sanctum"))]
                 {
                     let sanctum_stats = self
                         .behavior_engine
