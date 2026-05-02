@@ -29,7 +29,7 @@ jobs:
       uses: dtolnay/rust-toolchain@stable
 
     - name: Install Assembly Tools (yasm)
-      run: choco install nasm yasm
+      run: choco install nasm
       
     - name: Cache Cargo
       uses: Swatinem/rust-cache@v2

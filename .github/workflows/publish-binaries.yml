@@ -220,7 +220,7 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
       - name: Install yasm
-        run: choco install nasm yasm
+        run: choco install nasm
       - name: Build Owlyshield Rust
         working-directory: Owlyshield/owlyshield_predict
         run: cargo build --release
@@ -241,7 +241,7 @@ jobs:
         with:
           targets: wasm32-unknown-unknown
       - name: Install Assembly Tools (yasm)
-        run: choco install nasm yasm
+        run: choco install nasm
       - name: Install Trunk
         uses: taiki-e/install-action@v2
         with:
