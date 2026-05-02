@@ -1623,6 +1623,14 @@ pub fn App() -> impl IntoView {
     {
         let refresh_engine_state = move || {
             spawn_local(async move {
+                let window = web_sys::window().unwrap();
+                let is_tauri = js_sys::Reflect::has(&window, &"__TAURI__".into()).unwrap_or(false);
+                
+                if !is_tauri {
+                    set_engine_status.set("Non-Tauri Browser Environment (Backend Unreachable)".to_string());
+                    return;
+                }
+
                 let res = invoke("get_engine_runtime_status", JsValue::NULL).await;
                 if let Ok(status) = serde_wasm_bindgen::from_value::<EngineRuntimeStatus>(res) {
                     set_engine_active.set(status.active);

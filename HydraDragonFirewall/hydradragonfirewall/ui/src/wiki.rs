@@ -25,19 +25,19 @@ pub fn RulesWiki() -> impl IntoView {
 
                 // Left index column
                 <div class="wiki-index">
-                    <div class="wiki-index-item">"01 · Structure"</div>
-                    <div class="wiki-index-item">"02 · Protocol"</div>
-                    <div class="wiki-index-item">"03 · Actions"</div>
-                    <div class="wiki-index-item">"04 · IP Conditions"</div>
-                    <div class="wiki-index-item">"05 · Ports"</div>
-                    <div class="wiki-index-item">"06 · Domain / URL"</div>
-                    <div class="wiki-index-item">"07 · Payload"</div>
-                    <div class="wiki-index-item">"08 · Regex"</div>
-                    <div class="wiki-index-item">"09 · File Types"</div>
-                    <div class="wiki-index-item">"10 · Scope"</div>
-                    <div class="wiki-index-item">"11 · Routines"</div>
+                    <div class="wiki-index-item"><span class="wiki-num">"01"</span><span>"Structure"</span></div>
+                    <div class="wiki-index-item"><span class="wiki-num">"02"</span><span>"Protocol"</span></div>
+                    <div class="wiki-index-item"><span class="wiki-num">"03"</span><span>"Actions"</span></div>
+                    <div class="wiki-index-item"><span class="wiki-num">"04"</span><span>"IP Conditions"</span></div>
+                    <div class="wiki-index-item"><span class="wiki-num">"05"</span><span>"Ports"</span></div>
+                    <div class="wiki-index-item"><span class="wiki-num">"06"</span><span>"Domain / URL"</span></div>
+                    <div class="wiki-index-item"><span class="wiki-num">"07"</span><span>"Payload"</span></div>
+                    <div class="wiki-index-item"><span class="wiki-num">"08"</span><span>"Regex"</span></div>
+                    <div class="wiki-index-item"><span class="wiki-num">"09"</span><span>"File Types"</span></div>
+                    <div class="wiki-index-item"><span class="wiki-num">"10"</span><span>"Scope"</span></div>
+                    <div class="wiki-index-item"><span class="wiki-num">"11"</span><span>"Routines"</span></div>
                     <div class="wiki-index-divider"/>
-                    <div class="wiki-index-item wiki-index-fire">"🔥 C2 Example"</div>
+                    <div class="wiki-index-item wiki-index-fire"><span class="wiki-num wiki-num-fire">"🔥"</span><span>"C2 Example"</span></div>
                 </div>
 
                 // Right entries column
@@ -313,7 +313,7 @@ pub fn RulesWiki() -> impl IntoView {
     font-size: 22px; flex-shrink: 0;
 }
 
-.wiki-topbar-info { display: flex; flex-direction: column; gap: 2px; }
+.wiki-topbar-info { display: flex; flex-direction: column; gap: 4px; }
 
 .wiki-topbar-title {
     font-family: 'Oxanium', sans-serif;
@@ -370,12 +370,12 @@ pub fn RulesWiki() -> impl IntoView {
 
 .wiki-index-item {
     font-family: 'IBM Plex Mono', monospace;
-    font-size: 12px; font-weight: 500;
-    color: #3A4260;
-    padding: 8px 18px; cursor: pointer;
-    transition: color 0.12s, background 0.12s;
+    font-size: 11.5px; font-weight: 500;
+    color: #4A5270;
+    padding: 8px 16px; cursor: pointer;
+    transition: all 0.12s ease;
     letter-spacing: 0.03em;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    display: flex; align-items: center; gap: 16px;
 }
 
 .wiki-index-item:hover { color: #6B7591; background: rgba(255,255,255,0.025); }
@@ -398,12 +398,12 @@ pub fn RulesWiki() -> impl IntoView {
 .wiki-entry:last-child { border-bottom: none; }
 
 .wiki-entry-header {
-    display: flex; align-items: center; gap: 9px; margin-bottom: 8px;
+    display: flex; align-items: center; gap: 18px; margin-bottom: 8px;
 }
 
 .wiki-num {
     font-family: 'IBM Plex Mono', monospace;
-    font-size: 9.5px; font-weight: 700; color: #1E2540;
+    font-size: 9.5px; font-weight: 700; color: #A0A8C0;
     background: rgba(255,255,255,0.03);
     border: 1px solid rgba(255,255,255,0.05);
     border-radius: 4px; width: 28px; height: 20px;
