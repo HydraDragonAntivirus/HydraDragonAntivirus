@@ -3,6 +3,11 @@ name: Publish Binaries (Multi-Job)
 on:
   push:
     branches: ["**"]
+    paths-ignore:
+      - 'hydradragon/**'
+      - '**.md'
+      - '.gitignore'
+      - '.github/workflows/**'
   workflow_dispatch:
     inputs:
       branch:
@@ -19,8 +24,9 @@ env:
   WDK_URL: https://go.microsoft.com/fwlink/?linkid=2335869
 
 jobs:
-  # --- Job 1: MSBuild Projects ---
-  build-msbuild:
+  # --- GROUP 1: MSBuild Projects (Separated) ---
+  
+  build-tinyantivirus:
     runs-on: windows-2022
     steps:
       - name: Enable Git long paths
@@ -28,46 +34,117 @@ jobs:
       - uses: actions/checkout@v6
       - name: Add MSBuild to PATH
         uses: microsoft/setup-msbuild@v3
+      - name: Build TinyAntivirus
+        run: msbuild TinyAntivirus/TinyAntivirus.sln /p:Configuration=Release /p:Platform=x64
+      - name: Upload
+        uses: actions/upload-artifact@v7
+        with:
+          name: bin-tinyantivirus
+          path: TinyAntivirus/x64/Release/TinyAvConsole.exe
 
-      - name: Setup WDK (Windows Driver Kit)
+  build-hydradragonav:
+    runs-on: windows-2022
+    steps:
+      - name: Enable Git long paths
+        run: git config --global core.longpaths true
+      - uses: actions/checkout@v6
+      - name: Add MSBuild to PATH
+        uses: microsoft/setup-msbuild@v3
+      - name: Build HydraDragonAV
+        run: msbuild HydraDragonAV/HydraDragonAV.sln /p:Configuration=Release /p:Platform=x64
+      - name: Upload
+        uses: actions/upload-artifact@v7
+        with:
+          name: bin-hydradragonav
+          path: HydraDragonAV/x64/Release/HydraDragonAV.exe
+
+  build-mbrfilter:
+    runs-on: windows-2022
+    steps:
+      - name: Enable Git long paths
+        run: git config --global core.longpaths true
+      - uses: actions/checkout@v6
+      - name: Add MSBuild to PATH
+        uses: microsoft/setup-msbuild@v3
+      - name: Setup WDK
         shell: pwsh
         run: |
           $wdkSetupPath = "$Env:TEMP\wdksetup.exe"
           (New-Object Net.WebClient).DownloadFile('${{env.WDK_URL}}', $wdkSetupPath)
           Start-Process -FilePath $wdkSetupPath -ArgumentList "/quiet" -NoNewWindow -Wait
-
-      - name: Add WDK tools to PATH
-        shell: pwsh
-        run: |
-          $wdk_bin = "C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x86"
-          if (Test-Path $wdk_bin) {
-            echo "$wdk_bin" >> $env:GITHUB_PATH
-          }
-
-      - name: Build MSBuild Projects
-        run: |
-          msbuild TinyAntivirus/TinyAntivirus.sln /p:Configuration=Release /p:Platform=x64
-          msbuild HydraDragonAV/HydraDragonAV.sln /p:Configuration=Release /p:Platform=x64
-          msbuild MBRFilter/MBRFilter.sln /p:Configuration=Release /p:Platform=x64
-          msbuild PYAS_Protection/PYAS_Protection.sln /p:Configuration=Release /p:Platform=x64
-          msbuild Owlyshield/owlyshield_minifilter/owlyshield_minifilter.sln /p:Configuration=Release /p:Platform=x64
-          msbuild Owlyshield/RedDbg/RedDbg/RedDbg.sln /p:Configuration=Release /p:Platform=x64
-
-      - name: Upload MSBuild Artifacts
+      - name: Build MBRFilter
+        run: msbuild MBRFilter/MBRFilter.sln /p:Configuration=Release /p:Platform=x64
+      - name: Upload
         uses: actions/upload-artifact@v7
         with:
-          name: msbuild-binaries
+          name: bin-mbrfilter
+          path: MBRFilter/x64/Release/MBRFilter.sys
+
+  build-pyasprotection:
+    runs-on: windows-2022
+    steps:
+      - name: Enable Git long paths
+        run: git config --global core.longpaths true
+      - uses: actions/checkout@v6
+      - name: Add MSBuild to PATH
+        uses: microsoft/setup-msbuild@v3
+      - name: Setup WDK
+        shell: pwsh
+        run: |
+          $wdkSetupPath = "$Env:TEMP\wdksetup.exe"
+          (New-Object Net.WebClient).DownloadFile('${{env.WDK_URL}}', $wdkSetupPath)
+          Start-Process -FilePath $wdkSetupPath -ArgumentList "/quiet" -NoNewWindow -Wait
+      - name: Build PYAS Protection
+        run: msbuild PYAS_Protection/PYAS_Protection.sln /p:Configuration=Release /p:Platform=x64
+      - name: Upload
+        uses: actions/upload-artifact@v7
+        with:
+          name: bin-pyasprotection
           path: |
-            TinyAntivirus/x64/Release/TinyAvConsole.exe
-            HydraDragonAV/x64/Release/HydraDragonAV.exe
-            MBRFilter/x64/Release/MBRFilter.sys
             PYAS_Protection/x64/Release/SimplePYASProtection.sys
             PYAS_Protection/x64/Release/SimplePYASProtection.inf
-            Owlyshield/owlyshield_minifilter/x64/Release/RWatch.sys
-            Owlyshield/RedDbg/RedDbg/x64/Release/RedDbg.exe
 
-  # --- Job 2: Dotnet Projects ---
-  build-dotnet:
+  build-owlyshield-minifilter:
+    runs-on: windows-2022
+    steps:
+      - name: Enable Git long paths
+        run: git config --global core.longpaths true
+      - uses: actions/checkout@v6
+      - name: Add MSBuild to PATH
+        uses: microsoft/setup-msbuild@v3
+      - name: Setup WDK
+        shell: pwsh
+        run: |
+          $wdkSetupPath = "$Env:TEMP\wdksetup.exe"
+          (New-Object Net.WebClient).DownloadFile('${{env.WDK_URL}}', $wdkSetupPath)
+          Start-Process -FilePath $wdkSetupPath -ArgumentList "/quiet" -NoNewWindow -Wait
+      - name: Build Owlyshield Minifilter
+        run: msbuild Owlyshield/owlyshield_minifilter/owlyshield_minifilter.sln /p:Configuration=Release /p:Platform=x64
+      - name: Upload
+        uses: actions/upload-artifact@v7
+        with:
+          name: bin-owlyshield-minifilter
+          path: Owlyshield/owlyshield_minifilter/x64/Release/RWatch.sys
+
+  build-reddbg:
+    runs-on: windows-2022
+    steps:
+      - name: Enable Git long paths
+        run: git config --global core.longpaths true
+      - uses: actions/checkout@v6
+      - name: Add MSBuild to PATH
+        uses: microsoft/setup-msbuild@v3
+      - name: Build RedDbg
+        run: msbuild Owlyshield/RedDbg/RedDbg/RedDbg.sln /p:Configuration=Release /p:Platform=x64
+      - name: Upload
+        uses: actions/upload-artifact@v7
+        with:
+          name: bin-reddbg
+          path: Owlyshield/RedDbg/RedDbg/x64/Release/RedDbg.exe
+
+  # --- GROUP 2: Dotnet Projects (Separated) ---
+
+  build-megadumper:
     runs-on: windows-2022
     steps:
       - name: Enable Git long paths
@@ -77,22 +154,90 @@ jobs:
         uses: actions/setup-dotnet@v5
         with:
           dotnet-version: '8.0.x'
-
-      - name: Publish Dotnet Projects
-        run: |
-          dotnet publish MegaDumper/MegaDumper/MegaDumper.csproj -c Release -r win-x64 --self-contained false -o artifacts/HydraDragonDumper/
-          dotnet publish HydraDragonFirewall/HydraDragonClient/HydraDragonClient/HydraDragonClient.csproj -c Release -r win-x64 --self-contained false -o artifacts/HydraDragonFirewall/
-          dotnet publish HydraDragonLauncher/HydraDragonLauncher/HydraDragonLauncher.csproj -c Release -r win-x64 --self-contained false -o artifacts/HydraDragonLauncher/
-          dotnet publish HydraDragonService/HydraDragonService/HydraDragonService.csproj -c Release -r win-x64 --self-contained false -o artifacts/HydraDragonService/
-
-      - name: Upload Dotnet Artifacts
+      - name: Publish MegaDumper
+        run: dotnet publish MegaDumper/MegaDumper/MegaDumper.csproj -c Release -r win-x64 --self-contained false -o artifacts/
+      - name: Upload
         uses: actions/upload-artifact@v7
         with:
-          name: dotnet-binaries
+          name: bin-megadumper
           path: artifacts/
 
-  # --- Job 3: Rust Core Projects ---
-  build-rust-core:
+  build-firewall-client:
+    runs-on: windows-2022
+    steps:
+      - name: Enable Git long paths
+        run: git config --global core.longpaths true
+      - uses: actions/checkout@v6
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '8.0.x'
+      - name: Publish Firewall Client
+        run: dotnet publish HydraDragonFirewall/HydraDragonClient/HydraDragonClient/HydraDragonClient.csproj -c Release -r win-x64 --self-contained false -o artifacts/
+      - name: Upload
+        uses: actions/upload-artifact@v7
+        with:
+          name: bin-firewall-client
+          path: artifacts/
+
+  build-launcher:
+    runs-on: windows-2022
+    steps:
+      - name: Enable Git long paths
+        run: git config --global core.longpaths true
+      - uses: actions/checkout@v6
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '8.0.x'
+      - name: Publish Launcher
+        run: dotnet publish HydraDragonLauncher/HydraDragonLauncher/HydraDragonLauncher.csproj -c Release -r win-x64 --self-contained false -o artifacts/
+      - name: Upload
+        uses: actions/upload-artifact@v7
+        with:
+          name: bin-launcher
+          path: artifacts/
+
+  build-service:
+    runs-on: windows-2022
+    steps:
+      - name: Enable Git long paths
+        run: git config --global core.longpaths true
+      - uses: actions/checkout@v6
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '8.0.x'
+      - name: Publish Service
+        run: dotnet publish HydraDragonService/HydraDragonService/HydraDragonService.csproj -c Release -r win-x64 --self-contained false -o artifacts/
+      - name: Upload
+        uses: actions/upload-artifact@v7
+        with:
+          name: bin-service
+          path: artifacts/
+
+  # --- GROUP 3: Rust Projects (Separated) ---
+
+  build-owlyshield-rust:
+    runs-on: windows-2022
+    steps:
+      - name: Enable Git long paths
+        run: git config --global core.longpaths true
+      - uses: actions/checkout@v6
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Install yasm
+        run: choco install yasm
+      - name: Build Owlyshield Rust
+        working-directory: Owlyshield/owlyshield_predict
+        run: cargo build --release
+      - name: Upload
+        uses: actions/upload-artifact@v7
+        with:
+          name: bin-owlyshield-rust
+          path: Owlyshield/owlyshield_predict/target/release/owlyshield_ransom.dll
+
+  build-firewall-rust:
     runs-on: windows-2022
     steps:
       - name: Enable Git long paths
@@ -101,39 +246,28 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: x86_64-pc-windows-msvc, wasm32-unknown-unknown
-
+          targets: wasm32-unknown-unknown
       - name: Install Assembly Tools (yasm)
         run: choco install yasm
-
       - name: Install Trunk
         uses: taiki-e/install-action@v2
         with:
           tool: trunk
-
-      - name: Build Firewall UI (Leptos)
+      - name: Build UI (Leptos)
         working-directory: HydraDragonFirewall/hydradragonfirewall/ui
         run: trunk build --release -d ../dist
-
-      - name: Build Owlyshield Rust
-        working-directory: Owlyshield/owlyshield_predict
-        run: cargo build --release
-
       - name: Build Firewall Rust
         working-directory: HydraDragonFirewall/hydradragonfirewall
         run: cargo build --release
-
-      - name: Upload Rust Artifacts
+      - name: Upload
         uses: actions/upload-artifact@v7
         with:
-          name: rust-binaries
+          name: bin-firewall-rust
           path: |
-            Owlyshield/owlyshield_predict/target/release/owlyshield_ransom.dll
             HydraDragonFirewall/hydradragonfirewall/target/release/hydradragonfirewall.exe
             HydraDragonFirewall/hydradragonfirewall/target/release/hydradragonfirewall.dll
             HydraDragonFirewall/hydradragonfirewall/rules/rules.yaml
 
-  # --- Job 4: Sanctum EDR (Separate Check) ---
   build-sanctum:
     runs-on: windows-2022
     steps:
@@ -142,65 +276,31 @@ jobs:
       - uses: actions/checkout@v6
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@nightly
-        with:
-          targets: x86_64-pc-windows-msvc
-
       - name: Install Cargo Make
         uses: taiki-e/install-action@v2
         with:
           tool: cargo-make
-
-      - name: Setup WDK (Windows Driver Kit)
+      - name: Setup WDK
         shell: pwsh
         run: |
           $wdkSetupPath = "$Env:TEMP\wdksetup.exe"
           (New-Object Net.WebClient).DownloadFile('${{env.WDK_URL}}', $wdkSetupPath)
           Start-Process -FilePath $wdkSetupPath -ArgumentList "/quiet" -NoNewWindow -Wait
-
-      - name: Add WDK tools to PATH
-        shell: pwsh
+      - name: Build Sanctum
+        working-directory: Sanctum
         run: |
-          $wdk_bin = "C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x86"
-          if (Test-Path $wdk_bin) {
-            echo "$wdk_bin" >> $env:GITHUB_PATH
-          }
-
-      - name: Build and Sign Sanctum Driver
-        working-directory: Sanctum/driver
-        shell: pwsh
-        run: |
+          cd driver
           .\cert.ps1
           cargo make release
           .\sign.bat release
-          
-          # Extract hash for build.rs patching
-          $sysPath = "target\release\sanctum_package\sanctum.sys"
-          $certInfo = certmgr.exe -v $sysPath
-          $hashLine = $certInfo | Select-String "Content Hash \(To-Be-Signed Hash\)::" -Context 0,2
-          $hash = ($hashLine.Context.PostContext -join "" -replace " ","" -replace "`r","" -replace "`n","").Trim()
-          Write-Host "Extracted Hash: $hash"
-          
-          if ($hash -ne "") {
-            (Get-Content build.rs) -replace 'L"[0-9A-F]+\\0"', "L`"$hash\0`"" | Set-Content build.rs
-            cargo clean
-            cargo make release
-            .\sign.bat release
-          }
-
-      - name: Build and Sign Sanctum PPL Runner
-        working-directory: Sanctum
-        run: |
+          cd ..
           cargo build --release -p sanctum_ppl_runner
           .\sign_ppl_runner.bat
-
-      - name: Build other Sanctum components
-        working-directory: Sanctum
-        run: cargo make release
-
-      - name: Upload Sanctum Artifacts
+          cargo make release
+      - name: Upload
         uses: actions/upload-artifact@v7
         with:
-          name: sanctum-binaries
+          name: bin-sanctum
           path: |
             Sanctum/driver/target/release/sanctum_package/sanctum.sys
             Sanctum/target/release/sanctum_ppl_runner.exe
@@ -208,16 +308,30 @@ jobs:
             Sanctum/target/release/um_engine.exe
             Sanctum/target/release/sanctum.dll
 
-  # --- Job 5: Stage and PR ---
+  # --- FINAL STAGE: Collect and PR ---
+
   stage-and-pr:
-    needs: [build-msbuild, build-dotnet, build-rust-core, build-sanctum]
+    needs: 
+      - build-tinyantivirus
+      - build-hydradragonav
+      - build-mbrfilter
+      - build-pyasprotection
+      - build-owlyshield-minifilter
+      - build-reddbg
+      - build-megadumper
+      - build-firewall-client
+      - build-launcher
+      - build-service
+      - build-owlyshield-rust
+      - build-firewall-rust
+      - build-sanctum
     runs-on: windows-2022
     steps:
       - name: Enable Git long paths
         run: git config --global core.longpaths true
       - uses: actions/checkout@v6
       
-      - name: Download All Artifacts
+      - name: Download Artifacts
         uses: actions/download-artifact@v7
         with:
           path: downloaded-artifacts
@@ -225,7 +339,6 @@ jobs:
       - name: Organize Binaries
         shell: pwsh
         run: |
-          # Ensure distribution folders exist
           $distRoot = "hydradragon"
           New-Item -ItemType Directory -Force -Path "$distRoot/TinyAntivirus"
           New-Item -ItemType Directory -Force -Path "$distRoot/HydraDragonAV"
@@ -239,69 +352,50 @@ jobs:
           New-Item -ItemType Directory -Force -Path "$distRoot/HydraDragonService"
           New-Item -ItemType Directory -Force -Path "$distRoot/RedDbg"
 
-          # 1. MSBuild
-          Copy-Item "downloaded-artifacts/msbuild-binaries/TinyAntivirus/x64/Release/TinyAvConsole.exe" "$distRoot/TinyAntivirus/TinyAvConsole.exe" -Force
-          Copy-Item "downloaded-artifacts/msbuild-binaries/HydraDragonAV/x64/Release/HydraDragonAV.exe" "$distRoot/HydraDragonAV/HydraDragonAV.exe" -Force
-          Copy-Item "downloaded-artifacts/msbuild-binaries/MBRFilter/x64/Release/MBRFilter.sys" "$distRoot/MBRFilter/MBRFilter.sys" -Force
-          Copy-Item "downloaded-artifacts/msbuild-binaries/PYAS_Protection/x64/Release/SimplePYASProtection.sys" "$distRoot/SimplePYASProtection/SimplePYASProtection.sys" -Force
-          Copy-Item "downloaded-artifacts/msbuild-binaries/PYAS_Protection/x64/Release/SimplePYASProtection.inf" "$distRoot/SimplePYASProtection/SimplePYASProtection.inf" -Force
-          Copy-Item "downloaded-artifacts/msbuild-binaries/Owlyshield/owlyshield_minifilter/x64/Release/RWatch.sys" "$distRoot/Owlyshield/owlyshield_minifilter.sys" -Force
-          Copy-Item "downloaded-artifacts/msbuild-binaries/Owlyshield/RedDbg/RedDbg/x64/Release/RedDbg.exe" "$distRoot/RedDbg/RedDbg.exe" -Force
-
-          # 2. Dotnet (was already organized into folders in the job)
-          Copy-Item "downloaded-artifacts/dotnet-binaries/HydraDragonDumper/*" "$distRoot/HydraDragonDumper/" -Recurse -Force
-          Copy-Item "downloaded-artifacts/dotnet-binaries/HydraDragonFirewall/*" "$distRoot/HydraDragonFirewall/" -Recurse -Force
-          Copy-Item "downloaded-artifacts/dotnet-binaries/HydraDragonLauncher/*" "$distRoot/HydraDragonLauncher/" -Recurse -Force
-          Copy-Item "downloaded-artifacts/dotnet-binaries/HydraDragonService/*" "$distRoot/HydraDragonService/" -Recurse -Force
-
-          # 3. Rust Core
-          Copy-Item "downloaded-artifacts/rust-binaries/Owlyshield/owlyshield_predict/target/release/owlyshield_ransom.dll" "$distRoot/Owlyshield/owlyshield_ransom.dll" -Force
-          Copy-Item "downloaded-artifacts/rust-binaries/HydraDragonFirewall/hydradragonfirewall/target/release/hydradragonfirewall.exe" "$distRoot/HydraDragonFirewall/hydradragonfirewall.exe" -Force
-          Copy-Item "downloaded-artifacts/rust-binaries/HydraDragonFirewall/hydradragonfirewall/target/release/hydradragonfirewall.dll" "$distRoot/HydraDragonFirewall/hydradragonfirewall.dll" -Force
-          Copy-Item "downloaded-artifacts/rust-binaries/HydraDragonFirewall/hydradragonfirewall/rules/rules.yaml" "$distRoot/HydraDragonFirewall/rules/rules.yaml" -Force
-
-          # 4. Sanctum
-          Copy-Item "downloaded-artifacts/sanctum-binaries/Sanctum/driver/target/release/sanctum_package/sanctum.sys" "$distRoot/Sanctum/sanctum.sys" -Force
-          Copy-Item "downloaded-artifacts/sanctum-binaries/Sanctum/target/release/sanctum_ppl_runner.exe" "$distRoot/Sanctum/sanctum_ppl_runner.exe" -Force
-          Copy-Item "downloaded-artifacts/sanctum-binaries/Sanctum/target/release/elam_installer.exe" "$distRoot/Sanctum/elam_installer.exe" -Force
-          Copy-Item "downloaded-artifacts/sanctum-binaries/Sanctum/target/release/um_engine.exe" "$distRoot/Sanctum/um_engine.exe" -Force
-          Copy-Item "downloaded-artifacts/sanctum-binaries/Sanctum/target/release/sanctum.dll" "$distRoot/Sanctum/sanctum.dll" -Force
-
-          # Renaming C# outputs
+          # Copy operations
+          Copy-Item "downloaded-artifacts/bin-tinyantivirus/TinyAvConsole.exe" "$distRoot/TinyAntivirus/" -Force
+          Copy-Item "downloaded-artifacts/bin-hydradragonav/HydraDragonAV.exe" "$distRoot/HydraDragonAV/" -Force
+          Copy-Item "downloaded-artifacts/bin-mbrfilter/MBRFilter.sys" "$distRoot/MBRFilter/" -Force
+          Copy-Item "downloaded-artifacts/bin-pyasprotection/*" "$distRoot/SimplePYASProtection/" -Force
+          Copy-Item "downloaded-artifacts/bin-owlyshield-minifilter/RWatch.sys" "$distRoot/Owlyshield/" -Force
+          Copy-Item "downloaded-artifacts/bin-reddbg/RedDbg.exe" "$distRoot/RedDbg/" -Force
+          
+          Copy-Item "downloaded-artifacts/bin-megadumper/*" "$distRoot/HydraDragonDumper/" -Recurse -Force
           if (Test-Path "$distRoot/HydraDragonDumper/MegaDumper.exe") {
             Move-Item "$distRoot/HydraDragonDumper/MegaDumper.exe" "$distRoot/HydraDragonDumper/HydraDragonDumper.exe" -Force
           }
+          
+          Copy-Item "downloaded-artifacts/bin-firewall-client/*" "$distRoot/HydraDragonFirewall/" -Recurse -Force
+          Copy-Item "downloaded-artifacts/bin-launcher/*" "$distRoot/HydraDragonLauncher/" -Recurse -Force
+          Copy-Item "downloaded-artifacts/bin-service/*" "$distRoot/HydraDragonService/" -Recurse -Force
+          
+          Copy-Item "downloaded-artifacts/bin-owlyshield-rust/owlyshield_ransom.dll" "$distRoot/Owlyshield/" -Force
+          Copy-Item "downloaded-artifacts/bin-firewall-rust/*" "$distRoot/HydraDragonFirewall/" -Force
+          Copy-Item "downloaded-artifacts/bin-sanctum/*" "$distRoot/Sanctum/" -Force
 
-          # Git Staging
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+      - name: Check for Changes
+        id: check_changes
+        shell: pwsh
+        run: |
           git add -A hydradragon/
+          $status = git status --porcelain
+          if ($null -eq $status -or $status -eq "") {
+            echo "changed=false" >> $env:GITHUB_OUTPUT
+            Write-Host "No changes detected."
+          } else {
+            echo "changed=true" >> $env:GITHUB_OUTPUT
+            Write-Host "Changes detected."
+          }
 
       - name: Create Pull Request
+        if: steps.check_changes.outputs.changed == 'true'
         uses: peter-evans/create-pull-request@v8
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          commit-message: "chore(binaries): automated binary update and distribution organization"
+          commit-message: "chore(binaries): automated binary update"
           title: "🚀 Update Distribution Binaries"
-          body: |
-            This PR contains the latest compiled binaries for the entire HydraDragon suite, organized into their distribution folders.
-            
-            **Components Updated:**
-            - TinyAntivirus (C++)
-            - HydraDragonAV (C++)
-            - MBRFilter (Driver)
-            - SimplePYASProtection (Driver)
-            - MegaDumper -> HydraDragonDumper (C#)
-            - HydraDragonFirewall (Rust + C# Client)
-            - HydraDragonLauncher (C#)
-            - HydraDragonService (C#)
-            - Owlyshield (Rust + Minifilter)
-            - Sanctum EDR (Kernel Driver + PPL Runner + ELAM)
-            
-            Verified by independent status checks in the GitHub Actions pipeline.
+          body: "Automated binary update from modular build pipeline."
           branch: ${{ github.event.inputs.branch || 'auto-update-binaries' }}
           base: ${{ github.ref_name }}
           delete-branch: true
-          labels: |
-            binaries
-            automated-pr
+          labels: binaries, automated-pr
