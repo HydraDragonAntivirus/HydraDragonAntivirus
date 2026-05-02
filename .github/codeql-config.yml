@@ -2,3 +2,10 @@ name: "CodeQL Exclusions"
 
 paths-ignore:
   - "OpenEDR/edrav2/iprj/installation/**"
+  - "OpenEDR/**/impacket/**"
+  - "OpenEDR/**/litre/**"
+  - "OpenEDR/**/preprocessed/**"
+  - "OpenEDR/**/js/**"
+  - "OpenEDR/**/_static/**"
+  - "OpenEDR/**/examples/**"
+  - "yarGen/**"
