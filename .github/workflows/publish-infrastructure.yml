@@ -6,13 +6,6 @@ on:
     paths:
       - 'HydraDragonLauncher/**'
       - 'HydraDragonService/**'
-    paths-ignore:
-      - 'hydradragon/**'
-      - '.github/**'
-      - '.agent/**'
-      - 'yarGen/**'
-      - '**.md'
-
 jobs:
   build-and-stage:
     runs-on: windows-2022
