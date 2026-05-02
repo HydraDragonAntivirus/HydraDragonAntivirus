@@ -1694,78 +1694,59 @@ pub fn App() -> impl IntoView {
                 <div class="app-container">
                     <aside>
                         <div class="logo-area">
-                            <div class="logo-icon"></div>
-                            <span class="logo-text">"HYDRADRAGON"</span>
+                            <div>
+                                <div class="logo-text">"HYDRADRAGON"</div>
+                                <div class="logo-sub">"Firewall v0.1.0"</div>
+                            </div>
                         </div>
                         <nav>
+                            <div class="nav-group-label">"MONITOR"</div>
                             <a href="#" class={move || if current_view.get() == AppView::Dashboard { "nav-item active" } else { "nav-item" }}
                                on:click=move |ev| { ev.prevent_default(); set_current_view.set(AppView::Dashboard); }>
-                               "Dashboard"
+                               <span class="nav-icon">"⬡"</span>"Dashboard"
                             </a>
                             <a href="#" class={move || if current_view.get() == AppView::Processes { "nav-item active" } else { "nav-item" }}
                                on:click=move |ev| { ev.prevent_default(); set_current_view.set(AppView::Processes); }>
-                               "Processes"
-                            </a>
-                            <a href="#" class={move || if current_view.get() == AppView::Rules { "nav-item active" } else { "nav-item" }}
-                               on:click=move |ev| { ev.prevent_default(); set_current_view.set(AppView::Rules); }>
-                               "Protection Rules"
-                            </a>
-                            <a href="#" class={move || if current_view.get() == AppView::OwlyShield { "nav-item active" } else { "nav-item" }}
-                               on:click=move |ev| { ev.prevent_default(); set_current_view.set(AppView::OwlyShield); }>
-                               "OwlyShield"
+                               <span class="nav-icon">"◈"</span>"Processes"
                             </a>
                             <a href="#" class={move || if current_view.get() == AppView::Logs { "nav-item active" } else { "nav-item" }}
                                on:click=move |ev| { ev.prevent_default(); set_current_view.set(AppView::Logs); }>
-                               "Network Activity"
+                               <span class="nav-icon">"≋"</span>"Network Activity"
                             </a>
+
+                            <div class="nav-group-label">"ANALYSIS"</div>
                             <a href="#" class={move || if current_view.get() == AppView::PacketReader { "nav-item active" } else { "nav-item" }}
                                on:click=move |ev| { ev.prevent_default(); set_current_view.set(AppView::PacketReader); }>
-                               "Packet Reader"
+                               <span class="nav-icon">"⬡"</span>"Packet Reader"
                             </a>
                             <a href="#" class={move || if current_view.get() == AppView::HttpInspector { "nav-item active" } else { "nav-item" }}
                                on:click=move |ev| { ev.prevent_default(); set_current_view.set(AppView::HttpInspector); }>
-                               "HTTP Inspector"
+                               <span class="nav-icon">"◈"</span>"HTTP Inspector"
+                            </a>
+
+                            <div class="nav-group-label">"PROTECTION"</div>
+                            <a href="#" class={move || if current_view.get() == AppView::Rules { "nav-item active" } else { "nav-item" }}
+                               on:click=move |ev| { ev.prevent_default(); set_current_view.set(AppView::Rules); }>
+                               <span class="nav-icon">"⬡"</span>"Protection Rules"
+                            </a>
+                            <a href="#" class={move || if current_view.get() == AppView::OwlyShield { "nav-item active" } else { "nav-item" }}
+                               on:click=move |ev| { ev.prevent_default(); set_current_view.set(AppView::OwlyShield); }>
+                               <span class="nav-icon">"◈"</span>"OwlyShield"
                             </a>
                             <a href="#" class={move || if current_view.get() == AppView::Exclusions { "nav-item active" } else { "nav-item" }}
                                on:click=move |ev| { ev.prevent_default(); set_current_view.set(AppView::Exclusions); }>
-                               "Exclusions"
+                               <span class="nav-icon">"≋"</span>"Exclusions"
                             </a>
                             <a href="#" class={move || if current_view.get() == AppView::Settings { "nav-item active" } else { "nav-item" }}
                                on:click=move |ev| { ev.prevent_default(); set_current_view.set(AppView::Settings); }>
-                               "Settings"
-                            </a>
-                            <a href="#" class="nav-item nav-item-quit"
-                               on:click=move |ev| {
-                                   ev.prevent_default();
-                                   set_confirm_quit.set(true);
-                               }>
-                               "Quit"
+                               <span class="nav-icon">"⬡"</span>"Settings"
                             </a>
 
-                            {move || if confirm_quit.get() {
-                                view! {
-                                    <div class="quit-confirm">
-                                        <span>"Are you sure?"</span>
-                                        <div style="display: flex; gap: 6px; margin-top: 8px">
-                                            <button class="btn-primary" style="background: var(--accent-red); flex: 1; padding: 5px"
-                                                on:click=move |_| {
-                                                    spawn_local(async move {
-                                                        let _ = invoke("quit_app", JsValue::NULL).await;
-                                                    });
-                                                }>
-                                                "Yes, Quit"
-                                            </button>
-                                            <button class="btn-secondary" style="flex: 1; padding: 5px"
-                                                on:click=move |_| set_confirm_quit.set(false)>
-                                                "Cancel"
-                                            </button>
-                                        </div>
-                                    </div>
-                                }.into_view()
-                            } else {
-                                view! {}.into_view()
-                            }}
                         </nav>
+                        <div class="sidebar-status">
+                            <div class="sidebar-status-dot"></div>
+                            <span class="sidebar-status-text">"ENGINE ACTIVE"</span>
+                        </div>
                     </aside>
 
                     <main>
@@ -1806,10 +1787,14 @@ pub fn App() -> impl IntoView {
                                                 <svg width="100%" height="150" viewBox="0 0 600 150" class="traffic-svg">
                                                     <defs>
                                                         <linearGradient id="grad1" x1="0%" y1="0%" x2="0%" y2="100%">
-                                                            <stop offset="0%" style="stop-color:var(--accent-blue);stop-opacity:0.5" />
+                                                            <stop offset="0%" style="stop-color:var(--accent-blue);stop-opacity:0.6" />
                                                             <stop offset="100%" style="stop-color:var(--accent-blue);stop-opacity:0" />
                                                         </linearGradient>
+                                                        <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse">
+                                                            <path d="M 20 0 L 0 0 0 20" fill="none" stroke="rgba(0, 207, 255, 0.1)" stroke-width="1"/>
+                                                        </pattern>
                                                     </defs>
+                                                    <rect width="100%" height="100%" fill="url(#grid)" />
                                                     <path
                                                         d=move || activity_fill_path.get()
                                                         fill="url(#grad1)"
@@ -1819,9 +1804,10 @@ pub fn App() -> impl IntoView {
                                                         d=move || activity_line_path.get()
                                                         fill="none"
                                                         stroke="var(--accent-blue)"
-                                                        stroke-width="2.5"
+                                                        stroke-width="3"
                                                         stroke-linejoin="round"
                                                         stroke-linecap="round"
+                                                        style="filter: drop-shadow(0 0 8px var(--accent-blue))"
                                                     />
                                                 </svg>
                                             <div class="graph-overlay" style="position: absolute; top: 20px; right: 20px; text-align: right">
@@ -1881,6 +1867,14 @@ pub fn App() -> impl IntoView {
                                         <div class="glass-card stat-item-compact">
                                             <h4>"Allowed"</h4>
                                             <div class="stat-value" style="color: var(--accent-green)">{move || allowed_count.get()}</div>
+                                        </div>
+
+                                        // ── Glitch Dragon Icon ─────────────
+                                        <div class="sidebar-dragon-corner">
+                                            <img src="assets/HydraDragonAV.png?v=2" class="logo-dragon-img" alt="" />
+                                            <img src="assets/HydraDragonAV.png?v=2" class="logo-dragon-img logo-glitch-r" alt="" aria-hidden="true" />
+                                            <img src="assets/HydraDragonAV.png?v=2" class="logo-dragon-img logo-glitch-c" alt="" aria-hidden="true" />
+                                            <div class="logo-scanlines"></div>
                                         </div>
                                     </div>
                                 </div>
