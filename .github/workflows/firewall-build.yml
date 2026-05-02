@@ -51,7 +51,7 @@ jobs:
 
       - name: Build UI (Leptos)
         working-directory: HydraDragonFirewall/hydradragonfirewall/ui
-        run: trunk build --release
+        run: trunk build --release -d ../dist
 
       - name: Verify UI build
         shell: pwsh

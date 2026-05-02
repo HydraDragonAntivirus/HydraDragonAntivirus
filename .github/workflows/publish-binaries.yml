@@ -108,7 +108,7 @@ jobs:
 
       - name: Build Firewall UI (Leptos)
         working-directory: HydraDragonFirewall/hydradragonfirewall/ui
-        run: trunk build --release
+        run: trunk build --release -d ../dist
 
       - name: Build Owlyshield Rust
         working-directory: Owlyshield/owlyshield_predict
