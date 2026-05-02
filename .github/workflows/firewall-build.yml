@@ -47,8 +47,8 @@ jobs:
           $url = "https://github.com/trunk-rs/trunk/releases/download/$trunkVersion/trunk-x86_64-pc-windows-msvc.zip"
           Invoke-WebRequest -Uri $url -OutFile trunk.zip
           Expand-Archive -Path trunk.zip -DestinationPath .
-          Move-Item trunk.exe HydraDragonFirewall/hydradragonfirewall/trunk.exe
-          echo "$((Get-Item HydraDragonFirewall/hydradragonfirewall).FullName)" >> $env:GITHUB_PATH
+          # trunk.exe is now in HydraDragonFirewall/hydradragonfirewall
+          echo "$((Get-Item .).FullName)" >> $env:GITHUB_PATH
 
       - name: Add WASM target
         run: rustup target add wasm32-unknown-unknown

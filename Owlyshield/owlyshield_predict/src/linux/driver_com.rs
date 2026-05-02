@@ -1,7 +1,7 @@
 //! Low-level communication with the minifilter.
 use std::time::SystemTime;
 
-use crate::shared_def::{DriveType, DriveType::NoRootDir, FileId, IOMessage, RuntimeFeatures};
+use crate::shared_def::{FileId, IOMessage, RuntimeFeatures};
 
 use ebpf_monitor_common::Access::{Create, Mkdir, Read, Rename, Rmdir, Symlink, Unlink, Write};
 use ebpf_monitor_common::FileAccess;

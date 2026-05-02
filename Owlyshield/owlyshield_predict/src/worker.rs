@@ -1,5 +1,5 @@
 pub mod predictor {
-    // use crate::config::Config;
+    use crate::config::Config;
     use crate::predictions::prediction::input_tensors::Timestep;
     use crate::predictions::prediction::input_tensors::VecvecCappedF32;
     use crate::predictions::prediction::{PREDMTRXCOLS, PREDMTRXROWS};
@@ -192,14 +192,12 @@ pub mod predictor {
 }
 
 pub mod process_record_handling {
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
     use std::thread;
     use std::time::Duration;
 
     use chrono::Local;
     use lru::LruCache;
-    #[cfg(target_os = "linux")]
-    use std::path::Path;
     #[cfg(target_os = "windows")]
     use windows::Win32::Foundation::CloseHandle;
     #[cfg(target_os = "windows")]
@@ -211,7 +209,7 @@ pub mod process_record_handling {
     use super::predictor::PredictorMalware;
     use crate::IOMessage;
     use crate::actions_on_kill::{ActionsOnKill, ThreatInfo};
-    use crate::config::{Config, KillPolicy, Param};
+    use crate::config::{Config, Param};
     use crate::csvwriter::CsvWriter;
     use crate::logging::Logging;
     use crate::novelty::{Rule, StateSave};
@@ -715,7 +713,6 @@ pub mod worker_instance {
     use crate::csvwriter::CsvWriter;
     use crate::jsonrpc::{Jsonrpc, RPCMessage};
     use crate::logging::Logging;
-    #[cfg(feature = "realtime_learning")]
     use crate::predictions::prediction::input_tensors::{Timestep, VecvecCappedF32};
     use crate::process::ProcessRecord;
     use crate::process::ProcessState;

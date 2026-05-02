@@ -6,11 +6,11 @@ use log::warn;
 pub struct LinuxThreatHandler {}
 
 impl ThreatHandler for LinuxThreatHandler {
-    fn suspend(&self, proc: &mut ProcessRecord) {
+    fn suspend(&self, _proc: &mut ProcessRecord) {
         todo!()
     }
 
-    fn kill(&self, gid: u64) {
+    fn kill(&self, _gid: u64) {
         todo!()
     }
 
@@ -21,7 +21,7 @@ impl ThreatHandler for LinuxThreatHandler {
         );
     }
 
-    fn awake(&self, proc: &mut ProcessRecord, kill_proc_on_exit: bool) {
+    fn awake(&self, _proc: &mut ProcessRecord, _kill_proc_on_exit: bool) {
         todo!()
     }
 
