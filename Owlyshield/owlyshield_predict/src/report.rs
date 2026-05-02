@@ -178,6 +178,7 @@ impl SystemReport {
         }
     }
 
+    #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
     pub fn collect(
         _config: &Config,
         firewall_pids: Option<&std::collections::HashSet<u32>>,

@@ -34,6 +34,7 @@ impl IOMessage {
             },
             file_size: l_drivermsg.fsize,
             time: SystemTime::now(),
+            parent_pid: 0,
         }
     }
 }

@@ -719,7 +719,9 @@ pub mod worker_instance {
     use crate::process::ProcessState;
     #[cfg(feature = "realtime_learning")]
     use crate::realtime_learning::ApiTracker;
-    use crate::shared_def::{IrpMajorOp, effective_hypervisor_raw_event_type};
+    use crate::shared_def::IrpMajorOp;
+    #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+    use crate::shared_def::effective_hypervisor_raw_event_type;
     use crate::threat_handler::ThreatHandler;
     #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
     use crate::utils::validate_pipe_client;
@@ -909,6 +911,7 @@ pub mod worker_instance {
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
         dynamic_hook_apply_failures: std::collections::HashMap<u32, u32>,
         pub threat_handler: Option<Box<dyn ThreatHandler>>,
+        #[cfg(target_os = "windows")]
         pub driver: Option<crate::Driver>,
         pub last_report_time: Option<std::time::Instant>,
     }
@@ -1154,6 +1157,7 @@ pub mod worker_instance {
             )
         }
 
+        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
         fn is_unattributed_rootkit_event(iomsg: &IOMessage, irp_op: &IrpMajorOp) -> bool {
             Self::is_rootkit_irp(irp_op)
                 && iomsg.gid == 0
@@ -1758,14 +1762,18 @@ pub mod worker_instance {
                 process_record_handler: None,
                 exepath_handler: Box::<ExepathLive>::default(),
                 threat_handler: None,
+                #[cfg(all(target_os = "windows", feature = "hydradragon"))]
+                av_integration: None,
+                #[cfg(all(target_os = "windows", not(feature = "hydradragon")))]
                 av_integration: None,
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
                 app_settings: app_settings.clone(),
                 iomsg_postprocessors: vec![],
+                #[cfg(feature = "realtime_learning")]
                 api_trackers: std::collections::HashMap::new(),
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
                 behavior_engine: Self::build_behavior_engine(config),
-                #[cfg(not(all(target_os = "windows", feature = "behavior_engine")))]
+                #[cfg(all(target_os = "windows", not(feature = "behavior_engine")))]
                 behavior_engine: BehaviorEngine::dummy(),
                 #[cfg(feature = "realtime_learning")]
                 learning_engine: {
@@ -1797,6 +1805,7 @@ pub mod worker_instance {
                 dynamic_hook_applied_generation: std::collections::HashMap::new(),
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
                 dynamic_hook_apply_failures: std::collections::HashMap::new(),
+                #[cfg(target_os = "windows")]
                 driver: None,
                 last_report_time: None,
             }
@@ -2006,6 +2015,7 @@ pub mod worker_instance {
             self
         }
 
+        #[cfg(target_os = "windows")]
         pub fn driver(mut self, driver: crate::Driver) -> Worker<'a> {
             #[cfg(target_os = "windows")]
             crate::driver_com::register_shared_driver(driver.clone());

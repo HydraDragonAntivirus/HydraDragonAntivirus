@@ -12,17 +12,13 @@ use crate::ExepathLive;
 use crate::IOMessage;
 use crate::IOMsgPostProcessorMqtt;
 use crate::IOMsgPostProcessorRPC;
-use crate::IOMsgPostProcessorRPC;
-use crate::IOMsgPostProcessorWriter;
 use crate::IOMsgPostProcessorWriter;
 use crate::LDriverMsg;
 use crate::Logging;
 use crate::ProcessRecordHandlerLive;
-use crate::ProcessRecordHandlerLive;
 use crate::ProcessRecordHandlerNovelty;
 use crate::Worker;
 use crate::config;
-use crate::config::Param;
 use crate::config::Param;
 use crate::driver_com::Buf;
 use crate::threathandling::LinuxThreatHandler;
@@ -33,23 +29,14 @@ use std::path::Path;
 use std::sync::mpsc::channel;
 use std::thread;
 
-fn probe_code() -> &'static [u8] {
-    include_bytes!(
-        concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/target/bpf/programs/openmonitor/openmonitor.elf"
-        ) // "/home/fedora/redbpf_test/target/bpf/programs/openmonitor/openmonitor.elf"
-    )
-}
-
 use aya::maps::perf::AsyncPerfEventArray;
 use aya::programs::KProbe;
 use aya::util::online_cpus;
-use aya::{Bpf, include_bytes_aligned};
-use aya_log::BpfLogger;
+use aya::Ebpf;
+use aya_log::EbpfLogger;
 use bytes::BytesMut;
 use ebpf_monitor_common::*;
-use log::{debug, info, warn};
+use log::{info, warn};
 use tokio::signal;
 use tokio::task;
 
@@ -97,7 +84,7 @@ pub async fn run() -> Result<(), anyhow::Error> {
             }
             match rmp_serde::from_slice(&buf[0..cursor_record_end]) {
                 Ok(mut iomsg) => {
-                    worker.process_io(&mut iomsg);
+                    worker.process_io(&mut iomsg, &config);
                 }
                 Err(_e) => {
                     println!("Error deserializing buffer {}", cursor_index); //buffer is too small
@@ -129,15 +116,7 @@ pub async fn run() -> Result<(), anyhow::Error> {
             //NEW
             thread::spawn(move || {
 
-                if cfg!(feature = "novelty") {
-                    let watchlist = WatchList::from(
-                        &Path::new(&config[Param::NoveltyPath]).join(Path::new("to_analyze.yml")),
-                    )
-                    .expect("Cannot open to_analyze.yml");
-                    watchlist.refresh_periodically();
-                }
-
-                let mut worker = Worker::new();
+                let mut worker = Worker::new(&config);
 
                 worker = worker.exepath_handler(Box::new(ExepathLive::default()));
 
@@ -150,6 +129,12 @@ pub async fn run() -> Result<(), anyhow::Error> {
                 }
 
                 if cfg!(feature = "novelty") {
+                    let watchlist = WatchList::from(
+                        &Path::new(&config[Param::NoveltyPath]).join(Path::new("to_analyze.yml")),
+                    )
+                    .expect("Cannot open to_analyze.yml");
+                    watchlist.refresh_periodically();
+
                     worker = worker.process_record_handler(Box::new(
                         ProcessRecordHandlerNovelty::new(&config, watchlist),
                     ));
@@ -176,7 +161,7 @@ pub async fn run() -> Result<(), anyhow::Error> {
 
                 loop {
                     if let Some(mut iomsg) = rx_iomsgs.recv().ok() {
-                        worker.process_io(&mut iomsg);
+                        worker.process_io(&mut iomsg, &config);
                     }
                 }
             });
@@ -203,14 +188,14 @@ pub async fn run() -> Result<(), anyhow::Error> {
         // like to specify the eBPF program at runtime rather than at compile-time, you can
         // reach for `Bpf::load_file` instead.
         #[cfg(debug_assertions)]
-        let mut bpf = Bpf::load(include_bytes_aligned!(
+        let mut bpf = Ebpf::load_file(
             "../../vfs-kprobes/target/bpfel-unknown-none/debug/ebpf-monitor"
-        ))?;
+        )?;
         #[cfg(not(debug_assertions))]
-        let mut bpf = Bpf::load(include_bytes_aligned!(
+        let mut bpf = Ebpf::load_file(
             "../../vfs-kprobes/target/bpfel-unknown-none/release/ebpf-monitor"
-        ))?;
-        if let Err(e) = BpfLogger::init(&mut bpf) {
+        )?;
+        if let Err(e) = EbpfLogger::init(&mut bpf) {
             // This can happen if you remove all log statements from your eBPF program.
             warn!("failed to initialize eBPF logger: {}", e);
         }
