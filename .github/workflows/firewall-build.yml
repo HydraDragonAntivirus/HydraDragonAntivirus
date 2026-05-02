@@ -41,21 +41,25 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Install Trunk
-        shell: pwsh
-        run: |
-          $trunkVersion = "v0.21.1"
-          $url = "https://github.com/trunk-rs/trunk/releases/download/$trunkVersion/trunk-x86_64-pc-windows-msvc.zip"
-          Invoke-WebRequest -Uri $url -OutFile trunk.zip
-          Expand-Archive -Path trunk.zip -DestinationPath .
-          # trunk.exe is now in HydraDragonFirewall/hydradragonfirewall
-          echo "$((Get-Item .).FullName)" >> $env:GITHUB_PATH
+        uses: jetli/trunk-action@v0.5.0
+        with:
+          version: 'latest'
 
       - name: Add WASM target
         run: rustup target add wasm32-unknown-unknown
+        working-directory: .
 
       - name: Build UI (Leptos)
         working-directory: HydraDragonFirewall/hydradragonfirewall/ui
-        run: ../trunk.exe build --release
+        run: trunk build --release
+
+      - name: Verify UI build
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "ui/dist")) {
+            Write-Error "UI build failed: ui/dist not found!"
+            exit 1
+          }
 
       - name: Set up WinDivert
         shell: pwsh
