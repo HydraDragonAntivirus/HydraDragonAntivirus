@@ -1,4 +1,4 @@
-﻿
+
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.7.34009.444
@@ -234,8 +234,8 @@ Global
 		{88A23124-5640-35A0-B890-311D7A67A7D2}.Debug Kernel|ARM64.ActiveCfg = Debug Kernel|x64
 		{88A23124-5640-35A0-B890-311D7A67A7D2}.Debug Kernel|ARM64.Build.0 = Debug Kernel|x64
 		{88A23124-5640-35A0-B890-311D7A67A7D2}.Debug Kernel|ARM64.Deploy.0 = Debug Kernel|x64
-		{88A23124-5640-35A0-B890-311D7A67A7D2}.Debug Kernel|x64.ActiveCfg = Debug Kernel|x64
-		{88A23124-5640-35A0-B890-311D7A67A7D2}.Debug Kernel|x64.Build.0 = Debug Kernel|x64
+		{88A23124-5640-35A0-B890-311D7A67A7D2}.Debug Kernel|x64.ActiveCfg = Release Kernel|x64
+		{88A23124-5640-35A0-B890-311D7A67A7D2}.Debug Kernel|x64.Build.0 = Release Kernel|x64
 		{88A23124-5640-35A0-B890-311D7A67A7D2}.Debug Kernel|x64.Deploy.0 = Debug Kernel|x64
 		{88A23124-5640-35A0-B890-311D7A67A7D2}.Debug Kernel|x86.ActiveCfg = Debug Kernel|Win32
 		{88A23124-5640-35A0-B890-311D7A67A7D2}.Debug Kernel|x86.Build.0 = Debug Kernel|Win32
@@ -312,8 +312,8 @@ Global
 		{E06E2E87-82B9-4DC2-A1E9-FE371CDBAAC2}.Debug Kernel|ARM64.ActiveCfg = Debug Kernel|x64
 		{E06E2E87-82B9-4DC2-A1E9-FE371CDBAAC2}.Debug Kernel|ARM64.Build.0 = Debug Kernel|x64
 		{E06E2E87-82B9-4DC2-A1E9-FE371CDBAAC2}.Debug Kernel|ARM64.Deploy.0 = Debug Kernel|x64
-		{E06E2E87-82B9-4DC2-A1E9-FE371CDBAAC2}.Debug Kernel|x64.ActiveCfg = Debug Kernel|x64
-		{E06E2E87-82B9-4DC2-A1E9-FE371CDBAAC2}.Debug Kernel|x64.Build.0 = Debug Kernel|x64
+		{E06E2E87-82B9-4DC2-A1E9-FE371CDBAAC2}.Debug Kernel|x64.ActiveCfg = Release Kernel|x64
+		{E06E2E87-82B9-4DC2-A1E9-FE371CDBAAC2}.Debug Kernel|x64.Build.0 = Release Kernel|x64
 		{E06E2E87-82B9-4DC2-A1E9-FE371CDBAAC2}.Debug Kernel|x64.Deploy.0 = Debug Kernel|x64
 		{E06E2E87-82B9-4DC2-A1E9-FE371CDBAAC2}.Debug Kernel|x86.ActiveCfg = Debug Kernel|Win32
 		{E06E2E87-82B9-4DC2-A1E9-FE371CDBAAC2}.Debug Kernel|x86.Build.0 = Debug Kernel|Win32

@@ -1,4 +1,4 @@
-name: Owlyshiled Rust Windows
+name: Owlyshield Rust Windows
 
 on:
   push:
@@ -13,10 +13,6 @@ on:
         default: false
         type: boolean
     
-defaults:
-  run:
-    working-directory: Owlyshield/owlyshield_predict
-
 env:
   CARGO_TERM_COLOR: always
 
@@ -25,10 +21,14 @@ jobs:
     if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.update_lockfile != 'true' }}
 
     runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: Owlyshield/owlyshield_predict
 
     steps:
     - name: Enable Git long paths
       run: git config --global core.longpaths true
+      working-directory: .
 
     - uses: actions/checkout@v4
     - name: Set up Rust

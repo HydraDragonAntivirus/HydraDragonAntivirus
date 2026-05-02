@@ -80,7 +80,7 @@
       <TreatLinkerWarningAsErrors>false</TreatLinkerWarningAsErrors>
     </Link>
     <PreBuildEvent>
-      <Command>msbuild "$(ProjectDir)Source/Deps/zydis/msvc/Zydis.sln" /m /p:Configuration="Release Kernel" /p:Platform=$(Platform) /target:zydis /target:zycore /p:OutDir="$(ProjectDir)Source/Deps/zydis/msvc/bin/$(ConfigurationName)\\"</Command>
+      <Command></Command>
     </PreBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='ReleaseX64Kernel|x64'">
@@ -103,7 +103,7 @@
       <TreatLinkerWarningAsErrors>false</TreatLinkerWarningAsErrors>
     </Link>
     <PreBuildEvent>
-      <Command>msbuild "$(ProjectDir)Source/Deps/zydis/msvc/Zydis.sln" /m /p:Configuration="Release Kernel" /p:Platform=$(Platform) /target:zydis /target:zycore /p:OutDir="$(ProjectDir)Source/Deps/zydis/msvc/bin/$(ConfigurationName)\\"</Command>
+      <Command></Command>
     </PreBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>

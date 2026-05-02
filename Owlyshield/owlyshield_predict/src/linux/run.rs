@@ -18,6 +18,7 @@ use crate::Logging;
 use crate::ProcessRecordHandlerLive;
 use crate::ProcessRecordHandlerNovelty;
 use crate::Worker;
+use log::debug;
 use crate::config;
 use crate::config::Param;
 use crate::driver_com::Buf;

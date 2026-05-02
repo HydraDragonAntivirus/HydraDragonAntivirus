@@ -12,11 +12,11 @@ env:
   WDK_URL: https://go.microsoft.com/fwlink/?linkid=2335869
   
   # Path to the solution file relative to the root of the project.
-  SOLUTION_FILE_PATH: "PYAS_Protection/PYAS_Protection/SimplePYASProtection.sln"
+  SOLUTION_FILE_PATH: "PYAS_Protection/SimplePYASProtection.sln"
 
   RELEASE_ZIP_FILE_NAME: SimplePYASProtection
 
-  BUILD_BIN_DIR: ./PYAS_Protection/PYAS_Protection/x64/
+  BUILD_BIN_DIR: ./PYAS_Protection/x64/
 
 jobs:
   win-amd64-build:

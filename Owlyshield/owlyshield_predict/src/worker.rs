@@ -2561,6 +2561,7 @@ pub mod worker_instance {
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
                 dynamic_hook_apply_failures: std::collections::HashMap::new(),
                 threat_handler: None,
+                #[cfg(target_os = "windows")]
                 driver: None,
                 last_report_time: None,
             }
