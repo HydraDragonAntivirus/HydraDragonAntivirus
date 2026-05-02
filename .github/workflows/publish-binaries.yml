@@ -103,6 +103,11 @@ jobs:
         with:
           targets: x86_64-pc-windows-msvc, wasm32-unknown-unknown
 
+      - name: Install Assembly Tools (yasm)
+        uses: taiki-e/install-action@v2
+        with:
+          tool: yasm
+
       - name: Install Trunk
         uses: taiki-e/install-action@v2
         with:

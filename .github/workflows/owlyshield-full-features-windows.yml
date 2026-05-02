@@ -27,6 +27,11 @@ jobs:
     
     - name: Set up Rust
       uses: dtolnay/rust-toolchain@stable
+
+    - name: Install Assembly Tools (yasm)
+      uses: taiki-e/install-action@v2
+      with:
+        tool: yasm
       
     - name: Cache Cargo
       uses: Swatinem/rust-cache@v2
