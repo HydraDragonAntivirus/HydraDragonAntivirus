@@ -95,17 +95,23 @@ body {
     display: flex;
     overflow: hidden;
 
-    /* Radial atmosphere + Premium Cyber Grid */
+    /* Animated Cyber Grid */
     background-image:
-        radial-gradient(ellipse 900px 700px at -5% -5%, rgba(255, 38, 38, 0.08) 0%, transparent 65%),
-        radial-gradient(ellipse 700px 600px at 105% 108%, rgba(0, 207, 255, 0.06) 0%, transparent 65%),
-        linear-gradient(rgba(0, 207, 255, 0.025) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(0, 207, 255, 0.025) 1px, transparent 1px);
+        radial-gradient(ellipse 1100px 800px at -5% -5%, rgba(255, 38, 38, 0.12) 0%, transparent 65%),
+        radial-gradient(ellipse 900px 700px at 105% 108%, rgba(0, 207, 255, 0.1) 0%, transparent 65%),
+        linear-gradient(rgba(0, 207, 255, 0.035) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0, 207, 255, 0.035) 1px, transparent 1px);
     background-size: 100% 100%, 100% 100%, 30px 30px, 30px 30px;
     background-position: 0 0, 0 0, 0 0, 0 0;
+    animation: gridPan 30s linear infinite;
 }
 
-/* Subtle scanline overlay on entire app */
+@keyframes gridPan {
+    0% { background-position: 0 0, 0 0, 0 0, 0 0; }
+    100% { background-position: 0 0, 0 0, 30px 30px, 30px 30px; }
+}
+
+/* Dynamic Scrolling Scanline */
 body::after {
     content: '';
     position: fixed;
@@ -114,8 +120,8 @@ body::after {
         0deg,
         transparent,
         transparent 2px,
-        rgba(0,0,0,0.08) 2px,
-        rgba(0,0,0,0.08) 4px
+        rgba(0,0,0,0.12) 2px,
+        rgba(0,0,0,0.12) 4px
     );
     pointer-events: none;
     z-index: 9999;
@@ -203,10 +209,26 @@ aside::after {
     font-family: 'Oxanium', sans-serif;
     font-weight: 800;
     font-size: 16px;
-    letter-spacing: 0.08em;
+    letter-spacing: 0.1em;
     text-transform: uppercase;
-    color: var(--t1);
+    color: #fff;
     line-height: 1;
+    position: relative;
+    text-shadow: 0 0 10px rgba(255, 38, 38, 0.6);
+    transition: all 0.3s ease;
+}
+
+.logo-area:hover .logo-text {
+    animation: textGlitch 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94) both infinite;
+}
+
+@keyframes textGlitch {
+    0% { text-shadow: -2px 0 var(--red), 2px 0 var(--cyan-line); transform: skewX(0deg); }
+    20% { text-shadow: 2px 0 var(--red), -2px 0 var(--cyan-line); transform: skewX(2deg); }
+    40% { text-shadow: -1px 0 var(--red), 1px 0 var(--cyan-line); transform: skewX(-2deg); }
+    60% { text-shadow: 3px 0 var(--red), -3px 0 var(--cyan-line); transform: skewX(0deg); }
+    80% { text-shadow: -2px 0 var(--red), 2px 0 var(--cyan-line); transform: skewX(1deg); }
+    100% { text-shadow: 1px 0 var(--red), -1px 0 var(--cyan-line); transform: skewX(-1deg); }
 }
 
 .logo-sub {
@@ -345,43 +367,43 @@ main {
    GLASS CARDS  — corner-bracket aesthetic
    ══════════════════════════════════════════════════════════════ */
 .glass-card {
-    background: rgba(6, 8, 16, 0.65);
-    backdrop-filter: blur(24px) saturate(180%);
-    -webkit-backdrop-filter: blur(24px) saturate(180%);
-    border: 1px solid rgba(0, 207, 255, 0.1);
+    background: rgba(6, 8, 16, 0.55);
+    backdrop-filter: blur(32px) saturate(200%);
+    -webkit-backdrop-filter: blur(32px) saturate(200%);
+    border: 1px solid rgba(0, 207, 255, 0.15);
     border-radius: var(--r-lg);
     padding: 24px;
     box-shadow: 
-        0 8px 32px rgba(0, 0, 0, 0.5),
-        inset 0 1px 0 rgba(255, 255, 255, 0.05),
-        inset 0 0 20px rgba(0, 207, 255, 0.02);
+        0 8px 32px rgba(0, 0, 0, 0.6),
+        inset 0 1px 0 rgba(255, 255, 255, 0.1),
+        inset 0 0 25px rgba(0, 207, 255, 0.05);
     position: relative;
     overflow: hidden;
-    transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), box-shadow 0.3s ease, border-color 0.3s ease;
+    transition: box-shadow 0.4s ease, border-color 0.4s ease;
 }
 
-.glass-card:hover {
-    transform: translateY(-2px);
-    border-color: rgba(0, 207, 255, 0.3);
-    box-shadow: 
-        0 12px 40px rgba(0, 0, 0, 0.6),
-        inset 0 1px 0 rgba(255, 255, 255, 0.1),
-        inset 0 0 30px rgba(0, 207, 255, 0.05);
-}
-
-/* Shimmer line across top */
 .glass-card::before {
     content: '';
     position: absolute;
-    top: 0; left: 10%; right: 10%;
-    height: 1px;
-    background: linear-gradient(90deg,
-        transparent,
-        rgba(255,255,255,0.12) 40%,
-        rgba(255,255,255,0.12) 60%,
-        transparent
-    );
+    top: 0; left: -100%; width: 50%; height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(0, 207, 255, 0.8), transparent);
+    animation: glassEdgeFlare 4s infinite;
     pointer-events: none;
+}
+
+@keyframes glassEdgeFlare {
+    0% { left: -100%; }
+    50% { left: 200%; }
+    100% { left: 200%; }
+}
+
+.glass-card:hover {
+    border-color: rgba(0, 207, 255, 0.5);
+    box-shadow: 
+        0 15px 45px rgba(0, 0, 0, 0.8),
+        0 0 20px rgba(0, 207, 255, 0.15),
+        inset 0 1px 0 rgba(255, 255, 255, 0.2),
+        inset 0 0 40px rgba(0, 207, 255, 0.1);
 }
 
 /* Corner brackets on cards */
@@ -475,6 +497,12 @@ main {
 .status-badge.secure {
     color: #fff;
     text-shadow: 0 0 20px var(--acid-glow), 0 0 40px var(--acid), 0 0 80px rgba(12,245,132,0.4);
+    animation: textHeartbeat 3s ease-in-out infinite;
+}
+
+@keyframes textHeartbeat {
+    0%, 100% { filter: drop-shadow(0 0 5px rgba(12, 245, 132, 0.5)); transform: scale(1); }
+    50% { filter: drop-shadow(0 0 25px rgba(12, 245, 132, 1)); transform: scale(1.02); }
 }
 
 /* Pulse dot */
@@ -629,12 +657,32 @@ main {
     padding: 6px 10px;
     border-radius: var(--r-sm);
     margin-bottom: 2px;
-    transition: background 0.12s ease;
+    transition: all 0.25s cubic-bezier(0.25, 0.46, 0.45, 0.94);
     border-left: 2px solid transparent;
     line-height: 1.4;
+    position: relative;
+    overflow: hidden;
 }
 
-.log-row:hover { background: rgba(255,255,255,0.03); }
+.log-row::before {
+    content: '';
+    position: absolute;
+    top: 0; bottom: 0; left: -100%;
+    width: 50%;
+    background: linear-gradient(90deg, transparent, rgba(0, 207, 255, 0.2), transparent);
+    transition: left 0.4s ease;
+}
+
+.log-row:hover {
+    background: rgba(0, 207, 255, 0.05);
+    border-left-color: rgba(0, 207, 255, 0.8);
+    transform: translateX(4px);
+    box-shadow: -4px 0 15px rgba(0, 207, 255, 0.2);
+}
+
+.log-row:hover::before {
+    left: 200%;
+}
 
 .log-time {
     color: var(--t5);

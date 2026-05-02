@@ -305,19 +305,19 @@ pub fn RulesWiki() -> impl IntoView {
 .wiki-topbar-left { display: flex; align-items: center; gap: 13px; }
 
 .wiki-logo-mark {
-    width: 36px; height: 36px;
+    width: 44px; height: 44px;
     background: rgba(0,207,255,0.07);
     border: 1px solid rgba(0,207,255,0.16);
-    border-radius: 7px;
+    border-radius: 9px;
     display: flex; align-items: center; justify-content: center;
-    font-size: 17px; flex-shrink: 0;
+    font-size: 22px; flex-shrink: 0;
 }
 
 .wiki-topbar-info { display: flex; flex-direction: column; gap: 2px; }
 
 .wiki-topbar-title {
     font-family: 'Oxanium', sans-serif;
-    font-size: 13px; font-weight: 800;
+    font-size: 17px; font-weight: 800;
     color: #F4F6FF;
     letter-spacing: 0.08em; text-transform: uppercase;
 }
@@ -567,15 +567,17 @@ pub fn RulesWiki() -> impl IntoView {
 
 .wiki-danger-ribbon {
     position: absolute;
-    top: 10px; right: -30px;
+    top: 26px; right: -40px;
+    width: 170px;
     background: var(--red, #FF2626);
-    padding: 3px 42px;
-    transform: rotate(35deg);
+    padding: 5px 0;
+    transform: rotate(45deg);
     font-family: 'IBM Plex Mono', monospace;
-    font-size: 7.5px; font-weight: 800;
+    font-size: 9px; font-weight: 800;
     color: #fff; letter-spacing: 0.12em; text-transform: uppercase;
     pointer-events: none;
     box-shadow: 0 2px 16px rgba(255,38,38,0.4);
+    text-align: center;
 }
 "
             </style>

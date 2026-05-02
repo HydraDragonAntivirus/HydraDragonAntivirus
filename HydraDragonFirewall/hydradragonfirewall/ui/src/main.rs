@@ -1304,7 +1304,7 @@ pub fn App() -> impl IntoView {
         });
     };
 
-    let (confirm_quit, set_confirm_quit) = create_signal(false);
+    let (_confirm_quit, _set_confirm_quit) = create_signal(false);
     let (_new_rule_name, _set_new_rule_name) = create_signal(String::new());
     let (_new_rule_desc, _set_new_rule_desc) = create_signal(String::new());
     let (_new_rule_ips, _set_new_rule_ips) = create_signal(String::new());
