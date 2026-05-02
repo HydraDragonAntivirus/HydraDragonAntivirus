@@ -31,7 +31,7 @@ curl = "0.4.43"
 jsonrpc-http-server = "18.0.0"
 configparser = "3.0.2"
 rumqtt = "0.31.0"
-lru = "^0.11"
+lru = "^0.16"
 md-5 = "0.10.6"
 regex = "1.12.2"
 sha2 = "0.10.9"
@@ -73,7 +73,7 @@ features = [
 
 # Linux
 [target.'cfg(target_os = "linux")'.dependencies]
-tokio = { version = "1.27", features = ["macros", "rt", "rt-multi-thread", "signal", "time", "io-util", "net", "sync"] }
+tokio = { version = "1.52", features = ["macros", "rt", "rt-multi-thread", "signal", "time", "io-util", "net", "sync"] }
 tracing-subscriber = "0.3"
 tracing = "0.1"
 futures = "0.3"
@@ -83,7 +83,7 @@ libc = "0.2"
 aya = { git = "https://github.com/aya-rs/aya", features = ["async_tokio"] }
 aya-log = { git = "https://github.com/aya-rs/aya" }
 ebpf-monitor-common = { path = "./vfs-kprobes/ebpf-monitor-common", features = ["user"] }
-bytes = "1.1"
+bytes = "1.11"
 anyhow = "1"
 
 [features]
