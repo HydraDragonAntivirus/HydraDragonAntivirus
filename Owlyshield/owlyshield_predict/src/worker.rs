@@ -25,14 +25,14 @@ pub mod predictor {
         }
     }
 
-    pub struct PredictionhandlerBehavioralXGBoost<'a> {
+    pub struct PredictionHandlerBehavioralXGBoost<'a> {
         config: &'a Config,
         predictions_count: usize,
     }
 
-    impl PredictorHandlerBehavioral for PredictionhandlerBehavioralXGBoost<'_> {}
+    impl PredictorHandlerBehavioral for PredictionHandlerBehavioralXGBoost<'_> {}
 
-    impl PredictorHandler for PredictionhandlerBehavioralXGBoost<'_> {
+    impl PredictorHandler for PredictionHandlerBehavioralXGBoost<'_> {
         fn predict(&mut self, precord: &ProcessRecord) -> Option<f32> {
             if self.is_prediction_required(
                 self.config.threshold_drivermsgs,
@@ -47,9 +47,9 @@ pub mod predictor {
         }
     }
 
-    impl PredictionhandlerBehavioralXGBoost<'_> {
-        pub fn new(config: &Config) -> PredictionhandlerBehavioralXGBoost<'_> {
-            PredictionhandlerBehavioralXGBoost {
+    impl PredictionHandlerBehavioralXGBoost<'_> {
+        pub fn new(config: &Config) -> PredictionHandlerBehavioralXGBoost<'_> {
+            PredictionHandlerBehavioralXGBoost {
                 config,
                 predictions_count: 0,
             }
