@@ -12,8 +12,8 @@ anyhow = "1"
 env_logger = "0.10"
 libc = "0.2"
 log = "0.4"
-tokio = { version = "1.25", features = ["macros", "rt", "rt-multi-thread", "net", "signal"] }
-bytes = "1.1"
+tokio = { version = "1.38", features = ["macros", "rt", "rt-multi-thread", "net", "signal"] }
+bytes = "1.11"
 
 [[bin]]
 name = "ebpf-monitor"
