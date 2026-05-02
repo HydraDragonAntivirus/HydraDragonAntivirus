@@ -1,0 +1,64 @@
+name: Publish Owlyshield
+
+on:
+  push:
+    branches: ["**"]
+    paths:
+      - 'Owlyshield/**'
+    paths-ignore:
+      - 'hydradragon/**'
+      - '.github/**'
+      - '.agent/**'
+      - 'yarGen/**'
+      - '**.md'
+
+jobs:
+  build-and-stage:
+    runs-on: windows-2022
+    steps:
+      - name: Enable Git long paths
+        run: git config --global core.longpaths true
+      - uses: actions/checkout@v6
+      
+      - name: Add MSBuild to PATH
+        uses: microsoft/setup-msbuild@v3
+      - name: Setup WDK
+        shell: pwsh
+        run: |
+          $wdkSetupPath = "$Env:TEMP\wdksetup.exe"
+          (New-Object Net.WebClient).DownloadFile('https://go.microsoft.com/fwlink/?linkid=2335869', $wdkSetupPath)
+          Start-Process -FilePath $wdkSetupPath -ArgumentList "/quiet" -NoNewWindow -Wait
+      - name: Build Minifilter
+        run: msbuild Owlyshield/owlyshield_minifilter/owlyshield_minifilter.sln /p:Configuration=Release /p:Platform=x64
+        
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Install yasm
+        run: choco install yasm
+      - name: Build Rust Core
+        working-directory: Owlyshield/owlyshield_predict
+        run: cargo build --release
+        
+      - name: Build RedDbg (MSBuild)
+        run: msbuild Owlyshield/RedDbg/RedDbg/RedDbg.sln /p:Configuration=Release /p:Platform=x64
+        
+      - name: Stage
+        shell: pwsh
+        run: |
+          $dist = "hydradragon/Owlyshield"
+          $distRedDbg = "hydradragon/RedDbg"
+          New-Item -ItemType Directory -Force -Path $dist
+          New-Item -ItemType Directory -Force -Path $distRedDbg
+          Copy-Item "Owlyshield/owlyshield_minifilter/x64/Release/RWatch.sys" "$dist/" -Force
+          Copy-Item "Owlyshield/owlyshield_predict/target/release/owlyshield_ransom.dll" "$dist/" -Force
+          Copy-Item "Owlyshield/RedDbg/RedDbg/x64/Release/RedDbg.exe" "$distRedDbg/" -Force
+          
+      - name: Create PR
+        uses: peter-evans/create-pull-request@v8
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "chore(owlyshield): update binaries"
+          title: "🚀 Update Owlyshield Binaries"
+          branch: "auto-update-owlyshield"
+          base: ${{ github.ref_name }}
+          delete-branch: true

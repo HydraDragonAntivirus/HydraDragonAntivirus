@@ -1,0 +1,67 @@
+name: Publish Firewall
+
+on:
+  push:
+    branches: ["**"]
+    paths:
+      - 'HydraDragonFirewall/**'
+    paths-ignore:
+      - 'hydradragon/**'
+      - '.github/**'
+      - '.agent/**'
+      - 'yarGen/**'
+      - '**.md'
+
+jobs:
+  build-and-stage:
+    runs-on: windows-2022
+    steps:
+      - name: Enable Git long paths
+        run: git config --global core.longpaths true
+      - uses: actions/checkout@v6
+      
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - name: Install yasm
+        run: choco install yasm
+      - name: Install Trunk
+        uses: taiki-e/install-action@v2
+        with:
+          tool: trunk
+          
+      - name: Build UI
+        working-directory: HydraDragonFirewall/hydradragonfirewall/ui
+        run: trunk build --release -d ../dist
+        
+      - name: Build Rust Core
+        working-directory: HydraDragonFirewall/hydradragonfirewall
+        run: cargo build --release
+        
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '8.0.x'
+      - name: Publish Dotnet Client
+        run: dotnet publish HydraDragonFirewall/HydraDragonClient/HydraDragonClient/HydraDragonClient.csproj -c Release -r win-x64 --self-contained false -o artifacts/
+        
+      - name: Stage
+        shell: pwsh
+        run: |
+          $dist = "hydradragon/HydraDragonFirewall"
+          New-Item -ItemType Directory -Force -Path $dist
+          Copy-Item "HydraDragonFirewall/hydradragonfirewall/target/release/hydradragonfirewall.exe" "$dist/" -Force
+          Copy-Item "HydraDragonFirewall/hydradragonfirewall/target/release/hydradragonfirewall.dll" "$dist/" -Force
+          Copy-Item "HydraDragonFirewall/hydradragonfirewall/rules/rules.yaml" "$dist/" -Force
+          Copy-Item "artifacts/*" "$dist/" -Recurse -Force
+          
+      - name: Create PR
+        uses: peter-evans/create-pull-request@v8
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "chore(firewall): update binaries"
+          title: "🚀 Update Firewall Binaries"
+          branch: "auto-update-firewall"
+          base: ${{ github.ref_name }}
+          delete-branch: true

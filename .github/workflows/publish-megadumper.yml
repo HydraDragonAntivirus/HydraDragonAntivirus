@@ -1,0 +1,47 @@
+name: Publish MegaDumper
+
+on:
+  push:
+    branches: ["**"]
+    paths:
+      - 'MegaDumper/**'
+    paths-ignore:
+      - 'hydradragon/**'
+      - '.github/**'
+      - '.agent/**'
+      - 'yarGen/**'
+      - '**.md'
+
+jobs:
+  build-and-stage:
+    runs-on: windows-2022
+    steps:
+      - name: Enable Git long paths
+        run: git config --global core.longpaths true
+      - uses: actions/checkout@v6
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '8.0.x'
+      - name: Publish
+        run: dotnet publish MegaDumper/MegaDumper/MegaDumper.csproj -c Release -r win-x64 --self-contained false -o artifacts/
+        
+      - name: Stage
+        shell: pwsh
+        run: |
+          $dist = "hydradragon/HydraDragonDumper"
+          New-Item -ItemType Directory -Force -Path $dist
+          Copy-Item "artifacts/*" "$dist/" -Recurse -Force
+          if (Test-Path "$dist/MegaDumper.exe") {
+            Move-Item "$dist/MegaDumper.exe" "$dist/HydraDragonDumper.exe" -Force
+          }
+          
+      - name: Create PR
+        uses: peter-evans/create-pull-request@v8
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "chore(dumper): update binaries"
+          title: "🚀 Update MegaDumper Binaries"
+          branch: "auto-update-dumper"
+          base: ${{ github.ref_name }}
+          delete-branch: true

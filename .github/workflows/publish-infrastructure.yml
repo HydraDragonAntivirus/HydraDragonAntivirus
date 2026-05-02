@@ -1,0 +1,50 @@
+name: Publish Infrastructure
+
+on:
+  push:
+    branches: ["**"]
+    paths:
+      - 'HydraDragonLauncher/**'
+      - 'HydraDragonService/**'
+    paths-ignore:
+      - 'hydradragon/**'
+      - '.github/**'
+      - '.agent/**'
+      - 'yarGen/**'
+      - '**.md'
+
+jobs:
+  build-and-stage:
+    runs-on: windows-2022
+    steps:
+      - name: Enable Git long paths
+        run: git config --global core.longpaths true
+      - uses: actions/checkout@v6
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '8.0.x'
+      - name: Publish Launcher
+        run: dotnet publish HydraDragonLauncher/HydraDragonLauncher/HydraDragonLauncher.csproj -c Release -r win-x64 --self-contained false -o artifacts/launcher/
+      - name: Publish Service
+        run: dotnet publish HydraDragonService/HydraDragonService/HydraDragonService.csproj -c Release -r win-x64 --self-contained false -o artifacts/service/
+        
+      - name: Stage
+        shell: pwsh
+        run: |
+          $distLauncher = "hydradragon/HydraDragonLauncher"
+          $distService = "hydradragon/HydraDragonService"
+          New-Item -ItemType Directory -Force -Path $distLauncher
+          New-Item -ItemType Directory -Force -Path $distService
+          Copy-Item "artifacts/launcher/*" "$distLauncher/" -Recurse -Force
+          Copy-Item "artifacts/service/*" "$distService/" -Recurse -Force
+          
+      - name: Create PR
+        uses: peter-evans/create-pull-request@v8
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "chore(infra): update binaries"
+          title: "🚀 Update Infrastructure Binaries"
+          branch: "auto-update-infra"
+          base: ${{ github.ref_name }}
+          delete-branch: true

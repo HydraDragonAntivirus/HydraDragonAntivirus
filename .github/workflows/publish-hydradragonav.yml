@@ -1,0 +1,42 @@
+name: Publish HydraDragonAV
+
+on:
+  push:
+    branches: ["**"]
+    paths:
+      - 'HydraDragonAV/**'
+    paths-ignore:
+      - 'hydradragon/**'
+      - '.github/**'
+      - '.agent/**'
+      - 'yarGen/**'
+      - '**.md'
+
+jobs:
+  build-and-stage:
+    runs-on: windows-2022
+    steps:
+      - name: Enable Git long paths
+        run: git config --global core.longpaths true
+      - uses: actions/checkout@v6
+      - name: Add MSBuild to PATH
+        uses: microsoft/setup-msbuild@v3
+      - name: Build
+        run: msbuild HydraDragonAV/HydraDragonAV.sln /p:Configuration=Release /p:Platform=x64
+      
+      - name: Stage
+        shell: pwsh
+        run: |
+          $dist = "hydradragon/HydraDragonAV"
+          New-Item -ItemType Directory -Force -Path $dist
+          Copy-Item "HydraDragonAV/x64/Release/HydraDragonAV.exe" "$dist/" -Force
+          
+      - name: Create PR
+        uses: peter-evans/create-pull-request@v8
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "chore(av): update binaries"
+          title: "🚀 Update HydraDragonAV Binaries"
+          branch: "auto-update-av"
+          base: ${{ github.ref_name }}
+          delete-branch: true

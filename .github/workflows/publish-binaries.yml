@@ -7,7 +7,9 @@ on:
       - 'hydradragon/**'
       - '**.md'
       - '.gitignore'
-      - '.github/workflows/**'
+      - '.github/**'
+      - '.agent/**'
+      - 'yarGen/**'
   workflow_dispatch:
     inputs:
       branch:

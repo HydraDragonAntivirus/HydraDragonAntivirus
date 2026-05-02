@@ -1,0 +1,66 @@
+name: Publish Sanctum
+
+on:
+  push:
+    branches: ["**"]
+    paths:
+      - 'Sanctum/**'
+    paths-ignore:
+      - 'hydradragon/**'
+      - '.github/**'
+      - '.agent/**'
+      - 'yarGen/**'
+      - '**.md'
+
+jobs:
+  build-and-stage:
+    runs-on: windows-2022
+    steps:
+      - name: Enable Git long paths
+        run: git config --global core.longpaths true
+      - uses: actions/checkout@v6
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@nightly
+      - name: Install Cargo Make
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-make
+      - name: Setup WDK
+        shell: pwsh
+        run: |
+          $wdkSetupPath = "$Env:TEMP\wdksetup.exe"
+          (New-Object Net.WebClient).DownloadFile('https://go.microsoft.com/fwlink/?linkid=2335869', $wdkSetupPath)
+          Start-Process -FilePath $wdkSetupPath -ArgumentList "/quiet" -NoNewWindow -Wait
+      
+      - name: Build and Sign
+        working-directory: Sanctum
+        run: |
+          cd driver
+          .\cert.ps1
+          cargo make release
+          .\sign.bat release
+          cd ..
+          cargo build --release -p sanctum_ppl_runner
+          .\sign_ppl_runner.bat
+          cargo make release
+          
+      - name: Stage
+        shell: pwsh
+        run: |
+          $dist = "hydradragon/Sanctum"
+          New-Item -ItemType Directory -Force -Path $dist
+          Copy-Item "Sanctum/driver/target/release/sanctum_package/sanctum.sys" "$dist/" -Force
+          Copy-Item "Sanctum/target/release/sanctum_ppl_runner.exe" "$dist/" -Force
+          Copy-Item "Sanctum/target/release/elam_installer.exe" "$dist/" -Force
+          Copy-Item "Sanctum/target/release/um_engine.exe" "$dist/" -Force
+          Copy-Item "Sanctum/target/release/sanctum.dll" "$dist/" -Force
+          
+      - name: Create PR
+        uses: peter-evans/create-pull-request@v8
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "chore(sanctum): update binaries"
+          title: "🚀 Update Sanctum Binaries"
+          branch: "auto-update-sanctum"
+          base: ${{ github.ref_name }}
+          delete-branch: true

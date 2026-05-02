@@ -1,0 +1,49 @@
+name: Publish SimplePYASProtection
+
+on:
+  push:
+    branches: ["**"]
+    paths:
+      - 'PYAS_Protection/**'
+    paths-ignore:
+      - 'hydradragon/**'
+      - '.github/**'
+      - '.agent/**'
+      - 'yarGen/**'
+      - '**.md'
+
+jobs:
+  build-and-stage:
+    runs-on: windows-2022
+    steps:
+      - name: Enable Git long paths
+        run: git config --global core.longpaths true
+      - uses: actions/checkout@v6
+      - name: Add MSBuild to PATH
+        uses: microsoft/setup-msbuild@v3
+      - name: Setup WDK
+        shell: pwsh
+        run: |
+          $wdkSetupPath = "$Env:TEMP\wdksetup.exe"
+          (New-Object Net.WebClient).DownloadFile('https://go.microsoft.com/fwlink/?linkid=2335869', $wdkSetupPath)
+          Start-Process -FilePath $wdkSetupPath -ArgumentList "/quiet" -NoNewWindow -Wait
+      - name: Build
+        run: msbuild PYAS_Protection/PYAS_Protection.sln /p:Configuration=Release /p:Platform=x64
+      
+      - name: Stage
+        shell: pwsh
+        run: |
+          $dist = "hydradragon/SimplePYASProtection"
+          New-Item -ItemType Directory -Force -Path $dist
+          Copy-Item "PYAS_Protection/x64/Release/SimplePYASProtection.sys" "$dist/" -Force
+          Copy-Item "PYAS_Protection/x64/Release/SimplePYASProtection.inf" "$dist/" -Force
+          
+      - name: Create PR
+        uses: peter-evans/create-pull-request@v8
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "chore(pyas): update binaries"
+          title: "🚀 Update SimplePYASProtection Binaries"
+          branch: "auto-update-pyas"
+          base: ${{ github.ref_name }}
+          delete-branch: true
