@@ -48,6 +48,17 @@ jobs:
     - name: Add MSBuild to PATH
       uses: microsoft/setup-msbuild@v1.1
       
+    - name: Fix WDK tools path
+      run: |
+        $wdk_bin = "C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x86"
+        if (Test-Path $wdk_bin) {
+          echo "$wdk_bin" >> $env:GITHUB_PATH
+          Write-Host "Added $wdk_bin to PATH"
+        } else {
+          Write-Host "Warning: WDK bin path not found at $wdk_bin"
+        }
+      shell: pwsh
+
     - name: Build RedDbg solution
       working-directory: ${{env.GITHUB_WORKSPACE}}
       run: msbuild /m /p:Configuration=${{matrix.BUILD_CONFIGURATION}} /p:Platform=${{matrix.PLATFORM}} ${{env.SOLUTION_FILE_PATH}}

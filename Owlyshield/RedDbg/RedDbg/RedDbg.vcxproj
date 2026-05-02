@@ -75,8 +75,8 @@
       <AdditionalOptions>/Gw /kernel</AdditionalOptions>
     </ClCompile>
     <Link>
-      <AdditionalLibraryDirectories>$(ProjectDir)Source/Deps/zydis/msvc/bin/$(ConfigurationName);$(ProjectDir)..\..\HyperDbg\hyperdbg\libraries\zydis\kernel;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>$(DDK_LIB_PATH)ntstrsafe.lib;Zydis.lib;Zycore.lib;%(AdditionalDependencies);$(KernelBufferOverflowLib);$(DDK_LIB_PATH)ntoskrnl.lib;$(DDK_LIB_PATH)hal.lib;$(DDK_LIB_PATH)wmilib.lib</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(ProjectDir)Source/Deps/zydis/msvc/bin/ReleaseX64;$(ProjectDir)Source/Deps/zydis/msvc/bin/ReleaseX64Kernel;$(ProjectDir)..\..\HyperDbg\hyperdbg\libraries\zydis\kernel;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>$(DDK_LIB_PATH)ntstrsafe.lib;%(AdditionalDependencies);$(KernelBufferOverflowLib);$(DDK_LIB_PATH)ntoskrnl.lib;$(DDK_LIB_PATH)hal.lib;$(DDK_LIB_PATH)wmilib.lib</AdditionalDependencies>
       <TreatLinkerWarningAsErrors>false</TreatLinkerWarningAsErrors>
     </Link>
     <PreBuildEvent>
@@ -98,8 +98,8 @@
       <AdditionalOptions>/Gw /kernel</AdditionalOptions>
     </ClCompile>
     <Link>
-      <AdditionalLibraryDirectories>$(ProjectDir)Source/Deps/zydis/msvc/bin/$(ConfigurationName);$(ProjectDir)..\..\HyperDbg\hyperdbg\libraries\zydis\kernel;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>$(DDK_LIB_PATH)ntstrsafe.lib;Zydis.lib;Zycore.lib;%(AdditionalDependencies);$(KernelBufferOverflowLib);$(DDK_LIB_PATH)ntoskrnl.lib;$(DDK_LIB_PATH)hal.lib;$(DDK_LIB_PATH)wmilib.lib</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(ProjectDir)Source/Deps/zydis/msvc/bin/ReleaseX64;$(ProjectDir)Source/Deps/zydis/msvc/bin/ReleaseX64Kernel;$(ProjectDir)..\..\HyperDbg\hyperdbg\libraries\zydis\kernel;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>$(DDK_LIB_PATH)ntstrsafe.lib;%(AdditionalDependencies);$(KernelBufferOverflowLib);$(DDK_LIB_PATH)ntoskrnl.lib;$(DDK_LIB_PATH)hal.lib;$(DDK_LIB_PATH)wmilib.lib</AdditionalDependencies>
       <TreatLinkerWarningAsErrors>false</TreatLinkerWarningAsErrors>
     </Link>
     <PreBuildEvent>
@@ -159,6 +159,14 @@
     <ClInclude Include="Include\Log\Logger.hpp" />
     <ClInclude Include="Include\Log\Trace.hpp" />
     <ClInclude Include="Include\TransparentMode\TransparentMode.hpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="Source\Deps\zydis\msvc\zydis\Zydis.vcxproj">
+      <Project>{88a23124-5640-35a0-b890-311d7a67a7d2}</Project>
+    </ProjectReference>
+    <ProjectReference Include="Source\Deps\zydis\msvc\dependencies\zycore\Zycore.vcxproj">
+      <Project>{e06e2e87-82b9-4dc2-a1e9-fe371cdbaac2}</Project>
+    </ProjectReference>
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets" />
