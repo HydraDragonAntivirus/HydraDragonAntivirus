@@ -209,7 +209,7 @@ pub mod process_record_handling {
     use super::predictor::PredictorMalware;
     use crate::IOMessage;
     use crate::actions_on_kill::{ActionsOnKill, ThreatInfo};
-    use crate::config::{Config, Param};
+    use crate::config::{Config, KillPolicy, Param};
     use crate::csvwriter::CsvWriter;
     use crate::logging::Logging;
     use crate::novelty::{Rule, StateSave};
@@ -2183,7 +2183,7 @@ pub mod worker_instance {
 
         /// Scan all tracked processes for behavioral detections
         #[allow(dead_code)]
-        pub fn scan_processes(&mut self, _config: &Config, _threat_handler: Box<dyn ThreatHandler>) {
+        pub fn scan_processes(&mut self, config: &Config, threat_handler: Box<dyn ThreatHandler>) {
             #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
             {
                 // Import necessary Win32 modules for the Kernel Check
@@ -2564,7 +2564,7 @@ pub mod worker_instance {
         }
 
         /// Process kernel I/O event - this is the main event handler
-        pub fn process_io(&mut self, iomsg: &mut IOMessage, _config: &crate::config::Config) {
+        pub fn process_io(&mut self, iomsg: &mut IOMessage, config: &crate::config::Config) {
             let irp_op = iomsg.irp_op;
             let is_process_create = irp_op == IrpMajorOp::IrpProcessCreate as u8;
             let is_process_terminate = irp_op == IrpMajorOp::IrpProcessTerminate as u8;

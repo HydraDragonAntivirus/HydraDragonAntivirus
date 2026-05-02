@@ -1,7 +1,7 @@
-// use crate::config::ConfigReader;
+use crate::config::ConfigReader;
 use crate::utils::LOG_TIME_FORMAT;
 use chrono::{DateTime, Local};
-// use log::{debug, error, info, warn};
+use log::{debug, error, info, warn};
 use std::fs::OpenOptions;
 use std::io::prelude::*;
 #[cfg(target_os = "windows")]
