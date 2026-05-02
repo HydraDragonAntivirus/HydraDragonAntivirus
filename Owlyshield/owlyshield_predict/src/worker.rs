@@ -2023,9 +2023,9 @@ pub mod worker_instance {
 
         pub fn register_iomsg_postprocessor(
             mut self,
-            postprecessor: Box<dyn IOMsgPostProcessor>,
+            postprocessor: Box<dyn IOMsgPostProcessor>,
         ) -> Worker<'a> {
-            self.iomsg_postprocessors.push(postprecessor);
+            self.iomsg_postprocessors.push(postprocessor);
             self
         }
 
