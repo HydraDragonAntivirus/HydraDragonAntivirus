@@ -1,4 +1,4 @@
-name: Firewall
+name: Firewall Check
 
 on:
   push:
@@ -21,7 +21,7 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build-and-release:
+  firewall-build-verification:
     if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.update_lockfiles != 'true' }}
     runs-on: windows-latest
     defaults:
@@ -75,31 +75,6 @@ jobs:
 
       - name: Cargo build release (firewall)
         run: cargo build --release --locked
-
-      - name: Package release zip
-        shell: pwsh
-        run: |
-          $releaseDir = "target/release"
-          $bundleDir = "$releaseDir/hydradragonfirewall-windows-x64"
-          $zipPath = "$releaseDir/hydradragonfirewall-windows-x64.zip"
-
-          New-Item -ItemType Directory -Force -Path $bundleDir | Out-Null
-          Copy-Item "$releaseDir/hydradragonfirewall.exe" $bundleDir -Force
-          Copy-Item "../windivert-bin/WinDivert.dll" $bundleDir -Force
-          Copy-Item "../windivert-bin/WinDivert64.sys" $bundleDir -Force
-          Copy-Item "rules/rules.yaml" $bundleDir -Force
-
-          if (Test-Path $zipPath) {
-            Remove-Item $zipPath -Force
-          }
-          Compress-Archive -Path "$bundleDir/*" -DestinationPath $zipPath -CompressionLevel Optimal
-
-      - name: Upload release artifact
-        uses: actions/upload-artifact@v7
-        with:
-          name: hydradragonfirewall-windows-x64
-          path: HydraDragonFirewall/hydradragonfirewall/target/release/hydradragonfirewall-windows-x64.zip
-          if-no-files-found: error
 
   update-lockfiles:
     if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.update_lockfiles == 'true' }}
