@@ -18,12 +18,14 @@ args = ["build", "--release", "-p", "um_engine"]
 
 [tasks.build-driver]
 description = "Build and package the Sanctum kernel driver."
+workspace = false
 cwd = "driver"
 command = "cargo"
 args = ["make", "default"]
 
 [tasks.build-driver-release]
 description = "Build and package the Sanctum kernel driver in release mode."
+workspace = false
 cwd = "driver"
 command = "cargo"
 args = ["make", "release"]
