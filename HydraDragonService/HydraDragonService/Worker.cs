@@ -234,18 +234,40 @@ namespace HydraDragonService
                 
                 _logger.LogInformation("Registering and starting firewall task: {exe}", firewallExe);
 
-                // Create task
-                var createPsi = new ProcessStartInfo
+                // Check whether the task already exists.
+                bool taskExists = false;
+                var queryPsi = new ProcessStartInfo
                 {
                     FileName = "schtasks",
-                    Arguments = $"/create /tn \"{taskName}\" /tr \"\\\"{firewallExe}\\\"\" /sc ONCE /st 00:00 /rl HIGHEST /f",
+                    Arguments = $"/query /tn \"{taskName}\"",
                     UseShellExecute = false,
                     CreateNoWindow = true
                 };
-                
-                using (var p = Process.Start(createPsi))
+
+                using (var p = Process.Start(queryPsi))
                 {
-                    if (p != null) await p.WaitForExitAsync(ct);
+                    if (p != null)
+                    {
+                        await p.WaitForExitAsync(ct);
+                        taskExists = p.ExitCode == 0;
+                    }
+                }
+
+                if (!taskExists)
+                {
+                    // Create task only when missing (avoid forced overwrite).
+                    var createPsi = new ProcessStartInfo
+                    {
+                        FileName = "schtasks",
+                        Arguments = $"/create /tn \"{taskName}\" /tr \"\\\"{firewallExe}\\\"\" /sc ONCE /st 00:00 /rl HIGHEST",
+                        UseShellExecute = false,
+                        CreateNoWindow = true
+                    };
+
+                    using (var p = Process.Start(createPsi))
+                    {
+                        if (p != null) await p.WaitForExitAsync(ct);
+                    }
                 }
 
                 // Run task
