@@ -11,12 +11,12 @@ namespace HydraDragonService
         {
             _logger.LogInformation("TaskScheduler Worker starting at: {time}", DateTimeOffset.Now);
 
-            // Check for admin privileges and relaunch if needed
+            // Check for admin privileges and stop if missing.
+            // In a Windows service context, self-elevation (runas/UAC prompt) is not supported.
             if (!IsRunningAsAdministrator())
             {
-                _logger.LogWarning("Application is not running with administrator privileges. Attempting to relaunch...");
-                RestartAsAdministrator();
-                return; // Exit current instance
+                _logger.LogError("Application is not running with administrator privileges. This service must be installed/configured to run with required privileges. Exiting.");
+                return; // Exit current instance gracefully
             }
 
             _logger.LogInformation("Running with administrator privileges.");
