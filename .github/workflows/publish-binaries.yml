@@ -141,7 +141,9 @@ jobs:
           targets: x86_64-pc-windows-msvc
 
       - name: Install Cargo Make
-        uses: davidB/cargo-make-action@v1
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-make
 
       - name: Setup WDK (Windows Driver Kit)
         shell: pwsh
