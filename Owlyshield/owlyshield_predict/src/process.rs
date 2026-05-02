@@ -152,6 +152,12 @@ pub struct ProcessRecord {
     extension_by_path: HashMap<String, String>,
     /// Last known extension by normalized stem path (without leading dot)
     extension_by_stem_path: HashMap<String, String>,
+    /// Previous known extension by file id (without leading dot)
+    previous_extension_by_file_id: HashMap<FileId, String>,
+    /// Previous known extension by normalized full path (without leading dot)
+    previous_extension_by_path: HashMap<String, String>,
+    /// Previous known extension by normalized stem path (without leading dot)
+    previous_extension_by_stem_path: HashMap<String, String>,
     /// File descriptors created
     pub files_opened: HashSet<FileId>,
     /// File descriptors written
@@ -325,6 +331,9 @@ impl ProcessRecord {
             extension_by_file_id: HashMap::new(),
             extension_by_path: HashMap::new(),
             extension_by_stem_path: HashMap::new(),
+            previous_extension_by_file_id: HashMap::new(),
+            previous_extension_by_path: HashMap::new(),
+            previous_extension_by_stem_path: HashMap::new(),
             files_opened: HashSet::new(),
             files_written: HashSet::new(),
             files_deleted: HashSet::new(),
@@ -422,6 +431,9 @@ impl ProcessRecord {
             extension_by_file_id: HashMap::new(),
             extension_by_path: HashMap::new(),
             extension_by_stem_path: HashMap::new(),
+            previous_extension_by_file_id: HashMap::new(),
+            previous_extension_by_path: HashMap::new(),
+            previous_extension_by_stem_path: HashMap::new(),
             files_opened: HashSet::new(),
             files_written: HashSet::new(),
             files_deleted: HashSet::new(),
@@ -512,28 +524,42 @@ impl ProcessRecord {
     pub fn previous_extension_for_event(&self, iomsg: &IOMessage) -> Option<String> {
         let current_ext = Self::effective_extension_for_event(iomsg);
 
-        if iomsg.file_id_id.0 != 0
-            && let Some(ext) = self.extension_by_file_id.get(&iomsg.file_id_id)
-            && !ext.is_empty()
-            && ext != &current_ext
-        {
-            return Some(ext.clone());
+        if iomsg.file_id_id.0 != 0 {
+            if let Some(ext) = self.extension_by_file_id.get(&iomsg.file_id_id) {
+                if !ext.is_empty() && ext != &current_ext {
+                    return Some(ext.clone());
+                }
+            }
+            if let Some(ext) = self.previous_extension_by_file_id.get(&iomsg.file_id_id) {
+                if !ext.is_empty() && ext != &current_ext {
+                    return Some(ext.clone());
+                }
+            }
         }
 
         let normalized_path = normalize_path_for_extension_tracking(&iomsg.filepathstr);
-        if let Some(ext) = self.extension_by_path.get(&normalized_path)
-            && !ext.is_empty()
-            && ext != &current_ext
-        {
-            return Some(ext.clone());
+        if let Some(ext) = self.extension_by_path.get(&normalized_path) {
+            if !ext.is_empty() && ext != &current_ext {
+                return Some(ext.clone());
+            }
+        }
+        if let Some(ext) = self.previous_extension_by_path.get(&normalized_path) {
+            if !ext.is_empty() && ext != &current_ext {
+                return Some(ext.clone());
+            }
         }
 
-        if let Some(stem_key) = filepath_stem_key(&normalized_path)
-            && let Some(ext) = self.extension_by_stem_path.get(&stem_key)
-            && !ext.is_empty()
-            && ext != &current_ext
-        {
-            return Some(ext.clone());
+        if let Some(stem_key) = filepath_stem_key(&normalized_path) {
+            if let Some(ext) = self.extension_by_stem_path.get(&stem_key) {
+                if !ext.is_empty() && ext != &current_ext {
+                    return Some(ext.clone());
+                }
+            }
+            if let Some(ext) = self.previous_extension_by_stem_path.get(&stem_key) {
+                if !ext.is_empty() && ext != &current_ext {
+                    return Some(ext.clone());
+                }
+            }
         }
 
         None
@@ -544,27 +570,51 @@ impl ProcessRecord {
             return;
         }
 
-        let normalized_path = normalize_path_for_extension_tracking(&iomsg.filepathstr);
+        const MAX_TRACKED_EXTENSIONS: usize = 16384;
         if iomsg.file_id_id.0 != 0 {
-            self.extension_by_file_id
+            let old = self
+                .extension_by_file_id
                 .insert(iomsg.file_id_id, ext_without_dot.to_string());
-        }
-        self.extension_by_path
-            .insert(normalized_path.clone(), ext_without_dot.to_string());
-        if let Some(stem_key) = filepath_stem_key(&normalized_path) {
-            self.extension_by_stem_path
-                .insert(stem_key, ext_without_dot.to_string());
+            if let Some(prev) = old {
+                if prev != ext_without_dot {
+                    self.previous_extension_by_file_id
+                        .insert(iomsg.file_id_id, prev);
+                }
+            }
+            if self.extension_by_file_id.len() > MAX_TRACKED_EXTENSIONS {
+                self.extension_by_file_id.clear();
+                self.previous_extension_by_file_id.clear();
+            }
         }
 
-        const MAX_TRACKED_EXTENSIONS: usize = 16384;
-        if self.extension_by_file_id.len() > MAX_TRACKED_EXTENSIONS {
-            self.extension_by_file_id.clear();
+        let normalized_path = normalize_path_for_extension_tracking(&iomsg.filepathstr);
+        let old_path = self
+            .extension_by_path
+            .insert(normalized_path.clone(), ext_without_dot.to_string());
+        if let Some(prev) = old_path {
+            if prev != ext_without_dot {
+                self.previous_extension_by_path
+                    .insert(normalized_path.clone(), prev);
+            }
         }
         if self.extension_by_path.len() > MAX_TRACKED_EXTENSIONS {
             self.extension_by_path.clear();
+            self.previous_extension_by_path.clear();
         }
-        if self.extension_by_stem_path.len() > MAX_TRACKED_EXTENSIONS {
-            self.extension_by_stem_path.clear();
+
+        if let Some(stem_key) = filepath_stem_key(&normalized_path) {
+            let old_stem = self
+                .extension_by_stem_path
+                .insert(stem_key.clone(), ext_without_dot.to_string());
+            if let Some(prev) = old_stem {
+                if prev != ext_without_dot {
+                    self.previous_extension_by_stem_path.insert(stem_key, prev);
+                }
+            }
+            if self.extension_by_stem_path.len() > MAX_TRACKED_EXTENSIONS {
+                self.extension_by_stem_path.clear();
+                self.previous_extension_by_stem_path.clear();
+            }
         }
     }
 
