@@ -131,7 +131,7 @@ pub mod predictor {
 
     pub struct PredictorMalwareBehavioral<'a> {
         pub mlp: PredictorHandlerBehavioralMLP<'a>,
-        pub xgboost: PredictionhandlerBehavioralXGBoost<'a>,
+        pub xgboost: PredictionHandlerBehavioralXGBoost<'a>,
     }
 
     impl PredictorHandlerBehavioral for PredictorMalwareBehavioral<'_> {}
@@ -146,7 +146,7 @@ pub mod predictor {
         pub fn new(config: &Config) -> PredictorMalwareBehavioral<'_> {
             PredictorMalwareBehavioral {
                 mlp: PredictorHandlerBehavioralMLP::new(config),
-                xgboost: PredictionhandlerBehavioralXGBoost::new(config),
+                xgboost: PredictionHandlerBehavioralXGBoost::new(config),
             }
         }
     }
