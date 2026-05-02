@@ -83,7 +83,7 @@ jobs:
           Copy-Item "$releaseDir/hydradragonfirewall.exe" $bundleDir -Force
           Copy-Item "../windivert-bin/WinDivert.dll" $bundleDir -Force
           Copy-Item "../windivert-bin/WinDivert64.sys" $bundleDir -Force
-          Copy-Item "rules.yaml" $bundleDir -Force
+          Copy-Item "rules/rules.yaml" $bundleDir -Force
 
           if (Test-Path $zipPath) {
             Remove-Item $zipPath -Force
