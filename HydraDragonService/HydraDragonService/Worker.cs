@@ -122,6 +122,9 @@ namespace HydraDragonService
                 "HydraDragonLauncher.exe"
             );
 
+            // Delay used to preserve sequential startup order between launched executables.
+            const int SequentialStartupDelayMs = 2000;
+
             // helper for launching exe
             async Task RunExeAsync(string exePath, string args = "", bool fireAndForget = false)
             {
@@ -151,7 +154,7 @@ namespace HydraDragonService
 
                         if (!fireAndForget)
                         {
-                            await Task.Delay(2000, ct); // small delay for sequential order
+                            await Task.Delay(SequentialStartupDelayMs, ct); // small delay for sequential order
                         }
                     }
                     else
