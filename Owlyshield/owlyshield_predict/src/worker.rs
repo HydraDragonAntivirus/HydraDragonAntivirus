@@ -25,14 +25,14 @@ pub mod predictor {
         }
     }
 
-    pub struct PredictionhandlerBehavioralXGBoost<'a> {
+    pub struct PredictionHandlerBehavioralXGBoost<'a> {
         config: &'a Config,
         predictions_count: usize,
     }
 
-    impl PredictorHandlerBehavioral for PredictionhandlerBehavioralXGBoost<'_> {}
+    impl PredictorHandlerBehavioral for PredictionHandlerBehavioralXGBoost<'_> {}
 
-    impl PredictorHandler for PredictionhandlerBehavioralXGBoost<'_> {
+    impl PredictorHandler for PredictionHandlerBehavioralXGBoost<'_> {
         fn predict(&mut self, precord: &ProcessRecord) -> Option<f32> {
             if self.is_prediction_required(
                 self.config.threshold_drivermsgs,
@@ -47,9 +47,9 @@ pub mod predictor {
         }
     }
 
-    impl PredictionhandlerBehavioralXGBoost<'_> {
-        pub fn new(config: &Config) -> PredictionhandlerBehavioralXGBoost<'_> {
-            PredictionhandlerBehavioralXGBoost {
+    impl PredictionHandlerBehavioralXGBoost<'_> {
+        pub fn new(config: &Config) -> PredictionHandlerBehavioralXGBoost<'_> {
+            PredictionHandlerBehavioralXGBoost {
                 config,
                 predictions_count: 0,
             }
@@ -131,7 +131,7 @@ pub mod predictor {
 
     pub struct PredictorMalwareBehavioral<'a> {
         pub mlp: PredictorHandlerBehavioralMLP<'a>,
-        pub xgboost: PredictionhandlerBehavioralXGBoost<'a>,
+        pub xgboost: PredictionHandlerBehavioralXGBoost<'a>,
     }
 
     impl PredictorHandlerBehavioral for PredictorMalwareBehavioral<'_> {}
@@ -146,7 +146,7 @@ pub mod predictor {
         pub fn new(config: &Config) -> PredictorMalwareBehavioral<'_> {
             PredictorMalwareBehavioral {
                 mlp: PredictorHandlerBehavioralMLP::new(config),
-                xgboost: PredictionhandlerBehavioralXGBoost::new(config),
+                xgboost: PredictionHandlerBehavioralXGBoost::new(config),
             }
         }
     }
@@ -2023,9 +2023,9 @@ pub mod worker_instance {
 
         pub fn register_iomsg_postprocessor(
             mut self,
-            postprecessor: Box<dyn IOMsgPostProcessor>,
+            postprocessor: Box<dyn IOMsgPostProcessor>,
         ) -> Worker<'a> {
-            self.iomsg_postprocessors.push(postprecessor);
+            self.iomsg_postprocessors.push(postprocessor);
             self
         }
 
