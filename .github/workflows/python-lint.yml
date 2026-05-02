@@ -13,6 +13,9 @@ on:
       - '.github/workflows/python-lint.yml'
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   flake8:
     runs-on: windows-latest

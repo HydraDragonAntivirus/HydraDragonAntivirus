@@ -18,6 +18,9 @@ env:
 
   BUILD_BIN_DIR: ./Owlyshield/HyperDbg/hyperdbg/build/bin/
 
+permissions:
+  contents: read
+
 jobs:
   win-amd64-build:
     runs-on: windows-2022

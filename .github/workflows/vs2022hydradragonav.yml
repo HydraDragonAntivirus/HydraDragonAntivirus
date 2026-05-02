@@ -11,6 +11,9 @@ env:
   SOLUTION_FILE_PATH: "HydraDragonAV/HydraDragonAV.sln"
   BUILD_BIN_DIR: "./HydraDragonAV/x64/"
 
+permissions:
+  contents: read
+
 jobs:
   win-build:
     runs-on: windows-2022

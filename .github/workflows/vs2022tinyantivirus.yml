@@ -14,6 +14,9 @@ env:
 
   BUILD_BIN_DIR: "./TinyAntivirus/x64/"
 
+permissions:
+  contents: read
+
 jobs:
   win-build:
     runs-on: windows-2022

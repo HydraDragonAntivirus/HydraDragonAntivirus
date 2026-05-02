@@ -5,6 +5,10 @@ on:
     branches: ["**"]
     paths:
       - 'Sanctum/**'
+permissions:
+  contents: write
+  pull-requests: write
+
 jobs:
   build-and-stage:
     runs-on: windows-2022
