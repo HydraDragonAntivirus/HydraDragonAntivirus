@@ -215,12 +215,7 @@ jobs:
           # Git Staging
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -f hydradragon/**/*.exe
-          git add -f hydradragon/**/*.dll
-          git add -f hydradragon/**/*.sys
-          git add -f hydradragon/**/*.inf
-          git add -f hydradragon/**/*.json
-          git add -f hydradragon/**/*.yaml
+          git add -A hydradragon/
 
       - name: Create Pull Request
         uses: peter-evans/create-pull-request@v6
@@ -243,7 +238,8 @@ jobs:
             
             Verified by independent status checks in the GitHub Actions pipeline.
           branch: ${{ github.event.inputs.branch }}
-          base: main
+          base: ${{ github.ref_name }}
+          delete-branch: true
           labels: |
             binaries
             automated-pr
