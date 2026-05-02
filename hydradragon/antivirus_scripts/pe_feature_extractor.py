@@ -2,7 +2,6 @@ import os
 import capstone
 import pefile
 import numpy as np
-from pathlib import Path
 from typing import Dict, Any, List, Optional
 from .hydra_logger import logger
 import r2pipe
