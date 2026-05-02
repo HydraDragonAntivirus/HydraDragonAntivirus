@@ -510,9 +510,12 @@ impl ProcessRecord {
     }
 
     pub fn previous_extension_for_event(&self, iomsg: &IOMessage) -> Option<String> {
+        let current_ext = Self::effective_extension_for_event(iomsg);
+
         if iomsg.file_id_id.0 != 0
             && let Some(ext) = self.extension_by_file_id.get(&iomsg.file_id_id)
             && !ext.is_empty()
+            && ext != &current_ext
         {
             return Some(ext.clone());
         }
@@ -520,6 +523,7 @@ impl ProcessRecord {
         let normalized_path = normalize_path_for_extension_tracking(&iomsg.filepathstr);
         if let Some(ext) = self.extension_by_path.get(&normalized_path)
             && !ext.is_empty()
+            && ext != &current_ext
         {
             return Some(ext.clone());
         }
@@ -527,6 +531,7 @@ impl ProcessRecord {
         if let Some(stem_key) = filepath_stem_key(&normalized_path)
             && let Some(ext) = self.extension_by_stem_path.get(&stem_key)
             && !ext.is_empty()
+            && ext != &current_ext
         {
             return Some(ext.clone());
         }
