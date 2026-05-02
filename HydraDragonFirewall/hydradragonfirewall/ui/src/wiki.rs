@@ -3,7 +3,7 @@ use leptos::*;
 #[component]
 pub fn RulesWiki() -> impl IntoView {
     view! {
-        <div class="wiki-root glass-card">
+        <div class="wiki-root">
 
             // ── Top Bar ──────────────────────────────────────────────
             <div class="wiki-topbar">
@@ -289,8 +289,7 @@ pub fn RulesWiki() -> impl IntoView {
     flex-direction: column !important;
     overflow: hidden !important;
     padding: 0 !important;
-    flex: 1.5;
-    min-height: 0;
+    flex: 1;
 }
 
 .wiki-topbar {

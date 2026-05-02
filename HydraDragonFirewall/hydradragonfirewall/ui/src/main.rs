@@ -2720,7 +2720,7 @@ pub fn App() -> impl IntoView {
                                     } else {
                                         view! {
                                             <div style="display: flex; flex-direction: column; gap: 15px; height: 100%; overflow: hidden">
-                                                <div class="glass-card" style="flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column">
+                                                <div class="glass-card" style="flex: 1; overflow-y: auto; display: flex; flex-direction: column">
                                                     <div class="section-header">
                                                         <h3 style="margin: 0">"Active SDK Rules"</h3>
                                                         <span style="font-size: 11px; opacity: 0.6">"Real-time Behavioral Enforcement"</span>
