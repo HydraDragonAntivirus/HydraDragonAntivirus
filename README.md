@@ -409,7 +409,7 @@ See the [LICENSE](./LICENSE) file for more information.
 **Q: Other related things?**
 - I used yarGen to create machinelearning_*.yar.
 
-**Q: Why you make this open source? Isn't security by obscurity better?**
+**Q: Why you make this open source? Isn't security through obscurity better?**
 - If I don't make this project open source then I can't use other open source tools and it will make him shit like other too new and unknown closed source AVs. If you able to protect your source like Kaspersky (only leaked once from 2008 version, other leaks are fake also latest version has anti tamper protection from kernel so it's protects his source well.) but not like others Bitdefender (API + signatures solveable) Norton (Leaked his source once) Malwarebytes (leaked his source four times) Zemana (Cloud solveable and C# but currently his cloud is down) Windows Defender (DefenderYARA converted rules to YARA) and many other bad examples... in short if you able to protect your source code then why not to make closed source right? For extra security you can do that.
 
 So I'm not againist closed source if you able to protect source code without false alarms from other AVs. But since I want to make better with open source tools and want open source community support I made them open source. That's of course have huge disadvantages and advantages. But I can't spend my time to create everything from scratch and protect my source code well withotu false alarms, it will take forever.
