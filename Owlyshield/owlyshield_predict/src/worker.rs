@@ -730,7 +730,7 @@ pub mod worker_instance {
     use crate::worker::process_records::ProcessRecords;
     use chrono::{DateTime, Utc};
     use log::error;
-    use rumqtt::{MqttClient, MqttOptions, QoS};
+    use rumqttc::{Client, MqttOptions, QoS};
     #[cfg(feature = "realtime_learning")]
     use std::collections::{HashMap, HashSet};
     #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
@@ -789,14 +789,23 @@ pub mod worker_instance {
     }
 
     pub struct IOMsgPostProcessorMqtt {
-        pub client: Option<MqttClient>,
+        pub client: Option<Client>,
         channel: String,
     }
 
     impl IOMsgPostProcessorMqtt {
         pub fn new(mqtt_server: String) -> IOMsgPostProcessorMqtt {
-            let mqtt_options = MqttOptions::new("iomsg", mqtt_server, 1883);
-            let opt = MqttClient::start(mqtt_options).ok();
+            let mut mqtt_options = MqttOptions::new("iomsg", mqtt_server, 1883);
+            mqtt_options.set_keep_alive(std::time::Duration::from_secs(5));
+
+            let (client, mut connection) = Client::new(mqtt_options, 10);
+            
+            thread::spawn(move || {
+                for _ in connection.iter() {
+                    // Poll connection to keep it alive
+                }
+            });
+
             let hostname = hostname::get()
                 .unwrap()
                 .to_str()
@@ -804,14 +813,7 @@ pub mod worker_instance {
                 .to_string();
 
             IOMsgPostProcessorMqtt {
-                client: match opt {
-                    None => {
-                        println!("MQTT broker is not available. Ignoring it.");
-                        error!("MQTT broker is not available. Ignoring it.");
-                        None
-                    }
-                    Some((client, _)) => Some(client),
-                },
+                client: Some(client),
                 channel: String::from("data/") + &hostname,
             }
         }
