@@ -460,18 +460,23 @@ pub fn run() {
             let mut last_housekeeping = std::time::Instant::now();
             let housekeeping_interval = std::time::Duration::from_millis(750);
             let mut msgs_since_housekeeping: usize = 0;
-            while let Ok(mut iomsg) = rx_iomsgs.recv() {
-                // Process the incoming IO message immediately
-                worker.process_io(&mut iomsg, &thread_config);
+            loop {
+                let iomsg_res = rx_iomsgs.recv_timeout(std::time::Duration::from_millis(250));
+                if let Ok(mut iomsg) = iomsg_res {
+                    worker.process_io(&mut iomsg, &thread_config);
+                    msgs_since_housekeeping += 1;
+                } else if let Err(std::sync::mpsc::RecvTimeoutError::Disconnected) = iomsg_res {
+                    break;
+                }
 
-                msgs_since_housekeeping += 1;
                 if msgs_since_housekeeping >= 256
                     || last_housekeeping.elapsed() >= housekeeping_interval
                 {
-                    if let Some(handler) = worker.threat_handler.as_ref() {
-                        let th_suspended = handler.clone_box();
+                    let th_opt = worker.threat_handler.as_ref().map(|h| h.clone_box());
+                    if let Some(th) = th_opt {
                         worker.validate_tracked_processes();
-                        worker.process_suspended_records(&thread_config, th_suspended);
+                        worker.scan_processes(&thread_config, th.clone_box());
+                        worker.process_suspended_records(&thread_config, th);
                     }
                     msgs_since_housekeeping = 0;
                     last_housekeeping = std::time::Instant::now();

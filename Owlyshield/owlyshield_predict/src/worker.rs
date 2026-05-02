@@ -2043,7 +2043,6 @@ pub mod worker_instance {
 
         /// Validate all tracked processes and remove any with dead PIDs
         /// This is a safety net to catch processes tracked with mismatched GIDs
-        #[allow(dead_code)]
         pub fn validate_tracked_processes(&mut self) {
             #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
             {
@@ -2182,8 +2181,13 @@ pub mod worker_instance {
         }
 
         /// Scan all tracked processes for behavioral detections
-        #[allow(dead_code)]
-        pub fn scan_processes(&mut self, config: &Config, threat_handler: Box<dyn ThreatHandler>) {
+        pub fn scan_processes(
+            &mut self,
+            #[cfg_attr(not(all(target_os = "windows", feature = "behavior_engine")), allow(unused_variables))]
+            config: &Config,
+            #[cfg_attr(not(all(target_os = "windows", feature = "behavior_engine")), allow(unused_variables))]
+            threat_handler: Box<dyn ThreatHandler>
+        ) {
             #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
             {
                 // Import necessary Win32 modules for the Kernel Check
@@ -2949,7 +2953,6 @@ pub mod worker_instance {
             }
         }
 
-        #[allow(dead_code)]
         fn appname_from_exepath(&self, exepath: &Path) -> Option<String> {
             Self::appname_from_exepath_static(exepath)
         }

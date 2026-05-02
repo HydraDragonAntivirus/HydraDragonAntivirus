@@ -327,7 +327,7 @@ fn run_tinyav_scan(tinyav_console: PathBuf, file_path: PathBuf) {
     command.stdout(Stdio::piped()).stderr(Stdio::piped());
 
     let output_result = match command.spawn() {
-        Ok(mut child) => {
+        Ok(child) => {
             #[cfg(windows)]
             unsafe {
                 if !SetPriorityClass(child_process_handle(&child), HIGH_PRIORITY_CLASS).as_bool() {

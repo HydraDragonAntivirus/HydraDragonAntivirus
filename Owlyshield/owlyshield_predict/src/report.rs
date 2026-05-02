@@ -1,5 +1,6 @@
 use crate::config::Config;
 use crate::globals;
+#[cfg(target_os = "windows")]
 use crate::utils::resolve_process_path;
 use chrono::Local;
 use std::fs;

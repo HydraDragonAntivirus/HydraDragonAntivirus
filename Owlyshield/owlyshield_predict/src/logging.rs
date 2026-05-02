@@ -1,3 +1,4 @@
+#[cfg(target_os = "windows")]
 use crate::config::ConfigReader;
 use crate::utils::LOG_TIME_FORMAT;
 use chrono::{DateTime, Local};

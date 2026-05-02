@@ -523,7 +523,7 @@ impl KeyPair {
     /// x86-64, this is done pretty well, but not perfectly. On other
     /// platforms, it is done less perfectly.
     pub fn sign(
-        &self, padding_alg: &'static Encoding, rng: &rand::SecureRandom, msg: &[u8],
+        &self, padding_alg: &'static dyn Encoding, rng: &dyn rand::SecureRandom, msg: &[u8],
         signature: &mut [u8],
     ) -> Result<(), error::Unspecified> {
         let mod_bits = self.public.n_bits;

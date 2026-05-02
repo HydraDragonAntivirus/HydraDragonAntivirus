@@ -34,7 +34,7 @@ pub trait Encoding: Padding {
     #[doc(hidden)]
     fn encode(
         &self, m_hash: &digest::Digest, m_out: &mut [u8], mod_bits: bits::BitLength,
-        rng: &rand::SecureRandom,
+        rng: &dyn rand::SecureRandom,
     ) -> Result<(), error::Unspecified>;
 }
 
@@ -70,7 +70,7 @@ impl Padding for PKCS1 {
 impl Encoding for PKCS1 {
     fn encode(
         &self, m_hash: &digest::Digest, m_out: &mut [u8], _mod_bits: bits::BitLength,
-        _rng: &rand::SecureRandom,
+        _rng: &dyn rand::SecureRandom,
     ) -> Result<(), error::Unspecified> {
         pkcs1_encode(&self, m_hash, m_out);
         Ok(())
@@ -221,7 +221,7 @@ impl Encoding for PSS {
     // https://tools.ietf.org/html/rfc3447#section-9.1.
     fn encode(
         &self, m_hash: &digest::Digest, m_out: &mut [u8], mod_bits: bits::BitLength,
-        rng: &rand::SecureRandom,
+        rng: &dyn rand::SecureRandom,
     ) -> Result<(), error::Unspecified> {
         let metrics = PSSMetrics::new(self.digest_alg, mod_bits)?;
 
