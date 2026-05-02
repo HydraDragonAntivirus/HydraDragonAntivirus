@@ -508,7 +508,7 @@ class PEFeatureExtractor:
 
 
         try:
-            if os.path.getsize(file_path) > 50 * 1024 * 1024:  # 10 MB cap
+            if os.path.getsize(file_path) > 50 * 1024 * 1024:  # 50 MB cap
                 r2_features["error"] = "file_too_large"
                 return r2_features
 
