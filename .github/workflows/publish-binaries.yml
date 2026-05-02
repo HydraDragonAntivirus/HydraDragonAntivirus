@@ -23,7 +23,7 @@ jobs:
     steps:
       - name: Enable Git long paths
         run: git config --global core.longpaths true
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Add MSBuild to PATH
         uses: microsoft/setup-msbuild@v2
 
@@ -52,7 +52,7 @@ jobs:
           msbuild Owlyshield/RedDbg/RedDbg/RedDbg.sln /p:Configuration=Release /p:Platform=x64
 
       - name: Upload MSBuild Artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: msbuild-binaries
           path: |
@@ -70,7 +70,7 @@ jobs:
     steps:
       - name: Enable Git long paths
         run: git config --global core.longpaths true
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
@@ -84,7 +84,7 @@ jobs:
           dotnet publish HydraDragonService/HydraDragonService/HydraDragonService.csproj -c Release -r win-x64 --self-contained false -o artifacts/HydraDragonService/
 
       - name: Upload Dotnet Artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: dotnet-binaries
           path: artifacts/
@@ -95,16 +95,16 @@ jobs:
     steps:
       - name: Enable Git long paths
         run: git config --global core.longpaths true
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-pc-windows-msvc, wasm32-unknown-unknown
 
       - name: Install Trunk
-        uses: jetli/trunk-action@v0.5.0
+        uses: taiki-e/install-action@v2
         with:
-          version: 'latest'
+          tool: trunk
 
       - name: Build Firewall UI (Leptos)
         working-directory: HydraDragonFirewall/hydradragonfirewall/ui
@@ -119,7 +119,7 @@ jobs:
         run: cargo build --release
 
       - name: Upload Rust Artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: rust-binaries
           path: |
@@ -134,7 +134,7 @@ jobs:
     steps:
       - name: Enable Git long paths
         run: git config --global core.longpaths true
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@nightly
         with:
@@ -193,7 +193,7 @@ jobs:
         run: cargo make release
 
       - name: Upload Sanctum Artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: sanctum-binaries
           path: |
@@ -210,10 +210,10 @@ jobs:
     steps:
       - name: Enable Git long paths
         run: git config --global core.longpaths true
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       
       - name: Download All Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           path: downloaded-artifacts
 

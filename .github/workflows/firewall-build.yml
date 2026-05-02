@@ -32,7 +32,7 @@ jobs:
         run: git config --global core.longpaths true
         working-directory: .
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
@@ -41,9 +41,9 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Install Trunk
-        uses: jetli/trunk-action@v0.5.0
+        uses: taiki-e/install-action@v2
         with:
-          version: 'latest'
+          tool: trunk
 
       - name: Add WASM target
         run: rustup target add wasm32-unknown-unknown
@@ -95,7 +95,7 @@ jobs:
           Compress-Archive -Path "$bundleDir/*" -DestinationPath $zipPath -CompressionLevel Optimal
 
       - name: Upload release artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: hydradragonfirewall-windows-x64
           path: HydraDragonFirewall/hydradragonfirewall/target/release/hydradragonfirewall-windows-x64.zip
@@ -111,7 +111,7 @@ jobs:
       - name: Enable Git long paths
         run: git config --global core.longpaths true
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable

@@ -15,7 +15,7 @@ jobs:
       run: git config --global core.longpaths true
 
     - name: Checkout repository
-      uses: actions/checkout@v4
+      uses: actions/checkout@v6
 
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
@@ -29,7 +29,7 @@ jobs:
       run: dotnet build HydraDragonService/HydraDragonService.sln --configuration Release --no-restore
 
     - name: Upload Artifact
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: service-release
         path: HydraDragonService/HydraDragonService/bin/Release/
