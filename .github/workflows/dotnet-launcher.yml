@@ -1,0 +1,40 @@
+name: dotnet-launcher-ci
+
+on:
+  push:
+    branches: ["**"]
+    paths:
+      - 'HydraDragonAntivirusLauncher/**'
+      - '.github/workflows/dotnet-launcher.yml'
+  pull_request:
+    branches: ["**"]
+    paths:
+      - 'HydraDragonAntivirusLauncher/**'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-2022
+    steps:
+    - name: Enable long paths
+      run: git config --global core.longpaths true
+
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '8.0.x'
+
+    - name: Restore dependencies
+      run: dotnet restore HydraDragonAntivirusLauncher/HydraDragonAntivirusLauncher.sln
+
+    - name: Build Launcher
+      run: dotnet build HydraDragonAntivirusLauncher/HydraDragonAntivirusLauncher.sln --configuration Release --no-restore
+
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: launcher-release
+        path: HydraDragonAntivirusLauncher/HydraDragonAntivirusLauncher/bin/Release/

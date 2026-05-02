@@ -1,0 +1,46 @@
+name: vs2022hydradragonav-ci
+
+on:
+  push:
+    branches: ["**"]
+    paths:
+      - 'HydraDragonAV/**'
+      - '.github/workflows/vs2022hydradragonav.yml'
+  pull_request:
+    branches: ["**"]
+    paths:
+      - 'HydraDragonAV/**'
+  workflow_dispatch:
+
+env:
+  SOLUTION_FILE_PATH: "HydraDragonAV/HydraDragonAV.sln"
+  BUILD_BIN_DIR: "./HydraDragonAV/x64/"
+
+jobs:
+  win-build:
+    runs-on: windows-2022
+    strategy:
+      matrix:
+        BUILD_CONFIGURATION: [Release, Debug]
+        PLATFORM: [x64]
+
+    steps:
+    - name: Enable long paths
+      run: git config --global core.longpaths true
+
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Setup MSBuild
+      uses: microsoft/setup-msbuild@v2
+      
+    - name: Build HydraDragonAV
+      run: msbuild /m /p:Configuration=${{matrix.BUILD_CONFIGURATION}} /p:Platform=${{matrix.PLATFORM}} "${{env.SOLUTION_FILE_PATH}}"
+
+    - name: Upload build directory 
+      uses: actions/upload-artifact@v4
+      with:
+        name: hydradragonav_build_files_${{matrix.PLATFORM}}_${{matrix.BUILD_CONFIGURATION}}
+        path: ${{ env.BUILD_BIN_DIR }}${{matrix.BUILD_CONFIGURATION}}/

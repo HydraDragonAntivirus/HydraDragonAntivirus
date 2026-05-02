@@ -1,0 +1,40 @@
+name: dotnet-taskscheduler-ci
+
+on:
+  push:
+    branches: ["**"]
+    paths:
+      - 'HydraDragonAntivirusTaskScheduler/**'
+      - '.github/workflows/dotnet-taskscheduler.yml'
+  pull_request:
+    branches: ["**"]
+    paths:
+      - 'HydraDragonAntivirusTaskScheduler/**'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-2022
+    steps:
+    - name: Enable long paths
+      run: git config --global core.longpaths true
+
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '8.0.x'
+
+    - name: Restore dependencies
+      run: dotnet restore HydraDragonAntivirusTaskScheduler/HydraDragonAntivirusTaskScheduler.sln
+
+    - name: Build TaskScheduler
+      run: dotnet build HydraDragonAntivirusTaskScheduler/HydraDragonAntivirusTaskScheduler.sln --configuration Release --no-restore
+
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: taskscheduler-release
+        path: HydraDragonAntivirusTaskScheduler/HydraDragonAntivirusTaskScheduler/bin/Release/
