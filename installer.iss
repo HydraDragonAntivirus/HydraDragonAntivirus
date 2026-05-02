@@ -67,8 +67,8 @@ Source: "C:\Users\semae\OneDrive\Belgeler\hydratempinstall\jre-8u491-windows-x64
 Source: "C:\Users\semae\OneDrive\Belgeler\hydratempinstall\jdk-25_windows-x64_bin.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\semae\OneDrive\Belgeler\hydratempinstall\windowsdesktop-runtime-8.0.25-win-x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\semae\OneDrive\Belgeler\hydratempinstall\windowsdesktop-runtime-9.0.14-win-x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
-; Node.js 22.22.1 (x64) MSI
-Source: "C:\Users\semae\OneDrive\Belgeler\hydratempinstall\node-v22.22.1-x64.msi"; DestDir: "{tmp}"; Flags: deleteafterinstall
+; Node.js 22.22.2 (x64) MSI
+Source: "C:\Users\semae\OneDrive\Belgeler\hydratempinstall\node-v22.22.2-x64.msi"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\semae\OneDrive\Belgeler\hydratempinstall\python-3.12.10-amd64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\semae\OneDrive\Belgeler\hydratempinstall\setup.py"; DestDir: "{tmp}"; Flags: deleteafterinstall
 ; COMODO OpenEDR
@@ -148,8 +148,8 @@ Filename: "msiexec.exe"; Parameters: "/i ""{tmp}\Suricata-7.0.14-1-64bit.msi"" /
 ; OpenEDR Installer (MSI - Silent Install)
 Filename: "msiexec.exe"; Parameters: "/i ""{tmp}\openedr.msi"" /quiet /norestart"; Flags: waituntilterminated
 
-; Node.js 22.22.0 (silent)
-Filename: "msiexec.exe"; Parameters: "/i ""{tmp}\node-v22.22.1-x64.msi"" /quiet /norestart INSTALLDIR=""{app}\nodejs"""; Flags: waituntilterminated
+; Node.js 22.22.2 (silent)
+Filename: "msiexec.exe"; Parameters: "/i ""{tmp}\node-v22.22.2-x64.msi"" /quiet /norestart INSTALLDIR=""{app}\nodejs"""; Flags: waituntilterminated
 
 ; Npcap install - user-interactive GUI mode
 Filename: "{tmp}\npcap-1.87.exe"; Parameters: "/winpcap_mode=yes"; Flags: shellexec waituntilterminated
