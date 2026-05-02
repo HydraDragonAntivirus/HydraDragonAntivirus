@@ -20,11 +20,15 @@ use crate::threathandling::WindowsThreatHandler;
 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
 use crate::utils::format_process_descriptor_with_fallback;
 use crate::watchlist::WatchList;
-use crate::{
-    CDriverMsgs, Connectors, Driver, ExepathLive, IOMessage, IOMsgPostProcessorMqtt,
-    IOMsgPostProcessorRPC, IOMsgPostProcessorWriter, Logging, ProcessRecordHandlerLive,
-    ProcessRecordHandlerNovelty, Worker, config,
+use crate::connectors::register::Connectors;
+use crate::shared_def::IOMessage;
+use crate::worker::process_record_handling::{
+    ExepathLive, ProcessRecordHandlerLive, ProcessRecordHandlerNovelty,
 };
+use crate::worker::worker_instance::{
+    IOMsgPostProcessorMqtt, IOMsgPostProcessorRPC, IOMsgPostProcessorWriter, Worker,
+};
+use crate::{CDriverMsgs, Driver, Logging, config};
 
 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
 #[derive(Debug, Clone)]

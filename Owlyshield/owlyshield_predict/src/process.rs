@@ -58,6 +58,26 @@ fn normalize_path_for_extension_tracking(filepath: &str) -> String {
     filepath.to_lowercase().replace("\\", "/")
 }
 
+fn get_parent_path(path: &str) -> Option<String> {
+    if path.is_empty() {
+        return None;
+    }
+    let normalized = path.replace("\\", "/");
+    let p = Path::new(&normalized);
+    if let Some(parent) = p.parent() {
+        let ps = parent.to_string_lossy().to_string();
+        if ps == "." || ps.is_empty() {
+            return None;
+        }
+        // If the original path had backslashes, return with backslashes to match expectations
+        if path.contains('\\') {
+            return Some(ps.replace("/", "\\"));
+        }
+        return Some(ps);
+    }
+    None
+}
+
 fn extract_extension_from_path(filepath: &str) -> String {
     let leaf = filepath.rsplit('/').next().unwrap_or(filepath);
     if let Some((_, tail)) = leaf.rsplit_once('.') {
@@ -613,10 +633,8 @@ impl ProcessRecord {
         if !iomsg.runtime_features.command_line.trim().is_empty() {
             self.command_line = iomsg.runtime_features.command_line.clone();
         }
-        if let Some(parent) = Path::new(&iomsg.filepathstr).parent()
-            && parent.is_dir()
-        {
-            self.dirs_content.insert(parent.to_path_buf(), iomsg);
+        if let Some(parent) = get_parent_path(&iomsg.filepathstr) {
+            self.dirs_content.insert(PathBuf::from(parent), iomsg);
         }
         match IrpMajorOp::from_byte(iomsg.irp_op) {
             IrpMajorOp::IrpNone => {}
@@ -626,6 +644,9 @@ impl ProcessRecord {
             IrpMajorOp::IrpCreate => self.update_create(iomsg),
             _ => {}
         }
+        let ext = Self::effective_extension_for_event(iomsg);
+        self.remember_extension_observation(iomsg, &ext);
+
         self.update_clusters();
         self.time = iomsg.time;
     }
@@ -650,14 +671,7 @@ impl ProcessRecord {
         let fpath = iomsg.filepathstr.clone();
         self.fpaths_updated.insert(fpath);
         self.files_written.insert(iomsg.file_id_id);
-        if let Some(dir) = Some(
-            Path::new(&iomsg.filepathstr)
-                .parent()
-                .unwrap_or_else(|| Path::new(r".\"))
-                .to_string_lossy()
-                .parse()
-                .unwrap(),
-        ) {
+        if let Some(dir) = get_parent_path(&iomsg.filepathstr) {
             self.dirs_with_files_updated.insert(dir);
         }
         self.extensions_written.add_cat_extension(&iomsg.extension);
@@ -680,14 +694,7 @@ impl ProcessRecord {
             Some(FileChangeInfo::ChangeDeleteFile) => {
                 self.files_deleted.insert(iomsg.file_id_id);
                 self.fpaths_updated.insert(fpath);
-                if let Some(dir) = Some(
-                    Path::new(&iomsg.filepathstr)
-                        .parent()
-                        .unwrap_or_else(|| Path::new(r".\"))
-                        .to_string_lossy()
-                        .parse()
-                        .unwrap(),
-                ) {
+                if let Some(dir) = get_parent_path(&iomsg.filepathstr) {
                     self.dirs_with_files_updated.insert(dir);
                 }
             }
@@ -695,28 +702,14 @@ impl ProcessRecord {
                 self.extensions_written.add_cat_extension(&iomsg.extension);
 
                 self.fpaths_updated.insert(fpath);
-                if let Some(dir) = Some(
-                    Path::new(&iomsg.filepathstr)
-                        .parent()
-                        .unwrap_or_else(|| Path::new(r".\"))
-                        .to_string_lossy()
-                        .parse()
-                        .unwrap(),
-                ) {
+                if let Some(dir) = get_parent_path(&iomsg.filepathstr) {
                     self.dirs_with_files_updated.insert(dir);
                 }
                 self.files_renamed.insert(iomsg.file_id_id);
             }
             Some(FileChangeInfo::ChangeRenameFile) => {
                 self.fpaths_updated.insert(fpath);
-                if let Some(dir) = Some(
-                    Path::new(&iomsg.filepathstr)
-                        .parent()
-                        .unwrap_or_else(|| Path::new(r".\"))
-                        .to_string_lossy()
-                        .parse()
-                        .unwrap(),
-                ) {
+                if let Some(dir) = get_parent_path(&iomsg.filepathstr) {
                     self.dirs_with_files_updated.insert(dir);
                 }
                 self.files_renamed.insert(iomsg.file_id_id);
@@ -734,14 +727,7 @@ impl ProcessRecord {
             Some(FileChangeInfo::ChangeNewFile) => {
                 self.files_opened.insert(iomsg.file_id_id);
                 self.fpaths_created.insert(fpath);
-                if let Some(dir) = Some(
-                    Path::new(&iomsg.filepathstr)
-                        .parent()
-                        .unwrap_or_else(|| Path::new(r".\"))
-                        .to_string_lossy()
-                        .parse()
-                        .unwrap(),
-                ) {
+                if let Some(dir) = get_parent_path(&iomsg.filepathstr) {
                     self.dirs_with_files_created.insert(dir);
                 }
             }
@@ -753,26 +739,12 @@ impl ProcessRecord {
                 // Opened and deleted on close
                 self.files_deleted.insert(iomsg.file_id_id);
                 self.fpaths_updated.insert(fpath);
-                if let Some(dir) = Some(
-                    Path::new(&iomsg.filepathstr)
-                        .parent()
-                        .unwrap_or_else(|| Path::new(r".\"))
-                        .to_string_lossy()
-                        .parse()
-                        .unwrap(),
-                ) {
+                if let Some(dir) = get_parent_path(&iomsg.filepathstr) {
                     self.dirs_with_files_updated.insert(dir);
                 }
             }
             Some(FileChangeInfo::OpenDirectory) => {
-                if let Some(dir) = Some(
-                    Path::new(&iomsg.filepathstr)
-                        .parent()
-                        .unwrap_or_else(|| Path::new(r".\"))
-                        .to_string_lossy()
-                        .parse()
-                        .unwrap(),
-                ) {
+                if let Some(dir) = get_parent_path(&iomsg.filepathstr) {
                     self.dirs_with_files_opened.insert(dir);
                 }
             }
