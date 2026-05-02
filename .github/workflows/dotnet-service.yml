@@ -23,13 +23,13 @@ jobs:
         dotnet-version: '8.0.x'
 
     - name: Restore dependencies
-      run: dotnet restore HydraDragonService/HydraDragonAntivirusTaskScheduler.sln
+      run: dotnet restore HydraDragonService/HydraDragonService.sln
 
     - name: Build Service
-      run: dotnet build HydraDragonService/HydraDragonAntivirusTaskScheduler.sln --configuration Release --no-restore
+      run: dotnet build HydraDragonService/HydraDragonService.sln --configuration Release --no-restore
 
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
       with:
         name: service-release
-        path: HydraDragonService/HydraDragonAntivirusTaskScheduler/bin/Release/
+        path: HydraDragonService/HydraDragonService/bin/Release/

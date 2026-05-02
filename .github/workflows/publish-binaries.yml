@@ -81,7 +81,7 @@ jobs:
           dotnet publish MegaDumper/MegaDumper/MegaDumper.csproj -c Release -r win-x64 --self-contained false -o artifacts/HydraDragonDumper/
           dotnet publish HydraDragonFirewall/HydraDragonClient/HydraDragonClient/HydraDragonClient.csproj -c Release -r win-x64 --self-contained false -o artifacts/HydraDragonFirewall/
           dotnet publish HydraDragonLauncher/HydraDragonLauncher/HydraDragonLauncher.csproj -c Release -r win-x64 --self-contained false -o artifacts/HydraDragonLauncher/
-          dotnet publish HydraDragonService/HydraDragonAntivirusTaskScheduler/HydraDragonAntivirusTaskScheduler.csproj -c Release -r win-x64 --self-contained false -o artifacts/HydraDragonService/
+          dotnet publish HydraDragonService/HydraDragonService/HydraDragonService.csproj -c Release -r win-x64 --self-contained false -o artifacts/HydraDragonService/
 
       - name: Upload Dotnet Artifacts
         uses: actions/upload-artifact@v4
@@ -99,7 +99,16 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: x86_64-pc-windows-msvc
+          targets: x86_64-pc-windows-msvc, wasm32-unknown-unknown
+
+      - name: Install Trunk
+        uses: jetli/trunk-action@v0.5.0
+        with:
+          version: 'latest'
+
+      - name: Build Firewall UI (Leptos)
+        working-directory: HydraDragonFirewall/hydradragonfirewall/ui
+        run: trunk build --release
 
       - name: Build Owlyshield Rust
         working-directory: Owlyshield/owlyshield_predict
