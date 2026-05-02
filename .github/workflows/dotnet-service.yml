@@ -1,4 +1,4 @@
-name: dotnet-taskscheduler-ci
+name: dotnet-hydradragonservice-ci
 
 on:
   push:
@@ -23,13 +23,13 @@ jobs:
         dotnet-version: '8.0.x'
 
     - name: Restore dependencies
-      run: dotnet restore HydraDragonAntivirusTaskScheduler/HydraDragonAntivirusTaskScheduler.sln
+      run: dotnet restore HydraDragonService/HydraDragonAntivirusTaskScheduler.sln
 
-    - name: Build TaskScheduler
-      run: dotnet build HydraDragonAntivirusTaskScheduler/HydraDragonAntivirusTaskScheduler.sln --configuration Release --no-restore
+    - name: Build Service
+      run: dotnet build HydraDragonService/HydraDragonAntivirusTaskScheduler.sln --configuration Release --no-restore
 
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: taskscheduler-release
-        path: HydraDragonAntivirusTaskScheduler/HydraDragonAntivirusTaskScheduler/bin/Release/
+        name: service-release
+        path: HydraDragonService/HydraDragonAntivirusTaskScheduler/bin/Release/

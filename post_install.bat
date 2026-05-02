@@ -144,7 +144,7 @@ if %errorlevel% neq 0 (
 :: --------------------------------------------------------
 :: 9) Register HydraDragonAntivirus scheduled task (autostart after reboot)
 :: --------------------------------------------------------
-set "HD_TASK_EXE=%HYDRADRAGON_DIR%\HydraDragonAntivirusTaskScheduler.exe\HydraDragonAntivirusTaskScheduler.exe"
+set "HD_TASK_EXE=%HYDRADRAGON_DIR%\HydraDragonService.exe\HydraDragonService.exe"
 
 if exist "%HD_TASK_EXE%" (
     echo Checking for existing HydraDragonAntivirus scheduled task...

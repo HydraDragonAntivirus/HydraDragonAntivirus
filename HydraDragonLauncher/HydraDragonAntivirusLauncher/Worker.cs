@@ -1,6 +1,6 @@
 using System.Diagnostics;
 
-namespace HydraDragonAntivirusLauncher
+namespace HydraDragonLauncher
 {
     public class Worker(ILogger<Worker> logger) : BackgroundService
     {

@@ -1,7 +1,7 @@
 using System.Diagnostics;
 using System.Security.Principal;
 
-namespace HydraDragonAntivirusTaskScheduler
+namespace HydraDragonService
 {
     public class Worker(ILogger<Worker> logger) : BackgroundService
     {
@@ -118,8 +118,8 @@ namespace HydraDragonAntivirusTaskScheduler
                 Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
                 "HydraDragonAntivirus",
                 "hydradragon",
-                "HydraDragonAntivirusLauncher",
-                "HydraDragonAntivirusLauncher.exe"
+                "HydraDragonLauncher",
+                "HydraDragonLauncher.exe"
             );
 
             // helper for launching exe
@@ -196,8 +196,8 @@ namespace HydraDragonAntivirusTaskScheduler
                 _logger.LogWarning(ex, "Failed to start sanctum_ppl_runner via 'sc start'.");
             }
 
-            // 3) HydraDragonAntivirusLauncher.exe (fire and forget - it's a service host)
-            _logger.LogInformation("Starting HydraDragonAntivirusLauncher...");
+            // 3) HydraDragonLauncher.exe (fire and forget - it's a service host)
+            _logger.LogInformation("Starting HydraDragonLauncher...");
             await RunExeAsync(hydraDragonLauncherPath, fireAndForget: true);
 
             // 4) um_engine.exe

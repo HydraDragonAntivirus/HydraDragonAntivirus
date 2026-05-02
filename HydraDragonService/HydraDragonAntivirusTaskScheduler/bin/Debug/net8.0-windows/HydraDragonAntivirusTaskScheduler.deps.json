@@ -1,19 +1,17 @@
 {
   "runtimeTarget": {
-    "name": ".NETCoreApp,Version=v8.0/win-x64",
+    "name": ".NETCoreApp,Version=v8.0",
     "signature": ""
   },
   "compilationOptions": {},
   "targets": {
-    ".NETCoreApp,Version=v8.0": {},
-    ".NETCoreApp,Version=v8.0/win-x64": {
-      "HydraDragonAntivirusLauncher/1.0.0": {
+    ".NETCoreApp,Version=v8.0": {
+      "HydraDragonService/1.0.0": {
         "dependencies": {
-          "Microsoft.Extensions.Hosting": "8.0.1",
-          "System.ServiceProcess.ServiceController": "9.0.10"
+          "Microsoft.Extensions.Hosting": "8.0.1"
         },
         "runtime": {
-          "HydraDragonAntivirusLauncher.dll": {}
+          "HydraDragonService.dll": {}
         }
       },
       "Microsoft.Extensions.Configuration/8.0.0": {
@@ -316,7 +314,7 @@
           "Microsoft.Extensions.Logging": "8.0.1",
           "Microsoft.Extensions.Logging.Abstractions": "8.0.2",
           "Microsoft.Extensions.Options": "8.0.2",
-          "System.Diagnostics.EventLog": "9.0.10"
+          "System.Diagnostics.EventLog": "8.0.1"
         },
         "runtime": {
           "lib/net8.0/Microsoft.Extensions.Logging.EventLog.dll": {
@@ -375,33 +373,32 @@
           }
         }
       },
-      "System.Diagnostics.EventLog/9.0.10": {
+      "System.Diagnostics.EventLog/8.0.1": {
         "runtime": {
+          "lib/net8.0/System.Diagnostics.EventLog.dll": {
+            "assemblyVersion": "8.0.0.0",
+            "fileVersion": "8.0.1024.46610"
+          }
+        },
+        "runtimeTargets": {
           "runtimes/win/lib/net8.0/System.Diagnostics.EventLog.Messages.dll": {
-            "assemblyVersion": "9.0.0.0",
+            "rid": "win",
+            "assetType": "runtime",
+            "assemblyVersion": "8.0.0.0",
             "fileVersion": "0.0.0.0"
           },
           "runtimes/win/lib/net8.0/System.Diagnostics.EventLog.dll": {
-            "assemblyVersion": "9.0.0.0",
-            "fileVersion": "9.0.1025.47515"
-          }
-        }
-      },
-      "System.ServiceProcess.ServiceController/9.0.10": {
-        "dependencies": {
-          "System.Diagnostics.EventLog": "9.0.10"
-        },
-        "runtime": {
-          "runtimes/win/lib/net8.0/System.ServiceProcess.ServiceController.dll": {
-            "assemblyVersion": "9.0.0.10",
-            "fileVersion": "9.0.1025.47515"
+            "rid": "win",
+            "assetType": "runtime",
+            "assemblyVersion": "8.0.0.0",
+            "fileVersion": "8.0.1024.46610"
           }
         }
       }
     }
   },
   "libraries": {
-    "HydraDragonAntivirusLauncher/1.0.0": {
+    "HydraDragonService/1.0.0": {
       "type": "project",
       "serviceable": false,
       "sha512": ""
@@ -595,19 +592,12 @@
       "path": "microsoft.extensions.primitives/8.0.0",
       "hashPath": "microsoft.extensions.primitives.8.0.0.nupkg.sha512"
     },
-    "System.Diagnostics.EventLog/9.0.10": {
+    "System.Diagnostics.EventLog/8.0.1": {
       "type": "package",
       "serviceable": true,
-      "sha512": "sha512-Jc+az1pTMujPLDn2j5eqSfzlO7j/T1K/LB7THxdfRWOxujE4zaitUqBs7sv1t6/xmmvpU6Xx3IofCs4owYH0yQ==",
-      "path": "system.diagnostics.eventlog/9.0.10",
-      "hashPath": "system.diagnostics.eventlog.9.0.10.nupkg.sha512"
-    },
-    "System.ServiceProcess.ServiceController/9.0.10": {
-      "type": "package",
-      "serviceable": true,
-      "sha512": "sha512-dmH+qHQ5wMjvEI0M2s6J+vmaU9L9ID2D9DWMFa7FiTfINfo3e3zeL4ljX7Dg5gCnFIULPFip2ej2iIAC3X6MFw==",
-      "path": "system.serviceprocess.servicecontroller/9.0.10",
-      "hashPath": "system.serviceprocess.servicecontroller.9.0.10.nupkg.sha512"
+      "sha512": "sha512-n1ZP7NM2Gkn/MgD8+eOT5MulMj6wfeQMNS2Pizvq5GHCZfjlFMXV2irQlQmJhwA2VABC57M0auudO89Iu2uRLg==",
+      "path": "system.diagnostics.eventlog/8.0.1",
+      "hashPath": "system.diagnostics.eventlog.8.0.1.nupkg.sha512"
     }
   }
 }

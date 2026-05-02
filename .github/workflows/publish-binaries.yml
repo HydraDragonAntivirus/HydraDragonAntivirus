@@ -80,8 +80,8 @@ jobs:
         run: |
           dotnet publish MegaDumper/MegaDumper/MegaDumper.csproj -c Release -r win-x64 --self-contained false -o artifacts/HydraDragonDumper/
           dotnet publish HydraDragonFirewall/HydraDragonClient/HydraDragonClient/HydraDragonClient.csproj -c Release -r win-x64 --self-contained false -o artifacts/HydraDragonFirewall/
-          dotnet publish HydraDragonAntivirusLauncher/HydraDragonAntivirusLauncher/HydraDragonAntivirusLauncher.csproj -c Release -r win-x64 --self-contained false -o artifacts/HydraDragonAntivirusLauncher/
-          dotnet publish HydraDragonAntivirusTaskScheduler/HydraDragonAntivirusTaskScheduler/HydraDragonAntivirusTaskScheduler.csproj -c Release -r win-x64 --self-contained false -o artifacts/HydraDragonAntivirusTaskScheduler/
+          dotnet publish HydraDragonLauncher/HydraDragonLauncher/HydraDragonLauncher.csproj -c Release -r win-x64 --self-contained false -o artifacts/HydraDragonLauncher/
+          dotnet publish HydraDragonService/HydraDragonAntivirusTaskScheduler/HydraDragonAntivirusTaskScheduler.csproj -c Release -r win-x64 --self-contained false -o artifacts/HydraDragonService/
 
       - name: Upload Dotnet Artifacts
         uses: actions/upload-artifact@v4
@@ -219,8 +219,8 @@ jobs:
           New-Item -ItemType Directory -Force -Path "$distRoot/Sanctum"
           New-Item -ItemType Directory -Force -Path "$distRoot/HydraDragonFirewall"
           New-Item -ItemType Directory -Force -Path "$distRoot/HydraDragonDumper"
-          New-Item -ItemType Directory -Force -Path "$distRoot/HydraDragonAntivirusLauncher"
-          New-Item -ItemType Directory -Force -Path "$distRoot/HydraDragonAntivirusTaskScheduler"
+          New-Item -ItemType Directory -Force -Path "$distRoot/HydraDragonLauncher"
+          New-Item -ItemType Directory -Force -Path "$distRoot/HydraDragonService"
           New-Item -ItemType Directory -Force -Path "$distRoot/RedDbg"
 
           # 1. MSBuild
@@ -235,8 +235,8 @@ jobs:
           # 2. Dotnet (was already organized into folders in the job)
           Copy-Item "downloaded-artifacts/dotnet-binaries/HydraDragonDumper/*" "$distRoot/HydraDragonDumper/" -Recurse -Force
           Copy-Item "downloaded-artifacts/dotnet-binaries/HydraDragonFirewall/*" "$distRoot/HydraDragonFirewall/" -Recurse -Force
-          Copy-Item "downloaded-artifacts/dotnet-binaries/HydraDragonAntivirusLauncher/*" "$distRoot/HydraDragonAntivirusLauncher/" -Recurse -Force
-          Copy-Item "downloaded-artifacts/dotnet-binaries/HydraDragonAntivirusTaskScheduler/*" "$distRoot/HydraDragonAntivirusTaskScheduler/" -Recurse -Force
+          Copy-Item "downloaded-artifacts/dotnet-binaries/HydraDragonLauncher/*" "$distRoot/HydraDragonLauncher/" -Recurse -Force
+          Copy-Item "downloaded-artifacts/dotnet-binaries/HydraDragonService/*" "$distRoot/HydraDragonService/" -Recurse -Force
 
           # 3. Rust Core
           Copy-Item "downloaded-artifacts/rust-binaries/Owlyshield/owlyshield_predict/target/release/owlyshield_ransom.dll" "$distRoot/Owlyshield/owlyshield_ransom.dll" -Force
@@ -277,6 +277,8 @@ jobs:
             - SimplePYASProtection (Driver)
             - MegaDumper -> HydraDragonDumper (C#)
             - HydraDragonFirewall (Rust + C# Client)
+            - HydraDragonLauncher (C#)
+            - HydraDragonService (C#)
             - Owlyshield (Rust + Minifilter)
             - Sanctum EDR (Kernel Driver + PPL Runner + ELAM)
             

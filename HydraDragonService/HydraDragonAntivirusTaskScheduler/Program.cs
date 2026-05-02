@@ -1,4 +1,4 @@
-using HydraDragonAntivirusTaskScheduler;
+using HydraDragonService;
 
 var builder = Host.CreateApplicationBuilder(args);
 builder.Services.AddHostedService<Worker>();

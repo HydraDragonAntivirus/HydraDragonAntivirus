@@ -4,11 +4,11 @@
     <TargetFramework>net8.0-windows</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <UserSecretsId>dotnet-HydraDragonAntivirusLauncher-f2dbb41f-9c18-456d-8982-e1c3c37b3b53</UserSecretsId>
+    <UserSecretsId>dotnet-HydraDragonService-bc82b4c5-98bb-495c-93b7-591e2457154c</UserSecretsId>
     <ApplicationIcon>HydraDragonAV.ico</ApplicationIcon>
-    <NuGetAuditLevel>critical</NuGetAuditLevel>
-    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <PackageIcon>HydraDragonAVLogo.png</PackageIcon>
     <Platforms>AnyCPU;x64</Platforms>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
   </PropertyGroup>
 
   <ItemGroup>
@@ -16,7 +16,13 @@
   </ItemGroup>
 
   <ItemGroup>
+    <None Include="..\..\hydradragon\assets\HydraDragonAVLogo.png">
+      <Pack>True</Pack>
+      <PackagePath>\</PackagePath>
+    </None>
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="8.0.1" />
-    <PackageReference Include="System.ServiceProcess.ServiceController" Version="9.0.10" />
   </ItemGroup>
 </Project>
