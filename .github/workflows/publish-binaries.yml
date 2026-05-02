@@ -49,7 +49,7 @@ jobs:
           msbuild MBRFilter/MBRFilter.sln /p:Configuration=Release /p:Platform=x64
           msbuild PYAS_Protection/PYAS_Protection.sln /p:Configuration=Release /p:Platform=x64
           msbuild Owlyshield/owlyshield_minifilter/owlyshield_minifilter.sln /p:Configuration=Release /p:Platform=x64
-          msbuild RedDbg/RedDbg.sln /p:Configuration=Release /p:Platform=x64
+          msbuild Owlyshield/RedDbg/RedDbg/RedDbg.sln /p:Configuration=Release /p:Platform=x64
 
       - name: Upload MSBuild Artifacts
         uses: actions/upload-artifact@v4
@@ -62,6 +62,7 @@ jobs:
             PYAS_Protection/x64/Release/SimplePYASProtection.sys
             PYAS_Protection/x64/Release/SimplePYASProtection.inf
             Owlyshield/owlyshield_minifilter/x64/Release/RWatch.sys
+            Owlyshield/RedDbg/RedDbg/x64/Release/RedDbg.exe
 
   # --- Job 2: Dotnet Projects ---
   build-dotnet:
@@ -220,6 +221,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path "$distRoot/HydraDragonDumper"
           New-Item -ItemType Directory -Force -Path "$distRoot/HydraDragonAntivirusLauncher"
           New-Item -ItemType Directory -Force -Path "$distRoot/HydraDragonAntivirusTaskScheduler"
+          New-Item -ItemType Directory -Force -Path "$distRoot/RedDbg"
 
           # 1. MSBuild
           Copy-Item "downloaded-artifacts/msbuild-binaries/TinyAntivirus/x64/Release/TinyAvConsole.exe" "$distRoot/TinyAntivirus/TinyAvConsole.exe" -Force
@@ -228,6 +230,7 @@ jobs:
           Copy-Item "downloaded-artifacts/msbuild-binaries/PYAS_Protection/x64/Release/SimplePYASProtection.sys" "$distRoot/SimplePYASProtection/SimplePYASProtection.sys" -Force
           Copy-Item "downloaded-artifacts/msbuild-binaries/PYAS_Protection/x64/Release/SimplePYASProtection.inf" "$distRoot/SimplePYASProtection/SimplePYASProtection.inf" -Force
           Copy-Item "downloaded-artifacts/msbuild-binaries/Owlyshield/owlyshield_minifilter/x64/Release/RWatch.sys" "$distRoot/Owlyshield/owlyshield_minifilter.sys" -Force
+          Copy-Item "downloaded-artifacts/msbuild-binaries/Owlyshield/RedDbg/RedDbg/x64/Release/RedDbg.exe" "$distRoot/RedDbg/RedDbg.exe" -Force
 
           # 2. Dotnet (was already organized into folders in the job)
           Copy-Item "downloaded-artifacts/dotnet-binaries/HydraDragonDumper/*" "$distRoot/HydraDragonDumper/" -Recurse -Force
