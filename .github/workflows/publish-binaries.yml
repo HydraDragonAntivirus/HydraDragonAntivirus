@@ -1,15 +1,6 @@
 name: Publish Binaries (Multi-Job)
 
 on:
-  push:
-    branches: ["**"]
-    paths-ignore:
-      - 'hydradragon/**'
-      - '**.md'
-      - '.gitignore'
-      - '.github/**'
-      - '.agent/**'
-      - 'yarGen/**'
   workflow_dispatch:
     inputs:
       branch:
