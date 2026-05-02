@@ -24,8 +24,6 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
-      - name: Install yasm
-        run: choco install yasm
       - name: Install Trunk
         uses: taiki-e/install-action@v2
         with:

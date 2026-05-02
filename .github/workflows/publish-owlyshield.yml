@@ -34,7 +34,7 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
       - name: Install yasm
-        run: choco install yasm
+        run: choco install nasm yasm
       - name: Build Rust Core
         working-directory: Owlyshield/owlyshield_predict
         run: cargo build --release
