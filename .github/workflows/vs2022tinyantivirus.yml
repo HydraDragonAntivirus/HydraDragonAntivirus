@@ -36,7 +36,7 @@ jobs:
       run: git submodule update --init --recursive --remote
     
     - name: Setup MSBuild
-      uses: microsoft/setup-msbuild@v1.1
+      uses: microsoft/setup-msbuild@v3
       
     - name: Build dependencies (googletest and zlib)
       working-directory: TinyAntivirus

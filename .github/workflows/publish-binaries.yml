@@ -1,6 +1,8 @@
 name: Publish Binaries (Multi-Job)
 
 on:
+  push:
+    branches: ["**"]
   workflow_dispatch:
     inputs:
       branch:
@@ -25,7 +27,7 @@ jobs:
         run: git config --global core.longpaths true
       - uses: actions/checkout@v6
       - name: Add MSBuild to PATH
-        uses: microsoft/setup-msbuild@v2
+        uses: microsoft/setup-msbuild@v3
 
       - name: Setup WDK (Windows Driver Kit)
         shell: pwsh
@@ -72,7 +74,7 @@ jobs:
         run: git config --global core.longpaths true
       - uses: actions/checkout@v6
       - name: Setup .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v5
         with:
           dotnet-version: '8.0.x'
 
@@ -273,7 +275,7 @@ jobs:
           git add -A hydradragon/
 
       - name: Create Pull Request
-        uses: peter-evans/create-pull-request@v6
+        uses: peter-evans/create-pull-request@v8
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           commit-message: "chore(binaries): automated binary update and distribution organization"
@@ -294,7 +296,7 @@ jobs:
             - Sanctum EDR (Kernel Driver + PPL Runner + ELAM)
             
             Verified by independent status checks in the GitHub Actions pipeline.
-          branch: ${{ github.event.inputs.branch }}
+          branch: ${{ github.event.inputs.branch || 'auto-update-binaries' }}
           base: ${{ github.ref_name }}
           delete-branch: true
           labels: |
