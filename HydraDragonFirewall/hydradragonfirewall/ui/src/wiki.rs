@@ -305,26 +305,26 @@ pub fn RulesWiki() -> impl IntoView {
 .wiki-topbar-left { display: flex; align-items: center; gap: 13px; }
 
 .wiki-logo-mark {
-    width: 44px; height: 44px;
+    width: 36px; height: 36px;
     background: rgba(0,207,255,0.07);
     border: 1px solid rgba(0,207,255,0.16);
-    border-radius: 9px;
+    border-radius: 7px;
     display: flex; align-items: center; justify-content: center;
-    font-size: 22px; flex-shrink: 0;
+    font-size: 17px; flex-shrink: 0;
 }
 
 .wiki-topbar-info { display: flex; flex-direction: column; gap: 2px; }
 
 .wiki-topbar-title {
     font-family: 'Oxanium', sans-serif;
-    font-size: 17px; font-weight: 800;
+    font-size: 18px !important; font-weight: 800;
     color: #F4F6FF;
     letter-spacing: 0.08em; text-transform: uppercase;
 }
 
 .wiki-topbar-meta {
     font-family: 'IBM Plex Mono', monospace;
-    font-size: 9.5px; color: #3A4260;
+    font-size: 12.5px !important; color: #4A5270;
     letter-spacing: 0.08em;
 }
 
@@ -361,18 +361,18 @@ pub fn RulesWiki() -> impl IntoView {
 
 /* ── Index column ── */
 .wiki-index {
-    width: 172px; flex-shrink: 0;
+    width: 200px; flex-shrink: 0;
     border-right: 1px solid rgba(255,255,255,0.04);
-    padding: 18px 0; overflow-y: auto;
+    padding: 40px 0 18px !important; overflow-y: auto;
     background: rgba(3,4,9,0.7);
     display: flex; flex-direction: column; gap: 1px;
 }
 
 .wiki-index-item {
     font-family: 'IBM Plex Mono', monospace;
-    font-size: 10.5px; font-weight: 500;
-    color: #2A3555;
-    padding: 7px 16px; cursor: pointer;
+    font-size: 12px; font-weight: 500;
+    color: #3A4260;
+    padding: 8px 18px; cursor: pointer;
     transition: color 0.12s, background 0.12s;
     letter-spacing: 0.03em;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
