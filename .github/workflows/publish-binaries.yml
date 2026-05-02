@@ -46,8 +46,19 @@ jobs:
     - name: Add MSBuild to PATH
       uses: microsoft/setup-msbuild@v1.1
 
+    - name: Setup .NET SDK
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '8.0.x'
+
     - name: Set up Rust
       uses: dtolnay/rust-toolchain@stable
+      with:
+        toolchain: nightly
+        components: rust-src
+
+    - name: Install cargo-make
+      run: cargo install cargo-make
 
     # --- Build TinyAntivirus ---
     - name: Build TinyAntivirus Dependencies
@@ -59,6 +70,15 @@ jobs:
     - name: Build TinyAntivirus Solution
       run: msbuild /m /p:Configuration=Release /p:Platform=x64 TinyAntivirus/TinyAntivirus.sln
 
+    - name: Build HydraDragonAV
+      run: msbuild /m /p:Configuration=Release /p:Platform=x64 HydraDragonAV/HydraDragonAV.sln
+
+    - name: Build MBRFilter Driver
+      run: msbuild /m /p:Configuration=Release /p:Platform=x64 "MBRFilter/MBRFilter Driver.sln"
+
+    - name: Build PYAS_Protection
+      run: msbuild /m /p:Configuration=Release /p:Platform=x64 PYAS_Protection/SimplePYASProtection.sln
+
     # --- Build Owlyshield Minifilter ---
     - name: Build Owlyshield Minifilter
       run: msbuild /m /p:Configuration=Release /p:Platform=x64 Owlyshield/owlyshield_minifilter/RWatch.sln
@@ -67,21 +87,86 @@ jobs:
     - name: Build RedDbg
       run: msbuild /m /p:Configuration=Release /p:Platform=x64 Owlyshield/RedDbg/RedDbg/RedDbg.sln
 
+    # --- Build C# Projects (Publish Release x64) ---
+    - name: Publish MegaDumper
+      run: dotnet publish MegaDumper/MegaDumper/MegaDumper.csproj -c Release -r win-x64 --self-contained false
+
+    - name: Publish HydraDragonClient
+      run: dotnet publish HydraDragonFirewall/HydraDragonClient/HydraDragonClient/HydraDragonClient.csproj -c Release -r win-x64 --self-contained false
+
+    - name: Publish HydraDragonAntivirusLauncher
+      run: dotnet publish HydraDragonAntivirusLauncher/HydraDragonAntivirusLauncher/HydraDragonAntivirusLauncher.csproj -c Release -r win-x64 --self-contained false
+
+    - name: Publish HydraDragonAntivirusTaskScheduler
+      run: dotnet publish HydraDragonAntivirusTaskScheduler/HydraDragonAntivirusTaskScheduler/HydraDragonAntivirusTaskScheduler.csproj -c Release -r win-x64 --self-contained false
+
     # --- Build Owlyshield Rust (Windows) ---
     - name: Build Owlyshield Rust (Release)
       working-directory: Owlyshield/owlyshield_predict
       run: cargo build --release --features novelty,malware,hydradragon,behavior_engine,firewall,sanctum
 
+    # --- Build Sanctum (Complex Pipeline) ---
+    - name: Build and Sign Sanctum Driver
+      working-directory: Sanctum/driver
+      run: |
+        powershell .\cert.ps1
+        cargo make release
+        .\sign.bat release
+        # Extract hash for build.rs patching
+        $sysPath = "target\release\sanctum_package\sanctum.sys"
+        $certInfo = certmgr.exe -v $sysPath
+        $hashLine = $certInfo | Select-String "Content Hash \(To-Be-Signed Hash\)::" -Context 0,2
+        $hash = ($hashLine.Context.PostContext -join "" -replace " ","" -replace "\r","" -replace "\n","").Trim()
+        echo "Extracted Hash: $hash"
+        if ($hash -ne "") {
+          (Get-Content build.rs) -replace 'L"[0-9A-F]+\\0"', "L`"$hash\0`"" | Set-Content build.rs
+          cargo clean
+          cargo make release
+          .\sign.bat release
+        }
+
+    - name: Build and Sign Sanctum PPL Runner
+      working-directory: Sanctum
+      run: |
+        cargo build --release -p sanctum_ppl_runner
+        .\sign_ppl_runner.bat
+
+    - name: Build Other Sanctum Components
+      working-directory: Sanctum
+      run: |
+        cargo build --release -p elam_installer
+        cargo build --release -p injected_dll
+        cargo build --release -p um_engine
+
+    - name: Build HydraDragonFirewall (Rust)
+      working-directory: HydraDragonFirewall/hydradragonfirewall
+      run: cargo build --release
+
     # --- Prepare Binaries for PR ---
     - name: Stage Binaries
       run: |
-        # Ensure target directories exist if we want to track them explicitly, 
-        # but usually msbuild puts them in x64/Release already.
+        # msbuild outputs
         git add -f **/x64/Release/*.exe
         git add -f **/x64/Release/*.sys
         git add -f **/x64/Release/*.dll
+        
+        # dotnet publish outputs
+        git add -f **/bin/Release/**/publish/*.exe
+        git add -f **/bin/Release/**/publish/*.dll
+        git add -f **/bin/Release/**/publish/*.json
+
+        # Rust outputs
         git add -f Owlyshield/owlyshield_predict/target/release/owlyshield_ransom.dll
         git add -f Owlyshield/owlyshield_predict/target/release/owlyshield_ransom.lib
+        git add -f Sanctum/target/release/sanctum_package/sanctum.sys
+        git add -f Sanctum/target/release/sanctum_ppl_runner.exe
+        git add -f Sanctum/target/release/elam_installer.exe
+        git add -f Sanctum/target/release/um_engine.exe
+        git add -f Sanctum/target/release/injected_dll.dll
+        git add -f HydraDragonFirewall/hydradragonfirewall/target/release/*.dll
+        git add -f **/target/release/*.exe
+        git add -f **/target/release/*.dll
+        git add -f **/target/release/*.sys
 
     - name: Create Pull Request
       uses: peter-evans/create-pull-request@v6
