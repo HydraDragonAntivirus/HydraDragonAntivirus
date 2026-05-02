@@ -56,8 +56,8 @@ jobs:
       - name: Verify UI build
         shell: pwsh
         run: |
-          if (-not (Test-Path "ui/dist")) {
-            Write-Error "UI build failed: ui/dist not found!"
+          if (-not (Test-Path "dist")) {
+            Write-Error "UI build failed: dist not found!"
             exit 1
           }
 
