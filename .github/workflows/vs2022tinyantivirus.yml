@@ -38,9 +38,6 @@ jobs:
     - name: Setup MSBuild
       uses: microsoft/setup-msbuild@v1.1
       
-    - name: Setup CMake
-      uses: jwlawrence/actions-setup-cmake@v2
-      
     - name: Build dependencies (googletest and zlib)
       working-directory: TinyAntivirus
       run: |
