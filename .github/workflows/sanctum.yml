@@ -24,6 +24,8 @@ jobs:
     name: Build Sanctum Driver
     runs-on: windows-2022
     steps:
+      - name: Enable Git long paths
+        run: git config --global core.longpaths true
       - uses: actions/checkout@v4
       - name: Set up Rust (Nightly)
         uses: dtolnay/rust-toolchain@nightly
@@ -45,6 +47,8 @@ jobs:
     name: Build Sanctum Usermode Components
     runs-on: windows-2022
     steps:
+      - name: Enable Git long paths
+        run: git config --global core.longpaths true
       - uses: actions/checkout@v4
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
@@ -59,6 +63,8 @@ jobs:
     name: Sanctum Lint and Check
     runs-on: windows-2022
     steps:
+      - name: Enable Git long paths
+        run: git config --global core.longpaths true
       - uses: actions/checkout@v4
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable

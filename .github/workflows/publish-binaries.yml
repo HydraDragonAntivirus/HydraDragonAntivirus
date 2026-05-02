@@ -21,6 +21,8 @@ jobs:
   build-msbuild:
     runs-on: windows-2022
     steps:
+      - name: Enable Git long paths
+        run: git config --global core.longpaths true
       - uses: actions/checkout@v4
       - name: Add MSBuild to PATH
         uses: microsoft/setup-msbuild@v2
@@ -65,6 +67,8 @@ jobs:
   build-dotnet:
     runs-on: windows-2022
     steps:
+      - name: Enable Git long paths
+        run: git config --global core.longpaths true
       - uses: actions/checkout@v4
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
@@ -88,6 +92,8 @@ jobs:
   build-rust-core:
     runs-on: windows-2022
     steps:
+      - name: Enable Git long paths
+        run: git config --global core.longpaths true
       - uses: actions/checkout@v4
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
@@ -116,6 +122,8 @@ jobs:
   build-sanctum:
     runs-on: windows-2022
     steps:
+      - name: Enable Git long paths
+        run: git config --global core.longpaths true
       - uses: actions/checkout@v4
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@nightly
@@ -188,6 +196,8 @@ jobs:
     needs: [build-msbuild, build-dotnet, build-rust-core, build-sanctum]
     runs-on: windows-2022
     steps:
+      - name: Enable Git long paths
+        run: git config --global core.longpaths true
       - uses: actions/checkout@v4
       
       - name: Download All Artifacts
