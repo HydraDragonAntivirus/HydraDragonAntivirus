@@ -13,4 +13,4 @@ Please delete options that are not relevant, or add anything you think would be 
 - [ ] Breaking change (fix or feature that would cause existing functionality to not work as expected)
 - [ ] This change requires a documentation update
 
-**Please ONLY submit your pull request to the "development-version" branch, pull requests to the "old-version" branch are not accepted!**
+**Please ONLY submit your pull request to the "development-version" branch!**
