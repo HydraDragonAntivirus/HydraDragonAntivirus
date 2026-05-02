@@ -18,12 +18,7 @@ import capstone
 import time
 from hydra_logger import logger
 
-try:
-    import r2pipe
-
-    _R2PIPE_AVAILABLE = True
-except ImportError:
-    _R2PIPE_AVAILABLE = False
+import r2pipe
 
 # Path to the bundled radare2 binary shipped with HydraDragonAntivirus
 _R2_DIR = Path(r"C:\Program Files\HydraDragonAntivirus\hydradragon\radare2\bin")
@@ -528,9 +523,6 @@ class PEFeatureExtractor:
             "error": None,
         }
 
-        if not _R2PIPE_AVAILABLE:
-            r2_features["error"] = "r2pipe_not_installed"
-            return r2_features
 
         try:
             # Skip very large files — r2 analysis can take minutes on them

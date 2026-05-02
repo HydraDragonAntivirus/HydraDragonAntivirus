@@ -313,20 +313,12 @@ class TestAnalyzeWithRadare2:
         }.get(c, [])
         return r2
 
-    # --- availability guard ---
-
-    def test_r2pipe_not_available(self, extractor, tmp_path):
-        f = _make_temp_mz(tmp_path)
-        with patch.object(tp, "_R2PIPE_AVAILABLE", False):
-            result = extractor.analyze_with_radare2(str(f))
-        assert result["error"] == "r2pipe_not_installed"
-        assert result["r2_analysis_success"] is False
 
     # --- size guard ---
 
     def test_file_too_large_skipped(self, extractor, tmp_path):
         f = _make_temp_mz(tmp_path, size=512)
-        with patch.object(tp, "_R2PIPE_AVAILABLE", True), patch("os.path.getsize", return_value=11 * 1024 * 1024):
+        with patch("os.path.getsize", return_value=11 * 1024 * 1024):
             result = extractor.analyze_with_radare2(str(f))
         assert result["error"] == "file_too_large"
         assert result["r2_analysis_success"] is False
@@ -334,7 +326,7 @@ class TestAnalyzeWithRadare2:
     def test_file_at_exactly_10mb_not_skipped(self, extractor, tmp_path):
         f = _make_temp_mz(tmp_path)
         r2 = self._make_r2()
-        with patch.object(tp, "_R2PIPE_AVAILABLE", True), patch("os.path.getsize", return_value=10 * 1024 * 1024), patch.object(tp, "r2pipe") as mock_r2pipe:
+        with patch("os.path.getsize", return_value=10 * 1024 * 1024), patch.object(tp, "r2pipe") as mock_r2pipe:
             mock_r2pipe.open.return_value = r2
             result = extractor.analyze_with_radare2(str(f))
         # Should proceed (10 MB is not > 10 MB)
@@ -346,7 +338,7 @@ class TestAnalyzeWithRadare2:
     def test_success_all_fields_populated(self, extractor, tmp_path):
         f = _make_temp_mz(tmp_path)
         r2 = self._make_r2()
-        with patch.object(tp, "_R2PIPE_AVAILABLE", True), patch("os.path.getsize", return_value=1024), patch.object(tp, "r2pipe") as mock_r2pipe:
+        with patch("os.path.getsize", return_value=1024), patch.object(tp, "r2pipe") as mock_r2pipe:
             mock_r2pipe.open.return_value = r2
             result = extractor.analyze_with_radare2(str(f))
 
@@ -363,7 +355,7 @@ class TestAnalyzeWithRadare2:
         f = _make_temp_mz(tmp_path)
         r2 = self._make_r2()
         r2.cmd.side_effect = lambda c: "" if c == "aflc" else {"aa": "", "axl": ""}.get(c, "")
-        with patch.object(tp, "_R2PIPE_AVAILABLE", True), patch("os.path.getsize", return_value=1024), patch.object(tp, "r2pipe") as mock_r2pipe:
+        with patch("os.path.getsize", return_value=1024), patch.object(tp, "r2pipe") as mock_r2pipe:
             mock_r2pipe.open.return_value = r2
             result = extractor.analyze_with_radare2(str(f))
         assert result["function_count"] == 0
@@ -372,7 +364,7 @@ class TestAnalyzeWithRadare2:
         f = _make_temp_mz(tmp_path)
         r2 = self._make_r2()
         r2.cmdj.side_effect = lambda c: [] if c == "aflj" else [{"string": "s"}] if c == "izj" else []
-        with patch.object(tp, "_R2PIPE_AVAILABLE", True), patch("os.path.getsize", return_value=1024), patch.object(tp, "r2pipe") as mock_r2pipe:
+        with patch("os.path.getsize", return_value=1024), patch.object(tp, "r2pipe") as mock_r2pipe:
             mock_r2pipe.open.return_value = r2
             result = extractor.analyze_with_radare2(str(f))
         assert result["basic_block_count"] == 0
@@ -383,14 +375,14 @@ class TestAnalyzeWithRadare2:
         f = _make_temp_mz(tmp_path)
         r2 = self._make_r2()
         r2.cmd.side_effect = lambda c: {"aa": "", "aflc": "1", "axl": ""}.get(c, "")
-        with patch.object(tp, "_R2PIPE_AVAILABLE", True), patch("os.path.getsize", return_value=1024), patch.object(tp, "r2pipe") as mock_r2pipe:
+        with patch("os.path.getsize", return_value=1024), patch.object(tp, "r2pipe") as mock_r2pipe:
             mock_r2pipe.open.return_value = r2
             result = extractor.analyze_with_radare2(str(f))
         assert result["xref_count"] == 0
 
     def test_r2pipe_open_exception_caught(self, extractor, tmp_path):
         f = _make_temp_mz(tmp_path)
-        with patch.object(tp, "_R2PIPE_AVAILABLE", True), patch("os.path.getsize", return_value=1024), patch.object(tp, "r2pipe") as mock_r2pipe:
+        with patch("os.path.getsize", return_value=1024), patch.object(tp, "r2pipe") as mock_r2pipe:
             mock_r2pipe.open.side_effect = OSError("radare2 not found")
             result = extractor.analyze_with_radare2(str(f))
         assert result["r2_analysis_success"] is False
@@ -400,7 +392,7 @@ class TestAnalyzeWithRadare2:
         f = _make_temp_mz(tmp_path)
         r2 = MagicMock()
         r2.cmd.side_effect = RuntimeError("pipe broke")
-        with patch.object(tp, "_R2PIPE_AVAILABLE", True), patch("os.path.getsize", return_value=1024), patch.object(tp, "r2pipe") as mock_r2pipe:
+        with patch("os.path.getsize", return_value=1024), patch.object(tp, "r2pipe") as mock_r2pipe:
             mock_r2pipe.open.return_value = r2
             result = extractor.analyze_with_radare2(str(f))
         assert result["r2_analysis_success"] is False
@@ -410,7 +402,7 @@ class TestAnalyzeWithRadare2:
         f = _make_temp_mz(tmp_path)
         r2 = self._make_r2()
         r2.quit.side_effect = Exception("quit failed")
-        with patch.object(tp, "_R2PIPE_AVAILABLE", True), patch("os.path.getsize", return_value=1024), patch.object(tp, "r2pipe") as mock_r2pipe:
+        with patch("os.path.getsize", return_value=1024), patch.object(tp, "r2pipe") as mock_r2pipe:
             mock_r2pipe.open.return_value = r2
             result = extractor.analyze_with_radare2(str(f))
         # Should still succeed despite quit() raising
@@ -427,7 +419,7 @@ class TestAnalyzeWithRadare2:
             captured_path_at_open.append(os.environ.get("PATH", ""))
             return r2
 
-        with patch.object(tp, "_R2PIPE_AVAILABLE", True), patch("os.path.getsize", return_value=1024), patch.object(tp, "r2pipe") as mock_r2pipe:
+        with patch("os.path.getsize", return_value=1024), patch.object(tp, "r2pipe") as mock_r2pipe:
             mock_r2pipe.open.side_effect = fake_open
             extractor.analyze_with_radare2(str(f))
 
@@ -441,7 +433,7 @@ class TestAnalyzeWithRadare2:
         r2 = self._make_r2()
         original_path = os.environ.get("PATH", "")
 
-        with patch.object(tp, "_R2PIPE_AVAILABLE", True), patch("os.path.getsize", return_value=1024), patch.object(tp, "r2pipe") as mock_r2pipe:
+        with patch("os.path.getsize", return_value=1024), patch.object(tp, "r2pipe") as mock_r2pipe:
             mock_r2pipe.open.return_value = r2
             extractor.analyze_with_radare2(str(f))
 
@@ -451,7 +443,7 @@ class TestAnalyzeWithRadare2:
         f = _make_temp_mz(tmp_path)
         original_path = os.environ.get("PATH", "")
 
-        with patch.object(tp, "_R2PIPE_AVAILABLE", True), patch("os.path.getsize", return_value=1024), patch.object(tp, "r2pipe") as mock_r2pipe:
+        with patch("os.path.getsize", return_value=1024), patch.object(tp, "r2pipe") as mock_r2pipe:
             mock_r2pipe.open.side_effect = OSError("no r2")
             extractor.analyze_with_radare2(str(f))
 
@@ -463,7 +455,7 @@ class TestAnalyzeWithRadare2:
         r2.cmd.side_effect = RuntimeError("dead pipe")
         original_path = os.environ.get("PATH", "")
 
-        with patch.object(tp, "_R2PIPE_AVAILABLE", True), patch("os.path.getsize", return_value=1024), patch.object(tp, "r2pipe") as mock_r2pipe:
+        with patch("os.path.getsize", return_value=1024), patch.object(tp, "r2pipe") as mock_r2pipe:
             mock_r2pipe.open.return_value = r2
             extractor.analyze_with_radare2(str(f))
 
@@ -475,7 +467,7 @@ class TestAnalyzeWithRadare2:
         r2.quit.side_effect = Exception("quit error")
         original_path = os.environ.get("PATH", "")
 
-        with patch.object(tp, "_R2PIPE_AVAILABLE", True), patch("os.path.getsize", return_value=1024), patch.object(tp, "r2pipe") as mock_r2pipe:
+        with patch("os.path.getsize", return_value=1024), patch.object(tp, "r2pipe") as mock_r2pipe:
             mock_r2pipe.open.return_value = r2
             extractor.analyze_with_radare2(str(f))
 

@@ -507,9 +507,6 @@ class PEFeatureExtractor:
             "error": None,
         }
 
-        if not _R2PIPE_AVAILABLE:
-            r2_features["error"] = "r2pipe_not_installed"
-            return r2_features
 
         try:
             if os.path.getsize(file_path) > 50 * 1024 * 1024:  # 10 MB cap
