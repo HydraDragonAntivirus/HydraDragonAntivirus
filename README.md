@@ -136,7 +136,8 @@ https://www.virustotal.com/gui/file/1ef6c1a4dfdc39b63bfe650ca81ab89510de6c0d3d7c
 - You must uninstall the software manually (auto-uninstaller is not functional).
 - Temporary ClamAV update errors during setup can be safely ignored.
 - If driver installation fails, disable Secure Boot and try again.
-- It is recommended to wait until the antivirus interface fully loads, even if some protections appear active.
+- It is recommended to wait until the antivirus interface fully loads, even if some protections appear active
+- Since ELAM cannot auto-start in test-signing mode, we use a delayed start for the antivirus to prevent the driver from being executed via abuse.
 - To ensure the antivirus is fully functional, Memory Integrity must be disabled. Reference:
 https://github.com/adrianyy/kernelhook/issues/1
 

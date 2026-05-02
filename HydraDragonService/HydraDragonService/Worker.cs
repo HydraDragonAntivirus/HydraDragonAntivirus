@@ -11,12 +11,12 @@ namespace HydraDragonService
         {
             _logger.LogInformation("TaskScheduler Worker starting at: {time}", DateTimeOffset.Now);
 
-            // Check for admin privileges and relaunch if needed
+            // Check for admin privileges and stop if missing.
+            // In a Windows service context, self-elevation (runas/UAC prompt) is not supported.
             if (!IsRunningAsAdministrator())
             {
-                _logger.LogWarning("Application is not running with administrator privileges. Attempting to relaunch...");
-                RestartAsAdministrator();
-                return; // Exit current instance
+                _logger.LogError("Application is not running with administrator privileges. This service must be installed/configured to run with required privileges. Exiting.");
+                return; // Exit current instance gracefully
             }
 
             _logger.LogInformation("Running with administrator privileges.");
@@ -122,6 +122,9 @@ namespace HydraDragonService
                 "HydraDragonLauncher.exe"
             );
 
+            // Delay used to preserve sequential startup order between launched executables.
+            const int SequentialStartupDelayMs = 2000;
+
             // helper for launching exe
             async Task RunExeAsync(string exePath, string args = "", bool fireAndForget = false)
             {
@@ -151,7 +154,7 @@ namespace HydraDragonService
 
                         if (!fireAndForget)
                         {
-                            await Task.Delay(2000, ct); // small delay for sequential order
+                            await Task.Delay(SequentialStartupDelayMs, ct); // small delay for sequential order
                         }
                     }
                     else
@@ -206,74 +209,7 @@ namespace HydraDragonService
             // 5) app.exe
             await RunExeAsync(appPath);
 
-            // 6) HydraDragonFirewall (via Task Scheduler for highest privileges)
-            await StartFirewallAsync(ct);
-
             _logger.LogInformation("Sanctum sequence completed.");
-        }
-
-        private async Task StartFirewallAsync(CancellationToken ct)
-        {
-            string firewallExe = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "HydraDragonAntivirus", "hydradragon", "HydraDragonFirewall", "HydraDragonFirewall.exe");
-
-            if (!File.Exists(firewallExe))
-            {
-                _logger.LogWarning("Firewall executable not found at: {path}", firewallExe);
-                return;
-            }
-
-            if (IsFirewallRunning())
-            {
-                _logger.LogInformation("Firewall already running.");
-                return;
-            }
-
-            try
-            {
-                string taskName = "HydraDragonFirewall";
-                
-                _logger.LogInformation("Registering and starting firewall task: {exe}", firewallExe);
-
-                // Create task
-                var createPsi = new ProcessStartInfo
-                {
-                    FileName = "schtasks",
-                    Arguments = $"/create /tn \"{taskName}\" /tr \"\\\"{firewallExe}\\\"\" /sc ONCE /st 00:00 /rl HIGHEST /f",
-                    UseShellExecute = false,
-                    CreateNoWindow = true
-                };
-                
-                using (var p = Process.Start(createPsi))
-                {
-                    if (p != null) await p.WaitForExitAsync(ct);
-                }
-
-                // Run task
-                var runPsi = new ProcessStartInfo
-                {
-                    FileName = "schtasks",
-                    Arguments = $"/run /tn \"{taskName}\"",
-                    UseShellExecute = false,
-                    CreateNoWindow = true
-                };
-
-                using (var p = Process.Start(runPsi))
-                {
-                    if (p != null)
-                    {
-                         _logger.LogInformation("Triggered HydraDragon Firewall task.");
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to manage HydraDragon Firewall task.");
-            }
-        }
-
-        private bool IsFirewallRunning()
-        {
-            return Process.GetProcessesByName("HydraDragonFirewall").Length > 0;
         }
     }
 }
