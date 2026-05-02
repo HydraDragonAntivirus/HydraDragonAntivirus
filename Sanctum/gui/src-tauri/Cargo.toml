@@ -17,7 +17,7 @@ serde = { version = "1.0.215", features = ["derive"] }
 tauri = { version = "2.1", features = [] }
 shared_no_std = { path = "../../shared_no_std" }
 shared_std = { path = "../../shared_std" }
-tokio = {version="1.41.1", features = ["full"] }
+tokio = {version="1.46.1", features = ["full"] }
 windows = {version = "0.60.0", features = [
     "Win32_System_WindowsProgramming",
 ] }
