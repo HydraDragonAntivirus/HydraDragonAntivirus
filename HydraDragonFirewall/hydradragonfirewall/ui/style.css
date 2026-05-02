@@ -518,20 +518,49 @@ main {
 
 .traffic-stat .label {
     font-family: 'IBM Plex Mono', monospace;
-    font-size: 9px;
+    font-size: 10px;
     font-weight: 500;
+    letter-spacing: 0.1em;
     color: var(--t4);
-    letter-spacing: 0.14em;
     text-transform: uppercase;
 }
 
 .traffic-stat .value {
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: 18px;
-    font-weight: 600;
-    color: var(--t1);
-    letter-spacing: -0.5px;
+    font-family: 'Oxanium', sans-serif;
+    font-size: 24px;
+    font-weight: 800;
+    text-shadow: 0 0 16px var(--cyan-glow), 0 0 32px var(--cyan-dim);
 }
+
+.stat-item-compact h4 {
+    margin: 0 0 8px 0;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.12em;
+    color: var(--t3);
+    text-transform: uppercase;
+}
+
+.stat-value {
+    font-family: 'Oxanium', sans-serif;
+    font-size: 32px;
+    font-weight: 800;
+    line-height: 1;
+    color: #fff;
+    text-shadow: 0 0 20px rgba(255, 255, 255, 0.4), 0 0 40px rgba(255, 255, 255, 0.2);
+}
+
+.stat-value[style*="accent-red"] {
+    color: #fff !important;
+    text-shadow: 0 0 20px var(--red-glow), 0 0 40px var(--red), 0 0 80px rgba(255, 38, 38, 0.4);
+}
+
+.stat-value[style*="accent-green"] {
+    color: #fff !important;
+    text-shadow: 0 0 20px var(--acid-glow), 0 0 40px var(--acid), 0 0 80px rgba(12, 245, 132, 0.4);
+}
+
 
 /* ══════════════════════════════════════════════════════════════
    SECTION HEADER

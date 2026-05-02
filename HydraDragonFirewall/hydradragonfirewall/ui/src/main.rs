@@ -1787,10 +1787,14 @@ pub fn App() -> impl IntoView {
                                                 <svg width="100%" height="150" viewBox="0 0 600 150" class="traffic-svg">
                                                     <defs>
                                                         <linearGradient id="grad1" x1="0%" y1="0%" x2="0%" y2="100%">
-                                                            <stop offset="0%" style="stop-color:var(--accent-blue);stop-opacity:0.5" />
+                                                            <stop offset="0%" style="stop-color:var(--accent-blue);stop-opacity:0.6" />
                                                             <stop offset="100%" style="stop-color:var(--accent-blue);stop-opacity:0" />
                                                         </linearGradient>
+                                                        <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse">
+                                                            <path d="M 20 0 L 0 0 0 20" fill="none" stroke="rgba(0, 207, 255, 0.1)" stroke-width="1"/>
+                                                        </pattern>
                                                     </defs>
+                                                    <rect width="100%" height="100%" fill="url(#grid)" />
                                                     <path
                                                         d=move || activity_fill_path.get()
                                                         fill="url(#grad1)"
@@ -1800,9 +1804,10 @@ pub fn App() -> impl IntoView {
                                                         d=move || activity_line_path.get()
                                                         fill="none"
                                                         stroke="var(--accent-blue)"
-                                                        stroke-width="2.5"
+                                                        stroke-width="3"
                                                         stroke-linejoin="round"
                                                         stroke-linecap="round"
+                                                        style="filter: drop-shadow(0 0 8px var(--accent-blue))"
                                                     />
                                                 </svg>
                                             <div class="graph-overlay" style="position: absolute; top: 20px; right: 20px; text-align: right">
