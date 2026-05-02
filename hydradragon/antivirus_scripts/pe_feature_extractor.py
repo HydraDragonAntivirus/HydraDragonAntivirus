@@ -553,8 +553,7 @@ class PEFeatureExtractor:
                     r2.quit()
                 except Exception:
                     pass
-                finally:
-                    os.environ["PATH"] = _saved_path
+                os.environ["PATH"] = _saved_path
 
         except Exception as e:
             logger.error(f"[r2] Analysis failed for {file_path}: {e}")
