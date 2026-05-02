@@ -97,26 +97,6 @@ jobs:
           path: HydraDragonFirewall/hydradragonfirewall/target/release/hydradragonfirewall-windows-x64.zip
           if-no-files-found: error
 
-      - name: Publish pre-release test build
-        if: github.ref == 'refs/heads/main'
-        uses: ncipollo/release-action@v1
-        with:
-          tag: firewall-test
-          name: Firewall Test Build
-          prerelease: true
-          allowUpdates: true
-          removeArtifacts: true
-          artifacts: HydraDragonFirewall/hydradragonfirewall/target/release/hydradragonfirewall-windows-x64.zip
-          body: "Automated pre-release test build from `${{ github.sha }}`."
-
-      - name: Publish release
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
-        with:
-          generate_release_notes: true
-          files: |
-            HydraDragonFirewall/hydradragonfirewall/target/release/hydradragonfirewall-windows-x64.zip
-
   update-lockfiles:
     if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.update_lockfiles == 'true' }}
     runs-on: windows-latest

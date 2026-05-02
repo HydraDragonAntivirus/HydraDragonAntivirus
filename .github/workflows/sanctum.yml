@@ -1,0 +1,73 @@
+name: Sanctum EDR CI
+
+on:
+  push:
+    branches: ["**"]
+    paths:
+      - 'Sanctum/**'
+      - '.github/workflows/sanctum.yml'
+  pull_request:
+    branches: ["**"]
+    paths:
+      - 'Sanctum/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-sanctum-driver:
+    name: Build Sanctum Driver
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Rust (Nightly)
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Install Cargo Make
+        run: cargo install cargo-make
+
+      - name: Build Driver (Debug)
+        working-directory: Sanctum
+        run: cargo make build-driver
+
+      - name: Build Driver (Release)
+        working-directory: Sanctum
+        run: cargo make build-driver-release
+
+  build-sanctum-um:
+    name: Build Sanctum Usermode Components
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Build Usermode Components (Release)
+        working-directory: Sanctum
+        run: cargo make release
+
+  sanctum-lint:
+    name: Sanctum Lint and Check
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Cargo Check (Workspace)
+        working-directory: Sanctum
+        run: cargo check
+
+      - name: Cargo Clippy (Workspace)
+        working-directory: Sanctum
+        run: cargo clippy -- -D warnings
