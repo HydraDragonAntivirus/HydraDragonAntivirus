@@ -16,6 +16,9 @@ on:
 env:
   CARGO_TERM_COLOR: always
 
+permissions:
+  contents: read
+
 jobs:
   build:
     if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.update_lockfile != 'true' }}
