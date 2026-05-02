@@ -1,0 +1,101 @@
+name: Publish Binaries (Release Mode)
+
+on:
+  push:
+    branches: [ "main", "master" ]
+    paths-ignore:
+      - '**/Release/**'
+      - '**/Debug/**'
+      - '**/x64/**'
+      - '**/x86/**'
+      - '**/target/**'
+      - '*.md'
+      - '.github/workflows/**'
+  workflow_dispatch:
+
+env:
+  WDK_URL: https://go.microsoft.com/fwlink/?linkid=2335869
+
+jobs:
+  build-and-pr:
+    name: Build All and Create PR
+    runs-on: windows-2022
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+    - name: Enable long paths
+      run: git config --global core.longpaths true
+
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        submodules: recursive
+
+    - name: Checkout submodules recursively
+      run: git submodule update --init --recursive --remote
+    
+    - name: Setup WDK version 25H2
+      run: |
+        $wdkSetupPath = "$Env:TEMP\wdksetup.exe"
+        (New-Object Net.WebClient).DownloadFile('${{env.WDK_URL}}', $wdkSetupPath)
+        Start-Process -FilePath $wdkSetupPath -ArgumentList "/quiet" -NoNewWindow -Wait     
+
+    - name: Add MSBuild to PATH
+      uses: microsoft/setup-msbuild@v1.1
+
+    - name: Set up Rust
+      uses: dtolnay/rust-toolchain@stable
+
+    # --- Build TinyAntivirus ---
+    - name: Build TinyAntivirus Dependencies
+      working-directory: TinyAntivirus
+      run: |
+        .\ci\windows\build_appveyor.bat x64 Release
+      shell: cmd
+
+    - name: Build TinyAntivirus Solution
+      run: msbuild /m /p:Configuration=Release /p:Platform=x64 TinyAntivirus/TinyAntivirus.sln
+
+    # --- Build Owlyshield Minifilter ---
+    - name: Build Owlyshield Minifilter
+      run: msbuild /m /p:Configuration=Release /p:Platform=x64 Owlyshield/owlyshield_minifilter/RWatch.sln
+
+    # --- Build RedDbg ---
+    - name: Build RedDbg
+      run: msbuild /m /p:Configuration=Release /p:Platform=x64 Owlyshield/RedDbg/RedDbg/RedDbg.sln
+
+    # --- Build Owlyshield Rust (Windows) ---
+    - name: Build Owlyshield Rust (Release)
+      working-directory: Owlyshield/owlyshield_predict
+      run: cargo build --release --features novelty,malware,hydradragon,behavior_engine,firewall,sanctum
+
+    # --- Prepare Binaries for PR ---
+    - name: Stage Binaries
+      run: |
+        # Ensure target directories exist if we want to track them explicitly, 
+        # but usually msbuild puts them in x64/Release already.
+        git add -f **/x64/Release/*.exe
+        git add -f **/x64/Release/*.sys
+        git add -f **/x64/Release/*.dll
+        git add -f Owlyshield/owlyshield_predict/target/release/owlyshield_ransom.dll
+        git add -f Owlyshield/owlyshield_predict/target/release/owlyshield_ransom.lib
+
+    - name: Create Pull Request
+      uses: peter-evans/create-pull-request@v6
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        commit-message: "chore: update release binaries"
+        committer: "github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>"
+        author: "github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>"
+        branch: "update-binaries"
+        delete-branch: true
+        title: "Automated Binary Update (Release Mode)"
+        body: |
+          This is an automated PR to update the compiled binaries in Release mode.
+          Triggered by recent changes to the source code.
+        labels: |
+          automated pr
+          binaries
