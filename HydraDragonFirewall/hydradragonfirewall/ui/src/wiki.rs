@@ -289,7 +289,8 @@ pub fn RulesWiki() -> impl IntoView {
     flex-direction: column !important;
     overflow: hidden !important;
     padding: 0 !important;
-    flex: 1;
+    flex: 1.5;
+    min-height: 0;
 }
 
 .wiki-topbar {
@@ -305,19 +306,19 @@ pub fn RulesWiki() -> impl IntoView {
 .wiki-topbar-left { display: flex; align-items: center; gap: 13px; }
 
 .wiki-logo-mark {
-    width: 36px; height: 36px;
+    width: 44px; height: 44px;
     background: rgba(0,207,255,0.07);
     border: 1px solid rgba(0,207,255,0.16);
-    border-radius: 7px;
+    border-radius: 9px;
     display: flex; align-items: center; justify-content: center;
-    font-size: 17px; flex-shrink: 0;
+    font-size: 22px; flex-shrink: 0;
 }
 
 .wiki-topbar-info { display: flex; flex-direction: column; gap: 2px; }
 
 .wiki-topbar-title {
     font-family: 'Oxanium', sans-serif;
-    font-size: 18px !important; font-weight: 800;
+    font-size: 17px !important; font-weight: 800;
     color: #F4F6FF;
     letter-spacing: 0.08em; text-transform: uppercase;
 }
