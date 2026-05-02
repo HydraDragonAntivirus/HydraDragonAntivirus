@@ -8,18 +8,9 @@ use tracing::Level;
 use tracing_subscriber::FmtSubscriber;
 
 use crate::Connectors;
-use crate::ExepathLive;
-use crate::IOMessage;
-use crate::IOMsgPostProcessorMqtt;
-use crate::IOMsgPostProcessorRPC;
-use crate::IOMsgPostProcessorWriter;
-use crate::LDriverMsg;
 use crate::Logging;
-use crate::ProcessRecordHandlerLive;
-use crate::ProcessRecordHandlerNovelty;
-use crate::Worker;
-use log::debug;
 use crate::config;
+use log::debug;
 use crate::config::Param;
 use crate::driver_com::Buf;
 use crate::threathandling::LinuxThreatHandler;
@@ -181,7 +172,7 @@ pub async fn run() -> Result<(), anyhow::Error> {
         };
         let ret = unsafe { libc::setrlimit(libc::RLIMIT_MEMLOCK, &rlim) };
         if ret != 0 {
-            debug!("remove limit on locked memory failed, ret is: {}", ret);
+            log::debug!("remove limit on locked memory failed, ret is: {}", ret);
         }
 
         // This will include your eBPF object file as raw bytes at compile-time and load it at

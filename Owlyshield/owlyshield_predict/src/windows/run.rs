@@ -500,6 +500,7 @@ pub fn run() {
                     if reply_irp.num_ops > 0 {
                         let drivermsgs = CDriverMsgs::new(&reply_irp);
                         for drivermsg in drivermsgs {
+                            #[allow(unused_mut)]
                             let mut iomsg = IOMessage::from_driver_msg(&drivermsg);
 
                             #[cfg(all(target_os = "windows", feature = "behavior_engine"))]

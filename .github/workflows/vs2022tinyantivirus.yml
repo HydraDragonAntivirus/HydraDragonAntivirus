@@ -1,0 +1,56 @@
+name: vs2022tinyantivirus-ci
+
+on:
+  push:
+    branches: ["**"]
+    tags: ["v*"]
+  pull_request:
+    branches: ["**"]
+  workflow_dispatch:
+
+env:
+  # Path to the solution file relative to the root of the project.
+  SOLUTION_FILE_PATH: "TinyAntivirus/TinyAntivirus.sln"
+
+  BUILD_BIN_DIR: "./TinyAntivirus/x64/"
+
+jobs:
+  win-build:
+    runs-on: windows-2022
+    strategy:
+      matrix:
+        BUILD_CONFIGURATION: [Release, Debug]
+        PLATFORM: [x64, x86]
+
+    steps:
+    - name: Enable long paths
+      run: git config --global core.longpaths true
+
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        submodules: recursive
+
+    - name: Checkout submodules recursively
+      run: git submodule update --init --recursive --remote
+    
+    - name: Setup MSBuild
+      uses: microsoft/setup-msbuild@v1.1
+      
+    - name: Setup CMake
+      uses: jwlawrence/actions-setup-cmake@v2
+      
+    - name: Build dependencies (googletest and zlib)
+      working-directory: TinyAntivirus
+      run: |
+        .\ci\windows\build_appveyor.bat ${{matrix.PLATFORM}} ${{matrix.BUILD_CONFIGURATION}}
+      shell: cmd
+
+    - name: Upload build directory 
+      uses: actions/upload-artifact@v4.4.0
+      with:
+        name: tinyantivirus_build_files_${{matrix.PLATFORM}}_${{matrix.BUILD_CONFIGURATION}}
+        path: |
+          ./TinyAntivirus/x64/${{matrix.BUILD_CONFIGURATION}}/
+          ./TinyAntivirus/${{matrix.BUILD_CONFIGURATION}}/

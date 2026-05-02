@@ -1,5 +1,5 @@
 pub mod predictor {
-    use crate::config::Config;
+    // use crate::config::Config;
     use crate::predictions::prediction::input_tensors::Timestep;
     use crate::predictions::prediction::input_tensors::VecvecCappedF32;
     use crate::predictions::prediction::{PREDMTRXCOLS, PREDMTRXROWS};
@@ -705,6 +705,7 @@ mod process_records {
 pub mod worker_instance {
     use crate::ExepathLive;
     use crate::IOMessage;
+    #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
     use crate::actions_on_kill::{ActionsOnKill, ThreatInfo, restart_cleanup_reason};
     #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
     use crate::behavioral::app_settings::AppSettings;
@@ -714,6 +715,7 @@ pub mod worker_instance {
     use crate::csvwriter::CsvWriter;
     use crate::jsonrpc::{Jsonrpc, RPCMessage};
     use crate::logging::Logging;
+    #[cfg(feature = "realtime_learning")]
     use crate::predictions::prediction::input_tensors::{Timestep, VecvecCappedF32};
     use crate::process::ProcessRecord;
     use crate::process::ProcessState;
@@ -732,6 +734,7 @@ pub mod worker_instance {
     use chrono::{DateTime, Utc};
     use log::error;
     use rumqtt::{MqttClient, MqttOptions, QoS};
+    #[cfg(feature = "realtime_learning")]
     use std::collections::{HashMap, HashSet};
     #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
     use std::fs::{self, File};
@@ -1764,8 +1767,6 @@ pub mod worker_instance {
                 threat_handler: None,
                 #[cfg(all(target_os = "windows", feature = "hydradragon"))]
                 av_integration: None,
-                #[cfg(all(target_os = "windows", not(feature = "hydradragon")))]
-                av_integration: None,
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
                 app_settings: app_settings.clone(),
                 iomsg_postprocessors: vec![],
@@ -1773,8 +1774,6 @@ pub mod worker_instance {
                 api_trackers: std::collections::HashMap::new(),
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
                 behavior_engine: Self::build_behavior_engine(config),
-                #[cfg(all(target_os = "windows", not(feature = "behavior_engine")))]
-                behavior_engine: BehaviorEngine::dummy(),
                 #[cfg(feature = "realtime_learning")]
                 learning_engine: {
                     #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
@@ -2187,7 +2186,7 @@ pub mod worker_instance {
 
         /// Scan all tracked processes for behavioral detections
         #[allow(dead_code)]
-        pub fn scan_processes(&mut self, config: &Config, threat_handler: Box<dyn ThreatHandler>) {
+        pub fn scan_processes(&mut self, _config: &Config, _threat_handler: Box<dyn ThreatHandler>) {
             #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
             {
                 // Import necessary Win32 modules for the Kernel Check
@@ -2568,10 +2567,12 @@ pub mod worker_instance {
         }
 
         /// Process kernel I/O event - this is the main event handler
-        pub fn process_io(&mut self, iomsg: &mut IOMessage, config: &crate::config::Config) {
+        pub fn process_io(&mut self, iomsg: &mut IOMessage, _config: &crate::config::Config) {
             let irp_op = iomsg.irp_op;
             let is_process_create = irp_op == IrpMajorOp::IrpProcessCreate as u8;
-            let _is_process_terminate = irp_op == IrpMajorOp::IrpProcessTerminate as u8;
+            let is_process_terminate = irp_op == IrpMajorOp::IrpProcessTerminate as u8;
+            let _ = is_process_create;
+            let _ = is_process_terminate;
 
             self.normalize_tracking_gid(iomsg);
 
@@ -2612,8 +2613,10 @@ pub mod worker_instance {
             }
 
             let irp_op = IrpMajorOp::from_byte(iomsg.irp_op);
-            let _is_process_create = irp_op == IrpMajorOp::IrpProcessCreate;
+            let is_process_create = irp_op == IrpMajorOp::IrpProcessCreate;
             let is_process_terminate = irp_op == IrpMajorOp::IrpProcessTerminate;
+            let _ = is_process_create;
+            let _ = is_process_terminate;
 
             #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
             if Self::is_unattributed_rootkit_event(iomsg, &irp_op) {

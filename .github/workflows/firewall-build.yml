@@ -40,6 +40,23 @@ jobs:
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
 
+      - name: Install Trunk
+        shell: pwsh
+        run: |
+          $trunkVersion = "v0.21.1"
+          $url = "https://github.com/trunk-rs/trunk/releases/download/$trunkVersion/trunk-x86_64-pc-windows-msvc.zip"
+          Invoke-WebRequest -Uri $url -OutFile trunk.zip
+          Expand-Archive -Path trunk.zip -DestinationPath .
+          Move-Item trunk.exe HydraDragonFirewall/hydradragonfirewall/trunk.exe
+          echo "$((Get-Item HydraDragonFirewall/hydradragonfirewall).FullName)" >> $env:GITHUB_PATH
+
+      - name: Add WASM target
+        run: rustup target add wasm32-unknown-unknown
+
+      - name: Build UI (Leptos)
+        working-directory: HydraDragonFirewall/hydradragonfirewall/ui
+        run: ../trunk.exe build --release
+
       - name: Set up WinDivert
         shell: pwsh
         run: |

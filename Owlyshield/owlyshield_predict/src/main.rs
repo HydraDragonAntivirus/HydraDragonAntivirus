@@ -26,7 +26,6 @@ use windows_service::service_control_handler::ServiceControlHandlerResult;
 #[cfg(all(target_os = "windows", feature = "service"))]
 use windows_service::{define_windows_service, service_control_handler, service_dispatcher};
 
-use crate::connectors::register::Connectors;
 #[cfg(target_os = "windows")]
 use crate::driver_com::Driver;
 #[cfg(all(target_os = "windows", feature = "hydradragon"))]
@@ -96,16 +95,9 @@ pub fn init_hydra_dragon(
 
 #[cfg(target_os = "windows")]
 use crate::driver_com::CDriverMsgs;
-#[cfg(target_os = "linux")]
-use crate::driver_com::LDriverMsg;
 use crate::logging::Logging;
 use crate::shared_def::IOMessage;
-use crate::worker::process_record_handling::{
-    ExepathLive, ProcessRecordHandlerLive, ProcessRecordHandlerNovelty,
-};
-use crate::worker::worker_instance::{
-    IOMsgPostProcessorMqtt, IOMsgPostProcessorRPC, IOMsgPostProcessorWriter, Worker,
-};
+use crate::worker::process_record_handling::ExepathLive;
 
 mod actions_on_kill;
 mod config;

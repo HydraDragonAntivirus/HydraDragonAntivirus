@@ -6,9 +6,9 @@ use std::path::PathBuf;
 use std::time::SystemTime;
 
 #[cfg(target_os = "windows")]
-const FILE_ID_LEN: usize = 16;
+pub const FILE_ID_LEN: usize = 16;
 #[cfg(target_os = "linux")]
-const FILE_ID_LEN: usize = 32;
+pub const FILE_ID_LEN: usize = 32;
 
 /// See [`IOMessage`] struct. Used with [`crate::shared_def::IrpMajorOp::IrpSetInfo`]
 #[allow(non_local_definitions)]

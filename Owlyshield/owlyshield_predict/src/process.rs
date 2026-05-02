@@ -888,12 +888,19 @@ mod tests {
     use std::path::PathBuf;
     use std::time::SystemTime;
 
+    fn fid(bytes: [u8; 16]) -> FileId {
+        let mut full = [0u8; crate::shared_def::FILE_ID_LEN];
+        let len = std::cmp::min(16, crate::shared_def::FILE_ID_LEN);
+        full[..len].copy_from_slice(&bytes[..len]);
+        FileId::from(full)
+    }
+
     fn get_iomsgs() -> Vec<IOMessage> {
         let time = SystemTime::now();
         Vec::from([
             IOMessage {
                 extension : String::new(),
-                file_id_id : FileId::from([231, 14, 3, 0, 0, 0, 15, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
+                file_id_id : fid([231, 14, 3, 0, 0, 0, 15, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
                 mem_sized_used : 0,
                 entropy : 0.0,
                 pid : 30848,
@@ -910,11 +917,12 @@ mod tests {
                 runtime_features: RuntimeFeatures::new(),
                 file_size : 10899,
                 time,
+                ..IOMessage::default()
             },
 
             IOMessage {
                 extension : String::new(),
-                file_id_id : FileId::from([184, 45, 0, 0, 0, 0, 114, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
+                file_id_id : fid([184, 45, 0, 0, 0, 0, 114, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
                 mem_sized_used : 0,
                 entropy : 0.0,
                 pid : 30108,
@@ -931,11 +939,12 @@ mod tests {
                 runtime_features: RuntimeFeatures::new(),
                 file_size : -1,
                 time,
+                ..IOMessage::default()
             },
 
             IOMessage {
                 extension : unsafe { String::from_utf8_unchecked([116, 120, 116, 0, 0, 0, 0, 0, 0, 0, 0, 0].to_vec()) },
-                file_id_id : FileId::from([140, 20, 1, 0, 0, 0, 107, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
+                file_id_id : fid([140, 20, 1, 0, 0, 0, 107, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
                 mem_sized_used : 94,
                 entropy : 5.132623395052655,
                 pid : 13192,
@@ -952,11 +961,12 @@ mod tests {
                 runtime_features: RuntimeFeatures::new(),
                 file_size : 61086,
                 time,
+                ..IOMessage::default()
             },
 
             IOMessage {
                 extension : String::new(),
-                file_id_id : FileId::from([241, 14, 3, 0, 0, 0, 28, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
+                file_id_id : fid([241, 14, 3, 0, 0, 0, 28, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
                 mem_sized_used : 16116,
                 entropy : 5.966784127057974,
                 pid : 30848,
@@ -973,11 +983,12 @@ mod tests {
                 runtime_features: RuntimeFeatures::new(),
                 file_size : 16184,
                 time,
+                ..IOMessage::default()
             },
 
             IOMessage {
                 extension : unsafe { String::from_utf8_unchecked([105, 99, 111, 0, 0, 0, 0, 0, 0, 0, 0, 0].to_vec()) },
-                file_id_id : FileId::from([184, 45, 0, 0, 0, 0, 114, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
+                file_id_id : fid([184, 45, 0, 0, 0, 0, 114, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
                 mem_sized_used : 218070,
                 entropy : 2.948640431362244,
                 pid : 30108,
@@ -994,11 +1005,12 @@ mod tests {
                 runtime_features: RuntimeFeatures::new(),
                 file_size : 218070,
                 time,
+                ..IOMessage::default()
             },
 
             IOMessage {
                 extension : unsafe { String::from_utf8_unchecked([101, 120, 101, 0, 0, 0, 0, 0, 0, 0, 0, 0].to_vec()) },
-                file_id_id : FileId::from([4, 31, 7, 0, 0, 0, 9, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
+                file_id_id : fid([4, 31, 7, 0, 0, 0, 9, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
                 mem_sized_used : 90112,
                 entropy : 5.858913026451287,
                 pid : 23812,
@@ -1015,11 +1027,12 @@ mod tests {
                 runtime_features: RuntimeFeatures::new(),
                 file_size : 90112,
                 time,
+                ..IOMessage::default()
             },
 
             IOMessage {
                 extension : unsafe { String::from_utf8_unchecked([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0].to_vec()) },
-                file_id_id : FileId::from([99, 88, 14, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
+                file_id_id : fid([99, 88, 14, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
                 mem_sized_used : 0,
                 entropy : 0.0,
                 pid : 30848,
@@ -1036,11 +1049,12 @@ mod tests {
                 runtime_features: RuntimeFeatures::new(),
                 file_size : -1,
                 time,
+                ..IOMessage::default()
             },
 
             IOMessage {
                 extension : unsafe { String::from_utf8_unchecked([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0].to_vec()) },
-                file_id_id : FileId::from([103, 88, 14, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
+                file_id_id : fid([103, 88, 14, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
                 mem_sized_used : 0,
                 entropy : 0.0,
                 pid : 30848,
@@ -1057,11 +1071,12 @@ mod tests {
                 runtime_features: RuntimeFeatures::new(),
                 file_size : -1,
                 time,
+                ..IOMessage::default()
             },
 
             IOMessage {
                 extension : unsafe { String::from_utf8_unchecked([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0].to_vec()) },
-                file_id_id : FileId::from([17, 69, 8, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
+                file_id_id : fid([17, 69, 8, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
                 mem_sized_used : 0,
                 entropy : 0.0,
                 pid : 30848,
@@ -1078,11 +1093,12 @@ mod tests {
                 runtime_features: RuntimeFeatures::new(),
                 file_size : 4096,
                 time,
+                ..IOMessage::default()
             },
 
             IOMessage {
                 extension : unsafe { String::from_utf8_unchecked([105, 99, 111, 0, 0, 0, 0, 0, 0, 0, 0, 0].to_vec()) },
-                file_id_id : FileId::from([184, 45, 0, 0, 0, 0, 114, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
+                file_id_id : fid([184, 45, 0, 0, 0, 0, 114, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
                 mem_sized_used : 0,
                 entropy : 0.0,
                 pid : 30108,
@@ -1099,6 +1115,7 @@ mod tests {
                 runtime_features: RuntimeFeatures::new(),
                 file_size : 218070,
                 time,
+                ..IOMessage::default()
             }
         ])
     }
@@ -1165,8 +1182,8 @@ mod tests {
         assert_eq!(
             pr.files_read,
             HashSet::from([
-                FileId::from([184, 45, 0, 0, 0, 0, 114, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
-                FileId::from([4, 31, 7, 0, 0, 0, 9, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
+                fid([184, 45, 0, 0, 0, 0, 114, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
+                fid([4, 31, 7, 0, 0, 0, 9, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
             ])
         );
         assert_eq!(pr.files_renamed, HashSet::new());
@@ -1174,15 +1191,15 @@ mod tests {
         assert_eq!(
             pr.files_written,
             HashSet::from([
-                FileId::from([241, 14, 3, 0, 0, 0, 28, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
-                FileId::from([140, 20, 1, 0, 0, 0, 107, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
+                fid([241, 14, 3, 0, 0, 0, 28, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
+                fid([140, 20, 1, 0, 0, 0, 107, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
             ])
         );
         assert_eq!(
             pr.files_deleted,
             HashSet::from([
-                FileId::from([99, 88, 14, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
-                FileId::from([103, 88, 14, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
+                fid([99, 88, 14, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
+                fid([103, 88, 14, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
             ])
         );
         assert_eq!(pr.fpaths_created, HashSet::new());
@@ -1238,7 +1255,7 @@ mod tests {
         let deleted_msg = make_file_event(
             IrpMajorOp::IrpSetInfo,
             FileChangeInfo::ChangeDeleteFile,
-            FileId::from([1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
+            fid([1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
             r"C:\Users\Dev\Documents\budget.docx",
             "docx",
             gid,
@@ -1247,7 +1264,7 @@ mod tests {
         let created_msg = make_file_event(
             IrpMajorOp::IrpCreate,
             FileChangeInfo::ChangeNewFile,
-            FileId::from([2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
+            fid([2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
             r"C:\Users\Dev\Documents\budget.locked",
             "locked",
             gid,
@@ -1257,7 +1274,7 @@ mod tests {
         add_record(&mut pr, &deleted_msg);
         add_record(&mut pr, &created_msg);
 
-        assert!(pr.has_create_delete_extension_change_for_event(&created_msg));
+        assert!(pr.previous_extension_for_event(&created_msg).is_some());
     }
 
     #[test]
@@ -1268,7 +1285,7 @@ mod tests {
         let created_msg = make_file_event(
             IrpMajorOp::IrpCreate,
             FileChangeInfo::ChangeNewFile,
-            FileId::from([3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
+            fid([3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
             r"C:\Users\Dev\Documents\notes.locked",
             "locked",
             gid,
@@ -1277,7 +1294,7 @@ mod tests {
         let deleted_msg = make_file_event(
             IrpMajorOp::IrpSetInfo,
             FileChangeInfo::ChangeDeleteFile,
-            FileId::from([4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
+            fid([4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
             r"C:\Users\Dev\Documents\notes.txt",
             "txt",
             gid,
@@ -1287,7 +1304,7 @@ mod tests {
         add_record(&mut pr, &created_msg);
         add_record(&mut pr, &deleted_msg);
 
-        assert!(pr.has_create_delete_extension_change_for_event(&deleted_msg));
+        assert!(pr.previous_extension_for_event(&deleted_msg).is_some());
     }
 
     #[test]
@@ -1298,7 +1315,7 @@ mod tests {
         let created_msg = make_file_event(
             IrpMajorOp::IrpCreate,
             FileChangeInfo::ChangeNewFile,
-            FileId::from([5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
+            fid([5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
             r"C:\Users\Dev\Documents\report.docx",
             "docx",
             gid,
@@ -1307,7 +1324,7 @@ mod tests {
         let deleted_msg = make_file_event(
             IrpMajorOp::IrpSetInfo,
             FileChangeInfo::ChangeDeleteFile,
-            FileId::from([6, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
+            fid([6, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
             r"C:\Users\Dev\Documents\report.docx",
             "docx",
             gid,
@@ -1317,6 +1334,6 @@ mod tests {
         add_record(&mut pr, &created_msg);
         add_record(&mut pr, &deleted_msg);
 
-        assert!(!pr.has_create_delete_extension_change_for_event(&deleted_msg));
+        assert!(pr.previous_extension_for_event(&deleted_msg).is_none());
     }
 }
