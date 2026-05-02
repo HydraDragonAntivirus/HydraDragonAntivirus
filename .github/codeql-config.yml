@@ -1,0 +1,4 @@
+name: "CodeQL Exclusions"
+
+paths-ignore:
+  - "OpenEDR/edrav2/iprj/installation/**"
