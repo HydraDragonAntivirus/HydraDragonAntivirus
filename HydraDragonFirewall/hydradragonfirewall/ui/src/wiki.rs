@@ -2,6 +2,10 @@ use leptos::*;
 
 #[component]
 pub fn RulesWiki() -> impl IntoView {
+    const SDK_VERSION: &str = "v0.1.0";
+    const PRIMITIVES_COUNT: usize = 11;
+    let topbar_meta = format!("SDK {} · YAML · {} primitives", SDK_VERSION, PRIMITIVES_COUNT);
+
     view! {
         <div class="wiki-root">
 
@@ -11,7 +15,7 @@ pub fn RulesWiki() -> impl IntoView {
                     <div class="wiki-logo-mark">"📖"</div>
                     <div class="wiki-topbar-info">
                         <span class="wiki-topbar-title">"Rules Reference"</span>
-                        <span class="wiki-topbar-meta">"SDK v0.1.0 · YAML · 11 primitives"</span>
+                        <span class="wiki-topbar-meta">{topbar_meta}</span>
                     </div>
                 </div>
                 <div class="wiki-topbar-pills">
@@ -211,7 +215,7 @@ pub fn RulesWiki() -> impl IntoView {
 <div class="yl-line yl-toplevel"><span class="yl-ln">" 1"</span><span class="yl-txt">"localhost_type: private_c"</span></div>
 <div class="yl-line yl-comment"><span class="yl-ln">" 2"</span><span class="yl-txt">"# loopback  → 127.x.x.x"</span></div>
 <div class="yl-line yl-comment"><span class="yl-ln">" 3"</span><span class="yl-txt">"# private_a → 10.x.x.x"</span></div>
-<div class="yl-line yl-comment"><span class="yl-ln">" 4"</span><span class="yl-txt">"# private_b → 172.16–31.x.x"</span></div>
+<div class="yl-line yl-comment"><span class="yl-ln">" 4"</span><span class="yl-txt">"# private_b → 172.16.0.0/12"</span></div>
 <div class="yl-line yl-comment"><span class="yl-ln">" 5"</span><span class="yl-txt">"# private_c → 192.168.x.x"</span></div>
 <div class="yl-line yl-comment"><span class="yl-ln">" 6"</span><span class="yl-txt">"# any       → all of the above"</span></div>
                         </pre></div>
