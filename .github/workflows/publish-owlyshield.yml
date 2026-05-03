@@ -46,10 +46,14 @@ jobs:
           $distRedDbg = "hydradragon/RedDbg"
           New-Item -ItemType Directory -Force -Path $dist
           New-Item -ItemType Directory -Force -Path $distRedDbg
-          Copy-Item "Owlyshield/owlyshield_minifilter/x64/Release/OwlyshieldRansomFilter.sys" "$dist/" -Force
+          Copy-Item "Owlyshield/owlyshield_minifilter/x64/Release/*.sys" "$dist/" -Force
+          Copy-Item "Owlyshield/owlyshield_minifilter/x64/Release/*.inf" "$dist/" -Force
+          Copy-Item "Owlyshield/owlyshield_minifilter/x64/Release/*.cer" "$dist/" -Force
           Copy-Item "Owlyshield/owlyshield_predict/target/release/owlyshield_ransom.dll" "$dist/" -Force
           Copy-Item "Owlyshield/RedDbg/RedDbg/x64/Release/RedDbgApp.exe" "$distRedDbg/" -Force
-          Copy-Item "Owlyshield/RedDbg/RedDbg/x64/ReleaseX64Kernel/RedDbgDrv.sys" "$distRedDbg/" -Force
+          Copy-Item "Owlyshield/RedDbg/RedDbg/x64/ReleaseX64Kernel/*.sys" "$distRedDbg/" -Force
+          Copy-Item "Owlyshield/RedDbg/RedDbg/x64/ReleaseX64Kernel/*.inf" "$distRedDbg/" -Force
+          Copy-Item "Owlyshield/RedDbg/RedDbg/x64/ReleaseX64Kernel/*.cer" "$distRedDbg/" -Force
           
       - name: Create PR
         uses: peter-evans/create-pull-request@v8

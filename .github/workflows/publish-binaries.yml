@@ -73,7 +73,10 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: bin-mbrfilter
-          path: MBRFilter/x64/Win8Release/MBRFilter.sys
+          path: |
+            MBRFilter/x64/Win8Release/*.sys
+            MBRFilter/x64/Win8Release/*.inf
+            MBRFilter/x64/Win8Release/*.cer
 
   build-pyasprotection:
     runs-on: windows-2022
@@ -119,7 +122,10 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: bin-owlyshield-minifilter
-          path: Owlyshield/owlyshield_minifilter/x64/Release/OwlyshieldRansomFilter.sys
+          path: |
+            Owlyshield/owlyshield_minifilter/x64/Release/*.sys
+            Owlyshield/owlyshield_minifilter/x64/Release/*.inf
+            Owlyshield/owlyshield_minifilter/x64/Release/*.cer
 
   build-reddbg:
     runs-on: windows-2022
@@ -137,7 +143,9 @@ jobs:
           name: bin-reddbg
           path: |
             Owlyshield/RedDbg/RedDbg/x64/Release/RedDbgApp.exe
-            Owlyshield/RedDbg/RedDbg/x64/ReleaseX64Kernel/RedDbgDrv.sys
+            Owlyshield/RedDbg/RedDbg/x64/ReleaseX64Kernel/*.sys
+            Owlyshield/RedDbg/RedDbg/x64/ReleaseX64Kernel/*.inf
+            Owlyshield/RedDbg/RedDbg/x64/ReleaseX64Kernel/*.cer
 
   # --- GROUP 2: Dotnet Projects (Separated) ---
 
@@ -349,27 +357,26 @@ jobs:
           New-Item -ItemType Directory -Force -Path "$distRoot/HydraDragonService"
           New-Item -ItemType Directory -Force -Path "$distRoot/RedDbg"
 
-          # Copy operations
-          Copy-Item "downloaded-artifacts/bin-tinyantivirus/TinyAvConsole.exe" "$distRoot/TinyAntivirus/" -Force
-          Copy-Item "downloaded-artifacts/bin-hydradragonav/HydraDragonAV.exe" "$distRoot/HydraDragonAV/" -Force
-          Copy-Item "downloaded-artifacts/bin-mbrfilter/MBRFilter.sys" "$distRoot/MBRFilter/" -Force
-          Copy-Item "downloaded-artifacts/bin-pyasprotection/*" "$distRoot/SimplePYASProtection/" -Force
-          Copy-Item "downloaded-artifacts/bin-owlyshield-minifilter/OwlyshieldRansomFilter.sys" "$distRoot/Owlyshield/" -Force
-          Copy-Item "downloaded-artifacts/bin-reddbg/RedDbgApp.exe" "$distRoot/RedDbg/" -Force
-          Copy-Item "downloaded-artifacts/bin-reddbg/RedDbgDrv.sys" "$distRoot/RedDbg/" -Force
+          # Copy operations using recursive search to handle GH Actions nesting
+          Get-ChildItem "downloaded-artifacts/bin-tinyantivirus/" -Filter "TinyAvConsole.exe" -Recurse | Copy-Item -Destination "$distRoot/TinyAntivirus/" -Force
+          Get-ChildItem "downloaded-artifacts/bin-hydradragonav/" -Filter "HydraDragonAV.exe" -Recurse | Copy-Item -Destination "$distRoot/HydraDragonAV/" -Force
+          Get-ChildItem "downloaded-artifacts/bin-mbrfilter/" -Filter "*" -Recurse | Copy-Item -Destination "$distRoot/MBRFilter/" -Force
+          Get-ChildItem "downloaded-artifacts/bin-pyasprotection/" -Filter "*" -Recurse | Copy-Item -Destination "$distRoot/SimplePYASProtection/" -Force
+          Get-ChildItem "downloaded-artifacts/bin-owlyshield-minifilter/" -Filter "*" -Recurse | Copy-Item -Destination "$distRoot/Owlyshield/" -Force
+          Get-ChildItem "downloaded-artifacts/bin-reddbg/" -Filter "*" -Recurse | Copy-Item -Destination "$distRoot/RedDbg/" -Force
           
-          Copy-Item "downloaded-artifacts/bin-megadumper/*" "$distRoot/HydraDragonDumper/" -Recurse -Force
+          Get-ChildItem "downloaded-artifacts/bin-megadumper/" -Filter "*" -Recurse | Copy-Item -Destination "$distRoot/HydraDragonDumper/" -Force
           if (Test-Path "$distRoot/HydraDragonDumper/MegaDumper.exe") {
             Move-Item "$distRoot/HydraDragonDumper/MegaDumper.exe" "$distRoot/HydraDragonDumper/HydraDragonDumper.exe" -Force
           }
           
-          Copy-Item "downloaded-artifacts/bin-firewall-client/*" "$distRoot/HydraDragonFirewall/" -Recurse -Force
-          Copy-Item "downloaded-artifacts/bin-launcher/*" "$distRoot/HydraDragonLauncher/" -Recurse -Force
-          Copy-Item "downloaded-artifacts/bin-service/*" "$distRoot/HydraDragonService/" -Recurse -Force
+          Get-ChildItem "downloaded-artifacts/bin-firewall-client/" -Filter "*" -Recurse | Copy-Item -Destination "$distRoot/HydraDragonFirewall/" -Force
+          Get-ChildItem "downloaded-artifacts/bin-launcher/" -Filter "*" -Recurse | Copy-Item -Destination "$distRoot/HydraDragonLauncher/" -Force
+          Get-ChildItem "downloaded-artifacts/bin-service/" -Filter "*" -Recurse | Copy-Item -Destination "$distRoot/HydraDragonService/" -Force
           
-          Copy-Item "downloaded-artifacts/bin-owlyshield-rust/owlyshield_ransom.dll" "$distRoot/Owlyshield/" -Force
-          Copy-Item "downloaded-artifacts/bin-firewall-rust/*" "$distRoot/HydraDragonFirewall/" -Force
-          Copy-Item "downloaded-artifacts/bin-sanctum/*" "$distRoot/Sanctum/" -Force
+          Get-ChildItem "downloaded-artifacts/bin-owlyshield-rust/" -Filter "owlyshield_ransom.dll" -Recurse | Copy-Item -Destination "$distRoot/Owlyshield/" -Force
+          Get-ChildItem "downloaded-artifacts/bin-firewall-rust/" -Filter "*" -Recurse | Copy-Item -Destination "$distRoot/HydraDragonFirewall/" -Force
+          Get-ChildItem "downloaded-artifacts/bin-sanctum/" -Filter "*" -Recurse | Copy-Item -Destination "$distRoot/Sanctum/" -Force
 
       - name: Check for Changes
         id: check_changes
