@@ -26,7 +26,7 @@ jobs:
           (New-Object Net.WebClient).DownloadFile('https://go.microsoft.com/fwlink/?linkid=2335869', $wdkSetupPath)
           Start-Process -FilePath $wdkSetupPath -ArgumentList "/quiet" -NoNewWindow -Wait
       - name: Build Minifilter
-        run: msbuild Owlyshield/owlyshield_minifilter/owlyshield_minifilter.sln /p:Configuration=Release /p:Platform=x64
+        run: msbuild Owlyshield/owlyshield_minifilter/RWatch.sln /p:Configuration=Release /p:Platform=x64
         
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable

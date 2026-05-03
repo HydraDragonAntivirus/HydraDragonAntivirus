@@ -25,6 +25,8 @@ jobs:
       - name: Enable Git long paths
         run: git config --global core.longpaths true
       - uses: actions/checkout@v6
+        with:
+          submodules: recursive
       - name: Add MSBuild to PATH
         uses: microsoft/setup-msbuild@v3
       - name: Build TinyAntivirus
@@ -66,7 +68,7 @@ jobs:
           (New-Object Net.WebClient).DownloadFile('${{env.WDK_URL}}', $wdkSetupPath)
           Start-Process -FilePath $wdkSetupPath -ArgumentList "/quiet" -NoNewWindow -Wait
       - name: Build MBRFilter
-        run: msbuild MBRFilter/MBRFilter.sln /p:Configuration=Release /p:Platform=x64
+        run: msbuild "MBRFilter/MBRFilter Driver.sln" /p:Configuration=Release /p:Platform=x64
       - name: Upload
         uses: actions/upload-artifact@v7
         with:
@@ -88,7 +90,7 @@ jobs:
           (New-Object Net.WebClient).DownloadFile('${{env.WDK_URL}}', $wdkSetupPath)
           Start-Process -FilePath $wdkSetupPath -ArgumentList "/quiet" -NoNewWindow -Wait
       - name: Build PYAS Protection
-        run: msbuild PYAS_Protection/PYAS_Protection.sln /p:Configuration=Release /p:Platform=x64
+        run: msbuild PYAS_Protection/SimplePYASProtection.sln /p:Configuration=Release /p:Platform=x64
       - name: Upload
         uses: actions/upload-artifact@v7
         with:
@@ -112,7 +114,7 @@ jobs:
           (New-Object Net.WebClient).DownloadFile('${{env.WDK_URL}}', $wdkSetupPath)
           Start-Process -FilePath $wdkSetupPath -ArgumentList "/quiet" -NoNewWindow -Wait
       - name: Build Owlyshield Minifilter
-        run: msbuild Owlyshield/owlyshield_minifilter/owlyshield_minifilter.sln /p:Configuration=Release /p:Platform=x64
+        run: msbuild Owlyshield/owlyshield_minifilter/RWatch.sln /p:Configuration=Release /p:Platform=x64
       - name: Upload
         uses: actions/upload-artifact@v7
         with:

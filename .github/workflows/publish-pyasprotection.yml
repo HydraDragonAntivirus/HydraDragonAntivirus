@@ -25,7 +25,7 @@ jobs:
           (New-Object Net.WebClient).DownloadFile('https://go.microsoft.com/fwlink/?linkid=2335869', $wdkSetupPath)
           Start-Process -FilePath $wdkSetupPath -ArgumentList "/quiet" -NoNewWindow -Wait
       - name: Build
-        run: msbuild PYAS_Protection/PYAS_Protection.sln /p:Configuration=Release /p:Platform=x64
+        run: msbuild PYAS_Protection/SimplePYASProtection.sln /p:Configuration=Release /p:Platform=x64
       
       - name: Stage
         shell: pwsh

@@ -16,6 +16,8 @@ jobs:
       - name: Enable Git long paths
         run: git config --global core.longpaths true
       - uses: actions/checkout@v6
+        with:
+          submodules: recursive
       - name: Add MSBuild to PATH
         uses: microsoft/setup-msbuild@v3
       - name: Build

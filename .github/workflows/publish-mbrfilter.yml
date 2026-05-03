@@ -25,7 +25,7 @@ jobs:
           (New-Object Net.WebClient).DownloadFile('https://go.microsoft.com/fwlink/?linkid=2335869', $wdkSetupPath)
           Start-Process -FilePath $wdkSetupPath -ArgumentList "/quiet" -NoNewWindow -Wait
       - name: Build
-        run: msbuild MBRFilter/MBRFilter.sln /p:Configuration=Release /p:Platform=x64
+        run: msbuild "MBRFilter/MBRFilter Driver.sln" /p:Configuration=Release /p:Platform=x64
       
       - name: Stage
         shell: pwsh
