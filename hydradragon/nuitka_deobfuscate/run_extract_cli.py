@@ -618,14 +618,15 @@ def process_section(
             omp.run_pass_2_ast_synthesis()
             source = generate_omni_source(omp, section_name, raw_constants=list(items))
             if source.strip():
+                if generate_omni_nbc:
+                    nbc_text = generate_omni_nbc(omp, section_name, list(items))
+                    source += "\n\n" + '"""' + "\n" + nbc_text + "\n" + '"""'
+
                 safe_name = re.sub(r'[<>:"/\\|?*\x00]', "_", section_name)[:80]
                 omni_out = out_dir / "omni_reconstructed"
                 omni_out.mkdir(parents=True, exist_ok=True)
                 target_py_path = omni_out / f"{safe_name}.py"
                 target_py_path.write_text(source, encoding="utf-8")
-                if generate_omni_nbc:
-                    nbc_text = generate_omni_nbc(omp, section_name, list(items))
-                    target_py_path.with_suffix(".nbc").write_text(nbc_text, encoding="utf-8")
                 omni_count += 1
         except Exception:
             pass

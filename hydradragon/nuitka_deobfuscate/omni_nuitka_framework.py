@@ -6511,9 +6511,10 @@ def reconstruct_blob_file(blob_path: str | Path, output_dir: str | Path) -> int:
         # Ensure subdirectories exist for package names like 'numpy.core'
         out_file.parent.mkdir(parents=True, exist_ok=True)
 
-        out_file.write_text(source, encoding="utf-8")
         if artifact.nbc_text:
-            out_file.with_suffix(".nbc").write_text(artifact.nbc_text, encoding="utf-8")
+            source += "\n\n" + '"""' + "\n" + artifact.nbc_text + "\n" + '"""'
+
+        out_file.write_text(source, encoding="utf-8")
         count += 1
         print(f"  [{count:4d}] {section_name:<50}  ({source.count(chr(10))} lines, strategy={artifact.strategy})")
 
