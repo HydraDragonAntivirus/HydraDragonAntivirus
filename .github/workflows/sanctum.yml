@@ -70,8 +70,8 @@ jobs:
       - name: Enable Git long paths
         run: git config --global core.longpaths true
       - uses: actions/checkout@v6
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
+      - name: Set up Rust (Nightly)
+        uses: dtolnay/rust-toolchain@nightly
         with:
           components: clippy, rustfmt
 
