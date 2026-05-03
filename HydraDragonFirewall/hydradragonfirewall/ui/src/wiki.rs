@@ -2,6 +2,10 @@ use leptos::*;
 
 #[component]
 pub fn RulesWiki() -> impl IntoView {
+    const SDK_VERSION: &str = "v0.1.0";
+    const PRIMITIVES_COUNT: usize = 11;
+    let topbar_meta = format!("SDK {} · YAML · {} primitives", SDK_VERSION, PRIMITIVES_COUNT);
+
     view! {
         <div class="wiki-root">
 
@@ -11,7 +15,7 @@ pub fn RulesWiki() -> impl IntoView {
                     <div class="wiki-logo-mark">"📖"</div>
                     <div class="wiki-topbar-info">
                         <span class="wiki-topbar-title">"Rules Reference"</span>
-                        <span class="wiki-topbar-meta">"SDK v0.1.0 · YAML · 11 primitives"</span>
+                        <span class="wiki-topbar-meta">{topbar_meta}</span>
                     </div>
                 </div>
                 <div class="wiki-topbar-pills">
