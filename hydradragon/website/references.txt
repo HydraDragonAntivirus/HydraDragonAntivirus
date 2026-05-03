@@ -1,4 +1,4 @@
-Unknown
+﻿Unknown
 dangerous.domains(Malware)
 github.com/T145/black-mirror(WhiteList)
 github.com/T145/black-mirror(Malware)
@@ -8,9 +8,11 @@ rtbh.com.tr(BruteForce)
 github.com/87owo/PYAS(Malware)
 safer-networking.org(Malware)
 tranco-list.eu/list/PL9GJ/1000000
+CloudFlare Reverse Proxy
 
 # Notes:
 gist.github.com/0100110000100011(Malware) = https://gist.github.com/0100110000100011/58cef6d519a51c1d918ff3092278dabb
 If I check the same thing again, I will add the date of the last lookup.
 I added my old databaase to marevento so some references still might be Unknown but verified.
 tranco-list.eu/list/PL9GJ/1000000 popularity list
+CloudFlare Reverse Proxy are auto whitelisted at abuseipdb

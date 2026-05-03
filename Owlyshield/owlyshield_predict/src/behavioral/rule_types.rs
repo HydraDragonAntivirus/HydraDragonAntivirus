@@ -1131,6 +1131,9 @@ impl ContentEncoding {
 fn ip_in_cidr(ip: IpAddr, cidr: &str) -> bool {
     let parts: Vec<&str> = cidr.split('/').collect();
     if parts.len() != 2 {
+        if let Ok(target_ip) = cidr.parse::<IpAddr>() {
+            return ip == target_ip;
+        }
         return false;
     }
     let Ok(prefix_len) = parts[1].parse::<u32>() else {
@@ -1147,7 +1150,12 @@ fn ip_in_cidr(ip: IpAddr, cidr: &str) -> bool {
             let mask = if prefix_len == 0 {
                 0
             } else {
-                !0u32 << (32 - prefix_len)
+                let shift = 32u32.checked_sub(prefix_len).unwrap_or(0);
+                if shift >= 32 {
+                    0
+                } else {
+                    !0u32 << shift
+                }
             };
             (u32::from(v4) & mask) == (u32::from(net) & mask)
         }
@@ -1161,7 +1169,12 @@ fn ip_in_cidr(ip: IpAddr, cidr: &str) -> bool {
             let mask = if prefix_len == 0 {
                 0
             } else {
-                !0u128 << (128 - prefix_len)
+                let shift = 128u32.checked_sub(prefix_len).unwrap_or(0);
+                if shift >= 128 {
+                    0
+                } else {
+                    !0u128 << shift
+                }
             };
             (u128::from(v6) & mask) == (u128::from(net) & mask)
         }
@@ -1836,6 +1849,8 @@ pub struct BehaviorRule {
     pub memory_scan_config: Option<MemoryScanConfig>,
     #[serde(default)]
     pub protected_paths: ProtectedPaths,
+    #[serde(default)]
+    pub network_whitelist: Option<IpMatcher>,
 
     // Firewall SDK YAML compatibility fields
     #[serde(default, rename = "protocol")]
@@ -2142,6 +2157,12 @@ impl BehaviorRule {
     ) -> bool {
         if !self.enabled {
             return false;
+        }
+
+        if let Some(whitelist) = &self.network_whitelist {
+            if whitelist.matches(packet.dst_ip) || whitelist.matches(packet.src_ip) {
+                return false;
+            }
         }
 
         if self.matches_firewall_sdk_packet(cache, packet, payload) {

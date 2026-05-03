@@ -402,7 +402,10 @@ impl FileScanner {
         self.scan_started(); // update state
 
         // send the job for a scan
-        let result = self.begin_scan(target);
+        let result = match self.begin_scan(target) {
+            Ok(state) => state,
+            Err(e) => FileScannerState::FinishedWithError(e.to_string()),
+        };
 
         self.end_scan(); // update state
 

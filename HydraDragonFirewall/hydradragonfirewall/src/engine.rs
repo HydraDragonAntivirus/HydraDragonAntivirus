@@ -463,12 +463,20 @@ pub struct FirewallRule {
     pub kill_and_remove: bool,
     #[serde(default)]
     pub ask_user: bool,
+    #[serde(default)]
+    pub network_whitelist: Vec<String>,
 }
 
 impl FirewallRule {
     pub fn matches(&self, packet: &PacketInfo, app_name: &str) -> bool {
         if !self.enabled {
             return false;
+        }
+
+        for cidr in &self.network_whitelist {
+            if ip_in_cidr(packet.src_ip, cidr) || ip_in_cidr(packet.dst_ip, cidr) {
+                return false;
+            }
         }
 
         if let Some(ref proto) = self.protocol {
@@ -692,6 +700,8 @@ pub struct FirewallSettings {
     pub log_full_bodies: bool,
     pub tls_proxy: TlsProxyConfig,
     pub metadata: HashMap<String, String>,
+    #[serde(default)]
+    pub network_whitelist: Vec<String>,
 }
 
 impl Default for FirewallSettings {
@@ -723,6 +733,7 @@ impl Default for FirewallSettings {
             log_full_bodies: false,
             tls_proxy: TlsProxyConfig::default(),
             metadata,
+            network_whitelist: Vec::new(),
         }
     }
 }
@@ -2529,6 +2540,9 @@ impl FirewallEngine {
 
 impl FirewallEngine {
     pub fn start(&self, app_handle: AppHandle) {
+        // Load Network Whitelists from Website folder before starting capture
+        self.load_website_whitelists();
+
         // Auto-install the proxy CA into Windows Trusted Root so browsers
         // CA generation and installation is now handled by start_embedded_proxy() on demand.
 
@@ -3486,6 +3500,22 @@ impl FirewallEngine {
                 s.no_alert_mode,
             )
         };
+
+        // --- NEW: Global Network Whitelist ---
+        {
+            let s = settings.read().unwrap();
+            for cidr in &s.network_whitelist {
+                if ip_in_cidr(info.src_ip, cidr) || ip_in_cidr(info.dst_ip, cidr) {
+                    return PacketDecision {
+                        packet_data: data.to_vec(),
+                        address_data: address_data.to_vec(),
+                        should_forward: true,
+                        recalc_checksums: false,
+                        _reason: format!("Whitelisted network: {}", cidr),
+                    };
+                }
+            }
+        }
 
         // 3. DNS Snooping Enrichment (CRITICAL: Do this before rules!)
         if info.hostname.is_none() {
@@ -4732,6 +4762,52 @@ impl FirewallEngine {
     /// 3. Kills the embedded proxy backend process if running.
     ///
     /// Safe to call more than once; subsequent calls are no-ops.
+    fn load_website_whitelists(&self) {
+        let website_path = {
+            let settings = self.settings.read().unwrap();
+            if settings.website_path.is_empty() {
+                default_website_path()
+            } else {
+                settings.website_path.clone()
+            }
+        };
+
+        let mut networks = Vec::new();
+
+        // Load IPv4 Whitelist
+        let ipv4_path = PathBuf::from(&website_path).join("WhiteListIPv4.csv");
+        if ipv4_path.exists() {
+            if let Ok(content) = fs::read_to_string(&ipv4_path) {
+                for line in content.lines().skip(1) {
+                    let entry = line.split(',').next().unwrap_or("").trim();
+                    if !entry.is_empty() && (entry.contains('.') || entry.contains('/')) {
+                        networks.push(entry.to_string());
+                    }
+                }
+            }
+        }
+
+        // Load IPv6 Whitelist
+        let ipv6_path = PathBuf::from(&website_path).join("WhiteListIPv6.csv");
+        if ipv6_path.exists() {
+            if let Ok(content) = fs::read_to_string(&ipv6_path) {
+                for line in content.lines().skip(1) {
+                    let entry = line.split(',').next().unwrap_or("").trim();
+                    if !entry.is_empty() && (entry.contains(':') || entry.contains('/')) {
+                        networks.push(entry.to_string());
+                    }
+                }
+            }
+        }
+
+        if !networks.is_empty() {
+            let mut settings = self.settings.write().unwrap();
+            settings.network_whitelist.extend(networks);
+            settings.network_whitelist.sort();
+            settings.network_whitelist.dedup();
+        }
+    }
+
     pub fn stop(&self) {
         // Signal all worker loops to exit after their current recv() returns.
         self.stop_signal.store(true, Ordering::SeqCst);
@@ -4757,5 +4833,58 @@ impl FirewallEngine {
 impl Drop for FirewallEngine {
     fn drop(&mut self) {
         self.stop();
+    }
+}
+
+fn ip_in_cidr(ip: IpAddr, cidr: &str) -> bool {
+    let parts: Vec<&str> = cidr.split('/').collect();
+    if parts.len() != 2 {
+        if let Ok(target_ip) = cidr.parse::<IpAddr>() {
+            return ip == target_ip;
+        }
+        return false;
+    }
+    let Ok(prefix_len) = parts[1].parse::<u32>() else {
+        return false;
+    };
+    match ip {
+        IpAddr::V4(v4) => {
+            let Ok(net) = parts[0].parse::<Ipv4Addr>() else {
+                return false;
+            };
+            if prefix_len > 32 {
+                return false;
+            }
+            let mask = if prefix_len == 0 {
+                0
+            } else {
+                let shift = 32u32.checked_sub(prefix_len).unwrap_or(0);
+                if shift >= 32 {
+                    0
+                } else {
+                    !0u32 << shift
+                }
+            };
+            (u32::from(v4) & mask) == (u32::from(net) & mask)
+        }
+        IpAddr::V6(v6) => {
+            let Ok(net) = parts[0].parse::<Ipv6Addr>() else {
+                return false;
+            };
+            if prefix_len > 128 {
+                return false;
+            }
+            let mask = if prefix_len == 0 {
+                0
+            } else {
+                let shift = 128u32.checked_sub(prefix_len).unwrap_or(0);
+                if shift >= 128 {
+                    0
+                } else {
+                    !0u128 << shift
+                }
+            };
+            (u128::from(v6) & mask) == (u128::from(net) & mask)
+        }
     }
 }
