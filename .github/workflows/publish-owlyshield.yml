@@ -49,7 +49,7 @@ jobs:
           Copy-Item "Owlyshield/owlyshield_minifilter/x64/Release/*.sys" "$dist/" -Force
           Copy-Item "Owlyshield/owlyshield_minifilter/x64/Release/*.inf" "$dist/" -Force
           Copy-Item "Owlyshield/owlyshield_minifilter/x64/Release/*.cer" "$dist/" -Force
-          Copy-Item "Owlyshield/owlyshield_predict/target/release/owlyshield_ransom.dll" "$dist/" -Force
+          Copy-Item "Owlyshield/owlyshield_predict/target/release/owlyshield_ransom.exe" "$dist/" -Force
           Copy-Item "Owlyshield/RedDbg/RedDbg/x64/Release/RedDbgApp.exe" "$distRedDbg/" -Force
           Copy-Item "Owlyshield/RedDbg/RedDbg/x64/ReleaseX64Kernel/*.sys" "$distRedDbg/" -Force
           Copy-Item "Owlyshield/RedDbg/RedDbg/x64/ReleaseX64Kernel/*.inf" "$distRedDbg/" -Force

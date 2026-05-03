@@ -240,7 +240,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: bin-owlyshield-rust
-          path: Owlyshield/owlyshield_predict/target/release/owlyshield_ransom.dll
+          path: Owlyshield/owlyshield_predict/target/release/owlyshield_ransom.exe
 
   build-firewall-rust:
     runs-on: windows-2022
@@ -271,6 +271,8 @@ jobs:
           path: |
             HydraDragonFirewall/hydradragonfirewall/target/release/hydradragonfirewall.exe
             HydraDragonFirewall/hydradragonfirewall/target/release/hydradragonfirewall.dll
+            HydraDragonFirewall/hydradragonfirewall/target/release/WinDivert.dll
+            HydraDragonFirewall/hydradragonfirewall/target/release/WinDivert64.sys
             HydraDragonFirewall/hydradragonfirewall/rules/rules.yaml
 
   build-sanctum:
@@ -307,7 +309,9 @@ jobs:
         with:
           name: bin-sanctum
           path: |
-            Sanctum/driver/target/release/sanctum_package/sanctum.sys
+            Sanctum/driver/target/release/*.sys
+            Sanctum/driver/target/release/*.inf
+            Sanctum/driver/target/release/*.cer
             Sanctum/target/release/sanctum_ppl_runner.exe
             Sanctum/target/release/elam_installer.exe
             Sanctum/target/release/um_engine.exe
@@ -374,7 +378,7 @@ jobs:
           Get-ChildItem "downloaded-artifacts/bin-launcher/" -Filter "*" -Recurse | Copy-Item -Destination "$distRoot/HydraDragonLauncher/" -Force
           Get-ChildItem "downloaded-artifacts/bin-service/" -Filter "*" -Recurse | Copy-Item -Destination "$distRoot/HydraDragonService/" -Force
           
-          Get-ChildItem "downloaded-artifacts/bin-owlyshield-rust/" -Filter "owlyshield_ransom.dll" -Recurse | Copy-Item -Destination "$distRoot/Owlyshield/" -Force
+          Get-ChildItem "downloaded-artifacts/bin-owlyshield-rust/" -Filter "owlyshield_ransom.exe" -Recurse | Copy-Item -Destination "$distRoot/Owlyshield/" -Force
           Get-ChildItem "downloaded-artifacts/bin-firewall-rust/" -Filter "*" -Recurse | Copy-Item -Destination "$distRoot/HydraDragonFirewall/" -Force
           Get-ChildItem "downloaded-artifacts/bin-sanctum/" -Filter "*" -Recurse | Copy-Item -Destination "$distRoot/Sanctum/" -Force
 
