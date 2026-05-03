@@ -338,33 +338,54 @@ jobs:
         run: |
           $distRoot = "hydradragon"
           
-          # Copy operations into existing structure AND original source directories
-          
-          # TinyAntivirus
+          # Ensure distribution root and subfolders exist
+          $folders = @(
+            "$distRoot/TinyAntivirus",
+            "$distRoot/HydraDragonAV",
+            "$distRoot/MBRFilter",
+            "$distRoot/SimplePYASProtection",
+            "$distRoot/Owlyshield/OwlyshieldRansomFilter",
+            "$distRoot/Owlyshield/Owlyshield Service",
+            "$distRoot/Owlyshield/RedDbg",
+            "$distRoot/HydraDragonDumper",
+            "$distRoot/HydraDragonFirewall/rules",
+            "$distRoot/HydraDragonLauncher",
+            "$distRoot/HydraDragonService",
+            "$distRoot/Sanctum/AppData",
+            "$distRoot/Sanctum/System32",
+            "$distRoot/sanctum_test_malware"
+          )
+          foreach ($folder in $folders) {
+            if (-not (Test-Path $folder)) {
+              New-Item -ItemType Directory -Force -Path $folder
+            }
+          }
+
+          # --- TinyAntivirus ---
           $tinyAV = Get-ChildItem "bin-tinyantivirus/" -Filter "TinyAvConsole.exe" -Recurse
           $tinyAV | Copy-Item -Destination "$distRoot/TinyAntivirus/" -Force
           New-Item -ItemType Directory -Force -Path "TinyAntivirus/x64/Release"
           $tinyAV | Copy-Item -Destination "TinyAntivirus/x64/Release/" -Force
 
-          # HydraDragonAV
+          # --- HydraDragonAV ---
           $av = Get-ChildItem "bin-hydradragonav/" -Filter "HydraDragonAV.exe" -Recurse
           $av | Copy-Item -Destination "$distRoot/HydraDragonAV/" -Force
           New-Item -ItemType Directory -Force -Path "HydraDragonAV/x64/Release"
           $av | Copy-Item -Destination "HydraDragonAV/x64/Release/" -Force
 
-          # MBRFilter
+          # --- MBRFilter ---
           $mbr = Get-ChildItem "bin-mbrfilter/" -Filter "*" -Recurse
           $mbr | Copy-Item -Destination "$distRoot/MBRFilter/" -Force
           New-Item -ItemType Directory -Force -Path "MBRFilter/x64/Release"
           $mbr | Copy-Item -Destination "MBRFilter/x64/Release/" -Force
 
-          # SimplePYASProtection
+          # --- SimplePYASProtection ---
           $pyas = Get-ChildItem "bin-pyasprotection/" -Filter "*" -Recurse
           $pyas | Copy-Item -Destination "$distRoot/SimplePYASProtection/" -Force
           New-Item -ItemType Directory -Force -Path "PYAS_Protection/x64/Release"
           $pyas | Copy-Item -Destination "PYAS_Protection/x64/Release/" -Force
 
-          # Owlyshield (Nested structure)
+          # --- Owlyshield ---
           $owlyMinifilter = Get-ChildItem "bin-owlyshield-minifilter/" -Filter "*" -Recurse
           $owlyMinifilter | Copy-Item -Destination "$distRoot/Owlyshield/OwlyshieldRansomFilter/" -Force
           New-Item -ItemType Directory -Force -Path "Owlyshield/owlyshield_minifilter/x64/Release"
@@ -375,14 +396,13 @@ jobs:
           New-Item -ItemType Directory -Force -Path "Owlyshield/owlyshield_predict/target/release"
           $owlyRust | Copy-Item -Destination "Owlyshield/owlyshield_predict/target/release/" -Force
 
-          # RedDbg (Driver to dist, both to nested source root)
+          # --- RedDbg ---
           $reddbgDrv = Get-ChildItem "bin-reddbg/" -Filter "RedDbgDrv.*" -Recurse
           $reddbgDrv | Copy-Item -Destination "$distRoot/Owlyshield/RedDbg/" -Force
-          
           New-Item -ItemType Directory -Force -Path "Owlyshield/RedDbg/RedDbg/x64/Release"
           Get-ChildItem "bin-reddbg/" -Filter "*" -Recurse | Copy-Item -Destination "Owlyshield/RedDbg/RedDbg/x64/Release/" -Force
 
-          # HydraDragonDumper (MegaDumper)
+          # --- Dumper ---
           $dumper = Get-ChildItem "bin-megadumper/" -Filter "*" -Recurse
           $dumper | Copy-Item -Destination "$distRoot/HydraDragonDumper/" -Force
           New-Item -ItemType Directory -Force -Path "MegaDumper/MegaDumper/bin/Release/net8.0"
@@ -391,33 +411,28 @@ jobs:
             Move-Item "$distRoot/HydraDragonDumper/MegaDumper.exe" "$distRoot/HydraDragonDumper/HydraDragonDumper.exe" -Force
           }
 
-          # HydraDragonFirewall (Rust Engine + Rules)
+          # --- Firewall ---
           $fwRust = Get-ChildItem "bin-firewall-rust/" -Filter "hydradragonfirewall.*" -Recurse
           $fwRust | Copy-Item -Destination "$distRoot/HydraDragonFirewall/" -Force
           New-Item -ItemType Directory -Force -Path "HydraDragonFirewall/hydradragonfirewall/target/release"
           $fwRust | Copy-Item -Destination "HydraDragonFirewall/hydradragonfirewall/target/release/" -Force
-          
           Get-ChildItem "bin-firewall-rust/" -Filter "rules.yaml" -Recurse | Copy-Item -Destination "$distRoot/HydraDragonFirewall/rules/" -Force
 
-          # HydraDragonLauncher
+          # --- Infrastructure ---
           $launcher = Get-ChildItem "bin-launcher/" -Filter "*" -Recurse
           $launcher | Copy-Item -Destination "$distRoot/HydraDragonLauncher/" -Force
           New-Item -ItemType Directory -Force -Path "HydraDragonLauncher/HydraDragonLauncher/bin/Release/net8.0"
           $launcher | Copy-Item -Destination "HydraDragonLauncher/HydraDragonLauncher/bin/Release/net8.0/" -Force
 
-          # HydraDragonService
           $service = Get-ChildItem "bin-service/" -Filter "*" -Recurse
           $service | Copy-Item -Destination "$distRoot/HydraDragonService/" -Force
           New-Item -ItemType Directory -Force -Path "HydraDragonService/HydraDragonService/bin/Release/net8.0"
           $service | Copy-Item -Destination "HydraDragonService/HydraDragonService/bin/Release/net8.0/" -Force
 
-          # Sanctum (Follow repository structure)
           # --- Sanctum Stack ---
           # System/Kernel Files (to AppData)
           $sanctumAppData = Get-ChildItem "bin-sanctum/" -Filter "*" -Include "sanctum.sys", "sanctum_ppl_runner.exe" -Recurse
           $sanctumAppData | Copy-Item -Destination "$distRoot/Sanctum/AppData/" -Force
-          New-Item -ItemType Directory -Force -Path "Sanctum/driver/target/release"
-          Get-ChildItem "bin-sanctum/" -Filter "sanctum.sys" -Recurse | Copy-Item -Destination "Sanctum/driver/target/release/" -Force
           
           # DLLs (to System32)
           $sanctumSystem32 = Get-ChildItem "bin-sanctum/" -Filter "sanctum.dll" -Recurse
@@ -427,14 +442,15 @@ jobs:
           $sanctumRoot = Get-ChildItem "bin-sanctum/" -Filter "*" -Include "elam_installer.exe", "um_engine.exe", "server.exe", "app.exe", "*.inf", "*.cer" -Recurse
           $sanctumRoot | Copy-Item -Destination "$distRoot/Sanctum/" -Force
           
-          # Source Tree Sync (Usermode)
+          # Source Tree Sync (Full Workspace)
           New-Item -ItemType Directory -Force -Path "Sanctum/target/release"
           Get-ChildItem "bin-sanctum/" -Filter "*" -Include "*.exe", "*.dll" -Recurse | Copy-Item -Destination "Sanctum/target/release/" -Force
+          New-Item -ItemType Directory -Force -Path "Sanctum/driver/target/release"
+          Get-ChildItem "bin-sanctum/" -Filter "sanctum.sys" -Recurse | Copy-Item -Destination "Sanctum/driver/target/release/" -Force
 
           # Malware Simulation (Test folder)
           $sanctumMalware = Get-ChildItem "bin-sanctum/" -Filter "malware.exe" -Recurse
           $sanctumMalware | Copy-Item -Destination "$distRoot/sanctum_test_malware/" -Force
-          $sanctumMalware | Copy-Item -Destination "Sanctum/target/release/" -Force
 
       - name: Check for Changes
         id: check_changes
