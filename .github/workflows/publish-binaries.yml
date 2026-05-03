@@ -281,6 +281,8 @@ jobs:
       - name: Enable Git long paths
         run: git config --global core.longpaths true
       - uses: actions/checkout@v6
+      - name: Add MSBuild to PATH
+        uses: microsoft/setup-msbuild@v3
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@nightly
       - name: Install Cargo Make

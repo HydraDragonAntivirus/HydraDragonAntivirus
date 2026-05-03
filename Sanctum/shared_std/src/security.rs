@@ -31,7 +31,6 @@ pub fn create_security_attributes() -> SECURITY_ATTRIBUTES {
             PSECURITY_DESCRIPTOR(&mut *sd_box as *mut _ as _),
             SECURITY_DESCRIPTOR_REVISION,
         )
-        .ok()
         .expect("InitializeSecurityDescriptor failed");
 
         //
@@ -40,11 +39,9 @@ pub fn create_security_attributes() -> SECURITY_ATTRIBUTES {
         let acl_size = mem::size_of::<ACL>() as u32
             + mem::size_of::<ACCESS_ALLOWED_ACE>() as u32
             + GetSidLengthRequired(1);
-        let mut acl_buf = Vec::with_capacity(acl_size as usize);
-        acl_buf.set_len(acl_size as usize); // reserve space
+        let mut acl_buf = vec![0u8; acl_size as usize];
 
-        InitializeAcl(acl_buf.as_mut_ptr() as *mut ACL, acl_size, ACL_REVISION)
-            .ok()
+        InitializeAcl(acl_buf.as_mut_ptr(), acl_size, ACL_REVISION)
             .expect("InitializeAcl failed");
 
         //
@@ -64,17 +61,15 @@ pub fn create_security_attributes() -> SECURITY_ATTRIBUTES {
             0,
             &mut everyone_sid,
         )
-        .ok()
         .expect("AllocateAndInitializeSid failed");
 
         AddAccessAllowedAceEx(
-            acl_buf.as_mut_ptr() as *mut ACL,
+            acl_buf.as_mut_ptr(),
             ACL_REVISION,
             OBJECT_INHERIT_ACE | CONTAINER_INHERIT_ACE,
             GENERIC_ALL.0,
             everyone_sid,
         )
-        .ok()
         .expect("AddAccessAllowedAceEx failed");
 
         //
@@ -83,16 +78,15 @@ pub fn create_security_attributes() -> SECURITY_ATTRIBUTES {
         SetSecurityDescriptorDacl(
             PSECURITY_DESCRIPTOR(&mut *sd_box as *mut _ as _),
             true,
-            Some(acl_buf.as_ptr() as *const ACL),
+            Some(acl_buf.as_ptr()),
             false,
         )
-        .ok()
         .expect("SetSecurityDescriptorDacl failed");
 
         //
         // Allocate SECURITY_ATTRIBUTES on the heap and fill it
         //
-        let mut sa_box = SECURITY_ATTRIBUTES {
+        let sa_box = SECURITY_ATTRIBUTES {
             nLength: mem::size_of::<SECURITY_ATTRIBUTES>() as u32,
             lpSecurityDescriptor: &mut *sd_box as *mut _ as *mut core::ffi::c_void,
             bInheritHandle: FALSE,
