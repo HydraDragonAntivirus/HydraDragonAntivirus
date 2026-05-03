@@ -618,6 +618,37 @@ async fn clear_app_decisions(handle: AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
+async fn get_readme_content() -> String {
+    let paths = vec![
+        "C:\\Program Files\\HydraDragonAntivirus\\README.md",
+        "README.md",
+    ];
+
+    for path in paths {
+        if let Ok(content) = std::fs::read_to_string(path) {
+            return content;
+        }
+    }
+
+    if let Ok(exe_path) = std::env::current_exe() {
+        let mut current = exe_path.parent();
+        for _ in 0..3 {
+            if let Some(p) = current {
+                let readme = p.join("README.md");
+                if let Ok(content) = std::fs::read_to_string(readme) {
+                    return content;
+                }
+                current = p.parent();
+            } else {
+                break;
+            }
+        }
+    }
+
+    "README.md file could not be located on this system.".to_string()
+}
+
+#[tauri::command]
 async fn get_active_alert(handle: AppHandle) -> Result<Option<crate::engine::PendingApp>, String> {
     if let Some(engine) = wait_for_engine(&handle).await {
         Ok(engine.get_active_alert())
@@ -1028,6 +1059,7 @@ pub fn run() {
             get_owlyshield_rules_raw,
             get_owlyshield_report_raw,
             save_owlyshield_rules_raw,
+            get_readme_content,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

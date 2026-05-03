@@ -770,6 +770,13 @@ enum AppView {
     Exclusions,
 }
 
+#[derive(Clone, Copy, PartialEq)]
+enum SettingsSubTab {
+    General,
+    About,
+    Help,
+}
+
 #[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Protocol {
     TCP,
@@ -1128,6 +1135,19 @@ pub fn App() -> impl IntoView {
     let (firewall_quarantine_directory, set_firewall_quarantine_directory) = create_signal(String::new());
     let (firewall_quarantine_files, set_firewall_quarantine_files) = create_signal(Vec::<FirewallQuarantineFileEntry>::new());
 
+    // Settings Navigation
+    let (settings_sub_tab, set_settings_sub_tab) = create_signal(SettingsSubTab::General);
+    let (readme_content, set_readme_content) = create_signal(String::new());
+
+    let fetch_readme = move || {
+        spawn_local(async move {
+            let res = invoke("get_readme_content", JsValue::NULL).await;
+            if let Ok(content) = serde_wasm_bindgen::from_value::<String>(res) {
+                set_readme_content.set(content);
+            }
+        });
+    };
+
     let fetch_sdk_rules = move || {
         spawn_local(async move {
             let args = js_sys::Object::new();
@@ -1464,7 +1484,10 @@ pub fn App() -> impl IntoView {
             }
             AppView::Logs => { fetch_saved_logs(); }
             AppView::Exclusions => { fetch_app_decisions(); }
-            AppView::Settings => { fetch_settings(); }
+            AppView::Settings => {
+                fetch_settings();
+                fetch_readme();
+            }
             _ => {}
         }
     });
@@ -3470,384 +3493,475 @@ pub fn App() -> impl IntoView {
                             }.into_view(),
 
                             AppView::Settings => view! {
-                                <div class="dashboard-grid" style="height: calc(100vh - 120px)">
-                                    <div class="glass-card" style="width: 100%; overflow-y: auto; min-height: 0">
-                                        <h3>"System Settings"</h3>
-                                        <p style="margin: 0 0 18px 0; color: var(--text-muted); font-size: 12px; line-height: 1.5">
-                                            "The normal GUI stays active. Raw JSON is available below, and saving from this page now preserves the extra settings fields instead of dropping them."
-                                        </p>
-                                        <div class="input-group" style="padding: 14px; border: 1px solid rgba(96, 165, 250, 0.18); border-radius: 10px; background: rgba(96, 165, 250, 0.05)">
-                                            <label style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px">
-                                                <input
-                                                    type="checkbox"
-                                                    prop:checked=move || {
-                                                        let cfg = settings.get().tls_proxy;
-                                                        cfg.mode == TlsInspectionMode::TlsProxy && cfg.auto_start
-                                                    }
-                                                    on:change=move |ev| {
-                                                        let enabled = event_target_checked(&ev);
-                                                        set_settings.update(|s| {
-                                                            if enabled {
-                                                                s.tls_proxy.mode = TlsInspectionMode::TlsProxy;
-                                                                s.tls_proxy.auto_start = true;
-                                                            } else {
-                                                                s.tls_proxy.mode = TlsInspectionMode::MetadataOnly;
-                                                                s.tls_proxy.auto_start = false;
-                                                            }
-                                                        });
-                                                    }
-                                                />
-                                                "Enable embedded MITM/TLS proxy interception"
-                                            </label>
-                                            <p style="margin: 0 0 10px 0; color: var(--text-muted); font-size: 12px; line-height: 1.5">
-                                                "Turning this off keeps the firewall running but clears the Windows proxy and stops HTTPS interception."
-                                            </p>
-                                            <div class="input-group" style="margin-bottom: 10px">
-                                                <label>"TLS visibility mode"</label>
-                                                <select
-                                                    prop:value=move || match settings.get().tls_proxy.mode {
-                                                        TlsInspectionMode::MetadataOnly => "metadata_only".to_string(),
-                                                        TlsInspectionMode::TlsProxy => "tls_proxy".to_string(),
-                                                    }
-                                                    on:change=move |ev| {
-                                                        let mode = event_target_value(&ev);
-                                                        set_settings.update(|s| {
-                                                            if mode == "tls_proxy" {
-                                                                s.tls_proxy.mode = TlsInspectionMode::TlsProxy;
-                                                                if !s.tls_proxy.auto_start {
-                                                                    s.tls_proxy.auto_start = true;
-                                                                }
-                                                            } else {
-                                                                s.tls_proxy.mode = TlsInspectionMode::MetadataOnly;
-                                                                s.tls_proxy.auto_start = false;
-                                                            }
-                                                        });
-                                                    }
-                                                >
-                                                    <option value="metadata_only">"Metadata only"</option>
-                                                    <option value="tls_proxy">"Embedded MITM proxy"</option>
-                                                </select>
-                                            </div>
-                                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-top: 10px;">
-                                                <div class="input-group" style="margin: 0">
-                                                    <label>"MITM listen host"</label>
-                                                    <input
-                                                        type="text"
-                                                        prop:value=move || settings.get().tls_proxy.listen_host.clone()
-                                                        on:input=move |ev| {
-                                                            set_settings.update(|s| {
-                                                                s.tls_proxy.listen_host = event_target_value(&ev);
-                                                            });
-                                                        }
-                                                    />
-                                                </div>
-                                                <div class="input-group" style="margin: 0">
-                                                    <label>"MITM listen port"</label>
-                                                    <input
-                                                        type="number"
-                                                        min="1"
-                                                        max="65535"
-                                                        prop:value=move || settings.get().tls_proxy.listen_port.to_string()
-                                                        on:input=move |ev| {
-                                                            if let Ok(value) = event_target_value(&ev).parse::<u16>() {
-                                                                set_settings.update(|s| s.tls_proxy.listen_port = value.max(1));
-                                                            }
-                                                        }
-                                                    />
-                                                </div>
-                                            </div>
-                                            <div class="input-group">
-                                                <label style="display: flex; align-items: center; gap: 10px">
-                                                    <input
-                                                        type="checkbox"
-                                                        prop:checked=move || settings.get().tls_proxy.block_quic_udp_443
-                                                        on:change=move |ev| {
-                                                            let enabled = event_target_checked(&ev);
-                                                            set_settings.update(|s| s.tls_proxy.block_quic_udp_443 = enabled);
-                                                        }
-                                                        disabled=move || settings.get().tls_proxy.mode != TlsInspectionMode::TlsProxy
-                                                    />
-                                                    "Block QUIC/UDP 443 while MITM proxy mode is active"
-                                                </label>
-                                            </div>
-                                            <div class="input-group" style="margin-top: 10px">
-                                                <label>"MITM bypass hosts/domains"</label>
-                                                <textarea
-                                                    style="min-height: 110px; width: 100%; box-sizing: border-box; padding: 10px; resize: vertical"
-                                                    prop:value=move || settings.get().tls_proxy.bypass_hosts.join("\n")
-                                                    on:input=move |ev| {
-                                                        let value = event_target_value(&ev);
-                                                        let entries = value
-                                                            .split(['\n', '\r', ',', ';'])
-                                                            .filter_map(|item| {
-                                                                let trimmed = item.trim();
-                                                                if trimmed.is_empty() {
-                                                                    None
-                                                                } else {
-                                                                    Some(trimmed.to_string())
-                                                                }
-                                                            })
-                                                            .collect::<Vec<_>>();
-                                                        set_settings.update(|s| s.tls_proxy.bypass_hosts = entries);
-                                                    }
-                                                />
-                                                <p style="margin: 8px 0 0 0; color: var(--text-muted); font-size: 12px; line-height: 1.5">
-                                                    "One host, domain, or pattern per line. Matching targets bypass the embedded MITM proxy through Windows proxy override rules."
-                                                </p>
-                                            </div>
-                                            <div style="margin-top: 12px; padding: 12px; border-radius: 8px; background: rgba(15, 23, 42, 0.55); border: 1px solid rgba(148, 163, 184, 0.18);">
-                                                <div style="font-size: 12px; font-weight: 700; margin-bottom: 8px;">"MITM Trust Status"</div>
-                                                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px; font-size: 12px;">
-                                                    <div>
-                                                        <strong>"Mode: "</strong>
-                                                        {move || if mitm_enabled.get() { "Embedded MITM active" } else { "MITM disabled / metadata only" }}
-                                                    </div>
-                                                    <div>
-                                                        <strong>"Windows trust: "</strong>
-                                                        {move || if windows_root_trust_ready.get() { "Ready" } else { "Not ready" }}
-                                                    </div>
-                                                    <div>
-                                                        <strong>"Firefox trust: "</strong>
-                                                        {move || if firefox_policy_ready.get() { "Ready" } else { "Not ready" }}
-                                                    </div>
-                                                    <div>
-                                                        <strong>"Bypass entries: "</strong>
-                                                        {move || mitm_bypass_count.get().to_string()}
-                                                    </div>
-                                                </div>
-                                                <p style="margin: 10px 0 0 0; color: var(--text-muted); font-size: 12px; line-height: 1.5">
-                                                    {move || {
-                                                        let cfg = settings.get().tls_proxy;
-                                                        if cfg.mode == TlsInspectionMode::TlsProxy && cfg.auto_start {
-                                                            format!(
-                                                                "Current MITM listener: {}:{} . Firefox may need a restart after trust changes. Website alerts can now be trusted without MITM, which adds that host to this bypass list.",
-                                                                cfg.listen_host, cfg.listen_port
-                                                            )
-                                                        } else {
-                                                            "MITM proxy is currently disabled; packet and metadata logging remain available.".to_string()
-                                                        }
-                                                    }}
-                                                </p>
-                                                <p style="margin: 8px 0 0 0; color: var(--accent-orange); font-size: 12px; line-height: 1.5">
-                                                    "Even when interception is hidden, some browsers and other antivirus/security products can still flag it as a MITM-style attack if trust is not accepted."
-                                                </p>
-                                            </div>
-                                        </div>
-                                        <div class="input-group" style="margin-top: 18px">
-                                            <label>"Kernel blocked paths"</label>
-                                            <textarea
-                                                style="min-height: 110px; width: 100%; box-sizing: border-box; padding: 10px; resize: vertical"
-                                                prop:value=move || settings.get().kernel_block_paths.join("\n")
-                                                on:input=move |ev| {
-                                                    let value = event_target_value(&ev);
-                                                    let entries = value
-                                                        .split(['\n', '\r', ';'])
-                                                        .filter_map(|item| {
-                                                            let trimmed = item.trim();
-                                                            if trimmed.is_empty() {
-                                                                None
-                                                            } else {
-                                                                Some(trimmed.to_string())
-                                                            }
-                                                        })
-                                                        .collect::<Vec<_>>();
-                                                    set_settings.update(|s| s.kernel_block_paths = entries);
-                                                }
-                                            />
-                                            <p style="margin: 8px 0 0 0; color: var(--text-muted); font-size: 12px; line-height: 1.5">
-                                                "These paths are sent to the kernel deny list. One full path per line."
-                                            </p>
-                                        </div>
-                                        <div class="input-group">
-                                            <label>"Custom Filter Path"</label>
-                                            <input type="text" prop:value=move || settings.get().website_path on:input=move |ev| update_path(event_target_value(&ev)) />
-                                        </div>
-                                        <div style="margin: 12px 0 18px 0; padding: 12px; border-radius: 8px; background: rgba(15, 23, 42, 0.4); border: 1px solid rgba(148, 163, 184, 0.12); display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px; font-size: 12px;">
-                                            <div><strong>"Rules loaded: "</strong>{move || settings.get().rules.len().to_string()}</div>
-                                            <div><strong>"Trusted entries: "</strong>{move || settings.get().app_decisions.len().to_string()}</div>
-                                            <div><strong>"Kernel blocks: "</strong>{move || settings.get().kernel_block_paths.len().to_string()}</div>
-                                            <div><strong>"Metadata keys: "</strong>{move || settings.get().metadata.len().to_string()}</div>
-                                        </div>
-                                        <div style="margin: 0 0 18px 0; padding: 12px; border-radius: 8px; background: rgba(15, 23, 42, 0.32); border: 1px solid rgba(148, 163, 184, 0.12);">
-                                            <div style="font-size: 12px; font-weight: 700; margin-bottom: 6px;">"Managed Settings Coverage"</div>
-                                            <p style="margin: 0; color: var(--text-muted); font-size: 12px; line-height: 1.5">
-                                                "Protection rules are managed in the Protection Rules tab, trusted applications are managed in Exclusions, and the raw JSON editor below still includes every available setting."
-                                            </p>
-                                        </div>
-                                        <div class="input-group">
-                                            <label>"Metadata entries"</label>
-                                            <textarea
-                                                style="min-height: 110px; width: 100%; box-sizing: border-box; padding: 10px; resize: vertical; font-family: Consolas, monospace; font-size: 12px"
-                                                prop:value=move || metadata_to_editor_string(&settings.get().metadata)
-                                                on:input=move |ev| {
-                                                    let value = event_target_value(&ev);
-                                                    set_settings.update(|s| {
-                                                        s.metadata = parse_metadata_editor_string(&value);
-                                                    });
-                                                }
-                                            />
-                                            <p style="margin: 8px 0 0 0; color: var(--text-muted); font-size: 12px; line-height: 1.5">
-                                                "Format: one `key=value` entry per line. This updates the normal metadata map without needing raw JSON."
-                                            </p>
-                                        </div>
-                                        <div class="input-group">
-                                            <label style="display: flex; align-items: center; gap: 10px">
-                                                <input
-                                                    type="checkbox"
-                                                    prop:checked=move || settings.get().save_all_logs
-                                                    on:change=move |ev| {
-                                                        set_settings.update(|s| s.save_all_logs = event_target_checked(&ev));
-                                                    }
-                                                />
-                                                "Save all logs to disk"
-                                            </label>
-                                        </div>
-                                        <div class="input-group">
-                                            <label style="display: flex; align-items: center; gap: 10px">
-                                                <input
-                                                    type="checkbox"
-                                                    prop:checked=move || settings.get().prune_old_logs
-                                                    on:change=move |ev| {
-                                                        set_settings.update(|s| s.prune_old_logs = event_target_checked(&ev));
-                                                    }
-                                                />
-                                                "Remove old logs from the GUI when the list gets too large"
-                                            </label>
-                                        </div>
-                                        <div class="input-group">
-                                            <label>"Maximum visible logs"</label>
-                                            <input
-                                                type="number"
-                                                min="1"
-                                                prop:value=move || settings.get().max_visible_logs.to_string()
-                                                on:input=move |ev| {
-                                                    if let Ok(value) = event_target_value(&ev).parse::<usize>() {
-                                                        set_settings.update(|s| s.max_visible_logs = value.max(1));
-                                                    }
-                                                }
-                                            />
-                                        </div>
-                                        <div style="margin: 14px 0 12px 0; padding: 12px; border-radius: 8px; background: rgba(59, 130, 246, 0.08); border: 1px solid rgba(59, 130, 246, 0.16);">
-                                            <div style="font-size: 12px; font-weight: 700; margin-bottom: 6px;">"HTTP Inspector History"</div>
-                                            <p style="margin: 0; color: var(--text-muted); font-size: 12px; line-height: 1.5">
-                                                "These options control only the HTTP Inspector request history. They do not change the normal log list limit above."
-                                            </p>
-                                        </div>
-                                        <div class="input-group">
-                                            <label style="display: flex; align-items: center; gap: 10px">
-                                                <input
-                                                    type="checkbox"
-                                                    prop:checked=move || settings.get().prune_http_history
-                                                    on:change=move |ev| {
-                                                        set_settings.update(|s| s.prune_http_history = event_target_checked(&ev));
-                                                    }
-                                                />
-                                                "Prune HTTP inspector history in the GUI"
-                                            </label>
-                                        </div>
-                                        <div class="input-group">
-                                            <label>"HTTP inspector history limit"</label>
-                                            <input
-                                                type="number"
-                                                min="1"
-                                                prop:value=move || settings.get().max_visible_http_events.to_string()
-                                                on:input=move |ev| {
-                                                    if let Ok(value) = event_target_value(&ev).parse::<usize>() {
-                                                        set_settings.update(|s| s.max_visible_http_events = value.max(1));
-                                                    }
-                                                }
-                                            />
-                                            <p style="margin: 8px 0 0 0; color: var(--text-muted); font-size: 12px; line-height: 1.5">
-                                                "Turn pruning off if you want the inspector to keep growing during the current session."
-                                            </p>
-                                        </div>
-                                        <div class="input-group">
-                                            <label style="display: flex; align-items: center; gap: 10px">
-                                                <input
-                                                    type="checkbox"
-                                                    prop:checked=move || settings.get().late_blocking_mode
-                                                    on:change=move |ev| {
-                                                        set_settings.update(|s| s.late_blocking_mode = event_target_checked(&ev));
-                                                    }
-                                                />
-                                                "Late blocking mode"
-                                            </label>
-                                        </div>
-                                        <div class="input-group">
-                                            <label style="display: flex; align-items: center; gap: 10px">
-                                                <input
-                                                    type="checkbox"
-                                                    prop:checked=move || settings.get().headless_mode
-                                                    on:change=move |ev| {
-                                                        set_settings.update(|s| s.headless_mode = event_target_checked(&ev));
-                                                    }
-                                                />
-                                                "Headless mode (hide main window on start)"
-                                            </label>
-                                        </div>
-                                        <div class="input-group">
-                                            <label style="display: flex; align-items: center; gap: 10px">
-                                                <input
-                                                    type="checkbox"
-                                                    prop:checked=move || settings.get().log_mode
-                                                    on:change=move |ev| {
-                                                        set_settings.update(|s| s.log_mode = event_target_checked(&ev));
-                                                    }
-                                                />
-                                                "Log mode (log all packets, including forwarded)"
-                                            </label>
-                                        </div>
-                                        <div class="input-group">
-                                            <label style="display: flex; align-items: center; gap: 10px">
-                                                <input
-                                                    type="checkbox"
-                                                    prop:checked=move || settings.get().no_alert_mode
-                                                    on:change=move |ev| {
-                                                        set_settings.update(|s| s.no_alert_mode = event_target_checked(&ev));
-                                                    }
-                                                />
-                                                <span>
-                                                    "No-alert mode "
-                                                    <span style="color: var(--accent-orange); font-size: 11px; font-weight: 700">"[not recommended — skips firewall decision prompts for testing]"</span>
-                                                </span>
-                                            </label>
-                                        </div>
-                                        <p style="margin: 8px 0 18px 0; color: var(--text-muted); font-size: 12px; line-height: 1.5">
-                                            "Saved logs stay on disk. GUI pruning only controls how many entries remain visible in the on-screen log list."
-                                        </p>
-                                        <button class="btn-primary" on:click=move |_| save_settings_action()> "Save Changes" </button>
-                                        {move || if saved_status.get() { view! { <span style="margin-left: 10px; color: var(--accent-green)">"Saved!"</span> }.into_view() } else { view! {}.into_view() }}
-                                        <div class="input-group" style="margin-top: 20px">
-                                            <label>"Raw Settings JSON"</label>
-                                            <textarea
-                                                style="min-height: 360px; width: 100%; box-sizing: border-box; padding: 10px; resize: vertical; font-family: Consolas, monospace; font-size: 12px"
-                                                prop:value=move || settings_raw.get()
-                                                on:input=move |ev| {
-                                                    set_settings_raw.set(event_target_value(&ev));
-                                                    set_settings_raw_status.set(String::new());
-                                                }
-                                            />
-                                            <p style="margin: 8px 0 0 0; color: var(--text-muted); font-size: 12px; line-height: 1.5">
-                                                "The GUI remains the normal path. This raw editor is for direct JSON edits when you need full control."
-                                            </p>
-                                            <div style="display: flex; gap: 10px; margin-top: 10px; flex-wrap: wrap;">
-                                                <button class="btn-secondary" on:click=move |_| set_settings_raw.set(serde_json::to_string_pretty(&settings.get()).unwrap_or_default())>
-                                                    "Refresh Raw From GUI"
-                                                </button>
-                                                <button class="btn-primary" on:click=move |_| apply_raw_settings_action()>
-                                                    "Apply Raw JSON"
-                                                </button>
-                                            </div>
-                                            {move || if !settings_raw_status.get().is_empty() {
-                                                view! {
-                                                    <p style="margin: 8px 0 0 0; color: var(--text-muted); font-size: 12px; line-height: 1.5">
-                                                        {settings_raw_status.get()}
+                                <div style="height: calc(100vh - 120px); display: flex; flex-direction: column; gap: 0">
+                                    // ── Tab Bar ──────────────────────────────────────────────
+                                    <div style="display: flex; border-bottom: 1px solid rgba(255,255,255,0.1); margin-bottom: 12px">
+                                        <button
+                                            class={move || if settings_sub_tab.get() == SettingsSubTab::General { "nav-item active" } else { "nav-item" }}
+                                            style="padding: 8px 18px; border-radius: 4px 4px 0 0"
+                                            on:click=move |_| { set_settings_sub_tab.set(SettingsSubTab::General); }>
+                                            "General"
+                                        </button>
+                                        <button
+                                            class={move || if settings_sub_tab.get() == SettingsSubTab::About { "nav-item active" } else { "nav-item" }}
+                                            style="padding: 8px 18px; border-radius: 4px 4px 0 0"
+                                            on:click=move |_| { set_settings_sub_tab.set(SettingsSubTab::About); fetch_readme(); }>
+                                            "About"
+                                        </button>
+                                        <button
+                                            class={move || if settings_sub_tab.get() == SettingsSubTab::Help { "nav-item active" } else { "nav-item" }}
+                                            style="padding: 8px 18px; border-radius: 4px 4px 0 0"
+                                            on:click=move |_| { set_settings_sub_tab.set(SettingsSubTab::Help); fetch_readme(); }>
+                                            "Help"
+                                        </button>
+                                    </div>
+
+                                    <div style="flex: 1; overflow-y: auto">
+                                        {move || match settings_sub_tab.get() {
+                                            SettingsSubTab::General => view! {
+                                                <div class="glass-card" style="width: 100%; min-height: 0">
+                                                    <h3>"System Settings"</h3>
+                                                    <p style="margin: 0 0 18px 0; color: var(--text-muted); font-size: 12px; line-height: 1.5">
+                                                        "The normal GUI stays active. Raw JSON is available below, and saving from this page now preserves the extra settings fields instead of dropping them."
                                                     </p>
-                                                }.into_view()
-                                            } else {
-                                                view! {}.into_view()
-                                            }}
-                                        </div>
+                                                    <div class="input-group" style="padding: 14px; border: 1px solid rgba(96, 165, 250, 0.18); border-radius: 10px; background: rgba(96, 165, 250, 0.05)">
+                                                        <label style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px">
+                                                            <input
+                                                                type="checkbox"
+                                                                prop:checked=move || {
+                                                                    let cfg = settings.get().tls_proxy;
+                                                                    cfg.mode == TlsInspectionMode::TlsProxy && cfg.auto_start
+                                                                }
+                                                                on:change=move |ev| {
+                                                                    let enabled = event_target_checked(&ev);
+                                                                    set_settings.update(|s| {
+                                                                        if enabled {
+                                                                            s.tls_proxy.mode = TlsInspectionMode::TlsProxy;
+                                                                            s.tls_proxy.auto_start = true;
+                                                                        } else {
+                                                                            s.tls_proxy.mode = TlsInspectionMode::MetadataOnly;
+                                                                            s.tls_proxy.auto_start = false;
+                                                                        }
+                                                                    });
+                                                                }
+                                                            />
+                                                            "Enable embedded MITM/TLS proxy interception"
+                                                        </label>
+                                                        <p style="margin: 0 0 10px 0; color: var(--text-muted); font-size: 12px; line-height: 1.5">
+                                                            "Turning this off keeps the firewall running but clears the Windows proxy and stops HTTPS interception."
+                                                        </p>
+                                                        <div class="input-group" style="margin-bottom: 10px">
+                                                            <label>"TLS visibility mode"</label>
+                                                            <select
+                                                                prop:value=move || match settings.get().tls_proxy.mode {
+                                                                    TlsInspectionMode::MetadataOnly => "metadata_only".to_string(),
+                                                                    TlsInspectionMode::TlsProxy => "tls_proxy".to_string(),
+                                                                }
+                                                                on:change=move |ev| {
+                                                                    let mode = event_target_value(&ev);
+                                                                    set_settings.update(|s| {
+                                                                        if mode == "tls_proxy" {
+                                                                            s.tls_proxy.mode = TlsInspectionMode::TlsProxy;
+                                                                            if !s.tls_proxy.auto_start {
+                                                                                s.tls_proxy.auto_start = true;
+                                                                            }
+                                                                        } else {
+                                                                            s.tls_proxy.mode = TlsInspectionMode::MetadataOnly;
+                                                                            s.tls_proxy.auto_start = false;
+                                                                        }
+                                                                    });
+                                                                }
+                                                            >
+                                                                <option value="metadata_only">"Metadata only"</option>
+                                                                <option value="tls_proxy">"Embedded MITM proxy"</option>
+                                                            </select>
+                                                        </div>
+                                                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-top: 10px;">
+                                                            <div class="input-group" style="margin: 0">
+                                                                <label>"MITM listen host"</label>
+                                                                <input
+                                                                    type="text"
+                                                                    prop:value=move || settings.get().tls_proxy.listen_host.clone()
+                                                                    on:input=move |ev| {
+                                                                        set_settings.update(|s| {
+                                                                            s.tls_proxy.listen_host = event_target_value(&ev);
+                                                                        });
+                                                                    }
+                                                                />
+                                                            </div>
+                                                            <div class="input-group" style="margin: 0">
+                                                                <label>"MITM listen port"</label>
+                                                                <input
+                                                                    type="number"
+                                                                    min="1"
+                                                                    max="65535"
+                                                                    prop:value=move || settings.get().tls_proxy.listen_port.to_string()
+                                                                    on:input=move |ev| {
+                                                                        if let Ok(value) = event_target_value(&ev).parse::<u16>() {
+                                                                            set_settings.update(|s| s.tls_proxy.listen_port = value.max(1));
+                                                                        }
+                                                                    }
+                                                                />
+                                                            </div>
+                                                        </div>
+                                                        <div class="input-group">
+                                                            <label style="display: flex; align-items: center; gap: 10px">
+                                                                <input
+                                                                    type="checkbox"
+                                                                    prop:checked=move || settings.get().tls_proxy.block_quic_udp_443
+                                                                    on:change=move |ev| {
+                                                                        let enabled = event_target_checked(&ev);
+                                                                        set_settings.update(|s| s.tls_proxy.block_quic_udp_443 = enabled);
+                                                                    }
+                                                                    disabled=move || settings.get().tls_proxy.mode != TlsInspectionMode::TlsProxy
+                                                                />
+                                                                "Block QUIC/UDP 443 while MITM proxy mode is active"
+                                                            </label>
+                                                        </div>
+                                                        <div class="input-group" style="margin-top: 10px">
+                                                            <label>"MITM bypass hosts/domains"</label>
+                                                            <textarea
+                                                                style="min-height: 110px; width: 100%; box-sizing: border-box; padding: 10px; resize: vertical"
+                                                                prop:value=move || settings.get().tls_proxy.bypass_hosts.join("\n")
+                                                                on:input=move |ev| {
+                                                                    let value = event_target_value(&ev);
+                                                                    let entries = value
+                                                                        .split(['\n', '\r', ',', ';'])
+                                                                        .filter_map(|item| {
+                                                                            let trimmed = item.trim();
+                                                                            if trimmed.is_empty() {
+                                                                                None
+                                                                            } else {
+                                                                                Some(trimmed.to_string())
+                                                                            }
+                                                                        })
+                                                                        .collect::<Vec<_>>();
+                                                                    set_settings.update(|s| s.tls_proxy.bypass_hosts = entries);
+                                                                }
+                                                            />
+                                                            <p style="margin: 8px 0 0 0; color: var(--text-muted); font-size: 12px; line-height: 1.5">
+                                                                "One host, domain, or pattern per line. Matching targets bypass the embedded MITM proxy through Windows proxy override rules."
+                                                            </p>
+                                                        </div>
+                                                        <div style="margin-top: 12px; padding: 12px; border-radius: 8px; background: rgba(15, 23, 42, 0.55); border: 1px solid rgba(148, 163, 184, 0.18);">
+                                                            <div style="font-size: 12px; font-weight: 700; margin-bottom: 8px;">"MITM Trust Status"</div>
+                                                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px; font-size: 12px;">
+                                                                <div>
+                                                                    <strong>"Mode: "</strong>
+                                                                    {move || if mitm_enabled.get() { "Embedded MITM active" } else { "MITM disabled / metadata only" }}
+                                                                </div>
+                                                                <div>
+                                                                    <strong>"Windows trust: "</strong>
+                                                                    {move || if windows_root_trust_ready.get() { "Ready" } else { "Not ready" }}
+                                                                </div>
+                                                                <div>
+                                                                    <strong>"Firefox trust: "</strong>
+                                                                    {move || if firefox_policy_ready.get() { "Ready" } else { "Not ready" }}
+                                                                </div>
+                                                                <div>
+                                                                    <strong>"Bypass entries: "</strong>
+                                                                    {move || mitm_bypass_count.get().to_string()}
+                                                                </div>
+                                                            </div>
+                                                            <p style="margin: 10px 0 0 0; color: var(--text-muted); font-size: 12px; line-height: 1.5">
+                                                                {move || {
+                                                                    let cfg = settings.get().tls_proxy;
+                                                                    if cfg.mode == TlsInspectionMode::TlsProxy && cfg.auto_start {
+                                                                        format!(
+                                                                            "Current MITM listener: {}:{} . Firefox may need a restart after trust changes. Website alerts can now be trusted without MITM, which adds that host to this bypass list.",
+                                                                            cfg.listen_host, cfg.listen_port
+                                                                        )
+                                                                    } else {
+                                                                        "MITM proxy is currently disabled; packet and metadata logging remain available.".to_string()
+                                                                    }
+                                                                }}
+                                                            </p>
+                                                            <p style="margin: 8px 0 0 0; color: var(--accent-orange); font-size: 12px; line-height: 1.5">
+                                                                "Even when interception is hidden, some browsers and other antivirus/security products can still flag it as a MITM-style attack if trust is not accepted."
+                                                            </p>
+                                                        </div>
+                                                    </div>
+                                                    <div class="input-group" style="margin-top: 18px">
+                                                        <label>"Kernel blocked paths"</label>
+                                                        <textarea
+                                                            style="min-height: 110px; width: 100%; box-sizing: border-box; padding: 10px; resize: vertical"
+                                                            prop:value=move || settings.get().kernel_block_paths.join("\n")
+                                                            on:input=move |ev| {
+                                                                let value = event_target_value(&ev);
+                                                                let entries = value
+                                                                    .split(['\n', '\r', ';'])
+                                                                    .filter_map(|item| {
+                                                                        let trimmed = item.trim();
+                                                                        if trimmed.is_empty() {
+                                                                            None
+                                                                        } else {
+                                                                            Some(trimmed.to_string())
+                                                                        }
+                                                                    })
+                                                                    .collect::<Vec<_>>();
+                                                                set_settings.update(|s| s.kernel_block_paths = entries);
+                                                            }
+                                                        />
+                                                        <p style="margin: 8px 0 0 0; color: var(--text-muted); font-size: 12px; line-height: 1.5">
+                                                            "These paths are sent to the kernel deny list. One full path per line."
+                                                        </p>
+                                                    </div>
+                                                    <div class="input-group">
+                                                        <label>"Custom Filter Path"</label>
+                                                        <input type="text" prop:value=move || settings.get().website_path on:input=move |ev| update_path(event_target_value(&ev)) />
+                                                    </div>
+                                                    <div style="margin: 12px 0 18px 0; padding: 12px; border-radius: 8px; background: rgba(15, 23, 42, 0.4); border: 1px solid rgba(148, 163, 184, 0.12); display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px; font-size: 12px;">
+                                                        <div><strong>"Rules loaded: "</strong>{move || settings.get().rules.len().to_string()}</div>
+                                                        <div><strong>"Trusted entries: "</strong>{move || settings.get().app_decisions.len().to_string()}</div>
+                                                        <div><strong>"Kernel blocks: "</strong>{move || settings.get().kernel_block_paths.len().to_string()}</div>
+                                                        <div><strong>"Metadata keys: "</strong>{move || settings.get().metadata.len().to_string()}</div>
+                                                    </div>
+                                                    <div style="margin: 0 0 18px 0; padding: 12px; border-radius: 8px; background: rgba(15, 23, 42, 0.32); border: 1px solid rgba(148, 163, 184, 0.12);">
+                                                        <div style="font-size: 12px; font-weight: 700; margin-bottom: 6px;">"Managed Settings Coverage"</div>
+                                                        <p style="margin: 0; color: var(--text-muted); font-size: 12px; line-height: 1.5">
+                                                            "Protection rules are managed in the Protection Rules tab, trusted applications are managed in Exclusions, and the raw JSON editor below still includes every available setting."
+                                                        </p>
+                                                    </div>
+                                                    <div class="input-group">
+                                                        <label>"Metadata entries"</label>
+                                                        <textarea
+                                                            style="min-height: 110px; width: 100%; box-sizing: border-box; padding: 10px; resize: vertical; font-family: Consolas, monospace; font-size: 12px"
+                                                            prop:value=move || metadata_to_editor_string(&settings.get().metadata)
+                                                            on:input=move |ev| {
+                                                                let value = event_target_value(&ev);
+                                                                set_settings.update(|s| {
+                                                                    s.metadata = parse_metadata_editor_string(&value);
+                                                                });
+                                                            }
+                                                        />
+                                                        <p style="margin: 8px 0 0 0; color: var(--text-muted); font-size: 12px; line-height: 1.5">
+                                                            "Format: one `key=value` entry per line. This updates the normal metadata map without needing raw JSON."
+                                                        </p>
+                                                    </div>
+                                                    <div class="input-group">
+                                                        <label style="display: flex; align-items: center; gap: 10px">
+                                                            <input
+                                                                type="checkbox"
+                                                                prop:checked=move || settings.get().save_all_logs
+                                                                on:change=move |ev| {
+                                                                    set_settings.update(|s| s.save_all_logs = event_target_checked(&ev));
+                                                                }
+                                                            />
+                                                            "Save all logs to disk"
+                                                        </label>
+                                                    </div>
+                                                    <div class="input-group">
+                                                        <label style="display: flex; align-items: center; gap: 10px">
+                                                            <input
+                                                                type="checkbox"
+                                                                prop:checked=move || settings.get().prune_old_logs
+                                                                on:change=move |ev| {
+                                                                    set_settings.update(|s| s.prune_old_logs = event_target_checked(&ev));
+                                                                }
+                                                            />
+                                                            "Remove old logs from the GUI when the list gets too large"
+                                                        </label>
+                                                    </div>
+                                                    <div class="input-group">
+                                                        <label>"Maximum visible logs"</label>
+                                                        <input
+                                                            type="number"
+                                                            min="1"
+                                                            prop:value=move || settings.get().max_visible_logs.to_string()
+                                                            on:input=move |ev| {
+                                                                if let Ok(value) = event_target_value(&ev).parse::<usize>() {
+                                                                    set_settings.update(|s| s.max_visible_logs = value.max(1));
+                                                                }
+                                                            }
+                                                        />
+                                                    </div>
+                                                    <div style="margin: 14px 0 12px 0; padding: 12px; border-radius: 8px; background: rgba(59, 130, 246, 0.08); border: 1px solid rgba(59, 130, 246, 0.16);">
+                                                        <div style="font-size: 12px; font-weight: 700; margin-bottom: 6px;">"HTTP Inspector History"</div>
+                                                        <p style="margin: 0; color: var(--text-muted); font-size: 12px; line-height: 1.5">
+                                                            "These options control only the HTTP Inspector request history. They do not change the normal log list limit above."
+                                                        </p>
+                                                    </div>
+                                                    <div class="input-group">
+                                                        <label style="display: flex; align-items: center; gap: 10px">
+                                                            <input
+                                                                type="checkbox"
+                                                                prop:checked=move || settings.get().prune_http_history
+                                                                on:change=move |ev| {
+                                                                    set_settings.update(|s| s.prune_http_history = event_target_checked(&ev));
+                                                                }
+                                                            />
+                                                            "Prune HTTP inspector history in the GUI"
+                                                        </label>
+                                                    </div>
+                                                    <div class="input-group">
+                                                        <label>"HTTP inspector history limit"</label>
+                                                        <input
+                                                            type="number"
+                                                            min="1"
+                                                            prop:value=move || settings.get().max_visible_http_events.to_string()
+                                                            on:input=move |ev| {
+                                                                if let Ok(value) = event_target_value(&ev).parse::<usize>() {
+                                                                    set_settings.update(|s| s.max_visible_http_events = value.max(1));
+                                                                }
+                                                            }
+                                                        />
+                                                        <p style="margin: 8px 0 0 0; color: var(--text-muted); font-size: 12px; line-height: 1.5">
+                                                            "Turn pruning off if you want the inspector to keep growing during the current session."
+                                                        </p>
+                                                    </div>
+                                                    <div class="input-group">
+                                                        <label style="display: flex; align-items: center; gap: 10px">
+                                                            <input
+                                                                type="checkbox"
+                                                                prop:checked=move || settings.get().late_blocking_mode
+                                                                on:change=move |ev| {
+                                                                    set_settings.update(|s| s.late_blocking_mode = event_target_checked(&ev));
+                                                                }
+                                                            />
+                                                            "Late blocking mode"
+                                                        </label>
+                                                    </div>
+                                                    <div class="input-group">
+                                                        <label style="display: flex; align-items: center; gap: 10px">
+                                                            <input
+                                                                type="checkbox"
+                                                                prop:checked=move || settings.get().headless_mode
+                                                                on:change=move |ev| {
+                                                                    set_settings.update(|s| s.headless_mode = event_target_checked(&ev));
+                                                                }
+                                                            />
+                                                            "Headless mode (hide main window on start)"
+                                                        </label>
+                                                    </div>
+                                                    <div class="input-group">
+                                                        <label style="display: flex; align-items: center; gap: 10px">
+                                                            <input
+                                                                type="checkbox"
+                                                                prop:checked=move || settings.get().log_mode
+                                                                on:change=move |ev| {
+                                                                    set_settings.update(|s| s.log_mode = event_target_checked(&ev));
+                                                                }
+                                                            />
+                                                            "Log mode (log all packets, including forwarded)"
+                                                        </label>
+                                                    </div>
+                                                    <div class="input-group">
+                                                        <label style="display: flex; align-items: center; gap: 10px">
+                                                            <input
+                                                                type="checkbox"
+                                                                prop:checked=move || settings.get().no_alert_mode
+                                                                on:change=move |ev| {
+                                                                    set_settings.update(|s| s.no_alert_mode = event_target_checked(&ev));
+                                                                }
+                                                            />
+                                                            <span>
+                                                                "No-alert mode "
+                                                                <span style="color: var(--accent-orange); font-size: 11px; font-weight: 700">"[not recommended — skips firewall decision prompts for testing]"</span>
+                                                            </span>
+                                                        </label>
+                                                    </div>
+                                                    <p style="margin: 8px 0 18px 0; color: var(--text-muted); font-size: 12px; line-height: 1.5">
+                                                        "Saved logs stay on disk. GUI pruning only controls how many entries remain visible in the on-screen log list."
+                                                    </p>
+                                                    <button class="btn-primary" on:click=move |_| save_settings_action()> "Save Changes" </button>
+                                                    {move || if saved_status.get() { view! { <span style="margin-left: 10px; color: var(--accent-green)">"Saved!"</span> }.into_view() } else { view! {}.into_view() }}
+                                                    <div class="input-group" style="margin-top: 20px">
+                                                        <label>"Raw Settings JSON"</label>
+                                                        <textarea
+                                                            style="min-height: 360px; width: 100%; box-sizing: border-box; padding: 10px; resize: vertical; font-family: Consolas, monospace; font-size: 12px"
+                                                            prop:value=move || settings_raw.get()
+                                                            on:input=move |ev| {
+                                                                set_settings_raw.set(event_target_value(&ev));
+                                                                set_settings_raw_status.set(String::new());
+                                                            }
+                                                        />
+                                                        <p style="margin: 8px 0 0 0; color: var(--text-muted); font-size: 12px; line-height: 1.5">
+                                                            "The GUI remains the normal path. This raw editor is for direct JSON edits when you need full control."
+                                                        </p>
+                                                        <div style="display: flex; gap: 10px; margin-top: 10px; flex-wrap: wrap;">
+                                                            <button class="btn-secondary" on:click=move |_| set_settings_raw.set(serde_json::to_string_pretty(&settings.get()).unwrap_or_default())>
+                                                                "Refresh Raw From GUI"
+                                                            </button>
+                                                            <button class="btn-primary" on:click=move |_| apply_raw_settings_action()>
+                                                                "Apply Raw JSON"
+                                                            </button>
+                                                        </div>
+                                                        {move || if !settings_raw_status.get().is_empty() {
+                                                            view! {
+                                                                <p style="margin: 8px 0 0 0; color: var(--text-muted); font-size: 12px; line-height: 1.5">
+                                                                    {settings_raw_status.get()}
+                                                                </p>
+                                                            }.into_view()
+                                                        } else {
+                                                            view! {}.into_view()
+                                                        }}
+                                                    </div>
+                                                </div>
+                                            }.into_view(),
+                                            SettingsSubTab::About => view! {
+                                                <div class="glass-card" style="padding: 24px">
+                                                    <h3>"About HydraDragon Firewall"</h3>
+                                                    <div style="margin-top: 20px; display: flex; flex-direction: column; gap: 15px">
+                                                        <div style="display: flex; align-items: center; gap: 12px">
+                                                            <div style="width: 48px; height: 48px; background: var(--accent-blue); border-radius: 12px; display: flex; align-items: center; justify-content: center">
+                                                                <span style="font-size: 24px">"🛡️"</span>
+                                                            </div>
+                                                            <div>
+                                                                <div style="font-size: 18px; font-weight: 700">"HydraDragon Firewall"</div>
+                                                                <div style="font-size: 12px; color: var(--text-muted)">"Advanced Network & Application Security"</div>
+                                                            </div>
+                                                        </div>
+                                                        
+                                                        <p style="font-size: 14px; line-height: 1.6">
+                                                            "HydraDragon is a modern, high-performance firewall and endpoint protection system designed for Windows. It combines kernel-level packet filtering with behavioral analysis to provide comprehensive security."
+                                                        </p>
+
+                                                        <div style="padding: 15px; border-radius: 10px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05)">
+                                                            <div style="font-size: 13px; font-weight: 700; margin-bottom: 8px">"Project Links"</div>
+                                                            <div style="display: flex; flex-direction: column; gap: 6px">
+                                                                <a href="https://github.com/HydraDragonAntivirus/HydraDragonAntivirus" target="_blank" style="color: var(--accent-blue); text-decoration: none; font-size: 13px">
+                                                                    "GitHub Repository: HydraDragonAntivirus/HydraDragonAntivirus"
+                                                                </a>
+                                                                <a href="https://hydradragon.org" target="_blank" style="color: var(--accent-blue); text-decoration: none; font-size: 13px">
+                                                                    "Official Website"
+                                                                </a>
+                                                            </div>
+                                                        </div>
+
+                                                        <div style="margin-top: 10px">
+                                                            <div style="font-size: 13px; font-weight: 700; margin-bottom: 10px">"README.md Content"</div>
+                                                            <textarea readonly style="width: 100%; min-height: 400px; padding: 15px; border-radius: 10px; background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.1); color: #ccc; font-family: 'Consolas', monospace; font-size: 12px; resize: vertical">
+                                                                {readme_content.get()}
+                                                            </textarea>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            }.into_view(),
+                                            SettingsSubTab::Help => view! {
+                                                <div class="glass-card" style="padding: 24px">
+                                                    <h3>"Help & Documentation"</h3>
+                                                    <div style="margin-top: 20px; display: flex; flex-direction: column; gap: 20px">
+                                                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 15px">
+                                                            <div style="padding: 15px; border-radius: 10px; background: rgba(59, 130, 246, 0.05); border: 1px solid rgba(59, 130, 246, 0.1)">
+                                                                <div style="font-weight: 700; margin-bottom: 5px">"Quick Start"</div>
+                                                                <div style="font-size: 12px; color: var(--text-muted)">"Learn how to configure basic rules and enable TLS proxy."</div>
+                                                            </div>
+                                                            <div style="padding: 15px; border-radius: 10px; background: rgba(16, 185, 129, 0.05); border: 1px solid rgba(16, 185, 129, 0.1)">
+                                                                <div style="font-weight: 700; margin-bottom: 5px">"Troubleshooting"</div>
+                                                                <div style="font-size: 12px; color: var(--text-muted)">"Common issues and how to resolve them."</div>
+                                                            </div>
+                                                        </div>
+
+                                                        <div>
+                                                            <div style="font-size: 13px; font-weight: 700; margin-bottom: 10px">"Project Documentation"</div>
+                                                            <textarea readonly style="width: 100%; min-height: 500px; padding: 15px; border-radius: 10px; background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.1); color: #ccc; font-family: 'Consolas', monospace; font-size: 12px; resize: vertical">
+                                                                {readme_content.get()}
+                                                            </textarea>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            }.into_view(),
+                                        }}
                                     </div>
                                 </div>
                             }.into_view(),
