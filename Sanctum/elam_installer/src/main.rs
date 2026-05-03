@@ -32,7 +32,7 @@ fn main() {
     //
     println!("[i] Starting Elam installer..");
 
-    let username = get_logged_on_user_or_panic();
+    let _username = get_logged_on_user_or_panic();
 
     // The resulting buffer for a wide string conversion
     let mut path: Vec<u16> = vec![];
@@ -111,8 +111,9 @@ fn main() {
         }
     };
 
-    let mut info = SERVICE_LAUNCH_PROTECTED_INFO::default();
-    info.dwLaunchProtected = SERVICE_LAUNCH_PROTECTED_ANTIMALWARE_LIGHT;
+    let mut info = SERVICE_LAUNCH_PROTECTED_INFO {
+        dwLaunchProtected: SERVICE_LAUNCH_PROTECTED_ANTIMALWARE_LIGHT,
+    };
 
     if let Err(e) = unsafe {
         ChangeServiceConfig2W(
@@ -147,7 +148,7 @@ fn svc_name() -> Vec<u16> {
 }
 
 fn svc_bin_path() -> Vec<u16> {
-    let username = get_logged_on_user_or_panic();
+    let _username = get_logged_on_user_or_panic();
 
     // The resulting buffer for a wide string conversion
     let mut path: Vec<u16> = vec![];
@@ -274,5 +275,5 @@ fn get_logged_on_user_or_panic() -> String {
     // Use the returned count of TCHARS (num chars not bytes) -1 for the null to get a String of the
     // username
     let snip = &logged_on_user[..(pcb_buf - 1) as usize];
-    String::from_utf16_lossy(&snip)
+    String::from_utf16_lossy(snip)
 }

@@ -354,7 +354,8 @@ jobs:
           New-Item -ItemType Directory -Force -Path "$distRoot/MBRFilter"
           New-Item -ItemType Directory -Force -Path "$distRoot/SimplePYASProtection"
           New-Item -ItemType Directory -Force -Path "$distRoot/Owlyshield"
-          New-Item -ItemType Directory -Force -Path "$distRoot/Sanctum"
+          New-Item -ItemType Directory -Force -Path "$distRoot/Sanctum/AppData"
+          New-Item -ItemType Directory -Force -Path "$distRoot/Sanctum/System32"
           New-Item -ItemType Directory -Force -Path "$distRoot/HydraDragonFirewall"
           New-Item -ItemType Directory -Force -Path "$distRoot/HydraDragonDumper"
           New-Item -ItemType Directory -Force -Path "$distRoot/HydraDragonLauncher"
@@ -380,7 +381,13 @@ jobs:
           
           Get-ChildItem "downloaded-artifacts/bin-owlyshield-rust/" -Filter "owlyshield_ransom.exe" -Recurse | Copy-Item -Destination "$distRoot/Owlyshield/" -Force
           Get-ChildItem "downloaded-artifacts/bin-firewall-rust/" -Filter "*" -Recurse | Copy-Item -Destination "$distRoot/HydraDragonFirewall/" -Force
-          Get-ChildItem "downloaded-artifacts/bin-sanctum/" -Filter "*" -Recurse | Copy-Item -Destination "$distRoot/Sanctum/" -Force
+          
+          # Organized Sanctum layout
+          Get-ChildItem "downloaded-artifacts/bin-sanctum/" -Filter "*.sys" -Recurse | Copy-Item -Destination "$distRoot/Sanctum/" -Force
+          Get-ChildItem "downloaded-artifacts/bin-sanctum/" -Filter "*.inf" -Recurse | Copy-Item -Destination "$distRoot/Sanctum/" -Force
+          Get-ChildItem "downloaded-artifacts/bin-sanctum/" -Filter "*.cer" -Recurse | Copy-Item -Destination "$distRoot/Sanctum/" -Force
+          Get-ChildItem "downloaded-artifacts/bin-sanctum/" -Filter "*.exe" -Recurse | Copy-Item -Destination "$distRoot/Sanctum/AppData/" -Force
+          Get-ChildItem "downloaded-artifacts/bin-sanctum/" -Filter "sanctum.dll" -Recurse | Copy-Item -Destination "$distRoot/Sanctum/System32/" -Force
 
       - name: Check for Changes
         id: check_changes
