@@ -1702,6 +1702,12 @@ pub fn App() -> impl IntoView {
                 <div class="app-container">
                     <aside>
                         <div class="logo-area">
+                            <div class="logo-icon">
+                                <img src="assets/HydraDragonAV.png?v=2" class="logo-dragon-img" alt="" />
+                                <img src="assets/HydraDragonAV.png?v=2" class="logo-dragon-img logo-glitch-r" alt="" aria-hidden="true" />
+                                <img src="assets/HydraDragonAV.png?v=2" class="logo-dragon-img logo-glitch-c" alt="" aria-hidden="true" />
+                                <div class="logo-scanlines"></div>
+                            </div>
                             <div>
                                 <div class="logo-text">"HYDRADRAGON"</div>
                                 <div class="logo-sub">"Firewall v0.1.0"</div>
@@ -1875,14 +1881,6 @@ pub fn App() -> impl IntoView {
                                         <div class="glass-card stat-item-compact">
                                             <h4>"Allowed"</h4>
                                             <div class="stat-value" style="color: var(--accent-green)">{move || allowed_count.get()}</div>
-                                        </div>
-
-                                        // ── Glitch Dragon Icon ─────────────
-                                        <div class="sidebar-dragon-corner">
-                                            <img src="assets/HydraDragonAV.png?v=2" class="logo-dragon-img" alt="" />
-                                            <img src="assets/HydraDragonAV.png?v=2" class="logo-dragon-img logo-glitch-r" alt="" aria-hidden="true" />
-                                            <img src="assets/HydraDragonAV.png?v=2" class="logo-dragon-img logo-glitch-c" alt="" aria-hidden="true" />
-                                            <div class="logo-scanlines"></div>
                                         </div>
                                     </div>
                                 </div>

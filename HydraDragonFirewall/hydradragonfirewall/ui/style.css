@@ -195,14 +195,59 @@ aside::after {
 }
 
 .logo-icon {
-    width: 36px;
-    height: 36px;
+    width: 40px;
+    height: 40px;
     position: relative;
     flex-shrink: 0;
-    background: linear-gradient(135deg, var(--red) 0%, #FF7070 100%);
-    /* Clipped rhombus shape */
-    clip-path: polygon(50% 0%, 100% 30%, 100% 70%, 50% 100%, 0% 70%, 0% 30%);
-    box-shadow: 0 0 24px var(--red-glow);
+    pointer-events: none;
+    animation: iconContinuous 2.8s linear infinite;
+}
+
+.logo-icon .logo-dragon-img {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    z-index: 1;
+}
+
+.logo-icon .logo-glitch-r,
+.logo-icon .logo-glitch-c {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 2;
+    pointer-events: none;
+}
+
+.logo-icon .logo-glitch-r {
+    mix-blend-mode: screen;
+    filter: hue-rotate(-20deg) saturate(3) brightness(1.2);
+    animation: glitchRedFast 2.8s linear infinite;
+}
+
+.logo-icon .logo-glitch-c {
+    mix-blend-mode: screen;
+    filter: hue-rotate(160deg) saturate(2.5) brightness(1.1);
+    animation: glitchCyanFast 2.8s linear infinite;
+}
+
+.logo-icon .logo-scanlines {
+    position: absolute;
+    inset: 0;
+    z-index: 3;
+    pointer-events: none;
+    background: repeating-linear-gradient(
+        0deg,
+        transparent,
+        transparent 2px,
+        rgba(0,0,0,0.15) 2px,
+        rgba(0,0,0,0.15) 4px
+    );
+    animation: scanlineFast 2.8s linear infinite;
+    opacity: 0;
 }
 
 .logo-text {
@@ -2073,57 +2118,7 @@ main > div {
     animation: iconIdle 8s ease-in-out infinite;
 }
 
-/* ── BIG corner icon — bottom-right of sidebar ───────────── */
-.sidebar-dragon-corner {
-    position: absolute;
-    bottom: 54px; /* above the status strip */
-    right: -22px;
-    width: 130px;
-    height: 130px;
-    pointer-events: none;
-    z-index: 0;
-    filter: drop-shadow(0 0 18px rgba(255, 38, 38, 0.50))
-            drop-shadow(0 0 40px rgba(0, 207, 255, 0.18));
-    animation: iconIdle 8s ease-in-out infinite;
-    opacity: 0.82;
-}
 
-.sidebar-dragon-corner .logo-dragon-img {
-    position: absolute;
-    inset: 0;
-    width: 100%;
-    height: 100%;
-    object-fit: contain;
-}
-
-.sidebar-dragon-corner .logo-glitch-r {
-    mix-blend-mode: screen;
-    opacity: 0;
-    animation: glitchRed 8s ease-in-out infinite;
-    filter: saturate(3) hue-rotate(-20deg) brightness(1.4);
-}
-
-.sidebar-dragon-corner .logo-glitch-c {
-    mix-blend-mode: screen;
-    opacity: 0;
-    animation: glitchCyan 8s ease-in-out infinite;
-    filter: saturate(3) hue-rotate(170deg) brightness(1.4);
-}
-
-.sidebar-dragon-corner .logo-scanlines {
-    position: absolute;
-    inset: 0;
-    background: repeating-linear-gradient(
-        0deg,
-        transparent,
-        transparent 2px,
-        rgba(0,0,0,0.18) 2px,
-        rgba(0,0,0,0.18) 4px
-    );
-    pointer-events: none;
-    opacity: 0;
-    animation: scanlineFlicker 8s ease-in-out infinite;
-}
 
 /* ── Container (fallback) ─────────────────────────────────── */
 .logo-icon-glitch {
@@ -2336,78 +2331,7 @@ main > div {
     70.5%{ opacity: 0; }
 }
 
-/* ══════════════════════════════════════════════════════════════
-   SIDEBAR DRAGON CORNER — glitch icon container
-   ══════════════════════════════════════════════════════════════ */
-.sidebar-dragon-corner {
-    position: fixed;
-    bottom: 24px;
-    right: 24px;
-    width: 140px;
-    height: 140px;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    animation: iconContinuous 2.8s linear infinite;
-    z-index: 1000;
-    pointer-events: none;
-    opacity: 0.8;
-}
 
-.logo-dragon-img {
-    width: 100%;
-    height: 100%;
-    max-width: 140px;
-    max-height: 140px;
-    object-fit: contain;
-    position: relative;
-    z-index: 1;
-    filter: drop-shadow(0 0 8px rgba(255,38,38,0.3)) drop-shadow(0 0 16px rgba(0,207,255,0.12));
-    animation: dragonGlow 3s ease-in-out infinite;
-}
-
-@keyframes dragonGlow {
-    0%, 100% { filter: drop-shadow(0 0 8px rgba(255,38,38,0.3)) drop-shadow(0 0 16px rgba(0,207,255,0.12)); }
-    50%      { filter: drop-shadow(0 0 16px rgba(255,38,38,0.5)) drop-shadow(0 0 28px rgba(0,207,255,0.25)); }
-}
-
-.logo-dragon-img.logo-glitch-r,
-.logo-dragon-img.logo-glitch-c {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    z-index: 2;
-    pointer-events: none;
-}
-
-.logo-dragon-img.logo-glitch-r {
-    mix-blend-mode: screen;
-    filter: hue-rotate(-20deg) saturate(3) brightness(1.2);
-    animation: glitchRedFast 2.8s linear infinite;
-}
-
-.logo-dragon-img.logo-glitch-c {
-    mix-blend-mode: screen;
-    filter: hue-rotate(160deg) saturate(2.5) brightness(1.1);
-    animation: glitchCyanFast 2.8s linear infinite;
-}
-
-.sidebar-dragon-corner .logo-scanlines {
-    position: absolute;
-    inset: 0;
-    z-index: 3;
-    pointer-events: none;
-    background: repeating-linear-gradient(
-        0deg,
-        transparent,
-        transparent 2px,
-        rgba(0,0,0,0.15) 2px,
-        rgba(0,0,0,0.15) 4px
-    );
-    animation: scanlineFast 2.8s linear infinite;
-    opacity: 0;
-}
 
 /* ══════════════════════════════════════════════════════════════
    CONTINUOUS GLITCH — overrides the old 8s idle burst system
@@ -2637,6 +2561,3 @@ main > div {
     letter-spacing: 0.04em;
 }
 
-/* ── logo-icon is hidden by default; shown only via conditional UI logic ── */
-/* Keep base .logo-icon styles above for states where JS/specific selectors re-enable it. */
-.logo-icon { display: none; }
