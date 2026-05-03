@@ -19,7 +19,7 @@ impl SanctumSettingsImpl for SanctumSettings {
         let path = paths.1;
 
         // if the path doesn't exist, the app is likely running for the first time, so configure any app defaults
-        let settings = if !dir.exists() {
+        if !dir.exists() {
             let settings = SanctumSettings {
                 common_scan_areas: vec![
                     PathBuf::from(format!("C:\\Users\\{}", username)),
@@ -45,12 +45,11 @@ impl SanctumSettingsImpl for SanctumSettings {
                     "Could not deserialise string to SanctumSettings when reading. {e}"
                 )),
             }
-        };
-
-        settings
+        }
     }
 
     /// Update the settings fields in place
+    #[allow(dead_code)]
     fn update_settings(&mut self, settings: SanctumSettings) -> Self {
         // update self fields in memory
         self.common_scan_areas = settings.clone().common_scan_areas;

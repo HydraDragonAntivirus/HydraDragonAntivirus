@@ -111,6 +111,7 @@ impl Engine {
 ///
 /// # PAnics
 /// The function will panic if it encounters an error snapshotting the processes.
+#[allow(dead_code)]
 fn get_ppl_svc_pid() -> Result<u32, ()> {
     let logger = Log::new();
 
@@ -134,8 +135,10 @@ fn get_ppl_svc_pid() -> Result<u32, ()> {
         }
     };
 
-    let mut process_entry = PROCESSENTRY32::default();
-    process_entry.dwSize = std::mem::size_of::<PROCESSENTRY32>() as u32;
+    let mut process_entry = PROCESSENTRY32 {
+        dwSize: std::mem::size_of::<PROCESSENTRY32>() as u32,
+        ..Default::default()
+    };
 
     if unsafe { Process32First(snapshot, &mut process_entry) }.is_ok() {
         loop {

@@ -58,10 +58,10 @@ fn forward_to_owlyshield(syscall: &shared_no_std::ghost_hunting::Syscall) {
 /// # Components
 ///
 /// - `driver_poll_rate`: the poll rate in milliseconds that the kernel will be (approximately) queried. The
-/// approximation is because the polling / decision making loop is not asynchronous and other decision making
-/// takes place prior to the poll rate sleep time.
+///   approximation is because the polling / decision making loop is not asynchronous and other decision making
+///   takes place prior to the poll rate sleep time.
 /// - `driver_dbg_message_cache`: a temporary cache of messages which are returned from the kernel which the
-/// GUI can request.
+///   GUI can request.
 #[derive(Debug, Default)]
 pub struct Core {
     driver_poll_rate: u64,
@@ -72,11 +72,10 @@ pub struct Core {
 impl Core {
     /// Initialises a new Core instance from a poll rate in **milliseconds**.
     pub fn from(poll_rate: u64) -> Self {
-        let mut core = Core::default();
-
-        core.driver_poll_rate = poll_rate;
-
-        core
+        Core {
+            driver_poll_rate: poll_rate,
+            ..Default::default()
+        }
     }
 
     /// Starts the core of the usermode engine; kicking off the frequent polling of the driver, and conducts relevant decision making
@@ -175,10 +174,7 @@ impl Core {
             };
 
             // If we have new message(s) / emissions from the driver or injected DLL, process them as appropriate
-            if driver_response.is_some() {
-                // first deal with process terminations to prevent trying to add to an old process id if there is a duplicate
-                let mut driver_messages = driver_response.unwrap();
-
+            if let Some(mut driver_messages) = driver_response {
                 // cache messages
                 {
                     let mut message_cache = self.driver_dbg_message_cache.lock().await;

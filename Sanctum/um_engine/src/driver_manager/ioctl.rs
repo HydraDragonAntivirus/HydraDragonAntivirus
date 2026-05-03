@@ -138,7 +138,6 @@ impl SanctumDriverManager {
                 LogLevel::Error,
                 &format!("Error fetching version result from driver. {e}"),
             );
-            return;
         }
     }
 
@@ -229,7 +228,7 @@ impl SanctumDriverManager {
 
         // parse out the result
         if let Ok(response) = str::from_utf8(&response[..bytes_returned as usize]) {
-            return response.to_string();
+            response.to_string()
         } else {
             self.log.log(
                 LogLevel::Error,
@@ -238,7 +237,7 @@ impl SanctumDriverManager {
                     &response[..bytes_returned as usize]
                 ),
             );
-            return "".to_string();
+            "".to_string()
         }
     }
 
@@ -255,9 +254,7 @@ impl SanctumDriverManager {
         if self.handle_via_path.handle.is_none() {
             // try 1 more time
             self.init_handle_via_registry();
-            if self.handle_via_path.handle.is_none() {
-                return None;
-            }
+            self.handle_via_path.handle?;
         }
 
         //
@@ -320,8 +317,8 @@ impl SanctumDriverManager {
             return None;
         }
 
-        let response_serialised = match serde_json::from_slice::<DriverMessages>(&response) {
-            Ok(r) => r,
+        match serde_json::from_slice::<DriverMessages>(&response) {
+            Ok(r) => Some(r),
             Err(e) => {
                 self.log.log(
                     LogLevel::Error,
@@ -331,11 +328,9 @@ impl SanctumDriverManager {
                     ),
                 );
 
-                return None;
+                None
             }
-        };
-
-        Some(response_serialised)
+        }
     }
 
     pub fn ioctl_get_image_loads_for_injecting_sanc_dll(&mut self) -> Option<ImageLoadQueues> {
@@ -343,9 +338,7 @@ impl SanctumDriverManager {
         if self.handle_via_path.handle.is_none() {
             // try 1 more time
             self.init_handle_via_registry();
-            if self.handle_via_path.handle.is_none() {
-                return None;
-            }
+            self.handle_via_path.handle?;
         }
 
         // Make a request into the driver to obtain the buffer size of the response. Internally, this will
@@ -404,8 +397,8 @@ impl SanctumDriverManager {
             return None;
         }
 
-        let response_serialised = match serde_json::from_slice::<ImageLoadQueues>(&response) {
-            Ok(r) => r,
+        match serde_json::from_slice::<ImageLoadQueues>(&response) {
+            Ok(r) => Some(r),
             Err(e) => {
                 self.log.log(
                     LogLevel::Error,
@@ -415,14 +408,13 @@ impl SanctumDriverManager {
                     ),
                 );
 
-                return None;
+                None
             }
-        };
-
-        Some(response_serialised)
+        }
     }
 
     /// Pings the driver with a struct as its message
+    #[allow(dead_code)]
     pub fn ioctl_ping_driver_w_struct(&mut self) {
         //
         // Check the handle to the driver is valid, if not, attempt to initialise it.

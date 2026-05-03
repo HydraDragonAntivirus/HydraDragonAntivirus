@@ -33,7 +33,7 @@ pub async fn run_ipc_for_etw(tx: Sender<Syscall>) {
 
     let tx_arc = Arc::new(tx);
 
-    let _ = tokio::spawn(async move {
+    tokio::spawn(async move {
         loop {
             let logger = Log::new();
             // wait for a connection
@@ -60,7 +60,7 @@ pub async fn run_ipc_for_etw(tx: Sender<Syscall>) {
             // Read the IPC request, ensure we can actually read bytes from it (and that it casts as a Syscall type) - if so,
             // transmit the data via the mpsc to the core loop.
             //
-            let _ = tokio::spawn(async move {
+            tokio::spawn(async move {
                 let mut buffer = vec![0; 1024];
                 match connected_client.read(&mut buffer).await {
                     Ok(bytes_read) => {

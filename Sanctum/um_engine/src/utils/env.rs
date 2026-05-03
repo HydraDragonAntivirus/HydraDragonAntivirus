@@ -65,10 +65,8 @@ pub fn validate_pipe_client(connected_client: &NamedPipeServer, expected_path: &
         return false;
     }
 
-    if let Some(path) = resolve_process_path(pid) {
-        if path.to_lowercase() == expected_path.to_lowercase() {
-            return true;
-        }
+    if resolve_process_path(pid).map(|path| path.to_lowercase()) == Some(expected_path.to_lowercase()) {
+        return true;
     }
 
     false

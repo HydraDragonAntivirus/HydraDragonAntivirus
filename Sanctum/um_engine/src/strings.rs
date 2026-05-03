@@ -28,6 +28,7 @@ impl ToUnicodeString for &str {
     }
 }
 
+#[allow(dead_code)]
 pub trait ToWindowsUnicodeString {
     fn to_windows_unicode_string(&self) -> Option<UNICODE_STRING>;
 }
@@ -45,12 +46,13 @@ impl ToWindowsUnicodeString for Vec<u16> {
 /// <h1>Returns</h1>
 /// Returns an option UNICODE_STRING, if the len of the input string is 0 then
 /// the function will return None.
-pub fn create_unicode_string(s: &Vec<u16>) -> Option<UNICODE_STRING> {
+#[allow(dead_code)]
+pub fn create_unicode_string(s: &[u16]) -> Option<UNICODE_STRING> {
     //
     // Check the length of the input string is greater than 0, if it isn't,
     // we will return none
     //
-    let len = if s.len() > 0 {
+    let len = if !s.is_empty() {
         s.len()
     } else {
         return None;
@@ -87,6 +89,7 @@ pub fn create_unicode_string(s: &Vec<u16>) -> Option<UNICODE_STRING> {
 /// # Safety
 ///
 /// Dereferences the raw pointer of the PCWSTR
+#[allow(dead_code)]
 pub unsafe fn pcwstr_to_string(s: PCWSTR) -> Result<String, Box<dyn Error>> {
     if s.is_null() {
         return Err("PCWSTR was null.".into());
@@ -107,6 +110,7 @@ pub unsafe fn pcwstr_to_string(s: PCWSTR) -> Result<String, Box<dyn Error>> {
 /// # Safety
 ///
 /// Dereferences the raw pointer of the PWSTR
+#[allow(dead_code)]
 pub unsafe fn pwstr_to_string(s: PWSTR) -> Result<String, Box<dyn Error>> {
     if s.is_null() {
         return Err("PCWSTR was null.".into());

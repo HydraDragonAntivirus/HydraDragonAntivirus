@@ -3,7 +3,7 @@
 use crate::{SYSCALL_NUMBER, integrity::get_base_and_sz_ntdll, ipc::send_ipc_to_engine};
 use shared_no_std::ghost_hunting::{
     DLLMessage, NtAllocateVirtualMemoryData, NtCreateThreadExData, NtFunction, NtOpenProcessData,
-    NtWriteVirtualMemoryData, Syscall, SyscallEventSource,
+    NtWriteVirtualMemoryData, Syscall,
 };
 use std::{
     arch::{asm, naked_asm},

@@ -95,7 +95,7 @@ pub fn inject_edr_dll(pid: u64) -> Result<(), ProcessErrors> {
 
     // correctly cast the address of LoadLibraryA
     let load_library_fn_address: Option<unsafe extern "system" fn(*mut c_void) -> u32> =
-        Some(unsafe { std::mem::transmute(load_library_fn_address) });
+        Some(unsafe { std::mem::transmute::<*const (), unsafe extern "system" fn(*mut std::ffi::c_void) -> u32>(load_library_fn_address) });
 
     // Create thread in process
     let mut thread: u32 = 0;
@@ -121,6 +121,7 @@ pub fn inject_edr_dll(pid: u64) -> Result<(), ProcessErrors> {
 }
 
 #[derive(Debug)]
+#[allow(dead_code)]
 pub enum ProcessErrors {
     PidNotFound,
     DuplicatePid,

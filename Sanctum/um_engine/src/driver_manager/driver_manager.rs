@@ -94,14 +94,9 @@ impl Default for SanctumDriverManager {
 unsafe impl Send for SanctumDriverManager {}
 unsafe impl Sync for SanctumDriverManager {}
 
+#[derive(Default)]
 pub struct DriverHandleRaii {
     pub handle: Option<HANDLE>,
-}
-
-impl Default for DriverHandleRaii {
-    fn default() -> Self {
-        Self { handle: None }
-    }
 }
 
 impl Drop for DriverHandleRaii {

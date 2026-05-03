@@ -57,13 +57,12 @@ impl Log {
             .create(true)
             .append(true)
             .open(&self.log_file_path)
-            .expect(
-                format!(
+            .unwrap_or_else(|_| {
+                panic!(
                     "[fatal] Unable to open log file: {}",
                     self.log_file_path.display()
                 )
-                .as_str(),
-            );
+            });
 
         // write to the file
         writeln!(file, "{}", msg).expect("Unable to write to log file");
@@ -78,13 +77,12 @@ impl Log {
             .create(true)
             .append(true)
             .open(&self.log_file_path)
-            .expect(
-                format!(
+            .unwrap_or_else(|_| {
+                panic!(
                     "[fatal] Unable to open log file: {}",
                     self.log_file_path.display()
                 )
-                .as_str(),
-            );
+            });
 
         // write to the file
         writeln!(file, "{}", msg).expect("Unable to write to log file");

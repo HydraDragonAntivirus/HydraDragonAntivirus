@@ -39,6 +39,7 @@ pub struct UmIpc {}
 const ALLOWED_CLIENT_PATH: &str = r"C:\Program Files\HydraDragonAntivirus\hydradragon\Owlyshield\Owlyshield Service\owlyshield_service.exe";
 
 impl UmIpc {
+    #[allow(clippy::too_many_arguments)]
     pub async fn listen(
         settings: Arc<Mutex<SanctumSettings>>,
         core: Arc<Core>,
@@ -176,6 +177,7 @@ impl UmIpc {
 /// None if there is to be no response to the IPC - will usually be the case in respect of the driver sending a message.
 /// As the IPC channel is a 'one shot' from the driver implemented natively, the pipe will be closed on receipt in this function.
 /// In the case of a Tokio IPC pipe, a response can be sent, in which case, it will be serialised to a Value and sent wrapped in a Some.
+#[allow(clippy::too_many_arguments)]
 pub async fn handle_ipc(
     request: CommandRequest,
     settings: Arc<Mutex<SanctumSettings>>,

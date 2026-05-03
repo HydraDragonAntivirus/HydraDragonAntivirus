@@ -35,12 +35,12 @@ pub struct FileScanner {
     log: Log,
 }
 
-trait SLI {
+trait Sli {
     fn new() -> Self;
     fn reset(&mut self);
 }
 
-impl SLI for ScanningLiveInfo {
+impl Sli for ScanningLiveInfo {
     fn new() -> Self {
         ScanningLiveInfo {
             num_files_scanned: 0,
@@ -78,13 +78,10 @@ impl FileScanner {
                 );
                 if e.kind() == io::ErrorKind::NotFound {
                     let file_data = reqwest::get(IOC_URL).await.unwrap().text().await.unwrap();
-                    let mut f = File::create_new(&ioc_location).expect(
-                        format!(
-                            "[-] Could not create new file for IOCs. Loc: {}",
-                            ioc_location
-                        )
-                        .as_str(),
-                    );
+                    let mut f = File::create_new(&ioc_location).unwrap_or_else(|_| panic!(
+                        "[-] Could not create new file for IOCs. Loc: {}",
+                        ioc_location
+                    ));
                     f.write_all(file_data.as_bytes())
                         .expect("[-] Could not write data for IOCs");
 
@@ -260,7 +257,7 @@ impl FileScanner {
 
             loop {
                 // first check if the task is cancelled
-                if *clock_clone.lock().unwrap() == true {
+                if *clock_clone.lock().unwrap() {
                     break;
                 }
 
@@ -275,7 +272,7 @@ impl FileScanner {
                 {
                     let mut lock = self_scanning_info_clone.lock().unwrap();
                     lock.time_taken = elapsed;
-                    lock.num_files_scanned = lock.num_files_scanned + delta_files_scanned as u128;
+                    lock.num_files_scanned += delta_files_scanned as u128;
                 }
 
                 std::thread::sleep(Duration::from_millis(10));
@@ -368,8 +365,7 @@ impl FileScanner {
                 //
                 match self.scan_file_against_hashes(&path, &files_scanned_for_scanner) {
                     Ok(v) => {
-                        if v.is_some() {
-                            let v = v.unwrap();
+                        if let Some(v) = v {
                             let mut lock = self.scanning_info.lock().unwrap();
                             lock.scan_results.push(MatchedIOC {
                                 hash: v.0,
@@ -409,11 +405,6 @@ impl FileScanner {
         let result = self.begin_scan(target);
 
         self.end_scan(); // update state
-
-        let result = match result {
-            Ok(state) => state,
-            Err(e) => FileScannerState::FinishedWithError(e.to_string()),
-        };
 
         result
     }

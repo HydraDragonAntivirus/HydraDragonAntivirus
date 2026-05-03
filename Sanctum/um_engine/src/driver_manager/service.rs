@@ -74,8 +74,7 @@ impl SanctumDriverManager {
 
                     match le {
                         ERROR_DUPLICATE_SERVICE_NAME => {
-                            let msg =
-                                format!("Unable to create service, duplicate service name found.");
+                            let msg = "Unable to create service, duplicate service name found.".to_string();
                             self.update_state_msg(msg);
                             return;
                         }
@@ -105,13 +104,12 @@ impl SanctumDriverManager {
         // At this point, we should have the handle, and we can close it.
         //
 
-        if !handle.is_invalid() {
-            if let Err(e) = unsafe { CloseServiceHandle(handle) } {
-                self.log.log(
-                    LogLevel::Error,
-                    &format!("[-] Unable to close handle after installing service. Error: {e}"),
-                );
-            }
+        if !handle.is_invalid()
+            && let Err(e) = unsafe { CloseServiceHandle(handle) } {
+            self.log.log(
+                LogLevel::Error,
+                &format!("[-] Unable to close handle after installing service. Error: {e}"),
+            );
         }
     }
 
@@ -180,11 +178,9 @@ impl SanctumDriverManager {
         self.init_handle_via_registry();
 
         // check the driver version is compatible with the engine
-        if self.ioctl_check_driver_compatibility() == false {
+        if !self.ioctl_check_driver_compatibility() {
             self.stop_driver(); // ensure a clean shutdown
-            let msg = format!(
-                "Driver and client version incompatible. Please ensure you are running the latest version."
-            );
+            let msg = "Driver and client version incompatible. Please ensure you are running the latest version.".to_string();
             self.state = DriverState::Stopped(msg);
             return;
         }
@@ -394,7 +390,7 @@ impl Drop for ServiceControlManager {
 
         let log = Log::new();
 
-        if self.mgr_handle.unwrap().0 != null_mut() {
+        if !self.mgr_handle.unwrap().0.is_null() {
             if let Err(e) = unsafe { CloseServiceHandle(self.mgr_handle.unwrap()) } {
                 log.log(
                     LogLevel::Error,
@@ -413,7 +409,7 @@ impl Drop for ServiceControlManager {
             return;
         }
 
-        if self.sanctum_handle.unwrap().0 != null_mut() {
+        if !self.sanctum_handle.unwrap().0.is_null() {
             if let Err(e) = unsafe { CloseServiceHandle(self.sanctum_handle.unwrap()) } {
                 log.log(
                     LogLevel::Error,
