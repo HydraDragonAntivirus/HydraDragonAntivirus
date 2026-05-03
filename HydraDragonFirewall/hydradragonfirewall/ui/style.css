@@ -2637,5 +2637,6 @@ main > div {
     letter-spacing: 0.04em;
 }
 
-/* ── Remove old simple logo-icon style ───────────────────── */
+/* ── logo-icon is hidden by default; shown only via conditional UI logic ── */
+/* Keep base .logo-icon styles above for states where JS/specific selectors re-enable it. */
 .logo-icon { display: none; }
