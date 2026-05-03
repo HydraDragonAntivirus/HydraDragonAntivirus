@@ -73,7 +73,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: bin-mbrfilter
-          path: MBRFilter/x64/Release/MBRFilter.sys
+          path: MBRFilter/x64/Win8Release/MBRFilter.sys
 
   build-pyasprotection:
     runs-on: windows-2022
@@ -119,7 +119,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: bin-owlyshield-minifilter
-          path: Owlyshield/owlyshield_minifilter/x64/Release/RWatch.sys
+          path: Owlyshield/owlyshield_minifilter/x64/Release/OwlyshieldRansomFilter.sys
 
   build-reddbg:
     runs-on: windows-2022
@@ -135,7 +135,9 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: bin-reddbg
-          path: Owlyshield/RedDbg/RedDbg/x64/Release/RedDbg.exe
+          path: |
+            Owlyshield/RedDbg/RedDbg/x64/Release/RedDbgApp.exe
+            Owlyshield/RedDbg/RedDbg/x64/ReleaseX64Kernel/RedDbgDrv.sys
 
   # --- GROUP 2: Dotnet Projects (Separated) ---
 
@@ -352,8 +354,9 @@ jobs:
           Copy-Item "downloaded-artifacts/bin-hydradragonav/HydraDragonAV.exe" "$distRoot/HydraDragonAV/" -Force
           Copy-Item "downloaded-artifacts/bin-mbrfilter/MBRFilter.sys" "$distRoot/MBRFilter/" -Force
           Copy-Item "downloaded-artifacts/bin-pyasprotection/*" "$distRoot/SimplePYASProtection/" -Force
-          Copy-Item "downloaded-artifacts/bin-owlyshield-minifilter/RWatch.sys" "$distRoot/Owlyshield/" -Force
-          Copy-Item "downloaded-artifacts/bin-reddbg/RedDbg.exe" "$distRoot/RedDbg/" -Force
+          Copy-Item "downloaded-artifacts/bin-owlyshield-minifilter/OwlyshieldRansomFilter.sys" "$distRoot/Owlyshield/" -Force
+          Copy-Item "downloaded-artifacts/bin-reddbg/RedDbgApp.exe" "$distRoot/RedDbg/" -Force
+          Copy-Item "downloaded-artifacts/bin-reddbg/RedDbgDrv.sys" "$distRoot/RedDbg/" -Force
           
           Copy-Item "downloaded-artifacts/bin-megadumper/*" "$distRoot/HydraDragonDumper/" -Recurse -Force
           if (Test-Path "$distRoot/HydraDragonDumper/MegaDumper.exe") {
