@@ -41,7 +41,7 @@ pub fn create_security_attributes() -> SECURITY_ATTRIBUTES {
             + GetSidLengthRequired(1);
         let mut acl_buf = vec![0u8; acl_size as usize];
 
-        InitializeAcl(acl_buf.as_mut_ptr(), acl_size, ACL_REVISION)
+        InitializeAcl(acl_buf.as_mut_ptr() as *mut ACL, acl_size, ACL_REVISION)
             .expect("InitializeAcl failed");
 
         //
@@ -64,7 +64,7 @@ pub fn create_security_attributes() -> SECURITY_ATTRIBUTES {
         .expect("AllocateAndInitializeSid failed");
 
         AddAccessAllowedAceEx(
-            acl_buf.as_mut_ptr(),
+            acl_buf.as_mut_ptr() as *mut ACL,
             ACL_REVISION,
             OBJECT_INHERIT_ACE | CONTAINER_INHERIT_ACE,
             GENERIC_ALL.0,
@@ -78,7 +78,7 @@ pub fn create_security_attributes() -> SECURITY_ATTRIBUTES {
         SetSecurityDescriptorDacl(
             PSECURITY_DESCRIPTOR(&mut *sd_box as *mut _ as _),
             true,
-            Some(acl_buf.as_ptr()),
+            Some(acl_buf.as_ptr() as *const ACL),
             false,
         )
         .expect("SetSecurityDescriptorDacl failed");
