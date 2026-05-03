@@ -280,14 +280,16 @@ jobs:
       - name: Build Sanctum
         working-directory: Sanctum
         run: |
+          # Build driver first
           cd driver
           .\cert.ps1
           cargo make release
           .\sign.bat release
           cd ..
-          cargo build --release -p sanctum_ppl_runner
+          # Build all workspace members (um_engine, ppl_runner, malware, app, etc.)
+          cargo build --release
+          # Sign usermode components
           .\sign_ppl_runner.bat
-          cargo make release
       - name: Upload
         uses: actions/upload-artifact@v7
         with:
@@ -299,6 +301,9 @@ jobs:
             Sanctum/target/release/sanctum_ppl_runner.exe
             Sanctum/target/release/elam_installer.exe
             Sanctum/target/release/um_engine.exe
+            Sanctum/target/release/malware.exe
+            Sanctum/target/release/server.exe
+            Sanctum/target/release/app.exe
             Sanctum/target/release/sanctum.dll
 
   # --- FINAL STAGE: Collect and PR ---
@@ -407,23 +412,29 @@ jobs:
           $service | Copy-Item -Destination "HydraDragonService/HydraDragonService/bin/Release/net8.0/" -Force
 
           # Sanctum (Follow repository structure)
-          $sanctumSys = Get-ChildItem "bin-sanctum/" -Filter "sanctum.sys" -Recurse
-          $sanctumSys | Copy-Item -Destination "$distRoot/Sanctum/AppData/" -Force
+          # --- Sanctum Stack ---
+          # System/Kernel Files (to AppData)
+          $sanctumAppData = Get-ChildItem "bin-sanctum/" -Filter "*" -Include "sanctum.sys", "sanctum_ppl_runner.exe" -Recurse
+          $sanctumAppData | Copy-Item -Destination "$distRoot/Sanctum/AppData/" -Force
           New-Item -ItemType Directory -Force -Path "Sanctum/driver/target/release"
-          $sanctumSys | Copy-Item -Destination "Sanctum/driver/target/release/" -Force
+          Get-ChildItem "bin-sanctum/" -Filter "sanctum.sys" -Recurse | Copy-Item -Destination "Sanctum/driver/target/release/" -Force
           
-          $sanctumPpl = Get-ChildItem "bin-sanctum/" -Filter "sanctum_ppl_runner.exe" -Recurse
-          $sanctumPpl | Copy-Item -Destination "$distRoot/Sanctum/AppData/" -Force
+          # DLLs (to System32)
+          $sanctumSystem32 = Get-ChildItem "bin-sanctum/" -Filter "sanctum.dll" -Recurse
+          $sanctumSystem32 | Copy-Item -Destination "$distRoot/Sanctum/System32/" -Force
+          
+          # Root Modules
+          $sanctumRoot = Get-ChildItem "bin-sanctum/" -Filter "*" -Include "elam_installer.exe", "um_engine.exe", "server.exe", "app.exe", "*.inf", "*.cer" -Recurse
+          $sanctumRoot | Copy-Item -Destination "$distRoot/Sanctum/" -Force
+          
+          # Source Tree Sync (Usermode)
           New-Item -ItemType Directory -Force -Path "Sanctum/target/release"
-          $sanctumPpl | Copy-Item -Destination "Sanctum/target/release/" -Force
-          
-          $sanctumDll = Get-ChildItem "bin-sanctum/" -Filter "sanctum.dll" -Recurse
-          $sanctumDll | Copy-Item -Destination "$distRoot/Sanctum/System32/" -Force
-          $sanctumDll | Copy-Item -Destination "Sanctum/target/release/" -Force
-          
-          $sanctumOther = Get-ChildItem "bin-sanctum/" -Filter "*" -Include "elam_installer.exe", "um_engine.exe", "*.inf", "*.cer" -Recurse
-          $sanctumOther | Copy-Item -Destination "$distRoot/Sanctum/" -Force
-          $sanctumOther | Copy-Item -Destination "Sanctum/target/release/" -Force
+          Get-ChildItem "bin-sanctum/" -Filter "*" -Include "*.exe", "*.dll" -Recurse | Copy-Item -Destination "Sanctum/target/release/" -Force
+
+          # Malware Simulation (Test folder)
+          $sanctumMalware = Get-ChildItem "bin-sanctum/" -Filter "malware.exe" -Recurse
+          $sanctumMalware | Copy-Item -Destination "$distRoot/sanctum_test_malware/" -Force
+          $sanctumMalware | Copy-Item -Destination "Sanctum/target/release/" -Force
 
       - name: Check for Changes
         id: check_changes
