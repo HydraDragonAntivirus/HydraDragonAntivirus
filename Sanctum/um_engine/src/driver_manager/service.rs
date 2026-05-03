@@ -1,7 +1,6 @@
 //! Driver service controls
 
 use shared_std::driver_manager::DriverState;
-use std::ptr::null_mut;
 use windows::{
     Win32::{
         Foundation::{
@@ -312,7 +311,7 @@ impl SanctumDriverManager {
 
         match handle {
             Ok(h) => self.handle_via_path.handle = Some(h),
-            Err(e) => {
+            Err(_e) => {
                 // self.log.log(LogLevel::Error, &format!("Unable to get handle to driver via its registry path, error: {e}."));
                 return false;
             }

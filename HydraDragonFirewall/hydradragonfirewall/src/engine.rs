@@ -1693,11 +1693,12 @@ impl FirewallEngine {
             no_alert_mode: current_settings.no_alert_mode,
             save_all_logs: current_settings.save_all_logs,
             prune_old_logs: current_settings.prune_old_logs,
-            max_visible_logs: current_settings.max_visible_logs,
+                            max_visible_logs: current_settings.max_visible_logs,
             prune_http_history: current_settings.prune_http_history,
             max_visible_http_events: current_settings.max_visible_http_events,
             log_full_bodies: current_settings.log_full_bodies,
             tls_proxy: current_settings.tls_proxy.clone(),
+            network_whitelist: current_settings.network_whitelist.clone(),
             metadata: current_settings.metadata.clone(),
         };
 
@@ -3313,7 +3314,6 @@ impl FirewallEngine {
                                 }
 
                                 // EMIT RAW PACKET FOR UI (Wireshark-like view)
-                                // Use the info already parsed from the decision logic to avoid re-parsing
                                 if let Some(info) = decision_info {
                                     let ts = Self::now_ts();
                                     let app_info = am_w.info_cache.get_info(pid);

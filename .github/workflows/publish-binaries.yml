@@ -142,7 +142,6 @@ jobs:
         with:
           name: bin-reddbg
           path: |
-            Owlyshield/RedDbg/RedDbg/x64/Release/RedDbgApp.exe
             Owlyshield/RedDbg/RedDbg/x64/ReleaseX64Kernel/*.sys
             Owlyshield/RedDbg/RedDbg/x64/ReleaseX64Kernel/*.inf
             Owlyshield/RedDbg/RedDbg/x64/ReleaseX64Kernel/*.cer

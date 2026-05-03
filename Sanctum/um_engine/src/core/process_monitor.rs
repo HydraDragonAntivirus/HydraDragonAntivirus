@@ -8,7 +8,7 @@ use windows::{
             Diagnostics::Debug::WriteProcessMemory,
             LibraryLoader::{GetModuleHandleA, GetProcAddress},
             Memory::{
-                MEM_COMMIT, MEM_RESERVE, PAGE_EXECUTE_READWRITE, PAGE_READWRITE, VirtualAllocEx,
+                MEM_COMMIT, MEM_RESERVE, PAGE_READWRITE, VirtualAllocEx,
             },
             Threading::{
                 CreateRemoteThread, OpenProcess, PROCESS_CREATE_THREAD,
@@ -19,7 +19,6 @@ use windows::{
     core::s,
 };
 
-use crate::utils::env::get_logged_in_username;
 
 /// Inject the EDR's DLL into a given process by PID. This should be done for processes running on start, and for
 /// processes which are newly created.

@@ -1,3 +1,4 @@
+#[allow(dead_code)]
 fn to_wstring(s: &str) -> Vec<u16> {
     use std::os::windows::prelude::*;
     std::ffi::OsStr::new(s)

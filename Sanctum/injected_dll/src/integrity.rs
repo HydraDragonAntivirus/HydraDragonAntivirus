@@ -75,8 +75,8 @@ impl NtdllIntegrity {
         assert_ne!(size_of_text_sec, 0);
 
         Self {
-            text_base: base_of_code as usize,
-            size: size_of_text_sec as _,
+            text_base: base_of_code,
+            size: size_of_text_sec,
             hash: String::new(),
         }
     }
@@ -149,14 +149,14 @@ fn read_ntdll_bytes(ntdll_info: &NtdllIntegrity) -> Vec<u8> {
         pos += 1;
     }
 
-    assert_eq!(buf.len(), ntdll_info.size as usize);
+    assert_eq!(buf.len(), ntdll_info.size);
 
     buf
 }
 
 fn hash_ntdll_text_segment(ntdll_info: &NtdllIntegrity) -> String {
     // Read the bytes
-    let buf = read_ntdll_bytes(&ntdll_info);
+    let buf = read_ntdll_bytes(ntdll_info);
 
     // Calculate the hash
     let mut hasher = Md5::new();
@@ -200,7 +200,7 @@ fn periodically_check_ntdll_hash(ntdll: NtdllIntegrity) -> ! {
         // If tampering is detected, suspend all threads except our EDR thread, and notify the
         // engine of the event.
         if hash != ntdll.hash {
-            let threads: Vec<HANDLE> = suspend_all_threads();
+            let _threads: Vec<HANDLE> = suspend_all_threads();
 
             println!(
                 "Hash change detected, sending info to engine. Old: {}, New: {}",

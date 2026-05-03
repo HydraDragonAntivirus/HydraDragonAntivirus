@@ -159,7 +159,7 @@ def parse_threat_line(
 
     if is_first_line:
         if (
-            first_col in {"entry", "domain", "threat", "indicator", "ip", "address"}
+            first_col in {"entry", "domain", "threat", "indicator", "ip", "address", "subdomain"}
             or second_col in {"reference", "references", "source", "description"}
             or (first_col in {"domain", "entry"} and second_col == "subdomains" and third_col in {"reference", "references", "source"})
             or (first_col == "popularity" and second_col in {"domain", "entry"})
@@ -261,7 +261,7 @@ def build_registry_and_rewrite(input_dir: Path, out_dir: Path, progress_every: i
     print("Scanning references...", flush=True)
     for idx, p in enumerate(files, start=1):
         print(f"[{idx}/{len(files)}] Scanning {p.name} ({file_size_mb(p):.1f} MB)", flush=True)
-        with p.open("r", encoding="utf-8", errors="ignore", newline="") as f:
+        with p.open("r", encoding="utf-8-sig", errors="ignore", newline="") as f:
             for line_num, raw in enumerate(f, start=1):
                 if progress_every > 0 and line_num % progress_every == 0:
                     print(f"    {p.name}: {line_num:,} lines scanned", flush=True)
@@ -285,7 +285,7 @@ def build_registry_and_rewrite(input_dir: Path, out_dir: Path, progress_every: i
         outp = out_dir / (p.stem + ".optimized.csv")
         print(f"[{idx}/{len(files)}] Rewriting {p.name} -> {outp.name}", flush=True)
 
-        with p.open("r", encoding="utf-8", errors="ignore", newline="") as fin, outp.open("w", encoding="utf-8", newline="") as fout:
+        with p.open("r", encoding="utf-8-sig", errors="ignore", newline="") as fin, outp.open("w", encoding="utf-8", newline="") as fout:
             for line_num, raw in enumerate(fin, start=1):
                 if progress_every > 0 and line_num % progress_every == 0:
                     print(f"    {p.name}: {line_num:,} lines rewritten", flush=True)

@@ -119,8 +119,8 @@ pub fn virtual_alloc_ex(
     unsafe {
         asm!(
             "sub rsp, 0x30",            // reserve shadow space + 8 byte ptr as it expects a stack of that size
-            "mov [rsp + 0x30], {1}",    // 8 byte ptr + 32 byte shadow space + 8 bytes offset from 5th arg
-            "mov [rsp + 0x28], {0}",    // 8 byte ptr + 32 byte shadow space
+            "mov [rsp + 0x30], {1:r}",    // 8 byte ptr + 32 byte shadow space + 8 bytes offset from 5th arg
+            "mov [rsp + 0x28], {0:r}",    // 8 byte ptr + 32 byte shadow space
             "mov r10, rcx",
             "syscall",
             "add rsp, 0x30",
@@ -177,7 +177,7 @@ pub fn nt_write_virtual_memory(
     unsafe {
         asm!(
             "sub rsp, 0x30",
-            "mov [rsp + 0x28], {0}",
+            "mov [rsp + 0x28], {0:r}",
             "mov r10, rcx",
             "syscall",
             "add rsp, 0x30",
@@ -214,13 +214,13 @@ pub fn nt_protect_virtual_memory(
 
     let monitor_from = base_of_ntdll + 372; // account for some weird thing
     let end_of_ntdll: usize = monitor_from + size_of_text_sec;
-    if target_end >= monitor_from && target_end <= end_of_ntdll {
-        if new_access_protect & PAGE_EXECUTE_READWRITE.0 == PAGE_EXECUTE_READWRITE.0
+    if target_end >= monitor_from && target_end <= end_of_ntdll
+        && (new_access_protect & PAGE_EXECUTE_READWRITE.0 == PAGE_EXECUTE_READWRITE.0
             || new_access_protect & PAGE_WRITECOPY.0 == PAGE_WRITECOPY.0
             || new_access_protect & PAGE_WRITECOMBINE.0 == PAGE_WRITECOMBINE.0
             || new_access_protect & PAGE_READWRITE.0 == PAGE_READWRITE.0
-            || new_access_protect & PAGE_EXECUTE_WRITECOPY.0 == PAGE_EXECUTE_WRITECOPY.0
-        {
+            || new_access_protect & PAGE_EXECUTE_WRITECOPY.0 == PAGE_EXECUTE_WRITECOPY.0)
+    {
             // At this point, we have a few options:
             // 1 - Suspend threads until the EDR tells us what to do
             // 2 - Return an error consistent with what we would get from the syscall, maybe access denied, indicating that
@@ -264,6 +264,7 @@ pub fn nt_protect_virtual_memory(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn nt_create_thread_ex_intercept(
     thread_handle: *const c_void,
     desired_access: u32,

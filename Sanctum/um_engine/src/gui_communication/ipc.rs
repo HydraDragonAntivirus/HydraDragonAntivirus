@@ -345,7 +345,7 @@ pub async fn handle_ipc(
         })
         .unwrap(),
         "driver_collect_knl_dbg_msg" => {
-            to_value({ core.get_cached_driver_messages().await }).unwrap()
+            to_value(core.get_cached_driver_messages().await).unwrap()
         }
 
         //

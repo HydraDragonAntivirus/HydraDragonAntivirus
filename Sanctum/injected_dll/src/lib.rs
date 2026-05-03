@@ -35,22 +35,19 @@ mod threads;
 #[unsafe(no_mangle)]
 #[allow(non_snake_case)]
 fn DllMain(_: usize, dw_reason: u32, _: usize) -> i32 {
-    match dw_reason {
-        DLL_PROCESS_ATTACH => {
-            // Initialise the DLL in a new thread. Calling this from DllMain is always a bad idea;
-            // for more info check my blog: https://fluxsec.red/remote-process-dll-injection#a-dll-update-automatic-unloading
-            unsafe {
-                let _ = CreateThread(
-                    None,
-                    0,
-                    Some(initialise_injected_dll),
-                    None,
-                    THREAD_CREATION_FLAGS(0),
-                    None,
-                );
-            }
+    if dw_reason == DLL_PROCESS_ATTACH {
+        // Initialise the DLL in a new thread. Calling this from DllMain is always a bad idea;
+        // for more info check my blog: https://fluxsec.red/remote-process-dll-injection#a-dll-update-automatic-unloading
+        unsafe {
+            let _ = CreateThread(
+                None,
+                0,
+                Some(initialise_injected_dll),
+                None,
+                THREAD_CREATION_FLAGS(0),
+                None,
+            );
         }
-        _ => (),
     }
 
     1
@@ -109,7 +106,7 @@ impl<'a> StubAddresses<'a> {
 
         #[cfg(debug_assertions)]
         {
-            let x = format!("Injecting Sanctum DLL\0");
+            let x = "Injecting Sanctum DLL\0".to_string();
             unsafe {
                 MessageBoxA(
                     None,
@@ -216,28 +213,28 @@ impl<'a> StubAddresses<'a> {
         hm.insert(
             "NtOpenProcess",
             Addresses {
-                edr: nt_open_process as usize,
+                edr: nt_open_process as *const () as usize,
                 ntdll: zwop,
             },
         );
         hm.insert(
             "NtAllocateVirtualMemory",
             Addresses {
-                edr: virtual_alloc_ex as usize,
+                edr: virtual_alloc_ex as *const () as usize,
                 ntdll: zwavm,
             },
         );
         hm.insert(
             "NtWriteVirtualMemory",
             Addresses {
-                edr: nt_write_virtual_memory as usize,
+                edr: nt_write_virtual_memory as *const () as usize,
                 ntdll: zwvm,
             },
         );
         hm.insert(
             "NtCreateThreadEx",
             Addresses {
-                edr: nt_create_thread_ex_intercept as usize,
+                edr: nt_create_thread_ex_intercept as *const () as usize,
                 ntdll: ntctx,
             },
         );
@@ -247,7 +244,7 @@ impl<'a> StubAddresses<'a> {
         hm.insert(
             "ZZZNtProtectVirtualMemory",
             Addresses {
-                edr: nt_protect_virtual_memory as usize,
+                edr: nt_protect_virtual_memory as *const () as usize,
                 ntdll: ntpvm,
             },
         );
@@ -277,7 +274,7 @@ fn patch_ntdll(addresses: &StubAddresses) {
     // We use a BTreeMap so we can have a predictive ordering to the order in which
     // we will iterate over them, or more specifically, we can control the last iteration,
     // which should be modifying NtProtectVirtualMemory.
-    for (_, item) in &addresses.addresses {
+    for item in addresses.addresses.values() {
         let buffer: &[u8] = &[
             0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90,
             0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90,
@@ -394,7 +391,7 @@ pub static SYSCALL_NUMBER: LazyLock<BTreeMap<&'static str, u32>> = LazyLock::new
         for name in NT_FUNC_NAMES {
             if let Some(ntfunc) = unsafe { GetProcAddress(h_ntdll, PCSTR::from_raw(name.as_ptr())) }
             {
-                let funcaddr = unsafe { mem::transmute::<_, *const u8>(ntfunc) };
+                let funcaddr = unsafe { mem::transmute::<unsafe extern "system" fn() -> isize, *const u8>(ntfunc) };
 
                 #[cfg(target_arch = "x86_64")]
                 {

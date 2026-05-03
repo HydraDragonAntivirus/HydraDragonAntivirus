@@ -75,8 +75,10 @@ pub fn get_thread_ids() -> Result<Vec<u32>, ()> {
     let mut thread_ids: Vec<u32> = vec![];
     let current_thread = unsafe { GetCurrentThreadId() };
 
-    let mut thread_entry = THREADENTRY32::default();
-    thread_entry.dwSize = std::mem::size_of::<THREADENTRY32>() as u32;
+    let mut thread_entry = THREADENTRY32 {
+        dwSize: std::mem::size_of::<THREADENTRY32>() as u32,
+        ..Default::default()
+    };
 
     if unsafe { Thread32First(snapshot, &mut thread_entry) }.is_ok() {
         loop {
