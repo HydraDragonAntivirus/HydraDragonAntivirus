@@ -167,24 +167,6 @@ jobs:
           name: bin-megadumper
           path: artifacts/
 
-  build-firewall-client:
-    runs-on: windows-2022
-    steps:
-      - name: Enable Git long paths
-        run: git config --global core.longpaths true
-      - uses: actions/checkout@v6
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v5
-        with:
-          dotnet-version: '8.0.x'
-      - name: Publish Firewall Client
-        run: dotnet publish HydraDragonFirewall/HydraDragonClient/HydraDragonClient/HydraDragonClient.csproj -c Release -r win-x64 --self-contained false -o artifacts/
-      - name: Upload
-        uses: actions/upload-artifact@v7
-        with:
-          name: bin-firewall-client
-          path: artifacts/
-
   build-launcher:
     runs-on: windows-2022
     steps:
@@ -330,7 +312,6 @@ jobs:
       - build-owlyshield-minifilter
       - build-reddbg
       - build-megadumper
-      - build-firewall-client
       - build-launcher
       - build-service
       - build-owlyshield-rust
@@ -342,60 +323,113 @@ jobs:
         run: git config --global core.longpaths true
       - uses: actions/checkout@v6
       
-      - name: Download Artifacts
+      - name: Download all artifacts
         uses: actions/download-artifact@v7
         with:
-          path: downloaded-artifacts
+          path: .
 
       - name: Organize Binaries
         shell: pwsh
         run: |
           $distRoot = "hydradragon"
-          New-Item -ItemType Directory -Force -Path "$distRoot/TinyAntivirus"
-          New-Item -ItemType Directory -Force -Path "$distRoot/HydraDragonAV"
-          New-Item -ItemType Directory -Force -Path "$distRoot/MBRFilter"
-          New-Item -ItemType Directory -Force -Path "$distRoot/SimplePYASProtection"
-          New-Item -ItemType Directory -Force -Path "$distRoot/Owlyshield"
-          New-Item -ItemType Directory -Force -Path "$distRoot/Sanctum/AppData"
-          New-Item -ItemType Directory -Force -Path "$distRoot/Sanctum/System32"
-          New-Item -ItemType Directory -Force -Path "$distRoot/HydraDragonFirewall"
-          New-Item -ItemType Directory -Force -Path "$distRoot/HydraDragonDumper"
-          New-Item -ItemType Directory -Force -Path "$distRoot/HydraDragonLauncher"
-          New-Item -ItemType Directory -Force -Path "$distRoot/HydraDragonService"
-          New-Item -ItemType Directory -Force -Path "$distRoot/RedDbg"
-
-          # Copy operations using recursive search to handle GH Actions nesting
-          Get-ChildItem "downloaded-artifacts/bin-tinyantivirus/" -Filter "TinyAvConsole.exe" -Recurse | Copy-Item -Destination "$distRoot/TinyAntivirus/" -Force
-          Get-ChildItem "downloaded-artifacts/bin-hydradragonav/" -Filter "HydraDragonAV.exe" -Recurse | Copy-Item -Destination "$distRoot/HydraDragonAV/" -Force
-          Get-ChildItem "downloaded-artifacts/bin-mbrfilter/" -Filter "*" -Recurse | Copy-Item -Destination "$distRoot/MBRFilter/" -Force
-          Get-ChildItem "downloaded-artifacts/bin-pyasprotection/" -Filter "*" -Recurse | Copy-Item -Destination "$distRoot/SimplePYASProtection/" -Force
-          Get-ChildItem "downloaded-artifacts/bin-owlyshield-minifilter/" -Filter "*" -Recurse | Copy-Item -Destination "$distRoot/Owlyshield/" -Force
-          Get-ChildItem "downloaded-artifacts/bin-reddbg/" -Filter "*" -Recurse | Copy-Item -Destination "$distRoot/RedDbg/" -Force
           
-          Get-ChildItem "downloaded-artifacts/bin-megadumper/" -Filter "*" -Recurse | Copy-Item -Destination "$distRoot/HydraDragonDumper/" -Force
+          # Copy operations into existing structure AND original source directories
+          
+          # TinyAntivirus
+          $tinyAV = Get-ChildItem "bin-tinyantivirus/" -Filter "TinyAvConsole.exe" -Recurse
+          $tinyAV | Copy-Item -Destination "$distRoot/TinyAntivirus/" -Force
+          New-Item -ItemType Directory -Force -Path "TinyAntivirus/x64/Release"
+          $tinyAV | Copy-Item -Destination "TinyAntivirus/x64/Release/" -Force
+
+          # HydraDragonAV
+          $av = Get-ChildItem "bin-hydradragonav/" -Filter "HydraDragonAV.exe" -Recurse
+          $av | Copy-Item -Destination "$distRoot/HydraDragonAV/" -Force
+          New-Item -ItemType Directory -Force -Path "HydraDragonAV/x64/Release"
+          $av | Copy-Item -Destination "HydraDragonAV/x64/Release/" -Force
+
+          # MBRFilter
+          $mbr = Get-ChildItem "bin-mbrfilter/" -Filter "*" -Recurse
+          $mbr | Copy-Item -Destination "$distRoot/MBRFilter/" -Force
+          New-Item -ItemType Directory -Force -Path "MBRFilter/x64/Release"
+          $mbr | Copy-Item -Destination "MBRFilter/x64/Release/" -Force
+
+          # SimplePYASProtection
+          $pyas = Get-ChildItem "bin-pyasprotection/" -Filter "*" -Recurse
+          $pyas | Copy-Item -Destination "$distRoot/SimplePYASProtection/" -Force
+          New-Item -ItemType Directory -Force -Path "PYAS_Protection/x64/Release"
+          $pyas | Copy-Item -Destination "PYAS_Protection/x64/Release/" -Force
+
+          # Owlyshield (Nested structure)
+          $owlyMinifilter = Get-ChildItem "bin-owlyshield-minifilter/" -Filter "*" -Recurse
+          $owlyMinifilter | Copy-Item -Destination "$distRoot/Owlyshield/OwlyshieldRansomFilter/" -Force
+          New-Item -ItemType Directory -Force -Path "Owlyshield/owlyshield_minifilter/x64/Release"
+          $owlyMinifilter | Copy-Item -Destination "Owlyshield/owlyshield_minifilter/x64/Release/" -Force
+          
+          $owlyRust = Get-ChildItem "bin-owlyshield-rust/" -Filter "owlyshield_ransom.exe" -Recurse
+          $owlyRust | Copy-Item -Destination "$distRoot/Owlyshield/Owlyshield Service/" -Force
+          New-Item -ItemType Directory -Force -Path "Owlyshield/owlyshield_predict/target/release"
+          $owlyRust | Copy-Item -Destination "Owlyshield/owlyshield_predict/target/release/" -Force
+
+          # RedDbg (Driver to dist, both to nested source root)
+          $reddbgDrv = Get-ChildItem "bin-reddbg/" -Filter "RedDbgDrv.*" -Recurse
+          $reddbgDrv | Copy-Item -Destination "$distRoot/Owlyshield/RedDbg/" -Force
+          
+          New-Item -ItemType Directory -Force -Path "Owlyshield/RedDbg/RedDbg/x64/Release"
+          Get-ChildItem "bin-reddbg/" -Filter "*" -Recurse | Copy-Item -Destination "Owlyshield/RedDbg/RedDbg/x64/Release/" -Force
+
+          # HydraDragonDumper (MegaDumper)
+          $dumper = Get-ChildItem "bin-megadumper/" -Filter "*" -Recurse
+          $dumper | Copy-Item -Destination "$distRoot/HydraDragonDumper/" -Force
+          New-Item -ItemType Directory -Force -Path "MegaDumper/MegaDumper/bin/Release/net8.0"
+          $dumper | Copy-Item -Destination "MegaDumper/MegaDumper/bin/Release/net8.0/" -Force
           if (Test-Path "$distRoot/HydraDragonDumper/MegaDumper.exe") {
             Move-Item "$distRoot/HydraDragonDumper/MegaDumper.exe" "$distRoot/HydraDragonDumper/HydraDragonDumper.exe" -Force
           }
+
+          # HydraDragonFirewall (Rust Engine + Rules)
+          $fwRust = Get-ChildItem "bin-firewall-rust/" -Filter "hydradragonfirewall.*" -Recurse
+          $fwRust | Copy-Item -Destination "$distRoot/HydraDragonFirewall/" -Force
+          New-Item -ItemType Directory -Force -Path "HydraDragonFirewall/hydradragonfirewall/target/release"
+          $fwRust | Copy-Item -Destination "HydraDragonFirewall/hydradragonfirewall/target/release/" -Force
           
-          Get-ChildItem "downloaded-artifacts/bin-firewall-client/" -Filter "*" -Recurse | Copy-Item -Destination "$distRoot/HydraDragonFirewall/" -Force
-          Get-ChildItem "downloaded-artifacts/bin-launcher/" -Filter "*" -Recurse | Copy-Item -Destination "$distRoot/HydraDragonLauncher/" -Force
-          Get-ChildItem "downloaded-artifacts/bin-service/" -Filter "*" -Recurse | Copy-Item -Destination "$distRoot/HydraDragonService/" -Force
+          Get-ChildItem "bin-firewall-rust/" -Filter "rules.yaml" -Recurse | Copy-Item -Destination "$distRoot/HydraDragonFirewall/rules/" -Force
+
+          # HydraDragonLauncher
+          $launcher = Get-ChildItem "bin-launcher/" -Filter "*" -Recurse
+          $launcher | Copy-Item -Destination "$distRoot/HydraDragonLauncher/" -Force
+          New-Item -ItemType Directory -Force -Path "HydraDragonLauncher/HydraDragonLauncher/bin/Release/net8.0"
+          $launcher | Copy-Item -Destination "HydraDragonLauncher/HydraDragonLauncher/bin/Release/net8.0/" -Force
+
+          # HydraDragonService
+          $service = Get-ChildItem "bin-service/" -Filter "*" -Recurse
+          $service | Copy-Item -Destination "$distRoot/HydraDragonService/" -Force
+          New-Item -ItemType Directory -Force -Path "HydraDragonService/HydraDragonService/bin/Release/net8.0"
+          $service | Copy-Item -Destination "HydraDragonService/HydraDragonService/bin/Release/net8.0/" -Force
+
+          # Sanctum (Follow repository structure)
+          $sanctumSys = Get-ChildItem "bin-sanctum/" -Filter "sanctum.sys" -Recurse
+          $sanctumSys | Copy-Item -Destination "$distRoot/Sanctum/AppData/" -Force
+          New-Item -ItemType Directory -Force -Path "Sanctum/driver/target/release"
+          $sanctumSys | Copy-Item -Destination "Sanctum/driver/target/release/" -Force
           
-          Get-ChildItem "downloaded-artifacts/bin-owlyshield-rust/" -Filter "owlyshield_ransom.exe" -Recurse | Copy-Item -Destination "$distRoot/Owlyshield/" -Force
-          Get-ChildItem "downloaded-artifacts/bin-firewall-rust/" -Filter "*" -Recurse | Copy-Item -Destination "$distRoot/HydraDragonFirewall/" -Force
+          $sanctumPpl = Get-ChildItem "bin-sanctum/" -Filter "sanctum_ppl_runner.exe" -Recurse
+          $sanctumPpl | Copy-Item -Destination "$distRoot/Sanctum/AppData/" -Force
+          New-Item -ItemType Directory -Force -Path "Sanctum/target/release"
+          $sanctumPpl | Copy-Item -Destination "Sanctum/target/release/" -Force
           
-          # Organized Sanctum layout
-          Get-ChildItem "downloaded-artifacts/bin-sanctum/" -Filter "*.sys" -Recurse | Copy-Item -Destination "$distRoot/Sanctum/" -Force
-          Get-ChildItem "downloaded-artifacts/bin-sanctum/" -Filter "*.inf" -Recurse | Copy-Item -Destination "$distRoot/Sanctum/" -Force
-          Get-ChildItem "downloaded-artifacts/bin-sanctum/" -Filter "*.cer" -Recurse | Copy-Item -Destination "$distRoot/Sanctum/" -Force
-          Get-ChildItem "downloaded-artifacts/bin-sanctum/" -Filter "*.exe" -Recurse | Copy-Item -Destination "$distRoot/Sanctum/AppData/" -Force
-          Get-ChildItem "downloaded-artifacts/bin-sanctum/" -Filter "sanctum.dll" -Recurse | Copy-Item -Destination "$distRoot/Sanctum/System32/" -Force
+          $sanctumDll = Get-ChildItem "bin-sanctum/" -Filter "sanctum.dll" -Recurse
+          $sanctumDll | Copy-Item -Destination "$distRoot/Sanctum/System32/" -Force
+          $sanctumDll | Copy-Item -Destination "Sanctum/target/release/" -Force
+          
+          $sanctumOther = Get-ChildItem "bin-sanctum/" -Filter "*" -Include "elam_installer.exe", "um_engine.exe", "*.inf", "*.cer" -Recurse
+          $sanctumOther | Copy-Item -Destination "$distRoot/Sanctum/" -Force
+          $sanctumOther | Copy-Item -Destination "Sanctum/target/release/" -Force
 
       - name: Check for Changes
         id: check_changes
         shell: pwsh
         run: |
-          git add -A hydradragon/
+          git add -A
           $status = git status --porcelain
           if ($null -eq $status -or $status -eq "") {
             echo "changed=false" >> $env:GITHUB_OUTPUT
