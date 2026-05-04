@@ -19,6 +19,8 @@ jobs:
       rust: ${{ steps.filter.outputs.rust }}
       reddbg: ${{ steps.filter.outputs.reddbg }}
     steps:
+      - name: Enable Git long paths
+        run: git config --global core.longpaths true
       - uses: actions/checkout@v6
       - uses: dorny/paths-filter@v3
         id: filter

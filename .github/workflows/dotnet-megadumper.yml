@@ -30,9 +30,3 @@ jobs:
 
     - name: Build MegaDumper
       run: dotnet build MegaDumper/MegaDumper.sln --configuration Release --no-restore
-
-    - name: Upload Artifact
-      uses: actions/upload-artifact@v7
-      with:
-        name: megadumper-release
-        path: MegaDumper/MegaDumper/bin/Release/
