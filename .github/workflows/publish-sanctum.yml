@@ -5,12 +5,69 @@ on:
     branches: ["**"]
     paths:
       - 'Sanctum/**'
+
 permissions:
   contents: write
   pull-requests: write
 
 jobs:
-  build-and-stage:
+  # Detect which Sanctum components changed
+  detect-changes:
+    runs-on: windows-2022
+    outputs:
+      driver: ${{ steps.filter.outputs.driver }}
+      usermode: ${{ steps.filter.outputs.usermode }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            driver:
+              - 'Sanctum/driver/**'
+            usermode:
+              - 'Sanctum/**'
+              - '!Sanctum/driver/**'
+
+  # Build Driver (only if changed)
+  build-driver:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.driver == 'true'
+    runs-on: windows-2022
+    steps:
+      - name: Enable Git long paths
+        run: git config --global core.longpaths true
+      - uses: actions/checkout@v6
+      - name: Set up MSVC Developer Command Prompt
+        uses: ilammy/msvc-dev-cmd@v1
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@nightly
+      - name: Install Cargo Make
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-make
+      - name: Setup WDK
+        shell: pwsh
+        run: |
+          $wdkSetupPath = "$Env:TEMP\wdksetup.exe"
+          (New-Object Net.WebClient).DownloadFile('https://go.microsoft.com/fwlink/?linkid=2335869', $wdkSetupPath)
+          Start-Process -FilePath $wdkSetupPath -ArgumentList "/quiet" -NoNewWindow -Wait
+      - name: Build and Sign Driver
+        working-directory: Sanctum/driver
+        run: |
+          powershell -ExecutionPolicy Bypass -File .\cert.ps1
+          cargo make release
+          .\sign.bat release
+      - name: Upload
+        uses: actions/upload-artifact@v7
+        with:
+          name: sanctum-driver
+          path: Sanctum/driver/target/release/*.sys
+
+  # Build Usermode Components (only if changed)
+  build-usermode:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.usermode == 'true'
     runs-on: windows-2022
     steps:
       - name: Enable Git long paths
@@ -24,55 +81,109 @@ jobs:
           tool: cargo-make
       - name: Install rust-script
         run: cargo install rust-script
-      - name: Setup WDK
-        shell: pwsh
-        run: |
-          $wdkSetupPath = "$Env:TEMP\wdksetup.exe"
-          (New-Object Net.WebClient).DownloadFile('https://go.microsoft.com/fwlink/?linkid=2335869', $wdkSetupPath)
-          Start-Process -FilePath $wdkSetupPath -ArgumentList "/quiet" -NoNewWindow -Wait
-      
-      - name: Build and Sign
+      - name: Build Usermode Components
         working-directory: Sanctum
         run: |
-          # 1. Build and Sign Driver
-          cd driver
-          powershell -ExecutionPolicy Bypass -File .\cert.ps1
           cargo make release
-          .\sign.bat release
-          cd ..
-          
-          # 2. Build everything else (usermode components)
-          cargo make release
-          
-          # 3. Sign usermode components
           .\sign_ppl_runner.bat
-          
-      - name: Stage
+      - name: Upload
+        uses: actions/upload-artifact@v7
+        with:
+          name: sanctum-usermode
+          path: |
+            Sanctum/target/release/sanctum_ppl_runner.exe
+            Sanctum/target/release/elam_installer.exe
+            Sanctum/target/release/um_engine.exe
+            Sanctum/target/release/sanctum.dll
+
+  # Stage and create PR (only with changed components)
+  stage-and-pr:
+    needs:
+      - detect-changes
+      - build-driver
+      - build-usermode
+    if: always() && (needs.build-driver.result == 'success' || needs.build-usermode.result == 'success' || needs.build-driver.result == 'skipped' || needs.build-usermode.result == 'skipped')
+    runs-on: windows-2022
+    steps:
+      - name: Enable Git long paths
+        run: git config --global core.longpaths true
+      - uses: actions/checkout@v6
+      
+      - name: Download artifacts
+        uses: actions/download-artifact@v7
+        with:
+          path: artifacts
+        continue-on-error: true
+      
+      - name: Stage (Conditional)
         shell: pwsh
         run: |
           $dist = "hydradragon/Sanctum"
-          New-Item -ItemType Directory -Force -Path $dist
+          New-Item -ItemType Directory -Force -Path $dist | Out-Null
+          $componentsBuilt = @()
           
-          # Use recursive lookup for driver and usermode binaries to avoid folder name mismatches
-          Get-ChildItem "Sanctum/driver/target/" -Filter "sanctum.sys" -Recurse | Select-Object -First 1 | Copy-Item -Destination "$dist/" -Force
-          Get-ChildItem "Sanctum/target/release/" -Filter "sanctum_ppl_runner.exe" -Recurse | Select-Object -First 1 | Copy-Item -Destination "$dist/" -Force
-          Get-ChildItem "Sanctum/target/release/" -Filter "elam_installer.exe" -Recurse | Select-Object -First 1 | Copy-Item -Destination "$dist/" -Force
-          Get-ChildItem "Sanctum/target/release/" -Filter "um_engine.exe" -Recurse | Select-Object -First 1 | Copy-Item -Destination "$dist/" -Force
-          Get-ChildItem "Sanctum/target/release/" -Filter "sanctum.dll" -Recurse | Select-Object -First 1 | Copy-Item -Destination "$dist/" -Force
+          # Driver
+          if (Test-Path "artifacts/sanctum-driver") {
+            Write-Host "✓ Processing Sanctum Driver"
+            Get-ChildItem "artifacts/sanctum-driver/" -Filter "sanctum.sys" -Recurse | 
+              Select-Object -First 1 | 
+              Copy-Item -Destination "$dist/" -Force
+            $componentsBuilt += "Sanctum Driver (sanctum.sys)"
+          } else {
+            Write-Host "⊘ Skipping Driver (not built)"
+          }
           
-      - name: Upload Artifacts
-        uses: actions/upload-artifact@v7
-        with:
-          name: sanctum-release-binaries
-          path: hydradragon/Sanctum/
-          if-no-files-found: error
-
+          # Usermode Components
+          if (Test-Path "artifacts/sanctum-usermode") {
+            Write-Host "✓ Processing Sanctum Usermode Components"
+            Get-ChildItem "artifacts/sanctum-usermode/" -Filter "sanctum_ppl_runner.exe" -Recurse | 
+              Select-Object -First 1 | 
+              Copy-Item -Destination "$dist/" -Force
+            Get-ChildItem "artifacts/sanctum-usermode/" -Filter "elam_installer.exe" -Recurse | 
+              Select-Object -First 1 | 
+              Copy-Item -Destination "$dist/" -Force
+            Get-ChildItem "artifacts/sanctum-usermode/" -Filter "um_engine.exe" -Recurse | 
+              Select-Object -First 1 | 
+              Copy-Item -Destination "$dist/" -Force
+            Get-ChildItem "artifacts/sanctum-usermode/" -Filter "sanctum.dll" -Recurse | 
+              Select-Object -First 1 | 
+              Copy-Item -Destination "$dist/" -Force
+            $componentsBuilt += "Usermode Components (um_engine.exe, sanctum_ppl_runner.exe, etc.)"
+          } else {
+            Write-Host "⊘ Skipping Usermode Components (not built)"
+          }
+          
+          Write-Host "`n=== Components Built: $($componentsBuilt.Count) ==="
+          $componentsBuilt | ForEach-Object { Write-Host "  - $_" }
+      
+      - name: Check for Changes
+        id: check_changes
+        shell: pwsh
+        run: |
+          git add -A
+          $status = git status --porcelain
+          if ($null -eq $status -or $status -eq "") {
+            echo "changed=false" >> $env:GITHUB_OUTPUT
+          } else {
+            echo "changed=true" >> $env:GITHUB_OUTPUT
+          }
+      
       - name: Create PR
+        if: steps.check_changes.outputs.changed == 'true'
         uses: peter-evans/create-pull-request@v8
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          commit-message: "chore(sanctum): update binaries"
+          commit-message: "chore(sanctum): update binaries (selective build)"
           title: "🚀 Update Sanctum Binaries"
+          body: |
+            Automated selective build for Sanctum components.
+            
+            **Components Updated:**
+            - Driver: ${{ needs.detect-changes.outputs.driver }}
+            - Usermode: ${{ needs.detect-changes.outputs.usermode }}
+            
+            Only changed components were rebuilt.
           branch: "auto-update-sanctum"
           base: ${{ github.ref_name }}
           delete-branch: true
+          labels: binaries, automated-pr, selective-build
