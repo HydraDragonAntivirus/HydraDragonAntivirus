@@ -24,6 +24,14 @@ if (-not $Cert) {
     Write-Host "[+] Certificate created: $($Cert.Thumbprint)"
 } else {
     Write-Host "[+] Found existing certificate: $($Cert.Thumbprint)"
+    
+    # Export PFX if it doesn't exist
+    if (-not (Test-Path $PfxPath)) {
+        Write-Host "[*] Exporting certificate to PFX..."
+        $PasswordSecure = ConvertTo-SecureString -String $CertPassword -Force -AsPlainText
+        Export-PfxCertificate -Cert $Cert -FilePath $PfxPath -Password $PasswordSecure | Out-Null
+        Write-Host "[+] PFX exported: $PfxPath"
+    }
 }
 
 # 2) Trust the certificate locally
@@ -65,13 +73,13 @@ Write-Host "[*] Using SignTool: $SignTool"
 $DriverPath = Join-Path $OutDir "edrdrv.sys"
 if (Test-Path $DriverPath) {
     Write-Host "[*] Signing $DriverPath..."
-    & $SignTool sign /v /fd SHA256 /a /s My /n "$($Cert.Subject)" /t "http://timestamp.digicert.com" $DriverPath
+    & $SignTool sign /v /fd SHA256 /sha1 $($Cert.Thumbprint) /t "http://timestamp.digicert.com" $DriverPath
 } else {
     Write-Host "[!] edrdrv.sys not found at $DriverPath. Checking other locations..."
     $AltPaths = Get-ChildItem -Path $EdrRoot -Recurse -Filter "edrdrv.sys" | Select-Object -ExpandProperty FullName
     foreach ($Path in $AltPaths) {
         Write-Host "[*] Signing alternative: $Path"
-        & $SignTool sign /v /fd SHA256 /a /s My /n "$($Cert.Subject)" /t "http://timestamp.digicert.com" $Path
+        & $SignTool sign /v /fd SHA256 /sha1 $($Cert.Thumbprint) /t "http://timestamp.digicert.com" $Path
     }
 }
 
