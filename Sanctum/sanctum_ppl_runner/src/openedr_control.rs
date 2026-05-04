@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! Sanctum-only OpenEDR driver control helper.
 //!
 //! This file belongs in the Sanctum PPL runner, not in Owlyshield. The driver

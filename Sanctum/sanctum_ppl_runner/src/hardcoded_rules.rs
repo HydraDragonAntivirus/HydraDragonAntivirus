@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! Hardcoded Sanctum-owned protection rules.
 //!
 //! These constants are compiled into sanctum_ppl_runner.exe. The runner no longer

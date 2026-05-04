@@ -45,6 +45,8 @@ static SERVICE_STOP: AtomicBool = AtomicBool::new(false);
 const EXPECTED_RUNNER_PATH: &str =
     r"C:\Program Files\HydraDragonAntivirus\hydradragon\Sanctum\AppData\sanctum_ppl_runner.exe";
 
+/// The service entrypoint for the binary which will be run via powershell / persistence
+///
 /// # Safety
 /// This is an FFI callback for the Windows Service Manager.
 #[unsafe(no_mangle)]
@@ -200,17 +202,14 @@ fn spawn_owlyshield_ransom_process() {
 
 /// Handles service control events (e.g., stop)
 unsafe extern "system" fn service_handler(control: u32) {
-    match control {
-        SERVICE_CONTROL_STOP => {
-            SERVICE_STOP.store(true, Ordering::SeqCst);
-        }
-        _ => {}
+    if control == SERVICE_CONTROL_STOP {
+        SERVICE_STOP.store(true, Ordering::SeqCst);
     }
 }
 
 /// Update the service status in the SCM
 unsafe fn update_service_status(h_status: SERVICE_STATUS_HANDLE, state: u32) {
-    let mut service_status = SERVICE_STATUS {
+    let service_status = SERVICE_STATUS {
         dwServiceType: SERVICE_WIN32_OWN_PROCESS,
         dwCurrentState: SERVICE_STATUS_CURRENT_STATE(state),
         dwControlsAccepted: if state == SERVICE_RUNNING.0 { 1 } else { 0 },
@@ -221,7 +220,7 @@ unsafe fn update_service_status(h_status: SERVICE_STATUS_HANDLE, state: u32) {
     };
 
     unsafe {
-        let _ = SetServiceStatus(h_status, &mut service_status);
+        let _ = SetServiceStatus(h_status, &service_status);
     }
 }
 

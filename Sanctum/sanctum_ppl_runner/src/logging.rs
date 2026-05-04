@@ -13,6 +13,7 @@ use windows::{
 
 /// A C style enum, event identifiers used in the Event Log to help filter / correlate by dictionary
 #[repr(u32)]
+#[allow(dead_code)]
 pub enum EventID {
     /// General informational logs related to the normal function of the service
     Info = 1,

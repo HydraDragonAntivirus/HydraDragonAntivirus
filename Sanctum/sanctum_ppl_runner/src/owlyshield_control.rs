@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! Sanctum-owned Owlyshield driver registration and embedded rule push.
 //!
 //! This file belongs in sanctum_ppl_runner.exe. The hardened Owlyshield
@@ -177,6 +178,7 @@ pub fn push_embedded_owlyshield_rules_from_sanctum() -> Result<(), String> {
     Ok(())
 }
 
+#[allow(clippy::collapsible_if)]
 pub fn unregister_owlyshield_from_sanctum() {
     if let Some(slot) = OWLYSHIELD_PORT_HANDLE.get() {
         if let Ok(mut guard) = slot.lock() {

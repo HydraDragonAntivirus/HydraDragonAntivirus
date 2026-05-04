@@ -22,7 +22,7 @@ use windows::{
                 PROPERTY_DATA_DESCRIPTOR, ProcessTrace, StartTraceW, StopTraceW,
                 TRACE_EVENT_INFO, TRACE_LEVEL_VERBOSE, TdhGetEventInformation, TdhGetProperty,
             },
-            EventLog::{EVENTLOG_ERROR_TYPE, EVENTLOG_INFORMATION_TYPE, EVENTLOG_SUCCESS},
+            EventLog::{EVENTLOG_ERROR_TYPE, EVENTLOG_INFORMATION_TYPE},
             ProcessStatus::GetProcessImageFileNameW,
             Threading::{OpenProcess, PROCESS_ALL_ACCESS},
         },
@@ -617,8 +617,10 @@ fn stop_trace(
 
 /// Begin tracing events
 fn process_trace_events(session_name: &mut Vec<u16>) {
-    let mut log_file = EVENT_TRACE_LOGFILEW::default();
-    log_file.LoggerName = PWSTR(session_name.as_mut_ptr());
+    let mut log_file = EVENT_TRACE_LOGFILEW {
+        LoggerName: PWSTR(session_name.as_mut_ptr()),
+        ..Default::default()
+    };
     log_file.Anonymous1.ProcessTraceMode =
         PROCESS_TRACE_MODE_REAL_TIME | PROCESS_TRACE_MODE_EVENT_RECORD;
     log_file.Anonymous2.EventRecordCallback = Some(trace_callback);
