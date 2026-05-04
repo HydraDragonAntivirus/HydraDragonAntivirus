@@ -151,6 +151,18 @@ https://github.com/adrianyy/kernelhook/issues/1
 
 ---
 
+### Security & Dependency Notes
+
+#### Wasmtime Vulnerability (CVE-2026-34987)
+- **Status**: Acknowledged & Mitigated.
+- **Details**: The `yara-x` scanning engine depends on `wasmtime`, which has a reported sandbox escape vulnerability in its experimental Winch compiler and aarch64 Cranelift backend.
+- **Mitigation**: 
+  - HydraDragon uses the default **Cranelift** compiler (not the vulnerable Winch backend).
+  - This project targets **x86-64 Windows** only; **aarch64 is not supported**.
+  - We are currently maintaining `yara-x` version `1.15.0` (stable). A future update to the patched `wasmtime` (43.0.1+) will be applied once a stable `yara-x` release supporting it is available.
+
+---
+
 ### Quarantine Directory
 
 C:\ProgramData\HydraDragonAntivirus\Quarantine
