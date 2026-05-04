@@ -4,7 +4,7 @@ use tokio::sync::{Mutex, mpsc};
 
 use crate::{
     core::process_monitor::inject_edr_dll,
-    driver_manager::SanctumDriverManager,
+    driver_manager::manager::SanctumDriverManager,
     utils::log::{Log, LogLevel},
 };
 
@@ -92,7 +92,7 @@ fn source_name(source: shared_no_std::ghost_hunting::SyscallEventSource) -> &'st
 ///   GUI can request.
 #[derive(Debug, Default)]
 pub struct Core {
-    driver_poll_rate: u64,
+    _driver_poll_rate: u64,
     driver_dbg_message_cache: Mutex<Vec<String>>,
     // process_monitor: RwLock<ProcessMonitor>,
 }
@@ -101,7 +101,7 @@ impl Core {
     /// Initialises a new Core instance from a poll rate in **milliseconds**.
     pub fn from(poll_rate: u64) -> Self {
         Core {
-            driver_poll_rate: poll_rate,
+            _driver_poll_rate: poll_rate,
             ..Default::default()
         }
     }

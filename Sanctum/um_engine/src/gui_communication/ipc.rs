@@ -10,8 +10,8 @@
 use std::{path::PathBuf, sync::Arc};
 
 use crate::{
-    core::core::Core,
-    driver_manager::SanctumDriverManager,
+    core::logic::Core,
+    driver_manager::manager::SanctumDriverManager,
     filescanner::FileScanner,
     settings::get_setting_paths,
     utils::{

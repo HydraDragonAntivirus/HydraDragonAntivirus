@@ -35,6 +35,13 @@ jobs:
           Copy-Item "PYAS_Protection/x64/Release/SimplePYASProtection.sys" "$dist/" -Force
           Copy-Item "PYAS_Protection/x64/Release/SimplePYASProtection.inf" "$dist/" -Force
           
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: pyas-protection-release-binaries
+          path: hydradragon/SimplePYASProtection/
+          if-no-files-found: error
+
       - name: Create PR
         uses: peter-evans/create-pull-request@v8
         with:

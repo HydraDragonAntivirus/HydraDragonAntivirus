@@ -82,6 +82,7 @@ call :build "%inst_sln%" Debug || ((call :error "Compillation failed") & exit /b
 timeout /t 5 /NOBREAK
 
 call :unit_test
+call :sign_drivers
 
 call :verify_output
 
@@ -93,6 +94,17 @@ timeout /t 5 /NOBREAK
 call :cleanup
 
 exit /b 0
+
+
+:sign_drivers
+echo.Signing drivers...
+powershell -ExecutionPolicy Bypass -File "%ScriptDir%\sign_drivers.ps1"
+if %errorlevel% neq 0 (
+    echo.[WARN] Driver signing failed. Integrity checks may block loading.
+) else (
+    echo.[+] Driver signing complete.
+)
+goto :eof
 
 
 :parse_args

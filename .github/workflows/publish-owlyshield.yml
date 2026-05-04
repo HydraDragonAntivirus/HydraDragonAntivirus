@@ -68,6 +68,13 @@ jobs:
           Copy-Item "Owlyshield/RedDbg/RedDbg/x64/ReleaseX64Kernel/*.inf" "$redDbg/" -Force
           Copy-Item "Owlyshield/RedDbg/RedDbg/x64/ReleaseX64Kernel/*.cat" "$redDbg/" -Force
           
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: owlyshield-release-binaries
+          path: hydradragon/Owlyshield/
+          if-no-files-found: error
+
       - name: Create PR
         uses: peter-evans/create-pull-request@v8
         with:

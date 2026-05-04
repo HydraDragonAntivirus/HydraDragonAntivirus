@@ -6,7 +6,7 @@ use crate::utils::{env::get_logged_in_username, log::Log};
 
 pub trait SanctumSettingsImpl {
     fn load() -> Self;
-    fn update_settings(&mut self, settings: SanctumSettings) -> Self;
+    fn _update_settings(&mut self, settings: SanctumSettings) -> Self;
 }
 
 impl SanctumSettingsImpl for SanctumSettings {
@@ -50,7 +50,7 @@ impl SanctumSettingsImpl for SanctumSettings {
 
     /// Update the settings fields in place
     #[allow(dead_code)]
-    fn update_settings(&mut self, settings: SanctumSettings) -> Self {
+    fn _update_settings(&mut self, settings: SanctumSettings) -> Self {
         // update self fields in memory
         self.common_scan_areas = settings.clone().common_scan_areas;
 

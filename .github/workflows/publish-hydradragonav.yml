@@ -28,6 +28,13 @@ jobs:
           New-Item -ItemType Directory -Force -Path $dist
           Copy-Item "HydraDragonAV/x64/Release/HydraDragonAV.exe" "$dist/" -Force
           
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: hydradragonav-release-binaries
+          path: hydradragon/HydraDragonAV/
+          if-no-files-found: error
+
       - name: Create PR
         uses: peter-evans/create-pull-request@v8
         with:

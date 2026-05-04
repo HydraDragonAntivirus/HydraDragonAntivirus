@@ -13,12 +13,10 @@ pub async fn scanner_check_page_state() -> Result<String, ()> {
     match IpcClient::send_ipc::<FileScannerState, Option<Value>>("scanner_check_page_state", None)
         .await
     {
-        Ok(response) => {
-            return Ok(format!("{:?}", response));
-        }
+        Ok(response) => Ok(format!("{:?}", response)),
         Err(e) => {
             eprintln!("[-] Error with IPC: {e}");
-            return Ok("Inactive".to_string()); // todo proper error handling
+            Ok("Inactive".to_string()) // todo proper error handling
         }
     };
 }
@@ -31,11 +29,11 @@ pub async fn scanner_get_scan_stats() -> Result<String, ()> {
     {
         Ok(response) => {
             let response = serde_json::to_string(&response).unwrap();
-            return Ok(response);
+            Ok(response)
         }
         Err(e) => {
             eprintln!("[-] Error with IPC: {e}");
-            return Ok("Inactive".to_string()); // todo proper error handling
+            Ok("Inactive".to_string()) // todo proper error handling
         }
     };
 }
@@ -107,7 +105,7 @@ pub async fn scanner_start_folder_scan(
     // // total files after.
 
     // todo this shouldn't show in every case..?
-    Ok(format!("Scan in progress..."))
+    Ok("Scan in progress...".to_string())
 }
 
 #[tauri::command]

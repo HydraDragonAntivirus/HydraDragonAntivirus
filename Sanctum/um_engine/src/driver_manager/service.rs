@@ -23,7 +23,7 @@ use crate::{
     utils::log::{Log, LogLevel},
 };
 
-use super::driver_manager::SanctumDriverManager;
+use super::manager::SanctumDriverManager;
 impl SanctumDriverManager {
     /// Command for the driver manager to install the driver on the target device.
     ///

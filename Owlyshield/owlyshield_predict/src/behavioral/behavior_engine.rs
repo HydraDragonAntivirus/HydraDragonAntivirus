@@ -196,6 +196,10 @@ pub struct OpenEdrTelemetryStats {
     pub detected_apis: HashSet<String>,
     pub recent_events: VecDeque<String>,
     pub last_event: Option<String>,
+    pub cloud_static_label: Option<String>,
+    pub cloud_dynamic_label: Option<String>,
+    pub cloud_static_trust_level: u8,
+    pub cloud_dynamic_trust_level: u8,
 }
 
 // =============================================================================
@@ -1257,6 +1261,8 @@ pub struct ProcessBehaviorState {
     pub rootkit_implicated: bool,
     /// All rootkit events detected for this process.
     pub rootkit_findings: Vec<RootkitFinding>,
+    pub cloud_static_label: Option<String>,
+    pub cloud_dynamic_label: Option<String>,
 }
 
 impl ProcessBehaviorState {
@@ -2099,6 +2105,86 @@ impl BehaviorEngine {
         }
     }
 
+    /// Notify the firewall GUI via HydraHipEvent about a cloud-trusted process (Informational).
+    fn notify_hips_cloud_trust(&self, pid: u32, exe_path: &str, label: &str) {
+        use std::ffi::CString;
+        use windows::Win32::Foundation::{CloseHandle, GetLastError, HANDLE};
+        use windows::Win32::Storage::FileSystem::{
+            CreateFileA, FILE_ATTRIBUTE_NORMAL, FILE_GENERIC_WRITE, FILE_SHARE_NONE, OPEN_EXISTING,
+            WriteFile,
+        };
+        use windows::Win32::System::Pipes::WaitNamedPipeA;
+        use windows::core::PCSTR;
+
+        const PIPE: &str = r"\\.\pipe\HydraHipEvent";
+        let pipe_name = match CString::new(PIPE) {
+            Ok(value) => value,
+            Err(_) => return,
+        };
+        let pcstr = PCSTR(pipe_name.as_ptr() as *const u8);
+
+        let message = format!(
+            "HIPS_TRUST:{}|{}|{}\n",
+            pid,
+            Self::sanitize_firewall_hips_field(exe_path),
+            Self::sanitize_firewall_hips_field(label),
+        );
+        let message_bytes = message.as_bytes();
+
+        unsafe {
+            if WaitNamedPipeA(pcstr, 500).is_ok() {
+                if let Ok(handle) = CreateFileA(
+                    pcstr,
+                    FILE_GENERIC_WRITE.0,
+                    FILE_SHARE_NONE,
+                    None,
+                    OPEN_EXISTING,
+                    FILE_ATTRIBUTE_NORMAL,
+                    HANDLE::default(),
+                ) {
+                    if !handle.is_invalid() {
+                        let _ = WriteFile(handle, Some(message_bytes), None, None);
+                        let _ = CloseHandle(handle);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Notify the firewall GUI via HydraHipEvent about a cloud-sourced threat.
+    fn notify_hips_cloud_threat(
+        &self,
+        pid: u32,
+        exe_path: &str,
+        label: &str,
+        analysis_type: &str,
+    ) {
+        let app_name = Path::new(exe_path)
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| "Unknown".to_string());
+
+        let mut dummy_state = ProcessBehaviorState::new(pid, PathBuf::from(exe_path), app_name.clone());
+        dummy_state.cloud_static_label = if analysis_type == "Static" { Some(label.to_string()) } else { None };
+        dummy_state.cloud_dynamic_label = if analysis_type == "Dynamic" { Some(label.to_string()) } else { None };
+
+        let rule = BehaviorRule {
+            name: format!("Cloud:{}:{}", analysis_type, label),
+            description: format!("Threat detected by OpenEDR/Valkyrie Cloud {} Analysis", analysis_type),
+            response: BehaviorResponse {
+                ask_user: true,
+                terminate_process: true,
+                quarantine: true,
+                notify_user: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        // Forward to the HIPS pipe. We use GID 0 for external cloud alerts.
+        let _ = self.resolve_firewall_hips_prompt(0, &dummy_state, &rule);
+    }
+
     /// Ingest a telemetry event emitted by OpenEDR's local JSON event logs.
     pub fn ingest_openedr_event(&self, event: &serde_json::Value) {
         let event_type = event["type"].as_str().unwrap_or("").trim();
@@ -2205,6 +2291,53 @@ impl BehaviorEngine {
             | "LLE_NETWORK_REQUEST_DNS"
             | "LLE_NETWORK_REQUEST_DATA" => stats.network_connect_count += 1,
             _ => {}
+        }
+
+        // Extract Cloud Analysis Labels (OpenEDR/Valkyrie)
+        if let Some(cloud) = event.get("cloud_analysis") {
+            if let Some(static_label) = cloud.get("static_label").and_then(|v| v.as_str()) {
+                stats.cloud_static_label = Some(static_label.to_string());
+                
+                let trust_level = cloud.get("trust_level")
+                    .or_else(|| cloud.get("verdict"))
+                    .or_else(|| cloud.get("rating"))
+                    .and_then(|v| v.as_u64()).unwrap_or(3) as u8; // Default to 3 (Unknown)
+                stats.cloud_static_trust_level = trust_level;
+
+                // Mapping according to fls.security.comodo.com:
+                // 0: Malware (Malicious)
+                // 1: Safe (Clean)
+                // 2: Unrecognized
+                // 3: Unknown
+                let sl_lc = static_label.to_lowercase();
+                if trust_level == 0 || sl_lc.contains("malicious") || sl_lc.contains("threat") || sl_lc.contains("malware") {
+                    let exe_path = event["process"]["path"].as_str().unwrap_or("Unknown");
+                    self.notify_hips_cloud_threat(pid, exe_path, static_label, "Static (FLS Code 0)");
+                } else if trust_level == 1 || sl_lc.contains("clean") || sl_lc.contains("trusted") || sl_lc.contains("safe") {
+                    let exe_path = event["process"]["path"].as_str().unwrap_or("Unknown");
+                    self.notify_hips_cloud_trust(pid, exe_path, static_label);
+                } else if trust_level == 2 || sl_lc.contains("unrecognized") {
+                    let exe_path = event["process"]["path"].as_str().unwrap_or("Unknown");
+                    self.notify_hips_cloud_threat(pid, exe_path, static_label, "Static (FLS Code 2 - Unrecognized)");
+                }
+            }
+            if let Some(dynamic_label) = cloud.get("dynamic_label").and_then(|v| v.as_str()) {
+                stats.cloud_dynamic_label = Some(dynamic_label.to_string());
+                let trust_level = cloud.get("dynamic_trust_level")
+                    .or_else(|| cloud.get("dynamic_verdict"))
+                    .or_else(|| cloud.get("dynamic_rating"))
+                    .and_then(|v| v.as_u64()).unwrap_or(3) as u8; // Default to 3 (Unknown)
+                stats.cloud_dynamic_trust_level = trust_level;
+
+                let dl_lc = dynamic_label.to_lowercase();
+                if trust_level == 0 || dl_lc.contains("malicious") || dl_lc.contains("threat") || dl_lc.contains("malware") {
+                    let exe_path = event["process"]["path"].as_str().unwrap_or("Unknown");
+                    self.notify_hips_cloud_threat(pid, exe_path, dynamic_label, "Dynamic (FLS Code 0)");
+                } else if trust_level == 2 || dl_lc.contains("unrecognized") {
+                    let exe_path = event["process"]["path"].as_str().unwrap_or("Unknown");
+                    self.notify_hips_cloud_threat(pid, exe_path, dynamic_label, "Dynamic (FLS Code 2 - Unrecognized)");
+                }
+            }
         }
     }
 
@@ -6323,6 +6456,12 @@ impl BehaviorEngine {
                             s.recent_kernel_api_events
                                 .push_back(format!("openedr:{}", event));
                         }
+                        if let Some(label) = stats.cloud_static_label {
+                            s.cloud_static_label = Some(label);
+                        }
+                        if let Some(label) = stats.cloud_dynamic_label {
+                            s.cloud_dynamic_label = Some(label);
+                        }
                     }
                 }
                 s.clone()
@@ -6351,6 +6490,35 @@ impl BehaviorEngine {
                 script_file_opt,
             ) {
                 continue;
+            }
+
+            // Cloud Trust Filter: If the rule trusts the cloud and static analysis says Safe/Trusted (Code 1), bypass local rules.
+            if rule.should_trust_cloud {
+                let is_trusted = state_ref.cloud_static_trust_level == 1 || 
+                                 state_ref.cloud_dynamic_trust_level == 1;
+                
+                if is_trusted {
+                    if rule.debug || self.rules.iter().any(|r| r.debug) {
+                        Logging::debug(&format!(
+                            "[BehaviorEngine] Trusting Cloud Analysis for PID {} (Trust: {}/{}): bypass rule '{}'",
+                            state_ref.pid, state_ref.cloud_static_trust_level, state_ref.cloud_dynamic_trust_level, rule.name
+                        ));
+                    }
+                    continue;
+                }
+
+                if let Some(static_label) = &state_ref.cloud_static_label {
+                    let label_lc = static_label.to_lowercase();
+                    if label_lc.contains("clean") || label_lc.contains("trusted") || label_lc.contains("safe") {
+                        if rule.debug || self.rules.iter().any(|r| r.debug) {
+                            Logging::debug(&format!(
+                                "[BehaviorEngine] Trusting Cloud Label for PID {} ({}): bypass rule '{}'",
+                                state_ref.pid, static_label, rule.name
+                            ));
+                        }
+                        continue;
+                    }
+                }
             }
 
             let browsed_access_count = state_ref.browsed_paths_tracker.len();
@@ -7642,6 +7810,16 @@ impl BehaviorEngine {
                 };
                 if self.check_allowlist(&app_name, rule, Some(&exe_path_buf), script_file_opt) {
                     continue;
+                }
+
+                // Cloud Trust Filter: Bypass rule if cloud static analysis verified image as safe.
+                if rule.should_trust_cloud {
+                    if let Some(label) = &state.cloud_static_label {
+                        let label_lc = label.to_lowercase();
+                        if label_lc.contains("clean") || label_lc.contains("trusted") || label_lc.contains("safe") {
+                            continue;
+                        }
+                    }
                 }
 
                 let mut legacy_triggered = false;

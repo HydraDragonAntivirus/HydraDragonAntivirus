@@ -89,7 +89,7 @@ pub fn get_thread_ids() -> Result<Vec<u32>, ()> {
                 }
             }
 
-            if !unsafe { Thread32Next(snapshot, &mut thread_entry) }.is_ok() {
+            if unsafe { Thread32Next(snapshot, &mut thread_entry) }.is_err() {
                 break;
             }
         }

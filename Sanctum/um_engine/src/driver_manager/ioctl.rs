@@ -2,7 +2,7 @@
 
 use crate::utils::log::LogLevel;
 
-use super::driver_manager::SanctumDriverManager;
+use super::manager::SanctumDriverManager;
 use anyhow::{Result, bail};
 use core::str;
 use shared_no_std::{

@@ -60,6 +60,13 @@ jobs:
           Get-ChildItem "Sanctum/target/release/" -Filter "um_engine.exe" -Recurse | Select-Object -First 1 | Copy-Item -Destination "$dist/" -Force
           Get-ChildItem "Sanctum/target/release/" -Filter "sanctum.dll" -Recurse | Select-Object -First 1 | Copy-Item -Destination "$dist/" -Force
           
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: sanctum-release-binaries
+          path: hydradragon/Sanctum/
+          if-no-files-found: error
+
       - name: Create PR
         uses: peter-evans/create-pull-request@v8
         with:

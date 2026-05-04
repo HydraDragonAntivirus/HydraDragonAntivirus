@@ -10,8 +10,8 @@ use windows::Win32::{
 };
 
 use crate::{
-    core::core::Core,
-    driver_manager::SanctumDriverManager,
+    core::logic::Core,
+    driver_manager::manager::SanctumDriverManager,
     filescanner::FileScanner,
     gui_communication::ipc::UmIpc,
     settings::SanctumSettingsImpl,

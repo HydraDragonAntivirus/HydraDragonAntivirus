@@ -48,9 +48,10 @@ jobs:
       shell: cmd
 
     - name: Upload build directory 
+      if: matrix.BUILD_CONFIGURATION == 'Release'
       uses: actions/upload-artifact@v7
       with:
-        name: tinyantivirus_build_files_${{matrix.PLATFORM}}_${{matrix.BUILD_CONFIGURATION}}
+        name: tinyantivirus_release_binaries_${{matrix.PLATFORM}}
         path: |
           ./TinyAntivirus/x64/${{matrix.BUILD_CONFIGURATION}}/
           ./TinyAntivirus/${{matrix.BUILD_CONFIGURATION}}/

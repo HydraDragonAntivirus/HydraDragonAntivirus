@@ -56,7 +56,8 @@ jobs:
       run: msbuild /m /p:Configuration=${{matrix.BUILD_CONFIGURATION}} /p:Platform=${{matrix.PLATFORM}} "${{env.SOLUTION_FILE_PATH}}"
     
     - name: Upload build directory 
+      if: matrix.BUILD_CONFIGURATION == 'Release'
       uses: actions/upload-artifact@v7
       with:
-        name: mbrfilter_build_files_${{matrix.BUILD_CONFIGURATION}}
-        path: ${{ env.BUILD_BIN_DIR }}
+        name: mbrfilter_release_binaries
+        path: ${{ env.BUILD_BIN_DIR }}/${{ matrix.BUILD_CONFIGURATION }}

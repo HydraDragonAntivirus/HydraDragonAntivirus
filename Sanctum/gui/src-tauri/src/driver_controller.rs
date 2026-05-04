@@ -2,11 +2,7 @@ use crate::ipc::IpcClient;
 use serde_json::{to_value, Value};
 use shared_std::driver_manager::DriverState;
 
-#[derive(serde::Serialize, serde::Deserialize)]
-enum Response {
-    Ok(String),
-    Err(String),
-}
+
 
 /// Install the driver on the host machine
 #[tauri::command]

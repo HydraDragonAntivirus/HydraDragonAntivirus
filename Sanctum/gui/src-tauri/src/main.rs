@@ -23,9 +23,9 @@ use settings::{settings_load_page_state, settings_update_settings};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    tauri::async_runtime::spawn({ global_inbound_ipc() });
+    tauri::async_runtime::spawn(global_inbound_ipc());
 
-    Ok(tauri::Builder::default()
+    tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             scanner_start_folder_scan,
             scanner_check_page_state,
@@ -44,5 +44,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             process_query_pid,
         ])
         .run(tauri::generate_context!())
-        .expect("error while running tauri application"))
+        .expect("error while running tauri application");
+
+    Ok(())
 }

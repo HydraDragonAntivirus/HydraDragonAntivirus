@@ -391,7 +391,7 @@ pub static SYSCALL_NUMBER: LazyLock<BTreeMap<&'static str, u32>> = LazyLock::new
         for name in NT_FUNC_NAMES {
             if let Some(ntfunc) = unsafe { GetProcAddress(h_ntdll, PCSTR::from_raw(name.as_ptr())) }
             {
-                let funcaddr = unsafe { mem::transmute::<unsafe extern "system" fn() -> isize, *const u8>(ntfunc) };
+                let funcaddr = ntfunc as *const u8;
 
                 #[cfg(target_arch = "x86_64")]
                 {

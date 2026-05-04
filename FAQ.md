@@ -7,10 +7,13 @@
 
 ### Q: Does the program collect data and is there a cloud-based detection?
 - OpenEDR sends telemetry to Valkyrie to detect more malware (valkyrie.comodo.com).
-- **Note on Trust**: But we are not blindly trusting OpenEDR in whitelisting since malware can evade COMODO's Valkyrie cloud and can trick OpenEDR, so we have local rules and heuristics to detect them.
+- **Note on Trust**: We provide a granular trust policy. In our YAML rules, you can set `should_trust_cloud: true` to honor Comodo's Valkyrie static analysis results (FLS v7 protocol). We've implemented a high-performance, non-blocking telemetry pipeline that synchronizes cloud verdicts (0: Malware, 1: Safe, 2: Unrecognized, 3: Unknown) with the IPC layer for sub-millisecond heuristic bypass. However, dynamic analysis results are never trusted blindly, as malware can evade cloud sandboxes; therefore, local behavioral heuristics always take precedence for active execution.
+- **The Process Hollowing Problem**: We do **not** send a "Safe" signal to the firewall based on static or cloud analysis. This is because of *Process Hollowing* (where a legitimate process is hijacked or its memory replaced with malicious code). If we marked a process as "Safe" and stopped monitoring, a hollowed process could bypass security. By maintaining Owlyshield as the central controller, we ensure that even "Trusted" processes are continuously monitored for suspicious behavioral deviations.
 
 ### Q: How do I use it?
-- Just run the shortcut from the desktop, then run advanced dynamic and static analysis on a file.
+- Just run the shortcut from the desktop (if not started yet). Note that there is **no manual "Scan" button** in the main interface (except for the experimental scan in Sanctum, which is a PoC and not fully effective for all file types). 
+- **Focus on Zero-Days**: This project is designed as a proactive behavioral engine. It focuses on detecting **Zero-day threats when they are in action**. Instead of scanning static files, it monitors process behavior, IRP operations, and network activity in real-time, leveraging OpenEDR cloud telemetry to verify active processes.
+- **Architectural Complexity**: Maintaining this level of protection across multiple EDR/XDR components involves massive complexity—over millons of lines specialized logic across Rust, C++, and driver code—to ensure the system remains resilient and context-aware.
 
 ### Q: How good is it?
 - It's very good at every type of analysis and it balances everything with allowing you configure more aggressive or less aggressive.

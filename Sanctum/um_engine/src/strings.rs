@@ -96,13 +96,13 @@ pub unsafe fn pcwstr_to_string(s: PCWSTR) -> Result<String, Box<dyn Error>> {
     }
 
     let mut len = 0;
-    while *s.0.add(len) != 0 {
+    while unsafe { *s.0.add(len) } != 0 {
         len += 1;
     }
 
-    Ok(String::from_utf16_lossy(std::slice::from_raw_parts(
-        s.0, len,
-    )))
+    Ok(String::from_utf16_lossy(unsafe {
+        std::slice::from_raw_parts(s.0, len)
+    }))
 }
 
 /// Converts a PWSTR to a String
@@ -117,11 +117,11 @@ pub unsafe fn pwstr_to_string(s: PWSTR) -> Result<String, Box<dyn Error>> {
     }
 
     let mut len = 0;
-    while *s.0.add(len) != 0 {
+    while unsafe { *s.0.add(len) } != 0 {
         len += 1;
     }
 
-    Ok(String::from_utf16_lossy(std::slice::from_raw_parts(
-        s.0, len,
-    )))
+    Ok(String::from_utf16_lossy(unsafe {
+        std::slice::from_raw_parts(s.0, len)
+    }))
 }

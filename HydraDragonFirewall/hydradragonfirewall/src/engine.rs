@@ -861,6 +861,8 @@ pub struct ProcessInventoryEntry {
     pub suspicious: bool,
     pub pending_alert: bool,
     pub decision: Option<String>,
+    #[serde(default)]
+    pub cloud_trusted: bool,
 }
 
 impl AppInfoCache {
@@ -964,6 +966,8 @@ pub struct AppManager {
     pub ghost_urls: RwLock<HashMap<u32, String>>,
     pub active_alert: RwLock<Option<PendingApp>>,
     pub suspicious_pids: RwLock<HashSet<u32>>,
+    #[serde(skip)]
+    pub cloud_trusted_pids: RwLock<HashSet<u32>>,
     /// Tracks which slot (0-based) the user is currently viewing, for the position counter.
     pub view_index: AtomicU64,
 }
@@ -980,6 +984,7 @@ impl AppManager {
             ghost_urls: RwLock::new(HashMap::new()),
             active_alert: RwLock::new(None),
             suspicious_pids: RwLock::new(HashSet::new()),
+            cloud_trusted_pids: RwLock::new(HashSet::new()),
             view_index: AtomicU64::new(0),
         }
     }
@@ -2435,6 +2440,7 @@ impl FirewallEngine {
                         suspicious: suspicious_pids.contains(&pid),
                         pending_alert: active_alert_pid == Some(pid) || pending_pids.contains(&pid),
                         decision,
+                        cloud_trusted: cloud_trusted_pids.contains(&pid),
                     });
 
                     if Process32NextW(snapshot, &mut entry).is_err() {
@@ -2969,6 +2975,30 @@ impl FirewallEngine {
                                                     tx_hips.emit("ask_app_decision", active_alert);
                                             }
                                         }
+                                    }
+                                } else if let Some(rest) = line.strip_prefix("HIPS_TRUST:") {
+                                    let mut parts = rest.splitn(3, '|');
+                                    let pid = parts.next().unwrap_or("0").parse::<u32>().unwrap_or(0);
+                                    let path = parts.next().unwrap_or("").to_string();
+                                    let info = parts.next().unwrap_or("Verified Safe").to_string();
+
+                                    if pid != 0 {
+                                        am_hips.cloud_trusted_pids.write().unwrap().insert(pid);
+                                        emit_log_event(
+                                            &tx_hips,
+                                            LogEntry {
+                                                id: format!("cloud_trust_{}", pid),
+                                                timestamp: SystemTime::now()
+                                                    .duration_since(UNIX_EPOCH)
+                                                    .unwrap_or_default()
+                                                    .as_millis() as u64,
+                                                level: LogLevel::Success,
+                                                message: format!(
+                                                    "[Cloud Trust] {} verified by OpenEDR: {}",
+                                                    path, info
+                                                ),
+                                            },
+                                        );
                                     }
                                 }
                             }

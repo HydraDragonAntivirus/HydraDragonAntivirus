@@ -10,9 +10,7 @@ use tokio::{
     net::windows::named_pipe::{ClientOptions, NamedPipeClient, ServerOptions},
 };
 
-pub struct IpcClient {
-    client: NamedPipeClient,
-}
+pub struct IpcClient;
 
 impl IpcClient {
     /// Main mechanism for sending IPC requests to the usermode engine for the EDR. This function
@@ -49,7 +47,7 @@ impl IpcClient {
     ///
     /// - Ok T: where T is the return type of the function run by the usermode engine.
     /// - Err: where the error relates to the reading / writing of the IPC, and NOT the function run
-    ///     by the IPC server.
+    ///   by the IPC server.
     pub async fn send_ipc<T, A>(command: &str, args: Option<A>) -> io::Result<T>
     where
         T: DeserializeOwned + Debug,
@@ -86,6 +84,7 @@ pub async fn global_inbound_ipc() {
 
     // todo below
 
+    /*
     // test notification
     // todo app id needs to be valid?
     Toast::new(Toast::POWERSHELL_APP_ID)
@@ -109,6 +108,7 @@ pub async fn global_inbound_ipc() {
         .duration(Duration::Short)
         .show()
         .expect("Could not show popup");
+    */
 
     let mut sec_attr = create_security_attributes();
 
@@ -120,7 +120,7 @@ pub async fn global_inbound_ipc() {
             .expect("[-] Unable to create named pipe server for ETW receiver")
     };
 
-    let _ = tokio::spawn(async move {
+    tokio::spawn(async move {
         loop {
             // wait for a connection
             server
@@ -144,7 +144,7 @@ pub async fn global_inbound_ipc() {
             //
             // process the inbound message
             //
-            let _ = tokio::spawn(async move {
+            tokio::spawn(async move {
                 let mut buffer = vec![0; 1024];
                 match connected_client.read(&mut buffer).await {
                     Ok(bytes_read) => {
