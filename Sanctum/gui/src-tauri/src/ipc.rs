@@ -1,9 +1,10 @@
 use std::fmt::Debug;
 
 use serde::{de::DeserializeOwned, Serialize};
-use serde_json::{to_value, to_vec};
-use shared_no_std::{constants::PIPE_NAME, ipc::CommandRequest};
+use serde_json::{from_slice, to_value, to_vec};
+use shared_no_std::{constants::PIPE_NAME, ghost_hunting::Syscall, ipc::CommandRequest};
 use shared_std::{constants::PIPE_FOR_GUI, security::create_security_attributes};
+use tauri_winrt_notification::{Duration, Sound, Toast};
 use tokio::{
     io::{self, AsyncReadExt, AsyncWriteExt},
     net::windows::named_pipe::{ClientOptions, ServerOptions},
@@ -79,83 +80,83 @@ impl IpcClient {
 
 /// An IPC server for inbound notifications from the EDR where we aren't sending outbound polls.
 pub async fn global_inbound_ipc() {
-    // todo below - function not yet implemented
-    return;
-
-    /*
-    // test notification
-    // todo app id needs to be valid?
-    Toast::new(Toast::POWERSHELL_APP_ID)
-        .title("Test!")
-        .text1("Text 1!")
-        .text2("Text 2!")
-        .sound(Some(Sound::Default))
-        .add_button("test content", "my_action")
-        .on_activated({
-            move |action| match action.as_deref() {
-                Some("my_action") => {
-                    println!("Matched on my_action!");
-                    Ok(())
-                }
-                _ => {
-                    println!("Hmmm");
-                    Ok(())
-                }
-            }
-        })
-        .duration(Duration::Short)
-        .show()
-        .expect("Could not show popup");
-
     let mut sec_attr = create_security_attributes();
 
-    // SAFETY: Null pointer checked at start of function
+    // SAFETY: Security attributes are properly initialized above
     let mut server = unsafe {
         ServerOptions::new()
             .first_pipe_instance(true)
             .create_with_security_attributes_raw(PIPE_FOR_GUI, &mut sec_attr as *mut _ as *mut _)
-            .expect("[-] Unable to create named pipe server for ETW receiver")
+            .expect("[-] Unable to create named pipe server for GUI IPC receiver")
     };
 
     tokio::spawn(async move {
         loop {
             // wait for a connection
-            server
-                .connect()
-                .await
-                .expect("Could not get a client connection for ETW ipc");
+            match server.connect().await {
+                Ok(_) => {}
+                Err(e) => {
+                    eprintln!("[-] Failed to accept client connection for GUI IPC: {}", e);
+                    continue;
+                }
+            }
+
             let mut connected_client = server;
 
             let mut sec_attr = create_security_attributes();
 
-            // SAFETY: null pointer checked above
+            // SAFETY: Security attributes are properly initialized above
             server = unsafe {
                 ServerOptions::new()
                     .create_with_security_attributes_raw(
                         PIPE_FOR_GUI,
                         &mut sec_attr as *mut _ as *mut _,
                     )
-                    .expect("Unable to create new version of IPC for ETW pipe listener")
+                    .expect("[-] Unable to create new instance of IPC for GUI pipe listener")
             };
 
-            //
-            // process the inbound message
-            //
+            // Process the inbound message in a separate task
             tokio::spawn(async move {
-                let mut buffer = vec![0; 1024];
+                let mut buffer = vec![0; 4096];
                 match connected_client.read(&mut buffer).await {
                     Ok(bytes_read) => {
                         if bytes_read == 0 {
                             return;
-                        };
-                        todo!();
-                        // match from_slice::<Syscall>(&buffer[..bytes_read]) {
-                        // }
+                        }
+
+                        // Deserialize the syscall event
+                        match from_slice::<Syscall>(&buffer[..bytes_read]) {
+                            Ok(syscall) => {
+                                // Handle the syscall event - show notification to user
+                                handle_syscall_notification(syscall);
+                            }
+                            Err(e) => {
+                                eprintln!("[-] Failed to deserialize syscall event: {}", e);
+                            }
+                        }
                     }
-                    Err(_) => todo!(),
-                };
+                    Err(e) => {
+                        eprintln!("[-] Failed to read from IPC pipe: {}", e);
+                    }
+                }
             });
         }
     });
-    */
+}
+
+/// Handle incoming syscall events by showing Windows notifications
+fn handle_syscall_notification(syscall: Syscall) {
+    let title = format!("Security Event Detected (PID: {})", syscall.pid);
+    let message = format!("Event: {:?}", syscall.data);
+
+    // Show Windows toast notification
+    if let Err(e) = Toast::new(Toast::POWERSHELL_APP_ID)
+        .title(&title)
+        .text1(&message)
+        .sound(Some(Sound::Default))
+        .duration(Duration::Short)
+        .show()
+    {
+        eprintln!("[-] Failed to show notification: {}", e);
+    }
 }
