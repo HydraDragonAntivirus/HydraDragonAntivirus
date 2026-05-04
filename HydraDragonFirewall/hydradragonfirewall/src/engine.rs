@@ -966,7 +966,6 @@ pub struct AppManager {
     pub ghost_urls: RwLock<HashMap<u32, String>>,
     pub active_alert: RwLock<Option<PendingApp>>,
     pub suspicious_pids: RwLock<HashSet<u32>>,
-    #[serde(skip)]
     pub cloud_trusted_pids: RwLock<HashSet<u32>>,
     /// Tracks which slot (0-based) the user is currently viewing, for the position counter.
     pub view_index: AtomicU64,
@@ -2395,6 +2394,7 @@ impl FirewallEngine {
             .map(|alert| alert.process_id)
             .collect();
         let decisions = self.app_manager.decisions.read().unwrap().clone();
+        let cloud_trusted_pids = self.app_manager.cloud_trusted_pids.read().unwrap().clone();
 
         let mut processes = Vec::new();
         let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
