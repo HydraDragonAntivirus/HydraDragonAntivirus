@@ -39,14 +39,14 @@ mod logging;
 mod openedr_control;
 mod owlyshield_control;
 mod pyas_control;
-mod registry;
 mod tracing;
 
 static SERVICE_STOP: AtomicBool = AtomicBool::new(false);
 const EXPECTED_RUNNER_PATH: &str =
     r"C:\Program Files\HydraDragonAntivirus\hydradragon\Sanctum\AppData\sanctum_ppl_runner.exe";
 
-/// The service entrypoint for the binary which will be run via powershell / persistence
+/// # Safety
+/// This is an FFI callback for the Windows Service Manager.
 #[unsafe(no_mangle)]
 pub unsafe extern "system" fn ServiceMain(_: u32, _: *mut PWSTR) {
     // register the service with SCM (service control manager)
@@ -122,14 +122,14 @@ fn spawn_owlyshield_ransom_process() {
     startup_info.lpAttributeList =
         LPPROC_THREAD_ATTRIBUTE_LIST(attribute_list_mem.as_mut_ptr() as *mut _);
 
-    if let Err(_) = unsafe {
+    if unsafe {
         InitializeProcThreadAttributeList(
             Some(startup_info.lpAttributeList),
             1,
             None,
             &mut attribute_size_list,
         )
-    } {
+    }.is_err() {
         event_log(
             "Error initialising thread attribute list",
             EVENTLOG_ERROR_TYPE,

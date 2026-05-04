@@ -990,6 +990,7 @@ fn respond_to_gh_timer_expiry(pid: u32, timer: &GhostHuntingTimer) {
         | NtFunction::NtWriteVirtualMemory(_)
         | NtFunction::NtAllocateVirtualMemory(_)
         | NtFunction::NtCreateThreadEx(_) => contain_and_report(pid, timer),
+        NtFunction::EtwThreatIntelligence(_) => (),
         NtFunction::NetworkActivity(_) => (),
     }
 }

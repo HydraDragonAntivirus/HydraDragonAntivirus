@@ -909,13 +909,16 @@ impl ApiTracker {
 
         // Update injection score based on suspicious functions
         match function {
-            "NtWriteVirtualMemory" | "NtAllocateVirtualMemory" => {
+            "NtWriteVirtualMemory"
+            | "NtAllocateVirtualMemory"
+            | "NtProtectVirtualMemory"
+            | "NtMapViewOfSection" => {
                 self.sanctum_operations.injection_score += 1.0;
                 self.sanctum_operations
                     .suspicious_syscall_hits
                     .push(function.to_string());
             }
-            "NtCreateThreadEx" | "NtQueueApcThread" => {
+            "NtCreateThreadEx" | "NtQueueApcThread" | "NtSetContextThread" => {
                 self.sanctum_operations.injection_score += 2.0;
                 self.sanctum_operations
                     .suspicious_syscall_hits

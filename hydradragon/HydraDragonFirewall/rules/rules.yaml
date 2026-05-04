@@ -19,6 +19,7 @@ rules:
         - "*/bot*/sendDocument*"
     json_match:
       key: "chat_id"
+      # Empty value intentionally means any value for this key in the current SDK matcher.
       value: ""
 
   # Block Discord Webhook Exfiltration (Features 12, 13, 19, 29, 30)
@@ -30,7 +31,9 @@ rules:
     condition_logic: and
     domain:
       domains:
+        - "discord.com"
         - "*.discord.com"
+        - "discordapp.com"
         - "*.discordapp.com"
       case_insensitive: true
     url:
@@ -38,6 +41,7 @@ rules:
         - "*/api/webhooks/*"
     json_match:
       key: "content"
+      # Empty value intentionally means any value for this key in the current SDK matcher.
       value: ""
 
 
@@ -48,7 +52,7 @@ rules:
     enabled: true
     protocol: tcp
     action: ask
-    localhost_type: private_c
+    localhost_type: all
     dst_port:
       ports: [80, 443, 8080, 22, 3389]
 
@@ -67,7 +71,7 @@ rules:
   - name: "Detect Encoded PowerShell"
     description: "Detects base64-encoded PowerShell commands in traffic"
     enabled: true
-    protocol: http
+    protocol: any
     action: traffic_attack
     encoding: base64
     regex:

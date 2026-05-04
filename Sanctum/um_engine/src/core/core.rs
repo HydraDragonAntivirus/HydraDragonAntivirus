@@ -27,19 +27,40 @@ fn forward_to_owlyshield(syscall: &shared_no_std::ghost_hunting::Syscall) {
     use std::io::Write;
 
     // Build a simplified JSON payload: {pid, source, function, args}
-    let function_name = match &syscall.data {
-        shared_no_std::ghost_hunting::NtFunction::NtOpenProcess(_)          => "NtOpenProcess",
-        shared_no_std::ghost_hunting::NtFunction::NtWriteVirtualMemory(_)   => "NtWriteVirtualMemory",
-        shared_no_std::ghost_hunting::NtFunction::NtAllocateVirtualMemory(_)=> "NtAllocateVirtualMemory",
-        shared_no_std::ghost_hunting::NtFunction::NtCreateThreadEx(_)       => "NtCreateThreadEx",
-        shared_no_std::ghost_hunting::NtFunction::NetworkActivity(_)        => "NetworkActivity",
-        shared_no_std::ghost_hunting::NtFunction::None                      => return, // skip empty
+    let (source_str, function_name, args_json) = match &syscall.data {
+        shared_no_std::ghost_hunting::NtFunction::NtOpenProcess(data) => (
+            source_name(syscall.source),
+            "NtOpenProcess",
+            serde_json::to_string(data).unwrap_or_else(|_| "{}".to_string()),
+        ),
+        shared_no_std::ghost_hunting::NtFunction::NtWriteVirtualMemory(data) => (
+            source_name(syscall.source),
+            "NtWriteVirtualMemory",
+            serde_json::to_string(data).unwrap_or_else(|_| "{}".to_string()),
+        ),
+        shared_no_std::ghost_hunting::NtFunction::NtAllocateVirtualMemory(data) => (
+            source_name(syscall.source),
+            "NtAllocateVirtualMemory",
+            serde_json::to_string(data).unwrap_or_else(|_| "{}".to_string()),
+        ),
+        shared_no_std::ghost_hunting::NtFunction::NtCreateThreadEx(data) => (
+            source_name(syscall.source),
+            "NtCreateThreadEx",
+            serde_json::to_string(data).unwrap_or_else(|_| "{}".to_string()),
+        ),
+        shared_no_std::ghost_hunting::NtFunction::EtwThreatIntelligence(data) => (
+            "etw_ti",
+            data.function.as_str(),
+            serde_json::to_string(data).unwrap_or_else(|_| "{}".to_string()),
+        ),
+        shared_no_std::ghost_hunting::NtFunction::NetworkActivity(data) => (
+            source_name(syscall.source),
+            "NetworkActivity",
+            serde_json::to_string(data).unwrap_or_else(|_| "{}".to_string()),
+        ),
+        shared_no_std::ghost_hunting::NtFunction::None => return, // skip empty
     };
-    let source_str = match syscall.source {
-        shared_no_std::ghost_hunting::SyscallEventSource::EventSourceKernel      => "kernel",
-        shared_no_std::ghost_hunting::SyscallEventSource::EventSourceSyscallHook => "syscall_hook",
-    };
-    let args_json = serde_json::to_string(&syscall.data).unwrap_or_else(|_| "{}".to_string());
+
     let line = format!(
         "{{\"pid\":{},\"source\":\"{}\",\"function\":\"{}\",\"args\":{}}}\n",
         syscall.pid, source_str, function_name, args_json
@@ -47,6 +68,13 @@ fn forward_to_owlyshield(syscall: &shared_no_std::ghost_hunting::Syscall) {
 
     if let Ok(mut pipe) = std::fs::OpenOptions::new().write(true).open(OWLYSHIELD_SANCTUM_PIPE) {
         let _ = pipe.write_all(line.as_bytes());
+    }
+}
+
+fn source_name(source: shared_no_std::ghost_hunting::SyscallEventSource) -> &'static str {
+    match source {
+        shared_no_std::ghost_hunting::SyscallEventSource::EventSourceKernel      => "kernel",
+        shared_no_std::ghost_hunting::SyscallEventSource::EventSourceSyscallHook => "syscall_hook",
     }
 }
 
@@ -145,8 +173,14 @@ impl Core {
         //
         loop {
             if let Ok(syscall) = etw_rx.try_recv() {
+                forward_to_owlyshield(&syscall);
+
                 if let NtFunction::NetworkActivity(_) = &syscall.data {
                     let _ = fw_tx.try_send(syscall.clone());
+                }
+
+                if matches!(&syscall.data, NtFunction::EtwThreatIntelligence(_)) {
+                    continue;
                 }
 
                 let mut mtx = driver_manager.lock().await;

@@ -1,13 +1,14 @@
 //! This module is dedicated to tracing via ETW from a PPL security context.
 
-use std::{ptr::copy_nonoverlapping, u64};
+use std::ptr::copy_nonoverlapping;
 
 use crate::{
     ipc::send_etw_info_ipc,
     logging::{EventID, event_log},
 };
 use shared_no_std::ghost_hunting::{
-    HttpActivity, NetworkActivityData, NtFunction, Syscall, WinINetActivity,
+    EtwThreatIntelligenceData, HttpActivity, NetworkActivityData, NtFunction, Syscall,
+    SyscallEventSource, WinINetActivity,
 };
 use windows::{
     Win32::{
@@ -98,9 +99,359 @@ const KERNEL_THREATINT_KEYWORD_PROTECTVM_LOCAL_KERNEL_CALLER_FILL_VAD: u64 = 0x8
 const KERNEL_THREATINT_KEYWORD_PROTECTVM_REMOTE_FILL_VAD: u64 = 0x1000000000;
 const KERNEL_THREATINT_KEYWORD_PROTECTVM_REMOTE_KERNEL_CALLER_FILL_VAD: u64 = 0x2000000000;
 
+struct ThreatIntelKeywordTelemetry {
+    mask: u64,
+    expected_task: u16,
+    event_name: &'static str,
+    function: &'static str,
+    remote: bool,
+    suspicious: bool,
+}
+
+const THREAT_INTEL_TELEMETRY: &[ThreatIntelKeywordTelemetry] = &[
+    ThreatIntelKeywordTelemetry {
+        mask: KERNEL_THREATINT_KEYWORD_ALLOCVM_LOCAL,
+        expected_task: KERNEL_THREATINT_TASK_ALLOCVM,
+        event_name: "AllocVmLocal",
+        function: "NtAllocateVirtualMemory",
+        remote: false,
+        suspicious: true,
+    },
+    ThreatIntelKeywordTelemetry {
+        mask: KERNEL_THREATINT_KEYWORD_ALLOCVM_LOCAL_KERNEL_CALLER,
+        expected_task: KERNEL_THREATINT_TASK_ALLOCVM,
+        event_name: "AllocVmLocalKernelCaller",
+        function: "NtAllocateVirtualMemory",
+        remote: false,
+        suspicious: true,
+    },
+    ThreatIntelKeywordTelemetry {
+        mask: KERNEL_THREATINT_KEYWORD_ALLOCVM_REMOTE,
+        expected_task: KERNEL_THREATINT_TASK_ALLOCVM,
+        event_name: "AllocVmRemote",
+        function: "NtAllocateVirtualMemory",
+        remote: true,
+        suspicious: true,
+    },
+    ThreatIntelKeywordTelemetry {
+        mask: KERNEL_THREATINT_KEYWORD_ALLOCVM_REMOTE_KERNEL_CALLER,
+        expected_task: KERNEL_THREATINT_TASK_ALLOCVM,
+        event_name: "AllocVmRemoteKernelCaller",
+        function: "NtAllocateVirtualMemory",
+        remote: true,
+        suspicious: true,
+    },
+    ThreatIntelKeywordTelemetry {
+        mask: KERNEL_THREATINT_KEYWORD_PROTECTVM_LOCAL,
+        expected_task: KERNEL_THREATINT_TASK_PROTECTVM,
+        event_name: "ProtectVmLocal",
+        function: "NtProtectVirtualMemory",
+        remote: false,
+        suspicious: true,
+    },
+    ThreatIntelKeywordTelemetry {
+        mask: KERNEL_THREATINT_KEYWORD_PROTECTVM_LOCAL_KERNEL_CALLER,
+        expected_task: KERNEL_THREATINT_TASK_PROTECTVM,
+        event_name: "ProtectVmLocalKernelCaller",
+        function: "NtProtectVirtualMemory",
+        remote: false,
+        suspicious: true,
+    },
+    ThreatIntelKeywordTelemetry {
+        mask: KERNEL_THREATINT_KEYWORD_PROTECTVM_REMOTE,
+        expected_task: KERNEL_THREATINT_TASK_PROTECTVM,
+        event_name: "ProtectVmRemote",
+        function: "NtProtectVirtualMemory",
+        remote: true,
+        suspicious: true,
+    },
+    ThreatIntelKeywordTelemetry {
+        mask: KERNEL_THREATINT_KEYWORD_PROTECTVM_REMOTE_KERNEL_CALLER,
+        expected_task: KERNEL_THREATINT_TASK_PROTECTVM,
+        event_name: "ProtectVmRemoteKernelCaller",
+        function: "NtProtectVirtualMemory",
+        remote: true,
+        suspicious: true,
+    },
+    ThreatIntelKeywordTelemetry {
+        mask: KERNEL_THREATINT_KEYWORD_MAPVIEW_LOCAL,
+        expected_task: KERNEL_THREATINT_TASK_MAPVIEW,
+        event_name: "MapViewLocal",
+        function: "NtMapViewOfSection",
+        remote: false,
+        suspicious: true,
+    },
+    ThreatIntelKeywordTelemetry {
+        mask: KERNEL_THREATINT_KEYWORD_MAPVIEW_LOCAL_KERNEL_CALLER,
+        expected_task: KERNEL_THREATINT_TASK_MAPVIEW,
+        event_name: "MapViewLocalKernelCaller",
+        function: "NtMapViewOfSection",
+        remote: false,
+        suspicious: true,
+    },
+    ThreatIntelKeywordTelemetry {
+        mask: KERNEL_THREATINT_KEYWORD_MAPVIEW_REMOTE,
+        expected_task: KERNEL_THREATINT_TASK_MAPVIEW,
+        event_name: "MapViewRemote",
+        function: "NtMapViewOfSection",
+        remote: true,
+        suspicious: true,
+    },
+    ThreatIntelKeywordTelemetry {
+        mask: KERNEL_THREATINT_KEYWORD_MAPVIEW_REMOTE_KERNEL_CALLER,
+        expected_task: KERNEL_THREATINT_TASK_MAPVIEW,
+        event_name: "MapViewRemoteKernelCaller",
+        function: "NtMapViewOfSection",
+        remote: true,
+        suspicious: true,
+    },
+    ThreatIntelKeywordTelemetry {
+        mask: KERNEL_THREATINT_KEYWORD_QUEUEUSERAPC_REMOTE,
+        expected_task: KERNEL_THREATINT_TASK_QUEUEUSERAPC,
+        event_name: "QueueUserApcRemote",
+        function: "NtQueueApcThread",
+        remote: true,
+        suspicious: true,
+    },
+    ThreatIntelKeywordTelemetry {
+        mask: KERNEL_THREATINT_KEYWORD_QUEUEUSERAPC_REMOTE_KERNEL_CALLER,
+        expected_task: KERNEL_THREATINT_TASK_QUEUEUSERAPC,
+        event_name: "QueueUserApcRemoteKernelCaller",
+        function: "NtQueueApcThread",
+        remote: true,
+        suspicious: true,
+    },
+    ThreatIntelKeywordTelemetry {
+        mask: KERNEL_THREATINT_KEYWORD_SETTHREADCONTEXT_REMOTE,
+        expected_task: KERNEL_THREATINT_TASK_SETTHREADCONTEXT,
+        event_name: "SetThreadContextRemote",
+        function: "NtSetContextThread",
+        remote: true,
+        suspicious: true,
+    },
+    ThreatIntelKeywordTelemetry {
+        mask: KERNEL_THREATINT_KEYWORD_SETTHREADCONTEXT_REMOTE_KERNEL_CALLER,
+        expected_task: KERNEL_THREATINT_TASK_SETTHREADCONTEXT,
+        event_name: "SetThreadContextRemoteKernelCaller",
+        function: "NtSetContextThread",
+        remote: true,
+        suspicious: true,
+    },
+    ThreatIntelKeywordTelemetry {
+        mask: KERNEL_THREATINT_KEYWORD_READVM_LOCAL,
+        expected_task: KERNEL_THREATINT_TASK_READVM,
+        event_name: "ReadVmLocal",
+        function: "NtReadVirtualMemory",
+        remote: false,
+        suspicious: false,
+    },
+    ThreatIntelKeywordTelemetry {
+        mask: KERNEL_THREATINT_KEYWORD_READVM_REMOTE,
+        expected_task: KERNEL_THREATINT_TASK_READVM,
+        event_name: "ReadVmRemote",
+        function: "NtReadVirtualMemory",
+        remote: true,
+        suspicious: true,
+    },
+    ThreatIntelKeywordTelemetry {
+        mask: KERNEL_THREATINT_KEYWORD_WRITEVM_LOCAL,
+        expected_task: KERNEL_THREATINT_TASK_WRITEVM,
+        event_name: "WriteVmLocal",
+        function: "NtWriteVirtualMemory",
+        remote: false,
+        suspicious: true,
+    },
+    ThreatIntelKeywordTelemetry {
+        mask: KERNEL_THREATINT_KEYWORD_WRITEVM_REMOTE,
+        expected_task: KERNEL_THREATINT_TASK_WRITEVM,
+        event_name: "WriteVmRemote",
+        function: "NtWriteVirtualMemory",
+        remote: true,
+        suspicious: true,
+    },
+    ThreatIntelKeywordTelemetry {
+        mask: KERNEL_THREATINT_KEYWORD_SUSPEND_THREAD,
+        expected_task: KERNEL_THREATINT_TASK_SUSPENDRESUME_THREAD,
+        event_name: "SuspendThread",
+        function: "NtSuspendThread",
+        remote: false,
+        suspicious: false,
+    },
+    ThreatIntelKeywordTelemetry {
+        mask: KERNEL_THREATINT_KEYWORD_RESUME_THREAD,
+        expected_task: KERNEL_THREATINT_TASK_SUSPENDRESUME_THREAD,
+        event_name: "ResumeThread",
+        function: "NtResumeThread",
+        remote: false,
+        suspicious: false,
+    },
+    ThreatIntelKeywordTelemetry {
+        mask: KERNEL_THREATINT_KEYWORD_SUSPEND_PROCESS,
+        expected_task: KERNEL_THREATINT_TASK_SUSPENDRESUME_PROCESS,
+        event_name: "SuspendProcess",
+        function: "NtSuspendProcess",
+        remote: false,
+        suspicious: false,
+    },
+    ThreatIntelKeywordTelemetry {
+        mask: KERNEL_THREATINT_KEYWORD_RESUME_PROCESS,
+        expected_task: KERNEL_THREATINT_TASK_SUSPENDRESUME_PROCESS,
+        event_name: "ResumeProcess",
+        function: "NtResumeProcess",
+        remote: false,
+        suspicious: false,
+    },
+    ThreatIntelKeywordTelemetry {
+        mask: KERNEL_THREATINT_KEYWORD_FREEZE_PROCESS,
+        expected_task: KERNEL_THREATINT_TASK_SUSPENDRESUME_PROCESS,
+        event_name: "FreezeProcess",
+        function: "NtSuspendProcess",
+        remote: false,
+        suspicious: false,
+    },
+    ThreatIntelKeywordTelemetry {
+        mask: KERNEL_THREATINT_KEYWORD_THAW_PROCESS,
+        expected_task: KERNEL_THREATINT_TASK_SUSPENDRESUME_PROCESS,
+        event_name: "ThawProcess",
+        function: "NtResumeProcess",
+        remote: false,
+        suspicious: false,
+    },
+    ThreatIntelKeywordTelemetry {
+        mask: KERNEL_THREATINT_KEYWORD_CONTEXT_PARSE,
+        expected_task: KERNEL_THREATINT_TASK_SETTHREADCONTEXT,
+        event_name: "ContextParse",
+        function: "EtwTiContextParse",
+        remote: false,
+        suspicious: false,
+    },
+    ThreatIntelKeywordTelemetry {
+        mask: KERNEL_THREATINT_KEYWORD_EXECUTION_ADDRESS_VAD_PROBE,
+        expected_task: KERNEL_THREATINT_TASK_SETTHREADCONTEXT,
+        event_name: "ExecutionAddressVadProbe",
+        function: "EtwTiExecutionAddressVadProbe",
+        remote: false,
+        suspicious: true,
+    },
+    ThreatIntelKeywordTelemetry {
+        mask: KERNEL_THREATINT_KEYWORD_EXECUTION_ADDRESS_MMF_NAME_PROBE,
+        expected_task: KERNEL_THREATINT_TASK_SETTHREADCONTEXT,
+        event_name: "ExecutionAddressMmfNameProbe",
+        function: "EtwTiExecutionAddressMmfNameProbe",
+        remote: false,
+        suspicious: true,
+    },
+    ThreatIntelKeywordTelemetry {
+        mask: KERNEL_THREATINT_KEYWORD_READWRITEVM_NO_SIGNATURE_RESTRICTION,
+        expected_task: KERNEL_THREATINT_TASK_WRITEVM,
+        event_name: "ReadWriteVmNoSignatureRestriction",
+        function: "EtwTiReadWriteVmNoSignatureRestriction",
+        remote: false,
+        suspicious: true,
+    },
+    ThreatIntelKeywordTelemetry {
+        mask: KERNEL_THREATINT_KEYWORD_DRIVER_EVENTS,
+        expected_task: KERNEL_THREATINT_TASK_DRIVER_DEVICE,
+        event_name: "DriverEvent",
+        function: "EtwTiDriverEvent",
+        remote: false,
+        suspicious: false,
+    },
+    ThreatIntelKeywordTelemetry {
+        mask: KERNEL_THREATINT_KEYWORD_DEVICE_EVENTS,
+        expected_task: KERNEL_THREATINT_TASK_DRIVER_DEVICE,
+        event_name: "DeviceEvent",
+        function: "EtwTiDeviceEvent",
+        remote: false,
+        suspicious: false,
+    },
+    ThreatIntelKeywordTelemetry {
+        mask: KERNEL_THREATINT_KEYWORD_READVM_REMOTE_FILL_VAD,
+        expected_task: KERNEL_THREATINT_TASK_READVM,
+        event_name: "ReadVmRemoteFillVad",
+        function: "NtReadVirtualMemory",
+        remote: true,
+        suspicious: true,
+    },
+    ThreatIntelKeywordTelemetry {
+        mask: KERNEL_THREATINT_KEYWORD_WRITEVM_REMOTE_FILL_VAD,
+        expected_task: KERNEL_THREATINT_TASK_WRITEVM,
+        event_name: "WriteVmRemoteFillVad",
+        function: "NtWriteVirtualMemory",
+        remote: true,
+        suspicious: true,
+    },
+    ThreatIntelKeywordTelemetry {
+        mask: KERNEL_THREATINT_KEYWORD_PROTECTVM_LOCAL_FILL_VAD,
+        expected_task: KERNEL_THREATINT_TASK_PROTECTVM,
+        event_name: "ProtectVmLocalFillVad",
+        function: "NtProtectVirtualMemory",
+        remote: false,
+        suspicious: true,
+    },
+    ThreatIntelKeywordTelemetry {
+        mask: KERNEL_THREATINT_KEYWORD_PROTECTVM_LOCAL_KERNEL_CALLER_FILL_VAD,
+        expected_task: KERNEL_THREATINT_TASK_PROTECTVM,
+        event_name: "ProtectVmLocalKernelCallerFillVad",
+        function: "NtProtectVirtualMemory",
+        remote: false,
+        suspicious: true,
+    },
+    ThreatIntelKeywordTelemetry {
+        mask: KERNEL_THREATINT_KEYWORD_PROTECTVM_REMOTE_FILL_VAD,
+        expected_task: KERNEL_THREATINT_TASK_PROTECTVM,
+        event_name: "ProtectVmRemoteFillVad",
+        function: "NtProtectVirtualMemory",
+        remote: true,
+        suspicious: true,
+    },
+    ThreatIntelKeywordTelemetry {
+        mask: KERNEL_THREATINT_KEYWORD_PROTECTVM_REMOTE_KERNEL_CALLER_FILL_VAD,
+        expected_task: KERNEL_THREATINT_TASK_PROTECTVM,
+        event_name: "ProtectVmRemoteKernelCallerFillVad",
+        function: "NtProtectVirtualMemory",
+        remote: true,
+        suspicious: true,
+    },
+];
+
 //
 // Functions
 //
+
+fn send_threat_intel_to_engine(
+    pid: u32,
+    process_image: &str,
+    event_id: u16,
+    task: u16,
+    keyword: u64,
+    target_pid: Option<u32>,
+) {
+    for telemetry in THREAT_INTEL_TELEMETRY {
+        if keyword & telemetry.mask != telemetry.mask {
+            continue;
+        }
+
+        send_etw_info_ipc(Syscall {
+            pid,
+            source: SyscallEventSource::EventSourceKernel,
+            data: NtFunction::EtwThreatIntelligence(EtwThreatIntelligenceData {
+                function: telemetry.function.to_string(),
+                event_name: telemetry.event_name.to_string(),
+                process_image: process_image.to_string(),
+                event_id,
+                task,
+                expected_task: telemetry.expected_task,
+                task_matches: task == telemetry.expected_task,
+                keyword,
+                matched_keyword: telemetry.mask,
+                remote: telemetry.remote,
+                suspicious: telemetry.suspicious,
+                target_pid,
+            }),
+        });
+    }
+}
 
 /// Public entrypoint to starting the threat intelligence trace routine.
 pub fn start_threat_intel_trace() {
@@ -318,7 +669,7 @@ unsafe extern "system" fn trace_callback(record: *mut EVENT_RECORD) {
     // SAFETY: Null pointer dereference checked above
     let event_header = unsafe { &(*record).EventHeader };
     let descriptor_id = event_header.EventDescriptor.Id;
-    let _task = event_header.EventDescriptor.Task;
+    let task = event_header.EventDescriptor.Task;
     let keyword = event_header.EventDescriptor.Keyword;
     let _level = event_header.EventDescriptor.Level;
     let pid = event_header.ProcessId;
@@ -331,110 +682,22 @@ unsafe extern "system" fn trace_callback(record: *mut EVENT_RECORD) {
         }
     };
 
-    if process_image.to_ascii_lowercase().contains("malware")
-        || process_image.to_ascii_lowercase().contains("notepad")
-    {
-        if keyword & KERNEL_THREATINT_KEYWORD_ALLOCVM_REMOTE
-            == KERNEL_THREATINT_KEYWORD_ALLOCVM_REMOTE
-        {
-            event_log(
-                &format!(
-                    "Remote memory allocation caught for pid: {}, image: {}. Data: {:?}",
-                    pid, process_image, event_header.EventDescriptor
-                ),
-                EVENTLOG_SUCCESS,
-                EventID::ProcessOfInterestTI,
-            );
-            // send_etw_info_ipc(Syscall::new_etw(
-            //     pid as u64,
-            //     NtFunction::NtAllocateVirtualMemory(None),
-            //     60,
-            // ));
-        }
+    if event_header.ProviderId == ETW_TI_GUID {
+        let target_pid = unsafe { extract_u32_property(record, "TargetProcessId") }
+            .or_else(|| unsafe { extract_u32_property(record, "TargetProcessID") })
+            .or_else(|| unsafe { extract_u32_property(record, "TargetPid") })
+            .or_else(|| unsafe { extract_u32_property(record, "TargetPID") });
 
-        if keyword & KERNEL_THREATINT_KEYWORD_PROTECTVM_LOCAL
-            == KERNEL_THREATINT_KEYWORD_PROTECTVM_LOCAL
-        {
-            event_log(
-                &format!(
-                    "Mem protect for pid: {}, image: {}. FLAGS: {:b}, Data: {:?}, keyword - bin: {:b} hex: {:X}.",
-                    pid,
-                    process_image,
-                    unsafe { &(*record).EventHeader.Flags },
-                    event_header.EventDescriptor,
-                    event_header.EventDescriptor.Task,
-                    event_header.EventDescriptor.Task
-                ),
-                EVENTLOG_SUCCESS,
-                EventID::ProcessOfInterestTI,
-            );
-            // todo
-        }
-
-        if keyword & KERNEL_THREATINT_KEYWORD_WRITEVM_LOCAL
-            == KERNEL_THREATINT_KEYWORD_WRITEVM_LOCAL
-        {
-            event_log(
-                &format!(
-                    "Write local for pid: {}, image: {}. FLAGS: {:b}, Data: {:?}, keyword - bin: {:b} hex: {:X}",
-                    pid,
-                    process_image,
-                    unsafe { &(*record).EventHeader.Flags },
-                    event_header.EventDescriptor,
-                    event_header.EventDescriptor.Task,
-                    event_header.EventDescriptor.Task
-                ),
-                EVENTLOG_SUCCESS,
-                EventID::ProcessOfInterestTI,
-            );
-            // send_etw_info_ipc(Syscall::new_etw(
-            //     pid as u64,
-            //     NtFunction::NtWriteVirtualMemory(None),
-            //     60,
-            // ));
-        }
-
-        if keyword & KERNEL_THREATINT_KEYWORD_WRITEVM_REMOTE
-            == KERNEL_THREATINT_KEYWORD_WRITEVM_REMOTE
-        {
-            // send_etw_info_ipc(Syscall::new_etw(
-            //     pid as u64,
-            //     NtFunction::NtWriteVirtualMemory(None),
-            //     60,
-            // ));
-            event_log(
-                &format!(
-                    "Write remote memory for pid: {}, image: {}, FLAGS: {:b}, Data: {:?}, keyword - bin: {:b} hex: {:X}",
-                    pid,
-                    process_image,
-                    unsafe { &(*record).EventHeader.Flags },
-                    event_header.EventDescriptor,
-                    event_header.EventDescriptor.Task,
-                    event_header.EventDescriptor.Task
-                ),
-                EVENTLOG_SUCCESS,
-                EventID::ProcessOfInterestTI,
-            );
-        }
-
-        if keyword & KERNEL_THREATINT_KEYWORD_SUSPEND_PROCESS
-            == KERNEL_THREATINT_KEYWORD_SUSPEND_PROCESS
-        {
-            event_log(
-                &format!(
-                    "Suspend process for pid: {}, image: {}, FLAGS: {:b}, Data: {:?}, keyword - bin: {:b} hex: {:X}",
-                    pid,
-                    process_image,
-                    unsafe { &(*record).EventHeader.Flags },
-                    event_header.EventDescriptor,
-                    event_header.EventDescriptor.Task,
-                    event_header.EventDescriptor.Task
-                ),
-                EVENTLOG_SUCCESS,
-                EventID::ProcessOfInterestTI,
-            );
-        }
+        send_threat_intel_to_engine(
+            pid,
+            &process_image,
+            descriptor_id,
+            task,
+            keyword,
+            target_pid,
+        );
     }
+
 
     if event_header.ProviderId == HTTP_SERVICE_GUID {
         if descriptor_id == 1 && let Some(url) = unsafe { extract_string_property(record, "Url") } {
@@ -515,6 +778,54 @@ unsafe fn extract_string_property(record: *mut EVENT_RECORD, name: &str) -> Opti
                 if !trimmed.is_empty() {
                     return Some(trimmed);
                 }
+            }
+        }
+    }
+
+    None
+}
+
+unsafe fn extract_u32_property(record: *mut EVENT_RECORD, name: &str) -> Option<u32> {
+    let mut buffer_size: u32 = 0;
+
+    let _ = unsafe { TdhGetEventInformation(record, None, None, &mut buffer_size) };
+    if buffer_size == 0 {
+        return None;
+    }
+
+    let mut buffer = vec![0u8; buffer_size as usize];
+    let info = buffer.as_mut_ptr() as *mut TRACE_EVENT_INFO;
+
+    if unsafe { TdhGetEventInformation(record, None, Some(info), &mut buffer_size) } != 0 {
+        return None;
+    }
+
+    let info_ref = unsafe { &*info };
+    let property_count = info_ref.TopLevelPropertyCount;
+    let property_array_ptr = info_ref.EventPropertyInfoArray.as_ptr();
+    let property_array =
+        unsafe { std::slice::from_raw_parts(property_array_ptr, property_count as usize) };
+
+    for prop in property_array {
+        let prop_name_ptr = (info as usize + prop.NameOffset as usize) as *const u16;
+        let prop_name = unsafe { PWSTR(prop_name_ptr as *mut _).to_string() }.ok()?;
+
+        if prop_name.eq_ignore_ascii_case(name) {
+            let mut data_buffer = [0u8; 8];
+            let descriptor = PROPERTY_DATA_DESCRIPTOR {
+                PropertyName: (info as usize + prop.NameOffset as usize) as u64,
+                ArrayIndex: u32::MAX,
+                ..Default::default()
+            };
+
+            let status = unsafe { TdhGetProperty(record, None, &[descriptor], &mut data_buffer) };
+            if status == 0 {
+                return Some(u32::from_le_bytes([
+                    data_buffer[0],
+                    data_buffer[1],
+                    data_buffer[2],
+                    data_buffer[3],
+                ]));
             }
         }
     }

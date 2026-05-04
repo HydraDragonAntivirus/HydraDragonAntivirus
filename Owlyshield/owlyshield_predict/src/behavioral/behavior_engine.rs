@@ -2041,6 +2041,10 @@ impl BehaviorEngine {
                     | "NtWriteVirtualMemory"
                     | "NtAllocateVirtualMemory"
                     | "NtCreateThreadEx"
+                    | "NtProtectVirtualMemory"
+                    | "NtMapViewOfSection"
+                    | "NtQueueApcThread"
+                    | "NtSetContextThread"
             )
         {
             self.firewall_net_pids.write().unwrap().insert(pid);
@@ -2068,11 +2072,19 @@ impl BehaviorEngine {
                 if target_pid as u32 != pid {
                     stats.cross_process_handle_count += 1;
                 }
+            } else if args["remote"].as_bool().unwrap_or(false) {
+                stats.cross_process_handle_count += 1;
             }
 
             if matches!(
                 function,
-                "NtWriteVirtualMemory" | "NtAllocateVirtualMemory" | "NtCreateThreadEx"
+                "NtWriteVirtualMemory"
+                    | "NtAllocateVirtualMemory"
+                    | "NtCreateThreadEx"
+                    | "NtProtectVirtualMemory"
+                    | "NtMapViewOfSection"
+                    | "NtQueueApcThread"
+                    | "NtSetContextThread"
             ) {
                 stats.injection_score += 0.1;
                 stats.suspicious_syscall_hits.push(function.to_string());

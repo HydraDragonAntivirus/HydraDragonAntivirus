@@ -34,13 +34,6 @@ jobs:
         working-directory: HydraDragonFirewall/hydradragonfirewall
         run: cargo build --release
         
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v5
-        with:
-          dotnet-version: '8.0.x'
-      - name: Publish Dotnet Client
-        run: dotnet publish HydraDragonFirewall/HydraDragonClient/HydraDragonClient/HydraDragonClient.csproj -c Release -r win-x64 --self-contained false -o artifacts/
-        
       - name: Stage
         shell: pwsh
         run: |
@@ -48,8 +41,6 @@ jobs:
           New-Item -ItemType Directory -Force -Path $dist
           Copy-Item "HydraDragonFirewall/hydradragonfirewall/target/release/hydradragonfirewall.exe" "$dist/" -Force
           Copy-Item "HydraDragonFirewall/hydradragonfirewall/target/release/hydradragonfirewall.dll" "$dist/" -Force
-          Copy-Item "HydraDragonFirewall/hydradragonfirewall/rules/rules.yaml" "$dist/" -Force
-          Copy-Item "artifacts/*" "$dist/" -Recurse -Force
           
       - name: Create PR
         uses: peter-evans/create-pull-request@v8

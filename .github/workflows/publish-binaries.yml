@@ -252,9 +252,6 @@ jobs:
           path: |
             HydraDragonFirewall/hydradragonfirewall/target/release/hydradragonfirewall.exe
             HydraDragonFirewall/hydradragonfirewall/target/release/hydradragonfirewall.dll
-            HydraDragonFirewall/hydradragonfirewall/target/release/WinDivert.dll
-            HydraDragonFirewall/hydradragonfirewall/target/release/WinDivert64.sys
-            HydraDragonFirewall/hydradragonfirewall/rules/rules.yaml
 
   build-sanctum:
     runs-on: windows-2022
@@ -347,7 +344,6 @@ jobs:
             "$distRoot/Owlyshield/Owlyshield Service",
             "$distRoot/Owlyshield/RedDbg",
             "$distRoot/HydraDragonDumper",
-            "$distRoot/HydraDragonFirewall/rules",
             "$distRoot/HydraDragonLauncher",
             "$distRoot/HydraDragonService",
             "$distRoot/Sanctum/AppData",
@@ -415,7 +411,6 @@ jobs:
           $fwRust | Copy-Item -Destination "$distRoot/HydraDragonFirewall/" -Force
           New-Item -ItemType Directory -Force -Path "HydraDragonFirewall/hydradragonfirewall/target/release"
           $fwRust | Copy-Item -Destination "HydraDragonFirewall/hydradragonfirewall/target/release/" -Force
-          Get-ChildItem "bin-firewall-rust/" -Filter "rules.yaml" -Recurse | Copy-Item -Destination "$distRoot/HydraDragonFirewall/rules/" -Force
 
           # --- Infrastructure ---
           $launcher = Get-ChildItem "bin-launcher/" -Filter "*" -Recurse

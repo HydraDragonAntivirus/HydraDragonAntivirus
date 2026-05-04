@@ -32,7 +32,7 @@ pub enum DLLMessage {
 /// - `pid`: The ID of the process making the syscall
 /// - `source`: Where the system event was captured, e.g. a hooked syscall, ETW, or the driver.
 /// - `data`: This field is generic over T which must implement the `HasPid` trait. This field contains the metadata associated
-/// with the syscall.
+///   with the syscall.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Syscall {
     pub pid: u32,
@@ -72,6 +72,7 @@ pub enum NtFunction {
     NtWriteVirtualMemory(NtWriteVirtualMemoryData),
     NtAllocateVirtualMemory(NtAllocateVirtualMemoryData),
     NtCreateThreadEx(NtCreateThreadExData),
+    EtwThreatIntelligence(EtwThreatIntelligenceData),
     NetworkActivity(NetworkActivityData),
 }
 
@@ -82,18 +83,18 @@ impl NtFunction {
     pub const M_NT_ALLOC_VM: u64 = 1 << 2;
     pub const M_CREATE_THREAD_EX: u64 = 1 << 3;
     pub const M_NETWORK_ACTIVITY: u64 = 1 << 4;
+    pub const M_ETW_THREAT_INTELLIGENCE: u64 = 1 << 5;
 
     pub fn as_mask(&self) -> u64 {
-        let m = match self {
+        match self {
             NtFunction::None => Self::M_NONE,
             NtFunction::NtOpenProcess(_) => Self::M_NT_OPEN_PROCESS,
             NtFunction::NtWriteVirtualMemory(_) => Self::M_NT_WRITE_VM,
             NtFunction::NtAllocateVirtualMemory(_) => Self::M_NT_ALLOC_VM,
             NtFunction::NtCreateThreadEx(_) => Self::M_CREATE_THREAD_EX,
+            NtFunction::EtwThreatIntelligence(_) => Self::M_ETW_THREAT_INTELLIGENCE,
             NtFunction::NetworkActivity(_) => Self::M_NETWORK_ACTIVITY,
-        };
-
-        m
+        }
     }
 }
 
@@ -128,6 +129,22 @@ pub struct NtCreateThreadExData {
     pub target_pid: u32,
     pub start_routine: usize,
     pub argument: usize,
+}
+
+#[derive(Debug, Default, Clone, Serialize, Deserialize, Eq, PartialEq)]
+pub struct EtwThreatIntelligenceData {
+    pub function: String,
+    pub event_name: String,
+    pub process_image: String,
+    pub event_id: u16,
+    pub task: u16,
+    pub expected_task: u16,
+    pub task_matches: bool,
+    pub keyword: u64,
+    pub matched_keyword: u64,
+    pub remote: bool,
+    pub suspicious: bool,
+    pub target_pid: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
