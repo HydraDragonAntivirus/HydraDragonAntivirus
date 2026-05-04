@@ -388,7 +388,7 @@ See the [LICENSE](./LICENSE) file for more information.
 
 **Q: Does the program collect data and is there a cloud based detection?**
 - OpenEDR sends telemetry to valkyrie to detect more malware (valkyrie.comodo.com).
-But we are not trusting OpenEDR completely in whitelisting since malware can evade COMODO cloud and can trick OpenEDR, so we have local rules and heuristics to detect them.
+But we are not blindly trusting OpenEDR in whitelisting since malware can evade COMODO cloud and can trick OpenEDR, so we have local rules and heuristics to detect them.
 
 **Q: How do I use it?**
 - Just run the shortcut from the desktop, then run advanced dynamic and static analysis on a file.
