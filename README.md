@@ -49,6 +49,7 @@ Breaking changes, bugs, and incomplete features should be expected.
 
 ## Compatibility with PCs
 
+- **Platform Support**: This project is strictly for **x86-64 Windows** only. aarch64 and other architectures are not supported.
 - This installer is designed to be used on clean or freshly formatted Windows PCs.
 
 - For best results, install HydraDragon Antivirus only on systems where the required third-party components have not already been installed manually.
