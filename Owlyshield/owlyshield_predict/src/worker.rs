@@ -192,7 +192,7 @@ pub mod predictor {
 }
 
 pub mod process_record_handling {
-    use std::path::{Path, PathBuf};
+    use std::path::PathBuf;
     use std::thread;
     use std::time::Duration;
 
@@ -823,7 +823,7 @@ pub mod worker_instance {
         fn postprocess(&mut self, iomsg: &mut IOMessage, precord: &ProcessRecord) {
             if let Some(client) = &self.client {
                 if precord.driver_msg_count.is_multiple_of(250) {
-                    let mut c2 = client.clone();
+                    let c2 = client.clone();
                     thread::spawn(move || {
                         let _ = c2.publish("owlyshield/heartbeat", QoS::AtMostOnce, false, "{}");
                     });
@@ -838,7 +838,7 @@ pub mod worker_instance {
                     datetime.timestamp_millis().to_string(),
                 ];
 
-                let mut client_clone = client.clone();
+                let client_clone = client.clone();
                 thread::spawn(move || {
                     process_vec
                         .append(&mut vec.iter().map(|f| f.to_string()).collect::<Vec<String>>());
@@ -871,7 +871,7 @@ pub mod worker_instance {
         pub fn new() -> IOMsgPostProcessorRPC {
             let (tx, rx) = channel::<RPCMessage>();
             thread::spawn(move || {
-                let jsonrpc = Jsonrpc::from(rx);
+                let mut jsonrpc = Jsonrpc::from(rx);
                 jsonrpc.start_server();
             });
             IOMsgPostProcessorRPC { tx }
@@ -2200,7 +2200,7 @@ pub mod worker_instance {
 
                 // Refresh system state to identify new and dead processes
                 // We keep sysinfo here because you requested Discovery logic to remain intact
-                let sys = System::new_all();
+                let mut sys = System::new_all();
                 sys.refresh_processes(ProcessesToUpdate::All, true);
 
                 // --- FIRST: Prune dead processes from behavior engine ---

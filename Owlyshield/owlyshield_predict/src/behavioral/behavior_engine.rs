@@ -2108,7 +2108,7 @@ impl BehaviorEngine {
     /// Notify the firewall GUI via HydraHipEvent about a cloud-trusted process (Informational).
     fn notify_hips_cloud_trust(&self, pid: u32, exe_path: &str, label: &str) {
         use std::ffi::CString;
-        use windows::Win32::Foundation::{CloseHandle, GetLastError, HANDLE};
+        use windows::Win32::Foundation::{CloseHandle, HANDLE};
         use windows::Win32::Storage::FileSystem::{
             CreateFileA, FILE_ATTRIBUTE_NORMAL, FILE_GENERIC_WRITE, FILE_SHARE_NONE, OPEN_EXISTING,
             WriteFile,
