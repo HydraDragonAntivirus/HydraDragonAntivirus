@@ -2132,7 +2132,7 @@ impl BehaviorEngine {
         let message_bytes = message.as_bytes();
 
         unsafe {
-            if WaitNamedPipeA(pcstr, 500).is_ok() {
+            if WaitNamedPipeA(pcstr, 500).as_bool() {
                 if let Ok(handle) = CreateFileA(
                     pcstr,
                     FILE_GENERIC_WRITE.0,
@@ -2171,7 +2171,7 @@ impl BehaviorEngine {
         let rule = BehaviorRule {
             name: format!("Cloud:{}:{}", analysis_type, label),
             description: format!("Threat detected by OpenEDR/Valkyrie Cloud {} Analysis", analysis_type),
-            response: BehaviorResponse {
+            response: ResponseAction {
                 ask_user: true,
                 terminate_process: true,
                 quarantine: true,
@@ -6494,17 +6494,46 @@ impl BehaviorEngine {
 
             // Cloud Trust Filter: If the rule trusts the cloud and static analysis says Safe/Trusted (Code 1), bypass local rules.
             if rule.should_trust_cloud {
-                let is_trusted = state_ref.cloud_static_trust_level == 1 || 
-                                 state_ref.cloud_dynamic_trust_level == 1;
+                let is_trusted = state_ref.cloud_static_label.as_ref().map_or(false, |l| {
+                    let lc = l.to_lowercase();
+                    lc.contains("clean") || lc.contains("trusted") || lc.contains("safe")
+                }) || state_ref.cloud_dynamic_label.as_ref().map_or(false, |l| {
+                    let lc = l.to_lowercase();
+                    lc.contains("clean") || lc.contains("trusted") || lc.contains("safe")
+                });
                 
-                if is_trusted {
+                let mut alert_sources = Vec::new();
+                if state_ref.rootkit_implicated || !state_ref.rootkit_findings.is_empty() { alert_sources.push("Rootkit"); }
+                if !state_ref.observed_hypervisor_event_labels.is_empty() { alert_sources.push("Hypervisor"); }
+                if !state_ref.recent_kernel_api_events.is_empty() { alert_sources.push("KernelApiAlert"); }
+                if !state_ref.satisfied_named_conditions.is_empty() { alert_sources.push("BehavioralConditions"); }
+                if !state_ref.detected_apis.is_empty() { alert_sources.push("SuspiciousApiCall"); }
+                if state_ref.high_entropy_detected { alert_sources.push("HighEntropy"); }
+                if state_ref.file_action_detected { alert_sources.push("FileAction"); }
+                if state_ref.extension_match_detected { alert_sources.push("ExtensionMatch"); }
+                
+                #[cfg(all(target_os = "windows", feature = "sanctum"))]
+                {
+                    if !state_ref.sanctum_suspicious_hits.is_empty() { alert_sources.push("Sanctum"); }
+                }
+
+                let has_behavioral_alerts = !alert_sources.is_empty();
+
+                if is_trusted && !has_behavioral_alerts {
                     if rule.debug || self.rules.iter().any(|r| r.debug) {
                         Logging::debug(&format!(
                             "[BehaviorEngine] Trusting Cloud Analysis for PID {} (Trust: {}/{}): bypass rule '{}'",
-                            state_ref.pid, state_ref.cloud_static_trust_level, state_ref.cloud_dynamic_trust_level, rule.name
+                            state_ref.pid, state_ref.cloud_static_label.as_deref().unwrap_or("None"), state_ref.cloud_dynamic_label.as_deref().unwrap_or("None"), rule.name
                         ));
                     }
                     continue;
+                } else if is_trusted && has_behavioral_alerts {
+                    if rule.debug || self.rules.iter().any(|r| r.debug) {
+                        Logging::debug(&format!(
+                            "[BehaviorEngine] Cloud says SAFE but IGNORED bypass due to behavioral alerts from {:?} for PID {} (Rule: '{}')",
+                            alert_sources, state_ref.pid, rule.name
+                        ));
+                    }
                 }
 
                 if let Some(static_label) = &state_ref.cloud_static_label {

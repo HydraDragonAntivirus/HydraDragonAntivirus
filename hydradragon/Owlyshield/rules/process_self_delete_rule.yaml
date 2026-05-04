@@ -1,4 +1,5 @@
 - name: "HEUR:Win.Process.SelfDelete.ByChild"
+  should_trust_cloud: false
   description: "Detects a child process deleting or renaming its parent executable image, a common self-delete and anti-forensics cleanup technique."
 
   named_conditions:

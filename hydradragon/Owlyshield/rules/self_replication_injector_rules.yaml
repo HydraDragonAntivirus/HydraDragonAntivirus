@@ -1,4 +1,5 @@
 - name: "HEUR:Win.Malware.SelfReplica.InjectorOrPersist.gen"
+  should_trust_cloud: false
   author: "Codex"
   date: "2026-04-22"
   status: test

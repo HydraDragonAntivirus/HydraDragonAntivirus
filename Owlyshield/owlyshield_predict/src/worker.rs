@@ -729,7 +729,7 @@ pub mod worker_instance {
     };
     use crate::worker::process_records::ProcessRecords;
     use chrono::{DateTime, Utc};
-    use log::error;
+    
     use rumqttc::{Client, MqttOptions, QoS};
     #[cfg(feature = "realtime_learning")]
     use std::collections::{HashMap, HashSet};
@@ -871,7 +871,7 @@ pub mod worker_instance {
         pub fn new() -> IOMsgPostProcessorRPC {
             let (tx, rx) = channel::<RPCMessage>();
             thread::spawn(move || {
-                let mut jsonrpc = Jsonrpc::from(rx);
+                let jsonrpc = Jsonrpc::from(rx);
                 jsonrpc.start_server();
             });
             IOMsgPostProcessorRPC { tx }
@@ -2200,7 +2200,7 @@ pub mod worker_instance {
 
                 // Refresh system state to identify new and dead processes
                 // We keep sysinfo here because you requested Discovery logic to remain intact
-                let mut sys = System::new_all();
+                let sys = System::new_all();
                 sys.refresh_processes(ProcessesToUpdate::All, true);
 
                 // --- FIRST: Prune dead processes from behavior engine ---

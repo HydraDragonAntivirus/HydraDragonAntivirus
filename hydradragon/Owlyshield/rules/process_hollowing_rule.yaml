@@ -1,4 +1,5 @@
 - name: "Process Hollowing"
+  should_trust_cloud: false
   description: "Detects a classic process hollowing chain: suspended process creation, remote image unmap or memory replacement, thread context manipulation, and thread resumption."
   author: "Codex"
   status: experimental

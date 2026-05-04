@@ -12,6 +12,7 @@
 # Severity: critical. Terminate immediately, no quarantine needed.
 # ---------------------------------------------------------------------------
 - name: "HEUR:Win64.Rootkit.SsdtHook"
+  should_trust_cloud: false
   description: >
     SSDT service table entry points outside ntoskrnl address range.
     Classic rootkit technique to intercept system calls at kernel level.
@@ -81,6 +82,7 @@
 # This can be used to shield malicious files or block security tooling.
 # ---------------------------------------------------------------------------
 - name: "HEUR:Win64.Rootkit.FileObjectCallbackTamper"
+  should_trust_cloud: false
   description: >
     File-object callback support or active callback registrations were detected
     on a kernel object type that normally does not expose file-handle callback
@@ -119,6 +121,7 @@
 # Kernel-origin UEFI and boot tamper signals
 # ---------------------------------------------------------------------------
 - name: "HEUR:Win64.Rootkit.UefiRawDeviceWrite"
+  should_trust_cloud: false
   description: >
     A process opened a raw disk or volume device with write or delete intent.
     This is a common precursor to low-level UEFI or bootloader tampering and is
@@ -182,6 +185,7 @@
 ---
 
 - name: "HEUR:Win64.Rootkit.UefiBootArtifactTamper"
+  should_trust_cloud: false
   description: >
     A process attempted to create, overwrite, rename, or delete a UEFI boot
     artifact inside EFI paths. This is a strong bootkit signal and the matched
@@ -244,6 +248,7 @@
 ---
 
 - name: "HEUR:Win64.Rootkit.UefiBootConfigTamper"
+  should_trust_cloud: false
   description: >
     A process attempted to modify or delete UEFI boot configuration data such
     as BCD paths. This is a strong persistence signal, but automated removal is
@@ -308,6 +313,7 @@
 # Rule 2: Hidden Process (DKOM) — process in PspCidTable but not EPROCESS list
 # ---------------------------------------------------------------------------
 - name: "HEUR:Win64.Rootkit.HiddenProcess.DKOM"
+  should_trust_cloud: false
   description: >
     Process found in PspCidTable but absent from EPROCESS ActiveProcessLinks.
     Direct Kernel Object Manipulation (DKOM) used to hide a running process.
@@ -376,6 +382,7 @@
 # Rule 3: Hidden Driver — driver present in memory but not in module list
 # ---------------------------------------------------------------------------
 - name: "HEUR:Win64.Rootkit.HiddenDriver"
+  should_trust_cloud: false
   description: >
     A driver object exists in the \Driver directory but its base address is
     absent from PsLoadedModuleList / ZwQuerySystemInformation module list.
@@ -444,6 +451,7 @@
 # Rule 4: Kernel Inline Hook — JMP patch on monitored ntoskrnl export
 # ---------------------------------------------------------------------------
 - name: "HEUR:Win64.Rootkit.KernelInlineHook"
+  should_trust_cloud: false
   description: >
     A monitored ntoskrnl export (NtCreateFile, NtAllocateVirtualMemory, etc.)
     has been patched with a JMP instruction redirecting execution outside
@@ -515,6 +523,7 @@
 # finding is almost certainly malware. Terminate + quarantine.
 # ---------------------------------------------------------------------------
 - name: "HEUR:Win64.Rootkit.PlusInjection"
+  should_trust_cloud: false
   description: >
     Process triggered both a kernel rootkit finding (SSDT hook or inline hook)
     AND performed memory injection (WriteVirtualMemory / CreateRemoteThread).
@@ -594,6 +603,7 @@
 # AND SSDT hook). Strong indicator of a sophisticated rootkit.
 # ---------------------------------------------------------------------------
 - name: "HEUR:Win64.Rootkit.MultiVector"
+  should_trust_cloud: false
   description: >
     Multiple distinct rootkit detection categories triggered for the same
     process context. Indicative of a sophisticated, multi-component rootkit.
@@ -678,6 +688,7 @@
 # malicious (legitimate products use minifilters instead).
 # ---------------------------------------------------------------------------
 - name: "HEUR:Win64.Rootkit.NtCreateFileHook"
+  should_trust_cloud: false
   description: >
     NtCreateFile has been inline-hooked by code outside ntoskrnl.
     Legitimate security products use minifilters; direct SSDT/inline hooks

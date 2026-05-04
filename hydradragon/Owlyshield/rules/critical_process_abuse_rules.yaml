@@ -1,4 +1,5 @@
 - name: "HEUR:Win.DefEvasion.CriticalProcessAbuse.gen"
+  should_trust_cloud: false
   author: "HydraDragon"
   date: "2026-03-28"
   status: stable

@@ -1813,7 +1813,7 @@ pub struct BehaviorRule {
     pub detection_logic: Option<DetectionCondition>,
     #[serde(default = "default_true")]
     pub enabled: bool,
-    #[serde(default = "default_true")]
+    #[serde(default)]
     pub should_trust_cloud: bool,
     #[serde(default)]
     pub stages: Vec<AttackStage>,

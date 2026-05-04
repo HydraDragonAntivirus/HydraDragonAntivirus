@@ -4,6 +4,7 @@
 # ─────────────────────────────────────────────────────────────────────────────
 
 - name: "INFO:Win.Persist.RunKeyModification.gen"
+  should_trust_cloud: false
   author: "Emirhan Ucan"
   date: "2026-03-22"
   status: test
@@ -71,6 +72,7 @@
 
 
 - name: "HEUR:Win.Persist.ScheduledTaskCreation.gen"
+  should_trust_cloud: false
   author: "Emirhan Ucan"
   date: "2026-03-22"
   status: test
@@ -156,6 +158,7 @@
 
 
 - name: "HEUR:Win.Persist.WMIEventSubscription.gen"
+  should_trust_cloud: false
   author: "Emirhan Ucan"
   date: "2026-03-22"
   status: test
@@ -224,6 +227,7 @@
 
 
 - name: "INFO:Win.Persist.StartupFolderDrop.gen"
+  should_trust_cloud: false
   author: "Emirhan Ucan"
   date: "2026-03-22"
   status: test
@@ -280,6 +284,7 @@
 
 
 - name: "TEST:Win.Persist.ServiceInstall.legacy"
+  should_trust_cloud: false
   author: "Emirhan Ucan"
   date: "2026-03-22"
   status: test
@@ -375,6 +380,7 @@
 
 
 - name: "HEUR:Win.Persist.AppInitDLLHijack.gen"
+  should_trust_cloud: false
   author: "Emirhan Ucan"
   date: "2026-03-22"
   status: test
@@ -431,6 +437,7 @@
 
 
 - name: "HEUR:Win.Persist.ImageFileExecutionOptions.gen"
+  should_trust_cloud: false
   author: "Emirhan Ucan"
   date: "2026-03-22"
   status: test
@@ -531,6 +538,7 @@
 
 
 - name: "INFO:Win.Persist.RDPEnable.gen"
+  should_trust_cloud: false
   author: "Emirhan Ucan"
   date: "2026-03-22"
   status: test

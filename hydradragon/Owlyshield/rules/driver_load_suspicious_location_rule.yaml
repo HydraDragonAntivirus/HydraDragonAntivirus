@@ -3,6 +3,7 @@
 # Temp directories have no business hosting kernel drivers; this is conclusive.
 # ─────────────────────────────────────────────────────────────────────────────
 - name: "HEUR:Win.Driver.Load.TempDirectory.gen"
+  should_trust_cloud: false
   author: "Emirhan Ucan"
   date: "2026-03-22"
   status: test
@@ -105,6 +106,7 @@
 # These locations are suspicious but signed vendor installers sometimes use them.
 # ─────────────────────────────────────────────────────────────────────────────
 - name: "HEUR:Win.Driver.Load.UserLocation.gen"
+  should_trust_cloud: false
   author: "Emirhan Ucan"
   date: "2026-03-22"
   status: test

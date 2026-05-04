@@ -1,4 +1,5 @@
 - name: "RegSeek Registry HIPS - System Modifications"
+  should_trust_cloud: false
   description: "Prompts before broad system reconfiguration touching hostname, boot, Windows Update, servicing, power, VSS, memory management, device restrictions, and related modification surfaces documented by RegSeek."
   author: "Emirhan Ucan"
   status: experimental
@@ -136,6 +137,7 @@
       signers: ["*Microsoft*"]
 
 - name: "RegSeek Registry HIPS - User Behaviour And Cloud"
+  should_trust_cloud: false
   description: "Prompts before tampering with user-behaviour, recent-item, search-history, and consumer cloud-sync registry locations from RegSeek."
   author: "Codex"
   status: experimental
@@ -264,6 +266,7 @@
       signers: ["*Microsoft*"]
 
 - name: "RegSeek Registry HIPS - Authentication And Accounts"
+  should_trust_cloud: false
   description: "Prompts before modifying credential, LSA, user-account, and authentication-provider registry surfaces covered by RegSeek."
   author: "Codex"
   status: experimental
@@ -369,6 +372,7 @@
       signers: ["*Microsoft*"]
 
 - name: "RegSeek Registry HIPS - Virtualization And Containers"
+  should_trust_cloud: false
   description: "Prompts before changing Hyper-V, container, WSL, Android subsystem, and workstation virtualization registry settings from RegSeek."
   author: "Codex"
   status: experimental
@@ -473,6 +477,7 @@
       signers: ["*Microsoft*"]
 
 - name: "RegSeek Registry HIPS - Remote Access"
+  should_trust_cloud: false
   description: "Prompts before remote-access and lateral-movement registry tampering involving RDP, RAS, remote-desktop tools, and proxy-related settings."
   author: "Codex"
   status: experimental
@@ -593,6 +598,7 @@
       signers: ["*Microsoft*"]
 
 - name: "RegSeek Registry HIPS - AI And Privacy"
+  should_trust_cloud: false
   description: "Prompts before AI feature, privacy-consent, and capability-access registry changes such as Copilot, Recall, microphone, and location."
   author: "Codex"
   status: experimental
@@ -696,6 +702,7 @@
       signers: ["*Microsoft*"]
 
 - name: "RegSeek Registry HIPS - Browser Activity"
+  should_trust_cloud: false
   description: "Prompts before browser-control, extension, security-zone, ActiveX, and typed-URL registry tampering from the RegSeek browser set."
   author: "Codex"
   status: experimental
@@ -816,6 +823,7 @@
       signers: ["*Microsoft*"]
 
 - name: "RegSeek Registry HIPS - File Operations"
+  should_trust_cloud: false
   description: "Prompts before tampering with archive-tool, MRU, recent-document, print, and explorer-navigation registry data documented by RegSeek."
   author: "Codex"
   status: experimental
@@ -940,6 +948,7 @@
       signers: ["*Microsoft*"]
 
 - name: "RegSeek Registry HIPS - Persistence Methods"
+  should_trust_cloud: false
   description: "Prompts before core persistence tampering across Winlogon, Run keys, IFEO, LSA packages, COM, services, AppCertDLLs, WMI, scheduled tasks, and related autostart surfaces."
   author: "Codex"
   status: experimental
@@ -1119,6 +1128,7 @@
       signers: ["*Microsoft*"]
 
 - name: "RegSeek Registry HIPS - Program Execution"
+  should_trust_cloud: false
   description: "Prompts before modifying registry execution and telemetry surfaces like UserAssist, App Paths, AppCompat, PowerShell policy, WSH, RunMRU, and related execution state."
   author: "Codex"
   status: experimental
@@ -1228,6 +1238,7 @@
       signers: ["*Microsoft*"]
 
 - name: "RegSeek Registry HIPS - Network Infrastructure"
+  should_trust_cloud: false
   description: "Prompts before DNS, TCP/IP, sharing, proxy, VPN, Wi-Fi, and network-discovery registry reconfiguration from the RegSeek network set."
   author: "Codex"
   status: experimental
@@ -1351,6 +1362,7 @@
       signers: ["*Microsoft*"]
 
 - name: "RegSeek Registry HIPS - Communication Apps"
+  should_trust_cloud: false
   description: "Prompts before mail, collaboration, chat, VoIP, and conferencing registry changes covered by RegSeek."
   author: "Codex"
   status: experimental
@@ -1456,6 +1468,7 @@
       signers: ["*Microsoft*"]
 
 - name: "RegSeek Registry HIPS - External Storage"
+  should_trust_cloud: false
   description: "Prompts before tampering with USB history, mounted-device, and portable-device registry surfaces from RegSeek."
   author: "Codex"
   status: experimental
@@ -1557,6 +1570,7 @@
       signers: ["*Microsoft*"]
 
 - name: "RegSeek Registry HIPS - Security Monitoring"
+  should_trust_cloud: false
   description: "Prompts before disabling or weakening Defender, firewall, UAC, BitLocker, certificates, logging, explorer restrictions, or related security-monitoring surfaces."
   author: "Codex"
   status: experimental
