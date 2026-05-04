@@ -237,7 +237,7 @@ pub fn nt_protect_virtual_memory(
                 unsafe { *no_bytes_to_protect }
             );
             std::process::exit(0x12345678);
-        }
+    }
 
     // proceed with the syscall
     let ssn = *SYSCALL_NUMBER
