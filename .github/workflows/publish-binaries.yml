@@ -76,7 +76,7 @@ jobs:
           path: |
             MBRFilter/x64/Win8Release/*.sys
             MBRFilter/x64/Win8Release/*.inf
-            MBRFilter/x64/Win8Release/*.cer
+            MBRFilter/x64/Win8Release/*.cat
 
   build-pyasprotection:
     runs-on: windows-2022
@@ -125,7 +125,7 @@ jobs:
           path: |
             Owlyshield/owlyshield_minifilter/x64/Release/*.sys
             Owlyshield/owlyshield_minifilter/x64/Release/*.inf
-            Owlyshield/owlyshield_minifilter/x64/Release/*.cer
+            Owlyshield/owlyshield_minifilter/x64/Release/*.cat
 
   build-reddbg:
     runs-on: windows-2022
@@ -144,7 +144,7 @@ jobs:
           path: |
             Owlyshield/RedDbg/RedDbg/x64/ReleaseX64Kernel/*.sys
             Owlyshield/RedDbg/RedDbg/x64/ReleaseX64Kernel/*.inf
-            Owlyshield/RedDbg/RedDbg/x64/ReleaseX64Kernel/*.cer
+            Owlyshield/RedDbg/RedDbg/x64/ReleaseX64Kernel/*.cat
 
   # --- GROUP 2: Dotnet Projects (Separated) ---
 
@@ -292,8 +292,6 @@ jobs:
           name: bin-sanctum
           path: |
             Sanctum/driver/target/release/*.sys
-            Sanctum/driver/target/release/*.inf
-            Sanctum/driver/target/release/*.cer
             Sanctum/target/release/sanctum_ppl_runner.exe
             Sanctum/target/release/elam_installer.exe
             Sanctum/target/release/um_engine.exe
@@ -395,7 +393,7 @@ jobs:
           $reddbgDrv = Get-ChildItem "bin-reddbg/" -Filter "RedDbgDrv.*" -Recurse
           $reddbgDrv | Copy-Item -Destination "$distRoot/Owlyshield/RedDbg/" -Force
           New-Item -ItemType Directory -Force -Path "Owlyshield/RedDbg/RedDbg/x64/Release"
-          Get-ChildItem "bin-reddbg/" -Filter "*" -Recurse | Copy-Item -Destination "Owlyshield/RedDbg/RedDbg/x64/Release/" -Force
+          Get-ChildItem "bin-reddbg/" -Filter "RedDbgDrv.*" -Recurse | Copy-Item -Destination "Owlyshield/RedDbg/RedDbg/x64/Release/" -Force
 
           # --- Dumper ---
           $dumper = Get-ChildItem "bin-megadumper/" -Filter "*" -Recurse
@@ -433,7 +431,7 @@ jobs:
           $sanctumSystem32 | Copy-Item -Destination "$distRoot/Sanctum/System32/" -Force
           
           # Root Modules
-          $sanctumRoot = Get-ChildItem "bin-sanctum/" -Filter "*" -Include "elam_installer.exe", "um_engine.exe", "server.exe", "app.exe", "*.inf", "*.cer" -Recurse
+          $sanctumRoot = Get-ChildItem "bin-sanctum/" -Filter "*" -Include "elam_installer.exe", "um_engine.exe", "server.exe", "app.exe" -Recurse
           $sanctumRoot | Copy-Item -Destination "$distRoot/Sanctum/" -Force
           
           # Source Tree Sync (Full Workspace)
