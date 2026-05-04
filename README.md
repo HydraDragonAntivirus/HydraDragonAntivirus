@@ -138,7 +138,7 @@ https://www.virustotal.com/gui/file/1ef6c1a4dfdc39b63bfe650ca81ab89510de6c0d3d7c
 - Temporary ClamAV update errors during setup can be safely ignored.
 - If driver installation fails, disable Secure Boot and try again.
 - It is recommended to wait until the antivirus interface fully loads, even if some protections appear active
-- Since ELAM cannot auto-start in test-signing mode, we use a delayed start for the antivirus to prevent the driver from being executed via abuse.
+- Since ELAM cannot auto-start in test-signing mode, we use a delayed start for the antivirus to prevent the driver from being executed via abuse. (**Note:** All drivers must be signed. While WDK Test signing is acceptable for general development, it is **not sufficient for ELAM drivers**).
 - To ensure the antivirus is fully functional, Memory Integrity must be disabled. Reference:
 https://github.com/adrianyy/kernelhook/issues/1
 
