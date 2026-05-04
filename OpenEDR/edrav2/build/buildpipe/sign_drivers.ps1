@@ -35,13 +35,28 @@ certutil -addstore -f Root $tempCertFile | Out-Null
 certutil -addstore -f TrustedPublisher $tempCertFile | Out-Null
 Remove-Item $tempCertFile
 
-# 3) Locate signtool.exe
-$SignTool = Get-ChildItem -Path "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Recurse -Filter "signtool.exe" | 
-            Sort-Object -Property LastWriteTime -Descending | 
-            Select-Object -First 1 -ExpandProperty FullName
+# 3) Locate signtool.exe - use correct architecture
+$Arch = "x64"
+Write-Host "[*] Using x64 architecture for signtool"
+
+# Find the latest Windows SDK version directory
+$KitsPath = "${env:ProgramFiles(x86)}\Windows Kits\10\bin"
+$SdkVersions = Get-ChildItem -Path $KitsPath -Directory |
+               Where-Object { $_.Name -match '^\d+\.\d+\.\d+\.\d+$' } |
+               Sort-Object -Property Name -Descending
+
+$SignTool = $null
+foreach ($SdkVersion in $SdkVersions) {
+    $SignToolPath = Join-Path $SdkVersion.FullName "$Arch\signtool.exe"
+    if (Test-Path $SignToolPath) {
+        $SignTool = $SignToolPath
+        Write-Host "[*] Found signtool.exe in SDK version: $($SdkVersion.Name)"
+        break
+    }
+}
 
 if (-not $SignTool) {
-    throw "signtool.exe not found in Windows Kits directory."
+    throw "signtool.exe not found for architecture $Arch in Windows Kits directory."
 }
 
 Write-Host "[*] Using SignTool: $SignTool"
