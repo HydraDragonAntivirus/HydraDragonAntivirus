@@ -48,11 +48,13 @@ jobs:
         run: |
           $dist = "hydradragon/Sanctum"
           New-Item -ItemType Directory -Force -Path $dist
-          Copy-Item "Sanctum/driver/target/release/sanctum_package/sanctum.sys" "$dist/" -Force
-          Copy-Item "Sanctum/target/release/sanctum_ppl_runner.exe" "$dist/" -Force
-          Copy-Item "Sanctum/target/release/elam_installer.exe" "$dist/" -Force
-          Copy-Item "Sanctum/target/release/um_engine.exe" "$dist/" -Force
-          Copy-Item "Sanctum/target/release/sanctum.dll" "$dist/" -Force
+          
+          # Use recursive lookup for driver and usermode binaries to avoid folder name mismatches
+          Get-ChildItem "Sanctum/driver/target/" -Filter "sanctum.sys" -Recurse | Select-Object -First 1 | Copy-Item -Destination "$dist/" -Force
+          Get-ChildItem "Sanctum/target/release/" -Filter "sanctum_ppl_runner.exe" -Recurse | Select-Object -First 1 | Copy-Item -Destination "$dist/" -Force
+          Get-ChildItem "Sanctum/target/release/" -Filter "elam_installer.exe" -Recurse | Select-Object -First 1 | Copy-Item -Destination "$dist/" -Force
+          Get-ChildItem "Sanctum/target/release/" -Filter "um_engine.exe" -Recurse | Select-Object -First 1 | Copy-Item -Destination "$dist/" -Force
+          Get-ChildItem "Sanctum/target/release/" -Filter "sanctum.dll" -Recurse | Select-Object -First 1 | Copy-Item -Destination "$dist/" -Force
           
       - name: Create PR
         uses: peter-evans/create-pull-request@v8
