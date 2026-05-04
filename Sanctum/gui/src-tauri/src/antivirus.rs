@@ -18,7 +18,7 @@ pub async fn scanner_check_page_state() -> Result<String, ()> {
             eprintln!("[-] Error with IPC: {e}");
             Ok("Inactive".to_string()) // todo proper error handling
         }
-    };
+    }
 }
 
 /// Reports the scan statistics back to the UI
@@ -35,7 +35,7 @@ pub async fn scanner_get_scan_stats() -> Result<String, ()> {
             eprintln!("[-] Error with IPC: {e}");
             Ok("Inactive".to_string()) // todo proper error handling
         }
-    };
+    }
 }
 
 #[tauri::command]

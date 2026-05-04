@@ -4,10 +4,9 @@ use serde::{de::DeserializeOwned, Serialize};
 use serde_json::{to_value, to_vec};
 use shared_no_std::{constants::PIPE_NAME, ipc::CommandRequest};
 use shared_std::{constants::PIPE_FOR_GUI, security::create_security_attributes};
-use tauri_winrt_notification::{Duration, Sound, Toast};
 use tokio::{
     io::{self, AsyncReadExt, AsyncWriteExt},
-    net::windows::named_pipe::{ClientOptions, NamedPipeClient, ServerOptions},
+    net::windows::named_pipe::{ClientOptions, ServerOptions},
 };
 
 pub struct IpcClient;
@@ -80,9 +79,8 @@ impl IpcClient {
 
 /// An IPC server for inbound notifications from the EDR where we aren't sending outbound polls.
 pub async fn global_inbound_ipc() {
+    // todo below - function not yet implemented
     return;
-
-    // todo below
 
     /*
     // test notification
@@ -108,7 +106,6 @@ pub async fn global_inbound_ipc() {
         .duration(Duration::Short)
         .show()
         .expect("Could not show popup");
-    */
 
     let mut sec_attr = create_security_attributes();
 
@@ -160,4 +157,5 @@ pub async fn global_inbound_ipc() {
             });
         }
     });
+    */
 }

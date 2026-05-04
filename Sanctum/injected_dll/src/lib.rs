@@ -2,7 +2,6 @@ use integrity::start_ntdll_integrity_monitor;
 use shared_no_std::ghost_hunting::DLLMessage;
 use std::collections::BTreeMap;
 use std::ffi::c_void;
-use std::mem;
 use std::sync::LazyLock;
 use stubs::nt_protect_virtual_memory;
 use threads::{resume_all_threads, suspend_all_threads};
