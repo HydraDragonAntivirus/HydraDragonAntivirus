@@ -18,6 +18,8 @@ jobs:
       driver: ${{ steps.filter.outputs.driver }}
       usermode: ${{ steps.filter.outputs.usermode }}
     steps:
+      - name: Enable Git long paths
+        run: git config --global core.longpaths true
       - uses: actions/checkout@v6
       - uses: dorny/paths-filter@v3
         id: filter
