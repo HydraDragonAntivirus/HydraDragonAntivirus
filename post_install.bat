@@ -173,6 +173,15 @@ if exist "%EDR_EXE%" (
     echo [*] Installing OpenEDR service...
     "%EDR_EXE%" install
     echo [+] OpenEDR service installed.
+
+    echo [*] Configuring OpenEDR kernel driver (edrdrv)...
+    sc config edrdrv start= system >nul 2>&1
+    sc start edrdrv >nul 2>&1
+    if %errorlevel% neq 0 (
+        echo [!] edrdrv driver start pending (will activate after reboot).
+    ) else (
+        echo [+] edrdrv driver started successfully.
+    )
 ) else (
     echo [!] OpenEDR service not found at "%EDR_EXE%".
 )
