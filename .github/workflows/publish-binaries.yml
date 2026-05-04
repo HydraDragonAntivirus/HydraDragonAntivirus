@@ -101,6 +101,7 @@ jobs:
           path: |
             PYAS_Protection/x64/Release/SimplePYASProtection.sys
             PYAS_Protection/x64/Release/SimplePYASProtection.inf
+            PYAS_Protection/x64/Release/SimplePYASProtection.cat
 
   build-owlyshield-minifilter:
     runs-on: windows-2022
@@ -392,8 +393,9 @@ jobs:
           # --- RedDbg ---
           $reddbgDrv = Get-ChildItem "bin-reddbg/" -Filter "RedDbgDrv.*" -Recurse
           $reddbgDrv | Copy-Item -Destination "$distRoot/Owlyshield/RedDbg/" -Force
-          New-Item -ItemType Directory -Force -Path "Owlyshield/RedDbg/RedDbg/x64/Release"
-          Get-ChildItem "bin-reddbg/" -Filter "RedDbgDrv.*" -Recurse | Copy-Item -Destination "Owlyshield/RedDbg/RedDbg/x64/Release/" -Force
+          
+          New-Item -ItemType Directory -Force -Path "Owlyshield/RedDbg/RedDbg/x64/ReleaseX64Kernel"
+          $reddbgDrv | Copy-Item -Destination "Owlyshield/RedDbg/RedDbg/x64/ReleaseX64Kernel/" -Force
 
           # --- Dumper ---
           $dumper = Get-ChildItem "bin-megadumper/" -Filter "*" -Recurse

@@ -5,6 +5,7 @@ on:
     branches: ["**"]
     paths:
       - 'Owlyshield/**'
+
 permissions:
   contents: write
   pull-requests: write
@@ -17,50 +18,64 @@ jobs:
         run: git config --global core.longpaths true
       - uses: actions/checkout@v6
       
-      - name: Add MSBuild to PATH
-        uses: microsoft/setup-msbuild@v3
+      - name: Set up MSVC Developer Command Prompt
+        uses: ilammy/msvc-dev-cmd@v1
+        
       - name: Setup WDK
         shell: pwsh
         run: |
           $wdkSetupPath = "$Env:TEMP\wdksetup.exe"
           (New-Object Net.WebClient).DownloadFile('https://go.microsoft.com/fwlink/?linkid=2335869', $wdkSetupPath)
           Start-Process -FilePath $wdkSetupPath -ArgumentList "/quiet" -NoNewWindow -Wait
+          
       - name: Build Minifilter
         run: msbuild Owlyshield/owlyshield_minifilter/RWatch.sln /p:Configuration=Release /p:Platform=x64
         
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
-      - name: Install yasm
+      - name: Install nasm
         run: choco install nasm
       - name: Build Rust Core
         working-directory: Owlyshield/owlyshield_predict
         run: cargo build --release
         
-      - name: Build RedDbg (MSBuild)
+      - name: Build RedDbg (Driver Only)
         run: msbuild Owlyshield/RedDbg/RedDbg/RedDbg.sln /p:Configuration=Release /p:Platform=x64
         
       - name: Stage
         shell: pwsh
         run: |
-          $dist = "hydradragon/Owlyshield"
-          $distRedDbg = "hydradragon/RedDbg"
-          New-Item -ItemType Directory -Force -Path $dist
-          New-Item -ItemType Directory -Force -Path $distRedDbg
-          Copy-Item "Owlyshield/owlyshield_minifilter/x64/Release/*.sys" "$dist/" -Force
-          Copy-Item "Owlyshield/owlyshield_minifilter/x64/Release/*.inf" "$dist/" -Force
-          Copy-Item "Owlyshield/owlyshield_minifilter/x64/Release/*.cer" "$dist/" -Force
-          Copy-Item "Owlyshield/owlyshield_predict/target/release/owlyshield_ransom.exe" "$dist/" -Force
-          Copy-Item "Owlyshield/RedDbg/RedDbg/x64/Release/RedDbgApp.exe" "$distRedDbg/" -Force
-          Copy-Item "Owlyshield/RedDbg/RedDbg/x64/ReleaseX64Kernel/*.sys" "$distRedDbg/" -Force
-          Copy-Item "Owlyshield/RedDbg/RedDbg/x64/ReleaseX64Kernel/*.inf" "$distRedDbg/" -Force
-          Copy-Item "Owlyshield/RedDbg/RedDbg/x64/ReleaseX64Kernel/*.cer" "$distRedDbg/" -Force
+          $distRoot = "hydradragon"
+          $owlyRansom = "$distRoot/Owlyshield/OwlyshieldRansomFilter"
+          $owlyService = "$distRoot/Owlyshield/Owlyshield Service"
+          $redDbg = "$distRoot/Owlyshield/RedDbg"
+          
+          # Create folders
+          New-Item -ItemType Directory -Force -Path $owlyRansom
+          New-Item -ItemType Directory -Force -Path $owlyService
+          New-Item -ItemType Directory -Force -Path $redDbg
+          
+          # Copy Minifilter (Driver)
+          Copy-Item "Owlyshield/owlyshield_minifilter/x64/Release/*.sys" "$owlyRansom/" -Force
+          Copy-Item "Owlyshield/owlyshield_minifilter/x64/Release/*.inf" "$owlyRansom/" -Force
+          Copy-Item "Owlyshield/owlyshield_minifilter/x64/Release/*.cat" "$owlyRansom/" -Force
+          
+          # Copy Rust Service
+          Copy-Item "Owlyshield/owlyshield_predict/target/release/owlyshield_ransom.exe" "$owlyService/" -Force
+          
+          # Copy RedDbg (Driver Only)
+          Copy-Item "Owlyshield/RedDbg/RedDbg/x64/ReleaseX64Kernel/*.sys" "$redDbg/" -Force
+          Copy-Item "Owlyshield/RedDbg/RedDbg/x64/ReleaseX64Kernel/*.inf" "$redDbg/" -Force
+          Copy-Item "Owlyshield/RedDbg/RedDbg/x64/ReleaseX64Kernel/*.cat" "$redDbg/" -Force
           
       - name: Create PR
         uses: peter-evans/create-pull-request@v8
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          commit-message: "chore(owlyshield): update binaries"
+          commit-message: "chore(binaries): automated owlyshield binary update"
           title: "🚀 Update Owlyshield Binaries"
+          body: "Automated update for Owlyshield Ransom Filter, Service, and RedDbg drivers."
           branch: "auto-update-owlyshield"
           base: ${{ github.ref_name }}
           delete-branch: true
+          labels: binaries, automated-pr
