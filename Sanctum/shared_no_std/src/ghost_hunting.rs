@@ -27,8 +27,12 @@ pub enum DLLMessage {
 
 /****************************** SYSCALLS *******************************/
 
-/// - `data`: This field contains the `NtFunction` enum, which holds the metadata and arguments
-///   associated with the specific syscall being monitored.
+/// Information relating to a syscall event which happened on the device. This struct holds:
+///
+/// - `pid`: The ID of the process making the syscall
+/// - `source`: Where the system event was captured, e.g. a hooked syscall, ETW, or the driver.
+/// - `data`: This field is generic over T which must implement the `HasPid` trait. This field contains the metadata associated
+/// with the syscall.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Syscall {
     pub pid: u32,
@@ -80,14 +84,16 @@ impl NtFunction {
     pub const M_NETWORK_ACTIVITY: u64 = 1 << 4;
 
     pub fn as_mask(&self) -> u64 {
-        match self {
+        let m = match self {
             NtFunction::None => Self::M_NONE,
             NtFunction::NtOpenProcess(_) => Self::M_NT_OPEN_PROCESS,
             NtFunction::NtWriteVirtualMemory(_) => Self::M_NT_WRITE_VM,
             NtFunction::NtAllocateVirtualMemory(_) => Self::M_NT_ALLOC_VM,
             NtFunction::NtCreateThreadEx(_) => Self::M_CREATE_THREAD_EX,
             NtFunction::NetworkActivity(_) => Self::M_NETWORK_ACTIVITY,
-        }
+        };
+
+        m
     }
 }
 

@@ -8,8 +8,9 @@ use alloc::vec::Vec;
 
 extern crate alloc;
 
-// definitions to prevent importing the windows crate (METHOD_NETHER removed as it is not used in the driver)
+// definitions to prevent importing the windows crate
 const FILE_DEVICE_UNKNOWN: u32 = 34u32;
+const METHOD_NEITHER: u32 = 3u32;
 const METHOD_BUFFERED: u32 = 0u32;
 const FILE_ANY_ACCESS: u32 = 0u32;
 
