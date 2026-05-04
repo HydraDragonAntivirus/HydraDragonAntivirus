@@ -35,6 +35,7 @@ SKIP_NAMES = {
     "top-1m.csv",
     "builtwith-top1m-20250121.csv",
     "tranco_pl9gj.csv",
+    "tranco_pl9gj_old.csv",
 }
 
 
