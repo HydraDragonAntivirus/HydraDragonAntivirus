@@ -56,4 +56,3 @@ ManufacturerName="HydraDragon"
 DiskName="RedDbg Installation Disk"
 RedDbg.DeviceDesc="RedDbg Kernel Driver"
 RedDbg.SVCDESC="RedDbg Kernel Debugger Service"
-
