@@ -386,8 +386,9 @@ See the [LICENSE](./LICENSE) file for more information.
 
 - As you may notice, with the introduction of OpenEDR, the proportion of YARA has decreased significantly, and C++ has become the second most prominent language in the repository.
 
-**Q: Does this collect data?**
+**Q: Does this collect data and did you have Cloud Av?
 - OpenEDR sending telemetry to valkyrie to detect more malware (valkyrie.comodo.com).
+But we are not trusting OpenEDR completely in whitelisting since malware can evade COMODO cloud and can trick OpenEDR, so we have local rules and heuristics to detect them.
 
 **Q: How do I use it?**
 - Just run the shortcut from the desktop, then run advanced dynamic and static analysis on a file.
