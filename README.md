@@ -282,6 +282,7 @@ See the [LICENSE](./LICENSE) file for more information.
 - https://github.com/extremecoders-re/decompyle-builds
 - https://github.com/mandiant/gostringungarbler
 - https://github.com/cod3nym/Deobfuscar
+- https://github.com/holly-hacker/EazFixer
 - https://github.com/Vineflower/vineflower
 - https://github.com/GDATAAdvancedAnalytics/de4dotEx/releases/tag/3.4.0
 - https://www.rathlev-home.de/index-e.html?tools/prog-e.html#unpack 
@@ -409,7 +410,7 @@ This document describes the output directories used by the HydraDragon analysis 
 ## Top-level directory categories (quick reference)
 
 * **Packer/Obfuscator extraction**: `hydra_dragon_dumper_extracted/`, `upx_extracted/`, `themida_unpacked/`, `vmprotect_unpacked/`, `debloat/`
-* **.NET analysis**: `dotnet/`, `obfuscar/`, `de4dot_extracted/`, `net_reactor_extracted/`, `un_confuser_ex_extracted/`
+* **.NET analysis**: `dotnet/`, `obfuscar/`, `de4dot_extracted/`, `net_reactor_extracted/`, `un_confuser_ex_extracted/`, `eazfixer/`
 * **Android/APK**: `jadx_decompiled/`, `androguard/`
 * **Python**: `pyinstaller_extracted/`, `pyarmor8_and_9_extracted/`, `pyarmor7_extracted/`, `nuitka/`, `nuitka_extracted/`, `nuitka_source_code/`, `cx_freeze_extracted/`, `pylingual_extracted/`, `python_deobfuscated/`, `python_deobfuscated_marshal_pyc/`, `pycdas_extracted/`, `python_source_code/`
 * **JavaScript / Node / Electron**: `webcrack_javascript_deobfuscated/`, `asar/`, `npm_pkg_extracted/`, `decompiled_jsc/`
@@ -445,6 +446,7 @@ This document describes the output directories used by the HydraDragon analysis 
 * `de4dot_extracted/` — .NET files deobfuscated using de4dot.
 * `net_reactor_extracted/` — .NET Reactor Slayer outputs.
 * `un_confuser_ex_extracted/` — UnConfuserEx deobfuscation outputs.
+* `eazfixer/` — EazFixer deobfuscation outputs for Eazfuscator-protected .NET assemblies.
 * `pyinstaller_extracted/` — PyInstaller onefile extraction results.
 * `pyarmor8_and_9_extracted/` — PyArmor 8/9 unpacked outputs.
 * `pyarmor7_extracted/` — PyArmor 7-specific unpacking outputs.

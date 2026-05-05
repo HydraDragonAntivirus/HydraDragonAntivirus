@@ -99,6 +99,8 @@ from .path_and_variables import (
     hydra_dragon_dumper_path,
     hydra_dragon_dumper_extracted_dir,
     deobfuscar_path,
+    eazfixer_path,
+    eazfixer_dir_data,
     machine_learning_pickle_benign_path,
     machine_learning_pickle_malicious_path,
     resource_extractor_dir,
@@ -6293,6 +6295,76 @@ def deobfuscate_with_obfuscar(file_path, file_basename):
     return deobfuscated_file_path
 
 
+def deobfuscate_with_eazfuscator(file_path, file_basename):
+    """
+    Deobfuscate a .NET assembly protected with Eazfuscator using EazFixer.
+
+    This function:
+      1. Copies the original file from file_path into the eazfixer directory.
+      2. Calls the EazFixer.exe executable with the copied file.
+      3. Waits for a file with "-cleaned" suffix to appear in eazfixer_dir_data.
+      4. Returns the path of the deobfuscated file.
+
+    WARNING: EazFixer works by invoking code in the binary it operates on.
+    Never use EazFixer on untrusted binaries unless you are in an insulated environment.
+
+    Parameters:
+      file_path (str): Path to the file to be deobfuscated.
+      file_basename (str): The name of the file (e.g., from os.path.basename(file_path)).
+
+    Returns:
+      str | None: Path to the deobfuscated file, or None on error.
+    """
+    if not os.path.exists(eazfixer_path):
+        logger.error(f"EazFixer executable not found at {eazfixer_path}")
+        return None
+
+    # Ensure the output directory exists
+    os.makedirs(eazfixer_dir_data, exist_ok=True)
+
+    # Copy the file to the eazfixer directory
+    copied_file_path = os.path.join(eazfixer_dir_data, file_basename)
+    try:
+        shutil.copy(file_path, copied_file_path)
+        logger.info(f"Copied file {file_path} to {copied_file_path}")
+    except Exception as e:
+        logger.error(f"Failed to copy file to eazfixer directory: {e}")
+        return None
+
+    # Run the deobfuscation tool
+    try:
+        command = [eazfixer_path, "--file", copied_file_path]
+        logger.info(f"Running EazFixer deobfuscation: {' '.join(command)}")
+        subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="ignore")
+    except Exception as e:
+        logger.error(f"Error during EazFixer execution: {e}")
+        return None
+
+    # Monitor directory for the cleaned output
+    # EazFixer typically outputs files with "-cleaned" suffix
+    logger.info("Waiting for -cleaned file to appear...")
+    deobfuscated_file_path = None
+    base_name_without_ext = os.path.splitext(file_basename)[0]
+    extension = os.path.splitext(file_basename)[1]
+    expected_output = os.path.join(eazfixer_dir_data, f"{base_name_without_ext}-cleaned{extension}")
+
+    # Wait up to 60 seconds for the output file
+    max_wait_time = 60
+    start_time = time.time()
+    while time.time() - start_time < max_wait_time:
+        if os.path.exists(expected_output):
+            deobfuscated_file_path = expected_output
+            logger.info(f"Deobfuscated file found: {deobfuscated_file_path}")
+            break
+        time.sleep(1)
+
+    if not deobfuscated_file_path:
+        logger.warning(f"EazFixer output file not found after {max_wait_time} seconds")
+        return None
+
+    return deobfuscated_file_path
+
+
 def extract_rcdata_resource(pe_path):
     try:
         pe = pefile.PE(pe_path)
@@ -7759,6 +7831,7 @@ async def scan_and_warn(
     flag_vineflower=False,
     nsis_flag=False,
     flag_confuserex=False,
+    flag_eazfuscator=False,
     flag_vmprotect=False,
     main_file_path=None,
     owlyshield_signature_status=None,
@@ -8655,6 +8728,22 @@ async def scan_and_warn(
             except Exception as e:
                 logger.error(f"Error in ConfuserEx deobfuscation for {norm_path}: {e}")
 
+        async def dotnet_eazfuscator_thread():
+            """
+            Async Task: Handler for Eazfuscator-protected .NET assemblies.
+            """
+            try:
+                if isinstance(dotnet_result, str) and "Protector: Eazfuscator" in dotnet_result and not flag_eazfuscator:
+                    logger.info(f"The file is a .NET assembly protected with Eazfuscator: {dotnet_result}")
+                    logger.warning("WARNING: EazFixer executes code from the binary. Only use on trusted files in isolated environments.")
+                    deobfuscated_path = await asyncio.to_thread(deobfuscate_with_eazfuscator, norm_path, file_name)
+                    if deobfuscated_path:
+                        # MODIFIED: Call async scan_and_warn as a new task
+                        asyncio.create_task(scan_and_warn(deobfuscated_path, flag_eazfuscator=True, main_file_path=main_file_path))
+
+            except Exception as e:
+                logger.error(f"Error in Eazfuscator deobfuscation for {norm_path}: {e}")
+
         async def jar_analysis_thread():
             try:
                 if is_jar_file_from_output(die_output):
@@ -8748,6 +8837,7 @@ async def scan_and_warn(
             asyncio.create_task(dotnet_obfuscar_thread()),
             asyncio.create_task(dotnet_reactor_thread()),
             asyncio.create_task(dotnet_confuserex_thread()),
+            asyncio.create_task(dotnet_eazfuscator_thread()),
             asyncio.create_task(jar_analysis_thread()),
             asyncio.create_task(java_class_thread()),
             asyncio.create_task(ole2_handler_thread()),
