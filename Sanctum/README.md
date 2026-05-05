@@ -122,6 +122,28 @@ This is a little involved due to the signing process. But follow along and you s
 
 #### Building and signing the driver
 
+> **Production signing warning**
+>
+> The process below is for local development, CI-generated test artifacts, and VM
+> validation only. It creates a self-signed ELAM certificate, signs with the local
+> `sanctum.pfx`, and updates `driver/build.rs` with a hash that is specific to
+> that build environment. Do not ship production drivers with this self-signed
+> certificate, the sample PFX password, test-signing/debug-mode boot settings, or
+> a CI-generated `build.rs` hash.
+>
+> For a real production release, use a proper driver release-signing pipeline:
+> protect private keys in your organization's signing infrastructure, sign driver
+> submissions with a certificate registered to your Microsoft Partner Center /
+> Hardware Dev Center account, and submit the package for Microsoft signing.
+> Microsoft documents HLK/WHCP dashboard signing as the recommended production
+> path for driver packages. This matters especially for ELAM: Microsoft notes
+> that attestation signing does not return the extra PE-level signature attributes
+> required by ELAM binaries, so production ELAM releases should be handled through
+> the HLK/WHCP package submission path rather than this local self-signed loop.
+> See Microsoft's [driver signing overview](https://learn.microsoft.com/en-us/windows-hardware/drivers/install/driver-signing),
+> [driver signing options](https://learn.microsoft.com/en-us/windows-hardware/drivers/dashboard/driver-signing-offerings),
+> and [driver code signing requirements](https://learn.microsoft.com/en-us/windows-hardware/drivers/dashboard/code-signing-reqs).
+
 1) Ensure you have Visual Studio build tools installed
 2) Ensure you have this repo cloned
 3) Open Developer Command Prompt as Administrator (I'd recommend running `powershell` from this cmd prompt to upgrade to powershell)

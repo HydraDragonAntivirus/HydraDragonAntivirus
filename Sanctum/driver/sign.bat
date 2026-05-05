@@ -2,8 +2,8 @@
 setlocal
 
 :: paths
-set BUILD_PROFILE=%~1
-if "%BUILD_PROFILE%"=="" set BUILD_PROFILE=debug
+set "BUILD_PROFILE=%~1"
+if "%BUILD_PROFILE%"=="" set "BUILD_PROFILE=debug"
 if /I "%BUILD_PROFILE%"=="help" goto :usage
 if /I "%BUILD_PROFILE%"=="/?" goto :usage
 if /I "%BUILD_PROFILE%"=="-h" goto :usage
@@ -14,9 +14,11 @@ if /I not "%BUILD_PROFILE%"=="debug" if /I not "%BUILD_PROFILE%"=="release" (
     goto :usage_error
 )
 
-set DRIVER_PATH=target\%BUILD_PROFILE%\sanctum_package\sanctum.sys
-set PFX_FILE=sanctum.pfx
-set PFX_PASSWORD=password
+set "DRIVER_PATH=target\%BUILD_PROFILE%\sanctum_package\sanctum.sys"
+set "PFX_FILE=sanctum.pfx"
+set "PFX_PASSWORD=password"
+
+echo [INFO] Signing Sanctum driver build profile: %BUILD_PROFILE%
 
 if not exist "%DRIVER_PATH%" (
     echo [ERROR] Driver not found: %DRIVER_PATH%
@@ -26,6 +28,13 @@ if not exist "%DRIVER_PATH%" (
     ) else (
         echo   cargo make
     )
+    exit /b 1
+)
+
+if not exist "%PFX_FILE%" (
+    echo [ERROR] Certificate not found: %PFX_FILE%
+    echo Generate it first with:
+    echo   .\cert.ps1
     exit /b 1
 )
 

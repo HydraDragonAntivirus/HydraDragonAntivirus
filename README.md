@@ -139,6 +139,7 @@ https://www.virustotal.com/gui/file/1ef6c1a4dfdc39b63bfe650ca81ab89510de6c0d3d7c
 - If driver installation fails, disable Secure Boot and try again.
 - It is recommended to wait until the antivirus interface fully loads, even if some protections appear active
 - Since ELAM cannot auto-start in test-signing mode, we use a delayed start for the antivirus to prevent the driver from being executed via abuse. (**Note:** All drivers must be signed. While WDK Test signing is acceptable for general development, it is **not sufficient for ELAM drivers**).
+- The Sanctum `cert.ps1` / `sign.bat` / `build.rs` hash loop is a development and CI test-artifact process only. In real production, do not ship `sanctum.sys` with the local self-signed `sanctum.pfx`, sample PFX password, test-signing/debug-mode boot settings, or a CI-generated ELAM hash. Production driver releases should use a protected release-signing pipeline and Microsoft Partner Center / Hardware Dev Center signing. For ELAM, use the HLK/WHCP package submission path rather than this local self-signed loop; see [Sanctum signing notes](./Sanctum/README.md#building-and-signing-the-driver).
 - To ensure the antivirus is fully functional, Memory Integrity must be disabled. Reference:
 https://github.com/adrianyy/kernelhook/issues/1
 
