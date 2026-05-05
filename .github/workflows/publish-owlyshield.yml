@@ -166,9 +166,6 @@ jobs:
           
           Write-Host "`n=== Components Built: $($componentsBuilt.Count) ==="
           $componentsBuilt | ForEach-Object { Write-Host "  - $_" }
-          
-          # Save for PR body
-          $componentsBuilt -join ", " | Out-File -FilePath "components.txt" -NoNewline
       
       - name: Check for Changes
         id: check_changes
