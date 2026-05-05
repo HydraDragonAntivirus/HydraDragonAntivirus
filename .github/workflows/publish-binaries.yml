@@ -32,7 +32,9 @@ jobs:
         with:
           submodules: recursive
       - name: Set up MSVC Developer Command Prompt
-        uses: ilammy/msvc-dev-cmd@v1
+        uses: TheMrMilchmann/setup-msvc-dev@v4
+        with:
+          arch: x64
       - name: Build TinyAntivirus
         run: msbuild TinyAntivirus/TinyAntivirus.sln /p:Configuration=Release /p:Platform=x64
       - name: Upload
@@ -48,7 +50,9 @@ jobs:
         run: git config --global core.longpaths true
       - uses: actions/checkout@v6
       - name: Set up MSVC Developer Command Prompt
-        uses: ilammy/msvc-dev-cmd@v1
+        uses: TheMrMilchmann/setup-msvc-dev@v4
+        with:
+          arch: x64
       - name: Build HydraDragonAV
         run: msbuild HydraDragonAV/HydraDragonAV.sln /p:Configuration=Release /p:Platform=x64
       - name: Upload
@@ -64,7 +68,9 @@ jobs:
         run: git config --global core.longpaths true
       - uses: actions/checkout@v6
       - name: Set up MSVC Developer Command Prompt
-        uses: ilammy/msvc-dev-cmd@v1
+        uses: TheMrMilchmann/setup-msvc-dev@v4
+        with:
+          arch: x64
       - name: Setup WDK
         shell: pwsh
         run: |
@@ -89,7 +95,9 @@ jobs:
         run: git config --global core.longpaths true
       - uses: actions/checkout@v6
       - name: Set up MSVC Developer Command Prompt
-        uses: ilammy/msvc-dev-cmd@v1
+        uses: TheMrMilchmann/setup-msvc-dev@v4
+        with:
+          arch: x64
       - name: Setup WDK
         shell: pwsh
         run: |
@@ -114,7 +122,9 @@ jobs:
         run: git config --global core.longpaths true
       - uses: actions/checkout@v6
       - name: Set up MSVC Developer Command Prompt
-        uses: ilammy/msvc-dev-cmd@v1
+        uses: TheMrMilchmann/setup-msvc-dev@v4
+        with:
+          arch: x64
       - name: Setup WDK
         shell: pwsh
         run: |
@@ -139,7 +149,9 @@ jobs:
         run: git config --global core.longpaths true
       - uses: actions/checkout@v6
       - name: Set up MSVC Developer Command Prompt
-        uses: ilammy/msvc-dev-cmd@v1
+        uses: TheMrMilchmann/setup-msvc-dev@v4
+        with:
+          arch: x64
       - name: Build RedDbg
         run: msbuild Owlyshield/RedDbg/RedDbg/RedDbg.sln /p:Configuration=Release /p:Platform=x64
       - name: Upload
@@ -265,7 +277,9 @@ jobs:
         run: git config --global core.longpaths true
       - uses: actions/checkout@v6
       - name: Set up MSVC Developer Command Prompt
-        uses: ilammy/msvc-dev-cmd@v1
+        uses: TheMrMilchmann/setup-msvc-dev@v4
+        with:
+          arch: x64
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@nightly
       - name: Install Cargo Make
