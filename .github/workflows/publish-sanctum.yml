@@ -75,6 +75,8 @@ jobs:
         uses: taiki-e/install-action@v2
         with:
           tool: cargo-make
+      - name: Install rust-script
+        run: cargo install rust-script --version 0.30.0
       - name: Setup WDK
         shell: pwsh
         run: |
