@@ -14,7 +14,7 @@
 ; Owlyshield definitions
 #define OwlyshieldVersion "1.2.0"
 #define AgentName "Owlyshield Service"
-#define FsFilter "OwlyshieldRansomFilter"
+#define FSfilter "OwlyshieldRansomFilter"
 #define OwlyshieldAppId "8C19967B-1D27-4E6A-85CD-5059912C2788"
 
 [Setup]
@@ -163,7 +163,7 @@ Filename: "bcdedit.exe"; Parameters: "/set testsigning off"
 
 ; Owlyshield cleanup
 ; Filename: "sc.exe"; Parameters: "stop ""{#AgentName}"""
-;  Filename: "sc.exe"; Parameters: "stop ""{#FsFilter}"""
+;  Filename: "sc.exe"; Parameters: "stop ""{#FSfilter}"""
 ; Filename: "sc.exe"; Parameters: "delete ""{#AgentName}"""
-; Filename: "sc.exe"; Parameters: "delete ""{#FsFilter}"""
-; Filename: "del.exe"; Parameters: """C:\Windows\System32\drivers\{#FsFilter}.sys"""
+; Filename: "sc.exe"; Parameters: "delete ""{#FSfilter}"""
+; Filename: "del.exe"; Parameters: """C:\Windows\System32\drivers\{#FSfilter}.sys"""

@@ -118,13 +118,13 @@ fn resolve_kernel_exclude_rule_paths() -> Option<KernelExcludeRulePaths> {
 
         let fsfilter = select_existing_or_first(vec![
             protection_root.join("FSFilter").join("default_rules.txt"),
-            protection_root.join("FsFilter").join("default_rules.txt"),
+            protection_root.join("FSfilter").join("default_rules.txt"),
             hydra_root
                 .join("PYAS_Protection")
                 .join("PYAS_Protection_Rules")
                 .join("Process")
                 .join("Owlyshield")
-                .join("FsFilter")
+                .join("FSfilter")
                 .join("default_rules.txt"),
         ]);
         let dynamic_hook = select_existing_or_first(vec![

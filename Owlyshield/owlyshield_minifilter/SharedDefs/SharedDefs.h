@@ -32,8 +32,8 @@ const WCHAR *const ComPortName = L"\\RWFilter";
 #define OWLY_DYNAMIC_HOOK_RULE_FILE_KERNEL L"\\??\\C:\\Program Files\\HydraDragonAntivirus\\hydradragon\\HydraDragon_Protection_Rules\\Owlyshield\\DynamicHook\\default_rules.txt"
 // Shared ProcessProtection rule file path (kernel-side exclude list).
 #define OWLY_PROCESS_PROTECTION_RULE_FILE_KERNEL L"\\??\\C:\\Program Files\\HydraDragonAntivirus\\hydradragon\\HydraDragon_Protection_Rules\\Owlyshield\\ProcessProtection\\default_rules.txt"
-// Shared FsFilter rule file path (kernel-side ignore list).
-#define OWLY_FSFILTER_RULE_FILE_KERNEL L"\\??\\C:\\Program Files\\HydraDragonAntivirus\\hydradragon\\HydraDragon_Protection_Rules\\Owlyshield\\FsFilter\\default_rules.txt"
+// Shared FSfilter rule file path (kernel-side ignore list).
+#define OWLY_FSfilter_RULE_FILE_KERNEL L"\\??\\C:\\Program Files\\HydraDragonAntivirus\\hydradragon\\HydraDragon_Protection_Rules\\Owlyshield\\FSfilter\\default_rules.txt"
 
 // Fix C4005: Macro redefinition warning
 #ifndef MAX_FILE_NAME_LENGTH
@@ -306,7 +306,7 @@ enum COM_MESSAGE_TYPE
     // OWLY_RULE_BLOB_MESSAGE followed by UTF-16LE rule text. They are accepted
     // only through the hardened communication port, which should allow only
     // sanctum_ppl_runner.exe running as Antimalware ProtectedLight.
-    MESSAGE_SET_OWLY_FSFILTER_RULES,
+    MESSAGE_SET_OWLY_FSfilter_RULES,
     MESSAGE_SET_OWLY_PROCESS_PROTECTION_RULES,
     MESSAGE_SET_OWLY_DYNAMIC_HOOK_EXCLUDE_RULES
 };
@@ -390,7 +390,7 @@ enum IRP_MAJOR_OP
     IRP_PROCESS_HANDLE_OPEN,
 
     // Single normalized opcode reserved for real VMM/HyperDbg-origin events.
-    // Do not use this for ProcessProtection/FsFilter kernel API signals.
+    // Do not use this for ProcessProtection/FSfilter kernel API signals.
     IRP_HYPERVISOR_EVENT,
 
     // Named Pipe Operations (Kernel + Usermode)
@@ -435,7 +435,7 @@ typedef struct _HOOK_CONFIG_DATA {
 // ... (Existing Macros) ...
 
 // Generic VMM/HyperDbg-origin event id is represented by IRP_HYPERVISOR_EVENT.
-// ProcessProtection/FsFilter kernel API signals keep using IRP_KERNEL_* above.
+// ProcessProtection/FSfilter kernel API signals keep using IRP_KERNEL_* above.
 
 
 enum THREAT_ACTION_TYPE

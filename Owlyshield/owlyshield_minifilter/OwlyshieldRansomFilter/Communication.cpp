@@ -1,5 +1,5 @@
 #include "Communication.h"
-#include "FsFilter.h"
+#include "FSfilter.h"
 #include "ProcessProtection.h" // OnKernelApiEvent - called by HookDeviceControl
 #include "UserModeHookEngine.h"
 #include <ntstrsafe.h>
@@ -225,14 +225,14 @@ static BOOLEAN IsSanctumAntimalwareLightCaller(
 
     if (!IsAntimalwareProtectedLightProcess(process))
     {
-        DbgPrint("!!! FsFilter: RWFConnect - caller is not Antimalware ProtectedLight; rejecting\n");
+        DbgPrint("!!! FSfilter: RWFConnect - caller is not Antimalware ProtectedLight; rejecting\n");
         return FALSE;
     }
 
     imagePath = QueryCurrentProcessImagePath();
     if (imagePath == NULL)
     {
-        DbgPrint("!!! FsFilter: RWFConnect - cannot query protected caller image path; rejecting\n");
+        DbgPrint("!!! FSfilter: RWFConnect - cannot query protected caller image path; rejecting\n");
         return FALSE;
     }
 
@@ -1153,7 +1153,7 @@ NTSTATUS InitCommData()
     status = FltBuildDefaultSecurityDescriptor(&sd, FLT_PORT_ALL_ACCESS);
     if (!NT_SUCCESS(status))
     {
-        DbgPrint("!!! FsFilter: FltBuildDefaultSecurityDescriptor failed: 0x%X\n", status);
+        DbgPrint("!!! FSfilter: FltBuildDefaultSecurityDescriptor failed: 0x%X\n", status);
         return status;
     }
 
@@ -1186,7 +1186,7 @@ NTSTATUS InitCommData()
 
     if (!NT_SUCCESS(status))
     {
-        DbgPrint("!!! FsFilter: FltCreateCommunicationPort failed: 0x%X\n", status);
+        DbgPrint("!!! FSfilter: FltCreateCommunicationPort failed: 0x%X\n", status);
     }
 
     return status;
@@ -1246,13 +1246,13 @@ RWFConnect(_In_ PFLT_PORT ClientPort, _In_opt_ PVOID ServerPortCookie,
     {
         if (imagePath != NULL)
         {
-            DbgPrint("!!! FsFilter: RWFConnect - REJECTED connection from: %wZ\n", imagePath);
+            DbgPrint("!!! FSfilter: RWFConnect - REJECTED connection from: %wZ\n", imagePath);
             ExFreePoolWithTag(imagePath, 'cRwO');
         }
         return STATUS_ACCESS_DENIED;
     }
 
-    DbgPrint("!!! FsFilter: RWFConnect - ACCEPTED Sanctum AntimalwareLight connection from: %wZ\n", imagePath);
+    DbgPrint("!!! FSfilter: RWFConnect - ACCEPTED Sanctum AntimalwareLight connection from: %wZ\n", imagePath);
     ExFreePoolWithTag(imagePath, 'cRwO');
 
     //
@@ -1430,14 +1430,14 @@ RWFNewMessage(IN PVOID PortCookie, IN PVOID InputBuffer, IN ULONG InputBufferLen
     if (message == NULL)
         return STATUS_INTERNAL_ERROR; // failed message type
 
-    if (message->type == MESSAGE_SET_OWLY_FSFILTER_RULES)
+    if (message->type == MESSAGE_SET_OWLY_FSfilter_RULES)
     {
         PUCHAR ruleBuffer = NULL;
         ULONG ruleBytes = 0;
         NTSTATUS status = ValidateOwlyRuleBlob(
             InputBuffer,
             InputBufferLength,
-            MESSAGE_SET_OWLY_FSFILTER_RULES,
+            MESSAGE_SET_OWLY_FSfilter_RULES,
             &ruleBuffer,
             &ruleBytes);
         if (!NT_SUCCESS(status))
@@ -1528,7 +1528,7 @@ RWFNewMessage(IN PVOID PortCookie, IN PVOID InputBuffer, IN ULONG InputBufferLen
     }
     else if (message->type == MESSAGE_ADD_BLOCK_PATH)
     {
-        DbgPrint("!!! FsFilter: Received add block path message\n");
+        DbgPrint("!!! FSfilter: Received add block path message\n");
         PDIRECTORY_ENTRY newEntry = new DIRECTORY_ENTRY();
         if (newEntry == NULL)
         {

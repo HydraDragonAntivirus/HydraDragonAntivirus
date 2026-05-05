@@ -177,9 +177,9 @@ VOID DriverData::SetQuarantinePath(PUNICODE_STRING path) {
         if (quarantinePath.Buffer != NULL) {
             RtlCopyUnicodeString(&quarantinePath, path);
             quarantinePath.Buffer[quarantinePath.Length / sizeof(WCHAR)] = L'\0'; // Null-terminate
-            DbgPrint("!!! FsFilter: Quarantine path set to: %wZ\n", &quarantinePath);
+            DbgPrint("!!! FSfilter: Quarantine path set to: %wZ\n", &quarantinePath);
         } else {
-            DbgPrint("!!! FsFilter: Failed to allocate memory for quarantine path.\n");
+            DbgPrint("!!! FSfilter: Failed to allocate memory for quarantine path.\n");
             RtlInitUnicodeString(&quarantinePath, NULL); // Ensure it's null-initialized on failure
         }
     } else {
@@ -902,7 +902,7 @@ BOOLEAN DriverData::AddBlockedPath(PDIRECTORY_ENTRY newEntry) {
         InsertHeadList(&blockedPaths, &newEntry->entry);
         blockedPathsSize++;
         ret = TRUE;
-        DbgPrint("!!! FsFilter: Path added to KERNEL BLOCK LIST: %ws\n", newEntry->path);
+        DbgPrint("!!! FSfilter: Path added to KERNEL BLOCK LIST: %ws\n", newEntry->path);
     }
     KeReleaseSpinLock(&blockedPathsLock, oldIrql);
     return ret;

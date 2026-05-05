@@ -23,7 +23,7 @@ Environment:
 #include "ProcessProtection.h"
 #include "Communication.h"
 #include "DriverData.h"
-#include "FsFilter.h"
+#include "FSfilter.h"
 #include <ntstrsafe.h>
 
 // PROCESS_TERMINATE is defined in ntddk.h but may need explicit definition

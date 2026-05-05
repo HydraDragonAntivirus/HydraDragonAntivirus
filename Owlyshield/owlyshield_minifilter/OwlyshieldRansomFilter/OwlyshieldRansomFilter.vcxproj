@@ -73,8 +73,8 @@
     <ClCompile Include="RootkitDetector.cpp" />
     <ClCompile Include="ShanonEntropy.cpp" />
     <ClCompile Include="UserModeHookEngine.cpp" />
-    <ResourceCompile Include="FsFilter.rc" />
-    <ClCompile Include="FsFilter.cpp" />
+    <ResourceCompile Include="FSfilter.rc" />
+    <ClCompile Include="FSfilter.cpp" />
     <ClCompile Include="Communication.cpp" />
     <ClCompile Include="DriverData.cpp" />
     <ClCompile Include="Regedit.cpp" />
@@ -88,7 +88,7 @@
     <MinimumVisualStudioVersion>12.0</MinimumVisualStudioVersion>
     <Configuration>Debug</Configuration>
     <Platform Condition="'$(Platform)' == ''">Win32</Platform>
-    <RootNamespace>FsFilter</RootNamespace>
+    <RootNamespace>FSfilter</RootNamespace>
     <ProjectName>OwlyshieldRansomFilter</ProjectName>
     <WindowsTargetPlatformVersion>10.0.26100.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
@@ -439,7 +439,7 @@
   <ItemGroup>
     <ClInclude Include="Communication.h" />
     <ClInclude Include="DriverData.h" />
-    <ClInclude Include="FsFilter.h" />
+    <ClInclude Include="FSfilter.h" />
     <ClInclude Include="HashTable.h" />
     <ClInclude Include="KernelCommon.h" />
     <ClInclude Include="KernelHookEngine.h" />

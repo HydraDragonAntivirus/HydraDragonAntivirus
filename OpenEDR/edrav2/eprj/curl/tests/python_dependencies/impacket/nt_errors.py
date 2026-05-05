@@ -51,7 +51,7 @@ ERROR_MESSAGES = {
         0x00000123: ("STATUS_PROCESS_NOT_IN_JOB","The specified process is not part of a job."),
         0x00000124: ("STATUS_PROCESS_IN_JOB","The specified process is part of a job."),
         0x00000125: ("STATUS_VOLSNAP_HIBERNATE_READY","{Volume Shadow Copy Service} The system is now ready for hibernation."),
-        0x00000126: ("STATUS_FSFILTER_OP_COMPLETED_SUCCESSFULLY","A file system or file system filter driver has successfully completed an FsFilter operation."),
+        0x00000126: ("STATUS_FSFILTER_OP_COMPLETED_SUCCESSFULLY","A file system or file system filter driver has successfully completed an FSfilter operation."),
         0x00000127: ("STATUS_INTERRUPT_VECTOR_ALREADY_CONNECTED","The specified interrupt vector was already connected."),
         0x00000128: ("STATUS_INTERRUPT_STILL_CONNECTED","The specified interrupt vector is still connected."),
         0x00000129: ("STATUS_PROCESS_CLONED","The current process is a cloned process."),

@@ -3,7 +3,7 @@
 
 #define VER_FILETYPE VFT_DRV
 #define VER_FILESUBTYPE VFT2_DRV_SYSTEM
-#define VER_FILEDESCRIPTION_STR "FsFilter Filter Driver"
-#define VER_INTERNALNAME_STR "FsFilter.sys"
+#define VER_FILEDESCRIPTION_STR "FSfilter Filter Driver"
+#define VER_INTERNALNAME_STR "FSfilter.sys"
 
 #include "common.ver"

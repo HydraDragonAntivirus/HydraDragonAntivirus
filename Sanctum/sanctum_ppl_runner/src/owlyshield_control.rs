@@ -13,7 +13,7 @@ use windows::Win32::Foundation::{CloseHandle, HANDLE};
 
 use crate::hardcoded_rules::{
     OWLY_DYNAMIC_HOOK_EXCLUDE_RULES,
-    OWLY_FSFILTER_EXCLUDE_RULES,
+    OWLY_FSfilter_EXCLUDE_RULES,
     OWLY_PROCESS_PROTECTION_EXCLUDE_RULES,
 };
 
@@ -26,7 +26,7 @@ const OWLY_RULE_BLOB_FLAG_UTF16LE: u32 = 0x0000_0001;
 const MAX_OWLY_RULE_BYTES: usize = 256 * 1024;
 
 // Must match COM_MESSAGE_TYPE in SharedDefs.h.
-const MESSAGE_SET_OWLY_FSFILTER_RULES: u32 = 13;
+const MESSAGE_SET_OWLY_FSfilter_RULES: u32 = 13;
 const MESSAGE_SET_OWLY_PROCESS_PROTECTION_RULES: u32 = 14;
 const MESSAGE_SET_OWLY_DYNAMIC_HOOK_EXCLUDE_RULES: u32 = 15;
 
@@ -161,9 +161,9 @@ pub fn register_owlyshield_from_sanctum() -> Result<(), String> {
 /// No mutable rule file is read from Program Files at runtime.
 pub fn push_embedded_owlyshield_rules_from_sanctum() -> Result<(), String> {
     send_rule_blob(
-        MESSAGE_SET_OWLY_FSFILTER_RULES,
-        "MESSAGE_SET_OWLY_FSFILTER_RULES",
-        OWLY_FSFILTER_EXCLUDE_RULES,
+        MESSAGE_SET_OWLY_FSfilter_RULES,
+        "MESSAGE_SET_OWLY_FSfilter_RULES",
+        OWLY_FSfilter_EXCLUDE_RULES,
     )?;
     send_rule_blob(
         MESSAGE_SET_OWLY_PROCESS_PROTECTION_RULES,

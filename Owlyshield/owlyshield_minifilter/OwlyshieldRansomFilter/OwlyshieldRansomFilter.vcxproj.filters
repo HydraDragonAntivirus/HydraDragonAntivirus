@@ -34,7 +34,7 @@
     <ClCompile Include="ShanonEntropy.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="FsFilter.cpp">
+    <ClCompile Include="FSfilter.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="Regedit.cpp">
@@ -54,12 +54,12 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ResourceCompile Include="FsFilter.rc">
+    <ResourceCompile Include="FSfilter.rc">
       <Filter>Resource Files</Filter>
     </ResourceCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="FsFilter.h">
+    <ClInclude Include="FSfilter.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="Communication.h">

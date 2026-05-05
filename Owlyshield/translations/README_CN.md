@@ -112,7 +112,7 @@ Owlyshield 由以下组件组成：
 
 * *Owlyshield Predict* 可执行文件从 */target/release* 中检索
 * *rust_win_toast* 可执行文件从 */target/release* 检索
-* *Owlyshield Minifiter* sys、cat 和 inf 文件是从 */x64/Debug/FsFilter* 检索的，发布版本需要签名证书并不总是容易设置的。
+* *Owlyshield Minifiter* sys、cat 和 inf 文件是从 */x64/Debug/FSfilter* 检索的，发布版本需要签名证书并不总是容易设置的。
 
 ## 使用的资料
 

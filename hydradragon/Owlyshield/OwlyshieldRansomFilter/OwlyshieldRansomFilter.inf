@@ -1,5 +1,5 @@
 ;;;
-;;; FsFilter
+;;; FSfilter
 ;;;
 
 [Version]
@@ -53,7 +53,7 @@ Dependencies     = "FltMgr"
 ServiceType      = 2                            ;SERVICE_FILE_SYSTEM_DRIVER
 StartType        = 3                            ;SERVICE_DEMAND_START
 ErrorControl     = 1                            ;SERVICE_ERROR_NORMAL
-LoadOrderGroup = "FsFilter Activity Monitor"
+LoadOrderGroup = "FSfilter Activity Monitor"
 AddReg           = MiniFilter.AddRegistry
 
 ;
