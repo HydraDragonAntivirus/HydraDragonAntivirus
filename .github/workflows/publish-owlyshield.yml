@@ -171,7 +171,6 @@ jobs:
         id: check_changes
         shell: pwsh
         run: |
-          Remove-Item -Force "components.txt" -ErrorAction SilentlyContinue
           git add -A
           $status = git status --porcelain
           if ($null -eq $status -or $status -eq "") {
