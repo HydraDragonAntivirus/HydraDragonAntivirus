@@ -35,6 +35,12 @@ jobs:
           tool: cargo-make
       - name: Install rust-script
         run: cargo install rust-script
+      - name: Setup WDK
+        shell: pwsh
+        run: |
+          $wdkSetupPath = "$Env:TEMP\wdksetup.exe"
+          (New-Object Net.WebClient).DownloadFile('${{ env.WDK_URL }}', $wdkSetupPath)
+          Start-Process -FilePath $wdkSetupPath -ArgumentList "/quiet" -NoNewWindow -Wait
 
       - name: Build Driver (Debug)
         working-directory: Sanctum

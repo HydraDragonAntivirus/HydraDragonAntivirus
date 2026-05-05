@@ -339,7 +339,7 @@ jobs:
         with:
           name: bin-sanctum
           path: |
-            Sanctum/driver/target/release/*.sys
+            Sanctum/driver/target/release/sanctum_package/*.sys
             Sanctum/target/release/sanctum_ppl_runner.exe
             Sanctum/target/release/elam_installer.exe
             Sanctum/target/release/um_engine.exe

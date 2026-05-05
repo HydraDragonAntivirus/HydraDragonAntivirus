@@ -20,6 +20,7 @@ args = ["build", "--release", "-p", "um_engine"]
 description = "Build and package the Sanctum kernel driver."
 workspace = false
 cwd = "driver"
+env = { CARGO_MAKE_EXTEND_WORKSPACE_MAKEFILE = false, CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY = "${CARGO_MAKE_WORKING_DIRECTORY}/driver" }
 command = "cargo"
 args = ["make", "default"]
 
@@ -27,6 +28,7 @@ args = ["make", "default"]
 description = "Build and package the Sanctum kernel driver in release mode."
 workspace = false
 cwd = "driver"
+env = { CARGO_MAKE_EXTEND_WORKSPACE_MAKEFILE = false, CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY = "${CARGO_MAKE_WORKING_DIRECTORY}/driver" }
 command = "cargo"
 args = ["make", "release"]
 

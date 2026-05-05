@@ -106,7 +106,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: sanctum-driver
-          path: Sanctum/driver/target/release/*.sys
+          path: Sanctum/driver/target/release/sanctum_package/*.sys
 
   # Build Usermode Components (only if changed)
   build-usermode:
