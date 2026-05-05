@@ -125,6 +125,15 @@ jobs:
           tool: cargo-make
       - name: Install rust-script
         run: cargo install rust-script
+      - name: Setup Windows SDK (for signtool)
+        shell: pwsh
+        run: |
+          $sdkSetupPath = "$Env:TEMP\sdksetup.exe"
+          Write-Host "Downloading Windows SDK..."
+          (New-Object Net.WebClient).DownloadFile('https://go.microsoft.com/fwlink/?linkid=2272610', $sdkSetupPath)
+          Write-Host "Installing Windows SDK..."
+          Start-Process -FilePath $sdkSetupPath -ArgumentList "/quiet", "/norestart", "/features", "OptionId.SigningTools" -NoNewWindow -Wait
+          Write-Host "Windows SDK installed successfully"
       - name: Build Usermode Components
         working-directory: Sanctum
         run: |

@@ -5,7 +5,7 @@
 //! reads mutable rule files from disk at runtime before updating privileged
 //! kernel rule state.
 
-pub const OWLY_FSfilter_EXCLUDE_RULES: &str = r####"
+pub const OWLY_FSFILTER_EXCLUDE_RULES: &str = r####"
 # Dynamic hook exclude rules (normalized/contains match, case-insensitive)
 # Put full path fragments under C:\ only.
 

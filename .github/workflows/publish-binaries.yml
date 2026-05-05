@@ -274,6 +274,15 @@ jobs:
           $wdkSetupPath = "$Env:TEMP\wdksetup.exe"
           (New-Object Net.WebClient).DownloadFile('${{env.WDK_URL}}', $wdkSetupPath)
           Start-Process -FilePath $wdkSetupPath -ArgumentList "/quiet" -NoNewWindow -Wait
+      - name: Setup Windows SDK (for signtool)
+        shell: pwsh
+        run: |
+          $sdkSetupPath = "$Env:TEMP\sdksetup.exe"
+          Write-Host "Downloading Windows SDK..."
+          (New-Object Net.WebClient).DownloadFile('https://go.microsoft.com/fwlink/?linkid=2272610', $sdkSetupPath)
+          Write-Host "Installing Windows SDK..."
+          Start-Process -FilePath $sdkSetupPath -ArgumentList "/quiet", "/norestart", "/features", "OptionId.SigningTools" -NoNewWindow -Wait
+          Write-Host "Windows SDK installed successfully"
       - name: Build Sanctum (with ELAM hash auto-update)
         working-directory: Sanctum
         shell: pwsh
