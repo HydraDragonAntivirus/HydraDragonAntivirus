@@ -1,408 +1,298 @@
 #!/usr/bin/env python3
 """
-list_modules.py - Nuitka binary analysis library and extractor.
-Supports:
-  1. Constants blob extraction (resources/sections)
-  2. Onefile payload extraction (KAX/KAY markers)
-  3. Module name decoding (protected commercial builds)
-  4. Heuristic Python version detection (via run_extract logic)
+list_modules.py - List modules inside an authorized raw Nuitka constants blob.
+
+Does ONLY:
+  1. Raw blob loading
+  2. Protected module-name normalization when present
+  3. Module name parsing from blob headers
+
+Does NOT:
+  - Read PE resources or sections
+  - Depend on pefile
+  - Reconstruct or decompile application source
+  - Extract .pyc files
+  - Run the disassembler
+  - Write any output files
+
+Usage:
+    python list_modules.py constants_blob.bin
+    python list_modules.py constants_blob.bin --json
+    python list_modules.py constants_blob.bin --filter mypackage
+    python list_modules.py constants_blob.bin --filter mypackage --copy-cmd
 """
 
 from __future__ import annotations
 
 import argparse
-import dataclasses
 import json
 import os
 import struct
+import sys
 import zlib
 from pathlib import Path
 from random import Random
-from typing import Optional
 
 # ---------------------------------------------------------------------------
-# Dependencies & Fallbacks
+# Minimal standalone implementations — no dependency on nuitka_decompiler.py
+# (so this script works even if you haven't set up the full tool)
 # ---------------------------------------------------------------------------
 
-try:
-    import pefile  # type: ignore
+# ---- Protected module-name decoding ----------------------------------------
 
-    HAS_PEFILE = True
-except ImportError:
-    HAS_PEFILE = False
-
-try:
-    import zstandard as zstd  # type: ignore
-
-    HAS_ZSTD = True
-except ImportError:
-    HAS_ZSTD = False
-
-
-# ---------------------------------------------------------------------------
-# Constants & Errors
-# ---------------------------------------------------------------------------
-
-ONEFILE_MAGICS = (b"KAX", b"KAY")
-
-
-class NuitkaError(Exception):
-    pass
-
-
-# ---------------------------------------------------------------------------
-# Protected Module-Name Decoding
-# ---------------------------------------------------------------------------
-
-
-def get_nuitka_mapping(seed: int = 27) -> list[int]:
+def _build_mapping2() -> list[int]:
     """Build a module-name decoding table for supported protected layouts."""
-    r = Random(seed)
+    r = Random(27)
     fwd = list(range(1, 256))
     r.shuffle(fwd)
     fwd.insert(0, 0)
     return fwd
 
 
-def decode_module_name(raw: bytes, seed: int = 27) -> str:
+_MAPPING2 = _build_mapping2()
+
+
+def decode_module_name(raw: bytes) -> str:
     """Decode a module name from a supported protected layout."""
-    mapping = get_nuitka_mapping(seed)
+    return bytes(_MAPPING2[b] for b in raw).decode("utf-8", errors="replace")
+
+
+# Raw blob loading ------------------------------------------------------------
+
+def _load_blob_file(path: str) -> tuple[bytes | None, str]:
+    """Load the supplied file as the constants blob, even if the CRC mismatches."""
+    data = Path(path).read_bytes()
+    if len(data) < 8:
+        return None, "too small"
+    return data, "raw blob file"
+
+
+# ── Blob module-name parser ──────────────────────────────────────────────────
+
+def _is_likely_encrypted(blob: bytes) -> bool:
+    """Quick check: if CRC doesn't match, blob is encrypted."""
+    if len(blob) < 8:
+        return False
+    stored = struct.unpack_from("<I", blob, 0)[0]
+    declared = struct.unpack_from("<I", blob, 4)[0]
+    if 8 + declared > len(blob):
+        return True
+    actual = zlib.crc32(blob[8:8 + declared]) & 0xFFFFFFFF
+    return actual != stored
+
+
+def _looks_like_module_name(name: str) -> bool:
+    return bool(name) and all(ch == "." or ch == "_" or ch == "-" or ch.isalnum() for ch in name)
+
+
+def _looks_like_utf8_module_name(raw_name: bytes) -> bool:
     try:
-        return bytes(mapping[b] for b in raw).decode("utf-8", errors="replace")
-    except Exception:
-        return raw.decode("utf-8", errors="replace")
+        name = raw_name.decode("utf-8", errors="strict")
+    except UnicodeDecodeError:
+        return False
+    return _looks_like_module_name(name)
 
 
-# ---------------------------------------------------------------------------
-# PE Utilities (Manual fallback for when pefile is missing)
-# ---------------------------------------------------------------------------
+def _decode_blob_module_name(raw_name: bytes, is_commercial: bool) -> str:
+    if _looks_like_utf8_module_name(raw_name):
+        return raw_name.decode("utf-8", errors="strict")
+    mapped = decode_module_name(raw_name)
+    if is_commercial or _looks_like_module_name(mapped):
+        return mapped
+    return raw_name.decode("utf-8", errors="replace")
 
 
-@dataclasses.dataclass(frozen=True)
-class PESection:
-    name: str
-    raw_ptr: int
-    raw_size: int
-    virt_addr: int
-    virt_size: int
+def _valid_section_layout(data_len: int, data_start: int, size: int, count: int | None = None) -> bool:
+    if size <= 0 or size > 128 * 1024 * 1024:
+        return False
+    if data_start < 0 or data_start + size > data_len:
+        return False
+    if count is None:
+        return True
+    return 0 < count < 65000 and size >= count
 
 
-def parse_pe_sections_manual(buf: memoryview) -> list[PESection]:
-    if len(buf) < 0x100 or buf[0:2].tobytes() != b"MZ":
-        return []
-    try:
-        e_lfanew = struct.unpack_from("<I", buf, 0x3C)[0]
-        if buf[e_lfanew : e_lfanew + 4].tobytes() != b"PE\x00\x00":
-            return []
-        coff_off = e_lfanew + 4
-        num_sections = struct.unpack_from("<H", buf, coff_off + 2)[0]
-        size_opt = struct.unpack_from("<H", buf, coff_off + 16)[0]
-        sec_off = coff_off + 20 + size_opt
-
-        sections = []
-        for i in range(num_sections):
-            off = sec_off + i * 40
-            name = buf[off : off + 8].tobytes().split(b"\x00", 1)[0].decode("ascii", errors="replace")
-            v_size, v_addr, r_size, r_ptr = struct.unpack_from("<IIII", buf, off + 8)
-            sections.append(PESection(name, r_ptr, r_size, v_addr, v_size))
-        return sections
-    except Exception:
-        return []
-
-
-# ---------------------------------------------------------------------------
-# Constants Blob Extraction
-# ---------------------------------------------------------------------------
-
-
-def find_constants_blob(path_or_data: str | bytes | Path) -> tuple[bytes | Optional[bytes], str]:
+def _choose_section_layout(data: bytes, header_pos: int) -> tuple[int, int, int | None, str] | None:
     """
-    Find and return the Nuitka constants blob and its source description.
+    Return (data_start, section_size, item_count, layout_name).
+
+    Modern Nuitka blobs use:
+        name NUL, uint32 section_size, uint16 item_count, constants...
+
+    Some older helpers only modeled:
+        name NUL, uint32 section_size, constants...
+
+    Prefer the size+count form because it matches the local C decoder and lets
+    decode_at_offset start on the first constant tag instead of the count bytes.
     """
-    if isinstance(path_or_data, (str, Path)):
-        data = Path(path_or_data).read_bytes()
-    else:
-        data = path_or_data
+    if header_pos + 4 > len(data):
+        return None
 
-    # Try pefile if available
-    if HAS_PEFILE:
-        try:
-            pe = pefile.PE(data=data, fast_load=False)
-            if hasattr(pe, "DIRECTORY_ENTRY_RESOURCE"):
-                for res_type in pe.DIRECTORY_ENTRY_RESOURCE.entries:
-                    for res_id in res_type.directory.entries:
-                        for res_lang in res_id.directory.entries:
-                            rva = res_lang.data.struct.OffsetToData
-                            size = res_lang.data.struct.Size
-                            chunk = pe.get_data(rva, size)
-                            if len(chunk) >= 8:
-                                declared = struct.unpack_from("<I", chunk, 4)[0]
-                                if 8 + declared <= size:
-                                    actual_crc = zlib.crc32(chunk[8 : 8 + declared]) & 0xFFFFFFFF
-                                    if actual_crc == struct.unpack_from("<I", chunk, 0)[0]:
-                                        return chunk[: 8 + declared], f"PE Resource (ID {res_id.id})"
+    section_size = struct.unpack_from("<I", data, header_pos)[0]
 
-            for section in pe.sections:
-                raw_sec = data[section.PointerToRawData : section.PointerToRawData + section.SizeOfRawData]
-                if len(raw_sec) >= 8:
-                    declared = struct.unpack_from("<I", raw_sec, 4)[0]
-                    if 8 + declared <= len(raw_sec):
-                        actual_crc = zlib.crc32(raw_sec[8 : 8 + declared]) & 0xFFFFFFFF
-                        if actual_crc == struct.unpack_from("<I", raw_sec, 0)[0]:
-                            return raw_sec[: 8 + declared], f"PE Section {section.Name.decode().strip(chr(0))}"
-        except Exception:
-            pass
+    if header_pos + 6 <= len(data):
+        item_count = struct.unpack_from("<H", data, header_pos + 4)[0]
+        data_start = header_pos + 6
+        if _valid_section_layout(len(data), data_start, section_size, item_count):
+            return data_start, section_size, item_count, "size_count"
 
-    # Raw scan fallback
-    for off in range(0, len(data) - 8, 4):
-        stored_crc = struct.unpack_from("<I", data, off)[0]
-        declared = struct.unpack_from("<I", data, off + 4)[0]
-        if 1024 < declared < 256 * 1024 * 1024 and off + 8 + declared <= len(data):
-            if zlib.crc32(data[off + 8 : off + 8 + declared]) & 0xFFFFFFFF == stored_crc:
-                return data[off : off + 8 + declared], "Raw scan"
+    data_start = header_pos + 4
+    if _valid_section_layout(len(data), data_start, section_size):
+        return data_start, section_size, None, "size_only"
 
-    return None, "Not found"
+    return None
 
 
 def parse_module_names(blob: bytes) -> list[dict]:
-    """Parse module names from constants blob."""
-    is_enc = (zlib.crc32(blob[8:]) & 0xFFFFFFFF) != struct.unpack_from("<I", blob, 0)[0]
-    data = blob[8:]
+    """Parse module metadata from a raw Nuitka constants blob."""
+    is_commercial = _is_likely_encrypted(blob)
+    declared_size = struct.unpack_from("<I", blob, 4)[0] if len(blob) >= 8 else 0
+    data = blob[8:8 + declared_size] if declared_size and 8 + declared_size <= len(blob) else blob[8:]
     offset = 0
-    modules = []
+    modules: list[dict] = []
 
     while offset < len(data) - 5:
-        name_end = data.find(b"\x00", offset, min(offset + 512, len(data)))
+        while offset < len(data) and data[offset] == 0:
+            offset += 1
+
+        name_end = data.find(b"\x00", offset, min(offset + 4096, len(data)))
         if name_end == -1:
             break
+
         raw_name = data[offset:name_end]
-        offset = name_end + 1
-        if offset + 4 > len(data):
-            break
-        chunk_size = struct.unpack_from("<I", data, offset)[0]
-        data_start = offset + 4
-        offset = data_start + chunk_size
+        header_pos = name_end + 1
+        layout = _choose_section_layout(data, header_pos)
+        if layout is None:
+            offset = name_end + 1
+            continue
 
-        if chunk_size > 128 * 1024 * 1024 or offset > len(data):
-            break
+        data_start, section_size, item_count, layout_name = layout
+        name = _decode_blob_module_name(raw_name, is_commercial)
+        absolute_header_pos = 8 + header_pos
+        absolute_data_start = 8 + data_start
 
-        # Decode name
-        try:
-            name = raw_name.decode("utf-8", errors="strict")
-        except UnicodeDecodeError:
-            name = decode_module_name(raw_name) if is_enc else raw_name.decode("utf-8", errors="replace")
+        modules.append({
+            "name": name,
+            "size": section_size,
+            "count": item_count,
+            "layout": layout_name,
+            "section_offset": absolute_header_pos,
+            "offset": absolute_data_start,
+            "is_main": (name in ("__main__", "") or
+                        (not name.startswith("_") and "." not in name and
+                         not name.startswith("nuitka"))),
+            "is_bytecode": name == ".bytecode",
+        })
 
-        modules.append(
-            {
-                "name": name,
-                "size": chunk_size,
-                "offset": 8 + data_start,  # absolute offset in original blob
-                "is_main": (name in ("__main__", "") or (not name.startswith("_") and "." not in name and not name.startswith("nuitka"))),
-                "is_bytecode": name == ".bytecode",
-            }
-        )
+        offset = data_start + section_size
+
     return modules
 
 
-# ---------------------------------------------------------------------------
-# Onefile Extraction Logic (Nuthem)
-# ---------------------------------------------------------------------------
+def _parse_module_names(blob: bytes, is_commercial: bool) -> list[dict]:
+    """
+    Parse only the module names from the blob (no constant decoding).
+    Returns list of dicts: {name, size, is_main, is_bytecode}.
+    """
+    return parse_module_names(blob)
 
 
-def _u16le_cstr(data: memoryview, offset: int) -> tuple[str, int]:
-    end = offset
-    chars = []
-    while end + 2 <= len(data):
-        (u,) = struct.unpack_from("<H", data, end)
-        end += 2
-        if u == 0:
-            break
-        chars.append(u)
-    return bytes(struct.pack("<" + "H" * len(chars), *chars)).decode("utf-16le", errors="replace"), end
+# ── Main ─────────────────────────────────────────────────────────────────────
+
+def list_modules(target: str,
+                 as_json: bool = False,
+                 filter_str: str | None = None,
+                 copy_cmd: bool = False) -> int:
+
+    if not os.path.isfile(target):
+        print(f"[ERROR] File not found: {target}", file=sys.stderr)
+        return 1
+
+    blob, source = _load_blob_file(target)
+    if blob is None:
+        print(f"[ERROR] Could not load constants blob from {target}: {source}", file=sys.stderr)
+        return 1
+
+    print(f"[INFO] Blob source : {source}  ({len(blob):,} bytes)", file=sys.stderr)
+
+    is_enc = _is_likely_encrypted(blob)
+    is_commercial = is_enc  # encrypted → commercial build
+
+    if is_enc:
+        print("[INFO] Blob appears encrypted (CRC mismatch) — commercial/protected build",
+              file=sys.stderr)
+
+    modules = _parse_module_names(blob, is_commercial)
+
+    if not modules:
+        crc_s  = struct.unpack_from("<I", blob, 0)[0]
+        size_s = struct.unpack_from("<I", blob, 4)[0]
+        print("[ERROR] Blob found but no modules parsed — format may be unsupported.",
+              file=sys.stderr)
+        print(f"        Blob header: CRC=0x{crc_s:08X}  declared_size={size_s:,}  "
+              f"actual_blob_len={len(blob):,}", file=sys.stderr)
+        print(f"        First 32 bytes (hex): {blob[:32].hex()}", file=sys.stderr)
+        print("        Try running the full decompiler for deeper analysis.", file=sys.stderr)
+        return 1
+
+    # Apply filter
+    if filter_str:
+        f = filter_str.lower()
+        modules = [m for m in modules if f in m["name"].lower()]
+
+    # ── Output ──────────────────────────────────────────────────────────────
+
+    if as_json:
+        print(json.dumps(modules, indent=2))
+        return 0
+
+    total = len(modules)
+    enc_label = "protected metadata" if is_enc else "plain metadata"
+    print(f"\n  Target  : {os.path.basename(target)}")
+    print(f"  Blob    : {source}")
+    print(f"  Edition : {enc_label}")
+    print(f"  Modules : {total}")
+    if filter_str:
+        print(f"  Filter  : '{filter_str}'")
+    print()
+    print(f"  {'#':<5}  {'MODULE NAME':<55}  {'SIZE':>9}  {'NOTE'}")
+    print("  " + "─" * 80)
+
+    for i, m in enumerate(modules, 1):
+        note = ""
+        if m["is_bytecode"]:
+            note = "← .pyc bytecode chunk"
+        elif m["is_main"]:
+            note = "← likely main module"
+        size_kb = m["size"] / 1024
+        print(f"  {i:<5}  {m['name']:<55}  {size_kb:>7.1f} KB  {note}")
+
+    print()
+
+    if copy_cmd:
+        names = ",".join(m["name"] for m in modules if not m["is_bytecode"])
+        print("  ── Ready to use with --only: ──────────────────────────────────")
+        print(f"  python nuitka_decompiler.py --source {os.path.basename(target)} --only {names}")
+        print()
+
+    return 0
 
 
-def _looks_like_relpath(p: str) -> bool:
-    if not p or ":" in p or p.startswith(("\\", "/")):
-        return False
-    return all(ord(c) >= 32 for c in p)
-
-
-def _safe_join(root: Path, rel: str) -> Path:
-    rel = rel.replace("/", os.sep).replace("\\", os.sep).lstrip("\\/")
-    out = (root / rel).resolve()
-    if root.resolve() not in out.parents and out != root.resolve():
-        raise NuitkaError(f"Path traversal detected: {rel}")
-    return out
-
-
-def _decompress_zstd(data: bytes, expected_size: Optional[int] = None) -> bytes:
-    if not HAS_ZSTD:
-        raise NuitkaError("zstandard package missing. Install with: pip install zstandard")
-    dctx = zstd.ZstdDecompressor()
-    try:
-        if expected_size is not None:
-            return dctx.decompress(data, max_output_size=expected_size)
-        return dctx.decompress(data)
-    except Exception as e:
-        # Try stream decompression for KAY global streams
-        try:
-            dobj = dctx.decompressobj()
-            return dobj.decompress(data)
-        except:
-            raise NuitkaError(f"Zstd decompression failed: {e}")
-
-
-def parse_onefile_stream(stream: bytes, magic: bytes) -> list[tuple[str, bytes]]:
-    data = memoryview(stream)
-
-    # If KAY magic and doesn't look like per-file archive, it might be global stream
-    if magic == b"KAY":
-        try:
-            # Quick check if it's per-file archive: name -> size -> checksum? -> arch_size -> zstd
-            # We try to parse a few entries. If it fails, we try global decompression.
-            return parse_onefile_entries(data, is_archive=True)
-        except:
-            decompressed = _decompress_zstd(stream)
-            return parse_onefile_entries(memoryview(decompressed), is_archive=False)
-
-    return parse_onefile_entries(data, is_archive=False)
-
-
-def parse_onefile_entries(data: memoryview, is_archive: bool) -> list[tuple[str, bytes]]:
-    off = 0
-    out = []
-    while True:
-        name, off = _u16le_cstr(data, off)
-        if not name:
-            break
-
-        file_size = struct.unpack_from("<Q", data, off)[0]
-        off += 8
-
-        # Checksum detection heuristic
-        # If we skip 4 bytes and the next 4 bytes are a valid archive size or MZ header...
-        # Or if we just try both.
-        has_checksum = False
-        if is_archive:
-            # In archive mode, next 4 bytes are either checksum or archive_size
-            arch_size = struct.unpack_from("<I", data, off)[0]
-            # Heuristic: if off+4+arch_size leads to a valid next filename or EOF
-            if off + 4 + arch_size <= len(data):
-                next_name_test, _ = _u16le_cstr(data, off + 4 + arch_size)
-                if not next_name_test or _looks_like_relpath(next_name_test):
-                    pass  # Looks like no checksum
-                else:
-                    has_checksum = True
-            else:
-                has_checksum = True
-        else:
-            # Raw mode: checksum is optional.
-            if off + 4 + file_size <= len(data):
-                next_name_test, _ = _u16le_cstr(data, off + 4 + file_size)
-                if next_name_test and not _looks_like_relpath(next_name_test):
-                    has_checksum = True
-
-        if has_checksum:
-            off += 4
-
-        if is_archive:
-            arch_size = struct.unpack_from("<I", data, off)[0]
-            off += 4
-            content = _decompress_zstd(data[off : off + arch_size].tobytes(), expected_size=file_size)
-            off += arch_size
-        else:
-            content = data[off : off + file_size].tobytes()
-            off += file_size
-
-        out.append((name, content))
-    return out
-
-
-def extract_onefile(path: Path, out_dir: Path) -> dict:
-    blob = path.read_bytes()
-    buf = memoryview(blob)
-
-    sections = parse_pe_sections_manual(buf)
-    if HAS_PEFILE:
-        try:
-            pe = pefile.PE(data=blob, fast_load=True)
-            sections = [PESection(s.Name.decode().strip(chr(0)), s.PointerToRawData, s.SizeOfRawData, s.VirtualAddress, s.Misc_VirtualSize) for s in pe.sections]
-        except:
-            pass
-
-    candidates = []
-    for s in sections:
-        if s.raw_ptr == 0:
-            continue
-        chunk = blob[s.raw_ptr : s.raw_ptr + s.raw_size]
-        for magic in ONEFILE_MAGICS:
-            pos = chunk.find(magic)
-            while pos != -1:
-                try:
-                    stream = chunk[pos + 3 :]
-                    entries = parse_onefile_stream(stream, magic)
-                    if entries:
-                        candidates.append((len(entries), s.raw_ptr + pos, magic, entries))
-                except:
-                    pass
-                pos = chunk.find(magic, pos + 1)
-
-    if not candidates:
-        raise NuitkaError("No valid Onefile payload found.")
-
-    candidates.sort(key=lambda x: x[0], reverse=True)
-    count, pos, magic, entries = candidates[0]
-
-    out_dir.mkdir(parents=True, exist_ok=True)
-    for name, content in entries:
-        target = _safe_join(out_dir, name)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(content)
-
-    return {"count": count, "magic": magic.decode(), "pos": pos}
-
-
-# ---------------------------------------------------------------------------
-# CLI
-# ---------------------------------------------------------------------------
-
-
-def main():
-    parser = argparse.ArgumentParser(description="Nuitka Module Lister & Onefile Extractor")
-    parser.add_argument("target", type=Path, help="Nuitka-compiled EXE/DLL or Constants Blob")
-    parser.add_argument("--list", action="store_true", help="List modules from constants blob")
-    parser.add_argument("--extract", type=Path, metavar="DIR", help="Extract Onefile payload to DIR")
-    parser.add_argument("--json", action="store_true", help="Output results as JSON")
-    args = parser.parse_args()
-
-    results = {}
-
-    if args.list or not args.extract:
-        blob, src = find_constants_blob(args.target)
-        if blob:
-            modules = parse_module_names(blob)
-            results["modules"] = modules
-            results["constants_source"] = src
-            if not args.json:
-                print(f"[*] Found Constants Blob via {src}")
-                for m in modules:
-                    print(f"  {m['name']:<50} {m['size'] / 1024:>7.1f} KB {'(Bytecode)' if m['is_bytecode'] else ''}")
-        else:
-            if args.list:
-                print("[!] Constants blob not found.")
-
-    if args.extract:
-        try:
-            info = extract_onefile(args.target, args.extract)
-            results["onefile"] = info
-            if not args.json:
-                print(f"[*] Extracted {info['count']} files from Onefile payload ({info['magic']} at 0x{info['pos']:x})")
-        except Exception as e:
-            print(f"[!] Onefile extraction failed: {e}")
-
-    if args.json:
-        print(json.dumps(results, indent=2))
+def main(argv: list[str]) -> int:
+    ap = argparse.ArgumentParser(
+        prog="list_modules",
+        description="List modules inside an authorized raw Nuitka constants blob.",
+    )
+    ap.add_argument("target", help="Authorized raw Nuitka constants blob")
+    ap.add_argument("--json", action="store_true",
+                    help="Output as JSON (for scripting)")
+    ap.add_argument("--filter", metavar="STR", default=None,
+                    help="Only show modules whose name contains STR (case-insensitive)")
+    ap.add_argument("--copy-cmd", action="store_true",
+                    help="Print a ready-to-run --only command at the end")
+    args = ap.parse_args(argv)
+    return list_modules(args.target, args.json, args.filter, args.copy_cmd)
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main(sys.argv[1:]))

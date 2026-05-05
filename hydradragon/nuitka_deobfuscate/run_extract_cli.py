@@ -38,7 +38,7 @@ MARSHAL_CODE_TAGS = tuple(bytes((value,)) for value in MARSHAL_CODE_TAG_VALUES)
 MARSHAL_CODE_TAG_PATTERN = re.compile(b"[" + re.escape(bytes(MARSHAL_CODE_TAG_VALUES)) + b"]")
 MARSHAL_VERSION_HINT_TAGS = (b"\xf3",) + MARSHAL_CODE_TAGS
 MARSHAL_VERSION_HINT_TAG_PATTERN = re.compile(b"[" + re.escape(b"\xf3" + bytes(MARSHAL_CODE_TAG_VALUES)) + b"]")
-DISCOVERED_SECTION_PATTERN = re.compile(r"^discovered_(.+?)_at_\d+$")
+DISCOVERED_SECTION_PATTERN = re.compile(r"^discovered_(.+?)_at_(\d+)$")
 MARSHAL_PYC_PATH_PATTERN = re.compile(rb"([A-Za-z0-9_./\\-]{1,260}\.py)")
 
 
@@ -480,7 +480,80 @@ def _discovered_alias_matches(discovered_name: str, plain_name: str) -> bool:
     return False
 
 
-def normalize_decoded_sections(sections: dict) -> dict[str, tuple]:
+def _load_module_metadata(raw: bytes) -> list[dict]:
+    try:
+        import list_modules
+    except ImportError:
+        return []
+
+    parser = getattr(list_modules, "parse_module_names", None)
+    if parser is None:
+        return []
+
+    try:
+        return list(parser(raw))
+    except Exception as exc:
+        print(f"[!] Warning: list_modules.parse_module_names failed: {exc}")
+        return []
+
+
+def _clean_module_name(name: object) -> str | None:
+    if not isinstance(name, str):
+        return None
+    name = name.strip().lstrip(".")
+    if not name or name == "bytecode":
+        return None
+    if "hidden_segment" in name or name.startswith("hidden_"):
+        return None
+    return name
+
+
+def _metadata_name_maps(module_metadata: list[dict] | None) -> tuple[dict[int, str], list[str]]:
+    by_offset: dict[int, str] = {}
+    ordered_names: list[str] = []
+
+    for meta in module_metadata or []:
+        name = _clean_module_name(meta.get("name"))
+        if not name:
+            continue
+
+        ordered_names.append(name)
+        for key in ("section_offset", "offset"):
+            try:
+                by_offset[int(meta[key])] = name
+            except Exception:
+                pass
+
+    return by_offset, ordered_names
+
+
+def _lookup_metadata_name(offset: int, by_offset: dict[int, str]) -> str | None:
+    if offset in by_offset:
+        return by_offset[offset]
+
+    nearest = None
+    nearest_distance = 9
+    for known_offset, name in by_offset.items():
+        distance = abs(known_offset - offset)
+        if distance < nearest_distance:
+            nearest = name
+            nearest_distance = distance
+    return nearest
+
+
+def normalize_decoded_sections(sections: dict, module_metadata: list[dict] | None = None) -> dict[str, tuple]:
+    metadata_by_offset, metadata_names = _metadata_name_maps(module_metadata)
+    metadata_index = 0
+
+    def next_metadata_name() -> str | None:
+        nonlocal metadata_index
+        while metadata_index < len(metadata_names):
+            name = metadata_names[metadata_index]
+            metadata_index += 1
+            if name not in normalized:
+                return name
+        return None
+
     discovered_names = []
     for section_name in sections:
         match = DISCOVERED_SECTION_PATTERN.fullmatch(section_name)
@@ -495,13 +568,19 @@ def normalize_decoded_sections(sections: dict) -> dict[str, tuple]:
         match = DISCOVERED_SECTION_PATTERN.fullmatch(section_name)
         if match:
             discovered_name = match.group(1).lstrip(".")
-            if not discovered_name or discovered_name.startswith("hidden_segment"):
-                normalized[section_name.replace("discovered_", "hidden_")] = items
-            else:
-                normalized.setdefault(discovered_name, items)
+            section_offset = int(match.group(2))
+            real_name = _clean_module_name(discovered_name)
+            if real_name is None:
+                real_name = _lookup_metadata_name(section_offset, metadata_by_offset)
+            if real_name is None:
+                real_name = next_metadata_name()
+            if real_name is not None:
+                normalized.setdefault(real_name, items)
             continue
 
         plain_name = section_name.lstrip(".")
+        if _clean_module_name(plain_name) is None:
+            continue
         if any(_discovered_alias_matches(discovered_name, plain_name) for discovered_name in discovered_names):
             continue
         normalized[plain_name] = items
@@ -803,7 +882,10 @@ def main(argv=None) -> int:
         print(f"[!] Fatal error during C decoding: {e}")
         return 1
 
-    sections = normalize_decoded_sections(sections)
+    module_metadata = _load_module_metadata(raw)
+    if module_metadata:
+        print(f"[*] list_modules resolved {len(module_metadata)} module name(s).")
+    sections = normalize_decoded_sections(sections, module_metadata)
 
     print(f"[*] Discovered {len(sections)} sections/fragments.")
 
