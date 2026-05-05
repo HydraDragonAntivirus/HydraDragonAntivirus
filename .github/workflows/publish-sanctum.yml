@@ -16,7 +16,14 @@ jobs:
     runs-on: windows-2022
     outputs:
       driver: ${{ steps.filter.outputs.driver }}
-      usermode: ${{ steps.filter.outputs.usermode }}
+      um_engine: ${{ steps.filter.outputs.um_engine }}
+      sanctum_ppl_runner: ${{ steps.filter.outputs.sanctum_ppl_runner }}
+      elam_installer: ${{ steps.filter.outputs.elam_installer }}
+      injected_dll: ${{ steps.filter.outputs.injected_dll }}
+      malware: ${{ steps.filter.outputs.malware }}
+      server: ${{ steps.filter.outputs.server }}
+      gui: ${{ steps.filter.outputs.gui }}
+      shared: ${{ steps.filter.outputs.shared }}
     steps:
       - name: Enable Git long paths
         run: git config --global core.longpaths true
@@ -27,9 +34,29 @@ jobs:
           filters: |
             driver:
               - 'Sanctum/driver/**'
-            usermode:
-              - 'Sanctum/**'
-              - '!Sanctum/driver/**'
+            um_engine:
+              - 'Sanctum/um_engine/**'
+              - 'Sanctum/shared_std/**'
+              - 'Sanctum/shared_no_std/**'
+            sanctum_ppl_runner:
+              - 'Sanctum/sanctum_ppl_runner/**'
+              - 'Sanctum/shared_std/**'
+              - 'Sanctum/shared_no_std/**'
+            elam_installer:
+              - 'Sanctum/elam_installer/**'
+              - 'Sanctum/shared_std/**'
+            injected_dll:
+              - 'Sanctum/injected_dll/**'
+              - 'Sanctum/shared_no_std/**'
+            malware:
+              - 'Sanctum/malware/**'
+            server:
+              - 'Sanctum/server/**'
+            gui:
+              - 'Sanctum/gui/**'
+            shared:
+              - 'Sanctum/shared_std/**'
+              - 'Sanctum/shared_no_std/**'
 
   # Build Driver (only if changed)
   build-driver:
@@ -108,10 +135,10 @@ jobs:
           name: sanctum-driver
           path: Sanctum/driver/target/release/sanctum_package/*.sys
 
-  # Build Usermode Components (only if changed)
-  build-usermode:
+  # Build um_engine (only if changed)
+  build-um-engine:
     needs: detect-changes
-    if: needs.detect-changes.outputs.usermode == 'true'
+    if: needs.detect-changes.outputs.um_engine == 'true' || needs.detect-changes.outputs.shared == 'true'
     runs-on: windows-2022
     steps:
       - name: Enable Git long paths
@@ -119,12 +146,26 @@ jobs:
       - uses: actions/checkout@v6
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@nightly
-      - name: Install Cargo Make
-        uses: taiki-e/install-action@v2
+      - name: Build um_engine
+        working-directory: Sanctum
+        run: cargo build --release -p um_engine
+      - name: Upload
+        uses: actions/upload-artifact@v7
         with:
-          tool: cargo-make
-      - name: Install rust-script
-        run: cargo install rust-script
+          name: sanctum-um-engine
+          path: Sanctum/target/release/um_engine.exe
+
+  # Build sanctum_ppl_runner (only if changed)
+  build-ppl-runner:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.sanctum_ppl_runner == 'true' || needs.detect-changes.outputs.shared == 'true'
+    runs-on: windows-2022
+    steps:
+      - name: Enable Git long paths
+        run: git config --global core.longpaths true
+      - uses: actions/checkout@v6
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@nightly
       - name: Setup Windows SDK (for signtool)
         shell: pwsh
         run: |
@@ -134,28 +175,109 @@ jobs:
           Write-Host "Installing Windows SDK..."
           Start-Process -FilePath $sdkSetupPath -ArgumentList "/quiet", "/norestart", "/features", "OptionId.SigningTools" -NoNewWindow -Wait
           Write-Host "Windows SDK installed successfully"
-      - name: Build Usermode Components
+      - name: Build and Sign sanctum_ppl_runner
         working-directory: Sanctum
         run: |
-          cargo make release
+          cargo build --release -p sanctum_ppl_runner
           .\sign_ppl_runner.bat
       - name: Upload
         uses: actions/upload-artifact@v7
         with:
-          name: sanctum-usermode
-          path: |
-            Sanctum/target/release/sanctum_ppl_runner.exe
-            Sanctum/target/release/elam_installer.exe
-            Sanctum/target/release/um_engine.exe
-            Sanctum/target/release/sanctum.dll
+          name: sanctum-ppl-runner
+          path: Sanctum/target/release/sanctum_ppl_runner.exe
+
+  # Build elam_installer (only if changed)
+  build-elam-installer:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.elam_installer == 'true' || needs.detect-changes.outputs.shared == 'true'
+    runs-on: windows-2022
+    steps:
+      - name: Enable Git long paths
+        run: git config --global core.longpaths true
+      - uses: actions/checkout@v6
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@nightly
+      - name: Build elam_installer
+        working-directory: Sanctum
+        run: cargo build --release -p elam_installer
+      - name: Upload
+        uses: actions/upload-artifact@v7
+        with:
+          name: sanctum-elam-installer
+          path: Sanctum/target/release/elam_installer.exe
+
+  # Build injected_dll (only if changed)
+  build-injected-dll:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.injected_dll == 'true' || needs.detect-changes.outputs.shared == 'true'
+    runs-on: windows-2022
+    steps:
+      - name: Enable Git long paths
+        run: git config --global core.longpaths true
+      - uses: actions/checkout@v6
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@nightly
+      - name: Build injected_dll
+        working-directory: Sanctum
+        run: cargo build --release -p injected_dll
+      - name: Upload
+        uses: actions/upload-artifact@v7
+        with:
+          name: sanctum-injected-dll
+          path: Sanctum/target/release/sanctum.dll
+
+  # Build malware test (only if changed)
+  build-malware:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.malware == 'true'
+    runs-on: windows-2022
+    steps:
+      - name: Enable Git long paths
+        run: git config --global core.longpaths true
+      - uses: actions/checkout@v6
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@nightly
+      - name: Build malware
+        working-directory: Sanctum
+        run: cargo build --release -p malware
+      - name: Upload
+        uses: actions/upload-artifact@v7
+        with:
+          name: sanctum-malware
+          path: Sanctum/target/release/malware.exe
+
+  # Build server (only if changed)
+  build-server:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.server == 'true'
+    runs-on: windows-2022
+    steps:
+      - name: Enable Git long paths
+        run: git config --global core.longpaths true
+      - uses: actions/checkout@v6
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@nightly
+      - name: Build server
+        working-directory: Sanctum
+        run: cargo build --release -p server
+      - name: Upload
+        uses: actions/upload-artifact@v7
+        with:
+          name: sanctum-server
+          path: Sanctum/target/release/server.exe
 
   # Stage and create PR (only with changed components)
   stage-and-pr:
     needs:
       - detect-changes
       - build-driver
-      - build-usermode
-    if: always() && (needs.build-driver.result == 'success' || needs.build-usermode.result == 'success' || needs.build-driver.result == 'skipped' || needs.build-usermode.result == 'skipped')
+      - build-um-engine
+      - build-ppl-runner
+      - build-elam-installer
+      - build-injected-dll
+      - build-malware
+      - build-server
+    if: always()
     runs-on: windows-2022
     steps:
       - name: Enable Git long paths
@@ -178,32 +300,78 @@ jobs:
           # Driver
           if (Test-Path "artifacts/sanctum-driver") {
             Write-Host "✓ Processing Sanctum Driver"
-            Get-ChildItem "artifacts/sanctum-driver/" -Filter "sanctum.sys" -Recurse | 
-              Select-Object -First 1 | 
+            Get-ChildItem "artifacts/sanctum-driver/" -Filter "sanctum.sys" -Recurse |
+              Select-Object -First 1 |
               Copy-Item -Destination "$dist/" -Force
             $componentsBuilt += "Sanctum Driver (sanctum.sys)"
           } else {
             Write-Host "⊘ Skipping Driver (not built)"
           }
           
-          # Usermode Components
-          if (Test-Path "artifacts/sanctum-usermode") {
-            Write-Host "✓ Processing Sanctum Usermode Components"
-            Get-ChildItem "artifacts/sanctum-usermode/" -Filter "sanctum_ppl_runner.exe" -Recurse | 
-              Select-Object -First 1 | 
+          # um_engine
+          if (Test-Path "artifacts/sanctum-um-engine") {
+            Write-Host "✓ Processing um_engine"
+            Get-ChildItem "artifacts/sanctum-um-engine/" -Filter "um_engine.exe" -Recurse |
+              Select-Object -First 1 |
               Copy-Item -Destination "$dist/" -Force
-            Get-ChildItem "artifacts/sanctum-usermode/" -Filter "elam_installer.exe" -Recurse | 
-              Select-Object -First 1 | 
-              Copy-Item -Destination "$dist/" -Force
-            Get-ChildItem "artifacts/sanctum-usermode/" -Filter "um_engine.exe" -Recurse | 
-              Select-Object -First 1 | 
-              Copy-Item -Destination "$dist/" -Force
-            Get-ChildItem "artifacts/sanctum-usermode/" -Filter "sanctum.dll" -Recurse | 
-              Select-Object -First 1 | 
-              Copy-Item -Destination "$dist/" -Force
-            $componentsBuilt += "Usermode Components (um_engine.exe, sanctum_ppl_runner.exe, etc.)"
+            $componentsBuilt += "um_engine.exe"
           } else {
-            Write-Host "⊘ Skipping Usermode Components (not built)"
+            Write-Host "⊘ Skipping um_engine (not built)"
+          }
+          
+          # sanctum_ppl_runner
+          if (Test-Path "artifacts/sanctum-ppl-runner") {
+            Write-Host "✓ Processing sanctum_ppl_runner"
+            Get-ChildItem "artifacts/sanctum-ppl-runner/" -Filter "sanctum_ppl_runner.exe" -Recurse |
+              Select-Object -First 1 |
+              Copy-Item -Destination "$dist/" -Force
+            $componentsBuilt += "sanctum_ppl_runner.exe"
+          } else {
+            Write-Host "⊘ Skipping sanctum_ppl_runner (not built)"
+          }
+          
+          # elam_installer
+          if (Test-Path "artifacts/sanctum-elam-installer") {
+            Write-Host "✓ Processing elam_installer"
+            Get-ChildItem "artifacts/sanctum-elam-installer/" -Filter "elam_installer.exe" -Recurse |
+              Select-Object -First 1 |
+              Copy-Item -Destination "$dist/" -Force
+            $componentsBuilt += "elam_installer.exe"
+          } else {
+            Write-Host "⊘ Skipping elam_installer (not built)"
+          }
+          
+          # injected_dll
+          if (Test-Path "artifacts/sanctum-injected-dll") {
+            Write-Host "✓ Processing injected_dll"
+            Get-ChildItem "artifacts/sanctum-injected-dll/" -Filter "sanctum.dll" -Recurse |
+              Select-Object -First 1 |
+              Copy-Item -Destination "$dist/" -Force
+            $componentsBuilt += "sanctum.dll"
+          } else {
+            Write-Host "⊘ Skipping injected_dll (not built)"
+          }
+          
+          # malware (test binary)
+          if (Test-Path "artifacts/sanctum-malware") {
+            Write-Host "✓ Processing malware test binary"
+            Get-ChildItem "artifacts/sanctum-malware/" -Filter "malware.exe" -Recurse |
+              Select-Object -First 1 |
+              Copy-Item -Destination "$dist/" -Force
+            $componentsBuilt += "malware.exe (test)"
+          } else {
+            Write-Host "⊘ Skipping malware test (not built)"
+          }
+          
+          # server
+          if (Test-Path "artifacts/sanctum-server") {
+            Write-Host "✓ Processing server"
+            Get-ChildItem "artifacts/sanctum-server/" -Filter "server.exe" -Recurse |
+              Select-Object -First 1 |
+              Copy-Item -Destination "$dist/" -Force
+            $componentsBuilt += "server.exe"
+          } else {
+            Write-Host "⊘ Skipping server (not built)"
           }
           
           Write-Host "`n=== Components Built: $($componentsBuilt.Count) ==="
@@ -233,7 +401,12 @@ jobs:
             
             **Components Updated:**
             - Driver: ${{ needs.detect-changes.outputs.driver }}
-            - Usermode: ${{ needs.detect-changes.outputs.usermode }}
+            - um_engine: ${{ needs.detect-changes.outputs.um_engine }}
+            - sanctum_ppl_runner: ${{ needs.detect-changes.outputs.sanctum_ppl_runner }}
+            - elam_installer: ${{ needs.detect-changes.outputs.elam_installer }}
+            - injected_dll: ${{ needs.detect-changes.outputs.injected_dll }}
+            - malware: ${{ needs.detect-changes.outputs.malware }}
+            - server: ${{ needs.detect-changes.outputs.server }}
             
             Only changed components were rebuilt.
           branch: "auto-update-sanctum"
