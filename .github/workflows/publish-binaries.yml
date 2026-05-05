@@ -463,6 +463,32 @@ jobs:
             Write-Host "Changes detected."
           }
 
+      - name: Clean up artifact branches
+        if: always()
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $branches = @(
+            "bin-firewall-rust",
+            "bin-hydradragonav",
+            "bin-launcher",
+            "bin-mbrfilter",
+            "bin-megadumper",
+            "bin-owlyshield-minifilter",
+            "bin-owlyshield-rust",
+            "bin-pyasprotection",
+            "bin-reddbg",
+            "bin-service",
+            "bin-tinyantivirus",
+            "bin-sanctum"
+          )
+          foreach ($branch in $branches) {
+            git push origin --delete $branch 2>$null
+            if ($LASTEXITCODE -eq 0) {
+              Write-Host "Deleted branch: $branch"
+            }
+          }
+
       - name: Create Pull Request
         if: steps.check_changes.outputs.changed == 'true'
         uses: peter-evans/create-pull-request@v8
