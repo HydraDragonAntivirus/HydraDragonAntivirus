@@ -1,3 +1,5 @@
+extend = "target/rust-driver-makefile.toml"
+
 [config]
 load_script = '''
 #!@rust
