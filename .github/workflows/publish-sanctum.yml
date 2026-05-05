@@ -54,12 +54,54 @@ jobs:
           $wdkSetupPath = "$Env:TEMP\wdksetup.exe"
           (New-Object Net.WebClient).DownloadFile('https://go.microsoft.com/fwlink/?linkid=2335869', $wdkSetupPath)
           Start-Process -FilePath $wdkSetupPath -ArgumentList "/quiet" -NoNewWindow -Wait
-      - name: Build and Sign Driver
+      - name: Build and Sign Driver (with hash auto-update)
         working-directory: Sanctum/driver
+        shell: pwsh
         run: |
-          powershell -ExecutionPolicy Bypass -File .\cert.ps1
+          # Step 1: Generate ELAM certificate
+          Write-Host "=== Step 1: Generating ELAM certificate ==="
+          .\cert.ps1
+          
+          # Step 2: Initial build
+          Write-Host "`n=== Step 2: Initial driver build ==="
           cargo make release
+          
+          # Step 3: Sign the driver
+          Write-Host "`n=== Step 3: Signing driver ==="
           .\sign.bat release
+          
+          # Step 4: Extract the To-Be-Signed Hash
+          Write-Host "`n=== Step 4: Extracting To-Be-Signed Hash ==="
+          $certOutput = certmgr.exe -v target\release\sanctum_package\sanctum.sys
+          $hashLines = $certOutput | Select-String -Pattern "Content Hash \(To-Be-Signed Hash\)::" -Context 0,3
+          
+          if ($hashLines) {
+              $hashText = $hashLines[0].Context.PostContext -join ""
+              $hash = $hashText -replace '\s+', '' -replace '0x', ''
+              Write-Host "Extracted hash: $hash"
+              
+              # Step 5: Update build.rs with the new hash
+              Write-Host "`n=== Step 5: Updating build.rs with extracted hash ==="
+              $buildRsPath = "build.rs"
+              $buildRsContent = Get-Content $buildRsPath -Raw
+              $buildRsContent = $buildRsContent -replace 'L"[0-9A-F]+\\0"', "L`"$hash\0`""
+              Set-Content $buildRsPath $buildRsContent
+              Write-Host "Updated build.rs with hash: $hash"
+              
+              # Step 6: Clean and rebuild with correct hash
+              Write-Host "`n=== Step 6: Rebuilding with correct hash ==="
+              cargo clean
+              cargo make release
+              
+              # Step 7: Sign again
+              Write-Host "`n=== Step 7: Final signing ==="
+              .\sign.bat release
+              
+              Write-Host "`n=== SUCCESS: Driver built and signed with matching hash ==="
+          } else {
+              Write-Host "ERROR: Could not extract hash from certificate"
+              exit 1
+          }
       - name: Upload
         uses: actions/upload-artifact@v7
         with:
