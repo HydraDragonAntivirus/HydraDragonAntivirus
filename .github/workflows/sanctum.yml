@@ -42,6 +42,19 @@ jobs:
           (New-Object Net.WebClient).DownloadFile('${{ env.WDK_URL }}', $wdkSetupPath)
           Start-Process -FilePath $wdkSetupPath -ArgumentList "/quiet" -NoNewWindow -Wait
 
+      - name: Prepare Driver Build Environment
+        working-directory: Sanctum/driver
+        shell: pwsh
+        run: |
+          # Create target directory if it doesn't exist
+          New-Item -ItemType Directory -Force -Path "target" | Out-Null
+          
+          # Fetch dependencies to ensure wdk-build is available
+          cargo fetch
+          
+          # Run a simple cargo command to ensure the build environment is initialized
+          cargo metadata --format-version 1 | Out-Null
+
       - name: Build Driver (Debug)
         working-directory: Sanctum
         run: cargo make build-driver

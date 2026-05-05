@@ -5,6 +5,9 @@ on:
     branches: ["**"]
     paths:
       - 'PYAS_Protection/**'
+      - '.github/workflows/publish-pyasprotection.yml'
+  workflow_dispatch:
+
 permissions:
   contents: write
   pull-requests: write

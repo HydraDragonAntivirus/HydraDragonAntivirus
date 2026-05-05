@@ -5,6 +5,8 @@ on:
     branches: ["**"]
     paths:
       - 'Owlyshield/**'
+      - '.github/workflows/publish-owlyshield.yml'
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -22,7 +24,7 @@ jobs:
       - name: Enable Git long paths
         run: git config --global core.longpaths true
       - uses: actions/checkout@v6
-      - uses: dorny/paths-filter@v3
+      - uses: dorny/paths-filter@v4
         id: filter
         with:
           filters: |

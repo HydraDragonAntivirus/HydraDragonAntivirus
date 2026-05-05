@@ -6,6 +6,9 @@ on:
     paths:
       - 'HydraDragonLauncher/**'
       - 'HydraDragonService/**'
+      - '.github/workflows/publish-infrastructure.yml'
+  workflow_dispatch:
+
 permissions:
   contents: write
   pull-requests: write

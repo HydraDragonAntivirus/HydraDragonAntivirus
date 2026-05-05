@@ -5,6 +5,9 @@ on:
     branches: ["**"]
     paths:
       - 'HydraDragonFirewall/**'
+      - '.github/workflows/publish-firewall.yml'
+  workflow_dispatch:
+
 permissions:
   contents: write
   pull-requests: write

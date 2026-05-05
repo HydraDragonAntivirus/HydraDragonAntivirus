@@ -5,6 +5,9 @@ on:
     branches: ["**"]
     paths:
       - 'MegaDumper/**'
+      - '.github/workflows/publish-megadumper.yml'
+  workflow_dispatch:
+
 permissions:
   contents: write
   pull-requests: write

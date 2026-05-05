@@ -5,6 +5,9 @@ on:
     branches: ["**"]
     paths:
       - 'MBRFilter/**'
+      - '.github/workflows/publish-mbrfilter.yml'
+  workflow_dispatch:
+
 permissions:
   contents: write
   pull-requests: write

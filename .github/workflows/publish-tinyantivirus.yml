@@ -5,6 +5,9 @@ on:
     branches: ["**"]
     paths:
       - 'TinyAntivirus/**'
+      - '.github/workflows/publish-tinyantivirus.yml'
+  workflow_dispatch:
+
 permissions:
   contents: write
   pull-requests: write

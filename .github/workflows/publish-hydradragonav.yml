@@ -5,6 +5,9 @@ on:
     branches: ["**"]
     paths:
       - 'HydraDragonAV/**'
+      - '.github/workflows/publish-hydradragonav.yml'
+  workflow_dispatch:
+
 permissions:
   contents: write
   pull-requests: write
