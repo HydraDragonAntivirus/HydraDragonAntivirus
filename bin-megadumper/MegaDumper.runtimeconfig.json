@@ -1,0 +1,27 @@
+{
+  "runtimeOptions": {
+    "tfm": "net8.0",
+    "frameworks": [
+      {
+        "name": "Microsoft.NETCore.App",
+        "version": "8.0.0"
+      },
+      {
+        "name": "Microsoft.WindowsDesktop.App",
+        "version": "8.0.0"
+      }
+    ],
+    "runtimeOptions": {
+      "configProperties": {
+        "System.GC.Concurrent": true,
+        "System.Runtime.LegacyCorruptedStateExceptionsPolicy": true,
+        "System.Runtime.InteropServices.BuiltInComInterop.IsSupported": true,
+        "System.Runtime.InteropServices.EnableBuiltInMarshalling": true
+      }
+    },
+    "configProperties": {
+      "System.Reflection.Metadata.MetadataUpdater.IsSupported": false,
+      "CSWINRT_USE_WINDOWS_UI_XAML_PROJECTIONS": false
+    }
+  }
+}
