@@ -17,9 +17,10 @@ jobs:
   detect-changes:
     runs-on: windows-2022
     outputs:
-      minifilter: ${{ steps.filter.outputs.minifilter }}
-      rust: ${{ steps.filter.outputs.rust }}
-      reddbg: ${{ steps.filter.outputs.reddbg }}
+      minifilter: ${{ steps.set-outputs.outputs.minifilter }}
+      rust: ${{ steps.set-outputs.outputs.rust }}
+      reddbg: ${{ steps.set-outputs.outputs.reddbg }}
+      workflow_changed: ${{ steps.set-outputs.outputs.workflow_changed }}
     steps:
       - name: Enable Git long paths
         run: git config --global core.longpaths true
@@ -34,8 +35,29 @@ jobs:
               - 'Owlyshield/owlyshield_predict/**'
             reddbg:
               - 'Owlyshield/RedDbg/**'
+            workflow:
+              - '.github/workflows/publish-owlyshield.yml'
+      - name: Set outputs (build all if workflow changed)
+        id: set-outputs
+        shell: pwsh
+        run: |
+          $workflowChanged = "${{ steps.filter.outputs.workflow }}"
+          
+          if ($workflowChanged -eq "true") {
+            Write-Host "Workflow file changed - building all components"
+            echo "minifilter=true" >> $env:GITHUB_OUTPUT
+            echo "rust=true" >> $env:GITHUB_OUTPUT
+            echo "reddbg=true" >> $env:GITHUB_OUTPUT
+            echo "workflow_changed=true" >> $env:GITHUB_OUTPUT
+          } else {
+            Write-Host "Using selective build based on changed files"
+            echo "minifilter=${{ steps.filter.outputs.minifilter }}" >> $env:GITHUB_OUTPUT
+            echo "rust=${{ steps.filter.outputs.rust }}" >> $env:GITHUB_OUTPUT
+            echo "reddbg=${{ steps.filter.outputs.reddbg }}" >> $env:GITHUB_OUTPUT
+            echo "workflow_changed=false" >> $env:GITHUB_OUTPUT
+          }
 
-  # Build Minifilter Driver (only if changed)
+  # Build Minifilter Driver (only if changed or workflow changed)
   build-minifilter:
     needs: detect-changes
     if: needs.detect-changes.outputs.minifilter == 'true'

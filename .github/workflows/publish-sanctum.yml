@@ -17,15 +17,16 @@ jobs:
   detect-changes:
     runs-on: windows-2022
     outputs:
-      driver: ${{ steps.filter.outputs.driver }}
-      um_engine: ${{ steps.filter.outputs.um_engine }}
-      sanctum_ppl_runner: ${{ steps.filter.outputs.sanctum_ppl_runner }}
-      elam_installer: ${{ steps.filter.outputs.elam_installer }}
-      injected_dll: ${{ steps.filter.outputs.injected_dll }}
-      malware: ${{ steps.filter.outputs.malware }}
-      server: ${{ steps.filter.outputs.server }}
-      gui: ${{ steps.filter.outputs.gui }}
-      shared: ${{ steps.filter.outputs.shared }}
+      driver: ${{ steps.set-outputs.outputs.driver }}
+      um_engine: ${{ steps.set-outputs.outputs.um_engine }}
+      sanctum_ppl_runner: ${{ steps.set-outputs.outputs.sanctum_ppl_runner }}
+      elam_installer: ${{ steps.set-outputs.outputs.elam_installer }}
+      injected_dll: ${{ steps.set-outputs.outputs.injected_dll }}
+      malware: ${{ steps.set-outputs.outputs.malware }}
+      server: ${{ steps.set-outputs.outputs.server }}
+      gui: ${{ steps.set-outputs.outputs.gui }}
+      shared: ${{ steps.set-outputs.outputs.shared }}
+      workflow_changed: ${{ steps.set-outputs.outputs.workflow_changed }}
     steps:
       - name: Enable Git long paths
         run: git config --global core.longpaths true
@@ -59,8 +60,41 @@ jobs:
             shared:
               - 'Sanctum/shared_std/**'
               - 'Sanctum/shared_no_std/**'
+            workflow:
+              - '.github/workflows/publish-sanctum.yml'
+      - name: Set outputs (build all if workflow changed)
+        id: set-outputs
+        shell: pwsh
+        run: |
+          $workflowChanged = "${{ steps.filter.outputs.workflow }}"
+          
+          if ($workflowChanged -eq "true") {
+            Write-Host "Workflow file changed - building all components"
+            echo "driver=true" >> $env:GITHUB_OUTPUT
+            echo "um_engine=true" >> $env:GITHUB_OUTPUT
+            echo "sanctum_ppl_runner=true" >> $env:GITHUB_OUTPUT
+            echo "elam_installer=true" >> $env:GITHUB_OUTPUT
+            echo "injected_dll=true" >> $env:GITHUB_OUTPUT
+            echo "malware=true" >> $env:GITHUB_OUTPUT
+            echo "server=true" >> $env:GITHUB_OUTPUT
+            echo "gui=true" >> $env:GITHUB_OUTPUT
+            echo "shared=true" >> $env:GITHUB_OUTPUT
+            echo "workflow_changed=true" >> $env:GITHUB_OUTPUT
+          } else {
+            Write-Host "Using selective build based on changed files"
+            echo "driver=${{ steps.filter.outputs.driver }}" >> $env:GITHUB_OUTPUT
+            echo "um_engine=${{ steps.filter.outputs.um_engine }}" >> $env:GITHUB_OUTPUT
+            echo "sanctum_ppl_runner=${{ steps.filter.outputs.sanctum_ppl_runner }}" >> $env:GITHUB_OUTPUT
+            echo "elam_installer=${{ steps.filter.outputs.elam_installer }}" >> $env:GITHUB_OUTPUT
+            echo "injected_dll=${{ steps.filter.outputs.injected_dll }}" >> $env:GITHUB_OUTPUT
+            echo "malware=${{ steps.filter.outputs.malware }}" >> $env:GITHUB_OUTPUT
+            echo "server=${{ steps.filter.outputs.server }}" >> $env:GITHUB_OUTPUT
+            echo "gui=${{ steps.filter.outputs.gui }}" >> $env:GITHUB_OUTPUT
+            echo "shared=${{ steps.filter.outputs.shared }}" >> $env:GITHUB_OUTPUT
+            echo "workflow_changed=false" >> $env:GITHUB_OUTPUT
+          }
 
-  # Build Driver (only if changed)
+  # Build Driver (only if changed or workflow changed)
   build-driver:
     needs: detect-changes
     if: needs.detect-changes.outputs.driver == 'true'
@@ -95,8 +129,17 @@ jobs:
           # Fetch dependencies to ensure wdk-build is available
           cargo fetch
           
-          # Run a simple cargo command to ensure the build environment is initialized
-          cargo metadata --format-version 1 | Out-Null
+          # Copy rust-driver-makefile.toml from wdk-build crate to target directory
+          $wdkBuildPath = (cargo metadata --format-version 1 | ConvertFrom-Json).packages | Where-Object { $_.name -eq "wdk-build" } | Select-Object -First 1 -ExpandProperty manifest_path | Split-Path
+          $sourceFile = Join-Path $wdkBuildPath "rust-driver-makefile.toml"
+          $destFile = "target\rust-driver-makefile.toml"
+          
+          if (Test-Path $sourceFile) {
+            Write-Host "Copying $sourceFile to $destFile"
+            Copy-Item $sourceFile $destFile -Force
+          } else {
+            Write-Host "Warning: Could not find rust-driver-makefile.toml at $sourceFile"
+          }
       - name: Build and Sign Driver (with hash auto-update)
         working-directory: Sanctum/driver
         shell: pwsh

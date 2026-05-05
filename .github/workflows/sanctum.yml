@@ -52,8 +52,17 @@ jobs:
           # Fetch dependencies to ensure wdk-build is available
           cargo fetch
           
-          # Run a simple cargo command to ensure the build environment is initialized
-          cargo metadata --format-version 1 | Out-Null
+          # Copy rust-driver-makefile.toml from wdk-build crate to target directory
+          $wdkBuildPath = (cargo metadata --format-version 1 | ConvertFrom-Json).packages | Where-Object { $_.name -eq "wdk-build" } | Select-Object -First 1 -ExpandProperty manifest_path | Split-Path
+          $sourceFile = Join-Path $wdkBuildPath "rust-driver-makefile.toml"
+          $destFile = "target\rust-driver-makefile.toml"
+          
+          if (Test-Path $sourceFile) {
+            Write-Host "Copying $sourceFile to $destFile"
+            Copy-Item $sourceFile $destFile -Force
+          } else {
+            Write-Host "Warning: Could not find rust-driver-makefile.toml at $sourceFile"
+          }
 
       - name: Build Driver (Debug)
         working-directory: Sanctum
