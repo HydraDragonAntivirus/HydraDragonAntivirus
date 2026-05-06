@@ -2955,10 +2955,6 @@ pub mod worker_instance {
             }
         }
 
-        fn appname_from_exepath(&self, exepath: &Path) -> Option<String> {
-            Self::appname_from_exepath_static(exepath)
-        }
-
         fn appname_from_exepath_static(exepath: &Path) -> Option<String> {
             exepath.file_name()?.to_str().map(|s| s.to_string())
         }
