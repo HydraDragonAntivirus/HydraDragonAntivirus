@@ -146,7 +146,6 @@ asar_dir = os.path.join(data_dir, "asar")
 un_confuser_ex_extracted_dir = os.path.join(data_dir, "UnConfuserEx_extracted")
 nuitka_dir = os.path.join(data_dir, "nuitka")
 # --- Nuitka Deobfuscation Path Definitions ---
-# These point to ProgramData to comply with the Fatal Design security model (writable data isolated from read-only code)
 NUITKA_DEOBFUSCATE_DIR = os.path.join(data_dir, "nuitka_deobfuscate")
 
 # Logic to handle dynamic 'build/lib.*' paths typically found in Python builds
