@@ -3,16 +3,32 @@ setlocal EnableExtensions
 
 set "POSTINSTALL_STAGE=initial"
 if /I "%~1"=="--after-hypervisor-reboot" set "POSTINSTALL_STAGE=after_hypervisor_reboot"
+set "POSTINSTALL_LOG_DIR=%ProgramData%\HydraDragonAntivirus"
+set "POSTINSTALL_LOG=%POSTINSTALL_LOG_DIR%\post_install.log"
+set "POSTINSTALL_LAST_OUTPUT=%TEMP%\HydraDragonPostInstall-last-command.txt"
+if not exist "%POSTINSTALL_LOG_DIR%" mkdir "%POSTINSTALL_LOG_DIR%" >nul 2>&1
+if not exist "%POSTINSTALL_LOG_DIR%" set "POSTINSTALL_LOG=%TEMP%\HydraDragonAntivirus-post_install.log"
+> "%POSTINSTALL_LOG%" (
+    echo HydraDragon post-install output
+    echo Started: %DATE% %TIME%
+    echo Stage: %POSTINSTALL_STAGE%
+    echo.
+)
+call :log [*] Writing post-install log to "%POSTINSTALL_LOG%"
 
 :: --------------------------------------------------------
 :: 1) Ensure we're elevated
 :: --------------------------------------------------------
 net session >nul 2>&1
 if %errorlevel% neq 0 (
-    echo [!] This script must be run as Administrator.
-    echo [*] Relaunching elevated...
-    powershell -Command "Start-Process '%~f0' -Verb runAs"
-    exit /b
+    call :log [!] This script must be run as Administrator.
+    call :log [*] Relaunching elevated...
+    call :run_and_log powershell -Command "Start-Process '%~f0' -Verb runAs"
+    if errorlevel 1 (
+        call :show_failure "Could not relaunch post-install elevated."
+        exit /b 1
+    )
+    exit /b 0
 )
 
 :: --------------------------------------------------------
@@ -20,24 +36,33 @@ if %errorlevel% neq 0 (
 :: --------------------------------------------------------
 if /I "%POSTINSTALL_STAGE%"=="after-hypervisor-reboot" (
     echo [*] Continuing post-install after hypervisor/VBS reboot...
-) else (
-    call :prepare_hypervisor_stack
-    if "%TESTSIGNING_ENABLE_FAILED%"=="1" (
-        echo [!] Test signing mode could not be enabled.
-        echo [!] Secure Boot may be blocking test-signed RedDbg/HyperDbg drivers.
-        echo [!] Disable Secure Boot or use production-signed driver packages.
-        pause
-        exit /b
-    )
-    if "%HYPERVISOR_REBOOT_REQUIRED%"=="1" (
-        echo [*] Hypervisor/VBS settings were changed. A reboot is required before driver installation.
-        echo [*] Scheduling post-install continuation after reboot...
-        reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce" /v "HydraDragonPostInstallContinue" /t REG_SZ /d "\"%~f0\" --after-hypervisor-reboot" /f >nul 2>&1
-        echo [*] Restarting system in 15 seconds...
-        shutdown -r -t 15
-        exit /b
-    )
+    goto hypervisor_stack_ready
 )
+
+call :prepare_hypervisor_stack
+if "%TESTSIGNING_ENABLE_FAILED%"=="1" (
+    call :log [!] Test signing mode could not be enabled.
+    call :log [!] Secure Boot may be blocking test-signed RedDbg/HyperDbg drivers.
+    call :log [!] Disable Secure Boot or use production-signed driver packages.
+    call :show_failure "Post-install cannot continue because test signing mode could not be enabled."
+    exit /b 1
+)
+if "%HYPERVISOR_REBOOT_REQUIRED%"=="1" (
+    call :log [*] Hypervisor/VBS settings were changed. A reboot is required before driver installation.
+    call :log [*] Scheduling post-install continuation after reboot...
+    reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce" /v "HydraDragonPostInstallContinue" /t REG_SZ /d "\"%~f0\" --after-hypervisor-reboot" /f > "%POSTINSTALL_LAST_OUTPUT%" 2>&1
+    if errorlevel 1 (
+        call :show_last_output
+        call :show_failure "Failed to schedule post-install continuation after reboot."
+        exit /b 1
+    )
+    call :show_last_output
+    call :log [*] Restarting system in 15 seconds...
+    shutdown -r -t 15
+    exit /b 0
+)
+
+:hypervisor_stack_ready
 
 :: --------------------------------------------------------
 :: 3) Environment setup
@@ -56,9 +81,8 @@ if not exist "%SANCTUM_DIR%" (
     echo [!] Sanctum folder missing — creating it...
     mkdir "%SANCTUM_DIR%" >nul 2>&1
     if errorlevel 1 (
-        echo [!] ERROR: Could not create "%SANCTUM_DIR%".
-        pause
-        exit /b
+        call :show_failure "Could not create ""%SANCTUM_DIR%""."
+        exit /b 1
     )
 )
 
@@ -71,7 +95,11 @@ set "ELAM_EXE=%SANCTUM_DIR%\elam_installer.exe"
 
 if exist "%ELAM_EXE%" (
     echo [*] Running ELAM installer: "%ELAM_EXE%"
-    "%ELAM_EXE%"
+    call :run_and_log "%ELAM_EXE%"
+    if errorlevel 1 (
+        call :show_failure "ELAM installer failed."
+        exit /b 1
+    )
     echo [+] ELAM installer completed.
 ) else (
     echo [!] ELAM installer not found at "%ELAM_EXE%".
@@ -81,11 +109,10 @@ if exist "%ELAM_EXE%" (
 :: 6) Install OwlyshieldRansomFilter driver
 :: --------------------------------------------------------
 echo Installing OwlyshieldRansomFilter driver INF...
-pnputil /add-driver "%HYDRADRAGON_DIR%\Owlyshield\OwlyshieldRansomFilter\OwlyshieldRansomFilter.inf" /install
-if %errorlevel% neq 0 (
-    echo [!] OwlyshieldRansomFilter driver install failed.
-    pause
-    exit /b
+call :run_and_log pnputil /add-driver "%HYDRADRAGON_DIR%\Owlyshield\OwlyshieldRansomFilter\OwlyshieldRansomFilter.inf" /install
+if errorlevel 1 (
+    call :show_failure "OwlyshieldRansomFilter driver install failed."
+    exit /b 1
 )
 echo [+] OwlyshieldRansomFilter driver installed.
 
@@ -93,11 +120,10 @@ echo [+] OwlyshieldRansomFilter driver installed.
 :: 7) Install MBRFilter driver
 :: --------------------------------------------------------
 echo Installing MBRFilter driver INF...
-pnputil /add-driver "%HYDRADRAGON_DIR%\MBRFilter\MBRFilter.inf" /install
-if %errorlevel% neq 0 (
-    echo [!] MBRFilter driver install failed.
-    pause
-    exit /b
+call :run_and_log pnputil /add-driver "%HYDRADRAGON_DIR%\MBRFilter\MBRFilter.inf" /install
+if errorlevel 1 (
+    call :show_failure "MBRFilter driver install failed."
+    exit /b 1
 )
 echo [+] MBRFilter driver installed.
 
@@ -105,11 +131,10 @@ echo [+] MBRFilter driver installed.
 :: 8) Install SimplePYASProtection driver
 :: --------------------------------------------------------
 echo Installing SimplePYASProtection driver INF...
-pnputil /add-driver "%HYDRADRAGON_DIR%\SimplePYASProtection\SimplePYASProtection.inf" /install
-if %errorlevel% neq 0 (
-    echo [!] SimplePYASProtection driver install failed.
-    pause
-    exit /b
+call :run_and_log pnputil /add-driver "%HYDRADRAGON_DIR%\SimplePYASProtection\SimplePYASProtection.inf" /install
+if errorlevel 1 (
+    call :show_failure "SimplePYASProtection driver install failed."
+    exit /b 1
 )
 echo [+] SimplePYASProtection driver installed.
 
@@ -117,8 +142,8 @@ echo [+] SimplePYASProtection driver installed.
 :: 9) Install RedDbg driver (AMD Hypervisor)
 :: --------------------------------------------------------
 echo Installing RedDbg driver INF...
-pnputil /add-driver "%HYDRADRAGON_DIR%\Owlyshield\RedDbg\RedDbgDrv.inf" /install
-if %errorlevel% neq 0 (
+call :run_and_log pnputil /add-driver "%HYDRADRAGON_DIR%\Owlyshield\RedDbg\RedDbgDrv.inf" /install
+if errorlevel 1 (
     echo [!] RedDbg driver install failed (non-fatal if on Intel).
 ) else (
     echo [+] RedDbg driver installed.
@@ -128,8 +153,8 @@ if %errorlevel% neq 0 (
 :: 10) Install HyperDbg driver (Intel Hypervisor)
 :: --------------------------------------------------------
 echo Installing HyperDbg driver INF...
-pnputil /add-driver "%HYDRADRAGON_DIR%\Owlyshield\HyperDbg\hyperhv.inf" /install
-if %errorlevel% neq 0 (
+call :run_and_log pnputil /add-driver "%HYDRADRAGON_DIR%\Owlyshield\HyperDbg\hyperhv.inf" /install
+if errorlevel 1 (
     echo [!] HyperDbg driver install failed (non-fatal if on AMD).
 ) else (
     echo [+] HyperDbg driver installed.
@@ -139,21 +164,27 @@ if %errorlevel% neq 0 (
 :: 11) Register HydraDragonAntivirus scheduled task (autostart after reboot)
 :: --------------------------------------------------------
 set "HD_TASK_EXE=%HYDRADRAGON_DIR%\HydraDragonService.exe\HydraDragonService.exe"
+set "HD_TASK_EXISTS=0"
 
 if exist "%HD_TASK_EXE%" (
     echo Checking for existing HydraDragonAntivirus scheduled task...
-    schtasks /query /tn "HydraDragonAntivirus" >nul 2>&1
+    call :run_and_log schtasks /query /tn "HydraDragonAntivirus"
+    if not errorlevel 1 set "HD_TASK_EXISTS=1"
+) else (
+    echo [!] HydraDragon service executable not found at "%HD_TASK_EXE%".
 )
 
-if %errorlevel%==0 (
+if "%HD_TASK_EXISTS%"=="1" (
     echo Existing task found, deleting...
-    schtasks /delete /tn "HydraDragonAntivirus" /f >nul 2>&1
+    call :run_and_log schtasks /delete /tn "HydraDragonAntivirus" /f
 )
 
 echo Creating HydraDragonAntivirus auto-start task (user interactive)...
-schtasks /create /tn "HydraDragonAntivirus" /tr "\"%HD_TASK_EXE%\"" /sc ONLOGON /rl HIGHEST /f
+schtasks /create /tn "HydraDragonAntivirus" /tr "\"%HD_TASK_EXE%\"" /sc ONLOGON /rl HIGHEST /f > "%POSTINSTALL_LAST_OUTPUT%" 2>&1
+set "RUN_EXIT=%errorlevel%"
+call :show_last_output
 
-if %errorlevel% neq 0 (
+if not "%RUN_EXIT%"=="0" (
     echo [!] Failed to create HydraDragonAntivirus auto-start task.
 ) else (
     echo [+] HydraDragonAntivirus auto-start task created successfully.
@@ -165,13 +196,17 @@ if %errorlevel% neq 0 (
 set "EDR_EXE=%HYDRADRAGON_DIR%\OpenEDR\edrsvc.exe"
 if exist "%EDR_EXE%" (
     echo [*] Installing OpenEDR service...
-    "%EDR_EXE%" install
-    echo [+] OpenEDR service installed.
+    call :run_and_log "%EDR_EXE%" install
+    if errorlevel 1 (
+        echo [!] OpenEDR service install failed.
+    ) else (
+        echo [+] OpenEDR service installed.
+    )
 
     echo [*] Configuring OpenEDR kernel driver (edrdrv)...
-    sc config edrdrv start= system >nul 2>&1
-    sc start edrdrv >nul 2>&1
-    if %errorlevel% neq 0 (
+    call :run_and_log sc config edrdrv start= system
+    call :run_and_log sc start edrdrv
+    if errorlevel 1 (
         echo [!] edrdrv driver start pending (will activate after reboot).
     ) else (
         echo [+] edrdrv driver started successfully.
@@ -189,6 +224,40 @@ del "%~f0"
 endlocal
 goto :eof
 
+:log
+echo %*
+if defined POSTINSTALL_LOG >> "%POSTINSTALL_LOG%" echo %*
+exit /b 0
+
+:run_and_log
+call :log [cmd] %*
+%* > "%POSTINSTALL_LAST_OUTPUT%" 2>&1
+set "RUN_EXIT=%errorlevel%"
+call :show_last_output
+exit /b %RUN_EXIT%
+
+:show_last_output
+if exist "%POSTINSTALL_LAST_OUTPUT%" (
+    type "%POSTINSTALL_LAST_OUTPUT%"
+    if defined POSTINSTALL_LOG type "%POSTINSTALL_LAST_OUTPUT%" >> "%POSTINSTALL_LOG%"
+)
+exit /b 0
+
+:show_failure
+set "FAIL_MESSAGE=%~1"
+echo.
+echo [!] %FAIL_MESSAGE%
+if defined POSTINSTALL_LOG (
+    >> "%POSTINSTALL_LOG%" echo.
+    >> "%POSTINSTALL_LOG%" echo [!] %FAIL_MESSAGE%
+    >> "%POSTINSTALL_LOG%" echo [!] Finished with errors: %DATE% %TIME%
+    echo [!] Full output saved to "%POSTINSTALL_LOG%".
+    echo [*] Opening failure output in Notepad...
+    start "" notepad.exe "%POSTINSTALL_LOG%"
+)
+pause
+exit /b 0
+
 :prepare_hypervisor_stack
 set "HYPERVISOR_REBOOT_REQUIRED=0"
 set "TESTSIGNING_ENABLE_FAILED=0"
@@ -204,11 +273,11 @@ call :mark_reboot_if_feature_enabled VirtualMachinePlatform
 call :mark_reboot_if_feature_enabled HypervisorPlatform
 call :mark_reboot_if_testsigning_disabled
 
-reg add "HKLM\SYSTEM\CurrentControlSet\Control\DeviceGuard" /v EnableVirtualizationBasedSecurity /t REG_DWORD /d 0 /f >nul 2>&1
-reg add "HKLM\SYSTEM\CurrentControlSet\Control\DeviceGuard\Scenarios\HypervisorEnforcedCodeIntegrity" /v Enabled /t REG_DWORD /d 0 /f >nul 2>&1
-bcdedit /set hypervisorlaunchtype off >nul 2>&1
-bcdedit /set vsmlaunchtype off >nul 2>&1
-bcdedit /set testsigning on >nul 2>&1
+call :run_and_log reg add "HKLM\SYSTEM\CurrentControlSet\Control\DeviceGuard" /v EnableVirtualizationBasedSecurity /t REG_DWORD /d 0 /f
+call :run_and_log reg add "HKLM\SYSTEM\CurrentControlSet\Control\DeviceGuard\Scenarios\HypervisorEnforcedCodeIntegrity" /v Enabled /t REG_DWORD /d 0 /f
+call :run_and_log bcdedit /set hypervisorlaunchtype off
+call :run_and_log bcdedit /set vsmlaunchtype off
+call :run_and_log bcdedit /set testsigning on
 if errorlevel 1 (
     set "TESTSIGNING_ENABLE_FAILED=1"
 )
@@ -245,7 +314,7 @@ if not errorlevel 1 set "HYPERVISOR_REBOOT_REQUIRED=1"
 exit /b 0
 
 :disable_feature_if_present
-dism.exe /Online /Disable-Feature /FeatureName:%~1 /NoRestart >nul 2>&1
+call :run_and_log dism.exe /Online /Disable-Feature /FeatureName:%~1 /NoRestart
 if errorlevel 1 (
     echo [*] Optional feature not changed: %~1
 ) else (
