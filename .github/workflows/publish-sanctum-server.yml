@@ -5,6 +5,8 @@ on:
     branches: ["**"]
     paths:
       - 'Sanctum/server/**'
+      - 'Sanctum/Cargo.toml'
+      - 'Sanctum/Cargo.lock'
       - '.github/workflows/publish-sanctum-server.yml'
   workflow_dispatch:
 

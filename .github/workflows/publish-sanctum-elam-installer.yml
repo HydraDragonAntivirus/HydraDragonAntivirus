@@ -5,6 +5,8 @@ on:
     branches: ["**"]
     paths:
       - 'Sanctum/elam_installer/**'
+      - 'Sanctum/Cargo.toml'
+      - 'Sanctum/Cargo.lock'
       - '.github/workflows/publish-sanctum-elam-installer.yml'
   workflow_dispatch:
 

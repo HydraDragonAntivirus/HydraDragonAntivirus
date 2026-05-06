@@ -7,6 +7,8 @@ on:
       - 'Sanctum/gui/**'
       - 'Sanctum/shared_std/**'
       - 'Sanctum/shared_no_std/**'
+      - 'Sanctum/Cargo.toml'
+      - 'Sanctum/Cargo.lock'
       - '.github/workflows/publish-sanctum-gui.yml'
   workflow_dispatch:
 

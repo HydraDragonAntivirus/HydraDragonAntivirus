@@ -7,6 +7,8 @@ on:
       - 'Sanctum/sanctum_ppl_runner/**'
       - 'Sanctum/shared_std/**'
       - 'Sanctum/shared_no_std/**'
+      - 'Sanctum/Cargo.toml'
+      - 'Sanctum/Cargo.lock'
       - '.github/workflows/publish-sanctum-ppl-runner.yml'
   workflow_dispatch:
 
