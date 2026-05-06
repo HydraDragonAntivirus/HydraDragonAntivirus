@@ -342,6 +342,7 @@ See the [LICENSE](./LICENSE) file for more information.
 - I used these projects to optimize the antivirus.
 
 - https://github.com/HyperDbg/HyperDbg
+- https://github.com/HyperDbg/RedDbg (Might need to unite with SimpleSVM but for now I use this.)
 
 - I used these projects to HyperVisor
 
