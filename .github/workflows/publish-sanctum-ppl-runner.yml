@@ -1,0 +1,79 @@
+name: Publish Sanctum PPL Runner
+
+on:
+  push:
+    branches: ["**"]
+    paths:
+      - 'Sanctum/sanctum_ppl_runner/**'
+      - 'Sanctum/shared_std/**'
+      - 'Sanctum/shared_no_std/**'
+      - '.github/workflows/publish-sanctum-ppl-runner.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  build-and-stage:
+    runs-on: windows-2022
+    steps:
+      - name: Enable Git long paths
+        run: git config --global core.longpaths true
+      - uses: actions/checkout@v6
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@nightly
+      - name: Setup Windows SDK
+        shell: pwsh
+        run: |
+          $sdkSetupPath = "$Env:TEMP\sdksetup.exe"
+          Write-Host "Downloading Windows SDK..."
+          (New-Object Net.WebClient).DownloadFile('https://go.microsoft.com/fwlink/?linkid=2272610', $sdkSetupPath)
+          Write-Host "Installing Windows SDK..."
+          Start-Process -FilePath $sdkSetupPath -ArgumentList "/quiet", "/norestart", "/features", "OptionId.SigningTools" -NoNewWindow -Wait
+          Write-Host "Windows SDK installed successfully"
+
+          $sdkPath = "C:\Program Files (x86)\Windows Kits\10\bin\10.0.22621.0\x64"
+          if (Test-Path $sdkPath) {
+            Write-Host "Adding $sdkPath to PATH"
+            echo "$sdkPath" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          } else {
+            $kitsPath = "C:\Program Files (x86)\Windows Kits\10\bin"
+            if (Test-Path $kitsPath) {
+              $latestSdk = Get-ChildItem $kitsPath | Where-Object { $_.Name -match '^\d+\.\d+\.\d+\.\d+$' } | Sort-Object Name -Descending | Select-Object -First 1
+              if ($latestSdk) {
+                $sdkPath = Join-Path $latestSdk.FullName "x64"
+                Write-Host "Adding $sdkPath to PATH"
+                echo "$sdkPath" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+              }
+            }
+          }
+      - name: Build and Sign sanctum_ppl_runner
+        working-directory: Sanctum
+        run: |
+          cargo build --release -p sanctum_ppl_runner
+          .\sign_ppl_runner.bat
+      - name: Stage
+        shell: pwsh
+        run: |
+          $dist = "hydradragon/Sanctum/AppData"
+          New-Item -ItemType Directory -Force -Path $dist
+          Copy-Item "Sanctum/target/release/sanctum_ppl_runner.exe" "$dist/" -Force
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: sanctum-ppl-runner
+          path: hydradragon/Sanctum/AppData/sanctum_ppl_runner.exe
+          if-no-files-found: error
+      - name: Create PR
+        uses: peter-evans/create-pull-request@v8
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "chore(sanctum): update ppl runner binary"
+          title: "Update Sanctum PPL Runner Binary"
+          add-paths: |
+            hydradragon/Sanctum/AppData/sanctum_ppl_runner.exe
+          branch: "auto-update-sanctum-ppl-runner"
+          base: ${{ github.ref_name }}
+          delete-branch: true
+          labels: binaries, automated-pr, sanctum, ppl-runner

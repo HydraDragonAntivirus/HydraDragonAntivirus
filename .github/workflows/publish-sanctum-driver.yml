@@ -1,0 +1,134 @@
+name: Publish Sanctum Driver
+
+on:
+  push:
+    branches: ["**"]
+    paths:
+      - 'Sanctum/driver/**'
+      - 'Sanctum/shared_no_std/**'
+      - '.github/workflows/publish-sanctum-driver.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  build-and-stage:
+    runs-on: windows-2022
+    steps:
+      - name: Enable Git long paths
+        run: git config --global core.longpaths true
+      - uses: actions/checkout@v6
+      - name: Set up MSVC Developer Command Prompt
+        uses: TheMrMilchmann/setup-msvc-dev@v4
+        with:
+          arch: x64
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@nightly
+      - name: Install Cargo Make
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-make
+      - name: Install rust-script
+        run: cargo install rust-script --version 0.30.0
+      - name: Setup WDK
+        shell: pwsh
+        run: |
+          $wdkSetupPath = "$Env:TEMP\wdksetup.exe"
+          (New-Object Net.WebClient).DownloadFile('https://go.microsoft.com/fwlink/?linkid=2335869', $wdkSetupPath)
+          Start-Process -FilePath $wdkSetupPath -ArgumentList "/quiet" -NoNewWindow -Wait
+      - name: Prepare Driver Build Environment
+        working-directory: Sanctum/driver
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path "target" | Out-Null
+          cargo fetch
+
+          $wdkBuildPath = (cargo metadata --format-version 1 | ConvertFrom-Json).packages | Where-Object { $_.name -eq "wdk-build" } | Select-Object -First 1 -ExpandProperty manifest_path | Split-Path
+          $sourceFile = Join-Path $wdkBuildPath "rust-driver-makefile.toml"
+          $destFile = "target\rust-driver-makefile.toml"
+
+          if (Test-Path $sourceFile) {
+            Write-Host "Copying $sourceFile to $destFile"
+            Copy-Item $sourceFile $destFile -Force
+          } else {
+            Write-Host "Warning: Could not find rust-driver-makefile.toml at $sourceFile"
+          }
+      - name: Build and Sign Driver
+        id: build_driver
+        working-directory: Sanctum/driver
+        shell: pwsh
+        run: |
+          $driverBuildProfile = "release"
+          $driverPackagePath = "target\$driverBuildProfile\sanctum_package\sanctum.sys"
+
+          Write-Host "=== Step 1: Generating ELAM certificate ==="
+          .\cert.ps1
+
+          Write-Host "`n=== Step 2: Initial driver build ($driverBuildProfile) ==="
+          cargo make $driverBuildProfile
+
+          Write-Host "`n=== Step 3: Signing driver with sign.bat $driverBuildProfile ==="
+          .\sign.bat $driverBuildProfile
+
+          Write-Host "`n=== Step 4: Extracting To-Be-Signed Hash ==="
+          $certOutput = certmgr.exe -v $driverPackagePath
+          $hashLines = $certOutput | Select-String -Pattern "Content Hash \(To-Be-Signed Hash\)::" -Context 0,3
+
+          if ($hashLines) {
+              $hashText = $hashLines[0].Context.PostContext -join ""
+              $hash = $hashText -replace '\s+', '' -replace '0x', ''
+              Write-Host "Extracted hash: $hash"
+
+              Write-Host "`n=== Step 5: Updating build.rs with extracted hash ==="
+              $buildRsPath = "build.rs"
+              $buildRsContent = Get-Content $buildRsPath -Raw
+              $buildRsContent = $buildRsContent -replace 'L"[0-9A-F]+\\0"', "L`"$hash\0`""
+              Set-Content $buildRsPath $buildRsContent
+              Write-Host "Updated build.rs with hash: $hash"
+
+              Write-Host "`n=== Step 6: Rebuilding with correct hash ($driverBuildProfile) ==="
+              cargo clean
+              cargo make $driverBuildProfile
+
+              Write-Host "`n=== Step 7: Final signing with sign.bat $driverBuildProfile ==="
+              .\sign.bat $driverBuildProfile
+              Set-Content -Path "sanctum_elam_hash.txt" -Value $hash -NoNewline
+              echo "elam_hash=$hash" >> $env:GITHUB_OUTPUT
+
+              Write-Host "`n=== SUCCESS: Driver built and signed with matching hash ==="
+          } else {
+              Write-Host "ERROR: Could not extract hash from certificate"
+              exit 1
+          }
+      - name: Stage
+        shell: pwsh
+        run: |
+          $dist = "hydradragon/Sanctum/AppData"
+          New-Item -ItemType Directory -Force -Path $dist
+          Copy-Item "Sanctum/driver/target/release/sanctum_package/sanctum.sys" "$dist/" -Force
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: sanctum-driver
+          path: |
+            hydradragon/Sanctum/AppData/sanctum.sys
+            Sanctum/driver/sanctum_elam_hash.txt
+          if-no-files-found: error
+      - name: Create PR
+        uses: peter-evans/create-pull-request@v8
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "chore(sanctum): update driver binary"
+          title: "Update Sanctum Driver Binary"
+          body: |
+            Automated Sanctum driver publish.
+
+            Driver To-Be-Signed Hash: `${{ steps.build_driver.outputs.elam_hash }}`
+          add-paths: |
+            hydradragon/Sanctum/AppData/sanctum.sys
+          branch: "auto-update-sanctum-driver"
+          base: ${{ github.ref_name }}
+          delete-branch: true
+          labels: binaries, automated-pr, sanctum, driver

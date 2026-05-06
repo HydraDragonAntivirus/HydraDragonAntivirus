@@ -1,0 +1,50 @@
+name: Publish Sanctum ELAM Installer
+
+on:
+  push:
+    branches: ["**"]
+    paths:
+      - 'Sanctum/elam_installer/**'
+      - '.github/workflows/publish-sanctum-elam-installer.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  build-and-stage:
+    runs-on: windows-2022
+    steps:
+      - name: Enable Git long paths
+        run: git config --global core.longpaths true
+      - uses: actions/checkout@v6
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@nightly
+      - name: Build elam_installer
+        working-directory: Sanctum
+        run: cargo build --release -p elam_installer
+      - name: Stage
+        shell: pwsh
+        run: |
+          $dist = "hydradragon/Sanctum"
+          New-Item -ItemType Directory -Force -Path $dist
+          Copy-Item "Sanctum/target/release/elam_installer.exe" "$dist/" -Force
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: sanctum-elam-installer
+          path: hydradragon/Sanctum/elam_installer.exe
+          if-no-files-found: error
+      - name: Create PR
+        uses: peter-evans/create-pull-request@v8
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "chore(sanctum): update elam installer binary"
+          title: "Update Sanctum ELAM Installer Binary"
+          add-paths: |
+            hydradragon/Sanctum/elam_installer.exe
+          branch: "auto-update-sanctum-elam-installer"
+          base: ${{ github.ref_name }}
+          delete-branch: true
+          labels: binaries, automated-pr, sanctum, elam-installer
