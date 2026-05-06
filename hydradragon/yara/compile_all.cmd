@@ -35,7 +35,7 @@ if not exist "%~1" (
     exit /b 1
 )
 echo [YARA-X] %~1 -^> %~2
-"%YARA_X%" compile --output "%~2" "%~1"
+"%YARA_X%" compile "%~2" --output  "%~1"
 if errorlevel 1 exit /b %ERRORLEVEL%
 if not exist "%~2" (
     echo [ERROR] Missing output file after yr.exe: %~2
