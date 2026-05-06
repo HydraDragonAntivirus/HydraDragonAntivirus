@@ -337,7 +337,7 @@ See the [LICENSE](./LICENSE) file for more information.
 - I used these projects to protect the antivirus.
 
 
-- https://github.com/clamwin/python-clamav
+- https://github.com/clamwin/python-clamav (Converted to C++)
 
 - I used these projects to optimize the antivirus.
 
