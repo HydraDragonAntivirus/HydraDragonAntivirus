@@ -282,6 +282,12 @@ jobs:
           arch: x64
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@nightly
+      - name: Update Sanctum Cargo.lock
+        working-directory: Sanctum
+        run: cargo update
+      - name: Update Sanctum driver Cargo.lock
+        working-directory: Sanctum/driver
+        run: cargo update
       - name: Install Cargo Make
         uses: taiki-e/install-action@v2
         with:
@@ -401,6 +407,8 @@ jobs:
             Sanctum/target/release/server.exe
             Sanctum/target/release/app.exe
             Sanctum/target/release/sanctum.dll
+            Sanctum/Cargo.lock
+            Sanctum/driver/Cargo.lock
 
   # --- FINAL STAGE: Collect and PR ---
 
@@ -554,6 +562,17 @@ jobs:
           if ($elamHashFile) {
             $elamHash = (Get-Content $elamHashFile.FullName -Raw).Trim()
             Write-Host "Sanctum ELAM hash: $elamHash"
+          }
+
+          $sanctumLocks = Get-ChildItem "bin-sanctum/" -Filter "Cargo.lock" -Recurse
+          $sanctumRootLock = $sanctumLocks | Where-Object { $_.FullName -notmatch '[\\/]driver[\\/]' } | Select-Object -First 1
+          if ($sanctumRootLock) {
+            Copy-Item $sanctumRootLock.FullName -Destination "Sanctum/Cargo.lock" -Force
+          }
+
+          $sanctumDriverLock = $sanctumLocks | Where-Object { $_.FullName -match '[\\/]driver[\\/]' } | Select-Object -First 1
+          if ($sanctumDriverLock) {
+            Copy-Item $sanctumDriverLock.FullName -Destination "Sanctum/driver/Cargo.lock" -Force
           }
           echo "elam_hash=$elamHash" >> $env:GITHUB_OUTPUT
 

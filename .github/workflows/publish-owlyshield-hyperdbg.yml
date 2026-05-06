@@ -1,0 +1,86 @@
+name: Publish Owlyshield HyperDbg
+
+on:
+  push:
+    branches: ["**"]
+    paths:
+      - "Owlyshield/HyperDbg/**"
+      - ".github/workflows/publish-owlyshield-hyperdbg.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+env:
+  WDK_URL: https://go.microsoft.com/fwlink/?linkid=2335869
+
+jobs:
+  publish:
+    runs-on: windows-2022
+    steps:
+      - name: Enable Git long paths
+        run: git config --global core.longpaths true
+
+      - uses: actions/checkout@v6
+
+      - name: Set up MSVC Developer Command Prompt
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Setup WDK
+        shell: pwsh
+        run: |
+          $wdkSetupPath = "$Env:TEMP\wdksetup.exe"
+          (New-Object Net.WebClient).DownloadFile("${{ env.WDK_URL }}", $wdkSetupPath)
+          Start-Process -FilePath $wdkSetupPath -ArgumentList "/quiet" -NoNewWindow -Wait
+
+      - name: Build HyperDbg
+        run: msbuild Owlyshield/HyperDbg/hyperdbg/hyperdbg.sln /p:Configuration=release /p:Platform=x64
+
+      - name: Stage HyperDbg Files
+        shell: pwsh
+        run: |
+          $destination = "hydradragon/Owlyshield/HyperDbg"
+          $sources = @(
+            "Owlyshield/HyperDbg/hyperdbg/build/bin/release",
+            "Owlyshield/HyperDbg/hyperdbg/hyperhv/build/package/release"
+          )
+          $files = @(
+            "hyperhv.sys",
+            "hyperhv.inf",
+            "hyperhv.cat",
+            "hyperhv.cer"
+          )
+          New-Item -ItemType Directory -Force -Path $destination | Out-Null
+
+          foreach ($source in $sources) {
+            if (Test-Path $source) {
+              Get-ChildItem -Path $source -Recurse -File |
+                Where-Object { $_.Name -in $files } |
+                ForEach-Object { Copy-Item $_.FullName -Destination $destination -Force }
+            }
+          }
+
+      - name: Check for Changes
+        id: check_changes
+        shell: pwsh
+        run: |
+          git add -A
+          if (git status --porcelain) {
+            "changed=true" >> $env:GITHUB_OUTPUT
+          } else {
+            "changed=false" >> $env:GITHUB_OUTPUT
+          }
+
+      - name: Create PR
+        if: steps.check_changes.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@v8
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "chore(owlyshield): update hyperdbg binaries"
+          title: "Update Owlyshield HyperDbg binaries"
+          body: "Automated HyperDbg driver build output update."
+          branch: "auto-update-owlyshield-hyperdbg"
+          base: ${{ github.ref_name }}
+          delete-branch: true
+          labels: binaries, automated-pr, owlyshield

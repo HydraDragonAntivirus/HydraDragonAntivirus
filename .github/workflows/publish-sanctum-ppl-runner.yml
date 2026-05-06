@@ -25,6 +25,9 @@ jobs:
       - uses: actions/checkout@v6
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@nightly
+      - name: Update Cargo.lock
+        working-directory: Sanctum
+        run: cargo update
       - name: Setup Windows SDK
         shell: pwsh
         run: |
@@ -75,6 +78,7 @@ jobs:
           title: "Update Sanctum PPL Runner Binary"
           add-paths: |
             hydradragon/Sanctum/AppData/sanctum_ppl_runner.exe
+            Sanctum/Cargo.lock
           branch: "auto-update-sanctum-ppl-runner"
           base: ${{ github.ref_name }}
           delete-branch: true

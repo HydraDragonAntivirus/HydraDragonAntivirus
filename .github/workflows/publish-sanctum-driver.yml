@@ -26,6 +26,9 @@ jobs:
           arch: x64
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@nightly
+      - name: Update Cargo.lock
+        working-directory: Sanctum/driver
+        run: cargo update
       - name: Install Cargo Make
         uses: taiki-e/install-action@v2
         with:
@@ -128,6 +131,7 @@ jobs:
             Driver To-Be-Signed Hash: `${{ steps.build_driver.outputs.elam_hash }}`
           add-paths: |
             hydradragon/Sanctum/AppData/sanctum.sys
+            Sanctum/driver/Cargo.lock
           branch: "auto-update-sanctum-driver"
           base: ${{ github.ref_name }}
           delete-branch: true

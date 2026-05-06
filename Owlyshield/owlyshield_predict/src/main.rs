@@ -290,4 +290,5 @@ fn main() {
     println!("{banner}");
 
     run::run();
+    Logging::stop();
 }

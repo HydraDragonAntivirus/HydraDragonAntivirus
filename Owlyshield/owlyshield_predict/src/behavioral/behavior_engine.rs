@@ -397,6 +397,8 @@ impl IrpStatistics {
             + self.process_handle_open_count
             + self.process_terminate_attempt_count
             + self.hypervisor_event_count
+            + self.pipe_create_count
+            + self.pipe_write_count
     }
 
     pub fn get_high_entropy_count(&self) -> usize {
@@ -470,6 +472,25 @@ impl IrpStatistics {
             IrpMajorOp::IrpProcessTerminateAttempt => self.process_terminate_attempt_count += 1,
             IrpMajorOp::IrpProcessExit => self.process_exit_count += 1,
             IrpMajorOp::IrpProcessHandleOpen => self.process_handle_open_count += 1,
+
+            // Named pipe operations
+            IrpMajorOp::IrpNamedPipeCreate => {
+                self.pipe_create_count += 1;
+                if !rec.pipe_name.is_empty() {
+                    self.unique_paths_accessed.insert(rec.pipe_name.clone());
+                }
+            }
+            IrpMajorOp::IrpNamedPipeWrite => {
+                self.pipe_write_count += 1;
+                self.total_bytes_written += if rec.pipe_payload.is_empty() {
+                    rec.bytes_transferred
+                } else {
+                    rec.pipe_payload.len() as u64
+                };
+                if !rec.pipe_name.is_empty() {
+                    self.unique_paths_accessed.insert(rec.pipe_name.clone());
+                }
+            }
 
             // Hypervisor/VMM and user-mode hook events are tracked together.
             IrpMajorOp::IrpUserModeHookEvent

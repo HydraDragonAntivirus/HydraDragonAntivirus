@@ -1,0 +1,77 @@
+name: Publish Owlyshield Predict
+
+on:
+  push:
+    branches: ["**"]
+    paths:
+      - "Owlyshield/owlyshield_predict/**"
+      - "Owlyshield/owlyshield_predict/**/Cargo.toml"
+      - "Owlyshield/owlyshield_predict/**/Cargo.lock"
+      - ".github/workflows/publish-owlyshield-predict.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  publish:
+    runs-on: windows-2022
+    steps:
+      - name: Enable Git long paths
+        run: git config --global core.longpaths true
+
+      - uses: actions/checkout@v6
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install nasm
+        run: choco install nasm
+
+      - name: Update Cargo.lock
+        working-directory: Owlyshield/owlyshield_predict
+        run: cargo update
+
+      - name: Build Predict Service
+        working-directory: Owlyshield/owlyshield_predict
+        run: cargo build --release
+
+      - name: Stage Predict Files
+        shell: pwsh
+        run: |
+          $serviceDir = "hydradragon/Owlyshield/Owlyshield Service"
+          $modelsDir = "$serviceDir/models"
+          New-Item -ItemType Directory -Force -Path $serviceDir | Out-Null
+          New-Item -ItemType Directory -Force -Path $modelsDir | Out-Null
+
+          Copy-Item "Owlyshield/owlyshield_predict/target/release/owlyshield_ransom.exe" $serviceDir -Force
+          Copy-Item "Owlyshield/owlyshield_predict/moonfire-tflite/lib/tensorflowlite_c.dll" $serviceDir -Force
+          Copy-Item "Owlyshield/owlyshield_predict/models/*" $modelsDir -Force
+
+      - name: Check for Changes
+        id: check_changes
+        shell: pwsh
+        run: |
+          git add -A
+          if (git status --porcelain) {
+            "changed=true" >> $env:GITHUB_OUTPUT
+          } else {
+            "changed=false" >> $env:GITHUB_OUTPUT
+          }
+
+      - name: Create PR
+        if: steps.check_changes.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@v8
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "chore(owlyshield): update predict binaries"
+          title: "Update Owlyshield predict binaries"
+          body: "Automated predict service, model, and TensorFlow Lite DLL update."
+          branch: "auto-update-owlyshield-predict"
+          base: ${{ github.ref_name }}
+          delete-branch: true
+          labels: binaries, automated-pr, owlyshield
