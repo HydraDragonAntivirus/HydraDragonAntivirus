@@ -1,0 +1,437 @@
+- name: "HEUR:Win.ForcedRestart.MaliciousActions.gen"
+  should_trust_cloud: false
+  author: "Emirhan Ucan"
+  date: "2026-05-06"
+  status: stable
+  level: critical
+  severity: 100
+  description: |
+    Detects forced system restart or reboot behavior when it is paired with
+    destructive, persistence, screen-locker, or defense-evasion activity.
+    This catches malware that prepares the machine for lockout, disables
+    recovery or security tooling, then forces a reboot before the user can react.
+  debug: false
+
+  named_conditions:
+    forced_shutdown_restart:
+      orderless: true
+      created_processes:
+        - "shutdown.exe"
+      cmdline_patterns:
+        - pattern: '(?:^|\s)(?:/r|-r|/g|-g|/sg|-sg)(?:\s|$).*?(?:^|\s)(?:/f|-f)(?:\s|$)|(?:^|\s)(?:/f|-f)(?:\s|$).*?(?:^|\s)(?:/r|-r|/g|-g|/sg|-sg)(?:\s|$)'
+          is_regex: true
+        - pattern: '(?:^|\s)(?:/r|-r|/g|-g|/sg|-sg)(?:\s|$).*?(?:^|\s)(?:/t|-t)(?:\s+|:)?0(?:\s|$)|(?:^|\s)(?:/t|-t)(?:\s+|:)?0(?:\s|$).*?(?:^|\s)(?:/r|-r|/g|-g|/sg|-sg)(?:\s|$)'
+          is_regex: true
+      min_matches: 1
+
+    forced_powershell_restart:
+      orderless: true
+      created_processes:
+        - "powershell.exe"
+        - "pwsh.exe"
+      cmdline_patterns:
+        - pattern: '(?:restart-computer|shutdown)\b.*?(?:-force|/force)|(?:-force|/force).*?(?:restart-computer|shutdown)\b'
+          is_regex: true
+      min_matches: 1
+
+    wmic_reboot_call:
+      orderless: true
+      created_processes:
+        - "wmic.exe"
+      cmdline_patterns:
+        - pattern: '\bos\b.*?\bcall\b.*?\breboot\b|\breboot\b.*?\bcall\b'
+          is_regex: true
+      min_matches: 1
+
+    shutdown_api_restart:
+      orderless: true
+      apis:
+        - "user32.dll!ExitWindowsEx"
+        - "advapi32.dll!InitiateSystemShutdownA"
+        - "advapi32.dll!InitiateSystemShutdownW"
+        - "advapi32.dll!InitiateSystemShutdownExA"
+        - "advapi32.dll!InitiateSystemShutdownExW"
+        - "advapi32.dll!InitiateShutdownA"
+        - "advapi32.dll!InitiateShutdownW"
+        - "ntdll.dll!NtShutdownSystem"
+        - "ntdll.dll!ZwShutdownSystem"
+        - "ntdll.dll!NtRaiseHardError"
+        - "ntdll.dll!RtlAdjustPrivilege"
+      api_threshold: 1
+      min_matches: 1
+
+    recovery_boot_tamper:
+      orderless: true
+      created_processes:
+        - "bcdedit.exe"
+        - "reagentc.exe"
+      cmdline_patterns:
+        - pattern: '\b(?:safeboot|recoveryenabled|bootstatuspolicy|ignoreallfailures|bootems|ems|/disable)\b'
+          is_regex: true
+      min_matches: 1
+
+    shadow_copy_delete:
+      orderless: true
+      created_processes:
+        - "vssadmin.exe"
+        - "wmic.exe"
+        - "wbadmin.exe"
+        - "powershell.exe"
+        - "pwsh.exe"
+      cmdline_patterns:
+        - pattern: '\b(?:delete|remove-ciminstance|delete\(\))\b.*?\b(?:shadow|shadowcopy|catalog|win32_shadowcopy)\b|\b(?:shadow|shadowcopy|catalog|win32_shadowcopy)\b.*?\b(?:delete|remove-ciminstance|delete\(\))\b'
+          is_regex: true
+      min_matches: 1
+
+    defender_policy_disable:
+      orderless: true
+      created_processes:
+        - "powershell.exe"
+        - "pwsh.exe"
+        - "reg.exe"
+      cmdline_patterns:
+        - pattern: '(?:set-mppreference|add-mppreference|disableantispyware|disablerealtimemonitoring|disableioavprotection|disablebehaviormonitoring|exclusionpath|exclusionprocess|windows defender).*?(?:disable|true|1|add|exclusion)'
+          is_regex: true
+      min_matches: 1
+
+    security_service_stop:
+      orderless: true
+      created_processes:
+        - "sc.exe"
+        - "net.exe"
+        - "net1.exe"
+        - "taskkill.exe"
+        - "wmic.exe"
+      cmdline_patterns:
+        - pattern: '(?:stop|delete|config|taskkill|terminate|disabled).*?(?:windefend|securityhealthservice|sense|msmpeng|nissrv|sysmon|elastic-agent|csfalcon|crowdstrike|sentinelagent|carbonblack|cbdefense|sophos|savservice|avp|mbamservice)'
+          is_regex: true
+        - pattern: '(?:windefend|securityhealthservice|sense|msmpeng|nissrv|sysmon|elastic-agent|csfalcon|crowdstrike|sentinelagent|carbonblack|cbdefense|sophos|savservice|avp|mbamservice).*?(?:stop|delete|config|taskkill|terminate|disabled)'
+          is_regex: true
+      min_matches: 1
+
+    taskmgr_regedit_policy_disable:
+      orderless: true
+      registry_keys:
+        - "*software/microsoft/windows/currentversion/policies/system/*disabletaskmgr*"
+        - "*software/policies/microsoft/windows/system/*disabletaskmgr*"
+        - "*software/microsoft/windows/currentversion/policies/system/*disableregistrytools*"
+        - "*software/policies/microsoft/windows/system/*disablecmd*"
+      registry_operations:
+        - "reg_create_key"
+        - "reg_set_value"
+        - "reg_delete_value"
+        - "reg_delete_key"
+        - "reg_rename_key"
+      min_matches: 1
+
+    winlogon_shell_hijack:
+      orderless: true
+      registry_keys:
+        - "*software/microsoft/windows nt/currentversion/winlogon/*shell*"
+        - "*software/microsoft/windows nt/currentversion/winlogon/*userinit*"
+      registry_operations:
+        - "reg_create_key"
+        - "reg_set_value"
+        - "reg_delete_value"
+        - "reg_delete_key"
+        - "reg_rename_key"
+      min_matches: 1
+
+    autorun_persistence_hijack:
+      orderless: true
+      autorun_keys:
+        - "*software/microsoft/windows/currentversion/run/*"
+        - "*software/microsoft/windows/currentversion/runonce/*"
+        - "*software/microsoft/windows/currentversion/policies/explorer/run/*"
+        - "*software/microsoft/windows nt/currentversion/image file execution options/*"
+      registry_operations:
+        - "reg_create_key"
+        - "reg_set_value"
+      min_matches: 1
+
+    screen_locker_window_control:
+      orderless: true
+      apis:
+        - "user32.dll!BlockInput"
+        - "user32.dll!CreateDesktopA"
+        - "user32.dll!CreateDesktopW"
+        - "user32.dll!SwitchDesktop"
+        - "user32.dll!SetWindowPos"
+        - "user32.dll!SetForegroundWindow"
+        - "user32.dll!ShowWindow"
+        - "user32.dll!SetWindowsHookExA"
+        - "user32.dll!SetWindowsHookExW"
+        - "user32.dll!RegisterHotKey"
+        - "user32.dll!ClipCursor"
+      api_threshold: 1
+      min_matches: 2
+
+    extortion_lock_message:
+      orderless: true
+      cmdline_patterns:
+        - pattern: '(?:screen\s*locker|lock\s*screen|your\s+(?:computer|pc|screen)\s+is\s+locked|unlock\s+(?:code|key)|decrypt|bitcoin|monero|wallet|ransom)'
+          is_regex: true
+      min_matches: 1
+
+  detection_logic:
+    and:
+      - any_of:
+          - "forced_shutdown_restart"
+          - "forced_powershell_restart"
+          - "wmic_reboot_call"
+          - "shutdown_api_restart"
+      - any_of:
+          - "recovery_boot_tamper"
+          - "shadow_copy_delete"
+          - "defender_policy_disable"
+          - "security_service_stop"
+          - "taskmgr_regedit_policy_disable"
+          - "winlogon_shell_hijack"
+          - "autorun_persistence_hijack"
+          - "screen_locker_window_control"
+          - "extortion_lock_message"
+
+  response:
+    notify_user: true
+    terminate_process: true
+    quarantine: true
+    status_access_denied: true
+    auto_revert: true
+    record: true
+
+  tags:
+    - "forced-restart"
+    - "screen-locker"
+    - "defense-evasion"
+    - "impact"
+    - "persistence"
+    - "ransomware"
+    - "pre-reboot-detection"
+
+  mitre_attack:
+    - "T1529"
+    - "T1490"
+    - "T1562.001"
+    - "T1562.009"
+    - "T1547.001"
+    - "T1547.004"
+    - "T1112"
+    - "T1491"
+
+  false_positives:
+    - "IT recovery scripts may force reboot, but should not also disable recovery, security tools, or shell controls"
+    - "Kiosk software may use full-screen APIs, but should not combine them with persistence hijacks or tool lockout"
+
+- name: "HEUR:Win.ScreenLocker.Behavior.gen"
+  should_trust_cloud: false
+  author: "Emirhan Ucan"
+  date: "2026-05-06"
+  status: stable
+  level: critical
+  severity: 98
+  description: |
+    Detects screen-locker behavior by correlating lock-screen window control
+    APIs with shell/tool lockout, persistence, process killing, extortion
+    strings, or ransom-note style artifacts. Single full-screen API usage is
+    not enough; this rule requires combinations that are typical of lockers.
+  debug: false
+
+  named_conditions:
+    locker_window_control:
+      orderless: true
+      apis:
+        - "user32.dll!BlockInput"
+        - "user32.dll!CreateDesktopA"
+        - "user32.dll!CreateDesktopW"
+        - "user32.dll!OpenDesktopA"
+        - "user32.dll!OpenDesktopW"
+        - "user32.dll!SwitchDesktop"
+        - "user32.dll!SetWindowPos"
+        - "user32.dll!SetForegroundWindow"
+        - "user32.dll!ShowWindow"
+        - "user32.dll!SetWindowsHookExA"
+        - "user32.dll!SetWindowsHookExW"
+        - "user32.dll!RegisterHotKey"
+        - "user32.dll!ClipCursor"
+        - "user32.dll!SystemParametersInfoA"
+        - "user32.dll!SystemParametersInfoW"
+      api_threshold: 1
+      min_matches: 2
+
+    locker_process_identity:
+      orderless: true
+      process_names:
+        - "*locker*"
+        - "*lockscreen*"
+        - "*screenlock*"
+        - "*screen_lock*"
+        - "*ransom*"
+        - "*unlock*"
+      min_matches: 1
+
+    extortion_cmdline:
+      orderless: true
+      cmdline_patterns:
+        - pattern: '(?:screen\s*locker|lock\s*screen|your\s+(?:computer|pc|screen)\s+is\s+locked|unlock\s+(?:code|key)|decrypt|bitcoin|monero|wallet|ransom|payment)'
+          is_regex: true
+      min_matches: 1
+
+    shell_tool_process_kill:
+      orderless: true
+      created_processes:
+        - "taskkill.exe"
+        - "wmic.exe"
+      cmdline_patterns:
+        - pattern: '(?:taskmgr|explorer|regedit|cmd\.exe|powershell|pwsh|processhacker|procexp)'
+          is_regex: true
+      min_matches: 1
+
+    shell_tool_terminated:
+      orderless: true
+      terminated_processes:
+        - "taskmgr.exe"
+        - "explorer.exe"
+        - "regedit.exe"
+        - "cmd.exe"
+        - "powershell.exe"
+        - "pwsh.exe"
+        - "procexp.exe"
+        - "ProcessHacker.exe"
+      min_matches: 1
+
+    shell_lockdown_policy:
+      orderless: true
+      registry_keys:
+        - "*software/microsoft/windows/currentversion/policies/system/*disabletaskmgr*"
+        - "*software/policies/microsoft/windows/system/*disabletaskmgr*"
+        - "*software/microsoft/windows/currentversion/policies/system/*disableregistrytools*"
+        - "*software/policies/microsoft/windows/system/*disablecmd*"
+        - "*software/microsoft/windows/currentversion/policies/explorer/*disallowrun*"
+        - "*software/microsoft/windows/currentversion/policies/explorer/*norun*"
+      registry_operations:
+        - "reg_create_key"
+        - "reg_set_value"
+        - "reg_delete_value"
+        - "reg_delete_key"
+        - "reg_rename_key"
+      min_matches: 1
+
+    winlogon_shell_hijack:
+      orderless: true
+      registry_keys:
+        - "*software/microsoft/windows nt/currentversion/winlogon/*shell*"
+        - "*software/microsoft/windows nt/currentversion/winlogon/*userinit*"
+      registry_operations:
+        - "reg_create_key"
+        - "reg_set_value"
+        - "reg_delete_value"
+        - "reg_delete_key"
+        - "reg_rename_key"
+      min_matches: 1
+
+    locker_autorun_persistence:
+      orderless: true
+      autorun_keys:
+        - "*software/microsoft/windows/currentversion/run/*"
+        - "*software/microsoft/windows/currentversion/runonce/*"
+        - "*software/microsoft/windows/currentversion/policies/explorer/run/*"
+        - "*software/microsoft/windows nt/currentversion/image file execution options/taskmgr.exe/*"
+        - "*software/microsoft/windows nt/currentversion/image file execution options/regedit.exe/*"
+      registry_operations:
+        - "reg_create_key"
+        - "reg_set_value"
+      min_matches: 1
+
+    startup_folder_persistence:
+      orderless: true
+      file_paths:
+        - "*programdata/microsoft/windows/start menu/programs/startup/*"
+        - "*users/*/appdata/roaming/microsoft/windows/start menu/programs/startup/*"
+      file_operations:
+        - "create"
+        - "write"
+      min_matches: 1
+
+    ransom_note_or_locker_asset:
+      orderless: true
+      file_paths:
+        - "*desktop*/*unlock*"
+        - "*desktop*/*decrypt*"
+        - "*desktop*/*ransom*"
+        - "*desktop*/*readme*"
+        - "*documents*/*unlock*"
+        - "*documents*/*decrypt*"
+        - "*documents*/*ransom*"
+      file_extensions:
+        - ".txt"
+        - ".hta"
+        - ".html"
+        - ".htm"
+        - ".url"
+      file_operations:
+        - "create"
+        - "write"
+      min_matches: 1
+
+  detection_logic:
+    or:
+      - and:
+          - condition: "locker_window_control"
+          - any_of:
+              - "shell_lockdown_policy"
+              - "shell_tool_process_kill"
+              - "shell_tool_terminated"
+              - "winlogon_shell_hijack"
+              - "locker_autorun_persistence"
+              - "startup_folder_persistence"
+              - "ransom_note_or_locker_asset"
+              - "extortion_cmdline"
+      - and:
+          - condition: "extortion_cmdline"
+          - any_of:
+              - "shell_lockdown_policy"
+              - "shell_tool_process_kill"
+              - "shell_tool_terminated"
+              - "locker_autorun_persistence"
+              - "startup_folder_persistence"
+              - "ransom_note_or_locker_asset"
+      - at_least: 3
+        conditions:
+          - "locker_process_identity"
+          - "locker_window_control"
+          - "extortion_cmdline"
+          - "shell_lockdown_policy"
+          - "shell_tool_process_kill"
+          - "shell_tool_terminated"
+          - "winlogon_shell_hijack"
+          - "locker_autorun_persistence"
+          - "startup_folder_persistence"
+          - "ransom_note_or_locker_asset"
+
+  response:
+    notify_user: true
+    terminate_process: true
+    quarantine: true
+    status_access_denied: true
+    auto_revert: true
+    record: true
+
+  tags:
+    - "screen-locker"
+    - "ransomware"
+    - "impact"
+    - "persistence"
+    - "tool-lockout"
+    - "shell-hijack"
+
+  mitre_attack:
+    - "T1491"
+    - "T1112"
+    - "T1547.001"
+    - "T1547.004"
+    - "T1562.001"
+    - "T1489"
+
+  false_positives:
+    - "Legitimate kiosk/full-screen apps may use topmost or foreground APIs, but should not disable Task Manager or add persistence"
+    - "Administrative lockdown policies should come from trusted management tooling and not combine with extortion text or shell process killing"
