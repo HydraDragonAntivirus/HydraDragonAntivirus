@@ -9529,9 +9529,3 @@ def run_de4dot(file_path):
         logger.info(f"de4dot extraction succeeded for {input_dir} in sandbox DefaultBox")
     except subprocess.CalledProcessError as ex:
         logger.error(f"Failed to run de4dot on {input_dir} in sandbox DefaultBox: {ex}")
-
-
-# --- Helper Function ---
-def get_latest_clamav_def_time():
-    """ClamAV database state is owned by HydraDragonAV.exe."""
-    return "ClamAV managed by HydraDragonAV.exe"
