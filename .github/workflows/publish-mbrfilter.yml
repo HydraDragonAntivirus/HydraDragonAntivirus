@@ -39,7 +39,14 @@ jobs:
           Copy-Item "MBRFilter/x64/Win8Release/*.inf" "$dist/" -Force
           Copy-Item "MBRFilter/x64/Win8Release/*.cat" "$dist/" -Force
           
+      - name: Check for publishable changes
+        id: check_changes
+        uses: ./.github/actions/check-publishable-changes
+        with:
+          paths: |
+            hydradragon/MBRFilter
       - name: Create PR
+        if: steps.check_changes.outputs.changed == 'true'
         uses: peter-evans/create-pull-request@v8
         with:
           token: ${{ secrets.GITHUB_TOKEN }}

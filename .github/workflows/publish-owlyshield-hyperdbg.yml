@@ -61,17 +61,12 @@ jobs:
             }
           }
 
-      - name: Check for Changes
+      - name: Check for publishable changes
         id: check_changes
-        shell: pwsh
-        run: |
-          git add -A
-          if (git status --porcelain) {
-            "changed=true" >> $env:GITHUB_OUTPUT
-          } else {
-            "changed=false" >> $env:GITHUB_OUTPUT
-          }
-
+        uses: ./.github/actions/check-publishable-changes
+        with:
+          paths: |
+            hydradragon/Owlyshield/HyperDbg
       - name: Create PR
         if: steps.check_changes.outputs.changed == 'true'
         uses: peter-evans/create-pull-request@v8

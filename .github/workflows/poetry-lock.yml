@@ -47,8 +47,15 @@ jobs:
       - name: Validate lockfile
         run: poetry check --lock
 
+      - name: Check for publishable changes
+        id: check_changes
+        uses: ./.github/actions/check-publishable-changes
+        with:
+          paths: |
+            poetry.lock
+
       - name: Create pull request for lockfile changes
-        if: github.ref_name != github.event.repository.default_branch
+        if: github.ref_name != github.event.repository.default_branch && steps.check_changes.outputs.changed == 'true'
         uses: peter-evans/create-pull-request@v8
         with:
           commit-message: "Rebuild poetry.lock (auto)"

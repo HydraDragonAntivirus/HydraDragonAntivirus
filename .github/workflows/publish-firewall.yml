@@ -45,7 +45,14 @@ jobs:
           Copy-Item "HydraDragonFirewall/hydradragonfirewall/target/release/hydradragonfirewall.exe" "$dist/" -Force
           Copy-Item "HydraDragonFirewall/hydradragonfirewall/target/release/hydradragonfirewall.dll" "$dist/" -Force
           
+      - name: Check for publishable changes
+        id: check_changes
+        uses: ./.github/actions/check-publishable-changes
+        with:
+          paths: |
+            hydradragon/HydraDragonFirewall
       - name: Create PR
+        if: steps.check_changes.outputs.changed == 'true'
         uses: peter-evans/create-pull-request@v8
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
