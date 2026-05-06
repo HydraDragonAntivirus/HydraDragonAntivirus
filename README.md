@@ -47,6 +47,9 @@ Breaking changes, bugs, and incomplete features should be expected.
 
 - HydraDragon is a three-year independent open-source antivirus/EDR project built primarily by one developer.
 
+## TODO
+- Add HydraDragonIDE to project (static analyzer).
+
 ## Compatibility with PCs
 
 - **Platform Support**: This project is strictly for **x86-64 Windows** only. aarch64 and other architectures are not supported.
