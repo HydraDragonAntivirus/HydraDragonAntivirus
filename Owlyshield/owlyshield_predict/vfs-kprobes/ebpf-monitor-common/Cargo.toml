@@ -8,7 +8,7 @@ default = []
 user = ["aya"]
 
 [dependencies]
-aya = { git = "https://github.com/aya-rs/aya", optional = true }
+aya = { git = "https://github.com/aya-rs/aya", rev = "8015e100796c550804ccf8fea691c63ec1ac36b8", optional = true }
 bytemuck="1.13"
 
 [lib]

@@ -4,8 +4,8 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-aya-ebpf = { git = "https://github.com/aya-rs/aya" }
-aya-log-ebpf = { git = "https://github.com/aya-rs/aya" }
+aya-ebpf = { git = "https://github.com/aya-rs/aya", rev = "8015e100796c550804ccf8fea691c63ec1ac36b8" }
+aya-log-ebpf = { git = "https://github.com/aya-rs/aya", rev = "8015e100796c550804ccf8fea691c63ec1ac36b8" }
 ebpf-monitor-common = { path = "../ebpf-monitor-common" }
 
 [features]

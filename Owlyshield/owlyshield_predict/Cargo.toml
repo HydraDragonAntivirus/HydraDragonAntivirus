@@ -80,8 +80,8 @@ futures = "0.3"
 psutil = "3.2"
 bytemuck = "1.13"
 libc = "0.2"
-aya = { git = "https://github.com/aya-rs/aya", features = ["async_tokio"] }
-aya-log = { git = "https://github.com/aya-rs/aya" }
+aya = { git = "https://github.com/aya-rs/aya", rev = "8015e100796c550804ccf8fea691c63ec1ac36b8", features = ["async_tokio"] }
+aya-log = { git = "https://github.com/aya-rs/aya", rev = "8015e100796c550804ccf8fea691c63ec1ac36b8" }
 ebpf-monitor-common = { path = "./vfs-kprobes/ebpf-monitor-common", features = ["user"] }
 bytes = "1.11"
 anyhow = "1"
