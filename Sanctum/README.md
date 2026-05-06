@@ -181,7 +181,7 @@ Must be build in release mode to match the signing script - if you wanna build i
 
 Now to finish off, we want to move the binaries into the guest VM and run things!
 
-1) Move `um_engine.exe`, `elam_installer`, `app` (gui), `sanctum.sys`, and `sanctum_ppl_runner.exe` into `C:\Program Files\HydraDragonAntivirus\hydradragon\Sanctum`
+1) Move `um_engine.exe`, `elam_installer`, and `app` (gui) into `C:\Program Files\HydraDragonAntivirus\hydradragon\Sanctum`; move `sanctum.sys` and `sanctum_ppl_runner.exe` into `C:\Program Files\HydraDragonAntivirus\hydradragon\Sanctum\AppData`
 3) Move `sanctum.dll` into `C:\Windows\System32`
 4) In an admin powershell terminal:
    1) cd "C:\Program Files\HydraDragonAntivirus\hydradragon\Sanctum"
