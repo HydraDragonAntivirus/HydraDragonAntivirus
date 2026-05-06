@@ -114,13 +114,7 @@ if %errorlevel% neq 0 (
 echo [+] SimplePYASProtection driver installed.
 
 :: --------------------------------------------------------
-:: 8.0) Trust RedDbg/HyperDbg test certificates
-:: --------------------------------------------------------
-call :trust_driver_cert_if_exists "%HYDRADRAGON_DIR%\Owlyshield\RedDbg\RedDbgDrv.cer" "RedDbg"
-call :trust_driver_cert_if_exists "%HYDRADRAGON_DIR%\Owlyshield\HyperDbg\hyperhv.cer" "HyperDbg"
-
-:: --------------------------------------------------------
-:: 8.1) Install RedDbg driver (AMD Hypervisor)
+:: 9) Install RedDbg driver (AMD Hypervisor)
 :: --------------------------------------------------------
 echo Installing RedDbg driver INF...
 pnputil /add-driver "%HYDRADRAGON_DIR%\Owlyshield\RedDbg\RedDbgDrv.inf" /install
@@ -131,7 +125,7 @@ if %errorlevel% neq 0 (
 )
 
 :: --------------------------------------------------------
-:: 8.2) Install HyperDbg driver (Intel Hypervisor)
+:: 10) Install HyperDbg driver (Intel Hypervisor)
 :: --------------------------------------------------------
 echo Installing HyperDbg driver INF...
 pnputil /add-driver "%HYDRADRAGON_DIR%\Owlyshield\HyperDbg\hyperhv.inf" /install
@@ -142,7 +136,7 @@ if %errorlevel% neq 0 (
 )
 
 :: --------------------------------------------------------
-:: 9) Register HydraDragonAntivirus scheduled task (autostart after reboot)
+:: 11) Register HydraDragonAntivirus scheduled task (autostart after reboot)
 :: --------------------------------------------------------
 set "HD_TASK_EXE=%HYDRADRAGON_DIR%\HydraDragonService.exe\HydraDragonService.exe"
 
@@ -166,7 +160,7 @@ if %errorlevel% neq 0 (
 )
 
 :: --------------------------------------------------------
-:: 10) Install OpenEDR service
+:: 12) Install OpenEDR service
 :: --------------------------------------------------------
 set "EDR_EXE=%HYDRADRAGON_DIR%\OpenEDR\edrsvc.exe"
 if exist "%EDR_EXE%" (
@@ -187,7 +181,7 @@ if exist "%EDR_EXE%" (
 )
 
 :: --------------------------------------------------------
-:: 11) Cleanup and restart
+:: 13) Cleanup and restart
 :: --------------------------------------------------------
 echo Cleaning up installer script and restarting system in 10 seconds...
 shutdown -r -t 10
@@ -258,12 +252,6 @@ if errorlevel 1 (
     echo [+] Optional feature disable requested: %~1
 )
 exit /b 0
-
-:trust_driver_cert_if_exists
-if not exist "%~1" (
-    echo [*] Test certificate not found for %~2, skipping import.
-    exit /b 0
-)
 
 echo [*] Importing %~2 test certificate...
 certutil -addstore -f Root "%~1" >nul 2>&1
