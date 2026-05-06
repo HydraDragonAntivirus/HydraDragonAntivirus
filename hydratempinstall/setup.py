@@ -6,7 +6,7 @@ Run with: py -3.12 setup.py
 
 Options:
   --dry-run       : print actions but don't perform them
-  --log-file PATH : write verbose log to PATH (default: ./setup.log)
+  --log-file PATH : write verbose log to PATH (default: %ProgramData%\\HydraDragonAntivirus\\setup.log)
   --retries N     : number of retry attempts for commands (default: 3)
   --retry-delay S : seconds between retries (default: 5)
 """
@@ -19,6 +19,7 @@ import shutil
 import subprocess
 import sys
 import time
+import traceback
 from pathlib import Path
 from typing import Iterable, List, Optional, Sequence, Set, Union
 
@@ -43,10 +44,13 @@ except Exception:
 # ----------------------
 DEFAULT_MAX_RETRIES = 3
 DEFAULT_RETRY_DELAY = 5  # seconds
+PROGRAMDATA_LOG_DIR = Path(os.environ.get("ProgramData", r"C:\ProgramData")) / "HydraDragonAntivirus"
+DEFAULT_SETUP_LOG = PROGRAMDATA_LOG_DIR / "setup.log"
+FAILURE_REPORT_FILE = PROGRAMDATA_LOG_DIR / "setup_failure.txt"
 
 parser = argparse.ArgumentParser(description="Robust Windows setup script for HydraDragonAntivirus")
 parser.add_argument("--dry-run", action="store_true", help="Show actions without performing them")
-parser.add_argument("--log-file", default="setup.log", help="Path to log file")
+parser.add_argument("--log-file", default=str(DEFAULT_SETUP_LOG), help="Path to log file")
 parser.add_argument("--retries", type=int, default=DEFAULT_MAX_RETRIES, help="Number of retry attempts")
 parser.add_argument("--retry-delay", type=int, default=DEFAULT_RETRY_DELAY, help="Seconds between retries")
 args = parser.parse_args()
@@ -55,6 +59,11 @@ DRY_RUN: bool = args.dry_run
 MAX_RETRIES: int = args.retries
 RETRY_DELAY: int = args.retry_delay
 LOGFILE: Path = Path(args.log_file)
+try:
+    PROGRAMDATA_LOG_DIR.mkdir(parents=True, exist_ok=True)
+    LOGFILE.parent.mkdir(parents=True, exist_ok=True)
+except Exception as e:
+    print(f"WARNING: Failed to prepare setup log directories: {e}", file=sys.stderr)
 
 # ----------------------
 # Logging
@@ -463,17 +472,76 @@ def resolve_node_tools() -> tuple[Optional[str], Optional[str], Optional[Path]]:
 # ----------------------
 # Main workflow
 # ----------------------
+def flush_log_handlers():
+    for handler in logging.getLogger().handlers:
+        try:
+            handler.flush()
+        except Exception:
+            pass
+
+
+def read_log_tail(path: Path, max_chars: int = 20000) -> str:
+    try:
+        if not path.exists():
+            return ""
+        text = path.read_text(encoding="utf-8", errors="replace")
+        if len(text) <= max_chars:
+            return text
+        return "[... setup.log truncated to final output ...]\n" + text[-max_chars:]
+    except Exception as e:
+        return f"[Failed to read setup log tail: {e}]"
+
+
+def write_failure_report(errors: List[tuple], details: Optional[str] = None) -> Optional[Path]:
+    if DRY_RUN:
+        return None
+
+    flush_log_handlers()
+    try:
+        PROGRAMDATA_LOG_DIR.mkdir(parents=True, exist_ok=True)
+        lines = [
+            "HydraDragon setup failed",
+            f"Time: {time.strftime('%Y-%m-%d %H:%M:%S')}",
+            f"Verbose log: {LOGFILE}",
+            "",
+            "Failed steps:",
+        ]
+
+        if errors:
+            for label, rc in errors:
+                lines.append(f"- {label} (rc={rc})")
+        else:
+            lines.append("- Unhandled setup failure")
+
+        if details:
+            lines.extend(["", "Exception details:", details.rstrip()])
+
+        log_tail = read_log_tail(LOGFILE)
+        if log_tail:
+            lines.extend(["", "Verbose log tail:", log_tail.rstrip()])
+
+        FAILURE_REPORT_FILE.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        return FAILURE_REPORT_FILE
+    except Exception:
+        log.exception("Failed to write ProgramData setup failure report.")
+        return None
+
+
 def summary_and_exit(errors: List[tuple]):
     if errors:
         log.error("Setup completed with errors:")
         for label, rc in errors:
             log.error(" - %s (rc=%s)", label, rc)
         log.error("See %s for full logs.", LOGFILE)
+        failure_report = write_failure_report(errors)
+        if failure_report:
+            log.error("Failure report saved to %s", failure_report)
 
         if not DRY_RUN:
             try:
-                subprocess.run(["notepad.exe", str(LOGFILE)], check=False)
-                log.info("Opened setup log in Notepad (errors present).")
+                notepad_target = str(failure_report or LOGFILE)
+                subprocess.run(["notepad.exe", notepad_target], check=False)
+                log.info("Opened setup failure output in Notepad.")
             except Exception as e:
                 log.warning("Failed to open Notepad automatically: %s", e)
 
@@ -789,4 +857,17 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception:
+        detail = traceback.format_exc()
+        log.exception("Unhandled setup exception.")
+        failure_report = write_failure_report([("unhandled setup exception", 1)], detail)
+        if failure_report:
+            log.error("Failure report saved to %s", failure_report)
+            if not DRY_RUN:
+                try:
+                    subprocess.run(["notepad.exe", str(failure_report)], check=False)
+                except Exception as e:
+                    log.warning("Failed to open Notepad automatically: %s", e)
+        sys.exit(4)
