@@ -62,7 +62,7 @@ Source: "C:\Users\semae\OneDrive\Belgeler\HydraDragonAntivirus\*"; DestDir: "{ap
 Source: "C:\Users\semae\OneDrive\Belgeler\hydratempinstall\7z2601-x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\semae\OneDrive\Belgeler\hydratempinstall\VC_redist.x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\semae\OneDrive\Belgeler\hydratempinstall\clamav-1.5.2.win.x64.msi"; DestDir: "{tmp}"; Flags: deleteafterinstall
-Source: "C:\Users\semae\OneDrive\Belgeler\hydratempinstall\npcap-1.87.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
+Source: "C:\Users\semae\OneDrive\Belgeler\hydratempinstall\npcap-1.88.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\semae\OneDrive\Belgeler\hydratempinstall\Suricata-7.0.14-1-64bit.msi"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\semae\OneDrive\Belgeler\hydratempinstall\jre-8u491-windows-x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\semae\OneDrive\Belgeler\hydratempinstall\jdk-25_windows-x64_bin.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
@@ -153,7 +153,7 @@ Filename: "msiexec.exe"; Parameters: "/i ""{tmp}\openedr.msi"" /quiet /norestart
 Filename: "msiexec.exe"; Parameters: "/i ""{tmp}\node-v22.22.2-x64.msi"" /quiet /norestart INSTALLDIR=""{app}\nodejs"""; Flags: waituntilterminated
 
 ; Npcap install - user-interactive GUI mode
-Filename: "{tmp}\npcap-1.87.exe"; Parameters: "/winpcap_mode=yes"; Flags: shellexec waituntilterminated
+Filename: "{tmp}\npcap-1.88.exe"; Parameters: "/winpcap_mode=yes"; Flags: shellexec waituntilterminated
 
 ; Custom setup script
 Filename: "{app}\python\python.exe"; Parameters: """{tmp}\setup.py"""; Flags: waituntilterminated
