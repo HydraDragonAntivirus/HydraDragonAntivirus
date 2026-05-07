@@ -8,7 +8,7 @@
   description: |
     Detects real VMM/HyperDbg-origin callback activity reported by the kernel
     bridge. This rule is intended to surface hypervisor telemetry that was
-    previously only logged internally, so it can be reviewed in OwlyShield
+    previously only logged internally, so it can be reviewed in Owlyshield
     reports and firewall-side alert views.
   debug: false
 

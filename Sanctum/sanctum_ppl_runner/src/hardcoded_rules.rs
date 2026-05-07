@@ -234,9 +234,9 @@ pub const HYDRADRAGON_REGISTRY_PROTECTION_RULES: &str = r####"
 # =============================================================================
 
 # ---------------------------------------------------------------------------
-# OwlyShield antivirus service keys
+# Owlyshield antivirus service keys
 # ---------------------------------------------------------------------------
-HKLM\SOFTWARE\OwlyShield
+HKLM\SOFTWARE\Owlyshield
 HKLM\SYSTEM\CurrentControlSet\Services\owlyshield_ransom
 HKLM\SYSTEM\CurrentControlSet\Services\SimplePYASProtection
 HKLM\SYSTEM\CurrentControlSet\Services\RedDbg

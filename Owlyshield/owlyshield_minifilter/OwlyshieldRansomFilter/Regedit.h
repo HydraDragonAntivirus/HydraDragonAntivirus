@@ -6,7 +6,7 @@
 #define REG_TAG 'gkER'
 
 // Paths to protect
-#define REG_PROTECT_SUBPATH L"\\SOFTWARE\\OwlyShield"
+#define REG_PROTECT_SUBPATH L"\\SOFTWARE\\Owlyshield"
 #define REG_PROTECT_PYAS L"\\Services\\SimplePYASProtection"
 #define REG_PROTECT_OWLY L"\\Services\\owlyshield_ransom"
 #define REG_PROTECT_SANCTUM L"\\Services\\sanctum_ppl_runner"
@@ -18,17 +18,14 @@ NTSTATUS RegeditDriverEntry();
 NTSTATUS RegeditUnloadDriver();
 
 // Callback
-NTSTATUS RegistryCallback(
-    _In_ PVOID CallbackContext,
-    _In_ PVOID Argument1,
-    _In_ PVOID Argument2
-);
+NTSTATUS RegistryCallback(_In_ PVOID CallbackContext, _In_ PVOID Argument1, _In_ PVOID Argument2);
 
 // Worker item
-typedef struct _REGISTRY_ALERT_WORK_ITEM {
+typedef struct _REGISTRY_ALERT_WORK_ITEM
+{
     WORK_QUEUE_ITEM WorkItem;
     UNICODE_STRING RegPath;
     UNICODE_STRING AttackerPath;
     HANDLE AttackerPid;
     WCHAR Operation[64];
-} REGISTRY_ALERT_WORK_ITEM, * PREGISTRY_ALERT_WORK_ITEM;
+} REGISTRY_ALERT_WORK_ITEM, *PREGISTRY_ALERT_WORK_ITEM;

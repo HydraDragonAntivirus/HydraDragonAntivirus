@@ -762,7 +762,7 @@ enum AppView {
     Dashboard,
     Processes,
     Rules,
-    OwlyShield,
+    Owlyshield,
     Logs,
     PacketReader,
     HttpInspector,
@@ -1039,6 +1039,8 @@ pub fn App() -> impl IntoView {
     let (selected_process_pid, set_selected_process_pid) = create_signal(Option::<u32>::None);
     let (process_filter, set_process_filter) = create_signal("all".to_string());
     let (process_search, set_process_search) = create_signal(String::new());
+    let (is_dark, set_is_dark) = create_signal(true);
+
 
 
     let (sdk_rules, set_sdk_rules) = create_signal(Vec::<SdkRuleView>::new());
@@ -1200,7 +1202,7 @@ pub fn App() -> impl IntoView {
                     set_owlyshield_rules_status.set(format!("Save returned: {}", error_message));
                 }
                 _ => {
-                    set_owlyshield_rules_status.set("OwlyShield rule file saved.".to_string());
+                    set_owlyshield_rules_status.set("Owlyshield rule file saved.".to_string());
                 }
             }
         });
@@ -1249,9 +1251,9 @@ pub fn App() -> impl IntoView {
 
     let request_owlyshield_report = move || {
         let requested_at = js_sys::Date::now() as u64;
-        set_current_view.set(AppView::OwlyShield);
+        set_current_view.set(AppView::Owlyshield);
         set_owlyshield_report_status.set(
-            "Report generation requested. Refresh the report list after OwlyShield finishes writing the new report."
+            "Report generation requested. Refresh the report list after Owlyshield finishes writing the new report."
                 .to_string(),
         );
         set_logs.update(|entries| {
@@ -1347,6 +1349,18 @@ pub fn App() -> impl IntoView {
     let (last_activity_snapshot, set_last_activity_snapshot) =
         create_signal(ActivitySnapshot::default());
 
+    create_effect(move |_| {
+        if let Some(document) = web_sys::window().and_then(|w| w.document()) {
+            if let Some(body) = document.body() {
+                if is_dark.get() {
+                    let _ = body.class_list().remove_1("light-theme");
+                } else {
+                    let _ = body.class_list().add_1("light-theme");
+                }
+            }
+        }
+    });
+
     let activity_line_path = create_memo(move |_| build_activity_line_path(&graph_data.get()));
     let activity_fill_path = create_memo(move |_| build_activity_fill_path(&graph_data.get()));
     let current_activity_rate = create_memo(move |_| {
@@ -1389,7 +1403,7 @@ pub fn App() -> impl IntoView {
     create_effect(move |_| {
         match current_view.get() {
             AppView::Processes => { fetch_process_inventory(); }
-            AppView::Rules | AppView::OwlyShield => {
+            AppView::Rules | AppView::Owlyshield => {
                 fetch_sdk_rules();
                 fetch_rules_raw();
                 fetch_body_changers();
@@ -1414,19 +1428,19 @@ pub fn App() -> impl IntoView {
                                     }
                                     Err(_) => {
                                         set_owlyshield_rules_content.set(String::new());
-                                        set_owlyshield_rules_status.set("Failed to load the selected OwlyShield rule file.".to_string());
+                                        set_owlyshield_rules_status.set("Failed to load the selected Owlyshield rule file.".to_string());
                                     }
                                 }
                             } else {
                                 set_owlyshield_rules_content.set(String::new());
-                                set_owlyshield_rules_status.set("No YAML rule files were found in the OwlyShield rules directory.".to_string());
+                                set_owlyshield_rules_status.set("No YAML rule files were found in the Owlyshield rules directory.".to_string());
                             }
                         }
                         Err(_) => {
                             set_owlyshield_rule_files.set(Vec::new());
                             set_selected_owlyshield_rule_path.set(None);
                             set_owlyshield_rules_content.set(String::new());
-                            set_owlyshield_rules_status.set("Failed to enumerate the OwlyShield rules directory.".to_string());
+                            set_owlyshield_rules_status.set("Failed to enumerate the Owlyshield rules directory.".to_string());
                         }
                     }
                 });
@@ -1447,24 +1461,24 @@ pub fn App() -> impl IntoView {
                                     Ok(content) => {
                                         set_owlyshield_report_content.set(content);
                                         if owlyshield_report_status.get_untracked().starts_with("Report generation requested.") {
-                                            set_owlyshield_report_status.set("OwlyShield report list refreshed.".to_string());
+                                            set_owlyshield_report_status.set("Owlyshield report list refreshed.".to_string());
                                         }
                                     }
                                     Err(_) => {
                                         set_owlyshield_report_content.set(String::new());
-                                        set_owlyshield_report_status.set("Failed to load the selected OwlyShield report.".to_string());
+                                        set_owlyshield_report_status.set("Failed to load the selected Owlyshield report.".to_string());
                                     }
                                 }
                             } else {
                                 set_owlyshield_report_content.set(String::new());
-                                set_owlyshield_report_status.set("No OwlyShield reports were found in the reports directory.".to_string());
+                                set_owlyshield_report_status.set("No Owlyshield reports were found in the reports directory.".to_string());
                             }
                         }
                         Err(_) => {
                             set_owlyshield_report_files.set(Vec::new());
                             set_selected_owlyshield_report_path.set(None);
                             set_owlyshield_report_content.set(String::new());
-                            set_owlyshield_report_status.set("Failed to enumerate the OwlyShield reports directory.".to_string());
+                            set_owlyshield_report_status.set("Failed to enumerate the Owlyshield reports directory.".to_string());
                         }
                     }
                 });
@@ -1722,7 +1736,8 @@ pub fn App() -> impl IntoView {
             view! { <AlertWindow pending_app=pending_app set_pending_app=set_pending_app /> }.into_view()
         } else {
             view! {
-                <div class="app-container">
+                <div class={move || if is_dark.get() { "app-container" } else { "app-container light-theme" }}>
+
                     <aside>
                         <div class="logo-area">
                             <div class="logo-icon">
@@ -1766,9 +1781,9 @@ pub fn App() -> impl IntoView {
                                on:click=move |ev| { ev.prevent_default(); set_current_view.set(AppView::Rules); }>
                                <span class="nav-icon">"⬡"</span>"Protection Rules"
                             </a>
-                            <a href="#" class={move || if current_view.get() == AppView::OwlyShield { "nav-item active" } else { "nav-item" }}
-                               on:click=move |ev| { ev.prevent_default(); set_current_view.set(AppView::OwlyShield); }>
-                               <span class="nav-icon">"◈"</span>"OwlyShield"
+                            <a href="#" class={move || if current_view.get() == AppView::Owlyshield { "nav-item active" } else { "nav-item" }}
+                               on:click=move |ev| { ev.prevent_default(); set_current_view.set(AppView::Owlyshield); }>
+                               <span class="nav-icon">"◈"</span>"Owlyshield"
                             </a>
                             <a href="#" class={move || if current_view.get() == AppView::Exclusions { "nav-item active" } else { "nav-item" }}
                                on:click=move |ev| { ev.prevent_default(); set_current_view.set(AppView::Exclusions); }>
@@ -1780,20 +1795,17 @@ pub fn App() -> impl IntoView {
                             </a>
 
                         </nav>
-                        <div class="sidebar-status">
-                            <div class="sidebar-status-dot"></div>
-                            <span class="sidebar-status-text">"ENGINE ACTIVE"</span>
-                        </div>
                     </aside>
 
                     <main>
+
                         <header style="display: flex; justify-content: space-between; align-items: center">
                             <h2 style="margin: 0; font-weight: 800; font-size: 28px">
                                 {move || match current_view.get() {
                                     AppView::Dashboard => "Security Overview",
                                     AppView::Processes => "Process Explorer",
                                     AppView::Rules => "Protection Rules",
-                                    AppView::OwlyShield => "OwlyShield Manager",
+                                    AppView::Owlyshield => "Owlyshield Manager",
                                     AppView::Logs => "Network Activity",
                                     AppView::PacketReader => "Packet Inspection",
                                     AppView::HttpInspector => "HTTP Inspector",
@@ -1801,24 +1813,58 @@ pub fn App() -> impl IntoView {
                                     AppView::Settings => "System Settings",
                                 }}
                             </h2>
-                            <span style={move || if engine_active.get() { "color: var(--accent-green); font-weight: 600; font-size: 14px" } else { "color: var(--accent-yellow); font-weight: 600; font-size: 14px" }}>
-                                {move || if engine_active.get() { "● SYSTEM SECURE" } else { "○ INITIALIZING..." }}
-                            </span>
+                            <div style="display: flex; align-items: center; gap: 16px">
+                                <button
+                                    class="theme-toggle-btn"
+                                    on:click=move |_| set_is_dark.update(|v| *v = !*v)
+                                    title="Toggle Theme"
+                                >
+                                    {move || if is_dark.get() { "☼" } else { "☾" }}
+                                </button>
+                                <span style={move || if engine_active.get() { "color: var(--accent-green); font-weight: 600; font-size: 14px" } else { "color: var(--accent-yellow); font-weight: 600; font-size: 14px" }}>
+                                    {move || if engine_active.get() { "● SYSTEM SECURE" } else { "○ INITIALIZING..." }}
+                                </span>
+                            </div>
                         </header>
+
 
                         {move || match current_view.get() {
                             AppView::Dashboard => view! {
                                 <div class="dashboard-grid">
                                     <div class="dash-col-main">
-                                        <div class="glass-card status-card">
-                                            <div class="status-header">
-                                                <div>
-                                                    <h3>"System Status"</h3>
-                                                    <span class={move || if engine_active.get() { "status-badge secure" } else { "status-badge" }}>
-                                                        {move || if engine_active.get() { "SECURE" } else { "INITIALIZING" }}
-                                                    </span>
+                                        <div class="glass-card status-card hero-status-card">
+                                            <div class="status-hero">
+                                                <div class="status-hero-left">
+                                                    <div class="status-aura-container">
+                                                        <div class="status-aura"></div>
+                                                        <div class={move || if engine_active.get() { "status-shield-main secure" } else { "status-shield-main" }}>
+                                                            <div class="status-shield-inner">
+                                                                <span class="shield-check">
+                                                                    {move || if engine_active.get() { "✓" } else { "!" }}
+                                                                </span>
+                                                            </div>
+                                                        </div>
+                                                    </div>
                                                 </div>
-                                                <div class="pulse-indicator"></div>
+                                                <div class="status-hero-right">
+                                                    <h2 class="status-hero-title">
+                                                        {move || if engine_active.get() { "Your system is secure" } else { "System is initializing" }}
+                                                    </h2>
+                                                    <div class="status-hero-features">
+                                                        <div class="feature-item">
+                                                            <span class="dot">"●"</span>
+                                                            "Real-time monitoring active"
+                                                        </div>
+                                                        <div class="feature-item">
+                                                            <span class="dot">"●"</span>
+                                                            "Network rules enforced"
+                                                        </div>
+                                                        <div class="feature-item">
+                                                            <span class="dot">"●"</span>
+                                                            "Threat intelligence synchronized"
+                                                        </div>
+                                                    </div>
+                                                </div>
                                             </div>
                                              <div class="traffic-graph-container">
                                                 <svg width="100%" height="150" viewBox="0 0 600 150" class="traffic-svg">
@@ -1862,7 +1908,7 @@ pub fn App() -> impl IntoView {
                                          <div class="glass-card logs-section">
                                             <div class="section-header">
                                                 <h3 style="margin: 0; font-size: 16px; font-weight: 700">"Real-time Intelligence"</h3>
-                                                <span style={move || if engine_active.get() { "font-size: 12px; color: var(--accent-green)" } else { "font-size: 12px; color: var(--text-muted)" }}>
+                                                <span style={move || if engine_active.get() { "font-size: 12px; color: var(--accent-green)" } else { "font-size: 12px; color: var(--t-muted)" }}>
                                                     {move || engine_status.get()}
                                                 </span>
                                             </div>
@@ -2436,24 +2482,24 @@ pub fn App() -> impl IntoView {
                                                                     }
                                                                     Err(_) => {
                                                                         set_owlyshield_rules_content.set(String::new());
-                                                                        set_owlyshield_rules_status.set("Failed to load the selected OwlyShield rule file.".to_string());
+                                                                        set_owlyshield_rules_status.set("Failed to load the selected Owlyshield rule file.".to_string());
                                                                     }
                                                                 }
                                                             } else {
                                                                 set_owlyshield_rules_content.set(String::new());
-                                                                set_owlyshield_rules_status.set("No YAML rule files were found in the OwlyShield rules directory.".to_string());
+                                                                set_owlyshield_rules_status.set("No YAML rule files were found in the Owlyshield rules directory.".to_string());
                                                             }
                                                         }
                                                         Err(_) => {
                                                             set_owlyshield_rule_files.set(Vec::new());
                                                             set_selected_owlyshield_rule_path.set(None);
                                                             set_owlyshield_rules_content.set(String::new());
-                                                            set_owlyshield_rules_status.set("Failed to enumerate the OwlyShield rules directory.".to_string());
+                                                            set_owlyshield_rules_status.set("Failed to enumerate the Owlyshield rules directory.".to_string());
                                                         }
                                                     }
                                                 });
                                             }>
-                                            "OwlyShield Rules"
+                                            "Owlyshield Rules"
                                         </button>
                                         // save/validate buttons for YAML tabs
                                         {move || if show_editor.get() {
@@ -2485,7 +2531,7 @@ pub fn App() -> impl IntoView {
                                             <div style="display: flex; flex-direction: column; height: 100%; gap: 8px">
                                                 <div class="glass-card" style="padding: 12px 16px; font-size: 12px; color: var(--text-muted); display: flex; flex-direction: column; gap: 10px">
                                                     <div>
-                                                        "Editing OwlyShield behavioral rules — directory resolved from "
+                                                        "Editing Owlyshield behavioral rules — directory resolved from "
                                                         <code style="color: var(--accent-blue)">"SOFTWARE\\Owlyshield → RULES_PATH"</code>
                                                     </div>
                                                     <div style="display: flex; gap: 12px; align-items: end; flex-wrap: wrap">
@@ -2508,7 +2554,7 @@ pub fn App() -> impl IntoView {
                                                                             }
                                                                             Err(_) => {
                                                                                 set_owlyshield_rules_content.set(String::new());
-                                                                                set_owlyshield_rules_status.set("Failed to load the selected OwlyShield rule file.".to_string());
+                                                                                set_owlyshield_rules_status.set("Failed to load the selected Owlyshield rule file.".to_string());
                                                                             }
                                                                         }
                                                                     });
@@ -2544,19 +2590,19 @@ pub fn App() -> impl IntoView {
                                                                                 }
                                                                                 Err(_) => {
                                                                                     set_owlyshield_rules_content.set(String::new());
-                                                                                    set_owlyshield_rules_status.set("Failed to load the selected OwlyShield rule file.".to_string());
+                                                                                    set_owlyshield_rules_status.set("Failed to load the selected Owlyshield rule file.".to_string());
                                                                                 }
                                                                             }
                                                                         } else {
                                                                             set_owlyshield_rules_content.set(String::new());
-                                                                            set_owlyshield_rules_status.set("No YAML rule files were found in the OwlyShield rules directory.".to_string());
+                                                                            set_owlyshield_rules_status.set("No YAML rule files were found in the Owlyshield rules directory.".to_string());
                                                                         }
                                                                     }
                                                                     Err(_) => {
                                                                         set_owlyshield_rule_files.set(Vec::new());
                                                                         set_selected_owlyshield_rule_path.set(None);
                                                                         set_owlyshield_rules_content.set(String::new());
-                                                                        set_owlyshield_rules_status.set("Failed to enumerate the OwlyShield rules directory.".to_string());
+                                                                        set_owlyshield_rules_status.set("Failed to enumerate the Owlyshield rules directory.".to_string());
                                                                     }
                                                                 }
                                                             });
@@ -2803,15 +2849,15 @@ pub fn App() -> impl IntoView {
                                 </div>
                             }.into_view(),
 
-                            AppView::OwlyShield => view! {
+                            AppView::Owlyshield => view! {
                                 <div style="height: calc(100vh - 120px); display: flex; gap: 16px; min-height: 0;">
                                     <div style="width: 360px; min-width: 320px; display: flex; flex-direction: column; gap: 14px; min-height: 0; overflow-y: auto; padding-right: 4px;">
                                         <div class="glass-card" style="padding: 18px; display: flex; flex-direction: column; gap: 12px;">
                                             <div class="section-header" style="padding: 0; border: none;">
-                                                <h3 style="margin: 0;">"OwlyShield Report Manager"</h3>
+                                                <h3 style="margin: 0;">"Owlyshield Report Manager"</h3>
                                             </div>
                                             <p style="margin: 0; color: var(--text-muted); font-size: 12px; line-height: 1.55;">
-                                                "Advanced reports are requested from the firewall GUI, but generation is handled by the OwlyShield backend."
+                                                "Advanced reports are requested from the firewall GUI, but generation is handled by the Owlyshield backend."
                                             </p>
                                             <button class="btn-primary" style="width: 100%;" on:click=move |_| request_owlyshield_report()>
                                                 "Generate Advanced Report"
@@ -2835,7 +2881,7 @@ pub fn App() -> impl IntoView {
                                                 <h3 style="margin: 0;">"Prompt & Decode Defaults"</h3>
                                             </div>
                                             <p style="margin: 0; color: var(--text-muted); font-size: 12px; line-height: 1.55;">
-                                                "OwlyShield now treats `ask_user: true` rules as deny-while-asking by default. Keep `suspend_while_ask: true` only on rules where you want the process paused."
+                                                "Owlyshield now treats `ask_user: true` rules as deny-while-asking by default. Keep `suspend_while_ask: true` only on rules where you want the process paused."
                                             </p>
                                             <div style="font-size: 12px; line-height: 1.6; color: var(--text-muted);">
                                                 <div>"Decoded match sources: plain, base64, base58, hex, reverse"</div>
@@ -2873,23 +2919,23 @@ pub fn App() -> impl IntoView {
                                                                         match serde_wasm_bindgen::from_value::<String>(raw) {
                                                                             Ok(content) => {
                                                                                 set_owlyshield_report_content.set(content);
-                                                                                set_owlyshield_report_status.set("OwlyShield report list refreshed.".to_string());
+                                                                                set_owlyshield_report_status.set("Owlyshield report list refreshed.".to_string());
                                                                             }
                                                                             Err(_) => {
                                                                                 set_owlyshield_report_content.set(String::new());
-                                                                                set_owlyshield_report_status.set("Failed to load the selected OwlyShield report.".to_string());
+                                                                                set_owlyshield_report_status.set("Failed to load the selected Owlyshield report.".to_string());
                                                                             }
                                                                         }
                                                                     } else {
                                                                         set_owlyshield_report_content.set(String::new());
-                                                                        set_owlyshield_report_status.set("No OwlyShield reports were found in the reports directory.".to_string());
+                                                                        set_owlyshield_report_status.set("No Owlyshield reports were found in the reports directory.".to_string());
                                                                     }
                                                                 }
                                                                 Err(_) => {
                                                                     set_owlyshield_report_files.set(Vec::new());
                                                                     set_selected_owlyshield_report_path.set(None);
                                                                     set_owlyshield_report_content.set(String::new());
-                                                                    set_owlyshield_report_status.set("Failed to enumerate the OwlyShield reports directory.".to_string());
+                                                                    set_owlyshield_report_status.set("Failed to enumerate the Owlyshield reports directory.".to_string());
                                                                 }
                                                             }
                                                         });
@@ -2948,7 +2994,7 @@ pub fn App() -> impl IntoView {
                                                                                 }
                                                                                 Err(_) => {
                                                                                     set_owlyshield_report_content.set(String::new());
-                                                                                    set_owlyshield_report_status.set("Failed to load the selected OwlyShield report.".to_string());
+                                                                                    set_owlyshield_report_status.set("Failed to load the selected Owlyshield report.".to_string());
                                                                                 }
                                                                             }
                                                                         });
@@ -2983,7 +3029,7 @@ pub fn App() -> impl IntoView {
                                                     {move || if owlyshield_report_content.get().trim().is_empty() {
                                                         view! {
                                                             <div style="padding: 14px; border-radius: 8px; background: rgba(15, 23, 42, 0.35); color: var(--text-muted); font-size: 12px;">
-                                                                "Select a generated report to inspect the full OwlyShield output."
+                                                                "Select a generated report to inspect the full Owlyshield output."
                                                             </div>
                                                         }.into_view()
                                                     } else {
@@ -3035,11 +3081,11 @@ pub fn App() -> impl IntoView {
 
                                             <div class="glass-card" style="flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0;">
                                                 <div class="section-header">
-                                                    <h3 style="margin: 0;">"OwlyShield Activity"</h3>
+                                                    <h3 style="margin: 0;">"Owlyshield Activity"</h3>
                                                 </div>
                                                 <div style="padding: 14px; display: flex; flex-direction: column; gap: 10px; min-height: 0; overflow: hidden;">
                                                     <p style="margin: 0; color: var(--text-muted); font-size: 12px; line-height: 1.55;">
-                                                        "Recent OwlyShield-specific backend events collected by the firewall UI."
+                                                        "Recent Owlyshield-specific backend events collected by the firewall UI."
                                                     </p>
                                                     <div style="display: flex; flex-direction: column; gap: 8px; overflow-y: auto; min-height: 0; padding-right: 4px;">
                                                         <For
@@ -3055,7 +3101,7 @@ pub fn App() -> impl IntoView {
                                                         {move || if owlyshield_activity_logs.get().is_empty() {
                                                             view! {
                                                                 <div style="padding: 12px; border-radius: 8px; background: rgba(15, 23, 42, 0.35); color: var(--text-muted); font-size: 12px;">
-                                                                    "No OwlyShield-specific activity has been logged yet."
+                                                                    "No Owlyshield-specific activity has been logged yet."
                                                                 </div>
                                                             }.into_view()
                                                         } else {
