@@ -348,7 +348,7 @@ jobs:
             & $Command @Arguments
             if ($LASTEXITCODE -ne 0) {
               $argText = $Arguments -join " "
-              throw "Command failed with exit code $LASTEXITCODE: $Command $argText"
+              throw "Command failed with exit code ${LASTEXITCODE}: $Command $argText"
             }
           }
 
@@ -358,7 +358,7 @@ jobs:
 
             $metadataJson = & cargo metadata --format-version 1
             if ($LASTEXITCODE -ne 0) {
-              throw "Command failed with exit code $LASTEXITCODE: cargo metadata --format-version 1"
+              throw "Command failed with exit code ${LASTEXITCODE}: cargo metadata --format-version 1"
             }
 
             $metadata = $metadataJson | ConvertFrom-Json
@@ -405,7 +405,7 @@ jobs:
           Write-Host "`n=== Step 4: Extracting To-Be-Signed Hash ==="
           $certOutput = & certmgr.exe -v $driverPackagePath
           if ($LASTEXITCODE -ne 0) {
-            throw "Command failed with exit code $LASTEXITCODE: certmgr.exe -v $driverPackagePath"
+            throw "Command failed with exit code ${LASTEXITCODE}: certmgr.exe -v $driverPackagePath"
           }
           $hashLines = $certOutput | Select-String -Pattern "Content Hash \(To-Be-Signed Hash\)::" -Context 0,3
           
