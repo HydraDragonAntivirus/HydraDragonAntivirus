@@ -47,6 +47,10 @@ DEFAULT_RETRY_DELAY = 5  # seconds
 PROGRAMDATA_LOG_DIR = Path(os.environ.get("ProgramData", r"C:\ProgramData")) / "HydraDragonAntivirus"
 DEFAULT_SETUP_LOG = PROGRAMDATA_LOG_DIR / "setup.log"
 FAILURE_REPORT_FILE = PROGRAMDATA_LOG_DIR / "setup_failure.txt"
+FRESHCLAM_SAFE_TO_IGNORE_MESSAGE = (
+    "You can safely ignore this freshclam error during setup; "
+    "HydraDragonAV will update the antivirus definitions itself after installation."
+)
 
 parser = argparse.ArgumentParser(description="Robust Windows setup script for HydraDragonAntivirus")
 parser.add_argument("--dry-run", action="store_true", help="Show actions without performing them")
@@ -638,13 +642,16 @@ def main():
             rc = run_cmd([str(freshclam)], "ClamAV virus definitions update", retries=MAX_RETRIES, retry_delay=RETRY_DELAY, always_log_output=True)
 
             if rc != 0:
-                log.warning("freshclam returned rc=%d", rc)
-                errors.append(("freshclam", rc))
+                log.warning(
+                    "freshclam returned rc=%d. %s Continuing setup.",
+                    rc,
+                    FRESHCLAM_SAFE_TO_IGNORE_MESSAGE,
+                )
         finally:
             os.chdir(original_cwd)
             log.info(f"Restored directory to: {original_cwd}")
     else:
-        log.warning("freshclam.exe not found at %s", freshclam)
+        log.warning("freshclam.exe not found at %s. %s", freshclam, FRESHCLAM_SAFE_TO_IGNORE_MESSAGE)
 
     # ------------------------------
     # Hayabusa Rules Update
