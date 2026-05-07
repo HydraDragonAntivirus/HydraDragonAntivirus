@@ -607,10 +607,9 @@ jobs:
           $reddbgDrv | Copy-Item -Destination "Owlyshield/RedDbg/RedDbg/x64/ReleaseX64Kernel/" -Force
 
           # --- Dumper ---
-          $dumper = Get-ChildItem "bin-megadumper/" -Filter "*" -Recurse
-          $dumper | Copy-Item -Destination "$distRoot/HydraDragonDumper/" -Force
-          New-Item -ItemType Directory -Force -Path "MegaDumper/MegaDumper/bin/Release/net8.0"
-          $dumper | Copy-Item -Destination "MegaDumper/MegaDumper/bin/Release/net8.0/" -Force
+          $dumperRoot = Get-PublishRoot -ArtifactDir "bin-megadumper" -RequiredFile "MegaDumper.exe"
+          Sync-PublishTree -Source $dumperRoot -Destination "$distRoot/HydraDragonDumper"
+          Sync-PublishTree -Source $dumperRoot -Destination "MegaDumper/MegaDumper/bin/Release/net8.0"
           if (Test-Path "$distRoot/HydraDragonDumper/MegaDumper.exe") {
             Move-Item "$distRoot/HydraDragonDumper/MegaDumper.exe" "$distRoot/HydraDragonDumper/HydraDragonDumper.exe" -Force
           }

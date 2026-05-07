@@ -30,8 +30,27 @@ jobs:
         shell: pwsh
         run: |
           $dist = "hydradragon/HydraDragonDumper"
-          New-Item -ItemType Directory -Force -Path $dist
-          Copy-Item "artifacts/*" "$dist/" -Recurse -Force
+
+          function Sync-PublishTree {
+            param(
+              [Parameter(Mandatory = $true)][string]$Source,
+              [Parameter(Mandatory = $true)][string]$Destination
+            )
+
+            if (-not (Test-Path -LiteralPath $Source -PathType Container)) {
+              throw "Missing publish source: $Source"
+            }
+
+            if (Test-Path -LiteralPath $Destination) {
+              Remove-Item -LiteralPath $Destination -Recurse -Force
+            }
+
+            New-Item -ItemType Directory -Force -Path $Destination | Out-Null
+            Get-ChildItem -LiteralPath $Source -Force |
+              Copy-Item -Destination $Destination -Recurse -Force
+          }
+
+          Sync-PublishTree -Source "artifacts" -Destination $dist
           if (Test-Path "$dist/MegaDumper.exe") {
             Move-Item "$dist/MegaDumper.exe" "$dist/HydraDragonDumper.exe" -Force
           }
