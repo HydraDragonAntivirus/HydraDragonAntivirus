@@ -5,11 +5,15 @@ on:
     branches: ["**"]
     paths:
       - 'hydradragon/**'
+      - '.flake8'
+      - 'pyproject.toml'
       - '.github/workflows/python-lint.yml'
   pull_request:
     branches: ["**"]
     paths:
       - 'hydradragon/**'
+      - '.flake8'
+      - 'pyproject.toml'
       - '.github/workflows/python-lint.yml'
   workflow_dispatch:
 

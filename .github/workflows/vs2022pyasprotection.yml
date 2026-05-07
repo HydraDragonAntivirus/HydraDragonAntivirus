@@ -4,8 +4,14 @@ on:
   push:
     branches: ["**"]
     tags: ["v*"]
+    paths:
+      - 'PYAS_Protection/**'
+      - '.github/workflows/vs2022pyasprotection.yml'
   pull_request:
     branches: ["**"]
+    paths:
+      - 'PYAS_Protection/**'
+      - '.github/workflows/vs2022pyasprotection.yml'
   workflow_dispatch:
 env:
   # WDK for Windows 11, version 25H2

@@ -13,6 +13,7 @@ on:
       - "**"
     paths:
       - "pyproject.toml"
+      - ".github/workflows/poetry-lock.yml"
 
 jobs:
   rebuild-lock:

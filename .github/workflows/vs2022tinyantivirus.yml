@@ -4,8 +4,14 @@ on:
   push:
     branches: ["**"]
     tags: ["v*"]
+    paths:
+      - 'TinyAntivirus/**'
+      - '.github/workflows/vs2022tinyantivirus.yml'
   pull_request:
     branches: ["**"]
+    paths:
+      - 'TinyAntivirus/**'
+      - '.github/workflows/vs2022tinyantivirus.yml'
   workflow_dispatch:
 
 env:

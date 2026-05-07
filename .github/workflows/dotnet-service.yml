@@ -3,8 +3,14 @@ name: dotnet-hydradragonservice-ci
 on:
   push:
     branches: ["**"]
+    paths:
+      - 'HydraDragonService/**'
+      - '.github/workflows/dotnet-service.yml'
   pull_request:
     branches: ["**"]
+    paths:
+      - 'HydraDragonService/**'
+      - '.github/workflows/dotnet-service.yml'
   workflow_dispatch:
 
 permissions:

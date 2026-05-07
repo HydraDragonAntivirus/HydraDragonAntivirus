@@ -4,8 +4,14 @@ on:
   push:
     branches: ["**"]
     tags: ["v*"]
+    paths:
+      - 'MBRFilter/**'
+      - '.github/workflows/vs2022mbrfilter.yml'
   pull_request:
     branches: ["**"]
+    paths:
+      - 'MBRFilter/**'
+      - '.github/workflows/vs2022mbrfilter.yml'
   workflow_dispatch:
 env:
   # WDK for Windows 11, version 25H2

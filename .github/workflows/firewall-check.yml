@@ -4,8 +4,14 @@ on:
   push:
     branches: [ "**" ]
     tags: [ "v*" ]
+    paths:
+      - 'HydraDragonFirewall/**'
+      - '.github/workflows/firewall-check.yml'
   pull_request:
     branches: [ "**" ]
+    paths:
+      - 'HydraDragonFirewall/**'
+      - '.github/workflows/firewall-check.yml'
   workflow_dispatch:
     inputs:
       update_lockfiles:

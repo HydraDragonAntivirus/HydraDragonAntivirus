@@ -3,8 +3,14 @@ name: Owlyshield Full Features Windows
 on:
   push:
     branches: [ "**" ]
+    paths:
+      - 'Owlyshield/owlyshield_predict/**'
+      - '.github/workflows/owlyshield-full-features-windows.yml'
   pull_request:
     branches: [ "**" ]
+    paths:
+      - 'Owlyshield/owlyshield_predict/**'
+      - '.github/workflows/owlyshield-full-features-windows.yml'
   workflow_dispatch:
 
 env:

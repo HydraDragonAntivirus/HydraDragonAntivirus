@@ -4,8 +4,14 @@ on:
   push:
     branches: ["**"]
     tags: ["v*"]
+    paths:
+      - 'Owlyshield/HyperDbg/**'
+      - '.github/workflows/vs2022hyperdbg.yml'
   pull_request:
     branches: ["**"]
+    paths:
+      - 'Owlyshield/HyperDbg/**'
+      - '.github/workflows/vs2022hyperdbg.yml'
   workflow_dispatch:
 env:
   # WDK for Windows 11, version 25H2

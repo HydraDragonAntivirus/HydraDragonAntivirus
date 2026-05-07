@@ -3,8 +3,14 @@ name: dotnet-hydradragonlauncher-ci
 on:
   push:
     branches: ["**"]
+    paths:
+      - 'HydraDragonLauncher/**'
+      - '.github/workflows/dotnet-launcher.yml'
   pull_request:
     branches: ["**"]
+    paths:
+      - 'HydraDragonLauncher/**'
+      - '.github/workflows/dotnet-launcher.yml'
   workflow_dispatch:
 
 permissions:
