@@ -66,4 +66,6 @@ jobs:
       uses: actions/upload-artifact@v7
       with:
         name: owlyshield_release_binaries
-        path: ${{ env.BUILD_BIN_DIR }}/${{ matrix.BUILD_CONFIGURATION }}
+        path: |
+          ${{ env.BUILD_BIN_DIR }}/${{ matrix.BUILD_CONFIGURATION }}/**
+          !${{ env.BUILD_BIN_DIR }}/${{ matrix.BUILD_CONFIGURATION }}/**/*.cer

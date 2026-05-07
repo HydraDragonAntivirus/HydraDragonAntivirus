@@ -59,5 +59,7 @@ jobs:
       with:
         name: tinyantivirus_release_binaries_${{matrix.PLATFORM}}
         path: |
-          ./TinyAntivirus/x64/${{matrix.BUILD_CONFIGURATION}}/
-          ./TinyAntivirus/${{matrix.BUILD_CONFIGURATION}}/
+          ./TinyAntivirus/x64/${{matrix.BUILD_CONFIGURATION}}/**
+          !./TinyAntivirus/x64/${{matrix.BUILD_CONFIGURATION}}/**/*.cer
+          ./TinyAntivirus/${{matrix.BUILD_CONFIGURATION}}/**
+          !./TinyAntivirus/${{matrix.BUILD_CONFIGURATION}}/**/*.cer

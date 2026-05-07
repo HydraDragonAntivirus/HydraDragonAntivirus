@@ -89,9 +89,9 @@ jobs:
         with:
           name: bin-mbrfilter
           path: |
-            MBRFilter/x64/Win8Release/*.sys
-            MBRFilter/x64/Win8Release/*.inf
-            MBRFilter/x64/Win8Release/*.cat
+            MBRFilter/x64/Win8Release/MBRFilter/*.sys
+            MBRFilter/x64/Win8Release/MBRFilter/*.inf
+            MBRFilter/x64/Win8Release/MBRFilter/*.cat
 
   build-pyasprotection:
     runs-on: windows-2022
@@ -116,9 +116,9 @@ jobs:
         with:
           name: bin-pyasprotection
           path: |
-            PYAS_Protection/x64/Release/SimplePYASProtection.sys
-            PYAS_Protection/x64/Release/SimplePYASProtection.inf
-            PYAS_Protection/x64/Release/SimplePYASProtection.cat
+            PYAS_Protection/x64/Release/SimplePYASProtection/*.sys
+            PYAS_Protection/x64/Release/SimplePYASProtection/*.inf
+            PYAS_Protection/x64/Release/SimplePYASProtection/*.cat
 
   build-owlyshield-minifilter:
     runs-on: windows-2022
@@ -143,9 +143,9 @@ jobs:
         with:
           name: bin-owlyshield-minifilter
           path: |
-            Owlyshield/owlyshield_minifilter/x64/Release/*.sys
-            Owlyshield/owlyshield_minifilter/x64/Release/*.inf
-            Owlyshield/owlyshield_minifilter/x64/Release/*.cat
+            Owlyshield/owlyshield_minifilter/x64/Release/OwlyshieldRansomFilter/*.sys
+            Owlyshield/owlyshield_minifilter/x64/Release/OwlyshieldRansomFilter/*.inf
+            Owlyshield/owlyshield_minifilter/x64/Release/OwlyshieldRansomFilter/*.cat
 
   build-reddbg:
     runs-on: windows-2022
@@ -164,9 +164,9 @@ jobs:
         with:
           name: bin-reddbg
           path: |
-            Owlyshield/RedDbg/RedDbg/x64/ReleaseX64Kernel/*.sys
-            Owlyshield/RedDbg/RedDbg/x64/ReleaseX64Kernel/*.inf
-            Owlyshield/RedDbg/RedDbg/x64/ReleaseX64Kernel/*.cat
+            Owlyshield/RedDbg/RedDbg/x64/ReleaseX64Kernel/RedDbgDrv/*.sys
+            Owlyshield/RedDbg/RedDbg/x64/ReleaseX64Kernel/RedDbgDrv/*.inf
+            Owlyshield/RedDbg/RedDbg/x64/ReleaseX64Kernel/RedDbgDrv/*.cat
 
   # --- GROUP 2: Dotnet Projects (Separated) ---
 
@@ -181,12 +181,12 @@ jobs:
         with:
           dotnet-version: '8.0.x'
       - name: Publish MegaDumper
-        run: dotnet publish MegaDumper/MegaDumper/MegaDumper.csproj -c Release -r win-x64 --self-contained false -o artifacts/
+        run: dotnet publish MegaDumper/MegaDumper/MegaDumper.csproj -c Release -r win-x64 --self-contained false -o publish/
       - name: Upload
         uses: actions/upload-artifact@v7
         with:
           name: bin-megadumper
-          path: artifacts/
+          path: publish/
 
   build-launcher:
     runs-on: windows-2022
@@ -199,12 +199,12 @@ jobs:
         with:
           dotnet-version: '8.0.x'
       - name: Publish Launcher
-        run: dotnet publish HydraDragonLauncher/HydraDragonLauncher/HydraDragonLauncher.csproj -c Release -r win-x64 --self-contained false -o artifacts/
+        run: dotnet publish HydraDragonLauncher/HydraDragonLauncher/HydraDragonLauncher.csproj -c Release -r win-x64 --self-contained false -o publish/
       - name: Upload
         uses: actions/upload-artifact@v7
         with:
           name: bin-launcher
-          path: artifacts/
+          path: publish/
 
   build-service:
     runs-on: windows-2022
@@ -217,12 +217,12 @@ jobs:
         with:
           dotnet-version: '8.0.x'
       - name: Publish Service
-        run: dotnet publish HydraDragonService/HydraDragonService/HydraDragonService.csproj -c Release -r win-x64 --self-contained false -o artifacts/
+        run: dotnet publish HydraDragonService/HydraDragonService/HydraDragonService.csproj -c Release -r win-x64 --self-contained false -o publish/
       - name: Upload
         uses: actions/upload-artifact@v7
         with:
           name: bin-service
-          path: artifacts/
+          path: publish/
 
   # --- GROUP 3: Rust Projects (Separated) ---
 
@@ -582,22 +582,22 @@ jobs:
           $av | Copy-Item -Destination "HydraDragonAV/x64/Release/" -Force
 
           # --- MBRFilter ---
-          $mbr = Get-ChildItem "bin-mbrfilter/" -Filter "*" -Recurse
+          $mbr = Get-ChildItem "bin-mbrfilter/" -Filter "*" -Recurse -File | Where-Object { $_.Extension -ne ".cer" }
           $mbr | Copy-Item -Destination "$distRoot/MBRFilter/" -Force
-          New-Item -ItemType Directory -Force -Path "MBRFilter/x64/Release"
-          $mbr | Copy-Item -Destination "MBRFilter/x64/Release/" -Force
+          New-Item -ItemType Directory -Force -Path "MBRFilter/x64/Win8Release/MBRFilter"
+          $mbr | Copy-Item -Destination "MBRFilter/x64/Win8Release/MBRFilter/" -Force
 
           # --- SimplePYASProtection ---
-          $pyas = Get-ChildItem "bin-pyasprotection/" -Filter "*" -Recurse
+          $pyas = Get-ChildItem "bin-pyasprotection/" -Filter "*" -Recurse -File | Where-Object { $_.Extension -ne ".cer" }
           $pyas | Copy-Item -Destination "$distRoot/SimplePYASProtection/" -Force
-          New-Item -ItemType Directory -Force -Path "PYAS_Protection/x64/Release"
-          $pyas | Copy-Item -Destination "PYAS_Protection/x64/Release/" -Force
+          New-Item -ItemType Directory -Force -Path "PYAS_Protection/x64/Release/SimplePYASProtection"
+          $pyas | Copy-Item -Destination "PYAS_Protection/x64/Release/SimplePYASProtection/" -Force
 
           # --- Owlyshield ---
-          $owlyMinifilter = Get-ChildItem "bin-owlyshield-minifilter/" -Filter "*" -Recurse
+          $owlyMinifilter = Get-ChildItem "bin-owlyshield-minifilter/" -Filter "*" -Recurse -File | Where-Object { $_.Extension -ne ".cer" }
           $owlyMinifilter | Copy-Item -Destination "$distRoot/Owlyshield/OwlyshieldRansomFilter/" -Force
-          New-Item -ItemType Directory -Force -Path "Owlyshield/owlyshield_minifilter/x64/Release"
-          $owlyMinifilter | Copy-Item -Destination "Owlyshield/owlyshield_minifilter/x64/Release/" -Force
+          New-Item -ItemType Directory -Force -Path "Owlyshield/owlyshield_minifilter/x64/Release/OwlyshieldRansomFilter"
+          $owlyMinifilter | Copy-Item -Destination "Owlyshield/owlyshield_minifilter/x64/Release/OwlyshieldRansomFilter/" -Force
           
           $owlyRust = Get-ChildItem "bin-owlyshield-rust/" -Filter "owlyshield_ransom.exe" -Recurse
           $owlyRust | Copy-Item -Destination "$distRoot/Owlyshield/Owlyshield Service/" -Force
@@ -605,16 +605,16 @@ jobs:
           $owlyRust | Copy-Item -Destination "Owlyshield/owlyshield_predict/target/release/" -Force
 
           # --- RedDbg ---
-          $reddbgDrv = Get-ChildItem "bin-reddbg/" -Filter "RedDbgDrv.*" -Recurse
+          $reddbgDrv = Get-ChildItem "bin-reddbg/" -Filter "RedDbgDrv.*" -Recurse -File | Where-Object { $_.Extension -ne ".cer" }
           $reddbgDrv | Copy-Item -Destination "$distRoot/Owlyshield/RedDbg/" -Force
           
-          New-Item -ItemType Directory -Force -Path "Owlyshield/RedDbg/RedDbg/x64/ReleaseX64Kernel"
-          $reddbgDrv | Copy-Item -Destination "Owlyshield/RedDbg/RedDbg/x64/ReleaseX64Kernel/" -Force
+          New-Item -ItemType Directory -Force -Path "Owlyshield/RedDbg/RedDbg/x64/ReleaseX64Kernel/RedDbgDrv"
+          $reddbgDrv | Copy-Item -Destination "Owlyshield/RedDbg/RedDbg/x64/ReleaseX64Kernel/RedDbgDrv/" -Force
 
           # --- Dumper ---
           $dumperRoot = Get-PublishRoot -ArtifactDir "bin-megadumper" -RequiredFile "MegaDumper.exe"
           Sync-PublishTree -Source $dumperRoot -Destination "$distRoot/HydraDragonDumper"
-          Sync-PublishTree -Source $dumperRoot -Destination "MegaDumper/MegaDumper/bin/Release/net8.0"
+          Sync-PublishTree -Source $dumperRoot -Destination "MegaDumper/MegaDumper/bin/Release/net8.0-windows/publish"
           if (Test-Path "$distRoot/HydraDragonDumper/MegaDumper.exe") {
             Move-Item "$distRoot/HydraDragonDumper/MegaDumper.exe" "$distRoot/HydraDragonDumper/HydraDragonDumper.exe" -Force
           }
@@ -628,11 +628,11 @@ jobs:
           # --- Infrastructure ---
           $launcherRoot = Get-PublishRoot -ArtifactDir "bin-launcher" -RequiredFile "HydraDragonLauncher.exe"
           Sync-PublishTree -Source $launcherRoot -Destination "$distRoot/HydraDragonLauncher"
-          Sync-PublishTree -Source $launcherRoot -Destination "HydraDragonLauncher/HydraDragonLauncher/bin/Release/net8.0"
+          Sync-PublishTree -Source $launcherRoot -Destination "HydraDragonLauncher/HydraDragonLauncher/bin/Release/net8.0-windows/publish"
 
           $serviceRoot = Get-PublishRoot -ArtifactDir "bin-service" -RequiredFile "HydraDragonService.exe"
           Sync-PublishTree -Source $serviceRoot -Destination "$distRoot/HydraDragonService"
-          Sync-PublishTree -Source $serviceRoot -Destination "HydraDragonService/HydraDragonService/bin/Release/net8.0"
+          Sync-PublishTree -Source $serviceRoot -Destination "HydraDragonService/HydraDragonService/bin/Release/net8.0-windows/publish"
 
           # --- Sanctum Stack ---
           # System/Kernel Files (to AppData)

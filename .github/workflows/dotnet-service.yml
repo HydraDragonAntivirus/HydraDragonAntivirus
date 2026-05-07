@@ -34,11 +34,11 @@ jobs:
     - name: Restore dependencies
       run: dotnet restore HydraDragonService/HydraDragonService.sln
 
-    - name: Build Service
-      run: dotnet build HydraDragonService/HydraDragonService.sln --configuration Release --no-restore
+    - name: Publish Service
+      run: dotnet publish HydraDragonService/HydraDragonService/HydraDragonService.csproj -c Release -r win-x64 --self-contained false
 
     - name: Upload Artifact
       uses: actions/upload-artifact@v7
       with:
         name: service-release
-        path: HydraDragonService/HydraDragonService/bin/Release/
+        path: HydraDragonService/HydraDragonService/bin/Release/net8.0-windows/publish/
