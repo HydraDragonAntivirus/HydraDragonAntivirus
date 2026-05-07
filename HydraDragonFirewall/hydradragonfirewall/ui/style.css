@@ -894,7 +894,7 @@ main {
     display: flex;
     align-items: center;
     gap: 12px;
-    background: rgba(0, 0, 0, 0.2);
+    background: var(--bg-deep);
     padding: 6px 12px;
     border-radius: 20px;
     border: 1px solid var(--border-main);
@@ -1350,7 +1350,7 @@ main {
 }
 
 .process-search-input {
-    background: rgba(0,0,0,0.2);
+    background: var(--bg-deep);
     border: 1px solid var(--border-main);
     border-radius: 8px;
     padding: 10px 16px;
@@ -1460,7 +1460,7 @@ main {
 }
 
 .process-detail-card {
-    background: rgba(0,0,0,0.2);
+    background: var(--bg-deep);
     border: 1px solid var(--border-main);
     border-radius: 12px;
     padding: 16px;
@@ -1624,7 +1624,7 @@ main {
     display: flex;
     flex-direction: column;
     gap: 12px;
-    background: rgba(0,0,0,0.3);
+    background: var(--bg-deep);
     padding: 20px;
     border-radius: 12px;
     margin-bottom: 24px;
@@ -1816,7 +1816,7 @@ main {
 
 .process-search-input {
     width: 100%;
-    background: rgba(0, 0, 0, 0.2);
+    background: var(--bg-deep);
     border: 1px solid var(--border-main);
     padding: 12px 16px;
     border-radius: var(--radius-md);
@@ -1937,7 +1937,7 @@ main {
 }
 
 .process-detail-card {
-    background: rgba(0, 0, 0, 0.2);
+    background: var(--bg-deep);
     border: 1px solid var(--border-main);
     padding: 16px;
     border-radius: var(--radius-md);
