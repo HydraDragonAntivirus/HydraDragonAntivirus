@@ -342,18 +342,3 @@ if errorlevel 1 (
 )
 exit /b 0
 
-echo [*] Importing %~2 test certificate...
-certutil -addstore -f Root "%~1" >nul 2>&1
-if errorlevel 1 (
-    echo [!] Failed to import %~2 certificate into the Root store.
-    exit /b 0
-)
-
-certutil -addstore -f TrustedPublisher "%~1" >nul 2>&1
-if errorlevel 1 (
-    echo [!] Failed to import %~2 certificate into the TrustedPublisher store.
-    exit /b 0
-)
-
-echo [+] %~2 test certificate imported.
-exit /b 0
