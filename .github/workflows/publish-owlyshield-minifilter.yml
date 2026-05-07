@@ -68,6 +68,8 @@ jobs:
           commit-message: "chore(owlyshield): update minifilter binaries"
           title: "Update Owlyshield minifilter binaries"
           body: "Automated minifilter driver build output update."
+          add-paths: |
+            ${{ steps.check_changes.outputs.publishable_files }}
           branch: "auto-update-owlyshield-minifilter"
           base: ${{ github.ref_name }}
           delete-branch: true

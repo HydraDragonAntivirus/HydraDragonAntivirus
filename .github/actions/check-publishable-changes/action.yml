@@ -17,6 +17,9 @@ outputs:
   zero_byte_delta_files:
     description: Newline-separated candidate files ignored because git diff found no content change.
     value: ${{ steps.check.outputs.zero_byte_delta_files }}
+  publishable_files:
+    description: Newline-separated files that have real publishable content changes.
+    value: ${{ steps.check.outputs.publishable_files }}
 
 runs:
   using: composite
@@ -42,10 +45,18 @@ runs:
         }
 
         $changedFiles = @($changedFiles | Where-Object { $_ } | Sort-Object -Unique)
+        $pdbFiles = @($changedFiles | Where-Object { $_ -match '(?i)\.pdb$' })
+        if ($pdbFiles.Count -gt 0) {
+          Write-Host "Ignoring PDB debug symbol files:"
+          $pdbFiles | ForEach-Object { Write-Host " - $_" }
+        }
+
+        $changedFiles = @($changedFiles | Where-Object { $_ -notmatch '(?i)\.pdb$' })
         if ($changedFiles.Count -eq 0) {
           "changed=false" >> $env:GITHUB_OUTPUT
           "zero_byte_files=" >> $env:GITHUB_OUTPUT
           "zero_byte_delta_files=" >> $env:GITHUB_OUTPUT
+          "publishable_files=" >> $env:GITHUB_OUTPUT
           Write-Host "No publishable changes detected."
           exit 0
         }
@@ -63,6 +74,7 @@ runs:
           $zeroByteFiles >> $env:GITHUB_OUTPUT
           "EOF" >> $env:GITHUB_OUTPUT
           "zero_byte_delta_files=" >> $env:GITHUB_OUTPUT
+          "publishable_files=" >> $env:GITHUB_OUTPUT
           Write-Host "Skipping PR because these changed files are zero bytes:"
           $zeroByteFiles | ForEach-Object { Write-Host " - $_" }
           exit 0
@@ -112,6 +124,7 @@ runs:
           "zero_byte_delta_files<<EOF" >> $env:GITHUB_OUTPUT
           $zeroByteDeltaFiles >> $env:GITHUB_OUTPUT
           "EOF" >> $env:GITHUB_OUTPUT
+          "publishable_files=" >> $env:GITHUB_OUTPUT
           Write-Host "Skipping PR because git diff found no content changes:"
           $zeroByteDeltaFiles | ForEach-Object { Write-Host " - $_" }
           exit 0
@@ -120,5 +133,8 @@ runs:
         "changed=true" >> $env:GITHUB_OUTPUT
         "zero_byte_files=" >> $env:GITHUB_OUTPUT
         "zero_byte_delta_files=" >> $env:GITHUB_OUTPUT
+        "publishable_files<<EOF" >> $env:GITHUB_OUTPUT
+        $publishableFiles >> $env:GITHUB_OUTPUT
+        "EOF" >> $env:GITHUB_OUTPUT
         Write-Host "Publishable changes detected:"
         $publishableFiles | ForEach-Object { Write-Host " - $_" }

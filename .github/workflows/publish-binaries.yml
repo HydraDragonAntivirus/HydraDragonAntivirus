@@ -522,6 +522,48 @@ jobs:
             }
           }
 
+          function Get-PublishRoot {
+            param(
+              [Parameter(Mandatory = $true)][string]$ArtifactDir,
+              [Parameter(Mandatory = $true)][string]$RequiredFile
+            )
+
+            if (-not (Test-Path -LiteralPath $ArtifactDir -PathType Container)) {
+              throw "Missing artifact directory: $ArtifactDir"
+            }
+
+            $directFile = Join-Path $ArtifactDir $RequiredFile
+            if (Test-Path -LiteralPath $directFile -PathType Leaf) {
+              return (Resolve-Path -LiteralPath $ArtifactDir).Path
+            }
+
+            $nestedFile = Get-ChildItem -LiteralPath $ArtifactDir -Filter $RequiredFile -Recurse -File | Select-Object -First 1
+            if (-not $nestedFile) {
+              throw "Could not find $RequiredFile under $ArtifactDir"
+            }
+
+            return $nestedFile.Directory.FullName
+          }
+
+          function Sync-PublishTree {
+            param(
+              [Parameter(Mandatory = $true)][string]$Source,
+              [Parameter(Mandatory = $true)][string]$Destination
+            )
+
+            if (-not (Test-Path -LiteralPath $Source -PathType Container)) {
+              throw "Missing publish source: $Source"
+            }
+
+            if (Test-Path -LiteralPath $Destination) {
+              Remove-Item -LiteralPath $Destination -Recurse -Force
+            }
+
+            New-Item -ItemType Directory -Force -Path $Destination | Out-Null
+            Get-ChildItem -LiteralPath $Source -Force |
+              Copy-Item -Destination $Destination -Recurse -Force
+          }
+
           # --- TinyAntivirus ---
           $tinyAV = Get-ChildItem "bin-tinyantivirus/" -Filter "TinyAvConsole.exe" -Recurse
           $tinyAV | Copy-Item -Destination "$distRoot/TinyAntivirus/" -Force
@@ -580,15 +622,13 @@ jobs:
           $fwRust | Copy-Item -Destination "HydraDragonFirewall/hydradragonfirewall/target/release/" -Force
 
           # --- Infrastructure ---
-          $launcher = Get-ChildItem "bin-launcher/" -Filter "*" -Recurse
-          $launcher | Copy-Item -Destination "$distRoot/HydraDragonLauncher/" -Force
-          New-Item -ItemType Directory -Force -Path "HydraDragonLauncher/HydraDragonLauncher/bin/Release/net8.0"
-          $launcher | Copy-Item -Destination "HydraDragonLauncher/HydraDragonLauncher/bin/Release/net8.0/" -Force
+          $launcherRoot = Get-PublishRoot -ArtifactDir "bin-launcher" -RequiredFile "HydraDragonLauncher.exe"
+          Sync-PublishTree -Source $launcherRoot -Destination "$distRoot/HydraDragonLauncher"
+          Sync-PublishTree -Source $launcherRoot -Destination "HydraDragonLauncher/HydraDragonLauncher/bin/Release/net8.0"
 
-          $service = Get-ChildItem "bin-service/" -Filter "*" -Recurse
-          $service | Copy-Item -Destination "$distRoot/HydraDragonService/" -Force
-          New-Item -ItemType Directory -Force -Path "HydraDragonService/HydraDragonService/bin/Release/net8.0"
-          $service | Copy-Item -Destination "HydraDragonService/HydraDragonService/bin/Release/net8.0/" -Force
+          $serviceRoot = Get-PublishRoot -ArtifactDir "bin-service" -RequiredFile "HydraDragonService.exe"
+          Sync-PublishTree -Source $serviceRoot -Destination "$distRoot/HydraDragonService"
+          Sync-PublishTree -Source $serviceRoot -Destination "HydraDragonService/HydraDragonService/bin/Release/net8.0"
 
           # --- Sanctum Stack ---
           # System/Kernel Files (to AppData)
@@ -715,6 +755,8 @@ jobs:
 
             **Sanctum ELAM Hash:**
             - Driver To-Be-Signed Hash: `${{ steps.organize.outputs.elam_hash }}`
+          add-paths: |
+            ${{ steps.check_changes.outputs.publishable_files }}
           branch: ${{ github.event.inputs.branch || 'auto-update-binaries' }}
           base: ${{ github.ref_name }}
           delete-branch: true

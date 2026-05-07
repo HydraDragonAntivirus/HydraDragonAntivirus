@@ -70,4 +70,4 @@ jobs:
             This PR regenerates `poetry.lock` automatically after changes to `pyproject.toml`
             or on the scheduled/manual workflow run.
           add-paths: |
-            poetry.lock
+            ${{ steps.check_changes.outputs.publishable_files }}

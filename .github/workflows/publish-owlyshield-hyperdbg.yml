@@ -75,6 +75,8 @@ jobs:
           commit-message: "chore(owlyshield): update hyperdbg binaries"
           title: "Update Owlyshield HyperDbg binaries"
           body: "Automated HyperDbg driver build output update."
+          add-paths: |
+            ${{ steps.check_changes.outputs.publishable_files }}
           branch: "auto-update-owlyshield-hyperdbg"
           base: ${{ github.ref_name }}
           delete-branch: true

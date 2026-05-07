@@ -59,7 +59,7 @@ jobs:
           commit-message: "chore(firewall): update binaries"
           title: "🚀 Update Firewall Binaries"
           add-paths: |
-            hydradragon/HydraDragonFirewall
+            ${{ steps.check_changes.outputs.publishable_files }}
           branch: "auto-update-firewall"
           base: ${{ github.ref_name }}
           delete-branch: true

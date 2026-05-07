@@ -47,6 +47,7 @@ jobs:
         with:
           paths: |
             hydradragon/Sanctum/elam_installer.exe
+            Sanctum/Cargo.lock
       - name: Create PR
         if: steps.check_changes.outputs.changed == 'true'
         uses: peter-evans/create-pull-request@v8
@@ -55,8 +56,7 @@ jobs:
           commit-message: "chore(sanctum): update elam installer binary"
           title: "Update Sanctum ELAM Installer Binary"
           add-paths: |
-            hydradragon/Sanctum/elam_installer.exe
-            Sanctum/Cargo.lock
+            ${{ steps.check_changes.outputs.publishable_files }}
           branch: "auto-update-sanctum-elam-installer"
           base: ${{ github.ref_name }}
           delete-branch: true

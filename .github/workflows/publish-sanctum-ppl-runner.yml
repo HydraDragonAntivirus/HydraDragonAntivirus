@@ -76,6 +76,7 @@ jobs:
         with:
           paths: |
             hydradragon/Sanctum/AppData/sanctum_ppl_runner.exe
+            Sanctum/Cargo.lock
       - name: Create PR
         if: steps.check_changes.outputs.changed == 'true'
         uses: peter-evans/create-pull-request@v8
@@ -84,8 +85,7 @@ jobs:
           commit-message: "chore(sanctum): update ppl runner binary"
           title: "Update Sanctum PPL Runner Binary"
           add-paths: |
-            hydradragon/Sanctum/AppData/sanctum_ppl_runner.exe
-            Sanctum/Cargo.lock
+            ${{ steps.check_changes.outputs.publishable_files }}
           branch: "auto-update-sanctum-ppl-runner"
           base: ${{ github.ref_name }}
           delete-branch: true

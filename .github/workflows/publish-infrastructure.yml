@@ -34,10 +34,28 @@ jobs:
         run: |
           $distLauncher = "hydradragon/HydraDragonLauncher"
           $distService = "hydradragon/HydraDragonService"
-          New-Item -ItemType Directory -Force -Path $distLauncher
-          New-Item -ItemType Directory -Force -Path $distService
-          Copy-Item "artifacts/launcher/*" "$distLauncher/" -Recurse -Force
-          Copy-Item "artifacts/service/*" "$distService/" -Recurse -Force
+
+          function Sync-PublishTree {
+            param(
+              [Parameter(Mandatory = $true)][string]$Source,
+              [Parameter(Mandatory = $true)][string]$Destination
+            )
+
+            if (-not (Test-Path -LiteralPath $Source -PathType Container)) {
+              throw "Missing publish source: $Source"
+            }
+
+            if (Test-Path -LiteralPath $Destination) {
+              Remove-Item -LiteralPath $Destination -Recurse -Force
+            }
+
+            New-Item -ItemType Directory -Force -Path $Destination | Out-Null
+            Get-ChildItem -LiteralPath $Source -Force |
+              Copy-Item -Destination $Destination -Recurse -Force
+          }
+
+          Sync-PublishTree -Source "artifacts/launcher" -Destination $distLauncher
+          Sync-PublishTree -Source "artifacts/service" -Destination $distService
           
       - name: Check for publishable changes
         id: check_changes
@@ -53,6 +71,8 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           commit-message: "chore(infra): update binaries"
           title: "🚀 Update Infrastructure Binaries"
+          add-paths: |
+            ${{ steps.check_changes.outputs.publishable_files }}
           branch: "auto-update-infra"
           base: ${{ github.ref_name }}
           delete-branch: true

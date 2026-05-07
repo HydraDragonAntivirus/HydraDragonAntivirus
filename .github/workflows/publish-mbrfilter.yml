@@ -53,7 +53,7 @@ jobs:
           commit-message: "chore(mbrfilter): update binaries"
           title: "🚀 Update MBRFilter Binaries"
           add-paths: |
-            hydradragon/MBRFilter
+            ${{ steps.check_changes.outputs.publishable_files }}
           branch: "auto-update-mbrfilter"
           base: ${{ github.ref_name }}
           delete-branch: true

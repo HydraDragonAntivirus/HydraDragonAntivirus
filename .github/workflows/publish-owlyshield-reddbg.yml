@@ -68,6 +68,8 @@ jobs:
           commit-message: "chore(owlyshield): update reddbg binaries"
           title: "Update Owlyshield RedDbg binaries"
           body: "Automated RedDbg driver build output update."
+          add-paths: |
+            ${{ steps.check_changes.outputs.publishable_files }}
           branch: "auto-update-owlyshield-reddbg"
           base: ${{ github.ref_name }}
           delete-branch: true
