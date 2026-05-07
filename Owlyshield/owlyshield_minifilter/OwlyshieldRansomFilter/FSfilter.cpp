@@ -64,7 +64,7 @@ FSShouldIgnorePyasWhitelistPath(_In_ PCUNICODE_STRING Path);
 
 // FIX: Helper to create a 'RW'-tagged NonPaged copy of a UNICODE_STRING.
 // RecordNewProcess takes ownership of the PUNICODE_STRING it receives and
-// later frees it with `delete` -> ExFreePoolWithTag(ptr, 'RW').
+// later frees it with the process-name pool helper.
 // SeLocateProcessImageName allocates from PagedPool with a system tag,
 // so passing its result directly causes a pool-tag mismatch on free
 // (silent heap corruption -> eventual bugcheck 0x13a).
@@ -88,6 +88,41 @@ static PUNICODE_STRING FSCopyUnicodeStringForRecordNewProcess(_In_ PUNICODE_STRI
     RtlCopyMemory(copy->Buffer, Source->Buffer, Source->Length);
     copy->Buffer[copy->Length / sizeof(WCHAR)] = L'\0';
     return copy;
+}
+
+static VOID FSCopyProcessPathForMessage(
+    _In_opt_ PUNICODE_STRING Source,
+    _Out_writes_(MAX_FILE_NAME_LENGTH) PWCHAR Destination,
+    _Out_ PUSHORT DestinationLength)
+{
+    if (Destination == NULL || DestinationLength == NULL)
+        return;
+
+    RtlZeroMemory(Destination, MAX_FILE_NAME_SIZE);
+    *DestinationLength = 0;
+
+    if (Source == NULL || Source->Buffer == NULL || Source->Length == 0)
+        return;
+
+    PCWSTR srcPath = Source->Buffer;
+    USHORT srcLen = Source->Length;
+    WCHAR dosPathBuf[MAX_FILE_NAME_LENGTH] = {0};
+
+    if (NtPathToDosPath(srcPath, dosPathBuf, RTL_NUMBER_OF(dosPathBuf)))
+    {
+        srcPath = dosPathBuf;
+        srcLen = (USHORT)(wcslen(dosPathBuf) * sizeof(WCHAR));
+    }
+
+    USHORT copyLen = (srcLen < (MAX_FILE_NAME_SIZE - sizeof(WCHAR)))
+                         ? srcLen
+                         : (MAX_FILE_NAME_SIZE - sizeof(WCHAR));
+
+    if (copyLen > 0)
+        RtlCopyMemory(Destination, srcPath, copyLen);
+
+    Destination[copyLen / sizeof(WCHAR)] = L'\0';
+    *DestinationLength = copyLen;
 }
 
 static BOOLEAN FSShouldBypassReadTelemetry(_In_ PFLT_CALLBACK_DATA Data)
@@ -1168,6 +1203,10 @@ VOID EnumerateExistingProcesses(VOID)
                 RtlCopyMemory(procName->Buffer, entry->ImageName.Buffer, entry->ImageName.Length);
                 procName->Buffer[entry->ImageName.Length / sizeof(WCHAR)] = L'\0';
 
+                WCHAR processPathForMessage[MAX_FILE_NAME_LENGTH] = {0};
+                USHORT processPathForMessageLength = 0;
+                FSCopyProcessPathForMessage(procName, processPathForMessage, &processPathForMessageLength);
+
                 // No loader lock here; call directly at PASSIVE_LEVEL
                 ULONGLONG gid = driverData->RecordNewProcess(procName, pidNum, parentPid);
                 (VOID) UserModeHookProcess(pidNum); // direct call, safe here
@@ -1180,20 +1219,12 @@ VOID EnumerateExistingProcesses(VOID)
                     newEntry->data.ParentPid = parentPid;
                     newEntry->data.IRP_OP = IRP_PROCESS_CREATE;
 
-                    PCWSTR srcPath2 = procName->Buffer;
-                    USHORT srcLen2 = procName->Length;
-                    WCHAR dosPathBuf2[MAX_FILE_NAME_LENGTH] = {0};
-                    if (srcPath2 != NULL && NtPathToDosPath(srcPath2, dosPathBuf2, RTL_NUMBER_OF(dosPathBuf2)))
+                    if (processPathForMessageLength > 0)
                     {
-                        srcPath2 = dosPathBuf2;
-                        srcLen2 = (USHORT)(wcslen(dosPathBuf2) * sizeof(WCHAR));
+                        RtlCopyMemory(newEntry->Buffer, processPathForMessage, processPathForMessageLength);
+                        newEntry->Buffer[processPathForMessageLength / sizeof(WCHAR)] = L'\0';
                     }
-                    USHORT copyLen =
-                        (srcLen2 < MAX_FILE_NAME_SIZE - sizeof(WCHAR)) ? srcLen2 : (MAX_FILE_NAME_SIZE - sizeof(WCHAR));
-
-                    RtlCopyMemory(newEntry->Buffer, srcPath2, copyLen);
-                    newEntry->Buffer[copyLen / sizeof(WCHAR)] = L'\0';
-                    newEntry->filePath.Length = copyLen;
+                    newEntry->filePath.Length = processPathForMessageLength;
                     newEntry->filePath.MaximumLength = MAX_FILE_NAME_SIZE;
                     newEntry->filePath.Buffer = newEntry->Buffer;
 
@@ -1551,7 +1582,8 @@ FSProcessPreOperation(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECT
         {
             PDRIVER_MESSAGE pipeMsg = &pipeEntry->data;
             pipeMsg->PID = FltGetRequestorProcessId(Data);
-            pipeMsg->Gid = driverData->GetProcessGid(pipeMsg->PID, NULL);
+            BOOLEAN pipeGidFound = FALSE;
+            pipeMsg->Gid = driverData->GetProcessGid(pipeMsg->PID, &pipeGidFound);
             
             // Get pipe name
             PFLT_FILE_NAME_INFORMATION nameInfo;
@@ -1711,7 +1743,7 @@ FSProcessPreOperation(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECT
             {
                 // FIX Bug#1+#2: SeLocateProcessImageName allocates from PagedPool
                 // with a system tag. RecordNewProcess takes ownership and later
-                // frees with `delete` (tag 'RW'). Passing the original pointer
+                // frees through the process-name pool helper. Passing the original pointer
                 // causes (a) pool-tag mismatch on free and (b) the old code also
                 // called ExFreePool(procPath) here which was a DOUBLE-FREE.
                 // Solution: copy into a 'RW'-tagged NonPaged allocation, free the
@@ -1723,32 +1755,39 @@ FSProcessPreOperation(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECT
 
                 if (procPathCopy != NULL)
                 {
+                    WCHAR discoveryPathBuffer[MAX_FILE_NAME_LENGTH] = {0};
+                    USHORT discoveryPathLength = 0;
+                    FSCopyProcessPathForMessage(procPathCopy, discoveryPathBuffer, &discoveryPathLength);
+
                     gid = driverData->RecordNewProcess(procPathCopy, newItem->PID, 0);
-                    isGidFound = TRUE;
+                    isGidFound = (gid != 0);
                     DbgPrint("!!! FSfilter: DISCOVERED untracked process in PreOp. PID: %u, GID: %llu\n", newItem->PID,
                              gid);
 
-                    // Inform usermode about this late process discovery so the PID/GID map stays in sync.
-                    PIRP_ENTRY discoveryEntry = new IRP_ENTRY();
-                    if (discoveryEntry != NULL)
+                    if (isGidFound)
                     {
-                        PDRIVER_MESSAGE discoveryMsg = &discoveryEntry->data;
-                        discoveryMsg->PID = newItem->PID;
-                        discoveryMsg->Gid = gid;
-                        discoveryMsg->IRP_OP = IRP_PROCESS_CREATE;
-
-                        USHORT copyLen = (procPathCopy->Length < (MAX_FILE_NAME_SIZE - sizeof(WCHAR)))
-                                             ? procPathCopy->Length
-                                             : (MAX_FILE_NAME_SIZE - sizeof(WCHAR));
-                        RtlCopyMemory(discoveryEntry->Buffer, procPathCopy->Buffer, copyLen);
-                        discoveryEntry->Buffer[copyLen / sizeof(WCHAR)] = L'\0';
-                        discoveryEntry->filePath.Length = copyLen;
-                        discoveryEntry->filePath.MaximumLength = MAX_FILE_NAME_SIZE;
-                        discoveryEntry->filePath.Buffer = discoveryEntry->Buffer;
-
-                        if (!driverData->AddIrpMessage(discoveryEntry))
+                        // Inform usermode about this late process discovery so the PID/GID map stays in sync.
+                        PIRP_ENTRY discoveryEntry = new IRP_ENTRY();
+                        if (discoveryEntry != NULL)
                         {
-                            delete discoveryEntry;
+                            PDRIVER_MESSAGE discoveryMsg = &discoveryEntry->data;
+                            discoveryMsg->PID = newItem->PID;
+                            discoveryMsg->Gid = gid;
+                            discoveryMsg->IRP_OP = IRP_PROCESS_CREATE;
+
+                            if (discoveryPathLength > 0)
+                            {
+                                RtlCopyMemory(discoveryEntry->Buffer, discoveryPathBuffer, discoveryPathLength);
+                                discoveryEntry->Buffer[discoveryPathLength / sizeof(WCHAR)] = L'\0';
+                            }
+                            discoveryEntry->filePath.Length = discoveryPathLength;
+                            discoveryEntry->filePath.MaximumLength = MAX_FILE_NAME_SIZE;
+                            discoveryEntry->filePath.Buffer = discoveryEntry->Buffer;
+
+                            if (!driverData->AddIrpMessage(discoveryEntry))
+                            {
+                                delete discoveryEntry;
+                            }
                         }
                     }
                     // NOTE: procPathCopy is now owned by RecordNewProcess. Do NOT free it.
@@ -2202,7 +2241,7 @@ FSProcessCreateIrp(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECTS F
                 if (procPathCopy != NULL)
                 {
                     gid = driverData->RecordNewProcess(procPathCopy, newItem->PID, 0);
-                    isGidFound = TRUE;
+                    isGidFound = (gid != 0);
                     DbgPrint("!!! FSfilter: DISCOVERED untracked process in PostCreate. PID: %u, GID: %llu\n",
                              newItem->PID, gid);
                     // NOTE: procPathCopy is now owned by RecordNewProcess. Do NOT free.
@@ -3045,7 +3084,7 @@ static VOID AddRemProcessRoutineCore(HANDLE ParentId, HANDLE ProcessId, BOOLEAN 
         // FIX Bug#4: When mustFreeProcName==FALSE, procName is a borrowed pointer
         // to CreateInfo->ImageFileName which becomes invalid after this callback
         // returns. RecordNewProcess takes permanent ownership and later frees with
-        // delete (tag 'RW'). We must ALWAYS pass a properly-tagged, owned copy.
+        // the process-name pool helper. We must ALWAYS pass a properly-tagged, owned copy.
         PUNICODE_STRING procNameForRecord = procName;
         if (!mustFreeProcName && procName != NULL)
         {
@@ -3059,9 +3098,11 @@ static VOID AddRemProcessRoutineCore(HANDLE ParentId, HANDLE ProcessId, BOOLEAN 
                     ExFreePoolWithTag(procCmdLine, 'RW');
                 return;
             }
-            procName = procNameForRecord; // update for IRP_ENTRY copy below
-            mustFreeProcName = TRUE;      // now we own it (but RecordNewProcess will take it)
         }
+
+        WCHAR processPathForMessage[MAX_FILE_NAME_LENGTH] = {0};
+        USHORT processPathForMessageLength = 0;
+        FSCopyProcessPathForMessage(procNameForRecord, processPathForMessage, &processPathForMessageLength);
 
         // ALWAYS record the process and send message to usermode
         ULONGLONG gid =
@@ -3077,29 +3118,14 @@ static VOID AddRemProcessRoutineCore(HANDLE ParentId, HANDLE ProcessId, BOOLEAN 
             newItem->ParentPid = (ULONG)(ULONG_PTR)ParentId;
             newItem->IRP_OP = IRP_PROCESS_CREATE;
 
-            if (procName != NULL)
+            if (processPathForMessageLength > 0)
             {
-                // Try to convert NT device path (\Device\HarddiskVolumeX\...) to DOS
-                // drive-letter path (C:\...) so usermode sees a consistent format.
-                PCWSTR srcPath = procName->Buffer;
-                USHORT srcLen = procName->Length;
-                WCHAR dosPathBuf[MAX_FILE_NAME_LENGTH] = {0};
-                if (srcPath != NULL && NtPathToDosPath(srcPath, dosPathBuf, RTL_NUMBER_OF(dosPathBuf)))
-                {
-                    srcPath = dosPathBuf;
-                    srcLen = (USHORT)(wcslen(dosPathBuf) * sizeof(WCHAR));
-                }
-                if (srcPath != NULL)
-                { // ← guard added: only copy when buffer is valid
-                    USHORT copyLen =
-                        (srcLen < MAX_FILE_NAME_SIZE - sizeof(WCHAR)) ? srcLen : (MAX_FILE_NAME_SIZE - sizeof(WCHAR));
-                    RtlCopyMemory(newEntry->Buffer, srcPath, copyLen);
-                    newEntry->Buffer[copyLen / sizeof(WCHAR)] = L'\0';
-                    newEntry->filePath.Length = copyLen;
-                    newEntry->filePath.MaximumLength = MAX_FILE_NAME_SIZE;
-                    newEntry->filePath.Buffer = newEntry->Buffer;
-                }
+                RtlCopyMemory(newEntry->Buffer, processPathForMessage, processPathForMessageLength);
+                newEntry->Buffer[processPathForMessageLength / sizeof(WCHAR)] = L'\0';
             }
+            newEntry->filePath.Length = processPathForMessageLength;
+            newEntry->filePath.MaximumLength = MAX_FILE_NAME_SIZE;
+            newEntry->filePath.Buffer = newEntry->Buffer;
 
             if (CreateInfo && CreateInfo->CommandLine && CreateInfo->CommandLine->Buffer &&
                 CreateInfo->CommandLine->Length > 0)
