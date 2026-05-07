@@ -78,7 +78,7 @@ echo [*] Sanctum install path: %SANCTUM_DIR%
 echo [*] Checking Sanctum directory: "%SANCTUM_DIR%"
 
 if not exist "%SANCTUM_DIR%" (
-    echo [!] Sanctum folder missing — creating it...
+    echo [!] Sanctum folder missing - creating it...
     mkdir "%SANCTUM_DIR%" >nul 2>&1
     if errorlevel 1 (
         call :show_failure "Could not create ""%SANCTUM_DIR%""."
@@ -146,8 +146,14 @@ if not exist "%HD_TASK_EXE%" (
 )
 
 echo Checking for existing HydraDragonAntivirus scheduled task...
-call :run_and_log schtasks /query /tn "HydraDragonAntivirus"
-if not errorlevel 1 set "HD_TASK_EXISTS=1"
+call :log [cmd] schtasks /query /tn "HydraDragonAntivirus"
+schtasks /query /tn "HydraDragonAntivirus" >nul 2>&1
+if errorlevel 1 (
+    call :log [*] No existing HydraDragonAntivirus scheduled task found.
+) else (
+    set "HD_TASK_EXISTS=1"
+    call :log [+] Existing HydraDragonAntivirus scheduled task found.
+)
 
 if "%HD_TASK_EXISTS%"=="1" (
     echo Existing task found, deleting...
