@@ -67,7 +67,9 @@ if "%HYPERVISOR_REBOOT_REQUIRED%"=="1" (
 :: --------------------------------------------------------
 :: 3) Environment setup
 :: --------------------------------------------------------
-set "HYDRADRAGON_DIR=C:\Program Files\HydraDragonAntivirus\hydradragon"
+set "APP_DIR=C:\Program Files\HydraDragonAntivirus"
+set "HYDRADRAGON_DIR=%APP_DIR%\hydradragon"
+set "OPENEDR_DIR=%APP_DIR%\OpenEDR"
 set "SANCTUM_DIR=%HYDRADRAGON_DIR%\Sanctum"
 
 echo [*] Sanctum install path: %SANCTUM_DIR%
@@ -176,7 +178,7 @@ if not "%RUN_EXIT%"=="0" (
 :: --------------------------------------------------------
 :: 12) Install OpenEDR service
 :: --------------------------------------------------------
-set "EDR_EXE=%HYDRADRAGON_DIR%\OpenEDR\edrsvc.exe"
+set "EDR_EXE=%OPENEDR_DIR%\edrsvc.exe"
 if exist "%EDR_EXE%" (
     echo [*] Installing OpenEDR service...
     call :run_and_log "%EDR_EXE%" install
@@ -195,7 +197,7 @@ if exist "%EDR_EXE%" (
         echo [+] edrdrv driver started successfully.
     )
 ) else (
-    echo [!] OpenEDR service not found at "%EDR_EXE%".
+    echo [!] OpenEDR service executable not found at "%EDR_EXE%".
 )
 
 :: --------------------------------------------------------
