@@ -10,11 +10,16 @@ on:
       branch:
         description: "Branch to create/update PR on"
         required: true
-        default: "update-binaries"
+        default: "auto-update-binaries"
 
 permissions:
   contents: write
   pull-requests: write
+  issues: write
+
+concurrency:
+  group: publish-binaries-${{ github.event.inputs.branch || 'auto-update-binaries' }}
+  cancel-in-progress: true
 
 env:
   CARGO_TERM_COLOR: always
@@ -756,7 +761,7 @@ jobs:
             - Driver To-Be-Signed Hash: `${{ steps.organize.outputs.elam_hash }}`
           add-paths: |
             ${{ steps.check_changes.outputs.publishable_files }}
-          branch: ${{ github.event.inputs.branch || 'auto-update-binaries' }}
-          base: ${{ github.ref_name }}
+          branch: "${{ github.event.inputs.branch || 'auto-update-binaries' }}"
+          base: "${{ github.ref_name }}"
           delete-branch: true
           labels: binaries, automated-pr
