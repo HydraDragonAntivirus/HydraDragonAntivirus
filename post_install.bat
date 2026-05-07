@@ -34,7 +34,7 @@ if %errorlevel% neq 0 (
 :: --------------------------------------------------------
 :: 2) Disable Windows hypervisor/VBS stack if needed
 :: --------------------------------------------------------
-if /I "%POSTINSTALL_STAGE%"=="after-hypervisor-reboot" (
+if /I "%POSTINSTALL_STAGE%"=="after_hypervisor_reboot" (
     echo [*] Continuing post-install after hypervisor/VBS reboot...
     goto hypervisor_stack_ready
 )
@@ -108,71 +108,46 @@ if exist "%ELAM_EXE%" (
 :: --------------------------------------------------------
 :: 6) Install OwlyshieldRansomFilter driver
 :: --------------------------------------------------------
-echo Installing OwlyshieldRansomFilter driver INF...
-call :run_and_log pnputil /add-driver "%HYDRADRAGON_DIR%\Owlyshield\OwlyshieldRansomFilter\OwlyshieldRansomFilter.inf" /install
-if errorlevel 1 (
-    call :show_failure "OwlyshieldRansomFilter driver install failed."
-    exit /b 1
-)
-echo [+] OwlyshieldRansomFilter driver installed.
+call :install_driver_inf "OwlyshieldRansomFilter" "%HYDRADRAGON_DIR%\Owlyshield\OwlyshieldRansomFilter\OwlyshieldRansomFilter.inf" required
+if errorlevel 1 exit /b 1
 
 :: --------------------------------------------------------
 :: 7) Install MBRFilter driver
 :: --------------------------------------------------------
-echo Installing MBRFilter driver INF...
-call :run_and_log pnputil /add-driver "%HYDRADRAGON_DIR%\MBRFilter\MBRFilter.inf" /install
-if errorlevel 1 (
-    call :show_failure "MBRFilter driver install failed."
-    exit /b 1
-)
-echo [+] MBRFilter driver installed.
+call :install_driver_inf "MBRFilter" "%HYDRADRAGON_DIR%\MBRFilter\MBRFilter.inf" required
+if errorlevel 1 exit /b 1
 
 :: --------------------------------------------------------
 :: 8) Install SimplePYASProtection driver
 :: --------------------------------------------------------
-echo Installing SimplePYASProtection driver INF...
-call :run_and_log pnputil /add-driver "%HYDRADRAGON_DIR%\SimplePYASProtection\SimplePYASProtection.inf" /install
-if errorlevel 1 (
-    call :show_failure "SimplePYASProtection driver install failed."
-    exit /b 1
-)
-echo [+] SimplePYASProtection driver installed.
+call :install_driver_inf "SimplePYASProtection" "%HYDRADRAGON_DIR%\SimplePYASProtection\SimplePYASProtection.inf" required
+if errorlevel 1 exit /b 1
 
 :: --------------------------------------------------------
 :: 9) Install RedDbg driver (AMD Hypervisor)
 :: --------------------------------------------------------
-echo Installing RedDbg driver INF...
-call :run_and_log pnputil /add-driver "%HYDRADRAGON_DIR%\Owlyshield\RedDbg\RedDbgDrv.inf" /install
-if errorlevel 1 (
-    echo [!] RedDbg driver install failed (non-fatal if on Intel).
-) else (
-    echo [+] RedDbg driver installed.
-)
+call :install_driver_inf "RedDbg" "%HYDRADRAGON_DIR%\Owlyshield\RedDbg\RedDbgDrv.inf" optional
 
 :: --------------------------------------------------------
 :: 10) Install HyperDbg driver (Intel Hypervisor)
 :: --------------------------------------------------------
-echo Installing HyperDbg driver INF...
-call :run_and_log pnputil /add-driver "%HYDRADRAGON_DIR%\Owlyshield\HyperDbg\hyperhv.inf" /install
-if errorlevel 1 (
-    echo [!] HyperDbg driver install failed (non-fatal if on AMD).
-) else (
-    echo [+] HyperDbg driver installed.
-)
+call :install_driver_inf "HyperDbg" "%HYDRADRAGON_DIR%\Owlyshield\HyperDbg\hyperhv.inf" optional
 
 :: --------------------------------------------------------
 :: 11) Register HydraDragonAntivirus scheduled task (autostart after reboot)
 :: --------------------------------------------------------
-set "HD_TASK_EXE=%HYDRADRAGON_DIR%\HydraDragonService.exe\HydraDragonService.exe"
+set "HD_TASK_EXE=%HYDRADRAGON_DIR%\HydraDragonService\HydraDragonService.exe"
 set "HD_TASK_EXISTS=0"
 
-if exist "%HD_TASK_EXE%" (
-    echo Checking for existing HydraDragonAntivirus scheduled task...
-    call :run_and_log schtasks /query /tn "HydraDragonAntivirus"
-    if not errorlevel 1 set "HD_TASK_EXISTS=1"
-) else (
+if not exist "%HD_TASK_EXE%" (
     echo [!] HydraDragon service executable not found at "%HD_TASK_EXE%".
+    echo [*] Skipping HydraDragonAntivirus scheduled task creation.
+    goto after_hd_task
 )
+
+echo Checking for existing HydraDragonAntivirus scheduled task...
+call :run_and_log schtasks /query /tn "HydraDragonAntivirus"
+if not errorlevel 1 set "HD_TASK_EXISTS=1"
 
 if "%HD_TASK_EXISTS%"=="1" (
     echo Existing task found, deleting...
@@ -189,6 +164,8 @@ if not "%RUN_EXIT%"=="0" (
 ) else (
     echo [+] HydraDragonAntivirus auto-start task created successfully.
 )
+
+:after_hd_task
 
 :: --------------------------------------------------------
 :: 12) Install OpenEDR service
@@ -256,6 +233,41 @@ if defined POSTINSTALL_LOG (
     start "" notepad.exe "%POSTINSTALL_LOG%"
 )
 pause
+exit /b 0
+
+:install_driver_inf
+set "DRIVER_NAME=%~1"
+set "DRIVER_INF=%~2"
+set "DRIVER_REQUIRED=%~3"
+
+if /I "%DRIVER_REQUIRED%"=="required" (
+    set "DRIVER_IS_REQUIRED=1"
+) else (
+    set "DRIVER_IS_REQUIRED=0"
+)
+
+if not exist "%DRIVER_INF%" (
+    echo [!] %DRIVER_NAME% driver INF not found at "%DRIVER_INF%".
+    if "%DRIVER_IS_REQUIRED%"=="1" (
+        call :show_failure "%DRIVER_NAME% driver INF is missing."
+        exit /b 1
+    )
+    echo [*] Skipping optional %DRIVER_NAME% driver.
+    exit /b 0
+)
+
+echo Installing %DRIVER_NAME% driver INF...
+call :run_and_log pnputil /add-driver "%DRIVER_INF%" /install
+if errorlevel 1 (
+    if "%DRIVER_IS_REQUIRED%"=="1" (
+        call :show_failure "%DRIVER_NAME% driver install failed."
+        exit /b 1
+    )
+    echo [!] %DRIVER_NAME% driver install failed or is not applicable on this machine; continuing.
+    exit /b 0
+)
+
+echo [+] %DRIVER_NAME% driver installed.
 exit /b 0
 
 :prepare_hypervisor_stack
