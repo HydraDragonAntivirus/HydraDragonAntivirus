@@ -48,7 +48,7 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           commit-message: "chore(dumper): update binaries"
-          title: "🚀 Update MegaDumper Binaries"
+          title: "Update MegaDumper Binaries"
           add-paths: |
             ${{ steps.check_changes.outputs.publishable_files }}
           branch: "auto-update-dumper"

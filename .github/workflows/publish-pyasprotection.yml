@@ -57,7 +57,7 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           commit-message: "chore(pyas): update binaries"
-          title: "🚀 Update SimplePYASProtection Binaries"
+          title: "Update SimplePYASProtection Binaries"
           add-paths: |
             ${{ steps.check_changes.outputs.publishable_files }}
           branch: "auto-update-pyas"

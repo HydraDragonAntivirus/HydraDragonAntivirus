@@ -57,7 +57,7 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           commit-message: "chore(firewall): update binaries"
-          title: "🚀 Update Firewall Binaries"
+          title: "Update Firewall Binaries"
           add-paths: |
             ${{ steps.check_changes.outputs.publishable_files }}
           branch: "auto-update-firewall"

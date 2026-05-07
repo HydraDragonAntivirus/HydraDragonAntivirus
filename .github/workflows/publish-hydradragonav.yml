@@ -50,7 +50,7 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           commit-message: "chore(av): update binaries"
-          title: "🚀 Update HydraDragonAV Binaries"
+          title: "Update HydraDragonAV Binaries"
           add-paths: |
             ${{ steps.check_changes.outputs.publishable_files }}
           branch: "auto-update-av"

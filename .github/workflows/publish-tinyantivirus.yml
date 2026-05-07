@@ -45,7 +45,7 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           commit-message: "chore(tinyav): update binaries"
-          title: "🚀 Update TinyAntivirus Binaries"
+          title: "Update TinyAntivirus Binaries"
           add-paths: |
             ${{ steps.check_changes.outputs.publishable_files }}
           branch: "auto-update-tinyav"

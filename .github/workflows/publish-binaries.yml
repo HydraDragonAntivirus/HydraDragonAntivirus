@@ -749,7 +749,7 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           commit-message: "chore(binaries): automated binary update"
-          title: "🚀 Update Distribution Binaries"
+          title: "Update Distribution Binaries"
           body: |
             Automated binary update from modular build pipeline.
 

@@ -70,7 +70,7 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           commit-message: "chore(infra): update binaries"
-          title: "🚀 Update Infrastructure Binaries"
+          title: "Update Infrastructure Binaries"
           add-paths: |
             ${{ steps.check_changes.outputs.publishable_files }}
           branch: "auto-update-infra"
