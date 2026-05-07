@@ -52,6 +52,8 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           commit-message: "chore(mbrfilter): update binaries"
           title: "🚀 Update MBRFilter Binaries"
+          add-paths: |
+            hydradragon/MBRFilter
           branch: "auto-update-mbrfilter"
           base: ${{ github.ref_name }}
           delete-branch: true

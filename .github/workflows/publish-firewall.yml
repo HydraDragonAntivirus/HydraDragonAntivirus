@@ -58,6 +58,8 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           commit-message: "chore(firewall): update binaries"
           title: "🚀 Update Firewall Binaries"
+          add-paths: |
+            hydradragon/HydraDragonFirewall
           branch: "auto-update-firewall"
           base: ${{ github.ref_name }}
           delete-branch: true

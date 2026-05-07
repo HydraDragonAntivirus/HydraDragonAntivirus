@@ -1,5 +1,5 @@
 name: Check publishable changes
-description: Skip PRs for no-op, empty-file, or zero-byte binary-size changes.
+description: Skip PRs for no-op or empty-file changes.
 
 inputs:
   paths:
@@ -15,7 +15,7 @@ outputs:
     description: Newline-separated zero-byte files found in changed files.
     value: ${{ steps.check.outputs.zero_byte_files }}
   zero_byte_delta_files:
-    description: Newline-separated binary files whose before/after size did not change.
+    description: Newline-separated candidate files ignored because git diff found no content change.
     value: ${{ steps.check.outputs.zero_byte_delta_files }}
 
 runs:
@@ -68,62 +68,52 @@ runs:
           exit 0
         }
 
-        $binaryZeroDeltaFiles = @()
-        $binarySizeChangedFiles = @()
-        $textOrNewFiles = @()
+        $publishableFiles = @()
+        $zeroByteDeltaFiles = @()
 
         foreach ($file in $changedFiles) {
-          $numstat = @()
-          $numstat += @(git diff --numstat -- $file)
+          $untrackedMatches = @(git ls-files --others --exclude-standard -- $file)
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-          $numstat += @(git diff --cached --numstat -- $file)
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
-          $isBinaryDiff = $false
-          foreach ($line in $numstat) {
-            if ($line -match '^-\s+-\s+') {
-              $isBinaryDiff = $true
-            } elseif ($line) {
-              $textOrNewFiles += $file
-            }
-          }
-
-          if (-not $isBinaryDiff) {
-            if ($numstat.Count -eq 0) {
-              $textOrNewFiles += $file
-            }
+          if ($untrackedMatches -contains $file) {
+            $publishableFiles += $file
             continue
           }
 
-          $newSize = 0
-          if (Test-Path -LiteralPath $file -PathType Leaf) {
-            $newSize = [int64](Get-Item -LiteralPath $file).Length
+          $hasDiff = $false
+
+          git diff --quiet -- $file
+          if ($LASTEXITCODE -eq 1) {
+            $hasDiff = $true
+          } elseif ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
           }
 
-          $oldSize = 0
-          $headSpec = "HEAD:$file"
-          git cat-file -e $headSpec 2>$null
-          if ($LASTEXITCODE -eq 0) {
-            $oldSize = [int64](git cat-file -s $headSpec)
-            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          git diff --cached --quiet -- $file
+          if ($LASTEXITCODE -eq 1) {
+            $hasDiff = $true
+          } elseif ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
           }
 
-          if ($oldSize -eq $newSize) {
-            $binaryZeroDeltaFiles += $file
+          if ($hasDiff) {
+            $publishableFiles += $file
           } else {
-            $binarySizeChangedFiles += $file
+            $zeroByteDeltaFiles += $file
           }
         }
 
-        if ($binaryZeroDeltaFiles.Count -gt 0 -and $binarySizeChangedFiles.Count -eq 0 -and $textOrNewFiles.Count -eq 0) {
+        $publishableFiles = @($publishableFiles | Sort-Object -Unique)
+        $zeroByteDeltaFiles = @($zeroByteDeltaFiles | Sort-Object -Unique)
+
+        if ($publishableFiles.Count -eq 0) {
           "changed=false" >> $env:GITHUB_OUTPUT
           "zero_byte_files=" >> $env:GITHUB_OUTPUT
           "zero_byte_delta_files<<EOF" >> $env:GITHUB_OUTPUT
-          $binaryZeroDeltaFiles >> $env:GITHUB_OUTPUT
+          $zeroByteDeltaFiles >> $env:GITHUB_OUTPUT
           "EOF" >> $env:GITHUB_OUTPUT
-          Write-Host "Skipping PR because these binary changes have 0 bytes of size delta:"
-          $binaryZeroDeltaFiles | ForEach-Object { Write-Host " - $_" }
+          Write-Host "Skipping PR because git diff found no content changes:"
+          $zeroByteDeltaFiles | ForEach-Object { Write-Host " - $_" }
           exit 0
         }
 
@@ -131,4 +121,4 @@ runs:
         "zero_byte_files=" >> $env:GITHUB_OUTPUT
         "zero_byte_delta_files=" >> $env:GITHUB_OUTPUT
         Write-Host "Publishable changes detected:"
-        $changedFiles | ForEach-Object { Write-Host " - $_" }
+        $publishableFiles | ForEach-Object { Write-Host " - $_" }

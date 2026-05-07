@@ -66,17 +66,70 @@ jobs:
           $driverBuildProfile = "release"
           $driverPackagePath = "target\$driverBuildProfile\sanctum_package\sanctum.sys"
 
+          function Invoke-Native {
+            param(
+              [Parameter(Mandatory = $true)][string]$Command,
+              [string[]]$Arguments = @()
+            )
+
+            & $Command @Arguments
+            if ($LASTEXITCODE -ne 0) {
+              $argText = $Arguments -join " "
+              throw "Command failed with exit code $LASTEXITCODE: $Command $argText"
+            }
+          }
+
+          function Restore-WdkMakefile {
+            New-Item -ItemType Directory -Force -Path "target" | Out-Null
+            Invoke-Native "cargo" @("fetch")
+
+            $metadataJson = & cargo metadata --format-version 1
+            if ($LASTEXITCODE -ne 0) {
+              throw "Command failed with exit code $LASTEXITCODE: cargo metadata --format-version 1"
+            }
+
+            $metadata = $metadataJson | ConvertFrom-Json
+            $wdkBuildManifest = $metadata.packages | Where-Object { $_.name -eq "wdk-build" } | Select-Object -First 1 -ExpandProperty manifest_path
+            if (-not $wdkBuildManifest) {
+              throw "Could not find wdk-build in cargo metadata."
+            }
+
+            $sourceFile = Join-Path (Split-Path $wdkBuildManifest) "rust-driver-makefile.toml"
+            $destFile = "target\rust-driver-makefile.toml"
+            if (-not (Test-Path $sourceFile)) {
+              throw "Could not find rust-driver-makefile.toml at $sourceFile"
+            }
+
+            Write-Host "Copying $sourceFile to $destFile"
+            Copy-Item $sourceFile $destFile -Force
+          }
+
+          function Assert-DriverPackage {
+            param([Parameter(Mandatory = $true)][string]$Stage)
+
+            if (-not (Test-Path -LiteralPath $driverPackagePath -PathType Leaf)) {
+              throw "Driver package not found after $Stage`: $driverPackagePath"
+            }
+          }
+
+          Restore-WdkMakefile
+
           Write-Host "=== Step 1: Generating ELAM certificate ==="
           .\cert.ps1
 
           Write-Host "`n=== Step 2: Initial driver build ($driverBuildProfile) ==="
-          cargo make $driverBuildProfile
+          Invoke-Native "cargo" @("make", $driverBuildProfile)
+          Assert-DriverPackage "initial build"
 
           Write-Host "`n=== Step 3: Signing driver with sign.bat $driverBuildProfile ==="
-          .\sign.bat $driverBuildProfile
+          Invoke-Native ".\sign.bat" @($driverBuildProfile)
+          Assert-DriverPackage "initial signing"
 
           Write-Host "`n=== Step 4: Extracting To-Be-Signed Hash ==="
-          $certOutput = certmgr.exe -v $driverPackagePath
+          $certOutput = & certmgr.exe -v $driverPackagePath
+          if ($LASTEXITCODE -ne 0) {
+            throw "Command failed with exit code $LASTEXITCODE: certmgr.exe -v $driverPackagePath"
+          }
           $hashLines = $certOutput | Select-String -Pattern "Content Hash \(To-Be-Signed Hash\)::" -Context 0,3
 
           if ($hashLines) {
@@ -92,11 +145,14 @@ jobs:
               Write-Host "Updated build.rs with hash: $hash"
 
               Write-Host "`n=== Step 6: Rebuilding with correct hash ($driverBuildProfile) ==="
-              cargo clean
-              cargo make $driverBuildProfile
+              Invoke-Native "cargo" @("clean")
+              Restore-WdkMakefile
+              Invoke-Native "cargo" @("make", $driverBuildProfile)
+              Assert-DriverPackage "hash rebuild"
 
               Write-Host "`n=== Step 7: Final signing with sign.bat $driverBuildProfile ==="
-              .\sign.bat $driverBuildProfile
+              Invoke-Native ".\sign.bat" @($driverBuildProfile)
+              Assert-DriverPackage "final signing"
               Set-Content -Path "sanctum_elam_hash.txt" -Value $hash -NoNewline
               echo "elam_hash=$hash" >> $env:GITHUB_OUTPUT
 
