@@ -3,7 +3,7 @@
 
 #define MyAppName "HydraDragonAntivirus"
 #define MyAppVersion "0.1.0"
-#define VersionInfoVersion "0.0.1.0"
+#define MyVersionInfoVersion "0.0.1.0"
 #define MyAppPublisher "Emirhan Ucan"
 #define MyAppURL "https://github.com/HydraDragonAntivirus/HydraDragonAntivirus"
 #define MyAppExeName "hydradragon\\HydraDragonService\\HydraDragonService.exe"
@@ -24,7 +24,7 @@
 AppId={{9B4A19B2-69BC-4AD2-8781-BDD85DCEF0C9}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
-VersionInfoVersion={#AppVersion}
+VersionInfoVersion={#MyVersionInfoVersion}
 AppVerName={#MyAppName} {#MyAppVersion}
 AppPublisher={#MyAppPublisher}
 AppPublisherURL={#MyAppURL}
