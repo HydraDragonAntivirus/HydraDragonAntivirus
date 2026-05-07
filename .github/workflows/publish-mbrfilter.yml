@@ -57,3 +57,4 @@ jobs:
           branch: "auto-update-mbrfilter"
           base: ${{ github.ref_name }}
           delete-branch: true
+          labels: binaries, automated-pr, mbrfilter

@@ -51,3 +51,4 @@ jobs:
           branch: "auto-update-tinyav"
           base: ${{ github.ref_name }}
           delete-branch: true
+          labels: binaries, automated-pr, tinyantivirus

@@ -63,3 +63,4 @@ jobs:
           branch: "auto-update-pyas"
           base: ${{ github.ref_name }}
           delete-branch: true
+          labels: binaries, automated-pr, pyasprotection

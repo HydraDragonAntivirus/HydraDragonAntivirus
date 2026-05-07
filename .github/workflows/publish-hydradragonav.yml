@@ -56,3 +56,4 @@ jobs:
           branch: "auto-update-av"
           base: ${{ github.ref_name }}
           delete-branch: true
+          labels: binaries, automated-pr, hydradragonav

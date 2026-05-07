@@ -71,3 +71,4 @@ jobs:
             or on the scheduled/manual workflow run.
           add-paths: |
             ${{ steps.check_changes.outputs.publishable_files }}
+          labels: dependencies, automated-pr
