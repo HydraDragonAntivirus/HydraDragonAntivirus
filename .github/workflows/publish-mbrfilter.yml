@@ -33,11 +33,12 @@ jobs:
       - name: Stage
         shell: pwsh
         run: |
+          $source = "MBRFilter/x64/Win8Release/MBRFilter"
           $dist = "hydradragon/MBRFilter"
-          New-Item -ItemType Directory -Force -Path $dist
-          Copy-Item "MBRFilter/x64/Win8Release/*.sys" "$dist/" -Force
-          Copy-Item "MBRFilter/x64/Win8Release/*.inf" "$dist/" -Force
-          Copy-Item "MBRFilter/x64/Win8Release/*.cat" "$dist/" -Force
+          if (Test-Path $source) {
+            New-Item -ItemType Directory -Force -Path $dist | Out-Null
+            Copy-Item -Path "$source/*" -Destination "$dist/" -Recurse -Force
+          }
           
       - name: Check for publishable changes
         id: check_changes

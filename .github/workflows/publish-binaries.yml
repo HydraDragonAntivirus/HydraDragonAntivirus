@@ -582,22 +582,22 @@ jobs:
           $av | Copy-Item -Destination "HydraDragonAV/x64/Release/" -Force
 
           # --- MBRFilter ---
-          $mbr = Get-ChildItem "bin-mbrfilter/" -Filter "*" -Recurse -File | Where-Object { $_.Extension -ne ".cer" }
-          $mbr | Copy-Item -Destination "$distRoot/MBRFilter/" -Force
-          New-Item -ItemType Directory -Force -Path "MBRFilter/x64/Win8Release/MBRFilter"
-          $mbr | Copy-Item -Destination "MBRFilter/x64/Win8Release/MBRFilter/" -Force
+          $mbrSource = Get-ChildItem "bin-mbrfilter/" -Directory -Filter "MBRFilter" -Recurse | Select-Object -First 1
+          if ($mbrSource) {
+            Copy-Item -Path "$($mbrSource.FullName)/*" -Destination "$distRoot/MBRFilter/" -Recurse -Force
+          }
 
           # --- SimplePYASProtection ---
-          $pyas = Get-ChildItem "bin-pyasprotection/" -Filter "*" -Recurse -File | Where-Object { $_.Extension -ne ".cer" }
-          $pyas | Copy-Item -Destination "$distRoot/SimplePYASProtection/" -Force
-          New-Item -ItemType Directory -Force -Path "PYAS_Protection/x64/Release/SimplePYASProtection"
-          $pyas | Copy-Item -Destination "PYAS_Protection/x64/Release/SimplePYASProtection/" -Force
+          $pyasSource = Get-ChildItem "bin-pyasprotection/" -Directory -Filter "SimplePYASProtection" -Recurse | Select-Object -First 1
+          if ($pyasSource) {
+            Copy-Item -Path "$($pyasSource.FullName)/*" -Destination "$distRoot/SimplePYASProtection/" -Recurse -Force
+          }
 
           # --- Owlyshield ---
-          $owlyMinifilter = Get-ChildItem "bin-owlyshield-minifilter/" -Filter "*" -Recurse -File | Where-Object { $_.Extension -ne ".cer" }
-          $owlyMinifilter | Copy-Item -Destination "$distRoot/Owlyshield/OwlyshieldRansomFilter/" -Force
-          New-Item -ItemType Directory -Force -Path "Owlyshield/owlyshield_minifilter/x64/Release/OwlyshieldRansomFilter"
-          $owlyMinifilter | Copy-Item -Destination "Owlyshield/owlyshield_minifilter/x64/Release/OwlyshieldRansomFilter/" -Force
+          $owlyMinifilterSource = Get-ChildItem "bin-owlyshield-minifilter/" -Directory -Filter "OwlyshieldRansomFilter" -Recurse | Select-Object -First 1
+          if ($owlyMinifilterSource) {
+            Copy-Item -Path "$($owlyMinifilterSource.FullName)/*" -Destination "$distRoot/Owlyshield/OwlyshieldRansomFilter/" -Recurse -Force
+          }
           
           $owlyRust = Get-ChildItem "bin-owlyshield-rust/" -Filter "owlyshield_ransom.exe" -Recurse
           $owlyRust | Copy-Item -Destination "$distRoot/Owlyshield/Owlyshield Service/" -Force
@@ -605,11 +605,10 @@ jobs:
           $owlyRust | Copy-Item -Destination "Owlyshield/owlyshield_predict/target/release/" -Force
 
           # --- RedDbg ---
-          $reddbgDrv = Get-ChildItem "bin-reddbg/" -Filter "RedDbgDrv.*" -Recurse -File | Where-Object { $_.Extension -ne ".cer" }
-          $reddbgDrv | Copy-Item -Destination "$distRoot/Owlyshield/RedDbg/" -Force
-          
-          New-Item -ItemType Directory -Force -Path "Owlyshield/RedDbg/RedDbg/x64/ReleaseX64Kernel/RedDbgDrv"
-          $reddbgDrv | Copy-Item -Destination "Owlyshield/RedDbg/RedDbg/x64/ReleaseX64Kernel/RedDbgDrv/" -Force
+          $reddbgDrvSource = Get-ChildItem "bin-reddbg/" -Directory -Filter "RedDbgDrv" -Recurse | Select-Object -First 1
+          if ($reddbgDrvSource) {
+            Copy-Item -Path "$($reddbgDrvSource.FullName)/*" -Destination "$distRoot/Owlyshield/RedDbg/" -Recurse -Force
+          }
 
           # --- Dumper ---
           $dumperRoot = Get-PublishRoot -ArtifactDir "bin-megadumper" -RequiredFile "MegaDumper.exe"

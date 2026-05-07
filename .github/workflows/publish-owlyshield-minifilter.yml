@@ -40,19 +40,13 @@ jobs:
       - name: Stage Minifilter Files
         shell: pwsh
         run: |
-          $source = "Owlyshield/owlyshield_minifilter/x64/Release"
+          $source = "Owlyshield/owlyshield_minifilter/x64/Release/OwlyshieldRansomFilter"
           $destination = "hydradragon/Owlyshield/OwlyshieldRansomFilter"
-          $files = @(
-            "OwlyshieldRansomFilter.sys",
-            "OwlyshieldRansomFilter.inf",
-            "owlyshieldransomfilter.cat",
-            "OwlyshieldRansomFilter.cer"
-          )
-          New-Item -ItemType Directory -Force -Path $destination | Out-Null
-
-          Get-ChildItem -Path $source -Recurse -File |
-            Where-Object { $_.Name -in $files } |
-            ForEach-Object { Copy-Item $_.FullName -Destination $destination -Force }
+          
+          if (Test-Path $source) {
+            New-Item -ItemType Directory -Force -Path $destination | Out-Null
+            Copy-Item -Path "$source/*" -Destination "$destination/" -Recurse -Force
+          }
 
       - name: Check for publishable changes
         id: check_changes

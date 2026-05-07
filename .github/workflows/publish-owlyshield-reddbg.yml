@@ -40,19 +40,13 @@ jobs:
       - name: Stage RedDbg Files
         shell: pwsh
         run: |
-          $source = "Owlyshield/RedDbg/RedDbg/x64/ReleaseX64Kernel"
+          $source = "Owlyshield/RedDbg/RedDbg/x64/ReleaseX64Kernel/RedDbgDrv"
           $destination = "hydradragon/Owlyshield/RedDbg"
-          $files = @(
-            "RedDbgDrv.sys",
-            "RedDbgDrv.inf",
-            "reddbgdrv.cat",
-            "RedDbgDrv.cer"
-          )
-          New-Item -ItemType Directory -Force -Path $destination | Out-Null
-
-          Get-ChildItem -Path $source -Recurse -File |
-            Where-Object { $_.Name -in $files } |
-            ForEach-Object { Copy-Item $_.FullName -Destination $destination -Force }
+          
+          if (Test-Path $source) {
+            New-Item -ItemType Directory -Force -Path $destination | Out-Null
+            Copy-Item -Path "$source/*" -Destination "$destination/" -Recurse -Force
+          }
 
       - name: Check for publishable changes
         id: check_changes

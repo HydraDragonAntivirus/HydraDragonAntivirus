@@ -33,10 +33,12 @@ jobs:
       - name: Stage
         shell: pwsh
         run: |
+          $source = "PYAS_Protection/x64/Release/SimplePYASProtection"
           $dist = "hydradragon/SimplePYASProtection"
-          New-Item -ItemType Directory -Force -Path $dist
-          Copy-Item "PYAS_Protection/x64/Release/SimplePYASProtection.sys" "$dist/" -Force
-          Copy-Item "PYAS_Protection/x64/Release/SimplePYASProtection.inf" "$dist/" -Force
+          if (Test-Path $source) {
+            New-Item -ItemType Directory -Force -Path $dist | Out-Null
+            Copy-Item -Path "$source/*" -Destination "$dist/" -Recurse -Force
+          }
           
       - name: Upload Artifacts
         uses: actions/upload-artifact@v7

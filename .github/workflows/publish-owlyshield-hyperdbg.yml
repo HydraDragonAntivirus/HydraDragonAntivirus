@@ -40,25 +40,12 @@ jobs:
       - name: Stage HyperDbg Files
         shell: pwsh
         run: |
+          $source = "Owlyshield/HyperDbg/hyperdbg/build/bin/release/hyperhv"
           $destination = "hydradragon/Owlyshield/HyperDbg"
-          $sources = @(
-            "Owlyshield/HyperDbg/hyperdbg/build/bin/release",
-            "Owlyshield/HyperDbg/hyperdbg/hyperhv/build/package/release"
-          )
-          $files = @(
-            "hyperhv.sys",
-            "hyperhv.inf",
-            "hyperhv.cat",
-            "hyperhv.cer"
-          )
-          New-Item -ItemType Directory -Force -Path $destination | Out-Null
-
-          foreach ($source in $sources) {
-            if (Test-Path $source) {
-              Get-ChildItem -Path $source -Recurse -File |
-                Where-Object { $_.Name -in $files } |
-                ForEach-Object { Copy-Item $_.FullName -Destination $destination -Force }
-            }
+          
+          if (Test-Path $source) {
+            New-Item -ItemType Directory -Force -Path $destination | Out-Null
+            Copy-Item -Path "$source/*" -Destination "$destination/" -Recurse -Force
           }
 
       - name: Check for publishable changes
