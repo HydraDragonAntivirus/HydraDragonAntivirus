@@ -38,7 +38,7 @@ AddService = MBRFilter, , MBRFilter.Service.Install
 [MBRFilter.Service.Install]
 DisplayName    = %service_desc%
 ServiceType    = 1
-StartType      = 3
+StartType      = 0
 ErrorControl   = 1
 ServiceBinary  = %12%\MBRFilter.sys
 LoadOrderGroup = "PnP Filter"
