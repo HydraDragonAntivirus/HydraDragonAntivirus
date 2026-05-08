@@ -161,7 +161,10 @@ Filename: "{tmp}\npcap-1.88.exe"; Parameters: "/winpcap_mode=yes"; Flags: shelle
 Filename: "{app}\python\python.exe"; Parameters: """{tmp}\setup.py"""; Flags: waituntilterminated
 
 [UninstallRun]
-; Disable test signing mode on uninstall
+; Revert security settings changed by post_install.bat
+Filename: "{sys}\reg.exe"; Parameters: "add ""HKLM\SYSTEM\CurrentControlSet\Control\DeviceGuard"" /v EnableVirtualizationBasedSecurity /t REG_DWORD /d 1 /f"; Flags: runhidden waituntilterminated; RunOnceId: "RestoreVBS"
+Filename: "{sys}\reg.exe"; Parameters: "add ""HKLM\SYSTEM\CurrentControlSet\Control\DeviceGuard\Scenarios\HypervisorEnforcedCodeIntegrity"" /v Enabled /t REG_DWORD /d 1 /f"; Flags: runhidden waituntilterminated; RunOnceId: "RestoreHVCI"
+Filename: "{sys}\bcdedit.exe"; Parameters: "/set hypervisorlaunchtype auto"; Flags: runhidden waituntilterminated; RunOnceId: "EnableHypervisor"
 Filename: "{sys}\bcdedit.exe"; Parameters: "/set testsigning off"; Flags: runhidden waituntilterminated; RunOnceId: "DisableTestSigning"
 
 ; Owlyshield cleanup
@@ -176,25 +179,20 @@ Filename: "{sys}\bcdedit.exe"; Parameters: "/set testsigning off"; Flags: runhid
 const
   RunOnceKey = 'SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce';
   UninstallMsg =
-    'IMPORTANT: Full removal of kernel drivers requires Safe Mode.'#13#10#13#10 +
-    'The following drivers CANNOT be fully removed while Windows is running normally:'#13#10 +
-    '  - OwlyshieldRansomFilter (minifilter driver)'#13#10 +
-    '  - MBRFilter (MBR protection driver)'#13#10 +
-    '  - SimplePYASProtection (protection driver)'#13#10 +
-    '  - RedDbg (AMD hypervisor debugger)'#13#10 +
-    '  - HyperDbg (Intel hypervisor)'#13#10 +
-    '  - Sanctum (kernel security driver)'#13#10 +
-    '  - OpenEDR / edrdrv + OpenEDR DLL (edrav2 library)'#13#10#13#10 +
-    'ELAM (Early Launch Anti-Malware) Note:'#13#10 +
-    '  The Sanctum ELAM driver may require MANUAL removal if elam_installer.exe fails.'#13#10 +
-    '  Registry key: HKLM\SYSTEM\CurrentControlSet\Control\EarlyLaunch\'#13#10 +
-    '  Or re-run elam_installer.exe /uninstall from Safe Mode.'#13#10#13#10 +
-    'The uninstaller will:'#13#10 +
-    '  1. Stop all services and delete service entries now.'#13#10 +
-    '  2. Remove driver INFs via pnputil now (best-effort).'#13#10 +
-    '  3. Schedule a cleanup script for the next Safe Mode reboot.'#13#10#13#10 +
-    'After uninstall completes, reboot into Safe Mode to finish driver removal.'#13#10#13#10 +
-    'Do you want to proceed with uninstallation?';
+    'HYDRADRAGON ANTIVIRUS - FULL UNINSTALLATION'#13#10#13#10 +
+    'The uninstaller will perform the following actions:'#13#10 +
+    '  1. Stop and DELETE all HydraDragon system services.'#13#10 +
+    '  2. DISABLE Windows Test Signing mode (testsigning off).'#13#10 +
+    '  3. RE-ENABLE Windows Hypervisor, VBS, and HVCI security stack.'#13#10 +
+    '  4. Remove driver registrations and INF files (best-effort).'#13#10 +
+    '  5. Schedule a deep-cleanup script for Safe Mode.'#13#10#13#10 +
+    'IMPORTANT: Full removal of protected kernel drivers requires SAFE MODE.'#13#10 +
+    'The following drivers CANNOT be deleted while Windows is running:'#13#10 +
+    '  - OwlyshieldRansomFilter, MBRFilter, SimplePYASProtection'#13#10 +
+    '  - RedDbg, HyperDbg, Sanctum, edrdrv (OpenEDR)'#13#10#13#10 +
+    'After the standard uninstall completes, you MUST reboot into Safe Mode'#13#10 +
+    'to allow the automated script to delete the protected .sys and .dll files.'#13#10#13#10 +
+    'Do you want to proceed with the uninstallation?';
 
 procedure ExecSilent(const Cmd, Params: String);
 var
@@ -343,11 +341,16 @@ begin
     ScheduleSafeModeCleanup(AppDir);
 
     MsgBox(
-      'Service entries removed.'#13#10#13#10 +
-      'A cleanup script is scheduled to run on the next reboot.'#13#10 +
-      'For complete driver removal, please reboot into Safe Mode.'#13#10#13#10 +
-      'The cleanup script will run automatically on next startup.'#13#10#13#10 +
-      'ELAM driver may require manual removal:'#13#10 +
+      'PHASE 1 COMPLETE: Local services and registry entries removed.'#13#10#13#10 +
+      'MODIFICATIONS APPLIED:'#13#10 +
+      '  - System services (edrsvc, hydradragon, etc.) deleted.'#13#10 +
+      '  - Test Signing mode has been DISABLED.'#13#10 +
+      '  - Windows Hypervisor, VBS, and HVCI stack RE-ENABLED.'#13#10 +
+      '  - Safe Mode cleanup script scheduled.'#13#10#13#10 +
+      'REQUIRED ACTION:'#13#10 +
+      '  Please REBOOT into SAFE MODE now to complete the driver file removal.'#13#10 +
+      '  The cleanup script will run automatically upon Safe Mode login.'#13#10#13#10 +
+      'ELAM driver may require manual registry removal if persistent:'#13#10 +
       'HKLM\SYSTEM\CurrentControlSet\Control\EarlyLaunch',
       mbInformation, MB_OK
     );

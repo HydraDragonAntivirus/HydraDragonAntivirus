@@ -5,11 +5,18 @@ Due to the deep integration of kernel-level drivers and security services, stand
 ## Step 1: Standard Uninstallation
 1. Open **Control Panel** > **Programs and Features**.
 2. Find **HydraDragon Antivirus** and click **Uninstall**.
-3. Follow the prompts. The uninstaller will stop active services and delete service entries.
-4. **Accept the warning**: The uninstaller will notify you that a full cleanup requires a reboot.
+3. The uninstaller will:
+   - Stop and **DELETE** all system services (edrsvc, hydradragon, etc.).
+   - **DISABLE Windows Test Signing mode** (`bcdedit /set testsigning off`).
+   - **RE-ENABLE Windows Hypervisor, VBS, and HVCI stack**.
+   - Remove driver registrations and INF store entries.
+4. **Accept the warning**: The uninstaller will notify you that a full cleanup requires a reboot into Safe Mode.
 
 ## Step 2: Safe Mode Reboot (CRITICAL)
-Kernel drivers (`.sys` files) and library DLLs are often locked by Windows and cannot be deleted while the OS is running normally.
+Kernel drivers (`.sys` files) and library DLLs are often locked by Windows and cannot be deleted while the OS is running normally. This includes:
+- **OwlyshieldRansomFilter**, **MBRFilter**, **SimplePYASProtection**
+- **RedDbg**, **HyperDbg**, **Sanctum**, **edrdrv** (OpenEDR)
+
 1. Restart your computer.
 2. **Boot into Safe Mode**.
 3. Upon login, a cleanup script named `HydraDragonCleanup.bat` (located in your `%TEMP%` directory) will run automatically via a `RunOnce` registry key.
