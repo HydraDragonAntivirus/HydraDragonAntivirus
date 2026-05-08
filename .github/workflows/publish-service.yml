@@ -46,7 +46,7 @@ jobs:
             }
 
             New-Item -ItemType Directory -Force -Path $Destination | Out-Null
-            Get-ChildItem -LiteralPath $Source -Force |
+            Get-ChildItem -LiteralPath $Source -Force -Exclude "*.pdb" |
               Copy-Item -Destination $Destination -Recurse -Force
           }
 
