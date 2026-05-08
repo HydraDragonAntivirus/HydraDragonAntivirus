@@ -2,7 +2,6 @@ use std::process::Command;
 
 const CRITICAL_DRIVERS: &[&str] = &[
     "sanctum",
-    "MBRFilter",
     "hyperhv",
     "SimplePYASProtection",
     "RedDbg",
