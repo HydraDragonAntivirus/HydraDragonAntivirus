@@ -137,7 +137,7 @@ https://www.virustotal.com/gui/file/1ef6c1a4dfdc39b63bfe650ca81ab89510de6c0d3d7c
 ### Installation & Usage Notes
 
 - The installation process is not fully automated. Npcap, drivers, Firewall components, and some other dependencies may require manual approval during setup.
-- You must uninstall the ELAM driver manually (auto-uninstaller is not fully functional due to ELAM driver).
+- You must uninstall the ELAM driver manually if the automated uninstaller encountered issues. See the **[Uninstallation Guide](./UNINSTALLATION.md)** for registry cleanup steps.
 - Temporary ClamAV update errors during setup can be safely ignored.
 - If driver installation fails, disable Secure Boot and try again.
 - It is recommended to wait until the antivirus interface fully loads, even if some protections appear active
@@ -214,6 +214,13 @@ See the [LICENSE](./LICENSE) file for more information.
 
 ## Setup
 - Setup file on release HydraDragonAntivirus.exe
+
+## Uninstallation
+
+For complete removal of kernel drivers and system services, please follow the **[Uninstallation Guide](./UNINSTALLATION.md)**.
+
+> [!IMPORTANT]
+> A reboot into **Safe Mode** is required to fully remove protected driver files (`.sys`) and associated DLLs.
 
 ## Ghidra
 - Ghidra: %ProgramFiles%\aHydraDragonAntivirus\hydradragon\ghidra
