@@ -10,6 +10,16 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/HydraDragonAntivirus/HydraDragonAntivirus/wiki">
+    <img src="https://img.shields.io/badge/Wiki-Hydra%20Dragon-red?style=for-the-badge&logo=github" alt="Project Wiki" />
+  </a>
+</p>
+
+<p align="center" style="font-size: 18px; font-weight: bold;">
+  📚 For detailed documentation, architecture diagrams, and component guides, visit our <a href="https://github.com/HydraDragonAntivirus/HydraDragonAntivirus/wiki">Project Wiki</a>.
+</p>
+
+<p align="center">
   <img
     src="hydradragon/assets/HydraDragonAVGUI.png"
     width="1080"
