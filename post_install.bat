@@ -179,13 +179,24 @@ if not "%RUN_EXIT%"=="0" (
 :: --------------------------------------------------------
 set "EDR_EXE=%OPENEDR_DIR%\edrsvc.exe"
 call :log [*] Checking for OpenEDR at "%EDR_EXE%"...
+
 if exist "%EDR_EXE%" (
     call :log [*] Installing OpenEDR service (Native mode)...
     call :run_and_log "%EDR_EXE%" install
+
     if errorlevel 1 (
         call :log [!] OpenEDR service install returned error code %errorlevel%.
     ) else (
         call :log [+] OpenEDR service install command completed.
+
+        call :log [*] Forcing edrdrv to DEMAND start to avoid boot BSOD...
+        sc query edrdrv >nul 2>&1
+        if %errorlevel%==0 (
+            sc config edrdrv start= demand
+            call :log [+] edrdrv start type set to demand.
+        ) else (
+            call :log [!] edrdrv not found; skipping start type change.
+        )
     )
 ) else (
     call :log [!] OpenEDR service executable NOT FOUND at "%EDR_EXE%".
