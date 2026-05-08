@@ -48,8 +48,8 @@ if "%TESTSIGNING_ENABLE_FAILED%"=="1" (
     exit /b 1
 )
 if "%HYPERVISOR_REBOOT_REQUIRED%"=="1" (
-    call :log [*] Hypervisor/VBS settings were changed. A reboot is required before driver installation.
-    call :log [*] Scheduling post-install continuation after reboot...
+    call :log [*] Hypervisor/VBS settings were changed. A manual reboot is required before driver installation.
+    call :log [*] Scheduling post-install continuation...
     reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce" /v "HydraDragonPostInstallContinue" /t REG_SZ /d "\"%~f0\" --after-hypervisor-reboot" /f > "%POSTINSTALL_LAST_OUTPUT%" 2>&1
     if errorlevel 1 (
         call :show_last_output
@@ -57,8 +57,7 @@ if "%HYPERVISOR_REBOOT_REQUIRED%"=="1" (
         exit /b 1
     )
     call :show_last_output
-    call :log [*] Restarting system in 15 seconds...
-    shutdown -r -t 15
+    call :log [+] Ready for manual reboot.
     exit /b 0
 )
 
@@ -203,10 +202,11 @@ if exist "%EDR_EXE%" (
 )
 
 :: --------------------------------------------------------
-:: 13) Cleanup and restart
+:: 13) Cleanup
 :: --------------------------------------------------------
-echo Cleaning up installer script and restarting system in 10 seconds...
-shutdown -r -t 10 /f /c "HydraDragon Antivirus installation complete. Restarting to activate security drivers."
+echo Cleaning up installer script...
+if exist "%POSTINSTALL_LAST_OUTPUT%" del "%POSTINSTALL_LAST_OUTPUT%" >nul 2>&1
+echo [+] Installation steps complete. Please RESTART manually to activate all drivers.
 del "%~f0"
 endlocal
 goto :eof
