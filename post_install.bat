@@ -179,32 +179,34 @@ if not "%RUN_EXIT%"=="0" (
 :: 12) Install OpenEDR service
 :: --------------------------------------------------------
 set "EDR_EXE=%OPENEDR_DIR%\edrsvc.exe"
+call :log [*] Checking for OpenEDR at "%EDR_EXE%"...
 if exist "%EDR_EXE%" (
-    echo [*] Installing OpenEDR service...
+    call :log [*] Installing OpenEDR service (Native mode)...
     call :run_and_log "%EDR_EXE%" install
     if errorlevel 1 (
-        echo [!] OpenEDR service install failed.
+        call :log [!] OpenEDR service install returned error code %errorlevel%.
     ) else (
-        echo [+] OpenEDR service installed.
+        call :log [+] OpenEDR service install command completed.
     )
 
-    echo [*] Configuring OpenEDR kernel driver (edrdrv)...
+    call :log [*] Configuring OpenEDR kernel driver (edrdrv)...
     call :run_and_log sc config edrdrv start= system
     call :run_and_log sc start edrdrv
     if errorlevel 1 (
-        echo [!] edrdrv driver start pending (will activate after reboot).
+        call :log [!] edrdrv driver start pending or failed (check logs after reboot).
     ) else (
-        echo [+] edrdrv driver started successfully.
+        call :log [+] edrdrv driver started successfully.
     )
 ) else (
-    echo [!] OpenEDR service executable not found at "%EDR_EXE%".
+    call :log [!] OpenEDR service executable NOT FOUND at "%EDR_EXE%".
+    call :log [!] Skipping OpenEDR service installation.
 )
 
 :: --------------------------------------------------------
 :: 13) Cleanup and restart
 :: --------------------------------------------------------
 echo Cleaning up installer script and restarting system in 10 seconds...
-shutdown -r -t 10
+shutdown -r -t 10 /f /c "HydraDragon Antivirus installation complete. Restarting to activate security drivers."
 del "%~f0"
 endlocal
 goto :eof

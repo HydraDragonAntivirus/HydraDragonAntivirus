@@ -53,6 +53,15 @@ This project is not production-ready.
 Breaking changes, bugs, and incomplete features should be expected.
 </p>
 
+> [!CAUTION]
+> ### 🛑 USER LIABILITY & SAFEGUARD LIMITATIONS
+> HydraDragon is designed to protect against **malicious automated threats**, not human error or intentional system modifications.
+>
+> 1. **Manual Deletion**: The antivirus **WILL NOT** stop you from running commands like `rd /s /q C:\` or manually deleting your own files. It assumes that if you (the Administrator) are explicitly deleting something, you intend to do so.
+> 2. **Driver/System Misconfiguration**: The software does not protect against manual installation of incompatible drivers or incorrect system settings. A "Inaccessible Boot Device" or other system failures caused by manual registry edits or driver experiments are **NOT** considered malware behavior and are not blocked.
+> 3. **Experimental Nature**: You are responsible for any data loss or system instability caused by using this experimental software. **Always test in a Virtual Machine (VM) first.**
+
+
 ## One Man Project
 
 - HydraDragon is a three-year independent open-source antivirus/EDR project built primarily by one developer.
