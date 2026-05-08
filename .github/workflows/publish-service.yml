@@ -1,4 +1,4 @@
-name: Publish Infrastructure
+name: Publish Service
 
 on:
   push:
@@ -63,11 +63,11 @@ jobs:
         uses: peter-evans/create-pull-request@v8
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          commit-message: "chore(infra): update binaries"
-          title: "Update Infrastructure Binaries"
+          commit-message: "chore(service): update binaries"
+          title: "Update Service Binaries"
           add-paths: |
             ${{ steps.check_changes.outputs.publishable_files }}
-          branch: "auto-update-infra"
+          branch: "auto-update-service"
           base: ${{ github.ref_name }}
           delete-branch: true
-          labels: binaries, automated-pr, infrastructure
+          labels: binaries, automated-pr, service
