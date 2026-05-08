@@ -5,7 +5,6 @@ on:
     branches: ["**"]
     paths:
       - '.github/workflows/publish-binaries.yml'
-      - 'Owlyshield/tools/**'
   workflow_dispatch:
     inputs:
       branch:
@@ -472,6 +471,23 @@ jobs:
             Sanctum/Cargo.lock
             Sanctum/driver/Cargo.lock
 
+  build-owlyshield-tools:
+    runs-on: windows-2022
+    steps:
+      - name: Enable Git long paths
+        run: git config --global core.longpaths true
+      - uses: actions/checkout@v6
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Build Owlyshield Tools
+        working-directory: Owlyshield/tools/rust_win_toast
+        run: cargo build --release
+      - name: Upload
+        uses: actions/upload-artifact@v7
+        with:
+          name: bin-owlyshield-tools
+          path: Owlyshield/tools/rust_win_toast/target/release/RustWindowsToast.exe
+
   # --- FINAL STAGE: Collect and PR ---
 
   stage-and-pr:
@@ -488,6 +504,7 @@ jobs:
       - build-owlyshield-rust
       - build-firewall-rust
       - build-sanctum
+      - build-owlyshield-tools
     runs-on: windows-2022
     steps:
       - name: Enable Git long paths
@@ -520,7 +537,8 @@ jobs:
             "$distRoot/HydraDragonService",
             "$distRoot/Sanctum/AppData",
             "$distRoot/Sanctum/System32",
-            "$distRoot/sanctum_test_malware"
+            "$distRoot/sanctum_test_malware",
+            "$distRoot/Owlyshield/tools"
           )
           foreach ($folder in $folders) {
             if (-not (Test-Path $folder)) {
@@ -611,6 +629,12 @@ jobs:
             Copy-Item -Path "$($reddbgDrvSource.FullName)/*" -Destination "$distRoot/Owlyshield/RedDbg/" -Recurse -Force
           }
 
+          # --- Owlyshield Tools ---
+          $owlyTools = Get-ChildItem "bin-owlyshield-tools/" -Filter "RustWindowsToast.exe" -Recurse
+          $owlyTools | Copy-Item -Destination "$distRoot/Owlyshield/tools/" -Force
+          New-Item -ItemType Directory -Force -Path "Owlyshield/tools/rust_win_toast/target/release"
+          $owlyTools | Copy-Item -Destination "Owlyshield/tools/rust_win_toast/target/release/" -Force
+
           # --- Dumper ---
           $dumperRoot = Get-PublishRoot -ArtifactDir "bin-megadumper" -RequiredFile "MegaDumper.exe"
           Sync-PublishTree -Source $dumperRoot -Destination "$distRoot/HydraDragonDumper"
@@ -690,6 +714,7 @@ jobs:
             "bin-reddbg",
             "bin-service",
             "bin-tinyantivirus",
+            "bin-owlyshield-tools",
             "bin-sanctum"
           )
           foreach ($dir in $artifactDirs) {
@@ -711,6 +736,7 @@ jobs:
             PYAS_Protection/x64/Release
             Owlyshield/owlyshield_minifilter/x64/Release
             Owlyshield/owlyshield_predict/target/release
+            Owlyshield/tools/rust_win_toast/target/release
             Owlyshield/RedDbg/RedDbg/x64/ReleaseX64Kernel
             MegaDumper/MegaDumper/bin/Release/net8.0
             HydraDragonFirewall/hydradragonfirewall/target/release
@@ -734,6 +760,7 @@ jobs:
             "bin-megadumper",
             "bin-owlyshield-minifilter",
             "bin-owlyshield-rust",
+            "bin-owlyshield-tools",
             "bin-pyasprotection",
             "bin-reddbg",
             "bin-service",

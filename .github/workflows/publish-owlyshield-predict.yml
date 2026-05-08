@@ -7,7 +7,6 @@ on:
       - "Owlyshield/owlyshield_predict/**"
       - "Owlyshield/owlyshield_predict/**/Cargo.toml"
       - "Owlyshield/owlyshield_predict/**/Cargo.lock"
-      - "Owlyshield/tools/**"
       - ".github/workflows/publish-owlyshield-predict.yml"
   workflow_dispatch:
 

@@ -5,13 +5,11 @@ on:
     branches: [ "**" ]
     paths:
       - 'Owlyshield/owlyshield_predict/**'
-      - 'Owlyshield/tools/**'
       - '.github/workflows/owlyshield-rust-windows.yml'
   pull_request:
     branches: [ "**" ]
     paths:
       - 'Owlyshield/owlyshield_predict/**'
-      - 'Owlyshield/tools/**'
       - '.github/workflows/owlyshield-rust-windows.yml'
   workflow_dispatch:
     inputs:
