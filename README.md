@@ -53,6 +53,12 @@ This project is not production-ready.
 Breaking changes, bugs, and incomplete features should be expected.
 </p>
 
+<p align="center" style="font-size: 18px; font-weight: bold; color: orange;">
+⚠️ NOTICE: This repository is intended strictly for EXPERT MALWARE ANALYSTS and SECURITY RESEARCHERS. 
+It contains low-level system components and experimental security drivers that require professional knowledge to handle safely.
+</p>
+
+
 > [!CAUTION]
 > ### 🛑 USER LIABILITY & SAFEGUARD LIMITATIONS
 > HydraDragon is designed to protect against **malicious automated threats**, not human error or intentional system modifications.
