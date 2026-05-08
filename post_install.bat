@@ -145,11 +145,11 @@ if not "%RUN_EXIT%"=="0" (
 :: --------------------------------------------------------
 :: 11) Install OpenEDR service
 :: --------------------------------------------------------
-set "EDR_EXE=%OPENEDR_DIR%\edrsvc.exe"
+set "EDR_EXE=C:\Program Files\HydraDragonAntivirus\OpenEDR\edrsvc.exe"
 call :log [*] Checking for OpenEDR at "%EDR_EXE%"...
 
 if not exist "%EDR_EXE%" (
-    call :log [!] OpenEDR service executable NOT FOUND at "%EDR_EXE%".
+    call :log [!] OpenEDR service executable NOT FOUND.
     call :log [!] Skipping OpenEDR service installation.
     goto :after_openedr
 )
@@ -168,8 +168,9 @@ if not "%EDR_INSTALL_RES%"=="0" (
 call :log [*] Configuring OpenEDR kernel driver (edrdrv)...
 sc query edrdrv >nul 2>&1
 if not errorlevel 1 (
-    call :log [*] Forcing edrdrv to DEMAND start...
+    call :log [*] Forcing edrdrv to DEMAND start to prevent boot BSOD...
     sc config edrdrv start= demand >nul 2>&1
+    call :log [+] edrdrv start type set to demand.
 ) else (
     call :log [!] edrdrv service not found, skipping config.
 )
