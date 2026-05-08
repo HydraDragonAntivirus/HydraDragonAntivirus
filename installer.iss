@@ -230,6 +230,7 @@ begin
   i := 0;
 
   Lines[i] := '@echo off'; Inc(i);
+  Lines[i] := 'setlocal enabledelayedexpansion'; Inc(i);
   Lines[i] := 'echo HydraDragon Antivirus - Safe Mode Cleanup'; Inc(i);
   Lines[i] := ''; Inc(i);
   Lines[i] := 'taskkill /f /im HydraDragonService.exe 2>nul'; Inc(i);
@@ -269,24 +270,29 @@ begin
   Lines[i] := ''; Inc(i);
   Lines[i] := 'schtasks /delete /tn "HydraDragonAntivirus" /f 2>nul'; Inc(i);
   Lines[i] := 'rmdir /s /q "%ProgramData%\edrsvc" 2>nul'; Inc(i);
-  // Remove all subfolders in ProgramData\HydraDragonAntivirus EXCEPT Quarantine
+  // Remove all subfolders in ProgramData\HydraDragonAntivirus EXCEPT Quarantine, Logs, and Reports
   Lines[i] := 'for /d %%D in ("%ProgramData%\HydraDragonAntivirus\*") do ('; Inc(i);
-  Lines[i] := '  if /i not "%%~nxD"=="Quarantine" rmdir /s /q "%%D"'; Inc(i);
+  Lines[i] := '  set "skip=0"'; Inc(i);
+  Lines[i] := '  if /i "%%~nxD"=="Quarantine" set "skip=1"'; Inc(i);
+  Lines[i] := '  if /i "%%~nxD"=="Logs" set "skip=1"'; Inc(i);
+  Lines[i] := '  if /i "%%~nxD"=="Reports" set "skip=1"'; Inc(i);
+  Lines[i] := '  if "!skip!"=="0" rmdir /s /q "%%D"'; Inc(i);
   Lines[i] := ')'; Inc(i);
   // Remove all root-level files in ProgramData\HydraDragonAntivirus
   Lines[i] := 'del /f /q "%ProgramData%\HydraDragonAntivirus\*" 2>nul'; Inc(i);
-  // Ask user about Quarantine folder
+  // Ask user about Quarantine, Logs, and Threat data
   Lines[i] := 'echo.'; Inc(i);
-  Lines[i] := 'echo Your quarantine data is preserved at:'; Inc(i);
-  Lines[i] := 'echo   %ProgramData%\HydraDragonAntivirus\Quarantine'; Inc(i);
-  Lines[i] := 'echo This folder contains previously detected threats held in quarantine.'; Inc(i);
+  Lines[i] := 'echo Security data (Quarantine, Logs, Reports) is preserved at:'; Inc(i);
+  Lines[i] := 'echo   %ProgramData%\HydraDragonAntivirus'; Inc(i);
   Lines[i] := 'echo.'; Inc(i);
-  Lines[i] := 'choice /c YN /m "Do you also want to permanently DELETE the Quarantine folder?"'; Inc(i);
+  Lines[i] := 'choice /c YN /m "Do you also want to permanently DELETE all Quarantine, Logs, and Threat data?"'; Inc(i);
   Lines[i] := 'if %errorlevel%==1 ('; Inc(i);
   Lines[i] := '  rmdir /s /q "%ProgramData%\HydraDragonAntivirus\Quarantine" 2>nul'; Inc(i);
-  Lines[i] := '  echo [+] Quarantine folder deleted.'; Inc(i);
-  Lines[i] := ') else ('; Inc(i);n
-  Lines[i] := '  echo [*] Quarantine folder kept at %ProgramData%\HydraDragonAntivirus\Quarantine'; Inc(i);
+  Lines[i] := '  rmdir /s /q "%ProgramData%\HydraDragonAntivirus\Logs" 2>nul'; Inc(i);
+  Lines[i] := '  rmdir /s /q "%ProgramData%\HydraDragonAntivirus\Reports" 2>nul'; Inc(i);
+  Lines[i] := '  echo [+] Security data deleted.'; Inc(i);
+  Lines[i] := ') else ('; Inc(i);
+  Lines[i] := '  echo [*] Security data kept at %ProgramData%\HydraDragonAntivirus'; Inc(i);
   Lines[i] := ')'; Inc(i);
   Lines[i] := 'rmdir /s /q "' + AppDir + '" 2>nul'; Inc(i);
   Lines[i] := ''; Inc(i);
