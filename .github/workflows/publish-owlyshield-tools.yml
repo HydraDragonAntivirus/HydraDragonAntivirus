@@ -34,18 +34,18 @@ jobs:
       - name: Stage Tools Files
         shell: pwsh
         run: |
-          $toolsDir = "hydradragon/Owlyshield/tools"
-          if (-not (Test-Path $toolsDir)) {
-            New-Item -ItemType Directory -Force -Path $toolsDir | Out-Null
+          $utilsDir = "hydradragon/Owlyshield/utils"
+          if (-not (Test-Path $utilsDir)) {
+            New-Item -ItemType Directory -Force -Path $utilsDir | Out-Null
           }
-          Copy-Item "Owlyshield/tools/rust_win_toast/target/release/RustWindowsToast.exe" $toolsDir -Force
+          Copy-Item "Owlyshield/tools/rust_win_toast/target/release/RustWindowsToast.exe" $utilsDir -Force
 
       - name: Check for publishable changes
         id: check_changes
         uses: ./.github/actions/check-publishable-changes
         with:
           paths: |
-            hydradragon/Owlyshield/tools
+            hydradragon/Owlyshield/utils
             Owlyshield/tools/rust_win_toast/Cargo.lock
 
       - name: Create PR
