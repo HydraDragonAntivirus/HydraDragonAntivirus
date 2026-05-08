@@ -187,15 +187,6 @@ if exist "%EDR_EXE%" (
     ) else (
         call :log [+] OpenEDR service install command completed.
     )
-
-    call :log [*] Configuring OpenEDR kernel driver (edrdrv)...
-    call :run_and_log sc config edrdrv start= system
-    call :run_and_log sc start edrdrv
-    if errorlevel 1 (
-        call :log [!] edrdrv driver start pending or failed (check logs after reboot).
-    ) else (
-        call :log [+] edrdrv driver started successfully.
-    )
 ) else (
     call :log [!] OpenEDR service executable NOT FOUND at "%EDR_EXE%".
     call :log [!] Skipping OpenEDR service installation.
