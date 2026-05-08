@@ -188,23 +188,7 @@ jobs:
           name: bin-megadumper
           path: publish/
 
-  build-launcher:
-    runs-on: windows-2022
-    steps:
-      - name: Enable Git long paths
-        run: git config --global core.longpaths true
-      - uses: actions/checkout@v6
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v5
-        with:
-          dotnet-version: '8.0.x'
-      - name: Publish Launcher
-        run: dotnet publish HydraDragonLauncher/HydraDragonLauncher/HydraDragonLauncher.csproj -c Release -r win-x64 --self-contained false -o publish/
-      - name: Upload
-        uses: actions/upload-artifact@v7
-        with:
-          name: bin-launcher
-          path: publish/
+
 
   build-service:
     runs-on: windows-2022
@@ -499,7 +483,6 @@ jobs:
       - build-owlyshield-minifilter
       - build-reddbg
       - build-megadumper
-      - build-launcher
       - build-service
       - build-owlyshield-rust
       - build-firewall-rust
@@ -533,7 +516,6 @@ jobs:
             "$distRoot/Owlyshield/Owlyshield Service",
             "$distRoot/Owlyshield/RedDbg",
             "$distRoot/HydraDragonDumper",
-            "$distRoot/HydraDragonLauncher",
             "$distRoot/HydraDragonService",
             "$distRoot/Sanctum/AppData",
             "$distRoot/Sanctum/System32",
@@ -650,9 +632,6 @@ jobs:
           $fwRust | Copy-Item -Destination "HydraDragonFirewall/hydradragonfirewall/target/release/" -Force
 
           # --- Infrastructure ---
-          $launcherRoot = Get-PublishRoot -ArtifactDir "bin-launcher" -RequiredFile "HydraDragonLauncher.exe"
-          Sync-PublishTree -Source $launcherRoot -Destination "$distRoot/HydraDragonLauncher"
-          Sync-PublishTree -Source $launcherRoot -Destination "HydraDragonLauncher/HydraDragonLauncher/bin/Release/net8.0-windows/publish"
 
           $serviceRoot = Get-PublishRoot -ArtifactDir "bin-service" -RequiredFile "HydraDragonService.exe"
           Sync-PublishTree -Source $serviceRoot -Destination "$distRoot/HydraDragonService"
@@ -705,7 +684,6 @@ jobs:
           $artifactDirs = @(
             "bin-firewall-rust",
             "bin-hydradragonav",
-            "bin-launcher",
             "bin-mbrfilter",
             "bin-megadumper",
             "bin-owlyshield-minifilter",
@@ -740,7 +718,6 @@ jobs:
             Owlyshield/RedDbg/RedDbg/x64/ReleaseX64Kernel
             MegaDumper/MegaDumper/bin/Release/net8.0
             HydraDragonFirewall/hydradragonfirewall/target/release
-            HydraDragonLauncher/HydraDragonLauncher/bin/Release/net8.0
             HydraDragonService/HydraDragonService/bin/Release/net8.0
             Sanctum/target/release
             Sanctum/driver/target/release
@@ -755,7 +732,6 @@ jobs:
           $branches = @(
             "bin-firewall-rust",
             "bin-hydradragonav",
-            "bin-launcher",
             "bin-mbrfilter",
             "bin-megadumper",
             "bin-owlyshield-minifilter",

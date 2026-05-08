@@ -4,7 +4,6 @@ on:
   push:
     branches: ["**"]
     paths:
-      - 'HydraDragonLauncher/**'
       - 'HydraDragonService/**'
       - '.github/workflows/publish-infrastructure.yml'
   workflow_dispatch:
@@ -24,15 +23,12 @@ jobs:
         uses: actions/setup-dotnet@v5
         with:
           dotnet-version: '8.0.x'
-      - name: Publish Launcher
-        run: dotnet publish HydraDragonLauncher/HydraDragonLauncher/HydraDragonLauncher.csproj -c Release -r win-x64 --self-contained false -o artifacts/launcher/
       - name: Publish Service
         run: dotnet publish HydraDragonService/HydraDragonService/HydraDragonService.csproj -c Release -r win-x64 --self-contained false -o artifacts/service/
         
       - name: Stage
         shell: pwsh
         run: |
-          $distLauncher = "hydradragon/HydraDragonLauncher"
           $distService = "hydradragon/HydraDragonService"
 
           function Sync-PublishTree {
@@ -54,7 +50,6 @@ jobs:
               Copy-Item -Destination $Destination -Recurse -Force
           }
 
-          Sync-PublishTree -Source "artifacts/launcher" -Destination $distLauncher
           Sync-PublishTree -Source "artifacts/service" -Destination $distService
           
       - name: Check for publishable changes
@@ -62,7 +57,6 @@ jobs:
         uses: ./.github/actions/check-publishable-changes
         with:
           paths: |
-            hydradragon/HydraDragonLauncher
             hydradragon/HydraDragonService
       - name: Create PR
         if: steps.check_changes.outputs.changed == 'true'

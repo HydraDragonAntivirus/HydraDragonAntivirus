@@ -6,93 +6,208 @@ namespace HydraDragonService
     public class Worker(ILogger<Worker> logger) : BackgroundService
     {
         private readonly ILogger<Worker> _logger = logger;
+        private Process? _pythonProcess; // Python EDR
+        private Process? _avProcess;     // C++ Engine
+        
+        private readonly bool _restartOnCrash = true;
+        private readonly int _initialBackoffMs = 1000;
+        private readonly int _maxBackoffMs = 20000;
+        private readonly string _baseDir = @"C:\Program Files\HydraDragonAntivirus";
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
-            _logger.LogInformation("TaskScheduler Worker starting at: {time}", DateTimeOffset.Now);
+            _logger.LogInformation("HydraDragon Unified Service starting at: {time}", DateTimeOffset.Now);
 
-            // Check for admin privileges and stop if missing.
-            // In a Windows service context, self-elevation (runas/UAC prompt) is not supported.
             if (!IsRunningAsAdministrator())
             {
-                _logger.LogError("Application is not running with administrator privileges. This service must be installed/configured to run with required privileges. Exiting.");
-                return; // Exit current instance gracefully
+                _logger.LogError("Service is not running as Administrator. Security components cannot be managed. Exiting.");
+                return;
             }
 
-            _logger.LogInformation("Running with administrator privileges.");
-
-            // Signal service is ready immediately
             await Task.Yield();
 
             // --------------------------------------------------
-            // HydraDragon Initialization Phase
+            // 1. HydraDragon Initialization Phase
             // --------------------------------------------------
             try
             {
-                _logger.LogInformation("HydraDragon Service initialized. Monitoring tasks...");
-                
-                // Future: Add HydraDragon-specific startup logic here if needed
+                string sanctumInstallPath = Path.Combine(_baseDir, "hydradragon", "Sanctum");
+                await RunSanctumSequenceAsync(sanctumInstallPath, stoppingToken);
+                _logger.LogInformation("HydraDragon Service initialized. Entering supervision loop...");
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed during HydraDragon initialization sequence.");
+                _logger.LogError(ex, "Failed during HydraDragon/Sanctum initialization sequence.");
             }
 
-            // Keep service running until cancellation
-            await Task.Delay(Timeout.Infinite, stoppingToken);
-        }
+            // --------------------------------------------------
+            // 2. Continuous Supervision Loop
+            // --------------------------------------------------
+            int backoff = _initialBackoffMs;
 
-        // ------------------------------------------------------------
-        // Admin privilege check
-        // ------------------------------------------------------------
-        private bool IsRunningAsAdministrator()
-        {
-            try
+            while (!stoppingToken.IsCancellationRequested)
             {
-                using WindowsIdentity identity = WindowsIdentity.GetCurrent();
-                WindowsPrincipal principal = new(identity);
-                return principal.IsInRole(WindowsBuiltInRole.Administrator);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to check administrator privileges.");
-                return false;
-            }
-        }
-
-        // ------------------------------------------------------------
-        // Restart with admin privileges
-        // ------------------------------------------------------------
-        private void RestartAsAdministrator()
-        {
-            try
-            {
-                string? executablePath = Environment.ProcessPath ?? Process.GetCurrentProcess().MainModule?.FileName;
-
-                if (string.IsNullOrEmpty(executablePath))
+                try
                 {
-                    _logger.LogError("Could not determine executable path for restart.");
-                    return;
-                }
+                    // Monitor Core Engines (AV and Python EDR)
+                    StartHydraDragonAV();
+                    StartHydraDragonCore();
 
+                    var waitTasks = new List<Task<bool>>();
+                    if (_pythonProcess != null) waitTasks.Add(WaitForProcessExitAsync(_pythonProcess, stoppingToken));
+                    if (_avProcess != null) waitTasks.Add(WaitForProcessExitAsync(_avProcess, stoppingToken));
+
+                    if (waitTasks.Count > 0)
+                    {
+                        await Task.WhenAny(waitTasks);
+                    }
+                    else
+                    {
+                        await Task.Delay(5000, stoppingToken);
+                    }
+
+                    if (stoppingToken.IsCancellationRequested) break;
+
+                    bool crashed = (_avProcess != null && _avProcess.HasExited) || (_pythonProcess != null && _pythonProcess.HasExited);
+                    if (crashed && _restartOnCrash)
+                    {
+                        _logger.LogWarning("One or more core engines crashed. Restarting...");
+                        await Task.Delay(backoff, stoppingToken);
+                        backoff = Math.Min(backoff * 2, _maxBackoffMs);
+                    }
+                    else
+                    {
+                        backoff = _initialBackoffMs;
+                    }
+                }
+                catch (OperationCanceledException) { break; }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error in supervision loop.");
+                    await Task.Delay(5000, stoppingToken);
+                }
+            }
+
+            await StopAllComponentsAsync();
+        }
+
+        private async Task RunSanctumSequenceAsync(string sanctumDir, CancellationToken ct)
+        {
+            _logger.LogInformation("Starting Sanctum sequential startup...");
+
+            string elamPath = Path.Combine(sanctumDir, "elam_installer.exe");
+            string umPath = Path.Combine(sanctumDir, "um_engine.exe");
+            string appPath = Path.Combine(sanctumDir, "app.exe");
+
+            // 1) ELAM Installer
+            await RunExeAsync(elamPath, ct);
+
+            // 2) Sanctum PPL Runner Service
+            await EnsureSanctumPplRunningAsync(ct);
+
+            // 3) UM Engine
+            await RunExeAsync(umPath, ct);
+
+            // 5) GUI App
+            await RunExeAsync(appPath, ct);
+
+            _logger.LogInformation("Sanctum sequence completed successfully.");
+        }
+
+        private async Task RunExeAsync(string exePath, CancellationToken ct, string args = "", bool fireAndForget = false)
+        {
+            if (!File.Exists(exePath))
+            {
+                _logger.LogWarning("Missing executable: {file}", exePath);
+                return;
+            }
+
+            try
+            {
+                _logger.LogInformation("Starting: {exe}", Path.GetFileName(exePath));
                 var psi = new ProcessStartInfo
                 {
-                    FileName = executablePath,
-                    UseShellExecute = true,
-                    Verb = "runas", // Request elevation
-                    Arguments = string.Join(" ", Environment.GetCommandLineArgs().Skip(1))
+                    FileName = exePath,
+                    Arguments = args,
+                    WorkingDirectory = Path.GetDirectoryName(exePath),
+                    UseShellExecute = false,
+                    CreateNoWindow = true
                 };
 
-                _logger.LogInformation("Launching elevated process: {path}", executablePath);
-                Process.Start(psi);
+                Process? p = Process.Start(psi);
+                if (p != null && !fireAndForget)
+                {
+                    await Task.Delay(2000, ct); // Sequential delay
+                }
+            }
+            catch (Exception ex) { _logger.LogWarning("Failed to launch {exe}: {msg}", exePath, ex.Message); }
+        }
 
-                // Exit current non-elevated instance
-                Environment.Exit(0);
-            }
-            catch (Exception ex)
+        private async Task EnsureSanctumPplRunningAsync(CancellationToken ct)
+        {
+            try
             {
-                _logger.LogError(ex, "Failed to restart application with administrator privileges.");
+                _logger.LogInformation("Starting sanctum_ppl_runner service...");
+                var psi = new ProcessStartInfo { FileName = "sc", Arguments = "start sanctum_ppl_runner", CreateNoWindow = true, UseShellExecute = false };
+                var p = Process.Start(psi);
+                if (p != null) await p.WaitForExitAsync(ct);
+                await Task.Delay(1500, ct);
             }
+            catch (Exception ex) { _logger.LogWarning("Failed to start PPL service: {msg}", ex.Message); }
+        }
+
+        private void StartHydraDragonAV()
+        {
+            if (_avProcess != null && !_avProcess.HasExited) return;
+            string avPath = Path.Combine(_baseDir, "hydradragon", "HydraDragonAV", "HydraDragonAV.exe");
+            _avProcess = StartProcess(avPath, Path.GetDirectoryName(avPath)!, "[HydraDragonAV]");
+        }
+
+        private void StartHydraDragonCore()
+        {
+            if (_pythonProcess != null && !_pythonProcess.HasExited) return;
+            string activateBat = Path.Combine(_baseDir, "venv", "Scripts", "activate.bat");
+            _pythonProcess = StartProcess("cmd.exe", _baseDir, "[HydraDragon]", $"/c \"\"{activateBat}\" && poetry run hydradragon\"");
+        }
+
+        private Process? StartProcess(string fileName, string workDir, string logPrefix, string args = "")
+        {
+            if (!File.Exists(fileName) && fileName != "cmd.exe") return null;
+            try
+            {
+                var psi = new ProcessStartInfo { FileName = fileName, Arguments = args, WorkingDirectory = workDir, UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
+                var proc = new Process { StartInfo = psi, EnableRaisingEvents = true };
+                proc.OutputDataReceived += (s, e) => { if (!string.IsNullOrEmpty(e.Data)) _logger.LogInformation("{prefix} {msg}", logPrefix, e.Data); };
+                if (proc.Start()) { proc.BeginOutputReadLine(); return proc; }
+            }
+            catch { }
+            return null;
+        }
+
+        private async Task<bool> WaitForProcessExitAsync(Process proc, CancellationToken ct)
+        {
+            var tcs = new TaskCompletionSource<bool>();
+            proc.Exited += (s, e) => tcs.TrySetResult(true);
+            if (proc.HasExited) return true;
+            using (ct.Register(() => tcs.TrySetCanceled()))
+            {
+                try { return await tcs.Task; } catch { return false; }
+            }
+        }
+
+        private async Task StopAllComponentsAsync()
+        {
+            foreach (var p in new[] { _avProcess, _pythonProcess })
+            {
+                if (p != null && !p.HasExited) { try { p.Kill(true); await p.WaitForExitAsync(); } catch { } p.Dispose(); }
+            }
+            Process.Start(new ProcessStartInfo { FileName = "sc", Arguments = "stop sanctum_ppl_runner", CreateNoWindow = true, UseShellExecute = false })?.WaitForExit();
+        }
+
+        private bool IsRunningAsAdministrator()
+        {
+            try { using var identity = WindowsIdentity.GetCurrent(); return new WindowsPrincipal(identity).IsInRole(WindowsBuiltInRole.Administrator); }
+            catch { return false; }
         }
     }
 }

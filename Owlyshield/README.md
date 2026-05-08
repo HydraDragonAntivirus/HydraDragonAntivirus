@@ -70,9 +70,7 @@ Owlyshield provides a powerful solution for detecting and responding to threats 
 
 <p align="right">(<a href="#top">back to top</a>)</p>
 
-## :arrow_forward: 2 minutes install
-
-Installation instructions for Owlyshield can be found in the Releases section of the project's GitHub repository. For usage instructions, please refer to the project's Wiki or see the Contributing section if you prefer to build Owlyshield yourself. Build with `cargo build --release --features novelty,malware,hydradragon,behavior_engine,firewall,sanctum` for novelty, hydradragon, realtime-learning, behavior-engine, firewall, sanctum and more functionality, then launch HydraDragon through `HydraDragonLauncher` instead of a `service` build. **Important:** if you compile or run in service mode, Windows resolves `%APPDATA%`, `%LOCALAPPDATA%`, `%USERPROFILE%`, `%TEMP%` and similar environment values in the service account context, which can break user-targeted path logic and make wiki instructions that rely on those env values inaccurate. **Note: The firewall is now an optional feature and must be explicitly enabled.**
+Installation instructions for Owlyshield can be found in the Releases section of the project's GitHub repository. For usage instructions, please refer to the project's Wiki or see the Contributing section if you prefer to build Owlyshield yourself. Build with `cargo build --release --features novelty,malware,hydradragon,behavior_engine,firewall,sanctum` for full functionality, then launch the stack through the **HydraDragon Unified Service** (`HydraDragonService`). The service acts as a master orchestrator, handling sequential engine initialization and active crash supervision. **Important:** The `HydraDragonService` orchestrator manages the usermode engines; however, the engines themselves still rely on correct user-context path resolution for certain behavioral rules. The service is designed to handle this orchestration while maintaining compatibility with the local security stack. **Note: The firewall is now an optional feature and must be explicitly enabled.**
  
  ## TensorFlow Lite C/C++ source
 

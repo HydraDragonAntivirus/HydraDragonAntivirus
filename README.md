@@ -146,6 +146,7 @@ This project does not aim to replace your primary daily antivirus solution.
 - Signature retirement reference:
   https://blog.clamav.net/2025/12/clamav-signature-retirement.html
 
+- **Boot-Critical Filters**: `MBRFilter` is now configured as a **SERVICE_BOOT_START (0)** UpperFilter. This ensures the Master Boot Record is protected from the very first moment the disk stack initializes, providing hardware-level resistance against bootkits and Petya-style ransomware.
 - Files that appear as junk or fully unknown data may be ignored intentionally.
 - If a PE header is removed, some detection engines may no longer flag the file.
 - YARA detections may still trigger depending on rule logic (for example, rules that do not verify file type).
@@ -174,11 +175,12 @@ https://github.com/adrianyy/kernelhook/issues/1
 
 ---
 
-### Process Protection
+### Process Protection & Orchestration
 
-- The antivirus can be manually terminated by the user.
-- Malware processes cannot terminate it because the driver verifies the origin of termination requests.
-- If you close it manually, this does not indicate a security failure.
+- **Unified Orchestration**: The `HydraDragonService` acts as the master orchestrator for the entire security stack. It manages the lifecycle of the C++ AV Engine, the Python EDR Core, and the Sanctum PPL Runner.
+- **Auto-Healing**: If any core security engine crashes, the service automatically detects the failure and relaunches it with an exponential backoff.
+- **Protected Service**: The antivirus service itself is protected. While it can be manually terminated by an Administrator, malware cannot terminate it as the driver verifies the origin of all termination requests.
+- **Manual Control**: If you close the GUI manually, the background security engines remain active under the service's supervision.
 
 ---
 
