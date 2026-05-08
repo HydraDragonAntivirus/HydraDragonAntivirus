@@ -176,29 +176,24 @@ Filename: "{sys}\bcdedit.exe"; Parameters: "/set testsigning off"; Flags: runhid
 const
   RunOnceKey = 'SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce';
   UninstallMsg =
-    'IMPORTANT: Full removal of kernel drivers requires Safe Mode.' + #13#10 +
-    #13#10 +
-    'The following drivers CANNOT be fully removed while Windows is running normally:' + #13#10 +
-    '  - OwlyshieldRansomFilter (minifilter driver)' + #13#10 +
-    '  - MBRFilter (MBR protection driver)' + #13#10 +
-    '  - SimplePYASProtection (protection driver)' + #13#10 +
-    '  - RedDbg (AMD hypervisor debugger)' + #13#10 +
-    '  - HyperDbg (Intel hypervisor)' + #13#10 +
-    '  - Sanctum (kernel security driver)' + #13#10 +
-    '  - OpenEDR / edrdrv + OpenEDR DLL (edrav2 library)' + #13#10 +
-    #13#10 +
-    'ELAM (Early Launch Anti-Malware) Note:' + #13#10 +
-    '  The Sanctum ELAM driver may require MANUAL removal if elam_installer.exe fails.' + #13#10 +
-    '  Registry key: HKLM\SYSTEM\CurrentControlSet\Control\EarlyLaunch\' + #13#10 +
-    '  Or re-run elam_installer.exe /uninstall from Safe Mode.' + #13#10 +
-    #13#10 +
-    'The uninstaller will:' + #13#10 +
-    '  1. Stop all services and delete service entries now.' + #13#10 +
-    '  2. Remove driver INFs via pnputil now (best-effort).' + #13#10 +
-    '  3. Schedule a cleanup script for the next Safe Mode reboot.' + #13#10 +
-    #13#10 +
-    'After uninstall completes, reboot into Safe Mode to finish driver removal.' + #13#10 +
-    #13#10 +
+    'IMPORTANT: Full removal of kernel drivers requires Safe Mode.'#13#10#13#10 +
+    'The following drivers CANNOT be fully removed while Windows is running normally:'#13#10 +
+    '  - OwlyshieldRansomFilter (minifilter driver)'#13#10 +
+    '  - MBRFilter (MBR protection driver)'#13#10 +
+    '  - SimplePYASProtection (protection driver)'#13#10 +
+    '  - RedDbg (AMD hypervisor debugger)'#13#10 +
+    '  - HyperDbg (Intel hypervisor)'#13#10 +
+    '  - Sanctum (kernel security driver)'#13#10 +
+    '  - OpenEDR / edrdrv + OpenEDR DLL (edrav2 library)'#13#10#13#10 +
+    'ELAM (Early Launch Anti-Malware) Note:'#13#10 +
+    '  The Sanctum ELAM driver may require MANUAL removal if elam_installer.exe fails.'#13#10 +
+    '  Registry key: HKLM\SYSTEM\CurrentControlSet\Control\EarlyLaunch\'#13#10 +
+    '  Or re-run elam_installer.exe /uninstall from Safe Mode.'#13#10#13#10 +
+    'The uninstaller will:'#13#10 +
+    '  1. Stop all services and delete service entries now.'#13#10 +
+    '  2. Remove driver INFs via pnputil now (best-effort).'#13#10 +
+    '  3. Schedule a cleanup script for the next Safe Mode reboot.'#13#10#13#10 +
+    'After uninstall completes, reboot into Safe Mode to finish driver removal.'#13#10#13#10 +
     'Do you want to proceed with uninstallation?';
 
 procedure ExecSilent(const Cmd, Params: String);
@@ -348,12 +343,11 @@ begin
     ScheduleSafeModeCleanup(AppDir);
 
     MsgBox(
-      'Service entries removed.' + #13#10 +
-      #13#10 +
-      'A cleanup script is scheduled to run on the next reboot.' + #13#10 +
-      'For complete driver removal, please reboot into Safe Mode.' + #13#10 +
-      #13#10 +
-      'ELAM driver may require manual removal:' + #13#10 +
+      'Service entries removed.'#13#10#13#10 +
+      'A cleanup script is scheduled to run on the next reboot.'#13#10 +
+      'For complete driver removal, please reboot into Safe Mode.'#13#10#13#10 +
+      'The cleanup script will run automatically on next startup.'#13#10#13#10 +
+      'ELAM driver may require manual removal:'#13#10 +
       'HKLM\SYSTEM\CurrentControlSet\Control\EarlyLaunch',
       mbInformation, MB_OK
     );

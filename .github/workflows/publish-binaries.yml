@@ -631,9 +631,9 @@ jobs:
 
           # --- Owlyshield Tools ---
           $owlyTools = Get-ChildItem "bin-owlyshield-tools/" -Filter "RustWindowsToast.exe" -Recurse
-          $owlyTools | Copy-Item -Destination "$distRoot/Owlyshield/tools/" -Force
-          New-Item -ItemType Directory -Force -Path "Owlyshield/tools/rust_win_toast/target/release"
-          $owlyTools | Copy-Item -Destination "Owlyshield/tools/rust_win_toast/target/release/" -Force
+          $owlyTools | Copy-Item -Destination "$distRoot/Owlyshield/utils/" -Force
+          New-Item -ItemType Directory -Force -Path "Owlyshield/utils/rust_win_toast/target/release"
+          $owlyTools | Copy-Item -Destination "Owlyshield/utils/rust_win_toast/target/release/" -Force
 
           # --- Dumper ---
           $dumperRoot = Get-PublishRoot -ArtifactDir "bin-megadumper" -RequiredFile "MegaDumper.exe"
