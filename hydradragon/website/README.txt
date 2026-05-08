@@ -16,4 +16,7 @@ listed_email_365.txt comes from:
 https://www.stopforumspam.com/downloads
 Current popularity reference: 
 tranco-list.eu/list/PL9GJ/1000000
+TODO: Maybe look at this even if many false positives here:
+https://github.com/juergen2025sys/NETSHIELD
+
 
