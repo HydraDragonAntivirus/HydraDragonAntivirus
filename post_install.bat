@@ -180,28 +180,33 @@ if not "%RUN_EXIT%"=="0" (
 set "EDR_EXE=%OPENEDR_DIR%\edrsvc.exe"
 call :log [*] Checking for OpenEDR at "%EDR_EXE%"...
 
-if exist "%EDR_EXE%" (
-    call :log [*] Installing OpenEDR service (Native mode)...
-    call :run_and_log "%EDR_EXE%" install
-
-    if errorlevel 1 (
-        call :log [!] OpenEDR service install returned error code %errorlevel%.
-    ) else (
-        call :log [+] OpenEDR service install command completed.
-
-        call :log [*] Forcing edrdrv to DEMAND start to avoid boot BSOD...
-        sc query edrdrv >nul 2>&1
-        if %errorlevel%==0 (
-            sc config edrdrv start= demand
-            call :log [+] edrdrv start type set to demand.
-        ) else (
-            call :log [!] edrdrv not found; skipping start type change.
-        )
-    )
-) else (
+if not exist "%EDR_EXE%" (
     call :log [!] OpenEDR service executable NOT FOUND at "%EDR_EXE%".
     call :log [!] Skipping OpenEDR service installation.
+    goto :after_openedr
 )
+
+call :log [*] Installing OpenEDR service (Native mode)...
+call :run_and_log "%EDR_EXE%" install
+
+:: We use a temporary variable for errorlevel to avoid block expansion issues
+set "EDR_INSTALL_RES=%errorlevel%"
+if not "%EDR_INSTALL_RES%"=="0" (
+    call :log [!] OpenEDR service install returned error code %EDR_INSTALL_RES%.
+) else (
+    call :log [+] OpenEDR service install command completed successfully.
+)
+
+call :log [*] Configuring OpenEDR kernel driver (edrdrv)...
+sc query edrdrv >nul 2>&1
+if not errorlevel 1 (
+    call :log [*] Forcing edrdrv to DEMAND start to prevent boot BSOD...
+    sc config edrdrv start= demand >nul 2>&1
+) else (
+    call :log [!] edrdrv service not found, skipping config.
+)
+
+:after_openedr
 
 :: --------------------------------------------------------
 :: 13) Cleanup
