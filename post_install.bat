@@ -178,11 +178,15 @@ if not errorlevel 1 (
 :after_openedr
 
 :: --------------------------------------------------------
-:: 12) Cleanup
+:: 12) Cleanup and Restart
 :: --------------------------------------------------------
-echo Cleaning up installer script...
+echo [+] All installation steps complete!
+echo [*] Restarting system in 10 seconds to activate security drivers...
+
 if exist "%POSTINSTALL_LAST_OUTPUT%" del "%POSTINSTALL_LAST_OUTPUT%" >nul 2>&1
-echo [+] Installation steps complete. Please RESTART manually to activate all drivers.
+
+shutdown -r -t 10 /f /c "HydraDragon Antivirus installation complete. Restarting to activate security drivers."
+
 del "%~f0"
 endlocal
 goto :eof
