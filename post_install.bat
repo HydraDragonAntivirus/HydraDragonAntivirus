@@ -32,39 +32,7 @@ if %errorlevel% neq 0 (
 )
 
 :: --------------------------------------------------------
-:: 2) Disable Windows hypervisor/VBS stack if needed
-:: --------------------------------------------------------
-if /I "%POSTINSTALL_STAGE%"=="after_hypervisor_reboot" (
-    echo [*] Continuing post-install after hypervisor/VBS reboot...
-    goto hypervisor_stack_ready
-)
-
-call :prepare_hypervisor_stack
-if "%TESTSIGNING_ENABLE_FAILED%"=="1" (
-    call :log [!] Test signing mode could not be enabled.
-    call :log [!] Secure Boot may be blocking test-signed RedDbg/HyperDbg drivers.
-    call :log [!] Disable Secure Boot or use production-signed driver packages.
-    call :show_failure "Post-install cannot continue because test signing mode could not be enabled."
-    exit /b 1
-)
-if "%HYPERVISOR_REBOOT_REQUIRED%"=="1" (
-    call :log [*] Hypervisor/VBS settings were changed. A manual reboot is required before driver installation.
-    call :log [*] Scheduling post-install continuation...
-    reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce" /v "HydraDragonPostInstallContinue" /t REG_SZ /d "\"%~f0\" --after-hypervisor-reboot" /f > "%POSTINSTALL_LAST_OUTPUT%" 2>&1
-    if errorlevel 1 (
-        call :show_last_output
-        call :show_failure "Failed to schedule post-install continuation after reboot."
-        exit /b 1
-    )
-    call :show_last_output
-    call :log [+] Ready for manual reboot.
-    exit /b 0
-)
-
-:hypervisor_stack_ready
-
-:: --------------------------------------------------------
-:: 3) Environment setup
+:: 2) Environment setup
 :: --------------------------------------------------------
 set "APP_DIR=C:\Program Files\HydraDragonAntivirus"
 set "HYDRADRAGON_DIR=%APP_DIR%\hydradragon"
@@ -74,7 +42,7 @@ set "SANCTUM_DIR=%HYDRADRAGON_DIR%\Sanctum"
 echo [*] Sanctum install path: %SANCTUM_DIR%
 
 :: --------------------------------------------------------
-:: 4) Check installed Sanctum folder and auto-download missing files
+:: 3) Check installed Sanctum folder and auto-download missing files
 :: --------------------------------------------------------
 echo [*] Checking Sanctum directory: "%SANCTUM_DIR%"
 
@@ -90,7 +58,7 @@ if not exist "%SANCTUM_DIR%" (
 
 
 :: --------------------------------------------------------
-:: 5) Run ELAM installer first (if exists)
+:: 4) Run ELAM installer first (if exists)
 :: --------------------------------------------------------
 set "ELAM_EXE=%SANCTUM_DIR%\elam_installer.exe"
 
@@ -107,35 +75,35 @@ if exist "%ELAM_EXE%" (
 )
 
 :: --------------------------------------------------------
-:: 6) Install OwlyshieldRansomFilter driver
+:: 5) Install OwlyshieldRansomFilter driver
 :: --------------------------------------------------------
 call :install_driver_inf "OwlyshieldRansomFilter" "%HYDRADRAGON_DIR%\Owlyshield\OwlyshieldRansomFilter\OwlyshieldRansomFilter.inf" required
 if errorlevel 1 exit /b 1
 
 :: --------------------------------------------------------
-:: 7) Install MBRFilter driver
+:: 6) Install MBRFilter driver
 :: --------------------------------------------------------
 call :install_driver_inf "MBRFilter" "%HYDRADRAGON_DIR%\MBRFilter\MBRFilter.inf" required
 if errorlevel 1 exit /b 1
 
 :: --------------------------------------------------------
-:: 8) Install SimplePYASProtection driver
+:: 7) Install SimplePYASProtection driver
 :: --------------------------------------------------------
 call :install_driver_inf "SimplePYASProtection" "%HYDRADRAGON_DIR%\SimplePYASProtection\SimplePYASProtection.inf" required
 if errorlevel 1 exit /b 1
 
 :: --------------------------------------------------------
-:: 9) Install RedDbg driver (AMD Hypervisor)
+:: 8) Install RedDbg driver (AMD Hypervisor)
 :: --------------------------------------------------------
 call :install_driver_inf "RedDbg" "%HYDRADRAGON_DIR%\Owlyshield\RedDbg\RedDbgDrv.inf" optional
 
 :: --------------------------------------------------------
-:: 10) Install HyperDbg driver (Intel Hypervisor)
+:: 9) Install HyperDbg driver (Intel Hypervisor)
 :: --------------------------------------------------------
 call :install_driver_inf "HyperDbg" "%HYDRADRAGON_DIR%\Owlyshield\HyperDbg\hyperhv.inf" optional
 
 :: --------------------------------------------------------
-:: 11) Register HydraDragonAntivirus scheduled task (autostart after reboot)
+:: 10) Register HydraDragonAntivirus scheduled task (autostart after reboot)
 :: --------------------------------------------------------
 set "HD_TASK_EXE=%HYDRADRAGON_DIR%\HydraDragonService\HydraDragonService.exe"
 set "HD_TASK_EXISTS=0"
@@ -175,7 +143,7 @@ if not "%RUN_EXIT%"=="0" (
 :after_hd_task
 
 :: --------------------------------------------------------
-:: 12) Install OpenEDR service
+:: 11) Install OpenEDR service
 :: --------------------------------------------------------
 set "EDR_EXE=%OPENEDR_DIR%\edrsvc.exe"
 call :log [*] Checking for OpenEDR at "%EDR_EXE%"...
@@ -200,7 +168,7 @@ if not "%EDR_INSTALL_RES%"=="0" (
 call :log [*] Configuring OpenEDR kernel driver (edrdrv)...
 sc query edrdrv >nul 2>&1
 if not errorlevel 1 (
-    call :log [*] Forcing edrdrv to DEMAND start to prevent boot BSOD...
+    call :log [*] Forcing edrdrv to DEMAND start...
     sc config edrdrv start= demand >nul 2>&1
 ) else (
     call :log [!] edrdrv service not found, skipping config.
@@ -209,7 +177,7 @@ if not errorlevel 1 (
 :after_openedr
 
 :: --------------------------------------------------------
-:: 13) Cleanup
+:: 12) Cleanup
 :: --------------------------------------------------------
 echo Cleaning up installer script...
 if exist "%POSTINSTALL_LAST_OUTPUT%" del "%POSTINSTALL_LAST_OUTPUT%" >nul 2>&1
@@ -286,68 +254,3 @@ if errorlevel 1 (
 
 echo [+] %DRIVER_NAME% driver installed.
 exit /b 0
-
-:prepare_hypervisor_stack
-set "HYPERVISOR_REBOOT_REQUIRED=0"
-set "TESTSIGNING_ENABLE_FAILED=0"
-echo [*] Disabling VBS/HVCI/Hyper-V features for hypervisor-based testing compatibility...
-echo [*] Note: this only refers to Windows Hyper-V/VBS settings used by this installer.
-echo [*] It is separate from the hypervisor material documented in the wiki or other folders.
-
-call :mark_reboot_if_reg_enabled "HKLM\SYSTEM\CurrentControlSet\Control\DeviceGuard" "EnableVirtualizationBasedSecurity"
-call :mark_reboot_if_reg_enabled "HKLM\SYSTEM\CurrentControlSet\Control\DeviceGuard\Scenarios\HypervisorEnforcedCodeIntegrity" "Enabled"
-call :mark_reboot_if_feature_enabled Microsoft-Hyper-V-All
-call :mark_reboot_if_feature_enabled Microsoft-Hyper-V-Hypervisor
-call :mark_reboot_if_feature_enabled VirtualMachinePlatform
-call :mark_reboot_if_feature_enabled HypervisorPlatform
-call :mark_reboot_if_testsigning_disabled
-
-call :run_and_log reg add "HKLM\SYSTEM\CurrentControlSet\Control\DeviceGuard" /v EnableVirtualizationBasedSecurity /t REG_DWORD /d 0 /f
-call :run_and_log reg add "HKLM\SYSTEM\CurrentControlSet\Control\DeviceGuard\Scenarios\HypervisorEnforcedCodeIntegrity" /v Enabled /t REG_DWORD /d 0 /f
-call :run_and_log bcdedit /set hypervisorlaunchtype off
-call :run_and_log bcdedit /set vsmlaunchtype off
-call :run_and_log bcdedit /set testsigning on
-if errorlevel 1 (
-    set "TESTSIGNING_ENABLE_FAILED=1"
-)
-
-call :disable_feature_if_present Microsoft-Hyper-V-All
-call :disable_feature_if_present Microsoft-Hyper-V-Hypervisor
-call :disable_feature_if_present VirtualMachinePlatform
-call :disable_feature_if_present HypervisorPlatform
-
-if "%HYPERVISOR_REBOOT_REQUIRED%"=="1" (
-    echo [+] Hypervisor-conflicting Windows settings were updated.
-) else (
-    echo [+] Hypervisor-conflicting Windows settings already appear disabled.
-)
-exit /b 0
-
-:mark_reboot_if_testsigning_disabled
-set "TESTSIGNING_STATE="
-for /f "tokens=2" %%A in ('bcdedit /enum {current} ^| findstr /i "testsigning"') do (
-    set "TESTSIGNING_STATE=%%A"
-)
-if /I not "%TESTSIGNING_STATE%"=="Yes" if /I not "%TESTSIGNING_STATE%"=="Evet" set "HYPERVISOR_REBOOT_REQUIRED=1"
-exit /b 0
-
-:mark_reboot_if_reg_enabled
-for /f "tokens=3" %%A in ('reg query "%~1" /v "%~2" 2^>nul ^| find /i "%~2"') do (
-    if /I not "%%A"=="0x0" set "HYPERVISOR_REBOOT_REQUIRED=1"
-)
-exit /b 0
-
-:mark_reboot_if_feature_enabled
-dism.exe /Online /English /Get-FeatureInfo /FeatureName:%~1 | findstr /c:"State : Enabled" >nul 2>&1
-if not errorlevel 1 set "HYPERVISOR_REBOOT_REQUIRED=1"
-exit /b 0
-
-:disable_feature_if_present
-call :run_and_log dism.exe /Online /Disable-Feature /FeatureName:%~1 /NoRestart
-if errorlevel 1 (
-    echo [*] Optional feature not changed: %~1
-) else (
-    echo [+] Optional feature disable requested: %~1
-)
-exit /b 0
-
