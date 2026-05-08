@@ -74,6 +74,7 @@ It contains low-level system components and experimental security drivers that r
 
 ## TODO
 - Add HydraDragonIDE to project (static analyzer).
+- Remove Npcap since it's not really open source and replace with custom Suricata build.
 
 ## Compatibility with PCs
 
