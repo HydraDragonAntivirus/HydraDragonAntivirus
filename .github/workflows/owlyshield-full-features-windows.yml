@@ -5,11 +5,13 @@ on:
     branches: [ "**" ]
     paths:
       - 'Owlyshield/owlyshield_predict/**'
+      - 'Owlyshield/tools/**'
       - '.github/workflows/owlyshield-full-features-windows.yml'
   pull_request:
     branches: [ "**" ]
     paths:
       - 'Owlyshield/owlyshield_predict/**'
+      - 'Owlyshield/tools/**'
       - '.github/workflows/owlyshield-full-features-windows.yml'
   workflow_dispatch:
 

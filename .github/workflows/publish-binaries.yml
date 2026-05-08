@@ -5,6 +5,7 @@ on:
     branches: ["**"]
     paths:
       - '.github/workflows/publish-binaries.yml'
+      - 'Owlyshield/tools/**'
   workflow_dispatch:
     inputs:
       branch:

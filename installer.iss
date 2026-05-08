@@ -30,7 +30,7 @@ AppPublisher={#MyAppPublisher}
 AppPublisherURL={#MyAppURL}
 AppSupportURL={#MyAppURL}
 AppUpdatesURL={#MyAppURL}
-DefaultDirName={pf64}\{#MyAppName}
+DefaultDirName={commonpf64}\{#MyAppName}
 DisableDirPage=yes
 ChangesAssociations=yes
 DisableProgramGroupPage=yes
@@ -47,8 +47,8 @@ SolidCompression=yes
 LZMAUseSeparateProcess=yes
 WizardStyle=modern
 DiskSpanning=no
-ArchitecturesAllowed=x64
-ArchitecturesInstallIn64BitMode=x64
+ArchitecturesAllowed=x64compatible
+ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequired=admin
 RestartIfNeededByRun=yes
 
@@ -112,8 +112,8 @@ Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "TELE
 Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "VERBOSE_LOGGING"; ValueData: "0"; Flags: uninsdeletekey
 Root: HKLM; Subkey: "SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce"; ValueType: string; ValueName: "OwlyshieldPostInstall"; ValueData: """{app}\post_install.bat"""
 
-Root: HKCU; Subkey: "Software\Classes\AppUserModelId\{#OwlyshieldAppId}"; ValueType: string; ValueName: "DisplayName"; ValueData: "HydraDragon Antivirus"; Flags: uninsdeletekey
-Root: HKCU; Subkey: "Software\Classes\AppUserModelId\{#OwlyshieldAppId}"; ValueType: string; ValueName: "IconUri"; ValueData: "{app}\hydradragon\assets\HydraDragonAV.ico"; Flags: uninsdeletekey
+Root: HKLM; Subkey: "Software\Classes\AppUserModelId\{#OwlyshieldAppId}"; ValueType: string; ValueName: "DisplayName"; ValueData: "HydraDragon Antivirus"; Flags: uninsdeletekey
+Root: HKLM; Subkey: "Software\Classes\AppUserModelId\{#OwlyshieldAppId}"; ValueType: string; ValueName: "IconUri"; ValueData: "{app}\hydradragon\assets\HydraDragonAV.ico"; Flags: uninsdeletekey
 
 [Icons]
 Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\hydradragon\assets\HydraDragonAV.ico"; AppUserModelID: "{#OwlyshieldAppId}"; AppUserModelToastActivatorCLSID: "{#OwlyshieldAppId}"
@@ -161,11 +161,11 @@ Filename: "{app}\python\python.exe"; Parameters: """{tmp}\setup.py"""; Flags: wa
 
 [UninstallRun]
 ; Disable test signing mode on uninstall
-Filename: "bcdedit.exe"; Parameters: "/set testsigning off"
+Filename: "{sys}\bcdedit.exe"; Parameters: "/set testsigning off"; Flags: runhidden waituntilterminated; RunOnceId: "DisableTestSigning"
 
 ; Owlyshield cleanup
-; Filename: "sc.exe"; Parameters: "stop ""{#AgentName}"""
-;  Filename: "sc.exe"; Parameters: "stop ""{#FSfilter}"""
-; Filename: "sc.exe"; Parameters: "delete ""{#AgentName}"""
-; Filename: "sc.exe"; Parameters: "delete ""{#FSfilter}"""
-; Filename: "del.exe"; Parameters: """C:\Windows\System32\drivers\{#FSfilter}.sys"""
+; Filename: "{sys}\sc.exe"; Parameters: "stop ""{#AgentName}"""; Flags: runhidden waituntilterminated; RunOnceId: "StopOwlyshieldAgent"
+; Filename: "{sys}\sc.exe"; Parameters: "stop ""{#FSfilter}"""; Flags: runhidden waituntilterminated; RunOnceId: "StopOwlyshieldFilter"
+; Filename: "{sys}\sc.exe"; Parameters: "delete ""{#AgentName}"""; Flags: runhidden waituntilterminated; RunOnceId: "DeleteOwlyshieldAgent"
+; Filename: "{sys}\sc.exe"; Parameters: "delete ""{#FSfilter}"""; Flags: runhidden waituntilterminated; RunOnceId: "DeleteOwlyshieldFilter"
+; Filename: "{cmd}"; Parameters: "/C del /F /Q ""{sys}\drivers\{#FSfilter}.sys"""; Flags: runhidden waituntilterminated; RunOnceId: "DeleteOwlyshieldDriver"
