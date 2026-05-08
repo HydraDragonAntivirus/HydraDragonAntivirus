@@ -167,6 +167,11 @@ Filename: "{sys}\reg.exe"; Parameters: "add ""HKLM\SYSTEM\CurrentControlSet\Cont
 Filename: "{sys}\bcdedit.exe"; Parameters: "/set hypervisorlaunchtype auto"; Flags: runhidden waituntilterminated; RunOnceId: "EnableHypervisor"
 Filename: "{sys}\bcdedit.exe"; Parameters: "/set testsigning off"; Flags: runhidden waituntilterminated; RunOnceId: "DisableTestSigning"
 
+; Uninstall third-party dependencies (if present)
+Filename: "{pf}\Npcap\Uninstall.exe"; Parameters: "/S"; Flags: runhidden waituntilterminated; RunOnceId: "UninstallNpcap"
+; Note: MSI uninstalls typically require ProductCodes. These are placeholders or require manual registry lookup.
+; We will use a best-effort approach via Pascal script to find and uninstall these.
+
 ; Owlyshield cleanup
 ; Filename: "{sys}\sc.exe"; Parameters: "stop ""{#AgentName}"""; Flags: runhidden waituntilterminated; RunOnceId: "StopOwlyshieldAgent"
 ; Filename: "{sys}\sc.exe"; Parameters: "stop ""{#FSfilter}"""; Flags: runhidden waituntilterminated; RunOnceId: "StopOwlyshieldFilter"
@@ -193,6 +198,40 @@ const
     'After the standard uninstall completes, you MUST reboot into Safe Mode'#13#10 +
     'to allow the automated script to delete the protected .sys and .dll files.'#13#10#13#10 +
     'Do you want to proceed with the uninstallation?';
+
+procedure UninstallMSIByName(const DisplayName: String);
+var
+  UninstallKey: String;
+  SubKeys: TArrayOfString;
+  i: Integer;
+  CurName: String;
+  UninstallString: String;
+  ResultCode: Integer;
+begin
+  UninstallKey := 'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall';
+  if RegGetSubkeyNames(HKLM, UninstallKey, SubKeys) then
+  begin
+    for i := 0 to GetArrayLength(SubKeys) - 1 do
+    begin
+      if RegQueryStringValue(HKLM, UninstallKey + '\' + SubKeys[i], 'DisplayName', CurName) then
+      begin
+        if Pos(DisplayName, CurName) > 0 then
+        begin
+          if RegQueryStringValue(HKLM, UninstallKey + '\' + SubKeys[i], 'UninstallString', UninstallString) then
+          begin
+            if Pos('MsiExec.exe', UninstallString) > 0 then
+            begin
+              // Replace /I with /X and add /quiet /norestart
+              StringChangeEx(UninstallString, '/I', '/X', True);
+              UninstallString := UninstallString + ' /quiet /norestart';
+              Exec('MsiExec.exe', Copy(UninstallString, Pos(' ', UninstallString) + 1, Length(UninstallString)), '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+            end;
+          end;
+        end;
+      end;
+    end;
+  end;
+end;
 
 procedure ExecSilent(const Cmd, Params: String);
 var
@@ -338,6 +377,11 @@ begin
     StopAndDeleteService('hyperhv');
     StopAndDeleteService('sanctum');
     StopAndDeleteService('edrdrv');
+
+    UninstallMSIByName('ClamAV');
+    UninstallMSIByName('Suricata');
+    UninstallMSIByName('Node.js');
+    UninstallMSIByName('OpenEDR');
 
     RemoveDriverInf('OwlyshieldRansomFilter.inf');
     RemoveDriverInf('MBRFilter.inf');
