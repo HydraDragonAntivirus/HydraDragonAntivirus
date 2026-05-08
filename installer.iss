@@ -321,7 +321,16 @@ begin
     AppDir := ExpandConstant('{app}');
 
     StopAndDeleteService('HydraDragonAntivirus');
-    StopAndDeleteService('edrsvc');
+    
+    if FileExists(AppDir + '\OpenEDR\edrsvc.exe') then
+    begin
+      ExecSilent(AppDir + '\OpenEDR\edrsvc.exe', 'uninstall');
+    end
+    else
+    begin
+      StopAndDeleteService('edrsvc');
+    end;
+    
     StopAndDeleteService('OwlyshieldRansomFilter');
     StopAndDeleteService('MBRFilter');
     StopAndDeleteService('SimplePYASProtection');
