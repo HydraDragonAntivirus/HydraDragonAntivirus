@@ -170,3 +170,186 @@ Filename: "{sys}\bcdedit.exe"; Parameters: "/set testsigning off"; Flags: runhid
 ; Filename: "{sys}\sc.exe"; Parameters: "delete ""{#AgentName}"""; Flags: runhidden waituntilterminated; RunOnceId: "DeleteOwlyshieldAgent"
 ; Filename: "{sys}\sc.exe"; Parameters: "delete ""{#FSfilter}"""; Flags: runhidden waituntilterminated; RunOnceId: "DeleteOwlyshieldFilter"
 ; Filename: "{cmd}"; Parameters: "/C del /F /Q ""{sys}\drivers\{#FSfilter}.sys"""; Flags: runhidden waituntilterminated; RunOnceId: "DeleteOwlyshieldDriver"
+
+[Code]
+
+const
+  RunOnceKey = 'SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce';
+  UninstallMsg =
+    'IMPORTANT: Full removal of kernel drivers requires Safe Mode.' + #13#10 +
+    #13#10 +
+    'The following drivers CANNOT be fully removed while Windows is running normally:' + #13#10 +
+    '  - OwlyshieldRansomFilter (minifilter driver)' + #13#10 +
+    '  - MBRFilter (MBR protection driver)' + #13#10 +
+    '  - SimplePYASProtection (protection driver)' + #13#10 +
+    '  - RedDbg (AMD hypervisor debugger)' + #13#10 +
+    '  - HyperDbg (Intel hypervisor)' + #13#10 +
+    '  - Sanctum (kernel security driver)' + #13#10 +
+    '  - OpenEDR / edrdrv + OpenEDR DLL (edrav2 library)' + #13#10 +
+    #13#10 +
+    'ELAM (Early Launch Anti-Malware) Note:' + #13#10 +
+    '  The Sanctum ELAM driver may require MANUAL removal if elam_installer.exe fails.' + #13#10 +
+    '  Registry key: HKLM\SYSTEM\CurrentControlSet\Control\EarlyLaunch\' + #13#10 +
+    '  Or re-run elam_installer.exe /uninstall from Safe Mode.' + #13#10 +
+    #13#10 +
+    'The uninstaller will:' + #13#10 +
+    '  1. Stop all services and delete service entries now.' + #13#10 +
+    '  2. Remove driver INFs via pnputil now (best-effort).' + #13#10 +
+    '  3. Schedule a cleanup script for the next Safe Mode reboot.' + #13#10 +
+    #13#10 +
+    'After uninstall completes, reboot into Safe Mode to finish driver removal.' + #13#10 +
+    #13#10 +
+    'Do you want to proceed with uninstallation?';
+
+procedure ExecSilent(const Cmd, Params: String);
+var
+  ResultCode: Integer;
+begin
+  Exec(Cmd, Params, '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+end;
+
+procedure StopAndDeleteService(const SvcName: String);
+begin
+  ExecSilent('sc.exe', 'stop "' + SvcName + '"');
+  ExecSilent('sc.exe', 'delete "' + SvcName + '"');
+end;
+
+procedure RemoveDriverInf(const InfName: String);
+begin
+  ExecSilent(ExpandConstant('{sys}\pnputil.exe'), '/delete-driver "' + InfName + '" /uninstall /force');
+end;
+
+procedure ScheduleSafeModeCleanup(const AppDir: String);
+var
+  ScriptPath, Script: String;
+  Lines: TArrayOfString;
+  i: Integer;
+begin
+  ScriptPath := ExpandConstant('{tmp}') + '\HydraDragonCleanup.bat';
+  SetArrayLength(Lines, 75);
+  i := 0;
+
+  Lines[i] := '@echo off'; Inc(i);
+  Lines[i] := 'echo HydraDragon Antivirus - Safe Mode Cleanup'; Inc(i);
+  Lines[i] := ''; Inc(i);
+  Lines[i] := 'taskkill /f /im HydraDragonService.exe 2>nul'; Inc(i);
+  Lines[i] := 'taskkill /f /im owlyshield_ransom.exe 2>nul'; Inc(i);
+  Lines[i] := 'taskkill /f /im hydradragonfirewall.exe 2>nul'; Inc(i);
+  Lines[i] := 'taskkill /f /im edrsvc.exe 2>nul'; Inc(i);
+  Lines[i] := 'taskkill /f /im um_engine.exe 2>nul'; Inc(i);
+  Lines[i] := ''; Inc(i);
+  Lines[i] := 'del /f /q "%SystemRoot%\System32\drivers\OwlyshieldRansomFilter.sys" 2>nul'; Inc(i);
+  Lines[i] := 'del /f /q "%SystemRoot%\System32\drivers\MBRFilter.sys" 2>nul'; Inc(i);
+  Lines[i] := 'del /f /q "%SystemRoot%\System32\drivers\SimplePYASProtection.sys" 2>nul'; Inc(i);
+  Lines[i] := 'del /f /q "%SystemRoot%\System32\drivers\RedDbgDrv.sys" 2>nul'; Inc(i);
+  Lines[i] := 'del /f /q "%SystemRoot%\System32\drivers\hyperhv.sys" 2>nul'; Inc(i);
+  Lines[i] := 'del /f /q "%SystemRoot%\System32\drivers\sanctum.sys" 2>nul'; Inc(i);
+  Lines[i] := 'del /f /q "%SystemRoot%\System32\drivers\edrdrv.sys" 2>nul'; Inc(i);
+  Lines[i] := ''; Inc(i);
+  Lines[i] := 'del /f /q "%SystemRoot%\System32\sanctum.dll" 2>nul'; Inc(i);
+  Lines[i] := 'del /f /q "%SystemRoot%\System32\edrav2*.dll" 2>nul'; Inc(i);
+  Lines[i] := 'del /f /q "%SystemRoot%\System32\edrdrv.dll" 2>nul'; Inc(i);
+  Lines[i] := ''; Inc(i);
+  Lines[i] := 'echo [*] Attempting ELAM uninstall...'; Inc(i);
+  Lines[i] := 'if exist "' + AppDir + '\hydradragon\Sanctum\elam_installer.exe" ('; Inc(i);
+  Lines[i] := '  "' + AppDir + '\hydradragon\Sanctum\elam_installer.exe" /uninstall 2>nul'; Inc(i);
+  Lines[i] := ')'; Inc(i);
+  Lines[i] := 'echo [*] If ELAM persists, remove manually:'; Inc(i);
+  Lines[i] := 'echo       HKLM\SYSTEM\CurrentControlSet\Control\EarlyLaunch'; Inc(i);
+  Lines[i] := ''; Inc(i);
+  Lines[i] := 'reg delete "HKLM\SYSTEM\CurrentControlSet\Services\OwlyshieldRansomFilter" /f 2>nul'; Inc(i);
+  Lines[i] := 'reg delete "HKLM\SYSTEM\CurrentControlSet\Services\MBRFilter" /f 2>nul'; Inc(i);
+  Lines[i] := 'reg delete "HKLM\SYSTEM\CurrentControlSet\Services\SimplePYASProtection" /f 2>nul'; Inc(i);
+  Lines[i] := 'reg delete "HKLM\SYSTEM\CurrentControlSet\Services\RedDbgDrv" /f 2>nul'; Inc(i);
+  Lines[i] := 'reg delete "HKLM\SYSTEM\CurrentControlSet\Services\hyperhv" /f 2>nul'; Inc(i);
+  Lines[i] := 'reg delete "HKLM\SYSTEM\CurrentControlSet\Services\sanctum" /f 2>nul'; Inc(i);
+  Lines[i] := 'reg delete "HKLM\SYSTEM\CurrentControlSet\Services\edrdrv" /f 2>nul'; Inc(i);
+  Lines[i] := 'reg delete "HKLM\SYSTEM\CurrentControlSet\Services\edrsvc" /f 2>nul'; Inc(i);
+  Lines[i] := 'reg delete "HKLM\SYSTEM\CurrentControlSet\Control\EarlyLaunch" /v "DriverName" /f 2>nul'; Inc(i);
+  Lines[i] := ''; Inc(i);
+  Lines[i] := 'schtasks /delete /tn "HydraDragonAntivirus" /f 2>nul'; Inc(i);
+  Lines[i] := 'rmdir /s /q "%ProgramData%\edrsvc" 2>nul'; Inc(i);
+  // Remove all subfolders in ProgramData\HydraDragonAntivirus EXCEPT Quarantine
+  Lines[i] := 'for /d %%D in ("%ProgramData%\HydraDragonAntivirus\*") do ('; Inc(i);
+  Lines[i] := '  if /i not "%%~nxD"=="Quarantine" rmdir /s /q "%%D"'; Inc(i);
+  Lines[i] := ')'; Inc(i);
+  // Remove all root-level files in ProgramData\HydraDragonAntivirus
+  Lines[i] := 'del /f /q "%ProgramData%\HydraDragonAntivirus\*" 2>nul'; Inc(i);
+  // Ask user about Quarantine folder
+  Lines[i] := 'echo.'; Inc(i);
+  Lines[i] := 'echo Your quarantine data is preserved at:'; Inc(i);
+  Lines[i] := 'echo   %ProgramData%\HydraDragonAntivirus\Quarantine'; Inc(i);
+  Lines[i] := 'echo This folder contains previously detected threats held in quarantine.'; Inc(i);
+  Lines[i] := 'echo.'; Inc(i);
+  Lines[i] := 'choice /c YN /m "Do you also want to permanently DELETE the Quarantine folder?"'; Inc(i);
+  Lines[i] := 'if %errorlevel%==1 ('; Inc(i);
+  Lines[i] := '  rmdir /s /q "%ProgramData%\HydraDragonAntivirus\Quarantine" 2>nul'; Inc(i);
+  Lines[i] := '  echo [+] Quarantine folder deleted.'; Inc(i);
+  Lines[i] := ') else ('; Inc(i);n
+  Lines[i] := '  echo [*] Quarantine folder kept at %ProgramData%\HydraDragonAntivirus\Quarantine'; Inc(i);
+  Lines[i] := ')'; Inc(i);
+  Lines[i] := 'rmdir /s /q "' + AppDir + '" 2>nul'; Inc(i);
+  Lines[i] := ''; Inc(i);
+  Lines[i] := 'echo [*] Run: bcdedit /set testsigning off  (if no longer needed)'; Inc(i);
+  Lines[i] := 'del /f /q "%~f0"'; Inc(i);
+  Lines[i] := 'echo [+] Cleanup complete.'; Inc(i);
+  Lines[i] := 'pause'; Inc(i);
+
+  Script := '';
+  for i := 0 to GetArrayLength(Lines) - 1 do
+    Script := Script + Lines[i] + #13#10;
+
+  SaveStringToFile(ScriptPath, Script, False);
+  RegWriteStringValue(HKLM, RunOnceKey, 'HydraDragonCleanup', '"' + ScriptPath + '"');
+end;
+
+function InitializeUninstall(): Boolean;
+begin
+  if MsgBox(UninstallMsg, mbConfirmation, MB_YESNO) = IDNO then
+  begin
+    Result := False;
+    Exit;
+  end;
+  Result := True;
+end;
+
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+var
+  AppDir: String;
+begin
+  if CurUninstallStep = usUninstall then
+  begin
+    AppDir := ExpandConstant('{app}');
+
+    StopAndDeleteService('HydraDragonAntivirus');
+    StopAndDeleteService('edrsvc');
+    StopAndDeleteService('OwlyshieldRansomFilter');
+    StopAndDeleteService('MBRFilter');
+    StopAndDeleteService('SimplePYASProtection');
+    StopAndDeleteService('RedDbgDrv');
+    StopAndDeleteService('hyperhv');
+    StopAndDeleteService('sanctum');
+    StopAndDeleteService('edrdrv');
+
+    RemoveDriverInf('OwlyshieldRansomFilter.inf');
+    RemoveDriverInf('MBRFilter.inf');
+    RemoveDriverInf('SimplePYASProtection.inf');
+    RemoveDriverInf('RedDbgDrv.inf');
+    RemoveDriverInf('hyperhv.inf');
+
+    ExecSilent('schtasks.exe', '/delete /tn "HydraDragonAntivirus" /f');
+
+    ScheduleSafeModeCleanup(AppDir);
+
+    MsgBox(
+      'Service entries removed.' + #13#10 +
+      #13#10 +
+      'A cleanup script is scheduled to run on the next reboot.' + #13#10 +
+      'For complete driver removal, please reboot into Safe Mode.' + #13#10 +
+      #13#10 +
+      'ELAM driver may require manual removal:' + #13#10 +
+      'HKLM\SYSTEM\CurrentControlSet\Control\EarlyLaunch',
+      mbInformation, MB_OK
+    );
+  end;
+end;
