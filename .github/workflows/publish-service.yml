@@ -31,26 +31,13 @@ jobs:
         run: |
           $distService = "hydradragon/HydraDragonService"
 
-          function Sync-PublishTree {
-            param(
-              [Parameter(Mandatory = $true)][string]$Source,
-              [Parameter(Mandatory = $true)][string]$Destination
-            )
-
-            if (-not (Test-Path -LiteralPath $Source -PathType Container)) {
-              throw "Missing publish source: $Source"
-            }
-
-            if (Test-Path -LiteralPath $Destination) {
-              Remove-Item -LiteralPath $Destination -Recurse -Force
-            }
-
-            New-Item -ItemType Directory -Force -Path $Destination | Out-Null
-            Get-ChildItem -LiteralPath $Source -Force -Exclude "*.pdb" |
-              Copy-Item -Destination $Destination -Recurse -Force
-          }
-
-          Sync-PublishTree -Source "artifacts/service" -Destination $distService
+          # Sync the whole folder first
+          if (Test-Path $distService) { Remove-Item $distService -Recurse -Force }
+          New-Item -ItemType Directory -Path $distService -Force | Out-Null
+          Copy-Item -Path "artifacts/service/*" -Destination $distService -Recurse -Force
+          
+          # Then remove PDBs
+          Get-ChildItem -Path $distService -Filter "*.pdb" -Recurse | Remove-Item -Force
           
       - name: Check for publishable changes
         id: check_changes

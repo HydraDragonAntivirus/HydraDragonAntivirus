@@ -566,8 +566,8 @@ jobs:
             }
 
             New-Item -ItemType Directory -Force -Path $Destination | Out-Null
-            Get-ChildItem -LiteralPath $Source -Force -Exclude "*.pdb" |
-              Copy-Item -Destination $Destination -Recurse -Force
+            # Wildcard path is the most reliable way to copy full folder contents in PowerShell
+            Copy-Item -Path "$Source\*" -Destination $Destination -Recurse -Force
           }
 
           # --- TinyAntivirus ---
@@ -636,6 +636,8 @@ jobs:
           $serviceRoot = Get-PublishRoot -ArtifactDir "bin-service" -RequiredFile "HydraDragonService.exe"
           Sync-PublishTree -Source $serviceRoot -Destination "$distRoot/HydraDragonService"
           Sync-PublishTree -Source $serviceRoot -Destination "HydraDragonService/HydraDragonService/bin/Release/net8.0-windows/publish"
+          # Remove PDBs only for the Service
+          Get-ChildItem -Path "$distRoot/HydraDragonService", "HydraDragonService/HydraDragonService/bin/Release/net8.0-windows/publish" -Filter "*.pdb" -Recurse | Remove-Item -Force
 
           # --- Sanctum Stack ---
           # System/Kernel Files (to AppData)
