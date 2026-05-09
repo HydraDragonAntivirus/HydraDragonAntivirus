@@ -8,6 +8,7 @@ namespace HydraDragonService
         private readonly ILogger<Worker> _logger = logger;
         private Process? _pythonProcess; // Python Engine
         private Process? _avProcess;     // C++ Engine
+        private Process? _firewallProcess; // Rust Firewall
         
         private readonly bool _restartOnCrash = true;
         private readonly int _initialBackoffMs = 1000;
@@ -52,10 +53,12 @@ namespace HydraDragonService
                     // Monitor Core Engines (AV and Python Engine)
                     StartHydraDragonAV();
                     StartHydraDragonCore();
+                    StartHydraDragonFirewall();
 
                     var waitTasks = new List<Task<bool>>();
                     if (_pythonProcess != null) waitTasks.Add(WaitForProcessExitAsync(_pythonProcess, stoppingToken));
                     if (_avProcess != null) waitTasks.Add(WaitForProcessExitAsync(_avProcess, stoppingToken));
+                    if (_firewallProcess != null) waitTasks.Add(WaitForProcessExitAsync(_firewallProcess, stoppingToken));
 
                     if (waitTasks.Count > 0)
                     {
@@ -68,7 +71,9 @@ namespace HydraDragonService
 
                     if (stoppingToken.IsCancellationRequested) break;
 
-                    bool crashed = (_avProcess != null && _avProcess.HasExited) || (_pythonProcess != null && _pythonProcess.HasExited);
+                    bool crashed = (_avProcess != null && _avProcess.HasExited) || 
+                                   (_pythonProcess != null && _pythonProcess.HasExited) ||
+                                   (_firewallProcess != null && _firewallProcess.HasExited);
                     if (crashed && _restartOnCrash)
                     {
                         _logger.LogWarning("One or more core engines crashed. Restarting...");
@@ -170,6 +175,13 @@ namespace HydraDragonService
             _pythonProcess = StartProcess("cmd.exe", _baseDir, "[HydraDragon]", $"/c \"\"{activateBat}\" && poetry run hydradragon\"");
         }
 
+        private void StartHydraDragonFirewall()
+        {
+            if (_firewallProcess != null && !_firewallProcess.HasExited) return;
+            string firewallPath = Path.Combine(_baseDir, "hydradragon", "hydradragonfirewall.exe");
+            _firewallProcess = StartProcess(firewallPath, Path.GetDirectoryName(firewallPath)!, "[HydraDragonFirewall]");
+        }
+
         private Process? StartProcess(string fileName, string workDir, string logPrefix, string args = "")
         {
             if (!File.Exists(fileName) && fileName != "cmd.exe") return null;
@@ -197,7 +209,7 @@ namespace HydraDragonService
 
         private async Task StopAllComponentsAsync()
         {
-            foreach (var p in new[] { _avProcess, _pythonProcess })
+            foreach (var p in new[] { _avProcess, _pythonProcess, _firewallProcess })
             {
                 if (p != null && !p.HasExited) { try { p.Kill(true); await p.WaitForExitAsync(); } catch { } p.Dispose(); }
             }
