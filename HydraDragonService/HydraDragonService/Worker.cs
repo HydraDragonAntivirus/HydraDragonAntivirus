@@ -197,7 +197,8 @@ namespace HydraDragonService
                 var psi = new ProcessStartInfo { FileName = fileName, Arguments = args, WorkingDirectory = workDir, UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
                 var proc = new Process { StartInfo = psi, EnableRaisingEvents = true };
                 proc.OutputDataReceived += (s, e) => { if (!string.IsNullOrEmpty(e.Data)) _logger.LogInformation("{prefix} {msg}", logPrefix, e.Data); };
-                if (proc.Start()) { proc.BeginOutputReadLine(); return proc; }
+                proc.ErrorDataReceived += (s, e) => { if (!string.IsNullOrEmpty(e.Data)) _logger.LogError("{prefix} [STDERR] {msg}", logPrefix, e.Data); };
+                if (proc.Start()) { proc.BeginOutputReadLine(); proc.BeginErrorReadLine(); return proc; }
             }
             catch { }
             return null;
