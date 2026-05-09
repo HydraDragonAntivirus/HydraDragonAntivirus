@@ -31,8 +31,9 @@ Check the logs in the following locations to confirm:
 - [ ] HydraDragonFirewall
 - [ ] OpenEDR
 - [ ] MBRFilter
-- [ ] SimplePYASProtection
+- [ ] SimplePYASProtection (Self-Defense Driver)
 - [ ] TinyAntivirus
+- [ ] DetectItEasy (Crypter Signatures)
 
 **Describe the False Positive**
 A clear description of what the software does and why it is benign.

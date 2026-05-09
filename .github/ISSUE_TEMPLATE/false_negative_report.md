@@ -30,8 +30,9 @@ Check the logs in the following locations to confirm whether it was quietly bloc
 - [ ] HydraDragonFirewall
 - [ ] OpenEDR
 - [ ] MBRFilter
-- [ ] SimplePYASProtection
+- [ ] SimplePYASProtection (Self-Defense Driver)
 - [ ] TinyAntivirus
+- [ ] DetectItEasy (Crypter Signatures)
 
 **Describe the bypass**
 Explain how the malware was executed and what actions it took that were not prevented.
