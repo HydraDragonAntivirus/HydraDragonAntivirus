@@ -5,6 +5,7 @@ on:
     branches: ["**"]
     paths:
       - "Owlyshield/owlyshield_predict/**/*.dll"
+      - "Sanctum/driver/sanctum.pfx"
       - ".github/workflows/publish-tensorflowlite.yml"
   workflow_dispatch:
 
