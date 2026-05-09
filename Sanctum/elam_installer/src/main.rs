@@ -13,8 +13,9 @@ use windows::{
         System::{
             Antimalware::InstallELAMCertificateInfo,
             Registry::{
-                HKEY, HKEY_LOCAL_MACHINE, KEY_READ, KEY_WRITE, REG_DWORD, REG_OPENED_EXISTING_KEY,
-                REG_OPTION_NON_VOLATILE, REG_SZ, RegCloseKey, RegCreateKeyExW, RegSetValueExW,
+                HKEY, HKEY_LOCAL_MACHINE, KEY_READ, KEY_WRITE, REG_DWORD, REG_EXPAND_SZ,
+                REG_OPENED_EXISTING_KEY, REG_OPTION_NON_VOLATILE, RegCloseKey, RegCreateKeyExW,
+                RegSetValueExW,
             },
             Services::{
                 ChangeServiceConfig2W, CreateServiceW, OpenSCManagerW, SC_MANAGER_ALL_ACCESS,
@@ -175,26 +176,22 @@ fn create_event_source_key() -> windows::core::Result<()> {
             return Err(Error::from_win32());
         }
 
-        // only create the key once, if it exists, return out
-        if disposition == REG_OPENED_EXISTING_KEY.0 {
-            return Ok(());
-        }
-
+        // Use EventCreate.exe which contains a generic "%1" message format string,
+        // suitable for plain-text event messages written via ReportEventW.
         let value_name = to_wstring("EventMessageFile");
-        let runner_path = installed_path("AppData\\sanctum_ppl_runner.exe")
-            .unwrap_or_else(|_| fallback_runner_path());
-        let exe_path = path_to_wstring(&runner_path);
+        let event_create_path =
+            to_wstring("%SystemRoot%\\System32\\EventCreate.exe");
 
         let exe_bytes: &[u8] = std::slice::from_raw_parts(
-            exe_path.as_ptr() as *const u8,
-            exe_path.len() * std::mem::size_of::<u16>(),
+            event_create_path.as_ptr() as *const u8,
+            event_create_path.len() * std::mem::size_of::<u16>(),
         );
 
         let ret = RegSetValueExW(
             hkey,
             PCWSTR(value_name.as_ptr()),
             None,
-            REG_SZ,
+            REG_EXPAND_SZ,
             Some(exe_bytes),
         );
         if ret != ERROR_SUCCESS {
@@ -222,13 +219,16 @@ fn create_event_source_key() -> windows::core::Result<()> {
 
         let _ = RegCloseKey(hkey);
 
-        // warn user device needs a reboot for the registry change to take proper effect
-        MessageBoxA(
-            None,
-            s!("System needs a reboot for service installation to take effect. Please restart."),
-            s!("Reboot required"),
-            MB_ICONWARNING,
-        );
+        // Only show reboot prompt on first-time creation
+        if disposition != REG_OPENED_EXISTING_KEY.0 {
+            // warn user device needs a reboot for the registry change to take proper effect
+            MessageBoxA(
+                None,
+                s!("System needs a reboot for service installation to take effect. Please restart."),
+                s!("Reboot required"),
+                MB_ICONWARNING,
+            );
+        }
     }
 
     Ok(())
