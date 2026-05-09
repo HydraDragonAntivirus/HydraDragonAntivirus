@@ -750,21 +750,12 @@ jobs:
             }
           }
 
-      - name: Create Pull Request
+      - name: Commit and Push Binaries
         if: steps.check_changes.outputs.changed == 'true'
-        uses: peter-evans/create-pull-request@v8
+        uses: stefanzweifel/git-auto-commit-action@v5
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          commit-message: "chore(binaries): automated binary update"
-          title: "Update Distribution Binaries"
-          body: |
-            Automated binary update from modular build pipeline.
-
-            **Sanctum ELAM Hash:**
-            - Driver To-Be-Signed Hash: `${{ steps.organize.outputs.elam_hash }}`
-          add-paths: |
-            ${{ steps.check_changes.outputs.publishable_files }}
-          branch: "${{ github.event.inputs.branch || 'auto-update-binaries' }}"
-          base: "${{ github.ref_name }}"
-          delete-branch: true
-          labels: binaries, automated-pr
+          commit_message: |
+            chore(binaries): automated binary update
+            
+            Sanctum ELAM Hash: ${{ steps.organize.outputs.elam_hash }}
+          branch: ${{ github.ref_name }}
