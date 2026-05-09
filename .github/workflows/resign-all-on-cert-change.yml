@@ -124,6 +124,18 @@ jobs:
           }
           
           Write-Host "`n=== Re-signed binaries staged for commit ==="
+      
+      - name: Get Certificate Hash
+        id: cert_hash
+        shell: pwsh
+        run: |
+          $certInfo = & signtool verify /pa /v "hydradragon\Sanctum\AppData\sanctum_ppl_runner.exe" 2>&1
+          $hashLine = $certInfo | Select-String "SHA1 hash:"
+          if ($hashLine) {
+            $hash = ($hashLine -split "SHA1 hash:")[1].Trim()
+            echo "hash=$hash" >> $env:GITHUB_OUTPUT
+            Write-Host "Certificate SHA1: $hash"
+          }
           
       - name: Create PR
         if: steps.check_trigger.outputs.skip != 'true'
@@ -136,11 +148,14 @@ jobs:
             Automated re-signing of all binaries after certificate change.
             
             This ensures all components (driver, PPL runner, firewall, owlyshield) are signed with the same certificate to prevent error 577 (driver signature invalid).
+            
+            Certificate SHA1: ${{ steps.cert_hash.outputs.hash }}
           add-paths: |
-            hydradragon/Sanctum/AppData/sanctum_ppl_runner.exe
+            hydradragon/Sanctum/AppData/*
             hydradragon/HydraDragonFirewall/*
             hydradragon/Owlyshield/Owlyshield Service/*
           branch: "auto-resign-binaries"
           base: ${{ github.ref_name }}
           delete-branch: true
           labels: binaries, automated-pr, sanctum, signing
+          author: "github-actions[bot] <github-actions[bot]@users.noreply.github.com>"
