@@ -60,9 +60,9 @@ echo.Building %ver_full%
 if not defined VSINSTALLDIR call "%vsdevcmd%" || exit /b 1
 
 REM Release
-REM Drivers are automatically signed by builder.cmd
 call :build "%inst_sln%" Release || ((call :error "Compillation failed") & exit /b 1)
 timeout /t 5 /NOBREAK
+call :sign_drivers
 call :verify_output
 call :restore_generated_files
 
@@ -75,6 +75,17 @@ CHOICE /C yn /m "Do you want to cleanup?"
 if %errorlevel% EQU 1 (call :cleanup)
 
 exit /b 0
+
+
+:sign_drivers
+echo.Signing drivers...
+powershell -ExecutionPolicy Bypass -File "%ScriptDir%\sign_drivers.ps1"
+if %errorlevel% neq 0 (
+    echo.[WARN] Driver signing failed. Integrity checks may block loading.
+) else (
+    echo.[+] Driver signing complete.
+)
+goto :eof
 
 
 :checkstate

@@ -1,10 +1,6 @@
 name: Publish Binaries (Multi-Job)
 
 on:
-  push:
-    branches: ["**"]
-    paths:
-      - '.github/workflows/publish-binaries.yml'
   workflow_dispatch:
     inputs:
       branch:

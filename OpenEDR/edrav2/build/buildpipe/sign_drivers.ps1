@@ -1,10 +1,10 @@
-$ErrorActionPreference = "Stop"
+$ErrorActionPreference = "Continue"
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $EdrRoot = Resolve-Path (Join-Path $ScriptDir "..\..")
-$OutDir = Join-Path $EdrRoot "out\bin\win-Release-x64"
+$OutDir = Join-Path $EdrRoot "out"
 
-# We reuse the HydraDragon cert if it exists.
+# 1) Setup Certificate
 $CertSubject = "CN=HydraDragonAntivirus Cert"
 $CertStore = "Cert:\CurrentUser\My"
 $PfxPath = Join-Path $ScriptDir "hydradragon.pfx"
@@ -24,18 +24,13 @@ if (-not $Cert) {
     Write-Host "[+] Certificate created: $($Cert.Thumbprint)"
 } else {
     Write-Host "[+] Found existing certificate: $($Cert.Thumbprint)"
-    
-    # Export PFX if it doesn't exist
     if (-not (Test-Path $PfxPath)) {
-        Write-Host "[*] Exporting certificate to PFX..."
         $PasswordSecure = ConvertTo-SecureString -String $CertPassword -Force -AsPlainText
         Export-PfxCertificate -Cert $Cert -FilePath $PfxPath -Password $PasswordSecure | Out-Null
-        Write-Host "[+] PFX exported: $PfxPath"
     }
 }
 
-# 2) Trust the certificate locally
-Write-Host "[*] Ensuring certificate is in Trusted Root and Trusted Publisher stores..."
+# Trust the cert
 $certData = $Cert.Export([System.Security.Cryptography.X509Certificates.X509ContentType]::Cert)
 $tempCertFile = [System.IO.Path]::GetTempFileName() + ".cer"
 [System.IO.File]::WriteAllBytes($tempCertFile, $certData)
@@ -43,44 +38,69 @@ certutil -addstore -f Root $tempCertFile | Out-Null
 certutil -addstore -f TrustedPublisher $tempCertFile | Out-Null
 Remove-Item $tempCertFile
 
-# 3) Locate signtool.exe - use correct architecture
+# 2) Locate Tools
 $Arch = "x64"
-Write-Host "[*] Using x64 architecture for signtool"
-
-# Find the latest Windows SDK version directory
 $KitsPath = "${env:ProgramFiles(x86)}\Windows Kits\10\bin"
 $SdkVersions = Get-ChildItem -Path $KitsPath -Directory |
                Where-Object { $_.Name -match '^\d+\.\d+\.\d+\.\d+$' } |
                Sort-Object -Property Name -Descending
 
 $SignTool = $null
+$Inf2Cat = $null
+
 foreach ($SdkVersion in $SdkVersions) {
-    $SignToolPath = Join-Path $SdkVersion.FullName "$Arch\signtool.exe"
-    if (Test-Path $SignToolPath) {
-        $SignTool = $SignToolPath
-        Write-Host "[*] Found signtool.exe in SDK version: $($SdkVersion.Name)"
-        break
+    if (-not $SignTool) {
+        $Path = Join-Path $SdkVersion.FullName "$Arch\signtool.exe"
+        if (Test-Path $Path) { $SignTool = $Path }
     }
+    if (-not $Inf2Cat) {
+        $Path = Join-Path $SdkVersion.FullName "x86\inf2cat.exe"
+        if (Test-Path $Path) { $Inf2Cat = $Path }
+    }
+    if ($SignTool -and $Inf2Cat) { break }
 }
 
-if (-not $SignTool) {
-    throw "signtool.exe not found for architecture $Arch in Windows Kits directory."
-}
-
+if (-not $SignTool) { throw "signtool.exe not found." }
 Write-Host "[*] Using SignTool: $SignTool"
+if ($Inf2Cat) { Write-Host "[*] Using Inf2Cat: $Inf2Cat" }
 
-# 4) Sign edrdrv.sys
-$DriverPath = Join-Path $OutDir "edrdrv.sys"
-if (Test-Path $DriverPath) {
-    Write-Host "[*] Signing $DriverPath..."
-    & $SignTool sign /v /fd SHA256 /sha1 $($Cert.Thumbprint) /t "http://timestamp.digicert.com" $DriverPath
-} else {
-    Write-Host "[!] edrdrv.sys not found at $DriverPath. Checking other locations..."
-    $AltPaths = Get-ChildItem -Path $EdrRoot -Recurse -Filter "edrdrv.sys" | Select-Object -ExpandProperty FullName
-    foreach ($Path in $AltPaths) {
-        Write-Host "[*] Signing alternative: $Path"
-        & $SignTool sign /v /fd SHA256 /sha1 $($Cert.Thumbprint) /t "http://timestamp.digicert.com" $Path
+# 3) Process All Files in Out Directory
+$OutDir = Join-Path $EdrRoot "out"
+if (-not (Test-Path $OutDir)) {
+    Write-Host "[!] Out directory not found at $OutDir"
+    exit 0
+}
+
+Write-Host "`n[*] Processing all driver files in $OutDir..."
+
+# A) Generate Catalog Files if needed
+$Infs = Get-ChildItem -Path $OutDir -Filter "*.inf" -Recurse
+foreach ($Inf in $Infs) {
+    $InfContent = Get-Content $Inf.FullName
+    if ($InfContent -match "CatalogFile\s*=\s*(.+)") {
+        $CatFileName = $Matches[1].Trim()
+        $CatPath = Join-Path (Split-Path $Inf.FullName) $CatFileName
+        
+        if (-not (Test-Path $CatPath)) {
+            if ($Inf2Cat) {
+                Write-Host "[*] Generating catalog for $($Inf.Name)..."
+                # Inf2Cat needs the directory containing the driver package
+                    & $Inf2Cat /driver:"$($Inf.DirectoryName)" /os:10_X64,Server10_X64 /verbose
+            } else {
+                Write-Host "[!] Missing $CatFileName but inf2cat.exe not found."
+            }
+        }
     }
 }
 
-Write-Host "[+] Signing complete."
+# B) Sign all .sys and .cat files
+$FilesToSign = Get-ChildItem -Path $OutDir -Include "*.sys", "*.cat" -Recurse
+foreach ($File in $FilesToSign) {
+    Write-Host "[*] Signing $($File.FullName)..."
+    & $SignTool sign /v /fd SHA256 /sha1 $($Cert.Thumbprint) /t "http://timestamp.digicert.com" $File.FullName
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "[!] Failed to sign $($File.Name)"
+    }
+}
+
+Write-Host "`n[+] Signing process finished."

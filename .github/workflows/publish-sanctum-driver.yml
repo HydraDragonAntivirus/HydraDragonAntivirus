@@ -141,7 +141,7 @@ jobs:
               $buildRsPath = "build.rs"
               $content = Get-Content $buildRsPath -Raw
               # Match the pattern L"HEX\0" and replace with the new hash
-              $newContent = $content -replace 'L"[0-9A-F]+\\0"', "L`"$hash\0`""
+              $newContent = $content -replace 'L"[0-9A-Fa-f]+\\0"', "L`"$hash\\0`""
               Set-Content $buildRsPath $newContent -Encoding UTF8
               Write-Host "Updated build.rs with hash: $hash"
 

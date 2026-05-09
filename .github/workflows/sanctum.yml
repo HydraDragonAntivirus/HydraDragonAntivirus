@@ -93,8 +93,8 @@ jobs:
         uses: TheMrMilchmann/setup-msvc-dev@v4
         with:
           arch: x64
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
+      - name: Set up Rust (Nightly)
+        uses: dtolnay/rust-toolchain@nightly
         with:
           targets: x86_64-pc-windows-msvc
 

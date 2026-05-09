@@ -18,8 +18,8 @@ impl SanctumSettingsImpl for SanctumSettings {
         let dir = paths.0;
         let path = paths.1;
 
-        // if the path doesn't exist, the app is likely running for the first time, so configure any app defaults
-        if !dir.exists() {
+        // if the file doesn't exist, the app is likely running for the first time, so configure any app defaults
+        if !path.exists() {
             let settings = SanctumSettings {
                 common_scan_areas: vec![
                     PathBuf::from(format!("C:\\Users\\{}", username)),
