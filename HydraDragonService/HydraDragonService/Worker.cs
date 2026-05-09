@@ -109,10 +109,13 @@ namespace HydraDragonService
             // 1) ELAM Installer
             await RunExeAsync(elamPath, ct);
 
-            // 2) Sanctum PPL Runner Service
+            // 2) Start OpenEDR Service
+            await StartOpenEDRServiceAsync(ct);
+
+            // 3) Sanctum PPL Runner Service
             await EnsureSanctumPplRunningAsync(ct);
 
-            // 3) UM Engine
+            // 4) UM Engine
             await RunExeAsync(umPath, ct);
 
             // 5) GUI App
@@ -210,6 +213,42 @@ namespace HydraDragonService
                 if (p != null && !p.HasExited) { try { p.Kill(true); await p.WaitForExitAsync(); } catch { } p.Dispose(); }
             }
             Process.Start(new ProcessStartInfo { FileName = "sc", Arguments = "stop sanctum_ppl_runner", CreateNoWindow = true, UseShellExecute = false })?.WaitForExit();
+        }
+
+        private async Task StartOpenEDRServiceAsync(CancellationToken ct)
+        {
+            try
+            {
+                _logger.LogInformation("Starting OpenEDR service (edrsvc)...");
+                var psi = new ProcessStartInfo
+                {
+                    FileName = "sc",
+                    Arguments = "start edrsvc",
+                    CreateNoWindow = true,
+                    UseShellExecute = false,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true
+                };
+                var p = Process.Start(psi);
+                if (p != null)
+                {
+                    await p.WaitForExitAsync(ct);
+                    string output = await p.StandardOutput.ReadToEndAsync(ct);
+                    if (p.ExitCode == 0 || output.Contains("already", StringComparison.OrdinalIgnoreCase))
+                    {
+                        _logger.LogInformation("OpenEDR service started or already running");
+                    }
+                    else
+                    {
+                        _logger.LogWarning("OpenEDR service start returned code {code}: {output}", p.ExitCode, output);
+                    }
+                }
+                await Task.Delay(1500, ct);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning("Failed to start OpenEDR service (non-fatal): {msg}", ex.Message);
+            }
         }
 
         private bool IsRunningAsAdministrator()
