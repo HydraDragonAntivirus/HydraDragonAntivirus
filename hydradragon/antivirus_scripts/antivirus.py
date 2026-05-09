@@ -700,10 +700,10 @@ for make_directory in MANAGED_DIRECTORIES:
             continue  # Skip creating the directory if removal failed
 
     try:
-        os.makedirs(make_directory)
-        logger.info(f"Created directory: {make_directory}")
+        os.makedirs(make_directory, exist_ok=True)
+        logger.info(f"Ensured directory exists: {make_directory}")
     except Exception as e:
-        logger.error(f"Failed to create directory '{make_directory}': {e}")
+        logger.error(f"Failed to ensure directory '{make_directory}': {e}")
 
 
 def try_unpack_enigma1(input_exe: str) -> str | None:

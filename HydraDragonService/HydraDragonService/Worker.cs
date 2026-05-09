@@ -71,12 +71,19 @@ namespace HydraDragonService
 
                     if (stoppingToken.IsCancellationRequested) break;
 
-                    bool crashed = (_avProcess != null && _avProcess.HasExited) || 
-                                   (_pythonProcess != null && _pythonProcess.HasExited) ||
-                                   (_firewallProcess != null && _firewallProcess.HasExited);
-                    if (crashed && _restartOnCrash)
+                    Process? crashedProc = null;
+                    if (_avProcess != null && _avProcess.HasExited) crashedProc = _avProcess;
+                    else if (_pythonProcess != null && _pythonProcess.HasExited) crashedProc = _pythonProcess;
+                    else if (_firewallProcess != null && _firewallProcess.HasExited) crashedProc = _firewallProcess;
+
+                    if (crashedProc != null && _restartOnCrash)
                     {
-                        _logger.LogWarning("One or more core engines crashed. Restarting...");
+                        string procName = crashedProc == _avProcess ? "C++ Engine" :
+                                         crashedProc == _pythonProcess ? "Python Engine" : "Firewall";
+                        
+                        _logger.LogWarning("Core engine crashed: {name} (Exit Code: {code}). Restarting...", 
+                            procName, crashedProc.ExitCode);
+                        
                         await Task.Delay(backoff, stoppingToken);
                         backoff = Math.Min(backoff * 2, _maxBackoffMs);
                     }
