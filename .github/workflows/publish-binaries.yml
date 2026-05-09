@@ -783,12 +783,22 @@ jobs:
             }
           }
 
-      - name: Commit and Push Binaries
+      - name: Create PR
         if: steps.check_changes.outputs.changed == 'true'
-        uses: stefanzweifel/git-auto-commit-action@v5
+        uses: peter-evans/create-pull-request@v8
         with:
-          commit_message: |
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: |
             chore(binaries): automated binary update
             
             Sanctum ELAM Hash: ${{ steps.organize.outputs.elam_hash }}
-          branch: ${{ github.ref_name }}
+          title: "Automated Global Binary Update"
+          body: |
+            Automated binary update from multi-job build pipeline.
+            **Sanctum ELAM Hash**: `${{ steps.organize.outputs.elam_hash }}`
+          add-paths: |
+            ${{ steps.check_changes.outputs.publishable_files }}
+          branch: "auto-update-all-binaries"
+          base: ${{ github.ref_name }}
+          delete-branch: true
+          labels: binaries, automated-pr
