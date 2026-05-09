@@ -125,17 +125,8 @@ jobs:
           
           Write-Host "`n=== Re-signed binaries staged for commit ==="
           
-      - name: Check for publishable changes
-        id: check_changes
-        uses: ./.github/actions/check-publishable-changes
-        with:
-          paths: |
-            hydradragon/Sanctum/AppData/sanctum_ppl_runner.exe
-            hydradragon/HydraDragonFirewall
-            hydradragon/Owlyshield/Owlyshield Service
-            
       - name: Create PR
-        if: steps.check_changes.outputs.changed == 'true'
+        if: steps.check_trigger.outputs.skip != 'true'
         uses: peter-evans/create-pull-request@v8
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -146,7 +137,9 @@ jobs:
             
             This ensures all components (driver, PPL runner, firewall, owlyshield) are signed with the same certificate to prevent error 577 (driver signature invalid).
           add-paths: |
-            ${{ steps.check_changes.outputs.publishable_files }}
+            hydradragon/Sanctum/AppData/sanctum_ppl_runner.exe
+            hydradragon/HydraDragonFirewall/*
+            hydradragon/Owlyshield/Owlyshield Service/*
           branch: "auto-resign-binaries"
           base: ${{ github.ref_name }}
           delete-branch: true
