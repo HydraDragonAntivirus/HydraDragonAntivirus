@@ -17,7 +17,7 @@ Check the logs in the following locations to confirm:
 **File Information**
 - Filename: 
 - SHA256 Hash: 
-- Download Link (Password protected ZIP, e.g., 'infected'): 
+- Download Link (Password protected ZIP, e.g., 'infected' in your GitHub malware-samples repo): 
 
 **Why are you requesting analysis?**
 - [ ] I suspect it is malware but HydraDragon did not block it.
