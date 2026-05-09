@@ -1630,6 +1630,7 @@ def dispatch_firewall_web_scan(paths: List[str], origin: str) -> None:
 
 
 # Global variables for rules and ML
+antivirus_domains_data = None
 yaraxtr_rules = None
 excluded_rules = None
 malicious_numeric_features = []
