@@ -31,6 +31,7 @@ static PDEVICE_OBJECT g_HvDeviceObject = NULL;
 static PFILE_OBJECT g_HvFileObject = NULL;
 
 
+
 // Only the ELAM-backed Sanctum PPL service is allowed to own the user-mode
 // communication channel to this driver. Owlyshield UI/service code should talk
 // to Sanctum, and Sanctum can broker the driver connection from its protected
@@ -42,6 +43,7 @@ static PFILE_OBJECT g_HvFileObject = NULL;
 
 #define PS_PROTECTED_TYPE_PROTECTED_LIGHT 1
 #define PS_PROTECTED_SIGNER_ANTIMALWARE   3
+
 
 typedef UCHAR(NTAPI *PPS_GET_PROCESS_PROTECTION)(_In_ PEPROCESS Process);
 static PPS_GET_PROCESS_PROTECTION g_PsGetProcessProtection = NULL;
@@ -146,53 +148,42 @@ static PUNICODE_STRING QueryCurrentProcessImagePath(VOID)
     return imagePath;
 }
 
-static BOOLEAN CopyUnicodeStringToNullTerminatedBuffer(
-    _In_ PCUNICODE_STRING Source,
-    _Out_writes_z_(OutCch) PWCHAR OutBuffer,
-    _In_ SIZE_T OutCch)
-{
-    SIZE_T charsToCopy;
 
-    if (Source == NULL || Source->Buffer == NULL || OutBuffer == NULL || OutCch == 0)
-    {
-        return FALSE;
-    }
-
-    charsToCopy = Source->Length / sizeof(WCHAR);
-    if (charsToCopy >= OutCch)
-    {
-        charsToCopy = OutCch - 1;
-    }
-
-    if (charsToCopy == 0)
-    {
-        OutBuffer[0] = L'\0';
-        return FALSE;
-    }
-
-    RtlCopyMemory(OutBuffer, Source->Buffer, charsToCopy * sizeof(WCHAR));
-    OutBuffer[charsToCopy] = L'\0';
-    return TRUE;
-}
 
 static BOOLEAN IsSanctumRunnerImagePath(_In_ PCUNICODE_STRING ImagePath)
 {
-    if (ImagePath == NULL || ImagePath->Buffer == NULL || ImagePath->Length < 22 * sizeof(WCHAR))
+    if (ImagePath == NULL || ImagePath->Buffer == NULL || ImagePath->Length == 0)
     {
         return FALSE;
     }
 
-    static const WCHAR runnerSuffix[] = L"sanctum_ppl_runner.exe";
-    SIZE_T suffixChars = (sizeof(runnerSuffix) / sizeof(WCHAR)) - 1;
+    UNICODE_STRING ntPath;
+    RtlInitUnicodeString(&ntPath, SANCTUM_PPL_RUNNER_NT_PATH);
+
+    // 1. Strict Full Path match (case-insensitive)
+    if (RtlEqualUnicodeString(ImagePath, &ntPath, TRUE))
+    {
+        return TRUE;
+    }
+
+    // 2. Production Suffix match (Defense in Depth)
+    // This ensures that even if the drive letter or volume prefix varies, 
+    // the binary must reside in the specific production subfolder structure.
+    static const WCHAR productionSuffix[] = 
+        L"\\HydraDragonAntivirus\\hydradragon\\Owlyshield\\Sanctum\\AppData\\sanctum_ppl_runner.exe";
+    SIZE_T suffixChars = (sizeof(productionSuffix) / sizeof(WCHAR)) - 1;
     SIZE_T pathChars = ImagePath->Length / sizeof(WCHAR);
 
-    if (pathChars < suffixChars)
+    if (pathChars >= suffixChars)
     {
-        return FALSE;
+        PCWSTR pathEnd = &ImagePath->Buffer[pathChars - suffixChars];
+        if (_wcsicmp(pathEnd, productionSuffix) == 0)
+        {
+            return TRUE;
+        }
     }
 
-    PCWSTR pathEnd = &ImagePath->Buffer[pathChars - suffixChars];
-    return (_wcsicmp(pathEnd, runnerSuffix) == 0);
+    return FALSE;
 }
 
 static BOOLEAN IsSanctumAntimalwareLightCaller(

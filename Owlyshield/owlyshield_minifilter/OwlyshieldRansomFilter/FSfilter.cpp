@@ -23,7 +23,6 @@ Environment:
 #include "RootkitDetector.h"
 #include "UserModeHookEngine.h"
 
-
 #pragma prefast(disable : __WARNING_ENCODE_MEMBER_FUNCTION_POINTER, "Not valid for kernel mode drivers")
 
 //  Structure that contains all the global data structures used throughout the driver.
@@ -56,8 +55,7 @@ FLT_POSTOP_CALLBACK_STATUS
 FSProcessPostReadSafe(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECTS FltObjects,
                       _In_opt_ PVOID CompletionContext, _In_ FLT_POST_OPERATION_FLAGS Flags);
 
-VOID
-DriverUnload(PDRIVER_OBJECT DriverObject);
+VOID DriverUnload(PDRIVER_OBJECT DriverObject);
 
 BOOLEAN
 FSShouldIgnorePyasWhitelistPath(_In_ PCUNICODE_STRING Path);
@@ -90,10 +88,9 @@ static PUNICODE_STRING FSCopyUnicodeStringForRecordNewProcess(_In_ PUNICODE_STRI
     return copy;
 }
 
-static VOID FSCopyProcessPathForMessage(
-    _In_opt_ PUNICODE_STRING Source,
-    _Out_writes_(MAX_FILE_NAME_LENGTH) PWCHAR Destination,
-    _Out_ PUSHORT DestinationLength)
+static VOID FSCopyProcessPathForMessage(_In_opt_ PUNICODE_STRING Source,
+                                        _Out_writes_(MAX_FILE_NAME_LENGTH) PWCHAR Destination,
+                                        _Out_ PUSHORT DestinationLength)
 {
     if (Destination == NULL || DestinationLength == NULL)
         return;
@@ -114,9 +111,7 @@ static VOID FSCopyProcessPathForMessage(
         srcLen = (USHORT)(wcslen(dosPathBuf) * sizeof(WCHAR));
     }
 
-    USHORT copyLen = (srcLen < (MAX_FILE_NAME_SIZE - sizeof(WCHAR)))
-                         ? srcLen
-                         : (MAX_FILE_NAME_SIZE - sizeof(WCHAR));
+    USHORT copyLen = (srcLen < (MAX_FILE_NAME_SIZE - sizeof(WCHAR))) ? srcLen : (MAX_FILE_NAME_SIZE - sizeof(WCHAR));
 
     if (copyLen > 0)
         RtlCopyMemory(Destination, srcPath, copyLen);
@@ -254,8 +249,7 @@ static VOID FSEnsurePyasRuleMutex(VOID)
     KeMemoryBarrier();
 }
 
-#if 0
-static VOID FSFreePyasRuleSetStorage_OLD(_Inout_ PPYAS_WHITELIST_RULE_SET RuleSet)
+static VOID FSFreePyasRuleSetStorage(_Inout_ PPYAS_WHITELIST_RULE_SET RuleSet)
 {
     if (RuleSet == NULL)
     {
@@ -266,23 +260,22 @@ static VOID FSFreePyasRuleSetStorage_OLD(_Inout_ PPYAS_WHITELIST_RULE_SET RuleSe
     {
         for (ULONG i = 0; i < RuleSet->Count; ++i)
         {
-            PWSTR rule = RuleSet->Rules[i];
-            if (rule != NULL)
+            if (RuleSet->Rules[i] != NULL)
             {
-                ExFreePoolWithTag(rule, PYAS_RULE_POOL_TAG);
+                ExFreePoolWithTag(RuleSet->Rules[i], PYAS_RULE_POOL_TAG);
             }
         }
         ExFreePoolWithTag(RuleSet->Rules, PYAS_RULE_POOL_TAG);
+        RuleSet->Rules = NULL;
     }
 
-    RuleSet->Rules = NULL;
     RuleSet->Count = 0;
     RuleSet->Capacity = 0;
 }
 
 static VOID FSFreePyasWhitelistRulesUnlocked(VOID)
 {
-    return; // FSFreePyasRuleSetStorage(&g_PyasWhitelistRules);
+    FSFreePyasRuleSetStorage(&g_PyasWhitelistRules);
 }
 
 static NTSTATUS FSEnsurePyasRuleCapacityForSet(_Inout_ PPYAS_WHITELIST_RULE_SET RuleSet, _In_ ULONG RequiredCount)
@@ -435,144 +428,7 @@ static NTSTATUS FSAppendPyasRulesFromBufferToSet(_Inout_ PPYAS_WHITELIST_RULE_SE
     return STATUS_SUCCESS;
 }
 
-#if 0
-static NTSTATUS FSLoadPyasWhitelistRulesFromFileToSet_OLD(_Inout_ PPYAS_WHITELIST_RULE_SET RuleSet,
-                                                      _In_ PCUNICODE_STRING FilePath)
-{
-    OBJECT_ATTRIBUTES oa;
-    IO_STATUS_BLOCK ioStatus;
-    FILE_STANDARD_INFORMATION fileInfo;
-    HANDLE fileHandle = NULL;
-    PUCHAR buffer = NULL;
-    ULONG bufferSize;
-    NTSTATUS status;
-
-    if (FilePath == NULL || FilePath->Buffer == NULL || FilePath->Length == 0)
-    {
-        return STATUS_INVALID_PARAMETER;
-    }
-
-    if (RuleSet == NULL)
-    {
-        return STATUS_INVALID_PARAMETER;
-    }
-
-    InitializeObjectAttributes(&oa, (PUNICODE_STRING)FilePath, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
-    RtlZeroMemory(&ioStatus, sizeof(ioStatus));
-    status = ZwCreateFile(&fileHandle, GENERIC_READ, &oa, &ioStatus, NULL, FILE_ATTRIBUTE_NORMAL, FILE_SHARE_READ,
-                          FILE_OPEN, FILE_SYNCHRONOUS_IO_NONALERT, NULL, 0);
-    if (!NT_SUCCESS(status))
-    {
-        return status;
-    }
-
-    RtlZeroMemory(&fileInfo, sizeof(fileInfo));
-    status = ZwQueryInformationFile(fileHandle, &ioStatus, &fileInfo, sizeof(fileInfo), FileStandardInformation);
-    if (!NT_SUCCESS(status))
-    {
-        ZwClose(fileHandle);
-        return status;
-    }
-
-    if (fileInfo.EndOfFile.QuadPart <= 0 || fileInfo.EndOfFile.QuadPart > PYAS_RULE_MAX_FILE_SIZE)
-    {
-        ZwClose(fileHandle);
-        return STATUS_INVALID_BUFFER_SIZE;
-    }
-
-    bufferSize = (ULONG)fileInfo.EndOfFile.QuadPart;
-    buffer = (PUCHAR)ExAllocatePool2(POOL_FLAG_NON_PAGED, bufferSize, PYAS_RULE_POOL_TAG);
-    if (buffer == NULL)
-    {
-        ZwClose(fileHandle);
-        return STATUS_INSUFFICIENT_RESOURCES;
-    }
-    RtlZeroMemory(buffer, bufferSize);
-
-    RtlZeroMemory(&ioStatus, sizeof(ioStatus));
-    status = ZwReadFile(fileHandle, NULL, NULL, NULL, &ioStatus, buffer, bufferSize, NULL, NULL);
-    if (NT_SUCCESS(status))
-    {
-        (VOID) FSAppendPyasRulesFromBufferToSet(RuleSet, buffer, (ULONG)ioStatus.Information);
-    }
-
-    ExFreePoolWithTag(buffer, PYAS_RULE_POOL_TAG);
-    ZwClose(fileHandle);
-    return status;
-}
-
-static VOID FSLoadPyasWhitelistRules(VOID)
-{
-    return;
-}
-
-
-    //
-    // FIX: FAST_MUTEX raises IRQL to APC_LEVEL which disables kernel APCs.
-    // ZwCreateFile with FILE_SYNCHRONOUS_IO_NONALERT needs a kernel APC to
-    // signal I/O completion. Holding the mutex during the file read causes
-    // a deadlock. Do ALL file I/O before acquiring the mutex.
-    //
-    FSEnsurePyasRuleMutex();
-
-    // Fast path check without I/O (safe to do under the mutex briefly)
-    ExAcquireFastMutex(&g_PyasWhitelistRules.Mutex);
-    BOOLEAN alreadyLoaded = g_PyasWhitelistRules.Loaded;
-    ExReleaseFastMutex(&g_PyasWhitelistRules.Mutex);
-
-    if (alreadyLoaded)
-        return;
-
-    // Do file I/O entirely at PASSIVE_LEVEL, outside any mutex
-    UNICODE_STRING ruleFilePath;
-    NTSTATUS loadStatus;
-    RtlInitUnicodeString(&ruleFilePath, OWLY_FSfilter_RULE_FILE_KERNEL);
-
-    // File I/O happens here with no mutex held. Build a private snapshot first
-    // so live callbacks never walk a partially-updated rule array.
-    return;
-}
-#if 0
-static VOID FSLoadPyasWhitelistRules_OLD(VOID)
-{
-    loadStatus = STATUS_SUCCESS; // FSLoadPyasWhitelistRulesFromFileToSet(&stagedRules, &ruleFilePath);
-
-    // Publish the new snapshot in one short critical section. On reload,
-    // readers keep seeing the old cache until the replacement is ready.
-    ExAcquireFastMutex(&g_PyasWhitelistRules.Mutex);
-    FSFreePyasWhitelistRulesUnlocked();
-    if (NT_SUCCESS(loadStatus))
-    {
-        g_PyasWhitelistRules.Rules = stagedRules.Rules;
-        g_PyasWhitelistRules.Count = stagedRules.Count;
-        g_PyasWhitelistRules.Capacity = stagedRules.Capacity;
-        stagedRules.Rules = NULL;
-        stagedRules.Count = 0;
-        stagedRules.Capacity = 0;
-    }
-    g_PyasWhitelistRules.Loaded = NT_SUCCESS(loadStatus);
-    ExReleaseFastMutex(&g_PyasWhitelistRules.Mutex);
-    FSFreePyasRuleSetStorage(&stagedRules);
-}
-
-static VOID FSCleanupPyasWhitelistRules(VOID)
-{
-    FSEnsurePyasRuleMutex();
-    ExAcquireFastMutex(&g_PyasWhitelistRules.Mutex);
-    FSFreePyasWhitelistRulesUnlocked();
-    g_PyasWhitelistRules.Loaded = FALSE;
-    ExReleaseFastMutex(&g_PyasWhitelistRules.Mutex);
-}
-
-VOID FSReloadPyasWhitelistRules(VOID)
-{
-    FSCleanupPyasWhitelistRules();
-    FSLoadPyasWhitelistRules();
-}
-
-NTSTATUS FSSetPyasWhitelistRulesFromBuffer(
-    _In_reads_bytes_(BytesRead) PUCHAR Buffer,
-    _In_ ULONG BytesRead)
+NTSTATUS FSSetPyasWhitelistRulesFromBuffer(_In_reads_bytes_(BytesRead) PUCHAR Buffer, _In_ ULONG BytesRead)
 {
     PYAS_WHITELIST_RULE_SET stagedRules = {0};
     NTSTATUS status;
@@ -649,7 +505,6 @@ CONST FLT_REGISTRATION FilterRegistration = {
 //    Filter initialization and unload routines.
 //
 ////////////////////////////////////////////////////////////////////////////
-
 
 extern "C" int __crt_init();
 extern "C" void __crt_deinit();
@@ -878,9 +733,6 @@ Return Value:
     UNICODE_STRING quarantinePathString;
     RtlInitUnicodeString(&quarantinePathString, L"\\??\\C:\\ProgramData\\HydraDragonAntivirus\\Quarantine");
     driverData->SetQuarantinePath(&quarantinePathString);
-
-    // Load PYAS whitelist rules once at startup; FSfilter uses these to ignore incoming whitelist scope.
-    FSLoadPyasWhitelistRules();
 
 #if DBG
     DriverObject->DriverUnload = DriverUnload;
@@ -1254,8 +1106,7 @@ VOID EnumerateExistingProcesses(VOID)
     ExFreePoolWithTag(buffer, 'EPrW');
 }
 
-VOID
-DriverUnload(PDRIVER_OBJECT DriverObject)
+VOID DriverUnload(PDRIVER_OBJECT DriverObject)
 {
     UNREFERENCED_PARAMETER(DriverObject);
     // Call the minifilter unload logic (flags = 0)
@@ -1329,7 +1180,13 @@ Return Value:
     UninitProcessProtection();
 
     UserModeHookEngineCleanup();
-    FSCleanupPyasWhitelistRules();
+    // Cleanup memory-resident rules
+    FSEnsurePyasRuleMutex();
+    ExAcquireFastMutex(&g_PyasWhitelistRules.Mutex);
+    FSFreePyasWhitelistRulesUnlocked();
+    g_PyasWhitelistRules.Loaded = FALSE;
+    ExReleaseFastMutex(&g_PyasWhitelistRules.Mutex);
+
 
     // Registry Cleanup
     RegeditUnloadDriver();
@@ -1579,9 +1436,9 @@ FSProcessPreOperation(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECT
                       _Flt_CompletionContext_Outptr_ PVOID *CompletionContext)
 {
     NTSTATUS hr = FLT_PREOP_SUCCESS_NO_CALLBACK;
-    BOOLEAN isNamedPipe = (FltObjects->Volume != NULL && Data->Iopb->TargetFileObject != NULL && 
-                          Data->Iopb->TargetFileObject->DeviceObject != NULL &&
-                          Data->Iopb->TargetFileObject->DeviceObject->DeviceType == FILE_DEVICE_NAMED_PIPE);
+    BOOLEAN isNamedPipe = (FltObjects->Volume != NULL && Data->Iopb->TargetFileObject != NULL &&
+                           Data->Iopb->TargetFileObject->DeviceObject != NULL &&
+                           Data->Iopb->TargetFileObject->DeviceObject->DeviceType == FILE_DEVICE_NAMED_PIPE);
 
     // --- NAMED PIPE DETECTION ---
     if (isNamedPipe)
@@ -1593,10 +1450,11 @@ FSProcessPreOperation(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECT
             pipeMsg->PID = FltGetRequestorProcessId(Data);
             BOOLEAN pipeGidFound = FALSE;
             pipeMsg->Gid = driverData->GetProcessGid(pipeMsg->PID, &pipeGidFound);
-            
+
             // Get pipe name
             PFLT_FILE_NAME_INFORMATION nameInfo;
-            if (NT_SUCCESS(FltGetFileNameInformation(Data, FLT_FILE_NAME_OPENED | FLT_FILE_NAME_QUERY_ALWAYS_ALLOW_CACHE_LOOKUP, &nameInfo)))
+            if (NT_SUCCESS(FltGetFileNameInformation(
+                    Data, FLT_FILE_NAME_OPENED | FLT_FILE_NAME_QUERY_ALWAYS_ALLOW_CACHE_LOOKUP, &nameInfo)))
             {
                 USHORT copyLen = (nameInfo->Name.Length < (MAX_FILE_NAME_SIZE - sizeof(WCHAR)))
                                      ? nameInfo->Name.Length
@@ -1610,23 +1468,29 @@ FSProcessPreOperation(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECT
             {
                 pipeMsg->IRP_OP = IRP_NAMED_PIPE_CREATE;
                 // Store path in ObjectName for behavior engine matching
-                RtlCopyMemory(pipeMsg->KernelEventInfo.ObjectName, pipeEntry->Buffer, sizeof(pipeMsg->KernelEventInfo.ObjectName));
+                RtlCopyMemory(pipeMsg->KernelEventInfo.ObjectName, pipeEntry->Buffer,
+                              sizeof(pipeMsg->KernelEventInfo.ObjectName));
             }
             else if (Data->Iopb->MajorFunction == IRP_MJ_WRITE)
             {
                 pipeMsg->IRP_OP = IRP_NAMED_PIPE_WRITE;
-                
+
                 // Capture Payload
                 PVOID writeBuffer = NULL;
-                if (Data->Iopb->Parameters.Write.MdlAddress == NULL) {
+                if (Data->Iopb->Parameters.Write.MdlAddress == NULL)
+                {
                     writeBuffer = Data->Iopb->Parameters.Write.WriteBuffer;
-                } else {
-                    writeBuffer = MmGetSystemAddressForMdlSafe(Data->Iopb->Parameters.Write.MdlAddress, NormalPagePriority | MdlMappingNoExecute);
+                }
+                else
+                {
+                    writeBuffer = MmGetSystemAddressForMdlSafe(Data->Iopb->Parameters.Write.MdlAddress,
+                                                               NormalPagePriority | MdlMappingNoExecute);
                 }
 
                 if (writeBuffer != NULL)
                 {
-                    ULONG captureLen = (Data->Iopb->Parameters.Write.Length < 512) ? Data->Iopb->Parameters.Write.Length : 512;
+                    ULONG captureLen =
+                        (Data->Iopb->Parameters.Write.Length < 512) ? Data->Iopb->Parameters.Write.Length : 512;
                     // Store binary payload in ObjectName buffer (which is 1024 bytes raw)
                     RtlCopyMemory(pipeMsg->KernelEventInfo.ObjectName, writeBuffer, captureLen);
                     pipeMsg->KernelEventInfo.RawArgument1 = captureLen; // Store actual captured length

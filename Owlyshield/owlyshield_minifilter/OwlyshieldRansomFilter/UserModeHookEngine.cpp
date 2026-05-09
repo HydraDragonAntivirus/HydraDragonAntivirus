@@ -472,64 +472,7 @@ static NTSTATUS AppendHookExcludeRulesFromBufferUnlocked(_In_reads_bytes_(BytesR
     return STATUS_SUCCESS;
 }
 
-static NTSTATUS LoadHookExcludeRulesFromFileUnlocked(_In_ PCUNICODE_STRING FilePath)
-{
-    OBJECT_ATTRIBUTES oa;
-    IO_STATUS_BLOCK ioStatus;
-    FILE_STANDARD_INFORMATION fileInfo;
-    HANDLE fileHandle = NULL;
-    NTSTATUS status;
-    PUCHAR buffer = NULL;
-    ULONG bufferSize;
 
-    if (FilePath == NULL || FilePath->Buffer == NULL || FilePath->Length == 0)
-    {
-        return STATUS_INVALID_PARAMETER;
-    }
-
-    InitializeObjectAttributes(&oa, (PUNICODE_STRING)FilePath, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
-    RtlZeroMemory(&ioStatus, sizeof(ioStatus));
-    status = ZwCreateFile(&fileHandle, GENERIC_READ, &oa, &ioStatus, NULL, FILE_ATTRIBUTE_NORMAL, FILE_SHARE_READ,
-                          FILE_OPEN, FILE_SYNCHRONOUS_IO_NONALERT, NULL, 0);
-    if (!NT_SUCCESS(status))
-    {
-        return status;
-    }
-
-    RtlZeroMemory(&fileInfo, sizeof(fileInfo));
-    status = ZwQueryInformationFile(fileHandle, &ioStatus, &fileInfo, sizeof(fileInfo), FileStandardInformation);
-    if (!NT_SUCCESS(status))
-    {
-        ZwClose(fileHandle);
-        return status;
-    }
-
-    if (fileInfo.EndOfFile.QuadPart <= 0 || fileInfo.EndOfFile.QuadPart > HOOK_RULE_MAX_FILE_SIZE)
-    {
-        ZwClose(fileHandle);
-        return STATUS_INVALID_BUFFER_SIZE;
-    }
-
-    bufferSize = (ULONG)fileInfo.EndOfFile.QuadPart;
-    buffer = (PUCHAR)ExAllocatePool2(POOL_FLAG_NON_PAGED, bufferSize, HOOK_RULE_POOL_TAG);
-    if (buffer == NULL)
-    {
-        ZwClose(fileHandle);
-        return STATUS_INSUFFICIENT_RESOURCES;
-    }
-    RtlZeroMemory(buffer, bufferSize);
-
-    RtlZeroMemory(&ioStatus, sizeof(ioStatus));
-    status = ZwReadFile(fileHandle, NULL, NULL, NULL, &ioStatus, buffer, bufferSize, NULL, NULL);
-    if (NT_SUCCESS(status))
-    {
-        (VOID) AppendHookExcludeRulesFromBufferUnlocked(buffer, (ULONG)ioStatus.Information);
-    }
-
-    ExFreePoolWithTag(buffer, HOOK_RULE_POOL_TAG);
-    ZwClose(fileHandle);
-    return status;
-}
 
 static VOID EnsureHookExcludeRulesLoaded(VOID)
 {
