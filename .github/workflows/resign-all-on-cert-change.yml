@@ -5,6 +5,7 @@ on:
     branches: ["**"]
     paths:
       - 'Sanctum/driver/sanctum.pfx'
+      - '.github/workflows/resign-all-on-cert-change.yml'
   workflow_dispatch:
 
 permissions:
