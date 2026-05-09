@@ -449,7 +449,6 @@ jobs:
             Sanctum/target/release/elam_installer.exe
             Sanctum/target/release/um_engine.exe
             Sanctum/target/release/malware.exe
-            Sanctum/target/release/server.exe
             Sanctum/target/release/app.exe
             Sanctum/target/release/sanctum.dll
             Sanctum/Cargo.lock
@@ -650,7 +649,6 @@ jobs:
           # Root Modules
           Get-ChildItem "bin-sanctum/" -Filter "elam_installer.exe" -Recurse | Select-Object -First 1 | Copy-Item -Destination "$distRoot/Sanctum/" -Force
           Get-ChildItem "bin-sanctum/" -Filter "um_engine.exe" -Recurse | Select-Object -First 1 | Copy-Item -Destination "$distRoot/Sanctum/" -Force
-          Get-ChildItem "bin-sanctum/" -Filter "server.exe" -Recurse | Select-Object -First 1 | Copy-Item -Destination "$distRoot/Sanctum/" -Force
           Get-ChildItem "bin-sanctum/" -Filter "app.exe" -Recurse | Select-Object -First 1 | Copy-Item -Destination "$distRoot/Sanctum/" -Force
           
           # Source Tree Sync (Full Workspace)
