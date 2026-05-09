@@ -4,39 +4,23 @@ $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $EdrRoot = Resolve-Path (Join-Path $ScriptDir "..\..")
 $OutDir = Join-Path $EdrRoot "out"
 
-# 1) Setup Certificate
-$CertSubject = "CN=HydraDragonAntivirus Cert"
-$CertStore = "Cert:\CurrentUser\My"
+# 1) Locate or Create Certificate
 $PfxPath = Join-Path $ScriptDir "hydradragon.pfx"
 $CertPassword = "password"
 
-$Cert = Get-ChildItem -Path $CertStore | Where-Object { $_.Subject -like "*HydraDragonAntivirus*" } | Select-Object -First 1
-
-if (-not $Cert) {
-    Write-Host "[i] Creating a new self-signed certificate: $CertSubject..."
-    $Cert = New-SelfSignedCertificate -Subject $CertSubject `
-        -CertStoreLocation $CertStore `
+if (-not (Test-Path $PfxPath)) {
+    Write-Host "[i] PFX not found. Creating self-signed certificate..."
+    $Cert = New-SelfSignedCertificate -Subject "CN=HydraDragonAntivirus Cert" `
+        -CertStoreLocation "Cert:\CurrentUser\My" `
         -HashAlgorithm SHA256 `
         -TextExtension @("2.5.29.37={text}1.3.6.1.4.1.311.61.4.1,1.3.6.1.5.5.7.3.3")
     
     $PasswordSecure = ConvertTo-SecureString -String $CertPassword -Force -AsPlainText
-    Export-PfxCertificate -Cert $Cert -FilePath $PfxPath -Password $PasswordSecure
-    Write-Host "[+] Certificate created: $($Cert.Thumbprint)"
+    Export-PfxCertificate -Cert $Cert -FilePath $PfxPath -Password $PasswordSecure | Out-Null
+    Write-Host "[+] Certificate created and exported: $PfxPath"
 } else {
-    Write-Host "[+] Found existing certificate: $($Cert.Thumbprint)"
-    if (-not (Test-Path $PfxPath)) {
-        $PasswordSecure = ConvertTo-SecureString -String $CertPassword -Force -AsPlainText
-        Export-PfxCertificate -Cert $Cert -FilePath $PfxPath -Password $PasswordSecure | Out-Null
-    }
+    Write-Host "[+] Using existing PFX: $PfxPath"
 }
-
-# Trust the cert
-$certData = $Cert.Export([System.Security.Cryptography.X509Certificates.X509ContentType]::Cert)
-$tempCertFile = [System.IO.Path]::GetTempFileName() + ".cer"
-[System.IO.File]::WriteAllBytes($tempCertFile, $certData)
-certutil -addstore -f Root $tempCertFile | Out-Null
-certutil -addstore -f TrustedPublisher $tempCertFile | Out-Null
-Remove-Item $tempCertFile
 
 # 2) Locate Tools
 $Arch = "x64"
@@ -65,7 +49,6 @@ Write-Host "[*] Using SignTool: $SignTool"
 if ($Inf2Cat) { Write-Host "[*] Using Inf2Cat: $Inf2Cat" }
 
 # 3) Process All Files in Out Directory
-$OutDir = Join-Path $EdrRoot "out"
 if (-not (Test-Path $OutDir)) {
     Write-Host "[!] Out directory not found at $OutDir"
     exit 0
@@ -84,8 +67,7 @@ foreach ($Inf in $Infs) {
         if (-not (Test-Path $CatPath)) {
             if ($Inf2Cat) {
                 Write-Host "[*] Generating catalog for $($Inf.Name)..."
-                # Inf2Cat needs the directory containing the driver package
-                    & $Inf2Cat /driver:"$($Inf.DirectoryName)" /os:10_X64,Server10_X64 /verbose
+                & $Inf2Cat /driver:"$($Inf.DirectoryName)" /os:10_X64,Server10_X64 /verbose
             } else {
                 Write-Host "[!] Missing $CatFileName but inf2cat.exe not found."
             }
@@ -93,11 +75,11 @@ foreach ($Inf in $Infs) {
     }
 }
 
-# B) Sign all .sys and .cat files
+# B) Sign all .sys and .cat files using PFX
 $FilesToSign = Get-ChildItem -Path $OutDir -Include "*.sys", "*.cat" -Recurse
 foreach ($File in $FilesToSign) {
     Write-Host "[*] Signing $($File.FullName)..."
-    & $SignTool sign /v /fd SHA256 /sha1 $($Cert.Thumbprint) /t "http://timestamp.digicert.com" $File.FullName
+    & $SignTool sign /v /fd SHA256 /f $PfxPath /p $CertPassword /t "http://timestamp.digicert.com" $File.FullName
     if ($LASTEXITCODE -ne 0) {
         Write-Host "[!] Failed to sign $($File.Name)"
     }
