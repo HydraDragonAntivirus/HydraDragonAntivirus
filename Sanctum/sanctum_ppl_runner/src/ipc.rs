@@ -1,11 +1,10 @@
 //! Inter-process communication module for the PPL Service to talk to the engine.
 
-use std::{fs::OpenOptions, io::Write, thread::sleep, time::Duration};
+use std::{fs::OpenOptions, io::Write};
 
 use serde_json::to_vec;
 use shared_no_std::ghost_hunting::Syscall;
 use shared_std::constants::PIPE_FOR_ETW;
-use windows::Win32::Foundation::ERROR_PIPE_BUSY;
 
 pub fn send_etw_info_ipc(data: Syscall) {
     // send information to the engine via IPC; do not use Tokio as we don't want the async runtime in our processes..
