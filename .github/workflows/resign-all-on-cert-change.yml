@@ -98,31 +98,31 @@ jobs:
           
           Write-Host "`n=== All available binaries re-signed with new certificate ==="
           
-      - name: Force Add Re-signed Binaries
+      - name: Prepare Re-signed Binaries for PR
         shell: pwsh
         run: |
-          Write-Host "=== Force adding re-signed binaries to git ==="
+          Write-Host "=== Preparing re-signed binaries for PR ==="
           
-          # Force add the re-signed files (signature changed but size didn't)
+          # Touch files to ensure git detects changes (signatures changed but size might not have)
           if (Test-Path "hydradragon\Sanctum\AppData\sanctum_ppl_runner.exe") {
-            git add -f "hydradragon/Sanctum/AppData/sanctum_ppl_runner.exe"
-            Write-Host "Added: hydradragon/Sanctum/AppData/sanctum_ppl_runner.exe"
+            (Get-Item "hydradragon\Sanctum\AppData\sanctum_ppl_runner.exe").LastWriteTime = Get-Date
+            Write-Host "Touched: hydradragon/Sanctum/AppData/sanctum_ppl_runner.exe"
           }
           
           if (Test-Path "hydradragon\HydraDragonFirewall\hydradragonfirewall.exe") {
-            git add -f "hydradragon/HydraDragonFirewall/hydradragonfirewall.exe"
-            git add -f "hydradragon/HydraDragonFirewall/hydradragonfirewall.dll"
-            git add -f "hydradragon/HydraDragonFirewall/WinDivert.dll"
-            Write-Host "Added: hydradragon/HydraDragonFirewall/*.exe, *.dll"
+            (Get-Item "hydradragon\HydraDragonFirewall\hydradragonfirewall.exe").LastWriteTime = Get-Date
+            (Get-Item "hydradragon\HydraDragonFirewall\hydradragonfirewall.dll").LastWriteTime = Get-Date
+            (Get-Item "hydradragon\HydraDragonFirewall\WinDivert.dll").LastWriteTime = Get-Date
+            Write-Host "Touched: hydradragon/HydraDragonFirewall/*.exe, *.dll"
           }
           
           if (Test-Path "hydradragon\Owlyshield\Owlyshield Service\owlyshield_ransom.exe") {
-            git add -f "hydradragon/Owlyshield/Owlyshield Service/owlyshield_ransom.exe"
-            git add -f "hydradragon/Owlyshield/Owlyshield Service/tensorflowlite_c.dll"
-            Write-Host "Added: hydradragon/Owlyshield/Owlyshield Service/*.exe, *.dll"
+            (Get-Item "hydradragon\Owlyshield\Owlyshield Service\owlyshield_ransom.exe").LastWriteTime = Get-Date
+            (Get-Item "hydradragon\Owlyshield\Owlyshield Service\tensorflowlite_c.dll").LastWriteTime = Get-Date
+            Write-Host "Touched: hydradragon/Owlyshield/Owlyshield Service/*.exe, *.dll"
           }
           
-          Write-Host "`n=== Re-signed binaries staged for commit ==="
+          Write-Host "`n=== Re-signed binaries prepared for PR ==="
       
       - name: Get Certificate Hash
         id: cert_hash
