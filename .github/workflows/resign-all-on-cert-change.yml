@@ -129,13 +129,18 @@ jobs:
         id: cert_hash
         shell: pwsh
         run: |
+          $ErrorActionPreference = "Continue"
           $certInfo = & signtool verify /pa /v "hydradragon\Sanctum\AppData\sanctum_ppl_runner.exe" 2>&1
           $hashLine = $certInfo | Select-String "SHA1 hash:"
           if ($hashLine) {
             $hash = ($hashLine -split "SHA1 hash:")[1].Trim()
             echo "hash=$hash" >> $env:GITHUB_OUTPUT
             Write-Host "Certificate SHA1: $hash"
+          } else {
+            echo "hash=Unknown" >> $env:GITHUB_OUTPUT
+            Write-Host "Could not extract certificate hash"
           }
+          exit 0
           
       - name: Create PR
         if: steps.check_trigger.outputs.skip != 'true'
