@@ -22,8 +22,6 @@ from hydradragon.antivirus_scripts.path_and_variables import hayabusa_path
 # --- Import necessary functions from antivirus script ---
 from hydradragon.antivirus_scripts.antivirus import start_real_time_protection_async
 
-from hydradragon.antivirus_scripts.rule_sync import sync_dynamic_protection_rules
-
 # ==============================================================================
 # Thread Pool Setup
 # ==============================================================================
@@ -186,12 +184,6 @@ def main():
     logger.info("[INIT] HydraDragon EDR initializing...")
     logger.info(f"[INIT] Python: {sys.version}")
     logger.info(f"[INIT] CWD: {os.getcwd()}")
-
-    # Synchronize dynamic protection rules (installed Sanctum path, System32 drivers, etc.) on start
-    try:
-        sync_dynamic_protection_rules()
-    except Exception as e:
-        logger.error(f"[INIT] Failed to synchronize dynamic protection rules: {e}")
 
     try:
         asyncio.run(main_async())
