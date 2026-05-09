@@ -5,6 +5,7 @@ on:
     branches: ["**"]
     paths:
       - "Owlyshield/owlyshield_predict/**"
+      - "!Owlyshield/owlyshield_predict/**/*.dll"
       - "Owlyshield/owlyshield_predict/**/Cargo.toml"
       - "Owlyshield/owlyshield_predict/**/Cargo.lock"
       - ".github/workflows/publish-owlyshield-predict.yml"
@@ -49,8 +50,12 @@ jobs:
           New-Item -ItemType Directory -Force -Path $modelsDir | Out-Null
 
           Copy-Item "Owlyshield/owlyshield_predict/target/release/owlyshield_ransom.exe" $serviceDir -Force
-          Copy-Item "Owlyshield/owlyshield_predict/moonfire-tflite/lib/tensorflowlite_c.dll" $serviceDir -Force
           Copy-Item "Owlyshield/owlyshield_predict/models/*" $modelsDir -Force
+          
+          Write-Host "Signing..."
+          Push-Location Sanctum
+          .\sign_owlyshield_predict.bat
+          Pop-Location
 
       - name: Check for publishable changes
         id: check_changes

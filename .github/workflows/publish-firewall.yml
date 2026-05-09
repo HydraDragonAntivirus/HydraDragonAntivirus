@@ -44,6 +44,12 @@ jobs:
           New-Item -ItemType Directory -Force -Path $dist
           Copy-Item "HydraDragonFirewall/hydradragonfirewall/target/release/hydradragonfirewall.exe" "$dist/" -Force
           Copy-Item "HydraDragonFirewall/hydradragonfirewall/target/release/hydradragonfirewall.dll" "$dist/" -Force
+          Copy-Item "HydraDragonFirewall/hydradragonfirewall/target/release/WinDivert.dll" "$dist/" -ErrorAction SilentlyContinue -Force
+          
+          Write-Host "Signing..."
+          Push-Location Sanctum
+          .\sign_firewall.bat
+          Pop-Location
           
       - name: Check for publishable changes
         id: check_changes

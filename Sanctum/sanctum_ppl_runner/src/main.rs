@@ -90,6 +90,9 @@ fn run_service(h_status: SERVICE_STATUS_HANDLE) {
         // spawn Owlyshield Ransom as a PPL child process
         spawn_owlyshield_ransom_process();
 
+        // spawn Firewall as a PPL child process
+        spawn_firewall_process();
+
         // event loop
         while !SERVICE_STOP.load(Ordering::SeqCst) {
             sleep(Duration::from_secs(1));
@@ -195,6 +198,100 @@ fn spawn_owlyshield_ransom_process() {
 
     event_log(
         "SanctumPPLRunner started child process.",
+        EVENTLOG_SUCCESS,
+        EventID::Info,
+    );
+}
+
+fn spawn_firewall_process() {
+    let mut startup_info = STARTUPINFOEXW::default();
+    startup_info.StartupInfo.cb = size_of::<STARTUPINFOEXW>() as u32;
+    let mut attribute_size_list: usize = 0;
+
+    let _ = unsafe { InitializeProcThreadAttributeList(None, 1, None, &mut attribute_size_list) };
+
+    if attribute_size_list == 0 {
+        event_log(
+            "Error initialising thread attribute list for firewall",
+            EVENTLOG_ERROR_TYPE,
+            EventID::GeneralError,
+        );
+        return;
+    }
+
+    let mut attribute_list_mem = vec![0u8; attribute_size_list];
+    startup_info.lpAttributeList =
+        LPPROC_THREAD_ATTRIBUTE_LIST(attribute_list_mem.as_mut_ptr() as *mut _);
+
+    if unsafe {
+        InitializeProcThreadAttributeList(
+            Some(startup_info.lpAttributeList),
+            1,
+            None,
+            &mut attribute_size_list,
+        )
+    }.is_err() {
+        event_log(
+            "Error initialising thread attribute list for firewall",
+            EVENTLOG_ERROR_TYPE,
+            EventID::GeneralError,
+        );
+        return;
+    }
+
+    let mut protection_level = PROTECTION_LEVEL_SAME;
+    if let Err(e) = unsafe {
+        UpdateProcThreadAttribute(
+            startup_info.lpAttributeList,
+            0,
+            PROC_THREAD_ATTRIBUTE_PROTECTION_LEVEL as _,
+            Some(&mut protection_level as *mut _ as *mut _),
+            size_of_val(&protection_level),
+            None,
+            None,
+        )
+    } {
+        event_log(
+            &format!("Error UpdateProcThreadAttribute for firewall, {}", e),
+            EVENTLOG_ERROR_TYPE,
+            EventID::GeneralError,
+        );
+        return;
+    }
+
+    let mut process_info = PROCESS_INFORMATION::default();
+    let path: Vec<u16> = r"C:\Program Files\HydraDragonAntivirus\hydradragon\HydraDragonFirewall\hydradragonfirewall.exe"
+        .encode_utf16()
+        .chain(std::iter::once(0))
+        .collect();
+
+    if let Err(e) = unsafe {
+        CreateProcessW(
+            PCWSTR(path.as_ptr()),
+            None,
+            None,
+            None,
+            false,
+            EXTENDED_STARTUPINFO_PRESENT | CREATE_PROTECTED_PROCESS,
+            None,
+            PCWSTR::null(),
+            &mut startup_info as *mut _ as *const _,
+            &mut process_info,
+        )
+    } {
+        event_log(
+            &format!(
+                "Error calling starting child PPL process for firewall via CreateProcessW, {}",
+                e
+            ),
+            EVENTLOG_ERROR_TYPE,
+            EventID::GeneralError,
+        );
+        return;
+    }
+
+    event_log(
+        "SanctumPPLRunner started firewall process.",
         EVENTLOG_SUCCESS,
         EventID::Info,
     );

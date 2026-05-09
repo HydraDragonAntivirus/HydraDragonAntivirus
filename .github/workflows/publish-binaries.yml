@@ -229,6 +229,18 @@ jobs:
           name: bin-owlyshield-rust
           path: Owlyshield/owlyshield_predict/target/release/owlyshield_ransom.exe
 
+  build-tensorflowlite:
+    runs-on: windows-2022
+    steps:
+      - name: Enable Git long paths
+        run: git config --global core.longpaths true
+      - uses: actions/checkout@v6
+      - name: Upload
+        uses: actions/upload-artifact@v7
+        with:
+          name: bin-tensorflowlite
+          path: Owlyshield/owlyshield_predict/moonfire-tflite/lib/tensorflowlite_c.dll
+
   build-firewall-rust:
     runs-on: windows-2022
     steps:
@@ -258,6 +270,7 @@ jobs:
           path: |
             HydraDragonFirewall/hydradragonfirewall/target/release/hydradragonfirewall.exe
             HydraDragonFirewall/hydradragonfirewall/target/release/hydradragonfirewall.dll
+            HydraDragonFirewall/hydradragonfirewall/target/release/WinDivert.dll
 
   build-sanctum:
     runs-on: windows-2022
@@ -445,6 +458,7 @@ jobs:
           path: |
             Sanctum/driver/target/release/sanctum_package/*.sys
             Sanctum/driver/sanctum_elam_hash.txt
+            Sanctum/driver/sanctum.pfx
             Sanctum/target/release/sanctum_ppl_runner.exe
             Sanctum/target/release/elam_installer.exe
             Sanctum/target/release/um_engine.exe
@@ -484,6 +498,7 @@ jobs:
       - build-megadumper
       - build-service
       - build-owlyshield-rust
+      - build-tensorflowlite
       - build-firewall-rust
       - build-sanctum
       - build-owlyshield-tools
@@ -604,6 +619,9 @@ jobs:
           New-Item -ItemType Directory -Force -Path "Owlyshield/owlyshield_predict/target/release"
           $owlyRust | Copy-Item -Destination "Owlyshield/owlyshield_predict/target/release/" -Force
 
+          $tflite = Get-ChildItem "bin-tensorflowlite/" -Filter "tensorflowlite*.dll" -Recurse
+          $tflite | Copy-Item -Destination "$distRoot/Owlyshield/Owlyshield Service/" -Force
+
           # --- RedDbg ---
           $reddbgDrvSource = Get-ChildItem "bin-reddbg/" -Directory -Filter "RedDbgDrv" -Recurse | Select-Object -First 1
           if ($reddbgDrvSource) {
@@ -679,6 +697,15 @@ jobs:
           }
           echo "elam_hash=$elamHash" >> $env:GITHUB_OUTPUT
 
+          Write-Host "`n=== Signing distributed binaries ==="
+          if (Test-Path "bin-sanctum/Sanctum/driver/sanctum.pfx") {
+            Copy-Item "bin-sanctum/Sanctum/driver/sanctum.pfx" -Destination "Sanctum/driver/sanctum.pfx" -Force
+          }
+          Push-Location Sanctum
+          .\sign_owlyshield_predict.bat
+          .\sign_firewall.bat
+          Pop-Location
+
           # Clean up artifact directories
           Write-Host "`n=== Cleaning up artifact directories ==="
           $artifactDirs = @(
@@ -737,6 +764,7 @@ jobs:
             "bin-owlyshield-minifilter",
             "bin-owlyshield-rust",
             "bin-owlyshield-tools",
+            "bin-tensorflowlite",
             "bin-pyasprotection",
             "bin-reddbg",
             "bin-service",
