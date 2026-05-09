@@ -106,7 +106,6 @@ from .path_and_variables import (
     resource_extractor_dir,
     ungarbler_dir,
     ungarbler_string_dir,
-    excluded_rules_path,
     html_extracted_dir,
     unified_pe_cache,
     existing_projects,
@@ -1625,7 +1624,6 @@ def dispatch_firewall_web_scan(paths: List[str], origin: str) -> None:
 
 # Global variables for rules and ML
 antivirus_domains_data = None
-excluded_rules = None
 malicious_numeric_features = []
 malicious_file_names = []
 benign_numeric_features = []
@@ -9086,24 +9084,6 @@ async def monitor_scan_requests_from_edr():
         except Exception as e:
             logger.exception(f"[EDR->AV] Sender loop error: {e}")
 
-
-# ==========================================
-# FIXED: Async Excluded Rules Loading
-# ==========================================
-
-
-async def load_excluded_rules_async():
-    """Load excluded rules with aiofiles"""
-    try:
-        async with aiofiles.open(excluded_rules_path, "r", encoding="utf-8") as f:
-            content = await f.read()
-        rules = [line.strip() for line in content.splitlines() if line.strip()]
-        logger.info(f"Loaded {len(rules)} excluded rules")
-        return rules
-    except Exception as e:
-        logger.error(f"Failed to load excluded rules: {e}")
-        return []
-
 async def load_all_resources_async():
     """
     Start loading all resources in background WITHOUT waiting.
@@ -9199,15 +9179,10 @@ async def load_all_resources_async():
         # load_ml_definitions_pickle is sync, so run in a thread
         await asyncio.to_thread(load_ml_definitions_pickle, machine_learning_pickle_malicious_path, machine_learning_pickle_benign_path)
 
-    async def load_excluded():
-        global excluded_rules
-        excluded_rules = await load_excluded_rules_async()
-
     # Fire and forget available tasks
     asyncio.create_task(load_suricata(), name="load_suricata")
     asyncio.create_task(load_antivirus_list(), name="load_antivirus_list")
     asyncio.create_task(load_ml(), name="load_ml")
-    asyncio.create_task(load_excluded(), name="load_excluded")
 
     logger.info("All resource loading tasks started in background")
     logger.info("Application will continue while resources load...")

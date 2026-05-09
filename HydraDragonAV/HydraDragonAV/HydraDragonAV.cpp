@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cwctype>
+#include <unordered_set>
 
 // YARA Headers
 #include <yara.h>
@@ -34,6 +35,24 @@ static YR_RULES* g_yaraRules = nullptr;
 constexpr auto CLAMAV_UPDATE_INTERVAL = std::chrono::hours(2);
 constexpr auto CLAMAV_DEFINITION_MAX_AGE = std::chrono::hours(12);
 constexpr DWORD FRESHCLAM_TIMEOUT_MS = 1500u * 1000u;
+
+static std::unordered_set<std::string> g_excludedRules;
+
+void LoadExcludedRules() {
+    std::string path = "C:\\Program Files\\HydraDragonAntivirus\\hydradragon\\excluded_yara_rules\\excluded_rules.txt";
+    std::ifstream file(path);
+    if (!file.is_open()) {
+        std::cerr << "[YARA] Excluded rules file not found at " << path << std::endl;
+        return;
+    }
+    std::string line;
+    while (std::getline(file, line)) {
+        if (!line.empty()) {
+            g_excludedRules.insert(line);
+        }
+    }
+    std::cout << "[YARA] Loaded " << g_excludedRules.size() << " excluded rules." << std::endl;
+}
 
 bool IsClamAvDatabaseStale() {
     std::error_code ec;
@@ -179,7 +198,28 @@ int yara_callback(YR_SCAN_CONTEXT* context, int message, void* message_data, voi
     if (message == CALLBACK_MSG_RULE_MATCHING) {
         auto* matches = static_cast<std::vector<std::string>*>(user_data);
         auto* rule = static_cast<YR_RULE*>(message_data);
-        matches->push_back(rule->identifier);
+        std::string rule_name = rule->identifier;
+        
+        // Always check for VMProtect
+        std::string lowerMatch = rule_name;
+        std::transform(lowerMatch.begin(), lowerMatch.end(), lowerMatch.begin(), ::tolower);
+        if (lowerMatch.find("vmprotect") != std::string::npos) {
+            // We use a special marker or just add it to a separate vector.
+            // Wait, we can't easily pass two vectors.
+            // But look at ProcessRequest! It checks the resulting yaraMatches vector.
+            // So if we exclude it here, ProcessRequest won't see it to set is_vmprotect.
+            // We must add it to matches if it's vmprotect, OR pass a special struct.
+            // Alternatively, in HydraDragonAV.cpp we can just not exclude it from yaraMatches here,
+            // but exclude it in ProcessRequest for the final JSON. Let's do it in ProcessRequest.
+        }
+
+        if (g_excludedRules.find(rule_name) == g_excludedRules.end()) {
+            matches->push_back(rule_name);
+        } else if (lowerMatch.find("vmprotect") != std::string::npos) {
+            // It IS excluded, but it's a vmprotect rule. We still need the main logic to see it.
+            // Let's push a special prefix to indicate it's only for vmprotect and should not trigger malicious.
+            matches->push_back("VMPROTECT_ONLY:" + rule_name);
+        }
     }
     return CALLBACK_CONTINUE;
 }
@@ -271,16 +311,24 @@ void ProcessRequest(const std::string& request, std::string& response) {
 
     // YARA Scan
     if (g_yaraRules && fs::exists(wFilePath)) {
-        yr_rules_scan_file(g_yaraRules, cleanPath.c_str(), 0, yara_callback, &yaraMatches, 0);
-        if (!yaraMatches.empty()) {
-            isMalicious = true;
-            for (const auto& match : yaraMatches) {
-                std::string lowerMatch = match;
-                std::transform(lowerMatch.begin(), lowerMatch.end(), lowerMatch.begin(), ::tolower);
-                if (lowerMatch.find("vmprotect") != std::string::npos) {
-                    is_vmprotect = true;
-                }
+        std::vector<std::string> rawMatches;
+        yr_rules_scan_file(g_yaraRules, cleanPath.c_str(), 0, yara_callback, &rawMatches, 0);
+        
+        for (const auto& match : rawMatches) {
+            std::string lowerMatch = match;
+            std::transform(lowerMatch.begin(), lowerMatch.end(), lowerMatch.begin(), ::tolower);
+            
+            if (lowerMatch.find("vmprotect") != std::string::npos) {
+                is_vmprotect = true;
             }
+            
+            if (match.find("VMPROTECT_ONLY:") == 0) {
+                // This rule was excluded from detection, but flagged for VMProtect. Skip adding to JSON.
+                continue;
+            }
+            
+            isMalicious = true;
+            yaraMatches.push_back(match);
         }
     }
 
@@ -314,6 +362,7 @@ int main() {
     if (!LoadYaraRules()) {
         std::cerr << "[YARA] Warning: Failed to load YARA rules or folder empty." << std::endl;
     }
+    LoadExcludedRules();
 
     // Initialize ClamAV
     std::cout << "[ClamAV] Initializing Scanner..." << std::endl;
