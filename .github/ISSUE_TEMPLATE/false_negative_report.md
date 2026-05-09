@@ -9,6 +9,14 @@ assignees: ''
 **Note: False Negative Reports**
 Please use this template ONLY for reporting malware, ransomware, or malicious activity that HydraDragonAntivirus failed to detect or block.
 
+**⚠️ IMPORTANT: Check Logs First ⚠️**
+Before reporting a false negative, **please verify if the file was actually bypassed** by HydraDragonAntivirus. 
+Check the logs in the following locations to confirm whether it was quietly blocked or logged:
+- `C:\ProgramData\HydraDragonAntivirus\`
+- `C:\Program Files\HydraDragonAntivirus\`
+- Windows Event Viewer
+- HydraDragon Notifications folder
+
 **Malware Information**
 - Malware Family / Type (if known): 
 - SHA256 Hash: 

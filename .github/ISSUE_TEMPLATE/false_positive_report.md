@@ -9,6 +9,14 @@ assignees: ''
 **Note: False Positive Reports**
 Please use this template ONLY for reporting clean files that were flagged, blocked, or quarantined by HydraDragonAntivirus.
 
+**⚠️ IMPORTANT: Check Logs First ⚠️**
+Before reporting a false positive, **please verify if the file was actually flagged** by HydraDragonAntivirus. 
+Check the logs in the following locations to confirm:
+- `C:\ProgramData\HydraDragonAntivirus\`
+- `C:\Program Files\HydraDragonAntivirus\`
+- Windows Event Viewer
+- HydraDragon Notifications folder
+
 **File Information**
 - Filename: 
 - SHA256 Hash: 
