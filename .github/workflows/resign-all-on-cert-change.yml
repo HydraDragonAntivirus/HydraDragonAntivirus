@@ -6,6 +6,10 @@ on:
     paths:
       - 'Sanctum/driver/sanctum.pfx'
       - '.github/workflows/resign-all-on-cert-change.yml'
+      - 'Sanctum/sign_ppl_runner.bat'
+      - 'Sanctum/sign_firewall.bat'
+      - 'Sanctum/sign_owlyshield_predict.bat'
+      - 'Sanctum/sign_etw_consumer.bat'
   workflow_dispatch:
 
 permissions:
