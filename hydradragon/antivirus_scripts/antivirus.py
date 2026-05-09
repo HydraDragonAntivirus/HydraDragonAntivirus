@@ -131,7 +131,6 @@ from .path_and_variables import (
     suricata_exe_path,
     seven_zip_path,
     antivirus_list_path,
-    yaraxtr_yrc_path,
 )
 
 from .utils_and_helpers import validate_pipe_peer
@@ -247,11 +246,6 @@ start_time = time.time()
 import tarfile
 
 logger.debug(f"tarfile module loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
-import yara_x
-
-logger.debug(f"yara_x module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import psutil
@@ -1631,57 +1625,11 @@ def dispatch_firewall_web_scan(paths: List[str], origin: str) -> None:
 
 # Global variables for rules and ML
 antivirus_domains_data = None
-yaraxtr_rules = None
 excluded_rules = None
 malicious_numeric_features = []
 malicious_file_names = []
 benign_numeric_features = []
 benign_file_names = []
-
-
-def scan_yara(file_path):
-    """
-    Simplified YARA scan using ONLY yara-x (Rust-based).
-    Returns: (matched_rules, matched_results, is_vmprotect)
-    """
-    if excluded_rules is None:
-        logger.error(f"excluded_rules missing for {file_path}")
-        return None, None, None
-
-    results = {"matched_rules": [], "matched_results": [], "is_vmprotect": False}
-
-    try:
-        if not os.path.exists(file_path):
-            return None, None, None
-
-        with open(file_path, "rb") as f:
-            data_content = f.read()
-
-        if yaraxtr_rules:
-            # yara-x scanning (thread-safe creation per scan)
-            scanner = yara_x.Scanner(rules=yaraxtr_rules)
-            scan_results = scanner.scan(data_content)
-
-            for rule in getattr(scan_results, "matching_rules", []) or []:
-                if rule.identifier not in excluded_rules:
-                    results["matched_rules"].append(rule.identifier)
-                    # Simple extraction
-                    details = {"rule_name": rule.identifier, "rule_source": "yaraxtr_rules", "tags": list(rule.tags) if hasattr(rule, "tags") else [], "meta": dict(rule.metadata) if hasattr(rule, "metadata") else {}}
-                    results["matched_results"].append(details)
-                    if rule.identifier == "INDICATOR_EXE_Packed_VMProtect":
-                        results["is_vmprotect"] = True
-
-            del scanner
-            import gc
-
-            gc.collect()
-
-        return (results["matched_rules"] if results["matched_rules"] else None, results["matched_results"] if results["matched_results"] else None, results["is_vmprotect"])
-
-    except Exception as ex:
-        logger.error(f"YARA-X scan error for {file_path}: {ex}")
-        return None, None, None
-
 
 # ============================================================================#
 # C++ ENGINE (HydraDragonAV) PIPE CLIENT
@@ -3300,37 +3248,6 @@ def load_ml_definitions_pickle(malicious_path: str, benign_path: str) -> bool:
     except Exception as e:
         logger.exception(f"Failed to load ML definitions: {e}")
         return False
-
-
-# Removed: scan_file_with_clamav (Merged into HydraDragonAV C++ engine)
-
-
-def scan_file_real_time_yara(file_path: str, signature_check: dict) -> Tuple[bool, str, str, bool]:
-    """
-    Scan file with YARA only (blocking, no threads).
-
-    Returns: (malware_found: bool, virus_name: str, engine: str, is_vmprotect: bool)
-    """
-    logger.info(f"Started YARA scanning file: {file_path}")
-
-    sig_valid = bool(signature_check and signature_check.get("is_valid", False))
-
-    try:
-        yara_match, yara_result, is_vmprotect = scan_yara(file_path)
-
-        if yara_match and yara_match not in ("Clean", ""):
-            if sig_valid:
-                yara_match = f"{yara_match}.SIG"
-            logger.critical(f"Infected file detected (YARA): {file_path} - Virus: {yara_match} - Result: {yara_result}")
-            return True, yara_match, "YARA", is_vmprotect
-        else:
-            logger.info(f"Scanned file with YARA: {file_path} - No viruses detected")
-            return False, "Clean", "", is_vmprotect
-
-    except Exception as ex:
-        logger.error(f"An error occurred while scanning file with YARA: {file_path}. Error: {ex}")
-        return False, "Error", "", False
-
 
 def scan_file_real_time(file_path: str, signature_check: dict, file_name: str, die_output, pe_file: bool = False) -> Tuple[bool, str, str, Optional[bool]]:
     """
@@ -9242,12 +9159,6 @@ async def load_excluded_rules_async():
         logger.error(f"Failed to load excluded rules: {e}")
         return []
 
-
-# ==========================================
-# FIXED: Safe YARA-X Loader
-# ==========================================
-
-
 async def load_all_resources_async():
     """
     Start loading all resources in background WITHOUT waiting.
@@ -9339,19 +9250,6 @@ async def load_all_resources_async():
         except Exception as ex:
             logger.exception(f"Error loading Antivirus List: {ex}")
 
-    async def load_yaraxtr():
-        global yaraxtr_rules
-        try:
-
-            def _load_yara_x():
-                with open(yaraxtr_yrc_path, "rb") as f:
-                    return yara_x.Rules.deserialize_from(f)
-
-            yaraxtr_rules = await asyncio.to_thread(_load_yara_x)
-            logger.info("YARA-X Rules loaded successfully!")
-        except Exception as e:
-            logger.error(f"Failed to load YARA-X Rules: {e}")
-
     async def load_ml():
         # load_ml_definitions_pickle is sync, so run in a thread
         await asyncio.to_thread(load_ml_definitions_pickle, machine_learning_pickle_malicious_path, machine_learning_pickle_benign_path)
@@ -9363,7 +9261,6 @@ async def load_all_resources_async():
     # Fire and forget available tasks
     asyncio.create_task(load_suricata(), name="load_suricata")
     asyncio.create_task(load_antivirus_list(), name="load_antivirus_list")
-    asyncio.create_task(load_yaraxtr(), name="load_yaraxtr")
     asyncio.create_task(load_ml(), name="load_ml")
     asyncio.create_task(load_excluded(), name="load_excluded")
 

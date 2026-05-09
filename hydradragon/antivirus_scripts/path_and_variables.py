@@ -193,7 +193,7 @@ ungarbler_dir = os.path.join(data_dir, "ungarbler")
 ungarbler_string_dir = os.path.join(data_dir, "ungarbler_string")
 html_extracted_dir = os.path.join(data_dir, "html_extracted")
 
-# YARA rules and website data (keep in script_dir as they're read-only reference data)
+# website data (keep in script_dir as they're read-only reference data)
 website_rules_dir = os.path.join(script_dir, "website")
 urlhaus_path = os.path.join(website_rules_dir, "urlhaus.txt")
 antivirus_list_path = os.path.join(script_dir, "hosts", "antivirus_list.txt")
