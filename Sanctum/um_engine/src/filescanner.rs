@@ -65,9 +65,8 @@ impl FileScanner {
         // ingest latest IOC hash list
         //
         let mut bts: BTreeSet<String> = BTreeSet::new();
-        let mut ioc_location: String = std::env::var("APPDATA")
-            .expect("[-] Could not find App Data folder in environment variables.]");
-        ioc_location.push_str(format!("\\{}", IOC_LIST_LOCATION).as_str());
+        let ioc_dir = format!("{}\\{}\\{}", shared_no_std::constants::HYDRADRAGON_DIR, "Sanctum", "AppData");
+        let ioc_location = format!("{}\\{}", ioc_dir, "ioc_list.txt");
 
         let file = match File::open(&ioc_location) {
             Ok(f) => f,
@@ -77,9 +76,14 @@ impl FileScanner {
                     format!("[-] IOC list not found, downloading to {}.", ioc_location).as_str(),
                 );
                 if e.kind() == io::ErrorKind::NotFound {
+                    // Ensure directory exists
+                    if let Err(err) = fs::create_dir_all(&ioc_dir) {
+                        panic!("[-] Could not create directory for IOCs: {}. Error: {}", ioc_dir, err);
+                    }
+
                     let file_data = reqwest::get(IOC_URL).await.unwrap().text().await.unwrap();
-                    let mut f = File::create_new(&ioc_location).unwrap_or_else(|_| panic!(
-                        "[-] Could not create new file for IOCs. Loc: {}",
+                    let mut f = File::create(&ioc_location).unwrap_or_else(|_| panic!(
+                        "[-] Could not create file for IOCs. Loc: {}",
                         ioc_location
                     ));
                     f.write_all(file_data.as_bytes())

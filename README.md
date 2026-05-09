@@ -398,12 +398,17 @@ For complete removal of kernel drivers and system services, please follow the **
 
 - Don't use suspicious VM names on your machine. (John Doe, etc.)
 
-**Tip 2:**
-
+### Tip 2:
 - Use VSCode, VSCodium, or another editor to see live changes to .log files.
 
-**Tip 3:**
+### Tip 3:
+- **Where to find logs**:
+  - **Core Engines (AV/Python)**: Look in `%ProgramFiles%\HydraDragonAntivirus\hydradragon\antivirus_scripts\log\`
+  - **Sanctum Engine**: Look in `%ProgramFiles%\HydraDragonAntivirus\hydradragon\Sanctum\logs\sanctum.log`
+  - **Sanctum PPL Runner**: This component logs to the **Windows Event Log** (Source: `SanctumPPLRunner`). Check Event Viewer -> Windows Logs -> Application.
+  - **Main Service**: Logs to the **Windows Event Log** (Source: `HydraDragonService`).
 
+### Tip 4:
 - Close the Windows Firewall on the VM to avoid any firewall blocking. We are testing this program not Windows Firewall.
 
 ## FAQ
