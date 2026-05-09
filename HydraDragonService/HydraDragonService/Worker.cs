@@ -6,7 +6,7 @@ namespace HydraDragonService
     public class Worker(ILogger<Worker> logger) : BackgroundService
     {
         private readonly ILogger<Worker> _logger = logger;
-        private Process? _pythonProcess; // Python EDR
+        private Process? _pythonProcess; // Python Engine
         private Process? _avProcess;     // C++ Engine
         
         private readonly bool _restartOnCrash = true;
@@ -49,7 +49,7 @@ namespace HydraDragonService
             {
                 try
                 {
-                    // Monitor Core Engines (AV and Python EDR)
+                    // Monitor Core Engines (AV and Python Engine)
                     StartHydraDragonAV();
                     StartHydraDragonCore();
 
