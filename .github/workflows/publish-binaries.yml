@@ -513,6 +513,11 @@ jobs:
         with:
           path: .
 
+      - name: Set up MSVC Developer Command Prompt
+        uses: TheMrMilchmann/setup-msvc-dev@v4
+        with:
+          arch: x64
+
       - name: Organize Binaries
         id: organize
         shell: pwsh
