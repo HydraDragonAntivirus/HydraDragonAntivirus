@@ -12,7 +12,7 @@ Please use this template ONLY for reporting malware, ransomware, or malicious ac
 **Malware Information**
 - Malware Family / Type (if known): 
 - SHA256 Hash: 
-- Download Link (Password protected ZIP, e.g., 'infected'): 
+- Download Link (Password protected ZIP, e.g., 'infected' in your GitHub malware-samples repo): 
 
 **Which component should have blocked it?**
 - [ ] HydraDragonAV (C++ Engine with ClamAV and YARA rules)
