@@ -77,8 +77,12 @@ fn run_service(h_status: SERVICE_STATUS_HANDLE) {
             EventID::Info,
         );
 
-        // Start all critical security drivers
+        // Start all critical security drivers (they are DEMAND_START to avoid BSODs)
         driver_control::start_security_drivers();
+
+        // Wait for drivers to finish initializing their device objects.
+        // sc start is asynchronous — the device symlinks may not exist yet.
+        driver_control::wait_for_driver_devices();
 
         bootstrap_protected_driver_control();
 
