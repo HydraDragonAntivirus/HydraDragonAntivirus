@@ -137,11 +137,12 @@ jobs:
               $hash = $hashText -replace '\s+', '' -replace '0x', ''
               Write-Host "Extracted hash: $hash"
 
-              Write-Host "`n=== Step 5: Updating build.rs with extracted hash ==="
+              # Update build.rs with the new hash. We use a literal search to avoid regex escape issues.
               $buildRsPath = "build.rs"
-              $buildRsContent = Get-Content $buildRsPath -Raw
-              $buildRsContent = $buildRsContent -replace 'L"[0-9A-F]+\\0"', "L`"$hash\0`""
-              Set-Content $buildRsPath $buildRsContent
+              $content = Get-Content $buildRsPath -Raw
+              # Match the pattern L"HEX\0" and replace with the new hash
+              $newContent = $content -replace 'L"[0-9A-F]+\\0"', "L`"$hash\0`""
+              Set-Content $buildRsPath $newContent -Encoding UTF8
               Write-Host "Updated build.rs with hash: $hash"
 
               Write-Host "`n=== Step 6: Rebuilding with correct hash ($driverBuildProfile) ==="
@@ -182,6 +183,7 @@ jobs:
           paths: |
             hydradragon/Sanctum/AppData/sanctum.sys
             Sanctum/driver/Cargo.lock
+            Sanctum/driver/build.rs
       - name: Create PR
         if: steps.check_changes.outputs.changed == 'true'
         uses: peter-evans/create-pull-request@v8

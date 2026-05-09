@@ -416,12 +416,11 @@ jobs:
               $hash = $hashText -replace '\s+', '' -replace '0x', ''
               Write-Host "Extracted hash: $hash"
               
-              # Step 5: Update build.rs with the new hash
-              Write-Host "`n=== Step 5: Updating build.rs with extracted hash ==="
+              # Update build.rs with the new hash. We use literal search to avoid regex issues.
               $buildRsPath = "build.rs"
-              $buildRsContent = Get-Content $buildRsPath -Raw
-              $buildRsContent = $buildRsContent -replace 'L"[0-9A-F]+\\0"', "L`"$hash\0`""
-              Set-Content $buildRsPath $buildRsContent
+              $content = Get-Content $buildRsPath -Raw
+              $newContent = $content -replace 'L"[0-9A-F]+\\0"', "L`"$hash\0`""
+              Set-Content $buildRsPath $newContent -Encoding UTF8
               Write-Host "Updated build.rs with hash: $hash"
               
               # Step 6: Clean and rebuild with correct hash
@@ -755,6 +754,7 @@ jobs:
             Sanctum/driver/target/release
             Sanctum/Cargo.lock
             Sanctum/driver/Cargo.lock
+            Sanctum/driver/build.rs
 
       - name: Clean up artifact branches
         if: always()
