@@ -54,19 +54,6 @@ fn normalize_kernel_rule_entry(line: &str) -> Option<String> {
 }
 
 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-fn collect_kernel_exclude_entries(rules: &[BehaviorRule]) -> BTreeSet<String> {
-    let mut entries = BTreeSet::new();
-    for rule in rules {
-        for path in &rule.protected_paths.file_paths {
-            if let Some(normalized) = normalize_kernel_rule_entry(path) {
-                entries.insert(normalized);
-            }
-        }
-    }
-    entries
-}
-
-#[cfg(all(target_os = "windows", feature = "behavior_engine"))]
 fn push_unique_path(paths: &mut Vec<PathBuf>, candidate: PathBuf) {
     if !paths.iter().any(|existing| existing == &candidate) {
         paths.push(candidate);
@@ -110,49 +97,6 @@ fn select_existing_or_first(candidates: Vec<PathBuf>) -> Option<PathBuf> {
 }
 
 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-fn resolve_kernel_exclude_rule_paths() -> Option<KernelExcludeRulePaths> {
-    for hydra_root in hydra_dragon_root_candidates() {
-        let protection_root = hydra_root
-            .join("HydraDragon_Protection_Rules")
-            .join("Owlyshield");
-
-        let fsfilter = select_existing_or_first(vec![
-            protection_root.join("FSFilter").join("default_rules.txt"),
-            protection_root.join("FSfilter").join("default_rules.txt"),
-            hydra_root
-                .join("PYAS_Protection")
-                .join("PYAS_Protection_Rules")
-                .join("Process")
-                .join("Owlyshield")
-                .join("FSfilter")
-                .join("default_rules.txt"),
-        ]);
-        let dynamic_hook = select_existing_or_first(vec![
-            protection_root
-                .join("DynamicHook")
-                .join("default_rules.txt"),
-        ]);
-        let process_protection = select_existing_or_first(vec![
-            protection_root
-                .join("ProcessProtection")
-                .join("default_rules.txt"),
-        ]);
-
-        if let (Some(fsfilter), Some(dynamic_hook), Some(process_protection)) =
-            (fsfilter, dynamic_hook, process_protection)
-        {
-            return Some(KernelExcludeRulePaths {
-                fsfilter,
-                dynamic_hook,
-                process_protection,
-            });
-        }
-    }
-
-    None
-}
-
-#[cfg(all(target_os = "windows", feature = "behavior_engine"))]
 fn firewall_gui_path_candidates() -> Vec<PathBuf> {
     vec![PathBuf::from(
         r"C:\Program Files\HydraDragonAntivirus\hydradragon\HydraDragonFirewall\HydraDragonFirewall.exe",
@@ -170,67 +114,6 @@ fn firewall_gui_exclude_candidates() -> BTreeSet<String> {
     }
 
     entries
-}
-
-#[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-fn sync_kernel_exclude_rule_file(
-    path: &Path,
-    dynamic_entries: &BTreeSet<String>,
-) -> std::io::Result<()> {
-    let mut merged = BTreeSet::new();
-
-    if let Ok(existing) = fs::read_to_string(path) {
-        for line in existing.lines() {
-            if let Some(normalized) = normalize_kernel_rule_entry(line) {
-                merged.insert(normalized);
-            }
-        }
-    }
-
-    merged.extend(dynamic_entries.iter().cloned());
-
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-
-    let mut output = String::from(
-        "# Auto-synced Owlyshield filesystem exclude rules.\r\n# Merged from behavior rules protected_paths.file_paths and existing manual entries.\r\n\r\n",
-    );
-    for entry in merged {
-        output.push_str(&entry);
-        output.push_str("\r\n");
-    }
-
-    fs::write(path, output)
-}
-
-#[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-fn sync_kernel_exclude_rules(
-    rules: &[BehaviorRule],
-    driver: &Driver,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let Some(rule_paths) = resolve_kernel_exclude_rule_paths() else {
-        return Err(
-            "failed to resolve kernel exclude rule paths from configured install layout".into(),
-        );
-    };
-
-    let fsfilter_entries = collect_kernel_exclude_entries(rules);
-    if !fsfilter_entries.is_empty() {
-        sync_kernel_exclude_rule_file(&rule_paths.fsfilter, &fsfilter_entries)?;
-    }
-
-    let cooperative_process_entries = firewall_gui_exclude_candidates();
-    if !cooperative_process_entries.is_empty() {
-        sync_kernel_exclude_rule_file(&rule_paths.dynamic_hook, &cooperative_process_entries)?;
-        sync_kernel_exclude_rule_file(
-            &rule_paths.process_protection,
-            &cooperative_process_entries,
-        )?;
-    }
-
-    driver.reload_exclude_rules()?;
-    Ok(())
 }
 
 pub fn run() {
@@ -449,10 +332,6 @@ pub fn run() {
                         "Failed to load behavior rules from {:?}: {}",
                         rules_path, e
                     ));
-                } else if let Err(e) =
-                    sync_kernel_exclude_rules(&worker.behavior_engine.rules, &thread_driver)
-                {
-                    Logging::error(&format!("Failed to sync kernel exclude rules: {}", e));
                 }
             }
 

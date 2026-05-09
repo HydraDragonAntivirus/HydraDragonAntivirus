@@ -254,7 +254,8 @@ static VOID FSEnsurePyasRuleMutex(VOID)
     KeMemoryBarrier();
 }
 
-static VOID FSFreePyasRuleSetStorage(_Inout_ PPYAS_WHITELIST_RULE_SET RuleSet)
+#if 0
+static VOID FSFreePyasRuleSetStorage_OLD(_Inout_ PPYAS_WHITELIST_RULE_SET RuleSet)
 {
     if (RuleSet == NULL)
     {
@@ -281,7 +282,7 @@ static VOID FSFreePyasRuleSetStorage(_Inout_ PPYAS_WHITELIST_RULE_SET RuleSet)
 
 static VOID FSFreePyasWhitelistRulesUnlocked(VOID)
 {
-    FSFreePyasRuleSetStorage(&g_PyasWhitelistRules);
+    return; // FSFreePyasRuleSetStorage(&g_PyasWhitelistRules);
 }
 
 static NTSTATUS FSEnsurePyasRuleCapacityForSet(_Inout_ PPYAS_WHITELIST_RULE_SET RuleSet, _In_ ULONG RequiredCount)
@@ -434,7 +435,8 @@ static NTSTATUS FSAppendPyasRulesFromBufferToSet(_Inout_ PPYAS_WHITELIST_RULE_SE
     return STATUS_SUCCESS;
 }
 
-static NTSTATUS FSLoadPyasWhitelistRulesFromFileToSet(_Inout_ PPYAS_WHITELIST_RULE_SET RuleSet,
+#if 0
+static NTSTATUS FSLoadPyasWhitelistRulesFromFileToSet_OLD(_Inout_ PPYAS_WHITELIST_RULE_SET RuleSet,
                                                       _In_ PCUNICODE_STRING FilePath)
 {
     OBJECT_ATTRIBUTES oa;
@@ -501,7 +503,9 @@ static NTSTATUS FSLoadPyasWhitelistRulesFromFileToSet(_Inout_ PPYAS_WHITELIST_RU
 
 static VOID FSLoadPyasWhitelistRules(VOID)
 {
-    PYAS_WHITELIST_RULE_SET stagedRules = {0};
+    return;
+}
+
 
     //
     // FIX: FAST_MUTEX raises IRQL to APC_LEVEL which disables kernel APCs.
@@ -526,7 +530,12 @@ static VOID FSLoadPyasWhitelistRules(VOID)
 
     // File I/O happens here with no mutex held. Build a private snapshot first
     // so live callbacks never walk a partially-updated rule array.
-    loadStatus = FSLoadPyasWhitelistRulesFromFileToSet(&stagedRules, &ruleFilePath);
+    return;
+}
+#if 0
+static VOID FSLoadPyasWhitelistRules_OLD(VOID)
+{
+    loadStatus = STATUS_SUCCESS; // FSLoadPyasWhitelistRulesFromFileToSet(&stagedRules, &ruleFilePath);
 
     // Publish the new snapshot in one short critical section. On reload,
     // readers keep seeing the old cache until the replacement is ready.

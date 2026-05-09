@@ -270,8 +270,16 @@ For complete removal of kernel drivers and system services, please follow the **
  2. **Dependency Hijacking**: Since Python and Node.js are installed into the AV's subdirectory, malware can drop a malicious `python312.dll` or `node.exe` into those folders. The AV will then unknowingly execute malicious code with Administrative privileges during its normal operation.
  3. **Vulnerable Driver Abuse (BYOVD)**: Attackers can "Bring Their Own Vulnerable Driver" (or abuse the ones included here) to bypass Windows Kernel protections. Without **ELAM** and **Digital Signatures**, the AV cannot verify its own identity or the integrity of its environment during the boot process.
  
- #### Proposed Mitigation: PPL-Enforced Driver Startup
- To mitigate "Post-Infection" triggers, the driver should be registered such that it **refuses to start** unless the process initiating the load is a verified **PPL (Protected Process Light)**. Since standard malware (even with Administrative privileges) cannot easily spoof or inject into a PPL process, this ensures that only the legitimate, hardened HydraDragon service can activate the driver's protection routines.
+ #### Hardened Rule Delivery & Security Architecture
+ To mitigate "Post-Infection" triggers and ensure environment integrity, the project has transitioned from fragile disk-based rule loading to a **Secure Memory-Push Model**:
+
+ 1. **Zero Disk Dependency**: Kernel drivers no longer read configuration or exclusion rules from hardcoded disk paths (e.g., `C:\Program Files\HydraDragonAntivirus\hydradragon`). This eliminates **Directory Squatting** and **TOCTOU (Time-of-Check to Time-of-Use)** vulnerabilities where an attacker could replace or "poison" rule files before the driver initializes.
+ 2. **PPL-Enforced Communication**: All rules are injected via a secure IOCTL/Comms channel that strictly verifies the caller. The driver **refuses to accept rules** unless the initiating process is a verified **Antimalware Protected Light (PPL)** process (`sanctum_ppl_runner.exe`). Since standard malware (even with Administrative privileges) cannot easily spoof or inject into a PPL process, this ensures that only the legitimate, hardened HydraDragon service can modify the security policy.
+ 3. **Image-Suffix Verification**: The driver identifies the rule provider using secure image-suffix matching rather than absolute paths, allowing for flexible deployment while maintaining strict identity enforcement.
+
+ > [!IMPORTANT]
+ > For a detailed security analysis on why avoiding hardcoded disk paths is critical for driver security, refer to the [Security Architecture section of the Project Wiki](https://github.com/HydraDragonAntivirus/HydraDragonAntivirus/wiki/Security-Architecture#avoiding-hardcoded-paths).
+
  
  - To prevent connection speed loss, make sure "late_blocking_mode" is set to true in C:\Program Files\HydraDragonAntivirus\hydradragon\HydraDragonFirewall\settings.json. This may cause malware to be detected slightly later.
 - For debugging, remember to set HKEY_LOCAL_MACHINE\SOFTWARE\Owlyshield\VERBOSE_LOGGING to 1.

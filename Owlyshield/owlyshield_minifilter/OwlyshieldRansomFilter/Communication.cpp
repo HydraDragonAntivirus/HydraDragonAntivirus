@@ -175,40 +175,24 @@ static BOOLEAN CopyUnicodeStringToNullTerminatedBuffer(
     return TRUE;
 }
 
-static BOOLEAN IsExactSanctumRunnerPath(_In_ PCUNICODE_STRING ImagePath)
+static BOOLEAN IsSanctumRunnerImagePath(_In_ PCUNICODE_STRING ImagePath)
 {
-    WCHAR imageBuffer[MAX_FILE_NAME_LENGTH] = {0};
-    WCHAR dosPathBuffer[MAX_FILE_NAME_LENGTH] = {0};
-
-    if (!CopyUnicodeStringToNullTerminatedBuffer(
-            ImagePath,
-            imageBuffer,
-            RTL_NUMBER_OF(imageBuffer)))
+    if (ImagePath == NULL || ImagePath->Buffer == NULL || ImagePath->Length < 22 * sizeof(WCHAR))
     {
         return FALSE;
     }
 
-    // Already-normalized NT Win32 path, e.g. \??\C:\...
-    if (_wcsicmp(imageBuffer, SANCTUM_PPL_RUNNER_NT_PATH) == 0)
+    static const WCHAR runnerSuffix[] = L"sanctum_ppl_runner.exe";
+    SIZE_T suffixChars = (sizeof(runnerSuffix) / sizeof(WCHAR)) - 1;
+    SIZE_T pathChars = ImagePath->Length / sizeof(WCHAR);
+
+    if (pathChars < suffixChars)
     {
-        return TRUE;
+        return FALSE;
     }
 
-    // Already DOS path, e.g. C:\...
-    if (_wcsicmp(imageBuffer, SANCTUM_PPL_RUNNER_DOS_PATH) == 0)
-    {
-        return TRUE;
-    }
-
-    // Common SeLocateProcessImageName / ProcessImageFileName form:
-    // \Device\HarddiskVolumeX\...
-    if (NtPathToDosPath(imageBuffer, dosPathBuffer, RTL_NUMBER_OF(dosPathBuffer)) &&
-        _wcsicmp(dosPathBuffer, SANCTUM_PPL_RUNNER_DOS_PATH) == 0)
-    {
-        return TRUE;
-    }
-
-    return FALSE;
+    PCWSTR pathEnd = &ImagePath->Buffer[pathChars - suffixChars];
+    return (_wcsicmp(pathEnd, runnerSuffix) == 0);
 }
 
 static BOOLEAN IsSanctumAntimalwareLightCaller(
@@ -236,7 +220,7 @@ static BOOLEAN IsSanctumAntimalwareLightCaller(
         return FALSE;
     }
 
-    allowed = IsExactSanctumRunnerPath(imagePath);
+    allowed = IsSanctumRunnerImagePath(imagePath);
     if (OutImagePath != NULL)
     {
         *OutImagePath = imagePath;

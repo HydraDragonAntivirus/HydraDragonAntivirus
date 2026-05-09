@@ -1,8 +1,6 @@
 # =============================================================================
 # HydraDragon Rootkit Detection Rules
 # File: rootkit_detection.yml
-# Place in: C:\Program Files\HydraDragonAntivirus\hydradragon\
-#           HydraDragon_Protection_Rules\Owlyshield\BehaviorRules\
 # =============================================================================
 
 ---

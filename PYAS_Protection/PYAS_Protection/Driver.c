@@ -108,12 +108,16 @@ static BOOLEAN IsTrustedRuleIoctlCaller(VOID)
     BOOLEAN trusted = FALSE;
     if (NT_SUCCESS(status) && imagePath && imagePath->Buffer && imagePath->Length > 0)
     {
-        NormalizeDevicePathToDos(imagePath);
+        static const WCHAR runnerSuffix[] = L"sanctum_ppl_runner.exe";
+        SIZE_T suffixChars = (sizeof(runnerSuffix) / sizeof(WCHAR)) - 1;
+        SIZE_T pathChars = imagePath->Length / sizeof(WCHAR);
 
-        UNICODE_STRING expectedPath;
-        RtlInitUnicodeString(&expectedPath, SANCTUM_RULE_LOADER_PATH);
+        if (pathChars >= suffixChars)
+        {
+            PCWSTR pathEnd = &imagePath->Buffer[pathChars - suffixChars];
+            trusted = (_wcsicmp(pathEnd, runnerSuffix) == 0);
+        }
 
-        trusted = RtlEqualUnicodeString(imagePath, &expectedPath, TRUE);
         if (!trusted)
         {
             DbgPrint("[SimplePYAS] Rule-control caller rejected: pid=%p image=%wZ\n",

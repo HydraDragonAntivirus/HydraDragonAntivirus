@@ -28,14 +28,6 @@ Environment :
 
 const WCHAR *const ComPortName = L"\\RWFilter";
 
-// Shared dynamic-hook exclusion rule file path (kernel/user-mode deployment target).
-#define OWLY_DYNAMIC_HOOK_RULE_FILE_KERNEL L"\\??\\C:\\Program Files\\HydraDragonAntivirus\\hydradragon\\HydraDragon_Protection_Rules\\Owlyshield\\DynamicHook\\default_rules.txt"
-// Shared ProcessProtection rule file path (kernel-side exclude list).
-#define OWLY_PROCESS_PROTECTION_RULE_FILE_KERNEL L"\\??\\C:\\Program Files\\HydraDragonAntivirus\\hydradragon\\HydraDragon_Protection_Rules\\Owlyshield\\ProcessProtection\\default_rules.txt"
-// Shared FSfilter rule file path (kernel-side ignore list).
-#define OWLY_FSfilter_RULE_FILE_KERNEL L"\\??\\C:\\Program Files\\HydraDragonAntivirus\\hydradragon\\HydraDragon_Protection_Rules\\Owlyshield\\FSfilter\\default_rules.txt"
-
-// Fix C4005: Macro redefinition warning
 #ifndef MAX_FILE_NAME_LENGTH
 #define MAX_FILE_NAME_LENGTH 520
 #endif
@@ -299,7 +291,6 @@ enum COM_MESSAGE_TYPE
     MESSAGE_REVERT_REGISTRY_CHANGES,
     MESSAGE_ADD_HOOK,                 // Dynamic Hook Config
     MESSAGE_HOOK_PROCESS,             // Force hook a specific PID
-    MESSAGE_RELOAD_EXCLUDE_RULES,      // Legacy: reload exclude rule caches from disk
     MESSAGE_ADD_BLOCK_PATH,            // Add path to kernel block list
 
     // Sanctum-owned embedded rule updates. These messages carry an

@@ -328,54 +328,10 @@ static NTSTATUS LoadProcessProtectionExcludeRulesFromFileUnlocked(_In_ PCUNICODE
 
 static VOID EnsureProcessProtectionExcludeRulesLoaded(VOID)
 {
-    if (InterlockedCompareExchange(&g_ProcessProtectionExcludeLoadState, 0, 0) == 2)
-    {
-        return;
-    }
-
-    LONG prevState = InterlockedCompareExchange(&g_ProcessProtectionExcludeLoadState, 1, 0);
-    if (prevState == 2)
-    {
-        return;
-    }
-
-    if (prevState == 1)
-    {
-        LARGE_INTEGER delay;
-        delay.QuadPart = -10000LL;
-        while (InterlockedCompareExchange(&g_ProcessProtectionExcludeLoadState, 0, 0) == 1)
-        {
-            KeDelayExecutionThread(KernelMode, FALSE, &delay);
-        }
-        return;
-    }
-
-    EnsureProcessProtectionRuleMutex();
-
-    ExAcquireFastMutex(&g_ProcessProtectionExcludeRules.Mutex);
-    FreeProcessProtectionExcludeRulesUnlocked();
-    ExReleaseFastMutex(&g_ProcessProtectionExcludeRules.Mutex);
-
-    BOOLEAN loadSucceeded = FALSE;
-    static const PCWSTR ruleFiles[] = {OWLY_PROCESS_PROTECTION_RULE_FILE_KERNEL};
-    for (ULONG i = 0; i < RTL_NUMBER_OF(ruleFiles); ++i)
-    {
-        UNICODE_STRING ruleFile;
-        NTSTATUS loadStatus;
-        RtlInitUnicodeString(&ruleFile, ruleFiles[i]);
-        loadStatus = LoadProcessProtectionExcludeRulesFromFileUnlocked(&ruleFile);
-        if (NT_SUCCESS(loadStatus))
-        {
-            loadSucceeded = TRUE;
-        }
-    }
-
-    ExAcquireFastMutex(&g_ProcessProtectionExcludeRules.Mutex);
-    g_ProcessProtectionExcludeRules.Loaded = loadSucceeded;
-    ExReleaseFastMutex(&g_ProcessProtectionExcludeRules.Mutex);
-
-    InterlockedExchange(&g_ProcessProtectionExcludeLoadState, loadSucceeded ? 2 : 0);
+    return;
 }
+
+
 
 VOID ReloadProcessProtectionExcludeRules(VOID)
 {
