@@ -278,12 +278,10 @@ For complete removal of kernel drivers and system services, please follow the **
  3. **Image-Suffix Verification**: The driver identifies the rule provider using secure image-suffix matching rather than absolute paths, allowing for flexible deployment while maintaining strict identity enforcement.
 
  > [!IMPORTANT]
- > For a detailed security analysis on why avoiding hardcoded disk paths is critical for driver security, refer to the [Security Architecture section of the Project Wiki](https://github.com/HydraDragonAntivirus/HydraDragonAntivirus/wiki/Security-Architecture#avoiding-hardcoded-paths).
+ > For a detailed security analysis on why avoiding hardcoded disk paths is critical for driver security, refer to the [Protection Mechanisms section of the Project Wiki](https://github.com/HydraDragonAntivirus/HydraDragonAntivirus/wiki/Protection-Mechanisms#7-hardened-rule-communication).
 
- 
  - To prevent connection speed loss, make sure "late_blocking_mode" is set to true in C:\Program Files\HydraDragonAntivirus\hydradragon\HydraDragonFirewall\settings.json. This may cause malware to be detected slightly later.
 - For debugging, remember to set HKEY_LOCAL_MACHINE\SOFTWARE\Owlyshield\VERBOSE_LOGGING to 1.
-- Some kernel-level paths are hardcoded for extra protection, so do not modify them.
 - Accept the certificate trust dialog that Windows shows while the firewall is running.
 - Any logs will be removed when you restart the programme. So be careful!
 - You have to restart the program after the analysis.

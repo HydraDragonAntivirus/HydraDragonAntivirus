@@ -1613,14 +1613,7 @@ RWFNewMessage(IN PVOID PortCookie, IN PVOID InputBuffer, IN ULONG InputBufferLen
         }
         return STATUS_INVALID_PARAMETER;
     }
-    else if (message->type == MESSAGE_RELOAD_EXCLUDE_RULES)
-    {
-        FSReloadPyasWhitelistRules();
-        ReloadProcessProtectionExcludeRules();
-        ReloadHookExcludeRules();
-        return STATUS_SUCCESS;
-    }
-    // NEW: Add Generic Hook Config
+    // Add Generic Hook Config
     else if (message->type == MESSAGE_ADD_HOOK)
     {
         HOOK_CONFIG_DATA config;

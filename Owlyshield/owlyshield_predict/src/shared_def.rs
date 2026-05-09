@@ -68,7 +68,6 @@ pub enum DriverComMessageType {
     MessageRevertRegistryChanges,
     MessageAddHook,
     MessageHookProcess,
-    MessageReloadExcludeRules,
     MessageAddBlockPath,
 }
 
