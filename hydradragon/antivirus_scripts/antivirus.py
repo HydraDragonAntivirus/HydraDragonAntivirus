@@ -5342,11 +5342,7 @@ async def process_decompiled_code(output_file: str, main_file_path: Optional[str
         if is_sd:
             logger.info("[*] Detected SourceDefender protected file.")
             try:
-                # process_sourcedefender_payload may be sync or async in your codebase; handle both
-                if inspect.iscoroutinefunction(process_sourcedefender_payload):
-                    return bool(await process_sourcedefender_payload(output_file, main_file_path=main_file_path))
-                else:
-                    return bool(await asyncio.to_thread(process_sourcedefender_payload, output_file, main_file_path))
+                return bool(await asyncio.to_thread(process_sourcedefender_payload, output_file, main_file_path))
             except Exception as ex:
                 logger.error(f"Error processing SourceDefender payload: {ex}")
                 return False
