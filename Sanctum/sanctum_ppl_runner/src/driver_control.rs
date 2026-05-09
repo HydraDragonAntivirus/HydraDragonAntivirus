@@ -16,13 +16,11 @@ const CRITICAL_DRIVERS: &[&str] = &[
     "SimplePYASProtection",
     "RedDbg",
     "OwlyshieldRansomFilter",
-    "edrdrv",
 ];
 
 /// Device paths that must exist before bootstrap_protected_driver_control runs.
 const EXPECTED_DEVICES: &[(&str, &str)] = &[
     ("SimplePYASProtection", r"\\.\HydraDragonProtection"),
-    ("edrdrv", r"\\.\{157980D8-09B4-4580-B8B6-D32971D056DA}"),
 ];
 
 const DEVICE_POLL_INTERVAL: Duration = Duration::from_millis(500);

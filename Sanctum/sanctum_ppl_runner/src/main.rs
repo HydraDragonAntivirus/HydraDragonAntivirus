@@ -36,7 +36,6 @@ mod driver_control;
 mod hardcoded_rules;
 mod ipc;
 mod logging;
-mod openedr_control;
 mod owlyshield_control;
 mod pyas_control;
 mod tracing;
@@ -408,19 +407,6 @@ fn bootstrap_protected_driver_control() {
         ),
         Err(e) => event_log(
             &format!("Owlyshield embedded rule push failed: {}", e),
-            EVENTLOG_ERROR_TYPE,
-            EventID::GeneralError,
-        ),
-    }
-
-    match openedr_control::activate_openedr_monitoring() {
-        Ok(()) => event_log(
-            "OpenEDR monitoring activation requested by Sanctum.",
-            EVENTLOG_INFORMATION_TYPE,
-            EventID::Info,
-        ),
-        Err(e) => event_log(
-            &format!("OpenEDR monitoring activation failed: {}", e),
             EVENTLOG_ERROR_TYPE,
             EventID::GeneralError,
         ),
