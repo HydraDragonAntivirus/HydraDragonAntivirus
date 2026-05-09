@@ -65,7 +65,7 @@ impl FileScanner {
         // ingest latest IOC hash list
         //
         let mut bts: BTreeSet<String> = BTreeSet::new();
-        let ioc_location = format!("{}\\{}", shared_no_std::constants::HYDRADRAGON_DATA_DIR, IOC_LIST_LOCATION);
+        let ioc_location = format!("{}\\{}", shared_no_std::constants::HYDRADRAGON_DIR, IOC_LIST_LOCATION);
         let ioc_dir = std::path::Path::new(&ioc_location).parent().unwrap().to_str().unwrap().to_string();
 
         let file = match File::open(&ioc_location) {
