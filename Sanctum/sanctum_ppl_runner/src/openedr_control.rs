@@ -22,20 +22,21 @@ use windows::Win32::Storage::FileSystem::{
 };
 use windows::Win32::System::IO::DeviceIoControl;
 
-/// User-mode DOS device path for CMD_ERDDRV_IOCTLDEVICE_SYMLINK_NAME.
-/// Change this if your OpenEDR build uses a different symlink.
-pub const OPENEDR_IOCTL_DEVICE: &str = r"\\.\edrdrv";
+/// User-mode DOS device path for CMD_ERDDRV_IOCTLDEVICE_WIN32_NAME.
+/// Matches the symlink GUID from edrdrvapi.hpp.
+pub const OPENEDR_IOCTL_DEVICE: &str = r"\\.\{157980D8-09B4-4580-B8B6-D32971D056DA}";
 
-/// Fill these from OpenEDR's generated/shared IOCTL definitions.
-/// They are intentionally zero here so the sample cannot accidentally call
-/// the wrong IOCTL value.
-pub const CMD_ERDDRV_IOCTL_START: u32 = 0;
-pub const CMD_ERDDRV_IOCTL_STOP: u32 = 0;
-pub const CMD_ERDDRV_IOCTL_SET_CONFIG: u32 = 0;
-pub const CMD_ERDDRV_IOCTL_UPDATE_FILE_RULES: u32 = 0;
-pub const CMD_ERDDRV_IOCTL_UPDATE_REG_RULES: u32 = 0;
-pub const CMD_ERDDRV_IOCTL_UPDATE_PROCESS_RULES: u32 = 0;
-pub const CMD_ERDDRV_IOCTL_SET_PROCESS_INFO: u32 = 0;
+/// IOCTL codes computed from edrdrvapi.hpp:
+///   CMD_ERDDRV_CTL_CODE(code, read, write) =
+///     CTL_CODE(0x8001, 0x800 + code, METHOD_BUFFERED, access)
+///   where access = (read ? FILE_READ_ACCESS : 0) | (write ? FILE_WRITE_ACCESS : 0)
+pub const CMD_ERDDRV_IOCTL_START: u32 = 0x80012004;               // code=0x01, access=0
+pub const CMD_ERDDRV_IOCTL_STOP: u32 = 0x80012008;                // code=0x02, access=0
+pub const CMD_ERDDRV_IOCTL_SET_CONFIG: u32 = 0x80016010;           // code=0x04, access=FILE_READ
+pub const CMD_ERDDRV_IOCTL_UPDATE_PROCESS_RULES: u32 = 0x80016014; // code=0x05, access=FILE_READ
+pub const CMD_ERDDRV_IOCTL_SET_PROCESS_INFO: u32 = 0x80016018;     // code=0x06, access=FILE_READ
+pub const CMD_ERDDRV_IOCTL_UPDATE_FILE_RULES: u32 = 0x8001601C;    // code=0x07, access=FILE_READ
+pub const CMD_ERDDRV_IOCTL_UPDATE_REG_RULES: u32 = 0x80016020;     // code=0x08, access=FILE_READ
 
 #[derive(Debug, Clone, Copy)]
 pub enum OpenEdrRuleKind {
