@@ -7874,7 +7874,7 @@ async def scan_and_warn(
             return False  # EARLY EXIT
 
         if norm_path == hosts_path:
-            check_hosts_file_for_blocked_antivirus(norm_path)
+            asyncio.create_task(check_hosts_file_for_blocked_antivirus())
 
         file_norm = os.path.normpath(norm_path).lower()
 
@@ -8828,56 +8828,7 @@ async def scan_and_warn(
             except Exception as e:
                 logger.error(f"Error in fake size check for {norm_path}: {e}")
 
-        # YARA REALTIME TASK
-        async def realtime_malware_thread_yara(norm_path, signature_check, main_file_path, already_vmprotect_unpacked, vmprotect_unpacked_dir):
-            try:
-                is_malicious, virus_names, engine_detected, is_vmprotect = await asyncio.to_thread(scan_file_real_time_yara, norm_path, signature_check)
-
-                if is_malicious:
-                    virus_name = "".join(virus_names)
-                    logger.critical(f"File {norm_path} is malicious. Virus: {virus_name}")
-
-                    if virus_name.startswith("PUA."):
-                        # MODIFIED: await notify function
-                        await notify_user_pua(norm_path, virus_name, engine_detected, main_file_path=main_file_path)
-                        return False
-                    else:
-                        # MODIFIED: await notify function
-                        await notify_user(norm_path, virus_name, engine_detected, main_file_path=main_file_path)
-                        return False
-
-                if already_vmprotect_unpacked:
-                    return
-
-                # VMProtect unpacking logic
-                if is_vmprotect:
-                    try:
-                        logger.info(f"VMProtect detected in {norm_path}. Starting unpack process...")
-
-                        packed_data = await asyncio.to_thread(Path(norm_path).read_bytes)
-                        unpacked_data = await asyncio.to_thread(unpack_pe, packed_data)
-
-                        if unpacked_data:
-                            base_name, ext = os.path.splitext(os.path.basename(norm_path))
-                            unpacked_name = f"{base_name}_vmprotect_unpacked{ext}"
-                            unpacked_path = os.path.join(vmprotect_unpacked_dir, unpacked_name)
-
-                            await asyncio.to_thread(Path(unpacked_path).write_bytes, unpacked_data)
-
-                            logger.info(f"VMProtect unpacked successfully: {unpacked_path}")
-
-                            # MODIFIED: Call async scan_and_warn as a new task
-                            asyncio.create_task(scan_and_warn(unpacked_path, flag_vmprotect=True, main_file_path=main_file_path))
-                        else:
-                            logger.warning(f"Unpacking VMProtect failed for {norm_path}")
-
-                    except Exception as e:
-                        logger.error(f"Error unpacking VMProtect file {norm_path}: {e}")
-
-            except Exception as e:
-                logger.error(f"Error in YARA real-time malware scan for {norm_path}: {e}")
-
-        # NON-YARA REALTIME TASK
+        # REALTIME TASK
         async def realtime_malware_thread(norm_path, signature_check, file_name, die_output, pe_file, main_file_path):
             try:
                 is_malicious, virus_names, engine_detected, is_vmprotect = await asyncio.to_thread(scan_file_real_time, norm_path, signature_check, file_name, die_output, pe_file=pe_file)
@@ -8945,7 +8896,6 @@ async def scan_and_warn(
         # Start common processing tasks
         common_tasks = [
             asyncio.create_task(fake_size_check_thread()),
-            asyncio.create_task(realtime_malware_thread_yara(norm_path, signature_check, main_file_path, globals().get("already_vmprotect_unpacked"), vmprotect_unpacked_dir)),
             asyncio.create_task(realtime_malware_thread(norm_path, signature_check, file_name, die_output, pe_file, main_file_path)),
             asyncio.create_task(filename_detection_thread()),
             asyncio.create_task(decompilation_postprocess_thread()),
@@ -8954,11 +8904,6 @@ async def scan_and_warn(
         await asyncio.gather(*common_tasks)
 
         # ========== CLEANUP AND RETURN ==========
-
-        # Note: We don't await all tasks here because many are fire-and-forget
-        # operations that don't affect the main scan flow. The function can return
-        # while background tasks continue processing.
-        # FIXED: The tasks are now awaited above.
 
         logger.info(f"Main scan completed for {norm_path}, background processing continues...")
         return False  # Scan completed successfully
