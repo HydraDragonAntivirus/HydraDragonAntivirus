@@ -51,41 +51,45 @@ jobs:
         run: |
           Write-Host "=== Re-signing all binaries with updated certificate ==="
           
-          Push-Location Sanctum
-          
           # Re-sign PPL Runner
-          if (Test-Path "target\release\sanctum_ppl_runner.exe") {
+          if (Test-Path "hydradragon\Sanctum\AppData\sanctum_ppl_runner.exe") {
             Write-Host "`n[1/4] Re-signing PPL Runner..."
+            Push-Location Sanctum
             .\sign_ppl_runner.bat
+            Pop-Location
           } else {
-            Write-Host "`n[1/4] SKIP: PPL Runner binary not found"
+            Write-Host "`n[1/4] SKIP: PPL Runner binary not found at hydradragon\Sanctum\AppData\sanctum_ppl_runner.exe"
           }
           
           # Re-sign Firewall
-          if (Test-Path "..\HydraDragonFirewall\hydradragonfirewall\target\release\hydradragonfirewall.exe") {
+          if (Test-Path "hydradragon\HydraDragonFirewall\hydradragonfirewall.exe") {
             Write-Host "`n[2/4] Re-signing Firewall..."
+            Push-Location Sanctum
             .\sign_firewall.bat
+            Pop-Location
           } else {
-            Write-Host "`n[2/4] SKIP: Firewall binary not found"
+            Write-Host "`n[2/4] SKIP: Firewall binary not found at hydradragon\HydraDragonFirewall\hydradragonfirewall.exe"
           }
           
           # Re-sign Owlyshield Predict
-          if (Test-Path "..\Owlyshield\owlyshield_predict\target\release\owlyshield_ransom.exe") {
+          if (Test-Path "hydradragon\Owlyshield\Owlyshield Service\owlyshield_ransom.exe") {
             Write-Host "`n[3/4] Re-signing Owlyshield Predict..."
+            Push-Location Sanctum
             .\sign_owlyshield_predict.bat
+            Pop-Location
           } else {
-            Write-Host "`n[3/4] SKIP: Owlyshield Predict binary not found"
+            Write-Host "`n[3/4] SKIP: Owlyshield Predict binary not found at hydradragon\Owlyshield\Owlyshield Service\owlyshield_ransom.exe"
           }
           
-          # Re-sign ETW Consumer
-          if (Test-Path "target\release\etw_consumer.exe") {
+          # Re-sign ETW Consumer (if exists)
+          if (Test-Path "hydradragon\Sanctum\etw_consumer.exe") {
             Write-Host "`n[4/4] Re-signing ETW Consumer..."
+            Push-Location Sanctum
             .\sign_etw_consumer.bat
+            Pop-Location
           } else {
-            Write-Host "`n[4/4] SKIP: ETW Consumer binary not found"
+            Write-Host "`n[4/4] SKIP: ETW Consumer binary not found at hydradragon\Sanctum\etw_consumer.exe"
           }
-          
-          Pop-Location
           
           Write-Host "`n=== All available binaries re-signed with new certificate ==="
           
