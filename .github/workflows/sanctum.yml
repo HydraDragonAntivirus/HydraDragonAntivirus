@@ -31,7 +31,9 @@ jobs:
         run: git config --global core.longpaths true
       - uses: actions/checkout@v6
       - name: Set up MSVC Developer Command Prompt
-        uses: ilammy/msvc-dev-cmd@v1
+        uses: TheMrMilchmann/setup-msvc-dev@v4
+        with:
+          arch: x64
       - name: Set up Rust (Nightly)
         uses: dtolnay/rust-toolchain@nightly
         with:
@@ -88,7 +90,9 @@ jobs:
         run: git config --global core.longpaths true
       - uses: actions/checkout@v6
       - name: Set up MSVC Developer Command Prompt
-        uses: ilammy/msvc-dev-cmd@v1
+        uses: TheMrMilchmann/setup-msvc-dev@v4
+        with:
+          arch: x64
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
         with:
