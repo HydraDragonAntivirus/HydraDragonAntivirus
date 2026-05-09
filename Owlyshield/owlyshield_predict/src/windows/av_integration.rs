@@ -932,7 +932,7 @@ pub struct AVIntegration<'a> {
 
 fn load_excluded_rules() -> std::collections::HashSet<String> {
     let mut rules = std::collections::HashSet::new();
-    let path = r"C:\Program Files\HydraDragonAntivirus\hydradragon\excluded_yara_rules\excluded_rules.txt";
+    let path = r"C:\Program Files\HydraDragonAntivirus\hydradragon\excluded_yara_rules\excluded_yara_rules.txt";
     if let Ok(content) = std::fs::read_to_string(path) {
         for line in content.lines() {
             let trimmed = line.trim();

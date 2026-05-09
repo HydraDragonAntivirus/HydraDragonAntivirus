@@ -61,7 +61,7 @@ def extract_yara_strings(yara_file, excluded_rules_path, output_file):
 
 
 yara_file = "compiled_rule.yar"
-excluded_rules_path = "excluded_rules.txt"
+excluded_rules_path = "excluded_yara_rules.txt"
 output_file = "yarastrings.txt"
 
 extract_yara_strings(yara_file, excluded_rules_path, output_file)
