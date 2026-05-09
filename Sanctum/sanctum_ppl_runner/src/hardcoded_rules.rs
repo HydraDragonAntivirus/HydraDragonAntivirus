@@ -259,6 +259,7 @@ HKLM\SYSTEM\CurrentControlSet\Services\MBRFilter
 HKLM\SYSTEM\CurrentControlSet\Services\fs_minifilter
 HKLM\SYSTEM\CurrentControlSet\Services\sanctum
 HKLM\SYSTEM\CurrentControlSet\Services\edrdrv
+HKLM\SYSTEM\CurrentControlSet\Services\edrsvc
 
 # ---------------------------------------------------------------------------
 # Winlogon Shell value - tampering here enables persistence via shell hijack.
