@@ -99,7 +99,6 @@ jobs:
           Write-Host "`n=== All available binaries re-signed with new certificate ==="
           
       - name: Force Add Re-signed Binaries
-        if: steps.check_trigger.outputs.skip != 'true'
         shell: pwsh
         run: |
           Write-Host "=== Force adding re-signed binaries to git ==="
@@ -143,7 +142,6 @@ jobs:
           exit 0
           
       - name: Create PR
-        if: steps.check_trigger.outputs.skip != 'true'
         uses: peter-evans/create-pull-request@v8
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
