@@ -5,7 +5,6 @@ on:
     branches: ["**"]
     paths:
       - 'HydraDragonFirewall/**'
-      - 'Sanctum/driver/sanctum.pfx'
       - '.github/workflows/publish-firewall.yml'
   workflow_dispatch:
 

@@ -9,7 +9,6 @@ on:
       - 'Sanctum/shared_no_std/**'
       - 'Sanctum/Cargo.toml'
       - 'Sanctum/Cargo.lock'
-      - 'Sanctum/driver/sanctum.pfx'
       - '.github/workflows/publish-sanctum-ppl-runner.yml'
   workflow_dispatch:
 
