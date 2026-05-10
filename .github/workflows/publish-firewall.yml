@@ -4,7 +4,7 @@ on:
   push:
     branches: ["**"]
     paths:
-      - 'HydraDragonFirewall/**'
+      - 'HydraDragonFirewall/hydradragonfirewall/**'
       - '.github/workflows/publish-firewall.yml'
   workflow_dispatch:
 
