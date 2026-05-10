@@ -67,7 +67,7 @@ jobs:
         uses: peter-evans/create-pull-request@v8
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          commit-message: "chore(firewall): update binaries"
+          commit-message: "chore(firewall): update binaries [skip ci]"
           title: "Update Firewall Binaries"
           add-paths: |
             ${{ steps.check_changes.outputs.publishable_files }}

@@ -307,7 +307,7 @@ jobs:
         uses: peter-evans/create-pull-request@v8
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          commit-message: "chore(sanctum): update driver and re-sign all binaries with new certificate"
+          commit-message: "chore(sanctum): update driver and re-sign all binaries with new certificate [skip ci]"
           title: "Update Sanctum Driver and Re-sign All Binaries"
           body: |
             Automated Sanctum driver publish and full re-signing of all binaries.

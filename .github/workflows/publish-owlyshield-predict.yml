@@ -74,7 +74,7 @@ jobs:
         uses: peter-evans/create-pull-request@v8
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          commit-message: "chore(owlyshield): update predict binaries"
+          commit-message: "chore(owlyshield): update predict binaries [skip ci]"
           title: "Update Owlyshield predict binaries"
           body: "Automated predict service, model, and TensorFlow Lite DLL update."
           add-paths: |
