@@ -8,15 +8,6 @@
 extern "C" NTSTATUS SetHookExcludeRulesFromBuffer(
     _In_reads_bytes_(BytesRead) PUCHAR Buffer,
     _In_ ULONG BytesRead);
-#else
-static NTSTATUS SetHookExcludeRulesFromBuffer(
-    _In_reads_bytes_(BytesRead) PUCHAR Buffer,
-    _In_ ULONG BytesRead)
-{
-    UNREFERENCED_PARAMETER(Buffer);
-    UNREFERENCED_PARAMETER(BytesRead);
-    return STATUS_NOT_IMPLEMENTED;
-}
 #endif
 
 // IOCTL for Hypervisor communication

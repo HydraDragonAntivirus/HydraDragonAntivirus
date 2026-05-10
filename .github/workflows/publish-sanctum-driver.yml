@@ -52,6 +52,13 @@ jobs:
           $wdkSetupPath = "$Env:TEMP\wdksetup.exe"
           (New-Object Net.WebClient).DownloadFile('https://go.microsoft.com/fwlink/?linkid=2335869', $wdkSetupPath)
           Start-Process -FilePath $wdkSetupPath -ArgumentList "/quiet" -NoNewWindow -Wait
+          # Install the WDK Visual Studio Extension so InfVerif.dll is available to MSBuild
+          $vsixPath = "C:\Program Files (x86)\Windows Kits\10\Vsix\VS2022\10.0.26100.0\WDK.vsix"
+          if (Test-Path $vsixPath) {
+            $vsInstaller = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property enginePath
+            $vsixInstaller = Join-Path $vsInstaller "VSIXInstaller.exe"
+            Start-Process -FilePath $vsixInstaller -ArgumentList "/q `"$vsixPath`"" -NoNewWindow -Wait
+          }
 
       - name: Prepare Driver Build Environment
         working-directory: Sanctum/driver
@@ -170,12 +177,7 @@ jobs:
             $buildRsPath = "build.rs"
             $content = Get-Content $buildRsPath -Raw
             # Robust replacement using PowerShell -replace operator
-            $newContent = $content -replace 'L"[0-9A-F]*\\0",\s*// To-Be-Signed Hash', "L`"$hash\0`", // To-Be-Signed Hash"
-            
-            if ($newContent -eq $content) {
-              # Fallback for empty or different hashes
-              $newContent = $content -replace 'L"[^"]*\\0",\s*// To-Be-Signed Hash', "L`"$hash\0`", // To-Be-Signed Hash"
-            }
+            $newContent = $content -replace 'L"[^"]*",\s*// To-Be-Signed Hash', "L`"$hash\0`", // To-Be-Signed Hash"
 
             if ($newContent -eq $content) {
               throw "Could not find ELAM To-Be-Signed Hash line in build.rs. Content sample: $($content.Substring(0, [Math]::Min(200, $content.Length)))"

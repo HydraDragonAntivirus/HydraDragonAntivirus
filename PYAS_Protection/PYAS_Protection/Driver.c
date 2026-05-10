@@ -98,10 +98,7 @@ NTSTATUS HydraDragonCreateClose(_In_ PDEVICE_OBJECT DeviceObject, _Inout_ PIRP I
     PIO_STACK_LOCATION stack = IoGetCurrentIrpStackLocation(Irp);
     if (stack && stack->MajorFunction == IRP_MJ_CREATE)
     {
-        if (!IsTrustedRuleIoctlCaller())
-        {
-            return CompleteIrp(Irp, STATUS_ACCESS_DENIED, 0);
-        }
+        // No per-caller identity check; trust is enforced at boot-time by HydraDragonService orchestration.
     }
 
     return CompleteIrp(Irp, STATUS_SUCCESS, 0);

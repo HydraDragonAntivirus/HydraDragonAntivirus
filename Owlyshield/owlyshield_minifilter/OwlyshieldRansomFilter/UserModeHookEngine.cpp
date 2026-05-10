@@ -212,6 +212,8 @@ static volatile LONG64 g_HookExcludeFailRetryTime = 0;
 static NTSTATUS AppendHookExcludeRulesFromBufferUnlocked(_In_reads_bytes_(BytesRead) PUCHAR Buffer,
                                                          _In_ ULONG BytesRead);
 
+static NTSTATUS AddHookExcludeRuleNormalizedUnlocked(_In_reads_(RuleChars) PCWSTR RuleText, _In_ SIZE_T RuleChars);
+
 static VOID CloseHookNotifyHandleSafe(_Inout_ PHANDLE Handle)
 {
     if (Handle == NULL || *Handle == NULL)
