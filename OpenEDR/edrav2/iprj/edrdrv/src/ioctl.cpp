@@ -203,6 +203,70 @@ void setLogFile(DeviceInputOutput &inOut, size_t nFileNameOffset)
 	IFERR_LOG(log::setLogFile(sFileName), "Can't set Log file: <%S>.\r\n", sFileName);
 }
 
+// Hardcoded fix for CVE-2025-69783.
+// Verifies that the caller is running as SYSTEM and has a strictly validated image path on the system volume.
+BOOLEAN isCurrentCallerTrusted()
+{
+	if (KeGetCurrentIrql() != PASSIVE_LEVEL)
+		return FALSE;
+
+	PEPROCESS pProcess = PsGetCurrentProcess();
+
+	// 1. Must be running as SYSTEM LUID
+	if (!isSystemLuidProcess(pProcess))
+		return FALSE;
+
+	// 2. Path verification
+	CommonProcessInfo processInfo;
+	processInfo.init();
+	fillProcessInfoByHandle(PsGetProcessId(pProcess), ZwCurrentProcess(), &processInfo, false);
+
+	BOOLEAN isAllowed = FALSE;
+	if (processInfo.pusImageName != nullptr)
+	{
+		// Strict path check: must be in the protected HydraDragon directory on the system volume.
+		// We verify the volume by checking if it starts with the same device prefix as \SystemRoot.
+		
+		// Find the end of the device name in systemRootDirectory (e.g., "\Device\HarddiskVolume2")
+		// by looking for the first slash after the device prefix.
+		UNICODE_STRING usSysRoot = g_pCommonData->systemRootDirectory;
+		size_t nSlashPos = findChrCch(&usSysRoot, L'\\', 1); // Skip the first '\'
+		if (nSlashPos != SIZE_MAX)
+		{
+			UNICODE_STRING usVolumePrefix = sliceStrCch(usSysRoot, 0, nSlashPos * sizeof(WCHAR));
+			
+			// Verify the caller process is on the same volume
+			if (isStartWith(processInfo.pusImageName, &usVolumePrefix))
+			{
+				DECLARE_CONST_UNICODE_STRING(usServicePath, L"\\Program Files\\HydraDragonAntivirus\\openedr\\edrsvc.exe");
+				DECLARE_CONST_UNICODE_STRING(usConsolePath, L"\\Program Files\\HydraDragonAntivirus\\openedr\\edrcon.exe");
+				DECLARE_CONST_UNICODE_STRING(usCsrssPath, L"\\Windows\\System32\\csrss.exe");
+
+				if (isEndedWith(processInfo.pusImageName, &usServicePath) ||
+					isEndedWith(processInfo.pusImageName, &usConsolePath) ||
+					isEndedWith(processInfo.pusImageName, &usCsrssPath))
+				{
+					isAllowed = TRUE;
+				}
+			}
+		}
+	}
+
+	processInfo.free();
+	return isAllowed;
+}
+
+NTSTATUS requireTrustedController()
+{
+	if (!isCurrentCallerTrusted())
+	{
+		return LOGERROR(STATUS_ACCESS_DENIED,
+			"Denied privileged IOCTL from untrusted process: %Iu. Identity verification failed.\r\n",
+			(ULONG_PTR)PsGetCurrentProcessId());
+	}
+	return STATUS_SUCCESS;
+}
+
 //
 //
 //
@@ -212,19 +276,19 @@ NTSTATUS processRequest(DeviceInputOutput &inOut, ULONG IoControl)
 	{
 		case CMD_ERDDRV_IOCTL_START:
 		{
+			IFERR_RET(requireTrustedController());
 			IFERR_RET(startMonitoring());
 			return STATUS_SUCCESS;
 		}
 		case CMD_ERDDRV_IOCTL_STOP:
 		{
+			IFERR_RET(requireTrustedController());
 			stopMonitoring(true);
 			return STATUS_SUCCESS;
 		}
 		case CMD_ERDDRV_IOCTL_SET_CONFIG:
 		{
-			if (!procmon::isCurProcessTrusted())
-				return LOGERROR(STATUS_ACCESS_DENIED, "Can't access from process: %Iu.\r\n",
-				(ULONG_PTR)PsGetCurrentProcessId());
+			IFERR_RET(requireTrustedController());
 
 			LOGINFO2("Update config.\r\n");
 			bool fChanged = false;
@@ -235,27 +299,21 @@ NTSTATUS processRequest(DeviceInputOutput &inOut, ULONG IoControl)
 		}
 		case CMD_ERDDRV_IOCTL_UPDATE_FILE_RULES:
 		{
-			if (!procmon::isCurProcessTrusted())
-				return LOGERROR(STATUS_ACCESS_DENIED, "Can't access from process: %Iu.\r\n",
-				(ULONG_PTR)PsGetCurrentProcessId());
+			IFERR_RET(requireTrustedController());
 
 			IFERR_RET(filemon::updateFileRules(inOut.m_pInput, inOut.m_nInputSize));
 			return STATUS_SUCCESS;
 		}
 		case CMD_ERDDRV_IOCTL_UPDATE_REG_RULES:
 		{
-			if (!procmon::isCurProcessTrusted())
-				return LOGERROR(STATUS_ACCESS_DENIED, "Can't access from process: %Iu.\r\n",
-				(ULONG_PTR)PsGetCurrentProcessId());
+			IFERR_RET(requireTrustedController());
 
 			IFERR_RET(regmon::updateRegRules(inOut.m_pInput, inOut.m_nInputSize));
 			return STATUS_SUCCESS;
 		}
 		case CMD_ERDDRV_IOCTL_UPDATE_PROCESS_RULES:
 		{
-			if (!procmon::isCurProcessTrusted())
-				return LOGERROR(STATUS_ACCESS_DENIED, "Can't access from process: %Iu.\r\n",
-				(ULONG_PTR)PsGetCurrentProcessId());
+			IFERR_RET(requireTrustedController());
 
 			IFERR_RET(procmon::updateProcessRules(inOut.m_pInput, inOut.m_nInputSize));
 			IFERR_RET(procmon::reapplyRulesForAllProcesses());
@@ -263,9 +321,7 @@ NTSTATUS processRequest(DeviceInputOutput &inOut, ULONG IoControl)
 		}
 		case CMD_ERDDRV_IOCTL_SET_PROCESS_INFO:
 		{
-			if (!procmon::isCurProcessTrusted())
-				return LOGERROR(STATUS_ACCESS_DENIED, "Can't access from process: %Iu.\r\n",
-				(ULONG_PTR)PsGetCurrentProcessId());
+			IFERR_RET(requireTrustedController());
 
 			// Create deserializer
 			variant::BasicLbvsDeserializer<SetProcessInfoField> deserializer;
