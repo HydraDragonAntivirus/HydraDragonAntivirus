@@ -6,9 +6,11 @@ namespace HydraDragonService
     public class Worker(ILogger<Worker> logger) : BackgroundService
     {
         private readonly ILogger<Worker> _logger = logger;
-        private Process? _pythonProcess; // Python Engine
-        private Process? _avProcess;     // C++ Engine
-        
+        private Process? _pythonProcess;     // Python Engine
+        private Process? _avProcess;         // C++ Engine
+        private Process? _owlyshieldProcess; // Owlyshield Predict
+        private Process? _firewallProcess;   // HydraDragon Firewall
+
         private readonly bool _restartOnCrash = true;
         private readonly int _initialBackoffMs = 1000;
         private readonly int _maxBackoffMs = 20000;
@@ -49,36 +51,36 @@ namespace HydraDragonService
             {
                 try
                 {
-                    // Monitor Core Engines (AV and Python Engine)
+                    // Monitor Core Engines (Owlyshield → Firewall → AV → Python)
+                    StartOwlyshieldPredict();
+                    StartHydraDragonFirewall();
                     StartHydraDragonAV();
                     StartHydraDragonCore();
 
                     var waitTasks = new List<Task<bool>>();
-                    if (_pythonProcess != null) waitTasks.Add(WaitForProcessExitAsync(_pythonProcess, stoppingToken));
-                    if (_avProcess != null) waitTasks.Add(WaitForProcessExitAsync(_avProcess, stoppingToken));
+                    if (_pythonProcess != null)    waitTasks.Add(WaitForProcessExitAsync(_pythonProcess, stoppingToken));
+                    if (_avProcess != null)         waitTasks.Add(WaitForProcessExitAsync(_avProcess, stoppingToken));
+                    if (_owlyshieldProcess != null) waitTasks.Add(WaitForProcessExitAsync(_owlyshieldProcess, stoppingToken));
+                    if (_firewallProcess != null)   waitTasks.Add(WaitForProcessExitAsync(_firewallProcess, stoppingToken));
 
                     if (waitTasks.Count > 0)
-                    {
                         await Task.WhenAny(waitTasks);
-                    }
                     else
-                    {
                         await Task.Delay(5000, stoppingToken);
-                    }
 
                     if (stoppingToken.IsCancellationRequested) break;
 
                     Process? crashedProc = null;
-                    if (_avProcess != null && _avProcess.HasExited) crashedProc = _avProcess;
-                    else if (_pythonProcess != null && _pythonProcess.HasExited) crashedProc = _pythonProcess;
+                    string crashedName = "";
+                    if (_avProcess != null && _avProcess.HasExited)                      { crashedProc = _avProcess;          crashedName = "C++ Engine"; }
+                    else if (_pythonProcess != null && _pythonProcess.HasExited)          { crashedProc = _pythonProcess;      crashedName = "Python Engine"; }
+                    else if (_owlyshieldProcess != null && _owlyshieldProcess.HasExited) { crashedProc = _owlyshieldProcess;  crashedName = "Owlyshield Predict"; }
+                    else if (_firewallProcess != null && _firewallProcess.HasExited)     { crashedProc = _firewallProcess;    crashedName = "Firewall"; }
 
                     if (crashedProc != null && _restartOnCrash)
                     {
-                        string procName = crashedProc == _avProcess ? "C++ Engine" : "Python Engine";
-                        
-                        _logger.LogWarning("Core engine crashed: {name} (Exit Code: {code}). Restarting...", 
-                            procName, crashedProc.ExitCode);
-                        
+                        _logger.LogWarning("Core engine crashed: {name} (Exit Code: {code}). Restarting...",
+                            crashedName, crashedProc.ExitCode);
                         await Task.Delay(backoff, stoppingToken);
                         backoff = Math.Min(backoff * 2, _maxBackoffMs);
                     }
@@ -102,25 +104,16 @@ namespace HydraDragonService
         {
             _logger.LogInformation("Starting Sanctum sequential startup...");
 
-            string elamPath = Path.Combine(sanctumDir, "elam_installer.exe");
+            string elamPath   = Path.Combine(sanctumDir, "elam_installer.exe");
             string edrSvcPath = Path.Combine(_baseDir, "OpenEDR", "edrsvc.exe");
-            string umPath = Path.Combine(sanctumDir, "um_engine.exe");
-            string appPath = Path.Combine(sanctumDir, "app.exe");
+            string umPath     = Path.Combine(sanctumDir, "um_engine.exe");
+            string appPath    = Path.Combine(sanctumDir, "app.exe");
 
-            // 1) ELAM Installer
-            await RunExeAsync(elamPath, ct);
-
-            // 2) Start OpenEDR Service
-            await RunExeAsync(edrSvcPath, ct, "start");
-
-            // 3) Sanctum PPL Runner Service
-            await EnsureSanctumPplRunningAsync(ct);
-
-            // 4) UM Engine
-            await RunExeAsync(umPath, ct);
-
-            // 5) GUI App
-            await RunExeAsync(appPath, ct);
+            await RunExeAsync(elamPath, ct);                  // 1) ELAM Installer
+            await RunExeAsync(edrSvcPath, ct, "start");       // 2) OpenEDR Service
+            await EnsureSanctumPplRunningAsync(ct);           // 3) Sanctum PPL Runner (ETW:TI only)
+            await RunExeAsync(umPath, ct);                    // 4) UM Engine
+            await RunExeAsync(appPath, ct);                   // 5) GUI App
 
             _logger.LogInformation("Sanctum sequence completed successfully.");
         }
@@ -132,7 +125,6 @@ namespace HydraDragonService
                 _logger.LogWarning("Missing executable: {file}", exePath);
                 return;
             }
-
             try
             {
                 _logger.LogInformation("Starting: {exe}", Path.GetFileName(exePath));
@@ -144,12 +136,9 @@ namespace HydraDragonService
                     UseShellExecute = false,
                     CreateNoWindow = true
                 };
-
                 Process? p = Process.Start(psi);
                 if (p != null && !fireAndForget)
-                {
-                    await Task.Delay(2000, ct); // Sequential delay
-                }
+                    await Task.Delay(2000, ct);
             }
             catch (Exception ex) { _logger.LogWarning("Failed to launch {exe}: {msg}", exePath, ex.Message); }
         }
@@ -181,6 +170,22 @@ namespace HydraDragonService
             _pythonProcess = StartProcess("cmd.exe", _baseDir, "[HydraDragon]", $"/c \"\"{activateBat}\" && poetry run hydradragon\"");
         }
 
+        private void StartOwlyshieldPredict()
+        {
+            if (_owlyshieldProcess != null && !_owlyshieldProcess.HasExited) return;
+            string owlyPath = Path.Combine(_baseDir, "hydradragon", "Owlyshield", "owlyshield_predict.exe");
+            string owlyDir  = Path.Combine(_baseDir, "hydradragon", "Owlyshield");
+            _owlyshieldProcess = StartProcess(owlyPath, owlyDir, "[Owlyshield]");
+        }
+
+        private void StartHydraDragonFirewall()
+        {
+            if (_firewallProcess != null && !_firewallProcess.HasExited) return;
+            string fwPath = Path.Combine(_baseDir, "hydradragon", "HydraDragonFirewall", "HydraDragonFirewall.exe");
+            string fwDir  = Path.Combine(_baseDir, "hydradragon", "HydraDragonFirewall");
+            _firewallProcess = StartProcess(fwPath, fwDir, "[Firewall]");
+        }
+
         private Process? StartProcess(string fileName, string workDir, string logPrefix, string args = "")
         {
             if (!File.Exists(fileName) && fileName != "cmd.exe") return null;
@@ -189,7 +194,7 @@ namespace HydraDragonService
                 var psi = new ProcessStartInfo { FileName = fileName, Arguments = args, WorkingDirectory = workDir, UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
                 var proc = new Process { StartInfo = psi, EnableRaisingEvents = true };
                 proc.OutputDataReceived += (s, e) => { if (!string.IsNullOrEmpty(e.Data)) _logger.LogInformation("{prefix} {msg}", logPrefix, e.Data); };
-                proc.ErrorDataReceived += (s, e) => { if (!string.IsNullOrEmpty(e.Data)) _logger.LogError("{prefix} [STDERR] {msg}", logPrefix, e.Data); };
+                proc.ErrorDataReceived  += (s, e) => { if (!string.IsNullOrEmpty(e.Data)) _logger.LogError("{prefix} [STDERR] {msg}", logPrefix, e.Data); };
                 if (proc.Start()) { proc.BeginOutputReadLine(); proc.BeginErrorReadLine(); return proc; }
             }
             catch { }
@@ -209,7 +214,7 @@ namespace HydraDragonService
 
         private async Task StopAllComponentsAsync()
         {
-            foreach (var p in new[] { _avProcess, _pythonProcess })
+            foreach (var p in new[] { _avProcess, _pythonProcess, _owlyshieldProcess, _firewallProcess })
             {
                 if (p != null && !p.HasExited) { try { p.Kill(true); await p.WaitForExitAsync(); } catch { } p.Dispose(); }
             }
