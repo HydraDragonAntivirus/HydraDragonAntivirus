@@ -28,7 +28,7 @@ if not exist "%SERVICE_BINARY%" (
 
 :: Sign the service binary
 echo Signing %SERVICE_BINARY% with %PFX_FILE%...
-"%SIGNTOOL_PATH%" sign /fd SHA256 /v /f "%PFX_FILE%" /p "%PFX_PASSWORD%" "%SERVICE_BINARY%"
+"%SIGNTOOL_PATH%" sign /fd SHA256 /v /ph /f "%PFX_FILE%" /p "%PFX_PASSWORD%" "%SERVICE_BINARY%"
 if %ERRORLEVEL% NEQ 0 (
     echo [ERROR] Failed to sign the service binary.
     exit /b 1

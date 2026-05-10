@@ -23,7 +23,7 @@ if not exist "%PFX_FILE%" (
 :: Sign the EXE
 if exist "%BINARY_DIR%\owlyshield_ransom.exe" (
     echo Signing owlyshield_ransom.exe...
-    "%SIGNTOOL_PATH%" sign /fd SHA256 /v /f "%PFX_FILE%" /p "%PFX_PASSWORD%" "%BINARY_DIR%\owlyshield_ransom.exe"
+    "%SIGNTOOL_PATH%" sign /fd SHA256 /v /ph /f "%PFX_FILE%" /p "%PFX_PASSWORD%" "%BINARY_DIR%\owlyshield_ransom.exe"
     if %ERRORLEVEL% NEQ 0 (
         echo [ERROR] Failed to sign owlyshield_ransom.exe.
         exit /b 1
@@ -31,6 +31,16 @@ if exist "%BINARY_DIR%\owlyshield_ransom.exe" (
 ) else (
     echo [ERROR] %BINARY_DIR%\owlyshield_ransom.exe not found.
     exit /b 1
+)
+
+:: Sign the DLL
+if exist "%BINARY_DIR%\tensorflowlite_c.dll" (
+    echo Signing tensorflowlite_c.dll...
+    "%SIGNTOOL_PATH%" sign /fd SHA256 /v /ph /f "%PFX_FILE%" /p "%PFX_PASSWORD%" "%BINARY_DIR%\tensorflowlite_c.dll"
+    if %ERRORLEVEL% NEQ 0 (
+        echo [ERROR] Failed to sign tensorflowlite_c.dll.
+        exit /b 1
+    )
 )
 
 echo [SUCCESS] Owlyshield binaries signed successfully!

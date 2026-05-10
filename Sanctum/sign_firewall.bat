@@ -23,7 +23,7 @@ if not exist "%PFX_FILE%" (
 :: Sign the EXE
 if exist "%BINARY_DIR%\hydradragonfirewall.exe" (
     echo Signing hydradragonfirewall.exe...
-    "%SIGNTOOL_PATH%" sign /fd SHA256 /v /f "%PFX_FILE%" /p "%PFX_PASSWORD%" "%BINARY_DIR%\hydradragonfirewall.exe"
+    "%SIGNTOOL_PATH%" sign /fd SHA256 /v /ph /f "%PFX_FILE%" /p "%PFX_PASSWORD%" "%BINARY_DIR%\hydradragonfirewall.exe"
     if %ERRORLEVEL% NEQ 0 (
         echo [ERROR] Failed to sign hydradragonfirewall.exe.
         exit /b 1
@@ -36,7 +36,7 @@ if exist "%BINARY_DIR%\hydradragonfirewall.exe" (
 :: Sign the DLL
 if exist "%BINARY_DIR%\hydradragonfirewall.dll" (
     echo Signing hydradragonfirewall.dll...
-    "%SIGNTOOL_PATH%" sign /fd SHA256 /v /f "%PFX_FILE%" /p "%PFX_PASSWORD%" "%BINARY_DIR%\hydradragonfirewall.dll"
+    "%SIGNTOOL_PATH%" sign /fd SHA256 /v /ph /f "%PFX_FILE%" /p "%PFX_PASSWORD%" "%BINARY_DIR%\hydradragonfirewall.dll"
     if %ERRORLEVEL% NEQ 0 (
         echo [ERROR] Failed to sign hydradragonfirewall.dll.
         exit /b 1
@@ -46,7 +46,7 @@ if exist "%BINARY_DIR%\hydradragonfirewall.dll" (
 :: Sign WinDivert
 if exist "%BINARY_DIR%\WinDivert.dll" (
     echo Signing WinDivert.dll...
-    "%SIGNTOOL_PATH%" sign /fd SHA256 /v /f "%PFX_FILE%" /p "%PFX_PASSWORD%" "%BINARY_DIR%\WinDivert.dll"
+    "%SIGNTOOL_PATH%" sign /fd SHA256 /v /ph /f "%PFX_FILE%" /p "%PFX_PASSWORD%" "%BINARY_DIR%\WinDivert.dll"
     if %ERRORLEVEL% NEQ 0 (
         echo [ERROR] Failed to sign WinDivert.dll.
         exit /b 1
