@@ -1,0 +1,100 @@
+name: Re-sign All Binaries (PFX Monitor)
+
+on:
+  push:
+    paths:
+      - 'Sanctum/driver/sanctum.pfx'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  monitor-and-sign:
+    runs-on: windows-2022
+    steps:
+      - name: Enable Git long paths
+        run: git config --global core.longpaths true
+      
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Setup MSVC Developer Command Prompt
+        uses: TheMrMilchmann/setup-msvc-dev@v4
+        with:
+          arch: x64
+
+      - name: Re-sign All Distributed Binaries
+        shell: pwsh
+        run: |
+          $pfx = "Sanctum/driver/sanctum.pfx"
+          $pass = "password"
+          $distRoot = "hydradragon"
+
+          if (-not (Test-Path $pfx)) {
+            Write-Host "[!] sanctum.pfx not found. Skipping mass signing."
+            exit 0
+          }
+
+          function Sign-Binary {
+            param([string]$path)
+            if (Test-Path $path) {
+              Write-Host "Signing $path..."
+              # Sign with SHA256 and Page Hash (/ph) for PPL compatibility
+              & signtool sign /fd SHA256 /v /ph /f $pfx /p $pass $path
+              if ($LASTEXITCODE -ne 0) { throw "Failed to sign $path" }
+            } else {
+              Write-Host "Skip: $path not found"
+            }
+          }
+
+          Write-Host "=== Mass Signing HydraDragon Suite ==="
+          
+          # Sanctum Stack
+          Sign-Binary "$distRoot/Sanctum/AppData/sanctum.sys"
+          Sign-Binary "$distRoot/Sanctum/AppData/sanctum_ppl_runner.exe"
+          Sign-Binary "$distRoot/Sanctum/System32/sanctum.dll"
+          Sign-Binary "$distRoot/Sanctum/elam_installer.exe"
+          Sign-Binary "$distRoot/Sanctum/um_engine.exe"
+          Sign-Binary "$distRoot/Sanctum/app.exe"
+          Sign-Binary "$distRoot/Sanctum/etw_consumer.exe"
+
+          # Firewall
+          Sign-Binary "$distRoot/HydraDragonFirewall/hydradragonfirewall.exe"
+          Sign-Binary "$distRoot/HydraDragonFirewall/hydradragonfirewall.dll"
+          Sign-Binary "$distRoot/HydraDragonFirewall/WinDivert.dll"
+
+          # Owlyshield
+          Sign-Binary "$distRoot/Owlyshield/Owlyshield Service/owlyshield_ransom.exe"
+          Sign-Binary "$distRoot/Owlyshield/Owlyshield Service/tensorflowlite_c.dll"
+          Sign-Binary "$distRoot/Owlyshield/MBRFilter/MBRFilter.sys"
+
+          # OpenEDR (if staged)
+          Sign-Binary "$distRoot/OpenEDR/edrsvc.exe"
+          Sign-Binary "$distRoot/OpenEDR/edrdrv.sys"
+
+          Write-Host "=== Mass Signing Complete ==="
+
+      - name: Check for publishable changes
+        id: check_changes
+        uses: ./.github/actions/check-publishable-changes
+        with:
+          paths: |
+            hydradragon/
+
+      - name: Create PR with Updated Signatures
+        if: steps.check_changes.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@v8
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "chore(binaries): mass re-sign binaries due to PFX change"
+          title: "Update Binaries Signatures (PFX Rotation)"
+          body: "Automated mass re-signing of all distributed binaries triggered by a change in the Sanctum signing certificate."
+          add-paths: |
+            ${{ steps.check_changes.outputs.publishable_files }}
+          branch: "mass-resign-binaries"
+          base: ${{ github.ref_name }}
+          delete-branch: true
+          labels: binaries, automated-pr, security

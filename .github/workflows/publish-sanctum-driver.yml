@@ -215,74 +215,6 @@ jobs:
           path: artifact/sanctum-driver/
           if-no-files-found: error
 
-      - name: Re-sign All Binaries with New Certificate
-        shell: pwsh
-        run: |
-          Write-Host "=== Re-signing all binaries with updated certificate ==="
-
-          if (Test-Path "hydradragon\Sanctum\AppData\sanctum_ppl_runner.exe") {
-            Write-Host "`n[1/4] Re-signing PPL Runner..."
-            Push-Location Sanctum
-            .\sign_ppl_runner.bat
-            Pop-Location
-          } else {
-            Write-Host "`n[1/4] SKIP: PPL Runner binary not found"
-          }
-
-          if (Test-Path "hydradragon\HydraDragonFirewall\hydradragonfirewall.exe") {
-            Write-Host "`n[2/4] Re-signing Firewall..."
-            Push-Location Sanctum
-            .\sign_firewall.bat
-            Pop-Location
-          } else {
-            Write-Host "`n[2/4] SKIP: Firewall binary not found"
-          }
-
-          if (Test-Path "hydradragon\Owlyshield\Owlyshield Service\owlyshield_ransom.exe") {
-            Write-Host "`n[3/4] Re-signing Owlyshield Predict..."
-            Push-Location Sanctum
-            .\sign_owlyshield_predict.bat
-            Pop-Location
-          } else {
-            Write-Host "`n[3/4] SKIP: Owlyshield Predict binary not found"
-          }
-
-          if (Test-Path "hydradragon\Sanctum\etw_consumer.exe") {
-            Write-Host "`n[4/5] Re-signing ETW Consumer..."
-            Push-Location Sanctum
-            .\sign_etw_consumer.bat
-            Pop-Location
-          } else {
-            Write-Host "`n[4/5] SKIP: ETW Consumer binary not found"
-          }
-
-          if (Test-Path "hydradragon\Owlyshield\Owlyshield Service\tensorflowlite_c.dll") {
-            Write-Host "`n[5/5] Re-signing TensorFlow Lite..."
-            Push-Location Sanctum
-            .\sign_tensorflowlite.bat
-            Pop-Location
-          } else {
-            Write-Host "`n[5/5] SKIP: TensorFlow Lite binary not found"
-          }
-
-          Write-Host "`n=== All available binaries re-signed ==="
-
-      - name: Get Certificate Hash
-        id: cert_hash
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Continue"
-          $certInfo = & signtool verify /pa /v "hydradragon\Sanctum\AppData\sanctum_ppl_runner.exe" 2>&1
-          $hashLine = $certInfo | Select-String "SHA1 hash:"
-          if ($hashLine) {
-            $hash = ($hashLine -split "SHA1 hash:")[1].Trim()
-            echo "hash=$hash" >> $env:GITHUB_OUTPUT
-            Write-Host "Certificate SHA1: $hash"
-          } else {
-            echo "hash=Unknown" >> $env:GITHUB_OUTPUT
-            Write-Host "Could not extract certificate hash"
-          }
-          exit 0
 
       - name: Check for publishable changes
         id: check_changes
@@ -290,13 +222,7 @@ jobs:
         with:
           paths: |
             hydradragon/Sanctum/AppData/sanctum.sys
-            hydradragon/Sanctum/AppData/sanctum_ppl_runner.exe
-            hydradragon/HydraDragonFirewall/hydradragonfirewall.exe
-            hydradragon/HydraDragonFirewall/hydradragonfirewall.dll
-            hydradragon/HydraDragonFirewall/WinDivert.dll
-            hydradragon/Owlyshield/Owlyshield Service/owlyshield_ransom.exe
-            hydradragon/Owlyshield/Owlyshield Service/tensorflowlite_c.dll
-            Sanctum/driver/sanctum.pfx
+            Sanctum/driver/sanctum_elam_hash.txt
             Sanctum/driver/Cargo.lock
             Sanctum/driver/build.rs
 
@@ -305,15 +231,12 @@ jobs:
         uses: peter-evans/create-pull-request@v8
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          commit-message: "chore(sanctum): update driver and re-sign all binaries with new certificate"
-          title: "Update Sanctum Driver and Re-sign All Binaries"
+          commit-message: "chore(sanctum): update driver and ELAM hash"
+          title: "Update Sanctum Driver and ELAM Hash"
           body: |
-            Automated Sanctum driver publish and full re-signing of all binaries.
-
-            This ensures all components (driver, PPL runner, firewall, owlyshield) are signed with the same certificate to prevent error 577 (driver signature invalid).
+            Automated Sanctum driver publish and ELAM hash update.
 
             Driver To-Be-Signed Hash: `${{ steps.build_driver.outputs.elam_hash }}`
-            Certificate SHA1: ${{ steps.cert_hash.outputs.hash }}
           add-paths: |
             ${{ steps.check_changes.outputs.publishable_files }}
           branch: "auto-update-sanctum-driver"

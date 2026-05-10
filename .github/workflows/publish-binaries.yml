@@ -745,27 +745,7 @@ jobs:
           }
           echo "elam_hash=$elamHash" >> $env:GITHUB_OUTPUT
 
-          Write-Host "`n=== Signing distributed binaries ==="
-          if (Test-Path "bin-sanctum/Sanctum/driver/sanctum.pfx") {
-            Copy-Item "bin-sanctum/Sanctum/driver/sanctum.pfx" -Destination "Sanctum/driver/sanctum.pfx" -Force
-          }
-          Push-Location Sanctum
-          if (Test-Path "..\hydradragon\Sanctum\AppData\sanctum_ppl_runner.exe") {
-            .\sign_ppl_runner.bat
-          }
-          if (Test-Path "..\hydradragon\HydraDragonFirewall\hydradragonfirewall.exe") {
-            .\sign_firewall.bat
-          }
-          if (Test-Path "..\hydradragon\Owlyshield\Owlyshield Service\owlyshield_ransom.exe") {
-            .\sign_owlyshield_predict.bat
-          }
-          if (Test-Path "..\hydradragon\Sanctum\etw_consumer.exe") {
-            .\sign_etw_consumer.bat
-          }
-          if (Test-Path "..\hydradragon\Owlyshield\Owlyshield Service\tensorflowlite_c.dll") {
-            .\sign_tensorflowlite.bat
-          }
-          Pop-Location
+          Write-Host "`n=== Distributed binaries are ready for mass signing workflow ==="
 
           # Clean up artifact directories
           Write-Host "`n=== Cleaning up artifact directories ==="
