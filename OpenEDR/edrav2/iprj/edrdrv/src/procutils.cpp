@@ -105,13 +105,13 @@ static const PS_PROTECTED_TYPE c_eProtectedLight = (PS_PROTECTED_TYPE)1;
 static const PS_PROTECTED_SIGNER c_eAntimalwareSigner = (PS_PROTECTED_SIGNER)3;
 
 static const WCHAR c_wszSanctumBrokerDosPath[] =
-	L"C:\\Program Files\\HydraDragonAntivirus\\hydradragon\\Owlyshield\\Sanctum\\AppData\\sanctum_ppl_runner.exe";
+	L"C:\\Program Files\\HydraDragonAntivirus\\hydradragon\\Sanctum\\AppData\\sanctum_ppl_runner.exe";
 
 static const WCHAR c_wszSanctumBrokerNtDosPath[] =
-	L"\\??\\C:\\Program Files\\HydraDragonAntivirus\\hydradragon\\Owlyshield\\Sanctum\\AppData\\sanctum_ppl_runner.exe";
+	L"\\??\\C:\\Program Files\\HydraDragonAntivirus\\hydradragon\\Sanctum\\AppData\\sanctum_ppl_runner.exe";
 
 static const WCHAR c_wszSanctumBrokerRootRelativePath[] =
-	L"\\Program Files\\HydraDragonAntivirus\\hydradragon\\Owlyshield\\Sanctum\\AppData\\sanctum_ppl_runner.exe";
+	L"\\Program Files\\HydraDragonAntivirus\\hydradragon\\Sanctum\\AppData\\sanctum_ppl_runner.exe";
 
 static BOOLEAN isUnicodePathEqual(_In_ PCUNICODE_STRING Path, _In_z_ PCWSTR ExpectedPath)
 {

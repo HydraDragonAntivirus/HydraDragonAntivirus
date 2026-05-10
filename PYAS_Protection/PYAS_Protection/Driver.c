@@ -72,7 +72,7 @@ static NTSTATUS CompleteIrp(_Inout_ PIRP Irp, _In_ NTSTATUS Status, _In_ ULONG_P
 
 
 #define SANCTUM_RULE_LOADER_PATH \
-    L"\\??\\C:\\Program Files\\HydraDragonAntivirus\\hydradragon\\Owlyshield\\Sanctum\\AppData\\sanctum_ppl_runner.exe"
+    L"\\??\\C:\\Program Files\\HydraDragonAntivirus\\hydradragon\\Sanctum\\AppData\\sanctum_ppl_runner.exe"
 
 static BOOLEAN IsTrustedRuleIoctlCaller(VOID)
 {

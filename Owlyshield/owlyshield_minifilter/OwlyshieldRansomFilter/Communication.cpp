@@ -37,7 +37,7 @@ static PFILE_OBJECT g_HvFileObject = NULL;
 // to Sanctum, and Sanctum can broker the driver connection from its protected
 // antimalware-light context.
 #define SANCTUM_PPL_RUNNER_DOS_PATH \
-    L"C:\\Program Files\\HydraDragonAntivirus\\hydradragon\\Owlyshield\\Sanctum\\AppData\\sanctum_ppl_runner.exe"
+    L"C:\\Program Files\\HydraDragonAntivirus\\hydradragon\\Sanctum\\AppData\\sanctum_ppl_runner.exe"
 #define SANCTUM_PPL_RUNNER_NT_PATH \
     L"\\??\\C:\\Program Files\\HydraDragonAntivirus\\hydradragon\\Owlyshield\\Sanctum\\AppData\\sanctum_ppl_runner.exe"
 
@@ -170,7 +170,7 @@ static BOOLEAN IsSanctumRunnerImagePath(_In_ PCUNICODE_STRING ImagePath)
     // This ensures that even if the drive letter or volume prefix varies, 
     // the binary must reside in the specific production subfolder structure.
     static const WCHAR productionSuffix[] = 
-        L"\\HydraDragonAntivirus\\hydradragon\\Owlyshield\\Sanctum\\AppData\\sanctum_ppl_runner.exe";
+        L"\\HydraDragonAntivirus\\hydradragon\\Sanctum\\AppData\\sanctum_ppl_runner.exe";
     SIZE_T suffixChars = (sizeof(productionSuffix) / sizeof(WCHAR)) - 1;
     SIZE_T pathChars = ImagePath->Length / sizeof(WCHAR);
 

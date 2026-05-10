@@ -143,7 +143,7 @@ NTSTATUS getProcessToken(HANDLE hProcess, HANDLE* phToken);
 /// for product-name based trust checks used by privileged IOCTL paths.
 ///
 /// Required image path:
-///   C:\\Program Files\\HydraDragonAntivirus\\hydradragon\\Owlyshield\\Sanctum\\AppData\\sanctum_ppl_runner.exe
+///   C:\\Program Files\\HydraDragonAntivirus\\hydradragon\\Sanctum\\AppData\\sanctum_ppl_runner.exe
 ///
 BOOLEAN isSanctumAntimalwareLightProcess(_In_opt_ const CommonProcessInfo* ProcessInfo);
 
