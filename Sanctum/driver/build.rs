@@ -9,7 +9,7 @@ fn main() -> Result<(), wdk_build::ConfigError> {
     let elam_rc_content = r#"MicrosoftElamCertificateInfo  MSElamCertInfoID
     {
         1,                        
-        L"E1772170CB2D38285E4BF62FFFC17D2E39F08FB1098FA7DD972AC72C605D54C9\0", // To-Be-Signed Hash
+        L"FD7CBB9E8C9B53C3CD82D497945C3E6DC2E3BC99CDF76F869628F357221FCDD3\0", // To-Be-Signed Hash
         0x800C,                   
         L"\0"                     
     }"#;
