@@ -46,7 +46,7 @@ RedDbgDrv.sys
 DisplayName   = %RedDbg.SVCDESC%
 Description   = %RedDbg.SVCDESC%
 ServiceType   = 1
-StartType     = 3
+StartType     = 2
 ErrorControl  = 1
 ServiceBinary = %12%\RedDbgDrv.sys
 
