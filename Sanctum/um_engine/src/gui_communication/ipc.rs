@@ -36,7 +36,7 @@ use tokio::{
 pub struct UmIpc {}
 
 // The path to the only authorized process that can talk to the Sanctum IPC server.
-const ALLOWED_CLIENT_PATH: &str = r"C:\Program Files\HydraDragonAntivirus\hydradragon\Owlyshield\Owlyshield Service\owlyshield_service.exe";
+const ALLOWED_CLIENT_PATH: &str = r"C:\Program Files\HydraDragonAntivirus\hydradragon\Owlyshield\Owlyshield Service\owlyshield_ransom.exe";
 
 impl UmIpc {
     #[allow(clippy::too_many_arguments)]

@@ -2,7 +2,6 @@
 setlocal EnableExtensions
 
 set "POSTINSTALL_STAGE=initial"
-if /I "%~1"=="--after-hypervisor-reboot" set "POSTINSTALL_STAGE=after_hypervisor_reboot"
 set "POSTINSTALL_LOG_DIR=%ProgramData%\HydraDragonAntivirus"
 set "POSTINSTALL_LOG=%POSTINSTALL_LOG_DIR%\post_install.log"
 set "POSTINSTALL_LAST_OUTPUT=%TEMP%\HydraDragonPostInstall-last-command.txt"
