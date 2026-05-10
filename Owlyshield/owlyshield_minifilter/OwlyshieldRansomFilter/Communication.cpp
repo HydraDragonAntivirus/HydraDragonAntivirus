@@ -39,7 +39,7 @@ static PFILE_OBJECT g_HvFileObject = NULL;
 #define SANCTUM_PPL_RUNNER_DOS_PATH \
     L"C:\\Program Files\\HydraDragonAntivirus\\hydradragon\\Sanctum\\AppData\\sanctum_ppl_runner.exe"
 #define SANCTUM_PPL_RUNNER_NT_PATH \
-    L"\\??\\C:\\Program Files\\HydraDragonAntivirus\\hydradragon\\Owlyshield\\Sanctum\\AppData\\sanctum_ppl_runner.exe"
+    L"\\??\\C:\\Program Files\\HydraDragonAntivirus\\hydradragon\\Sanctum\\AppData\\sanctum_ppl_runner.exe"
 
 #define PS_PROTECTED_TYPE_PROTECTED_LIGHT 1
 #define PS_PROTECTED_SIGNER_ANTIMALWARE   3
