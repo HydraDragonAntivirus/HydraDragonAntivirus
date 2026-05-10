@@ -6,8 +6,6 @@ on:
     paths:
       - "Owlyshield/owlyshield_predict/**"
       - "!Owlyshield/owlyshield_predict/**/*.dll"
-      - "Owlyshield/owlyshield_predict/**/Cargo.toml"
-      - "Owlyshield/owlyshield_predict/**/Cargo.lock"
       - ".github/workflows/publish-owlyshield-predict.yml"
   workflow_dispatch:
 
