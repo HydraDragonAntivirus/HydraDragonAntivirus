@@ -75,6 +75,8 @@ struct SpecialProcFlags
 static SpecialProcFlags g_specialProcFlags[] =
 {
 	{ U_STAT(L"\\windows\\system32\\csrss.exe"), (UINT32)ProcessInfoFlags::CsrssProcess },
+	{ U_STAT(L"\\Program Files\\HydraDragonAntivirus\\openedr\\edrsvc.exe"), (UINT32)ProcessInfoFlags::ThisProductProcess },
+	{ U_STAT(L"\\Program Files\\HydraDragonAntivirus\\openedr\\edrcon.exe"), (UINT32)ProcessInfoFlags::ThisProductProcess },
 };
 
 NTSTATUS getProcessFlagsByName(PUNICODE_STRING pusImageName, UINT32* pnFlags)
@@ -89,111 +91,6 @@ NTSTATUS getProcessFlagsByName(PUNICODE_STRING pusImageName, UINT32* pnFlags)
 		setFlag(*pnFlags, pCur.nFlags);
 	}
 	return STATUS_SUCCESS;
-}
-
-//////////////////////////////////////////////////////////////////////////
-//
-// Hardened privileged-controller identity check
-//
-// OpenEDR-style trust-by-filename is unsafe: a local attacker can rename an
-// executable to a trusted suffix and then call privileged IOCTLs.  The only
-// process that may be treated as the privileged controller is the Sanctum
-// broker running as Antimalware Protected Process Light.
-//
-
-static const PS_PROTECTED_TYPE c_eProtectedLight = (PS_PROTECTED_TYPE)1;
-static const PS_PROTECTED_SIGNER c_eAntimalwareSigner = (PS_PROTECTED_SIGNER)3;
-
-static const WCHAR c_wszSanctumBrokerDosPath[] =
-	L"C:\\Program Files\\HydraDragonAntivirus\\hydradragon\\Sanctum\\AppData\\sanctum_ppl_runner.exe";
-
-static const WCHAR c_wszSanctumBrokerNtDosPath[] =
-	L"\\??\\C:\\Program Files\\HydraDragonAntivirus\\hydradragon\\Sanctum\\AppData\\sanctum_ppl_runner.exe";
-
-static const WCHAR c_wszSanctumBrokerRootRelativePath[] =
-	L"\\Program Files\\HydraDragonAntivirus\\hydradragon\\Sanctum\\AppData\\sanctum_ppl_runner.exe";
-
-static BOOLEAN isUnicodePathEqual(_In_ PCUNICODE_STRING Path, _In_z_ PCWSTR ExpectedPath)
-{
-	if (Path == nullptr || Path->Buffer == nullptr || ExpectedPath == nullptr)
-		return FALSE;
-
-	UNICODE_STRING usExpected;
-	RtlInitUnicodeString(&usExpected, ExpectedPath);
-	return RtlEqualUnicodeString((PUNICODE_STRING)Path, &usExpected, TRUE);
-}
-
-static BOOLEAN isSanctumBrokerOnSystemDrive(_In_ PCUNICODE_STRING ImagePath)
-{
-	if (ImagePath == nullptr || ImagePath->Buffer == nullptr || ImagePath->Length == 0)
-		return FALSE;
-
-	if (KeGetCurrentIrql() != PASSIVE_LEVEL)
-		return FALSE;
-
-	UNICODE_STRING linkName;
-	RtlInitUnicodeString(&linkName, L"\\??\\C:");
-
-	OBJECT_ATTRIBUTES objectAttributes;
-	InitializeObjectAttributes(&objectAttributes, &linkName,
-		OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, nullptr, nullptr);
-
-	HANDLE linkHandle = nullptr;
-	NTSTATUS status = ZwOpenSymbolicLinkObject(&linkHandle, SYMBOLIC_LINK_QUERY, &objectAttributes);
-	if (!NT_SUCCESS(status))
-		return FALSE;
-
-	WCHAR cDeviceBuffer[512] = { 0 };
-	UNICODE_STRING cDeviceName;
-	cDeviceName.Buffer = cDeviceBuffer;
-	cDeviceName.Length = 0;
-	cDeviceName.MaximumLength = sizeof(cDeviceBuffer) - sizeof(WCHAR);
-
-	status = ZwQuerySymbolicLinkObject(linkHandle, &cDeviceName, nullptr);
-	ZwClose(linkHandle);
-
-	if (!NT_SUCCESS(status) || cDeviceName.Length == 0 || cDeviceName.Buffer == nullptr)
-		return FALSE;
-
-	// Example: ImagePath = \Device\HarddiskVolume3\Program Files\...\sanctum_ppl_runner.exe
-	//          C: link   = \Device\HarddiskVolume3
-	if (!RtlPrefixUnicodeString(&cDeviceName, (PUNICODE_STRING)ImagePath, TRUE))
-		return FALSE;
-
-	UNICODE_STRING remainingPath;
-	remainingPath.Buffer = (PWCH)((PUCHAR)ImagePath->Buffer + cDeviceName.Length);
-	remainingPath.Length = ImagePath->Length - cDeviceName.Length;
-	remainingPath.MaximumLength = remainingPath.Length;
-
-	return isUnicodePathEqual(&remainingPath, c_wszSanctumBrokerRootRelativePath);
-}
-
-static BOOLEAN isSanctumBrokerImagePath(_In_ PCUNICODE_STRING ImagePath)
-{
-	if (ImagePath == nullptr || ImagePath->Buffer == nullptr || ImagePath->Length == 0)
-		return FALSE;
-
-	if (isUnicodePathEqual(ImagePath, c_wszSanctumBrokerDosPath))
-		return TRUE;
-
-	if (isUnicodePathEqual(ImagePath, c_wszSanctumBrokerNtDosPath))
-		return TRUE;
-
-	return isSanctumBrokerOnSystemDrive(ImagePath);
-}
-
-BOOLEAN isSanctumAntimalwareLightProcess(_In_opt_ const CommonProcessInfo* ProcessInfo)
-{
-	if (ProcessInfo == nullptr || ProcessInfo->pusImageName == nullptr)
-		return FALSE;
-
-	if (ProcessInfo->eProtectedType != c_eProtectedLight)
-		return FALSE;
-
-	if (ProcessInfo->eProtectedSigner != c_eAntimalwareSigner)
-		return FALSE;
-
-	return isSanctumBrokerImagePath(ProcessInfo->pusImageName);
 }
 
 //////////////////////////////////////////////////////////////////////////

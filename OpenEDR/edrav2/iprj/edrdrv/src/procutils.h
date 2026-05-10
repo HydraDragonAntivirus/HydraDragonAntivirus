@@ -137,15 +137,5 @@ NTSTATUS getProcessToken(PEPROCESS pProcess, HANDLE* phToken);
 ///
 NTSTATUS getProcessToken(HANDLE hProcess, HANDLE* phToken);
 
-///
-/// Returns true only for the Sanctum rule/control broker running as
-/// Antimalware Protected Process Light. This is the hardened replacement
-/// for product-name based trust checks used by privileged IOCTL paths.
-///
-/// Required image path:
-///   C:\\Program Files\\HydraDragonAntivirus\\hydradragon\\Sanctum\\AppData\\sanctum_ppl_runner.exe
-///
-BOOLEAN isSanctumAntimalwareLightProcess(_In_opt_ const CommonProcessInfo* ProcessInfo);
-
 } // namespace cmd
 /// @}
