@@ -89,7 +89,7 @@ jobs:
           git status
           Write-Host "=== staged diff stat ==="
           git diff --cached --stat
-      
+
       - name: Get Certificate Hash
         id: cert_hash
         shell: pwsh
@@ -106,7 +106,7 @@ jobs:
             Write-Host "Could not extract certificate hash"
           }
           exit 0
-          
+
       - name: Create PR
         uses: peter-evans/create-pull-request@v8
         with:
@@ -115,9 +115,9 @@ jobs:
           title: "Re-sign All Binaries with Updated Certificate"
           body: |
             Automated re-signing of all binaries after certificate change.
-            
+
             This ensures all components (driver, PPL runner, firewall, owlyshield) are signed with the same certificate to prevent error 577 (driver signature invalid).
-            
+
             Certificate SHA1: ${{ steps.cert_hash.outputs.hash }}
           add-paths: |
             hydradragon/Sanctum/AppData/*
