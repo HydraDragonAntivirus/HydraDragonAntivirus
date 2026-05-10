@@ -385,17 +385,13 @@ jobs:
 
           Restore-WdkMakefile
           
-          # Step 1: Generate ELAM certificate
-          Write-Host "=== Step 1: Generating ELAM certificate ==="
-          .\cert.ps1
-          
-          # Step 2: Initial build
-          Write-Host "`n=== Step 2: Initial driver build ($driverBuildProfile) ==="
+          # Step 1: Initial build
+          Write-Host "`n=== Step 1: Initial driver build ($driverBuildProfile) ==="
           Invoke-Native "cargo" @("make", $driverBuildProfile)
           Assert-DriverPackage "initial build"
           
-          # Step 3: Sign the driver
-          Write-Host "`n=== Step 3: Signing driver with sign.bat $driverBuildProfile ==="
+          # Step 2: Sign the driver
+          Write-Host "`n=== Step 2: Signing driver with sign.bat $driverBuildProfile ==="
           Invoke-Native ".\sign.bat" @($driverBuildProfile)
           Assert-DriverPackage "initial signing"
           
@@ -445,15 +441,15 @@ jobs:
               [System.IO.File]::WriteAllText((Resolve-Path $buildRsPath), $newContent, [System.Text.UTF8Encoding]::new($false))
               Write-Host "Updated build.rs with hash: $hash"
               
-              # Step 6: Clean and rebuild with correct hash
-              Write-Host "`n=== Step 6: Rebuilding with correct hash ($driverBuildProfile) ==="
+              # Step 5: Clean and rebuild with correct hash
+              Write-Host "`n=== Step 5: Rebuilding with correct hash ($driverBuildProfile) ==="
               Invoke-Native "cargo" @("clean")
               Restore-WdkMakefile
               Invoke-Native "cargo" @("make", $driverBuildProfile)
               Assert-DriverPackage "hash rebuild"
               
-              # Step 7: Sign again
-              Write-Host "`n=== Step 7: Final signing with sign.bat $driverBuildProfile ==="
+              # Step 6: Sign again
+              Write-Host "`n=== Step 6: Final signing with sign.bat $driverBuildProfile ==="
               Invoke-Native ".\sign.bat" @($driverBuildProfile)
               Assert-DriverPackage "final signing"
               Set-Content -Path "sanctum_elam_hash.txt" -Value $hash -NoNewline
@@ -490,7 +486,6 @@ jobs:
 
           Copy-Item "Sanctum/driver/target/release/sanctum_package/*.sys" "$artifact/Sanctum/driver/target/release/sanctum_package/" -Force -ErrorAction Stop
           Copy-Item "Sanctum/driver/sanctum_elam_hash.txt" "$artifact/Sanctum/driver/" -Force -ErrorAction Stop
-          Copy-Item "Sanctum/driver/sanctum.pfx" "$artifact/Sanctum/driver/" -Force -ErrorAction Stop
           Copy-Item "Sanctum/driver/build.rs" "$artifact/Sanctum/driver/" -Force -ErrorAction Stop
           Copy-Item "Sanctum/target/release/sanctum_ppl_runner.exe" "$artifact/Sanctum/target/release/" -Force -ErrorAction Stop
           Copy-Item "Sanctum/target/release/elam_installer.exe" "$artifact/Sanctum/target/release/" -Force -ErrorAction Stop

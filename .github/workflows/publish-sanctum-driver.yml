@@ -128,14 +128,11 @@ jobs:
 
           Restore-WdkMakefile
 
-          Write-Host "=== Step 1: Generating ELAM certificate ==="
-          .\cert.ps1
-
-          Write-Host "`n=== Step 2: Initial driver build ($driverBuildProfile) ==="
+          Write-Host "`n=== Step 1: Initial driver build ($driverBuildProfile) ==="
           Invoke-Native "cargo" @("make", $driverBuildProfile)
           Assert-DriverPackage "initial build"
 
-          Write-Host "`n=== Step 3: Signing driver with sign.bat $driverBuildProfile ==="
+          Write-Host "`n=== Step 2: Signing driver with sign.bat $driverBuildProfile ==="
           Invoke-Native ".\sign.bat" @($driverBuildProfile)
           Assert-DriverPackage "initial signing"
 
