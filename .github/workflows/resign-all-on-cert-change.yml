@@ -22,62 +22,58 @@ jobs:
     steps:
       - name: Enable Git long paths
         run: git config --global core.longpaths true
-        
+
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
-      
+
       - name: Set up MSVC Developer Command Prompt
         uses: TheMrMilchmann/setup-msvc-dev@v4
         with:
           arch: x64
-          
+
       - name: Re-sign All Binaries
         shell: pwsh
         run: |
           Write-Host "=== Re-signing all binaries with updated certificate ==="
-          
-          # Re-sign PPL Runner
+
           if (Test-Path "hydradragon\Sanctum\AppData\sanctum_ppl_runner.exe") {
             Write-Host "`n[1/4] Re-signing PPL Runner..."
             Push-Location Sanctum
             .\sign_ppl_runner.bat
             Pop-Location
           } else {
-            Write-Host "`n[1/4] SKIP: PPL Runner binary not found at hydradragon\Sanctum\AppData\sanctum_ppl_runner.exe"
+            Write-Host "`n[1/4] SKIP: PPL Runner binary not found"
           }
-          
-          # Re-sign Firewall
+
           if (Test-Path "hydradragon\HydraDragonFirewall\hydradragonfirewall.exe") {
             Write-Host "`n[2/4] Re-signing Firewall..."
             Push-Location Sanctum
             .\sign_firewall.bat
             Pop-Location
           } else {
-            Write-Host "`n[2/4] SKIP: Firewall binary not found at hydradragon\HydraDragonFirewall\hydradragonfirewall.exe"
+            Write-Host "`n[2/4] SKIP: Firewall binary not found"
           }
-          
-          # Re-sign Owlyshield Predict
+
           if (Test-Path "hydradragon\Owlyshield\Owlyshield Service\owlyshield_ransom.exe") {
             Write-Host "`n[3/4] Re-signing Owlyshield Predict..."
             Push-Location Sanctum
             .\sign_owlyshield_predict.bat
             Pop-Location
           } else {
-            Write-Host "`n[3/4] SKIP: Owlyshield Predict binary not found at hydradragon\Owlyshield\Owlyshield Service\owlyshield_ransom.exe"
+            Write-Host "`n[3/4] SKIP: Owlyshield Predict binary not found"
           }
-          
-          # Re-sign ETW Consumer (if exists)
+
           if (Test-Path "hydradragon\Sanctum\etw_consumer.exe") {
             Write-Host "`n[4/4] Re-signing ETW Consumer..."
             Push-Location Sanctum
             .\sign_etw_consumer.bat
             Pop-Location
           } else {
-            Write-Host "`n[4/4] SKIP: ETW Consumer binary not found at hydradragon\Sanctum\etw_consumer.exe"
+            Write-Host "`n[4/4] SKIP: ETW Consumer binary not found"
           }
-          
-          Write-Host "`n=== All available binaries re-signed with new certificate ==="
+
+          Write-Host "`n=== All available binaries re-signed ==="
 
       - name: Force-stage and commit re-signed binaries
         shell: pwsh
@@ -85,7 +81,6 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git config user.name "github-actions[bot]"
 
-          # Force-add overrides .gitignore rules (which typically exclude .exe/.dll)
           git add -f hydradragon/Sanctum/AppData/sanctum_ppl_runner.exe
           git add -f "hydradragon/Owlyshield/Owlyshield Service/owlyshield_ransom.exe"
           git add -f "hydradragon/Owlyshield/Owlyshield Service/tensorflowlite_c.dll"
@@ -98,15 +93,13 @@ jobs:
           Write-Host "=== staged diff stat ==="
           git diff --cached --stat
 
-          # Commit on current branch - create-pull-request will carry this into the PR
           $staged = git diff --cached --name-only
           if ($staged) {
             git commit -m "chore(sanctum): re-sign all binaries with updated certificate"
             Write-Host "Committed re-signed binaries"
           } else {
-            Write-Host "Nothing staged - binaries may not have changed or paths are wrong"
+            Write-Host "Nothing staged - binaries unchanged or paths are wrong"
           }
-
 
       - name: Get Certificate Hash
         id: cert_hash
