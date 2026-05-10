@@ -2,7 +2,7 @@ name: Re-sign All Binaries on Certificate Change
 
 on:
   push:
-    branches: ["**", "!auto-resign-binaries"]
+    branches: ["**"]
     paths:
       - 'Sanctum/driver/sanctum.pfx'
       - '.github/workflows/resign-all-on-cert-change.yml'
