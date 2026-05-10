@@ -204,16 +204,17 @@ jobs:
         shell: pwsh
         run: |
           $dist = "hydradragon/Sanctum/AppData"
-          New-Item -ItemType Directory -Force -Path $dist
-          Copy-Item "Sanctum/driver/target/release/sanctum_package/sanctum.sys" "$dist/" -Force
+          $artifact = "artifact/sanctum-driver"
+          New-Item -ItemType Directory -Force -Path $dist, $artifact | Out-Null
+          Copy-Item "Sanctum/driver/target/release/sanctum_package/sanctum.sys" "$dist/sanctum.sys" -Force
+          Copy-Item "Sanctum/driver/target/release/sanctum_package/sanctum.sys" "$artifact/sanctum.sys" -Force
+          Copy-Item "Sanctum/driver/sanctum_elam_hash.txt" "$artifact/sanctum_elam_hash.txt" -Force
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v7
         with:
           name: sanctum-driver
-          path: |
-            hydradragon/Sanctum/AppData/sanctum.sys
-            Sanctum/driver/sanctum_elam_hash.txt
+          path: artifact/sanctum-driver/
           if-no-files-found: error
 
       - name: Re-sign All Binaries with New Certificate

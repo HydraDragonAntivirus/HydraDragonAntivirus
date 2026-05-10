@@ -472,23 +472,41 @@ jobs:
           
           Write-Host "`n=== Signing PPL runner ==="
           Invoke-Native ".\sign_ppl_runner.bat"
+
+      - name: Stage Sanctum Artifact
+        shell: pwsh
+        run: |
+          $artifact = "artifact/bin-sanctum"
+          Remove-Item -LiteralPath $artifact -Recurse -Force -ErrorAction SilentlyContinue
+          $paths = @(
+            "Sanctum/driver/target/release/sanctum_package",
+            "Sanctum/driver",
+            "Sanctum/target/release",
+            "Sanctum"
+          )
+          foreach ($path in $paths) {
+            New-Item -ItemType Directory -Force -Path (Join-Path $artifact $path) | Out-Null
+          }
+
+          Copy-Item "Sanctum/driver/target/release/sanctum_package/*.sys" "$artifact/Sanctum/driver/target/release/sanctum_package/" -Force -ErrorAction Stop
+          Copy-Item "Sanctum/driver/sanctum_elam_hash.txt" "$artifact/Sanctum/driver/" -Force -ErrorAction Stop
+          Copy-Item "Sanctum/driver/sanctum.pfx" "$artifact/Sanctum/driver/" -Force -ErrorAction Stop
+          Copy-Item "Sanctum/driver/build.rs" "$artifact/Sanctum/driver/" -Force -ErrorAction Stop
+          Copy-Item "Sanctum/target/release/sanctum_ppl_runner.exe" "$artifact/Sanctum/target/release/" -Force -ErrorAction Stop
+          Copy-Item "Sanctum/target/release/elam_installer.exe" "$artifact/Sanctum/target/release/" -Force -ErrorAction Stop
+          Copy-Item "Sanctum/target/release/um_engine.exe" "$artifact/Sanctum/target/release/" -Force -ErrorAction Stop
+          Copy-Item "Sanctum/target/release/malware.exe" "$artifact/Sanctum/target/release/" -Force -ErrorAction Stop
+          Copy-Item "Sanctum/target/release/app.exe" "$artifact/Sanctum/target/release/" -Force -ErrorAction Stop
+          Copy-Item "Sanctum/target/release/sanctum.dll" "$artifact/Sanctum/target/release/" -Force -ErrorAction Stop
+          Copy-Item "Sanctum/Cargo.lock" "$artifact/Sanctum/" -Force -ErrorAction Stop
+          Copy-Item "Sanctum/driver/Cargo.lock" "$artifact/Sanctum/driver/" -Force -ErrorAction Stop
+
       - name: Upload
         uses: actions/upload-artifact@v7
         with:
           name: bin-sanctum
-          path: |
-            Sanctum/driver/target/release/sanctum_package/*.sys
-            Sanctum/driver/sanctum_elam_hash.txt
-            Sanctum/driver/sanctum.pfx
-            Sanctum/driver/build.rs
-            Sanctum/target/release/sanctum_ppl_runner.exe
-            Sanctum/target/release/elam_installer.exe
-            Sanctum/target/release/um_engine.exe
-            Sanctum/target/release/malware.exe
-            Sanctum/target/release/app.exe
-            Sanctum/target/release/sanctum.dll
-            Sanctum/Cargo.lock
-            Sanctum/driver/Cargo.lock
+          path: artifact/bin-sanctum/
+          if-no-files-found: error
 
   build-owlyshield-tools:
     runs-on: windows-2022
@@ -721,6 +739,14 @@ jobs:
           $sanctumDriverLock = $sanctumLocks | Where-Object { $_.FullName -match '[\\/]driver[\\/]' } | Select-Object -First 1
           if ($sanctumDriverLock) {
             Copy-Item $sanctumDriverLock.FullName -Destination "Sanctum/driver/Cargo.lock" -Force
+          }
+
+          $sanctumBuildRs = Get-ChildItem "bin-sanctum/" -Filter "build.rs" -Recurse | Where-Object { $_.FullName -match '[\\/]driver[\\/]' } | Select-Object -First 1
+          if (-not $sanctumBuildRs) {
+            $sanctumBuildRs = Get-ChildItem "bin-sanctum/" -Filter "build.rs" -Recurse | Select-Object -First 1
+          }
+          if ($sanctumBuildRs) {
+            Copy-Item $sanctumBuildRs.FullName -Destination "Sanctum/driver/build.rs" -Force
           }
           echo "elam_hash=$elamHash" >> $env:GITHUB_OUTPUT
 
