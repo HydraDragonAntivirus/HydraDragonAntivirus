@@ -44,7 +44,7 @@ jobs:
 
       - name: Build Predict Service
         working-directory: Owlyshield/owlyshield_predict
-        run: cargo build --release
+        run: cargo build --release --features novelty,malware,hydradragon,behavior_engine,firewall,sanctum
 
       - name: Stage Predict Files
         shell: pwsh

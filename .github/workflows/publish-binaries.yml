@@ -218,7 +218,7 @@ jobs:
         run: choco install nasm
       - name: Build Owlyshield Rust
         working-directory: Owlyshield/owlyshield_predict
-        run: cargo build --release
+        run: cargo build --release --features novelty,malware,hydradragon,behavior_engine,firewall,sanctum
       - name: Upload
         uses: actions/upload-artifact@v7
         with:
