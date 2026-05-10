@@ -79,17 +79,6 @@ jobs:
           
           Write-Host "`n=== All available binaries re-signed with new certificate ==="
 
-      - name: Stage re-signed binaries
-        shell: pwsh
-        run: |
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git config user.name "github-actions[bot]"
-          git add -A hydradragon/
-          Write-Host "=== git status ==="
-          git status
-          Write-Host "=== staged diff stat ==="
-          git diff --cached --stat
-
       - name: Get Certificate Hash
         id: cert_hash
         shell: pwsh
@@ -119,10 +108,6 @@ jobs:
             This ensures all components (driver, PPL runner, firewall, owlyshield) are signed with the same certificate to prevent error 577 (driver signature invalid).
 
             Certificate SHA1: ${{ steps.cert_hash.outputs.hash }}
-          add-paths: |
-            hydradragon/Sanctum/AppData/*
-            hydradragon/HydraDragonFirewall/*
-            hydradragon/Owlyshield/Owlyshield Service/*
           branch: "auto-resign-binaries"
           base: ${{ github.ref_name }}
           delete-branch: true
