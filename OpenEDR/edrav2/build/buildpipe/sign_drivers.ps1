@@ -79,7 +79,7 @@ foreach ($Inf in $Infs) {
 $FilesToSign = Get-ChildItem -Path $OutDir -Include "*.sys", "*.cat" -Recurse
 foreach ($File in $FilesToSign) {
     Write-Host "[*] Signing $($File.FullName)..."
-    & $SignTool sign /v /fd SHA256 /f $PfxPath /p $CertPassword /t "http://timestamp.digicert.com" $File.FullName
+    & $SignTool sign /v /ph /fd SHA256 /f $PfxPath /p $CertPassword /tr "http://timestamp.digicert.com" /td SHA256 $File.FullName
     if ($LASTEXITCODE -ne 0) {
         Write-Host "[!] Failed to sign $($File.Name)"
     }
