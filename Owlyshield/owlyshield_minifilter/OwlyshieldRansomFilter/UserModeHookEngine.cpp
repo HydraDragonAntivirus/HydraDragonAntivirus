@@ -296,6 +296,34 @@ static VOID FreeHookExcludeRulesUnlocked(VOID)
     g_HookExcludeRules.Capacity = 0;
 }
 
+static NTSTATUS InitializeHookExcludeRules(VOID)
+{
+    EnsureHookExcludeRuleMutex();
+
+    ExAcquireFastMutex(&g_HookExcludeRules.Mutex);
+
+    // Dynamic hook exclude rules (normalized/contains match, case-insensitive)
+    (VOID) AddHookExcludeRuleNormalizedUnlocked(L"C:\\Program Files\\HydraDragonAntivirus", 38);
+    (VOID) AddHookExcludeRuleNormalizedUnlocked(L"C:\\ProgramData\\HydraDragonAntivirus", 37);
+    (VOID) AddHookExcludeRuleNormalizedUnlocked(L"C:\\ProgramData\\edrsvc", 22);
+    (VOID) AddHookExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\tasks\\hydradragonantivirus", 45);
+    (VOID) AddHookExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\edrpm64.dll", 29);
+    (VOID) AddHookExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\edrpm32.dll", 29);
+    (VOID) AddHookExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\edrmm.dll", 27);
+    (VOID) AddHookExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\drivers\\sanctum.sys", 39);
+    (VOID) AddHookExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\drivers\\edrdrv.sys", 38);
+    (VOID) AddHookExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\drivers\\OwlyshieldRansomFilter.sys", 55);
+    (VOID) AddHookExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\drivers\\RedDbg.sys", 38);
+    (VOID) AddHookExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\drivers\\hyperhv.sys", 39);
+    (VOID) AddHookExcludeRuleNormalizedUnlocked(L"C:\\Program Files\\HydraDragonAntivirus\\hydradragon\\sanctum", 56);
+
+    g_HookExcludeRules.Loaded = TRUE;
+
+    ExReleaseFastMutex(&g_HookExcludeRules.Mutex);
+    InterlockedExchange(&g_HookExcludeLoadState, 2);
+    return STATUS_SUCCESS;
+}
+
 extern "C" NTSTATUS SetHookExcludeRulesFromBuffer(
     _In_reads_bytes_(BytesRead) PUCHAR Buffer,
     _In_ ULONG BytesRead)
@@ -1852,6 +1880,8 @@ NTSTATUS UserModeHookEngineInitialize(VOID)
     g_CustomHookCount = 0;
     RtlZeroMemory(g_GlobalCustomHooks, sizeof(g_GlobalCustomHooks));
     g_UserHookEngine->IsInitialized = TRUE;
+
+    (VOID)InitializeHookExcludeRules();
 
     return STATUS_SUCCESS;
 }

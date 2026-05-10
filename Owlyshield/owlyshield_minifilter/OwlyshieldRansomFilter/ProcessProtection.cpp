@@ -287,6 +287,46 @@ VOID ReloadProcessProtectionExcludeRules(VOID)
     EnsureProcessProtectionExcludeRulesLoaded();
 }
 
+static NTSTATUS InitializeProcessProtectionRules(VOID)
+{
+    EnsureProcessProtectionRuleMutex();
+
+    ExAcquireFastMutex(&g_ProcessProtectionExcludeRules.Mutex);
+
+    // Dynamic hook exclude rules (normalized/contains match, case-insensitive)
+    (VOID) AddProcessProtectionExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\smss.exe", 27);
+    (VOID) AddProcessProtectionExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\csrss.exe", 28);
+    (VOID) AddProcessProtectionExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\wininit.exe", 30);
+    (VOID) AddProcessProtectionExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\winlogon.exe", 31);
+    (VOID) AddProcessProtectionExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\lsass.exe", 28);
+    (VOID) AddProcessProtectionExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\services.exe", 31);
+    (VOID) AddProcessProtectionExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\svchost.exe", 30);
+    (VOID) AddProcessProtectionExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\fontdrvhost.exe", 34);
+    (VOID) AddProcessProtectionExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\sihost.exe", 29);
+    (VOID) AddProcessProtectionExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\dwm.exe", 26);
+
+    // HydraDragonAntivirus-specific examples
+    (VOID) AddProcessProtectionExcludeRuleNormalizedUnlocked(L"C:\\Program Files\\HydraDragonAntivirus", 38);
+    (VOID) AddProcessProtectionExcludeRuleNormalizedUnlocked(L"C:\\ProgramData\\HydraDragonAntivirus", 37);
+    (VOID) AddProcessProtectionExcludeRuleNormalizedUnlocked(L"C:\\ProgramData\\edrsvc", 22);
+    (VOID) AddProcessProtectionExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\tasks\\hydradragonantivirus", 45);
+    (VOID) AddProcessProtectionExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\edrpm64.dll", 29);
+    (VOID) AddProcessProtectionExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\edrpm32.dll", 29);
+    (VOID) AddProcessProtectionExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\edrmm.dll", 27);
+    (VOID) AddProcessProtectionExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\drivers\\sanctum.sys", 39);
+    (VOID) AddProcessProtectionExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\drivers\\edrdrv.sys", 38);
+    (VOID) AddProcessProtectionExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\drivers\\OwlyshieldRansomFilter.sys", 55);
+    (VOID) AddProcessProtectionExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\drivers\\RedDbgDrv.sys", 41);
+    (VOID) AddProcessProtectionExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\drivers\\hyperhv.sys", 39);
+    (VOID) AddProcessProtectionExcludeRuleNormalizedUnlocked(L"C:\\Program Files\\HydraDragonAntivirus\\hydradragon\\sanctum", 56);
+
+    g_ProcessProtectionExcludeRules.Loaded = TRUE;
+
+    ExReleaseFastMutex(&g_ProcessProtectionExcludeRules.Mutex);
+    InterlockedExchange(&g_ProcessProtectionExcludeLoadState, 2);
+    return STATUS_SUCCESS;
+}
+
 NTSTATUS SetProcessProtectionExcludeRulesFromBuffer(
     _In_reads_bytes_(BytesRead) PUCHAR Buffer,
     _In_ ULONG BytesRead)
@@ -700,6 +740,7 @@ NTSTATUS InitProcessProtection()
     g_RemoteThreadCandidateLockInitialized = TRUE;
 
     EnsureProcessProtectionExcludeRulesLoaded();
+    (VOID)InitializeProcessProtectionRules();
     DbgPrint("!!! ProcessProtection: ObRegisterCallbacks succeeded\n");
     return STATUS_SUCCESS;
 }

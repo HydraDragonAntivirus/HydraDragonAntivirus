@@ -169,10 +169,16 @@ jobs:
 
             $buildRsPath = "build.rs"
             $content = Get-Content $buildRsPath -Raw
-            $hashRegex = [regex]'L"[^"]*\\{1,2}0",\s*// To-Be-Signed Hash'
-            $newContent = $hashRegex.Replace($content, "L`"$hash\0`", // To-Be-Signed Hash", 1)
+            # Robust replacement using PowerShell -replace operator
+            $newContent = $content -replace 'L"[0-9A-F]*\\0",\s*// To-Be-Signed Hash', "L`"$hash\0`", // To-Be-Signed Hash"
+            
             if ($newContent -eq $content) {
-              throw "Could not find ELAM To-Be-Signed Hash line in build.rs"
+              # Fallback for empty or different hashes
+              $newContent = $content -replace 'L"[^"]*\\0",\s*// To-Be-Signed Hash', "L`"$hash\0`", // To-Be-Signed Hash"
+            }
+
+            if ($newContent -eq $content) {
+              throw "Could not find ELAM To-Be-Signed Hash line in build.rs. Content sample: $($content.Substring(0, [Math]::Min(200, $content.Length)))"
             }
             [System.IO.File]::WriteAllText((Resolve-Path $buildRsPath), $newContent, [System.Text.UTF8Encoding]::new($false))
             Write-Host "Updated build.rs with hash: $hash"

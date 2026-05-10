@@ -293,33 +293,9 @@ enum COM_MESSAGE_TYPE
     MESSAGE_KILL_ONLY_GID,           // Kill process without quarantine
     MESSAGE_KILL_AND_REMOVE_GID,     // Kill process and delete file
     MESSAGE_REVERT_REGISTRY_CHANGES,
-    MESSAGE_ADD_HOOK,                 // Dynamic Hook Config
     MESSAGE_HOOK_PROCESS,             // Force hook a specific PID
-    MESSAGE_ADD_BLOCK_PATH,            // Add path to kernel block list
-
-    // Sanctum-owned embedded rule updates. These messages carry an
-    // OWLY_RULE_BLOB_MESSAGE followed by UTF-16LE rule text. They are accepted
-    // only through the hardened communication port, which should allow only
-    // sanctum_ppl_runner.exe running as Antimalware ProtectedLight.
-    MESSAGE_SET_OWLY_FSfilter_RULES,
-    MESSAGE_SET_OWLY_PROCESS_PROTECTION_RULES,
-    MESSAGE_SET_OWLY_DYNAMIC_HOOK_EXCLUDE_RULES
+    MESSAGE_ADD_BLOCK_PATH            // Add path to kernel block list
 };
-
-#define OWLY_RULE_BLOB_MAGIC       0x4F52554CUL // 'ORUL'
-#define OWLY_RULE_BLOB_VERSION     1
-#define OWLY_RULE_BLOB_FLAG_UTF16LE 0x00000001UL
-#define OWLY_RULE_BLOB_MAX_BYTES   (256 * 1024)
-
-typedef struct _OWLY_RULE_BLOB_MESSAGE
-{
-    ULONG type;       // COM_MESSAGE_TYPE
-    ULONG magic;      // OWLY_RULE_BLOB_MAGIC
-    ULONG version;    // OWLY_RULE_BLOB_VERSION
-    ULONG flags;      // OWLY_RULE_BLOB_FLAG_UTF16LE
-    ULONG rule_bytes; // size of rule_data in bytes
-    UCHAR rule_data[1];
-} OWLY_RULE_BLOB_MESSAGE, *POWLY_RULE_BLOB_MESSAGE;
 
 #define IOCTL_HOOK_PROCESS CTL_CODE(FILE_DEVICE_OWLYSHIELD, 0x803, METHOD_BUFFERED, FILE_ANY_ACCESS)
 

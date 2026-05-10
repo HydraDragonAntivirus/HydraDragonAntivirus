@@ -32,247 +32,6 @@ static PFILE_OBJECT g_HvFileObject = NULL;
 
 
 
-// Only the ELAM-backed Sanctum PPL service is allowed to own the user-mode
-// communication channel to this driver. Owlyshield UI/service code should talk
-// to Sanctum, and Sanctum can broker the driver connection from its protected
-// antimalware-light context.
-#define SANCTUM_PPL_RUNNER_DOS_PATH \
-    L"C:\\Program Files\\HydraDragonAntivirus\\hydradragon\\Sanctum\\AppData\\sanctum_ppl_runner.exe"
-#define SANCTUM_PPL_RUNNER_NT_PATH \
-    L"\\??\\C:\\Program Files\\HydraDragonAntivirus\\hydradragon\\Sanctum\\AppData\\sanctum_ppl_runner.exe"
-
-#define PS_PROTECTED_TYPE_PROTECTED_LIGHT 1
-#define PS_PROTECTED_SIGNER_ANTIMALWARE   3
-
-
-typedef UCHAR(NTAPI *PPS_GET_PROCESS_PROTECTION)(_In_ PEPROCESS Process);
-static PPS_GET_PROCESS_PROTECTION g_PsGetProcessProtection = NULL;
-
-static PPS_GET_PROCESS_PROTECTION ResolvePsGetProcessProtection(VOID)
-{
-    if (g_PsGetProcessProtection == NULL)
-    {
-        UNICODE_STRING routineName;
-        RtlInitUnicodeString(&routineName, L"PsGetProcessProtection");
-        g_PsGetProcessProtection =
-            (PPS_GET_PROCESS_PROTECTION)MmGetSystemRoutineAddress(&routineName);
-    }
-
-    return g_PsGetProcessProtection;
-}
-
-static BOOLEAN IsAntimalwareProtectedLightProcess(_In_ PEPROCESS Process)
-{
-    PPS_GET_PROCESS_PROTECTION fnGetProtection = ResolvePsGetProcessProtection();
-    UCHAR protection;
-    UCHAR type;
-    UCHAR signer;
-
-    if (Process == NULL || fnGetProtection == NULL)
-    {
-        return FALSE;
-    }
-
-    protection = fnGetProtection(Process);
-    type = protection & 0x07;
-    signer = (protection >> 4) & 0x0F;
-
-    return (type == PS_PROTECTED_TYPE_PROTECTED_LIGHT &&
-            signer == PS_PROTECTED_SIGNER_ANTIMALWARE);
-}
-
-static PUNICODE_STRING QueryCurrentProcessImagePath(VOID)
-{
-    NTSTATUS status;
-    HANDLE procHandle = NULL;
-    ULONG returnLength = 0;
-    PUNICODE_STRING imagePath = NULL;
-
-    if (ZwQueryInformationProcess == NULL)
-    {
-        return NULL;
-    }
-
-    status = ObOpenObjectByPointer(
-        PsGetCurrentProcess(),
-        OBJ_KERNEL_HANDLE,
-        NULL,
-        0,
-        *PsProcessType,
-        KernelMode,
-        &procHandle);
-    if (!NT_SUCCESS(status))
-    {
-        return NULL;
-    }
-
-    status = ZwQueryInformationProcess(
-        procHandle,
-        ProcessImageFileName,
-        NULL,
-        0,
-        &returnLength);
-    if (status != STATUS_INFO_LENGTH_MISMATCH || returnLength == 0)
-    {
-        ZwClose(procHandle);
-        return NULL;
-    }
-
-    imagePath = (PUNICODE_STRING)ExAllocatePool2(
-        POOL_FLAG_NON_PAGED,
-        returnLength,
-        'cRwO');
-    if (imagePath == NULL)
-    {
-        ZwClose(procHandle);
-        return NULL;
-    }
-
-    RtlZeroMemory(imagePath, returnLength);
-    status = ZwQueryInformationProcess(
-        procHandle,
-        ProcessImageFileName,
-        imagePath,
-        returnLength,
-        &returnLength);
-    ZwClose(procHandle);
-
-    if (!NT_SUCCESS(status) ||
-        imagePath->Buffer == NULL ||
-        imagePath->Length == 0)
-    {
-        ExFreePoolWithTag(imagePath, 'cRwO');
-        return NULL;
-    }
-
-    return imagePath;
-}
-
-
-
-static BOOLEAN IsSanctumRunnerImagePath(_In_ PCUNICODE_STRING ImagePath)
-{
-    if (ImagePath == NULL || ImagePath->Buffer == NULL || ImagePath->Length == 0)
-    {
-        return FALSE;
-    }
-
-    UNICODE_STRING ntPath;
-    RtlInitUnicodeString(&ntPath, SANCTUM_PPL_RUNNER_NT_PATH);
-
-    // 1. Strict Full Path match (case-insensitive)
-    if (RtlEqualUnicodeString(ImagePath, &ntPath, TRUE))
-    {
-        return TRUE;
-    }
-
-    // 2. Production Suffix match (Defense in Depth)
-    // This ensures that even if the drive letter or volume prefix varies, 
-    // the binary must reside in the specific production subfolder structure.
-    static const WCHAR productionSuffix[] = 
-        L"\\HydraDragonAntivirus\\hydradragon\\Sanctum\\AppData\\sanctum_ppl_runner.exe";
-    SIZE_T suffixChars = (sizeof(productionSuffix) / sizeof(WCHAR)) - 1;
-    SIZE_T pathChars = ImagePath->Length / sizeof(WCHAR);
-
-    if (pathChars >= suffixChars)
-    {
-        PCWSTR pathEnd = &ImagePath->Buffer[pathChars - suffixChars];
-        if (_wcsicmp(pathEnd, productionSuffix) == 0)
-        {
-            return TRUE;
-        }
-    }
-
-    return FALSE;
-}
-
-static BOOLEAN IsSanctumAntimalwareLightCaller(
-    _Outptr_result_maybenull_ PUNICODE_STRING *OutImagePath)
-{
-    PEPROCESS process = PsGetCurrentProcess();
-    PUNICODE_STRING imagePath = NULL;
-    BOOLEAN allowed = FALSE;
-
-    if (OutImagePath != NULL)
-    {
-        *OutImagePath = NULL;
-    }
-
-    if (!IsAntimalwareProtectedLightProcess(process))
-    {
-        DbgPrint("!!! FSfilter: RWFConnect - caller is not Antimalware ProtectedLight; rejecting\n");
-        return FALSE;
-    }
-
-    imagePath = QueryCurrentProcessImagePath();
-    if (imagePath == NULL)
-    {
-        DbgPrint("!!! FSfilter: RWFConnect - cannot query protected caller image path; rejecting\n");
-        return FALSE;
-    }
-
-    allowed = IsSanctumRunnerImagePath(imagePath);
-    if (OutImagePath != NULL)
-    {
-        *OutImagePath = imagePath;
-    }
-    else
-    {
-        ExFreePoolWithTag(imagePath, 'cRwO');
-    }
-
-    return allowed;
-}
-
-static NTSTATUS ValidateOwlyRuleBlob(
-    _In_ PVOID InputBuffer,
-    _In_ ULONG InputBufferLength,
-    _In_ ULONG ExpectedType,
-    _Outptr_result_bytebuffer_(*RuleBytes) PUCHAR *RuleBuffer,
-    _Out_ PULONG RuleBytes)
-{
-    POWLY_RULE_BLOB_MESSAGE blob;
-    ULONG headerSize;
-    SIZE_T requiredSize;
-
-    if (RuleBuffer == NULL || RuleBytes == NULL)
-    {
-        return STATUS_INVALID_PARAMETER;
-    }
-
-    *RuleBuffer = NULL;
-    *RuleBytes = 0;
-
-    headerSize = FIELD_OFFSET(OWLY_RULE_BLOB_MESSAGE, rule_data);
-    if (InputBuffer == NULL || InputBufferLength < headerSize)
-    {
-        return STATUS_INVALID_BUFFER_SIZE;
-    }
-
-    blob = (POWLY_RULE_BLOB_MESSAGE)InputBuffer;
-    if (blob->type != ExpectedType ||
-        blob->magic != OWLY_RULE_BLOB_MAGIC ||
-        blob->version != OWLY_RULE_BLOB_VERSION ||
-        blob->flags != OWLY_RULE_BLOB_FLAG_UTF16LE)
-    {
-        return STATUS_INVALID_PARAMETER;
-    }
-
-    if (blob->rule_bytes == 0 || blob->rule_bytes > OWLY_RULE_BLOB_MAX_BYTES)
-    {
-        return STATUS_INVALID_BUFFER_SIZE;
-    }
-
-    requiredSize = (SIZE_T)headerSize + (SIZE_T)blob->rule_bytes;
-    if (requiredSize > InputBufferLength)
-    {
-        return STATUS_BUFFER_TOO_SMALL;
-    }
-
-    *RuleBuffer = blob->rule_data;
-    *RuleBytes = blob->rule_bytes;
-    return STATUS_SUCCESS;
-}
 
 // Callback from Hypervisor (Intel/AMD)
 static VOID NTAPI OwlyHypervisorCallback(PVOID EventDetails) {
@@ -1206,29 +965,7 @@ RWFConnect(_In_ PFLT_PORT ClientPort, _In_opt_ PVOID ServerPortCookie,
     FLT_ASSERT(commHandle->ClientPort == NULL);
 
 
-    //
-    // --- Connection hardening ------------------------------------------------
-    // Only the exact Sanctum PPL runner may register/connect to the minifilter
-    // communication port, and it must be running as Antimalware ProtectedLight
-    // (the runtime equivalent of SERVICE_LAUNCH_PROTECTED_ANTIMALWARE_LIGHT).
-    // owlyshield_ransom.exe should not connect directly; it should communicate
-    // with Sanctum, and Sanctum owns the privileged driver channel.
-    // ------------------------------------------------------------------------
-    //
-
-    PUNICODE_STRING imagePath = NULL;
-    if (!IsSanctumAntimalwareLightCaller(&imagePath))
-    {
-        if (imagePath != NULL)
-        {
-            DbgPrint("!!! FSfilter: RWFConnect - REJECTED connection from: %wZ\n", imagePath);
-            ExFreePoolWithTag(imagePath, 'cRwO');
-        }
-        return STATUS_ACCESS_DENIED;
-    }
-
-    DbgPrint("!!! FSfilter: RWFConnect - ACCEPTED Sanctum AntimalwareLight connection from: %wZ\n", imagePath);
-    ExFreePoolWithTag(imagePath, 'cRwO');
+    DbgPrint("!!! FSfilter: RWFConnect - ACCEPTED connection\n");
 
     //
     //  Set the user process and port.
@@ -1401,57 +1138,18 @@ RWFNewMessage(IN PVOID PortCookie, IN PVOID InputBuffer, IN ULONG InputBufferLen
     UNREFERENCED_PARAMETER(PortCookie);
     *ReturnOutputBufferLength = 0;
 
-    COM_MESSAGE *message = static_cast<COM_MESSAGE *>(InputBuffer);
-    if (message == NULL)
-        return STATUS_INTERNAL_ERROR; // failed message type
+    if (InputBuffer == NULL || InputBufferLength < sizeof(COM_MESSAGE))
+    {
+        return STATUS_INVALID_PARAMETER;
+    }
 
-    if (message->type == MESSAGE_SET_OWLY_FSfilter_RULES)
+    COM_MESSAGE *message = static_cast<COM_MESSAGE *>(InputBuffer);
+
+    if (message->type == MESSAGE_SET_OWLY_FSfilter_RULES ||
+        message->type == MESSAGE_SET_OWLY_PROCESS_PROTECTION_RULES ||
+        message->type == MESSAGE_SET_OWLY_DYNAMIC_HOOK_EXCLUDE_RULES)
     {
-        PUCHAR ruleBuffer = NULL;
-        ULONG ruleBytes = 0;
-        NTSTATUS status = ValidateOwlyRuleBlob(
-            InputBuffer,
-            InputBufferLength,
-            MESSAGE_SET_OWLY_FSfilter_RULES,
-            &ruleBuffer,
-            &ruleBytes);
-        if (!NT_SUCCESS(status))
-        {
-            return status;
-        }
-        return FSSetPyasWhitelistRulesFromBuffer(ruleBuffer, ruleBytes);
-    }
-    else if (message->type == MESSAGE_SET_OWLY_PROCESS_PROTECTION_RULES)
-    {
-        PUCHAR ruleBuffer = NULL;
-        ULONG ruleBytes = 0;
-        NTSTATUS status = ValidateOwlyRuleBlob(
-            InputBuffer,
-            InputBufferLength,
-            MESSAGE_SET_OWLY_PROCESS_PROTECTION_RULES,
-            &ruleBuffer,
-            &ruleBytes);
-        if (!NT_SUCCESS(status))
-        {
-            return status;
-        }
-        return SetProcessProtectionExcludeRulesFromBuffer(ruleBuffer, ruleBytes);
-    }
-    else if (message->type == MESSAGE_SET_OWLY_DYNAMIC_HOOK_EXCLUDE_RULES)
-    {
-        PUCHAR ruleBuffer = NULL;
-        ULONG ruleBytes = 0;
-        NTSTATUS status = ValidateOwlyRuleBlob(
-            InputBuffer,
-            InputBufferLength,
-            MESSAGE_SET_OWLY_DYNAMIC_HOOK_EXCLUDE_RULES,
-            &ruleBuffer,
-            &ruleBytes);
-        if (!NT_SUCCESS(status))
-        {
-            return status;
-        }
-        return SetHookExcludeRulesFromBuffer(ruleBuffer, ruleBytes);
+        return STATUS_ACCESS_DENIED;
     }
 
     if (message->type == MESSAGE_ADD_SCAN_DIRECTORY)
@@ -1462,11 +1160,13 @@ RWFNewMessage(IN PVOID PortCookie, IN PVOID InputBuffer, IN ULONG InputBufferLen
         {
             return STATUS_INSUFFICIENT_RESOURCES;
         }
+        // Security Hardening: Ensure null termination
+        message->path[MAX_FILE_NAME_LENGTH - 1] = L'\0';
         NTSTATUS hr = CopyWString(newEntry->path, message->path, MAX_FILE_NAME_LENGTH);
         if (!NT_SUCCESS(hr))
         {
             delete newEntry;
-            return STATUS_INTERNAL_ERROR;
+            return STATUS_INVALID_PARAMETER;
         }
         *ReturnOutputBufferLength = 1;
         if (driverData->AddDirectoryEntry(newEntry))
@@ -1509,11 +1209,13 @@ RWFNewMessage(IN PVOID PortCookie, IN PVOID InputBuffer, IN ULONG InputBufferLen
         {
             return STATUS_INSUFFICIENT_RESOURCES;
         }
+        // Security Hardening: Ensure null termination
+        message->path[MAX_FILE_NAME_LENGTH - 1] = L'\0';
         NTSTATUS hr = CopyWString(newEntry->path, message->path, MAX_FILE_NAME_LENGTH);
         if (!NT_SUCCESS(hr))
         {
             delete newEntry;
-            return STATUS_INTERNAL_ERROR;
+            return STATUS_INVALID_PARAMETER;
         }
         *ReturnOutputBufferLength = 1;
         if (driverData->AddBlockedPath(newEntry))
@@ -1604,52 +1306,6 @@ RWFNewMessage(IN PVOID PortCookie, IN PVOID InputBuffer, IN ULONG InputBufferLen
         }
         return STATUS_INVALID_PARAMETER;
     }
-    // Add Generic Hook Config
-    else if (message->type == MESSAGE_ADD_HOOK)
-    {
-        HOOK_CONFIG_DATA config;
-        ANSI_STRING asFunc;
-        UNICODE_STRING usFunc;
-        NTSTATUS status;
-
-        RtlZeroMemory(&config, sizeof(config));
-        RtlCopyMemory(config.ModuleName, message->path, min(sizeof(config.ModuleName), sizeof(message->path)));
-        config.ModuleName[RTL_NUMBER_OF(config.ModuleName) - 1] = L'\0';
-
-        RtlInitUnicodeString(&usFunc, message->quarantine_path);
-        asFunc.Buffer = config.FunctionName;
-        asFunc.Length = 0;
-        asFunc.MaximumLength = (USHORT)sizeof(config.FunctionName);
-        status = RtlUnicodeStringToAnsiString(&asFunc, &usFunc, FALSE);
-        if (!NT_SUCCESS(status))
-        {
-            DbgPrint("!!! FS : MESSAGE_ADD_HOOK function conversion failed: 0x%X\n", status);
-            return status;
-        }
-        if (asFunc.Length < asFunc.MaximumLength)
-        {
-            asFunc.Buffer[asFunc.Length] = '\0';
-        }
-        else
-        {
-            config.FunctionName[RTL_NUMBER_OF(config.FunctionName) - 1] = '\0';
-        }
-
-        config.EventId = (ULONG)message->gid;
-        if (config.EventId == 0)
-        {
-            config.EventId = 0x6000u;
-        }
-
-        status = AddCustomHook(&config);
-        if (!NT_SUCCESS(status))
-        {
-            DbgPrint("!!! FS : MESSAGE_ADD_HOOK AddCustomHook failed: 0x%X\n", status);
-            return status;
-        }
-
-        return STATUS_SUCCESS;
-    }
     else if (message->type == MESSAGE_HOOK_PROCESS)
     {
         if (message->pid == 0)
@@ -1664,7 +1320,7 @@ RWFNewMessage(IN PVOID PortCookie, IN PVOID InputBuffer, IN ULONG InputBufferLen
         return status;
     }
 
-    return STATUS_INTERNAL_ERROR;
+    return STATUS_INVALID_DEVICE_REQUEST;
 }
 
 CommHandler *commHandle;

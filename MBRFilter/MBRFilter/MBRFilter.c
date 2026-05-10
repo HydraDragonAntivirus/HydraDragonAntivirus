@@ -61,6 +61,32 @@
 
 #include <wdm.h>
 
+#define PS_PROTECTED_TYPE_PROTECTED_LIGHT 1
+#define PS_PROTECTED_SIGNER_ANTIMALWARE   3
+
+typedef UCHAR(NTAPI *PFN_PS_GET_PROCESS_PROTECTION)(_In_ PEPROCESS Process);
+static PFN_PS_GET_PROCESS_PROTECTION g_PsGetProcessProtection = NULL;
+
+static BOOLEAN IsAntimalwareProtectedLightProcess(_In_ PEPROCESS Process)
+{
+    if (g_PsGetProcessProtection == NULL)
+    {
+        UNICODE_STRING routineName;
+        RtlInitUnicodeString(&routineName, L"PsGetProcessProtection");
+        g_PsGetProcessProtection = (PFN_PS_GET_PROCESS_PROTECTION)MmGetSystemRoutineAddress(&routineName);
+    }
+
+    if (g_PsGetProcessProtection == NULL)
+        return FALSE;
+
+    UCHAR level = g_PsGetProcessProtection(Process);
+    UCHAR type = level & 0x07;
+    UCHAR signer = (level >> 4) & 0x0F;
+
+    return (type == PS_PROTECTED_TYPE_PROTECTED_LIGHT &&
+            signer == PS_PROTECTED_SIGNER_ANTIMALWARE);
+}
+
 // Define the name for our new pipe for sending MBR alerts
 #define MBR_ALERT_PIPE_NAME L"\\Device\\NamedPipe\\Global\\mbr_filter_alerts"
 
@@ -437,63 +463,13 @@ static BOOLEAN IsValidPipeServerProcess(HANDLE PipeHandle)
     if (serverPid == 0) return FALSE; // Server not found
     
     // 2. Resolve the server PID to a process object.
-    status = PsLookupProcessByProcessId((HANDLE)serverPid, &serverProcess);
-    if (!NT_SUCCESS(status)) return FALSE;
-
-    // 3. Query the image path using the same helper we use for MBR alert attribution.
-    status = GetProcessImagePath(serverProcess, &imagePath);
-    ObDereferenceObject(serverProcess);
-
-    if (NT_SUCCESS(status) && imagePath != NULL && imagePath->Buffer != NULL && imagePath->Length > 0) {
-        // 4. Validate the path matches exactly C:\Program Files\HydraDragonAntivirus\owlyshield_ransom.exe
-        UNICODE_STRING dosName;
-        OBJECT_ATTRIBUTES linkObjAttr;
-        HANDLE linkHandle;
-        UNICODE_STRING driveCDeviceName = {0};
-
-        RtlInitUnicodeString(&dosName, L"\\??\\C:");
-        InitializeObjectAttributes(&linkObjAttr, &dosName, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
-
-        if (NT_SUCCESS(ZwOpenSymbolicLinkObject(&linkHandle, SYMBOLIC_LINK_QUERY, &linkObjAttr)))
+        status = PsLookupProcessByProcessId((HANDLE)serverPid, &serverProcess);
+        if (NT_SUCCESS(status) && serverProcess != NULL)
         {
-            driveCDeviceName.MaximumLength = 256 * sizeof(WCHAR);
-            driveCDeviceName.Buffer = (PWCH)ExAllocatePool2(POOL_FLAG_PAGED, driveCDeviceName.MaximumLength, 'pPiM');
-            
-            if (driveCDeviceName.Buffer)
-            {
-                if (NT_SUCCESS(ZwQuerySymbolicLinkObject(linkHandle, &driveCDeviceName, NULL)))
-                {
-                    if (RtlPrefixUnicodeString(&driveCDeviceName, imagePath, TRUE))
-                    {
-                        UNICODE_STRING remainingPart;
-                        remainingPart.Buffer = (PWCH)((PUCHAR)imagePath->Buffer + driveCDeviceName.Length);
-                        remainingPart.Length = imagePath->Length - driveCDeviceName.Length;
-                        remainingPart.MaximumLength = remainingPart.Length;
-                        
-                        // Normalize by trimming trailing spaces
-                        while (remainingPart.Length >= sizeof(WCHAR) && 
-                               remainingPart.Buffer[(remainingPart.Length / sizeof(WCHAR)) - 1] == L' ') {
-                            remainingPart.Length -= sizeof(WCHAR);
-                        }
-                        
-                        UNICODE_STRING expectedRemaining;
-                        RtlInitUnicodeString(&expectedRemaining, L"\\Program Files\\HydraDragonAntivirus\\hydradragon\\Owlyshield\\Owlyshield Service\\owlyshield_ransom.exe");
-                        
-                        if (RtlCompareUnicodeString(&remainingPart, &expectedRemaining, TRUE) == 0)
-                        {
-                            isValid = TRUE;
-                        }
-                    }
-                }
-                ExFreePoolWithTag(driveCDeviceName.Buffer, 'pPiM');
-            }
-            ZwClose(linkHandle);
+            // Standard PPL check for suite identity
+            isValid = IsAntimalwareProtectedLightProcess(serverProcess);
+            ObDereferenceObject(serverProcess);
         }
-    }
-    
-    if (imagePath) {
-        ExFreePool(imagePath);
-    }
     return isValid;
 }
 

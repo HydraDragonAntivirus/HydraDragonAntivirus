@@ -131,7 +131,6 @@ pub fn run() {
     driver
         .driver_set_app_pid()
         .expect("Cannot set driver app pid");
-    Logging::info("[VMM MODE] Dynamic MESSAGE_ADD_HOOK registration is enabled");
 
     let mut vecnew: Vec<u8> = vec![0u8; 65536];
 

@@ -428,6 +428,45 @@ static NTSTATUS FSAppendPyasRulesFromBufferToSet(_Inout_ PPYAS_WHITELIST_RULE_SE
     return STATUS_SUCCESS;
 }
 
+static NTSTATUS InitializeOwlyshieldRules(VOID)
+{
+    FSEnsurePyasRuleMutex();
+
+    ExAcquireFastMutex(&g_PyasWhitelistRules.Mutex);
+
+    // Dynamic hook exclude rules (normalized/contains match, case-insensitive)
+    (VOID) FSAddPyasWhitelistRuleNormalizedToSet(&g_PyasWhitelistRules, L"C:\\Windows\\System32\\smss.exe", 27);
+    (VOID) FSAddPyasWhitelistRuleNormalizedToSet(&g_PyasWhitelistRules, L"C:\\Windows\\System32\\csrss.exe", 28);
+    (VOID) FSAddPyasWhitelistRuleNormalizedToSet(&g_PyasWhitelistRules, L"C:\\Windows\\System32\\wininit.exe", 30);
+    (VOID) FSAddPyasWhitelistRuleNormalizedToSet(&g_PyasWhitelistRules, L"C:\\Windows\\System32\\winlogon.exe", 31);
+    (VOID) FSAddPyasWhitelistRuleNormalizedToSet(&g_PyasWhitelistRules, L"C:\\Windows\\System32\\lsass.exe", 28);
+    (VOID) FSAddPyasWhitelistRuleNormalizedToSet(&g_PyasWhitelistRules, L"C:\\Windows\\System32\\services.exe", 31);
+    (VOID) FSAddPyasWhitelistRuleNormalizedToSet(&g_PyasWhitelistRules, L"C:\\Windows\\System32\\svchost.exe", 30);
+    (VOID) FSAddPyasWhitelistRuleNormalizedToSet(&g_PyasWhitelistRules, L"C:\\Windows\\System32\\fontdrvhost.exe", 34);
+    (VOID) FSAddPyasWhitelistRuleNormalizedToSet(&g_PyasWhitelistRules, L"C:\\Windows\\System32\\sihost.exe", 29);
+    (VOID) FSAddPyasWhitelistRuleNormalizedToSet(&g_PyasWhitelistRules, L"C:\\Windows\\System32\\dwm.exe", 26);
+
+    // HydraDragonAntivirus-specific examples
+    (VOID) FSAddPyasWhitelistRuleNormalizedToSet(&g_PyasWhitelistRules, L"C:\\Program Files\\HydraDragonAntivirus", 38);
+    (VOID) FSAddPyasWhitelistRuleNormalizedToSet(&g_PyasWhitelistRules, L"C:\\ProgramData\\HydraDragonAntivirus", 37);
+    (VOID) FSAddPyasWhitelistRuleNormalizedToSet(&g_PyasWhitelistRules, L"C:\\ProgramData\\edrsvc", 22);
+    (VOID) FSAddPyasWhitelistRuleNormalizedToSet(&g_PyasWhitelistRules, L"C:\\Windows\\System32\\tasks\\hydradragonantivirus", 45);
+    (VOID) FSAddPyasWhitelistRuleNormalizedToSet(&g_PyasWhitelistRules, L"C:\\Windows\\System32\\edrpm64.dll", 29);
+    (VOID) FSAddPyasWhitelistRuleNormalizedToSet(&g_PyasWhitelistRules, L"C:\\Windows\\System32\\edrpm32.dll", 29);
+    (VOID) FSAddPyasWhitelistRuleNormalizedToSet(&g_PyasWhitelistRules, L"C:\\Windows\\System32\\edrmm.dll", 27);
+    (VOID) FSAddPyasWhitelistRuleNormalizedToSet(&g_PyasWhitelistRules, L"C:\\Windows\\System32\\drivers\\sanctum.sys", 39);
+    (VOID) FSAddPyasWhitelistRuleNormalizedToSet(&g_PyasWhitelistRules, L"C:\\Windows\\System32\\drivers\\edrdrv.sys", 38);
+    (VOID) FSAddPyasWhitelistRuleNormalizedToSet(&g_PyasWhitelistRules, L"C:\\Windows\\System32\\drivers\\OwlyshieldRansomFilter.sys", 55);
+    (VOID) FSAddPyasWhitelistRuleNormalizedToSet(&g_PyasWhitelistRules, L"C:\\Windows\\System32\\drivers\\RedDbgDrv.sys", 41);
+    (VOID) FSAddPyasWhitelistRuleNormalizedToSet(&g_PyasWhitelistRules, L"C:\\Windows\\System32\\drivers\\hyperhv.sys", 39);
+    (VOID) FSAddPyasWhitelistRuleNormalizedToSet(&g_PyasWhitelistRules, L"C:\\Program Files\\HydraDragonAntivirus\\hydradragon\\sanctum", 56);
+
+    g_PyasWhitelistRules.Loaded = TRUE;
+
+    ExReleaseFastMutex(&g_PyasWhitelistRules.Mutex);
+    return STATUS_SUCCESS;
+}
+
 NTSTATUS FSSetPyasWhitelistRulesFromBuffer(_In_reads_bytes_(BytesRead) PUCHAR Buffer, _In_ ULONG BytesRead)
 {
     PYAS_WHITELIST_RULE_SET stagedRules = {0};
@@ -791,6 +830,9 @@ Return Value:
         g_ImageNotifyRegistered = TRUE;
         DbgPrint("!!! FSfilter: Image load monitoring enabled (DLL/driver detection)\n");
     }
+
+    // Initialize hardcoded rules for boot protection
+    (VOID)InitializeOwlyshieldRules();
 
     DbgPrint("!!! FSfilter: ========================================\n");
     DbgPrint("!!! FSfilter: MONITORING COVERAGE:\n");

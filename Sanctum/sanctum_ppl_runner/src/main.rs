@@ -32,12 +32,8 @@ use windows::{
     core::{PCWSTR, PWSTR},
 };
 
-mod driver_control;
-mod hardcoded_rules;
 mod ipc;
 mod logging;
-mod owlyshield_control;
-mod pyas_control;
 mod tracing;
 
 static SERVICE_STOP: AtomicBool = AtomicBool::new(false);
@@ -75,15 +71,6 @@ fn run_service(h_status: SERVICE_STATUS_HANDLE) {
             EVENTLOG_INFORMATION_TYPE,
             EventID::Info,
         );
-
-        // Start all critical security drivers (they are DEMAND_START to avoid BSODs)
-        driver_control::start_security_drivers();
-
-        // Wait for drivers to finish initializing their device objects.
-        // sc start is asynchronous — the device symlinks may not exist yet.
-        driver_control::wait_for_driver_devices();
-
-        bootstrap_protected_driver_control();
 
         // start tracing session; we spawn this in its own os thread as it is blocking
         std::thread::spawn(|| {
@@ -370,45 +357,4 @@ fn svc_name() -> Vec<u16> {
     svc_name.push(0);
 
     svc_name
-}
-
-fn bootstrap_protected_driver_control() {
-    match pyas_control::refresh_hydradragon_protection_rules_from_embedded() {
-        Ok(()) => event_log(
-            "HydraDragon/Owlyshield protection rules loaded from Sanctum embedded defaults.",
-            EVENTLOG_INFORMATION_TYPE,
-            EventID::Info,
-        ),
-        Err(e) => event_log(
-            &format!("Failed to load embedded HydraDragon/Owlyshield protection rules: {}", e),
-            EVENTLOG_ERROR_TYPE,
-            EventID::GeneralError,
-        ),
-    }
-
-    match owlyshield_control::register_owlyshield_from_sanctum() {
-        Ok(()) => event_log(
-            "Owlyshield driver communication registered from Sanctum PPL runner.",
-            EVENTLOG_INFORMATION_TYPE,
-            EventID::Info,
-        ),
-        Err(e) => event_log(
-            &format!("Owlyshield Sanctum registration failed: {}", e),
-            EVENTLOG_ERROR_TYPE,
-            EventID::GeneralError,
-        ),
-    }
-
-    match owlyshield_control::push_embedded_owlyshield_rules_from_sanctum() {
-        Ok(()) => event_log(
-            "Owlyshield embedded rules pushed from Sanctum PPL runner.",
-            EVENTLOG_INFORMATION_TYPE,
-            EventID::Info,
-        ),
-        Err(e) => event_log(
-            &format!("Owlyshield embedded rule push failed: {}", e),
-            EVENTLOG_ERROR_TYPE,
-            EventID::GeneralError,
-        ),
-    }
 }
