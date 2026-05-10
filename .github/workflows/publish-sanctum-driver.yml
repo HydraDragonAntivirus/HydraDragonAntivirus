@@ -11,6 +11,7 @@ on:
       - 'Sanctum/sign_owlyshield_predict.bat'
       - 'Sanctum/sign_etw_consumer.bat'
       - '.github/workflows/publish-sanctum-driver.yml'
+      - '!Sanctum/driver/build.rs'
   workflow_dispatch:
 
 permissions:

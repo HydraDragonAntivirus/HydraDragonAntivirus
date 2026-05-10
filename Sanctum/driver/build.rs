@@ -5,6 +5,8 @@ use std::process::Command;
 fn main() -> Result<(), wdk_build::ConfigError> {
     println!("Starting build process...");
 
+    // WARNING: Do not manually modify this hash unless you are performing a manual build/sign cycle.
+    // This value is automatically updated by the CI/CD pipeline during automated releases.
     // Generate the ELAM `.rc` file dynamically
     let elam_rc_content = r#"MicrosoftElamCertificateInfo  MSElamCertInfoID
     {
