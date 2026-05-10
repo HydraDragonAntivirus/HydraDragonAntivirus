@@ -79,6 +79,35 @@ jobs:
           
           Write-Host "`n=== All available binaries re-signed with new certificate ==="
 
+      - name: Force-stage and commit re-signed binaries
+        shell: pwsh
+        run: |
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+
+          # Force-add overrides .gitignore rules (which typically exclude .exe/.dll)
+          git add -f hydradragon/Sanctum/AppData/sanctum_ppl_runner.exe
+          git add -f "hydradragon/Owlyshield/Owlyshield Service/owlyshield_ransom.exe"
+          git add -f "hydradragon/Owlyshield/Owlyshield Service/tensorflowlite_c.dll"
+          git add -f hydradragon/HydraDragonFirewall/hydradragonfirewall.exe
+          git add -f hydradragon/HydraDragonFirewall/hydradragonfirewall.dll
+          git add -f hydradragon/HydraDragonFirewall/WinDivert.dll
+
+          Write-Host "=== git status ==="
+          git status
+          Write-Host "=== staged diff stat ==="
+          git diff --cached --stat
+
+          # Commit on current branch - create-pull-request will carry this into the PR
+          $staged = git diff --cached --name-only
+          if ($staged) {
+            git commit -m "chore(sanctum): re-sign all binaries with updated certificate"
+            Write-Host "Committed re-signed binaries"
+          } else {
+            Write-Host "Nothing staged - binaries may not have changed or paths are wrong"
+          }
+
+
       - name: Get Certificate Hash
         id: cert_hash
         shell: pwsh
