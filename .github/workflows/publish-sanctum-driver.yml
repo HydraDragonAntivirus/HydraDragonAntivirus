@@ -143,17 +143,43 @@ jobs:
           if ($LASTEXITCODE -ne 0) {
             throw "Command failed with exit code ${LASTEXITCODE}: certmgr.exe -v $driverPackagePath"
           }
-          $hashLines = $certOutput | Select-String -Pattern "Content Hash \(To-Be-Signed Hash\)::" -Context 0,3
+          $hashLines = $certOutput | Select-String -Pattern "Content Hash \(To-Be-Signed Hash\)::" -Context 0,8
 
           if ($hashLines) {
-            $hashText = $hashLines[0].Context.PostContext -join ""
-            $hash = $hashText -replace '\s+', '' -replace '0x', ''
+            $hashBytes = New-Object System.Collections.Generic.List[string]
+            foreach ($line in $hashLines[0].Context.PostContext) {
+              # certmgr prints a hex dump plus an ASCII column; never include the ASCII column.
+              $byteArea = ($line -split "'", 2)[0]
+              $byteMatches = [regex]::Matches($byteArea, '(?i)(?<![0-9a-f])[0-9a-f]{2}(?![0-9a-f])') | Select-Object -First 16
+              foreach ($byteMatch in $byteMatches) {
+                if ($hashBytes.Count -lt 32) {
+                  $hashBytes.Add($byteMatch.Value.ToUpperInvariant())
+                }
+              }
+            
+              if ($hashBytes.Count -ge 32) {
+                break
+              }
+            }
+            
+            if ($hashBytes.Count -ne 32) {
+              throw "Expected 32 SHA256 bytes for ELAM To-Be-Signed hash, got $($hashBytes.Count). Raw certmgr context: $($hashLines[0].Context.PostContext -join ' | ')"
+            }
+            
+            $hash = -join $hashBytes
+            if ($hash -notmatch '^[0-9A-F]{64}$') {
+              throw "Extracted hash is not a 64-character SHA256 hex string: $hash"
+            }
             Write-Host "Extracted hash: $hash"
 
             $buildRsPath = "build.rs"
             $content = Get-Content $buildRsPath -Raw
-            $newContent = $content -replace 'L"[0-9A-Fa-f]+\\0"', "L`"$hash\\0`""
-            Set-Content $buildRsPath $newContent -Encoding UTF8
+            $hashRegex = [regex]'L"[^"]*\\{1,2}0",\s*// To-Be-Signed Hash'
+            $newContent = $hashRegex.Replace($content, "L`"$hash\0`", // To-Be-Signed Hash", 1)
+            if ($newContent -eq $content) {
+              throw "Could not find ELAM To-Be-Signed Hash line in build.rs"
+            }
+            [System.IO.File]::WriteAllText((Resolve-Path $buildRsPath), $newContent, [System.Text.UTF8Encoding]::new($false))
             Write-Host "Updated build.rs with hash: $hash"
 
             Write-Host "`n=== Step 5: Rebuilding with correct hash ($driverBuildProfile) ==="
