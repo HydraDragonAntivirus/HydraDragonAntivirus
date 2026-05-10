@@ -1,4 +1,4 @@
-name: Publish Sanctum Driver and Re-sign All Binaries
+name: Publish Sanctum Driver
 
 on:
   push:
@@ -6,12 +6,9 @@ on:
     paths:
       - 'Sanctum/driver/**'
       - 'Sanctum/shared_no_std/**'
-      - 'Sanctum/sign_ppl_runner.bat'
-      - 'Sanctum/sign_firewall.bat'
-      - 'Sanctum/sign_owlyshield_predict.bat'
-      - 'Sanctum/sign_etw_consumer.bat'
       - '.github/workflows/publish-sanctum-driver.yml'
       - '!Sanctum/driver/build.rs'
+      - '!Sanctum/driver/sanctum.pfx'
   workflow_dispatch:
 
 permissions:
@@ -19,7 +16,7 @@ permissions:
   pull-requests: write
 
 jobs:
-  build-sign-and-resign:
+  build-and-stage-driver:
     runs-on: windows-2022
     steps:
       - name: Enable Git long paths
