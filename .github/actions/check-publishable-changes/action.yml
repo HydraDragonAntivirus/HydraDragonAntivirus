@@ -52,6 +52,13 @@ runs:
         }
 
         $changedFiles = @($changedFiles | Where-Object { $_ -notmatch '(?i)\.pdb$' })
+
+        $ignoredYmlFiles = @($changedFiles | Where-Object { $_ -match '(?i)\.yml$' -and $_ -notmatch '(?i)resign-all-on-cert-change\.yml$' })
+        if ($ignoredYmlFiles.Count -gt 0) {
+          Write-Host "Ignoring unrelated workflow yml changes:"
+          $ignoredYmlFiles | ForEach-Object { Write-Host " - $_" }
+        }
+        $changedFiles = @($changedFiles | Where-Object { $_ -notmatch '(?i)\.yml$' -or $_ -match '(?i)resign-all-on-cert-change\.yml$' })
         if ($changedFiles.Count -eq 0) {
           "changed=false" >> $env:GITHUB_OUTPUT
           "zero_byte_files=" >> $env:GITHUB_OUTPUT
