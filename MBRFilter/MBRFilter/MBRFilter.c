@@ -61,31 +61,6 @@
 
 #include <wdm.h>
 
-#define PS_PROTECTED_TYPE_PROTECTED_LIGHT 1
-#define PS_PROTECTED_SIGNER_ANTIMALWARE   3
-
-typedef UCHAR(NTAPI *PFN_PS_GET_PROCESS_PROTECTION)(_In_ PEPROCESS Process);
-static PFN_PS_GET_PROCESS_PROTECTION g_PsGetProcessProtection = NULL;
-
-static BOOLEAN IsAntimalwareProtectedLightProcess(_In_ PEPROCESS Process)
-{
-    if (g_PsGetProcessProtection == NULL)
-    {
-        UNICODE_STRING routineName;
-        RtlInitUnicodeString(&routineName, L"PsGetProcessProtection");
-        g_PsGetProcessProtection = (PFN_PS_GET_PROCESS_PROTECTION)MmGetSystemRoutineAddress(&routineName);
-    }
-
-    if (g_PsGetProcessProtection == NULL)
-        return FALSE;
-
-    UCHAR level = g_PsGetProcessProtection(Process);
-    UCHAR type = level & 0x07;
-    UCHAR signer = (level >> 4) & 0x0F;
-
-    return (type == PS_PROTECTED_TYPE_PROTECTED_LIGHT &&
-            signer == PS_PROTECTED_SIGNER_ANTIMALWARE);
-}
 
 // Define the name for our new pipe for sending MBR alerts
 #define MBR_ALERT_PIPE_NAME L"\\Device\\NamedPipe\\Global\\mbr_filter_alerts"
@@ -410,68 +385,6 @@ NTSTATUS GetProcessImagePath(PEPROCESS eProcess, PUNICODE_STRING* ProcessImagePa
 static BOOLEAN g_PipeAvailable = FALSE;
 static BOOLEAN g_PipeUnavailableLogged = FALSE;
 
-// --- Helper: Validate Pipe Server Process ---
-static BOOLEAN IsValidPipeServerProcess(HANDLE PipeHandle)
-{
-    NTSTATUS status;
-    IO_STATUS_BLOCK ioStatus;
-    FILE_PROCESS_IDS_USING_FILE_INFORMATION procIds = { 0 };
-    BOOLEAN isValid = FALSE;
-    PEPROCESS serverProcess = NULL;
-    PUNICODE_STRING imagePath = NULL;
-    
-    // 1. Get process IDs using the pipe (should just be the server and us)
-    status = ZwQueryInformationFile(
-        PipeHandle,
-        &ioStatus,
-        &procIds,
-        sizeof(procIds),
-        FileProcessIdsUsingFileInformation
-    );
-    
-    // Only proceed if exactly one other process (the server) has it open, or we can get list
-    if (!NT_SUCCESS(status) && status != STATUS_INFO_LENGTH_MISMATCH) {
-        return FALSE; // Can't verify, deny by default
-    }
-    
-    // Allocate space for the process IDs list (it's dynamic)
-    ULONG listSize = sizeof(FILE_PROCESS_IDS_USING_FILE_INFORMATION) + 
-                     (sizeof(ULONG_PTR) * 16); // Up to 16 PIDs is plenty
-    PFILE_PROCESS_IDS_USING_FILE_INFORMATION pProcIds = 
-        (PFILE_PROCESS_IDS_USING_FILE_INFORMATION)ExAllocatePool2(POOL_FLAG_PAGED, listSize, 'pPiM');
-        
-    if (!pProcIds) return FALSE;
-        
-    status = ZwQueryInformationFile(PipeHandle, &ioStatus, pProcIds, listSize, FileProcessIdsUsingFileInformation);
-    if (!NT_SUCCESS(status)) {
-        ExFreePoolWithTag(pProcIds, 'pPiM');
-        return FALSE;
-    }
-    
-    // Find a PID that is not our own (the system process)
-    ULONG_PTR serverPid = 0;
-    ULONG_PTR currentPid = (ULONG_PTR)PsGetCurrentProcessId();
-    for (ULONG i = 0; i < pProcIds->NumberOfProcessIdsInList; i++) {
-        if (pProcIds->ProcessIdList[i] != currentPid && pProcIds->ProcessIdList[i] != 0) {
-            serverPid = pProcIds->ProcessIdList[i];
-            break;
-        }
-    }
-    
-    ExFreePoolWithTag(pProcIds, 'pPiM');
-    
-    if (serverPid == 0) return FALSE; // Server not found
-    
-    // 2. Resolve the server PID to a process object.
-        status = PsLookupProcessByProcessId((HANDLE)serverPid, &serverProcess);
-        if (NT_SUCCESS(status) && serverProcess != NULL)
-        {
-            // Standard PPL check for suite identity
-            isValid = IsAntimalwareProtectedLightProcess(serverProcess);
-            ObDereferenceObject(serverProcess);
-        }
-    return isValid;
-}
 
 // --- NEW FUNCTION: Send alert message to user-mode via named pipe ---
 // Updated with retry logic and STATUS_PENDING handling to prevent driver load failures
@@ -506,13 +419,6 @@ VOID SendAlertOverPipe(PUNICODE_STRING message)
 
         if (NT_SUCCESS(status))
         {
-            // Validate the pipe server process before writing
-            if (!IsValidPipeServerProcess(pipeHandle)) {
-                DbgPrintEx(DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL, "MBRF: Pipe connected but server process validation failed! Alert dropped to prevent interception.\n");
-                ZwClose(pipeHandle);
-                return; // Security failure: DO NOT send alert
-            }
-        
             // Log once when pipe becomes available
             if (!g_PipeAvailable)
             {
