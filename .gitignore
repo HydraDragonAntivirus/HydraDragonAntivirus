@@ -1,6 +1,3 @@
-# Nuitka constant blob files
-rcdata_10_3.bin*
-
 # Comodo
 /HydraDragonFirewall/tests/COMODO/CLT
 
