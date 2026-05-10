@@ -29,6 +29,7 @@ c:\windows\system32\edrpm64.dll
 c:\windows\system32\edrpm32.dll
 c:\windows\system32\edrmm.dll
 c:\windows\system32\drivers\sanctum.sys
+c:\windows\system32\drivers\edrdrv.sys
 c:\windows\system32\drivers\OwlyshieldRansomFilter.sys
 c:\windows\system32\drivers\RedDbgDrv.sys
 c:\windows\system32\drivers\hyperhv.sys
@@ -63,6 +64,7 @@ c:\windows\system32\edrpm64.dll
 c:\windows\system32\edrpm32.dll
 c:\windows\system32\edrmm.dll
 c:\windows\system32\drivers\sanctum.sys
+c:\windows\system32\drivers\edrdrv.sys
 c:\windows\system32\drivers\OwlyshieldRansomFilter.sys
 c:\windows\system32\drivers\RedDbgDrv.sys
 c:\windows\system32\drivers\hyperhv.sys
@@ -96,6 +98,7 @@ c:\windows\system32\edrpm64.dll
 c:\windows\system32\edrpm32.dll
 c:\windows\system32\edrmm.dll
 c:\windows\system32\drivers\sanctum.sys
+c:\windows\system32\drivers\edrdrv.sys
 c:\windows\system32\drivers\OwlyshieldRansomFilter.sys
 c:\windows\system32\drivers\RedDbg.sys
 c:\windows\system32\drivers\hyperhv.sys
@@ -159,6 +162,7 @@ c:\windows\system32\drivers\simplepyasprotection.sys
 c:\windows\system32\drivers\mbrfilter.sys
 c:\windows\system32\drivers\fs_minifilter.sys
 c:\windows\system32\drivers\sanctum.sys
+c:\windows\system32\drivers\edrdrv.sys
 
 # ---------------------------------------------------------------------------
 # OpenEDR Injection DLLs (Moved to System32)
@@ -199,6 +203,7 @@ c:\program files\hydradragonantivirus
 c:\programdata\hydradragonantivirus
 c:\programdata\edrsvc
 c:\windows\system32\drivers\sanctum.sys
+c:\windows\system32\drivers\edrdrv.sys
 c:\windows\system32\drivers\OwlyshieldRansomFilter.sys
 c:\windows\system32\drivers\RedDbgDrv.sys
 c:\windows\system32\drivers\hyperhv.sys
