@@ -40,12 +40,29 @@ jobs:
           }
           Copy-Item "Owlyshield/tools/rust_win_toast/target/release/RustWindowsToast.exe" $utilsDir -Force
 
+      - name: Set up MSVC Developer Command Prompt
+        uses: TheMrMilchmann/setup-msvc-dev@v4
+        with:
+          arch: x64
+
+      - name: Sign TensorFlow Lite
+        shell: pwsh
+        run: |
+          if (Test-Path "hydradragon\Owlyshield\Owlyshield Service\tensorflowlite_c.dll") {
+            Push-Location Sanctum
+            .\sign_tensorflowlite.bat
+            Pop-Location
+          } else {
+            Write-Host "SKIP: tensorflowlite_c.dll not found"
+          }
+
       - name: Check for publishable changes
         id: check_changes
         uses: ./.github/actions/check-publishable-changes
         with:
           paths: |
             hydradragon/Owlyshield/utils
+            hydradragon/Owlyshield/Owlyshield Service/tensorflowlite_c.dll
             Owlyshield/tools/rust_win_toast/Cargo.lock
 
       - name: Create PR

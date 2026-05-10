@@ -33,16 +33,6 @@ if exist "%BINARY_DIR%\owlyshield_ransom.exe" (
     exit /b 1
 )
 
-:: Sign tensorflow DLLs
-for %%F in ("%BINARY_DIR%\tensorflowlite*.dll") do (
-    echo Signing %%F...
-    "%SIGNTOOL_PATH%" sign /fd SHA256 /v /f "%PFX_FILE%" /p "%PFX_PASSWORD%" "%%F"
-    if %ERRORLEVEL% NEQ 0 (
-        echo [ERROR] Failed to sign %%F.
-        exit /b 1
-    )
-)
-
 echo [SUCCESS] Owlyshield binaries signed successfully!
 
 endlocal
