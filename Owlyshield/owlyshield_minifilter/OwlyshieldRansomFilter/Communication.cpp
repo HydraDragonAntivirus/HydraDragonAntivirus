@@ -1145,13 +1145,6 @@ RWFNewMessage(IN PVOID PortCookie, IN PVOID InputBuffer, IN ULONG InputBufferLen
 
     COM_MESSAGE *message = static_cast<COM_MESSAGE *>(InputBuffer);
 
-    if (message->type == MESSAGE_SET_OWLY_FSfilter_RULES ||
-        message->type == MESSAGE_SET_OWLY_PROCESS_PROTECTION_RULES ||
-        message->type == MESSAGE_SET_OWLY_DYNAMIC_HOOK_EXCLUDE_RULES)
-    {
-        return STATUS_ACCESS_DENIED;
-    }
-
     if (message->type == MESSAGE_ADD_SCAN_DIRECTORY)
     {
         DbgPrint("Recived add directory message\n");
