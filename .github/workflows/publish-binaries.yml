@@ -462,7 +462,6 @@ jobs:
               Invoke-Native ".\sign.bat" @($driverBuildProfile)
               Assert-DriverPackage "final signing"
               Write-Host "`n=== SUCCESS: Driver built and signed with matching hash ==="
-              Remove-Item -Path "sanctum_elam_hash.txt" -Force
           } else {
               Write-Host "ERROR: Could not extract hash from certificate"
               exit 1
@@ -826,6 +825,12 @@ jobs:
               Write-Host "Deleted branch: $branch"
             }
           }
+
+      - name: Cleanup temporary files
+        if: always()
+        shell: pwsh
+        run: |
+          Remove-Item -Path "Sanctum/driver/sanctum_elam_hash.txt" -Force -ErrorAction SilentlyContinue
 
       - name: Create PR
         if: steps.check_changes.outputs.changed == 'true'

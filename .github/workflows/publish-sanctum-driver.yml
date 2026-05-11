@@ -197,8 +197,8 @@ jobs:
             Invoke-Native ".\sign.bat" @($driverBuildProfile)
             Assert-DriverPackage "final signing"
             Write-Host "`n=== SUCCESS: Driver built and signed with matching hash ==="
+            Set-Content -Path "sanctum_elam_hash.txt" -Value $hash -NoNewline
             echo "elam_hash=$hash" >> $env:GITHUB_OUTPUT
-            Remove-Item -Path "sanctum_elam_hash.txt" -Force
           } else {
             Write-Host "ERROR: Could not extract hash from certificate"
             exit 1
@@ -210,8 +210,9 @@ jobs:
           $dist = "hydradragon/Sanctum/AppData"
           $artifact = "artifact/sanctum-driver"
           New-Item -ItemType Directory -Force -Path $dist, $artifact | Out-Null
-          Copy-Item "Sanctum/driver/target/release/sanctum_package/sanctum.sys" "$dist/sanctum.sys" -Force
-          Copy-Item "Sanctum/driver/target/release/sanctum_package/sanctum.sys" "$artifact/sanctum.sys" -Force
+          Copy-Item "Sanctum/driver/target/release/sanctum_package/sanctum.sys" "$dist/sanctum.sys" -Force -ErrorAction Stop
+          Copy-Item "Sanctum/driver/target/release/sanctum_package/sanctum.sys" "$artifact/sanctum.sys" -Force -ErrorAction Stop
+          Copy-Item "Sanctum/driver/sanctum_elam_hash.txt" "$artifact/sanctum_elam_hash.txt" -Force -ErrorAction SilentlyContinue
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v7
@@ -220,6 +221,12 @@ jobs:
           path: artifact/sanctum-driver/
           if-no-files-found: error
 
+
+      - name: Cleanup temporary files
+        if: always()
+        shell: pwsh
+        run: |
+          Remove-Item -Path "Sanctum/driver/sanctum_elam_hash.txt" -Force -ErrorAction SilentlyContinue
 
       - name: Check for publishable changes
         id: check_changes
