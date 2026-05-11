@@ -147,6 +147,57 @@
     -moz-osx-font-smoothing: grayscale;
 }
 
+/* ── Global Form Elements ────────────────────────────────── */
+input[type="text"],
+input[type="number"],
+input[type="password"],
+input[type="email"],
+textarea,
+select {
+    background: var(--bg-deep) !important;
+    border: 1px solid var(--border-main) !important;
+    color: var(--t-primary) !important;
+    border-radius: var(--radius-sm);
+    padding: 10px 14px;
+    font-family: inherit;
+    font-size: 13px;
+    transition: var(--transition);
+    outline: none;
+    width: 100%;
+    box-shadow: none;
+}
+
+select {
+    appearance: none;
+    cursor: pointer;
+    background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='rgba(148, 163, 184, 0.8)' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e") !important;
+    background-repeat: no-repeat !important;
+    background-position: right 12px center !important;
+    background-size: 14px !important;
+    padding-right: 36px !important;
+}
+
+input:focus,
+textarea:focus,
+select:focus {
+    border-color: var(--accent-blue) !important;
+    box-shadow: 0 0 10px var(--glow-blue) !important;
+}
+
+/* Fix for dropdown options appearing white-on-white or dark-on-dark */
+select option {
+    background: var(--bg-sidebar);
+    color: var(--t-primary);
+    padding: 10px;
+}
+
+/* Ensure placeholder and internal text visibility */
+input::placeholder,
+textarea::placeholder {
+    color: var(--t-muted);
+    opacity: 0.6;
+}
+
 /* ══════════════════════════════════════════════════════════════
    BODY
    ══════════════════════════════════════════════════════════════ */
@@ -2118,7 +2169,7 @@ main {
     padding: 9px 14px;
     border-radius: var(--r-sm);
     border: 1px solid var(--border);
-    background: rgba(4, 5, 10, 0.8);
+    background: var(--bg-deep);
     color: var(--t1);
     font-size: 12.5px;
     font-family: 'Space Grotesk', sans-serif;

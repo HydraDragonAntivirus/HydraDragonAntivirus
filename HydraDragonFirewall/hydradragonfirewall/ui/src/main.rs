@@ -2640,7 +2640,7 @@ pub fn App() -> impl IntoView {
                                                 // Left: list
                                                 <div class="glass-card" style="flex: 1; overflow-y: auto; display: flex; flex-direction: column">
                                                     <div class="section-header">
-                                                        <h3 style="margin: 0">"Body Changer Rules"</h3>
+                                                        <h3 style="margin: 0; color: var(--t-primary)">"Body Changer Rules"</h3>
                                                         <button class="btn-primary" style="padding: 5px 14px; font-size: 12px"
                                                             on:click=move |_| {
                                                                 // Clear the form for a new rule
@@ -2797,7 +2797,7 @@ pub fn App() -> impl IntoView {
                                             <div style="display: flex; flex-direction: column; gap: 15px; height: 100%; overflow: hidden">
                                                 <div class="glass-card" style="flex: 1; overflow-y: auto; display: flex; flex-direction: column">
                                                     <div class="section-header">
-                                                        <h3 style="margin: 0">"Active SDK Rules"</h3>
+                                                        <h3 style="margin: 0; color: var(--t-primary)">"Active SDK Rules"</h3>
                                                         <span style="font-size: 11px; opacity: 0.6">"Real-time Behavioral Enforcement"</span>
                                                     </div>
                                                     <div style="padding: 15px; flex: 1; overflow-y: auto">
@@ -2854,7 +2854,7 @@ pub fn App() -> impl IntoView {
                                     <div style="width: 360px; min-width: 320px; display: flex; flex-direction: column; gap: 14px; min-height: 0; overflow-y: auto; padding-right: 4px;">
                                         <div class="glass-card" style="padding: 18px; display: flex; flex-direction: column; gap: 12px;">
                                             <div class="section-header" style="padding: 0; border: none;">
-                                                <h3 style="margin: 0;">"Owlyshield Report Manager"</h3>
+                                                <h3 style="margin: 0; color: var(--t-primary)">"Owlyshield Report Manager"</h3>
                                             </div>
                                             <p style="margin: 0; color: var(--text-muted); font-size: 12px; line-height: 1.55;">
                                                 "Advanced reports are requested from the firewall GUI, but generation is handled by the Owlyshield backend."
@@ -2897,7 +2897,7 @@ pub fn App() -> impl IntoView {
                                     <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 12px; min-height: 0;">
                                         <div class="glass-card" style="padding: 14px 16px; font-size: 12px; color: var(--text-muted); display: flex; flex-direction: column; gap: 10px;">
                                             <div class="section-header" style="padding: 0; border: none;">
-                                                <h3 style="margin: 0;">"Generated Report Browser"</h3>
+                                                <h3 style="margin: 0; color: var(--t-primary)">"Generated Report Browser"</h3>
                                                 <div style="display: flex; gap: 8px;">
                                                     <button class="btn-secondary" on:click=move |_| set_current_view.set(AppView::Rules)>
                                                         "Open Rules Editor"
@@ -2957,7 +2957,7 @@ pub fn App() -> impl IntoView {
                                         <div style="flex: 1; min-height: 0; display: flex; gap: 14px;">
                                             <div class="glass-card" style="width: 320px; min-width: 280px; display: flex; flex-direction: column; min-height: 0;">
                                                 <div class="section-header">
-                                                    <h3 style="margin: 0;">"Reports"</h3>
+                                                    <h3 style="margin: 0; color: var(--t-primary)">"Reports"</h3>
                                                     <span style="font-size: 11px; opacity: 0.7;">{move || owlyshield_report_files.get().len().to_string()}</span>
                                                 </div>
                                                 <div style="padding: 12px; display: flex; flex-direction: column; gap: 8px; overflow-y: auto; min-height: 0;">
@@ -3020,7 +3020,7 @@ pub fn App() -> impl IntoView {
 
                                             <div class="glass-card" style="flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0;">
                                                 <div class="section-header">
-                                                    <h3 style="margin: 0;">"Report Details"</h3>
+                                                    <h3 style="margin: 0; color: var(--t-primary)">"Report Details"</h3>
                                                     <span style="font-size: 11px; opacity: 0.7;">
                                                         {move || selected_owlyshield_report_path.get().unwrap_or_else(|| "No report selected".to_string())}
                                                     </span>
@@ -3044,7 +3044,7 @@ pub fn App() -> impl IntoView {
                                         <div style="display: flex; gap: 14px; min-height: 280px; max-height: 340px;">
                                             <div class="glass-card" style="flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0;">
                                                 <div class="section-header">
-                                                    <h3 style="margin: 0;">"Quarantine Manager"</h3>
+                                                    <h3 style="margin: 0; color: var(--t-primary)">"Quarantine Manager"</h3>
                                                 </div>
                                                 <div style="padding: 14px; display: flex; flex-direction: column; gap: 10px; min-height: 0; overflow: hidden;">
                                                     <p style="margin: 0; color: var(--text-muted); font-size: 12px; line-height: 1.55;">
@@ -3081,7 +3081,7 @@ pub fn App() -> impl IntoView {
 
                                             <div class="glass-card" style="flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0;">
                                                 <div class="section-header">
-                                                    <h3 style="margin: 0;">"Owlyshield Activity"</h3>
+                                                    <h3 style="margin: 0; color: var(--t-primary)">"Owlyshield Activity"</h3>
                                                 </div>
                                                 <div style="padding: 14px; display: flex; flex-direction: column; gap: 10px; min-height: 0; overflow: hidden;">
                                                     <p style="margin: 0; color: var(--text-muted); font-size: 12px; line-height: 1.55;">
@@ -3119,7 +3119,7 @@ pub fn App() -> impl IntoView {
                                 <div class="dashboard-grid" style="height: calc(100vh - 120px)">
                                     <div class="glass-card" style="width: 100%; display: flex; flex-direction: column; min-height: 0; overflow: hidden">
                                         <div class="section-header">
-                                            <h3>"Allowed Applications"</h3>
+                                            <h3 style="color: var(--t-primary)">"Allowed Applications"</h3>
                                             <button class="btn-primary" style="background: var(--accent-red)" on:click=move |_| clear_all_decisions()> "REMOVE ALL" </button>
                                         </div>
                                         <div class="exclusions-list" style="min-height: 0; overflow-y: auto;">
@@ -3152,7 +3152,7 @@ pub fn App() -> impl IntoView {
                                 <div class="dashboard-grid" style="height: calc(100vh - 120px)">
                                     <div class="glass-card dash-col-main" style="flex: 2; overflow-y: auto">
                                         <div class="section-header">
-                                            <h3 style="margin: 0; font-size: 16px; font-weight: 700">"Network Activity Log"</h3>
+                                            <h3 style="margin: 0; font-size: 16px; font-weight: 700; color: var(--t-primary)">"Network Activity Log"</h3>
                                             <button
                                                 class="btn-primary"
                                                 style="padding: 5px 15px; font-size: 11px"
@@ -3200,7 +3200,7 @@ pub fn App() -> impl IntoView {
                                         </div>
                                     </div>
                                     <div class="glass-card dash-col-side" style="flex: 1; overflow-y: auto">
-                                        <h3>"Log Details"</h3>
+                                        <h3 style="color: var(--t-primary)">"Log Details"</h3>
                                         {move || match selected_log.get() {
                                             Some(entry) => view! {
                                                 <div style="font-size: 12px; display: flex; flex-direction: column; gap: 10px">
@@ -3210,7 +3210,7 @@ pub fn App() -> impl IntoView {
                                                     {entry.details_json.clone().map(|json| view! {
                                                         <div>
                                                             <div style="margin-top: 8px"><strong>"JSON Details"</strong></div>
-                                                            <div style="background: #000; padding: 10px; border-radius: 4px; font-family: monospace; font-size: 11px; word-break: break-all; white-space: pre-wrap; max-height: 520px; overflow-y: auto">
+                                                            <div style="background: var(--bg-deep); border: 1px solid var(--border-main); padding: 10px; border-radius: 4px; font-family: monospace; font-size: 11px; word-break: break-all; white-space: pre-wrap; max-height: 520px; overflow-y: auto">
                                                                 {json}
                                                             </div>
                                                         </div>
@@ -3233,7 +3233,7 @@ pub fn App() -> impl IntoView {
                                 <div class="dashboard-grid" style="height: calc(100vh - 120px)">
                                     <div class="glass-card dash-col-main" style="flex: 2; overflow-y: auto">
                                         <div class="section-header">
-                                            <h3>"Live Packet Stream"</h3>
+                                            <h3 style="color: var(--t-primary)">"Live Packet Stream"</h3>
                                             <button class="btn-primary" style="padding: 5px 15px; font-size: 11px" on:click=move |_| set_raw_packets.set(Vec::new())> "Clear" </button>
                                         </div>
                                         <div class="logs-viewport">
@@ -3258,7 +3258,7 @@ pub fn App() -> impl IntoView {
                                         </div>
                                     </div>
                                     <div class="glass-card dash-col-side" style="flex: 1">
-                                        <h3>"Packet Inspection"</h3>
+                                        <h3 style="color: var(--t-primary)">"Packet Inspection"</h3>
                                         {move || match selected_packet.get() {
                                             Some(p) => {
                                                 let (hex_lines, matched_markers) = build_packet_hex_lines(&p);
@@ -3468,7 +3468,7 @@ pub fn App() -> impl IntoView {
                                 <div class="dashboard-grid" style="height: calc(100vh - 120px)">
                                     <div class="glass-card dash-col-main" style="flex: 2; overflow-y: auto">
                                         <div class="section-header">
-                                            <h3>"HTTP Traffic (TLS Proxy)"</h3>
+                                            <h3 style="color: var(--t-primary)">"HTTP Traffic (TLS Proxy)"</h3>
                                             <button class="btn-primary" style="padding: 5px 15px; font-size: 11px"
                                                 on:click=move |_| { set_proxy_events.set(Vec::new()); set_selected_proxy_event.set(None); }>
                                                 "Clear"
@@ -3495,7 +3495,7 @@ pub fn App() -> impl IntoView {
                                         </div>
                                     </div>
                                     <div class="glass-card dash-col-side" style="flex: 1; overflow-y: auto">
-                                        <h3>"Request Detail"</h3>
+                                        <h3 style="color: var(--t-primary)">"Request Detail"</h3>
                                         {move || match selected_proxy_event.get() {
                                             None => view! { <div style="color: var(--text-muted)">"Select a request to inspect"</div> }.into_view(),
                                             Some(ev) => view! {
@@ -3514,7 +3514,7 @@ pub fn App() -> impl IntoView {
                                                                 {if ev.request_body_truncated { " (truncated at 64 KB)" } else { "" }}
                                                                 ":"
                                                             </div>
-                                                            <div style="background: #000; padding: 10px; border-radius: 4px; font-family: monospace; font-size: 11px; word-break: break-all; white-space: pre-wrap; max-height: 200px; overflow-y: auto">
+                                                            <div style="background: var(--bg-deep); border: 1px solid var(--border-main); padding: 10px; border-radius: 4px; font-family: monospace; font-size: 11px; word-break: break-all; white-space: pre-wrap; max-height: 200px; overflow-y: auto">
                                                                 {body}
                                                             </div>
                                                         </div>
@@ -3526,7 +3526,7 @@ pub fn App() -> impl IntoView {
                                                                 {if ev.response_body_truncated { " (truncated at 64 KB)" } else { "" }}
                                                                 ":"
                                                             </div>
-                                                            <div style="background: #000; padding: 10px; border-radius: 4px; font-family: monospace; font-size: 11px; word-break: break-all; white-space: pre-wrap; max-height: 200px; overflow-y: auto">
+                                                            <div style="background: var(--bg-deep); border: 1px solid var(--border-main); padding: 10px; border-radius: 4px; font-family: monospace; font-size: 11px; word-break: break-all; white-space: pre-wrap; max-height: 200px; overflow-y: auto">
                                                                 {body}
                                                             </div>
                                                         </div>
@@ -3566,7 +3566,7 @@ pub fn App() -> impl IntoView {
                                         {move || match settings_sub_tab.get() {
                                             SettingsSubTab::General => view! {
                                                 <div class="glass-card" style="width: 100%; min-height: 0">
-                                                    <h3>"System Settings"</h3>
+                                                    <h3 style="color: var(--t-primary)">"System Settings"</h3>
                                                     <p style="margin: 0 0 18px 0; color: var(--text-muted); font-size: 12px; line-height: 1.5">
                                                         "The normal GUI stays active. Raw JSON is available below, and saving from this page now preserves the extra settings fields instead of dropping them."
                                                     </p>
@@ -3946,7 +3946,7 @@ pub fn App() -> impl IntoView {
                                             }.into_view(),
                                             SettingsSubTab::About => view! {
                                                 <div class="glass-card" style="padding: 24px">
-                                                    <h3>"About HydraDragon Firewall"</h3>
+                                                    <h3 style="color: var(--t-primary)">"About HydraDragon Firewall"</h3>
                                                     <div style="margin-top: 20px; display: flex; flex-direction: column; gap: 15px">
                                                         <div style="display: flex; align-items: center; gap: 12px">
                                                             <div style="width: 48px; height: 48px; background: var(--accent-blue); border-radius: 12px; display: flex; align-items: center; justify-content: center">
@@ -3976,7 +3976,7 @@ pub fn App() -> impl IntoView {
 
                                                         <div style="margin-top: 10px">
                                                             <div style="font-size: 13px; font-weight: 700; margin-bottom: 10px">"README.md Content"</div>
-                                                            <textarea readonly style="width: 100%; min-height: 400px; padding: 15px; border-radius: 10px; background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.1); color: #ccc; font-family: 'Consolas', monospace; font-size: 12px; resize: vertical">
+                                                            <textarea readonly style="width: 100%; min-height: 400px; padding: 15px; border-radius: 10px; background: var(--bg-deep); border: 1px solid var(--border-main); color: var(--t-primary); font-family: 'Consolas', monospace; font-size: 12px; resize: vertical">
                                                                 {readme_content.get()}
                                                             </textarea>
                                                         </div>
@@ -3985,7 +3985,7 @@ pub fn App() -> impl IntoView {
                                             }.into_view(),
                                             SettingsSubTab::Help => view! {
                                                 <div class="glass-card" style="padding: 24px">
-                                                    <h3>"Help & Documentation"</h3>
+                                                    <h3 style="color: var(--t-primary)">"Help & Documentation"</h3>
                                                     <div style="margin-top: 20px; display: flex; flex-direction: column; gap: 20px">
                                                         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 15px">
                                                             <div style="padding: 15px; border-radius: 10px; background: rgba(59, 130, 246, 0.05); border: 1px solid rgba(59, 130, 246, 0.1)">
@@ -4000,7 +4000,7 @@ pub fn App() -> impl IntoView {
 
                                                         <div>
                                                             <div style="font-size: 13px; font-weight: 700; margin-bottom: 10px">"Project Documentation"</div>
-                                                            <textarea readonly style="width: 100%; min-height: 500px; padding: 15px; border-radius: 10px; background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.1); color: #ccc; font-family: 'Consolas', monospace; font-size: 12px; resize: vertical">
+                                                            <textarea readonly style="width: 100%; min-height: 500px; padding: 15px; border-radius: 10px; background: var(--bg-deep); border: 1px solid var(--border-main); color: var(--t-primary); font-family: 'Consolas', monospace; font-size: 12px; resize: vertical">
                                                                 {readme_content.get()}
                                                             </textarea>
                                                         </div>
