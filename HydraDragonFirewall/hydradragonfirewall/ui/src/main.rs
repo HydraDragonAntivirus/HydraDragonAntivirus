@@ -206,25 +206,6 @@ fn build_proxy_log_entry(ev: &ProxyHttpEvent) -> LogEntry {
     }
 }
 
-fn is_blocked_log_entry(log: &LogEntry) -> bool {
-    if matches!(log.level, LogLevel::Error) {
-        return true;
-    }
-
-    let message = log.message.to_ascii_lowercase();
-    message.starts_with("blocked:")
-        || message.contains(" blocked")
-        || message.contains("blocked by")
-        || message.contains("access denied")
-        || message.contains("quarantine")
-        || message.contains("terminate")
-        || message.contains("kill")
-}
-
-fn should_show_log_entry(log: &LogEntry, settings: &FirewallSettings) -> bool {
-    !settings.show_blocked_only || is_blocked_log_entry(log)
-}
-
 const ACTIVITY_GRAPH_POINTS: usize = 24;
 const ACTIVITY_GRAPH_INTERVAL_MS: u64 = 2000;
 const ACTIVITY_GRAPH_WIDTH: f64 = 600.0;
@@ -1298,11 +1279,7 @@ pub fn App() -> impl IntoView {
     let fetch_saved_logs = move || {
         spawn_local(async move {
             let res = invoke("get_saved_logs", JsValue::NULL).await;
-            if let Ok(mut saved_logs) = serde_wasm_bindgen::from_value::<Vec<LogEntry>>(res) {
-                let current_settings = settings.get_untracked();
-                if current_settings.show_blocked_only {
-                    saved_logs.retain(is_blocked_log_entry);
-                }
+            if let Ok(saved_logs) = serde_wasm_bindgen::from_value::<Vec<LogEntry>>(res) {
                 if !saved_logs.is_empty() {
                     set_logs.set(saved_logs);
                 }
@@ -1639,12 +1616,9 @@ pub fn App() -> impl IntoView {
             if let Ok(payload) = serde_wasm_bindgen::from_value::<serde_json::Value>(event) {
                 if let Some(payload_obj) = payload.get("payload") {
                     if let Ok(entry) = serde_json::from_value::<LogEntry>(payload_obj.clone()) {
-                        let current_settings = settings.get_untracked();
-                        if !should_show_log_entry(&entry, &current_settings) {
-                            return;
-                        }
                         set_logs.update(|l| {
                             l.push(entry.clone());
+                            let current_settings = settings.get_untracked();
                             if current_settings.prune_old_logs {
                                 let keep = current_settings.max_visible_logs.max(1);
                                 if l.len() > keep {
@@ -1706,11 +1680,11 @@ pub fn App() -> impl IntoView {
             if let Ok(payload) = serde_wasm_bindgen::from_value::<serde_json::Value>(event) {
                 if let Some(payload_obj) = payload.get("payload") {
                     if let Ok(pkt) = serde_json::from_value::<RawPacket>(payload_obj.clone()) {
-                        let pkt_log = build_raw_packet_log_entry(&pkt);
                         let current_settings = settings.get_untracked();
-                        if !should_show_log_entry(&pkt_log, &current_settings) {
+                        if current_settings.show_blocked_only && !pkt.action.eq_ignore_ascii_case("block") {
                             return;
                         }
+                        let pkt_log = build_raw_packet_log_entry(&pkt);
                         set_raw_packet_count.update(|count| *count += 1);
                         set_raw_packets.update(|p| {
                             p.push(pkt);
@@ -1741,11 +1715,11 @@ pub fn App() -> impl IntoView {
             if let Ok(payload) = serde_wasm_bindgen::from_value::<serde_json::Value>(event) {
                 if let Some(payload_obj) = payload.get("payload") {
                     if let Ok(ev) = serde_json::from_value::<ProxyHttpEvent>(payload_obj.clone()) {
-                        let http_log = build_proxy_log_entry(&ev);
                         let current_settings = settings.get_untracked();
-                        if !should_show_log_entry(&http_log, &current_settings) {
+                        if current_settings.show_blocked_only {
                             return;
                         }
+                        let http_log = build_proxy_log_entry(&ev);
                         set_proxy_event_count.update(|count| *count += 1);
                         set_proxy_events.update(|p| {
                             p.push(ev);
@@ -3296,14 +3270,7 @@ pub fn App() -> impl IntoView {
                                         </div>
                                         <div class="logs-viewport">
                                             <For
-                                                each={move || {
-                                                    let current_settings = settings.get();
-                                                    logs.get()
-                                                        .into_iter()
-                                                        .filter(|entry| should_show_log_entry(entry, &current_settings))
-                                                        .rev()
-                                                        .collect::<Vec<_>>()
-                                                }}
+                                                each={move || logs.get().into_iter().rev().collect::<Vec<_>>()}
                                                 key={|log_entry| log_entry.id.clone()}
                                                 children={move |log_entry| {
                                                     let ts = log_entry.timestamp % 100000;

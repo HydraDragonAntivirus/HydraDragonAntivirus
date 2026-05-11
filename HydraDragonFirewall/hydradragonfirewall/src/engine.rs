@@ -276,9 +276,6 @@ fn persist_log_entry(entry: &LogEntry, settings: Option<&FirewallSettings>) {
     if settings.is_some_and(|current| !current.save_all_logs) {
         return;
     }
-    if settings.is_some_and(|current| current.show_blocked_only && !is_blocked_log_entry(entry)) {
-        return;
-    }
 
     let log_path = firewall_log_file_path();
     if let Some(parent) = log_path.parent() {
@@ -330,31 +327,10 @@ pub fn load_saved_logs(limit: Option<usize>) -> Vec<LogEntry> {
         .collect()
 }
 
-fn is_blocked_log_entry(entry: &LogEntry) -> bool {
-    if entry.level == LogLevel::Error {
-        return true;
-    }
-
-    let message = entry.message.to_ascii_lowercase();
-    message.starts_with("blocked:")
-        || message.contains(" blocked")
-        || message.contains("blocked by")
-        || message.contains("access denied")
-        || message.contains("quarantine")
-        || message.contains("terminate")
-        || message.contains("kill")
-}
-
 pub fn emit_log_event<R: Runtime>(app: &AppHandle<R>, entry: LogEntry) {
     let settings_snapshot = app
         .try_state::<Arc<FirewallEngine>>()
         .map(|engine| engine.settings.read().unwrap().clone());
-    if settings_snapshot
-        .as_ref()
-        .is_some_and(|current| current.show_blocked_only && !is_blocked_log_entry(&entry))
-    {
-        return;
-    }
     persist_log_entry(&entry, settings_snapshot.as_ref());
     let _ = app.emit("log", entry);
 }
@@ -2354,17 +2330,17 @@ impl FirewallEngine {
             return Vec::new();
         }
 
+        if settings.show_blocked_only {
+            return Vec::new();
+        }
+
         let limit = if settings.prune_old_logs {
             Some(settings.max_visible_logs.max(1))
         } else {
             None
         };
 
-        let mut logs = load_saved_logs(limit);
-        if settings.show_blocked_only {
-            logs.retain(is_blocked_log_entry);
-        }
-        logs
+        load_saved_logs(limit)
     }
 
     #[cfg(target_os = "windows")]
@@ -3193,7 +3169,9 @@ impl FirewallEngine {
                         match divert_w.recv(Some(&mut buffer)) {
                             Ok(packet) => {
                                 packet_count += 1;
-                                if packet_count % 100 == 0 {
+                                if packet_count % 100 == 0
+                                    && !settings_w.read().unwrap().show_blocked_only
+                                {
                                     let ts = Self::now_ts();
                                     emit_log_event(
                                         &tx_log,
@@ -3614,8 +3592,10 @@ impl FirewallEngine {
                     }
                 }
             }
-            for listener in &sdk_read.listeners {
-                listener.on_packet(&data_vec, &info, &sdk_context);
+            if !show_blocked_only {
+                for listener in &sdk_read.listeners {
+                    listener.on_packet(&data_vec, &info, &sdk_context);
+                }
             }
         }
 
@@ -3655,18 +3635,20 @@ impl FirewallEngine {
                     firefox_policy_ready,
                     browser_mitm_warning_cache,
                 );
-                emit_log_event(
-                    &tx,
-                    LogEntry {
-                        id: format!("{}-proxy-intercept-{}", now, pid),
-                        timestamp: now,
-                        level: LogLevel::Info,
-                        message: format!(
-                            "Proxy Intercept: {} (pid={}) → {} via embedded proxy",
-                            app_info_loopback.name, pid, host_label
-                        ),
-                    },
-                );
+                if !show_blocked_only {
+                    emit_log_event(
+                        &tx,
+                        LogEntry {
+                            id: format!("{}-proxy-intercept-{}", now, pid),
+                            timestamp: now,
+                            level: LogLevel::Info,
+                            message: format!(
+                                "Proxy Intercept: {} (pid={}) → {} via embedded proxy",
+                                app_info_loopback.name, pid, host_label
+                            ),
+                        },
+                    );
+                }
             }
 
             return PacketDecision {
