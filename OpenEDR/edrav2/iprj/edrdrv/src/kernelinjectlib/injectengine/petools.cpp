@@ -125,41 +125,118 @@ namespace petools {
 
 	__try
 	{
+		// Validate ImageBase is a valid PE image
+		if (!MmIsAddressValid(ImageBase))
+		{
+			LOGERROR(STATUS_INVALID_PARAMETER, "Invalid ImageBase %p\r\n", ImageBase);
+			return nullptr;
+		}
+
 		ULONG exportSize = 0;
 		const PIMAGE_EXPORT_DIRECTORY exportDirectory = static_cast<PIMAGE_EXPORT_DIRECTORY>(RtlImageDirectoryEntryToData(
 			ImageBase, TRUE, IMAGE_DIRECTORY_ENTRY_EXPORT, &exportSize));
 		
-		if (nullptr == exportDirectory)
+		if (nullptr == exportDirectory || exportSize == 0)
 		{
 			LOGERROR(STATUS_INVALID_IMAGE_FORMAT, "Invalid export directory for image %p\r\n", ImageBase);
 			return nullptr;
 		}
 
-		const PULONG nameTableBase = static_cast<PULONG>Add2Ptr(ImageBase, exportDirectory->AddressOfNames);
-		NT_ASSERTMSG("Invalid names table address in exports", isAddressInRange(reinterpret_cast<PVOID>(nameTableBase), exportDirectory, exportSize));
+		// Validate export directory is within image bounds
+		if (!MmIsAddressValid(exportDirectory))
+		{
+			LOGERROR(STATUS_INVALID_IMAGE_FORMAT, "Export directory at %p is not valid\r\n", exportDirectory);
+			return nullptr;
+		}
+
+		// Validate export table pointers before dereferencing
+		if (exportDirectory->AddressOfNames == 0 ||
+			exportDirectory->AddressOfNameOrdinals == 0 ||
+			exportDirectory->AddressOfFunctions == 0)
+		{
+			LOGERROR(STATUS_INVALID_IMAGE_FORMAT, "Export directory has null RVAs\r\n");
+			return nullptr;
+		}
+
+		const PULONG nameTableBase = static_cast<PULONG>(Add2Ptr(ImageBase, exportDirectory->AddressOfNames));
+		if (!MmIsAddressValid(nameTableBase))
+		{
+			LOGERROR(STATUS_INVALID_IMAGE_FORMAT, "Name table at %p is not valid\r\n", nameTableBase);
+			return nullptr;
+		}
+
+		const PUSHORT ordinalsTableBase = static_cast<PUSHORT>(Add2Ptr(ImageBase, exportDirectory->AddressOfNameOrdinals));
+		if (!MmIsAddressValid(ordinalsTableBase))
+		{
+			LOGERROR(STATUS_INVALID_IMAGE_FORMAT, "Ordinals table at %p is not valid\r\n", ordinalsTableBase);
+			return nullptr;
+		}
+
+		const PULONG addressTableBase = static_cast<PULONG>(Add2Ptr(ImageBase, exportDirectory->AddressOfFunctions));
+		if (!MmIsAddressValid(addressTableBase))
+		{
+			LOGERROR(STATUS_INVALID_IMAGE_FORMAT, "Address table at %p is not valid\r\n", addressTableBase);
+			return nullptr;
+		}
 
 		for (ULONG hintIndex = 0; hintIndex < exportDirectory->NumberOfNames; hintIndex++)
 		{
+			// Validate array access
+			if (!MmIsAddressValid(&nameTableBase[hintIndex]))
+			{
+				LOGERROR(STATUS_INVALID_IMAGE_FORMAT, "Name table entry %lu is not valid\r\n", hintIndex);
+				continue;
+			}
+
 			const PSTR currentName = static_cast<PSTR>(Add2Ptr(ImageBase, nameTableBase[hintIndex]));
-			NT_ASSERTMSG("Invalid name address in exports", isAddressInRange(reinterpret_cast<PVOID>(currentName), exportDirectory, exportSize));
+			if (!MmIsAddressValid(currentName))
+			{
+				LOGERROR(STATUS_INVALID_IMAGE_FORMAT, "Name string at %p is not valid\r\n", currentName);
+				continue;
+			}
 
 			const ULONG maxLength = PtrOffset(currentName, Add2Ptr(exportDirectory, exportSize));
 			if (!equalStrings(currentName, ProcName.Buffer, min(maxLength, ProcName.MaximumLength)))
 				continue;
 
-			const PUSHORT ordinalsTableBase = static_cast<PUSHORT>(Add2Ptr(ImageBase, exportDirectory->AddressOfNameOrdinals));
-			NT_ASSERTMSG("Invalid ordinals table address in exports", isAddressInRange(reinterpret_cast<PVOID>(ordinalsTableBase), exportDirectory, exportSize));
-			
-			const USHORT ordinal = ordinalsTableBase[hintIndex];
-			const PULONG addressTableBase = static_cast<PULONG>Add2Ptr(ImageBase, exportDirectory->AddressOfFunctions);
-			NT_ASSERTMSG("Invalid address table in exports", isAddressInRange(reinterpret_cast<PVOID>(addressTableBase), exportDirectory, exportSize));
+			// Validate ordinal access
+			if (!MmIsAddressValid(&ordinalsTableBase[hintIndex]))
+			{
+				LOGERROR(STATUS_INVALID_IMAGE_FORMAT, "Ordinal entry %lu is not valid\r\n", hintIndex);
+				return nullptr;
+			}
 
-			return Add2Ptr(ImageBase, addressTableBase[ordinal]);
+			const USHORT ordinal = ordinalsTableBase[hintIndex];
+			
+			// Validate ordinal is within bounds
+			if (ordinal >= exportDirectory->NumberOfFunctions)
+			{
+				LOGERROR(STATUS_INVALID_IMAGE_FORMAT, "Ordinal %u exceeds function count %lu\r\n", ordinal, exportDirectory->NumberOfFunctions);
+				return nullptr;
+			}
+
+			// Validate function address access
+			if (!MmIsAddressValid(&addressTableBase[ordinal]))
+			{
+				LOGERROR(STATUS_INVALID_IMAGE_FORMAT, "Function address entry %u is not valid\r\n", ordinal);
+				return nullptr;
+			}
+
+			PVOID functionAddress = Add2Ptr(ImageBase, addressTableBase[ordinal]);
+			
+			// Validate the resolved function address
+			if (!MmIsAddressValid(functionAddress))
+			{
+				LOGERROR(STATUS_INVALID_IMAGE_FORMAT, "Function address %p is not valid\r\n", functionAddress);
+				return nullptr;
+			}
+
+			return functionAddress;
 		}
 	}
 	__except (EXCEPTION_EXECUTE_HANDLER)
 	{
-		LOGERROR(GetExceptionCode(), "getProcAddress exception\r\n");
+		LOGERROR(GetExceptionCode(), "getProcAddress exception at ImageBase=%p, ProcName=%Z\r\n", ImageBase, &ProcName);
 		return nullptr;
 	}
 	return nullptr;
