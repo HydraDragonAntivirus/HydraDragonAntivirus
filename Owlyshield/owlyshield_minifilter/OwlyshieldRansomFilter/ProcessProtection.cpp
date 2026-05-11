@@ -73,6 +73,7 @@ static VOID PopulateIrpProcessPath(_Inout_ PIRP_ENTRY Entry, _In_ ULONG ProcessI
 static BOOLEAN ShouldSkipProcessProtectionPid(_In_ ULONG ProcessId, _In_ BOOLEAN AllowSlowLookup);
 static BOOLEAN ShouldSkipProcessProtectionPair(_In_ ULONG SourcePid, _In_ ULONG TargetPid,
                                                _In_ BOOLEAN AllowSlowLookup);
+static BOOLEAN IsSystemProcessPP(PEPROCESS Process);
 
 #define PROCESS_PROTECTION_RULE_POOL_TAG 'pKhO'
 #define PROCESS_PROTECTION_RULE_MAX_FILE_SIZE (64 * 1024)
@@ -995,7 +996,7 @@ BOOLEAN ResolveRemoteThreadCandidate(_In_ ULONG TargetPid, _Out_ PULONG SourcePi
 // --- Helper Functions ---
 //
 
-BOOLEAN IsSystemProcessPP(PEPROCESS Process)
+static BOOLEAN IsSystemProcessPP(PEPROCESS Process)
 {
     HANDLE pid = PsGetProcessId(Process);
 
