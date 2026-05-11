@@ -18,6 +18,7 @@
     "no_alert_mode": false,
     "save_all_logs": false,
     "prune_old_logs": true,
+    "show_blocked_only": true,
     "max_visible_logs": 2000,
     "prune_http_history": true,
     "max_visible_http_events": 1000,
