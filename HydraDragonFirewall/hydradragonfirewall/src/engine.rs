@@ -4316,7 +4316,11 @@ impl FirewallEngine {
             return;
         }
 
-        let qdir = firewall_data_dir().join("quarantine");
+        let qdir = if let Ok(program_data) = std::env::var("PROGRAMDATA") {
+            PathBuf::from(program_data)
+                .join("HydraDragonAntivirus")
+                .join("Quarantine")
+        }
         let _ = fs::create_dir_all(&qdir);
         let dst = Self::build_quarantine_destination(src, &qdir);
         let sha256 = compute_sha256(src).unwrap_or_else(|_| "unknown".to_string());

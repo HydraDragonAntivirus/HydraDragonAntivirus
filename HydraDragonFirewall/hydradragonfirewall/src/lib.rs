@@ -510,7 +510,11 @@ async fn get_owlyshield_report_raw(path: Option<String>) -> String {
 
 #[tauri::command]
 async fn list_firewall_quarantine_files() -> FirewallQuarantineDirectoryView {
-    let dir = firewall_data_dir().join("quarantine");
+    let dir = if let Ok(program_data) = std::env::var("PROGRAMDATA") {
+        std::path::PathBuf::from(program_data)
+            .join("HydraDragonAntivirus")
+            .join("Quarantine")
+    }
     let mut files = if dir.is_dir() {
         std::fs::read_dir(&dir)
             .ok()
