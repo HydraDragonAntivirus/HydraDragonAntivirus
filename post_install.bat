@@ -175,7 +175,30 @@ if not errorlevel 1 (
 :after_openedr
 
 :: --------------------------------------------------------
-:: 12) Cleanup and Restart
+:: 12) Disable Code Integrity for OpenEDR DLL injection
+:: --------------------------------------------------------
+call :log [*] Configuring system for OpenEDR DLL injection...
+call :log [*] Disabling Code Integrity checks to allow edrpm DLL injection...
+
+bcdedit /set nointegritychecks on >nul 2>&1
+if errorlevel 1 (
+    call :log [!] Failed to disable integrity checks. OpenEDR DLL injection may fail.
+) else (
+    call :log [+] Code Integrity checks disabled.
+)
+
+bcdedit /set testsigning on >nul 2>&1
+if errorlevel 1 (
+    call :log [!] Failed to enable test signing.
+) else (
+    call :log [+] Test signing enabled.
+)
+
+call :log [*] These settings allow edrpm32.dll and edrpm64.dll to be injected into processes.
+call :log [*] To re-enable security later, run: OpenEDR\edrav2\iprj\edrpm\enable_ci_back.bat
+
+:: --------------------------------------------------------
+:: 13) Cleanup and Restart
 :: --------------------------------------------------------
 echo [+] All installation steps complete!
 echo [*] Restarting system in 10 seconds to activate security drivers...
