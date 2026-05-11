@@ -1764,7 +1764,11 @@ UCHAR g_ShellcodeTemplate[] = {
 
 NTSTATUS UserModeHookEngineInitialize(VOID)
 {
-    DbgPrint("!!! UserModeHook: Initializing user-mode hooking engine...\n");
+    
+#if IS_DEBUG_IRP
+DbgPrint("!!! UserModeHook: Initializing user-mode hooking engine...\n");
+#endif
+
     NTSTATUS status;
 
     // ---------------------------------------------------------------------
@@ -1778,7 +1782,11 @@ NTSTATUS UserModeHookEngineInitialize(VOID)
 
     if (!fnZwProtectVirtualMemory)
     {
-        DbgPrint("!!! UserModeHook: Failed to resolve ZwProtectVirtualMemory\n");
+        
+#if IS_DEBUG_IRP
+DbgPrint("!!! UserModeHook: Failed to resolve ZwProtectVirtualMemory\n");
+#endif
+
         return STATUS_PROCEDURE_NOT_FOUND;
     }
 
@@ -1788,7 +1796,11 @@ NTSTATUS UserModeHookEngineInitialize(VOID)
 
     if (!fnPsGetProcessPeb)
     {
-        DbgPrint("!!! UserModeHook: Failed to resolve PsGetProcessPeb\n");
+        
+#if IS_DEBUG_IRP
+DbgPrint("!!! UserModeHook: Failed to resolve PsGetProcessPeb\n");
+#endif
+
         return STATUS_PROCEDURE_NOT_FOUND;
     }
 
@@ -1797,7 +1809,11 @@ NTSTATUS UserModeHookEngineInitialize(VOID)
     fnZwAllocateVirtualMemory = (PZW_ALLOCATE_VIRTUAL_MEMORY)MmGetSystemRoutineAddress(&routineName);
     if (!fnZwAllocateVirtualMemory)
     {
-        DbgPrint("!!! UserModeHook: Failed to resolve ZwAllocateVirtualMemory\n");
+        
+#if IS_DEBUG_IRP
+DbgPrint("!!! UserModeHook: Failed to resolve ZwAllocateVirtualMemory\n");
+#endif
+
     }
 
     // Resolve ZwFreeVirtualMemory
@@ -1806,7 +1822,11 @@ NTSTATUS UserModeHookEngineInitialize(VOID)
     // FIX 2a: original code checked !fnZwDuplicateObject here instead of !fnZwFreeVirtualMemory.
     if (!fnZwFreeVirtualMemory)
     {
-        DbgPrint("!!! UserModeHook: Failed to resolve ZwFreeVirtualMemory\n");
+        
+#if IS_DEBUG_IRP
+DbgPrint("!!! UserModeHook: Failed to resolve ZwFreeVirtualMemory\n");
+#endif
+
     }
 
     // Resolve ZwSetInformationObject - used to protect the per-process hook
@@ -1831,7 +1851,11 @@ NTSTATUS UserModeHookEngineInitialize(VOID)
     fnPsGetProcessWow64Process = (PPS_GET_PROCESS_WOW64_PROCESS)MmGetSystemRoutineAddress(&routineName);
     if (!fnPsGetProcessWow64Process)
     {
-        DbgPrint("!!! UserModeHook: PsGetProcessWow64Process unavailable - WoW64 hooking disabled\n");
+        
+#if IS_DEBUG_IRP
+DbgPrint("!!! UserModeHook: PsGetProcessWow64Process unavailable - WoW64 hooking disabled\n");
+#endif
+
     }
 
     {
@@ -1857,7 +1881,11 @@ NTSTATUS UserModeHookEngineInitialize(VOID)
         if (!NT_SUCCESS(status))
         {
             g_HookNotifyMasterHandle = NULL;
-            DbgPrint("!!! UserModeHook: ZwCreateFile master notify handle failed 0x%X\n", status);
+            
+#if IS_DEBUG_IRP
+DbgPrint("!!! UserModeHook: ZwCreateFile master notify handle failed 0x%X\n", status);
+#endif
+
             return status;
         }
     }
@@ -2636,7 +2664,11 @@ NTSTATUS InstallUsermodeHook(_In_ HANDLE ProcessHandle, _In_ PVOID TargetAddress
     if (!fnZwProtectVirtualMemory)
         return STATUS_NOT_SUPPORTED;
 
-    DbgPrint("!!! UserModeHook: Hooking %p -> Detour %p\n", TargetAddress, DetourAddress);
+    
+#if IS_DEBUG_IRP
+DbgPrint("!!! UserModeHook: Hooking %p -> Detour %p\n", TargetAddress, DetourAddress);
+#endif
+
 
     __try
     {
@@ -2646,7 +2678,11 @@ NTSTATUS InstallUsermodeHook(_In_ HANDLE ProcessHandle, _In_ PVOID TargetAddress
         status = fnZwProtectVirtualMemory(ProcessHandle, &baseAddress, &regionSize, newProtect, &oldProtect);
         if (!NT_SUCCESS(status))
         {
-            DbgPrint("!!! UserModeHook: Protect failed: 0x%X\n", status);
+            
+#if IS_DEBUG_IRP
+DbgPrint("!!! UserModeHook: Protect failed: 0x%X\n", status);
+#endif
+
             __leave;
         }
 
@@ -2714,22 +2750,34 @@ NTSTATUS InjectSingleHook(_In_ PEPROCESS Process, _In_ ULONG ProcessId, _Inout_ 
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
-            DbgPrint("UserModeHook: ProbeForRead faulted at %p - skipping hook\n", HookDef->Address);
+            
+#if IS_DEBUG_IRP
+DbgPrint("UserModeHook: ProbeForRead faulted at %p - skipping hook\n", HookDef->Address);
+#endif
+
             return STATUS_ACCESS_VIOLATION;
         }
 
         stolenSize = ComputeStolenSize64(prologue);
         if (stolenSize == 0)
         {
-            DbgPrint("UserModeHook: Skipping %p - no instruction boundary within %u bytes\n", HookDef->Address,
+            
+#if IS_DEBUG_IRP
+DbgPrint("UserModeHook: Skipping %p - no instruction boundary within %u bytes\n", HookDef->Address,
                      (ULONG)USERMODE_HOOK_STOLEN_MAX);
+#endif
+
             return STATUS_NOT_SUPPORTED;
         }
 
         BOOLEAN unrelocatable = ContainsUnrelocatableInstructions(prologue, stolenSize);
         if (unrelocatable)
         {
-            DbgPrint("UserModeHook: Skipping %p - stolen bytes contain relative branch\n", HookDef->Address);
+            
+#if IS_DEBUG_IRP
+DbgPrint("UserModeHook: Skipping %p - stolen bytes contain relative branch\n", HookDef->Address);
+#endif
+
             return STATUS_NOT_SUPPORTED;
         }
     }
@@ -2815,8 +2863,12 @@ NTSTATUS InjectSingleHook(_In_ PEPROCESS Process, _In_ ULONG ProcessId, _Inout_ 
         // bytes that immediately follow the placeholder in the shellcode.
         if (stolenSize == 0 || stolenSize > USERMODE_HOOK_STOLEN_MAX)
         {
-            DbgPrint("UserModeHook: stolenSize %zu out of range [1,%u] at %p - refusing hook\n",
+            
+#if IS_DEBUG_IRP
+DbgPrint("UserModeHook: stolenSize %zu out of range [1,%u] at %p - refusing hook\n",
                      stolenSize, (ULONG)USERMODE_HOOK_STOLEN_MAX, HookDef->Address);
+#endif
+
             return STATUS_INVALID_PARAMETER;
         }
 
@@ -2875,18 +2927,30 @@ NTSTATUS InjectSingleHook(_In_ PEPROCESS Process, _In_ ULONG ProcessId, _Inout_ 
                                                 sizeof(mbi), &retLen);
             if (!NT_SUCCESS(qst))
             {
-                DbgPrint("UserModeHook: ZwQueryVirtualMemory failed 0x%X for %p\n", qst, HookDef->Address);
+                
+#if IS_DEBUG_IRP
+DbgPrint("UserModeHook: ZwQueryVirtualMemory failed 0x%X for %p\n", qst, HookDef->Address);
+#endif
+
                 return qst;
             }
             if (mbi.State != MEM_COMMIT)
             {
-                DbgPrint("UserModeHook: Target %p is not in a committed region\n", HookDef->Address);
+                
+#if IS_DEBUG_IRP
+DbgPrint("UserModeHook: Target %p is not in a committed region\n", HookDef->Address);
+#endif
+
                 return STATUS_INVALID_ADDRESS;
             }
             // Ensure all 14 patch bytes fall within this single VAD region.
             if ((ULONG_PTR)HookDef->Address + 14 > (ULONG_PTR)mbi.BaseAddress + mbi.RegionSize)
             {
-                DbgPrint("UserModeHook: 14-byte patch at %p straddles VAD boundary - skipping\n", HookDef->Address);
+                
+#if IS_DEBUG_IRP
+DbgPrint("UserModeHook: 14-byte patch at %p straddles VAD boundary - skipping\n", HookDef->Address);
+#endif
+
                 return STATUS_CONFLICTING_ADDRESSES;
             }
         }
@@ -2975,13 +3039,21 @@ NTSTATUS InjectSingleHook32(_In_ PEPROCESS Process, _In_ ULONG ProcessId, _Inout
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
-            DbgPrint("UserModeHook32: ProbeForRead faulted at %p - skipping\n", HookDef->Address);
+            
+#if IS_DEBUG_IRP
+DbgPrint("UserModeHook32: ProbeForRead faulted at %p - skipping\n", HookDef->Address);
+#endif
+
             return STATUS_ACCESS_VIOLATION;
         }
 
         if (unrelocatable)
         {
-            DbgPrint("UserModeHook32: Skipping %p - relative branch in prologue\n", HookDef->Address);
+            
+#if IS_DEBUG_IRP
+DbgPrint("UserModeHook32: Skipping %p - relative branch in prologue\n", HookDef->Address);
+#endif
+
             return STATUS_NOT_SUPPORTED;
         }
     }
@@ -3258,21 +3330,33 @@ NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROC
                                           NULL, 0);
                     if (!NT_SUCCESS(status))
                     {
-                        DbgPrint("UserModeHook: ZwCreateFile per-process notify handle failed 0x%X\n", status);
+                        
+#if IS_DEBUG_IRP
+DbgPrint("UserModeHook: ZwCreateFile per-process notify handle failed 0x%X\n", status);
+#endif
+
                         __leave;
                     }
 
                     if (targetDeviceHandle == NULL)
                     {
-                        DbgPrint("UserModeHook: ZwCreateFile per-process notify handle returned NULL handle\n");
+                        
+#if IS_DEBUG_IRP
+DbgPrint("UserModeHook: ZwCreateFile per-process notify handle returned NULL handle\n");
+#endif
+
                         status = STATUS_UNSUCCESSFUL;
                         __leave;
                     }
 
                     if (fnZwSetInformationObject == NULL)
                     {
-                        DbgPrint("UserModeHook: ZwSetInformationObject unavailable, skipping hook install for PID %lu\n",
+                        
+#if IS_DEBUG_IRP
+DbgPrint("UserModeHook: ZwSetInformationObject unavailable, skipping hook install for PID %lu\n",
                                  HookEntry->ProcessId);
+#endif
+
                         status = STATUS_NOT_SUPPORTED;
                         __leave;
                     }
@@ -3289,9 +3373,13 @@ NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROC
                                                                        sizeof(handleFlags));
                         if (!NT_SUCCESS(handleProtectStatus))
                         {
-                            DbgPrint("UserModeHook: failed to protect per-process notify handle for PID %lu (0x%X)\n",
+                            
+#if IS_DEBUG_IRP
+DbgPrint("UserModeHook: failed to protect per-process notify handle for PID %lu (0x%X)\n",
                                      HookEntry->ProcessId,
                                      handleProtectStatus);
+#endif
+
                             status = handleProtectStatus;
                             __leave;
                         }
@@ -3479,7 +3567,11 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
                     g_UserHookEngine->HookedProcessCount > 0)
                     g_UserHookEngine->HookedProcessCount--;
                 RtlZeroMemory(&g_UserHookEngine->Processes[i], sizeof(PROCESS_HOOK_ENTRY));
-                DbgPrint("UserModeHook: PID %lu reuse detected; stale slot cleared\n", ProcessId);
+                
+#if IS_DEBUG_IRP
+DbgPrint("UserModeHook: PID %lu reuse detected; stale slot cleared\n", ProcessId);
+#endif
+
                 break; // stale slot cleared; fall through to free-slot search
             }
             hookEntry = &g_UserHookEngine->Processes[i];
@@ -3558,8 +3650,12 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
             goto HookProcessFailure;
         }
 
-        DbgPrint("UserModeHook: PID %lu is %s process\n", ProcessId,
+        
+#if IS_DEBUG_IRP
+DbgPrint("UserModeHook: PID %lu is %s process\n", ProcessId,
                  hookEntry->IsWow64 ? "WoW64 (32-bit)" : "native 64-bit");
+#endif
+
 
         if (hookEntry->CustomHookCapacity > 0)
         {
@@ -3651,8 +3747,12 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
 
                     if (!targetNtDeviceIo32)
                     {
-                        DbgPrint("UserModeHook: PID %lu WoW64 - could not resolve 32-bit NtDeviceIoControlFile\n",
+                        
+#if IS_DEBUG_IRP
+DbgPrint("UserModeHook: PID %lu WoW64 - could not resolve 32-bit NtDeviceIoControlFile\n",
                                  ProcessId);
+#endif
+
                         status = STATUS_NOT_FOUND;
                         __leave;
                     }
@@ -3718,8 +3818,12 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
                         hookStatus == STATUS_INVALID_ADDRESS || hookStatus == STATUS_CONFLICTING_ADDRESSES ||
                         hookStatus == STATUS_INVALID_PARAMETER)
                     {
-                        DbgPrint("UserModeHook: PID %lu skipping hook[%lu] '%s' - recoverable 0x%X\n", ProcessId, i,
+                        
+#if IS_DEBUG_IRP
+DbgPrint("UserModeHook: PID %lu skipping hook[%lu] '%s' - recoverable 0x%X\n", ProcessId, i,
                                  currentHookConfig->FunctionName, hookStatus);
+#endif
+
                         recoverableHookFailureCount++;
                         continue;
                     }
@@ -3727,16 +3831,24 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
                     // Fatal - abort (e.g. STATUS_INSUFFICIENT_RESOURCES,
                     //                  STATUS_INVALID_IMAGE_FORMAT,
                     //                  STATUS_DEVICE_DOES_NOT_EXIST).
-                    DbgPrint("UserModeHook: PID %lu fatal hook[%lu] '%ws!%s' failed 0x%X\n", ProcessId, i,
+                    
+#if IS_DEBUG_IRP
+DbgPrint("UserModeHook: PID %lu fatal hook[%lu] '%ws!%s' failed 0x%X\n", ProcessId, i,
                              currentHookConfig->ModuleName, currentHookConfig->FunctionName, hookStatus);
+#endif
+
                     status = hookStatus;
                     __leave;
                 }
 
                 if (recoverableHookFailureCount > 0)
                 {
-                    DbgPrint("UserModeHook: PID %lu partial hook result: applied=%lu recoverable_failures=%lu\n",
+                    
+#if IS_DEBUG_IRP
+DbgPrint("UserModeHook: PID %lu partial hook result: applied=%lu recoverable_failures=%lu\n",
                              ProcessId, appliedHookCount, recoverableHookFailureCount);
+#endif
+
                 }
             }
             __except (EXCEPTION_EXECUTE_HANDLER)
@@ -3776,8 +3888,12 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
 
         if (NT_SUCCESS(status))
         {
-            DbgPrint("UserModeHook: Shellcodes processed for PID %lu (%s)\n", ProcessId,
+            
+#if IS_DEBUG_IRP
+DbgPrint("UserModeHook: Shellcodes processed for PID %lu (%s)\n", ProcessId,
                      existingHookEntry ? "refresh" : "initial");
+#endif
+
         }
         else
         {
@@ -3795,8 +3911,12 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
     } // end attach scope block
 
 HookProcessFailure:
-    DbgPrint("UserModeHook: PID %lu hook processing failed 0x%X (%s)\n", ProcessId, status,
+    
+#if IS_DEBUG_IRP
+DbgPrint("UserModeHook: PID %lu hook processing failed 0x%X (%s)\n", ProcessId, status,
              existingHookEntry ? "refresh" : "initial");
+#endif
+
 
     if (hookConfigSnapshot != NULL)
     {
@@ -4072,7 +4192,11 @@ NTSTATUS UserModeUnhookProcess(_In_ ULONG ProcessId)
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
-            DbgPrint("UserModeHook: Exception 0x%X during unhook of PID %lu\n", GetExceptionCode(), ProcessId);
+            
+#if IS_DEBUG_IRP
+DbgPrint("UserModeHook: Exception 0x%X during unhook of PID %lu\n", GetExceptionCode(), ProcessId);
+#endif
+
         }
     }
     __finally

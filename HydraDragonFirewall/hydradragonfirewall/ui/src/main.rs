@@ -1222,6 +1222,9 @@ pub fn App() -> impl IntoView {
             let res = invoke("get_settings", JsValue::NULL).await;
             if let Ok(current_settings) = serde_wasm_bindgen::from_value::<FirewallSettings>(res) {
                 let raw = serde_json::to_string_pretty(&current_settings).unwrap_or_default();
+                if let Some(theme) = current_settings.metadata.get("theme") {
+                    set_is_dark.set(theme != "white" && theme != "light");
+                }
                 set_settings.set(current_settings);
                 set_settings_raw.set(raw);
                 set_settings_raw_status.set(String::new());
@@ -1816,7 +1819,14 @@ pub fn App() -> impl IntoView {
                             <div style="display: flex; align-items: center; gap: 16px">
                                 <button
                                     class="theme-toggle-btn"
-                                    on:click=move |_| set_is_dark.update(|v| *v = !*v)
+                                    on:click=move |_| {
+                                        let new_dark = !is_dark.get();
+                                        set_is_dark.set(new_dark);
+                                        set_settings.update(|s| {
+                                            s.metadata.insert("theme".to_string(), if new_dark { "cyberpunk".to_string() } else { "white".to_string() });
+                                        });
+                                        save_settings_action();
+                                    }
                                     title="Toggle Theme"
                                 >
                                     {move || if is_dark.get() { "☼" } else { "☾" }}

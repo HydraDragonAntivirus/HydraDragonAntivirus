@@ -29,6 +29,8 @@ static VOID NTAPI OwlyHypervisorCallback(PVOID EventDetails) {
     // Process hypervisor events (TRAP_EXECUTION, etc.)
 #if IS_DEBUG_IRP
     DbgPrint("!!! Owlyshield: Received event from Hypervisor at %p\n", EventDetails);
+#else
+    UNREFERENCED_PARAMETER(EventDetails);
 #endif
 }
 
@@ -517,10 +519,10 @@ static NTSTATUS HookDeviceControl(_In_ PDEVICE_OBJECT DeviceObject, _In_ PIRP Ir
 
 #if IS_DEBUG_IRP
     DbgPrint("HookDevice: API HOOKING EVENT RawType=%lu Name=%ws SourcePid=%lu TargetPid=%lu Arg1=0x%p "
-#endif
              "Arg2=0x%p Arg3=0x%p Arg4=0x%p\n",
              eventType, functionName, processId, targetProcessId, (PVOID)rawArg1, (PVOID)rawArg2,
              (PVOID)rawArg3, (PVOID)rawArg4);
+#endif
 
     // Deliver to the classification pipeline (ProcessProtection.cpp).
     // Also enqueue for user-mode delivery via MESSAGE_GET_OPS.
@@ -1093,8 +1095,8 @@ NTSTATUS KillProcessesInGid(ULONGLONG GID, PLONG OutputStatus, ULONG removalMode
 
 #if IS_DEBUG_IRP
             DbgPrint("!!! FS : Attempt to terminate pid: %lu from gid: %llu (mode: %lu)\n", Buffer[i], GID,
-#endif
                      removalMode);
+#endif
 
             InitializeObjectAttributes(&objAttribs, NULL, OBJ_KERNEL_HANDLE, NULL, NULL);
 
@@ -1123,8 +1125,8 @@ NTSTATUS KillProcessesInGid(ULONGLONG GID, PLONG OutputStatus, ULONG removalMode
                 {
 #if IS_DEBUG_IRP
                     DbgPrint("!!! FS : Warning: Could not get exe path for PID %lu (Status: 0x%X)\n", Buffer[i],
-#endif
                              pathStatus);
+#endif
                 }
             }
 

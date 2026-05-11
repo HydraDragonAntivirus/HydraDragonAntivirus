@@ -262,7 +262,11 @@ RootkitDetectorInitialize(VOID)
     fnZwQuerySystemInformation =
         (PZW_QUERY_SYSTEM_INFORMATION)MmGetSystemRoutineAddress(&name);
     if (!fnZwQuerySystemInformation) {
-        DbgPrint("RootkitDetector: ZwQuerySystemInformation not found\n");
+        
+#if IS_DEBUG_IRP
+DbgPrint("RootkitDetector: ZwQuerySystemInformation not found\n");
+#endif
+
         return STATUS_NOT_FOUND;
     }
 
@@ -270,7 +274,11 @@ RootkitDetectorInitialize(VOID)
     fnPsLookupProcessByProcessId =
         (PPS_LOOKUP_PROCESS_BY_PROCESS_ID)MmGetSystemRoutineAddress(&name);
     if (!fnPsLookupProcessByProcessId) {
-        DbgPrint("RootkitDetector: PsLookupProcessByProcessId not found\n");
+        
+#if IS_DEBUG_IRP
+DbgPrint("RootkitDetector: PsLookupProcessByProcessId not found\n");
+#endif
+
         return STATUS_NOT_FOUND;
     }
 
@@ -278,39 +286,63 @@ RootkitDetectorInitialize(VOID)
     fnPsGetProcessImageFileName =
         (PPS_GET_PROCESS_IMAGE_FILE_NAME)MmGetSystemRoutineAddress(&name);
     if (!fnPsGetProcessImageFileName) {
-        DbgPrint("RootkitDetector: PsGetProcessImageFileName not found, process names will be generic\n");
+        
+#if IS_DEBUG_IRP
+DbgPrint("RootkitDetector: PsGetProcessImageFileName not found, process names will be generic\n");
+#endif
+
     }
 
     RtlInitUnicodeString(&name, L"ZwQueryDirectoryObject");
     fnZwQueryDirectoryObject =
         (PZW_QUERY_DIRECTORY_OBJECT)MmGetSystemRoutineAddress(&name);
     if (!fnZwQueryDirectoryObject) {
-        DbgPrint("RootkitDetector: ZwQueryDirectoryObject not found, hidden-driver scan will be limited\n");
+        
+#if IS_DEBUG_IRP
+DbgPrint("RootkitDetector: ZwQueryDirectoryObject not found, hidden-driver scan will be limited\n");
+#endif
+
     }
 
     RtlInitUnicodeString(&name, L"ObReferenceObjectByName");
     fnObReferenceObjectByName =
         (POB_REFERENCE_OBJECT_BY_NAME)MmGetSystemRoutineAddress(&name);
     if (!fnObReferenceObjectByName) {
-        DbgPrint("RootkitDetector: ObReferenceObjectByName not found, hidden-driver and driver-object scans will be limited\n");
+        
+#if IS_DEBUG_IRP
+DbgPrint("RootkitDetector: ObReferenceObjectByName not found, hidden-driver and driver-object scans will be limited\n");
+#endif
+
     }
 
     RtlInitUnicodeString(&name, L"IoFileObjectType");
     g_IoFileObjectType =
         (POBJECT_TYPE *)MmGetSystemRoutineAddress(&name);
     if (!g_IoFileObjectType) {
-        DbgPrint("RootkitDetector: IoFileObjectType not found, object-type tamper scan will be limited\n");
+        
+#if IS_DEBUG_IRP
+DbgPrint("RootkitDetector: IoFileObjectType not found, object-type tamper scan will be limited\n");
+#endif
+
     }
 
     RtlInitUnicodeString(&name, L"KeServiceDescriptorTable");
     fnKeServiceDescriptorTable =
         (PSYSTEM_SERVICE_DESCRIPTOR_TABLE)MmGetSystemRoutineAddress(&name);
     if (!fnKeServiceDescriptorTable) {
-        DbgPrint("RootkitDetector: KeServiceDescriptorTable not found, SSDT scan will be skipped on this build\n");
+        
+#if IS_DEBUG_IRP
+DbgPrint("RootkitDetector: KeServiceDescriptorTable not found, SSDT scan will be skipped on this build\n");
+#endif
+
     }
 
-    DbgPrint("RootkitDetector: Initialized (event-driven, debounce=%lu ms)\n",
+    
+#if IS_DEBUG_IRP
+DbgPrint("RootkitDetector: Initialized (event-driven, debounce=%lu ms)\n",
              (ULONG)ROOTKIT_DEBOUNCE_MS);
+#endif
+
     return STATUS_SUCCESS;
 }
 
@@ -352,7 +384,11 @@ RootkitDetectorCleanup(VOID)
         g_ScanWorkItem = NULL;
     }
     InterlockedExchange(&g_PendingTrigger, (LONG)RK_TRIGGER_LIGHT);
-    DbgPrint("RootkitDetector: Cleanup done\n");
+    
+#if IS_DEBUG_IRP
+DbgPrint("RootkitDetector: Cleanup done\n");
+#endif
+
 }
 
 // ---------------------------------------------------------------------------
@@ -452,7 +488,11 @@ RootkitDetectorRunScan(VOID)
     total += RkCheckDriverObjectIntegrity();
     total += RkCheckObjectTypeCallbackTampering();
     if (total > 0) {
-        DbgPrint("RootkitDetector: scan complete - %lu anomalies\n", total);
+        
+#if IS_DEBUG_IRP
+DbgPrint("RootkitDetector: scan complete - %lu anomalies\n", total);
+#endif
+
     }
     return total;
 }
@@ -716,10 +756,14 @@ RkCheckDriverPointerField(_In_ PCWSTR DriverPath,
                                   FieldName);
     }
 
-    DbgPrint("RootkitDetector: driver object hook %ws field=%ws ptr=%p\n",
+    
+#if IS_DEBUG_IRP
+DbgPrint("RootkitDetector: driver object hook %ws field=%ws ptr=%p\n",
              DriverPath,
              FieldName,
              Pointer);
+#endif
+
 
     RkEmitFinding(IRP_ROOTKIT_KERNEL_HOOK,
                   0,
@@ -808,9 +852,13 @@ RkCheckDriverObjectPathIntegrity(_In_ PCWSTR Path,
         }
     }
     __except (EXCEPTION_EXECUTE_HANDLER) {
-        DbgPrint("RootkitDetector: exception while checking driver object %ws (0x%X)\n",
+        
+#if IS_DEBUG_IRP
+DbgPrint("RootkitDetector: exception while checking driver object %ws (0x%X)\n",
                  Path,
                  GetExceptionCode());
+#endif
+
     }
 
     ObDereferenceObject(drv);
@@ -890,9 +938,13 @@ RkScanDriverObjectDirectory(_In_ PCWSTR DirectoryPath,
             if (RkReferenceDriverObjectByPath(path, &drv) && drv) {
                 if (drv->DriverStart &&
                     RkFindModuleForAddress(Modules, drv->DriverStart) == NULL) {
-                    DbgPrint("RootkitDetector: hidden driver object %ws base=%p\n",
+                    
+#if IS_DEBUG_IRP
+DbgPrint("RootkitDetector: hidden driver object %ws base=%p\n",
                              path,
                              drv->DriverStart);
+#endif
+
                     RkEmitFinding(IRP_ROOTKIT_HIDDEN_DRIVER,
                                   0,
                                   path,
@@ -986,8 +1038,12 @@ RkCheckSsdtIntegrity(VOID)
                                               L"SSDT[%llu]=0x%p outside ntoskrnl",
                                               (ULONGLONG)i, resolved);
 
-                    DbgPrint("RootkitDetector: SSDT hook index=%llu -> %p\n",
+                    
+#if IS_DEBUG_IRP
+DbgPrint("RootkitDetector: SSDT hook index=%llu -> %p\n",
                              (ULONGLONG)i, resolved);
+#endif
+
 
                     RkEmitFinding(IRP_ROOTKIT_SSDT_HOOK, 0, desc,
                                   resolved, 0,
@@ -997,8 +1053,12 @@ RkCheckSsdtIntegrity(VOID)
             } __except (EXCEPTION_EXECUTE_HANDLER) {}
         }
     } __except (EXCEPTION_EXECUTE_HANDLER) {
-        DbgPrint("RootkitDetector: SSDT check exception 0x%X\n",
+        
+#if IS_DEBUG_IRP
+DbgPrint("RootkitDetector: SSDT check exception 0x%X\n",
                  GetExceptionCode());
+#endif
+
     }
 
     return findings;
@@ -1072,8 +1132,12 @@ RkCheckHiddenProcesses(VOID)
                 RtlAnsiStringToUnicodeString(&us, &as, FALSE);
             }
 
-            DbgPrint("RootkitDetector: DKOM hidden process PID=%lu name=%S\n",
+            
+#if IS_DEBUG_IRP
+DbgPrint("RootkitDetector: DKOM hidden process PID=%lu name=%S\n",
                      pid, name);
+#endif
+
             RkEmitFinding(IRP_ROOTKIT_HIDDEN_PROCESS, pid,
                           name[0] ? name : L"<hidden>",
                           NULL, 0, (ULONG_PTR)pid, 0);
@@ -1247,15 +1311,23 @@ RkCheckKernelInlineHooks(VOID)
                 wn.MaximumLength = sizeof(wnBuf);
                 RtlAnsiStringToUnicodeString(&wn, &an2, FALSE);
 
-                DbgPrint("RootkitDetector: inline hook %s -> %p\n",
+                
+#if IS_DEBUG_IRP
+DbgPrint("RootkitDetector: inline hook %s -> %p\n",
                          g_MonitoredExports[i], target);
+#endif
+
                 RkEmitFinding(IRP_ROOTKIT_KERNEL_HOOK, 0, wnBuf,
                               fn, 0, (ULONG_PTR)target, 0);
                 ++findings;
             }
         } __except (EXCEPTION_EXECUTE_HANDLER) {
-            DbgPrint("RootkitDetector: exception inspecting %s\n",
+            
+#if IS_DEBUG_IRP
+DbgPrint("RootkitDetector: exception inspecting %s\n",
                      g_MonitoredExports[i]);
+#endif
+
         }
     }
 

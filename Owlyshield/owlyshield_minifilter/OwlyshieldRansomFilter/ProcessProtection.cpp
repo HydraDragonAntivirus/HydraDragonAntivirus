@@ -1224,6 +1224,8 @@ NTSTATUS OnProcessHandleOperation(_In_ HANDLE CallerProcessId, _In_ HANDLE Targe
 #if IS_DEBUG_IRP
     DbgPrint("!!! ProcessProtection: Process handle opened - Caller PID %lu -> Target PID %lu (Access: 0x%X, Op: %u)\n",
              callerPid, targetPid, DesiredAccess, OperationType);
+#else
+    UNREFERENCED_PARAMETER(OperationType);
 #endif
 
     if (!driverData->AddIrpMessage(newEntry))
@@ -1316,10 +1318,10 @@ NTSTATUS OnKernelApiEvent(_In_ ULONG IrpOp, _In_ ULONG EventType, _In_ ULONG Sou
 
 #if IS_DEBUG_IRP
     DbgPrint("!!! ProcessProtection: API HOOKING EVENT forwarded - RawType: %lu, IrpOp: %u, Name: %ls, "
-#endif
              "SourcePid=%lu, TargetPid=%lu, Arg1: 0x%p, Arg2: 0x%p, Arg3: 0x%p, Arg4: 0x%p\n",
              EventType, IrpOp, effectiveName, SourcePid, TargetPid,
              (PVOID)EventArg1, (PVOID)EventArg2, (PVOID)EventArg3, (PVOID)EventArg4);
+#endif
 
     if (!driverData->AddIrpMessage(newEntry))
     {
@@ -1371,9 +1373,9 @@ NTSTATUS OnMemoryWrite(_In_ ULONG SourcePid, _In_ ULONG TargetPid, _In_ PVOID Ta
 
 #if IS_DEBUG_IRP
     DbgPrint("!!! ProcessProtection: Memory write detected - Source PID %lu -> Target PID %lu (Address: %p, Size: %zu, "
-#endif
              "Executable: %u)\n",
              SourcePid, TargetPid, TargetAddress, Size, IsExecutableMemory);
+#endif
 
     if (!driverData->AddIrpMessage(newEntry))
     {
@@ -1527,8 +1529,8 @@ NTSTATUS OnApcQueueing(_In_ ULONG SourcePid, _In_ ULONG TargetPid, _In_ HANDLE T
 
 #if IS_DEBUG_IRP
     DbgPrint("!!! ProcessProtection: APC queued - Source PID %lu -> Target PID %lu (Thread: %p, APC: %p)\n", SourcePid,
-#endif
              TargetPid, ThreadHandle, ApcRoutine);
+#endif
 
     if (!driverData->AddIrpMessage(newEntry))
     {

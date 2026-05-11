@@ -183,9 +183,17 @@ VOID DriverData::SetQuarantinePath(PUNICODE_STRING path) {
         if (quarantinePath.Buffer != NULL) {
             RtlCopyUnicodeString(&quarantinePath, path);
             quarantinePath.Buffer[quarantinePath.Length / sizeof(WCHAR)] = L'\0'; // Null-terminate
-            DbgPrint("!!! FSfilter: Quarantine path set to: %wZ\n", &quarantinePath);
+            
+#if IS_DEBUG_IRP
+DbgPrint("!!! FSfilter: Quarantine path set to: %wZ\n", &quarantinePath);
+#endif
+
         } else {
-            DbgPrint("!!! FSfilter: Failed to allocate memory for quarantine path.\n");
+            
+#if IS_DEBUG_IRP
+DbgPrint("!!! FSfilter: Failed to allocate memory for quarantine path.\n");
+#endif
+
             RtlInitUnicodeString(&quarantinePath, NULL); // Ensure it's null-initialized on failure
         }
     } else {
@@ -474,7 +482,11 @@ ULONGLONG DriverData::GetProcessGid(ULONG ProcessId, PBOOLEAN found) {
         *found = TRUE;
     }
     KeReleaseSpinLock(&GIDSystemLock, oldIrql);
-    //DbgPrint("Gid: %d %d\n", ret, *found);
+    //
+#if IS_DEBUG_IRP
+DbgPrint("Gid: %d %d\n", ret, *found);
+#endif
+
     return ret;
 }
 
@@ -700,7 +712,11 @@ VOID DriverData::DriverGetIrps(
         ULONG requiredSize = sizeof(DRIVER_MESSAGE) + alignedNameBufferSize;
 
         if (requiredSize > BufferSizeRemain || requiredSize > BufferSize) {
-            DbgPrint("!!! Driver: Output buffer too small for message. Required: %lu, Remaining: %lu\n", requiredSize, BufferSizeRemain);
+            
+#if IS_DEBUG_IRP
+DbgPrint("!!! Driver: Output buffer too small for message. Required: %lu, Remaining: %lu\n", requiredSize, BufferSizeRemain);
+#endif
+
             // Not enough space, put it back to the temp list and break
             InsertHeadList(&tempIrpList, irpEntryList);
             break;
@@ -942,7 +958,11 @@ BOOLEAN DriverData::AddBlockedPath(PDIRECTORY_ENTRY newEntry) {
         InsertHeadList(&blockedPaths, &newEntry->entry);
         blockedPathsSize++;
         ret = TRUE;
-        DbgPrint("!!! FSfilter: Path added to KERNEL BLOCK LIST: %ws\n", newEntry->path);
+        
+#if IS_DEBUG_IRP
+DbgPrint("!!! FSfilter: Path added to KERNEL BLOCK LIST: %ws\n", newEntry->path);
+#endif
+
     }
     KeReleaseSpinLock(&blockedPathsLock, oldIrql);
     return ret;
@@ -1108,17 +1128,29 @@ VOID DriverData::RevertRegistryChangesForGid(ULONGLONG gid) {
         if (NT_SUCCESS(status)) {
             if (backup->IsDeletion) {
                 // If it was a deletion, we restore the value
-                DbgPrint("!!! Regedit: Reverting DELETION of %wZ\\%wZ\n", &keyPath, &valueName);
+                
+#if IS_DEBUG_IRP
+DbgPrint("!!! Regedit: Reverting DELETION of %wZ\\%wZ\n", &keyPath, &valueName);
+#endif
+
                 ZwSetValueKey(hKey, &valueName, 0, backup->Type, (PVOID)backup->RegistryData, backup->DataSize);
             }
             else {
                 // If it was a SetValue, we restore the original value
-                DbgPrint("!!! Regedit: Reverting SET of %wZ\\%wZ\n", &keyPath, &valueName);
+                
+#if IS_DEBUG_IRP
+DbgPrint("!!! Regedit: Reverting SET of %wZ\\%wZ\n", &keyPath, &valueName);
+#endif
+
                 ZwSetValueKey(hKey, &valueName, 0, backup->Type, (PVOID)backup->RegistryData, backup->DataSize);
             }
             ZwClose(hKey);
         } else {
-            DbgPrint("!!! Regedit: Failed to open key %wZ for revert. Status: 0x%X\n", &keyPath, status);
+            
+#if IS_DEBUG_IRP
+DbgPrint("!!! Regedit: Failed to open key %wZ for revert. Status: 0x%X\n", &keyPath, status);
+#endif
+
         }
 
         delete backup;

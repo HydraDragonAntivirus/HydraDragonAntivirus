@@ -554,8 +554,12 @@ VOID SendRegistryAlert(PUNICODE_STRING RegPath, PCWSTR Operation, HANDLE Pid, UC
 
     // Add to the driver queue; if enqueue ever fails, free the entry to avoid a leak.
     if (!driverData->AddIrpMessage(newEntry)) {
-        DbgPrint("!!! Regedit: Failed to enqueue registry event for PID %lu\n",
+        
+#if IS_DEBUG_IRP
+DbgPrint("!!! Regedit: Failed to enqueue registry event for PID %lu\n",
                  newEntry->data.PID);
+#endif
+
         delete newEntry;
     }
 }
@@ -632,7 +636,11 @@ NTSTATUS RegistryCallback(_In_ PVOID CallbackContext, _In_ PVOID Argument1, _In_
                         if (!NT_SUCCESS(RtlAppendUnicodeToString(&RegPath, L"\\")) ||
                             !NT_SUCCESS(RtlAppendUnicodeStringToString(&RegPath, pInfo->ValueName)))
                         {
-                            DbgPrint("RegPath append failed: buffer too small\n");
+                            
+#if IS_DEBUG_IRP
+DbgPrint("RegPath append failed: buffer too small\n");
+#endif
+
                             break;
                         }
                     }
@@ -683,7 +691,11 @@ NTSTATUS RegistryCallback(_In_ PVOID CallbackContext, _In_ PVOID Argument1, _In_
 
                     if (!AppendRegistryPathComponent(&RegPath, pInfo->ValueName))
                     {
-                        DbgPrint("RegPath append failed: buffer too small\n");
+                        
+#if IS_DEBUG_IRP
+DbgPrint("RegPath append failed: buffer too small\n");
+#endif
+
                         break;
                     }
 
@@ -743,7 +755,11 @@ NTSTATUS RegistryCallback(_In_ PVOID CallbackContext, _In_ PVOID Argument1, _In_
                 {
                     if (!AppendRegistryPathComponent(&RegPath, pInfo->ValueName))
                     {
-                        DbgPrint("RegPath append failed: buffer too small\n");
+                        
+#if IS_DEBUG_IRP
+DbgPrint("RegPath append failed: buffer too small\n");
+#endif
+
                         break;
                     }
 
@@ -820,8 +836,12 @@ NTSTATUS RegistryCallback(_In_ PVOID CallbackContext, _In_ PVOID Argument1, _In_
     }
     __except (EXCEPTION_EXECUTE_HANDLER)
     {
-        DbgPrint("!!! Regedit: exception in RegistryCallback (class=%d, PID=%lu)\n",
+        
+#if IS_DEBUG_IRP
+DbgPrint("!!! Regedit: exception in RegistryCallback (class=%d, PID=%lu)\n",
                  (int)(ULONG_PTR)Argument1, (ULONG)(ULONG_PTR)hPid);
+#endif
+
     }
 
     if (RegPath.Buffer) ExFreePoolWithTag(RegPath.Buffer, REG_TAG);
@@ -835,7 +855,11 @@ NTSTATUS RegeditDriverEntry()
     NTSTATUS status = CmRegisterCallback(RegistryCallback, NULL, &Cookie);
     if (NT_SUCCESS(status))
     {
-        DbgPrint("[Registry-Protection] Initialized successfully\r\n");
+        
+#if IS_DEBUG_IRP
+DbgPrint("[Registry-Protection] Initialized successfully\r\n");
+#endif
+
     }
     return status;
 }

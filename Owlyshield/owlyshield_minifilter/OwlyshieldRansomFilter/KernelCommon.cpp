@@ -100,16 +100,28 @@ BOOLEAN startsWith(PUNICODE_STRING String, PWCHAR Pattern)
     {
         if (String->Length <= 2 * i)
         {
-            // DbgPrint("String ended before pattern, %d\n", i);
+            // 
+#if IS_DEBUG_IRP
+DbgPrint("String ended before pattern, %d\n", i);
+#endif
+
             return FALSE;
         }
         if (RtlDowncaseUnicodeChar(Pattern[i]) != RtlDowncaseUnicodeChar(buffer[i]))
         {
-            // DbgPrint("Chars not eq: %d, %d\n", RtlDowncaseUnicodeChar(Pattern[i]),
+            // 
+#if IS_DEBUG_IRP
+DbgPrint("Chars not eq: %d, %d\n", RtlDowncaseUnicodeChar(Pattern[i]),
             // RtlDowncaseUnicodeChar(buffer[i]));
+#endif
+
             return FALSE;
         }
-        // DbgPrint("Chars are eq: %d, %d\n", RtlDowncaseUnicodeChar(Pattern[i]), RtlDowncaseUnicodeChar(buffer[i]));
+        // 
+#if IS_DEBUG_IRP
+DbgPrint("Chars are eq: %d, %d\n", RtlDowncaseUnicodeChar(Pattern[i]), RtlDowncaseUnicodeChar(buffer[i]));
+#endif
+
     }
     return TRUE;
 }

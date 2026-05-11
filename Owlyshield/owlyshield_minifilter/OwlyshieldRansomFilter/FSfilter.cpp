@@ -748,8 +748,8 @@ Return Value:
     {
 #if IS_DEBUG_IRP
         DbgPrint("!!! FSfilter: PsSetCreateProcessNotifyRoutineEx failed: %#010x, falling back to legacy callback.\n",
-#endif
                  status);
+#endif
         status = PsSetCreateProcessNotifyRoutine(AddRemProcessRoutineLegacy, FALSE);
         if (!NT_SUCCESS(status))
         {
@@ -962,8 +962,8 @@ VOID ThreadCreationCallback(_In_ HANDLE ProcessId, _In_ HANDLE ThreadId, _In_ BO
 #endif
 #if IS_DEBUG_IRP
         DbgPrint("!!!   Source PID: %lu -> Target PID: %lu, Thread ID: %lu\n", (ULONG)(ULONG_PTR)currentPid,
-#endif
                  (ULONG)(ULONG_PTR)ProcessId, (ULONG)(ULONG_PTR)ThreadId);
+#endif
 
         // Check if either process is monitored
         BOOLEAN sourceFound = FALSE;
@@ -1688,8 +1688,8 @@ FSProcessPreOperation(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECT
         {
 #if IS_DEBUG_IRP
             DbgPrint("!!! FSfilter: Blocking access to quarantine folder for untrusted process (PID: %u)\n",
-#endif
                      FltGetRequestorProcessId(Data));
+#endif
             FltReleaseFileNameInformation(nameInfo);
             delete newEntry;
             Data->IoStatus.Status = STATUS_ACCESS_DENIED;
@@ -1700,8 +1700,8 @@ FSProcessPreOperation(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECT
         {
 #if IS_DEBUG_IRP
             DbgPrint("!!! FSfilter: Allowing access to quarantine folder for trusted Owlyshield process (PID: %u)\n",
-#endif
                      FltGetRequestorProcessId(Data));
+#endif
             // Allow Owlyshield to perform operations on files in quarantine
             // We still need to release nameInfo and delete newEntry if we're not going to process it further
             FltReleaseFileNameInformation(nameInfo);
@@ -1771,8 +1771,8 @@ FSProcessPreOperation(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECT
                     isGidFound = (gid != 0);
 #if IS_DEBUG_IRP
                     DbgPrint("!!! FSfilter: DISCOVERED untracked process in PreOp. PID: %u, GID: %llu\n", newItem->PID,
-#endif
                              gid);
+#endif
 
                     if (isGidFound)
                     {
@@ -2132,14 +2132,22 @@ Return Value:
 --*/
 {
 #if IS_DEBUG_IRP
-    // DbgPrint("!!! FSfilter: Enter post op for irp: %s, pid of process: %u\n",
-#endif
+    // 
+#if IS_DEBUG_IRP
+DbgPrint("!!! FSfilter: Enter post op for irp: %s, pid of process: %u\n",
     // FltGetIrpName(Data->Iopb->MajorFunction), FltGetRequestorProcessId(Data));
+#endif
+#endif
+
 
     if (!NT_SUCCESS(Data->IoStatus.Status) || (STATUS_REPARSE == Data->IoStatus.Status))
     {
 #if IS_DEBUG_IRP
-        // DbgPrint("!!! FSfilter: finished post operation, already failed \n");
+        // 
+#if IS_DEBUG_IRP
+DbgPrint("!!! FSfilter: finished post operation, already failed \n");
+#endif
+
 #endif
         if (CompletionContext != nullptr && Data->Iopb->MajorFunction == IRP_MJ_READ)
         {
@@ -2183,7 +2191,11 @@ Return Value:
 // FIX: Ensure IS_DEBUG_IRP is defined in your header
 #if IS_DEBUG_IRP
         if (!KeIsExecutingDpc()) // prevent recursion in DPC or debug trap
-            DbgPrint("FSfilter: IRP READ WITH CALLBACK! ****************** \n");
+            
+#if IS_DEBUG_IRP
+DbgPrint("FSfilter: IRP READ WITH CALLBACK! ****************** \n");
+#endif
+
 #endif
 
         // FIX: Removed early 'return FLT_PREOP_SUCCESS_WITH_CALLBACK' here
@@ -2208,7 +2220,11 @@ FSProcessCreateIrp(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECTS F
     if (driverData->isFilterClosed() || IsCommClosed())
     {
 #if IS_DEBUG_IRP
-        // DbgPrint("!!! FSfilter: filter closed or comm closed, skip irp\n");
+        // 
+#if IS_DEBUG_IRP
+DbgPrint("!!! FSfilter: filter closed or comm closed, skip irp\n");
+#endif
+
 #endif
         return FLT_POSTOP_FINISHED_PROCESSING;
     }
@@ -2265,8 +2281,8 @@ FSProcessCreateIrp(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECTS F
                     isGidFound = (gid != 0);
 #if IS_DEBUG_IRP
                     DbgPrint("!!! FSfilter: DISCOVERED untracked process in PostCreate. PID: %u, GID: %llu\n",
-#endif
                              newItem->PID, gid);
+#endif
                     // NOTE: procPathCopy is now owned by RecordNewProcess. Do NOT free.
                 }
             }
@@ -2281,7 +2297,11 @@ FSProcessCreateIrp(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECTS F
         if (!isGidFound)
         {
 #if IS_DEBUG_IRP
-            // DbgPrint("!!! FSfilter: Item does not have a gid, skipping\n");
+            // 
+#if IS_DEBUG_IRP
+DbgPrint("!!! FSfilter: Item does not have a gid, skipping\n");
+#endif
+
 #endif
             FltReleaseFileNameInformation(nameInfo);
             delete newEntry;
@@ -2289,14 +2309,14 @@ FSProcessCreateIrp(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECTS F
         }
     }
     newItem->Gid = gid;
-    #if IS_DEBUG_IRP
+#if IS_DEBUG_IRP
         DbgPrint(
             "!!! FSfilter: Registring new irp for Gid: %llu with pid: %d\n", gid,
             newItem->PID); // TODO: incase it doesnt exist we can add it with our method that checks for system process
-    #endif
 
     // get file id
     hr = CopyFileIdInfo(Data, newItem);
+#endif
     if (!NT_SUCCESS(hr))
     {
         FltReleaseFileNameInformation(nameInfo);
@@ -3414,10 +3434,10 @@ NTSTATUS FSfilter_HookDeviceControl_UNUSED(PDEVICE_OBJECT DeviceObject, PIRP Irp
 
 #if IS_DEBUG_IRP
                 DbgPrint("FSfilter: API HOOKING EVENT RawType=%lu Name=%ws SourcePid=%lu TargetPid=%lu Arg1=0x%p "
-#endif
                          "Arg2=0x%p Arg3=0x%p Arg4=0x%p\n",
                          eventType, functionName ? functionName : L"", processId, processId, (PVOID)rawArg1,
                          (PVOID)rawArg2, (PVOID)rawArg3, (PVOID)rawArg4);
+#endif
 
                 // Preserve raw event type and hook arguments; classification is normalized in ProcessProtection.
                 OnKernelApiEvent(IRP_USERMODE_HOOK_EVENT, eventType, processId, processId, functionName, rawArg1,
