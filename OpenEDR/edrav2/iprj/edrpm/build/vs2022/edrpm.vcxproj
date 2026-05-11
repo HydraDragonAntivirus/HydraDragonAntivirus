@@ -144,6 +144,8 @@ call "$(ProjectDir)sign_dll.bat" "$(TargetDir)tests\$(TargetFileName)"
 copy "$(TargetPath)" "$(TargetDir)\tests\" /Y
 call "$(ProjectDir)sign_dll.bat" "$(TargetPath)"
 call "$(ProjectDir)sign_dll.bat" "$(TargetDir)tests\$(TargetFileName)"
+call "$(ProjectDir)sign_dll.bat" "$(TargetDir)edrpm32.dll"
+call "$(ProjectDir)sign_dll.bat" "$(TargetDir)tests\edrpm32.dll"
 </Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
