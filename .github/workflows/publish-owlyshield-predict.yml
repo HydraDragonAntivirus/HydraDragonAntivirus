@@ -54,11 +54,6 @@ jobs:
 
           Copy-Item "Owlyshield/owlyshield_predict/target/release/owlyshield_ransom.exe" $serviceDir -Force
           Copy-Item "Owlyshield/owlyshield_predict/models/*" $modelsDir -Force
-          
-          Write-Host "Signing..."
-          Push-Location Sanctum
-          .\sign_owlyshield_predict.bat
-          Pop-Location
 
       - name: Check for publishable changes
         id: check_changes

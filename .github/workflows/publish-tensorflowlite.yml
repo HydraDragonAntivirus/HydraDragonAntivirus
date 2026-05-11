@@ -34,11 +34,6 @@ jobs:
           
           Copy-Item "Owlyshield/owlyshield_predict/moonfire-tflite/lib/tensorflowlite_c.dll" $serviceDir -Force
 
-          Write-Host "Signing..."
-          Push-Location Sanctum
-          .\sign_owlyshield_predict.bat
-          Pop-Location
-
       - name: Check for publishable changes
         id: check_changes
         uses: ./.github/actions/check-publishable-changes
