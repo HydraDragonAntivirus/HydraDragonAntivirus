@@ -461,9 +461,8 @@ jobs:
               Write-Host "`n=== Step 6: Final signing with sign.bat $driverBuildProfile ==="
               Invoke-Native ".\sign.bat" @($driverBuildProfile)
               Assert-DriverPackage "final signing"
-              Set-Content -Path "sanctum_elam_hash.txt" -Value $hash -NoNewline
-
               Write-Host "`n=== SUCCESS: Driver built and signed with matching hash ==="
+              Remove-Item -Path "sanctum_elam_hash.txt" -Force
           } else {
               Write-Host "ERROR: Could not extract hash from certificate"
               exit 1
@@ -494,7 +493,6 @@ jobs:
           }
 
           Copy-Item "Sanctum/driver/target/release/sanctum_package/*.sys" "$artifact/Sanctum/driver/target/release/sanctum_package/" -Force -ErrorAction Stop
-          Copy-Item "Sanctum/driver/sanctum_elam_hash.txt" "$artifact/Sanctum/driver/" -Force -ErrorAction Stop
           Copy-Item "Sanctum/driver/build.rs" "$artifact/Sanctum/driver/" -Force -ErrorAction Stop
           Copy-Item "Sanctum/target/release/sanctum_ppl_runner.exe" "$artifact/Sanctum/target/release/" -Force -ErrorAction Stop
           Copy-Item "Sanctum/target/release/elam_installer.exe" "$artifact/Sanctum/target/release/" -Force -ErrorAction Stop

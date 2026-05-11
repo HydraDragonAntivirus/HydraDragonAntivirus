@@ -196,10 +196,9 @@ jobs:
             Write-Host "`n=== Step 6: Final signing with sign.bat $driverBuildProfile ==="
             Invoke-Native ".\sign.bat" @($driverBuildProfile)
             Assert-DriverPackage "final signing"
-            Set-Content -Path "sanctum_elam_hash.txt" -Value $hash -NoNewline
-            echo "elam_hash=$hash" >> $env:GITHUB_OUTPUT
-
             Write-Host "`n=== SUCCESS: Driver built and signed with matching hash ==="
+            echo "elam_hash=$hash" >> $env:GITHUB_OUTPUT
+            Remove-Item -Path "sanctum_elam_hash.txt" -Force
           } else {
             Write-Host "ERROR: Could not extract hash from certificate"
             exit 1
@@ -213,7 +212,6 @@ jobs:
           New-Item -ItemType Directory -Force -Path $dist, $artifact | Out-Null
           Copy-Item "Sanctum/driver/target/release/sanctum_package/sanctum.sys" "$dist/sanctum.sys" -Force
           Copy-Item "Sanctum/driver/target/release/sanctum_package/sanctum.sys" "$artifact/sanctum.sys" -Force
-          Copy-Item "Sanctum/driver/sanctum_elam_hash.txt" "$artifact/sanctum_elam_hash.txt" -Force
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v7
@@ -229,7 +227,6 @@ jobs:
         with:
           paths: |
             hydradragon/Sanctum/AppData/sanctum.sys
-            Sanctum/driver/sanctum_elam_hash.txt
             Sanctum/driver/Cargo.lock
             Sanctum/driver/build.rs
 
