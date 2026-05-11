@@ -34,7 +34,7 @@ namespace HydraDragonService
             try
             {
                 // Core Engines First
-                StartOwlyshieldPredict();
+                StartOwlyshieldService();
                 await Task.Delay(2000, stoppingToken);
 
                 StartHydraDragonFirewall();
@@ -65,7 +65,7 @@ namespace HydraDragonService
                 try
                 {
                     // Monitor Core Engines (Owlyshield → Firewall → AV → Python)
-                    StartOwlyshieldPredict();
+                    StartOwlyshieldService();
                     StartHydraDragonFirewall();
                     StartHydraDragonAV();
                     StartHydraDragonCore();
@@ -87,7 +87,7 @@ namespace HydraDragonService
                     string crashedName = "";
                     if (_avProcess != null && _avProcess.HasExited)                      { crashedProc = _avProcess;          crashedName = "C++ Engine"; }
                     else if (_pythonProcess != null && _pythonProcess.HasExited)          { crashedProc = _pythonProcess;      crashedName = "Python Engine"; }
-                    else if (_owlyshieldProcess != null && _owlyshieldProcess.HasExited) { crashedProc = _owlyshieldProcess;  crashedName = "Owlyshield Predict"; }
+                    else if (_owlyshieldProcess != null && _owlyshieldProcess.HasExited) { crashedProc = _owlyshieldProcess;  crashedName = "Owlyshield Service"; }
                     else if (_firewallProcess != null && _firewallProcess.HasExited)     { crashedProc = _firewallProcess;    crashedName = "Firewall"; }
 
                     if (crashedProc != null && _restartOnCrash)
@@ -181,18 +181,18 @@ namespace HydraDragonService
             _pythonProcess = StartProcess("cmd.exe", _baseDir, "[HydraDragon]", $"/c \"\"{activateBat}\" && poetry run hydradragon\"");
         }
 
-        private void StartOwlyshieldPredict()
+        private void StartOwlyshieldService()
         {
             if (_owlyshieldProcess != null && !_owlyshieldProcess.HasExited) return;
-            string owlyPath = Path.Combine(_baseDir, "hydradragon", "Owlyshield", "owlyshield_predict.exe");
-            string owlyDir  = Path.Combine(_baseDir, "hydradragon", "Owlyshield");
-            _owlyshieldProcess = StartProcess(owlyPath, owlyDir, "[Owlyshield]");
+            string owlyPath = Path.Combine(_baseDir, "hydradragon", "Owlyshield", "Owlyshield Service", "owlyshield_ransom.exe");
+            string owlyDir  = Path.Combine(_baseDir, "hydradragon", "Owlyshield", "Owlyshield Service");
+            _owlyshieldProcess = StartProcess(owlyPath, owlyDir, "[Owlyshield Service]");
         }
 
         private void StartHydraDragonFirewall()
         {
             if (_firewallProcess != null && !_firewallProcess.HasExited) return;
-            string fwPath = Path.Combine(_baseDir, "hydradragon", "HydraDragonFirewall", "HydraDragonFirewall.exe");
+            string fwPath = Path.Combine(_baseDir, "hydradragon", "HydraDragonFirewall", "hydradragonfirewall.exe");
             string fwDir  = Path.Combine(_baseDir, "hydradragon", "HydraDragonFirewall");
             _firewallProcess = StartProcess(fwPath, fwDir, "[Firewall]");
         }
