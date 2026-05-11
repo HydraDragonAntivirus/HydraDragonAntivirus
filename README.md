@@ -271,7 +271,7 @@ For complete removal of kernel drivers and system services, please follow the **
  3. **Vulnerable Driver Abuse (BYOVD)**: Attackers can "Bring Their Own Vulnerable Driver" (or abuse the ones included here) to bypass Windows Kernel protections. Without **ELAM** and **Digital Signatures**, the AV cannot verify its own identity or the integrity of its environment during the boot process.
  
  #### Hardened Rule Delivery & Security Architecture
- To mitigate "Post-Infection" triggers and ensure environment integrity, the project has transitioned from fragile disk-based rule loading to a **Secure Memory-Push Model**:
+HydraDragon uses a **Zero-Disk Rule Architecture** to prevent post-infection tampering and path-based attacks:
 
  1. **Zero Disk Dependency**: Kernel drivers no longer read configuration or exclusion rules from hardcoded disk paths (e.g., `C:\Program Files\HydraDragonAntivirus\hydradragon`). This eliminates **Directory Squatting** and **TOCTOU (Time-of-Check to Time-of-Use)** vulnerabilities where an attacker could replace or "poison" rule files before the driver initializes.
  2. **Early-Boot Resilience**: By moving rules from disk to memory, we mitigate attacks where **early-launched malware** attempts to delete or replace rule files before the AV service starts. However, in a "Post-Infection" scenario where malware has already achieved persistence, it may attempt to delete the AV binaries themselves. To defend against this, HydraDragon relies on **ELAM (Early Launch Anti-Malware)** and **PPL (Protected Process Lite)** to ensure the antivirus core initializes and protects itself before third-party malicious code can execute.
