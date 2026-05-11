@@ -2304,6 +2304,19 @@ FSProcessPostReadIrp(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECTS
     }
     else
     {
+        // For reads that aren't already safe, we check the size before doing expensive safe completion
+        if (Data->IoStatus.Information < 512)
+        {
+            entry->data.isEntropyCalc = FALSE;
+            entry->data.Entropy = 0;
+            entry->data.MemSizeUsed = (ULONG)Data->IoStatus.Information;
+            if (!driverData->AddIrpMessage(entry))
+            {
+                delete entry;
+            }
+            return FLT_POSTOP_FINISHED_PROCESSING;
+        }
+
         if (FltDoCompletionProcessingWhenSafe(Data, FltObjects, CompletionContext, Flags, FSProcessPostReadSafe,
                                               &status))
         { // post to worker thread or run if irql is ok
@@ -2321,7 +2334,7 @@ FSProcessPostReadIrp(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECTS
             return FLT_POSTOP_FINISHED_PROCESSING;
         }
     }
-    if (!ReadBuffer)
+    if (!ReadBuffer || Data->IoStatus.Information < 512)
     {
         entry->data.isEntropyCalc = FALSE;
         entry->data.Entropy = 0;
@@ -2398,7 +2411,7 @@ FSProcessPostReadSafe(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECT
     {
         PVOID ReadBuffer = MmGetSystemAddressForMdlSafe(Data->Iopb->Parameters.Read.MdlAddress,
                                                         NormalPagePriority | MdlMappingNoExecute);
-        if (ReadBuffer != NULL)
+        if (ReadBuffer != NULL && Data->IoStatus.Information >= 512)
         {
             entry->data.MemSizeUsed = Data->IoStatus.Information; // successful read data.
 

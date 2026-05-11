@@ -548,6 +548,24 @@ static BOOLEAN ShouldSkipProcessProtectionPid(_In_ ULONG ProcessId, _In_ BOOLEAN
         return FALSE;
     }
 
+    // Direct check for the registered service PID to avoid expensive path lookups
+    if (driverData != NULL && ProcessId == driverData->getPID())
+    {
+        return TRUE;
+    }
+
+    // Hardened check for system processes that might not be in our path cache
+    PEPROCESS proc = NULL;
+    if (NT_SUCCESS(PsLookupProcessByProcessId((HANDLE)(ULONG_PTR)ProcessId, &proc)))
+    {
+        if (IsSystemProcessPP(proc))
+        {
+            ObDereferenceObject(proc);
+            return TRUE;
+        }
+        ObDereferenceObject(proc);
+    }
+
     if (!CopyProcessPathByPidBestEffort(ProcessId, processPath, RTL_NUMBER_OF(processPath), AllowSlowLookup))
     {
         return FALSE;
@@ -825,6 +843,10 @@ OB_PREOP_CALLBACK_STATUS ProcessHandlePreCallback(_In_ PVOID RegistrationContext
     if (IsSystemProcessPP(currentProc))
         return OB_PREOP_SUCCESS;
 
+    // 4b. Skip the service process explicitly
+    if (driverData != NULL && callerPid == driverData->getPID())
+        return OB_PREOP_SUCCESS;
+
     if (ShouldSkipProcessProtectionPair(callerPid, targetPid, FALSE))
         return OB_PREOP_SUCCESS;
 
@@ -1047,9 +1069,11 @@ NTSTATUS QueueTerminationAttemptToUserMode(PEPROCESS AttackerProcess, PEPROCESS 
     // fall back to PID-based resolution if the cache has no entry yet.
     PopulateIrpProcessPath(newEntry, (ULONG)(ULONG_PTR)targetPid, FALSE);
 
+#ifdef IS_DEBUG_IRP
     DbgPrint("!!! ProcessProtection: Termination attempt detected - Attacker PID %d (GID %llu) -> Target PID %d (GID "
              "%llu)\n",
              (ULONG)(ULONG_PTR)attackerPid, attackerGid, (ULONG)(ULONG_PTR)targetPid, targetGid);
+#endif
 
     // Add to IRP queue
     if (!driverData->AddIrpMessage(newEntry))
@@ -1090,8 +1114,10 @@ NTSTATUS OnProcessCreate(_In_ HANDLE ProcessId, _In_ HANDLE ParentProcessId)
     newItem->Gid = driverData->GetProcessGid(pid, &found);
     PopulateIrpProcessPath(newEntry, pid, TRUE);
 
+#ifdef IS_DEBUG_IRP
     DbgPrint("!!! ProcessProtection: Process created - PID %lu (Parent: %lu, GID: %llu)\n", pid, parentPid,
              newItem->Gid);
+#endif
 
     if (!driverData->AddIrpMessage(newEntry))
     {
@@ -1126,7 +1152,9 @@ NTSTATUS OnProcessExit(_In_ HANDLE ProcessId)
     newItem->Gid = driverData->GetProcessGid(pid, &found);
     PopulateIrpProcessPath(newEntry, pid, FALSE);
 
+#ifdef IS_DEBUG_IRP
     DbgPrint("!!! ProcessProtection: Process exited - PID %lu (GID: %llu)\n", pid, newItem->Gid);
+#endif
 
     if (!driverData->AddIrpMessage(newEntry))
     {
@@ -1178,8 +1206,10 @@ NTSTATUS OnProcessHandleOperation(_In_ HANDLE CallerProcessId, _In_ HANDLE Targe
     newItem->KernelEventInfo.TargetProcessId = targetPid;
     PopulateIrpProcessPath(newEntry, targetPid, FALSE);
 
+#ifdef IS_DEBUG_IRP
     DbgPrint("!!! ProcessProtection: Process handle opened - Caller PID %lu -> Target PID %lu (Access: 0x%X, Op: %u)\n",
              callerPid, targetPid, DesiredAccess, OperationType);
+#endif
 
     if (!driverData->AddIrpMessage(newEntry))
     {
@@ -1376,9 +1406,11 @@ NTSTATUS OnMemoryProtectionChange(_In_ ULONG SourcePid, _In_ ULONG TargetPid, _I
     newItem->KernelEventInfo.AccessMask = PROCESS_VM_OPERATION;
     SetKernelEventObjectName(newItem, L"IRP_KERNEL_PROTECT_MEMORY");
 
+#ifdef IS_DEBUG_IRP
     DbgPrint("!!! ProcessProtection: Memory protection change - Source PID %lu -> Target PID %lu (Old: 0x%X, New: "
              "0x%X, Executable: %u)\n",
              SourcePid, TargetPid, OldProtection, NewProtection, IsExecutableProtection(NewProtection));
+#endif
 
     if (!driverData->AddIrpMessage(newEntry))
     {
@@ -1424,8 +1456,10 @@ NTSTATUS OnThreadCreation(_In_ ULONG SourcePid, _In_ ULONG TargetPid, _In_ PVOID
     newItem->KernelEventInfo.AccessMask = PROCESS_CREATE_THREAD;
     SetKernelEventObjectName(newItem, L"IRP_KERNEL_REMOTE_THREAD");
 
+#ifdef IS_DEBUG_IRP
     DbgPrint("!!! ProcessProtection: Remote thread creation - Source PID %lu -> Target PID %lu (Start: %p)\n",
              SourcePid, TargetPid, StartRoutine);
+#endif
 
     if (!driverData->AddIrpMessage(newEntry))
     {
@@ -1528,8 +1562,10 @@ NTSTATUS OnSectionOperation(_In_ ULONG SourcePid, _In_ ULONG TargetPid, _In_opt_
         newEntry->filePath.MaximumLength = MAX_FILE_NAME_SIZE;
     }
 
+#ifdef IS_DEBUG_IRP
     DbgPrint("!!! ProcessProtection: Section operation - Source PID %lu -> Target PID %lu (Type: %u, Name: %ws)\n",
              SourcePid, TargetPid, OperationType, SectionName ? SectionName : L"<unnamed>");
+#endif
 
     if (!driverData->AddIrpMessage(newEntry))
     {
