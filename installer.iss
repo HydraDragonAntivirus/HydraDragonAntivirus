@@ -104,7 +104,8 @@ Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "NOVE
 Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "LOG_PATH"; ValueData: "{app}\hydradragon\Owlyshield\Owlyshield Service\log"; Flags: uninsdeletekey
 Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "RULES_PATH"; ValueData: "{app}\hydradragon\Owlyshield\rules"; Flags: uninsdeletekey
 Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "REPORTS_PATH"; ValueData: "{app}\hydradragon\Owlyshield\config\report"; Flags: uninsdeletekey
-Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "REALTIME_LEARNING_DIR"; ValueData: "{app}\hydradragon\Owlyshield\realtime_learning"; Flags: uninsdeletekey
+Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "REALTIME_LEARNING_PATH"; ValueData: "{app}\hydradragon\Owlyshield\realtime_learning"; Flags: uninsdeletekey
+Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "OPENEDR_TELEMETRY_PATH"; ValueData: "C:\ProgramData\Comodo\EDR\output_events"; Flags: uninsdeletekey
 
 Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "APP_ID"; ValueData: "{#OwlyshieldAppId}"; Flags: uninsdeletekey
 Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "LANGUAGE"; ValueData: "en-US"; Flags: uninsdeletekey
