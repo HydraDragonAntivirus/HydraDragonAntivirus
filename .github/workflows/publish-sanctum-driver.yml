@@ -176,14 +176,16 @@ jobs:
 
             $buildRsPath = "build.rs"
             $content = Get-Content $buildRsPath -Raw
-            # Robust replacement using PowerShell -replace operator
-            $newContent = $content -replace 'L"[^"]*",\s*// To-Be-Signed Hash', "L`"$hash\0`", // To-Be-Signed Hash"
-
-            if ($newContent -eq $content) {
-              throw "Could not find ELAM To-Be-Signed Hash line in build.rs. Content sample: $($content.Substring(0, [Math]::Min(200, $content.Length)))"
+            $pattern = 'L"[^"]*",\s*// To-Be-Signed Hash'
+            
+            if ($content -notmatch $pattern) {
+              throw "Could not find ELAM To-Be-Signed Hash line in build.rs. Pattern: $pattern"
             }
+
+            # Robust replacement using PowerShell -replace operator
+            $newContent = $content -replace $pattern, "L`"$hash\0`", // To-Be-Signed Hash"
             [System.IO.File]::WriteAllText((Resolve-Path $buildRsPath), $newContent, [System.Text.UTF8Encoding]::new($false))
-            Write-Host "Updated build.rs with hash: $hash"
+            Write-Host "Updated build.rs with hash: $hash (Pattern matched successfully)"
 
             Write-Host "`n=== Step 5: Rebuilding with correct hash ($driverBuildProfile) ==="
             Invoke-Native "cargo" @("clean")
