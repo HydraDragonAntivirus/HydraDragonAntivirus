@@ -10,6 +10,16 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/HydraDragonAntivirus/HydraDragonAntivirus/wiki">
+    <img src="https://img.shields.io/badge/Wiki-Hydra%20Dragon-red?style=for-the-badge&logo=github" alt="Project Wiki" />
+  </a>
+</p>
+
+<p align="center" style="font-size: 18px; font-weight: bold;">
+  📚 For detailed documentation, architecture diagrams, and component guides, visit our <a href="https://github.com/HydraDragonAntivirus/HydraDragonAntivirus/wiki">Project Wiki</a>.
+</p>
+
+<p align="center">
   <img
     src="hydradragon/assets/HydraDragonAVGUI.png"
     width="1080"
@@ -43,12 +53,28 @@ This project is not production-ready.
 Breaking changes, bugs, and incomplete features should be expected.
 </p>
 
+<p align="center" style="font-size: 18px; font-weight: bold; color: orange;">
+⚠️ NOTICE: This repository is intended strictly for EXPERT MALWARE ANALYSTS and SECURITY RESEARCHERS. 
+It contains low-level system components and experimental security drivers that require professional knowledge to handle safely.
+</p>
+
+
+> [!CAUTION]
+> ### 🛑 USER LIABILITY & SAFEGUARD LIMITATIONS
+> HydraDragon is designed to protect against **malicious automated threats**, not human error or intentional system modifications.
+>
+> 1. **Manual Deletion**: The antivirus **WILL NOT** stop you from running commands like `rd C: /s /q` or manually deleting your own files. It recognizes that if you (the Administrator) are explicitly deleting something, it is a **real user mistake** rather than a malware intrusion. The system is designed to permit intentional administrative decisions without interference.
+> 2. **Driver/System Misconfiguration**: The software does not protect against manual installation of incompatible drivers or incorrect system settings. A "Inaccessible Boot Device" or other system failures caused by manual registry edits or driver experiments are **NOT** considered malware behavior and are not blocked.
+> 3. **Experimental Nature**: You are responsible for any data loss or system instability caused by using this experimental software. **Always test in a Virtual Machine (VM) first.**
+
+
 ## One Man Project
 
 - HydraDragon is a three-year independent open-source antivirus/EDR project built primarily by one developer.
 
 ## TODO
 - Add HydraDragonIDE to project (static analyzer).
+- Remove Npcap since it's not really open source and replace with custom Suricata build.
 
 ## Compatibility with PCs
 
@@ -120,6 +146,7 @@ This project does not aim to replace your primary daily antivirus solution.
 - Signature retirement reference:
   https://blog.clamav.net/2025/12/clamav-signature-retirement.html
 
+- **Boot-Critical Filters**: `MBRFilter` is now configured as a **SERVICE_BOOT_START (0)** UpperFilter. This ensures the Master Boot Record is protected from the very first moment the disk stack initializes, providing hardware-level resistance against bootkits and Petya-style ransomware.
 - Files that appear as junk or fully unknown data may be ignored intentionally.
 - If a PE header is removed, some detection engines may no longer flag the file.
 - YARA detections may still trigger depending on rule logic (for example, rules that do not verify file type).
@@ -137,7 +164,7 @@ https://www.virustotal.com/gui/file/1ef6c1a4dfdc39b63bfe650ca81ab89510de6c0d3d7c
 ### Installation & Usage Notes
 
 - The installation process is not fully automated. Npcap, drivers, Firewall components, and some other dependencies may require manual approval during setup.
-- You must uninstall the software manually (auto-uninstaller is not functional).
+- You must uninstall the ELAM driver manually if the automated uninstaller encountered issues. See the **[Uninstallation Guide](./UNINSTALLATION.md)** for registry cleanup steps.
 - Temporary ClamAV update errors during setup can be safely ignored.
 - If driver installation fails, disable Secure Boot and try again.
 - It is recommended to wait until the antivirus interface fully loads, even if some protections appear active
@@ -148,11 +175,12 @@ https://github.com/adrianyy/kernelhook/issues/1
 
 ---
 
-### Process Protection
+### Process Protection & Orchestration
 
-- The antivirus can be manually terminated by the user.
-- Malware processes cannot terminate it because the driver verifies the origin of termination requests.
-- If you close it manually, this does not indicate a security failure.
+- **Unified Orchestration**: The `HydraDragonService` acts as the master orchestrator for the entire security stack. It manages the lifecycle of the C++ AV Engine, the Python EDR Core, and the Sanctum PPL Runner.
+- **Auto-Healing**: If any core security engine crashes, the service automatically detects the failure and relaunches it with an exponential backoff.
+- **Protected Service**: The antivirus service itself is protected. While it can be manually terminated by an Administrator, malware cannot terminate it as the driver verifies the origin of all termination requests.
+- **Manual Control**: If you close the GUI manually, the background security engines remain active under the service's supervision.
 
 ---
 
@@ -215,6 +243,13 @@ See the [LICENSE](./LICENSE) file for more information.
 ## Setup
 - Setup file on release HydraDragonAntivirus.exe
 
+## Uninstallation
+
+For complete removal of kernel drivers and system services, please follow the **[Uninstallation Guide](./UNINSTALLATION.md)**.
+
+> [!IMPORTANT]
+> A reboot into **Safe Mode** is required to fully remove protected driver files (`.sys`) and associated DLLs.
+
 ## Ghidra
 - Ghidra: %ProgramFiles%\aHydraDragonAntivirus\hydradragon\ghidra
 - Ghidra scripts: %ProgramFiles%\aHydraDragonAntivirus\hydradragon\scripts
@@ -235,12 +270,18 @@ See the [LICENSE](./LICENSE) file for more information.
  2. **Dependency Hijacking**: Since Python and Node.js are installed into the AV's subdirectory, malware can drop a malicious `python312.dll` or `node.exe` into those folders. The AV will then unknowingly execute malicious code with Administrative privileges during its normal operation.
  3. **Vulnerable Driver Abuse (BYOVD)**: Attackers can "Bring Their Own Vulnerable Driver" (or abuse the ones included here) to bypass Windows Kernel protections. Without **ELAM** and **Digital Signatures**, the AV cannot verify its own identity or the integrity of its environment during the boot process.
  
- #### Proposed Mitigation: PPL-Enforced Driver Startup
- To mitigate "Post-Infection" triggers, the driver should be registered such that it **refuses to start** unless the process initiating the load is a verified **PPL (Protected Process Light)**. Since standard malware (even with Administrative privileges) cannot easily spoof or inject into a PPL process, this ensures that only the legitimate, hardened HydraDragon service can activate the driver's protection routines.
- 
+ #### Hardened Rule Delivery & Security Architecture
+HydraDragon uses a **Zero-Disk Rule Architecture** to prevent post-infection tampering and path-based attacks (For Kernel):
+
+ 1. **Zero Disk Dependency**: Kernel drivers no longer read configuration or exclusion rules from hardcoded disk paths (e.g., `C:\Program Files\HydraDragonAntivirus\hydradragon`). This eliminates **Directory Squatting** and **TOCTOU (Time-of-Check to Time-of-Use)** vulnerabilities where an attacker could replace or "poison" rule files before the driver initializes.
+ 2. **Early-Boot Resilience**: By moving rules from disk to memory, we mitigate attacks where **early-launched malware** attempts to delete or replace rule files before the AV service starts. However, in a "Post-Infection" scenario where malware has already achieved persistence, it may attempt to delete the AV binaries themselves. To defend against this, HydraDragon relies on **ELAM (Early Launch Anti-Malware)** and **PPL (Protected Process Lite)** to ensure the antivirus core initializes and protects itself before third-party malicious code can execute.
+
+
+ > [!IMPORTANT]
+ > For a detailed security analysis on why avoiding hardcoded disk paths is critical for driver security, refer to the [Protection Mechanisms section of the Project Wiki](https://github.com/HydraDragonAntivirus/HydraDragonAntivirus/wiki/Protection-Mechanisms#7-hardened-rule-communication).
+
  - To prevent connection speed loss, make sure "late_blocking_mode" is set to true in C:\Program Files\HydraDragonAntivirus\hydradragon\HydraDragonFirewall\settings.json. This may cause malware to be detected slightly later.
 - For debugging, remember to set HKEY_LOCAL_MACHINE\SOFTWARE\Owlyshield\VERBOSE_LOGGING to 1.
-- Some kernel-level paths are hardcoded for extra protection, so do not modify them.
 - Accept the certificate trust dialog that Windows shows while the firewall is running.
 - Any logs will be removed when you restart the programme. So be careful!
 - You have to restart the program after the analysis.
@@ -363,12 +404,17 @@ See the [LICENSE](./LICENSE) file for more information.
 
 - Don't use suspicious VM names on your machine. (John Doe, etc.)
 
-**Tip 2:**
-
+### Tip 2:
 - Use VSCode, VSCodium, or another editor to see live changes to .log files.
 
-**Tip 3:**
+### Tip 3:
+- **Where to find logs**:
+  - **Core Engines (AV/Python)**: Look in `%ProgramFiles%\HydraDragonAntivirus\hydradragon\antivirus_scripts\log\`
+  - **Sanctum Engine**: Look in `%ProgramFiles%\HydraDragonAntivirus\hydradragon\Sanctum\logs\sanctum.log`
+  - **Sanctum PPL Runner**: This component logs to the **Windows Event Log** (Source: `SanctumPPLRunner`). Check Event Viewer -> Windows Logs -> Application.
+  - **Main Service**: Logs to the **Windows Event Log** (Source: `HydraDragonService`).
 
+### Tip 4:
 - Close the Windows Firewall on the VM to avoid any firewall blocking. We are testing this program not Windows Firewall.
 
 ## FAQ

@@ -2,281 +2,259 @@
 setlocal EnableExtensions
 
 set "POSTINSTALL_STAGE=initial"
-if /I "%~1"=="--after-hypervisor-reboot" set "POSTINSTALL_STAGE=after_hypervisor_reboot"
+set "POSTINSTALL_LOG_DIR=%ProgramData%\HydraDragonAntivirus"
+set "POSTINSTALL_LOG=%POSTINSTALL_LOG_DIR%\post_install.log"
+set "POSTINSTALL_LAST_OUTPUT=%TEMP%\HydraDragonPostInstall-last-command.txt"
+if not exist "%POSTINSTALL_LOG_DIR%" mkdir "%POSTINSTALL_LOG_DIR%" >nul 2>&1
+if not exist "%POSTINSTALL_LOG_DIR%" set "POSTINSTALL_LOG=%TEMP%\HydraDragonAntivirus-post_install.log"
+> "%POSTINSTALL_LOG%" (
+    echo HydraDragon post-install output
+    echo Started: %DATE% %TIME%
+    echo Stage: %POSTINSTALL_STAGE%
+    echo.
+)
+call :log [*] Writing post-install log to "%POSTINSTALL_LOG%"
 
 :: --------------------------------------------------------
 :: 1) Ensure we're elevated
 :: --------------------------------------------------------
 net session >nul 2>&1
 if %errorlevel% neq 0 (
-    echo [!] This script must be run as Administrator.
-    echo [*] Relaunching elevated...
-    powershell -Command "Start-Process '%~f0' -Verb runAs"
-    exit /b
+    call :log [!] This script must be run as Administrator.
+    call :log [*] Relaunching elevated...
+    call :run_and_log powershell -Command "Start-Process '%~f0' -Verb runAs"
+    if errorlevel 1 (
+        call :show_failure "Could not relaunch post-install elevated."
+        exit /b 1
+    )
+    exit /b 0
 )
 
 :: --------------------------------------------------------
-:: 2) Disable Windows hypervisor/VBS stack if needed
+:: 2) Environment setup
 :: --------------------------------------------------------
-if /I "%POSTINSTALL_STAGE%"=="after-hypervisor-reboot" (
-    echo [*] Continuing post-install after hypervisor/VBS reboot...
-) else (
-    call :prepare_hypervisor_stack
-    if "%TESTSIGNING_ENABLE_FAILED%"=="1" (
-        echo [!] Test signing mode could not be enabled.
-        echo [!] Secure Boot may be blocking test-signed RedDbg/HyperDbg drivers.
-        echo [!] Disable Secure Boot or use production-signed driver packages.
-        pause
-        exit /b
-    )
-    if "%HYPERVISOR_REBOOT_REQUIRED%"=="1" (
-        echo [*] Hypervisor/VBS settings were changed. A reboot is required before driver installation.
-        echo [*] Scheduling post-install continuation after reboot...
-        reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce" /v "HydraDragonPostInstallContinue" /t REG_SZ /d "\"%~f0\" --after-hypervisor-reboot" /f >nul 2>&1
-        echo [*] Restarting system in 15 seconds...
-        shutdown -r -t 15
-        exit /b
-    )
-)
-
-:: --------------------------------------------------------
-:: 3) Environment setup
-:: --------------------------------------------------------
-set "HYDRADRAGON_DIR=C:\Program Files\HydraDragonAntivirus\hydradragon"
+set "APP_DIR=C:\Program Files\HydraDragonAntivirus"
+set "HYDRADRAGON_DIR=%APP_DIR%\hydradragon"
+set "OPENEDR_DIR=%APP_DIR%\OpenEDR"
 set "SANCTUM_DIR=%HYDRADRAGON_DIR%\Sanctum"
 
 echo [*] Sanctum install path: %SANCTUM_DIR%
 
 :: --------------------------------------------------------
-:: 4) Check installed Sanctum folder and auto-download missing files
+:: 3) Check installed Sanctum folder and auto-download missing files
 :: --------------------------------------------------------
 echo [*] Checking Sanctum directory: "%SANCTUM_DIR%"
 
 if not exist "%SANCTUM_DIR%" (
-    echo [!] Sanctum folder missing — creating it...
+    echo [!] Sanctum folder missing - creating it...
     mkdir "%SANCTUM_DIR%" >nul 2>&1
     if errorlevel 1 (
-        echo [!] ERROR: Could not create "%SANCTUM_DIR%".
-        pause
-        exit /b
+        call :show_failure "Could not create ""%SANCTUM_DIR%""."
+        exit /b 1
     )
 )
 
 
 
 :: --------------------------------------------------------
-:: 5) Run ELAM installer first (if exists)
+:: 4) Run ELAM installer first (if exists)
 :: --------------------------------------------------------
 set "ELAM_EXE=%SANCTUM_DIR%\elam_installer.exe"
 
 if exist "%ELAM_EXE%" (
     echo [*] Running ELAM installer: "%ELAM_EXE%"
-    "%ELAM_EXE%"
+    call :run_and_log "%ELAM_EXE%"
+    if errorlevel 1 (
+        call :show_failure "ELAM installer failed."
+        exit /b 1
+    )
     echo [+] ELAM installer completed.
 ) else (
     echo [!] ELAM installer not found at "%ELAM_EXE%".
 )
 
 :: --------------------------------------------------------
-:: 6) Install OwlyshieldRansomFilter driver
+:: 5) Install OwlyshieldRansomFilter driver
 :: --------------------------------------------------------
-echo Installing OwlyshieldRansomFilter driver INF...
-pnputil /add-driver "%HYDRADRAGON_DIR%\Owlyshield\OwlyshieldRansomFilter\OwlyshieldRansomFilter.inf" /install
-if %errorlevel% neq 0 (
-    echo [!] OwlyshieldRansomFilter driver install failed.
-    pause
-    exit /b
+call :install_driver_inf "OwlyshieldRansomFilter" "%HYDRADRAGON_DIR%\Owlyshield\OwlyshieldRansomFilter\OwlyshieldRansomFilter.inf" required
+if errorlevel 1 exit /b 1
+
+:: --------------------------------------------------------
+:: 6) Install MBRFilter driver
+:: --------------------------------------------------------
+call :install_driver_inf "MBRFilter" "%HYDRADRAGON_DIR%\MBRFilter\MBRFilter.inf" required
+if errorlevel 1 exit /b 1
+
+:: --------------------------------------------------------
+:: 7) Install SimplePYASProtection driver
+:: --------------------------------------------------------
+call :install_driver_inf "SimplePYASProtection" "%HYDRADRAGON_DIR%\SimplePYASProtection\SimplePYASProtection.inf" required
+if errorlevel 1 exit /b 1
+
+:: --------------------------------------------------------
+:: 8) Install RedDbg driver (AMD Hypervisor)
+:: --------------------------------------------------------
+call :install_driver_inf "RedDbg" "%HYDRADRAGON_DIR%\Owlyshield\RedDbg\RedDbgDrv.inf" optional
+
+:: --------------------------------------------------------
+:: 9) Install HyperDbg driver (Intel Hypervisor)
+:: --------------------------------------------------------
+call :install_driver_inf "HyperDbg" "%HYDRADRAGON_DIR%\Owlyshield\HyperDbg\hyperhv.inf" optional
+
+:: --------------------------------------------------------
+:: 10) Register HydraDragonAntivirus scheduled task (autostart after reboot)
+:: --------------------------------------------------------
+set "HD_TASK_EXE=%HYDRADRAGON_DIR%\HydraDragonService\HydraDragonService.exe"
+set "HD_TASK_EXISTS=0"
+
+if not exist "%HD_TASK_EXE%" (
+    echo [!] HydraDragon service executable not found at "%HD_TASK_EXE%".
+    echo [*] Skipping HydraDragonAntivirus scheduled task creation.
+    goto after_hd_task
 )
-echo [+] OwlyshieldRansomFilter driver installed.
 
-:: --------------------------------------------------------
-:: 7) Install MBRFilter driver
-:: --------------------------------------------------------
-echo Installing MBRFilter driver INF...
-pnputil /add-driver "%HYDRADRAGON_DIR%\MBRFilter\MBRFilter.inf" /install
-if %errorlevel% neq 0 (
-    echo [!] MBRFilter driver install failed.
-    pause
-    exit /b
-)
-echo [+] MBRFilter driver installed.
-
-:: --------------------------------------------------------
-:: 8) Install SimplePYASProtection driver
-:: --------------------------------------------------------
-echo Installing SimplePYASProtection driver INF...
-pnputil /add-driver "%HYDRADRAGON_DIR%\SimplePYASProtection\SimplePYASProtection.inf" /install
-if %errorlevel% neq 0 (
-    echo [!] SimplePYASProtection driver install failed.
-    pause
-    exit /b
-)
-echo [+] SimplePYASProtection driver installed.
-
-:: --------------------------------------------------------
-:: 8.0) Trust RedDbg/HyperDbg test certificates
-:: --------------------------------------------------------
-call :trust_driver_cert_if_exists "%HYDRADRAGON_DIR%\Owlyshield\RedDbg\RedDbgDrv.cer" "RedDbg"
-call :trust_driver_cert_if_exists "%HYDRADRAGON_DIR%\Owlyshield\HyperDbg\hyperhv.cer" "HyperDbg"
-
-:: --------------------------------------------------------
-:: 8.1) Install RedDbg driver (AMD Hypervisor)
-:: --------------------------------------------------------
-echo Installing RedDbg driver INF...
-pnputil /add-driver "%HYDRADRAGON_DIR%\Owlyshield\RedDbg\RedDbgDrv.inf" /install
-if %errorlevel% neq 0 (
-    echo [!] RedDbg driver install failed (non-fatal if on Intel).
+echo Checking for existing HydraDragonAntivirus scheduled task...
+call :log [cmd] schtasks /query /tn "HydraDragonAntivirus"
+schtasks /query /tn "HydraDragonAntivirus" >nul 2>&1
+if errorlevel 1 (
+    call :log [*] No existing HydraDragonAntivirus scheduled task found.
 ) else (
-    echo [+] RedDbg driver installed.
+    set "HD_TASK_EXISTS=1"
+    call :log [+] Existing HydraDragonAntivirus scheduled task found.
 )
 
-:: --------------------------------------------------------
-:: 8.2) Install HyperDbg driver (Intel Hypervisor)
-:: --------------------------------------------------------
-echo Installing HyperDbg driver INF...
-pnputil /add-driver "%HYDRADRAGON_DIR%\Owlyshield\HyperDbg\hyperhv.inf" /install
-if %errorlevel% neq 0 (
-    echo [!] HyperDbg driver install failed (non-fatal if on AMD).
-) else (
-    echo [+] HyperDbg driver installed.
-)
-
-:: --------------------------------------------------------
-:: 9) Register HydraDragonAntivirus scheduled task (autostart after reboot)
-:: --------------------------------------------------------
-set "HD_TASK_EXE=%HYDRADRAGON_DIR%\HydraDragonService.exe\HydraDragonService.exe"
-
-if exist "%HD_TASK_EXE%" (
-    echo Checking for existing HydraDragonAntivirus scheduled task...
-    schtasks /query /tn "HydraDragonAntivirus" >nul 2>&1
-)
-
-if %errorlevel%==0 (
+if "%HD_TASK_EXISTS%"=="1" (
     echo Existing task found, deleting...
-    schtasks /delete /tn "HydraDragonAntivirus" /f >nul 2>&1
+    call :run_and_log schtasks /delete /tn "HydraDragonAntivirus" /f
 )
 
 echo Creating HydraDragonAntivirus auto-start task (user interactive)...
-schtasks /create /tn "HydraDragonAntivirus" /tr "\"%HD_TASK_EXE%\"" /sc ONLOGON /rl HIGHEST /f
+schtasks /create /tn "HydraDragonAntivirus" /tr "\"%HD_TASK_EXE%\"" /sc ONLOGON /rl HIGHEST /f > "%POSTINSTALL_LAST_OUTPUT%" 2>&1
+set "RUN_EXIT=%errorlevel%"
+call :show_last_output
 
-if %errorlevel% neq 0 (
+if not "%RUN_EXIT%"=="0" (
     echo [!] Failed to create HydraDragonAntivirus auto-start task.
 ) else (
     echo [+] HydraDragonAntivirus auto-start task created successfully.
 )
 
-:: --------------------------------------------------------
-:: 10) Install OpenEDR service
-:: --------------------------------------------------------
-set "EDR_EXE=%HYDRADRAGON_DIR%\OpenEDR\edrsvc.exe"
-if exist "%EDR_EXE%" (
-    echo [*] Installing OpenEDR service...
-    "%EDR_EXE%" install
-    echo [+] OpenEDR service installed.
+:after_hd_task
 
-    echo [*] Configuring OpenEDR kernel driver (edrdrv)...
-    sc config edrdrv start= system >nul 2>&1
-    sc start edrdrv >nul 2>&1
-    if %errorlevel% neq 0 (
-        echo [!] edrdrv driver start pending (will activate after reboot).
-    ) else (
-        echo [+] edrdrv driver started successfully.
-    )
-) else (
-    echo [!] OpenEDR service not found at "%EDR_EXE%".
+:: --------------------------------------------------------
+:: 11) Install OpenEDR service
+:: --------------------------------------------------------
+set "EDR_EXE=C:\Program Files\HydraDragonAntivirus\OpenEDR\edrsvc.exe"
+call :log [*] Checking for OpenEDR at "%EDR_EXE%"...
+
+if not exist "%EDR_EXE%" (
+    call :log [!] OpenEDR service executable NOT FOUND.
+    call :log [!] Skipping OpenEDR service installation.
+    goto :after_openedr
 )
 
+call :log [*] Installing OpenEDR service (Native mode)...
+call :run_and_log "%EDR_EXE%" install
+
+:: We use a temporary variable for errorlevel to avoid block expansion issues
+set "EDR_INSTALL_RES=%errorlevel%"
+if not "%EDR_INSTALL_RES%"=="0" (
+    call :log [!] OpenEDR service install returned error code %EDR_INSTALL_RES%.
+) else (
+    call :log [+] OpenEDR service install command completed successfully.
+)
+
+call :log [*] Configuring OpenEDR kernel driver (edrdrv)...
+sc query edrdrv >nul 2>&1
+if not errorlevel 1 (
+    call :log [*] Forcing edrdrv to DEMAND start to prevent boot BSOD...
+    sc config edrdrv start= demand >nul 2>&1
+    call :log [+] edrdrv start type set to demand.
+) else (
+    call :log [!] edrdrv service not found, skipping config.
+)
+
+:after_openedr
+
 :: --------------------------------------------------------
-:: 11) Cleanup and restart
+:: 12) Cleanup and Restart
 :: --------------------------------------------------------
-echo Cleaning up installer script and restarting system in 10 seconds...
-shutdown -r -t 10
+echo [+] All installation steps complete!
+echo [*] Restarting system in 10 seconds to activate security drivers...
+
+if exist "%POSTINSTALL_LAST_OUTPUT%" del "%POSTINSTALL_LAST_OUTPUT%" >nul 2>&1
+
+shutdown -r -t 10 /f /c "HydraDragon Antivirus installation complete. Restarting to activate security drivers."
+
 del "%~f0"
 endlocal
 goto :eof
 
-:prepare_hypervisor_stack
-set "HYPERVISOR_REBOOT_REQUIRED=0"
-set "TESTSIGNING_ENABLE_FAILED=0"
-echo [*] Disabling VBS/HVCI/Hyper-V features for hypervisor-based testing compatibility...
-echo [*] Note: this only refers to Windows Hyper-V/VBS settings used by this installer.
-echo [*] It is separate from the hypervisor material documented in the wiki or other folders.
+:log
+echo %*
+if defined POSTINSTALL_LOG >> "%POSTINSTALL_LOG%" echo %*
+exit /b 0
 
-call :mark_reboot_if_reg_enabled "HKLM\SYSTEM\CurrentControlSet\Control\DeviceGuard" "EnableVirtualizationBasedSecurity"
-call :mark_reboot_if_reg_enabled "HKLM\SYSTEM\CurrentControlSet\Control\DeviceGuard\Scenarios\HypervisorEnforcedCodeIntegrity" "Enabled"
-call :mark_reboot_if_feature_enabled Microsoft-Hyper-V-All
-call :mark_reboot_if_feature_enabled Microsoft-Hyper-V-Hypervisor
-call :mark_reboot_if_feature_enabled VirtualMachinePlatform
-call :mark_reboot_if_feature_enabled HypervisorPlatform
-call :mark_reboot_if_testsigning_disabled
+:run_and_log
+call :log [cmd] %*
+%* > "%POSTINSTALL_LAST_OUTPUT%" 2>&1
+set "RUN_EXIT=%errorlevel%"
+call :show_last_output
+exit /b %RUN_EXIT%
 
-reg add "HKLM\SYSTEM\CurrentControlSet\Control\DeviceGuard" /v EnableVirtualizationBasedSecurity /t REG_DWORD /d 0 /f >nul 2>&1
-reg add "HKLM\SYSTEM\CurrentControlSet\Control\DeviceGuard\Scenarios\HypervisorEnforcedCodeIntegrity" /v Enabled /t REG_DWORD /d 0 /f >nul 2>&1
-bcdedit /set hypervisorlaunchtype off >nul 2>&1
-bcdedit /set vsmlaunchtype off >nul 2>&1
-bcdedit /set testsigning on >nul 2>&1
-if errorlevel 1 (
-    set "TESTSIGNING_ENABLE_FAILED=1"
+:show_last_output
+if exist "%POSTINSTALL_LAST_OUTPUT%" (
+    type "%POSTINSTALL_LAST_OUTPUT%"
+    if defined POSTINSTALL_LOG type "%POSTINSTALL_LAST_OUTPUT%" >> "%POSTINSTALL_LOG%"
 )
+exit /b 0
 
-call :disable_feature_if_present Microsoft-Hyper-V-All
-call :disable_feature_if_present Microsoft-Hyper-V-Hypervisor
-call :disable_feature_if_present VirtualMachinePlatform
-call :disable_feature_if_present HypervisorPlatform
+:show_failure
+set "FAIL_MESSAGE=%~1"
+echo.
+echo [!] %FAIL_MESSAGE%
+if defined POSTINSTALL_LOG (
+    >> "%POSTINSTALL_LOG%" echo.
+    >> "%POSTINSTALL_LOG%" echo [!] %FAIL_MESSAGE%
+    >> "%POSTINSTALL_LOG%" echo [!] Finished with errors: %DATE% %TIME%
+    echo [!] Full output saved to "%POSTINSTALL_LOG%".
+    echo [*] Opening failure output in Notepad...
+    start "" notepad.exe "%POSTINSTALL_LOG%"
+)
+pause
+exit /b 0
 
-if "%HYPERVISOR_REBOOT_REQUIRED%"=="1" (
-    echo [+] Hypervisor-conflicting Windows settings were updated.
+:install_driver_inf
+set "DRIVER_NAME=%~1"
+set "DRIVER_INF=%~2"
+set "DRIVER_REQUIRED=%~3"
+
+if /I "%DRIVER_REQUIRED%"=="required" (
+    set "DRIVER_IS_REQUIRED=1"
 ) else (
-    echo [+] Hypervisor-conflicting Windows settings already appear disabled.
+    set "DRIVER_IS_REQUIRED=0"
 )
-exit /b 0
 
-:mark_reboot_if_testsigning_disabled
-set "TESTSIGNING_STATE="
-for /f "tokens=2" %%A in ('bcdedit /enum {current} ^| findstr /i "testsigning"') do (
-    set "TESTSIGNING_STATE=%%A"
-)
-if /I not "%TESTSIGNING_STATE%"=="Yes" if /I not "%TESTSIGNING_STATE%"=="Evet" set "HYPERVISOR_REBOOT_REQUIRED=1"
-exit /b 0
-
-:mark_reboot_if_reg_enabled
-for /f "tokens=3" %%A in ('reg query "%~1" /v "%~2" 2^>nul ^| find /i "%~2"') do (
-    if /I not "%%A"=="0x0" set "HYPERVISOR_REBOOT_REQUIRED=1"
-)
-exit /b 0
-
-:mark_reboot_if_feature_enabled
-dism.exe /Online /English /Get-FeatureInfo /FeatureName:%~1 | findstr /c:"State : Enabled" >nul 2>&1
-if not errorlevel 1 set "HYPERVISOR_REBOOT_REQUIRED=1"
-exit /b 0
-
-:disable_feature_if_present
-dism.exe /Online /Disable-Feature /FeatureName:%~1 /NoRestart >nul 2>&1
-if errorlevel 1 (
-    echo [*] Optional feature not changed: %~1
-) else (
-    echo [+] Optional feature disable requested: %~1
-)
-exit /b 0
-
-:trust_driver_cert_if_exists
-if not exist "%~1" (
-    echo [*] Test certificate not found for %~2, skipping import.
+if not exist "%DRIVER_INF%" (
+    echo [!] %DRIVER_NAME% driver INF not found at "%DRIVER_INF%".
+    if "%DRIVER_IS_REQUIRED%"=="1" (
+        call :show_failure "%DRIVER_NAME% driver INF is missing."
+        exit /b 1
+    )
+    echo [*] Skipping optional %DRIVER_NAME% driver.
     exit /b 0
 )
 
-echo [*] Importing %~2 test certificate...
-certutil -addstore -f Root "%~1" >nul 2>&1
+echo Installing %DRIVER_NAME% driver INF...
+call :run_and_log pnputil /add-driver "%DRIVER_INF%" /install
 if errorlevel 1 (
-    echo [!] Failed to import %~2 certificate into the Root store.
+    if "%DRIVER_IS_REQUIRED%"=="1" (
+        call :show_failure "%DRIVER_NAME% driver install failed."
+        exit /b 1
+    )
+    echo [!] %DRIVER_NAME% driver install failed or is not applicable on this machine; continuing.
     exit /b 0
 )
 
-certutil -addstore -f TrustedPublisher "%~1" >nul 2>&1
-if errorlevel 1 (
-    echo [!] Failed to import %~2 certificate into the TrustedPublisher store.
-    exit /b 0
-)
-
-echo [+] %~2 test certificate imported.
+echo [+] %DRIVER_NAME% driver installed.
 exit /b 0

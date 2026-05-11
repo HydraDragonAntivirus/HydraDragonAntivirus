@@ -1,4 +1,4 @@
-//! OwlyShield Realtime Learning - Advanced Behavioral Analysis and Signature Detection
+//! Owlyshield Realtime Learning - Advanced Behavioral Analysis and Signature Detection
 //!
 //! This module provides comprehensive EDR/AV capabilities including:
 //! - Dynamic behavioral signature detection
@@ -25,7 +25,7 @@ use crate::shared_def::IOMessage;
 use std::collections::HashMap;
 
 /// Main realtime learning interface for behavioral analysis
-pub struct OwlyShieldSDK {
+pub struct OwlyshieldSDK {
     /// Signature-based detection engine (optional - can be disabled for pure ML)
     pub signature_engine: Option<behavioral_signature::SignatureEngine>,
     /// Pattern matcher for known malware behaviors (optional)
@@ -48,7 +48,7 @@ pub struct OwlyShieldSDK {
     autonomous_mode_enabled: bool,
 }
 
-impl OwlyShieldSDK {
+impl OwlyshieldSDK {
     /// Create a new realtime learning instance
     ///
     /// # Arguments
@@ -105,7 +105,7 @@ impl OwlyShieldSDK {
             None
         };
 
-        OwlyShieldSDK {
+        OwlyshieldSDK {
             signature_engine,
             pattern_matcher,
             ml_collector,
@@ -140,7 +140,7 @@ impl OwlyShieldSDK {
         println!("║   ✓ Pure behavioral ML                                   ║");
         println!("╚═══════════════════════════════════════════════════════════╝\n");
 
-        OwlyShieldSDK {
+        OwlyshieldSDK {
             signature_engine: None, // NO hardcoded signatures!
             pattern_matcher: None,  // NO hardcoded patterns!
             ml_collector: Some(MLCollector::new()),

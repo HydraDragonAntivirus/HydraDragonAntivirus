@@ -3,8 +3,16 @@ name: Sanctum EDR CI
 on:
   push:
     branches: ["**"]
+    paths:
+      - 'Sanctum/**'
+      - 'wdk_mutex/**'
+      - '.github/workflows/sanctum.yml'
   pull_request:
     branches: ["**"]
+    paths:
+      - 'Sanctum/**'
+      - 'wdk_mutex/**'
+      - '.github/workflows/sanctum.yml'
   workflow_dispatch:
 
 permissions:
@@ -23,7 +31,9 @@ jobs:
         run: git config --global core.longpaths true
       - uses: actions/checkout@v6
       - name: Set up MSVC Developer Command Prompt
-        uses: ilammy/msvc-dev-cmd@v1
+        uses: TheMrMilchmann/setup-msvc-dev@v4
+        with:
+          arch: x64
       - name: Set up Rust (Nightly)
         uses: dtolnay/rust-toolchain@nightly
         with:
@@ -41,6 +51,13 @@ jobs:
           $wdkSetupPath = "$Env:TEMP\wdksetup.exe"
           (New-Object Net.WebClient).DownloadFile('${{ env.WDK_URL }}', $wdkSetupPath)
           Start-Process -FilePath $wdkSetupPath -ArgumentList "/quiet" -NoNewWindow -Wait
+          # Install the WDK Visual Studio Extension so InfVerif.dll is available to MSBuild
+          $vsixPath = "C:\Program Files (x86)\Windows Kits\10\Vsix\VS2022\10.0.26100.0\WDK.vsix"
+          if (Test-Path $vsixPath) {
+            $vsInstaller = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property enginePath
+            $vsixInstaller = Join-Path $vsInstaller "VSIXInstaller.exe"
+            Start-Process -FilePath $vsixInstaller -ArgumentList "/q `"$vsixPath`"" -NoNewWindow -Wait
+          }
 
       - name: Prepare Driver Build Environment
         working-directory: Sanctum/driver
@@ -80,9 +97,11 @@ jobs:
         run: git config --global core.longpaths true
       - uses: actions/checkout@v6
       - name: Set up MSVC Developer Command Prompt
-        uses: ilammy/msvc-dev-cmd@v1
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: TheMrMilchmann/setup-msvc-dev@v4
+        with:
+          arch: x64
+      - name: Set up Rust (Nightly)
+        uses: dtolnay/rust-toolchain@nightly
         with:
           targets: x86_64-pc-windows-msvc
 

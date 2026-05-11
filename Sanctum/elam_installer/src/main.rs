@@ -1,4 +1,8 @@
-use std::{process::exit, ptr::null_mut};
+use std::{
+    path::{Path, PathBuf},
+    process::exit,
+    ptr::null_mut,
+};
 
 use windows::{
     Win32::{
@@ -9,8 +13,9 @@ use windows::{
         System::{
             Antimalware::InstallELAMCertificateInfo,
             Registry::{
-                HKEY, HKEY_LOCAL_MACHINE, KEY_READ, KEY_WRITE, REG_DWORD, REG_OPENED_EXISTING_KEY,
-                REG_OPTION_NON_VOLATILE, REG_SZ, RegCloseKey, RegCreateKeyExW, RegSetValueExW,
+                HKEY, HKEY_LOCAL_MACHINE, KEY_READ, KEY_WRITE, REG_DWORD, REG_EXPAND_SZ,
+                REG_OPENED_EXISTING_KEY, REG_OPTION_NON_VOLATILE, RegCloseKey, RegCreateKeyExW,
+                RegSetValueExW,
             },
             Services::{
                 ChangeServiceConfig2W, CreateServiceW, OpenSCManagerW, SC_MANAGER_ALL_ACCESS,
@@ -18,7 +23,6 @@ use windows::{
                 SERVICE_LAUNCH_PROTECTED_ANTIMALWARE_LIGHT, SERVICE_LAUNCH_PROTECTED_INFO,
                 SERVICE_WIN32_OWN_PROCESS,
             },
-            WindowsProgramming::GetUserNameW,
         },
         UI::WindowsAndMessaging::{MB_ICONWARNING, MessageBoxA},
     },
@@ -32,17 +36,13 @@ fn main() {
     //
     println!("[i] Starting Elam installer..");
 
-    let _username = get_logged_on_user_or_panic();
-
-    // The resulting buffer for a wide string conversion
-    let mut path: Vec<u16> = vec![];
-    // The formatted path
-    let path_with_username = String::from(r"C:\Program Files\HydraDragonAntivirus\hydradragon\Sanctum\sanctum.sys");
-
-    // Encode the formatted string as utf16, into the path buffer
-    path_with_username.encode_utf16().for_each(|c| path.push(c));
-
-    path.push(0);
+    let driver_path =
+        installed_path("AppData\\sanctum.sys").expect("[-] Could not resolve ELAM driver path");
+    let path = path_to_wstring(&driver_path);
+    println!(
+        "[i] Installing ELAM certificate from: {}",
+        driver_path.display()
+    );
 
     let result = unsafe {
         CreateFileW(
@@ -148,18 +148,9 @@ fn svc_name() -> Vec<u16> {
 }
 
 fn svc_bin_path() -> Vec<u16> {
-    let _username = get_logged_on_user_or_panic();
-
-    // The resulting buffer for a wide string conversion
-    let mut path: Vec<u16> = vec![];
-    // The formatted path
-    let path_with_username = String::from("C:\\Program Files\\HydraDragonAntivirus\\hydradragon\\Sanctum\\AppData\\sanctum_ppl_runner.exe");
-
-    // Encode the formatted string as utf16, into the path buffer
-    path_with_username.encode_utf16().for_each(|c| path.push(c));
-
-    path.push(0);
-    path
+    let runner_path = installed_path("AppData\\sanctum_ppl_runner.exe")
+        .unwrap_or_else(|_| fallback_runner_path());
+    path_to_wstring(&runner_path)
 }
 
 fn create_event_source_key() -> windows::core::Result<()> {
@@ -185,25 +176,22 @@ fn create_event_source_key() -> windows::core::Result<()> {
             return Err(Error::from_win32());
         }
 
-        // only create the key once, if it exists, return out
-        if disposition == REG_OPENED_EXISTING_KEY.0 {
-            return Ok(());
-        }
-
+        // Use EventCreate.exe which contains a generic "%1" message format string,
+        // suitable for plain-text event messages written via ReportEventW.
         let value_name = to_wstring("EventMessageFile");
-        let _username = get_logged_on_user_or_panic(); // Not really needed if we don't use it, but left for context if other things need it
-        let exe_path = to_wstring("C:\\Program Files\\HydraDragonAntivirus\\hydradragon\\Sanctum\\AppData\\sanctum_ppl_runner.exe");
+        let event_create_path =
+            to_wstring("%SystemRoot%\\System32\\EventCreate.exe");
 
         let exe_bytes: &[u8] = std::slice::from_raw_parts(
-            exe_path.as_ptr() as *const u8,
-            exe_path.len() * std::mem::size_of::<u16>(),
+            event_create_path.as_ptr() as *const u8,
+            event_create_path.len() * std::mem::size_of::<u16>(),
         );
 
         let ret = RegSetValueExW(
             hkey,
             PCWSTR(value_name.as_ptr()),
             None,
-            REG_SZ,
+            REG_EXPAND_SZ,
             Some(exe_bytes),
         );
         if ret != ERROR_SUCCESS {
@@ -231,13 +219,16 @@ fn create_event_source_key() -> windows::core::Result<()> {
 
         let _ = RegCloseKey(hkey);
 
-        // warn user device needs a reboot for the registry change to take proper effect
-        MessageBoxA(
-            None,
-            s!("System needs a reboot for service installation to take effect. Please restart."),
-            s!("Reboot required"),
-            MB_ICONWARNING,
-        );
+        // Only show reboot prompt on first-time creation
+        if disposition != REG_OPENED_EXISTING_KEY.0 {
+            // warn user device needs a reboot for the registry change to take proper effect
+            MessageBoxA(
+                None,
+                s!("System needs a reboot for service installation to take effect. Please restart."),
+                s!("Reboot required"),
+                MB_ICONWARNING,
+            );
+        }
     }
 
     Ok(())
@@ -251,29 +242,28 @@ fn to_wstring(s: &str) -> Vec<u16> {
         .collect()
 }
 
-/// Gets the username of the logged on user.
-///
-/// The function will obtain a wide string of the users logged in name and convert this to a string via
-/// [`String::from_utf16_lossy`] - it is possible for data loss during the conversion, but all characters Msft
-/// will accept should be valid. If not, then the program will panic at a later stage, but I do not anticipate this
-/// being an issue for the previously mentioned reason.
-///
-/// # Panics
-/// If this function cannot find the username of the currently logged on user, it will panic.
-fn get_logged_on_user_or_panic() -> String {
-    // Get the username of the logged on user; UNLEN symbol = 256, + 1 as per MSDN
-    let logged_on_user = [0u16; 256 + 1];
-    let mut pcb_buf = logged_on_user.len() as u32;
+fn path_to_wstring(path: &Path) -> Vec<u16> {
+    use std::os::windows::prelude::*;
+    path.as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect()
+}
 
-    let result =
-        unsafe { GetUserNameW(Some(PWSTR(logged_on_user.as_ptr() as *mut _)), &mut pcb_buf) };
+fn installed_path(relative_path: &str) -> std::io::Result<PathBuf> {
+    let exe_path = std::env::current_exe()?;
+    let install_dir = exe_path.parent().ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "elam_installer.exe has no parent directory",
+        )
+    })?;
 
-    if let Err(e) = result {
-        panic!("[-] Could not get logged on user. {e}. Error code: {pcb_buf}");
-    }
+    Ok(install_dir.join(relative_path))
+}
 
-    // Use the returned count of TCHARS (num chars not bytes) -1 for the null to get a String of the
-    // username
-    let snip = &logged_on_user[..(pcb_buf - 1) as usize];
-    String::from_utf16_lossy(snip)
+fn fallback_runner_path() -> PathBuf {
+    PathBuf::from(
+        r"C:\Program Files\HydraDragonAntivirus\hydradragon\Sanctum\AppData\sanctum_ppl_runner.exe",
+    )
 }

@@ -872,23 +872,8 @@ fn get_process_image_from_pid(pid: u32, event_header: &EVENT_HEADER) -> Result<S
         return Err(());
     }
 
-    let process_image: String = match String::from_utf16(&process_img_buffer) {
-        Ok(mut s) => {
-            s.truncate(len as _);
-            s
-        }
-        Err(e) => {
-            event_log(
-                &format!(
-                    "Failed to convert image name to string for process: {pid} from event information: {:?}. Error: {e}",
-                    event_header.EventDescriptor
-                ),
-                EVENTLOG_ERROR_TYPE,
-                EventID::GeneralError,
-            );
-            return Err(());
-        }
-    };
+    let process_image = String::from_utf16_lossy(&process_img_buffer[..len as usize]);
+    let _ = unsafe { windows::Win32::Foundation::CloseHandle(process_handle) };
 
     Ok(process_image)
 }

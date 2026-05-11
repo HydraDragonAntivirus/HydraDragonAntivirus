@@ -145,7 +145,7 @@ mod run {
 mod globals;
 mod novelty;
 #[cfg(all(target_os = "windows", feature = "realtime_learning"))]
-pub mod realtime_learning; // OwlyShield realtime-learning module
+pub mod realtime_learning; // Owlyshield realtime-learning module
 mod report;
 #[cfg(target_os = "windows")]
 pub mod services;

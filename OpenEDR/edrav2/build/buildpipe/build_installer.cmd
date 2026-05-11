@@ -60,7 +60,6 @@ echo.Building %ver_full%
 if not defined VSINSTALLDIR call "%vsdevcmd%" || exit /b 1
 
 REM Release
-REM Drivers are automatically signed by builder.cmd
 call :build "%inst_sln%" Release || ((call :error "Compillation failed") & exit /b 1)
 timeout /t 5 /NOBREAK
 call :verify_output

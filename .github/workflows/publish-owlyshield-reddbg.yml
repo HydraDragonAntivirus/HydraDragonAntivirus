@@ -25,7 +25,9 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: Set up MSVC Developer Command Prompt
-        uses: ilammy/msvc-dev-cmd@v1
+        uses: TheMrMilchmann/setup-msvc-dev@v4
+        with:
+          arch: x64
 
       - name: Setup WDK
         shell: pwsh
@@ -33,6 +35,13 @@ jobs:
           $wdkSetupPath = "$Env:TEMP\wdksetup.exe"
           (New-Object Net.WebClient).DownloadFile("${{ env.WDK_URL }}", $wdkSetupPath)
           Start-Process -FilePath $wdkSetupPath -ArgumentList "/quiet" -NoNewWindow -Wait
+          # Install the WDK Visual Studio Extension so InfVerif.dll is available to MSBuild
+          $vsixPath = "C:\Program Files (x86)\Windows Kits\10\Vsix\VS2022\10.0.26100.0\WDK.vsix"
+          if (Test-Path $vsixPath) {
+            $vsInstaller = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property enginePath
+            $vsixInstaller = Join-Path $vsInstaller "VSIXInstaller.exe"
+            Start-Process -FilePath $vsixInstaller -ArgumentList "/q `"$vsixPath`"" -NoNewWindow -Wait
+          }
 
       - name: Build RedDbg
         run: msbuild Owlyshield/RedDbg/RedDbg/RedDbg.sln /p:Configuration=Release /p:Platform=x64
@@ -40,31 +49,20 @@ jobs:
       - name: Stage RedDbg Files
         shell: pwsh
         run: |
-          $source = "Owlyshield/RedDbg/RedDbg/x64/ReleaseX64Kernel"
+          $source = "Owlyshield/RedDbg/RedDbg/x64/ReleaseX64Kernel/RedDbgDrv"
           $destination = "hydradragon/Owlyshield/RedDbg"
-          $files = @(
-            "RedDbgDrv.sys",
-            "RedDbgDrv.inf",
-            "reddbgdrv.cat",
-            "RedDbgDrv.cer"
-          )
-          New-Item -ItemType Directory -Force -Path $destination | Out-Null
-
-          Get-ChildItem -Path $source -Recurse -File |
-            Where-Object { $_.Name -in $files } |
-            ForEach-Object { Copy-Item $_.FullName -Destination $destination -Force }
-
-      - name: Check for Changes
-        id: check_changes
-        shell: pwsh
-        run: |
-          git add -A
-          if (git status --porcelain) {
-            "changed=true" >> $env:GITHUB_OUTPUT
-          } else {
-            "changed=false" >> $env:GITHUB_OUTPUT
+          
+          if (Test-Path $source) {
+            New-Item -ItemType Directory -Force -Path $destination | Out-Null
+            Copy-Item -Path "$source/*" -Destination "$destination/" -Recurse -Force
           }
 
+      - name: Check for publishable changes
+        id: check_changes
+        uses: ./.github/actions/check-publishable-changes
+        with:
+          paths: |
+            hydradragon/Owlyshield/RedDbg
       - name: Create PR
         if: steps.check_changes.outputs.changed == 'true'
         uses: peter-evans/create-pull-request@v8
@@ -73,6 +71,8 @@ jobs:
           commit-message: "chore(owlyshield): update reddbg binaries"
           title: "Update Owlyshield RedDbg binaries"
           body: "Automated RedDbg driver build output update."
+          add-paths: |
+            ${{ steps.check_changes.outputs.publishable_files }}
           branch: "auto-update-owlyshield-reddbg"
           base: ${{ github.ref_name }}
           delete-branch: true

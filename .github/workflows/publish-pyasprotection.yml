@@ -27,16 +27,25 @@ jobs:
           $wdkSetupPath = "$Env:TEMP\wdksetup.exe"
           (New-Object Net.WebClient).DownloadFile('https://go.microsoft.com/fwlink/?linkid=2335869', $wdkSetupPath)
           Start-Process -FilePath $wdkSetupPath -ArgumentList "/quiet" -NoNewWindow -Wait
+          # Install the WDK Visual Studio Extension so InfVerif.dll is available to MSBuild
+          $vsixPath = "C:\Program Files (x86)\Windows Kits\10\Vsix\VS2022\10.0.26100.0\WDK.vsix"
+          if (Test-Path $vsixPath) {
+            $vsInstaller = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property enginePath
+            $vsixInstaller = Join-Path $vsInstaller "VSIXInstaller.exe"
+            Start-Process -FilePath $vsixInstaller -ArgumentList "/q `"$vsixPath`"" -NoNewWindow -Wait
+          }
       - name: Build
         run: msbuild PYAS_Protection/SimplePYASProtection.sln /p:Configuration=Release /p:Platform=x64
       
       - name: Stage
         shell: pwsh
         run: |
+          $source = "PYAS_Protection/x64/Release/SimplePYASProtection"
           $dist = "hydradragon/SimplePYASProtection"
-          New-Item -ItemType Directory -Force -Path $dist
-          Copy-Item "PYAS_Protection/x64/Release/SimplePYASProtection.sys" "$dist/" -Force
-          Copy-Item "PYAS_Protection/x64/Release/SimplePYASProtection.inf" "$dist/" -Force
+          if (Test-Path $source) {
+            New-Item -ItemType Directory -Force -Path $dist | Out-Null
+            Copy-Item -Path "$source/*" -Destination "$dist/" -Recurse -Force
+          }
           
       - name: Upload Artifacts
         uses: actions/upload-artifact@v7
@@ -45,12 +54,22 @@ jobs:
           path: hydradragon/SimplePYASProtection/
           if-no-files-found: error
 
+      - name: Check for publishable changes
+        id: check_changes
+        uses: ./.github/actions/check-publishable-changes
+        with:
+          paths: |
+            hydradragon/SimplePYASProtection
       - name: Create PR
+        if: steps.check_changes.outputs.changed == 'true'
         uses: peter-evans/create-pull-request@v8
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           commit-message: "chore(pyas): update binaries"
-          title: "🚀 Update SimplePYASProtection Binaries"
+          title: "Update SimplePYASProtection Binaries"
+          add-paths: |
+            ${{ steps.check_changes.outputs.publishable_files }}
           branch: "auto-update-pyas"
           base: ${{ github.ref_name }}
           delete-branch: true
+          labels: binaries, automated-pr, pyasprotection

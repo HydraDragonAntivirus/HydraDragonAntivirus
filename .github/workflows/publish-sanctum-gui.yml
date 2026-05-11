@@ -43,15 +43,22 @@ jobs:
           name: sanctum-gui
           path: hydradragon/Sanctum/app.exe
           if-no-files-found: error
+      - name: Check for publishable changes
+        id: check_changes
+        uses: ./.github/actions/check-publishable-changes
+        with:
+          paths: |
+            hydradragon/Sanctum/app.exe
+            Sanctum/Cargo.lock
       - name: Create PR
+        if: steps.check_changes.outputs.changed == 'true'
         uses: peter-evans/create-pull-request@v8
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           commit-message: "chore(sanctum): update gui binary"
           title: "Update Sanctum GUI Binary"
           add-paths: |
-            hydradragon/Sanctum/app.exe
-            Sanctum/Cargo.lock
+            ${{ steps.check_changes.outputs.publishable_files }}
           branch: "auto-update-sanctum-gui"
           base: ${{ github.ref_name }}
           delete-branch: true

@@ -73,6 +73,7 @@ static VOID PopulateIrpProcessPath(_Inout_ PIRP_ENTRY Entry, _In_ ULONG ProcessI
 static BOOLEAN ShouldSkipProcessProtectionPid(_In_ ULONG ProcessId, _In_ BOOLEAN AllowSlowLookup);
 static BOOLEAN ShouldSkipProcessProtectionPair(_In_ ULONG SourcePid, _In_ ULONG TargetPid,
                                                _In_ BOOLEAN AllowSlowLookup);
+static BOOLEAN IsSystemProcessPP(PEPROCESS Process);
 
 #define PROCESS_PROTECTION_RULE_POOL_TAG 'pKhO'
 #define PROCESS_PROTECTION_RULE_MAX_FILE_SIZE (64 * 1024)
@@ -267,115 +268,14 @@ static NTSTATUS AppendProcessProtectionExcludeRulesFromBufferUnlocked(_In_reads_
     return STATUS_SUCCESS;
 }
 
-static NTSTATUS LoadProcessProtectionExcludeRulesFromFileUnlocked(_In_ PCUNICODE_STRING FilePath)
-{
-    OBJECT_ATTRIBUTES oa;
-    IO_STATUS_BLOCK ioStatus;
-    FILE_STANDARD_INFORMATION fileInfo;
-    HANDLE fileHandle = NULL;
-    NTSTATUS status;
-    PUCHAR buffer = NULL;
-    ULONG bufferSize;
 
-    if (FilePath == NULL || FilePath->Buffer == NULL || FilePath->Length == 0)
-    {
-        return STATUS_INVALID_PARAMETER;
-    }
-
-    InitializeObjectAttributes(&oa, (PUNICODE_STRING)FilePath, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
-    RtlZeroMemory(&ioStatus, sizeof(ioStatus));
-    status = ZwCreateFile(&fileHandle, GENERIC_READ, &oa, &ioStatus, NULL, FILE_ATTRIBUTE_NORMAL, FILE_SHARE_READ,
-                          FILE_OPEN, FILE_SYNCHRONOUS_IO_NONALERT, NULL, 0);
-    if (!NT_SUCCESS(status))
-    {
-        return status;
-    }
-
-    RtlZeroMemory(&fileInfo, sizeof(fileInfo));
-    status = ZwQueryInformationFile(fileHandle, &ioStatus, &fileInfo, sizeof(fileInfo), FileStandardInformation);
-    if (!NT_SUCCESS(status))
-    {
-        ZwClose(fileHandle);
-        return status;
-    }
-
-    if (fileInfo.EndOfFile.QuadPart <= 0 || fileInfo.EndOfFile.QuadPart > PROCESS_PROTECTION_RULE_MAX_FILE_SIZE)
-    {
-        ZwClose(fileHandle);
-        return STATUS_INVALID_BUFFER_SIZE;
-    }
-
-    bufferSize = (ULONG)fileInfo.EndOfFile.QuadPart;
-    buffer = (PUCHAR)ExAllocatePool2(POOL_FLAG_NON_PAGED, bufferSize, PROCESS_PROTECTION_RULE_POOL_TAG);
-    if (buffer == NULL)
-    {
-        ZwClose(fileHandle);
-        return STATUS_INSUFFICIENT_RESOURCES;
-    }
-
-    RtlZeroMemory(buffer, bufferSize);
-    RtlZeroMemory(&ioStatus, sizeof(ioStatus));
-    status = ZwReadFile(fileHandle, NULL, NULL, NULL, &ioStatus, buffer, bufferSize, NULL, NULL);
-    if (NT_SUCCESS(status))
-    {
-        (VOID) AppendProcessProtectionExcludeRulesFromBufferUnlocked(buffer, (ULONG)ioStatus.Information);
-    }
-
-    ExFreePoolWithTag(buffer, PROCESS_PROTECTION_RULE_POOL_TAG);
-    ZwClose(fileHandle);
-    return status;
-}
 
 static VOID EnsureProcessProtectionExcludeRulesLoaded(VOID)
 {
-    if (InterlockedCompareExchange(&g_ProcessProtectionExcludeLoadState, 0, 0) == 2)
-    {
-        return;
-    }
-
-    LONG prevState = InterlockedCompareExchange(&g_ProcessProtectionExcludeLoadState, 1, 0);
-    if (prevState == 2)
-    {
-        return;
-    }
-
-    if (prevState == 1)
-    {
-        LARGE_INTEGER delay;
-        delay.QuadPart = -10000LL;
-        while (InterlockedCompareExchange(&g_ProcessProtectionExcludeLoadState, 0, 0) == 1)
-        {
-            KeDelayExecutionThread(KernelMode, FALSE, &delay);
-        }
-        return;
-    }
-
-    EnsureProcessProtectionRuleMutex();
-
-    ExAcquireFastMutex(&g_ProcessProtectionExcludeRules.Mutex);
-    FreeProcessProtectionExcludeRulesUnlocked();
-    ExReleaseFastMutex(&g_ProcessProtectionExcludeRules.Mutex);
-
-    BOOLEAN loadSucceeded = FALSE;
-    static const PCWSTR ruleFiles[] = {OWLY_PROCESS_PROTECTION_RULE_FILE_KERNEL};
-    for (ULONG i = 0; i < RTL_NUMBER_OF(ruleFiles); ++i)
-    {
-        UNICODE_STRING ruleFile;
-        NTSTATUS loadStatus;
-        RtlInitUnicodeString(&ruleFile, ruleFiles[i]);
-        loadStatus = LoadProcessProtectionExcludeRulesFromFileUnlocked(&ruleFile);
-        if (NT_SUCCESS(loadStatus))
-        {
-            loadSucceeded = TRUE;
-        }
-    }
-
-    ExAcquireFastMutex(&g_ProcessProtectionExcludeRules.Mutex);
-    g_ProcessProtectionExcludeRules.Loaded = loadSucceeded;
-    ExReleaseFastMutex(&g_ProcessProtectionExcludeRules.Mutex);
-
-    InterlockedExchange(&g_ProcessProtectionExcludeLoadState, loadSucceeded ? 2 : 0);
+    return;
 }
+
+
 
 VOID ReloadProcessProtectionExcludeRules(VOID)
 {
@@ -386,6 +286,46 @@ VOID ReloadProcessProtectionExcludeRules(VOID)
     ExReleaseFastMutex(&g_ProcessProtectionExcludeRules.Mutex);
     InterlockedExchange(&g_ProcessProtectionExcludeLoadState, 0);
     EnsureProcessProtectionExcludeRulesLoaded();
+}
+
+static NTSTATUS InitializeProcessProtectionRules(VOID)
+{
+    EnsureProcessProtectionRuleMutex();
+
+    ExAcquireFastMutex(&g_ProcessProtectionExcludeRules.Mutex);
+
+    // Dynamic hook exclude rules (normalized/contains match, case-insensitive)
+    (VOID) AddProcessProtectionExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\smss.exe", 27);
+    (VOID) AddProcessProtectionExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\csrss.exe", 28);
+    (VOID) AddProcessProtectionExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\wininit.exe", 30);
+    (VOID) AddProcessProtectionExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\winlogon.exe", 31);
+    (VOID) AddProcessProtectionExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\lsass.exe", 28);
+    (VOID) AddProcessProtectionExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\services.exe", 31);
+    (VOID) AddProcessProtectionExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\svchost.exe", 30);
+    (VOID) AddProcessProtectionExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\fontdrvhost.exe", 34);
+    (VOID) AddProcessProtectionExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\sihost.exe", 29);
+    (VOID) AddProcessProtectionExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\dwm.exe", 26);
+
+    // HydraDragonAntivirus-specific examples
+    (VOID) AddProcessProtectionExcludeRuleNormalizedUnlocked(L"C:\\Program Files\\HydraDragonAntivirus", 38);
+    (VOID) AddProcessProtectionExcludeRuleNormalizedUnlocked(L"C:\\ProgramData\\HydraDragonAntivirus", 37);
+    (VOID) AddProcessProtectionExcludeRuleNormalizedUnlocked(L"C:\\ProgramData\\edrsvc", 22);
+    (VOID) AddProcessProtectionExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\tasks\\hydradragonantivirus", 45);
+    (VOID) AddProcessProtectionExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\edrpm64.dll", 29);
+    (VOID) AddProcessProtectionExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\edrpm32.dll", 29);
+    (VOID) AddProcessProtectionExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\edrmm.dll", 27);
+    (VOID) AddProcessProtectionExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\drivers\\sanctum.sys", 39);
+    (VOID) AddProcessProtectionExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\drivers\\edrdrv.sys", 38);
+    (VOID) AddProcessProtectionExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\drivers\\OwlyshieldRansomFilter.sys", 55);
+    (VOID) AddProcessProtectionExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\drivers\\RedDbgDrv.sys", 41);
+    (VOID) AddProcessProtectionExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\drivers\\hyperhv.sys", 39);
+    (VOID) AddProcessProtectionExcludeRuleNormalizedUnlocked(L"C:\\Program Files\\HydraDragonAntivirus\\hydradragon\\sanctum", 56);
+
+    g_ProcessProtectionExcludeRules.Loaded = TRUE;
+
+    ExReleaseFastMutex(&g_ProcessProtectionExcludeRules.Mutex);
+    InterlockedExchange(&g_ProcessProtectionExcludeLoadState, 2);
+    return STATUS_SUCCESS;
 }
 
 NTSTATUS SetProcessProtectionExcludeRulesFromBuffer(
@@ -609,6 +549,24 @@ static BOOLEAN ShouldSkipProcessProtectionPid(_In_ ULONG ProcessId, _In_ BOOLEAN
         return FALSE;
     }
 
+    // Direct check for the registered service PID to avoid expensive path lookups
+    if (driverData != NULL && ProcessId == driverData->getPID())
+    {
+        return TRUE;
+    }
+
+    // Hardened check for system processes that might not be in our path cache
+    PEPROCESS proc = NULL;
+    if (NT_SUCCESS(PsLookupProcessByProcessId((HANDLE)(ULONG_PTR)ProcessId, &proc)))
+    {
+        if (IsSystemProcessPP(proc))
+        {
+            ObDereferenceObject(proc);
+            return TRUE;
+        }
+        ObDereferenceObject(proc);
+    }
+
     if (!CopyProcessPathByPidBestEffort(ProcessId, processPath, RTL_NUMBER_OF(processPath), AllowSlowLookup))
     {
         return FALSE;
@@ -801,6 +759,7 @@ NTSTATUS InitProcessProtection()
     g_RemoteThreadCandidateLockInitialized = TRUE;
 
     EnsureProcessProtectionExcludeRulesLoaded();
+    (VOID)InitializeProcessProtectionRules();
     DbgPrint("!!! ProcessProtection: ObRegisterCallbacks succeeded\n");
     return STATUS_SUCCESS;
 }
@@ -883,6 +842,10 @@ OB_PREOP_CALLBACK_STATUS ProcessHandlePreCallback(_In_ PVOID RegistrationContext
 
     // 4. Skip system processes
     if (IsSystemProcessPP(currentProc))
+        return OB_PREOP_SUCCESS;
+
+    // 4b. Skip the service process explicitly
+    if (driverData != NULL && callerPid == driverData->getPID())
         return OB_PREOP_SUCCESS;
 
     if (ShouldSkipProcessProtectionPair(callerPid, targetPid, FALSE))
@@ -1033,7 +996,7 @@ BOOLEAN ResolveRemoteThreadCandidate(_In_ ULONG TargetPid, _Out_ PULONG SourcePi
 // --- Helper Functions ---
 //
 
-BOOLEAN IsSystemProcessPP(PEPROCESS Process)
+static BOOLEAN IsSystemProcessPP(PEPROCESS Process)
 {
     HANDLE pid = PsGetProcessId(Process);
 
@@ -1107,9 +1070,11 @@ NTSTATUS QueueTerminationAttemptToUserMode(PEPROCESS AttackerProcess, PEPROCESS 
     // fall back to PID-based resolution if the cache has no entry yet.
     PopulateIrpProcessPath(newEntry, (ULONG)(ULONG_PTR)targetPid, FALSE);
 
+#ifdef IS_DEBUG_IRP
     DbgPrint("!!! ProcessProtection: Termination attempt detected - Attacker PID %d (GID %llu) -> Target PID %d (GID "
              "%llu)\n",
              (ULONG)(ULONG_PTR)attackerPid, attackerGid, (ULONG)(ULONG_PTR)targetPid, targetGid);
+#endif
 
     // Add to IRP queue
     if (!driverData->AddIrpMessage(newEntry))
@@ -1150,8 +1115,10 @@ NTSTATUS OnProcessCreate(_In_ HANDLE ProcessId, _In_ HANDLE ParentProcessId)
     newItem->Gid = driverData->GetProcessGid(pid, &found);
     PopulateIrpProcessPath(newEntry, pid, TRUE);
 
+#ifdef IS_DEBUG_IRP
     DbgPrint("!!! ProcessProtection: Process created - PID %lu (Parent: %lu, GID: %llu)\n", pid, parentPid,
              newItem->Gid);
+#endif
 
     if (!driverData->AddIrpMessage(newEntry))
     {
@@ -1186,7 +1153,9 @@ NTSTATUS OnProcessExit(_In_ HANDLE ProcessId)
     newItem->Gid = driverData->GetProcessGid(pid, &found);
     PopulateIrpProcessPath(newEntry, pid, FALSE);
 
+#ifdef IS_DEBUG_IRP
     DbgPrint("!!! ProcessProtection: Process exited - PID %lu (GID: %llu)\n", pid, newItem->Gid);
+#endif
 
     if (!driverData->AddIrpMessage(newEntry))
     {
@@ -1238,8 +1207,10 @@ NTSTATUS OnProcessHandleOperation(_In_ HANDLE CallerProcessId, _In_ HANDLE Targe
     newItem->KernelEventInfo.TargetProcessId = targetPid;
     PopulateIrpProcessPath(newEntry, targetPid, FALSE);
 
+#ifdef IS_DEBUG_IRP
     DbgPrint("!!! ProcessProtection: Process handle opened - Caller PID %lu -> Target PID %lu (Access: 0x%X, Op: %u)\n",
              callerPid, targetPid, DesiredAccess, OperationType);
+#endif
 
     if (!driverData->AddIrpMessage(newEntry))
     {
@@ -1436,9 +1407,11 @@ NTSTATUS OnMemoryProtectionChange(_In_ ULONG SourcePid, _In_ ULONG TargetPid, _I
     newItem->KernelEventInfo.AccessMask = PROCESS_VM_OPERATION;
     SetKernelEventObjectName(newItem, L"IRP_KERNEL_PROTECT_MEMORY");
 
+#ifdef IS_DEBUG_IRP
     DbgPrint("!!! ProcessProtection: Memory protection change - Source PID %lu -> Target PID %lu (Old: 0x%X, New: "
              "0x%X, Executable: %u)\n",
              SourcePid, TargetPid, OldProtection, NewProtection, IsExecutableProtection(NewProtection));
+#endif
 
     if (!driverData->AddIrpMessage(newEntry))
     {
@@ -1484,8 +1457,10 @@ NTSTATUS OnThreadCreation(_In_ ULONG SourcePid, _In_ ULONG TargetPid, _In_ PVOID
     newItem->KernelEventInfo.AccessMask = PROCESS_CREATE_THREAD;
     SetKernelEventObjectName(newItem, L"IRP_KERNEL_REMOTE_THREAD");
 
+#ifdef IS_DEBUG_IRP
     DbgPrint("!!! ProcessProtection: Remote thread creation - Source PID %lu -> Target PID %lu (Start: %p)\n",
              SourcePid, TargetPid, StartRoutine);
+#endif
 
     if (!driverData->AddIrpMessage(newEntry))
     {
@@ -1588,8 +1563,10 @@ NTSTATUS OnSectionOperation(_In_ ULONG SourcePid, _In_ ULONG TargetPid, _In_opt_
         newEntry->filePath.MaximumLength = MAX_FILE_NAME_SIZE;
     }
 
+#ifdef IS_DEBUG_IRP
     DbgPrint("!!! ProcessProtection: Section operation - Source PID %lu -> Target PID %lu (Type: %u, Name: %ws)\n",
              SourcePid, TargetPid, OperationType, SectionName ? SectionName : L"<unnamed>");
+#endif
 
     if (!driverData->AddIrpMessage(newEntry))
     {

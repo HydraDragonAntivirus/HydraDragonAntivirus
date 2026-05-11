@@ -70,15 +70,22 @@ jobs:
           name: sanctum-ppl-runner
           path: hydradragon/Sanctum/AppData/sanctum_ppl_runner.exe
           if-no-files-found: error
+      - name: Check for publishable changes
+        id: check_changes
+        uses: ./.github/actions/check-publishable-changes
+        with:
+          paths: |
+            hydradragon/Sanctum/AppData/sanctum_ppl_runner.exe
+            Sanctum/Cargo.lock
       - name: Create PR
+        if: steps.check_changes.outputs.changed == 'true'
         uses: peter-evans/create-pull-request@v8
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           commit-message: "chore(sanctum): update ppl runner binary"
           title: "Update Sanctum PPL Runner Binary"
           add-paths: |
-            hydradragon/Sanctum/AppData/sanctum_ppl_runner.exe
-            Sanctum/Cargo.lock
+            ${{ steps.check_changes.outputs.publishable_files }}
           branch: "auto-update-sanctum-ppl-runner"
           base: ${{ github.ref_name }}
           delete-branch: true

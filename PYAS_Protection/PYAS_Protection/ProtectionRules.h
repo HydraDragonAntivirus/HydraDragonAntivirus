@@ -24,12 +24,6 @@ typedef struct _PROTECTION_RULE_SET {
 // reads rule files from C: in kernel mode.
 NTSTATUS InitializeProtectionRules();
 
-// Installs a complete rules snapshot from a validated METHOD_BUFFERED IOCTL.
-NTSTATUS SetProtectionRulesFromUserBuffer(
-    _In_reads_bytes_(InputLength) PVOID InputBuffer,
-    _In_ ULONG InputLength
-);
-
 // Frees any allocated rule strings and resets state. Safe to call multiple times.
 VOID CleanupProtectionRules();
 

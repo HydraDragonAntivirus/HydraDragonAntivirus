@@ -5,8 +5,7 @@ on:
     branches: ["**"]
     paths:
       - "Owlyshield/owlyshield_predict/**"
-      - "Owlyshield/owlyshield_predict/**/Cargo.toml"
-      - "Owlyshield/owlyshield_predict/**/Cargo.lock"
+      - "!Owlyshield/owlyshield_predict/**/*.dll"
       - ".github/workflows/publish-owlyshield-predict.yml"
   workflow_dispatch:
 
@@ -29,6 +28,11 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Set up MSVC Developer Command Prompt
+        uses: TheMrMilchmann/setup-msvc-dev@v4
+        with:
+          arch: x64
+
       - name: Install nasm
         run: choco install nasm
 
@@ -38,7 +42,7 @@ jobs:
 
       - name: Build Predict Service
         working-directory: Owlyshield/owlyshield_predict
-        run: cargo build --release
+        run: cargo build --release --features novelty,malware,hydradragon,behavior_engine,firewall,sanctum
 
       - name: Stage Predict Files
         shell: pwsh
@@ -49,20 +53,15 @@ jobs:
           New-Item -ItemType Directory -Force -Path $modelsDir | Out-Null
 
           Copy-Item "Owlyshield/owlyshield_predict/target/release/owlyshield_ransom.exe" $serviceDir -Force
-          Copy-Item "Owlyshield/owlyshield_predict/moonfire-tflite/lib/tensorflowlite_c.dll" $serviceDir -Force
           Copy-Item "Owlyshield/owlyshield_predict/models/*" $modelsDir -Force
 
-      - name: Check for Changes
+      - name: Check for publishable changes
         id: check_changes
-        shell: pwsh
-        run: |
-          git add -A
-          if (git status --porcelain) {
-            "changed=true" >> $env:GITHUB_OUTPUT
-          } else {
-            "changed=false" >> $env:GITHUB_OUTPUT
-          }
-
+        uses: ./.github/actions/check-publishable-changes
+        with:
+          paths: |
+            hydradragon/Owlyshield/Owlyshield Service
+            Owlyshield/owlyshield_predict/Cargo.lock
       - name: Create PR
         if: steps.check_changes.outputs.changed == 'true'
         uses: peter-evans/create-pull-request@v8
@@ -71,6 +70,8 @@ jobs:
           commit-message: "chore(owlyshield): update predict binaries"
           title: "Update Owlyshield predict binaries"
           body: "Automated predict service, model, and TensorFlow Lite DLL update."
+          add-paths: |
+            ${{ steps.check_changes.outputs.publishable_files }}
           branch: "auto-update-owlyshield-predict"
           base: ${{ github.ref_name }}
           delete-branch: true

@@ -46,6 +46,12 @@ DriverData::~DriverData() {
 
 DriverData* driverData;
 
+static VOID FreeOwnedProcessName(_In_opt_ PUNICODE_STRING ProcessName) {
+    if (ProcessName != NULL) {
+        ExFreePoolWithTag(ProcessName, 'RW');
+    }
+}
+
 //#######################################################################################
 //# Volume Cache handling
 //#######################################################################################
@@ -233,7 +239,8 @@ BOOLEAN DriverData::RemoveProcessRecordAux(ULONG ProcessId, ULONGLONG gid) {
             (PPID_ENTRY)CONTAINING_RECORD(iterator, PID_ENTRY, entry);
         if (pStrct->Pid == ProcessId) {
             RemoveEntryList(iterator);
-            delete pStrct->Path;
+            FreeOwnedProcessName(pStrct->Path);
+            pStrct->Path = NULL;
             delete pStrct;
             gidRecord->pidsSize--;
             ret = TRUE;
@@ -268,7 +275,8 @@ BOOLEAN DriverData::RemoveGidRecordAux(PGID_ENTRY gidRecord) {
         RemoveEntryList(iterator);
         PidToGids.deleteNode(pStrct->Pid);
         pidsSize--;
-        delete pStrct->Path;  // release PUNICODE_STRING
+        FreeOwnedProcessName(pStrct->Path);  // release PUNICODE_STRING
+        pStrct->Path = NULL;
         delete pStrct;  // release PID_ENTRY
         ret = TRUE;
         iterator = next;
@@ -315,32 +323,54 @@ ULONGLONG DriverData::RecordNewProcess(
         // Remove tombstone and bail — do NOT insert a ghost entry.
         PidToGids.deleteNode(ProcessId);
         KeReleaseSpinLock(&GIDSystemLock, oldIrql);
-        // ProcessName ownership: free it here since we are not storing it.
-        if (ProcessName != NULL) {
-            ExFreePoolWithTag(ProcessName, 'RW');
-        }
+        FreeOwnedProcessName(ProcessName);
         return 0ULL;
     }
 
+    if (existingEntry != 0) {
+        if (!RemoveProcessRecordAux(ProcessId, existingEntry)) {
+            PidToGids.deleteNode(ProcessId);
+        }
+    }
+
     ULONGLONG gid = (ULONGLONG)PidToGids.get(ParentPid);
+    if (gid == TERMINATED_PID_SENTINEL) {
+        gid = 0;
+    }
+
+    PGID_ENTRY gidRecord = NULL;
+    if (gid) {
+        gidRecord = (PGID_ENTRY)GidToPids.get(gid);
+        if (gidRecord == NULL) {
+            gid = 0;
+        }
+    }
+
     PPID_ENTRY pStrct = new PID_ENTRY;
+    if (pStrct == NULL) {
+        KeReleaseSpinLock(&GIDSystemLock, oldIrql);
+        FreeOwnedProcessName(ProcessName);
+        return 0ULL;
+    }
+
     pStrct->Pid = ProcessId;
     pStrct->Path = ProcessName;
     if (gid) {  // there is Gid — child inherits parent's GID
-        ULONGLONG retInsert;
-        if ((retInsert =
-                 (ULONGLONG)PidToGids.insertNode(ProcessId, (HANDLE)gid))
-            != gid) {  // shouldnt happen
-            RemoveProcessRecordAux(ProcessId, retInsert);
-        }
-        PGID_ENTRY gidRecord = (PGID_ENTRY)GidToPids.get(gid);
+        PidToGids.insertNode(ProcessId, (HANDLE)gid);
         InsertHeadList(&(gidRecord->HeadListPids), &(pStrct->entry));
         gidRecord->pidsSize++;
-        PidToGids.insertNode(ProcessId, (HANDLE)gid);
     } else {
         // Parent not tracked — assign a fresh GID for this process
         gid = ++GidCounter;
         PGID_ENTRY newGidRecord = new GID_ENTRY(gid);
+        if (newGidRecord == NULL) {
+            KeReleaseSpinLock(&GIDSystemLock, oldIrql);
+            pStrct->Path = NULL;
+            delete pStrct;
+            FreeOwnedProcessName(ProcessName);
+            return 0ULL;
+        }
+
         InsertHeadList(&(newGidRecord->HeadListPids), &(pStrct->entry));
         InsertTailList(&GidsList, &(newGidRecord->GidListEntry));
         GidToPids.insertNode(gid, newGidRecord);
@@ -428,14 +458,21 @@ BOOLEAN DriverData::GetGidPids(
 
 // if found return true on found else return false
 ULONGLONG DriverData::GetProcessGid(ULONG ProcessId, PBOOLEAN found) {
-    ASSERT(found != nullptr);
+    BOOLEAN localFound = FALSE;
+    if (found == nullptr) {
+        found = &localFound;
+    }
+
     *found = FALSE;
     ULONGLONG ret = 0;
     KIRQL oldIrql;
     KeAcquireSpinLock(&GIDSystemLock, &oldIrql);
     ret = (ULONGLONG)PidToGids.get(ProcessId);
-    if (ret)
+    if (ret == TERMINATED_PID_SENTINEL) {
+        ret = 0;
+    } else if (ret) {
         *found = TRUE;
+    }
     KeReleaseSpinLock(&GIDSystemLock, oldIrql);
     //DbgPrint("Gid: %d %d\n", ret, *found);
     return ret;
@@ -459,7 +496,7 @@ BOOLEAN DriverData::CopyProcessPathByPid(
     KeAcquireSpinLock(&GIDSystemLock, &oldIrql);
 
     ULONGLONG gid = (ULONGLONG)PidToGids.get(ProcessId);
-    if (gid != 0)
+    if (gid != 0 && gid != TERMINATED_PID_SENTINEL)
     {
         PGID_ENTRY gidRecord = (PGID_ENTRY)GidToPids.get(gid);
         if (gidRecord != nullptr)
@@ -521,6 +558,7 @@ VOID DriverData::ClearGidsPids() {
     }
     //ASSERT(headGids->Flink == headGids);
     GidCounter = 0;
+    PidToGids.clear(NULL);
     KeReleaseSpinLock(&GIDSystemLock, oldIrql);
 }
 
@@ -590,12 +628,14 @@ PIRP_ENTRY DriverData::GetFirstIrpMessage() {
     PLIST_ENTRY ret;
     KIRQL oldIrql;
     KeAcquireSpinLock(&irpOpsLock, &oldIrql);
+    if (IsListEmpty(&irpOps)) {
+        KeReleaseSpinLock(&irpOpsLock, oldIrql);
+        return NULL;
+    }
+
     ret = RemoveHeadList(&irpOps);
     irpOpsSize--;
     KeReleaseSpinLock(&irpOpsLock, oldIrql);
-    if (ret == &irpOps) {
-        return NULL;
-    }
     return (PIRP_ENTRY)CONTAINING_RECORD(ret, IRP_ENTRY, entry);
 }
 

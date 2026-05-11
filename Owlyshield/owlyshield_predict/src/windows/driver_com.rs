@@ -507,32 +507,6 @@ impl Driver {
         Ok(())
     }
 
-    pub fn reload_exclude_rules(&self) -> Result<(), Error> {
-        self.with_reconnect_retry("reload_exclude_rules", |handle| {
-            let mut msg = DriverComMessage {
-                r#type: DriverComMessageType::MessageReloadExcludeRules as c_ulong,
-                pid: 0,
-                gid: 0,
-                path: [0; 520],
-                quarantine_path: [0; 520],
-            };
-            let mut res_size: u32 = 0;
-
-            unsafe {
-                FilterSendMessage(
-                    handle,
-                    ptr::addr_of_mut!(msg) as *mut c_void,
-                    mem::size_of::<DriverComMessage>() as c_ulong,
-                    None,
-                    0,
-                    &mut res_size,
-                )?;
-            }
-            Ok(())
-        })?;
-        Ok(())
-    }
-
     pub fn add_block_path(&self, path: &str) -> Result<windows::core::HRESULT, Error> {
         let path = Driver::string_to_commessage_buffer(path);
         let res = self.with_reconnect_retry("add_block_path", |handle| {

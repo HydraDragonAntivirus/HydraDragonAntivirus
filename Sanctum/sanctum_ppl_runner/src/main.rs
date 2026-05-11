@@ -32,13 +32,8 @@ use windows::{
     core::{PCWSTR, PWSTR},
 };
 
-mod driver_control;
-mod hardcoded_rules;
 mod ipc;
 mod logging;
-mod openedr_control;
-mod owlyshield_control;
-mod pyas_control;
 mod tracing;
 
 static SERVICE_STOP: AtomicBool = AtomicBool::new(false);
@@ -77,11 +72,6 @@ fn run_service(h_status: SERVICE_STATUS_HANDLE) {
             EventID::Info,
         );
 
-        // Start all critical security drivers
-        driver_control::start_security_drivers();
-
-        bootstrap_protected_driver_control();
-
         // start tracing session; we spawn this in its own os thread as it is blocking
         std::thread::spawn(|| {
             start_threat_intel_trace();
@@ -89,6 +79,9 @@ fn run_service(h_status: SERVICE_STATUS_HANDLE) {
 
         // spawn Owlyshield Ransom as a PPL child process
         spawn_owlyshield_ransom_process();
+
+        // spawn Firewall as a PPL child process
+        spawn_firewall_process();
 
         // event loop
         while !SERVICE_STOP.load(Ordering::SeqCst) {
@@ -200,6 +193,100 @@ fn spawn_owlyshield_ransom_process() {
     );
 }
 
+fn spawn_firewall_process() {
+    let mut startup_info = STARTUPINFOEXW::default();
+    startup_info.StartupInfo.cb = size_of::<STARTUPINFOEXW>() as u32;
+    let mut attribute_size_list: usize = 0;
+
+    let _ = unsafe { InitializeProcThreadAttributeList(None, 1, None, &mut attribute_size_list) };
+
+    if attribute_size_list == 0 {
+        event_log(
+            "Error initialising thread attribute list for firewall",
+            EVENTLOG_ERROR_TYPE,
+            EventID::GeneralError,
+        );
+        return;
+    }
+
+    let mut attribute_list_mem = vec![0u8; attribute_size_list];
+    startup_info.lpAttributeList =
+        LPPROC_THREAD_ATTRIBUTE_LIST(attribute_list_mem.as_mut_ptr() as *mut _);
+
+    if unsafe {
+        InitializeProcThreadAttributeList(
+            Some(startup_info.lpAttributeList),
+            1,
+            None,
+            &mut attribute_size_list,
+        )
+    }.is_err() {
+        event_log(
+            "Error initialising thread attribute list for firewall",
+            EVENTLOG_ERROR_TYPE,
+            EventID::GeneralError,
+        );
+        return;
+    }
+
+    let mut protection_level = PROTECTION_LEVEL_SAME;
+    if let Err(e) = unsafe {
+        UpdateProcThreadAttribute(
+            startup_info.lpAttributeList,
+            0,
+            PROC_THREAD_ATTRIBUTE_PROTECTION_LEVEL as _,
+            Some(&mut protection_level as *mut _ as *mut _),
+            size_of_val(&protection_level),
+            None,
+            None,
+        )
+    } {
+        event_log(
+            &format!("Error UpdateProcThreadAttribute for firewall, {}", e),
+            EVENTLOG_ERROR_TYPE,
+            EventID::GeneralError,
+        );
+        return;
+    }
+
+    let mut process_info = PROCESS_INFORMATION::default();
+    let path: Vec<u16> = r"C:\Program Files\HydraDragonAntivirus\hydradragon\HydraDragonFirewall\hydradragonfirewall.exe"
+        .encode_utf16()
+        .chain(std::iter::once(0))
+        .collect();
+
+    if let Err(e) = unsafe {
+        CreateProcessW(
+            PCWSTR(path.as_ptr()),
+            None,
+            None,
+            None,
+            false,
+            EXTENDED_STARTUPINFO_PRESENT | CREATE_PROTECTED_PROCESS,
+            None,
+            PCWSTR::null(),
+            &mut startup_info as *mut _ as *const _,
+            &mut process_info,
+        )
+    } {
+        event_log(
+            &format!(
+                "Error calling starting child PPL process for firewall via CreateProcessW, {}",
+                e
+            ),
+            EVENTLOG_ERROR_TYPE,
+            EventID::GeneralError,
+        );
+        return;
+    }
+
+    event_log(
+        "SanctumPPLRunner started firewall process.",
+        EVENTLOG_SUCCESS,
+        EventID::Info,
+    );
+}
+
 /// Handles service control events (e.g., stop)
 unsafe extern "system" fn service_handler(control: u32) {
     if control == SERVICE_CONTROL_STOP {
@@ -270,58 +357,4 @@ fn svc_name() -> Vec<u16> {
     svc_name.push(0);
 
     svc_name
-}
-
-fn bootstrap_protected_driver_control() {
-    match pyas_control::refresh_hydradragon_protection_rules_from_embedded() {
-        Ok(()) => event_log(
-            "HydraDragon/Owlyshield protection rules loaded from Sanctum embedded defaults.",
-            EVENTLOG_INFORMATION_TYPE,
-            EventID::Info,
-        ),
-        Err(e) => event_log(
-            &format!("Failed to load embedded HydraDragon/Owlyshield protection rules: {}", e),
-            EVENTLOG_ERROR_TYPE,
-            EventID::GeneralError,
-        ),
-    }
-
-    match owlyshield_control::register_owlyshield_from_sanctum() {
-        Ok(()) => event_log(
-            "Owlyshield driver communication registered from Sanctum PPL runner.",
-            EVENTLOG_INFORMATION_TYPE,
-            EventID::Info,
-        ),
-        Err(e) => event_log(
-            &format!("Owlyshield Sanctum registration failed: {}", e),
-            EVENTLOG_ERROR_TYPE,
-            EventID::GeneralError,
-        ),
-    }
-
-    match owlyshield_control::push_embedded_owlyshield_rules_from_sanctum() {
-        Ok(()) => event_log(
-            "Owlyshield embedded rules pushed from Sanctum PPL runner.",
-            EVENTLOG_INFORMATION_TYPE,
-            EventID::Info,
-        ),
-        Err(e) => event_log(
-            &format!("Owlyshield embedded rule push failed: {}", e),
-            EVENTLOG_ERROR_TYPE,
-            EventID::GeneralError,
-        ),
-    }
-
-    match openedr_control::activate_openedr_monitoring() {
-        Ok(()) => event_log(
-            "OpenEDR monitoring activation requested by Sanctum.",
-            EVENTLOG_INFORMATION_TYPE,
-            EventID::Info,
-        ),
-        Err(e) => event_log(
-            &format!("OpenEDR monitoring activation failed: {}", e),
-            EVENTLOG_ERROR_TYPE,
-            EventID::GeneralError,
-        ),
-    }
 }

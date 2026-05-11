@@ -1,4 +1,4 @@
-﻿;===================================================================
+;===================================================================
 ; Sample WDM Driver
 ; Copyright (c) Microsoft Corporation
 ;===================================================================
@@ -49,7 +49,7 @@ AddService = SampleWDMService, %SPSVCINST_ASSOCSERVICE%, Sanctum_WDM_Service_Ins
 [Sanctum_WDM_Service_Install]
 DisplayName    = %ServiceDesc%
 ServiceType    = 1               ; SERVICE_KERNEL_DRIVER
-StartType      = 3               ; SERVICE_DEMAND_START 
+StartType      = 2               ; SERVICE_AUTO_START 
 ErrorControl   = 1               ; SERVICE_ERROR_NORMAL
 ServiceBinary  = %13%\sanctum.sys
 

@@ -1,4 +1,4 @@
-//! Library entry point for the OwlyShield ransomware protection SDK.
+//! Library entry point for the Owlyshield ransomware protection SDK.
 //! Re-exports and module structure aligned with main.rs and existing submodule requirements.
 
 extern crate num;
@@ -141,6 +141,6 @@ pub mod sdk {
     #[cfg(feature = "realtime_learning")]
     pub use crate::realtime_learning::ml_collector::CollectionMode;
     #[cfg(feature = "realtime_learning")]
-    pub use crate::realtime_learning::{OwlyShieldSDK, PatternType};
+    pub use crate::realtime_learning::{OwlyshieldSDK, PatternType};
     pub use crate::shared_def;
 }

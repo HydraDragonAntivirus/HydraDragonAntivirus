@@ -106,7 +106,6 @@ from .path_and_variables import (
     resource_extractor_dir,
     ungarbler_dir,
     ungarbler_string_dir,
-    excluded_rules_path,
     html_extracted_dir,
     unified_pe_cache,
     existing_projects,
@@ -131,7 +130,6 @@ from .path_and_variables import (
     suricata_exe_path,
     seven_zip_path,
     antivirus_list_path,
-    yaraxtr_yrc_path,
 )
 
 from .utils_and_helpers import validate_pipe_peer
@@ -247,11 +245,6 @@ start_time = time.time()
 import tarfile
 
 logger.debug(f"tarfile module loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
-import yara_x
-
-logger.debug(f"yara_x module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import psutil
@@ -700,10 +693,10 @@ for make_directory in MANAGED_DIRECTORIES:
             continue  # Skip creating the directory if removal failed
 
     try:
-        os.makedirs(make_directory)
-        logger.info(f"Created directory: {make_directory}")
+        os.makedirs(make_directory, exist_ok=True)
+        logger.info(f"Ensured directory exists: {make_directory}")
     except Exception as e:
-        logger.error(f"Failed to create directory '{make_directory}': {e}")
+        logger.error(f"Failed to ensure directory '{make_directory}': {e}")
 
 
 def try_unpack_enigma1(input_exe: str) -> str | None:
@@ -1630,57 +1623,11 @@ def dispatch_firewall_web_scan(paths: List[str], origin: str) -> None:
 
 
 # Global variables for rules and ML
-yaraxtr_rules = None
-excluded_rules = None
+antivirus_domains_data = None
 malicious_numeric_features = []
 malicious_file_names = []
 benign_numeric_features = []
 benign_file_names = []
-
-
-def scan_yara(file_path):
-    """
-    Simplified YARA scan using ONLY yara-x (Rust-based).
-    Returns: (matched_rules, matched_results, is_vmprotect)
-    """
-    if excluded_rules is None:
-        logger.error(f"excluded_rules missing for {file_path}")
-        return None, None, None
-
-    results = {"matched_rules": [], "matched_results": [], "is_vmprotect": False}
-
-    try:
-        if not os.path.exists(file_path):
-            return None, None, None
-
-        with open(file_path, "rb") as f:
-            data_content = f.read()
-
-        if yaraxtr_rules:
-            # yara-x scanning (thread-safe creation per scan)
-            scanner = yara_x.Scanner(rules=yaraxtr_rules)
-            scan_results = scanner.scan(data_content)
-
-            for rule in getattr(scan_results, "matching_rules", []) or []:
-                if rule.identifier not in excluded_rules:
-                    results["matched_rules"].append(rule.identifier)
-                    # Simple extraction
-                    details = {"rule_name": rule.identifier, "rule_source": "yaraxtr_rules", "tags": list(rule.tags) if hasattr(rule, "tags") else [], "meta": dict(rule.metadata) if hasattr(rule, "metadata") else {}}
-                    results["matched_results"].append(details)
-                    if rule.identifier == "INDICATOR_EXE_Packed_VMProtect":
-                        results["is_vmprotect"] = True
-
-            del scanner
-            import gc
-
-            gc.collect()
-
-        return (results["matched_rules"] if results["matched_rules"] else None, results["matched_results"] if results["matched_results"] else None, results["is_vmprotect"])
-
-    except Exception as ex:
-        logger.error(f"YARA-X scan error for {file_path}: {ex}")
-        return None, None, None
-
 
 # ============================================================================#
 # C++ ENGINE (HydraDragonAV) PIPE CLIENT
@@ -3299,37 +3246,6 @@ def load_ml_definitions_pickle(malicious_path: str, benign_path: str) -> bool:
     except Exception as e:
         logger.exception(f"Failed to load ML definitions: {e}")
         return False
-
-
-# Removed: scan_file_with_clamav (Merged into HydraDragonAV C++ engine)
-
-
-def scan_file_real_time_yara(file_path: str, signature_check: dict) -> Tuple[bool, str, str, bool]:
-    """
-    Scan file with YARA only (blocking, no threads).
-
-    Returns: (malware_found: bool, virus_name: str, engine: str, is_vmprotect: bool)
-    """
-    logger.info(f"Started YARA scanning file: {file_path}")
-
-    sig_valid = bool(signature_check and signature_check.get("is_valid", False))
-
-    try:
-        yara_match, yara_result, is_vmprotect = scan_yara(file_path)
-
-        if yara_match and yara_match not in ("Clean", ""):
-            if sig_valid:
-                yara_match = f"{yara_match}.SIG"
-            logger.critical(f"Infected file detected (YARA): {file_path} - Virus: {yara_match} - Result: {yara_result}")
-            return True, yara_match, "YARA", is_vmprotect
-        else:
-            logger.info(f"Scanned file with YARA: {file_path} - No viruses detected")
-            return False, "Clean", "", is_vmprotect
-
-    except Exception as ex:
-        logger.error(f"An error occurred while scanning file with YARA: {file_path}. Error: {ex}")
-        return False, "Error", "", False
-
 
 def scan_file_real_time(file_path: str, signature_check: dict, file_name: str, die_output, pe_file: bool = False) -> Tuple[bool, str, str, Optional[bool]]:
     """
@@ -5341,11 +5257,7 @@ async def process_decompiled_code(output_file: str, main_file_path: Optional[str
         if is_sd:
             logger.info("[*] Detected SourceDefender protected file.")
             try:
-                # process_sourcedefender_payload may be sync or async in your codebase; handle both
-                if inspect.iscoroutinefunction(process_sourcedefender_payload):
-                    return bool(await process_sourcedefender_payload(output_file, main_file_path=main_file_path))
-                else:
-                    return bool(await asyncio.to_thread(process_sourcedefender_payload, output_file, main_file_path))
+                return bool(await asyncio.to_thread(process_sourcedefender_payload, output_file, main_file_path))
             except Exception as ex:
                 logger.error(f"Error processing SourceDefender payload: {ex}")
                 return False
@@ -7960,7 +7872,7 @@ async def scan_and_warn(
             return False  # EARLY EXIT
 
         if norm_path == hosts_path:
-            check_hosts_file_for_blocked_antivirus(norm_path)
+            asyncio.create_task(check_hosts_file_for_blocked_antivirus())
 
         file_norm = os.path.normpath(norm_path).lower()
 
@@ -8914,56 +8826,7 @@ async def scan_and_warn(
             except Exception as e:
                 logger.error(f"Error in fake size check for {norm_path}: {e}")
 
-        # YARA REALTIME TASK
-        async def realtime_malware_thread_yara(norm_path, signature_check, main_file_path, already_vmprotect_unpacked, vmprotect_unpacked_dir):
-            try:
-                is_malicious, virus_names, engine_detected, is_vmprotect = await asyncio.to_thread(scan_file_real_time_yara, norm_path, signature_check)
-
-                if is_malicious:
-                    virus_name = "".join(virus_names)
-                    logger.critical(f"File {norm_path} is malicious. Virus: {virus_name}")
-
-                    if virus_name.startswith("PUA."):
-                        # MODIFIED: await notify function
-                        await notify_user_pua(norm_path, virus_name, engine_detected, main_file_path=main_file_path)
-                        return False
-                    else:
-                        # MODIFIED: await notify function
-                        await notify_user(norm_path, virus_name, engine_detected, main_file_path=main_file_path)
-                        return False
-
-                if already_vmprotect_unpacked:
-                    return
-
-                # VMProtect unpacking logic
-                if is_vmprotect:
-                    try:
-                        logger.info(f"VMProtect detected in {norm_path}. Starting unpack process...")
-
-                        packed_data = await asyncio.to_thread(Path(norm_path).read_bytes)
-                        unpacked_data = await asyncio.to_thread(unpack_pe, packed_data)
-
-                        if unpacked_data:
-                            base_name, ext = os.path.splitext(os.path.basename(norm_path))
-                            unpacked_name = f"{base_name}_vmprotect_unpacked{ext}"
-                            unpacked_path = os.path.join(vmprotect_unpacked_dir, unpacked_name)
-
-                            await asyncio.to_thread(Path(unpacked_path).write_bytes, unpacked_data)
-
-                            logger.info(f"VMProtect unpacked successfully: {unpacked_path}")
-
-                            # MODIFIED: Call async scan_and_warn as a new task
-                            asyncio.create_task(scan_and_warn(unpacked_path, flag_vmprotect=True, main_file_path=main_file_path))
-                        else:
-                            logger.warning(f"Unpacking VMProtect failed for {norm_path}")
-
-                    except Exception as e:
-                        logger.error(f"Error unpacking VMProtect file {norm_path}: {e}")
-
-            except Exception as e:
-                logger.error(f"Error in YARA real-time malware scan for {norm_path}: {e}")
-
-        # NON-YARA REALTIME TASK
+        # REALTIME TASK
         async def realtime_malware_thread(norm_path, signature_check, file_name, die_output, pe_file, main_file_path):
             try:
                 is_malicious, virus_names, engine_detected, is_vmprotect = await asyncio.to_thread(scan_file_real_time, norm_path, signature_check, file_name, die_output, pe_file=pe_file)
@@ -9031,7 +8894,6 @@ async def scan_and_warn(
         # Start common processing tasks
         common_tasks = [
             asyncio.create_task(fake_size_check_thread()),
-            asyncio.create_task(realtime_malware_thread_yara(norm_path, signature_check, main_file_path, globals().get("already_vmprotect_unpacked"), vmprotect_unpacked_dir)),
             asyncio.create_task(realtime_malware_thread(norm_path, signature_check, file_name, die_output, pe_file, main_file_path)),
             asyncio.create_task(filename_detection_thread()),
             asyncio.create_task(decompilation_postprocess_thread()),
@@ -9040,11 +8902,6 @@ async def scan_and_warn(
         await asyncio.gather(*common_tasks)
 
         # ========== CLEANUP AND RETURN ==========
-
-        # Note: We don't await all tasks here because many are fire-and-forget
-        # operations that don't affect the main scan flow. The function can return
-        # while background tasks continue processing.
-        # FIXED: The tasks are now awaited above.
 
         logger.info(f"Main scan completed for {norm_path}, background processing continues...")
         return False  # Scan completed successfully
@@ -9227,30 +9084,6 @@ async def monitor_scan_requests_from_edr():
         except Exception as e:
             logger.exception(f"[EDR->AV] Sender loop error: {e}")
 
-
-# ==========================================
-# FIXED: Async Excluded Rules Loading
-# ==========================================
-
-
-async def load_excluded_rules_async():
-    """Load excluded rules with aiofiles"""
-    try:
-        async with aiofiles.open(excluded_rules_path, "r", encoding="utf-8") as f:
-            content = await f.read()
-        rules = [line.strip() for line in content.splitlines() if line.strip()]
-        logger.info(f"Loaded {len(rules)} excluded rules")
-        return rules
-    except Exception as e:
-        logger.error(f"Failed to load excluded rules: {e}")
-        return []
-
-
-# ==========================================
-# FIXED: Safe YARA-X Loader
-# ==========================================
-
-
 async def load_all_resources_async():
     """
     Start loading all resources in background WITHOUT waiting.
@@ -9342,33 +9175,14 @@ async def load_all_resources_async():
         except Exception as ex:
             logger.exception(f"Error loading Antivirus List: {ex}")
 
-    async def load_yaraxtr():
-        global yaraxtr_rules
-        try:
-
-            def _load_yara_x():
-                with open(yaraxtr_yrc_path, "rb") as f:
-                    return yara_x.Rules.deserialize_from(f)
-
-            yaraxtr_rules = await asyncio.to_thread(_load_yara_x)
-            logger.info("YARA-X Rules loaded successfully!")
-        except Exception as e:
-            logger.error(f"Failed to load YARA-X Rules: {e}")
-
     async def load_ml():
         # load_ml_definitions_pickle is sync, so run in a thread
         await asyncio.to_thread(load_ml_definitions_pickle, machine_learning_pickle_malicious_path, machine_learning_pickle_benign_path)
 
-    async def load_excluded():
-        global excluded_rules
-        excluded_rules = await load_excluded_rules_async()
-
     # Fire and forget available tasks
     asyncio.create_task(load_suricata(), name="load_suricata")
     asyncio.create_task(load_antivirus_list(), name="load_antivirus_list")
-    asyncio.create_task(load_yaraxtr(), name="load_yaraxtr")
     asyncio.create_task(load_ml(), name="load_ml")
-    asyncio.create_task(load_excluded(), name="load_excluded")
 
     logger.info("All resource loading tasks started in background")
     logger.info("Application will continue while resources load...")

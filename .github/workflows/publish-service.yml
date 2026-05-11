@@ -1,10 +1,9 @@
-name: Publish Infrastructure
+name: Publish Service
 
 on:
   push:
     branches: ["**"]
     paths:
-      - 'HydraDragonLauncher/**'
       - 'HydraDragonService/**'
       - '.github/workflows/publish-infrastructure.yml'
   workflow_dispatch:
@@ -24,27 +23,38 @@ jobs:
         uses: actions/setup-dotnet@v5
         with:
           dotnet-version: '8.0.x'
-      - name: Publish Launcher
-        run: dotnet publish HydraDragonLauncher/HydraDragonLauncher/HydraDragonLauncher.csproj -c Release -r win-x64 --self-contained false -o artifacts/launcher/
       - name: Publish Service
         run: dotnet publish HydraDragonService/HydraDragonService/HydraDragonService.csproj -c Release -r win-x64 --self-contained false -o artifacts/service/
         
       - name: Stage
         shell: pwsh
         run: |
-          $distLauncher = "hydradragon/HydraDragonLauncher"
           $distService = "hydradragon/HydraDragonService"
-          New-Item -ItemType Directory -Force -Path $distLauncher
-          New-Item -ItemType Directory -Force -Path $distService
-          Copy-Item "artifacts/launcher/*" "$distLauncher/" -Recurse -Force
-          Copy-Item "artifacts/service/*" "$distService/" -Recurse -Force
+
+          # Sync the whole folder first
+          if (Test-Path $distService) { Remove-Item $distService -Recurse -Force }
+          New-Item -ItemType Directory -Path $distService -Force | Out-Null
+          Copy-Item -Path "artifacts/service/*" -Destination $distService -Recurse -Force
           
+          # Then remove PDBs
+          Get-ChildItem -Path $distService -Filter "*.pdb" -Recurse | Remove-Item -Force
+          
+      - name: Check for publishable changes
+        id: check_changes
+        uses: ./.github/actions/check-publishable-changes
+        with:
+          paths: |
+            hydradragon/HydraDragonService
       - name: Create PR
+        if: steps.check_changes.outputs.changed == 'true'
         uses: peter-evans/create-pull-request@v8
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          commit-message: "chore(infra): update binaries"
-          title: "🚀 Update Infrastructure Binaries"
-          branch: "auto-update-infra"
+          commit-message: "chore(service): update binaries"
+          title: "Update Service Binaries"
+          add-paths: |
+            ${{ steps.check_changes.outputs.publishable_files }}
+          branch: "auto-update-service"
           base: ${{ github.ref_name }}
           delete-branch: true
+          labels: binaries, automated-pr, service

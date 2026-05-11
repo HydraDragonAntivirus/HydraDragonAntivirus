@@ -13,6 +13,7 @@ on:
       - "**"
     paths:
       - "pyproject.toml"
+      - ".github/workflows/poetry-lock.yml"
 
 jobs:
   rebuild-lock:
@@ -47,8 +48,15 @@ jobs:
       - name: Validate lockfile
         run: poetry check --lock
 
+      - name: Check for publishable changes
+        id: check_changes
+        uses: ./.github/actions/check-publishable-changes
+        with:
+          paths: |
+            poetry.lock
+
       - name: Create pull request for lockfile changes
-        if: github.ref_name != github.event.repository.default_branch
+        if: github.ref_name != github.event.repository.default_branch && steps.check_changes.outputs.changed == 'true'
         uses: peter-evans/create-pull-request@v8
         with:
           commit-message: "Rebuild poetry.lock (auto)"
@@ -62,4 +70,5 @@ jobs:
             This PR regenerates `poetry.lock` automatically after changes to `pyproject.toml`
             or on the scheduled/manual workflow run.
           add-paths: |
-            poetry.lock
+            ${{ steps.check_changes.outputs.publishable_files }}
+          labels: dependencies, automated-pr

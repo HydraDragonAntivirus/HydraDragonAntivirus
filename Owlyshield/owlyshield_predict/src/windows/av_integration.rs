@@ -925,8 +925,23 @@ pub struct AVIntegration<'a> {
     tinyav_recent_scans: HashMap<String, Instant>,
     tinyav_missing_logged: bool,
     yara_rules: Option<yara_x::Rules>,
+    excluded_yara_rules: std::collections::HashSet<String>,
     _scan_request_handle: thread::JoinHandle<()>,
     _av_to_edr_listener_handle: thread::JoinHandle<()>,
+}
+
+fn load_excluded_rules() -> std::collections::HashSet<String> {
+    let mut rules = std::collections::HashSet::new();
+    let path = r"C:\Program Files\HydraDragonAntivirus\hydradragon\excluded_yara_rules\excluded_yara_rules.txt";
+    if let Ok(content) = std::fs::read_to_string(path) {
+        for line in content.lines() {
+            let trimmed = line.trim();
+            if !trimmed.is_empty() {
+                rules.insert(trimmed.to_string());
+            }
+        }
+    }
+    rules
 }
 
 fn load_yara_x_rules() -> Option<yara_x::Rules> {
@@ -981,6 +996,7 @@ impl<'a> AVIntegration<'a> {
             tinyav_recent_scans: HashMap::new(),
             tinyav_missing_logged: false,
             yara_rules: load_yara_x_rules(),
+            excluded_yara_rules: load_excluded_rules(),
             _scan_request_handle: scan_request_handle,
             _av_to_edr_listener_handle: av_to_edr_listener_handle,
         }
@@ -1103,9 +1119,13 @@ impl<'a> AVIntegration<'a> {
                     for matching_rule in scan_results.matching_rules() {
                         let id = matching_rule.identifier().to_string();
                         let id_lower = id.to_lowercase();
-                        yara_x_matches.push(id.clone());
+                        
                         if id_lower.contains("vmprotect") {
                             is_vmprotect = true;
+                        }
+
+                        if !self.excluded_yara_rules.contains(&id) {
+                            yara_x_matches.push(id.clone());
                         }
                     }
                 }

@@ -3,8 +3,14 @@ name: Owlyshield Rust Linux
 on:
   push:
     branches: [ "**" ]
+    paths:
+      - 'Owlyshield/owlyshield_predict/**'
+      - '.github/workflows/owlyshield-rust-linux.yml'
   pull_request:
     branches: [ "**" ]
+    paths:
+      - 'Owlyshield/owlyshield_predict/**'
+      - '.github/workflows/owlyshield-rust-linux.yml'
   workflow_dispatch:
     inputs:
       update_lockfile:

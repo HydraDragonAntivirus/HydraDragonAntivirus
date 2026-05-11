@@ -128,6 +128,13 @@ def _sync_is_protected_path(candidate_path: str) -> bool:
     return False
 
 
+def _sync_close_handle(handle):
+    if handle:
+        try:
+            win32file.CloseHandle(handle)
+        except Exception as e:
+            logger.debug(f"Error closing handle: {e}")
+
 # -------------------------
 # Async wrappers for helpers (every top-level function is async)
 # -------------------------

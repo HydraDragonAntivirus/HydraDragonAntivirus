@@ -131,9 +131,9 @@ def main():
 
     # 2. Dynamic System32 Deployment (EDR DLL)
     print("\nDeploying EDR component to System32...")
-    # Dynamic source: Relies on repo structure: Sanctum/System32/sanctum.dll
     base_dir = Path(__file__).parent.absolute()
-    local_dll_source = base_dir / "System32" / "sanctum.dll"
+    sanctum_dir = base_dir.parent
+    local_dll_source = sanctum_dir / "System32" / "sanctum.dll"
 
     # Target: Real Windows System32
     win_system32 = Path(os.environ["SystemRoot"]) / "System32"

@@ -45,7 +45,7 @@ hyperhv.sys
 DisplayName    = %hyperhv.SVCDESC%
 Description    = %hyperhv.SVCDESC%
 ServiceType    = 1               ; SERVICE_KERNEL_DRIVER
-StartType      = 3               ; SERVICE_DEMAND_START
+StartType      = 2               ; SERVICE_AUTO_START
 ErrorControl   = 1               ; SERVICE_ERROR_NORMAL
 ServiceBinary  = %12%\hyperhv.sys
 

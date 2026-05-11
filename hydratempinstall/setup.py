@@ -6,7 +6,7 @@ Run with: py -3.12 setup.py
 
 Options:
   --dry-run       : print actions but don't perform them
-  --log-file PATH : write verbose log to PATH (default: ./setup.log)
+  --log-file PATH : write verbose log to PATH (default: %ProgramData%\\HydraDragonAntivirus\\setup.log)
   --retries N     : number of retry attempts for commands (default: 3)
   --retry-delay S : seconds between retries (default: 5)
 """
@@ -19,10 +19,9 @@ import shutil
 import subprocess
 import sys
 import time
+import traceback
 from pathlib import Path
 from typing import Iterable, List, Optional, Sequence, Set, Union
-import ctypes
-from ctypes import wintypes
 
 # Configure UTF-8 output for Windows console before any output
 try:
@@ -45,14 +44,17 @@ except Exception:
 # ----------------------
 DEFAULT_MAX_RETRIES = 3
 DEFAULT_RETRY_DELAY = 5  # seconds
-
-# --- Windows Shell API helper for special folders ---
-CSIDL_DESKTOPDIRECTORY = 0x0010
-SHGFP_TYPE_CURRENT = 0
+PROGRAMDATA_LOG_DIR = Path(os.environ.get("ProgramData", r"C:\ProgramData")) / "HydraDragonAntivirus"
+DEFAULT_SETUP_LOG = PROGRAMDATA_LOG_DIR / "setup.log"
+FAILURE_REPORT_FILE = PROGRAMDATA_LOG_DIR / "setup_failure.txt"
+FRESHCLAM_SAFE_TO_IGNORE_MESSAGE = (
+    "You can safely ignore this freshclam error during setup; "
+    "HydraDragonAV will update the antivirus definitions itself after installation."
+)
 
 parser = argparse.ArgumentParser(description="Robust Windows setup script for HydraDragonAntivirus")
 parser.add_argument("--dry-run", action="store_true", help="Show actions without performing them")
-parser.add_argument("--log-file", default="setup.log", help="Path to log file")
+parser.add_argument("--log-file", default=str(DEFAULT_SETUP_LOG), help="Path to log file")
 parser.add_argument("--retries", type=int, default=DEFAULT_MAX_RETRIES, help="Number of retry attempts")
 parser.add_argument("--retry-delay", type=int, default=DEFAULT_RETRY_DELAY, help="Seconds between retries")
 args = parser.parse_args()
@@ -61,6 +63,11 @@ DRY_RUN: bool = args.dry_run
 MAX_RETRIES: int = args.retries
 RETRY_DELAY: int = args.retry_delay
 LOGFILE: Path = Path(args.log_file)
+try:
+    PROGRAMDATA_LOG_DIR.mkdir(parents=True, exist_ok=True)
+    LOGFILE.parent.mkdir(parents=True, exist_ok=True)
+except Exception as e:
+    print(f"WARNING: Failed to prepare setup log directories: {e}", file=sys.stderr)
 
 # ----------------------
 # Logging
@@ -106,32 +113,7 @@ NPM_CMD_PATH = NODEJS_PATH / "npm.cmd"
 PKG_UNPACKER_DIR = HYDRADRAGON_PATH / "pkg-unpacker"
 CLEAN_VM_PY_PATH = HYDRADRAGON_PATH / "Sanctum" / "clean_vm" / "installer_clean_vm.py"
 CLEAN_VM_FOLDER = HYDRADRAGON_PATH / "Sanctum" / "clean_vm"
-SANCTUM_APPDATA_PATH = HYDRADRAGON_PATH / "Sanctum" / "appdata"
 SANCTUM_ROOT_PATH = HYDRADRAGON_PATH / "Sanctum"
-LEGACY_ROAMING_SANCTUM = Path(os.environ["APPDATA"]) / "Sanctum" if os.environ.get("APPDATA") else None
-
-
-def _get_folder_path(csidl: int) -> str:
-    """Return a Unicode folder path for the given CSIDL using SHGetFolderPathW."""
-    buf = ctypes.create_unicode_buffer(wintypes.MAX_PATH)
-    res = ctypes.windll.shell32.SHGetFolderPathW(None, csidl, None, SHGFP_TYPE_CURRENT, buf)
-    if res != 0:
-        raise OSError(f"SHGetFolderPathW failed with code {res}")
-    return buf.value
-
-
-def get_desktop() -> Path:
-    """Return Path of current user's Desktop folder. Falls back to ~/Desktop on error."""
-    try:
-        p = _get_folder_path(CSIDL_DESKTOPDIRECTORY)
-        return Path(p)
-    except Exception as e:
-        log.warning("SHGetFolderPathW failed, falling back to user home Desktop: %s", e)
-        return Path(os.path.expanduser("~")) / "Desktop"
-
-
-LEGACY_DESKTOP_SANCTUM = get_desktop() / "sanctum"
-
 
 # ----------------------
 # Helpers
@@ -357,39 +339,6 @@ def safe_copy_dir(src: Path, dst: Path) -> int:
         return 1
 
 
-def migrate_sanctum_tree(src: Optional[Path], label: str) -> int:
-    """
-    Merge a Sanctum tree into the installed Program Files location, then remove
-    the source tree once the copy succeeds.
-    """
-    if src is None:
-        log.info("%s path unavailable. Skipping.", label)
-        return 0
-    if not src.exists():
-        log.info("%s not found. Skipping.", label)
-        return 0
-
-    try:
-        if src.resolve() == SANCTUM_ROOT_PATH.resolve():
-            log.info("%s already points to the installed Sanctum folder. Skipping.", label)
-            return 0
-    except Exception:
-        pass
-
-    log.info("Merging %s into %s", src, SANCTUM_ROOT_PATH)
-    rc = safe_copy_dir(src, SANCTUM_ROOT_PATH)
-    if rc != 0:
-        log.error("Failed to merge %s into installed Sanctum (rc=%d).", label, rc)
-        return rc
-
-    rc_del = safe_delete_dir(src)
-    if rc_del != 0:
-        log.warning("Merged %s but failed to remove the original tree.", label)
-        return rc_del
-
-    return 0
-
-
 def ensure_path_includes(directory: Path) -> bool:
     """
     Ensure a directory is in PATH for the current process.
@@ -527,17 +476,76 @@ def resolve_node_tools() -> tuple[Optional[str], Optional[str], Optional[Path]]:
 # ----------------------
 # Main workflow
 # ----------------------
+def flush_log_handlers():
+    for handler in logging.getLogger().handlers:
+        try:
+            handler.flush()
+        except Exception:
+            pass
+
+
+def read_log_tail(path: Path, max_chars: int = 20000) -> str:
+    try:
+        if not path.exists():
+            return ""
+        text = path.read_text(encoding="utf-8", errors="replace")
+        if len(text) <= max_chars:
+            return text
+        return "[... setup.log truncated to final output ...]\n" + text[-max_chars:]
+    except Exception as e:
+        return f"[Failed to read setup log tail: {e}]"
+
+
+def write_failure_report(errors: List[tuple], details: Optional[str] = None) -> Optional[Path]:
+    if DRY_RUN:
+        return None
+
+    flush_log_handlers()
+    try:
+        PROGRAMDATA_LOG_DIR.mkdir(parents=True, exist_ok=True)
+        lines = [
+            "HydraDragon setup failed",
+            f"Time: {time.strftime('%Y-%m-%d %H:%M:%S')}",
+            f"Verbose log: {LOGFILE}",
+            "",
+            "Failed steps:",
+        ]
+
+        if errors:
+            for label, rc in errors:
+                lines.append(f"- {label} (rc={rc})")
+        else:
+            lines.append("- Unhandled setup failure")
+
+        if details:
+            lines.extend(["", "Exception details:", details.rstrip()])
+
+        log_tail = read_log_tail(LOGFILE)
+        if log_tail:
+            lines.extend(["", "Verbose log tail:", log_tail.rstrip()])
+
+        FAILURE_REPORT_FILE.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        return FAILURE_REPORT_FILE
+    except Exception:
+        log.exception("Failed to write ProgramData setup failure report.")
+        return None
+
+
 def summary_and_exit(errors: List[tuple]):
     if errors:
         log.error("Setup completed with errors:")
         for label, rc in errors:
             log.error(" - %s (rc=%s)", label, rc)
         log.error("See %s for full logs.", LOGFILE)
+        failure_report = write_failure_report(errors)
+        if failure_report:
+            log.error("Failure report saved to %s", failure_report)
 
         if not DRY_RUN:
             try:
-                subprocess.run(["notepad.exe", str(LOGFILE)], check=False)
-                log.info("Opened setup log in Notepad (errors present).")
+                notepad_target = str(failure_report or LOGFILE)
+                subprocess.run(["notepad.exe", notepad_target], check=False)
+                log.info("Opened setup failure output in Notepad.")
             except Exception as e:
                 log.warning("Failed to open Notepad automatically: %s", e)
 
@@ -634,13 +642,16 @@ def main():
             rc = run_cmd([str(freshclam)], "ClamAV virus definitions update", retries=MAX_RETRIES, retry_delay=RETRY_DELAY, always_log_output=True)
 
             if rc != 0:
-                log.warning("freshclam returned rc=%d", rc)
-                errors.append(("freshclam", rc))
+                log.warning(
+                    "freshclam returned rc=%d. %s Continuing setup.",
+                    rc,
+                    FRESHCLAM_SAFE_TO_IGNORE_MESSAGE,
+                )
         finally:
             os.chdir(original_cwd)
             log.info(f"Restored directory to: {original_cwd}")
     else:
-        log.warning("freshclam.exe not found at %s", freshclam)
+        log.warning("freshclam.exe not found at %s. %s", freshclam, FRESHCLAM_SAFE_TO_IGNORE_MESSAGE)
 
     # ------------------------------
     # Hayabusa Rules Update
@@ -695,24 +706,6 @@ def main():
     else:
         log.info("clean_vm folder not found. Skipping.")
 
-    # 10. Merge packaged Sanctum\appdata into the installed Sanctum folder
-    if SANCTUM_APPDATA_PATH.exists():
-        rc = migrate_sanctum_tree(SANCTUM_APPDATA_PATH, "Sanctum\\appdata")
-        if rc != 0:
-            errors.append(("sanctum packaged appdata migrate", rc))
-    else:
-        log.info("Sanctum\\appdata folder not found. Skipping.")
-
-    # 11. Pull any legacy %APPDATA%\Sanctum tree back into Program Files
-    rc = migrate_sanctum_tree(LEGACY_ROAMING_SANCTUM, "legacy %APPDATA%\\Sanctum")
-    if rc != 0:
-        errors.append(("legacy sanctum appdata migrate", rc))
-
-    # 12. Pull any legacy Desktop\sanctum tree back into Program Files
-    rc = migrate_sanctum_tree(LEGACY_DESKTOP_SANCTUM, "legacy Desktop\\sanctum")
-    if rc != 0:
-        errors.append(("legacy sanctum desktop migrate", rc))
-
     # ------------------------------
     # Python / Development environment setup
     # ------------------------------
@@ -723,7 +716,7 @@ def main():
         errors.append(("missing root path", 1))
         summary_and_exit(errors)
 
-    # 13. Create Python virtual environment inside HydraDragonAntivirus folder
+    # 10. Create Python virtual environment inside HydraDragonAntivirus folder
     venv_dir = HYDRADRAGON_ROOT_PATH / "venv"
     try:
         venv_python = ensure_venv_created(venv_dir)
@@ -733,14 +726,14 @@ def main():
         errors.append(("venv create", 1))
         summary_and_exit(errors)
 
-    # 14. Upgrade pip in the venv by calling the venv interpreter directly.
+    # 11. Upgrade pip in the venv by calling the venv interpreter directly.
     log.info("Upgrading pip in virtual environment...")
     pip_cmd = [str(venv_python), "-m", "pip", "install", "--upgrade", "pip"]
     rc = run_cmd(pip_cmd, "pip upgrade", retries=MAX_RETRIES, retry_delay=RETRY_DELAY, env=venv_env)
     if rc != 0:
         log.warning("pip upgrade returned rc=%s (continuing anyway)", rc)
 
-    # 15. Install Poetry in the venv
+    # 12. Install Poetry in the venv
     log.info("Installing Poetry in virtual environment...")
     poetry_install_cmd = [str(venv_python), "-m", "pip", "install", "poetry"]
     rc = run_cmd(poetry_install_cmd, "poetry installation", retries=MAX_RETRIES, retry_delay=RETRY_DELAY, env=venv_env)
@@ -752,7 +745,7 @@ def main():
     else:
         poetry_available = True
 
-    # 16. Poetry install dependencies if pyproject.toml exists
+    # 13. Poetry install dependencies if pyproject.toml exists
     pyproject = HYDRADRAGON_ROOT_PATH / "pyproject.toml"
     if pyproject.exists() and poetry_available:
         log.info("pyproject.toml found at: %s", pyproject)
@@ -832,22 +825,22 @@ def main():
         if rc != 0:
             errors.append(("npm bundled prefix config", rc))
 
-        # 17. asar
+        # 14. asar
         rc = npm_run(["install", "-g", "asar"], "asar installation")
         if rc != 0:
             errors.append(("asar install", rc))
 
-        # 18. webcrack
+        # 15. webcrack
         rc = npm_run(["install", "-g", "webcrack"], "webcrack installation")
         if rc != 0:
             errors.append(("webcrack install", rc))
 
-        # 19. nexe_unpacker
+        # 16. nexe_unpacker
         rc = npm_run(["install", "-g", "nexe_unpacker"], "nexe_unpacker installation")
         if rc != 0:
             errors.append(("nexe_unpacker install", rc))
 
-        # 20. pkg-unpacker build
+        # 17. pkg-unpacker build
         if PKG_UNPACKER_DIR.exists():
             log.info("Building pkg-unpacker in %s", PKG_UNPACKER_DIR)
             # Save current directory
@@ -871,4 +864,17 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception:
+        detail = traceback.format_exc()
+        log.exception("Unhandled setup exception.")
+        failure_report = write_failure_report([("unhandled setup exception", 1)], detail)
+        if failure_report:
+            log.error("Failure report saved to %s", failure_report)
+            if not DRY_RUN:
+                try:
+                    subprocess.run(["notepad.exe", str(failure_report)], check=False)
+                except Exception as e:
+                    log.warning("Failed to open Notepad automatically: %s", e)
+        sys.exit(4)

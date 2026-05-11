@@ -101,7 +101,7 @@ firewall = []
 sanctum = []
 hydradragon = []
 behavior_engine = ["realtime_learning"]
-realtime_learning = []  # Enable OwlyShield realtime-learning for behavioral analysis and ML data collection
+realtime_learning = []  # Enable Owlyshield realtime-learning for behavioral analysis and ML data collection
 
 [patch.crates-io]
 ring = { path = "ring-patch" }

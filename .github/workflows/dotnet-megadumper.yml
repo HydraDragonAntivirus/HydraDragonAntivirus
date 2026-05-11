@@ -3,8 +3,14 @@ name: dotnet-megadumper-ci
 on:
   push:
     branches: ["**"]
+    paths:
+      - 'MegaDumper/**'
+      - '.github/workflows/dotnet-megadumper.yml'
   pull_request:
     branches: ["**"]
+    paths:
+      - 'MegaDumper/**'
+      - '.github/workflows/dotnet-megadumper.yml'
   workflow_dispatch:
 
 permissions:
@@ -28,5 +34,11 @@ jobs:
     - name: Restore dependencies
       run: dotnet restore MegaDumper/MegaDumper.sln
 
-    - name: Build MegaDumper
-      run: dotnet build MegaDumper/MegaDumper.sln --configuration Release --no-restore
+    - name: Publish MegaDumper
+      run: dotnet publish MegaDumper/MegaDumper/MegaDumper.csproj -c Release -r win-x64 --self-contained false
+
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v7
+      with:
+        name: dumper-release
+        path: MegaDumper/MegaDumper/bin/Release/net8.0-windows/publish/

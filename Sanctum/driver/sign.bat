@@ -42,8 +42,7 @@ if not exist "%PFX_FILE%" (
 echo Removing WDK test signature from %DRIVER_PATH%...
 signtool remove /s "%DRIVER_PATH%"
 if %ERRORLEVEL% NEQ 0 (
-    echo [ERROR] Failed to remove WDK signature.
-    exit /b 1
+    echo [WARN] Existing signature was not removed. Continuing with signing.
 )
 
 :: sign the driver with sanctum.pfx

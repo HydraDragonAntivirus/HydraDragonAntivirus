@@ -29,19 +29,6 @@ NTSTATUS initialize();
 ///
 void finalize();
 
-///
-/// Returns TRUE only when the current caller is the Sanctum broker running as
-/// Antimalware ProtectedLight. This is the mandatory gate for privileged
-/// OpenEDR driver activation and configuration IOCTLs.
-///
-BOOLEAN isCurrentCallerSanctumController();
-
-///
-/// Returns STATUS_SUCCESS only for the Sanctum AntimalwareLight broker.
-/// Use before every state-changing IOCTL handler, including START and STOP.
-///
-NTSTATUS requireSanctumController();
-
 // Internal interface for device dispatcher
 namespace detail {
 

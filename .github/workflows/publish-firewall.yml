@@ -4,7 +4,7 @@ on:
   push:
     branches: ["**"]
     paths:
-      - 'HydraDragonFirewall/**'
+      - 'HydraDragonFirewall/hydradragonfirewall/**'
       - '.github/workflows/publish-firewall.yml'
   workflow_dispatch:
 
@@ -24,6 +24,11 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
+          
+      - name: Set up MSVC Developer Command Prompt
+        uses: TheMrMilchmann/setup-msvc-dev@v4
+        with:
+          arch: x64
       - name: Install Trunk
         uses: taiki-e/install-action@v2
         with:
@@ -44,13 +49,24 @@ jobs:
           New-Item -ItemType Directory -Force -Path $dist
           Copy-Item "HydraDragonFirewall/hydradragonfirewall/target/release/hydradragonfirewall.exe" "$dist/" -Force
           Copy-Item "HydraDragonFirewall/hydradragonfirewall/target/release/hydradragonfirewall.dll" "$dist/" -Force
+          Copy-Item "HydraDragonFirewall/hydradragonfirewall/target/release/WinDivert.dll" "$dist/" -ErrorAction SilentlyContinue -Force
           
+      - name: Check for publishable changes
+        id: check_changes
+        uses: ./.github/actions/check-publishable-changes
+        with:
+          paths: |
+            hydradragon/HydraDragonFirewall
       - name: Create PR
+        if: steps.check_changes.outputs.changed == 'true'
         uses: peter-evans/create-pull-request@v8
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           commit-message: "chore(firewall): update binaries"
-          title: "🚀 Update Firewall Binaries"
+          title: "Update Firewall Binaries"
+          add-paths: |
+            ${{ steps.check_changes.outputs.publishable_files }}
           branch: "auto-update-firewall"
           base: ${{ github.ref_name }}
           delete-branch: true
+          labels: binaries, automated-pr, firewall

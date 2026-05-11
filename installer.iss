@@ -3,7 +3,7 @@
 
 #define MyAppName "HydraDragonAntivirus"
 #define MyAppVersion "0.1.0"
-#define VersionInfoVersion "0.0.1.0"
+#define MyVersionInfoVersion "0.1.0.0"
 #define MyAppPublisher "Emirhan Ucan"
 #define MyAppURL "https://github.com/HydraDragonAntivirus/HydraDragonAntivirus"
 #define MyAppExeName "hydradragon\\HydraDragonService\\HydraDragonService.exe"
@@ -24,12 +24,13 @@
 AppId={{9B4A19B2-69BC-4AD2-8781-BDD85DCEF0C9}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
+VersionInfoVersion={#MyVersionInfoVersion}
 AppVerName={#MyAppName} {#MyAppVersion}
 AppPublisher={#MyAppPublisher}
 AppPublisherURL={#MyAppURL}
 AppSupportURL={#MyAppURL}
 AppUpdatesURL={#MyAppURL}
-DefaultDirName={pf64}\{#MyAppName}
+DefaultDirName={commonpf64}\{#MyAppName}
 DisableDirPage=yes
 ChangesAssociations=yes
 DisableProgramGroupPage=yes
@@ -46,8 +47,8 @@ SolidCompression=yes
 LZMAUseSeparateProcess=yes
 WizardStyle=modern
 DiskSpanning=no
-ArchitecturesAllowed=x64
-ArchitecturesInstallIn64BitMode=x64
+ArchitecturesAllowed=x64compatible
+ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequired=admin
 RestartIfNeededByRun=yes
 
@@ -62,7 +63,7 @@ Source: "C:\Users\semae\OneDrive\Belgeler\HydraDragonAntivirus\*"; DestDir: "{ap
 Source: "C:\Users\semae\OneDrive\Belgeler\hydratempinstall\7z2601-x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\semae\OneDrive\Belgeler\hydratempinstall\VC_redist.x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\semae\OneDrive\Belgeler\hydratempinstall\clamav-1.5.2.win.x64.msi"; DestDir: "{tmp}"; Flags: deleteafterinstall
-Source: "C:\Users\semae\OneDrive\Belgeler\hydratempinstall\npcap-1.87.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
+Source: "C:\Users\semae\OneDrive\Belgeler\hydratempinstall\npcap-1.88.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\semae\OneDrive\Belgeler\hydratempinstall\Suricata-7.0.14-1-64bit.msi"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\semae\OneDrive\Belgeler\hydratempinstall\jre-8u491-windows-x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\semae\OneDrive\Belgeler\hydratempinstall\jdk-25_windows-x64_bin.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
@@ -81,7 +82,8 @@ Name: "{app}\hydradragon\Owlyshield\utils"
 Name: "{app}\hydradragon\Owlyshield\log"; Flags: uninsneveruninstall
 Name: "{app}\hydradragon\Owlyshield\config"; Flags: uninsneveruninstall
 Name: "{app}\hydradragon\Owlyshield\config\threats"; Flags: uninsneveruninstall
-Name: "{pf64}\ClamAV"
+Name: "{commonpf64}\ClamAV"
+Name: "{commonpf64}\Npcap"
 Name: "{app}\hydradragon\suricata"
 Name: "{app}\nodejs"
 Name: "{app}\python"
@@ -102,7 +104,8 @@ Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "NOVE
 Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "LOG_PATH"; ValueData: "{app}\hydradragon\Owlyshield\Owlyshield Service\log"; Flags: uninsdeletekey
 Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "RULES_PATH"; ValueData: "{app}\hydradragon\Owlyshield\rules"; Flags: uninsdeletekey
 Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "REPORTS_PATH"; ValueData: "{app}\hydradragon\Owlyshield\config\report"; Flags: uninsdeletekey
-Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "REALTIME_LEARNING_DIR"; ValueData: "{app}\hydradragon\Owlyshield\realtime_learning"; Flags: uninsdeletekey
+Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "REALTIME_LEARNING_PATH"; ValueData: "{app}\hydradragon\Owlyshield\realtime_learning"; Flags: uninsdeletekey
+Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "OPENEDR_TELEMETRY_PATH"; ValueData: "C:\ProgramData\Comodo\EDR\output_events"; Flags: uninsdeletekey
 
 Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "APP_ID"; ValueData: "{#OwlyshieldAppId}"; Flags: uninsdeletekey
 Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "LANGUAGE"; ValueData: "en-US"; Flags: uninsdeletekey
@@ -111,8 +114,8 @@ Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "TELE
 Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "VERBOSE_LOGGING"; ValueData: "0"; Flags: uninsdeletekey
 Root: HKLM; Subkey: "SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce"; ValueType: string; ValueName: "OwlyshieldPostInstall"; ValueData: """{app}\post_install.bat"""
 
-Root: HKCU; Subkey: "Software\Classes\AppUserModelId\{#OwlyshieldAppId}"; ValueType: string; ValueName: "DisplayName"; ValueData: "HydraDragon Antivirus"; Flags: uninsdeletekey
-Root: HKCU; Subkey: "Software\Classes\AppUserModelId\{#OwlyshieldAppId}"; ValueType: string; ValueName: "IconUri"; ValueData: "{app}\hydradragon\assets\HydraDragonAV.ico"; Flags: uninsdeletekey
+Root: HKLM; Subkey: "Software\Classes\AppUserModelId\{#OwlyshieldAppId}"; ValueType: string; ValueName: "DisplayName"; ValueData: "HydraDragon Antivirus"; Flags: uninsdeletekey
+Root: HKLM; Subkey: "Software\Classes\AppUserModelId\{#OwlyshieldAppId}"; ValueType: string; ValueName: "IconUri"; ValueData: "{app}\hydradragon\assets\HydraDragonAV.ico"; Flags: uninsdeletekey
 
 [Icons]
 Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\hydradragon\assets\HydraDragonAV.ico"; AppUserModelID: "{#OwlyshieldAppId}"; AppUserModelToastActivatorCLSID: "{#OwlyshieldAppId}"
@@ -153,18 +156,257 @@ Filename: "msiexec.exe"; Parameters: "/i ""{tmp}\openedr.msi"" /quiet /norestart
 Filename: "msiexec.exe"; Parameters: "/i ""{tmp}\node-v22.22.2-x64.msi"" /quiet /norestart INSTALLDIR=""{app}\nodejs"""; Flags: waituntilterminated
 
 ; Npcap install - user-interactive GUI mode
-Filename: "{tmp}\npcap-1.87.exe"; Parameters: "/winpcap_mode=yes"; Flags: shellexec waituntilterminated
+Filename: "{tmp}\npcap-1.88.exe"; Parameters: "/winpcap_mode=yes"; Flags: shellexec waituntilterminated
 
 ; Custom setup script
 Filename: "{app}\python\python.exe"; Parameters: """{tmp}\setup.py"""; Flags: waituntilterminated
 
 [UninstallRun]
-; Disable test signing mode on uninstall
-Filename: "bcdedit.exe"; Parameters: "/set testsigning off"
+; Revert security settings changed by post_install.bat
+Filename: "{sys}\reg.exe"; Parameters: "add ""HKLM\SYSTEM\CurrentControlSet\Control\DeviceGuard"" /v EnableVirtualizationBasedSecurity /t REG_DWORD /d 1 /f"; Flags: runhidden waituntilterminated; RunOnceId: "RestoreVBS"
+Filename: "{sys}\reg.exe"; Parameters: "add ""HKLM\SYSTEM\CurrentControlSet\Control\DeviceGuard\Scenarios\HypervisorEnforcedCodeIntegrity"" /v Enabled /t REG_DWORD /d 1 /f"; Flags: runhidden waituntilterminated; RunOnceId: "RestoreHVCI"
+Filename: "{sys}\bcdedit.exe"; Parameters: "/set hypervisorlaunchtype auto"; Flags: runhidden waituntilterminated; RunOnceId: "EnableHypervisor"
+Filename: "{sys}\bcdedit.exe"; Parameters: "/set testsigning off"; Flags: runhidden waituntilterminated; RunOnceId: "DisableTestSigning"
+
+; Uninstall third-party dependencies (if present)
+Filename: "{pf}\Npcap\Uninstall.exe"; Parameters: "/S"; Flags: runhidden waituntilterminated; RunOnceId: "UninstallNpcap"
+; Note: MSI uninstalls typically require ProductCodes. These are placeholders or require manual registry lookup.
+; We will use a best-effort approach via Pascal script to find and uninstall these.
 
 ; Owlyshield cleanup
-; Filename: "sc.exe"; Parameters: "stop ""{#AgentName}"""
-;  Filename: "sc.exe"; Parameters: "stop ""{#FSfilter}"""
-; Filename: "sc.exe"; Parameters: "delete ""{#AgentName}"""
-; Filename: "sc.exe"; Parameters: "delete ""{#FSfilter}"""
-; Filename: "del.exe"; Parameters: """C:\Windows\System32\drivers\{#FSfilter}.sys"""
+; Filename: "{sys}\sc.exe"; Parameters: "stop ""{#AgentName}"""; Flags: runhidden waituntilterminated; RunOnceId: "StopOwlyshieldAgent"
+; Filename: "{sys}\sc.exe"; Parameters: "stop ""{#FSfilter}"""; Flags: runhidden waituntilterminated; RunOnceId: "StopOwlyshieldFilter"
+; Filename: "{sys}\sc.exe"; Parameters: "delete ""{#AgentName}"""; Flags: runhidden waituntilterminated; RunOnceId: "DeleteOwlyshieldAgent"
+; Filename: "{sys}\sc.exe"; Parameters: "delete ""{#FSfilter}"""; Flags: runhidden waituntilterminated; RunOnceId: "DeleteOwlyshieldFilter"
+; Filename: "{cmd}"; Parameters: "/C del /F /Q ""{sys}\drivers\{#FSfilter}.sys"""; Flags: runhidden waituntilterminated; RunOnceId: "DeleteOwlyshieldDriver"
+
+[Code]
+
+const
+  RunOnceKey = 'SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce';
+  UninstallMsg =
+    'HYDRADRAGON ANTIVIRUS - FULL UNINSTALLATION'#13#10#13#10 +
+    'The uninstaller will perform the following actions:'#13#10 +
+    '  1. Stop and DELETE all HydraDragon system services.'#13#10 +
+    '  2. DISABLE Windows Test Signing mode (testsigning off).'#13#10 +
+    '  3. RE-ENABLE Windows Hypervisor, VBS, and HVCI security stack.'#13#10 +
+    '  4. Remove driver registrations and INF files (best-effort).'#13#10 +
+    '  5. Schedule a deep-cleanup script for Safe Mode.'#13#10#13#10 +
+    'IMPORTANT: Full removal of protected kernel drivers requires SAFE MODE.'#13#10 +
+    'The following drivers CANNOT be deleted while Windows is running:'#13#10 +
+    '  - OwlyshieldRansomFilter, MBRFilter, SimplePYASProtection'#13#10 +
+    '  - RedDbg, HyperDbg, Sanctum, edrdrv (OpenEDR)'#13#10#13#10 +
+    'After the standard uninstall completes, you MUST reboot into Safe Mode'#13#10 +
+    'to allow the automated script to delete the protected .sys and .dll files.'#13#10#13#10 +
+    'Do you want to proceed with the uninstallation?';
+
+procedure UninstallMSIByName(const DisplayName: String);
+var
+  UninstallKey: String;
+  SubKeys: TArrayOfString;
+  i: Integer;
+  CurName: String;
+  UninstallString: String;
+  ResultCode: Integer;
+begin
+  UninstallKey := 'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall';
+  if RegGetSubkeyNames(HKLM, UninstallKey, SubKeys) then
+  begin
+    for i := 0 to GetArrayLength(SubKeys) - 1 do
+    begin
+      if RegQueryStringValue(HKLM, UninstallKey + '\' + SubKeys[i], 'DisplayName', CurName) then
+      begin
+        if Pos(DisplayName, CurName) > 0 then
+        begin
+          if RegQueryStringValue(HKLM, UninstallKey + '\' + SubKeys[i], 'UninstallString', UninstallString) then
+          begin
+            if Pos('MsiExec.exe', UninstallString) > 0 then
+            begin
+              // Replace /I with /X and add /quiet /norestart
+              StringChangeEx(UninstallString, '/I', '/X', True);
+              UninstallString := UninstallString + ' /quiet /norestart';
+              Exec('MsiExec.exe', Copy(UninstallString, Pos(' ', UninstallString) + 1, Length(UninstallString)), '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+            end;
+          end;
+        end;
+      end;
+    end;
+  end;
+end;
+
+procedure ExecSilent(const Cmd, Params: String);
+var
+  ResultCode: Integer;
+begin
+  Exec(Cmd, Params, '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+end;
+
+procedure StopAndDeleteService(const SvcName: String);
+begin
+  ExecSilent('sc.exe', 'stop "' + SvcName + '"');
+  ExecSilent('sc.exe', 'delete "' + SvcName + '"');
+end;
+
+procedure RemoveDriverInf(const InfName: String);
+begin
+  ExecSilent(ExpandConstant('{sys}\pnputil.exe'), '/delete-driver "' + InfName + '" /uninstall /force');
+end;
+
+procedure ScheduleSafeModeCleanup(const AppDir: String);
+var
+  ScriptPath, Script: String;
+  Lines: TArrayOfString;
+  i: Integer;
+begin
+  ScriptPath := ExpandConstant('{tmp}') + '\HydraDragonCleanup.bat';
+  SetArrayLength(Lines, 75);
+  i := 0;
+
+  Lines[i] := '@echo off'; Inc(i);
+  Lines[i] := 'setlocal enabledelayedexpansion'; Inc(i);
+  Lines[i] := 'echo HydraDragon Antivirus - Safe Mode Cleanup'; Inc(i);
+  Lines[i] := ''; Inc(i);
+  Lines[i] := 'taskkill /f /im HydraDragonService.exe 2>nul'; Inc(i);
+  Lines[i] := 'taskkill /f /im owlyshield_ransom.exe 2>nul'; Inc(i);
+  Lines[i] := 'taskkill /f /im hydradragonfirewall.exe 2>nul'; Inc(i);
+  Lines[i] := 'taskkill /f /im edrsvc.exe 2>nul'; Inc(i);
+  Lines[i] := 'taskkill /f /im um_engine.exe 2>nul'; Inc(i);
+  Lines[i] := ''; Inc(i);
+  Lines[i] := 'del /f /q "%SystemRoot%\System32\drivers\OwlyshieldRansomFilter.sys" 2>nul'; Inc(i);
+  Lines[i] := 'del /f /q "%SystemRoot%\System32\drivers\MBRFilter.sys" 2>nul'; Inc(i);
+  Lines[i] := 'del /f /q "%SystemRoot%\System32\drivers\SimplePYASProtection.sys" 2>nul'; Inc(i);
+  Lines[i] := 'del /f /q "%SystemRoot%\System32\drivers\RedDbgDrv.sys" 2>nul'; Inc(i);
+  Lines[i] := 'del /f /q "%SystemRoot%\System32\drivers\hyperhv.sys" 2>nul'; Inc(i);
+  Lines[i] := 'del /f /q "%SystemRoot%\System32\drivers\sanctum.sys" 2>nul'; Inc(i);
+  Lines[i] := 'del /f /q "%SystemRoot%\System32\drivers\edrdrv.sys" 2>nul'; Inc(i);
+  Lines[i] := ''; Inc(i);
+  Lines[i] := 'del /f /q "%SystemRoot%\System32\sanctum.dll" 2>nul'; Inc(i);
+  Lines[i] := 'del /f /q "%SystemRoot%\System32\edrav2*.dll" 2>nul'; Inc(i);
+  Lines[i] := 'del /f /q "%SystemRoot%\System32\edrdrv.dll" 2>nul'; Inc(i);
+  Lines[i] := ''; Inc(i);
+  Lines[i] := 'echo [*] Attempting ELAM uninstall...'; Inc(i);
+  Lines[i] := 'if exist "' + AppDir + '\hydradragon\Sanctum\elam_installer.exe" ('; Inc(i);
+  Lines[i] := '  "' + AppDir + '\hydradragon\Sanctum\elam_installer.exe" /uninstall 2>nul'; Inc(i);
+  Lines[i] := ')'; Inc(i);
+  Lines[i] := 'echo [*] If ELAM persists, remove manually:'; Inc(i);
+  Lines[i] := 'echo       HKLM\SYSTEM\CurrentControlSet\Control\EarlyLaunch'; Inc(i);
+  Lines[i] := ''; Inc(i);
+  Lines[i] := 'reg delete "HKLM\SYSTEM\CurrentControlSet\Services\OwlyshieldRansomFilter" /f 2>nul'; Inc(i);
+  Lines[i] := 'reg delete "HKLM\SYSTEM\CurrentControlSet\Services\MBRFilter" /f 2>nul'; Inc(i);
+  Lines[i] := 'reg delete "HKLM\SYSTEM\CurrentControlSet\Services\SimplePYASProtection" /f 2>nul'; Inc(i);
+  Lines[i] := 'reg delete "HKLM\SYSTEM\CurrentControlSet\Services\RedDbgDrv" /f 2>nul'; Inc(i);
+  Lines[i] := 'reg delete "HKLM\SYSTEM\CurrentControlSet\Services\hyperhv" /f 2>nul'; Inc(i);
+  Lines[i] := 'reg delete "HKLM\SYSTEM\CurrentControlSet\Services\sanctum" /f 2>nul'; Inc(i);
+  Lines[i] := 'reg delete "HKLM\SYSTEM\CurrentControlSet\Services\edrdrv" /f 2>nul'; Inc(i);
+  Lines[i] := 'reg delete "HKLM\SYSTEM\CurrentControlSet\Services\edrsvc" /f 2>nul'; Inc(i);
+  Lines[i] := 'reg delete "HKLM\SYSTEM\CurrentControlSet\Control\EarlyLaunch" /v "DriverName" /f 2>nul'; Inc(i);
+  Lines[i] := ''; Inc(i);
+  Lines[i] := 'schtasks /delete /tn "HydraDragonAntivirus" /f 2>nul'; Inc(i);
+  Lines[i] := 'rmdir /s /q "%ProgramData%\edrsvc" 2>nul'; Inc(i);
+  // Remove all subfolders in ProgramData\HydraDragonAntivirus EXCEPT Quarantine, Logs, and Reports
+  Lines[i] := 'for /d %%D in ("%ProgramData%\HydraDragonAntivirus\*") do ('; Inc(i);
+  Lines[i] := '  set "skip=0"'; Inc(i);
+  Lines[i] := '  if /i "%%~nxD"=="Quarantine" set "skip=1"'; Inc(i);
+  Lines[i] := '  if /i "%%~nxD"=="Logs" set "skip=1"'; Inc(i);
+  Lines[i] := '  if /i "%%~nxD"=="Reports" set "skip=1"'; Inc(i);
+  Lines[i] := '  if "!skip!"=="0" rmdir /s /q "%%D"'; Inc(i);
+  Lines[i] := ')'; Inc(i);
+  // Remove all root-level files in ProgramData\HydraDragonAntivirus
+  Lines[i] := 'del /f /q "%ProgramData%\HydraDragonAntivirus\*" 2>nul'; Inc(i);
+  // Ask user about Quarantine, Logs, and Threat data
+  Lines[i] := 'echo.'; Inc(i);
+  Lines[i] := 'echo Security data (Quarantine, Logs, Reports) is preserved at:'; Inc(i);
+  Lines[i] := 'echo   %ProgramData%\HydraDragonAntivirus'; Inc(i);
+  Lines[i] := 'echo.'; Inc(i);
+  Lines[i] := 'choice /c YN /m "Do you also want to permanently DELETE all Quarantine, Logs, and Threat data?"'; Inc(i);
+  Lines[i] := 'if %errorlevel%==1 ('; Inc(i);
+  Lines[i] := '  rmdir /s /q "%ProgramData%\HydraDragonAntivirus\Quarantine" 2>nul'; Inc(i);
+  Lines[i] := '  rmdir /s /q "%ProgramData%\HydraDragonAntivirus\Logs" 2>nul'; Inc(i);
+  Lines[i] := '  rmdir /s /q "%ProgramData%\HydraDragonAntivirus\Reports" 2>nul'; Inc(i);
+  Lines[i] := '  echo [+] Security data deleted.'; Inc(i);
+  Lines[i] := ') else ('; Inc(i);
+  Lines[i] := '  echo [*] Security data kept at %ProgramData%\HydraDragonAntivirus'; Inc(i);
+  Lines[i] := ')'; Inc(i);
+  Lines[i] := 'rmdir /s /q "' + AppDir + '" 2>nul'; Inc(i);
+  Lines[i] := ''; Inc(i);
+  Lines[i] := 'echo [*] Run: bcdedit /set testsigning off  (if no longer needed)'; Inc(i);
+  Lines[i] := 'del /f /q "%~f0"'; Inc(i);
+  Lines[i] := 'echo [+] Cleanup complete.'; Inc(i);
+  Lines[i] := 'pause'; Inc(i);
+
+  Script := '';
+  for i := 0 to GetArrayLength(Lines) - 1 do
+    Script := Script + Lines[i] + #13#10;
+
+  SaveStringToFile(ScriptPath, Script, False);
+  RegWriteStringValue(HKLM, RunOnceKey, 'HydraDragonCleanup', '"' + ScriptPath + '"');
+end;
+
+function InitializeUninstall(): Boolean;
+begin
+  if MsgBox(UninstallMsg, mbConfirmation, MB_YESNO) = IDNO then
+  begin
+    Result := False;
+    Exit;
+  end;
+  Result := True;
+end;
+
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+var
+  AppDir: String;
+begin
+  if CurUninstallStep = usUninstall then
+  begin
+    AppDir := ExpandConstant('{app}');
+
+    StopAndDeleteService('HydraDragonAntivirus');
+    
+    if FileExists(AppDir + '\OpenEDR\edrsvc.exe') then
+    begin
+      ExecSilent(AppDir + '\OpenEDR\edrsvc.exe', 'uninstall');
+    end
+    else
+    begin
+      StopAndDeleteService('edrsvc');
+    end;
+    
+    StopAndDeleteService('OwlyshieldRansomFilter');
+    StopAndDeleteService('MBRFilter');
+    StopAndDeleteService('SimplePYASProtection');
+    StopAndDeleteService('RedDbgDrv');
+    StopAndDeleteService('hyperhv');
+    StopAndDeleteService('sanctum');
+    StopAndDeleteService('edrdrv');
+
+    UninstallMSIByName('ClamAV');
+    UninstallMSIByName('Suricata');
+    UninstallMSIByName('Node.js');
+    UninstallMSIByName('OpenEDR');
+
+    RemoveDriverInf('OwlyshieldRansomFilter.inf');
+    RemoveDriverInf('MBRFilter.inf');
+    RemoveDriverInf('SimplePYASProtection.inf');
+    RemoveDriverInf('RedDbgDrv.inf');
+    RemoveDriverInf('hyperhv.inf');
+
+    ExecSilent('schtasks.exe', '/delete /tn "HydraDragonAntivirus" /f');
+
+    ScheduleSafeModeCleanup(AppDir);
+
+    MsgBox(
+      'PHASE 1 COMPLETE: Local services and registry entries removed.'#13#10#13#10 +
+      'MODIFICATIONS APPLIED:'#13#10 +
+      '  - System services (edrsvc, hydradragon, etc.) deleted.'#13#10 +
+      '  - Test Signing mode has been DISABLED.'#13#10 +
+      '  - Windows Hypervisor, VBS, and HVCI stack RE-ENABLED.'#13#10 +
+      '  - Safe Mode cleanup script scheduled.'#13#10#13#10 +
+      'REQUIRED ACTION:'#13#10 +
+      '  Please REBOOT into SAFE MODE now to complete the driver file removal.'#13#10 +
+      '  The cleanup script will run automatically upon Safe Mode login.'#13#10#13#10 +
+      'ELAM driver may require manual registry removal if persistent:'#13#10 +
+      'HKLM\SYSTEM\CurrentControlSet\Control\EarlyLaunch',
+      mbInformation, MB_OK
+    );
+  end;
+end;

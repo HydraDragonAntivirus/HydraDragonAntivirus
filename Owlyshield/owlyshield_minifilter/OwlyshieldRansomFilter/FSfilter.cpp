@@ -23,7 +23,6 @@ Environment:
 #include "RootkitDetector.h"
 #include "UserModeHookEngine.h"
 
-
 #pragma prefast(disable : __WARNING_ENCODE_MEMBER_FUNCTION_POINTER, "Not valid for kernel mode drivers")
 
 //  Structure that contains all the global data structures used throughout the driver.
@@ -56,15 +55,14 @@ FLT_POSTOP_CALLBACK_STATUS
 FSProcessPostReadSafe(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECTS FltObjects,
                       _In_opt_ PVOID CompletionContext, _In_ FLT_POST_OPERATION_FLAGS Flags);
 
-VOID
-DriverUnload(PDRIVER_OBJECT DriverObject);
+VOID DriverUnload(PDRIVER_OBJECT DriverObject);
 
 BOOLEAN
 FSShouldIgnorePyasWhitelistPath(_In_ PCUNICODE_STRING Path);
 
 // FIX: Helper to create a 'RW'-tagged NonPaged copy of a UNICODE_STRING.
 // RecordNewProcess takes ownership of the PUNICODE_STRING it receives and
-// later frees it with `delete` -> ExFreePoolWithTag(ptr, 'RW').
+// later frees it with the process-name pool helper.
 // SeLocateProcessImageName allocates from PagedPool with a system tag,
 // so passing its result directly causes a pool-tag mismatch on free
 // (silent heap corruption -> eventual bugcheck 0x13a).
@@ -88,6 +86,38 @@ static PUNICODE_STRING FSCopyUnicodeStringForRecordNewProcess(_In_ PUNICODE_STRI
     RtlCopyMemory(copy->Buffer, Source->Buffer, Source->Length);
     copy->Buffer[copy->Length / sizeof(WCHAR)] = L'\0';
     return copy;
+}
+
+static VOID FSCopyProcessPathForMessage(_In_opt_ PUNICODE_STRING Source,
+                                        _Out_writes_(MAX_FILE_NAME_LENGTH) PWCHAR Destination,
+                                        _Out_ PUSHORT DestinationLength)
+{
+    if (Destination == NULL || DestinationLength == NULL)
+        return;
+
+    RtlZeroMemory(Destination, MAX_FILE_NAME_SIZE);
+    *DestinationLength = 0;
+
+    if (Source == NULL || Source->Buffer == NULL || Source->Length == 0)
+        return;
+
+    PCWSTR srcPath = Source->Buffer;
+    USHORT srcLen = Source->Length;
+    WCHAR dosPathBuf[MAX_FILE_NAME_LENGTH] = {0};
+
+    if (NtPathToDosPath(srcPath, dosPathBuf, RTL_NUMBER_OF(dosPathBuf)))
+    {
+        srcPath = dosPathBuf;
+        srcLen = (USHORT)(wcslen(dosPathBuf) * sizeof(WCHAR));
+    }
+
+    USHORT copyLen = (srcLen < (MAX_FILE_NAME_SIZE - sizeof(WCHAR))) ? srcLen : (MAX_FILE_NAME_SIZE - sizeof(WCHAR));
+
+    if (copyLen > 0)
+        RtlCopyMemory(Destination, srcPath, copyLen);
+
+    Destination[copyLen / sizeof(WCHAR)] = L'\0';
+    *DestinationLength = copyLen;
 }
 
 static BOOLEAN FSShouldBypassReadTelemetry(_In_ PFLT_CALLBACK_DATA Data)
@@ -230,16 +260,15 @@ static VOID FSFreePyasRuleSetStorage(_Inout_ PPYAS_WHITELIST_RULE_SET RuleSet)
     {
         for (ULONG i = 0; i < RuleSet->Count; ++i)
         {
-            PWSTR rule = RuleSet->Rules[i];
-            if (rule != NULL)
+            if (RuleSet->Rules[i] != NULL)
             {
-                ExFreePoolWithTag(rule, PYAS_RULE_POOL_TAG);
+                ExFreePoolWithTag(RuleSet->Rules[i], PYAS_RULE_POOL_TAG);
             }
         }
         ExFreePoolWithTag(RuleSet->Rules, PYAS_RULE_POOL_TAG);
+        RuleSet->Rules = NULL;
     }
 
-    RuleSet->Rules = NULL;
     RuleSet->Count = 0;
     RuleSet->Capacity = 0;
 }
@@ -399,136 +428,46 @@ static NTSTATUS FSAppendPyasRulesFromBufferToSet(_Inout_ PPYAS_WHITELIST_RULE_SE
     return STATUS_SUCCESS;
 }
 
-static NTSTATUS FSLoadPyasWhitelistRulesFromFileToSet(_Inout_ PPYAS_WHITELIST_RULE_SET RuleSet,
-                                                      _In_ PCUNICODE_STRING FilePath)
-{
-    OBJECT_ATTRIBUTES oa;
-    IO_STATUS_BLOCK ioStatus;
-    FILE_STANDARD_INFORMATION fileInfo;
-    HANDLE fileHandle = NULL;
-    PUCHAR buffer = NULL;
-    ULONG bufferSize;
-    NTSTATUS status;
-
-    if (FilePath == NULL || FilePath->Buffer == NULL || FilePath->Length == 0)
-    {
-        return STATUS_INVALID_PARAMETER;
-    }
-
-    if (RuleSet == NULL)
-    {
-        return STATUS_INVALID_PARAMETER;
-    }
-
-    InitializeObjectAttributes(&oa, (PUNICODE_STRING)FilePath, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
-    RtlZeroMemory(&ioStatus, sizeof(ioStatus));
-    status = ZwCreateFile(&fileHandle, GENERIC_READ, &oa, &ioStatus, NULL, FILE_ATTRIBUTE_NORMAL, FILE_SHARE_READ,
-                          FILE_OPEN, FILE_SYNCHRONOUS_IO_NONALERT, NULL, 0);
-    if (!NT_SUCCESS(status))
-    {
-        return status;
-    }
-
-    RtlZeroMemory(&fileInfo, sizeof(fileInfo));
-    status = ZwQueryInformationFile(fileHandle, &ioStatus, &fileInfo, sizeof(fileInfo), FileStandardInformation);
-    if (!NT_SUCCESS(status))
-    {
-        ZwClose(fileHandle);
-        return status;
-    }
-
-    if (fileInfo.EndOfFile.QuadPart <= 0 || fileInfo.EndOfFile.QuadPart > PYAS_RULE_MAX_FILE_SIZE)
-    {
-        ZwClose(fileHandle);
-        return STATUS_INVALID_BUFFER_SIZE;
-    }
-
-    bufferSize = (ULONG)fileInfo.EndOfFile.QuadPart;
-    buffer = (PUCHAR)ExAllocatePool2(POOL_FLAG_NON_PAGED, bufferSize, PYAS_RULE_POOL_TAG);
-    if (buffer == NULL)
-    {
-        ZwClose(fileHandle);
-        return STATUS_INSUFFICIENT_RESOURCES;
-    }
-    RtlZeroMemory(buffer, bufferSize);
-
-    RtlZeroMemory(&ioStatus, sizeof(ioStatus));
-    status = ZwReadFile(fileHandle, NULL, NULL, NULL, &ioStatus, buffer, bufferSize, NULL, NULL);
-    if (NT_SUCCESS(status))
-    {
-        (VOID) FSAppendPyasRulesFromBufferToSet(RuleSet, buffer, (ULONG)ioStatus.Information);
-    }
-
-    ExFreePoolWithTag(buffer, PYAS_RULE_POOL_TAG);
-    ZwClose(fileHandle);
-    return status;
-}
-
-static VOID FSLoadPyasWhitelistRules(VOID)
-{
-    PYAS_WHITELIST_RULE_SET stagedRules = {0};
-
-    //
-    // FIX: FAST_MUTEX raises IRQL to APC_LEVEL which disables kernel APCs.
-    // ZwCreateFile with FILE_SYNCHRONOUS_IO_NONALERT needs a kernel APC to
-    // signal I/O completion. Holding the mutex during the file read causes
-    // a deadlock. Do ALL file I/O before acquiring the mutex.
-    //
-    FSEnsurePyasRuleMutex();
-
-    // Fast path check without I/O (safe to do under the mutex briefly)
-    ExAcquireFastMutex(&g_PyasWhitelistRules.Mutex);
-    BOOLEAN alreadyLoaded = g_PyasWhitelistRules.Loaded;
-    ExReleaseFastMutex(&g_PyasWhitelistRules.Mutex);
-
-    if (alreadyLoaded)
-        return;
-
-    // Do file I/O entirely at PASSIVE_LEVEL, outside any mutex
-    UNICODE_STRING ruleFilePath;
-    NTSTATUS loadStatus;
-    RtlInitUnicodeString(&ruleFilePath, OWLY_FSfilter_RULE_FILE_KERNEL);
-
-    // File I/O happens here with no mutex held. Build a private snapshot first
-    // so live callbacks never walk a partially-updated rule array.
-    loadStatus = FSLoadPyasWhitelistRulesFromFileToSet(&stagedRules, &ruleFilePath);
-
-    // Publish the new snapshot in one short critical section. On reload,
-    // readers keep seeing the old cache until the replacement is ready.
-    ExAcquireFastMutex(&g_PyasWhitelistRules.Mutex);
-    FSFreePyasWhitelistRulesUnlocked();
-    if (NT_SUCCESS(loadStatus))
-    {
-        g_PyasWhitelistRules.Rules = stagedRules.Rules;
-        g_PyasWhitelistRules.Count = stagedRules.Count;
-        g_PyasWhitelistRules.Capacity = stagedRules.Capacity;
-        stagedRules.Rules = NULL;
-        stagedRules.Count = 0;
-        stagedRules.Capacity = 0;
-    }
-    g_PyasWhitelistRules.Loaded = NT_SUCCESS(loadStatus);
-    ExReleaseFastMutex(&g_PyasWhitelistRules.Mutex);
-    FSFreePyasRuleSetStorage(&stagedRules);
-}
-
-static VOID FSCleanupPyasWhitelistRules(VOID)
+static NTSTATUS InitializeOwlyshieldRules(VOID)
 {
     FSEnsurePyasRuleMutex();
+
     ExAcquireFastMutex(&g_PyasWhitelistRules.Mutex);
-    FSFreePyasWhitelistRulesUnlocked();
-    g_PyasWhitelistRules.Loaded = FALSE;
+
+    // Dynamic hook exclude rules (normalized/contains match, case-insensitive)
+    (VOID) FSAddPyasWhitelistRuleNormalizedToSet(&g_PyasWhitelistRules, L"C:\\Windows\\System32\\smss.exe", 27);
+    (VOID) FSAddPyasWhitelistRuleNormalizedToSet(&g_PyasWhitelistRules, L"C:\\Windows\\System32\\csrss.exe", 28);
+    (VOID) FSAddPyasWhitelistRuleNormalizedToSet(&g_PyasWhitelistRules, L"C:\\Windows\\System32\\wininit.exe", 30);
+    (VOID) FSAddPyasWhitelistRuleNormalizedToSet(&g_PyasWhitelistRules, L"C:\\Windows\\System32\\winlogon.exe", 31);
+    (VOID) FSAddPyasWhitelistRuleNormalizedToSet(&g_PyasWhitelistRules, L"C:\\Windows\\System32\\lsass.exe", 28);
+    (VOID) FSAddPyasWhitelistRuleNormalizedToSet(&g_PyasWhitelistRules, L"C:\\Windows\\System32\\services.exe", 31);
+    (VOID) FSAddPyasWhitelistRuleNormalizedToSet(&g_PyasWhitelistRules, L"C:\\Windows\\System32\\svchost.exe", 30);
+    (VOID) FSAddPyasWhitelistRuleNormalizedToSet(&g_PyasWhitelistRules, L"C:\\Windows\\System32\\fontdrvhost.exe", 34);
+    (VOID) FSAddPyasWhitelistRuleNormalizedToSet(&g_PyasWhitelistRules, L"C:\\Windows\\System32\\sihost.exe", 29);
+    (VOID) FSAddPyasWhitelistRuleNormalizedToSet(&g_PyasWhitelistRules, L"C:\\Windows\\System32\\dwm.exe", 26);
+
+    // HydraDragonAntivirus-specific examples
+    (VOID) FSAddPyasWhitelistRuleNormalizedToSet(&g_PyasWhitelistRules, L"C:\\Program Files\\HydraDragonAntivirus", 38);
+    (VOID) FSAddPyasWhitelistRuleNormalizedToSet(&g_PyasWhitelistRules, L"C:\\ProgramData\\HydraDragonAntivirus", 37);
+    (VOID) FSAddPyasWhitelistRuleNormalizedToSet(&g_PyasWhitelistRules, L"C:\\ProgramData\\edrsvc", 22);
+    (VOID) FSAddPyasWhitelistRuleNormalizedToSet(&g_PyasWhitelistRules, L"C:\\Windows\\System32\\tasks\\hydradragonantivirus", 45);
+    (VOID) FSAddPyasWhitelistRuleNormalizedToSet(&g_PyasWhitelistRules, L"C:\\Windows\\System32\\edrpm64.dll", 29);
+    (VOID) FSAddPyasWhitelistRuleNormalizedToSet(&g_PyasWhitelistRules, L"C:\\Windows\\System32\\edrpm32.dll", 29);
+    (VOID) FSAddPyasWhitelistRuleNormalizedToSet(&g_PyasWhitelistRules, L"C:\\Windows\\System32\\edrmm.dll", 27);
+    (VOID) FSAddPyasWhitelistRuleNormalizedToSet(&g_PyasWhitelistRules, L"C:\\Windows\\System32\\drivers\\sanctum.sys", 39);
+    (VOID) FSAddPyasWhitelistRuleNormalizedToSet(&g_PyasWhitelistRules, L"C:\\Windows\\System32\\drivers\\edrdrv.sys", 38);
+    (VOID) FSAddPyasWhitelistRuleNormalizedToSet(&g_PyasWhitelistRules, L"C:\\Windows\\System32\\drivers\\OwlyshieldRansomFilter.sys", 55);
+    (VOID) FSAddPyasWhitelistRuleNormalizedToSet(&g_PyasWhitelistRules, L"C:\\Windows\\System32\\drivers\\RedDbgDrv.sys", 41);
+    (VOID) FSAddPyasWhitelistRuleNormalizedToSet(&g_PyasWhitelistRules, L"C:\\Windows\\System32\\drivers\\hyperhv.sys", 39);
+    (VOID) FSAddPyasWhitelistRuleNormalizedToSet(&g_PyasWhitelistRules, L"C:\\Program Files\\HydraDragonAntivirus\\hydradragon\\sanctum", 56);
+
+    g_PyasWhitelistRules.Loaded = TRUE;
+
     ExReleaseFastMutex(&g_PyasWhitelistRules.Mutex);
+    return STATUS_SUCCESS;
 }
 
-VOID FSReloadPyasWhitelistRules(VOID)
-{
-    FSCleanupPyasWhitelistRules();
-    FSLoadPyasWhitelistRules();
-}
-
-NTSTATUS FSSetPyasWhitelistRulesFromBuffer(
-    _In_reads_bytes_(BytesRead) PUCHAR Buffer,
-    _In_ ULONG BytesRead)
+NTSTATUS FSSetPyasWhitelistRulesFromBuffer(_In_reads_bytes_(BytesRead) PUCHAR Buffer, _In_ ULONG BytesRead)
 {
     PYAS_WHITELIST_RULE_SET stagedRules = {0};
     NTSTATUS status;
@@ -605,7 +544,6 @@ CONST FLT_REGISTRATION FilterRegistration = {
 //    Filter initialization and unload routines.
 //
 ////////////////////////////////////////////////////////////////////////////
-
 
 extern "C" int __crt_init();
 extern "C" void __crt_deinit();
@@ -835,9 +773,6 @@ Return Value:
     RtlInitUnicodeString(&quarantinePathString, L"\\??\\C:\\ProgramData\\HydraDragonAntivirus\\Quarantine");
     driverData->SetQuarantinePath(&quarantinePathString);
 
-    // Load PYAS whitelist rules once at startup; FSfilter uses these to ignore incoming whitelist scope.
-    FSLoadPyasWhitelistRules();
-
 #if DBG
     DriverObject->DriverUnload = DriverUnload;
 #else
@@ -895,6 +830,9 @@ Return Value:
         g_ImageNotifyRegistered = TRUE;
         DbgPrint("!!! FSfilter: Image load monitoring enabled (DLL/driver detection)\n");
     }
+
+    // Initialize hardcoded rules for boot protection
+    (VOID)InitializeOwlyshieldRules();
 
     DbgPrint("!!! FSfilter: ========================================\n");
     DbgPrint("!!! FSfilter: MONITORING COVERAGE:\n");
@@ -1168,6 +1106,10 @@ VOID EnumerateExistingProcesses(VOID)
                 RtlCopyMemory(procName->Buffer, entry->ImageName.Buffer, entry->ImageName.Length);
                 procName->Buffer[entry->ImageName.Length / sizeof(WCHAR)] = L'\0';
 
+                WCHAR processPathForMessage[MAX_FILE_NAME_LENGTH] = {0};
+                USHORT processPathForMessageLength = 0;
+                FSCopyProcessPathForMessage(procName, processPathForMessage, &processPathForMessageLength);
+
                 // No loader lock here; call directly at PASSIVE_LEVEL
                 ULONGLONG gid = driverData->RecordNewProcess(procName, pidNum, parentPid);
                 (VOID) UserModeHookProcess(pidNum); // direct call, safe here
@@ -1180,20 +1122,12 @@ VOID EnumerateExistingProcesses(VOID)
                     newEntry->data.ParentPid = parentPid;
                     newEntry->data.IRP_OP = IRP_PROCESS_CREATE;
 
-                    PCWSTR srcPath2 = procName->Buffer;
-                    USHORT srcLen2 = procName->Length;
-                    WCHAR dosPathBuf2[MAX_FILE_NAME_LENGTH] = {0};
-                    if (srcPath2 != NULL && NtPathToDosPath(srcPath2, dosPathBuf2, RTL_NUMBER_OF(dosPathBuf2)))
+                    if (processPathForMessageLength > 0)
                     {
-                        srcPath2 = dosPathBuf2;
-                        srcLen2 = (USHORT)(wcslen(dosPathBuf2) * sizeof(WCHAR));
+                        RtlCopyMemory(newEntry->Buffer, processPathForMessage, processPathForMessageLength);
+                        newEntry->Buffer[processPathForMessageLength / sizeof(WCHAR)] = L'\0';
                     }
-                    USHORT copyLen =
-                        (srcLen2 < MAX_FILE_NAME_SIZE - sizeof(WCHAR)) ? srcLen2 : (MAX_FILE_NAME_SIZE - sizeof(WCHAR));
-
-                    RtlCopyMemory(newEntry->Buffer, srcPath2, copyLen);
-                    newEntry->Buffer[copyLen / sizeof(WCHAR)] = L'\0';
-                    newEntry->filePath.Length = copyLen;
+                    newEntry->filePath.Length = processPathForMessageLength;
                     newEntry->filePath.MaximumLength = MAX_FILE_NAME_SIZE;
                     newEntry->filePath.Buffer = newEntry->Buffer;
 
@@ -1214,8 +1148,7 @@ VOID EnumerateExistingProcesses(VOID)
     ExFreePoolWithTag(buffer, 'EPrW');
 }
 
-VOID
-DriverUnload(PDRIVER_OBJECT DriverObject)
+VOID DriverUnload(PDRIVER_OBJECT DriverObject)
 {
     UNREFERENCED_PARAMETER(DriverObject);
     // Call the minifilter unload logic (flags = 0)
@@ -1289,7 +1222,13 @@ Return Value:
     UninitProcessProtection();
 
     UserModeHookEngineCleanup();
-    FSCleanupPyasWhitelistRules();
+    // Cleanup memory-resident rules
+    FSEnsurePyasRuleMutex();
+    ExAcquireFastMutex(&g_PyasWhitelistRules.Mutex);
+    FSFreePyasWhitelistRulesUnlocked();
+    g_PyasWhitelistRules.Loaded = FALSE;
+    ExReleaseFastMutex(&g_PyasWhitelistRules.Mutex);
+
 
     // Registry Cleanup
     RegeditUnloadDriver();
@@ -1539,9 +1478,9 @@ FSProcessPreOperation(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECT
                       _Flt_CompletionContext_Outptr_ PVOID *CompletionContext)
 {
     NTSTATUS hr = FLT_PREOP_SUCCESS_NO_CALLBACK;
-    BOOLEAN isNamedPipe = (FltObjects->Volume != NULL && Data->Iopb->TargetFileObject != NULL && 
-                          Data->Iopb->TargetFileObject->DeviceObject != NULL &&
-                          Data->Iopb->TargetFileObject->DeviceObject->DeviceType == FILE_DEVICE_NAMED_PIPE);
+    BOOLEAN isNamedPipe = (FltObjects->Volume != NULL && Data->Iopb->TargetFileObject != NULL &&
+                           Data->Iopb->TargetFileObject->DeviceObject != NULL &&
+                           Data->Iopb->TargetFileObject->DeviceObject->DeviceType == FILE_DEVICE_NAMED_PIPE);
 
     // --- NAMED PIPE DETECTION ---
     if (isNamedPipe)
@@ -1551,11 +1490,13 @@ FSProcessPreOperation(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECT
         {
             PDRIVER_MESSAGE pipeMsg = &pipeEntry->data;
             pipeMsg->PID = FltGetRequestorProcessId(Data);
-            pipeMsg->Gid = driverData->GetProcessGid(pipeMsg->PID, NULL);
-            
+            BOOLEAN pipeGidFound = FALSE;
+            pipeMsg->Gid = driverData->GetProcessGid(pipeMsg->PID, &pipeGidFound);
+
             // Get pipe name
             PFLT_FILE_NAME_INFORMATION nameInfo;
-            if (NT_SUCCESS(FltGetFileNameInformation(Data, FLT_FILE_NAME_OPENED | FLT_FILE_NAME_QUERY_ALWAYS_ALLOW_CACHE_LOOKUP, &nameInfo)))
+            if (NT_SUCCESS(FltGetFileNameInformation(
+                    Data, FLT_FILE_NAME_OPENED | FLT_FILE_NAME_QUERY_ALWAYS_ALLOW_CACHE_LOOKUP, &nameInfo)))
             {
                 USHORT copyLen = (nameInfo->Name.Length < (MAX_FILE_NAME_SIZE - sizeof(WCHAR)))
                                      ? nameInfo->Name.Length
@@ -1569,23 +1510,29 @@ FSProcessPreOperation(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECT
             {
                 pipeMsg->IRP_OP = IRP_NAMED_PIPE_CREATE;
                 // Store path in ObjectName for behavior engine matching
-                RtlCopyMemory(pipeMsg->KernelEventInfo.ObjectName, pipeEntry->Buffer, sizeof(pipeMsg->KernelEventInfo.ObjectName));
+                RtlCopyMemory(pipeMsg->KernelEventInfo.ObjectName, pipeEntry->Buffer,
+                              sizeof(pipeMsg->KernelEventInfo.ObjectName));
             }
             else if (Data->Iopb->MajorFunction == IRP_MJ_WRITE)
             {
                 pipeMsg->IRP_OP = IRP_NAMED_PIPE_WRITE;
-                
+
                 // Capture Payload
                 PVOID writeBuffer = NULL;
-                if (Data->Iopb->Parameters.Write.MdlAddress == NULL) {
+                if (Data->Iopb->Parameters.Write.MdlAddress == NULL)
+                {
                     writeBuffer = Data->Iopb->Parameters.Write.WriteBuffer;
-                } else {
-                    writeBuffer = MmGetSystemAddressForMdlSafe(Data->Iopb->Parameters.Write.MdlAddress, NormalPagePriority | MdlMappingNoExecute);
+                }
+                else
+                {
+                    writeBuffer = MmGetSystemAddressForMdlSafe(Data->Iopb->Parameters.Write.MdlAddress,
+                                                               NormalPagePriority | MdlMappingNoExecute);
                 }
 
                 if (writeBuffer != NULL)
                 {
-                    ULONG captureLen = (Data->Iopb->Parameters.Write.Length < 512) ? Data->Iopb->Parameters.Write.Length : 512;
+                    ULONG captureLen =
+                        (Data->Iopb->Parameters.Write.Length < 512) ? Data->Iopb->Parameters.Write.Length : 512;
                     // Store binary payload in ObjectName buffer (which is 1024 bytes raw)
                     RtlCopyMemory(pipeMsg->KernelEventInfo.ObjectName, writeBuffer, captureLen);
                     pipeMsg->KernelEventInfo.RawArgument1 = captureLen; // Store actual captured length
@@ -1711,7 +1658,7 @@ FSProcessPreOperation(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECT
             {
                 // FIX Bug#1+#2: SeLocateProcessImageName allocates from PagedPool
                 // with a system tag. RecordNewProcess takes ownership and later
-                // frees with `delete` (tag 'RW'). Passing the original pointer
+                // frees through the process-name pool helper. Passing the original pointer
                 // causes (a) pool-tag mismatch on free and (b) the old code also
                 // called ExFreePool(procPath) here which was a DOUBLE-FREE.
                 // Solution: copy into a 'RW'-tagged NonPaged allocation, free the
@@ -1723,32 +1670,39 @@ FSProcessPreOperation(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECT
 
                 if (procPathCopy != NULL)
                 {
+                    WCHAR discoveryPathBuffer[MAX_FILE_NAME_LENGTH] = {0};
+                    USHORT discoveryPathLength = 0;
+                    FSCopyProcessPathForMessage(procPathCopy, discoveryPathBuffer, &discoveryPathLength);
+
                     gid = driverData->RecordNewProcess(procPathCopy, newItem->PID, 0);
-                    isGidFound = TRUE;
+                    isGidFound = (gid != 0);
                     DbgPrint("!!! FSfilter: DISCOVERED untracked process in PreOp. PID: %u, GID: %llu\n", newItem->PID,
                              gid);
 
-                    // Inform usermode about this late process discovery so the PID/GID map stays in sync.
-                    PIRP_ENTRY discoveryEntry = new IRP_ENTRY();
-                    if (discoveryEntry != NULL)
+                    if (isGidFound)
                     {
-                        PDRIVER_MESSAGE discoveryMsg = &discoveryEntry->data;
-                        discoveryMsg->PID = newItem->PID;
-                        discoveryMsg->Gid = gid;
-                        discoveryMsg->IRP_OP = IRP_PROCESS_CREATE;
-
-                        USHORT copyLen = (procPathCopy->Length < (MAX_FILE_NAME_SIZE - sizeof(WCHAR)))
-                                             ? procPathCopy->Length
-                                             : (MAX_FILE_NAME_SIZE - sizeof(WCHAR));
-                        RtlCopyMemory(discoveryEntry->Buffer, procPathCopy->Buffer, copyLen);
-                        discoveryEntry->Buffer[copyLen / sizeof(WCHAR)] = L'\0';
-                        discoveryEntry->filePath.Length = copyLen;
-                        discoveryEntry->filePath.MaximumLength = MAX_FILE_NAME_SIZE;
-                        discoveryEntry->filePath.Buffer = discoveryEntry->Buffer;
-
-                        if (!driverData->AddIrpMessage(discoveryEntry))
+                        // Inform usermode about this late process discovery so the PID/GID map stays in sync.
+                        PIRP_ENTRY discoveryEntry = new IRP_ENTRY();
+                        if (discoveryEntry != NULL)
                         {
-                            delete discoveryEntry;
+                            PDRIVER_MESSAGE discoveryMsg = &discoveryEntry->data;
+                            discoveryMsg->PID = newItem->PID;
+                            discoveryMsg->Gid = gid;
+                            discoveryMsg->IRP_OP = IRP_PROCESS_CREATE;
+
+                            if (discoveryPathLength > 0)
+                            {
+                                RtlCopyMemory(discoveryEntry->Buffer, discoveryPathBuffer, discoveryPathLength);
+                                discoveryEntry->Buffer[discoveryPathLength / sizeof(WCHAR)] = L'\0';
+                            }
+                            discoveryEntry->filePath.Length = discoveryPathLength;
+                            discoveryEntry->filePath.MaximumLength = MAX_FILE_NAME_SIZE;
+                            discoveryEntry->filePath.Buffer = discoveryEntry->Buffer;
+
+                            if (!driverData->AddIrpMessage(discoveryEntry))
+                            {
+                                delete discoveryEntry;
+                            }
                         }
                     }
                     // NOTE: procPathCopy is now owned by RecordNewProcess. Do NOT free it.
@@ -2202,7 +2156,7 @@ FSProcessCreateIrp(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECTS F
                 if (procPathCopy != NULL)
                 {
                     gid = driverData->RecordNewProcess(procPathCopy, newItem->PID, 0);
-                    isGidFound = TRUE;
+                    isGidFound = (gid != 0);
                     DbgPrint("!!! FSfilter: DISCOVERED untracked process in PostCreate. PID: %u, GID: %llu\n",
                              newItem->PID, gid);
                     // NOTE: procPathCopy is now owned by RecordNewProcess. Do NOT free.
@@ -2350,6 +2304,19 @@ FSProcessPostReadIrp(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECTS
     }
     else
     {
+        // For reads that aren't already safe, we check the size before doing expensive safe completion
+        if (Data->IoStatus.Information < 512)
+        {
+            entry->data.isEntropyCalc = FALSE;
+            entry->data.Entropy = 0;
+            entry->data.MemSizeUsed = (ULONG)Data->IoStatus.Information;
+            if (!driverData->AddIrpMessage(entry))
+            {
+                delete entry;
+            }
+            return FLT_POSTOP_FINISHED_PROCESSING;
+        }
+
         if (FltDoCompletionProcessingWhenSafe(Data, FltObjects, CompletionContext, Flags, FSProcessPostReadSafe,
                                               &status))
         { // post to worker thread or run if irql is ok
@@ -2367,7 +2334,7 @@ FSProcessPostReadIrp(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECTS
             return FLT_POSTOP_FINISHED_PROCESSING;
         }
     }
-    if (!ReadBuffer)
+    if (!ReadBuffer || Data->IoStatus.Information < 512)
     {
         entry->data.isEntropyCalc = FALSE;
         entry->data.Entropy = 0;
@@ -2444,7 +2411,7 @@ FSProcessPostReadSafe(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECT
     {
         PVOID ReadBuffer = MmGetSystemAddressForMdlSafe(Data->Iopb->Parameters.Read.MdlAddress,
                                                         NormalPagePriority | MdlMappingNoExecute);
-        if (ReadBuffer != NULL)
+        if (ReadBuffer != NULL && Data->IoStatus.Information >= 512)
         {
             entry->data.MemSizeUsed = Data->IoStatus.Information; // successful read data.
 
@@ -3045,7 +3012,7 @@ static VOID AddRemProcessRoutineCore(HANDLE ParentId, HANDLE ProcessId, BOOLEAN 
         // FIX Bug#4: When mustFreeProcName==FALSE, procName is a borrowed pointer
         // to CreateInfo->ImageFileName which becomes invalid after this callback
         // returns. RecordNewProcess takes permanent ownership and later frees with
-        // delete (tag 'RW'). We must ALWAYS pass a properly-tagged, owned copy.
+        // the process-name pool helper. We must ALWAYS pass a properly-tagged, owned copy.
         PUNICODE_STRING procNameForRecord = procName;
         if (!mustFreeProcName && procName != NULL)
         {
@@ -3059,9 +3026,11 @@ static VOID AddRemProcessRoutineCore(HANDLE ParentId, HANDLE ProcessId, BOOLEAN 
                     ExFreePoolWithTag(procCmdLine, 'RW');
                 return;
             }
-            procName = procNameForRecord; // update for IRP_ENTRY copy below
-            mustFreeProcName = TRUE;      // now we own it (but RecordNewProcess will take it)
         }
+
+        WCHAR processPathForMessage[MAX_FILE_NAME_LENGTH] = {0};
+        USHORT processPathForMessageLength = 0;
+        FSCopyProcessPathForMessage(procNameForRecord, processPathForMessage, &processPathForMessageLength);
 
         // ALWAYS record the process and send message to usermode
         ULONGLONG gid =
@@ -3077,29 +3046,14 @@ static VOID AddRemProcessRoutineCore(HANDLE ParentId, HANDLE ProcessId, BOOLEAN 
             newItem->ParentPid = (ULONG)(ULONG_PTR)ParentId;
             newItem->IRP_OP = IRP_PROCESS_CREATE;
 
-            if (procName != NULL)
+            if (processPathForMessageLength > 0)
             {
-                // Try to convert NT device path (\Device\HarddiskVolumeX\...) to DOS
-                // drive-letter path (C:\...) so usermode sees a consistent format.
-                PCWSTR srcPath = procName->Buffer;
-                USHORT srcLen = procName->Length;
-                WCHAR dosPathBuf[MAX_FILE_NAME_LENGTH] = {0};
-                if (srcPath != NULL && NtPathToDosPath(srcPath, dosPathBuf, RTL_NUMBER_OF(dosPathBuf)))
-                {
-                    srcPath = dosPathBuf;
-                    srcLen = (USHORT)(wcslen(dosPathBuf) * sizeof(WCHAR));
-                }
-                if (srcPath != NULL)
-                { // ← guard added: only copy when buffer is valid
-                    USHORT copyLen =
-                        (srcLen < MAX_FILE_NAME_SIZE - sizeof(WCHAR)) ? srcLen : (MAX_FILE_NAME_SIZE - sizeof(WCHAR));
-                    RtlCopyMemory(newEntry->Buffer, srcPath, copyLen);
-                    newEntry->Buffer[copyLen / sizeof(WCHAR)] = L'\0';
-                    newEntry->filePath.Length = copyLen;
-                    newEntry->filePath.MaximumLength = MAX_FILE_NAME_SIZE;
-                    newEntry->filePath.Buffer = newEntry->Buffer;
-                }
+                RtlCopyMemory(newEntry->Buffer, processPathForMessage, processPathForMessageLength);
+                newEntry->Buffer[processPathForMessageLength / sizeof(WCHAR)] = L'\0';
             }
+            newEntry->filePath.Length = processPathForMessageLength;
+            newEntry->filePath.MaximumLength = MAX_FILE_NAME_SIZE;
+            newEntry->filePath.Buffer = newEntry->Buffer;
 
             if (CreateInfo && CreateInfo->CommandLine && CreateInfo->CommandLine->Buffer &&
                 CreateInfo->CommandLine->Length > 0)

@@ -155,7 +155,7 @@ This is a little involved due to the signing process. But follow along and you s
    1) Look for the line (just on top of the half way point of the output) which has the heading: `Content Hash (To-Be-Signed Hash)::`.
    2) Note the hash that is output beneath (will be 2 lines of bytes).
    3) You want to concatenate these bytes into 1 long string. To see an example explanation, check my comment [here](https://github.com/0xflux/Sanctum/discussions/66#discussioncomment-13297486).
-   4) Open `driver/build.rs` in your favourite code editor, and change the hash from what is there in your cloned copy to the hash you concatenated in the step above, again, see the above link if that doesn't make sense.
+   4) Open `driver/build.rs` in your favourite code editor, and change the hash from what is there in your cloned copy to the hash you concatenated in the step above, again, see the above link if that doesn't make sense. (**Note**: Do not manually modify this unless you are doing a manual edit; the CI/CD pipeline handles this automatically).
 9) Run `cargo clean`.
 10) Run `cargo make`.
 11) Run `.\sign.bat`.
@@ -181,7 +181,7 @@ Must be build in release mode to match the signing script - if you wanna build i
 
 Now to finish off, we want to move the binaries into the guest VM and run things!
 
-1) Move `um_engine.exe`, `elam_installer`, `app` (gui), `sanctum.sys`, and `sanctum_ppl_runner.exe` into `C:\Program Files\HydraDragonAntivirus\hydradragon\Sanctum`
+1) Move `um_engine.exe`, `elam_installer`, and `app` (gui) into `C:\Program Files\HydraDragonAntivirus\hydradragon\Sanctum`; move `sanctum.sys` and `sanctum_ppl_runner.exe` into `C:\Program Files\HydraDragonAntivirus\hydradragon\Sanctum\AppData`
 3) Move `sanctum.dll` into `C:\Windows\System32`
 4) In an admin powershell terminal:
    1) cd "C:\Program Files\HydraDragonAntivirus\hydradragon\Sanctum"

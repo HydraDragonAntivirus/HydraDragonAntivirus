@@ -294,6 +294,7 @@ pub fn RulesWiki() -> impl IntoView {
     overflow: hidden !important;
     padding: 0 !important;
     flex: 1;
+    background: var(--bg-app);
 }
 
 .wiki-topbar {
@@ -301,8 +302,8 @@ pub fn RulesWiki() -> impl IntoView {
     align-items: center;
     justify-content: space-between;
     padding: 14px 22px;
-    border-bottom: 1px solid rgba(255,255,255,0.05);
-    background: linear-gradient(90deg, rgba(0,207,255,0.05), transparent 60%);
+    border-bottom: 1px solid var(--border-lo);
+    background: linear-gradient(90deg, var(--glow-blue), transparent 60%);
     flex-shrink: 0;
 }
 
@@ -310,8 +311,8 @@ pub fn RulesWiki() -> impl IntoView {
 
 .wiki-logo-mark {
     width: 44px; height: 44px;
-    background: rgba(0,207,255,0.07);
-    border: 1px solid rgba(0,207,255,0.16);
+    background: var(--glow-blue);
+    border: 1px solid var(--border-glow);
     border-radius: 9px;
     display: flex; align-items: center; justify-content: center;
     font-size: 22px; flex-shrink: 0;
@@ -322,13 +323,13 @@ pub fn RulesWiki() -> impl IntoView {
 .wiki-topbar-title {
     font-family: 'Oxanium', sans-serif;
     font-size: 17px !important; font-weight: 800;
-    color: #F4F6FF;
+    color: var(--t-primary);
     letter-spacing: 0.08em; text-transform: uppercase;
 }
 
 .wiki-topbar-meta {
     font-family: 'IBM Plex Mono', monospace;
-    font-size: 12.5px !important; color: #4A5270;
+    font-size: 12.5px !important; color: var(--t-muted);
     letter-spacing: 0.08em;
 }
 
@@ -342,50 +343,50 @@ pub fn RulesWiki() -> impl IntoView {
 }
 
 .wiki-pill-cyan {
-    color: #00CFFF; background: rgba(0,207,255,0.07);
-    border: 1px solid rgba(0,207,255,0.16);
+    color: var(--accent-blue); background: var(--glow-blue);
+    border: 1px solid var(--border-glow);
 }
 
 .wiki-pill-acid {
-    color: #0CF584; background: rgba(12,245,132,0.07);
-    border: 1px solid rgba(12,245,132,0.16);
+    color: var(--accent-green); background: var(--glow-green);
+    border: 1px solid var(--border-glow);
     animation: wiki-glow 2s ease-in-out infinite;
 }
 
 @keyframes wiki-glow {
     0%,100% { box-shadow: none; opacity: 0.8; }
-    50%      { box-shadow: 0 0 10px rgba(12,245,132,0.3); opacity: 1; }
+    50%      { box-shadow: 0 0 10px var(--glow-green); opacity: 1; }
 }
 
 /* ── Body layout ── */
 .wiki-body {
     flex: 1; display: flex; overflow: hidden;
-    background: #040509;
+    background: var(--bg-app);
 }
 
 /* ── Index column ── */
 .wiki-index {
     width: 200px; flex-shrink: 0;
-    border-right: 1px solid rgba(255,255,255,0.04);
+    border-right: 1px solid var(--border-lo);
     padding: 40px 0 18px !important; overflow-y: auto;
-    background: rgba(3,4,9,0.7);
+    background: var(--bg-sidebar);
     display: flex; flex-direction: column; gap: 1px;
 }
 
 .wiki-index-item {
     font-family: 'IBM Plex Mono', monospace;
     font-size: 11.5px; font-weight: 500;
-    color: #4A5270;
+    color: var(--t-secondary);
     padding: 8px 16px; cursor: pointer;
     transition: all 0.12s ease;
     letter-spacing: 0.03em;
     display: flex; align-items: center; gap: 16px;
 }
 
-.wiki-index-item:hover { color: #6B7591; background: rgba(255,255,255,0.025); }
-.wiki-index-fire { color: rgba(255,38,38,0.35); }
-.wiki-index-fire:hover { color: rgba(255,38,38,0.65); background: rgba(255,38,38,0.04); }
-.wiki-index-divider { height: 1px; background: rgba(255,255,255,0.04); margin: 10px 14px; }
+.wiki-index-item:hover { color: var(--t-primary); background: var(--nav-hover-bg); }
+.wiki-index-fire { color: var(--accent-red); opacity: 0.6; }
+.wiki-index-fire:hover { opacity: 1; background: var(--glow-red); }
+.wiki-index-divider { height: 1px; background: var(--border-lo); margin: 10px 14px; }
 
 /* ── Entries column ── */
 .wiki-entries {
@@ -396,7 +397,7 @@ pub fn RulesWiki() -> impl IntoView {
 /* ── Entry ── */
 .wiki-entry {
     padding: 20px 0 26px;
-    border-bottom: 1px solid rgba(255,255,255,0.035);
+    border-bottom: 1px solid var(--border-lo);
     position: relative;
 }
 .wiki-entry:last-child { border-bottom: none; }
@@ -407,9 +408,9 @@ pub fn RulesWiki() -> impl IntoView {
 
 .wiki-num {
     font-family: 'IBM Plex Mono', monospace;
-    font-size: 9.5px; font-weight: 700; color: #A0A8C0;
-    background: rgba(255,255,255,0.03);
-    border: 1px solid rgba(255,255,255,0.05);
+    font-size: 9.5px; font-weight: 700; color: var(--t-muted);
+    background: var(--bg-surface);
+    border: 1px solid var(--border-main);
     border-radius: 4px; width: 28px; height: 20px;
     display: flex; align-items: center; justify-content: center;
     letter-spacing: 0.06em; flex-shrink: 0;
@@ -417,8 +418,8 @@ pub fn RulesWiki() -> impl IntoView {
 
 .wiki-num-fire {
     font-size: 14px;
-    border-color: rgba(255,38,38,0.18);
-    background: rgba(255,38,38,0.05);
+    border-color: var(--glow-red);
+    background: var(--glow-red);
     color: transparent; width: 28px; height: 20px;
 }
 
@@ -426,81 +427,81 @@ pub fn RulesWiki() -> impl IntoView {
     font-family: 'IBM Plex Mono', monospace;
     font-size: 8.5px; font-weight: 700;
     letter-spacing: 0.14em; text-transform: uppercase;
-    color: rgba(0,207,255,0.55);
-    background: rgba(0,207,255,0.055);
-    border: 1px solid rgba(0,207,255,0.10);
+    color: var(--accent-blue);
+    background: var(--glow-blue);
+    border: 1px solid var(--border-glow);
     border-radius: 3px; padding: 2px 7px; flex-shrink: 0;
 }
 
 .wiki-tag-red {
-    color: rgba(255,38,38,0.6);
-    background: rgba(255,38,38,0.06);
-    border-color: rgba(255,38,38,0.12);
+    color: var(--accent-red);
+    background: var(--glow-red);
+    border-color: var(--glow-red);
 }
 
 .wiki-title {
     font-family: 'Oxanium', sans-serif;
     font-size: 14px; font-weight: 700;
-    color: #8899BB; margin: 0; letter-spacing: 0.02em;
+    color: var(--t-primary); margin: 0; letter-spacing: 0.02em;
 }
-.wiki-title-red { color: #FF6868; }
+.wiki-title-red { color: var(--accent-red); }
 
 .wiki-desc {
-    font-size: 12px; color: #3D4A68; margin: 0 0 13px;
+    font-size: 12px; color: var(--t-secondary); margin: 0 0 13px;
     line-height: 1.7; max-width: 640px;
 }
 
 .wiki-icode {
     font-family: 'IBM Plex Mono', monospace; font-size: 11px;
-    color: #00CFFF; background: rgba(0,207,255,0.07);
-    border: 1px solid rgba(0,207,255,0.12);
+    color: var(--accent-blue); background: var(--glow-blue);
+    border: 1px solid var(--border-glow);
     border-radius: 3px; padding: 1px 5px;
 }
 
 /* ── Code wrap ── */
 .wiki-code-wrap {
-    border: 1px solid rgba(255,255,255,0.05);
-    border-radius: 9px; overflow: hidden; background: #02030A;
+    border: 1px solid var(--border-main);
+    border-radius: 9px; overflow: hidden; background: var(--bg-void);
 }
 
 .wiki-code-danger-wrap {
-    border-color: rgba(255,38,38,0.13);
-    box-shadow: 0 0 28px rgba(255,38,38,0.04);
+    border-color: var(--accent-red);
+    box-shadow: 0 0 28px var(--glow-red);
 }
 
 .wiki-code-bar {
     display: flex; align-items: center; justify-content: space-between;
     padding: 7px 14px;
-    background: rgba(255,255,255,0.022);
-    border-bottom: 1px solid rgba(255,255,255,0.04);
+    background: var(--bg-surface);
+    border-bottom: 1px solid var(--border-lo);
 }
 
 .wiki-code-bar-danger {
-    background: rgba(255,38,38,0.045);
-    border-bottom-color: rgba(255,38,38,0.07);
+    background: var(--glow-red);
+    border-bottom-color: var(--accent-red);
 }
 
 .wiki-code-lang {
     font-family: 'IBM Plex Mono', monospace;
     font-size: 8.5px; font-weight: 700;
-    color: #1E2540; letter-spacing: 0.16em; text-transform: uppercase;
+    color: var(--t-muted); letter-spacing: 0.16em; text-transform: uppercase;
 }
 
 .wiki-danger-pulse {
     font-family: 'IBM Plex Mono', monospace;
     font-size: 8.5px; font-weight: 700;
-    color: rgba(255,38,38,0.55); letter-spacing: 0.12em;
+    color: var(--accent-red); letter-spacing: 0.12em;
     animation: wiki-glow 2s ease-in-out infinite;
 }
 
 .wiki-dots { display: flex; gap: 5px; align-items: center; }
 .wiki-dots span {
     width: 7px; height: 7px; border-radius: 50%;
-    background: rgba(255,255,255,0.07);
+    background: var(--border-glow);
 }
-.wiki-dots span:nth-child(1) { background: rgba(255,38,38,0.30); }
-.wiki-dots span:nth-child(2) { background: rgba(255,186,8,0.25); }
-.wiki-dots span:nth-child(3) { background: rgba(12,245,132,0.25); }
+.wiki-dots span:nth-child(1) { background: var(--accent-red); opacity: 0.5; }
+.wiki-dots span:nth-child(2) { background: var(--accent-amber); opacity: 0.5; }
+.wiki-dots span:nth-child(3) { background: var(--accent-green); opacity: 0.5; }
 
 .wiki-code {
     margin: 0; padding: 10px 0; overflow-x: auto;
@@ -516,25 +517,25 @@ pub fn RulesWiki() -> impl IntoView {
     display: flex; align-items: baseline;
     padding: 2.5px 0; transition: background 0.1s ease;
 }
-.yl-line:hover { background: rgba(255,255,255,0.022); }
+.yl-line:hover { background: var(--bg-surface); }
 
 .yl-ln {
-    font-size: 10px; color: #1A2040;
+    font-size: 10px; color: var(--t-dim);
     min-width: 36px; padding: 0 12px 0 12px;
     text-align: right; user-select: none; flex-shrink: 0;
-    border-right: 1px solid rgba(255,255,255,0.025);
+    border-right: 1px solid var(--border-lo);
 }
 
 .yl-txt { padding-left: 14px; white-space: pre; letter-spacing: 0.01em; }
 
-.yl-comment .yl-txt { color: #253048; font-style: italic; }
-.yl-comment .yl-ln  { color: #131A2A; }
-.yl-toplevel .yl-txt { color: #7eb8ff; }
-.yl-toplevel .yl-ln  { color: #1A2A50; }
-.yl-key .yl-txt { color: rgba(12,245,132,0.8); }
-.yl-key .yl-ln  { color: #0C2020; }
-.yl-value .yl-txt { color: #7880A8; }
-.yl-value .yl-ln  { color: #161D38; }
+.yl-comment .yl-txt { color: var(--t-muted); font-style: italic; }
+.yl-comment .yl-ln  { color: var(--t-dim); opacity: 0.5; }
+.yl-toplevel .yl-txt { color: var(--accent-blue); }
+.yl-toplevel .yl-ln  { color: var(--accent-blue); opacity: 0.3; }
+.yl-key .yl-txt { color: var(--accent-green); }
+.yl-key .yl-ln  { color: var(--accent-green); opacity: 0.3; }
+.yl-value .yl-txt { color: var(--t-secondary); }
+.yl-value .yl-ln  { color: var(--t-dim); }
 
 /* ── Section break ── */
 .wiki-break {
@@ -543,19 +544,19 @@ pub fn RulesWiki() -> impl IntoView {
 }
 .wiki-break-line {
     flex: 1; height: 1px;
-    background: linear-gradient(90deg, transparent, rgba(255,38,38,0.18), transparent);
+    background: linear-gradient(90deg, transparent, var(--glow-red), transparent);
 }
 .wiki-break-label {
     font-family: 'IBM Plex Mono', monospace;
     font-size: 8.5px; font-weight: 700;
-    color: rgba(255,38,38,0.35); letter-spacing: 0.20em;
+    color: var(--accent-red); opacity: 0.5; letter-spacing: 0.20em;
     text-transform: uppercase; white-space: nowrap;
 }
 
 /* ── Danger entry ── */
 .wiki-entry-danger {
-    background: rgba(255,38,38,0.016) !important;
-    border: 1px solid rgba(255,38,38,0.10) !important;
+    background: var(--glow-red) !important;
+    border: 1px solid var(--accent-red) !important;
     border-radius: 11px !important;
     padding: 20px 20px 24px !important;
     margin-top: 6px;
@@ -566,7 +567,7 @@ pub fn RulesWiki() -> impl IntoView {
     content: '';
     position: absolute;
     top: 0; left: 0; right: 0; height: 1px;
-    background: linear-gradient(90deg, transparent, rgba(255,38,38,0.45), transparent);
+    background: linear-gradient(90deg, transparent, var(--accent-red), transparent);
 }
 
 .wiki-danger-ribbon {
@@ -580,9 +581,14 @@ pub fn RulesWiki() -> impl IntoView {
     font-size: 9px; font-weight: 800;
     color: #fff; letter-spacing: 0.12em; text-transform: uppercase;
     pointer-events: none;
-    box-shadow: 0 2px 16px rgba(255,38,38,0.4);
+    box-shadow: 0 2px 16px var(--glow-red);
     text-align: center;
 }
+
+.light-theme .yl-comment .yl-txt { color: #8a99b5; }
+.light-theme .yl-ln { border-right-color: rgba(0,0,0,0.05); }
+.light-theme .wiki-code-dark { background: #fdfdfd; }
+.light-theme .wiki-index { background: #fff; }
 "
             </style>
         </div>

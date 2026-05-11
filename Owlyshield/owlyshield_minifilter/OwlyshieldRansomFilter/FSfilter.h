@@ -127,7 +127,7 @@ NTSTATUS GetProcessNameByHandle(_In_ HANDLE ProcessHandle, _Out_ PUNICODE_STRING
 NTSTATUS GetProcessCommandLineByHandle(_In_ HANDLE ProcessHandle, _Out_ PUNICODE_STRING *CommandLine);
 NTSTATUS DeleteFileByPath(PUNICODE_STRING FilePath);
 NTSTATUS QuarantineFileByPath(PUNICODE_STRING FilePath);
-VOID FSReloadPyasWhitelistRules(VOID);
+
 NTSTATUS FSSetPyasWhitelistRulesFromBuffer(
     _In_reads_bytes_(BytesRead) PUCHAR Buffer,
     _In_ ULONG BytesRead);
@@ -135,7 +135,6 @@ NTSTATUS FSSetPyasWhitelistRulesFromBuffer(
 // FIX: This global variable should be removed or properly managed
 // Global variables in drivers should be avoided when possible
 // If needed, it should be properly initialized and synchronized
-extern UNICODE_STRING GvolumeData;
 
 // -------------------------------------------------------------------------
 // Manual declarations for ZwQuerySystemInformation + SYSTEM_PROCESS_INFORMATION

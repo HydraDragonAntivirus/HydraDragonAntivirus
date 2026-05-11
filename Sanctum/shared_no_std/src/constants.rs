@@ -50,8 +50,8 @@ impl Display for SanctumVersion<'_> {
 //
 // Usermode specific constants
 //
-pub static SANC_SYS_FILE_LOCATION: &str = "AppData\\sanctum.sys";
-pub static IOC_LIST_LOCATION: &str = "AppData\\ioc_list.txt";
+pub static SANC_SYS_FILE_LOCATION: &str = "Sanctum\\AppData\\sanctum.sys";
+pub static IOC_LIST_LOCATION: &str = "Sanctum\\AppData\\ioc_list.txt";
 pub static IOC_URL: &str =
     "https://raw.githubusercontent.com/HydraDragonAntivirus/HydraDragonAntivirus/refs/heads/development-version/hydradragon/Sanctum/clean_files/ioc_list.txt";
 pub static LOG_PATH: &str = r"logs\sanctum.log";

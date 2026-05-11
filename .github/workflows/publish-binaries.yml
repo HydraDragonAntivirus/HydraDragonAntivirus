@@ -1,20 +1,21 @@
 name: Publish Binaries (Multi-Job)
 
 on:
-  push:
-    branches: ["**"]
-    paths:
-      - '.github/workflows/publish-binaries.yml'
   workflow_dispatch:
     inputs:
       branch:
         description: "Branch to create/update PR on"
         required: true
-        default: "update-binaries"
+        default: "auto-update-binaries"
 
 permissions:
   contents: write
   pull-requests: write
+  issues: write
+
+concurrency:
+  group: publish-binaries-${{ github.event.inputs.branch || 'auto-update-binaries' }}
+  cancel-in-progress: true
 
 env:
   CARGO_TERM_COLOR: always
@@ -77,6 +78,13 @@ jobs:
           $wdkSetupPath = "$Env:TEMP\wdksetup.exe"
           (New-Object Net.WebClient).DownloadFile('${{env.WDK_URL}}', $wdkSetupPath)
           Start-Process -FilePath $wdkSetupPath -ArgumentList "/quiet" -NoNewWindow -Wait
+          # Install the WDK Visual Studio Extension so InfVerif.dll is available to MSBuild
+          $vsixPath = "C:\Program Files (x86)\Windows Kits\10\Vsix\VS2022\10.0.26100.0\WDK.vsix"
+          if (Test-Path $vsixPath) {
+            $vsInstaller = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property enginePath
+            $vsixInstaller = Join-Path $vsInstaller "VSIXInstaller.exe"
+            Start-Process -FilePath $vsixInstaller -ArgumentList "/q `"$vsixPath`"" -NoNewWindow -Wait
+          }
       - name: Build MBRFilter
         run: msbuild "MBRFilter/MBRFilter Driver.sln" /p:Configuration=Release /p:Platform=x64
       - name: Upload
@@ -84,9 +92,9 @@ jobs:
         with:
           name: bin-mbrfilter
           path: |
-            MBRFilter/x64/Win8Release/*.sys
-            MBRFilter/x64/Win8Release/*.inf
-            MBRFilter/x64/Win8Release/*.cat
+            MBRFilter/x64/Win8Release/MBRFilter/*.sys
+            MBRFilter/x64/Win8Release/MBRFilter/*.inf
+            MBRFilter/x64/Win8Release/MBRFilter/*.cat
 
   build-pyasprotection:
     runs-on: windows-2022
@@ -111,9 +119,9 @@ jobs:
         with:
           name: bin-pyasprotection
           path: |
-            PYAS_Protection/x64/Release/SimplePYASProtection.sys
-            PYAS_Protection/x64/Release/SimplePYASProtection.inf
-            PYAS_Protection/x64/Release/SimplePYASProtection.cat
+            PYAS_Protection/x64/Release/SimplePYASProtection/*.sys
+            PYAS_Protection/x64/Release/SimplePYASProtection/*.inf
+            PYAS_Protection/x64/Release/SimplePYASProtection/*.cat
 
   build-owlyshield-minifilter:
     runs-on: windows-2022
@@ -138,9 +146,9 @@ jobs:
         with:
           name: bin-owlyshield-minifilter
           path: |
-            Owlyshield/owlyshield_minifilter/x64/Release/*.sys
-            Owlyshield/owlyshield_minifilter/x64/Release/*.inf
-            Owlyshield/owlyshield_minifilter/x64/Release/*.cat
+            Owlyshield/owlyshield_minifilter/x64/Release/OwlyshieldRansomFilter/*.sys
+            Owlyshield/owlyshield_minifilter/x64/Release/OwlyshieldRansomFilter/*.inf
+            Owlyshield/owlyshield_minifilter/x64/Release/OwlyshieldRansomFilter/*.cat
 
   build-reddbg:
     runs-on: windows-2022
@@ -159,9 +167,9 @@ jobs:
         with:
           name: bin-reddbg
           path: |
-            Owlyshield/RedDbg/RedDbg/x64/ReleaseX64Kernel/*.sys
-            Owlyshield/RedDbg/RedDbg/x64/ReleaseX64Kernel/*.inf
-            Owlyshield/RedDbg/RedDbg/x64/ReleaseX64Kernel/*.cat
+            Owlyshield/RedDbg/RedDbg/x64/ReleaseX64Kernel/RedDbgDrv/*.sys
+            Owlyshield/RedDbg/RedDbg/x64/ReleaseX64Kernel/RedDbgDrv/*.inf
+            Owlyshield/RedDbg/RedDbg/x64/ReleaseX64Kernel/RedDbgDrv/*.cat
 
   # --- GROUP 2: Dotnet Projects (Separated) ---
 
@@ -176,30 +184,14 @@ jobs:
         with:
           dotnet-version: '8.0.x'
       - name: Publish MegaDumper
-        run: dotnet publish MegaDumper/MegaDumper/MegaDumper.csproj -c Release -r win-x64 --self-contained false -o artifacts/
+        run: dotnet publish MegaDumper/MegaDumper/MegaDumper.csproj -c Release -r win-x64 --self-contained false -o publish/
       - name: Upload
         uses: actions/upload-artifact@v7
         with:
           name: bin-megadumper
-          path: artifacts/
+          path: publish/
 
-  build-launcher:
-    runs-on: windows-2022
-    steps:
-      - name: Enable Git long paths
-        run: git config --global core.longpaths true
-      - uses: actions/checkout@v6
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v5
-        with:
-          dotnet-version: '8.0.x'
-      - name: Publish Launcher
-        run: dotnet publish HydraDragonLauncher/HydraDragonLauncher/HydraDragonLauncher.csproj -c Release -r win-x64 --self-contained false -o artifacts/
-      - name: Upload
-        uses: actions/upload-artifact@v7
-        with:
-          name: bin-launcher
-          path: artifacts/
+
 
   build-service:
     runs-on: windows-2022
@@ -212,12 +204,12 @@ jobs:
         with:
           dotnet-version: '8.0.x'
       - name: Publish Service
-        run: dotnet publish HydraDragonService/HydraDragonService/HydraDragonService.csproj -c Release -r win-x64 --self-contained false -o artifacts/
+        run: dotnet publish HydraDragonService/HydraDragonService/HydraDragonService.csproj -c Release -r win-x64 --self-contained false -o publish/
       - name: Upload
         uses: actions/upload-artifact@v7
         with:
           name: bin-service
-          path: artifacts/
+          path: publish/
 
   # --- GROUP 3: Rust Projects (Separated) ---
 
@@ -233,12 +225,24 @@ jobs:
         run: choco install nasm
       - name: Build Owlyshield Rust
         working-directory: Owlyshield/owlyshield_predict
-        run: cargo build --release
+        run: cargo build --release --features novelty,malware,hydradragon,behavior_engine,firewall,sanctum
       - name: Upload
         uses: actions/upload-artifact@v7
         with:
           name: bin-owlyshield-rust
           path: Owlyshield/owlyshield_predict/target/release/owlyshield_ransom.exe
+
+  build-tensorflowlite:
+    runs-on: windows-2022
+    steps:
+      - name: Enable Git long paths
+        run: git config --global core.longpaths true
+      - uses: actions/checkout@v6
+      - name: Upload
+        uses: actions/upload-artifact@v7
+        with:
+          name: bin-tensorflowlite
+          path: Owlyshield/owlyshield_predict/moonfire-tflite/lib/tensorflowlite_c.dll
 
   build-firewall-rust:
     runs-on: windows-2022
@@ -269,6 +273,7 @@ jobs:
           path: |
             HydraDragonFirewall/hydradragonfirewall/target/release/hydradragonfirewall.exe
             HydraDragonFirewall/hydradragonfirewall/target/release/hydradragonfirewall.dll
+            HydraDragonFirewall/hydradragonfirewall/target/release/WinDivert.dll
 
   build-sanctum:
     runs-on: windows-2022
@@ -338,47 +343,124 @@ jobs:
           cd driver
           $driverBuildProfile = "release"
           $driverPackagePath = "target\$driverBuildProfile\sanctum_package\sanctum.sys"
+
+          function Invoke-Native {
+            param(
+              [Parameter(Mandatory = $true)][string]$Command,
+              [string[]]$Arguments = @()
+            )
+
+            & $Command @Arguments
+            if ($LASTEXITCODE -ne 0) {
+              $argText = $Arguments -join " "
+              throw "Command failed with exit code ${LASTEXITCODE}: $Command $argText"
+            }
+          }
+
+          function Restore-WdkMakefile {
+            New-Item -ItemType Directory -Force -Path "target" | Out-Null
+            Invoke-Native "cargo" @("fetch")
+
+            $metadataJson = & cargo metadata --format-version 1
+            if ($LASTEXITCODE -ne 0) {
+              throw "Command failed with exit code ${LASTEXITCODE}: cargo metadata --format-version 1"
+            }
+
+            $metadata = $metadataJson | ConvertFrom-Json
+            $wdkBuildManifest = $metadata.packages | Where-Object { $_.name -eq "wdk-build" } | Select-Object -First 1 -ExpandProperty manifest_path
+            if (-not $wdkBuildManifest) {
+              throw "Could not find wdk-build in cargo metadata."
+            }
+
+            $sourceFile = Join-Path (Split-Path $wdkBuildManifest) "rust-driver-makefile.toml"
+            $destFile = "target\rust-driver-makefile.toml"
+            if (-not (Test-Path $sourceFile)) {
+              throw "Could not find rust-driver-makefile.toml at $sourceFile"
+            }
+
+            Write-Host "Copying $sourceFile to $destFile"
+            Copy-Item $sourceFile $destFile -Force
+          }
+
+          function Assert-DriverPackage {
+            param([Parameter(Mandatory = $true)][string]$Stage)
+
+            if (-not (Test-Path -LiteralPath $driverPackagePath -PathType Leaf)) {
+              throw "Driver package not found after $Stage`: $driverPackagePath"
+            }
+          }
+
+          Restore-WdkMakefile
           
-          # Step 1: Generate ELAM certificate
-          Write-Host "=== Step 1: Generating ELAM certificate ==="
-          .\cert.ps1
+          # Step 1: Initial build
+          Write-Host "`n=== Step 1: Initial driver build ($driverBuildProfile) ==="
+          Invoke-Native "cargo" @("make", $driverBuildProfile)
+          Assert-DriverPackage "initial build"
           
-          # Step 2: Initial build
-          Write-Host "`n=== Step 2: Initial driver build ($driverBuildProfile) ==="
-          cargo make $driverBuildProfile
-          
-          # Step 3: Sign the driver
-          Write-Host "`n=== Step 3: Signing driver with sign.bat $driverBuildProfile ==="
-          .\sign.bat $driverBuildProfile
+          # Step 2: Sign the driver
+          Write-Host "`n=== Step 2: Signing driver with sign.bat $driverBuildProfile ==="
+          Invoke-Native ".\sign.bat" @($driverBuildProfile)
+          Assert-DriverPackage "initial signing"
           
           # Step 4: Extract the To-Be-Signed Hash
           Write-Host "`n=== Step 4: Extracting To-Be-Signed Hash ==="
-          $certOutput = certmgr.exe -v $driverPackagePath
-          $hashLines = $certOutput | Select-String -Pattern "Content Hash \(To-Be-Signed Hash\)::" -Context 0,3
+          $certOutput = & certmgr.exe -v $driverPackagePath
+          if ($LASTEXITCODE -ne 0) {
+            throw "Command failed with exit code ${LASTEXITCODE}: certmgr.exe -v $driverPackagePath"
+          }
+          $hashLines = $certOutput | Select-String -Pattern "Content Hash \(To-Be-Signed Hash\)::" -Context 0,8
           
           if ($hashLines) {
-              $hashText = $hashLines[0].Context.PostContext -join ""
-              $hash = $hashText -replace '\s+', '' -replace '0x', ''
+              $hashBytes = New-Object System.Collections.Generic.List[string]
+              foreach ($line in $hashLines[0].Context.PostContext) {
+                # certmgr prints a hex dump plus an ASCII column; never include the ASCII column.
+                $byteArea = ($line -split "'", 2)[0]
+                $byteMatches = [regex]::Matches($byteArea, '(?i)(?<![0-9a-f])[0-9a-f]{2}(?![0-9a-f])') | Select-Object -First 16
+                foreach ($byteMatch in $byteMatches) {
+                  if ($hashBytes.Count -lt 32) {
+                    $hashBytes.Add($byteMatch.Value.ToUpperInvariant())
+                  }
+                }
+              
+                if ($hashBytes.Count -ge 32) {
+                  break
+                }
+              }
+              
+              if ($hashBytes.Count -ne 32) {
+                throw "Expected 32 SHA256 bytes for ELAM To-Be-Signed hash, got $($hashBytes.Count). Raw certmgr context: $($hashLines[0].Context.PostContext -join ' | ')"
+              }
+              
+              $hash = -join $hashBytes
+              if ($hash -notmatch '^[0-9A-F]{64}$') {
+                throw "Extracted hash is not a 64-character SHA256 hex string: $hash"
+              }
               Write-Host "Extracted hash: $hash"
               
-              # Step 5: Update build.rs with the new hash
-              Write-Host "`n=== Step 5: Updating build.rs with extracted hash ==="
+              # Update build.rs with the new hash
               $buildRsPath = "build.rs"
-              $buildRsContent = Get-Content $buildRsPath -Raw
-              $buildRsContent = $buildRsContent -replace 'L"[0-9A-F]+\\0"', "L`"$hash\0`""
-              Set-Content $buildRsPath $buildRsContent
-              Write-Host "Updated build.rs with hash: $hash"
+              $content = Get-Content $buildRsPath -Raw
+              $pattern = 'L"[^"]*",\s*// To-Be-Signed Hash'
               
-              # Step 6: Clean and rebuild with correct hash
-              Write-Host "`n=== Step 6: Rebuilding with correct hash ($driverBuildProfile) ==="
-              cargo clean
-              cargo make $driverBuildProfile
-              
-              # Step 7: Sign again
-              Write-Host "`n=== Step 7: Final signing with sign.bat $driverBuildProfile ==="
-              .\sign.bat $driverBuildProfile
-              Set-Content -Path "sanctum_elam_hash.txt" -Value $hash -NoNewline
+              if ($content -notmatch $pattern) {
+                throw "Could not find ELAM To-Be-Signed Hash line in build.rs. Pattern: $pattern"
+              }
 
+              $newContent = $content -replace $pattern, "L`"$hash\0`", // To-Be-Signed Hash"
+              [System.IO.File]::WriteAllText((Resolve-Path $buildRsPath), $newContent, [System.Text.UTF8Encoding]::new($false))
+              Write-Host "Updated build.rs with hash: $hash (Pattern matched successfully)"
+              
+              # Step 5: Clean and rebuild with correct hash
+              Write-Host "`n=== Step 5: Rebuilding with correct hash ($driverBuildProfile) ==="
+              Invoke-Native "cargo" @("clean")
+              Restore-WdkMakefile
+              Invoke-Native "cargo" @("make", $driverBuildProfile)
+              Assert-DriverPackage "hash rebuild"
+              
+              # Step 6: Sign again
+              Write-Host "`n=== Step 6: Final signing with sign.bat $driverBuildProfile ==="
+              Invoke-Native ".\sign.bat" @($driverBuildProfile)
+              Assert-DriverPackage "final signing"
               Write-Host "`n=== SUCCESS: Driver built and signed with matching hash ==="
           } else {
               Write-Host "ERROR: Could not extract hash from certificate"
@@ -389,26 +471,60 @@ jobs:
           
           # === USERMODE COMPONENTS ===
           Write-Host "`n=== Building usermode components ==="
-          cargo make release
+          Invoke-Native "cargo" @("make", "release")
           
           Write-Host "`n=== Signing PPL runner ==="
-          .\sign_ppl_runner.bat
+          Invoke-Native ".\sign_ppl_runner.bat"
+
+      - name: Stage Sanctum Artifact
+        shell: pwsh
+        run: |
+          $artifact = "artifact/bin-sanctum"
+          Remove-Item -LiteralPath $artifact -Recurse -Force -ErrorAction SilentlyContinue
+          $paths = @(
+            "Sanctum/driver/target/release/sanctum_package",
+            "Sanctum/driver",
+            "Sanctum/target/release",
+            "Sanctum"
+          )
+          foreach ($path in $paths) {
+            New-Item -ItemType Directory -Force -Path (Join-Path $artifact $path) | Out-Null
+          }
+
+          Copy-Item "Sanctum/driver/target/release/sanctum_package/*.sys" "$artifact/Sanctum/driver/target/release/sanctum_package/" -Force -ErrorAction Stop
+          Copy-Item "Sanctum/driver/build.rs" "$artifact/Sanctum/driver/" -Force -ErrorAction Stop
+          Copy-Item "Sanctum/target/release/sanctum_ppl_runner.exe" "$artifact/Sanctum/target/release/" -Force -ErrorAction Stop
+          Copy-Item "Sanctum/target/release/elam_installer.exe" "$artifact/Sanctum/target/release/" -Force -ErrorAction Stop
+          Copy-Item "Sanctum/target/release/um_engine.exe" "$artifact/Sanctum/target/release/" -Force -ErrorAction Stop
+          Copy-Item "Sanctum/target/release/malware.exe" "$artifact/Sanctum/target/release/" -Force -ErrorAction Stop
+          Copy-Item "Sanctum/target/release/app.exe" "$artifact/Sanctum/target/release/" -Force -ErrorAction Stop
+          Copy-Item "Sanctum/target/release/sanctum.dll" "$artifact/Sanctum/target/release/" -Force -ErrorAction Stop
+          Copy-Item "Sanctum/Cargo.lock" "$artifact/Sanctum/" -Force -ErrorAction Stop
+          Copy-Item "Sanctum/driver/Cargo.lock" "$artifact/Sanctum/driver/" -Force -ErrorAction Stop
+
       - name: Upload
         uses: actions/upload-artifact@v7
         with:
           name: bin-sanctum
-          path: |
-            Sanctum/driver/target/release/sanctum_package/*.sys
-            Sanctum/driver/sanctum_elam_hash.txt
-            Sanctum/target/release/sanctum_ppl_runner.exe
-            Sanctum/target/release/elam_installer.exe
-            Sanctum/target/release/um_engine.exe
-            Sanctum/target/release/malware.exe
-            Sanctum/target/release/server.exe
-            Sanctum/target/release/app.exe
-            Sanctum/target/release/sanctum.dll
-            Sanctum/Cargo.lock
-            Sanctum/driver/Cargo.lock
+          path: artifact/bin-sanctum/
+          if-no-files-found: error
+
+  build-owlyshield-tools:
+    runs-on: windows-2022
+    steps:
+      - name: Enable Git long paths
+        run: git config --global core.longpaths true
+      - uses: actions/checkout@v6
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Build Owlyshield Tools
+        working-directory: Owlyshield/tools/rust_win_toast
+        run: cargo build --release
+      - name: Upload
+        uses: actions/upload-artifact@v7
+        with:
+          name: bin-owlyshield-tools
+          path: Owlyshield/tools/rust_win_toast/target/release/RustWindowsToast.exe
 
   # --- FINAL STAGE: Collect and PR ---
 
@@ -421,11 +537,12 @@ jobs:
       - build-owlyshield-minifilter
       - build-reddbg
       - build-megadumper
-      - build-launcher
       - build-service
       - build-owlyshield-rust
+      - build-tensorflowlite
       - build-firewall-rust
       - build-sanctum
+      - build-owlyshield-tools
     runs-on: windows-2022
     steps:
       - name: Enable Git long paths
@@ -436,6 +553,11 @@ jobs:
         uses: actions/download-artifact@v7
         with:
           path: .
+
+      - name: Set up MSVC Developer Command Prompt
+        uses: TheMrMilchmann/setup-msvc-dev@v4
+        with:
+          arch: x64
 
       - name: Organize Binaries
         id: organize
@@ -454,16 +576,58 @@ jobs:
             "$distRoot/Owlyshield/Owlyshield Service",
             "$distRoot/Owlyshield/RedDbg",
             "$distRoot/HydraDragonDumper",
-            "$distRoot/HydraDragonLauncher",
             "$distRoot/HydraDragonService",
             "$distRoot/Sanctum/AppData",
             "$distRoot/Sanctum/System32",
-            "$distRoot/sanctum_test_malware"
+            "$distRoot/sanctum_test_malware",
+            "$distRoot/Owlyshield/tools"
           )
           foreach ($folder in $folders) {
             if (-not (Test-Path $folder)) {
               New-Item -ItemType Directory -Force -Path $folder
             }
+          }
+
+          function Get-PublishRoot {
+            param(
+              [Parameter(Mandatory = $true)][string]$ArtifactDir,
+              [Parameter(Mandatory = $true)][string]$RequiredFile
+            )
+
+            if (-not (Test-Path -LiteralPath $ArtifactDir -PathType Container)) {
+              throw "Missing artifact directory: $ArtifactDir"
+            }
+
+            $directFile = Join-Path $ArtifactDir $RequiredFile
+            if (Test-Path -LiteralPath $directFile -PathType Leaf) {
+              return (Resolve-Path -LiteralPath $ArtifactDir).Path
+            }
+
+            $nestedFile = Get-ChildItem -LiteralPath $ArtifactDir -Filter $RequiredFile -Recurse -File | Select-Object -First 1
+            if (-not $nestedFile) {
+              throw "Could not find $RequiredFile under $ArtifactDir"
+            }
+
+            return $nestedFile.Directory.FullName
+          }
+
+          function Sync-PublishTree {
+            param(
+              [Parameter(Mandatory = $true)][string]$Source,
+              [Parameter(Mandatory = $true)][string]$Destination
+            )
+
+            if (-not (Test-Path -LiteralPath $Source -PathType Container)) {
+              throw "Missing publish source: $Source"
+            }
+
+            if (Test-Path -LiteralPath $Destination) {
+              Remove-Item -LiteralPath $Destination -Recurse -Force
+            }
+
+            New-Item -ItemType Directory -Force -Path $Destination | Out-Null
+            # Wildcard path is the most reliable way to copy full folder contents in PowerShell
+            Copy-Item -Path "$Source\*" -Destination $Destination -Recurse -Force
           }
 
           # --- TinyAntivirus ---
@@ -479,40 +643,47 @@ jobs:
           $av | Copy-Item -Destination "HydraDragonAV/x64/Release/" -Force
 
           # --- MBRFilter ---
-          $mbr = Get-ChildItem "bin-mbrfilter/" -Filter "*" -Recurse
-          $mbr | Copy-Item -Destination "$distRoot/MBRFilter/" -Force
-          New-Item -ItemType Directory -Force -Path "MBRFilter/x64/Release"
-          $mbr | Copy-Item -Destination "MBRFilter/x64/Release/" -Force
+          $mbrSource = Get-ChildItem "bin-mbrfilter/" -Directory -Filter "MBRFilter" -Recurse | Select-Object -First 1
+          if ($mbrSource) {
+            Copy-Item -Path "$($mbrSource.FullName)/*" -Destination "$distRoot/MBRFilter/" -Recurse -Force
+          }
 
           # --- SimplePYASProtection ---
-          $pyas = Get-ChildItem "bin-pyasprotection/" -Filter "*" -Recurse
-          $pyas | Copy-Item -Destination "$distRoot/SimplePYASProtection/" -Force
-          New-Item -ItemType Directory -Force -Path "PYAS_Protection/x64/Release"
-          $pyas | Copy-Item -Destination "PYAS_Protection/x64/Release/" -Force
+          $pyasSource = Get-ChildItem "bin-pyasprotection/" -Directory -Filter "SimplePYASProtection" -Recurse | Select-Object -First 1
+          if ($pyasSource) {
+            Copy-Item -Path "$($pyasSource.FullName)/*" -Destination "$distRoot/SimplePYASProtection/" -Recurse -Force
+          }
 
           # --- Owlyshield ---
-          $owlyMinifilter = Get-ChildItem "bin-owlyshield-minifilter/" -Filter "*" -Recurse
-          $owlyMinifilter | Copy-Item -Destination "$distRoot/Owlyshield/OwlyshieldRansomFilter/" -Force
-          New-Item -ItemType Directory -Force -Path "Owlyshield/owlyshield_minifilter/x64/Release"
-          $owlyMinifilter | Copy-Item -Destination "Owlyshield/owlyshield_minifilter/x64/Release/" -Force
+          $owlyMinifilterSource = Get-ChildItem "bin-owlyshield-minifilter/" -Directory -Filter "OwlyshieldRansomFilter" -Recurse | Select-Object -First 1
+          if ($owlyMinifilterSource) {
+            Copy-Item -Path "$($owlyMinifilterSource.FullName)/*" -Destination "$distRoot/Owlyshield/OwlyshieldRansomFilter/" -Recurse -Force
+          }
           
           $owlyRust = Get-ChildItem "bin-owlyshield-rust/" -Filter "owlyshield_ransom.exe" -Recurse
           $owlyRust | Copy-Item -Destination "$distRoot/Owlyshield/Owlyshield Service/" -Force
           New-Item -ItemType Directory -Force -Path "Owlyshield/owlyshield_predict/target/release"
           $owlyRust | Copy-Item -Destination "Owlyshield/owlyshield_predict/target/release/" -Force
 
+          $tflite = Get-ChildItem "bin-tensorflowlite/" -Filter "tensorflowlite*.dll" -Recurse
+          $tflite | Copy-Item -Destination "$distRoot/Owlyshield/Owlyshield Service/" -Force
+
           # --- RedDbg ---
-          $reddbgDrv = Get-ChildItem "bin-reddbg/" -Filter "RedDbgDrv.*" -Recurse
-          $reddbgDrv | Copy-Item -Destination "$distRoot/Owlyshield/RedDbg/" -Force
-          
-          New-Item -ItemType Directory -Force -Path "Owlyshield/RedDbg/RedDbg/x64/ReleaseX64Kernel"
-          $reddbgDrv | Copy-Item -Destination "Owlyshield/RedDbg/RedDbg/x64/ReleaseX64Kernel/" -Force
+          $reddbgDrvSource = Get-ChildItem "bin-reddbg/" -Directory -Filter "RedDbgDrv" -Recurse | Select-Object -First 1
+          if ($reddbgDrvSource) {
+            Copy-Item -Path "$($reddbgDrvSource.FullName)/*" -Destination "$distRoot/Owlyshield/RedDbg/" -Recurse -Force
+          }
+
+          # --- Owlyshield Tools ---
+          $owlyTools = Get-ChildItem "bin-owlyshield-tools/" -Filter "RustWindowsToast.exe" -Recurse
+          $owlyTools | Copy-Item -Destination "$distRoot/Owlyshield/utils/" -Force
+          New-Item -ItemType Directory -Force -Path "Owlyshield/utils/rust_win_toast/target/release"
+          $owlyTools | Copy-Item -Destination "Owlyshield/utils/rust_win_toast/target/release/" -Force
 
           # --- Dumper ---
-          $dumper = Get-ChildItem "bin-megadumper/" -Filter "*" -Recurse
-          $dumper | Copy-Item -Destination "$distRoot/HydraDragonDumper/" -Force
-          New-Item -ItemType Directory -Force -Path "MegaDumper/MegaDumper/bin/Release/net8.0"
-          $dumper | Copy-Item -Destination "MegaDumper/MegaDumper/bin/Release/net8.0/" -Force
+          $dumperRoot = Get-PublishRoot -ArtifactDir "bin-megadumper" -RequiredFile "MegaDumper.exe"
+          Sync-PublishTree -Source $dumperRoot -Destination "$distRoot/HydraDragonDumper"
+          Sync-PublishTree -Source $dumperRoot -Destination "MegaDumper/MegaDumper/bin/Release/net8.0-windows/publish"
           if (Test-Path "$distRoot/HydraDragonDumper/MegaDumper.exe") {
             Move-Item "$distRoot/HydraDragonDumper/MegaDumper.exe" "$distRoot/HydraDragonDumper/HydraDragonDumper.exe" -Force
           }
@@ -523,16 +694,13 @@ jobs:
           New-Item -ItemType Directory -Force -Path "HydraDragonFirewall/hydradragonfirewall/target/release"
           $fwRust | Copy-Item -Destination "HydraDragonFirewall/hydradragonfirewall/target/release/" -Force
 
-          # --- Infrastructure ---
-          $launcher = Get-ChildItem "bin-launcher/" -Filter "*" -Recurse
-          $launcher | Copy-Item -Destination "$distRoot/HydraDragonLauncher/" -Force
-          New-Item -ItemType Directory -Force -Path "HydraDragonLauncher/HydraDragonLauncher/bin/Release/net8.0"
-          $launcher | Copy-Item -Destination "HydraDragonLauncher/HydraDragonLauncher/bin/Release/net8.0/" -Force
+          # --- Service ---
 
-          $service = Get-ChildItem "bin-service/" -Filter "*" -Recurse
-          $service | Copy-Item -Destination "$distRoot/HydraDragonService/" -Force
-          New-Item -ItemType Directory -Force -Path "HydraDragonService/HydraDragonService/bin/Release/net8.0"
-          $service | Copy-Item -Destination "HydraDragonService/HydraDragonService/bin/Release/net8.0/" -Force
+          $serviceRoot = Get-PublishRoot -ArtifactDir "bin-service" -RequiredFile "HydraDragonService.exe"
+          Sync-PublishTree -Source $serviceRoot -Destination "$distRoot/HydraDragonService"
+          Sync-PublishTree -Source $serviceRoot -Destination "HydraDragonService/HydraDragonService/bin/Release/net8.0-windows/publish"
+          # Remove PDBs only for the Service
+          Get-ChildItem -Path "$distRoot/HydraDragonService", "HydraDragonService/HydraDragonService/bin/Release/net8.0-windows/publish" -Filter "*.pdb" -Recurse | Remove-Item -Force
 
           # --- Sanctum Stack ---
           # System/Kernel Files (to AppData)
@@ -545,7 +713,6 @@ jobs:
           # Root Modules
           Get-ChildItem "bin-sanctum/" -Filter "elam_installer.exe" -Recurse | Select-Object -First 1 | Copy-Item -Destination "$distRoot/Sanctum/" -Force
           Get-ChildItem "bin-sanctum/" -Filter "um_engine.exe" -Recurse | Select-Object -First 1 | Copy-Item -Destination "$distRoot/Sanctum/" -Force
-          Get-ChildItem "bin-sanctum/" -Filter "server.exe" -Recurse | Select-Object -First 1 | Copy-Item -Destination "$distRoot/Sanctum/" -Force
           Get-ChildItem "bin-sanctum/" -Filter "app.exe" -Recurse | Select-Object -First 1 | Copy-Item -Destination "$distRoot/Sanctum/" -Force
           
           # Source Tree Sync (Full Workspace)
@@ -574,14 +741,23 @@ jobs:
           if ($sanctumDriverLock) {
             Copy-Item $sanctumDriverLock.FullName -Destination "Sanctum/driver/Cargo.lock" -Force
           }
+
+          $sanctumBuildRs = Get-ChildItem "bin-sanctum/" -Filter "build.rs" -Recurse | Where-Object { $_.FullName -match '[\\/]driver[\\/]' } | Select-Object -First 1
+          if (-not $sanctumBuildRs) {
+            $sanctumBuildRs = Get-ChildItem "bin-sanctum/" -Filter "build.rs" -Recurse | Select-Object -First 1
+          }
+          if ($sanctumBuildRs) {
+            Copy-Item $sanctumBuildRs.FullName -Destination "Sanctum/driver/build.rs" -Force
+          }
           echo "elam_hash=$elamHash" >> $env:GITHUB_OUTPUT
+
+          Write-Host "`n=== Distributed binaries are ready for mass signing workflow ==="
 
           # Clean up artifact directories
           Write-Host "`n=== Cleaning up artifact directories ==="
           $artifactDirs = @(
             "bin-firewall-rust",
             "bin-hydradragonav",
-            "bin-launcher",
             "bin-mbrfilter",
             "bin-megadumper",
             "bin-owlyshield-minifilter",
@@ -590,6 +766,7 @@ jobs:
             "bin-reddbg",
             "bin-service",
             "bin-tinyantivirus",
+            "bin-owlyshield-tools",
             "bin-sanctum"
           )
           foreach ($dir in $artifactDirs) {
@@ -599,19 +776,28 @@ jobs:
             }
           }
 
-      - name: Check for Changes
+      - name: Check for publishable changes
         id: check_changes
-        shell: pwsh
-        run: |
-          git add -A
-          $status = git status --porcelain
-          if ($null -eq $status -or $status -eq "") {
-            echo "changed=false" >> $env:GITHUB_OUTPUT
-            Write-Host "No changes detected."
-          } else {
-            echo "changed=true" >> $env:GITHUB_OUTPUT
-            Write-Host "Changes detected."
-          }
+        uses: ./.github/actions/check-publishable-changes
+        with:
+          paths: |
+            hydradragon
+            TinyAntivirus/x64/Release
+            HydraDragonAV/x64/Release
+            MBRFilter/x64/Release
+            PYAS_Protection/x64/Release
+            Owlyshield/owlyshield_minifilter/x64/Release
+            Owlyshield/owlyshield_predict/target/release
+            Owlyshield/tools/rust_win_toast/target/release
+            Owlyshield/RedDbg/RedDbg/x64/ReleaseX64Kernel
+            MegaDumper/MegaDumper/bin/Release/net8.0
+            HydraDragonFirewall/hydradragonfirewall/target/release
+            HydraDragonService/HydraDragonService/bin/Release/net8.0
+            Sanctum/target/release
+            Sanctum/driver/target/release
+            Sanctum/Cargo.lock
+            Sanctum/driver/Cargo.lock
+            Sanctum/driver/build.rs
 
       - name: Clean up artifact branches
         if: always()
@@ -621,11 +807,12 @@ jobs:
           $branches = @(
             "bin-firewall-rust",
             "bin-hydradragonav",
-            "bin-launcher",
             "bin-mbrfilter",
             "bin-megadumper",
             "bin-owlyshield-minifilter",
             "bin-owlyshield-rust",
+            "bin-owlyshield-tools",
+            "bin-tensorflowlite",
             "bin-pyasprotection",
             "bin-reddbg",
             "bin-service",
@@ -639,19 +826,28 @@ jobs:
             }
           }
 
-      - name: Create Pull Request
+      - name: Cleanup temporary files
+        if: always()
+        shell: pwsh
+        run: |
+          Remove-Item -Path "Sanctum/driver/sanctum_elam_hash.txt" -Force -ErrorAction SilentlyContinue
+
+      - name: Create PR
         if: steps.check_changes.outputs.changed == 'true'
         uses: peter-evans/create-pull-request@v8
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          commit-message: "chore(binaries): automated binary update"
-          title: "🚀 Update Distribution Binaries"
+          commit-message: |
+            chore(binaries): automated binary update
+            
+            Sanctum ELAM Hash: ${{ steps.organize.outputs.elam_hash }}
+          title: "Automated Global Binary Update"
           body: |
-            Automated binary update from modular build pipeline.
-
-            **Sanctum ELAM Hash:**
-            - Driver To-Be-Signed Hash: `${{ steps.organize.outputs.elam_hash }}`
-          branch: ${{ github.event.inputs.branch || 'auto-update-binaries' }}
+            Automated binary update from multi-job build pipeline.
+            **Sanctum ELAM Hash**: `${{ steps.organize.outputs.elam_hash }}`
+          add-paths: |
+            ${{ steps.check_changes.outputs.publishable_files }}
+          branch: "auto-update-all-binaries"
           base: ${{ github.ref_name }}
           delete-branch: true
           labels: binaries, automated-pr

@@ -1,4 +1,4 @@
-//! Example usage of the OwlyShield SDK
+//! Example usage of the Owlyshield SDK
 //!
 //! This example demonstrates how to use the SDK for:
 //! 1. Behavioral signature detection
@@ -9,7 +9,7 @@
 mod real_example {
     #[allow(unused_imports)]
     use owlyshield_ransom::process::ProcessRecord;
-    use owlyshield_ransom::sdk::{CollectionMode, OwlyShieldSDK};
+    use owlyshield_ransom::sdk::{CollectionMode, OwlyshieldSDK};
     #[allow(unused_imports)]
     use owlyshield_ransom::shared_def::IOMessage;
     #[allow(unused_imports)]
@@ -31,7 +31,7 @@ mod real_example {
         println!("=== Example 1: Behavioral Signature Detection ===\n");
 
         // Initialize SDK with ML collection disabled
-        let sdk = OwlyShieldSDK::new(
+        let sdk = OwlyshieldSDK::new(
             false, // ML mode disabled
             "models/malapi.json",
         );
@@ -48,7 +48,7 @@ mod real_example {
         println!("=== Example 2: Machine Learning Data Collection ===\n");
 
         // Initialize SDK with ML collection enabled
-        let mut sdk = OwlyShieldSDK::new(
+        let mut sdk = OwlyshieldSDK::new(
             true, // ML mode enabled
             "models/malapi.json",
         );
@@ -72,7 +72,7 @@ mod real_example {
     fn example_realtime_analysis() {
         println!("=== Example 3: Real-time Threat Analysis ===\n");
 
-        let mut sdk = OwlyShieldSDK::new(false, "models/malapi.json");
+        let mut sdk = OwlyshieldSDK::new(false, "models/malapi.json");
 
         // Simulate a GID (process group ID) for analysis
         let gid = 12345u64;
@@ -112,7 +112,7 @@ mod real_example {
     fn example_kernel_integration() {
         println!("=== Example 4: Kernel Driver Integration ===\n");
 
-        let mut sdk = OwlyShieldSDK::new(true, "models/malapi.json");
+        let mut sdk = OwlyshieldSDK::new(true, "models/malapi.json");
 
         // In a real implementation, you would:
         // 1. Initialize the kernel driver connection
@@ -139,7 +139,7 @@ mod real_example {
 
         println!("=== Example 5: Custom Signature Creation ===\n");
 
-        let mut sdk = OwlyShieldSDK::new(false, "models/malapi.json");
+        let mut sdk = OwlyshieldSDK::new(false, "models/malapi.json");
 
         // Create a custom signature for detecting a specific threat
         let custom_signature = BehavioralSignature {
@@ -216,7 +216,7 @@ mod real_example {
     fn example_export_ml_data() {
         println!("=== Example 7: Exporting ML Data ===\n");
 
-        let mut sdk = OwlyShieldSDK::new(true, "models/malapi.json");
+        let mut sdk = OwlyshieldSDK::new(true, "models/malapi.json");
 
         // Export to JSON (full dataset with all features)
         match sdk.export_ml_data("datasets/full_dataset.json") {

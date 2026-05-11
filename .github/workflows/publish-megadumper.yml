@@ -30,18 +30,47 @@ jobs:
         shell: pwsh
         run: |
           $dist = "hydradragon/HydraDragonDumper"
-          New-Item -ItemType Directory -Force -Path $dist
-          Copy-Item "artifacts/*" "$dist/" -Recurse -Force
+
+          function Sync-PublishTree {
+            param(
+              [Parameter(Mandatory = $true)][string]$Source,
+              [Parameter(Mandatory = $true)][string]$Destination
+            )
+
+            if (-not (Test-Path -LiteralPath $Source -PathType Container)) {
+              throw "Missing publish source: $Source"
+            }
+
+            if (Test-Path -LiteralPath $Destination) {
+              Remove-Item -LiteralPath $Destination -Recurse -Force
+            }
+
+            New-Item -ItemType Directory -Force -Path $Destination | Out-Null
+            Get-ChildItem -LiteralPath $Source -Force |
+              Copy-Item -Destination $Destination -Recurse -Force
+          }
+
+          Sync-PublishTree -Source "artifacts" -Destination $dist
           if (Test-Path "$dist/MegaDumper.exe") {
             Move-Item "$dist/MegaDumper.exe" "$dist/HydraDragonDumper.exe" -Force
           }
           
+      - name: Check for publishable changes
+        id: check_changes
+        uses: ./.github/actions/check-publishable-changes
+        with:
+          paths: |
+            hydradragon/HydraDragonDumper
       - name: Create PR
+        if: steps.check_changes.outputs.changed == 'true'
         uses: peter-evans/create-pull-request@v8
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           commit-message: "chore(dumper): update binaries"
-          title: "🚀 Update MegaDumper Binaries"
+          title: "Update MegaDumper Binaries"
+          add-paths: |
+            ${{ steps.check_changes.outputs.publishable_files }}
           branch: "auto-update-dumper"
           base: ${{ github.ref_name }}
           delete-branch: true
+          labels: binaries, automated-pr, megadumper

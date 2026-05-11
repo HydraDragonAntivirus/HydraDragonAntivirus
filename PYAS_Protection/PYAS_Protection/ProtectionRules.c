@@ -556,201 +556,73 @@ VOID NormalizeDevicePathToDos(PUNICODE_STRING Path)
 
 
 // ---------------------------------------------------------------------------
-// AppendRulesFromWideBlock
-//
-// Parses UTF-16LE text without requiring a BOM. This is the preferred format
-// for IOCTL_HYDRADRAGON_SET_RULES because user mode can concatenate rule files
-// into process/file/registry blocks and pass lengths in bytes.
-// ---------------------------------------------------------------------------
-static NTSTATUS AppendRulesFromWideBlock(
-    _Inout_ PPROTECTION_RULE_SET RuleSet,
-    _In_reads_bytes_(BytesRead) PUCHAR Buffer,
-    _In_ ULONG BytesRead,
-    _In_ RULE_TYPE RuleType)
-{
-    if (!RuleSet || !Buffer || BytesRead == 0)
-        return STATUS_SUCCESS;
-
-    if ((BytesRead % sizeof(WCHAR)) != 0)
-        return STATUS_INVALID_PARAMETER;
-
-    PWCHAR text = (PWCHAR)Buffer;
-    ULONG chars = BytesRead / sizeof(WCHAR);
-    ULONG lineStart = 0;
-
-    if (chars > 0 && text[0] == 0xFEFF)
-        lineStart = 1;
-
-    for (ULONG i = lineStart; i <= chars; ++i)
-    {
-        BOOLEAN isDelim = (i == chars) || text[i] == L'\n' || text[i] == L'\r';
-        if (!isDelim)
-            continue;
-
-        if (i > lineStart)
-        {
-            ULONG lineLen = i - lineStart;
-            NTSTATUS status = AddRuleString(RuleSet, &text[lineStart], lineLen, RuleType);
-            if (!NT_SUCCESS(status))
-                return status;
-        }
-
-        if (i < chars && text[i] == L'\r' && (i + 1) < chars && text[i + 1] == L'\n')
-        {
-            ++i;
-        }
-
-        lineStart = i + 1;
-    }
-
-    return STATUS_SUCCESS;
-}
-
-static NTSTATUS AppendRulesFromUserBlock(
-    _Inout_ PPROTECTION_RULE_SET RuleSet,
-    _In_reads_bytes_(BytesRead) PUCHAR Buffer,
-    _In_ ULONG BytesRead,
-    _In_ RULE_TYPE RuleType,
-    _In_ BOOLEAN IsUtf16Le)
-{
-    if (BytesRead == 0)
-        return STATUS_SUCCESS;
-
-    if (BytesRead > MAX_RULE_BLOB_SECTION_SIZE)
-        return STATUS_INVALID_BUFFER_SIZE;
-
-    if (IsUtf16Le)
-        return AppendRulesFromWideBlock(RuleSet, Buffer, BytesRead, RuleType);
-
-    return AppendRulesFromBuffer(RuleSet, Buffer, BytesRead, RuleType);
-}
-
-static VOID FreeLocalRuleSets(_Inout_updates_(RuleTypeMax) PROTECTION_RULE_SET RuleSets[RuleTypeMax])
-{
-    for (int i = 0; i < RuleTypeMax; ++i)
-        FreeRuleSet(&RuleSets[i]);
-}
-
-// ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
 NTSTATUS InitializeProtectionRules()
 {
     //
-    // Legacy no-op. Disk-backed rule loading from a boot/start kernel driver was
-    // removed intentionally. Use IOCTL_HYDRADRAGON_SET_RULES from the
-    // HydraDragon user-mode service after the filesystem is available.
+    // Hardcoded rules for boot-time protection.
+    // Instead of waiting for Sanctum to send rules over IOCTL, we populate
+    // a base set of rules here to ensure protection starts immediately.
     //
-    EnsureRuleMutexInitialized();
-    DbgPrint("[ProtectionRules] InitializeProtectionRules is a no-op; use rule IOCTL\n");
-    return STATUS_SUCCESS;
-}
-
-NTSTATUS SetProtectionRulesFromUserBuffer(
-    _In_reads_bytes_(InputLength) PVOID InputBuffer,
-    _In_ ULONG InputLength)
-{
-    if (KeGetCurrentIrql() != PASSIVE_LEVEL)
-        return STATUS_INVALID_LEVEL;
-
-    if (!InputBuffer || InputLength < sizeof(HYDRADRAGON_RULE_BLOB))
-        return STATUS_INVALID_PARAMETER;
-
-    PHYDRADRAGON_RULE_BLOB header = (PHYDRADRAGON_RULE_BLOB)InputBuffer;
-
-    if (header->Magic != HYDRADRAGON_RULE_BLOB_MAGIC ||
-        header->Version != HYDRADRAGON_RULE_BLOB_VERSION)
-    {
-        return STATUS_INVALID_PARAMETER;
-    }
-
-    if ((header->Flags & ~HYDRADRAGON_RULES_FLAG_UTF16LE) != 0)
-        return STATUS_INVALID_PARAMETER;
-
-    if (header->ProcessRulesBytes > MAX_RULE_BLOB_SECTION_SIZE ||
-        header->FileRulesBytes > MAX_RULE_BLOB_SECTION_SIZE ||
-        header->RegistryRulesBytes > MAX_RULE_BLOB_SECTION_SIZE)
-    {
-        return STATUS_INVALID_BUFFER_SIZE;
-    }
-
-    SIZE_T total = sizeof(HYDRADRAGON_RULE_BLOB);
-    total += (SIZE_T)header->ProcessRulesBytes;
-    total += (SIZE_T)header->FileRulesBytes;
-    total += (SIZE_T)header->RegistryRulesBytes;
-
-    if (total > InputLength)
-        return STATUS_INVALID_BUFFER_SIZE;
-
-    PROTECTION_RULE_SET newRuleSets[RuleTypeMax] = { 0 };
-    PUCHAR cursor = (PUCHAR)(header + 1);
-    BOOLEAN isUtf16Le = ((header->Flags & HYDRADRAGON_RULES_FLAG_UTF16LE) != 0);
-    NTSTATUS status;
-
-    status = AppendRulesFromUserBlock(
-        &newRuleSets[RuleTypeProcess],
-        cursor,
-        header->ProcessRulesBytes,
-        RuleTypeProcess,
-        isUtf16Le);
-    if (!NT_SUCCESS(status))
-        goto Fail;
-
-    cursor += header->ProcessRulesBytes;
-
-    status = AppendRulesFromUserBlock(
-        &newRuleSets[RuleTypeFile],
-        cursor,
-        header->FileRulesBytes,
-        RuleTypeFile,
-        isUtf16Le);
-    if (!NT_SUCCESS(status))
-        goto Fail;
-
-    cursor += header->FileRulesBytes;
-
-    status = AppendRulesFromUserBlock(
-        &newRuleSets[RuleTypeRegistry],
-        cursor,
-        header->RegistryRulesBytes,
-        RuleTypeRegistry,
-        isUtf16Le);
-    if (!NT_SUCCESS(status))
-        goto Fail;
-
     EnsureRuleMutexInitialized();
 
     ExAcquireFastMutex(&g_RuleMutex);
+    
+    // --- FILE PROTECTION RULES ---
+    AddRuleString(&g_RuleSets[RuleTypeFile], L"\\??\\C:\\Program Files\\HydraDragonAntivirus", 40, RuleTypeFile);
+    AddRuleString(&g_RuleSets[RuleTypeFile], L"\\??\\C:\\ProgramData\\HydraDragonAntivirus", 39, RuleTypeFile);
+    AddRuleString(&g_RuleSets[RuleTypeFile], L"\\??\\C:\\ProgramData\\edrsvc", 24, RuleTypeFile);
+    AddRuleString(&g_RuleSets[RuleTypeFile], L"\\??\\C:\\Windows\\System32\\sanctum.dll", 36, RuleTypeFile);
+    AddRuleString(&g_RuleSets[RuleTypeFile], L"\\??\\C:\\Windows\\System32\\tasks\\hydradragonantivirus", 47, RuleTypeFile);
+    AddRuleString(&g_RuleSets[RuleTypeFile], L"\\??\\C:\\Windows\\System32\\drivers\\owlyshieldransomfilter.sys", 60, RuleTypeFile);
+    AddRuleString(&g_RuleSets[RuleTypeFile], L"\\??\\C:\\Windows\\System32\\drivers\\RedDbgDrv.sys", 47, RuleTypeFile);
+    AddRuleString(&g_RuleSets[RuleTypeFile], L"\\??\\C:\\Windows\\System32\\drivers\\hyperhv.sys", 45, RuleTypeFile);
+    AddRuleString(&g_RuleSets[RuleTypeFile], L"\\??\\C:\\Windows\\System32\\drivers\\simplepyasprotection.sys", 59, RuleTypeFile);
+    AddRuleString(&g_RuleSets[RuleTypeFile], L"\\??\\C:\\Windows\\System32\\drivers\\mbrfilter.sys", 47, RuleTypeFile);
+    AddRuleString(&g_RuleSets[RuleTypeFile], L"\\??\\C:\\Windows\\System32\\drivers\\fs_minifilter.sys", 51, RuleTypeFile);
+    AddRuleString(&g_RuleSets[RuleTypeFile], L"\\??\\C:\\Windows\\System32\\drivers\\sanctum.sys", 45, RuleTypeFile);
+    AddRuleString(&g_RuleSets[RuleTypeFile], L"\\??\\C:\\Windows\\System32\\drivers\\edrdrv.sys", 44, RuleTypeFile);
+    AddRuleString(&g_RuleSets[RuleTypeFile], L"\\??\\C:\\Windows\\System32\\edrpm64.dll", 36, RuleTypeFile);
+    AddRuleString(&g_RuleSets[RuleTypeFile], L"\\??\\C:\\Windows\\System32\\edrpm32.dll", 36, RuleTypeFile);
+    AddRuleString(&g_RuleSets[RuleTypeFile], L"\\??\\C:\\Windows\\System32\\edrmm.dll", 34, RuleTypeFile);
 
-    for (int i = 0; i < RuleTypeMax; ++i)
-        FreeRuleSet(&g_RuleSets[i]);
+    // --- PROCESS PROTECTION RULES ---
+    AddRuleString(&g_RuleSets[RuleTypeProcess], L"\\??\\C:\\Program Files\\HydraDragonAntivirus", 40, RuleTypeProcess);
+    AddRuleString(&g_RuleSets[RuleTypeProcess], L"\\??\\C:\\ProgramData\\HydraDragonAntivirus", 39, RuleTypeProcess);
+    AddRuleString(&g_RuleSets[RuleTypeProcess], L"\\??\\C:\\ProgramData\\edrsvc", 24, RuleTypeProcess);
+    AddRuleString(&g_RuleSets[RuleTypeProcess], L"\\??\\C:\\Windows\\System32\\drivers\\sanctum.sys", 45, RuleTypeProcess);
+    AddRuleString(&g_RuleSets[RuleTypeProcess], L"\\??\\C:\\Windows\\System32\\drivers\\edrdrv.sys", 44, RuleTypeProcess);
+    AddRuleString(&g_RuleSets[RuleTypeProcess], L"\\??\\C:\\Windows\\System32\\drivers\\OwlyshieldRansomFilter.sys", 61, RuleTypeProcess);
+    AddRuleString(&g_RuleSets[RuleTypeProcess], L"\\??\\C:\\Windows\\System32\\drivers\\RedDbgDrv.sys", 47, RuleTypeProcess);
+    AddRuleString(&g_RuleSets[RuleTypeProcess], L"\\??\\C:\\Windows\\System32\\drivers\\hyperhv.sys", 45, RuleTypeProcess);
 
-    for (int i = 0; i < RuleTypeMax; ++i)
-    {
-        g_RuleSets[i] = newRuleSets[i];
-        RtlZeroMemory(&newRuleSets[i], sizeof(PROTECTION_RULE_SET));
-    }
+    // --- REGISTRY PROTECTION RULES ---
+    AddRuleString(&g_RuleSets[RuleTypeRegistry], L"HKLM\\SOFTWARE\\Owlyshield", 25, RuleTypeRegistry);
+    AddRuleString(&g_RuleSets[RuleTypeRegistry], L"HKLM\\SYSTEM\\CurrentControlSet\\Services\\owlyshield_ransom", 57, RuleTypeRegistry);
+    AddRuleString(&g_RuleSets[RuleTypeRegistry], L"HKLM\\SYSTEM\\CurrentControlSet\\Services\\SimplePYASProtection", 62, RuleTypeRegistry);
+    AddRuleString(&g_RuleSets[RuleTypeRegistry], L"HKLM\\SYSTEM\\CurrentControlSet\\Services\\RedDbg", 46, RuleTypeRegistry);
+    AddRuleString(&g_RuleSets[RuleTypeRegistry], L"HKLM\\SYSTEM\\CurrentControlSet\\Services\\HyperDbg", 48, RuleTypeRegistry);
+    AddRuleString(&g_RuleSets[RuleTypeRegistry], L"HKLM\\SYSTEM\\CurrentControlSet\\Services\\hyperhv", 47, RuleTypeRegistry);
+    AddRuleString(&g_RuleSets[RuleTypeRegistry], L"HKLM\\SYSTEM\\CurrentControlSet\\Services\\sanctum_ppl_runner", 58, RuleTypeRegistry);
+    AddRuleString(&g_RuleSets[RuleTypeRegistry], L"HKLM\\SYSTEM\\CurrentControlSet\\Services\\MBRFilter", 49, RuleTypeRegistry);
+    AddRuleString(&g_RuleSets[RuleTypeRegistry], L"HKLM\\SYSTEM\\CurrentControlSet\\Services\\fs_minifilter", 53, RuleTypeRegistry);
+    AddRuleString(&g_RuleSets[RuleTypeRegistry], L"HKLM\\SYSTEM\\CurrentControlSet\\Services\\sanctum", 47, RuleTypeRegistry);
+    AddRuleString(&g_RuleSets[RuleTypeRegistry], L"HKLM\\SYSTEM\\CurrentControlSet\\Services\\edrdrv", 47, RuleTypeRegistry);
+    AddRuleString(&g_RuleSets[RuleTypeRegistry], L"HKLM\\SYSTEM\\CurrentControlSet\\Services\\edrsvc", 47, RuleTypeRegistry);
+    AddRuleString(&g_RuleSets[RuleTypeRegistry], L"HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon", 63, RuleTypeRegistry);
 
     g_RulesLoaded = TRUE;
 
-    ULONG processCount = g_RuleSets[RuleTypeProcess].Count;
-    ULONG fileCount = g_RuleSets[RuleTypeFile].Count;
-    ULONG registryCount = g_RuleSets[RuleTypeRegistry].Count;
-
     ExReleaseFastMutex(&g_RuleMutex);
 
-    DbgPrint("[ProtectionRules] Installed rules: process=%lu file=%lu registry=%lu\n",
-        processCount,
-        fileCount,
-        registryCount);
-
+    DbgPrint("[ProtectionRules] InitializeProtectionRules: %lu file, %lu process, %lu registry rules installed\n",
+        g_RuleSets[RuleTypeFile].Count, g_RuleSets[RuleTypeProcess].Count, g_RuleSets[RuleTypeRegistry].Count);
     return STATUS_SUCCESS;
-
-Fail:
-    FreeLocalRuleSets(newRuleSets);
-    return status;
 }
+
+// Function removed because rules are no longer pushed from user mode
 
 VOID CleanupProtectionRules()
 {

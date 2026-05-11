@@ -3,8 +3,14 @@ name: vs2022hydradragonav-ci
 on:
   push:
     branches: ["**"]
+    paths:
+      - 'HydraDragonAV/**'
+      - '.github/workflows/vs2022hydradragonav.yml'
   pull_request:
     branches: ["**"]
+    paths:
+      - 'HydraDragonAV/**'
+      - '.github/workflows/vs2022hydradragonav.yml'
   workflow_dispatch:
 
 env:
@@ -42,4 +48,6 @@ jobs:
       uses: actions/upload-artifact@v7
       with:
         name: hydradragonav_release_binaries_${{matrix.PLATFORM}}
-        path: ${{ env.BUILD_BIN_DIR }}${{matrix.BUILD_CONFIGURATION}}/
+        path: |
+          ${{ env.BUILD_BIN_DIR }}${{matrix.BUILD_CONFIGURATION}}/**
+          !${{ env.BUILD_BIN_DIR }}${{matrix.BUILD_CONFIGURATION}}/**/*.cer

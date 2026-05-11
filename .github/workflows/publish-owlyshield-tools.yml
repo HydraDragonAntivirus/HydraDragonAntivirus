@@ -1,0 +1,70 @@
+name: Publish Owlyshield Tools
+
+on:
+  push:
+    branches: ["**"]
+    paths:
+      - "Owlyshield/tools/**"
+      - ".github/workflows/publish-owlyshield-tools.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  publish-tools:
+    runs-on: windows-2022
+    steps:
+      - name: Enable Git long paths
+        run: git config --global core.longpaths true
+
+      - uses: actions/checkout@v6
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build Rust Win Toast
+        working-directory: Owlyshield/tools/rust_win_toast
+        run: cargo build --release
+
+      - name: Stage Tools Files
+        shell: pwsh
+        run: |
+          $utilsDir = "hydradragon/Owlyshield/utils"
+          if (-not (Test-Path $utilsDir)) {
+            New-Item -ItemType Directory -Force -Path $utilsDir | Out-Null
+          }
+          Copy-Item "Owlyshield/tools/rust_win_toast/target/release/RustWindowsToast.exe" $utilsDir -Force
+
+      - name: Set up MSVC Developer Command Prompt
+        uses: TheMrMilchmann/setup-msvc-dev@v4
+        with:
+          arch: x64
+
+      - name: Check for publishable changes
+        id: check_changes
+        uses: ./.github/actions/check-publishable-changes
+        with:
+          paths: |
+            hydradragon/Owlyshield/utils
+            hydradragon/Owlyshield/Owlyshield Service/tensorflowlite_c.dll
+            Owlyshield/tools/rust_win_toast/Cargo.lock
+
+      - name: Create PR
+        if: steps.check_changes.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@v8
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "chore(owlyshield): update tools binaries"
+          title: "Update Owlyshield tools binaries"
+          body: "Automated build and update for Owlyshield tools (rust_win_toast)."
+          add-paths: |
+            ${{ steps.check_changes.outputs.publishable_files }}
+          branch: "auto-update-owlyshield-tools"
+          base: ${{ github.ref_name }}
+          delete-branch: true
+          labels: binaries, automated-pr, owlyshield, tools

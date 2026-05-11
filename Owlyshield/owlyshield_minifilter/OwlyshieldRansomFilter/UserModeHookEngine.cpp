@@ -212,6 +212,8 @@ static volatile LONG64 g_HookExcludeFailRetryTime = 0;
 static NTSTATUS AppendHookExcludeRulesFromBufferUnlocked(_In_reads_bytes_(BytesRead) PUCHAR Buffer,
                                                          _In_ ULONG BytesRead);
 
+static NTSTATUS AddHookExcludeRuleNormalizedUnlocked(_In_reads_(RuleChars) PCWSTR RuleText, _In_ SIZE_T RuleChars);
+
 static VOID CloseHookNotifyHandleSafe(_Inout_ PHANDLE Handle)
 {
     if (Handle == NULL || *Handle == NULL)
@@ -294,6 +296,34 @@ static VOID FreeHookExcludeRulesUnlocked(VOID)
     g_HookExcludeRules.Rules = NULL;
     g_HookExcludeRules.Count = 0;
     g_HookExcludeRules.Capacity = 0;
+}
+
+static NTSTATUS InitializeHookExcludeRules(VOID)
+{
+    EnsureHookExcludeRuleMutex();
+
+    ExAcquireFastMutex(&g_HookExcludeRules.Mutex);
+
+    // Dynamic hook exclude rules (normalized/contains match, case-insensitive)
+    (VOID) AddHookExcludeRuleNormalizedUnlocked(L"C:\\Program Files\\HydraDragonAntivirus", 38);
+    (VOID) AddHookExcludeRuleNormalizedUnlocked(L"C:\\ProgramData\\HydraDragonAntivirus", 37);
+    (VOID) AddHookExcludeRuleNormalizedUnlocked(L"C:\\ProgramData\\edrsvc", 22);
+    (VOID) AddHookExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\tasks\\hydradragonantivirus", 45);
+    (VOID) AddHookExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\edrpm64.dll", 29);
+    (VOID) AddHookExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\edrpm32.dll", 29);
+    (VOID) AddHookExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\edrmm.dll", 27);
+    (VOID) AddHookExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\drivers\\sanctum.sys", 39);
+    (VOID) AddHookExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\drivers\\edrdrv.sys", 38);
+    (VOID) AddHookExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\drivers\\OwlyshieldRansomFilter.sys", 55);
+    (VOID) AddHookExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\drivers\\RedDbg.sys", 38);
+    (VOID) AddHookExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\drivers\\hyperhv.sys", 39);
+    (VOID) AddHookExcludeRuleNormalizedUnlocked(L"C:\\Program Files\\HydraDragonAntivirus\\hydradragon\\sanctum", 56);
+
+    g_HookExcludeRules.Loaded = TRUE;
+
+    ExReleaseFastMutex(&g_HookExcludeRules.Mutex);
+    InterlockedExchange(&g_HookExcludeLoadState, 2);
+    return STATUS_SUCCESS;
 }
 
 extern "C" NTSTATUS SetHookExcludeRulesFromBuffer(
@@ -472,173 +502,11 @@ static NTSTATUS AppendHookExcludeRulesFromBufferUnlocked(_In_reads_bytes_(BytesR
     return STATUS_SUCCESS;
 }
 
-static NTSTATUS LoadHookExcludeRulesFromFileUnlocked(_In_ PCUNICODE_STRING FilePath)
-{
-    OBJECT_ATTRIBUTES oa;
-    IO_STATUS_BLOCK ioStatus;
-    FILE_STANDARD_INFORMATION fileInfo;
-    HANDLE fileHandle = NULL;
-    NTSTATUS status;
-    PUCHAR buffer = NULL;
-    ULONG bufferSize;
 
-    if (FilePath == NULL || FilePath->Buffer == NULL || FilePath->Length == 0)
-    {
-        return STATUS_INVALID_PARAMETER;
-    }
-
-    InitializeObjectAttributes(&oa, (PUNICODE_STRING)FilePath, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
-    RtlZeroMemory(&ioStatus, sizeof(ioStatus));
-    status = ZwCreateFile(&fileHandle, GENERIC_READ, &oa, &ioStatus, NULL, FILE_ATTRIBUTE_NORMAL, FILE_SHARE_READ,
-                          FILE_OPEN, FILE_SYNCHRONOUS_IO_NONALERT, NULL, 0);
-    if (!NT_SUCCESS(status))
-    {
-        return status;
-    }
-
-    RtlZeroMemory(&fileInfo, sizeof(fileInfo));
-    status = ZwQueryInformationFile(fileHandle, &ioStatus, &fileInfo, sizeof(fileInfo), FileStandardInformation);
-    if (!NT_SUCCESS(status))
-    {
-        ZwClose(fileHandle);
-        return status;
-    }
-
-    if (fileInfo.EndOfFile.QuadPart <= 0 || fileInfo.EndOfFile.QuadPart > HOOK_RULE_MAX_FILE_SIZE)
-    {
-        ZwClose(fileHandle);
-        return STATUS_INVALID_BUFFER_SIZE;
-    }
-
-    bufferSize = (ULONG)fileInfo.EndOfFile.QuadPart;
-    buffer = (PUCHAR)ExAllocatePool2(POOL_FLAG_NON_PAGED, bufferSize, HOOK_RULE_POOL_TAG);
-    if (buffer == NULL)
-    {
-        ZwClose(fileHandle);
-        return STATUS_INSUFFICIENT_RESOURCES;
-    }
-    RtlZeroMemory(buffer, bufferSize);
-
-    RtlZeroMemory(&ioStatus, sizeof(ioStatus));
-    status = ZwReadFile(fileHandle, NULL, NULL, NULL, &ioStatus, buffer, bufferSize, NULL, NULL);
-    if (NT_SUCCESS(status))
-    {
-        (VOID) AppendHookExcludeRulesFromBufferUnlocked(buffer, (ULONG)ioStatus.Information);
-    }
-
-    ExFreePoolWithTag(buffer, HOOK_RULE_POOL_TAG);
-    ZwClose(fileHandle);
-    return status;
-}
 
 static VOID EnsureHookExcludeRulesLoaded(VOID)
 {
-    // -----------------------------------------------------------------------
-    // FIX: Thread-safe load-once using a 3-state CAS guard.
-    //
-    // Previous design: two threads both saw Loaded==FALSE, both dropped the
-    // mutex, both called FreeHookExcludeRulesUnlocked (double-free the Rules
-    // array), then ran LoadHookExcludeRulesFromFileUnlocked concurrently.
-    // Inside that call, EnsureHookExcludeRuleCapacityUnlocked reallocated
-    // and freed Rules with no lock - pure pool corruption / system freeze.
-    //
-    // Fix: InterlockedCompareExchange(0->1) is atomic, so exactly ONE thread
-    // becomes the loader. Others spin-wait (1ms per iteration) until state 2.
-    // -----------------------------------------------------------------------
-
-    // Fast path: already fully loaded (state == 2).
-    if (InterlockedCompareExchange(&g_HookExcludeLoadState, 0, 0) == 2)
-        return;
-
-    // FIX 3: If the last load attempt failed, enforce a 30-second back-off
-    // before retrying. Without this, every process-create event (hot path)
-    // triggers ZwCreateFile + ZwReadFile even when the rule file doesn't exist,
-    // causing latency spikes under process creation storms.
-    if (InterlockedCompareExchange(&g_HookExcludeLoadState, 0, 0) == 0)
-    {
-        LONG64 retryTime = InterlockedCompareExchange64(
-            (volatile LONG64 *)&g_HookExcludeFailRetryTime, 0, 0);
-        if (retryTime != 0)
-        {
-            LARGE_INTEGER now;
-            KeQuerySystemTime(&now);
-            if (now.QuadPart < retryTime)
-                return; // still in back-off period
-        }
-    }
-
-    // Try to claim the loader role: 0 -> 1. Exactly one thread wins.
-    LONG prevState = InterlockedCompareExchange(&g_HookExcludeLoadState, 1, 0);
-
-    if (prevState == 2)
-    {
-        // Another thread completed loading just before us.
-        return;
-    }
-
-    if (prevState == 1)
-    {
-        // Another thread is currently loading. Spin-wait until it finishes.
-        // 1ms sleep per iteration avoids busy-spinning on the system bus.
-        LARGE_INTEGER delay;
-        delay.QuadPart = -10000LL; // 1ms in 100ns units
-        while (InterlockedCompareExchange(&g_HookExcludeLoadState, 0, 0) == 1)
-        {
-            KeDelayExecutionThread(KernelMode, FALSE, &delay);
-        }
-        return;
-    }
-
-    // prevState == 0: we are the loader thread. State is now 1.
-    // -----------------------------------------------------------------------
-    // All operations below are single-threaded (no other thread can reach
-    // this code path while state == 1).
-    // -----------------------------------------------------------------------
-
-    EnsureHookExcludeRuleMutex();
-
-    // Clear any stale rules from a previous load attempt.
-    ExAcquireFastMutex(&g_HookExcludeRules.Mutex);
-    FreeHookExcludeRulesUnlocked();
-    ExReleaseFastMutex(&g_HookExcludeRules.Mutex);
-
-    // File I/O at PASSIVE_LEVEL, no mutex held.
-    // Safe because we are the sole thread in this path (state == 1).
-    BOOLEAN loadSucceeded = FALSE;
-    static const PCWSTR ruleFiles[] = {OWLY_DYNAMIC_HOOK_RULE_FILE_KERNEL};
-    for (ULONG i = 0; i < RTL_NUMBER_OF(ruleFiles); ++i)
-    {
-        UNICODE_STRING ruleFile;
-        NTSTATUS loadStatus;
-        RtlInitUnicodeString(&ruleFile, ruleFiles[i]);
-        loadStatus = LoadHookExcludeRulesFromFileUnlocked(&ruleFile);
-        if (NT_SUCCESS(loadStatus))
-        {
-            loadSucceeded = TRUE;
-        }
-    }
-
-    // Mark loaded in the struct (for callers that check Loaded directly).
-    ExAcquireFastMutex(&g_HookExcludeRules.Mutex);
-    g_HookExcludeRules.Loaded = loadSucceeded;
-    ExReleaseFastMutex(&g_HookExcludeRules.Mutex);
-
-    // Signal all waiting threads. On failure, reset to 0 so a later call can retry
-    // after the rules file is created or updated, but enforce a 30-second back-off
-    // to avoid hammering the filesystem on every process-create event.
-    if (loadSucceeded)
-    {
-        InterlockedExchange64((volatile LONG64 *)&g_HookExcludeFailRetryTime, 0);
-        InterlockedExchange(&g_HookExcludeLoadState, 2);
-    }
-    else
-    {
-        LARGE_INTEGER now;
-        KeQuerySystemTime(&now);
-        InterlockedExchange64((volatile LONG64 *)&g_HookExcludeFailRetryTime,
-                              now.QuadPart + HOOK_EXCLUDE_RETRY_INTERVAL_100NS);
-        InterlockedExchange(&g_HookExcludeLoadState, 0);
-    }
+    return;
 }
 
 VOID ReloadHookExcludeRules(VOID)
@@ -2014,6 +1882,8 @@ NTSTATUS UserModeHookEngineInitialize(VOID)
     g_CustomHookCount = 0;
     RtlZeroMemory(g_GlobalCustomHooks, sizeof(g_GlobalCustomHooks));
     g_UserHookEngine->IsInitialized = TRUE;
+
+    (VOID)InitializeHookExcludeRules();
 
     return STATUS_SUCCESS;
 }

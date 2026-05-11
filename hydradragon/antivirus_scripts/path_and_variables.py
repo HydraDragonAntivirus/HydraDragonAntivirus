@@ -192,7 +192,7 @@ ungarbler_dir = os.path.join(data_dir, "ungarbler")
 ungarbler_string_dir = os.path.join(data_dir, "ungarbler_string")
 html_extracted_dir = os.path.join(data_dir, "html_extracted")
 
-# YARA rules and website data (keep in script_dir as they're read-only reference data)
+# website data (keep in script_dir as they're read-only reference data)
 website_rules_dir = os.path.join(script_dir, "website")
 urlhaus_path = os.path.join(website_rules_dir, "urlhaus.txt")
 antivirus_list_path = os.path.join(script_dir, "hosts", "antivirus_list.txt")
@@ -339,12 +339,3 @@ def get_startup_paths():
 # Explicit hardcoded paths for peer validation
 OWLYSHIELD_RANSOM_EXE = owlyshield_ransom_exe
 FIREWALL_EXE_PATH = firewall_exe_path
-
-# --- Protection Rule File Paths ---
-PROTECTION_RULES_BASE = os.path.join(script_dir, "HydraDragon_Protection_Rules")
-RULE_FILES = [
-    os.path.join(PROTECTION_RULES_BASE, "PYAS", "File", "default_rules.txt"),
-    os.path.join(PROTECTION_RULES_BASE, "Owlyshield", "DynamicHook", "default_rules.txt"),
-    os.path.join(PROTECTION_RULES_BASE, "Owlyshield", "FSFilter", "default_rules.txt"),
-    os.path.join(PROTECTION_RULES_BASE, "Owlyshield", "ProcessProtection", "default_rules.txt"),
-]

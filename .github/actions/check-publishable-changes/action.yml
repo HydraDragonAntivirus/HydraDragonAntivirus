@@ -1,0 +1,140 @@
+name: Check publishable changes
+description: Skip PRs for no-op or empty-file changes.
+
+inputs:
+  paths:
+    description: Newline-separated paths to inspect.
+    required: false
+    default: "."
+
+outputs:
+  changed:
+    description: true when changed files are safe to publish.
+    value: ${{ steps.check.outputs.changed }}
+  zero_byte_files:
+    description: Newline-separated zero-byte files found in changed files.
+    value: ${{ steps.check.outputs.zero_byte_files }}
+  zero_byte_delta_files:
+    description: Newline-separated candidate files ignored because git diff found no content change.
+    value: ${{ steps.check.outputs.zero_byte_delta_files }}
+  publishable_files:
+    description: Newline-separated files that have real publishable content changes.
+    value: ${{ steps.check.outputs.publishable_files }}
+
+runs:
+  using: composite
+  steps:
+    - name: Check changes
+      id: check
+      shell: pwsh
+      run: |
+        $paths = @'
+        ${{ inputs.paths }}
+        '@ -split "`r?`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ }
+
+        $changedFiles = @()
+        foreach ($path in $paths) {
+          $changedFiles += @(git diff --name-only --diff-filter=ACDMR -- $path)
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          $changedFiles += @(git diff --cached --name-only --diff-filter=ACDMR -- $path)
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          $changedFiles += @(git ls-files --others --exclude-standard -- $path)
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        }
+
+        $changedFiles = @($changedFiles | Where-Object { $_ } | Sort-Object -Unique)
+        $pdbFiles = @($changedFiles | Where-Object { $_ -match '(?i)\.pdb$' })
+        if ($pdbFiles.Count -gt 0) {
+          Write-Host "Ignoring PDB debug symbol files:"
+          $pdbFiles | ForEach-Object { Write-Host " - $_" }
+        }
+
+        $changedFiles = @($changedFiles | Where-Object { $_ -notmatch '(?i)\.pdb$' })
+        if ($changedFiles.Count -eq 0) {
+          "changed=false" >> $env:GITHUB_OUTPUT
+          "zero_byte_files=" >> $env:GITHUB_OUTPUT
+          "zero_byte_delta_files=" >> $env:GITHUB_OUTPUT
+          "publishable_files=" >> $env:GITHUB_OUTPUT
+          Write-Host "No publishable changes detected."
+          exit 0
+        }
+
+        $zeroByteFiles = @()
+        foreach ($file in $changedFiles) {
+          if ((Test-Path -LiteralPath $file -PathType Leaf) -and ((Get-Item -LiteralPath $file).Length -eq 0)) {
+            $zeroByteFiles += $file
+          }
+        }
+
+        if ($zeroByteFiles.Count -gt 0) {
+          "changed=false" >> $env:GITHUB_OUTPUT
+          "zero_byte_files<<EOF" >> $env:GITHUB_OUTPUT
+          $zeroByteFiles >> $env:GITHUB_OUTPUT
+          "EOF" >> $env:GITHUB_OUTPUT
+          "zero_byte_delta_files=" >> $env:GITHUB_OUTPUT
+          "publishable_files=" >> $env:GITHUB_OUTPUT
+          Write-Host "Skipping PR because these changed files are zero bytes:"
+          $zeroByteFiles | ForEach-Object { Write-Host " - $_" }
+          exit 0
+        }
+
+        $publishableFiles = @()
+        $zeroByteDeltaFiles = @()
+
+        foreach ($file in $changedFiles) {
+          $untrackedMatches = @(git ls-files --others --exclude-standard -- $file)
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          if ($untrackedMatches -contains $file) {
+            $publishableFiles += $file
+            continue
+          }
+
+          $hasDiff = $false
+
+          git diff --quiet -- $file
+          if ($LASTEXITCODE -eq 1) {
+            $hasDiff = $true
+          } elseif ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+          }
+
+          git diff --cached --quiet -- $file
+          if ($LASTEXITCODE -eq 1) {
+            $hasDiff = $true
+          } elseif ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+          }
+
+          if ($hasDiff) {
+            $publishableFiles += $file
+          } else {
+            $zeroByteDeltaFiles += $file
+          }
+        }
+
+        $publishableFiles = @($publishableFiles | Sort-Object -Unique)
+        $zeroByteDeltaFiles = @($zeroByteDeltaFiles | Sort-Object -Unique)
+
+        if ($publishableFiles.Count -eq 0) {
+          "changed=false" >> $env:GITHUB_OUTPUT
+          "zero_byte_files=" >> $env:GITHUB_OUTPUT
+          "zero_byte_delta_files<<EOF" >> $env:GITHUB_OUTPUT
+          $zeroByteDeltaFiles >> $env:GITHUB_OUTPUT
+          "EOF" >> $env:GITHUB_OUTPUT
+          "publishable_files=" >> $env:GITHUB_OUTPUT
+          Write-Host "Skipping PR because git diff found no content changes:"
+          $zeroByteDeltaFiles | ForEach-Object { Write-Host " - $_" }
+          exit 0
+        }
+
+        "changed=true" >> $env:GITHUB_OUTPUT
+        "zero_byte_files=" >> $env:GITHUB_OUTPUT
+        "zero_byte_delta_files=" >> $env:GITHUB_OUTPUT
+        "publishable_files<<EOF" >> $env:GITHUB_OUTPUT
+        $publishableFiles >> $env:GITHUB_OUTPUT
+        "EOF" >> $env:GITHUB_OUTPUT
+        Write-Host "Publishable changes detected:"
+        $publishableFiles | ForEach-Object { Write-Host " - $_" }

@@ -3,8 +3,14 @@ name: Owlyshield Rust Windows
 on:
   push:
     branches: [ "**" ]
+    paths:
+      - 'Owlyshield/owlyshield_predict/**'
+      - '.github/workflows/owlyshield-rust-windows.yml'
   pull_request:
     branches: [ "**" ]
+    paths:
+      - 'Owlyshield/owlyshield_predict/**'
+      - '.github/workflows/owlyshield-rust-windows.yml'
   workflow_dispatch:
     inputs:
       update_lockfile:

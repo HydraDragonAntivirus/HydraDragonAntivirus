@@ -4,8 +4,14 @@ on:
   push:
     branches: ["**"]
     tags: ["v*"]
+    paths:
+      - 'TinyAntivirus/**'
+      - '.github/workflows/vs2022tinyantivirus.yml'
   pull_request:
     branches: ["**"]
+    paths:
+      - 'TinyAntivirus/**'
+      - '.github/workflows/vs2022tinyantivirus.yml'
   workflow_dispatch:
 
 env:
@@ -53,5 +59,7 @@ jobs:
       with:
         name: tinyantivirus_release_binaries_${{matrix.PLATFORM}}
         path: |
-          ./TinyAntivirus/x64/${{matrix.BUILD_CONFIGURATION}}/
-          ./TinyAntivirus/${{matrix.BUILD_CONFIGURATION}}/
+          ./TinyAntivirus/x64/${{matrix.BUILD_CONFIGURATION}}/**
+          !./TinyAntivirus/x64/${{matrix.BUILD_CONFIGURATION}}/**/*.cer
+          ./TinyAntivirus/${{matrix.BUILD_CONFIGURATION}}/**
+          !./TinyAntivirus/${{matrix.BUILD_CONFIGURATION}}/**/*.cer
