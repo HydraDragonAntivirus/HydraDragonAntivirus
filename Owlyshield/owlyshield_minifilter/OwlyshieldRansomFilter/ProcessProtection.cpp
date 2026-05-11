@@ -1070,7 +1070,7 @@ NTSTATUS QueueTerminationAttemptToUserMode(PEPROCESS AttackerProcess, PEPROCESS 
     // fall back to PID-based resolution if the cache has no entry yet.
     PopulateIrpProcessPath(newEntry, (ULONG)(ULONG_PTR)targetPid, FALSE);
 
-#ifdef IS_DEBUG_IRP
+#if IS_DEBUG_IRP
     DbgPrint("!!! ProcessProtection: Termination attempt detected - Attacker PID %d (GID %llu) -> Target PID %d (GID "
              "%llu)\n",
              (ULONG)(ULONG_PTR)attackerPid, attackerGid, (ULONG)(ULONG_PTR)targetPid, targetGid);
@@ -1115,7 +1115,7 @@ NTSTATUS OnProcessCreate(_In_ HANDLE ProcessId, _In_ HANDLE ParentProcessId)
     newItem->Gid = driverData->GetProcessGid(pid, &found);
     PopulateIrpProcessPath(newEntry, pid, TRUE);
 
-#ifdef IS_DEBUG_IRP
+#if IS_DEBUG_IRP
     DbgPrint("!!! ProcessProtection: Process created - PID %lu (Parent: %lu, GID: %llu)\n", pid, parentPid,
              newItem->Gid);
 #endif
@@ -1153,7 +1153,7 @@ NTSTATUS OnProcessExit(_In_ HANDLE ProcessId)
     newItem->Gid = driverData->GetProcessGid(pid, &found);
     PopulateIrpProcessPath(newEntry, pid, FALSE);
 
-#ifdef IS_DEBUG_IRP
+#if IS_DEBUG_IRP
     DbgPrint("!!! ProcessProtection: Process exited - PID %lu (GID: %llu)\n", pid, newItem->Gid);
 #endif
 
@@ -1207,7 +1207,7 @@ NTSTATUS OnProcessHandleOperation(_In_ HANDLE CallerProcessId, _In_ HANDLE Targe
     newItem->KernelEventInfo.TargetProcessId = targetPid;
     PopulateIrpProcessPath(newEntry, targetPid, FALSE);
 
-#ifdef IS_DEBUG_IRP
+#if IS_DEBUG_IRP
     DbgPrint("!!! ProcessProtection: Process handle opened - Caller PID %lu -> Target PID %lu (Access: 0x%X, Op: %u)\n",
              callerPid, targetPid, DesiredAccess, OperationType);
 #endif
@@ -1407,7 +1407,7 @@ NTSTATUS OnMemoryProtectionChange(_In_ ULONG SourcePid, _In_ ULONG TargetPid, _I
     newItem->KernelEventInfo.AccessMask = PROCESS_VM_OPERATION;
     SetKernelEventObjectName(newItem, L"IRP_KERNEL_PROTECT_MEMORY");
 
-#ifdef IS_DEBUG_IRP
+#if IS_DEBUG_IRP
     DbgPrint("!!! ProcessProtection: Memory protection change - Source PID %lu -> Target PID %lu (Old: 0x%X, New: "
              "0x%X, Executable: %u)\n",
              SourcePid, TargetPid, OldProtection, NewProtection, IsExecutableProtection(NewProtection));
@@ -1457,7 +1457,7 @@ NTSTATUS OnThreadCreation(_In_ ULONG SourcePid, _In_ ULONG TargetPid, _In_ PVOID
     newItem->KernelEventInfo.AccessMask = PROCESS_CREATE_THREAD;
     SetKernelEventObjectName(newItem, L"IRP_KERNEL_REMOTE_THREAD");
 
-#ifdef IS_DEBUG_IRP
+#if IS_DEBUG_IRP
     DbgPrint("!!! ProcessProtection: Remote thread creation - Source PID %lu -> Target PID %lu (Start: %p)\n",
              SourcePid, TargetPid, StartRoutine);
 #endif
@@ -1563,7 +1563,7 @@ NTSTATUS OnSectionOperation(_In_ ULONG SourcePid, _In_ ULONG TargetPid, _In_opt_
         newEntry->filePath.MaximumLength = MAX_FILE_NAME_SIZE;
     }
 
-#ifdef IS_DEBUG_IRP
+#if IS_DEBUG_IRP
     DbgPrint("!!! ProcessProtection: Section operation - Source PID %lu -> Target PID %lu (Type: %u, Name: %ws)\n",
              SourcePid, TargetPid, OperationType, SectionName ? SectionName : L"<unnamed>");
 #endif

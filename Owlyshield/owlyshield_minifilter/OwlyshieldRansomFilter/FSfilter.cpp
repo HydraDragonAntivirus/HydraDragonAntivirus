@@ -1451,8 +1451,9 @@ Arguments:
         return FLT_PREOP_SUCCESS_NO_CALLBACK; // system process -  skip
     if (FltGetRequestorProcessId(Data) == driverData->getPID())
     {
-        if (IS_DEBUG_IRP)
+        #if IS_DEBUG_IRP
             DbgPrint("!!! FSfilter: Allowing pre op for trusted process, no post op\n");
+        #endif
 
         return FLT_PREOP_SUCCESS_NO_CALLBACK;
     }
@@ -1718,16 +1719,18 @@ FSProcessPreOperation(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECT
 
         if (!isGidFound)
         {
-            if (IS_DEBUG_IRP)
+            #if IS_DEBUG_IRP
                 DbgPrint("!!! FSfilter: Item does not have a gid, skipping after discovery attempt\n");
+            #endif
             FltReleaseFileNameInformation(nameInfo);
             delete newEntry;
             return FLT_PREOP_SUCCESS_NO_CALLBACK;
         }
     }
 
-    if (IS_DEBUG_IRP)
+    #if IS_DEBUG_IRP
         DbgPrint("!!! FSfilter: Registring new irp for Gid: %d with pid: %d\n", (ULONG)gid, newItem->PID);
+    #endif
     newItem->Gid = gid;
 
     // get file id
@@ -1741,9 +1744,9 @@ FSProcessPreOperation(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECT
 
     if (isProtectedPath)
     {
-        // Keeping user's DbgPrint here
-        if (IS_DEBUG_IRP)
+            #if IS_DEBUG_IRP
             DbgPrint("!!! FSfilter: File in scan area \n");
+        #endif
         newItem->FileLocationInfo = FILE_PROTECTED;
     }
 
@@ -1752,9 +1755,9 @@ FSProcessPreOperation(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECT
         CopyExtension(newItem->Extension, nameInfo);
     }
 
-    // Keeping user's DbgPrint here
-    if (IS_DEBUG_IRP)
+    #if IS_DEBUG_IRP
         DbgPrint("!!! FSfilter: Logging IRP op: %s \n", FltGetIrpName(Data->Iopb->MajorFunction));
+    #endif
 
     // Release nameInfo only if not IRP_MJ_SET_INFORMATION (which might need it later)
     if (Data->Iopb->MajorFunction != IRP_MJ_SET_INFORMATION)
@@ -1766,27 +1769,29 @@ FSProcessPreOperation(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECT
         newItem->IRP_OP = IRP_READ;
         if (Data->Iopb->Parameters.Read.Length == 0) // no data to read
         {
-            // Fix: Clean up memory before returning (user's original code leaked memory here)
+            // Fix: Clean up memory before returning
             delete newEntry;
-            // Keeping user's DbgPrint here
+        #if IS_DEBUG_IRP
             DbgPrint("FSfilter: IRP READ NOCALLBACK LENGTH IS ZERO! \n");
+        #endif
             return FLT_PREOP_SUCCESS_NO_CALLBACK;
         }
         if (FSShouldBypassReadTelemetry(Data))
         {
             delete newEntry;
-            if (IS_DEBUG_IRP)
+        #if IS_DEBUG_IRP
                 DbgPrint("!!! FSfilter: Skipping post-read telemetry for paging/kernel MM read path\n");
+        #endif
             return FLT_PREOP_SUCCESS_NO_CALLBACK;
         }
-        // Keeping user's DbgPrint here
-        if (IS_DEBUG_IRP)
+            #if IS_DEBUG_IRP
             DbgPrint("!!! FSfilter: Preop IRP_MJ_READ, return with postop \n");
+        #endif
         // save context for post, we calculate the entropy of read, we pass the irp to application on post op
         *CompletionContext = newEntry;
-        // Keeping user's DbgPrint here
-        if (IS_DEBUG_IRP)
+            #if IS_DEBUG_IRP
             DbgPrint("FSfilter: IRP READ WITH CALLBACK! ****************** \n");
+        #endif
         return FLT_PREOP_SUCCESS_WITH_CALLBACK;
     }
     case IRP_MJ_CLEANUP:
@@ -1842,9 +1847,9 @@ FSProcessPreOperation(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECT
             }
             __except (EXCEPTION_EXECUTE_HANDLER)
             {
-                // Keeping user's DbgPrint here
-                if (IS_DEBUG_IRP)
+                            #if IS_DEBUG_IRP
                     DbgPrint("!!! FSfilter: Failed to calc entropy (Exception caught, IRP failing)\n");
+                #endif
 
                 // CRITICAL: Ensure FPU state is restored even on exception path before returning
                 if (fpuStateSaved)
@@ -1869,9 +1874,10 @@ FSProcessPreOperation(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECT
         else
         {
             // If FPU state couldn't be saved, skip calculation and continue without entropy.
-            if (IS_DEBUG_IRP)
+            #if IS_DEBUG_IRP
                 DbgPrint("!!! FSfilter: Failed to save FPU state (Status: 0x%X), skipping entropy calculation\n",
                          fpStatus);
+            #endif
             newItem->isEntropyCalc = FALSE;
             newItem->Entropy = 0;
             // Note: fpuStateSaved is false, so no restore needed.
@@ -1992,9 +1998,9 @@ FSProcessPreOperation(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECT
         return FLT_PREOP_SUCCESS_NO_CALLBACK;
     }
 
-    // Keeping user's DbgPrint here
-    if (IS_DEBUG_IRP)
+    #if IS_DEBUG_IRP
         DbgPrint("!!! FSfilter: Adding entry to irps %s\n", FltGetIrpName(Data->Iopb->MajorFunction));
+    #endif
 
     if (!driverData->AddIrpMessage(newEntry))
     {
@@ -2077,7 +2083,7 @@ Return Value:
 
 // DEBUG LOG ONLY IF NOT IN RECURSIVE CONTEXT
 // FIX: Ensure IS_DEBUG_IRP is defined in your header
-#ifdef IS_DEBUG_IRP
+#if IS_DEBUG_IRP
         if (!KeIsExecutingDpc()) // prevent recursion in DPC or debug trap
             DbgPrint("FSfilter: IRP READ WITH CALLBACK! ****************** \n");
 #endif
@@ -2179,10 +2185,11 @@ FSProcessCreateIrp(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECTS F
         }
     }
     newItem->Gid = gid;
-    if (IS_DEBUG_IRP)
+    #if IS_DEBUG_IRP
         DbgPrint(
             "!!! FSfilter: Registring new irp for Gid: %llu with pid: %d\n", gid,
             newItem->PID); // TODO: incase it doesnt exist we can add it with our method that checks for system process
+    #endif
 
     // get file id
     hr = CopyFileIdInfo(Data, newItem);
@@ -2219,7 +2226,9 @@ FSProcessCreateIrp(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECTS F
 
     /*
     if (!FSIsFileNameInScanDirs(FilePath)) {
-        if (IS_DEBUG_IRP) DbgPrint("!!! FSfilter: Skipping uninterented file, not in scan area \n");
+        #if IS_DEBUG_IRP
+            DbgPrint("!!! FSfilter: Skipping uninterented file, not in scan area \n");
+        #endif
         delete newEntry;
         return FLT_POSTOP_FINISHED_PROCESSING;
     }
@@ -2227,14 +2236,16 @@ FSProcessCreateIrp(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECTS F
 
     if (isDir && (Data->IoStatus.Information) == FILE_OPENED)
     {
-        if (IS_DEBUG_IRP)
+        #if IS_DEBUG_IRP
             DbgPrint("!!! FSfilter: Dir listing opened on existing directory\n");
+        #endif
         newItem->FileChange = FILE_OPEN_DIRECTORY;
     }
     else if (isDir)
     {
-        if (IS_DEBUG_IRP)
+        #if IS_DEBUG_IRP
             DbgPrint("!!! FSfilter: Dir but not listing, not importent \n");
+        #endif
         delete newEntry;
         return FLT_POSTOP_FINISHED_PROCESSING;
     }
@@ -2254,8 +2265,9 @@ FSProcessCreateIrp(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECTS F
     {
         newItem->FileChange = FILE_CHANGE_NEW_FILE;
     }
-    if (IS_DEBUG_IRP)
-        DbgPrint("!!! FSfilter: Adding entry to irps\n");
+    #if IS_DEBUG_IRP
+        DbgPrint("!!! FSfilter: Added MJ_CREATE message\n");
+    #endif
     if (!driverData->AddIrpMessage(newEntry))
     {
         delete newEntry;
@@ -2282,8 +2294,9 @@ FSProcessPostReadIrp(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECTS
 
     if (driverData->isFilterClosed() || IsCommClosed())
     {
-        if (IS_DEBUG_IRP)
+        #if IS_DEBUG_IRP
             DbgPrint("!!! FSfilter: Post op read, comm or filter closed\n");
+        #endif
         delete entry;
         return FLT_POSTOP_FINISHED_PROCESSING;
     }
@@ -2372,14 +2385,16 @@ FSProcessPostReadIrp(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECTS
     }
     else
     {
-        if (IS_DEBUG_IRP)
+        #if IS_DEBUG_IRP
             DbgPrint("!!! FSfilter: Failed to save FPU state on Read (Status: 0x%X), skipping entropy calculation\n",
                      fpStatus);
+        #endif
         entry->data.isEntropyCalc = FALSE;
         entry->data.Entropy = 0;
     }
-    if (IS_DEBUG_IRP)
+    #if IS_DEBUG_IRP
         DbgPrint("!!! FSfilter: Addung entry to irps IRP_MJ_READ\n");
+    #endif
     if (!driverData->AddIrpMessage(entry))
     {
         delete entry;
@@ -2447,8 +2462,9 @@ FSProcessPostReadSafe(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECT
                 entry->data.Entropy = 0;
             }
 
-            if (IS_DEBUG_IRP)
+            #if IS_DEBUG_IRP
                 DbgPrint("!!! FSfilter: Adding entry to irps IRP_MJ_READ (Safe)\n");
+            #endif
 
             if (NT_SUCCESS(status) && driverData->AddIrpMessage(entry))
             {
@@ -2624,9 +2640,10 @@ NTSTATUS GetFileNameInfo(_In_ PCFLT_RELATED_OBJECTS FltObjects, PUNICODE_STRING 
 
 VOID CopyExtension(PWCHAR dest, PFLT_FILE_NAME_INFORMATION nameInfo)
 {
-    if (IS_DEBUG_IRP)
+    #if IS_DEBUG_IRP
         DbgPrint("!!! FSfilter: copying the file type extension, extension length: %d, name: %wZ\n",
                  nameInfo->Extension.Length, nameInfo->Extension);
+    #endif
     RtlZeroBytes(dest, (FILE_OBJEC_MAX_EXTENSION_SIZE + 1) * sizeof(WCHAR));
     for (LONG i = 0; i < FILE_OBJEC_MAX_EXTENSION_SIZE; i++)
     {
