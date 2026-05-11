@@ -27,7 +27,9 @@ static PFILE_OBJECT g_HvFileObject = NULL;
 // Callback from Hypervisor (Intel/AMD)
 static VOID NTAPI OwlyHypervisorCallback(PVOID EventDetails) {
     // Process hypervisor events (TRAP_EXECUTION, etc.)
+#if IS_DEBUG_IRP
     DbgPrint("!!! Owlyshield: Received event from Hypervisor at %p\n", EventDetails);
+#endif
 }
 
 NTSTATUS InitVmmCommunication() {
@@ -43,7 +45,9 @@ NTSTATUS InitVmmCommunication() {
     }
 
     if (NT_SUCCESS(status)) {
+#if IS_DEBUG_IRP
         DbgPrint("!!! Owlyshield: Found standalone Hypervisor device. Registering callback...\n");
+#endif
 
         OWLY_HV_COMM_DATA commData = { 0 };
         commData.Magic = 0x4F574C59;
@@ -68,15 +72,21 @@ NTSTATUS InitVmmCommunication() {
         }
 
         if (NT_SUCCESS(status)) {
+#if IS_DEBUG_IRP
             DbgPrint("!!! Owlyshield: Registered callback with standalone Hypervisor successfully.\n");
+#endif
         } else {
+#if IS_DEBUG_IRP
             DbgPrint("!!! Owlyshield: Failed to register callback: 0x%X\n", status);
+#endif
             ObDereferenceObject(g_HvFileObject);
             g_HvFileObject = NULL;
             g_HvDeviceObject = NULL;
         }
     } else {
+#if IS_DEBUG_IRP
         DbgPrint("!!! Owlyshield: No standalone Hypervisor found (Intel/AMD).\n");
+#endif
     }
 
     return status;
@@ -505,7 +515,9 @@ static NTSTATUS HookDeviceControl(_In_ PDEVICE_OBJECT DeviceObject, _In_ PIRP Ir
 
     targetProcessId = ResolveHookTargetProcessId(processId, rawArg1, rawArg2, rawArg3, rawArg4);
 
+#if IS_DEBUG_IRP
     DbgPrint("HookDevice: API HOOKING EVENT RawType=%lu Name=%ws SourcePid=%lu TargetPid=%lu Arg1=0x%p "
+#endif
              "Arg2=0x%p Arg3=0x%p Arg4=0x%p\n",
              eventType, functionName, processId, targetProcessId, (PVOID)rawArg1, (PVOID)rawArg2,
              (PVOID)rawArg3, (PVOID)rawArg4);
@@ -524,7 +536,9 @@ static NTSTATUS HookDeviceControl(_In_ PDEVICE_OBJECT DeviceObject, _In_ PIRP Ir
 static VOID HookNotifyDriverUnload(_In_ PDRIVER_OBJECT DriverObject)
 {
     UNREFERENCED_PARAMETER(DriverObject);
+#if IS_DEBUG_IRP
     DbgPrint("!!! HookDevice: DriverUnload\n");
+#endif
 }
 
 // ----------------------------------------------------------------------------
@@ -562,7 +576,9 @@ static NTSTATUS HookNotifyDriverInit(_In_ PDRIVER_OBJECT DriverObject, _In_ PUNI
 
     if (!NT_SUCCESS(status))
     {
+#if IS_DEBUG_IRP
         DbgPrint("!!! HookDevice: IoCreateDevice failed 0x%X\n", status);
+#endif
         return status;
     }
 
@@ -572,13 +588,17 @@ static NTSTATUS HookNotifyDriverInit(_In_ PDRIVER_OBJECT DriverObject, _In_ PUNI
     status = IoCreateSymbolicLink(&symName, &devName);
     if (!NT_SUCCESS(status))
     {
+#if IS_DEBUG_IRP
         DbgPrint("!!! HookDevice: IoCreateSymbolicLink failed 0x%X\n", status);
+#endif
         IoDeleteDevice(g_HookNotifyDevice);
         g_HookNotifyDevice = NULL;
         return status;
     }
 
+#if IS_DEBUG_IRP
     DbgPrint("!!! HookDevice: Ready at %S\n", OWLY_HOOK_DEVICE_NAME);
+#endif
     return STATUS_SUCCESS;
 }
 
@@ -604,7 +624,9 @@ NTSTATUS InitHookNotifyDevice(_In_ PDRIVER_OBJECT DriverObject)
         fnIoCreateDriver = (PIO_CREATE_DRIVER)MmGetSystemRoutineAddress(&routineName);
         if (fnIoCreateDriver == NULL)
         {
+#if IS_DEBUG_IRP
             DbgPrint("!!! HookDevice: MmGetSystemRoutineAddress(IoCreateDriver) failed\n");
+#endif
             return STATUS_NOT_IMPLEMENTED;
         }
     }
@@ -615,7 +637,9 @@ NTSTATUS InitHookNotifyDevice(_In_ PDRIVER_OBJECT DriverObject)
     NTSTATUS status = fnIoCreateDriver(&driverName, HookNotifyDriverInit);
     if (!NT_SUCCESS(status))
     {
+#if IS_DEBUG_IRP
         DbgPrint("!!! HookDevice: IoCreateDriver failed 0x%X\n", status);
+#endif
         g_HookNotifyDevice = NULL;
         g_HookNotifyDriverObject = NULL;
     }
@@ -639,7 +663,9 @@ VOID CleanupHookNotifyDevice(VOID)
     g_HookNotifyDevice = NULL;
     g_HookNotifyDriverObject = NULL;
 
+#if IS_DEBUG_IRP
     DbgPrint("!!! HookDevice: Cleaned up\n");
+#endif
 }
 
 // Returns the PDEVICE_OBJECT so UserModeHookEngine can use
@@ -878,7 +904,9 @@ NTSTATUS InitCommData()
     status = FltBuildDefaultSecurityDescriptor(&sd, FLT_PORT_ALL_ACCESS);
     if (!NT_SUCCESS(status))
     {
+#if IS_DEBUG_IRP
         DbgPrint("!!! FSfilter: FltBuildDefaultSecurityDescriptor failed: 0x%X\n", status);
+#endif
         return status;
     }
 
@@ -911,7 +939,9 @@ NTSTATUS InitCommData()
 
     if (!NT_SUCCESS(status))
     {
+#if IS_DEBUG_IRP
         DbgPrint("!!! FSfilter: FltCreateCommunicationPort failed: 0x%X\n", status);
+#endif
     }
 
     return status;
@@ -956,14 +986,18 @@ RWFConnect(_In_ PFLT_PORT ClientPort, _In_opt_ PVOID ServerPortCookie,
     FLT_ASSERT(commHandle->ClientPort == NULL);
 
 
+#if IS_DEBUG_IRP
     DbgPrint("!!! FSfilter: RWFConnect - ACCEPTED connection\n");
+#endif
 
     //
     //  Set the user process and port.
     //
 
     commHandle->ClientPort = ClientPort;
+#if IS_DEBUG_IRP
     DbgPrint("!!! user connected, port=0x%p\n", ClientPort);
+#endif
 
     return STATUS_SUCCESS;
 }
@@ -972,7 +1006,9 @@ VOID RWFDissconnect(_In_opt_ PVOID ConnectionCookie)
 {
     UNREFERENCED_PARAMETER(ConnectionCookie);
 
+#if IS_DEBUG_IRP
     DbgPrint("!!! user disconnected, port=0x%p\n", commHandle->ClientPort);
+#endif
 
     //
     //  Close our handle to the connection: note, since we limited max connections to 1,
@@ -984,7 +1020,9 @@ VOID RWFDissconnect(_In_opt_ PVOID ConnectionCookie)
     //
     //  Reset the user-process field.
     //
+#if IS_DEBUG_IRP
     DbgPrint("Disconnent\n");
+#endif
     commHandle->CommClosed = TRUE;
 }
 
@@ -999,7 +1037,9 @@ NTSTATUS KillProcessesInGid(ULONGLONG GID, PLONG OutputStatus, ULONG removalMode
 
     if (gidSize == 0 || isGidExist == FALSE)
     {
+#if IS_DEBUG_IRP
         DbgPrint("!!! FS : Gid already ended or no such gid %llu\n", GID);
+#endif
         *OutputStatus = STATUS_NO_SUCH_GROUP;
         return STATUS_SUCCESS;
     }
@@ -1008,7 +1048,9 @@ NTSTATUS KillProcessesInGid(ULONGLONG GID, PLONG OutputStatus, ULONG removalMode
     PULONG Buffer = (PULONG)ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeof(ULONG) * gidSize, 'RW');
     if (Buffer == nullptr)
     {
+#if IS_DEBUG_IRP
         DbgPrint("!!! FS : memory allocation error on non paged pool\n");
+#endif
         *OutputStatus = STATUS_MEMORY_NOT_ALLOCATED;
         return STATUS_SUCCESS;
     }
@@ -1021,15 +1063,21 @@ NTSTATUS KillProcessesInGid(ULONGLONG GID, PLONG OutputStatus, ULONG removalMode
         // Log the action type
         if (removalMode == 1)
         {
+#if IS_DEBUG_IRP
             DbgPrint("!!! FS : Kill and Quarantine action for GID: %llu\n", GID);
+#endif
         }
         else if (removalMode == 2)
         {
+#if IS_DEBUG_IRP
             DbgPrint("!!! FS : Kill and REMOVE action for GID: %llu\n", GID);
+#endif
         }
         else
         {
+#if IS_DEBUG_IRP
             DbgPrint("!!! FS : Kill Only action for GID: %llu\n", GID);
+#endif
         }
 
         // Kill each process
@@ -1043,7 +1091,9 @@ NTSTATUS KillProcessesInGid(ULONGLONG GID, PLONG OutputStatus, ULONG removalMode
             NTSTATUS exitStatus = STATUS_FAIL_CHECK;
             PUNICODE_STRING exePath = NULL;
 
+#if IS_DEBUG_IRP
             DbgPrint("!!! FS : Attempt to terminate pid: %lu from gid: %llu (mode: %lu)\n", Buffer[i], GID,
+#endif
                      removalMode);
 
             InitializeObjectAttributes(&objAttribs, NULL, OBJ_KERNEL_HANDLE, NULL, NULL);
@@ -1053,7 +1103,9 @@ NTSTATUS KillProcessesInGid(ULONGLONG GID, PLONG OutputStatus, ULONG removalMode
             if (!NT_SUCCESS(status))
             {
                 *OutputStatus = STATUS_FAIL_CHECK;
+#if IS_DEBUG_IRP
                 DbgPrint("!!! FS : Failed to open process %lu, reason: %d\n", Buffer[i], status);
+#endif
                 continue;
             }
 
@@ -1063,11 +1115,15 @@ NTSTATUS KillProcessesInGid(ULONGLONG GID, PLONG OutputStatus, ULONG removalMode
                 NTSTATUS pathStatus = GetProcessNameByHandle(processHandle, &exePath);
                 if (NT_SUCCESS(pathStatus) && exePath != NULL && exePath->Length > 0)
                 {
+#if IS_DEBUG_IRP
                     DbgPrint("!!! FS : Quarantine target: %wZ\n", exePath);
+#endif
                 }
                 else
                 {
+#if IS_DEBUG_IRP
                     DbgPrint("!!! FS : Warning: Could not get exe path for PID %lu (Status: 0x%X)\n", Buffer[i],
+#endif
                              pathStatus);
                 }
             }
@@ -1076,7 +1132,9 @@ NTSTATUS KillProcessesInGid(ULONGLONG GID, PLONG OutputStatus, ULONG removalMode
             if (!NT_SUCCESS(status))
             {
                 *OutputStatus = STATUS_FAIL_CHECK;
+#if IS_DEBUG_IRP
                 DbgPrint("!!! FS : Failed to kill process %lu, reason: %d\n", Buffer[i], status);
+#endif
                 NtClose(processHandle);
                 if (exePath != NULL)
                     ExFreePoolWithTag(exePath, 'RW');
@@ -1084,7 +1142,9 @@ NTSTATUS KillProcessesInGid(ULONGLONG GID, PLONG OutputStatus, ULONG removalMode
             }
 
             NtClose(processHandle);
+#if IS_DEBUG_IRP
             DbgPrint("!!! FS : Termination of pid: %lu from gid: %llu succeeded\n", Buffer[i], GID);
+#endif
 
             // Now quarantine or remove the file if requested
             if (removalMode > 0 && exePath != NULL)
@@ -1094,11 +1154,15 @@ NTSTATUS KillProcessesInGid(ULONGLONG GID, PLONG OutputStatus, ULONG removalMode
                     NTSTATUS quarantineStatus = QuarantineFileByPath(exePath);
                     if (NT_SUCCESS(quarantineStatus))
                     {
+#if IS_DEBUG_IRP
                         DbgPrint("!!! FS : Successfully quarantined file: %wZ\n", exePath);
+#endif
                     }
                     else
                     {
+#if IS_DEBUG_IRP
                         DbgPrint("!!! FS : Failed to quarantine file %wZ. Status: 0x%X\n", exePath, quarantineStatus);
+#endif
                     }
                 }
                 else if (removalMode == 2) // Remove (Delete)
@@ -1106,11 +1170,15 @@ NTSTATUS KillProcessesInGid(ULONGLONG GID, PLONG OutputStatus, ULONG removalMode
                     NTSTATUS deleteStatus = DeleteFileByPath(exePath);
                     if (NT_SUCCESS(deleteStatus))
                     {
+#if IS_DEBUG_IRP
                         DbgPrint("!!! FS : Successfully DELETED file: %wZ\n", exePath);
+#endif
                     }
                     else
                     {
+#if IS_DEBUG_IRP
                         DbgPrint("!!! FS : Failed to delete file %wZ. Status: 0x%X\n", exePath, deleteStatus);
+#endif
                     }
                 }
                 ExFreePoolWithTag(exePath, 'RW');
@@ -1138,7 +1206,9 @@ RWFNewMessage(IN PVOID PortCookie, IN PVOID InputBuffer, IN ULONG InputBufferLen
 
     if (message->type == MESSAGE_ADD_SCAN_DIRECTORY)
     {
+#if IS_DEBUG_IRP
         DbgPrint("Recived add directory message\n");
+#endif
         PDIRECTORY_ENTRY newEntry = new DIRECTORY_ENTRY();
         if (newEntry == NULL)
         {
@@ -1156,14 +1226,18 @@ RWFNewMessage(IN PVOID PortCookie, IN PVOID InputBuffer, IN ULONG InputBufferLen
         if (driverData->AddDirectoryEntry(newEntry))
         {
             *((PBOOLEAN)OutputBuffer) = TRUE;
+#if IS_DEBUG_IRP
             DbgPrint("Added scan directory successfully\n");
+#endif
             return STATUS_SUCCESS;
         }
         else
         {
             delete newEntry;
             *((PBOOLEAN)OutputBuffer) = FALSE;
+#if IS_DEBUG_IRP
             DbgPrint("Failed to addscan directory\n");
+#endif
             return STATUS_SUCCESS;
         }
     }
@@ -1174,7 +1248,9 @@ RWFNewMessage(IN PVOID PortCookie, IN PVOID InputBuffer, IN ULONG InputBufferLen
         if (ptr == NULL)
         {
             *((PBOOLEAN)OutputBuffer) = FALSE;
+#if IS_DEBUG_IRP
             DbgPrint("Failed to remove directory\n");
+#endif
             return STATUS_SUCCESS;
         }
         else
@@ -1182,12 +1258,16 @@ RWFNewMessage(IN PVOID PortCookie, IN PVOID InputBuffer, IN ULONG InputBufferLen
             delete ptr;
         }
         *((PBOOLEAN)OutputBuffer) = TRUE;
+#if IS_DEBUG_IRP
         DbgPrint("Removed scan directory successfully\n");
+#endif
         return STATUS_SUCCESS;
     }
     else if (message->type == MESSAGE_ADD_BLOCK_PATH)
     {
+#if IS_DEBUG_IRP
         DbgPrint("!!! FSfilter: Received add block path message\n");
+#endif
         PDIRECTORY_ENTRY newEntry = new DIRECTORY_ENTRY();
         if (newEntry == NULL)
         {
@@ -1244,7 +1324,9 @@ RWFNewMessage(IN PVOID PortCookie, IN PVOID InputBuffer, IN ULONG InputBufferLen
             return STATUS_INVALID_PARAMETER;
         }
         *ReturnOutputBufferLength = sizeof(LONG);
+#if IS_DEBUG_IRP
         DbgPrint("!!! FS : Legacy MESSAGE_KILL_GID received for GID: %llu\n", message->gid);
+#endif
         return KillProcessesInGid(message->gid, (PLONG)OutputBuffer, 0); // Default to Kill Only
     }
     // NEW: Kill and Quarantine message
@@ -1255,7 +1337,9 @@ RWFNewMessage(IN PVOID PortCookie, IN PVOID InputBuffer, IN ULONG InputBufferLen
             return STATUS_INVALID_PARAMETER;
         }
         *ReturnOutputBufferLength = sizeof(LONG);
+#if IS_DEBUG_IRP
         DbgPrint("!!! FS : MESSAGE_KILL_AND_QUARANTINE_GID received for GID: %llu\n", message->gid);
+#endif
         return KillProcessesInGid(message->gid, (PLONG)OutputBuffer, 1); // Mode 1: Quarantine
     }
     // NEW: Kill Only message
@@ -1266,7 +1350,9 @@ RWFNewMessage(IN PVOID PortCookie, IN PVOID InputBuffer, IN ULONG InputBufferLen
             return STATUS_INVALID_PARAMETER;
         }
         *ReturnOutputBufferLength = sizeof(LONG);
+#if IS_DEBUG_IRP
         DbgPrint("!!! FS : MESSAGE_KILL_ONLY_GID received for GID: %llu\n", message->gid);
+#endif
         return KillProcessesInGid(message->gid, (PLONG)OutputBuffer, 0); // Mode 0: Kill Only
     }
     // NEW: Kill and Remove (Delete) message
@@ -1277,12 +1363,16 @@ RWFNewMessage(IN PVOID PortCookie, IN PVOID InputBuffer, IN ULONG InputBufferLen
             return STATUS_INVALID_PARAMETER;
         }
         *ReturnOutputBufferLength = sizeof(LONG);
+#if IS_DEBUG_IRP
         DbgPrint("!!! FS : MESSAGE_KILL_AND_REMOVE_GID received for GID: %llu\n", message->gid);
+#endif
         return KillProcessesInGid(message->gid, (PLONG)OutputBuffer, 2); // Mode 2: Remove
     }
     else if (message->type == MESSAGE_REVERT_REGISTRY_CHANGES)
     {
+#if IS_DEBUG_IRP
         DbgPrint("!!! FS : MESSAGE_REVERT_REGISTRY_CHANGES received for GID: %llu\n", message->gid);
+#endif
         if (message->gid != 0)
         {
             driverData->RevertRegistryChangesForGid(message->gid);
@@ -1299,7 +1389,9 @@ RWFNewMessage(IN PVOID PortCookie, IN PVOID InputBuffer, IN ULONG InputBufferLen
         NTSTATUS status = UserModeHookProcess(message->pid);
         if (!NT_SUCCESS(status))
         {
+#if IS_DEBUG_IRP
             DbgPrint("!!! FS : MESSAGE_HOOK_PROCESS PID %lu failed: 0x%X\n", message->pid, status);
+#endif
         }
         return status;
     }

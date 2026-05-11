@@ -704,7 +704,9 @@ NTSTATUS InitProcessProtection()
     // Safety: ensure called at PASSIVE_LEVEL
     if (KeGetCurrentIrql() != PASSIVE_LEVEL)
     {
+#if IS_DEBUG_IRP
         DbgPrint("!!! ProcessProtection: InitProcessProtection called at wrong IRQL %u\n", (ULONG)KeGetCurrentIrql());
+#endif
         return STATUS_INVALID_LEVEL;
     }
 
@@ -713,7 +715,9 @@ NTSTATUS InitProcessProtection()
         (POB_OPERATION_REGISTRATION)ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeof(OB_OPERATION_REGISTRATION), 'ppOr');
     if (!g_OpReg)
     {
+#if IS_DEBUG_IRP
         DbgPrint("!!! ProcessProtection: Failed to allocate operation registration\n");
+#endif
         return STATUS_INSUFFICIENT_RESOURCES;
     }
     RtlZeroMemory(g_OpReg, sizeof(OB_OPERATION_REGISTRATION));
@@ -723,7 +727,9 @@ NTSTATUS InitProcessProtection()
     {
         ExFreePoolWithTag(g_OpReg, 'ppOr');
         g_OpReg = NULL;
+#if IS_DEBUG_IRP
         DbgPrint("!!! ProcessProtection: Failed to allocate callback registration\n");
+#endif
         return STATUS_INSUFFICIENT_RESOURCES;
     }
     RtlZeroMemory(g_ObReg, sizeof(OB_CALLBACK_REGISTRATION));
@@ -746,7 +752,9 @@ NTSTATUS InitProcessProtection()
     status = ObRegisterCallbacks(g_ObReg, &g_ObRegistrationHandle);
     if (!NT_SUCCESS(status))
     {
+#if IS_DEBUG_IRP
         DbgPrint("!!! ProcessProtection: ObRegisterCallbacks failed: 0x%X\n", status);
+#endif
         ExFreePoolWithTag(g_OpReg, 'ppOr');
         ExFreePoolWithTag(g_ObReg, 'ppCr');
         g_OpReg = NULL;
@@ -760,7 +768,9 @@ NTSTATUS InitProcessProtection()
 
     EnsureProcessProtectionExcludeRulesLoaded();
     (VOID)InitializeProcessProtectionRules();
+#if IS_DEBUG_IRP
     DbgPrint("!!! ProcessProtection: ObRegisterCallbacks succeeded\n");
+#endif
     return STATUS_SUCCESS;
 }
 
@@ -771,7 +781,9 @@ VOID UninitProcessProtection()
     {
         ObUnRegisterCallbacks(g_ObRegistrationHandle);
         g_ObRegistrationHandle = NULL;
+#if IS_DEBUG_IRP
         DbgPrint("!!! ProcessProtection: ObUnRegisterCallbacks completed\n");
+#endif
     }
 
     // Free the allocated registration memory
@@ -802,7 +814,9 @@ VOID UninitProcessProtection()
     ExReleaseFastMutex(&g_ProcessProtectionExcludeRules.Mutex);
     InterlockedExchange(&g_ProcessProtectionExcludeLoadState, 0);
 
+#if IS_DEBUG_IRP
     DbgPrint("!!! ProcessProtection: Unloaded\n");
+#endif
 }
 
 //
@@ -1300,7 +1314,9 @@ NTSTATUS OnKernelApiEvent(_In_ ULONG IrpOp, _In_ ULONG EventType, _In_ ULONG Sou
         (FunctionName != NULL && FunctionName[0] != L'\0') ? FunctionName : KernelEventDefaultLabel(EventType);
     SetKernelEventObjectName(newItem, effectiveName);
 
+#if IS_DEBUG_IRP
     DbgPrint("!!! ProcessProtection: API HOOKING EVENT forwarded - RawType: %lu, IrpOp: %u, Name: %ls, "
+#endif
              "SourcePid=%lu, TargetPid=%lu, Arg1: 0x%p, Arg2: 0x%p, Arg3: 0x%p, Arg4: 0x%p\n",
              EventType, IrpOp, effectiveName, SourcePid, TargetPid,
              (PVOID)EventArg1, (PVOID)EventArg2, (PVOID)EventArg3, (PVOID)EventArg4);
@@ -1353,7 +1369,9 @@ NTSTATUS OnMemoryWrite(_In_ ULONG SourcePid, _In_ ULONG TargetPid, _In_ PVOID Ta
     newItem->KernelEventInfo.AccessMask = PROCESS_VM_WRITE;
     SetKernelEventObjectName(newItem, L"IRP_KERNEL_WRITE_MEMORY");
 
+#if IS_DEBUG_IRP
     DbgPrint("!!! ProcessProtection: Memory write detected - Source PID %lu -> Target PID %lu (Address: %p, Size: %zu, "
+#endif
              "Executable: %u)\n",
              SourcePid, TargetPid, TargetAddress, Size, IsExecutableMemory);
 
@@ -1507,7 +1525,9 @@ NTSTATUS OnApcQueueing(_In_ ULONG SourcePid, _In_ ULONG TargetPid, _In_ HANDLE T
     newItem->KernelEventInfo.RawArgument2 = (ULONG_PTR)ApcRoutine;
     SetKernelEventObjectName(newItem, L"IRP_KERNEL_QUEUE_APC");
 
+#if IS_DEBUG_IRP
     DbgPrint("!!! ProcessProtection: APC queued - Source PID %lu -> Target PID %lu (Thread: %p, APC: %p)\n", SourcePid,
+#endif
              TargetPid, ThreadHandle, ApcRoutine);
 
     if (!driverData->AddIrpMessage(newEntry))
