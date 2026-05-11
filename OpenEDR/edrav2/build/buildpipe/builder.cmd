@@ -199,14 +199,6 @@ set "type=%~2"
 rem set arch=%~3
 for %%I in ("%sln%") do set "sln_name=%%~nxI"
 
-if /I NOT "%sln_name%"=="edrav2-install.sln" (
-  echo.Building %type%^(Win32^) for %sln_name%...
-  echo.Building %type%^(Win32^) for %sln_name%... 2>&1 >>"%ScriptDir%\Logs\script.log"
-  call :ensure_libmicrohttpd %type% || exit /b 1
-  call :build_detours %type% Win32 || exit /b 1
-  "%msbuild%" "%sln%" /t:edrpm /p:Configuration=%type% /p:Platform=Win32 /m:1 /nr:false /noconlog /fl /flp:LogFile="%ScriptDir%\Logs\build.log";append;verbosity=normal /nologo || exit /b 1
-)
-
 echo.Building %type%^(x64^) for %sln_name%...
 echo.Building %type%^(x64^) for %sln_name%... 2>&1 >>"%ScriptDir%\Logs\script.log"
 if /I "%sln_name%"=="edrav2-install.sln" (
