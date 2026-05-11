@@ -29,17 +29,30 @@ namespace HydraDragonService
             await Task.Yield();
 
             // --------------------------------------------------
-            // 1. HydraDragon Initialization Phase
+            // 1. Initialization Phase (Priority: Owlyshield → Firewall → OpenEDR → Sanctum)
             // --------------------------------------------------
             try
             {
+                // Core Engines First
+                StartOwlyshieldPredict();
+                await Task.Delay(2000, stoppingToken);
+
+                StartHydraDragonFirewall();
+                await Task.Delay(2000, stoppingToken);
+
+                // OpenEDR (Not part of Sanctum sequence)
+                string edrSvcPath = Path.Combine(_baseDir, "OpenEDR", "edrsvc.exe");
+                await RunExeAsync(edrSvcPath, stoppingToken, "start");
+
+                // Sanctum Sequence
                 string sanctumInstallPath = Path.Combine(_baseDir, "hydradragon", "Sanctum");
                 await RunSanctumSequenceAsync(sanctumInstallPath, stoppingToken);
+                
                 _logger.LogInformation("HydraDragon Service initialized. Entering supervision loop...");
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed during HydraDragon/Sanctum initialization sequence.");
+                _logger.LogError(ex, "Failed during initialization phase.");
             }
 
             // --------------------------------------------------
@@ -105,15 +118,13 @@ namespace HydraDragonService
             _logger.LogInformation("Starting Sanctum sequential startup...");
 
             string elamPath   = Path.Combine(sanctumDir, "elam_installer.exe");
-            string edrSvcPath = Path.Combine(_baseDir, "OpenEDR", "edrsvc.exe");
             string umPath     = Path.Combine(sanctumDir, "um_engine.exe");
             string appPath    = Path.Combine(sanctumDir, "app.exe");
 
             await RunExeAsync(elamPath, ct);                  // 1) ELAM Installer
-            await RunExeAsync(edrSvcPath, ct, "start");       // 2) OpenEDR Service
-            await EnsureSanctumPplRunningAsync(ct);           // 3) Sanctum PPL Runner (ETW:TI only)
-            await RunExeAsync(umPath, ct);                    // 4) UM Engine
-            await RunExeAsync(appPath, ct);                   // 5) GUI App
+            await EnsureSanctumPplRunningAsync(ct);           // 2) Sanctum PPL Runner (ETW:TI only)
+            await RunExeAsync(umPath, ct);                    // 3) UM Engine
+            await RunExeAsync(appPath, ct);                   // 4) GUI App
 
             _logger.LogInformation("Sanctum sequence completed successfully.");
         }
