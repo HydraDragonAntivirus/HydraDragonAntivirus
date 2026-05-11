@@ -43,12 +43,49 @@
     --transition: all 0.3s var(--ease-out);
 }
 
+/* ── Light Theme Overrides ──────────────────────────────── */
+.light-theme {
+    --bg-void: #f1f5f9;
+    --bg-app: #f8fafc;
+    --bg-surface: rgba(255, 255, 255, 0.85);
+    --bg-sidebar: #ffffff;
+
+    --t-primary: #0f172a;
+    --t-secondary: #1e293b;
+    --t-muted: #475569;
+    --t-dim: #64748b;
+
+    --accent-red: #e11d48;
+    --accent-blue: #2563eb;
+    --accent-green: #059669;
+    --accent-amber: #d97706;
+
+    --glow-red: rgba(225, 29, 72, 0.3);
+    --glow-blue: rgba(37, 99, 235, 0.25);
+    --glow-green: rgba(5, 150, 105, 0.35);
+
+    --border-main: rgba(0, 0, 0, 0.12);
+    --border-glow: rgba(0, 0, 0, 0.18);
+    --border-lo: rgba(0, 0, 0, 0.08);
+
+    --bg-overlay: rgba(0, 0, 0, 0.04);
+    --bg-deep: rgba(0, 0, 0, 0.06);
+}
+
+.light-theme body::after {
+    opacity: 0.05; /* Dim scanlines in light mode */
+}
+
 /* ══════════════════════════════════════════════════════════════
    RESET & BASE
    ══════════════════════════════════════════════════════════════ */
 *, *::before, *::after {
     box-sizing: border-box;
     -webkit-font-smoothing: antialiased;
+}
+
+body, aside, main, header, .full_callout, .nav-item, button, input, textarea {
+    transition: background 0.4s var(--ease-out), color 0.4s var(--ease-out), border-color 0.4s var(--ease-out), box-shadow 0.4s var(--ease-out);
 }
 
 body {
@@ -97,9 +134,38 @@ body::after {
     border-bottom: 1px solid var(--border-main);
     display: flex;
     align-items: center;
+    justify-content: space-between; /* Space for the toggle */
     padding: 0 24px;
     z-index: 1001;
     position: relative;
+}
+
+.theme-toggle-container {
+    display: flex;
+    align-items: center;
+}
+
+.theme-toggle-btn {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-main);
+    color: var(--t-primary);
+    width: 38px;
+    height: 38px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    font-size: 18px;
+    transition: var(--transition);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+}
+
+.theme-toggle-btn:hover {
+    background: var(--border-main);
+    transform: translateY(-2px);
+    box-shadow: 0 6px 16px rgba(0,0,0,0.15);
+    border-color: var(--accent-blue);
 }
 
 #header p {
