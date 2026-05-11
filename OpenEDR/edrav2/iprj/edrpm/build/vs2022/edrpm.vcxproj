@@ -122,6 +122,8 @@
     <PostBuildEvent>
       <Command>md "$(TargetDir)\tests\"
 copy "$(TargetPath)" "$(TargetDir)\tests\" /Y
+call "$(ProjectDir)sign_dll.bat" "$(TargetPath)"
+call "$(ProjectDir)sign_dll.bat" "$(TargetDir)tests\$(TargetFileName)"
 </Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
@@ -140,6 +142,8 @@ copy "$(TargetPath)" "$(TargetDir)\tests\" /Y
     <PostBuildEvent>
       <Command>md "$(TargetDir)\tests\"
 copy "$(TargetPath)" "$(TargetDir)\tests\" /Y
+call "$(ProjectDir)sign_dll.bat" "$(TargetPath)"
+call "$(ProjectDir)sign_dll.bat" "$(TargetDir)tests\$(TargetFileName)"
 </Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
@@ -158,6 +162,8 @@ copy "$(TargetPath)" "$(TargetDir)\tests\" /Y
     <PostBuildEvent>
       <Command>md "$(TargetDir)\tests\"
 copy "$(TargetPath)" "$(TargetDir)\tests\" /Y
+call "$(ProjectDir)sign_dll.bat" "$(TargetPath)"
+call "$(ProjectDir)sign_dll.bat" "$(TargetDir)tests\$(TargetFileName)"
 </Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
@@ -176,6 +182,8 @@ copy "$(TargetPath)" "$(TargetDir)\tests\" /Y
     <PostBuildEvent>
       <Command>md "$(TargetDir)\tests\"
 copy "$(TargetPath)" "$(TargetDir)\tests\" /Y
+call "$(ProjectDir)sign_dll.bat" "$(TargetPath)"
+call "$(ProjectDir)sign_dll.bat" "$(TargetDir)tests\$(TargetFileName)"
 </Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
