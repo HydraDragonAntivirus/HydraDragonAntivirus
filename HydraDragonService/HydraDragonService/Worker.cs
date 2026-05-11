@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Security.Principal;
+using System.Text;
 
 namespace HydraDragonService
 {
@@ -202,7 +203,18 @@ namespace HydraDragonService
             if (!File.Exists(fileName) && fileName != "cmd.exe") return null;
             try
             {
-                var psi = new ProcessStartInfo { FileName = fileName, Arguments = args, WorkingDirectory = workDir, UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
+                var psi = new ProcessStartInfo 
+                { 
+                    FileName = fileName, 
+                    Arguments = args, 
+                    WorkingDirectory = workDir, 
+                    UseShellExecute = false, 
+                    CreateNoWindow = true, 
+                    RedirectStandardOutput = true, 
+                    RedirectStandardError = true,
+                    StandardOutputEncoding = Encoding.UTF8,
+                    StandardErrorEncoding = Encoding.UTF8
+                };
                 var proc = new Process { StartInfo = psi, EnableRaisingEvents = true };
                 proc.OutputDataReceived += (s, e) => { if (!string.IsNullOrEmpty(e.Data)) _logger.LogInformation("{prefix} {msg}", logPrefix, e.Data); };
                 proc.ErrorDataReceived  += (s, e) => { if (!string.IsNullOrEmpty(e.Data)) _logger.LogError("{prefix} [STDERR] {msg}", logPrefix, e.Data); };
